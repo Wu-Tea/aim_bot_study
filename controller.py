@@ -6,26 +6,6 @@ import os
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 import pygame
 
-# ==========================================
-# 建立 XInput 位掩码 到 vgamepad 按键的完美映射字典
-# ==========================================
-XINPUT_BUTTON_MAP = {
-    0x1000: vg.XUSB_BUTTON.XUSB_GAMEPAD_A,
-    0x2000: vg.XUSB_BUTTON.XUSB_GAMEPAD_B,
-    0x4000: vg.XUSB_BUTTON.XUSB_GAMEPAD_X,
-    0x8000: vg.XUSB_BUTTON.XUSB_GAMEPAD_Y,
-    0x0001: vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_UP,      # 十字键上
-    0x0002: vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_DOWN,    # 十字键下
-    0x0004: vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_LEFT,    # 十字键左
-    0x0008: vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_RIGHT,   # 十字键右
-    0x0100: vg.XUSB_BUTTON.XUSB_GAMEPAD_LEFT_SHOULDER,  # LB / L1
-    0x0200: vg.XUSB_BUTTON.XUSB_GAMEPAD_RIGHT_SHOULDER, # RB / R1
-    0x0040: vg.XUSB_BUTTON.XUSB_GAMEPAD_LEFT_THUMB,     # 左摇杆按下 (L3)
-    0x0080: vg.XUSB_BUTTON.XUSB_GAMEPAD_RIGHT_THUMB,    # 右摇杆按下 (R3)
-    0x0010: vg.XUSB_BUTTON.XUSB_GAMEPAD_START,          # Start / Options
-    0x0020: vg.XUSB_BUTTON.XUSB_GAMEPAD_BACK,           # Back / Share
-}
-
 class BaseController:
     def update(self, delta_x, delta_y): pass
     def reset(self): pass
@@ -114,19 +94,17 @@ class MouseController(threading.Thread):
 
 
 class AsyncGamepadController(threading.Thread):
-    def __init__(self, smoothing=0.6, max_pixels=200):
+    def __init__(self, smoothing=0.65, max_pixels=150):
         super().__init__()
         self.daemon = True
 
-        # 1. 初始化虚拟 Xbox 手柄 (输出端)
         self.virtual_gamepad = vg.VX360Gamepad()
         print("[Gamepad] AI 虚拟 Xbox 360 手柄已上线！")
 
-        # 2. 初始化 Pygame 物理手柄读取 (输入端)
         pygame.init()
         pygame.joystick.init()
         if pygame.joystick.get_count() == 0:
-            print("[Error] 未检测到物理手柄！请确保 DSE 已连接。")
+            print("[Error] 未检测到物理手柄！")
             self.running = False
             return
 
@@ -144,11 +122,21 @@ class AsyncGamepadController(threading.Thread):
         self.ai_stick_x = 0.0
         self.ai_stick_y = 0.0
 
+        # ==========================================
+        # 核心调教参数区 (根据手感随时修改)
+        # ==========================================
+        self.INVERT_X = False  # 如果准星总是往反方向跑，改成 True
+        self.INVERT_Y = False  # 如果上下反了，改成 True
+        self.MAX_AI_FORCE = 0.6 # AI 摇杆最大推力占比 (0.3代表最多只能推30%的摇杆，防止拉飞)
+        self.DEADZONE = 5      # 像素死区：距离目标 15 像素内，AI 完全松手，靠你自己微调
+        # ==========================================
+
         self.running = True
         self.start()
 
     def update(self, dx, dy):
         with self.lock:
+            # 只更新目标位置，不在这里做复杂的乘法计算
             self.target_dx = dx * 0.7
             self.target_dy = dy * 0.7
 
@@ -156,8 +144,8 @@ class AsyncGamepadController(threading.Thread):
         with self.lock:
             self.target_dx = 0.0
             self.target_dy = 0.0
-            self.ai_stick_x = 0.0
-            self.ai_stick_y = 0.0
+            # 【核心修复】删除了 self.ai_stick_x = 0.0
+            # 依靠平滑衰减，解决“一顿一顿”的问题
 
     def is_aiming(self):
         return self._is_aiming
@@ -166,119 +154,131 @@ class AsyncGamepadController(threading.Thread):
         clamped_delta = max(-self.max_pixels, min(self.max_pixels, delta))
         return (clamped_delta / self.max_pixels) * 32767
 
-    # --- 核心翻译器函数 ---
     def _axis_to_xbox(self, val):
-        # Pygame 轴范围是 -1.0 到 1.0，Xbox 需要 -32768 到 32767
         return int(val * 32767)
 
     def _trigger_to_xbox(self, val):
-        # Pygame 扳机默认静止是 -1.0，按满是 1.0。Xbox 需要 0 到 255
         return int(((val + 1.0) / 2.0) * 255)
 
     def run(self):
-        # 索尼 DSE 按钮映射表 (基于标准 SDL2 映射)
-        # PS 按键索引 -> Xbox 虚拟按键
         button_map = {
-            0: vg.XUSB_BUTTON.XUSB_GAMEPAD_A,  # 叉 -> A
-            1: vg.XUSB_BUTTON.XUSB_GAMEPAD_B,  # 圆 -> B
-            2: vg.XUSB_BUTTON.XUSB_GAMEPAD_X,  # 方 -> X
-            3: vg.XUSB_BUTTON.XUSB_GAMEPAD_Y,  # 角 -> Y
-            4: vg.XUSB_BUTTON.XUSB_GAMEPAD_BACK,  # Share -> Back
-            5: vg.XUSB_BUTTON.XUSB_GAMEPAD_GUIDE,  # PS -> Guide
-            6: vg.XUSB_BUTTON.XUSB_GAMEPAD_START,  # Options -> Start
-            7: vg.XUSB_BUTTON.XUSB_GAMEPAD_LEFT_THUMB,  # L3
-            8: vg.XUSB_BUTTON.XUSB_GAMEPAD_RIGHT_THUMB,  # R3
-            9: vg.XUSB_BUTTON.XUSB_GAMEPAD_LEFT_SHOULDER,  # L1
-            10: vg.XUSB_BUTTON.XUSB_GAMEPAD_RIGHT_SHOULDER  # R1
+            0: vg.XUSB_BUTTON.XUSB_GAMEPAD_A,
+            1: vg.XUSB_BUTTON.XUSB_GAMEPAD_B,
+            2: vg.XUSB_BUTTON.XUSB_GAMEPAD_X,
+            3: vg.XUSB_BUTTON.XUSB_GAMEPAD_Y,
+            4: vg.XUSB_BUTTON.XUSB_GAMEPAD_BACK,
+            5: vg.XUSB_BUTTON.XUSB_GAMEPAD_GUIDE,
+            6: vg.XUSB_BUTTON.XUSB_GAMEPAD_START,
+            7: vg.XUSB_BUTTON.XUSB_GAMEPAD_LEFT_THUMB,
+            8: vg.XUSB_BUTTON.XUSB_GAMEPAD_RIGHT_THUMB,
+            9: vg.XUSB_BUTTON.XUSB_GAMEPAD_LEFT_SHOULDER,
+            10: vg.XUSB_BUTTON.XUSB_GAMEPAD_RIGHT_SHOULDER,
+            11: vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_UP,
+            12: vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_DOWN,
+            13: vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_LEFT,
+            14: vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_RIGHT,
         }
 
-        while self.running:
-            # 必须调用 pump 才能获取最新手柄事件
-            pygame.event.pump()
+        trigger_initialized = False
 
-            # ==========================================
-            # 1. 摇杆与扳机透传 (DSE -> Pygame -> Xbox)
-            # ==========================================
-            # 左摇杆 (Axis 0: X, Axis 1: Y)
+        while self.running:
+            pygame.event.clear()
+
+            # --- 摇杆与按键透传 (保持不变) ---
             lx = self._axis_to_xbox(self.joystick.get_axis(0))
-            ly = self._axis_to_xbox(-self.joystick.get_axis(1))  # Y轴通常需要翻转
+            ly = self._axis_to_xbox(-self.joystick.get_axis(1))
             self.virtual_gamepad.left_joystick(x_value=lx, y_value=ly)
 
-            # 扳机 (Axis 4: L2, Axis 5: R2)
-            l2_val = self._trigger_to_xbox(self.joystick.get_axis(4))
-            r2_val = self._trigger_to_xbox(self.joystick.get_axis(5))
+            raw_l2 = self.joystick.get_axis(4)
+            raw_r2 = self.joystick.get_axis(5)
+            if not trigger_initialized:
+                if raw_l2 != 0.0 or raw_r2 != 0.0: trigger_initialized = True
+                else: raw_l2, raw_r2 = -1.0, -1.0
+
+            l2_val = self._trigger_to_xbox(raw_l2)
+            r2_val = self._trigger_to_xbox(raw_r2)
             self.virtual_gamepad.left_trigger(value=l2_val)
             self.virtual_gamepad.right_trigger(value=r2_val)
-
-            # 判断是否开镜 (L2按下一半以上)
             self._is_aiming = l2_val > 128
 
-            # ==========================================
-            # 2. 十字键 (D-Pad) 与常规按键透传
-            # ==========================================
-            # 处理十字键 (Pygame 中识别为 Hat)
             if self.joystick.get_numhats() > 0:
                 hat_x, hat_y = self.joystick.get_hat(0)
-                if hat_y == 1:
-                    self.virtual_gamepad.press_button(vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_UP)
-                else:
-                    self.virtual_gamepad.release_button(vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_UP)
+                if hat_y == 1: self.virtual_gamepad.press_button(vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_UP)
+                else: self.virtual_gamepad.release_button(vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_UP)
+                if hat_y == -1: self.virtual_gamepad.press_button(vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_DOWN)
+                else: self.virtual_gamepad.release_button(vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_DOWN)
+                if hat_x == -1: self.virtual_gamepad.press_button(vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_LEFT)
+                else: self.virtual_gamepad.release_button(vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_LEFT)
+                if hat_x == 1: self.virtual_gamepad.press_button(vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_RIGHT)
+                else: self.virtual_gamepad.release_button(vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_RIGHT)
 
-                if hat_y == -1:
-                    self.virtual_gamepad.press_button(vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_DOWN)
-                else:
-                    self.virtual_gamepad.release_button(vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_DOWN)
-
-                if hat_x == -1:
-                    self.virtual_gamepad.press_button(vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_LEFT)
-                else:
-                    self.virtual_gamepad.release_button(vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_LEFT)
-
-                if hat_x == 1:
-                    self.virtual_gamepad.press_button(vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_RIGHT)
-                else:
-                    self.virtual_gamepad.release_button(vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_RIGHT)
-
-            # 处理常规按键
             for ps_idx, xbox_btn in button_map.items():
                 if ps_idx < self.joystick.get_numbuttons():
-                    if self.joystick.get_button(ps_idx):
-                        self.virtual_gamepad.press_button(button=xbox_btn)
-                    else:
-                        self.virtual_gamepad.release_button(button=xbox_btn)
+                    if self.joystick.get_button(ps_idx): self.virtual_gamepad.press_button(button=xbox_btn)
+                    else: self.virtual_gamepad.release_button(button=xbox_btn)
 
             # ==========================================
-            # 3. 右摇杆融合与篡改 (物理 + AI)
+            # 右摇杆 AI 融合核心逻辑
             # ==========================================
-            # 读取原生右摇杆 (Axis 2: X, Axis 3: Y)
+            # ==========================================
+            # 3. 纯右摇杆干涉与融合逻辑
+            # ==========================================
             phys_rx = self._axis_to_xbox(self.joystick.get_axis(2))
             phys_ry = self._axis_to_xbox(-self.joystick.get_axis(3))
 
             with self.lock:
-                if self._is_aiming and (abs(self.target_dx) > 2 or abs(self.target_dy) > 2):
-                    desired_ai_x = self._map_pixel_to_stick(self.target_dx)
-                    desired_ai_y = self._map_pixel_to_stick(-self.target_dy)
+                if self._is_aiming:
+                    # 1. 像素死区判断
+                    if abs(self.target_dx) <= self.DEADZONE and abs(self.target_dy) <= self.DEADZONE:
+                        desired_ai_x, desired_ai_y = 0.0, 0.0
+                    else:
+                        # 2. 计算 AI 理想推力
+                        desired_ai_x = self._map_pixel_to_stick(self.target_dx)
+                        desired_ai_y = self._map_pixel_to_stick(-self.target_dy)
 
-                    self.ai_stick_x = (self.ai_stick_x * self.smoothing) + (desired_ai_x * (1.0 - self.smoothing))
-                    self.ai_stick_y = (self.ai_stick_y * self.smoothing) + (desired_ai_y * (1.0 - self.smoothing))
+                        if getattr(self, 'INVERT_X', False): desired_ai_x = -desired_ai_x
+                        if getattr(self, 'INVERT_Y', False): desired_ai_y = -desired_ai_y
 
-                    final_rx = int(phys_rx + self.ai_stick_x)
-                    final_ry = int(phys_ry + self.ai_stick_y)
-
-                    final_rx = max(-32768, min(32767, final_rx))
-                    final_ry = max(-32768, min(32767, final_ry))
-                    print("ai", self.ai_stick_x, phys_rx, self.ai_stick_y, phys_ry)
-                    print("final", final_rx, final_ry)
+                        limit = 32767 * self.MAX_AI_FORCE
+                        desired_ai_x = max(-limit, min(limit, desired_ai_x))
+                        desired_ai_y = max(-limit, min(limit, desired_ai_y))
                 else:
-                    self.ai_stick_x = 0.0
-                    self.ai_stick_y = 0.0
-                    final_rx = phys_rx
-                    final_ry = phys_ry
+                    desired_ai_x, desired_ai_y = 0.0, 0.0
+
+                # 3. 指数平滑计算 AI 当前实际输出
+                self.ai_stick_x = (self.ai_stick_x * self.smoothing) + (desired_ai_x * (1.0 - self.smoothing))
+                self.ai_stick_y = (self.ai_stick_y * self.smoothing) + (desired_ai_y * (1.0 - self.smoothing))
+
+                # ==========================================
+                # 【核心】右摇杆过滤与限制 (磁性与挣脱)
+                # ==========================================
+                # 设定挣脱阈值：当物理推力超过 25000 (约推了75%的摇杆) 时，视为玩家想强行转移目标
+                user_is_flicking = abs(phys_rx) > 25000 or abs(phys_ry) > 25000
+
+                if self._is_aiming:
+                    if user_is_flicking:
+                        # 玩家大力推摇杆，AI 瞬间归零，交出控制权
+                        self.ai_stick_x, self.ai_stick_y = 0.0, 0.0
+                    else:
+                        # 玩家没有挣脱，检测微调是否在“反向抵抗”AI
+                        # 如果 AI 的输出和玩家的物理推力乘积为负，说明两者方向相反
+                        if self.ai_stick_x * phys_rx < 0:
+                            phys_rx = int(phys_rx * 0.50)  # 削弱玩家 70% 的反向推力 (强磁感)
+
+                        # if self.ai_stick_y * phys_ry < 0:
+                        #     phys_ry = int(phys_ry * 0.50)  # 削弱玩家 85% 的反向推力 (强磁感)
+
+                # 4. 最终指令合并
+                final_rx = int(phys_rx + self.ai_stick_x)
+                final_ry = int(phys_ry + self.ai_stick_y)
+
+            final_rx = max(-32768, min(32767, final_rx))
+            final_ry = max(-32768, min(32767, final_ry))
 
             self.virtual_gamepad.right_joystick(x_value=final_rx, y_value=final_ry)
             self.virtual_gamepad.update()
 
-            time.sleep(0.001)  # 100Hz 刷新率
+            time.sleep(0.001)
 
 class ControllerFactory:
     @staticmethod
