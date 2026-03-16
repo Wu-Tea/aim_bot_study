@@ -5,6 +5,7 @@ import time
 import os
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 import pygame
+from pynput import mouse, keyboard # 需要 pip install pynput
 
 class BaseController:
     def update(self, delta_x, delta_y): pass
@@ -252,21 +253,13 @@ class AsyncGamepadController(threading.Thread):
                 # ==========================================
                 # 【核心】右摇杆过滤与限制 (磁性与挣脱)
                 # ==========================================
-                # 设定挣脱阈值：当物理推力超过 25000 (约推了75%的摇杆) 时，视为玩家想强行转移目标
-                user_is_flicking = abs(phys_rx) > 25000 or abs(phys_ry) > 25000
+                # 设定挣脱阈值：当物理推力超过 10000 (约推了30%的摇杆) 时，视为玩家想强行转移目标
+                user_is_flicking = abs(phys_rx) > 10000 or abs(phys_ry) > 10000
 
                 if self._is_aiming:
                     if user_is_flicking:
                         # 玩家大力推摇杆，AI 瞬间归零，交出控制权
                         self.ai_stick_x, self.ai_stick_y = 0.0, 0.0
-                    else:
-                        # 玩家没有挣脱，检测微调是否在“反向抵抗”AI
-                        # 如果 AI 的输出和玩家的物理推力乘积为负，说明两者方向相反
-                        if self.ai_stick_x * phys_rx < 0:
-                            phys_rx = int(phys_rx * 0.50)  # 削弱玩家 70% 的反向推力 (强磁感)
-
-                        # if self.ai_stick_y * phys_ry < 0:
-                        #     phys_ry = int(phys_ry * 0.50)  # 削弱玩家 85% 的反向推力 (强磁感)
 
                 # 4. 最终指令合并
                 final_rx = int(phys_rx + self.ai_stick_x)
@@ -280,19 +273,166 @@ class AsyncGamepadController(threading.Thread):
 
             time.sleep(0.001)
 
-class ControllerFactory:
-    @staticmethod
-    def get_controller(use_gamepad=False):
-        return AsyncGamepadController() if use_gamepad else MouseController()
+
+class MouseToGamepadController(threading.Thread):
+    def __init__(self, smoothing=0.6, base_sens=800.0, curve=1.2, ai_sensitivity=0.7):
+        super().__init__()
+        self.daemon = True
+
+        self.virtual_gamepad = vg.VX360Gamepad()
+        print("[KBM Converter] 纯鼠标转虚拟手柄系统已上线！(左键=R1, 右键=L2)")
+
+        self.lock = threading.Lock()
+
+        # --- 解决卡顿的核心：累积器与当前状态 ---
+        self.acc_dx = 0.0  # 鼠标事件累积器 X
+        self.acc_dy = 0.0  # 鼠标事件累积器 Y
+
+        self.current_rx = 0.0  # 摇杆当前的真实物理位置 X
+        self.current_ry = 0.0  # 摇杆当前的真实物理位置 Y
+
+        self.ai_target_dx = 0.0
+        self.ai_target_dy = 0.0
+
+        # --- 算法调教参数 ---
+        # smoothing: 0.0 ~ 0.99，越大越平滑(但也越有惯性拖拽感)，越小越跟手
+        self.smoothing = smoothing
+        self.base_sens = base_sens  # 基础灵敏度乘子
+        self.curve = curve  # 加速曲线指数 (1.0为线性，1.2~1.5能让微操更准，转身更快)
+        self.ai_sens = ai_sensitivity  # AI 辅助权重
+        self.DEADZONE = 5  # AI 停止干预的死区
+        self._is_aiming = False  # 是否按住右键
+
+        # 启动 pynput 鼠标监听器 (彻底干掉键盘监听)
+        self.mouse_listener = mouse.Listener(on_move=self._on_mouse_move, on_click=self._on_mouse_click)
+        self.mouse_listener.start()
+
+        # 记录上一帧鼠标位置
+        self.last_mouse_x, self.last_mouse_y = win32api.GetCursorPos()
+
+        self.running = True
+        self.start()
+
+    # ==========================================
+    # 鼠标事件监听 (事件驱动层)
+    # ==========================================
+    def _on_mouse_move(self, x, y):
+        dx = x - self.last_mouse_x
+        dy = y - self.last_mouse_y
+        self.last_mouse_x, self.last_mouse_y = x, y
+
+        # 【核心变化1】不直接改摇杆，而是把位移“存”起来
+        with self.lock:
+            self.acc_dx += dx
+            self.acc_dy += dy
+
+    def _on_mouse_click(self, x, y, button, pressed):
+        # 右键 -> L2 (左扳机，开镜)
+        if button == mouse.Button.right:
+            self._is_aiming = pressed
+            if pressed:
+                self.virtual_gamepad.left_trigger(value=255)
+            else:
+                self.virtual_gamepad.left_trigger(value=0)
+                self.reset()  # 松开开镜清空 AI 目标
+
+        # 左键 -> R1 (右肩键，开火/攻击)
+        elif button == mouse.Button.left:
+            if pressed:
+                self.virtual_gamepad.press_button(vg.XUSB_BUTTON.XUSB_GAMEPAD_RIGHT_SHOULDER)
+            else:
+                self.virtual_gamepad.release_button(vg.XUSB_BUTTON.XUSB_GAMEPAD_RIGHT_SHOULDER)
+
+    # ==========================================
+    # AI 视觉指令层
+    # ==========================================
+    def update(self, dx, dy):
+        with self.lock:
+            self.ai_target_dx = dx * self.ai_sens
+            self.ai_target_dy = dy * self.ai_sens
+
+    def reset(self):
+        with self.lock:
+            self.ai_target_dx = 0.0
+            self.ai_target_dy = 0.0
+
+    def is_aiming(self):
+        return self._is_aiming
+
+    # ==========================================
+    # 数学转换工具
+    # ==========================================
+    def _apply_curve(self, delta):
+        """对鼠标位移应用加速曲线，保留符号"""
+        if delta == 0: return 0.0
+        sign = 1 if delta > 0 else -1
+        # 使用指数曲线：微小移动放大较少，大范围甩鼠标放大极多
+        return sign * (abs(delta) ** self.curve) * self.base_sens
+
+    # ==========================================
+    # 核心转换循环 (固定频率轮询层)
+    # ==========================================
+    def run(self):
+        # 手柄轮询率：约 125Hz - 250Hz，过高没意义反而增加 CPU 负担
+        sleep_time = 0.005
+
+        while self.running:
+            with self.lock:
+                # 【核心变化2】读取这 5 毫秒内累积的位移，并立即清零
+                raw_dx = self.acc_dx
+                raw_dy = self.acc_dy
+                self.acc_dx = 0.0
+                self.acc_dy = 0.0
+
+                # 1. 玩家鼠标输入转换 (带加速曲线)
+                target_rx = self._apply_curve(raw_dx)
+                target_ry = self._apply_curve(raw_dy)
+
+                # 2. 融入 AI 推力 (仅在开镜且目标在死区外时介入)
+                if self._is_aiming and (
+                        abs(self.ai_target_dx) > self.DEADZONE or abs(self.ai_target_dy) > self.DEADZONE):
+                    target_rx += (self.ai_target_dx * 200.0)
+                    target_ry += (self.ai_target_dy * 200.0)
+
+                # 【核心变化3】EMA 平滑滤波！
+                # 不要让摇杆瞬间跳到 target_rx，而是平滑地“滑过去”
+                # 这样即使鼠标由于回报率问题某几毫秒没发信号，摇杆也不会瞬间归零造成卡顿
+                self.current_rx = (self.current_rx * self.smoothing) + (target_rx * (1.0 - self.smoothing))
+                self.current_ry = (self.current_ry * self.smoothing) + (target_ry * (1.0 - self.smoothing))
+
+                # 消除极小浮点数导致的微弱漂移
+                if abs(self.current_rx) < 10: self.current_rx = 0
+                if abs(self.current_ry) < 10: self.current_ry = 0
+
+                # 限制在 Xbox 摇杆极值内 (-32768 到 32767)
+                final_rx = max(-32768, min(32767, int(self.current_rx)))
+                final_ry = max(-32768, min(32767, int(-self.current_ry)))  # 鼠标下移是正，摇杆下推是负，取反
+
+            # 推送给虚拟手柄
+            self.virtual_gamepad.right_joystick(x_value=final_rx, y_value=final_ry)
+            self.virtual_gamepad.update()
+
+            time.sleep(sleep_time)
 
 # --- 工厂模式 ---
 class ControllerFactory:
     @staticmethod
-    def get_controller(use_gamepad=False):
-        if use_gamepad:
-            print("[Init] 加载 DS4 虚拟手柄控制器...")
+    def get_controller(controller_mode="mouse"):
+        """
+        根据传入的模式字符串获取对应的控制器实例。
+        :param controller_mode:
+            "mouse" - 原生鼠标控制 (AI直接操控系统鼠标)
+            "gamepad" - 物理手柄控制 (读取物理手柄，融合AI输出虚拟手柄)
+            "kbm_to_gamepad" - 键鼠转手柄 (读取键鼠，融合AI输出虚拟手柄)
+        """
+        if controller_mode == "gamepad":
+            print("[Init] 加载物理手柄控制器 (DS4/Xbox 转虚拟手柄)...")
             return AsyncGamepadController()
-        else:
-            print("[Init] 加载鼠标控制器...")
-            return MouseController()
 
+        elif controller_mode == "kbm_to_gamepad":
+            print("[Init] 加载转换器模式 (键鼠转虚拟手柄)...")
+            return MouseToGamepadController()
+
+        else:  # 默认 fallback 为原生鼠标
+            print("[Init] 加载原生鼠标控制器...")
+            return MouseController()
