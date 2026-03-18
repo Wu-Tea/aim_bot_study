@@ -111,7 +111,7 @@ class GamepadController(BaseController, threading.Thread):
             r2_val = self._trigger_to_xbox(raw_r2)
             self.virtual_gamepad.left_trigger(value=l2_val)
             self.virtual_gamepad.right_trigger(value=r2_val)
-            self._is_aiming = l2_val > 128
+            self._is_aiming = l2_val > 10
 
             if self.joystick.get_numhats() > 0:
                 hat_x, hat_y = self.joystick.get_hat(0)
