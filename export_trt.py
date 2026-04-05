@@ -4,7 +4,7 @@ from ultralytics import YOLO
 def export_trt():
     print("[Export] 开始重新编译 TensorRT 引擎...")
     # 替换成你实际使用的 pt 模型路径
-    model = YOLO("yolo26s-pose.pt")
+    model = YOLO("yolo26n-pose.pt")
 
     # 开始转译
     # half=True 开启 FP16 半精度加速，对 40 系显卡提速巨大

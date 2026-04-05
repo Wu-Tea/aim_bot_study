@@ -10,7 +10,7 @@ import math
 
 
 class ScreenCaptureThread(threading.Thread):
-    def __init__(self, target_fps=120, crop_size=640):
+    def __init__(self, target_fps=70, crop_size=640):
         super().__init__()
         self.daemon = True
         self.target_fps = target_fps
@@ -183,6 +183,63 @@ class TargetSelector:
         return None
 
 
+class CrosshairPersonHitDetector:
+    """
+    Uses existing YOLO person boxes to decide if the crosshair is touching a target.
+    """
+
+    def __init__(self, crop_size=640, edge_padding=2, min_conf=0.35, release_grace_frames=4):
+        self.center_x = crop_size / 2.0
+        self.center_y = crop_size / 2.0
+        self.edge_padding = edge_padding
+        self.min_conf = min_conf
+        self.release_grace_frames = release_grace_frames
+
+        self._holding = False
+        self._miss_frames = 0
+
+    def _is_crosshair_touching_person(self, results):
+        cx, cy = self.center_x, self.center_y
+        pad = self.edge_padding
+
+        for result in results:
+            if result.boxes is None:
+                continue
+
+            boxes = result.boxes.xyxy.cpu().numpy()
+            confs = result.boxes.conf.cpu().numpy() if result.boxes.conf is not None else None
+
+            for i, box in enumerate(boxes):
+                conf = confs[i] if confs is not None else 1.0
+                if conf < self.min_conf:
+                    continue
+
+                x1, y1, x2, y2 = box
+                if (x1 - pad) <= cx <= (x2 + pad) and (y1 - pad) <= cy <= (y2 + pad):
+                    return True
+
+        return False
+
+    def update(self, results):
+        touching = self._is_crosshair_touching_person(results)
+        if touching:
+            self._holding = True
+            self._miss_frames = 0
+            return True
+
+        if self._holding:
+            self._miss_frames += 1
+            if self._miss_frames >= self.release_grace_frames:
+                self._holding = False
+                self._miss_frames = 0
+
+        return self._holding
+
+    def reset(self):
+        self._holding = False
+        self._miss_frames = 0
+
+
 def process_vision(controller=None):
     """
     Main function for vision processing. Orchestrates screen capture, model inference,
@@ -194,11 +251,11 @@ def process_vision(controller=None):
     # faster CPU inference (~43%), and better TensorRT/ONNX export compatibility (DFL removed).
     # The pose variant uses Residual Log-Likelihood Estimation (RLE) for higher keypoint precision.
     try:
-        model = YOLO("yolo26s-pose.engine", task='pose')
+        model = YOLO("yolo26n-pose.engine", task='pose')
         print("Successfully loaded YOLO26 TensorRT engine.")
     except Exception as e:
         print(f"Failed to load TensorRT engine: {e}. Falling back to yolo26n-pose.pt.")
-        model = YOLO("yolo26s-pose.pt", task='pose')
+        model = YOLO("yolo26n-pose.pt", task='pose')
 
     # --- 添加这段 Warmup 代码 ---
     print("Warming up TensorRT engine...")
@@ -208,8 +265,9 @@ def process_vision(controller=None):
     print("Warmup complete.")
     # ---------------------------
 
-    capture_thread = ScreenCaptureThread(target_fps=120, crop_size=CROP_SIZE)
+    capture_thread = ScreenCaptureThread(target_fps=70, crop_size=CROP_SIZE)
     target_selector = TargetSelector(crop_size=CROP_SIZE)
+    rb_hit_detector = CrosshairPersonHitDetector(crop_size=CROP_SIZE)
 
     capture_thread.start()
     print("Vision processing started. Waiting for aim input...")
@@ -219,7 +277,9 @@ def process_vision(controller=None):
             # If not aiming, reduce CPU usage and prepare for the next aim action
             if controller and not controller.is_aiming():
                 controller.reset()
+                controller.set_auto_rb(False)
                 target_selector.reset_tracking()
+                rb_hit_detector.reset()
 
                 # Clear the queue of old frames to ensure responsiveness
                 while not capture_thread.frame_queue.empty():
@@ -234,6 +294,9 @@ def process_vision(controller=None):
             try:
                 frame = capture_thread.frame_queue.get(timeout=0.1)
             except queue.Empty:
+                if controller:
+                    controller.set_auto_rb(False)
+                rb_hit_detector.reset()
                 continue
 
             # Run inference
@@ -242,17 +305,21 @@ def process_vision(controller=None):
             results = model.predict(source=frame, classes=[0], conf=0.50, verbose=False, half=True)
 
             # --- [新增] 3. 模型性能监控日志 ---
-            for result in results:
-                if hasattr(result, 'speed'):
-                    speed = result.speed
-                    total_ms = sum(speed.values())
-                    # 避免除以 0 的情况
-                    est_fps = 1000 / total_ms if total_ms > 0 else 0
-                    print(
-                        f"[DEBUG-PERF] YOLO耗时: {total_ms:.1f}ms (预处理:{speed.get('preprocess', 0):.1f} | 推理:{speed.get('inference', 0):.1f} | 后处理:{speed.get('postprocess', 0):.1f}) -> 预估极限FPS: {est_fps:.1f}")
+            # for result in results:
+            #     if hasattr(result, 'speed'):
+            #         speed = result.speed
+            #         total_ms = sum(speed.values())
+            #         # 避免除以 0 的情况
+            #         est_fps = 1000 / total_ms if total_ms > 0 else 0
+            #         print(
+            #             f"[DEBUG-PERF] YOLO耗时: {total_ms:.1f}ms (预处理:{speed.get('preprocess', 0):.1f} | 推理:{speed.get('inference', 0):.1f} | 后处理:{speed.get('postprocess', 0):.1f}) -> 预估极限FPS: {est_fps:.1f}")
 
             # Find the best target using the selector
             best_target_delta = target_selector.find_best_target(results, frame)
+            auto_rb_active = rb_hit_detector.update(results)
+
+            if controller:
+                controller.set_auto_rb(auto_rb_active)
 
             # Dispatch command to controller
             if best_target_delta and controller:
@@ -265,4 +332,6 @@ def process_vision(controller=None):
                 break
     finally:
         print("Stopping vision processing.")
+        if controller:
+            controller.set_auto_rb(False)
         capture_thread.stop()

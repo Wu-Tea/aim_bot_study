@@ -30,6 +30,13 @@ class BaseController(ABC):
         """
         pass
 
+    def set_auto_rb(self, pressed: bool):
+        """
+        Optional hook to control automatic RB pressing.
+        Controllers that don't use RB can ignore this.
+        """
+        pass
+
     def stop(self):
         """
         Optional method to clean up resources, like stopping threads.

@@ -27,6 +27,8 @@ class KBMController(BaseController, threading.Thread):
         self.ai_target_dx = 0.0
         self.ai_target_dy = 0.0
         self._is_aiming = False
+        self._manual_rb_pressed = False
+        self._auto_rb_pressed = False
 
         # --- Tuning Parameters ---
         self.smoothing = smoothing
@@ -56,8 +58,16 @@ class KBMController(BaseController, threading.Thread):
             self.virtual_gamepad.left_trigger(value=255 if pressed else 0)
             if not pressed: self.reset()
         elif button == mouse.Button.left:
-            if pressed: self.virtual_gamepad.press_button(vg.XUSB_BUTTON.XUSB_GAMEPAD_RIGHT_SHOULDER)
-            else: self.virtual_gamepad.release_button(vg.XUSB_BUTTON.XUSB_GAMEPAD_RIGHT_SHOULDER)
+            with self.lock:
+                self._manual_rb_pressed = bool(pressed)
+                self._sync_rb_state()
+
+    def _sync_rb_state(self):
+        rb_pressed = self._manual_rb_pressed or (self._auto_rb_pressed and self._is_aiming)
+        if rb_pressed:
+            self.virtual_gamepad.press_button(vg.XUSB_BUTTON.XUSB_GAMEPAD_RIGHT_SHOULDER)
+        else:
+            self.virtual_gamepad.release_button(vg.XUSB_BUTTON.XUSB_GAMEPAD_RIGHT_SHOULDER)
 
     def update(self, dx, dy):
         with self.lock:
@@ -68,9 +78,16 @@ class KBMController(BaseController, threading.Thread):
         with self.lock:
             self.ai_target_dx = 0.0
             self.ai_target_dy = 0.0
+            self._auto_rb_pressed = False
+            self._sync_rb_state()
 
     def is_aiming(self):
         return self._is_aiming
+
+    def set_auto_rb(self, pressed: bool):
+        with self.lock:
+            self._auto_rb_pressed = bool(pressed)
+            self._sync_rb_state()
 
     def stop(self):
         self.running = False

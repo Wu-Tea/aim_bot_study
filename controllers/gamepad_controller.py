@@ -42,6 +42,7 @@ class GamepadController(BaseController, threading.Thread):
         self.ai_stick_y = 0.0
         self.lock = threading.Lock()
         self._is_aiming = False
+        self._auto_rb_pressed = False
 
         # --- Tuning Parameters ---
         self.INVERT_X = False
@@ -61,9 +62,14 @@ class GamepadController(BaseController, threading.Thread):
         with self.lock:
             self.target_dx = 0.0
             self.target_dy = 0.0
+            self._auto_rb_pressed = False
 
     def is_aiming(self):
         return self._is_aiming
+
+    def set_auto_rb(self, pressed: bool):
+        with self.lock:
+            self._auto_rb_pressed = bool(pressed)
 
     def stop(self):
         self.running = False
@@ -92,6 +98,7 @@ class GamepadController(BaseController, threading.Thread):
             13: vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_LEFT,
             14: vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_RIGHT
         }
+        rb_button = vg.XUSB_BUTTON.XUSB_GAMEPAD_RIGHT_SHOULDER
         trigger_initialized = False
 
         while self.running:
@@ -123,8 +130,18 @@ class GamepadController(BaseController, threading.Thread):
                 )
 
             for btn_idx, xbox_btn in button_map.items():
+                if btn_idx == 10:
+                    continue
                 if self.joystick.get_button(btn_idx): self.virtual_gamepad.press_button(button=xbox_btn)
                 else: self.virtual_gamepad.release_button(button=xbox_btn)
+
+            manual_rb_pressed = bool(self.joystick.get_button(10))
+            with self.lock:
+                auto_rb_pressed = self._auto_rb_pressed and self._is_aiming
+            if manual_rb_pressed or auto_rb_pressed:
+                self.virtual_gamepad.press_button(button=rb_button)
+            else:
+                self.virtual_gamepad.release_button(button=rb_button)
 
             # --- AI Aim Assist Logic ---
             phys_rx = self._axis_to_xbox(self.joystick.get_axis(2))
