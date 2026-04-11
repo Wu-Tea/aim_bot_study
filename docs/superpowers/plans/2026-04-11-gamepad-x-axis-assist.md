@@ -13,7 +13,7 @@
 ### Task 1: Add a testable X-axis assist helper
 
 **Files:**
-- Create: `D:\work\AI\yolo-study-001\gamepad_horizontal_assist.py`
+- Create: `D:\work\AI\yolo-study-001\controllers\gamepad_horizontal_assist.py`
 - Test: `D:\work\AI\yolo-study-001\tests\test_gamepad_horizontal_assist.py`
 
 - [ ] **Step 1: Write the failing test**
@@ -26,7 +26,7 @@ Create tests that assert:
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `python -m unittest tests.test_gamepad_horizontal_assist -v`
-Expected: FAIL because `gamepad_horizontal_assist.py` does not exist yet
+Expected: FAIL because `controllers/gamepad_horizontal_assist.py` does not exist yet
 
 - [ ] **Step 3: Write minimal implementation**
 
@@ -66,13 +66,13 @@ Expected: PASS
 
 - [ ] **Step 4: Run syntax verification**
 
-Run: `python -m py_compile gamepad_horizontal_assist.py controllers\gamepad_controller.py`
+Run: `python -m py_compile controllers\gamepad_horizontal_assist.py controllers\gamepad_controller.py`
 Expected: no output, exit code 0
 
 ### Task 3: Verify behavior and document outcome
 
 **Files:**
-- Modify: `D:\work\AI\yolo-study-001\TRACKING.md` (only if needed for note)
+- Modify: `D:\work\AI\yolo-study-001\docs\project\TRACKING.md` (only if needed for note)
 
 - [ ] **Step 1: Re-check boundaries**
 
@@ -85,6 +85,6 @@ Confirm the implementation still satisfies:
 
 Run:
 - `python -m unittest tests.test_gamepad_horizontal_assist -v`
-- `python -m py_compile gamepad_horizontal_assist.py controllers\gamepad_controller.py`
+- `python -m py_compile controllers\gamepad_horizontal_assist.py controllers\gamepad_controller.py`
 
 Expected: all tests pass, compile check passes

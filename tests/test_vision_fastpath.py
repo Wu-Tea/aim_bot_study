@@ -3,7 +3,7 @@ import unittest
 import numpy as np
 import torch
 
-from vision import _decode_nms_in_engine, _detect_output_kind, _fast_path_input_dtype
+from vision.fastpath import _decode_nms_in_engine, _detect_output_kind, _fast_path_input_dtype
 
 
 class DummyBackend:

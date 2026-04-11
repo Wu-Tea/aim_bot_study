@@ -1,6 +1,6 @@
 import unittest
 
-from gamepad_horizontal_assist import compute_axis_soft_strengths
+from controllers.gamepad_horizontal_assist import compute_axis_soft_strengths
 
 
 class GamepadAimMathTests(unittest.TestCase):

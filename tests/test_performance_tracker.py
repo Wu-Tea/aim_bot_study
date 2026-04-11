@@ -1,6 +1,6 @@
 import unittest
 
-from vision import PerformanceTracker
+from vision.perf import PerformanceTracker
 
 
 class FakeClock:

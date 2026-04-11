@@ -1,6 +1,6 @@
 import unittest
 
-from gamepad_horizontal_assist import HorizontalAimAssist, HorizontalAimAssistConfig
+from controllers.gamepad_horizontal_assist import HorizontalAimAssist, HorizontalAimAssistConfig
 
 
 class HorizontalAimAssistTests(unittest.TestCase):

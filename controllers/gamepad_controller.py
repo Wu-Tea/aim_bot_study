@@ -4,7 +4,7 @@ import time
 import os
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 import pygame
-from gamepad_horizontal_assist import (
+from .gamepad_horizontal_assist import (
     HorizontalAimAssist,
     HorizontalAimAssistConfig,
     compute_axis_soft_strengths,

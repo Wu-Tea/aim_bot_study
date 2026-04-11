@@ -22,5 +22,5 @@ pynput
 pydirectinput
 
 # Note:
-# export_trt.py also needs a local CUDA / TensorRT toolchain.
+# tools/export_trt.py also needs a local CUDA / TensorRT toolchain.
 # Those system components are platform-specific and are not installed from pip here.
