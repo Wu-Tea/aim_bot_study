@@ -14,6 +14,7 @@ class KBMController(BaseController, threading.Thread):
         super().__init__()
         self.daemon = True
         self.running = True
+        self.ready = False
 
         self.virtual_gamepad = vg.VX360Gamepad()
         print("[KBM Converter] Mouse-to-gamepad converter is online.")
@@ -42,6 +43,7 @@ class KBMController(BaseController, threading.Thread):
         self.mouse_listener = mouse.Listener(on_move=self._on_mouse_move, on_click=self._on_mouse_click)
         self.mouse_listener.start()
         
+        self.ready = True
         self.start()
 
     def _on_mouse_move(self, x, y):

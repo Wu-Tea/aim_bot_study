@@ -1,156 +1,220 @@
-import cv2
-import numpy as np
-import dxcam
-import threading
-import queue
-import time
-from ultralytics import YOLO
-import win32api
 import math
+import os
+import threading
+import time
+from dataclasses import dataclass
+
+import cv2
+import dxcam
+import numpy as np
+import win32api
+from ultralytics import YOLO
+
+
+LOWER_GREEN = np.array([45, 80, 50])
+UPPER_GREEN = np.array([75, 255, 255])
+LOWER_BLUE = np.array([90, 80, 50])
+UPPER_BLUE = np.array([115, 255, 255])
+LOWER_YELLOW = np.array([15, 120, 120])
+UPPER_YELLOW = np.array([35, 255, 255])
+
+
+def _get_env_int(name: str, default: int) -> int:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        return default
+
+
+def _get_env_float(name: str, default: float) -> float:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except ValueError:
+        return default
+
+
+def _get_env_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+@dataclass(slots=True, frozen=True)
+class VisionConfig:
+    crop_size: int = 640
+    target_fps: int = 70
+    model_path: str = "yolo26n-pose.engine"
+    fallback_model_path: str = "yolo26n-pose.pt"
+    model_task: str = "pose"
+    classes: tuple[int, ...] = (0,)
+    conf: float = 0.50
+    half: bool = True
+    device: int = 0
+    warmup_iterations: int = 10
+    frame_timeout: float = 0.10
+    idle_sleep: float = 0.01
+    perf_log_interval: float = 2.0
+    quit_key_vk: int = 0x51  # Q
+
+    @classmethod
+    def from_env(cls):
+        return cls(
+            crop_size=_get_env_int("VISION_CROP_SIZE", 640),
+            target_fps=_get_env_int("VISION_TARGET_FPS", 70),
+            model_path=os.getenv("VISION_MODEL_PATH", "yolo26n-pose.engine"),
+            fallback_model_path=os.getenv("VISION_FALLBACK_MODEL_PATH", "yolo26n-pose.pt"),
+            conf=_get_env_float("VISION_CONF", 0.50),
+            half=_get_env_bool("VISION_HALF", True),
+            device=_get_env_int("VISION_DEVICE", 0),
+            warmup_iterations=_get_env_int("VISION_WARMUP_ITERATIONS", 10),
+            frame_timeout=_get_env_float("VISION_FRAME_TIMEOUT", 0.10),
+            idle_sleep=_get_env_float("VISION_IDLE_SLEEP", 0.01),
+            perf_log_interval=_get_env_float("VISION_PERF_LOG_INTERVAL", 2.0),
+            quit_key_vk=_get_env_int("VISION_QUIT_KEY_VK", 0x51),
+        )
+
+
+@dataclass(slots=True)
+class ParsedDetections:
+    boxes: np.ndarray
+    confs: np.ndarray
+    keypoints: np.ndarray | None = None
+
+
+@dataclass(slots=True)
+class FrameColorMasks:
+    friendly: np.ndarray
+    enemy: np.ndarray
 
 
 class ScreenCaptureThread(threading.Thread):
-    def __init__(self, target_fps=70, crop_size=640):
-        super().__init__()
-        self.daemon = True
+    def __init__(self, target_fps: int = 70, crop_size: int = 640):
+        super().__init__(daemon=True)
         self.target_fps = target_fps
         self.crop_size = crop_size
-        # 自动计算屏幕中心裁剪区域
+
         screen_width = win32api.GetSystemMetrics(0)
         screen_height = win32api.GetSystemMetrics(1)
         left = (screen_width - crop_size) // 2
         top = (screen_height - crop_size) // 2
+
         self.region = (left, top, left + crop_size, top + crop_size)
         self.camera = dxcam.create(output_color="BGR", region=self.region)
-        self.frame_queue = queue.Queue(maxsize=1)
         self.running = True
+        self._poll_interval = 1.0 / max(self.target_fps * 2, 1)
+        self._condition = threading.Condition()
+        self._latest_frame = None
+        self._latest_frame_id = 0
+
         self.camera.start(target_fps=self.target_fps, video_mode=True)
 
     def run(self):
         while self.running:
             frame = self.camera.get_latest_frame()
             if frame is not None:
-                if self.frame_queue.full():
-                    try:
-                        self.frame_queue.get_nowait()
-                    except queue.Empty:
-                        pass
-                self.frame_queue.put(frame)
-            time.sleep(1 / (self.target_fps * 2))
+                with self._condition:
+                    self._latest_frame = frame
+                    self._latest_frame_id += 1
+                    self._condition.notify_all()
+            time.sleep(self._poll_interval)
+
+    def get_latest_frame(self, last_seen_id: int = 0, timeout: float = 0.1):
+        deadline = time.perf_counter() + timeout
+        with self._condition:
+            while self.running and self._latest_frame_id <= last_seen_id:
+                remaining = deadline - time.perf_counter()
+                if remaining <= 0:
+                    return None, last_seen_id
+                self._condition.wait(timeout=remaining)
+
+            if self._latest_frame_id <= last_seen_id or self._latest_frame is None:
+                return None, last_seen_id
+
+            return self._latest_frame, self._latest_frame_id
 
     def stop(self):
         self.running = False
+        with self._condition:
+            self._condition.notify_all()
         self.camera.stop()
 
 
 class TargetSelector:
-    """
-    Encapsulates the logic for selecting the best target from YOLO model outputs.
-    This class handles scoring, filtering, and tracking of targets.
-    """
-
-    def __init__(self, crop_size=640):
-        # Color configurations for teammate filtering
-        self.lower_yellow = np.array([15, 120, 120])
-        self.upper_yellow = np.array([35, 255, 255])
-        self.lower_red = np.array([15, 120, 120])
-        self.upper_red = np.array([35, 255, 255])
-
-        self.lower_green = np.array([45, 80, 50])
-        self.upper_green = np.array([75, 255, 255])
-        self.lower_blue = np.array([90, 80, 50])
-        self.upper_blue = np.array([115, 255, 255])
-
-        # Tracking state
+    def __init__(self, crop_size: int = 640):
         self.last_target_center = None
-
-        # Center of the capture region
         self.screen_center_x = crop_size / 2.0
         self.screen_center_y = crop_size / 2.0
 
-        # --- Tuning Parameters ---
-        self.TRACKING_BONUS = 2000  # Score bonus for locking onto the same target
-        self.TRACKING_RADIUS = 120  # Radius to consider a target as the "same" one
-        self.IDEAL_AREA = 8000  # Ideal target area for scoring
-        self.MAX_AREA_LIMIT = 40000  # Ignore targets larger than this
-        self.CONFIDENCE_THRESHOLD = 0.40  # Confidence for keypoints (lowered: YOLO26 RLE is more precise)
-        self.MIN_SCORE_THRESHOLD = -50000  # Minimum score to consider a target valid
-        self.MAX_JUMP_PIXELS = 180  # Max pixels the crosshair can jump in one frame
+        self.TRACKING_BONUS = 2000
+        self.TRACKING_RADIUS = 120
+        self.IDEAL_AREA = 8000
+        self.MAX_AREA_LIMIT = 40000
+        self.CONFIDENCE_THRESHOLD = 0.40
+        self.MIN_SCORE_THRESHOLD = -50000
+        self.MAX_JUMP_PIXELS = 180
 
     def reset_tracking(self):
-        """Resets the tracking state."""
         self.last_target_center = None
 
-    def _get_target_point(self, box, keypoints, box_index):
-        """Calculates the optimal target point (tx, ty) using keypoints or box ratios."""
-        x1, y1, x2, y2 = map(int, box)
-        box_w, box_h = x2 - x1, y2 - y1
+    def _get_target_point(self, box: np.ndarray, keypoints: np.ndarray | None, box_index: int):
+        x1, y1, x2, y2 = box
+        box_w = float(x2 - x1)
+        box_h = float(y2 - y1)
 
-        # Priority 1: Use keypoints for upper chest
         if keypoints is not None and len(keypoints) > box_index:
             kpts = keypoints[box_index]
-            l_shoulder, r_shoulder = kpts[5], kpts[6]  # 5: left_shoulder, 6: right_shoulder
+            l_shoulder, r_shoulder = kpts[5], kpts[6]
             nose = kpts[0]
 
-            # If both shoulders are visible, target their midpoint
             if l_shoulder[2] > self.CONFIDENCE_THRESHOLD and r_shoulder[2] > self.CONFIDENCE_THRESHOLD:
-                tx = (l_shoulder[0] + r_shoulder[0]) / 2.0
-                ty = (l_shoulder[1] + r_shoulder[1]) / 2.0
-                return tx, ty
-            # Fallback to nose if visible
-            elif nose[2] > self.CONFIDENCE_THRESHOLD:
-                tx = nose[0]
-                ty = nose[1] + (box_h * 0.05)  # Slightly below the nose
-                return tx, ty
+                return (l_shoulder[0] + r_shoulder[0]) / 2.0, (l_shoulder[1] + r_shoulder[1]) / 2.0
+            if nose[2] > self.CONFIDENCE_THRESHOLD:
+                return nose[0], nose[1] + (box_h * 0.05)
 
-        # Fallback 2: Use box aspect ratio if keypoints are unreliable
         tx = x1 + (box_w / 2.0)
-        aspect_ratio = box_h / box_w if box_w > 0 else 0
-        # Adjust vertical offset based on posture (standing vs. crouching/sliding)
+        aspect_ratio = box_h / box_w if box_w > 0.0 else 0.0
         ratio = 0.20 if aspect_ratio > 1.2 else 0.40
         ty = y1 + (box_h * ratio)
         return tx, ty
 
-    def find_best_target(self, results, frame):
-        """
-        Analyzes YOLO results to find the best target based on a scoring system.
-        Returns the delta (dx, dy) to the best target, or None if no suitable target is found.
-        """
+    def find_best_target(self, detections: list[ParsedDetections], color_masks: FrameColorMasks):
         best_target_abs = None
-        highest_score = -float('inf')
+        highest_score = -float("inf")
+        frame_width = color_masks.friendly.shape[1]
+        last_target_center = self.last_target_center
 
-        for result in results:
-            if result.boxes is None: continue
+        for detection in detections:
+            for i, box in enumerate(detection.boxes):
+                x1, y1, x2, y2 = box
+                box_w = float(x2 - x1)
+                box_h = float(y2 - y1)
+                if box_w <= 0.0 or box_h <= 0.0:
+                    continue
 
-            boxes = result.boxes.xyxy.cpu().numpy()
-            keypoints = result.keypoints.data.cpu().numpy() if result.keypoints is not None else None
-
-            for i, box in enumerate(boxes):
-                x1, y1, x2, y2 = map(int, box)
-                box_w, box_h = x2 - x1, y2 - y1
-                if box_w <= 0 or box_h <= 0: continue
-
-                tx, ty = self._get_target_point(box, keypoints, i)
-                if tx is None: continue
-
-                # --- Scoring Logic ---
-                # 1. Base score: Proximity to crosshair
+                tx, ty = self._get_target_point(box, detection.keypoints, i)
                 dist = math.hypot(tx - self.screen_center_x, ty - self.screen_center_y)
                 score = -dist * 2.5
 
-                # 2. Teammate filter (penalty for friendly colors)
-                roi = frame[max(0, y1 - 50):y1, max(0, int(tx) - 25):min(frame.shape[1], int(tx) + 25)]
-                if roi.size > 0:
-                    hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-                    # Penalty for green/blue (common friendly UI colors)
-                    if cv2.countNonZero(cv2.bitwise_or(cv2.inRange(hsv, self.lower_green, self.upper_green),
-                                                       cv2.inRange(hsv, self.lower_blue, self.upper_blue))) > 15:
-                        score -= 100000
-                    # Bonus for yellow (common enemy UI colors)
-                    if cv2.countNonZero(cv2.inRange(hsv, self.lower_yellow, self.upper_yellow)) > 20:
-                        score += 10000
+                roi_top = max(0, int(y1) - 50)
+                roi_bottom = max(0, int(y1))
+                roi_left = max(0, int(tx) - 25)
+                roi_right = min(frame_width, int(tx) + 25)
 
-                # 3. Area weight (prefer ideal size, penalize too-close or too-small)
+                friendly_roi = color_masks.friendly[roi_top:roi_bottom, roi_left:roi_right]
+                if friendly_roi.size > 0 and cv2.countNonZero(friendly_roi) > 15:
+                    score -= 100000
+
+                enemy_roi = color_masks.enemy[roi_top:roi_bottom, roi_left:roi_right]
+                if enemy_roi.size > 0 and cv2.countNonZero(enemy_roi) > 20:
+                    score += 10000
+
                 current_area = box_w * box_h
                 if current_area > self.MAX_AREA_LIMIT:
                     score -= (current_area - self.MAX_AREA_LIMIT) * 0.1
@@ -158,59 +222,45 @@ class TargetSelector:
                     area_diff = abs(current_area - self.IDEAL_AREA)
                     score += (self.IDEAL_AREA - area_diff) * 0.005
 
-                # 4. Tracking bonus (prioritize last frame's target)
-                if self.last_target_center:
-                    if math.hypot(tx - self.last_target_center[0],
-                                  ty - self.last_target_center[1]) < self.TRACKING_RADIUS:
-                        score += self.TRACKING_BONUS
+                if last_target_center and math.hypot(
+                    tx - last_target_center[0],
+                    ty - last_target_center[1],
+                ) < self.TRACKING_RADIUS:
+                    score += self.TRACKING_BONUS
 
-                # Update best target if current score is higher
                 if score > highest_score:
                     highest_score = score
                     best_target_abs = (tx, ty)
 
-        # --- Final Selection and Safety Checks ---
         if best_target_abs and highest_score > self.MIN_SCORE_THRESHOLD:
-            best_target_delta = (best_target_abs[0] - self.screen_center_x, best_target_abs[1] - self.screen_center_y)
-
-            # Safety check: prevent sudden large jumps
+            best_target_delta = (
+                best_target_abs[0] - self.screen_center_x,
+                best_target_abs[1] - self.screen_center_y,
+            )
             if abs(best_target_delta[0]) < self.MAX_JUMP_PIXELS and abs(best_target_delta[1]) < self.MAX_JUMP_PIXELS:
                 self.last_target_center = best_target_abs
                 return best_target_delta
 
-        # No suitable target found, reset tracking
         self.reset_tracking()
         return None
 
 
 class CrosshairPersonHitDetector:
-    """
-    Uses existing YOLO person boxes to decide if the crosshair is touching a target.
-    """
-
-    def __init__(self, crop_size=640, edge_padding=2, min_conf=0.35, release_grace_frames=4):
+    def __init__(self, crop_size: int = 640, edge_padding: int = 2, min_conf: float = 0.35, release_grace_frames: int = 4):
         self.center_x = crop_size / 2.0
         self.center_y = crop_size / 2.0
         self.edge_padding = edge_padding
         self.min_conf = min_conf
         self.release_grace_frames = release_grace_frames
-
         self._holding = False
         self._miss_frames = 0
 
-    def _is_crosshair_touching_person(self, results):
+    def _is_crosshair_touching_person(self, detections: list[ParsedDetections]):
         cx, cy = self.center_x, self.center_y
         pad = self.edge_padding
 
-        for result in results:
-            if result.boxes is None:
-                continue
-
-            boxes = result.boxes.xyxy.cpu().numpy()
-            confs = result.boxes.conf.cpu().numpy() if result.boxes.conf is not None else None
-
-            for i, box in enumerate(boxes):
-                conf = confs[i] if confs is not None else 1.0
+        for detection in detections:
+            for box, conf in zip(detection.boxes, detection.confs):
                 if conf < self.min_conf:
                     continue
 
@@ -220,8 +270,8 @@ class CrosshairPersonHitDetector:
 
         return False
 
-    def update(self, results):
-        touching = self._is_crosshair_touching_person(results)
+    def update(self, detections: list[ParsedDetections]):
+        touching = self._is_crosshair_touching_person(detections)
         if touching:
             self._holding = True
             self._miss_frames = 0
@@ -240,98 +290,200 @@ class CrosshairPersonHitDetector:
         self._miss_frames = 0
 
 
-def process_vision(controller=None):
-    """
-    Main function for vision processing. Orchestrates screen capture, model inference,
-    and target selection to send commands to the controller.
-    """
-    CROP_SIZE = 640
-    # Load TensorRT engine with a fallback to the .pt file for robustness
-    # YOLO26 brings NMS-free end-to-end inference, improved small-object detection (STAL),
-    # faster CPU inference (~43%), and better TensorRT/ONNX export compatibility (DFL removed).
-    # The pose variant uses Residual Log-Likelihood Estimation (RLE) for higher keypoint precision.
+class PerformanceTracker:
+    def __init__(self, enabled: bool = False, log_interval: float = 2.0):
+        self.enabled = enabled
+        self.log_interval = log_interval
+        self._window_start = time.perf_counter()
+        self._frame_count = 0
+        self._capture_wait_ms = 0.0
+        self._infer_ms = 0.0
+        self._post_ms = 0.0
+        self._boxes_seen = 0
+
+    def update(self, capture_wait_ms: float, infer_ms: float, post_ms: float, boxes_seen: int):
+        if not self.enabled:
+            return
+
+        self._frame_count += 1
+        self._capture_wait_ms += capture_wait_ms
+        self._infer_ms += infer_ms
+        self._post_ms += post_ms
+        self._boxes_seen += boxes_seen
+
+        now = time.perf_counter()
+        elapsed = now - self._window_start
+        if elapsed < self.log_interval or self._frame_count == 0:
+            return
+
+        avg_wait = self._capture_wait_ms / self._frame_count
+        avg_infer = self._infer_ms / self._frame_count
+        avg_post = self._post_ms / self._frame_count
+        avg_boxes = self._boxes_seen / self._frame_count
+        fps = self._frame_count / elapsed
+
+        print(
+            "[Perf] "
+            f"loop={fps:.1f} FPS | wait={avg_wait:.1f}ms | "
+            f"infer={avg_infer:.1f}ms | post={avg_post:.1f}ms | boxes={avg_boxes:.1f}"
+        )
+
+        self._window_start = now
+        self._frame_count = 0
+        self._capture_wait_ms = 0.0
+        self._infer_ms = 0.0
+        self._post_ms = 0.0
+        self._boxes_seen = 0
+
+
+def _build_color_masks(frame: np.ndarray) -> FrameColorMasks:
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+    friendly_mask = cv2.bitwise_or(
+        cv2.inRange(hsv, LOWER_GREEN, UPPER_GREEN),
+        cv2.inRange(hsv, LOWER_BLUE, UPPER_BLUE),
+    )
+    enemy_mask = cv2.inRange(hsv, LOWER_YELLOW, UPPER_YELLOW)
+    return FrameColorMasks(friendly=friendly_mask, enemy=enemy_mask)
+
+
+def _load_model(config: VisionConfig):
     try:
-        model = YOLO("yolo26n-pose.engine", task='pose')
-        print("Successfully loaded YOLO26 TensorRT engine.")
-    except Exception as e:
-        print(f"Failed to load TensorRT engine: {e}. Falling back to yolo26n-pose.pt.")
-        model = YOLO("yolo26n-pose.pt", task='pose')
+        model = YOLO(config.model_path, task=config.model_task)
+        print(f"Loaded model: {config.model_path}")
+        return model
+    except Exception as exc:
+        print(f"Failed to load {config.model_path}: {exc}. Falling back to {config.fallback_model_path}.")
+        return YOLO(config.fallback_model_path, task=config.model_task)
 
-    # --- 添加这段 Warmup 代码 ---
-    print("Warming up TensorRT engine...")
-    dummy_frame = np.zeros((640, 640, 3), dtype=np.uint8)
-    for _ in range(10):  # 连续跑10次空载推理，强制 PyTorch 预分配好连续的显存块
-        model.predict(source=dummy_frame, classes=[0], conf=0.55, verbose=False, half=True, device=0)
+
+def _warmup_model(model, config: VisionConfig, predict_kwargs: dict):
+    print("Warming up model...")
+    dummy_frame = np.zeros((config.crop_size, config.crop_size, 3), dtype=np.uint8)
+    for _ in range(config.warmup_iterations):
+        model.predict(source=dummy_frame, **predict_kwargs)
     print("Warmup complete.")
-    # ---------------------------
 
-    capture_thread = ScreenCaptureThread(target_fps=70, crop_size=CROP_SIZE)
-    target_selector = TargetSelector(crop_size=CROP_SIZE)
-    rb_hit_detector = CrosshairPersonHitDetector(crop_size=CROP_SIZE)
+
+def _extract_detections(results) -> list[ParsedDetections]:
+    parsed: list[ParsedDetections] = []
+    for result in results:
+        boxes_obj = result.boxes
+        if boxes_obj is None or len(boxes_obj) == 0:
+            continue
+
+        boxes = boxes_obj.xyxy.cpu().numpy()
+        confs = boxes_obj.conf.cpu().numpy() if boxes_obj.conf is not None else np.ones(len(boxes), dtype=np.float32)
+        keypoints = None
+        if result.keypoints is not None and result.keypoints.data is not None and len(result.keypoints.data) > 0:
+            keypoints = result.keypoints.data.cpu().numpy()
+
+        parsed.append(ParsedDetections(boxes=boxes, confs=confs, keypoints=keypoints))
+
+    return parsed
+
+
+def _should_log_performance():
+    return _get_env_bool("VISION_PERF_LOG", False)
+
+
+def process_vision(controller=None):
+    config = VisionConfig.from_env()
+    predict_kwargs = {
+        "classes": list(config.classes),
+        "conf": config.conf,
+        "verbose": False,
+        "half": config.half,
+        "device": config.device,
+        "imgsz": config.crop_size,
+    }
+
+    model = _load_model(config)
+    _warmup_model(model, config, predict_kwargs)
+
+    capture_thread = ScreenCaptureThread(target_fps=config.target_fps, crop_size=config.crop_size)
+    target_selector = TargetSelector(crop_size=config.crop_size)
+    rb_hit_detector = CrosshairPersonHitDetector(crop_size=config.crop_size)
+    perf_tracker = PerformanceTracker(
+        enabled=_should_log_performance(),
+        log_interval=config.perf_log_interval,
+    )
 
     capture_thread.start()
-    print("Vision processing started. Waiting for aim input...")
+    print(
+        "[Vision] "
+        f"crop={config.crop_size} | target_fps={config.target_fps} | "
+        f"conf={config.conf:.2f} | half={config.half}"
+    )
+
+    last_frame_id = 0
+    was_aiming = False
 
     try:
         while True:
-            # If not aiming, reduce CPU usage and prepare for the next aim action
-            if controller and not controller.is_aiming():
-                controller.reset()
-                controller.set_auto_rb(False)
-                target_selector.reset_tracking()
-                rb_hit_detector.reset()
-
-                # Clear the queue of old frames to ensure responsiveness
-                while not capture_thread.frame_queue.empty():
-                    try:
-                        capture_thread.frame_queue.get_nowait()
-                    except queue.Empty:
-                        break
-                time.sleep(0.01)  # Sleep to yield CPU
+            is_aiming = True if controller is None else controller.is_aiming()
+            if not is_aiming:
+                if was_aiming:
+                    if controller:
+                        controller.reset()
+                        controller.set_auto_rb(False)
+                    target_selector.reset_tracking()
+                    rb_hit_detector.reset()
+                was_aiming = False
+                time.sleep(config.idle_sleep)
                 continue
 
-            # Get the latest frame from the queue
-            try:
-                frame = capture_thread.frame_queue.get(timeout=0.1)
-            except queue.Empty:
+            was_aiming = True
+
+            capture_wait_start = time.perf_counter()
+            frame, last_frame_id = capture_thread.get_latest_frame(
+                last_seen_id=last_frame_id,
+                timeout=config.frame_timeout,
+            )
+            capture_wait_ms = (time.perf_counter() - capture_wait_start) * 1000.0
+
+            if frame is None:
                 if controller:
                     controller.set_auto_rb(False)
                 rb_hit_detector.reset()
                 continue
 
-            # Run inference
-            # YOLO26 uses native end-to-end NMS-free inference, eliminating post-processing
-            # overhead and making latency deterministic even in crowded scenes.
-            results = model.predict(source=frame, classes=[0], conf=0.50, verbose=False, half=True)
+            inference_start = time.perf_counter()
+            results = model.predict(source=frame, **predict_kwargs)
+            infer_ms = (time.perf_counter() - inference_start) * 1000.0
 
-            # --- [新增] 3. 模型性能监控日志 ---
-            # for result in results:
-            #     if hasattr(result, 'speed'):
-            #         speed = result.speed
-            #         total_ms = sum(speed.values())
-            #         # 避免除以 0 的情况
-            #         est_fps = 1000 / total_ms if total_ms > 0 else 0
-            #         print(
-            #             f"[DEBUG-PERF] YOLO耗时: {total_ms:.1f}ms (预处理:{speed.get('preprocess', 0):.1f} | 推理:{speed.get('inference', 0):.1f} | 后处理:{speed.get('postprocess', 0):.1f}) -> 预估极限FPS: {est_fps:.1f}")
-
-            # Find the best target using the selector
-            best_target_delta = target_selector.find_best_target(results, frame)
-            auto_rb_active = rb_hit_detector.update(results)
+            post_start = time.perf_counter()
+            detections = _extract_detections(results)
+            auto_rb_active = rb_hit_detector.update(detections)
+            if detections:
+                color_masks = _build_color_masks(frame)
+                best_target_delta = target_selector.find_best_target(detections, color_masks)
+                boxes_seen = sum(len(detection.boxes) for detection in detections)
+            else:
+                best_target_delta = None
+                boxes_seen = 0
+            post_ms = (time.perf_counter() - post_start) * 1000.0
 
             if controller:
                 controller.set_auto_rb(auto_rb_active)
 
-            # Dispatch command to controller
             if best_target_delta and controller:
                 controller.update(best_target_delta[0], best_target_delta[1])
             elif controller:
                 controller.reset()
 
-            # Allow for graceful exit (though main.py handles KeyboardInterrupt)
-            if cv2.waitKey(1) & 0xFF == ord('q'):
+            perf_tracker.update(
+                capture_wait_ms=capture_wait_ms,
+                infer_ms=infer_ms,
+                post_ms=post_ms,
+                boxes_seen=boxes_seen,
+            )
+
+            if win32api.GetAsyncKeyState(config.quit_key_vk) & 0x8000:
                 break
     finally:
         print("Stopping vision processing.")
         if controller:
             controller.set_auto_rb(False)
+            controller.reset()
         capture_thread.stop()
+        capture_thread.join(timeout=1.0)

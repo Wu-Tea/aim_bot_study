@@ -1,30 +1,71 @@
+import argparse
+import os
+
 from controller import ControllerFactory
 from vision import process_vision
 
+
+def _parse_args():
+    parser = argparse.ArgumentParser(description="YOLO aim assist launcher")
+    parser.add_argument(
+        "--controller-mode",
+        choices=("gamepad", "kbm_to_gamepad", "mouse"),
+        default=os.getenv("CONTROLLER_MODE", "gamepad"),
+        help="Input backend to use.",
+    )
+    parser.add_argument(
+        "--perf-log",
+        action="store_true",
+        help="Enable periodic performance logs.",
+    )
+    parser.add_argument(
+        "--crop-size",
+        type=int,
+        default=None,
+        help="Override capture crop size.",
+    )
+    parser.add_argument(
+        "--target-fps",
+        type=int,
+        default=None,
+        help="Override capture target FPS.",
+    )
+    return parser.parse_args()
+
+
+def _apply_runtime_overrides(args):
+    if args.perf_log:
+        os.environ["VISION_PERF_LOG"] = "1"
+    if args.crop_size:
+        os.environ["VISION_CROP_SIZE"] = str(args.crop_size)
+    if args.target_fps:
+        os.environ["VISION_TARGET_FPS"] = str(args.target_fps)
+
+
 def main():
-    # 1. 拿到手柄实例 (此时 controller 开始在后台跑 pygame 事件监听)
-    # controller = ControllerFactory.get_controller(use_gamepad=True)
+    args = _parse_args()
+    _apply_runtime_overrides(args)
 
-    # 如果你想测试我们刚写的键鼠转手柄新架构：
-    # controller = ControllerFactory.get_controller(controller_mode="kbm_to_gamepad")
-
-    # 如果你想用回之前调试好的原生手柄：
-    controller = ControllerFactory.get_controller(controller_mode="gamepad")
-
-    # 如果想用纯鼠标跑 YOLO：
-    # controller = ControllerFactory.get_controller(controller_mode="mouse")
-    print("[Ready] 核心引擎已启动，正在移交视觉控制权...")
-
+    controller = None
     try:
-        # 2. 【关键】把 controller 传进去！
-        # 这一步如果不传，vision 里的代码就找不到 controller 对象，瞄准就会失效
+        controller = ControllerFactory.get_controller(controller_mode=args.controller_mode)
+        print(f"[Ready] Controller={args.controller_mode} | starting vision...")
         process_vision(controller=controller)
-
+        return 0
     except KeyboardInterrupt:
-        pass
+        return 0
+    except RuntimeError as exc:
+        print(f"[Error] {exc}")
+        return 1
     finally:
-        if controller: controller.reset()
-        print("[Exit] 程序退出")
+        if controller:
+            controller.reset()
+            controller.stop()
+            join = getattr(controller, "join", None)
+            if callable(join):
+                join(timeout=1.0)
+        print("[Exit] Program terminated.")
+
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

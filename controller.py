@@ -21,18 +21,24 @@ class ControllerFactory:
         Returns:
             An instance of a BaseController subclass.
         """
-        if controller_mode == "gamepad":
-            print("[Factory] Creating GamepadController...")
-            return GamepadController()
-        
-        elif controller_mode == "kbm_to_gamepad":
-            print("[Factory] Creating KBMController (Mouse-to-Gamepad)...")
-            return KBMController()
-        
-        elif controller_mode == "mouse":
-            print("[Factory] Creating native MouseController...")
-            return MouseController()
-            
-        else:
-            print(f"[Factory] Warning: Unknown mode '{controller_mode}'. Falling back to native mouse.")
-            return MouseController()
+        controller_map = {
+            "gamepad": (GamepadController, "[Factory] Creating GamepadController..."),
+            "kbm_to_gamepad": (KBMController, "[Factory] Creating KBMController (Mouse-to-Gamepad)..."),
+            "mouse": (MouseController, "[Factory] Creating native MouseController..."),
+        }
+
+        controller_cls, message = controller_map.get(
+            controller_mode,
+            (MouseController, f"[Factory] Warning: Unknown mode '{controller_mode}'. Falling back to native mouse."),
+        )
+        print(message)
+
+        try:
+            controller = controller_cls()
+        except Exception as exc:
+            raise RuntimeError(f"Failed to initialize controller mode '{controller_mode}': {exc}") from exc
+
+        if not getattr(controller, "ready", True):
+            raise RuntimeError(f"Controller mode '{controller_mode}' is unavailable on this machine.")
+
+        return controller

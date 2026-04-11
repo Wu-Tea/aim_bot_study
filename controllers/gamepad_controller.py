@@ -15,6 +15,15 @@ class GamepadController(BaseController, threading.Thread):
         super().__init__()
         self.daemon = True
         self.running = True
+        self.ready = False
+        self.smoothing = smoothing
+        self.target_dx = 0.0
+        self.target_dy = 0.0
+        self.ai_stick_x = 0.0
+        self.ai_stick_y = 0.0
+        self.lock = threading.Lock()
+        self._is_aiming = False
+        self._auto_rb_pressed = False
 
         try:
             self.virtual_gamepad = vg.VX360Gamepad()
@@ -34,16 +43,6 @@ class GamepadController(BaseController, threading.Thread):
             self.running = False
             return
 
-        # --- AI Aiming State ---
-        self.smoothing = smoothing
-        self.target_dx = 0.0
-        self.target_dy = 0.0
-        self.ai_stick_x = 0.0
-        self.ai_stick_y = 0.0
-        self.lock = threading.Lock()
-        self._is_aiming = False
-        self._auto_rb_pressed = False
-
         # --- Tuning Parameters ---
         self.INVERT_X = False
         self.INVERT_Y = False
@@ -51,6 +50,7 @@ class GamepadController(BaseController, threading.Thread):
         self.DEADZONE = 5        # Pixel distance where AI stops intervening
         self.FLICK_THRESHOLD = 10000 # User stick input required to override AI
 
+        self.ready = True
         self.start()
 
     def update(self, dx, dy):

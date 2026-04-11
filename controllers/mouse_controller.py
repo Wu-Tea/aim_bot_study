@@ -10,6 +10,7 @@ class MouseController(BaseController, threading.Thread):
     def __init__(self, smooth=0.5, sensitivity_multiplier=0.7):
         super().__init__()
         self.daemon = True
+        self.ready = True
         self.smooth = smooth
         self.multiplier = sensitivity_multiplier
         
