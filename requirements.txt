@@ -1,0 +1,26 @@
+# Install with:
+#   pip install -r requirements.txt
+#
+# This project is Windows-oriented and relies on Win32 APIs, DX capture,
+# and optional virtual gamepad / mouse-hook backends.
+
+# Core vision pipeline (main.py / vision.py)
+numpy
+opencv-python
+dxcam
+pywin32
+ultralytics
+
+# Controller backends
+# gamepad: vgamepad + pygame
+# kbm_to_gamepad: vgamepad + pynput
+vgamepad
+pygame
+pynput
+
+# Standalone helper script (guaji.py)
+pydirectinput
+
+# Note:
+# export_trt.py also needs a local CUDA / TensorRT toolchain.
+# Those system components are platform-specific and are not installed from pip here.

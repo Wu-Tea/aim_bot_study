@@ -77,10 +77,13 @@ class KBMController(BaseController, threading.Thread):
             self.ai_target_dy = dy * self.ai_sens
 
     def reset(self):
+        # NOTE: do NOT touch self._auto_rb_pressed here. Auto-fire lifecycle is
+        # owned by the vision-layer detector (with its own release grace frames)
+        # and applied through set_auto_rb(). Clearing it here would nullify the
+        # detector's grace window on any frame where best_target_delta is None.
         with self.lock:
             self.ai_target_dx = 0.0
             self.ai_target_dy = 0.0
-            self._auto_rb_pressed = False
             self._sync_rb_state()
 
     def is_aiming(self):
