@@ -1,5 +1,43 @@
 # Worklog
 
+## 2026-04-12 (mouse plugin architecture)
+
+### Mouse controller plugin refactor
+
+- Created `controllers/mouse/` plugin package mirroring `controllers/gamepad/`:
+  - `state.py` for `MouseFrame` and `MouseOutput`
+  - `plugin.py` for `MousePlugin` protocol and chain helpers
+  - `ai_aim.py` for AI aim correction (pixel-space gain, deadzone, EMA smoothing, manual dampening)
+  - `auto_fire.py` for pulse-fire left-click (120ms hold / 30ms release)
+  - `recoil_compensation.py` for downward mouse pull during fire
+- Rewrote `controllers/mouse_controller.py` as a plugin host:
+  - pynput listener for physical mouse movement and right-click aiming
+  - Plugin chain: build MouseFrame → apply plugins → write output via mouse_event
+  - AI corrections injected as additive deltas on top of physical mouse movement
+- Added `tests/mouse/` with 32 tests covering all plugins and host logic
+
+### Playtesting fixes
+
+- Fixed feedback loop: pynput captures synthetic mouse_event injections as "manual" movement; host now subtracts injected deltas from accumulator
+- Fixed deadzone ordering: deadzone was applied to post-gain values (always below threshold); moved to raw target offset
+- Replaced gamepad-style AI fade (reduce AI when user moves fast) with mouse-style manual dampening (reduce user movement when AI has target)
+- Added pulse fire with configurable hold/release timing instead of continuous hold
+- Added LEFTUP before every LEFTDOWN to ensure clean press edge (pynput cannot distinguish synthetic vs physical clicks)
+- Tuned all parameters for 1000Hz loop (values ~100x smaller than gamepad equivalents)
+
+### Mouse verification
+
+- `python -m unittest discover -s tests/mouse -p "test_*.py" -v` (32 tests)
+- `python -m unittest discover -s tests/gamepad -p "test_*.py" -v` (23 tests, no regressions)
+- `python -m py_compile controllers/mouse_controller.py`
+- `python -c "from controller import ControllerFactory; print('factory ok')"`
+
+### Documentation
+
+- Added `docs/project/MOUSE_OVERVIEW.md` covering architecture, plugins, tuned parameters, and implementation notes
+
+---
+
 ## 2026-04-12
 
 ### Codex changes
