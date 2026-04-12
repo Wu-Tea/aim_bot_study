@@ -30,7 +30,6 @@ class AIAimPluginTests(unittest.TestCase):
         config = AIAimConfig(deadzone_inner_px=2.0, deadzone_outer_px=5.0)
         plugin = AIAimPlugin(config)
         output = MouseOutput()
-        # target offset of 1px radial distance is inside the 2px inner deadzone
         plugin.apply(_frame(target_dx=0.5, target_dy=0.5), output)
         self.assertAlmostEqual(output.move_dx, 0.0)
         self.assertAlmostEqual(output.move_dy, 0.0)
@@ -42,12 +41,11 @@ class AIAimPluginTests(unittest.TestCase):
             max_correction_px=50.0,
             deadzone_inner_px=1.0,
             deadzone_outer_px=2.0,
-            fade_speed_px=1000.0,
+            manual_dampen=0.0,
         )
         plugin = AIAimPlugin(config)
         output = MouseOutput()
         plugin.apply(_frame(target_dx=20.0, target_dy=10.0), output)
-        # With gain=1.0, smoothing=0.0, high fade threshold, correction should be close to target
         self.assertGreater(output.move_dx, 0.0)
         self.assertGreater(output.move_dy, 0.0)
 
@@ -58,7 +56,7 @@ class AIAimPluginTests(unittest.TestCase):
             max_correction_px=5.0,
             deadzone_inner_px=0.0,
             deadzone_outer_px=0.0,
-            fade_speed_px=1000.0,
+            manual_dampen=0.0,
         )
         plugin = AIAimPlugin(config)
         output = MouseOutput()
@@ -66,29 +64,32 @@ class AIAimPluginTests(unittest.TestCase):
         self.assertLessEqual(abs(output.move_dx), 5.0 + 0.01)
         self.assertLessEqual(abs(output.move_dy), 5.0 + 0.01)
 
-    def test_ai_fades_with_fast_manual_movement(self):
+    def test_manual_dampen_counteracts_user_movement(self):
         config = AIAimConfig(
-            gain=1.0,
+            gain=0.1,
             smoothing=0.0,
             max_correction_px=50.0,
             deadzone_inner_px=0.0,
             deadzone_outer_px=0.0,
-            fade_speed_px=10.0,
+            manual_dampen=0.5,
         )
         plugin = AIAimPlugin(config)
 
-        # Slow manual movement -> full AI
-        output_slow = MouseOutput()
-        plugin.apply(_frame(target_dx=20.0, manual_dx=0.0), output_slow)
+        # With target present and manual movement, output should be reduced
+        output = MouseOutput()
+        plugin.apply(_frame(target_dx=20.0, manual_dx=10.0), output)
+        # AI adds positive correction, but dampen subtracts 50% of manual_dx (5.0)
+        # Net should be less than AI-only correction
+        ai_only = 20.0 * 0.1  # 2.0
+        self.assertLess(output.move_dx, ai_only)
 
-        # Reset carry
-        plugin.reset()
-
-        # Fast manual movement -> faded AI
-        output_fast = MouseOutput()
-        plugin.apply(_frame(target_dx=20.0, manual_dx=50.0), output_fast)
-
-        self.assertGreater(abs(output_slow.move_dx), abs(output_fast.move_dx))
+    def test_no_dampen_without_target(self):
+        config = AIAimConfig(manual_dampen=0.5)
+        plugin = AIAimPlugin(config)
+        output = MouseOutput()
+        # Target inside deadzone -> strength=0 -> dampen=0
+        plugin.apply(_frame(target_dx=0.0, manual_dx=10.0, aiming=True), output)
+        self.assertAlmostEqual(output.move_dx, 0.0)
 
     def test_smoothing_carries_between_frames(self):
         config = AIAimConfig(
@@ -97,26 +98,20 @@ class AIAimPluginTests(unittest.TestCase):
             max_correction_px=50.0,
             deadzone_inner_px=0.0,
             deadzone_outer_px=0.0,
-            fade_speed_px=1000.0,
+            manual_dampen=0.0,
         )
         plugin = AIAimPlugin(config)
 
-        # First frame with target
         out1 = MouseOutput()
         plugin.apply(_frame(target_dx=20.0, target_dy=0.0), out1)
 
-        # Second frame with zero target: carry should produce non-zero output
         out2 = MouseOutput()
-        plugin.apply(
-            _frame(target_dx=0.0, target_dy=0.0, aiming=True),
-            out2,
-        )
-        # Carry from previous frame should bleed through
+        plugin.apply(_frame(target_dx=0.0, target_dy=0.0, aiming=True), out2)
         self.assertNotAlmostEqual(out2.move_dx, 0.0)
 
     def test_reset_clears_carry(self):
         config = AIAimConfig(gain=1.0, smoothing=0.8, deadzone_inner_px=0.0,
-                             deadzone_outer_px=0.0, fade_speed_px=1000.0)
+                             deadzone_outer_px=0.0, manual_dampen=0.0)
         plugin = AIAimPlugin(config)
         out = MouseOutput()
         plugin.apply(_frame(target_dx=30.0), out)

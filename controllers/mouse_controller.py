@@ -133,8 +133,18 @@ class MouseController(BaseController, threading.Thread):
         move_y = int(output.move_dy)
         if move_x != 0 or move_y != 0:
             win32api.mouse_event(MOUSEEVENTF_MOVE, move_x, move_y, 0, 0)
+            # Subtract injected movement from the accumulator so pynput's
+            # on_move callback (which sees ALL cursor movement including our
+            # synthetic injection) doesn't feed it back as "manual" input.
+            with self.lock:
+                self._acc_dx -= move_x
+                self._acc_dy -= move_y
 
         if output.left_click and not self._left_click_held:
+            # Always send UP before DOWN to create a clean press edge.
+            # This ensures the game registers a fresh click even if the
+            # button was already held (e.g. by user or previous cycle).
+            win32api.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
             win32api.mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
             self._left_click_held = True
         elif not output.left_click and self._left_click_held:

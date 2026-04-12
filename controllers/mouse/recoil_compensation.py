@@ -5,7 +5,7 @@ from .state import MouseFrame, MouseOutput
 
 @dataclass(slots=True, frozen=True)
 class RecoilCompensationConfig:
-    amount_px: float = 3.0
+    amount_px: float = 0.80
 
 
 class RecoilCompensationPlugin:

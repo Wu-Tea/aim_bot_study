@@ -13,12 +13,14 @@ def _soft_ramp(magnitude: float, inner: float, outer: float) -> float:
 
 @dataclass(slots=True, frozen=True)
 class AIAimConfig:
-    gain: float = 0.5
-    smoothing: float = 0.6
-    max_correction_px: float = 15.0
-    deadzone_inner_px: float = 2.0
-    deadzone_outer_px: float = 5.0
-    fade_speed_px: float = 50.0
+    gain: float = 0.06
+    smoothing: float = 0.65
+    max_correction_px: float = 1.5
+    deadzone_inner_px: float = 3.0
+    deadzone_outer_px: float = 8.0
+    # Fraction of manual mouse movement to counteract when AI has a target.
+    # 0.0 = no dampening, 1.0 = fully cancel user movement.
+    manual_dampen: float = 0.4
 
 
 class AIAimPlugin:
@@ -35,24 +37,24 @@ class AIAimPlugin:
         cfg = self.config
         desired_x = 0.0
         desired_y = 0.0
+        dampen = 0.0
 
         if frame.is_aiming:
+            target_radial = (frame.target_dx ** 2 + frame.target_dy ** 2) ** 0.5
+            strength = _soft_ramp(target_radial, cfg.deadzone_inner_px, cfg.deadzone_outer_px)
+
             raw_x = frame.target_dx * cfg.gain
             raw_y = frame.target_dy * cfg.gain
 
             raw_x = max(-cfg.max_correction_px, min(cfg.max_correction_px, raw_x))
             raw_y = max(-cfg.max_correction_px, min(cfg.max_correction_px, raw_y))
 
-            radial = (raw_x * raw_x + raw_y * raw_y) ** 0.5
-            strength = _soft_ramp(radial, cfg.deadzone_inner_px, cfg.deadzone_outer_px)
-
             desired_x = raw_x * strength
             desired_y = raw_y * strength
 
-            manual_speed = (frame.manual_dx ** 2 + frame.manual_dy ** 2) ** 0.5
-            fade = max(0.0, 1.0 - manual_speed / cfg.fade_speed_px) if cfg.fade_speed_px > 0 else 1.0
-            desired_x *= fade
-            desired_y *= fade
+            # Dampen user's physical mouse movement when AI has a target,
+            # making the cursor "stickier" near the target.
+            dampen = cfg.manual_dampen * strength
 
         s = cfg.smoothing
         self.carry_x = self.carry_x * s + desired_x * (1.0 - s)
@@ -60,3 +62,8 @@ class AIAimPlugin:
 
         output.move_dx += self.carry_x
         output.move_dy += self.carry_y
+
+        # Inject negative delta to counteract part of the user's physical movement.
+        if dampen > 0.0:
+            output.move_dx -= frame.manual_dx * dampen
+            output.move_dy -= frame.manual_dy * dampen
