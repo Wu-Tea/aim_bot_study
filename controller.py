@@ -8,7 +8,7 @@ class ControllerFactory:
     based on the specified mode.
     """
     @staticmethod
-    def get_controller(controller_mode: str = "mouse"):
+    def get_controller(controller_mode: str = "mouse", **controller_kwargs):
         """
         Initializes and returns a controller instance.
 
@@ -33,8 +33,12 @@ class ControllerFactory:
         )
         print(message)
 
+        init_kwargs = {}
+        if controller_mode == "gamepad":
+            init_kwargs["auto_fire_output"] = controller_kwargs.get("auto_fire_output", "RB")
+
         try:
-            controller = controller_cls()
+            controller = controller_cls(**init_kwargs)
         except Exception as exc:
             raise RuntimeError(f"Failed to initialize controller mode '{controller_mode}': {exc}") from exc
 

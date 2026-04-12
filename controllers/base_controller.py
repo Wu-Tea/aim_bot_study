@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 
+
 class BaseController(ABC):
     """
     Abstract base class for all controller types.
@@ -30,12 +31,19 @@ class BaseController(ABC):
         """
         pass
 
-    def set_auto_rb(self, pressed: bool):
+    def set_auto_fire(self, pressed: bool):
         """
-        Optional hook to control automatic RB pressing.
-        Controllers that don't use RB can ignore this.
+        Optional hook to control automatic fire on the controller's chosen
+        output (for example RB or RT).
         """
         pass
+
+    def set_auto_rb(self, pressed: bool):
+        """
+        Compatibility alias for older vision code paths that still think in
+        terms of RB instead of generic automatic fire.
+        """
+        self.set_auto_fire(pressed)
 
     def stop(self):
         """

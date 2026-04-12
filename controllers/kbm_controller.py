@@ -89,10 +89,13 @@ class KBMController(BaseController, threading.Thread):
     def is_aiming(self):
         return self._is_aiming
 
-    def set_auto_rb(self, pressed: bool):
+    def set_auto_fire(self, pressed: bool):
         with self.lock:
             self._auto_rb_pressed = bool(pressed)
             self._sync_rb_state()
+
+    def set_auto_rb(self, pressed: bool):
+        self.set_auto_fire(pressed)
 
     def stop(self):
         self.running = False

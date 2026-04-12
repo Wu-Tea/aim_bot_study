@@ -19,6 +19,12 @@ def _parse_args():
         help="Enable periodic performance logs.",
     )
     parser.add_argument(
+        "--auto-fire-output",
+        choices=("RB", "RT"),
+        default=os.getenv("AUTO_FIRE_OUTPUT", "RB"),
+        help="Gamepad auto-fire output target.",
+    )
+    parser.add_argument(
         "--crop-size",
         type=int,
         default=None,
@@ -48,7 +54,10 @@ def main():
 
     controller = None
     try:
-        controller = ControllerFactory.get_controller(controller_mode=args.controller_mode)
+        controller = ControllerFactory.get_controller(
+            controller_mode=args.controller_mode,
+            auto_fire_output=args.auto_fire_output,
+        )
         print(f"[Ready] Controller={args.controller_mode} | starting vision...")
         process_vision(controller=controller)
         return 0

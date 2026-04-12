@@ -43,8 +43,9 @@ class VisionConfig:
 
     @classmethod
     def from_env(cls):
-        crop_size = int(os.getenv("VISION_CROP_SIZE", cls.crop_size))
-        target_fps = int(os.getenv("VISION_TARGET_FPS", cls.target_fps))
+        defaults = cls()
+        crop_size = int(os.getenv("VISION_CROP_SIZE", str(defaults.crop_size)))
+        target_fps = int(os.getenv("VISION_TARGET_FPS", str(defaults.target_fps)))
         return cls(crop_size=crop_size, target_fps=target_fps)
 
 
@@ -87,7 +88,7 @@ def process_vision(controller=None):
                 if was_aiming:
                     if controller:
                         controller.reset()
-                        controller.set_auto_rb(False)
+                        controller.set_auto_fire(False)
                     target_selector.reset_tracking()
                     aim_enhancement.reset()
                     rb_hit_detector.reset()
@@ -106,7 +107,7 @@ def process_vision(controller=None):
 
             if frame is None:
                 if controller:
-                    controller.set_auto_rb(False)
+                    controller.set_auto_fire(False)
                     controller.reset()
                 aim_enhancement.reset()
                 target_selector.reset_tracking()
@@ -121,7 +122,7 @@ def process_vision(controller=None):
             infer_ms = (time.perf_counter() - inference_start) * 1000.0
 
             post_start = time.perf_counter()
-            auto_rb_active = rb_hit_detector.update(detections)
+            auto_fire_active = rb_hit_detector.update(detections)
             if detections:
                 selected_target = target_selector.select_target(detections, frame)
                 if selected_target is not None:
@@ -139,7 +140,7 @@ def process_vision(controller=None):
             post_ms = (time.perf_counter() - post_start) * 1000.0
 
             if controller:
-                controller.set_auto_rb(auto_rb_active)
+                controller.set_auto_fire(auto_fire_active)
                 if best_target_delta:
                     controller.update(best_target_delta[0], best_target_delta[1])
                 else:
@@ -158,7 +159,7 @@ def process_vision(controller=None):
     finally:
         print("Stopping vision processing.")
         if controller:
-            controller.set_auto_rb(False)
+            controller.set_auto_fire(False)
             controller.reset()
         capture_thread.stop()
         capture_thread.join(timeout=1.0)
