@@ -1,77 +1,150 @@
-import win32api
 import threading
 import time
+
+import win32api
+from pynput import mouse as pynput_mouse
+
 from .base_controller import BaseController
+from .mouse import (
+    AIAimConfig,
+    AIAimPlugin,
+    AutoFireConfig,
+    AutoFirePlugin,
+    MouseFrame,
+    MouseOutput,
+    RecoilCompensationConfig,
+    RecoilCompensationPlugin,
+    apply_plugins,
+    reset_plugins,
+)
+
+MOUSEEVENTF_MOVE = 0x0001
+MOUSEEVENTF_LEFTDOWN = 0x0002
+MOUSEEVENTF_LEFTUP = 0x0004
+
 
 class MouseController(BaseController, threading.Thread):
     """
-    Native mouse controller. The AI directly moves the system cursor.
+    Native mouse controller with plugin-based enhancements.
+    AI corrections are injected as additional mouse_event deltas
+    on top of the physical mouse movement.
     """
-    def __init__(self, smooth=0.5, sensitivity_multiplier=0.7):
+
+    def __init__(self, plugins=None):
         super().__init__()
         self.daemon = True
+        self.running = True
         self.ready = True
-        self.smooth = smooth
-        self.multiplier = sensitivity_multiplier
-        
+        self.lock = threading.Lock()
+
         self.target_dx = 0.0
         self.target_dy = 0.0
-        self.lock = threading.Lock()
-        self.running = True
-        
-        self.MOUSEEVENTF_MOVE = 0x0001
-        self.DEADZONE = 8 # Pixels
+        self.target_revision = 0
+        self.target_timestamp = None
+        self._is_aiming = False
+        self._auto_fire_requested = False
+        self._acc_dx = 0.0
+        self._acc_dy = 0.0
+        self._left_click_held = False
 
+        self.plugins = list(plugins) if plugins is not None else [
+            AIAimPlugin(AIAimConfig()),
+            AutoFirePlugin(AutoFireConfig()),
+            RecoilCompensationPlugin(RecoilCompensationConfig()),
+        ]
+
+        self._last_mouse_x, self._last_mouse_y = win32api.GetCursorPos()
+        self._mouse_listener = pynput_mouse.Listener(
+            on_move=self._on_mouse_move,
+            on_click=self._on_mouse_click,
+        )
+        self._mouse_listener.start()
         self.start()
+
+    def _on_mouse_move(self, x, y):
+        dx = x - self._last_mouse_x
+        dy = y - self._last_mouse_y
+        self._last_mouse_x, self._last_mouse_y = x, y
+        with self.lock:
+            self._acc_dx += dx
+            self._acc_dy += dy
+
+    def _on_mouse_click(self, x, y, button, pressed):
+        if button == pynput_mouse.Button.right:
+            self._is_aiming = pressed
+            if not pressed:
+                self.reset()
 
     def update(self, dx, dy):
         with self.lock:
-            self.target_dx = dx * self.multiplier
-            self.target_dy = dy * self.multiplier
+            self.target_dx = dx
+            self.target_dy = dy
+            self.target_revision += 1
+            self.target_timestamp = time.perf_counter()
 
     def reset(self):
         with self.lock:
             self.target_dx = 0.0
             self.target_dy = 0.0
+            self.target_revision += 1
+            self.target_timestamp = time.perf_counter()
+        reset_plugins(self.plugins)
 
     def is_aiming(self):
-        # Right mouse button state
-        return win32api.GetAsyncKeyState(0x02) < 0
+        return self._is_aiming
+
+    def set_auto_fire(self, pressed: bool):
+        with self.lock:
+            self._auto_fire_requested = bool(pressed)
+
+    def set_auto_rb(self, pressed: bool):
+        self.set_auto_fire(pressed)
 
     def stop(self):
         self.running = False
+        self._mouse_listener.stop()
+
+    def _build_frame(self, *, timestamp):
+        with self.lock:
+            manual_dx = self._acc_dx
+            manual_dy = self._acc_dy
+            self._acc_dx = 0.0
+            self._acc_dy = 0.0
+            target_dx = self.target_dx
+            target_dy = self.target_dy
+            auto_fire_requested = self._auto_fire_requested
+            target_revision = self.target_revision
+            target_timestamp = self.target_timestamp
+
+        return MouseFrame(
+            timestamp=timestamp,
+            manual_dx=manual_dx,
+            manual_dy=manual_dy,
+            is_aiming=self._is_aiming,
+            target_dx=target_dx,
+            target_dy=target_dy,
+            auto_fire_requested=auto_fire_requested,
+            target_revision=target_revision,
+            target_timestamp=target_timestamp,
+        )
+
+    def _apply_output(self, output: MouseOutput):
+        move_x = int(output.move_dx)
+        move_y = int(output.move_dy)
+        if move_x != 0 or move_y != 0:
+            win32api.mouse_event(MOUSEEVENTF_MOVE, move_x, move_y, 0, 0)
+
+        if output.left_click and not self._left_click_held:
+            win32api.mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
+            self._left_click_held = True
+        elif not output.left_click and self._left_click_held:
+            win32api.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
+            self._left_click_held = False
 
     def run(self):
-        """
-        High-frequency smoothing loop to move the mouse cursor.
-        """
         while self.running:
-            with self.lock:
-                # Deadzone check
-                if abs(self.target_dx) < self.DEADZONE and abs(self.target_dy) < self.DEADZONE:
-                    self.target_dx = 0.0
-                    self.target_dy = 0.0
-                
-                elif abs(self.target_dx) > 1 or abs(self.target_dy) > 1:
-                    # Calculate smoothed movement
-                    move_x = self.target_dx * self.smooth
-                    move_y = self.target_dy * self.smooth
-
-                    # Ensure minimum movement of 1 pixel to avoid getting stuck
-                    if 0 < move_x < 1: move_x = 1
-                    elif -1 < move_x < 0: move_x = -1
-                    if 0 < move_y < 1: move_y = 1
-                    elif -1 < move_y < 0: move_y = -1
-                    
-                    move_x = int(move_x)
-                    move_y = int(move_y)
-
-                    # Move the mouse
-                    win32api.mouse_event(self.MOUSEEVENTF_MOVE, move_x, move_y, 0, 0)
-
-                    # Consume the moved distance
-                    self.target_dx -= move_x
-                    self.target_dy -= move_y
-
-            # Sleep for a short duration to achieve high refresh rate
+            frame = self._build_frame(timestamp=time.perf_counter())
+            output = MouseOutput()
+            apply_plugins(self.plugins, frame, output)
+            self._apply_output(output)
             time.sleep(0.001)
