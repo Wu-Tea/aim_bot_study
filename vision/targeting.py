@@ -31,6 +31,7 @@ class SelectedTarget:
     screen_center_x: float
     screen_center_y: float
     score: float
+    slow_zone: tuple[float, float, float, float] | None = None
 
     @property
     def dx(self):
@@ -40,10 +41,24 @@ class SelectedTarget:
     def dy(self):
         return self.target_y - self.screen_center_y
 
+    def is_crosshair_in_slow_zone(self) -> bool:
+        if self.slow_zone is None:
+            return True
+
+        left, top, right, bottom = self.slow_zone
+        return (
+            left <= self.screen_center_x <= right
+            and top <= self.screen_center_y <= bottom
+        )
+
 
 class TargetSelector:
     MAX_COLOR_BONUS = 10000
     CONFIDENCE_THRESHOLD = 0.40
+    TORSO_BOX_SHRINK_X = 0.22
+    TORSO_BOX_SHRINK_TOP = 0.18
+    TORSO_BOX_SHRINK_BOTTOM = 0.20
+    TORSO_KEYPOINT_SHRINK_X = 0.10
 
     def __init__(self, crop_size: int = 640):
         self.last_target_center = None
@@ -79,12 +94,106 @@ class TargetSelector:
         ty = y1 + (box_h * (0.20 if aspect_ratio > 1.2 else 0.40))
         return tx, ty
 
-    def select_target(self, detections: list[ParsedDetections], frame: np.ndarray):
-        best_target_abs = None
-        highest_score = -float("inf")
+    def _fallback_slow_zone(self, box: np.ndarray):
+        x1, y1, x2, y2 = box
+        box_w = float(x2 - x1)
+        box_h = float(y2 - y1)
+        return (
+            x1 + (box_w * self.TORSO_BOX_SHRINK_X),
+            y1 + (box_h * self.TORSO_BOX_SHRINK_TOP),
+            x2 - (box_w * self.TORSO_BOX_SHRINK_X),
+            y2 - (box_h * self.TORSO_BOX_SHRINK_BOTTOM),
+        )
+
+    def _keypoint_slow_zone(
+        self,
+        box: np.ndarray,
+        keypoints: np.ndarray | None,
+        box_index: int,
+    ):
+        if keypoints is None or len(keypoints) <= box_index:
+            return None
+
+        kpts = keypoints[box_index]
+        left_shoulder, right_shoulder = kpts[5], kpts[6]
+        left_hip, right_hip = kpts[11], kpts[12]
+        torso_points = (left_shoulder, right_shoulder, left_hip, right_hip)
+        if any(point[2] <= self.CONFIDENCE_THRESHOLD for point in torso_points):
+            return None
+
+        left = min(left_shoulder[0], left_hip[0])
+        right = max(right_shoulder[0], right_hip[0])
+        top = min(left_shoulder[1], right_shoulder[1])
+        bottom = max(left_hip[1], right_hip[1])
+        width = max(0.0, right - left)
+        shrink_x = width * self.TORSO_KEYPOINT_SHRINK_X
+        return (
+            left + shrink_x,
+            top,
+            right - shrink_x,
+            bottom,
+        )
+
+    def _get_slow_zone(
+        self,
+        box: np.ndarray,
+        keypoints: np.ndarray | None,
+        box_index: int,
+    ):
+        return self._keypoint_slow_zone(box, keypoints, box_index) or self._fallback_slow_zone(box)
+
+    def _classify_color(self, box: np.ndarray, frame: np.ndarray):
+        x1, y1, x2, y2 = box
         frame_h, frame_w = frame.shape[:2]
+        box_w = float(x2 - x1)
+        box_h = float(y2 - y1)
+        cx = (x1 + x2) * 0.5
+        roi_h = int(max(12, min(36, box_h * 0.20)))
+        roi_w = int(max(24, min(80, box_w * 0.80)))
+        roi_bottom = max(0, min(frame_h, int(y1) - 2))
+        roi_top = max(0, roi_bottom - roi_h)
+        roi_left = max(0, int(cx - roi_w / 2))
+        roi_right = min(frame_w, int(cx + roi_w / 2))
+
+        if (roi_bottom - roi_top) < 4 or (roi_right - roi_left) < 4:
+            return 0.0, False
+
+        roi_hsv = cv2.cvtColor(frame[roi_top:roi_bottom, roi_left:roi_right], cv2.COLOR_RGB2HSV)
+        roi_area = roi_hsv.shape[0] * roi_hsv.shape[1]
+
+        friendly_mask = cv2.bitwise_or(
+            cv2.inRange(roi_hsv, LOWER_GREEN, UPPER_GREEN),
+            cv2.inRange(roi_hsv, LOWER_BLUE, UPPER_BLUE),
+        )
+        if cv2.countNonZero(friendly_mask) > roi_area * 0.08:
+            return 0.0, True
+
+        enemy_mask = cv2.inRange(roi_hsv, LOWER_YELLOW, UPPER_YELLOW)
+        enemy_mask = cv2.bitwise_or(enemy_mask, cv2.inRange(roi_hsv, LOWER_RED1, UPPER_RED1))
+        enemy_mask = cv2.bitwise_or(enemy_mask, cv2.inRange(roi_hsv, LOWER_RED2, UPPER_RED2))
+        if cv2.countNonZero(enemy_mask) > roi_area * 0.10:
+            return float(self.MAX_COLOR_BONUS), False
+
+        return 0.0, False
+
+    def _fails_tracking_jump(self, point: tuple[float, float]) -> bool:
+        if self.last_target_center is None:
+            return False
+        jump = math.hypot(
+            point[0] - self.last_target_center[0],
+            point[1] - self.last_target_center[1],
+        )
+        return jump > self.MAX_JUMP_PIXELS
+
+    def _fails_first_pickup_flick(self, point: tuple[float, float]) -> bool:
+        flick_dx = point[0] - self.screen_center_x
+        flick_dy = point[1] - self.screen_center_y
+        return abs(flick_dx) >= self.MAX_JUMP_PIXELS or abs(flick_dy) >= self.MAX_JUMP_PIXELS
+
+    def select_target(self, detections: list[ParsedDetections], frame: np.ndarray):
         last_target_center = self.last_target_center
 
+        candidates = []
         for detection in detections:
             for i, box in enumerate(detection.boxes):
                 x1, y1, x2, y2 = box
@@ -94,75 +203,67 @@ class TargetSelector:
                     continue
 
                 tx, ty = self._get_target_point(box, detection.keypoints, i)
-                dist = math.hypot(tx - self.screen_center_x, ty - self.screen_center_y)
-                score = -dist * 2.5
+                color_bonus, is_friendly = self._classify_color(box, frame)
+                if is_friendly:
+                    continue
 
+                slow_zone = self._get_slow_zone(box, detection.keypoints, i)
+                candidates.append((tx, ty, box_w, box_h, color_bonus, slow_zone))
+
+        if not candidates:
+            self.reset_tracking()
+            return None
+
+        if len(candidates) == 1:
+            tx, ty, _, _, color_bonus, slow_zone = candidates[0]
+            chosen = (tx, ty)
+            chosen_score = color_bonus
+            chosen_slow_zone = slow_zone
+        else:
+            best = None
+            best_score = -float("inf")
+            best_slow_zone = None
+            for tx, ty, box_w, box_h, color_bonus, slow_zone in candidates:
+                dist = math.hypot(tx - self.screen_center_x, ty - self.screen_center_y)
+                score = -dist * 2.5 + color_bonus
                 current_area = box_w * box_h
                 if current_area > self.MAX_AREA_LIMIT:
                     score -= (current_area - self.MAX_AREA_LIMIT) * 0.1
                 else:
                     area_diff = abs(current_area - self.IDEAL_AREA)
                     score += (self.IDEAL_AREA - area_diff) * 0.005
-
                 if last_target_center and math.hypot(tx - last_target_center[0], ty - last_target_center[1]) < self.TRACKING_RADIUS:
                     score += self.TRACKING_BONUS
+                if score > best_score:
+                    best_score = score
+                    best = (tx, ty)
+                    best_slow_zone = slow_zone
 
-                if score + self.MAX_COLOR_BONUS <= highest_score:
-                    continue
+            if best is None or best_score <= self.MIN_SCORE_THRESHOLD:
+                self.reset_tracking()
+                return None
 
-                cx = (x1 + x2) * 0.5
-                roi_h = int(max(12, min(36, box_h * 0.20)))
-                roi_w = int(max(24, min(80, box_w * 0.80)))
-                roi_bottom = max(0, min(frame_h, int(y1) - 2))
-                roi_top = max(0, roi_bottom - roi_h)
-                roi_left = max(0, int(cx - roi_w / 2))
-                roi_right = min(frame_w, int(cx + roi_w / 2))
+            if last_target_center is None and self._fails_first_pickup_flick(best):
+                self.reset_tracking()
+                return None
 
-                if (roi_bottom - roi_top) >= 4 and (roi_right - roi_left) >= 4:
-                    roi_hsv = cv2.cvtColor(frame[roi_top:roi_bottom, roi_left:roi_right], cv2.COLOR_RGB2HSV)
-                    roi_area = roi_hsv.shape[0] * roi_hsv.shape[1]
+            chosen = best
+            chosen_score = best_score
+            chosen_slow_zone = best_slow_zone
 
-                    friendly_mask = cv2.bitwise_or(
-                        cv2.inRange(roi_hsv, LOWER_GREEN, UPPER_GREEN),
-                        cv2.inRange(roi_hsv, LOWER_BLUE, UPPER_BLUE),
-                    )
-                    if cv2.countNonZero(friendly_mask) > roi_area * 0.08:
-                        score -= 100000
+        if self._fails_tracking_jump(chosen):
+            self.reset_tracking()
+            return None
 
-                    enemy_mask = cv2.inRange(roi_hsv, LOWER_YELLOW, UPPER_YELLOW)
-                    enemy_mask = cv2.bitwise_or(enemy_mask, cv2.inRange(roi_hsv, LOWER_RED1, UPPER_RED1))
-                    enemy_mask = cv2.bitwise_or(enemy_mask, cv2.inRange(roi_hsv, LOWER_RED2, UPPER_RED2))
-                    if cv2.countNonZero(enemy_mask) > roi_area * 0.10:
-                        score += self.MAX_COLOR_BONUS
-
-                if score > highest_score:
-                    highest_score = score
-                    best_target_abs = (tx, ty)
-
-        if best_target_abs and highest_score > self.MIN_SCORE_THRESHOLD:
-            if last_target_center is not None:
-                jump = math.hypot(best_target_abs[0] - last_target_center[0], best_target_abs[1] - last_target_center[1])
-                if jump > self.MAX_JUMP_PIXELS:
-                    self.reset_tracking()
-                    return None
-            else:
-                flick_dx = best_target_abs[0] - self.screen_center_x
-                flick_dy = best_target_abs[1] - self.screen_center_y
-                if abs(flick_dx) >= self.MAX_JUMP_PIXELS or abs(flick_dy) >= self.MAX_JUMP_PIXELS:
-                    self.reset_tracking()
-                    return None
-
-            self.last_target_center = best_target_abs
-            return SelectedTarget(
-                target_x=best_target_abs[0],
-                target_y=best_target_abs[1],
-                screen_center_x=self.screen_center_x,
-                screen_center_y=self.screen_center_y,
-                score=highest_score,
-            )
-
-        self.reset_tracking()
-        return None
+        self.last_target_center = chosen
+        return SelectedTarget(
+            target_x=chosen[0],
+            target_y=chosen[1],
+            screen_center_x=self.screen_center_x,
+            screen_center_y=self.screen_center_y,
+            score=chosen_score,
+            slow_zone=chosen_slow_zone,
+        )
 
     def find_best_target(self, detections: list[ParsedDetections], frame: np.ndarray):
         selected_target = self.select_target(detections, frame)

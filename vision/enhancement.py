@@ -25,6 +25,7 @@ class NearTargetDampingConfig:
     inner_radius: float = 4.0
     outer_radius: float = 28.0
     min_scale: float = 0.65
+    convergence_epsilon_px: float = 0.25
 
 
 @dataclass(slots=True)
@@ -139,7 +140,20 @@ class NearTargetDamping:
         progress = (distance - inner) / (outer - inner)
         return min_scale + ((1.0 - min_scale) * progress)
 
+    def _is_converging(self, state: AimEnhancementState):
+        if state.previous_dx is None or state.previous_dy is None:
+            return False
+
+        current_distance = math.hypot(state.target.dx, state.target.dy)
+        previous_distance = math.hypot(state.previous_dx, state.previous_dy)
+        return current_distance < (previous_distance - self.config.convergence_epsilon_px)
+
     def apply(self, state: AimEnhancementState):
+        if not state.target.is_crosshair_in_slow_zone():
+            return
+        if not self._is_converging(state):
+            return
+
         distance = math.hypot(state.target.dx, state.target.dy)
         scale = self._scale_for_distance(distance)
         state.output_dx *= scale

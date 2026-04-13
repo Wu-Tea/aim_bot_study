@@ -22,6 +22,22 @@ def _target(dx: float, dy: float):
     )
 
 
+def _target_with_slow_zone(
+    dx: float,
+    dy: float,
+    *,
+    slow_zone: tuple[float, float, float, float],
+):
+    return SelectedTarget(
+        target_x=320.0 + dx,
+        target_y=320.0 + dy,
+        screen_center_x=320.0,
+        screen_center_y=320.0,
+        score=100.0,
+        slow_zone=slow_zone,
+    )
+
+
 def _pipeline(*, lead=None, catchup=None, damping=None):
     return AimEnhancementPipeline(
         lead_predictor=lead or LeadPredictor(LeadPredictorConfig(lead_seconds=0.0, gain=0.0, max_lead_px=0.0)),
@@ -66,14 +82,81 @@ class VisionEnhancementTests(unittest.TestCase):
 
         self.assertGreater(enhanced_dx, 12.0)
 
-    def test_near_target_damping_preserves_non_zero_floor(self):
+    def test_near_target_damping_preserves_non_zero_floor_after_convergence(self):
         pipeline = _pipeline(
             damping=NearTargetDamping(
                 NearTargetDampingConfig(inner_radius=4.0, outer_radius=20.0, min_scale=0.60)
             ),
         )
 
-        enhanced_dx, enhanced_dy = pipeline.process(_target(2.0, 0.0), timestamp=1.0)
+        pipeline.process(_target(4.0, 0.0), timestamp=1.0)
+        enhanced_dx, enhanced_dy = pipeline.process(_target(2.0, 0.0), timestamp=1.1)
+
+        self.assertGreater(enhanced_dx, 0.0)
+        self.assertLess(enhanced_dx, 2.0)
+        self.assertEqual(enhanced_dy, 0.0)
+
+    def test_near_target_damping_waits_for_slow_zone_entry(self):
+        pipeline = _pipeline(
+            damping=NearTargetDamping(
+                NearTargetDampingConfig(inner_radius=4.0, outer_radius=20.0, min_scale=0.60)
+            ),
+        )
+
+        enhanced_dx, enhanced_dy = pipeline.process(
+            _target_with_slow_zone(
+                2.0,
+                0.0,
+                slow_zone=(340.0, 300.0, 370.0, 340.0),
+            ),
+            timestamp=1.0,
+        )
+
+        self.assertEqual(enhanced_dx, 2.0)
+        self.assertEqual(enhanced_dy, 0.0)
+
+    def test_near_target_damping_does_not_apply_on_first_slow_zone_entry(self):
+        pipeline = _pipeline(
+            damping=NearTargetDamping(
+                NearTargetDampingConfig(inner_radius=4.0, outer_radius=20.0, min_scale=0.60)
+            ),
+        )
+
+        enhanced_dx, enhanced_dy = pipeline.process(
+            _target_with_slow_zone(
+                2.0,
+                0.0,
+                slow_zone=(300.0, 300.0, 340.0, 340.0),
+            ),
+            timestamp=1.0,
+        )
+
+        self.assertEqual(enhanced_dx, 2.0)
+        self.assertEqual(enhanced_dy, 0.0)
+
+    def test_near_target_damping_applies_inside_slow_zone_after_convergence(self):
+        pipeline = _pipeline(
+            damping=NearTargetDamping(
+                NearTargetDampingConfig(inner_radius=4.0, outer_radius=20.0, min_scale=0.60)
+            ),
+        )
+
+        pipeline.process(
+            _target_with_slow_zone(
+                4.0,
+                0.0,
+                slow_zone=(300.0, 300.0, 340.0, 340.0),
+            ),
+            timestamp=1.0,
+        )
+        enhanced_dx, enhanced_dy = pipeline.process(
+            _target_with_slow_zone(
+                2.0,
+                0.0,
+                slow_zone=(300.0, 300.0, 340.0, 340.0),
+            ),
+            timestamp=1.1,
+        )
 
         self.assertGreater(enhanced_dx, 0.0)
         self.assertLess(enhanced_dx, 2.0)

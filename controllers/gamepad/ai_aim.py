@@ -1,11 +1,13 @@
 from dataclasses import dataclass
 from typing import Iterable, Protocol
 
+from .adaptive_delta_gain import AdaptiveDeltaGain, AdaptiveDeltaGainConfig
 from .horizontal_assist import (
     HorizontalAimAssist,
     HorizontalAimAssistConfig,
     compute_axis_soft_strengths,
 )
+from .manual_intent_guard import ManualIntentGuard, ManualIntentGuardConfig
 from .overshoot_guard import OvershootGuard, OvershootGuardConfig
 from .state import GamepadFrame, GamepadOutput
 
@@ -13,7 +15,10 @@ from .state import GamepadFrame, GamepadOutput
 @dataclass(slots=True, frozen=True)
 class AIAimConfig:
     smoothing: float = 0.65
-    max_pixels: int = 150
+    max_pixels: int = 130
+    piecewise_mid_pixels: float = 60.0
+    piecewise_max_pixels: float = 230.0
+    piecewise_mid_ratio: float = 0.5
     invert_x: bool = False
     invert_y: bool = False
     max_ai_force: float = 0.6
@@ -26,13 +31,15 @@ class AIAimConfig:
 
 @dataclass(slots=True)
 class AIAimContext:
-    manual_rx: int
-    manual_ry: int
+    manual_rx: float
+    manual_ry: float
     target_dx: float
     target_dy: float
     timestamp: float
     assist_dx: float
     assist_dy: float
+    ai_fade_manual_rx: float = 0.0
+    ai_fade_manual_ry: float = 0.0
     x_force_bonus: float = 0.0
     x_desired_scale: float = 1.0
     y_desired_scale: float = 1.0
@@ -56,6 +63,63 @@ class AIAimSubPlugin(Protocol):
 
     def apply(self, context: AIAimContext) -> None:
         ...
+
+
+class AdaptiveDeltaGainSubPlugin:
+    def __init__(self, config: AdaptiveDeltaGainConfig | None = None):
+        self.gain = AdaptiveDeltaGain(config)
+
+    def reset(self) -> None:
+        self.gain.reset()
+
+    def observe_target(
+        self,
+        *,
+        target_dx: float,
+        target_dy: float,
+        is_aiming: bool,
+        timestamp: float,
+    ) -> None:
+        self.gain.observe_target(
+            target_dx=target_dx,
+            target_dy=target_dy,
+            is_aiming=is_aiming,
+            timestamp=timestamp,
+        )
+
+    def apply(self, context: AIAimContext) -> None:
+        adjustment = self.gain.compute_adjustment(context.manual_rx, context.manual_ry)
+        context.target_dx *= adjustment.target_dx_multiplier
+        context.target_dy *= adjustment.target_dy_multiplier
+        context.assist_dx *= adjustment.target_dx_multiplier
+        context.assist_dy *= adjustment.target_dy_multiplier
+
+
+class ManualIntentGuardSubPlugin:
+    def __init__(self, config: ManualIntentGuardConfig | None = None):
+        self.guard = ManualIntentGuard(config)
+
+    def reset(self) -> None:
+        self.guard.reset()
+
+    def observe_target(
+        self,
+        *,
+        target_dx: float,
+        target_dy: float,
+        is_aiming: bool,
+        timestamp: float,
+    ) -> None:
+        self.guard.observe_target(
+            target_dx=target_dx,
+            is_aiming=is_aiming,
+            timestamp=timestamp,
+        )
+
+    def apply(self, context: AIAimContext) -> None:
+        adjustment = self.guard.compute_adjustment(context.manual_rx)
+        context.manual_rx = adjustment.output_manual_rx
+        context.ai_fade_manual_rx = adjustment.ai_fade_manual_rx
 
 
 class HorizontalAssistSubPlugin:
@@ -157,6 +221,8 @@ class AIAimPlugin:
     ):
         self.config = config or AIAimConfig()
         self.sub_plugins = tuple(sub_plugins) if sub_plugins is not None else (
+            ManualIntentGuardSubPlugin(),
+            AdaptiveDeltaGainSubPlugin(),
             HorizontalAssistSubPlugin(),
             OvershootGuardSubPlugin(),
         )
@@ -175,13 +241,15 @@ class AIAimPlugin:
         self._observe_if_needed(frame, target_dx, target_dy)
 
         context = AIAimContext(
-            manual_rx=frame.manual_right_x,
-            manual_ry=frame.manual_right_y,
+            manual_rx=float(frame.manual_right_x),
+            manual_ry=float(frame.manual_right_y),
             target_dx=target_dx,
             target_dy=target_dy,
             timestamp=frame.timestamp,
             assist_dx=target_dx,
             assist_dy=target_dy,
+            ai_fade_manual_rx=float(frame.manual_right_x),
+            ai_fade_manual_ry=float(frame.manual_right_y),
         )
         for plugin in self.sub_plugins:
             plugin.apply(context)
@@ -217,10 +285,10 @@ class AIAimPlugin:
             self.ai_stick_y * self.config.smoothing * context.y_carry_scale
         ) + (desired_ai_y * (1.0 - self.config.smoothing))
 
-        scale_x = self._ai_scale_factor(frame.manual_right_x)
-        scale_y = self._ai_scale_factor(frame.manual_right_y)
-        output.right_x = int(frame.manual_right_x + (self.ai_stick_x * scale_x))
-        output.right_y = int(frame.manual_right_y + (self.ai_stick_y * scale_y))
+        scale_x = self._ai_scale_factor(context.ai_fade_manual_rx)
+        scale_y = self._ai_scale_factor(context.ai_fade_manual_ry)
+        output.right_x = int(context.manual_rx + (self.ai_stick_x * scale_x))
+        output.right_y = int(context.manual_ry + (self.ai_stick_y * scale_y))
 
     def _observe_if_needed(self, frame: GamepadFrame, target_dx: float, target_dy: float) -> None:
         if self._last_target_revision == frame.target_revision:
@@ -240,10 +308,39 @@ class AIAimPlugin:
         self._last_target_revision = frame.target_revision
 
     def _map_pixel_to_stick(self, delta: float) -> float:
+        abs_delta = abs(delta)
+        sign = -1.0 if delta < 0.0 else 1.0
+        piecewise = self._piecewise_map(abs_delta)
+        if piecewise is not None:
+            return piecewise * sign
+
         clamped = self._clamp(delta, self.config.max_pixels)
         return (clamped / self.config.max_pixels) * 32767
 
-    def _ai_scale_factor(self, user_val: int) -> float:
+    def _piecewise_map(self, abs_delta: float) -> float | None:
+        mid_pixels = float(self.config.piecewise_mid_pixels) * self.config.ai_delta_gain
+        max_pixels = float(self.config.piecewise_max_pixels) * self.config.ai_delta_gain
+        mid_ratio = self.config.piecewise_mid_ratio
+
+        if (
+            mid_pixels <= 0.0
+            or max_pixels <= mid_pixels
+            or mid_ratio <= 0.0
+            or mid_ratio >= 1.0
+        ):
+            return None
+
+        if abs_delta >= max_pixels:
+            return 32767.0
+
+        if abs_delta <= mid_pixels:
+            progress = abs_delta / mid_pixels
+            return 32767.0 * mid_ratio * progress
+
+        progress = (abs_delta - mid_pixels) / (max_pixels - mid_pixels)
+        return 32767.0 * (mid_ratio + ((1.0 - mid_ratio) * progress))
+
+    def _ai_scale_factor(self, user_val: float) -> float:
         magnitude = abs(user_val)
         if magnitude >= self.config.ai_fade_full:
             return 0.0
