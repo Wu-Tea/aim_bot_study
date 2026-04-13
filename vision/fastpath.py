@@ -51,7 +51,7 @@ def _bench_once(fn, iters: int):
 
 def _warmup_model(model, config, predict_kwargs: dict, bench: bool = False):
     print("Warming up model...")
-    dummy_frame = np.zeros((config.crop_size, config.crop_size, 3), dtype=np.uint8)
+    dummy_frame = np.zeros((config.capture_height, config.capture_width, 3), dtype=np.uint8)
     for _ in range(config.warmup_iterations):
         model.predict(source=dummy_frame, **predict_kwargs)
 
@@ -105,7 +105,7 @@ def _init_fast_path(model, config):
     fast_path = FastPath(
         backend=backend,
         gpu_input=torch.empty(
-            (1, 3, config.crop_size, config.crop_size),
+            (1, 3, config.capture_height, config.capture_width),
             dtype=_fast_path_input_dtype(backend, config.half),
             device=torch.device(f"cuda:{config.device}"),
         ),

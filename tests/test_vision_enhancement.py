@@ -54,7 +54,14 @@ def _pipeline(*, lead=None, catchup=None, damping=None):
 class VisionEnhancementTests(unittest.TestCase):
     def test_lead_predictor_pushes_output_in_motion_direction(self):
         pipeline = _pipeline(
-            lead=LeadPredictor(LeadPredictorConfig(lead_seconds=0.10, gain=1.0, max_lead_px=12.0)),
+            lead=LeadPredictor(
+                LeadPredictorConfig(
+                    lead_seconds=0.10,
+                    gain=1.0,
+                    max_lead_px=12.0,
+                    consistent_frames=1,
+                )
+            ),
         )
 
         pipeline.process(_target(10.0, 0.0), timestamp=1.0)
@@ -62,6 +69,26 @@ class VisionEnhancementTests(unittest.TestCase):
 
         self.assertGreater(enhanced_dx, 16.0)
         self.assertEqual(enhanced_dy, 0.0)
+
+    def test_lead_predictor_ignores_alternating_jitter_until_motion_is_consistent(self):
+        pipeline = _pipeline(
+            lead=LeadPredictor(
+                LeadPredictorConfig(
+                    lead_seconds=0.10,
+                    gain=1.0,
+                    max_lead_px=12.0,
+                    min_motion_px=1.0,
+                    consistent_frames=2,
+                )
+            ),
+        )
+
+        pipeline.process(_target(10.0, 0.0), timestamp=1.0)
+        second_dx, _ = pipeline.process(_target(14.0, 0.0), timestamp=1.1)
+        third_dx, _ = pipeline.process(_target(11.0, 0.0), timestamp=1.2)
+
+        self.assertEqual(second_dx, 14.0)
+        self.assertEqual(third_dx, 11.0)
 
     def test_catchup_boost_increases_output_after_consecutive_error_growth(self):
         pipeline = _pipeline(

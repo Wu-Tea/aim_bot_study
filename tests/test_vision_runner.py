@@ -11,22 +11,42 @@ class VisionRunnerTests(unittest.TestCase):
         with patch.dict(os.environ, {}, clear=True):
             config = VisionConfig.from_env()
 
-        self.assertEqual(config.crop_size, 640)
-        self.assertEqual(config.target_fps, 90)
+        self.assertEqual(config.capture_width, 896)
+        self.assertEqual(config.capture_height, 512)
+        self.assertEqual(config.capture_fps, 70)
+        self.assertEqual(config.image_size, (512, 896))
 
     def test_from_env_allows_runtime_overrides(self):
         with patch.dict(
             os.environ,
             {
-                "VISION_CROP_SIZE": "512",
-                "VISION_TARGET_FPS": "144",
+                "VISION_CROP_WIDTH": "896",
+                "VISION_CROP_HEIGHT": "512",
+                "VISION_CAPTURE_FPS": "144",
             },
             clear=True,
         ):
             config = VisionConfig.from_env()
 
-        self.assertEqual(config.crop_size, 512)
-        self.assertEqual(config.target_fps, 144)
+        self.assertEqual(config.capture_width, 896)
+        self.assertEqual(config.capture_height, 512)
+        self.assertEqual(config.capture_fps, 144)
+        self.assertEqual(config.image_size, (512, 896))
+
+    def test_from_env_supports_legacy_square_overrides(self):
+        with patch.dict(
+            os.environ,
+            {
+                "VISION_CROP_SIZE": "512",
+                "VISION_TARGET_FPS": "120",
+            },
+            clear=True,
+        ):
+            config = VisionConfig.from_env()
+
+        self.assertEqual(config.capture_width, 512)
+        self.assertEqual(config.capture_height, 512)
+        self.assertEqual(config.capture_fps, 120)
 
 
 class _AliasController(BaseController):

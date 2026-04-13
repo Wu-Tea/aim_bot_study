@@ -9,6 +9,8 @@ class LeadPredictorConfig:
     lead_seconds: float = 0.05
     gain: float = 0.85
     max_lead_px: float = 10.0
+    min_motion_px: float = 2.0
+    consistent_frames: int = 2
 
 
 @dataclass(slots=True, frozen=True)
@@ -32,6 +34,8 @@ class NearTargetDampingConfig:
 class AimEnhancementState:
     target: SelectedTarget
     dt: float
+    motion_x: float
+    motion_y: float
     velocity_x: float
     velocity_y: float
     previous_dx: float | None
@@ -43,16 +47,36 @@ class AimEnhancementState:
 class LeadPredictor:
     def __init__(self, config: LeadPredictorConfig | None = None):
         self.config = config or LeadPredictorConfig()
+        self.reset()
 
     def reset(self):
-        return None
+        self._x_streak = 0
+        self._y_streak = 0
+        self._x_sign = 0.0
+        self._y_sign = 0.0
+
+    def _update_axis_streak(self, motion: float, streak: int, last_sign: float):
+        if abs(motion) < self.config.min_motion_px:
+            return 0, 0.0
+
+        sign = math.copysign(1.0, motion)
+        if sign == last_sign:
+            return streak + 1, sign
+        return 1, sign
 
     def apply(self, state: AimEnhancementState):
         if state.dt <= 0.0 or self.config.lead_seconds <= 0.0 or self.config.gain <= 0.0:
             return
 
-        lead_x = state.velocity_x * self.config.lead_seconds * self.config.gain
-        lead_y = state.velocity_y * self.config.lead_seconds * self.config.gain
+        self._x_streak, self._x_sign = self._update_axis_streak(state.motion_x, self._x_streak, self._x_sign)
+        self._y_streak, self._y_sign = self._update_axis_streak(state.motion_y, self._y_streak, self._y_sign)
+
+        lead_x = 0.0
+        lead_y = 0.0
+        if self._x_streak >= self.config.consistent_frames:
+            lead_x = state.velocity_x * self.config.lead_seconds * self.config.gain
+        if self._y_streak >= self.config.consistent_frames:
+            lead_y = state.velocity_y * self.config.lead_seconds * self.config.gain
 
         max_lead = abs(self.config.max_lead_px)
         state.output_dx += max(-max_lead, min(max_lead, lead_x))
@@ -185,14 +209,18 @@ class AimEnhancementPipeline:
 
     def process(self, target: SelectedTarget, timestamp: float):
         dt = 0.0
+        motion_x = 0.0
+        motion_y = 0.0
         previous_dx = None if self._previous_target is None else self._previous_target.dx
         previous_dy = None if self._previous_target is None else self._previous_target.dy
 
         if self._previous_target is not None and self._previous_timestamp is not None:
             dt = max(0.0, timestamp - self._previous_timestamp)
+            motion_x = target.target_x - self._previous_target.target_x
+            motion_y = target.target_y - self._previous_target.target_y
             if dt > 0.0:
-                raw_velocity_x = (target.target_x - self._previous_target.target_x) / dt
-                raw_velocity_y = (target.target_y - self._previous_target.target_y) / dt
+                raw_velocity_x = motion_x / dt
+                raw_velocity_y = motion_y / dt
                 alpha = self.velocity_filter_alpha
                 self._velocity_x = (alpha * raw_velocity_x) + ((1.0 - alpha) * self._velocity_x)
                 self._velocity_y = (alpha * raw_velocity_y) + ((1.0 - alpha) * self._velocity_y)
@@ -200,6 +228,8 @@ class AimEnhancementPipeline:
         state = AimEnhancementState(
             target=target,
             dt=dt,
+            motion_x=motion_x,
+            motion_y=motion_y,
             velocity_x=self._velocity_x,
             velocity_y=self._velocity_y,
             previous_dx=previous_dx,

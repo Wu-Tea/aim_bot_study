@@ -1,5 +1,66 @@
 # Worklog
 
+## 2026-04-14 (vision detector-first tuning)
+
+### Detector-first pipeline
+
+- Switched the default vision model path from pose to detect:
+  - `models/yolo26n.engine`
+  - fallback `models/yolo26n.pt`
+- Moved the runtime defaults to a rectangular capture profile:
+  - `896 x 512`
+  - `70 FPS`
+- Unified runtime configuration around:
+  - `capture_width`
+  - `capture_height`
+  - `capture_fps`
+- Updated:
+  - `main.py`
+  - `vision/runner.py`
+  - `vision/capture.py`
+  - `vision/fastpath.py`
+  - `tools/export_trt.py`
+
+### Targeting changes
+
+- Removed pose-keypoint dependence from the main targeting path.
+- `TargetSelector` now derives:
+  - upper-chest aim point from box geometry
+  - slow zone from box geometry
+  - fire zone from box geometry
+- Added stricter pickup filtering plus more tolerant tracked-target filtering.
+- Added target-point smoothing to reduce box jitter.
+- Added sticky target retention:
+  - distance-weighted tracking bonus
+  - switch margin to reduce left-right target hopping between adjacent candidates
+
+### AutoFire changes
+
+- `AutoFire` no longer fires from raw detections alone.
+- It now prefers the current `SelectedTarget.fire_zone`.
+- Added a filtered center-hit fallback so short target-selection dropouts do not cause obvious burst gaps.
+- Friendly-color filtering still applies to autofire fallback.
+- Added an ADS entry gate:
+  - suppress autofire for `120ms` after aim starts
+
+### Aim enhancement changes
+
+- Added motion consistency gating to `LeadPredictor`.
+- Alternating box jitter no longer immediately produces lead output.
+- Existing `CatchupBoost` and `NearTargetDamping` behavior were kept.
+
+### Vision verification
+
+- `python -m unittest tests.test_vision_targeting tests.test_vision_enhancement tests.test_vision_runner tests.test_vision_runner_config tests.test_vision_runner_autofire_gate -v`
+- `python -m py_compile main.py vision\\runner.py vision\\capture.py vision\\fastpath.py vision\\targeting.py vision\\enhancement.py tools\\export_trt.py tests\\test_vision_targeting.py tests\\test_vision_enhancement.py tests\\test_vision_runner.py tests\\test_vision_runner_config.py tests\\test_vision_runner_autofire_gate.py`
+
+### Documentation
+
+- Added `docs/project/VISION_OVERVIEW.md`
+- Added:
+  - `docs/superpowers/specs/2026-04-14-vision-detector-first-design.md`
+  - `docs/superpowers/plans/2026-04-14-vision-detector-first.md`
+
 ## 2026-04-12 (mouse plugin architecture)
 
 ### Mouse controller plugin refactor

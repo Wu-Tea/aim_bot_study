@@ -6,14 +6,14 @@ import win32api
 
 
 class ScreenCaptureThread(threading.Thread):
-    def __init__(self, target_fps: int = 90, crop_size: int = 640):
+    def __init__(self, target_fps: int = 90, crop_width: int = 640, crop_height: int = 640):
         super().__init__(daemon=True)
         screen_width = win32api.GetSystemMetrics(0)
         screen_height = win32api.GetSystemMetrics(1)
-        left = (screen_width - crop_size) // 2
-        top = (screen_height - crop_size) // 2
+        left = (screen_width - crop_width) // 2
+        top = (screen_height - crop_height) // 2
 
-        self.region = (left, top, left + crop_size, top + crop_size)
+        self.region = (left, top, left + crop_width, top + crop_height)
         self.camera = dxcam.create(output_color="RGB", region=self.region)
         self.running = True
         self._condition = threading.Condition()

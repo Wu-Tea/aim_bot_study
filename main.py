@@ -28,13 +28,31 @@ def _parse_args():
         "--crop-size",
         type=int,
         default=None,
-        help="Override capture crop size.",
+        help="Override capture crop width and height together.",
+    )
+    parser.add_argument(
+        "--crop-width",
+        type=int,
+        default=None,
+        help="Override capture crop width.",
+    )
+    parser.add_argument(
+        "--crop-height",
+        type=int,
+        default=None,
+        help="Override capture crop height.",
     )
     parser.add_argument(
         "--target-fps",
         type=int,
         default=None,
-        help="Override capture target FPS.",
+        help="Compatibility alias for capture FPS.",
+    )
+    parser.add_argument(
+        "--capture-fps",
+        type=int,
+        default=None,
+        help="Override capture FPS.",
     )
     return parser.parse_args()
 
@@ -44,8 +62,13 @@ def _apply_runtime_overrides(args):
         os.environ["VISION_PERF_LOG"] = "1"
     if args.crop_size:
         os.environ["VISION_CROP_SIZE"] = str(args.crop_size)
-    if args.target_fps:
-        os.environ["VISION_TARGET_FPS"] = str(args.target_fps)
+    if args.crop_width:
+        os.environ["VISION_CROP_WIDTH"] = str(args.crop_width)
+    if args.crop_height:
+        os.environ["VISION_CROP_HEIGHT"] = str(args.crop_height)
+    capture_fps = args.capture_fps or args.target_fps
+    if capture_fps:
+        os.environ["VISION_CAPTURE_FPS"] = str(capture_fps)
 
 
 def main():

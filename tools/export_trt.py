@@ -1,19 +1,21 @@
 from pathlib import Path
 
 from ultralytics import YOLO
+from vision.runner import VisionConfig
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-MODEL_PATH = PROJECT_ROOT / "models" / "yolo26n-pose.pt"
+MODEL_PATH = PROJECT_ROOT / "models" / "yolo26n.pt"
 
 
 def export_trt():
     print("[Export] Rebuilding TensorRT engine...")
+    config = VisionConfig.from_env()
     model = YOLO(str(MODEL_PATH))
 
     export_kwargs = {
         "format": "engine",
         "half": True,
-        "imgsz": 640,
+        "imgsz": config.image_size,
         "batch": 1,
         "workspace": 8,
         "simplify": True,
