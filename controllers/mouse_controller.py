@@ -6,7 +6,6 @@ from pynput import mouse as pynput_mouse
 
 from .base_controller import BaseController
 from .mouse import (
-    AIAimConfig,
     AIAimPlugin,
     AutoFireConfig,
     AutoFirePlugin,
@@ -47,8 +46,11 @@ class MouseController(BaseController, threading.Thread):
         self._acc_dy = 0.0
         self._left_click_held = False
 
+        from config import load_tuning_config
+
+        tuning = load_tuning_config()
         self.plugins = list(plugins) if plugins is not None else [
-            AIAimPlugin(AIAimConfig()),
+            AIAimPlugin(tuning.mouse_ai_aim),
             AutoFirePlugin(AutoFireConfig()),
             RecoilCompensationPlugin(RecoilCompensationConfig()),
         ]

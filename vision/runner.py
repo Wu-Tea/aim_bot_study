@@ -6,6 +6,8 @@ from pathlib import Path
 import win32api
 
 from .capture import ScreenCaptureThread
+from .debug_capture import DebugFrameCapture
+from .debug_overlay import VisionDebugOverlay
 from .enhancement import AimEnhancementPipeline
 from .fastpath import _extract_detections, _fast_predict, _load_model, _warmup_model
 from .perf import PerformanceTracker
@@ -13,8 +15,9 @@ from .targeting import CrosshairPersonHitDetector, TargetSelector
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_MODEL_PATH = PROJECT_ROOT / "models" / "yolo26n.engine"
-DEFAULT_FALLBACK_MODEL_PATH = PROJECT_ROOT / "models" / "yolo26n.pt"
+DEFAULT_MODEL_PATH = PROJECT_ROOT / "models" / "best.engine"
+DEFAULT_FALLBACK_MODEL_PATH = PROJECT_ROOT / "models" / "best.pt"
+DEFAULT_DEBUG_CAPTURE_DIR = PROJECT_ROOT / "debug_captures"
 
 
 class AdsAutoFireGate:
@@ -52,11 +55,13 @@ class VisionConfig:
     capture_width: int = 896
     capture_height: int = 512
     capture_fps: int = 70
+    debug_overlay: bool = False
+    debug_save_frames: bool = False
     model_path: str = str(DEFAULT_MODEL_PATH)
     fallback_model_path: str = str(DEFAULT_FALLBACK_MODEL_PATH)
     model_task: str = "detect"
     classes: tuple[int, ...] = (0,)
-    conf: float = 0.35
+    conf: float = 0.40
     half: bool = True
     device: int = 0
     warmup_iterations: int = 10
@@ -91,11 +96,60 @@ class VisionConfig:
                 os.getenv("VISION_TARGET_FPS", str(defaults.capture_fps)),
             )
         )
+        model_path = os.getenv("VISION_MODEL_PATH", defaults.model_path)
+        fallback_model_path = os.getenv("VISION_FALLBACK_MODEL_PATH", defaults.fallback_model_path)
         return cls(
             capture_width=capture_width,
             capture_height=capture_height,
             capture_fps=capture_fps,
+            debug_overlay=_env_flag("VISION_DEBUG_OVERLAY"),
+            debug_save_frames=_env_flag("VISION_DEBUG_SAVE"),
+            model_path=model_path,
+            fallback_model_path=fallback_model_path,
         )
+
+
+@dataclass(slots=True, frozen=True)
+class TrackingFrameResolution:
+    selected_target: object | None
+    auto_fire_active: bool
+    best_target_delta: tuple[float, float] | None
+    boxes_seen: int
+
+
+def _resolve_tracking_frame(
+    *,
+    frame,
+    detections,
+    target_selector,
+    rb_hit_detector,
+    aim_enhancement,
+    timestamp: float,
+) -> TrackingFrameResolution:
+    if frame is None:
+        rb_hit_detector.reset()
+        aim_enhancement.reset()
+        return TrackingFrameResolution(
+            selected_target=None,
+            auto_fire_active=False,
+            best_target_delta=None,
+            boxes_seen=0,
+        )
+
+    selected_target = target_selector.select_target(detections, frame)
+    auto_fire_active = rb_hit_detector.update(selected_target, detections, frame)
+    if selected_target is not None:
+        best_target_delta = aim_enhancement.process(selected_target, timestamp=timestamp)
+    else:
+        best_target_delta = None
+        aim_enhancement.reset()
+
+    return TrackingFrameResolution(
+        selected_target=selected_target,
+        auto_fire_active=auto_fire_active,
+        best_target_delta=best_target_delta,
+        boxes_seen=sum(len(detection.boxes) for detection in detections),
+    )
 
 
 def process_vision(controller=None):
@@ -130,6 +184,19 @@ def process_vision(controller=None):
     )
     auto_fire_gate = AdsAutoFireGate(delay_seconds=0.12)
     perf_tracker = PerformanceTracker(enabled=_env_flag("VISION_PERF_LOG"), log_interval=config.perf_log_interval)
+    debug_capture = (
+        DebugFrameCapture(base_dir=DEFAULT_DEBUG_CAPTURE_DIR, asynchronous=True)
+        if config.debug_save_frames
+        else None
+    )
+    debug_overlay = (
+        VisionDebugOverlay(
+            frame_capture=debug_capture,
+            display_window=config.debug_overlay,
+        )
+        if (config.debug_overlay or config.debug_save_frames)
+        else None
+    )
 
     capture_thread.start()
     print(
@@ -137,7 +204,9 @@ def process_vision(controller=None):
         f"fast_path={'on' if use_fast_path else 'off'} | "
         f"crop={config.capture_width}x{config.capture_height} | "
         f"capture_fps={config.capture_fps} | "
-        f"conf={config.conf:.2f} | half={config.half}"
+        f"conf={config.conf:.2f} | half={config.half} | "
+        f"debug={'on' if config.debug_overlay else 'off'} | "
+        f"debug_save={'on' if config.debug_save_frames else 'off'}"
     )
 
     last_frame_id = 0
@@ -159,6 +228,12 @@ def process_vision(controller=None):
                     auto_fire_gate.reset()
                     perf_tracker.reset_window()
                 was_aiming = False
+                if debug_overlay is not None:
+                    debug_overlay.show_message(
+                        width=config.capture_width,
+                        height=config.capture_height,
+                        message="Idle: hold ADS to capture",
+                    )
                 time.sleep(config.idle_sleep)
                 continue
 
@@ -174,9 +249,20 @@ def process_vision(controller=None):
                 if controller:
                     controller.set_auto_fire(False)
                     controller.reset()
-                aim_enhancement.reset()
-                target_selector.reset_tracking()
-                rb_hit_detector.reset()
+                _resolve_tracking_frame(
+                    frame=None,
+                    detections=[],
+                    target_selector=target_selector,
+                    rb_hit_detector=rb_hit_detector,
+                    aim_enhancement=aim_enhancement,
+                    timestamp=time.perf_counter(),
+                )
+                if debug_overlay is not None:
+                    debug_overlay.show_message(
+                        width=config.capture_width,
+                        height=config.capture_height,
+                        message="Waiting for frame...",
+                    )
                 continue
 
             inference_start = time.perf_counter()
@@ -187,22 +273,18 @@ def process_vision(controller=None):
             infer_ms = (time.perf_counter() - inference_start) * 1000.0
 
             post_start = time.perf_counter()
-            if detections:
-                selected_target = target_selector.select_target(detections, frame)
-                auto_fire_active = rb_hit_detector.update(selected_target, detections, frame)
-                if selected_target is not None:
-                    best_target_delta = aim_enhancement.process(selected_target, timestamp=time.perf_counter())
-                else:
-                    best_target_delta = None
-                    aim_enhancement.reset()
-                boxes_seen = sum(len(detection.boxes) for detection in detections)
-            else:
-                selected_target = None
-                auto_fire_active = rb_hit_detector.update(None)
-                best_target_delta = None
-                boxes_seen = 0
-                aim_enhancement.reset()
-                target_selector.reset_tracking()
+            resolved = _resolve_tracking_frame(
+                frame=frame,
+                detections=detections,
+                target_selector=target_selector,
+                rb_hit_detector=rb_hit_detector,
+                aim_enhancement=aim_enhancement,
+                timestamp=time.perf_counter(),
+            )
+            selected_target = resolved.selected_target
+            auto_fire_active = resolved.auto_fire_active
+            best_target_delta = resolved.best_target_delta
+            boxes_seen = resolved.boxes_seen
             auto_fire_active = auto_fire_gate.allow_auto_fire(auto_fire_active, time.perf_counter())
             post_ms = (time.perf_counter() - post_start) * 1000.0
 
@@ -212,6 +294,17 @@ def process_vision(controller=None):
                     controller.update(best_target_delta[0], best_target_delta[1])
                 else:
                     controller.reset()
+
+            if debug_overlay is not None:
+                debug_overlay.show(
+                    frame=frame,
+                    detections=detections,
+                    selected_target=selected_target,
+                    target_selector=target_selector,
+                    auto_fire_active=auto_fire_active,
+                    is_aiming=is_aiming,
+                    best_target_delta=best_target_delta,
+                )
 
             perf_tracker.update(
                 capture_wait_ms=capture_wait_ms,
@@ -228,5 +321,7 @@ def process_vision(controller=None):
         if controller:
             controller.set_auto_fire(False)
             controller.reset()
+        if debug_overlay is not None:
+            debug_overlay.close()
         capture_thread.stop()
         capture_thread.join(timeout=1.0)

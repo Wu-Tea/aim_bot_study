@@ -19,9 +19,13 @@ class AIAimConfig:
     piecewise_mid_pixels: float = 60.0
     piecewise_max_pixels: float = 230.0
     piecewise_mid_ratio: float = 0.5
+    piecewise_mid_pixels_y: float = 45.0
+    piecewise_max_pixels_y: float = 180.0
+    piecewise_mid_ratio_y: float = 0.65
     invert_x: bool = False
     invert_y: bool = False
     max_ai_force: float = 0.6
+    max_ai_force_y: float = 0.8
     deadzone_inner: float = 1.5
     deadzone_outer: float = 5.0
     x_deadzone_outer: float = 3.0
@@ -266,7 +270,12 @@ class AIAimPlugin:
             )
             if x_strength > 0.0 or y_strength > 0.0:
                 desired_ai_x = self._map_pixel_to_stick(context.assist_dx) * x_strength
-                desired_ai_y = self._map_pixel_to_stick(-context.assist_dy) * y_strength
+                desired_ai_y = self._map_pixel_to_stick(
+                    -context.assist_dy,
+                    mid_pixels=self.config.piecewise_mid_pixels_y,
+                    max_pixels=self.config.piecewise_max_pixels_y,
+                    mid_ratio=self.config.piecewise_mid_ratio_y,
+                ) * y_strength
 
                 if self.config.invert_x:
                     desired_ai_x = -desired_ai_x
@@ -274,7 +283,7 @@ class AIAimPlugin:
                     desired_ai_y = -desired_ai_y
 
                 x_limit = 32767 * min(1.0, self.config.max_ai_force + context.x_force_bonus)
-                y_limit = 32767 * self.config.max_ai_force
+                y_limit = 32767 * self.config.max_ai_force_y
                 desired_ai_x = self._clamp(desired_ai_x, x_limit) * context.x_desired_scale
                 desired_ai_y = self._clamp(desired_ai_y, y_limit) * context.y_desired_scale
 
@@ -307,20 +316,43 @@ class AIAimPlugin:
             )
         self._last_target_revision = frame.target_revision
 
-    def _map_pixel_to_stick(self, delta: float) -> float:
+    def _map_pixel_to_stick(
+        self,
+        delta: float,
+        *,
+        mid_pixels: float | None = None,
+        max_pixels: float | None = None,
+        mid_ratio: float | None = None,
+    ) -> float:
         abs_delta = abs(delta)
         sign = -1.0 if delta < 0.0 else 1.0
-        piecewise = self._piecewise_map(abs_delta)
+        piecewise = self._piecewise_map(
+            abs_delta,
+            mid_pixels=mid_pixels,
+            max_pixels=max_pixels,
+            mid_ratio=mid_ratio,
+        )
         if piecewise is not None:
             return piecewise * sign
 
         clamped = self._clamp(delta, self.config.max_pixels)
         return (clamped / self.config.max_pixels) * 32767
 
-    def _piecewise_map(self, abs_delta: float) -> float | None:
-        mid_pixels = float(self.config.piecewise_mid_pixels) * self.config.ai_delta_gain
-        max_pixels = float(self.config.piecewise_max_pixels) * self.config.ai_delta_gain
-        mid_ratio = self.config.piecewise_mid_ratio
+    def _piecewise_map(
+        self,
+        abs_delta: float,
+        *,
+        mid_pixels: float | None = None,
+        max_pixels: float | None = None,
+        mid_ratio: float | None = None,
+    ) -> float | None:
+        mid_pixels = float(
+            self.config.piecewise_mid_pixels if mid_pixels is None else mid_pixels
+        ) * self.config.ai_delta_gain
+        max_pixels = float(
+            self.config.piecewise_max_pixels if max_pixels is None else max_pixels
+        ) * self.config.ai_delta_gain
+        mid_ratio = self.config.piecewise_mid_ratio if mid_ratio is None else mid_ratio
 
         if (
             mid_pixels <= 0.0

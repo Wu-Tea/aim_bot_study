@@ -54,6 +54,16 @@ def _parse_args():
         default=None,
         help="Override capture FPS.",
     )
+    parser.add_argument(
+        "--vision-debug",
+        action="store_true",
+        help="Show a live debug window for the captured vision crop.",
+    )
+    parser.add_argument(
+        "--vision-debug-save",
+        action="store_true",
+        help="Save annotated debug frames when detections are present.",
+    )
     return parser.parse_args()
 
 
@@ -69,6 +79,10 @@ def _apply_runtime_overrides(args):
     capture_fps = args.capture_fps or args.target_fps
     if capture_fps:
         os.environ["VISION_CAPTURE_FPS"] = str(capture_fps)
+    if args.vision_debug:
+        os.environ["VISION_DEBUG_OVERLAY"] = "1"
+    if args.vision_debug_save:
+        os.environ["VISION_DEBUG_SAVE"] = "1"
 
 
 def main():

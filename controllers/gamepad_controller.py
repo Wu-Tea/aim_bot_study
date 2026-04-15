@@ -1,6 +1,7 @@
 import os
 import threading
 import time
+from dataclasses import replace
 
 os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "hide"
 
@@ -9,12 +10,15 @@ import vgamepad as vg
 
 from .base_controller import BaseController
 from .gamepad import (
-    AIAimConfig,
+    AdaptiveDeltaGainSubPlugin,
     AIAimPlugin,
     AutoFireConfig,
     AutoFirePlugin,
     GamepadFrame,
     GamepadOutput,
+    HorizontalAssistSubPlugin,
+    ManualIntentGuardSubPlugin,
+    OvershootGuardSubPlugin,
     apply_plugins,
     reset_plugins,
     RecoilCompensationConfig,
@@ -64,8 +68,8 @@ class GamepadController(BaseController, threading.Thread):
 
     def __init__(
         self,
-        smoothing=0.65,
-        max_pixels=150,
+        smoothing=None,
+        max_pixels=None,
         auto_fire_output="RB",
         plugins=None,
     ):
@@ -81,8 +85,29 @@ class GamepadController(BaseController, threading.Thread):
         self.target_revision = 0
         self.target_timestamp = None
         self.PHYS_STICK_DEADZONE = 2500
+
+        from config import load_tuning_config
+
+        tuning = load_tuning_config()
+        ai_aim_config = tuning.gamepad_ai_aim
+        if smoothing is not None or max_pixels is not None:
+            overrides: dict = {}
+            if smoothing is not None:
+                overrides["smoothing"] = smoothing
+            if max_pixels is not None:
+                overrides["max_pixels"] = max_pixels
+            ai_aim_config = replace(ai_aim_config, **overrides)
+
         self.plugins = list(plugins) if plugins is not None else [
-            AIAimPlugin(AIAimConfig(smoothing=smoothing, max_pixels=max_pixels)),
+            AIAimPlugin(
+                ai_aim_config,
+                sub_plugins=(
+                    ManualIntentGuardSubPlugin(),
+                    AdaptiveDeltaGainSubPlugin(tuning.adaptive_delta_gain),
+                    HorizontalAssistSubPlugin(),
+                    OvershootGuardSubPlugin(),
+                ),
+            ),
             AutoFirePlugin(AutoFireConfig(fire_output=auto_fire_output)),
             RecoilCompensationPlugin(RecoilCompensationConfig(amount=0.30)),
         ]
@@ -305,4 +330,4 @@ class GamepadController(BaseController, threading.Thread):
             apply_plugins(self.plugins, frame, output)
             self._apply_output(output)
             self.virtual_gamepad.update()
-            time.sleep(0.002)
+            time.sleep(0.001)

@@ -1,0 +1,37 @@
+# Copy this file to `config.toml` (at project root) to override tuning defaults.
+# Any section/key you omit falls through to the dataclass default in code.
+# The real `config.toml` is gitignored so your local tuning stays private.
+
+[gamepad.ai_aim]
+# Low-pass smoothing on the AI stick output. Higher = more filtering,
+# lower = snappier response. Default 0.65.
+smoothing = 0.65
+# Pixel error mapped to full-scale stick deflection. Default 130.
+max_pixels = 130
+# Upper bound on AI stick force as a fraction of full deflection (0..1).
+# Default 0.6.
+max_ai_force = 0.6
+# Global multiplier applied to target_dx/dy before the sub-plugin pipeline.
+# Default 0.7.
+ai_delta_gain = 0.7
+
+[gamepad.adaptive_delta_gain]
+# Short-term bonus kicks in when error fails to shrink for N consecutive
+# observations. Per-axis, capped at max_bonus.
+min_error_px = 6.0
+trigger_frames = 3
+gain_per_update = 0.08
+decay_per_update = 0.12
+max_bonus = 0.6
+opposing_input_threshold = 4500
+stale_seconds = 0.15
+
+[mouse.ai_aim]
+# Per-frame correction gain. Default 0.06.
+gain = 0.06
+smoothing = 0.65
+# Hard cap on AI correction per frame (pixels). Default 1.5.
+max_correction_px = 1.5
+# Fraction of manual mouse movement to counteract when a target is present.
+# Default 0.4.
+manual_dampen = 0.4

@@ -1,3 +1,6 @@
 __pycache__/
 *.py[cod]
 .venv/
+config.toml
+training_data/
+runs/

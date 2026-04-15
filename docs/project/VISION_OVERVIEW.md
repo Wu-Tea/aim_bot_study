@@ -42,13 +42,15 @@ From `VisionConfig` in `vision/runner.py`:
 - `model_path = models/yolo26n.engine`
 - `fallback_model_path = models/yolo26n.pt`
 - `model_task = detect`
-- `conf = 0.35`
+- `conf = 0.40`
 
 CLI / env control:
 
 - `--crop-width` / `VISION_CROP_WIDTH`
 - `--crop-height` / `VISION_CROP_HEIGHT`
 - `--capture-fps` / `VISION_CAPTURE_FPS`
+- `--vision-debug` / `VISION_DEBUG_OVERLAY`
+- `--vision-debug-save` / `VISION_DEBUG_SAVE`
 - compatibility aliases still work:
   - `--crop-size`
   - `--target-fps`
@@ -70,7 +72,10 @@ Targeting now uses box geometry only:
 Selection behavior:
 
 - first pickup uses stricter confidence and geometry gates
+- enemy-colored pickups are allowed to lock at a slightly lower confidence than neutral pickups
+- first pickup must survive `2` consecutive frames before it becomes the active target
 - tracked targets can survive at lower confidence if they stay near the previous center
+- a confirmed target can survive `2` missing / rejected frames before it is released
 - small target-point jumps are smoothed
 - target switching is intentionally sticky:
   - distance-based tracking bonus
@@ -83,25 +88,36 @@ Selection behavior:
 Primary path:
 
 - fire only when the crosshair is inside the `fire_zone` of the current `SelectedTarget`
-
-Fallback path:
-
-- if `SelectedTarget` drops briefly, `AutoFire` can still hold fire when:
-  - a detection box still covers the center
-  - confidence is above the autofire threshold
-  - geometry is still valid
-  - friendly color filter still passes
+- raw centered detection boxes no longer trigger `AutoFire` on their own
+- short dropouts are handled by target stickiness plus detector grace frames, not by a separate centered-box fallback
 
 ADS gate:
 
 - after aiming starts, `AutoFire` is blocked for `120ms`
 - this avoids firing before the in-game reticle fully settles
 
+## Debug Overlay
+
+When debug mode is enabled:
+
+- a live rectangular crop window is shown
+- detection boxes, confidence, friendly/enemy/neutral labels, lock point, `slow_zone`, `fire_zone`, crosshair, and current state text are rendered on top
+- non-selected detections are labeled as `raw ...` so they are easier to distinguish from the actual locked target
+
+When debug frame saving is enabled:
+
+- the annotated debug frame is saved whenever the current frame contains one or more detections
+- files are written asynchronously to avoid blocking the vision loop
+- output path is `debug_captures/YYYY-MM-DD/`
+- filenames include time plus quick state markers such as `boxes`, `lock`, and `fire`
+
 ## Files Changed In This Version
 
 Core runtime:
 
 - `vision/runner.py`
+- `vision/debug_overlay.py`
+- `vision/debug_capture.py`
 - `vision/capture.py`
 - `vision/fastpath.py`
 - `vision/targeting.py`
@@ -111,6 +127,8 @@ Core runtime:
 
 Tests:
 
+- `tests/test_vision_debug_capture.py`
+- `tests/test_vision_debug_overlay.py`
 - `tests/test_vision_targeting.py`
 - `tests/test_vision_enhancement.py`
 - `tests/test_vision_runner.py`
@@ -133,10 +151,13 @@ Target locking:
 - `TRACKING_SWITCH_MARGIN`
 - `MAX_SMOOTHING_JUMP_PIXELS`
 - `MIN_SMOOTHING_ALPHA`
+- `PICKUP_CONFIRM_FRAMES`
+- `TARGET_HOLD_FRAMES`
 
 Target filtering:
 
 - `PICKUP_CONFIDENCE_THRESHOLD`
+- `PICKUP_ENEMY_CONFIDENCE_THRESHOLD`
 - `TRACKING_CONFIDENCE_THRESHOLD`
 - `MIN_PICKUP_HEIGHT_RATIO`
 - `MIN_TRACKING_HEIGHT_RATIO`
@@ -144,15 +165,21 @@ Target filtering:
 - `MIN_TRACKING_AREA_RATIO`
 - `MIN_ASPECT_RATIO`
 - `MAX_ASPECT_RATIO`
+- friendly / enemy ROI mask ratio limits in `TargetSelector._classify_color`
 
 AutoFire:
 
 - `FIRE_SHRINK_X`
 - `FIRE_SHRINK_TOP`
 - `FIRE_SHRINK_BOTTOM`
-- `CrosshairPersonHitDetector.min_conf`
 - `release_grace_frames`
 - `AdsAutoFireGate(delay_seconds=0.12)`
+
+Debug:
+
+- `VISION_DEBUG_OVERLAY`
+- `VISION_DEBUG_SAVE`
+- `debug_captures/YYYY-MM-DD/`
 
 Aim enhancement:
 
@@ -162,11 +189,19 @@ Aim enhancement:
 - `CatchupBoostConfig.*`
 - `NearTargetDampingConfig.*`
 
+Gamepad vertical mapping:
+
+- `max_ai_force_y`
+- `piecewise_mid_pixels_y`
+- `piecewise_max_pixels_y`
+- `piecewise_mid_ratio_y`
+
 ## Verified In This Version
 
 Commands run during this round:
 
 - `python -m unittest tests.test_vision_targeting -v`
+- `python -m unittest tests.test_vision_debug_capture tests.test_vision_debug_overlay -v`
 - `python -m unittest tests.test_vision_targeting.CrosshairPersonHitDetectorTests tests.test_vision_runner_autofire_gate -v`
 - `python -m unittest tests.test_vision_targeting tests.test_vision_enhancement tests.test_vision_runner tests.test_vision_runner_config tests.test_vision_runner_autofire_gate -v`
 - `python -m py_compile main.py vision\\runner.py vision\\capture.py vision\\fastpath.py vision\\targeting.py vision\\enhancement.py tools\\export_trt.py tests\\test_vision_targeting.py tests\\test_vision_enhancement.py tests\\test_vision_runner.py tests\\test_vision_runner_config.py tests\\test_vision_runner_autofire_gate.py`

@@ -1,0 +1,87 @@
+import tomllib
+from dataclasses import dataclass, replace
+from pathlib import Path
+from typing import Any, Mapping
+
+from controllers.gamepad.adaptive_delta_gain import AdaptiveDeltaGainConfig
+from controllers.gamepad.ai_aim import AIAimConfig as GamepadAIAimConfig
+from controllers.mouse.ai_aim import AIAimConfig as MouseAIAimConfig
+
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config.toml"
+
+
+GAMEPAD_AI_AIM_KEYS = frozenset(
+    {
+        "smoothing",
+        "max_pixels",
+        "max_ai_force",
+        "max_ai_force_y",
+        "ai_delta_gain",
+        "piecewise_mid_pixels_y",
+        "piecewise_max_pixels_y",
+        "piecewise_mid_ratio_y",
+    }
+)
+ADAPTIVE_DELTA_GAIN_KEYS = frozenset(
+    {
+        "min_error_px",
+        "gain_per_update",
+        "decay_per_update",
+        "max_bonus",
+        "trigger_frames",
+        "opposing_input_threshold",
+        "stale_seconds",
+    }
+)
+MOUSE_AI_AIM_KEYS = frozenset(
+    {"gain", "smoothing", "max_correction_px", "manual_dampen"}
+)
+
+
+@dataclass(slots=True, frozen=True)
+class TuningConfig:
+    gamepad_ai_aim: GamepadAIAimConfig
+    adaptive_delta_gain: AdaptiveDeltaGainConfig
+    mouse_ai_aim: MouseAIAimConfig
+
+
+def _filter(section: Mapping[str, Any] | None, allowed: frozenset[str]) -> dict[str, Any]:
+    if not section:
+        return {}
+    return {key: value for key, value in section.items() if key in allowed}
+
+
+def _read_toml(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        return {}
+    with open(path, "rb") as handle:
+        return tomllib.load(handle)
+
+
+def load_tuning_config(path: Path | None = None) -> TuningConfig:
+    resolved_path = path if path is not None else DEFAULT_CONFIG_PATH
+    data = _read_toml(resolved_path)
+
+    gamepad_section = data.get("gamepad", {}) or {}
+    mouse_section = data.get("mouse", {}) or {}
+
+    gamepad_ai_aim = replace(
+        GamepadAIAimConfig(),
+        **_filter(gamepad_section.get("ai_aim"), GAMEPAD_AI_AIM_KEYS),
+    )
+    adaptive = replace(
+        AdaptiveDeltaGainConfig(),
+        **_filter(gamepad_section.get("adaptive_delta_gain"), ADAPTIVE_DELTA_GAIN_KEYS),
+    )
+    mouse_ai_aim = replace(
+        MouseAIAimConfig(),
+        **_filter(mouse_section.get("ai_aim"), MOUSE_AI_AIM_KEYS),
+    )
+
+    return TuningConfig(
+        gamepad_ai_aim=gamepad_ai_aim,
+        adaptive_delta_gain=adaptive,
+        mouse_ai_aim=mouse_ai_aim,
+    )

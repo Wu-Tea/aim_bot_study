@@ -25,6 +25,26 @@ class MainCliTests(unittest.TestCase):
         self.assertEqual(args.controller_mode, "gamepad")
         self.assertEqual(args.auto_fire_output, "RT")
 
+    def test_parse_args_accepts_vision_debug(self):
+        with patch.object(
+            sys,
+            "argv",
+            ["main.py", "--controller-mode", "gamepad", "--vision-debug"],
+        ):
+            args = main._parse_args()
+
+        self.assertTrue(args.vision_debug)
+
+    def test_parse_args_accepts_vision_debug_save(self):
+        with patch.object(
+            sys,
+            "argv",
+            ["main.py", "--controller-mode", "gamepad", "--vision-debug-save"],
+        ):
+            args = main._parse_args()
+
+        self.assertTrue(args.vision_debug_save)
+
     def test_main_passes_auto_fire_output_to_controller_factory(self):
         fake_controller = _FakeController()
         with patch.object(
@@ -43,6 +63,38 @@ class MainCliTests(unittest.TestCase):
             controller_mode="gamepad",
             auto_fire_output="RT",
         )
+
+    def test_main_sets_debug_overlay_env_when_requested(self):
+        fake_controller = _FakeController()
+        with patch.dict(main.os.environ, {}, clear=True), patch.object(
+            sys,
+            "argv",
+            ["main.py", "--controller-mode", "gamepad", "--vision-debug"],
+        ), patch.object(main.ControllerFactory, "get_controller", return_value=fake_controller), patch.object(
+            main,
+            "process_vision",
+            return_value=None,
+        ), patch("builtins.print"):
+            exit_code = main.main()
+            self.assertEqual(main.os.environ["VISION_DEBUG_OVERLAY"], "1")
+
+        self.assertEqual(exit_code, 0)
+
+    def test_main_sets_debug_save_env_when_requested(self):
+        fake_controller = _FakeController()
+        with patch.dict(main.os.environ, {}, clear=True), patch.object(
+            sys,
+            "argv",
+            ["main.py", "--controller-mode", "gamepad", "--vision-debug-save"],
+        ), patch.object(main.ControllerFactory, "get_controller", return_value=fake_controller), patch.object(
+            main,
+            "process_vision",
+            return_value=None,
+        ), patch("builtins.print"):
+            exit_code = main.main()
+            self.assertEqual(main.os.environ["VISION_DEBUG_SAVE"], "1")
+
+        self.assertEqual(exit_code, 0)
 
 
 if __name__ == "__main__":

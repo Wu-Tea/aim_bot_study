@@ -152,6 +152,32 @@ class AIAimPluginTests(unittest.TestCase):
         self.assertGreater(output.right_x, 0)
         self.assertGreater(output.right_y, 0)
 
+    def test_ai_aim_uses_stronger_vertical_mapping_for_large_vertical_error(self):
+        plugin = AIAimPlugin(
+            AIAimConfig(
+                smoothing=0.0,
+                deadzone_inner=0.0,
+                deadzone_outer=1.0,
+                x_deadzone_outer=1.0,
+                ai_delta_gain=1.0,
+                max_ai_force=1.0,
+                max_ai_force_y=1.0,
+                piecewise_mid_pixels=80,
+                piecewise_max_pixels=230,
+                piecewise_mid_ratio=0.5,
+                piecewise_mid_pixels_y=45,
+                piecewise_max_pixels_y=180,
+                piecewise_mid_ratio_y=0.65,
+            ),
+            sub_plugins=(),
+        )
+        frame = _frame(aiming=True, target_dx=0.0, target_dy=-80.0, manual_rx=0, manual_ry=0)
+        output = _output(frame)
+
+        plugin.apply(frame, output)
+
+        self.assertGreater(output.right_y, 8000)
+
     def test_ai_aim_keeps_manual_passthrough_when_not_aiming(self):
         plugin = AIAimPlugin(AIAimConfig(smoothing=0.0), sub_plugins=())
         frame = _frame(aiming=False, target_dx=50.0, target_dy=20.0, manual_rx=4000, manual_ry=-3000)
