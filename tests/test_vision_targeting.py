@@ -283,7 +283,8 @@ class TargetSelectorTests(unittest.TestCase):
         self.assertLess(slow_top, selector.screen_center_y)
         self.assertGreater(slow_bottom, selector.screen_center_y)
         self.assertAlmostEqual(selected.target_x, 320.0, places=3)
-        self.assertAlmostEqual(selected.target_y, 282.0, places=3)
+        expected_target_y = box[1] + ((box[3] - box[1]) * selector.UPPER_CHEST_RATIO)
+        self.assertAlmostEqual(selected.target_y, expected_target_y, places=3)
 
     def test_tracking_small_box_jitter_is_smoothed_before_output(self):
         selector = TargetSelector(crop_size=CROP)
@@ -297,7 +298,8 @@ class TargetSelectorTests(unittest.TestCase):
         self.assertGreater(second.target_x, first.target_x)
         self.assertLess(second.target_x, 328.0)
         self.assertGreater(second.target_y, first.target_y)
-        self.assertLess(second.target_y, 278.0)
+        raw_second_target_y = 242.0 + ((362.0 - 242.0) * selector.UPPER_CHEST_RATIO)
+        self.assertLess(second.target_y, raw_second_target_y)
 
     def test_tracking_stays_on_current_target_when_neighbor_score_only_improves_slightly(self):
         selector = TargetSelector(crop_size=CROP)
@@ -372,6 +374,32 @@ class TargetSelectorTests(unittest.TestCase):
         self.assertIsNotNone(second_switch_frame)
         self.assertLess(first_switch_frame.target_x, 290.0)
         self.assertGreater(second_switch_frame.target_x, 310.0)
+
+    def test_enemy_colored_challenger_can_break_neutral_lock_even_without_big_distance_gain(self):
+        selector = TargetSelector(crop_size=CROP)
+        neutral_box = [272, 240, 312, 360]
+        enemy_box = [316, 240, 356, 360]
+
+        first_frame = _frame()
+        locked = _confirm_target(selector, _detections(neutral_box, confs=[0.90]), first_frame)
+        self.assertIsNotNone(locked)
+        self.assertLess(locked.target_x, 320.0)
+
+        challenger_frame = _frame()
+        _paint_color_above(challenger_frame, enemy_box, ENEMY_RGB)
+        contender_detections = _detections(
+            neutral_box,
+            enemy_box,
+            confs=[0.90, 0.90],
+        )
+
+        first_switch_frame = selector.select_target(contender_detections, challenger_frame)
+        second_switch_frame = selector.select_target(contender_detections, challenger_frame)
+
+        self.assertIsNotNone(first_switch_frame)
+        self.assertIsNotNone(second_switch_frame)
+        self.assertLess(first_switch_frame.target_x, 320.0)
+        self.assertGreater(second_switch_frame.target_x, 320.0)
 
     def test_pickup_requires_two_consecutive_frames_before_output(self):
         selector = TargetSelector(crop_size=CROP)

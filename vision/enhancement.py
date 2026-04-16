@@ -64,6 +64,16 @@ class LeadPredictor:
             return streak + 1, sign
         return 1, sign
 
+    @staticmethod
+    def _clamp_axis_lead(current_error: float, lead: float, max_lead: float):
+        if current_error == 0.0 or lead == 0.0:
+            return 0.0
+
+        bounded = max(-max_lead, min(max_lead, lead))
+        if math.copysign(1.0, bounded) != math.copysign(1.0, current_error):
+            return 0.0
+        return bounded
+
     def apply(self, state: AimEnhancementState):
         if state.dt <= 0.0 or self.config.lead_seconds <= 0.0 or self.config.gain <= 0.0:
             return
@@ -79,8 +89,8 @@ class LeadPredictor:
             lead_y = state.velocity_y * self.config.lead_seconds * self.config.gain
 
         max_lead = abs(self.config.max_lead_px)
-        state.output_dx += max(-max_lead, min(max_lead, lead_x))
-        state.output_dy += max(-max_lead, min(max_lead, lead_y))
+        state.output_dx += self._clamp_axis_lead(state.target.dx, lead_x, max_lead)
+        state.output_dy += self._clamp_axis_lead(state.target.dy, lead_y, max_lead)
 
 
 class CatchupBoost:

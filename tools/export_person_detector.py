@@ -12,7 +12,7 @@ from ultralytics import YOLO
 def _parse_args():
     parser = argparse.ArgumentParser(description="Export a trained YOLO26 person detector to TensorRT.")
     parser.add_argument("--weights", type=Path, required=True, help="Path to trained best.pt or last.pt weights.")
-    parser.add_argument("--width", type=int, default=896, help="Export width.")
+    parser.add_argument("--width", type=int, default=640, help="Export width.")
     parser.add_argument("--height", type=int, default=512, help="Export height.")
     parser.add_argument("--device", default="0", help="CUDA device id.")
     parser.add_argument("--workspace", type=int, default=8, help="TensorRT workspace size in GB.")

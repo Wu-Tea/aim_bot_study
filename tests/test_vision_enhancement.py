@@ -189,6 +189,28 @@ class VisionEnhancementTests(unittest.TestCase):
         self.assertLess(enhanced_dx, 2.0)
         self.assertEqual(enhanced_dy, 0.0)
 
+    def test_default_pipeline_does_not_reverse_converging_error_before_crosshair_crosses(self):
+        pipeline = AimEnhancementPipeline()
+        slow_zone = (300.0, 300.0, 340.0, 340.0)
+        frame_dt = 1.0 / 80.0
+
+        pipeline.process(
+            _target_with_slow_zone(12.0, 0.0, slow_zone=slow_zone),
+            timestamp=1.0,
+        )
+        pipeline.process(
+            _target_with_slow_zone(7.0, 0.0, slow_zone=slow_zone),
+            timestamp=1.0 + frame_dt,
+        )
+        enhanced_dx, enhanced_dy = pipeline.process(
+            _target_with_slow_zone(3.0, 0.0, slow_zone=slow_zone),
+            timestamp=1.0 + (frame_dt * 2.0),
+        )
+
+        self.assertGreater(enhanced_dx, 0.0)
+        self.assertLessEqual(enhanced_dx, 3.0)
+        self.assertEqual(enhanced_dy, 0.0)
+
     def test_reset_clears_velocity_and_boost_state(self):
         pipeline = _pipeline(
             lead=LeadPredictor(LeadPredictorConfig(lead_seconds=0.10, gain=1.0, max_lead_px=12.0)),

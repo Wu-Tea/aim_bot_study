@@ -91,6 +91,7 @@ class TargetSelector:
     ACTIVE_TARGET_IOU_THRESHOLD = 0.12
     ACTIVE_TARGET_CENTER_X_RATIO = 0.65
     ACTIVE_TARGET_CENTER_Y_RATIO = 0.35
+    ACTIVE_TARGET_SCORE_SWITCH_MARGIN = 2000.0
     SWITCH_CROSSHAIR_MARGIN_RATIO = 16.0 / 640.0
     CROSSHAIR_PRIORITY_MARGIN_RATIO = 10.0 / 640.0
     FRIENDLY_MASK_MIN_RATIO = 0.02
@@ -475,6 +476,8 @@ class TargetSelector:
         ) <= self.pickup_confirm_radius
 
     def _should_switch_targets(self, locked_target: SelectedTarget, challenger: SelectedTarget):
+        if challenger.score >= (locked_target.score + self.ACTIVE_TARGET_SCORE_SWITCH_MARGIN):
+            return True
         locked_crosshair_distance = self._crosshair_distance((locked_target.target_x, locked_target.target_y))
         challenger_crosshair_distance = self._crosshair_distance((challenger.target_x, challenger.target_y))
         return challenger_crosshair_distance < (locked_crosshair_distance - self.switch_crosshair_margin)
