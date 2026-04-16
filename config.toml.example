@@ -3,17 +3,41 @@
 # The real `config.toml` is gitignored so your local tuning stays private.
 
 [gamepad.ai_aim]
-# Low-pass smoothing on the AI stick output. Higher = more filtering,
-# lower = snappier response. Default 0.65.
-smoothing = 0.65
+# Legacy smoothing value still applies when explicit legacy sub-plugins are used.
+# Default 0.62.
+smoothing = 0.62
 # Pixel error mapped to full-scale stick deflection. Default 130.
 max_pixels = 130
-# Upper bound on AI stick force as a fraction of full deflection (0..1).
-# Default 0.6.
-max_ai_force = 0.6
-# Global multiplier applied to target_dx/dy before the sub-plugin pipeline.
+# Global multiplier applied to target_dx/dy before snap/body-lock mapping.
 # Default 0.7.
 ai_delta_gain = 0.7
+# First-ADS snap window in milliseconds. Default 100.
+ads_snap_window_ms = 100
+# Snap can be aggressive in v1, so the default smoothing is 0.0.
+ads_snap_smoothing = 0.0
+ads_snap_max_ai_force = 1.0
+ads_snap_max_ai_force_y = 1.0
+# Body Lock only engages after the crosshair is already inside the body box
+# (plus tolerance) and the upper-body lock point stays inside a central box.
+body_lock_activation_box_px = 150.0
+body_lock_box_tolerance_px = 18.0
+body_lock_smoothing = 0.18
+body_lock_max_ai_force = 0.42
+body_lock_max_ai_force_y = 0.48
+# Suppress tiny vertical twitch near the upper-body lock point.
+body_lock_vertical_deadzone_px = 6.0
+# When target motion slows down, gradually restore some Y tail help from
+# this inner threshold up to the deadzone edge instead of hard-zeroing.
+body_lock_vertical_tail_inner_px = 2.0
+body_lock_vertical_tail_speed_threshold_px_per_sec = 90.0
+body_lock_upper_body_ratio = 0.38
+# Optional movement compensation once the same target has been tracked for
+# several frames.
+body_lock_lead_frames = 4
+body_lock_lead_seconds = 0.05
+# Keep vertical prediction a bit softer than horizontal to reduce lock twitch.
+body_lock_vertical_lead_scale = 0.95
+body_lock_lead_max_px = 18.0
 
 [gamepad.adaptive_delta_gain]
 # Short-term bonus kicks in when error fails to shrink for N consecutive

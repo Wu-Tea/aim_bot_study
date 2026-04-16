@@ -34,27 +34,33 @@
 
 ### Latest Run Summary
 
-- Run Key: `tuned-compare-20260416-2`
-- Timestamp: `2026-04-16T06:22:05Z`
-- Artifact: `artifacts/benchmarks/gamepad/tuned-compare-20260416-2.json`
-- Git Commit: `d5221d4c6a0a01259b5e1200eabb8006ce70bd5b`
+- Run Key: `gamepad-20260416T142313Z`
+- Timestamp: `2026-04-16T14:23:13Z`
+- Artifact: `artifacts/benchmarks/gamepad/gamepad-20260416T142313Z.json`
+- Git Commit: `94c8145315eafc41571593d2bf69d6f0721c0ccd`
 - Dirty Worktree: `true`
 - Baseline Comparison Key: `baseline-20260416-2`
 
 | Metric | Value | Delta vs Baseline |
 | --- | --- | --- |
-| `mean_error_px` | `9.254711251341941` | `-5.38%` |
-| `p95_error_px` | `12.517222189216609` | `-5.91%` |
-| `p99_error_px` | `13.157292291445213` | `-6.01%` |
-| `overshoot_events` | `19` | `+11.76%` |
-| `max_overshoot_px` | `5.473333263982482` | `+8.11%` |
-| `mean_recovery_frames_after_turn` | `49.666666666666664` | `+0.00%` |
-| `mean_settle_frames_after_decel` | `14.0` | `-1.01%` |
+| `mean_error_px` | `8.126935322001245` | `-16.91%` |
+| `p95_error_px` | `11.074469365436647` | `-16.75%` |
+| `p99_error_px` | `11.348936418348798` | `-18.93%` |
+| `overshoot_events` | `11` | `-35.29%` |
+| `max_overshoot_px` | `6.133642605246969` | `+21.15%` |
+| `mean_recovery_frames_after_turn` | `55.3` | `+11.34%` |
+| `mean_settle_frames_after_decel` | `16.88888888888889` | `+19.42%` |
 
 ## History vs Baseline
 
 | Run Key | Timestamp | Artifact | Dirty | Mean Error Delta | P95 Delta | P99 Delta | Overshoot Delta | Max Overshoot Delta | Turn Recovery Delta | Decel Settle Delta |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `gamepad-20260416T142313Z` | 2026-04-16T14:23:13Z | `artifacts/benchmarks/gamepad/gamepad-20260416T142313Z.json` | dirty | -16.91% | -16.75% | -18.93% | -35.29% | +21.15% | +11.34% | +19.42% |
+| `gamepad-20260416T130940Z` | 2026-04-16T13:09:40Z | `artifacts/benchmarks/gamepad/gamepad-20260416T130940Z.json` | dirty | -17.35% | -17.84% | -20.82% | -23.53% | -7.58% | -9.25% | +18.43% |
+| `gamepad-20260416T124311Z` | 2026-04-16T12:43:11Z | `artifacts/benchmarks/gamepad/gamepad-20260416T124311Z.json` | dirty | -11.69% | -16.74% | -19.48% | -47.06% | +2.16% | -10.26% | +28.84% |
+| `gamepad-20260416T123846Z` | 2026-04-16T12:38:46Z | `artifacts/benchmarks/gamepad/gamepad-20260416T123846Z.json` | dirty | -16.79% | -16.00% | -16.99% | +100.00% | +22.56% | -59.62% | +14.90% |
+| `gamepad-20260416T123022Z` | 2026-04-16T12:30:22Z | `artifacts/benchmarks/gamepad/gamepad-20260416T123022Z.json` | dirty | -13.28% | -16.03% | -19.47% | +288.24% | +15.56% | -2.49% | +11.01% |
+| `gamepad-20260416T122456Z` | 2026-04-16T12:24:56Z | `artifacts/benchmarks/gamepad/gamepad-20260416T122456Z.json` | dirty | +71.43% | +75.01% | +68.28% | +188.24% | +81.47% | +37.92% | +43.54% |
 | `tuned-compare-20260416-2` | 2026-04-16T06:22:05Z | `artifacts/benchmarks/gamepad/tuned-compare-20260416-2.json` | dirty | -5.38% | -5.91% | -6.01% | +11.76% | +8.11% | +0.00% | -1.01% |
 | `tuned-compare-20260416-1` | 2026-04-16T06:16:13Z | `artifacts/benchmarks/gamepad/tuned-compare-20260416-1.json` | dirty | -1.11% | -2.05% | -2.65% | -11.76% | +18.14% | +1.34% | -3.37% |
 | `sweep-20260416-e` | 2026-04-16T06:05:53Z | `artifacts/benchmarks/gamepad/sweep-20260416-e.json` | dirty | +11.68% | +10.99% | +11.80% | -41.18% | +10.34% | +63.09% | +20.99% |

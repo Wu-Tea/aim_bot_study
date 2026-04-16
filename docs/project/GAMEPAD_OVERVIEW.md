@@ -31,7 +31,7 @@ This keeps the main loop narrow. The host is responsible for I/O and state hando
 2. `controller.py` creates `GamepadController` when `--controller-mode gamepad` is selected.
 3. `vision/runner.py` drives detection and targeting.
 4. Vision sends only high-level signals into the controller:
-   - `controller.update(dx, dy)` for target offset
+   - `controller.update(dx, dy, target=...)` for target offset plus compact body-box metadata
    - `controller.set_auto_fire(pressed)` for fire intent
    - `controller.reset()` when no valid target or aim state is lost
 5. `controllers/gamepad_controller.py` reads the physical gamepad state, builds a `GamepadFrame`, creates a mutable `GamepadOutput`, then runs the plugin chain.
@@ -83,50 +83,39 @@ File: `controllers/gamepad/ai_aim.py`
 
 Responsibility:
 
-- convert vision-space target delta into AI right-stick correction
-- blend AI correction with manual right-stick input
-- fade AI out when the player is already moving the stick hard
-- keep wrong manual X input from shutting AI off too early when target direction is stable
+- default path: explicit `Manual` / `ADS Snap` / `Body Lock` controller state machine
+- compatibility path: if `AIAimPlugin` is constructed with explicit `sub_plugins`, it still runs the older blended-assist pipeline for legacy tests and comparisons
 
-It currently contains four sub-plugins, in this order:
+Default state-machine behavior:
 
-- `ManualIntentGuardSubPlugin`
-  - watches recent target-revision X direction
-  - only activates when recent target X error is stable enough to trust
-  - if the player keeps pulling the right stick against that stable direction, it softens manual X and removes that wrong input from the X-axis AI fade calculation
-  - current scope is intentionally X axis only, so vertical manual correction and recoil feel stay independent
-- `AdaptiveDeltaGainSubPlugin`
-  - increases effective target delta when the system is clearly not converging
-  - solves the case where the AI cap is high enough, but the input to the pixel-to-stick map is still too small to catch a moving target
+- `Manual`
+  - default state
+  - no continuous always-on AI tracking outside the two explicit aim-assist windows
+- `ADS Snap`
+  - active only during the first ADS window of a session
+  - intended to pull the reticle close quickly, then get out of the way
+- `Body Lock`
+  - only activates once the crosshair is already inside the target body box plus tolerance
+  - only activates when the upper-body lock point stays inside a central activation window
+  - targets upper-body center rather than generic full-body center
+  - can apply short-horizon motion compensation after several matched frames on the same target
 
-- `HorizontalAssistSubPlugin`
-  - predicts horizontal movement and adds feedforward / catch-up behavior
-- `OvershootGuardSubPlugin`
-  - reduces AI carry and desired force near convergence or after zero-crossing to avoid pulling past the target
+### Current AI aim execution rules
 
-This is the main place where movement prediction compensation, wrong-input correction, catch-up behavior, and overshoot limiting now live.
-
-### Current AI aim blend rules
-
-The current gamepad aim path is:
+The default gamepad aim path is now:
 
 1. Read manual right-stick input from the physical pad.
-2. Read target `dx/dy` from vision and scale it by baseline `ai_delta_gain`.
-3. Let the AI sub-plugin chain adjust:
-   - manual X trust
-   - target delta gain
-   - horizontal feedforward
-   - near-target overshoot damping
-4. Map the adjusted screen-space delta into virtual right-stick output.
-5. Add the AI stick on top of the manual stick.
+2. Read `dx/dy` plus compact target metadata from vision.
+3. If ADS just began and the first-window conditions are still open, apply `ADS Snap`.
+4. Once the crosshair is already inside the target body box plus tolerance, switch to `Body Lock`.
+5. Outside those explicit windows, return to manual passthrough instead of continuous blended AI.
 
 Important details:
 
-- X-axis AI fade is no longer driven only by raw manual stick magnitude.
-- When manual X is obviously wrong and recent target direction is stable, AI remains active on X instead of fading out with the player mistake.
-- When manual X agrees with target direction, the system keeps the normal blend and fade behavior.
-- Y-axis behavior is still conservative on purpose. Wrong-input correction currently does not interfere with vertical recoil or manual vertical adjustment.
-- Pixel-to-stick mapping is piecewise rather than purely linear, so the mid-range error band is stronger without forcing max stick too early.
+- the central `Body Lock` activation window defaults to `200x200`
+- `Body Lock` exit is driven by leaving the near-target region or losing ADS, not by strong manual input
+- short-horizon lead compensation is controller-side only; it biases the lock point after several matched frames without changing vision target selection
+- the old blended assist path is still available for legacy benchmark/plugin coverage when constructed explicitly
 
 ### `AutoFirePlugin`
 
@@ -156,44 +145,26 @@ This plugin is intentionally separate from `AutoFirePlugin`, so fire timing and 
 
 ## Supporting modules
 
-### `manual_intent_guard.py`
+### Legacy support modules
 
-- tracks a short X-axis target history
-- classifies recent manual X input as aligned, opposed, or unstable
-- only attenuates manual X when target direction is stable enough to trust
-- supplies a corrected X value for output mixing and for AI fade
+- `manual_intent_guard.py`
+- `adaptive_delta_gain.py`
+- `horizontal_assist.py`
+- `overshoot_guard.py`
 
-This is the main protection against user over-correction pulling the reticle off target and disabling AI at the same time.
-
-### `adaptive_delta_gain.py`
-
-- tracks whether target error is shrinking or stalling
-- temporarily boosts effective target delta when the AI is not catching up
-- cools down quickly once convergence resumes
-
-### `horizontal_assist.py`
-
-- tracks horizontal error velocity
-- adds limited feedforward when the target is moving sideways
-- builds a small catch-up bonus if the system is not converging
-
-### `overshoot_guard.py`
-
-- tracks near-target convergence on both axes
-- detects zero-crossing close to center
-- reduces desired AI force and carry when the system is likely to pull through the target
+These remain in the repository for the explicit legacy `sub_plugins` path, benchmark comparison, and isolated tuning experiments.
 
 ## Current tuning direction
 
-The current gamepad stack is intentionally biased toward trusting AI more than before, but only when the system has enough evidence:
+The current gamepad stack is intentionally biased toward:
 
-- stable recent target direction can override clearly wrong manual X input
-- non-converging target error can temporarily raise effective AI pull
-- horizontal prediction can help the reticle arrive earlier on sideways movement
-- overshoot protection still limits pull-through near target center
+- manual control as the baseline
+- one aggressive first-ADS reposition
+- sticky upper-body correction only after the player is already close
+- controller-side lead compensation only inside that `Body Lock` phase
 
-So the current design goal is not "weaken AI when the player moves the stick".
-It is "blend normally when the player is helping, but rescue the track when the player is clearly fighting a stable target direction".
+So the current design goal is no longer "always-on blended rescue".
+It is "manual by default, one-time ADS snap, then conditional sticky body lock."
 
 ## Relationship to vision-side targeting
 

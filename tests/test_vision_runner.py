@@ -4,7 +4,7 @@ from unittest.mock import Mock, patch
 
 import numpy as np
 
-from controllers.base_controller import BaseController
+from controllers.base_controller import BaseController, ControllerTarget
 from vision.runner import VisionConfig, _resolve_tracking_frame
 from vision.targeting import SelectedTarget
 
@@ -14,13 +14,13 @@ class VisionRunnerTests(unittest.TestCase):
         with patch.dict(os.environ, {}, clear=True):
             config = VisionConfig.from_env()
 
-        self.assertEqual(config.capture_width, 896)
+        self.assertEqual(config.capture_width, 640)
         self.assertEqual(config.capture_height, 512)
-        self.assertEqual(config.capture_fps, 70)
+        self.assertEqual(config.capture_fps, 80)
         self.assertEqual(config.conf, 0.40)
         self.assertFalse(config.debug_overlay)
         self.assertFalse(config.debug_save_frames)
-        self.assertEqual(config.image_size, (512, 896))
+        self.assertEqual(config.image_size, (512, 640))
 
     def test_from_env_allows_runtime_overrides(self):
         with patch.dict(
@@ -96,9 +96,10 @@ class VisionRunnerTests(unittest.TestCase):
 class _AliasController(BaseController):
     def __init__(self):
         self.auto_fire_values = []
+        self.updates = []
 
-    def update(self, dx, dy):
-        return None
+    def update(self, dx, dy, target=None):
+        self.updates.append((dx, dy, target))
 
     def reset(self):
         return None
@@ -117,6 +118,22 @@ class BaseControllerAliasTests(unittest.TestCase):
         controller.set_auto_rb(True)
 
         self.assertEqual(controller.auto_fire_values, [True])
+
+    def test_update_can_receive_controller_target_metadata(self):
+        controller = _AliasController()
+        target = ControllerTarget(
+            aim_point_x=320.0,
+            aim_point_y=210.0,
+            screen_center_x=320.0,
+            screen_center_y=256.0,
+            body_box=(282.0, 128.0, 358.0, 316.0),
+        )
+
+        controller.update(8.0, -4.0, target=target)
+
+        self.assertEqual(len(controller.updates), 1)
+        self.assertEqual(controller.updates[0][0:2], (8.0, -4.0))
+        self.assertEqual(controller.updates[0][2], target)
 
 
 class VisionRunnerTrackingResolutionTests(unittest.TestCase):

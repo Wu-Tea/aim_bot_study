@@ -10,15 +10,11 @@ import vgamepad as vg
 
 from .base_controller import BaseController
 from .gamepad import (
-    AdaptiveDeltaGainSubPlugin,
     AIAimPlugin,
     AutoFireConfig,
     AutoFirePlugin,
     GamepadFrame,
     GamepadOutput,
-    HorizontalAssistSubPlugin,
-    ManualIntentGuardSubPlugin,
-    OvershootGuardSubPlugin,
     apply_plugins,
     reset_plugins,
     RecoilCompensationConfig,
@@ -84,6 +80,7 @@ class GamepadController(BaseController, threading.Thread):
         self.target_dy = 0.0
         self.target_revision = 0
         self.target_timestamp = None
+        self.target_info = None
         self.PHYS_STICK_DEADZONE = 2500
 
         from config import load_tuning_config
@@ -99,15 +96,7 @@ class GamepadController(BaseController, threading.Thread):
             ai_aim_config = replace(ai_aim_config, **overrides)
 
         self.plugins = list(plugins) if plugins is not None else [
-            AIAimPlugin(
-                ai_aim_config,
-                sub_plugins=(
-                    ManualIntentGuardSubPlugin(),
-                    AdaptiveDeltaGainSubPlugin(tuning.adaptive_delta_gain),
-                    HorizontalAssistSubPlugin(),
-                    OvershootGuardSubPlugin(),
-                ),
-            ),
+            AIAimPlugin(ai_aim_config),
             AutoFirePlugin(AutoFireConfig(fire_output=auto_fire_output)),
             RecoilCompensationPlugin(RecoilCompensationConfig(amount=0.30)),
         ]
@@ -132,10 +121,11 @@ class GamepadController(BaseController, threading.Thread):
         self.ready = True
         self.start()
 
-    def update(self, dx, dy):
+    def update(self, dx, dy, target=None):
         with self.lock:
             self.target_dx = dx
             self.target_dy = dy
+            self.target_info = target
             self.target_revision = getattr(self, "target_revision", 0) + 1
             self.target_timestamp = time.perf_counter()
 
@@ -146,6 +136,7 @@ class GamepadController(BaseController, threading.Thread):
         with self.lock:
             self.target_dx = 0.0
             self.target_dy = 0.0
+            self.target_info = None
             self.target_revision = getattr(self, "target_revision", 0) + 1
             self.target_timestamp = time.perf_counter()
         reset_plugins(self.plugins)
@@ -232,6 +223,7 @@ class GamepadController(BaseController, threading.Thread):
             target_dy = self.target_dy
             target_revision = self.target_revision
             target_timestamp = self.target_timestamp
+            target_info = self.target_info
             auto_fire_requested = self._auto_fire_requested
 
         return GamepadFrame(
@@ -250,6 +242,7 @@ class GamepadController(BaseController, threading.Thread):
             dpad=dpad,
             target_revision=target_revision,
             target_timestamp=target_timestamp,
+            target=target_info,
         )
 
     def _build_output(self, frame: GamepadFrame):

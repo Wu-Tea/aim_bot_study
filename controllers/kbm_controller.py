@@ -71,7 +71,7 @@ class KBMController(BaseController, threading.Thread):
         else:
             self.virtual_gamepad.release_button(vg.XUSB_BUTTON.XUSB_GAMEPAD_RIGHT_SHOULDER)
 
-    def update(self, dx, dy):
+    def update(self, dx, dy, target=None):
         with self.lock:
             self.ai_target_dx = dx * self.ai_sens
             self.ai_target_dy = dy * self.ai_sens
