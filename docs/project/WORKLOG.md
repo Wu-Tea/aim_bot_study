@@ -8,8 +8,8 @@
   - `models/yolo26n.engine`
   - fallback `models/yolo26n.pt`
 - Moved the runtime defaults to a rectangular capture profile:
-  - `896 x 512`
-  - `70 FPS`
+  - `640 x 512`
+  - `80 FPS`
 - Unified runtime configuration around:
   - `capture_width`
   - `capture_height`

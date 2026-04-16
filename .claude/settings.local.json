@@ -3,7 +3,10 @@
     "allow": [
       "Bash(python:*)",
       "Bash(.venv/Scripts/python.exe -m py_compile vision/runner.py controllers/gamepad_controller.py)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m ':*)",
+      "Bash(git commit:*)"
     ]
   }
 }

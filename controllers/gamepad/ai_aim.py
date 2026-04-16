@@ -14,17 +14,17 @@ from .state import GamepadFrame, GamepadOutput
 
 @dataclass(slots=True, frozen=True)
 class AIAimConfig:
-    smoothing: float = 0.65
+    smoothing: float = 0.62
     max_pixels: int = 130
     piecewise_mid_pixels: float = 60.0
     piecewise_max_pixels: float = 230.0
-    piecewise_mid_ratio: float = 0.5
+    piecewise_mid_ratio: float = 0.56
     piecewise_mid_pixels_y: float = 45.0
     piecewise_max_pixels_y: float = 180.0
     piecewise_mid_ratio_y: float = 0.65
     invert_x: bool = False
     invert_y: bool = False
-    max_ai_force: float = 0.6
+    max_ai_force: float = 0.64
     max_ai_force_y: float = 0.8
     deadzone_inner: float = 1.5
     deadzone_outer: float = 5.0
@@ -134,10 +134,10 @@ class HorizontalAssistSubPlugin:
                 min_velocity_px_per_sec=60.0,
                 velocity_filter_alpha=0.45,
                 feedforward_lead_seconds=0.02,
-                feedforward_gain=0.65,
+                feedforward_gain=0.70,
                 max_feedforward_px=6.0,
                 catchup_trigger_frames=3,
-                catchup_gain_per_update=0.02,
+                catchup_gain_per_update=0.025,
                 catchup_max_bonus=0.10,
                 catchup_decay=0.04,
                 opposing_input_threshold=5000,

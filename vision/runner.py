@@ -52,9 +52,9 @@ def _env_flag(name: str, default: bool = False):
 
 @dataclass(slots=True, frozen=True)
 class VisionConfig:
-    capture_width: int = 896
+    capture_width: int = 640
     capture_height: int = 512
-    capture_fps: int = 70
+    capture_fps: int = 80
     debug_overlay: bool = False
     debug_save_frames: bool = False
     model_path: str = str(DEFAULT_MODEL_PATH)
