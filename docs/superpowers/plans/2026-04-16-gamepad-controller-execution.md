@@ -4,7 +4,7 @@
 
 **Goal:** Replace the default gamepad always-on blended assist with a controller-side `Manual` / `ADS Snap` / `Body Lock` state machine while preserving a legacy compatibility path for the old plugin-chain behavior.
 
-**Architecture:** Keep the old sub-plugin pipeline available when `AIAimPlugin` is constructed with explicit `sub_plugins`, but make the default gamepad controller path use a new state-machine executor. Pass compact target metadata from `vision.runner` into the controller so `Body Lock` can reason about body boxes, upper-body lock points, and a central `200x200` activation window without redesigning vision target selection.
+**Architecture:** Keep the old sub-plugin pipeline available when `AIAimPlugin` is constructed with explicit `sub_plugins`, but make the default gamepad controller path use a new state-machine executor. Pass compact target metadata from `vision.runner` into the controller so `Body Lock` can reason about body boxes, upper-body lock points, and a central `150x150` activation window without redesigning vision target selection.
 
 **Tech Stack:** Python 3, `unittest`, dataclasses, existing controller plugin pipeline, existing vision target selection output
 

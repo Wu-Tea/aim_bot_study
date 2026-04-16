@@ -112,7 +112,7 @@ The default gamepad aim path is now:
 
 Important details:
 
-- the central `Body Lock` activation window defaults to `200x200`
+- the central `Body Lock` activation window defaults to `150x150`
 - `Body Lock` exit is driven by leaving the near-target region or losing ADS, not by strong manual input
 - short-horizon lead compensation is controller-side only; it biases the lock point after several matched frames without changing vision target selection
 - the old blended assist path is still available for legacy benchmark/plugin coverage when constructed explicitly

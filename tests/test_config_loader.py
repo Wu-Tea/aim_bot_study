@@ -15,6 +15,7 @@ class TuningConfigLoaderTests(unittest.TestCase):
             config = load_tuning_config(Path(tmp) / "does_not_exist.toml")
 
         self.assertEqual(config.gamepad_ai_aim, GamepadAIAimConfig())
+        self.assertEqual(config.gamepad_ai_aim.body_lock_activation_box_px, 150.0)
         self.assertEqual(config.adaptive_delta_gain, AdaptiveDeltaGainConfig())
         self.assertEqual(config.mouse_ai_aim, MouseAIAimConfig())
 
