@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Mapping
 
+from controllers.base_controller import ControllerTarget
+
 
 @dataclass(slots=True, frozen=True)
 class GamepadFrame:
@@ -19,6 +21,7 @@ class GamepadFrame:
     dpad: int = 0
     target_revision: int = 0
     target_timestamp: float | None = None
+    target: ControllerTarget | None = None
 
 
 @dataclass(slots=True)

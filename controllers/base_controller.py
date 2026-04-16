@@ -1,4 +1,14 @@
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
+
+
+@dataclass(slots=True, frozen=True)
+class ControllerTarget:
+    aim_point_x: float
+    aim_point_y: float
+    screen_center_x: float
+    screen_center_y: float
+    body_box: tuple[float, float, float, float] | None = None
 
 
 class BaseController(ABC):
@@ -8,10 +18,11 @@ class BaseController(ABC):
     """
 
     @abstractmethod
-    def update(self, dx: float, dy: float):
+    def update(self, dx: float, dy: float, target: ControllerTarget | None = None):
         """
         Receives the delta (dx, dy) from the vision module to adjust aim.
-        This is the primary method for the AI to send commands.
+        Optional target metadata lets controller-side execution logic reason
+        about body regions without redesigning vision selection behavior.
         """
         pass
 

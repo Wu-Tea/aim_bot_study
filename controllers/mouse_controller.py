@@ -77,7 +77,7 @@ class MouseController(BaseController, threading.Thread):
             if not pressed:
                 self.reset()
 
-    def update(self, dx, dy):
+    def update(self, dx, dy, target=None):
         with self.lock:
             self.target_dx = dx
             self.target_dy = dy

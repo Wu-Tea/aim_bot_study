@@ -28,6 +28,13 @@ class TuningConfigLoaderTests(unittest.TestCase):
             piecewise_mid_pixels_y = 52
             piecewise_max_pixels_y = 172
             piecewise_mid_ratio_y = 0.7
+            ads_snap_window_ms = 120
+            body_lock_activation_box_px = 220
+            body_lock_vertical_deadzone_px = 4.5
+            body_lock_vertical_tail_inner_px = 1.5
+            body_lock_vertical_tail_speed_threshold_px_per_sec = 80.0
+            body_lock_vertical_lead_scale = 0.8
+            body_lock_lead_frames = 6
 
             [gamepad.adaptive_delta_gain]
             max_bonus = 0.9
@@ -50,6 +57,16 @@ class TuningConfigLoaderTests(unittest.TestCase):
         self.assertEqual(config.gamepad_ai_aim.piecewise_mid_pixels_y, 52)
         self.assertEqual(config.gamepad_ai_aim.piecewise_max_pixels_y, 172)
         self.assertEqual(config.gamepad_ai_aim.piecewise_mid_ratio_y, 0.7)
+        self.assertEqual(config.gamepad_ai_aim.ads_snap_window_ms, 120)
+        self.assertEqual(config.gamepad_ai_aim.body_lock_activation_box_px, 220)
+        self.assertEqual(config.gamepad_ai_aim.body_lock_vertical_deadzone_px, 4.5)
+        self.assertEqual(config.gamepad_ai_aim.body_lock_vertical_tail_inner_px, 1.5)
+        self.assertEqual(
+            config.gamepad_ai_aim.body_lock_vertical_tail_speed_threshold_px_per_sec,
+            80.0,
+        )
+        self.assertEqual(config.gamepad_ai_aim.body_lock_vertical_lead_scale, 0.8)
+        self.assertEqual(config.gamepad_ai_aim.body_lock_lead_frames, 6)
         self.assertEqual(
             config.gamepad_ai_aim.ai_delta_gain,
             GamepadAIAimConfig().ai_delta_gain,

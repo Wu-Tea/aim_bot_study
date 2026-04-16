@@ -5,6 +5,8 @@ from pathlib import Path
 
 import win32api
 
+from controllers.base_controller import ControllerTarget
+
 from .capture import ScreenCaptureThread
 from .debug_capture import DebugFrameCapture
 from .debug_overlay import VisionDebugOverlay
@@ -152,6 +154,18 @@ def _resolve_tracking_frame(
     )
 
 
+def _controller_target(selected_target) -> ControllerTarget | None:
+    if selected_target is None:
+        return None
+    return ControllerTarget(
+        aim_point_x=selected_target.target_x,
+        aim_point_y=selected_target.target_y,
+        screen_center_x=selected_target.screen_center_x,
+        screen_center_y=selected_target.screen_center_y,
+        body_box=selected_target.selected_box,
+    )
+
+
 def process_vision(controller=None):
     config = VisionConfig.from_env()
     predict_kwargs = {
@@ -291,7 +305,11 @@ def process_vision(controller=None):
             if controller:
                 controller.set_auto_fire(auto_fire_active)
                 if best_target_delta:
-                    controller.update(best_target_delta[0], best_target_delta[1])
+                    controller.update(
+                        best_target_delta[0],
+                        best_target_delta[1],
+                        target=_controller_target(selected_target),
+                    )
                 else:
                     controller.reset()
 

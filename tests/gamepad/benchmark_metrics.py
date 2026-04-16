@@ -5,10 +5,21 @@ from dataclasses import dataclass
 from statistics import mean
 from typing import Callable, Sequence
 
+from controllers.base_controller import ControllerTarget
 from controllers.gamepad.ai_aim import AIAimConfig, AIAimPlugin
 from controllers.gamepad.state import GamepadFrame, GamepadOutput
 
 from tests.gamepad.benchmark_scenarios import ScenarioManifest, expand_manifest
+
+
+BENCHMARK_SCREEN_CENTER_X = 320.0
+BENCHMARK_SCREEN_CENTER_Y = 256.0
+BENCHMARK_BODY_BOX_WIDTH = 84.0
+BENCHMARK_BODY_BOX_HEIGHT = 180.0
+BENCHMARK_UPPER_BODY_RATIO = 0.38
+BENCHMARK_MANUAL_MAX_RATIO = 0.72
+BENCHMARK_MANUAL_FULL_SCALE_X = 90.0
+BENCHMARK_MANUAL_FULL_SCALE_Y = 80.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,12 +182,35 @@ def _simulate_closed_loop(
         error_x = state.target_x - reticle_x
         error_y = state.target_y - reticle_y
         timestamp = state.frame * config.frame_dt
+        manual_right_x = _clamp_int(
+            (error_x / BENCHMARK_MANUAL_FULL_SCALE_X) * config.stick_max * BENCHMARK_MANUAL_MAX_RATIO,
+            config.stick_max,
+        )
+        manual_right_y = _clamp_int(
+            (-error_y / BENCHMARK_MANUAL_FULL_SCALE_Y) * config.stick_max * BENCHMARK_MANUAL_MAX_RATIO,
+            config.stick_max,
+        )
+        aim_point_x = BENCHMARK_SCREEN_CENTER_X + error_x
+        aim_point_y = BENCHMARK_SCREEN_CENTER_Y + error_y
+        body_top = aim_point_y - (BENCHMARK_BODY_BOX_HEIGHT * BENCHMARK_UPPER_BODY_RATIO)
+        target = ControllerTarget(
+            aim_point_x=aim_point_x,
+            aim_point_y=aim_point_y,
+            screen_center_x=BENCHMARK_SCREEN_CENTER_X,
+            screen_center_y=BENCHMARK_SCREEN_CENTER_Y,
+            body_box=(
+                aim_point_x - (BENCHMARK_BODY_BOX_WIDTH * 0.5),
+                body_top,
+                aim_point_x + (BENCHMARK_BODY_BOX_WIDTH * 0.5),
+                body_top + BENCHMARK_BODY_BOX_HEIGHT,
+            ),
+        )
         frame = GamepadFrame(
             timestamp=timestamp,
             left_x=0,
             left_y=0,
-            manual_right_x=0,
-            manual_right_y=0,
+            manual_right_x=manual_right_x,
+            manual_right_y=manual_right_y,
             left_trigger=255,
             right_trigger=0,
             buttons={},
@@ -186,6 +220,7 @@ def _simulate_closed_loop(
             auto_fire_requested=False,
             target_revision=state.frame + 1,
             target_timestamp=timestamp,
+            target=target,
         )
         output = GamepadOutput()
         plugin.apply(frame, output)

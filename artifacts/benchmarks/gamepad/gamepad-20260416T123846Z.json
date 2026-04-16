@@ -1,0 +1,993 @@
+{
+  "run_key": "gamepad-20260416T123846Z",
+  "run_seed": 1776343126,
+  "baseline_key": "baseline-20260416-2",
+  "timestamp": "2026-04-16T12:38:46Z",
+  "artifact_path": "artifacts/benchmarks/gamepad/gamepad-20260416T123846Z.json",
+  "git_metadata": {
+    "commit": "94c8145315eafc41571593d2bf69d6f0721c0ccd",
+    "dirty": true
+  },
+  "benchmark_config": {
+    "frame_dt": 0.016666666666666666,
+    "sim_frames": 180,
+    "measure_from_frame": 60,
+    "max_reticle_speed_pps": 1500.0,
+    "stick_max": 32767,
+    "overshoot_threshold_px": 2.0,
+    "turn_recovery_threshold_px": 6.0,
+    "settle_threshold_px": 5.0,
+    "settle_consecutive_frames": 4,
+    "scenario_count": 24,
+    "steady_turns": 8,
+    "turn_then_decel": 8,
+    "decel_resume": 8
+  },
+  "scenario_logic": [
+    "steady_turns: 8 scenarios with one or more heading changes and no hard stop",
+    "turn_then_decel: 8 scenarios with a turn followed by a deceleration event",
+    "decel_resume: 8 scenarios with a deceleration event and optional resume"
+  ],
+  "controller_config_snapshot": {
+    "gamepad_ai_aim": {
+      "smoothing": 0.62,
+      "max_pixels": 130,
+      "piecewise_mid_pixels": 60.0,
+      "piecewise_max_pixels": 230.0,
+      "piecewise_mid_ratio": 0.56,
+      "piecewise_mid_pixels_y": 45.0,
+      "piecewise_max_pixels_y": 180.0,
+      "piecewise_mid_ratio_y": 0.65,
+      "invert_x": false,
+      "invert_y": false,
+      "max_ai_force": 0.64,
+      "max_ai_force_y": 0.8,
+      "deadzone_inner": 1.5,
+      "deadzone_outer": 5.0,
+      "x_deadzone_outer": 3.0,
+      "ai_fade_full": 8000,
+      "ai_delta_gain": 0.7,
+      "ads_snap_window_ms": 100,
+      "ads_snap_smoothing": 0.0,
+      "ads_snap_max_ai_force": 1.0,
+      "ads_snap_max_ai_force_y": 1.0,
+      "body_lock_smoothing": 0.18,
+      "body_lock_max_ai_force": 0.42,
+      "body_lock_max_ai_force_y": 0.48,
+      "body_lock_box_tolerance_px": 18.0,
+      "body_lock_activation_box_px": 200.0,
+      "body_lock_vertical_deadzone_px": 6.0,
+      "body_lock_upper_body_ratio": 0.38,
+      "body_lock_lead_frames": 4,
+      "body_lock_lead_seconds": 0.05,
+      "body_lock_lead_max_px": 18.0,
+      "body_lock_target_match_iou": 0.1,
+      "body_lock_target_match_center_px": 48.0
+    },
+    "adaptive_delta_gain": {
+      "min_error_px": 6.0,
+      "convergence_epsilon_px": 0.5,
+      "trigger_frames": 3,
+      "gain_per_update": 0.08,
+      "decay_per_update": 0.12,
+      "max_bonus": 0.6,
+      "opposing_input_threshold": 4500,
+      "stale_seconds": 0.15
+    }
+  },
+  "aggregate_metrics": {
+    "mean_error_px": 8.139020395312933,
+    "p95_error_px": 11.175514581927509,
+    "p99_error_px": 11.61977800976232,
+    "overshoot_events": 34,
+    "max_overshoot_px": 6.204939531783503,
+    "mean_recovery_frames_after_turn": 20.055555555555557,
+    "mean_settle_frames_after_decel": 16.25
+  },
+  "relative_deltas_vs_baseline": {
+    "mean_error_px": -0.1678976469458735,
+    "p95_error_px": -0.1599540042223835,
+    "p99_error_px": -0.16994511962629727,
+    "overshoot_events": 1.0,
+    "max_overshoot_px": 0.2255800823167603,
+    "mean_recovery_frames_after_turn": -0.5961968680089484,
+    "mean_settle_frames_after_decel": 0.14898989898989903
+  },
+  "scenarios": [
+    {
+      "manifest": {
+        "scenario_key": "gamepad-20260416T123846Z-s00",
+        "kind": "steady_turns",
+        "initial_state": {
+          "initial_dx": 56.24428666400573,
+          "initial_dy": -38.055332593828645,
+          "initial_speed_px_per_sec": 336.5846558284328,
+          "initial_heading_deg": -93.50957939501819
+        },
+        "turn_events": [
+          {
+            "frame": 56,
+            "delta_heading_deg": -24.654525614057462,
+            "speed_scale": 1.0063534545378563
+          },
+          {
+            "frame": 98,
+            "delta_heading_deg": 44.267799685692125,
+            "speed_scale": 0.9489873714523142
+          }
+        ],
+        "decel_events": [],
+        "resume_events": []
+      },
+      "metrics": {
+        "scenario_key": "gamepad-20260416T123846Z-s00",
+        "kind": "steady_turns",
+        "mean_error_px": 9.843423907335785,
+        "p95_error_px": 11.985327195556641,
+        "p99_error_px": 11.98579536184851,
+        "overshoot_events": 0,
+        "max_overshoot_px": 0.0,
+        "mean_recovery_frames_after_turn": null,
+        "mean_settle_frames_after_decel": null
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "gamepad-20260416T123846Z-s01",
+        "kind": "steady_turns",
+        "initial_state": {
+          "initial_dx": 33.989521482617874,
+          "initial_dy": 2.167716601174156,
+          "initial_speed_px_per_sec": 404.99229478335656,
+          "initial_heading_deg": -16.534384215547988
+        },
+        "turn_events": [
+          {
+            "frame": 67,
+            "delta_heading_deg": 19.632215020928328,
+            "speed_scale": 1.0318137934425353
+          }
+        ],
+        "decel_events": [],
+        "resume_events": []
+      },
+      "metrics": {
+        "scenario_key": "gamepad-20260416T123846Z-s01",
+        "kind": "steady_turns",
+        "mean_error_px": 16.183259259034028,
+        "p95_error_px": 17.20229695913814,
+        "p99_error_px": 17.202611632853912,
+        "overshoot_events": 0,
+        "max_overshoot_px": 0.0,
+        "mean_recovery_frames_after_turn": null,
+        "mean_settle_frames_after_decel": null
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "gamepad-20260416T123846Z-s02",
+        "kind": "steady_turns",
+        "initial_state": {
+          "initial_dx": -59.17070852674329,
+          "initial_dy": -14.16251826318663,
+          "initial_speed_px_per_sec": 378.0571057277607,
+          "initial_heading_deg": 11.916099184301402
+        },
+        "turn_events": [
+          {
+            "frame": 18,
+            "delta_heading_deg": -7.624196960389369,
+            "speed_scale": 0.958486275742937
+          }
+        ],
+        "decel_events": [],
+        "resume_events": []
+      },
+      "metrics": {
+        "scenario_key": "gamepad-20260416T123846Z-s02",
+        "kind": "steady_turns",
+        "mean_error_px": 14.043129606497658,
+        "p95_error_px": 14.043479528222214,
+        "p99_error_px": 14.043522464799151,
+        "overshoot_events": 0,
+        "max_overshoot_px": 0.0,
+        "mean_recovery_frames_after_turn": null,
+        "mean_settle_frames_after_decel": null
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "gamepad-20260416T123846Z-s03",
+        "kind": "steady_turns",
+        "initial_state": {
+          "initial_dx": -19.424256351305523,
+          "initial_dy": 10.311754984642526,
+          "initial_speed_px_per_sec": 405.9795933990846,
+          "initial_heading_deg": -11.245314585161935
+        },
+        "turn_events": [
+          {
+            "frame": 46,
+            "delta_heading_deg": 101.01822246264288,
+            "speed_scale": 0.9306441236942286
+          }
+        ],
+        "decel_events": [],
+        "resume_events": []
+      },
+      "metrics": {
+        "scenario_key": "gamepad-20260416T123846Z-s03",
+        "kind": "steady_turns",
+        "mean_error_px": 10.83660154105442,
+        "p95_error_px": 13.016305869157392,
+        "p99_error_px": 13.0163853169052,
+        "overshoot_events": 1,
+        "max_overshoot_px": 6.204939531783503,
+        "mean_recovery_frames_after_turn": null,
+        "mean_settle_frames_after_decel": null
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "gamepad-20260416T123846Z-s04",
+        "kind": "steady_turns",
+        "initial_state": {
+          "initial_dx": 23.092194149474906,
+          "initial_dy": 27.132535552516032,
+          "initial_speed_px_per_sec": 418.2719259333834,
+          "initial_heading_deg": 106.67301922542413
+        },
+        "turn_events": [
+          {
+            "frame": 18,
+            "delta_heading_deg": -28.332535254517666,
+            "speed_scale": 0.9353684149308444
+          },
+          {
+            "frame": 62,
+            "delta_heading_deg": -34.70119586555373,
+            "speed_scale": 1.0301800826766436
+          }
+        ],
+        "decel_events": [],
+        "resume_events": []
+      },
+      "metrics": {
+        "scenario_key": "gamepad-20260416T123846Z-s04",
+        "kind": "steady_turns",
+        "mean_error_px": 14.615720886190148,
+        "p95_error_px": 15.774117695424026,
+        "p99_error_px": 15.774261622114118,
+        "overshoot_events": 0,
+        "max_overshoot_px": 0.0,
+        "mean_recovery_frames_after_turn": null,
+        "mean_settle_frames_after_decel": null
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "gamepad-20260416T123846Z-s05",
+        "kind": "steady_turns",
+        "initial_state": {
+          "initial_dx": -44.95864841386825,
+          "initial_dy": -27.62538809150939,
+          "initial_speed_px_per_sec": 220.4134948968686,
+          "initial_heading_deg": 93.1391137671792
+        },
+        "turn_events": [
+          {
+            "frame": 32,
+            "delta_heading_deg": 3.41383307462155,
+            "speed_scale": 1.0131283365561299
+          },
+          {
+            "frame": 101,
+            "delta_heading_deg": 33.76419792287456,
+            "speed_scale": 0.9404886917691926
+          }
+        ],
+        "decel_events": [],
+        "resume_events": []
+      },
+      "metrics": {
+        "scenario_key": "gamepad-20260416T123846Z-s05",
+        "kind": "steady_turns",
+        "mean_error_px": 6.727015353573837,
+        "p95_error_px": 7.737945023868829,
+        "p99_error_px": 7.738174779369595,
+        "overshoot_events": 0,
+        "max_overshoot_px": 0.0,
+        "mean_recovery_frames_after_turn": 0.5,
+        "mean_settle_frames_after_decel": null
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "gamepad-20260416T123846Z-s06",
+        "kind": "steady_turns",
+        "initial_state": {
+          "initial_dx": 59.674515403664785,
+          "initial_dy": -30.27202172478209,
+          "initial_speed_px_per_sec": 383.1372226517338,
+          "initial_heading_deg": -102.0794935174144
+        },
+        "turn_events": [
+          {
+            "frame": 23,
+            "delta_heading_deg": -51.978095166244074,
+            "speed_scale": 0.9632749922460282
+          }
+        ],
+        "decel_events": [],
+        "resume_events": []
+      },
+      "metrics": {
+        "scenario_key": "gamepad-20260416T123846Z-s06",
+        "kind": "steady_turns",
+        "mean_error_px": 13.608272920091327,
+        "p95_error_px": 13.924816848506428,
+        "p99_error_px": 13.92500083958879,
+        "overshoot_events": 0,
+        "max_overshoot_px": 0.0,
+        "mean_recovery_frames_after_turn": null,
+        "mean_settle_frames_after_decel": null
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "gamepad-20260416T123846Z-s07",
+        "kind": "steady_turns",
+        "initial_state": {
+          "initial_dx": -1.2694120770257271,
+          "initial_dy": -43.14345832137648,
+          "initial_speed_px_per_sec": 229.6460304201852,
+          "initial_heading_deg": 6.061367417540936
+        },
+        "turn_events": [
+          {
+            "frame": 70,
+            "delta_heading_deg": 24.669762292704036,
+            "speed_scale": 0.9879672212517118
+          }
+        ],
+        "decel_events": [],
+        "resume_events": []
+      },
+      "metrics": {
+        "scenario_key": "gamepad-20260416T123846Z-s07",
+        "kind": "steady_turns",
+        "mean_error_px": 10.585152828505615,
+        "p95_error_px": 11.311525348263105,
+        "p99_error_px": 11.312031152199477,
+        "overshoot_events": 17,
+        "max_overshoot_px": 2.581741072280991,
+        "mean_recovery_frames_after_turn": null,
+        "mean_settle_frames_after_decel": null
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "gamepad-20260416T123846Z-s08",
+        "kind": "turn_then_decel",
+        "initial_state": {
+          "initial_dx": -44.59336798524437,
+          "initial_dy": -11.869380464872279,
+          "initial_speed_px_per_sec": 256.87026751434985,
+          "initial_heading_deg": -123.66090288398033
+        },
+        "turn_events": [
+          {
+            "frame": 25,
+            "delta_heading_deg": 62.46728998289669,
+            "speed_scale": 1.0174445616896497
+          }
+        ],
+        "decel_events": [
+          {
+            "frame": 58,
+            "duration_frames": 13,
+            "target_speed_scale": 0.0,
+            "hard_stop": true
+          }
+        ],
+        "resume_events": []
+      },
+      "metrics": {
+        "scenario_key": "gamepad-20260416T123846Z-s08",
+        "kind": "turn_then_decel",
+        "mean_error_px": 0.5854234900080884,
+        "p95_error_px": 5.0924531261247115,
+        "p99_error_px": 6.715370756612051,
+        "overshoot_events": 0,
+        "max_overshoot_px": 0.0,
+        "mean_recovery_frames_after_turn": 1.0,
+        "mean_settle_frames_after_decel": 10.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "gamepad-20260416T123846Z-s09",
+        "kind": "turn_then_decel",
+        "initial_state": {
+          "initial_dx": 15.318723714689,
+          "initial_dy": 25.556374512102835,
+          "initial_speed_px_per_sec": 321.9846567399681,
+          "initial_heading_deg": 161.13929808880715
+        },
+        "turn_events": [
+          {
+            "frame": 27,
+            "delta_heading_deg": -60.79158664577421,
+            "speed_scale": 0.8954131410623261
+          }
+        ],
+        "decel_events": [
+          {
+            "frame": 63,
+            "duration_frames": 27,
+            "target_speed_scale": 0.12240757251272155,
+            "hard_stop": false
+          }
+        ],
+        "resume_events": []
+      },
+      "metrics": {
+        "scenario_key": "gamepad-20260416T123846Z-s09",
+        "kind": "turn_then_decel",
+        "mean_error_px": 3.7983658056621326,
+        "p95_error_px": 7.223044723638067,
+        "p99_error_px": 10.057951188668916,
+        "overshoot_events": 1,
+        "max_overshoot_px": 4.727340944211628,
+        "mean_recovery_frames_after_turn": 43.0,
+        "mean_settle_frames_after_decel": 25.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "gamepad-20260416T123846Z-s10",
+        "kind": "turn_then_decel",
+        "initial_state": {
+          "initial_dx": -3.4326967428694246,
+          "initial_dy": -27.774853216144194,
+          "initial_speed_px_per_sec": 410.3744056750839,
+          "initial_heading_deg": -15.860040923687478
+        },
+        "turn_events": [
+          {
+            "frame": 44,
+            "delta_heading_deg": -73.16429220182505,
+            "speed_scale": 0.9700634533980811
+          }
+        ],
+        "decel_events": [
+          {
+            "frame": 66,
+            "duration_frames": 11,
+            "target_speed_scale": 0.5531799763657501,
+            "hard_stop": false
+          }
+        ],
+        "resume_events": []
+      },
+      "metrics": {
+        "scenario_key": "gamepad-20260416T123846Z-s10",
+        "kind": "turn_then_decel",
+        "mean_error_px": 7.0607584618210995,
+        "p95_error_px": 10.913647480736776,
+        "p99_error_px": 13.714673711228428,
+        "overshoot_events": 0,
+        "max_overshoot_px": 0.0,
+        "mean_recovery_frames_after_turn": 33.0,
+        "mean_settle_frames_after_decel": null
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "gamepad-20260416T123846Z-s11",
+        "kind": "turn_then_decel",
+        "initial_state": {
+          "initial_dx": -31.35460415534515,
+          "initial_dy": -32.90429906299571,
+          "initial_speed_px_per_sec": 269.97194623753757,
+          "initial_heading_deg": -162.87181849096498
+        },
+        "turn_events": [
+          {
+            "frame": 44,
+            "delta_heading_deg": 114.03383337222371,
+            "speed_scale": 0.8861112004308808
+          }
+        ],
+        "decel_events": [
+          {
+            "frame": 120,
+            "duration_frames": 11,
+            "target_speed_scale": 0.4851908912747923,
+            "hard_stop": false
+          }
+        ],
+        "resume_events": []
+      },
+      "metrics": {
+        "scenario_key": "gamepad-20260416T123846Z-s11",
+        "kind": "turn_then_decel",
+        "mean_error_px": 7.885687993179079,
+        "p95_error_px": 8.671254129472386,
+        "p99_error_px": 8.671512850219163,
+        "overshoot_events": 0,
+        "max_overshoot_px": 0.0,
+        "mean_recovery_frames_after_turn": 1.0,
+        "mean_settle_frames_after_decel": null
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "gamepad-20260416T123846Z-s12",
+        "kind": "turn_then_decel",
+        "initial_state": {
+          "initial_dx": 54.80029675610419,
+          "initial_dy": 8.18528069109609,
+          "initial_speed_px_per_sec": 384.4338618359054,
+          "initial_heading_deg": 148.03554638523605
+        },
+        "turn_events": [
+          {
+            "frame": 58,
+            "delta_heading_deg": -63.18956469190569,
+            "speed_scale": 0.8890692913242753
+          }
+        ],
+        "decel_events": [
+          {
+            "frame": 79,
+            "duration_frames": 11,
+            "target_speed_scale": 0.0,
+            "hard_stop": true
+          }
+        ],
+        "resume_events": []
+      },
+      "metrics": {
+        "scenario_key": "gamepad-20260416T123846Z-s12",
+        "kind": "turn_then_decel",
+        "mean_error_px": 2.1965125689856464,
+        "p95_error_px": 11.71864894975722,
+        "p99_error_px": 11.797738597349799,
+        "overshoot_events": 0,
+        "max_overshoot_px": 0.0,
+        "mean_recovery_frames_after_turn": 26.0,
+        "mean_settle_frames_after_decel": 7.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "gamepad-20260416T123846Z-s13",
+        "kind": "turn_then_decel",
+        "initial_state": {
+          "initial_dx": -29.87181957200711,
+          "initial_dy": -2.427601747394263,
+          "initial_speed_px_per_sec": 276.27095094918747,
+          "initial_heading_deg": 113.68353406253345
+        },
+        "turn_events": [
+          {
+            "frame": 34,
+            "delta_heading_deg": 77.68546275819386,
+            "speed_scale": 0.9850297930630934
+          }
+        ],
+        "decel_events": [
+          {
+            "frame": 92,
+            "duration_frames": 15,
+            "target_speed_scale": 0.47792294127574964,
+            "hard_stop": false
+          }
+        ],
+        "resume_events": []
+      },
+      "metrics": {
+        "scenario_key": "gamepad-20260416T123846Z-s13",
+        "kind": "turn_then_decel",
+        "mean_error_px": 7.282678873952287,
+        "p95_error_px": 10.99875783715911,
+        "p99_error_px": 11.00370579580005,
+        "overshoot_events": 13,
+        "max_overshoot_px": 3.2027298573660232,
+        "mean_recovery_frames_after_turn": 75.0,
+        "mean_settle_frames_after_decel": null
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "gamepad-20260416T123846Z-s14",
+        "kind": "turn_then_decel",
+        "initial_state": {
+          "initial_dx": 36.60872982854116,
+          "initial_dy": -30.384059843622147,
+          "initial_speed_px_per_sec": 277.55838917529064,
+          "initial_heading_deg": 24.907498393199603
+        },
+        "turn_events": [
+          {
+            "frame": 58,
+            "delta_heading_deg": 111.70147548366523,
+            "speed_scale": 0.9721014496886545
+          }
+        ],
+        "decel_events": [
+          {
+            "frame": 107,
+            "duration_frames": 14,
+            "target_speed_scale": 0.0,
+            "hard_stop": true
+          }
+        ],
+        "resume_events": []
+      },
+      "metrics": {
+        "scenario_key": "gamepad-20260416T123846Z-s14",
+        "kind": "turn_then_decel",
+        "mean_error_px": 4.406627929465961,
+        "p95_error_px": 9.882113446920831,
+        "p99_error_px": 9.882735486782492,
+        "overshoot_events": 0,
+        "max_overshoot_px": 0.0,
+        "mean_recovery_frames_after_turn": 1.0,
+        "mean_settle_frames_after_decel": 12.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "gamepad-20260416T123846Z-s15",
+        "kind": "turn_then_decel",
+        "initial_state": {
+          "initial_dx": 27.28399916603898,
+          "initial_dy": -10.721794937711842,
+          "initial_speed_px_per_sec": 294.40253767259554,
+          "initial_heading_deg": 96.84230865780825
+        },
+        "turn_events": [
+          {
+            "frame": 29,
+            "delta_heading_deg": 113.53449621466635,
+            "speed_scale": 0.8858944499942412
+          }
+        ],
+        "decel_events": [
+          {
+            "frame": 106,
+            "duration_frames": 30,
+            "target_speed_scale": 0.0,
+            "hard_stop": true
+          }
+        ],
+        "resume_events": []
+      },
+      "metrics": {
+        "scenario_key": "gamepad-20260416T123846Z-s15",
+        "kind": "turn_then_decel",
+        "mean_error_px": 5.450552466275186,
+        "p95_error_px": 9.775773400642741,
+        "p99_error_px": 9.776020713336894,
+        "overshoot_events": 1,
+        "max_overshoot_px": 2.09938630675731,
+        "mean_recovery_frames_after_turn": 0.0,
+        "mean_settle_frames_after_decel": 22.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "gamepad-20260416T123846Z-s16",
+        "kind": "decel_resume",
+        "initial_state": {
+          "initial_dx": 45.45227013386639,
+          "initial_dy": 24.308143380743743,
+          "initial_speed_px_per_sec": 315.6639087568653,
+          "initial_heading_deg": -150.89010541377553
+        },
+        "turn_events": [],
+        "decel_events": [
+          {
+            "frame": 29,
+            "duration_frames": 22,
+            "target_speed_scale": 0.0,
+            "hard_stop": true
+          }
+        ],
+        "resume_events": [
+          {
+            "frame": 88,
+            "duration_frames": 32,
+            "target_speed_scale": 0.7257639617277512
+          }
+        ]
+      },
+      "metrics": {
+        "scenario_key": "gamepad-20260416T123846Z-s16",
+        "kind": "decel_resume",
+        "mean_error_px": 6.9375510885577345,
+        "p95_error_px": 11.289794384480876,
+        "p99_error_px": 11.289956680552432,
+        "overshoot_events": 1,
+        "max_overshoot_px": 2.168654188648805,
+        "mean_recovery_frames_after_turn": null,
+        "mean_settle_frames_after_decel": 18.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "gamepad-20260416T123846Z-s17",
+        "kind": "decel_resume",
+        "initial_state": {
+          "initial_dx": -31.68421278842885,
+          "initial_dy": 3.557254574311365,
+          "initial_speed_px_per_sec": 377.37132912377365,
+          "initial_heading_deg": -157.11723419994854
+        },
+        "turn_events": [],
+        "decel_events": [
+          {
+            "frame": 35,
+            "duration_frames": 26,
+            "target_speed_scale": 0.0,
+            "hard_stop": true
+          }
+        ],
+        "resume_events": [
+          {
+            "frame": 129,
+            "duration_frames": 24,
+            "target_speed_scale": 0.7146210444830626
+          }
+        ]
+      },
+      "metrics": {
+        "scenario_key": "gamepad-20260416T123846Z-s17",
+        "kind": "decel_resume",
+        "mean_error_px": 3.8469359693091594,
+        "p95_error_px": 12.309789390080832,
+        "p99_error_px": 12.314347961968085,
+        "overshoot_events": 0,
+        "max_overshoot_px": 0.0,
+        "mean_recovery_frames_after_turn": null,
+        "mean_settle_frames_after_decel": 22.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "gamepad-20260416T123846Z-s18",
+        "kind": "decel_resume",
+        "initial_state": {
+          "initial_dx": -6.4712019483704,
+          "initial_dy": 43.60441309246728,
+          "initial_speed_px_per_sec": 400.7929941526992,
+          "initial_heading_deg": 57.719798535545266
+        },
+        "turn_events": [],
+        "decel_events": [
+          {
+            "frame": 58,
+            "duration_frames": 23,
+            "target_speed_scale": 0.5446766645089705,
+            "hard_stop": false
+          }
+        ],
+        "resume_events": [
+          {
+            "frame": 115,
+            "duration_frames": 29,
+            "target_speed_scale": 0.8356481392234373
+          }
+        ]
+      },
+      "metrics": {
+        "scenario_key": "gamepad-20260416T123846Z-s18",
+        "kind": "decel_resume",
+        "mean_error_px": 9.04429222765701,
+        "p95_error_px": 11.936873224491782,
+        "p99_error_px": 13.482721825913298,
+        "overshoot_events": 0,
+        "max_overshoot_px": 0.0,
+        "mean_recovery_frames_after_turn": null,
+        "mean_settle_frames_after_decel": null
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "gamepad-20260416T123846Z-s19",
+        "kind": "decel_resume",
+        "initial_state": {
+          "initial_dx": 22.068898588701245,
+          "initial_dy": -31.528041812321607,
+          "initial_speed_px_per_sec": 367.5083043651134,
+          "initial_heading_deg": -45.55086049161366
+        },
+        "turn_events": [],
+        "decel_events": [
+          {
+            "frame": 56,
+            "duration_frames": 11,
+            "target_speed_scale": 0.2664028025615698,
+            "hard_stop": false
+          }
+        ],
+        "resume_events": [
+          {
+            "frame": 114,
+            "duration_frames": 36,
+            "target_speed_scale": 0.7053604110266397
+          }
+        ]
+      },
+      "metrics": {
+        "scenario_key": "gamepad-20260416T123846Z-s19",
+        "kind": "decel_resume",
+        "mean_error_px": 7.246876998725975,
+        "p95_error_px": 9.453427267842887,
+        "p99_error_px": 9.455306286616802,
+        "overshoot_events": 0,
+        "max_overshoot_px": 0.0,
+        "mean_recovery_frames_after_turn": null,
+        "mean_settle_frames_after_decel": null
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "gamepad-20260416T123846Z-s20",
+        "kind": "decel_resume",
+        "initial_state": {
+          "initial_dx": -58.522076708923485,
+          "initial_dy": 15.544526628321158,
+          "initial_speed_px_per_sec": 230.74635596391357,
+          "initial_heading_deg": -128.0901453927007
+        },
+        "turn_events": [],
+        "decel_events": [
+          {
+            "frame": 61,
+            "duration_frames": 14,
+            "target_speed_scale": 0.2109741926165953,
+            "hard_stop": false
+          }
+        ],
+        "resume_events": [
+          {
+            "frame": 90,
+            "duration_frames": 33,
+            "target_speed_scale": 0.9059979805981697
+          }
+        ]
+      },
+      "metrics": {
+        "scenario_key": "gamepad-20260416T123846Z-s20",
+        "kind": "decel_resume",
+        "mean_error_px": 6.2075631936911435,
+        "p95_error_px": 7.533570341161575,
+        "p99_error_px": 8.34312783895103,
+        "overshoot_events": 0,
+        "max_overshoot_px": 0.0,
+        "mean_recovery_frames_after_turn": null,
+        "mean_settle_frames_after_decel": 14.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "gamepad-20260416T123846Z-s21",
+        "kind": "decel_resume",
+        "initial_state": {
+          "initial_dx": 45.28689444758952,
+          "initial_dy": -1.4336369246532428,
+          "initial_speed_px_per_sec": 363.3589166973169,
+          "initial_heading_deg": -84.69212350050141
+        },
+        "turn_events": [],
+        "decel_events": [
+          {
+            "frame": 57,
+            "duration_frames": 26,
+            "target_speed_scale": 0.331402763834614,
+            "hard_stop": false
+          }
+        ],
+        "resume_events": [
+          {
+            "frame": 99,
+            "duration_frames": 29,
+            "target_speed_scale": 0.9688789155530029
+          }
+        ]
+      },
+      "metrics": {
+        "scenario_key": "gamepad-20260416T123846Z-s21",
+        "kind": "decel_resume",
+        "mean_error_px": 8.250434356064403,
+        "p95_error_px": 12.165236973508817,
+        "p99_error_px": 12.165552721286657,
+        "overshoot_events": 0,
+        "max_overshoot_px": 0.0,
+        "mean_recovery_frames_after_turn": null,
+        "mean_settle_frames_after_decel": null
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "gamepad-20260416T123846Z-s22",
+        "kind": "decel_resume",
+        "initial_state": {
+          "initial_dx": 18.71116555800255,
+          "initial_dy": -37.614234544953064,
+          "initial_speed_px_per_sec": 248.7152438619608,
+          "initial_heading_deg": 92.59625576887754
+        },
+        "turn_events": [],
+        "decel_events": [
+          {
+            "frame": 54,
+            "duration_frames": 20,
+            "target_speed_scale": 0.34082542872000376,
+            "hard_stop": false
+          }
+        ],
+        "resume_events": [
+          {
+            "frame": 119,
+            "duration_frames": 32,
+            "target_speed_scale": 1.0301339047394031
+          }
+        ]
+      },
+      "metrics": {
+        "scenario_key": "gamepad-20260416T123846Z-s22",
+        "kind": "decel_resume",
+        "mean_error_px": 6.3084755407086055,
+        "p95_error_px": 8.832426255866068,
+        "p99_error_px": 8.834548118835782,
+        "overshoot_events": 0,
+        "max_overshoot_px": 0.0,
+        "mean_recovery_frames_after_turn": null,
+        "mean_settle_frames_after_decel": null
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "gamepad-20260416T123846Z-s23",
+        "kind": "decel_resume",
+        "initial_state": {
+          "initial_dx": -1.9386611555453896,
+          "initial_dy": -24.90890992201665,
+          "initial_speed_px_per_sec": 409.7902361693619,
+          "initial_heading_deg": -11.481226134437975
+        },
+        "turn_events": [],
+        "decel_events": [
+          {
+            "frame": 59,
+            "duration_frames": 26,
+            "target_speed_scale": 0.616947498557032,
+            "hard_stop": false
+          }
+        ],
+        "resume_events": [
+          {
+            "frame": 128,
+            "duration_frames": 34,
+            "target_speed_scale": 0.9240392445579235
+          }
+        ]
+      },
+      "metrics": {
+        "scenario_key": "gamepad-20260416T123846Z-s23",
+        "kind": "decel_resume",
+        "mean_error_px": 12.385176221164045,
+        "p95_error_px": 15.419724566238765,
+        "p99_error_px": 16.37161853049504,
+        "overshoot_events": 0,
+        "max_overshoot_px": 0.0,
+        "mean_recovery_frames_after_turn": null,
+        "mean_settle_frames_after_decel": null
+      }
+    }
+  ]
+}
