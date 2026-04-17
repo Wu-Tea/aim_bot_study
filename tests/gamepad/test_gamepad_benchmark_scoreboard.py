@@ -5,6 +5,7 @@ import unittest
 from tests.gamepad.benchmark_scoreboard import (
     ScoreboardRunEntry,
     extract_baseline_key,
+    render_scoreboard,
     update_scoreboard,
 )
 
@@ -175,6 +176,24 @@ class BenchmarkScoreboardTests(unittest.TestCase):
             self.assertNotIn("scenario_key", content)
             self.assertNotIn("initial_dx", content)
             self.assertNotIn("turn_events", content)
+
+    def test_render_scoreboard_supports_manual_mix_title(self):
+        current = self.make_entry(
+            run_key="run-current",
+            artifact_path="artifacts/benchmarks/gamepad_manual_mix/run-current.json",
+        )
+
+        content = render_scoreboard(
+            title="Gamepad Manual-Mix Benchmarks",
+            latest_run=current,
+            all_runs=(current,),
+            baseline_key=None,
+            benchmark_parameters=self.benchmark_parameters(),
+            scenario_logic=self.scenario_logic(),
+        )
+
+        self.assertIn("# Gamepad Manual-Mix Benchmarks", content)
+        self.assertIn("Artifact: `artifacts/benchmarks/gamepad_manual_mix/run-current.json`", content)
 
 
 if __name__ == "__main__":

@@ -155,6 +155,30 @@ class GamepadBenchmarkRunnerTests(unittest.TestCase):
             self.assertTrue((artifact_dir / "script-run.json").exists())
             self.assertTrue(scoreboard_path.exists())
 
+    def test_run_benchmark_with_manual_mix_suite_writes_to_manual_mix_paths(self):
+        with TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            artifact_dir = temp_path / "artifacts" / "benchmarks" / "gamepad_manual_mix"
+            scoreboard_path = temp_path / "docs" / "project" / "GAMEPAD_MANUAL_MIX_BENCHMARKS.md"
+
+            result = run_benchmark(
+                run_key="mix-run",
+                run_seed=12345,
+                suite="manual-mix",
+                artifact_dir=artifact_dir,
+                scoreboard_path=scoreboard_path,
+                git_metadata=self.git_metadata(),
+                set_baseline=False,
+            )
+
+            artifact_path = artifact_dir / "mix-run.json"
+            self.assertTrue(artifact_path.exists())
+            self.assertEqual(result["run_key"], "mix-run")
+            self.assertEqual(result["suite"], "manual-mix")
+            self.assertEqual(result["artifact_path"], "artifacts/benchmarks/gamepad_manual_mix/mix-run.json")
+            self.assertIn("# Gamepad Manual-Mix Benchmarks", scoreboard_path.read_text(encoding="utf-8"))
+            self.assertEqual(len(result["manual_seeds"]), 3)
+
 
 if __name__ == "__main__":
     unittest.main()
