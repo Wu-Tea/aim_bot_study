@@ -28,8 +28,10 @@ def update_scoreboard(
     baseline_key: str | None,
     benchmark_parameters: Mapping[str, object],
     scenario_logic: Sequence[str],
+    title: str = "Gamepad Benchmarks",
 ) -> str:
     content = render_scoreboard(
+        title=title,
         latest_run=latest_run,
         all_runs=all_runs,
         baseline_key=baseline_key,
@@ -43,6 +45,7 @@ def update_scoreboard(
 
 def render_scoreboard(
     *,
+    title: str = "Gamepad Benchmarks",
     latest_run: ScoreboardRunEntry,
     all_runs: Sequence[ScoreboardRunEntry],
     baseline_key: str | None,
@@ -58,7 +61,7 @@ def render_scoreboard(
     ]
 
     lines = [
-        "# Gamepad Benchmarks",
+        f"# {title}",
         "",
         "## Baseline Definition",
         "",
@@ -145,9 +148,14 @@ def _render_history(history_runs: Sequence[ScoreboardRunEntry]) -> list[str]:
     if not history_runs:
         return ["No comparison runs recorded yet."]
 
+    metric_names = _history_metric_names(history_runs)
     lines = [
-        "| Run Key | Timestamp | Artifact | Dirty | Mean Error Delta | P95 Delta | P99 Delta | Overshoot Delta | Max Overshoot Delta | Turn Recovery Delta | Decel Settle Delta |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| Run Key | Timestamp | Artifact | Dirty | "
+        + " | ".join(_history_column_title(metric_name) for metric_name in metric_names)
+        + " |",
+        "| --- | --- | --- | --- | "
+        + " | ".join("---" for _ in metric_names)
+        + " |",
     ]
     for run in history_runs:
         delta_metrics = run.delta_metrics or {}
@@ -159,13 +167,7 @@ def _render_history(history_runs: Sequence[ScoreboardRunEntry]) -> list[str]:
                     run.timestamp,
                     f"`{run.artifact_path}`",
                     "dirty" if run.dirty else "clean",
-                    _format_delta(delta_metrics.get("mean_error_px")),
-                    _format_delta(delta_metrics.get("p95_error_px")),
-                    _format_delta(delta_metrics.get("p99_error_px")),
-                    _format_delta(delta_metrics.get("overshoot_events")),
-                    _format_delta(delta_metrics.get("max_overshoot_px")),
-                    _format_delta(delta_metrics.get("mean_recovery_frames_after_turn")),
-                    _format_delta(delta_metrics.get("mean_settle_frames_after_decel")),
+                    *[_format_delta(delta_metrics.get(metric_name)) for metric_name in metric_names],
                 ]
             )
             + " |"
@@ -177,3 +179,44 @@ def _format_delta(value: float | None) -> str:
     if value is None:
         return "n/a"
     return f"{value:+.2%}"
+
+
+def _history_metric_names(history_runs: Sequence[ScoreboardRunEntry]) -> list[str]:
+    default_order = [
+        "mean_error_px",
+        "p95_error_px",
+        "p99_error_px",
+        "overshoot_events",
+        "max_overshoot_px",
+        "mean_recovery_frames_after_turn",
+        "mean_settle_frames_after_decel",
+    ]
+    seen = {name for name in default_order}
+    ordered = list(default_order)
+
+    for run in history_runs:
+        for metric_name in (run.delta_metrics or {}).keys():
+            if metric_name not in seen:
+                ordered.append(metric_name)
+                seen.add(metric_name)
+    return ordered
+
+
+def _history_column_title(metric_name: str) -> str:
+    titles = {
+        "mean_error_px": "Mean Error Delta",
+        "p95_error_px": "P95 Delta",
+        "p99_error_px": "P99 Delta",
+        "overshoot_events": "Overshoot Delta",
+        "max_overshoot_px": "Max Overshoot Delta",
+        "mean_recovery_frames_after_turn": "Turn Recovery Delta",
+        "mean_settle_frames_after_decel": "Decel Settle Delta",
+        "conflict_frames_ratio": "Conflict Delta",
+        "wrong_input_recovery_frames": "Wrong Input Recovery Delta",
+        "manual_yield_score": "Manual Yield Delta",
+        "harmful_input_suppression_ratio": "Harmful Suppression Delta",
+        "aligned_input_preservation_ratio": "Aligned Preservation Delta",
+        "opposing_burst_hold_error_px": "Burst Hold Error Delta",
+        "lock_survival_rate": "Lock Survival Delta",
+    }
+    return titles.get(metric_name, f"{metric_name} Delta")

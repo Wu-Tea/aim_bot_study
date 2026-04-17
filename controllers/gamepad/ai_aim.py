@@ -42,6 +42,13 @@ class AIAimConfig:
     body_lock_max_ai_force_y: float = 0.48
     body_lock_box_tolerance_px: float = 18.0
     body_lock_activation_box_px: float = 150.0
+    body_lock_confidence_frames: int = 4
+    body_lock_confidence_min_strong: float = 0.65
+    body_lock_opposing_suppression_max: float = 0.9
+    body_lock_orthogonal_suppression_max: float = 0.75
+    body_lock_helpful_preservation_floor: float = 0.8
+    body_lock_near_lock_error_px: float = 18.0
+    body_lock_vertical_orthogonal_bias: float = 1.15
     body_lock_vertical_deadzone_px: float = 6.0
     body_lock_vertical_tail_inner_px: float = 2.0
     body_lock_vertical_tail_speed_threshold_px_per_sec: float = 90.0
@@ -52,6 +59,15 @@ class AIAimConfig:
     body_lock_lead_max_px: float = 18.0
     body_lock_target_match_iou: float = 0.10
     body_lock_target_match_center_px: float = 48.0
+
+
+@dataclass(slots=True, frozen=True)
+class BodyLockManualResolution:
+    sanitized_manual_x: float
+    sanitized_manual_y: float
+    helpful_preserved_ratio: float
+    harmful_suppressed_ratio: float
+    orthogonal_suppressed_ratio: float
 
 
 @dataclass(slots=True)
@@ -278,6 +294,8 @@ class AIAimPlugin:
         mode = "manual"
         desired_dx = 0.0
         desired_dy = 0.0
+        manual_x = float(frame.manual_right_x)
+        manual_y = float(frame.manual_right_y)
 
         if self._should_body_lock(frame):
             mode = "body_lock"
@@ -293,22 +311,63 @@ class AIAimPlugin:
         if mode == "manual":
             self.ai_stick_x = 0.0
             self.ai_stick_y = 0.0
+            self._reset_body_lock_arbitration_tracking()
+            self._record_raw_manual_passthrough(manual_x, manual_y)
         else:
             desired_ai_x, desired_ai_y, smoothing = self._compute_mode_stick(
                 mode,
                 target_dx=desired_dx,
                 target_dy=desired_dy,
             )
+            if mode == "body_lock":
+                stabilize_ratio = self._body_lock_stabilize_ratio(
+                    desired_dx,
+                    desired_dy,
+                )
+                if stabilize_ratio > 0.0:
+                    desired_ai_x *= 1.0 + (0.85 * stabilize_ratio)
+                    desired_ai_y *= 1.0 + (0.35 * stabilize_ratio)
+                    smoothing *= max(0.15, 1.0 - (0.85 * stabilize_ratio))
             self.ai_stick_x = (self.ai_stick_x * smoothing) + (desired_ai_x * (1.0 - smoothing))
             vertical_scale = self._body_lock_vertical_ai_scale(mode, desired_dy)
+            effective_ai_y = 0.0
             if vertical_scale is None:
                 self.ai_stick_y = 0.0
             else:
                 desired_ai_y *= vertical_scale
+                effective_ai_y = desired_ai_y
                 self.ai_stick_y = (self.ai_stick_y * smoothing) + (desired_ai_y * (1.0 - smoothing))
 
-        output.right_x = int(frame.manual_right_x + self.ai_stick_x)
-        output.right_y = int(frame.manual_right_y + self.ai_stick_y)
+            if mode == "body_lock":
+                lock_confidence = self._body_lock_confidence(frame, desired_dx, desired_dy)
+                resolved_manual = self._resolve_body_lock_manual(
+                    frame,
+                    desired_ai_x=desired_ai_x,
+                    desired_ai_y=effective_ai_y,
+                    desired_error_x=desired_dx,
+                    desired_error_y=desired_dy,
+                    lock_confidence=lock_confidence,
+                )
+                manual_x = resolved_manual.sanitized_manual_x
+                manual_y = resolved_manual.sanitized_manual_y
+                self._last_lock_confidence = lock_confidence
+                self._last_sanitized_manual_x = manual_x
+                self._last_sanitized_manual_y = manual_y
+                self._last_helpful_preserved_ratio = (
+                    resolved_manual.helpful_preserved_ratio
+                )
+                self._last_harmful_suppressed_ratio = (
+                    resolved_manual.harmful_suppressed_ratio
+                )
+                self._last_orthogonal_suppressed_ratio = (
+                    resolved_manual.orthogonal_suppressed_ratio
+                )
+            else:
+                self._reset_body_lock_arbitration_tracking()
+                self._record_raw_manual_passthrough(manual_x, manual_y)
+
+        output.right_x = int(manual_x + self.ai_stick_x)
+        output.right_y = int(manual_y + self.ai_stick_y)
         self._mode = mode
 
     def _apply_legacy(self, frame: GamepadFrame, output: GamepadOutput) -> None:
@@ -447,21 +506,171 @@ class AIAimPlugin:
             )
 
         lock_x, lock_y = self._upper_body_point(frame)
+        base_dx = (lock_x - frame.target.screen_center_x) * self.config.ai_delta_gain
+        base_dy = (lock_y - frame.target.screen_center_y) * self.config.ai_delta_gain
+        stabilize_ratio = self._body_lock_stabilize_ratio(base_dx, base_dy)
+        lead_scale = max(0.0, 1.0 - (1.5 * stabilize_ratio))
         if self._motion_frames >= max(1, int(self.config.body_lock_lead_frames)):
             lock_x += self._clamp(
                 self._motion_velocity_x * self.config.body_lock_lead_seconds,
                 self.config.body_lock_lead_max_px,
-            )
+            ) * lead_scale
             lock_y += self._clamp(
                 self._motion_velocity_y
                 * self.config.body_lock_lead_seconds
                 * self.config.body_lock_vertical_lead_scale,
                 self.config.body_lock_lead_max_px,
-            )
+            ) * lead_scale
 
         return (
             (lock_x - frame.target.screen_center_x) * self.config.ai_delta_gain,
             (lock_y - frame.target.screen_center_y) * self.config.ai_delta_gain,
+        )
+
+    def _body_lock_confidence(self, frame: GamepadFrame, lock_dx: float, lock_dy: float) -> float:
+        if frame.target is None or frame.target.body_box is None:
+            return 0.0
+
+        continuity_frames = self._observe_body_lock_target(frame)
+        activation_half = max(1.0, self.config.body_lock_activation_box_px * 0.5)
+        activation_distance = max(abs(lock_dx), abs(lock_dy))
+        activation_ratio = max(0.0, 1.0 - min(1.0, activation_distance / activation_half))
+        continuity = min(
+            1.0,
+            continuity_frames / max(1, self.config.body_lock_confidence_frames),
+        )
+        motion_ready = 1.0 if self._motion_frames >= 2 else 0.0
+        valid = 1.0 if self._should_body_lock(frame) else 0.0
+
+        return max(
+            0.0,
+            min(
+                1.0,
+                (0.40 * continuity)
+                + (0.30 * activation_ratio)
+                + (0.20 * valid)
+                + (0.10 * motion_ready),
+            ),
+        )
+
+    def _observe_body_lock_target(self, frame: GamepadFrame) -> int:
+        target = frame.target
+        if target is None:
+            self._reset_body_lock_arbitration_tracking()
+            return 0
+
+        if self._body_lock_target is None or not self._targets_match(
+            self._body_lock_target,
+            target,
+        ):
+            self._body_lock_target = target
+            self._body_lock_frames = 1
+            return self._body_lock_frames
+
+        self._body_lock_frames += 1
+        return self._body_lock_frames
+
+    def _resolve_body_lock_manual(
+        self,
+        frame: GamepadFrame,
+        *,
+        desired_ai_x: float,
+        desired_ai_y: float,
+        desired_error_x: float,
+        desired_error_y: float,
+        lock_confidence: float,
+    ) -> BodyLockManualResolution:
+        manual_x = float(frame.manual_right_x)
+        manual_y = float(frame.manual_right_y)
+        desired_norm = math.hypot(desired_ai_x, desired_ai_y)
+        if desired_norm < 1.0 or lock_confidence <= 0.0:
+            return BodyLockManualResolution(manual_x, manual_y, 1.0, 0.0, 0.0)
+
+        ux = desired_ai_x / desired_norm
+        uy = desired_ai_y / desired_norm
+        parallel = (manual_x * ux) + (manual_y * uy)
+        parallel_x = ux * parallel
+        parallel_y = uy * parallel
+        orth_x = manual_x - parallel_x
+        orth_y = manual_y - parallel_y
+
+        helpful = max(0.0, parallel)
+        harmful = max(0.0, -parallel)
+        error_radius = math.hypot(desired_error_x, desired_error_y)
+        near_lock_ratio = max(
+            0.0,
+            1.0
+            - min(
+                1.0,
+                error_radius / max(1.0, self.config.body_lock_near_lock_error_px),
+            ),
+        )
+        confidence_ratio = max(
+            0.0,
+            min(
+                1.0,
+                (lock_confidence - self.config.body_lock_confidence_min_strong)
+                / max(0.001, 1.0 - self.config.body_lock_confidence_min_strong),
+            ),
+        )
+
+        helpful_scale = min(
+            1.0,
+            self.config.body_lock_helpful_preservation_floor
+            + (
+                (1.0 - near_lock_ratio)
+                * (1.0 - self.config.body_lock_helpful_preservation_floor)
+            ),
+        )
+        harmful_suppression = min(
+            self.config.body_lock_opposing_suppression_max,
+            self.config.body_lock_opposing_suppression_max * confidence_ratio,
+        )
+        orthogonal_suppression = min(
+            self.config.body_lock_orthogonal_suppression_max,
+            self.config.body_lock_orthogonal_suppression_max
+            * max(lock_confidence, near_lock_ratio),
+        )
+        stabilize_ratio = self._body_lock_stabilize_ratio(
+            desired_error_x,
+            desired_error_y,
+        )
+        if stabilize_ratio > 0.0:
+            helpful_scale *= max(0.75, 1.0 - (0.10 * stabilize_ratio))
+            orthogonal_suppression = min(
+                1.0,
+                orthogonal_suppression + (0.15 * stabilize_ratio),
+            )
+
+        sanitized_parallel = (helpful * helpful_scale) - (
+            harmful * (1.0 - harmful_suppression)
+        )
+        sanitized_orth_x = orth_x * (1.0 - orthogonal_suppression)
+        sanitized_orth_y = orth_y * (
+            1.0
+            - min(
+                1.0,
+                orthogonal_suppression
+                * self.config.body_lock_vertical_orthogonal_bias,
+            )
+        )
+        orthogonal_magnitude = math.hypot(orth_x, orth_y)
+        return BodyLockManualResolution(
+            sanitized_manual_x=(ux * sanitized_parallel) + sanitized_orth_x,
+            sanitized_manual_y=(uy * sanitized_parallel) + sanitized_orth_y,
+            helpful_preserved_ratio=(
+                1.0
+                if helpful <= 1.0
+                else min(1.0, (helpful * helpful_scale) / helpful)
+            ),
+            harmful_suppressed_ratio=(
+                0.0
+                if harmful <= 1.0
+                else min(1.0, (harmful * harmful_suppression) / harmful)
+            ),
+            orthogonal_suppressed_ratio=(
+                0.0 if orthogonal_magnitude <= 1.0 else orthogonal_suppression
+            ),
         )
 
     def _consume_ads_snap(self) -> None:
@@ -484,11 +693,50 @@ class AIAimPlugin:
         if motion_speed > self.config.body_lock_vertical_tail_speed_threshold_px_per_sec:
             return None
 
-        return soft_ramp_strength(
+        scale = soft_ramp_strength(
             abs_dy,
             self.config.body_lock_vertical_tail_inner_px,
             deadzone,
         )
+        settle_speed_threshold = max(
+            1.0,
+            self.config.body_lock_vertical_tail_speed_threshold_px_per_sec * 0.4,
+        )
+        if (
+            abs_dy > (self.config.body_lock_vertical_tail_inner_px * 0.6)
+            and motion_speed <= settle_speed_threshold
+        ):
+            settle_ratio = max(
+                0.0,
+                1.0 - min(1.0, motion_speed / settle_speed_threshold),
+            )
+            scale = max(scale, 0.15 + (0.30 * settle_ratio))
+
+        return scale
+
+    def _body_lock_stabilize_ratio(self, desired_dx: float, desired_dy: float) -> float:
+        if self._motion_frames < 2:
+            return 0.0
+
+        error_radius = math.hypot(desired_dx, desired_dy)
+        near_lock_ratio = max(
+            0.0,
+            1.0
+            - min(
+                1.0,
+                error_radius / max(1.0, self.config.body_lock_near_lock_error_px),
+            ),
+        )
+        if near_lock_ratio <= 0.0:
+            return 0.0
+
+        motion_speed = math.hypot(self._motion_velocity_x, self._motion_velocity_y)
+        speed_threshold = max(
+            1.0,
+            self.config.body_lock_vertical_tail_speed_threshold_px_per_sec,
+        )
+        low_speed_ratio = max(0.0, 1.0 - min(1.0, motion_speed / speed_threshold))
+        return (near_lock_ratio * near_lock_ratio) * (low_speed_ratio * low_speed_ratio)
 
     def _upper_body_point(self, frame: GamepadFrame) -> tuple[float, float]:
         if frame.target is None or frame.target.body_box is None:
@@ -639,7 +887,29 @@ class AIAimPlugin:
         self._ads_snap_used = False
         self._ads_snap_target = None
         self._mode = "manual"
+        self._reset_body_lock_arbitration_tracking()
+        self._clear_body_lock_arbitration_debug()
         self._reset_motion_tracking()
+
+    def _reset_body_lock_arbitration_tracking(self) -> None:
+        self._body_lock_frames = 0
+        self._body_lock_target = None
+
+    def _clear_body_lock_arbitration_debug(self) -> None:
+        self._last_lock_confidence = 0.0
+        self._last_sanitized_manual_x = 0.0
+        self._last_sanitized_manual_y = 0.0
+        self._last_helpful_preserved_ratio = 1.0
+        self._last_harmful_suppressed_ratio = 0.0
+        self._last_orthogonal_suppressed_ratio = 0.0
+
+    def _record_raw_manual_passthrough(self, manual_x: float, manual_y: float) -> None:
+        self._last_lock_confidence = 0.0
+        self._last_sanitized_manual_x = manual_x
+        self._last_sanitized_manual_y = manual_y
+        self._last_helpful_preserved_ratio = 1.0
+        self._last_harmful_suppressed_ratio = 0.0
+        self._last_orthogonal_suppressed_ratio = 0.0
 
     def _reset_motion_tracking(self) -> None:
         self._motion_box: tuple[float, float, float, float] | None = None
