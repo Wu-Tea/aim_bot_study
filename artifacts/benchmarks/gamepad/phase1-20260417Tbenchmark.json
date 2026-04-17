@@ -1,15 +1,17 @@
 {
-  "run_key": "baseline-20260416",
+  "suite": "phase1",
+  "run_key": "phase1-20260417Tbenchmark",
   "run_seed": 12345,
-  "baseline_key": "baseline-20260416",
-  "timestamp": "2026-04-16T05:39:16Z",
-  "artifact_path": "artifacts/benchmarks/gamepad/baseline-20260416.json",
+  "baseline_key": "baseline-20260416-2",
+  "timestamp": "2026-04-17T13:50:44Z",
+  "artifact_path": "artifacts/benchmarks/gamepad/phase1-20260417Tbenchmark.json",
   "git_metadata": {
-    "commit": "e6fc89f87bc6e6fa58b6d756ef43065616a8203b",
-    "dirty": true
+    "commit": "a4d9cc7a873db3d3229f70ee48544bdd6cc78558",
+    "dirty": false
   },
   "benchmark_config": {
     "frame_dt": 0.016666666666666666,
+    "target_sample_hz": null,
     "sim_frames": 180,
     "measure_from_frame": 60,
     "max_reticle_speed_pps": 1500.0,
@@ -30,23 +32,49 @@
   ],
   "controller_config_snapshot": {
     "gamepad_ai_aim": {
-      "smoothing": 0.65,
+      "smoothing": 0.62,
       "max_pixels": 130,
       "piecewise_mid_pixels": 60.0,
       "piecewise_max_pixels": 230.0,
-      "piecewise_mid_ratio": 0.5,
+      "piecewise_mid_ratio": 0.56,
       "piecewise_mid_pixels_y": 45.0,
       "piecewise_max_pixels_y": 180.0,
       "piecewise_mid_ratio_y": 0.65,
       "invert_x": false,
       "invert_y": false,
-      "max_ai_force": 0.6,
+      "max_ai_force": 0.64,
       "max_ai_force_y": 0.8,
       "deadzone_inner": 1.5,
       "deadzone_outer": 5.0,
       "x_deadzone_outer": 3.0,
       "ai_fade_full": 8000,
-      "ai_delta_gain": 0.7
+      "ai_delta_gain": 0.7,
+      "ads_snap_window_ms": 100,
+      "ads_snap_smoothing": 0.0,
+      "ads_snap_max_ai_force": 1.0,
+      "ads_snap_max_ai_force_y": 1.0,
+      "body_lock_smoothing": 0.18,
+      "body_lock_max_ai_force": 0.42,
+      "body_lock_max_ai_force_y": 0.48,
+      "body_lock_box_tolerance_px": 18.0,
+      "body_lock_activation_box_px": 150.0,
+      "body_lock_confidence_frames": 4,
+      "body_lock_confidence_min_strong": 0.65,
+      "body_lock_opposing_suppression_max": 0.9,
+      "body_lock_orthogonal_suppression_max": 0.75,
+      "body_lock_helpful_preservation_floor": 0.8,
+      "body_lock_near_lock_error_px": 18.0,
+      "body_lock_vertical_orthogonal_bias": 1.15,
+      "body_lock_vertical_deadzone_px": 6.0,
+      "body_lock_vertical_tail_inner_px": 2.0,
+      "body_lock_vertical_tail_speed_threshold_px_per_sec": 90.0,
+      "body_lock_upper_body_ratio": 0.38,
+      "body_lock_lead_frames": 4,
+      "body_lock_lead_seconds": 0.05,
+      "body_lock_vertical_lead_scale": 0.95,
+      "body_lock_lead_max_px": 18.0,
+      "body_lock_target_match_iou": 0.1,
+      "body_lock_target_match_center_px": 48.0
     },
     "adaptive_delta_gain": {
       "min_error_px": 6.0,
@@ -60,19 +88,27 @@
     }
   },
   "aggregate_metrics": {
-    "mean_error_px": 9.781273139583956,
-    "p95_error_px": 13.303455570409001,
-    "p99_error_px": 13.998806927718956,
-    "overshoot_events": 17,
-    "max_overshoot_px": 5.0628593115303175,
-    "mean_recovery_frames_after_turn": 49.666666666666664,
+    "mean_error_px": 7.685572085161077,
+    "p95_error_px": 11.697831550588052,
+    "p99_error_px": 12.137168342027815,
+    "overshoot_events": 8,
+    "max_overshoot_px": 5.098953394126429,
+    "mean_recovery_frames_after_turn": 40.0,
     "mean_settle_frames_after_decel": 14.142857142857142
   },
-  "relative_deltas_vs_baseline": null,
+  "relative_deltas_vs_baseline": {
+    "mean_error_px": -0.21425646994170525,
+    "p95_error_px": -0.12069225257476361,
+    "p99_error_px": -0.13298551764471594,
+    "overshoot_events": -0.5294117647058824,
+    "max_overshoot_px": 0.007129189332579272,
+    "mean_recovery_frames_after_turn": -0.19463087248322145,
+    "mean_settle_frames_after_decel": 0.0
+  },
   "scenarios": [
     {
       "manifest": {
-        "scenario_key": "baseline-20260416-s00",
+        "scenario_key": "phase1-20260417Tbenchmark-s00",
         "kind": "steady_turns",
         "initial_state": {
           "initial_dx": -31.121898018627185,
@@ -96,20 +132,20 @@
         "resume_events": []
       },
       "metrics": {
-        "scenario_key": "baseline-20260416-s00",
+        "scenario_key": "phase1-20260417Tbenchmark-s00",
         "kind": "steady_turns",
-        "mean_error_px": 13.617415268052037,
-        "p95_error_px": 13.687340396052658,
-        "p99_error_px": 13.689251872103565,
-        "overshoot_events": 2,
-        "max_overshoot_px": 3.3784949428336457,
+        "mean_error_px": 9.804532896222085,
+        "p95_error_px": 11.051731936342652,
+        "p99_error_px": 11.28362652716099,
+        "overshoot_events": 0,
+        "max_overshoot_px": 0.0,
         "mean_recovery_frames_after_turn": null,
         "mean_settle_frames_after_decel": null
       }
     },
     {
       "manifest": {
-        "scenario_key": "baseline-20260416-s01",
+        "scenario_key": "phase1-20260417Tbenchmark-s01",
         "kind": "steady_turns",
         "initial_state": {
           "initial_dx": 58.491550186197514,
@@ -128,20 +164,20 @@
         "resume_events": []
       },
       "metrics": {
-        "scenario_key": "baseline-20260416-s01",
+        "scenario_key": "phase1-20260417Tbenchmark-s01",
         "kind": "steady_turns",
-        "mean_error_px": 12.688837519310185,
-        "p95_error_px": 12.690579379893236,
-        "p99_error_px": 12.696450891476582,
-        "overshoot_events": 1,
-        "max_overshoot_px": 2.4222101391056174,
+        "mean_error_px": 12.142778835968764,
+        "p95_error_px": 15.317986942782722,
+        "p99_error_px": 15.318058214158084,
+        "overshoot_events": 0,
+        "max_overshoot_px": 0.0,
         "mean_recovery_frames_after_turn": null,
         "mean_settle_frames_after_decel": null
       }
     },
     {
       "manifest": {
-        "scenario_key": "baseline-20260416-s02",
+        "scenario_key": "phase1-20260417Tbenchmark-s02",
         "kind": "steady_turns",
         "initial_state": {
           "initial_dx": 24.566986181941772,
@@ -160,20 +196,20 @@
         "resume_events": []
       },
       "metrics": {
-        "scenario_key": "baseline-20260416-s02",
+        "scenario_key": "phase1-20260417Tbenchmark-s02",
         "kind": "steady_turns",
-        "mean_error_px": 13.109694032804466,
-        "p95_error_px": 13.282740046883816,
-        "p99_error_px": 13.28287352246446,
-        "overshoot_events": 1,
-        "max_overshoot_px": 3.433116481667911,
+        "mean_error_px": 12.49407389673538,
+        "p95_error_px": 15.627383062389331,
+        "p99_error_px": 15.627404372058724,
+        "overshoot_events": 2,
+        "max_overshoot_px": 2.868490760832173,
         "mean_recovery_frames_after_turn": null,
         "mean_settle_frames_after_decel": null
       }
     },
     {
       "manifest": {
-        "scenario_key": "baseline-20260416-s03",
+        "scenario_key": "phase1-20260417Tbenchmark-s03",
         "kind": "steady_turns",
         "initial_state": {
           "initial_dx": 40.81105915270287,
@@ -197,11 +233,11 @@
         "resume_events": []
       },
       "metrics": {
-        "scenario_key": "baseline-20260416-s03",
+        "scenario_key": "phase1-20260417Tbenchmark-s03",
         "kind": "steady_turns",
-        "mean_error_px": 11.066816768674126,
-        "p95_error_px": 12.22236348653654,
-        "p99_error_px": 13.11707934007058,
+        "mean_error_px": 8.7682689931908,
+        "p95_error_px": 8.989712537709678,
+        "p99_error_px": 9.01222628490063,
         "overshoot_events": 0,
         "max_overshoot_px": 0.0,
         "mean_recovery_frames_after_turn": null,
@@ -210,7 +246,7 @@
     },
     {
       "manifest": {
-        "scenario_key": "baseline-20260416-s04",
+        "scenario_key": "phase1-20260417Tbenchmark-s04",
         "kind": "steady_turns",
         "initial_state": {
           "initial_dx": 33.92129774075477,
@@ -229,20 +265,20 @@
         "resume_events": []
       },
       "metrics": {
-        "scenario_key": "baseline-20260416-s04",
+        "scenario_key": "phase1-20260417Tbenchmark-s04",
         "kind": "steady_turns",
-        "mean_error_px": 12.674852162624937,
-        "p95_error_px": 17.886628108960636,
-        "p99_error_px": 17.889664793668572,
+        "mean_error_px": 10.52611286250104,
+        "p95_error_px": 14.579922631089996,
+        "p99_error_px": 15.14080739700134,
         "overshoot_events": 0,
         "max_overshoot_px": 0.0,
-        "mean_recovery_frames_after_turn": null,
+        "mean_recovery_frames_after_turn": 3.0,
         "mean_settle_frames_after_decel": null
       }
     },
     {
       "manifest": {
-        "scenario_key": "baseline-20260416-s05",
+        "scenario_key": "phase1-20260417Tbenchmark-s05",
         "kind": "steady_turns",
         "initial_state": {
           "initial_dx": 28.486483782354924,
@@ -266,20 +302,20 @@
         "resume_events": []
       },
       "metrics": {
-        "scenario_key": "baseline-20260416-s05",
+        "scenario_key": "phase1-20260417Tbenchmark-s05",
         "kind": "steady_turns",
-        "mean_error_px": 11.967631008853195,
-        "p95_error_px": 13.45502163189418,
-        "p99_error_px": 14.611552651381475,
+        "mean_error_px": 8.71839424673183,
+        "p95_error_px": 10.346717138213105,
+        "p99_error_px": 10.459219772125675,
         "overshoot_events": 1,
-        "max_overshoot_px": 3.6974221199306783,
+        "max_overshoot_px": 3.6170346512869926,
         "mean_recovery_frames_after_turn": null,
         "mean_settle_frames_after_decel": null
       }
     },
     {
       "manifest": {
-        "scenario_key": "baseline-20260416-s06",
+        "scenario_key": "phase1-20260417Tbenchmark-s06",
         "kind": "steady_turns",
         "initial_state": {
           "initial_dx": 47.70893549259772,
@@ -303,20 +339,20 @@
         "resume_events": []
       },
       "metrics": {
-        "scenario_key": "baseline-20260416-s06",
+        "scenario_key": "phase1-20260417Tbenchmark-s06",
         "kind": "steady_turns",
-        "mean_error_px": 17.151567780725653,
-        "p95_error_px": 19.46946710835184,
-        "p99_error_px": 23.634685279981714,
-        "overshoot_events": 3,
-        "max_overshoot_px": 4.076678668628489,
+        "mean_error_px": 13.81104312734873,
+        "p95_error_px": 14.471961067935048,
+        "p99_error_px": 14.472161529342525,
+        "overshoot_events": 1,
+        "max_overshoot_px": 5.098953394126429,
         "mean_recovery_frames_after_turn": null,
         "mean_settle_frames_after_decel": null
       }
     },
     {
       "manifest": {
-        "scenario_key": "baseline-20260416-s07",
+        "scenario_key": "phase1-20260417Tbenchmark-s07",
         "kind": "steady_turns",
         "initial_state": {
           "initial_dx": -32.434157337659656,
@@ -335,11 +371,11 @@
         "resume_events": []
       },
       "metrics": {
-        "scenario_key": "baseline-20260416-s07",
+        "scenario_key": "phase1-20260417Tbenchmark-s07",
         "kind": "steady_turns",
-        "mean_error_px": 18.369789224363565,
-        "p95_error_px": 19.252693784571346,
-        "p99_error_px": 19.254463333645422,
+        "mean_error_px": 14.038625901201883,
+        "p95_error_px": 15.536252037692519,
+        "p99_error_px": 16.077266440101106,
         "overshoot_events": 0,
         "max_overshoot_px": 0.0,
         "mean_recovery_frames_after_turn": null,
@@ -348,7 +384,7 @@
     },
     {
       "manifest": {
-        "scenario_key": "baseline-20260416-s08",
+        "scenario_key": "phase1-20260417Tbenchmark-s08",
         "kind": "turn_then_decel",
         "initial_state": {
           "initial_dx": -20.63879057556563,
@@ -374,20 +410,20 @@
         "resume_events": []
       },
       "metrics": {
-        "scenario_key": "baseline-20260416-s08",
+        "scenario_key": "phase1-20260417Tbenchmark-s08",
         "kind": "turn_then_decel",
-        "mean_error_px": 6.759492853257293,
-        "p95_error_px": 14.021000226008745,
-        "p99_error_px": 14.123535740873344,
-        "overshoot_events": 1,
-        "max_overshoot_px": 4.345691494254844,
-        "mean_recovery_frames_after_turn": 89.0,
-        "mean_settle_frames_after_decel": 19.0
+        "mean_error_px": 5.785963690652303,
+        "p95_error_px": 15.732766540521771,
+        "p99_error_px": 15.733095355844954,
+        "overshoot_events": 0,
+        "max_overshoot_px": 0.0,
+        "mean_recovery_frames_after_turn": 85.0,
+        "mean_settle_frames_after_decel": 21.0
       }
     },
     {
       "manifest": {
-        "scenario_key": "baseline-20260416-s09",
+        "scenario_key": "phase1-20260417Tbenchmark-s09",
         "kind": "turn_then_decel",
         "initial_state": {
           "initial_dx": -17.339386158137003,
@@ -413,20 +449,20 @@
         "resume_events": []
       },
       "metrics": {
-        "scenario_key": "baseline-20260416-s09",
+        "scenario_key": "phase1-20260417Tbenchmark-s09",
         "kind": "turn_then_decel",
-        "mean_error_px": 10.048122445891016,
-        "p95_error_px": 12.985131352599304,
-        "p99_error_px": 12.985359293094104,
-        "overshoot_events": 1,
-        "max_overshoot_px": 5.0628593115303175,
-        "mean_recovery_frames_after_turn": null,
+        "mean_error_px": 7.399726747496222,
+        "p95_error_px": 10.428941005511293,
+        "p99_error_px": 10.429181277241106,
+        "overshoot_events": 0,
+        "max_overshoot_px": 0.0,
+        "mean_recovery_frames_after_turn": 88.0,
         "mean_settle_frames_after_decel": null
       }
     },
     {
       "manifest": {
-        "scenario_key": "baseline-20260416-s10",
+        "scenario_key": "phase1-20260417Tbenchmark-s10",
         "kind": "turn_then_decel",
         "initial_state": {
           "initial_dx": -32.17736007354567,
@@ -452,20 +488,20 @@
         "resume_events": []
       },
       "metrics": {
-        "scenario_key": "baseline-20260416-s10",
+        "scenario_key": "phase1-20260417Tbenchmark-s10",
         "kind": "turn_then_decel",
-        "mean_error_px": 9.620243042378785,
-        "p95_error_px": 13.965522645045223,
-        "p99_error_px": 16.07332883159658,
-        "overshoot_events": 2,
-        "max_overshoot_px": 2.530512812383023,
+        "mean_error_px": 6.879169377952439,
+        "p95_error_px": 10.531311688752092,
+        "p99_error_px": 11.178913938514745,
+        "overshoot_events": 1,
+        "max_overshoot_px": 4.0160394832336355,
         "mean_recovery_frames_after_turn": 0.0,
         "mean_settle_frames_after_decel": null
       }
     },
     {
       "manifest": {
-        "scenario_key": "baseline-20260416-s11",
+        "scenario_key": "phase1-20260417Tbenchmark-s11",
         "kind": "turn_then_decel",
         "initial_state": {
           "initial_dx": 46.86591459298833,
@@ -491,20 +527,20 @@
         "resume_events": []
       },
       "metrics": {
-        "scenario_key": "baseline-20260416-s11",
+        "scenario_key": "phase1-20260417Tbenchmark-s11",
         "kind": "turn_then_decel",
-        "mean_error_px": 0.6073502810192661,
-        "p95_error_px": 0.604900794457737,
-        "p99_error_px": 2.272421605370692,
-        "overshoot_events": 2,
-        "max_overshoot_px": 3.2050961674468548,
-        "mean_recovery_frames_after_turn": 27.0,
-        "mean_settle_frames_after_decel": 8.0
+        "mean_error_px": 0.22111200521635002,
+        "p95_error_px": 1.2632364567681023,
+        "p99_error_px": 4.1791130647979156,
+        "overshoot_events": 1,
+        "max_overshoot_px": 2.5013447413234076,
+        "mean_recovery_frames_after_turn": 29.0,
+        "mean_settle_frames_after_decel": 9.0
       }
     },
     {
       "manifest": {
-        "scenario_key": "baseline-20260416-s12",
+        "scenario_key": "phase1-20260417Tbenchmark-s12",
         "kind": "turn_then_decel",
         "initial_state": {
           "initial_dx": 22.96584444642339,
@@ -530,20 +566,20 @@
         "resume_events": []
       },
       "metrics": {
-        "scenario_key": "baseline-20260416-s12",
+        "scenario_key": "phase1-20260417Tbenchmark-s12",
         "kind": "turn_then_decel",
-        "mean_error_px": 6.038896079732725,
-        "p95_error_px": 14.914810713666059,
-        "p99_error_px": 14.934003085725516,
+        "mean_error_px": 4.7804811573946235,
+        "p95_error_px": 12.392415360369608,
+        "p99_error_px": 12.79298609002693,
         "overshoot_events": 0,
         "max_overshoot_px": 0.0,
-        "mean_recovery_frames_after_turn": 84.0,
-        "mean_settle_frames_after_decel": 21.0
+        "mean_recovery_frames_after_turn": 83.0,
+        "mean_settle_frames_after_decel": 20.0
       }
     },
     {
       "manifest": {
-        "scenario_key": "baseline-20260416-s13",
+        "scenario_key": "phase1-20260417Tbenchmark-s13",
         "kind": "turn_then_decel",
         "initial_state": {
           "initial_dx": 7.258799954442026,
@@ -569,20 +605,20 @@
         "resume_events": []
       },
       "metrics": {
-        "scenario_key": "baseline-20260416-s13",
+        "scenario_key": "phase1-20260417Tbenchmark-s13",
         "kind": "turn_then_decel",
-        "mean_error_px": 6.426734292366142,
-        "p95_error_px": 13.454587386276684,
-        "p99_error_px": 15.286616842498445,
+        "mean_error_px": 4.823507905101443,
+        "p95_error_px": 10.435256255545314,
+        "p99_error_px": 10.440198326516484,
         "overshoot_events": 0,
         "max_overshoot_px": 0.0,
-        "mean_recovery_frames_after_turn": 66.0,
-        "mean_settle_frames_after_decel": 17.0
+        "mean_recovery_frames_after_turn": 1.0,
+        "mean_settle_frames_after_decel": 15.0
       }
     },
     {
       "manifest": {
-        "scenario_key": "baseline-20260416-s14",
+        "scenario_key": "phase1-20260417Tbenchmark-s14",
         "kind": "turn_then_decel",
         "initial_state": {
           "initial_dx": -26.502015625866065,
@@ -608,11 +644,11 @@
         "resume_events": []
       },
       "metrics": {
-        "scenario_key": "baseline-20260416-s14",
+        "scenario_key": "phase1-20260417Tbenchmark-s14",
         "kind": "turn_then_decel",
-        "mean_error_px": 12.834068844128465,
-        "p95_error_px": 15.184205275002276,
-        "p99_error_px": 15.190201925690262,
+        "mean_error_px": 10.647808662950325,
+        "p95_error_px": 12.956241187600465,
+        "p99_error_px": 12.95641184086762,
         "overshoot_events": 0,
         "max_overshoot_px": 0.0,
         "mean_recovery_frames_after_turn": null,
@@ -621,7 +657,7 @@
     },
     {
       "manifest": {
-        "scenario_key": "baseline-20260416-s15",
+        "scenario_key": "phase1-20260417Tbenchmark-s15",
         "kind": "turn_then_decel",
         "initial_state": {
           "initial_dx": 1.6309423365359805,
@@ -647,20 +683,20 @@
         "resume_events": []
       },
       "metrics": {
-        "scenario_key": "baseline-20260416-s15",
+        "scenario_key": "phase1-20260417Tbenchmark-s15",
         "kind": "turn_then_decel",
-        "mean_error_px": 3.5756435517104146,
-        "p95_error_px": 13.55525899907988,
-        "p99_error_px": 14.087036499088226,
+        "mean_error_px": 2.3138613696820602,
+        "p95_error_px": 12.094528841299242,
+        "p99_error_px": 12.509268042724456,
         "overshoot_events": 0,
         "max_overshoot_px": 0.0,
-        "mean_recovery_frames_after_turn": 32.0,
-        "mean_settle_frames_after_decel": 9.0
+        "mean_recovery_frames_after_turn": 31.0,
+        "mean_settle_frames_after_decel": 8.0
       }
     },
     {
       "manifest": {
-        "scenario_key": "baseline-20260416-s16",
+        "scenario_key": "phase1-20260417Tbenchmark-s16",
         "kind": "decel_resume",
         "initial_state": {
           "initial_dx": -39.04699244352808,
@@ -686,11 +722,11 @@
         ]
       },
       "metrics": {
-        "scenario_key": "baseline-20260416-s16",
+        "scenario_key": "phase1-20260417Tbenchmark-s16",
         "kind": "decel_resume",
-        "mean_error_px": 12.949482145802621,
-        "p95_error_px": 19.14243691144827,
-        "p99_error_px": 19.381643915611438,
+        "mean_error_px": 10.186809304391328,
+        "p95_error_px": 15.4292385682851,
+        "p99_error_px": 15.914490692805842,
         "overshoot_events": 0,
         "max_overshoot_px": 0.0,
         "mean_recovery_frames_after_turn": null,
@@ -699,7 +735,7 @@
     },
     {
       "manifest": {
-        "scenario_key": "baseline-20260416-s17",
+        "scenario_key": "phase1-20260417Tbenchmark-s17",
         "kind": "decel_resume",
         "initial_state": {
           "initial_dx": 36.01039717894798,
@@ -725,20 +761,20 @@
         ]
       },
       "metrics": {
-        "scenario_key": "baseline-20260416-s17",
+        "scenario_key": "phase1-20260417Tbenchmark-s17",
         "kind": "decel_resume",
-        "mean_error_px": 6.070568359630293,
-        "p95_error_px": 9.30975277125784,
-        "p99_error_px": 9.477056280082422,
+        "mean_error_px": 5.294085915291442,
+        "p95_error_px": 7.513422942144099,
+        "p99_error_px": 7.920869398570434,
         "overshoot_events": 0,
         "max_overshoot_px": 0.0,
         "mean_recovery_frames_after_turn": null,
-        "mean_settle_frames_after_decel": 20.0
+        "mean_settle_frames_after_decel": 21.0
       }
     },
     {
       "manifest": {
-        "scenario_key": "baseline-20260416-s18",
+        "scenario_key": "phase1-20260417Tbenchmark-s18",
         "kind": "decel_resume",
         "initial_state": {
           "initial_dx": 35.30365913621131,
@@ -764,11 +800,11 @@
         ]
       },
       "metrics": {
-        "scenario_key": "baseline-20260416-s18",
+        "scenario_key": "phase1-20260417Tbenchmark-s18",
         "kind": "decel_resume",
-        "mean_error_px": 11.431194476683375,
-        "p95_error_px": 17.864598089347236,
-        "p99_error_px": 18.525660697289204,
+        "mean_error_px": 8.542802364596007,
+        "p95_error_px": 15.030785962717635,
+        "p99_error_px": 15.653594664707803,
         "overshoot_events": 0,
         "max_overshoot_px": 0.0,
         "mean_recovery_frames_after_turn": null,
@@ -777,7 +813,7 @@
     },
     {
       "manifest": {
-        "scenario_key": "baseline-20260416-s19",
+        "scenario_key": "phase1-20260417Tbenchmark-s19",
         "kind": "decel_resume",
         "initial_state": {
           "initial_dx": 20.13033638374793,
@@ -797,11 +833,11 @@
         "resume_events": []
       },
       "metrics": {
-        "scenario_key": "baseline-20260416-s19",
+        "scenario_key": "phase1-20260417Tbenchmark-s19",
         "kind": "decel_resume",
-        "mean_error_px": 0.45744238503790446,
-        "p95_error_px": 0.47447476032886887,
-        "p99_error_px": 0.7051659784676432,
+        "mean_error_px": 0.04777709944122151,
+        "p95_error_px": 0.26125932465509355,
+        "p99_error_px": 0.9048936831599211,
         "overshoot_events": 0,
         "max_overshoot_px": 0.0,
         "mean_recovery_frames_after_turn": null,
@@ -810,7 +846,7 @@
     },
     {
       "manifest": {
-        "scenario_key": "baseline-20260416-s20",
+        "scenario_key": "phase1-20260417Tbenchmark-s20",
         "kind": "decel_resume",
         "initial_state": {
           "initial_dx": -52.467275048760285,
@@ -836,11 +872,11 @@
         ]
       },
       "metrics": {
-        "scenario_key": "baseline-20260416-s20",
+        "scenario_key": "phase1-20260417Tbenchmark-s20",
         "kind": "decel_resume",
-        "mean_error_px": 10.619793138568353,
-        "p95_error_px": 11.535114948924905,
-        "p99_error_px": 11.572078578011078,
+        "mean_error_px": 6.582700403164838,
+        "p95_error_px": 7.8747542365035175,
+        "p99_error_px": 7.874935113594752,
         "overshoot_events": 0,
         "max_overshoot_px": 0.0,
         "mean_recovery_frames_after_turn": null,
@@ -849,7 +885,7 @@
     },
     {
       "manifest": {
-        "scenario_key": "baseline-20260416-s21",
+        "scenario_key": "phase1-20260417Tbenchmark-s21",
         "kind": "decel_resume",
         "initial_state": {
           "initial_dx": 56.75473803110822,
@@ -875,11 +911,11 @@
         ]
       },
       "metrics": {
-        "scenario_key": "baseline-20260416-s21",
+        "scenario_key": "phase1-20260417Tbenchmark-s21",
         "kind": "decel_resume",
-        "mean_error_px": 8.113085765062584,
-        "p95_error_px": 13.743561988394367,
-        "p99_error_px": 14.261358958794489,
+        "mean_error_px": 6.703227354788526,
+        "p95_error_px": 14.00662101528141,
+        "p99_error_px": 14.14639789574317,
         "overshoot_events": 0,
         "max_overshoot_px": 0.0,
         "mean_recovery_frames_after_turn": null,
@@ -888,7 +924,7 @@
     },
     {
       "manifest": {
-        "scenario_key": "baseline-20260416-s22",
+        "scenario_key": "phase1-20260417Tbenchmark-s22",
         "kind": "decel_resume",
         "initial_state": {
           "initial_dx": -27.78977037530933,
@@ -914,20 +950,20 @@
         ]
       },
       "metrics": {
-        "scenario_key": "baseline-20260416-s22",
+        "scenario_key": "phase1-20260417Tbenchmark-s22",
         "kind": "decel_resume",
-        "mean_error_px": 9.270549987732187,
-        "p95_error_px": 13.479997124370465,
-        "p99_error_px": 14.146114557728417,
-        "overshoot_events": 2,
-        "max_overshoot_px": 4.888228646724082,
+        "mean_error_px": 6.909590123069144,
+        "p95_error_px": 14.454426921982176,
+        "p99_error_px": 16.84566826141699,
+        "overshoot_events": 1,
+        "max_overshoot_px": 4.3037991902587365,
         "mean_recovery_frames_after_turn": null,
         "mean_settle_frames_after_decel": null
       }
     },
     {
       "manifest": {
-        "scenario_key": "baseline-20260416-s23",
+        "scenario_key": "phase1-20260417Tbenchmark-s23",
         "kind": "decel_resume",
         "initial_state": {
           "initial_dx": 22.869586594271766,
@@ -953,13 +989,13 @@
         ]
       },
       "metrics": {
-        "scenario_key": "baseline-20260416-s23",
+        "scenario_key": "phase1-20260417Tbenchmark-s23",
         "kind": "decel_resume",
-        "mean_error_px": 9.281283935605344,
-        "p95_error_px": 13.10074576046391,
-        "p99_error_px": 14.773761790540709,
+        "mean_error_px": 7.031275802777056,
+        "p95_error_px": 14.421083552021303,
+        "p99_error_px": 14.421252025285373,
         "overshoot_events": 1,
-        "max_overshoot_px": 4.308007406481934,
+        "max_overshoot_px": 3.616763166850598,
         "mean_recovery_frames_after_turn": null,
         "mean_settle_frames_after_decel": null
       }

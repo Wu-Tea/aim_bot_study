@@ -11,6 +11,7 @@
 ## Benchmark Parameters
 
 - `frame_dt`: `0.016666666666666666`
+- `target_sample_hz`: `None`
 - `sim_frames`: `180`
 - `measure_from_frame`: `60`
 - `max_reticle_speed_pps`: `1500.0`
@@ -66,11 +67,14 @@
 | `opposing_burst_hold_error_px` | `13.824449879830473` | `n/a` |
 | `lock_survival_rate` | `0.5461538461538461` | `n/a` |
 
-## History vs Baseline
+## Representative History vs Baseline
+
+Kept in repo:
+- `manual-mix-baseline-20260417`: deterministic manual-input baseline
+- `gamepad-20260417T053032Z`: first arbitration-focused record with strong wrong-input recovery
+- `gamepad-20260417T055418Z`: latest tuned fresh run balancing overshoot and settle
 
 | Run Key | Timestamp | Artifact | Dirty | Mean Error Delta | P95 Delta | P99 Delta | Overshoot Delta | Max Overshoot Delta | Turn Recovery Delta | Decel Settle Delta | Conflict Delta | Wrong Input Recovery Delta | Manual Yield Delta | Harmful Suppression Delta | Aligned Preservation Delta | Burst Hold Error Delta | Lock Survival Delta |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `gamepad-20260417T055418Z` | 2026-04-17T05:54:18Z | `artifacts/benchmarks/gamepad_manual_mix/gamepad-20260417T055418Z.json` | dirty | +8.05% | +7.04% | +1.24% | -8.70% | +23.39% | -8.59% | -4.39% | -14.81% | -0.63% | +257.56% | n/a | n/a | n/a | n/a |
-| `gamepad-20260417T053348Z` | 2026-04-17T05:33:48Z | `artifacts/benchmarks/gamepad_manual_mix/gamepad-20260417T053348Z.json` | dirty | +10.71% | +3.81% | -1.08% | +130.43% | +94.26% | -2.60% | +25.66% | -8.33% | -32.72% | +381.81% | n/a | n/a | n/a | n/a |
-| `gamepad-20260417T053248Z` | 2026-04-17T05:32:48Z | `artifacts/benchmarks/gamepad_manual_mix/gamepad-20260417T053248Z.json` | dirty | +12.29% | +3.80% | -1.66% | +191.30% | +4.94% | -38.02% | +38.25% | -33.33% | -23.53% | +267.16% | n/a | n/a | n/a | n/a |
 | `gamepad-20260417T053032Z` | 2026-04-17T05:30:32Z | `artifacts/benchmarks/gamepad_manual_mix/gamepad-20260417T053032Z.json` | dirty | +2.81% | -2.44% | -7.19% | +60.87% | +5.21% | -5.21% | +3.51% | -77.78% | -61.76% | +1068.86% | n/a | n/a | n/a | n/a |
