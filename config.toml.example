@@ -24,6 +24,20 @@ body_lock_box_tolerance_px = 18.0
 body_lock_smoothing = 0.18
 body_lock_max_ai_force = 0.42
 body_lock_max_ai_force_y = 0.48
+# Frames of stable target continuity needed before body-lock suppression gets aggressive.
+body_lock_confidence_frames = 4
+# Confidence threshold above which opposing manual input is strongly cut down.
+body_lock_confidence_min_strong = 0.65
+# Maximum fraction of harmful manual input that can be removed while lock confidence is high.
+body_lock_opposing_suppression_max = 0.9
+# Maximum damping applied to orthogonal wobble near the lock point.
+body_lock_orthogonal_suppression_max = 0.75
+# Minimum fraction of aligned manual input that still survives arbitration.
+body_lock_helpful_preservation_floor = 0.8
+# Near-lock radius where orthogonal damping ramps up.
+body_lock_near_lock_error_px = 18.0
+# Slight extra damping on vertical orthogonal wobble around the upper-body point.
+body_lock_vertical_orthogonal_bias = 1.15
 # Suppress tiny vertical twitch near the upper-body lock point.
 body_lock_vertical_deadzone_px = 6.0
 # When target motion slows down, gradually restore some Y tail help from

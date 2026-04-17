@@ -214,5 +214,9 @@ def _history_column_title(metric_name: str) -> str:
         "conflict_frames_ratio": "Conflict Delta",
         "wrong_input_recovery_frames": "Wrong Input Recovery Delta",
         "manual_yield_score": "Manual Yield Delta",
+        "harmful_input_suppression_ratio": "Harmful Suppression Delta",
+        "aligned_input_preservation_ratio": "Aligned Preservation Delta",
+        "opposing_burst_hold_error_px": "Burst Hold Error Delta",
+        "lock_survival_rate": "Lock Survival Delta",
     }
     return titles.get(metric_name, f"{metric_name} Delta")

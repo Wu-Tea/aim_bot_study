@@ -34,6 +34,13 @@ class BenchmarkScoreboardTests(unittest.TestCase):
                 "max_overshoot_px": 6.5,
                 "mean_recovery_frames_after_turn": 8.0,
                 "mean_settle_frames_after_decel": 11.0,
+                "conflict_frames_ratio": 0.15,
+                "wrong_input_recovery_frames": 9.0,
+                "manual_yield_score": 0.45,
+                "harmful_input_suppression_ratio": 0.82,
+                "aligned_input_preservation_ratio": 0.88,
+                "opposing_burst_hold_error_px": 7.5,
+                "lock_survival_rate": 0.67,
             },
             delta_metrics=delta_metrics,
         )
@@ -127,6 +134,13 @@ class BenchmarkScoreboardTests(unittest.TestCase):
                     "max_overshoot_px": 0.05,
                     "mean_recovery_frames_after_turn": -0.25,
                     "mean_settle_frames_after_decel": -0.10,
+                    "conflict_frames_ratio": -0.40,
+                    "wrong_input_recovery_frames": -0.30,
+                    "manual_yield_score": -0.25,
+                    "harmful_input_suppression_ratio": 0.55,
+                    "aligned_input_preservation_ratio": 0.10,
+                    "opposing_burst_hold_error_px": -0.12,
+                    "lock_survival_rate": 0.20,
                 },
             )
 
@@ -153,6 +167,10 @@ class BenchmarkScoreboardTests(unittest.TestCase):
             self.assertIn("Run Key: `run-current`", content)
             self.assertIn("Artifact: `artifacts/benchmarks/gamepad/run-current.json`", content)
             self.assertIn("| `run-current` | 2026-04-16T13:00:00Z | `artifacts/benchmarks/gamepad/run-current.json` | dirty |", content)
+            self.assertIn("Harmful Suppression Delta", content)
+            self.assertIn("Aligned Preservation Delta", content)
+            self.assertIn("Burst Hold Error Delta", content)
+            self.assertIn("Lock Survival Delta", content)
             self.assertNotIn("| `run-baseline` | 2026-04-16T12:00:00Z | `artifacts/benchmarks/gamepad/run-baseline.json` | clean |", content)
 
     def test_markdown_references_artifact_paths_without_embedding_manifest_payloads(self):

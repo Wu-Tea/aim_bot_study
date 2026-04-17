@@ -1,5 +1,6 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
+import json
 import subprocess
 import sys
 import unittest
@@ -177,7 +178,101 @@ class GamepadBenchmarkRunnerTests(unittest.TestCase):
             self.assertEqual(result["suite"], "manual-mix")
             self.assertEqual(result["artifact_path"], "artifacts/benchmarks/gamepad_manual_mix/mix-run.json")
             self.assertIn("# Gamepad Manual-Mix Benchmarks", scoreboard_path.read_text(encoding="utf-8"))
+            self.assertIn("harmful_input_suppression_ratio", result["aggregate_metrics"])
+            self.assertIn("aligned_input_preservation_ratio", result["aggregate_metrics"])
+            self.assertIn("opposing_burst_hold_error_px", result["aggregate_metrics"])
+            self.assertIn("lock_survival_rate", result["aggregate_metrics"])
             self.assertEqual(len(result["manual_seeds"]), 3)
+
+    def test_manual_mix_run_keeps_loading_older_baseline_artifacts_missing_new_metrics(self):
+        with TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            artifact_dir = temp_path / "artifacts" / "benchmarks" / "gamepad_manual_mix"
+            scoreboard_path = temp_path / "docs" / "project" / "GAMEPAD_MANUAL_MIX_BENCHMARKS.md"
+            artifact_dir.mkdir(parents=True, exist_ok=True)
+            scoreboard_path.parent.mkdir(parents=True, exist_ok=True)
+
+            baseline_artifact = {
+                "suite": "manual-mix",
+                "run_key": "mix-baseline",
+                "run_seed": 12345,
+                "baseline_key": "mix-baseline",
+                "timestamp": "2026-04-17T00:00:00Z",
+                "artifact_path": "artifacts/benchmarks/gamepad_manual_mix/mix-baseline.json",
+                "git_metadata": {"commit": "abc1234", "dirty": False},
+                "benchmark_config": {
+                    "frame_dt": 1.0 / 60.0,
+                    "sim_frames": 180,
+                    "measure_from_frame": 60,
+                    "max_reticle_speed_pps": 1500.0,
+                    "stick_max": 32767,
+                    "overshoot_threshold_px": 2.0,
+                    "turn_recovery_threshold_px": 6.0,
+                    "settle_threshold_px": 5.0,
+                    "settle_consecutive_frames": 4,
+                    "conflict_manual_threshold": 2000,
+                    "conflict_ai_threshold": 2000,
+                    "wrong_input_recovery_threshold_px": 8.0,
+                    "wrong_input_recovery_consecutive_frames": 3,
+                },
+                "manual_input_config": {
+                    "max_manual_ratio": 0.72,
+                    "full_scale_x": 90.0,
+                    "full_scale_y": 80.0,
+                    "aligned_scale": 0.62,
+                    "wobble_scale": 0.18,
+                    "opposing_scale": 0.55,
+                    "recover_scale": 0.48,
+                    "vertical_jitter_scale": 0.12,
+                    "near_target_radius_px": 18.0,
+                    "wobble_period_frames": 6,
+                    "event_window_frames": 16,
+                    "opposing_burst_min_frames": 2,
+                    "opposing_burst_max_frames": 5,
+                    "overshoot_recover_frames": 3,
+                    "reference_frame_dt": 1.0 / 60.0,
+                },
+                "manual_seeds": [1, 2, 3],
+                "scenario_logic": [],
+                "controller_config_snapshot": {},
+                "aggregate_metrics": {
+                    "mean_error_px": 11.0,
+                    "p95_error_px": 16.0,
+                    "p99_error_px": 18.0,
+                    "overshoot_events": 20,
+                    "max_overshoot_px": 4.5,
+                    "mean_recovery_frames_after_turn": 12.0,
+                    "mean_settle_frames_after_decel": 9.0,
+                    "conflict_frames_ratio": 0.2,
+                    "wrong_input_recovery_frames": 10.0,
+                    "manual_yield_score": 0.1,
+                },
+                "relative_deltas_vs_baseline": None,
+                "scenarios": [],
+            }
+            (artifact_dir / "mix-baseline.json").write_text(
+                json.dumps(baseline_artifact),
+                encoding="utf-8",
+            )
+            scoreboard_path.write_text(
+                "# Gamepad Manual-Mix Benchmarks\n\n## Baseline Definition\n\n- Baseline Run Key: `mix-baseline`\n",
+                encoding="utf-8",
+            )
+
+            result = run_benchmark(
+                run_key="mix-current",
+                run_seed=12345,
+                suite="manual-mix",
+                artifact_dir=artifact_dir,
+                scoreboard_path=scoreboard_path,
+                git_metadata=self.git_metadata(),
+                set_baseline=False,
+            )
+
+            self.assertEqual(result["baseline_key"], "mix-baseline")
+            self.assertIsNotNone(result["relative_deltas_vs_baseline"])
+            self.assertIn("harmful_input_suppression_ratio", result["relative_deltas_vs_baseline"])
+            self.assertIsNone(result["relative_deltas_vs_baseline"]["harmful_input_suppression_ratio"])
 
 
 if __name__ == "__main__":

@@ -58,6 +58,10 @@ class ManualMixScenarioMetrics:
     conflict_frames_ratio: float
     wrong_input_recovery_frames: float | None
     manual_yield_score: float | None
+    harmful_input_suppression_ratio: float | None
+    aligned_input_preservation_ratio: float | None
+    opposing_burst_hold_error_px: float | None
+    lock_survival_rate: float | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +76,10 @@ class ManualMixAggregateMetrics:
     conflict_frames_ratio: float
     wrong_input_recovery_frames: float | None
     manual_yield_score: float | None
+    harmful_input_suppression_ratio: float | None = None
+    aligned_input_preservation_ratio: float | None = None
+    opposing_burst_hold_error_px: float | None = None
+    lock_survival_rate: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,6 +94,10 @@ class ManualMixMetricDeltas:
     conflict_frames_ratio: float | None
     wrong_input_recovery_frames: float | None
     manual_yield_score: float | None
+    harmful_input_suppression_ratio: float | None
+    aligned_input_preservation_ratio: float | None
+    opposing_burst_hold_error_px: float | None
+    lock_survival_rate: float | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,6 +139,22 @@ class ManualMixRunSummary:
                 self.aggregate.manual_yield_score,
                 baseline_metrics.manual_yield_score,
             ),
+            harmful_input_suppression_ratio=_relative_change(
+                self.aggregate.harmful_input_suppression_ratio,
+                baseline_metrics.harmful_input_suppression_ratio,
+            ),
+            aligned_input_preservation_ratio=_relative_change(
+                self.aggregate.aligned_input_preservation_ratio,
+                baseline_metrics.aligned_input_preservation_ratio,
+            ),
+            opposing_burst_hold_error_px=_relative_change(
+                self.aggregate.opposing_burst_hold_error_px,
+                baseline_metrics.opposing_burst_hold_error_px,
+            ),
+            lock_survival_rate=_relative_change(
+                self.aggregate.lock_survival_rate,
+                baseline_metrics.lock_survival_rate,
+            ),
         )
 
 
@@ -141,13 +169,20 @@ class ManualMixFrameRecord:
     radial_error_px: float
     manual_x: int
     manual_y: int
+    sanitized_manual_x: int
+    sanitized_manual_y: int
     output_x: int
     output_y: int
     ai_x: int
     ai_y: int
-    mode: str
+    manual_mode: str
+    controller_mode: str
     in_opposing_burst: bool
     measured: bool
+    lock_confidence: float
+    helpful_preserved_ratio: float
+    harmful_suppressed_ratio: float
+    orthogonal_suppressed_ratio: float
 
 
 def evaluate_manual_mix_scenario(
@@ -202,6 +237,13 @@ def evaluate_manual_mix_scenario(
             consecutive_frames=config.wrong_input_recovery_consecutive_frames,
         ),
         manual_yield_score=_manual_yield_score(records),
+        harmful_input_suppression_ratio=_harmful_input_suppression_ratio(records),
+        aligned_input_preservation_ratio=_aligned_input_preservation_ratio(records),
+        opposing_burst_hold_error_px=_opposing_burst_hold_error_px(records),
+        lock_survival_rate=_lock_survival_rate(
+            records,
+            recovery_threshold_px=config.wrong_input_recovery_threshold_px,
+        ),
     )
 
 
@@ -299,8 +341,16 @@ def _simulate_manual_mix_closed_loop(
 
         output_x = _clamp_int(output.right_x, config.stick_max)
         output_y = _clamp_int(output.right_y, config.stick_max)
-        ai_x = output_x - manual_input.manual_right_x
-        ai_y = output_y - manual_input.manual_right_y
+        sanitized_manual_x = _clamp_int(
+            int(round(plugin._last_sanitized_manual_x)),
+            config.stick_max,
+        )
+        sanitized_manual_y = _clamp_int(
+            int(round(plugin._last_sanitized_manual_y)),
+            config.stick_max,
+        )
+        ai_x = _clamp_int(int(round(plugin.ai_stick_x)), config.stick_max)
+        ai_y = _clamp_int(int(round(plugin.ai_stick_y)), config.stick_max)
 
         reticle_x += (output_x / config.stick_max) * config.max_reticle_speed_pps * config.frame_dt
         reticle_y += (-output_y / config.stick_max) * config.max_reticle_speed_pps * config.frame_dt
@@ -316,13 +366,20 @@ def _simulate_manual_mix_closed_loop(
                 radial_error_px=math.hypot(error_x, error_y),
                 manual_x=manual_input.manual_right_x,
                 manual_y=manual_input.manual_right_y,
+                sanitized_manual_x=sanitized_manual_x,
+                sanitized_manual_y=sanitized_manual_y,
                 output_x=output_x,
                 output_y=output_y,
                 ai_x=ai_x,
                 ai_y=ai_y,
-                mode=manual_input.mode,
+                manual_mode=manual_input.mode,
+                controller_mode=plugin._mode,
                 in_opposing_burst=manual_input.in_opposing_burst,
                 measured=state.frame >= config.measure_from_frame,
+                lock_confidence=plugin._last_lock_confidence,
+                helpful_preserved_ratio=plugin._last_helpful_preserved_ratio,
+                harmful_suppressed_ratio=plugin._last_harmful_suppressed_ratio,
+                orthogonal_suppressed_ratio=plugin._last_orthogonal_suppressed_ratio,
             )
         )
 
@@ -339,6 +396,26 @@ def _aggregate_manual_mix_metrics(
     settle_values = [metric.mean_settle_frames_after_decel for metric in metrics if metric.mean_settle_frames_after_decel is not None]
     wrong_input_values = [metric.wrong_input_recovery_frames for metric in metrics if metric.wrong_input_recovery_frames is not None]
     yield_values = [metric.manual_yield_score for metric in metrics if metric.manual_yield_score is not None]
+    harmful_values = [
+        metric.harmful_input_suppression_ratio
+        for metric in metrics
+        if metric.harmful_input_suppression_ratio is not None
+    ]
+    aligned_values = [
+        metric.aligned_input_preservation_ratio
+        for metric in metrics
+        if metric.aligned_input_preservation_ratio is not None
+    ]
+    burst_hold_values = [
+        metric.opposing_burst_hold_error_px
+        for metric in metrics
+        if metric.opposing_burst_hold_error_px is not None
+    ]
+    lock_survival_values = [
+        metric.lock_survival_rate
+        for metric in metrics
+        if metric.lock_survival_rate is not None
+    ]
 
     return ManualMixAggregateMetrics(
         mean_error_px=mean(metric.mean_error_px for metric in metrics),
@@ -351,6 +428,10 @@ def _aggregate_manual_mix_metrics(
         conflict_frames_ratio=mean(metric.conflict_frames_ratio for metric in metrics),
         wrong_input_recovery_frames=mean(wrong_input_values) if wrong_input_values else None,
         manual_yield_score=mean(yield_values) if yield_values else None,
+        harmful_input_suppression_ratio=mean(harmful_values) if harmful_values else None,
+        aligned_input_preservation_ratio=mean(aligned_values) if aligned_values else None,
+        opposing_burst_hold_error_px=mean(burst_hold_values) if burst_hold_values else None,
+        lock_survival_rate=mean(lock_survival_values) if lock_survival_values else None,
     )
 
 
@@ -385,6 +466,68 @@ def _manual_yield_score(records: Sequence[ManualMixFrameRecord]) -> float | None
     return mean(scores)
 
 
+def _harmful_input_suppression_ratio(
+    records: Sequence[ManualMixFrameRecord],
+) -> float | None:
+    values = [
+        record.harmful_suppressed_ratio
+        for record in records
+        if record.measured
+        and record.in_opposing_burst
+        and record.controller_mode == "body_lock"
+    ]
+    return mean(values) if values else None
+
+
+def _aligned_input_preservation_ratio(
+    records: Sequence[ManualMixFrameRecord],
+) -> float | None:
+    values = [
+        record.helpful_preserved_ratio
+        for record in records
+        if record.measured
+        and not record.in_opposing_burst
+        and record.controller_mode == "body_lock"
+    ]
+    return mean(values) if values else None
+
+
+def _opposing_burst_hold_error_px(
+    records: Sequence[ManualMixFrameRecord],
+) -> float | None:
+    values = [
+        record.radial_error_px
+        for record in records
+        if record.measured and record.in_opposing_burst
+    ]
+    return mean(values) if values else None
+
+
+def _lock_survival_rate(
+    records: Sequence[ManualMixFrameRecord],
+    *,
+    recovery_threshold_px: float,
+) -> float | None:
+    burst_windows = _group_burst_windows(records)
+    if not burst_windows:
+        return None
+
+    survivors = 0
+    for window in burst_windows:
+        if not all(record.controller_mode == "body_lock" for record in window):
+            continue
+        end_frame = window[-1].frame + 1
+        settle_frame = _first_recovered_frame(
+            [record for record in records if record.measured],
+            end_frame,
+            threshold_px=recovery_threshold_px,
+            consecutive_frames=1,
+        )
+        if settle_frame is not None:
+            survivors += 1
+    return survivors / len(burst_windows)
+
+
 def _wrong_input_recovery_frames(
     records: Sequence[ManualMixFrameRecord],
     *,
@@ -413,6 +556,25 @@ def _wrong_input_recovery_frames(
         if settle_frame is not None:
             recovery_frames.append(float(settle_frame - start_frame))
     return mean(recovery_frames) if recovery_frames else None
+
+
+def _group_burst_windows(
+    records: Sequence[ManualMixFrameRecord],
+) -> list[list[ManualMixFrameRecord]]:
+    windows: list[list[ManualMixFrameRecord]] = []
+    current: list[ManualMixFrameRecord] = []
+    for record in records:
+        if not record.measured:
+            continue
+        if record.in_opposing_burst:
+            current.append(record)
+            continue
+        if current:
+            windows.append(current)
+            current = []
+    if current:
+        windows.append(current)
+    return windows
 
 
 def _first_recovered_frame(

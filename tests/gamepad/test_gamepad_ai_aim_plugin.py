@@ -647,6 +647,275 @@ class AIAimPluginTests(unittest.TestCase):
         self.assertEqual(first_output.right_y, 0)
         self.assertNotEqual(second_output.right_y, 0)
 
+    def test_body_lock_suppresses_harmful_manual_input_when_confidence_is_high(self):
+        plugin = AIAimPlugin(
+            AIAimConfig(
+                smoothing=0.0,
+                deadzone_inner=0.0,
+                deadzone_outer=1.0,
+                x_deadzone_outer=1.0,
+                ai_delta_gain=1.0,
+                body_lock_smoothing=0.0,
+                body_lock_max_ai_force=1.0,
+                body_lock_max_ai_force_y=1.0,
+                body_lock_activation_box_px=150.0,
+                body_lock_confidence_frames=4,
+                body_lock_confidence_min_strong=0.65,
+                body_lock_opposing_suppression_max=0.9,
+            )
+        )
+        target = _target(
+            aim_point_x=350.0,
+            aim_point_y=240.0,
+            body_box=(315.0, 210.0, 385.0, 330.0),
+        )
+
+        for i, timestamp in enumerate((0.00, 0.02, 0.04, 0.06), start=1):
+            warm = _frame(
+                aiming=True,
+                manual_rx=0,
+                manual_ry=0,
+                timestamp=timestamp,
+                target_revision=i,
+                target=target,
+            )
+            plugin.apply(warm, _output(warm))
+
+        frame = _frame(
+            aiming=True,
+            manual_rx=-12000,
+            manual_ry=0,
+            timestamp=0.08,
+            target_revision=5,
+            target=target,
+        )
+        output = _output(frame)
+
+        plugin.apply(frame, output)
+
+        self.assertGreater(output.right_x, 0)
+        self.assertLess(output.right_x, 12000)
+
+    def test_body_lock_preserves_aligned_manual_input(self):
+        plugin = AIAimPlugin(
+            AIAimConfig(
+                smoothing=0.0,
+                deadzone_inner=0.0,
+                deadzone_outer=1.0,
+                x_deadzone_outer=1.0,
+                ai_delta_gain=1.0,
+                body_lock_smoothing=0.0,
+                body_lock_max_ai_force=1.0,
+                body_lock_max_ai_force_y=1.0,
+                body_lock_helpful_preservation_floor=0.8,
+            )
+        )
+        target = _target(
+            aim_point_x=350.0,
+            aim_point_y=240.0,
+            body_box=(315.0, 210.0, 385.0, 330.0),
+        )
+
+        for i, timestamp in enumerate((0.00, 0.02, 0.04, 0.06), start=1):
+            warm = _frame(
+                aiming=True,
+                manual_rx=0,
+                manual_ry=0,
+                timestamp=timestamp,
+                target_revision=i,
+                target=target,
+            )
+            plugin.apply(warm, _output(warm))
+
+        frame = _frame(
+            aiming=True,
+            manual_rx=9000,
+            manual_ry=0,
+            timestamp=0.08,
+            target_revision=5,
+            target=target,
+        )
+        output = _output(frame)
+
+        plugin.apply(frame, output)
+
+        self.assertGreater(output.right_x, 9000)
+
+    def test_body_lock_damps_orthogonal_input_more_near_lock_than_far_from_lock(self):
+        plugin = AIAimPlugin(
+            AIAimConfig(
+                smoothing=0.0,
+                deadzone_inner=0.0,
+                deadzone_outer=1.0,
+                x_deadzone_outer=1.0,
+                ai_delta_gain=1.0,
+                body_lock_smoothing=0.0,
+                body_lock_max_ai_force=1.0,
+                body_lock_max_ai_force_y=1.0,
+                body_lock_near_lock_error_px=18.0,
+                body_lock_orthogonal_suppression_max=0.75,
+            )
+        )
+        near_target = _target(
+            aim_point_x=328.0,
+            aim_point_y=250.0,
+            body_box=(293.0, 220.0, 363.0, 340.0),
+        )
+        far_target = _target(
+            aim_point_x=360.0,
+            aim_point_y=220.0,
+            body_box=(325.0, 190.0, 395.0, 310.0),
+        )
+
+        near_frame = _frame(
+            aiming=True,
+            manual_rx=0,
+            manual_ry=8000,
+            timestamp=0.10,
+            target_revision=1,
+            target=near_target,
+        )
+        far_frame = _frame(
+            aiming=True,
+            manual_rx=0,
+            manual_ry=8000,
+            timestamp=0.10,
+            target_revision=1,
+            target=far_target,
+        )
+
+        near_output = _output(near_frame)
+        far_output = _output(far_frame)
+        plugin.apply(near_frame, near_output)
+        plugin.reset()
+        plugin.apply(far_frame, far_output)
+
+        self.assertLess(abs(near_output.right_y), abs(far_output.right_y))
+
+    def test_body_lock_releases_suppression_when_confidence_is_not_built(self):
+        plugin = AIAimPlugin(
+            AIAimConfig(
+                smoothing=0.0,
+                deadzone_inner=0.0,
+                deadzone_outer=1.0,
+                x_deadzone_outer=1.0,
+                ai_delta_gain=1.0,
+                body_lock_smoothing=0.0,
+                body_lock_max_ai_force=1.0,
+                body_lock_max_ai_force_y=1.0,
+                body_lock_confidence_frames=4,
+                body_lock_opposing_suppression_max=0.95,
+            )
+        )
+        target = _target(
+            aim_point_x=350.0,
+            aim_point_y=240.0,
+            body_box=(315.0, 210.0, 385.0, 330.0),
+        )
+        frame = _frame(
+            aiming=True,
+            manual_rx=-12000,
+            manual_ry=0,
+            timestamp=0.00,
+            target_revision=1,
+            target=target,
+        )
+        output = _output(frame)
+
+        plugin.apply(frame, output)
+
+        self.assertLess(output.right_x, 0)
+
+    def test_leaving_body_lock_resets_confidence_before_the_next_lock(self):
+        plugin = AIAimPlugin(
+            AIAimConfig(
+                smoothing=0.0,
+                deadzone_inner=0.0,
+                deadzone_outer=1.0,
+                x_deadzone_outer=1.0,
+                ai_delta_gain=1.0,
+                body_lock_smoothing=0.0,
+                body_lock_max_ai_force=1.0,
+                body_lock_max_ai_force_y=1.0,
+                body_lock_confidence_frames=4,
+                body_lock_opposing_suppression_max=0.95,
+            )
+        )
+        target = _target(
+            aim_point_x=350.0,
+            aim_point_y=240.0,
+            body_box=(315.0, 210.0, 385.0, 330.0),
+        )
+
+        for i, timestamp in enumerate((0.00, 0.02, 0.04, 0.06), start=1):
+            warm = _frame(
+                aiming=True,
+                manual_rx=0,
+                manual_ry=0,
+                timestamp=timestamp,
+                target_revision=i,
+                target=target,
+            )
+            plugin.apply(warm, _output(warm))
+
+        stop_frame = _frame(
+            aiming=False,
+            manual_rx=0,
+            manual_ry=0,
+            timestamp=0.08,
+            target_revision=5,
+            target=None,
+        )
+        plugin.apply(stop_frame, _output(stop_frame))
+
+        reacquire = _frame(
+            aiming=True,
+            manual_rx=-12000,
+            manual_ry=0,
+            timestamp=0.10,
+            target_revision=6,
+            target=target,
+        )
+        output = _output(reacquire)
+        plugin.apply(reacquire, output)
+
+        self.assertLess(output.right_x, 0)
+
+    def test_ads_snap_path_keeps_raw_manual_passthrough(self):
+        plugin = AIAimPlugin(
+            AIAimConfig(
+                smoothing=0.0,
+                deadzone_inner=0.0,
+                deadzone_outer=1.0,
+                x_deadzone_outer=1.0,
+                ai_delta_gain=1.0,
+                ads_snap_smoothing=0.0,
+                ads_snap_max_ai_force=1.0,
+                ads_snap_max_ai_force_y=1.0,
+            )
+        )
+        target = _target(
+            aim_point_x=420.0,
+            aim_point_y=220.0,
+            body_box=(385.0, 190.0, 455.0, 310.0),
+        )
+        frame = _frame(
+            aiming=True,
+            target_dx=100.0,
+            target_dy=36.0,
+            manual_rx=6000,
+            manual_ry=-2000,
+            timestamp=0.00,
+            target_revision=1,
+            target=target,
+        )
+        output = _output(frame)
+
+        plugin.apply(frame, output)
+
+        self.assertGreater(output.right_x, 6000)
+        self.assertLess(output.right_y, -2000)
+
 
 if __name__ == "__main__":
     unittest.main()

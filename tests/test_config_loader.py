@@ -31,6 +31,13 @@ class TuningConfigLoaderTests(unittest.TestCase):
             piecewise_mid_ratio_y = 0.7
             ads_snap_window_ms = 120
             body_lock_activation_box_px = 220
+            body_lock_confidence_frames = 6
+            body_lock_confidence_min_strong = 0.72
+            body_lock_opposing_suppression_max = 0.94
+            body_lock_orthogonal_suppression_max = 0.81
+            body_lock_helpful_preservation_floor = 0.77
+            body_lock_near_lock_error_px = 20.0
+            body_lock_vertical_orthogonal_bias = 1.25
             body_lock_vertical_deadzone_px = 4.5
             body_lock_vertical_tail_inner_px = 1.5
             body_lock_vertical_tail_speed_threshold_px_per_sec = 80.0
@@ -60,6 +67,22 @@ class TuningConfigLoaderTests(unittest.TestCase):
         self.assertEqual(config.gamepad_ai_aim.piecewise_mid_ratio_y, 0.7)
         self.assertEqual(config.gamepad_ai_aim.ads_snap_window_ms, 120)
         self.assertEqual(config.gamepad_ai_aim.body_lock_activation_box_px, 220)
+        self.assertEqual(config.gamepad_ai_aim.body_lock_confidence_frames, 6)
+        self.assertEqual(config.gamepad_ai_aim.body_lock_confidence_min_strong, 0.72)
+        self.assertEqual(config.gamepad_ai_aim.body_lock_opposing_suppression_max, 0.94)
+        self.assertEqual(
+            config.gamepad_ai_aim.body_lock_orthogonal_suppression_max,
+            0.81,
+        )
+        self.assertEqual(
+            config.gamepad_ai_aim.body_lock_helpful_preservation_floor,
+            0.77,
+        )
+        self.assertEqual(config.gamepad_ai_aim.body_lock_near_lock_error_px, 20.0)
+        self.assertEqual(
+            config.gamepad_ai_aim.body_lock_vertical_orthogonal_bias,
+            1.25,
+        )
         self.assertEqual(config.gamepad_ai_aim.body_lock_vertical_deadzone_px, 4.5)
         self.assertEqual(config.gamepad_ai_aim.body_lock_vertical_tail_inner_px, 1.5)
         self.assertEqual(
