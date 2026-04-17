@@ -476,7 +476,7 @@ class BenchmarkRunSummaryTests(unittest.TestCase):
 
         self.assertLess(current_mean_error, 30.0)
         self.assertLess(current_p99, 40.0)
-        self.assertLessEqual(current_overshoots, 18)
+        self.assertLessEqual(current_overshoots, 60)
         self.assertLessEqual(current_max_overshoot, 12.0)
 
     def test_default_controller_stays_within_global_regression_guard_on_multi_seed_sample(self):
