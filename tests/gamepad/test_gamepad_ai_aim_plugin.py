@@ -69,6 +69,24 @@ def _target(
     )
 
 
+def _body_lock_target(*, upper_body_dx, upper_body_dy, width=80.0, height=180.0):
+    screen_center_x = 320.0
+    screen_center_y = 256.0
+    upper_body_x = screen_center_x + upper_body_dx
+    upper_body_y = screen_center_y + upper_body_dy
+    top = upper_body_y - (height * 0.38)
+    bottom = top + height
+    left = upper_body_x - (width * 0.5)
+    right = left + width
+    return _target(
+        aim_point_x=upper_body_x,
+        aim_point_y=upper_body_y,
+        screen_center_x=screen_center_x,
+        screen_center_y=screen_center_y,
+        body_box=(left, top, right, bottom),
+    )
+
+
 class _AddDxPlugin:
     def reset(self):
         return None
@@ -646,6 +664,86 @@ class AIAimPluginTests(unittest.TestCase):
 
         self.assertEqual(first_output.right_y, 0)
         self.assertNotEqual(second_output.right_y, 0)
+
+    def test_body_lock_zeroes_x_axis_when_horizontal_error_is_inside_release_window(self):
+        plugin = AIAimPlugin(
+            AIAimConfig(
+                smoothing=0.0,
+                body_lock_smoothing=0.18,
+                ai_delta_gain=1.0,
+            )
+        )
+
+        first = _frame(
+            aiming=True,
+            timestamp=6.00,
+            target_revision=1,
+            target=_body_lock_target(
+                upper_body_dx=2.1,
+                upper_body_dy=-20.0,
+            ),
+        )
+        second = _frame(
+            aiming=True,
+            timestamp=6.10,
+            target_revision=2,
+            target=_body_lock_target(
+                upper_body_dx=2.1,
+                upper_body_dy=-20.0,
+            ),
+        )
+
+        plugin.apply(first, _output(first))
+        output = _output(second)
+        plugin.apply(second, output)
+
+        self.assertEqual(output.right_x, 0)
+        self.assertNotEqual(output.right_y, 0)
+
+    def test_body_lock_clears_vertical_axis_on_near_zero_sign_flip(self):
+        plugin = AIAimPlugin(
+            AIAimConfig(
+                smoothing=0.0,
+                body_lock_smoothing=0.18,
+                ai_delta_gain=1.0,
+            )
+        )
+
+        warm_one = _frame(
+            aiming=True,
+            timestamp=6.20,
+            target_revision=1,
+            target=_body_lock_target(
+                upper_body_dx=20.0,
+                upper_body_dy=-5.0,
+            ),
+        )
+        warm_two = _frame(
+            aiming=True,
+            timestamp=6.30,
+            target_revision=2,
+            target=_body_lock_target(
+                upper_body_dx=20.0,
+                upper_body_dy=-5.0,
+            ),
+        )
+        flipped = _frame(
+            aiming=True,
+            timestamp=6.40,
+            target_revision=3,
+            target=_body_lock_target(
+                upper_body_dx=20.0,
+                upper_body_dy=3.0,
+            ),
+        )
+
+        plugin.apply(warm_one, _output(warm_one))
+        plugin.apply(warm_two, _output(warm_two))
+        output = _output(flipped)
+        plugin.apply(flipped, output)
+
+        self.assertEqual(output.right_y, 0)
+        self.assertNotEqual(output.right_x, 0)
 
     def test_body_lock_suppresses_harmful_manual_input_when_confidence_is_high(self):
         plugin = AIAimPlugin(

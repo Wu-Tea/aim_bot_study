@@ -294,12 +294,19 @@ class AIAimPlugin:
         mode = "manual"
         desired_dx = 0.0
         desired_dy = 0.0
+        base_lock_dx = 0.0
+        base_lock_dy = 0.0
         manual_x = float(frame.manual_right_x)
         manual_y = float(frame.manual_right_y)
 
         if self._should_body_lock(frame):
             mode = "body_lock"
-            desired_dx, desired_dy = self._body_lock_target_delta(frame)
+            base_lock_dx, base_lock_dy = self._body_lock_base_target_delta(frame)
+            desired_dx, desired_dy = self._body_lock_target_delta(
+                frame,
+                base_dx=base_lock_dx,
+                base_dy=base_lock_dy,
+            )
             self._consume_ads_snap()
         elif self._should_trigger_ads_snap(frame):
             mode = "ads_snap"
@@ -320,9 +327,15 @@ class AIAimPlugin:
                 target_dy=desired_dy,
             )
             if mode == "body_lock":
+                desired_ai_x, desired_ai_y = self._apply_body_lock_axis_guards(
+                    desired_ai_x=desired_ai_x,
+                    desired_ai_y=desired_ai_y,
+                    desired_error_x=base_lock_dx,
+                    desired_error_y=base_lock_dy,
+                )
                 stabilize_ratio = self._body_lock_stabilize_ratio(
-                    desired_dx,
-                    desired_dy,
+                    base_lock_dx,
+                    base_lock_dy,
                 )
                 if stabilize_ratio > 0.0:
                     desired_ai_x *= 1.0 + (0.85 * stabilize_ratio)
@@ -339,7 +352,7 @@ class AIAimPlugin:
                 self.ai_stick_y = (self.ai_stick_y * smoothing) + (desired_ai_y * (1.0 - smoothing))
 
             if mode == "body_lock":
-                lock_confidence = self._body_lock_confidence(frame, desired_dx, desired_dy)
+                lock_confidence = self._body_lock_confidence(frame, base_lock_dx, base_lock_dy)
                 resolved_manual = self._resolve_body_lock_manual(
                     frame,
                     desired_ai_x=desired_ai_x,
@@ -494,11 +507,11 @@ class AIAimPlugin:
         ):
             return False
 
-        lock_dx, lock_dy = self._body_lock_target_delta(frame)
+        lock_dx, lock_dy = self._body_lock_base_target_delta(frame)
         activation_half = self.config.body_lock_activation_box_px * 0.5
         return abs(lock_dx) <= activation_half and abs(lock_dy) <= activation_half
 
-    def _body_lock_target_delta(self, frame: GamepadFrame) -> tuple[float, float]:
+    def _body_lock_base_target_delta(self, frame: GamepadFrame) -> tuple[float, float]:
         if frame.target is None:
             return (
                 frame.target_dx * self.config.ai_delta_gain,
@@ -506,8 +519,25 @@ class AIAimPlugin:
             )
 
         lock_x, lock_y = self._upper_body_point(frame)
-        base_dx = (lock_x - frame.target.screen_center_x) * self.config.ai_delta_gain
-        base_dy = (lock_y - frame.target.screen_center_y) * self.config.ai_delta_gain
+        return (
+            (lock_x - frame.target.screen_center_x) * self.config.ai_delta_gain,
+            (lock_y - frame.target.screen_center_y) * self.config.ai_delta_gain,
+        )
+
+    def _body_lock_target_delta(
+        self,
+        frame: GamepadFrame,
+        *,
+        base_dx: float | None = None,
+        base_dy: float | None = None,
+    ) -> tuple[float, float]:
+        if base_dx is None or base_dy is None:
+            base_dx, base_dy = self._body_lock_base_target_delta(frame)
+
+        if frame.target is None:
+            return (base_dx, base_dy)
+
+        lock_x, lock_y = self._upper_body_point(frame)
         stabilize_ratio = self._body_lock_stabilize_ratio(base_dx, base_dy)
         lead_scale = max(0.0, 1.0 - (1.5 * stabilize_ratio))
         if self._motion_frames >= max(1, int(self.config.body_lock_lead_frames)):
@@ -672,6 +702,114 @@ class AIAimPlugin:
                 0.0 if orthogonal_magnitude <= 1.0 else orthogonal_suppression
             ),
         )
+
+    def _apply_body_lock_axis_guards(
+        self,
+        *,
+        desired_ai_x: float,
+        desired_ai_y: float,
+        desired_error_x: float,
+        desired_error_y: float,
+    ) -> tuple[float, float]:
+        desired_ai_x = self._apply_body_lock_axis_guard(
+            axis="x",
+            desired_ai=desired_ai_x,
+            desired_error=desired_error_x,
+        )
+        desired_ai_y = self._apply_body_lock_axis_guard(
+            axis="y",
+            desired_ai=desired_ai_y,
+            desired_error=desired_error_y,
+        )
+        self._last_body_lock_error_x = desired_error_x
+        self._last_body_lock_error_y = desired_error_y
+        return desired_ai_x, desired_ai_y
+
+    def _apply_body_lock_axis_guard(
+        self,
+        *,
+        axis: str,
+        desired_ai: float,
+        desired_error: float,
+    ) -> float:
+        release_threshold = self._body_lock_axis_release_threshold(axis)
+        if abs(desired_error) <= release_threshold:
+            self._set_body_lock_axis_hold(axis, 0)
+            self._clear_body_lock_axis_carry(axis)
+            return 0.0
+
+        if self._body_lock_axis_hold_remaining(axis) > 0:
+            self._set_body_lock_axis_hold(
+                axis,
+                self._body_lock_axis_hold_remaining(axis) - 1,
+            )
+            self._clear_body_lock_axis_carry(axis)
+            return 0.0
+
+        previous_error = self._last_body_lock_error_x if axis == "x" else self._last_body_lock_error_y
+        if self._is_body_lock_zero_cross(axis, previous_error, desired_error):
+            self._set_body_lock_axis_hold(
+                axis,
+                self._body_lock_zero_cross_hold_frames(axis),
+            )
+            self._clear_body_lock_axis_carry(axis)
+            return 0.0
+
+        return desired_ai
+
+    def _body_lock_axis_release_threshold(self, axis: str) -> float:
+        if axis == "y":
+            return max(
+                self.config.body_lock_vertical_tail_inner_px + 0.5,
+                self.config.deadzone_inner + 1.0,
+            )
+        return max(
+            self.config.deadzone_inner + 1.0,
+            self.config.x_deadzone_outer * 0.85,
+        )
+
+    def _body_lock_zero_cross_hold_frames(self, axis: str) -> int:
+        return 1
+
+    def _body_lock_zero_cross_guard_px(self, axis: str) -> float:
+        if axis == "y":
+            return max(
+                self.config.body_lock_vertical_deadzone_px,
+                self._body_lock_axis_release_threshold(axis),
+            )
+        return max(
+            self.config.x_deadzone_outer,
+            self._body_lock_axis_release_threshold(axis),
+        )
+
+    def _is_body_lock_zero_cross(
+        self,
+        axis: str,
+        previous_error: float | None,
+        current_error: float,
+    ) -> bool:
+        if previous_error is None:
+            return False
+        if previous_error == 0.0 or current_error == 0.0:
+            return False
+        if (previous_error > 0.0) == (current_error > 0.0):
+            return False
+        return abs(previous_error) <= self._body_lock_zero_cross_guard_px(axis)
+
+    def _body_lock_axis_hold_remaining(self, axis: str) -> int:
+        return self._body_lock_zero_cross_hold_x if axis == "x" else self._body_lock_zero_cross_hold_y
+
+    def _set_body_lock_axis_hold(self, axis: str, value: int) -> None:
+        if axis == "x":
+            self._body_lock_zero_cross_hold_x = max(0, value)
+            return
+        self._body_lock_zero_cross_hold_y = max(0, value)
+
+    def _clear_body_lock_axis_carry(self, axis: str) -> None:
+        if axis == "x":
+            self.ai_stick_x = 0.0
+            return
+        self.ai_stick_y = 0.0
 
     def _consume_ads_snap(self) -> None:
         self._ads_snap_used = True
@@ -894,6 +1032,10 @@ class AIAimPlugin:
     def _reset_body_lock_arbitration_tracking(self) -> None:
         self._body_lock_frames = 0
         self._body_lock_target = None
+        self._last_body_lock_error_x = None
+        self._last_body_lock_error_y = None
+        self._body_lock_zero_cross_hold_x = 0
+        self._body_lock_zero_cross_hold_y = 0
 
     def _clear_body_lock_arbitration_debug(self) -> None:
         self._last_lock_confidence = 0.0

@@ -9,7 +9,14 @@ from controllers.base_controller import ControllerTarget
 from controllers.gamepad.ai_aim import AIAimConfig, AIAimPlugin
 from controllers.gamepad.state import GamepadFrame, GamepadOutput
 
-from tests.gamepad.benchmark_scenarios import ScenarioManifest, expand_manifest
+from tests.gamepad.benchmark_scenarios import (
+    DecelEvent,
+    ExpandedTargetState,
+    ResumeEvent,
+    ScenarioManifest,
+    TurnEvent,
+    expand_manifest,
+)
 
 
 BENCHMARK_SCREEN_CENTER_X = 320.0
@@ -20,11 +27,13 @@ BENCHMARK_UPPER_BODY_RATIO = 0.38
 BENCHMARK_MANUAL_MAX_RATIO = 0.72
 BENCHMARK_MANUAL_FULL_SCALE_X = 90.0
 BENCHMARK_MANUAL_FULL_SCALE_Y = 80.0
+_TARGET_SAMPLE_EPSILON = 1e-9
 
 
 @dataclass(frozen=True, slots=True)
 class BenchmarkMetricsConfig:
     frame_dt: float = 1.0 / 60.0
+    target_sample_hz: float | None = None
     sim_frames: int = 180
     measure_from_frame: int = 60
     max_reticle_speed_pps: float = 1500.0
@@ -173,15 +182,26 @@ def _simulate_closed_loop(
     plugin = plugin_factory() if plugin_factory is not None else AIAimPlugin(AIAimConfig())
     plugin.reset()
 
-    expanded_states = expand_manifest(manifest, config.frame_dt, config.sim_frames)
+    sampled_states, sample_dt = _expand_target_samples(
+        manifest,
+        controller_frame_dt=config.frame_dt,
+        sim_frames=config.sim_frames,
+        target_sample_hz=config.target_sample_hz,
+    )
     reticle_x = 0.0
     reticle_y = 0.0
     records: list[_FrameRecord] = []
 
-    for state in expanded_states:
+    for controller_frame in range(config.sim_frames):
+        timestamp = controller_frame * config.frame_dt
+        sample_index, target_timestamp, state = _sampled_state_for_controller_frame(
+            sampled_states,
+            controller_frame=controller_frame,
+            controller_frame_dt=config.frame_dt,
+            sample_dt=sample_dt,
+        )
         error_x = state.target_x - reticle_x
         error_y = state.target_y - reticle_y
-        timestamp = state.frame * config.frame_dt
         manual_right_x = _clamp_int(
             (error_x / BENCHMARK_MANUAL_FULL_SCALE_X) * config.stick_max * BENCHMARK_MANUAL_MAX_RATIO,
             config.stick_max,
@@ -218,8 +238,8 @@ def _simulate_closed_loop(
             target_dx=error_x,
             target_dy=error_y,
             auto_fire_requested=False,
-            target_revision=state.frame + 1,
-            target_timestamp=timestamp,
+            target_revision=sample_index + 1,
+            target_timestamp=target_timestamp,
             target=target,
         )
         output = GamepadOutput()
@@ -232,7 +252,7 @@ def _simulate_closed_loop(
 
         records.append(
             _FrameRecord(
-                frame=state.frame,
+                frame=controller_frame,
                 target_x=state.target_x,
                 target_y=state.target_y,
                 reticle_x=reticle_x,
@@ -246,6 +266,125 @@ def _simulate_closed_loop(
         )
 
     return records
+
+
+def _expand_target_samples(
+    manifest: ScenarioManifest,
+    *,
+    controller_frame_dt: float,
+    sim_frames: int,
+    target_sample_hz: float | None,
+) -> tuple[list[ExpandedTargetState], float]:
+    sample_dt = _target_sample_dt(controller_frame_dt, target_sample_hz)
+    sample_manifest = _manifest_resampled_for_frame_dt(
+        manifest,
+        source_frame_dt=controller_frame_dt,
+        target_frame_dt=sample_dt,
+    )
+    sample_frames = _target_sample_frame_count(
+        controller_frame_dt=controller_frame_dt,
+        sim_frames=sim_frames,
+        sample_dt=sample_dt,
+    )
+    return expand_manifest(sample_manifest, sample_dt, sample_frames), sample_dt
+
+
+def _target_sample_dt(controller_frame_dt: float, target_sample_hz: float | None) -> float:
+    if target_sample_hz is None:
+        return controller_frame_dt
+    if target_sample_hz <= 0.0:
+        raise ValueError("target_sample_hz must be positive when provided")
+    return 1.0 / target_sample_hz
+
+
+def _target_sample_frame_count(
+    *,
+    controller_frame_dt: float,
+    sim_frames: int,
+    sample_dt: float,
+) -> int:
+    if sim_frames <= 0:
+        return 0
+    last_controller_timestamp = (sim_frames - 1) * controller_frame_dt
+    return int(math.floor((last_controller_timestamp / sample_dt) + _TARGET_SAMPLE_EPSILON)) + 1
+
+
+def _sampled_state_for_controller_frame(
+    sampled_states: Sequence[ExpandedTargetState],
+    *,
+    controller_frame: int,
+    controller_frame_dt: float,
+    sample_dt: float,
+) -> tuple[int, float, ExpandedTargetState]:
+    if not sampled_states:
+        raise ValueError("sampled_states must not be empty when sim_frames is positive")
+    controller_timestamp = controller_frame * controller_frame_dt
+    sample_index = min(
+        int(math.floor((controller_timestamp / sample_dt) + _TARGET_SAMPLE_EPSILON)),
+        len(sampled_states) - 1,
+    )
+    return sample_index, sample_index * sample_dt, sampled_states[sample_index]
+
+
+def _manifest_resampled_for_frame_dt(
+    manifest: ScenarioManifest,
+    *,
+    source_frame_dt: float,
+    target_frame_dt: float,
+) -> ScenarioManifest:
+    if math.isclose(source_frame_dt, target_frame_dt, rel_tol=0.0, abs_tol=_TARGET_SAMPLE_EPSILON):
+        return manifest
+    return ScenarioManifest(
+        scenario_key=manifest.scenario_key,
+        kind=manifest.kind,
+        initial_state=manifest.initial_state,
+        turn_events=tuple(
+            TurnEvent(
+                frame=_resampled_frame_index(event.frame, source_frame_dt, target_frame_dt),
+                delta_heading_deg=event.delta_heading_deg,
+                speed_scale=event.speed_scale,
+            )
+            for event in manifest.turn_events
+        ),
+        decel_events=tuple(
+            DecelEvent(
+                frame=_resampled_frame_index(event.frame, source_frame_dt, target_frame_dt),
+                duration_frames=_resampled_duration_frames(
+                    event.duration_frames,
+                    source_frame_dt,
+                    target_frame_dt,
+                ),
+                target_speed_scale=event.target_speed_scale,
+                hard_stop=event.hard_stop,
+            )
+            for event in manifest.decel_events
+        ),
+        resume_events=tuple(
+            ResumeEvent(
+                frame=_resampled_frame_index(event.frame, source_frame_dt, target_frame_dt),
+                duration_frames=_resampled_duration_frames(
+                    event.duration_frames,
+                    source_frame_dt,
+                    target_frame_dt,
+                ),
+                target_speed_scale=event.target_speed_scale,
+            )
+            for event in manifest.resume_events
+        ),
+    )
+
+
+def _resampled_frame_index(frame: int, source_frame_dt: float, target_frame_dt: float) -> int:
+    event_timestamp = frame * source_frame_dt
+    return max(
+        0,
+        int(math.ceil((event_timestamp / target_frame_dt) - _TARGET_SAMPLE_EPSILON)),
+    )
+
+
+def _resampled_duration_frames(duration_frames: int, source_frame_dt: float, target_frame_dt: float) -> int:
+    duration_seconds = duration_frames * source_frame_dt
+    return max(1, int(round(duration_seconds / target_frame_dt)))
 
 
 def _aggregate_scenario_metrics(metrics: Sequence[BenchmarkScenarioMetrics]) -> BenchmarkAggregateMetrics:

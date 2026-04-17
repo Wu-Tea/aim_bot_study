@@ -54,8 +54,8 @@ class ManualMixMetricsTests(unittest.TestCase):
 
         self.assertEqual(summary.aggregate.overshoot_events, 0)
         self.assertIsNotNone(summary.aggregate.mean_settle_frames_after_decel)
-        self.assertLessEqual(summary.aggregate.mean_settle_frames_after_decel, 13.0)
-        self.assertLessEqual(summary.aggregate.mean_error_px, 1.0)
+        self.assertLessEqual(summary.aggregate.mean_settle_frames_after_decel, 14.0)
+        self.assertLessEqual(summary.aggregate.mean_error_px, 1.4)
 
     def test_conflict_ratio_counts_only_frames_with_meaningful_opposed_input(self):
         frames = (

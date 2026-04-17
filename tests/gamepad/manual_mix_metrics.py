@@ -15,20 +15,23 @@ from tests.gamepad.benchmark_metrics import (
     BENCHMARK_SCREEN_CENTER_X,
     BENCHMARK_SCREEN_CENTER_Y,
     BENCHMARK_UPPER_BODY_RATIO,
+    _expand_target_samples,
     _count_overshoots,
     _max_overshoot_px,
     _mean_decel_settle_frames,
     _mean_turn_recovery_frames,
     _nearest_rank_percentile,
     _relative_change,
+    _sampled_state_for_controller_frame,
 )
-from tests.gamepad.benchmark_scenarios import ScenarioManifest, expand_manifest
+from tests.gamepad.benchmark_scenarios import ScenarioManifest
 from tests.gamepad.manual_mix_inputs import ManualMixInputConfig, ManualMixInputGenerator
 
 
 @dataclass(frozen=True, slots=True)
 class ManualMixMetricsConfig:
     frame_dt: float = 1.0 / 60.0
+    target_sample_hz: float | None = None
     sim_frames: int = 180
     measure_from_frame: int = 60
     max_reticle_speed_pps: float = 1500.0
@@ -289,18 +292,29 @@ def _simulate_manual_mix_closed_loop(
     plugin = plugin_factory() if plugin_factory is not None else AIAimPlugin(AIAimConfig())
     plugin.reset()
     generator = ManualMixInputGenerator(manifest, manual_seed=manual_seed, config=input_config)
-    expanded_states = expand_manifest(manifest, config.frame_dt, config.sim_frames)
+    sampled_states, sample_dt = _expand_target_samples(
+        manifest,
+        controller_frame_dt=config.frame_dt,
+        sim_frames=config.sim_frames,
+        target_sample_hz=config.target_sample_hz,
+    )
 
     reticle_x = 0.0
     reticle_y = 0.0
     records: list[ManualMixFrameRecord] = []
 
-    for state in expanded_states:
+    for controller_frame in range(config.sim_frames):
+        timestamp = controller_frame * config.frame_dt
+        sample_index, target_timestamp, state = _sampled_state_for_controller_frame(
+            sampled_states,
+            controller_frame=controller_frame,
+            controller_frame_dt=config.frame_dt,
+            sample_dt=sample_dt,
+        )
         error_x = state.target_x - reticle_x
         error_y = state.target_y - reticle_y
-        timestamp = state.frame * config.frame_dt
         manual_input = generator.generate_frame(
-            frame=state.frame,
+            frame=controller_frame,
             error_x=error_x,
             error_y=error_y,
         )
@@ -332,8 +346,8 @@ def _simulate_manual_mix_closed_loop(
             target_dx=error_x,
             target_dy=error_y,
             auto_fire_requested=False,
-            target_revision=state.frame + 1,
-            target_timestamp=timestamp,
+            target_revision=sample_index + 1,
+            target_timestamp=target_timestamp,
             target=target,
         )
         output = GamepadOutput()
@@ -357,7 +371,7 @@ def _simulate_manual_mix_closed_loop(
 
         records.append(
             ManualMixFrameRecord(
-                frame=state.frame,
+                frame=controller_frame,
                 scenario_key=manifest.scenario_key,
                 manual_seed=manual_seed,
                 kind=manifest.kind,
@@ -375,7 +389,7 @@ def _simulate_manual_mix_closed_loop(
                 manual_mode=manual_input.mode,
                 controller_mode=plugin._mode,
                 in_opposing_burst=manual_input.in_opposing_burst,
-                measured=state.frame >= config.measure_from_frame,
+                measured=controller_frame >= config.measure_from_frame,
                 lock_confidence=plugin._last_lock_confidence,
                 helpful_preserved_ratio=plugin._last_helpful_preserved_ratio,
                 harmful_suppressed_ratio=plugin._last_harmful_suppressed_ratio,

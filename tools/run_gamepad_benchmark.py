@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict, dataclass
+from dataclasses import MISSING, asdict, dataclass, replace
 from datetime import datetime, timezone
 import json
 from pathlib import Path
@@ -157,6 +157,7 @@ def replay_run_key(
     suite: str = DEFAULT_SUITE,
     artifact_dir: Path | None = None,
     benchmark_config: BenchmarkMetricsConfig | ManualMixMetricsConfig | None = None,
+    target_sample_hz: float | None = None,
 ) -> dict[str, Any]:
     artifact_dir = artifact_dir or _default_artifact_dir(suite)
     artifact = _load_artifact(artifact_dir, run_key)
@@ -164,6 +165,8 @@ def replay_run_key(
     if suite == "manual-mix":
         manifests = _unique_manifests_from_artifact(artifact)
         benchmark_config = benchmark_config or _manual_mix_config_from_snapshot(artifact["benchmark_config"])
+        if target_sample_hz is not None:
+            benchmark_config = replace(benchmark_config, target_sample_hz=target_sample_hz)
         manual_input_config = _manual_input_config_from_snapshot(artifact["manual_input_config"])
         manual_seeds = tuple(artifact.get("manual_seeds", DEFAULT_MANUAL_MIX_SEEDS))
         summary = evaluate_manual_mix_run(
@@ -194,6 +197,8 @@ def replay_run_key(
 
     manifests = tuple(ScenarioManifest.from_dict(item["manifest"]) for item in artifact["scenarios"])
     benchmark_config = benchmark_config or _config_from_snapshot(artifact["benchmark_config"])
+    if target_sample_hz is not None:
+        benchmark_config = replace(benchmark_config, target_sample_hz=target_sample_hz)
     summary = evaluate_run(run_key, manifests, config=benchmark_config)
     baseline_metrics = _load_baseline_aggregate(
         artifact_dir,
@@ -219,6 +224,7 @@ def replay_scenario_key(
     suite: str = DEFAULT_SUITE,
     artifact_dir: Path | None = None,
     benchmark_config: BenchmarkMetricsConfig | ManualMixMetricsConfig | None = None,
+    target_sample_hz: float | None = None,
 ) -> dict[str, Any]:
     artifact_dir = artifact_dir or _default_artifact_dir(suite)
     artifact, scenario_payload = _find_scenario_payload(artifact_dir, scenario_key)
@@ -226,6 +232,8 @@ def replay_scenario_key(
     suite = artifact.get("suite", suite)
     if suite == "manual-mix":
         benchmark_config = benchmark_config or _manual_mix_config_from_snapshot(artifact["benchmark_config"])
+        if target_sample_hz is not None:
+            benchmark_config = replace(benchmark_config, target_sample_hz=target_sample_hz)
         manual_input_config = _manual_input_config_from_snapshot(artifact["manual_input_config"])
         manual_seed = scenario_payload["manual_seed"]
         metrics = evaluate_manual_mix_scenario(
@@ -245,6 +253,8 @@ def replay_scenario_key(
         }
 
     benchmark_config = benchmark_config or _config_from_snapshot(artifact["benchmark_config"])
+    if target_sample_hz is not None:
+        benchmark_config = replace(benchmark_config, target_sample_hz=target_sample_hz)
     metrics = evaluate_scenario(manifest, config=benchmark_config)
     return {
         "run_key": artifact["run_key"],
@@ -277,6 +287,11 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser.add_argument("--replay-scenario-key", help="Replay a stored scenario manifest by scenario key.")
     parser.add_argument("--run-key", help="Optional explicit run key for normal benchmark runs.")
     parser.add_argument("--run-seed", type=int, help="Optional explicit RNG seed for scenario generation.")
+    parser.add_argument(
+        "--target-sample-hz",
+        type=float,
+        help="Optional target indexing/sample rate in Hz. Controller execution remains at the suite frame_dt.",
+    )
     parser.add_argument("--artifact-dir", type=Path)
     parser.add_argument("--scoreboard-path", type=Path)
     args = parser.parse_args(list(argv) if argv is not None else None)
@@ -286,6 +301,8 @@ def main(argv: Iterable[str] | None = None) -> int:
         parser.error("--replay-run-key and --replay-scenario-key are mutually exclusive")
     if args.set_baseline and any(replay_flags):
         parser.error("--set-baseline cannot be combined with replay arguments")
+    if args.target_sample_hz is not None and args.target_sample_hz <= 0.0:
+        parser.error("--target-sample-hz must be positive")
 
     try:
         if args.replay_run_key:
@@ -293,16 +310,24 @@ def main(argv: Iterable[str] | None = None) -> int:
                 run_key=args.replay_run_key,
                 suite=args.suite,
                 artifact_dir=args.artifact_dir,
+                target_sample_hz=args.target_sample_hz,
             )
         elif args.replay_scenario_key:
             result = replay_scenario_key(
                 scenario_key=args.replay_scenario_key,
                 suite=args.suite,
                 artifact_dir=args.artifact_dir,
+                target_sample_hz=args.target_sample_hz,
             )
         else:
             run_key = args.run_key or _default_run_key()
             run_seed = args.run_seed if args.run_seed is not None else _default_run_seed()
+            benchmark_config = None
+            if args.target_sample_hz is not None:
+                if args.suite == "manual-mix":
+                    benchmark_config = ManualMixMetricsConfig(target_sample_hz=args.target_sample_hz)
+                else:
+                    benchmark_config = BenchmarkMetricsConfig(target_sample_hz=args.target_sample_hz)
             result = run_benchmark(
                 run_key=run_key,
                 run_seed=run_seed,
@@ -310,6 +335,7 @@ def main(argv: Iterable[str] | None = None) -> int:
                 artifact_dir=args.artifact_dir,
                 scoreboard_path=args.scoreboard_path,
                 set_baseline=args.set_baseline,
+                benchmark_config=benchmark_config,
             )
         print(json.dumps(result, indent=2))
         return 0
@@ -518,24 +544,31 @@ def _find_scenario_payload(artifact_dir: Path, scenario_key: str) -> tuple[dict[
 
 
 def _config_from_snapshot(snapshot: dict[str, Any]) -> BenchmarkMetricsConfig:
-    config_fields = BenchmarkMetricsConfig.__dataclass_fields__
-    return BenchmarkMetricsConfig(
-        **{field_name: snapshot[field_name] for field_name in config_fields}
-    )
+    return _dataclass_from_snapshot(BenchmarkMetricsConfig, snapshot)
 
 
 def _manual_mix_config_from_snapshot(snapshot: dict[str, Any]) -> ManualMixMetricsConfig:
-    config_fields = ManualMixMetricsConfig.__dataclass_fields__
-    return ManualMixMetricsConfig(
-        **{field_name: snapshot[field_name] for field_name in config_fields}
-    )
+    return _dataclass_from_snapshot(ManualMixMetricsConfig, snapshot)
 
 
 def _manual_input_config_from_snapshot(snapshot: dict[str, Any]) -> ManualMixInputConfig:
-    config_fields = ManualMixInputConfig.__dataclass_fields__
-    return ManualMixInputConfig(
-        **{field_name: snapshot[field_name] for field_name in config_fields}
-    )
+    return _dataclass_from_snapshot(ManualMixInputConfig, snapshot)
+
+
+def _dataclass_from_snapshot(config_type: Any, snapshot: dict[str, Any]) -> Any:
+    values: dict[str, Any] = {}
+    for field_name, field_def in config_type.__dataclass_fields__.items():
+        if field_name in snapshot:
+            values[field_name] = snapshot[field_name]
+            continue
+        if field_def.default is not MISSING:
+            values[field_name] = field_def.default
+            continue
+        if field_def.default_factory is not MISSING:
+            values[field_name] = field_def.default_factory()
+            continue
+        raise KeyError(f"Missing required snapshot field: {field_name}")
+    return config_type(**values)
 
 
 def _default_artifact_dir(suite: str) -> Path:

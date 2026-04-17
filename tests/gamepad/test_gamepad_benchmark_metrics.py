@@ -164,6 +164,7 @@ class BenchmarkMetricsContractTests(unittest.TestCase):
             list(BenchmarkMetricsConfig.__dataclass_fields__),
             [
                 "frame_dt",
+                "target_sample_hz",
                 "sim_frames",
                 "measure_from_frame",
                 "max_reticle_speed_pps",
@@ -217,6 +218,7 @@ class BenchmarkMetricsContractTests(unittest.TestCase):
         config = BenchmarkMetricsConfig()
 
         self.assertEqual(config.frame_dt, 1.0 / 60.0)
+        self.assertIsNone(config.target_sample_hz)
         self.assertEqual(config.sim_frames, 180)
         self.assertEqual(config.measure_from_frame, 60)
         self.assertEqual(config.max_reticle_speed_pps, 1500.0)
@@ -288,6 +290,92 @@ class BenchmarkScenarioEvaluationTests(unittest.TestCase):
             second_frame.target_dy,
             places=5,
         )
+
+    def test_closed_loop_uses_latest_target_sample_when_sample_rate_is_higher_than_frame_rate(self):
+        class _PassiveRecordingPlugin:
+            def __init__(self):
+                self.frames = []
+
+            def reset(self):
+                self.frames.clear()
+
+            def apply(self, frame, output):
+                self.frames.append(frame)
+
+        manifest = ScenarioManifest(
+            scenario_key="tracking-sample-rate-s00",
+            kind="steady_turns",
+            initial_state=InitialState(
+                initial_dx=0.0,
+                initial_dy=0.0,
+                initial_speed_px_per_sec=80.0,
+                initial_heading_deg=0.0,
+            ),
+            turn_events=(TurnEvent(frame=999, delta_heading_deg=0.0, speed_scale=1.0),),
+        )
+        plugin = _PassiveRecordingPlugin()
+        config = BenchmarkMetricsConfig(
+            sim_frames=4,
+            measure_from_frame=0,
+            target_sample_hz=80.0,
+        )
+        sampled_states = expand_manifest(
+            manifest,
+            1.0 / config.target_sample_hz,
+            5,
+        )
+
+        _simulate_closed_loop(
+            manifest,
+            config=config,
+            plugin_factory=lambda: plugin,
+        )
+
+        self.assertEqual(len(plugin.frames), 4)
+        fourth_frame = plugin.frames[3]
+        self.assertAlmostEqual(fourth_frame.timestamp, 3 * config.frame_dt, places=6)
+        self.assertEqual(fourth_frame.target_revision, 5)
+        self.assertAlmostEqual(fourth_frame.target_timestamp, 4 * (1.0 / config.target_sample_hz), places=6)
+        self.assertAlmostEqual(fourth_frame.target_dx, sampled_states[4].target_x, places=5)
+        self.assertAlmostEqual(fourth_frame.target_dy, sampled_states[4].target_y, places=5)
+
+    def test_higher_rate_sampling_preserves_manifest_event_timing_in_controller_frame_time(self):
+        class _PassiveRecordingPlugin:
+            def __init__(self):
+                self.frames = []
+
+            def reset(self):
+                self.frames.clear()
+
+            def apply(self, frame, output):
+                self.frames.append(frame)
+
+        manifest = ScenarioManifest(
+            scenario_key="tracking-sample-timing-s00",
+            kind="steady_turns",
+            initial_state=InitialState(
+                initial_dx=0.0,
+                initial_dy=0.0,
+                initial_speed_px_per_sec=120.0,
+                initial_heading_deg=0.0,
+            ),
+            turn_events=(TurnEvent(frame=3, delta_heading_deg=90.0, speed_scale=1.0),),
+        )
+        plugin = _PassiveRecordingPlugin()
+
+        _simulate_closed_loop(
+            manifest,
+            config=BenchmarkMetricsConfig(
+                sim_frames=4,
+                measure_from_frame=0,
+                target_sample_hz=120.0,
+            ),
+            plugin_factory=lambda: plugin,
+        )
+
+        self.assertEqual(len(plugin.frames), 4)
+        self.assertAlmostEqual(plugin.frames[2].target_dy, 0.0, places=5)
+        self.assertGreater(plugin.frames[3].target_dy, 0.0)
 
     def test_evaluate_scenario_is_deterministic_for_a_stored_manifest(self):
         manifest = generate_phase1_manifests("run-alpha", 12345)[8]
