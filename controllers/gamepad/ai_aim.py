@@ -628,12 +628,41 @@ class AIAimPlugin:
     ) -> BodyLockManualResolution:
         manual_x = float(frame.manual_right_x)
         manual_y = float(frame.manual_right_y)
-        desired_norm = math.hypot(desired_ai_x, desired_ai_y)
-        if desired_norm < 1.0 or lock_confidence <= 0.0:
+        error_radius = math.hypot(desired_error_x, desired_error_y)
+        if lock_confidence <= 0.0:
             return BodyLockManualResolution(manual_x, manual_y, 1.0, 0.0, 0.0)
 
-        ux = desired_ai_x / desired_norm
-        uy = desired_ai_y / desired_norm
+        arbitration_x = desired_ai_x
+        arbitration_y = desired_ai_y
+        fallback_to_error_direction = False
+        desired_norm = math.hypot(arbitration_x, arbitration_y)
+        if desired_norm < 1.0 and error_radius > 0.0:
+            # Axis guards can intentionally zero the AI output inside the
+            # release window; keep arbitrating against the remaining error so
+            # same-direction manual input does not immediately punch through.
+            arbitration_x = desired_error_x
+            arbitration_y = desired_error_y
+            desired_norm = error_radius
+            fallback_to_error_direction = True
+        if desired_norm <= 0.0:
+            terminal_manual_scale = max(
+                0.10,
+                min(
+                    1.0,
+                    error_radius
+                    / max(1.0, self.config.body_lock_near_lock_error_px),
+                ),
+            )
+            return BodyLockManualResolution(
+                sanitized_manual_x=manual_x * terminal_manual_scale,
+                sanitized_manual_y=manual_y * terminal_manual_scale,
+                helpful_preserved_ratio=terminal_manual_scale,
+                harmful_suppressed_ratio=0.0,
+                orthogonal_suppressed_ratio=0.0,
+            )
+
+        ux = arbitration_x / desired_norm
+        uy = arbitration_y / desired_norm
         parallel = (manual_x * ux) + (manual_y * uy)
         parallel_x = ux * parallel
         parallel_y = uy * parallel
@@ -642,7 +671,6 @@ class AIAimPlugin:
 
         helpful = max(0.0, parallel)
         harmful = max(0.0, -parallel)
-        error_radius = math.hypot(desired_error_x, desired_error_y)
         near_lock_ratio = max(
             0.0,
             1.0
@@ -668,6 +696,18 @@ class AIAimPlugin:
                 * (1.0 - self.config.body_lock_helpful_preservation_floor)
             ),
         )
+        if fallback_to_error_direction:
+            helpful_scale = min(
+                helpful_scale,
+                max(
+                    0.10,
+                    min(
+                        1.0,
+                        error_radius
+                        / max(1.0, self.config.body_lock_near_lock_error_px),
+                    ),
+                ),
+            )
         harmful_suppression = min(
             self.config.body_lock_opposing_suppression_max,
             self.config.body_lock_opposing_suppression_max * confidence_ratio,

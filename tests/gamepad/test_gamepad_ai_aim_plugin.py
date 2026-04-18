@@ -121,6 +121,48 @@ class AIAimPluginTests(unittest.TestCase):
             )
         )
 
+    def simulate_body_lock_tracking(
+        self,
+        plugin: AIAimPlugin,
+        *,
+        initial_target_dx: float,
+        manual_sequence: list[int],
+        target_dy: float = 0.0,
+    ) -> tuple[list[float], list[str], list[int]]:
+        reticle_x = 0.0
+        errors_after_frame: list[float] = []
+        modes: list[str] = []
+        outputs: list[int] = []
+        frame_dt = 1.0 / 60.0
+
+        for index, manual_x in enumerate(manual_sequence):
+            target_dx = initial_target_dx - reticle_x
+            frame = _frame(
+                aiming=True,
+                manual_rx=manual_x,
+                manual_ry=0,
+                target_dx=target_dx,
+                target_dy=target_dy,
+                timestamp=index * frame_dt,
+                target_revision=index + 1,
+                target=_body_lock_target(
+                    upper_body_dx=target_dx,
+                    upper_body_dy=target_dy,
+                    width=84.0,
+                    height=180.0,
+                ),
+            )
+            output = _output(frame)
+
+            plugin.apply(frame, output)
+
+            reticle_x += (output.right_x / 32767.0) * 1500.0 * frame_dt
+            errors_after_frame.append(initial_target_dx - reticle_x)
+            modes.append(plugin._mode)
+            outputs.append(output.right_x)
+
+        return errors_after_frame, modes, outputs
+
     def test_piecewise_mapping_hits_mid_ratio_at_first_breakpoint(self):
         plugin = AIAimPlugin(
             AIAimConfig(
@@ -838,6 +880,33 @@ class AIAimPluginTests(unittest.TestCase):
         plugin.apply(frame, output)
 
         self.assertGreater(output.right_x, 9000)
+
+    def test_body_lock_near_lock_damps_continued_aligned_manual_input_to_avoid_ping_pong(self):
+        plugin = AIAimPlugin(
+            AIAimConfig(
+                smoothing=0.0,
+                deadzone_inner=0.0,
+                deadzone_outer=1.0,
+                x_deadzone_outer=1.0,
+                ai_delta_gain=1.0,
+                body_lock_smoothing=0.18,
+                body_lock_max_ai_force=1.0,
+                body_lock_max_ai_force_y=1.0,
+                body_lock_activation_box_px=150.0,
+                body_lock_near_lock_error_px=18.0,
+            )
+        )
+
+        errors_after_frame, modes, outputs = self.simulate_body_lock_tracking(
+            plugin,
+            initial_target_dx=30.0,
+            manual_sequence=[8000, 8000, 8000, 8000, 8000, 8000, 4000, 0, 0, 0],
+        )
+
+        self.assertTrue(all(mode == "body_lock" for mode in modes[:8]))
+        self.assertLess(abs(errors_after_frame[2]), 1.0)
+        self.assertGreater(min(errors_after_frame[3:7]), -8.0)
+        self.assertLess(abs(outputs[6]), 4000)
 
     def test_body_lock_damps_orthogonal_input_more_near_lock_than_far_from_lock(self):
         plugin = AIAimPlugin(
