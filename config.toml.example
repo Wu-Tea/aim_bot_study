@@ -17,6 +17,9 @@ ads_snap_window_ms = 100
 ads_snap_smoothing = 0.0
 ads_snap_max_ai_force = 1.0
 ads_snap_max_ai_force_y = 1.0
+# Clamp very tall ADS snap Y pulls so jump/fall targets do not drag the view
+# into weapon occlusion or low-value vertical corrections. Default 90px.
+ads_snap_max_target_dy_px = 90.0
 # Body Lock only engages after the crosshair is already inside the body box
 # (plus tolerance) and the upper-body lock point stays inside a central box.
 body_lock_activation_box_px = 150.0

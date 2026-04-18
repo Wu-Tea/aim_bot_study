@@ -1014,6 +1014,156 @@ class AIAimPluginTests(unittest.TestCase):
         self.assertGreater(output.right_x, 6000)
         self.assertLess(output.right_y, -2000)
 
+    def test_ads_snap_treats_same_direction_manual_input_as_part_of_total_correction(self):
+        plugin = AIAimPlugin(
+            AIAimConfig(
+                smoothing=0.0,
+                deadzone_inner=0.0,
+                deadzone_outer=1.0,
+                x_deadzone_outer=1.0,
+                ai_delta_gain=1.0,
+                ads_snap_smoothing=0.0,
+                ads_snap_max_ai_force=1.0,
+                ads_snap_max_ai_force_y=1.0,
+                piecewise_max_pixels_y=400.0,
+            )
+        )
+        target = _target(
+            aim_point_x=460.0,
+            aim_point_y=256.0,
+            body_box=(420.0, 170.0, 500.0, 350.0),
+        )
+        baseline_frame = _frame(
+            aiming=True,
+            target_dx=140.0,
+            target_dy=60.0,
+            manual_rx=0,
+            manual_ry=0,
+            timestamp=0.00,
+            target_revision=1,
+            target=target,
+        )
+        baseline_output = _output(baseline_frame)
+        plugin.apply(baseline_frame, baseline_output)
+
+        plugin.reset()
+
+        assisted_frame = _frame(
+            aiming=True,
+            target_dx=140.0,
+            target_dy=60.0,
+            manual_rx=int(baseline_output.right_x * 0.5),
+            manual_ry=int(baseline_output.right_y * 0.5),
+            timestamp=0.00,
+            target_revision=1,
+            target=target,
+        )
+        assisted_output = _output(assisted_frame)
+        plugin.apply(assisted_frame, assisted_output)
+
+        self.assertAlmostEqual(assisted_output.right_x, baseline_output.right_x, delta=1)
+        self.assertAlmostEqual(assisted_output.right_y, baseline_output.right_y, delta=1)
+
+    def test_ads_snap_does_not_reverse_to_cancel_same_direction_manual_input(self):
+        plugin = AIAimPlugin(
+            AIAimConfig(
+                smoothing=0.0,
+                deadzone_inner=0.0,
+                deadzone_outer=1.0,
+                x_deadzone_outer=1.0,
+                ai_delta_gain=1.0,
+                ads_snap_smoothing=0.0,
+                ads_snap_max_ai_force=1.0,
+                ads_snap_max_ai_force_y=1.0,
+                piecewise_max_pixels_y=400.0,
+            )
+        )
+        target = _target(
+            aim_point_x=460.0,
+            aim_point_y=256.0,
+            body_box=(420.0, 170.0, 500.0, 350.0),
+        )
+        baseline_frame = _frame(
+            aiming=True,
+            target_dx=140.0,
+            target_dy=60.0,
+            manual_rx=0,
+            manual_ry=0,
+            timestamp=0.00,
+            target_revision=1,
+            target=target,
+        )
+        baseline_output = _output(baseline_frame)
+        plugin.apply(baseline_frame, baseline_output)
+
+        plugin.reset()
+
+        strong_manual_frame = _frame(
+            aiming=True,
+            target_dx=140.0,
+            target_dy=60.0,
+            manual_rx=baseline_output.right_x + 3000,
+            manual_ry=baseline_output.right_y - 3000,
+            timestamp=0.00,
+            target_revision=1,
+            target=target,
+        )
+        strong_manual_output = _output(strong_manual_frame)
+        plugin.apply(strong_manual_frame, strong_manual_output)
+
+        self.assertEqual(strong_manual_output.right_x, strong_manual_frame.manual_right_x)
+        self.assertEqual(strong_manual_output.right_y, strong_manual_frame.manual_right_y)
+
+    def test_ads_snap_clamps_large_vertical_target_error(self):
+        plugin = AIAimPlugin(
+            AIAimConfig(
+                smoothing=0.0,
+                deadzone_inner=0.0,
+                deadzone_outer=1.0,
+                x_deadzone_outer=1.0,
+                ai_delta_gain=1.0,
+                ads_snap_smoothing=0.0,
+                ads_snap_max_ai_force=1.0,
+                ads_snap_max_ai_force_y=1.0,
+                piecewise_max_pixels_y=400.0,
+            )
+        )
+        target = _target(
+            aim_point_x=460.0,
+            aim_point_y=256.0,
+            body_box=(420.0, 170.0, 500.0, 350.0),
+        )
+        high_frame = _frame(
+            aiming=True,
+            target_dx=140.0,
+            target_dy=220.0,
+            manual_rx=0,
+            manual_ry=0,
+            timestamp=0.00,
+            target_revision=1,
+            target=target,
+        )
+        clamped_frame = _frame(
+            aiming=True,
+            target_dx=140.0,
+            target_dy=90.0,
+            manual_rx=0,
+            manual_ry=0,
+            timestamp=0.00,
+            target_revision=1,
+            target=target,
+        )
+
+        high_output = _output(high_frame)
+        plugin.apply(high_frame, high_output)
+
+        plugin.reset()
+
+        clamped_output = _output(clamped_frame)
+        plugin.apply(clamped_frame, clamped_output)
+
+        self.assertEqual(high_output.right_y, clamped_output.right_y)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -37,6 +37,7 @@ class AIAimConfig:
     ads_snap_smoothing: float = 0.0
     ads_snap_max_ai_force: float = 1.0
     ads_snap_max_ai_force_y: float = 1.0
+    ads_snap_max_target_dy_px: float = 90.0
     body_lock_smoothing: float = 0.18
     body_lock_max_ai_force: float = 0.42
     body_lock_max_ai_force_y: float = 0.48
@@ -313,7 +314,10 @@ class AIAimPlugin:
             if self._ads_snap_target is None:
                 self._ads_snap_target = frame.target
             desired_dx = frame.target_dx * self.config.ai_delta_gain
-            desired_dy = frame.target_dy * self.config.ai_delta_gain
+            desired_dy = self._clamp(
+                frame.target_dy * self.config.ai_delta_gain,
+                self.config.ads_snap_max_target_dy_px,
+            )
 
         if mode == "manual":
             self.ai_stick_x = 0.0
@@ -350,6 +354,18 @@ class AIAimPlugin:
                 desired_ai_y *= vertical_scale
                 effective_ai_y = desired_ai_y
                 self.ai_stick_y = (self.ai_stick_y * smoothing) + (desired_ai_y * (1.0 - smoothing))
+
+            if mode == "ads_snap":
+                # During snap, treat manual same-direction input as part of the
+                # intended total correction instead of stacking AI on top of it.
+                self.ai_stick_x = self._resolve_ads_snap_manual_overlap(
+                    planned_ai=self.ai_stick_x,
+                    manual_input=manual_x,
+                )
+                self.ai_stick_y = self._resolve_ads_snap_manual_overlap(
+                    planned_ai=self.ai_stick_y,
+                    manual_input=manual_y,
+                )
 
             if mode == "body_lock":
                 lock_confidence = self._body_lock_confidence(frame, base_lock_dx, base_lock_dy)
@@ -814,6 +830,22 @@ class AIAimPlugin:
     def _consume_ads_snap(self) -> None:
         self._ads_snap_used = True
         self._ads_snap_target = None
+
+    def _resolve_ads_snap_manual_overlap(
+        self,
+        *,
+        planned_ai: float,
+        manual_input: float,
+    ) -> float:
+        if planned_ai == 0.0 or manual_input == 0.0:
+            return planned_ai
+        if planned_ai * manual_input <= 0.0:
+            return planned_ai
+
+        remaining = abs(planned_ai) - abs(manual_input)
+        if remaining <= 0.0:
+            return 0.0
+        return math.copysign(remaining, planned_ai)
 
     def _body_lock_vertical_ai_scale(self, mode: str, desired_dy: float) -> float | None:
         if mode != "body_lock":

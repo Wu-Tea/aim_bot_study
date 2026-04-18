@@ -48,6 +48,21 @@ class _FakeVirtualGamepad:
 
 
 class GamepadControllerHostTests(unittest.TestCase):
+    def test_axis_to_xbox_uses_nearest_value_across_full_xusb_range(self):
+        controller = GamepadController.__new__(GamepadController)
+
+        self.assertEqual(GamepadController._axis_to_xbox(controller, 1.0), 32767)
+        self.assertEqual(GamepadController._axis_to_xbox(controller, -1.0), -32768)
+        self.assertEqual(GamepadController._axis_to_xbox(controller, 0.1), 3277)
+        self.assertEqual(GamepadController._axis_to_xbox(controller, -0.1), -3277)
+
+    def test_apply_stick_deadzone_no_longer_discards_small_manual_inputs(self):
+        controller = GamepadController.__new__(GamepadController)
+        controller.PHYS_STICK_DEADZONE = 2500
+
+        self.assertEqual(GamepadController._apply_stick_deadzone(controller, 1638), 1638)
+        self.assertEqual(GamepadController._apply_stick_deadzone(controller, -1638), -1638)
+
     def test_reset_clears_shared_target_signals_and_resets_plugins(self):
         controller = GamepadController.__new__(GamepadController)
         controller.lock = threading.Lock()

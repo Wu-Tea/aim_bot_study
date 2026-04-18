@@ -26,6 +26,7 @@ GAMEPAD_AI_AIM_KEYS = frozenset(
         "ads_snap_smoothing",
         "ads_snap_max_ai_force",
         "ads_snap_max_ai_force_y",
+        "ads_snap_max_target_dy_px",
         "body_lock_smoothing",
         "body_lock_max_ai_force",
         "body_lock_max_ai_force_y",

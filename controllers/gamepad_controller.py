@@ -81,8 +81,6 @@ class GamepadController(BaseController, threading.Thread):
         self.target_revision = 0
         self.target_timestamp = None
         self.target_info = None
-        self.PHYS_STICK_DEADZONE = 2500
-
         from config import load_tuning_config
 
         tuning = load_tuning_config()
@@ -156,18 +154,16 @@ class GamepadController(BaseController, threading.Thread):
         pygame.quit()
 
     def _axis_to_xbox(self, val):
-        return int(val * 32767)
+        clamped = max(-1.0, min(1.0, float(val)))
+        if clamped >= 0.0:
+            return int((clamped * 32767) + 0.5)
+        return -int(((-clamped) * 32768) + 0.5)
 
     def _apply_stick_deadzone(self, val):
-        if abs(val) < self.PHYS_STICK_DEADZONE:
-            return 0
-        sign = 1 if val > 0 else -1
-        scaled = (
-            (abs(val) - self.PHYS_STICK_DEADZONE)
-            / (32767 - self.PHYS_STICK_DEADZONE)
-            * 32767
-        )
-        return int(sign * scaled)
+        # Preserve the physical stick signal as-is at the host layer.
+        # Any filtering or arbitration should happen in the aiming logic,
+        # not by silently discarding small manual inputs before plugins run.
+        return int(val)
 
     def _trigger_to_xbox(self, val):
         return int(((val + 1.0) / 2.0) * 255)

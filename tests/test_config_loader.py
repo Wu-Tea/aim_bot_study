@@ -16,6 +16,7 @@ class TuningConfigLoaderTests(unittest.TestCase):
 
         self.assertEqual(config.gamepad_ai_aim, GamepadAIAimConfig())
         self.assertEqual(config.gamepad_ai_aim.body_lock_activation_box_px, 150.0)
+        self.assertEqual(config.gamepad_ai_aim.ads_snap_max_target_dy_px, 90.0)
         self.assertEqual(config.adaptive_delta_gain, AdaptiveDeltaGainConfig())
         self.assertEqual(config.mouse_ai_aim, MouseAIAimConfig())
 
@@ -30,6 +31,7 @@ class TuningConfigLoaderTests(unittest.TestCase):
             piecewise_max_pixels_y = 172
             piecewise_mid_ratio_y = 0.7
             ads_snap_window_ms = 120
+            ads_snap_max_target_dy_px = 84
             body_lock_activation_box_px = 220
             body_lock_confidence_frames = 6
             body_lock_confidence_min_strong = 0.72
@@ -66,6 +68,7 @@ class TuningConfigLoaderTests(unittest.TestCase):
         self.assertEqual(config.gamepad_ai_aim.piecewise_max_pixels_y, 172)
         self.assertEqual(config.gamepad_ai_aim.piecewise_mid_ratio_y, 0.7)
         self.assertEqual(config.gamepad_ai_aim.ads_snap_window_ms, 120)
+        self.assertEqual(config.gamepad_ai_aim.ads_snap_max_target_dy_px, 84)
         self.assertEqual(config.gamepad_ai_aim.body_lock_activation_box_px, 220)
         self.assertEqual(config.gamepad_ai_aim.body_lock_confidence_frames, 6)
         self.assertEqual(config.gamepad_ai_aim.body_lock_confidence_min_strong, 0.72)
