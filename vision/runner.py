@@ -11,7 +11,8 @@ from .capture import ScreenCaptureThread
 from .debug_capture import DebugFrameCapture
 from .debug_overlay import VisionDebugOverlay
 from .enhancement import AimEnhancementPipeline
-from .fastpath import _extract_detections, _fast_predict, _load_model, _warmup_model
+from .fastpath import _load_model, _warmup_model
+from .inference import InferenceThread
 from .perf import PerformanceTracker
 from .targeting import CrosshairPersonHitDetector, TargetSelector
 
@@ -223,8 +224,19 @@ def process_vision(controller=None):
         f"debug_save={'on' if config.debug_save_frames else 'off'}"
     )
 
-    last_frame_id = 0
+    inference_thread = InferenceThread(
+        capture_thread=capture_thread,
+        frame_timeout=config.frame_timeout,
+        model=model,
+        predict_kwargs=predict_kwargs,
+        fast_path=fast_path,
+        use_fast_path=use_fast_path,
+    )
+
+    last_result_id = 0
     was_aiming = False
+
+    inference_thread.start()
 
     try:
         while True:
@@ -241,6 +253,8 @@ def process_vision(controller=None):
                     rb_hit_detector.reset()
                     auto_fire_gate.reset()
                     perf_tracker.reset_window()
+                    inference_thread.pause(clear_result=True)
+                    last_result_id = 0
                 was_aiming = False
                 if debug_overlay is not None:
                     debug_overlay.show_message(
@@ -253,13 +267,18 @@ def process_vision(controller=None):
 
             if not was_aiming:
                 perf_tracker.reset_window()
+                inference_thread.resume()
+                last_result_id = 0
             was_aiming = True
 
-            capture_wait_start = time.perf_counter()
-            frame, last_frame_id = capture_thread.get_latest_frame(last_seen_id=last_frame_id, timeout=config.frame_timeout)
-            capture_wait_ms = (time.perf_counter() - capture_wait_start) * 1000.0
+            wait_start = time.perf_counter()
+            result, last_result_id = inference_thread.get_latest_result(
+                last_seen_id=last_result_id,
+                timeout=config.frame_timeout,
+            )
+            wait_ms = (time.perf_counter() - wait_start) * 1000.0
 
-            if frame is None:
+            if result is None:
                 if controller:
                     controller.set_auto_fire(False)
                     controller.reset()
@@ -275,16 +294,13 @@ def process_vision(controller=None):
                     debug_overlay.show_message(
                         width=config.capture_width,
                         height=config.capture_height,
-                        message="Waiting for frame...",
+                        message="Waiting for inference...",
                     )
                 continue
 
-            inference_start = time.perf_counter()
-            if use_fast_path:
-                detections = _fast_predict(fast_path, frame)
-            else:
-                detections = _extract_detections(model.predict(source=frame[:, :, ::-1].copy(), **predict_kwargs))
-            infer_ms = (time.perf_counter() - inference_start) * 1000.0
+            frame = result.frame
+            detections = result.detections
+            infer_ms = result.infer_ms
 
             post_start = time.perf_counter()
             resolved = _resolve_tracking_frame(
@@ -301,6 +317,7 @@ def process_vision(controller=None):
             boxes_seen = resolved.boxes_seen
             auto_fire_active = auto_fire_gate.allow_auto_fire(auto_fire_active, time.perf_counter())
             post_ms = (time.perf_counter() - post_start) * 1000.0
+            age_ms = (time.perf_counter() - result.captured_at) * 1000.0
 
             if controller:
                 controller.set_auto_fire(auto_fire_active)
@@ -325,10 +342,11 @@ def process_vision(controller=None):
                 )
 
             perf_tracker.update(
-                capture_wait_ms=capture_wait_ms,
+                wait_ms=wait_ms,
                 infer_ms=infer_ms,
                 post_ms=post_ms,
                 boxes_seen=boxes_seen,
+                age_ms=age_ms,
                 tracking_active=selected_target is not None,
             )
 
@@ -341,5 +359,7 @@ def process_vision(controller=None):
             controller.reset()
         if debug_overlay is not None:
             debug_overlay.close()
+        inference_thread.stop()
+        inference_thread.join(timeout=1.0)
         capture_thread.stop()
         capture_thread.join(timeout=1.0)

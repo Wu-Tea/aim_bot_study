@@ -1,8 +1,11 @@
 import math
+import time
 from dataclasses import dataclass
 
 import cv2
 import numpy as np
+
+from .occlusion_compensation import TargetOcclusionCompensator, TargetSource
 
 
 LOWER_GREEN = np.array([45, 80, 50])
@@ -34,6 +37,7 @@ class SelectedTarget:
     selected_box: tuple[float, float, float, float] | None = None
     slow_zone: tuple[float, float, float, float] | None = None
     fire_zone: tuple[float, float, float, float] | None = None
+    source: str = TargetSource.OBSERVED
 
     @property
     def dx(self):
@@ -124,6 +128,8 @@ class TargetSelector:
         self.crosshair_priority_margin = avg_dim * self.CROSSHAIR_PRIORITY_MARGIN_RATIO
         self.ideal_area = frame_area * self.IDEAL_AREA_RATIO
         self.max_area_limit = frame_area * self.MAX_AREA_LIMIT_RATIO
+        self._sample_clock = time.perf_counter
+        self._compensator = TargetOcclusionCompensator()
         self.reset_tracking()
 
     def reset_tracking(self):
@@ -134,6 +140,7 @@ class TargetSelector:
         self._pending_switch_target: SelectedTarget | None = None
         self._pending_switch_frames = 0
         self._hold_frames = 0
+        self._compensator.reset()
 
     def _clear_pending(self):
         self._pending_target = None
@@ -150,6 +157,8 @@ class TargetSelector:
         selected_box: tuple[float, float, float, float] | None,
         slow_zone: tuple[float, float, float, float] | None,
         fire_zone: tuple[float, float, float, float] | None,
+        *,
+        source: str = TargetSource.OBSERVED,
     ):
         return SelectedTarget(
             target_x=point[0],
@@ -160,6 +169,7 @@ class TargetSelector:
             selected_box=selected_box,
             slow_zone=slow_zone,
             fire_zone=fire_zone,
+            source=source,
         )
 
     @staticmethod
@@ -281,6 +291,18 @@ class TargetSelector:
         self._hold_frames = 0
         self.last_target_center = (target.target_x, target.target_y)
         return target
+
+    def _commit_and_record_target(
+        self,
+        target: SelectedTarget,
+        *,
+        sample_timestamp: float,
+        clear_switch_pending: bool = True,
+    ):
+        committed = self._commit_target(target, clear_switch_pending=clear_switch_pending)
+        if committed is not None and committed.source != TargetSource.PREDICTED:
+            self._compensator.record_observation(committed, timestamp=sample_timestamp)
+        return committed
 
     def _get_target_point(self, box: np.ndarray, keypoints: np.ndarray | None, box_index: int):
         x1, y1, x2, y2 = box
@@ -502,22 +524,39 @@ class TargetSelector:
 
     def select_target(self, detections: list[ParsedDetections], frame: np.ndarray):
         last_target_center = self.last_target_center
+        sample_timestamp = self._sample_clock()
 
         candidates = []
         for detection in detections:
             for i, (box, conf) in enumerate(zip(detection.boxes, detection.confs)):
-                x1, y1, x2, y2 = box
+                normalized_box = self._normalize_box(box)
+                x1, y1, x2, y2 = normalized_box
                 box_w = float(x2 - x1)
                 box_h = float(y2 - y1)
                 if box_w <= 0.0 or box_h <= 0.0:
                     continue
 
-                tx, ty = self._get_target_point(box, detection.keypoints, i)
-                tracking_candidate = self._is_tracking_candidate((tx, ty), last_target_center)
+                point = self._get_target_point(box, detection.keypoints, i)
+                selected_box = normalized_box
+                source = TargetSource.OBSERVED
+                if self._active_target is not None:
+                    reconstructed = self._compensator.try_reconstruct(
+                        normalized_box,
+                        timestamp=sample_timestamp,
+                    )
+                    if reconstructed is not None:
+                        point = (reconstructed.target_x, reconstructed.target_y)
+                        selected_box = reconstructed.selected_box
+                        source = reconstructed.source
+
+                box_w = float(selected_box[2] - selected_box[0])
+                box_h = float(selected_box[3] - selected_box[1])
+                tracking_candidate = self._is_tracking_candidate(point, last_target_center)
                 if not self._passes_geometry_gate(box_w, box_h, tracking_candidate):
                     continue
 
-                color_bonus, is_friendly = self._classify_color(box, frame)
+                selected_box_array = np.array(selected_box, dtype=np.float32)
+                color_bonus, is_friendly = self._classify_color(selected_box_array, frame)
                 if is_friendly:
                     continue
                 if not self._passes_confidence_gate(
@@ -527,35 +566,54 @@ class TargetSelector:
                 ):
                     continue
 
-                slow_zone = self._get_slow_zone(box, detection.keypoints, i)
-                fire_zone = self._get_fire_zone(box)
+                if source == TargetSource.OBSERVED:
+                    slow_zone = self._get_slow_zone(selected_box_array, detection.keypoints, i)
+                else:
+                    slow_zone = self._fallback_slow_zone(selected_box_array)
+                fire_zone = self._get_fire_zone(selected_box_array)
                 candidates.append(
                     (
-                        tx,
-                        ty,
+                        point[0],
+                        point[1],
                         box_w,
                         box_h,
                         float(conf),
                         color_bonus,
-                        self._normalize_box(box),
+                        selected_box,
                         slow_zone,
                         fire_zone,
+                        source,
                     )
                 )
 
         if not candidates:
             self._clear_switch_pending()
-            return self._hold_or_reset()
+            predicted = self._compensator.try_predict(timestamp=sample_timestamp)
+            if predicted is not None:
+                predicted_box = np.array(predicted.selected_box, dtype=np.float32)
+                return self._commit_target(
+                    self._create_selected_target(
+                        (predicted.target_x, predicted.target_y),
+                        self._active_target.score if self._active_target is not None else 0.0,
+                        predicted.selected_box,
+                        self._fallback_slow_zone(predicted_box),
+                        self._get_fire_zone(predicted_box),
+                        source=predicted.source,
+                    )
+                )
+            self.reset_tracking()
+            return None
 
         active_match_target = None
         if len(candidates) == 1:
-            tx, ty, _, _, conf, color_bonus, selected_box, slow_zone, fire_zone = candidates[0]
+            tx, ty, _, _, conf, color_bonus, selected_box, slow_zone, fire_zone, source = candidates[0]
             chosen_target = self._create_selected_target(
                 (tx, ty),
                 color_bonus + (conf * self.CONFIDENCE_SCORE_SCALE),
                 selected_box,
                 slow_zone,
                 fire_zone,
+                source=source,
             )
             if self._active_target_matches_candidate(selected_box, (tx, ty)):
                 active_match_target = chosen_target
@@ -565,19 +623,24 @@ class TargetSelector:
             best_box = None
             best_slow_zone = None
             best_fire_zone = None
+            best_source = TargetSource.OBSERVED
             tracked = None
             tracked_score = -float("inf")
             tracked_distance = None
             tracked_box = None
+            tracked_slow_zone = None
+            tracked_fire_zone = None
+            tracked_source = TargetSource.OBSERVED
             active_match = None
             active_match_score = -float("inf")
             active_match_distance = None
             active_match_box = None
             active_match_slow_zone = None
             active_match_fire_zone = None
+            active_match_source = TargetSource.OBSERVED
             half_w = self.frame_width / 2.0
             half_h = self.frame_height / 2.0
-            for tx, ty, box_w, box_h, conf, color_bonus, selected_box, slow_zone, fire_zone in candidates:
+            for tx, ty, box_w, box_h, conf, color_bonus, selected_box, slow_zone, fire_zone, source in candidates:
                 norm_dx = (tx - self.screen_center_x) / half_w
                 norm_dy = (ty - self.screen_center_y) / half_h
                 dist_norm = math.hypot(norm_dx, norm_dy)
@@ -596,6 +659,7 @@ class TargetSelector:
                     best_box = selected_box
                     best_slow_zone = slow_zone
                     best_fire_zone = fire_zone
+                    best_source = source
                 if candidate_tracking_distance is not None and candidate_tracking_distance < self.tracking_radius:
                     if (
                         tracked is None
@@ -611,6 +675,7 @@ class TargetSelector:
                         tracked_box = selected_box
                         tracked_slow_zone = slow_zone
                         tracked_fire_zone = fire_zone
+                        tracked_source = source
                 if self._active_target_matches_candidate(selected_box, (tx, ty)):
                     candidate_active_distance = math.hypot(
                         tx - self._active_target.target_x,
@@ -630,6 +695,7 @@ class TargetSelector:
                         active_match_box = selected_box
                         active_match_slow_zone = slow_zone
                         active_match_fire_zone = fire_zone
+                        active_match_source = source
 
             if best is None or best_score <= self.MIN_SCORE_THRESHOLD:
                 self._clear_switch_pending()
@@ -647,6 +713,7 @@ class TargetSelector:
                 best_box = tracked_box
                 best_slow_zone = tracked_slow_zone
                 best_fire_zone = tracked_fire_zone
+                best_source = tracked_source
 
             chosen_target = self._create_selected_target(
                 best,
@@ -654,6 +721,7 @@ class TargetSelector:
                 best_box,
                 best_slow_zone,
                 best_fire_zone,
+                source=best_source,
             )
             if active_match is not None:
                 active_match_target = self._create_selected_target(
@@ -662,6 +730,7 @@ class TargetSelector:
                     active_match_box,
                     active_match_slow_zone,
                     active_match_fire_zone,
+                    source=active_match_source,
                 )
 
         preserve_switch_pending = False
@@ -700,13 +769,18 @@ class TargetSelector:
             return self._hold_or_reset()
 
         smoothed_chosen = self._smooth_target_point(chosen_point)
-        return self._commit_target(self._create_selected_target(
-            smoothed_chosen,
-            chosen_target.score,
-            chosen_target.selected_box,
-            chosen_target.slow_zone,
-            chosen_target.fire_zone,
-        ), clear_switch_pending=not preserve_switch_pending)
+        return self._commit_and_record_target(
+            self._create_selected_target(
+                smoothed_chosen,
+                chosen_target.score,
+                chosen_target.selected_box,
+                chosen_target.slow_zone,
+                chosen_target.fire_zone,
+                source=chosen_target.source,
+            ),
+            sample_timestamp=sample_timestamp,
+            clear_switch_pending=not preserve_switch_pending,
+        )
 
     def find_best_target(self, detections: list[ParsedDetections], frame: np.ndarray):
         selected_target = self.select_target(detections, frame)

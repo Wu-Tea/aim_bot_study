@@ -184,13 +184,11 @@ class TargetSelectorTests(unittest.TestCase):
         self.assertIsNone(selector.select_target(_detections(far_box), frame))
         self.assertIsNone(selector.last_target_center)
 
-    def test_no_detections_returns_none_and_resets(self):
+    def test_no_detections_without_stable_history_returns_none_and_resets(self):
         selector = TargetSelector(crop_size=CROP)
         frame = _frame()
         first = _confirm_target(selector, _detections([300, 240, 340, 360], confs=[0.95]), frame)
         self.assertIsNotNone(first)
-        self.assertEqual(selector.select_target(_detections(), frame), first)
-        self.assertEqual(selector.select_target(_detections(), frame), first)
         self.assertIsNone(selector.select_target(_detections(), frame))
         self.assertIsNone(selector.last_target_center)
 
@@ -416,16 +414,77 @@ class TargetSelectorTests(unittest.TestCase):
 
         self.assertIsNone(_confirm_target(selector, detections, frame))
 
-    def test_confirmed_target_holds_for_two_missing_frames_before_reset(self):
+    def test_stable_target_prediction_budget_resets_last_target_center_after_third_miss(self):
         selector = TargetSelector(crop_size=CROP)
         frame = _frame()
-        detections = _detections([300, 240, 340, 360], confs=[0.90])
-
-        locked = _confirm_target(selector, detections, frame)
+        locked = _confirm_target(selector, _detections([300, 240, 340, 360], confs=[0.95]), frame)
         self.assertIsNotNone(locked)
-        self.assertEqual(selector.select_target(_detections(), frame), locked)
-        self.assertEqual(selector.select_target(_detections(), frame), locked)
-        self.assertIsNone(selector.select_target(_detections(), frame))
+
+        followed_up = selector.select_target(_detections([306, 244, 346, 364], confs=[0.95]), frame)
+        self.assertIsNotNone(followed_up)
+
+        predicted_one = selector.select_target(_detections(), frame)
+        predicted_two = selector.select_target(_detections(), frame)
+        lost = selector.select_target(_detections(), frame)
+
+        self.assertIsNotNone(predicted_one)
+        self.assertIsNotNone(predicted_two)
+        self.assertEqual(getattr(predicted_one, "source", None), "predicted")
+        self.assertEqual(getattr(predicted_two, "source", None), "predicted")
+        self.assertIsNone(lost)
+        self.assertIsNone(selector.last_target_center)
+
+    def test_partial_occlusion_reconstructs_upper_box_from_recent_stable_height(self):
+        selector = TargetSelector(crop_size=CROP)
+        frame = _frame()
+
+        locked = _confirm_target(selector, _detections([300, 240, 340, 360], confs=[0.95]), frame)
+        self.assertIsNotNone(locked)
+
+        clipped_box = [304, 286, 344, 362]
+        reconstructed = selector.select_target(_detections(clipped_box, confs=[0.93]), frame)
+
+        self.assertIsNotNone(reconstructed)
+        self.assertLess(reconstructed.selected_box[1], float(clipped_box[1]))
+        self.assertAlmostEqual(reconstructed.selected_box[3], float(clipped_box[3]), places=3)
+        self.assertEqual(getattr(reconstructed, "source", None), "reconstructed")
+        raw_target_y = clipped_box[1] + ((clipped_box[3] - clipped_box[1]) * selector.UPPER_CHEST_RATIO)
+        self.assertLess(abs(reconstructed.target_y - locked.target_y), abs(raw_target_y - locked.target_y))
+
+    def test_short_occlusion_prediction_bridges_only_two_frames(self):
+        selector = TargetSelector(crop_size=CROP)
+        frame = _frame()
+
+        first = _confirm_target(selector, _detections([300, 240, 340, 360], confs=[0.95]), frame)
+        second = selector.select_target(_detections([306, 244, 346, 364], confs=[0.95]), frame)
+
+        self.assertIsNotNone(first)
+        self.assertIsNotNone(second)
+
+        predicted_one = selector.select_target(_detections(), frame)
+        predicted_two = selector.select_target(_detections(), frame)
+        lost = selector.select_target(_detections(), frame)
+
+        self.assertIsNotNone(predicted_one)
+        self.assertIsNotNone(predicted_two)
+        self.assertEqual(getattr(predicted_one, "source", None), "predicted")
+        self.assertEqual(getattr(predicted_two, "source", None), "predicted")
+        self.assertIsNone(lost)
+
+    def test_reacquired_target_exits_predicted_state_immediately(self):
+        selector = TargetSelector(crop_size=CROP)
+        frame = _frame()
+
+        _confirm_target(selector, _detections([300, 240, 340, 360], confs=[0.95]), frame)
+        selector.select_target(_detections([306, 244, 346, 364], confs=[0.95]), frame)
+
+        predicted = selector.select_target(_detections(), frame)
+        reacquired = selector.select_target(_detections([312, 248, 352, 368], confs=[0.95]), frame)
+
+        self.assertIsNotNone(predicted)
+        self.assertEqual(getattr(predicted, "source", None), "predicted")
+        self.assertIsNotNone(reacquired)
+        self.assertEqual(getattr(reacquired, "source", None), "observed")
 
 
 class CrosshairPersonHitDetectorTests(unittest.TestCase):

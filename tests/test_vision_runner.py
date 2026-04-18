@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 import numpy as np
 
 from controllers.base_controller import BaseController, ControllerTarget
-from vision.runner import VisionConfig, _resolve_tracking_frame
+from vision.runner import TrackingFrameResolution, VisionConfig, _resolve_tracking_frame, process_vision
 from vision.targeting import SelectedTarget
 
 
@@ -195,6 +195,150 @@ class VisionRunnerTrackingResolutionTests(unittest.TestCase):
         self.assertFalse(resolved.auto_fire_active)
         self.assertIsNone(resolved.best_target_delta)
         self.assertEqual(resolved.boxes_seen, 0)
+
+
+class _FakeCaptureThread:
+    def __init__(self, *args, **kwargs):
+        self.started = False
+        self.stopped = False
+        self.join_timeout = None
+        self.frames = [
+            (np.ones((4, 4, 3), dtype=np.uint8), 1),
+            (np.full((4, 4, 3), 2, dtype=np.uint8), 2),
+        ]
+
+    def start(self):
+        self.started = True
+
+    def get_latest_frame(self, last_seen_id=0, timeout=0.1):
+        if self.frames:
+            return self.frames.pop(0)
+        return None, last_seen_id
+
+    def stop(self):
+        self.stopped = True
+
+    def join(self, timeout=None):
+        self.join_timeout = timeout
+
+
+class _FakeInferenceThread:
+    last_instance = None
+
+    def __init__(self, *args, **kwargs):
+        self.started = False
+        self.stop_called = False
+        self.join_timeout = None
+        self.resume_calls = 0
+        self.pause_calls = []
+        self.results = [
+            (
+                Mock(
+                    frame_id=7,
+                    captured_at=20.0,
+                    inferred_at=20.01,
+                    frame=np.ones((4, 4, 3), dtype=np.uint8),
+                    detections=[],
+                    infer_ms=6.5,
+                ),
+                7,
+            ),
+            (
+                Mock(
+                    frame_id=8,
+                    captured_at=21.0,
+                    inferred_at=21.01,
+                    frame=np.full((4, 4, 3), 2, dtype=np.uint8),
+                    detections=[],
+                    infer_ms=6.0,
+                ),
+                8,
+            ),
+        ]
+        _FakeInferenceThread.last_instance = self
+
+    def start(self):
+        self.started = True
+
+    def resume(self):
+        self.resume_calls += 1
+
+    def pause(self, clear_result=True):
+        self.pause_calls.append(clear_result)
+
+    def get_latest_result(self, last_seen_id=0, timeout=0.1):
+        if self.results:
+            return self.results.pop(0)
+        return None, last_seen_id
+
+    def stop(self):
+        self.stop_called = True
+
+    def join(self, timeout=None):
+        self.join_timeout = timeout
+
+
+class VisionRunnerPipelineTests(unittest.TestCase):
+    @patch("vision.runner.time.sleep", return_value=None)
+    @patch("vision.runner.win32api.GetAsyncKeyState", side_effect=[0, 0x8000])
+    @patch("vision.runner._warmup_model", return_value=None)
+    @patch("vision.runner._load_model", return_value=object())
+    @patch("vision.runner._resolve_tracking_frame")
+    @patch("vision.runner.PerformanceTracker")
+    @patch("vision.runner.CrosshairPersonHitDetector")
+    @patch("vision.runner.AimEnhancementPipeline")
+    @patch("vision.runner.TargetSelector")
+    def test_process_vision_routes_frame_and_detections_through_inference_thread(
+        self,
+        target_selector_cls,
+        aim_enhancement_cls,
+        rb_hit_detector_cls,
+        perf_tracker_cls,
+        resolve_tracking_frame,
+        _load_model,
+        _warmup_model,
+        _get_async_key_state,
+        _sleep,
+    ):
+        perf_tracker = Mock()
+        perf_tracker_cls.return_value = perf_tracker
+        resolve_tracking_frame.return_value = TrackingFrameResolution(
+            selected_target=None,
+            auto_fire_active=False,
+            best_target_delta=None,
+            boxes_seen=0,
+        )
+        controller = Mock()
+        controller.is_aiming.side_effect = [True, False, True]
+
+        with patch("vision.runner.ScreenCaptureThread", _FakeCaptureThread), patch(
+            "vision.runner.InferenceThread", _FakeInferenceThread, create=True
+        ), patch(
+            "vision.runner.VisionConfig.from_env",
+            return_value=VisionConfig(frame_timeout=0.01, idle_sleep=0.0),
+        ):
+            process_vision(controller=controller)
+
+        inference = _FakeInferenceThread.last_instance
+        self.assertIsNotNone(inference)
+        self.assertTrue(inference.started)
+        self.assertEqual(inference.resume_calls, 2)
+        self.assertEqual(inference.pause_calls, [True])
+        self.assertTrue(inference.stop_called)
+        self.assertEqual(inference.join_timeout, 1.0)
+
+        resolved_frames = [
+            call.kwargs["frame"]
+            for call in resolve_tracking_frame.call_args_list
+            if call.kwargs["frame"] is not None
+        ]
+        self.assertEqual(len(resolved_frames), 2)
+        self.assertEqual(int(resolved_frames[0][0, 0, 0]), 1)
+        self.assertEqual(int(resolved_frames[1][0, 0, 0]), 2)
+        perf_tracker.update.assert_called()
+        self.assertIn("wait_ms", perf_tracker.update.call_args.kwargs)
+        self.assertIn("age_ms", perf_tracker.update.call_args.kwargs)
+        self.assertGreaterEqual(perf_tracker.update.call_args.kwargs["age_ms"], 0.0)
 
 
 if __name__ == "__main__":
