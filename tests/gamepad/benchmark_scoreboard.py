@@ -182,7 +182,7 @@ def _format_delta(value: float | None) -> str:
 
 
 def _history_metric_names(history_runs: Sequence[ScoreboardRunEntry]) -> list[str]:
-    default_order = [
+    preferred_order = [
         "mean_error_px",
         "p95_error_px",
         "p99_error_px",
@@ -190,15 +190,34 @@ def _history_metric_names(history_runs: Sequence[ScoreboardRunEntry]) -> list[st
         "max_overshoot_px",
         "mean_recovery_frames_after_turn",
         "mean_settle_frames_after_decel",
+        "conflict_frames_ratio",
+        "wrong_input_recovery_frames",
+        "manual_yield_score",
+        "harmful_input_suppression_ratio",
+        "aligned_input_preservation_ratio",
+        "opposing_burst_hold_error_px",
+        "lock_survival_rate",
+        "wrong_target_snap_rate",
+        "max_single_frame_camera_delta",
+        "lock_loss_after_ads_rate",
+        "target_localization_latency_ms",
+        "time_to_under_20px",
+        "time_to_body_lock",
+        "reacquire_time_after_occlusion",
+        "harmful_input_suppression_during_ads",
+        "wrong_input_recovery_after_ads_frames",
     ]
-    seen = {name for name in default_order}
-    ordered = list(default_order)
+    present: list[str] = []
+    seen: set[str] = set()
 
     for run in history_runs:
         for metric_name in (run.delta_metrics or {}).keys():
             if metric_name not in seen:
-                ordered.append(metric_name)
+                present.append(metric_name)
                 seen.add(metric_name)
+
+    ordered = [metric_name for metric_name in preferred_order if metric_name in seen]
+    ordered.extend(metric_name for metric_name in present if metric_name not in ordered)
     return ordered
 
 
@@ -218,5 +237,14 @@ def _history_column_title(metric_name: str) -> str:
         "aligned_input_preservation_ratio": "Aligned Preservation Delta",
         "opposing_burst_hold_error_px": "Burst Hold Error Delta",
         "lock_survival_rate": "Lock Survival Delta",
+        "wrong_target_snap_rate": "Wrong Target Delta",
+        "max_single_frame_camera_delta": "Max Camera Delta",
+        "lock_loss_after_ads_rate": "Lock Loss Delta",
+        "target_localization_latency_ms": "Localization Latency Delta",
+        "time_to_under_20px": "Under 20px Delta",
+        "time_to_body_lock": "Body Lock Delta",
+        "reacquire_time_after_occlusion": "Reacquire Delta",
+        "harmful_input_suppression_during_ads": "ADS Suppression Delta",
+        "wrong_input_recovery_after_ads_frames": "Wrong Input Recovery Delta",
     }
     return titles.get(metric_name, f"{metric_name} Delta")

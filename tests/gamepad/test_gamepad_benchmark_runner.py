@@ -6,6 +6,8 @@ import sys
 import unittest
 from unittest.mock import patch
 
+from tests.gamepad.ads_benchmark_metrics import AdsBenchmarkConfig
+from tests.gamepad.ads_benchmark_scenarios import generate_ads_manifests
 from tests.gamepad.benchmark_metrics import BenchmarkMetricsConfig
 from tests.gamepad.benchmark_scenarios import generate_phase1_manifests
 from tests.gamepad.manual_mix_metrics import ManualMixMetricsConfig
@@ -461,6 +463,227 @@ class GamepadBenchmarkRunnerTests(unittest.TestCase):
             self.assertEqual(replay["run_key"], "legacy-mix-run")
             self.assertIsNone(replay["benchmark_config"]["target_sample_hz"])
             self.assertEqual(replay["manual_seeds"], [1])
+
+    def test_run_benchmark_with_ads_suite_writes_to_ads_paths(self):
+        with TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            artifact_dir = temp_path / "artifacts" / "benchmarks" / "gamepad_ads"
+            scoreboard_path = temp_path / "docs" / "project" / "GAMEPAD_ADS_BENCHMARKS.md"
+
+            result = run_benchmark(
+                run_key="ads-run",
+                run_seed=12345,
+                suite="ads",
+                artifact_dir=artifact_dir,
+                scoreboard_path=scoreboard_path,
+                git_metadata=self.git_metadata(),
+                set_baseline=False,
+            )
+
+            artifact_path = artifact_dir / "ads-run.json"
+            self.assertTrue(artifact_path.exists())
+            self.assertEqual(result["run_key"], "ads-run")
+            self.assertEqual(result["suite"], "ads")
+            self.assertEqual(result["artifact_path"], "artifacts/benchmarks/gamepad_ads/ads-run.json")
+            self.assertIn("# Gamepad ADS Benchmarks", scoreboard_path.read_text(encoding="utf-8"))
+            self.assertIn("wrong_target_snap_rate", result["aggregate_metrics"])
+            self.assertIn("max_single_frame_camera_delta", result["aggregate_metrics"])
+            self.assertIn("time_to_body_lock", result["aggregate_metrics"])
+            self.assertEqual(
+                result["input_profiles"],
+                ["none", "aligned_follow", "opposing_burst", "overshoot_recover"],
+            )
+            self.assertEqual(len(result["scenarios"]), 144)
+
+    def test_ads_run_persists_target_sample_hz_in_artifact_and_replay(self):
+        with TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            artifact_dir = temp_path / "artifacts" / "benchmarks" / "gamepad_ads"
+            scoreboard_path = temp_path / "docs" / "project" / "GAMEPAD_ADS_BENCHMARKS.md"
+
+            result = run_benchmark(
+                run_key="ads-sampled-run",
+                run_seed=12345,
+                suite="ads",
+                artifact_dir=artifact_dir,
+                scoreboard_path=scoreboard_path,
+                git_metadata=self.git_metadata(),
+                benchmark_config=AdsBenchmarkConfig(target_sample_hz=80.0),
+            )
+
+            self.assertEqual(result["benchmark_config"]["target_sample_hz"], 80.0)
+
+            replay = replay_run_key(
+                run_key="ads-sampled-run",
+                suite="ads",
+                artifact_dir=artifact_dir,
+            )
+
+            self.assertEqual(replay["benchmark_config"]["target_sample_hz"], 80.0)
+
+    def test_ads_replay_run_key_uses_stored_manifests_instead_of_regenerating(self):
+        with TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            artifact_dir = temp_path / "artifacts" / "benchmarks" / "gamepad_ads"
+            scoreboard_path = temp_path / "docs" / "project" / "GAMEPAD_ADS_BENCHMARKS.md"
+
+            run_benchmark(
+                run_key="ads-baseline",
+                run_seed=12345,
+                suite="ads",
+                artifact_dir=artifact_dir,
+                scoreboard_path=scoreboard_path,
+                git_metadata=self.git_metadata(),
+                set_baseline=True,
+            )
+
+            with patch("tools.run_gamepad_benchmark.generate_ads_manifests", side_effect=AssertionError("should not regenerate")):
+                replay = replay_run_key(
+                    run_key="ads-baseline",
+                    suite="ads",
+                    artifact_dir=artifact_dir,
+                )
+
+            self.assertEqual(replay["run_key"], "ads-baseline")
+            self.assertEqual(len(replay["scenarios"]), 144)
+
+    def test_ads_replay_scenario_key_replays_one_stored_scenario_case(self):
+        with TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            artifact_dir = temp_path / "artifacts" / "benchmarks" / "gamepad_ads"
+            scoreboard_path = temp_path / "docs" / "project" / "GAMEPAD_ADS_BENCHMARKS.md"
+
+            result = run_benchmark(
+                run_key="ads-baseline",
+                run_seed=12345,
+                suite="ads",
+                artifact_dir=artifact_dir,
+                scoreboard_path=scoreboard_path,
+                git_metadata=self.git_metadata(),
+                set_baseline=True,
+            )
+            scenario_case_key = result["scenarios"][0]["scenario_case_key"]
+
+            replay = replay_scenario_key(
+                scenario_key=scenario_case_key,
+                suite="ads",
+                artifact_dir=artifact_dir,
+            )
+
+            self.assertEqual(replay["scenario_key"], scenario_case_key)
+            self.assertIn("metrics", replay)
+            self.assertEqual(replay["metrics"]["input_profile"], "none")
+
+    def test_ads_replay_keeps_loading_older_artifacts_missing_target_sample_hz(self):
+        with TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            artifact_dir = temp_path / "artifacts" / "benchmarks" / "gamepad_ads"
+            artifact_dir.mkdir(parents=True, exist_ok=True)
+            manifest = generate_ads_manifests("legacy-ads-run", 12345)[0]
+
+            legacy_artifact = {
+                "suite": "ads",
+                "run_key": "legacy-ads-run",
+                "run_seed": 12345,
+                "baseline_key": None,
+                "timestamp": "2026-04-18T00:00:00Z",
+                "artifact_path": "artifacts/benchmarks/gamepad_ads/legacy-ads-run.json",
+                "git_metadata": {"commit": "abc1234", "dirty": False},
+                "benchmark_config": {
+                    "frame_dt": 1.0 / 60.0,
+                    "sim_frames": 90,
+                    "max_reticle_speed_pps": 1500.0,
+                    "stick_max": 32767,
+                    "response_delta_threshold_px": 1.0,
+                    "response_improvement_threshold_px": 0.5,
+                    "under_target_threshold_px": 20.0,
+                    "under_target_consecutive_frames": 2,
+                    "lock_loss_window_frames": 12,
+                    "lock_loss_grace_frames": 2,
+                    "wrong_target_margin_px": 2.0,
+                },
+                "manual_input_config": {
+                    "max_manual_ratio": 0.72,
+                    "full_scale_x": 90.0,
+                    "full_scale_y": 80.0,
+                    "aligned_scale": 0.62,
+                    "opposing_scale": 0.55,
+                    "recover_scale": 0.48,
+                    "vertical_tail_scale": 0.16,
+                    "early_window_start_frame": 2,
+                    "early_window_end_frame": 12,
+                    "opposing_burst_min_frames": 2,
+                    "opposing_burst_max_frames": 4,
+                    "overshoot_aligned_frames": 3,
+                    "overshoot_recover_frames": 3,
+                },
+                "input_profiles": ["none"],
+                "scenario_logic": [],
+                "controller_config_snapshot": {},
+                "aggregate_metrics": {
+                    "wrong_target_snap_rate": 0.25,
+                    "max_single_frame_camera_delta": 18.0,
+                    "lock_loss_after_ads_rate": 0.0,
+                    "target_localization_latency_ms": 16.7,
+                    "time_to_under_20px": 90.0,
+                    "time_to_body_lock": 120.0,
+                    "reacquire_time_after_occlusion": 66.7,
+                    "harmful_input_suppression_during_ads": 0.5,
+                    "wrong_input_recovery_after_ads_frames": 4.0,
+                },
+                "relative_deltas_vs_baseline": None,
+                "scenarios": [
+                    {
+                        "scenario_case_key": f"{manifest.scenario_key}@none",
+                        "manifest": manifest.to_dict(),
+                        "input_profile": "none",
+                        "metrics": {},
+                    }
+                ],
+            }
+            (artifact_dir / "legacy-ads-run.json").write_text(json.dumps(legacy_artifact), encoding="utf-8")
+
+            replay = replay_run_key(
+                run_key="legacy-ads-run",
+                suite="ads",
+                artifact_dir=artifact_dir,
+            )
+
+            self.assertEqual(replay["run_key"], "legacy-ads-run")
+            self.assertIsNone(replay["benchmark_config"]["target_sample_hz"])
+            self.assertEqual(replay["input_profiles"], ["none"])
+
+    def test_script_entrypoint_runs_ads_suite_from_repo_root(self):
+        with TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            artifact_dir = temp_path / "artifacts" / "benchmarks" / "gamepad_ads"
+            scoreboard_path = temp_path / "docs" / "project" / "GAMEPAD_ADS_BENCHMARKS.md"
+            repo_root = Path(__file__).resolve().parents[2]
+
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "tools/run_gamepad_benchmark.py",
+                    "--suite",
+                    "ads",
+                    "--run-key",
+                    "ads-script-run",
+                    "--run-seed",
+                    "12345",
+                    "--artifact-dir",
+                    str(artifact_dir),
+                    "--scoreboard-path",
+                    str(scoreboard_path),
+                ],
+                cwd=repo_root,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(completed.returncode, 0, msg=completed.stderr)
+            self.assertTrue((artifact_dir / "ads-script-run.json").exists())
+            self.assertTrue(scoreboard_path.exists())
 
 
 if __name__ == "__main__":

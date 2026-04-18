@@ -65,6 +65,62 @@ class BenchmarkScoreboardTests(unittest.TestCase):
             "decel_resume: 8 scenarios with a deceleration event and optional resume",
         ]
 
+    def make_ads_entry(
+        self,
+        *,
+        run_key,
+        artifact_path,
+        timestamp="2026-04-18T12:00:00Z",
+        dirty=False,
+        delta_metrics=None,
+    ):
+        return ScoreboardRunEntry(
+            run_key=run_key,
+            timestamp=timestamp,
+            artifact_path=artifact_path,
+            git_commit="abc1234",
+            dirty=dirty,
+            aggregate_metrics={
+                "wrong_target_snap_rate": 0.25,
+                "max_single_frame_camera_delta": 18.0,
+                "lock_loss_after_ads_rate": 0.0,
+                "target_localization_latency_ms": 16.7,
+                "time_to_under_20px": 90.0,
+                "time_to_body_lock": 120.0,
+                "reacquire_time_after_occlusion": 66.7,
+                "harmful_input_suppression_during_ads": 0.55,
+                "wrong_input_recovery_after_ads_frames": 4.0,
+            },
+            delta_metrics=delta_metrics,
+        )
+
+    def ads_benchmark_parameters(self):
+        return {
+            "frame_dt": 1.0 / 60.0,
+            "target_sample_hz": None,
+            "sim_frames": 90,
+            "max_reticle_speed_pps": 1500.0,
+            "stick_max": 32767,
+            "response_delta_threshold_px": 1.0,
+            "response_improvement_threshold_px": 0.5,
+            "under_target_threshold_px": 20.0,
+            "under_target_consecutive_frames": 2,
+            "lock_loss_window_frames": 12,
+            "lock_loss_grace_frames": 2,
+            "wrong_target_margin_px": 2.0,
+            "scenario_count": 36,
+            "input_profile_count": 4,
+        }
+
+    def ads_scenario_logic(self):
+        return [
+            "single_static_offset: 8 scenarios with ADS engaged on a stationary offset target",
+            "single_strafe_then_decel: 8 scenarios with lateral target motion that brakes during ADS",
+            "single_diagonal_then_decel: 8 scenarios with diagonal motion and a short settle phase",
+            "reacquire_after_gap: 6 scenarios where the engagement target disappears and reappears mid-ADS",
+            "dual_target_disambiguation: 6 scenarios with an engagement target plus a distractor and a localization schedule",
+        ]
+
     def test_update_scoreboard_creates_missing_file_with_required_sections(self):
         with TemporaryDirectory() as temp_dir:
             scoreboard_path = Path(temp_dir) / "GAMEPAD_BENCHMARKS.md"
@@ -212,6 +268,51 @@ class BenchmarkScoreboardTests(unittest.TestCase):
 
         self.assertIn("# Gamepad Manual-Mix Benchmarks", content)
         self.assertIn("Artifact: `artifacts/benchmarks/gamepad_manual_mix/run-current.json`", content)
+
+    def test_render_scoreboard_supports_ads_title_and_ads_only_history_columns(self):
+        baseline = self.make_ads_entry(
+            run_key="ads-baseline",
+            artifact_path="artifacts/benchmarks/gamepad_ads/ads-baseline.json",
+        )
+        current = self.make_ads_entry(
+            run_key="ads-current",
+            artifact_path="artifacts/benchmarks/gamepad_ads/ads-current.json",
+            timestamp="2026-04-18T13:00:00Z",
+            dirty=True,
+            delta_metrics={
+                "wrong_target_snap_rate": 0.20,
+                "max_single_frame_camera_delta": -0.10,
+                "lock_loss_after_ads_rate": -0.50,
+                "target_localization_latency_ms": -0.25,
+                "time_to_under_20px": -0.12,
+                "time_to_body_lock": -0.08,
+                "reacquire_time_after_occlusion": 0.15,
+                "harmful_input_suppression_during_ads": 0.35,
+                "wrong_input_recovery_after_ads_frames": -0.18,
+            },
+        )
+
+        content = render_scoreboard(
+            title="Gamepad ADS Benchmarks",
+            latest_run=current,
+            all_runs=(baseline, current),
+            baseline_key="ads-baseline",
+            benchmark_parameters=self.ads_benchmark_parameters(),
+            scenario_logic=self.ads_scenario_logic(),
+        )
+
+        self.assertIn("# Gamepad ADS Benchmarks", content)
+        self.assertIn("Artifact: `artifacts/benchmarks/gamepad_ads/ads-current.json`", content)
+        self.assertIn("Wrong Target Delta", content)
+        self.assertIn("Max Camera Delta", content)
+        self.assertIn("Lock Loss Delta", content)
+        self.assertIn("Localization Latency Delta", content)
+        self.assertIn("Under 20px Delta", content)
+        self.assertIn("Body Lock Delta", content)
+        self.assertIn("Reacquire Delta", content)
+        self.assertIn("ADS Suppression Delta", content)
+        self.assertIn("Wrong Input Recovery Delta", content)
+        self.assertNotIn("Mean Error Delta", content)
 
 
 if __name__ == "__main__":

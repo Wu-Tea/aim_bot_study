@@ -14,6 +14,15 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from config import load_tuning_config
+from tests.gamepad.ads_benchmark_metrics import (
+    AdsBenchmarkAggregateMetrics,
+    AdsBenchmarkConfig,
+    DEFAULT_ADS_INPUT_PROFILES,
+    evaluate_ads_run,
+    evaluate_ads_scenario,
+)
+from tests.gamepad.ads_benchmark_scenarios import AdsScenarioManifest, ADS_FAMILY_COUNTS, generate_ads_manifests
+from tests.gamepad.ads_manual_inputs import AdsManualInputConfig
 from tests.gamepad.benchmark_metrics import BenchmarkAggregateMetrics, BenchmarkMetricsConfig, evaluate_run, evaluate_scenario
 from tests.gamepad.benchmark_scenarios import ScenarioManifest, generate_phase1_manifests
 from tests.gamepad.benchmark_scoreboard import ScoreboardRunEntry, extract_baseline_key, update_scoreboard
@@ -30,8 +39,11 @@ DEFAULT_ARTIFACT_DIR = PROJECT_ROOT / "artifacts" / "benchmarks" / "gamepad"
 DEFAULT_SCOREBOARD_PATH = PROJECT_ROOT / "docs" / "project" / "GAMEPAD_BENCHMARKS.md"
 DEFAULT_MANUAL_MIX_ARTIFACT_DIR = PROJECT_ROOT / "artifacts" / "benchmarks" / "gamepad_manual_mix"
 DEFAULT_MANUAL_MIX_SCOREBOARD_PATH = PROJECT_ROOT / "docs" / "project" / "GAMEPAD_MANUAL_MIX_BENCHMARKS.md"
+DEFAULT_ADS_ARTIFACT_DIR = PROJECT_ROOT / "artifacts" / "benchmarks" / "gamepad_ads"
+DEFAULT_ADS_SCOREBOARD_PATH = PROJECT_ROOT / "docs" / "project" / "GAMEPAD_ADS_BENCHMARKS.md"
 DEFAULT_SCOREBOARD_TITLE = "Gamepad Benchmarks"
 DEFAULT_MANUAL_MIX_SCOREBOARD_TITLE = "Gamepad Manual-Mix Benchmarks"
+DEFAULT_ADS_SCOREBOARD_TITLE = "Gamepad ADS Benchmarks"
 DEFAULT_MANUAL_MIX_SEEDS = (1, 2, 3)
 DEFAULT_SCENARIO_LOGIC = (
     "steady_turns: 8 scenarios with one or more heading changes and no hard stop",
@@ -41,6 +53,13 @@ DEFAULT_SCENARIO_LOGIC = (
 DEFAULT_MANUAL_MIX_SCENARIO_LOGIC = (
     *DEFAULT_SCENARIO_LOGIC,
     "manual-mix: 3 deterministic manual-input seeds per manifest using aligned, wobble, opposing, recover, and vertical-jitter modes",
+)
+DEFAULT_ADS_SCENARIO_LOGIC = (
+    "single_static_offset: 8 scenarios with ADS engaged on a stationary offset target",
+    "single_strafe_then_decel: 8 scenarios with lateral target motion that brakes during ADS",
+    "single_diagonal_then_decel: 8 scenarios with diagonal motion and a short settle phase",
+    "reacquire_after_gap: 6 scenarios where the engagement target disappears and reappears mid-ADS",
+    "dual_target_disambiguation: 6 scenarios with an engagement target plus a distractor and a localization schedule",
 )
 
 
@@ -59,8 +78,8 @@ def run_benchmark(
     scoreboard_path: Path | None = None,
     git_metadata: GitMetadata | None = None,
     set_baseline: bool = False,
-    benchmark_config: BenchmarkMetricsConfig | ManualMixMetricsConfig | None = None,
-    manual_input_config: ManualMixInputConfig | None = None,
+    benchmark_config: BenchmarkMetricsConfig | ManualMixMetricsConfig | AdsBenchmarkConfig | None = None,
+    manual_input_config: ManualMixInputConfig | AdsManualInputConfig | None = None,
     manual_seeds: Iterable[int] | None = None,
     timestamp: str | None = None,
 ) -> dict[str, Any]:
@@ -71,8 +90,47 @@ def run_benchmark(
     git_metadata = git_metadata or detect_git_metadata(PROJECT_ROOT)
     baseline_key = run_key if set_baseline else extract_baseline_key(scoreboard_path)
 
-    manifests = generate_phase1_manifests(run_key, run_seed)
-    if suite == "manual-mix":
+    if suite == "ads":
+        benchmark_config = benchmark_config or AdsBenchmarkConfig()
+        manual_input_config = manual_input_config or AdsManualInputConfig()
+        manifests = generate_ads_manifests(run_key, run_seed)
+        input_profiles = tuple(DEFAULT_ADS_INPUT_PROFILES)
+        summary = evaluate_ads_run(
+            run_key,
+            manifests,
+            input_profiles=input_profiles,
+            config=benchmark_config,
+            input_config=manual_input_config,
+        )
+        baseline_metrics = _load_baseline_aggregate(
+            artifact_dir,
+            baseline_key,
+            current_run_key=run_key,
+            suite=suite,
+        )
+        delta_metrics = None if baseline_metrics is None else asdict(summary.relative_deltas(baseline_metrics))
+        artifact = _build_ads_artifact(
+            run_key=run_key,
+            run_seed=run_seed,
+            timestamp=timestamp,
+            baseline_key=baseline_key,
+            git_metadata=git_metadata,
+            benchmark_config=benchmark_config,
+            input_config=manual_input_config,
+            input_profiles=input_profiles,
+            manifests=manifests,
+            summary=summary,
+            delta_metrics=delta_metrics,
+        )
+        benchmark_parameters = _ads_parameters_snapshot(
+            benchmark_config,
+            manual_input_config,
+            input_profiles,
+        )
+        scenario_logic = DEFAULT_ADS_SCENARIO_LOGIC
+        scoreboard_title = DEFAULT_ADS_SCOREBOARD_TITLE
+    elif suite == "manual-mix":
+        manifests = generate_phase1_manifests(run_key, run_seed)
         benchmark_config = benchmark_config or ManualMixMetricsConfig()
         manual_input_config = manual_input_config or ManualMixInputConfig()
         manual_seeds = tuple(manual_seeds or DEFAULT_MANUAL_MIX_SEEDS)
@@ -111,6 +169,7 @@ def run_benchmark(
         scenario_logic = DEFAULT_MANUAL_MIX_SCENARIO_LOGIC
         scoreboard_title = DEFAULT_MANUAL_MIX_SCOREBOARD_TITLE
     else:
+        manifests = generate_phase1_manifests(run_key, run_seed)
         benchmark_config = benchmark_config or BenchmarkMetricsConfig()
         summary = evaluate_run(run_key, manifests, config=benchmark_config)
         baseline_metrics = _load_baseline_aggregate(
@@ -156,7 +215,7 @@ def replay_run_key(
     run_key: str,
     suite: str = DEFAULT_SUITE,
     artifact_dir: Path | None = None,
-    benchmark_config: BenchmarkMetricsConfig | ManualMixMetricsConfig | None = None,
+    benchmark_config: BenchmarkMetricsConfig | ManualMixMetricsConfig | AdsBenchmarkConfig | None = None,
     target_sample_hz: float | None = None,
 ) -> dict[str, Any]:
     artifact_dir = artifact_dir or _default_artifact_dir(suite)
@@ -194,6 +253,43 @@ def replay_run_key(
             "relative_deltas_vs_baseline": delta_metrics,
             "scenarios": _manual_mix_scenario_payloads(manifests, manual_seeds, summary),
         }
+    if suite == "ads":
+        manifests = _unique_ads_manifests_from_artifact(artifact)
+        benchmark_config = benchmark_config or _ads_config_from_snapshot(artifact["benchmark_config"])
+        if target_sample_hz is not None:
+            benchmark_config = replace(benchmark_config, target_sample_hz=target_sample_hz)
+        manual_input_snapshot = artifact.get("manual_input_config")
+        manual_input_config = (
+            AdsManualInputConfig()
+            if manual_input_snapshot is None
+            else _ads_manual_input_config_from_snapshot(manual_input_snapshot)
+        )
+        input_profiles = tuple(artifact.get("input_profiles", DEFAULT_ADS_INPUT_PROFILES))
+        summary = evaluate_ads_run(
+            run_key,
+            manifests,
+            input_profiles=input_profiles,
+            config=benchmark_config,
+            input_config=manual_input_config,
+        )
+        baseline_metrics = _load_baseline_aggregate(
+            artifact_dir,
+            artifact.get("baseline_key"),
+            current_run_key=run_key,
+            suite=suite,
+        )
+        delta_metrics = None if baseline_metrics is None else asdict(summary.relative_deltas(baseline_metrics))
+        return {
+            "run_key": run_key,
+            "suite": suite,
+            "baseline_key": artifact.get("baseline_key"),
+            "benchmark_config": asdict(benchmark_config),
+            "manual_input_config": asdict(manual_input_config),
+            "input_profiles": list(input_profiles),
+            "aggregate_metrics": asdict(summary.aggregate),
+            "relative_deltas_vs_baseline": delta_metrics,
+            "scenarios": _ads_scenario_payloads(manifests, input_profiles, summary),
+        }
 
     manifests = tuple(ScenarioManifest.from_dict(item["manifest"]) for item in artifact["scenarios"])
     benchmark_config = benchmark_config or _config_from_snapshot(artifact["benchmark_config"])
@@ -223,14 +319,14 @@ def replay_scenario_key(
     scenario_key: str,
     suite: str = DEFAULT_SUITE,
     artifact_dir: Path | None = None,
-    benchmark_config: BenchmarkMetricsConfig | ManualMixMetricsConfig | None = None,
+    benchmark_config: BenchmarkMetricsConfig | ManualMixMetricsConfig | AdsBenchmarkConfig | None = None,
     target_sample_hz: float | None = None,
 ) -> dict[str, Any]:
     artifact_dir = artifact_dir or _default_artifact_dir(suite)
     artifact, scenario_payload = _find_scenario_payload(artifact_dir, scenario_key)
-    manifest = ScenarioManifest.from_dict(scenario_payload["manifest"])
     suite = artifact.get("suite", suite)
     if suite == "manual-mix":
+        manifest = ScenarioManifest.from_dict(scenario_payload["manifest"])
         benchmark_config = benchmark_config or _manual_mix_config_from_snapshot(artifact["benchmark_config"])
         if target_sample_hz is not None:
             benchmark_config = replace(benchmark_config, target_sample_hz=target_sample_hz)
@@ -251,7 +347,37 @@ def replay_scenario_key(
             "manual_input_config": asdict(manual_input_config),
             "metrics": asdict(metrics),
         }
+    if suite == "ads":
+        manifest = AdsScenarioManifest.from_dict(scenario_payload["manifest"])
+        benchmark_config = benchmark_config or _ads_config_from_snapshot(artifact["benchmark_config"])
+        if target_sample_hz is not None:
+            benchmark_config = replace(benchmark_config, target_sample_hz=target_sample_hz)
+        manual_input_snapshot = artifact.get("manual_input_config")
+        manual_input_config = (
+            AdsManualInputConfig()
+            if manual_input_snapshot is None
+            else _ads_manual_input_config_from_snapshot(manual_input_snapshot)
+        )
+        input_profile = scenario_payload.get("input_profile") or _ads_input_profile_from_case_key(
+            scenario_payload.get("scenario_case_key"),
+        )
+        metrics = evaluate_ads_scenario(
+            manifest,
+            input_profile=input_profile,
+            config=benchmark_config,
+            input_config=manual_input_config,
+        )
+        return {
+            "run_key": artifact["run_key"],
+            "suite": suite,
+            "scenario_key": scenario_key,
+            "benchmark_config": asdict(benchmark_config),
+            "manual_input_config": asdict(manual_input_config),
+            "input_profile": input_profile,
+            "metrics": asdict(metrics),
+        }
 
+    manifest = ScenarioManifest.from_dict(scenario_payload["manifest"])
     benchmark_config = benchmark_config or _config_from_snapshot(artifact["benchmark_config"])
     if target_sample_hz is not None:
         benchmark_config = replace(benchmark_config, target_sample_hz=target_sample_hz)
@@ -278,7 +404,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run or replay the gamepad benchmark pipeline.")
     parser.add_argument(
         "--suite",
-        choices=(DEFAULT_SUITE, "manual-mix"),
+        choices=(DEFAULT_SUITE, "manual-mix", "ads"),
         default=DEFAULT_SUITE,
         help="Benchmark suite to run or replay.",
     )
@@ -326,6 +452,8 @@ def main(argv: Iterable[str] | None = None) -> int:
             if args.target_sample_hz is not None:
                 if args.suite == "manual-mix":
                     benchmark_config = ManualMixMetricsConfig(target_sample_hz=args.target_sample_hz)
+                elif args.suite == "ads":
+                    benchmark_config = AdsBenchmarkConfig(target_sample_hz=args.target_sample_hz)
                 else:
                     benchmark_config = BenchmarkMetricsConfig(target_sample_hz=args.target_sample_hz)
             result = run_benchmark(
@@ -409,6 +537,41 @@ def _build_manual_mix_artifact(
     }
 
 
+def _build_ads_artifact(
+    *,
+    run_key: str,
+    run_seed: int,
+    timestamp: str,
+    baseline_key: str | None,
+    git_metadata: GitMetadata,
+    benchmark_config: AdsBenchmarkConfig,
+    input_config: AdsManualInputConfig,
+    input_profiles: Sequence[str],
+    manifests: tuple[AdsScenarioManifest, ...] | list[AdsScenarioManifest],
+    summary: Any,
+    delta_metrics: dict[str, float | None] | None,
+) -> dict[str, Any]:
+    manifests = tuple(manifests)
+    input_profiles = tuple(input_profiles)
+    return {
+        "suite": "ads",
+        "run_key": run_key,
+        "run_seed": run_seed,
+        "baseline_key": baseline_key,
+        "timestamp": timestamp,
+        "artifact_path": f"artifacts/benchmarks/gamepad_ads/{run_key}.json",
+        "git_metadata": asdict(git_metadata),
+        "benchmark_config": asdict(benchmark_config),
+        "manual_input_config": asdict(input_config),
+        "input_profiles": list(input_profiles),
+        "scenario_logic": list(DEFAULT_ADS_SCENARIO_LOGIC),
+        "controller_config_snapshot": _controller_config_snapshot(),
+        "aggregate_metrics": asdict(summary.aggregate),
+        "relative_deltas_vs_baseline": delta_metrics,
+        "scenarios": _ads_scenario_payloads(manifests, input_profiles, summary),
+    }
+
+
 def _scenario_payloads(
     manifests: tuple[ScenarioManifest, ...] | list[ScenarioManifest],
     summary: Any,
@@ -437,6 +600,27 @@ def _manual_mix_scenario_payloads(
                     "scenario_case_key": f"{manifest.scenario_key}@seed{manual_seed}",
                     "manifest": manifest.to_dict(),
                     "manual_seed": manual_seed,
+                    "metrics": asdict(metric),
+                }
+            )
+    return payloads
+
+
+def _ads_scenario_payloads(
+    manifests: tuple[AdsScenarioManifest, ...] | list[AdsScenarioManifest],
+    input_profiles: Sequence[str],
+    summary: Any,
+) -> list[dict[str, Any]]:
+    payloads: list[dict[str, Any]] = []
+    metrics_iter = iter(summary.scenario_metrics)
+    for manifest in manifests:
+        for input_profile in input_profiles:
+            metric = next(metrics_iter)
+            payloads.append(
+                {
+                    "scenario_case_key": f"{manifest.scenario_key}@{input_profile}",
+                    "manifest": manifest.to_dict(),
+                    "input_profile": input_profile,
                     "metrics": asdict(metric),
                 }
             )
@@ -476,6 +660,21 @@ def _manual_mix_parameters_snapshot(
     return snapshot
 
 
+def _ads_parameters_snapshot(
+    benchmark_config: AdsBenchmarkConfig,
+    input_config: AdsManualInputConfig,
+    input_profiles: Sequence[str],
+) -> dict[str, Any]:
+    snapshot = asdict(benchmark_config)
+    snapshot["scenario_count"] = sum(count for _, count in ADS_FAMILY_COUNTS)
+    for family, count in ADS_FAMILY_COUNTS:
+        snapshot[family] = count
+    snapshot["input_profile_count"] = len(tuple(input_profiles))
+    snapshot["input_profiles"] = list(input_profiles)
+    snapshot["manual_input_config"] = asdict(input_config)
+    return snapshot
+
+
 def _load_scoreboard_entries(artifact_dir: Path) -> tuple[ScoreboardRunEntry, ...]:
     return tuple(
         _artifact_to_scoreboard_entry(artifact)
@@ -504,12 +703,14 @@ def _load_baseline_aggregate(
     *,
     current_run_key: str,
     suite: str,
-) -> BenchmarkAggregateMetrics | ManualMixAggregateMetrics | None:
+) -> BenchmarkAggregateMetrics | ManualMixAggregateMetrics | AdsBenchmarkAggregateMetrics | None:
     if baseline_key is None or baseline_key == current_run_key:
         return None
     baseline_artifact = _load_artifact(artifact_dir, baseline_key)
     if suite == "manual-mix":
         return ManualMixAggregateMetrics(**baseline_artifact["aggregate_metrics"])
+    if suite == "ads":
+        return AdsBenchmarkAggregateMetrics(**baseline_artifact["aggregate_metrics"])
     return BenchmarkAggregateMetrics(**baseline_artifact["aggregate_metrics"])
 
 
@@ -555,6 +756,14 @@ def _manual_input_config_from_snapshot(snapshot: dict[str, Any]) -> ManualMixInp
     return _dataclass_from_snapshot(ManualMixInputConfig, snapshot)
 
 
+def _ads_config_from_snapshot(snapshot: dict[str, Any]) -> AdsBenchmarkConfig:
+    return _dataclass_from_snapshot(AdsBenchmarkConfig, snapshot)
+
+
+def _ads_manual_input_config_from_snapshot(snapshot: dict[str, Any]) -> AdsManualInputConfig:
+    return _dataclass_from_snapshot(AdsManualInputConfig, snapshot)
+
+
 def _dataclass_from_snapshot(config_type: Any, snapshot: dict[str, Any]) -> Any:
     values: dict[str, Any] = {}
     for field_name, field_def in config_type.__dataclass_fields__.items():
@@ -574,12 +783,16 @@ def _dataclass_from_snapshot(config_type: Any, snapshot: dict[str, Any]) -> Any:
 def _default_artifact_dir(suite: str) -> Path:
     if suite == "manual-mix":
         return DEFAULT_MANUAL_MIX_ARTIFACT_DIR
+    if suite == "ads":
+        return DEFAULT_ADS_ARTIFACT_DIR
     return DEFAULT_ARTIFACT_DIR
 
 
 def _default_scoreboard_path(suite: str) -> Path:
     if suite == "manual-mix":
         return DEFAULT_MANUAL_MIX_SCOREBOARD_PATH
+    if suite == "ads":
+        return DEFAULT_ADS_SCOREBOARD_PATH
     return DEFAULT_SCOREBOARD_PATH
 
 
@@ -589,6 +802,22 @@ def _unique_manifests_from_artifact(artifact: dict[str, Any]) -> tuple[ScenarioM
         manifest = ScenarioManifest.from_dict(payload["manifest"])
         manifests_by_key.setdefault(manifest.scenario_key, manifest)
     return tuple(manifests_by_key.values())
+
+
+def _unique_ads_manifests_from_artifact(artifact: dict[str, Any]) -> tuple[AdsScenarioManifest, ...]:
+    manifests_by_key: dict[str, AdsScenarioManifest] = {}
+    for payload in artifact.get("scenarios", []):
+        manifest = AdsScenarioManifest.from_dict(payload["manifest"])
+        manifests_by_key.setdefault(manifest.scenario_key, manifest)
+    return tuple(manifests_by_key.values())
+
+
+def _ads_input_profile_from_case_key(scenario_case_key: str | None) -> str:
+    if scenario_case_key:
+        scenario_key, separator, input_profile = scenario_case_key.rpartition("@")
+        if separator and scenario_key and input_profile:
+            return input_profile
+    return DEFAULT_ADS_INPUT_PROFILES[0]
 
 
 def _run_git(project_root: Path, *args: str) -> str:
