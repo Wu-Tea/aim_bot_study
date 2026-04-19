@@ -2,11 +2,11 @@ import math
 import random
 import unittest
 
-from controllers.gamepad.ai_aim import (
+from controllers.gamepad.ai_aim import AIAimConfig
+from controllers.gamepad.legacy_ai_aim import (
     AdaptiveDeltaGainSubPlugin,
-    AIAimConfig,
-    AIAimPlugin,
     HorizontalAssistSubPlugin,
+    LegacyAIAimPlugin,
     OvershootGuardSubPlugin,
 )
 from controllers.gamepad.state import GamepadFrame, GamepadOutput
@@ -19,13 +19,13 @@ MAX_RETICLE_SPEED_PPS = 1500.0
 STICK_MAX = 32767
 
 
-def _build_plugin(with_adaptive: bool) -> AIAimPlugin:
+def _build_plugin(with_adaptive: bool) -> LegacyAIAimPlugin:
     subs = []
     if with_adaptive:
         subs.append(AdaptiveDeltaGainSubPlugin())
     subs.append(HorizontalAssistSubPlugin())
     subs.append(OvershootGuardSubPlugin())
-    return AIAimPlugin(AIAimConfig(), sub_plugins=tuple(subs))
+    return LegacyAIAimPlugin(AIAimConfig(), sub_plugins=tuple(subs))
 
 
 def _run_scenario(plugin, *, target_vx, target_vy, initial_dx, initial_dy):

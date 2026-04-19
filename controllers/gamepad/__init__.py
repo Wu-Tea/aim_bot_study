@@ -3,19 +3,21 @@ from .adaptive_delta_gain import (
     AdaptiveDeltaGainAdjustment,
     AdaptiveDeltaGainConfig,
 )
-from .ai_aim import (
-    AdaptiveDeltaGainSubPlugin,
-    AIAimConfig,
-    AIAimPlugin,
-    HorizontalAssistSubPlugin,
-    ManualIntentGuardSubPlugin,
-    OvershootGuardSubPlugin,
-)
+from .ai_aim import AIAimConfig, AIAimPlugin
 from .auto_fire import AutoFireConfig, AutoFirePlugin
 from .horizontal_assist import (
     HorizontalAimAssist,
     HorizontalAimAssistConfig,
     compute_axis_soft_strengths,
+)
+from .legacy_ai_aim import (
+    AdaptiveDeltaGainSubPlugin,
+    AIAimContext,
+    AIAimSubPlugin,
+    HorizontalAssistSubPlugin,
+    LegacyAIAimPlugin,
+    ManualIntentGuardSubPlugin,
+    OvershootGuardSubPlugin,
 )
 from .manual_intent_guard import (
     ManualIntentAdjustment,
@@ -32,9 +34,12 @@ __all__ = [
     "AdaptiveDeltaGainAdjustment",
     "AdaptiveDeltaGainConfig",
     "AdaptiveDeltaGainSubPlugin",
+    "AIAimContext",
     "AIAimConfig",
     "AIAimPlugin",
+    "AIAimSubPlugin",
     "HorizontalAssistSubPlugin",
+    "LegacyAIAimPlugin",
     "ManualIntentGuardSubPlugin",
     "OvershootGuardSubPlugin",
     "AutoFireConfig",

@@ -1,10 +1,10 @@
 import unittest
 
 from controllers.gamepad.adaptive_delta_gain import AdaptiveDeltaGainConfig
-from controllers.gamepad.ai_aim import (
-    AIAimConfig,
-    AIAimPlugin,
+from controllers.gamepad.ai_aim import AIAimConfig, AIAimPlugin
+from controllers.gamepad.legacy_ai_aim import (
     AdaptiveDeltaGainSubPlugin,
+    LegacyAIAimPlugin,
     ManualIntentGuardSubPlugin,
 )
 from controllers.gamepad.horizontal_assist import HorizontalAimAssist, HorizontalAimAssistConfig
@@ -147,7 +147,7 @@ MANUAL_INTENT_CONFIG = ManualIntentGuardConfig()
 
 
 def _legacy_plugin_factory():
-    return AIAimPlugin(
+    return LegacyAIAimPlugin(
         LEGACY_AI_AIM_CONFIG,
         sub_plugins=(
             ManualIntentGuardSubPlugin(MANUAL_INTENT_CONFIG),
