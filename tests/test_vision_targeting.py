@@ -8,6 +8,7 @@ from vision.targeting import CrosshairPersonHitDetector, ParsedDetections, Targe
 CROP = 640
 NEUTRAL_RGB = (128, 128, 128)
 FRIENDLY_RGB = (0, 255, 0)
+BLUE_RGB = (0, 0, 255)
 ENEMY_RGB = (255, 255, 0)
 
 
@@ -86,6 +87,41 @@ def _person_keypoints(
 
 
 class TargetSelectorTests(unittest.TestCase):
+    def test_build_candidates_filters_friendlies_and_uses_box_slow_zone_even_with_keypoints(self):
+        selector = TargetSelector(crop_size=CROP)
+        frame = _frame()
+        friendly_box = [280, 240, 320, 360]
+        enemy_box = [320, 240, 360, 360]
+        _paint_color_above(frame, friendly_box, FRIENDLY_RGB)
+        _paint_color_above(frame, enemy_box, ENEMY_RGB)
+        detections = _detections(
+            friendly_box,
+            enemy_box,
+            keypoints=[
+                _person_keypoints(),
+                _person_keypoints(
+                    nose=(340.0, 250.0, 0.95),
+                    left_shoulder=(324.0, 290.0, 0.95),
+                    right_shoulder=(356.0, 290.0, 0.95),
+                    left_hip=(326.0, 340.0, 0.95),
+                    right_hip=(354.0, 340.0, 0.95),
+                ),
+            ],
+        )
+
+        candidates = selector._build_candidates(
+            detections,
+            frame,
+            last_target_center=None,
+            sample_timestamp=123.0,
+        )
+
+        self.assertEqual(len(candidates), 1)
+        candidate = candidates[0]
+        self.assertEqual(candidate.selected_box, tuple(float(value) for value in enemy_box))
+        self.assertEqual(candidate.source, "observed")
+        self.assertEqual(candidate.slow_zone, selector._fallback_slow_zone(np.array(enemy_box, dtype=np.float32)))
+
     def test_single_low_confidence_target_is_filtered_out(self):
         selector = TargetSelector(crop_size=CROP)
         box = [300, 240, 340, 360]
@@ -108,6 +144,16 @@ class TargetSelectorTests(unittest.TestCase):
         frame = _frame()
         _paint_color_above(frame, box, FRIENDLY_RGB)
         self.assertIsNone(_confirm_target(selector, _detections(box), frame))
+
+    def test_single_blue_target_is_not_filtered_out(self):
+        selector = TargetSelector(crop_size=CROP)
+        box = [310, 310, 370, 370]
+        frame = _frame()
+        _paint_color_above(frame, box, BLUE_RGB)
+
+        selected = _confirm_target(selector, _detections(box), frame)
+
+        self.assertIsNotNone(selected)
 
     def test_multi_candidate_picks_closer_target(self):
         selector = TargetSelector(crop_size=CROP)
@@ -464,6 +510,24 @@ class TargetSelectorTests(unittest.TestCase):
         predicted_one = selector.select_target(_detections(), frame)
         predicted_two = selector.select_target(_detections(), frame)
         lost = selector.select_target(_detections(), frame)
+
+        self.assertIsNotNone(predicted_one)
+        self.assertIsNotNone(predicted_two)
+        self.assertEqual(getattr(predicted_one, "source", None), "predicted")
+        self.assertEqual(getattr(predicted_two, "source", None), "predicted")
+        self.assertIsNone(lost)
+
+    def test_resolve_no_candidates_returns_predicted_target_before_reset(self):
+        selector = TargetSelector(crop_size=CROP)
+        frame = _frame()
+
+        _confirm_target(selector, _detections([300, 240, 340, 360], confs=[0.95]), frame)
+        selector.select_target(_detections([306, 244, 346, 364], confs=[0.95]), frame)
+        sample_timestamp = selector._sample_clock()
+
+        predicted_one = selector._resolve_no_candidates(sample_timestamp=sample_timestamp)
+        predicted_two = selector._resolve_no_candidates(sample_timestamp=sample_timestamp)
+        lost = selector._resolve_no_candidates(sample_timestamp=sample_timestamp)
 
         self.assertIsNotNone(predicted_one)
         self.assertIsNotNone(predicted_two)

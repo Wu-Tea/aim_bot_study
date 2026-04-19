@@ -10,8 +10,6 @@ from .occlusion_compensation import TargetOcclusionCompensator, TargetSource
 
 LOWER_GREEN = np.array([45, 80, 50])
 UPPER_GREEN = np.array([75, 255, 255])
-LOWER_BLUE = np.array([90, 80, 50])
-UPPER_BLUE = np.array([115, 255, 255])
 LOWER_YELLOW = np.array([20, 120, 120])
 UPPER_YELLOW = np.array([35, 255, 255])
 LOWER_RED1 = np.array([0, 120, 80])
@@ -56,6 +54,38 @@ class SelectedTarget:
             left <= self.screen_center_x <= right
             and top <= self.screen_center_y <= bottom
         )
+
+
+@dataclass(slots=True, frozen=True)
+class BoxColorClassification:
+    color_bonus: float
+    is_friendly: bool
+
+
+@dataclass(slots=True, frozen=True)
+class TargetCandidate:
+    point: tuple[float, float]
+    conf: float
+    color_bonus: float
+    selected_box: tuple[float, float, float, float]
+    slow_zone: tuple[float, float, float, float] | None
+    fire_zone: tuple[float, float, float, float] | None
+    source: str = TargetSource.OBSERVED
+
+    @property
+    def box_width(self) -> float:
+        return float(self.selected_box[2] - self.selected_box[0])
+
+    @property
+    def box_height(self) -> float:
+        return float(self.selected_box[3] - self.selected_box[1])
+
+
+@dataclass(slots=True, frozen=True)
+class ScoredCandidate:
+    candidate: TargetCandidate
+    score: float
+    tracking_distance: float | None = None
 
 
 class TargetSelector:
@@ -140,6 +170,7 @@ class TargetSelector:
         self._pending_switch_target: SelectedTarget | None = None
         self._pending_switch_frames = 0
         self._hold_frames = 0
+        self._box_color_cache: dict[tuple[float, float, float, float], BoxColorClassification] = {}
         self._compensator.reset()
 
     def _clear_pending(self):
@@ -304,7 +335,7 @@ class TargetSelector:
             self._compensator.record_observation(committed, timestamp=sample_timestamp)
         return committed
 
-    def _get_target_point(self, box: np.ndarray, keypoints: np.ndarray | None, box_index: int):
+    def _get_target_point(self, box: np.ndarray):
         x1, y1, x2, y2 = box
         box_w = float(x2 - x1)
         box_h = float(y2 - y1)
@@ -323,41 +354,7 @@ class TargetSelector:
             y2 - (box_h * self.TORSO_BOX_SHRINK_BOTTOM),
         )
 
-    def _keypoint_slow_zone(
-        self,
-        box: np.ndarray,
-        keypoints: np.ndarray | None,
-        box_index: int,
-    ):
-        if keypoints is None or len(keypoints) <= box_index:
-            return None
-
-        kpts = keypoints[box_index]
-        left_shoulder, right_shoulder = kpts[5], kpts[6]
-        left_hip, right_hip = kpts[11], kpts[12]
-        torso_points = (left_shoulder, right_shoulder, left_hip, right_hip)
-        if any(point[2] <= self.CONFIDENCE_THRESHOLD for point in torso_points):
-            return None
-
-        left = min(left_shoulder[0], left_hip[0])
-        right = max(right_shoulder[0], right_hip[0])
-        top = min(left_shoulder[1], right_shoulder[1])
-        bottom = max(left_hip[1], right_hip[1])
-        width = max(0.0, right - left)
-        shrink_x = width * self.TORSO_KEYPOINT_SHRINK_X
-        return (
-            left + shrink_x,
-            top,
-            right - shrink_x,
-            bottom,
-        )
-
-    def _get_slow_zone(
-        self,
-        box: np.ndarray,
-        keypoints: np.ndarray | None,
-        box_index: int,
-    ):
+    def _get_slow_zone(self, box: np.ndarray):
         return self._fallback_slow_zone(box)
 
     def _get_fire_zone(self, box: np.ndarray):
@@ -374,6 +371,17 @@ class TargetSelector:
     @staticmethod
     def _normalize_box(box: np.ndarray):
         return tuple(float(value) for value in box)
+
+    def get_box_color_classification(self, box: np.ndarray, frame: np.ndarray) -> BoxColorClassification:
+        normalized_box = self._normalize_box(box)
+        cached = self._box_color_cache.get(normalized_box)
+        if cached is not None:
+            return cached
+
+        color_bonus, is_friendly = self._classify_color(np.array(normalized_box, dtype=np.float32), frame)
+        cached = BoxColorClassification(color_bonus=color_bonus, is_friendly=is_friendly)
+        self._box_color_cache[normalized_box] = cached
+        return cached
 
     def _classify_color(self, box: np.ndarray, frame: np.ndarray):
         x1, y1, x2, y2 = box
@@ -394,10 +402,7 @@ class TargetSelector:
         roi_hsv = cv2.cvtColor(frame[roi_top:roi_bottom, roi_left:roi_right], cv2.COLOR_RGB2HSV)
         roi_area = roi_hsv.shape[0] * roi_hsv.shape[1]
 
-        friendly_mask = cv2.bitwise_or(
-            cv2.inRange(roi_hsv, LOWER_GREEN, UPPER_GREEN),
-            cv2.inRange(roi_hsv, LOWER_BLUE, UPPER_BLUE),
-        )
+        friendly_mask = cv2.inRange(roi_hsv, LOWER_GREEN, UPPER_GREEN)
         friendly_ratio = cv2.countNonZero(friendly_mask) / roi_area
         if self.FRIENDLY_MASK_MIN_RATIO <= friendly_ratio <= self.FRIENDLY_MASK_MAX_RATIO:
             return 0.0, True
@@ -410,6 +415,129 @@ class TargetSelector:
             return float(self.MAX_COLOR_BONUS), False
 
         return 0.0, False
+
+    def _maybe_reconstruct_candidate(
+        self,
+        box: tuple[float, float, float, float],
+        point: tuple[float, float],
+        *,
+        sample_timestamp: float,
+    ) -> tuple[tuple[float, float], tuple[float, float, float, float], str]:
+        selected_box = box
+        source = TargetSource.OBSERVED
+        if self._active_target is None:
+            return point, selected_box, source
+
+        reconstructed = self._compensator.try_reconstruct(
+            box,
+            timestamp=sample_timestamp,
+        )
+        if reconstructed is None:
+            return point, selected_box, source
+
+        return (
+            (reconstructed.target_x, reconstructed.target_y),
+            reconstructed.selected_box,
+            reconstructed.source,
+        )
+
+    def _build_candidate(
+        self,
+        box: np.ndarray,
+        conf: float,
+        frame: np.ndarray,
+        *,
+        last_target_center: tuple[float, float] | None,
+        sample_timestamp: float,
+    ) -> TargetCandidate | None:
+        normalized_box = self._normalize_box(box)
+        x1, y1, x2, y2 = normalized_box
+        box_w = float(x2 - x1)
+        box_h = float(y2 - y1)
+        if box_w <= 0.0 or box_h <= 0.0:
+            return None
+
+        point = self._get_target_point(box)
+        point, selected_box, source = self._maybe_reconstruct_candidate(
+            normalized_box,
+            point,
+            sample_timestamp=sample_timestamp,
+        )
+
+        tracking_candidate = self._is_tracking_candidate(point, last_target_center)
+        if not self._passes_geometry_gate(
+            float(selected_box[2] - selected_box[0]),
+            float(selected_box[3] - selected_box[1]),
+            tracking_candidate,
+        ):
+            return None
+
+        color_classification = self.get_box_color_classification(box, frame)
+        if color_classification.is_friendly:
+            return None
+        if not self._passes_confidence_gate(
+            conf,
+            tracking_candidate,
+            enemy_colored=(color_classification.color_bonus > 0.0),
+        ):
+            return None
+
+        selected_box_array = np.array(selected_box, dtype=np.float32)
+        slow_zone = (
+            self._get_slow_zone(selected_box_array)
+            if source == TargetSource.OBSERVED
+            else self._fallback_slow_zone(selected_box_array)
+        )
+        fire_zone = self._get_fire_zone(selected_box_array)
+        return TargetCandidate(
+            point=point,
+            conf=conf,
+            color_bonus=color_classification.color_bonus,
+            selected_box=selected_box,
+            slow_zone=slow_zone,
+            fire_zone=fire_zone,
+            source=source,
+        )
+
+    def _build_candidates(
+        self,
+        detections: list[ParsedDetections],
+        frame: np.ndarray,
+        *,
+        last_target_center: tuple[float, float] | None,
+        sample_timestamp: float,
+    ) -> list[TargetCandidate]:
+        candidates: list[TargetCandidate] = []
+        for detection in detections:
+            for box, conf in zip(detection.boxes, detection.confs):
+                candidate = self._build_candidate(
+                    box,
+                    float(conf),
+                    frame,
+                    last_target_center=last_target_center,
+                    sample_timestamp=sample_timestamp,
+                )
+                if candidate is not None:
+                    candidates.append(candidate)
+        return candidates
+
+    def _resolve_no_candidates(self, *, sample_timestamp: float) -> SelectedTarget | None:
+        self._clear_switch_pending()
+        predicted = self._compensator.try_predict(timestamp=sample_timestamp)
+        if predicted is not None:
+            predicted_box = np.array(predicted.selected_box, dtype=np.float32)
+            return self._commit_target(
+                self._create_selected_target(
+                    (predicted.target_x, predicted.target_y),
+                    self._active_target.score if self._active_target is not None else 0.0,
+                    predicted.selected_box,
+                    self._fallback_slow_zone(predicted_box),
+                    self._get_fire_zone(predicted_box),
+                    source=predicted.source,
+                )
+            )
+        self.reset_tracking()
+        return None
 
     def _fails_tracking_jump(self, point: tuple[float, float]) -> bool:
         if self.last_target_center is None:
@@ -522,242 +650,175 @@ class TargetSelector:
             return False
         return challenger_score > current_score
 
-    def select_target(self, detections: list[ParsedDetections], frame: np.ndarray):
-        last_target_center = self.last_target_center
-        sample_timestamp = self._sample_clock()
-
-        candidates = []
-        for detection in detections:
-            for i, (box, conf) in enumerate(zip(detection.boxes, detection.confs)):
-                normalized_box = self._normalize_box(box)
-                x1, y1, x2, y2 = normalized_box
-                box_w = float(x2 - x1)
-                box_h = float(y2 - y1)
-                if box_w <= 0.0 or box_h <= 0.0:
-                    continue
-
-                point = self._get_target_point(box, detection.keypoints, i)
-                selected_box = normalized_box
-                source = TargetSource.OBSERVED
-                if self._active_target is not None:
-                    reconstructed = self._compensator.try_reconstruct(
-                        normalized_box,
-                        timestamp=sample_timestamp,
-                    )
-                    if reconstructed is not None:
-                        point = (reconstructed.target_x, reconstructed.target_y)
-                        selected_box = reconstructed.selected_box
-                        source = reconstructed.source
-
-                box_w = float(selected_box[2] - selected_box[0])
-                box_h = float(selected_box[3] - selected_box[1])
-                tracking_candidate = self._is_tracking_candidate(point, last_target_center)
-                if not self._passes_geometry_gate(box_w, box_h, tracking_candidate):
-                    continue
-
-                selected_box_array = np.array(selected_box, dtype=np.float32)
-                color_bonus, is_friendly = self._classify_color(selected_box_array, frame)
-                if is_friendly:
-                    continue
-                if not self._passes_confidence_gate(
-                    float(conf),
-                    tracking_candidate,
-                    enemy_colored=(color_bonus > 0.0),
-                ):
-                    continue
-
-                if source == TargetSource.OBSERVED:
-                    slow_zone = self._get_slow_zone(selected_box_array, detection.keypoints, i)
-                else:
-                    slow_zone = self._fallback_slow_zone(selected_box_array)
-                fire_zone = self._get_fire_zone(selected_box_array)
-                candidates.append(
-                    (
-                        point[0],
-                        point[1],
-                        box_w,
-                        box_h,
-                        float(conf),
-                        color_bonus,
-                        selected_box,
-                        slow_zone,
-                        fire_zone,
-                        source,
-                    )
-                )
-
-        if not candidates:
-            self._clear_switch_pending()
-            predicted = self._compensator.try_predict(timestamp=sample_timestamp)
-            if predicted is not None:
-                predicted_box = np.array(predicted.selected_box, dtype=np.float32)
-                return self._commit_target(
-                    self._create_selected_target(
-                        (predicted.target_x, predicted.target_y),
-                        self._active_target.score if self._active_target is not None else 0.0,
-                        predicted.selected_box,
-                        self._fallback_slow_zone(predicted_box),
-                        self._get_fire_zone(predicted_box),
-                        source=predicted.source,
-                    )
-                )
-            self.reset_tracking()
-            return None
-
-        active_match_target = None
-        if len(candidates) == 1:
-            tx, ty, _, _, conf, color_bonus, selected_box, slow_zone, fire_zone, source = candidates[0]
-            chosen_target = self._create_selected_target(
-                (tx, ty),
-                color_bonus + (conf * self.CONFIDENCE_SCORE_SCALE),
-                selected_box,
-                slow_zone,
-                fire_zone,
-                source=source,
-            )
-            if self._active_target_matches_candidate(selected_box, (tx, ty)):
-                active_match_target = chosen_target
+    def _score_candidate(
+        self,
+        candidate: TargetCandidate,
+        last_target_center: tuple[float, float] | None,
+    ) -> ScoredCandidate:
+        tx, ty = candidate.point
+        half_w = self.frame_width / 2.0
+        half_h = self.frame_height / 2.0
+        norm_dx = (tx - self.screen_center_x) / half_w
+        norm_dy = (ty - self.screen_center_y) / half_h
+        dist_norm = math.hypot(norm_dx, norm_dy)
+        score = (
+            -dist_norm * self.DISTANCE_SCORE_SCALE
+            + candidate.color_bonus
+            + (candidate.conf * self.CONFIDENCE_SCORE_SCALE)
+        )
+        current_area = candidate.box_width * candidate.box_height
+        if current_area > self.max_area_limit:
+            score -= (current_area - self.max_area_limit) * 0.1
         else:
-            best = None
-            best_score = -float("inf")
-            best_box = None
-            best_slow_zone = None
-            best_fire_zone = None
-            best_source = TargetSource.OBSERVED
-            tracked = None
-            tracked_score = -float("inf")
-            tracked_distance = None
-            tracked_box = None
-            tracked_slow_zone = None
-            tracked_fire_zone = None
-            tracked_source = TargetSource.OBSERVED
-            active_match = None
-            active_match_score = -float("inf")
-            active_match_distance = None
-            active_match_box = None
-            active_match_slow_zone = None
-            active_match_fire_zone = None
-            active_match_source = TargetSource.OBSERVED
-            half_w = self.frame_width / 2.0
-            half_h = self.frame_height / 2.0
-            for tx, ty, box_w, box_h, conf, color_bonus, selected_box, slow_zone, fire_zone, source in candidates:
-                norm_dx = (tx - self.screen_center_x) / half_w
-                norm_dy = (ty - self.screen_center_y) / half_h
-                dist_norm = math.hypot(norm_dx, norm_dy)
-                score = -dist_norm * self.DISTANCE_SCORE_SCALE + color_bonus + (conf * self.CONFIDENCE_SCORE_SCALE)
-                current_area = box_w * box_h
-                if current_area > self.max_area_limit:
-                    score -= (current_area - self.max_area_limit) * 0.1
-                else:
-                    area_diff = abs(current_area - self.ideal_area)
-                    score += (self.ideal_area - area_diff) * 0.005
-                candidate_tracking_distance = self._tracking_distance((tx, ty), last_target_center)
-                score += self._tracking_bonus_for_distance(candidate_tracking_distance)
-                if self._prefer_candidate(best, best_score, (tx, ty), score):
-                    best_score = score
-                    best = (tx, ty)
-                    best_box = selected_box
-                    best_slow_zone = slow_zone
-                    best_fire_zone = fire_zone
-                    best_source = source
-                if candidate_tracking_distance is not None and candidate_tracking_distance < self.tracking_radius:
-                    if (
-                        tracked is None
-                        or candidate_tracking_distance < tracked_distance
-                        or (
-                            math.isclose(candidate_tracking_distance, tracked_distance)
-                            and score > tracked_score
-                        )
-                    ):
-                        tracked = (tx, ty)
-                        tracked_score = score
-                        tracked_distance = candidate_tracking_distance
-                        tracked_box = selected_box
-                        tracked_slow_zone = slow_zone
-                        tracked_fire_zone = fire_zone
-                        tracked_source = source
-                if self._active_target_matches_candidate(selected_box, (tx, ty)):
-                    candidate_active_distance = math.hypot(
-                        tx - self._active_target.target_x,
-                        ty - self._active_target.target_y,
-                    )
-                    if (
-                        active_match is None
-                        or candidate_active_distance < active_match_distance
-                        or (
-                            math.isclose(candidate_active_distance, active_match_distance)
-                            and score > active_match_score
-                        )
-                    ):
-                        active_match = (tx, ty)
-                        active_match_score = score
-                        active_match_distance = candidate_active_distance
-                        active_match_box = selected_box
-                        active_match_slow_zone = slow_zone
-                        active_match_fire_zone = fire_zone
-                        active_match_source = source
+            area_diff = abs(current_area - self.ideal_area)
+            score += (self.ideal_area - area_diff) * 0.005
+        tracking_distance = self._tracking_distance(candidate.point, last_target_center)
+        score += self._tracking_bonus_for_distance(tracking_distance)
+        return ScoredCandidate(
+            candidate=candidate,
+            score=score,
+            tracking_distance=tracking_distance,
+        )
 
-            if best is None or best_score <= self.MIN_SCORE_THRESHOLD:
-                self._clear_switch_pending()
-                return self._hold_or_reset()
+    def _target_from_candidate(self, candidate: TargetCandidate, score: float) -> SelectedTarget:
+        return self._create_selected_target(
+            candidate.point,
+            score,
+            candidate.selected_box,
+            candidate.slow_zone,
+            candidate.fire_zone,
+            source=candidate.source,
+        )
 
-            if (
-                self._active_target is None
-                and
-                tracked is not None
-                and best != tracked
-                and best_score < (tracked_score + self.TRACKING_SWITCH_MARGIN)
+    def _select_single_candidate(
+        self,
+        candidate: TargetCandidate,
+    ) -> tuple[SelectedTarget, SelectedTarget | None]:
+        chosen_target = self._target_from_candidate(
+            candidate,
+            candidate.color_bonus + (candidate.conf * self.CONFIDENCE_SCORE_SCALE),
+        )
+        active_match_target = (
+            chosen_target
+            if self._active_target_matches_candidate(candidate.selected_box, candidate.point)
+            else None
+        )
+        return chosen_target, active_match_target
+
+    def _select_multi_candidate(
+        self,
+        candidates: list[TargetCandidate],
+        *,
+        last_target_center: tuple[float, float] | None,
+    ) -> tuple[SelectedTarget | None, SelectedTarget | None]:
+        best: ScoredCandidate | None = None
+        tracked: ScoredCandidate | None = None
+        active_match: tuple[float, ScoredCandidate] | None = None
+
+        for candidate in candidates:
+            scored = self._score_candidate(candidate, last_target_center)
+            if best is None or self._prefer_candidate(
+                best.candidate.point,
+                best.score,
+                scored.candidate.point,
+                scored.score,
             ):
-                best = tracked
-                best_score = tracked_score
-                best_box = tracked_box
-                best_slow_zone = tracked_slow_zone
-                best_fire_zone = tracked_fire_zone
-                best_source = tracked_source
-
-            chosen_target = self._create_selected_target(
-                best,
-                best_score,
-                best_box,
-                best_slow_zone,
-                best_fire_zone,
-                source=best_source,
-            )
-            if active_match is not None:
-                active_match_target = self._create_selected_target(
-                    active_match,
-                    active_match_score,
-                    active_match_box,
-                    active_match_slow_zone,
-                    active_match_fire_zone,
-                    source=active_match_source,
+                best = scored
+            if (
+                scored.tracking_distance is not None
+                and scored.tracking_distance < self.tracking_radius
+                and (
+                    tracked is None
+                    or scored.tracking_distance < tracked.tracking_distance
+                    or (
+                        math.isclose(scored.tracking_distance, tracked.tracking_distance)
+                        and scored.score > tracked.score
+                    )
                 )
+            ):
+                tracked = scored
+            if self._active_target_matches_candidate(candidate.selected_box, candidate.point):
+                active_distance = math.hypot(
+                    candidate.point[0] - self._active_target.target_x,
+                    candidate.point[1] - self._active_target.target_y,
+                )
+                if (
+                    active_match is None
+                    or active_distance < active_match[0]
+                    or (
+                        math.isclose(active_distance, active_match[0])
+                        and scored.score > active_match[1].score
+                    )
+                ):
+                    active_match = (active_distance, scored)
 
+        if best is None or best.score <= self.MIN_SCORE_THRESHOLD:
+            self._clear_switch_pending()
+            return None, None
+
+        if (
+            self._active_target is None
+            and tracked is not None
+            and best.candidate.point != tracked.candidate.point
+            and best.score < (tracked.score + self.TRACKING_SWITCH_MARGIN)
+        ):
+            best = tracked
+
+        chosen_target = self._target_from_candidate(best.candidate, best.score)
+        active_match_target = None if active_match is None else self._target_from_candidate(
+            active_match[1].candidate,
+            active_match[1].score,
+        )
+        return chosen_target, active_match_target
+
+    def _select_candidate_targets(
+        self,
+        candidates: list[TargetCandidate],
+        *,
+        last_target_center: tuple[float, float] | None,
+    ) -> tuple[SelectedTarget | None, SelectedTarget | None]:
+        if len(candidates) == 1:
+            return self._select_single_candidate(candidates[0])
+        return self._select_multi_candidate(candidates, last_target_center=last_target_center)
+
+    def _resolve_active_target_transition(
+        self,
+        chosen_target: SelectedTarget,
+        active_match_target: SelectedTarget | None,
+    ) -> tuple[SelectedTarget | None, bool]:
         preserve_switch_pending = False
-        if self._active_target is not None:
-            if active_match_target is not None:
-                if not self._targets_match(chosen_target, active_match_target):
-                    if self._should_switch_targets(active_match_target, chosen_target):
-                        confirmed_switch = self._confirm_switch(chosen_target)
-                        if confirmed_switch is None:
-                            chosen_target = active_match_target
-                            preserve_switch_pending = True
-                        else:
-                            chosen_target = confirmed_switch
-                    else:
-                        self._clear_switch_pending()
-                        chosen_target = active_match_target
+        if self._active_target is None:
+            self._clear_switch_pending()
+            return chosen_target, preserve_switch_pending
+
+        if active_match_target is not None:
+            if not self._targets_match(chosen_target, active_match_target):
+                if self._should_switch_targets(active_match_target, chosen_target):
+                    confirmed_switch = self._confirm_switch(chosen_target)
+                    if confirmed_switch is None:
+                        return active_match_target, True
+                    chosen_target = confirmed_switch
                 else:
                     self._clear_switch_pending()
                     chosen_target = active_match_target
             else:
-                confirmed_switch = self._confirm_switch(chosen_target)
-                if confirmed_switch is None:
-                    return self._hold_or_reset()
-                chosen_target = confirmed_switch
-        else:
-            self._clear_switch_pending()
+                self._clear_switch_pending()
+                chosen_target = active_match_target
+            return chosen_target, preserve_switch_pending
 
+        confirmed_switch = self._confirm_switch(chosen_target)
+        if confirmed_switch is None:
+            return None, False
+        return confirmed_switch, False
+
+    def _finalize_selected_target(
+        self,
+        chosen_target: SelectedTarget,
+        *,
+        last_target_center: tuple[float, float] | None,
+        sample_timestamp: float,
+        preserve_switch_pending: bool,
+    ) -> SelectedTarget | None:
         chosen_point = (chosen_target.target_x, chosen_target.target_y)
         if last_target_center is None and self._fails_first_pickup_flick(chosen_point):
             self._clear_pending()
@@ -780,6 +841,40 @@ class TargetSelector:
             ),
             sample_timestamp=sample_timestamp,
             clear_switch_pending=not preserve_switch_pending,
+        )
+
+    def select_target(self, detections: list[ParsedDetections], frame: np.ndarray):
+        last_target_center = self.last_target_center
+        sample_timestamp = self._sample_clock()
+        self._box_color_cache = {}
+        candidates = self._build_candidates(
+            detections,
+            frame,
+            last_target_center=last_target_center,
+            sample_timestamp=sample_timestamp,
+        )
+        if not candidates:
+            return self._resolve_no_candidates(sample_timestamp=sample_timestamp)
+
+        chosen_target, active_match_target = self._select_candidate_targets(
+            candidates,
+            last_target_center=last_target_center,
+        )
+        if chosen_target is None:
+            return self._hold_or_reset()
+
+        chosen_target, preserve_switch_pending = self._resolve_active_target_transition(
+            chosen_target,
+            active_match_target,
+        )
+        if chosen_target is None:
+            return self._hold_or_reset()
+
+        return self._finalize_selected_target(
+            chosen_target,
+            last_target_center=last_target_center,
+            sample_timestamp=sample_timestamp,
+            preserve_switch_pending=preserve_switch_pending,
         )
 
     def find_best_target(self, detections: list[ParsedDetections], frame: np.ndarray):
@@ -824,36 +919,6 @@ class CrosshairPersonHitDetector:
         if selected_target is None or selected_target.fire_zone is None:
             return False
         return self._is_crosshair_inside_zone(selected_target.fire_zone)
-
-    def _is_crosshair_touching_filtered_detection(
-        self,
-        detections: list[ParsedDetections] | None,
-        frame: np.ndarray | None,
-    ):
-        if self.target_selector is None or detections is None or frame is None:
-            return False
-
-        for detection in detections:
-            for box, conf in zip(detection.boxes, detection.confs):
-                if float(conf) < self.min_conf:
-                    continue
-
-                x1, y1, x2, y2 = box
-                box_w = float(x2 - x1)
-                box_h = float(y2 - y1)
-                if box_w <= 0.0 or box_h <= 0.0:
-                    continue
-                if not self.target_selector._passes_geometry_gate(box_w, box_h, tracking_candidate=True):
-                    continue
-
-                _, is_friendly = self.target_selector._classify_color(box, frame)
-                if is_friendly:
-                    continue
-
-                if self._is_crosshair_inside_zone(self.target_selector._get_fire_zone(box)):
-                    return True
-
-        return False
 
     def update(
         self,

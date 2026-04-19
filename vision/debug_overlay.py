@@ -243,10 +243,10 @@ class VisionDebugOverlay:
         source_frame_rgb: np.ndarray,
         target_selector: TargetSelector,
     ) -> tuple[str, tuple[int, int, int]]:
-        color_bonus, is_friendly = target_selector._classify_color(box, source_frame_rgb)
-        if is_friendly:
+        color_classification = target_selector.get_box_color_classification(box, source_frame_rgb)
+        if color_classification.is_friendly:
             return "friendly", (60, 220, 60)
-        if color_bonus > 0.0:
+        if color_classification.color_bonus > 0.0:
             return "enemy", (0, 215, 255)
         return "neutral", (220, 220, 220)
 

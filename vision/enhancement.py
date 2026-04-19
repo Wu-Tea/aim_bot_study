@@ -1,7 +1,7 @@
 import math
 from dataclasses import dataclass
 
-from .targeting import SelectedTarget
+from .targeting import SelectedTarget, TargetSource
 
 
 @dataclass(slots=True, frozen=True)
@@ -218,13 +218,14 @@ class AimEnhancementPipeline:
             plugin.reset()
 
     def process(self, target: SelectedTarget, timestamp: float):
+        is_predicted = str(getattr(target, "source", TargetSource.OBSERVED)) == str(TargetSource.PREDICTED)
         dt = 0.0
         motion_x = 0.0
         motion_y = 0.0
         previous_dx = None if self._previous_target is None else self._previous_target.dx
         previous_dy = None if self._previous_target is None else self._previous_target.dy
 
-        if self._previous_target is not None and self._previous_timestamp is not None:
+        if not is_predicted and self._previous_target is not None and self._previous_timestamp is not None:
             dt = max(0.0, timestamp - self._previous_timestamp)
             motion_x = target.target_x - self._previous_target.target_x
             motion_y = target.target_y - self._previous_target.target_y
@@ -247,6 +248,10 @@ class AimEnhancementPipeline:
             output_dx=target.dx,
             output_dy=target.dy,
         )
+
+        if is_predicted:
+            self.near_target_damping.apply(state)
+            return state.output_dx, state.output_dy
 
         for plugin in self._plugins:
             plugin.apply(state)

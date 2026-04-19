@@ -235,6 +235,7 @@ def process_vision(controller=None):
 
     last_result_id = 0
     was_aiming = False
+    last_frame = None
 
     inference_thread.start()
 
@@ -255,6 +256,7 @@ def process_vision(controller=None):
                     perf_tracker.reset_window()
                     inference_thread.pause(clear_result=True)
                     last_result_id = 0
+                    last_frame = None
                 was_aiming = False
                 if debug_overlay is not None:
                     debug_overlay.show_message(
@@ -269,6 +271,7 @@ def process_vision(controller=None):
                 perf_tracker.reset_window()
                 inference_thread.resume()
                 last_result_id = 0
+                last_frame = None
             was_aiming = True
 
             wait_start = time.perf_counter()
@@ -279,26 +282,49 @@ def process_vision(controller=None):
             wait_ms = (time.perf_counter() - wait_start) * 1000.0
 
             if result is None:
-                if controller:
-                    controller.set_auto_fire(False)
-                    controller.reset()
-                _resolve_tracking_frame(
-                    frame=None,
+                gap_frame = last_frame
+                resolved = _resolve_tracking_frame(
+                    frame=gap_frame,
                     detections=[],
                     target_selector=target_selector,
                     rb_hit_detector=rb_hit_detector,
                     aim_enhancement=aim_enhancement,
                     timestamp=time.perf_counter(),
                 )
+                selected_target = resolved.selected_target
+                best_target_delta = resolved.best_target_delta
+                if controller:
+                    controller.set_auto_fire(False)
+                    if best_target_delta:
+                        controller.update(
+                            best_target_delta[0],
+                            best_target_delta[1],
+                            target=_controller_target(selected_target),
+                        )
+                    else:
+                        controller.reset()
                 if debug_overlay is not None:
-                    debug_overlay.show_message(
-                        width=config.capture_width,
-                        height=config.capture_height,
-                        message="Waiting for inference...",
-                    )
+                    if gap_frame is None:
+                        debug_overlay.show_message(
+                            width=config.capture_width,
+                            height=config.capture_height,
+                            message="Waiting for inference...",
+                        )
+                    else:
+                        debug_overlay.show(
+                            frame=gap_frame,
+                            detections=[],
+                            selected_target=selected_target,
+                            target_selector=target_selector,
+                            auto_fire_active=False,
+                            is_aiming=is_aiming,
+                            best_target_delta=best_target_delta,
+                            status_text="Inference gap",
+                        )
                 continue
 
             frame = result.frame
+            last_frame = frame
             detections = result.detections
             infer_ms = result.infer_ms
 

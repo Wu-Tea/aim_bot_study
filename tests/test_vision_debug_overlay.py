@@ -95,7 +95,7 @@ class VisionDebugOverlayTests(unittest.TestCase):
             ParsedDetections(
                 boxes=np.array(
                     [
-                        [20, 12, 140, 90],
+                        [20, 12, 60, 90],
                         [58, 22, 102, 84],
                     ],
                     dtype=np.float32,
@@ -136,6 +136,43 @@ class VisionDebugOverlayTests(unittest.TestCase):
         self.assertIn("raw neutral 0.61", labels)
         self.assertIn("selected neutral 0.93", labels)
         self.assertNotIn("selected neutral 0.61", labels)
+
+    def test_render_frame_reuses_selector_color_classification_cache(self):
+        frame = np.full((96, 160, 3), 64, dtype=np.uint8)
+        detections = [
+            ParsedDetections(
+                boxes=np.array(
+                    [
+                        [20, 12, 60, 90],
+                        [58, 22, 102, 84],
+                    ],
+                    dtype=np.float32,
+                ),
+                confs=np.array([0.61, 0.93], dtype=np.float32),
+            )
+        ]
+        selector = TargetSelector(frame_width=160, frame_height=96)
+        selector.select_target(detections, frame)
+        overlay = VisionDebugOverlay(window_name="test")
+        classify_calls = 0
+        original = selector._classify_color
+
+        def _counted_classify(box, source_frame):
+            nonlocal classify_calls
+            classify_calls += 1
+            return original(box, source_frame)
+
+        selector._classify_color = _counted_classify
+        overlay.render_frame(
+            frame=frame,
+            detections=detections,
+            selected_target=None,
+            target_selector=selector,
+            auto_fire_active=False,
+            is_aiming=True,
+        )
+
+        self.assertEqual(classify_calls, 0)
 
 
 if __name__ == "__main__":

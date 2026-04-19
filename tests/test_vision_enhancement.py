@@ -12,13 +12,14 @@ from vision.enhancement import (
 from vision.targeting import SelectedTarget
 
 
-def _target(dx: float, dy: float):
+def _target(dx: float, dy: float, *, source: str = "observed"):
     return SelectedTarget(
         target_x=320.0 + dx,
         target_y=320.0 + dy,
         screen_center_x=320.0,
         screen_center_y=320.0,
         score=100.0,
+        source=source,
     )
 
 
@@ -234,6 +235,30 @@ class VisionEnhancementTests(unittest.TestCase):
 
         self.assertEqual(reset_dx, 16.0)
         self.assertEqual(reset_dy, 0.0)
+
+    def test_predicted_targets_do_not_accumulate_velocity_or_lead(self):
+        pipeline = _pipeline(
+            lead=LeadPredictor(
+                LeadPredictorConfig(
+                    lead_seconds=0.10,
+                    gain=1.0,
+                    max_lead_px=12.0,
+                    consistent_frames=1,
+                )
+            ),
+        )
+
+        pipeline.process(_target(10.0, 0.0), timestamp=1.0)
+        observed_dx, _ = pipeline.process(_target(16.0, 0.0), timestamp=1.1)
+        observed_velocity = pipeline._velocity_x
+
+        predicted_dx, _ = pipeline.process(_target(22.0, 0.0, source="predicted"), timestamp=1.2)
+        predicted_dx_2, _ = pipeline.process(_target(28.0, 0.0, source="predicted"), timestamp=1.3)
+
+        self.assertGreater(observed_dx, 16.0)
+        self.assertEqual(predicted_dx, 22.0)
+        self.assertEqual(predicted_dx_2, 28.0)
+        self.assertEqual(pipeline._velocity_x, observed_velocity)
 
 
 if __name__ == "__main__":

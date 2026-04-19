@@ -224,6 +224,7 @@ class _FakeCaptureThread:
 
 class _FakeInferenceThread:
     last_instance = None
+    scripted_results = None
 
     def __init__(self, *args, **kwargs):
         self.started = False
@@ -231,30 +232,33 @@ class _FakeInferenceThread:
         self.join_timeout = None
         self.resume_calls = 0
         self.pause_calls = []
-        self.results = [
-            (
-                Mock(
-                    frame_id=7,
-                    captured_at=20.0,
-                    inferred_at=20.01,
-                    frame=np.ones((4, 4, 3), dtype=np.uint8),
-                    detections=[],
-                    infer_ms=6.5,
+        if self.scripted_results is None:
+            self.results = [
+                (
+                    Mock(
+                        frame_id=7,
+                        captured_at=20.0,
+                        inferred_at=20.01,
+                        frame=np.ones((4, 4, 3), dtype=np.uint8),
+                        detections=[],
+                        infer_ms=6.5,
+                    ),
+                    7,
                 ),
-                7,
-            ),
-            (
-                Mock(
-                    frame_id=8,
-                    captured_at=21.0,
-                    inferred_at=21.01,
-                    frame=np.full((4, 4, 3), 2, dtype=np.uint8),
-                    detections=[],
-                    infer_ms=6.0,
+                (
+                    Mock(
+                        frame_id=8,
+                        captured_at=21.0,
+                        inferred_at=21.01,
+                        frame=np.full((4, 4, 3), 2, dtype=np.uint8),
+                        detections=[],
+                        infer_ms=6.0,
+                    ),
+                    8,
                 ),
-                8,
-            ),
-        ]
+            ]
+        else:
+            self.results = list(self.scripted_results)
         _FakeInferenceThread.last_instance = self
 
     def start(self):
@@ -268,7 +272,10 @@ class _FakeInferenceThread:
 
     def get_latest_result(self, last_seen_id=0, timeout=0.1):
         if self.results:
-            return self.results.pop(0)
+            next_result = self.results.pop(0)
+            if next_result is None:
+                return None, last_seen_id
+            return next_result
         return None, last_seen_id
 
     def stop(self):
@@ -339,6 +346,118 @@ class VisionRunnerPipelineTests(unittest.TestCase):
         self.assertIn("wait_ms", perf_tracker.update.call_args.kwargs)
         self.assertIn("age_ms", perf_tracker.update.call_args.kwargs)
         self.assertGreaterEqual(perf_tracker.update.call_args.kwargs["age_ms"], 0.0)
+
+    @patch("vision.runner.time.sleep", return_value=None)
+    @patch("vision.runner.win32api.GetAsyncKeyState", side_effect=[0, 0x8000])
+    @patch("vision.runner._warmup_model", return_value=None)
+    @patch("vision.runner._load_model", return_value=object())
+    @patch("vision.runner._resolve_tracking_frame")
+    @patch("vision.runner.PerformanceTracker")
+    @patch("vision.runner.CrosshairPersonHitDetector")
+    @patch("vision.runner.AimEnhancementPipeline")
+    @patch("vision.runner.TargetSelector")
+    def test_process_vision_treats_inference_gap_as_empty_detection_frame(
+        self,
+        target_selector_cls,
+        aim_enhancement_cls,
+        rb_hit_detector_cls,
+        perf_tracker_cls,
+        resolve_tracking_frame,
+        _load_model,
+        _warmup_model,
+        _get_async_key_state,
+        _sleep,
+    ):
+        perf_tracker_cls.return_value = Mock()
+        controller = Mock()
+        controller.is_aiming.side_effect = [True, True, True]
+        gap_target = SelectedTarget(
+            target_x=82.0,
+            target_y=41.0,
+            screen_center_x=80.0,
+            screen_center_y=48.0,
+            score=321.0,
+            selected_box=(60.0, 20.0, 104.0, 86.0),
+            slow_zone=(66.0, 30.0, 94.0, 76.0),
+            fire_zone=(68.0, 26.0, 92.0, 72.0),
+            source="predicted",
+        )
+        resolve_tracking_frame.side_effect = [
+            TrackingFrameResolution(
+                selected_target=SelectedTarget(
+                    target_x=80.0,
+                    target_y=40.0,
+                    screen_center_x=80.0,
+                    screen_center_y=48.0,
+                    score=300.0,
+                ),
+                auto_fire_active=False,
+                best_target_delta=(1.0, -1.0),
+                boxes_seen=1,
+            ),
+            TrackingFrameResolution(
+                selected_target=gap_target,
+                auto_fire_active=False,
+                best_target_delta=(0.5, -0.5),
+                boxes_seen=0,
+            ),
+            TrackingFrameResolution(
+                selected_target=SelectedTarget(
+                    target_x=84.0,
+                    target_y=42.0,
+                    screen_center_x=80.0,
+                    screen_center_y=48.0,
+                    score=330.0,
+                ),
+                auto_fire_active=False,
+                best_target_delta=(1.5, -1.5),
+                boxes_seen=1,
+            ),
+        ]
+        first_result = (
+            Mock(
+                frame_id=7,
+                captured_at=20.0,
+                inferred_at=20.01,
+                frame=np.ones((4, 4, 3), dtype=np.uint8),
+                detections=[],
+                infer_ms=6.5,
+            ),
+            7,
+        )
+        second_result = (
+            Mock(
+                frame_id=8,
+                captured_at=21.0,
+                inferred_at=21.01,
+                frame=np.full((4, 4, 3), 2, dtype=np.uint8),
+                detections=[],
+                infer_ms=6.0,
+            ),
+            8,
+        )
+        _FakeInferenceThread.scripted_results = [first_result, None, second_result]
+
+        try:
+            with patch("vision.runner.ScreenCaptureThread", _FakeCaptureThread), patch(
+                "vision.runner.InferenceThread", _FakeInferenceThread, create=True
+            ), patch(
+                "vision.runner.VisionConfig.from_env",
+                return_value=VisionConfig(frame_timeout=0.01, idle_sleep=0.0),
+            ):
+                process_vision(controller=controller)
+        finally:
+            _FakeInferenceThread.scripted_results = None
+
+        self.assertEqual(len(resolve_tracking_frame.call_args_list), 3)
+        first_call = resolve_tracking_frame.call_args_list[0].kwargs
+        second_call = resolve_tracking_frame.call_args_list[1].kwargs
+        self.assertIsNotNone(first_call["frame"])
+        self.assertIsNotNone(second_call["frame"])
+        self.assertIs(second_call["frame"], first_call["frame"])
+        self.assertEqual(second_call["detections"], [])
+        self.assertEqual(controller.update.call_count, 3)
+        self.assertEqual(controller.reset.call_count, 1)
 
 
 if __name__ == "__main__":
