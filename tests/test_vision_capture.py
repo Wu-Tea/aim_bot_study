@@ -7,7 +7,7 @@ from unittest.mock import patch
 import numpy as np
 
 from vision.capture import CapturedFrame, ScreenCaptureThread
-from vision.dxgi_capture import BGRARegionProcessor, CaptureFrameData, DXGIRegionCaptureBackend
+from vision.dxgi_capture import BGRARegionProcessor, CaptureFrameData, DXGIRegionCaptureBackend, RegionStageSurface
 
 
 class _FakeBackend:
@@ -85,6 +85,36 @@ class _FakeStageSurface:
         self.released = True
 
 
+class _FakeDxgiSurface:
+    def __init__(self):
+        self.map_calls = 0
+        self.unmap_calls = 0
+        self.release_calls = 0
+
+    def Map(self, rect, flags):
+        self.map_calls += 1
+
+    def Unmap(self):
+        self.unmap_calls += 1
+
+    def Release(self):
+        self.release_calls += 1
+
+
+class _FakeTextureWithSurface:
+    def __init__(self, surface):
+        self.surface = surface
+        self.query_calls = 0
+        self.release_calls = 0
+
+    def QueryInterface(self, interface):
+        self.query_calls += 1
+        return self.surface
+
+    def Release(self):
+        self.release_calls += 1
+
+
 class _FakeNativeSlot:
     def __init__(self, slot_index):
         self.slot_index = slot_index
@@ -132,6 +162,22 @@ def _mapped_rect_from_rows(*rows: bytes):
 
 
 class ScreenCaptureThreadTests(unittest.TestCase):
+    def test_region_stage_surface_caches_dxgi_surface_interface(self):
+        fake_surface = _FakeDxgiSurface()
+        fake_texture = _FakeTextureWithSurface(fake_surface)
+        with patch.object(RegionStageSurface, "_create_texture", lambda self: setattr(self, "texture", fake_texture)):
+            stage_surface = RegionStageSurface(width=64, height=32, device=SimpleNamespace())
+
+        stage_surface.map()
+        stage_surface.unmap()
+        stage_surface.release()
+
+        self.assertEqual(fake_texture.query_calls, 1)
+        self.assertEqual(fake_surface.map_calls, 1)
+        self.assertEqual(fake_surface.unmap_calls, 1)
+        self.assertEqual(fake_surface.release_calls, 1)
+        self.assertEqual(fake_texture.release_calls, 1)
+
     @patch("vision.capture.win32api.GetSystemMetrics", side_effect=[1920, 1080])
     def test_get_latest_frame_returns_captured_frame_metadata(self, _metrics):
         backend = _FakeBackend([np.zeros((4, 4, 3), dtype=np.uint8)])

@@ -52,6 +52,7 @@ class RegionStageSurface:
     height: int
     device: object
     texture: object | None = None
+    surface: object | None = None
 
     def __post_init__(self):
         self._create_texture()
@@ -79,13 +80,24 @@ class RegionStageSurface:
 
     def map(self):
         rect = DXGI_MAPPED_RECT()
-        self.texture.QueryInterface(IDXGISurface).Map(ctypes.byref(rect), 1)
+        self._surface().Map(ctypes.byref(rect), 1)
         return rect
 
     def unmap(self):
-        self.texture.QueryInterface(IDXGISurface).Unmap()
+        surface = self.surface
+        if surface is None:
+            return
+        surface.Unmap()
+
+    def _surface(self):
+        if self.surface is None:
+            self.surface = self.texture.QueryInterface(IDXGISurface)
+        return self.surface
 
     def release(self):
+        if self.surface is not None:
+            self.surface.Release()
+            self.surface = None
         if self.texture is not None:
             self.texture.Release()
             self.texture = None

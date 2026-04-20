@@ -183,7 +183,6 @@ class ScreenCaptureThread(threading.Thread):
                 return None, last_seen_id
 
             return self._latest_frame, self._latest_frame.frame_id
-
     def set_target_fps(self, target_fps: float):
         with self._condition:
             next_fps = max(0.0, float(target_fps))

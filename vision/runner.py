@@ -197,13 +197,19 @@ def process_vision(controller=None):
     model = _load_model(config)
     fast_path = _warmup_model(model, config, predict_kwargs, bench=_env_flag("VISION_BENCH"))
     use_fast_path = fast_path is not None and _env_flag("VISION_FAST_PATH", True)
+    active_fast_preprocessor = (
+        getattr(fast_path, "preprocessor_name", "cpu")
+        if use_fast_path
+        else "cpu"
+    )
+    enable_native_capture_frames = active_fast_preprocessor == "native"
 
     capture_thread = ScreenCaptureThread(
         target_fps=config.capture_fps,
         crop_width=config.capture_width,
         crop_height=config.capture_height,
         idle_fps=config.idle_capture_fps,
-        enable_native_frames=config.fast_preprocessor == "native",
+        enable_native_frames=enable_native_capture_frames,
     )
     target_selector = TargetSelector(
         frame_width=config.capture_width,
@@ -232,11 +238,10 @@ def process_vision(controller=None):
     )
 
     capture_thread.start()
-    capture_thread.set_target_fps(config.idle_capture_fps)
     print(
         "[Vision] "
         f"fast_path={'on' if use_fast_path else 'off'} | "
-        f"fast_preprocessor={config.fast_preprocessor} | "
+        f"fast_preprocessor={active_fast_preprocessor} | "
         f"crop={config.capture_width}x{config.capture_height} | "
         f"capture_fps={config.capture_fps} | idle_capture_fps={config.idle_capture_fps} | "
         f"conf={config.conf:.2f} | half={config.half} | "
@@ -270,7 +275,6 @@ def process_vision(controller=None):
                     if controller:
                         controller.reset()
                         controller.set_auto_fire(False)
-                    capture_thread.set_target_fps(config.idle_capture_fps)
                     target_selector.reset_tracking()
                     aim_enhancement.reset()
                     rb_hit_detector.reset()
@@ -290,7 +294,6 @@ def process_vision(controller=None):
                 continue
 
             if not was_aiming:
-                capture_thread.set_target_fps(config.capture_fps)
                 perf_tracker.reset_window()
                 inference_thread.resume()
                 last_result_id = 0

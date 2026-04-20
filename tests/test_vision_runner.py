@@ -1,5 +1,6 @@
 import os
 import unittest
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import numpy as np
@@ -407,7 +408,7 @@ class VisionRunnerPipelineTests(unittest.TestCase):
     @patch("vision.runner.CrosshairPersonHitDetector")
     @patch("vision.runner.AimEnhancementPipeline")
     @patch("vision.runner.TargetSelector")
-    def test_process_vision_switches_capture_rate_between_idle_and_ads(
+    def test_process_vision_keeps_capture_rate_high_across_idle_and_ads(
         self,
         target_selector_cls,
         aim_enhancement_cls,
@@ -447,11 +448,10 @@ class VisionRunnerPipelineTests(unittest.TestCase):
         self.assertEqual(capture.target_fps, 80)
         self.assertEqual(capture.idle_fps, 10)
         self.assertFalse(capture.enable_native_frames)
-        self.assertEqual(capture.target_fps_calls, [10, 80, 10, 80])
+        self.assertEqual(capture.target_fps_calls, [])
 
     @patch("vision.runner.time.sleep", return_value=None)
     @patch("vision.runner.win32api.GetAsyncKeyState", side_effect=[0, 0x8000])
-    @patch("vision.runner._warmup_model", return_value=None)
     @patch("vision.runner._load_model", return_value=object())
     @patch("vision.runner._resolve_tracking_frame")
     @patch("vision.runner.PerformanceTracker")
@@ -466,7 +466,6 @@ class VisionRunnerPipelineTests(unittest.TestCase):
         perf_tracker_cls,
         resolve_tracking_frame,
         _load_model,
-        _warmup_model,
         _get_async_key_state,
         _sleep,
     ):
@@ -483,6 +482,9 @@ class VisionRunnerPipelineTests(unittest.TestCase):
         with patch("vision.runner.ScreenCaptureThread", _FakeCaptureThread), patch(
             "vision.runner.InferenceThread", _FakeInferenceThread, create=True
         ), patch(
+            "vision.runner._warmup_model",
+            return_value=SimpleNamespace(preprocessor_name="native"),
+        ), patch(
             "vision.runner.VisionConfig.from_env",
             return_value=VisionConfig(
                 capture_fps=80,
@@ -497,6 +499,56 @@ class VisionRunnerPipelineTests(unittest.TestCase):
         capture = _FakeCaptureThread.last_instance
         self.assertIsNotNone(capture)
         self.assertTrue(capture.enable_native_frames)
+
+    @patch("vision.runner.time.sleep", return_value=None)
+    @patch("vision.runner.win32api.GetAsyncKeyState", side_effect=[0, 0x8000])
+    @patch("vision.runner._load_model", return_value=object())
+    @patch("vision.runner._resolve_tracking_frame")
+    @patch("vision.runner.PerformanceTracker")
+    @patch("vision.runner.CrosshairPersonHitDetector")
+    @patch("vision.runner.AimEnhancementPipeline")
+    @patch("vision.runner.TargetSelector")
+    def test_process_vision_keeps_native_capture_disabled_when_native_preprocessor_falls_back_to_cpu(
+        self,
+        target_selector_cls,
+        aim_enhancement_cls,
+        rb_hit_detector_cls,
+        perf_tracker_cls,
+        resolve_tracking_frame,
+        _load_model,
+        _get_async_key_state,
+        _sleep,
+    ):
+        perf_tracker_cls.return_value = Mock()
+        resolve_tracking_frame.return_value = TrackingFrameResolution(
+            selected_target=None,
+            auto_fire_active=False,
+            best_target_delta=None,
+            boxes_seen=0,
+        )
+        controller = Mock()
+        controller.is_aiming.side_effect = [False, True, False, True]
+
+        with patch("vision.runner.ScreenCaptureThread", _FakeCaptureThread), patch(
+            "vision.runner.InferenceThread", _FakeInferenceThread, create=True
+        ), patch(
+            "vision.runner._warmup_model",
+            return_value=SimpleNamespace(preprocessor_name="cpu"),
+        ), patch(
+            "vision.runner.VisionConfig.from_env",
+            return_value=VisionConfig(
+                capture_fps=80,
+                idle_capture_fps=10,
+                frame_timeout=0.01,
+                idle_sleep=0.0,
+                fast_preprocessor="native",
+            ),
+        ):
+            process_vision(controller=controller)
+
+        capture = _FakeCaptureThread.last_instance
+        self.assertIsNotNone(capture)
+        self.assertFalse(capture.enable_native_frames)
 
     @patch("vision.runner.time.sleep", return_value=None)
     @patch("vision.runner.win32api.GetAsyncKeyState", side_effect=[0, 0x8000])

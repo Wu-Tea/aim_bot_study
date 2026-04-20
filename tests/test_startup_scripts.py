@@ -15,8 +15,9 @@ class StartupScriptTests(unittest.TestCase):
         self.assertIn("VISION_FAST_PATH", content)
         self.assertIn("VISION_CAPTURE_FPS", content)
         self.assertIn("VISION_IDLE_CAPTURE_FPS", content)
-        self.assertIn("Select Vision preprocessor:", content)
         self.assertIn("Vision settings:", content)
+        self.assertNotIn("Select Vision preprocessor:", content)
+        self.assertNotIn("Native (experimental)", content)
 
     def test_gamepad_debug_uses_system_python_launcher_and_enables_debug_flag(self):
         content = (PROJECT_ROOT / "gamepad_debug.bat").read_text(encoding="utf-8")
