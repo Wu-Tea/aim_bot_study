@@ -18,6 +18,23 @@ LOWER_RED2 = np.array([170, 120, 80])
 UPPER_RED2 = np.array([180, 255, 255])
 
 
+def color_roi_bounds(box: np.ndarray, frame_shape) -> tuple[int, int, int, int] | None:
+    x1, y1, x2, y2 = box
+    frame_h, frame_w = frame_shape[:2]
+    box_w = float(x2 - x1)
+    box_h = float(y2 - y1)
+    cx = (x1 + x2) * 0.5
+    roi_h = int(max(12, min(36, box_h * 0.20)))
+    roi_w = int(max(24, min(80, box_w * 0.80)))
+    roi_bottom = max(0, min(frame_h, int(y1) - 2))
+    roi_top = max(0, roi_bottom - roi_h)
+    roi_left = max(0, int(cx - roi_w / 2))
+    roi_right = min(frame_w, int(cx + roi_w / 2))
+    if (roi_bottom - roi_top) < 4 or (roi_right - roi_left) < 4:
+        return None
+    return roi_left, roi_top, roi_right, roi_bottom
+
+
 @dataclass(slots=True)
 class ParsedDetections:
     boxes: np.ndarray
@@ -384,22 +401,13 @@ class TargetSelector:
         return cached
 
     def _classify_color(self, box: np.ndarray, frame: np.ndarray):
-        x1, y1, x2, y2 = box
-        frame_h, frame_w = frame.shape[:2]
-        box_w = float(x2 - x1)
-        box_h = float(y2 - y1)
-        cx = (x1 + x2) * 0.5
-        roi_h = int(max(12, min(36, box_h * 0.20)))
-        roi_w = int(max(24, min(80, box_w * 0.80)))
-        roi_bottom = max(0, min(frame_h, int(y1) - 2))
-        roi_top = max(0, roi_bottom - roi_h)
-        roi_left = max(0, int(cx - roi_w / 2))
-        roi_right = min(frame_w, int(cx + roi_w / 2))
-
-        if (roi_bottom - roi_top) < 4 or (roi_right - roi_left) < 4:
+        bounds = color_roi_bounds(box, frame.shape)
+        if bounds is None:
             return 0.0, False
+        roi_left, roi_top, roi_right, roi_bottom = bounds
 
-        roi_hsv = cv2.cvtColor(frame[roi_top:roi_bottom, roi_left:roi_right], cv2.COLOR_RGB2HSV)
+        roi_rgb = self._extract_frame_roi(frame, roi_left, roi_top, roi_right, roi_bottom)
+        roi_hsv = cv2.cvtColor(roi_rgb, cv2.COLOR_RGB2HSV)
         roi_area = roi_hsv.shape[0] * roi_hsv.shape[1]
 
         friendly_mask = cv2.inRange(roi_hsv, LOWER_GREEN, UPPER_GREEN)
@@ -415,6 +423,12 @@ class TargetSelector:
             return float(self.MAX_COLOR_BONUS), False
 
         return 0.0, False
+
+    @staticmethod
+    def _extract_frame_roi(frame, left: int, top: int, right: int, bottom: int):
+        if hasattr(frame, "get_roi_rgb"):
+            return frame.get_roi_rgb(left, top, right, bottom)
+        return frame[top:bottom, left:right]
 
     def _maybe_reconstruct_candidate(
         self,

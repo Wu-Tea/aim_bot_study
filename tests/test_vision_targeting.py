@@ -50,6 +50,17 @@ def _paint_full_color_above(frame, box, rgb):
     frame[roi_top:roi_bottom, roi_left:roi_right] = rgb
 
 
+class _RoiFrameProxy:
+    def __init__(self, frame):
+        self._frame = frame
+        self.shape = frame.shape
+        self.roi_calls = []
+
+    def get_roi_rgb(self, left, top, right, bottom):
+        self.roi_calls.append((left, top, right, bottom))
+        return self._frame[top:bottom, left:right]
+
+
 def _detections(*boxes, keypoints=None, confs=None):
     if not boxes:
         return [ParsedDetections(
@@ -312,6 +323,34 @@ class TargetSelectorTests(unittest.TestCase):
 
         self.assertEqual(color_bonus, 0.0)
         self.assertFalse(is_friendly)
+
+    def test_color_classification_can_read_from_roi_frame_proxy(self):
+        selector = TargetSelector(crop_size=CROP)
+        box = [300, 240, 340, 360]
+        frame = _frame()
+        _paint_color_above(frame, box, ENEMY_RGB)
+        proxy = _RoiFrameProxy(frame)
+
+        color_bonus, is_friendly = selector._classify_color(np.array(box, dtype=np.float32), proxy)
+
+        self.assertGreater(color_bonus, 0.0)
+        self.assertFalse(is_friendly)
+        self.assertEqual(len(proxy.roi_calls), 1)
+
+    def test_select_target_can_use_roi_frame_proxy_without_full_frame_slicing(self):
+        selector = TargetSelector(crop_size=CROP)
+        friendly_box = [280, 240, 320, 360]
+        enemy_box = [320, 240, 360, 360]
+        frame = _frame()
+        _paint_color_above(frame, friendly_box, FRIENDLY_RGB)
+        _paint_color_above(frame, enemy_box, ENEMY_RGB)
+        proxy = _RoiFrameProxy(frame)
+
+        selected = _confirm_target(selector, _detections(friendly_box, enemy_box), proxy)
+
+        self.assertIsNotNone(selected)
+        self.assertGreater(selected.target_x, 330.0)
+        self.assertEqual(len(proxy.roi_calls), 4)
 
     def test_box_target_exposes_upper_chest_and_torso_slow_zone_without_keypoints(self):
         selector = TargetSelector(crop_size=CROP)

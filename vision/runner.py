@@ -59,6 +59,7 @@ class VisionConfig:
     capture_height: int = 512
     capture_fps: int = 80
     idle_capture_fps: int = 10
+    fast_preprocessor: str = "cpu"
     debug_overlay: bool = False
     debug_save_frames: bool = False
     model_path: str = str(DEFAULT_MODEL_PATH)
@@ -106,6 +107,10 @@ class VisionConfig:
                 str(defaults.idle_capture_fps),
             )
         )
+        fast_preprocessor = os.getenv(
+            "VISION_FAST_PREPROCESSOR",
+            defaults.fast_preprocessor,
+        ).strip().lower()
         model_path = os.getenv("VISION_MODEL_PATH", defaults.model_path)
         fallback_model_path = os.getenv("VISION_FALLBACK_MODEL_PATH", defaults.fallback_model_path)
         return cls(
@@ -113,6 +118,7 @@ class VisionConfig:
             capture_height=capture_height,
             capture_fps=capture_fps,
             idle_capture_fps=idle_capture_fps,
+            fast_preprocessor=fast_preprocessor,
             debug_overlay=_env_flag("VISION_DEBUG_OVERLAY"),
             debug_save_frames=_env_flag("VISION_DEBUG_SAVE"),
             model_path=model_path,
@@ -136,8 +142,10 @@ def _resolve_tracking_frame(
     rb_hit_detector,
     aim_enhancement,
     timestamp: float,
+    allow_frameless_detections: bool = False,
 ) -> TrackingFrameResolution:
-    if frame is None:
+    boxes_seen = sum(len(detection.boxes) for detection in detections)
+    if frame is None and (boxes_seen > 0 or not allow_frameless_detections):
         rb_hit_detector.reset()
         aim_enhancement.reset()
         return TrackingFrameResolution(
@@ -159,7 +167,7 @@ def _resolve_tracking_frame(
         selected_target=selected_target,
         auto_fire_active=auto_fire_active,
         best_target_delta=best_target_delta,
-        boxes_seen=sum(len(detection.boxes) for detection in detections),
+        boxes_seen=boxes_seen,
     )
 
 
@@ -195,6 +203,7 @@ def process_vision(controller=None):
         crop_width=config.capture_width,
         crop_height=config.capture_height,
         idle_fps=config.idle_capture_fps,
+        enable_native_frames=config.fast_preprocessor == "native",
     )
     target_selector = TargetSelector(
         frame_width=config.capture_width,
@@ -227,6 +236,7 @@ def process_vision(controller=None):
     print(
         "[Vision] "
         f"fast_path={'on' if use_fast_path else 'off'} | "
+        f"fast_preprocessor={config.fast_preprocessor} | "
         f"crop={config.capture_width}x{config.capture_height} | "
         f"capture_fps={config.capture_fps} | idle_capture_fps={config.idle_capture_fps} | "
         f"conf={config.conf:.2f} | half={config.half} | "
@@ -241,6 +251,7 @@ def process_vision(controller=None):
         predict_kwargs=predict_kwargs,
         fast_path=fast_path,
         use_fast_path=use_fast_path,
+        require_result_frame=(debug_overlay is not None),
     )
 
     last_result_id = 0
@@ -336,7 +347,8 @@ def process_vision(controller=None):
                 continue
 
             frame = result.frame
-            last_frame = frame
+            if frame is not None:
+                last_frame = frame
             detections = result.detections
             infer_ms = result.infer_ms
 
@@ -348,6 +360,7 @@ def process_vision(controller=None):
                 rb_hit_detector=rb_hit_detector,
                 aim_enhancement=aim_enhancement,
                 timestamp=time.perf_counter(),
+                allow_frameless_detections=(frame is None),
             )
             selected_target = resolved.selected_target
             auto_fire_active = resolved.auto_fire_active
