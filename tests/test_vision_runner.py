@@ -17,6 +17,7 @@ class VisionRunnerTests(unittest.TestCase):
         self.assertEqual(config.capture_width, 640)
         self.assertEqual(config.capture_height, 512)
         self.assertEqual(config.capture_fps, 80)
+        self.assertEqual(config.idle_capture_fps, 10)
         self.assertEqual(config.conf, 0.40)
         self.assertFalse(config.debug_overlay)
         self.assertFalse(config.debug_save_frames)
@@ -29,6 +30,7 @@ class VisionRunnerTests(unittest.TestCase):
                 "VISION_CROP_WIDTH": "896",
                 "VISION_CROP_HEIGHT": "512",
                 "VISION_CAPTURE_FPS": "144",
+                "VISION_IDLE_CAPTURE_FPS": "12",
             },
             clear=True,
         ):
@@ -37,6 +39,7 @@ class VisionRunnerTests(unittest.TestCase):
         self.assertEqual(config.capture_width, 896)
         self.assertEqual(config.capture_height, 512)
         self.assertEqual(config.capture_fps, 144)
+        self.assertEqual(config.idle_capture_fps, 12)
         self.assertEqual(config.image_size, (512, 896))
 
     def test_from_env_allows_debug_overlay_override(self):
@@ -198,14 +201,20 @@ class VisionRunnerTrackingResolutionTests(unittest.TestCase):
 
 
 class _FakeCaptureThread:
+    last_instance = None
+
     def __init__(self, *args, **kwargs):
         self.started = False
         self.stopped = False
         self.join_timeout = None
+        self.target_fps = kwargs.get("target_fps")
+        self.idle_fps = kwargs.get("idle_fps")
+        self.target_fps_calls = []
         self.frames = [
             (np.ones((4, 4, 3), dtype=np.uint8), 1),
             (np.full((4, 4, 3), 2, dtype=np.uint8), 2),
         ]
+        _FakeCaptureThread.last_instance = self
 
     def start(self):
         self.started = True
@@ -220,6 +229,9 @@ class _FakeCaptureThread:
 
     def join(self, timeout=None):
         self.join_timeout = timeout
+
+    def set_target_fps(self, target_fps):
+        self.target_fps_calls.append(target_fps)
 
 
 class _FakeInferenceThread:
@@ -346,6 +358,56 @@ class VisionRunnerPipelineTests(unittest.TestCase):
         self.assertIn("wait_ms", perf_tracker.update.call_args.kwargs)
         self.assertIn("age_ms", perf_tracker.update.call_args.kwargs)
         self.assertGreaterEqual(perf_tracker.update.call_args.kwargs["age_ms"], 0.0)
+
+    @patch("vision.runner.time.sleep", return_value=None)
+    @patch("vision.runner.win32api.GetAsyncKeyState", side_effect=[0, 0x8000])
+    @patch("vision.runner._warmup_model", return_value=None)
+    @patch("vision.runner._load_model", return_value=object())
+    @patch("vision.runner._resolve_tracking_frame")
+    @patch("vision.runner.PerformanceTracker")
+    @patch("vision.runner.CrosshairPersonHitDetector")
+    @patch("vision.runner.AimEnhancementPipeline")
+    @patch("vision.runner.TargetSelector")
+    def test_process_vision_switches_capture_rate_between_idle_and_ads(
+        self,
+        target_selector_cls,
+        aim_enhancement_cls,
+        rb_hit_detector_cls,
+        perf_tracker_cls,
+        resolve_tracking_frame,
+        _load_model,
+        _warmup_model,
+        _get_async_key_state,
+        _sleep,
+    ):
+        perf_tracker_cls.return_value = Mock()
+        resolve_tracking_frame.return_value = TrackingFrameResolution(
+            selected_target=None,
+            auto_fire_active=False,
+            best_target_delta=None,
+            boxes_seen=0,
+        )
+        controller = Mock()
+        controller.is_aiming.side_effect = [False, True, False, True]
+
+        with patch("vision.runner.ScreenCaptureThread", _FakeCaptureThread), patch(
+            "vision.runner.InferenceThread", _FakeInferenceThread, create=True
+        ), patch(
+            "vision.runner.VisionConfig.from_env",
+            return_value=VisionConfig(
+                capture_fps=80,
+                idle_capture_fps=10,
+                frame_timeout=0.01,
+                idle_sleep=0.0,
+            ),
+        ):
+            process_vision(controller=controller)
+
+        capture = _FakeCaptureThread.last_instance
+        self.assertIsNotNone(capture)
+        self.assertEqual(capture.target_fps, 80)
+        self.assertEqual(capture.idle_fps, 10)
+        self.assertEqual(capture.target_fps_calls, [10, 80, 10, 80])
 
     @patch("vision.runner.time.sleep", return_value=None)
     @patch("vision.runner.win32api.GetAsyncKeyState", side_effect=[0, 0x8000])

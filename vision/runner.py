@@ -58,6 +58,7 @@ class VisionConfig:
     capture_width: int = 640
     capture_height: int = 512
     capture_fps: int = 80
+    idle_capture_fps: int = 10
     debug_overlay: bool = False
     debug_save_frames: bool = False
     model_path: str = str(DEFAULT_MODEL_PATH)
@@ -99,12 +100,19 @@ class VisionConfig:
                 os.getenv("VISION_TARGET_FPS", str(defaults.capture_fps)),
             )
         )
+        idle_capture_fps = int(
+            os.getenv(
+                "VISION_IDLE_CAPTURE_FPS",
+                str(defaults.idle_capture_fps),
+            )
+        )
         model_path = os.getenv("VISION_MODEL_PATH", defaults.model_path)
         fallback_model_path = os.getenv("VISION_FALLBACK_MODEL_PATH", defaults.fallback_model_path)
         return cls(
             capture_width=capture_width,
             capture_height=capture_height,
             capture_fps=capture_fps,
+            idle_capture_fps=idle_capture_fps,
             debug_overlay=_env_flag("VISION_DEBUG_OVERLAY"),
             debug_save_frames=_env_flag("VISION_DEBUG_SAVE"),
             model_path=model_path,
@@ -186,6 +194,7 @@ def process_vision(controller=None):
         target_fps=config.capture_fps,
         crop_width=config.capture_width,
         crop_height=config.capture_height,
+        idle_fps=config.idle_capture_fps,
     )
     target_selector = TargetSelector(
         frame_width=config.capture_width,
@@ -214,11 +223,12 @@ def process_vision(controller=None):
     )
 
     capture_thread.start()
+    capture_thread.set_target_fps(config.idle_capture_fps)
     print(
         "[Vision] "
         f"fast_path={'on' if use_fast_path else 'off'} | "
         f"crop={config.capture_width}x{config.capture_height} | "
-        f"capture_fps={config.capture_fps} | "
+        f"capture_fps={config.capture_fps} | idle_capture_fps={config.idle_capture_fps} | "
         f"conf={config.conf:.2f} | half={config.half} | "
         f"debug={'on' if config.debug_overlay else 'off'} | "
         f"debug_save={'on' if config.debug_save_frames else 'off'}"
@@ -249,6 +259,7 @@ def process_vision(controller=None):
                     if controller:
                         controller.reset()
                         controller.set_auto_fire(False)
+                    capture_thread.set_target_fps(config.idle_capture_fps)
                     target_selector.reset_tracking()
                     aim_enhancement.reset()
                     rb_hit_detector.reset()
@@ -268,6 +279,7 @@ def process_vision(controller=None):
                 continue
 
             if not was_aiming:
+                capture_thread.set_target_fps(config.capture_fps)
                 perf_tracker.reset_window()
                 inference_thread.resume()
                 last_result_id = 0
