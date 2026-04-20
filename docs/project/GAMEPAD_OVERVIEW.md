@@ -1,259 +1,196 @@
 # Gamepad Overview
 
+Last updated: 2026-04-20
+
 ## Goal
 
-The current gamepad path is split into two layers:
+The current gamepad path is a plugin-driven controller host that:
 
-- Base layer: read the physical gamepad and mirror it to the virtual Xbox gamepad.
-- Enhancement layer: treat aim assist, auto-fire, recoil pull-down, and similar behavior as plugins.
+- reads a physical gamepad
+- mirrors it to a virtual Xbox 360 controller
+- mixes controller-local AI assistance into the output
+- keeps the vision boundary compact
 
-This keeps the main loop narrow. The host is responsible for I/O and state handoff. Behavior changes live in plugins.
+This is the most mature controller mode in the repository today.
 
-## Current directory layout
+## Main Files
 
 - `controllers/gamepad_controller.py`
-  - gamepad host loop
-  - physical input read
-  - virtual gamepad writeback
-  - plugin invocation
-- `controllers/gamepad/`
-  - plugin contracts and gamepad-specific enhancement modules
-- `tests/gamepad/`
-  - gamepad plugin and host tests
-- `gamepad_start.bat`
-  - start gamepad mode
-- `mouse_start.bat`
-  - start mouse mode
+- `controllers/gamepad/state.py`
+- `controllers/gamepad/plugin.py`
+- `controllers/gamepad/ai_aim.py`
+- `controllers/gamepad/auto_fire.py`
+- `controllers/gamepad/recoil_compensation.py`
+- `controllers/gamepad/diagnostics.py`
 
-## Runtime flow
+Support and legacy modules still present in the folder:
 
-1. `main.py` parses runtime options such as `--controller-mode` and `--auto-fire-output`.
-2. `controller.py` creates `GamepadController` when `--controller-mode gamepad` is selected.
-3. `vision/runner.py` drives detection and targeting.
-4. Vision sends only high-level signals into the controller:
-   - `controller.update(dx, dy, target=...)` for target offset plus compact body-box metadata
-   - `controller.set_auto_fire(pressed)` for fire intent
-   - `controller.reset()` when no valid target or aim state is lost
-5. `controllers/gamepad_controller.py` reads the physical gamepad state, builds a `GamepadFrame`, creates a mutable `GamepadOutput`, then runs the plugin chain.
-6. The final `GamepadOutput` is written to the virtual Xbox controller.
+- `adaptive_delta_gain.py`
+- `horizontal_assist.py`
+- `manual_intent_guard.py`
+- `overshoot_guard.py`
+- `legacy_ai_aim.py`
 
-The key boundary is: the vision side does not directly decide button mapping or stick shaping. It only sends target and fire signals.
+Those support files still matter for experiments, old benchmark context, and implementation history, but they are not the default host pipeline created by `GamepadController`.
 
-## Base responsibilities in `gamepad_controller.py`
+## Runtime Flow
 
-`GamepadController` is the host, not the place for feature growth. Its current responsibilities are:
+1. `main.py` asks `ControllerFactory` for `gamepad`.
+2. `GamepadController` starts a thread, opens the physical pad through `pygame`, and opens a virtual Xbox 360 pad through `vgamepad`.
+3. Vision sends only:
+   - `update(dx, dy, target=ControllerTarget | None)`
+   - `set_auto_fire(bool)`
+   - `reset()`
+4. The host reads physical input and builds a `GamepadFrame`.
+5. The host seeds a mutable `GamepadOutput` from physical passthrough values.
+6. The plugin chain mutates `GamepadOutput`.
+7. The final output is written to the virtual pad.
 
-- initialize `pygame` and `vgamepad`
-- read physical sticks, triggers, buttons, and D-pad
-- apply physical-stick deadzone handling
-- track controller-local state such as aiming and latest target revision
-- package one frame of input into `GamepadFrame`
-- seed `GamepadOutput` with pure passthrough values
-- run plugins in order
-- write the final output to the virtual pad
+## Host Responsibilities
 
-This matches the direction you wanted: main loop only passes signals and applies final output.
+`GamepadController` is the host, not the place for feature sprawl.
 
-## Plugin contracts
+Current host responsibilities are:
 
-`controllers/gamepad/state.py` defines two core data structures:
+- initialize `pygame`
+- initialize `vgamepad`
+- read sticks, triggers, buttons, and D-pad
+- track aiming state from the left trigger
+- store the latest vision delta and target metadata
+- build `GamepadFrame`
+- seed `GamepadOutput` with passthrough values
+- run plugins
+- write the final virtual-controller state
+
+The host intentionally preserves manual stick values before plugins run. It does not silently deadzone away small right-stick inputs at the host layer.
+
+## Shared Data Structures
+
+`controllers/gamepad/state.py` defines:
 
 - `GamepadFrame`
-  - immutable snapshot of one controller frame plus vision signals
+  - immutable snapshot of one controller frame
+  - includes manual input, aiming state, latest vision signal, auto-fire request, and optional `ControllerTarget`
 - `GamepadOutput`
-  - mutable output buffer that plugins can modify before writeback
+  - mutable output buffer written by plugins before final device output
 
-`controllers/gamepad/plugin.py` defines the host/plugin contract:
+`ControllerTarget` currently carries:
 
-- `apply_plugins(plugins, frame, output)`
-- `reset_plugins(plugins)`
+- aim point
+- screen center
+- optional `body_box`
 
-Each plugin only needs:
+This extra target metadata is what allows controller-side `Body Lock` behavior without moving final actuation logic into vision.
 
-- `reset()`
-- `apply(frame, output)`
+## Current Plugin Chain
 
-That contract is small enough to reuse for a mouse backend later.
+The default plugin chain created in `GamepadController.__init__` is:
 
-## Current plugins
+1. `AIAimPlugin`
+2. `AutoFirePlugin`
+3. `RecoilCompensationPlugin`
 
-### `AIAimPlugin`
+Optional diagnostics:
 
-File: `controllers/gamepad/ai_aim.py`
+- `DownwardPullDiagnostics` can record plugin traces when enabled through env vars
 
-Responsibility:
+## Current AI Aim Behavior
 
-- default path: explicit `Manual` / `ADS Snap` / `Body Lock` controller state machine
-- compatibility path: if `AIAimPlugin` is constructed with explicit `sub_plugins`, it still runs the older blended-assist pipeline for legacy tests and comparisons
+`AIAimPlugin` is currently a state-machine-style controller plugin.
 
-Default state-machine behavior:
+Primary modes:
 
-- `Manual`
-  - default state
-  - no continuous always-on AI tracking outside the two explicit aim-assist windows
-- `ADS Snap`
-  - active only during the first ADS window of a session
-  - intended to pull the reticle close quickly, then get out of the way
-- `Body Lock`
-  - only activates once the crosshair is already inside the target body box plus tolerance
-  - only activates when the upper-body lock point stays inside a central activation window
-  - targets upper-body center rather than generic full-body center
-  - can apply short-horizon motion compensation after several matched frames on the same target
-
-### Current AI aim execution rules
-
-The default gamepad aim path is now:
-
-1. Read manual right-stick input from the physical pad.
-2. Read `dx/dy` plus compact target metadata from vision.
-3. If ADS just began and the first-window conditions are still open, apply `ADS Snap`.
-4. Once the crosshair is already inside the target body box plus tolerance, switch to `Body Lock`.
-5. Outside those explicit windows, return to manual passthrough instead of continuous blended AI.
+- `manual`
+  - passthrough baseline when there is no active assistance window
+- `ads_snap`
+  - short first-ADS reposition window
+- `body_lock`
+  - sticky upper-body correction when the crosshair is already close and the target body box supports a lock
 
 Important details:
 
-- the central `Body Lock` activation window defaults to `150x150`
-- `Body Lock` exit is driven by leaving the near-target region or losing ADS, not by strong manual input
-- short-horizon lead compensation is controller-side only; it biases the lock point after several matched frames without changing vision target selection
-- the old blended assist path is still available for legacy benchmark/plugin coverage when constructed explicitly
+- `ads_snap_window_ms` defaults to `100`
+- body lock only engages when the crosshair is already inside the target body box plus tolerance
+- body lock uses upper-body aim instead of generic box center
+- body lock has controller-side motion compensation after continuity is established
+- manual input is not simply overwritten
+  - same-direction help can be preserved
+  - harmful opposing input can be suppressed
+  - orthogonal wobble can be damped near lock
+- near zero-crossing, axis guards intentionally hold correction briefly to reduce oscillation
 
-### `AutoFirePlugin`
+Current tuning for `AIAimPlugin` comes from:
 
-File: `controllers/gamepad/auto_fire.py`
+- code defaults in `controllers/gamepad/ai_aim.py`
+- optional overrides from `config.toml` under `[gamepad.ai_aim]`
 
-Responsibility:
+## AutoFire
 
-- convert `auto_fire_requested` into actual fire output on the virtual pad
-- support configurable fire mapping
+`AutoFirePlugin` converts vision fire intent into actual controller output.
 
-Current config:
+Current behavior:
 
-- `RB`
-- `RT`
+- `aim_only = True` by default
+- final output can be either:
+  - `RB`
+  - `RT`
 
-So the enhancement is named `AutoFire`, but the final fire button is a config choice rather than hard-coded to RB.
+Current source of that choice:
 
-### `RecoilCompensationPlugin`
+- CLI: `--auto-fire-output`
+- `gamepad_start.bat` prompt
 
-File: `controllers/gamepad/recoil_compensation.py`
+This is not currently driven by `config.toml`.
 
-Responsibility:
+## Recoil Compensation
 
-- add downward right-stick pull while auto-fire is active
+`RecoilCompensationPlugin` adds downward right-stick pull while `auto_fire_active` is true.
 
-This plugin is intentionally separate from `AutoFirePlugin`, so fire timing and recoil behavior can evolve independently.
+Important current nuance:
 
-## Supporting modules
+- the plugin class default is `amount = 0.30`
+- the host currently instantiates it with `RecoilCompensationConfig(amount=0.20)`
 
-### Legacy support modules
+So the live default path is the host-chosen `0.20`, not the dataclass default.
 
-- `manual_intent_guard.py`
-- `adaptive_delta_gain.py`
-- `horizontal_assist.py`
-- `overshoot_guard.py`
+## Startup And Scripts
 
-These remain in the repository for the explicit legacy `sub_plugins` path, benchmark comparison, and isolated tuning experiments.
+`gamepad_start.bat` currently:
 
-## Current tuning direction
+- enables `VISION_PERF_LOG=1`
+- enables the vision fast path unless the env already overrides it
+- defaults `VISION_CAPTURE_FPS=80`
+- defaults `VISION_IDLE_CAPTURE_FPS=10`
+- prompts for:
+  - auto-fire output
+  - vision preprocessor
 
-The current gamepad stack is intentionally biased toward:
+If `native` is selected for the preprocessor, the script prints a reminder that it still falls back to CPU when `vision_native` is unavailable.
 
-- manual control as the baseline
-- one aggressive first-ADS reposition
-- sticky upper-body correction only after the player is already close
-- controller-side lead compensation only inside that `Body Lock` phase
+## Legacy And Support Notes
 
-So the current design goal is no longer "always-on blended rescue".
-It is "manual by default, one-time ADS snap, then conditional sticky body lock."
+The repository still contains older gamepad-side support modules for:
 
-## Relationship to vision-side targeting
+- adaptive gain
+- horizontal assist
+- manual-intent arbitration helpers
+- overshoot control
+- older legacy AI-aim structure
 
-The gamepad side assumes vision sends only target and fire signals, but aim feel also depends on upstream targeting rules:
+These are still useful reference material, benchmark context, or experimental tooling. They should not be described as the default runtime path unless the controller host is explicitly changed to instantiate them.
 
-- target selection now exposes a torso-oriented slow zone
-- near-target damping is intended to happen only when the reticle is already converging inside that trusted torso zone
+## Current Boundary With Vision
 
-That separation matters for future mouse work:
+The gamepad controller expects vision to decide:
 
-- vision decides where the trusted target zone is
-- controller plugins decide how strongly to move toward it and how to mix with manual input
+- what target to trust
+- what target delta to send
+- when auto-fire should be requested
 
-## Startup and configuration
+The gamepad layer decides:
 
-### `gamepad_start.bat`
+- how to mix AI with live manual stick input
+- how to map fire output
+- how to shape stick actuation on the virtual pad
 
-- starts `main.py --controller-mode gamepad`
-- prompts for AutoFire output:
-  - `1 = RB`
-  - `2 = RT`
-- enables perf logging by default
-
-### `mouse_start.bat`
-
-- starts `main.py --controller-mode mouse`
-- enables perf logging by default
-
-CLI entry:
-
-- `main.py --auto-fire-output RB|RT`
-
-## Compatibility notes
-
-- `controllers/gamepad_controller.py` stays in the controller root by design.
-- Gamepad enhancement modules live under `controllers/gamepad/`.
-- Gamepad tests live under `tests/gamepad/`.
-- D-pad output uses per-button `press_button` / `release_button` calls, because the installed `vgamepad.VX360Gamepad` on this machine does not provide `directional_pad()`.
-
-## What Claude should preserve for a mouse design
-
-The mouse version should preserve the same separation:
-
-- host layer
-  - read physical mouse / keyboard state
-  - receive vision signals
-  - write final output
-- plugin layer
-  - AI aim
-  - auto-fire
-  - recoil compensation
-  - wrong-input correction
-  - future prediction / overshoot limiting / motion compensation
-
-The reusable idea is not "virtual gamepad output". The reusable idea is:
-
-- one immutable frame input
-- one mutable output object
-- a thin host
-- a plugin chain for enhancements
-- short-window intent classification before final AI/manual blending
-
-## Suggested translation to a mouse backend
-
-Claude can use this gamepad design as a template and replace the output target:
-
-- gamepad right-stick output -> mouse delta output
-- gamepad fire mapping (`RB` / `RT`) -> mouse button mapping or configurable fire action
-- recoil compensation right-stick pull -> downward mouse delta
-- AI fade against manual stick input -> AI fade against strong manual mouse movement
-- manual-intent guard against wrong right-stick X input -> short-window manual-intent guard against wrong mouse X movement
-- overshoot guard and horizontal prediction -> keep as screen-space correction modules if the math remains target-delta based
-
-## Detailed design notes
-
-This file is the current behavior overview.
-
-Detailed change-by-change notes remain in:
-
-- `docs/superpowers/specs/2026-04-13-gamepad-adaptive-delta-gain-design.md`
-- `docs/superpowers/plans/2026-04-13-gamepad-manual-intent-guard.md`
-
-Those files are useful for implementation history and tuning rationale, but this overview should be the primary handoff document for future controller work.
-
-## Questions Claude should answer for the mouse plan
-
-- What is the mouse equivalent of `GamepadFrame` and `GamepadOutput`?
-- Which parts of AI aim remain screen-space and can be shared conceptually?
-- Which mouse actions belong in the base host and which must stay plugins?
-- How should auto-fire map to mouse buttons and keyboard-assisted fire cases?
-- How should manual mouse movement suppress or blend with AI output?
-- Does the mouse path need its own overshoot and recoil tuning, or can it reuse the same conceptual modules with different output scaling?
+That split is intentional and should stay stable unless the project deliberately moves execution logic out of Python controller code.

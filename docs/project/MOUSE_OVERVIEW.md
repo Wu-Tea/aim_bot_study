@@ -1,114 +1,155 @@
 # Mouse Controller Overview
 
+Last updated: 2026-04-20
+
 ## Goal
 
-The mouse path mirrors the gamepad plugin architecture but operates in pixel space. AI corrections are injected as additional `mouse_event` deltas on top of the physical mouse movement. The physical mouse is never intercepted or replaced — the program acts as an additive signal.
+The native mouse path keeps the physical mouse active and injects extra correction deltas on top of it.
 
-## Directory layout
+It is designed for:
+
+- additive AI mouse correction
+- optional pulse auto-fire
+- simple recoil pull-down
+
+It is narrower than the gamepad path, but it is a real current implementation, not a placeholder.
+
+## Main Files
 
 - `controllers/mouse_controller.py`
-  - mouse host loop
-  - pynput listener for physical mouse input
-  - win32api output (mouse_event)
-  - plugin invocation
-- `controllers/mouse/`
-  - plugin contracts and mouse-specific enhancement modules
-- `tests/mouse/`
-  - mouse plugin and host tests
-- `mouse_start.bat`
-  - start mouse mode
+- `controllers/mouse/state.py`
+- `controllers/mouse/plugin.py`
+- `controllers/mouse/ai_aim.py`
+- `controllers/mouse/auto_fire.py`
+- `controllers/mouse/recoil_compensation.py`
 
-## Runtime flow
+## Runtime Flow
 
-1. `main.py --controller-mode mouse` creates `MouseController` via `ControllerFactory`.
-2. `vision/runner.py` drives detection and targeting.
-3. Vision sends signals into the controller:
-   - `controller.update(dx, dy)` for target offset
-   - `controller.set_auto_fire(pressed)` for fire intent
-   - `controller.reset()` when no valid target
-4. `MouseController` reads physical mouse movement via pynput, builds a `MouseFrame`, creates a mutable `MouseOutput`, then runs the plugin chain.
-5. The final `MouseOutput` is applied: `mouse_event(MOVE)` for aim correction, `mouse_event(LEFTDOWN/LEFTUP)` for auto-fire.
+1. `main.py --controller-mode mouse` creates `MouseController`.
+2. Vision sends:
+   - `update(dx, dy, target=ControllerTarget | None)`
+   - `set_auto_fire(bool)`
+   - `reset()`
+3. `MouseController` listens to physical mouse movement through `pynput`.
+4. The host builds a `MouseFrame`.
+5. The host starts from an empty `MouseOutput`.
+6. Mouse plugins add movement and click behavior.
+7. The final output is injected through `win32api.mouse_event(...)`.
 
-## Key difference from gamepad
+## Important Boundary
 
-The gamepad outputs stick values (-32768 to 32767) which are velocities. The mouse outputs pixel deltas which are position increments. This means:
+Unlike `gamepad`, the current mouse path does not consume `ControllerTarget` metadata.
 
-- Parameters must be much smaller (the loop runs at ~1000Hz)
-- The AI philosophy is inverted: gamepad fades AI when user moves the stick hard; mouse dampens user movement when AI has a target (`manual_dampen`)
-- Physical mouse movement is captured for dampening calculation but not re-injected (the physical device already moves the cursor)
+Today it only uses:
 
-## Data structures
+- `dx`
+- `dy`
+- `auto_fire`
+- local aiming state from right-click
+
+So the mouse path is simpler, but it also has less controller-side context than the gamepad path.
+
+## Data Structures
 
 `controllers/mouse/state.py` defines:
 
-- `MouseFrame` — immutable snapshot of one frame: manual mouse delta, vision target offset, aiming state, auto-fire request
-- `MouseOutput` — mutable output buffer: `move_dx/dy` (pixel delta to inject), `left_click` (auto-fire state), `auto_fire_active` (flag for recoil plugin)
+- `MouseFrame`
+  - immutable snapshot of manual mouse delta, aiming state, vision delta, and auto-fire request
+- `MouseOutput`
+  - mutable output buffer with:
+    - `move_dx`
+    - `move_dy`
+    - `left_click`
+    - `auto_fire_active`
 
-`output.move_dx/dy` starts at **0**, not at the manual mouse delta.
+Unlike gamepad output, `MouseOutput` starts at zero. The physical mouse has already moved the cursor on its own.
 
-## Plugin contracts
+## Current Plugin Chain
 
-`controllers/mouse/plugin.py` defines:
+The default plugin chain created by `MouseController` is:
 
-- `MousePlugin` protocol: `reset()` and `apply(frame, output)`
-- `apply_plugins(plugins, frame, output)` and `reset_plugins(plugins)`
+1. `AIAimPlugin`
+2. `AutoFirePlugin`
+3. `RecoilCompensationPlugin`
 
-## Current plugins
+## Current AI Aim Behavior
 
-### AIAimPlugin (`controllers/mouse/ai_aim.py`)
+`AIAimPlugin` currently does four things:
 
-Converts vision target delta into pixel corrections.
+- scales vision error through `gain`
+- ramps assistance between an inner and outer radial deadzone
+- smooths output with carry-based EMA
+- counteracts part of the user's manual movement through `manual_dampen`
 
-- `gain` (0.06): scales target offset into correction pixels
-- `smoothing` (0.65): EMA carry factor between frames
-- `max_correction_px` (1.5): single-frame AI move cap
-- `deadzone_inner_px` (3.0) / `deadzone_outer_px` (8.0): soft ramp based on raw target distance
-- `manual_dampen` (0.4): fraction of user's physical mouse movement to counteract when AI has a target, making the cursor "stickier" near the target
+Current code defaults:
 
-Deadzone is applied to the raw target offset (pixel space) before gain scaling, not to the post-gain value.
+- `gain = 0.06`
+- `smoothing = 0.65`
+- `max_correction_px = 1.5`
+- `deadzone_inner_px = 3.0`
+- `deadzone_outer_px = 8.0`
+- `manual_dampen = 0.4`
 
-Sub-plugins (HorizontalAssist, OvershootGuard) are not yet ported from the gamepad side.
+Current config loader support is narrower than the dataclass:
 
-### AutoFirePlugin (`controllers/mouse/auto_fire.py`)
+- `config.toml` under `[mouse.ai_aim]` currently exposes:
+  - `gain`
+  - `smoothing`
+  - `max_correction_px`
+  - `manual_dampen`
+- the deadzone fields currently stay at code defaults unless the code is changed
 
-Simulates left mouse button press with pulse timing.
+## AutoFire
 
-- `hold_seconds` (0.120): how long to hold the click
-- `release_seconds` (0.030): gap between pulses
-- `aim_only` (True): only fire while right-click is held
+`AutoFirePlugin` uses a pulse cycle rather than a continuous held click.
 
-The pulse cycle prevents continuous hold, which some games may not register properly. The host sends `LEFTUP` before every `LEFTDOWN` to ensure a clean press edge.
+Current defaults:
 
-### RecoilCompensationPlugin (`controllers/mouse/recoil_compensation.py`)
+- `aim_only = True`
+- `hold_seconds = 0.120`
+- `release_seconds = 0.030`
 
-Adds downward mouse delta during auto-fire.
+The host also forces a clean click edge by sending `LEFTUP` before a new `LEFTDOWN`.
 
-- `amount_px` (0.80): pixels to pull down per frame (~800px/sec at 1000Hz)
+## Recoil Compensation
 
-## Host implementation notes
+`RecoilCompensationPlugin` adds downward mouse delta when `auto_fire_active` is true.
 
-### Feedback loop prevention
+Current default:
 
-`pynput.Listener.on_move` captures all cursor movement including our synthetic `mouse_event` injections. After injecting movement, the host subtracts the injected amount from the accumulator to prevent a feedback loop.
+- `amount_px = 0.80`
 
-### Auto-fire click edge
+Unlike the gamepad path, mouse recoil and mouse auto-fire are not currently exposed through the shared config loader.
 
-The host sends `LEFTUP` before every `LEFTDOWN` transition to create a guaranteed clean press edge. This ensures the game recognizes a fresh click even if the button was already held. `pynput` cannot reliably distinguish synthetic from physical clicks, so manual-click tracking was removed in favor of this approach.
+## Host Implementation Notes
 
-### Output backend
+Important host details in `MouseController`:
 
-Currently uses `win32api.mouse_event`. If a game uses Raw Input and ignores synthetic input, an Interception driver backend could be added as an alternative.
+- right-click controls aiming state
+- releasing right-click triggers `reset()`
+- injected mouse deltas are subtracted back out of the accumulator so synthetic movement does not loop back in as fake manual input
+- the loop runs at roughly `1000 Hz` through `time.sleep(0.001)`
 
-## Tuned parameters (2026-04-12)
+This path is intentionally additive. It does not try to replace or intercept the physical mouse device.
 
-These defaults were tuned through playtesting:
+## Startup
 
-| Parameter | Value | Rationale |
-|-----------|-------|-----------|
-| `gain` | 0.06 | 50px offset → 3px raw, keeps corrections subtle |
-| `max_correction_px` | 1.5 | At 1000Hz, 1.5px/frame ≈ 1500px/sec max speed |
-| `smoothing` | 0.65 | Balances responsiveness and jitter |
-| `manual_dampen` | 0.4 | 40% user movement suppression near target |
-| `recoil amount_px` | 0.80 | ~800px/sec downward pull during fire |
-| `hold_seconds` | 0.120 | Pulse fire hold duration |
-| `release_seconds` | 0.030 | Pulse fire gap |
+`mouse_start.bat` currently:
+
+- enables `VISION_PERF_LOG=1`
+- launches `main.py --controller-mode mouse`
+
+It does not provide the gamepad startup prompts.
+
+## Relationship To `kbm_to_gamepad`
+
+`mouse` and `kbm_to_gamepad` are not the same thing.
+
+- `mouse`
+  - outputs native mouse events
+  - keeps the physical mouse semantics
+- `kbm_to_gamepad`
+  - outputs a virtual Xbox 360 controller
+  - translates mouse movement into right-stick motion
+
+So `mouse` is the native-output path, while `kbm_to_gamepad` is the virtual-gamepad bridge path.

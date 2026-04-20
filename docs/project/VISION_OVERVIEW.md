@@ -1,217 +1,274 @@
 # Vision Overview
 
-Last updated: 2026-04-14
+Last updated: 2026-04-20
 
-## Current Goal
+## Goal
 
-The current vision path is optimized for:
+The current vision stack is optimized for:
 
-- detecting human targets near screen center
-- rejecting friendlies from name-color above the head
-- outputting a stable upper-chest target point
-- keeping controller integration unchanged
-- holding end-to-end latency near real-time playability
+- center-crop person detection with low idle cost
+- box-based target selection for controller handoff
+- friendly rejection from color cues above the box
+- short-horizon occlusion recovery and motion-aware target deltas
+- keeping the controller boundary small and stable
 
-This version is detector-first. It no longer depends on pose keypoints for the main targeting path.
+The current production path is detector-first. The main targeting path does not depend on pose keypoints.
+
+## Entry Points
+
+- `main.py`
+- `vision/__init__.py`
+- `vision/runner.py`
+- `tools/export_trt.py`
+
+`main.py` creates the controller, then calls `process_vision(controller=...)`.
+
+## Runtime States
+
+The runner has three practical states:
+
+1. `Idle`
+   - `ScreenCaptureThread` stays alive but runs at `idle_capture_fps`
+   - `InferenceThread` is paused
+   - targeting, enhancement, hit detection, and perf windows are reset
+2. `ADS active`
+   - capture jumps to `capture_fps`
+   - inference resumes
+   - fresh results flow through targeting and controller update
+3. `Inference gap`
+   - no fresh inference result arrived before `frame_timeout`
+   - the runner does not invent new detections
+   - controller fire is disabled for that iteration
+   - debug mode can still show a waiting state or the last materialized frame
 
 ## Current Pipeline
 
-Entry:
-
-- `main.py`
-- `vision/runner.py`
-
 Runtime flow:
 
-1. `ScreenCaptureThread` captures a center crop in RGB.
-2. `vision/fastpath.py` runs the detect model (`engine` first, `pt` fallback).
-3. `TargetSelector` filters and scores person boxes.
-4. `AimEnhancementPipeline` converts `SelectedTarget` into `best_target_delta`.
-5. `CrosshairPersonHitDetector` decides `AutoFire`.
-6. Controller receives:
-   - analog aim delta
-   - auto-fire on/off
+1. `ScreenCaptureThread` captures a centered RGB crop through `vision/dxgi_capture.py`.
+2. `DXGIRegionCaptureBackend` returns either:
+   - a materialized RGB frame, or
+   - a lazy `CapturedFrame` with native handle plus on-demand loaders
+3. `InferenceThread` runs latest-only inference.
+4. `vision/fastpath.py` uses:
+   - TensorRT `best.engine` when available
+   - `best.pt` fallback if engine load fails
+5. Fast-path output is decoded into `ParsedDetections`.
+6. `TargetSelector` filters, classifies, scores, and confirms candidates.
+7. `TargetOcclusionCompensator` may reconstruct or predict a short-lived target.
+8. `AimEnhancementPipeline` transforms the selected target into a controller delta.
+9. `CrosshairPersonHitDetector` decides whether the selected target is inside the `fire_zone`.
+10. `AdsAutoFireGate` blocks auto-fire during the first `120ms` after aiming begins.
+11. The controller receives:
+   - `controller.update(dx, dy, target=ControllerTarget | None)`
+   - `controller.set_auto_fire(on_or_off)`
+   - `controller.reset()` when no correction should be applied
+
+The runner only sends compact target metadata to the controller. It does not push raw frames into the controller layer.
 
 ## Current Defaults
 
-From `VisionConfig` in `vision/runner.py`:
+Current `VisionConfig` defaults in `vision/runner.py`:
 
-- `capture_width = 896`
+- `capture_width = 640`
 - `capture_height = 512`
-- `capture_fps = 70`
-- `model_path = models/yolo26n.engine`
-- `fallback_model_path = models/yolo26n.pt`
-- `model_task = detect`
+- `capture_fps = 80`
+- `idle_capture_fps = 10`
+- `fast_preprocessor = "cpu"`
+- `model_path = models/best.engine`
+- `fallback_model_path = models/best.pt`
+- `model_task = "detect"`
+- `classes = (0,)`
 - `conf = 0.40`
+- `half = True`
+- `device = 0`
+- `frame_timeout = 0.10`
+- `idle_sleep = 0.01`
+- `perf_log_interval = 2.0`
 
-CLI / env control:
+Useful CLI and env controls:
 
-- `--crop-width` / `VISION_CROP_WIDTH`
-- `--crop-height` / `VISION_CROP_HEIGHT`
-- `--capture-fps` / `VISION_CAPTURE_FPS`
-- `--vision-debug` / `VISION_DEBUG_OVERLAY`
-- `--vision-debug-save` / `VISION_DEBUG_SAVE`
-- compatibility aliases still work:
-  - `--crop-size`
-  - `--target-fps`
-  - `VISION_CROP_SIZE`
-  - `VISION_TARGET_FPS`
+- `--crop-size`
+- `--crop-width`
+- `--crop-height`
+- `--capture-fps`
+- `--target-fps`
+- `--vision-debug`
+- `--vision-debug-save`
+- `--perf-log`
+- `VISION_CROP_WIDTH`
+- `VISION_CROP_HEIGHT`
+- `VISION_CAPTURE_FPS`
+- `VISION_IDLE_CAPTURE_FPS`
+- `VISION_FAST_PATH`
+- `VISION_FAST_PREPROCESSOR`
+- `VISION_DEBUG_OVERLAY`
+- `VISION_DEBUG_SAVE`
+- `VISION_PERF_LOG`
+
+`gamepad_start.bat` currently sets `VISION_PERF_LOG=1`, enables the fast path by default, sets capture to `80 FPS`, idle capture to `10 FPS`, and prompts for:
+
+- auto-fire output: `RB` or `RT`
+- vision preprocessor: `cpu` or `native`
+
+## Fast Path And Native Status
+
+The current fast path is real, but the current fully native preprocessor path is not.
+
+What is already implemented:
+
+- direct fast-path backend use through `_fast_predict(...)`
+- ROI-based DXGI capture
+- lazy full-frame materialization
+- ROI-only CPU extraction for color classification when a full frame is not needed
+
+What is only prewired right now:
+
+- `vision/native_fastpath.py`
+- `VISION_FAST_PREPROCESSOR=native`
+- `CapturedFrame.native_frame`
+
+Current behavior:
+
+- if `VISION_FAST_PREPROCESSOR=native` is selected and `vision_native` is missing, startup logs a fallback and uses the CPU preprocessor
+- the CPU preprocessor still performs:
+  - `torch.from_numpy(...)`
+  - CPU-to-GPU upload
+  - HWC-to-CHW reorder
+  - dtype conversion
+  - `/255.0`
+
+So the repository already contains native integration hooks, but not a finished always-on GPU-resident preprocess module.
 
 ## Target Selection
 
-Targeting now uses box geometry only:
+The current targeting path is box-based.
 
-- aim point:
-  - box center on X
-  - `30%` down from box top on Y
-- slow zone:
-  - torso-like inner box
-- fire zone:
-  - tighter inner box used by `AutoFire`
+Important behavior in `TargetSelector`:
 
-Selection behavior:
+- main target point is upper-chest oriented
+- `slow_zone` and `fire_zone` are derived from the selected body box
+- green above-box color is treated as friendly and rejected
+- yellow and red above-box color add enemy confidence bonus
+- first pickup confirmation requires `2` frames
+- target switch confirmation requires `2` frames
+- missing-target hold requires `2` frames before the active target is dropped
+- current tracking can survive at lower confidence than first pickup
+- target switching is intentionally sticky to reduce left-right flapping
 
-- first pickup uses stricter confidence and geometry gates
-- enemy-colored pickups are allowed to lock at a slightly lower confidence than neutral pickups
-- first pickup must survive `2` consecutive frames before it becomes the active target
-- tracked targets can survive at lower confidence if they stay near the previous center
-- a confirmed target can survive `2` missing / rejected frames before it is released
-- small target-point jumps are smoothed
-- target switching is intentionally sticky:
-  - distance-based tracking bonus
-  - `TRACKING_SWITCH_MARGIN` prevents left-right target flapping on tiny score changes
+Current targeting does not require pose keypoints. `ParsedDetections.keypoints` remains optional and is not the main production signal.
 
-## AutoFire Behavior
+## Occlusion Compensation
 
-`AutoFire` no longer scans raw detections blindly.
+`vision/occlusion_compensation.py` currently supports two short-horizon recovery paths:
 
-Primary path:
+- `reconstructed`
+  - used when a still-visible box looks clipped or scope-occluded
+  - rebuilds a taller box from recent stable samples when center X and bottom Y remain plausible
+- `predicted`
+  - used when detections disappear briefly after stable recent motion
+  - linearly extrapolates from the recent sample history
+  - limited to a short burst of predicted frames
 
-- fire only when the crosshair is inside the `fire_zone` of the current `SelectedTarget`
-- raw centered detection boxes no longer trigger `AutoFire` on their own
-- short dropouts are handled by target stickiness plus detector grace frames, not by a separate centered-box fallback
+Current `TargetSource` values are:
 
-ADS gate:
+- `observed`
+- `reconstructed`
+- `predicted`
 
-- after aiming starts, `AutoFire` is blocked for `120ms`
-- this avoids firing before the in-game reticle fully settles
+## Aim Enhancement
 
-## Debug Overlay
+The current enhancement layer is separate from target selection.
 
-When debug mode is enabled:
+`AimEnhancementPipeline` currently applies:
 
-- a live rectangular crop window is shown
-- detection boxes, confidence, friendly/enemy/neutral labels, lock point, `slow_zone`, `fire_zone`, crosshair, and current state text are rendered on top
-- non-selected detections are labeled as `raw ...` so they are easier to distinguish from the actual locked target
+- `LeadPredictor`
+  - adds small motion lead after consistent observed motion
+- `CatchupBoost`
+  - increases output if error keeps growing frame over frame
+- `NearTargetDamping`
+  - reduces correction as the reticle converges near the target
 
-When debug frame saving is enabled:
+Predicted targets are treated differently:
 
-- the annotated debug frame is saved whenever the current frame contains one or more detections
-- files are written asynchronously to avoid blocking the vision loop
-- output path is `debug_captures/YYYY-MM-DD/`
-- filenames include time plus quick state markers such as `boxes`, `lock`, and `fire`
+- they do not advance the normal observed-motion history
+- they only go through the near-target damping path
 
-## Files Changed In This Version
+This keeps short prediction compensation from polluting longer-lived motion estimates.
 
-Core runtime:
+## AutoFire
+
+Auto-fire is no longer driven by generic centered boxes.
+
+Current behavior:
+
+- fire is based on the selected target's `fire_zone`
+- `CrosshairPersonHitDetector` keeps a short hold window with `release_grace_frames = 4`
+- `AdsAutoFireGate` blocks the first `120ms` of auto-fire after aiming starts
+- the final output button is chosen by the controller layer, not by vision
+
+## Perf Logs
+
+`vision/perf.py` emits two windowed log lines:
+
+- `[Perf][ADS]`
+  - average across all aimed frames in the current log window
+- `[Perf][TRACK]`
+  - average across only the subset of frames where a selected target existed
+
+Field meanings:
+
+- `loop`
+  - average iterations per second for that window
+- `wait`
+  - time spent waiting for a fresh inference result
+- `infer`
+  - time spent inside the inference path for that frame
+- `post`
+  - time spent on target selection, enhancement, fire gating, and controller-side handoff prep
+- `age`
+  - freshness from `captured_at` to result consumption in the main loop
+- `boxes`
+  - average detection boxes seen per frame in that window
+
+`[Perf][TRACK]` is not a separate tracker backend. It is a subset view over the same ADS loop, restricted to frames where tracking was active.
+
+## Debug Features
+
+Debug is optional and not part of the hot path design target.
+
+Current capabilities:
+
+- live overlay window through `VisionDebugOverlay`
+- annotated frame saving through `DebugFrameCapture`
+- async frame save path for detection-bearing frames
+
+These are useful for tuning and investigation, but they are not required for normal runtime.
+
+## Core Files
+
+Main runtime:
 
 - `vision/runner.py`
+- `vision/capture.py`
+- `vision/dxgi_capture.py`
+- `vision/fastpath.py`
+- `vision/inference.py`
+- `vision/targeting.py`
+- `vision/occlusion_compensation.py`
+- `vision/enhancement.py`
+- `vision/perf.py`
+
+Optional debug utilities:
+
 - `vision/debug_overlay.py`
 - `vision/debug_capture.py`
-- `vision/capture.py`
-- `vision/fastpath.py`
-- `vision/targeting.py`
-- `vision/enhancement.py`
-- `main.py`
-- `tools/export_trt.py`
 
-Tests:
+## Current Boundaries
 
-- `tests/test_vision_debug_capture.py`
-- `tests/test_vision_debug_overlay.py`
-- `tests/test_vision_targeting.py`
-- `tests/test_vision_enhancement.py`
-- `tests/test_vision_runner.py`
-- `tests/test_vision_runner_config.py`
-- `tests/test_vision_runner_autofire_gate.py`
+The important architectural boundary today is:
 
-Planning notes:
+- vision owns capture, inference, target selection, short-horizon recovery, delta shaping, and fire recommendation
+- controller owns input reading, output mapping, and final actuation
 
-- `docs/superpowers/specs/2026-04-14-vision-detector-first-design.md`
-- `docs/superpowers/plans/2026-04-14-vision-detector-first.md`
-
-## Tunable Parameters
-
-Most useful knobs for next tuning session:
-
-Target locking:
-
-- `TRACKING_BONUS`
-- `TRACKING_RADIUS`
-- `TRACKING_SWITCH_MARGIN`
-- `MAX_SMOOTHING_JUMP_PIXELS`
-- `MIN_SMOOTHING_ALPHA`
-- `PICKUP_CONFIRM_FRAMES`
-- `TARGET_HOLD_FRAMES`
-
-Target filtering:
-
-- `PICKUP_CONFIDENCE_THRESHOLD`
-- `PICKUP_ENEMY_CONFIDENCE_THRESHOLD`
-- `TRACKING_CONFIDENCE_THRESHOLD`
-- `MIN_PICKUP_HEIGHT_RATIO`
-- `MIN_TRACKING_HEIGHT_RATIO`
-- `MIN_PICKUP_AREA_RATIO`
-- `MIN_TRACKING_AREA_RATIO`
-- `MIN_ASPECT_RATIO`
-- `MAX_ASPECT_RATIO`
-- friendly / enemy ROI mask ratio limits in `TargetSelector._classify_color`
-
-AutoFire:
-
-- `FIRE_SHRINK_X`
-- `FIRE_SHRINK_TOP`
-- `FIRE_SHRINK_BOTTOM`
-- `release_grace_frames`
-- `AdsAutoFireGate(delay_seconds=0.12)`
-
-Debug:
-
-- `VISION_DEBUG_OVERLAY`
-- `VISION_DEBUG_SAVE`
-- `debug_captures/YYYY-MM-DD/`
-
-Aim enhancement:
-
-- `LeadPredictorConfig.min_motion_px`
-- `LeadPredictorConfig.consistent_frames`
-- `LeadPredictorConfig.lead_seconds`
-- `CatchupBoostConfig.*`
-- `NearTargetDampingConfig.*`
-
-Gamepad vertical mapping:
-
-- `max_ai_force_y`
-- `piecewise_mid_pixels_y`
-- `piecewise_max_pixels_y`
-- `piecewise_mid_ratio_y`
-
-## Verified In This Version
-
-Commands run during this round:
-
-- `python -m unittest tests.test_vision_targeting -v`
-- `python -m unittest tests.test_vision_debug_capture tests.test_vision_debug_overlay -v`
-- `python -m unittest tests.test_vision_targeting.CrosshairPersonHitDetectorTests tests.test_vision_runner_autofire_gate -v`
-- `python -m unittest tests.test_vision_targeting tests.test_vision_enhancement tests.test_vision_runner tests.test_vision_runner_config tests.test_vision_runner_autofire_gate -v`
-- `python -m py_compile main.py vision\\runner.py vision\\capture.py vision\\fastpath.py vision\\targeting.py vision\\enhancement.py tools\\export_trt.py tests\\test_vision_targeting.py tests\\test_vision_enhancement.py tests\\test_vision_runner.py tests\\test_vision_runner_config.py tests\\test_vision_runner_autofire_gate.py`
-
-## Known Next Steps
-
-Likely next tuning work:
-
-1. continue tuning sticky target selection in real gameplay
-2. tune `fire_zone` and autofire delay against real ADS behavior
-3. reduce remaining false positives from non-person objects
-4. playtest rectangular crop sizes for different games
-5. decide whether to keep a generic detect model or train / swap to a more game-specific person detector
+That boundary is intentionally small so vision can evolve without repeatedly redesigning controller host code.
