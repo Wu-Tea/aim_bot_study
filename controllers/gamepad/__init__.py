@@ -5,6 +5,7 @@ from .adaptive_delta_gain import (
 )
 from .ai_aim import AIAimConfig, AIAimPlugin
 from .auto_fire import AutoFireConfig, AutoFirePlugin
+from .diagnostics import DownwardPullDiagnostics, DownwardPullDiagnosticsConfig
 from .horizontal_assist import (
     HorizontalAimAssist,
     HorizontalAimAssistConfig,
@@ -25,7 +26,7 @@ from .manual_intent_guard import (
     ManualIntentGuardConfig,
 )
 from .overshoot_guard import OvershootGuard, OvershootGuardConfig
-from .plugin import GamepadPlugin, apply_plugins, reset_plugins
+from .plugin import GamepadPlugin, PluginApplicationTrace, apply_plugins, apply_plugins_with_trace, reset_plugins
 from .recoil_compensation import RecoilCompensationConfig, RecoilCompensationPlugin
 from .state import GamepadFrame, GamepadOutput
 
@@ -44,6 +45,8 @@ __all__ = [
     "OvershootGuardSubPlugin",
     "AutoFireConfig",
     "AutoFirePlugin",
+    "DownwardPullDiagnostics",
+    "DownwardPullDiagnosticsConfig",
     "HorizontalAimAssist",
     "HorizontalAimAssistConfig",
     "compute_axis_soft_strengths",
@@ -53,7 +56,9 @@ __all__ = [
     "OvershootGuard",
     "OvershootGuardConfig",
     "GamepadPlugin",
+    "PluginApplicationTrace",
     "apply_plugins",
+    "apply_plugins_with_trace",
     "reset_plugins",
     "RecoilCompensationConfig",
     "RecoilCompensationPlugin",

@@ -5,6 +5,8 @@ import vgamepad as vg
 
 from controllers.base_controller import ControllerTarget
 from controllers.gamepad_controller import GamepadController
+from controllers.gamepad.plugin import PluginApplicationTrace
+from controllers.gamepad.state import GamepadFrame
 from controllers.gamepad.state import GamepadOutput
 
 
@@ -17,6 +19,38 @@ class _FakePlugin:
 
     def apply(self, frame, output):
         return None
+
+
+class _TraceAwareFakePlugin:
+    def __init__(self, name, delta_right_y=0, auto_fire_active=None):
+        self.name = name
+        self.delta_right_y = delta_right_y
+        self.auto_fire_active = auto_fire_active
+
+    def reset(self):
+        return None
+
+    def apply(self, frame, output):
+        output.right_y += self.delta_right_y
+        if self.auto_fire_active is not None:
+            output.auto_fire_active = self.auto_fire_active
+
+
+class _FakeDiagnostics:
+    def __init__(self, enabled=True):
+        self.config = type("_Config", (), {"enabled": enabled})()
+        self.calls = []
+
+    def record_if_triggered(self, *, frame, output, plugin_traces, plugins):
+        self.calls.append(
+            {
+                "frame": frame,
+                "output": output,
+                "plugin_traces": plugin_traces,
+                "plugins": plugins,
+            }
+        )
+        return True
 
 
 class _FakeVirtualGamepad:
@@ -153,6 +187,50 @@ class GamepadControllerHostTests(unittest.TestCase):
         self.assertEqual(frame.target.aim_point_x, 320.0)
         self.assertEqual(frame.target.screen_center_y, 256.0)
         self.assertEqual(frame.target.body_box, (282.0, 128.0, 358.0, 316.0))
+
+    def test_apply_plugin_pipeline_emits_traces_to_diagnostics_when_enabled(self):
+        controller = GamepadController.__new__(GamepadController)
+        controller.plugins = [
+            _TraceAwareFakePlugin("aim", delta_right_y=-1200),
+            _TraceAwareFakePlugin("fire", auto_fire_active=True),
+            _TraceAwareFakePlugin("recoil", delta_right_y=-9830),
+        ]
+        controller._downward_pull_diagnostics = _FakeDiagnostics(enabled=True)
+
+        output = GamepadOutput(
+            left_x=0,
+            left_y=0,
+            right_x=0,
+            right_y=0,
+            left_trigger=255,
+            right_trigger=0,
+            buttons={"rb": False},
+        )
+        frame = GamepadFrame(
+            timestamp=13.0,
+            left_x=0,
+            left_y=0,
+            manual_right_x=0,
+            manual_right_y=0,
+            left_trigger=255,
+            right_trigger=0,
+            buttons={"rb": False},
+            is_aiming=True,
+            target_dx=0.0,
+            target_dy=0.0,
+            auto_fire_requested=False,
+            dpad=0,
+        )
+
+        traces = GamepadController._apply_plugin_pipeline(controller, frame, output)
+
+        self.assertEqual([trace.plugin_name for trace in traces], ["aim", "fire", "recoil"])
+        self.assertEqual(output.right_y, -11030)
+        self.assertTrue(output.auto_fire_active)
+        self.assertEqual(len(controller._downward_pull_diagnostics.calls), 1)
+        emitted = controller._downward_pull_diagnostics.calls[0]["plugin_traces"]
+        self.assertIsInstance(emitted[0], PluginApplicationTrace)
+        self.assertEqual(emitted[2].delta_right_y, -9830)
 
 
 if __name__ == "__main__":

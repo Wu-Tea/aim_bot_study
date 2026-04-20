@@ -13,9 +13,11 @@ from .gamepad import (
     AIAimPlugin,
     AutoFireConfig,
     AutoFirePlugin,
+    DownwardPullDiagnostics,
     GamepadFrame,
     GamepadOutput,
     apply_plugins,
+    apply_plugins_with_trace,
     reset_plugins,
     RecoilCompensationConfig,
     RecoilCompensationPlugin,
@@ -96,8 +98,9 @@ class GamepadController(BaseController, threading.Thread):
         self.plugins = list(plugins) if plugins is not None else [
             AIAimPlugin(ai_aim_config),
             AutoFirePlugin(AutoFireConfig(fire_output=auto_fire_output)),
-            RecoilCompensationPlugin(RecoilCompensationConfig(amount=0.30)),
+            RecoilCompensationPlugin(RecoilCompensationConfig(amount=0.20)),
         ]
+        self._downward_pull_diagnostics = DownwardPullDiagnostics.from_env()
 
         try:
             self.virtual_gamepad = vg.VX360Gamepad()
@@ -253,6 +256,21 @@ class GamepadController(BaseController, threading.Thread):
             dpad=frame.dpad,
         )
 
+    def _apply_plugin_pipeline(self, frame: GamepadFrame, output: GamepadOutput):
+        diagnostics = getattr(self, "_downward_pull_diagnostics", None)
+        if diagnostics is None or not diagnostics.config.enabled:
+            apply_plugins(self.plugins, frame, output)
+            return []
+
+        traces = apply_plugins_with_trace(self.plugins, frame, output)
+        diagnostics.record_if_triggered(
+            frame=frame,
+            output=output,
+            plugin_traces=traces,
+            plugins=self.plugins,
+        )
+        return traces
+
     def _apply_dpad(self, dpad_button):
         for button in self.DPAD_BUTTONS:
             if button == dpad_button:
@@ -316,7 +334,7 @@ class GamepadController(BaseController, threading.Thread):
                 dpad=dpad,
             )
             output = self._build_output(frame)
-            apply_plugins(self.plugins, frame, output)
+            self._apply_plugin_pipeline(frame, output)
             self._apply_output(output)
             self.virtual_gamepad.update()
             time.sleep(0.001)
