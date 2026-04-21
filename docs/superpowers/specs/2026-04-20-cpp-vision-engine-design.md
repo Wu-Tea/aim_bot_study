@@ -555,6 +555,9 @@ Recommended sub-phasing inside Phase 3:
 
 - **Phase 3A:** wire `FramePacket(D3D11Texture + BGRA8)` into native CUDA/TensorRT and make `VisionEngine.poll_once()` return real timing plus detection-count fields without sending frames back to Python
 - **Phase 3B:** migrate `TargetSelector`, occlusion compensation, enhancement, and auto-fire parity so the returned `VisionResult` matches the production Python behavior closely enough for rollout
+  - first slice: native pickup/switch state machine, upper-chest aim point, geometry/confidence gates, and multi-candidate scoring
+  - second slice: color classification and occlusion compensation parity
+  - final slice: enhancement and auto-fire parity
 
 ### Phase 4: Default-path switch
 

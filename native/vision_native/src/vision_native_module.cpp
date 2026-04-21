@@ -1,4 +1,5 @@
 #include "vision_native/dxgi_capture.h"
+#include "vision_native/target_selector.h"
 #include "vision_native/vision_engine.h"
 #include "vision_native/tensorrt_inspector.h"
 #include "vision_native/tensorrt_engine.h"
@@ -176,6 +177,31 @@ vision_native::VisionResult poll_engine_once(vision_native::VisionEngine& engine
     return engine.poll_once();
 }
 
+vision_native::DetectionBatch batch_from_xyxy_array(
+    py::array_t<float, py::array::c_style | py::array::forcecast> detections) {
+    py::buffer_info buffer = detections.request();
+    if (buffer.ndim != 2 || buffer.shape[1] != 6) {
+        throw std::runtime_error("select_xyxy expects a float32 array with shape [N,6]");
+    }
+
+    vision_native::DetectionBatch batch;
+    const auto* rows = static_cast<const float*>(buffer.ptr);
+    const py::ssize_t count = buffer.shape[0];
+    batch.detections.reserve(static_cast<size_t>(count));
+    for (py::ssize_t index = 0; index < count; ++index) {
+        const float* row = rows + (index * 6);
+        vision_native::Detection detection;
+        detection.x1 = row[0];
+        detection.y1 = row[1];
+        detection.x2 = row[2];
+        detection.y2 = row[3];
+        detection.conf = row[4];
+        detection.class_id = static_cast<int>(row[5]);
+        batch.detections.push_back(detection);
+    }
+    return batch;
+}
+
 } // namespace
 
 PYBIND11_MODULE(vision_native_cpp, module) {
@@ -245,4 +271,15 @@ PYBIND11_MODULE(vision_native_cpp, module) {
         .def("poll_once", [](vision_native::VisionEngine& engine) {
             return vision_result_to_dict(poll_engine_once(engine));
         });
+
+    py::class_<vision_native::VisionTargetSelector>(module, "NativeTargetSelector")
+        .def(py::init<int, int>(), py::arg("width"), py::arg("height"))
+        .def("reset", &vision_native::VisionTargetSelector::reset)
+        .def(
+            "select_xyxy",
+            [](vision_native::VisionTargetSelector& selector,
+               py::array_t<float, py::array::c_style | py::array::forcecast> detections) {
+                return vision_result_to_dict(selector.select(batch_from_xyxy_array(detections)));
+            },
+            py::arg("detections"));
 }

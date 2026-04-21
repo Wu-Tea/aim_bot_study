@@ -52,6 +52,7 @@ add_library(vision_native_core STATIC
     src/dxgi_capture.cpp
     src/engine_io.cpp
     src/preprocess.cu
+    src/target_selector.cpp
     src/tensorrt_engine.cpp
     src/tensorrt_inspector.cpp
     src/vision_engine.cpp

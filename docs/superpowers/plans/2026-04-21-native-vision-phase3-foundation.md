@@ -12,8 +12,9 @@
 
 - Phase 3 foundation is complete.
 - Follow-on Phase 3A is also complete: `VisionEngine` now bridges native DXGI ROI capture into native TensorRT inference through CUDA D3D11 interop.
+- Phase 3B has started: native target selection now exists as its own C++ component and is wired into `VisionEngine`.
 - The debug executable now prints real capture/inference timing instead of placeholder-only `VisionResult` fields.
-- Remaining migration work is no longer "make the engine real"; it is "port Python targeting parity onto the now-working native capture/infer path."
+- Remaining migration work is no longer "make the engine real"; it is "extend the new native selector with color, occlusion, enhancement, and auto-fire parity."
 
 ---
 

@@ -4,9 +4,9 @@ Last updated: 2026-04-21
 
 ## Current Status
 
-Native vision is currently a Phase 3A scaffold, not the production gamepad path.
+Native vision is currently a Phase 3B scaffold, not the production gamepad path.
 
-The scaffold proves eight things:
+The scaffold proves nine things:
 
 - the Windows C++ toolchain can build inside this repo
 - C++ TensorRT can load `models/best.engine`
@@ -15,6 +15,7 @@ The scaffold proves eight things:
 - C++ can capture a centered desktop ROI into a native `D3D11Texture` `FramePacket`
 - C++ now exposes a native `VisionEngine` / `VisionResult` boundary
 - `VisionEngine` can map the live ROI texture into CUDA and run TensorRT without returning frames to Python
+- C++ now exposes a stateful native target selector for synthetic parity tests and live engine integration
 - a standalone `vision_native_debug` executable can run the live native loop and print result/perf fields
 - the debug loop now reports real `preprocess_ms`, `infer_ms`, and `boxes_seen` values from native inference
 
@@ -120,7 +121,7 @@ struct VisionResult {
 };
 ```
 
-`VisionResult` appears only after Phase 3. In the current Phase 3A checkpoint it already carries real native timing and box-count fields, but targeting/output behavior is still intentionally simpler than the production Python path. Production Python vision remains the runtime used by `gamepad_start.bat`.
+`VisionResult` appears only after Phase 3. In the current Phase 3B checkpoint it already carries real native timing and box-count fields, and it now also carries a basic native target-selection result. Production Python vision still remains the runtime used by `gamepad_start.bat`.
 
 ## Environment
 
@@ -222,12 +223,35 @@ Phase 3A adds the first real end-to-end native hot path:
 - CUDA preprocessing converts BGRA ROI pixels into normalized CHW input for `models/best.engine`
 - `VisionResult` now reports real `preprocess_ms`, `infer_ms`, `post_ms`, `age_ms`, and `boxes_seen`
 
+Phase 3A limitation snapshot:
+
+- target selection was still a minimal best-detection placeholder at that checkpoint
+- `target_source` was only `observed`
+- occlusion compensation, enhancement, and auto-fire parity were still native TODOs
+- Python still owned the production runtime and remained the behavior oracle
+
+Phase 3A is now complete. The next active checkpoint is Phase 3B.
+
+## Phase 3B Native Target Selector Core
+
+Phase 3B begins the migration of Python targeting state into native code.
+
+The current native slice includes:
+
+- a stateful `NativeTargetSelector` pybind entry point for synthetic parity tests
+- two-frame pickup confirmation for first lock
+- upper-chest target point generation from the selected body box
+- multi-candidate scoring based on crosshair distance, confidence, area heuristics, and tracking bonus
+- two-frame switch confirmation before replacing the active target
+- live `VisionEngine` integration, so the debug executable now uses the native selector instead of a highest-confidence placeholder
+
 Current limitation:
 
-- target selection is still a minimal best-detection placeholder, not `TargetSelector` parity
+- color classification is still Python-only
+- occlusion compensation is still Python-only
+- enhancement and auto-fire recommendation are still Python-only
 - `target_source` is currently only `observed`
-- occlusion compensation, enhancement, and auto-fire parity are not native yet
-- Python still owns the production runtime and remains the behavior oracle
+- the native selector is intentionally narrower than the full Python `TargetSelector`
 
 ## Phase 4 Gate
 
@@ -248,14 +272,15 @@ Run the current standalone native debug program with:
 .\tools\run_native_vision_debug.ps1 -BuildFirst
 ```
 
-The current output proves the `VisionEngine -> VisionResult` boundary, live ROI capture loop, and real native capture-to-inference timing. It does not yet prove targeting parity because the Python `TargetSelector`/enhancement/autofire stages have not been migrated yet.
+The current output proves the `VisionEngine -> VisionResult` boundary, live ROI capture loop, real native capture-to-inference timing, and the first native targeting slice. It does not yet prove full targeting parity because the Python color/occlusion/enhancement/autofire stages have not been migrated yet.
 
 ## What This Does Not Do Yet
 
-- it does not yet implement the Python `TargetSelector` rules in native code
+- it does not yet implement full Python `TargetSelector` parity in native code
+- it does not yet implement native color classification
 - it does not yet implement native occlusion compensation or enhancement
 - it does not yet implement native auto-fire recommendation parity
 - it does not replace `vision.runner`
 - it does not promise any FPS or latency improvement yet
 
-The next real phase is native targeting parity on top of the now-working capture plus TensorRT path. Only after that should we compare performance against the Python vision baseline in a meaningful way.
+The next real phase is to extend this native selector slice with color, occlusion compensation, enhancement, and auto-fire parity. Only after that should we compare performance against the Python vision baseline in a meaningful way.

@@ -32,16 +32,6 @@ void check_cuda(cudaError_t status, const char* what) {
     }
 }
 
-const Detection* select_best_detection(const DetectionBatch& batch) {
-    const Detection* best = nullptr;
-    for (const auto& detection : batch.detections) {
-        if (best == nullptr || detection.conf > best->conf) {
-            best = &detection;
-        }
-    }
-    return best;
-}
-
 } // namespace
 
 VisionEngine::VisionEngine(
@@ -51,6 +41,7 @@ VisionEngine::VisionEngine(
     int output_index,
     int timeout_ms)
     : capture_(width, height, adapter_index, output_index, timeout_ms),
+      selector_(width, height),
       engine_(kDefaultEnginePath),
       width_(width),
       height_(height) {
@@ -99,10 +90,14 @@ VisionEngine::~VisionEngine() {
 
 void VisionEngine::set_aiming(bool aiming) {
     aiming_.store(aiming, std::memory_order_relaxed);
+    if (!aiming) {
+        selector_.reset();
+    }
 }
 
 void VisionEngine::reset() {
     aiming_.store(false, std::memory_order_relaxed);
+    selector_.reset();
 }
 
 VisionResult VisionEngine::poll_once() {
@@ -161,20 +156,20 @@ VisionResult VisionEngine::poll_once() {
         result.infer_ms = batch.infer_ms;
         result.boxes_seen = static_cast<float>(batch.detections.size());
 
-        const Detection* best = select_best_detection(batch);
-        if (best != nullptr) {
-            result.has_target = true;
-            result.has_body_box = true;
-            result.body_x1 = best->x1;
-            result.body_y1 = best->y1;
-            result.body_x2 = best->x2;
-            result.body_y2 = best->y2;
-            result.target_x = (best->x1 + best->x2) * 0.5f;
-            result.target_y = best->y1 + ((best->y2 - best->y1) * 0.38f);
-            result.dx = result.target_x - result.screen_center_x;
-            result.dy = result.target_y - result.screen_center_y;
-            result.target_source = "observed";
-        }
+        const VisionResult targeting = selector_.select(batch);
+        result.has_target = targeting.has_target;
+        result.auto_fire = targeting.auto_fire;
+        result.dx = targeting.dx;
+        result.dy = targeting.dy;
+        result.target_x = targeting.target_x;
+        result.target_y = targeting.target_y;
+        result.has_body_box = targeting.has_body_box;
+        result.body_x1 = targeting.body_x1;
+        result.body_y1 = targeting.body_y1;
+        result.body_x2 = targeting.body_x2;
+        result.body_y2 = targeting.body_y2;
+        result.target_source = targeting.target_source;
+        result.boxes_seen = targeting.boxes_seen;
 
         result.result_at_ns = now_ns();
         result.post_ms = batch.decode_ms + ns_to_ms(result.result_at_ns - post_start);
