@@ -262,4 +262,109 @@ DetectionBatch TensorRTEngine::infer_rgb(
     return batch;
 }
 
+DetectionBatch TensorRTEngine::infer_bgra_array(
+    cudaArray_t frame_bgra,
+    int width,
+    int height,
+    float conf_threshold) {
+    if (frame_bgra == nullptr) {
+        throw std::runtime_error("frame_bgra must not be null");
+    }
+    if (width != input_width_ || height != input_height_) {
+        std::ostringstream out;
+        out << "frame shape mismatch: expected " << input_height_ << "x" << input_width_
+            << " BGRA, got " << height << "x" << width;
+        throw std::runtime_error(out.str());
+    }
+
+    DetectionBatch batch;
+    batch.frame_id = next_frame_id_++;
+    batch.captured_at_ns = now_ns();
+    batch.frame_width = width;
+    batch.frame_height = height;
+
+    const int row_pitch = width * 4;
+    const size_t frame_bytes = static_cast<size_t>(row_pitch) * static_cast<size_t>(height);
+    ensure_frame_buffer(frame_bytes);
+
+    cudaEvent_t preprocess_start = nullptr;
+    cudaEvent_t preprocess_end = nullptr;
+    cudaEvent_t infer_start = nullptr;
+    cudaEvent_t infer_end = nullptr;
+    check_cuda(cudaEventCreate(&preprocess_start), "cudaEventCreate preprocess_start");
+    check_cuda(cudaEventCreate(&preprocess_end), "cudaEventCreate preprocess_end");
+    check_cuda(cudaEventCreate(&infer_start), "cudaEventCreate infer_start");
+    check_cuda(cudaEventCreate(&infer_end), "cudaEventCreate infer_end");
+
+    cudaStream_t stream = static_cast<cudaStream_t>(stream_);
+    check_cuda(cudaEventRecord(preprocess_start, stream), "cudaEventRecord preprocess_start");
+    check_cuda(
+        cudaMemcpy2DFromArrayAsync(
+            device_frame_,
+            static_cast<size_t>(row_pitch),
+            frame_bgra,
+            0,
+            0,
+            static_cast<size_t>(row_pitch),
+            static_cast<size_t>(height),
+            cudaMemcpyDeviceToDevice,
+            stream),
+        "cudaMemcpy2DFromArrayAsync frame");
+    launch_bgra_hwc_to_chw_float(
+        static_cast<const uint8_t*>(device_frame_),
+        width,
+        height,
+        row_pitch,
+        device_input_,
+        stream);
+    check_cuda(cudaGetLastError(), "launch_bgra_hwc_to_chw_float");
+    check_cuda(cudaEventRecord(preprocess_end, stream), "cudaEventRecord preprocess_end");
+
+    if (!context_->setTensorAddress(input_name_.c_str(), device_input_)) {
+        throw std::runtime_error("failed to set TensorRT input address");
+    }
+    if (!context_->setTensorAddress(output_name_.c_str(), device_output_)) {
+        throw std::runtime_error("failed to set TensorRT output address");
+    }
+
+    check_cuda(cudaEventRecord(infer_start, stream), "cudaEventRecord infer_start");
+    if (!context_->enqueueV3(stream)) {
+        throw std::runtime_error("TensorRT enqueueV3 failed");
+    }
+    check_cuda(cudaEventRecord(infer_end, stream), "cudaEventRecord infer_end");
+    check_cuda(
+        cudaMemcpyAsync(host_output_.data(), device_output_, output_element_count_ * sizeof(float), cudaMemcpyDeviceToHost, stream),
+        "cudaMemcpyAsync output");
+    check_cuda(cudaStreamSynchronize(stream), "cudaStreamSynchronize");
+
+    check_cuda(cudaEventElapsedTime(&batch.preprocess_ms, preprocess_start, preprocess_end), "cudaEventElapsedTime preprocess");
+    check_cuda(cudaEventElapsedTime(&batch.infer_ms, infer_start, infer_end), "cudaEventElapsedTime infer");
+    cudaEventDestroy(preprocess_start);
+    cudaEventDestroy(preprocess_end);
+    cudaEventDestroy(infer_start);
+    cudaEventDestroy(infer_end);
+
+    const uint64_t decode_start = now_ns();
+    for (int row = 0; row < output_rows_; ++row) {
+        const float* item = host_output_.data() + (static_cast<size_t>(row) * output_cols_);
+        const float conf = item[4];
+        if (conf < conf_threshold) {
+            continue;
+        }
+
+        Detection detection;
+        detection.x1 = item[0];
+        detection.y1 = item[1];
+        detection.x2 = item[2];
+        detection.y2 = item[3];
+        detection.conf = conf;
+        detection.class_id = static_cast<int>(std::round(item[5]));
+        batch.detections.push_back(detection);
+    }
+    const uint64_t decode_end = now_ns();
+    batch.decode_ms = static_cast<float>(decode_end - decode_start) / 1'000'000.0f;
+    batch.inferred_at_ns = decode_end;
+    return batch;
+}
+
 } // namespace vision_native

@@ -69,7 +69,7 @@ struct VisionResult {
     float body_x2 = 0.0f;
     float body_y2 = 0.0f;
 
-    const char* target_source = "observed";
+    const char* target_source = "";
 
     float wait_ms = 0.0f;
     float preprocess_ms = 0.0f;

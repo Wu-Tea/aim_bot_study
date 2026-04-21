@@ -330,7 +330,7 @@ struct VisionResult {
 };
 ```
 
-`VisionResult` is introduced in Phase 3 after targeting, occlusion compensation, enhancement, and auto-fire gate parity are implemented natively.
+`VisionResult` is introduced in Phase 3. The current Phase 3A checkpoint already uses it for live native capture plus inference results, but full targeting, occlusion compensation, enhancement, and auto-fire parity still land in the later Phase 3 targeting pass.
 
 ## Native Module Form
 
@@ -550,6 +550,11 @@ Scope:
 At the end of Phase 3, Python should receive only `VisionResult`.
 
 `vision_native_debug` is a required Phase 3 deliverable. Phase 4 is blocked until this executable can run the native path end-to-end, print `VisionResult` and perf fields, and serve as the primary parity/perf validation tool outside the controller host.
+
+Recommended sub-phasing inside Phase 3:
+
+- **Phase 3A:** wire `FramePacket(D3D11Texture + BGRA8)` into native CUDA/TensorRT and make `VisionEngine.poll_once()` return real timing plus detection-count fields without sending frames back to Python
+- **Phase 3B:** migrate `TargetSelector`, occlusion compensation, enhancement, and auto-fire parity so the returned `VisionResult` matches the production Python behavior closely enough for rollout
 
 ### Phase 4: Default-path switch
 

@@ -330,4 +330,12 @@ int DxgiRoiCapture::roi_top() const {
     return impl_->roi_top;
 }
 
+void* DxgiRoiCapture::d3d11_device() const {
+    return impl_->device.Get();
+}
+
+void* DxgiRoiCapture::texture() const {
+    return impl_->roi_texture.Get();
+}
+
 } // namespace vision_native

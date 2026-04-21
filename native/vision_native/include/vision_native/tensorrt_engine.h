@@ -2,6 +2,7 @@
 
 #include "vision_native/types.h"
 
+#include <cuda_runtime_api.h>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -29,6 +30,12 @@ public:
         int width,
         int height,
         int row_pitch,
+        float conf_threshold = 0.4f);
+
+    DetectionBatch infer_bgra_array(
+        cudaArray_t frame_bgra,
+        int width,
+        int height,
         float conf_threshold = 0.4f);
 
     int input_width() const { return input_width_; }

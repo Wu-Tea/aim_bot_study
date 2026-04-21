@@ -195,6 +195,18 @@ class NativeVisionCMakeTests(unittest.TestCase):
         self.assertIn("poll_once", combined)
         self.assertIn("set_aiming", combined)
 
+    def test_phase3a_native_engine_wires_dxgi_texture_into_inference(self):
+        combined = "\n".join(_read(path) for path in _native_source_files())
+
+        self.assertIn("cudaGraphicsD3D11RegisterResource", combined)
+        self.assertIn("cudaGraphicsMapResources", combined)
+        self.assertIn("cudaGraphicsSubResourceGetMappedArray", combined)
+        self.assertIn("cudaMemcpy2DFromArrayAsync", combined)
+        self.assertIn("cudaD3D11GetDevices", combined)
+        self.assertIn("infer_bgra", combined)
+        self.assertIn("launch_bgra", combined)
+        self.assertIn("TensorRTEngine", combined)
+
 
 class NativeVisionProductionIsolationTests(unittest.TestCase):
     def test_native_scaffold_is_not_connected_to_production_runner(self):

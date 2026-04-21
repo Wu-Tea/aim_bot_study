@@ -1,6 +1,7 @@
 #pragma once
 
 #include "vision_native/dxgi_capture.h"
+#include "vision_native/tensorrt_engine.h"
 #include "vision_native/types.h"
 
 #include <atomic>
@@ -29,7 +30,9 @@ public:
 
 private:
     DxgiRoiCapture capture_;
+    TensorRTEngine engine_;
     std::atomic<bool> aiming_{false};
+    void* graphics_resource_ = nullptr;
     int width_ = 0;
     int height_ = 0;
 };

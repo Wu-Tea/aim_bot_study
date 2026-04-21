@@ -4,9 +4,9 @@ Last updated: 2026-04-21
 
 ## Current Status
 
-Native vision is currently a Phase 3 foundation scaffold, not the production gamepad path.
+Native vision is currently a Phase 3A scaffold, not the production gamepad path.
 
-The scaffold proves seven things:
+The scaffold proves eight things:
 
 - the Windows C++ toolchain can build inside this repo
 - C++ TensorRT can load `models/best.engine`
@@ -14,7 +14,9 @@ The scaffold proves seven things:
 - C++ can accept one CPU RGB frame, preprocess it on CUDA, run TensorRT, and return `DetectionBatch`
 - C++ can capture a centered desktop ROI into a native `D3D11Texture` `FramePacket`
 - C++ now exposes a native `VisionEngine` / `VisionResult` boundary
+- `VisionEngine` can map the live ROI texture into CUDA and run TensorRT without returning frames to Python
 - a standalone `vision_native_debug` executable can run the live native loop and print result/perf fields
+- the debug loop now reports real `preprocess_ms`, `infer_ms`, and `boxes_seen` values from native inference
 
 Production still uses the Python `vision` package. The native scaffold is only used through the explicit tools in `tools/`.
 
@@ -49,7 +51,7 @@ struct FramePacket {
 };
 ```
 
-Phase 1 supports only `CpuHwc + RGB8`. Phase 2 adds `D3D11Texture + BGRA8` without changing the inference result contract.
+Phase 1 supports only `CpuHwc + RGB8`. Phase 2 adds `D3D11Texture + BGRA8` without changing the inference result contract. Phase 3A consumes that GPU texture directly through CUDA D3D11 interop instead of copying the frame back into Python.
 
 ### `DetectionBatch`
 
@@ -118,7 +120,7 @@ struct VisionResult {
 };
 ```
 
-`VisionResult` appears only after Phase 3. Until then, production Python vision remains the runtime used by `gamepad_start.bat`.
+`VisionResult` appears only after Phase 3. In the current Phase 3A checkpoint it already carries real native timing and box-count fields, but targeting/output behavior is still intentionally simpler than the production Python path. Production Python vision remains the runtime used by `gamepad_start.bat`.
 
 ## Environment
 
@@ -194,13 +196,13 @@ Run it with:
 .\tools\run_native_vision_capture_smoke.ps1 -BuildFirst
 ```
 
-The capture smoke only proves that native C++ can produce `FramePacket(D3D11Texture + BGRA8)`. It is not connected to TensorRT preprocessing yet and is not used by `gamepad_start.bat`.
+The capture smoke only proves that native C++ can produce `FramePacket(D3D11Texture + BGRA8)`. Phase 3A is the first checkpoint that feeds that ROI texture directly into native TensorRT preprocessing, but it is still not used by `gamepad_start.bat`.
 
 Desktop Duplication can return access denied when run from a restricted shell or while another protected desktop state is active. If the smoke fails with `0x80070005`, rerun it from a normal desktop PowerShell session before treating it as a code regression.
 
 ## Phase 3 Foundation Target
 
-The next native checkpoint is not a direct production switch. It is a Phase 3 foundation milestone with three explicit deliverables:
+The first native Phase 3 checkpoint was not a direct production switch. It established three explicit deliverables:
 
 - `VisionResult` as the final native-to-Python payload contract
 - `VisionEngine` as the long-lived native runtime boundary
@@ -208,11 +210,24 @@ The next native checkpoint is not a direct production switch. It is a Phase 3 fo
 
 The debug program is part of the migration plan, not an optional extra. It exists to validate native capture, inference, targeting, and perf accounting before `gamepad_start.bat` is allowed to default to the native backend.
 
+That foundation milestone is now complete. The follow-on checkpoint is Phase 3A: native capture-to-inference wiring.
+
+## Phase 3A Capture-To-Inference Bridge
+
+Phase 3A adds the first real end-to-end native hot path:
+
+- `DXGIOutputCapture` publishes a centered ROI as a native `D3D11Texture`
+- `VisionEngine` registers that ROI texture with CUDA through `cudaGraphicsD3D11RegisterResource`
+- each `poll_once()` maps the texture, reads a `cudaArray_t`, and feeds it into `TensorRTEngine`
+- CUDA preprocessing converts BGRA ROI pixels into normalized CHW input for `models/best.engine`
+- `VisionResult` now reports real `preprocess_ms`, `infer_ms`, `post_ms`, `age_ms`, and `boxes_seen`
+
 Current limitation:
 
-- the first `VisionEngine` foundation checkpoint is capture-driven only
-- `VisionResult` is real, but `infer_ms`, `boxes_seen`, targeting, enhancement, and auto-fire are still placeholders at this stage
-- the next implementation step is to feed native capture into native inference and then fill the rest of `VisionResult`
+- target selection is still a minimal best-detection placeholder, not `TargetSelector` parity
+- `target_source` is currently only `observed`
+- occlusion compensation, enhancement, and auto-fire parity are not native yet
+- Python still owns the production runtime and remains the behavior oracle
 
 ## Phase 4 Gate
 
@@ -233,13 +248,14 @@ Run the current standalone native debug program with:
 .\tools\run_native_vision_debug.ps1 -BuildFirst
 ```
 
-The current output proves the `VisionEngine -> VisionResult` boundary and live capture loop. It does not yet prove targeting parity because the detector/post-processing stages have not been wired into `VisionEngine` yet.
+The current output proves the `VisionEngine -> VisionResult` boundary, live ROI capture loop, and real native capture-to-inference timing. It does not yet prove targeting parity because the Python `TargetSelector`/enhancement/autofire stages have not been migrated yet.
 
 ## What This Does Not Do Yet
 
-- it does not wire native capture into TensorRT preprocessing
-- it does not run controller targeting
+- it does not yet implement the Python `TargetSelector` rules in native code
+- it does not yet implement native occlusion compensation or enhancement
+- it does not yet implement native auto-fire recommendation parity
 - it does not replace `vision.runner`
 - it does not promise any FPS or latency improvement yet
 
-The next real phase is DXGI ROI capture plus GPU preprocessing inside native code. Only after that should we compare performance against the Python vision baseline.
+The next real phase is native targeting parity on top of the now-working capture plus TensorRT path. Only after that should we compare performance against the Python vision baseline in a meaningful way.

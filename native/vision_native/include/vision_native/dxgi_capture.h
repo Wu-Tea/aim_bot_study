@@ -41,6 +41,8 @@ public:
     int output_height() const;
     int roi_left() const;
     int roi_top() const;
+    void* d3d11_device() const;
+    void* texture() const;
 
 private:
     struct Impl;
