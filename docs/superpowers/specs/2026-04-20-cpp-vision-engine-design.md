@@ -605,6 +605,11 @@ Required parity targets:
 - `dx / dy`
 - auto-fire decision
 
+Current checkpoint:
+
+- `tests/test_native_vision_synthetic_parity.py` compares Python and native controller-facing outputs for lock/autofire/enhancement, color filtering, and short occlusion/reacquire sequences.
+- Recorded intermediate cases are still needed before Phase 4 can treat parity as gameplay-ready.
+
 ### Benchmark validation
 
 After parity is acceptable, benchmark:

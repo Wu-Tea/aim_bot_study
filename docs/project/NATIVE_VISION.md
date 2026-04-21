@@ -20,6 +20,7 @@ The scaffold proves these things:
 - native occlusion compensation now carries `observed`, `reconstructed`, and short-horizon `predicted` target sources
 - native auto-fire gating now follows selected-target `fire_zone` plus release grace semantics
 - native aim enhancement now applies lead prediction, catchup boost, and near-target damping after selection
+- synthetic Python-vs-native parity tests now compare the controller-facing output for lock, color filtering, and short occlusion scenarios
 - a standalone `vision_native_debug` executable can run the live native loop and print result/perf fields
 - the debug loop now reports real `preprocess_ms`, `infer_ms`, and `boxes_seen` values from native inference
 
@@ -338,8 +339,29 @@ The current native slice includes:
 Current limitation:
 
 - production `gamepad_start.bat` still uses the Python vision runtime
-- recorded gameplay parity and performance validation have not been completed yet
+- synthetic parity is covered by `tests/test_native_vision_synthetic_parity.py`, but recorded gameplay parity and performance validation have not been completed yet
 - the current live-engine implementation downloads the full `640x512` BGRA ROI to host memory once detections exist, then runs CPU HSV classification; this is acceptable for parity work but is not the final low-latency form
+
+## Synthetic Parity Harness
+
+The current parity harness lives in:
+
+```powershell
+py -3 -m unittest tests.test_native_vision_synthetic_parity -v
+```
+
+It runs the same synthetic detection sequences through:
+
+- Python `TargetSelector` + `CrosshairPersonHitDetector` + `AimEnhancementPipeline`
+- native `NativeTargetSelector` + `NativeAimEnhancer`
+
+The harness currently covers:
+
+- center lock with auto-fire release grace and enhancement
+- friendly filtering plus enemy target pickup
+- short occlusion prediction and reacquire behavior
+
+This is not a replacement for recorded gameplay validation. It is the deterministic guardrail that should fail first when native selector, enhancement, or auto-fire behavior drifts away from the Python behavior oracle.
 
 ## Phase 4 Gate
 

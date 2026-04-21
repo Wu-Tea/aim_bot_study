@@ -17,8 +17,9 @@
 - Native occlusion compensation is now wired into the Phase 3B selector path, including partial-box reconstruction, two-frame short prediction, and `observed` / `reconstructed` / `predicted` source parity.
 - Native auto-fire gating is now wired into the Phase 3B path with selected-target `fire_zone` checks and release grace.
 - Native aim enhancement is now wired into `VisionEngine`, including lead prediction, catchup boost, and near-target damping.
+- Synthetic Python-vs-native parity is now covered for lock/autofire/enhancement, color filtering, and short occlusion/reacquire scenarios.
 - The debug executable now prints real capture/inference timing instead of placeholder-only `VisionResult` fields.
-- Remaining migration work is no longer "make the engine real"; it is "validate native parity/perf against Python, optimize the current host-side color sampling path if needed, then plan Phase 4 startup integration."
+- Remaining migration work is no longer "make the engine real"; it is "add recorded gameplay parity/perf validation, optimize the current host-side color sampling path if needed, then plan Phase 4 startup integration."
 
 ---
 
