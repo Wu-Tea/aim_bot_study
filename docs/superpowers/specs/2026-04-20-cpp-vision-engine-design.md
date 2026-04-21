@@ -330,7 +330,7 @@ struct VisionResult {
 };
 ```
 
-`VisionResult` is introduced in Phase 3. The current Phase 3B checkpoint already uses it for live native capture plus inference results, native target selection, native color classification, and native occlusion compensation. Enhancement and auto-fire parity still land in the later Phase 3 targeting pass.
+`VisionResult` is introduced in Phase 3. The current Phase 3B checkpoint already uses it for live native capture plus inference results, native target selection, native color classification, native occlusion compensation, native aim enhancement, and native auto-fire gating. Production rollout and recorded-scene parity validation still land after this targeting pass.
 
 ## Native Module Form
 
@@ -565,7 +565,8 @@ Checkpoint status as of 2026-04-21:
 - Phase 3B first slice is implemented and wired into `VisionEngine`
 - Phase 3B second slice is implemented with native green-friendly filtering and enemy color bonus
 - Phase 3B third slice is implemented with partial-box reconstruction, two-frame short occlusion prediction, and `target_source` parity for `observed`, `reconstructed`, and `predicted`
-- Phase 3B final slice remains open for enhancement and auto-fire parity
+- Phase 3B final slice is implemented with native lead prediction, catchup boost, near-target damping, and selected-target auto-fire release grace
+- Remaining work is recorded-scene parity validation, native-vs-Python performance comparison, host-side color sampling optimization if needed, and Phase 4 startup integration
 
 ### Phase 4: Default-path switch
 

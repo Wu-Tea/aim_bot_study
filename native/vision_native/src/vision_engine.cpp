@@ -5,6 +5,7 @@
 #include <cuda_runtime_api.h>
 
 #include <chrono>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 
@@ -12,6 +13,9 @@ namespace vision_native {
 namespace {
 
 constexpr const char* kDefaultEnginePath = "models/best.engine";
+constexpr float kTorsoBoxShrinkX = 0.22f;
+constexpr float kTorsoBoxShrinkTop = 0.18f;
+constexpr float kTorsoBoxShrinkBottom = 0.20f;
 
 uint64_t now_ns() {
     return static_cast<uint64_t>(
@@ -22,6 +26,25 @@ uint64_t now_ns() {
 
 float ns_to_ms(uint64_t delta_ns) {
     return static_cast<float>(delta_ns) / 1'000'000.0f;
+}
+
+std::optional<AimSlowZone> slow_zone_from_body_box(const VisionResult& result) {
+    if (!result.has_body_box) {
+        return std::nullopt;
+    }
+
+    const float box_w = result.body_x2 - result.body_x1;
+    const float box_h = result.body_y2 - result.body_y1;
+    if (box_w <= 0.0f || box_h <= 0.0f) {
+        return std::nullopt;
+    }
+
+    return AimSlowZone{
+        result.body_x1 + (box_w * kTorsoBoxShrinkX),
+        result.body_y1 + (box_h * kTorsoBoxShrinkTop),
+        result.body_x2 - (box_w * kTorsoBoxShrinkX),
+        result.body_y2 - (box_h * kTorsoBoxShrinkBottom),
+    };
 }
 
 void check_cuda(cudaError_t status, const char* what) {
@@ -92,12 +115,14 @@ void VisionEngine::set_aiming(bool aiming) {
     aiming_.store(aiming, std::memory_order_relaxed);
     if (!aiming) {
         selector_.reset();
+        enhancer_.reset();
     }
 }
 
 void VisionEngine::reset() {
     aiming_.store(false, std::memory_order_relaxed);
     selector_.reset();
+    enhancer_.reset();
 }
 
 VisionResult VisionEngine::poll_once() {
@@ -203,6 +228,21 @@ VisionResult VisionEngine::poll_once() {
         result.body_y2 = targeting.body_y2;
         result.target_source = targeting.target_source;
         result.boxes_seen = targeting.boxes_seen;
+
+        if (result.has_target) {
+            const double enhancement_timestamp =
+                batch.inferred_at_ns != 0
+                    ? static_cast<double>(batch.inferred_at_ns) / 1'000'000'000.0
+                    : static_cast<double>(now_ns()) / 1'000'000'000.0;
+            const VisionResult enhanced = enhancer_.process(
+                result,
+                enhancement_timestamp,
+                slow_zone_from_body_box(result));
+            result.dx = enhanced.dx;
+            result.dy = enhanced.dy;
+        } else {
+            enhancer_.reset();
+        }
 
         result.result_at_ns = now_ns();
         result.post_ms = batch.decode_ms + ns_to_ms(result.result_at_ns - post_start);

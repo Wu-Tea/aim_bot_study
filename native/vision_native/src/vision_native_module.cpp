@@ -1,3 +1,4 @@
+#include "vision_native/aim_enhancement.h"
 #include "vision_native/dxgi_capture.h"
 #include "vision_native/target_selector.h"
 #include "vision_native/vision_engine.h"
@@ -7,6 +8,8 @@
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
+
+#include <array>
 
 namespace py = pybind11;
 
@@ -227,6 +230,15 @@ vision_native::VisionTargetSelector::ColorFrameView rgb_frame_view(
     return view;
 }
 
+std::optional<vision_native::AimSlowZone> parse_slow_zone(const py::object& value) {
+    if (value.is_none()) {
+        return std::nullopt;
+    }
+
+    const auto zone = value.cast<std::array<float, 4>>();
+    return vision_native::AimSlowZone{zone[0], zone[1], zone[2], zone[3]};
+}
+
 } // namespace
 
 PYBIND11_MODULE(vision_native_cpp, module) {
@@ -296,6 +308,42 @@ PYBIND11_MODULE(vision_native_cpp, module) {
         .def("poll_once", [](vision_native::VisionEngine& engine) {
             return vision_result_to_dict(poll_engine_once(engine));
         });
+
+    py::class_<vision_native::AimEnhancementPipeline>(module, "NativeAimEnhancer")
+        .def(py::init<>())
+        .def("reset", &vision_native::AimEnhancementPipeline::reset)
+        .def(
+            "process",
+            [](vision_native::AimEnhancementPipeline& enhancer,
+               float target_x,
+               float target_y,
+               float screen_center_x,
+               float screen_center_y,
+               py::object slow_zone,
+               const std::string& source,
+               double timestamp) {
+                vision_native::VisionResult target;
+                target.has_target = true;
+                target.target_x = target_x;
+                target.target_y = target_y;
+                target.screen_center_x = screen_center_x;
+                target.screen_center_y = screen_center_y;
+                target.dx = target_x - screen_center_x;
+                target.dy = target_y - screen_center_y;
+                target.target_source = source == "predicted" ? "predicted" : "observed";
+                const vision_native::VisionResult enhanced = enhancer.process(
+                    target,
+                    timestamp,
+                    parse_slow_zone(slow_zone));
+                return vision_result_to_dict(enhanced);
+            },
+            py::arg("target_x"),
+            py::arg("target_y"),
+            py::arg("screen_center_x"),
+            py::arg("screen_center_y"),
+            py::arg("slow_zone"),
+            py::arg("source"),
+            py::arg("timestamp"));
 
     py::class_<vision_native::VisionTargetSelector>(module, "NativeTargetSelector")
         .def(py::init<int, int>(), py::arg("width"), py::arg("height"))

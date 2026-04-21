@@ -18,6 +18,8 @@ The scaffold proves these things:
 - C++ now exposes a stateful native target selector for synthetic parity tests and live engine integration
 - native color classification now runs inside the C++ selector path for both pybind tests and the live debug engine
 - native occlusion compensation now carries `observed`, `reconstructed`, and short-horizon `predicted` target sources
+- native auto-fire gating now follows selected-target `fire_zone` plus release grace semantics
+- native aim enhancement now applies lead prediction, catchup boost, and near-target damping after selection
 - a standalone `vision_native_debug` executable can run the live native loop and print result/perf fields
 - the debug loop now reports real `preprocess_ms`, `infer_ms`, and `boxes_seen` values from native inference
 
@@ -74,7 +76,7 @@ Remaining risk at this stage:
 
 ### 3. Target Selector
 
-Status: partially done; this is the current active migration layer.
+Status: core Phase 3B parity is implemented for the native debug path; rollout validation is still pending.
 
 What is already native:
 
@@ -88,19 +90,21 @@ What is already native:
 - partial-occlusion upper-body reconstruction from recent stable height
 - short occlusion prediction for up to two empty detection frames
 - immediate return to `observed` when a real detection is reacquired after prediction
+- auto-fire recommendation from selected-target `fire_zone` with four-frame release grace
+- aim enhancement through native lead prediction, catchup boost, and near-target damping
 - live `VisionEngine` integration, so debug output already reflects the native selector instead of a highest-confidence placeholder
 
 What is still not native:
 
-- enhancement pipeline
-- auto-fire recommendation parity
-- full one-to-one `TargetSelector` behavior parity with Python
+- production startup and controller handoff through `gamepad_start.bat`
+- recorded-scene one-to-one parity validation against the Python runtime
+- performance comparison against the Python production path
 
 Bottom line:
 
 - **capture:** basically in place
 - **recognition:** basically in place
-- **selector:** lock/switch/color/occlusion parity is now in place; enhancement and auto-fire remain the main unfinished selector-adjacent parity layers
+- **selector:** lock/switch/color/occlusion/enhancement/auto-fire parity is now implemented in native code, with rollout/perf validation still pending
 
 ## Migration Protocol
 
@@ -202,7 +206,7 @@ struct VisionResult {
 };
 ```
 
-`VisionResult` appears only after Phase 3. In the current Phase 3B checkpoint it already carries real native timing and box-count fields, and it now also carries a basic native target-selection result. Production Python vision still remains the runtime used by `gamepad_start.bat`.
+`VisionResult` appears only after Phase 3. In the current Phase 3B checkpoint it carries real native timing, box-count fields, native target selection, auto-fire recommendation, and enhanced `dx` / `dy`. Production Python vision still remains the runtime used by `gamepad_start.bat`.
 
 ## Environment
 
@@ -327,12 +331,14 @@ The current native slice includes:
 - two-frame switch confirmation before replacing the active target
 - partial-occlusion reconstruction and two-frame short-horizon prediction
 - `target_source` parity for `observed`, `reconstructed`, and `predicted`
+- native auto-fire gate matching selected-target `fire_zone` and release grace behavior
+- native aim enhancement pipeline matching the current lead/catchup/damping model
 - live `VisionEngine` integration, so the debug executable now uses the native selector instead of a highest-confidence placeholder
 
 Current limitation:
 
-- enhancement and auto-fire recommendation are still Python-only
-- the native selector is intentionally narrower than the full Python `TargetSelector`
+- production `gamepad_start.bat` still uses the Python vision runtime
+- recorded gameplay parity and performance validation have not been completed yet
 - the current live-engine implementation downloads the full `640x512` BGRA ROI to host memory once detections exist, then runs CPU HSV classification; this is acceptable for parity work but is not the final low-latency form
 
 ## Phase 4 Gate
@@ -354,14 +360,12 @@ Run the current standalone native debug program with:
 .\tools\run_native_vision_debug.ps1 -BuildFirst
 ```
 
-The current output proves the `VisionEngine -> VisionResult` boundary, live ROI capture loop, real native capture-to-inference timing, and the current native targeting slice. It still does not prove full targeting parity because enhancement and auto-fire stages have not been migrated yet.
+The current output proves the `VisionEngine -> VisionResult` boundary, live ROI capture loop, real native capture-to-inference timing, and the current native targeting/enhancement/auto-fire slice. It still does not prove production readiness because recorded-scene parity and gamepad startup integration remain pending.
 
 ## What This Does Not Do Yet
 
-- it does not yet implement full Python `TargetSelector` parity in native code
-- it does not yet implement native enhancement
-- it does not yet implement native auto-fire recommendation parity
+- it does not yet prove full Python `TargetSelector` parity on recorded gameplay cases
 - it does not replace `vision.runner`
 - it does not promise any FPS or latency improvement yet
 
-The next real phase is to extend this native selector slice with enhancement and auto-fire parity, and then decide whether the current host-side color sampling needs to be replaced with a smaller ROI-copy or GPU-side path. Only after that should we compare performance against the Python vision baseline in a meaningful way.
+The next real phase is to validate this native path against recorded or live gameplay scenarios, then decide whether the current host-side color sampling needs to be replaced with a smaller ROI-copy or GPU-side path. Only after that should we compare performance against the Python vision baseline in a meaningful way and consider production startup integration.

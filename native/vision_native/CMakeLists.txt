@@ -49,6 +49,7 @@ foreach(_lib IN LISTS TensorRT_LIBS)
 endforeach()
 
 add_library(vision_native_core STATIC
+    src/aim_enhancement.cpp
     src/dxgi_capture.cpp
     src/engine_io.cpp
     src/preprocess.cu

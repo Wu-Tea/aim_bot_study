@@ -1,5 +1,6 @@
 #pragma once
 
+#include "vision_native/aim_enhancement.h"
 #include "vision_native/dxgi_capture.h"
 #include "vision_native/target_selector.h"
 #include "vision_native/tensorrt_engine.h"
@@ -34,6 +35,7 @@ public:
 private:
     DxgiRoiCapture capture_;
     VisionTargetSelector selector_;
+    AimEnhancementPipeline enhancer_;
     TensorRTEngine engine_;
     std::atomic<bool> aiming_{false};
     void* graphics_resource_ = nullptr;

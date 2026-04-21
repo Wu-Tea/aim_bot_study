@@ -297,6 +297,58 @@ class NativeVisionTargetingBridgeTests(unittest.TestCase):
         self.assertTrue(reacquired["has_target"])
         self.assertEqual(reacquired["target_source"], "observed")
 
+    def test_autofire_triggers_for_selected_target_inside_fire_zone(self):
+        if not hasattr(self.module, "NativeTargetSelector"):
+            self.fail("NativeTargetSelector is missing")
+
+        selector = self.module.NativeTargetSelector(CROP_W, CROP_H)
+        detections = np.array([[280.0, 240.0, 360.0, 380.0, 0.95, 0.0]], dtype=np.float32)
+
+        first = selector.select_xyxy(detections)
+        locked = selector.select_xyxy(detections)
+
+        self.assertFalse(first["has_target"])
+        self.assertFalse(first["auto_fire"])
+        self.assertTrue(locked["has_target"])
+        self.assertTrue(locked["auto_fire"])
+
+    def test_autofire_release_grace_frames_apply_after_selected_target_loss(self):
+        if not hasattr(self.module, "NativeTargetSelector"):
+            self.fail("NativeTargetSelector is missing")
+
+        selector = self.module.NativeTargetSelector(CROP_W, CROP_H)
+        detections = np.array([[280.0, 240.0, 360.0, 380.0, 0.95, 0.0]], dtype=np.float32)
+        empty = np.empty((0, 6), dtype=np.float32)
+
+        selector.select_xyxy(detections)
+        locked = selector.select_xyxy(detections)
+        miss_one = selector.select_xyxy(empty)
+        miss_two = selector.select_xyxy(empty)
+        miss_three = selector.select_xyxy(empty)
+        miss_four = selector.select_xyxy(empty)
+
+        self.assertTrue(locked["auto_fire"])
+        self.assertFalse(miss_one["has_target"])
+        self.assertTrue(miss_one["auto_fire"])
+        self.assertTrue(miss_two["auto_fire"])
+        self.assertTrue(miss_three["auto_fire"])
+        self.assertFalse(miss_four["auto_fire"])
+
+    def test_autofire_reset_clears_release_grace_state(self):
+        if not hasattr(self.module, "NativeTargetSelector"):
+            self.fail("NativeTargetSelector is missing")
+
+        selector = self.module.NativeTargetSelector(CROP_W, CROP_H)
+        detections = np.array([[280.0, 240.0, 360.0, 380.0, 0.95, 0.0]], dtype=np.float32)
+
+        selector.select_xyxy(detections)
+        locked = selector.select_xyxy(detections)
+        selector.reset()
+        after_reset = selector.select_xyxy(np.empty((0, 6), dtype=np.float32))
+
+        self.assertTrue(locked["auto_fire"])
+        self.assertFalse(after_reset["auto_fire"])
+
 
 if __name__ == "__main__":
     unittest.main()

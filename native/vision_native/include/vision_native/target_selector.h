@@ -78,6 +78,10 @@ private:
     std::optional<TargetState> try_predict(float timestamp);
     void record_observation(const TargetState& target, float timestamp);
     void clear_prediction_state();
+    void clear_tracking_state();
+    void clear_auto_fire_state();
+    bool is_crosshair_inside_zone(const Rect& zone) const;
+    bool update_auto_fire(const TargetState* target);
 
     bool passes_geometry_gate(float box_w, float box_h, bool tracking_candidate) const;
     bool passes_confidence_gate(float conf, bool tracking_candidate, bool enemy_colored) const;
@@ -161,6 +165,8 @@ private:
     int hold_frames_ = 0;
     int predicted_frames_used_ = 0;
     float sample_clock_ = 0.0f;
+    bool auto_fire_holding_ = false;
+    int auto_fire_miss_frames_ = 0;
 };
 
 } // namespace vision_native

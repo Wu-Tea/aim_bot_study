@@ -59,6 +59,8 @@ constexpr float kMinTopDrop = 12.0f;
 constexpr float kMaxPredictedStepX = 28.0f;
 constexpr float kMaxPredictedStepY = 28.0f;
 constexpr float kMaxHeightDrift = 12.0f;
+constexpr float kAutoFireEdgePadding = 2.0f;
+constexpr int kAutoFireReleaseGraceFrames = 4;
 
 struct ColorClassification {
     float color_bonus = 0.0f;
@@ -291,6 +293,11 @@ VisionTargetSelector::VisionTargetSelector(int frame_width, int frame_height)
 }
 
 void VisionTargetSelector::reset() {
+    clear_tracking_state();
+    clear_auto_fire_state();
+}
+
+void VisionTargetSelector::clear_tracking_state() {
     last_target_center_.reset();
     active_target_.reset();
     pending_target_.reset();
@@ -300,6 +307,11 @@ void VisionTargetSelector::reset() {
     pending_switch_frames_ = 0;
     hold_frames_ = 0;
     predicted_frames_used_ = 0;
+}
+
+void VisionTargetSelector::clear_auto_fire_state() {
+    auto_fire_holding_ = false;
+    auto_fire_miss_frames_ = 0;
 }
 
 VisionResult VisionTargetSelector::select_with_frame(
@@ -526,6 +538,31 @@ void VisionTargetSelector::record_observation(const TargetState& target, float t
         stable_samples_.erase(stable_samples_.begin());
     }
     clear_prediction_state();
+}
+
+bool VisionTargetSelector::is_crosshair_inside_zone(const Rect& zone) const {
+    return (zone.left - kAutoFireEdgePadding) <= screen_center_x_
+        && screen_center_x_ <= (zone.right + kAutoFireEdgePadding)
+        && (zone.top - kAutoFireEdgePadding) <= screen_center_y_
+        && screen_center_y_ <= (zone.bottom + kAutoFireEdgePadding);
+}
+
+bool VisionTargetSelector::update_auto_fire(const TargetState* target) {
+    if (target != nullptr && is_crosshair_inside_zone(target->candidate.fire_zone)) {
+        auto_fire_holding_ = true;
+        auto_fire_miss_frames_ = 0;
+        return true;
+    }
+
+    if (auto_fire_holding_) {
+        auto_fire_miss_frames_ += 1;
+        if (auto_fire_miss_frames_ >= kAutoFireReleaseGraceFrames) {
+            clear_auto_fire_state();
+            return false;
+        }
+    }
+
+    return auto_fire_holding_;
 }
 
 bool VisionTargetSelector::passes_geometry_gate(float box_w, float box_h, bool tracking_candidate) const {
@@ -974,17 +1011,23 @@ std::pair<float, float> VisionTargetSelector::smooth_target_point(const std::pai
 VisionResult VisionTargetSelector::hold_or_reset(float boxes_seen) {
     clear_pending();
     if (!active_target_.has_value()) {
-        reset();
-        return empty_result(boxes_seen);
+        clear_tracking_state();
+        VisionResult result = empty_result(boxes_seen);
+        result.auto_fire = update_auto_fire(nullptr);
+        return result;
     }
 
     if (hold_frames_ < kTargetHoldFrames) {
         hold_frames_ += 1;
-        return result_from_target(*active_target_, boxes_seen);
+        VisionResult result = result_from_target(*active_target_, boxes_seen);
+        result.auto_fire = update_auto_fire(&*active_target_);
+        return result;
     }
 
-    reset();
-    return empty_result(boxes_seen);
+    clear_tracking_state();
+    VisionResult result = empty_result(boxes_seen);
+    result.auto_fire = update_auto_fire(nullptr);
+    return result;
 }
 
 VisionResult VisionTargetSelector::finalize_selected_target(
@@ -1019,7 +1062,9 @@ VisionResult VisionTargetSelector::finalize_selected_target(
         return empty_result(boxes_seen);
     }
     record_observation(*committed, sample_timestamp);
-    return result_from_target(*committed, boxes_seen);
+    VisionResult result = result_from_target(*committed, boxes_seen);
+    result.auto_fire = update_auto_fire(&*committed);
+    return result;
 }
 
 VisionResult VisionTargetSelector::select(const DetectionBatch& batch) {
@@ -1038,10 +1083,14 @@ VisionResult VisionTargetSelector::select(const DetectionBatch& batch) {
                 active_target_->candidate.target_x,
                 active_target_->candidate.target_y,
             };
-            return result_from_target(*active_target_, boxes_seen);
+            VisionResult result = result_from_target(*active_target_, boxes_seen);
+            result.auto_fire = update_auto_fire(&*active_target_);
+            return result;
         }
-        reset();
-        return empty_result(boxes_seen);
+        clear_tracking_state();
+        VisionResult result = empty_result(boxes_seen);
+        result.auto_fire = update_auto_fire(nullptr);
+        return result;
     }
 
     const auto selected = select_candidate_targets(candidates, last_target_center);
