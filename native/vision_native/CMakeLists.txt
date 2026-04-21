@@ -54,6 +54,7 @@ add_library(vision_native_core STATIC
     src/preprocess.cu
     src/tensorrt_engine.cpp
     src/tensorrt_inspector.cpp
+    src/vision_engine.cpp
 )
 
 target_include_directories(vision_native_core
@@ -88,6 +89,12 @@ add_executable(vision_native_smoke
 
 target_link_libraries(vision_native_smoke PRIVATE vision_native_core)
 
+add_executable(vision_native_debug
+    src/vision_debug_main.cpp
+)
+
+target_link_libraries(vision_native_debug PRIVATE vision_native_core)
+
 pybind11_add_module(vision_native_cpp
     src/vision_native_module.cpp
 )
@@ -103,7 +110,7 @@ set(_runtime_dlls
     nvinfer_plugin_10.dll
 )
 
-foreach(_target vision_native_smoke vision_native_cpp)
+foreach(_target vision_native_smoke vision_native_debug vision_native_cpp)
     foreach(_dll IN LISTS _runtime_dlls)
         add_custom_command(TARGET ${_target} POST_BUILD
             COMMAND "${CMAKE_COMMAND}" -E copy_if_different

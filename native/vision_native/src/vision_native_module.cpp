@@ -1,4 +1,5 @@
 #include "vision_native/dxgi_capture.h"
+#include "vision_native/vision_engine.h"
 #include "vision_native/tensorrt_inspector.h"
 #include "vision_native/tensorrt_engine.h"
 
@@ -118,6 +119,35 @@ py::dict capture_metadata_to_dict(const vision_native::DxgiCaptureMetadata& meta
     return result;
 }
 
+py::dict vision_result_to_dict(const vision_native::VisionResult& result_in) {
+    py::dict result;
+    result["frame_id"] = result_in.frame_id;
+    result["captured_at_ns"] = result_in.captured_at_ns;
+    result["inferred_at_ns"] = result_in.inferred_at_ns;
+    result["result_at_ns"] = result_in.result_at_ns;
+    result["has_target"] = result_in.has_target;
+    result["auto_fire"] = result_in.auto_fire;
+    result["dx"] = result_in.dx;
+    result["dy"] = result_in.dy;
+    result["target_x"] = result_in.target_x;
+    result["target_y"] = result_in.target_y;
+    result["screen_center_x"] = result_in.screen_center_x;
+    result["screen_center_y"] = result_in.screen_center_y;
+    result["has_body_box"] = result_in.has_body_box;
+    result["body_x1"] = result_in.body_x1;
+    result["body_y1"] = result_in.body_y1;
+    result["body_x2"] = result_in.body_x2;
+    result["body_y2"] = result_in.body_y2;
+    result["target_source"] = result_in.target_source;
+    result["wait_ms"] = result_in.wait_ms;
+    result["preprocess_ms"] = result_in.preprocess_ms;
+    result["infer_ms"] = result_in.infer_ms;
+    result["post_ms"] = result_in.post_ms;
+    result["age_ms"] = result_in.age_ms;
+    result["boxes_seen"] = result_in.boxes_seen;
+    return result;
+}
+
 vision_native::DetectionBatch infer_array(
     vision_native::TensorRTEngine& engine,
     py::array_t<uint8_t, py::array::c_style | py::array::forcecast> frame,
@@ -139,6 +169,11 @@ vision_native::DetectionBatch infer_array(
 vision_native::DxgiCaptureMetadata grab_capture(vision_native::DxgiRoiCapture& capture) {
     py::gil_scoped_release release;
     return capture.grab();
+}
+
+vision_native::VisionResult poll_engine_once(vision_native::VisionEngine& engine) {
+    py::gil_scoped_release release;
+    return engine.poll_once();
 }
 
 } // namespace
@@ -193,5 +228,21 @@ PYBIND11_MODULE(vision_native_cpp, module) {
         .def_property_readonly("roi_top", &vision_native::DxgiRoiCapture::roi_top)
         .def("grab", [](vision_native::DxgiRoiCapture& capture) {
             return capture_metadata_to_dict(grab_capture(capture));
+        });
+
+    py::class_<vision_native::VisionEngine>(module, "NativeVisionEngine")
+        .def(
+            py::init<int, int, int, int, int>(),
+            py::arg("width"),
+            py::arg("height"),
+            py::arg("adapter_index") = 0,
+            py::arg("output_index") = -1,
+            py::arg("timeout_ms") = 0)
+        .def_property_readonly("width", &vision_native::VisionEngine::width)
+        .def_property_readonly("height", &vision_native::VisionEngine::height)
+        .def("set_aiming", &vision_native::VisionEngine::set_aiming, py::arg("aiming"))
+        .def("reset", &vision_native::VisionEngine::reset)
+        .def("poll_once", [](vision_native::VisionEngine& engine) {
+            return vision_result_to_dict(poll_engine_once(engine));
         });
 }

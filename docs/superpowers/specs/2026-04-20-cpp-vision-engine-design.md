@@ -538,6 +538,8 @@ Goal:
 - move production vision state out of Python and return `VisionResult`
 
 Scope:
+- native `VisionEngine` runtime boundary
+- standalone `vision_native_debug` executable for live verification before rollout
 - native color classification
 - native `TargetSelector` parity
 - native occlusion compensation
@@ -546,6 +548,8 @@ Scope:
 - native perf accounting
 
 At the end of Phase 3, Python should receive only `VisionResult`.
+
+`vision_native_debug` is a required Phase 3 deliverable. Phase 4 is blocked until this executable can run the native path end-to-end, print `VisionResult` and perf fields, and serve as the primary parity/perf validation tool outside the controller host.
 
 ### Phase 4: Default-path switch
 

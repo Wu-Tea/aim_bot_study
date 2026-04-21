@@ -8,6 +8,7 @@ BUILD_SCRIPT = PROJECT_ROOT / "tools" / "build_native_vision.ps1"
 SMOKE_SCRIPT = PROJECT_ROOT / "tools" / "run_native_vision_smoke.ps1"
 INFER_SMOKE_SCRIPT = PROJECT_ROOT / "tools" / "run_native_vision_infer_smoke.ps1"
 CAPTURE_SMOKE_SCRIPT = PROJECT_ROOT / "tools" / "run_native_vision_capture_smoke.ps1"
+DEBUG_SCRIPT = PROJECT_ROOT / "tools" / "run_native_vision_debug.ps1"
 NATIVE_DIR = PROJECT_ROOT / "native" / "vision_native"
 CMAKE_FILE = NATIVE_DIR / "CMakeLists.txt"
 
@@ -87,6 +88,15 @@ class NativeVisionScriptTests(unittest.TestCase):
         self.assertIn("grab", content)
         self.assertIn("memory_kind", content)
 
+    def test_debug_script_runs_native_vision_debug_program(self):
+        content = _read(DEBUG_SCRIPT)
+
+        self.assertIn("BuildFirst", content)
+        self.assertIn("build_native_vision.ps1", content)
+        self.assertIn("vision_native_debug.exe", content)
+        self.assertIn("Frames", content)
+        self.assertIn("Aim", content)
+
 
 class NativeVisionCMakeTests(unittest.TestCase):
     def setUp(self):
@@ -115,6 +125,13 @@ class NativeVisionCMakeTests(unittest.TestCase):
         self.assertIn("src/dxgi_capture.cpp", content)
         self.assertIn("d3d11", content)
         self.assertIn("dxgi", content)
+
+    def test_phase3_native_engine_and_debug_sources_are_declared(self):
+        content = _read(CMAKE_FILE)
+
+        self.assertIn("src/vision_engine.cpp", content)
+        self.assertIn("src/vision_debug_main.cpp", content)
+        self.assertRegex(content, r"add_executable\s*\(\s*vision_native_debug\b")
 
     def test_sources_expose_pybind_module_without_requiring_real_compile(self):
         source_files = _native_source_files()
@@ -155,6 +172,28 @@ class NativeVisionCMakeTests(unittest.TestCase):
         self.assertIn("DXGI_ERROR_WAIT_TIMEOUT", combined)
         self.assertIn("MemoryKind::D3D11Texture", combined)
         self.assertIn("PixelFormat::BGRA8", combined)
+
+    def test_phase3_native_engine_protocol_is_present(self):
+        combined = "\n".join(_read(path) for path in _native_source_files())
+
+        self.assertIn("VisionResult", combined)
+        self.assertIn("VisionEngine", combined)
+        self.assertIn("poll_once", combined)
+        self.assertIn("set_aiming", combined)
+        self.assertIn("reset", combined)
+        self.assertIn("result_at_ns", combined)
+        self.assertIn("auto_fire", combined)
+        self.assertIn("post_ms", combined)
+        self.assertIn("age_ms", combined)
+        self.assertIn("boxes_seen", combined)
+        self.assertIn("vision_native_debug", combined)
+
+    def test_phase3_pybind_exposes_native_vision_engine(self):
+        combined = "\n".join(_read(path) for path in _native_source_files())
+
+        self.assertIn("NativeVisionEngine", combined)
+        self.assertIn("poll_once", combined)
+        self.assertIn("set_aiming", combined)
 
 
 class NativeVisionProductionIsolationTests(unittest.TestCase):

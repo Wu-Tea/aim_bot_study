@@ -4,15 +4,17 @@ Last updated: 2026-04-21
 
 ## Current Status
 
-Native vision is currently a Phase 2 capture/inference scaffold, not the production gamepad path.
+Native vision is currently a Phase 3 foundation scaffold, not the production gamepad path.
 
-The scaffold proves five things:
+The scaffold proves seven things:
 
 - the Windows C++ toolchain can build inside this repo
 - C++ TensorRT can load `models/best.engine`
 - Python can later call into a native extension through pybind11
 - C++ can accept one CPU RGB frame, preprocess it on CUDA, run TensorRT, and return `DetectionBatch`
 - C++ can capture a centered desktop ROI into a native `D3D11Texture` `FramePacket`
+- C++ now exposes a native `VisionEngine` / `VisionResult` boundary
+- a standalone `vision_native_debug` executable can run the live native loop and print result/perf fields
 
 Production still uses the Python `vision` package. The native scaffold is only used through the explicit tools in `tools/`.
 
@@ -195,6 +197,43 @@ Run it with:
 The capture smoke only proves that native C++ can produce `FramePacket(D3D11Texture + BGRA8)`. It is not connected to TensorRT preprocessing yet and is not used by `gamepad_start.bat`.
 
 Desktop Duplication can return access denied when run from a restricted shell or while another protected desktop state is active. If the smoke fails with `0x80070005`, rerun it from a normal desktop PowerShell session before treating it as a code regression.
+
+## Phase 3 Foundation Target
+
+The next native checkpoint is not a direct production switch. It is a Phase 3 foundation milestone with three explicit deliverables:
+
+- `VisionResult` as the final native-to-Python payload contract
+- `VisionEngine` as the long-lived native runtime boundary
+- `vision_native_debug` as a standalone native verification program
+
+The debug program is part of the migration plan, not an optional extra. It exists to validate native capture, inference, targeting, and perf accounting before `gamepad_start.bat` is allowed to default to the native backend.
+
+Current limitation:
+
+- the first `VisionEngine` foundation checkpoint is capture-driven only
+- `VisionResult` is real, but `infer_ms`, `boxes_seen`, targeting, enhancement, and auto-fire are still placeholders at this stage
+- the next implementation step is to feed native capture into native inference and then fill the rest of `VisionResult`
+
+## Phase 4 Gate
+
+Phase 4 must not start until the native debug harness can prove all of the following in a repeatable way:
+
+- native live capture, inference, and post-processing all run in one executable
+- the program prints or records `VisionResult` and perf timing fields
+- the native output is comparable against the Python baseline for the same scenarios
+- cold-start and steady-state behavior are both understood
+
+Only after that checkpoint should the normal Python startup path begin loading native vision by default.
+
+## Phase 3 Foundation Debug
+
+Run the current standalone native debug program with:
+
+```powershell
+.\tools\run_native_vision_debug.ps1 -BuildFirst
+```
+
+The current output proves the `VisionEngine -> VisionResult` boundary and live capture loop. It does not yet prove targeting parity because the detector/post-processing stages have not been wired into `VisionEngine` yet.
 
 ## What This Does Not Do Yet
 
