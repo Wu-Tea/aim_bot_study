@@ -23,12 +23,12 @@ The current Python vision stack has already been optimized substantially:
 - latest-only capture plus inference threading
 - ROI-based DXGI capture
 - TensorRT `best.engine` fast path
-- lazy frame materialization and ROI-only color reads
+- direct ROI staging instead of full-screen capture
 - short-horizon occlusion compensation
 
 Even after those changes, the hot path still crosses Python-managed boundaries in places where latency and GPU contention matter:
 
-1. capture metadata and lazy frame ownership still originate in Python
+1. capture and inference orchestration still originate in Python
 2. the CPU fast preprocessor still performs:
    - `torch.from_numpy(...)`
    - CPU-to-GPU upload
@@ -36,7 +36,7 @@ Even after those changes, the hot path still crosses Python-managed boundaries i
    - dtype conversion
    - `/255.0`
 3. detector output decoding, color classification, target selection, compensation, and enhancement still execute inside Python object graphs
-4. the current "native" path is only scaffolded through `vision/native_fastpath.py`; the actual `vision_native` module does not exist yet
+4. the earlier Python-side native scaffold has been removed; the actual `vision_native` module does not exist yet
 
 The user wants a cleaner final architecture:
 
@@ -260,7 +260,7 @@ Responsibilities:
 - capture a centered ROI directly
 - maintain latest-only capture semantics
 - expose GPU texture handles to the preprocess stage
-- support low idle capture cadence and high ADS capture cadence
+- support high-rate ROI capture first; optional idle cadence controls can be reconsidered after parity
 
 ### `preprocess`
 
@@ -344,7 +344,6 @@ The first native engine should accept a config structure aligned with current `V
 - `capture_width`
 - `capture_height`
 - `capture_fps`
-- `idle_capture_fps`
 - `conf`
 - `half`
 - `device`

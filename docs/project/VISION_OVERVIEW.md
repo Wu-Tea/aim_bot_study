@@ -1,12 +1,12 @@
 # Vision Overview
 
-Last updated: 2026-04-20
+Last updated: 2026-04-21
 
 ## Goal
 
 The current vision stack is optimized for:
 
-- center-crop person detection with low idle cost
+- center-crop person detection with fast ADS pickup
 - box-based target selection for controller handoff
 - friendly rejection from color cues above the box
 - short-horizon occlusion recovery and motion-aware target deltas
@@ -28,11 +28,10 @@ The current production path is detector-first. The main targeting path does not 
 The runner has three practical states:
 
 1. `Idle`
-   - `ScreenCaptureThread` stays alive but runs at `idle_capture_fps`
+   - `ScreenCaptureThread` stays alive at `capture_fps`
    - `InferenceThread` is paused
    - targeting, enhancement, hit detection, and perf windows are reset
 2. `ADS active`
-   - capture jumps to `capture_fps`
    - inference resumes
    - fresh results flow through targeting and controller update
 3. `Inference gap`
@@ -46,9 +45,7 @@ The runner has three practical states:
 Runtime flow:
 
 1. `ScreenCaptureThread` captures a centered RGB crop through `vision/dxgi_capture.py`.
-2. `DXGIRegionCaptureBackend` returns either:
-   - a materialized RGB frame, or
-   - a lazy `CapturedFrame` with native handle plus on-demand loaders
+2. `DXGIRegionCaptureBackend` directly copies only the requested ROI into a small staging surface and returns a materialized RGB frame.
 3. `InferenceThread` runs latest-only inference.
 4. `vision/fastpath.py` uses:
    - TensorRT `best.engine` when available
@@ -73,8 +70,6 @@ Current `VisionConfig` defaults in `vision/runner.py`:
 - `capture_width = 640`
 - `capture_height = 512`
 - `capture_fps = 80`
-- `idle_capture_fps = 10`
-- `fast_preprocessor = "cpu"`
 - `model_path = models/best.engine`
 - `fallback_model_path = models/best.pt`
 - `model_task = "detect"`
@@ -99,46 +94,40 @@ Useful CLI and env controls:
 - `VISION_CROP_WIDTH`
 - `VISION_CROP_HEIGHT`
 - `VISION_CAPTURE_FPS`
-- `VISION_IDLE_CAPTURE_FPS`
 - `VISION_FAST_PATH`
-- `VISION_FAST_PREPROCESSOR`
 - `VISION_DEBUG_OVERLAY`
 - `VISION_DEBUG_SAVE`
 - `VISION_PERF_LOG`
 
-`gamepad_start.bat` currently sets `VISION_PERF_LOG=1`, enables the fast path by default, sets capture to `80 FPS`, idle capture to `10 FPS`, and prompts for:
+`gamepad_start.bat` currently sets `VISION_PERF_LOG=1`, enables the fast path by default, sets capture to `80 FPS`, and prompts for:
 
 - auto-fire output: `RB` or `RT`
-- vision preprocessor: `cpu` or `native`
 
-## Fast Path And Native Status
+## Fast Path Status
 
-The current fast path is real, but the current fully native preprocessor path is not.
+The current production fast path is Python-managed and CPU-preprocessed, but uses the TensorRT `best.engine` backend when available.
 
 What is already implemented:
 
 - direct fast-path backend use through `_fast_predict(...)`
 - ROI-based DXGI capture
-- lazy full-frame materialization
-- ROI-only CPU extraction for color classification when a full frame is not needed
-
-What is only prewired right now:
-
-- `vision/native_fastpath.py`
-- `VISION_FAST_PREPROCESSOR=native`
-- `CapturedFrame.native_frame`
 
 Current behavior:
 
-- if `VISION_FAST_PREPROCESSOR=native` is selected and `vision_native` is missing, startup logs a fallback and uses the CPU preprocessor
-- the CPU preprocessor still performs:
+- the CPU fast-path preprocessor still performs:
   - `torch.from_numpy(...)`
   - CPU-to-GPU upload
   - HWC-to-CHW reorder
   - dtype conversion
   - `/255.0`
 
-So the repository already contains native integration hooks, but not a finished always-on GPU-resident preprocess module.
+The earlier Python-side native preprocessor scaffold has been removed because it was not backed by a real `vision_native` module. Future native work should be implemented as the separate C++ vision engine described in `docs/superpowers/specs/2026-04-20-cpp-vision-engine-design.md`, not as a half-enabled Python runtime flag.
+
+## Capture Recovery
+
+`DXGIRegionCaptureBackend` handles temporary Desktop Duplication rebuild failures by returning no frame and retrying after a short backoff.
+
+This is intended for transient display-mode events such as Alt-Tab, fullscreen changes, or `DuplicateOutput` returning `E_ACCESSDENIED`. The capture thread should stay alive so the application does not need to be restarted when the OS later allows capture again.
 
 ## Target Selection
 

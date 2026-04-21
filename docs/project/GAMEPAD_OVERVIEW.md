@@ -1,6 +1,6 @@
 # Gamepad Overview
 
-Last updated: 2026-04-20
+Last updated: 2026-04-21
 
 ## Goal
 
@@ -160,12 +160,10 @@ So the live default path is the host-chosen `0.20`, not the dataclass default.
 - enables `VISION_PERF_LOG=1`
 - enables the vision fast path unless the env already overrides it
 - defaults `VISION_CAPTURE_FPS=80`
-- defaults `VISION_IDLE_CAPTURE_FPS=10`
 - prompts for:
   - auto-fire output
-  - vision preprocessor
 
-If `native` is selected for the preprocessor, the script prints a reminder that it still falls back to CPU when `vision_native` is unavailable.
+It no longer exposes a `native` preprocessor option. The current production vision path is the Python-managed CPU preprocessor plus TensorRT fast path.
 
 ## Legacy And Support Notes
 

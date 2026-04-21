@@ -1,6 +1,6 @@
 # Controller Overview
 
-Last updated: 2026-04-20
+Last updated: 2026-04-21
 
 ## Goal
 
@@ -140,8 +140,7 @@ Current scripts:
 - `gamepad_start.bat`
   - launches `main.py --controller-mode gamepad`
   - prompts for auto-fire output: `RB` or `RT`
-  - prompts for vision preprocessor: `cpu` or `native`
-  - sets capture-related env defaults
+  - sets vision perf logging, fast-path, and capture FPS env defaults
 - `mouse_start.bat`
   - launches `main.py --controller-mode mouse`
   - does not offer the gamepad startup prompts
