@@ -1,3 +1,4 @@
+#include "vision_native/dxgi_capture.h"
 #include "vision_native/tensorrt_inspector.h"
 #include "vision_native/tensorrt_engine.h"
 
@@ -65,6 +66,58 @@ py::dict batch_to_dict(const vision_native::DetectionBatch& batch) {
     return result;
 }
 
+const char* pixel_format_to_string(vision_native::PixelFormat format) {
+    switch (format) {
+    case vision_native::PixelFormat::RGB8:
+        return "RGB8";
+    case vision_native::PixelFormat::BGRA8:
+        return "BGRA8";
+    default:
+        return "unknown";
+    }
+}
+
+const char* memory_kind_to_string(vision_native::MemoryKind kind) {
+    switch (kind) {
+    case vision_native::MemoryKind::CpuHwc:
+        return "CpuHwc";
+    case vision_native::MemoryKind::D3D11Texture:
+        return "D3D11Texture";
+    default:
+        return "unknown";
+    }
+}
+
+py::dict frame_packet_to_dict(const vision_native::FramePacket& frame) {
+    py::dict result;
+    result["frame_id"] = frame.frame_id;
+    result["captured_at_ns"] = frame.captured_at_ns;
+    result["width"] = frame.width;
+    result["height"] = frame.height;
+    result["format"] = pixel_format_to_string(frame.format);
+    result["memory_kind"] = memory_kind_to_string(frame.memory_kind);
+    result["row_pitch"] = frame.row_pitch;
+    result["has_data"] = frame.data != nullptr;
+    return result;
+}
+
+py::dict capture_metadata_to_dict(const vision_native::DxgiCaptureMetadata& metadata) {
+    py::dict result;
+    result["updated"] = metadata.updated;
+    result["frame"] = frame_packet_to_dict(metadata.frame);
+    result["memory_kind"] = memory_kind_to_string(metadata.frame.memory_kind);
+    result["format"] = pixel_format_to_string(metadata.frame.format);
+    result["roi_left"] = metadata.roi_left;
+    result["roi_top"] = metadata.roi_top;
+    result["output_width"] = metadata.output_width;
+    result["output_height"] = metadata.output_height;
+    result["adapter_index"] = metadata.adapter_index;
+    result["output_index"] = metadata.output_index;
+    result["acquire_ms"] = metadata.acquire_ms;
+    result["copy_ms"] = metadata.copy_ms;
+    return result;
+}
+
 vision_native::DetectionBatch infer_array(
     vision_native::TensorRTEngine& engine,
     py::array_t<uint8_t, py::array::c_style | py::array::forcecast> frame,
@@ -81,6 +134,11 @@ vision_native::DetectionBatch infer_array(
 
     py::gil_scoped_release release;
     return engine.infer_rgb(data, width, height, row_pitch, conf_threshold);
+}
+
+vision_native::DxgiCaptureMetadata grab_capture(vision_native::DxgiRoiCapture& capture) {
+    py::gil_scoped_release release;
+    return capture.grab();
 }
 
 } // namespace
@@ -118,4 +176,22 @@ PYBIND11_MODULE(vision_native_cpp, module) {
             },
             py::arg("frame"),
             py::arg("conf_threshold") = 0.4f);
+
+    py::class_<vision_native::DxgiRoiCapture>(module, "NativeDxgiCapture")
+        .def(
+            py::init<int, int, int, int, int>(),
+            py::arg("width"),
+            py::arg("height"),
+            py::arg("adapter_index") = 0,
+            py::arg("output_index") = -1,
+            py::arg("timeout_ms") = 0)
+        .def_property_readonly("width", &vision_native::DxgiRoiCapture::width)
+        .def_property_readonly("height", &vision_native::DxgiRoiCapture::height)
+        .def_property_readonly("output_width", &vision_native::DxgiRoiCapture::output_width)
+        .def_property_readonly("output_height", &vision_native::DxgiRoiCapture::output_height)
+        .def_property_readonly("roi_left", &vision_native::DxgiRoiCapture::roi_left)
+        .def_property_readonly("roi_top", &vision_native::DxgiRoiCapture::roi_top)
+        .def("grab", [](vision_native::DxgiRoiCapture& capture) {
+            return capture_metadata_to_dict(grab_capture(capture));
+        });
 }

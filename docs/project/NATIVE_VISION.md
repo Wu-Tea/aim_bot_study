@@ -4,14 +4,15 @@ Last updated: 2026-04-21
 
 ## Current Status
 
-Native vision is currently a Phase 1 inference scaffold, not the production gamepad path.
+Native vision is currently a Phase 2 capture/inference scaffold, not the production gamepad path.
 
-The scaffold proves four things:
+The scaffold proves five things:
 
 - the Windows C++ toolchain can build inside this repo
 - C++ TensorRT can load `models/best.engine`
 - Python can later call into a native extension through pybind11
 - C++ can accept one CPU RGB frame, preprocess it on CUDA, run TensorRT, and return `DetectionBatch`
+- C++ can capture a centered desktop ROI into a native `D3D11Texture` `FramePacket`
 
 Production still uses the Python `vision` package. The native scaffold is only used through the explicit tools in `tools/`.
 
@@ -176,9 +177,28 @@ Run it with:
 
 The first inference on a fresh `NativeEngine` includes TensorRT/CUDA warmup cost and is not a steady-state benchmark. Reuse `NativeEngine.infer_rgb(...)` in a loop when measuring hot-path latency.
 
+## Phase 2 Capture Smoke
+
+Phase 2 adds a native DXGI ROI capture smoke path:
+
+- select an attached DXGI output, preferring the primary-like output that contains desktop origin
+- create a D3D11 device and Desktop Duplication session
+- copy only the centered ROI into a native `DXGI_FORMAT_B8G8R8A8_UNORM` texture
+- expose metadata through pybind without returning full image pixels to Python
+
+Run it with:
+
+```powershell
+.\tools\run_native_vision_capture_smoke.ps1 -BuildFirst
+```
+
+The capture smoke only proves that native C++ can produce `FramePacket(D3D11Texture + BGRA8)`. It is not connected to TensorRT preprocessing yet and is not used by `gamepad_start.bat`.
+
+Desktop Duplication can return access denied when run from a restricted shell or while another protected desktop state is active. If the smoke fails with `0x80070005`, rerun it from a normal desktop PowerShell session before treating it as a code regression.
+
 ## What This Does Not Do Yet
 
-- it does not capture frames
+- it does not wire native capture into TensorRT preprocessing
 - it does not run controller targeting
 - it does not replace `vision.runner`
 - it does not promise any FPS or latency improvement yet

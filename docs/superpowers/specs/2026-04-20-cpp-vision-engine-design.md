@@ -525,10 +525,12 @@ Goal:
 
 Scope:
 - Desktop Duplication setup and recovery
-- centered ROI copy into a small surface or GPU texture
+- centered ROI copy into a small GPU texture
 - preserve the Python behavior where transient DXGI rebuild failures return no frame and retry instead of killing the capture thread
 - preserve row pitch handling and the no-fullscreen-staging optimization
 - keep output compatible with the Phase 1 inference path
+
+Phase 2 exposes only capture metadata to Python for smoke testing. Full image pixels should not cross back into Python; the captured D3D11 texture stays native for the Phase 3/interop path.
 
 ### Phase 3: Full native vision result
 

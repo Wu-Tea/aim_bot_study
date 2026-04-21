@@ -7,6 +7,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 BUILD_SCRIPT = PROJECT_ROOT / "tools" / "build_native_vision.ps1"
 SMOKE_SCRIPT = PROJECT_ROOT / "tools" / "run_native_vision_smoke.ps1"
 INFER_SMOKE_SCRIPT = PROJECT_ROOT / "tools" / "run_native_vision_infer_smoke.ps1"
+CAPTURE_SMOKE_SCRIPT = PROJECT_ROOT / "tools" / "run_native_vision_capture_smoke.ps1"
 NATIVE_DIR = PROJECT_ROOT / "native" / "vision_native"
 CMAKE_FILE = NATIVE_DIR / "CMakeLists.txt"
 
@@ -76,6 +77,16 @@ class NativeVisionScriptTests(unittest.TestCase):
         self.assertIn("NativeEngine", content)
         self.assertIn("infer_rgb", content)
 
+    def test_capture_smoke_script_runs_pybind_native_dxgi_capture(self):
+        content = _read(CAPTURE_SMOKE_SCRIPT)
+
+        self.assertIn("BuildFirst", content)
+        self.assertIn("PYTHONPATH", content)
+        self.assertIn("vision_native_cpp", content)
+        self.assertIn("NativeDxgiCapture", content)
+        self.assertIn("grab", content)
+        self.assertIn("memory_kind", content)
+
 
 class NativeVisionCMakeTests(unittest.TestCase):
     def setUp(self):
@@ -97,6 +108,13 @@ class NativeVisionCMakeTests(unittest.TestCase):
 
         self.assertIn("src/tensorrt_engine.cpp", content)
         self.assertIn("src/preprocess.cu", content)
+
+    def test_phase2_native_dxgi_capture_sources_are_declared(self):
+        content = _read(CMAKE_FILE)
+
+        self.assertIn("src/dxgi_capture.cpp", content)
+        self.assertIn("d3d11", content)
+        self.assertIn("dxgi", content)
 
     def test_sources_expose_pybind_module_without_requiring_real_compile(self):
         source_files = _native_source_files()
@@ -125,6 +143,18 @@ class NativeVisionCMakeTests(unittest.TestCase):
         self.assertIn("setTensorAddress", combined)
         self.assertIn("300", combined)
         self.assertIn("6", combined)
+
+    def test_phase2_native_dxgi_capture_protocol_is_present(self):
+        combined = "\n".join(_read(path) for path in _native_source_files())
+
+        self.assertIn("DxgiRoiCapture", combined)
+        self.assertIn("DuplicateOutput", combined)
+        self.assertIn("AcquireNextFrame", combined)
+        self.assertIn("CopySubresourceRegion", combined)
+        self.assertIn("ReleaseFrame", combined)
+        self.assertIn("DXGI_ERROR_WAIT_TIMEOUT", combined)
+        self.assertIn("MemoryKind::D3D11Texture", combined)
+        self.assertIn("PixelFormat::BGRA8", combined)
 
 
 class NativeVisionProductionIsolationTests(unittest.TestCase):

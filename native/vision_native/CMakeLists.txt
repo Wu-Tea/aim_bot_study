@@ -49,6 +49,7 @@ foreach(_lib IN LISTS TensorRT_LIBS)
 endforeach()
 
 add_library(vision_native_core STATIC
+    src/dxgi_capture.cpp
     src/engine_io.cpp
     src/preprocess.cu
     src/tensorrt_engine.cpp
@@ -77,6 +78,8 @@ target_link_libraries(vision_native_core
     PUBLIC
         CUDA::cudart
         ${TensorRT_LIBS}
+        d3d11
+        dxgi
 )
 
 add_executable(vision_native_smoke
