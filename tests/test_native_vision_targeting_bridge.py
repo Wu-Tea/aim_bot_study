@@ -8,6 +8,11 @@ import numpy as np
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 NATIVE_BUILD_DIR = PROJECT_ROOT / "native" / "vision_native" / "build" / "Release"
+CROP_W = 640
+CROP_H = 512
+NEUTRAL_RGB = (24, 24, 24)
+FRIENDLY_RGB = (0, 255, 0)
+ENEMY_RGB = (255, 255, 0)
 
 
 def _load_native_module():
@@ -29,6 +34,30 @@ def _load_native_module():
             pass
 
     return vision_native_cpp
+
+
+def _frame():
+    return np.full((CROP_H, CROP_W, 3), NEUTRAL_RGB, dtype=np.uint8)
+
+
+def _paint_color_above(frame, box, rgb):
+    x1, y1, x2, y2 = box
+    box_w = float(x2 - x1)
+    box_h = float(y2 - y1)
+    cx = (x1 + x2) * 0.5
+    roi_h = int(max(12, min(36, box_h * 0.20)))
+    roi_w = int(max(24, min(80, box_w * 0.80)))
+    roi_bottom = max(0, min(frame.shape[0], int(y1) - 2))
+    roi_top = max(0, roi_bottom - roi_h)
+    roi_left = max(0, int(cx - roi_w / 2))
+    roi_right = min(frame.shape[1], int(cx + roi_w / 2))
+    band_h = max(4, (roi_bottom - roi_top) // 3)
+    band_top = roi_top + max(0, ((roi_bottom - roi_top) - band_h) // 2)
+    band_bottom = min(roi_bottom, band_top + band_h)
+    band_pad = max(2, int((roi_right - roi_left) * 0.18))
+    band_left = min(roi_right, roi_left + band_pad)
+    band_right = max(band_left + 1, roi_right - band_pad)
+    frame[band_top:band_bottom, band_left:band_right] = rgb
 
 
 class NativeVisionTargetingBridgeTests(unittest.TestCase):
@@ -139,6 +168,66 @@ class NativeVisionTargetingBridgeTests(unittest.TestCase):
         self.assertTrue(result["has_target"])
         self.assertAlmostEqual(result["target_x"], 315.0, places=3)
         self.assertAlmostEqual(result["target_y"], 196.0, places=3)
+
+    def test_green_friendly_target_is_filtered_out_with_rgb_frame(self):
+        if not hasattr(self.module, "NativeTargetSelector"):
+            self.fail("NativeTargetSelector is missing")
+
+        selector = self.module.NativeTargetSelector(CROP_W, CROP_H)
+        box = [300.0, 180.0, 360.0, 320.0]
+        frame = _frame()
+        _paint_color_above(frame, box, FRIENDLY_RGB)
+        detections = np.array([[*box, 0.82, 0.0]], dtype=np.float32)
+
+        first = selector.select_xyxy_rgb(detections, frame)
+        second = selector.select_xyxy_rgb(detections, frame)
+
+        self.assertFalse(first["has_target"])
+        self.assertFalse(second["has_target"])
+        self.assertEqual(second["boxes_seen"], 1.0)
+
+    def test_enemy_colored_pickup_can_lock_at_lower_confidence_with_rgb_frame(self):
+        if not hasattr(self.module, "NativeTargetSelector"):
+            self.fail("NativeTargetSelector is missing")
+
+        selector = self.module.NativeTargetSelector(CROP_W, CROP_H)
+        box = [300.0, 180.0, 360.0, 320.0]
+        frame = _frame()
+        _paint_color_above(frame, box, ENEMY_RGB)
+        detections = np.array([[*box, 0.44, 0.0]], dtype=np.float32)
+
+        first = selector.select_xyxy_rgb(detections, frame)
+        result = selector.select_xyxy_rgb(detections, frame)
+
+        self.assertFalse(first["has_target"])
+        self.assertTrue(result["has_target"])
+        self.assertAlmostEqual(result["target_x"], 330.0, places=3)
+        self.assertAlmostEqual(result["target_y"], 233.2, places=3)
+
+    def test_friendly_candidate_is_filtered_before_enemy_selection(self):
+        if not hasattr(self.module, "NativeTargetSelector"):
+            self.fail("NativeTargetSelector is missing")
+
+        selector = self.module.NativeTargetSelector(CROP_W, CROP_H)
+        friendly_box = [300.0, 180.0, 360.0, 320.0]
+        enemy_box = [390.0, 180.0, 450.0, 320.0]
+        frame = _frame()
+        _paint_color_above(frame, friendly_box, FRIENDLY_RGB)
+        _paint_color_above(frame, enemy_box, ENEMY_RGB)
+        detections = np.array(
+            [
+                [*friendly_box, 0.90, 0.0],
+                [*enemy_box, 0.74, 0.0],
+            ],
+            dtype=np.float32,
+        )
+
+        warmup = selector.select_xyxy_rgb(detections, frame)
+        result = selector.select_xyxy_rgb(detections, frame)
+
+        self.assertFalse(warmup["has_target"])
+        self.assertTrue(result["has_target"])
+        self.assertAlmostEqual(result["target_x"], 420.0, places=3)
 
 
 if __name__ == "__main__":

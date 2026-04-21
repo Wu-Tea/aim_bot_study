@@ -6,7 +6,7 @@ Last updated: 2026-04-21
 
 Native vision is currently a Phase 3B scaffold, not the production gamepad path.
 
-The scaffold proves nine things:
+The scaffold proves ten things:
 
 - the Windows C++ toolchain can build inside this repo
 - C++ TensorRT can load `models/best.engine`
@@ -16,10 +16,88 @@ The scaffold proves nine things:
 - C++ now exposes a native `VisionEngine` / `VisionResult` boundary
 - `VisionEngine` can map the live ROI texture into CUDA and run TensorRT without returning frames to Python
 - C++ now exposes a stateful native target selector for synthetic parity tests and live engine integration
+- native color classification now runs inside the C++ selector path for both pybind tests and the live debug engine
 - a standalone `vision_native_debug` executable can run the live native loop and print result/perf fields
 - the debug loop now reports real `preprocess_ms`, `infer_ms`, and `boxes_seen` values from native inference
 
 Production still uses the Python `vision` package. The native scaffold is only used through the explicit tools in `tools/`.
+
+## Pipeline Status
+
+Current native progress is easiest to understand in the real runtime order:
+
+### 1. Capture / Screenshot
+
+Status: substantially done for the native path.
+
+What is already native:
+
+- Desktop Duplication setup and output selection
+- centered ROI capture instead of full-screen-then-crop
+- copy into a small native `D3D11Texture`
+- live capture smoke validation through `run_native_vision_capture_smoke.ps1`
+
+What this means in practice:
+
+- the native path is no longer blocked on screenshot plumbing
+- Python does not need the ROI pixels back for the native debug path
+- the capture stage is already suitable for further native parity work
+
+Remaining risk at this stage:
+
+- DXGI desktop access can still fail in restricted contexts such as `0x80070005`
+- production startup still uses the Python runtime, so native capture is not yet the default gamepad path
+
+### 2. Detection / Recognition
+
+Status: substantially done for the native path.
+
+What is already native:
+
+- `models/best.engine` loading in C++ TensorRT
+- BGRA ROI texture registration through CUDA D3D11 interop
+- GPU-side BGRA -> normalized CHW preprocessing
+- native TensorRT enqueue and decode into `DetectionBatch`
+- real `preprocess_ms`, `infer_ms`, `decode_ms`, and `boxes_seen` reporting
+
+What this means in practice:
+
+- screenshot and detection are already connected end-to-end in native code
+- the current native debug loop is doing real capture -> infer work, not placeholder timing
+- the main unresolved work is no longer detector plumbing
+
+Remaining risk at this stage:
+
+- no claim yet that native detection is faster in real gameplay than the Python production path
+- production runner still uses Python vision as the behavior oracle and fallback
+
+### 3. Target Selector
+
+Status: partially done; this is the current active migration layer.
+
+What is already native:
+
+- a stateful `NativeTargetSelector` exposed through pybind
+- two-frame pickup confirmation for first lock
+- upper-chest aim point derived from the selected body box
+- geometry/confidence gating
+- multi-candidate scoring based on crosshair distance, confidence, area heuristics, and tracking bonus
+- two-frame switch confirmation before replacing the active target
+- live `VisionEngine` integration, so debug output already reflects the native selector instead of a highest-confidence placeholder
+
+What is still not native:
+
+- color classification
+- occlusion compensation / reconstructed / predicted target sources
+- enhancement pipeline
+- auto-fire recommendation parity
+- full one-to-one `TargetSelector` behavior parity with Python
+
+Bottom line:
+
+- **capture:** basically in place
+- **recognition:** basically in place
+- **selector:** started and usable, but still the main unfinished parity layer
 
 ## Migration Protocol
 
@@ -242,16 +320,17 @@ The current native slice includes:
 - two-frame pickup confirmation for first lock
 - upper-chest target point generation from the selected body box
 - multi-candidate scoring based on crosshair distance, confidence, area heuristics, and tracking bonus
+- friendly/enemy color classification for the color band above the body box
 - two-frame switch confirmation before replacing the active target
 - live `VisionEngine` integration, so the debug executable now uses the native selector instead of a highest-confidence placeholder
 
 Current limitation:
 
-- color classification is still Python-only
 - occlusion compensation is still Python-only
 - enhancement and auto-fire recommendation are still Python-only
 - `target_source` is currently only `observed`
 - the native selector is intentionally narrower than the full Python `TargetSelector`
+- the current live-engine implementation downloads the full `640x512` BGRA ROI to host memory once detections exist, then runs CPU HSV classification; this is acceptable for parity work but is not the final low-latency form
 
 ## Phase 4 Gate
 
@@ -277,10 +356,9 @@ The current output proves the `VisionEngine -> VisionResult` boundary, live ROI 
 ## What This Does Not Do Yet
 
 - it does not yet implement full Python `TargetSelector` parity in native code
-- it does not yet implement native color classification
 - it does not yet implement native occlusion compensation or enhancement
 - it does not yet implement native auto-fire recommendation parity
 - it does not replace `vision.runner`
 - it does not promise any FPS or latency improvement yet
 
-The next real phase is to extend this native selector slice with color, occlusion compensation, enhancement, and auto-fire parity. Only after that should we compare performance against the Python vision baseline in a meaningful way.
+The next real phase is to extend this native selector slice with occlusion compensation, enhancement, and auto-fire parity, and then decide whether the current host-side color sampling needs to be replaced with a smaller ROI-copy or GPU-side path. Only after that should we compare performance against the Python vision baseline in a meaningful way.

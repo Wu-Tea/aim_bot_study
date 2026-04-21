@@ -33,6 +33,9 @@ struct Detection {
     float y2 = 0.0f;
     float conf = 0.0f;
     int class_id = 0;
+    float color_bonus = 0.0f;
+    bool is_friendly = false;
+    bool color_classified = false;
 };
 
 struct DetectionBatch {

@@ -145,6 +145,26 @@ VisionResult VisionEngine::poll_once() {
         batch.frame_id = metadata.frame.frame_id;
         batch.captured_at_ns = metadata.frame.captured_at_ns;
 
+        bool has_color_frame = false;
+        if (!batch.detections.empty()) {
+            const size_t host_bytes = static_cast<size_t>(width_) * static_cast<size_t>(height_) * 4;
+            if (host_color_frame_.size() != host_bytes) {
+                host_color_frame_.resize(host_bytes);
+            }
+            check_cuda(
+                cudaMemcpy2DFromArray(
+                    host_color_frame_.data(),
+                    static_cast<size_t>(width_) * 4,
+                    frame_array,
+                    0,
+                    0,
+                    static_cast<size_t>(width_) * 4,
+                    static_cast<size_t>(height_),
+                    cudaMemcpyDeviceToHost),
+                "cudaMemcpy2DFromArray host_color_frame");
+            has_color_frame = true;
+        }
+
         check_cuda(cudaGraphicsUnmapResources(1, &graphics_resource, nullptr), "cudaGraphicsUnmapResources");
         mapped = false;
 
@@ -156,7 +176,20 @@ VisionResult VisionEngine::poll_once() {
         result.infer_ms = batch.infer_ms;
         result.boxes_seen = static_cast<float>(batch.detections.size());
 
-        const VisionResult targeting = selector_.select(batch);
+        VisionResult targeting;
+        if (has_color_frame) {
+            targeting = selector_.select_with_frame(
+                batch,
+                VisionTargetSelector::ColorFrameView{
+                    host_color_frame_.data(),
+                    width_,
+                    height_,
+                    width_ * 4,
+                    PixelFormat::BGRA8,
+                });
+        } else {
+            targeting = selector_.select(batch);
+        }
         result.has_target = targeting.has_target;
         result.auto_fire = targeting.auto_fire;
         result.dx = targeting.dx;

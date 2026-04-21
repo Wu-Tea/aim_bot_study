@@ -6,6 +6,8 @@
 #include "vision_native/types.h"
 
 #include <atomic>
+#include <cstdint>
+#include <vector>
 
 namespace vision_native {
 
@@ -35,6 +37,7 @@ private:
     TensorRTEngine engine_;
     std::atomic<bool> aiming_{false};
     void* graphics_resource_ = nullptr;
+    std::vector<uint8_t> host_color_frame_;
     int width_ = 0;
     int height_ = 0;
 };

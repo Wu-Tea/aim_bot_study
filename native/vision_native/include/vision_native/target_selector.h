@@ -2,6 +2,7 @@
 
 #include "vision_native/types.h"
 
+#include <cstdint>
 #include <optional>
 #include <utility>
 #include <vector>
@@ -10,10 +11,19 @@ namespace vision_native {
 
 class VisionTargetSelector {
 public:
+    struct ColorFrameView {
+        const uint8_t* data = nullptr;
+        int width = 0;
+        int height = 0;
+        int row_pitch = 0;
+        PixelFormat format = PixelFormat::RGB8;
+    };
+
     VisionTargetSelector(int frame_width, int frame_height);
 
     void reset();
     VisionResult select(const DetectionBatch& batch);
+    VisionResult select_with_frame(const DetectionBatch& batch, const ColorFrameView& frame);
 
     struct Rect {
         float left = 0.0f;
@@ -26,6 +36,7 @@ public:
         float target_x = 0.0f;
         float target_y = 0.0f;
         float conf = 0.0f;
+        float color_bonus = 0.0f;
         Rect body_box;
         Rect slow_zone;
         Rect fire_zone;
@@ -52,9 +63,10 @@ private:
     std::pair<float, float> target_point(const Rect& box) const;
     Rect fallback_slow_zone(const Rect& box) const;
     Rect fire_zone(const Rect& box) const;
+    DetectionBatch annotate_colors(const DetectionBatch& batch, const ColorFrameView& frame) const;
 
     bool passes_geometry_gate(float box_w, float box_h, bool tracking_candidate) const;
-    bool passes_confidence_gate(float conf, bool tracking_candidate) const;
+    bool passes_confidence_gate(float conf, bool tracking_candidate, bool enemy_colored) const;
 
     std::optional<Candidate> build_candidate(
         const Detection& detection,

@@ -40,9 +40,27 @@ constexpr float kActiveTargetScoreSwitchMargin = 2000.0f;
 constexpr float kSwitchCrosshairMarginRatio = 16.0f / 640.0f;
 constexpr float kCrosshairPriorityMarginRatio = 10.0f / 640.0f;
 constexpr float kPickupConfidenceThreshold = 0.65f;
+constexpr float kPickupEnemyConfidenceThreshold = 0.42f;
 constexpr float kTrackingConfidenceThreshold = 0.40f;
 constexpr float kTrackingBonus = 2000.0f;
 constexpr float kMinScoreThreshold = -50000.0f;
+constexpr float kMaxColorBonus = 10000.0f;
+constexpr float kFriendlyMaskMinRatio = 0.02f;
+constexpr float kFriendlyMaskMaxRatio = 0.35f;
+constexpr float kEnemyMaskMinRatio = 0.03f;
+constexpr float kEnemyMaskMaxRatio = 0.45f;
+
+struct ColorClassification {
+    float color_bonus = 0.0f;
+    bool is_friendly = false;
+};
+
+struct IntRect {
+    int left = 0;
+    int top = 0;
+    int right = 0;
+    int bottom = 0;
+};
 
 float rect_width(const VisionTargetSelector::Rect& rect) {
     return rect.right - rect.left;
@@ -86,6 +104,145 @@ float point_distance(
     return std::hypot(lhs.first - rhs.first, lhs.second - rhs.second);
 }
 
+std::optional<IntRect> color_roi_bounds(
+    const VisionTargetSelector::Rect& box,
+    int frame_width,
+    int frame_height) {
+    const float box_w = rect_width(box);
+    const float box_h = rect_height(box);
+    const float cx = (box.left + box.right) * 0.5f;
+    const int roi_h = static_cast<int>(std::max(12.0f, std::min(36.0f, box_h * 0.20f)));
+    const int roi_w = static_cast<int>(std::max(24.0f, std::min(80.0f, box_w * 0.80f)));
+    const int roi_bottom = std::max(0, std::min(frame_height, static_cast<int>(box.top) - 2));
+    const int roi_top = std::max(0, roi_bottom - roi_h);
+    const int roi_left = std::max(0, static_cast<int>(cx - (static_cast<float>(roi_w) * 0.5f)));
+    const int roi_right = std::min(frame_width, static_cast<int>(cx + (static_cast<float>(roi_w) * 0.5f)));
+
+    if ((roi_bottom - roi_top) < 4 || (roi_right - roi_left) < 4) {
+        return std::nullopt;
+    }
+    return IntRect{roi_left, roi_top, roi_right, roi_bottom};
+}
+
+void read_rgb(
+    const VisionTargetSelector::ColorFrameView& frame,
+    int x,
+    int y,
+    int& r,
+    int& g,
+    int& b) {
+    const uint8_t* pixel = frame.data + (static_cast<size_t>(y) * frame.row_pitch);
+    if (frame.format == PixelFormat::BGRA8) {
+        pixel += static_cast<size_t>(x) * 4;
+        b = pixel[0];
+        g = pixel[1];
+        r = pixel[2];
+        return;
+    }
+
+    pixel += static_cast<size_t>(x) * 3;
+    r = pixel[0];
+    g = pixel[1];
+    b = pixel[2];
+}
+
+void rgb_to_opencv_hsv(int r, int g, int b, float& h, float& s, float& v) {
+    const float rf = static_cast<float>(r) / 255.0f;
+    const float gf = static_cast<float>(g) / 255.0f;
+    const float bf = static_cast<float>(b) / 255.0f;
+    const float max_value = std::max(rf, std::max(gf, bf));
+    const float min_value = std::min(rf, std::min(gf, bf));
+    const float delta = max_value - min_value;
+
+    float hue_degrees = 0.0f;
+    if (delta > 0.0f) {
+        if (max_value == rf) {
+            hue_degrees = 60.0f * std::fmod(((gf - bf) / delta), 6.0f);
+        } else if (max_value == gf) {
+            hue_degrees = 60.0f * (((bf - rf) / delta) + 2.0f);
+        } else {
+            hue_degrees = 60.0f * (((rf - gf) / delta) + 4.0f);
+        }
+    }
+    if (hue_degrees < 0.0f) {
+        hue_degrees += 360.0f;
+    }
+
+    h = hue_degrees * 0.5f;
+    s = max_value <= 0.0f ? 0.0f : (delta / max_value) * 255.0f;
+    v = max_value * 255.0f;
+}
+
+bool in_hsv_range(
+    float h,
+    float s,
+    float v,
+    float lower_h,
+    float lower_s,
+    float lower_v,
+    float upper_h,
+    float upper_s,
+    float upper_v) {
+    return lower_h <= h && h <= upper_h
+        && lower_s <= s && s <= upper_s
+        && lower_v <= v && v <= upper_v;
+}
+
+ColorClassification classify_color(
+    const VisionTargetSelector::Rect& box,
+    const VisionTargetSelector::ColorFrameView& frame) {
+    if (frame.data == nullptr || frame.width <= 0 || frame.height <= 0 || frame.row_pitch <= 0) {
+        return {};
+    }
+
+    const auto bounds = color_roi_bounds(box, frame.width, frame.height);
+    if (!bounds.has_value()) {
+        return {};
+    }
+
+    int friendly_count = 0;
+    int enemy_count = 0;
+    int area = 0;
+    for (int y = bounds->top; y < bounds->bottom; ++y) {
+        for (int x = bounds->left; x < bounds->right; ++x) {
+            int r = 0;
+            int g = 0;
+            int b = 0;
+            read_rgb(frame, x, y, r, g, b);
+
+            float h = 0.0f;
+            float s = 0.0f;
+            float v = 0.0f;
+            rgb_to_opencv_hsv(r, g, b, h, s, v);
+            if (in_hsv_range(h, s, v, 45.0f, 80.0f, 50.0f, 75.0f, 255.0f, 255.0f)) {
+                ++friendly_count;
+            }
+            if (in_hsv_range(h, s, v, 20.0f, 120.0f, 120.0f, 35.0f, 255.0f, 255.0f)
+                || in_hsv_range(h, s, v, 0.0f, 120.0f, 80.0f, 10.0f, 255.0f, 255.0f)
+                || in_hsv_range(h, s, v, 170.0f, 120.0f, 80.0f, 180.0f, 255.0f, 255.0f)) {
+                ++enemy_count;
+            }
+            ++area;
+        }
+    }
+
+    if (area <= 0) {
+        return {};
+    }
+
+    const float friendly_ratio = static_cast<float>(friendly_count) / static_cast<float>(area);
+    if (kFriendlyMaskMinRatio <= friendly_ratio && friendly_ratio <= kFriendlyMaskMaxRatio) {
+        return ColorClassification{0.0f, true};
+    }
+
+    const float enemy_ratio = static_cast<float>(enemy_count) / static_cast<float>(area);
+    if (kEnemyMaskMinRatio <= enemy_ratio && enemy_ratio <= kEnemyMaskMaxRatio) {
+        return ColorClassification{kMaxColorBonus, false};
+    }
+
+    return {};
+}
+
 } // namespace
 
 VisionTargetSelector::VisionTargetSelector(int frame_width, int frame_height)
@@ -114,6 +271,12 @@ void VisionTargetSelector::reset() {
     pending_frames_ = 0;
     pending_switch_frames_ = 0;
     hold_frames_ = 0;
+}
+
+VisionResult VisionTargetSelector::select_with_frame(
+    const DetectionBatch& batch,
+    const ColorFrameView& frame) {
+    return select(annotate_colors(batch, frame));
 }
 
 VisionResult VisionTargetSelector::empty_result(float boxes_seen) const {
@@ -180,6 +343,19 @@ VisionTargetSelector::Rect VisionTargetSelector::fire_zone(const Rect& box) cons
     };
 }
 
+DetectionBatch VisionTargetSelector::annotate_colors(
+    const DetectionBatch& batch,
+    const ColorFrameView& frame) const {
+    DetectionBatch annotated = batch;
+    for (auto& detection : annotated.detections) {
+        const ColorClassification classification = classify_color(to_rect(detection), frame);
+        detection.color_bonus = classification.color_bonus;
+        detection.is_friendly = classification.is_friendly;
+        detection.color_classified = true;
+    }
+    return annotated;
+}
+
 bool VisionTargetSelector::passes_geometry_gate(float box_w, float box_h, bool tracking_candidate) const {
     const float aspect_ratio = box_w > 0.0f ? (box_h / box_w) : 0.0f;
     if (aspect_ratio < kMinAspectRatio || aspect_ratio > kMaxAspectRatio) {
@@ -191,8 +367,14 @@ bool VisionTargetSelector::passes_geometry_gate(float box_w, float box_h, bool t
     return box_h >= min_height && (box_w * box_h) >= min_area;
 }
 
-bool VisionTargetSelector::passes_confidence_gate(float conf, bool tracking_candidate) const {
-    return conf >= (tracking_candidate ? kTrackingConfidenceThreshold : kPickupConfidenceThreshold);
+bool VisionTargetSelector::passes_confidence_gate(
+    float conf,
+    bool tracking_candidate,
+    bool enemy_colored) const {
+    if (tracking_candidate) {
+        return conf >= kTrackingConfidenceThreshold;
+    }
+    return conf >= (enemy_colored ? kPickupEnemyConfidenceThreshold : kPickupConfidenceThreshold);
 }
 
 std::optional<VisionTargetSelector::Candidate> VisionTargetSelector::build_candidate(
@@ -210,7 +392,10 @@ std::optional<VisionTargetSelector::Candidate> VisionTargetSelector::build_candi
     if (!passes_geometry_gate(box_w, box_h, tracking_candidate)) {
         return std::nullopt;
     }
-    if (!passes_confidence_gate(detection.conf, tracking_candidate)) {
+    if (detection.is_friendly) {
+        return std::nullopt;
+    }
+    if (!passes_confidence_gate(detection.conf, tracking_candidate, detection.color_bonus > 0.0f)) {
         return std::nullopt;
     }
 
@@ -218,6 +403,7 @@ std::optional<VisionTargetSelector::Candidate> VisionTargetSelector::build_candi
     candidate.target_x = point.first;
     candidate.target_y = point.second;
     candidate.conf = detection.conf;
+    candidate.color_bonus = detection.color_bonus;
     candidate.body_box = box;
     candidate.slow_zone = fallback_slow_zone(box);
     candidate.fire_zone = fire_zone(box);
@@ -297,6 +483,7 @@ VisionTargetSelector::ScoredCandidate VisionTargetSelector::score_candidate(
     const float norm_dy = (candidate.target_y - screen_center_y_) / half_h;
     float score =
         (-std::hypot(norm_dx, norm_dy) * kDistanceScoreScale)
+        + candidate.color_bonus
         + (candidate.conf * kConfidenceScoreScale);
 
     const float area = rect_width(candidate.body_box) * rect_height(candidate.body_box);
@@ -464,7 +651,7 @@ std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::commit_ta
 
 std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::select_single_candidate(
     const Candidate& candidate) const {
-    return target_from_candidate(candidate, candidate.conf * kConfidenceScoreScale);
+    return target_from_candidate(candidate, candidate.color_bonus + (candidate.conf * kConfidenceScoreScale));
 }
 
 std::pair<std::optional<VisionTargetSelector::TargetState>, std::optional<VisionTargetSelector::TargetState>>

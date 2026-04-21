@@ -45,6 +45,9 @@ py::dict detection_to_dict(const vision_native::Detection& detection) {
     result["y2"] = detection.y2;
     result["conf"] = detection.conf;
     result["class_id"] = detection.class_id;
+    result["color_bonus"] = detection.color_bonus;
+    result["is_friendly"] = detection.is_friendly;
+    result["color_classified"] = detection.color_classified;
     return result;
 }
 
@@ -180,16 +183,17 @@ vision_native::VisionResult poll_engine_once(vision_native::VisionEngine& engine
 vision_native::DetectionBatch batch_from_xyxy_array(
     py::array_t<float, py::array::c_style | py::array::forcecast> detections) {
     py::buffer_info buffer = detections.request();
-    if (buffer.ndim != 2 || buffer.shape[1] != 6) {
-        throw std::runtime_error("select_xyxy expects a float32 array with shape [N,6]");
+    if (buffer.ndim != 2 || (buffer.shape[1] != 6 && buffer.shape[1] != 8)) {
+        throw std::runtime_error("select_xyxy expects a float32 array with shape [N,6] or [N,8]");
     }
 
     vision_native::DetectionBatch batch;
     const auto* rows = static_cast<const float*>(buffer.ptr);
     const py::ssize_t count = buffer.shape[0];
+    const py::ssize_t cols = buffer.shape[1];
     batch.detections.reserve(static_cast<size_t>(count));
     for (py::ssize_t index = 0; index < count; ++index) {
-        const float* row = rows + (index * 6);
+        const float* row = rows + (index * cols);
         vision_native::Detection detection;
         detection.x1 = row[0];
         detection.y1 = row[1];
@@ -197,9 +201,30 @@ vision_native::DetectionBatch batch_from_xyxy_array(
         detection.y2 = row[3];
         detection.conf = row[4];
         detection.class_id = static_cast<int>(row[5]);
+        if (cols >= 8) {
+            detection.color_bonus = row[6];
+            detection.is_friendly = row[7] != 0.0f;
+            detection.color_classified = true;
+        }
         batch.detections.push_back(detection);
     }
     return batch;
+}
+
+vision_native::VisionTargetSelector::ColorFrameView rgb_frame_view(
+    py::array_t<uint8_t, py::array::c_style | py::array::forcecast> frame) {
+    py::buffer_info buffer = frame.request();
+    if (buffer.ndim != 3 || buffer.shape[2] != 3) {
+        throw std::runtime_error("select_xyxy_rgb expects an RGB uint8 array with shape [H,W,3]");
+    }
+
+    vision_native::VisionTargetSelector::ColorFrameView view;
+    view.data = static_cast<const uint8_t*>(buffer.ptr);
+    view.width = static_cast<int>(buffer.shape[1]);
+    view.height = static_cast<int>(buffer.shape[0]);
+    view.row_pitch = static_cast<int>(buffer.strides[0]);
+    view.format = vision_native::PixelFormat::RGB8;
+    return view;
 }
 
 } // namespace
@@ -281,5 +306,17 @@ PYBIND11_MODULE(vision_native_cpp, module) {
                py::array_t<float, py::array::c_style | py::array::forcecast> detections) {
                 return vision_result_to_dict(selector.select(batch_from_xyxy_array(detections)));
             },
-            py::arg("detections"));
+            py::arg("detections"))
+        .def(
+            "select_xyxy_rgb",
+            [](vision_native::VisionTargetSelector& selector,
+               py::array_t<float, py::array::c_style | py::array::forcecast> detections,
+               py::array_t<uint8_t, py::array::c_style | py::array::forcecast> frame) {
+                return vision_result_to_dict(
+                    selector.select_with_frame(
+                        batch_from_xyxy_array(detections),
+                        rgb_frame_view(frame)));
+            },
+            py::arg("detections"),
+            py::arg("frame"));
 }
