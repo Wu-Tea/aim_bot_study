@@ -1,13 +1,13 @@
+import ctypes
 import time
 import unittest
-import ctypes
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
 
 from vision.capture import CapturedFrame, ScreenCaptureThread
-from vision.dxgi_capture import BGRARegionProcessor, CaptureFrameData, DXGIRegionCaptureBackend, RegionStageSurface
+from vision.dxgi_capture import BGRARegionProcessor, DXGIRegionCaptureBackend, RegionStageSurface
 
 
 class _FakeBackend:
@@ -67,6 +67,20 @@ class _FakeDuplicator:
         self.released = True
 
 
+class _FakeLostDuplicator:
+    def __init__(self):
+        self.released = False
+
+    def update_frame(self):
+        return False
+
+    def release_frame(self):
+        self.released = True
+
+    def release(self):
+        self.released = True
+
+
 class _FakeStageSurface:
     def __init__(self):
         self.texture = object()
@@ -115,33 +129,6 @@ class _FakeTextureWithSurface:
         self.release_calls += 1
 
 
-class _FakeNativeSlot:
-    def __init__(self, slot_index):
-        self.slot_index = slot_index
-        self.texture = object()
-
-
-class _FakeNativeSlotPool:
-    def __init__(self):
-        self.slots = [_FakeNativeSlot(0), _FakeNativeSlot(1)]
-        self.calls = 0
-        self.released = []
-
-    def acquire_slot(self):
-        slot = self.slots[self.calls % len(self.slots)]
-        self.calls += 1
-        return slot
-
-    def create_native_frame(self, slot):
-        return {
-            "slot_index": slot.slot_index,
-            "texture": slot.texture,
-        }
-
-    def release_native_frame(self, native_frame):
-        self.released.append(native_frame["slot_index"])
-
-
 class _FakeProcessor:
     def __init__(self):
         self.calls = []
@@ -162,6 +149,20 @@ def _mapped_rect_from_rows(*rows: bytes):
 
 
 class ScreenCaptureThreadTests(unittest.TestCase):
+    @patch("vision.capture.win32api.GetSystemMetrics", side_effect=[1920, 1080])
+    def test_capture_thread_starts_at_target_fps_even_when_idle_fps_is_configured(self, _metrics):
+        backend = _FakeBackend([])
+
+        with patch("vision.capture.create_capture_backend", return_value=backend):
+            thread = ScreenCaptureThread(
+                target_fps=80,
+                crop_width=640,
+                crop_height=512,
+            )
+
+        self.assertEqual(thread._target_fps, 80.0)
+        thread.stop()
+
     def test_region_stage_surface_caches_dxgi_surface_interface(self):
         fake_surface = _FakeDxgiSurface()
         fake_texture = _FakeTextureWithSurface(fake_surface)
@@ -215,50 +216,6 @@ class ScreenCaptureThreadTests(unittest.TestCase):
         self.assertIsNotNone(first)
         self.assertIsNone(second)
         self.assertEqual(next_seen_id, last_seen_id)
-
-    @patch("vision.capture.win32api.GetSystemMetrics", side_effect=[1920, 1080])
-    def test_get_latest_frame_preserves_native_frame_payload(self, _metrics):
-        backend = _FakeBackend(
-            [
-                CaptureFrameData(
-                    frame=np.zeros((4, 4, 3), dtype=np.uint8),
-                    native_frame={"kind": "dxgi-texture", "slot_index": 3},
-                )
-            ]
-        )
-
-        with patch("vision.capture.create_capture_backend", return_value=backend):
-            thread = ScreenCaptureThread(target_fps=80, crop_width=640, crop_height=512)
-            thread.start()
-            try:
-                captured, _ = thread.get_latest_frame(timeout=0.2)
-            finally:
-                thread.stop()
-                thread.join(timeout=1.0)
-
-        self.assertIsInstance(captured, CapturedFrame)
-        self.assertEqual(captured.native_frame, {"kind": "dxgi-texture", "slot_index": 3})
-
-    def test_captured_frame_materializes_lazy_frame_once_and_releases_native_resources(self):
-        load_calls = []
-        release_calls = []
-        expected_frame = np.full((3, 2, 3), 9, dtype=np.uint8)
-        captured = CapturedFrame(
-            frame_id=1,
-            captured_at=5.0,
-            frame=None,
-            native_frame={"slot_index": 1},
-            frame_loader=lambda: load_calls.append("load") or expected_frame,
-            frame_release=lambda: release_calls.append("release"),
-        )
-
-        first = captured.frame
-        second = captured.frame
-
-        self.assertIs(first, expected_frame)
-        self.assertIs(second, expected_frame)
-        self.assertEqual(load_calls, ["load"])
-        self.assertEqual(release_calls, ["release"])
 
     def test_region_backend_copies_only_requested_roi_into_small_surface(self):
         immediate_context = _FakeImmediateContext()
@@ -331,94 +288,47 @@ class ScreenCaptureThreadTests(unittest.TestCase):
         self.assertEqual(processor.calls, [])
         self.assertFalse(duplicator.released)
 
-    def test_region_backend_emits_native_frame_and_uses_extra_gpu_copy_when_enabled(self):
+    def test_region_backend_retries_after_rebuild_failure_without_raising(self):
         immediate_context = _FakeImmediateContext()
         device = SimpleNamespace(im_context=immediate_context)
         output = SimpleNamespace(
             desc=SimpleNamespace(
-                DesktopCoordinates=SimpleNamespace(left=100, top=40),
+                DesktopCoordinates=SimpleNamespace(left=0, top=0),
             ),
             rotation_angle=0,
             resolution=(1920, 1080),
+            update_desc=lambda: None,
         )
-        duplicator = _FakeDuplicator(has_update=True)
         stage_surface = _FakeStageSurface()
         processor = _FakeProcessor()
-        native_slot_pool = _FakeNativeSlotPool()
+        build_attempts = []
+
+        def duplicator_factory(*, output, device):
+            build_attempts.append("build")
+            if len(build_attempts) == 1:
+                raise PermissionError("duplicate output denied")
+            return _FakeDuplicator(has_update=True)
+
         backend = DXGIRegionCaptureBackend(
-            region=(420, 200, 1060, 712),
+            region=(0, 0, 640, 512),
             device=device,
             output=output,
-            duplicator=duplicator,
+            duplicator=_FakeLostDuplicator(),
             stage_surface=stage_surface,
             processor=processor,
-            emit_native_frames=True,
-            native_slot_pool=native_slot_pool,
+            duplicator_factory=duplicator_factory,
+            recovery_delay_seconds=0.0,
         )
 
-        frame = backend.grab()
+        with patch("vision.dxgi_capture.RegionStageSurface", return_value=stage_surface):
+            first = backend.grab()
+            second = backend.grab()
 
-        self.assertIsInstance(frame, CaptureFrameData)
-        self.assertIsNone(frame.frame)
-        self.assertIsNotNone(frame.frame_loader)
-        self.assertEqual(frame.native_frame["slot_index"], 0)
-        self.assertEqual(len(processor.calls), 0)
+        self.assertIsNone(first)
+        self.assertEqual(len(build_attempts), 2)
+        self.assertIsNotNone(second)
+        self.assertEqual(second.shape, (512, 640, 3))
         self.assertEqual(len(immediate_context.copy_calls), 1)
-        first_copy = immediate_context.copy_calls[0]
-        self.assertIs(first_copy["destination"], native_slot_pool.slots[0].texture)
-        materialized = frame.frame_loader()
-        self.assertEqual(materialized.shape, (512, 640, 3))
-        self.assertEqual(len(processor.calls), 1)
-        self.assertEqual(len(immediate_context.copy_calls), 2)
-        second_copy = immediate_context.copy_calls[1]
-        self.assertIs(second_copy["source"], native_slot_pool.slots[0].texture)
-        self.assertIs(second_copy["destination"], stage_surface.texture)
-        frame.frame_release()
-        self.assertEqual(native_slot_pool.released, [0])
-        self.assertTrue(duplicator.released)
-
-    def test_region_backend_roi_loader_reads_only_requested_subregion(self):
-        immediate_context = _FakeImmediateContext()
-        device = SimpleNamespace(im_context=immediate_context)
-        output = SimpleNamespace(
-            desc=SimpleNamespace(
-                DesktopCoordinates=SimpleNamespace(left=100, top=40),
-            ),
-            rotation_angle=0,
-            resolution=(1920, 1080),
-        )
-        duplicator = _FakeDuplicator(has_update=True)
-        stage_surface = _FakeStageSurface()
-        processor = _FakeProcessor()
-        native_slot_pool = _FakeNativeSlotPool()
-        backend = DXGIRegionCaptureBackend(
-            region=(420, 200, 1060, 712),
-            device=device,
-            output=output,
-            duplicator=duplicator,
-            stage_surface=stage_surface,
-            processor=processor,
-            emit_native_frames=True,
-            native_slot_pool=native_slot_pool,
-        )
-
-        frame = backend.grab()
-        roi = frame.roi_loader(12, 16, 44, 36)
-
-        self.assertEqual(roi.shape, (20, 32, 3))
-        self.assertEqual(len(processor.calls), 1)
-        self.assertEqual(processor.calls[0][1:], (32, 20))
-        self.assertEqual(len(immediate_context.copy_calls), 2)
-        second_copy = immediate_context.copy_calls[1]
-        self.assertEqual(
-            (
-                second_copy["source_box"].left,
-                second_copy["source_box"].top,
-                second_copy["source_box"].right,
-                second_copy["source_box"].bottom,
-            ),
-            (12, 16, 44, 36),
-        )
 
     def test_bgra_region_processor_rotates_rgb_output_buffers_without_mutating_prior_frame(self):
         processor = BGRARegionProcessor(output_color="RGB", buffer_slots=2)

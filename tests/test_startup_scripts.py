@@ -11,11 +11,13 @@ class StartupScriptTests(unittest.TestCase):
 
         self.assertNotIn(".venv\\Scripts\\python.exe", content)
         self.assertIn("py -3.11", content)
-        self.assertIn("VISION_FAST_PREPROCESSOR", content)
         self.assertIn("VISION_FAST_PATH", content)
         self.assertIn("VISION_CAPTURE_FPS", content)
-        self.assertIn("VISION_IDLE_CAPTURE_FPS", content)
         self.assertIn("Vision settings:", content)
+        self.assertNotIn("VISION_FAST_PREPROCESSOR", content)
+        self.assertNotIn("VISION_IDLE_CAPTURE_FPS", content)
+        self.assertNotIn("preprocessor=", content)
+        self.assertNotIn("idle_capture_fps=", content)
         self.assertNotIn("Select Vision preprocessor:", content)
         self.assertNotIn("Native (experimental)", content)
 

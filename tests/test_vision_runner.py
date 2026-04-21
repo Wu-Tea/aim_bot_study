@@ -1,6 +1,5 @@
 import os
 import unittest
-from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import numpy as np
@@ -18,8 +17,6 @@ class VisionRunnerTests(unittest.TestCase):
         self.assertEqual(config.capture_width, 640)
         self.assertEqual(config.capture_height, 512)
         self.assertEqual(config.capture_fps, 80)
-        self.assertEqual(config.idle_capture_fps, 10)
-        self.assertEqual(config.fast_preprocessor, "cpu")
         self.assertEqual(config.conf, 0.40)
         self.assertFalse(config.debug_overlay)
         self.assertFalse(config.debug_save_frames)
@@ -42,8 +39,6 @@ class VisionRunnerTests(unittest.TestCase):
         self.assertEqual(config.capture_width, 896)
         self.assertEqual(config.capture_height, 512)
         self.assertEqual(config.capture_fps, 144)
-        self.assertEqual(config.idle_capture_fps, 12)
-        self.assertEqual(config.fast_preprocessor, "native")
         self.assertEqual(config.image_size, (512, 896))
 
     def test_from_env_allows_debug_overlay_override(self):
@@ -203,41 +198,6 @@ class VisionRunnerTrackingResolutionTests(unittest.TestCase):
         self.assertIsNone(resolved.best_target_delta)
         self.assertEqual(resolved.boxes_seen, 0)
 
-    def test_resolve_tracking_frame_can_preserve_hold_on_frameless_empty_detection_result(self):
-        held_target = SelectedTarget(
-            target_x=80.0,
-            target_y=40.0,
-            screen_center_x=80.0,
-            screen_center_y=48.0,
-            score=321.0,
-            slow_zone=(66.0, 30.0, 94.0, 76.0),
-            fire_zone=(68.0, 26.0, 92.0, 72.0),
-        )
-        selector = Mock()
-        selector.select_target.return_value = held_target
-        rb_hit_detector = Mock()
-        rb_hit_detector.update.return_value = True
-        aim_enhancement = Mock()
-        aim_enhancement.process.return_value = (2.0, -1.0)
-
-        resolved = _resolve_tracking_frame(
-            frame=None,
-            detections=[],
-            target_selector=selector,
-            rb_hit_detector=rb_hit_detector,
-            aim_enhancement=aim_enhancement,
-            timestamp=13.0,
-            allow_frameless_detections=True,
-        )
-
-        selector.select_target.assert_called_once_with([], None)
-        rb_hit_detector.update.assert_called_once_with(held_target, [], None)
-        aim_enhancement.process.assert_called_once_with(held_target, timestamp=13.0)
-        self.assertEqual(resolved.selected_target, held_target)
-        self.assertTrue(resolved.auto_fire_active)
-        self.assertEqual(resolved.best_target_delta, (2.0, -1.0))
-        self.assertEqual(resolved.boxes_seen, 0)
-
 
 class _FakeCaptureThread:
     last_instance = None
@@ -247,8 +207,6 @@ class _FakeCaptureThread:
         self.stopped = False
         self.join_timeout = None
         self.target_fps = kwargs.get("target_fps")
-        self.idle_fps = kwargs.get("idle_fps")
-        self.enable_native_frames = kwargs.get("enable_native_frames")
         self.target_fps_calls = []
         self.frames = [
             (np.ones((4, 4, 3), dtype=np.uint8), 1),
@@ -436,7 +394,6 @@ class VisionRunnerPipelineTests(unittest.TestCase):
             "vision.runner.VisionConfig.from_env",
             return_value=VisionConfig(
                 capture_fps=80,
-                idle_capture_fps=10,
                 frame_timeout=0.01,
                 idle_sleep=0.0,
             ),
@@ -446,109 +403,7 @@ class VisionRunnerPipelineTests(unittest.TestCase):
         capture = _FakeCaptureThread.last_instance
         self.assertIsNotNone(capture)
         self.assertEqual(capture.target_fps, 80)
-        self.assertEqual(capture.idle_fps, 10)
-        self.assertFalse(capture.enable_native_frames)
         self.assertEqual(capture.target_fps_calls, [])
-
-    @patch("vision.runner.time.sleep", return_value=None)
-    @patch("vision.runner.win32api.GetAsyncKeyState", side_effect=[0, 0x8000])
-    @patch("vision.runner._load_model", return_value=object())
-    @patch("vision.runner._resolve_tracking_frame")
-    @patch("vision.runner.PerformanceTracker")
-    @patch("vision.runner.CrosshairPersonHitDetector")
-    @patch("vision.runner.AimEnhancementPipeline")
-    @patch("vision.runner.TargetSelector")
-    def test_process_vision_requests_native_capture_payloads_for_native_preprocessor(
-        self,
-        target_selector_cls,
-        aim_enhancement_cls,
-        rb_hit_detector_cls,
-        perf_tracker_cls,
-        resolve_tracking_frame,
-        _load_model,
-        _get_async_key_state,
-        _sleep,
-    ):
-        perf_tracker_cls.return_value = Mock()
-        resolve_tracking_frame.return_value = TrackingFrameResolution(
-            selected_target=None,
-            auto_fire_active=False,
-            best_target_delta=None,
-            boxes_seen=0,
-        )
-        controller = Mock()
-        controller.is_aiming.side_effect = [False, True, False, True]
-
-        with patch("vision.runner.ScreenCaptureThread", _FakeCaptureThread), patch(
-            "vision.runner.InferenceThread", _FakeInferenceThread, create=True
-        ), patch(
-            "vision.runner._warmup_model",
-            return_value=SimpleNamespace(preprocessor_name="native"),
-        ), patch(
-            "vision.runner.VisionConfig.from_env",
-            return_value=VisionConfig(
-                capture_fps=80,
-                idle_capture_fps=10,
-                frame_timeout=0.01,
-                idle_sleep=0.0,
-                fast_preprocessor="native",
-            ),
-        ):
-            process_vision(controller=controller)
-
-        capture = _FakeCaptureThread.last_instance
-        self.assertIsNotNone(capture)
-        self.assertTrue(capture.enable_native_frames)
-
-    @patch("vision.runner.time.sleep", return_value=None)
-    @patch("vision.runner.win32api.GetAsyncKeyState", side_effect=[0, 0x8000])
-    @patch("vision.runner._load_model", return_value=object())
-    @patch("vision.runner._resolve_tracking_frame")
-    @patch("vision.runner.PerformanceTracker")
-    @patch("vision.runner.CrosshairPersonHitDetector")
-    @patch("vision.runner.AimEnhancementPipeline")
-    @patch("vision.runner.TargetSelector")
-    def test_process_vision_keeps_native_capture_disabled_when_native_preprocessor_falls_back_to_cpu(
-        self,
-        target_selector_cls,
-        aim_enhancement_cls,
-        rb_hit_detector_cls,
-        perf_tracker_cls,
-        resolve_tracking_frame,
-        _load_model,
-        _get_async_key_state,
-        _sleep,
-    ):
-        perf_tracker_cls.return_value = Mock()
-        resolve_tracking_frame.return_value = TrackingFrameResolution(
-            selected_target=None,
-            auto_fire_active=False,
-            best_target_delta=None,
-            boxes_seen=0,
-        )
-        controller = Mock()
-        controller.is_aiming.side_effect = [False, True, False, True]
-
-        with patch("vision.runner.ScreenCaptureThread", _FakeCaptureThread), patch(
-            "vision.runner.InferenceThread", _FakeInferenceThread, create=True
-        ), patch(
-            "vision.runner._warmup_model",
-            return_value=SimpleNamespace(preprocessor_name="cpu"),
-        ), patch(
-            "vision.runner.VisionConfig.from_env",
-            return_value=VisionConfig(
-                capture_fps=80,
-                idle_capture_fps=10,
-                frame_timeout=0.01,
-                idle_sleep=0.0,
-                fast_preprocessor="native",
-            ),
-        ):
-            process_vision(controller=controller)
-
-        capture = _FakeCaptureThread.last_instance
-        self.assertIsNotNone(capture)
-        self.assertFalse(capture.enable_native_frames)
 
     @patch("vision.runner.time.sleep", return_value=None)
     @patch("vision.runner.win32api.GetAsyncKeyState", side_effect=[0, 0x8000])

@@ -1,8 +1,6 @@
 import threading
 import time
 import unittest
-from types import SimpleNamespace
-from unittest.mock import patch
 
 import numpy as np
 
@@ -63,42 +61,6 @@ class _WaitingCaptureThread(_FakeCaptureThread):
 
 
 class InferenceThreadTests(unittest.TestCase):
-    def test_fast_path_receives_captured_frame_as_prediction_source(self):
-        capture = _FakeCaptureThread()
-        observed_sources = []
-        fast_path = object()
-
-        def fake_fast_predict(active_fast_path, frame_source):
-            observed_sources.append((active_fast_path, frame_source))
-            return ["ok"]
-
-        thread = InferenceThread(
-            capture_thread=capture,
-            frame_timeout=0.01,
-            fast_path=fast_path,
-            use_fast_path=True,
-        )
-        with patch("vision.fastpath._fast_predict", side_effect=fake_fast_predict):
-            thread.start()
-            thread.resume()
-            try:
-                captured = CapturedFrame(
-                    frame_id=1,
-                    captured_at=9.0,
-                    frame=np.full((2, 2, 3), 7, dtype=np.uint8),
-                )
-                capture.publish(captured)
-                result, _ = thread.get_latest_result(timeout=0.2)
-            finally:
-                thread.stop()
-                capture.stop()
-                thread.join(timeout=1.0)
-
-        self.assertEqual(result.detections, ["ok"])
-        self.assertEqual(len(observed_sources), 1)
-        self.assertIs(observed_sources[0][0], fast_path)
-        self.assertIs(observed_sources[0][1], captured)
-
     def test_get_latest_result_returns_newest_processed_frame(self):
         capture = _FakeCaptureThread()
 
@@ -251,98 +213,6 @@ class InferenceThreadTests(unittest.TestCase):
             thread.join(timeout=1.0)
 
         self.assertFalse(thread.running)
-
-    def test_fast_path_skips_lazy_frame_materialization_for_empty_detection_results(self):
-        capture = _FakeCaptureThread()
-        release_calls = []
-        load_calls = []
-        fast_path = object()
-
-        thread = InferenceThread(
-            capture_thread=capture,
-            frame_timeout=0.01,
-            fast_path=fast_path,
-            use_fast_path=True,
-            require_result_frame=False,
-        )
-        with patch("vision.fastpath._fast_predict", return_value=[]):
-            thread.start()
-            thread.resume()
-            try:
-                capture.publish(
-                    CapturedFrame(
-                        frame_id=1,
-                        captured_at=9.0,
-                        frame=None,
-                        native_frame={"slot_index": 2},
-                        frame_loader=lambda: load_calls.append("load") or np.ones((2, 2, 3), dtype=np.uint8),
-                        frame_release=lambda: release_calls.append("release"),
-                    )
-                )
-                result, _ = thread.get_latest_result(timeout=0.2)
-            finally:
-                thread.stop()
-                capture.stop()
-                thread.join(timeout=1.0)
-
-        self.assertEqual(result.detections, [])
-        self.assertIsNone(result.frame)
-        self.assertEqual(load_calls, [])
-        self.assertEqual(release_calls, ["release"])
-
-    def test_fast_path_prefetches_roi_frame_when_detections_need_post_processing(self):
-        capture = _FakeCaptureThread()
-        release_calls = []
-        load_calls = []
-        roi_calls = []
-        fast_path = object()
-        detections = [
-            SimpleNamespace(
-                boxes=np.array([[10.0, 20.0, 30.0, 40.0]], dtype=np.float32),
-                confs=np.array([0.95], dtype=np.float32),
-            )
-        ]
-
-        thread = InferenceThread(
-            capture_thread=capture,
-            frame_timeout=0.01,
-            fast_path=fast_path,
-            use_fast_path=True,
-            require_result_frame=False,
-        )
-        with patch("vision.fastpath._fast_predict", return_value=detections):
-            thread.start()
-            thread.resume()
-            try:
-                capture.publish(
-                    CapturedFrame(
-                        frame_id=1,
-                        captured_at=11.0,
-                        frame=None,
-                        native_frame={"slot_index": 4},
-                        frame_shape=(64, 64, 3),
-                        frame_loader=lambda: load_calls.append("load") or np.full((2, 2, 3), 7, dtype=np.uint8),
-                        roi_loader=lambda left, top, right, bottom: roi_calls.append((left, top, right, bottom))
-                        or np.full((bottom - top, right - left, 3), 5, dtype=np.uint8),
-                        frame_release=lambda: release_calls.append("release"),
-                    )
-                )
-                result, _ = thread.get_latest_result(timeout=0.2)
-            finally:
-                thread.stop()
-                capture.stop()
-                thread.join(timeout=1.0)
-
-        self.assertEqual(result.detections, detections)
-        self.assertIsNotNone(result.frame)
-        self.assertEqual(result.frame.shape, (64, 64, 3))
-        np.testing.assert_array_equal(
-            result.frame.get_roi_rgb(8, 6, 32, 18),
-            np.full((12, 24, 3), 5, dtype=np.uint8),
-        )
-        self.assertEqual(load_calls, [])
-        self.assertEqual(roi_calls, [(8, 6, 32, 18)])
-        self.assertEqual(release_calls, ["release"])
 
 
 if __name__ == "__main__":

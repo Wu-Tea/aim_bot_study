@@ -1,4 +1,3 @@
-import os
 import time
 from dataclasses import dataclass
 
@@ -6,7 +5,6 @@ import numpy as np
 import torch
 from ultralytics import YOLO
 
-from .native_fastpath import NativeFastPathPreprocessor, load_native_fastpath_module
 from .targeting import ParsedDetections
 
 
@@ -79,52 +77,6 @@ class FastPath:
     conf_thr: float
     max_det: int
     output_kind: str | None = None
-    preprocessor: object | None = None
-    preprocessor_name: str = "cpu"
-
-
-class CpuFastPathPreprocessor:
-    name = "cpu"
-
-    @staticmethod
-    def _frame_array(frame_source) -> np.ndarray:
-        if isinstance(frame_source, np.ndarray):
-            return frame_source
-        frame = getattr(frame_source, "frame", None)
-        if isinstance(frame, np.ndarray):
-            return frame
-        raise TypeError(f"Unsupported fast-path frame source: {type(frame_source)}")
-
-    def prepare(self, fast_path: FastPath, frame_source):
-        frame_rgb = self._frame_array(frame_source)
-        if not frame_rgb.flags.c_contiguous:
-            frame_rgb = np.ascontiguousarray(frame_rgb)
-
-        cpu_u8 = torch.from_numpy(frame_rgb)
-        gpu_u8 = cpu_u8.to(fast_path.gpu_input.device)
-        fast_path.gpu_input[0].copy_(gpu_u8.permute(2, 0, 1).to(fast_path.gpu_input.dtype).div_(255.0))
-
-
-def _build_fast_path_preprocessor(
-    requested: str = "cpu",
-    *,
-    native_loader=None,
-    printer=None,
-):
-    requested = str(requested or "cpu").strip().lower()
-    printer = printer or print
-    if requested in {"cpu", "torch"}:
-        return CpuFastPathPreprocessor()
-    if requested != "native":
-        printer(f"[Vision] Unknown fast preprocessor '{requested}', falling back to cpu.")
-        return CpuFastPathPreprocessor()
-
-    loader = native_loader or load_native_fastpath_module
-    module = loader()
-    if module is None:
-        printer("[Vision] Native fast preprocessor unavailable; falling back to cpu.")
-        return CpuFastPathPreprocessor()
-    return NativeFastPathPreprocessor(module)
 
 
 def _detect_output_kind(raw) -> str:
@@ -150,14 +102,6 @@ def _init_fast_path(model, config):
         print("[Vision] Fast path disabled: could not resolve AutoBackend after warmup.")
         return None
 
-    preprocessor = _build_fast_path_preprocessor(
-        requested=getattr(
-            config,
-            "fast_preprocessor",
-            os.getenv("VISION_FAST_PREPROCESSOR", "cpu"),
-        )
-    )
-
     fast_path = FastPath(
         backend=backend,
         gpu_input=torch.empty(
@@ -167,17 +111,12 @@ def _init_fast_path(model, config):
         ),
         conf_thr=float(config.conf),
         max_det=10,
-        preprocessor=preprocessor,
-        preprocessor_name=getattr(preprocessor, "name", type(preprocessor).__name__),
     )
 
     with torch.inference_mode():
         fast_path.output_kind = _detect_output_kind(backend(fast_path.gpu_input))
 
-    print(
-        f"[Vision] Fast path ready: output_kind={fast_path.output_kind} "
-        f"| preprocessor={fast_path.preprocessor_name}"
-    )
+    print(f"[Vision] Fast path ready: output_kind={fast_path.output_kind}")
     return fast_path
 
 
@@ -189,9 +128,13 @@ def _fast_path_input_dtype(backend, config_half: bool):
     return torch.float32
 
 
-def _fast_predict(fast_path: FastPath, frame_source):
-    preprocessor = fast_path.preprocessor or CpuFastPathPreprocessor()
-    preprocessor.prepare(fast_path, frame_source)
+def _fast_predict(fast_path: FastPath, frame_rgb: np.ndarray):
+    if not frame_rgb.flags.c_contiguous:
+        frame_rgb = np.ascontiguousarray(frame_rgb)
+
+    cpu_u8 = torch.from_numpy(frame_rgb)
+    gpu_u8 = cpu_u8.to(fast_path.gpu_input.device)
+    fast_path.gpu_input[0].copy_(gpu_u8.permute(2, 0, 1).to(fast_path.gpu_input.dtype).div_(255.0))
 
     with torch.inference_mode():
         raw = fast_path.backend(fast_path.gpu_input)

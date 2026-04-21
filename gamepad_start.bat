@@ -4,9 +4,7 @@ cd /d "%~dp0"
 
 set "VISION_PERF_LOG=1"
 if not defined VISION_FAST_PATH set "VISION_FAST_PATH=1"
-set "VISION_FAST_PREPROCESSOR=cpu"
 if not defined VISION_CAPTURE_FPS set "VISION_CAPTURE_FPS=80"
-if not defined VISION_IDLE_CAPTURE_FPS set "VISION_IDLE_CAPTURE_FPS=10"
 set "AUTO_FIRE_OUTPUT=RB"
 
 echo Select AutoFire output:
@@ -27,7 +25,7 @@ if %errorlevel%==0 (
     set "PYTHON_CMD=python"
 )
 
-echo Vision settings: fast_path=%VISION_FAST_PATH% preprocessor=%VISION_FAST_PREPROCESSOR% capture_fps=%VISION_CAPTURE_FPS% idle_capture_fps=%VISION_IDLE_CAPTURE_FPS%
+echo Vision settings: fast_path=%VISION_FAST_PATH% capture_fps=%VISION_CAPTURE_FPS%
 echo Launching gamepad mode with AutoFire=%AUTO_FIRE_OUTPUT%
 %PYTHON_CMD% main.py --controller-mode gamepad --auto-fire-output %AUTO_FIRE_OUTPUT%
 pause

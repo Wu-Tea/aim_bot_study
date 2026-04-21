@@ -1,42 +1,14 @@
 import unittest
-from types import SimpleNamespace
 
 import numpy as np
 import torch
 
-from vision.fastpath import (
-    CpuFastPathPreprocessor,
-    FastPath,
-    _build_fast_path_preprocessor,
-    _decode_nms_in_engine,
-    _detect_output_kind,
-    _fast_path_input_dtype,
-    _fast_predict,
-)
+from vision.fastpath import _decode_nms_in_engine, _detect_output_kind, _fast_path_input_dtype
 
 
 class DummyBackend:
     def __init__(self, fp16):
         self.fp16 = fp16
-
-
-class RecordingBackend:
-    def __init__(self, raw):
-        self.raw = raw
-        self.calls = []
-
-    def __call__(self, tensor):
-        self.calls.append(tensor.detach().clone())
-        return self.raw
-
-
-class RecordingPreprocessor:
-    def __init__(self):
-        self.calls = []
-
-    def prepare(self, fast_path: FastPath, frame_source):
-        self.calls.append(frame_source)
-        fast_path.gpu_input.zero_()
 
 
 class VisionFastpathTests(unittest.TestCase):
@@ -77,61 +49,6 @@ class VisionFastpathTests(unittest.TestCase):
             np.array([11.0, 22.0, 33.0, 44.0], dtype=np.float32),
         )
         np.testing.assert_allclose(detections[0].confs[0], np.float32(0.90))
-
-    def test_cpu_fast_path_preprocessor_writes_normalized_chw_tensor(self):
-        gpu_input = torch.empty((1, 3, 1, 2), dtype=torch.float32)
-        raw = torch.zeros((1, 1, 6), dtype=torch.float32)
-        raw[0, 0, :4] = torch.tensor([1.0, 2.0, 3.0, 4.0])
-        raw[0, 0, 4] = 0.95
-        backend = RecordingBackend(raw)
-        fast_path = FastPath(
-            backend=backend,
-            gpu_input=gpu_input,
-            conf_thr=0.5,
-            max_det=10,
-            output_kind="nms_in_engine",
-            preprocessor=CpuFastPathPreprocessor(),
-        )
-        frame_rgb = np.array([[[255, 0, 0], [0, 128, 255]]], dtype=np.uint8)
-
-        detections = _fast_predict(fast_path, frame_rgb)
-
-        self.assertEqual(len(detections), 1)
-        self.assertEqual(len(backend.calls), 1)
-        np.testing.assert_allclose(
-            backend.calls[0].numpy(),
-            np.array(
-                [[[[1.0, 0.0]], [[0.0, 128.0 / 255.0]], [[0.0, 1.0]]]],
-                dtype=np.float32,
-            ),
-            rtol=1e-6,
-            atol=1e-6,
-        )
-
-    def test_fast_predict_passes_frame_source_through_to_preprocessor(self):
-        backend = RecordingBackend(torch.zeros((1, 0, 6), dtype=torch.float32))
-        preprocessor = RecordingPreprocessor()
-        fast_path = FastPath(
-            backend=backend,
-            gpu_input=torch.ones((1, 3, 2, 2), dtype=torch.float32),
-            conf_thr=0.5,
-            max_det=10,
-            output_kind="nms_in_engine",
-            preprocessor=preprocessor,
-        )
-        frame_source = SimpleNamespace(frame=np.zeros((2, 2, 3), dtype=np.uint8), native_token="roi-17")
-
-        _fast_predict(fast_path, frame_source)
-
-        self.assertEqual(preprocessor.calls, [frame_source])
-
-    def test_build_fast_path_preprocessor_falls_back_to_cpu_when_native_loader_is_missing(self):
-        preprocessor = _build_fast_path_preprocessor(
-            requested="native",
-            native_loader=lambda: None,
-        )
-
-        self.assertIsInstance(preprocessor, CpuFastPathPreprocessor)
 
 
 if __name__ == "__main__":
