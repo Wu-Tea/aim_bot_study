@@ -1,10 +1,16 @@
 cmake_minimum_required(VERSION 3.26)
 
-project(vision_native LANGUAGES CXX)
+project(vision_native LANGUAGES CXX CUDA)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CUDA_STANDARD 17)
+set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+
+if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+    set(CMAKE_CUDA_ARCHITECTURES 89)
+endif()
 
 set(TensorRT_ROOT "" CACHE PATH "Path to the TensorRT Windows SDK root")
 
@@ -43,6 +49,9 @@ foreach(_lib IN LISTS TensorRT_LIBS)
 endforeach()
 
 add_library(vision_native_core STATIC
+    src/engine_io.cpp
+    src/preprocess.cu
+    src/tensorrt_engine.cpp
     src/tensorrt_inspector.cpp
 )
 
@@ -57,6 +66,11 @@ target_compile_definitions(vision_native_core
     PRIVATE
         NOMINMAX
         WIN32_LEAN_AND_MEAN
+)
+
+set_target_properties(vision_native_core PROPERTIES
+    CUDA_SEPARABLE_COMPILATION OFF
+    CUDA_ARCHITECTURES 89
 )
 
 target_link_libraries(vision_native_core

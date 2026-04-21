@@ -6,12 +6,22 @@ import unittest
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 BUILD_SCRIPT = PROJECT_ROOT / "tools" / "build_native_vision.ps1"
 SMOKE_SCRIPT = PROJECT_ROOT / "tools" / "run_native_vision_smoke.ps1"
+INFER_SMOKE_SCRIPT = PROJECT_ROOT / "tools" / "run_native_vision_infer_smoke.ps1"
 NATIVE_DIR = PROJECT_ROOT / "native" / "vision_native"
 CMAKE_FILE = NATIVE_DIR / "CMakeLists.txt"
 
 
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
+
+
+def _native_source_files():
+    return [
+        path
+        for path in NATIVE_DIR.rglob("*")
+        if "build" not in path.relative_to(NATIVE_DIR).parts
+        and path.suffix.lower() in {".cc", ".cpp", ".cxx", ".h", ".hpp", ".cu", ".cuh"}
+    ]
 
 
 class NativeVisionScriptTests(unittest.TestCase):
@@ -55,6 +65,17 @@ class NativeVisionScriptTests(unittest.TestCase):
         self.assertIn("vision_native_smoke.exe", content)
         self.assertIn("& $SmokeExe", content)
 
+    def test_infer_smoke_script_runs_pybind_native_engine(self):
+        content = _read(INFER_SMOKE_SCRIPT)
+
+        self.assertIn("BuildFirst", content)
+        self.assertIn("build_native_vision.ps1", content)
+        self.assertIn("models\\best.engine", content)
+        self.assertIn("PYTHONPATH", content)
+        self.assertIn("vision_native_cpp", content)
+        self.assertIn("NativeEngine", content)
+        self.assertIn("infer_rgb", content)
+
 
 class NativeVisionCMakeTests(unittest.TestCase):
     def setUp(self):
@@ -65,17 +86,20 @@ class NativeVisionCMakeTests(unittest.TestCase):
         content = _read(CMAKE_FILE)
 
         self.assertIn("TensorRT_ROOT", content)
+        self.assertIn("CUDA", content)
         self.assertRegex(content, r"\bnvinfer_10\b")
         self.assertRegex(content, r"\bnvinfer_plugin_10\b")
         self.assertRegex(content, r"add_executable\s*\(\s*vision_native_smoke\b")
         self.assertRegex(content, r"pybind11_add_module\s*\(")
 
+    def test_phase1_native_inference_sources_are_declared(self):
+        content = _read(CMAKE_FILE)
+
+        self.assertIn("src/tensorrt_engine.cpp", content)
+        self.assertIn("src/preprocess.cu", content)
+
     def test_sources_expose_pybind_module_without_requiring_real_compile(self):
-        source_files = [
-            path
-            for path in NATIVE_DIR.rglob("*")
-            if path.suffix.lower() in {".cc", ".cpp", ".cxx", ".h", ".hpp", ".cu", ".cuh"}
-        ]
+        source_files = _native_source_files()
         self.assertTrue(source_files, "native/vision_native should include C++ source files")
 
         combined = "\n".join(_read(path) for path in source_files)
@@ -84,11 +108,23 @@ class NativeVisionCMakeTests(unittest.TestCase):
         self.assertRegex(combined, r"\bvision_native\b")
 
     def test_engine_inspector_handles_ultralytics_metadata_prefix(self):
-        source = _read(NATIVE_DIR / "src" / "tensorrt_inspector.cpp")
+        combined = "\n".join(_read(path) for path in _native_source_files())
 
-        self.assertIn("metadata_prefix_bytes", source)
-        self.assertIn("looks_like_ultralytics_metadata", source)
-        self.assertIn("deserializeCudaEngine(bytes.plan.data(), bytes.plan.size())", source)
+        self.assertIn("metadata_prefix_bytes", combined)
+        self.assertIn("looks_like_ultralytics_metadata", combined)
+        self.assertIn("deserializeCudaEngine", combined)
+
+    def test_phase1_inference_protocol_and_cuda_preprocess_are_present(self):
+        combined = "\n".join(_read(path) for path in _native_source_files())
+
+        self.assertIn("FramePacket", combined)
+        self.assertIn("DetectionBatch", combined)
+        self.assertIn("run_inference_rgb", combined)
+        self.assertIn("launch_rgb_hwc_to_chw_float", combined)
+        self.assertIn("enqueueV3", combined)
+        self.assertIn("setTensorAddress", combined)
+        self.assertIn("300", combined)
+        self.assertIn("6", combined)
 
 
 class NativeVisionProductionIsolationTests(unittest.TestCase):

@@ -40,6 +40,7 @@ if ([string]::IsNullOrWhiteSpace($Pybind11CMakeDir)) {
 }
 
 $env:CUDA_PATH = $CudaPath
+$env:CudaToolkitDir = $CudaPath
 $env:TensorRT_ROOT = $TensorRTRoot
 $env:PATH = "$(Join-Path $TensorRTRoot 'bin');$(Join-Path $CudaPath 'bin');$env:PATH"
 

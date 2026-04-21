@@ -1,10 +1,11 @@
 #include "vision_native/tensorrt_inspector.h"
 
+#include "vision_native/engine_io.h"
+
 #include <NvInfer.h>
 #include <NvInferPlugin.h>
 
 #include <algorithm>
-#include <fstream>
 #include <memory>
 #include <sstream>
 #include <stdexcept>
@@ -22,69 +23,6 @@ public:
 
     std::string last_warning_;
 };
-
-struct EngineBytes {
-    std::vector<char> plan;
-    uint64_t container_size_bytes = 0;
-    uint64_t metadata_prefix_bytes = 0;
-};
-
-uint32_t read_little_endian_u32(const std::vector<char>& bytes) {
-    return static_cast<uint32_t>(static_cast<unsigned char>(bytes[0]))
-        | (static_cast<uint32_t>(static_cast<unsigned char>(bytes[1])) << 8U)
-        | (static_cast<uint32_t>(static_cast<unsigned char>(bytes[2])) << 16U)
-        | (static_cast<uint32_t>(static_cast<unsigned char>(bytes[3])) << 24U);
-}
-
-bool looks_like_ultralytics_metadata(const std::vector<char>& bytes, uint32_t metadata_len) {
-    if (metadata_len == 0 || metadata_len > 1024U * 1024U) {
-        return false;
-    }
-    if (bytes.size() <= static_cast<size_t>(4U + metadata_len)) {
-        return false;
-    }
-
-    const char* metadata = bytes.data() + 4;
-    const char* metadata_end = metadata + metadata_len;
-    while (metadata < metadata_end && (*metadata == ' ' || *metadata == '\n' || *metadata == '\r' || *metadata == '\t')) {
-        ++metadata;
-    }
-    return metadata < metadata_end && *metadata == '{';
-}
-
-EngineBytes read_engine_file(const std::string& path) {
-    std::ifstream file(path, std::ios::binary | std::ios::ate);
-    if (!file) {
-        throw std::runtime_error("failed to open engine file: " + path);
-    }
-
-    const std::streamsize size = file.tellg();
-    if (size <= 0) {
-        throw std::runtime_error("engine file is empty: " + path);
-    }
-
-    std::vector<char> bytes(static_cast<size_t>(size));
-    file.seekg(0, std::ios::beg);
-    if (!file.read(bytes.data(), size)) {
-        throw std::runtime_error("failed to read engine file: " + path);
-    }
-
-    EngineBytes result;
-    result.container_size_bytes = static_cast<uint64_t>(bytes.size());
-
-    if (bytes.size() > 4) {
-        const uint32_t metadata_len = read_little_endian_u32(bytes);
-        if (looks_like_ultralytics_metadata(bytes, metadata_len)) {
-            result.metadata_prefix_bytes = static_cast<uint64_t>(4U + metadata_len);
-        }
-    }
-
-    result.plan.assign(bytes.begin() + static_cast<std::ptrdiff_t>(result.metadata_prefix_bytes), bytes.end());
-    if (result.plan.empty()) {
-        throw std::runtime_error("engine payload is empty after metadata prefix: " + path);
-    }
-    return result;
-}
 
 std::string dtype_to_string(nvinfer1::DataType dtype) {
     switch (dtype) {
@@ -172,7 +110,7 @@ EngineInfo inspect_engine(const std::string& engine_path) {
     Logger logger;
     initLibNvInferPlugins(&logger, "");
 
-    EngineBytes bytes = read_engine_file(engine_path);
+    SerializedEngine bytes = read_serialized_engine(engine_path);
     std::unique_ptr<nvinfer1::IRuntime> runtime(nvinfer1::createInferRuntime(logger));
     if (!runtime) {
         throw std::runtime_error("failed to create TensorRT runtime");

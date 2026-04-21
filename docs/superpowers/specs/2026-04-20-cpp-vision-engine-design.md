@@ -230,6 +230,108 @@ The C++ engine must not return image tensors or detection tensors to Python in t
 
 If Python keeps receiving full frames, the migration has failed architecturally even if inference moved to C++.
 
+## Phase Protocols
+
+The native migration is split by three data contracts. Each phase may add a producer for the next contract, but must not bypass the contract by leaking raw frames, TensorRT bindings, or internal targeting state to Python.
+
+### `FramePacket`
+
+`FramePacket` is the capture-to-inference payload:
+
+```cpp
+enum class PixelFormat {
+    RGB8,
+    BGRA8,
+};
+
+enum class MemoryKind {
+    CpuHwc,
+    D3D11Texture,
+};
+
+struct FramePacket {
+    uint64_t frame_id;
+    uint64_t captured_at_ns;
+    int width;
+    int height;
+    PixelFormat format;
+    MemoryKind memory_kind;
+    int row_pitch;
+    void* data;
+};
+```
+
+Phase 1 supports `CpuHwc + RGB8` only. Phase 2 adds `D3D11Texture + BGRA8` while keeping the inference result contract unchanged.
+
+### `DetectionBatch`
+
+`DetectionBatch` is the inference-to-targeting payload:
+
+```cpp
+struct Detection {
+    float x1;
+    float y1;
+    float x2;
+    float y2;
+    float conf;
+    int class_id;
+};
+
+struct DetectionBatch {
+    uint64_t frame_id;
+    uint64_t captured_at_ns;
+    uint64_t inferred_at_ns;
+    int frame_width;
+    int frame_height;
+    std::vector<Detection> detections;
+    float preprocess_ms;
+    float infer_ms;
+    float decode_ms;
+};
+```
+
+Phase 1 ends at `DetectionBatch`. It does not choose targets or recommend auto-fire.
+
+### `VisionResult`
+
+`VisionResult` is the final C++-to-Python hot-path payload:
+
+```cpp
+struct VisionResult {
+    uint64_t frame_id;
+    uint64_t captured_at_ns;
+    uint64_t inferred_at_ns;
+    uint64_t result_at_ns;
+
+    bool has_target;
+    bool auto_fire;
+
+    float dx;
+    float dy;
+    float target_x;
+    float target_y;
+    float screen_center_x;
+    float screen_center_y;
+
+    bool has_body_box;
+    float body_x1;
+    float body_y1;
+    float body_x2;
+    float body_y2;
+
+    const char* target_source; // observed, reconstructed, predicted
+
+    float wait_ms;
+    float preprocess_ms;
+    float infer_ms;
+    float post_ms;
+    float age_ms;
+    float boxes_seen;
+};
+```
+
+`VisionResult` is introduced in Phase 3 after targeting, occlusion compensation, enhancement, and auto-fire gate parity are implemented natively.
+
 ## Native Module Form
 
 The engine should be shipped as an in-process Python extension:
@@ -398,39 +500,52 @@ This phase is intentionally not a performance benchmark. It is a toolchain and
 engine-loading checkpoint so we do not confuse scaffolding with a production
 native backend again.
 
-### Phase 1: Native hot path with Python targeting retained
+### Phase 1: Native inference smoke
 
 Goal:
-- prove native capture plus TensorRT integration
-- establish the extension-module build and packaging path
+- prove native CUDA preprocessing plus TensorRT inference
+- establish a testable `FramePacket(CpuHwc + RGB8) -> DetectionBatch` path
 
 Scope:
-- native DXGI capture
-- native preprocess
+- CPU RGB `uint8` frame input through pybind
+- native CUDA RGB HWC to TensorRT input preprocessing
 - native TensorRT inference
-- native decode
-- Python continues to own targeting, occlusion compensation, enhancement, and autofire
+- native decode of the current `[1,300,6]` engine output
+- no DXGI capture
+- no targeting, occlusion compensation, enhancement, or auto-fire
 
 Why this phase exists:
-- it validates the toolchain and engine loading path first
-- it gives a lower-risk checkpoint before the full vision migration
+- it proves the GPU inference portion without involving Desktop Duplication
+- it provides deterministic parity data before native capture and targeting are added
 
-### Phase 2: Full native vision logic
+### Phase 2: Native DXGI ROI capture
 
 Goal:
-- move the rest of production vision state out of Python
+- make C++ produce `FramePacket(D3D11Texture + BGRA8)` from a centered ROI
+
+Scope:
+- Desktop Duplication setup and recovery
+- centered ROI copy into a small surface or GPU texture
+- preserve the Python behavior where transient DXGI rebuild failures return no frame and retry instead of killing the capture thread
+- preserve row pitch handling and the no-fullscreen-staging optimization
+- keep output compatible with the Phase 1 inference path
+
+### Phase 3: Full native vision result
+
+Goal:
+- move production vision state out of Python and return `VisionResult`
 
 Scope:
 - native color classification
 - native `TargetSelector` parity
 - native occlusion compensation
 - native enhancement pipeline
-- native autofire gate
+- native auto-fire gate
 - native perf accounting
 
-At the end of Phase 2, Python should only receive `VisionResult`.
+At the end of Phase 3, Python should receive only `VisionResult`.
 
-### Phase 3: Default-path switch
+### Phase 4: Default-path switch
 
 Goal:
 - make native the default runtime
