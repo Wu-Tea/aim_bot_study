@@ -381,6 +381,23 @@ The exact env name can be chosen later, but the design requires an explicit swit
 
 ## Phased Implementation
 
+### Phase 0: C++ TensorRT smoke scaffold
+
+Goal:
+- prove the local Windows C++ toolchain can build a native target
+- prove C++ TensorRT can deserialize the existing `models/best.engine`
+- prove a pybind11 module can be built without touching the production runner
+
+Scope:
+- `vision_native_smoke.exe <engine_path>` prints TensorRT IO metadata
+- `vision_native_cpp` exposes `build_info()` and `inspect_engine(engine_path)`
+- Ultralytics-exported `.engine` metadata prefixes are detected and skipped
+- no frame capture, preprocessing, targeting, or controller integration
+
+This phase is intentionally not a performance benchmark. It is a toolchain and
+engine-loading checkpoint so we do not confuse scaffolding with a production
+native backend again.
+
 ### Phase 1: Native hot path with Python targeting retained
 
 Goal:

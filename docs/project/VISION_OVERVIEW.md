@@ -14,6 +14,11 @@ The current vision stack is optimized for:
 
 The current production path is detector-first. The main targeting path does not depend on pose keypoints.
 
+Native C++ vision work now exists as a smoke-test scaffold under `native/vision_native`.
+It can be built with `tools/build_native_vision.ps1` and verified with
+`tools/run_native_vision_smoke.ps1`, but it is not connected to `vision.runner`
+or the gamepad startup path.
+
 ## Entry Points
 
 - `main.py`

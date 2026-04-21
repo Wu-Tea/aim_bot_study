@@ -5,3 +5,4 @@ config.toml
 training_data/
 runs/
 .worktrees/
+native/vision_native/build/
