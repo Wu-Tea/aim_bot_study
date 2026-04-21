@@ -4,7 +4,7 @@ Last updated: 2026-04-21
 
 ## Current Status
 
-Native vision is currently a Phase 3B scaffold, not the production gamepad path.
+Native vision is currently the default `gamepad_start.bat` path, with the Python vision runner kept as a fallback.
 
 The scaffold proves these things:
 
@@ -23,8 +23,10 @@ The scaffold proves these things:
 - synthetic Python-vs-native parity tests now compare the controller-facing output for lock, color filtering, and short occlusion scenarios
 - a standalone `vision_native_debug` executable can run the live native loop and print result/perf fields
 - the debug loop now reports real `preprocess_ms`, `infer_ms`, and `boxes_seen` values from native inference
+- Python can now run `NativeVisionEngine` through `--vision-backend native` and hand native `VisionResult` values directly to the existing controller
+- `gamepad_native_debug.bat` starts the C++ vision + Python controller bridge with a synthetic debug window
 
-Production still uses the Python `vision` package. The native scaffold is only used through the explicit tools in `tools/`.
+The default `gamepad_start.bat` path now uses native vision at `VISION_CAPTURE_FPS=140`. Python vision remains available through `--vision-backend python` or by setting `VISION_BACKEND=python` before launch.
 
 ## Pipeline Status
 
@@ -50,7 +52,7 @@ What this means in practice:
 Remaining risk at this stage:
 
 - DXGI desktop access can still fail in restricted contexts such as `0x80070005`
-- production startup still uses the Python runtime, so native capture is not yet the default gamepad path
+- native capture is now the production default, so long-play stability and recovery behavior matter more than before
 
 ### 2. Detection / Recognition
 
@@ -72,8 +74,8 @@ What this means in practice:
 
 Remaining risk at this stage:
 
-- no claim yet that native detection is faster in real gameplay than the Python production path
-- production runner still uses Python vision as the behavior oracle and fallback
+- live gameplay logs show much lower hot-path latency than the Python path, but longer recorded/live validation is still pending
+- Python vision remains the behavior oracle and fallback while native is validated
 
 ### 3. Target Selector
 
@@ -95,9 +97,8 @@ What is already native:
 - aim enhancement through native lead prediction, catchup boost, and near-target damping
 - live `VisionEngine` integration, so debug output already reflects the native selector instead of a highest-confidence placeholder
 
-What is still not native:
+What still needs validation:
 
-- production startup and controller handoff through `gamepad_start.bat`
 - recorded-scene one-to-one parity validation against the Python runtime
 - performance comparison against the Python production path
 
@@ -105,7 +106,7 @@ Bottom line:
 
 - **capture:** basically in place
 - **recognition:** basically in place
-- **selector:** lock/switch/color/occlusion/enhancement/auto-fire parity is now implemented in native code, with rollout/perf validation still pending
+- **selector:** lock/switch/color/occlusion/enhancement/auto-fire parity is now implemented in native code, with production-path rollout/perf validation still pending
 
 ## Migration Protocol
 
@@ -207,7 +208,7 @@ struct VisionResult {
 };
 ```
 
-`VisionResult` appears only after Phase 3. In the current Phase 3B checkpoint it carries real native timing, box-count fields, native target selection, auto-fire recommendation, and enhanced `dx` / `dy`. Production Python vision still remains the runtime used by `gamepad_start.bat`.
+`VisionResult` appears only after Phase 3. In the current Phase 3B checkpoint it carries real native timing, box-count fields, native target selection, auto-fire recommendation, and enhanced `dx` / `dy`. Python consumes it through `vision.native_runner.process_native_vision`; controller code stays in Python.
 
 ## Environment
 
@@ -295,7 +296,7 @@ The first native Phase 3 checkpoint was not a direct production switch. It estab
 - `VisionEngine` as the long-lived native runtime boundary
 - `vision_native_debug` as a standalone native verification program
 
-The debug program is part of the migration plan, not an optional extra. It exists to validate native capture, inference, targeting, and perf accounting before `gamepad_start.bat` is allowed to default to the native backend.
+The debug program is part of the migration plan, not an optional extra. It exists to validate native capture, inference, targeting, and perf accounting before and after `gamepad_start.bat` defaults to the native backend.
 
 That foundation milestone is now complete. The follow-on checkpoint is Phase 3A: native capture-to-inference wiring.
 
@@ -338,7 +339,7 @@ The current native slice includes:
 
 Current limitation:
 
-- production `gamepad_start.bat` still uses the Python vision runtime
+- default production `gamepad_start.bat` now uses the native vision runtime
 - synthetic parity is covered by `tests/test_native_vision_synthetic_parity.py`, but recorded gameplay parity and performance validation have not been completed yet
 - the current live-engine implementation downloads the full `640x512` BGRA ROI to host memory once detections exist, then runs CPU HSV classification; this is acceptable for parity work but is not the final low-latency form
 
@@ -372,7 +373,7 @@ Phase 4 must not start until the native debug harness can prove all of the follo
 - the native output is comparable against the Python baseline for the same scenarios
 - cold-start and steady-state behavior are both understood
 
-Only after that checkpoint should the normal Python startup path begin loading native vision by default.
+That checkpoint has been reached far enough for `gamepad_start.bat` to load native vision by default, while keeping the Python path available as a fallback.
 
 ## Phase 3 Foundation Debug
 
@@ -382,12 +383,46 @@ Run the current standalone native debug program with:
 .\tools\run_native_vision_debug.ps1 -BuildFirst
 ```
 
-The current output proves the `VisionEngine -> VisionResult` boundary, live ROI capture loop, real native capture-to-inference timing, and the current native targeting/enhancement/auto-fire slice. It still does not prove production readiness because recorded-scene parity and gamepad startup integration remain pending.
+The current output proves the `VisionEngine -> VisionResult` boundary, live ROI capture loop, real native capture-to-inference timing, and the current native targeting/enhancement/auto-fire slice. Default gamepad startup has migrated to native; recorded-scene parity and longer live-play validation remain pending.
+
+## Python Controller Bridge
+
+Run the C++ vision + Python controller bridge with:
+
+```powershell
+.\gamepad_native_debug.bat
+```
+
+The normal debug script also exposes the same native path and defaults to it:
+
+```powershell
+.\gamepad_debug.bat
+```
+
+`gamepad_start.bat`, `gamepad_debug.bat`, and `gamepad_native_debug.bat` default to `VISION_CAPTURE_FPS=140` unless the environment variable is already set.
+
+The gamepad scripts also default `VISION_QUIT_KEY=0`. This disables the old keyboard quit hotkey, which could otherwise stop the process during gameplay if the game or user input touched the same key.
+
+or directly:
+
+```powershell
+py -3.11 main.py --controller-mode gamepad --vision-backend native --vision-debug
+```
+
+This path keeps controller code in Python and replaces only the vision loop:
+
+- Python creates the existing gamepad controller
+- `vision.native_runner` loads `vision_native_cpp` from `native/vision_native/build/Release`
+- `NativeVisionEngine.poll_once()` runs native ROI capture, TensorRT inference, target selection, enhancement, and auto-fire recommendation
+- Python forwards `dx`, `dy`, `ControllerTarget`, and delayed auto-fire state to the existing controller interface
+- perf logging uses native `wait_ms`, `infer_ms`, `post_ms`, `age_ms`, and `boxes_seen`
+
+The `--vision-debug` window is currently a synthetic native-result canvas. It shows target point, body box, source (`observed`, `reconstructed`, or `predicted`), `dx/dy`, auto-fire state, and native timings. It does not display the real ROI image yet because the current native contract intentionally avoids copying frame pixels back to Python.
 
 ## What This Does Not Do Yet
 
 - it does not yet prove full Python `TargetSelector` parity on recorded gameplay cases
-- it does not replace `vision.runner`
-- it does not promise any FPS or latency improvement yet
+- it does not remove the Python `vision.runner` fallback
+- it does not yet prove long-session stability across all gameplay scenes
 
-The next real phase is to validate this native path against recorded or live gameplay scenarios, then decide whether the current host-side color sampling needs to be replaced with a smaller ROI-copy or GPU-side path. Only after that should we compare performance against the Python vision baseline in a meaningful way and consider production startup integration.
+The next real phase is to validate this native path against recorded or live gameplay scenarios, then decide whether the current host-side color sampling needs to be replaced with a smaller ROI-copy or GPU-side path. Native is now the default production startup, so any accuracy or stability regression should be treated as a production-path issue with Python available as a fallback.

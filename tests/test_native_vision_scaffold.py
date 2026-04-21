@@ -209,9 +209,17 @@ class NativeVisionCMakeTests(unittest.TestCase):
 
 
 class NativeVisionProductionIsolationTests(unittest.TestCase):
-    def test_native_scaffold_is_not_connected_to_production_runner(self):
+    def test_native_backend_is_default_for_gamepad_start_without_touching_python_runner(self):
+        main_content = _read(PROJECT_ROOT / "main.py")
+        start_content = _read(PROJECT_ROOT / "gamepad_start.bat")
+
+        self.assertIn("--vision-backend", main_content)
+        self.assertIn('os.getenv("VISION_BACKEND", "python")', main_content)
+        self.assertIn('set "VISION_BACKEND=native"', start_content)
+        self.assertIn("--vision-backend %VISION_BACKEND%", start_content)
+        self.assertIn('set "VISION_QUIT_KEY=0"', start_content)
+
         production_files = [
-            PROJECT_ROOT / "main.py",
             PROJECT_ROOT / "controller.py",
             PROJECT_ROOT / "vision" / "runner.py",
             PROJECT_ROOT / "vision" / "fastpath.py",

@@ -94,6 +94,18 @@ class VisionRunnerTests(unittest.TestCase):
         self.assertEqual(config.model_path, "D:/models/person_v1.engine")
         self.assertEqual(config.fallback_model_path, "D:/models/person_v1.pt")
 
+    def test_from_env_allows_disabling_keyboard_quit_hotkey(self):
+        with patch.dict(os.environ, {"VISION_QUIT_KEY": "0"}, clear=True):
+            config = VisionConfig.from_env()
+
+        self.assertEqual(config.quit_key_vk, 0)
+
+    def test_from_env_accepts_hex_keyboard_quit_hotkey(self):
+        with patch.dict(os.environ, {"VISION_QUIT_KEY": "0x51"}, clear=True):
+            config = VisionConfig.from_env()
+
+        self.assertEqual(config.quit_key_vk, 0x51)
+
 
 class _AliasController(BaseController):
     def __init__(self):

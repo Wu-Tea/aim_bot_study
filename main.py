@@ -2,7 +2,7 @@ import argparse
 import os
 
 from controller import ControllerFactory
-from vision import process_vision
+from vision import process_native_vision, process_vision
 
 
 def _parse_args():
@@ -23,6 +23,12 @@ def _parse_args():
         choices=("RB", "RT"),
         default=os.getenv("AUTO_FIRE_OUTPUT", "RB"),
         help="Gamepad auto-fire output target.",
+    )
+    parser.add_argument(
+        "--vision-backend",
+        choices=("python", "native"),
+        default=os.getenv("VISION_BACKEND", "python"),
+        help="Vision runtime backend to use.",
     )
     parser.add_argument(
         "--crop-size",
@@ -70,6 +76,7 @@ def _parse_args():
 def _apply_runtime_overrides(args):
     if args.perf_log:
         os.environ["VISION_PERF_LOG"] = "1"
+    os.environ["VISION_BACKEND"] = args.vision_backend
     if args.crop_size:
         os.environ["VISION_CROP_SIZE"] = str(args.crop_size)
     if args.crop_width:
@@ -95,8 +102,11 @@ def main():
             controller_mode=args.controller_mode,
             auto_fire_output=args.auto_fire_output,
         )
-        print(f"[Ready] Controller={args.controller_mode} | starting vision...")
-        process_vision(controller=controller)
+        print(f"[Ready] Controller={args.controller_mode} | vision={args.vision_backend} | starting vision...")
+        if args.vision_backend == "native":
+            process_native_vision(controller=controller)
+        else:
+            process_vision(controller=controller)
         return 0
     except KeyboardInterrupt:
         return 0

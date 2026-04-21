@@ -1,0 +1,152 @@
+import unittest
+from unittest.mock import Mock, patch
+
+from controllers.base_controller import ControllerTarget
+from vision.runner import VisionConfig
+from vision.native_runner import (
+    NativeVisionDebugOverlay,
+    _controller_target_from_native_result,
+    _quit_requested,
+    process_native_vision,
+)
+
+
+class NativeVisionRunnerMappingTests(unittest.TestCase):
+    def test_controller_target_maps_native_body_box_metadata(self):
+        target = _controller_target_from_native_result(
+            {
+                "target_x": 331.5,
+                "target_y": 201.25,
+                "screen_center_x": 320.0,
+                "screen_center_y": 256.0,
+                "has_body_box": True,
+                "body_x1": 280.0,
+                "body_y1": 120.0,
+                "body_x2": 360.0,
+                "body_y2": 320.0,
+            }
+        )
+
+        self.assertEqual(
+            target,
+            ControllerTarget(
+                aim_point_x=331.5,
+                aim_point_y=201.25,
+                screen_center_x=320.0,
+                screen_center_y=256.0,
+                body_box=(280.0, 120.0, 360.0, 320.0),
+            ),
+        )
+
+    def test_controller_target_omits_body_box_when_native_result_has_no_box(self):
+        target = _controller_target_from_native_result(
+            {
+                "target_x": 331.5,
+                "target_y": 201.25,
+                "screen_center_x": 320.0,
+                "screen_center_y": 256.0,
+                "has_body_box": False,
+            }
+        )
+
+        self.assertIsNotNone(target)
+        self.assertIsNone(target.body_box)
+
+    @patch("vision.native_runner.win32api.GetAsyncKeyState")
+    def test_quit_check_is_disabled_when_quit_key_is_zero(self, get_async_key_state):
+        config = VisionConfig(quit_key_vk=0)
+
+        self.assertFalse(_quit_requested(config))
+        get_async_key_state.assert_not_called()
+
+
+class NativeVisionDebugOverlayTests(unittest.TestCase):
+    def test_render_result_draws_synthetic_native_status_canvas(self):
+        overlay = NativeVisionDebugOverlay(width=640, height=512, display_window=False)
+
+        canvas = overlay.render_result(
+            {
+                "has_target": True,
+                "auto_fire": True,
+                "dx": 12.0,
+                "dy": -6.0,
+                "target_x": 332.0,
+                "target_y": 250.0,
+                "screen_center_x": 320.0,
+                "screen_center_y": 256.0,
+                "has_body_box": True,
+                "body_x1": 288.0,
+                "body_y1": 128.0,
+                "body_x2": 368.0,
+                "body_y2": 330.0,
+                "target_source": "observed",
+                "wait_ms": 1.2,
+                "preprocess_ms": 0.2,
+                "infer_ms": 3.8,
+                "post_ms": 0.4,
+                "age_ms": 5.4,
+                "boxes_seen": 1,
+            },
+            is_aiming=True,
+            auto_fire_active=True,
+        )
+
+        self.assertEqual(canvas.shape, (512, 640, 3))
+        self.assertGreater(int(canvas.sum()), 0)
+
+
+class NativeVisionProcessTests(unittest.TestCase):
+    @patch("vision.native_runner.win32api.GetAsyncKeyState", side_effect=[0x8000])
+    @patch("vision.native_runner._load_native_module")
+    @patch("vision.native_runner.PerformanceTracker")
+    def test_process_native_vision_polls_engine_and_updates_controller(
+        self,
+        perf_tracker_cls,
+        load_native_module,
+        _get_async_key_state,
+    ):
+        engine = Mock()
+        engine.poll_once.return_value = {
+            "has_target": True,
+            "auto_fire": True,
+            "dx": 3.0,
+            "dy": -2.0,
+            "target_x": 323.0,
+            "target_y": 254.0,
+            "screen_center_x": 320.0,
+            "screen_center_y": 256.0,
+            "has_body_box": True,
+            "body_x1": 300.0,
+            "body_y1": 120.0,
+            "body_x2": 360.0,
+            "body_y2": 320.0,
+            "target_source": "observed",
+            "wait_ms": 1.0,
+            "preprocess_ms": 0.2,
+            "infer_ms": 3.0,
+            "post_ms": 0.4,
+            "age_ms": 4.0,
+            "boxes_seen": 1,
+        }
+        native_module = Mock()
+        native_module.NativeVisionEngine.return_value = engine
+        load_native_module.return_value = native_module
+        perf_tracker = Mock()
+        perf_tracker_cls.return_value = perf_tracker
+        controller = Mock()
+        controller.is_aiming.return_value = True
+
+        process_native_vision(controller=controller)
+
+        native_module.NativeVisionEngine.assert_called_once()
+        engine.set_aiming.assert_any_call(True)
+        controller.update.assert_called_once()
+        dx, dy = controller.update.call_args.args
+        self.assertEqual((dx, dy), (3.0, -2.0))
+        self.assertIsInstance(controller.update.call_args.kwargs["target"], ControllerTarget)
+        controller.set_auto_fire.assert_called()
+        perf_tracker.update.assert_called_once()
+
+
+if __name__ == "__main__":
+    unittest.main()

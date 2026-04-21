@@ -11,8 +11,13 @@ class StartupScriptTests(unittest.TestCase):
 
         self.assertNotIn(".venv\\Scripts\\python.exe", content)
         self.assertIn("py -3.11", content)
-        self.assertIn("VISION_FAST_PATH", content)
+        self.assertIn("VISION_BACKEND", content)
+        self.assertIn('set "VISION_BACKEND=native"', content)
+        self.assertIn("--perf-log", content)
         self.assertIn("VISION_CAPTURE_FPS", content)
+        self.assertIn('set "VISION_CAPTURE_FPS=140"', content)
+        self.assertIn('set "VISION_QUIT_KEY=0"', content)
+        self.assertIn("--vision-backend %VISION_BACKEND%", content)
         self.assertIn("Vision settings:", content)
         self.assertNotIn("VISION_FAST_PREPROCESSOR", content)
         self.assertNotIn("VISION_IDLE_CAPTURE_FPS", content)
@@ -21,13 +26,29 @@ class StartupScriptTests(unittest.TestCase):
         self.assertNotIn("Select Vision preprocessor:", content)
         self.assertNotIn("Native (experimental)", content)
 
-    def test_gamepad_debug_uses_system_python_launcher_and_enables_debug_flag(self):
+    def test_gamepad_debug_uses_system_python_launcher_debug_flag_and_backend_prompt(self):
         content = (PROJECT_ROOT / "gamepad_debug.bat").read_text(encoding="utf-8")
 
         self.assertNotIn(".venv\\Scripts\\python.exe", content)
         self.assertIn("py -3.11", content)
+        self.assertIn("Select Vision backend:", content)
+        self.assertIn("VISION_BACKEND", content)
+        self.assertIn('set "VISION_CAPTURE_FPS=140"', content)
+        self.assertIn('set "VISION_QUIT_KEY=0"', content)
+        self.assertIn("--vision-backend %VISION_BACKEND%", content)
         self.assertIn("--vision-debug", content)
         self.assertIn("--vision-debug-save", content)
+
+    def test_gamepad_native_debug_uses_native_backend_and_debug_window(self):
+        content = (PROJECT_ROOT / "gamepad_native_debug.bat").read_text(encoding="utf-8")
+
+        self.assertNotIn(".venv\\Scripts\\python.exe", content)
+        self.assertIn("py -3.11", content)
+        self.assertIn("--vision-backend native", content)
+        self.assertIn("--vision-debug", content)
+        self.assertIn("VISION_PERF_LOG", content)
+        self.assertIn('set "VISION_CAPTURE_FPS=140"', content)
+        self.assertIn('set "VISION_QUIT_KEY=0"', content)
 
     def test_mouse_start_uses_system_python_launcher_instead_of_broken_venv_python(self):
         content = (PROJECT_ROOT / "mouse_start.bat").read_text(encoding="utf-8")

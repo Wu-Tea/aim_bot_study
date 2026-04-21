@@ -4,5 +4,6 @@ __pycache__/
 config.toml
 training_data/
 runs/
+debug_captures/
 .worktrees/
 native/vision_native/build/

@@ -45,6 +45,16 @@ class MainCliTests(unittest.TestCase):
 
         self.assertTrue(args.vision_debug_save)
 
+    def test_parse_args_accepts_native_vision_backend(self):
+        with patch.object(
+            sys,
+            "argv",
+            ["main.py", "--controller-mode", "gamepad", "--vision-backend", "native"],
+        ):
+            args = main._parse_args()
+
+        self.assertEqual(args.vision_backend, "native")
+
     def test_main_passes_auto_fire_output_to_controller_factory(self):
         fake_controller = _FakeController()
         with patch.object(
@@ -63,6 +73,45 @@ class MainCliTests(unittest.TestCase):
             controller_mode="gamepad",
             auto_fire_output="RT",
         )
+
+    def test_main_routes_native_backend_to_native_process(self):
+        fake_controller = _FakeController()
+        with patch.object(
+            sys,
+            "argv",
+            ["main.py", "--controller-mode", "gamepad", "--vision-backend", "native"],
+        ), patch.object(main.ControllerFactory, "get_controller", return_value=fake_controller), patch.object(
+            main,
+            "process_vision",
+            return_value=None,
+        ) as process_vision, patch.object(
+            main,
+            "process_native_vision",
+            return_value=None,
+            create=True,
+        ) as process_native_vision, patch("builtins.print"):
+            exit_code = main.main()
+
+        self.assertEqual(exit_code, 0)
+        process_vision.assert_not_called()
+        process_native_vision.assert_called_once_with(controller=fake_controller)
+
+    def test_main_sets_vision_backend_env_when_requested(self):
+        fake_controller = _FakeController()
+        with patch.dict(main.os.environ, {}, clear=True), patch.object(
+            sys,
+            "argv",
+            ["main.py", "--controller-mode", "gamepad", "--vision-backend", "native"],
+        ), patch.object(main.ControllerFactory, "get_controller", return_value=fake_controller), patch.object(
+            main,
+            "process_native_vision",
+            return_value=None,
+            create=True,
+        ), patch("builtins.print"):
+            exit_code = main.main()
+            self.assertEqual(main.os.environ["VISION_BACKEND"], "native")
+
+        self.assertEqual(exit_code, 0)
 
     def test_main_sets_debug_overlay_env_when_requested(self):
         fake_controller = _FakeController()

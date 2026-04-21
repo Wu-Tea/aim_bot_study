@@ -53,6 +53,24 @@ def _env_flag(name: str, default: bool = False):
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _env_quit_key(default: int) -> int:
+    value = os.getenv("VISION_QUIT_KEY")
+    if value is None:
+        return default
+    normalized = value.strip().lower()
+    if normalized in {"", "0", "none", "off", "false", "disabled"}:
+        return 0
+    if len(normalized) == 1 and not normalized.isdigit():
+        return ord(normalized.upper())
+    return int(normalized, 0)
+
+
+def _quit_requested(config) -> bool:
+    if config.quit_key_vk <= 0:
+        return False
+    return bool(win32api.GetAsyncKeyState(config.quit_key_vk) & 0x8000)
+
+
 @dataclass(slots=True, frozen=True)
 class VisionConfig:
     capture_width: int = 640
@@ -109,6 +127,7 @@ class VisionConfig:
             debug_save_frames=_env_flag("VISION_DEBUG_SAVE"),
             model_path=model_path,
             fallback_model_path=fallback_model_path,
+            quit_key_vk=_env_quit_key(defaults.quit_key_vk),
         )
 
 
@@ -376,7 +395,8 @@ def process_vision(controller=None):
                 tracking_active=selected_target is not None,
             )
 
-            if win32api.GetAsyncKeyState(config.quit_key_vk) & 0x8000:
+            if _quit_requested(config):
+                print("[Vision] Quit hotkey requested; stopping.")
                 break
     finally:
         print("Stopping vision processing.")
