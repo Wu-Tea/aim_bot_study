@@ -229,6 +229,74 @@ class NativeVisionTargetingBridgeTests(unittest.TestCase):
         self.assertTrue(result["has_target"])
         self.assertAlmostEqual(result["target_x"], 420.0, places=3)
 
+    def test_partial_occlusion_reconstructs_upper_box_from_recent_height(self):
+        if not hasattr(self.module, "NativeTargetSelector"):
+            self.fail("NativeTargetSelector is missing")
+
+        selector = self.module.NativeTargetSelector(CROP_W, CROP_H)
+        full = np.array([[300.0, 240.0, 340.0, 360.0, 0.95, 0.0]], dtype=np.float32)
+        clipped = np.array([[304.0, 286.0, 344.0, 362.0, 0.93, 0.0]], dtype=np.float32)
+
+        first = selector.select_xyxy(full)
+        locked = selector.select_xyxy(full)
+        reconstructed = selector.select_xyxy(clipped)
+
+        self.assertFalse(first["has_target"])
+        self.assertTrue(locked["has_target"])
+        self.assertTrue(reconstructed["has_target"])
+        self.assertEqual(reconstructed["target_source"], "reconstructed")
+        self.assertLess(reconstructed["body_y1"], 286.0)
+        self.assertAlmostEqual(reconstructed["body_y2"], 362.0, places=3)
+        raw_target_y = 286.0 + ((362.0 - 286.0) * 0.38)
+        self.assertLess(
+            abs(reconstructed["target_y"] - locked["target_y"]),
+            abs(raw_target_y - locked["target_y"]),
+        )
+
+    def test_short_occlusion_prediction_bridges_only_two_empty_frames(self):
+        if not hasattr(self.module, "NativeTargetSelector"):
+            self.fail("NativeTargetSelector is missing")
+
+        selector = self.module.NativeTargetSelector(CROP_W, CROP_H)
+        first_box = np.array([[300.0, 240.0, 340.0, 360.0, 0.95, 0.0]], dtype=np.float32)
+        second_box = np.array([[306.0, 244.0, 346.0, 364.0, 0.95, 0.0]], dtype=np.float32)
+        empty = np.empty((0, 6), dtype=np.float32)
+
+        selector.select_xyxy(first_box)
+        locked = selector.select_xyxy(first_box)
+        observed = selector.select_xyxy(second_box)
+        predicted_one = selector.select_xyxy(empty)
+        predicted_two = selector.select_xyxy(empty)
+        lost = selector.select_xyxy(empty)
+
+        self.assertTrue(locked["has_target"])
+        self.assertTrue(observed["has_target"])
+        self.assertTrue(predicted_one["has_target"])
+        self.assertTrue(predicted_two["has_target"])
+        self.assertEqual(predicted_one["target_source"], "predicted")
+        self.assertEqual(predicted_two["target_source"], "predicted")
+        self.assertFalse(lost["has_target"])
+
+    def test_reacquired_target_exits_predicted_state_immediately(self):
+        if not hasattr(self.module, "NativeTargetSelector"):
+            self.fail("NativeTargetSelector is missing")
+
+        selector = self.module.NativeTargetSelector(CROP_W, CROP_H)
+        first_box = np.array([[300.0, 240.0, 340.0, 360.0, 0.95, 0.0]], dtype=np.float32)
+        second_box = np.array([[306.0, 244.0, 346.0, 364.0, 0.95, 0.0]], dtype=np.float32)
+        reacquired_box = np.array([[312.0, 248.0, 352.0, 368.0, 0.95, 0.0]], dtype=np.float32)
+
+        selector.select_xyxy(first_box)
+        selector.select_xyxy(first_box)
+        selector.select_xyxy(second_box)
+        predicted = selector.select_xyxy(np.empty((0, 6), dtype=np.float32))
+        reacquired = selector.select_xyxy(reacquired_box)
+
+        self.assertTrue(predicted["has_target"])
+        self.assertEqual(predicted["target_source"], "predicted")
+        self.assertTrue(reacquired["has_target"])
+        self.assertEqual(reacquired["target_source"], "observed")
+
 
 if __name__ == "__main__":
     unittest.main()

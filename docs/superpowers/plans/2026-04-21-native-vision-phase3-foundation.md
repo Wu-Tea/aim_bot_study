@@ -14,8 +14,9 @@
 - Follow-on Phase 3A is also complete: `VisionEngine` now bridges native DXGI ROI capture into native TensorRT inference through CUDA D3D11 interop.
 - Phase 3B has started: native target selection now exists as its own C++ component and is wired into `VisionEngine`.
 - Native friendly/enemy color classification is now also wired into the Phase 3B selector path.
+- Native occlusion compensation is now wired into the Phase 3B selector path, including partial-box reconstruction, two-frame short prediction, and `observed` / `reconstructed` / `predicted` source parity.
 - The debug executable now prints real capture/inference timing instead of placeholder-only `VisionResult` fields.
-- Remaining migration work is no longer "make the engine real"; it is "extend the new native selector with occlusion, enhancement, and auto-fire parity, then optimize the current host-side color sampling path if needed."
+- Remaining migration work is no longer "make the engine real"; it is "extend the new native selector with enhancement and auto-fire parity, then optimize the current host-side color sampling path if needed."
 
 ---
 
