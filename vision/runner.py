@@ -183,6 +183,7 @@ def _controller_target(selected_target) -> ControllerTarget | None:
         screen_center_x=selected_target.screen_center_x,
         screen_center_y=selected_target.screen_center_y,
         body_box=selected_target.selected_box,
+        target_source=getattr(selected_target, "source", None),
     )
 
 
@@ -321,7 +322,7 @@ def process_vision(controller=None):
                             target=_controller_target(selected_target),
                         )
                     else:
-                        controller.reset()
+                        controller.clear_target()
                 if debug_overlay is not None:
                     if gap_frame is None:
                         debug_overlay.show_message(
@@ -373,7 +374,7 @@ def process_vision(controller=None):
                         target=_controller_target(selected_target),
                     )
                 else:
-                    controller.reset()
+                    controller.clear_target()
 
             if debug_overlay is not None:
                 debug_overlay.show(

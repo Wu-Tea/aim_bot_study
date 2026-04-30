@@ -22,6 +22,8 @@ class AutoFirePlugin:
         want_fire = frame.auto_fire_requested
         if self.config.aim_only:
             want_fire = want_fire and frame.is_aiming
+        if frame.manual_left_pressed or frame.manual_override_active:
+            want_fire = False
 
         if not want_fire:
             self._cycle_start = None

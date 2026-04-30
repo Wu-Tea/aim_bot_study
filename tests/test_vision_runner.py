@@ -5,7 +5,13 @@ from unittest.mock import Mock, patch
 import numpy as np
 
 from controllers.base_controller import BaseController, ControllerTarget
-from vision.runner import TrackingFrameResolution, VisionConfig, _resolve_tracking_frame, process_vision
+from vision.runner import (
+    TrackingFrameResolution,
+    VisionConfig,
+    _controller_target,
+    _resolve_tracking_frame,
+    process_vision,
+)
 from vision.targeting import SelectedTarget
 
 
@@ -148,6 +154,48 @@ class BaseControllerAliasTests(unittest.TestCase):
         self.assertEqual(len(controller.updates), 1)
         self.assertEqual(controller.updates[0][0:2], (8.0, -4.0))
         self.assertEqual(controller.updates[0][2], target)
+
+    def test_update_can_receive_controller_target_source(self):
+        controller = _AliasController()
+        target = ControllerTarget(
+            aim_point_x=320.0,
+            aim_point_y=210.0,
+            screen_center_x=320.0,
+            screen_center_y=256.0,
+            body_box=(282.0, 128.0, 358.0, 316.0),
+            target_source="reconstructed",
+        )
+
+        controller.update(8.0, -4.0, target=target)
+
+        self.assertEqual(len(controller.updates), 1)
+        self.assertEqual(controller.updates[0][2].target_source, "reconstructed")
+
+    def test_clear_target_defaults_to_reset(self):
+        controller = Mock(spec=BaseController)
+
+        BaseController.clear_target(controller)
+
+        controller.reset.assert_called_once_with()
+
+
+class VisionRunnerControllerTargetTests(unittest.TestCase):
+    def test_controller_target_preserves_selected_target_source(self):
+        selected_target = SelectedTarget(
+            target_x=330.0,
+            target_y=220.0,
+            screen_center_x=320.0,
+            screen_center_y=256.0,
+            score=420.0,
+            selected_box=(282.0, 128.0, 358.0, 316.0),
+            source="predicted",
+        )
+
+        target = _controller_target(selected_target)
+
+        self.assertIsNotNone(target)
+        self.assertEqual(target.target_source, "predicted")
+        self.assertEqual(target.body_box, selected_target.selected_box)
 
 
 class VisionRunnerTrackingResolutionTests(unittest.TestCase):
@@ -527,6 +575,65 @@ class VisionRunnerPipelineTests(unittest.TestCase):
         self.assertIs(second_call["frame"], first_call["frame"])
         self.assertEqual(second_call["detections"], [])
         self.assertEqual(controller.update.call_count, 3)
+        self.assertEqual(controller.clear_target.call_count, 0)
+        self.assertEqual(controller.reset.call_count, 1)
+
+    @patch("vision.runner.time.sleep", return_value=None)
+    @patch("vision.runner.win32api.GetAsyncKeyState", side_effect=[0x8000])
+    @patch("vision.runner._warmup_model", return_value=None)
+    @patch("vision.runner._load_model", return_value=object())
+    @patch("vision.runner._resolve_tracking_frame")
+    @patch("vision.runner.PerformanceTracker")
+    @patch("vision.runner.CrosshairPersonHitDetector")
+    @patch("vision.runner.AimEnhancementPipeline")
+    @patch("vision.runner.TargetSelector")
+    def test_process_vision_clears_target_instead_of_resetting_while_ads_stays_held(
+        self,
+        target_selector_cls,
+        aim_enhancement_cls,
+        rb_hit_detector_cls,
+        perf_tracker_cls,
+        resolve_tracking_frame,
+        _load_model,
+        _warmup_model,
+        _get_async_key_state,
+        _sleep,
+    ):
+        perf_tracker_cls.return_value = Mock()
+        controller = Mock()
+        controller.is_aiming.return_value = True
+        resolve_tracking_frame.return_value = TrackingFrameResolution(
+            selected_target=None,
+            auto_fire_active=False,
+            best_target_delta=None,
+            boxes_seen=0,
+        )
+        _FakeInferenceThread.scripted_results = [
+            (
+                Mock(
+                    frame_id=7,
+                    captured_at=20.0,
+                    inferred_at=20.01,
+                    frame=np.ones((4, 4, 3), dtype=np.uint8),
+                    detections=[],
+                    infer_ms=6.5,
+                ),
+                7,
+            )
+        ]
+
+        try:
+            with patch("vision.runner.ScreenCaptureThread", _FakeCaptureThread), patch(
+                "vision.runner.InferenceThread", _FakeInferenceThread, create=True
+            ), patch(
+                "vision.runner.VisionConfig.from_env",
+                return_value=VisionConfig(frame_timeout=0.01, idle_sleep=0.0),
+            ):
+                process_vision(controller=controller)
+        finally:
+            _FakeInferenceThread.scripted_results = None
+
+        controller.clear_target.assert_called_once_with()
         self.assertEqual(controller.reset.call_count, 1)
 
 

@@ -68,11 +68,88 @@ opposing_input_threshold = 4500
 stale_seconds = 0.15
 
 [mouse.ai_aim]
-# Per-frame correction gain. Default 0.06.
-gain = 0.06
-smoothing = 0.65
-# Hard cap on AI correction per frame (pixels). Default 1.5.
-max_correction_px = 1.5
-# Fraction of manual mouse movement to counteract when a target is present.
-# Default 0.4.
-manual_dampen = 0.4
+# Mouse AI now uses a four-stage shape:
+# far acquire -> mid acquire -> stabilize, plus a short same-target reacquire
+# burst after a transient target gap.
+# `observed` and `reconstructed` targets can start fresh far/mid acquire.
+# `predicted` targets only continue stabilize for the same target family inside
+# the grace window.
+acquire_radius_px = 220.0
+mid_acquire_enter_px = 48.0
+mid_acquire_exit_px = 64.0
+stabilize_enter_px = 12.0
+stabilize_exit_px = 18.0
+inner_release_band_px = 3.0
+stabilize_reacquire_growth_px = 1.5
+stabilize_reacquire_motion_px = 1.0
+# `acquire_*` controls the far-range pull phase.
+acquire_gain = 1.05
+mid_acquire_gain = 0.78
+reacquire_gain = 0.92
+stabilize_gain = 0.12
+predicted_stabilize_gain = 0.12
+moving_stabilize_gain = 0.55
+acquire_max_move_px = 22.0
+mid_acquire_max_move_px = 9.0
+reacquire_max_move_px = 14.0
+stabilize_max_move_px = 0.90
+predicted_stabilize_max_move_px = 0.85
+moving_stabilize_max_move_px = 2.0
+moving_stabilize_motion_px = 1.5
+moving_stabilize_motion_scale = 1.25
+moving_stabilize_max_dt_ms = 60
+moving_stabilize_axis_ratio = 1.75
+# Motion lead helps moving-target scenarios by aiming slightly ahead of the
+# current box center for the same target family.
+acquire_lead_seconds = 0.03
+mid_acquire_lead_seconds = 0.02
+reacquire_lead_seconds = 0.025
+acquire_lead_max_px = 14.0
+# PD-like trajectory controller:
+# first compute a mode-specific command move, then convert it into a desired
+# velocity profile and follow it with acceleration limits.
+acquire_response_horizon_s = 0.014
+mid_acquire_response_horizon_s = 0.015
+reacquire_response_horizon_s = 0.013
+stabilize_response_horizon_s = 0.018
+predicted_stabilize_response_horizon_s = 0.020
+response_accel_multiplier = 1.85
+error_rate_lowpass_alpha = 0.35
+# Radius-tiered follow strength:
+# very close targets stay in a control profile for recoil-friendly behavior,
+# while slightly wider errors step up into stronger chase profiles.
+follow_control_radius_px = 10.0
+follow_chase_radius_px = 28.0
+follow_balanced_gain_scale = 1.06
+follow_balanced_max_move_scale = 1.08
+follow_balanced_horizon_scale = 0.92
+follow_balanced_accel_scale = 1.12
+follow_balanced_error_rate_scale = 1.12
+follow_chase_gain_scale = 1.14
+follow_chase_max_move_scale = 1.14
+follow_chase_horizon_scale = 0.82
+follow_chase_accel_scale = 1.26
+follow_chase_error_rate_scale = 1.26
+acquire_error_rate_gain = 0.14
+mid_acquire_error_rate_gain = 0.11
+reacquire_error_rate_gain = 0.13
+stabilize_error_rate_gain = 0.08
+predicted_stabilize_error_rate_gain = 0.06
+stabilize_integral_gain = 1.4
+predicted_stabilize_integral_gain = 1.0
+stabilize_integral_limit_px = 6.0
+same_target_grace_ms = 200
+reacquire_radius_px = 96.0
+reacquire_window_ms = 90
+# If the same target is still moving away from the crosshair fast enough, keep
+# the stronger far-acquire profile a bit longer instead of dropping into the
+# gentler mid-acquire phase too early.
+chase_hold_projection_px_per_sec = 120.0
+chase_hold_speed_px_per_sec = 220.0
+chase_hold_min_radius_px = 24.0
+# When we have already committed to one target, require a short persistence
+# window before switching to a different target family. This cuts down the
+# visible side-to-side yanks from brief relocalization noise.
+switch_guard_ms = 60
+switch_guard_commit_radius_px = 24.0
+breakaway_speed_px = 18.0

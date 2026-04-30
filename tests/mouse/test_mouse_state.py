@@ -1,6 +1,18 @@
 import unittest
 
+from controllers.base_controller import ControllerTarget
 from controllers.mouse.state import MouseFrame, MouseOutput
+
+
+def _target(*, source="observed"):
+    return ControllerTarget(
+        aim_point_x=332.0,
+        aim_point_y=228.0,
+        screen_center_x=320.0,
+        screen_center_y=256.0,
+        body_box=(288.0, 140.0, 368.0, 340.0),
+        target_source=source,
+    )
 
 
 class MouseFrameTests(unittest.TestCase):
@@ -13,11 +25,13 @@ class MouseFrameTests(unittest.TestCase):
             target_dx=10.0,
             target_dy=-4.0,
             auto_fire_requested=False,
+            target=_target(),
         )
         with self.assertRaises(AttributeError):
             frame.target_dx = 99.0
 
     def test_frame_stores_all_fields(self):
+        target = _target(source="reconstructed")
         frame = MouseFrame(
             timestamp=2.0,
             manual_dx=1.0,
@@ -26,6 +40,8 @@ class MouseFrameTests(unittest.TestCase):
             target_dx=3.0,
             target_dy=4.0,
             auto_fire_requested=True,
+            manual_override_active=True,
+            target=target,
             target_revision=7,
             target_timestamp=1.5,
         )
@@ -36,6 +52,9 @@ class MouseFrameTests(unittest.TestCase):
         self.assertEqual(frame.target_dx, 3.0)
         self.assertEqual(frame.target_dy, 4.0)
         self.assertTrue(frame.auto_fire_requested)
+        self.assertTrue(frame.manual_override_active)
+        self.assertEqual(frame.target, target)
+        self.assertEqual(frame.target.target_source, "reconstructed")
         self.assertEqual(frame.target_revision, 7)
         self.assertEqual(frame.target_timestamp, 1.5)
 

@@ -51,8 +51,51 @@ class TuningConfigLoaderTests(unittest.TestCase):
             trigger_frames = 5
 
             [mouse.ai_aim]
-            gain = 0.12
-            manual_dampen = 0.75
+            acquire_radius_px = 240.0
+            mid_acquire_enter_px = 52.0
+            mid_acquire_exit_px = 70.0
+            stabilize_enter_px = 14.0
+            stabilize_exit_px = 22.0
+            inner_release_band_px = 2.5
+            stabilize_reacquire_growth_px = 2.0
+            stabilize_reacquire_motion_px = 1.4
+            acquire_gain = 0.98
+            mid_acquire_gain = 0.66
+            reacquire_gain = 0.88
+            stabilize_gain = 0.11
+            predicted_stabilize_gain = 0.09
+            acquire_max_move_px = 9.4
+            mid_acquire_max_move_px = 4.2
+            reacquire_max_move_px = 6.8
+            stabilize_max_move_px = 0.95
+            predicted_stabilize_max_move_px = 0.7
+            acquire_lead_seconds = 0.04
+            mid_acquire_lead_seconds = 0.025
+            reacquire_lead_seconds = 0.03
+            acquire_lead_max_px = 12.0
+            acquire_response_horizon_s = 0.014
+            stabilize_response_horizon_s = 0.024
+            response_accel_multiplier = 2.1
+            follow_control_radius_px = 9.0
+            follow_chase_radius_px = 26.0
+            follow_balanced_gain_scale = 1.12
+            follow_balanced_horizon_scale = 0.85
+            follow_chase_gain_scale = 1.25
+            follow_chase_accel_scale = 1.4
+            acquire_error_rate_gain = 0.2
+            stabilize_integral_gain = 1.8
+            stabilize_integral_limit_px = 4.0
+            same_target_grace_ms = 110
+            reacquire_radius_px = 88.0
+            reacquire_window_ms = 75
+            chase_hold_projection_px_per_sec = 140.0
+            chase_hold_min_radius_px = 28.0
+            acquire_stall_min_shrink_px = 1.4
+            acquire_stall_trigger_frames = 3
+            acquire_stall_gain_per_frame = 0.22
+            acquire_stall_decay_per_frame = 0.18
+            acquire_stall_max_bonus = 0.8
+            breakaway_speed_px = 17.0
             """
         ).strip()
 
@@ -106,11 +149,54 @@ class TuningConfigLoaderTests(unittest.TestCase):
             AdaptiveDeltaGainConfig().gain_per_update,
         )
 
-        self.assertEqual(config.mouse_ai_aim.gain, 0.12)
-        self.assertEqual(config.mouse_ai_aim.manual_dampen, 0.75)
+        self.assertEqual(config.mouse_ai_aim.acquire_radius_px, 240.0)
+        self.assertEqual(config.mouse_ai_aim.mid_acquire_enter_px, 52.0)
+        self.assertEqual(config.mouse_ai_aim.mid_acquire_exit_px, 70.0)
+        self.assertEqual(config.mouse_ai_aim.stabilize_enter_px, 14.0)
+        self.assertEqual(config.mouse_ai_aim.stabilize_exit_px, 22.0)
+        self.assertEqual(config.mouse_ai_aim.inner_release_band_px, 2.5)
+        self.assertEqual(config.mouse_ai_aim.stabilize_reacquire_growth_px, 2.0)
+        self.assertEqual(config.mouse_ai_aim.stabilize_reacquire_motion_px, 1.4)
+        self.assertEqual(config.mouse_ai_aim.acquire_gain, 0.98)
+        self.assertEqual(config.mouse_ai_aim.mid_acquire_gain, 0.66)
+        self.assertEqual(config.mouse_ai_aim.reacquire_gain, 0.88)
+        self.assertEqual(config.mouse_ai_aim.stabilize_gain, 0.11)
+        self.assertEqual(config.mouse_ai_aim.predicted_stabilize_gain, 0.09)
+        self.assertEqual(config.mouse_ai_aim.acquire_max_move_px, 9.4)
+        self.assertEqual(config.mouse_ai_aim.mid_acquire_max_move_px, 4.2)
+        self.assertEqual(config.mouse_ai_aim.reacquire_max_move_px, 6.8)
+        self.assertEqual(config.mouse_ai_aim.stabilize_max_move_px, 0.95)
+        self.assertEqual(config.mouse_ai_aim.predicted_stabilize_max_move_px, 0.7)
+        self.assertEqual(config.mouse_ai_aim.acquire_lead_seconds, 0.04)
+        self.assertEqual(config.mouse_ai_aim.mid_acquire_lead_seconds, 0.025)
+        self.assertEqual(config.mouse_ai_aim.reacquire_lead_seconds, 0.03)
+        self.assertEqual(config.mouse_ai_aim.acquire_lead_max_px, 12.0)
+        self.assertEqual(config.mouse_ai_aim.acquire_response_horizon_s, 0.014)
+        self.assertEqual(config.mouse_ai_aim.stabilize_response_horizon_s, 0.024)
+        self.assertEqual(config.mouse_ai_aim.response_accel_multiplier, 2.1)
+        self.assertEqual(config.mouse_ai_aim.follow_control_radius_px, 9.0)
+        self.assertEqual(config.mouse_ai_aim.follow_chase_radius_px, 26.0)
+        self.assertEqual(config.mouse_ai_aim.follow_balanced_gain_scale, 1.12)
+        self.assertEqual(config.mouse_ai_aim.follow_balanced_horizon_scale, 0.85)
+        self.assertEqual(config.mouse_ai_aim.follow_chase_gain_scale, 1.25)
+        self.assertEqual(config.mouse_ai_aim.follow_chase_accel_scale, 1.4)
+        self.assertEqual(config.mouse_ai_aim.acquire_error_rate_gain, 0.2)
+        self.assertEqual(config.mouse_ai_aim.stabilize_integral_gain, 1.8)
+        self.assertEqual(config.mouse_ai_aim.stabilize_integral_limit_px, 4.0)
+        self.assertEqual(config.mouse_ai_aim.same_target_grace_ms, 110)
+        self.assertEqual(config.mouse_ai_aim.reacquire_radius_px, 88.0)
+        self.assertEqual(config.mouse_ai_aim.reacquire_window_ms, 75)
         self.assertEqual(
-            config.mouse_ai_aim.smoothing, MouseAIAimConfig().smoothing
+            config.mouse_ai_aim.chase_hold_projection_px_per_sec,
+            140.0,
         )
+        self.assertEqual(config.mouse_ai_aim.chase_hold_min_radius_px, 28.0)
+        self.assertEqual(config.mouse_ai_aim.acquire_stall_min_shrink_px, 1.4)
+        self.assertEqual(config.mouse_ai_aim.acquire_stall_trigger_frames, 3)
+        self.assertEqual(config.mouse_ai_aim.acquire_stall_gain_per_frame, 0.22)
+        self.assertEqual(config.mouse_ai_aim.acquire_stall_decay_per_frame, 0.18)
+        self.assertEqual(config.mouse_ai_aim.acquire_stall_max_bonus, 0.8)
+        self.assertEqual(config.mouse_ai_aim.breakaway_speed_px, 17.0)
 
     def test_unknown_keys_are_ignored(self):
         toml = textwrap.dedent(
@@ -121,7 +207,7 @@ class TuningConfigLoaderTests(unittest.TestCase):
 
             [mouse.ai_aim]
             also_fake = true
-            gain = 0.07
+            stabilize_gain = 0.07
             """
         ).strip()
 
@@ -131,7 +217,7 @@ class TuningConfigLoaderTests(unittest.TestCase):
             config = load_tuning_config(path)
 
         self.assertEqual(config.gamepad_ai_aim.smoothing, 0.5)
-        self.assertEqual(config.mouse_ai_aim.gain, 0.07)
+        self.assertEqual(config.mouse_ai_aim.stabilize_gain, 0.07)
 
     def test_empty_file_returns_defaults(self):
         with tempfile.TemporaryDirectory() as tmp:

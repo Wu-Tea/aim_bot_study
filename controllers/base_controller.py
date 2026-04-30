@@ -9,6 +9,7 @@ class ControllerTarget:
     screen_center_x: float
     screen_center_y: float
     body_box: tuple[float, float, float, float] | None = None
+    target_source: str | None = None
 
 
 class BaseController(ABC):
@@ -33,6 +34,13 @@ class BaseController(ABC):
         or when the user stops aiming.
         """
         pass
+
+    def clear_target(self):
+        """
+        Clears transient target state without requiring a full controller reset.
+        Controllers that do not distinguish the two can keep using `reset()`.
+        """
+        self.reset()
 
     @abstractmethod
     def is_aiming(self) -> bool:

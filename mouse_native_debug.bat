@@ -14,7 +14,7 @@ if %errorlevel%==0 (
     set "PYTHON_CMD=python"
 )
 
-echo Vision settings: backend=%VISION_BACKEND% capture_fps=%VISION_CAPTURE_FPS% quit_key=%VISION_QUIT_KEY% debug=off
-echo Launching native mouse mode
-%PYTHON_CMD% main.py --controller-mode mouse --vision-backend %VISION_BACKEND% --perf-log
+echo Vision settings: backend=%VISION_BACKEND% capture_fps=%VISION_CAPTURE_FPS% quit_key=%VISION_QUIT_KEY% debug=on debug_save=on
+echo Launching native mouse debug mode
+%PYTHON_CMD% main.py --controller-mode mouse --vision-backend %VISION_BACKEND% --vision-debug --vision-debug-save --perf-log
 pause

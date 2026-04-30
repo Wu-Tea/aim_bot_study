@@ -4,7 +4,7 @@ from controllers.mouse.auto_fire import AutoFireConfig, AutoFirePlugin
 from controllers.mouse.state import MouseFrame, MouseOutput
 
 
-def _frame(*, aiming=True, auto_fire=False, timestamp=1.0):
+def _frame(*, aiming=True, auto_fire=False, timestamp=1.0, manual_left_pressed=False):
     return MouseFrame(
         timestamp=timestamp,
         manual_dx=0.0,
@@ -13,6 +13,7 @@ def _frame(*, aiming=True, auto_fire=False, timestamp=1.0):
         target_dx=0.0,
         target_dy=0.0,
         auto_fire_requested=auto_fire,
+        manual_left_pressed=manual_left_pressed,
     )
 
 
@@ -93,6 +94,44 @@ class AutoFirePluginTests(unittest.TestCase):
         out = MouseOutput()
         plugin.apply(_frame(aiming=True, auto_fire=True, timestamp=5.0), out)
         self.assertTrue(out.left_click)
+
+    def test_manual_left_press_suppresses_auto_fire(self):
+        plugin = AutoFirePlugin()
+
+        out = MouseOutput()
+        plugin.apply(
+            _frame(
+                aiming=True,
+                auto_fire=True,
+                timestamp=1.0,
+                manual_left_pressed=True,
+            ),
+            out,
+        )
+
+        self.assertFalse(out.left_click)
+        self.assertFalse(out.auto_fire_active)
+
+    def test_manual_override_suppresses_auto_fire(self):
+        plugin = AutoFirePlugin()
+
+        out = MouseOutput()
+        plugin.apply(
+            MouseFrame(
+                timestamp=1.0,
+                manual_dx=24.0,
+                manual_dy=0.0,
+                is_aiming=True,
+                target_dx=5.0,
+                target_dy=0.0,
+                auto_fire_requested=True,
+                manual_override_active=True,
+            ),
+            out,
+        )
+
+        self.assertFalse(out.left_click)
+        self.assertFalse(out.auto_fire_active)
 
 
 if __name__ == "__main__":
