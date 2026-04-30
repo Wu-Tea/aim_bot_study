@@ -51,16 +51,13 @@ constexpr float kFriendlyMaskMaxRatio = 0.35f;
 constexpr float kEnemyMaskMinRatio = 0.03f;
 constexpr float kEnemyMaskMaxRatio = 0.45f;
 constexpr int kMaxStableSamples = 3;
-constexpr int kMaxPredictedFrames = 2;
 constexpr float kMaxCenterXDelta = 24.0f;
 constexpr float kMaxBottomDelta = 24.0f;
 constexpr float kMinHeightRatio = 0.72f;
 constexpr float kMinTopDrop = 12.0f;
-constexpr float kMaxPredictedStepX = 28.0f;
-constexpr float kMaxPredictedStepY = 28.0f;
-constexpr float kMaxHeightDrift = 12.0f;
 constexpr float kAutoFireEdgePadding = 2.0f;
 constexpr int kAutoFireReleaseGraceFrames = 4;
+constexpr const char* kSelectorHoldSource = "selector_hold";
 
 struct ColorClassification {
     float color_bonus = 0.0f;
@@ -118,6 +115,53 @@ float point_distance(
 
 float clamp_value(float value, float limit) {
     return std::max(-limit, std::min(limit, value));
+}
+
+std::pair<float, float> apply_ego_warp(
+    const EgoWarp& ego_warp,
+    const std::pair<float, float>& point) {
+    return {
+        (ego_warp.a00 * point.first) + (ego_warp.a01 * point.second) + ego_warp.tx,
+        (ego_warp.a10 * point.first) + (ego_warp.a11 * point.second) + ego_warp.ty,
+    };
+}
+
+VisionTargetSelector::Rect apply_ego_warp(
+    const EgoWarp& ego_warp,
+    const VisionTargetSelector::Rect& rect) {
+    const auto tl = apply_ego_warp(ego_warp, std::pair<float, float>{rect.left, rect.top});
+    const auto tr = apply_ego_warp(ego_warp, std::pair<float, float>{rect.right, rect.top});
+    const auto bl = apply_ego_warp(ego_warp, std::pair<float, float>{rect.left, rect.bottom});
+    const auto br = apply_ego_warp(ego_warp, std::pair<float, float>{rect.right, rect.bottom});
+    return {
+        std::min(std::min(tl.first, tr.first), std::min(bl.first, br.first)),
+        std::min(std::min(tl.second, tr.second), std::min(bl.second, br.second)),
+        std::max(std::max(tl.first, tr.first), std::max(bl.first, br.first)),
+        std::max(std::max(tl.second, tr.second), std::max(bl.second, br.second)),
+    };
+}
+
+VisionTargetSelector::Candidate warp_candidate(
+    const EgoWarp& ego_warp,
+    const VisionTargetSelector::Candidate& candidate) {
+    VisionTargetSelector::Candidate warped = candidate;
+    warped.body_box = apply_ego_warp(ego_warp, candidate.body_box);
+    warped.slow_zone = apply_ego_warp(ego_warp, candidate.slow_zone);
+    warped.fire_zone = apply_ego_warp(ego_warp, candidate.fire_zone);
+    const auto warped_point = apply_ego_warp(
+        ego_warp,
+        std::pair<float, float>{candidate.target_x, candidate.target_y});
+    warped.target_x = warped_point.first;
+    warped.target_y = warped_point.second;
+    return warped;
+}
+
+VisionTargetSelector::TargetState warp_target_state(
+    const EgoWarp& ego_warp,
+    const VisionTargetSelector::TargetState& target) {
+    VisionTargetSelector::TargetState warped = target;
+    warped.candidate = warp_candidate(ego_warp, target.candidate);
+    return warped;
 }
 
 float median_value(std::vector<float> values) {
@@ -272,6 +316,26 @@ ColorClassification classify_color(
     return {};
 }
 
+bool scored_candidate_better(
+    const VisionTargetSelector::ScoredCandidate& lhs,
+    const VisionTargetSelector::ScoredCandidate& rhs) {
+    if (std::fabs(lhs.score - rhs.score) > 0.001f) {
+        return lhs.score > rhs.score;
+    }
+    if (lhs.has_tracking_distance != rhs.has_tracking_distance) {
+        return lhs.has_tracking_distance;
+    }
+    if (lhs.has_tracking_distance && rhs.has_tracking_distance) {
+        if (std::fabs(lhs.tracking_distance - rhs.tracking_distance) > 0.001f) {
+            return lhs.tracking_distance < rhs.tracking_distance;
+        }
+    }
+    if (std::fabs(lhs.candidate.conf - rhs.candidate.conf) > 0.001f) {
+        return lhs.candidate.conf > rhs.candidate.conf;
+    }
+    return lhs.candidate.target_y < rhs.candidate.target_y;
+}
+
 } // namespace
 
 VisionTargetSelector::VisionTargetSelector(int frame_width, int frame_height)
@@ -306,7 +370,6 @@ void VisionTargetSelector::clear_tracking_state() {
     pending_frames_ = 0;
     pending_switch_frames_ = 0;
     hold_frames_ = 0;
-    predicted_frames_used_ = 0;
 }
 
 void VisionTargetSelector::clear_auto_fire_state() {
@@ -316,8 +379,27 @@ void VisionTargetSelector::clear_auto_fire_state() {
 
 VisionResult VisionTargetSelector::select_with_frame(
     const DetectionBatch& batch,
-    const ColorFrameView& frame) {
-    return select(annotate_colors(batch, frame));
+    const ColorFrameView& frame,
+    const EgoWarp& ego_warp) {
+    return select(annotate_colors(batch, frame), ego_warp);
+}
+
+std::vector<VisionTargetSelector::ScoredCandidate> VisionTargetSelector::rank_candidates(
+    const DetectionBatch& batch) const {
+    const auto candidates = build_candidates(batch, std::nullopt);
+    std::vector<ScoredCandidate> ranked;
+    ranked.reserve(candidates.size());
+    for (const Candidate& candidate : candidates) {
+        ranked.push_back(score_candidate(candidate, std::nullopt));
+    }
+    std::sort(ranked.begin(), ranked.end(), scored_candidate_better);
+    return ranked;
+}
+
+std::vector<VisionTargetSelector::ScoredCandidate> VisionTargetSelector::rank_candidates_with_frame(
+    const DetectionBatch& batch,
+    const ColorFrameView& frame) const {
+    return rank_candidates(annotate_colors(batch, frame));
 }
 
 VisionResult VisionTargetSelector::empty_result(float boxes_seen) const {
@@ -470,56 +552,7 @@ std::optional<VisionTargetSelector::Candidate> VisionTargetSelector::try_reconst
     return reconstructed;
 }
 
-std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::try_predict(float timestamp) {
-    if (stable_samples_.size() < 2) {
-        return std::nullopt;
-    }
-    if (predicted_frames_used_ >= kMaxPredictedFrames) {
-        return std::nullopt;
-    }
-
-    const TrackSample& prev = stable_samples_[stable_samples_.size() - 2];
-    const TrackSample& last = stable_samples_.back();
-    const float dt = std::max(0.000001f, last.timestamp - prev.timestamp);
-    const float predict_dt = std::max(0.000001f, timestamp - last.timestamp);
-    const float vx = (last.target_x - prev.target_x) / dt;
-    const float vy = (last.target_y - prev.target_y) / dt;
-    const float v_bottom = (last.bottom_y - prev.bottom_y) / dt;
-    const float v_height = (last.height - prev.height) / dt;
-
-    const float dx = clamp_value(vx * predict_dt, kMaxPredictedStepX);
-    const float dy = clamp_value(vy * predict_dt, kMaxPredictedStepY);
-    const float d_bottom = clamp_value(v_bottom * predict_dt, kMaxPredictedStepY);
-    const float d_height = clamp_value(v_height * predict_dt, kMaxHeightDrift);
-
-    const float predicted_height = std::max(8.0f, last.height + d_height);
-    const float predicted_bottom = last.selected_box.bottom + d_bottom;
-
-    Candidate candidate;
-    candidate.target_x = last.target_x + dx;
-    candidate.target_y = last.target_y + dy;
-    candidate.conf = 0.0f;
-    candidate.body_box.left = last.selected_box.left + dx;
-    candidate.body_box.right = last.selected_box.right + dx;
-    candidate.body_box.bottom = predicted_bottom;
-    candidate.body_box.top = predicted_bottom - predicted_height;
-    candidate.slow_zone = fallback_slow_zone(candidate.body_box);
-    candidate.fire_zone = fire_zone(candidate.body_box);
-    candidate.source = "predicted";
-
-    predicted_frames_used_ += 1;
-    return target_from_candidate(candidate, active_target_.has_value() ? active_target_->score : 0.0f);
-}
-
-void VisionTargetSelector::clear_prediction_state() {
-    predicted_frames_used_ = 0;
-}
-
 void VisionTargetSelector::record_observation(const TargetState& target, float timestamp) {
-    if (std::string(target.candidate.source) == "predicted") {
-        return;
-    }
-
     const Rect& box = target.candidate.body_box;
     if (box.right <= box.left || box.bottom <= box.top) {
         return;
@@ -537,7 +570,6 @@ void VisionTargetSelector::record_observation(const TargetState& target, float t
     if (stable_samples_.size() > kMaxStableSamples) {
         stable_samples_.erase(stable_samples_.begin());
     }
-    clear_prediction_state();
 }
 
 bool VisionTargetSelector::is_crosshair_inside_zone(const Rect& zone) const {
@@ -756,18 +788,20 @@ bool VisionTargetSelector::targets_match(const TargetState& lhs, const TargetSta
         {rhs.candidate.target_x, rhs.candidate.target_y}) <= pickup_confirm_radius_;
 }
 
-bool VisionTargetSelector::active_target_matches_candidate(const Candidate& candidate) const {
-    if (!active_target_.has_value()) {
+bool VisionTargetSelector::active_target_matches_candidate(
+    const Candidate& candidate,
+    const std::optional<TargetState>& active_target) const {
+    if (!active_target.has_value()) {
         return false;
     }
 
-    if (boxes_match(active_target_->candidate.body_box, candidate.body_box)) {
+    if (boxes_match(active_target->candidate.body_box, candidate.body_box)) {
         return true;
     }
 
     return point_distance(
         {candidate.target_x, candidate.target_y},
-        {active_target_->candidate.target_x, active_target_->candidate.target_y}) <= pickup_confirm_radius_;
+        {active_target->candidate.target_x, active_target->candidate.target_y}) <= pickup_confirm_radius_;
 }
 
 bool VisionTargetSelector::should_switch_targets(
@@ -874,7 +908,8 @@ std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::select_si
 std::pair<std::optional<VisionTargetSelector::TargetState>, std::optional<VisionTargetSelector::TargetState>>
 VisionTargetSelector::select_multi_candidate(
     const std::vector<Candidate>& candidates,
-    const std::optional<std::pair<float, float>>& last_target_center) const {
+    const std::optional<std::pair<float, float>>& last_target_center,
+    const std::optional<TargetState>& active_target) const {
     std::optional<ScoredCandidate> best;
     std::optional<ScoredCandidate> tracked;
     std::optional<std::pair<float, ScoredCandidate>> active_match;
@@ -894,10 +929,10 @@ VisionTargetSelector::select_multi_candidate(
             }
         }
 
-        if (active_target_matches_candidate(candidate)) {
+        if (active_target_matches_candidate(candidate, active_target)) {
             const float active_distance = point_distance(
                 {candidate.target_x, candidate.target_y},
-                {active_target_->candidate.target_x, active_target_->candidate.target_y});
+                {active_target->candidate.target_x, active_target->candidate.target_y});
             if (!active_match.has_value()
                 || active_distance < active_match->first
                 || (std::fabs(active_distance - active_match->first) < 0.001f
@@ -911,7 +946,7 @@ VisionTargetSelector::select_multi_candidate(
         return {std::nullopt, std::nullopt};
     }
 
-    if (!active_target_.has_value()
+    if (!active_target.has_value()
         && tracked.has_value()
         && (best->candidate.target_x != tracked->candidate.target_x
             || best->candidate.target_y != tracked->candidate.target_y)
@@ -929,25 +964,27 @@ VisionTargetSelector::select_multi_candidate(
 std::pair<std::optional<VisionTargetSelector::TargetState>, std::optional<VisionTargetSelector::TargetState>>
 VisionTargetSelector::select_candidate_targets(
     const std::vector<Candidate>& candidates,
-    const std::optional<std::pair<float, float>>& last_target_center) const {
+    const std::optional<std::pair<float, float>>& last_target_center,
+    const std::optional<TargetState>& active_target) const {
     if (candidates.empty()) {
         return {std::nullopt, std::nullopt};
     }
     if (candidates.size() == 1) {
         const auto chosen = select_single_candidate(candidates.front());
-        const auto active_match = (chosen.has_value() && active_target_matches_candidate(candidates.front()))
+        const auto active_match = (chosen.has_value() && active_target_matches_candidate(candidates.front(), active_target))
             ? chosen
             : std::nullopt;
         return {chosen, active_match};
     }
-    return select_multi_candidate(candidates, last_target_center);
+    return select_multi_candidate(candidates, last_target_center, active_target);
 }
 
 std::pair<std::optional<VisionTargetSelector::TargetState>, bool>
 VisionTargetSelector::resolve_active_target_transition(
     const TargetState& chosen_target,
-    const std::optional<TargetState>& active_match_target) {
-    if (!active_target_.has_value()) {
+    const std::optional<TargetState>& active_match_target,
+    const std::optional<TargetState>& active_target) {
+    if (!active_target.has_value()) {
         clear_switch_pending();
         return {chosen_target, false};
     }
@@ -976,12 +1013,14 @@ VisionTargetSelector::resolve_active_target_transition(
     return {*confirmed_switch, false};
 }
 
-bool VisionTargetSelector::fails_tracking_jump(const std::pair<float, float>& point) const {
-    if (!last_target_center_.has_value()) {
+bool VisionTargetSelector::fails_tracking_jump(
+    const std::pair<float, float>& point,
+    const std::optional<std::pair<float, float>>& last_target_center) const {
+    if (!last_target_center.has_value()) {
         return false;
     }
-    const float dx = point.first - last_target_center_->first;
-    const float dy = point.second - last_target_center_->second;
+    const float dx = point.first - last_target_center->first;
+    const float dy = point.second - last_target_center->second;
     return std::fabs(dx) > max_jump_x_ || std::fabs(dy) > max_jump_y_;
 }
 
@@ -991,26 +1030,30 @@ bool VisionTargetSelector::fails_first_pickup_flick(const std::pair<float, float
     return std::fabs(flick_dx) >= max_jump_x_ || std::fabs(flick_dy) >= max_jump_y_;
 }
 
-std::pair<float, float> VisionTargetSelector::smooth_target_point(const std::pair<float, float>& point) const {
-    if (!last_target_center_.has_value()) {
+std::pair<float, float> VisionTargetSelector::smooth_target_point(
+    const std::pair<float, float>& point,
+    const std::optional<std::pair<float, float>>& last_target_center) const {
+    if (!last_target_center.has_value()) {
         return point;
     }
 
-    const float jump = point_distance(point, *last_target_center_);
+    const float jump = point_distance(point, *last_target_center);
     if (jump <= 0.0f || jump >= max_smoothing_jump_) {
         return point;
     }
 
     const float alpha = std::max(kMinSmoothingAlpha, jump / max_smoothing_jump_);
     return {
-        last_target_center_->first + ((point.first - last_target_center_->first) * alpha),
-        last_target_center_->second + ((point.second - last_target_center_->second) * alpha),
+        last_target_center->first + ((point.first - last_target_center->first) * alpha),
+        last_target_center->second + ((point.second - last_target_center->second) * alpha),
     };
 }
 
-VisionResult VisionTargetSelector::hold_or_reset(float boxes_seen) {
+VisionResult VisionTargetSelector::hold_or_reset(
+    float boxes_seen,
+    const std::optional<TargetState>& active_target) {
     clear_pending();
-    if (!active_target_.has_value()) {
+    if (!active_target_.has_value() || !active_target.has_value()) {
         clear_tracking_state();
         VisionResult result = empty_result(boxes_seen);
         result.auto_fire = update_auto_fire(nullptr);
@@ -1019,7 +1062,8 @@ VisionResult VisionTargetSelector::hold_or_reset(float boxes_seen) {
 
     if (hold_frames_ < kTargetHoldFrames) {
         hold_frames_ += 1;
-        VisionResult result = result_from_target(*active_target_, boxes_seen);
+        VisionResult result = result_from_target(*active_target, boxes_seen);
+        result.target_source = kSelectorHoldSource;
         result.auto_fire = update_auto_fire(&*active_target_);
         return result;
     }
@@ -1033,6 +1077,7 @@ VisionResult VisionTargetSelector::hold_or_reset(float boxes_seen) {
 VisionResult VisionTargetSelector::finalize_selected_target(
     const TargetState& chosen_target,
     const std::optional<std::pair<float, float>>& last_target_center,
+    const std::optional<TargetState>& active_target,
     float boxes_seen,
     bool preserve_switch_pending,
     float sample_timestamp) {
@@ -1047,12 +1092,12 @@ VisionResult VisionTargetSelector::finalize_selected_target(
         return empty_result(boxes_seen);
     }
 
-    if (fails_tracking_jump(chosen_point)) {
+    if (fails_tracking_jump(chosen_point, last_target_center)) {
         clear_switch_pending();
-        return hold_or_reset(boxes_seen);
+        return hold_or_reset(boxes_seen, active_target);
     }
 
-    const auto smoothed_point = smooth_target_point(chosen_point);
+    const auto smoothed_point = smooth_target_point(chosen_point, last_target_center);
     TargetState smoothed_target = chosen_target;
     smoothed_target.candidate.target_x = smoothed_point.first;
     smoothed_target.candidate.target_y = smoothed_point.second;
@@ -1067,45 +1112,37 @@ VisionResult VisionTargetSelector::finalize_selected_target(
     return result;
 }
 
-VisionResult VisionTargetSelector::select(const DetectionBatch& batch) {
+VisionResult VisionTargetSelector::select(const DetectionBatch& batch, const EgoWarp& ego_warp) {
     const float sample_timestamp = sample_clock_ += 1.0f;
     const float boxes_seen = static_cast<float>(batch.detections.size());
-    const auto last_target_center = last_target_center_;
+    const auto last_target_center = last_target_center_.has_value()
+        ? std::optional<std::pair<float, float>>(apply_ego_warp(ego_warp, *last_target_center_))
+        : std::nullopt;
+    const auto active_target = active_target_.has_value()
+        ? std::optional<TargetState>(warp_target_state(ego_warp, *active_target_))
+        : std::nullopt;
     const auto candidates = build_candidates(batch, last_target_center);
     if (candidates.empty()) {
-        const auto predicted = try_predict(sample_timestamp);
-        if (predicted.has_value()) {
-            clear_pending();
-            clear_switch_pending();
-            active_target_ = *predicted;
-            hold_frames_ = 0;
-            last_target_center_ = {
-                active_target_->candidate.target_x,
-                active_target_->candidate.target_y,
-            };
-            VisionResult result = result_from_target(*active_target_, boxes_seen);
-            result.auto_fire = update_auto_fire(&*active_target_);
-            return result;
-        }
         clear_tracking_state();
         VisionResult result = empty_result(boxes_seen);
         result.auto_fire = update_auto_fire(nullptr);
         return result;
     }
 
-    const auto selected = select_candidate_targets(candidates, last_target_center);
+    const auto selected = select_candidate_targets(candidates, last_target_center, active_target);
     if (!selected.first.has_value()) {
-        return hold_or_reset(boxes_seen);
+        return hold_or_reset(boxes_seen, active_target);
     }
 
-    const auto transition = resolve_active_target_transition(*selected.first, selected.second);
+    const auto transition = resolve_active_target_transition(*selected.first, selected.second, active_target);
     if (!transition.first.has_value()) {
-        return hold_or_reset(boxes_seen);
+        return hold_or_reset(boxes_seen, active_target);
     }
 
     return finalize_selected_target(
         *transition.first,
         last_target_center,
+        active_target,
         boxes_seen,
         transition.second,
         sample_timestamp);

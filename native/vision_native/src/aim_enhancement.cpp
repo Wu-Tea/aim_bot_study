@@ -278,4 +278,49 @@ VisionResult AimEnhancementPipeline::process(
     return output;
 }
 
+VisionResult AimEnhancementPipeline::process_damping_only(
+    const VisionResult& target,
+    double timestamp_seconds,
+    const std::optional<AimSlowZone>& slow_zone) {
+    if (!target.has_target) {
+        reset();
+        return target;
+    }
+
+    std::optional<float> previous_dx;
+    std::optional<float> previous_dy;
+    if (previous_target_.has_value()) {
+        previous_dx = previous_target_->dx;
+        previous_dy = previous_target_->dy;
+    }
+
+    AimState state{
+        target,
+        0.0,
+        0.0f,
+        0.0f,
+        0.0f,
+        0.0f,
+        previous_dx,
+        previous_dy,
+        target.dx,
+        target.dy,
+        slow_zone,
+    };
+    apply_near_target_damping(state);
+
+    previous_target_ = TargetSnapshot{
+        target.target_x,
+        target.target_y,
+        target.dx,
+        target.dy,
+    };
+    previous_timestamp_ = timestamp_seconds;
+
+    VisionResult output = target;
+    output.dx = state.output_dx;
+    output.dy = state.output_dy;
+    return output;
+}
+
 } // namespace vision_native
