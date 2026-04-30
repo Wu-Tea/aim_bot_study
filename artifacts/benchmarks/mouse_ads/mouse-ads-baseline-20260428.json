@@ -1,0 +1,1557 @@
+{
+  "suite": "mouse-ads",
+  "run_key": "mouse-ads-baseline-20260428",
+  "run_seed": 12345,
+  "baseline_key": "mouse-ads-baseline-20260428",
+  "timestamp": "2026-04-28T02:53:52Z",
+  "artifact_path": "artifacts/benchmarks/mouse_ads/mouse-ads-baseline-20260428.json",
+  "git_metadata": {
+    "commit": "2d5ecfece791e031a09a90325807d5b94e3ad650",
+    "dirty": true
+  },
+  "benchmark_config": {
+    "frame_dt": 0.016666666666666666,
+    "target_sample_hz": null,
+    "sim_frames": 90,
+    "response_delta_threshold_px": 1.0,
+    "response_improvement_threshold_px": 0.5,
+    "under_target_threshold_px": 20.0,
+    "under_target_consecutive_frames": 2,
+    "settle_threshold_px": 10.0,
+    "settle_consecutive_frames": 3,
+    "wrong_target_margin_px": 2.0
+  },
+  "scenario_logic": [
+    "shared ADS manifests from the gamepad ADS suite with mouse-native actuation",
+    "single_static_offset: 8 scenarios with ADS engaged on a stationary offset target",
+    "single_strafe_then_decel: 8 scenarios with lateral target motion that brakes during ADS",
+    "single_diagonal_then_decel: 8 scenarios with diagonal motion and a short settle phase",
+    "reacquire_after_gap: 6 scenarios where the engagement target disappears and reappears mid-ADS",
+    "dual_target_disambiguation: 6 scenarios with an engagement target plus a distractor and a localization schedule"
+  ],
+  "controller_config_snapshot": {
+    "mouse_ai_aim": {
+      "acquire_radius_px": 220.0,
+      "mid_acquire_enter_px": 48.0,
+      "mid_acquire_exit_px": 64.0,
+      "stabilize_enter_px": 12.0,
+      "stabilize_exit_px": 18.0,
+      "inner_release_band_px": 3.0,
+      "stabilize_reacquire_growth_px": 1.5,
+      "stabilize_reacquire_motion_px": 1.0,
+      "acquire_gain": 1.05,
+      "mid_acquire_gain": 0.78,
+      "reacquire_gain": 0.92,
+      "stabilize_gain": 0.12,
+      "predicted_stabilize_gain": 0.12,
+      "acquire_max_move_px": 22.0,
+      "mid_acquire_max_move_px": 9.0,
+      "reacquire_max_move_px": 14.0,
+      "stabilize_max_move_px": 0.9,
+      "predicted_stabilize_max_move_px": 0.85,
+      "acquire_lead_seconds": 0.03,
+      "mid_acquire_lead_seconds": 0.02,
+      "reacquire_lead_seconds": 0.025,
+      "acquire_lead_max_px": 14.0,
+      "same_target_grace_ms": 200,
+      "reacquire_radius_px": 96.0,
+      "reacquire_window_ms": 90,
+      "chase_hold_projection_px_per_sec": 120.0,
+      "chase_hold_min_radius_px": 24.0,
+      "acquire_stall_min_shrink_px": 1.0,
+      "acquire_stall_trigger_frames": 2,
+      "acquire_stall_gain_per_frame": 0.18,
+      "acquire_stall_decay_per_frame": 0.2,
+      "acquire_stall_max_bonus": 0.75,
+      "breakaway_speed_px": 18.0
+    }
+  },
+  "aggregate_metrics": {
+    "wrong_target_snap_rate": 0.5,
+    "max_single_frame_camera_delta": 22.80350850198276,
+    "target_localization_latency_ms": 0.0,
+    "time_to_under_20px": 102.38095238095238,
+    "time_to_stabilize_ms": 137.03703703703704,
+    "reacquire_time_after_occlusion": 33.333333333333336,
+    "settle_time_after_under_10px_ms": 71.71717171717172,
+    "under_20_escape_count": 0.2,
+    "post_under_20_axis_flip_count": 23.114285714285714
+  },
+  "relative_deltas_vs_baseline": null,
+  "gamepad_comparison": {
+    "shared_metrics": [
+      "wrong_target_snap_rate",
+      "max_single_frame_camera_delta",
+      "target_localization_latency_ms",
+      "time_to_under_20px",
+      "reacquire_time_after_occlusion"
+    ],
+    "mouse_only_metrics": [
+      "time_to_stabilize_ms",
+      "settle_time_after_under_10px_ms",
+      "under_20_escape_count",
+      "post_under_20_axis_flip_count"
+    ],
+    "metric_deltas": {
+      "wrong_target_snap_rate": 0.5000000000000001,
+      "max_single_frame_camera_delta": -0.13153427786148822,
+      "target_localization_latency_ms": 0.0,
+      "time_to_under_20px": 0.06496769562096197,
+      "reacquire_time_after_occlusion": 0.68
+    },
+    "reference_run_key": "ads-baseline-20260418",
+    "reference_artifact_path": "artifacts/benchmarks/gamepad_ads/ads-baseline-20260418.json"
+  },
+  "scenarios": [
+    {
+      "manifest": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s00",
+        "family": "single_static_offset",
+        "engagement_target_id": "engagement",
+        "targets": [
+          {
+            "target_id": "engagement",
+            "initial_dx": 120.0,
+            "initial_dy": 48.0,
+            "velocity_x": 0.0,
+            "velocity_y": 0.0,
+            "decel_start_frame": null,
+            "decel_duration_frames": 0,
+            "decel_target_speed_scale": 1.0,
+            "visible_start_frame": 0,
+            "visible_end_frame": null,
+            "gap_windows": []
+          }
+        ],
+        "localization_schedule": []
+      },
+      "metrics": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s00",
+        "family": "single_static_offset",
+        "wrong_target_snap_rate": null,
+        "max_single_frame_camera_delta": 22.47220505424423,
+        "target_localization_latency_ms": 0.0,
+        "time_to_under_20px": 116.66666666666667,
+        "time_to_stabilize_ms": 150.0,
+        "reacquire_time_after_occlusion": null,
+        "settle_time_after_under_10px_ms": 50.0,
+        "under_20_escape_count": 0.0,
+        "post_under_20_axis_flip_count": 0.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s01",
+        "family": "single_static_offset",
+        "engagement_target_id": "engagement",
+        "targets": [
+          {
+            "target_id": "engagement",
+            "initial_dx": -160.0,
+            "initial_dy": 48.0,
+            "velocity_x": 0.0,
+            "velocity_y": 0.0,
+            "decel_start_frame": null,
+            "decel_duration_frames": 0,
+            "decel_target_speed_scale": 1.0,
+            "visible_start_frame": 0,
+            "visible_end_frame": null,
+            "gap_windows": []
+          }
+        ],
+        "localization_schedule": []
+      },
+      "metrics": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s01",
+        "family": "single_static_offset",
+        "wrong_target_snap_rate": null,
+        "max_single_frame_camera_delta": 22.135943621178654,
+        "target_localization_latency_ms": 0.0,
+        "time_to_under_20px": 133.33333333333334,
+        "time_to_stabilize_ms": 166.66666666666666,
+        "reacquire_time_after_occlusion": null,
+        "settle_time_after_under_10px_ms": 50.0,
+        "under_20_escape_count": 0.0,
+        "post_under_20_axis_flip_count": 0.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s02",
+        "family": "single_static_offset",
+        "engagement_target_id": "engagement",
+        "targets": [
+          {
+            "target_id": "engagement",
+            "initial_dx": 120.0,
+            "initial_dy": 16.0,
+            "velocity_x": 0.0,
+            "velocity_y": 0.0,
+            "decel_start_frame": null,
+            "decel_duration_frames": 0,
+            "decel_target_speed_scale": 1.0,
+            "visible_start_frame": 0,
+            "visible_end_frame": null,
+            "gap_windows": []
+          }
+        ],
+        "localization_schedule": []
+      },
+      "metrics": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s02",
+        "family": "single_static_offset",
+        "wrong_target_snap_rate": null,
+        "max_single_frame_camera_delta": 22.360679774997898,
+        "target_localization_latency_ms": 0.0,
+        "time_to_under_20px": 100.0,
+        "time_to_stabilize_ms": 116.66666666666667,
+        "reacquire_time_after_occlusion": null,
+        "settle_time_after_under_10px_ms": 66.66666666666667,
+        "under_20_escape_count": 0.0,
+        "post_under_20_axis_flip_count": 0.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s03",
+        "family": "single_static_offset",
+        "engagement_target_id": "engagement",
+        "targets": [
+          {
+            "target_id": "engagement",
+            "initial_dx": 40.0,
+            "initial_dy": -16.0,
+            "velocity_x": 0.0,
+            "velocity_y": 0.0,
+            "decel_start_frame": null,
+            "decel_duration_frames": 0,
+            "decel_target_speed_scale": 1.0,
+            "visible_start_frame": 0,
+            "visible_end_frame": null,
+            "gap_windows": []
+          }
+        ],
+        "localization_schedule": []
+      },
+      "metrics": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s03",
+        "family": "single_static_offset",
+        "wrong_target_snap_rate": null,
+        "max_single_frame_camera_delta": 8.94427190999916,
+        "target_localization_latency_ms": 0.0,
+        "time_to_under_20px": 50.0,
+        "time_to_stabilize_ms": 83.33333333333333,
+        "reacquire_time_after_occlusion": null,
+        "settle_time_after_under_10px_ms": 50.0,
+        "under_20_escape_count": 0.0,
+        "post_under_20_axis_flip_count": 0.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s04",
+        "family": "single_static_offset",
+        "engagement_target_id": "engagement",
+        "targets": [
+          {
+            "target_id": "engagement",
+            "initial_dx": -80.0,
+            "initial_dy": 16.0,
+            "velocity_x": 0.0,
+            "velocity_y": 0.0,
+            "decel_start_frame": null,
+            "decel_duration_frames": 0,
+            "decel_target_speed_scale": 1.0,
+            "visible_start_frame": 0,
+            "visible_end_frame": null,
+            "gap_windows": []
+          }
+        ],
+        "localization_schedule": []
+      },
+      "metrics": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s04",
+        "family": "single_static_offset",
+        "wrong_target_snap_rate": null,
+        "max_single_frame_camera_delta": 22.360679774997898,
+        "target_localization_latency_ms": 0.0,
+        "time_to_under_20px": 83.33333333333333,
+        "time_to_stabilize_ms": 100.0,
+        "reacquire_time_after_occlusion": null,
+        "settle_time_after_under_10px_ms": 33.333333333333336,
+        "under_20_escape_count": 0.0,
+        "post_under_20_axis_flip_count": 0.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s05",
+        "family": "single_static_offset",
+        "engagement_target_id": "engagement",
+        "targets": [
+          {
+            "target_id": "engagement",
+            "initial_dx": -160.0,
+            "initial_dy": 32.0,
+            "velocity_x": 0.0,
+            "velocity_y": 0.0,
+            "decel_start_frame": null,
+            "decel_duration_frames": 0,
+            "decel_target_speed_scale": 1.0,
+            "visible_start_frame": 0,
+            "visible_end_frame": null,
+            "gap_windows": []
+          }
+        ],
+        "localization_schedule": []
+      },
+      "metrics": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s05",
+        "family": "single_static_offset",
+        "wrong_target_snap_rate": null,
+        "max_single_frame_camera_delta": 22.561028345356956,
+        "target_localization_latency_ms": 0.0,
+        "time_to_under_20px": 133.33333333333334,
+        "time_to_stabilize_ms": 150.0,
+        "reacquire_time_after_occlusion": null,
+        "settle_time_after_under_10px_ms": 50.0,
+        "under_20_escape_count": 0.0,
+        "post_under_20_axis_flip_count": 0.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s06",
+        "family": "single_static_offset",
+        "engagement_target_id": "engagement",
+        "targets": [
+          {
+            "target_id": "engagement",
+            "initial_dx": 120.0,
+            "initial_dy": 48.0,
+            "velocity_x": 0.0,
+            "velocity_y": 0.0,
+            "decel_start_frame": null,
+            "decel_duration_frames": 0,
+            "decel_target_speed_scale": 1.0,
+            "visible_start_frame": 0,
+            "visible_end_frame": null,
+            "gap_windows": []
+          }
+        ],
+        "localization_schedule": []
+      },
+      "metrics": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s06",
+        "family": "single_static_offset",
+        "wrong_target_snap_rate": null,
+        "max_single_frame_camera_delta": 22.47220505424423,
+        "target_localization_latency_ms": 0.0,
+        "time_to_under_20px": 116.66666666666667,
+        "time_to_stabilize_ms": 150.0,
+        "reacquire_time_after_occlusion": null,
+        "settle_time_after_under_10px_ms": 50.0,
+        "under_20_escape_count": 0.0,
+        "post_under_20_axis_flip_count": 0.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s07",
+        "family": "single_static_offset",
+        "engagement_target_id": "engagement",
+        "targets": [
+          {
+            "target_id": "engagement",
+            "initial_dx": 120.0,
+            "initial_dy": -48.0,
+            "velocity_x": 0.0,
+            "velocity_y": 0.0,
+            "decel_start_frame": null,
+            "decel_duration_frames": 0,
+            "decel_target_speed_scale": 1.0,
+            "visible_start_frame": 0,
+            "visible_end_frame": null,
+            "gap_windows": []
+          }
+        ],
+        "localization_schedule": []
+      },
+      "metrics": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s07",
+        "family": "single_static_offset",
+        "wrong_target_snap_rate": null,
+        "max_single_frame_camera_delta": 22.47220505424423,
+        "target_localization_latency_ms": 0.0,
+        "time_to_under_20px": 116.66666666666667,
+        "time_to_stabilize_ms": 150.0,
+        "reacquire_time_after_occlusion": null,
+        "settle_time_after_under_10px_ms": 50.0,
+        "under_20_escape_count": 0.0,
+        "post_under_20_axis_flip_count": 0.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s08",
+        "family": "single_strafe_then_decel",
+        "engagement_target_id": "engagement",
+        "targets": [
+          {
+            "target_id": "engagement",
+            "initial_dx": -110.0,
+            "initial_dy": -24.0,
+            "velocity_x": -400.0,
+            "velocity_y": 0.0,
+            "decel_start_frame": 24,
+            "decel_duration_frames": 12,
+            "decel_target_speed_scale": 0.15,
+            "visible_start_frame": 0,
+            "visible_end_frame": null,
+            "gap_windows": []
+          }
+        ],
+        "localization_schedule": []
+      },
+      "metrics": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s08",
+        "family": "single_strafe_then_decel",
+        "wrong_target_snap_rate": null,
+        "max_single_frame_camera_delta": 22.360679774997898,
+        "target_localization_latency_ms": 0.0,
+        "time_to_under_20px": 200.0,
+        "time_to_stabilize_ms": 316.66666666666663,
+        "reacquire_time_after_occlusion": null,
+        "settle_time_after_under_10px_ms": 83.33333333333333,
+        "under_20_escape_count": 0.0,
+        "post_under_20_axis_flip_count": 2.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s09",
+        "family": "single_strafe_then_decel",
+        "engagement_target_id": "engagement",
+        "targets": [
+          {
+            "target_id": "engagement",
+            "initial_dx": -110.0,
+            "initial_dy": -24.0,
+            "velocity_x": 400.0,
+            "velocity_y": 0.0,
+            "decel_start_frame": 18,
+            "decel_duration_frames": 18,
+            "decel_target_speed_scale": 0.35,
+            "visible_start_frame": 0,
+            "visible_end_frame": null,
+            "gap_windows": []
+          }
+        ],
+        "localization_schedule": []
+      },
+      "metrics": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s09",
+        "family": "single_strafe_then_decel",
+        "wrong_target_snap_rate": null,
+        "max_single_frame_camera_delta": 22.135943621178654,
+        "target_localization_latency_ms": 0.0,
+        "time_to_under_20px": 66.66666666666667,
+        "time_to_stabilize_ms": 66.66666666666667,
+        "reacquire_time_after_occlusion": null,
+        "settle_time_after_under_10px_ms": 33.333333333333336,
+        "under_20_escape_count": 0.0,
+        "post_under_20_axis_flip_count": 55.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s10",
+        "family": "single_strafe_then_decel",
+        "engagement_target_id": "engagement",
+        "targets": [
+          {
+            "target_id": "engagement",
+            "initial_dx": -140.0,
+            "initial_dy": -40.0,
+            "velocity_x": -320.0,
+            "velocity_y": 0.0,
+            "decel_start_frame": 24,
+            "decel_duration_frames": 12,
+            "decel_target_speed_scale": 0.15,
+            "visible_start_frame": 0,
+            "visible_end_frame": null,
+            "gap_windows": []
+          }
+        ],
+        "localization_schedule": []
+      },
+      "metrics": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s10",
+        "family": "single_strafe_then_decel",
+        "wrong_target_snap_rate": null,
+        "max_single_frame_camera_delta": 22.561028345356956,
+        "target_localization_latency_ms": 0.0,
+        "time_to_under_20px": 166.66666666666666,
+        "time_to_stabilize_ms": 216.66666666666669,
+        "reacquire_time_after_occlusion": null,
+        "settle_time_after_under_10px_ms": 300.0,
+        "under_20_escape_count": 0.0,
+        "post_under_20_axis_flip_count": 2.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s11",
+        "family": "single_strafe_then_decel",
+        "engagement_target_id": "engagement",
+        "targets": [
+          {
+            "target_id": "engagement",
+            "initial_dx": -110.0,
+            "initial_dy": -12.0,
+            "velocity_x": -400.0,
+            "velocity_y": 0.0,
+            "decel_start_frame": 18,
+            "decel_duration_frames": 12,
+            "decel_target_speed_scale": 0.35,
+            "visible_start_frame": 0,
+            "visible_end_frame": null,
+            "gap_windows": []
+          }
+        ],
+        "localization_schedule": []
+      },
+      "metrics": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s11",
+        "family": "single_strafe_then_decel",
+        "wrong_target_snap_rate": null,
+        "max_single_frame_camera_delta": 22.090722034374522,
+        "target_localization_latency_ms": 0.0,
+        "time_to_under_20px": 200.0,
+        "time_to_stabilize_ms": 300.0,
+        "reacquire_time_after_occlusion": null,
+        "settle_time_after_under_10px_ms": 83.33333333333333,
+        "under_20_escape_count": 0.0,
+        "post_under_20_axis_flip_count": 58.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s12",
+        "family": "single_strafe_then_decel",
+        "engagement_target_id": "engagement",
+        "targets": [
+          {
+            "target_id": "engagement",
+            "initial_dx": -140.0,
+            "initial_dy": -40.0,
+            "velocity_x": -240.0,
+            "velocity_y": 0.0,
+            "decel_start_frame": 18,
+            "decel_duration_frames": 12,
+            "decel_target_speed_scale": 0.15,
+            "visible_start_frame": 0,
+            "visible_end_frame": null,
+            "gap_windows": []
+          }
+        ],
+        "localization_schedule": []
+      },
+      "metrics": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s12",
+        "family": "single_strafe_then_decel",
+        "wrong_target_snap_rate": null,
+        "max_single_frame_camera_delta": 22.360679774997898,
+        "target_localization_latency_ms": 0.0,
+        "time_to_under_20px": 166.66666666666666,
+        "time_to_stabilize_ms": 216.66666666666669,
+        "reacquire_time_after_occlusion": null,
+        "settle_time_after_under_10px_ms": 50.0,
+        "under_20_escape_count": 0.0,
+        "post_under_20_axis_flip_count": 6.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s13",
+        "family": "single_strafe_then_decel",
+        "engagement_target_id": "engagement",
+        "targets": [
+          {
+            "target_id": "engagement",
+            "initial_dx": 80.0,
+            "initial_dy": -12.0,
+            "velocity_x": -240.0,
+            "velocity_y": 0.0,
+            "decel_start_frame": 30,
+            "decel_duration_frames": 12,
+            "decel_target_speed_scale": 0.55,
+            "visible_start_frame": 0,
+            "visible_end_frame": null,
+            "gap_windows": []
+          }
+        ],
+        "localization_schedule": []
+      },
+      "metrics": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s13",
+        "family": "single_strafe_then_decel",
+        "wrong_target_snap_rate": null,
+        "max_single_frame_camera_delta": 22.360679774997898,
+        "target_localization_latency_ms": 0.0,
+        "time_to_under_20px": 50.0,
+        "time_to_stabilize_ms": 66.66666666666667,
+        "reacquire_time_after_occlusion": null,
+        "settle_time_after_under_10px_ms": 50.0,
+        "under_20_escape_count": 0.0,
+        "post_under_20_axis_flip_count": 80.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s14",
+        "family": "single_strafe_then_decel",
+        "engagement_target_id": "engagement",
+        "targets": [
+          {
+            "target_id": "engagement",
+            "initial_dx": 140.0,
+            "initial_dy": -24.0,
+            "velocity_x": -320.0,
+            "velocity_y": 0.0,
+            "decel_start_frame": 18,
+            "decel_duration_frames": 18,
+            "decel_target_speed_scale": 0.15,
+            "visible_start_frame": 0,
+            "visible_end_frame": null,
+            "gap_windows": []
+          }
+        ],
+        "localization_schedule": []
+      },
+      "metrics": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s14",
+        "family": "single_strafe_then_decel",
+        "wrong_target_snap_rate": null,
+        "max_single_frame_camera_delta": 22.561028345356956,
+        "target_localization_latency_ms": 0.0,
+        "time_to_under_20px": 83.33333333333333,
+        "time_to_stabilize_ms": 100.0,
+        "reacquire_time_after_occlusion": null,
+        "settle_time_after_under_10px_ms": 50.0,
+        "under_20_escape_count": 0.0,
+        "post_under_20_axis_flip_count": 7.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s15",
+        "family": "single_strafe_then_decel",
+        "engagement_target_id": "engagement",
+        "targets": [
+          {
+            "target_id": "engagement",
+            "initial_dx": -80.0,
+            "initial_dy": 40.0,
+            "velocity_x": -320.0,
+            "velocity_y": 0.0,
+            "decel_start_frame": 30,
+            "decel_duration_frames": 18,
+            "decel_target_speed_scale": 0.55,
+            "visible_start_frame": 0,
+            "visible_end_frame": null,
+            "gap_windows": []
+          }
+        ],
+        "localization_schedule": []
+      },
+      "metrics": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s15",
+        "family": "single_strafe_then_decel",
+        "wrong_target_snap_rate": null,
+        "max_single_frame_camera_delta": 22.47220505424423,
+        "target_localization_latency_ms": 0.0,
+        "time_to_under_20px": 133.33333333333334,
+        "time_to_stabilize_ms": 216.66666666666669,
+        "reacquire_time_after_occlusion": null,
+        "settle_time_after_under_10px_ms": 66.66666666666667,
+        "under_20_escape_count": 0.0,
+        "post_under_20_axis_flip_count": 50.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s16",
+        "family": "single_diagonal_then_decel",
+        "engagement_target_id": "engagement",
+        "targets": [
+          {
+            "target_id": "engagement",
+            "initial_dx": 60.0,
+            "initial_dy": -30.0,
+            "velocity_x": 169.7056274847714,
+            "velocity_y": 169.7056274847714,
+            "decel_start_frame": 18,
+            "decel_duration_frames": 12,
+            "decel_target_speed_scale": 0.35,
+            "visible_start_frame": 0,
+            "visible_end_frame": null,
+            "gap_windows": []
+          }
+        ],
+        "localization_schedule": []
+      },
+      "metrics": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s16",
+        "family": "single_diagonal_then_decel",
+        "wrong_target_snap_rate": null,
+        "max_single_frame_camera_delta": 21.840329667841555,
+        "target_localization_latency_ms": 0.0,
+        "time_to_under_20px": 50.0,
+        "time_to_stabilize_ms": 83.33333333333333,
+        "reacquire_time_after_occlusion": null,
+        "settle_time_after_under_10px_ms": 83.33333333333333,
+        "under_20_escape_count": 0.0,
+        "post_under_20_axis_flip_count": 37.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s17",
+        "family": "single_diagonal_then_decel",
+        "engagement_target_id": "engagement",
+        "targets": [
+          {
+            "target_id": "engagement",
+            "initial_dx": 60.0,
+            "initial_dy": 70.0,
+            "velocity_x": 169.7056274847714,
+            "velocity_y": 169.7056274847714,
+            "decel_start_frame": 24,
+            "decel_duration_frames": 12,
+            "decel_target_speed_scale": 0.35,
+            "visible_start_frame": 0,
+            "visible_end_frame": null,
+            "gap_windows": []
+          }
+        ],
+        "localization_schedule": []
+      },
+      "metrics": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s17",
+        "family": "single_diagonal_then_decel",
+        "wrong_target_snap_rate": null,
+        "max_single_frame_camera_delta": 22.02271554554524,
+        "target_localization_latency_ms": 0.0,
+        "time_to_under_20px": 116.66666666666667,
+        "time_to_stabilize_ms": 183.33333333333331,
+        "reacquire_time_after_occlusion": null,
+        "settle_time_after_under_10px_ms": 50.0,
+        "under_20_escape_count": 0.0,
+        "post_under_20_axis_flip_count": 36.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s18",
+        "family": "single_diagonal_then_decel",
+        "engagement_target_id": "engagement",
+        "targets": [
+          {
+            "target_id": "engagement",
+            "initial_dx": -140.0,
+            "initial_dy": -50.0,
+            "velocity_x": 346.41016151377534,
+            "velocity_y": -200.00000000000017,
+            "decel_start_frame": 30,
+            "decel_duration_frames": 12,
+            "decel_target_speed_scale": 0.15,
+            "visible_start_frame": 0,
+            "visible_end_frame": null,
+            "gap_windows": []
+          }
+        ],
+        "localization_schedule": []
+      },
+      "metrics": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s18",
+        "family": "single_diagonal_then_decel",
+        "wrong_target_snap_rate": null,
+        "max_single_frame_camera_delta": 22.20360331117452,
+        "target_localization_latency_ms": 0.0,
+        "time_to_under_20px": 116.66666666666667,
+        "time_to_stabilize_ms": 133.33333333333334,
+        "reacquire_time_after_occlusion": null,
+        "settle_time_after_under_10px_ms": 100.0,
+        "under_20_escape_count": 0.0,
+        "post_under_20_axis_flip_count": 3.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s19",
+        "family": "single_diagonal_then_decel",
+        "engagement_target_id": "engagement",
+        "targets": [
+          {
+            "target_id": "engagement",
+            "initial_dx": 100.0,
+            "initial_dy": 70.0,
+            "velocity_x": -277.12812921102034,
+            "velocity_y": -160.00000000000003,
+            "decel_start_frame": 30,
+            "decel_duration_frames": 12,
+            "decel_target_speed_scale": 0.35,
+            "visible_start_frame": 0,
+            "visible_end_frame": null,
+            "gap_windows": []
+          }
+        ],
+        "localization_schedule": []
+      },
+      "metrics": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s19",
+        "family": "single_diagonal_then_decel",
+        "wrong_target_snap_rate": null,
+        "max_single_frame_camera_delta": 22.20360331117452,
+        "target_localization_latency_ms": 0.0,
+        "time_to_under_20px": 83.33333333333333,
+        "time_to_stabilize_ms": 83.33333333333333,
+        "reacquire_time_after_occlusion": null,
+        "settle_time_after_under_10px_ms": 33.333333333333336,
+        "under_20_escape_count": 0.0,
+        "post_under_20_axis_flip_count": 82.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s20",
+        "family": "single_diagonal_then_decel",
+        "engagement_target_id": "engagement",
+        "targets": [
+          {
+            "target_id": "engagement",
+            "initial_dx": -140.0,
+            "initial_dy": -70.0,
+            "velocity_x": 226.27416997969516,
+            "velocity_y": -226.27416997969527,
+            "decel_start_frame": 18,
+            "decel_duration_frames": 12,
+            "decel_target_speed_scale": 0.15,
+            "visible_start_frame": 0,
+            "visible_end_frame": null,
+            "gap_windows": []
+          }
+        ],
+        "localization_schedule": []
+      },
+      "metrics": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s20",
+        "family": "single_diagonal_then_decel",
+        "wrong_target_snap_rate": null,
+        "max_single_frame_camera_delta": 22.80350850198276,
+        "target_localization_latency_ms": 0.0,
+        "time_to_under_20px": 133.33333333333334,
+        "time_to_stabilize_ms": 166.66666666666666,
+        "reacquire_time_after_occlusion": null,
+        "settle_time_after_under_10px_ms": 50.0,
+        "under_20_escape_count": 0.0,
+        "post_under_20_axis_flip_count": 1.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s21",
+        "family": "single_diagonal_then_decel",
+        "engagement_target_id": "engagement",
+        "targets": [
+          {
+            "target_id": "engagement",
+            "initial_dx": -60.0,
+            "initial_dy": -50.0,
+            "velocity_x": 226.27416997969522,
+            "velocity_y": 226.27416997969522,
+            "decel_start_frame": 24,
+            "decel_duration_frames": 12,
+            "decel_target_speed_scale": 0.15,
+            "visible_start_frame": 0,
+            "visible_end_frame": null,
+            "gap_windows": []
+          }
+        ],
+        "localization_schedule": []
+      },
+      "metrics": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s21",
+        "family": "single_diagonal_then_decel",
+        "wrong_target_snap_rate": null,
+        "max_single_frame_camera_delta": 20.615528128088304,
+        "target_localization_latency_ms": 0.0,
+        "time_to_under_20px": 66.66666666666667,
+        "time_to_stabilize_ms": 66.66666666666667,
+        "reacquire_time_after_occlusion": null,
+        "settle_time_after_under_10px_ms": 33.333333333333336,
+        "under_20_escape_count": 0.0,
+        "post_under_20_axis_flip_count": 6.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s22",
+        "family": "single_diagonal_then_decel",
+        "engagement_target_id": "engagement",
+        "targets": [
+          {
+            "target_id": "engagement",
+            "initial_dx": -60.0,
+            "initial_dy": 30.0,
+            "velocity_x": -169.70562748477138,
+            "velocity_y": 169.7056274847714,
+            "decel_start_frame": 18,
+            "decel_duration_frames": 12,
+            "decel_target_speed_scale": 0.15,
+            "visible_start_frame": 0,
+            "visible_end_frame": null,
+            "gap_windows": []
+          }
+        ],
+        "localization_schedule": []
+      },
+      "metrics": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s22",
+        "family": "single_diagonal_then_decel",
+        "wrong_target_snap_rate": null,
+        "max_single_frame_camera_delta": 21.95449840010015,
+        "target_localization_latency_ms": 0.0,
+        "time_to_under_20px": 83.33333333333333,
+        "time_to_stabilize_ms": 116.66666666666667,
+        "reacquire_time_after_occlusion": null,
+        "settle_time_after_under_10px_ms": 50.0,
+        "under_20_escape_count": 0.0,
+        "post_under_20_axis_flip_count": 18.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s23",
+        "family": "single_diagonal_then_decel",
+        "engagement_target_id": "engagement",
+        "targets": [
+          {
+            "target_id": "engagement",
+            "initial_dx": 100.0,
+            "initial_dy": 50.0,
+            "velocity_x": 226.27416997969522,
+            "velocity_y": 226.27416997969522,
+            "decel_start_frame": 30,
+            "decel_duration_frames": 18,
+            "decel_target_speed_scale": 0.55,
+            "visible_start_frame": 0,
+            "visible_end_frame": null,
+            "gap_windows": []
+          }
+        ],
+        "localization_schedule": []
+      },
+      "metrics": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s23",
+        "family": "single_diagonal_then_decel",
+        "wrong_target_snap_rate": null,
+        "max_single_frame_camera_delta": 22.47220505424423,
+        "target_localization_latency_ms": 0.0,
+        "time_to_under_20px": 133.33333333333334,
+        "time_to_stabilize_ms": 183.33333333333331,
+        "reacquire_time_after_occlusion": null,
+        "settle_time_after_under_10px_ms": 283.3333333333333,
+        "under_20_escape_count": 0.0,
+        "post_under_20_axis_flip_count": 94.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s24",
+        "family": "reacquire_after_gap",
+        "engagement_target_id": "engagement",
+        "targets": [
+          {
+            "target_id": "engagement",
+            "initial_dx": -60.0,
+            "initial_dy": 12.0,
+            "velocity_x": 300.0,
+            "velocity_y": 0.0,
+            "decel_start_frame": null,
+            "decel_duration_frames": 0,
+            "decel_target_speed_scale": 1.0,
+            "visible_start_frame": 0,
+            "visible_end_frame": null,
+            "gap_windows": [
+              {
+                "start_frame": 18,
+                "duration_frames": 8
+              }
+            ]
+          }
+        ],
+        "localization_schedule": []
+      },
+      "metrics": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s24",
+        "family": "reacquire_after_gap",
+        "wrong_target_snap_rate": null,
+        "max_single_frame_camera_delta": 22.0,
+        "target_localization_latency_ms": 0.0,
+        "time_to_under_20px": 50.0,
+        "time_to_stabilize_ms": 50.0,
+        "reacquire_time_after_occlusion": 33.333333333333336,
+        "settle_time_after_under_10px_ms": 33.333333333333336,
+        "under_20_escape_count": 1.0,
+        "post_under_20_axis_flip_count": 3.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s25",
+        "family": "reacquire_after_gap",
+        "engagement_target_id": "engagement",
+        "targets": [
+          {
+            "target_id": "engagement",
+            "initial_dx": -90.0,
+            "initial_dy": -40.0,
+            "velocity_x": 220.0,
+            "velocity_y": 0.0,
+            "decel_start_frame": null,
+            "decel_duration_frames": 0,
+            "decel_target_speed_scale": 1.0,
+            "visible_start_frame": 0,
+            "visible_end_frame": null,
+            "gap_windows": [
+              {
+                "start_frame": 22,
+                "duration_frames": 6
+              }
+            ]
+          }
+        ],
+        "localization_schedule": []
+      },
+      "metrics": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s25",
+        "family": "reacquire_after_gap",
+        "wrong_target_snap_rate": null,
+        "max_single_frame_camera_delta": 22.360679774997898,
+        "target_localization_latency_ms": 0.0,
+        "time_to_under_20px": 83.33333333333333,
+        "time_to_stabilize_ms": 100.0,
+        "reacquire_time_after_occlusion": 16.666666666666668,
+        "settle_time_after_under_10px_ms": 33.333333333333336,
+        "under_20_escape_count": 0.0,
+        "post_under_20_axis_flip_count": 73.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s26",
+        "family": "reacquire_after_gap",
+        "engagement_target_id": "engagement",
+        "targets": [
+          {
+            "target_id": "engagement",
+            "initial_dx": -120.0,
+            "initial_dy": -12.0,
+            "velocity_x": 300.0,
+            "velocity_y": 0.0,
+            "decel_start_frame": null,
+            "decel_duration_frames": 0,
+            "decel_target_speed_scale": 1.0,
+            "visible_start_frame": 0,
+            "visible_end_frame": null,
+            "gap_windows": [
+              {
+                "start_frame": 22,
+                "duration_frames": 10
+              }
+            ]
+          }
+        ],
+        "localization_schedule": []
+      },
+      "metrics": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s26",
+        "family": "reacquire_after_gap",
+        "wrong_target_snap_rate": null,
+        "max_single_frame_camera_delta": 22.360679774997898,
+        "target_localization_latency_ms": 0.0,
+        "time_to_under_20px": 83.33333333333333,
+        "time_to_stabilize_ms": 83.33333333333333,
+        "reacquire_time_after_occlusion": 50.0,
+        "settle_time_after_under_10px_ms": 33.333333333333336,
+        "under_20_escape_count": 1.0,
+        "post_under_20_axis_flip_count": 7.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s27",
+        "family": "reacquire_after_gap",
+        "engagement_target_id": "engagement",
+        "targets": [
+          {
+            "target_id": "engagement",
+            "initial_dx": -90.0,
+            "initial_dy": -24.0,
+            "velocity_x": -220.0,
+            "velocity_y": 0.0,
+            "decel_start_frame": null,
+            "decel_duration_frames": 0,
+            "decel_target_speed_scale": 1.0,
+            "visible_start_frame": 0,
+            "visible_end_frame": null,
+            "gap_windows": [
+              {
+                "start_frame": 14,
+                "duration_frames": 8
+              }
+            ]
+          }
+        ],
+        "localization_schedule": []
+      },
+      "metrics": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s27",
+        "family": "reacquire_after_gap",
+        "wrong_target_snap_rate": null,
+        "max_single_frame_camera_delta": 22.561028345356956,
+        "target_localization_latency_ms": 0.0,
+        "time_to_under_20px": 116.66666666666667,
+        "time_to_stabilize_ms": 150.0,
+        "reacquire_time_after_occlusion": 33.333333333333336,
+        "settle_time_after_under_10px_ms": 83.33333333333333,
+        "under_20_escape_count": 1.0,
+        "post_under_20_axis_flip_count": 60.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s28",
+        "family": "reacquire_after_gap",
+        "engagement_target_id": "engagement",
+        "targets": [
+          {
+            "target_id": "engagement",
+            "initial_dx": 120.0,
+            "initial_dy": 12.0,
+            "velocity_x": -220.0,
+            "velocity_y": 0.0,
+            "decel_start_frame": null,
+            "decel_duration_frames": 0,
+            "decel_target_speed_scale": 1.0,
+            "visible_start_frame": 0,
+            "visible_end_frame": null,
+            "gap_windows": [
+              {
+                "start_frame": 22,
+                "duration_frames": 6
+              }
+            ]
+          }
+        ],
+        "localization_schedule": []
+      },
+      "metrics": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s28",
+        "family": "reacquire_after_gap",
+        "wrong_target_snap_rate": null,
+        "max_single_frame_camera_delta": 22.20360331117452,
+        "target_localization_latency_ms": 0.0,
+        "time_to_under_20px": 83.33333333333333,
+        "time_to_stabilize_ms": 100.0,
+        "reacquire_time_after_occlusion": 16.666666666666668,
+        "settle_time_after_under_10px_ms": 50.0,
+        "under_20_escape_count": 0.0,
+        "post_under_20_axis_flip_count": 71.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s29",
+        "family": "reacquire_after_gap",
+        "engagement_target_id": "engagement",
+        "targets": [
+          {
+            "target_id": "engagement",
+            "initial_dx": 120.0,
+            "initial_dy": -24.0,
+            "velocity_x": 220.0,
+            "velocity_y": 0.0,
+            "decel_start_frame": null,
+            "decel_duration_frames": 0,
+            "decel_target_speed_scale": 1.0,
+            "visible_start_frame": 0,
+            "visible_end_frame": null,
+            "gap_windows": [
+              {
+                "start_frame": 22,
+                "duration_frames": 10
+              }
+            ]
+          }
+        ],
+        "localization_schedule": []
+      },
+      "metrics": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s29",
+        "family": "reacquire_after_gap",
+        "wrong_target_snap_rate": null,
+        "max_single_frame_camera_delta": 22.360679774997898,
+        "target_localization_latency_ms": 0.0,
+        "time_to_under_20px": 116.66666666666667,
+        "time_to_stabilize_ms": 183.33333333333331,
+        "reacquire_time_after_occlusion": 50.0,
+        "settle_time_after_under_10px_ms": 50.0,
+        "under_20_escape_count": 1.0,
+        "post_under_20_axis_flip_count": 57.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s30",
+        "family": "dual_target_disambiguation",
+        "engagement_target_id": "engagement",
+        "targets": [
+          {
+            "target_id": "engagement",
+            "initial_dx": -70.0,
+            "initial_dy": 36.0,
+            "velocity_x": 0.0,
+            "velocity_y": 0.0,
+            "decel_start_frame": null,
+            "decel_duration_frames": 0,
+            "decel_target_speed_scale": 1.0,
+            "visible_start_frame": 0,
+            "visible_end_frame": null,
+            "gap_windows": []
+          },
+          {
+            "target_id": "distractor",
+            "initial_dx": -42.0,
+            "initial_dy": 54.0,
+            "velocity_x": 0.0,
+            "velocity_y": 0.0,
+            "decel_start_frame": null,
+            "decel_duration_frames": 0,
+            "decel_target_speed_scale": 1.0,
+            "visible_start_frame": 0,
+            "visible_end_frame": null,
+            "gap_windows": []
+          }
+        ],
+        "localization_schedule": [
+          {
+            "frame": 0,
+            "target_id": "engagement"
+          },
+          {
+            "frame": 6,
+            "target_id": "distractor"
+          }
+        ]
+      },
+      "metrics": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s30",
+        "family": "dual_target_disambiguation",
+        "wrong_target_snap_rate": 0.0,
+        "max_single_frame_camera_delta": 21.93171219946131,
+        "target_localization_latency_ms": 0.0,
+        "time_to_under_20px": 66.66666666666667,
+        "time_to_stabilize_ms": 150.0,
+        "reacquire_time_after_occlusion": null,
+        "settle_time_after_under_10px_ms": null,
+        "under_20_escape_count": 1.0,
+        "post_under_20_axis_flip_count": 1.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s31",
+        "family": "dual_target_disambiguation",
+        "engagement_target_id": "engagement",
+        "targets": [
+          {
+            "target_id": "engagement",
+            "initial_dx": 100.0,
+            "initial_dy": -36.0,
+            "velocity_x": 0.0,
+            "velocity_y": 0.0,
+            "decel_start_frame": null,
+            "decel_duration_frames": 0,
+            "decel_target_speed_scale": 1.0,
+            "visible_start_frame": 0,
+            "visible_end_frame": null,
+            "gap_windows": []
+          },
+          {
+            "target_id": "distractor",
+            "initial_dx": 128.0,
+            "initial_dy": -36.0,
+            "velocity_x": 0.0,
+            "velocity_y": 0.0,
+            "decel_start_frame": null,
+            "decel_duration_frames": 0,
+            "decel_target_speed_scale": 1.0,
+            "visible_start_frame": 0,
+            "visible_end_frame": null,
+            "gap_windows": []
+          }
+        ],
+        "localization_schedule": [
+          {
+            "frame": 0,
+            "target_id": "engagement"
+          },
+          {
+            "frame": 6,
+            "target_id": "distractor"
+          }
+        ]
+      },
+      "metrics": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s31",
+        "family": "dual_target_disambiguation",
+        "wrong_target_snap_rate": 0.0,
+        "max_single_frame_camera_delta": 22.135943621178654,
+        "target_localization_latency_ms": 0.0,
+        "time_to_under_20px": 100.0,
+        "time_to_stabilize_ms": 150.0,
+        "reacquire_time_after_occlusion": null,
+        "settle_time_after_under_10px_ms": null,
+        "under_20_escape_count": 1.0,
+        "post_under_20_axis_flip_count": 0.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s32",
+        "family": "dual_target_disambiguation",
+        "engagement_target_id": "engagement",
+        "targets": [
+          {
+            "target_id": "engagement",
+            "initial_dx": -70.0,
+            "initial_dy": 20.0,
+            "velocity_x": 0.0,
+            "velocity_y": 0.0,
+            "decel_start_frame": null,
+            "decel_duration_frames": 0,
+            "decel_target_speed_scale": 1.0,
+            "visible_start_frame": 0,
+            "visible_end_frame": null,
+            "gap_windows": []
+          },
+          {
+            "target_id": "distractor",
+            "initial_dx": -42.0,
+            "initial_dy": 2.0,
+            "velocity_x": 0.0,
+            "velocity_y": 0.0,
+            "decel_start_frame": null,
+            "decel_duration_frames": 0,
+            "decel_target_speed_scale": 1.0,
+            "visible_start_frame": 0,
+            "visible_end_frame": null,
+            "gap_windows": []
+          }
+        ],
+        "localization_schedule": [
+          {
+            "frame": 0,
+            "target_id": "engagement"
+          }
+        ]
+      },
+      "metrics": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s32",
+        "family": "dual_target_disambiguation",
+        "wrong_target_snap_rate": 0.0,
+        "max_single_frame_camera_delta": 21.840329667841555,
+        "target_localization_latency_ms": 0.0,
+        "time_to_under_20px": 66.66666666666667,
+        "time_to_stabilize_ms": 66.66666666666667,
+        "reacquire_time_after_occlusion": null,
+        "settle_time_after_under_10px_ms": 66.66666666666667,
+        "under_20_escape_count": 0.0,
+        "post_under_20_axis_flip_count": 0.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s33",
+        "family": "dual_target_disambiguation",
+        "engagement_target_id": "engagement",
+        "targets": [
+          {
+            "target_id": "engagement",
+            "initial_dx": 70.0,
+            "initial_dy": 36.0,
+            "velocity_x": 0.0,
+            "velocity_y": 0.0,
+            "decel_start_frame": null,
+            "decel_duration_frames": 0,
+            "decel_target_speed_scale": 1.0,
+            "visible_start_frame": 0,
+            "visible_end_frame": null,
+            "gap_windows": []
+          },
+          {
+            "target_id": "distractor",
+            "initial_dx": 126.0,
+            "initial_dy": 36.0,
+            "velocity_x": 0.0,
+            "velocity_y": 0.0,
+            "decel_start_frame": null,
+            "decel_duration_frames": 0,
+            "decel_target_speed_scale": 1.0,
+            "visible_start_frame": 0,
+            "visible_end_frame": null,
+            "gap_windows": []
+          }
+        ],
+        "localization_schedule": [
+          {
+            "frame": 0,
+            "target_id": "distractor"
+          },
+          {
+            "frame": 6,
+            "target_id": "engagement"
+          }
+        ]
+      },
+      "metrics": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s33",
+        "family": "dual_target_disambiguation",
+        "wrong_target_snap_rate": 1.0,
+        "max_single_frame_camera_delta": 21.840329667841555,
+        "target_localization_latency_ms": 0.0,
+        "time_to_under_20px": 50.0,
+        "time_to_stabilize_ms": 150.0,
+        "reacquire_time_after_occlusion": null,
+        "settle_time_after_under_10px_ms": 166.66666666666666,
+        "under_20_escape_count": 1.0,
+        "post_under_20_axis_flip_count": 0.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s34",
+        "family": "dual_target_disambiguation",
+        "engagement_target_id": "engagement",
+        "targets": [
+          {
+            "target_id": "engagement",
+            "initial_dx": 70.0,
+            "initial_dy": 36.0,
+            "velocity_x": 0.0,
+            "velocity_y": 0.0,
+            "decel_start_frame": null,
+            "decel_duration_frames": 0,
+            "decel_target_speed_scale": 1.0,
+            "visible_start_frame": 0,
+            "visible_end_frame": null,
+            "gap_windows": []
+          },
+          {
+            "target_id": "distractor",
+            "initial_dx": 126.0,
+            "initial_dy": 36.0,
+            "velocity_x": 0.0,
+            "velocity_y": 0.0,
+            "decel_start_frame": null,
+            "decel_duration_frames": 0,
+            "decel_target_speed_scale": 1.0,
+            "visible_start_frame": 0,
+            "visible_end_frame": null,
+            "gap_windows": []
+          }
+        ],
+        "localization_schedule": [
+          {
+            "frame": 0,
+            "target_id": "distractor"
+          },
+          {
+            "frame": 2,
+            "target_id": "engagement"
+          }
+        ]
+      },
+      "metrics": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s34",
+        "family": "dual_target_disambiguation",
+        "wrong_target_snap_rate": 1.0,
+        "max_single_frame_camera_delta": 21.840329667841555,
+        "target_localization_latency_ms": 0.0,
+        "time_to_under_20px": 66.66666666666667,
+        "time_to_stabilize_ms": 100.0,
+        "reacquire_time_after_occlusion": null,
+        "settle_time_after_under_10px_ms": 50.0,
+        "under_20_escape_count": 0.0,
+        "post_under_20_axis_flip_count": 0.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s35",
+        "family": "dual_target_disambiguation",
+        "engagement_target_id": "engagement",
+        "targets": [
+          {
+            "target_id": "engagement",
+            "initial_dx": -70.0,
+            "initial_dy": -20.0,
+            "velocity_x": 0.0,
+            "velocity_y": 0.0,
+            "decel_start_frame": null,
+            "decel_duration_frames": 0,
+            "decel_target_speed_scale": 1.0,
+            "visible_start_frame": 0,
+            "visible_end_frame": null,
+            "gap_windows": []
+          },
+          {
+            "target_id": "distractor",
+            "initial_dx": -30.0,
+            "initial_dy": -20.0,
+            "velocity_x": 0.0,
+            "velocity_y": 0.0,
+            "decel_start_frame": null,
+            "decel_duration_frames": 0,
+            "decel_target_speed_scale": 1.0,
+            "visible_start_frame": 0,
+            "visible_end_frame": null,
+            "gap_windows": []
+          }
+        ],
+        "localization_schedule": [
+          {
+            "frame": 0,
+            "target_id": "distractor"
+          }
+        ]
+      },
+      "metrics": {
+        "scenario_key": "mouse-ads-baseline-20260428-ads-s35",
+        "family": "dual_target_disambiguation",
+        "wrong_target_snap_rate": 1.0,
+        "max_single_frame_camera_delta": 9.219544457292887,
+        "target_localization_latency_ms": 0.0,
+        "time_to_under_20px": null,
+        "time_to_stabilize_ms": 66.66666666666667,
+        "reacquire_time_after_occlusion": null,
+        "settle_time_after_under_10px_ms": null,
+        "under_20_escape_count": null,
+        "post_under_20_axis_flip_count": null
+      }
+    }
+  ]
+}
