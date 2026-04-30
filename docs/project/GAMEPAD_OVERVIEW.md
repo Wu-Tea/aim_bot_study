@@ -1,6 +1,6 @@
 # Gamepad Overview
 
-Last updated: 2026-04-21
+Last updated: 2026-04-30
 
 ## Goal
 
@@ -11,7 +11,7 @@ The current gamepad path is a plugin-driven controller host that:
 - mixes controller-local AI assistance into the output
 - keeps the vision boundary compact
 
-This is the most mature controller mode in the repository today.
+This is still the most mature controller mode in the repository today.
 
 ## Main Files
 
@@ -140,7 +140,7 @@ Current source of that choice:
 - CLI: `--auto-fire-output`
 - `gamepad_start.bat` prompt
 
-This is not currently driven by `config.toml`.
+This is still chosen at startup time rather than through `config.toml`.
 
 ## Recoil Compensation
 
@@ -155,15 +155,29 @@ So the live default path is the host-chosen `0.20`, not the dataclass default.
 
 ## Startup And Scripts
 
-`gamepad_start.bat` currently:
+Current gamepad entry points:
 
-- enables `VISION_PERF_LOG=1`
-- enables the vision fast path unless the env already overrides it
-- defaults `VISION_CAPTURE_FPS=80`
-- prompts for:
-  - auto-fire output
+- `gamepad_start.bat`
+  - main gamepad runtime
+  - prompts for auto-fire output: `RB` or `RT`
+  - defaults to `VISION_BACKEND=native`
+  - enables `VISION_PERF_LOG=1`
+  - currently defaults `VISION_CAPTURE_FPS=140`
+  - disables the old quit hotkey through `VISION_QUIT_KEY=0`
+- `gamepad_debug.bat`
+  - gamepad debug runtime
+  - prompts for auto-fire output and backend choice
+  - enables `--vision-debug --vision-debug-save`
+  - defaults `VISION_CAPTURE_FPS=140`
+- `gamepad_native_debug.bat`
+  - native-only debug runtime
+  - enables `--vision-debug`
+  - defaults `VISION_CAPTURE_FPS=140`
 
-It no longer exposes a `native` preprocessor option. The current production vision path is the Python-managed CPU preprocessor plus TensorRT fast path.
+The default production gamepad path is now the hybrid runtime:
+
+- native C++ for the hot vision loop
+- Python for the controller host, startup scripts, and debug wrapper logic
 
 ## Legacy And Support Notes
 
@@ -191,4 +205,4 @@ The gamepad layer decides:
 - how to map fire output
 - how to shape stick actuation on the virtual pad
 
-That split is intentional and should stay stable unless the project deliberately moves execution logic out of Python controller code.
+That split is intentional. The current native migration changed the vision runtime, but it deliberately did not move final controller actuation out of Python.

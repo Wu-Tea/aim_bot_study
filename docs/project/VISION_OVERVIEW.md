@@ -1,6 +1,6 @@
 # Vision Overview
 
-Last updated: 2026-04-21
+Last updated: 2026-04-30
 
 ## Goal
 
@@ -10,47 +10,79 @@ The current vision stack is optimized for:
 - box-based target selection for controller handoff
 - friendly rejection from color cues above the box
 - short-horizon occlusion recovery and motion-aware target deltas
-- keeping the controller boundary small and stable
+- keeping the controller boundary small and stable across Python and native backends
 
-The current production path is detector-first. The main targeting path does not depend on pose keypoints.
-
-Native C++ vision work now exists as a smoke-test scaffold under `native/vision_native`.
-It can be built with `tools/build_native_vision.ps1` and verified with
-`tools/run_native_vision_smoke.ps1`, but it is not connected to `vision.runner`
-or the gamepad startup path.
+The main targeting path is detector-first. It does not depend on pose keypoints.
 
 ## Entry Points
 
 - `main.py`
 - `vision/__init__.py`
 - `vision/runner.py`
+- `vision/native_runner.py`
+- `native/vision_native/`
 - `tools/export_trt.py`
 
-`main.py` creates the controller, then calls `process_vision(controller=...)`.
+`main.py` creates the controller, then dispatches to:
+
+- `process_vision(controller=...)` for `--vision-backend python`
+- `process_native_vision(controller=...)` for `--vision-backend native`
+
+## Current Backends
+
+There are two real runtime backends today.
+
+### Python backend
+
+Implemented in:
+
+- `vision/runner.py`
+- `vision/capture.py`
+- `vision/inference.py`
+- `vision/fastpath.py`
+
+Behavior:
+
+- Python owns capture, inference orchestration, target selection, occlusion handling, enhancement, and debug overlay work
+- TensorRT `best.engine` is used through the Python fast path when available
+- `best.pt` remains the fallback if engine loading fails
+
+### Native backend
+
+Implemented in:
+
+- `vision/native_runner.py`
+- `native/vision_native/include/vision_native/*`
+- `native/vision_native/src/*`
+
+Behavior:
+
+- native C++ owns capture, preprocessing, TensorRT inference, selection, occlusion compensation, enhancement, and auto-fire recommendation
+- Python keeps the controller host and the startup/debug wrapper surface
+- native results are bridged back into Python as a compact `VisionResult`-shaped payload
 
 ## Runtime States
 
-The runner has three practical states:
+Both backends follow the same practical runtime states:
 
 1. `Idle`
-   - `ScreenCaptureThread` stays alive at `capture_fps`
-   - `InferenceThread` is paused
-   - targeting, enhancement, hit detection, and perf windows are reset
+   - the controller is not actively aiming
+   - targeting state is reset
+   - auto-fire is off
 2. `ADS active`
-   - inference resumes
-   - fresh results flow through targeting and controller update
+   - the vision loop is live
+   - fresh results flow into controller updates
 3. `Inference gap`
-   - no fresh inference result arrived before `frame_timeout`
-   - the runner does not invent new detections
-   - controller fire is disabled for that iteration
-   - debug mode can still show a waiting state or the last materialized frame
+   - the runner keeps state bounded instead of inventing detections
+   - auto-fire is disabled for that iteration
+   - debug output can still show waiting / bridge state
 
 ## Current Pipeline
 
-Runtime flow:
+### Python backend pipeline
 
 1. `ScreenCaptureThread` captures a centered RGB crop through `vision/dxgi_capture.py`.
-2. `DXGIRegionCaptureBackend` directly copies only the requested ROI into a small staging surface and returns a materialized RGB frame.
+2. `DXGIRegionCaptureBackend` copies only the requested ROI into a small staging surface.
 3. `InferenceThread` runs latest-only inference.
 4. `vision/fastpath.py` uses:
    - TensorRT `best.engine` when available
@@ -61,12 +93,27 @@ Runtime flow:
 8. `AimEnhancementPipeline` transforms the selected target into a controller delta.
 9. `CrosshairPersonHitDetector` decides whether the selected target is inside the `fire_zone`.
 10. `AdsAutoFireGate` blocks auto-fire during the first `120ms` after aiming begins.
-11. The controller receives:
-   - `controller.update(dx, dy, target=ControllerTarget | None)`
-   - `controller.set_auto_fire(on_or_off)`
-   - `controller.reset()` when no correction should be applied
+11. The controller receives compact target metadata only.
 
-The runner only sends compact target metadata to the controller. It does not push raw frames into the controller layer.
+### Native backend pipeline
+
+1. `vision/native_runner.py` loads `vision_native_cpp` from `native/vision_native/build/Release`.
+2. `NativeVisionEngine` performs centered ROI capture natively.
+3. Native preprocessing maps the ROI into TensorRT input tensors.
+4. TensorRT inference runs in the native module against `models/best.engine`.
+5. Native target selection, occlusion compensation, aim enhancement, and auto-fire recommendation run in C++.
+6. Python receives compact result fields such as:
+   - `dx`
+   - `dy`
+   - `target_source`
+   - `wait_ms`
+   - `preprocess_ms`
+   - `infer_ms`
+   - `post_ms`
+   - `age_ms`
+7. The existing Python controller consumes that compact payload through the same controller boundary.
+
+The important rule is unchanged: vision sends compact intent, not raw frames, into the controller layer.
 
 ## Current Defaults
 
@@ -86,8 +133,28 @@ Current `VisionConfig` defaults in `vision/runner.py`:
 - `idle_sleep = 0.01`
 - `perf_log_interval = 2.0`
 
+Current startup-script defaults:
+
+- `gamepad_start.bat`
+  - `VISION_BACKEND=native`
+  - `VISION_CAPTURE_FPS=140`
+  - `VISION_QUIT_KEY=0`
+- `gamepad_debug.bat`
+  - native by default, Python selectable
+  - `VISION_CAPTURE_FPS=140`
+- `gamepad_native_debug.bat`
+  - native only
+  - `VISION_CAPTURE_FPS=140`
+- `mouse_start.bat`
+  - `VISION_BACKEND=native`
+  - `VISION_CAPTURE_FPS=140`
+- `mouse_native_debug.bat`
+  - native only
+  - `VISION_CAPTURE_FPS=140`
+
 Useful CLI and env controls:
 
+- `--vision-backend`
 - `--crop-size`
 - `--crop-width`
 - `--crop-height`
@@ -99,70 +166,65 @@ Useful CLI and env controls:
 - `VISION_CROP_WIDTH`
 - `VISION_CROP_HEIGHT`
 - `VISION_CAPTURE_FPS`
-- `VISION_FAST_PATH`
 - `VISION_DEBUG_OVERLAY`
 - `VISION_DEBUG_SAVE`
 - `VISION_PERF_LOG`
+- `VISION_QUIT_KEY`
 
-`gamepad_start.bat` currently sets `VISION_PERF_LOG=1`, enables the fast path by default, sets capture to `80 FPS`, and prompts for:
+## Python Fast Path Status
 
-- auto-fire output: `RB` or `RT`
+The Python fast path is still important:
 
-## Fast Path Status
-
-The current production fast path is Python-managed and CPU-preprocessed, but uses the TensorRT `best.engine` backend when available.
+- it is the fallback runtime when native is unavailable
+- it remains a useful behavior oracle during native validation
+- it still uses TensorRT `best.engine` when possible
 
 What is already implemented:
 
 - direct fast-path backend use through `_fast_predict(...)`
 - ROI-based DXGI capture
+- latest-only inference threading
 
-Current behavior:
+Current limitation:
 
-- the CPU fast-path preprocessor still performs:
-  - `torch.from_numpy(...)`
-  - CPU-to-GPU upload
-  - HWC-to-CHW reorder
-  - dtype conversion
-  - `/255.0`
+- Python preprocessing still includes CPU-side tensor shaping and upload work that the native backend avoids
 
-The earlier Python-side native preprocessor scaffold has been removed because it was not backed by a real `vision_native` module. Future native work should be implemented as the separate C++ vision engine described in `docs/superpowers/specs/2026-04-20-cpp-vision-engine-design.md`, not as a half-enabled Python runtime flag.
+## Native Vision Status
+
+Native vision is no longer just a scaffold:
+
+- it is integrated into `main.py` through `--vision-backend native`
+- current gamepad startup scripts default to the native backend
+- current mouse startup scripts also default to native
+- Python remains available as a fallback
+
+Build and smoke helpers:
+
+- `tools/build_native_vision.ps1`
+- `tools/run_native_vision_smoke.ps1`
+- `tools/run_native_vision_infer_smoke.ps1`
+- `tools/run_native_vision_capture_smoke.ps1`
+- `tools/run_native_vision_debug.ps1`
 
 ## Capture Recovery
 
-`DXGIRegionCaptureBackend` handles temporary Desktop Duplication rebuild failures by returning no frame and retrying after a short backoff.
+The Python backend uses `DXGIRegionCaptureBackend` to survive transient Desktop Duplication failures by retrying after short backoff windows.
 
-This is intended for transient display-mode events such as Alt-Tab, fullscreen changes, or `DuplicateOutput` returning `E_ACCESSDENIED`. The capture thread should stay alive so the application does not need to be restarted when the OS later allows capture again.
+The native backend keeps its own capture loop inside `NativeVisionEngine`, but the same practical concern remains: temporary desktop-capture failures should not force a full app restart when the OS later allows capture again.
 
 ## Target Selection
 
 The current targeting path is box-based.
 
-Important behavior in `TargetSelector`:
+Important behavior shared by the production design:
 
 - main target point is upper-chest oriented
-- `slow_zone` and `fire_zone` are derived from the selected body box
+- `slow_zone` and `fire_zone` come from the selected body box
 - green above-box color is treated as friendly and rejected
 - yellow and red above-box color add enemy confidence bonus
 - first pickup confirmation requires `2` frames
 - target switch confirmation requires `2` frames
-- missing-target hold requires `2` frames before the active target is dropped
-- current tracking can survive at lower confidence than first pickup
 - target switching is intentionally sticky to reduce left-right flapping
-
-Current targeting does not require pose keypoints. `ParsedDetections.keypoints` remains optional and is not the main production signal.
-
-## Occlusion Compensation
-
-`vision/occlusion_compensation.py` currently supports two short-horizon recovery paths:
-
-- `reconstructed`
-  - used when a still-visible box looks clipped or scope-occluded
-  - rebuilds a taller box from recent stable samples when center X and bottom Y remain plausible
-- `predicted`
-  - used when detections disappear briefly after stable recent motion
-  - linearly extrapolates from the recent sample history
-  - limited to a short burst of predicted frames
 
 Current `TargetSource` values are:
 
@@ -170,78 +232,68 @@ Current `TargetSource` values are:
 - `reconstructed`
 - `predicted`
 
+## Occlusion Compensation
+
+The current stack supports two short-horizon recovery paths:
+
+- `reconstructed`
+  - used when a still-visible box looks clipped or scope-occluded
+- `predicted`
+  - used when detections disappear briefly after stable recent motion
+
+The native path mirrors this controller-facing concept through its own result payload.
+
 ## Aim Enhancement
 
-The current enhancement layer is separate from target selection.
-
-`AimEnhancementPipeline` currently applies:
+`AimEnhancementPipeline` on the Python side currently applies:
 
 - `LeadPredictor`
-  - adds small motion lead after consistent observed motion
 - `CatchupBoost`
-  - increases output if error keeps growing frame over frame
 - `NearTargetDamping`
-  - reduces correction as the reticle converges near the target
 
-Predicted targets are treated differently:
-
-- they do not advance the normal observed-motion history
-- they only go through the near-target damping path
-
-This keeps short prediction compensation from polluting longer-lived motion estimates.
+The native backend mirrors the same controller-facing idea in C++ so the controller still receives shaped `dx` / `dy` instead of raw target offsets.
 
 ## AutoFire
-
-Auto-fire is no longer driven by generic centered boxes.
 
 Current behavior:
 
 - fire is based on the selected target's `fire_zone`
-- `CrosshairPersonHitDetector` keeps a short hold window with `release_grace_frames = 4`
+- `CrosshairPersonHitDetector` keeps a short hold window
 - `AdsAutoFireGate` blocks the first `120ms` of auto-fire after aiming starts
-- the final output button is chosen by the controller layer, not by vision
+- the final fire button or click output is still chosen by the controller layer, not by vision
 
 ## Perf Logs
 
 `vision/perf.py` emits two windowed log lines:
 
 - `[Perf][ADS]`
-  - average across all aimed frames in the current log window
 - `[Perf][TRACK]`
-  - average across only the subset of frames where a selected target existed
 
-Field meanings:
+Important fields:
 
-- `loop`
-  - average iterations per second for that window
 - `wait`
-  - time spent waiting for a fresh inference result
 - `infer`
-  - time spent inside the inference path for that frame
 - `post`
-  - time spent on target selection, enhancement, fire gating, and controller-side handoff prep
 - `age`
-  - freshness from `captured_at` to result consumption in the main loop
 - `boxes`
-  - average detection boxes seen per frame in that window
 
-`[Perf][TRACK]` is not a separate tracker backend. It is a subset view over the same ADS loop, restricted to frames where tracking was active.
+The native path also surfaces `preprocess_ms`, which is especially useful when debugging native timing breakdowns.
 
 ## Debug Features
 
-Debug is optional and not part of the hot path design target.
+Debug is optional and not part of the hot-path design target.
 
 Current capabilities:
 
 - live overlay window through `VisionDebugOverlay`
 - annotated frame saving through `DebugFrameCapture`
-- async frame save path for detection-bearing frames
+- native synthetic debug canvas through `NativeVisionDebugOverlay`
 
 These are useful for tuning and investigation, but they are not required for normal runtime.
 
 ## Core Files
 
-Main runtime:
+Main Python runtime:
 
 - `vision/runner.py`
 - `vision/capture.py`
@@ -253,16 +305,25 @@ Main runtime:
 - `vision/enhancement.py`
 - `vision/perf.py`
 
+Native bridge:
+
+- `vision/native_runner.py`
+
 Optional debug utilities:
 
 - `vision/debug_overlay.py`
 - `vision/debug_capture.py`
+
+Native implementation:
+
+- `native/vision_native/include/vision_native/*`
+- `native/vision_native/src/*`
 
 ## Current Boundaries
 
 The important architectural boundary today is:
 
 - vision owns capture, inference, target selection, short-horizon recovery, delta shaping, and fire recommendation
-- controller owns input reading, output mapping, and final actuation
+- controller owns input reading, output mapping, AI/manual mixing, and final actuation
 
-That boundary is intentionally small so vision can evolve without repeatedly redesigning controller host code.
+That boundary stays intentionally small so the project can keep evolving native and Python vision without constantly redesigning controller host code.

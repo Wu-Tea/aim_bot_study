@@ -1,5 +1,64 @@
 # Worklog
 
+## 2026-04-22 (project status snapshot)
+
+### Current progress
+
+- Native C++ vision is now the default runtime path for `gamepad_start.bat`.
+- The native path now covers the hot vision loop end-to-end:
+  - centered ROI capture
+  - native preprocessing
+  - TensorRT inference with `models/best.engine`
+  - native selector / occlusion compensation / enhancement / auto-fire recommendation
+  - `VisionResult` handoff back to the existing Python controller
+- Python vision remains available as a fallback and behavior oracle through `--vision-backend python`.
+- Startup defaults for the native gamepad path are now:
+  - `VISION_BACKEND=native`
+  - `VISION_CAPTURE_FPS=140`
+  - `VISION_QUIT_KEY=0`
+  - `--perf-log`
+- Dedicated native debug entry points now exist:
+  - `gamepad_debug.bat`
+  - `gamepad_native_debug.bat`
+- Recent live testing showed that the native vision path is materially faster than the old Python path, especially on:
+  - `wait_ms`
+  - `infer_ms`
+  - `age_ms`
+- The project is no longer in a "native vision scaffold only" state. Native vision is already integrated into the real gamepad startup flow.
+
+### Decisions
+
+- Keep the architecture hybrid for now:
+  - native C++ for the hot `vision` path
+  - Python for controller orchestration, config, startup scripts, debug tooling, and benchmarks
+- Do **not** commit to a full-project C++ rewrite right now.
+  - Native vision already delivered the biggest ROI.
+  - Controller migration is still technically possible, but it now looks like a smaller performance win with much higher hand-feel regression risk.
+- Do **not** commit to a full `controller` rewrite in C++ yet.
+  - If controller becomes the next real bottleneck, prefer a focused native `gamepad controller` migration instead of rewriting the whole repo.
+- Keep Python vision alive as the comparison baseline and fallback path while native behavior continues to be validated in live play.
+- Disable the in-game keyboard quit hotkey by default for gamepad startup via `VISION_QUIT_KEY=0`.
+  - This decision came from observed accidental self-exits during gameplay.
+- Treat native perf fields with these meanings:
+  - `loop FPS` = throughput
+  - `age_ms` = end-to-end freshness from capture to controller-visible result
+  - `infer_ms` = TensorRT core inference time, not the whole native frame cost by itself
+- When evaluating native latency, prioritize `age_ms` over `infer_ms` alone.
+
+### Open work
+
+- Continue live validation of the native gamepad path:
+  - long-play stability
+  - targeting parity vs Python
+  - auto-fire timing and stick-feel regression checks
+- Consider exposing `preprocess_ms` directly in the `[Perf]` line later so native timing reads more self-consistently as:
+  - `wait | pre | infer | post | age`
+- Mouse work is currently in progress in the workspace:
+  - ADS-entry / commit-hold / reacquire-bridge behavior
+  - expanded `ControllerTarget` metadata usage on the mouse path
+  - native mouse startup/debug scripts
+- Treat the current mouse refactor as **in progress**, not project-complete, until its new tests and startup path are fully verified and committed.
+
 ## 2026-04-14 (vision detector-first tuning)
 
 ### Detector-first pipeline
