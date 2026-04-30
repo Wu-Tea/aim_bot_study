@@ -32,6 +32,23 @@ public:
     CenterCueRefiner(int width, int height);
 
     void reset();
+    CenterCueResult detect(
+        const CenterCueFrameView& frame,
+        float screen_center_x,
+        float screen_center_y);
+    CenterCueResult refine_detected(
+        const CenterCueResult& detected,
+        float target_x,
+        float target_y,
+        float body_x1,
+        float body_y1,
+        float body_x2,
+        float body_y2,
+        float torso_x1,
+        float torso_y1,
+        float torso_x2,
+        float torso_y2,
+        const char* body_state_mode);
     CenterCueResult refine(
         const CenterCueFrameView& frame,
         float target_x,
@@ -46,9 +63,18 @@ public:
         float torso_y1,
         float torso_x2,
         float torso_y2,
-        const char* body_state_mode) const;
+        const char* body_state_mode);
 
 private:
+    struct StableCueState {
+        bool has_value = false;
+        float x = 0.0f;
+        float y = 0.0f;
+        float score = 0.0f;
+        int missing_frames = 0;
+    };
+
+    StableCueState stable_cue_;
     int width_ = 0;
     int height_ = 0;
 };

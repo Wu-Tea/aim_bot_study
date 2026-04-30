@@ -57,6 +57,16 @@ def _yellow_center_frame(*, center_x: int, center_y: int, radius: int = 8) -> np
     return frame
 
 
+def _yellow_bar_frame(*, center_x: int, center_y: int, half_width: int = 38, half_height: int = 4) -> np.ndarray:
+    frame = _blank_cue_frame()
+    y1 = max(0, center_y - half_height)
+    y2 = min(CUE_FRAME_H, center_y + half_height)
+    x1 = max(0, center_x - half_width)
+    x2 = min(CUE_FRAME_W, center_x + half_width)
+    frame[y1:y2, x1:x2] = (255, 255, 0)
+    return frame
+
+
 def _torso_patch_frame(box: tuple[int, int, int, int], *, patch_offset_x: int = 0, patch_offset_y: int = 0) -> np.ndarray:
     frame = _textured_frame()
     x1, y1, x2, y2 = box
@@ -276,6 +286,92 @@ class NativeVisionBodyStateBridgeTests(unittest.TestCase):
         self.assertFalse(result["refiner_applied"])
         self.assertAlmostEqual(result["refined_target_x"], 160.0, places=3)
         self.assertAlmostEqual(result["refined_target_y"], 128.0, places=3)
+
+    def test_center_cue_refiner_detects_compact_yellow_dot_for_cod22_mode(self):
+        refiner = self.module.NativeCenterCueRefiner(CUE_FRAME_W, CUE_FRAME_H)
+        frame = _yellow_center_frame(center_x=162, center_y=118, radius=8)
+
+        result = refiner.detect_rgb(
+            frame,
+            160.0,
+            128.0,
+        )
+
+        self.assertTrue(result["yellow_cue_present"])
+        self.assertGreater(result["yellow_cue_score"], 0.0)
+        self.assertAlmostEqual(result["yellow_cue_x"], 161.5, delta=3.0)
+        self.assertAlmostEqual(result["yellow_cue_y"], 117.5, delta=3.0)
+
+    def test_center_cue_refiner_rejects_blood_bar_shape_in_cod22_dot_mode(self):
+        refiner = self.module.NativeCenterCueRefiner(CUE_FRAME_W, CUE_FRAME_H)
+        frame = _yellow_bar_frame(center_x=160, center_y=118)
+
+        result = refiner.detect_rgb(
+            frame,
+            160.0,
+            128.0,
+        )
+
+        self.assertFalse(result["yellow_cue_present"])
+        self.assertEqual(result["yellow_cue_score"], 0.0)
+
+    def test_center_cue_refiner_smooths_small_dot_motion_between_frames(self):
+        refiner = self.module.NativeCenterCueRefiner(CUE_FRAME_W, CUE_FRAME_H)
+
+        first = refiner.detect_rgb(
+            _yellow_center_frame(center_x=162, center_y=118, radius=8),
+            160.0,
+            128.0,
+        )
+        second = refiner.detect_rgb(
+            _yellow_center_frame(center_x=170, center_y=118, radius=8),
+            160.0,
+            128.0,
+        )
+
+        self.assertTrue(first["yellow_cue_present"])
+        self.assertTrue(second["yellow_cue_present"])
+        self.assertGreater(second["yellow_cue_x"], first["yellow_cue_x"])
+        self.assertLess(second["yellow_cue_x"], 169.5)
+
+    def test_center_cue_refiner_keeps_recent_dot_for_single_missing_frame(self):
+        refiner = self.module.NativeCenterCueRefiner(CUE_FRAME_W, CUE_FRAME_H)
+
+        detected = refiner.detect_rgb(
+            _yellow_center_frame(center_x=162, center_y=118, radius=8),
+            160.0,
+            128.0,
+        )
+        held = refiner.detect_rgb(
+            _blank_cue_frame(),
+            160.0,
+            128.0,
+        )
+
+        self.assertTrue(detected["yellow_cue_present"])
+        self.assertTrue(held["yellow_cue_present"])
+        self.assertAlmostEqual(held["yellow_cue_x"], detected["yellow_cue_x"], delta=2.0)
+        self.assertAlmostEqual(held["yellow_cue_y"], detected["yellow_cue_y"], delta=2.0)
+        self.assertLess(held["yellow_cue_score"], detected["yellow_cue_score"])
+
+    def test_center_cue_refiner_reset_clears_recent_hold_state(self):
+        refiner = self.module.NativeCenterCueRefiner(CUE_FRAME_W, CUE_FRAME_H)
+
+        detected = refiner.detect_rgb(
+            _yellow_center_frame(center_x=162, center_y=118, radius=8),
+            160.0,
+            128.0,
+        )
+        refiner.reset()
+        cleared = refiner.detect_rgb(
+            _blank_cue_frame(),
+            160.0,
+            128.0,
+        )
+
+        self.assertTrue(detected["yellow_cue_present"])
+        self.assertFalse(cleared["yellow_cue_present"])
+        self.assertEqual(cleared["yellow_cue_score"], 0.0)
 
     def test_center_cue_refiner_applies_y_axis_dominant_correction_inside_center_window(self):
         refiner = self.module.NativeCenterCueRefiner(CUE_FRAME_W, CUE_FRAME_H)

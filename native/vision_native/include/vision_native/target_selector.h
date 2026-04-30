@@ -13,6 +13,7 @@ namespace vision_native {
 class VisionTargetSelector {
 public:
     struct ScoredCandidate;
+    struct CueSeed;
 
     struct ColorFrameView {
         const uint8_t* data = nullptr;
@@ -25,11 +26,15 @@ public:
     VisionTargetSelector(int frame_width, int frame_height);
 
     void reset();
-    VisionResult select(const DetectionBatch& batch, const EgoWarp& ego_warp = EgoWarp{});
+    VisionResult select(
+        const DetectionBatch& batch,
+        const EgoWarp& ego_warp = EgoWarp{},
+        const std::optional<CueSeed>& cue_seed = std::nullopt);
     VisionResult select_with_frame(
         const DetectionBatch& batch,
         const ColorFrameView& frame,
-        const EgoWarp& ego_warp = EgoWarp{});
+        const EgoWarp& ego_warp = EgoWarp{},
+        const std::optional<CueSeed>& cue_seed = std::nullopt);
     std::vector<ScoredCandidate> rank_candidates(const DetectionBatch& batch) const;
     std::vector<ScoredCandidate> rank_candidates_with_frame(
         const DetectionBatch& batch,
@@ -58,6 +63,14 @@ public:
         float score = 0.0f;
         bool has_tracking_distance = false;
         float tracking_distance = 0.0f;
+        bool cue_aligned = false;
+        float cue_score = 0.0f;
+    };
+
+    struct CueSeed {
+        float x = 0.0f;
+        float y = 0.0f;
+        float score = 0.0f;
     };
 
     struct TargetState {
@@ -107,12 +120,16 @@ private:
         float y,
         const std::optional<std::pair<float, float>>& last_target_center) const;
     float tracking_bonus_for_distance(const std::optional<float>& tracking_distance) const;
+    std::optional<float> cue_alignment_score(
+        const Candidate& candidate,
+        const std::optional<CueSeed>& cue_seed) const;
     bool prefer_candidate(
         const std::optional<ScoredCandidate>& current,
         const ScoredCandidate& challenger) const;
     ScoredCandidate score_candidate(
         const Candidate& candidate,
-        const std::optional<std::pair<float, float>>& last_target_center) const;
+        const std::optional<std::pair<float, float>>& last_target_center,
+        const std::optional<CueSeed>& cue_seed = std::nullopt) const;
     TargetState target_from_candidate(const Candidate& candidate, float score) const;
 
     bool boxes_match(const Rect& lhs, const Rect& rhs) const;
@@ -132,11 +149,13 @@ private:
     std::pair<std::optional<TargetState>, std::optional<TargetState>> select_multi_candidate(
         const std::vector<Candidate>& candidates,
         const std::optional<std::pair<float, float>>& last_target_center,
-        const std::optional<TargetState>& active_target) const;
+        const std::optional<TargetState>& active_target,
+        const std::optional<CueSeed>& cue_seed = std::nullopt) const;
     std::pair<std::optional<TargetState>, std::optional<TargetState>> select_candidate_targets(
         const std::vector<Candidate>& candidates,
         const std::optional<std::pair<float, float>>& last_target_center,
-        const std::optional<TargetState>& active_target) const;
+        const std::optional<TargetState>& active_target,
+        const std::optional<CueSeed>& cue_seed = std::nullopt) const;
 
     std::pair<std::optional<TargetState>, bool> resolve_active_target_transition(
         const TargetState& chosen_target,

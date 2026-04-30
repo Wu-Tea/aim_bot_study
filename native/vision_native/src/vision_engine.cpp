@@ -477,6 +477,7 @@ void VisionEngine::set_mode(Mode mode) {
     }
 
     ego_motion_.reset();
+    center_cue_refiner_.reset();
     enhancer_.reset();
 
     if (mode == Mode::WarmScan) {
@@ -658,6 +659,7 @@ VisionResult VisionEngine::poll_once() {
         EgoFrameView ego_view{};
         GrayFrame current_gray;
         GrayFrame ego_gray;
+        CenterCueResult cue_detection;
         bool has_host_frame = need_host_frame && !host_color_frame_.empty();
         if (has_host_frame) {
             ego_view = ego_frame_view(host_color_frame_, width_, height_);
@@ -690,6 +692,12 @@ VisionResult VisionEngine::poll_once() {
         EgoWarp ego_warp;
         if (has_host_frame) {
             ego_warp = ego_motion_.estimate_gray(ego_gray, should_scan ? batch : last_scan_batch_);
+            if (mode == Mode::ActiveTrack) {
+                cue_detection = center_cue_refiner_.detect(
+                    center_cue_frame_view(host_color_frame_, width_, height_),
+                    result.screen_center_x,
+                    result.screen_center_y);
+            }
         }
         result.ego_confidence = ego_warp.confidence;
         result.ego_model = ego_warp.model;
@@ -710,10 +718,26 @@ VisionResult VisionEngine::poll_once() {
             force_active_scan_ = false;
             apply_scan_boxes(result, last_scan_batch_);
 
+            const BodyStateTracker::Mode selector_tracker_mode = body_tracker_.mode();
+            const bool cue_seed_can_bias_scan =
+                cue_detection.yellow_cue_present
+                && (!body_tracker_.has_active_target()
+                    || selector_tracker_mode == BodyStateTracker::Mode::Weak
+                    || selector_tracker_mode == BodyStateTracker::Mode::Reacquire
+                    || selector_tracker_mode == BodyStateTracker::Mode::Drop);
+            const std::optional<VisionTargetSelector::CueSeed> cue_seed = cue_seed_can_bias_scan
+                ? std::optional<VisionTargetSelector::CueSeed>(VisionTargetSelector::CueSeed{
+                    cue_detection.yellow_cue_x,
+                    cue_detection.yellow_cue_y,
+                    std::max(0.1f, cue_detection.yellow_cue_score),
+                })
+                : std::nullopt;
+
             const VisionResult targeting = selector_.select_with_frame(
                 batch,
                 color_frame_view(host_color_frame_, width_, height_),
-                ego_warp);
+                ego_warp,
+                cue_seed);
 
             if (observation_confirmed(targeting)) {
                 result.auto_fire = targeting.auto_fire;
@@ -774,13 +798,15 @@ VisionResult VisionEngine::poll_once() {
             result.auto_fire = false;
         }
 
-        if (mode == Mode::ActiveTrack && has_host_frame && result.has_target) {
-            const CenterCueResult center_cue = center_cue_refiner_.refine(
-                center_cue_frame_view(host_color_frame_, width_, height_),
+        if (mode == Mode::ActiveTrack && cue_detection.yellow_cue_present) {
+            apply_center_cue_to_result(result, cue_detection);
+        }
+
+        if (mode == Mode::ActiveTrack && has_host_frame && result.has_target && cue_detection.yellow_cue_present) {
+            const CenterCueResult center_cue = center_cue_refiner_.refine_detected(
+                cue_detection,
                 result.target_x,
                 result.target_y,
-                result.screen_center_x,
-                result.screen_center_y,
                 result.body_x1,
                 result.body_y1,
                 result.body_x2,

@@ -1,5 +1,7 @@
 #include "vision_native/target_selector.h"
 
+#include "color_utils.h"
+
 #include <algorithm>
 #include <cmath>
 #include <string>
@@ -58,6 +60,11 @@ constexpr float kMinTopDrop = 12.0f;
 constexpr float kAutoFireEdgePadding = 2.0f;
 constexpr int kAutoFireReleaseGraceFrames = 4;
 constexpr const char* kSelectorHoldSource = "selector_hold";
+constexpr float kCueSeedBonus = 2600.0f;
+constexpr float kCueSeedPreferredYOffsetRatio = 0.10f;
+constexpr float kCueSeedMaxXRatio = 0.38f;
+constexpr float kCueSeedAboveHeadRatio = 0.42f;
+constexpr float kCueSeedBelowHeadRatio = 0.16f;
 
 struct ColorClassification {
     float color_bonus = 0.0f;
@@ -197,70 +204,6 @@ std::optional<IntRect> color_roi_bounds(
     return IntRect{roi_left, roi_top, roi_right, roi_bottom};
 }
 
-void read_rgb(
-    const VisionTargetSelector::ColorFrameView& frame,
-    int x,
-    int y,
-    int& r,
-    int& g,
-    int& b) {
-    const uint8_t* pixel = frame.data + (static_cast<size_t>(y) * frame.row_pitch);
-    if (frame.format == PixelFormat::BGRA8) {
-        pixel += static_cast<size_t>(x) * 4;
-        b = pixel[0];
-        g = pixel[1];
-        r = pixel[2];
-        return;
-    }
-
-    pixel += static_cast<size_t>(x) * 3;
-    r = pixel[0];
-    g = pixel[1];
-    b = pixel[2];
-}
-
-void rgb_to_opencv_hsv(int r, int g, int b, float& h, float& s, float& v) {
-    const float rf = static_cast<float>(r) / 255.0f;
-    const float gf = static_cast<float>(g) / 255.0f;
-    const float bf = static_cast<float>(b) / 255.0f;
-    const float max_value = std::max(rf, std::max(gf, bf));
-    const float min_value = std::min(rf, std::min(gf, bf));
-    const float delta = max_value - min_value;
-
-    float hue_degrees = 0.0f;
-    if (delta > 0.0f) {
-        if (max_value == rf) {
-            hue_degrees = 60.0f * std::fmod(((gf - bf) / delta), 6.0f);
-        } else if (max_value == gf) {
-            hue_degrees = 60.0f * (((bf - rf) / delta) + 2.0f);
-        } else {
-            hue_degrees = 60.0f * (((rf - gf) / delta) + 4.0f);
-        }
-    }
-    if (hue_degrees < 0.0f) {
-        hue_degrees += 360.0f;
-    }
-
-    h = hue_degrees * 0.5f;
-    s = max_value <= 0.0f ? 0.0f : (delta / max_value) * 255.0f;
-    v = max_value * 255.0f;
-}
-
-bool in_hsv_range(
-    float h,
-    float s,
-    float v,
-    float lower_h,
-    float lower_s,
-    float lower_v,
-    float upper_h,
-    float upper_s,
-    float upper_v) {
-    return lower_h <= h && h <= upper_h
-        && lower_s <= s && s <= upper_s
-        && lower_v <= v && v <= upper_v;
-}
-
 ColorClassification classify_color(
     const VisionTargetSelector::Rect& box,
     const VisionTargetSelector::ColorFrameView& frame) {
@@ -281,18 +224,18 @@ ColorClassification classify_color(
             int r = 0;
             int g = 0;
             int b = 0;
-            read_rgb(frame, x, y, r, g, b);
+            color_detail::read_rgb(frame, x, y, r, g, b);
 
             float h = 0.0f;
             float s = 0.0f;
             float v = 0.0f;
-            rgb_to_opencv_hsv(r, g, b, h, s, v);
-            if (in_hsv_range(h, s, v, 45.0f, 80.0f, 50.0f, 75.0f, 255.0f, 255.0f)) {
+            color_detail::rgb_to_opencv_hsv(r, g, b, h, s, v);
+            if (color_detail::hsv_in_range(h, s, v, 45.0f, 80.0f, 50.0f, 75.0f, 255.0f, 255.0f)) {
                 ++friendly_count;
             }
-            if (in_hsv_range(h, s, v, 20.0f, 120.0f, 120.0f, 35.0f, 255.0f, 255.0f)
-                || in_hsv_range(h, s, v, 0.0f, 120.0f, 80.0f, 10.0f, 255.0f, 255.0f)
-                || in_hsv_range(h, s, v, 170.0f, 120.0f, 80.0f, 180.0f, 255.0f, 255.0f)) {
+            if (color_detail::hsv_in_range(h, s, v, 20.0f, 120.0f, 120.0f, 35.0f, 255.0f, 255.0f)
+                || color_detail::hsv_in_range(h, s, v, 0.0f, 120.0f, 80.0f, 10.0f, 255.0f, 255.0f)
+                || color_detail::hsv_in_range(h, s, v, 170.0f, 120.0f, 80.0f, 180.0f, 255.0f, 255.0f)) {
                 ++enemy_count;
             }
             ++area;
@@ -380,8 +323,9 @@ void VisionTargetSelector::clear_auto_fire_state() {
 VisionResult VisionTargetSelector::select_with_frame(
     const DetectionBatch& batch,
     const ColorFrameView& frame,
-    const EgoWarp& ego_warp) {
-    return select(annotate_colors(batch, frame), ego_warp);
+    const EgoWarp& ego_warp,
+    const std::optional<CueSeed>& cue_seed) {
+    return select(annotate_colors(batch, frame), ego_warp, cue_seed);
 }
 
 std::vector<VisionTargetSelector::ScoredCandidate> VisionTargetSelector::rank_candidates(
@@ -700,11 +644,61 @@ float VisionTargetSelector::tracking_bonus_for_distance(const std::optional<floa
     return kTrackingBonus * proximity;
 }
 
+std::optional<float> VisionTargetSelector::cue_alignment_score(
+    const Candidate& candidate,
+    const std::optional<CueSeed>& cue_seed) const {
+    if (!cue_seed.has_value() || cue_seed->score <= 0.0f) {
+        return std::nullopt;
+    }
+
+    const float box_w = rect_width(candidate.body_box);
+    const float box_h = rect_height(candidate.body_box);
+    if (box_w <= 0.0f || box_h <= 0.0f) {
+        return std::nullopt;
+    }
+
+    const float body_center_x = (candidate.body_box.left + candidate.body_box.right) * 0.5f;
+    const float expected_cue_y = candidate.body_box.top - (box_h * kCueSeedPreferredYOffsetRatio);
+    const float dx_limit = std::max(10.0f, box_w * kCueSeedMaxXRatio);
+    const float above_limit = std::max(12.0f, box_h * kCueSeedAboveHeadRatio);
+    const float below_limit = std::max(8.0f, box_h * kCueSeedBelowHeadRatio);
+
+    const float dx = std::fabs(cue_seed->x - body_center_x);
+    if (dx > dx_limit) {
+        return std::nullopt;
+    }
+
+    const float cue_y_delta = cue_seed->y - expected_cue_y;
+    const float dy_limit = cue_y_delta >= 0.0f ? below_limit : above_limit;
+    if (std::fabs(cue_y_delta) > dy_limit) {
+        return std::nullopt;
+    }
+
+    const float normalized_dx = dx / dx_limit;
+    const float normalized_dy = std::fabs(cue_y_delta) / dy_limit;
+    const float geometric_score =
+        std::max(0.0f, 1.0f - (normalized_dx * 0.65f) - (normalized_dy * 0.35f));
+    if (geometric_score <= 0.0f) {
+        return std::nullopt;
+    }
+
+    return geometric_score * kCueSeedBonus * cue_seed->score;
+}
+
 bool VisionTargetSelector::prefer_candidate(
     const std::optional<ScoredCandidate>& current,
     const ScoredCandidate& challenger) const {
     if (!current.has_value()) {
         return true;
+    }
+
+    if (challenger.cue_aligned != current->cue_aligned) {
+        return challenger.cue_aligned;
+    }
+    if (challenger.cue_aligned && current->cue_aligned) {
+        if (std::fabs(challenger.cue_score - current->cue_score) > 0.001f) {
+            return challenger.cue_score > current->cue_score;
+        }
     }
 
     const float current_crosshair_distance = crosshair_distance(
@@ -725,7 +719,8 @@ bool VisionTargetSelector::prefer_candidate(
 
 VisionTargetSelector::ScoredCandidate VisionTargetSelector::score_candidate(
     const Candidate& candidate,
-    const std::optional<std::pair<float, float>>& last_target_center) const {
+    const std::optional<std::pair<float, float>>& last_target_center,
+    const std::optional<CueSeed>& cue_seed) const {
     const float half_w = frame_width_ * 0.5f;
     const float half_h = frame_height_ * 0.5f;
     const float norm_dx = (candidate.target_x - screen_center_x_) / half_w;
@@ -749,11 +744,16 @@ VisionTargetSelector::ScoredCandidate VisionTargetSelector::score_candidate(
         last_target_center);
     score += tracking_bonus_for_distance(distance);
 
+    const std::optional<float> cue_score = cue_alignment_score(candidate, cue_seed);
+    score += cue_score.value_or(0.0f);
+
     ScoredCandidate scored;
     scored.candidate = candidate;
     scored.score = score;
     scored.has_tracking_distance = distance.has_value();
     scored.tracking_distance = distance.value_or(0.0f);
+    scored.cue_aligned = cue_score.has_value();
+    scored.cue_score = cue_score.value_or(0.0f);
     return scored;
 }
 
@@ -909,13 +909,14 @@ std::pair<std::optional<VisionTargetSelector::TargetState>, std::optional<Vision
 VisionTargetSelector::select_multi_candidate(
     const std::vector<Candidate>& candidates,
     const std::optional<std::pair<float, float>>& last_target_center,
-    const std::optional<TargetState>& active_target) const {
+    const std::optional<TargetState>& active_target,
+    const std::optional<CueSeed>& cue_seed) const {
     std::optional<ScoredCandidate> best;
     std::optional<ScoredCandidate> tracked;
     std::optional<std::pair<float, ScoredCandidate>> active_match;
 
     for (const auto& candidate : candidates) {
-        const ScoredCandidate scored = score_candidate(candidate, last_target_center);
+        const ScoredCandidate scored = score_candidate(candidate, last_target_center, cue_seed);
         if (prefer_candidate(best, scored)) {
             best = scored;
         }
@@ -965,7 +966,8 @@ std::pair<std::optional<VisionTargetSelector::TargetState>, std::optional<Vision
 VisionTargetSelector::select_candidate_targets(
     const std::vector<Candidate>& candidates,
     const std::optional<std::pair<float, float>>& last_target_center,
-    const std::optional<TargetState>& active_target) const {
+    const std::optional<TargetState>& active_target,
+    const std::optional<CueSeed>& cue_seed) const {
     if (candidates.empty()) {
         return {std::nullopt, std::nullopt};
     }
@@ -976,7 +978,7 @@ VisionTargetSelector::select_candidate_targets(
             : std::nullopt;
         return {chosen, active_match};
     }
-    return select_multi_candidate(candidates, last_target_center, active_target);
+    return select_multi_candidate(candidates, last_target_center, active_target, cue_seed);
 }
 
 std::pair<std::optional<VisionTargetSelector::TargetState>, bool>
@@ -1112,7 +1114,10 @@ VisionResult VisionTargetSelector::finalize_selected_target(
     return result;
 }
 
-VisionResult VisionTargetSelector::select(const DetectionBatch& batch, const EgoWarp& ego_warp) {
+VisionResult VisionTargetSelector::select(
+    const DetectionBatch& batch,
+    const EgoWarp& ego_warp,
+    const std::optional<CueSeed>& cue_seed) {
     const float sample_timestamp = sample_clock_ += 1.0f;
     const float boxes_seen = static_cast<float>(batch.detections.size());
     const auto last_target_center = last_target_center_.has_value()
@@ -1129,7 +1134,7 @@ VisionResult VisionTargetSelector::select(const DetectionBatch& batch, const Ego
         return result;
     }
 
-    const auto selected = select_candidate_targets(candidates, last_target_center, active_target);
+    const auto selected = select_candidate_targets(candidates, last_target_center, active_target, cue_seed);
     if (!selected.first.has_value()) {
         return hold_or_reset(boxes_seen, active_target);
     }

@@ -60,6 +60,14 @@ def _paint_color_above(frame, box, rgb):
     frame[band_top:band_bottom, band_left:band_right] = rgb
 
 
+def _paint_yellow_dot(frame, center_x: int, center_y: int, radius: int = 8):
+    y1 = max(0, center_y - radius)
+    y2 = min(frame.shape[0], center_y + radius)
+    x1 = max(0, center_x - radius)
+    x2 = min(frame.shape[1], center_x + radius)
+    frame[y1:y2, x1:x2] = ENEMY_RGB
+
+
 class NativeVisionTargetingBridgeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -167,6 +175,28 @@ class NativeVisionTargetingBridgeTests(unittest.TestCase):
         result = selector.select_xyxy(detections)
         self.assertTrue(result["has_target"])
         self.assertAlmostEqual(result["target_x"], 315.0, places=3)
+        self.assertAlmostEqual(result["target_y"], 196.0, places=3)
+
+    def test_selector_prefers_candidate_aligned_with_cue_seed_over_crosshair_closer_neighbor(self):
+        if not hasattr(self.module, "NativeTargetSelector"):
+            self.fail("NativeTargetSelector is missing")
+
+        selector = self.module.NativeTargetSelector(CROP_W, CROP_H)
+        detections = np.array(
+            [
+                [290.0, 120.0, 350.0, 320.0, 0.82, 0.0],
+                [370.0, 120.0, 430.0, 320.0, 0.82, 0.0],
+            ],
+            dtype=np.float32,
+        )
+
+        warmup = selector.select_xyxy_with_cue(detections, 400.0, 104.0, 1.0)
+        result = selector.select_xyxy_with_cue(detections, 400.0, 104.0, 1.0)
+
+        self.assertFalse(warmup["has_target"])
+        self.assertTrue(result["has_target"])
+        self.assertEqual(result["target_source"], "observed")
+        self.assertAlmostEqual(result["target_x"], 400.0, places=3)
         self.assertAlmostEqual(result["target_y"], 196.0, places=3)
 
     def test_green_friendly_target_is_filtered_out_with_rgb_frame(self):

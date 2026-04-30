@@ -406,6 +406,14 @@ vision_native::EgoWarp simple_ego_warp(float dx, float dy, float confidence) {
     return warp;
 }
 
+vision_native::VisionTargetSelector::CueSeed simple_cue_seed(float x, float y, float score) {
+    vision_native::VisionTargetSelector::CueSeed cue;
+    cue.x = x;
+    cue.y = y;
+    cue.score = score;
+    return cue;
+}
+
 vision_native::TargetKeyframe simple_keyframe(
     float x1,
     float y1,
@@ -653,6 +661,21 @@ PYBIND11_MODULE(vision_native_cpp, module) {
         .def(py::init<int, int>(), py::arg("width"), py::arg("height"))
         .def("reset", &vision_native::CenterCueRefiner::reset)
         .def(
+            "detect_rgb",
+            [](vision_native::CenterCueRefiner& refiner,
+               py::array_t<uint8_t, py::array::c_style | py::array::forcecast> frame,
+               float screen_center_x,
+               float screen_center_y) {
+                return center_cue_result_to_dict(
+                    refiner.detect(
+                        center_cue_rgb_frame_view(frame),
+                        screen_center_x,
+                        screen_center_y));
+            },
+            py::arg("frame"),
+            py::arg("screen_center_x"),
+            py::arg("screen_center_y"))
+        .def(
             "refine_rgb",
             [](vision_native::CenterCueRefiner& refiner,
                py::array_t<uint8_t, py::array::c_style | py::array::forcecast> frame,
@@ -747,6 +770,23 @@ PYBIND11_MODULE(vision_native_cpp, module) {
                 return vision_result_to_dict(selector.select(batch_from_xyxy_array(detections)));
             },
             py::arg("detections"))
+        .def(
+            "select_xyxy_with_cue",
+            [](vision_native::VisionTargetSelector& selector,
+               py::array_t<float, py::array::c_style | py::array::forcecast> detections,
+               float cue_x,
+               float cue_y,
+               float cue_score) {
+                return vision_result_to_dict(
+                    selector.select(
+                        batch_from_xyxy_array(detections),
+                        vision_native::EgoWarp{},
+                        simple_cue_seed(cue_x, cue_y, cue_score)));
+            },
+            py::arg("detections"),
+            py::arg("cue_x"),
+            py::arg("cue_y"),
+            py::arg("cue_score") = 1.0f)
         .def(
             "select_xyxy_with_ego",
             [](vision_native::VisionTargetSelector& selector,
