@@ -767,3 +767,63 @@ Context files updated:
 Follow-up:
 - Run live COD22 validation on the simplified native baseline, especially around empty-frame loss, reacquire feel, and partial-cover targets.
 - If grayscale utilities are reused later, keep them narrowly scoped unless live profiling shows a concrete need for a larger native image-processing stack.
+
+## 2026-05-01T20:27:51+08:00 - Added short yellow-cue continuation hold on top of the simplified native baseline
+
+Goal: Reintroduce yellow cue in a narrow, controller-safe way by using it only as short continuation evidence after a previously observed native YOLO target is briefly occluded or obscured.
+
+What changed:
+- Re-validated that the repository was at a clean baseline before implementation:
+  - `git status --short` returned clean
+  - `git log -1 --stat --oneline` confirmed HEAD at `9aab91d` (`Simplify native baseline and restore gray helpers`)
+  - `py -3 -m unittest tests.test_native_vision_targeting_bridge tests.test_native_vision_enhancement_bridge tests.test_native_vision_image_ops_bridge tests.test_native_vision_runner -v`
+    - result: `26` passed before the cue-hold slice started
+- Checked the current native code path and confirmed there was no existing cue-point coordinate channel in the live baseline; only box-top color classification and `color_bonus` remained.
+- Chose the narrowest integration point:
+  - keep yellow cue detection inside the existing box-top color scan
+  - compute a cue centroid when an observed target has a valid yellow region
+  - record `target_x/y - cue_x/y` while the target is still `observed`
+  - when the next frame has no person detections, allow a short `cue_hold` result if the cue is still found near the previous cue position
+- Updated tests first to describe the intended behavior:
+  - `test_yellow_cue_hold_keeps_target_through_short_empty_gap`
+  - `test_cue_hold_disables_autofire_during_short_gap`
+  - both failed at first because empty frames still dropped the target immediately
+- Implemented the feature in the native path:
+  - extended detection/candidate metadata to carry cue centroid information
+  - added short-lived cue tracking state in `VisionTargetSelector`
+  - added a continuation-only `cue_hold` target source that reconstructs the held aim point from `cue + last(target-cue offset)`
+  - kept `cue_hold` conservative:
+    - no idle-state acquisition
+    - no target switching
+    - `auto_fire = false`
+    - very short max hold duration
+  - updated `VisionEngine` to keep copying the color frame on empty-detection frames when selector still wants cue information for hold recovery
+- Verified the implementation with fresh evidence:
+  - `powershell -ExecutionPolicy Bypass -File tools\build_native_vision.ps1`
+    - result: build succeeded
+  - `py -3 -m unittest tests.test_native_vision_targeting_bridge.NativeVisionTargetingBridgeTests.test_yellow_cue_hold_keeps_target_through_short_empty_gap tests.test_native_vision_targeting_bridge.NativeVisionTargetingBridgeTests.test_cue_hold_disables_autofire_during_short_gap -v`
+    - result: both passed
+  - `py -3 -m unittest tests.test_native_vision_targeting_bridge tests.test_native_vision_enhancement_bridge tests.test_native_vision_image_ops_bridge tests.test_native_vision_runner -v`
+    - result: `28` passed
+
+User confirmed:
+- The feature direction was correct: yellow cue should act as hold evidence rather than independent acquisition authority.
+- Live feedback after the slice landed: "效果还行"
+- Archive and commit the change.
+
+AI inferred:
+- The cue-hold approach is materially different from the removed synthetic `predict/reconstruct` path because it depends on live cue evidence tied to a previously observed target.
+- Continuation-only cue authority is a safer way to exploit COD22 yellow markers than reopening a second acquisition branch.
+- The next likely product question is whether the native selector should later consume an application-provided cue point directly instead of recomputing cue centroid from the box-top ROI.
+
+Decisions:
+- Added accepted decision `.agent-context/decisions/DEC-2026-05-01-005-use-yellow-cue-as-short-continuation-hold.md`.
+
+Context files updated:
+- `.agent-context/handoff.md`
+- `.agent-context/session-log.md`
+- `.agent-context/decisions/DEC-2026-05-01-005-use-yellow-cue-as-short-continuation-hold.md`
+
+Follow-up:
+- Keep live-testing `cue_hold` around muzzle flash, reload / hand animations, and one-frame obstruction to see whether the hold duration or search radius should move.
+- If cue computation is already available from the application layer, consider replacing the selector-side cue centroid scan with a direct cue input to avoid duplicate work.

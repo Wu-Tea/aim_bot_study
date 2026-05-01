@@ -40,17 +40,23 @@ def _frame():
     return np.full((CROP_H, CROP_W, 3), NEUTRAL_RGB, dtype=np.uint8)
 
 
-def _paint_color_above(frame, box, rgb):
+def _color_roi_bounds(box, frame_shape):
     x1, y1, x2, y2 = box
+    frame_h, frame_w = frame_shape[:2]
     box_w = float(x2 - x1)
     box_h = float(y2 - y1)
     cx = (x1 + x2) * 0.5
     roi_h = int(max(12, min(36, box_h * 0.20)))
     roi_w = int(max(24, min(80, box_w * 0.80)))
-    roi_bottom = max(0, min(frame.shape[0], int(y1) - 2))
+    roi_bottom = max(0, min(frame_h, int(y1) - 2))
     roi_top = max(0, roi_bottom - roi_h)
     roi_left = max(0, int(cx - roi_w / 2))
-    roi_right = min(frame.shape[1], int(cx + roi_w / 2))
+    roi_right = min(frame_w, int(cx + roi_w / 2))
+    return roi_left, roi_top, roi_right, roi_bottom
+
+
+def _paint_color_above(frame, box, rgb):
+    roi_left, roi_top, roi_right, roi_bottom = _color_roi_bounds(box, frame.shape)
     band_h = max(4, (roi_bottom - roi_top) // 3)
     band_top = roi_top + max(0, ((roi_bottom - roi_top) - band_h) // 2)
     band_bottom = min(roi_bottom, band_top + band_h)
@@ -58,6 +64,18 @@ def _paint_color_above(frame, box, rgb):
     band_left = min(roi_right, roi_left + band_pad)
     band_right = max(band_left + 1, roi_right - band_pad)
     frame[band_top:band_bottom, band_left:band_right] = rgb
+
+
+def _paint_yellow_dot_above(frame, box, radius=4):
+    roi_left, roi_top, roi_right, roi_bottom = _color_roi_bounds(box, frame.shape)
+    cx = int(round((roi_left + roi_right) * 0.5))
+    cy = int(round((roi_top + roi_bottom) * 0.5))
+    y1 = max(0, cy - radius)
+    y2 = min(frame.shape[0], cy + radius + 1)
+    x1 = max(0, cx - radius)
+    x2 = min(frame.shape[1], cx + radius + 1)
+    frame[y1:y2, x1:x2] = ENEMY_RGB
+    return float(cx), float(cy)
 
 
 class NativeVisionTargetingBridgeTests(unittest.TestCase):
@@ -290,6 +308,48 @@ class NativeVisionTargetingBridgeTests(unittest.TestCase):
         self.assertFalse(reacquire_first["has_target"])
         self.assertTrue(reacquired["has_target"])
         self.assertEqual(reacquired["target_source"], "observed")
+
+    def test_yellow_cue_hold_keeps_target_through_short_empty_gap(self):
+        if not hasattr(self.module, "NativeTargetSelector"):
+            self.fail("NativeTargetSelector is missing")
+
+        selector = self.module.NativeTargetSelector(CROP_W, CROP_H)
+        box = [300.0, 180.0, 360.0, 320.0]
+        detections = np.array([[*box, 0.82, 0.0]], dtype=np.float32)
+        frame = _frame()
+        _paint_yellow_dot_above(frame, box)
+        empty = np.empty((0, 6), dtype=np.float32)
+
+        selector.select_xyxy_rgb(detections, frame)
+        locked = selector.select_xyxy_rgb(detections, frame)
+        cue_hold = selector.select_xyxy_rgb(empty, frame)
+
+        self.assertTrue(locked["has_target"])
+        self.assertEqual(locked["target_source"], "observed")
+        self.assertTrue(cue_hold["has_target"])
+        self.assertEqual(cue_hold["target_source"], "cue_hold")
+        self.assertAlmostEqual(cue_hold["target_x"], locked["target_x"], places=3)
+        self.assertAlmostEqual(cue_hold["target_y"], locked["target_y"], places=3)
+
+    def test_cue_hold_disables_autofire_during_short_gap(self):
+        if not hasattr(self.module, "NativeTargetSelector"):
+            self.fail("NativeTargetSelector is missing")
+
+        selector = self.module.NativeTargetSelector(CROP_W, CROP_H)
+        box = [280.0, 240.0, 360.0, 380.0]
+        detections = np.array([[*box, 0.95, 0.0]], dtype=np.float32)
+        frame = _frame()
+        _paint_yellow_dot_above(frame, box)
+        empty = np.empty((0, 6), dtype=np.float32)
+
+        selector.select_xyxy_rgb(detections, frame)
+        locked = selector.select_xyxy_rgb(detections, frame)
+        cue_hold = selector.select_xyxy_rgb(empty, frame)
+
+        self.assertTrue(locked["auto_fire"])
+        self.assertTrue(cue_hold["has_target"])
+        self.assertEqual(cue_hold["target_source"], "cue_hold")
+        self.assertFalse(cue_hold["auto_fire"])
 
     def test_autofire_triggers_for_selected_target_inside_fire_zone(self):
         if not hasattr(self.module, "NativeTargetSelector"):

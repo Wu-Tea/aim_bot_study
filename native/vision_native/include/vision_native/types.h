@@ -36,6 +36,10 @@ struct Detection {
     float color_bonus = 0.0f;
     bool is_friendly = false;
     bool color_classified = false;
+    bool has_cue_point = false;
+    float cue_x = 0.0f;
+    float cue_y = 0.0f;
+    float cue_score = 0.0f;
 };
 
 struct DetectionBatch {

@@ -24,6 +24,7 @@ public:
     void reset();
     VisionResult select(const DetectionBatch& batch);
     VisionResult select_with_frame(const DetectionBatch& batch, const ColorFrameView& frame);
+    bool wants_color_frame() const;
 
     struct Rect {
         float left = 0.0f;
@@ -37,6 +38,10 @@ public:
         float target_y = 0.0f;
         float conf = 0.0f;
         float color_bonus = 0.0f;
+        bool has_cue = false;
+        float cue_x = 0.0f;
+        float cue_y = 0.0f;
+        float cue_score = 0.0f;
         Rect body_box;
         Rect slow_zone;
         Rect fire_zone;
@@ -58,6 +63,7 @@ public:
 private:
     VisionResult empty_result(float boxes_seen) const;
     VisionResult result_from_target(const TargetState& target, float boxes_seen) const;
+    VisionResult select_impl(const DetectionBatch& batch, const ColorFrameView* frame);
 
     Rect to_rect(const Detection& detection) const;
     std::pair<float, float> target_point(const Rect& box) const;
@@ -119,6 +125,9 @@ private:
     bool fails_tracking_jump(const std::pair<float, float>& point) const;
     bool fails_first_pickup_flick(const std::pair<float, float>& point) const;
     std::pair<float, float> smooth_target_point(const std::pair<float, float>& point) const;
+    std::optional<TargetState> try_cue_hold(const ColorFrameView& frame);
+    void update_cue_tracking(const TargetState& target);
+    void clear_cue_tracking();
     VisionResult hold_or_reset(float boxes_seen);
     VisionResult finalize_selected_target(
         const TargetState& chosen_target,
@@ -144,9 +153,12 @@ private:
     std::optional<TargetState> active_target_;
     std::optional<TargetState> pending_target_;
     std::optional<TargetState> pending_switch_target_;
+    std::optional<std::pair<float, float>> last_cue_point_;
+    std::optional<std::pair<float, float>> last_target_offset_from_cue_;
     int pending_frames_ = 0;
     int pending_switch_frames_ = 0;
     int hold_frames_ = 0;
+    int cue_hold_frames_ = 0;
     bool auto_fire_holding_ = false;
     int auto_fire_miss_frames_ = 0;
 };

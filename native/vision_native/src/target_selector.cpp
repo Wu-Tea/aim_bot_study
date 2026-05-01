@@ -49,12 +49,30 @@ constexpr float kFriendlyMaskMinRatio = 0.02f;
 constexpr float kFriendlyMaskMaxRatio = 0.35f;
 constexpr float kEnemyMaskMinRatio = 0.03f;
 constexpr float kEnemyMaskMaxRatio = 0.45f;
+constexpr int kCueMinPixels = 8;
+constexpr int kCueHoldMinPixels = 6;
+constexpr int kMaxCueHoldFrames = 3;
+constexpr float kCueHoldSearchRadius = 18.0f;
+constexpr float kCueHoldSearchGrowthPerFrame = 6.0f;
+constexpr float kCueOffsetSmoothingAlpha = 0.35f;
 constexpr float kAutoFireEdgePadding = 2.0f;
 constexpr int kAutoFireReleaseGraceFrames = 4;
 
 struct ColorClassification {
     float color_bonus = 0.0f;
     bool is_friendly = false;
+    bool has_cue = false;
+    float cue_x = 0.0f;
+    float cue_y = 0.0f;
+    float cue_score = 0.0f;
+};
+
+struct YellowCueObservation {
+    bool found = false;
+    float cue_x = 0.0f;
+    float cue_y = 0.0f;
+    float score = 0.0f;
+    int pixels = 0;
 };
 
 struct IntRect {
@@ -104,6 +122,18 @@ float point_distance(
     const std::pair<float, float>& lhs,
     const std::pair<float, float>& rhs) {
     return std::hypot(lhs.first - rhs.first, lhs.second - rhs.second);
+}
+
+VisionTargetSelector::Rect shift_rect(
+    const VisionTargetSelector::Rect& rect,
+    float dx,
+    float dy) {
+    return {
+        rect.left + dx,
+        rect.top + dy,
+        rect.right + dx,
+        rect.bottom + dy,
+    };
 }
 
 std::optional<IntRect> color_roi_bounds(
@@ -190,6 +220,58 @@ bool in_hsv_range(
         && lower_v <= v && v <= upper_v;
 }
 
+bool is_friendly_hsv(float h, float s, float v) {
+    return in_hsv_range(h, s, v, 45.0f, 80.0f, 50.0f, 75.0f, 255.0f, 255.0f);
+}
+
+bool is_enemy_hsv(float h, float s, float v) {
+    return in_hsv_range(h, s, v, 20.0f, 120.0f, 120.0f, 35.0f, 255.0f, 255.0f)
+        || in_hsv_range(h, s, v, 0.0f, 120.0f, 80.0f, 10.0f, 255.0f, 255.0f)
+        || in_hsv_range(h, s, v, 170.0f, 120.0f, 80.0f, 180.0f, 255.0f, 255.0f);
+}
+
+YellowCueObservation scan_yellow_window(
+    const IntRect& bounds,
+    const VisionTargetSelector::ColorFrameView& frame) {
+    YellowCueObservation observation;
+    if (frame.data == nullptr || frame.width <= 0 || frame.height <= 0 || frame.row_pitch <= 0) {
+        return observation;
+    }
+
+    float sum_x = 0.0f;
+    float sum_y = 0.0f;
+    int area = 0;
+    for (int y = bounds.top; y < bounds.bottom; ++y) {
+        for (int x = bounds.left; x < bounds.right; ++x) {
+            int r = 0;
+            int g = 0;
+            int b = 0;
+            read_rgb(frame, x, y, r, g, b);
+
+            float h = 0.0f;
+            float s = 0.0f;
+            float v = 0.0f;
+            rgb_to_opencv_hsv(r, g, b, h, s, v);
+            if (is_enemy_hsv(h, s, v)) {
+                ++observation.pixels;
+                sum_x += static_cast<float>(x);
+                sum_y += static_cast<float>(y);
+            }
+            ++area;
+        }
+    }
+
+    if (area <= 0 || observation.pixels < kCueHoldMinPixels) {
+        return observation;
+    }
+
+    observation.found = true;
+    observation.cue_x = sum_x / static_cast<float>(observation.pixels);
+    observation.cue_y = sum_y / static_cast<float>(observation.pixels);
+    observation.score = static_cast<float>(observation.pixels) / static_cast<float>(area);
+    return observation;
+}
+
 ColorClassification classify_color(
     const VisionTargetSelector::Rect& box,
     const VisionTargetSelector::ColorFrameView& frame) {
@@ -203,7 +285,6 @@ ColorClassification classify_color(
     }
 
     int friendly_count = 0;
-    int enemy_count = 0;
     int area = 0;
     for (int y = bounds->top; y < bounds->bottom; ++y) {
         for (int x = bounds->left; x < bounds->right; ++x) {
@@ -216,13 +297,8 @@ ColorClassification classify_color(
             float s = 0.0f;
             float v = 0.0f;
             rgb_to_opencv_hsv(r, g, b, h, s, v);
-            if (in_hsv_range(h, s, v, 45.0f, 80.0f, 50.0f, 75.0f, 255.0f, 255.0f)) {
+            if (is_friendly_hsv(h, s, v)) {
                 ++friendly_count;
-            }
-            if (in_hsv_range(h, s, v, 20.0f, 120.0f, 120.0f, 35.0f, 255.0f, 255.0f)
-                || in_hsv_range(h, s, v, 0.0f, 120.0f, 80.0f, 10.0f, 255.0f, 255.0f)
-                || in_hsv_range(h, s, v, 170.0f, 120.0f, 80.0f, 180.0f, 255.0f, 255.0f)) {
-                ++enemy_count;
             }
             ++area;
         }
@@ -237,12 +313,18 @@ ColorClassification classify_color(
         return ColorClassification{0.0f, true};
     }
 
-    const float enemy_ratio = static_cast<float>(enemy_count) / static_cast<float>(area);
-    if (kEnemyMaskMinRatio <= enemy_ratio && enemy_ratio <= kEnemyMaskMaxRatio) {
-        return ColorClassification{kMaxColorBonus, false};
-    }
+    const YellowCueObservation cue = scan_yellow_window(*bounds, frame);
+    ColorClassification classification;
+    classification.has_cue = cue.found && cue.pixels >= kCueMinPixels;
+    classification.cue_x = cue.cue_x;
+    classification.cue_y = cue.cue_y;
+    classification.cue_score = cue.score;
 
-    return {};
+    const float enemy_ratio = cue.score;
+    if (kEnemyMaskMinRatio <= enemy_ratio && enemy_ratio <= kEnemyMaskMaxRatio) {
+        classification.color_bonus = kMaxColorBonus;
+    }
+    return classification;
 }
 
 } // namespace
@@ -275,9 +357,16 @@ void VisionTargetSelector::clear_tracking_state() {
     active_target_.reset();
     pending_target_.reset();
     pending_switch_target_.reset();
+    clear_cue_tracking();
     pending_frames_ = 0;
     pending_switch_frames_ = 0;
     hold_frames_ = 0;
+}
+
+void VisionTargetSelector::clear_cue_tracking() {
+    last_cue_point_.reset();
+    last_target_offset_from_cue_.reset();
+    cue_hold_frames_ = 0;
 }
 
 void VisionTargetSelector::clear_auto_fire_state() {
@@ -285,10 +374,14 @@ void VisionTargetSelector::clear_auto_fire_state() {
     auto_fire_miss_frames_ = 0;
 }
 
+bool VisionTargetSelector::wants_color_frame() const {
+    return active_target_.has_value() && last_cue_point_.has_value() && last_target_offset_from_cue_.has_value();
+}
+
 VisionResult VisionTargetSelector::select_with_frame(
     const DetectionBatch& batch,
     const ColorFrameView& frame) {
-    return select(annotate_colors(batch, frame));
+    return select_impl(annotate_colors(batch, frame), &frame);
 }
 
 VisionResult VisionTargetSelector::empty_result(float boxes_seen) const {
@@ -364,6 +457,10 @@ DetectionBatch VisionTargetSelector::annotate_colors(
         detection.color_bonus = classification.color_bonus;
         detection.is_friendly = classification.is_friendly;
         detection.color_classified = true;
+        detection.has_cue_point = classification.has_cue;
+        detection.cue_x = classification.cue_x;
+        detection.cue_y = classification.cue_y;
+        detection.cue_score = classification.cue_score;
     }
     return annotated;
 }
@@ -433,6 +530,10 @@ std::optional<VisionTargetSelector::Candidate> VisionTargetSelector::build_candi
     observed.target_y = point.second;
     observed.conf = detection.conf;
     observed.color_bonus = detection.color_bonus;
+    observed.has_cue = detection.has_cue_point;
+    observed.cue_x = detection.cue_x;
+    observed.cue_y = detection.cue_y;
+    observed.cue_score = detection.cue_score;
     observed.body_box = box;
     observed.slow_zone = fallback_slow_zone(box);
     observed.fire_zone = fire_zone(box);
@@ -835,6 +936,81 @@ std::pair<float, float> VisionTargetSelector::smooth_target_point(const std::pai
     };
 }
 
+std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::try_cue_hold(
+    const ColorFrameView& frame) {
+    if (!active_target_.has_value()
+        || !last_cue_point_.has_value()
+        || !last_target_offset_from_cue_.has_value()
+        || cue_hold_frames_ >= kMaxCueHoldFrames) {
+        return std::nullopt;
+    }
+
+    const int search_radius = static_cast<int>(std::round(
+        kCueHoldSearchRadius + (static_cast<float>(cue_hold_frames_) * kCueHoldSearchGrowthPerFrame)));
+    const int cue_x = static_cast<int>(std::round(last_cue_point_->first));
+    const int cue_y = static_cast<int>(std::round(last_cue_point_->second));
+    IntRect bounds{
+        std::max(0, cue_x - search_radius),
+        std::max(0, cue_y - search_radius),
+        std::min(frame.width, cue_x + search_radius + 1),
+        std::min(frame.height, cue_y + search_radius + 1),
+    };
+    if ((bounds.right - bounds.left) < 4 || (bounds.bottom - bounds.top) < 4) {
+        return std::nullopt;
+    }
+
+    const YellowCueObservation cue = scan_yellow_window(bounds, frame);
+    if (!cue.found) {
+        return std::nullopt;
+    }
+
+    Candidate held = active_target_->candidate;
+    const float cue_dx = cue.cue_x - last_cue_point_->first;
+    const float cue_dy = cue.cue_y - last_cue_point_->second;
+    held.target_x = cue.cue_x + last_target_offset_from_cue_->first;
+    held.target_y = cue.cue_y + last_target_offset_from_cue_->second;
+    held.body_box = shift_rect(active_target_->candidate.body_box, cue_dx, cue_dy);
+    held.slow_zone = shift_rect(active_target_->candidate.slow_zone, cue_dx, cue_dy);
+    held.fire_zone = shift_rect(active_target_->candidate.fire_zone, cue_dx, cue_dy);
+    held.has_cue = true;
+    held.cue_x = cue.cue_x;
+    held.cue_y = cue.cue_y;
+    held.cue_score = cue.score;
+    held.source = "cue_hold";
+
+    last_cue_point_ = std::make_pair(cue.cue_x, cue.cue_y);
+    cue_hold_frames_ += 1;
+    return target_from_candidate(held, active_target_->score);
+}
+
+void VisionTargetSelector::update_cue_tracking(const TargetState& target) {
+    if (!target.candidate.has_cue) {
+        clear_cue_tracking();
+        return;
+    }
+
+    const std::pair<float, float> cue_point = {
+        target.candidate.cue_x,
+        target.candidate.cue_y,
+    };
+    std::pair<float, float> new_offset = {
+        target.candidate.target_x - target.candidate.cue_x,
+        target.candidate.target_y - target.candidate.cue_y,
+    };
+    if (last_target_offset_from_cue_.has_value()) {
+        new_offset.first =
+            last_target_offset_from_cue_->first
+            + ((new_offset.first - last_target_offset_from_cue_->first) * kCueOffsetSmoothingAlpha);
+        new_offset.second =
+            last_target_offset_from_cue_->second
+            + ((new_offset.second - last_target_offset_from_cue_->second) * kCueOffsetSmoothingAlpha);
+    }
+
+    last_cue_point_ = cue_point;
+    last_target_offset_from_cue_ = new_offset;
+    cue_hold_frames_ = 0;
+}
+
 VisionResult VisionTargetSelector::hold_or_reset(float boxes_seen) {
     clear_pending();
     if (!active_target_.has_value()) {
@@ -887,16 +1063,40 @@ VisionResult VisionTargetSelector::finalize_selected_target(
     if (!committed.has_value()) {
         return empty_result(boxes_seen);
     }
+    update_cue_tracking(*committed);
     VisionResult result = result_from_target(*committed, boxes_seen);
     result.auto_fire = update_auto_fire(&*committed);
     return result;
 }
 
 VisionResult VisionTargetSelector::select(const DetectionBatch& batch) {
+    return select_impl(batch, nullptr);
+}
+
+VisionResult VisionTargetSelector::select_impl(
+    const DetectionBatch& batch,
+    const ColorFrameView* frame) {
     const float boxes_seen = static_cast<float>(batch.detections.size());
     const auto last_target_center = last_target_center_;
     const auto candidates = build_candidates(batch, last_target_center);
     if (candidates.empty()) {
+        clear_pending();
+        clear_switch_pending();
+        if (frame != nullptr) {
+            const auto cue_hold = try_cue_hold(*frame);
+            if (cue_hold.has_value()) {
+                active_target_ = *cue_hold;
+                hold_frames_ = 0;
+                last_target_center_ = {
+                    active_target_->candidate.target_x,
+                    active_target_->candidate.target_y,
+                };
+                VisionResult result = result_from_target(*active_target_, boxes_seen);
+                clear_auto_fire_state();
+                result.auto_fire = false;
+                return result;
+            }
+        }
         clear_tracking_state();
         VisionResult result = empty_result(boxes_seen);
         result.auto_fire = update_auto_fire(nullptr);

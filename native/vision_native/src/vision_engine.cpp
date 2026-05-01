@@ -171,7 +171,7 @@ VisionResult VisionEngine::poll_once() {
         batch.captured_at_ns = metadata.frame.captured_at_ns;
 
         bool has_color_frame = false;
-        if (!batch.detections.empty()) {
+        if (!batch.detections.empty() || selector_.wants_color_frame()) {
             const size_t host_bytes = static_cast<size_t>(width_) * static_cast<size_t>(height_) * 4;
             if (host_color_frame_.size() != host_bytes) {
                 host_color_frame_.resize(host_bytes);
