@@ -229,7 +229,7 @@ class NativeVisionTargetingBridgeTests(unittest.TestCase):
         self.assertTrue(result["has_target"])
         self.assertAlmostEqual(result["target_x"], 420.0, places=3)
 
-    def test_partial_occlusion_reconstructs_upper_box_from_recent_height(self):
+    def test_partial_occlusion_keeps_observed_box_without_reconstruction(self):
         if not hasattr(self.module, "NativeTargetSelector"):
             self.fail("NativeTargetSelector is missing")
 
@@ -244,16 +244,13 @@ class NativeVisionTargetingBridgeTests(unittest.TestCase):
         self.assertFalse(first["has_target"])
         self.assertTrue(locked["has_target"])
         self.assertTrue(reconstructed["has_target"])
-        self.assertEqual(reconstructed["target_source"], "reconstructed")
-        self.assertLess(reconstructed["body_y1"], 286.0)
+        self.assertEqual(reconstructed["target_source"], "observed")
+        self.assertAlmostEqual(reconstructed["body_y1"], 286.0, places=3)
         self.assertAlmostEqual(reconstructed["body_y2"], 362.0, places=3)
         raw_target_y = 286.0 + ((362.0 - 286.0) * 0.38)
-        self.assertLess(
-            abs(reconstructed["target_y"] - locked["target_y"]),
-            abs(raw_target_y - locked["target_y"]),
-        )
+        self.assertAlmostEqual(reconstructed["target_y"], raw_target_y, places=3)
 
-    def test_short_occlusion_prediction_bridges_only_two_empty_frames(self):
+    def test_empty_frame_drops_target_instead_of_predicting(self):
         if not hasattr(self.module, "NativeTargetSelector"):
             self.fail("NativeTargetSelector is missing")
 
@@ -265,19 +262,15 @@ class NativeVisionTargetingBridgeTests(unittest.TestCase):
         selector.select_xyxy(first_box)
         locked = selector.select_xyxy(first_box)
         observed = selector.select_xyxy(second_box)
-        predicted_one = selector.select_xyxy(empty)
-        predicted_two = selector.select_xyxy(empty)
         lost = selector.select_xyxy(empty)
+        still_lost = selector.select_xyxy(empty)
 
         self.assertTrue(locked["has_target"])
         self.assertTrue(observed["has_target"])
-        self.assertTrue(predicted_one["has_target"])
-        self.assertTrue(predicted_two["has_target"])
-        self.assertEqual(predicted_one["target_source"], "predicted")
-        self.assertEqual(predicted_two["target_source"], "predicted")
         self.assertFalse(lost["has_target"])
+        self.assertFalse(still_lost["has_target"])
 
-    def test_reacquired_target_exits_predicted_state_immediately(self):
+    def test_reacquired_target_requires_fresh_confirmation_after_empty_gap(self):
         if not hasattr(self.module, "NativeTargetSelector"):
             self.fail("NativeTargetSelector is missing")
 
@@ -289,11 +282,12 @@ class NativeVisionTargetingBridgeTests(unittest.TestCase):
         selector.select_xyxy(first_box)
         selector.select_xyxy(first_box)
         selector.select_xyxy(second_box)
-        predicted = selector.select_xyxy(np.empty((0, 6), dtype=np.float32))
+        lost = selector.select_xyxy(np.empty((0, 6), dtype=np.float32))
+        reacquire_first = selector.select_xyxy(reacquired_box)
         reacquired = selector.select_xyxy(reacquired_box)
 
-        self.assertTrue(predicted["has_target"])
-        self.assertEqual(predicted["target_source"], "predicted")
+        self.assertFalse(lost["has_target"])
+        self.assertFalse(reacquire_first["has_target"])
         self.assertTrue(reacquired["has_target"])
         self.assertEqual(reacquired["target_source"], "observed")
 

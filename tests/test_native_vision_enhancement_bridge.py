@@ -46,7 +46,7 @@ class NativeVisionEnhancementBridgeTests(unittest.TestCase):
         self.assertLessEqual(result["dx"], 3.0)
         self.assertEqual(result["dy"], 0.0)
 
-    def test_predicted_targets_do_not_accumulate_velocity_or_lead(self):
+    def test_source_string_no_longer_disables_velocity_or_lead(self):
         if not hasattr(self.module, "NativeAimEnhancer"):
             self.fail("NativeAimEnhancer is missing")
 
@@ -58,8 +58,8 @@ class NativeVisionEnhancementBridgeTests(unittest.TestCase):
         predicted_two = _process(enhancer, 28.0, 0.0, source="predicted", timestamp=1.3)
 
         self.assertGreaterEqual(observed["dx"], 16.0)
-        self.assertEqual(predicted_one["dx"], 22.0)
-        self.assertEqual(predicted_two["dx"], 28.0)
+        self.assertGreater(predicted_one["dx"], 22.0)
+        self.assertGreater(predicted_two["dx"], 28.0)
 
     def test_reset_clears_enhancement_state(self):
         if not hasattr(self.module, "NativeAimEnhancer"):

@@ -44,7 +44,6 @@ private:
         std::optional<AimSlowZone> slow_zone;
     };
 
-    static bool is_predicted(const VisionResult& target);
     static float clamp_axis_lead(float current_error, float lead, float max_lead);
     static bool is_crosshair_in_slow_zone(const AimState& state);
     static float damping_scale_for_distance(float distance);

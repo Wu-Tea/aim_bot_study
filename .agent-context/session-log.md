@@ -715,3 +715,55 @@ Context files updated:
 Follow-up:
 - Run live COD22 validation on the reverted native baseline before reviving any yellow-cue or continuity-heavy experiment branch.
 - If a later experiment restarts yellow-cue support, introduce it as an auxiliary native YOLO layer rather than assuming the 2026-04-30 evening architecture should resume unchanged.
+
+## 2026-05-01T17:54:45+08:00 - Simplified the native baseline by removing synthetic compensation and restoring lightweight grayscale helpers
+
+Goal: Trim the reverted native YOLO baseline by removing the selector's `reconstruct/predict` synthetic target path, stop treating `"predicted"` as a special controller-facing source in aim enhancement, and selectively restore only the lightweight grayscale helper layer from the rolled-back experiment branch.
+
+What changed:
+- Re-read `.agent-context/handoff.md` before implementing so the cleanup stayed aligned with the accepted rollback baseline and did not silently reopen the larger hotpath stack.
+- Inspected the current native baseline and confirmed the remaining synthetic motion-compensation behavior was concentrated in:
+  - `native/vision_native/src/target_selector.cpp`
+  - `native/vision_native/include/vision_native/target_selector.h`
+  - `native/vision_native/src/aim_enhancement.cpp`
+  - `native/vision_native/include/vision_native/aim_enhancement.h`
+- Compared those files against the rolled-back historical grayscale utilities in `ac224b1` and decided to recover only the small reusable utility layer rather than `BodyStateTracker` / `EgoMotionEstimator` or any larger continuity stack.
+- Updated tests first to express the new desired behavior:
+  - empty detection frames should drop the target rather than synthesize a `predicted` one
+  - partial-occlusion detections should remain `observed` rather than synthesize a `reconstructed` one
+  - aim enhancement should no longer disable lead / catchup based purely on `target_source == "predicted"`
+  - grayscale helpers should be exposed through the native pybind bridge
+- Implemented the cleanup:
+  - removed `try_reconstruct(...)`, `try_predict(...)`, stable-sample prediction bookkeeping, and related synthetic-source plumbing from `VisionTargetSelector`
+  - removed the `is_predicted(...)` special-case path from `AimEnhancementPipeline`
+  - restored lightweight `GrayFrame` and `image_ops.h`
+  - exposed `grayscale_rgb(...)` and `downsample_grayscale(...)` through `vision_native_cpp`
+- Verified the result with fresh evidence:
+  - `powershell -ExecutionPolicy Bypass -File tools\build_native_vision.ps1`
+    - first failed because an older Python process was still locking `vision_native_cpp.cp311-win_amd64.pyd`
+    - after stopping the stale `py.exe` / `python.exe` processes, the rebuild succeeded
+  - `py -3 -m unittest tests.test_native_vision_targeting_bridge tests.test_native_vision_enhancement_bridge tests.test_native_vision_image_ops_bridge -v`
+    - result: `21` passed
+  - `py -3 -m unittest tests.test_startup_scripts tests.test_performance_tracker tests.test_vision_runner tests.test_native_vision_runner tests.test_native_vision_targeting_bridge tests.test_native_vision_enhancement_bridge tests.test_native_vision_image_ops_bridge -v`
+    - result: `51` passed
+
+User confirmed:
+- It was fine to proceed with a narrowed cleanup that handled only `GrayFrame + image_ops` and the current native `reconstruct/predict` chain.
+- Archive the change and commit it after verification.
+
+AI inferred:
+- The earlier synthetic compensation slice was now better treated as removable baseline complexity rather than a required part of the native YOLO path.
+- The lightweight grayscale utility layer can be useful infrastructure on its own even when the larger continuity experiment stack remains rolled back.
+- The live baseline should now be evaluated with less selector-side synthetic behavior before revisiting any new auxiliary targeting experiments.
+
+Decisions:
+- Added accepted decision `.agent-context/decisions/DEC-2026-05-01-004-simplify-native-baseline-remove-compensation-and-restore-gray-helpers.md`.
+
+Context files updated:
+- `.agent-context/handoff.md`
+- `.agent-context/session-log.md`
+- `.agent-context/decisions/DEC-2026-05-01-004-simplify-native-baseline-remove-compensation-and-restore-gray-helpers.md`
+
+Follow-up:
+- Run live COD22 validation on the simplified native baseline, especially around empty-frame loss, reacquire feel, and partial-cover targets.
+- If grayscale utilities are reused later, keep them narrowly scoped unless live profiling shows a concrete need for a larger native image-processing stack.

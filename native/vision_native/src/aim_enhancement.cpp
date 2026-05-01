@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <string>
 #include <tuple>
 
 namespace vision_native {
@@ -43,10 +42,6 @@ void AimEnhancementPipeline::reset() {
     catchup_y_growth_frames_ = 0;
     catchup_x_bonus_ = 0.0f;
     catchup_y_bonus_ = 0.0f;
-}
-
-bool AimEnhancementPipeline::is_predicted(const VisionResult& target) {
-    return std::string(target.target_source) == "predicted";
 }
 
 float AimEnhancementPipeline::clamp_axis_lead(float current_error, float lead, float max_lead) {
@@ -214,7 +209,6 @@ VisionResult AimEnhancementPipeline::process(
         return target;
     }
 
-    const bool predicted = is_predicted(target);
     double dt = 0.0;
     float motion_x = 0.0f;
     float motion_y = 0.0f;
@@ -226,7 +220,7 @@ VisionResult AimEnhancementPipeline::process(
         previous_dy = previous_target_->dy;
     }
 
-    if (!predicted && previous_target_.has_value() && previous_timestamp_.has_value()) {
+    if (previous_target_.has_value() && previous_timestamp_.has_value()) {
         dt = std::max(0.0, timestamp_seconds - *previous_timestamp_);
         motion_x = target.target_x - previous_target_->target_x;
         motion_y = target.target_y - previous_target_->target_y;
@@ -251,14 +245,6 @@ VisionResult AimEnhancementPipeline::process(
         target.dy,
         slow_zone,
     };
-
-    if (predicted) {
-        apply_near_target_damping(state);
-        VisionResult output = target;
-        output.dx = state.output_dx;
-        output.dy = state.output_dy;
-        return output;
-    }
 
     apply_lead(state);
     apply_catchup(state);

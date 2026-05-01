@@ -4,11 +4,13 @@
 #include "vision_native/vision_engine.h"
 #include "vision_native/tensorrt_inspector.h"
 #include "vision_native/tensorrt_engine.h"
+#include "image_ops.h"
 
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
+#include <algorithm>
 #include <array>
 
 namespace py = pybind11;
@@ -239,6 +241,47 @@ std::optional<vision_native::AimSlowZone> parse_slow_zone(const py::object& valu
     return vision_native::AimSlowZone{zone[0], zone[1], zone[2], zone[3]};
 }
 
+py::array_t<uint8_t> gray_frame_to_numpy(const vision_native::GrayFrame& frame) {
+    py::array_t<uint8_t> array({frame.height, frame.width});
+    py::buffer_info buffer = array.request();
+    auto* pixels = static_cast<uint8_t*>(buffer.ptr);
+    std::copy(frame.pixels.begin(), frame.pixels.end(), pixels);
+    return array;
+}
+
+vision_native::detail::ImageFrameView image_frame_view(
+    py::array_t<uint8_t, py::array::c_style | py::array::forcecast> frame) {
+    py::buffer_info buffer = frame.request();
+    if (buffer.ndim != 3 || buffer.shape[2] != 3) {
+        throw std::runtime_error("grayscale_rgb expects an RGB uint8 array with shape [H,W,3]");
+    }
+
+    vision_native::detail::ImageFrameView view;
+    view.data = static_cast<const uint8_t*>(buffer.ptr);
+    view.width = static_cast<int>(buffer.shape[1]);
+    view.height = static_cast<int>(buffer.shape[0]);
+    view.row_pitch = static_cast<int>(buffer.strides[0]);
+    view.format = vision_native::PixelFormat::RGB8;
+    return view;
+}
+
+vision_native::GrayFrame gray_frame_from_array(
+    py::array_t<uint8_t, py::array::c_style | py::array::forcecast> frame) {
+    py::buffer_info buffer = frame.request();
+    if (buffer.ndim != 2) {
+        throw std::runtime_error("downsample_grayscale expects a uint8 array with shape [H,W]");
+    }
+
+    vision_native::GrayFrame gray;
+    gray.width = static_cast<int>(buffer.shape[1]);
+    gray.height = static_cast<int>(buffer.shape[0]);
+    const auto* pixels = static_cast<const uint8_t*>(buffer.ptr);
+    gray.pixels.assign(
+        pixels,
+        pixels + (static_cast<size_t>(gray.width) * static_cast<size_t>(gray.height)));
+    return gray;
+}
+
 } // namespace
 
 PYBIND11_MODULE(vision_native_cpp, module) {
@@ -258,6 +301,26 @@ PYBIND11_MODULE(vision_native_cpp, module) {
         py::arg("engine_path"),
         py::arg("frame"),
         py::arg("conf_threshold") = 0.4f);
+    module.def(
+        "grayscale_rgb",
+        [](py::array_t<uint8_t, py::array::c_style | py::array::forcecast> frame,
+           int downsample) {
+            return gray_frame_to_numpy(vision_native::detail::to_grayscale(
+                image_frame_view(frame),
+                downsample));
+        },
+        py::arg("frame"),
+        py::arg("downsample") = 1);
+    module.def(
+        "downsample_grayscale",
+        [](py::array_t<uint8_t, py::array::c_style | py::array::forcecast> frame,
+           int downsample) {
+            return gray_frame_to_numpy(vision_native::detail::downsample_gray(
+                gray_frame_from_array(frame),
+                downsample));
+        },
+        py::arg("frame"),
+        py::arg("downsample"));
 
     py::class_<vision_native::TensorRTEngine>(module, "NativeEngine")
         .def(py::init<std::string>())

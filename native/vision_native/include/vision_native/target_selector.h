@@ -55,16 +55,6 @@ public:
         float score = 0.0f;
     };
 
-    struct TrackSample {
-        float target_x = 0.0f;
-        float target_y = 0.0f;
-        Rect selected_box;
-        float bottom_y = 0.0f;
-        float height = 0.0f;
-        float timestamp = 0.0f;
-        const char* source = "observed";
-    };
-
 private:
     VisionResult empty_result(float boxes_seen) const;
     VisionResult result_from_target(const TargetState& target, float boxes_seen) const;
@@ -74,10 +64,6 @@ private:
     Rect fallback_slow_zone(const Rect& box) const;
     Rect fire_zone(const Rect& box) const;
     DetectionBatch annotate_colors(const DetectionBatch& batch, const ColorFrameView& frame) const;
-    std::optional<Candidate> try_reconstruct(const Candidate& candidate) const;
-    std::optional<TargetState> try_predict(float timestamp);
-    void record_observation(const TargetState& target, float timestamp);
-    void clear_prediction_state();
     void clear_tracking_state();
     void clear_auto_fire_state();
     bool is_crosshair_inside_zone(const Rect& zone) const;
@@ -138,8 +124,7 @@ private:
         const TargetState& chosen_target,
         const std::optional<std::pair<float, float>>& last_target_center,
         float boxes_seen,
-        bool preserve_switch_pending,
-        float sample_timestamp);
+        bool preserve_switch_pending);
 
     float frame_width_ = 0.0f;
     float frame_height_ = 0.0f;
@@ -159,12 +144,9 @@ private:
     std::optional<TargetState> active_target_;
     std::optional<TargetState> pending_target_;
     std::optional<TargetState> pending_switch_target_;
-    std::vector<TrackSample> stable_samples_;
     int pending_frames_ = 0;
     int pending_switch_frames_ = 0;
     int hold_frames_ = 0;
-    int predicted_frames_used_ = 0;
-    float sample_clock_ = 0.0f;
     bool auto_fire_holding_ = false;
     int auto_fire_miss_frames_ = 0;
 };
