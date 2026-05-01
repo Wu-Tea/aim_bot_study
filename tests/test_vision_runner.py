@@ -23,10 +23,6 @@ class VisionRunnerTests(unittest.TestCase):
         self.assertEqual(config.capture_width, 640)
         self.assertEqual(config.capture_height, 512)
         self.assertEqual(config.capture_fps, 80)
-        self.assertEqual(config.track_fps, 80.0)
-        self.assertEqual(config.warm_scan_fps, 20.0)
-        self.assertAlmostEqual(config.scan_fps, 1000.0 / 12.0)
-        self.assertEqual(config.recovery_scan_fps, 125.0)
         self.assertEqual(config.conf, 0.40)
         self.assertFalse(config.debug_overlay)
         self.assertFalse(config.debug_save_frames)
@@ -39,10 +35,6 @@ class VisionRunnerTests(unittest.TestCase):
                 "VISION_CROP_WIDTH": "896",
                 "VISION_CROP_HEIGHT": "512",
                 "VISION_CAPTURE_FPS": "144",
-                "VISION_TRACK_FPS": "72",
-                "VISION_WARMSCAN_FPS": "16",
-                "VISION_SCAN_FPS": "90",
-                "VISION_RECOVERY_SCAN_FPS": "110",
                 "VISION_IDLE_CAPTURE_FPS": "12",
                 "VISION_FAST_PREPROCESSOR": "native",
             },
@@ -53,24 +45,7 @@ class VisionRunnerTests(unittest.TestCase):
         self.assertEqual(config.capture_width, 896)
         self.assertEqual(config.capture_height, 512)
         self.assertEqual(config.capture_fps, 144)
-        self.assertEqual(config.track_fps, 72.0)
-        self.assertEqual(config.warm_scan_fps, 16.0)
-        self.assertEqual(config.scan_fps, 90.0)
-        self.assertEqual(config.recovery_scan_fps, 110.0)
         self.assertEqual(config.image_size, (512, 896))
-
-    def test_from_env_defaults_track_fps_to_capture_fps_when_unset(self):
-        with patch.dict(
-            os.environ,
-            {
-                "VISION_CAPTURE_FPS": "165",
-            },
-            clear=True,
-        ):
-            config = VisionConfig.from_env()
-
-        self.assertEqual(config.capture_fps, 165)
-        self.assertEqual(config.track_fps, 165.0)
 
     def test_from_env_allows_debug_overlay_override(self):
         with patch.dict(
@@ -336,7 +311,6 @@ class _FakeInferenceThread:
                         inferred_at=20.01,
                         frame=np.ones((4, 4, 3), dtype=np.uint8),
                         detections=[],
-                        roi_ms=1.5,
                         infer_ms=6.5,
                     ),
                     7,
@@ -348,7 +322,6 @@ class _FakeInferenceThread:
                         inferred_at=21.01,
                         frame=np.full((4, 4, 3), 2, dtype=np.uint8),
                         detections=[],
-                        roi_ms=1.75,
                         infer_ms=6.0,
                     ),
                     8,
@@ -440,11 +413,7 @@ class VisionRunnerPipelineTests(unittest.TestCase):
         self.assertEqual(int(resolved_frames[0][0, 0, 0]), 1)
         self.assertEqual(int(resolved_frames[1][0, 0, 0]), 2)
         perf_tracker.update.assert_called()
-        self.assertIn("roi_ms", perf_tracker.update.call_args.kwargs)
-        self.assertEqual(perf_tracker.update.call_args.kwargs["roi_ms"], 1.75)
-        self.assertNotIn("wait_ms", perf_tracker.update.call_args.kwargs)
-        self.assertIn("yolo_ms", perf_tracker.update.call_args.kwargs)
-        self.assertEqual(perf_tracker.update.call_args.kwargs["yolo_ms"], 6.0)
+        self.assertIn("wait_ms", perf_tracker.update.call_args.kwargs)
         self.assertIn("age_ms", perf_tracker.update.call_args.kwargs)
         self.assertGreaterEqual(perf_tracker.update.call_args.kwargs["age_ms"], 0.0)
 
@@ -570,7 +539,6 @@ class VisionRunnerPipelineTests(unittest.TestCase):
                 inferred_at=20.01,
                 frame=np.ones((4, 4, 3), dtype=np.uint8),
                 detections=[],
-                roi_ms=1.5,
                 infer_ms=6.5,
             ),
             7,
@@ -582,7 +550,6 @@ class VisionRunnerPipelineTests(unittest.TestCase):
                 inferred_at=21.01,
                 frame=np.full((4, 4, 3), 2, dtype=np.uint8),
                 detections=[],
-                roi_ms=1.75,
                 infer_ms=6.0,
             ),
             8,
@@ -649,7 +616,6 @@ class VisionRunnerPipelineTests(unittest.TestCase):
                     inferred_at=20.01,
                     frame=np.ones((4, 4, 3), dtype=np.uint8),
                     detections=[],
-                    roi_ms=1.5,
                     infer_ms=6.5,
                 ),
                 7,

@@ -53,17 +53,6 @@ def _env_flag(name: str, default: bool = False):
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _env_positive_float(name: str, default: float) -> float:
-    value = os.getenv(name)
-    if value is None:
-        return default
-    try:
-        parsed = float(value)
-    except ValueError:
-        return default
-    return parsed if parsed > 0.0 else default
-
-
 def _env_quit_key(default: int) -> int:
     value = os.getenv("VISION_QUIT_KEY")
     if value is None:
@@ -87,10 +76,6 @@ class VisionConfig:
     capture_width: int = 640
     capture_height: int = 512
     capture_fps: int = 80
-    track_fps: float = 80.0
-    warm_scan_fps: float = 20.0
-    scan_fps: float = 1000.0 / 12.0
-    recovery_scan_fps: float = 125.0
     debug_overlay: bool = False
     debug_save_frames: bool = False
     model_path: str = str(DEFAULT_MODEL_PATH)
@@ -132,20 +117,12 @@ class VisionConfig:
                 os.getenv("VISION_TARGET_FPS", str(defaults.capture_fps)),
             )
         )
-        track_fps = _env_positive_float("VISION_TRACK_FPS", float(capture_fps))
-        warm_scan_fps = _env_positive_float("VISION_WARMSCAN_FPS", defaults.warm_scan_fps)
-        scan_fps = _env_positive_float("VISION_SCAN_FPS", defaults.scan_fps)
-        recovery_scan_fps = _env_positive_float("VISION_RECOVERY_SCAN_FPS", defaults.recovery_scan_fps)
         model_path = os.getenv("VISION_MODEL_PATH", defaults.model_path)
         fallback_model_path = os.getenv("VISION_FALLBACK_MODEL_PATH", defaults.fallback_model_path)
         return cls(
             capture_width=capture_width,
             capture_height=capture_height,
             capture_fps=capture_fps,
-            track_fps=track_fps,
-            warm_scan_fps=warm_scan_fps,
-            scan_fps=scan_fps,
-            recovery_scan_fps=recovery_scan_fps,
             debug_overlay=_env_flag("VISION_DEBUG_OVERLAY"),
             debug_save_frames=_env_flag("VISION_DEBUG_SAVE"),
             model_path=model_path,
@@ -317,10 +294,12 @@ def process_vision(controller=None):
                 last_frame = None
             was_aiming = True
 
+            wait_start = time.perf_counter()
             result, last_result_id = inference_thread.get_latest_result(
                 last_seen_id=last_result_id,
                 timeout=config.frame_timeout,
             )
+            wait_ms = (time.perf_counter() - wait_start) * 1000.0
 
             if result is None:
                 gap_frame = last_frame
@@ -367,7 +346,6 @@ def process_vision(controller=None):
             frame = result.frame
             last_frame = frame
             detections = result.detections
-            roi_ms = result.roi_ms
             infer_ms = result.infer_ms
 
             post_start = time.perf_counter()
@@ -410,8 +388,8 @@ def process_vision(controller=None):
                 )
 
             perf_tracker.update(
-                roi_ms=roi_ms,
-                yolo_ms=infer_ms,
+                wait_ms=wait_ms,
+                infer_ms=infer_ms,
                 post_ms=post_ms,
                 boxes_seen=boxes_seen,
                 age_ms=age_ms,

@@ -576,3 +576,142 @@ Context files updated:
 Follow-up:
 - Run live COD22 validation with the yellow-dot UI setting enabled.
 - Decide whether the next round should strengthen provisional cue influence or keep it limited to selector scan bias.
+
+## 2026-05-01T12:52:40+08:00 - Article review recorded against current native vision birth path
+
+Goal: Compare the article in `D:/Downloads/deep-research-report (4).md` against the local native vision implementation, then preserve the useful optimization direction in project-local context before the next tuning round loses the reasoning.
+
+What changed:
+- Re-read `.agent-context/handoff.md`, the COD22 mixed-acquisition decision, and the recent session log before comparing the article against the current native implementation.
+- Read the article as a safety-neutral real-time perception architecture review focused on detector birth path, local-tracker continuation, auxiliary-cue gating, and output-tier separation.
+- Compared the article's recommendations against the current native stack in:
+  - `native/vision_native/src/vision_engine.cpp`
+  - `native/vision_native/src/target_selector.cpp`
+  - `native/vision_native/src/body_state_tracker.cpp`
+  - `native/vision_native/src/center_cue_refiner.cpp`
+  - `vision/native_runner.py`
+- Confirmed that the current workspace already matches the article's broad architecture direction:
+  - detector, tracker, and cue are separated into distinct stages
+  - body-state owns continuation quality
+  - cue remains useful as scan bias and post-body-state refinement
+- Identified the main remaining optimization opportunity as the birth path rather than the continuation path:
+  - `VisionTargetSelector` still requires two pickup-confirm frames before first lock because `kPickupConfirmFrames=2`
+  - cue alignment currently acts as a hard gating condition in cue-seeded selection paths instead of only adding preference or acceleration
+  - `VisionEngine` still creates a `yellow_cue` fallback target when no other target exists
+  - `vision/native_runner.py` currently forwards any native `has_target` result to `controller.update(...)`, so the fallback cue result is not yet cleanly tiered away from controller-facing output
+- Ranked the highest-ROI follow-up options:
+  1. restore a detector-owned provisional fast path for first valid person observations
+  2. demote cue alignment from hard veto to soft bonus outside weak / reacquire handling
+  3. split provisional `yellow_cue` visibility from controller-trusted output
+  4. consider confidence-triggered or confidence-weighted scan refresh only after the birth path is cleaned up
+
+User confirmed:
+- Record this comparison in project-local context.
+
+AI inferred:
+- The current native design is not missing a major subsystem; it is mostly paying extra latency through conservative birth-path gates.
+- The largest practical mismatch between accepted COD22 intent and current implementation is that `yellow_cue` can still surface as a downstream `has_target` result even though the accepted intent was to keep provisional cue seeds out of standalone controller-facing authority.
+- A narrow birth-path optimization slice is higher ROI than adding more continuation machinery right now.
+
+Decisions:
+- Added proposed decision `.agent-context/decisions/DEC-2026-05-01-001-birth-path-optimization-priority.md`.
+
+Context files updated:
+- `.agent-context/handoff.md`
+- `.agent-context/session-log.md`
+- `.agent-context/decisions/DEC-2026-05-01-001-birth-path-optimization-priority.md`
+
+Follow-up:
+- Decide whether to implement the birth-path optimization slice before the next COD22 live-validation run.
+- If implemented, add regression coverage for immediate provisional person pickup, cue-seed soft-bonus behavior, and controller gating that excludes `yellow_cue` provisional outputs.
+
+## 2026-05-01T13:33:34+08:00 - Article review recorded for side-running enemy recognition and tracking
+
+Goal: Compare the article in `D:/Downloads/deep-research-report (5).md` against the local native implementation, with emphasis on sideways-running enemies, short occlusion, lateral pan continuity, and neighbor-switch resistance.
+
+What changed:
+- Re-read `.agent-context/handoff.md` before the comparison so the new article review stayed aligned with the existing COD22 native architecture and the earlier birth-path notes.
+- Read the article as a low-latency FPS tracking adaptation of BoT-SORT / OC-SORT / ByteTrack ideas, with emphasis on camera-motion compensation, selected-target torso-local tracking, and lightweight reacquire policy instead of a full MOT stack.
+- Compared the article's recommendations against the current native stack in:
+  - `native/vision_native/src/body_state_tracker.cpp`
+  - `native/vision_native/src/ego_motion.cpp`
+  - `native/vision_native/src/vision_engine.cpp`
+  - `native/vision_native/src/target_selector.cpp`
+  - `tests/test_native_vision_body_state_bridge.py`
+  - `tests/test_native_vision_targeting_bridge.py`
+- Confirmed that the current workspace already matches the article's preferred high-level insertion order for lateral targets:
+  - ego-motion runs before selector arbitration
+  - only the selected target receives torso-local continuation work
+  - the native tests already cover large pan continuity, partial occlusion, hold/reacquire behavior, and pan-stop overshoot
+- Identified the likely highest-ROI improvements for sideways-running enemies:
+  1. add masked torso-local patch tracking because the current patch matcher is unmasked in both observed and unobserved paths
+  2. add explicit reacquire-time residual-velocity reset behavior rather than relying only on conservative velocity decay through loss
+  3. retune lateral recovery window and velocity limits if live tests still show sideways-run dropouts
+  4. consider reducing ego-motion freedom from full affine toward similarity / partial affine only after the local tracker changes are measured
+  5. keep torso-local weak color cue and reacquire-only low-score detections as secondary refinements
+- Explicitly rejected the idea that this article implies importing full BoT-SORT, ReID, dense optical flow, or SLAM machinery into the hot path.
+
+User confirmed:
+- Record this comparison in project-local context.
+
+AI inferred:
+- The current native stack is already architecturally close to the article's recommendation; the remaining lateral-motion value is in tracker hygiene and reacquire policy, not in a missing major subsystem.
+- The cleanest next experiment for side-running targets is probably inside `BodyStateTracker` rather than `VisionTargetSelector` or the controller-facing contract.
+- Birth-path latency and lateral continuity remain related but separable optimization tracks, so recording them as separate proposed decisions is useful.
+
+Decisions:
+- Added proposed decision `.agent-context/decisions/DEC-2026-05-01-002-side-running-lateral-tracking-optimization-priority.md`.
+
+Context files updated:
+- `.agent-context/handoff.md`
+- `.agent-context/session-log.md`
+- `.agent-context/decisions/DEC-2026-05-01-002-side-running-lateral-tracking-optimization-priority.md`
+
+Follow-up:
+- Decide whether the next engineering slice should stay focused on birth-path latency first, or whether side-running continuity now justifies a narrow `BodyStateTracker` experiment in parallel.
+- If the lateral slice is implemented, add focused regression coverage around masked patch behavior, sideways-run reacquire latency, and neighbor-switch resistance during lateral cross scenes.
+
+## 2026-05-01T16:48:00+08:00 - Corrected rollback to the native pre-hotpath baseline after an intermediate backend mistake
+
+Goal: Restore the controller-facing default runtime to the last known-good native YOLO baseline rather than the newer 2026-04-30 evening experiment branch, and record the rollback error honestly so later sessions do not confuse the Python fallback with the requested native rollback.
+
+What changed:
+- The user reported that the current ROI/native experiment branch was performing materially worse than the earlier pure detector behavior on live material and asked for a rollback.
+- I first misinterpreted that request and briefly changed the startup defaults toward the Python backend instead of keeping the runtime native.
+- The user corrected the intent explicitly: the rollback target should remain the native YOLO path, not the Python path.
+- Investigated git history to identify the relevant boundaries:
+  - native runtime integration began on 2026-04-21
+  - the later hotpath/cue experiment branch landed on 2026-04-30 via `ac224b1` and `2b8a35b`
+  - the practical pre-hotpath rollback target is commit `708c253` (`Prune mouse benchmark artifacts`, 2026-04-30 13:22:09 +0800)
+- Restored the runtime, startup scripts, tests, and native source files affected by the 2026-04-30 evening experiment branch back to the `708c253` state.
+- Verified the corrected rollback with fresh evidence:
+  - `powershell -ExecutionPolicy Bypass -File tools\build_native_vision.ps1`
+    - result: native build succeeded
+  - `py -3 -m unittest tests.test_startup_scripts tests.test_performance_tracker tests.test_vision_runner tests.test_native_vision_runner tests.test_native_vision_targeting_bridge -v`
+    - result: `44` passed
+
+User confirmed:
+- The rollback target should be the native YOLO path, not the Python backend.
+- Commit the corrected rollback.
+- Record the mistake and the resulting decision in project-local context.
+
+AI inferred:
+- The earlier Python-default rollback was an execution error, not a product decision, and should be recorded as a correction rather than treated as durable policy.
+- The 2026-04-30 evening hotpath/yellow-cue branch is no longer trustworthy as the live baseline until the reverted native baseline is re-validated in live play.
+- The 2026-05-01 article-driven optimization proposals remain useful but are now deferred behind baseline recovery.
+
+Decisions:
+- Added accepted decision `.agent-context/decisions/DEC-2026-05-01-003-revert-default-native-runtime-to-708c253.md`.
+- Marked `.agent-context/decisions/DEC-2026-05-01-001-birth-path-optimization-priority.md` as superseded for the current default runtime path.
+- Marked `.agent-context/decisions/DEC-2026-05-01-002-side-running-lateral-tracking-optimization-priority.md` as superseded for the current default runtime path.
+
+Context files updated:
+- `.agent-context/handoff.md`
+- `.agent-context/session-log.md`
+- `.agent-context/decisions/DEC-2026-05-01-001-birth-path-optimization-priority.md`
+- `.agent-context/decisions/DEC-2026-05-01-002-side-running-lateral-tracking-optimization-priority.md`
+- `.agent-context/decisions/DEC-2026-05-01-003-revert-default-native-runtime-to-708c253.md`
+
+Follow-up:
+- Run live COD22 validation on the reverted native baseline before reviving any yellow-cue or continuity-heavy experiment branch.
+- If a later experiment restarts yellow-cue support, introduce it as an auxiliary native YOLO layer rather than assuming the 2026-04-30 evening architecture should resume unchanged.

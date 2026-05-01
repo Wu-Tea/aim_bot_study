@@ -1,17 +1,17 @@
 # Agent Handoff
 
-Last updated: 2026-04-30T21:08:00+08:00
+Last updated: 2026-05-01T16:48:00+08:00
 Updated by: Codex
-Staleness: stale after COD22 cue semantics change away from the single yellow dot, native continuity ownership changes again, grayscale derivation moves out of `VisionEngine`, or the cadence / perf-log contract changes materially
+Staleness: stale after the default native baseline moves away from commit `708c253`, the controller-facing runtime stops using the pre-hotpath native selector/aim-enhancement path, or yellow-cue / body-state / ego-motion experiments are reintroduced into the default runtime
 
 ## Current Objective
 
-Live-validate and tune the COD22 yellow-dot mixed acquisition v1 on top of the native baseline (`ac224b1`):
+Re-establish and live-validate the pre-hotpath native YOLO baseline at commit `708c253` before attempting any more yellow-cue or continuity-heavy experiments:
 
-1. validate compact yellow-dot gating against the configured COD22 UI
-2. tune how strongly provisional cue seeds bias acquisition versus plain crosshair distance
-3. verify fused `cue + person/body-state` behavior on ADS entry, head-near lock, and partial occlusion
-4. keep controller-facing output conservative: provisional cue seeds still do not directly auto-fire or become standalone confirmed targets
+1. confirm the reverted native runtime behaves like the last known-good baseline in live ADS use
+2. keep native as the default controller-facing backend; do not silently substitute the Python runtime
+3. treat the 2026-04-30 evening hotpath / yellow-cue slice as rolled back work, not the current baseline
+4. revisit yellow-cue or lateral-tracking improvements only after the baseline is stable again
 
 ## Current State
 
@@ -19,129 +19,71 @@ Native vision remains the accepted default runtime through `vision/native_runner
 
 The live native controller-facing path is now:
 
-- `ROI capture -> WarmScan / ActiveTrack scheduling -> TensorRT person detection -> shared grayscale + host BGRA frame -> EgoMotionEstimator -> VisionTargetSelector -> BodyStateTracker -> CenterCueRefiner -> AimEnhancement(damping-only) -> controller`
+- `ROI capture -> TensorRT person detection -> VisionTargetSelector -> AimEnhancement -> controller`
 
-Implementation status aligned with the accepted decisions:
+Implementation status aligned with the current accepted rollback decision:
 
-- `DEC-2026-04-30-001` dual-rate `WarmScan / ActiveTrack` is implemented in the current workspace
-- `DEC-2026-04-30-002` native hot-path consolidation before center cue is now effectively complete
-- `VisionEngine` owns per-frame grayscale derivation and shares it across ego-motion and body-state work
-- `BodyStateTracker` is the native mainline continuity authority
-- selector-side legacy hold still exists for standalone selector behavior, but it is now explicit `target_source="selector_hold"`
-- `VisionEngine` only treats selector outputs with `target_source in {"observed", "reconstructed"}` as confirmed scan observations
-- the center yellow cue remains a crosshair-near final-stage refiner only; it is not a global selector or WarmScan signal
-- controller-facing native output still goes through `process_damping_only(...)`
+- the default code state has been restored to commit `708c253` (`Prune mouse benchmark artifacts`, 2026-04-30 13:22:09 +0800) for the native runtime files and startup scripts affected by the later experiment branch
+- `gamepad_start.bat` and `mouse_start.bat` default to `VISION_BACKEND=native`
+- the 2026-04-30 evening hotpath/cadence/yellow-cue experiment stack from `ac224b1` and `2b8a35b` is no longer the controller-facing baseline
+- `BodyStateTracker`, `CenterCueRefiner`, `EgoMotionEstimator`, grayscale-sharing, and cadence-split logic are not part of the current default runtime after the rollback
+- the current default native runner is the simpler pre-hotpath native YOLO path that was verified as the rollback target
 
-Native perf / cadence state:
+Native runtime defaults:
 
-- perf logging now splits `capture / acquire / copy / pre / infer / decode / post` instead of the older mixed `roi / yolo`
-- current timing interpretation:
-  - `capture = acquire + copy`
-  - visible live jitter is usually `AcquireNextFrame(...)` phase jitter, not TensorRT instability
-- runtime cadence is now separately configurable via:
-  - `VISION_CAPTURE_FPS`
-  - `VISION_TRACK_FPS`
-  - `VISION_WARMSCAN_FPS`
-  - `VISION_SCAN_FPS`
-  - `VISION_RECOVERY_SCAN_FPS`
 - current startup-script defaults are:
-  - `capture=240`
-  - `track=160`
-  - `warm_scan=20`
-  - `scan=80`
-  - `recovery_scan=125`
+  - `backend=native`
+  - `capture=140`
+  - `quit_key=0`
 
-COD22-specific cue assumptions now confirmed by the user:
-
-- the relevant UI marker is a **single yellow dot** above enemy heads
-- this yellow dot is enemy-only; it does not appear on friendlies, items, or unrelated UI
-- the earlier COD-style diamond/name marker can be ignored for this slice
-- the COD22 blood-bar style marker does not need mainline support if the game can be configured to show the yellow dot instead
-- the dot is close enough to the head to be treated as a meaningful 2D cue (`x/y` both useful) once fused with person geometry
-
-Accepted acquisition strategy:
-
-- use a **mixed** scheme rather than choosing between cue-only and person-only
-- when only the yellow dot is visible, treat it as a `provisional seed`
-- provisional seeds may steer scan/search priority and help aim-entry pickup, but they do **not** directly become controller-facing confirmed targets
-- once a person detection / body-state track attaches, the yellow dot becomes a real fused 2D cue and may refine both `x` and `y`
-
-Implementation status for the COD22 slice:
-
-- `CenterCueRefiner` now has a distinct `detect(...)` stage
-- cue detection is shape-gated for compact dot-like yellow blobs and rejects wide blood-bar geometry
-- native pybind bridge exposes `NativeCenterCueRefiner.detect_rgb(...)` for regression testing
-- `VisionTargetSelector` now accepts an optional cue seed and can prefer cue-aligned candidates over a crosshair-closer neighbor
-- native pybind bridge exposes `NativeTargetSelector.select_xyxy_with_cue(...)` for regression testing
-- `VisionEngine` now detects the yellow cue on active frames, surfaces cue debug fields even before a target is confirmed, and passes provisional cue seeds into selector scans when no active target or only weak/reacquire state is present
-- once a confirmed target exists, the existing fused cue refinement path still runs after body-state and before damping-only enhancement
+The 2026-05-01 article-derived optimization notes remain preserved in `.agent-context/decisions/`, but they are no longer assumptions about the live baseline because the relevant experiment branch was rolled back.
 
 Environment constraint is unchanged: the native runtime still assumes `CUDA 13.1 + TensorRT 10.15.1.29`, and the earlier `failed to create TensorRT runtime` issue was an environment mismatch rather than a model-export regression.
 
 ## Verification
 
-Most recent verified native slices:
+Most recent verified rollback state:
 
 - `powershell -ExecutionPolicy Bypass -File tools\build_native_vision.ps1`
-  - result: native build succeeded after the COD22 yellow-dot mixed-acquisition changes
-- `py -3 -m unittest tests.test_native_vision_targeting_bridge tests.test_native_vision_body_state_bridge tests.test_native_vision_runner -v`
-  - result: `49` passed
-
-Earlier in this session, the broader cadence / perf / startup alignments were also verified:
-
-- `py -3 -m unittest tests.test_performance_tracker tests.test_vision_runner tests.test_native_vision_runner tests.test_native_vision_body_state_bridge tests.test_native_vision_targeting_bridge -v`
-  - result: `64` passed
-- `py -3 -m unittest tests.test_startup_scripts -v`
-  - result: `5` passed
+  - result: native build succeeded after restoring the default native runtime files to `708c253`
+- `py -3 -m unittest tests.test_startup_scripts tests.test_performance_tracker tests.test_vision_runner tests.test_native_vision_runner tests.test_native_vision_targeting_bridge -v`
+  - result: `44` passed
 
 ## Next Action
 
-Run live validation for the COD22 yellow-dot mixed acquisition v1:
-
-1. verify the configured yellow dot is consistently detected in real matches
-2. test aim entry where the yellow dot appears before a stable person box
-3. test neighboring enemies to make sure cue bias chooses the right person
-4. test partial occlusion / head-glitch cases where the dot is visible before clean body geometry
-
-Then re-evaluate whether the current defaults stay:
-
-- `capture=240`
-- `track=160`
-- `scan=80`
-- `recovery=125`
+1. live-validate the reverted native baseline in the real COD22 scenarios that regressed under the later experiment branch
+2. confirm whether `708c253` is the right stable base or whether an even narrower post-`708c253` native point should be restored instead
+3. only after the baseline is trusted again, decide whether to reintroduce yellow-cue support as an auxiliary layer on top of native YOLO rather than as a replacement controller path
 
 ## Blockers
 
 - No code blocker is currently known.
-- The main dependency is correctly inserting provisional cue seeds without accidentally creating a second controller-facing target authority.
-- If constructor/signature mismatches recur, first check whether an older running Python process is still holding the previous `.pyd`.
+- The main product risk is live mismatch between experiment-branch intuition and actual in-match recall/latency.
+- If constructor/signature mismatches recur after another rollback or rebuild, first check whether an older Python process is still holding a previous `.pyd`.
 
 ## Active Questions
 
-- Should provisional cue seeds merely bias scan/search, or also permit stronger aim-entry attraction before body-state confirmation in the next round?
-- What is the safest way to project the yellow dot into body/head geometry as distance changes, once person geometry becomes available?
-- After the yellow-dot path lands, are `capture=240`, `track=160`, `scan=80`, and `recovery=125` still the best default tradeoff in live use?
+- Is `708c253` the correct last-known-good native baseline for live play, or should the stable base move slightly forward or backward?
+- When yellow cue work returns, should it sit in the native YOLO path as a lightweight auxiliary scorer rather than reopening the full hotpath experiment stack?
+- Which exact live failure modes remain even on the reverted native baseline: distant crouched enemies, partial cover, side-running targets, or target switching?
 
 ## Relevant Decisions
 
 - `.agent-context/decisions/DEC-2026-04-22-001-native-vision-default-hybrid-runtime.md`
 - `.agent-context/decisions/DEC-2026-04-22-002-defer-full-controller-cpp-rewrite.md`
-- `.agent-context/decisions/DEC-2026-04-30-001-native-vision-dual-rate-warmscan-active-track.md`
-- `.agent-context/decisions/DEC-2026-04-30-002-native-hotpath-consolidation-before-center-cue.md`
 - `.agent-context/decisions/DEC-2026-04-30-003-cod22-yellow-dot-mixed-cue-acquisition.md`
+- `.agent-context/decisions/DEC-2026-05-01-001-birth-path-optimization-priority.md`
+- `.agent-context/decisions/DEC-2026-05-01-002-side-running-lateral-tracking-optimization-priority.md`
+- `.agent-context/decisions/DEC-2026-05-01-003-revert-default-native-runtime-to-708c253.md`
 
 ## Files To Read First
 
 - `.agent-context/session-log.md`
-- `.agent-context/decisions/DEC-2026-04-30-001-native-vision-dual-rate-warmscan-active-track.md`
-- `.agent-context/decisions/DEC-2026-04-30-002-native-hotpath-consolidation-before-center-cue.md`
 - `.agent-context/decisions/DEC-2026-04-22-001-native-vision-default-hybrid-runtime.md`
 - `.agent-context/decisions/DEC-2026-04-22-002-defer-full-controller-cpp-rewrite.md`
+- `.agent-context/decisions/DEC-2026-05-01-003-revert-default-native-runtime-to-708c253.md`
 - `native/vision_native/src/vision_engine.cpp`
-- `native/vision_native/src/center_cue_refiner.cpp`
 - `native/vision_native/src/target_selector.cpp`
-- `native/vision_native/src/body_state_tracker.cpp`
-- `native/vision_native/src/ego_motion.cpp`
 - `native/vision_native/src/aim_enhancement.cpp`
 - `vision/native_runner.py`
 - `vision/perf.py`
@@ -156,20 +98,12 @@ Then re-evaluate whether the current defaults stay:
 - Full-project C++ rewrite
 - Full controller C++ rewrite
 - Python vision parity refactor
-- New detector outputs for torso/chest geometry in this rollout
-- Dynamic local-capture windows in this rollout
-- A new native background vision thread in this rollout
-- Lead / catchup reintroduction before the WarmScan / ActiveTrack comparison is validated
-- Pose / segmentation / SLAM / VO/VIO scope creep for this native torso-anchor MVP
-- Expanding the yellow UI cue into a global selector or WarmScan feature
-- Cleaning Python fallback enhancement / occlusion logic in the same slice
-- Introducing `yellow_only_target` or any controller-visible new target-source contract for this slice
-- Re-promoting selector-side hold / predicted logic into the native mainline continuity authority
+- Re-introducing the full 2026-04-30 evening hotpath stack before the reverted baseline is re-validated live
+- Silent backend swaps from native to python when the user asked for a native rollback
+- Pose / segmentation / SLAM / VO/VIO scope creep while the baseline itself is still being re-established
 
 ## Notes
 
-- `.agent-context/` is still workspace-local and currently untracked in git status.
-- The accepted yellow cue role is "crosshair-near final-stage refinement", not "global detection aid".
-- `selector_hold` is now an explicit legacy selector result source; the native mainline no longer treats it as a confirmed observation.
-- Live `capture` jitter readings are expected to reflect DXGI frame-phase timing unless capture is structurally decoupled from the consumer loop.
-- The COD22 slice intentionally narrows cue support to the single yellow dot configuration; blood-bar compatibility is not the preferred path.
+- This handoff supersedes the earlier assumption that `ac224b1` + `2b8a35b` remained the live native baseline.
+- The 2026-05-01 article comparisons are still useful, but they now describe a rolled-back experiment branch rather than the default runtime.
+- A mistaken intermediate attempt switched the startup defaults to `python`; that was corrected and recorded, and the committed state should remain native-default.

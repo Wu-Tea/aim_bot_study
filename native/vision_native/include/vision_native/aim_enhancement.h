@@ -21,10 +21,6 @@ public:
         const VisionResult& target,
         double timestamp_seconds,
         const std::optional<AimSlowZone>& slow_zone = std::nullopt);
-    VisionResult process_damping_only(
-        const VisionResult& target,
-        double timestamp_seconds,
-        const std::optional<AimSlowZone>& slow_zone = std::nullopt);
 
 private:
     struct TargetSnapshot {

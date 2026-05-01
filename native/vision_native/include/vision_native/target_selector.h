@@ -1,6 +1,5 @@
 #pragma once
 
-#include "vision_native/ego_motion.h"
 #include "vision_native/types.h"
 
 #include <cstdint>
@@ -12,9 +11,6 @@ namespace vision_native {
 
 class VisionTargetSelector {
 public:
-    struct ScoredCandidate;
-    struct CueSeed;
-
     struct ColorFrameView {
         const uint8_t* data = nullptr;
         int width = 0;
@@ -26,19 +22,8 @@ public:
     VisionTargetSelector(int frame_width, int frame_height);
 
     void reset();
-    VisionResult select(
-        const DetectionBatch& batch,
-        const EgoWarp& ego_warp = EgoWarp{},
-        const std::optional<CueSeed>& cue_seed = std::nullopt);
-    VisionResult select_with_frame(
-        const DetectionBatch& batch,
-        const ColorFrameView& frame,
-        const EgoWarp& ego_warp = EgoWarp{},
-        const std::optional<CueSeed>& cue_seed = std::nullopt);
-    std::vector<ScoredCandidate> rank_candidates(const DetectionBatch& batch) const;
-    std::vector<ScoredCandidate> rank_candidates_with_frame(
-        const DetectionBatch& batch,
-        const ColorFrameView& frame) const;
+    VisionResult select(const DetectionBatch& batch);
+    VisionResult select_with_frame(const DetectionBatch& batch, const ColorFrameView& frame);
 
     struct Rect {
         float left = 0.0f;
@@ -63,14 +48,6 @@ public:
         float score = 0.0f;
         bool has_tracking_distance = false;
         float tracking_distance = 0.0f;
-        bool cue_aligned = false;
-        float cue_score = 0.0f;
-    };
-
-    struct CueSeed {
-        float x = 0.0f;
-        float y = 0.0f;
-        float score = 0.0f;
     };
 
     struct TargetState {
@@ -98,7 +75,9 @@ private:
     Rect fire_zone(const Rect& box) const;
     DetectionBatch annotate_colors(const DetectionBatch& batch, const ColorFrameView& frame) const;
     std::optional<Candidate> try_reconstruct(const Candidate& candidate) const;
+    std::optional<TargetState> try_predict(float timestamp);
     void record_observation(const TargetState& target, float timestamp);
+    void clear_prediction_state();
     void clear_tracking_state();
     void clear_auto_fire_state();
     bool is_crosshair_inside_zone(const Rect& zone) const;
@@ -120,23 +99,17 @@ private:
         float y,
         const std::optional<std::pair<float, float>>& last_target_center) const;
     float tracking_bonus_for_distance(const std::optional<float>& tracking_distance) const;
-    std::optional<float> cue_alignment_score(
-        const Candidate& candidate,
-        const std::optional<CueSeed>& cue_seed) const;
     bool prefer_candidate(
         const std::optional<ScoredCandidate>& current,
         const ScoredCandidate& challenger) const;
     ScoredCandidate score_candidate(
         const Candidate& candidate,
-        const std::optional<std::pair<float, float>>& last_target_center,
-        const std::optional<CueSeed>& cue_seed = std::nullopt) const;
+        const std::optional<std::pair<float, float>>& last_target_center) const;
     TargetState target_from_candidate(const Candidate& candidate, float score) const;
 
     bool boxes_match(const Rect& lhs, const Rect& rhs) const;
     bool targets_match(const TargetState& lhs, const TargetState& rhs) const;
-    bool active_target_matches_candidate(
-        const Candidate& candidate,
-        const std::optional<TargetState>& active_target) const;
+    bool active_target_matches_candidate(const Candidate& candidate) const;
     bool should_switch_targets(const TargetState& locked, const TargetState& challenger) const;
 
     std::optional<TargetState> confirm_pickup(const TargetState& target);
@@ -148,32 +121,22 @@ private:
     std::optional<TargetState> select_single_candidate(const Candidate& candidate) const;
     std::pair<std::optional<TargetState>, std::optional<TargetState>> select_multi_candidate(
         const std::vector<Candidate>& candidates,
-        const std::optional<std::pair<float, float>>& last_target_center,
-        const std::optional<TargetState>& active_target,
-        const std::optional<CueSeed>& cue_seed = std::nullopt) const;
+        const std::optional<std::pair<float, float>>& last_target_center) const;
     std::pair<std::optional<TargetState>, std::optional<TargetState>> select_candidate_targets(
         const std::vector<Candidate>& candidates,
-        const std::optional<std::pair<float, float>>& last_target_center,
-        const std::optional<TargetState>& active_target,
-        const std::optional<CueSeed>& cue_seed = std::nullopt) const;
+        const std::optional<std::pair<float, float>>& last_target_center) const;
 
     std::pair<std::optional<TargetState>, bool> resolve_active_target_transition(
         const TargetState& chosen_target,
-        const std::optional<TargetState>& active_match_target,
-        const std::optional<TargetState>& active_target);
+        const std::optional<TargetState>& active_match_target);
 
-    bool fails_tracking_jump(
-        const std::pair<float, float>& point,
-        const std::optional<std::pair<float, float>>& last_target_center) const;
+    bool fails_tracking_jump(const std::pair<float, float>& point) const;
     bool fails_first_pickup_flick(const std::pair<float, float>& point) const;
-    std::pair<float, float> smooth_target_point(
-        const std::pair<float, float>& point,
-        const std::optional<std::pair<float, float>>& last_target_center) const;
-    VisionResult hold_or_reset(float boxes_seen, const std::optional<TargetState>& active_target);
+    std::pair<float, float> smooth_target_point(const std::pair<float, float>& point) const;
+    VisionResult hold_or_reset(float boxes_seen);
     VisionResult finalize_selected_target(
         const TargetState& chosen_target,
         const std::optional<std::pair<float, float>>& last_target_center,
-        const std::optional<TargetState>& active_target,
         float boxes_seen,
         bool preserve_switch_pending,
         float sample_timestamp);
@@ -200,6 +163,7 @@ private:
     int pending_frames_ = 0;
     int pending_switch_frames_ = 0;
     int hold_frames_ = 0;
+    int predicted_frames_used_ = 0;
     float sample_clock_ = 0.0f;
     bool auto_fire_holding_ = false;
     int auto_fire_miss_frames_ = 0;

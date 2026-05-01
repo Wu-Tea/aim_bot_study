@@ -14,7 +14,6 @@ class InferenceResult:
     inferred_at: float
     frame: np.ndarray
     detections: list
-    roi_ms: float
     infer_ms: float
 
 
@@ -104,7 +103,6 @@ class InferenceThread(threading.Thread):
                 inferred_at=inferred_at,
                 frame=captured.frame,
                 detections=detections,
-                roi_ms=captured.roi_ms,
                 infer_ms=(inferred_at - infer_started_at) * 1000.0,
             )
 

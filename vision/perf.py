@@ -7,28 +7,29 @@ class PerformanceTracker:
         self.log_interval = log_interval
         self._clock = clock or time.perf_counter
         self._printer = printer or print
-        self._stage_order = []
         self.reset_window()
 
     def reset_window(self):
         self._window_start = self._clock()
         self._frame_count = 0
-        self._stage_sums = {}
+        self._wait_ms = 0.0
+        self._infer_ms = 0.0
+        self._post_ms = 0.0
         self._age_ms = 0.0
         self._boxes_seen = 0
         self._tracking_window_start = None
         self._tracking_frame_count = 0
-        self._tracking_stage_sums = {}
+        self._tracking_wait_ms = 0.0
+        self._tracking_infer_ms = 0.0
+        self._tracking_post_ms = 0.0
         self._tracking_age_ms = 0.0
         self._tracking_boxes_seen = 0
 
     def update(
         self,
-        *,
-        roi_ms: float | None = None,
-        yolo_ms: float | None = None,
-        post_ms: float | None = None,
-        stage_ms: dict[str, float] | None = None,
+        wait_ms: float,
+        infer_ms: float,
+        post_ms: float,
         boxes_seen: int,
         age_ms: float,
         tracking_active: bool = False,
@@ -36,13 +37,10 @@ class PerformanceTracker:
         if not self.enabled:
             return
 
-        metrics = stage_ms or {
-            "roi": 0.0 if roi_ms is None else roi_ms,
-            "yolo": 0.0 if yolo_ms is None else yolo_ms,
-            "post": 0.0 if post_ms is None else post_ms,
-        }
         self._frame_count += 1
-        self._accumulate_stage_sums(self._stage_sums, metrics)
+        self._wait_ms += wait_ms
+        self._infer_ms += infer_ms
+        self._post_ms += post_ms
         self._age_ms += age_ms
         self._boxes_seen += boxes_seen
 
@@ -51,7 +49,9 @@ class PerformanceTracker:
             if self._tracking_window_start is None:
                 self._tracking_window_start = now
             self._tracking_frame_count += 1
-            self._accumulate_stage_sums(self._tracking_stage_sums, metrics)
+            self._tracking_wait_ms += wait_ms
+            self._tracking_infer_ms += infer_ms
+            self._tracking_post_ms += post_ms
             self._tracking_age_ms += age_ms
             self._tracking_boxes_seen += boxes_seen
 
@@ -62,7 +62,9 @@ class PerformanceTracker:
             "[Perf][ADS]",
             now,
             self._frame_count,
-            self._stage_sums,
+            self._wait_ms,
+            self._infer_ms,
+            self._post_ms,
             self._age_ms,
             self._boxes_seen,
             self._window_start,
@@ -72,7 +74,9 @@ class PerformanceTracker:
                 "[Perf][TRACK]",
                 now,
                 self._tracking_frame_count,
-                self._tracking_stage_sums,
+                self._tracking_wait_ms,
+                self._tracking_infer_ms,
+                self._tracking_post_ms,
                 self._tracking_age_ms,
                 self._tracking_boxes_seen,
                 self._tracking_window_start,
@@ -80,30 +84,22 @@ class PerformanceTracker:
 
         self.reset_window()
 
-    def _accumulate_stage_sums(self, destination: dict[str, float], metrics: dict[str, float]):
-        for name, value in metrics.items():
-            if name not in self._stage_order:
-                self._stage_order.append(name)
-            destination[name] = destination.get(name, 0.0) + value
-
     def _emit(
         self,
         prefix: str,
         now: float,
         frame_count: int,
-        stage_sums: dict[str, float],
+        wait_sum: float,
+        infer_sum: float,
+        post_sum: float,
         age_sum: float,
         boxes_sum: float,
         window_start: float,
     ):
         elapsed = max(now - window_start, 1e-9)
-        stage_parts = [
-            f"{name}={stage_sums[name] / frame_count:.1f}ms"
-            for name in self._stage_order
-            if name in stage_sums
-        ]
         self._printer(
             f"{prefix} "
-            f"loop={frame_count / elapsed:.1f} FPS | {' | '.join(stage_parts)} | "
+            f"loop={frame_count / elapsed:.1f} FPS | wait={wait_sum / frame_count:.1f}ms | "
+            f"infer={infer_sum / frame_count:.1f}ms | post={post_sum / frame_count:.1f}ms | "
             f"age={age_sum / frame_count:.1f}ms | boxes={boxes_sum / frame_count:.1f}"
         )

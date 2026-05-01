@@ -60,14 +60,6 @@ def _paint_color_above(frame, box, rgb):
     frame[band_top:band_bottom, band_left:band_right] = rgb
 
 
-def _paint_yellow_dot(frame, center_x: int, center_y: int, radius: int = 8):
-    y1 = max(0, center_y - radius)
-    y2 = min(frame.shape[0], center_y + radius)
-    x1 = max(0, center_x - radius)
-    x2 = min(frame.shape[1], center_x + radius)
-    frame[y1:y2, x1:x2] = ENEMY_RGB
-
-
 class NativeVisionTargetingBridgeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -177,28 +169,6 @@ class NativeVisionTargetingBridgeTests(unittest.TestCase):
         self.assertAlmostEqual(result["target_x"], 315.0, places=3)
         self.assertAlmostEqual(result["target_y"], 196.0, places=3)
 
-    def test_selector_prefers_candidate_aligned_with_cue_seed_over_crosshair_closer_neighbor(self):
-        if not hasattr(self.module, "NativeTargetSelector"):
-            self.fail("NativeTargetSelector is missing")
-
-        selector = self.module.NativeTargetSelector(CROP_W, CROP_H)
-        detections = np.array(
-            [
-                [290.0, 120.0, 350.0, 320.0, 0.82, 0.0],
-                [370.0, 120.0, 430.0, 320.0, 0.82, 0.0],
-            ],
-            dtype=np.float32,
-        )
-
-        warmup = selector.select_xyxy_with_cue(detections, 400.0, 104.0, 1.0)
-        result = selector.select_xyxy_with_cue(detections, 400.0, 104.0, 1.0)
-
-        self.assertFalse(warmup["has_target"])
-        self.assertTrue(result["has_target"])
-        self.assertEqual(result["target_source"], "observed")
-        self.assertAlmostEqual(result["target_x"], 400.0, places=3)
-        self.assertAlmostEqual(result["target_y"], 196.0, places=3)
-
     def test_green_friendly_target_is_filtered_out_with_rgb_frame(self):
         if not hasattr(self.module, "NativeTargetSelector"):
             self.fail("NativeTargetSelector is missing")
@@ -283,7 +253,7 @@ class NativeVisionTargetingBridgeTests(unittest.TestCase):
             abs(raw_target_y - locked["target_y"]),
         )
 
-    def test_selector_no_longer_bridges_short_detector_blackout_with_predicted_targets(self):
+    def test_short_occlusion_prediction_bridges_only_two_empty_frames(self):
         if not hasattr(self.module, "NativeTargetSelector"):
             self.fail("NativeTargetSelector is missing")
 
@@ -295,17 +265,19 @@ class NativeVisionTargetingBridgeTests(unittest.TestCase):
         selector.select_xyxy(first_box)
         locked = selector.select_xyxy(first_box)
         observed = selector.select_xyxy(second_box)
-        miss_one = selector.select_xyxy(empty)
-        miss_two = selector.select_xyxy(empty)
-        miss_three = selector.select_xyxy(empty)
+        predicted_one = selector.select_xyxy(empty)
+        predicted_two = selector.select_xyxy(empty)
+        lost = selector.select_xyxy(empty)
 
         self.assertTrue(locked["has_target"])
         self.assertTrue(observed["has_target"])
-        self.assertFalse(miss_one["has_target"])
-        self.assertFalse(miss_two["has_target"])
-        self.assertFalse(miss_three["has_target"])
+        self.assertTrue(predicted_one["has_target"])
+        self.assertTrue(predicted_two["has_target"])
+        self.assertEqual(predicted_one["target_source"], "predicted")
+        self.assertEqual(predicted_two["target_source"], "predicted")
+        self.assertFalse(lost["has_target"])
 
-    def test_reacquired_target_requires_reconfirmation_after_empty_gap(self):
+    def test_reacquired_target_exits_predicted_state_immediately(self):
         if not hasattr(self.module, "NativeTargetSelector"):
             self.fail("NativeTargetSelector is missing")
 
@@ -317,12 +289,11 @@ class NativeVisionTargetingBridgeTests(unittest.TestCase):
         selector.select_xyxy(first_box)
         selector.select_xyxy(first_box)
         selector.select_xyxy(second_box)
-        miss = selector.select_xyxy(np.empty((0, 6), dtype=np.float32))
-        reacquired_first = selector.select_xyxy(reacquired_box)
+        predicted = selector.select_xyxy(np.empty((0, 6), dtype=np.float32))
         reacquired = selector.select_xyxy(reacquired_box)
 
-        self.assertFalse(miss["has_target"])
-        self.assertFalse(reacquired_first["has_target"])
+        self.assertTrue(predicted["has_target"])
+        self.assertEqual(predicted["target_source"], "predicted")
         self.assertTrue(reacquired["has_target"])
         self.assertEqual(reacquired["target_source"], "observed")
 
@@ -377,86 +348,6 @@ class NativeVisionTargetingBridgeTests(unittest.TestCase):
 
         self.assertTrue(locked["auto_fire"])
         self.assertFalse(after_reset["auto_fire"])
-
-    def test_large_pan_uses_ego_warp_for_active_target_continuity(self):
-        if not hasattr(self.module, "NativeTargetSelector"):
-            self.fail("NativeTargetSelector is missing")
-
-        selector = self.module.NativeTargetSelector(CROP_W, CROP_H)
-        first_box = np.array([[140.0, 120.0, 220.0, 320.0, 0.92, 0.0]], dtype=np.float32)
-        panned_box = np.array([[340.0, 120.0, 420.0, 320.0, 0.92, 0.0]], dtype=np.float32)
-
-        warmup = selector.select_xyxy(first_box)
-        locked = selector.select_xyxy(first_box)
-        without_ego = selector.select_xyxy(panned_box)
-
-        selector.reset()
-        selector.select_xyxy(first_box)
-        selector.select_xyxy(first_box)
-        with_ego = selector.select_xyxy_with_ego(panned_box, 200.0, 0.0, 1.0)
-
-        self.assertFalse(warmup["has_target"])
-        self.assertTrue(locked["has_target"])
-        self.assertAlmostEqual(without_ego["target_x"], locked["target_x"], places=3)
-        self.assertEqual(without_ego["target_source"], "selector_hold")
-        self.assertTrue(with_ego["has_target"])
-        self.assertEqual(with_ego["target_source"], "observed")
-        self.assertAlmostEqual(with_ego["target_x"], 380.0, places=3)
-        self.assertAlmostEqual(with_ego["target_y"], 196.0, places=3)
-
-    def test_selector_does_not_emit_predicted_target_during_blackout_even_with_ego_warp(self):
-        if not hasattr(self.module, "NativeTargetSelector"):
-            self.fail("NativeTargetSelector is missing")
-
-        selector = self.module.NativeTargetSelector(CROP_W, CROP_H)
-        first_box = np.array([[220.0, 120.0, 300.0, 320.0, 0.92, 0.0]], dtype=np.float32)
-        empty = np.empty((0, 6), dtype=np.float32)
-
-        selector.select_xyxy(first_box)
-        locked = selector.select_xyxy(first_box)
-        observed = selector.select_xyxy(first_box)
-        without_ego = selector.select_xyxy(empty)
-
-        selector.reset()
-        selector.select_xyxy(first_box)
-        selector.select_xyxy(first_box)
-        selector.select_xyxy(first_box)
-        with_ego = selector.select_xyxy_with_ego(empty, 60.0, 0.0, 1.0)
-
-        self.assertTrue(locked["has_target"])
-        self.assertTrue(observed["has_target"])
-        self.assertFalse(without_ego["has_target"])
-        self.assertFalse(with_ego["has_target"])
-
-    def test_large_pan_prefers_active_target_over_neighbor_when_ego_warp_is_present(self):
-        if not hasattr(self.module, "NativeTargetSelector"):
-            self.fail("NativeTargetSelector is missing")
-
-        selector = self.module.NativeTargetSelector(CROP_W, CROP_H)
-        first_box = np.array([[180.0, 120.0, 260.0, 320.0, 0.92, 0.0]], dtype=np.float32)
-        panned_with_neighbor = np.array(
-            [
-                [300.0, 120.0, 380.0, 320.0, 0.92, 0.0],
-                [220.0, 120.0, 300.0, 320.0, 0.95, 0.0],
-            ],
-            dtype=np.float32,
-        )
-
-        selector.select_xyxy(first_box)
-        locked = selector.select_xyxy(first_box)
-        without_ego = selector.select_xyxy(panned_with_neighbor)
-
-        selector.reset()
-        selector.select_xyxy(first_box)
-        selector.select_xyxy(first_box)
-        with_ego = selector.select_xyxy_with_ego(panned_with_neighbor, 120.0, 0.0, 1.0)
-
-        self.assertTrue(locked["has_target"])
-        self.assertAlmostEqual(without_ego["target_x"], 260.0, places=3)
-        self.assertTrue(with_ego["has_target"])
-        self.assertEqual(with_ego["target_source"], "observed")
-        self.assertAlmostEqual(with_ego["target_x"], 340.0, places=3)
-        self.assertAlmostEqual(with_ego["target_y"], 196.0, places=3)
 
 
 if __name__ == "__main__":

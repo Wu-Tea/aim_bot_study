@@ -13,7 +13,6 @@ class CapturedFrame:
     frame_id: int
     captured_at: float
     frame: np.ndarray
-    roi_ms: float = 0.0
 
     def __array__(self, dtype=None):
         return np.asarray(self.frame, dtype=dtype)
@@ -67,10 +66,8 @@ class ScreenCaptureThread(threading.Thread):
                         self._condition.wait(timeout=remaining)
                         continue
 
-                capture_started_at = time.perf_counter()
                 frame = self._backend.grab()
                 captured_at = time.perf_counter()
-                roi_ms = (captured_at - capture_started_at) * 1000.0
                 if frame is not None:
                     with self._condition:
                         self._latest_frame_id += 1
@@ -78,7 +75,6 @@ class ScreenCaptureThread(threading.Thread):
                             frame_id=self._latest_frame_id,
                             captured_at=captured_at,
                             frame=frame,
-                            roi_ms=roi_ms,
                         )
                         self._condition.notify_all()
 

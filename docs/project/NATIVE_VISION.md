@@ -25,91 +25,12 @@ The scaffold proves these things:
 - the debug loop now reports real `preprocess_ms`, `infer_ms`, and `boxes_seen` values from native inference
 - Python can now run `NativeVisionEngine` through `--vision-backend native` and hand native `VisionResult` values directly to the existing controller
 - `gamepad_native_debug.bat` starts the C++ vision + Python controller bridge with a synthetic debug window
-- native `EgoMotionEstimator` and `BodyStateTracker` now sit between coarse person selection and the controller-facing aim point
-- `VisionResult.target_x/target_y` can now carry a torso/chest anchor instead of only a bbox-derived point
-- native debug metadata now includes `anchor_confidence`, `ego_confidence`, `body_state_mode`, `anchor_source`, `torso_*`, and `ego_model`
 
 The default `gamepad_start.bat` path now uses native vision at `VISION_CAPTURE_FPS=140`. Python vision remains available through `--vision-backend python` or by setting `VISION_BACKEND=python` before launch.
-
-## Body-State V1 Status
-
-The native runtime has now moved beyond bbox-only control output for the selected target:
-
-- frame-global ego compensation runs after detection and before coarse target continuity
-- selector continuity, jump gating, and short blackout prediction now use ego-warped state
-- selected-target body-state now derives a torso band and final anchor from local KLT-style point tracks plus a small patch verifier
-- body-state currently exercises `strong`, `weak`, `hold`, `reacquire`, and `drop` output modes
-- when body-state is weak or unavailable, the engine still falls back to bbox-level output rather than forcing a drifting torso anchor
-
-Still intentionally out of scope for this v1:
-
-- Python fallback parity refactor
-- mouse / gamepad control-law rewrites
-- pose / segmentation / SLAM / depth / color-dominant tracking
-
-## Acceptance Entry
-
-If you are validating the current body-state slice, start here:
-
-### Focused automated verification
-
-```powershell
-.\tools\build_native_vision.ps1
-py -3 -m unittest tests.test_native_vision_targeting_bridge tests.test_native_vision_synthetic_parity tests.test_native_vision_body_state_bridge tests.test_native_vision_runner -v
-```
-
-This slice currently covers:
-
-- ego-warped large-pan continuity
-- short detector blackout prediction
-- wrong-target-neighbor protection during ego pan
-- body-state short hold and `reacquire` transitions
-- pan-stop hold overshoot guardrail
-- lower-screen muzzle-flash disturbance not biasing ego motion
-- Python bridge / runner overlay compatibility
-
-### Manual acceptance scenarios
-
-Use the live native path and inspect both controller feel and debug overlay metadata:
-
-```powershell
-$env:VISION_CAPTURE_FPS="240"
-gamepad_start.bat
-```
-
-Optional debug overlay path:
-
-```powershell
-$env:VISION_CAPTURE_FPS="240"
-gamepad_native_debug.bat
-```
-
-For the current body-state v1 slice, prioritize these scenarios:
-
-1. short detector blackout (`1-5` frames) while staying on one target
-2. pan -> stop transitions, watching for overshoot or post-stop rebound
-3. neighboring target crossing during a camera pan
-4. partial occlusion with later re-entry into `observed`
-5. lower-screen weapon / muzzle-flash disturbance
-
-During debug validation, watch these metadata fields together:
-
-- `body_state_mode`
-- `anchor_source`
-- `anchor_confidence`
-- `ego_confidence`
-- `ego_model`
-- torso-band overlay versus coarse body box
 
 ## Pipeline Status
 
 Current native progress is easiest to understand in the real runtime order:
-
-Runtime cadence now splits in two:
-
-- `WarmScan` runs while ADS is off. It still polls the native engine, but only low-frequency full-frame scans refresh the cached candidate patches and geometry. It does not output controller targets.
-- `ActiveTrack` runs while ADS is on. Every `poll_once()` grabs a fresh ROI and updates ego/local tracking, while full-frame YOLO scans only re-run on interval, weak-anchor, recovery, or aim-entry conditions.
-- the Python bridge still only consumes `target_x/target_y` plus debug metadata; controller interface shape is unchanged
 
 ### 1. Capture / Screenshot
 

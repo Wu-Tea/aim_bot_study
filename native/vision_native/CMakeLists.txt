@@ -50,10 +50,7 @@ endforeach()
 
 add_library(vision_native_core STATIC
     src/aim_enhancement.cpp
-    src/body_state_tracker.cpp
-    src/center_cue_refiner.cpp
     src/dxgi_capture.cpp
-    src/ego_motion.cpp
     src/engine_io.cpp
     src/preprocess.cu
     src/target_selector.cpp
