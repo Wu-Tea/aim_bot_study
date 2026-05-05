@@ -118,15 +118,15 @@ The first shipping target is Blocks `A-C`.
 - Create: `vision/weapon_identity/signatures.py`
 - Create: `tests/weapon_identity/test_signatures.py`
 
-- [ ] Implement small classical feature extractors for:
+- [x] Implement small classical feature extractors for:
   - normalized grayscale template
   - edge map
   - perceptual hash
-- [ ] Implement a scorer that can compare a live ROI against stored signatures and return ranked candidates.
-- [ ] Keep the first version deterministic and explainable; do not introduce a trained model here.
-- [ ] Write tests covering exact match, near match, low-confidence mismatch, and tie ordering.
-- [ ] Run: `python -m unittest tests.weapon_identity.test_signatures -v`
-- [ ] Expected: candidate ranking is stable and mismatches degrade cleanly.
+- [x] Implement a scorer that can compare a live ROI against stored signatures and return ranked candidates.
+- [x] Keep the first version deterministic and explainable; do not introduce a trained model here.
+- [x] Write tests covering exact match, near match, low-confidence mismatch, and tie ordering.
+- [x] Run: `python -m unittest tests.weapon_identity.test_signatures -v`
+- [x] Expected: candidate ranking is stable and mismatches degrade cleanly.
 
 ## Task 5: Recognition Resolver And Stateful Cache
 
@@ -311,3 +311,4 @@ The first shipping target is Blocks `A-C`.
 - Task `1` is complete and review-approved on commit `ecde59d0b0119ac7cbc33b13441515df5c67a672`.
 - Task `2` is complete and review-approved on commit `91fe7d3739acdbe7ae84c42b38a1710f08d64170`.
 - Task `3` is complete and review-approved on commit `dbd6423abf192d3bf161103d9bf2fa983da84c4b`.
+- Task `4` is complete and review-approved on commit `8dd83e4c1825a3a30373413aeb3cde1b35621dd5`.
