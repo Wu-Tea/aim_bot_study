@@ -202,16 +202,16 @@ The first shipping target is Blocks `A-C`.
 - Create: `vision/recoil_collection/extraction.py`
 - Create: `tests/recoil_collection/test_extraction.py`
 
-- [ ] Implement burst alignment, zero-point normalization, resampling, outlier rejection, and averaged-curve generation.
-- [ ] Store both `samples_x` and `samples_y`, even if the first runtime consumer mostly uses vertical compensation.
-- [ ] Compute variance and profile confidence from repeated bursts.
-- [ ] Write tests for:
+- [x] Implement burst alignment, zero-point normalization, resampling, outlier rejection, and averaged-curve generation.
+- [x] Store both `samples_x` and `samples_y`, even if the first runtime consumer mostly uses vertical compensation.
+- [x] Compute variance and profile confidence from repeated bursts.
+- [x] Write tests for:
   - aligned curve generation from repeated synthetic bursts
   - outlier rejection
   - variance increase when bursts disagree
   - low-confidence result when too few clean bursts exist
-- [ ] Run: `python -m unittest tests.recoil_collection.test_extraction -v`
-- [ ] Expected: curve extraction and confidence logic pass on synthetic fixtures.
+- [x] Run: `python -m unittest tests.recoil_collection.test_extraction -v`
+- [x] Expected: curve extraction and confidence logic pass on synthetic fixtures.
 
 ## Task 9: Standalone Recoil Collector Tool
 
@@ -315,3 +315,4 @@ The first shipping target is Blocks `A-C`.
 - Task `5` is complete and review-approved on commit `53735037395c99f63bdf5d69eeb15a0cac9592a0`.
 - Task `6` is complete and review-approved on commit `36944926a3977129fa6d8dfed92b35a541ca2680`.
 - Task `7` is complete and review-approved on commit `34e8518b574ef1c5d1749602b0e24dc4a6b3fcdd`.
+- Task `8` is complete and review-approved on commit `6d4e8d419c635d76b02046f073d4d3ca73fb83ad`.
