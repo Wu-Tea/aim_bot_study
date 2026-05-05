@@ -35,6 +35,22 @@ class SignatureMatchingTests(unittest.TestCase):
         self.assertGreater(ranked[0].score, 0.75)
         self.assertGreater(ranked[0].score, ranked[1].score)
 
+    def test_same_family_partial_candidate_does_not_outrank_full_weapon_under_occlusion(self):
+        live_roi = _make_rifle_icon(brightness=230)
+        live_roi[20:32, 42:55] = 0
+
+        full_weapon = _make_signature_record("sig-rifle", "cod22-rifle", _make_rifle_icon())
+        partial_same_family = _make_signature_record(
+            "sig-rifle-partial",
+            "cod22-rifle-partial",
+            _make_rifle_icon_without_barrel(),
+        )
+
+        ranked = score_candidates(live_roi, (partial_same_family, full_weapon))
+
+        self.assertEqual(ranked[0].signature_id, "sig-rifle")
+        self.assertGreater(ranked[0].score, ranked[1].score)
+
     def test_mismatch_score_degrades_to_low_confidence(self):
         live_roi = _make_rifle_icon()
         mismatch = _make_signature_record("sig-lmg", "cod22-lmg", _make_lmg_icon())
@@ -55,8 +71,57 @@ class SignatureMatchingTests(unittest.TestCase):
 
         self.assertEqual([match.signature_id for match in ranked], ["sig-second", "sig-first"])
 
+    def test_ignores_candidates_with_unsupported_feature_type(self):
+        live_roi = _make_rifle_icon()
+        incompatible = _make_signature_record(
+            "sig-legacy",
+            "cod22-legacy",
+            _make_lmg_icon(),
+            feature_type="legacy_template_v0",
+            feature_payload={"hash": "aa11bb22"},
+        )
+        valid = _make_signature_record("sig-rifle", "cod22-rifle", _make_rifle_icon())
 
-def _make_signature_record(signature_id, canonical_weapon_id, image):
+        ranked = score_candidates(live_roi, (incompatible, valid))
+
+        self.assertEqual([match.signature_id for match in ranked], ["sig-rifle"])
+
+    def test_rejects_malformed_template_shape_before_comparison(self):
+        malformed = _make_signature_record("sig-bad-template", "cod22-bad-template", _make_rifle_icon())
+        payload = malformed.to_dict()
+        payload["feature_payload"]["template"] = payload["feature_payload"]["template"][:-1]
+        malformed = VisualSignatureRecord.from_dict(payload)
+
+        with self.assertRaisesRegex(ValueError, "feature_payload.template must have shape 32x32"):
+            score_candidates(_make_rifle_icon(), (malformed,))
+
+    def test_rejects_malformed_edge_map_shape_before_comparison(self):
+        malformed = _make_signature_record("sig-bad-edges", "cod22-bad-edges", _make_rifle_icon())
+        payload = malformed.to_dict()
+        payload["feature_payload"]["edge_map"] = [row[:-1] for row in payload["feature_payload"]["edge_map"]]
+        malformed = VisualSignatureRecord.from_dict(payload)
+
+        with self.assertRaisesRegex(ValueError, "feature_payload.edge_map must have shape 32x32"):
+            score_candidates(_make_rifle_icon(), (malformed,))
+
+    def test_rejects_malformed_perceptual_hash_length_before_comparison(self):
+        malformed = _make_signature_record("sig-bad-hash", "cod22-bad-hash", _make_rifle_icon())
+        payload = malformed.to_dict()
+        payload["feature_payload"]["perceptual_hash"] = payload["feature_payload"]["perceptual_hash"][:-1]
+        malformed = VisualSignatureRecord.from_dict(payload)
+
+        with self.assertRaisesRegex(ValueError, "feature_payload.perceptual_hash must be 64 bits"):
+            score_candidates(_make_rifle_icon(), (malformed,))
+
+
+def _make_signature_record(
+    signature_id,
+    canonical_weapon_id,
+    image,
+    *,
+    feature_type=CLASSICAL_SIGNATURE_FEATURE_TYPE,
+    feature_payload=None,
+):
     signature = extract_signature(image)
     return VisualSignatureRecord(
         signature_id=signature_id,
@@ -65,8 +130,8 @@ def _make_signature_record(signature_id, canonical_weapon_id, image):
         region_type="weapon_icon",
         resolution_bucket="1080p",
         ui_scale_bucket="default",
-        feature_type=CLASSICAL_SIGNATURE_FEATURE_TYPE,
-        feature_payload=signature.to_feature_payload(),
+        feature_type=feature_type,
+        feature_payload=signature.to_feature_payload() if feature_payload is None else feature_payload,
         captured_from="synthetic test fixture",
         confidence=1.0,
     )
@@ -87,6 +152,12 @@ def _make_lmg_icon():
     image[12:50, 28:34] = 255
     image[18:24, 20:42] = 255
     image[44:50, 34:48] = 255
+    return image
+
+
+def _make_rifle_icon_without_barrel():
+    image = _make_rifle_icon()
+    image[26:30, 42:54] = 0
     return image
 
 

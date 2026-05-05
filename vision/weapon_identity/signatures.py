@@ -14,6 +14,7 @@ CLASSICAL_SIGNATURE_FEATURE_TYPE = "classical_signature_v1"
 _TEMPLATE_SIZE = (32, 32)
 _EDGE_MAP_SIZE = (32, 32)
 _HASH_SIZE = 8
+_HASH_BITS = _HASH_SIZE * _HASH_SIZE
 _FOREGROUND_THRESHOLD = 0.05
 _EPSILON = 1e-9
 
@@ -25,12 +26,32 @@ class ExtractedSignature:
     perceptual_hash: str
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "template", _require_float_matrix(self.template, "ExtractedSignature.template"))
-        object.__setattr__(self, "edge_map", _require_binary_matrix(self.edge_map, "ExtractedSignature.edge_map"))
+        object.__setattr__(
+            self,
+            "template",
+            _require_float_matrix(
+                self.template,
+                "ExtractedSignature.template",
+                expected_shape=_TEMPLATE_SIZE,
+            ),
+        )
+        object.__setattr__(
+            self,
+            "edge_map",
+            _require_binary_matrix(
+                self.edge_map,
+                "ExtractedSignature.edge_map",
+                expected_shape=_EDGE_MAP_SIZE,
+            ),
+        )
         object.__setattr__(
             self,
             "perceptual_hash",
-            _require_hash_bits(self.perceptual_hash, "ExtractedSignature.perceptual_hash"),
+            _require_hash_bits(
+                self.perceptual_hash,
+                "ExtractedSignature.perceptual_hash",
+                expected_length=_HASH_BITS,
+            ),
         )
 
     def to_feature_payload(self) -> dict[str, Any]:
@@ -48,11 +69,20 @@ class ExtractedSignature:
         if payload.get("version") != 1:
             raise ValueError("feature_payload.version must be 1")
         return cls(
-            template=_require_float_matrix(payload.get("template"), "feature_payload.template"),
-            edge_map=_require_binary_matrix(payload.get("edge_map"), "feature_payload.edge_map"),
+            template=_require_float_matrix(
+                payload.get("template"),
+                "feature_payload.template",
+                expected_shape=_TEMPLATE_SIZE,
+            ),
+            edge_map=_require_binary_matrix(
+                payload.get("edge_map"),
+                "feature_payload.edge_map",
+                expected_shape=_EDGE_MAP_SIZE,
+            ),
             perceptual_hash=_require_hash_bits(
                 payload.get("perceptual_hash"),
                 "feature_payload.perceptual_hash",
+                expected_length=_HASH_BITS,
             ),
         )
 
@@ -104,15 +134,19 @@ def score_candidates(image: Any, candidates: Iterable[VisualSignatureRecord]) ->
     live_signature = extract_signature(image)
     live_template = _matrix_to_numpy(live_signature.template, dtype=np.float32)
     live_edges = _matrix_to_numpy(live_signature.edge_map, dtype=np.uint8)
+    compatible_candidates = [
+        candidate for candidate in candidates if candidate.feature_type == CLASSICAL_SIGNATURE_FEATURE_TYPE
+    ]
+    if not compatible_candidates:
+        return []
 
+    stored_signatures = [
+        (candidate, ExtractedSignature.from_feature_payload(candidate.feature_payload))
+        for candidate in compatible_candidates
+    ]
+    max_structure_score = max(_compute_structure_score(signature) for _, signature in stored_signatures)
     ranked: list[SignatureMatch] = []
-    for candidate in candidates:
-        if candidate.feature_type != CLASSICAL_SIGNATURE_FEATURE_TYPE:
-            raise ValueError(
-                f"Unsupported feature_type {candidate.feature_type!r}; "
-                f"expected {CLASSICAL_SIGNATURE_FEATURE_TYPE!r}"
-            )
-        stored_signature = ExtractedSignature.from_feature_payload(candidate.feature_payload)
+    for candidate, stored_signature in stored_signatures:
         template_score = _compare_templates(
             live_template,
             _matrix_to_numpy(stored_signature.template, dtype=np.float32),
@@ -122,7 +156,13 @@ def score_candidates(image: Any, candidates: Iterable[VisualSignatureRecord]) ->
             _matrix_to_numpy(stored_signature.edge_map, dtype=np.uint8),
         )
         hash_score = _compare_hashes(live_signature.perceptual_hash, stored_signature.perceptual_hash)
-        final_score = (template_score * 0.45) + (edge_score * 0.35) + (hash_score * 0.20)
+        completeness_score = _compute_structure_score(stored_signature) / max(max_structure_score, _EPSILON)
+        final_score = (
+            (template_score * 0.45)
+            + (edge_score * 0.30)
+            + (hash_score * 0.05)
+            + (completeness_score * 0.20)
+        )
         ranked.append(
             SignatureMatch(
                 signature_id=candidate.signature_id,
@@ -166,7 +206,7 @@ def _compute_perceptual_hash(grayscale: np.ndarray) -> str:
 
 
 def _compare_templates(left: np.ndarray, right: np.ndarray) -> float:
-    mask = (left > _FOREGROUND_THRESHOLD) | (right > _FOREGROUND_THRESHOLD)
+    mask = left > _FOREGROUND_THRESHOLD
     if not np.any(mask):
         return 1.0
     difference = np.abs(left[mask] - right[mask])
@@ -176,17 +216,15 @@ def _compare_templates(left: np.ndarray, right: np.ndarray) -> float:
 def _compare_edges(left: np.ndarray, right: np.ndarray) -> float:
     left_edges = left > 0
     right_edges = right > 0
-    edge_count = int(left_edges.sum() + right_edges.sum())
-    if edge_count == 0:
+    left_edge_count = int(left_edges.sum())
+    if left_edge_count == 0:
         return 1.0
     # Small HUD crops can shift a couple of normalized pixels after resize, so
     # edge agreement should tolerate a narrow neighborhood rather than exact overlap.
     kernel = np.ones((7, 7), dtype=np.uint8)
-    left_dilated = cv2.dilate(left_edges.astype(np.uint8), kernel, iterations=1) > 0
     right_dilated = cv2.dilate(right_edges.astype(np.uint8), kernel, iterations=1) > 0
     matched_left = int(np.logical_and(left_edges, right_dilated).sum())
-    matched_right = int(np.logical_and(right_edges, left_dilated).sum())
-    return float((matched_left + matched_right) / edge_count)
+    return float(matched_left / left_edge_count)
 
 
 def _compare_hashes(left: str, right: str) -> float:
@@ -208,8 +246,13 @@ def _matrix_to_numpy(matrix: tuple[tuple[float, ...], ...] | tuple[tuple[int, ..
     return np.asarray(matrix, dtype=dtype)
 
 
-def _require_float_matrix(value: Any, label: str) -> tuple[tuple[float, ...], ...]:
-    rows = _require_matrix_rows(value, label)
+def _require_float_matrix(
+    value: Any,
+    label: str,
+    *,
+    expected_shape: tuple[int, int] | None = None,
+) -> tuple[tuple[float, ...], ...]:
+    rows = _require_matrix_rows(value, label, expected_shape=expected_shape)
     normalized_rows = []
     for row_index, row in enumerate(rows):
         normalized_row = []
@@ -221,11 +264,19 @@ def _require_float_matrix(value: Any, label: str) -> tuple[tuple[float, ...], ..
                 raise ValueError(f"{label}[{row_index}][{column_index}] must be between 0.0 and 1.0")
             normalized_row.append(number)
         normalized_rows.append(tuple(normalized_row))
-    return tuple(normalized_rows)
+    result = tuple(normalized_rows)
+    if expected_shape is not None and _matrix_shape(result) != expected_shape:
+        raise ValueError(f"{label} must have shape {expected_shape[0]}x{expected_shape[1]}")
+    return result
 
 
-def _require_binary_matrix(value: Any, label: str) -> tuple[tuple[int, ...], ...]:
-    rows = _require_matrix_rows(value, label)
+def _require_binary_matrix(
+    value: Any,
+    label: str,
+    *,
+    expected_shape: tuple[int, int] | None = None,
+) -> tuple[tuple[int, ...], ...]:
+    rows = _require_matrix_rows(value, label, expected_shape=expected_shape)
     normalized_rows = []
     for row_index, row in enumerate(rows):
         normalized_row = []
@@ -237,16 +288,26 @@ def _require_binary_matrix(value: Any, label: str) -> tuple[tuple[int, ...], ...
                 raise ValueError(f"{label}[{row_index}][{column_index}] must be 0 or 1")
             normalized_row.append(number)
         normalized_rows.append(tuple(normalized_row))
-    return tuple(normalized_rows)
+    result = tuple(normalized_rows)
+    if expected_shape is not None and _matrix_shape(result) != expected_shape:
+        raise ValueError(f"{label} must have shape {expected_shape[0]}x{expected_shape[1]}")
+    return result
 
 
-def _require_matrix_rows(value: Any, label: str) -> tuple[tuple[Any, ...], ...]:
+def _require_matrix_rows(
+    value: Any,
+    label: str,
+    *,
+    expected_shape: tuple[int, int] | None = None,
+) -> tuple[tuple[Any, ...], ...]:
     if not isinstance(value, (list, tuple)):
         raise ValueError(f"{label} must be a list or tuple of rows")
     if not value:
         raise ValueError(f"{label} must not be empty")
+    if expected_shape is not None and len(value) != expected_shape[0]:
+        raise ValueError(f"{label} must have shape {expected_shape[0]}x{expected_shape[1]}")
     rows = []
-    expected_width = None
+    expected_width = expected_shape[1] if expected_shape is not None else None
     for row_index, row in enumerate(value):
         if not isinstance(row, (list, tuple)):
             raise ValueError(f"{label}[{row_index}] must be a list or tuple")
@@ -254,20 +315,42 @@ def _require_matrix_rows(value: Any, label: str) -> tuple[tuple[Any, ...], ...]:
             raise ValueError(f"{label}[{row_index}] must not be empty")
         if expected_width is None:
             expected_width = len(row)
-        elif len(row) != expected_width:
+        elif len(row) != expected_width and expected_shape is None:
             raise ValueError(f"{label} rows must all have the same width")
+        elif len(row) != expected_width:
+            raise ValueError(f"{label} must have shape {expected_shape[0]}x{expected_shape[1]}")
         rows.append(tuple(row))
     return tuple(rows)
 
 
-def _require_hash_bits(value: Any, label: str) -> str:
+def _require_hash_bits(value: Any, label: str, *, expected_length: int | None = None) -> str:
     if type(value) is not str:
         raise ValueError(f"{label} must be a string")
     if not value:
         raise ValueError(f"{label} must not be empty")
     if any(bit not in {"0", "1"} for bit in value):
         raise ValueError(f"{label} must contain only 0 and 1 characters")
+    if expected_length is not None and len(value) != expected_length:
+        raise ValueError(f"{label} must be {expected_length} bits")
     return value
+
+
+def _matrix_shape(matrix: tuple[tuple[Any, ...], ...]) -> tuple[int, int]:
+    return len(matrix), len(matrix[0])
+
+
+def _compute_structure_score(signature: ExtractedSignature) -> float:
+    template = _matrix_to_numpy(signature.template, dtype=np.float32)
+    occupied = template > _FOREGROUND_THRESHOLD
+    positions = np.argwhere(occupied)
+    if positions.size == 0:
+        return 0.0
+    top_left = positions.min(axis=0)
+    bottom_right = positions.max(axis=0)
+    height = (int(bottom_right[0] - top_left[0]) + 1) / template.shape[0]
+    width = (int(bottom_right[1] - top_left[1]) + 1) / template.shape[1]
+    fill_ratio = float(np.mean(occupied))
+    return float((width * 0.7) + (height * 0.2) + (fill_ratio * 0.1))
 
 
 def _require_non_empty_str(value: Any, label: str) -> str:
