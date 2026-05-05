@@ -101,16 +101,16 @@ The first shipping target is Blocks `A-C`.
 - Create: `vision/weapon_identity/adapters.py`
 - Create: `tests/weapon_identity/test_adapters.py`
 
-- [ ] Add adapter classes for `cod20`, `cod21`, and `cod22`.
-- [ ] Each adapter must define:
+- [x] Add adapter classes for `cod20`, `cod21`, and `cod22`.
+- [x] Each adapter must define:
   - weapon icon ROI
   - weapon-name text ROI when applicable
   - slot or switch suspicion hints when available
   - a human-readable adapter name and expected title behavior
-- [ ] Add an adapter registry so the recognizer and collector can request an adapter by game id.
-- [ ] Write tests that verify adapter lookup and ROI payload shapes for all three titles.
-- [ ] Run: `python -m unittest tests.weapon_identity.test_adapters -v`
-- [ ] Expected: registry and ROI contract tests pass.
+- [x] Add an adapter registry so the recognizer and collector can request an adapter by game id.
+- [x] Write tests that verify adapter lookup and ROI payload shapes for all three titles.
+- [x] Run: `python -m unittest tests.weapon_identity.test_adapters -v`
+- [x] Expected: registry and ROI contract tests pass.
 
 ## Task 4: Visual Signature Extraction And Matching
 
@@ -310,3 +310,4 @@ The first shipping target is Blocks `A-C`.
 - Prefer updating checkbox state in this file as work completes so later sessions can resume from the last confirmed task boundary.
 - Task `1` is complete and review-approved on commit `ecde59d0b0119ac7cbc33b13441515df5c67a672`.
 - Task `2` is complete and review-approved on commit `91fe7d3739acdbe7ae84c42b38a1710f08d64170`.
+- Task `3` is complete and review-approved on commit `dbd6423abf192d3bf161103d9bf2fa983da84c4b`.
