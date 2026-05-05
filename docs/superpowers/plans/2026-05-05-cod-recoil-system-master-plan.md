@@ -180,21 +180,21 @@ The first shipping target is Blocks `A-C`.
 - Create: `vision/recoil_collection/segmentation.py`
 - Create: `tests/recoil_collection/test_segmentation.py`
 
-- [ ] Define collection-session models for:
+- [x] Define collection-session models for:
   - capture session metadata
   - burst window
   - burst sample series
-- [ ] Implement standing-fire burst segmentation using a mix of:
+- [x] Implement standing-fire burst segmentation using a mix of:
   - center-region motion onset
   - ammo change when visible
   - optional manual start/stop fallback
-- [ ] Write tests for:
+- [x] Write tests for:
   - single burst detection
   - multiple separated bursts
   - no-burst case
   - noisy motion that should not start a firing window
-- [ ] Run: `python -m unittest tests.recoil_collection.test_segmentation -v`
-- [ ] Expected: segmentation behaves deterministically on synthetic input.
+- [x] Run: `python -m unittest tests.recoil_collection.test_segmentation -v`
+- [x] Expected: segmentation behaves deterministically on synthetic input.
 
 ## Task 8: Recoil Curve Extraction And Averaging
 
@@ -314,3 +314,4 @@ The first shipping target is Blocks `A-C`.
 - Task `4` is complete and review-approved on commit `8dd83e4c1825a3a30373413aeb3cde1b35621dd5`.
 - Task `5` is complete and review-approved on commit `53735037395c99f63bdf5d69eeb15a0cac9592a0`.
 - Task `6` is complete and review-approved on commit `36944926a3977129fa6d8dfed92b35a541ca2680`.
+- Task `7` is complete and review-approved on commit `34e8518b574ef1c5d1749602b0e24dc4a6b3fcdd`.
