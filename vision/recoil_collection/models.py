@@ -69,11 +69,11 @@ class RecoilProfileRecord:
             ),
         )
         object.__setattr__(self, "game", _require_non_empty_str(self.game, "RecoilProfileRecord.game"))
-        object.__setattr__(self, "stance", _require_non_empty_str(self.stance, "RecoilProfileRecord.stance"))
+        object.__setattr__(self, "stance", _require_v1_stance(self.stance, "RecoilProfileRecord.stance"))
         object.__setattr__(
             self,
             "aim_mode",
-            _require_non_empty_str(self.aim_mode, "RecoilProfileRecord.aim_mode"),
+            _require_v1_aim_mode(self.aim_mode, "RecoilProfileRecord.aim_mode"),
         )
         object.__setattr__(
             self,
@@ -303,12 +303,12 @@ class RecoilProfileSummary:
         object.__setattr__(
             self,
             "stance",
-            _require_non_empty_str(self.stance, "RecoilProfileSummary.stance"),
+            _require_v1_stance(self.stance, "RecoilProfileSummary.stance"),
         )
         object.__setattr__(
             self,
             "aim_mode",
-            _require_non_empty_str(self.aim_mode, "RecoilProfileSummary.aim_mode"),
+            _require_v1_aim_mode(self.aim_mode, "RecoilProfileSummary.aim_mode"),
         )
         object.__setattr__(
             self,
@@ -358,7 +358,7 @@ class RecoilProfileSummary:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "RecoilProfileSummary":
-        _require_exact_keys(
+        _require_required_keys(
             data,
             "RecoilProfileSummary",
             {
@@ -423,6 +423,14 @@ def _require_exact_keys(data: Any, label: str, expected_keys: set[str]) -> None:
         raise ValueError(f"{label} schema mismatch ({', '.join(details)})")
 
 
+def _require_required_keys(data: Any, label: str, required_keys: set[str]) -> None:
+    if not isinstance(data, dict):
+        raise ValueError(f"{label} must be a dict")
+    missing = required_keys - set(data)
+    if missing:
+        raise ValueError(f"{label} schema mismatch (missing={sorted(missing)})")
+
+
 def _require_str(value: Any, label: str) -> str:
     if type(value) is not str:
         raise ValueError(f"{label} must be a string")
@@ -434,6 +442,20 @@ def _require_non_empty_str(value: Any, label: str) -> str:
     if not text:
         raise ValueError(f"{label} must be a non-empty string")
     return text
+
+
+def _require_v1_stance(value: Any, label: str) -> str:
+    stance = _require_non_empty_str(value, label)
+    if stance != "standing":
+        raise ValueError(f"{label} must be 'standing' in V1")
+    return stance
+
+
+def _require_v1_aim_mode(value: Any, label: str) -> str:
+    aim_mode = _require_non_empty_str(value, label)
+    if aim_mode not in {"hipfire", "ads"}:
+        raise ValueError(f"{label} must be one of ['ads', 'hipfire'] in V1")
+    return aim_mode
 
 
 def _require_non_negative_int(value: Any, label: str) -> int:

@@ -100,6 +100,52 @@ class RecoilProfileRecordTests(unittest.TestCase):
                 created_at="2026-05-05T11:00:00Z",
             )
 
+    def test_constructor_rejects_non_standing_stance(self):
+        with self.assertRaisesRegex(ValueError, "stance"):
+            RecoilProfileRecord(
+                profile_id="profile-cod22-m4-ads-standing-v1",
+                canonical_weapon_id="cod22-m4",
+                game="cod22",
+                stance="crouched",
+                aim_mode="ads",
+                sample_interval_ms=16,
+                duration_ms=64,
+                initial_delay_ms=32,
+                samples_x=(0.0, 0.8),
+                samples_y=(0.0, -2.5),
+                sample_count=2,
+                burst_count=6,
+                variance_summary={"horizontal_stddev": 0.19, "vertical_stddev": 0.42},
+                confidence=0.88,
+                capture_resolution="1920x1080",
+                capture_fps=240.0,
+                collector_version="collector-0.1.0",
+                created_at="2026-05-05T11:00:00Z",
+            )
+
+    def test_constructor_rejects_unsupported_aim_mode(self):
+        with self.assertRaisesRegex(ValueError, "aim_mode"):
+            RecoilProfileRecord(
+                profile_id="profile-cod22-m4-ads-standing-v1",
+                canonical_weapon_id="cod22-m4",
+                game="cod22",
+                stance="standing",
+                aim_mode="tac_stance",
+                sample_interval_ms=16,
+                duration_ms=64,
+                initial_delay_ms=32,
+                samples_x=(0.0, 0.8),
+                samples_y=(0.0, -2.5),
+                sample_count=2,
+                burst_count=6,
+                variance_summary={"horizontal_stddev": 0.19, "vertical_stddev": 0.42},
+                confidence=0.88,
+                capture_resolution="1920x1080",
+                capture_fps=240.0,
+                collector_version="collector-0.1.0",
+                created_at="2026-05-05T11:00:00Z",
+            )
+
 
 class RecoilProfileSummaryTests(unittest.TestCase):
     def test_round_trip_serialization(self):
@@ -119,6 +165,27 @@ class RecoilProfileSummaryTests(unittest.TestCase):
 
         self.assertEqual(RecoilProfileSummary.from_dict(summary.to_dict()), summary)
 
+    def test_from_dict_ignores_unknown_extra_fields(self):
+        payload = {
+            "profile_id": "profile-cod22-m4-ads-standing-v1",
+            "canonical_weapon_id": "cod22-m4",
+            "game": "cod22",
+            "stance": "standing",
+            "aim_mode": "ads",
+            "sample_count": 4,
+            "burst_count": 6,
+            "confidence": 0.88,
+            "peak_abs_x": 1.4,
+            "peak_abs_y": 6.0,
+            "created_at": "2026-05-05T11:00:00Z",
+            "future_field": {"schema_version": 2},
+        }
+
+        summary = RecoilProfileSummary.from_dict(payload)
+
+        self.assertEqual(summary.profile_id, "profile-cod22-m4-ads-standing-v1")
+        self.assertEqual(summary.aim_mode, "ads")
+
     def test_constructor_rejects_blank_profile_id(self):
         with self.assertRaisesRegex(ValueError, "profile_id"):
             RecoilProfileSummary(
@@ -127,6 +194,38 @@ class RecoilProfileSummaryTests(unittest.TestCase):
                 game="cod22",
                 stance="standing",
                 aim_mode="ads",
+                sample_count=4,
+                burst_count=6,
+                confidence=0.88,
+                peak_abs_x=1.4,
+                peak_abs_y=6.0,
+                created_at="2026-05-05T11:00:00Z",
+            )
+
+    def test_constructor_rejects_non_standing_stance(self):
+        with self.assertRaisesRegex(ValueError, "stance"):
+            RecoilProfileSummary(
+                profile_id="profile-cod22-m4-ads-standing-v1",
+                canonical_weapon_id="cod22-m4",
+                game="cod22",
+                stance="prone",
+                aim_mode="ads",
+                sample_count=4,
+                burst_count=6,
+                confidence=0.88,
+                peak_abs_x=1.4,
+                peak_abs_y=6.0,
+                created_at="2026-05-05T11:00:00Z",
+            )
+
+    def test_constructor_rejects_unsupported_aim_mode(self):
+        with self.assertRaisesRegex(ValueError, "aim_mode"):
+            RecoilProfileSummary(
+                profile_id="profile-cod22-m4-ads-standing-v1",
+                canonical_weapon_id="cod22-m4",
+                game="cod22",
+                stance="standing",
+                aim_mode="burst",
                 sample_count=4,
                 burst_count=6,
                 confidence=0.88,

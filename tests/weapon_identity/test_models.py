@@ -107,6 +107,23 @@ class RecognitionEventTests(unittest.TestCase):
 
         self.assertEqual(RecognitionEvent.from_dict(event.to_dict()), event)
 
+    def test_from_dict_ignores_unknown_extra_fields(self):
+        payload = {
+            "game": "cod22",
+            "canonical_weapon_id": "cod22-m4",
+            "confidence": 0.84,
+            "source": "fused",
+            "timestamp": "2026-05-05T10:16:00Z",
+            "degraded": False,
+            "matched_name": "Blackcell Ember",
+            "future_field": {"schema_version": 2},
+        }
+
+        event = RecognitionEvent.from_dict(payload)
+
+        self.assertEqual(event.canonical_weapon_id, "cod22-m4")
+        self.assertEqual(event.matched_name, "Blackcell Ember")
+
     def test_from_dict_rejects_missing_source(self):
         payload = {
             "game": "cod22",

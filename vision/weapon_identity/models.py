@@ -347,7 +347,7 @@ class RecognitionEvent:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "RecognitionEvent":
-        _require_exact_keys(
+        _require_required_keys(
             data,
             "RecognitionEvent",
             {
@@ -397,6 +397,14 @@ def _require_exact_keys(data: Any, label: str, expected_keys: set[str]) -> None:
         if extra:
             details.append(f"extra={sorted(extra)}")
         raise ValueError(f"{label} schema mismatch ({', '.join(details)})")
+
+
+def _require_required_keys(data: Any, label: str, required_keys: set[str]) -> None:
+    if not isinstance(data, dict):
+        raise ValueError(f"{label} must be a dict")
+    missing = required_keys - set(data)
+    if missing:
+        raise ValueError(f"{label} schema mismatch (missing={sorted(missing)})")
 
 
 def _require_str(value: Any, label: str) -> str:
