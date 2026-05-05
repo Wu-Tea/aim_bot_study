@@ -135,6 +135,34 @@ class WeaponResolverTests(unittest.TestCase):
         self.assertTrue(result.event.degraded)
         self.assertEqual(result.runtime_state.confirmed_weapon_id, "cod21-krig-c")
 
+    def test_cod21_without_switch_suspicion_does_not_replace_cached_weapon_from_matching_image_and_text(self):
+        result = _resolve_weapon(
+            adapter=get_adapter("cod21"),
+            identity_records=(
+                _weapon_record(
+                    canonical_weapon_id="cod21-krig-c",
+                    game="cod21",
+                    display_name="Krig C",
+                ),
+                _weapon_record(
+                    canonical_weapon_id="cod21-xm4",
+                    game="cod21",
+                    display_name="XM4",
+                ),
+            ),
+            ranked_image_matches=(_match("sig-xm4", "cod21-xm4", 0.97),),
+            text_candidates=("XM4",),
+            runtime_state=_runtime_state(confirmed_weapon_id="cod21-krig-c"),
+            switch_suspected=False,
+            timestamp="2026-05-05T18:00:01Z",
+        )
+
+        self.assertIsNotNone(result.event)
+        self.assertEqual(result.event.canonical_weapon_id, "cod21-krig-c")
+        self.assertEqual(result.event.source, "carry_forward")
+        self.assertTrue(result.event.degraded)
+        self.assertEqual(result.runtime_state.confirmed_weapon_id, "cod21-krig-c")
+
     def test_ambiguous_image_only_case_remains_degraded(self):
         result = _resolve_weapon(
             adapter=get_adapter("cod22"),
@@ -248,6 +276,26 @@ class WeaponResolverTests(unittest.TestCase):
         self.assertIsNotNone(result.event)
         self.assertEqual(result.event.game, "cod22")
         self.assertEqual(result.event.canonical_weapon_id, "m4-platform")
+
+    def test_cross_title_records_matches_and_cached_state_are_fenced_by_adapter_game(self):
+        result = _resolve_weapon(
+            adapter=get_adapter("cod22"),
+            identity_records=(
+                _weapon_record(
+                    canonical_weapon_id="cod20-m4",
+                    game="cod20",
+                    display_name="M4",
+                ),
+            ),
+            ranked_image_matches=(_match("sig-m4", "cod20-m4", 0.97),),
+            text_candidates=("M4",),
+            runtime_state=_runtime_state(confirmed_weapon_id="cod20-m4"),
+            switch_suspected=False,
+            timestamp="2026-05-05T18:00:05Z",
+        )
+
+        self.assertIsNone(result.event)
+        self.assertIsNone(result.runtime_state.confirmed_weapon_id)
 
 
 def _resolve_weapon(**kwargs):

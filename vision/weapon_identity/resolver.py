@@ -60,8 +60,10 @@ def resolve_weapon(
         text_window_frames=adapter.switch_hints.text_window_frames,
     )
     timestamp = _require_non_empty_str(timestamp, "timestamp")
-    records = _coerce_identity_records(identity_records)
-    image_signal = _pick_image_signal(ranked_image_matches, adapter.game_id)
+    records = _filter_identity_records_for_game(_coerce_identity_records(identity_records), adapter.game_id)
+    valid_weapon_ids = frozenset(record.canonical_weapon_id for record in records)
+    state = _sanitize_runtime_state(state, valid_weapon_ids)
+    image_signal = _pick_image_signal(ranked_image_matches, adapter.game_id, valid_weapon_ids)
     text_signal = _pick_text_signal(
         text_candidates,
         records,
@@ -69,6 +71,16 @@ def resolve_weapon(
         text_window_active=state.text_window_active,
     )
     previous_weapon_id = state.confirmed_weapon_id
+    candidate_weapon_id = _pick_candidate_weapon_id(image_signal, text_signal)
+
+    if (
+        previous_weapon_id
+        and adapter.game_id == "cod21"
+        and not state.switch_suspected
+        and candidate_weapon_id is not None
+        and candidate_weapon_id != previous_weapon_id
+    ):
+        return _carry_forward(previous_weapon_id, state, adapter.game_id, timestamp, degraded=True)
 
     if image_signal and text_signal and image_signal.canonical_weapon_id != text_signal.canonical_weapon_id:
         return _carry_forward(previous_weapon_id, state, adapter.game_id, timestamp, degraded=True)
@@ -172,8 +184,16 @@ def _pick_text_signal(
     return None
 
 
-def _pick_image_signal(ranked_image_matches: Iterable[SignatureMatch], game_id: str) -> _ResolvedImageSignal | None:
-    matches = tuple(_require_signature_match(match, "ranked_image_matches[]") for match in ranked_image_matches)
+def _pick_image_signal(
+    ranked_image_matches: Iterable[SignatureMatch],
+    game_id: str,
+    valid_weapon_ids: frozenset[str],
+) -> _ResolvedImageSignal | None:
+    matches = tuple(
+        match
+        for match in (_require_signature_match(match, "ranked_image_matches[]") for match in ranked_image_matches)
+        if match.canonical_weapon_id in valid_weapon_ids
+    )
     if not matches:
         return None
 
@@ -264,6 +284,41 @@ def _coerce_runtime_state(runtime_state: ResolverRuntimeState | None) -> Resolve
     if not isinstance(runtime_state, ResolverRuntimeState):
         raise ValueError("runtime_state must be a ResolverRuntimeState")
     return runtime_state
+
+
+def _filter_identity_records_for_game(
+    records: tuple[WeaponIdentityRecord, ...],
+    game_id: str,
+) -> tuple[WeaponIdentityRecord, ...]:
+    return tuple(record for record in records if record.game == game_id)
+
+
+def _sanitize_runtime_state(
+    runtime_state: ResolverRuntimeState,
+    valid_weapon_ids: frozenset[str],
+) -> ResolverRuntimeState:
+    if runtime_state.confirmed_weapon_id in valid_weapon_ids:
+        return runtime_state
+    return ResolverRuntimeState(
+        confirmed_weapon_id=None,
+        switch_suspected=runtime_state.switch_suspected,
+        text_window_remaining=runtime_state.text_window_remaining,
+    )
+
+
+def _pick_candidate_weapon_id(
+    image_signal: _ResolvedImageSignal | None,
+    text_signal: _ResolvedTextSignal | None,
+) -> str | None:
+    if image_signal and text_signal:
+        if image_signal.canonical_weapon_id == text_signal.canonical_weapon_id:
+            return image_signal.canonical_weapon_id
+        return None
+    if image_signal:
+        return image_signal.canonical_weapon_id
+    if text_signal:
+        return text_signal.canonical_weapon_id
+    return None
 
 
 def _require_adapter(value: Any) -> WeaponIdentityAdapter:
