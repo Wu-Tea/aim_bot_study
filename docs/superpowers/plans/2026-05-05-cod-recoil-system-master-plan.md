@@ -71,12 +71,12 @@ The first shipping target is Blocks `A-C`.
 - Create: `tests/weapon_identity/test_models.py`
 - Create: `tests/recoil_collection/test_models.py`
 
-- [ ] Define immutable dataclasses for weapon identity records, visual signatures, recognition events, recoil samples, recoil profiles, and profile summaries.
-- [ ] Keep identity and profile objects separate so blueprint aliases do not become new canonical weapons.
-- [ ] Add serialization helpers: `to_dict()` and `from_dict()` for each persisted model.
-- [ ] Write model tests covering round-trip serialization, required-field validation, and blueprint alias handling.
-- [ ] Run: `python -m unittest tests.weapon_identity.test_models tests.recoil_collection.test_models -v`
-- [ ] Expected: all new model tests pass.
+- [x] Define immutable dataclasses for weapon identity records, visual signatures, recognition events, recoil samples, recoil profiles, and profile summaries.
+- [x] Keep identity and profile objects separate so blueprint aliases do not become new canonical weapons.
+- [x] Add serialization helpers: `to_dict()` and `from_dict()` for each persisted model.
+- [x] Write model tests covering round-trip serialization, required-field validation, and blueprint alias handling.
+- [x] Run: `python -m unittest tests.weapon_identity.test_models tests.recoil_collection.test_models -v`
+- [x] Expected: all new model tests pass.
 
 ## Task 2: JSON Storage Layer
 
@@ -308,3 +308,4 @@ The first shipping target is Blocks `A-C`.
 - The first runtime-integration milestone is reached when Tasks `11-12` are complete.
 - If a future session resumes midstream, read this file first, then the design spec at `docs/superpowers/specs/2026-05-05-cod-weapon-recognition-recoil-collector-design.md`.
 - Prefer updating checkbox state in this file as work completes so later sessions can resume from the last confirmed task boundary.
+- Task `1` is complete and review-approved on commit `ecde59d0b0119ac7cbc33b13441515df5c67a672`.
