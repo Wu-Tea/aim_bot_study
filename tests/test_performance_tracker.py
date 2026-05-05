@@ -26,6 +26,8 @@ class PerformanceTrackerTests(unittest.TestCase):
         tracker.reset_window()
         tracker.update(
             wait_ms=1.0,
+            preprocess_ms=0.5,
+            color_copy_ms=0.25,
             infer_ms=2.0,
             post_ms=3.0,
             boxes_seen=0,
@@ -48,6 +50,8 @@ class PerformanceTrackerTests(unittest.TestCase):
         clock.now = 0.4
         tracker.update(
             wait_ms=1.0,
+            preprocess_ms=0.5,
+            color_copy_ms=0.25,
             infer_ms=2.0,
             post_ms=3.0,
             boxes_seen=0,
@@ -57,6 +61,8 @@ class PerformanceTrackerTests(unittest.TestCase):
         clock.now = 1.2
         tracker.update(
             wait_ms=4.0,
+            preprocess_ms=1.5,
+            color_copy_ms=0.75,
             infer_ms=5.0,
             post_ms=6.0,
             boxes_seen=2,
@@ -67,9 +73,13 @@ class PerformanceTrackerTests(unittest.TestCase):
         self.assertEqual(len(lines), 2)
         self.assertIn("[Perf][ADS]", lines[0])
         self.assertIn("wait=2.5ms", lines[0])
+        self.assertIn("pre=1.0ms", lines[0])
+        self.assertIn("copy=0.5ms", lines[0])
         self.assertIn("age=6.0ms", lines[0])
         self.assertIn("boxes=1.0", lines[0])
         self.assertIn("[Perf][TRACK]", lines[1])
+        self.assertIn("pre=1.5ms", lines[1])
+        self.assertIn("copy=0.8ms", lines[1])
         self.assertIn("age=8.0ms", lines[1])
         self.assertIn("boxes=2.0", lines[1])
 

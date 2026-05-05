@@ -1,5 +1,96 @@
 # Agent Session Log
 
+## 2026-05-05T16:27:45+08:00 - External cue bridge, sidecar fallback, ROI-only color copy, and same-target auto-fire fix
+
+Goal: Finish the accepted hotpath/cue follow-up work, stabilize the remaining regression, and prepare the accumulated workspace changes for commit.
+
+What changed:
+- Reduced native host-copy cost for color/cue logic:
+  - `VisionEngine` now asks selector for the required color region and downloads only that subframe instead of the whole BGRA ROI
+  - `VisionResult.perf.color_copy_ms` now surfaces that cost explicitly
+- Reduced duplicated selector CPU work:
+  - normal detection-side color classification and yellow-cue extraction are merged into a single ROI scan
+- Added frame-level external yellow cue support:
+  - native types now carry optional external cue coordinates and confidence
+  - `VisionEngine` and `VisionTargetSelector` can use that cue directly during empty-detection `cue_hold`
+- Added runtime cue-source resolution in `vision/native_runner.py`:
+  1. explicit `cue_provider`
+  2. controller hook (`get_external_cue`, `get_targeting_cue`, `get_yellow_cue`)
+  3. built-in `ScreenCaptureCueProvider` sidecar
+- Added the built-in fallback cue source:
+  - `vision/yellow_cue.py` now provides compact yellow-marker detection plus a lightweight screen-capture sidecar provider
+- Preserved native `target_source` into `ControllerTarget` so downstream code can still distinguish `cue_hold`
+- Fixed a regression found during pre-commit verification:
+  - upper-body-only follow-up detections were sometimes treated as a potential target switch instead of the same active target
+  - that caused one stale frame where the old full-body fire zone remained active and `auto_fire` stayed on for too long
+  - `VisionTargetSelector::boxes_match(...)` now accepts same-target vertical truncation with strong horizontal agreement and looser vertical tolerance
+
+User confirmed:
+- Unsubmitted workspace changes should be inspected and committed if healthy.
+
+AI inferred:
+- The accumulated native cue/hotpath work was cohesive enough to commit together once verification passed.
+- The regression fix should ship in the same commit because it was discovered while validating this exact workset.
+
+Decisions:
+- Added `.agent-context/decisions/DEC-2026-05-05-001-add-external-yellow-cue-input-and-sidecar-fallback.md`
+
+Context files updated:
+- `.agent-context/handoff.md`
+- `.agent-context/session-log.md`
+- `.agent-context/decisions/DEC-2026-05-05-001-add-external-yellow-cue-input-and-sidecar-fallback.md`
+
+Verification:
+- `powershell -ExecutionPolicy Bypass -File tools\build_native_vision.ps1`
+- `py -3 -m unittest tests.test_native_vision_runner tests.test_native_vision_targeting_bridge tests.test_performance_tracker tests.test_vision_runner tests.test_yellow_cue -v`
+  - result: `55` passed
+
+## 2026-05-01T21:06:29+08:00 - Three-explorer optimization review after cue-hold
+
+Goal: Record the next optimization priority after stabilizing the reverted native baseline plus `cue_hold`, without jumping straight into a full controller rewrite.
+
+What changed:
+- Ran a three-way architecture review using focused explorer agents:
+  - one inspected the native-to-Python controller boundary and controller host loops
+  - one inspected the current native targeting / cue-hold path
+  - one inspected the broader native capture / TensorRT / selector hot path
+- Confirmed a consistent conclusion across all three reviews:
+  - full controller-in-C++ is not the next highest-ROI move
+  - the more immediate optimization surface is native hotpath copy / sync / CPU ROI scanning
+- Identified the main native cost center still worth attacking first:
+  - `VisionEngine` downloads the full BGRA ROI to host whenever detections or cue-hold color logic require CPU-side pixels
+  - selector-side color classification and yellow-cue extraction still duplicate work over overlapping ROI regions
+- Confirmed that the user's idea about controller-in-C++ still has some value, but only as a later, narrower migration:
+  - if revisited, favor a native host/output transport slice before porting the whole controller state machine
+- Confirmed that application-provided yellow cue coordinates would likely be worth consuming directly later if they already exist cheaply upstream.
+
+User confirmed:
+- Three subagents should be used to discuss further optimization space.
+- Controller-in-C++ was a valid candidate to evaluate.
+- The resulting prioritization should be recorded into project context.
+
+AI inferred:
+- The accepted 2026-04-22 decision to defer a full controller rewrite still stands.
+- The next practical optimization sequence is:
+  1. measure hidden host-copy cost
+  2. reduce full-frame host download to smaller ROI-only copies
+  3. merge duplicated color/cue scans
+  4. add direct external cue-input support if available
+  5. only after that reconsider pickup-confirm relaxation or partial native controller hosting
+
+Decisions:
+- Added `.agent-context/decisions/DEC-2026-05-01-006-prioritize-native-hotpath-copy-reduction-over-full-controller-cpp-rewrite.md`
+
+Context files updated:
+- `.agent-context/handoff.md`
+- `.agent-context/session-log.md`
+- `.agent-context/decisions/DEC-2026-05-01-006-prioritize-native-hotpath-copy-reduction-over-full-controller-cpp-rewrite.md`
+
+Follow-up:
+- Instrument the hidden host color/cue copy path in `native/vision_native/src/vision_engine.cpp` and surface the cost in `vision/perf.py`.
+- Prototype ROI-only host copies for box-top color and cue-hold search windows.
+- Decide whether to thread application-provided cue coordinates through the native runtime before attempting deeper controller-side migration.
+
 ## 2026-04-29T22:38:34+08:00 - Runtime compatibility note and moving-POV research lead
 
 Goal: Record the latest continuity-relevant findings without reopening architecture decisions.

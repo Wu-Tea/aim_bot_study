@@ -14,6 +14,7 @@ from controllers.base_controller import ControllerTarget
 from .debug_capture import DebugFrameCapture
 from .perf import PerformanceTracker
 from .runner import AdsAutoFireGate, DEFAULT_DEBUG_CAPTURE_DIR, PROJECT_ROOT, VisionConfig, _env_flag
+from .yellow_cue import ScreenCaptureCueProvider
 
 
 NATIVE_BUILD_DIR = PROJECT_ROOT / "native" / "vision_native" / "build" / "Release"
@@ -225,8 +226,15 @@ class NativeVisionDebugOverlay:
             f"AIM {'ON' if is_aiming else 'OFF'} | FIRE {'ON' if auto_fire_active else 'OFF'}",
             f"TARGET {'ON' if result.get('has_target') else 'OFF'} | BOXES {float(result.get('boxes_seen', 0.0)):.1f}",
             (
+                f"CUE {'Y' if result.get('has_external_cue') else 'N'} "
+                f"x={float(result.get('external_cue_x', 0.0)):.1f} "
+                f"y={float(result.get('external_cue_y', 0.0)):.1f} "
+                f"s={float(result.get('external_cue_score', 0.0)):.2f}"
+            ),
+            (
                 f"wait={float(result.get('wait_ms', 0.0)):.1f} "
                 f"pre={float(result.get('preprocess_ms', 0.0)):.1f} "
+                f"copy={float(result.get('color_copy_ms', 0.0)):.1f} "
                 f"infer={float(result.get('infer_ms', 0.0)):.1f} "
                 f"post={float(result.get('post_ms', 0.0)):.1f} "
                 f"age={float(result.get('age_ms', 0.0)):.1f}ms"
@@ -314,7 +322,85 @@ def _controller_target_from_native_result(result: dict) -> ControllerTarget | No
         screen_center_x=float(result.get("screen_center_x", 0.0)),
         screen_center_y=float(result.get("screen_center_y", 0.0)),
         body_box=body_box,
+        target_source=(
+            str(result.get("target_source"))
+            if result.get("target_source") not in (None, "")
+            else None
+        ),
     )
+
+
+def _resolve_cue_provider(controller, cue_provider):
+    if cue_provider is not None:
+        return cue_provider
+    if controller is None:
+        return None
+
+    controller_dict = getattr(controller, "__dict__", {})
+
+    for attr_name in ("get_external_cue", "get_targeting_cue", "get_yellow_cue"):
+        type_candidate = getattr(type(controller), attr_name, None)
+        if type_candidate is None:
+            continue
+        candidate = getattr(controller, attr_name, None)
+        if callable(candidate):
+            return candidate
+
+    for attr_name in ("external_cue_provider", "cue_provider"):
+        candidate = controller_dict.get(attr_name)
+        if callable(candidate):
+            return candidate
+
+    return None
+
+
+def _create_default_cue_provider(config: VisionConfig):
+    if not _env_flag("VISION_NATIVE_CUE_SIDECAR", True):
+        return None
+
+    cue_fps = int(os.getenv("VISION_EXTERNAL_CUE_FPS", str(config.capture_fps)))
+    stale_after_seconds = float(os.getenv("VISION_EXTERNAL_CUE_STALE_SECONDS", "0.08"))
+    return ScreenCaptureCueProvider(
+        capture_width=config.capture_width,
+        capture_height=config.capture_height,
+        target_fps=cue_fps,
+        stale_after_seconds=stale_after_seconds,
+    )
+
+
+def _apply_external_cue(engine, cue_provider) -> None:
+    if cue_provider is None:
+        return
+
+    cue = cue_provider()
+    if cue is None:
+        engine.set_external_cue(False, 0.0, 0.0, 0.0)
+        return
+
+    if isinstance(cue, dict):
+        engine.set_external_cue(
+            bool(cue.get("found", True)),
+            float(cue.get("x", 0.0)),
+            float(cue.get("y", 0.0)),
+            float(cue.get("score", 0.0)),
+        )
+        return
+
+    if isinstance(cue, (tuple, list)):
+        if len(cue) == 4:
+            found, x, y, score = cue
+            engine.set_external_cue(bool(found), float(x), float(y), float(score))
+            return
+        if len(cue) == 3:
+            x, y, score = cue
+            engine.set_external_cue(True, float(x), float(y), float(score))
+            return
+        if len(cue) == 2:
+            x, y = cue
+            engine.set_external_cue(True, float(x), float(y), 0.0)
+            return
+
+    raise TypeError("cue_provider must return None, dict, or tuple/list cue data")
 
 
 def _native_timeout_ms(config: VisionConfig) -> int:
@@ -329,7 +415,7 @@ def _quit_requested(config: VisionConfig) -> bool:
     return bool(win32api.GetAsyncKeyState(config.quit_key_vk) & 0x8000)
 
 
-def process_native_vision(controller=None):
+def process_native_vision(controller=None, cue_provider=None):
     config = VisionConfig.from_env()
     native_module = _load_native_module()
     timeout_ms = _native_timeout_ms(config)
@@ -358,10 +444,19 @@ def process_native_vision(controller=None):
         else None
     )
 
+    resolved_cue_provider = _resolve_cue_provider(controller, cue_provider)
+    owned_cue_provider = None
+    cue_mode = "explicit" if cue_provider is not None else "controller"
+    if resolved_cue_provider is None:
+        owned_cue_provider = _create_default_cue_provider(config)
+        resolved_cue_provider = owned_cue_provider
+        cue_mode = "sidecar" if resolved_cue_provider is not None else "off"
+
     print(
         "[Vision][Native] "
         f"crop={config.capture_width}x{config.capture_height} | "
         f"capture_fps={config.capture_fps} | timeout={timeout_ms}ms | "
+        f"cue={cue_mode} | "
         f"debug={'on' if config.debug_overlay else 'off'} | "
         f"debug_save={'on' if config.debug_save_frames else 'off'}"
     )
@@ -381,6 +476,7 @@ def process_native_vision(controller=None):
                         controller.set_auto_fire(False)
                         controller.reset()
                     engine.set_aiming(False)
+                    engine.set_external_cue(False, 0.0, 0.0, 0.0)
                     engine.reset()
                     auto_fire_gate.reset()
                     perf_tracker.reset_window()
@@ -398,6 +494,7 @@ def process_native_vision(controller=None):
                 engine.set_aiming(True)
             was_aiming = True
 
+            _apply_external_cue(engine, resolved_cue_provider)
             result = engine.poll_once()
             has_target = bool(result.get("has_target"))
             auto_fire_active = auto_fire_gate.allow_auto_fire(
@@ -425,6 +522,8 @@ def process_native_vision(controller=None):
 
             perf_tracker.update(
                 wait_ms=float(result.get("wait_ms", 0.0)),
+                preprocess_ms=float(result.get("preprocess_ms", 0.0)),
+                color_copy_ms=float(result.get("color_copy_ms", 0.0)),
                 infer_ms=float(result.get("infer_ms", 0.0)),
                 post_ms=float(result.get("post_ms", 0.0)),
                 boxes_seen=int(float(result.get("boxes_seen", 0.0))),
@@ -448,6 +547,8 @@ def process_native_vision(controller=None):
             engine.reset()
         except Exception:
             pass
+        if owned_cue_provider is not None:
+            owned_cue_provider.close()
         if controller:
             controller.set_auto_fire(False)
             controller.reset()

@@ -75,12 +75,7 @@ struct YellowCueObservation {
     int pixels = 0;
 };
 
-struct IntRect {
-    int left = 0;
-    int top = 0;
-    int right = 0;
-    int bottom = 0;
-};
+using IntRect = VisionTargetSelector::FrameRegion;
 
 float rect_width(const VisionTargetSelector::Rect& rect) {
     return rect.right - rect.left;
@@ -156,6 +151,32 @@ std::optional<IntRect> color_roi_bounds(
     return IntRect{roi_left, roi_top, roi_right, roi_bottom};
 }
 
+int effective_frame_width(const VisionTargetSelector::ColorFrameView& frame) {
+    return frame.frame_width > 0 ? frame.frame_width : frame.width;
+}
+
+int effective_frame_height(const VisionTargetSelector::ColorFrameView& frame) {
+    return frame.frame_height > 0 ? frame.frame_height : frame.height;
+}
+
+bool frame_covers(const IntRect& bounds, const VisionTargetSelector::ColorFrameView& frame) {
+    if (frame.data == nullptr || frame.width <= 0 || frame.height <= 0 || frame.row_pitch <= 0) {
+        return false;
+    }
+
+    return bounds.left >= frame.origin_x
+        && bounds.top >= frame.origin_y
+        && bounds.right <= (frame.origin_x + frame.width)
+        && bounds.bottom <= (frame.origin_y + frame.height);
+}
+
+bool rect_contains_point(const IntRect& bounds, float x, float y) {
+    return x >= static_cast<float>(bounds.left)
+        && x < static_cast<float>(bounds.right)
+        && y >= static_cast<float>(bounds.top)
+        && y < static_cast<float>(bounds.bottom);
+}
+
 void read_rgb(
     const VisionTargetSelector::ColorFrameView& frame,
     int x,
@@ -163,16 +184,18 @@ void read_rgb(
     int& r,
     int& g,
     int& b) {
-    const uint8_t* pixel = frame.data + (static_cast<size_t>(y) * frame.row_pitch);
+    const int local_x = x - frame.origin_x;
+    const int local_y = y - frame.origin_y;
+    const uint8_t* pixel = frame.data + (static_cast<size_t>(local_y) * frame.row_pitch);
     if (frame.format == PixelFormat::BGRA8) {
-        pixel += static_cast<size_t>(x) * 4;
+        pixel += static_cast<size_t>(local_x) * 4;
         b = pixel[0];
         g = pixel[1];
         r = pixel[2];
         return;
     }
 
-    pixel += static_cast<size_t>(x) * 3;
+    pixel += static_cast<size_t>(local_x) * 3;
     r = pixel[0];
     g = pixel[1];
     b = pixel[2];
@@ -234,7 +257,7 @@ YellowCueObservation scan_yellow_window(
     const IntRect& bounds,
     const VisionTargetSelector::ColorFrameView& frame) {
     YellowCueObservation observation;
-    if (frame.data == nullptr || frame.width <= 0 || frame.height <= 0 || frame.row_pitch <= 0) {
+    if (!frame_covers(bounds, frame)) {
         return observation;
     }
 
@@ -279,12 +302,18 @@ ColorClassification classify_color(
         return {};
     }
 
-    const auto bounds = color_roi_bounds(box, frame.width, frame.height);
+    const auto bounds = color_roi_bounds(box, effective_frame_width(frame), effective_frame_height(frame));
     if (!bounds.has_value()) {
+        return {};
+    }
+    if (!frame_covers(*bounds, frame)) {
         return {};
     }
 
     int friendly_count = 0;
+    int cue_pixels = 0;
+    float cue_sum_x = 0.0f;
+    float cue_sum_y = 0.0f;
     int area = 0;
     for (int y = bounds->top; y < bounds->bottom; ++y) {
         for (int x = bounds->left; x < bounds->right; ++x) {
@@ -300,6 +329,11 @@ ColorClassification classify_color(
             if (is_friendly_hsv(h, s, v)) {
                 ++friendly_count;
             }
+            if (is_enemy_hsv(h, s, v)) {
+                ++cue_pixels;
+                cue_sum_x += static_cast<float>(x);
+                cue_sum_y += static_cast<float>(y);
+            }
             ++area;
         }
     }
@@ -313,14 +347,15 @@ ColorClassification classify_color(
         return ColorClassification{0.0f, true};
     }
 
-    const YellowCueObservation cue = scan_yellow_window(*bounds, frame);
     ColorClassification classification;
-    classification.has_cue = cue.found && cue.pixels >= kCueMinPixels;
-    classification.cue_x = cue.cue_x;
-    classification.cue_y = cue.cue_y;
-    classification.cue_score = cue.score;
+    classification.has_cue = cue_pixels >= kCueMinPixels;
+    if (cue_pixels > 0) {
+        classification.cue_x = cue_sum_x / static_cast<float>(cue_pixels);
+        classification.cue_y = cue_sum_y / static_cast<float>(cue_pixels);
+        classification.cue_score = static_cast<float>(cue_pixels) / static_cast<float>(area);
+    }
 
-    const float enemy_ratio = cue.score;
+    const float enemy_ratio = classification.cue_score;
     if (kEnemyMaskMinRatio <= enemy_ratio && enemy_ratio <= kEnemyMaskMaxRatio) {
         classification.color_bonus = kMaxColorBonus;
     }
@@ -376,6 +411,64 @@ void VisionTargetSelector::clear_auto_fire_state() {
 
 bool VisionTargetSelector::wants_color_frame() const {
     return active_target_.has_value() && last_cue_point_.has_value() && last_target_offset_from_cue_.has_value();
+}
+
+std::optional<VisionTargetSelector::FrameRegion> VisionTargetSelector::required_color_region(
+    const DetectionBatch& batch) const {
+    IntRect merged{};
+    bool has_merged = false;
+    const int frame_width = static_cast<int>(frame_width_);
+    const int frame_height = static_cast<int>(frame_height_);
+    const auto last_target_center = last_target_center_;
+
+    for (const auto& detection : batch.detections) {
+        if (detection.color_classified) {
+            continue;
+        }
+
+        const Rect box = to_rect(detection);
+        const auto point = target_point(box);
+        const bool tracking_candidate = tracking_distance(
+            point.first,
+            point.second,
+            last_target_center).has_value();
+        const float candidate_w = rect_width(box);
+        const float candidate_h = rect_height(box);
+        if (!passes_geometry_gate(candidate_w, candidate_h, tracking_candidate)) {
+            continue;
+        }
+
+        const float min_conf = tracking_candidate
+            ? kTrackingConfidenceThreshold
+            : kPickupEnemyConfidenceThreshold;
+        if (detection.conf < min_conf) {
+            continue;
+        }
+
+        const auto bounds = color_roi_bounds(box, frame_width, frame_height);
+        if (!bounds.has_value()) {
+            continue;
+        }
+
+        if (!has_merged) {
+            merged = *bounds;
+            has_merged = true;
+            continue;
+        }
+
+        merged.left = std::min(merged.left, bounds->left);
+        merged.top = std::min(merged.top, bounds->top);
+        merged.right = std::max(merged.right, bounds->right);
+        merged.bottom = std::max(merged.bottom, bounds->bottom);
+    }
+
+    if (has_merged) {
+        return merged;
+    }
+    if (batch.has_external_cue) {
+        return std::nullopt;
+    }
+    return cue_hold_search_region();
 }
 
 VisionResult VisionTargetSelector::select_with_frame(
@@ -461,6 +554,21 @@ DetectionBatch VisionTargetSelector::annotate_colors(
         detection.cue_x = classification.cue_x;
         detection.cue_y = classification.cue_y;
         detection.cue_score = classification.cue_score;
+
+        if (!detection.is_friendly && batch.has_external_cue) {
+            const auto bounds = color_roi_bounds(
+                to_rect(detection),
+                effective_frame_width(frame),
+                effective_frame_height(frame));
+            if (bounds.has_value()
+                && rect_contains_point(*bounds, batch.external_cue_x, batch.external_cue_y)) {
+                detection.has_cue_point = true;
+                detection.cue_x = batch.external_cue_x;
+                detection.cue_y = batch.external_cue_y;
+                detection.cue_score = std::max(detection.cue_score, batch.external_cue_score);
+                detection.color_bonus = std::max(detection.color_bonus, kMaxColorBonus);
+            }
+        }
     }
     return annotated;
 }
@@ -477,6 +585,11 @@ bool VisionTargetSelector::update_auto_fire(const TargetState* target) {
         auto_fire_holding_ = true;
         auto_fire_miss_frames_ = 0;
         return true;
+    }
+
+    if (target != nullptr) {
+        clear_auto_fire_state();
+        return false;
     }
 
     if (auto_fire_holding_) {
@@ -669,10 +782,24 @@ bool VisionTargetSelector::boxes_match(const Rect& lhs, const Rect& rhs) const {
 
     const auto lhs_center = rect_center(lhs);
     const auto rhs_center = rect_center(rhs);
-    const float allowed_dx = std::max(8.0f, std::max(rect_width(lhs), rect_width(rhs)) * kActiveTargetCenterXRatio);
-    const float allowed_dy = std::max(8.0f, std::max(rect_height(lhs), rect_height(rhs)) * kActiveTargetCenterYRatio);
-    return std::fabs(lhs_center.first - rhs_center.first) <= allowed_dx
-        && std::fabs(lhs_center.second - rhs_center.second) <= allowed_dy;
+    const float lhs_w = rect_width(lhs);
+    const float rhs_w = rect_width(rhs);
+    const float lhs_h = rect_height(lhs);
+    const float rhs_h = rect_height(rhs);
+    const float allowed_dx = std::max(8.0f, std::max(lhs_w, rhs_w) * kActiveTargetCenterXRatio);
+    const float allowed_dy = std::max(8.0f, std::max(lhs_h, rhs_h) * kActiveTargetCenterYRatio);
+    if (std::fabs(lhs_center.first - rhs_center.first) <= allowed_dx
+        && std::fabs(lhs_center.second - rhs_center.second) <= allowed_dy) {
+        return true;
+    }
+
+    const float overlap_x = std::max(0.0f, std::min(lhs.right, rhs.right) - std::max(lhs.left, rhs.left));
+    const float min_width = std::min(lhs_w, rhs_w);
+    const float overlap_x_ratio = min_width > 0.0f ? (overlap_x / min_width) : 0.0f;
+    const float vertical_reacquire_dy = std::max(8.0f, std::max(lhs_h, rhs_h) * 0.75f);
+    return overlap_x_ratio >= 0.70f
+        && std::fabs(lhs_center.first - rhs_center.first) <= (allowed_dx * 0.75f)
+        && std::fabs(lhs_center.second - rhs_center.second) <= vertical_reacquire_dy;
 }
 
 bool VisionTargetSelector::targets_match(const TargetState& lhs, const TargetState& rhs) const {
@@ -936,6 +1063,41 @@ std::pair<float, float> VisionTargetSelector::smooth_target_point(const std::pai
     };
 }
 
+std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::try_external_cue_hold(
+    const DetectionBatch& batch) {
+    if (!batch.has_external_cue
+        || !active_target_.has_value()
+        || !last_cue_point_.has_value()
+        || !last_target_offset_from_cue_.has_value()
+        || cue_hold_frames_ >= kMaxCueHoldFrames) {
+        return std::nullopt;
+    }
+
+    const auto bounds = cue_hold_search_region();
+    if (!bounds.has_value()
+        || !rect_contains_point(*bounds, batch.external_cue_x, batch.external_cue_y)) {
+        return std::nullopt;
+    }
+
+    Candidate held = active_target_->candidate;
+    const float cue_dx = batch.external_cue_x - last_cue_point_->first;
+    const float cue_dy = batch.external_cue_y - last_cue_point_->second;
+    held.target_x = batch.external_cue_x + last_target_offset_from_cue_->first;
+    held.target_y = batch.external_cue_y + last_target_offset_from_cue_->second;
+    held.body_box = shift_rect(active_target_->candidate.body_box, cue_dx, cue_dy);
+    held.slow_zone = shift_rect(active_target_->candidate.slow_zone, cue_dx, cue_dy);
+    held.fire_zone = shift_rect(active_target_->candidate.fire_zone, cue_dx, cue_dy);
+    held.has_cue = true;
+    held.cue_x = batch.external_cue_x;
+    held.cue_y = batch.external_cue_y;
+    held.cue_score = batch.external_cue_score;
+    held.source = "cue_hold";
+
+    last_cue_point_ = std::make_pair(batch.external_cue_x, batch.external_cue_y);
+    cue_hold_frames_ += 1;
+    return target_from_candidate(held, active_target_->score);
+}
+
 std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::try_cue_hold(
     const ColorFrameView& frame) {
     if (!active_target_.has_value()
@@ -945,21 +1107,12 @@ std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::try_cue_h
         return std::nullopt;
     }
 
-    const int search_radius = static_cast<int>(std::round(
-        kCueHoldSearchRadius + (static_cast<float>(cue_hold_frames_) * kCueHoldSearchGrowthPerFrame)));
-    const int cue_x = static_cast<int>(std::round(last_cue_point_->first));
-    const int cue_y = static_cast<int>(std::round(last_cue_point_->second));
-    IntRect bounds{
-        std::max(0, cue_x - search_radius),
-        std::max(0, cue_y - search_radius),
-        std::min(frame.width, cue_x + search_radius + 1),
-        std::min(frame.height, cue_y + search_radius + 1),
-    };
-    if ((bounds.right - bounds.left) < 4 || (bounds.bottom - bounds.top) < 4) {
+    const auto bounds = cue_hold_search_region();
+    if (!bounds.has_value()) {
         return std::nullopt;
     }
 
-    const YellowCueObservation cue = scan_yellow_window(bounds, frame);
+    const YellowCueObservation cue = scan_yellow_window(*bounds, frame);
     if (!cue.found) {
         return std::nullopt;
     }
@@ -981,6 +1134,32 @@ std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::try_cue_h
     last_cue_point_ = std::make_pair(cue.cue_x, cue.cue_y);
     cue_hold_frames_ += 1;
     return target_from_candidate(held, active_target_->score);
+}
+
+std::optional<VisionTargetSelector::FrameRegion> VisionTargetSelector::cue_hold_search_region() const {
+    if (!active_target_.has_value()
+        || !last_cue_point_.has_value()
+        || !last_target_offset_from_cue_.has_value()
+        || cue_hold_frames_ >= kMaxCueHoldFrames) {
+        return std::nullopt;
+    }
+
+    const int frame_width = static_cast<int>(frame_width_);
+    const int frame_height = static_cast<int>(frame_height_);
+    const int search_radius = static_cast<int>(std::round(
+        kCueHoldSearchRadius + (static_cast<float>(cue_hold_frames_) * kCueHoldSearchGrowthPerFrame)));
+    const int cue_x = static_cast<int>(std::round(last_cue_point_->first));
+    const int cue_y = static_cast<int>(std::round(last_cue_point_->second));
+    IntRect bounds{
+        std::max(0, cue_x - search_radius),
+        std::max(0, cue_y - search_radius),
+        std::min(frame_width, cue_x + search_radius + 1),
+        std::min(frame_height, cue_y + search_radius + 1),
+    };
+    if ((bounds.right - bounds.left) < 4 || (bounds.bottom - bounds.top) < 4) {
+        return std::nullopt;
+    }
+    return bounds;
 }
 
 void VisionTargetSelector::update_cue_tracking(const TargetState& target) {
@@ -1082,6 +1261,19 @@ VisionResult VisionTargetSelector::select_impl(
     if (candidates.empty()) {
         clear_pending();
         clear_switch_pending();
+        const auto external_cue_hold = try_external_cue_hold(batch);
+        if (external_cue_hold.has_value()) {
+            active_target_ = *external_cue_hold;
+            hold_frames_ = 0;
+            last_target_center_ = {
+                active_target_->candidate.target_x,
+                active_target_->candidate.target_y,
+            };
+            VisionResult result = result_from_target(*active_target_, boxes_seen);
+            clear_auto_fire_state();
+            result.auto_fire = false;
+            return result;
+        }
         if (frame != nullptr) {
             const auto cue_hold = try_cue_hold(*frame);
             if (cue_hold.has_value()) {

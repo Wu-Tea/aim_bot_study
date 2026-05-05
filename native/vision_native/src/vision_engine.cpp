@@ -116,19 +116,38 @@ void VisionEngine::set_aiming(bool aiming) {
     if (!aiming) {
         selector_.reset();
         enhancer_.reset();
+        external_cue_found_ = false;
+        external_cue_x_ = 0.0f;
+        external_cue_y_ = 0.0f;
+        external_cue_score_ = 0.0f;
     }
+}
+
+void VisionEngine::set_external_cue(bool found, float cue_x, float cue_y, float cue_score) {
+    external_cue_found_ = found;
+    external_cue_x_ = cue_x;
+    external_cue_y_ = cue_y;
+    external_cue_score_ = cue_score;
 }
 
 void VisionEngine::reset() {
     aiming_.store(false, std::memory_order_relaxed);
     selector_.reset();
     enhancer_.reset();
+    external_cue_found_ = false;
+    external_cue_x_ = 0.0f;
+    external_cue_y_ = 0.0f;
+    external_cue_score_ = 0.0f;
 }
 
 VisionResult VisionEngine::poll_once() {
     VisionResult result;
     result.screen_center_x = static_cast<float>(width_) * 0.5f;
     result.screen_center_y = static_cast<float>(height_) * 0.5f;
+    result.has_external_cue = external_cue_found_;
+    result.external_cue_x = external_cue_x_;
+    result.external_cue_y = external_cue_y_;
+    result.external_cue_score = external_cue_score_;
 
     if (!aiming_.load(std::memory_order_relaxed)) {
         result.result_at_ns = now_ns();
@@ -169,24 +188,34 @@ VisionResult VisionEngine::poll_once() {
         DetectionBatch batch = engine_.infer_bgra_array(frame_array, width_, height_);
         batch.frame_id = metadata.frame.frame_id;
         batch.captured_at_ns = metadata.frame.captured_at_ns;
+        batch.has_external_cue = external_cue_found_;
+        batch.external_cue_x = external_cue_x_;
+        batch.external_cue_y = external_cue_y_;
+        batch.external_cue_score = external_cue_score_;
 
+        const auto color_region = selector_.required_color_region(batch);
         bool has_color_frame = false;
-        if (!batch.detections.empty() || selector_.wants_color_frame()) {
-            const size_t host_bytes = static_cast<size_t>(width_) * static_cast<size_t>(height_) * 4;
+        if (color_region.has_value()) {
+            const int region_width = color_region->right - color_region->left;
+            const int region_height = color_region->bottom - color_region->top;
+            const size_t host_bytes =
+                static_cast<size_t>(region_width) * static_cast<size_t>(region_height) * 4;
             if (host_color_frame_.size() != host_bytes) {
                 host_color_frame_.resize(host_bytes);
             }
+            const uint64_t color_copy_start = now_ns();
             check_cuda(
                 cudaMemcpy2DFromArray(
                     host_color_frame_.data(),
-                    static_cast<size_t>(width_) * 4,
+                    static_cast<size_t>(region_width) * 4,
                     frame_array,
-                    0,
-                    0,
-                    static_cast<size_t>(width_) * 4,
-                    static_cast<size_t>(height_),
+                    color_region->left * 4,
+                    color_region->top,
+                    static_cast<size_t>(region_width) * 4,
+                    static_cast<size_t>(region_height),
                     cudaMemcpyDeviceToHost),
                 "cudaMemcpy2DFromArray host_color_frame");
+            result.color_copy_ms = ns_to_ms(now_ns() - color_copy_start);
             has_color_frame = true;
         }
 
@@ -197,6 +226,10 @@ VisionResult VisionEngine::poll_once() {
         result.frame_id = batch.frame_id;
         result.captured_at_ns = batch.captured_at_ns;
         result.inferred_at_ns = batch.inferred_at_ns;
+        result.has_external_cue = batch.has_external_cue;
+        result.external_cue_x = batch.external_cue_x;
+        result.external_cue_y = batch.external_cue_y;
+        result.external_cue_score = batch.external_cue_score;
         result.preprocess_ms = batch.preprocess_ms;
         result.infer_ms = batch.infer_ms;
         result.boxes_seen = static_cast<float>(batch.detections.size());
@@ -207,9 +240,13 @@ VisionResult VisionEngine::poll_once() {
                 batch,
                 VisionTargetSelector::ColorFrameView{
                     host_color_frame_.data(),
+                    color_region->right - color_region->left,
+                    color_region->bottom - color_region->top,
+                    (color_region->right - color_region->left) * 4,
+                    color_region->left,
+                    color_region->top,
                     width_,
                     height_,
-                    width_ * 4,
                     PixelFormat::BGRA8,
                 });
         } else {

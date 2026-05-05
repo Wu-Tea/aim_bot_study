@@ -11,11 +11,22 @@ namespace vision_native {
 
 class VisionTargetSelector {
 public:
+    struct FrameRegion {
+        int left = 0;
+        int top = 0;
+        int right = 0;
+        int bottom = 0;
+    };
+
     struct ColorFrameView {
         const uint8_t* data = nullptr;
         int width = 0;
         int height = 0;
         int row_pitch = 0;
+        int origin_x = 0;
+        int origin_y = 0;
+        int frame_width = 0;
+        int frame_height = 0;
         PixelFormat format = PixelFormat::RGB8;
     };
 
@@ -25,6 +36,7 @@ public:
     VisionResult select(const DetectionBatch& batch);
     VisionResult select_with_frame(const DetectionBatch& batch, const ColorFrameView& frame);
     bool wants_color_frame() const;
+    std::optional<FrameRegion> required_color_region(const DetectionBatch& batch) const;
 
     struct Rect {
         float left = 0.0f;
@@ -125,7 +137,9 @@ private:
     bool fails_tracking_jump(const std::pair<float, float>& point) const;
     bool fails_first_pickup_flick(const std::pair<float, float>& point) const;
     std::pair<float, float> smooth_target_point(const std::pair<float, float>& point) const;
+    std::optional<TargetState> try_external_cue_hold(const DetectionBatch& batch);
     std::optional<TargetState> try_cue_hold(const ColorFrameView& frame);
+    std::optional<FrameRegion> cue_hold_search_region() const;
     void update_cue_tracking(const TargetState& target);
     void clear_cue_tracking();
     VisionResult hold_or_reset(float boxes_seen);

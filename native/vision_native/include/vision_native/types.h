@@ -48,6 +48,10 @@ struct DetectionBatch {
     uint64_t inferred_at_ns = 0;
     int frame_width = 0;
     int frame_height = 0;
+    bool has_external_cue = false;
+    float external_cue_x = 0.0f;
+    float external_cue_y = 0.0f;
+    float external_cue_score = 0.0f;
     std::vector<Detection> detections;
     float preprocess_ms = 0.0f;
     float infer_ms = 0.0f;
@@ -77,9 +81,14 @@ struct VisionResult {
     float body_y2 = 0.0f;
 
     const char* target_source = "";
+    bool has_external_cue = false;
+    float external_cue_x = 0.0f;
+    float external_cue_y = 0.0f;
+    float external_cue_score = 0.0f;
 
     float wait_ms = 0.0f;
     float preprocess_ms = 0.0f;
+    float color_copy_ms = 0.0f;
     float infer_ms = 0.0f;
     float post_ms = 0.0f;
     float age_ms = 0.0f;

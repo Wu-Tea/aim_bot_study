@@ -389,6 +389,8 @@ def process_vision(controller=None):
 
             perf_tracker.update(
                 wait_ms=wait_ms,
+                preprocess_ms=0.0,
+                color_copy_ms=0.0,
                 infer_ms=infer_ms,
                 post_ms=post_ms,
                 boxes_seen=boxes_seen,

@@ -148,8 +148,13 @@ py::dict vision_result_to_dict(const vision_native::VisionResult& result_in) {
     result["body_x2"] = result_in.body_x2;
     result["body_y2"] = result_in.body_y2;
     result["target_source"] = result_in.target_source;
+    result["has_external_cue"] = result_in.has_external_cue;
+    result["external_cue_x"] = result_in.external_cue_x;
+    result["external_cue_y"] = result_in.external_cue_y;
+    result["external_cue_score"] = result_in.external_cue_score;
     result["wait_ms"] = result_in.wait_ms;
     result["preprocess_ms"] = result_in.preprocess_ms;
+    result["color_copy_ms"] = result_in.color_copy_ms;
     result["infer_ms"] = result_in.infer_ms;
     result["post_ms"] = result_in.post_ms;
     result["age_ms"] = result_in.age_ms;
@@ -216,6 +221,19 @@ vision_native::DetectionBatch batch_from_xyxy_array(
     return batch;
 }
 
+vision_native::DetectionBatch batch_with_external_cue(
+    py::array_t<float, py::array::c_style | py::array::forcecast> detections,
+    float cue_x,
+    float cue_y,
+    float cue_score) {
+    auto batch = batch_from_xyxy_array(detections);
+    batch.has_external_cue = true;
+    batch.external_cue_x = cue_x;
+    batch.external_cue_y = cue_y;
+    batch.external_cue_score = cue_score;
+    return batch;
+}
+
 vision_native::VisionTargetSelector::ColorFrameView rgb_frame_view(
     py::array_t<uint8_t, py::array::c_style | py::array::forcecast> frame) {
     py::buffer_info buffer = frame.request();
@@ -228,6 +246,10 @@ vision_native::VisionTargetSelector::ColorFrameView rgb_frame_view(
     view.width = static_cast<int>(buffer.shape[1]);
     view.height = static_cast<int>(buffer.shape[0]);
     view.row_pitch = static_cast<int>(buffer.strides[0]);
+    view.origin_x = 0;
+    view.origin_y = 0;
+    view.frame_width = view.width;
+    view.frame_height = view.height;
     view.format = vision_native::PixelFormat::RGB8;
     return view;
 }
@@ -262,6 +284,20 @@ vision_native::detail::ImageFrameView image_frame_view(
     view.height = static_cast<int>(buffer.shape[0]);
     view.row_pitch = static_cast<int>(buffer.strides[0]);
     view.format = vision_native::PixelFormat::RGB8;
+    return view;
+}
+
+vision_native::VisionTargetSelector::ColorFrameView rgb_subframe_view(
+    py::array_t<uint8_t, py::array::c_style | py::array::forcecast> frame,
+    int frame_left,
+    int frame_top,
+    int full_width,
+    int full_height) {
+    auto view = rgb_frame_view(frame);
+    view.origin_x = frame_left;
+    view.origin_y = frame_top;
+    view.frame_width = full_width;
+    view.frame_height = full_height;
     return view;
 }
 
@@ -367,6 +403,13 @@ PYBIND11_MODULE(vision_native_cpp, module) {
         .def_property_readonly("width", &vision_native::VisionEngine::width)
         .def_property_readonly("height", &vision_native::VisionEngine::height)
         .def("set_aiming", &vision_native::VisionEngine::set_aiming, py::arg("aiming"))
+        .def(
+            "set_external_cue",
+            &vision_native::VisionEngine::set_external_cue,
+            py::arg("found"),
+            py::arg("cue_x") = 0.0f,
+            py::arg("cue_y") = 0.0f,
+            py::arg("cue_score") = 0.0f)
         .def("reset", &vision_native::VisionEngine::reset)
         .def("poll_once", [](vision_native::VisionEngine& engine) {
             return vision_result_to_dict(poll_engine_once(engine));
@@ -419,6 +462,20 @@ PYBIND11_MODULE(vision_native_cpp, module) {
             },
             py::arg("detections"))
         .def(
+            "select_xyxy_with_cue",
+            [](vision_native::VisionTargetSelector& selector,
+               py::array_t<float, py::array::c_style | py::array::forcecast> detections,
+               float cue_x,
+               float cue_y,
+               float cue_score) {
+                return vision_result_to_dict(
+                    selector.select(batch_with_external_cue(detections, cue_x, cue_y, cue_score)));
+            },
+            py::arg("detections"),
+            py::arg("cue_x"),
+            py::arg("cue_y"),
+            py::arg("cue_score") = 0.0f)
+        .def(
             "select_xyxy_rgb",
             [](vision_native::VisionTargetSelector& selector,
                py::array_t<float, py::array::c_style | py::array::forcecast> detections,
@@ -429,5 +486,43 @@ PYBIND11_MODULE(vision_native_cpp, module) {
                         rgb_frame_view(frame)));
             },
             py::arg("detections"),
-            py::arg("frame"));
+            py::arg("frame"))
+        .def(
+            "select_xyxy_rgb_with_cue",
+            [](vision_native::VisionTargetSelector& selector,
+               py::array_t<float, py::array::c_style | py::array::forcecast> detections,
+               py::array_t<uint8_t, py::array::c_style | py::array::forcecast> frame,
+               float cue_x,
+               float cue_y,
+               float cue_score) {
+                return vision_result_to_dict(
+                    selector.select_with_frame(
+                        batch_with_external_cue(detections, cue_x, cue_y, cue_score),
+                        rgb_frame_view(frame)));
+            },
+            py::arg("detections"),
+            py::arg("frame"),
+            py::arg("cue_x"),
+            py::arg("cue_y"),
+            py::arg("cue_score") = 0.0f)
+        .def(
+            "select_xyxy_rgb_subframe",
+            [](vision_native::VisionTargetSelector& selector,
+               py::array_t<float, py::array::c_style | py::array::forcecast> detections,
+               py::array_t<uint8_t, py::array::c_style | py::array::forcecast> frame,
+               int frame_left,
+               int frame_top,
+               int full_width,
+               int full_height) {
+                return vision_result_to_dict(
+                    selector.select_with_frame(
+                        batch_from_xyxy_array(detections),
+                        rgb_subframe_view(frame, frame_left, frame_top, full_width, full_height)));
+            },
+            py::arg("detections"),
+            py::arg("frame"),
+            py::arg("frame_left"),
+            py::arg("frame_top"),
+            py::arg("full_width"),
+            py::arg("full_height"));
 }

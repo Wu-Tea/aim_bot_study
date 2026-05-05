@@ -78,6 +78,19 @@ def _paint_yellow_dot_above(frame, box, radius=4):
     return float(cx), float(cy)
 
 
+def _subframe(frame, left, top, right, bottom):
+    return frame[top:bottom, left:right].copy()
+
+
+def _cue_hold_bounds(cue_x, cue_y, frame_shape, radius=24):
+    frame_h, frame_w = frame_shape[:2]
+    left = max(0, int(round(cue_x)) - radius)
+    top = max(0, int(round(cue_y)) - radius)
+    right = min(frame_w, int(round(cue_x)) + radius + 1)
+    bottom = min(frame_h, int(round(cue_y)) + radius + 1)
+    return left, top, right, bottom
+
+
 class NativeVisionTargetingBridgeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -222,6 +235,27 @@ class NativeVisionTargetingBridgeTests(unittest.TestCase):
         self.assertAlmostEqual(result["target_x"], 330.0, places=3)
         self.assertAlmostEqual(result["target_y"], 233.2, places=3)
 
+    def test_enemy_colored_pickup_can_lock_from_cropped_rgb_subframe(self):
+        if not hasattr(self.module, "NativeTargetSelector"):
+            self.fail("NativeTargetSelector is missing")
+
+        selector = self.module.NativeTargetSelector(CROP_W, CROP_H)
+        box = [300.0, 180.0, 360.0, 320.0]
+        frame = _frame()
+        _paint_color_above(frame, box, ENEMY_RGB)
+        detections = np.array([[*box, 0.44, 0.0]], dtype=np.float32)
+        left, top, right, bottom = _color_roi_bounds(box, frame.shape)
+        subframe = _subframe(frame, left, top, right, bottom)
+
+        first = selector.select_xyxy_rgb_subframe(detections, subframe, left, top, CROP_W, CROP_H)
+        result = selector.select_xyxy_rgb_subframe(detections, subframe, left, top, CROP_W, CROP_H)
+
+        self.assertFalse(first["has_target"])
+        self.assertTrue(result["has_target"])
+        self.assertEqual(result["target_source"], "observed")
+        self.assertAlmostEqual(result["target_x"], 330.0, places=3)
+        self.assertAlmostEqual(result["target_y"], 233.2, places=3)
+
     def test_friendly_candidate_is_filtered_before_enemy_selection(self):
         if not hasattr(self.module, "NativeTargetSelector"):
             self.fail("NativeTargetSelector is missing")
@@ -331,6 +365,32 @@ class NativeVisionTargetingBridgeTests(unittest.TestCase):
         self.assertAlmostEqual(cue_hold["target_x"], locked["target_x"], places=3)
         self.assertAlmostEqual(cue_hold["target_y"], locked["target_y"], places=3)
 
+    def test_yellow_cue_hold_keeps_target_through_short_gap_from_cropped_subframe(self):
+        if not hasattr(self.module, "NativeTargetSelector"):
+            self.fail("NativeTargetSelector is missing")
+
+        selector = self.module.NativeTargetSelector(CROP_W, CROP_H)
+        box = [300.0, 180.0, 360.0, 320.0]
+        detections = np.array([[*box, 0.82, 0.0]], dtype=np.float32)
+        frame = _frame()
+        cue_x, cue_y = _paint_yellow_dot_above(frame, box)
+        roi_left, roi_top, roi_right, roi_bottom = _color_roi_bounds(box, frame.shape)
+        lock_subframe = _subframe(frame, roi_left, roi_top, roi_right, roi_bottom)
+        cue_left, cue_top, cue_right, cue_bottom = _cue_hold_bounds(cue_x, cue_y, frame.shape)
+        hold_subframe = _subframe(frame, cue_left, cue_top, cue_right, cue_bottom)
+        empty = np.empty((0, 6), dtype=np.float32)
+
+        selector.select_xyxy_rgb_subframe(detections, lock_subframe, roi_left, roi_top, CROP_W, CROP_H)
+        locked = selector.select_xyxy_rgb_subframe(detections, lock_subframe, roi_left, roi_top, CROP_W, CROP_H)
+        cue_hold = selector.select_xyxy_rgb_subframe(empty, hold_subframe, cue_left, cue_top, CROP_W, CROP_H)
+
+        self.assertTrue(locked["has_target"])
+        self.assertEqual(locked["target_source"], "observed")
+        self.assertTrue(cue_hold["has_target"])
+        self.assertEqual(cue_hold["target_source"], "cue_hold")
+        self.assertAlmostEqual(cue_hold["target_x"], locked["target_x"], places=3)
+        self.assertAlmostEqual(cue_hold["target_y"], locked["target_y"], places=3)
+
     def test_cue_hold_disables_autofire_during_short_gap(self):
         if not hasattr(self.module, "NativeTargetSelector"):
             self.fail("NativeTargetSelector is missing")
@@ -351,6 +411,28 @@ class NativeVisionTargetingBridgeTests(unittest.TestCase):
         self.assertEqual(cue_hold["target_source"], "cue_hold")
         self.assertFalse(cue_hold["auto_fire"])
 
+    def test_external_cue_hold_keeps_target_through_short_gap_without_frame(self):
+        if not hasattr(self.module, "NativeTargetSelector"):
+            self.fail("NativeTargetSelector is missing")
+
+        selector = self.module.NativeTargetSelector(CROP_W, CROP_H)
+        box = [300.0, 180.0, 360.0, 320.0]
+        detections = np.array([[*box, 0.82, 0.0]], dtype=np.float32)
+        frame = _frame()
+        cue_x, cue_y = _paint_yellow_dot_above(frame, box)
+        empty = np.empty((0, 6), dtype=np.float32)
+
+        selector.select_xyxy_rgb(detections, frame)
+        locked = selector.select_xyxy_rgb(detections, frame)
+        cue_hold = selector.select_xyxy_with_cue(empty, cue_x, cue_y, 0.60)
+
+        self.assertTrue(locked["has_target"])
+        self.assertEqual(locked["target_source"], "observed")
+        self.assertTrue(cue_hold["has_target"])
+        self.assertEqual(cue_hold["target_source"], "cue_hold")
+        self.assertAlmostEqual(cue_hold["target_x"], locked["target_x"], places=3)
+        self.assertAlmostEqual(cue_hold["target_y"], locked["target_y"], places=3)
+
     def test_autofire_triggers_for_selected_target_inside_fire_zone(self):
         if not hasattr(self.module, "NativeTargetSelector"):
             self.fail("NativeTargetSelector is missing")
@@ -365,6 +447,23 @@ class NativeVisionTargetingBridgeTests(unittest.TestCase):
         self.assertFalse(first["auto_fire"])
         self.assertTrue(locked["has_target"])
         self.assertTrue(locked["auto_fire"])
+
+    def test_autofire_drops_immediately_when_observed_target_moves_out_of_fire_zone(self):
+        if not hasattr(self.module, "NativeTargetSelector"):
+            self.fail("NativeTargetSelector is missing")
+
+        selector = self.module.NativeTargetSelector(CROP_W, CROP_H)
+        full_body = np.array([[280.0, 240.0, 360.0, 380.0, 0.95, 0.0]], dtype=np.float32)
+        upper_body = np.array([[280.0, 170.0, 360.0, 250.0, 0.95, 0.0]], dtype=np.float32)
+
+        selector.select_xyxy(full_body)
+        locked = selector.select_xyxy(full_body)
+        exposed_upper = selector.select_xyxy(upper_body)
+
+        self.assertTrue(locked["auto_fire"])
+        self.assertTrue(exposed_upper["has_target"])
+        self.assertEqual(exposed_upper["target_source"], "observed")
+        self.assertFalse(exposed_upper["auto_fire"])
 
     def test_autofire_release_grace_frames_apply_after_selected_target_loss(self):
         if not hasattr(self.module, "NativeTargetSelector"):

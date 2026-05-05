@@ -64,6 +64,13 @@ class BaseController(ABC):
         """
         self.set_auto_fire(pressed)
 
+    def get_external_cue(self):
+        """
+        Optional hook for integrations that already compute a lightweight
+        target cue, such as an enemy-only yellow head marker.
+        """
+        return None
+
     def stop(self):
         """
         Optional method to clean up resources, like stopping threads.

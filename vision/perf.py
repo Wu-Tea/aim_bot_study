@@ -13,6 +13,8 @@ class PerformanceTracker:
         self._window_start = self._clock()
         self._frame_count = 0
         self._wait_ms = 0.0
+        self._preprocess_ms = 0.0
+        self._color_copy_ms = 0.0
         self._infer_ms = 0.0
         self._post_ms = 0.0
         self._age_ms = 0.0
@@ -20,6 +22,8 @@ class PerformanceTracker:
         self._tracking_window_start = None
         self._tracking_frame_count = 0
         self._tracking_wait_ms = 0.0
+        self._tracking_preprocess_ms = 0.0
+        self._tracking_color_copy_ms = 0.0
         self._tracking_infer_ms = 0.0
         self._tracking_post_ms = 0.0
         self._tracking_age_ms = 0.0
@@ -28,6 +32,8 @@ class PerformanceTracker:
     def update(
         self,
         wait_ms: float,
+        preprocess_ms: float,
+        color_copy_ms: float,
         infer_ms: float,
         post_ms: float,
         boxes_seen: int,
@@ -39,6 +45,8 @@ class PerformanceTracker:
 
         self._frame_count += 1
         self._wait_ms += wait_ms
+        self._preprocess_ms += preprocess_ms
+        self._color_copy_ms += color_copy_ms
         self._infer_ms += infer_ms
         self._post_ms += post_ms
         self._age_ms += age_ms
@@ -50,6 +58,8 @@ class PerformanceTracker:
                 self._tracking_window_start = now
             self._tracking_frame_count += 1
             self._tracking_wait_ms += wait_ms
+            self._tracking_preprocess_ms += preprocess_ms
+            self._tracking_color_copy_ms += color_copy_ms
             self._tracking_infer_ms += infer_ms
             self._tracking_post_ms += post_ms
             self._tracking_age_ms += age_ms
@@ -63,6 +73,8 @@ class PerformanceTracker:
             now,
             self._frame_count,
             self._wait_ms,
+            self._preprocess_ms,
+            self._color_copy_ms,
             self._infer_ms,
             self._post_ms,
             self._age_ms,
@@ -75,6 +87,8 @@ class PerformanceTracker:
                 now,
                 self._tracking_frame_count,
                 self._tracking_wait_ms,
+                self._tracking_preprocess_ms,
+                self._tracking_color_copy_ms,
                 self._tracking_infer_ms,
                 self._tracking_post_ms,
                 self._tracking_age_ms,
@@ -90,6 +104,8 @@ class PerformanceTracker:
         now: float,
         frame_count: int,
         wait_sum: float,
+        preprocess_sum: float,
+        color_copy_sum: float,
         infer_sum: float,
         post_sum: float,
         age_sum: float,
@@ -100,6 +116,8 @@ class PerformanceTracker:
         self._printer(
             f"{prefix} "
             f"loop={frame_count / elapsed:.1f} FPS | wait={wait_sum / frame_count:.1f}ms | "
+            f"pre={preprocess_sum / frame_count:.1f}ms | "
+            f"copy={color_copy_sum / frame_count:.1f}ms | "
             f"infer={infer_sum / frame_count:.1f}ms | post={post_sum / frame_count:.1f}ms | "
             f"age={age_sum / frame_count:.1f}ms | boxes={boxes_sum / frame_count:.1f}"
         )

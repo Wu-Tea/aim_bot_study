@@ -26,6 +26,7 @@ public:
     VisionEngine& operator=(const VisionEngine&) = delete;
 
     void set_aiming(bool aiming);
+    void set_external_cue(bool found, float cue_x = 0.0f, float cue_y = 0.0f, float cue_score = 0.0f);
     void reset();
     VisionResult poll_once();
 
@@ -38,6 +39,10 @@ private:
     AimEnhancementPipeline enhancer_;
     TensorRTEngine engine_;
     std::atomic<bool> aiming_{false};
+    bool external_cue_found_ = false;
+    float external_cue_x_ = 0.0f;
+    float external_cue_y_ = 0.0f;
+    float external_cue_score_ = 0.0f;
     void* graphics_resource_ = nullptr;
     std::vector<uint8_t> host_color_frame_;
     int width_ = 0;
