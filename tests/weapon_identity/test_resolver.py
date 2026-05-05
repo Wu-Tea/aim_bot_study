@@ -6,6 +6,35 @@ from vision.weapon_identity.signatures import SignatureMatch
 
 
 class WeaponResolverTests(unittest.TestCase):
+    def test_cod22_matching_image_and_blueprint_text_still_must_clear_threshold(self):
+        result = _resolve_weapon(
+            adapter=get_adapter("cod22"),
+            identity_records=(
+                _weapon_record(
+                    canonical_weapon_id="cod22-m4",
+                    game="cod22",
+                    display_name="M4",
+                ),
+                _weapon_record(
+                    canonical_weapon_id="cod22-kastov-762",
+                    game="cod22",
+                    display_name="Kastov 762",
+                    blueprint_names=("Blackcell Ember",),
+                ),
+            ),
+            ranked_image_matches=(_match("sig-kastov", "cod22-kastov-762", 0.74),),
+            text_candidates=("Blackcell Ember",),
+            runtime_state=_runtime_state(confirmed_weapon_id="cod22-m4"),
+            switch_suspected=False,
+            timestamp="2026-05-05T18:00:00Z",
+        )
+
+        self.assertIsNotNone(result.event)
+        self.assertEqual(result.event.canonical_weapon_id, "cod22-m4")
+        self.assertEqual(result.event.source, "carry_forward")
+        self.assertTrue(result.event.degraded)
+        self.assertEqual(result.runtime_state.confirmed_weapon_id, "cod22-m4")
+
     def test_cod22_blueprint_alias_resolves_to_canonical_weapon_id(self):
         result = _resolve_weapon(
             adapter=get_adapter("cod22"),
@@ -78,6 +107,34 @@ class WeaponResolverTests(unittest.TestCase):
         self.assertFalse(follow_up.event.degraded)
         self.assertEqual(follow_up.runtime_state.confirmed_weapon_id, "cod21-krig-c")
 
+    def test_cod21_without_switch_suspicion_does_not_replace_cached_weapon_from_image_only(self):
+        result = _resolve_weapon(
+            adapter=get_adapter("cod21"),
+            identity_records=(
+                _weapon_record(
+                    canonical_weapon_id="cod21-krig-c",
+                    game="cod21",
+                    display_name="Krig C",
+                ),
+                _weapon_record(
+                    canonical_weapon_id="cod21-xm4",
+                    game="cod21",
+                    display_name="XM4",
+                ),
+            ),
+            ranked_image_matches=(_match("sig-xm4", "cod21-xm4", 0.97),),
+            text_candidates=(),
+            runtime_state=_runtime_state(confirmed_weapon_id="cod21-krig-c"),
+            switch_suspected=False,
+            timestamp="2026-05-05T18:00:01Z",
+        )
+
+        self.assertIsNotNone(result.event)
+        self.assertEqual(result.event.canonical_weapon_id, "cod21-krig-c")
+        self.assertEqual(result.event.source, "carry_forward")
+        self.assertTrue(result.event.degraded)
+        self.assertEqual(result.runtime_state.confirmed_weapon_id, "cod21-krig-c")
+
     def test_ambiguous_image_only_case_remains_degraded(self):
         result = _resolve_weapon(
             adapter=get_adapter("cod22"),
@@ -108,6 +165,34 @@ class WeaponResolverTests(unittest.TestCase):
         self.assertEqual(result.event.source, "carry_forward")
         self.assertTrue(result.event.degraded)
         self.assertEqual(result.runtime_state.confirmed_weapon_id, "cod22-m4")
+
+    def test_cod20_text_only_without_switch_time_confirmation_does_not_confirm_new_weapon(self):
+        result = _resolve_weapon(
+            adapter=get_adapter("cod20"),
+            identity_records=(
+                _weapon_record(
+                    canonical_weapon_id="cod20-bruen-mk9",
+                    game="cod20",
+                    display_name="Bruen MK9",
+                ),
+                _weapon_record(
+                    canonical_weapon_id="cod20-m4",
+                    game="cod20",
+                    display_name="M4",
+                ),
+            ),
+            ranked_image_matches=(),
+            text_candidates=("M4",),
+            runtime_state=_runtime_state(confirmed_weapon_id="cod20-bruen-mk9"),
+            switch_suspected=False,
+            timestamp="2026-05-05T18:00:02Z",
+        )
+
+        self.assertIsNotNone(result.event)
+        self.assertEqual(result.event.canonical_weapon_id, "cod20-bruen-mk9")
+        self.assertEqual(result.event.source, "carry_forward")
+        self.assertTrue(result.event.degraded)
+        self.assertEqual(result.runtime_state.confirmed_weapon_id, "cod20-bruen-mk9")
 
     def test_conflicting_image_and_text_signals_retain_previous_confirmed_weapon(self):
         result = _resolve_weapon(
@@ -141,6 +226,28 @@ class WeaponResolverTests(unittest.TestCase):
         self.assertEqual(result.event.source, "carry_forward")
         self.assertTrue(result.event.degraded)
         self.assertEqual(result.runtime_state.confirmed_weapon_id, "cod20-m4")
+
+    def test_confirmed_event_preserves_explicit_record_game_instead_of_parsing_weapon_id(self):
+        result = _resolve_weapon(
+            adapter=get_adapter("cod22"),
+            identity_records=(
+                _weapon_record(
+                    canonical_weapon_id="m4-platform",
+                    game="cod22",
+                    display_name="M4",
+                    blueprint_names=("Blackcell Ember",),
+                ),
+            ),
+            ranked_image_matches=(_match("sig-m4", "m4-platform", 0.93),),
+            text_candidates=("Blackcell Ember",),
+            runtime_state=_runtime_state(),
+            switch_suspected=False,
+            timestamp="2026-05-05T18:00:04Z",
+        )
+
+        self.assertIsNotNone(result.event)
+        self.assertEqual(result.event.game, "cod22")
+        self.assertEqual(result.event.canonical_weapon_id, "m4-platform")
 
 
 def _resolve_weapon(**kwargs):

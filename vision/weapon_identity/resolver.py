@@ -75,17 +75,21 @@ def resolve_weapon(
 
     if image_signal and text_signal and image_signal.canonical_weapon_id == text_signal.canonical_weapon_id:
         confidence = _clamp_confidence(max(image_signal.confidence, text_signal.confidence) + _AGREEMENT_BONUS)
-        return _confirmed_result(
-            canonical_weapon_id=image_signal.canonical_weapon_id,
-            confidence=confidence,
-            source="image+text",
-            timestamp=timestamp,
-            matched_name=text_signal.matched_name,
-            runtime_state=state,
-        )
+        if confidence >= _CONFIDENCE_THRESHOLD:
+            return _confirmed_result(
+                game_id=adapter.game_id,
+                canonical_weapon_id=image_signal.canonical_weapon_id,
+                confidence=confidence,
+                source="image+text",
+                timestamp=timestamp,
+                matched_name=text_signal.matched_name,
+                runtime_state=state,
+            )
+        return _carry_forward(previous_weapon_id, state, adapter.game_id, timestamp, degraded=True)
 
     if text_signal and text_signal.confidence >= _CONFIDENCE_THRESHOLD:
         return _confirmed_result(
+            game_id=adapter.game_id,
             canonical_weapon_id=text_signal.canonical_weapon_id,
             confidence=text_signal.confidence,
             source="text",
@@ -94,8 +98,18 @@ def resolve_weapon(
             runtime_state=state,
         )
 
+    if (
+        previous_weapon_id
+        and adapter.game_id == "cod21"
+        and not state.switch_suspected
+        and image_signal is not None
+        and text_signal is None
+    ):
+        return _carry_forward(previous_weapon_id, state, adapter.game_id, timestamp, degraded=True)
+
     if image_signal and image_signal.confidence >= _CONFIDENCE_THRESHOLD:
         return _confirmed_result(
+            game_id=adapter.game_id,
             canonical_weapon_id=image_signal.canonical_weapon_id,
             confidence=image_signal.confidence,
             source="image",
@@ -139,6 +153,9 @@ def _pick_text_signal(
     game_id: str,
     text_window_active: bool,
 ) -> _ResolvedTextSignal | None:
+    if game_id == "cod20" and not text_window_active:
+        return None
+
     for candidate_name in text_candidates:
         normalized_name = _require_non_empty_str(candidate_name, "text_candidates[]")
         canonical_weapon_id = _resolve_name(normalized_name, identity_records)
@@ -173,6 +190,7 @@ def _pick_image_signal(ranked_image_matches: Iterable[SignatureMatch], game_id: 
 
 def _confirmed_result(
     *,
+    game_id: str,
     canonical_weapon_id: str,
     confidence: float,
     source: str,
@@ -181,7 +199,7 @@ def _confirmed_result(
     runtime_state: ResolverRuntimeState,
 ) -> ResolverResult:
     event = RecognitionEvent(
-        game=_game_id_from_canonical_id(canonical_weapon_id),
+        game=game_id,
         canonical_weapon_id=canonical_weapon_id,
         confidence=confidence,
         source=source,
@@ -283,10 +301,6 @@ def _require_bool(value: Any, label: str) -> bool:
 
 def _clamp_confidence(value: float) -> float:
     return min(1.0, max(0.0, float(value)))
-
-
-def _game_id_from_canonical_id(canonical_weapon_id: str) -> str:
-    return canonical_weapon_id.split("-", 1)[0]
 
 
 __all__ = ["ResolverResult", "resolve_weapon"]
