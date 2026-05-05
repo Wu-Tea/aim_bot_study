@@ -28,18 +28,29 @@ from vision.weapon_identity.resolver import resolve_weapon
 from vision.weapon_identity.runtime_state import ResolverRuntimeState
 from vision.weapon_identity.signatures import score_candidates
 
-DEFAULT_PROFILE_DIR = PROJECT_ROOT / "artifacts" / "recoil_profiles"
-DEFAULT_SIGNATURE_DIR = PROJECT_ROOT / "artifacts" / "weapon_signatures"
+_IMAGE_SWITCH_SCORE_THRESHOLD = 0.90
+_IMAGE_SWITCH_MARGIN_THRESHOLD = 0.08
+_IDENTITY_HINT_KEYS = frozenset(
+    {
+        "weapon_family",
+        "display_name",
+        "alias_names",
+        "blueprint_names",
+        "signature_refs",
+        "notes",
+        "updated_at",
+    }
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Recognize the current COD weapon from the HUD.")
     parser.add_argument("--game", choices=tuple(sorted(ADAPTER_REGISTRY)), required=True)
-    parser.add_argument("--profile-dir", type=Path, default=DEFAULT_PROFILE_DIR)
-    parser.add_argument("--signature-dir", type=Path, default=DEFAULT_SIGNATURE_DIR)
-    parser.add_argument("--capture-width", type=int, default=640)
-    parser.add_argument("--capture-height", type=int, default=640)
-    parser.add_argument("--fps", type=int, default=60)
+    parser.add_argument("--profile-dir", type=Path, required=True)
+    parser.add_argument("--signature-dir", type=Path, required=True)
+    parser.add_argument("--capture-width", type=int, required=True)
+    parser.add_argument("--capture-height", type=int, required=True)
+    parser.add_argument("--fps", type=int, required=True)
     parser.add_argument(
         "--latest-state-file",
         type=Path,
@@ -108,16 +119,30 @@ class SignatureWeaponRecognizer:
             return None
 
         ranked_matches = score_candidates(_rgb_to_bgr(icon_region), self.signature_records)
+        previous_weapon_id = self.runtime_state.confirmed_weapon_id
+        switch_suspected = _should_suspect_switch(
+            game=self.game,
+            previous_weapon_id=previous_weapon_id,
+            ranked_matches=ranked_matches,
+        )
         result = resolve_weapon(
             adapter=self.adapter,
             identity_records=self.identity_records,
             ranked_image_matches=ranked_matches,
             text_candidates=(),
             runtime_state=self.runtime_state,
-            switch_suspected=False,
+            switch_suspected=switch_suspected,
             timestamp=_utc_timestamp(),
         )
         self.runtime_state = result.runtime_state
+        if _should_suppress_cod21_stale_carry_forward(
+            game=self.game,
+            previous_weapon_id=previous_weapon_id,
+            ranked_matches=ranked_matches,
+            event=result.event,
+            switch_suspected=switch_suspected,
+        ):
+            return None
         return result.event
 
     def profile_ids_for(self, canonical_weapon_id: str) -> list[str]:
@@ -195,11 +220,13 @@ def _build_capture_thread(args: argparse.Namespace) -> ScreenCaptureThread:
 
 def _load_identity_records_from_signature_dir(directory: Path, *, game: str) -> tuple[WeaponIdentityRecord, ...]:
     records: list[WeaponIdentityRecord] = []
-    for payload in _iter_json_payloads(directory):
+    for path, payload in _iter_json_payload_entries(directory):
+        if not _looks_like_identity_payload(payload):
+            continue
         try:
             record = WeaponIdentityRecord.from_dict(payload)
-        except ValueError:
-            continue
+        except ValueError as exc:
+            raise ValueError(f"Malformed weapon identity metadata in {path}: {exc}") from exc
         if record.game == game:
             records.append(record)
     return tuple(records)
@@ -207,7 +234,7 @@ def _load_identity_records_from_signature_dir(directory: Path, *, game: str) -> 
 
 def _load_signature_records(directory: Path, *, game: str) -> tuple[VisualSignatureRecord, ...]:
     records: list[VisualSignatureRecord] = []
-    for payload in _iter_json_payloads(directory):
+    for _, payload in _iter_json_payload_entries(directory):
         try:
             record = VisualSignatureRecord.from_dict(payload)
         except ValueError:
@@ -219,7 +246,7 @@ def _load_signature_records(directory: Path, *, game: str) -> tuple[VisualSignat
 
 def _load_profile_index(directory: Path, *, game: str) -> dict[str, tuple[str, ...]]:
     profile_ids_by_weapon: dict[str, list[str]] = {}
-    for payload in _iter_json_payloads(directory):
+    for _, payload in _iter_json_payload_entries(directory):
         try:
             profile = RecoilProfileRecord.from_dict(payload)
         except ValueError:
@@ -234,12 +261,12 @@ def _load_profile_index(directory: Path, *, game: str) -> dict[str, tuple[str, .
     }
 
 
-def _iter_json_payloads(directory: Path) -> Iterable[dict[str, Any]]:
+def _iter_json_payload_entries(directory: Path) -> Iterable[tuple[Path, dict[str, Any]]]:
     if not directory.exists():
         return ()
     if not directory.is_dir():
         raise FileNotFoundError(f"Expected a directory path: {directory}")
-    return tuple(_load_json(path) for path in sorted(directory.glob("*.json")))
+    return tuple((path, _load_json(path)) for path in sorted(directory.glob("*.json")))
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -284,6 +311,55 @@ def _infer_identity_records_from_signatures(
             )
         )
     return tuple(inferred_records)
+
+
+def _should_suspect_switch(
+    *,
+    game: str,
+    previous_weapon_id: str | None,
+    ranked_matches: list[Any],
+) -> bool:
+    if game != "cod21" or previous_weapon_id is None:
+        return False
+    top_match = _top_ranked_match(ranked_matches)
+    if top_match is None or top_match.canonical_weapon_id == previous_weapon_id:
+        return False
+    second_score = float(ranked_matches[1].score) if len(ranked_matches) > 1 else 0.0
+    return bool(
+        top_match.score >= _IMAGE_SWITCH_SCORE_THRESHOLD
+        and (top_match.score - second_score) >= _IMAGE_SWITCH_MARGIN_THRESHOLD
+    )
+
+
+def _should_suppress_cod21_stale_carry_forward(
+    *,
+    game: str,
+    previous_weapon_id: str | None,
+    ranked_matches: list[Any],
+    event: RecognitionEvent | None,
+    switch_suspected: bool,
+) -> bool:
+    if (
+        game != "cod21"
+        or previous_weapon_id is None
+        or switch_suspected
+        or event is None
+        or event.source != "carry_forward"
+        or event.canonical_weapon_id != previous_weapon_id
+    ):
+        return False
+    top_match = _top_ranked_match(ranked_matches)
+    return top_match is not None and top_match.canonical_weapon_id != previous_weapon_id
+
+
+def _top_ranked_match(ranked_matches: list[Any]) -> Any | None:
+    if not ranked_matches:
+        return None
+    return ranked_matches[0]
+
+
+def _looks_like_identity_payload(payload: dict[str, Any]) -> bool:
+    return bool(_IDENTITY_HINT_KEYS.intersection(payload))
 
 
 def _crop_normalized_roi(frame: Any, roi: NormalizedROI) -> Any:
