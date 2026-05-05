@@ -42,14 +42,14 @@ class SwitchSuspicionHints:
         object.__setattr__(
             self,
             "slot_rois",
-            tuple(_require_roi(roi, f"SwitchSuspicionHints.slot_rois[{index}]") for index, roi in enumerate(self.slot_rois)),
+            _require_roi_tuple(self.slot_rois, "SwitchSuspicionHints.slot_rois"),
         )
         object.__setattr__(
             self,
             "switch_signal_names",
-            tuple(
-                _require_non_empty_str(signal_name, f"SwitchSuspicionHints.switch_signal_names[{index}]")
-                for index, signal_name in enumerate(self.switch_signal_names)
+            _require_string_tuple(
+                self.switch_signal_names,
+                "SwitchSuspicionHints.switch_signal_names",
             ),
         )
         object.__setattr__(
@@ -251,6 +251,18 @@ def _require_roi(value: Any, label: str) -> NormalizedROI:
     if not isinstance(value, NormalizedROI):
         raise ValueError(f"{label} must be a NormalizedROI")
     return value
+
+
+def _require_roi_tuple(value: Any, label: str) -> tuple[NormalizedROI, ...]:
+    if not isinstance(value, (list, tuple)):
+        raise ValueError(f"{label} must be a list or tuple of NormalizedROI values")
+    return tuple(_require_roi(item, f"{label}[{index}]") for index, item in enumerate(value))
+
+
+def _require_string_tuple(value: Any, label: str) -> tuple[str, ...]:
+    if not isinstance(value, (list, tuple)):
+        raise ValueError(f"{label} must be a list or tuple of strings")
+    return tuple(_require_non_empty_str(item, f"{label}[{index}]") for index, item in enumerate(value))
 
 
 def _require_switch_hints(value: Any, label: str) -> SwitchSuspicionHints:
