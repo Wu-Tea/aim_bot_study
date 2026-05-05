@@ -135,22 +135,22 @@ The first shipping target is Blocks `A-C`.
 - Create: `vision/weapon_identity/runtime_state.py`
 - Create: `tests/weapon_identity/test_resolver.py`
 
-- [ ] Implement a resolver that fuses:
+- [x] Implement a resolver that fuses:
   - ranked image matches
   - optional OCR or text-window name matches
   - previous confirmed weapon
   - switch suspicion state
-- [ ] Add conservative confidence logic:
+- [x] Add conservative confidence logic:
   - emit a new weapon only when confidence passes threshold
   - otherwise keep the last confirmed weapon and mark status degraded
-- [ ] Represent recognizer output as a `RecognitionEvent`.
-- [ ] Write tests for:
+- [x] Represent recognizer output as a `RecognitionEvent`.
+- [x] Write tests for:
   - `COD22` blueprint alias resolving to canonical weapon id
   - `COD21` text-window confirmation with cached carry-forward
   - ambiguous image-only case that remains degraded
   - conflicting image/text signals where previous confirmed weapon is retained
-- [ ] Run: `python -m unittest tests.weapon_identity.test_resolver -v`
-- [ ] Expected: all resolver state and confidence rules pass.
+- [x] Run: `python -m unittest tests.weapon_identity.test_resolver -v`
+- [x] Expected: all resolver state and confidence rules pass.
 
 ## Task 6: Standalone Weapon Recognizer Tool
 
@@ -312,3 +312,4 @@ The first shipping target is Blocks `A-C`.
 - Task `2` is complete and review-approved on commit `91fe7d3739acdbe7ae84c42b38a1710f08d64170`.
 - Task `3` is complete and review-approved on commit `dbd6423abf192d3bf161103d9bf2fa983da84c4b`.
 - Task `4` is complete and review-approved on commit `8dd83e4c1825a3a30373413aeb3cde1b35621dd5`.
+- Task `5` is complete and review-approved on commit `53735037395c99f63bdf5d69eeb15a0cac9592a0`.
