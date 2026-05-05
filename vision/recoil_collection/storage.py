@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from vision.recoil_collection.models import RecoilProfileRecord
+from vision.recoil_collection.models import RecoilProfileSummary
 from vision.weapon_identity.models import VisualSignatureRecord
 from vision.weapon_identity.models import WeaponIdentityRecord
 
@@ -38,6 +39,14 @@ def save_recoil_profile(path: JsonPath, record: RecoilProfileRecord) -> None:
 
 def load_recoil_profile(path: JsonPath) -> RecoilProfileRecord:
     return _load_record(path, RecoilProfileRecord, "recoil profile record")
+
+
+def save_recoil_profile_summary(path: JsonPath, record: RecoilProfileSummary) -> None:
+    _write_json(path, record.to_dict())
+
+
+def load_recoil_profile_summary(path: JsonPath) -> RecoilProfileSummary:
+    return _load_record(path, RecoilProfileSummary, "recoil profile summary")
 
 
 def _load_record(path: JsonPath, record_type: type[Any], label: str) -> Any:

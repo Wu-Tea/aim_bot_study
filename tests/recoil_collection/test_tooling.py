@@ -23,6 +23,13 @@ def _load_tool_module():
         raise AssertionError(f"Missing weapon recognizer tool: {exc}") from exc
 
 
+def _load_recoil_tool_module():
+    try:
+        return importlib.import_module("tools.recoil_collector")
+    except ModuleNotFoundError as exc:
+        raise AssertionError(f"Missing recoil collector tool: {exc}") from exc
+
+
 class WeaponRecognizerToolTests(unittest.TestCase):
     def test_parse_args_accepts_task6_cli_options(self):
         tool = _load_tool_module()
@@ -243,6 +250,164 @@ class WeaponRecognizerToolTests(unittest.TestCase):
                 )
 
 
+class RecoilCollectorToolTests(unittest.TestCase):
+    def test_parse_args_accepts_task9_cli_options(self):
+        tool = _load_recoil_tool_module()
+
+        args = tool.parse_args(
+            [
+                "--game",
+                "cod22",
+                "--mode",
+                "ads",
+                "--standing-only",
+                "--profile-dir",
+                "artifacts/recoil_profiles",
+                "--signature-dir",
+                "artifacts/weapon_signatures",
+                "--output",
+                "artifacts/recoil_profiles/latest-summary.json",
+            ]
+        )
+
+        self.assertEqual(args.game, "cod22")
+        self.assertEqual(args.mode, "ads")
+        self.assertTrue(args.standing_only)
+        self.assertEqual(args.profile_dir, Path("artifacts/recoil_profiles"))
+        self.assertEqual(args.signature_dir, Path("artifacts/weapon_signatures"))
+        self.assertEqual(args.output, Path("artifacts/recoil_profiles/latest-summary.json"))
+
+    def test_main_collects_profile_and_writes_profile_and_summary_outputs(self):
+        tool = _load_recoil_tool_module()
+        capture = importlib.import_module("vision.recoil_collection.capture")
+        event = RecognitionEvent(
+            game="cod22",
+            canonical_weapon_id="cod22-m4",
+            confidence=0.93,
+            source="image",
+            timestamp="2026-05-06T14:00:00Z",
+            degraded=False,
+            matched_name=None,
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            profile_dir = temp_path / "profiles"
+            signature_dir = temp_path / "signatures"
+            output_path = temp_path / "summary.json"
+            signature_dir.mkdir()
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            recognizer = _StubCollectorRecognizer(event)
+
+            exit_code = tool.main(
+                argv=[
+                    "--game",
+                    "cod22",
+                    "--mode",
+                    "ads",
+                    "--standing-only",
+                    "--profile-dir",
+                    str(profile_dir),
+                    "--signature-dir",
+                    str(signature_dir),
+                    "--output",
+                    str(output_path),
+                ],
+                stdout=stdout,
+                stderr=stderr,
+                recognizer_factory=lambda args: recognizer,
+                weapon_frame_grabber_factory=lambda args: _StubFrameGrabber(np.zeros((8, 8, 3), dtype=np.uint8)),
+                motion_sampler_factory=lambda args, config: (lambda: _collector_motion_trace(capture)),
+                timestamp_fn=lambda: "2026-05-06T14:05:00Z",
+            )
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(recognizer.frames_seen, [{"frame_id": 1, "captured_at": 0.0, "shape": (8, 8, 3)}])
+
+            output_lines = [line for line in stdout.getvalue().splitlines() if line.strip()]
+            self.assertEqual(len(output_lines), 1)
+            payload = json.loads(output_lines[0])
+            self.assertEqual(payload["type"], "recoil_collection_summary")
+            self.assertEqual(payload["recognized_weapon"]["canonical_weapon_id"], "cod22-m4")
+            self.assertEqual(payload["profile_summary"]["game"], "cod22")
+            self.assertEqual(payload["profile_summary"]["aim_mode"], "ads")
+            self.assertEqual(payload["profile_summary"]["burst_count"], 3)
+            self.assertEqual(payload["profile_summary"]["sample_count"], 4)
+            self.assertEqual(payload["accepted_burst_ids"], ["session-cod22-m4-ads-standing-20260506t140500z-burst-001", "session-cod22-m4-ads-standing-20260506t140500z-burst-002", "session-cod22-m4-ads-standing-20260506t140500z-burst-003"])
+            self.assertEqual(payload["rejected_burst_ids"], [])
+
+            profile_path = Path(payload["profile_path"])
+            profile_summary_path = Path(payload["profile_summary_path"])
+            self.assertTrue(profile_path.exists())
+            self.assertTrue(profile_summary_path.exists())
+            self.assertTrue(output_path.exists())
+            self.assertEqual(json.loads(output_path.read_text(encoding="utf-8")), payload)
+
+            saved_profile = json.loads(profile_path.read_text(encoding="utf-8"))
+            saved_profile_summary = json.loads(profile_summary_path.read_text(encoding="utf-8"))
+            self.assertEqual(saved_profile["canonical_weapon_id"], "cod22-m4")
+            self.assertEqual(saved_profile["sample_count"], 4)
+            self.assertEqual(saved_profile_summary["profile_id"], payload["profile_summary"]["profile_id"])
+            self.assertEqual(saved_profile_summary["burst_count"], 3)
+            self.assertIn("profile_path", payload)
+            self.assertEqual(stderr.getvalue(), "")
+
+    def test_main_fails_conservatively_when_weapon_confirmation_is_missing_or_degraded(self):
+        tool = _load_recoil_tool_module()
+
+        for event in (
+            None,
+            RecognitionEvent(
+                game="cod22",
+                canonical_weapon_id="cod22-m4",
+                confidence=0.55,
+                source="carry_forward",
+                timestamp="2026-05-06T14:00:00Z",
+                degraded=True,
+                matched_name=None,
+            ),
+        ):
+            with self.subTest(event=event):
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    temp_path = Path(temp_dir)
+                    profile_dir = temp_path / "profiles"
+                    signature_dir = temp_path / "signatures"
+                    output_path = temp_path / "summary.json"
+                    signature_dir.mkdir()
+                    stdout = io.StringIO()
+                    stderr = io.StringIO()
+
+                    exit_code = tool.main(
+                        argv=[
+                            "--game",
+                            "cod22",
+                            "--mode",
+                            "hipfire",
+                            "--standing-only",
+                            "--profile-dir",
+                            str(profile_dir),
+                            "--signature-dir",
+                            str(signature_dir),
+                            "--output",
+                            str(output_path),
+                        ],
+                        stdout=stdout,
+                        stderr=stderr,
+                        recognizer_factory=lambda args, event=event: _StubCollectorRecognizer(event),
+                        weapon_frame_grabber_factory=lambda args: _StubFrameGrabber(np.zeros((8, 8, 3), dtype=np.uint8)),
+                        motion_sampler_factory=lambda args, config: (lambda: ()),
+                        timestamp_fn=lambda: "2026-05-06T14:05:00Z",
+                    )
+
+                    self.assertEqual(exit_code, 1)
+                    self.assertEqual(stdout.getvalue(), "")
+                    self.assertFalse(output_path.exists())
+                    if profile_dir.exists():
+                        self.assertEqual(list(profile_dir.glob("*.json")), [])
+                    self.assertIn("Unable to confirm current weapon", stderr.getvalue())
+
+
 class _StubRecognizer:
     def __init__(self, events):
         self._events = list(events)
@@ -259,6 +424,34 @@ class _StubRecognizer:
         if not self._events:
             return None
         return self._events.pop(0)
+
+
+class _StubCollectorRecognizer:
+    def __init__(self, event):
+        self._event = event
+        self.frames_seen = []
+
+    def process_frame(self, frame, *, frame_id, captured_at):
+        self.frames_seen.append(
+            {
+                "frame_id": frame_id,
+                "captured_at": captured_at,
+                "shape": tuple(frame.shape),
+            }
+        )
+        return self._event
+
+
+class _StubFrameGrabber:
+    def __init__(self, frame):
+        self._frame = frame
+        self.closed = False
+
+    def grab(self):
+        return self._frame
+
+    def close(self):
+        self.closed = True
 
 
 class _StubCapturedFrame:
@@ -337,6 +530,34 @@ def _match(signature_id, canonical_weapon_id, score):
         edge_score=score,
         hash_score=score,
         structure_score=score,
+    )
+
+
+def _collector_motion_trace(capture_module):
+    MotionTraceSample = capture_module.MotionTraceSample
+    return (
+        MotionTraceSample(offset_ms=0, x=0.0, y=0.0, center_motion=0.0),
+        MotionTraceSample(offset_ms=10, x=0.0, y=0.0, center_motion=0.0),
+        MotionTraceSample(offset_ms=20, x=0.0, y=-1.0, center_motion=0.9),
+        MotionTraceSample(offset_ms=30, x=0.4, y=-2.0, center_motion=1.0),
+        MotionTraceSample(offset_ms=40, x=0.8, y=-3.0, center_motion=0.95),
+        MotionTraceSample(offset_ms=50, x=1.2, y=-4.0, center_motion=0.9),
+        MotionTraceSample(offset_ms=60, x=1.2, y=-4.0, center_motion=0.05),
+        MotionTraceSample(offset_ms=70, x=1.2, y=-4.0, center_motion=0.05),
+        MotionTraceSample(offset_ms=80, x=1.2, y=-4.0, center_motion=0.0),
+        MotionTraceSample(offset_ms=90, x=1.2, y=-5.0, center_motion=0.9),
+        MotionTraceSample(offset_ms=100, x=1.6, y=-6.0, center_motion=1.0),
+        MotionTraceSample(offset_ms=110, x=2.0, y=-7.0, center_motion=0.95),
+        MotionTraceSample(offset_ms=120, x=2.4, y=-8.0, center_motion=0.9),
+        MotionTraceSample(offset_ms=130, x=2.4, y=-8.0, center_motion=0.05),
+        MotionTraceSample(offset_ms=140, x=2.4, y=-8.0, center_motion=0.05),
+        MotionTraceSample(offset_ms=150, x=2.4, y=-8.0, center_motion=0.0),
+        MotionTraceSample(offset_ms=160, x=2.4, y=-9.0, center_motion=0.9),
+        MotionTraceSample(offset_ms=170, x=2.8, y=-10.0, center_motion=1.0),
+        MotionTraceSample(offset_ms=180, x=3.2, y=-11.0, center_motion=0.95),
+        MotionTraceSample(offset_ms=190, x=3.6, y=-12.0, center_motion=0.9),
+        MotionTraceSample(offset_ms=200, x=3.6, y=-12.0, center_motion=0.05),
+        MotionTraceSample(offset_ms=210, x=3.6, y=-12.0, center_motion=0.05),
     )
 
 
