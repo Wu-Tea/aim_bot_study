@@ -22,6 +22,9 @@ _TEMPLATE_WEIGHT = 0.45
 _EDGE_WEIGHT = 0.20
 _HASH_WEIGHT = 0.10
 _STRUCTURE_WEIGHT = 0.25
+_STRUCTURE_SPAN_WEIGHT = 0.40
+_STRUCTURE_FILL_WEIGHT = 0.60
+_STRUCTURE_MISSING_FILL_PENALTY = 0.18
 
 
 @dataclass(slots=True, frozen=True)
@@ -166,7 +169,7 @@ def score_candidates(image: Any, candidates: Iterable[VisualSignatureRecord]) ->
             _matrix_to_numpy(stored_signature.edge_map, dtype=np.uint8),
         )
         hash_score = _compare_hashes(live_signature.perceptual_hash, stored_signature.perceptual_hash)
-        structure_score = _compute_structure_score(stored_signature)
+        structure_score = _compute_structure_score(live_signature, stored_signature)
         final_score = (
             (template_score * _TEMPLATE_WEIGHT)
             + (edge_score * _EDGE_WEIGHT)
@@ -350,18 +353,32 @@ def _matrix_shape(matrix: tuple[tuple[Any, ...], ...]) -> tuple[int, int]:
     return len(matrix), len(matrix[0])
 
 
-def _compute_structure_score(signature: ExtractedSignature) -> float:
+def _compute_structure_score(live_signature: ExtractedSignature, candidate_signature: ExtractedSignature) -> float:
+    _, live_fill_ratio, live_structure = _compute_structure_features(live_signature)
+    _, candidate_fill_ratio, candidate_structure = _compute_structure_features(candidate_signature)
+    if live_structure <= 0.0 or candidate_structure <= 0.0:
+        return 0.0
+
+    # Penalize candidates that omit live-observed structure, but do not punish
+    # fuller candidates for extra pixels that may be hidden by occlusion.
+    missing_fill_ratio = max(live_fill_ratio - candidate_fill_ratio, 0.0)
+    missing_fill_penalty = min(missing_fill_ratio / _FILL_RATIO_REFERENCE, 1.0) * _STRUCTURE_MISSING_FILL_PENALTY
+    return float(max(candidate_structure - missing_fill_penalty, 0.0))
+
+
+def _compute_structure_features(signature: ExtractedSignature) -> tuple[float, float, float]:
     template = _matrix_to_numpy(signature.template, dtype=np.float32)
     occupied = template > _FOREGROUND_THRESHOLD
     positions = np.argwhere(occupied)
     if positions.size == 0:
-        return 0.0
+        return 0.0, 0.0, 0.0
     left = int(positions[:, 1].min())
     right = int(positions[:, 1].max())
-    span_score = (right - left + 1) / template.shape[1]
+    span_ratio = (right - left + 1) / template.shape[1]
     fill_ratio = float(np.mean(occupied))
     fill_score = min(fill_ratio / _FILL_RATIO_REFERENCE, 1.0)
-    return float((span_score * 0.4) + (fill_score * 0.6))
+    structure_score = (span_ratio * _STRUCTURE_SPAN_WEIGHT) + (fill_score * _STRUCTURE_FILL_WEIGHT)
+    return float(span_ratio), fill_ratio, float(structure_score)
 
 
 def _require_non_empty_str(value: Any, label: str) -> str:

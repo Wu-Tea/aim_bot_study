@@ -44,7 +44,7 @@ class SignatureMatchingTests(unittest.TestCase):
         self.assertGreater(ranked[0].score, ranked[1].score)
 
     def test_shifted_dimmed_near_match_prefers_full_rifle_over_shortened_stock_variant(self):
-        live_roi = _make_rifle_icon(horizontal_shift=1, brightness=230)
+        live_roi = _make_rifle_icon(horizontal_shift=1, brightness=210)
         full_weapon = _make_signature_record("sig-rifle", "cod22-rifle", _make_rifle_icon())
         shortened_stock = _make_signature_record(
             "sig-rifle-short-stock",
