@@ -43,7 +43,7 @@ class SignatureMatchingTests(unittest.TestCase):
         self.assertGreater(ranked[0].score, 0.75)
         self.assertGreater(ranked[0].score, ranked[1].score)
 
-    def test_shifted_dimmed_near_match_prefers_full_rifle_over_shortened_stock_variant(self):
+    def test_shifted_dimmed_near_match_prefers_full_rifle_over_shortened_stock_height_variant(self):
         live_roi = _make_rifle_icon(horizontal_shift=1, brightness=210)
         full_weapon = _make_signature_record("sig-rifle", "cod22-rifle", _make_rifle_icon())
         shortened_stock = _make_signature_record(
@@ -190,12 +190,12 @@ def _make_signature_record(
     )
 
 
-def _make_rifle_icon(horizontal_shift=0, brightness=255):
+def _make_rifle_icon(horizontal_shift=0, brightness=255, stock_height=8):
     image = np.zeros((64, 64), dtype=np.uint8)
     offset = int(horizontal_shift)
     image[28:34, 10 + offset : 42 + offset] = brightness
     image[24:28, 18 + offset : 24 + offset] = brightness
-    image[34:42, 10 + offset : 18 + offset] = brightness
+    image[34 : 34 + int(stock_height), 10 + offset : 18 + offset] = brightness
     image[26:30, 42 + offset : 54 + offset] = brightness
     return image
 
@@ -215,9 +215,7 @@ def _make_rifle_icon_without_barrel():
 
 
 def _make_rifle_icon_with_shortened_stock():
-    image = _make_rifle_icon()
-    image[34:42, 10:12] = 0
-    return image
+    return _make_rifle_icon(stock_height=5)
 
 
 if __name__ == "__main__":

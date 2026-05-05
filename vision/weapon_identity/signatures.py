@@ -17,6 +17,7 @@ _HASH_SIZE = 8
 _HASH_BITS = _HASH_SIZE * _HASH_SIZE
 _FOREGROUND_THRESHOLD = 0.05
 _EPSILON = 1e-9
+_EDGE_MATCH_KERNEL_SIZE = 9
 _FILL_RATIO_REFERENCE = 0.10
 _TEMPLATE_WEIGHT = 0.45
 _EDGE_WEIGHT = 0.20
@@ -235,7 +236,7 @@ def _compare_edges(left: np.ndarray, right: np.ndarray) -> float:
         return 1.0
     # Small HUD crops can shift a couple of normalized pixels after resize, so
     # edge agreement should tolerate a narrow neighborhood rather than exact overlap.
-    kernel = np.ones((7, 7), dtype=np.uint8)
+    kernel = np.ones((_EDGE_MATCH_KERNEL_SIZE, _EDGE_MATCH_KERNEL_SIZE), dtype=np.uint8)
     right_dilated = cv2.dilate(right_edges.astype(np.uint8), kernel, iterations=1) > 0
     matched_left = int(np.logical_and(left_edges, right_dilated).sum())
     return float(matched_left / left_edge_count)
