@@ -131,6 +131,35 @@ class SegmentStandingFireBurstsTests(unittest.TestCase):
             ),
         )
 
+    def test_ammo_drop_does_not_backdate_to_stale_broken_motion_spike(self):
+        windows = segment_standing_fire_bursts(
+            session=_session(),
+            samples=(
+                BurstSegmentationSample(offset_ms=0, center_motion=0.61, ammo=30),
+                BurstSegmentationSample(offset_ms=16, center_motion=0.10, ammo=30),
+                BurstSegmentationSample(offset_ms=32, center_motion=0.10, ammo=30),
+                BurstSegmentationSample(offset_ms=48, center_motion=0.10, ammo=30),
+                BurstSegmentationSample(offset_ms=64, center_motion=0.10, ammo=29),
+                BurstSegmentationSample(offset_ms=80, center_motion=0.05, ammo=29),
+                BurstSegmentationSample(offset_ms=96, center_motion=0.04, ammo=29),
+            ),
+            config=_config(),
+        )
+
+        self.assertEqual(
+            windows,
+            (
+                RecoilBurstWindow(
+                    burst_id="session-cod22-m4-20260505-110000-burst-001",
+                    session_id="session-cod22-m4-20260505-110000",
+                    start_offset_ms=64,
+                    end_offset_ms=80,
+                    start_reason="ammo",
+                    end_reason="motion_settled",
+                ),
+            ),
+        )
+
     def test_returns_no_bursts_when_signals_never_confirm(self):
         windows = segment_standing_fire_bursts(
             session=_session(),

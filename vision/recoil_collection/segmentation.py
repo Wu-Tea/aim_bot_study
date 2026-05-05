@@ -94,6 +94,8 @@ def segment_standing_fire_bursts(
             else:
                 motion_streak = 0
                 motion_streak_start_offset_ms = None
+                if not ammo_drop:
+                    pending_motion_onset_offset_ms = None
 
             if motion_streak >= config.motion_confirm_frames:
                 active_start_offset_ms = motion_streak_start_offset_ms
