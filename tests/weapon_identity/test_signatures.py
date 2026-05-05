@@ -18,10 +18,18 @@ class SignatureMatchingTests(unittest.TestCase):
 
         self.assertEqual(ranked[0].signature_id, "sig-rifle")
         self.assertEqual(ranked[0].canonical_weapon_id, "cod22-rifle")
-        self.assertAlmostEqual(ranked[0].score, 1.0, places=6)
         self.assertAlmostEqual(ranked[0].template_score, 1.0, places=6)
         self.assertAlmostEqual(ranked[0].edge_score, 1.0, places=6)
         self.assertAlmostEqual(ranked[0].hash_score, 1.0, places=6)
+        self.assertGreater(ranked[0].structure_score, 0.0)
+        self.assertAlmostEqual(
+            ranked[0].score,
+            (ranked[0].template_score * 0.45)
+            + (ranked[0].edge_score * 0.20)
+            + (ranked[0].hash_score * 0.10)
+            + (ranked[0].structure_score * 0.25),
+            places=6,
+        )
         self.assertLess(ranked[1].score, ranked[0].score)
 
     def test_near_match_still_prefers_closest_signature(self):
@@ -33,6 +41,20 @@ class SignatureMatchingTests(unittest.TestCase):
 
         self.assertEqual(ranked[0].signature_id, "sig-rifle")
         self.assertGreater(ranked[0].score, 0.75)
+        self.assertGreater(ranked[0].score, ranked[1].score)
+
+    def test_shifted_dimmed_near_match_prefers_full_rifle_over_shortened_stock_variant(self):
+        live_roi = _make_rifle_icon(horizontal_shift=1, brightness=230)
+        full_weapon = _make_signature_record("sig-rifle", "cod22-rifle", _make_rifle_icon())
+        shortened_stock = _make_signature_record(
+            "sig-rifle-short-stock",
+            "cod22-rifle-short-stock",
+            _make_rifle_icon_with_shortened_stock(),
+        )
+
+        ranked = score_candidates(live_roi, (shortened_stock, full_weapon))
+
+        self.assertEqual(ranked[0].signature_id, "sig-rifle")
         self.assertGreater(ranked[0].score, ranked[1].score)
 
     def test_same_family_partial_candidate_does_not_outrank_full_weapon_under_occlusion(self):
@@ -50,6 +72,20 @@ class SignatureMatchingTests(unittest.TestCase):
 
         self.assertEqual(ranked[0].signature_id, "sig-rifle")
         self.assertGreater(ranked[0].score, ranked[1].score)
+
+    def test_candidate_score_is_stable_when_other_candidates_change(self):
+        live_roi = _make_rifle_icon(horizontal_shift=1, brightness=230)
+        shortened_stock = _make_signature_record(
+            "sig-rifle-short-stock",
+            "cod22-rifle-short-stock",
+            _make_rifle_icon_with_shortened_stock(),
+        )
+        full_weapon = _make_signature_record("sig-rifle", "cod22-rifle", _make_rifle_icon())
+
+        isolated = score_candidates(live_roi, (shortened_stock,))[0]
+        paired = score_candidates(live_roi, (shortened_stock, full_weapon))[1]
+
+        self.assertAlmostEqual(isolated.score, paired.score, places=6)
 
     def test_mismatch_score_degrades_to_low_confidence(self):
         live_roi = _make_rifle_icon()
@@ -70,6 +106,23 @@ class SignatureMatchingTests(unittest.TestCase):
         ranked = score_candidates(live_roi, (second, first))
 
         self.assertEqual([match.signature_id for match in ranked], ["sig-second", "sig-first"])
+
+    def test_exact_match_exposes_structure_score_when_it_affects_ranking(self):
+        live_roi = _make_rifle_icon()
+        identical = _make_signature_record("sig-rifle", "cod22-rifle", _make_rifle_icon())
+
+        ranked = score_candidates(live_roi, (identical,))
+
+        self.assertTrue(hasattr(ranked[0], "structure_score"))
+        self.assertGreater(ranked[0].structure_score, 0.0)
+        self.assertAlmostEqual(
+            ranked[0].score,
+            (ranked[0].template_score * 0.45)
+            + (ranked[0].edge_score * 0.20)
+            + (ranked[0].hash_score * 0.10)
+            + (ranked[0].structure_score * 0.25),
+            places=6,
+        )
 
     def test_ignores_candidates_with_unsupported_feature_type(self):
         live_roi = _make_rifle_icon()
@@ -158,6 +211,12 @@ def _make_lmg_icon():
 def _make_rifle_icon_without_barrel():
     image = _make_rifle_icon()
     image[26:30, 42:54] = 0
+    return image
+
+
+def _make_rifle_icon_with_shortened_stock():
+    image = _make_rifle_icon()
+    image[34:42, 10:12] = 0
     return image
 
 

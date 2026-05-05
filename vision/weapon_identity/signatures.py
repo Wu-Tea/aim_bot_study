@@ -17,6 +17,11 @@ _HASH_SIZE = 8
 _HASH_BITS = _HASH_SIZE * _HASH_SIZE
 _FOREGROUND_THRESHOLD = 0.05
 _EPSILON = 1e-9
+_FILL_RATIO_REFERENCE = 0.10
+_TEMPLATE_WEIGHT = 0.45
+_EDGE_WEIGHT = 0.20
+_HASH_WEIGHT = 0.10
+_STRUCTURE_WEIGHT = 0.25
 
 
 @dataclass(slots=True, frozen=True)
@@ -95,6 +100,7 @@ class SignatureMatch:
     template_score: float
     edge_score: float
     hash_score: float
+    structure_score: float
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "signature_id", _require_non_empty_str(self.signature_id, "SignatureMatch.signature_id"))
@@ -114,6 +120,11 @@ class SignatureMatch:
         )
         object.__setattr__(self, "edge_score", _require_score(self.edge_score, "SignatureMatch.edge_score"))
         object.__setattr__(self, "hash_score", _require_score(self.hash_score, "SignatureMatch.hash_score"))
+        object.__setattr__(
+            self,
+            "structure_score",
+            _require_score(self.structure_score, "SignatureMatch.structure_score"),
+        )
 
 
 def extract_signature(image: Any) -> ExtractedSignature:
@@ -144,7 +155,6 @@ def score_candidates(image: Any, candidates: Iterable[VisualSignatureRecord]) ->
         (candidate, ExtractedSignature.from_feature_payload(candidate.feature_payload))
         for candidate in compatible_candidates
     ]
-    max_structure_score = max(_compute_structure_score(signature) for _, signature in stored_signatures)
     ranked: list[SignatureMatch] = []
     for candidate, stored_signature in stored_signatures:
         template_score = _compare_templates(
@@ -156,12 +166,12 @@ def score_candidates(image: Any, candidates: Iterable[VisualSignatureRecord]) ->
             _matrix_to_numpy(stored_signature.edge_map, dtype=np.uint8),
         )
         hash_score = _compare_hashes(live_signature.perceptual_hash, stored_signature.perceptual_hash)
-        completeness_score = _compute_structure_score(stored_signature) / max(max_structure_score, _EPSILON)
+        structure_score = _compute_structure_score(stored_signature)
         final_score = (
-            (template_score * 0.45)
-            + (edge_score * 0.30)
-            + (hash_score * 0.05)
-            + (completeness_score * 0.20)
+            (template_score * _TEMPLATE_WEIGHT)
+            + (edge_score * _EDGE_WEIGHT)
+            + (hash_score * _HASH_WEIGHT)
+            + (structure_score * _STRUCTURE_WEIGHT)
         )
         ranked.append(
             SignatureMatch(
@@ -171,6 +181,7 @@ def score_candidates(image: Any, candidates: Iterable[VisualSignatureRecord]) ->
                 template_score=template_score,
                 edge_score=edge_score,
                 hash_score=hash_score,
+                structure_score=structure_score,
             )
         )
 
@@ -345,12 +356,12 @@ def _compute_structure_score(signature: ExtractedSignature) -> float:
     positions = np.argwhere(occupied)
     if positions.size == 0:
         return 0.0
-    top_left = positions.min(axis=0)
-    bottom_right = positions.max(axis=0)
-    height = (int(bottom_right[0] - top_left[0]) + 1) / template.shape[0]
-    width = (int(bottom_right[1] - top_left[1]) + 1) / template.shape[1]
+    left = int(positions[:, 1].min())
+    right = int(positions[:, 1].max())
+    span_score = (right - left + 1) / template.shape[1]
     fill_ratio = float(np.mean(occupied))
-    return float((width * 0.7) + (height * 0.2) + (fill_ratio * 0.1))
+    fill_score = min(fill_ratio / _FILL_RATIO_REFERENCE, 1.0)
+    return float((span_score * 0.4) + (fill_score * 0.6))
 
 
 def _require_non_empty_str(value: Any, label: str) -> str:
