@@ -34,6 +34,303 @@ class RecoilSample:
 
 
 @dataclass(slots=True, frozen=True)
+class RecoilCollectionSession:
+    session_id: str
+    canonical_weapon_id: str
+    game: str
+    stance: str
+    aim_mode: str
+    capture_resolution: str
+    capture_fps: float
+    collector_version: str
+    started_at: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "session_id",
+            _require_non_empty_str(self.session_id, "RecoilCollectionSession.session_id"),
+        )
+        object.__setattr__(
+            self,
+            "canonical_weapon_id",
+            _require_non_empty_str(
+                self.canonical_weapon_id,
+                "RecoilCollectionSession.canonical_weapon_id",
+            ),
+        )
+        object.__setattr__(self, "game", _require_non_empty_str(self.game, "RecoilCollectionSession.game"))
+        object.__setattr__(
+            self,
+            "stance",
+            _require_v1_stance(self.stance, "RecoilCollectionSession.stance"),
+        )
+        object.__setattr__(
+            self,
+            "aim_mode",
+            _require_v1_aim_mode(self.aim_mode, "RecoilCollectionSession.aim_mode"),
+        )
+        object.__setattr__(
+            self,
+            "capture_resolution",
+            _require_non_empty_str(
+                self.capture_resolution,
+                "RecoilCollectionSession.capture_resolution",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "capture_fps",
+            _require_positive_number(self.capture_fps, "RecoilCollectionSession.capture_fps"),
+        )
+        object.__setattr__(
+            self,
+            "collector_version",
+            _require_non_empty_str(
+                self.collector_version,
+                "RecoilCollectionSession.collector_version",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "started_at",
+            _require_non_empty_str(self.started_at, "RecoilCollectionSession.started_at"),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "session_id": self.session_id,
+            "canonical_weapon_id": self.canonical_weapon_id,
+            "game": self.game,
+            "stance": self.stance,
+            "aim_mode": self.aim_mode,
+            "capture_resolution": self.capture_resolution,
+            "capture_fps": self.capture_fps,
+            "collector_version": self.collector_version,
+            "started_at": self.started_at,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "RecoilCollectionSession":
+        _require_exact_keys(
+            data,
+            "RecoilCollectionSession",
+            {
+                "session_id",
+                "canonical_weapon_id",
+                "game",
+                "stance",
+                "aim_mode",
+                "capture_resolution",
+                "capture_fps",
+                "collector_version",
+                "started_at",
+            },
+        )
+        return cls(
+            session_id=_require_non_empty_str(data["session_id"], "RecoilCollectionSession.session_id"),
+            canonical_weapon_id=_require_non_empty_str(
+                data["canonical_weapon_id"],
+                "RecoilCollectionSession.canonical_weapon_id",
+            ),
+            game=_require_non_empty_str(data["game"], "RecoilCollectionSession.game"),
+            stance=_require_non_empty_str(data["stance"], "RecoilCollectionSession.stance"),
+            aim_mode=_require_non_empty_str(data["aim_mode"], "RecoilCollectionSession.aim_mode"),
+            capture_resolution=_require_non_empty_str(
+                data["capture_resolution"],
+                "RecoilCollectionSession.capture_resolution",
+            ),
+            capture_fps=_require_positive_number(
+                data["capture_fps"],
+                "RecoilCollectionSession.capture_fps",
+            ),
+            collector_version=_require_non_empty_str(
+                data["collector_version"],
+                "RecoilCollectionSession.collector_version",
+            ),
+            started_at=_require_non_empty_str(
+                data["started_at"],
+                "RecoilCollectionSession.started_at",
+            ),
+        )
+
+
+@dataclass(slots=True, frozen=True)
+class RecoilBurstWindow:
+    burst_id: str
+    session_id: str
+    start_offset_ms: int
+    end_offset_ms: int
+    start_reason: str
+    end_reason: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "burst_id",
+            _require_non_empty_str(self.burst_id, "RecoilBurstWindow.burst_id"),
+        )
+        object.__setattr__(
+            self,
+            "session_id",
+            _require_non_empty_str(self.session_id, "RecoilBurstWindow.session_id"),
+        )
+        object.__setattr__(
+            self,
+            "start_offset_ms",
+            _require_non_negative_int(self.start_offset_ms, "RecoilBurstWindow.start_offset_ms"),
+        )
+        object.__setattr__(
+            self,
+            "end_offset_ms",
+            _require_non_negative_int(self.end_offset_ms, "RecoilBurstWindow.end_offset_ms"),
+        )
+        if self.end_offset_ms < self.start_offset_ms:
+            raise ValueError("RecoilBurstWindow.end_offset_ms must be greater than or equal to start_offset_ms")
+        object.__setattr__(
+            self,
+            "start_reason",
+            _require_burst_start_reason(self.start_reason, "RecoilBurstWindow.start_reason"),
+        )
+        object.__setattr__(
+            self,
+            "end_reason",
+            _require_burst_end_reason(self.end_reason, "RecoilBurstWindow.end_reason"),
+        )
+
+    @property
+    def duration_ms(self) -> int:
+        return self.end_offset_ms - self.start_offset_ms
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "burst_id": self.burst_id,
+            "session_id": self.session_id,
+            "start_offset_ms": self.start_offset_ms,
+            "end_offset_ms": self.end_offset_ms,
+            "start_reason": self.start_reason,
+            "end_reason": self.end_reason,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "RecoilBurstWindow":
+        _require_exact_keys(
+            data,
+            "RecoilBurstWindow",
+            {
+                "burst_id",
+                "session_id",
+                "start_offset_ms",
+                "end_offset_ms",
+                "start_reason",
+                "end_reason",
+            },
+        )
+        return cls(
+            burst_id=_require_non_empty_str(data["burst_id"], "RecoilBurstWindow.burst_id"),
+            session_id=_require_non_empty_str(data["session_id"], "RecoilBurstWindow.session_id"),
+            start_offset_ms=_require_non_negative_int(
+                data["start_offset_ms"],
+                "RecoilBurstWindow.start_offset_ms",
+            ),
+            end_offset_ms=_require_non_negative_int(
+                data["end_offset_ms"],
+                "RecoilBurstWindow.end_offset_ms",
+            ),
+            start_reason=_require_non_empty_str(
+                data["start_reason"],
+                "RecoilBurstWindow.start_reason",
+            ),
+            end_reason=_require_non_empty_str(data["end_reason"], "RecoilBurstWindow.end_reason"),
+        )
+
+
+@dataclass(slots=True, frozen=True)
+class RecoilBurstSampleSeries:
+    burst_id: str
+    session_id: str
+    sample_interval_ms: int
+    samples: tuple[RecoilSample, ...]
+    sample_count: int
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "burst_id",
+            _require_non_empty_str(self.burst_id, "RecoilBurstSampleSeries.burst_id"),
+        )
+        object.__setattr__(
+            self,
+            "session_id",
+            _require_non_empty_str(self.session_id, "RecoilBurstSampleSeries.session_id"),
+        )
+        object.__setattr__(
+            self,
+            "sample_interval_ms",
+            _require_positive_int(
+                self.sample_interval_ms,
+                "RecoilBurstSampleSeries.sample_interval_ms",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "samples",
+            _require_recoil_sample_tuple(self.samples, "RecoilBurstSampleSeries.samples"),
+        )
+        object.__setattr__(
+            self,
+            "sample_count",
+            _require_positive_int(self.sample_count, "RecoilBurstSampleSeries.sample_count"),
+        )
+        if self.sample_count != len(self.samples):
+            raise ValueError("RecoilBurstSampleSeries.sample_count must match the sample array length")
+        previous_offset_ms = None
+        for sample in self.samples:
+            if previous_offset_ms is not None and sample.offset_ms <= previous_offset_ms:
+                raise ValueError("RecoilBurstSampleSeries.samples must be strictly increasing by offset_ms")
+            previous_offset_ms = sample.offset_ms
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "burst_id": self.burst_id,
+            "session_id": self.session_id,
+            "sample_interval_ms": self.sample_interval_ms,
+            "samples": [sample.to_dict() for sample in self.samples],
+            "sample_count": self.sample_count,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "RecoilBurstSampleSeries":
+        _require_exact_keys(
+            data,
+            "RecoilBurstSampleSeries",
+            {
+                "burst_id",
+                "session_id",
+                "sample_interval_ms",
+                "samples",
+                "sample_count",
+            },
+        )
+        return cls(
+            burst_id=_require_non_empty_str(data["burst_id"], "RecoilBurstSampleSeries.burst_id"),
+            session_id=_require_non_empty_str(data["session_id"], "RecoilBurstSampleSeries.session_id"),
+            sample_interval_ms=_require_positive_int(
+                data["sample_interval_ms"],
+                "RecoilBurstSampleSeries.sample_interval_ms",
+            ),
+            samples=_require_recoil_sample_tuple(
+                data["samples"],
+                "RecoilBurstSampleSeries.samples",
+            ),
+            sample_count=_require_positive_int(
+                data["sample_count"],
+                "RecoilBurstSampleSeries.sample_count",
+            ),
+        )
+
+
+@dataclass(slots=True, frozen=True)
 class RecoilProfileRecord:
     profile_id: str
     canonical_weapon_id: str
@@ -502,6 +799,21 @@ def _require_number_tuple(value: Any, label: str) -> tuple[float, ...]:
     return tuple(_require_number(item, f"{label}[{index}]") for index, item in enumerate(value))
 
 
+def _require_recoil_sample_tuple(value: Any, label: str) -> tuple[RecoilSample, ...]:
+    if not isinstance(value, (list, tuple)):
+        raise ValueError(f"{label} must be a list or tuple of recoil samples")
+    result: list[RecoilSample] = []
+    for index, item in enumerate(value):
+        if isinstance(item, RecoilSample):
+            result.append(item)
+            continue
+        if isinstance(item, dict):
+            result.append(RecoilSample.from_dict(item))
+            continue
+        raise ValueError(f"{label}[{index}] must be a RecoilSample or dict")
+    return tuple(result)
+
+
 def _require_float_mapping(value: Any, label: str) -> Mapping[str, float]:
     if not isinstance(value, Mapping):
         raise ValueError(f"{label} must be a mapping")
@@ -518,3 +830,17 @@ def _require_confidence(value: Any, label: str) -> float:
     if confidence < 0.0 or confidence > 1.0:
         raise ValueError(f"{label} must be between 0.0 and 1.0")
     return confidence
+
+
+def _require_burst_start_reason(value: Any, label: str) -> str:
+    reason = _require_non_empty_str(value, label)
+    if reason not in {"motion", "ammo", "manual"}:
+        raise ValueError(f"{label} must be one of ['ammo', 'manual', 'motion']")
+    return reason
+
+
+def _require_burst_end_reason(value: Any, label: str) -> str:
+    reason = _require_non_empty_str(value, label)
+    if reason not in {"motion_settled", "manual", "end_of_samples"}:
+        raise ValueError(f"{label} must be one of ['end_of_samples', 'manual', 'motion_settled']")
+    return reason

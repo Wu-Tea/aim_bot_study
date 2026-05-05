@@ -1,5 +1,8 @@
 import unittest
 
+from vision.recoil_collection.models import RecoilBurstSampleSeries
+from vision.recoil_collection.models import RecoilBurstWindow
+from vision.recoil_collection.models import RecoilCollectionSession
 from vision.recoil_collection.models import RecoilProfileRecord
 from vision.recoil_collection.models import RecoilProfileSummary
 from vision.recoil_collection.models import RecoilSample
@@ -278,6 +281,95 @@ class RecoilProfileSummaryTests(unittest.TestCase):
                 peak_abs_x=1.4,
                 peak_abs_y=6.0,
                 created_at="2026-05-05T11:00:00Z",
+            )
+
+
+class RecoilCollectionSessionTests(unittest.TestCase):
+    def test_round_trip_serialization(self):
+        session = RecoilCollectionSession(
+            session_id="session-cod22-m4-20260505-110000",
+            canonical_weapon_id="cod22-m4",
+            game="cod22",
+            stance="standing",
+            aim_mode="ads",
+            capture_resolution="1920x1080",
+            capture_fps=240.0,
+            collector_version="collector-0.1.0",
+            started_at="2026-05-05T11:00:00Z",
+        )
+
+        self.assertEqual(RecoilCollectionSession.from_dict(session.to_dict()), session)
+
+    def test_constructor_rejects_blank_session_id(self):
+        with self.assertRaisesRegex(ValueError, "session_id"):
+            RecoilCollectionSession(
+                session_id="",
+                canonical_weapon_id="cod22-m4",
+                game="cod22",
+                stance="standing",
+                aim_mode="ads",
+                capture_resolution="1920x1080",
+                capture_fps=240.0,
+                collector_version="collector-0.1.0",
+                started_at="2026-05-05T11:00:00Z",
+            )
+
+
+class RecoilBurstWindowTests(unittest.TestCase):
+    def test_round_trip_serialization_and_duration(self):
+        window = RecoilBurstWindow(
+            burst_id="session-cod22-m4-20260505-110000-burst-001",
+            session_id="session-cod22-m4-20260505-110000",
+            start_offset_ms=32,
+            end_offset_ms=112,
+            start_reason="motion",
+            end_reason="motion_settled",
+        )
+
+        round_tripped = RecoilBurstWindow.from_dict(window.to_dict())
+
+        self.assertEqual(round_tripped, window)
+        self.assertEqual(round_tripped.duration_ms, 80)
+
+    def test_constructor_rejects_end_before_start(self):
+        with self.assertRaisesRegex(ValueError, "end_offset_ms"):
+            RecoilBurstWindow(
+                burst_id="session-cod22-m4-20260505-110000-burst-001",
+                session_id="session-cod22-m4-20260505-110000",
+                start_offset_ms=96,
+                end_offset_ms=80,
+                start_reason="motion",
+                end_reason="motion_settled",
+            )
+
+
+class RecoilBurstSampleSeriesTests(unittest.TestCase):
+    def test_round_trip_serialization(self):
+        series = RecoilBurstSampleSeries(
+            burst_id="session-cod22-m4-20260505-110000-burst-001",
+            session_id="session-cod22-m4-20260505-110000",
+            sample_interval_ms=16,
+            samples=(
+                RecoilSample(offset_ms=0, x=0.0, y=0.0),
+                RecoilSample(offset_ms=16, x=0.3, y=-1.4),
+                RecoilSample(offset_ms=32, x=0.5, y=-2.9),
+            ),
+            sample_count=3,
+        )
+
+        self.assertEqual(RecoilBurstSampleSeries.from_dict(series.to_dict()), series)
+
+    def test_constructor_rejects_non_monotonic_offsets(self):
+        with self.assertRaisesRegex(ValueError, "samples"):
+            RecoilBurstSampleSeries(
+                burst_id="session-cod22-m4-20260505-110000-burst-001",
+                session_id="session-cod22-m4-20260505-110000",
+                sample_interval_ms=16,
+                samples=(
+                    RecoilSample(offset_ms=16, x=0.3, y=-1.4),
+                    RecoilSample(offset_ms=8, x=0.5, y=-2.9),
+                ),
+                sample_count=2,
             )
 
 
