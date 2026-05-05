@@ -60,11 +60,13 @@ def segment_standing_fire_bursts(
     last_visible_ammo: int | None = None
     motion_streak = 0
     motion_streak_start_offset_ms: int | None = None
+    pending_motion_onset_offset_ms: int | None = None
 
     active_start_offset_ms: int | None = None
     active_start_reason: str | None = None
-    last_active_offset_ms: int | None = None
+    last_included_offset_ms: int | None = None
     low_motion_streak = 0
+    settle_start_offset_ms: int | None = None
 
     for sample in normalized_samples:
         ammo_drop = False
@@ -76,16 +78,19 @@ def segment_standing_fire_bursts(
             if sample.manual_marker == "start":
                 active_start_offset_ms = sample.offset_ms
                 active_start_reason = "manual"
-                last_active_offset_ms = sample.offset_ms
+                last_included_offset_ms = sample.offset_ms
                 motion_streak = 0
                 motion_streak_start_offset_ms = None
+                pending_motion_onset_offset_ms = None
                 low_motion_streak = 0
+                settle_start_offset_ms = None
                 continue
 
             if sample.center_motion >= config.motion_start_threshold:
                 motion_streak += 1
                 if motion_streak_start_offset_ms is None:
                     motion_streak_start_offset_ms = sample.offset_ms
+                pending_motion_onset_offset_ms = motion_streak_start_offset_ms
             else:
                 motion_streak = 0
                 motion_streak_start_offset_ms = None
@@ -93,17 +98,25 @@ def segment_standing_fire_bursts(
             if motion_streak >= config.motion_confirm_frames:
                 active_start_offset_ms = motion_streak_start_offset_ms
                 active_start_reason = "motion"
-                last_active_offset_ms = sample.offset_ms
+                last_included_offset_ms = sample.offset_ms
                 low_motion_streak = 0
+                settle_start_offset_ms = None
                 motion_streak = 0
                 motion_streak_start_offset_ms = None
+                pending_motion_onset_offset_ms = None
                 continue
 
             if ammo_drop:
-                active_start_offset_ms = sample.offset_ms
+                active_start_offset_ms = (
+                    pending_motion_onset_offset_ms
+                    if pending_motion_onset_offset_ms is not None
+                    else sample.offset_ms
+                )
                 active_start_reason = "ammo"
-                last_active_offset_ms = sample.offset_ms
+                last_included_offset_ms = sample.offset_ms
                 low_motion_streak = 0
+                settle_start_offset_ms = None
+                pending_motion_onset_offset_ms = None
             continue
 
         if sample.manual_marker == "stop":
@@ -119,20 +132,25 @@ def segment_standing_fire_bursts(
             )
             active_start_offset_ms = None
             active_start_reason = None
-            last_active_offset_ms = None
+            last_included_offset_ms = None
             low_motion_streak = 0
+            settle_start_offset_ms = None
             motion_streak = 0
             motion_streak_start_offset_ms = None
+            pending_motion_onset_offset_ms = None
             continue
 
         if active_start_reason == "manual":
-            last_active_offset_ms = sample.offset_ms
+            last_included_offset_ms = sample.offset_ms
             continue
 
+        last_included_offset_ms = sample.offset_ms
         if sample.center_motion <= config.motion_end_threshold:
             low_motion_streak += 1
+            if settle_start_offset_ms is None:
+                settle_start_offset_ms = sample.offset_ms
             if low_motion_streak >= config.settle_frames:
-                end_offset_ms = last_active_offset_ms if last_active_offset_ms is not None else sample.offset_ms
+                end_offset_ms = settle_start_offset_ms if settle_start_offset_ms is not None else sample.offset_ms
                 windows.append(
                     _build_window(
                         session=session,
@@ -145,16 +163,25 @@ def segment_standing_fire_bursts(
                 )
                 active_start_offset_ms = None
                 active_start_reason = None
-                last_active_offset_ms = None
+                last_included_offset_ms = None
                 low_motion_streak = 0
+                settle_start_offset_ms = None
                 motion_streak = 0
                 motion_streak_start_offset_ms = None
+                pending_motion_onset_offset_ms = None
         else:
             low_motion_streak = 0
-            last_active_offset_ms = sample.offset_ms
+            settle_start_offset_ms = None
 
     if active_start_offset_ms is not None:
-        final_offset_ms = normalized_samples[-1].offset_ms if normalized_samples else active_start_offset_ms
+        final_offset_ms = _infer_terminal_end_offset_ms(
+            samples=normalized_samples,
+            fallback_offset_ms=(
+                active_start_offset_ms + 1
+                if last_included_offset_ms is None
+                else last_included_offset_ms + 1
+            ),
+        )
         windows.append(
             _build_window(
                 session=session,
@@ -194,3 +221,15 @@ def _build_window(
         start_reason="manual" if start_reason is None else start_reason,
         end_reason=end_reason,
     )
+
+
+def _infer_terminal_end_offset_ms(
+    *,
+    samples: tuple[BurstSegmentationSample, ...],
+    fallback_offset_ms: int,
+) -> int:
+    if len(samples) >= 2:
+        interval_ms = samples[-1].offset_ms - samples[-2].offset_ms
+        if interval_ms > 0:
+            return samples[-1].offset_ms + interval_ms
+    return fallback_offset_ms

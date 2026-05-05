@@ -54,7 +54,7 @@ class SegmentStandingFireBurstsTests(unittest.TestCase):
                     burst_id="session-cod22-m4-20260505-110000-burst-001",
                     session_id="session-cod22-m4-20260505-110000",
                     start_offset_ms=32,
-                    end_offset_ms=80,
+                    end_offset_ms=96,
                     start_reason="motion",
                     end_reason="motion_settled",
                 ),
@@ -90,7 +90,7 @@ class SegmentStandingFireBurstsTests(unittest.TestCase):
                     burst_id="session-cod22-m4-20260505-110000-burst-001",
                     session_id="session-cod22-m4-20260505-110000",
                     start_offset_ms=32,
-                    end_offset_ms=64,
+                    end_offset_ms=80,
                     start_reason="motion",
                     end_reason="motion_settled",
                 ),
@@ -98,7 +98,33 @@ class SegmentStandingFireBurstsTests(unittest.TestCase):
                     burst_id="session-cod22-m4-20260505-110000-burst-002",
                     session_id="session-cod22-m4-20260505-110000",
                     start_offset_ms=160,
-                    end_offset_ms=176,
+                    end_offset_ms=192,
+                    start_reason="ammo",
+                    end_reason="motion_settled",
+                ),
+            ),
+        )
+
+    def test_ammo_confirmed_start_backdates_to_pending_motion_onset(self):
+        windows = segment_standing_fire_bursts(
+            session=_session(),
+            samples=(
+                BurstSegmentationSample(offset_ms=0, center_motion=0.61, ammo=30),
+                BurstSegmentationSample(offset_ms=16, center_motion=0.10, ammo=29),
+                BurstSegmentationSample(offset_ms=32, center_motion=0.05, ammo=29),
+                BurstSegmentationSample(offset_ms=48, center_motion=0.03, ammo=29),
+            ),
+            config=_config(),
+        )
+
+        self.assertEqual(
+            windows,
+            (
+                RecoilBurstWindow(
+                    burst_id="session-cod22-m4-20260505-110000-burst-001",
+                    session_id="session-cod22-m4-20260505-110000",
+                    start_offset_ms=0,
+                    end_offset_ms=32,
                     start_reason="ammo",
                     end_reason="motion_settled",
                 ),
@@ -160,6 +186,31 @@ class SegmentStandingFireBurstsTests(unittest.TestCase):
                     end_offset_ms=80,
                     start_reason="manual",
                     end_reason="manual",
+                ),
+            ),
+        )
+
+    def test_terminal_burst_uses_exclusive_end_boundary_from_sample_spacing(self):
+        windows = segment_standing_fire_bursts(
+            session=_session(),
+            samples=(
+                BurstSegmentationSample(offset_ms=0, center_motion=0.64, ammo=30),
+                BurstSegmentationSample(offset_ms=16, center_motion=0.83, ammo=29),
+                BurstSegmentationSample(offset_ms=32, center_motion=0.79, ammo=28),
+            ),
+            config=_config(),
+        )
+
+        self.assertEqual(
+            windows,
+            (
+                RecoilBurstWindow(
+                    burst_id="session-cod22-m4-20260505-110000-burst-001",
+                    session_id="session-cod22-m4-20260505-110000",
+                    start_offset_ms=0,
+                    end_offset_ms=48,
+                    start_reason="motion",
+                    end_reason="end_of_samples",
                 ),
             ),
         )
