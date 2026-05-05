@@ -160,18 +160,18 @@ The first shipping target is Blocks `A-C`.
 - Modify: `vision/weapon_identity/resolver.py`
 - Create: `tests/recoil_collection/test_tooling.py`
 
-- [ ] Build a CLI tool that accepts:
+- [x] Build a CLI tool that accepts:
   - `--game`
   - `--profile-dir`
   - `--signature-dir`
   - `--capture-width`
   - `--capture-height`
   - `--fps`
-- [ ] Reuse existing capture infrastructure where possible instead of inventing a second full-screen pipeline.
-- [ ] Print structured current-weapon events to stdout and optionally write the latest state to a JSON file for future sidecar consumption.
-- [ ] Add a tooling test that validates argument parsing and latest-state file writing with stubbed recognizer dependencies.
-- [ ] Run: `python -m unittest tests.recoil_collection.test_tooling -v`
-- [ ] Expected: recognizer CLI smoke tests pass with stubbed data.
+- [x] Reuse existing capture infrastructure where possible instead of inventing a second full-screen pipeline.
+- [x] Print structured current-weapon events to stdout and optionally write the latest state to a JSON file for future sidecar consumption.
+- [x] Add a tooling test that validates argument parsing and latest-state file writing with stubbed recognizer dependencies.
+- [x] Run: `python -m unittest tests.recoil_collection.test_tooling -v`
+- [x] Expected: recognizer CLI smoke tests pass with stubbed data.
 
 ## Task 7: Standing-Only Recoil Collection Models And Segmentation
 
@@ -313,3 +313,4 @@ The first shipping target is Blocks `A-C`.
 - Task `3` is complete and review-approved on commit `dbd6423abf192d3bf161103d9bf2fa983da84c4b`.
 - Task `4` is complete and review-approved on commit `8dd83e4c1825a3a30373413aeb3cde1b35621dd5`.
 - Task `5` is complete and review-approved on commit `53735037395c99f63bdf5d69eeb15a0cac9592a0`.
+- Task `6` is complete and review-approved on commit `36944926a3977129fa6d8dfed92b35a541ca2680`.
