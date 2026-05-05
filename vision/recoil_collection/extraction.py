@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from bisect import bisect_left
 from dataclasses import dataclass
+from math import ceil
 from statistics import fmean
 from statistics import median
 from statistics import pstdev
@@ -14,6 +15,7 @@ from vision.recoil_collection.models import RecoilProfileRecord
 @dataclass(slots=True, frozen=True)
 class RecoilExtractionConfig:
     sample_interval_ms: int
+    min_resampled_samples: int = 2
     min_clean_bursts: int = 3
     target_clean_bursts: int = 4
     outlier_mad_multiplier: float = 6.0
@@ -23,6 +25,8 @@ class RecoilExtractionConfig:
     def __post_init__(self) -> None:
         if type(self.sample_interval_ms) is not int or self.sample_interval_ms <= 0:
             raise ValueError("RecoilExtractionConfig.sample_interval_ms must be a positive integer")
+        if type(self.min_resampled_samples) is not int or self.min_resampled_samples <= 0:
+            raise ValueError("RecoilExtractionConfig.min_resampled_samples must be a positive integer")
         if type(self.min_clean_bursts) is not int or self.min_clean_bursts <= 0:
             raise ValueError("RecoilExtractionConfig.min_clean_bursts must be a positive integer")
         if type(self.target_clean_bursts) is not int or self.target_clean_bursts <= 0:
@@ -139,7 +143,8 @@ def _reject_outliers(
     aligned_bursts: tuple[_AlignedBurstCurve, ...],
     config: RecoilExtractionConfig,
 ) -> tuple[tuple[_AlignedBurstCurve, ...], tuple[str, ...]]:
-    target_offsets_ms = _common_target_offsets(aligned_bursts=aligned_bursts, config=config)
+    target_offsets_ms, truncated_burst_ids = _select_target_offsets(aligned_bursts=aligned_bursts, config=config)
+    # Reject bursts that cannot reach the majority-supported horizon before shape comparison.
     resampled_bursts = tuple(
         _resample_aligned_curve(
             curve=curve,
@@ -147,9 +152,10 @@ def _reject_outliers(
             target_sample_interval_ms=config.sample_interval_ms,
         )
         for curve in aligned_bursts
+        if _supported_resampled_sample_count(curve=curve, config=config) >= len(target_offsets_ms)
     )
     if len(resampled_bursts) < 3:
-        return resampled_bursts, ()
+        return resampled_bursts, truncated_burst_ids
 
     median_curve_x = tuple(
         median(burst.samples_x[index] for burst in resampled_bursts)
@@ -185,23 +191,47 @@ def _reject_outliers(
         if distance > threshold
     )
     if clean_bursts:
-        return clean_bursts, rejected_burst_ids
+        return clean_bursts, truncated_burst_ids + rejected_burst_ids
 
     best_burst_index = min(range(len(resampled_bursts)), key=lambda index: distances[index])
-    return (resampled_bursts[best_burst_index],), tuple(
+    fallback_rejected_burst_ids = tuple(
         burst.burst_id
         for index, burst in enumerate(resampled_bursts)
         if index != best_burst_index
     )
+    return (resampled_bursts[best_burst_index],), truncated_burst_ids + fallback_rejected_burst_ids
 
 
-def _common_target_offsets(
+def _select_target_offsets(
     *,
     aligned_bursts: tuple[_AlignedBurstCurve, ...],
     config: RecoilExtractionConfig,
-) -> tuple[int, ...]:
-    common_last_offset_ms = min(curve.offsets_ms[-1] for curve in aligned_bursts)
-    return tuple(range(0, common_last_offset_ms + 1, config.sample_interval_ms))
+) -> tuple[tuple[int, ...], tuple[str, ...]]:
+    supported_sample_counts = tuple(
+        _supported_resampled_sample_count(curve=curve, config=config)
+        for curve in aligned_bursts
+    )
+    required_sample_count = ceil(median(supported_sample_counts))
+    if required_sample_count < config.min_resampled_samples:
+        raise ValueError(
+            f"Recoil extraction requires at least {config.min_resampled_samples} resampled samples"
+        )
+    return (
+        tuple(index * config.sample_interval_ms for index in range(required_sample_count)),
+        tuple(
+            curve.burst_id
+            for curve, supported_sample_count in zip(aligned_bursts, supported_sample_counts)
+            if supported_sample_count < required_sample_count
+        ),
+    )
+
+
+def _supported_resampled_sample_count(
+    *,
+    curve: _AlignedBurstCurve,
+    config: RecoilExtractionConfig,
+) -> int:
+    return (curve.offsets_ms[-1] // config.sample_interval_ms) + 1
 
 
 def _resample_aligned_curve(

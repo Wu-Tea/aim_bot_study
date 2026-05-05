@@ -302,6 +302,91 @@ class ExtractRecoilProfileTests(unittest.TestCase):
         self.assertEqual(result.profile.burst_count, 2)
         self.assertLess(result.profile.confidence, 0.5)
 
+    def test_rejects_truncated_burst_before_it_can_collapse_profile_tail(self):
+        extraction = _load_extraction_module()
+        result = extraction.extract_recoil_profile(
+            session=_session(),
+            bursts=(
+                _series(
+                    burst_id="good-a",
+                    start_offset_ms=0,
+                    sample_interval_ms=10,
+                    anchor_x=0.0,
+                    anchor_y=10.0,
+                    deltas_x=(0.0, 1.0, 2.0, 3.0, 4.0, 5.0),
+                    deltas_y=(0.0, -1.0, -2.0, -3.0, -4.0, -5.0),
+                ),
+                _series(
+                    burst_id="good-b",
+                    start_offset_ms=5,
+                    sample_interval_ms=10,
+                    anchor_x=30.0,
+                    anchor_y=-12.0,
+                    deltas_x=(0.0, 1.0, 2.0, 3.0, 4.0, 5.0),
+                    deltas_y=(0.0, -1.0, -2.0, -3.0, -4.0, -5.0),
+                ),
+                _series(
+                    burst_id="short",
+                    start_offset_ms=2,
+                    sample_interval_ms=10,
+                    anchor_x=-8.0,
+                    anchor_y=3.0,
+                    deltas_x=(0.0, 1.0, 2.0),
+                    deltas_y=(0.0, -1.0, -2.0),
+                ),
+            ),
+            profile_id="profile-truncated-burst",
+            created_at="2026-05-06T13:00:00Z",
+            config=extraction.RecoilExtractionConfig(sample_interval_ms=10),
+        )
+
+        self.assertEqual(result.accepted_burst_ids, ("good-a", "good-b"))
+        self.assertEqual(result.rejected_burst_ids, ("short",))
+        self.assertEqual(result.profile.duration_ms, 60)
+        self.assertEqual(result.profile.sample_count, 6)
+        self.assertTupleAlmostEqual(result.profile.samples_x, (0.0, 1.0, 2.0, 3.0, 4.0, 5.0))
+        self.assertTupleAlmostEqual(result.profile.samples_y, (0.0, -1.0, -2.0, -3.0, -4.0, -5.0))
+
+    def test_rejects_degenerate_single_point_profile_extraction(self):
+        extraction = _load_extraction_module()
+
+        with self.assertRaisesRegex(ValueError, "at least 2 resampled samples"):
+            extraction.extract_recoil_profile(
+                session=_session(),
+                bursts=(
+                    _series(
+                        burst_id="one-a",
+                        start_offset_ms=0,
+                        sample_interval_ms=10,
+                        anchor_x=4.0,
+                        anchor_y=8.0,
+                        deltas_x=(0.0,),
+                        deltas_y=(0.0,),
+                    ),
+                    _series(
+                        burst_id="one-b",
+                        start_offset_ms=3,
+                        sample_interval_ms=10,
+                        anchor_x=-4.0,
+                        anchor_y=2.0,
+                        deltas_x=(0.0,),
+                        deltas_y=(0.0,),
+                    ),
+                    _series(
+                        burst_id="one-c",
+                        start_offset_ms=7,
+                        sample_interval_ms=10,
+                        anchor_x=12.0,
+                        anchor_y=-6.0,
+                        deltas_x=(0.0,),
+                        deltas_y=(0.0,),
+                    ),
+                ),
+                profile_id="profile-degenerate",
+                created_at="2026-05-06T13:00:00Z",
+                config=extraction.RecoilExtractionConfig(sample_interval_ms=10),
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
