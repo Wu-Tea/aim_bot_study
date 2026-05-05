@@ -85,15 +85,15 @@ The first shipping target is Blocks `A-C`.
 - Modify: `vision/weapon_identity/models.py`
 - Create: `tests/recoil_collection/test_storage.py`
 
-- [ ] Implement JSON readers and writers for identity records, signature records, and recoil profiles.
-- [ ] Normalize on UTF-8 JSON with stable key ordering so stored artifacts diff cleanly in git.
-- [ ] Write storage tests for:
+- [x] Implement JSON readers and writers for identity records, signature records, and recoil profiles.
+- [x] Normalize on UTF-8 JSON with stable key ordering so stored artifacts diff cleanly in git.
+- [x] Write storage tests for:
   - identity save/load round trip
   - profile save/load round trip
   - corrupted JSON failure path
   - missing required field rejection
-- [ ] Run: `python -m unittest tests.recoil_collection.test_storage -v`
-- [ ] Expected: passing tests for valid files and explicit failures for invalid payloads.
+- [x] Run: `python -m unittest tests.recoil_collection.test_storage -v`
+- [x] Expected: passing tests for valid files and explicit failures for invalid payloads.
 
 ## Task 3: Per-Title Adapter Layer
 
@@ -309,3 +309,4 @@ The first shipping target is Blocks `A-C`.
 - If a future session resumes midstream, read this file first, then the design spec at `docs/superpowers/specs/2026-05-05-cod-weapon-recognition-recoil-collector-design.md`.
 - Prefer updating checkbox state in this file as work completes so later sessions can resume from the last confirmed task boundary.
 - Task `1` is complete and review-approved on commit `ecde59d0b0119ac7cbc33b13441515df5c67a672`.
+- Task `2` is complete and review-approved on commit `91fe7d3739acdbe7ae84c42b38a1710f08d64170`.
