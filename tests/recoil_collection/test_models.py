@@ -146,6 +146,52 @@ class RecoilProfileRecordTests(unittest.TestCase):
                 created_at="2026-05-05T11:00:00Z",
             )
 
+    def test_constructor_rejects_duration_shorter_than_sampled_window(self):
+        with self.assertRaisesRegex(ValueError, "duration_ms"):
+            RecoilProfileRecord(
+                profile_id="profile-cod22-m4-ads-standing-v1",
+                canonical_weapon_id="cod22-m4",
+                game="cod22",
+                stance="standing",
+                aim_mode="ads",
+                sample_interval_ms=16,
+                duration_ms=47,
+                initial_delay_ms=32,
+                samples_x=(0.0, 0.8, 1.2),
+                samples_y=(0.0, -2.5, -5.1),
+                sample_count=3,
+                burst_count=6,
+                variance_summary={"horizontal_stddev": 0.19, "vertical_stddev": 0.42},
+                confidence=0.88,
+                capture_resolution="1920x1080",
+                capture_fps=240.0,
+                collector_version="collector-0.1.0",
+                created_at="2026-05-05T11:00:00Z",
+            )
+
+    def test_constructor_rejects_zero_sample_profile(self):
+        with self.assertRaisesRegex(ValueError, "sample_count"):
+            RecoilProfileRecord(
+                profile_id="profile-cod22-m4-ads-standing-v1",
+                canonical_weapon_id="cod22-m4",
+                game="cod22",
+                stance="standing",
+                aim_mode="ads",
+                sample_interval_ms=16,
+                duration_ms=0,
+                initial_delay_ms=0,
+                samples_x=(),
+                samples_y=(),
+                sample_count=0,
+                burst_count=1,
+                variance_summary={"horizontal_stddev": 0.19, "vertical_stddev": 0.42},
+                confidence=0.88,
+                capture_resolution="1920x1080",
+                capture_fps=240.0,
+                collector_version="collector-0.1.0",
+                created_at="2026-05-05T11:00:00Z",
+            )
+
 
 class RecoilProfileSummaryTests(unittest.TestCase):
     def test_round_trip_serialization(self):

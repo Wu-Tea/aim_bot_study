@@ -111,10 +111,13 @@ class RecoilProfileRecord:
         object.__setattr__(
             self,
             "sample_count",
-            _require_non_negative_int(self.sample_count, "RecoilProfileRecord.sample_count"),
+            _require_positive_int(self.sample_count, "RecoilProfileRecord.sample_count"),
         )
         if self.sample_count != len(self.samples_x):
             raise ValueError("RecoilProfileRecord.sample_count must match the sample array length")
+        sample_window_ms = self.sample_count * self.sample_interval_ms
+        if self.duration_ms < sample_window_ms:
+            raise ValueError("RecoilProfileRecord.duration_ms must cover the sampled window length")
         object.__setattr__(
             self,
             "burst_count",
@@ -242,7 +245,7 @@ class RecoilProfileRecord:
             ),
             samples_x=_require_number_tuple(data["samples_x"], "RecoilProfileRecord.samples_x"),
             samples_y=_require_number_tuple(data["samples_y"], "RecoilProfileRecord.samples_y"),
-            sample_count=_require_non_negative_int(
+            sample_count=_require_positive_int(
                 data["sample_count"],
                 "RecoilProfileRecord.sample_count",
             ),

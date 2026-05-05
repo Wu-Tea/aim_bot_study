@@ -6,6 +6,15 @@ from vision.weapon_identity.models import WeaponIdentityRecord
 
 
 class WeaponIdentityRecordTests(unittest.TestCase):
+    def test_constructor_requires_timestamps_explicitly(self):
+        with self.assertRaisesRegex(TypeError, "created_at|updated_at"):
+            WeaponIdentityRecord(
+                canonical_weapon_id="cod22-m4",
+                game="cod22",
+                weapon_family="assault_rifle",
+                display_name="M4",
+            )
+
     def test_round_trip_serialization_and_blueprint_alias_resolution(self):
         record = WeaponIdentityRecord(
             canonical_weapon_id="cod22-m4",
@@ -76,6 +85,52 @@ class VisualSignatureRecordTests(unittest.TestCase):
         )
 
         self.assertEqual(VisualSignatureRecord.from_dict(record.to_dict()), record)
+
+    def test_constructor_deep_freezes_nested_feature_payload(self):
+        payload = {
+            "hash": {"parts": ["aa11", "bb22"]},
+            "metadata": [{"name": "edge-map", "weights": [1, 2, 3]}],
+        }
+        record = VisualSignatureRecord(
+            signature_id="sig-primary",
+            canonical_weapon_id="cod22-m4",
+            game="cod22",
+            region_type="weapon_icon",
+            resolution_bucket="1080p",
+            ui_scale_bucket="default",
+            feature_type="perceptual_hash",
+            feature_payload=payload,
+            captured_from="hud crop",
+            confidence=0.91,
+        )
+
+        payload["hash"]["parts"].append("cc33")
+        payload["metadata"][0]["weights"][0] = 99
+
+        self.assertEqual(record.feature_payload["hash"]["parts"], ("aa11", "bb22"))
+        self.assertEqual(record.feature_payload["metadata"][0]["weights"], (1, 2, 3))
+
+    def test_to_dict_restores_mutable_nested_feature_payload_shapes(self):
+        record = VisualSignatureRecord(
+            signature_id="sig-primary",
+            canonical_weapon_id="cod22-m4",
+            game="cod22",
+            region_type="weapon_icon",
+            resolution_bucket="1080p",
+            ui_scale_bucket="default",
+            feature_type="perceptual_hash",
+            feature_payload={
+                "hash": {"parts": ["aa11", "bb22"]},
+                "metadata": [{"name": "edge-map", "weights": [1, 2, 3]}],
+            },
+            captured_from="hud crop",
+            confidence=0.91,
+        )
+
+        payload = record.to_dict()["feature_payload"]
+
+        self.assertEqual(payload["hash"]["parts"], ["aa11", "bb22"])
+        self.assertEqual(payload["metadata"][0]["weights"], [1, 2, 3])
 
     def test_constructor_rejects_non_mapping_feature_payload(self):
         with self.assertRaisesRegex(ValueError, "feature_payload"):

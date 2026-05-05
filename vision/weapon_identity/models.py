@@ -11,12 +11,12 @@ class WeaponIdentityRecord:
     game: str
     weapon_family: str
     display_name: str
+    created_at: str
+    updated_at: str
     alias_names: tuple[str, ...] = ()
     blueprint_names: tuple[str, ...] = ()
     signature_refs: tuple[str, ...] = ()
     notes: str = ""
-    created_at: str = ""
-    updated_at: str = ""
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -200,7 +200,7 @@ class VisualSignatureRecord:
         object.__setattr__(
             self,
             "feature_payload",
-            _require_mapping(self.feature_payload, "VisualSignatureRecord.feature_payload"),
+            _freeze_feature_payload(self.feature_payload, "VisualSignatureRecord.feature_payload"),
         )
         object.__setattr__(
             self,
@@ -225,7 +225,7 @@ class VisualSignatureRecord:
             "resolution_bucket": self.resolution_bucket,
             "ui_scale_bucket": self.ui_scale_bucket,
             "feature_type": self.feature_type,
-            "feature_payload": dict(self.feature_payload),
+            "feature_payload": _thaw_feature_payload(self.feature_payload),
             "captured_from": self.captured_from,
             "confidence": self.confidence,
         }
@@ -274,7 +274,7 @@ class VisualSignatureRecord:
                 data["feature_type"],
                 "VisualSignatureRecord.feature_type",
             ),
-            feature_payload=_require_mapping(
+            feature_payload=_freeze_feature_payload(
                 data["feature_payload"],
                 "VisualSignatureRecord.feature_payload",
             ),
@@ -435,15 +435,37 @@ def _require_string_tuple(value: Any, label: str) -> tuple[str, ...]:
     return tuple(result)
 
 
-def _require_mapping(value: Any, label: str) -> Mapping[str, Any]:
+def _freeze_feature_payload(value: Any, label: str) -> Any:
     if not isinstance(value, Mapping):
         raise ValueError(f"{label} must be a mapping")
     result: dict[str, Any] = {}
     for key, item in value.items():
         if type(key) is not str or not key.strip():
             raise ValueError(f"{label} keys must be non-empty strings")
-        result[key] = item
+        result[key] = _freeze_feature_value(item, f"{label}[{key!r}]")
     return MappingProxyType(result)
+
+
+def _freeze_feature_value(value: Any, label: str) -> Any:
+    if isinstance(value, Mapping):
+        return _freeze_feature_payload(value, label)
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_feature_value(item, f"{label}[{index}]") for index, item in enumerate(value))
+    if value is None or type(value) in {str, int, float, bool}:
+        return value
+    raise ValueError(f"{label} must contain only JSON-like scalar, list, tuple, or mapping values")
+
+
+def _thaw_feature_payload(value: Mapping[str, Any]) -> dict[str, Any]:
+    return {key: _thaw_feature_value(item) for key, item in value.items()}
+
+
+def _thaw_feature_value(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {key: _thaw_feature_value(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_thaw_feature_value(item) for item in value]
+    return value
 
 
 def _require_confidence(value: Any, label: str) -> float:
