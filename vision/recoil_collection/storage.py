@@ -12,6 +12,10 @@ from vision.weapon_identity.models import WeaponIdentityRecord
 JsonPath = str | PathLike[str]
 
 
+class StorageError(ValueError):
+    """Raised when JSON storage read/write operations fail."""
+
+
 def save_identity_record(path: JsonPath, record: WeaponIdentityRecord) -> None:
     _write_json(path, record.to_dict())
 
@@ -42,28 +46,40 @@ def _load_record(path: JsonPath, record_type: type[Any], label: str) -> Any:
     try:
         return record_type.from_dict(payload)
     except ValueError as exc:
-        raise ValueError(f"Invalid {label} payload in {file_path}: {exc}") from exc
+        raise StorageError(f"Invalid {label} payload in {file_path}: {exc}") from exc
 
 
 def _read_json(path: Path) -> dict[str, Any]:
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"Invalid JSON in {path}: {exc.msg}") from exc
+        raw_bytes = path.read_bytes()
     except OSError as exc:
-        raise ValueError(f"Unable to read JSON from {path}: {exc}") from exc
+        raise StorageError(f"Unable to read JSON from {path}: {exc}") from exc
+
+    try:
+        text = raw_bytes.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise StorageError(f"Invalid UTF-8 in {path}: {exc}") from exc
+
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise StorageError(
+            f"Invalid JSON in {path}: {exc.msg} (line {exc.lineno} column {exc.colno} char {exc.pos})"
+        ) from exc
 
     if not isinstance(payload, dict):
-        raise ValueError(f"JSON payload in {path} must be an object")
+        raise StorageError(f"JSON payload in {path} must be an object")
 
     return payload
 
 
 def _write_json(path: JsonPath, payload: dict[str, Any]) -> None:
     file_path = Path(path)
-    file_path.parent.mkdir(parents=True, exist_ok=True)
-    serialized = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     try:
-        file_path.write_text(serialized, encoding="utf-8")
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        serialized = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+        file_path.write_bytes(serialized.encode("utf-8"))
+    except (TypeError, ValueError) as exc:
+        raise StorageError(f"Unable to serialize JSON for {file_path}: {exc}") from exc
     except OSError as exc:
-        raise ValueError(f"Unable to write JSON to {file_path}: {exc}") from exc
+        raise StorageError(f"Unable to write JSON to {file_path}: {exc}") from exc
