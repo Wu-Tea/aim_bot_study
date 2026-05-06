@@ -1,5 +1,8 @@
+import json
+from pathlib import Path
 import unittest
 
+import cv2
 import numpy as np
 
 from vision.weapon_identity.models import VisualSignatureRecord
@@ -7,8 +10,32 @@ from vision.weapon_identity.signatures import CLASSICAL_SIGNATURE_FEATURE_TYPE
 from vision.weapon_identity.signatures import extract_signature
 from vision.weapon_identity.signatures import score_candidates
 
+_FIXTURES_ROOT = Path(__file__).resolve().parents[1] / "fixtures"
+
 
 class SignatureMatchingTests(unittest.TestCase):
+    def test_fixture_hud_crops_rank_their_matching_signature_first(self):
+        fixture_cases = _load_signature_fixture_manifest()["cases"]
+        candidate_records = tuple(
+            _make_signature_record(
+                fixture_case["signature_id"],
+                fixture_case["canonical_weapon_id"],
+                _load_grayscale_fixture_image(fixture_case["image"]),
+                game=fixture_case["game"],
+            )
+            for fixture_case in fixture_cases
+        )
+
+        for fixture_case in fixture_cases:
+            with self.subTest(case=fixture_case["case_id"]):
+                live_roi = _load_grayscale_fixture_image(fixture_case["image"])
+
+                ranked = score_candidates(live_roi, candidate_records)
+
+                self.assertEqual(ranked[0].signature_id, fixture_case["signature_id"])
+                self.assertEqual(ranked[0].canonical_weapon_id, fixture_case["canonical_weapon_id"])
+                self.assertGreater(ranked[0].score, ranked[1].score)
+
     def test_exact_match_ranks_identical_signature_first_with_full_component_scores(self):
         live_roi = _make_rifle_icon()
         identical = _make_signature_record("sig-rifle", "cod22-rifle", _make_rifle_icon())
@@ -172,6 +199,7 @@ def _make_signature_record(
     canonical_weapon_id,
     image,
     *,
+    game="cod22",
     feature_type=CLASSICAL_SIGNATURE_FEATURE_TYPE,
     feature_payload=None,
 ):
@@ -179,7 +207,7 @@ def _make_signature_record(
     return VisualSignatureRecord(
         signature_id=signature_id,
         canonical_weapon_id=canonical_weapon_id,
-        game="cod22",
+        game=game,
         region_type="weapon_icon",
         resolution_bucket="1080p",
         ui_scale_bucket="default",
@@ -216,6 +244,19 @@ def _make_rifle_icon_without_barrel():
 
 def _make_rifle_icon_with_shortened_stock():
     return _make_rifle_icon(stock_height=5)
+
+
+def _load_signature_fixture_manifest():
+    fixture_path = _FIXTURES_ROOT / "weapon_identity" / "signatures" / "hud_crops_manifest.json"
+    return json.loads(fixture_path.read_text(encoding="utf-8"))
+
+
+def _load_grayscale_fixture_image(relative_path: str) -> np.ndarray:
+    image_path = _FIXTURES_ROOT / relative_path
+    image = cv2.imread(str(image_path), cv2.IMREAD_GRAYSCALE)
+    if image is None:
+        raise AssertionError(f"Unable to load fixture image: {image_path}")
+    return image
 
 
 if __name__ == "__main__":

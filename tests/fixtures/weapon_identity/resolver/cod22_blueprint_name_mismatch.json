@@ -1,0 +1,52 @@
+{
+  "game": "cod22",
+  "identity_records": [
+    {
+      "canonical_weapon_id": "cod22-m4",
+      "game": "cod22",
+      "weapon_family": "assault_rifle",
+      "display_name": "M4",
+      "alias_names": [],
+      "blueprint_names": [],
+      "signature_refs": [],
+      "notes": "",
+      "created_at": "2026-05-05T17:55:00Z",
+      "updated_at": "2026-05-05T17:55:00Z"
+    },
+    {
+      "canonical_weapon_id": "cod22-kastov-762",
+      "game": "cod22",
+      "weapon_family": "assault_rifle",
+      "display_name": "Kastov 762",
+      "alias_names": [],
+      "blueprint_names": [
+        "Blackcell Ember"
+      ],
+      "signature_refs": [],
+      "notes": "",
+      "created_at": "2026-05-05T17:55:00Z",
+      "updated_at": "2026-05-05T17:55:00Z"
+    }
+  ],
+  "initial_runtime_state": {
+    "confirmed_weapon_id": "cod22-m4",
+    "switch_suspected": false,
+    "text_window_remaining": 0
+  },
+  "frames": [
+    {
+      "ranked_image_matches": [
+        {
+          "signature_id": "sig-kastov",
+          "canonical_weapon_id": "cod22-kastov-762",
+          "score": 0.74
+        }
+      ],
+      "text_candidates": [
+        "Blackcell Ember"
+      ],
+      "switch_suspected": false,
+      "timestamp": "2026-05-05T18:00:00Z"
+    }
+  ]
+}

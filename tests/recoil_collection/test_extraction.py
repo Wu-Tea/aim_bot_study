@@ -1,9 +1,13 @@
 import importlib
+import json
+from pathlib import Path
 import unittest
 
 from vision.recoil_collection.models import RecoilBurstSampleSeries
 from vision.recoil_collection.models import RecoilCollectionSession
 from vision.recoil_collection.models import RecoilSample
+
+_FIXTURES_ROOT = Path(__file__).resolve().parents[1] / "fixtures"
 
 
 def _load_extraction_module():
@@ -69,107 +73,54 @@ class ExtractRecoilProfileTests(unittest.TestCase):
 
     def test_generates_aligned_average_curve_from_repeated_synthetic_bursts(self):
         extraction = _load_extraction_module()
+        fixture = _load_extraction_fixture("aligned_average_bursts")
         result = extraction.extract_recoil_profile(
-            session=_session(),
-            bursts=(
-                _series(
-                    burst_id="burst-fine-a",
-                    start_offset_ms=4,
-                    sample_interval_ms=10,
-                    anchor_x=10.0,
-                    anchor_y=50.0,
-                    deltas_x=(0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0),
-                    deltas_y=(0.0, -2.0, -4.0, -6.0, -8.0, -10.0, -12.0),
-                ),
-                _series(
-                    burst_id="burst-coarse-b",
-                    start_offset_ms=6,
-                    sample_interval_ms=20,
-                    anchor_x=-3.0,
-                    anchor_y=7.0,
-                    deltas_x=(0.0, 2.0, 4.0, 6.0),
-                    deltas_y=(0.0, -4.0, -8.0, -12.0),
-                ),
-                _series(
-                    burst_id="burst-fine-c",
-                    start_offset_ms=0,
-                    sample_interval_ms=10,
-                    anchor_x=100.0,
-                    anchor_y=20.0,
-                    deltas_x=(0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0),
-                    deltas_y=(0.0, -2.0, -4.0, -6.0, -8.0, -10.0, -12.0),
-                ),
-            ),
-            profile_id="profile-cod22-m4-ads-standing-v1",
-            created_at="2026-05-06T12:30:00Z",
-            config=extraction.RecoilExtractionConfig(sample_interval_ms=10),
+            session=fixture["session"],
+            bursts=fixture["bursts"],
+            profile_id=fixture["profile_id"],
+            created_at=fixture["created_at"],
+            config=extraction.RecoilExtractionConfig(**fixture["config"]),
         )
 
-        self.assertEqual(result.accepted_burst_ids, ("burst-fine-a", "burst-coarse-b", "burst-fine-c"))
-        self.assertEqual(result.rejected_burst_ids, ())
-        self.assertEqual(result.profile.initial_delay_ms, 0)
-        self.assertEqual(result.profile.sample_interval_ms, 10)
-        self.assertEqual(result.profile.duration_ms, 70)
-        self.assertEqual(result.profile.sample_count, 7)
-        self.assertEqual(result.profile.burst_count, 3)
-        self.assertTupleAlmostEqual(result.profile.samples_x, (0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0))
-        self.assertTupleAlmostEqual(result.profile.samples_y, (0.0, -2.0, -4.0, -6.0, -8.0, -10.0, -12.0))
-        self.assertAlmostEqual(result.profile.variance_summary["horizontal_stddev"], 0.0, places=6)
-        self.assertAlmostEqual(result.profile.variance_summary["vertical_stddev"], 0.0, places=6)
-        self.assertGreater(result.profile.confidence, 0.7)
+        expected = fixture["expected"]
+        self.assertEqual(result.accepted_burst_ids, tuple(expected["accepted_burst_ids"]))
+        self.assertEqual(result.rejected_burst_ids, tuple(expected["rejected_burst_ids"]))
+        self.assertEqual(result.profile.initial_delay_ms, expected["profile"]["initial_delay_ms"])
+        self.assertEqual(result.profile.sample_interval_ms, expected["profile"]["sample_interval_ms"])
+        self.assertEqual(result.profile.duration_ms, expected["profile"]["duration_ms"])
+        self.assertEqual(result.profile.sample_count, expected["profile"]["sample_count"])
+        self.assertEqual(result.profile.burst_count, expected["profile"]["burst_count"])
+        self.assertTupleAlmostEqual(result.profile.samples_x, tuple(expected["profile"]["samples_x"]))
+        self.assertTupleAlmostEqual(result.profile.samples_y, tuple(expected["profile"]["samples_y"]))
+        self.assertAlmostEqual(
+            result.profile.variance_summary["horizontal_stddev"],
+            expected["profile"]["horizontal_stddev"],
+            places=6,
+        )
+        self.assertAlmostEqual(
+            result.profile.variance_summary["vertical_stddev"],
+            expected["profile"]["vertical_stddev"],
+            places=6,
+        )
+        self.assertGreater(result.profile.confidence, expected["profile"]["minimum_confidence"])
 
     def test_rejects_outlier_burst_before_averaging(self):
         extraction = _load_extraction_module()
+        fixture = _load_extraction_fixture("outlier_rejection_bursts")
         result = extraction.extract_recoil_profile(
-            session=_session(),
-            bursts=(
-                _series(
-                    burst_id="burst-good-a",
-                    start_offset_ms=0,
-                    sample_interval_ms=10,
-                    anchor_x=5.0,
-                    anchor_y=30.0,
-                    deltas_x=(0.0, 0.5, 1.0, 1.5, 2.0),
-                    deltas_y=(0.0, -1.0, -2.0, -3.0, -4.0),
-                ),
-                _series(
-                    burst_id="burst-good-b",
-                    start_offset_ms=5,
-                    sample_interval_ms=10,
-                    anchor_x=-2.0,
-                    anchor_y=10.0,
-                    deltas_x=(0.0, 0.5, 1.0, 1.5, 2.0),
-                    deltas_y=(0.0, -1.0, -2.0, -3.0, -4.0),
-                ),
-                _series(
-                    burst_id="burst-good-c",
-                    start_offset_ms=2,
-                    sample_interval_ms=10,
-                    anchor_x=50.0,
-                    anchor_y=-10.0,
-                    deltas_x=(0.0, 0.5, 1.0, 1.5, 2.0),
-                    deltas_y=(0.0, -1.0, -2.0, -3.0, -4.0),
-                ),
-                _series(
-                    burst_id="burst-outlier",
-                    start_offset_ms=4,
-                    sample_interval_ms=10,
-                    anchor_x=9.0,
-                    anchor_y=9.0,
-                    deltas_x=(0.0, 5.0, 10.0, 15.0, 20.0),
-                    deltas_y=(0.0, 8.0, 16.0, 24.0, 32.0),
-                ),
-            ),
-            profile_id="profile-cod22-m4-ads-standing-v1",
-            created_at="2026-05-06T12:30:00Z",
-            config=extraction.RecoilExtractionConfig(sample_interval_ms=10),
+            session=fixture["session"],
+            bursts=fixture["bursts"],
+            profile_id=fixture["profile_id"],
+            created_at=fixture["created_at"],
+            config=extraction.RecoilExtractionConfig(**fixture["config"]),
         )
 
-        self.assertEqual(result.accepted_burst_ids, ("burst-good-a", "burst-good-b", "burst-good-c"))
-        self.assertEqual(result.rejected_burst_ids, ("burst-outlier",))
-        self.assertEqual(result.profile.burst_count, 3)
-        self.assertTupleAlmostEqual(result.profile.samples_x, (0.0, 0.5, 1.0, 1.5, 2.0))
-        self.assertTupleAlmostEqual(result.profile.samples_y, (0.0, -1.0, -2.0, -3.0, -4.0))
+        expected = fixture["expected"]
+        self.assertEqual(result.accepted_burst_ids, tuple(expected["accepted_burst_ids"]))
+        self.assertEqual(result.rejected_burst_ids, tuple(expected["rejected_burst_ids"]))
+        self.assertEqual(result.profile.burst_count, expected["profile"]["burst_count"])
+        self.assertTupleAlmostEqual(result.profile.samples_x, tuple(expected["profile"]["samples_x"]))
+        self.assertTupleAlmostEqual(result.profile.samples_y, tuple(expected["profile"]["samples_y"]))
 
     def test_variance_increases_when_clean_bursts_disagree(self):
         extraction = _load_extraction_module()
@@ -386,6 +337,37 @@ class ExtractRecoilProfileTests(unittest.TestCase):
                 created_at="2026-05-06T13:00:00Z",
                 config=extraction.RecoilExtractionConfig(sample_interval_ms=10),
             )
+
+
+def _load_extraction_fixture(name: str):
+    fixture_path = _FIXTURES_ROOT / "recoil_collection" / "extraction" / f"{name}.json"
+    fixture_payload = json.loads(fixture_path.read_text(encoding="utf-8"))
+    session = RecoilCollectionSession.from_dict(fixture_payload["session"])
+    return {
+        "session": session,
+        "bursts": tuple(
+            _series_from_fixture(burst_payload, session_id=session.session_id)
+            for burst_payload in fixture_payload["bursts"]
+        ),
+        "profile_id": fixture_payload["profile_id"],
+        "created_at": fixture_payload["created_at"],
+        "config": fixture_payload["config"],
+        "expected": fixture_payload["expected"],
+    }
+
+
+def _series_from_fixture(burst_payload, *, session_id: str) -> RecoilBurstSampleSeries:
+    if "samples" in burst_payload:
+        return RecoilBurstSampleSeries.from_dict(burst_payload)
+    return _series(
+        burst_id=burst_payload["burst_id"],
+        start_offset_ms=burst_payload["start_offset_ms"],
+        sample_interval_ms=burst_payload["sample_interval_ms"],
+        anchor_x=burst_payload["anchor_x"],
+        anchor_y=burst_payload["anchor_y"],
+        deltas_x=tuple(burst_payload["deltas_x"]),
+        deltas_y=tuple(burst_payload["deltas_y"]),
+    )
 
 
 if __name__ == "__main__":

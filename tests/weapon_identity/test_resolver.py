@@ -1,33 +1,17 @@
+import json
+from pathlib import Path
 import unittest
 
 from vision.weapon_identity.adapters import get_adapter
 from vision.weapon_identity.models import WeaponIdentityRecord
 from vision.weapon_identity.signatures import SignatureMatch
 
+_FIXTURES_ROOT = Path(__file__).resolve().parents[1] / "fixtures"
+
 
 class WeaponResolverTests(unittest.TestCase):
     def test_cod22_matching_image_and_blueprint_text_still_must_clear_threshold(self):
-        result = _resolve_weapon(
-            adapter=get_adapter("cod22"),
-            identity_records=(
-                _weapon_record(
-                    canonical_weapon_id="cod22-m4",
-                    game="cod22",
-                    display_name="M4",
-                ),
-                _weapon_record(
-                    canonical_weapon_id="cod22-kastov-762",
-                    game="cod22",
-                    display_name="Kastov 762",
-                    blueprint_names=("Blackcell Ember",),
-                ),
-            ),
-            ranked_image_matches=(_match("sig-kastov", "cod22-kastov-762", 0.74),),
-            text_candidates=("Blackcell Ember",),
-            runtime_state=_runtime_state(confirmed_weapon_id="cod22-m4"),
-            switch_suspected=False,
-            timestamp="2026-05-05T18:00:00Z",
-        )
+        result = _run_resolver_fixture("cod22_blueprint_name_mismatch")[0]
 
         self.assertIsNotNone(result.event)
         self.assertEqual(result.event.canonical_weapon_id, "cod22-m4")
@@ -62,39 +46,7 @@ class WeaponResolverTests(unittest.TestCase):
         self.assertEqual(result.runtime_state.confirmed_weapon_id, "cod22-m4")
 
     def test_cod21_text_window_confirmation_carries_forward_cached_weapon(self):
-        initial = _resolve_weapon(
-            adapter=get_adapter("cod21"),
-            identity_records=(
-                _weapon_record(
-                    canonical_weapon_id="cod21-krig-c",
-                    game="cod21",
-                    display_name="Krig C",
-                    alias_names=("KRIG C",),
-                ),
-            ),
-            ranked_image_matches=(),
-            text_candidates=("Krig C",),
-            runtime_state=_runtime_state(),
-            switch_suspected=True,
-            timestamp="2026-05-05T18:00:00Z",
-        )
-
-        follow_up = _resolve_weapon(
-            adapter=get_adapter("cod21"),
-            identity_records=(
-                _weapon_record(
-                    canonical_weapon_id="cod21-krig-c",
-                    game="cod21",
-                    display_name="Krig C",
-                    alias_names=("KRIG C",),
-                ),
-            ),
-            ranked_image_matches=(),
-            text_candidates=(),
-            runtime_state=initial.runtime_state,
-            switch_suspected=False,
-            timestamp="2026-05-05T18:00:01Z",
-        )
+        initial, follow_up = _run_resolver_fixture("cod21_switch_name_confirmation")
 
         self.assertIsNotNone(initial.event)
         self.assertEqual(initial.event.canonical_weapon_id, "cod21-krig-c")
@@ -106,6 +58,16 @@ class WeaponResolverTests(unittest.TestCase):
         self.assertEqual(follow_up.event.source, "carry_forward")
         self.assertFalse(follow_up.event.degraded)
         self.assertEqual(follow_up.runtime_state.confirmed_weapon_id, "cod21-krig-c")
+
+    def test_cod20_icon_plus_text_confirmation_confirms_new_weapon(self):
+        result = _run_resolver_fixture("cod20_icon_plus_text_confirmation")[0]
+
+        self.assertIsNotNone(result.event)
+        self.assertEqual(result.event.canonical_weapon_id, "cod20-m4")
+        self.assertEqual(result.event.source, "image+text")
+        self.assertFalse(result.event.degraded)
+        self.assertEqual(result.event.matched_name, "M4")
+        self.assertEqual(result.runtime_state.confirmed_weapon_id, "cod20-m4")
 
     def test_cod21_without_switch_suspicion_does_not_replace_cached_weapon_from_image_only(self):
         result = _resolve_weapon(
@@ -342,6 +304,44 @@ def _match(signature_id, canonical_weapon_id, score):
         hash_score=score,
         structure_score=score,
     )
+
+
+def _run_resolver_fixture(name: str):
+    from vision.weapon_identity.runtime_state import ResolverRuntimeState
+
+    fixture = _load_resolver_fixture(name)
+    adapter = get_adapter(fixture["game"])
+    identity_records = tuple(
+        WeaponIdentityRecord.from_dict(record_payload)
+        for record_payload in fixture["identity_records"]
+    )
+    runtime_state = ResolverRuntimeState(**fixture.get("initial_runtime_state", {}))
+    results = []
+    for frame in fixture["frames"]:
+        result = _resolve_weapon(
+            adapter=adapter,
+            identity_records=identity_records,
+            ranked_image_matches=tuple(
+                _match(
+                    match_payload["signature_id"],
+                    match_payload["canonical_weapon_id"],
+                    match_payload["score"],
+                )
+                for match_payload in frame["ranked_image_matches"]
+            ),
+            text_candidates=tuple(frame["text_candidates"]),
+            runtime_state=runtime_state,
+            switch_suspected=frame["switch_suspected"],
+            timestamp=frame["timestamp"],
+        )
+        results.append(result)
+        runtime_state = result.runtime_state
+    return tuple(results)
+
+
+def _load_resolver_fixture(name: str):
+    fixture_path = _FIXTURES_ROOT / "weapon_identity" / "resolver" / f"{name}.json"
+    return json.loads(fixture_path.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

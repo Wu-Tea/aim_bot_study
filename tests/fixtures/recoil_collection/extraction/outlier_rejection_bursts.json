@@ -1,0 +1,65 @@
+{
+  "session": {
+    "session_id": "session-cod22-m4-20260506-120000",
+    "canonical_weapon_id": "cod22-m4",
+    "game": "cod22",
+    "stance": "standing",
+    "aim_mode": "ads",
+    "capture_resolution": "1920x1080",
+    "capture_fps": 240.0,
+    "collector_version": "collector-0.1.0",
+    "started_at": "2026-05-06T12:00:00Z"
+  },
+  "profile_id": "profile-cod22-m4-ads-standing-v1",
+  "created_at": "2026-05-06T12:30:00Z",
+  "config": {
+    "sample_interval_ms": 10
+  },
+  "bursts": [
+    {
+      "burst_id": "burst-good-a",
+      "start_offset_ms": 0,
+      "sample_interval_ms": 10,
+      "anchor_x": 5.0,
+      "anchor_y": 30.0,
+      "deltas_x": [0.0, 0.5, 1.0, 1.5, 2.0],
+      "deltas_y": [0.0, -1.0, -2.0, -3.0, -4.0]
+    },
+    {
+      "burst_id": "burst-good-b",
+      "start_offset_ms": 5,
+      "sample_interval_ms": 10,
+      "anchor_x": -2.0,
+      "anchor_y": 10.0,
+      "deltas_x": [0.0, 0.5, 1.0, 1.5, 2.0],
+      "deltas_y": [0.0, -1.0, -2.0, -3.0, -4.0]
+    },
+    {
+      "burst_id": "burst-good-c",
+      "start_offset_ms": 2,
+      "sample_interval_ms": 10,
+      "anchor_x": 50.0,
+      "anchor_y": -10.0,
+      "deltas_x": [0.0, 0.5, 1.0, 1.5, 2.0],
+      "deltas_y": [0.0, -1.0, -2.0, -3.0, -4.0]
+    },
+    {
+      "burst_id": "burst-outlier",
+      "start_offset_ms": 4,
+      "sample_interval_ms": 10,
+      "anchor_x": 9.0,
+      "anchor_y": 9.0,
+      "deltas_x": [0.0, 5.0, 10.0, 15.0, 20.0],
+      "deltas_y": [0.0, 8.0, 16.0, 24.0, 32.0]
+    }
+  ],
+  "expected": {
+    "accepted_burst_ids": ["burst-good-a", "burst-good-b", "burst-good-c"],
+    "rejected_burst_ids": ["burst-outlier"],
+    "profile": {
+      "burst_count": 3,
+      "samples_x": [0.0, 0.5, 1.0, 1.5, 2.0],
+      "samples_y": [0.0, -1.0, -2.0, -3.0, -4.0]
+    }
+  }
+}

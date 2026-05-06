@@ -1,0 +1,25 @@
+{
+  "cases": [
+    {
+      "case_id": "cod20_m4_icon",
+      "game": "cod20",
+      "signature_id": "sig-cod20-m4",
+      "canonical_weapon_id": "cod20-m4",
+      "image": "weapon_identity/signatures/cod20_m4_icon.png"
+    },
+    {
+      "case_id": "cod21_krig_c_icon",
+      "game": "cod21",
+      "signature_id": "sig-cod21-krig-c",
+      "canonical_weapon_id": "cod21-krig-c",
+      "image": "weapon_identity/signatures/cod21_krig_c_icon.png"
+    },
+    {
+      "case_id": "cod22_kastov_762_icon",
+      "game": "cod22",
+      "signature_id": "sig-cod22-kastov-762",
+      "canonical_weapon_id": "cod22-kastov-762",
+      "image": "weapon_identity/signatures/cod22_kastov_762_icon.png"
+    }
+  ]
+}

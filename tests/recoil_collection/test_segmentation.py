@@ -1,3 +1,5 @@
+import json
+from pathlib import Path
 import unittest
 
 from vision.recoil_collection.models import RecoilBurstWindow
@@ -5,6 +7,8 @@ from vision.recoil_collection.models import RecoilCollectionSession
 from vision.recoil_collection.segmentation import BurstSegmentationConfig
 from vision.recoil_collection.segmentation import BurstSegmentationSample
 from vision.recoil_collection.segmentation import segment_standing_fire_bursts
+
+_FIXTURES_ROOT = Path(__file__).resolve().parents[1] / "fixtures"
 
 
 def _session() -> RecoilCollectionSession:
@@ -32,78 +36,26 @@ def _config() -> BurstSegmentationConfig:
 
 class SegmentStandingFireBurstsTests(unittest.TestCase):
     def test_detects_single_burst_from_motion_and_ammo(self):
+        fixture = _load_segmentation_fixture("single_burst_motion_ammo_replay")
+
         windows = segment_standing_fire_bursts(
-            session=_session(),
-            samples=(
-                BurstSegmentationSample(offset_ms=0, center_motion=0.03, ammo=30),
-                BurstSegmentationSample(offset_ms=16, center_motion=0.12, ammo=30),
-                BurstSegmentationSample(offset_ms=32, center_motion=0.64, ammo=30),
-                BurstSegmentationSample(offset_ms=48, center_motion=0.82, ammo=29),
-                BurstSegmentationSample(offset_ms=64, center_motion=0.71, ammo=28),
-                BurstSegmentationSample(offset_ms=80, center_motion=0.31, ammo=28),
-                BurstSegmentationSample(offset_ms=96, center_motion=0.11, ammo=28),
-                BurstSegmentationSample(offset_ms=112, center_motion=0.04, ammo=28),
-            ),
-            config=_config(),
+            session=fixture["session"],
+            samples=fixture["samples"],
+            config=fixture["config"],
         )
 
-        self.assertEqual(
-            windows,
-            (
-                RecoilBurstWindow(
-                    burst_id="session-cod22-m4-20260505-110000-burst-001",
-                    session_id="session-cod22-m4-20260505-110000",
-                    start_offset_ms=32,
-                    end_offset_ms=96,
-                    start_reason="motion",
-                    end_reason="motion_settled",
-                ),
-            ),
-        )
+        self.assertEqual(windows, fixture["expected_windows"])
 
     def test_detects_multiple_separated_bursts(self):
+        fixture = _load_segmentation_fixture("multiple_bursts_replay")
+
         windows = segment_standing_fire_bursts(
-            session=_session(),
-            samples=(
-                BurstSegmentationSample(offset_ms=0, center_motion=0.05, ammo=30),
-                BurstSegmentationSample(offset_ms=16, center_motion=0.10, ammo=30),
-                BurstSegmentationSample(offset_ms=32, center_motion=0.67, ammo=30),
-                BurstSegmentationSample(offset_ms=48, center_motion=0.76, ammo=29),
-                BurstSegmentationSample(offset_ms=64, center_motion=0.38, ammo=28),
-                BurstSegmentationSample(offset_ms=80, center_motion=0.09, ammo=28),
-                BurstSegmentationSample(offset_ms=96, center_motion=0.04, ammo=28),
-                BurstSegmentationSample(offset_ms=112, center_motion=0.03, ammo=28),
-                BurstSegmentationSample(offset_ms=128, center_motion=0.09, ammo=28),
-                BurstSegmentationSample(offset_ms=144, center_motion=0.45, ammo=28),
-                BurstSegmentationSample(offset_ms=160, center_motion=0.48, ammo=27),
-                BurstSegmentationSample(offset_ms=176, center_motion=0.33, ammo=26),
-                BurstSegmentationSample(offset_ms=192, center_motion=0.10, ammo=26),
-                BurstSegmentationSample(offset_ms=208, center_motion=0.04, ammo=26),
-            ),
-            config=_config(),
+            session=fixture["session"],
+            samples=fixture["samples"],
+            config=fixture["config"],
         )
 
-        self.assertEqual(
-            windows,
-            (
-                RecoilBurstWindow(
-                    burst_id="session-cod22-m4-20260505-110000-burst-001",
-                    session_id="session-cod22-m4-20260505-110000",
-                    start_offset_ms=32,
-                    end_offset_ms=80,
-                    start_reason="motion",
-                    end_reason="motion_settled",
-                ),
-                RecoilBurstWindow(
-                    burst_id="session-cod22-m4-20260505-110000-burst-002",
-                    session_id="session-cod22-m4-20260505-110000",
-                    start_offset_ms=160,
-                    end_offset_ms=192,
-                    start_reason="ammo",
-                    end_reason="motion_settled",
-                ),
-            ),
-        )
+        self.assertEqual(windows, fixture["expected_windows"])
 
     def test_ammo_confirmed_start_backdates_to_pending_motion_onset(self):
         windows = segment_standing_fire_bursts(
@@ -243,6 +195,28 @@ class SegmentStandingFireBurstsTests(unittest.TestCase):
                 ),
             ),
         )
+
+
+def _load_segmentation_fixture(name: str):
+    fixture_path = _FIXTURES_ROOT / "recoil_collection" / "segmentation" / f"{name}.json"
+    fixture_payload = json.loads(fixture_path.read_text(encoding="utf-8"))
+    return {
+        "session": RecoilCollectionSession.from_dict(fixture_payload["session"]),
+        "config": BurstSegmentationConfig(**fixture_payload["config"]),
+        "samples": tuple(
+            BurstSegmentationSample(
+                offset_ms=sample_payload["offset_ms"],
+                center_motion=sample_payload["center_motion"],
+                ammo=sample_payload["ammo"],
+                manual_marker=sample_payload["manual_marker"],
+            )
+            for sample_payload in fixture_payload["samples"]
+        ),
+        "expected_windows": tuple(
+            RecoilBurstWindow.from_dict(window_payload)
+            for window_payload in fixture_payload["expected_windows"]
+        ),
+    }
 
 
 if __name__ == "__main__":

@@ -1,0 +1,39 @@
+{
+  "session": {
+    "session_id": "session-cod22-m4-20260505-110000",
+    "canonical_weapon_id": "cod22-m4",
+    "game": "cod22",
+    "stance": "standing",
+    "aim_mode": "ads",
+    "capture_resolution": "1920x1080",
+    "capture_fps": 240.0,
+    "collector_version": "collector-0.1.0",
+    "started_at": "2026-05-05T11:00:00Z"
+  },
+  "config": {
+    "motion_start_threshold": 0.6,
+    "motion_end_threshold": 0.2,
+    "motion_confirm_frames": 2,
+    "settle_frames": 2
+  },
+  "samples": [
+    { "offset_ms": 0, "center_motion": 0.03, "ammo": 30, "manual_marker": null },
+    { "offset_ms": 16, "center_motion": 0.12, "ammo": 30, "manual_marker": null },
+    { "offset_ms": 32, "center_motion": 0.64, "ammo": 30, "manual_marker": null },
+    { "offset_ms": 48, "center_motion": 0.82, "ammo": 29, "manual_marker": null },
+    { "offset_ms": 64, "center_motion": 0.71, "ammo": 28, "manual_marker": null },
+    { "offset_ms": 80, "center_motion": 0.31, "ammo": 28, "manual_marker": null },
+    { "offset_ms": 96, "center_motion": 0.11, "ammo": 28, "manual_marker": null },
+    { "offset_ms": 112, "center_motion": 0.04, "ammo": 28, "manual_marker": null }
+  ],
+  "expected_windows": [
+    {
+      "burst_id": "session-cod22-m4-20260505-110000-burst-001",
+      "session_id": "session-cod22-m4-20260505-110000",
+      "start_offset_ms": 32,
+      "end_offset_ms": 96,
+      "start_reason": "motion",
+      "end_reason": "motion_settled"
+    }
+  ]
+}
