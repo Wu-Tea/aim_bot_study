@@ -246,15 +246,15 @@ The first shipping target is Blocks `A-C`.
 - Modify: `tests/recoil_collection/test_extraction.py`
 - Create fixture directories under `tests/fixtures/` as needed
 
-- [ ] Add representative fixture data for `COD20`, `COD21`, and `COD22` HUD crops.
-- [ ] Add replay-oriented samples for collector extraction and segmentation.
-- [ ] Ensure fixtures include:
+- [x] Add representative fixture data for `COD20`, `COD21`, and `COD22` HUD crops.
+- [x] Add replay-oriented samples for collector extraction and segmentation.
+- [x] Ensure fixtures include:
   - a `COD22` blueprint-name mismatch case
   - a `COD21` switch-name confirmation case
   - a `COD20` icon-plus-text confirmation case
-- [ ] Run:
+- [x] Run:
   - `python -m unittest tests.weapon_identity.test_signatures tests.weapon_identity.test_resolver tests.recoil_collection.test_segmentation tests.recoil_collection.test_extraction -v`
-- [ ] Expected: fixture-backed tests pass and document the intended behavior.
+- [x] Expected: fixture-backed tests pass and document the intended behavior.
 
 ## Task 11: Runtime Recoil Sidecar Scaffolding
 
@@ -317,4 +317,5 @@ The first shipping target is Blocks `A-C`.
 - Task `7` is complete and review-approved on commit `34e8518b574ef1c5d1749602b0e24dc4a6b3fcdd`.
 - Task `8` is complete and review-approved on commit `6d4e8d419c635d76b02046f073d4d3ca73fb83ad`.
 - Task `9` is complete and review-approved on commit `bf939589b7cb56496c2aedaa7bc9f6815aa57db0`.
+- Task `10` is complete and review-approved on commit `24d02a8a64ac2e9bd924ed7d8ad355447de9eb89`.
 - Task `11` is complete and review-approved on commit `91f799792ea1a9d98691f630b3750ed438af2cd6`.
