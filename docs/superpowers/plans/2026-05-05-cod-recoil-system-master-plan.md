@@ -282,25 +282,25 @@ The first shipping target is Blocks `A-C`.
 - Modify: `controllers/gamepad_controller.py`
 - Modify: `docs/project/GAMEPAD_OVERVIEW.md`
 
-- [ ] Replace the fixed recoil amount implementation with a profile-driven curve executor.
-- [ ] Advance curve playback only while `auto_fire_active` is true.
-- [ ] Reset curve playback on weapon change, firing stop, or sidecar confidence drop.
-- [ ] Add or update tests near `tests/gamepad/test_gamepad_recoil_compensation.py` to cover:
+- [x] Replace the fixed recoil amount implementation with a profile-driven curve executor.
+- [x] Advance curve playback only while `auto_fire_active` is true.
+- [x] Reset curve playback on weapon change, firing stop, or sidecar confidence drop.
+- [x] Add or update tests near `tests/gamepad/test_gamepad_recoil_compensation.py` to cover:
   - profile-driven playback
   - reset on stop firing
   - reset on weapon change
   - degraded sidecar fallback
-- [ ] Run:
+- [x] Run:
   - `python -m unittest tests.gamepad.test_gamepad_recoil_compensation tests.gamepad.test_gamepad_controller_host -v`
-- [ ] Expected: integration tests pass and docs reflect the new data source.
+- [x] Expected: integration tests pass and docs reflect the new data source.
 
 ## Cross-Task Verification
 
-- [ ] Run targeted unit suites after each task instead of waiting for the end.
-- [ ] At the end of Block A-C, run:
+- [x] Run targeted unit suites after each task instead of waiting for the end.
+- [x] At the end of Block A-C, run:
   - `python -m unittest tests.weapon_identity.test_models tests.weapon_identity.test_signatures tests.weapon_identity.test_adapters tests.weapon_identity.test_resolver tests.recoil_collection.test_models tests.recoil_collection.test_segmentation tests.recoil_collection.test_extraction tests.recoil_collection.test_storage tests.recoil_collection.test_tooling -v`
-- [ ] At the end of all blocks, run:
-  - `python -m py_compile vision\\weapon_identity\\models.py vision\\weapon_identity\\signatures.py vision\\weapon_identity\\adapters.py vision\\weapon_identity\\resolver.py vision\\weapon_identity\\runtime_state.py vision\\recoil_collection\\models.py vision\\recoil_collection\\capture.py vision\\recoil_collection\\segmentation.py vision\\recoil_collection\\extraction.py vision\\recoil_collection\\storage.py tools\\weapon_recognizer.py tools\\recoil_collector.py runtime\\recoil_sidecar\\models.py runtime\\recoil_sidecar\\service.py`
+- [x] At the end of all blocks, run:
+  - `python -m py_compile vision\\weapon_identity\\models.py vision\\weapon_identity\\signatures.py vision\\weapon_identity\\adapters.py vision\\weapon_identity\\resolver.py vision\\weapon_identity\\runtime_state.py vision\\recoil_collection\\models.py vision\\recoil_collection\\capture.py vision\\recoil_collection\\segmentation.py vision\\recoil_collection\\extraction.py vision\\recoil_collection\\storage.py tools\\weapon_recognizer.py tools\\recoil_collector.py runtime\\recoil_sidecar\\models.py runtime\\recoil_sidecar\\service.py controllers\\gamepad\\recoil_compensation.py controllers\\gamepad_controller.py`
 
 ## Session Resume Notes
 
@@ -319,3 +319,4 @@ The first shipping target is Blocks `A-C`.
 - Task `9` is complete and review-approved on commit `bf939589b7cb56496c2aedaa7bc9f6815aa57db0`.
 - Task `10` is complete and review-approved on commit `24d02a8a64ac2e9bd924ed7d8ad355447de9eb89`.
 - Task `11` is complete and review-approved on commit `91f799792ea1a9d98691f630b3750ed438af2cd6`.
+- Task `12` is complete and review-approved on commit `e21c6b8e6640c1006c47b95eab047ef8a61a9654`.
