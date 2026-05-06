@@ -104,6 +104,20 @@ class ExtractRecoilProfileTests(unittest.TestCase):
         )
         self.assertGreater(result.profile.confidence, expected["profile"]["minimum_confidence"])
 
+    def test_extraction_fixtures_use_serialized_burst_series_payloads(self):
+        for fixture_name in ("aligned_average_bursts", "outlier_rejection_bursts"):
+            with self.subTest(fixture=fixture_name):
+                fixture_payload = _load_raw_extraction_fixture(fixture_name)
+                session_id = fixture_payload["session"]["session_id"]
+                for burst_payload in fixture_payload["bursts"]:
+                    self.assertIn("samples", burst_payload)
+                    self.assertIn("sample_count", burst_payload)
+                    self.assertEqual(burst_payload["session_id"], session_id)
+                    self.assertNotIn("anchor_x", burst_payload)
+                    self.assertNotIn("anchor_y", burst_payload)
+                    self.assertNotIn("deltas_x", burst_payload)
+                    self.assertNotIn("deltas_y", burst_payload)
+
     def test_rejects_outlier_burst_before_averaging(self):
         extraction = _load_extraction_module()
         fixture = _load_extraction_fixture("outlier_rejection_bursts")
@@ -340,13 +354,12 @@ class ExtractRecoilProfileTests(unittest.TestCase):
 
 
 def _load_extraction_fixture(name: str):
-    fixture_path = _FIXTURES_ROOT / "recoil_collection" / "extraction" / f"{name}.json"
-    fixture_payload = json.loads(fixture_path.read_text(encoding="utf-8"))
+    fixture_payload = _load_raw_extraction_fixture(name)
     session = RecoilCollectionSession.from_dict(fixture_payload["session"])
     return {
         "session": session,
         "bursts": tuple(
-            _series_from_fixture(burst_payload, session_id=session.session_id)
+            RecoilBurstSampleSeries.from_dict(burst_payload)
             for burst_payload in fixture_payload["bursts"]
         ),
         "profile_id": fixture_payload["profile_id"],
@@ -356,18 +369,9 @@ def _load_extraction_fixture(name: str):
     }
 
 
-def _series_from_fixture(burst_payload, *, session_id: str) -> RecoilBurstSampleSeries:
-    if "samples" in burst_payload:
-        return RecoilBurstSampleSeries.from_dict(burst_payload)
-    return _series(
-        burst_id=burst_payload["burst_id"],
-        start_offset_ms=burst_payload["start_offset_ms"],
-        sample_interval_ms=burst_payload["sample_interval_ms"],
-        anchor_x=burst_payload["anchor_x"],
-        anchor_y=burst_payload["anchor_y"],
-        deltas_x=tuple(burst_payload["deltas_x"]),
-        deltas_y=tuple(burst_payload["deltas_y"]),
-    )
+def _load_raw_extraction_fixture(name: str):
+    fixture_path = _FIXTURES_ROOT / "recoil_collection" / "extraction" / f"{name}.json"
+    return json.loads(fixture_path.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

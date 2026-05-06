@@ -18,39 +18,55 @@
   "bursts": [
     {
       "burst_id": "burst-good-a",
-      "start_offset_ms": 0,
+      "session_id": "session-cod22-m4-20260506-120000",
       "sample_interval_ms": 10,
-      "anchor_x": 5.0,
-      "anchor_y": 30.0,
-      "deltas_x": [0.0, 0.5, 1.0, 1.5, 2.0],
-      "deltas_y": [0.0, -1.0, -2.0, -3.0, -4.0]
+      "samples": [
+        { "offset_ms": 0, "x": 5.0, "y": 30.0 },
+        { "offset_ms": 10, "x": 5.5, "y": 29.0 },
+        { "offset_ms": 20, "x": 6.0, "y": 28.0 },
+        { "offset_ms": 30, "x": 6.5, "y": 27.0 },
+        { "offset_ms": 40, "x": 7.0, "y": 26.0 }
+      ],
+      "sample_count": 5
     },
     {
       "burst_id": "burst-good-b",
-      "start_offset_ms": 5,
+      "session_id": "session-cod22-m4-20260506-120000",
       "sample_interval_ms": 10,
-      "anchor_x": -2.0,
-      "anchor_y": 10.0,
-      "deltas_x": [0.0, 0.5, 1.0, 1.5, 2.0],
-      "deltas_y": [0.0, -1.0, -2.0, -3.0, -4.0]
+      "samples": [
+        { "offset_ms": 5, "x": -2.0, "y": 10.0 },
+        { "offset_ms": 15, "x": -1.5, "y": 9.0 },
+        { "offset_ms": 25, "x": -1.0, "y": 8.0 },
+        { "offset_ms": 35, "x": -0.5, "y": 7.0 },
+        { "offset_ms": 45, "x": 0.0, "y": 6.0 }
+      ],
+      "sample_count": 5
     },
     {
       "burst_id": "burst-good-c",
-      "start_offset_ms": 2,
+      "session_id": "session-cod22-m4-20260506-120000",
       "sample_interval_ms": 10,
-      "anchor_x": 50.0,
-      "anchor_y": -10.0,
-      "deltas_x": [0.0, 0.5, 1.0, 1.5, 2.0],
-      "deltas_y": [0.0, -1.0, -2.0, -3.0, -4.0]
+      "samples": [
+        { "offset_ms": 2, "x": 50.0, "y": -10.0 },
+        { "offset_ms": 12, "x": 50.5, "y": -11.0 },
+        { "offset_ms": 22, "x": 51.0, "y": -12.0 },
+        { "offset_ms": 32, "x": 51.5, "y": -13.0 },
+        { "offset_ms": 42, "x": 52.0, "y": -14.0 }
+      ],
+      "sample_count": 5
     },
     {
       "burst_id": "burst-outlier",
-      "start_offset_ms": 4,
+      "session_id": "session-cod22-m4-20260506-120000",
       "sample_interval_ms": 10,
-      "anchor_x": 9.0,
-      "anchor_y": 9.0,
-      "deltas_x": [0.0, 5.0, 10.0, 15.0, 20.0],
-      "deltas_y": [0.0, 8.0, 16.0, 24.0, 32.0]
+      "samples": [
+        { "offset_ms": 4, "x": 9.0, "y": 9.0 },
+        { "offset_ms": 14, "x": 14.0, "y": 17.0 },
+        { "offset_ms": 24, "x": 19.0, "y": 25.0 },
+        { "offset_ms": 34, "x": 24.0, "y": 33.0 },
+        { "offset_ms": 44, "x": 29.0, "y": 41.0 }
+      ],
+      "sample_count": 5
     }
   ],
   "expected": {

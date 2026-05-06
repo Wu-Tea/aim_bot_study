@@ -14,13 +14,22 @@ _FIXTURES_ROOT = Path(__file__).resolve().parents[1] / "fixtures"
 
 
 class SignatureMatchingTests(unittest.TestCase):
+    def test_signature_fixtures_use_independent_live_and_reference_assets(self):
+        fixture_cases = _load_signature_fixture_manifest()["cases"]
+
+        for fixture_case in fixture_cases:
+            with self.subTest(case=fixture_case["case_id"]):
+                self.assertIn("live_image", fixture_case)
+                self.assertIn("reference_image", fixture_case)
+                self.assertNotEqual(fixture_case["live_image"], fixture_case["reference_image"])
+
     def test_fixture_hud_crops_rank_their_matching_signature_first(self):
         fixture_cases = _load_signature_fixture_manifest()["cases"]
         candidate_records = tuple(
             _make_signature_record(
                 fixture_case["signature_id"],
                 fixture_case["canonical_weapon_id"],
-                _load_grayscale_fixture_image(fixture_case["image"]),
+                _load_grayscale_fixture_image(fixture_case["reference_image"]),
                 game=fixture_case["game"],
             )
             for fixture_case in fixture_cases
@@ -28,13 +37,17 @@ class SignatureMatchingTests(unittest.TestCase):
 
         for fixture_case in fixture_cases:
             with self.subTest(case=fixture_case["case_id"]):
-                live_roi = _load_grayscale_fixture_image(fixture_case["image"])
+                live_roi = _load_grayscale_fixture_image(fixture_case["live_image"])
 
                 ranked = score_candidates(live_roi, candidate_records)
 
                 self.assertEqual(ranked[0].signature_id, fixture_case["signature_id"])
                 self.assertEqual(ranked[0].canonical_weapon_id, fixture_case["canonical_weapon_id"])
-                self.assertGreater(ranked[0].score, ranked[1].score)
+                self.assertGreaterEqual(ranked[0].score, fixture_case["minimum_expected_score"])
+                self.assertGreaterEqual(
+                    ranked[0].score - ranked[1].score,
+                    fixture_case["minimum_expected_gap"],
+                )
 
     def test_exact_match_ranks_identical_signature_first_with_full_component_scores(self):
         live_roi = _make_rifle_icon()

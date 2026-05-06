@@ -18,30 +18,45 @@
   "bursts": [
     {
       "burst_id": "burst-fine-a",
-      "start_offset_ms": 4,
+      "session_id": "session-cod22-m4-20260506-120000",
       "sample_interval_ms": 10,
-      "anchor_x": 10.0,
-      "anchor_y": 50.0,
-      "deltas_x": [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
-      "deltas_y": [0.0, -2.0, -4.0, -6.0, -8.0, -10.0, -12.0]
+      "samples": [
+        { "offset_ms": 4, "x": 10.0, "y": 50.0 },
+        { "offset_ms": 14, "x": 11.0, "y": 48.0 },
+        { "offset_ms": 24, "x": 12.0, "y": 46.0 },
+        { "offset_ms": 34, "x": 13.0, "y": 44.0 },
+        { "offset_ms": 44, "x": 14.0, "y": 42.0 },
+        { "offset_ms": 54, "x": 15.0, "y": 40.0 },
+        { "offset_ms": 64, "x": 16.0, "y": 38.0 }
+      ],
+      "sample_count": 7
     },
     {
       "burst_id": "burst-coarse-b",
-      "start_offset_ms": 6,
+      "session_id": "session-cod22-m4-20260506-120000",
       "sample_interval_ms": 20,
-      "anchor_x": -3.0,
-      "anchor_y": 7.0,
-      "deltas_x": [0.0, 2.0, 4.0, 6.0],
-      "deltas_y": [0.0, -4.0, -8.0, -12.0]
+      "samples": [
+        { "offset_ms": 6, "x": -3.0, "y": 7.0 },
+        { "offset_ms": 26, "x": -1.0, "y": 3.0 },
+        { "offset_ms": 46, "x": 1.0, "y": -1.0 },
+        { "offset_ms": 66, "x": 3.0, "y": -5.0 }
+      ],
+      "sample_count": 4
     },
     {
       "burst_id": "burst-fine-c",
-      "start_offset_ms": 0,
+      "session_id": "session-cod22-m4-20260506-120000",
       "sample_interval_ms": 10,
-      "anchor_x": 100.0,
-      "anchor_y": 20.0,
-      "deltas_x": [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
-      "deltas_y": [0.0, -2.0, -4.0, -6.0, -8.0, -10.0, -12.0]
+      "samples": [
+        { "offset_ms": 0, "x": 100.0, "y": 20.0 },
+        { "offset_ms": 10, "x": 101.0, "y": 18.0 },
+        { "offset_ms": 20, "x": 102.0, "y": 16.0 },
+        { "offset_ms": 30, "x": 103.0, "y": 14.0 },
+        { "offset_ms": 40, "x": 104.0, "y": 12.0 },
+        { "offset_ms": 50, "x": 105.0, "y": 10.0 },
+        { "offset_ms": 60, "x": 106.0, "y": 8.0 }
+      ],
+      "sample_count": 7
     }
   ],
   "expected": {
