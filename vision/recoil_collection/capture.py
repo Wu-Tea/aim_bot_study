@@ -190,6 +190,12 @@ def collect_recoil_profile(
         created_at=started_at,
         config=collector_config.extraction_config(),
     )
+    if extracted_profile.profile.burst_count < collector_config.min_clean_bursts:
+        raise RecoilCollectionError(
+            "Insufficient repeated bursts for a reliable recoil profile: "
+            f"need at least {collector_config.min_clean_bursts} clean bursts, "
+            f"got {extracted_profile.profile.burst_count}"
+        )
     profile_summary = _build_profile_summary(extracted_profile.profile)
     return RecoilCollectionResult(
         recognition_event=recognition_event,
@@ -403,7 +409,7 @@ def _estimate_phase_shift(previous_gray: np.ndarray, current_gray: np.ndarray) -
     shift, response = cv2.phaseCorrelate(previous_gray, current_gray)
     delta_x = float(shift[0]) if np.isfinite(shift[0]) else 0.0
     delta_y = float(shift[1]) if np.isfinite(shift[1]) else 0.0
-    if not np.isfinite(response) or response < 0.0:
+    if not np.isfinite(response) or response <= 0.0:
         return 0.0, 0.0
     return delta_x, delta_y
 

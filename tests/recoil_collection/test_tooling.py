@@ -407,6 +407,57 @@ class RecoilCollectorToolTests(unittest.TestCase):
                         self.assertEqual(list(profile_dir.glob("*.json")), [])
                     self.assertIn("Unable to confirm current weapon", stderr.getvalue())
 
+    def test_main_fails_conservatively_when_too_few_bursts_are_captured(self):
+        tool = _load_recoil_tool_module()
+        capture = importlib.import_module("vision.recoil_collection.capture")
+        event = RecognitionEvent(
+            game="cod22",
+            canonical_weapon_id="cod22-m4",
+            confidence=0.93,
+            source="image",
+            timestamp="2026-05-06T14:00:00Z",
+            degraded=False,
+            matched_name=None,
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            profile_dir = temp_path / "profiles"
+            signature_dir = temp_path / "signatures"
+            output_path = temp_path / "summary.json"
+            signature_dir.mkdir()
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+
+            exit_code = tool.main(
+                argv=[
+                    "--game",
+                    "cod22",
+                    "--mode",
+                    "ads",
+                    "--standing-only",
+                    "--profile-dir",
+                    str(profile_dir),
+                    "--signature-dir",
+                    str(signature_dir),
+                    "--output",
+                    str(output_path),
+                ],
+                stdout=stdout,
+                stderr=stderr,
+                recognizer_factory=lambda args: _StubCollectorRecognizer(event),
+                weapon_frame_grabber_factory=lambda args: _StubFrameGrabber(np.zeros((8, 8, 3), dtype=np.uint8)),
+                motion_sampler_factory=lambda args, config: (lambda: _single_burst_motion_trace(capture)),
+                timestamp_fn=lambda: "2026-05-06T14:05:00Z",
+            )
+
+            self.assertEqual(exit_code, 1)
+            self.assertEqual(stdout.getvalue(), "")
+            self.assertFalse(output_path.exists())
+            if profile_dir.exists():
+                self.assertEqual(list(profile_dir.glob("*.json")), [])
+            self.assertIn("repeated bursts", stderr.getvalue())
+
 
 class _StubRecognizer:
     def __init__(self, events):
@@ -558,6 +609,20 @@ def _collector_motion_trace(capture_module):
         MotionTraceSample(offset_ms=190, x=3.6, y=-12.0, center_motion=0.9),
         MotionTraceSample(offset_ms=200, x=3.6, y=-12.0, center_motion=0.05),
         MotionTraceSample(offset_ms=210, x=3.6, y=-12.0, center_motion=0.05),
+    )
+
+
+def _single_burst_motion_trace(capture_module):
+    MotionTraceSample = capture_module.MotionTraceSample
+    return (
+        MotionTraceSample(offset_ms=0, x=0.0, y=0.0, center_motion=0.0),
+        MotionTraceSample(offset_ms=10, x=0.0, y=0.0, center_motion=0.0),
+        MotionTraceSample(offset_ms=20, x=0.0, y=-1.0, center_motion=0.9),
+        MotionTraceSample(offset_ms=30, x=0.4, y=-2.0, center_motion=1.0),
+        MotionTraceSample(offset_ms=40, x=0.8, y=-3.0, center_motion=0.95),
+        MotionTraceSample(offset_ms=50, x=1.2, y=-4.0, center_motion=0.9),
+        MotionTraceSample(offset_ms=60, x=1.2, y=-4.0, center_motion=0.05),
+        MotionTraceSample(offset_ms=70, x=1.2, y=-4.0, center_motion=0.05),
     )
 
 
