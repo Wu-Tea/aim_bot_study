@@ -23,6 +23,8 @@ from vision.recoil_collection.segmentation import BurstSegmentationSample
 from vision.recoil_collection.segmentation import segment_standing_fire_bursts as default_segment_bursts
 from vision.weapon_identity.models import RecognitionEvent
 
+_MIN_VALID_PHASE_CORRELATION_RESPONSE = 0.05
+
 
 class RecoilCollectionError(ValueError):
     """Raised when the recoil collector cannot safely produce a profile."""
@@ -409,7 +411,7 @@ def _estimate_phase_shift(previous_gray: np.ndarray, current_gray: np.ndarray) -
     shift, response = cv2.phaseCorrelate(previous_gray, current_gray)
     delta_x = float(shift[0]) if np.isfinite(shift[0]) else 0.0
     delta_y = float(shift[1]) if np.isfinite(shift[1]) else 0.0
-    if not np.isfinite(response) or response <= 0.0:
+    if not np.isfinite(response) or response < _MIN_VALID_PHASE_CORRELATION_RESPONSE:
         return 0.0, 0.0
     return delta_x, delta_y
 
