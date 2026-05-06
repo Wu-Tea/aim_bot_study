@@ -221,22 +221,22 @@ The first shipping target is Blocks `A-C`.
 - Modify: `vision/recoil_collection/storage.py`
 - Modify: `vision/weapon_identity/resolver.py`
 
-- [ ] Build a collector CLI that supports:
+- [x] Build a collector CLI that supports:
   - `--game`
   - `--mode hipfire|ads`
   - `--standing-only`
   - `--profile-dir`
   - `--signature-dir`
   - `--output`
-- [ ] The collector must:
+- [x] The collector must:
   - recognize or confirm the current weapon
   - capture repeated bursts
   - summarize curve quality before save
   - persist a structured recoil profile JSON
-- [ ] Add a JSON summary output that a future session can inspect without replaying the whole capture.
-- [ ] Run:
+- [x] Add a JSON summary output that a future session can inspect without replaying the whole capture.
+- [x] Run:
   - `python -m unittest tests.recoil_collection.test_models tests.recoil_collection.test_segmentation tests.recoil_collection.test_extraction tests.recoil_collection.test_storage tests.recoil_collection.test_tooling -v`
-- [ ] Expected: all collector and storage tests pass together.
+- [x] Expected: all collector and storage tests pass together.
 
 ## Task 10: Fixture And Replay Coverage
 
@@ -316,3 +316,4 @@ The first shipping target is Blocks `A-C`.
 - Task `6` is complete and review-approved on commit `36944926a3977129fa6d8dfed92b35a541ca2680`.
 - Task `7` is complete and review-approved on commit `34e8518b574ef1c5d1749602b0e24dc4a6b3fcdd`.
 - Task `8` is complete and review-approved on commit `6d4e8d419c635d76b02046f073d4d3ca73fb83ad`.
+- Task `9` is complete and review-approved on commit `bf939589b7cb56496c2aedaa7bc9f6815aa57db0`.
