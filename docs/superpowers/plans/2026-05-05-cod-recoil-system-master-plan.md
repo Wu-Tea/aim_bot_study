@@ -263,17 +263,17 @@ The first shipping target is Blocks `A-C`.
 - Create: `runtime/recoil_sidecar/service.py`
 - Create: `tests/runtime/test_recoil_sidecar_service.py`
 
-- [ ] Implement the future-facing sidecar model types and a lightweight service class that can:
+- [x] Implement the future-facing sidecar model types and a lightweight service class that can:
   - read recognizer state
   - load matching recoil profiles
   - publish an `active_profile` payload
-- [ ] Keep this task scoped to scaffolding and contract validation; do not modify the gamepad plugin yet.
-- [ ] Write service tests for:
+- [x] Keep this task scoped to scaffolding and contract validation; do not modify the gamepad plugin yet.
+- [x] Write service tests for:
   - recognized weapon resolving to stored profile
   - degraded recognition yielding degraded sidecar status
   - missing profile yielding unknown or degraded output
-- [ ] Run: `python -m unittest tests.runtime.test_recoil_sidecar_service -v`
-- [ ] Expected: contract tests pass without requiring live controller integration.
+- [x] Run: `python -m unittest tests.runtime.test_recoil_sidecar_service -v`
+- [x] Expected: contract tests pass without requiring live controller integration.
 
 ## Task 12: Gamepad Integration Follow-Up
 
@@ -317,3 +317,4 @@ The first shipping target is Blocks `A-C`.
 - Task `7` is complete and review-approved on commit `34e8518b574ef1c5d1749602b0e24dc4a6b3fcdd`.
 - Task `8` is complete and review-approved on commit `6d4e8d419c635d76b02046f073d4d3ca73fb83ad`.
 - Task `9` is complete and review-approved on commit `bf939589b7cb56496c2aedaa7bc9f6815aa57db0`.
+- Task `11` is complete and review-approved on commit `91f799792ea1a9d98691f630b3750ed438af2cd6`.
