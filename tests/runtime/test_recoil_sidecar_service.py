@@ -16,6 +16,53 @@ def _load_service_module():
 
 
 class RecoilSidecarServiceTests(unittest.TestCase):
+    def test_missing_aim_mode_with_multiple_profile_modes_yields_unknown_status(self):
+        service_module = _load_service_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            profile_dir = Path(temp_dir) / "profiles"
+            profile_dir.mkdir()
+            _write_profile(
+                profile_dir / "profile-cod22-m4-ads-standing-v1.json",
+                _profile_record(
+                    profile_id="profile-cod22-m4-ads-standing-v1",
+                    canonical_weapon_id="cod22-m4",
+                    game="cod22",
+                    aim_mode="ads",
+                    confidence=0.85,
+                ),
+            )
+            _write_profile(
+                profile_dir / "profile-cod22-m4-hipfire-standing-v1.json",
+                _profile_record(
+                    profile_id="profile-cod22-m4-hipfire-standing-v1",
+                    canonical_weapon_id="cod22-m4",
+                    game="cod22",
+                    aim_mode="hipfire",
+                    confidence=0.95,
+                ),
+            )
+            service = service_module.RecoilSidecarService(profile_dir=profile_dir)
+
+            active_profile = service.publish_active_profile(
+                _recognizer_payload(
+                    canonical_weapon_id="cod22-m4",
+                    confidence=0.91,
+                    degraded=False,
+                    profile_ids=[],
+                )
+            )
+
+            self.assertEqual(active_profile.status, "unknown")
+            self.assertEqual(active_profile.canonical_weapon_id, "cod22-m4")
+            self.assertIsNone(active_profile.profile_id)
+            self.assertEqual(active_profile.game, "cod22")
+            self.assertEqual(active_profile.stance, "standing")
+            self.assertIsNone(active_profile.aim_mode)
+            self.assertIsNone(active_profile.profile_confidence)
+            self.assertEqual(active_profile.identity_confidence, 0.91)
+            self.assertEqual(active_profile.updated_at, "2026-05-06T12:00:00Z")
+
     def test_recognized_weapon_resolves_to_stored_profile(self):
         service_module = _load_service_module()
 
@@ -135,6 +182,35 @@ class RecoilSidecarServiceTests(unittest.TestCase):
             self.assertIsNone(active_profile.profile_confidence)
             self.assertEqual(active_profile.identity_confidence, 0.89)
             self.assertEqual(active_profile.updated_at, "2026-05-06T12:00:00Z")
+
+    def test_malformed_recognizer_state_file_yields_unknown_sidecar_status(self):
+        service_module = _load_service_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            profile_dir = root / "profiles"
+            profile_dir.mkdir()
+            state_path = root / "latest-state.json"
+            state_path.write_text('{"type":"current_weapon","game":"cod22"', encoding="utf-8")
+            service = service_module.RecoilSidecarService(
+                profile_dir=profile_dir,
+                recognizer_state_path=state_path,
+            )
+
+            try:
+                active_profile = service.publish_active_profile(context={"aim_mode": "ads"})
+            except json.JSONDecodeError as exc:
+                self.fail(f"publish_active_profile should degrade conservatively, but raised {exc!r}")
+
+            self.assertEqual(active_profile.status, "unknown")
+            self.assertIsNone(active_profile.canonical_weapon_id)
+            self.assertIsNone(active_profile.profile_id)
+            self.assertIsNone(active_profile.game)
+            self.assertEqual(active_profile.stance, "standing")
+            self.assertEqual(active_profile.aim_mode, "ads")
+            self.assertIsNone(active_profile.profile_confidence)
+            self.assertIsNone(active_profile.identity_confidence)
+            self.assertIsNone(active_profile.updated_at)
 
 
 def _write_profile(path: Path, record: RecoilProfileRecord) -> None:

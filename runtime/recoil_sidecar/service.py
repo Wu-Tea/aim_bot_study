@@ -83,33 +83,26 @@ class RecoilSidecarService:
         context: SidecarRuntimeContext | Mapping[str, Any] | None = None,
     ) -> ActiveProfilePayload:
         runtime_context = _coerce_runtime_context(context)
-        recognizer_state = self.read_recognizer_state(source)
+        try:
+            recognizer_state = self.read_recognizer_state(source)
+        except (OSError, UnicodeDecodeError, ValueError, json.JSONDecodeError):
+            recognizer_state = None
+
         if recognizer_state is None:
-            return ActiveProfilePayload(
-                canonical_weapon_id=None,
-                profile_id=None,
-                game=None,
-                stance=runtime_context.stance,
-                aim_mode=runtime_context.aim_mode,
-                profile_confidence=None,
-                identity_confidence=None,
-                updated_at=None,
-                status="unknown",
+            return _build_unknown_payload(runtime_context=runtime_context)
+
+        if runtime_context.aim_mode is None:
+            return _build_unknown_payload(
+                runtime_context=runtime_context,
+                recognizer_state=recognizer_state,
             )
 
         matches = self.load_matching_profiles(recognizer_state, context=runtime_context)
         selected_profile = _select_best_profile(matches)
         if selected_profile is None:
-            return ActiveProfilePayload(
-                canonical_weapon_id=recognizer_state.canonical_weapon_id,
-                profile_id=None,
-                game=recognizer_state.game,
-                stance=runtime_context.stance,
-                aim_mode=runtime_context.aim_mode,
-                profile_confidence=None,
-                identity_confidence=recognizer_state.confidence,
-                updated_at=recognizer_state.timestamp,
-                status="unknown",
+            return _build_unknown_payload(
+                runtime_context=runtime_context,
+                recognizer_state=recognizer_state,
             )
 
         status = "ready"
@@ -188,6 +181,24 @@ def _select_best_profile(matches: tuple[RecoilProfileRecord, ...]) -> RecoilProf
     if not matches:
         return None
     return matches[0]
+
+
+def _build_unknown_payload(
+    *,
+    runtime_context: SidecarRuntimeContext,
+    recognizer_state: RecognizerState | None = None,
+) -> ActiveProfilePayload:
+    return ActiveProfilePayload(
+        canonical_weapon_id=getattr(recognizer_state, "canonical_weapon_id", None),
+        profile_id=None,
+        game=getattr(recognizer_state, "game", None),
+        stance=runtime_context.stance,
+        aim_mode=runtime_context.aim_mode,
+        profile_confidence=None,
+        identity_confidence=getattr(recognizer_state, "confidence", None),
+        updated_at=getattr(recognizer_state, "timestamp", None),
+        status="unknown",
+    )
 
 
 def _require_confidence(value: Any, label: str) -> float:
