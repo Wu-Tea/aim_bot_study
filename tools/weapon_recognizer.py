@@ -12,6 +12,8 @@ from typing import Any
 from typing import Iterable
 from typing import TextIO
 
+import win32api
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
@@ -27,6 +29,7 @@ from vision.weapon_identity.models import WeaponIdentityRecord
 from vision.weapon_identity.resolver import resolve_weapon
 from vision.weapon_identity.runtime_state import ResolverRuntimeState
 from vision.weapon_identity.signatures import score_candidates
+from vision.weapon_identity.text import extract_text_candidates
 
 _IMAGE_SWITCH_SCORE_THRESHOLD = 0.90
 _IMAGE_SWITCH_MARGIN_THRESHOLD = 0.08
@@ -48,8 +51,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--game", choices=tuple(sorted(ADAPTER_REGISTRY)), required=True)
     parser.add_argument("--profile-dir", type=Path, required=True)
     parser.add_argument("--signature-dir", type=Path, required=True)
-    parser.add_argument("--capture-width", type=int, required=True)
-    parser.add_argument("--capture-height", type=int, required=True)
+    parser.add_argument("--capture-mode", choices=("fullscreen", "center", "region"), default="fullscreen")
+    parser.add_argument("--capture-left", type=int)
+    parser.add_argument("--capture-top", type=int)
+    parser.add_argument("--capture-width", type=int)
+    parser.add_argument("--capture-height", type=int)
     parser.add_argument("--fps", type=int, required=True)
     parser.add_argument(
         "--latest-state-file",
@@ -62,12 +68,22 @@ def build_parser() -> argparse.ArgumentParser:
 def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     parser = build_parser()
     args = parser.parse_args(list(argv) if argv is not None else None)
-    if args.capture_width <= 0:
-        parser.error("--capture-width must be positive")
-    if args.capture_height <= 0:
-        parser.error("--capture-height must be positive")
     if args.fps <= 0:
         parser.error("--fps must be positive")
+    if args.capture_width is not None and args.capture_width <= 0:
+        parser.error("--capture-width must be positive")
+    if args.capture_height is not None and args.capture_height <= 0:
+        parser.error("--capture-height must be positive")
+    if args.capture_left is not None and args.capture_left < 0:
+        parser.error("--capture-left must be non-negative")
+    if args.capture_top is not None and args.capture_top < 0:
+        parser.error("--capture-top must be non-negative")
+    if args.capture_mode in {"center", "region"}:
+        if args.capture_width is None or args.capture_height is None:
+            parser.error("--capture-width and --capture-height are required for center or region capture mode")
+    if args.capture_mode == "region":
+        if args.capture_left is None or args.capture_top is None:
+            parser.error("--capture-left and --capture-top are required for region capture mode")
     return args
 
 
@@ -105,6 +121,7 @@ class SignatureWeaponRecognizer:
     identity_records: tuple[WeaponIdentityRecord, ...]
     signature_records: tuple[VisualSignatureRecord, ...]
     profile_index: dict[str, tuple[str, ...]]
+    ocr_reader: Any = None
     runtime_state: ResolverRuntimeState = field(default_factory=ResolverRuntimeState)
     adapter: Any = field(init=False)
 
@@ -119,6 +136,11 @@ class SignatureWeaponRecognizer:
             return None
 
         ranked_matches = score_candidates(_rgb_to_bgr(icon_region), self.signature_records)
+        text_candidates = extract_text_candidates(
+            frame,
+            self.adapter.weapon_name_text_roi,
+            ocr_reader=self.ocr_reader,
+        )
         previous_weapon_id = self.runtime_state.confirmed_weapon_id
         switch_suspected = _should_suspect_switch(
             game=self.game,
@@ -129,7 +151,7 @@ class SignatureWeaponRecognizer:
             adapter=self.adapter,
             identity_records=self.identity_records,
             ranked_image_matches=ranked_matches,
-            text_candidates=(),
+            text_candidates=text_candidates,
             runtime_state=self.runtime_state,
             switch_suspected=switch_suspected,
             timestamp=_utc_timestamp(),
@@ -211,10 +233,27 @@ def _build_default_recognizer(args: argparse.Namespace) -> SignatureWeaponRecogn
 
 
 def _build_capture_thread(args: argparse.Namespace) -> ScreenCaptureThread:
+    if args.capture_mode == "fullscreen":
+        screen_width = int(win32api.GetSystemMetrics(0))
+        screen_height = int(win32api.GetSystemMetrics(1))
+        return ScreenCaptureThread(
+            target_fps=args.fps,
+            region=(0, 0, screen_width, screen_height),
+        )
+    if args.capture_mode == "region":
+        return ScreenCaptureThread(
+            target_fps=args.fps,
+            region=(
+                int(args.capture_left),
+                int(args.capture_top),
+                int(args.capture_left + args.capture_width),
+                int(args.capture_top + args.capture_height),
+            ),
+        )
     return ScreenCaptureThread(
         target_fps=args.fps,
-        crop_width=args.capture_width,
-        crop_height=args.capture_height,
+        crop_width=int(args.capture_width),
+        crop_height=int(args.capture_height),
     )
 
 

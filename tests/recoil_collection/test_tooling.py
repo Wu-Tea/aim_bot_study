@@ -8,8 +8,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import cv2
 import numpy as np
 
+from vision.weapon_identity.adapters import get_adapter
 from vision.weapon_identity.models import RecognitionEvent
 from vision.weapon_identity.models import VisualSignatureRecord
 from vision.weapon_identity.models import WeaponIdentityRecord
@@ -30,6 +32,20 @@ def _load_recoil_tool_module():
         raise AssertionError(f"Missing recoil collector tool: {exc}") from exc
 
 
+def _load_signature_capture_tool_module():
+    try:
+        return importlib.import_module("tools.weapon_signature_capture")
+    except ModuleNotFoundError as exc:
+        raise AssertionError(f"Missing weapon signature capture tool: {exc}") from exc
+
+
+def _load_runtime_launcher_tool_module():
+    try:
+        return importlib.import_module("tools.recoil_runtime_launcher")
+    except ModuleNotFoundError as exc:
+        raise AssertionError(f"Missing recoil runtime launcher tool: {exc}") from exc
+
+
 class WeaponRecognizerToolTests(unittest.TestCase):
     def test_parse_args_accepts_task6_cli_options(self):
         tool = _load_tool_module()
@@ -42,12 +58,18 @@ class WeaponRecognizerToolTests(unittest.TestCase):
                 "artifacts/recoil_profiles",
                 "--signature-dir",
                 "artifacts/weapon_signatures",
-                "--capture-width",
-                "960",
-                "--capture-height",
-                "540",
                 "--fps",
                 "60",
+                "--capture-mode",
+                "region",
+                "--capture-left",
+                "1280",
+                "--capture-top",
+                "700",
+                "--capture-width",
+                "560",
+                "--capture-height",
+                "320",
                 "--latest-state-file",
                 "artifacts/recoil_state/latest.json",
             ]
@@ -56,8 +78,11 @@ class WeaponRecognizerToolTests(unittest.TestCase):
         self.assertEqual(args.game, "cod22")
         self.assertEqual(args.profile_dir, Path("artifacts/recoil_profiles"))
         self.assertEqual(args.signature_dir, Path("artifacts/weapon_signatures"))
-        self.assertEqual(args.capture_width, 960)
-        self.assertEqual(args.capture_height, 540)
+        self.assertEqual(args.capture_mode, "region")
+        self.assertEqual(args.capture_left, 1280)
+        self.assertEqual(args.capture_top, 700)
+        self.assertEqual(args.capture_width, 560)
+        self.assertEqual(args.capture_height, 320)
         self.assertEqual(args.fps, 60)
         self.assertEqual(args.latest_state_file, Path("artifacts/recoil_state/latest.json"))
 
@@ -66,8 +91,6 @@ class WeaponRecognizerToolTests(unittest.TestCase):
         required_pairs = [
             ("--profile-dir", "artifacts/recoil_profiles"),
             ("--signature-dir", "artifacts/weapon_signatures"),
-            ("--capture-width", "960"),
-            ("--capture-height", "540"),
             ("--fps", "60"),
         ]
 
@@ -81,6 +104,115 @@ class WeaponRecognizerToolTests(unittest.TestCase):
                 with contextlib.redirect_stderr(io.StringIO()):
                     with self.assertRaises(SystemExit):
                         tool.parse_args(argv)
+
+    def test_parse_args_requires_region_coordinates_for_region_capture_mode(self):
+        tool = _load_tool_module()
+
+        argv = [
+            "--game",
+            "cod22",
+            "--profile-dir",
+            "artifacts/recoil_profiles",
+            "--signature-dir",
+            "artifacts/weapon_signatures",
+            "--fps",
+            "60",
+            "--capture-mode",
+            "region",
+            "--capture-width",
+            "560",
+            "--capture-height",
+            "320",
+        ]
+
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                tool.parse_args(argv)
+
+    @patch("tools.weapon_recognizer.win32api.GetSystemMetrics", side_effect=[2560, 1440])
+    def test_build_capture_thread_defaults_to_fullscreen_region_for_live_hud(self, _metrics):
+        tool = _load_tool_module()
+        args = SimpleNamespace(
+            fps=20,
+            capture_mode="fullscreen",
+            capture_left=None,
+            capture_top=None,
+            capture_width=None,
+            capture_height=None,
+        )
+
+        with patch.object(tool, "ScreenCaptureThread", autospec=True) as mock_capture_thread:
+            sentinel = object()
+            mock_capture_thread.return_value = sentinel
+
+            result = tool._build_capture_thread(args)
+
+        self.assertIs(result, sentinel)
+        mock_capture_thread.assert_called_once_with(
+            target_fps=20,
+            region=(0, 0, 2560, 1440),
+        )
+
+    def test_build_capture_thread_uses_explicit_region_override(self):
+        tool = _load_tool_module()
+        args = SimpleNamespace(
+            fps=20,
+            capture_mode="region",
+            capture_left=1280,
+            capture_top=700,
+            capture_width=560,
+            capture_height=320,
+        )
+
+        with patch.object(tool, "ScreenCaptureThread", autospec=True) as mock_capture_thread:
+            sentinel = object()
+            mock_capture_thread.return_value = sentinel
+
+            result = tool._build_capture_thread(args)
+
+        self.assertIs(result, sentinel)
+        mock_capture_thread.assert_called_once_with(
+            target_fps=20,
+            region=(1280, 700, 1840, 1020),
+        )
+
+    def test_process_frame_passes_ocr_text_candidates_into_resolver(self):
+        tool = _load_tool_module()
+        recognizer = tool.SignatureWeaponRecognizer(
+            game="cod21",
+            identity_records=(
+                _weapon_record(canonical_weapon_id="cod21-xm4", game="cod21", display_name="XM4"),
+            ),
+            signature_records=(
+                _signature_record(signature_id="sig-xm4", canonical_weapon_id="cod21-xm4", game="cod21"),
+            ),
+            profile_index={},
+            ocr_reader=object(),
+        )
+        frame = np.zeros((640, 640, 3), dtype=np.uint8)
+        event = RecognitionEvent(
+            game="cod21",
+            canonical_weapon_id="cod21-xm4",
+            confidence=0.93,
+            source="text",
+            timestamp="2026-05-06T15:00:00Z",
+            degraded=False,
+            matched_name="XM4",
+        )
+
+        with patch.object(tool, "score_candidates", return_value=[_match("sig-xm4", "cod21-xm4", 0.90)]):
+            with patch.object(tool, "extract_text_candidates", return_value=("XM4",)) as mock_extract_text:
+                with patch.object(tool, "resolve_weapon") as mock_resolve_weapon:
+                    mock_resolve_weapon.return_value = SimpleNamespace(
+                        event=event,
+                        runtime_state=tool.ResolverRuntimeState(confirmed_weapon_id="cod21-xm4"),
+                    )
+
+                    result = recognizer.process_frame(frame, frame_id=2, captured_at=1.5)
+
+        self.assertEqual(result, event)
+        mock_extract_text.assert_called_once()
+        self.assertEqual(mock_resolve_weapon.call_args.kwargs["text_candidates"], ("XM4",))
 
     def test_main_emits_structured_json_and_writes_latest_state_file(self):
         tool = _load_tool_module()
@@ -248,6 +380,152 @@ class WeaponRecognizerToolTests(unittest.TestCase):
                         signature_dir=signature_dir,
                     )
                 )
+
+
+class WeaponSignatureCaptureToolTests(unittest.TestCase):
+    def test_main_writes_signature_identity_and_crop_artifacts_from_image_source(self):
+        tool = _load_signature_capture_tool_module()
+        adapter = get_adapter("cod22")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            signature_dir = temp_path / "signatures"
+            signature_dir.mkdir()
+            source_image_path = temp_path / "frame.png"
+            frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
+            left = int(round(adapter.weapon_icon_roi.left * frame.shape[1]))
+            top = int(round(adapter.weapon_icon_roi.top * frame.shape[0]))
+            right = int(round((adapter.weapon_icon_roi.left + adapter.weapon_icon_roi.width) * frame.shape[1]))
+            bottom = int(round((adapter.weapon_icon_roi.top + adapter.weapon_icon_roi.height) * frame.shape[0]))
+            frame[top:bottom, left:right] = (255, 255, 255)
+            self.assertTrue(cv2.imwrite(str(source_image_path), frame))
+            stdout = io.StringIO()
+
+            exit_code = tool.main(
+                argv=[
+                    "--game",
+                    "cod22",
+                    "--canonical-weapon-id",
+                    "cod22-m4",
+                    "--display-name",
+                    "M4",
+                    "--weapon-family",
+                    "assault_rifle",
+                    "--signature-dir",
+                    str(signature_dir),
+                    "--image",
+                    str(source_image_path),
+                ],
+                stdout=stdout,
+                timestamp_fn=lambda: "2026-05-06T16:00:00Z",
+            )
+
+            self.assertEqual(exit_code, 0)
+            payload = json.loads(stdout.getvalue().strip())
+            self.assertEqual(payload["game"], "cod22")
+            self.assertEqual(payload["canonical_weapon_id"], "cod22-m4")
+            signature_path = Path(payload["signature_path"])
+            identity_path = Path(payload["identity_path"])
+            crop_path = Path(payload["crop_path"])
+            self.assertTrue(signature_path.exists())
+            self.assertTrue(identity_path.exists())
+            self.assertTrue(crop_path.exists())
+
+            saved_signature = json.loads(signature_path.read_text(encoding="utf-8"))
+            saved_identity = json.loads(identity_path.read_text(encoding="utf-8"))
+            self.assertEqual(saved_signature["canonical_weapon_id"], "cod22-m4")
+            self.assertEqual(saved_signature["game"], "cod22")
+            self.assertEqual(saved_identity["canonical_weapon_id"], "cod22-m4")
+            self.assertEqual(saved_identity["signature_refs"], [saved_signature["signature_id"]])
+            self.assertEqual(saved_identity["display_name"], "M4")
+
+
+class RecoilRuntimeLauncherTests(unittest.TestCase):
+    def test_resolve_state_file_defaults_to_game_specific_path(self):
+        tool = _load_runtime_launcher_tool_module()
+        root = Path("D:/work/AI/yolo-study-001/.worktrees/cod-recoil-system/artifacts/recoil_state")
+
+        state_path = tool.resolve_state_file(game="cod22", state_file=None, root_dir=root)
+
+        self.assertEqual(state_path, root / "cod22-latest-state.json")
+
+    def test_build_controller_env_includes_recoil_paths(self):
+        tool = _load_runtime_launcher_tool_module()
+        env = tool.build_controller_env(
+            base_env={"VISION_BACKEND": "native", "EXISTING_FLAG": "1"},
+            profile_dir=Path("D:/tmp/profiles"),
+            state_file=Path("D:/tmp/recoil_state/cod22-latest-state.json"),
+            vision_backend="native",
+        )
+
+        self.assertEqual(env["RECOIL_PROFILE_DIR"], "D:\\tmp\\profiles")
+        self.assertEqual(env["RECOIL_RECOGNIZER_STATE_PATH"], "D:\\tmp\\recoil_state\\cod22-latest-state.json")
+        self.assertEqual(env["VISION_BACKEND"], "native")
+        self.assertEqual(env["EXISTING_FLAG"], "1")
+
+    def test_main_launches_controller_with_recoil_env_and_latest_state_file(self):
+        tool = _load_runtime_launcher_tool_module()
+        popen_calls = []
+        run_calls = []
+
+        class _FakePopen:
+            def __init__(self, command, *, cwd, env):
+                self.command = command
+                self.cwd = cwd
+                self.env = env
+                self.terminated = False
+                self.killed = False
+                popen_calls.append(self)
+
+            def terminate(self):
+                self.terminated = True
+
+            def wait(self, timeout=None):
+                del timeout
+                return 0
+
+            def kill(self):
+                self.killed = True
+
+        def run_process(command, *, cwd, env):
+            run_calls.append({"command": command, "cwd": cwd, "env": env})
+            return SimpleNamespace(returncode=0)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            profile_dir = temp_path / "profiles"
+            signature_dir = temp_path / "signatures"
+            profile_dir.mkdir()
+            signature_dir.mkdir()
+            stdout = io.StringIO()
+
+            exit_code = tool.main(
+                argv=[
+                    "--game",
+                    "cod22",
+                    "--profile-dir",
+                    str(profile_dir),
+                    "--signature-dir",
+                    str(signature_dir),
+                ],
+                stdout=stdout,
+                popen_factory=_FakePopen,
+                run_process=run_process,
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(len(popen_calls), 1)
+        self.assertEqual(len(run_calls), 1)
+        recognizer_command = popen_calls[0].command
+        controller_call = run_calls[0]
+        self.assertIn("weapon_recognizer.py", " ".join(recognizer_command))
+        self.assertIn("--latest-state-file", recognizer_command)
+        self.assertEqual(controller_call["env"]["RECOIL_PROFILE_DIR"], str(profile_dir))
+        self.assertTrue(controller_call["env"]["RECOIL_RECOGNIZER_STATE_PATH"].endswith("cod22-latest-state.json"))
+        self.assertTrue(popen_calls[0].terminated)
+        payload = json.loads(stdout.getvalue().strip())
+        self.assertEqual(payload["game"], "cod22")
+        self.assertEqual(payload["profile_dir"], str(profile_dir))
 
 
 class RecoilCollectorToolTests(unittest.TestCase):

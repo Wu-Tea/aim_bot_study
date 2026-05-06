@@ -28,5 +28,15 @@ if %errorlevel%==0 (
 
 echo Vision settings: backend=%VISION_BACKEND% capture_fps=%VISION_CAPTURE_FPS% quit_key=%VISION_QUIT_KEY%
 echo Launching gamepad mode with AutoFire=%AUTO_FIRE_OUTPUT%
-%PYTHON_CMD% main.py --controller-mode gamepad --auto-fire-output %AUTO_FIRE_OUTPUT% --vision-backend %VISION_BACKEND% --perf-log
+if /I "%ENABLE_RECOIL_RUNTIME%"=="1" (
+    if not defined RECOIL_GAME set "RECOIL_GAME=cod22"
+    if not defined RECOIL_PROFILE_DIR set "RECOIL_PROFILE_DIR=%cd%\artifacts\recoil_profiles"
+    if not defined RECOIL_SIGNATURE_DIR set "RECOIL_SIGNATURE_DIR=%cd%\artifacts\weapon_signatures"
+    if not defined RECOIL_STATE_FILE set "RECOIL_STATE_FILE=%cd%\artifacts\recoil_state\%RECOIL_GAME%-latest-state.json"
+    if not defined RECOIL_RECOGNIZER_FPS set "RECOIL_RECOGNIZER_FPS=20"
+    echo Recoil runtime enabled for %RECOIL_GAME%
+    %PYTHON_CMD% tools\recoil_runtime_launcher.py --game %RECOIL_GAME% --profile-dir "%RECOIL_PROFILE_DIR%" --signature-dir "%RECOIL_SIGNATURE_DIR%" --state-file "%RECOIL_STATE_FILE%" --recognizer-fps %RECOIL_RECOGNIZER_FPS% --controller-mode gamepad --auto-fire-output %AUTO_FIRE_OUTPUT% --vision-backend %VISION_BACKEND%
+) else (
+    %PYTHON_CMD% main.py --controller-mode gamepad --auto-fire-output %AUTO_FIRE_OUTPUT% --vision-backend %VISION_BACKEND% --perf-log
+)
 pause

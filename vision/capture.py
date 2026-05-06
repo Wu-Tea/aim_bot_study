@@ -30,14 +30,17 @@ class ScreenCaptureThread(threading.Thread):
         target_fps: int = 90,
         crop_width: int = 640,
         crop_height: int = 640,
+        region: tuple[int, int, int, int] | None = None,
     ):
         super().__init__(daemon=True)
-        screen_width = win32api.GetSystemMetrics(0)
-        screen_height = win32api.GetSystemMetrics(1)
-        left = (screen_width - crop_width) // 2
-        top = (screen_height - crop_height) // 2
-
-        self.region = (left, top, left + crop_width, top + crop_height)
+        if region is None:
+            screen_width = win32api.GetSystemMetrics(0)
+            screen_height = win32api.GetSystemMetrics(1)
+            left = (screen_width - crop_width) // 2
+            top = (screen_height - crop_height) // 2
+            self.region = (left, top, left + crop_width, top + crop_height)
+        else:
+            self.region = _require_region(region)
         self._backend = create_capture_backend(output_color="RGB", region=self.region)
         self.running = True
         self._condition = threading.Condition()
@@ -118,3 +121,14 @@ class ScreenCaptureThread(threading.Thread):
             self._condition.notify_all()
         if not self.is_alive():
             self._close_backend()
+
+
+def _require_region(value):
+    if not isinstance(value, tuple) or len(value) != 4:
+        raise ValueError("region must be a 4-item tuple of (left, top, right, bottom)")
+    left, top, right, bottom = value
+    if any(type(item) is not int for item in value):
+        raise ValueError("region values must be integers")
+    if right <= left or bottom <= top:
+        raise ValueError("region bounds must define a positive-size rectangle")
+    return left, top, right, bottom

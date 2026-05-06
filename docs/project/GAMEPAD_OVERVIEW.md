@@ -1,6 +1,6 @@
 # Gamepad Overview
 
-Last updated: 2026-04-30
+Last updated: 2026-05-06
 
 ## Goal
 
@@ -163,6 +163,27 @@ The current host keeps the integration conservative:
 
 This means the gamepad layer still does not perform weapon recognition or CV work itself. It only consumes already-resolved sidecar state.
 
+## Direct-Use Recoil Workflow
+
+The recoil system is now usable as a standalone sidecar flow around the existing gamepad host.
+
+Recommended workflow:
+
+1. Capture a weapon signature and identity record:
+   - `python tools/weapon_signature_capture.py --game cod22 --canonical-weapon-id cod22-m4 --display-name M4 --weapon-family assault_rifle --signature-dir artifacts/weapon_signatures`
+2. Collect a recoil profile for that weapon:
+   - `python tools/recoil_collector.py --game cod22 --mode ads --standing-only --profile-dir artifacts/recoil_profiles --signature-dir artifacts/weapon_signatures --output artifacts/recoil_profiles/latest-summary.json`
+3. Launch recognizer plus gamepad together:
+   - `python tools/recoil_runtime_launcher.py --game cod22 --profile-dir artifacts/recoil_profiles --signature-dir artifacts/weapon_signatures --controller-mode gamepad --auto-fire-output RB`
+
+Runtime files and directories:
+
+- weapon signatures live under `artifacts/weapon_signatures/`
+- recoil profiles live under `artifacts/recoil_profiles/`
+- live recognizer state defaults to `artifacts/recoil_state/<game>-latest-state.json`
+
+The recognizer now defaults to full-screen capture for live HUD work and uses OCR on the configured weapon-name ROI when available. The gamepad host still only reads the latest state file and matched profile data; it does not run OCR or template matching internally.
+
 ## Startup And Scripts
 
 Current gamepad entry points:
@@ -188,6 +209,17 @@ The default production gamepad path is now the hybrid runtime:
 
 - native C++ for the hot vision loop
 - Python for the controller host, startup scripts, and debug wrapper logic
+
+`gamepad_start.bat` now has an opt-in recoil-runtime path:
+
+- set `ENABLE_RECOIL_RUNTIME=1`
+- optionally set:
+  - `RECOIL_GAME`
+  - `RECOIL_PROFILE_DIR`
+  - `RECOIL_SIGNATURE_DIR`
+  - `RECOIL_STATE_FILE`
+  - `RECOIL_RECOGNIZER_FPS`
+- then launch `gamepad_start.bat` normally
 
 ## Legacy And Support Notes
 

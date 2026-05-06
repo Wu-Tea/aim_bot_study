@@ -163,6 +163,19 @@ class ScreenCaptureThreadTests(unittest.TestCase):
         self.assertEqual(thread._target_fps, 80.0)
         thread.stop()
 
+    @patch("vision.capture.win32api.GetSystemMetrics", side_effect=[1920, 1080])
+    def test_capture_thread_accepts_explicit_region_without_center_recompute(self, _metrics):
+        backend = _FakeBackend([])
+
+        with patch("vision.capture.create_capture_backend", return_value=backend):
+            thread = ScreenCaptureThread(
+                target_fps=30,
+                region=(120, 340, 720, 940),
+            )
+
+        self.assertEqual(thread.region, (120, 340, 720, 940))
+        thread.stop()
+
     def test_region_stage_surface_caches_dxgi_surface_interface(self):
         fake_surface = _FakeDxgiSurface()
         fake_texture = _FakeTextureWithSurface(fake_surface)
