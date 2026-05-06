@@ -144,14 +144,24 @@ This is still chosen at startup time rather than through `config.toml`.
 
 ## Recoil Compensation
 
-`RecoilCompensationPlugin` adds downward right-stick pull while `auto_fire_active` is true.
+`RecoilCompensationPlugin` now supports two modes:
 
-Important current nuance:
+- legacy fixed-pull fallback when no recoil-profile provider is wired in
+- profile-driven curve playback when the host can resolve an active recoil profile
 
-- the plugin class default is `amount = 0.30`
-- the host currently instantiates it with `RecoilCompensationConfig(amount=0.20)`
+The profile-driven path:
 
-So the live default path is the host-chosen `0.20`, not the dataclass default.
+- reads the current active profile from the runtime recoil sidecar contract
+- advances the curve only while `auto_fire_active` is true
+- applies cumulative recoil curves as incremental right-stick deltas
+- resets playback when firing stops, the active weapon profile changes, or the sidecar falls out of `ready`
+
+The current host keeps the integration conservative:
+
+- if `RECOIL_PROFILE_DIR` and `RECOIL_RECOGNIZER_STATE_PATH` are both available, the host builds a `RecoilSidecarService` client and enables profile-driven recoil
+- if those paths are not configured, the host keeps the old fixed fallback through `RecoilCompensationConfig(amount=0.20)`
+
+This means the gamepad layer still does not perform weapon recognition or CV work itself. It only consumes already-resolved sidecar state.
 
 ## Startup And Scripts
 

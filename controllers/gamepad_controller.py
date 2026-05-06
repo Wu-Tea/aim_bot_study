@@ -8,6 +8,9 @@ os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "hide"
 import pygame
 import vgamepad as vg
 
+from runtime.recoil_sidecar.models import ActiveProfilePayload
+from runtime.recoil_sidecar.models import RecognizerState
+
 from .base_controller import BaseController
 from .gamepad import (
     AIAimPlugin,
@@ -70,6 +73,7 @@ class GamepadController(BaseController, threading.Thread):
         max_pixels=None,
         auto_fire_output="RB",
         plugins=None,
+        recoil_sidecar_service=None,
     ):
         super().__init__()
         self.daemon = True
@@ -95,10 +99,17 @@ class GamepadController(BaseController, threading.Thread):
                 overrides["max_pixels"] = max_pixels
             ai_aim_config = replace(ai_aim_config, **overrides)
 
+        self._recoil_sidecar_service = recoil_sidecar_service or self._build_recoil_sidecar_service_from_env()
+        self._recoil_profile_cache_key = None
+        self._recoil_profile_cache_value = None
+
         self.plugins = list(plugins) if plugins is not None else [
             AIAimPlugin(ai_aim_config),
             AutoFirePlugin(AutoFireConfig(fire_output=auto_fire_output)),
-            RecoilCompensationPlugin(RecoilCompensationConfig(amount=0.20)),
+            RecoilCompensationPlugin(
+                RecoilCompensationConfig(amount=0.20),
+                profile_provider=self._get_active_recoil_profile if self._recoil_sidecar_service is not None else None,
+            ),
         ]
         self._downward_pull_diagnostics = DownwardPullDiagnostics.from_env()
 
@@ -256,6 +267,53 @@ class GamepadController(BaseController, threading.Thread):
             dpad=frame.dpad,
         )
 
+    def _get_active_recoil_profile(self, frame: GamepadFrame | None = None, *, is_aiming: bool | None = None):
+        service = getattr(self, "_recoil_sidecar_service", None)
+        if service is None:
+            return None
+
+        aiming = bool(is_aiming) if is_aiming is not None else bool(getattr(frame, "is_aiming", False))
+        context = {"stance": "standing", "aim_mode": "ads" if aiming else "hipfire"}
+        payload = _coerce_active_profile_payload(service.publish_active_profile(context=context))
+        if payload.status != "ready" or not payload.profile_id:
+            self._recoil_profile_cache_key = None
+            self._recoil_profile_cache_value = None
+            return None
+
+        cache_key = (payload.profile_id, payload.updated_at, payload.aim_mode)
+        if getattr(self, "_recoil_profile_cache_key", None) == cache_key:
+            return getattr(self, "_recoil_profile_cache_value", None)
+
+        recognizer_state = _coerce_recognizer_state(service.read_recognizer_state())
+        if recognizer_state is None:
+            self._recoil_profile_cache_key = None
+            self._recoil_profile_cache_value = None
+            return None
+
+        matches = service.load_matching_profiles(recognizer_state, context=context)
+        for profile in matches:
+            if profile.profile_id == payload.profile_id:
+                self._recoil_profile_cache_key = cache_key
+                self._recoil_profile_cache_value = profile
+                return profile
+
+        self._recoil_profile_cache_key = None
+        self._recoil_profile_cache_value = None
+        return None
+
+    def _build_recoil_sidecar_service_from_env(self):
+        profile_dir = os.environ.get("RECOIL_PROFILE_DIR")
+        recognizer_state_path = os.environ.get("RECOIL_RECOGNIZER_STATE_PATH")
+        if not profile_dir or not recognizer_state_path:
+            return None
+
+        from runtime.recoil_sidecar.service import RecoilSidecarService
+
+        return RecoilSidecarService(
+            profile_dir=profile_dir,
+            recognizer_state_path=recognizer_state_path,
+        )
+
     def _apply_plugin_pipeline(self, frame: GamepadFrame, output: GamepadOutput):
         diagnostics = getattr(self, "_downward_pull_diagnostics", None)
         if diagnostics is None or not diagnostics.config.enabled:
@@ -338,3 +396,21 @@ class GamepadController(BaseController, threading.Thread):
             self._apply_output(output)
             self.virtual_gamepad.update()
             time.sleep(0.001)
+
+
+def _coerce_active_profile_payload(value):
+    if isinstance(value, ActiveProfilePayload):
+        return value
+    if isinstance(value, dict):
+        return ActiveProfilePayload.from_dict(value)
+    raise ValueError("active profile payload must be an ActiveProfilePayload or dict")
+
+
+def _coerce_recognizer_state(value):
+    if value is None:
+        return None
+    if isinstance(value, RecognizerState):
+        return value
+    if isinstance(value, dict):
+        return RecognizerState.from_dict(value)
+    raise ValueError("recognizer state must be a RecognizerState, dict, or None")

@@ -8,6 +8,7 @@ from controllers.gamepad_controller import GamepadController
 from controllers.gamepad.plugin import PluginApplicationTrace
 from controllers.gamepad.state import GamepadFrame
 from controllers.gamepad.state import GamepadOutput
+from vision.recoil_collection.models import RecoilProfileRecord
 
 
 class _FakePlugin:
@@ -79,6 +80,26 @@ class _FakeVirtualGamepad:
 
     def release_button(self, button):
         self.released.append(button)
+
+
+class _FakeRecoilSidecarService:
+    def __init__(self, *, active_profile, recognizer_state, matching_profiles):
+        self.active_profile = active_profile
+        self.recognizer_state = recognizer_state
+        self.matching_profiles = tuple(matching_profiles)
+        self.publish_calls = []
+        self.load_calls = []
+
+    def publish_active_profile(self, source=None, *, context=None):
+        self.publish_calls.append({"source": source, "context": context})
+        return self.active_profile
+
+    def read_recognizer_state(self, source=None):
+        return self.recognizer_state
+
+    def load_matching_profiles(self, recognizer_state, *, context=None):
+        self.load_calls.append({"recognizer_state": recognizer_state, "context": context})
+        return self.matching_profiles
 
 
 class GamepadControllerHostTests(unittest.TestCase):
@@ -231,6 +252,95 @@ class GamepadControllerHostTests(unittest.TestCase):
         emitted = controller._downward_pull_diagnostics.calls[0]["plugin_traces"]
         self.assertIsInstance(emitted[0], PluginApplicationTrace)
         self.assertEqual(emitted[2].delta_right_y, -9830)
+
+    def test_get_active_recoil_profile_returns_matching_ready_profile_for_ads(self):
+        controller = GamepadController.__new__(GamepadController)
+        ready_profile = _profile_record(
+            profile_id="profile-cod22-m4-ads-standing-v1",
+            canonical_weapon_id="cod22-m4",
+            aim_mode="ads",
+            samples_y=(0.0, -80.0, -160.0),
+        )
+        controller._recoil_sidecar_service = _FakeRecoilSidecarService(
+            active_profile={
+                "canonical_weapon_id": "cod22-m4",
+                "profile_id": "profile-cod22-m4-ads-standing-v1",
+                "game": "cod22",
+                "stance": "standing",
+                "aim_mode": "ads",
+                "profile_confidence": 0.88,
+                "identity_confidence": 0.92,
+                "updated_at": "2026-05-06T12:00:00Z",
+                "status": "ready",
+            },
+            recognizer_state={
+                "type": "current_weapon",
+                "game": "cod22",
+                "canonical_weapon_id": "cod22-m4",
+                "confidence": 0.92,
+                "source": "image",
+                "timestamp": "2026-05-06T12:00:00Z",
+                "degraded": False,
+                "matched_name": None,
+                "profile_ids": ["profile-cod22-m4-ads-standing-v1"],
+            },
+            matching_profiles=[ready_profile],
+        )
+
+        profile = GamepadController._get_active_recoil_profile(controller, is_aiming=True)
+
+        self.assertIsNotNone(profile)
+        self.assertEqual(profile.profile_id, "profile-cod22-m4-ads-standing-v1")
+        self.assertEqual(profile.aim_mode, "ads")
+        self.assertEqual(
+            controller._recoil_sidecar_service.publish_calls[0]["context"],
+            {"stance": "standing", "aim_mode": "ads"},
+        )
+
+    def test_get_active_recoil_profile_returns_none_when_sidecar_is_degraded(self):
+        controller = GamepadController.__new__(GamepadController)
+        controller._recoil_sidecar_service = _FakeRecoilSidecarService(
+            active_profile={
+                "canonical_weapon_id": "cod22-m4",
+                "profile_id": "profile-cod22-m4-ads-standing-v1",
+                "game": "cod22",
+                "stance": "standing",
+                "aim_mode": "ads",
+                "profile_confidence": 0.88,
+                "identity_confidence": 0.45,
+                "updated_at": "2026-05-06T12:00:00Z",
+                "status": "degraded",
+            },
+            recognizer_state=None,
+            matching_profiles=[],
+        )
+
+        profile = GamepadController._get_active_recoil_profile(controller, is_aiming=True)
+
+        self.assertIsNone(profile)
+
+
+def _profile_record(*, profile_id: str, canonical_weapon_id: str, aim_mode: str, samples_y: tuple[float, ...]):
+    return RecoilProfileRecord(
+        profile_id=profile_id,
+        canonical_weapon_id=canonical_weapon_id,
+        game="cod22",
+        stance="standing",
+        aim_mode=aim_mode,
+        sample_interval_ms=10,
+        duration_ms=len(samples_y) * 10,
+        initial_delay_ms=0,
+        samples_x=tuple(0.0 for _ in samples_y),
+        samples_y=samples_y,
+        sample_count=len(samples_y),
+        burst_count=5,
+        variance_summary={"horizontal_stddev": 0.1, "vertical_stddev": 0.2},
+        confidence=0.88,
+        capture_resolution="2560x1440",
+        capture_fps=144.0,
+        collector_version="test",
+        created_at="2026-05-06T12:00:00Z",
+    )
 
 
 if __name__ == "__main__":
