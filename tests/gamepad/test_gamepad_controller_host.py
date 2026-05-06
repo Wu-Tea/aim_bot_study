@@ -102,6 +102,11 @@ class _FakeRecoilSidecarService:
         return self.matching_profiles
 
 
+class _RaisingRecognizerStateService(_FakeRecoilSidecarService):
+    def read_recognizer_state(self, source=None):
+        raise ValueError("malformed recognizer state")
+
+
 class GamepadControllerHostTests(unittest.TestCase):
     def test_axis_to_xbox_uses_nearest_value_across_full_xusb_range(self):
         controller = GamepadController.__new__(GamepadController)
@@ -310,6 +315,28 @@ class GamepadControllerHostTests(unittest.TestCase):
                 "identity_confidence": 0.45,
                 "updated_at": "2026-05-06T12:00:00Z",
                 "status": "degraded",
+            },
+            recognizer_state=None,
+            matching_profiles=[],
+        )
+
+        profile = GamepadController._get_active_recoil_profile(controller, is_aiming=True)
+
+        self.assertIsNone(profile)
+
+    def test_get_active_recoil_profile_degrades_when_recognizer_state_read_raises(self):
+        controller = GamepadController.__new__(GamepadController)
+        controller._recoil_sidecar_service = _RaisingRecognizerStateService(
+            active_profile={
+                "canonical_weapon_id": "cod22-m4",
+                "profile_id": "profile-cod22-m4-ads-standing-v1",
+                "game": "cod22",
+                "stance": "standing",
+                "aim_mode": "ads",
+                "profile_confidence": 0.88,
+                "identity_confidence": 0.92,
+                "updated_at": "2026-05-06T12:00:00Z",
+                "status": "ready",
             },
             recognizer_state=None,
             matching_profiles=[],

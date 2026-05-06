@@ -153,7 +153,7 @@ The profile-driven path:
 
 - reads the current active profile from the runtime recoil sidecar contract
 - advances the curve only while `auto_fire_active` is true
-- applies cumulative recoil curves as incremental right-stick deltas
+- treats stored recoil samples as collector screen-response curves and maps them into incremental right-stick deltas
 - resets playback when firing stops, the active weapon profile changes, or the sidecar falls out of `ready`
 
 The current host keeps the integration conservative:

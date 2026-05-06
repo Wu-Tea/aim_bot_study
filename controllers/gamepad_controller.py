@@ -1,4 +1,5 @@
 import os
+import json
 import threading
 import time
 from dataclasses import replace
@@ -274,23 +275,29 @@ class GamepadController(BaseController, threading.Thread):
 
         aiming = bool(is_aiming) if is_aiming is not None else bool(getattr(frame, "is_aiming", False))
         context = {"stance": "standing", "aim_mode": "ads" if aiming else "hipfire"}
-        payload = _coerce_active_profile_payload(service.publish_active_profile(context=context))
-        if payload.status != "ready" or not payload.profile_id:
+        try:
+            recognizer_state = _coerce_recognizer_state(service.read_recognizer_state())
+            if recognizer_state is None:
+                self._recoil_profile_cache_key = None
+                self._recoil_profile_cache_value = None
+                return None
+
+            payload = _coerce_active_profile_payload(service.publish_active_profile(recognizer_state, context=context))
+            if payload.status != "ready" or not payload.profile_id:
+                self._recoil_profile_cache_key = None
+                self._recoil_profile_cache_value = None
+                return None
+
+            cache_key = (payload.profile_id, payload.updated_at, payload.aim_mode)
+            if getattr(self, "_recoil_profile_cache_key", None) == cache_key:
+                return getattr(self, "_recoil_profile_cache_value", None)
+
+            matches = service.load_matching_profiles(recognizer_state, context=context)
+        except (OSError, UnicodeDecodeError, ValueError, json.JSONDecodeError):
             self._recoil_profile_cache_key = None
             self._recoil_profile_cache_value = None
             return None
 
-        cache_key = (payload.profile_id, payload.updated_at, payload.aim_mode)
-        if getattr(self, "_recoil_profile_cache_key", None) == cache_key:
-            return getattr(self, "_recoil_profile_cache_value", None)
-
-        recognizer_state = _coerce_recognizer_state(service.read_recognizer_state())
-        if recognizer_state is None:
-            self._recoil_profile_cache_key = None
-            self._recoil_profile_cache_value = None
-            return None
-
-        matches = service.load_matching_profiles(recognizer_state, context=context)
         for profile in matches:
             if profile.profile_id == payload.profile_id:
                 self._recoil_profile_cache_key = cache_key

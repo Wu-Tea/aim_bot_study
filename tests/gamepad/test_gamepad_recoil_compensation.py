@@ -73,10 +73,10 @@ class RecoilCompensationPluginTests(unittest.TestCase):
 
         self.assertEqual(output.right_y, 0)
 
-    def test_profile_driven_playback_uses_incremental_curve_deltas(self):
+    def test_profile_driven_playback_maps_collector_curve_into_incremental_stick_deltas(self):
         plugin = RecoilCompensationPlugin(
             RecoilCompensationConfig(),
-            profile_provider=lambda _frame: _profile(samples_y=(0.0, -120.0, -260.0)),
+            profile_provider=lambda _frame: _profile(samples_y=(0.0, -1.8, -3.6, -4.5)),
         )
 
         first = GamepadOutput(right_y=0, auto_fire_active=True)
@@ -88,14 +88,18 @@ class RecoilCompensationPluginTests(unittest.TestCase):
         third = GamepadOutput(right_y=0, auto_fire_active=True)
         plugin.apply(_frame(timestamp=1.02), third)
 
+        fourth = GamepadOutput(right_y=0, auto_fire_active=True)
+        plugin.apply(_frame(timestamp=1.03), fourth)
+
         self.assertEqual(first.right_y, 0)
-        self.assertEqual(second.right_y, -120)
-        self.assertEqual(third.right_y, -140)
+        self.assertEqual(second.right_y, -852)
+        self.assertEqual(third.right_y, -852)
+        self.assertEqual(fourth.right_y, -426)
 
     def test_stop_firing_resets_profile_playback_to_the_start(self):
         plugin = RecoilCompensationPlugin(
             RecoilCompensationConfig(),
-            profile_provider=lambda _frame: _profile(samples_y=(0.0, -90.0, -180.0)),
+            profile_provider=lambda _frame: _profile(samples_y=(0.0, -1.8, -3.6)),
         )
 
         plugin.apply(_frame(timestamp=1.00), GamepadOutput(right_y=0, auto_fire_active=True))
@@ -111,21 +115,21 @@ class RecoilCompensationPluginTests(unittest.TestCase):
         resumed = GamepadOutput(right_y=0, auto_fire_active=True)
         plugin.apply(_frame(timestamp=1.04), resumed)
 
-        self.assertEqual(active.right_y, -90)
+        self.assertEqual(active.right_y, -852)
         self.assertEqual(stopped.right_y, 0)
         self.assertEqual(restarted.right_y, 0)
-        self.assertEqual(resumed.right_y, -90)
+        self.assertEqual(resumed.right_y, -852)
 
     def test_weapon_change_resets_curve_before_applying_new_profile(self):
         active_profile = _profile(
             profile_id="profile-cod22-m4-ads-standing-v1",
             canonical_weapon_id="cod22-m4",
-            samples_y=(0.0, -120.0, -260.0),
+            samples_y=(0.0, -1.8, -3.6),
         )
         swapped_profile = _profile(
             profile_id="profile-cod22-kastov-ads-standing-v1",
             canonical_weapon_id="cod22-kastov-762",
-            samples_y=(0.0, -35.0, -70.0),
+            samples_y=(0.0, -1.2, -2.4),
         )
         current = {"profile": active_profile}
 
@@ -145,12 +149,12 @@ class RecoilCompensationPluginTests(unittest.TestCase):
         after_swap = GamepadOutput(right_y=0, auto_fire_active=True)
         plugin.apply(_frame(timestamp=1.03), after_swap)
 
-        self.assertEqual(before_swap.right_y, -120)
+        self.assertEqual(before_swap.right_y, -852)
         self.assertEqual(swap_frame.right_y, 0)
-        self.assertEqual(after_swap.right_y, -35)
+        self.assertEqual(after_swap.right_y, -568)
 
     def test_missing_or_degraded_profile_fallback_clears_active_curve(self):
-        ready_profile = _profile(samples_y=(0.0, -80.0, -160.0))
+        ready_profile = _profile(samples_y=(0.0, -1.5, -3.0))
         current = {"profile": ready_profile}
 
         plugin = RecoilCompensationPlugin(
@@ -170,7 +174,7 @@ class RecoilCompensationPluginTests(unittest.TestCase):
         restarted = GamepadOutput(right_y=0, auto_fire_active=True)
         plugin.apply(_frame(timestamp=1.03), restarted)
 
-        self.assertEqual(ready.right_y, -80)
+        self.assertEqual(ready.right_y, -710)
         self.assertEqual(degraded.right_y, 0)
         self.assertEqual(restarted.right_y, 0)
 
