@@ -26,30 +26,34 @@ class AIAimConfig:
     deadzone_outer: float = 5.0
     x_deadzone_outer: float = 3.0
     ai_fade_full: int = 8000
-    ai_delta_gain: float = 0.7
+    ai_delta_gain: float = 1.0
+    target_max_age_ms: float = 50.0
     ads_snap_window_ms: int = 100
     ads_snap_smoothing: float = 0.0
     ads_snap_max_ai_force: float = 1.0
     ads_snap_max_ai_force_y: float = 1.0
     ads_snap_max_target_dy_px: float = 90.0
-    body_lock_smoothing: float = 0.18
-    body_lock_max_ai_force: float = 0.42
-    body_lock_max_ai_force_y: float = 0.48
+    body_lock_smoothing: float = 0.14
+    body_lock_max_ai_force: float = 0.30
+    body_lock_opposing_boost_max_ai_force: float = 0.42
+    body_lock_max_ai_force_y: float = 0.42
     body_lock_box_tolerance_px: float = 18.0
     body_lock_activation_box_px: float = 150.0
-    body_lock_confidence_frames: int = 4
-    body_lock_confidence_min_strong: float = 0.65
-    body_lock_opposing_suppression_max: float = 0.9
-    body_lock_orthogonal_suppression_max: float = 0.75
-    body_lock_helpful_preservation_floor: float = 0.8
-    body_lock_near_lock_error_px: float = 18.0
+    body_lock_confidence_frames: int = 5
+    body_lock_confidence_min_strong: float = 0.50
+    body_lock_opposing_suppression_max: float = 1.0
+    body_lock_orthogonal_suppression_max: float = 0.60
+    body_lock_helpful_preservation_floor: float = 1.0
+    body_lock_manual_overlap_scale: float = 0.0
+    body_lock_near_lock_error_px: float = 32.0
     body_lock_vertical_orthogonal_bias: float = 1.15
     body_lock_vertical_deadzone_px: float = 6.0
     body_lock_vertical_tail_inner_px: float = 2.0
     body_lock_vertical_tail_speed_threshold_px_per_sec: float = 90.0
+    body_lock_release_tail_scale: float = 0.20
     body_lock_upper_body_ratio: float = 0.38
-    body_lock_lead_frames: int = 4
-    body_lock_lead_seconds: float = 0.05
+    body_lock_lead_frames: int = 5
+    body_lock_lead_seconds: float = 0.0
     body_lock_vertical_lead_scale: float = 0.95
     body_lock_lead_max_px: float = 18.0
     body_lock_target_match_iou: float = 0.10
@@ -129,6 +133,8 @@ class AIAimPlugin:
                 mode,
                 target_dx=desired_dx,
                 target_dy=desired_dy,
+                manual_x=manual_x,
+                manual_y=manual_y,
             )
             if mode == "body_lock":
                 desired_ai_x, desired_ai_y = self._apply_body_lock_axis_guards(
@@ -179,6 +185,17 @@ class AIAimPlugin:
                 )
                 manual_x = resolved_manual.sanitized_manual_x
                 manual_y = resolved_manual.sanitized_manual_y
+                error_radius = math.hypot(desired_dx, desired_dy)
+                self.ai_stick_x = self._resolve_body_lock_manual_overlap(
+                    planned_ai=self.ai_stick_x,
+                    manual_input=manual_x,
+                    error_radius=error_radius,
+                )
+                self.ai_stick_y = self._resolve_body_lock_manual_overlap(
+                    planned_ai=self.ai_stick_y,
+                    manual_input=manual_y,
+                    error_radius=error_radius,
+                )
                 self._last_lock_confidence = lock_confidence
                 self._last_sanitized_manual_x = manual_x
                 self._last_sanitized_manual_y = manual_y
@@ -217,7 +234,7 @@ class AIAimPlugin:
         return (timestamp - self._ads_started_at) <= (self.config.ads_snap_window_ms / 1000.0)
 
     def _should_trigger_ads_snap(self, frame: GamepadFrame) -> bool:
-        if self._ads_snap_used or frame.target is None:
+        if self._ads_snap_used or not self._has_fresh_target(frame):
             return False
         if not self._is_ads_snap_window_open(frame.timestamp):
             self._consume_ads_snap()
@@ -231,7 +248,7 @@ class AIAimPlugin:
         return not self._should_body_lock(frame)
 
     def _should_body_lock(self, frame: GamepadFrame) -> bool:
-        if frame.target is None or frame.target.body_box is None:
+        if not self._has_fresh_target(frame) or frame.target.body_box is None:
             return False
 
         left, top, right, bottom = frame.target.body_box
@@ -512,6 +529,12 @@ class AIAimPlugin:
         release_threshold = self._body_lock_axis_release_threshold(axis)
         if abs(desired_error) <= release_threshold:
             self._set_body_lock_axis_hold(axis, 0)
+            tail_scale = max(0.0, min(1.0, self.config.body_lock_release_tail_scale))
+            previous_error = self._last_body_lock_error_x if axis == "x" else self._last_body_lock_error_y
+            if self._is_body_lock_zero_cross(axis, previous_error, desired_error):
+                self._clear_body_lock_axis_carry(axis)
+            if tail_scale > 0.0:
+                return desired_ai * tail_scale
             self._clear_body_lock_axis_carry(axis)
             return 0.0
 
@@ -608,6 +631,36 @@ class AIAimPlugin:
             return 0.0
         return math.copysign(remaining, planned_ai)
 
+    def _resolve_body_lock_manual_overlap(
+        self,
+        *,
+        planned_ai: float,
+        manual_input: float,
+        error_radius: float,
+    ) -> float:
+        if planned_ai == 0.0 or manual_input == 0.0:
+            return planned_ai
+        if planned_ai * manual_input <= 0.0:
+            return planned_ai
+
+        overlap_scale = max(0.0, min(1.0, self.config.body_lock_manual_overlap_scale))
+        if overlap_scale <= 0.0:
+            return planned_ai
+
+        near_lock_ratio = max(
+            0.0,
+            1.0
+            - min(
+                1.0,
+                error_radius / max(1.0, self.config.body_lock_near_lock_error_px),
+            ),
+        )
+        manual_credit = abs(manual_input) * overlap_scale * (0.25 + (0.75 * near_lock_ratio))
+        remaining = abs(planned_ai) - manual_credit
+        if remaining <= 0.0:
+            return 0.0
+        return math.copysign(remaining, planned_ai)
+
     def _body_lock_vertical_ai_scale(self, mode: str, desired_dy: float) -> float | None:
         if mode != "body_lock":
             return 1.0
@@ -682,7 +735,7 @@ class AIAimPlugin:
         )
 
     def _observe_target_motion(self, frame: GamepadFrame) -> None:
-        if frame.target is None or frame.target.body_box is None:
+        if not self._has_fresh_target(frame) or frame.target.body_box is None:
             self._reset_motion_tracking()
             return
 
@@ -711,6 +764,14 @@ class AIAimPlugin:
         self._motion_point = current_point
         self._motion_timestamp = frame.timestamp
         self._motion_frames += 1
+
+    def _has_fresh_target(self, frame: GamepadFrame) -> bool:
+        if frame.target is None:
+            return False
+        if frame.target_timestamp is None or self.config.target_max_age_ms <= 0.0:
+            return True
+        max_age_seconds = self.config.target_max_age_ms / 1000.0
+        return (frame.timestamp - frame.target_timestamp) <= max_age_seconds
 
     def _targets_match(self, lhs, rhs) -> bool:
         if lhs.body_box is not None and rhs.body_box is not None:
@@ -770,6 +831,8 @@ class AIAimPlugin:
         *,
         target_dx: float,
         target_dy: float,
+        manual_x: float = 0.0,
+        manual_y: float = 0.0,
     ) -> tuple[float, float, float]:
         x_strength, y_strength = compute_axis_soft_strengths(
             dx=target_dx,
@@ -799,7 +862,10 @@ class AIAimPlugin:
             y_limit = 32767 * self.config.ads_snap_max_ai_force_y
             smoothing = self.config.ads_snap_smoothing
         else:
-            x_limit = 32767 * self.config.body_lock_max_ai_force
+            x_force = self.config.body_lock_max_ai_force
+            if manual_x * target_dx < 0.0:
+                x_force = max(x_force, self.config.body_lock_opposing_boost_max_ai_force)
+            x_limit = 32767 * x_force
             y_limit = 32767 * self.config.body_lock_max_ai_force_y
             smoothing = self.config.body_lock_smoothing
 
@@ -885,10 +951,10 @@ class AIAimPlugin:
     ) -> float | None:
         mid_pixels = float(
             self.config.piecewise_mid_pixels if mid_pixels is None else mid_pixels
-        ) * self.config.ai_delta_gain
+        )
         max_pixels = float(
             self.config.piecewise_max_pixels if max_pixels is None else max_pixels
-        ) * self.config.ai_delta_gain
+        )
         mid_ratio = self.config.piecewise_mid_ratio if mid_ratio is None else mid_ratio
 
         if (

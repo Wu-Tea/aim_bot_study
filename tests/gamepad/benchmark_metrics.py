@@ -66,6 +66,8 @@ class BenchmarkAggregateMetrics:
     max_overshoot_px: float
     mean_recovery_frames_after_turn: float | None
     mean_settle_frames_after_decel: float | None
+    turn_recovery_coverage_ratio: float | None = None
+    decel_settle_coverage_ratio: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,6 +79,8 @@ class BenchmarkMetricDeltas:
     max_overshoot_px: float | None
     mean_recovery_frames_after_turn: float | None
     mean_settle_frames_after_decel: float | None
+    turn_recovery_coverage_ratio: float | None
+    decel_settle_coverage_ratio: float | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,6 +105,14 @@ class BenchmarkRunSummary:
             mean_settle_frames_after_decel=_relative_change(
                 self.aggregate.mean_settle_frames_after_decel,
                 baseline_metrics.mean_settle_frames_after_decel,
+            ),
+            turn_recovery_coverage_ratio=_relative_change(
+                self.aggregate.turn_recovery_coverage_ratio,
+                baseline_metrics.turn_recovery_coverage_ratio,
+            ),
+            decel_settle_coverage_ratio=_relative_change(
+                self.aggregate.decel_settle_coverage_ratio,
+                baseline_metrics.decel_settle_coverage_ratio,
             ),
         )
 
@@ -393,6 +405,8 @@ def _aggregate_scenario_metrics(metrics: Sequence[BenchmarkScenarioMetrics]) -> 
 
     recovery_values = [metric.mean_recovery_frames_after_turn for metric in metrics if metric.mean_recovery_frames_after_turn is not None]
     settle_values = [metric.mean_settle_frames_after_decel for metric in metrics if metric.mean_settle_frames_after_decel is not None]
+    turn_candidates = [metric for metric in metrics if metric.kind in {"steady_turns", "turn_then_decel"}]
+    decel_candidates = [metric for metric in metrics if metric.kind in {"turn_then_decel", "decel_resume"}]
 
     return BenchmarkAggregateMetrics(
         mean_error_px=mean(metric.mean_error_px for metric in metrics),
@@ -402,6 +416,8 @@ def _aggregate_scenario_metrics(metrics: Sequence[BenchmarkScenarioMetrics]) -> 
         max_overshoot_px=max(metric.max_overshoot_px for metric in metrics),
         mean_recovery_frames_after_turn=mean(recovery_values) if recovery_values else None,
         mean_settle_frames_after_decel=mean(settle_values) if settle_values else None,
+        turn_recovery_coverage_ratio=_coverage_ratio(len(recovery_values), len(turn_candidates)),
+        decel_settle_coverage_ratio=_coverage_ratio(len(settle_values), len(decel_candidates)),
     )
 
 
@@ -534,6 +550,12 @@ def _relative_change(current: float | None, baseline: float | None) -> float | N
     if baseline == 0.0:
         return 0.0 if current == 0.0 else None
     return (current - baseline) / baseline
+
+
+def _coverage_ratio(success_count: int, candidate_count: int) -> float | None:
+    if candidate_count <= 0:
+        return None
+    return success_count / candidate_count
 
 
 def _clamp_int(value: int, limit: int) -> int:

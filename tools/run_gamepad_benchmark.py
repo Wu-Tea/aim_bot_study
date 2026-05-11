@@ -26,7 +26,11 @@ from tests.gamepad.ads_manual_inputs import AdsManualInputConfig
 from tests.gamepad.benchmark_metrics import BenchmarkAggregateMetrics, BenchmarkMetricsConfig, evaluate_run, evaluate_scenario
 from tests.gamepad.benchmark_scenarios import ScenarioManifest, generate_phase1_manifests
 from tests.gamepad.benchmark_scoreboard import ScoreboardRunEntry, extract_baseline_key, update_scoreboard
-from tests.gamepad.manual_mix_inputs import ManualMixInputConfig
+from tests.gamepad.manual_mix_inputs import (
+    HIGH_INTENSITY_MANUAL_MIX_SEEDS,
+    ManualMixInputConfig,
+    high_intensity_manual_mix_config,
+)
 from tests.gamepad.manual_mix_metrics import (
     ManualMixAggregateMetrics,
     ManualMixMetricsConfig,
@@ -45,6 +49,12 @@ DEFAULT_SCOREBOARD_TITLE = "Gamepad Benchmarks"
 DEFAULT_MANUAL_MIX_SCOREBOARD_TITLE = "Gamepad Manual-Mix Benchmarks"
 DEFAULT_ADS_SCOREBOARD_TITLE = "Gamepad ADS Benchmarks"
 DEFAULT_MANUAL_MIX_SEEDS = (1, 2, 3)
+DEFAULT_MANUAL_INPUT_PROFILE = "standard"
+HIGH_INTENSITY_MANUAL_INPUT_PROFILE = "high-intensity"
+MANUAL_INPUT_PROFILES = (
+    DEFAULT_MANUAL_INPUT_PROFILE,
+    HIGH_INTENSITY_MANUAL_INPUT_PROFILE,
+)
 DEFAULT_SCENARIO_LOGIC = (
     "steady_turns: 8 scenarios with one or more heading changes and no hard stop",
     "turn_then_decel: 8 scenarios with a turn followed by a deceleration event",
@@ -80,6 +90,7 @@ def run_benchmark(
     set_baseline: bool = False,
     benchmark_config: BenchmarkMetricsConfig | ManualMixMetricsConfig | AdsBenchmarkConfig | None = None,
     manual_input_config: ManualMixInputConfig | AdsManualInputConfig | None = None,
+    manual_input_profile: str = DEFAULT_MANUAL_INPUT_PROFILE,
     manual_seeds: Iterable[int] | None = None,
     timestamp: str | None = None,
 ) -> dict[str, Any]:
@@ -130,10 +141,11 @@ def run_benchmark(
         scenario_logic = DEFAULT_ADS_SCENARIO_LOGIC
         scoreboard_title = DEFAULT_ADS_SCOREBOARD_TITLE
     elif suite == "manual-mix":
+        manual_input_profile = _validate_manual_input_profile(manual_input_profile)
         manifests = generate_phase1_manifests(run_key, run_seed)
         benchmark_config = benchmark_config or ManualMixMetricsConfig()
-        manual_input_config = manual_input_config or ManualMixInputConfig()
-        manual_seeds = tuple(manual_seeds or DEFAULT_MANUAL_MIX_SEEDS)
+        manual_input_config = manual_input_config or _manual_input_config_for_profile(manual_input_profile)
+        manual_seeds = tuple(manual_seeds or _manual_seeds_for_profile(manual_input_profile))
         summary = evaluate_manual_mix_run(
             run_key,
             manifests,
@@ -156,6 +168,7 @@ def run_benchmark(
             git_metadata=git_metadata,
             benchmark_config=benchmark_config,
             input_config=manual_input_config,
+            manual_input_profile=manual_input_profile,
             manual_seeds=manual_seeds,
             manifests=manifests,
             summary=summary,
@@ -164,6 +177,7 @@ def run_benchmark(
         benchmark_parameters = _manual_mix_parameters_snapshot(
             benchmark_config,
             manual_input_config,
+            manual_input_profile,
             manual_seeds,
         )
         scenario_logic = DEFAULT_MANUAL_MIX_SCENARIO_LOGIC
@@ -248,6 +262,10 @@ def replay_run_key(
             "baseline_key": artifact.get("baseline_key"),
             "benchmark_config": asdict(benchmark_config),
             "manual_input_config": asdict(manual_input_config),
+            "manual_input_profile": artifact.get(
+                "manual_input_profile",
+                DEFAULT_MANUAL_INPUT_PROFILE,
+            ),
             "manual_seeds": list(manual_seeds),
             "aggregate_metrics": asdict(summary.aggregate),
             "relative_deltas_vs_baseline": delta_metrics,
@@ -414,6 +432,12 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser.add_argument("--run-key", help="Optional explicit run key for normal benchmark runs.")
     parser.add_argument("--run-seed", type=int, help="Optional explicit RNG seed for scenario generation.")
     parser.add_argument(
+        "--manual-input-profile",
+        choices=MANUAL_INPUT_PROFILES,
+        default=DEFAULT_MANUAL_INPUT_PROFILE,
+        help="Manual input profile for --suite manual-mix.",
+    )
+    parser.add_argument(
         "--target-sample-hz",
         type=float,
         help="Optional target indexing/sample rate in Hz. Controller execution remains at the suite frame_dt.",
@@ -427,6 +451,8 @@ def main(argv: Iterable[str] | None = None) -> int:
         parser.error("--replay-run-key and --replay-scenario-key are mutually exclusive")
     if args.set_baseline and any(replay_flags):
         parser.error("--set-baseline cannot be combined with replay arguments")
+    if args.manual_input_profile != DEFAULT_MANUAL_INPUT_PROFILE and args.suite != "manual-mix":
+        parser.error("--manual-input-profile only applies to --suite manual-mix")
     if args.target_sample_hz is not None and args.target_sample_hz <= 0.0:
         parser.error("--target-sample-hz must be positive")
 
@@ -464,6 +490,7 @@ def main(argv: Iterable[str] | None = None) -> int:
                 scoreboard_path=args.scoreboard_path,
                 set_baseline=args.set_baseline,
                 benchmark_config=benchmark_config,
+                manual_input_profile=args.manual_input_profile,
             )
         print(json.dumps(result, indent=2))
         return 0
@@ -511,6 +538,7 @@ def _build_manual_mix_artifact(
     git_metadata: GitMetadata,
     benchmark_config: ManualMixMetricsConfig,
     input_config: ManualMixInputConfig,
+    manual_input_profile: str,
     manual_seeds: Sequence[int],
     manifests: tuple[ScenarioManifest, ...] | list[ScenarioManifest],
     summary: Any,
@@ -528,6 +556,7 @@ def _build_manual_mix_artifact(
         "git_metadata": asdict(git_metadata),
         "benchmark_config": asdict(benchmark_config),
         "manual_input_config": asdict(input_config),
+        "manual_input_profile": manual_input_profile,
         "manual_seeds": list(manual_seeds),
         "scenario_logic": list(DEFAULT_MANUAL_MIX_SCENARIO_LOGIC),
         "controller_config_snapshot": _controller_config_snapshot(),
@@ -647,6 +676,7 @@ def _benchmark_parameters_snapshot(benchmark_config: BenchmarkMetricsConfig) -> 
 def _manual_mix_parameters_snapshot(
     benchmark_config: ManualMixMetricsConfig,
     input_config: ManualMixInputConfig,
+    manual_input_profile: str,
     manual_seeds: Sequence[int],
 ) -> dict[str, Any]:
     snapshot = asdict(benchmark_config)
@@ -654,6 +684,7 @@ def _manual_mix_parameters_snapshot(
     snapshot["steady_turns"] = 8
     snapshot["turn_then_decel"] = 8
     snapshot["decel_resume"] = 8
+    snapshot["manual_input_profile"] = manual_input_profile
     snapshot["manual_seed_count"] = len(tuple(manual_seeds))
     snapshot["manual_seeds"] = list(manual_seeds)
     snapshot["manual_input_config"] = asdict(input_config)
@@ -794,6 +825,25 @@ def _default_scoreboard_path(suite: str) -> Path:
     if suite == "ads":
         return DEFAULT_ADS_SCOREBOARD_PATH
     return DEFAULT_SCOREBOARD_PATH
+
+
+def _validate_manual_input_profile(profile: str) -> str:
+    if profile not in MANUAL_INPUT_PROFILES:
+        options = ", ".join(MANUAL_INPUT_PROFILES)
+        raise ValueError(f"Unknown manual input profile: {profile}. Expected one of: {options}")
+    return profile
+
+
+def _manual_input_config_for_profile(profile: str) -> ManualMixInputConfig:
+    if profile == HIGH_INTENSITY_MANUAL_INPUT_PROFILE:
+        return high_intensity_manual_mix_config()
+    return ManualMixInputConfig()
+
+
+def _manual_seeds_for_profile(profile: str) -> tuple[int, ...]:
+    if profile == HIGH_INTENSITY_MANUAL_INPUT_PROFILE:
+        return HIGH_INTENSITY_MANUAL_MIX_SEEDS
+    return DEFAULT_MANUAL_MIX_SEEDS
 
 
 def _unique_manifests_from_artifact(artifact: dict[str, Any]) -> tuple[ScenarioManifest, ...]:

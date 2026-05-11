@@ -12,6 +12,22 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config.toml"
 
 
+RUNTIME_VISION_KEYS = frozenset(
+    {
+        "backend",
+        "capture_fps",
+        "crop_width",
+        "crop_height",
+        "perf_log",
+        "quit_key",
+        "native_cue_sidecar",
+    }
+)
+RUNTIME_GAMEPAD_KEYS = frozenset(
+    {
+        "auto_fire_output",
+    }
+)
 GAMEPAD_AI_AIM_KEYS = frozenset(
     {
         "smoothing",
@@ -19,6 +35,7 @@ GAMEPAD_AI_AIM_KEYS = frozenset(
         "max_ai_force",
         "max_ai_force_y",
         "ai_delta_gain",
+        "target_max_age_ms",
         "piecewise_mid_pixels_y",
         "piecewise_max_pixels_y",
         "piecewise_mid_ratio_y",
@@ -29,6 +46,7 @@ GAMEPAD_AI_AIM_KEYS = frozenset(
         "ads_snap_max_target_dy_px",
         "body_lock_smoothing",
         "body_lock_max_ai_force",
+        "body_lock_opposing_boost_max_ai_force",
         "body_lock_max_ai_force_y",
         "body_lock_box_tolerance_px",
         "body_lock_activation_box_px",
@@ -37,11 +55,13 @@ GAMEPAD_AI_AIM_KEYS = frozenset(
         "body_lock_opposing_suppression_max",
         "body_lock_orthogonal_suppression_max",
         "body_lock_helpful_preservation_floor",
+        "body_lock_manual_overlap_scale",
         "body_lock_near_lock_error_px",
         "body_lock_vertical_orthogonal_bias",
         "body_lock_vertical_deadzone_px",
         "body_lock_vertical_tail_inner_px",
         "body_lock_vertical_tail_speed_threshold_px_per_sec",
+        "body_lock_release_tail_scale",
         "body_lock_upper_body_ratio",
         "body_lock_lead_frames",
         "body_lock_lead_seconds",
@@ -83,8 +103,8 @@ MOUSE_AI_AIM_KEYS = frozenset(
         "reacquire_max_move_px",
         "stabilize_max_move_px",
         "predicted_stabilize_max_move_px",
-    "moving_stabilize_max_move_px",
-    "moving_stabilize_motion_px",
+        "moving_stabilize_max_move_px",
+        "moving_stabilize_motion_px",
         "moving_stabilize_motion_scale",
         "moving_stabilize_max_dt_ms",
         "moving_stabilize_axis_ratio",
@@ -138,7 +158,30 @@ MOUSE_AI_AIM_KEYS = frozenset(
 
 
 @dataclass(slots=True, frozen=True)
+class RuntimeVisionConfig:
+    backend: str = "native"
+    capture_fps: int = 140
+    crop_width: int = 640
+    crop_height: int = 512
+    perf_log: bool = True
+    quit_key: str = "0"
+    native_cue_sidecar: bool = False
+
+
+@dataclass(slots=True, frozen=True)
+class RuntimeGamepadConfig:
+    auto_fire_output: str = "RB"
+
+
+@dataclass(slots=True, frozen=True)
+class RuntimeConfig:
+    vision: RuntimeVisionConfig
+    gamepad: RuntimeGamepadConfig
+
+
+@dataclass(slots=True, frozen=True)
 class TuningConfig:
+    runtime: RuntimeConfig
     gamepad_ai_aim: GamepadAIAimConfig
     adaptive_delta_gain: AdaptiveDeltaGainConfig
     mouse_ai_aim: MouseAIAimConfig
@@ -148,6 +191,20 @@ def _filter(section: Mapping[str, Any] | None, allowed: frozenset[str]) -> dict[
     if not section:
         return {}
     return {key: value for key, value in section.items() if key in allowed}
+
+
+def _runtime_vision_config(section: Mapping[str, Any] | None) -> RuntimeVisionConfig:
+    config = replace(RuntimeVisionConfig(), **_filter(section, RUNTIME_VISION_KEYS))
+    if config.backend not in {"python", "native"}:
+        config = replace(config, backend=RuntimeVisionConfig().backend)
+    return config
+
+
+def _runtime_gamepad_config(section: Mapping[str, Any] | None) -> RuntimeGamepadConfig:
+    config = replace(RuntimeGamepadConfig(), **_filter(section, RUNTIME_GAMEPAD_KEYS))
+    if config.auto_fire_output not in {"RB", "RT"}:
+        config = replace(config, auto_fire_output=RuntimeGamepadConfig().auto_fire_output)
+    return config
 
 
 def _read_toml(path: Path) -> dict[str, Any]:
@@ -161,9 +218,14 @@ def load_tuning_config(path: Path | None = None) -> TuningConfig:
     resolved_path = path if path is not None else DEFAULT_CONFIG_PATH
     data = _read_toml(resolved_path)
 
+    runtime_section = data.get("runtime", {}) or {}
     gamepad_section = data.get("gamepad", {}) or {}
     mouse_section = data.get("mouse", {}) or {}
 
+    runtime = RuntimeConfig(
+        vision=_runtime_vision_config(runtime_section.get("vision")),
+        gamepad=_runtime_gamepad_config(runtime_section.get("gamepad")),
+    )
     gamepad_ai_aim = replace(
         GamepadAIAimConfig(),
         **_filter(gamepad_section.get("ai_aim"), GAMEPAD_AI_AIM_KEYS),
@@ -178,6 +240,7 @@ def load_tuning_config(path: Path | None = None) -> TuningConfig:
     )
 
     return TuningConfig(
+        runtime=runtime,
         gamepad_ai_aim=gamepad_ai_aim,
         adaptive_delta_gain=adaptive,
         mouse_ai_aim=mouse_ai_aim,

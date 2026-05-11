@@ -23,6 +23,7 @@ from tests.gamepad.benchmark_metrics import (
     _nearest_rank_percentile,
     _relative_change,
     _sampled_state_for_controller_frame,
+    _coverage_ratio,
 )
 from tests.gamepad.benchmark_scenarios import ScenarioManifest
 from tests.gamepad.manual_mix_inputs import ManualMixInputConfig, ManualMixInputGenerator
@@ -83,6 +84,9 @@ class ManualMixAggregateMetrics:
     aligned_input_preservation_ratio: float | None = None
     opposing_burst_hold_error_px: float | None = None
     lock_survival_rate: float | None = None
+    turn_recovery_coverage_ratio: float | None = None
+    decel_settle_coverage_ratio: float | None = None
+    wrong_input_recovery_coverage_ratio: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,6 +105,9 @@ class ManualMixMetricDeltas:
     aligned_input_preservation_ratio: float | None
     opposing_burst_hold_error_px: float | None
     lock_survival_rate: float | None
+    turn_recovery_coverage_ratio: float | None
+    decel_settle_coverage_ratio: float | None
+    wrong_input_recovery_coverage_ratio: float | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,6 +164,18 @@ class ManualMixRunSummary:
             lock_survival_rate=_relative_change(
                 self.aggregate.lock_survival_rate,
                 baseline_metrics.lock_survival_rate,
+            ),
+            turn_recovery_coverage_ratio=_relative_change(
+                self.aggregate.turn_recovery_coverage_ratio,
+                baseline_metrics.turn_recovery_coverage_ratio,
+            ),
+            decel_settle_coverage_ratio=_relative_change(
+                self.aggregate.decel_settle_coverage_ratio,
+                baseline_metrics.decel_settle_coverage_ratio,
+            ),
+            wrong_input_recovery_coverage_ratio=_relative_change(
+                self.aggregate.wrong_input_recovery_coverage_ratio,
+                baseline_metrics.wrong_input_recovery_coverage_ratio,
             ),
         )
 
@@ -430,6 +449,13 @@ def _aggregate_manual_mix_metrics(
         for metric in metrics
         if metric.lock_survival_rate is not None
     ]
+    turn_candidates = [metric for metric in metrics if metric.kind in {"steady_turns", "turn_then_decel"}]
+    decel_candidates = [metric for metric in metrics if metric.kind in {"turn_then_decel", "decel_resume"}]
+    wrong_input_candidates = [
+        metric
+        for metric in metrics
+        if metric.opposing_burst_hold_error_px is not None
+    ]
 
     return ManualMixAggregateMetrics(
         mean_error_px=mean(metric.mean_error_px for metric in metrics),
@@ -446,6 +472,12 @@ def _aggregate_manual_mix_metrics(
         aligned_input_preservation_ratio=mean(aligned_values) if aligned_values else None,
         opposing_burst_hold_error_px=mean(burst_hold_values) if burst_hold_values else None,
         lock_survival_rate=mean(lock_survival_values) if lock_survival_values else None,
+        turn_recovery_coverage_ratio=_coverage_ratio(len(recovery_values), len(turn_candidates)),
+        decel_settle_coverage_ratio=_coverage_ratio(len(settle_values), len(decel_candidates)),
+        wrong_input_recovery_coverage_ratio=_coverage_ratio(
+            len(wrong_input_values),
+            len(wrong_input_candidates),
+        ),
     )
 
 

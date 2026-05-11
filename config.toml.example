@@ -1,60 +1,79 @@
-# Copy this file to `config.toml` (at project root) to override tuning defaults.
-# Any section/key you omit falls through to the dataclass default in code.
-# The real `config.toml` is gitignored so your local tuning stays private.
+# Copy this file to `config.toml` at the project root to override local tuning.
+# Precedence is: CLI arguments / existing environment variables > config.toml > code defaults.
+# The real `config.toml` is gitignored so machine-specific tuning stays private.
+
+# Runtime settings are applied by main.py before the Python or native vision runner starts.
+# These are placed first because capture cadence, stale targets, and sidecar capture
+# change latency and aiming feel immediately.
+[runtime.vision]
+backend = "native"
+capture_fps = 140
+crop_width = 640
+crop_height = 512
+native_cue_sidecar = false
+perf_log = true
+quit_key = "0"
+
+[runtime.gamepad]
+auto_fire_output = "RB"
 
 [gamepad.ai_aim]
-# Legacy smoothing value still applies when explicit legacy sub-plugins are used.
-# Default 0.62.
-smoothing = 0.62
-# Pixel error mapped to full-scale stick deflection. Default 130.
-max_pixels = 130
+# Highest-impact feel and latency knobs.
+# Ignore controller targets older than this many milliseconds. This protects the
+# 1ms gamepad loop from stale aim data when native vision stalls. Default 50.
+target_max_age_ms = 50.0
 # Global multiplier applied to target_dx/dy before snap/body-lock mapping.
-# Default 0.7.
-ai_delta_gain = 0.7
+# Default 1.0.
+ai_delta_gain = 1.0
 # First-ADS snap window in milliseconds. Default 100.
 ads_snap_window_ms = 100
-# Snap can be aggressive in v1, so the default smoothing is 0.0.
+# Clamp tall ADS snap Y pulls so jump/fall targets do not drag the view into
+# weapon occlusion or low-value vertical corrections. Default 90px.
+ads_snap_max_target_dy_px = 90.0
+# Snap can be aggressive in v1, so the default snap smoothing is 0.0.
 ads_snap_smoothing = 0.0
 ads_snap_max_ai_force = 1.0
 ads_snap_max_ai_force_y = 1.0
-# Clamp very tall ADS snap Y pulls so jump/fall targets do not drag the view
-# into weapon occlusion or low-value vertical corrections. Default 90px.
-ads_snap_max_target_dy_px = 90.0
-# Body Lock only engages after the crosshair is already inside the body box
-# (plus tolerance) and the upper-body lock point stays inside a central box.
+
+# Body Lock engages after the crosshair is already inside the body box and the
+# upper-body lock point stays inside a central activation box.
 body_lock_activation_box_px = 150.0
 body_lock_box_tolerance_px = 18.0
-body_lock_smoothing = 0.18
-body_lock_max_ai_force = 0.42
-body_lock_max_ai_force_y = 0.48
-# Frames of stable target continuity needed before body-lock suppression gets aggressive.
-body_lock_confidence_frames = 4
-# Confidence threshold above which opposing manual input is strongly cut down.
-body_lock_confidence_min_strong = 0.65
-# Maximum fraction of harmful manual input that can be removed while lock confidence is high.
-body_lock_opposing_suppression_max = 0.9
-# Maximum damping applied to orthogonal wobble near the lock point.
-body_lock_orthogonal_suppression_max = 0.75
-# Minimum fraction of aligned manual input that still survives arbitration.
-body_lock_helpful_preservation_floor = 0.8
-# Near-lock radius where orthogonal damping ramps up.
-body_lock_near_lock_error_px = 18.0
-# Slight extra damping on vertical orthogonal wobble around the upper-body point.
+body_lock_smoothing = 0.14
+body_lock_max_ai_force = 0.30
+# Temporary X-axis ceiling when manual input is clearly opposing the lock
+# correction. Keeps normal lock soft, but helps recover from wrong-stick bursts.
+body_lock_opposing_boost_max_ai_force = 0.42
+body_lock_max_ai_force_y = 0.42
+body_lock_confidence_frames = 5
+body_lock_confidence_min_strong = 0.50
+body_lock_opposing_suppression_max = 1.0
+body_lock_orthogonal_suppression_max = 0.60
+body_lock_helpful_preservation_floor = 1.0
+body_lock_manual_overlap_scale = 0.0
+body_lock_near_lock_error_px = 32.0
 body_lock_vertical_orthogonal_bias = 1.15
-# Suppress tiny vertical twitch near the upper-body lock point.
 body_lock_vertical_deadzone_px = 6.0
-# When target motion slows down, gradually restore some Y tail help from
-# this inner threshold up to the deadzone edge instead of hard-zeroing.
 body_lock_vertical_tail_inner_px = 2.0
 body_lock_vertical_tail_speed_threshold_px_per_sec = 90.0
+body_lock_release_tail_scale = 0.20
 body_lock_upper_body_ratio = 0.38
-# Optional movement compensation once the same target has been tracked for
-# several frames.
-body_lock_lead_frames = 4
-body_lock_lead_seconds = 0.05
-# Keep vertical prediction a bit softer than horizontal to reduce lock twitch.
+body_lock_lead_frames = 5
+body_lock_lead_seconds = 0.0
 body_lock_vertical_lead_scale = 0.95
 body_lock_lead_max_px = 18.0
+body_lock_target_match_iou = 0.10
+body_lock_target_match_center_px = 48.0
+
+# Legacy / lower-level stick shaping. These still apply when explicit legacy
+# sub-plugins or non snap/body-lock paths are used.
+smoothing = 0.62
+max_pixels = 130
+max_ai_force = 0.64
+max_ai_force_y = 0.80
+piecewise_mid_pixels_y = 45.0
+piecewise_max_pixels_y = 180.0
+piecewise_mid_ratio_y = 0.65
 
 [gamepad.adaptive_delta_gain]
 # Short-term bonus kicks in when error fails to shrink for N consecutive
@@ -68,12 +87,9 @@ opposing_input_threshold = 4500
 stale_seconds = 0.15
 
 [mouse.ai_aim]
-# Mouse AI now uses a four-stage shape:
+# Mouse AI uses a four-stage shape:
 # far acquire -> mid acquire -> stabilize, plus a short same-target reacquire
 # burst after a transient target gap.
-# `observed` and `reconstructed` targets can start fresh far/mid acquire.
-# `predicted` targets only continue stabilize for the same target family inside
-# the grace window.
 acquire_radius_px = 220.0
 mid_acquire_enter_px = 48.0
 mid_acquire_exit_px = 64.0
@@ -82,7 +98,8 @@ stabilize_exit_px = 18.0
 inner_release_band_px = 3.0
 stabilize_reacquire_growth_px = 1.5
 stabilize_reacquire_motion_px = 1.0
-# `acquire_*` controls the far-range pull phase.
+
+# Pull strength and maximum move by phase.
 acquire_gain = 1.05
 mid_acquire_gain = 0.78
 reacquire_gain = 0.92
@@ -99,12 +116,14 @@ moving_stabilize_motion_px = 1.5
 moving_stabilize_motion_scale = 1.25
 moving_stabilize_max_dt_ms = 60
 moving_stabilize_axis_ratio = 1.75
+
 # Motion lead helps moving-target scenarios by aiming slightly ahead of the
 # current box center for the same target family.
 acquire_lead_seconds = 0.03
 mid_acquire_lead_seconds = 0.02
 reacquire_lead_seconds = 0.025
 acquire_lead_max_px = 14.0
+
 # PD-like trajectory controller:
 # first compute a mode-specific command move, then convert it into a desired
 # velocity profile and follow it with acceleration limits.
@@ -115,6 +134,7 @@ stabilize_response_horizon_s = 0.018
 predicted_stabilize_response_horizon_s = 0.020
 response_accel_multiplier = 1.85
 error_rate_lowpass_alpha = 0.35
+
 # Radius-tiered follow strength:
 # very close targets stay in a control profile for recoil-friendly behavior,
 # while slightly wider errors step up into stronger chase profiles.
@@ -130,6 +150,7 @@ follow_chase_max_move_scale = 1.14
 follow_chase_horizon_scale = 0.82
 follow_chase_accel_scale = 1.26
 follow_chase_error_rate_scale = 1.26
+
 acquire_error_rate_gain = 0.14
 mid_acquire_error_rate_gain = 0.11
 reacquire_error_rate_gain = 0.13
@@ -141,15 +162,20 @@ stabilize_integral_limit_px = 6.0
 same_target_grace_ms = 200
 reacquire_radius_px = 96.0
 reacquire_window_ms = 90
+
 # If the same target is still moving away from the crosshair fast enough, keep
 # the stronger far-acquire profile a bit longer instead of dropping into the
 # gentler mid-acquire phase too early.
 chase_hold_projection_px_per_sec = 120.0
 chase_hold_speed_px_per_sec = 220.0
 chase_hold_min_radius_px = 24.0
-# When we have already committed to one target, require a short persistence
-# window before switching to a different target family. This cuts down the
-# visible side-to-side yanks from brief relocalization noise.
+
+# Target switching and stall escape guards.
 switch_guard_ms = 60
 switch_guard_commit_radius_px = 24.0
+acquire_stall_min_shrink_px = 1.0
+acquire_stall_trigger_frames = 2
+acquire_stall_gain_per_frame = 0.18
+acquire_stall_decay_per_frame = 0.20
+acquire_stall_max_bonus = 0.75
 breakaway_speed_px = 18.0

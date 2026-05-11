@@ -29,6 +29,24 @@ class ManualMixInputConfig:
     reference_frame_dt: float = 1.0 / 60.0
 
 
+HIGH_INTENSITY_MANUAL_MIX_SEEDS = (1, 2, 3, 4, 5)
+
+
+def high_intensity_manual_mix_config() -> ManualMixInputConfig:
+    return ManualMixInputConfig(
+        max_manual_ratio=0.92,
+        aligned_scale=0.82,
+        wobble_scale=0.28,
+        opposing_scale=0.82,
+        recover_scale=0.68,
+        vertical_jitter_scale=0.22,
+        event_window_frames=24,
+        opposing_burst_min_frames=4,
+        opposing_burst_max_frames=8,
+        overshoot_recover_frames=5,
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class ManualInputFrame:
     frame: int

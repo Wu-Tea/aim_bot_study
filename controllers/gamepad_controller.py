@@ -145,12 +145,19 @@ class GamepadController(BaseController, threading.Thread):
         # is still owned by the vision-layer detector, and resetting it here
         # would erase its grace window on frames where there is no valid target.
         with self.lock:
-            self.target_dx = 0.0
-            self.target_dy = 0.0
-            self.target_info = None
-            self.target_revision = getattr(self, "target_revision", 0) + 1
-            self.target_timestamp = time.perf_counter()
+            self._clear_target_state_locked()
         reset_plugins(self.plugins)
+
+    def clear_target(self):
+        with self.lock:
+            self._clear_target_state_locked()
+
+    def _clear_target_state_locked(self):
+        self.target_dx = 0.0
+        self.target_dy = 0.0
+        self.target_info = None
+        self.target_revision = getattr(self, "target_revision", 0) + 1
+        self.target_timestamp = time.perf_counter()
 
     def is_aiming(self):
         return self._is_aiming

@@ -12,9 +12,14 @@ from typing import TextIO
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_STATE_ROOT = PROJECT_ROOT / "artifacts" / "recoil_state"
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from config import load_tuning_config
 
 
 def build_parser() -> argparse.ArgumentParser:
+    runtime_config = load_tuning_config().runtime
     parser = argparse.ArgumentParser(description="Launch the recoil recognizer and gamepad runtime together.")
     parser.add_argument("--game", choices=("cod20", "cod21", "cod22"), required=True)
     parser.add_argument("--profile-dir", type=Path, required=True)
@@ -22,8 +27,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--state-file", type=Path)
     parser.add_argument("--recognizer-fps", type=int, default=20)
     parser.add_argument("--controller-mode", choices=("gamepad", "kbm_to_gamepad", "mouse"), default="gamepad")
-    parser.add_argument("--auto-fire-output", choices=("RB", "RT"), default="RB")
-    parser.add_argument("--vision-backend", choices=("python", "native"), default=os.environ.get("VISION_BACKEND", "native"))
+    parser.add_argument(
+        "--auto-fire-output",
+        choices=("RB", "RT"),
+        default=os.environ.get("AUTO_FIRE_OUTPUT", runtime_config.gamepad.auto_fire_output),
+    )
+    parser.add_argument(
+        "--vision-backend",
+        choices=("python", "native"),
+        default=os.environ.get("VISION_BACKEND", runtime_config.vision.backend),
+    )
     parser.add_argument("--recognizer-only", action="store_true")
     return parser
 

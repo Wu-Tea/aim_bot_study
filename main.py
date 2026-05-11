@@ -1,11 +1,26 @@
 import argparse
 import os
 
+from config import RuntimeConfig, load_tuning_config
 from controller import ControllerFactory
 from vision import process_native_vision, process_vision
 
 
-def _parse_args():
+def _env_default(name: str, value: object) -> str:
+    return os.getenv(name, str(value))
+
+
+def _setdefault_env(name: str, value: object) -> None:
+    if name not in os.environ:
+        os.environ[name] = str(value)
+
+
+def _bool_env(value: bool) -> str:
+    return "1" if value else "0"
+
+
+def _parse_args(runtime_config: RuntimeConfig | None = None):
+    runtime_config = runtime_config or load_tuning_config().runtime
     parser = argparse.ArgumentParser(description="YOLO aim assist launcher")
     parser.add_argument(
         "--controller-mode",
@@ -21,13 +36,13 @@ def _parse_args():
     parser.add_argument(
         "--auto-fire-output",
         choices=("RB", "RT"),
-        default=os.getenv("AUTO_FIRE_OUTPUT", "RB"),
+        default=_env_default("AUTO_FIRE_OUTPUT", runtime_config.gamepad.auto_fire_output),
         help="Gamepad auto-fire output target.",
     )
     parser.add_argument(
         "--vision-backend",
         choices=("python", "native"),
-        default=os.getenv("VISION_BACKEND", "python"),
+        default=_env_default("VISION_BACKEND", runtime_config.vision.backend),
         help="Vision runtime backend to use.",
     )
     parser.add_argument(
@@ -73,19 +88,34 @@ def _parse_args():
     return parser.parse_args()
 
 
-def _apply_runtime_overrides(args):
+def _apply_runtime_overrides(args, runtime_config: RuntimeConfig | None = None):
+    runtime_config = runtime_config or load_tuning_config().runtime
+    vision_config = runtime_config.vision
+
     if args.perf_log:
         os.environ["VISION_PERF_LOG"] = "1"
+    else:
+        _setdefault_env("VISION_PERF_LOG", _bool_env(vision_config.perf_log))
     os.environ["VISION_BACKEND"] = args.vision_backend
-    if args.crop_size:
+    if args.crop_size is not None:
         os.environ["VISION_CROP_SIZE"] = str(args.crop_size)
-    if args.crop_width:
+        os.environ["VISION_CROP_WIDTH"] = str(args.crop_size)
+        os.environ["VISION_CROP_HEIGHT"] = str(args.crop_size)
+    if args.crop_width is not None:
         os.environ["VISION_CROP_WIDTH"] = str(args.crop_width)
-    if args.crop_height:
+    elif args.crop_size is None and "VISION_CROP_SIZE" not in os.environ:
+        _setdefault_env("VISION_CROP_WIDTH", vision_config.crop_width)
+    if args.crop_height is not None:
         os.environ["VISION_CROP_HEIGHT"] = str(args.crop_height)
+    elif args.crop_size is None and "VISION_CROP_SIZE" not in os.environ:
+        _setdefault_env("VISION_CROP_HEIGHT", vision_config.crop_height)
     capture_fps = args.capture_fps or args.target_fps
     if capture_fps:
         os.environ["VISION_CAPTURE_FPS"] = str(capture_fps)
+    elif "VISION_TARGET_FPS" not in os.environ:
+        _setdefault_env("VISION_CAPTURE_FPS", vision_config.capture_fps)
+    _setdefault_env("VISION_QUIT_KEY", vision_config.quit_key)
+    _setdefault_env("VISION_NATIVE_CUE_SIDECAR", _bool_env(vision_config.native_cue_sidecar))
     if args.vision_debug:
         os.environ["VISION_DEBUG_OVERLAY"] = "1"
     if args.vision_debug_save:
@@ -93,8 +123,9 @@ def _apply_runtime_overrides(args):
 
 
 def main():
-    args = _parse_args()
-    _apply_runtime_overrides(args)
+    runtime_config = load_tuning_config().runtime
+    args = _parse_args(runtime_config)
+    _apply_runtime_overrides(args, runtime_config)
 
     controller = None
     try:

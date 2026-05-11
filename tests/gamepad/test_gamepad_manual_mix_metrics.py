@@ -11,7 +11,9 @@ from tests.gamepad.manual_mix_metrics import (
     ManualMixAggregateMetrics,
     ManualMixFrameRecord,
     ManualMixMetricsConfig,
+    ManualMixScenarioMetrics,
     evaluate_manual_mix_run,
+    _aggregate_manual_mix_metrics,
     _aligned_input_preservation_ratio,
     _conflict_frames_ratio,
     _harmful_input_suppression_ratio,
@@ -380,10 +382,101 @@ class ManualMixMetricsTests(unittest.TestCase):
         self.assertTrue(hasattr(summary.aggregate, "aligned_input_preservation_ratio"))
         self.assertTrue(hasattr(summary.aggregate, "opposing_burst_hold_error_px"))
         self.assertTrue(hasattr(summary.aggregate, "lock_survival_rate"))
+        self.assertTrue(hasattr(summary.aggregate, "turn_recovery_coverage_ratio"))
+        self.assertTrue(hasattr(summary.aggregate, "decel_settle_coverage_ratio"))
+        self.assertTrue(hasattr(summary.aggregate, "wrong_input_recovery_coverage_ratio"))
         self.assertEqual(
             {metric.manual_seed for metric in summary.scenario_metrics},
             {1, 2},
         )
+
+    def test_manual_mix_aggregate_reports_recovery_coverage_separately_from_mean_frames(self):
+        aggregate = _aggregate_manual_mix_metrics(
+            (
+                ManualMixScenarioMetrics(
+                    "s00",
+                    1,
+                    "steady_turns",
+                    1.0,
+                    2.0,
+                    3.0,
+                    0,
+                    0.0,
+                    5.0,
+                    None,
+                    0.0,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                ),
+                ManualMixScenarioMetrics(
+                    "s01",
+                    1,
+                    "turn_then_decel",
+                    1.0,
+                    2.0,
+                    3.0,
+                    0,
+                    0.0,
+                    None,
+                    None,
+                    0.0,
+                    None,
+                    None,
+                    None,
+                    None,
+                    14.0,
+                    0.0,
+                ),
+                ManualMixScenarioMetrics(
+                    "s02",
+                    1,
+                    "turn_then_decel",
+                    1.0,
+                    2.0,
+                    3.0,
+                    0,
+                    0.0,
+                    7.0,
+                    12.0,
+                    0.0,
+                    4.0,
+                    None,
+                    None,
+                    None,
+                    10.0,
+                    1.0,
+                ),
+                ManualMixScenarioMetrics(
+                    "s03",
+                    1,
+                    "decel_resume",
+                    1.0,
+                    2.0,
+                    3.0,
+                    0,
+                    0.0,
+                    None,
+                    18.0,
+                    0.0,
+                    6.0,
+                    None,
+                    None,
+                    None,
+                    12.0,
+                    1.0,
+                ),
+            )
+        )
+
+        self.assertEqual(aggregate.mean_settle_frames_after_decel, 15.0)
+        self.assertEqual(aggregate.wrong_input_recovery_frames, 5.0)
+        self.assertAlmostEqual(aggregate.turn_recovery_coverage_ratio, 2.0 / 3.0)
+        self.assertAlmostEqual(aggregate.decel_settle_coverage_ratio, 2.0 / 3.0)
+        self.assertAlmostEqual(aggregate.wrong_input_recovery_coverage_ratio, 2.0 / 3.0)
 
 
 if __name__ == "__main__":

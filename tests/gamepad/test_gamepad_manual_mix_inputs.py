@@ -2,8 +2,10 @@ import unittest
 
 from tests.gamepad.benchmark_scenarios import generate_phase1_manifests
 from tests.gamepad.manual_mix_inputs import (
+    HIGH_INTENSITY_MANUAL_MIX_SEEDS,
     ManualMixInputConfig,
     generate_manual_mix_frames,
+    high_intensity_manual_mix_config,
 )
 
 
@@ -59,6 +61,31 @@ class ManualMixInputTests(unittest.TestCase):
 
         self.assertTrue(any(frame.in_opposing_burst for frame in frames))
         self.assertTrue(any(frame.mode == "opposing_burst" for frame in frames))
+
+    def test_high_intensity_profile_uses_more_pressure_and_seed_coverage(self):
+        manifest = generate_phase1_manifests("mix-suite", 12345)[8]
+        standard_frames = generate_manual_mix_frames(
+            manifest,
+            manual_seed=3,
+            config=ManualMixInputConfig(),
+            sim_frames=120,
+        )
+        intense_frames = generate_manual_mix_frames(
+            manifest,
+            manual_seed=3,
+            config=high_intensity_manual_mix_config(),
+            sim_frames=120,
+        )
+
+        standard_pressure = sum(abs(frame.manual_right_x) for frame in standard_frames) / len(standard_frames)
+        intense_pressure = sum(abs(frame.manual_right_x) for frame in intense_frames) / len(intense_frames)
+
+        self.assertEqual(HIGH_INTENSITY_MANUAL_MIX_SEEDS, (1, 2, 3, 4, 5))
+        self.assertGreater(intense_pressure, standard_pressure)
+        self.assertGreater(
+            high_intensity_manual_mix_config().event_window_frames,
+            ManualMixInputConfig().event_window_frames,
+        )
 
 
 if __name__ == "__main__":

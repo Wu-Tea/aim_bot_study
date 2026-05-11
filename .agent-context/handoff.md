@@ -1,95 +1,85 @@
 # Agent Handoff
 
-Last updated: 2026-05-11T00:00:00+08:00
+Last updated: 2026-05-11T22:55:15+08:00
 Updated by: Codex
-Active scope: COD recoil_app stabilization and handoff
-Staleness: stale after `recoil_app` is replaced by another recoil runtime, the user changes the capture/OCR strategy away from Y-switch text recognition, COD HUD coordinates are retuned with new real screenshots, or record/recoil mode semantics change.
+Active scope: Gamepad controller config, benchmark coverage, and release-tail tuning
+Staleness: stale after `gamepad_start.bat` stops being the default launcher, the gamepad benchmark scenarios or baseline format change materially, the controller loop is moved across the C++/Python boundary, or live testing rejects the current release-tail behavior.
 
 ## Current Objective
 
-Stabilize and hand off the `recoil_app` path:
+Stabilize the default gamepad runtime launched through `gamepad_start.bat` while keeping controller tuning measurable:
 
-1. keep `recoil_app` as the primary recoil package with two modes: `record` and `recoil`
-2. keep normal AI/gamepad runtime integration in-process through `GamepadRecoilBridge`; do not require a separate recoil sidecar process during normal play
-3. keep `record` mode free of compensation output; it only recognizes weapons, learns curves, saves profiles, and writes debug plots
-4. recognize weapons only from Y-switch OCR of the lower-right weapon-name text, not weapon images
-5. prefer GPU-backed OCR and DXGI capture where available, but do not run heavy OCR/sample sweeps during handoff because the user's machine was being saturated
+1. keep the most tactile gamepad tuning knobs visible in `config.toml.example`
+2. keep AI aim release-window behavior smooth enough to reduce residual error without reintroducing stale carry
+3. compare benchmark runs against the recorded baseline and recent runs
+4. make benchmark reports show whether recovery/settle metrics were actually observed before interpreting deltas
+5. continue watching the Python/C++ interaction boundary for latency, but do not port controller logic without measurement evidence
 
 ## Current State
 
-The latest recoil direction is:
-
-- `recoil_app_start.bat` is the user-facing launcher for standalone testing.
-- `python -m recoil_app --game <cod20|cod21|cod22> --mode <record|recoil>` is the direct CLI.
-- `recoil_app/runtime.py` owns the reusable runtime, identity store, memory-cached profile store, Y-switch OCR, record-mode learning, recoil-mode profile lookup, and the `GamepadRecoilBridge`.
-- `controllers/gamepad_controller.py` imports the bridge only as a thin integration point; controller/gamepad code should not grow the OCR/learning logic further.
-- New lightweight weapon identity files are written under `artifacts/recoil_app/weapons`.
-- Recoil profiles remain under `artifacts/recoil_profiles`; plots go under `artifacts/recoil_plots`.
-- `artifacts/weapon_examples/` contains user-provided screenshot fixtures for manual tuning and should not be committed.
-
-Recent user-reported live issues and fixes:
-
-- COD21 OCR was greedily merging ammo / numeric rows into weapon names, for example `点22塔恩托 40 999 ...`.
-- COD20 OCR was reading ammo type instead of the weapon name, for example `9毫米鲁格手枪弹` and `7.62BLK`.
-- `vision/weapon_identity/adapters.py` was retuned to move COD20/COD21 name ROIs upward and away from ammo rows.
-- `recoil_app/runtime.py` now rejects obvious ammo labels and overlong cross-line OCR garbage when selecting weapon names.
-- `vision/weapon_identity/text.py` now tries RapidOCR with CUDA by default, with `RECOIL_OCR_PROVIDER=dml|cpu` overrides.
-- `recoil_app/runtime.py` now prefers DXGI capture and only falls back to `PIL.ImageGrab`.
-- `recoil_app/console.py` now polls at 60 Hz instead of 200 Hz; `record` mode collector defaults to 60 FPS instead of 100 FPS.
+- Current branch/worktree: `codex/native-gamepad-cleanups` under `.worktrees/native-gamepad-cleanups`.
+- Latest commit: `9537921 Improve gamepad release tail and benchmark coverage`.
+- User-facing entry remains `gamepad_start.bat`; use this path when rechecking startup assumptions.
+- `controllers/gamepad/ai_aim.py` now supports `body_lock_release_tail_scale`.
+  - Default is `0.20`.
+  - Setting it to `0.0` restores hard zeroing inside the release threshold.
+  - Zero-cross still clears body-lock carry so old-direction correction does not leak through.
+- `config/loader.py` and `config.toml.example` now expose the release-tail knob through normal config loading.
+- Benchmark aggregate reporting now records scenario-level coverage ratios for:
+  - turn recovery
+  - decel settle
+  - wrong-input recovery in manual-mix benchmarks
+- `tests/gamepad/benchmark_scoreboard.py` surfaces those coverage deltas in history so future comparisons do not confuse missing measurements with real improvement.
 
 ## Verification
 
-Because the user reported CPU saturation and Codex UI freezes from repeated local OCR sweeps, do not run heavy Python OCR/capture replay loops by default.
+Fresh verification before commit:
 
-Last safe verification style for the next session:
-
-- lightweight static commands are acceptable
-- `python -m py_compile ...` may be acceptable if the user asks, but avoid OCR workloads unless explicitly approved
-- do not run broad image OCR sweeps over `artifacts/weapon_examples` without user permission
-- before any live retest, ensure no stale Python process is still running
-
-The most recent in-conversation edits after the last heavy verification were not fully re-run by request. Treat the current state as implemented but needing a user live smoke test.
+- `py -3 -B -m unittest tests.gamepad.test_gamepad_benchmark_runner tests.gamepad.test_gamepad_benchmark_scoreboard tests.gamepad.test_gamepad_ai_aim_plugin tests.test_config_loader tests.gamepad.test_gamepad_benchmark_metrics tests.gamepad.test_gamepad_ads_benchmark_metrics tests.gamepad.test_gamepad_manual_mix_metrics tests.gamepad.test_gamepad_adaptive_delta_gain_simulation -v`
+  - result: `96` tests passed
+- `git diff --check`
+  - result: passed
+  - note: Git printed LF/CRLF normalization warnings only
+- Post-commit `git status --short`
+  - result: clean before this context sync
 
 ## Next Action
 
-1. Ask the user to fully restart `recoil_app_start.bat` before retesting because old `switch_cache` values remain in process memory.
-2. Retest COD21 Y-switch recognition and check whether names stay like `点22塔恩托` instead of absorbing numeric rows.
-3. Retest COD20 Y-switch recognition and check whether names stay on weapon names instead of ammo labels.
-4. If OCR is still wrong, add a cheap one-frame debug crop dump on Y press instead of running local OCR sweeps.
-5. If CPU remains high, next cuts should be:
-   - disable multi-pass OCR by default in live mode
-   - reduce record-mode center capture size
-   - only OCR one delayed frame unless the name is invalid
-   - keep OCR provider on CUDA or DML and log the chosen provider
+1. Run the controller benchmark again from the latest commit and compare against the current baseline plus the last few local results.
+2. Inspect coverage deltas before accepting any recovery/settle improvement as real.
+3. If live feel shows sticky residual near target center, tune `body_lock_release_tail_scale` first because it is the new narrow control for that behavior.
+4. Smoke-test `gamepad_start.bat` after config changes to confirm the default entry still loads the intended config path.
+5. If latency remains a concern, instrument the controller loop and native result handoff before considering any C++ controller migration.
 
 ## Blockers
 
-- No trusted live smoke result exists after the latest COD20/COD21 ROI and GPU/DXGI changes.
-- The user's machine was being saturated by local Python OCR/screenshot tests; future agents must avoid repeating heavy sweeps without permission.
-- Existing bad lightweight identity records may remain under `artifacts/recoil_app/weapons` from earlier misreads; if the same bad weapon appears from `switch_cache`, delete the bad identity file and restart.
+- No live gameplay smoke result is recorded after commit `9537921`.
+- The recent work improves benchmark observability but does not by itself prove a new live-feel baseline.
+- The C++/Python communication latency concern has not yet been isolated with timing instrumentation in this branch.
 
 ## Files To Read First
 
-- `recoil_app/runtime.py`
-- `recoil_app/console.py`
-- `recoil_app_start.bat`
-- `vision/weapon_identity/adapters.py`
-- `vision/weapon_identity/text.py`
+- `gamepad_start.bat`
+- `config.toml.example`
+- `config/loader.py`
+- `controllers/gamepad/ai_aim.py`
 - `controllers/gamepad_controller.py`
-- `controllers/gamepad/physical_input.py`
-- `docs/superpowers/specs/2026-05-06-recoil-app-autolearn-design.md`
-- `docs/superpowers/plans/2026-05-06-recoil-app-modes-plan.md`
-- `docs/superpowers/plans/2026-05-11-recoil-app-stabilization-handoff.md`
+- `tests/gamepad/benchmark_metrics.py`
+- `tests/gamepad/manual_mix_metrics.py`
+- `tests/gamepad/benchmark_scoreboard.py`
+- `tests/gamepad/test_gamepad_ai_aim_plugin.py`
+- `tests/gamepad/test_gamepad_benchmark_metrics.py`
+- `tests/gamepad/test_gamepad_manual_mix_metrics.py`
 
 ## Do Not Do
 
-- Do not commit `artifacts/weapon_examples/`.
-- Do not run local CPU-heavy OCR sweeps over all examples without explicit user permission.
-- Do not revive the old manual-first `recoil_toolkit` workflow as the main path.
-- Do not add more OCR/learning logic into `controllers/` or the main vision hot path; keep it in `recoil_app`.
-- Do not apply compensation in `record` mode.
+- Do not interpret lower recovery/settle deltas without checking coverage ratios.
+- Do not move controller behavior into C++ until the latency hypothesis has direct measurement.
+- Do not bury high-feel tuning knobs far down in config examples; keep them easy to find.
+- Do not rerun unrelated OCR/recoil sweeps while working this gamepad benchmark/config thread.
 
 ## Related Context
 
-- Older native-vision context is still present in decision records and session log, but this handoff is now scoped to recoil_app.
-- The native vision policy remains: normal vision work should stay native unless the user explicitly reopens Python vision parity.
+- Previous recoil_app and native-vision context remains in `.agent-context/session-log-full.md` and decision records. `.agent-context/session-log.md` is now the short index for the full log.
+- Native vision policy still stands: normal vision work should stay native unless the user explicitly reopens Python vision parity.
+- This handoff is now scoped to gamepad/controller benchmark work, not recoil_app OCR stabilization.

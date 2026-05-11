@@ -117,6 +117,21 @@ The important rule is unchanged: vision sends compact intent, not raw frames, in
 
 ## Current Defaults
 
+Launcher-level defaults now live in `config.toml` / `config.toml.example` under
+`[runtime.vision]`. `main.py` applies them before starting either vision
+backend. Existing `VISION_*` environment variables and explicit CLI arguments
+still take precedence.
+
+Default runtime baseline:
+
+- `backend = "native"`
+- `capture_fps = 140`
+- `crop_width = 640`
+- `crop_height = 512`
+- `native_cue_sidecar = false`
+- `perf_log = true`
+- `quit_key = "0"`
+
 Current `VisionConfig` defaults in `vision/runner.py`:
 
 - `capture_width = 640`
@@ -133,12 +148,12 @@ Current `VisionConfig` defaults in `vision/runner.py`:
 - `idle_sleep = 0.01`
 - `perf_log_interval = 2.0`
 
-Current startup-script defaults:
+Current startup-script behavior:
 
 - `gamepad_start.bat`
-  - `VISION_BACKEND=native`
-  - `VISION_CAPTURE_FPS=140`
-  - `VISION_QUIT_KEY=0`
+  - uses `config.toml` runtime defaults
+  - preserves existing `VISION_*` environment overrides
+  - only adds an auto-fire CLI override when the user explicitly selects `RB` or `RT`
 - `gamepad_debug.bat`
   - native by default, Python selectable
   - `VISION_CAPTURE_FPS=140`

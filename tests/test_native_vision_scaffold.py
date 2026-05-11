@@ -212,12 +212,17 @@ class NativeVisionProductionIsolationTests(unittest.TestCase):
     def test_native_backend_is_default_for_gamepad_start_without_touching_python_runner(self):
         main_content = _read(PROJECT_ROOT / "main.py")
         start_content = _read(PROJECT_ROOT / "gamepad_start.bat")
+        config_content = _read(PROJECT_ROOT / "config.toml.example")
 
         self.assertIn("--vision-backend", main_content)
-        self.assertIn('os.getenv("VISION_BACKEND", "python")', main_content)
-        self.assertIn('set "VISION_BACKEND=native"', start_content)
-        self.assertIn("--vision-backend %VISION_BACKEND%", start_content)
-        self.assertIn('set "VISION_QUIT_KEY=0"', start_content)
+        self.assertIn("load_tuning_config().runtime", main_content)
+        self.assertIn('runtime_config.vision.backend', main_content)
+        self.assertIn('backend = "native"', config_content)
+        self.assertIn('quit_key = "0"', config_content)
+        self.assertIn("config.toml", start_content)
+        self.assertNotIn('set "VISION_BACKEND=native"', start_content)
+        self.assertNotIn("--vision-backend %VISION_BACKEND%", start_content)
+        self.assertNotIn('set "VISION_QUIT_KEY=0"', start_content)
 
         production_files = [
             PROJECT_ROOT / "controller.py",

@@ -264,6 +264,37 @@ class GamepadBenchmarkRunnerTests(unittest.TestCase):
             self.assertIn("lock_survival_rate", result["aggregate_metrics"])
             self.assertEqual(len(result["manual_seeds"]), 3)
 
+    def test_high_intensity_manual_mix_profile_is_persisted_and_replayed(self):
+        with TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            artifact_dir = temp_path / "artifacts" / "benchmarks" / "gamepad_manual_mix"
+            scoreboard_path = temp_path / "docs" / "project" / "GAMEPAD_MANUAL_MIX_BENCHMARKS.md"
+
+            result = run_benchmark(
+                run_key="mix-high",
+                run_seed=12345,
+                suite="manual-mix",
+                manual_input_profile="high-intensity",
+                artifact_dir=artifact_dir,
+                scoreboard_path=scoreboard_path,
+                git_metadata=self.git_metadata(),
+                set_baseline=False,
+            )
+
+            self.assertEqual(result["manual_input_profile"], "high-intensity")
+            self.assertEqual(result["manual_seeds"], [1, 2, 3, 4, 5])
+            self.assertEqual(result["manual_input_config"]["max_manual_ratio"], 0.92)
+            self.assertEqual(len(result["scenarios"]), 120)
+
+            replay = replay_run_key(
+                run_key="mix-high",
+                suite="manual-mix",
+                artifact_dir=artifact_dir,
+            )
+
+            self.assertEqual(replay["manual_input_profile"], "high-intensity")
+            self.assertEqual(replay["manual_seeds"], [1, 2, 3, 4, 5])
+
     def test_manual_mix_run_persists_target_sample_hz_in_artifact_and_replay(self):
         with TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)

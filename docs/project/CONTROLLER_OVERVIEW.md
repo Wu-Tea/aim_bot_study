@@ -169,6 +169,8 @@ Controller-related configuration comes from two places:
 1. `config.toml`
    - loaded through `config/loader.py`
    - currently exposes:
+     - `runtime.vision`
+     - `runtime.gamepad`
      - `gamepad.ai_aim`
      - `gamepad.adaptive_delta_gain`
      - `mouse.ai_aim`
@@ -176,13 +178,13 @@ Controller-related configuration comes from two places:
    - `--controller-mode`
    - `--auto-fire-output`
    - `--vision-backend`
-   - the `.bat` script prompts and env defaults
+   - the `.bat` script prompts and existing environment overrides
 
 Important limitation:
 
-- not every runtime default is exposed through the config loader today
+- native C++ selector and aim-enhancement constants are not yet exposed through the config loader
 - some defaults are still instantiated directly in controller code
-- some startup behavior still lives in the `.bat` wrappers rather than in `config.toml`
+- debug-specific startup behavior still lives in the `.bat` wrappers
 
 ## Current Recommendation
 

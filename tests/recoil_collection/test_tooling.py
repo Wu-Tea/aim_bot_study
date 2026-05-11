@@ -643,6 +643,34 @@ class RecoilRuntimeLauncherTests(unittest.TestCase):
         self.assertEqual(env["VISION_BACKEND"], "native")
         self.assertEqual(env["EXISTING_FLAG"], "1")
 
+    def test_parser_uses_runtime_config_defaults_for_controller_options(self):
+        tool = _load_runtime_launcher_tool_module()
+
+        with patch.object(tool.os, "environ", {}), patch.object(
+            tool,
+            "load_tuning_config",
+            return_value=SimpleNamespace(
+                runtime=SimpleNamespace(
+                    vision=SimpleNamespace(backend="python"),
+                    gamepad=SimpleNamespace(auto_fire_output="RT"),
+                )
+            ),
+            create=True,
+        ):
+            args = tool.parse_args(
+                [
+                    "--game",
+                    "cod21",
+                    "--profile-dir",
+                    "D:/tmp/profiles",
+                    "--signature-dir",
+                    "D:/tmp/signatures",
+                ]
+            )
+
+        self.assertEqual(args.vision_backend, "python")
+        self.assertEqual(args.auto_fire_output, "RT")
+
     def test_main_launches_controller_with_local_switch_recognition_env_and_without_recognizer_process(self):
         tool = _load_runtime_launcher_tool_module()
         popen_calls = []

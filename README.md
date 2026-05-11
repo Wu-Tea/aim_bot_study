@@ -68,7 +68,7 @@ These scripts are the fastest way to use the project without remembering CLI fla
 
 | Script | Purpose | Current behavior |
 | --- | --- | --- |
-| `gamepad_start.bat` | Main gamepad runtime | Prompts for `RB` / `RT`, defaults to `VISION_BACKEND=native`, sets `VISION_PERF_LOG=1`, defaults `VISION_CAPTURE_FPS=140`, disables quit hotkey with `VISION_QUIT_KEY=0` |
+| `gamepad_start.bat` | Main gamepad runtime | Uses `config.toml` / `config.toml.example` runtime defaults, lets existing `VISION_*` env vars override them, and prompts for an optional `RB` / `RT` CLI override |
 | `gamepad_debug.bat` | Gamepad debug runtime | Prompts for `RB` / `RT` and native vs Python backend, enables `--vision-debug --vision-debug-save`, defaults `VISION_CAPTURE_FPS=140` |
 | `gamepad_native_debug.bat` | Force native gamepad debug | Native-only debug entry with `--vision-debug`, defaults `VISION_CAPTURE_FPS=140` |
 | `mouse_start.bat` | Main native mouse runtime | Uses `--controller-mode mouse`, defaults to native backend, enables perf log, defaults `VISION_CAPTURE_FPS=140` |
@@ -78,6 +78,7 @@ These scripts are the fastest way to use the project without remembering CLI fla
 Equivalent direct CLI examples:
 
 ```powershell
+py -3.11 main.py --controller-mode gamepad
 py -3.11 main.py --controller-mode gamepad --vision-backend native --perf-log
 py -3.11 main.py --controller-mode gamepad --vision-backend python --vision-debug
 py -3.11 main.py --controller-mode mouse --vision-backend native --vision-debug --vision-debug-save --perf-log

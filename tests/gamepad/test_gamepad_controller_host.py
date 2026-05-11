@@ -1,5 +1,6 @@
 import threading
 import unittest
+from unittest.mock import patch
 
 import vgamepad as vg
 
@@ -186,6 +187,33 @@ class GamepadControllerHostTests(unittest.TestCase):
         self.assertIsNone(controller.target_info)
         self.assertEqual(controller.plugins[0].reset_calls, 1)
         self.assertEqual(controller.plugins[1].reset_calls, 1)
+
+    def test_clear_target_clears_shared_target_signals_without_resetting_plugins(self):
+        controller = GamepadController.__new__(GamepadController)
+        controller.lock = threading.Lock()
+        controller.target_dx = 12.0
+        controller.target_dy = -8.0
+        controller.target_revision = 7
+        controller.target_timestamp = 10.0
+        controller.target_info = ControllerTarget(
+            aim_point_x=320.0,
+            aim_point_y=220.0,
+            screen_center_x=320.0,
+            screen_center_y=256.0,
+            body_box=(280.0, 140.0, 360.0, 320.0),
+        )
+        controller.plugins = [_FakePlugin(), _FakePlugin()]
+
+        with patch("controllers.gamepad_controller.time.perf_counter", return_value=42.0):
+            GamepadController.clear_target(controller)
+
+        self.assertEqual(controller.target_dx, 0.0)
+        self.assertEqual(controller.target_dy, 0.0)
+        self.assertIsNone(controller.target_info)
+        self.assertEqual(controller.target_revision, 8)
+        self.assertEqual(controller.target_timestamp, 42.0)
+        self.assertEqual(controller.plugins[0].reset_calls, 0)
+        self.assertEqual(controller.plugins[1].reset_calls, 0)
 
     def test_set_auto_rb_is_a_compatibility_alias_for_set_auto_fire(self):
         controller = GamepadController.__new__(GamepadController)

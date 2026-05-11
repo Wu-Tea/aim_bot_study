@@ -29,6 +29,7 @@ from tests.gamepad.benchmark_metrics import (
     BenchmarkRunSummary,
     BenchmarkScenarioMetrics,
     _FrameRecord,
+    _aggregate_scenario_metrics,
     _axis_overshoot_count,
     _max_overshoot_px,
     _mean_decel_settle_frames,
@@ -199,6 +200,8 @@ class BenchmarkMetricsContractTests(unittest.TestCase):
                 "max_overshoot_px",
                 "mean_recovery_frames_after_turn",
                 "mean_settle_frames_after_decel",
+                "turn_recovery_coverage_ratio",
+                "decel_settle_coverage_ratio",
             },
         )
         self.assertEqual(
@@ -211,6 +214,8 @@ class BenchmarkMetricsContractTests(unittest.TestCase):
                 "max_overshoot_px",
                 "mean_recovery_frames_after_turn",
                 "mean_settle_frames_after_decel",
+                "turn_recovery_coverage_ratio",
+                "decel_settle_coverage_ratio",
             },
         )
 
@@ -501,6 +506,20 @@ class BenchmarkRunSummaryTests(unittest.TestCase):
         self.assertGreaterEqual(summary.aggregate.p95_error_px, summary.aggregate.mean_error_px)
         self.assertGreaterEqual(summary.aggregate.p99_error_px, summary.aggregate.p95_error_px)
 
+    def test_aggregate_reports_recovery_coverage_separately_from_mean_frames(self):
+        aggregate = _aggregate_scenario_metrics(
+            (
+                BenchmarkScenarioMetrics("s00", "steady_turns", 1.0, 2.0, 3.0, 0, 0.0, 5.0, None),
+                BenchmarkScenarioMetrics("s01", "turn_then_decel", 1.0, 2.0, 3.0, 0, 0.0, None, None),
+                BenchmarkScenarioMetrics("s02", "turn_then_decel", 1.0, 2.0, 3.0, 0, 0.0, 7.0, 12.0),
+                BenchmarkScenarioMetrics("s03", "decel_resume", 1.0, 2.0, 3.0, 0, 0.0, None, 18.0),
+            )
+        )
+
+        self.assertEqual(aggregate.mean_settle_frames_after_decel, 15.0)
+        self.assertAlmostEqual(aggregate.turn_recovery_coverage_ratio, 2.0 / 3.0)
+        self.assertAlmostEqual(aggregate.decel_settle_coverage_ratio, 2.0 / 3.0)
+
     def test_relative_deltas_use_baseline_summary(self):
         baseline = BenchmarkRunSummary(
             run_key="baseline",
@@ -514,6 +533,8 @@ class BenchmarkRunSummaryTests(unittest.TestCase):
                 max_overshoot_px=8.0,
                 mean_recovery_frames_after_turn=12.0,
                 mean_settle_frames_after_decel=16.0,
+                turn_recovery_coverage_ratio=0.5,
+                decel_settle_coverage_ratio=0.25,
             ),
         )
         current = BenchmarkRunSummary(
@@ -528,6 +549,8 @@ class BenchmarkRunSummaryTests(unittest.TestCase):
                 max_overshoot_px=12.0,
                 mean_recovery_frames_after_turn=9.0,
                 mean_settle_frames_after_decel=8.0,
+                turn_recovery_coverage_ratio=0.75,
+                decel_settle_coverage_ratio=0.5,
             ),
         )
 
@@ -543,6 +566,8 @@ class BenchmarkRunSummaryTests(unittest.TestCase):
                 max_overshoot_px=0.5,
                 mean_recovery_frames_after_turn=-0.25,
                 mean_settle_frames_after_decel=-0.5,
+                turn_recovery_coverage_ratio=0.5,
+                decel_settle_coverage_ratio=1.0,
             ),
         )
 

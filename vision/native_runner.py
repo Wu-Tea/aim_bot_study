@@ -354,6 +354,14 @@ def _resolve_cue_provider(controller, cue_provider):
     return None
 
 
+def _clear_controller_target(controller) -> None:
+    clear_target = getattr(controller, "clear_target", None)
+    if callable(clear_target):
+        clear_target()
+        return
+    controller.reset()
+
+
 def _create_default_cue_provider(config: VisionConfig):
     if not _env_flag("VISION_NATIVE_CUE_SIDECAR", True):
         return None
@@ -511,7 +519,7 @@ def process_native_vision(controller=None, cue_provider=None):
                         target=_controller_target_from_native_result(result),
                     )
                 else:
-                    controller.reset()
+                    _clear_controller_target(controller)
 
             if debug_overlay is not None:
                 debug_overlay.show_result(

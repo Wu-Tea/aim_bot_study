@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call as mock_call, patch
 
 from controllers.base_controller import ControllerTarget
 from vision.runner import VisionConfig
@@ -189,6 +189,116 @@ class NativeVisionProcessTests(unittest.TestCase):
         controller.set_auto_fire.assert_called()
         perf_tracker.update.assert_called_once()
 
+    @patch("vision.native_runner.time.sleep")
+    @patch("vision.native_runner.win32api.GetAsyncKeyState", side_effect=[0, 0x8000])
+    @patch("vision.native_runner._load_native_module")
+    @patch("vision.native_runner.PerformanceTracker")
+    def test_process_native_vision_clears_target_on_active_no_target_frame_and_resets_on_release_and_shutdown(
+        self,
+        perf_tracker_cls,
+        load_native_module,
+        _get_async_key_state,
+        _sleep,
+    ):
+        engine = Mock()
+        engine.poll_once.return_value = {
+            "has_target": False,
+            "auto_fire": False,
+            "dx": 0.0,
+            "dy": 0.0,
+            "target_x": 320.0,
+            "target_y": 256.0,
+            "screen_center_x": 320.0,
+            "screen_center_y": 256.0,
+            "has_body_box": False,
+            "wait_ms": 1.0,
+            "preprocess_ms": 0.2,
+            "color_copy_ms": 0.1,
+            "infer_ms": 3.0,
+            "post_ms": 0.4,
+            "age_ms": 4.0,
+            "boxes_seen": 0,
+        }
+        native_module = Mock()
+        native_module.NativeVisionEngine.return_value = engine
+        load_native_module.return_value = native_module
+        perf_tracker_cls.return_value = Mock()
+        controller = Mock()
+        controller.is_aiming.side_effect = [True, False]
+
+        process_native_vision(controller=controller)
+
+        controller.clear_target.assert_called_once_with()
+        self.assertEqual(controller.reset.call_count, 2)
+        target_lifecycle_calls = [
+            observed_call
+            for observed_call in controller.mock_calls
+            if observed_call in (mock_call.clear_target(), mock_call.reset())
+        ]
+        self.assertEqual(
+            target_lifecycle_calls,
+            [
+                mock_call.clear_target(),
+                mock_call.reset(),
+                mock_call.reset(),
+            ],
+        )
+
+    @patch("vision.native_runner.win32api.GetAsyncKeyState", side_effect=[0x8000])
+    @patch("vision.native_runner._load_native_module")
+    @patch("vision.native_runner.PerformanceTracker")
+    def test_process_native_vision_falls_back_to_reset_for_legacy_reset_only_controller(
+        self,
+        perf_tracker_cls,
+        load_native_module,
+        _get_async_key_state,
+    ):
+        engine = Mock()
+        engine.poll_once.return_value = {
+            "has_target": False,
+            "auto_fire": False,
+            "dx": 0.0,
+            "dy": 0.0,
+            "target_x": 320.0,
+            "target_y": 256.0,
+            "screen_center_x": 320.0,
+            "screen_center_y": 256.0,
+            "has_body_box": False,
+            "wait_ms": 1.0,
+            "preprocess_ms": 0.2,
+            "color_copy_ms": 0.1,
+            "infer_ms": 3.0,
+            "post_ms": 0.4,
+            "age_ms": 4.0,
+            "boxes_seen": 0,
+        }
+        native_module = Mock()
+        native_module.NativeVisionEngine.return_value = engine
+        load_native_module.return_value = native_module
+        perf_tracker_cls.return_value = Mock()
+
+        class ResetOnlyController:
+            def __init__(self):
+                self.reset_calls = 0
+
+            def is_aiming(self):
+                return True
+
+            def set_auto_fire(self, _pressed):
+                return None
+
+            def update(self, *_args, **_kwargs):
+                raise AssertionError("No-target frames should not update the controller")
+
+            def reset(self):
+                self.reset_calls += 1
+
+        controller = ResetOnlyController()
+
+        process_native_vision(controller=controller)
+
+        self.assertEqual(controller.reset_calls, 2)
+
     @patch("vision.native_runner.win32api.GetAsyncKeyState", side_effect=[0x8000])
     @patch("vision.native_runner._load_native_module")
     @patch("vision.native_runner.PerformanceTracker")
@@ -338,6 +448,9 @@ class NativeVisionProcessTests(unittest.TestCase):
                 return None
 
             def reset(self):
+                return None
+
+            def clear_target(self):
                 return None
 
             def get_external_cue(self):

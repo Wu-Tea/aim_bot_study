@@ -16,8 +16,11 @@ def _frame(
     manual_ry=0,
     timestamp=1.0,
     target_revision=0,
+    target_timestamp=None,
     target=None,
 ):
+    if target_timestamp is None:
+        target_timestamp = timestamp
     return GamepadFrame(
         timestamp=timestamp,
         left_x=0,
@@ -32,7 +35,7 @@ def _frame(
         target_dy=target_dy,
         auto_fire_requested=False,
         target_revision=target_revision,
-        target_timestamp=timestamp,
+        target_timestamp=target_timestamp,
         target=target,
     )
 
@@ -160,8 +163,108 @@ class AIAimPluginTests(unittest.TestCase):
 
         return errors_after_frame, modes, outputs
 
+    def test_ads_snap_lower_delta_gain_reduces_piecewise_output_for_same_target_error(self):
+        outputs = []
+        for gain in (1.0, 0.35):
+            plugin = AIAimPlugin(
+                AIAimConfig(
+                    smoothing=0.0,
+                    deadzone_inner=0.0,
+                    deadzone_outer=1.0,
+                    x_deadzone_outer=1.0,
+                    ai_delta_gain=gain,
+                    ads_snap_smoothing=0.0,
+                    ads_snap_max_ai_force=1.0,
+                    ads_snap_max_ai_force_y=1.0,
+                )
+            )
+            target = _target(
+                aim_point_x=380.0,
+                aim_point_y=256.0,
+            )
+            frame = _frame(
+                aiming=True,
+                target_dx=60.0,
+                target_dy=0.0,
+                timestamp=0.00,
+                target_revision=1,
+                target=target,
+            )
+            output = _output(frame)
+
+            plugin.apply(frame, output)
+
+            self.assertEqual(plugin._mode, "ads_snap")
+            outputs.append(output.right_x)
+
+        self.assertGreater(outputs[0], outputs[1])
+
+    def test_default_delta_gain_preserves_piecewise_midpoint_scale(self):
+        plugin = AIAimPlugin(
+            AIAimConfig(
+                smoothing=0.0,
+                deadzone_inner=0.0,
+                deadzone_outer=1.0,
+                x_deadzone_outer=1.0,
+                ads_snap_smoothing=0.0,
+                ads_snap_max_ai_force=1.0,
+                ads_snap_max_ai_force_y=1.0,
+            )
+        )
+        target = _target(
+            aim_point_x=380.0,
+            aim_point_y=256.0,
+        )
+        frame = _frame(
+            aiming=True,
+            target_dx=60.0,
+            target_dy=0.0,
+            timestamp=0.00,
+            target_revision=1,
+            target=target,
+        )
+        output = _output(frame)
+
+        plugin.apply(frame, output)
+
+        self.assertEqual(plugin._mode, "ads_snap")
+        self.assertAlmostEqual(output.right_x, 32767 * 0.56, delta=1.0)
+
+    def test_stale_target_age_keeps_ads_snap_in_manual_passthrough(self):
+        plugin = AIAimPlugin(
+            AIAimConfig(
+                smoothing=0.0,
+                deadzone_inner=0.0,
+                deadzone_outer=1.0,
+                x_deadzone_outer=1.0,
+                ads_snap_smoothing=0.0,
+                ads_snap_max_ai_force=1.0,
+                ads_snap_max_ai_force_y=1.0,
+            )
+        )
+        target = _target(
+            aim_point_x=380.0,
+            aim_point_y=256.0,
+        )
+        frame = _frame(
+            aiming=True,
+            manual_rx=1234,
+            target_dx=60.0,
+            target_dy=0.0,
+            timestamp=1.10,
+            target_timestamp=1.00,
+            target_revision=1,
+            target=target,
+        )
+        output = _output(frame)
+
+        plugin.apply(frame, output)
+
+        self.assertEqual(plugin._mode, "manual")
+        self.assertEqual(output.right_x, 1234)
+
     def test_piecewise_mapping_hits_mid_ratio_at_first_breakpoint(self):
-        plugin = LegacyAIAimPlugin(
+        plugin = AIAimPlugin(
             AIAimConfig(
                 smoothing=0.0,
                 ai_delta_gain=0.7,
@@ -171,12 +274,12 @@ class AIAimPluginTests(unittest.TestCase):
             ),
         )
 
-        mapped = plugin._map_pixel_to_stick(80.0 * plugin.config.ai_delta_gain)
+        mapped = plugin._map_pixel_to_stick(80.0)
 
         self.assertAlmostEqual(mapped, 32767 * 0.5, delta=1.0)
 
     def test_piecewise_mapping_boosts_mid_range_before_max_speed(self):
-        plugin = LegacyAIAimPlugin(
+        plugin = AIAimPlugin(
             AIAimConfig(
                 smoothing=0.0,
                 ai_delta_gain=0.7,
@@ -186,13 +289,13 @@ class AIAimPluginTests(unittest.TestCase):
             ),
         )
 
-        mapped = plugin._map_pixel_to_stick(100.0 * plugin.config.ai_delta_gain)
+        mapped = plugin._map_pixel_to_stick(100.0)
 
         expected_ratio = 0.5 + (0.5 * ((100.0 - 80.0) / (230.0 - 80.0)))
         self.assertAlmostEqual(mapped, 32767 * expected_ratio, delta=1.0)
 
     def test_piecewise_mapping_hits_full_scale_at_second_breakpoint(self):
-        plugin = LegacyAIAimPlugin(
+        plugin = AIAimPlugin(
             AIAimConfig(
                 smoothing=0.0,
                 ai_delta_gain=0.7,
@@ -202,7 +305,7 @@ class AIAimPluginTests(unittest.TestCase):
             ),
         )
 
-        mapped = plugin._map_pixel_to_stick(230.0 * plugin.config.ai_delta_gain)
+        mapped = plugin._map_pixel_to_stick(230.0)
 
         self.assertAlmostEqual(mapped, 32767.0, delta=1.0)
 
@@ -699,7 +802,7 @@ class AIAimPluginTests(unittest.TestCase):
         self.assertEqual(first_output.right_y, 0)
         self.assertNotEqual(second_output.right_y, 0)
 
-    def test_body_lock_zeroes_x_axis_when_horizontal_error_is_inside_release_window(self):
+    def test_body_lock_keeps_small_release_tail_inside_horizontal_window(self):
         plugin = AIAimPlugin(
             AIAimConfig(
                 smoothing=0.0,
@@ -731,7 +834,80 @@ class AIAimPluginTests(unittest.TestCase):
         output = _output(second)
         plugin.apply(second, output)
 
+        self.assertGreater(output.right_x, 0)
+        self.assertLess(output.right_x, 3000)
+        self.assertNotEqual(output.right_y, 0)
+
+    def test_body_lock_can_disable_release_tail_to_zero_x_axis_inside_window(self):
+        plugin = AIAimPlugin(
+            AIAimConfig(
+                smoothing=0.0,
+                body_lock_smoothing=0.18,
+                ai_delta_gain=1.0,
+                body_lock_release_tail_scale=0.0,
+            )
+        )
+
+        first = _frame(
+            aiming=True,
+            timestamp=6.00,
+            target_revision=1,
+            target=_body_lock_target(
+                upper_body_dx=2.1,
+                upper_body_dy=-20.0,
+            ),
+        )
+        second = _frame(
+            aiming=True,
+            timestamp=6.10,
+            target_revision=2,
+            target=_body_lock_target(
+                upper_body_dx=2.1,
+                upper_body_dy=-20.0,
+            ),
+        )
+
+        plugin.apply(first, _output(first))
+        output = _output(second)
+        plugin.apply(second, output)
+
         self.assertEqual(output.right_x, 0)
+        self.assertNotEqual(output.right_y, 0)
+
+    def test_body_lock_clears_release_tail_carry_on_near_zero_sign_flip(self):
+        plugin = AIAimPlugin(
+            AIAimConfig(
+                smoothing=0.0,
+                body_lock_smoothing=0.18,
+                ai_delta_gain=1.0,
+            )
+        )
+
+        warm = _frame(
+            aiming=True,
+            timestamp=6.15,
+            target_revision=1,
+            target=_body_lock_target(
+                upper_body_dx=2.6,
+                upper_body_dy=-20.0,
+            ),
+        )
+        flipped = _frame(
+            aiming=True,
+            timestamp=6.25,
+            target_revision=2,
+            target=_body_lock_target(
+                upper_body_dx=-2.1,
+                upper_body_dy=-20.0,
+            ),
+        )
+
+        plugin.apply(warm, _output(warm))
+        output = _output(flipped)
+        plugin.apply(flipped, output)
+
+        self.assertLessEqual(output.right_x, 0)
+        self.assertGreater(output.right_x, -500)
         self.assertNotEqual(output.right_y, 0)
 
     def test_body_lock_clears_vertical_axis_on_near_zero_sign_flip(self):
@@ -872,6 +1048,85 @@ class AIAimPluginTests(unittest.TestCase):
         plugin.apply(frame, output)
 
         self.assertGreater(output.right_x, 9000)
+
+    def test_body_lock_counts_aligned_manual_input_as_planned_correction_near_lock(self):
+        def run_with_overlap(overlap_scale: float) -> int:
+            plugin = AIAimPlugin(
+                AIAimConfig(
+                    smoothing=0.0,
+                    deadzone_inner=0.0,
+                    deadzone_outer=1.0,
+                    x_deadzone_outer=1.0,
+                    ai_delta_gain=1.0,
+                    body_lock_smoothing=0.0,
+                    body_lock_max_ai_force=1.0,
+                    body_lock_max_ai_force_y=1.0,
+                    body_lock_helpful_preservation_floor=1.0,
+                    body_lock_manual_overlap_scale=overlap_scale,
+                    body_lock_near_lock_error_px=18.0,
+                )
+            )
+            target = _target(
+                aim_point_x=328.0,
+                aim_point_y=256.0,
+                body_box=(293.0, 210.0, 363.0, 330.0),
+            )
+            for i, timestamp in enumerate((0.00, 0.02, 0.04, 0.06), start=1):
+                warm = _frame(
+                    aiming=True,
+                    manual_rx=0,
+                    manual_ry=0,
+                    timestamp=timestamp,
+                    target_revision=i,
+                    target=target,
+                )
+                plugin.apply(warm, _output(warm))
+
+            frame = _frame(
+                aiming=True,
+                manual_rx=9000,
+                manual_ry=0,
+                timestamp=0.08,
+                target_revision=5,
+                target=target,
+            )
+            output = _output(frame)
+            plugin.apply(frame, output)
+            return output.right_x
+
+        without_overlap = run_with_overlap(0.0)
+        with_overlap = run_with_overlap(1.0)
+
+        self.assertLess(with_overlap, without_overlap)
+        self.assertGreater(with_overlap, 0)
+        self.assertLess(abs(with_overlap - 9000), abs(without_overlap - 9000))
+
+    def test_body_lock_boosts_x_force_only_against_opposing_manual_input(self):
+        plugin = AIAimPlugin(
+            AIAimConfig(
+                smoothing=0.0,
+                deadzone_inner=0.0,
+                deadzone_outer=1.0,
+                x_deadzone_outer=1.0,
+                body_lock_max_ai_force=0.30,
+                body_lock_opposing_boost_max_ai_force=0.42,
+            )
+        )
+        no_boost_x, _, _ = plugin._compute_mode_stick(
+            "body_lock",
+            target_dx=180.0,
+            target_dy=0.0,
+            manual_x=9000.0,
+        )
+        boosted_x, _, _ = plugin._compute_mode_stick(
+            "body_lock",
+            target_dx=180.0,
+            target_dy=0.0,
+            manual_x=-9000.0,
+        )
+
+        self.assertAlmostEqual(no_boost_x, 32767 * 0.30, delta=1.0)
+        self.assertAlmostEqual(boosted_x, 32767 * 0.42, delta=1.0)
 
     def test_body_lock_near_lock_damps_continued_aligned_manual_input_to_avoid_ping_pong(self):
         plugin = AIAimPlugin(

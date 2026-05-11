@@ -197,6 +197,9 @@ class BenchmarkScoreboardTests(unittest.TestCase):
                     "aligned_input_preservation_ratio": 0.10,
                     "opposing_burst_hold_error_px": -0.12,
                     "lock_survival_rate": 0.20,
+                    "turn_recovery_coverage_ratio": 0.10,
+                    "decel_settle_coverage_ratio": 0.25,
+                    "wrong_input_recovery_coverage_ratio": 0.50,
                 },
             )
 
@@ -227,6 +230,9 @@ class BenchmarkScoreboardTests(unittest.TestCase):
             self.assertIn("Aligned Preservation Delta", content)
             self.assertIn("Burst Hold Error Delta", content)
             self.assertIn("Lock Survival Delta", content)
+            self.assertIn("Turn Recovery Coverage Delta", content)
+            self.assertIn("Decel Settle Coverage Delta", content)
+            self.assertIn("Wrong Input Recovery Coverage Delta", content)
             self.assertNotIn("| `run-baseline` | 2026-04-16T12:00:00Z | `artifacts/benchmarks/gamepad/run-baseline.json` | clean |", content)
 
     def test_markdown_references_artifact_paths_without_embedding_manifest_payloads(self):

@@ -4,12 +4,25 @@ import unittest
 from pathlib import Path
 
 from config import load_tuning_config
+from config.loader import RuntimeConfig, RuntimeGamepadConfig, RuntimeVisionConfig
 from controllers.gamepad import AdaptiveDeltaGainConfig
 from controllers.gamepad import AIAimConfig as GamepadAIAimConfig
 from controllers.mouse import AIAimConfig as MouseAIAimConfig
 
 
 class TuningConfigLoaderTests(unittest.TestCase):
+    def test_example_config_starts_with_runtime_and_feel_knobs(self):
+        path = Path(__file__).resolve().parent.parent / "config.toml.example"
+        content = path.read_text(encoding="utf-8")
+
+        self.assertLess(content.index("[runtime.vision]"), content.index("[gamepad.ai_aim]"))
+        self.assertLess(content.index("target_max_age_ms"), content.index("smoothing"))
+        config = load_tuning_config(path)
+
+        self.assertEqual(config.runtime.vision.backend, "native")
+        self.assertEqual(config.runtime.vision.capture_fps, 140)
+        self.assertFalse(config.runtime.vision.native_cue_sidecar)
+
     def test_missing_file_returns_all_dataclass_defaults(self):
         with tempfile.TemporaryDirectory() as tmp:
             config = load_tuning_config(Path(tmp) / "does_not_exist.toml")
@@ -17,16 +30,37 @@ class TuningConfigLoaderTests(unittest.TestCase):
         self.assertEqual(config.gamepad_ai_aim, GamepadAIAimConfig())
         self.assertEqual(config.gamepad_ai_aim.body_lock_activation_box_px, 150.0)
         self.assertEqual(config.gamepad_ai_aim.ads_snap_max_target_dy_px, 90.0)
+        self.assertEqual(
+            config.runtime,
+            RuntimeConfig(
+                vision=RuntimeVisionConfig(),
+                gamepad=RuntimeGamepadConfig(),
+            ),
+        )
         self.assertEqual(config.adaptive_delta_gain, AdaptiveDeltaGainConfig())
         self.assertEqual(config.mouse_ai_aim, MouseAIAimConfig())
 
     def test_overrides_applied_per_section(self):
         toml = textwrap.dedent(
             """
+            [runtime.vision]
+            backend = "python"
+            capture_fps = 120
+            crop_width = 600
+            crop_height = 480
+            perf_log = false
+            quit_key = "Q"
+            native_cue_sidecar = true
+
+            [runtime.gamepad]
+            auto_fire_output = "RT"
+
             [gamepad.ai_aim]
             smoothing = 0.42
             max_pixels = 180
             max_ai_force_y = 0.88
+            body_lock_opposing_boost_max_ai_force = 0.67
+            target_max_age_ms = 42.0
             piecewise_mid_pixels_y = 52
             piecewise_max_pixels_y = 172
             piecewise_mid_ratio_y = 0.7
@@ -38,11 +72,13 @@ class TuningConfigLoaderTests(unittest.TestCase):
             body_lock_opposing_suppression_max = 0.94
             body_lock_orthogonal_suppression_max = 0.81
             body_lock_helpful_preservation_floor = 0.77
+            body_lock_manual_overlap_scale = 0.66
             body_lock_near_lock_error_px = 20.0
             body_lock_vertical_orthogonal_bias = 1.25
             body_lock_vertical_deadzone_px = 4.5
             body_lock_vertical_tail_inner_px = 1.5
             body_lock_vertical_tail_speed_threshold_px_per_sec = 80.0
+            body_lock_release_tail_scale = 0.35
             body_lock_vertical_lead_scale = 0.8
             body_lock_lead_frames = 6
 
@@ -104,9 +140,20 @@ class TuningConfigLoaderTests(unittest.TestCase):
             path.write_text(toml, encoding="utf-8")
             config = load_tuning_config(path)
 
+        self.assertEqual(config.runtime.vision.backend, "python")
+        self.assertEqual(config.runtime.vision.capture_fps, 120)
+        self.assertEqual(config.runtime.vision.crop_width, 600)
+        self.assertEqual(config.runtime.vision.crop_height, 480)
+        self.assertFalse(config.runtime.vision.perf_log)
+        self.assertEqual(config.runtime.vision.quit_key, "Q")
+        self.assertTrue(config.runtime.vision.native_cue_sidecar)
+        self.assertEqual(config.runtime.gamepad.auto_fire_output, "RT")
+
         self.assertEqual(config.gamepad_ai_aim.smoothing, 0.42)
         self.assertEqual(config.gamepad_ai_aim.max_pixels, 180)
         self.assertEqual(config.gamepad_ai_aim.max_ai_force_y, 0.88)
+        self.assertEqual(config.gamepad_ai_aim.body_lock_opposing_boost_max_ai_force, 0.67)
+        self.assertEqual(config.gamepad_ai_aim.target_max_age_ms, 42.0)
         self.assertEqual(config.gamepad_ai_aim.piecewise_mid_pixels_y, 52)
         self.assertEqual(config.gamepad_ai_aim.piecewise_max_pixels_y, 172)
         self.assertEqual(config.gamepad_ai_aim.piecewise_mid_ratio_y, 0.7)
@@ -124,6 +171,7 @@ class TuningConfigLoaderTests(unittest.TestCase):
             config.gamepad_ai_aim.body_lock_helpful_preservation_floor,
             0.77,
         )
+        self.assertEqual(config.gamepad_ai_aim.body_lock_manual_overlap_scale, 0.66)
         self.assertEqual(config.gamepad_ai_aim.body_lock_near_lock_error_px, 20.0)
         self.assertEqual(
             config.gamepad_ai_aim.body_lock_vertical_orthogonal_bias,
@@ -135,6 +183,7 @@ class TuningConfigLoaderTests(unittest.TestCase):
             config.gamepad_ai_aim.body_lock_vertical_tail_speed_threshold_px_per_sec,
             80.0,
         )
+        self.assertEqual(config.gamepad_ai_aim.body_lock_release_tail_scale, 0.35)
         self.assertEqual(config.gamepad_ai_aim.body_lock_vertical_lead_scale, 0.8)
         self.assertEqual(config.gamepad_ai_aim.body_lock_lead_frames, 6)
         self.assertEqual(
@@ -201,6 +250,10 @@ class TuningConfigLoaderTests(unittest.TestCase):
     def test_unknown_keys_are_ignored(self):
         toml = textwrap.dedent(
             """
+            [runtime.vision]
+            backend = "native"
+            fake_runtime_key = 123
+
             [gamepad.ai_aim]
             smoothing = 0.5
             not_a_real_knob = 9.9
@@ -217,7 +270,31 @@ class TuningConfigLoaderTests(unittest.TestCase):
             config = load_tuning_config(path)
 
         self.assertEqual(config.gamepad_ai_aim.smoothing, 0.5)
+        self.assertEqual(config.runtime.vision.backend, "native")
+        self.assertFalse(hasattr(config.runtime.vision, "fake_runtime_key"))
         self.assertEqual(config.mouse_ai_aim.stabilize_gain, 0.07)
+
+    def test_invalid_runtime_choice_falls_back_to_safe_default(self):
+        toml = textwrap.dedent(
+            """
+            [runtime.vision]
+            backend = "invalid"
+
+            [runtime.gamepad]
+            auto_fire_output = "invalid"
+            """
+        ).strip()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.toml"
+            path.write_text(toml, encoding="utf-8")
+            config = load_tuning_config(path)
+
+        self.assertEqual(config.runtime.vision.backend, RuntimeVisionConfig().backend)
+        self.assertEqual(
+            config.runtime.gamepad.auto_fire_output,
+            RuntimeGamepadConfig().auto_fire_output,
+        )
 
     def test_empty_file_returns_defaults(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -226,6 +303,8 @@ class TuningConfigLoaderTests(unittest.TestCase):
             config = load_tuning_config(path)
 
         self.assertEqual(config.gamepad_ai_aim, GamepadAIAimConfig())
+        self.assertEqual(config.runtime.vision, RuntimeVisionConfig())
+        self.assertEqual(config.runtime.gamepad, RuntimeGamepadConfig())
         self.assertEqual(config.adaptive_delta_gain, AdaptiveDeltaGainConfig())
         self.assertEqual(config.mouse_ai_aim, MouseAIAimConfig())
 
