@@ -131,15 +131,17 @@ class SignatureWeaponRecognizer:
     def process_frame(self, frame: Any, *, frame_id: int, captured_at: float) -> RecognitionEvent | None:
         del frame_id
         del captured_at
-        icon_region = _crop_normalized_roi(frame, self.adapter.weapon_icon_roi)
-        if icon_region.size == 0:
-            return None
-
-        ranked_matches = score_candidates(_rgb_to_bgr(icon_region), self.signature_records)
+        ranked_matches: list[Any] = []
+        if self.signature_records:
+            icon_region = _crop_normalized_roi(frame, self.adapter.weapon_icon_roi)
+            if icon_region.size == 0:
+                return None
+            ranked_matches = score_candidates(_rgb_to_bgr(icon_region), self.signature_records)
         text_candidates = extract_text_candidates(
             frame,
             self.adapter.weapon_name_text_roi,
             ocr_reader=self.ocr_reader,
+            multi_pass=True,
         )
         previous_weapon_id = self.runtime_state.confirmed_weapon_id
         switch_suspected = _should_suspect_switch(
@@ -221,8 +223,10 @@ def _build_default_recognizer(args: argparse.Namespace) -> SignatureWeaponRecogn
         # is absent, synthesize only the minimal records already named by the
         # signature payloads so the resolver can still emit canonical ids.
         identity_records = _infer_identity_records_from_signatures(signature_records)
-    if not signature_records:
-        raise FileNotFoundError(f"No visual signature records found in {args.signature_dir} for game {game!r}")
+    if not identity_records and not signature_records:
+        raise FileNotFoundError(
+            f"No weapon identity or visual signature records found in {args.signature_dir} for game {game!r}"
+        )
     profile_index = _load_profile_index(args.profile_dir, game=game)
     return SignatureWeaponRecognizer(
         game=game,

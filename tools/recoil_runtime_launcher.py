@@ -89,13 +89,18 @@ def build_controller_command(
 def build_controller_env(
     *,
     base_env: Mapping[str, str] | None,
+    game: str,
     profile_dir: Path,
+    signature_dir: Path,
     state_file: Path,
     vision_backend: str,
 ) -> dict[str, str]:
     env = dict(base_env or os.environ)
+    env["RECOIL_GAME"] = str(game)
     env["RECOIL_PROFILE_DIR"] = str(profile_dir)
+    env["RECOIL_SIGNATURE_DIR"] = str(signature_dir)
     env["RECOIL_RECOGNIZER_STATE_PATH"] = str(state_file)
+    env["RECOIL_SWITCH_RECOGNITION_MODE"] = "y_button_text"
     env["VISION_BACKEND"] = vision_backend
     return env
 
@@ -116,35 +121,36 @@ def main(
 
     state_file = resolve_state_file(game=args.game, state_file=args.state_file)
     state_file.parent.mkdir(parents=True, exist_ok=True)
-    recognizer_command = build_recognizer_command(
-        game=args.game,
-        profile_dir=args.profile_dir,
-        signature_dir=args.signature_dir,
-        state_file=state_file,
-        recognizer_fps=args.recognizer_fps,
-    )
-    recognizer_process = popen_factory(
-        recognizer_command,
-        cwd=str(PROJECT_ROOT),
-        env=dict(os.environ),
-    )
-    payload = {
-        "type": "recoil_runtime_launcher",
-        "game": args.game,
-        "profile_dir": str(args.profile_dir),
-        "signature_dir": str(args.signature_dir),
-        "state_file": str(state_file),
-        "recognizer_only": args.recognizer_only,
-    }
-    stdout.write(json.dumps(payload, ensure_ascii=False) + "\n")
-    stdout.flush()
-
     if args.recognizer_only:
+        recognizer_command = build_recognizer_command(
+            game=args.game,
+            profile_dir=args.profile_dir,
+            signature_dir=args.signature_dir,
+            state_file=state_file,
+            recognizer_fps=args.recognizer_fps,
+        )
+        popen_factory(
+            recognizer_command,
+            cwd=str(PROJECT_ROOT),
+            env=dict(os.environ),
+        )
+        payload = {
+            "type": "recoil_runtime_launcher",
+            "game": args.game,
+            "profile_dir": str(args.profile_dir),
+            "signature_dir": str(args.signature_dir),
+            "state_file": str(state_file),
+            "recognizer_only": True,
+        }
+        stdout.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        stdout.flush()
         return 0
 
     controller_env = build_controller_env(
         base_env=os.environ,
+        game=args.game,
         profile_dir=args.profile_dir,
+        signature_dir=args.signature_dir,
         state_file=state_file,
         vision_backend=args.vision_backend,
     )
@@ -153,6 +159,18 @@ def main(
         auto_fire_output=args.auto_fire_output,
         vision_backend=args.vision_backend,
     )
+    if state_file.exists():
+        state_file.unlink()
+    payload = {
+        "type": "recoil_runtime_launcher",
+        "game": args.game,
+        "profile_dir": str(args.profile_dir),
+        "signature_dir": str(args.signature_dir),
+        "state_file": str(state_file),
+        "recognizer_only": False,
+    }
+    stdout.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    stdout.flush()
 
     try:
         result = run_process(
@@ -166,26 +184,10 @@ def main(
     except (FileNotFoundError, OSError, ValueError, subprocess.SubprocessError) as exc:
         print(str(exc), file=stderr)
         return 1
-    finally:
-        _stop_process(recognizer_process)
 
 
 def _run_process(command: list[str], *, cwd: str, env: dict[str, str]):
     return subprocess.run(command, cwd=cwd, env=env, check=False)
-
-
-def _stop_process(process) -> None:
-    terminate = getattr(process, "terminate", None)
-    wait = getattr(process, "wait", None)
-    kill = getattr(process, "kill", None)
-    try:
-        if callable(terminate):
-            terminate()
-        if callable(wait):
-            wait(timeout=2.0)
-    except Exception:
-        if callable(kill):
-            kill()
 
 
 if __name__ == "__main__":

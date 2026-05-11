@@ -133,11 +133,11 @@ class COD22WeaponIdentityAdapter(WeaponIdentityAdapter):
             game_id="cod22",
             adapter_name="Call of Duty: Modern Warfare II (COD22) HUD Adapter",
             expected_title_behavior=(
-                "Persistent weapon silhouette near the ammo HUD is primary; transient text is secondary "
-                "because blueprint names can differ from base weapon names."
+                "Persistent lower-right weapon-name text is the primary cue; runtime recognition should "
+                "read the displayed title directly instead of relying on weapon silhouettes."
             ),
             weapon_icon_roi=NormalizedROI(left=0.827, top=0.848, width=0.118, height=0.104),
-            weapon_name_text_roi=NormalizedROI(left=0.661, top=0.784, width=0.224, height=0.055),
+            weapon_name_text_roi=NormalizedROI(left=0.734, top=0.778, width=0.158, height=0.078),
             switch_hints=SwitchSuspicionHints(
                 slot_rois=(
                     NormalizedROI(left=0.744, top=0.862, width=0.034, height=0.031),
@@ -162,11 +162,11 @@ class COD21WeaponIdentityAdapter(WeaponIdentityAdapter):
             game_id="cod21",
             adapter_name="Call of Duty: Black Ops 6 / Warzone (COD21) HUD Adapter",
             expected_title_behavior=(
-                "Switch-time weapon name is the primary cue; limited icon support means the recognizer "
-                "should cache the last confirmed weapon until the next strong switch signal."
+                "Switch-time lower-right weapon text is the only reliable cue in V1, so the controller "
+                "should capture that short window after a weapon swap and cache the last confirmed slot."
             ),
             weapon_icon_roi=NormalizedROI(left=0.819, top=0.852, width=0.112, height=0.099),
-            weapon_name_text_roi=NormalizedROI(left=0.592, top=0.746, width=0.278, height=0.062),
+            weapon_name_text_roi=NormalizedROI(left=0.886, top=0.856, width=0.102, height=0.032),
             switch_hints=SwitchSuspicionHints(
                 slot_rois=(),
                 switch_signal_names=(
@@ -187,11 +187,11 @@ class COD20WeaponIdentityAdapter(WeaponIdentityAdapter):
             game_id="cod20",
             adapter_name="Call of Duty: Modern Warfare III (COD20) HUD Adapter",
             expected_title_behavior=(
-                "Persistent weapon icon is primary while switch-time text acts as confirmation, so icon "
-                "and text should cross-check each other."
+                "Lower-right weapon-name text is the reliable cue in V1; the recognizer should avoid the "
+                "attachment-dependent weapon silhouette and focus on the name strip above the ammo HUD."
             ),
             weapon_icon_roi=NormalizedROI(left=0.812, top=0.846, width=0.123, height=0.107),
-            weapon_name_text_roi=NormalizedROI(left=0.638, top=0.775, width=0.236, height=0.058),
+            weapon_name_text_roi=NormalizedROI(left=0.882, top=0.826, width=0.098, height=0.040),
             switch_hints=SwitchSuspicionHints(
                 slot_rois=(
                     NormalizedROI(left=0.738, top=0.859, width=0.037, height=0.033),

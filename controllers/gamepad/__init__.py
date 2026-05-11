@@ -26,9 +26,11 @@ from .manual_intent_guard import (
     ManualIntentGuardConfig,
 )
 from .overshoot_guard import OvershootGuard, OvershootGuardConfig
+from .physical_input import DEFAULT_BUTTON_NAME_MAP, PygamePhysicalGamepadReader
 from .plugin import GamepadPlugin, PluginApplicationTrace, apply_plugins, apply_plugins_with_trace, reset_plugins
 from .recoil_compensation import RecoilCompensationConfig, RecoilCompensationPlugin
 from .state import GamepadFrame, GamepadOutput
+from .weapon_switch_recognition import YButtonTextRecognitionConfig, YButtonTextWeaponRecognizer
 
 __all__ = [
     "AdaptiveDeltaGain",
@@ -55,7 +57,9 @@ __all__ = [
     "ManualIntentGuardConfig",
     "OvershootGuard",
     "OvershootGuardConfig",
+    "DEFAULT_BUTTON_NAME_MAP",
     "GamepadPlugin",
+    "PygamePhysicalGamepadReader",
     "PluginApplicationTrace",
     "apply_plugins",
     "apply_plugins_with_trace",
@@ -64,4 +68,6 @@ __all__ = [
     "RecoilCompensationPlugin",
     "GamepadFrame",
     "GamepadOutput",
+    "YButtonTextRecognitionConfig",
+    "YButtonTextWeaponRecognizer",
 ]

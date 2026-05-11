@@ -136,6 +136,48 @@ class ExtractRecoilProfileTests(unittest.TestCase):
         self.assertTupleAlmostEqual(result.profile.samples_x, tuple(expected["profile"]["samples_x"]))
         self.assertTupleAlmostEqual(result.profile.samples_y, tuple(expected["profile"]["samples_y"]))
 
+    def test_vertical_recovery_tail_is_trimmed_from_time_curve(self):
+        extraction = _load_extraction_module()
+        result = extraction.extract_recoil_profile(
+            session=_session(),
+            bursts=(
+                _series(
+                    burst_id="burst-a",
+                    start_offset_ms=0,
+                    sample_interval_ms=10,
+                    anchor_x=0.0,
+                    anchor_y=0.0,
+                    deltas_x=(0.0, 0.0, 0.0, 0.0, 0.0),
+                    deltas_y=(0.0, -1.0, -2.0, -1.2, -0.4),
+                ),
+                _series(
+                    burst_id="burst-b",
+                    start_offset_ms=2,
+                    sample_interval_ms=10,
+                    anchor_x=10.0,
+                    anchor_y=5.0,
+                    deltas_x=(0.0, 0.0, 0.0, 0.0, 0.0),
+                    deltas_y=(0.0, -1.1, -2.2, -1.1, -0.2),
+                ),
+                _series(
+                    burst_id="burst-c",
+                    start_offset_ms=4,
+                    sample_interval_ms=10,
+                    anchor_x=-3.0,
+                    anchor_y=8.0,
+                    deltas_x=(0.0, 0.0, 0.0, 0.0, 0.0),
+                    deltas_y=(0.0, -0.9, -1.8, -1.0, -0.3),
+                ),
+            ),
+            profile_id="profile-trim-recovery-tail",
+            created_at="2026-05-06T12:30:00Z",
+            config=extraction.RecoilExtractionConfig(sample_interval_ms=10),
+        )
+
+        self.assertTupleAlmostEqual(result.profile.samples_y, (0.0, -1.0, -2.0))
+        self.assertEqual(result.profile.sample_count, 3)
+        self.assertEqual(result.profile.duration_ms, 30)
+
     def test_variance_increases_when_clean_bursts_disagree(self):
         extraction = _load_extraction_module()
         agreeing = extraction.extract_recoil_profile(

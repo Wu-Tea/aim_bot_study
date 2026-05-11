@@ -53,6 +53,36 @@ class WeaponTextExtractionTests(unittest.TestCase):
 
         self.assertEqual(candidates, ())
 
+    def test_extract_text_candidates_multi_pass_adds_joined_variants_for_split_weapon_names(self):
+        frame = np.zeros((40, 80, 3), dtype=np.uint8)
+        roi = NormalizedROI(left=0.0, top=0.0, width=1.0, height=1.0)
+
+        def ocr_reader(_cropped):
+            return (
+                [
+                    (None, "KT-3", 0.99),
+                    (None, "勇士", 0.98),
+                ],
+                None,
+            )
+
+        candidates = extract_text_candidates(frame, roi, ocr_reader=ocr_reader, multi_pass=True)
+
+        self.assertIn("KT-3", candidates)
+        self.assertIn("勇士", candidates)
+        self.assertIn("KT-3勇士", candidates)
+
+
+    def test_normalize_ocr_lines_trims_trailing_ammo_and_ui_noise(self):
+        candidates = normalize_ocr_lines(
+            [
+                "点22塔恩托 40 999 5097081 3509110813 00478901G 50911081 ngc 3509110813+",
+                "格克霍娃",
+            ]
+        )
+
+        self.assertEqual(candidates, ("点22塔恩托", "格克霍娃"))
+
 
 if __name__ == "__main__":
     unittest.main()

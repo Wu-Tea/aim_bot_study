@@ -6,6 +6,7 @@ from datetime import timezone
 import json
 from pathlib import Path
 import sys
+import time
 from typing import Any
 from typing import Iterable
 from typing import TextIO
@@ -44,6 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ui-scale-bucket", default="default")
     parser.add_argument("--confidence", type=float, default=0.95)
     parser.add_argument("--identity-only", action="store_true")
+    parser.add_argument("--live-capture-delay", type=float, default=3.0)
     return parser
 
 
@@ -52,6 +54,8 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     args = parser.parse_args(list(argv) if argv is not None else None)
     if not args.identity_only and args.confidence <= 0.0:
         parser.error("--confidence must be positive")
+    if args.live_capture_delay < 0.0:
+        parser.error("--live-capture-delay must be zero or positive")
     if args.image is not None and not args.image.exists():
         parser.error(f"--image does not exist: {args.image}")
     return args
@@ -64,12 +68,14 @@ def main(
     stderr: TextIO | None = None,
     frame_grabber_factory=None,
     timestamp_fn=None,
+    sleep_fn=None,
 ) -> int:
     args = parse_args(argv)
     stdout = stdout or sys.stdout
     stderr = stderr or sys.stderr
     frame_grabber_factory = frame_grabber_factory or (lambda: build_full_screen_frame_grabber())
     timestamp_fn = timestamp_fn or _utc_timestamp
+    sleep_fn = sleep_fn or time.sleep
 
     try:
         adapter = get_adapter(args.game)
@@ -81,7 +87,12 @@ def main(
         crop_rgb = None
         crop_path = None
         if not args.identity_only:
-            frame_rgb = _load_source_frame(args, frame_grabber_factory)
+            frame_rgb = _load_source_frame(
+                args,
+                frame_grabber_factory,
+                stderr=stderr,
+                sleep_fn=sleep_fn,
+            )
             crop_rgb = _crop_normalized_roi(frame_rgb, adapter.weapon_icon_roi)
             if crop_rgb.size == 0:
                 raise ValueError("Weapon icon ROI was empty; unable to capture signature")
@@ -185,12 +196,25 @@ def _load_existing_identity(path: Path) -> WeaponIdentityRecord | None:
     return load_identity_record(path)
 
 
-def _load_source_frame(args: argparse.Namespace, frame_grabber_factory) -> np.ndarray:
+def _load_source_frame(
+    args: argparse.Namespace,
+    frame_grabber_factory,
+    *,
+    stderr: TextIO,
+    sleep_fn,
+) -> np.ndarray:
     if args.image is not None:
         frame_bgr = cv2.imread(str(args.image), cv2.IMREAD_COLOR)
         if frame_bgr is None:
             raise FileNotFoundError(f"Unable to read image from {args.image}")
         return cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+
+    if args.live_capture_delay > 0.0:
+        stderr.write(
+            f"Switch back to the game now. Capturing live HUD in {args.live_capture_delay:.1f} seconds...\n"
+        )
+        stderr.flush()
+        sleep_fn(float(args.live_capture_delay))
 
     frame_grabber = frame_grabber_factory()
     try:

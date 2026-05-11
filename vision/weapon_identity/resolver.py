@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 from typing import Any
 from typing import Iterable
 from typing import Mapping
@@ -176,6 +177,8 @@ def _pick_text_signal(
         confidence = _TEXT_CONFIDENCE_BY_GAME.get(game_id, 0.75)
         if game_id == "cod21" and not text_window_active:
             confidence = 0.70
+        if game_id == "cod22" and text_window_active:
+            confidence = 0.88
         return _ResolvedTextSignal(
             canonical_weapon_id=canonical_weapon_id,
             confidence=confidence,
@@ -261,11 +264,52 @@ def _carry_forward(
 
 
 def _resolve_name(candidate_name: str, identity_records: tuple[WeaponIdentityRecord, ...]) -> str | None:
+    normalized_candidate = _normalize_name(candidate_name)
+    if normalized_candidate is None:
+        return None
+
     for record in identity_records:
         canonical_weapon_id = record.resolve_name(candidate_name)
         if canonical_weapon_id is not None:
             return canonical_weapon_id
+
+    scored_matches: list[tuple[float, str]] = []
+    for record in identity_records:
+        score = _score_identity_match(normalized_candidate, record)
+        if score > 0.0:
+            scored_matches.append((score, record.canonical_weapon_id))
+
+    if not scored_matches:
+        return None
+
+    scored_matches.sort(reverse=True)
+    top_score, top_weapon_id = scored_matches[0]
+    second_score = scored_matches[1][0] if len(scored_matches) > 1 else 0.0
+    if top_score >= 0.78 and (top_score - second_score) >= 0.08:
+        return top_weapon_id
     return None
+
+
+def _score_identity_match(normalized_candidate: str, record: WeaponIdentityRecord) -> float:
+    best_score = 0.0
+    for candidate_name in _iter_identity_names(record):
+        normalized_name = _normalize_name(candidate_name)
+        if normalized_name is None:
+            continue
+        score = SequenceMatcher(None, normalized_candidate, normalized_name).ratio()
+        if normalized_candidate in normalized_name or normalized_name in normalized_candidate:
+            score += 0.25
+        best_score = max(best_score, score)
+    return min(1.0, best_score)
+
+
+def _iter_identity_names(record: WeaponIdentityRecord) -> tuple[str, ...]:
+    return (
+        record.canonical_weapon_id,
+        record.display_name,
+        *record.alias_names,
+        *record.blueprint_names,
+    )
 
 
 def _coerce_identity_records(
@@ -352,6 +396,12 @@ def _require_bool(value: Any, label: str) -> bool:
     if type(value) is not bool:
         raise ValueError(f"{label} must be a boolean")
     return value
+
+
+def _normalize_name(value: Any) -> str | None:
+    if type(value) is not str:
+        return None
+    return "".join(value.strip().split()).casefold() or None
 
 
 def _clamp_confidence(value: float) -> float:

@@ -1,5 +1,90 @@
 # Agent Session Log
 
+## 2026-05-11T00:00:00+08:00 - Recoil app handoff prepared after live OCR and CPU-saturation feedback
+
+Goal: Capture the current `recoil_app` state for a future session, preserve the user's live findings, and avoid forcing the next session to reconstruct the context from a long chat.
+
+What changed:
+- Replaced the active `.agent-context/handoff.md` with a recoil_app-focused handoff. The previous native-vision handoff is no longer the top-level active scope for this session, though the native decisions remain relevant for vision work.
+- Recorded that `recoil_app_start.bat` is the recommended standalone entry and `python -m recoil_app --game <game> --mode <record|recoil>` is the direct CLI.
+- Recorded the current architecture:
+  - `record` mode recognizes Y-switch weapon text, auto-creates lightweight identities, learns recoil profiles, and writes plots
+  - `recoil` mode recognizes Y-switch weapon text, uses in-memory cached profiles, and falls back to fixed 20% when no profile exists
+  - main gamepad integration should import `GamepadRecoilBridge` in-process rather than run a separate recoil sidecar
+- Recorded the latest live issues:
+  - COD21 OCR was merging ammo/numeric rows into weapon names
+  - COD20 OCR was reading ammo labels such as `9毫米鲁格手枪弹` and `7.62BLK` instead of weapon names
+  - repeated local Python OCR sweeps caused severe CPU saturation and Codex UI freezes
+- Recorded the latest code-level mitigations:
+  - COD20/COD21 weapon-name ROIs were moved upward/away from ammo rows
+  - weapon-name selection rejects obvious ammo labels and overlong cross-line garbage
+  - RapidOCR now defaults to CUDA with `RECOIL_OCR_PROVIDER=dml|cpu` overrides
+  - recoil_app capture now prefers DXGI and only falls back to `PIL.ImageGrab`
+  - console polling and record-mode capture FPS were reduced to lower CPU pressure
+
+User confirmed:
+- Prepare a handoff and commit the organized work.
+- Do not commit `artifacts/weapon_examples/`.
+- The previous CPU-heavy Python test sweeps were unacceptable and should not be repeated casually.
+
+AI inferred:
+- The current recoil_app implementation should be treated as implemented but not fully live-verified after the latest ROI/GPU/DXGI changes.
+- Future validation should start from a user live smoke test or from a very cheap one-frame crop dump rather than broad local OCR sweeps.
+
+Context files updated:
+- `.agent-context/handoff.md`
+- `.agent-context/session-log.md`
+- `docs/superpowers/specs/2026-05-06-recoil-app-autolearn-design.md`
+- `docs/superpowers/plans/2026-05-06-recoil-app-modes-plan.md`
+- `docs/superpowers/plans/2026-05-11-recoil-app-stabilization-handoff.md`
+
+Follow-up:
+- Ask the user to restart `recoil_app_start.bat` and retest COD20/COD21 Y-switch OCR.
+- If bad cached names still appear, delete the bad files under `artifacts/recoil_app/weapons` and restart.
+- If CPU remains high, disable live multi-pass OCR by default, reduce motion-capture resolution, and add explicit provider logging.
+
+## 2026-05-05T16:38:49+08:00 - Native-only vision scope recorded and upper-body aim-point regression coverage added
+
+Goal: Record the user's direction that current vision work should only consider the native route, then extend native regression coverage around upper-body-only targets so visible upper-body exposures cannot silently reuse full-body aim assumptions.
+
+What changed:
+- Re-read the current handoff and confirmed the active default runtime is still the native path through `vision/native_runner.py`, while the Python vision backend remains only a fallback implementation in the repo.
+- Inspected the existing native targeting tests and found coverage for:
+  - empty-frame loss without `predict/reconstruct`
+  - `cue_hold` continuation
+  - stale auto-fire drop on `full body -> upper body`
+  - but not an explicit regression that upper-body-only detections keep their own visible `body_box` and `target_y`
+- Added two native bridge regression tests in `tests/test_native_vision_targeting_bridge.py`:
+  - `test_upper_body_only_pickup_uses_visible_upper_body_box_and_target_point`
+  - `test_full_body_to_upper_body_followup_updates_to_visible_upper_body_height`
+- Verified that the current selector implementation already behaves correctly for those cases:
+  - upper-body-only pickup stays `observed`
+  - `body_y1/body_y2` stay on the visible upper-body box
+  - `target_y` is computed from the visible upper-body height rather than from a remembered full-body extent
+- Re-ran the focused native verification slice:
+  - `py -3 -m unittest tests.test_native_vision_targeting_bridge tests.test_native_vision_runner tests.test_yellow_cue tests.test_performance_tracker -v`
+  - result: `38` passed
+
+User confirmed:
+- Record that current vision-module work should only consider the native route.
+- Add test coverage for the case where the target only exposes the upper body and the aim point must not be pulled as if a full body were still visible.
+
+AI inferred:
+- The Python vision backend should remain a repo fallback only and is not a current parity or regression target unless the user explicitly reopens it.
+- The native selector's current visible-box behavior for upper-body-only detections is healthy enough that new regression coverage was sufficient; no production-code change was required in this pass.
+
+Decisions:
+- Added accepted decision `.agent-context/decisions/DEC-2026-05-05-002-scope-active-vision-work-to-native.md`
+
+Context files updated:
+- `.agent-context/handoff.md`
+- `.agent-context/session-log.md`
+- `.agent-context/decisions/DEC-2026-05-05-002-scope-active-vision-work-to-native.md`
+
+Follow-up:
+- Live-validate chest-up / upper-body-only exposures in actual gameplay to confirm the visible-box aim point still feels right under real detector jitter and cover transitions.
+- Keep future vision regression additions scoped to native unless the user explicitly reopens Python backend work.
+
 ## 2026-05-05T16:27:45+08:00 - External cue bridge, sidecar fallback, ROI-only color copy, and same-target auto-fire fix
 
 Goal: Finish the accepted hotpath/cue follow-up work, stabilize the remaining regression, and prepare the accumulated workspace changes for commit.

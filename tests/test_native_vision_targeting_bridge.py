@@ -302,6 +302,45 @@ class NativeVisionTargetingBridgeTests(unittest.TestCase):
         raw_target_y = 286.0 + ((362.0 - 286.0) * 0.38)
         self.assertAlmostEqual(reconstructed["target_y"], raw_target_y, places=3)
 
+    def test_upper_body_only_pickup_uses_visible_upper_body_box_and_target_point(self):
+        if not hasattr(self.module, "NativeTargetSelector"):
+            self.fail("NativeTargetSelector is missing")
+
+        selector = self.module.NativeTargetSelector(CROP_W, CROP_H)
+        upper_body = np.array([[280.0, 170.0, 360.0, 250.0, 0.95, 0.0]], dtype=np.float32)
+
+        first = selector.select_xyxy(upper_body)
+        locked = selector.select_xyxy(upper_body)
+
+        self.assertFalse(first["has_target"])
+        self.assertTrue(locked["has_target"])
+        self.assertEqual(locked["target_source"], "observed")
+        self.assertAlmostEqual(locked["body_y1"], 170.0, places=3)
+        self.assertAlmostEqual(locked["body_y2"], 250.0, places=3)
+        raw_target_y = 170.0 + ((250.0 - 170.0) * 0.38)
+        self.assertAlmostEqual(locked["target_y"], raw_target_y, places=3)
+
+    def test_full_body_to_upper_body_followup_updates_to_visible_upper_body_height(self):
+        if not hasattr(self.module, "NativeTargetSelector"):
+            self.fail("NativeTargetSelector is missing")
+
+        selector = self.module.NativeTargetSelector(CROP_W, CROP_H)
+        full_body = np.array([[280.0, 240.0, 360.0, 380.0, 0.95, 0.0]], dtype=np.float32)
+        upper_body = np.array([[280.0, 170.0, 360.0, 250.0, 0.95, 0.0]], dtype=np.float32)
+
+        selector.select_xyxy(full_body)
+        locked = selector.select_xyxy(full_body)
+        exposed_upper = selector.select_xyxy(upper_body)
+
+        self.assertTrue(locked["has_target"])
+        self.assertTrue(exposed_upper["has_target"])
+        self.assertEqual(exposed_upper["target_source"], "observed")
+        self.assertAlmostEqual(exposed_upper["body_y1"], 170.0, places=3)
+        self.assertAlmostEqual(exposed_upper["body_y2"], 250.0, places=3)
+        raw_target_y = 170.0 + ((250.0 - 170.0) * 0.38)
+        self.assertAlmostEqual(exposed_upper["target_y"], raw_target_y, places=3)
+        self.assertLess(exposed_upper["target_y"], locked["target_y"])
+
     def test_empty_frame_drops_target_instead_of_predicting(self):
         if not hasattr(self.module, "NativeTargetSelector"):
             self.fail("NativeTargetSelector is missing")

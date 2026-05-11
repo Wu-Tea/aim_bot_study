@@ -4,6 +4,8 @@ import argparse
 import json
 from pathlib import Path
 import sys
+import time
+from typing import Any
 from typing import Iterable
 from typing import TextIO
 
@@ -18,9 +20,12 @@ from vision.recoil_collection.capture import build_full_screen_frame_grabber
 from vision.recoil_collection.capture import build_live_motion_sampler
 from vision.recoil_collection.capture import collect_recoil_profile
 from vision.recoil_collection.storage import StorageError
+from vision.recoil_collection.storage import load_identity_record
 from vision.recoil_collection.storage import save_recoil_profile
 from vision.recoil_collection.storage import save_recoil_profile_summary
 from vision.weapon_identity.adapters import ADAPTER_REGISTRY
+from vision.weapon_identity.models import RecognitionEvent
+from vision.weapon_identity.models import WeaponIdentityRecord
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -28,6 +33,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--game", choices=tuple(sorted(ADAPTER_REGISTRY)), required=True)
     parser.add_argument("--mode", choices=("hipfire", "ads"), required=True)
     parser.add_argument("--standing-only", action="store_true", help="V1 collector currently supports standing only.")
+    parser.add_argument("--canonical-weapon-id", help="Use an explicit weapon identity instead of live HUD confirmation.")
+    parser.add_argument(
+        "--startup-delay",
+        type=float,
+        default=0.0,
+        help="Seconds to wait before capture starts so you can switch back to the game.",
+    )
     parser.add_argument("--profile-dir", type=Path, required=True)
     parser.add_argument("--signature-dir", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True, help="Where to write the JSON capture summary.")
@@ -39,6 +51,8 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     args = parser.parse_args(list(argv) if argv is not None else None)
     if not args.standing_only:
         parser.error("--standing-only is required in V1")
+    if args.startup_delay < 0.0:
+        parser.error("--startup-delay must be zero or positive")
     return args
 
 
@@ -51,20 +65,31 @@ def main(
     weapon_frame_grabber_factory=None,
     motion_sampler_factory=None,
     timestamp_fn=None,
+    sleep_fn=None,
 ) -> int:
     args = parse_args(argv)
     stdout = stdout or sys.stdout
     stderr = stderr or sys.stderr
     recognizer_factory = recognizer_factory or _build_default_recognizer
     weapon_frame_grabber_factory = weapon_frame_grabber_factory or (lambda args: build_full_screen_frame_grabber())
+    sleep_fn = sleep_fn or time.sleep
 
     config = RecoilCollectorConfig()
     motion_sampler_factory = motion_sampler_factory or (lambda args, config: build_live_motion_sampler(config))
     timestamp_fn = timestamp_fn or _utc_timestamp
 
     try:
-        recognizer = recognizer_factory(args)
-        weapon_frame_source = weapon_frame_grabber_factory(args)
+        recognition_event_override = _build_explicit_recognition_event(
+            args=args,
+            timestamp_fn=timestamp_fn,
+        )
+        if args.startup_delay > 0.0:
+            stderr.write(f"Switch back to the game now. Starting recoil capture in {args.startup_delay:.1f} seconds...\n")
+            stderr.flush()
+            sleep_fn(float(args.startup_delay))
+
+        recognizer = None if recognition_event_override is not None else recognizer_factory(args)
+        weapon_frame_source = None if recognition_event_override is not None else weapon_frame_grabber_factory(args)
         motion_sampler = motion_sampler_factory(args, config)
 
         result = collect_recoil_profile(
@@ -74,6 +99,7 @@ def main(
             recognizer=recognizer,
             weapon_frame_source=weapon_frame_source,
             motion_sampler=motion_sampler,
+            recognition_event_override=recognition_event_override,
             config=config,
             timestamp_fn=timestamp_fn,
         )
@@ -97,6 +123,31 @@ def main(
     except (FileNotFoundError, OSError, ValueError, json.JSONDecodeError, StorageError, RecoilCollectionError) as exc:
         print(str(exc), file=stderr)
         return 1
+
+
+def _build_explicit_recognition_event(
+    *,
+    args: argparse.Namespace,
+    timestamp_fn,
+) -> RecognitionEvent | None:
+    canonical_weapon_id = getattr(args, "canonical_weapon_id", None)
+    if canonical_weapon_id is None:
+        return None
+    normalized_weapon_id = _require_non_empty_str(canonical_weapon_id, "canonical_weapon_id")
+    identity_record = _load_identity_for_weapon(
+        signature_dir=args.signature_dir,
+        game=args.game,
+        canonical_weapon_id=normalized_weapon_id,
+    )
+    return RecognitionEvent(
+        game=args.game,
+        canonical_weapon_id=identity_record.canonical_weapon_id,
+        confidence=1.0,
+        source="manual_selection",
+        timestamp=_require_non_empty_str(timestamp_fn(), "timestamp"),
+        degraded=False,
+        matched_name=identity_record.display_name,
+    )
 
 
 def _build_summary_payload(*, result, profile_path: Path, profile_summary_path: Path) -> dict[str, object]:
@@ -124,6 +175,35 @@ def _utc_timestamp() -> str:
     from datetime import timezone
 
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _load_identity_for_weapon(*, signature_dir: Path, game: str, canonical_weapon_id: str) -> WeaponIdentityRecord:
+    for record in _load_identity_records(signature_dir=signature_dir, game=game):
+        if record.canonical_weapon_id == canonical_weapon_id:
+            return record
+    raise RecoilCollectionError(
+        f"No weapon identity record found for {canonical_weapon_id!r} in {signature_dir} for game {game!r}"
+    )
+
+
+def _load_identity_records(*, signature_dir: Path, game: str) -> tuple[WeaponIdentityRecord, ...]:
+    records: list[WeaponIdentityRecord] = []
+    if not signature_dir.exists() or not signature_dir.is_dir():
+        return ()
+    for path in sorted(signature_dir.glob("identity-*.json")):
+        record = load_identity_record(path)
+        if record.game == game:
+            records.append(record)
+    return tuple(records)
+
+
+def _require_non_empty_str(value: Any, label: str) -> str:
+    if type(value) is not str:
+        raise ValueError(f"{label} must be a string")
+    result = value.strip()
+    if not result:
+        raise ValueError(f"{label} must be a non-empty string")
+    return result
 
 
 if __name__ == "__main__":

@@ -151,7 +151,9 @@ This is still chosen at startup time rather than through `config.toml`.
 
 The profile-driven path:
 
-- reads the current active profile from the runtime recoil sidecar contract
+- reads the current active profile from either:
+  - the newer in-process `recoil_app` bridge
+  - or the older runtime recoil sidecar contract
 - advances the curve only while `auto_fire_active` is true
 - treats stored recoil samples as collector screen-response curves and maps them into incremental right-stick deltas
 - resets playback when firing stops, the active weapon profile changes, or the sidecar falls out of `ready`
@@ -161,28 +163,66 @@ The current host keeps the integration conservative:
 - if `RECOIL_PROFILE_DIR` and `RECOIL_RECOGNIZER_STATE_PATH` are both available, the host builds a `RecoilSidecarService` client and enables profile-driven recoil
 - if those paths are not configured, the host keeps the old fixed fallback through `RecoilCompensationConfig(amount=0.20)`
 
-This means the gamepad layer still does not perform weapon recognition or CV work itself. It only consumes already-resolved sidecar state.
+The current host now supports a deliberately narrow recoil-recognition shortcut for direct use:
 
-## Direct-Use Recoil Workflow
+- if `RECOIL_SWITCH_RECOGNITION_MODE=y_button_text`, `RECOIL_GAME`, `RECOIL_SIGNATURE_DIR`, and `RECOIL_RECOGNIZER_STATE_PATH` are present, the controller listens for `Y` rising edges and performs a short text-only OCR burst against the configured weapon-name ROI
+- the controller caches two weapon slots locally and protects rapid main/secondary swaps with a monotonic `switch_epoch`
+- the controller still does not run continuous recognition; it only refreshes weapon identity when you switch with `Y`
 
-The recoil system is now usable as a standalone sidecar flow around the existing gamepad host.
+## Recoil App Workflow
 
-Recommended workflow:
+The new primary recoil path is `recoil_app`, which now supports two runtime modes:
 
-1. Capture a weapon signature and identity record:
-   - `python tools/weapon_signature_capture.py --game cod22 --canonical-weapon-id cod22-m4 --display-name M4 --weapon-family assault_rifle --signature-dir artifacts/weapon_signatures`
-2. Collect a recoil profile for that weapon:
-   - `python tools/recoil_collector.py --game cod22 --mode ads --standing-only --profile-dir artifacts/recoil_profiles --signature-dir artifacts/weapon_signatures --output artifacts/recoil_profiles/latest-summary.json`
-3. Launch recognizer plus gamepad together:
-   - `python tools/recoil_runtime_launcher.py --game cod22 --profile-dir artifacts/recoil_profiles --signature-dir artifacts/weapon_signatures --controller-mode gamepad --auto-fire-output RB`
+- `record`
+  - `Y` switch recognition
+  - auto-create weapon identities from OCR names
+  - `RT/RB` burst-driven recoil learning
+  - recoil plot generation
+- `recoil`
+  - `Y` switch recognition
+  - in-memory cached profile lookup
+  - fixed `20%` fallback when no ready profile exists
+
+For the main AI-aim runtime, only `recoil` mode needs to be imported. You do not need to run a separate recoil sidecar process for normal use.
+
+Recommended paths:
+
+1. Standalone testing:
+   - `recoil_app_start.bat`
+   - or `python -m recoil_app --game cod22 --mode record`
+   - or `python -m recoil_app --game cod22 --mode recoil`
+2. Main AI-aim runtime:
+   - set `ENABLE_RECOIL_APP=1`
+   - set `RECOIL_GAME`, `RECOIL_PROFILE_DIR`, and `RECOIL_SIGNATURE_DIR`
+   - optionally set `RECOIL_APP_MODE=recoil`
+   - then start the normal gamepad runtime
+
+Collector behavior in the current direct-use flow:
+
+- if you pass `--canonical-weapon-id`, the collector skips live HUD weapon confirmation completely
+- `--startup-delay` exists only to give you time to switch back into the game before capture starts
+- firing burst boundaries come from the shared physical-gamepad reader:
+  - `RT/R2` or `RB/R1` pressed => burst start
+  - both released => burst end
+- recoil motion is still measured from the center capture window, but burst segmentation no longer has to guess start/stop from motion alone
 
 Runtime files and directories:
 
-- weapon signatures live under `artifacts/weapon_signatures/`
+- lightweight recoil-app weapon identities live under `artifacts/recoil_app/weapons/`
 - recoil profiles live under `artifacts/recoil_profiles/`
-- live recognizer state defaults to `artifacts/recoil_state/<game>-latest-state.json`
+- recoil plots live under `artifacts/recoil_plots/`
+- live debug state defaults to `artifacts/recoil_app/current_weapon.json`
+- screenshot examples for ROI tuning may live under `artifacts/weapon_examples/`, but those are local test assets and should not be committed
 
-The recognizer now defaults to full-screen capture for live HUD work and uses OCR on the configured weapon-name ROI when available. The gamepad host still only reads the latest state file and matched profile data; it does not run OCR or template matching internally.
+Runtime behavior in this direct-use path:
+
+- `record` mode never exposes compensation; it only learns and saves assets
+- `recoil` mode exposes cached profiles to the gamepad recoil plugin
+- the recoil app writes the latest `current_weapon` JSON itself after `Y` presses for observability
+- each weapon slot becomes immediate on subsequent switches after it has been seen once
+- the very first time you use a slot in a session, recoil may stay on fallback until that slot has been OCR-confirmed
+- OCR defaults to CUDA through RapidOCR when available; set `RECOIL_OCR_PROVIDER=dml` or `RECOIL_OCR_PROVIDER=cpu` to override
+- switch and learning capture prefer DXGI and only fall back to `PIL.ImageGrab`
 
 ## Startup And Scripts
 
@@ -220,6 +260,8 @@ The default production gamepad path is now the hybrid runtime:
   - `RECOIL_STATE_FILE`
   - `RECOIL_RECOGNIZER_FPS`
 - then launch `gamepad_start.bat` normally
+
+`recoil_toolkit.bat` is a legacy/debug helper for older manual workflows. Prefer `recoil_app_start.bat` for current testing and `ENABLE_RECOIL_APP=1` for main gamepad integration.
 
 ## Legacy And Support Notes
 

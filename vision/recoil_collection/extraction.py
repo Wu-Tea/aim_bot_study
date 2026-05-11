@@ -85,6 +85,8 @@ def extract_recoil_profile(
         fmean(burst.samples_y[index] for burst in clean_bursts)
         for index in range(len(clean_bursts[0].samples_y))
     )
+    profile_samples_y = _stabilize_vertical_profile_curve(profile_samples_y)
+    profile_samples_x = profile_samples_x[: len(profile_samples_y)]
     variance_summary = _summarize_variance(clean_bursts)
     confidence = _compute_confidence(
         total_burst_count=len(aligned_bursts),
@@ -324,6 +326,28 @@ def _compute_confidence(
     if clean_burst_count < config.min_clean_bursts:
         confidence *= clean_burst_count / config.min_clean_bursts
     return max(0.0, min(1.0, confidence))
+
+
+def _stabilize_vertical_profile_curve(samples_y: tuple[float, ...]) -> tuple[float, ...]:
+    if not samples_y:
+        return ()
+    dominant_negative = abs(min(samples_y)) >= abs(max(samples_y))
+    stabilized: list[float] = []
+    running = 0.0
+    for index, value in enumerate(samples_y):
+        sample = float(value)
+        if index == 0:
+            running = sample
+        elif dominant_negative:
+            running = min(running, sample)
+        else:
+            running = max(running, sample)
+        stabilized.append(running)
+
+    end_index = len(stabilized)
+    while end_index > 1 and abs(stabilized[end_index - 1] - stabilized[end_index - 2]) <= 1e-6:
+        end_index -= 1
+    return tuple(stabilized[:end_index])
 
 
 __all__ = [

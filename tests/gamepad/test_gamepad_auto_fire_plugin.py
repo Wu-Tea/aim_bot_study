@@ -66,6 +66,53 @@ class AutoFirePluginTests(unittest.TestCase):
         self.assertFalse(output.buttons["rb"])
         self.assertFalse(output.auto_fire_active)
 
+    def test_manual_rb_press_forces_one_release_tick_before_passthrough(self):
+        plugin = AutoFirePlugin(AutoFireConfig(fire_output="RB"))
+        first_manual = _frame(aiming=True, auto_fire=True, manual_rb=True, manual_rt=0)
+        first_output = _output(first_manual)
+
+        plugin.apply(first_manual, first_output)
+
+        self.assertFalse(first_output.buttons["rb"])
+        self.assertFalse(first_output.auto_fire_active)
+
+        held_output = _output(first_manual)
+        plugin.apply(first_manual, held_output)
+
+        self.assertTrue(held_output.buttons["rb"])
+        self.assertFalse(held_output.auto_fire_active)
+
+    def test_manual_rt_press_forces_one_release_tick_before_passthrough(self):
+        plugin = AutoFirePlugin(AutoFireConfig(fire_output="RT"))
+        first_manual = _frame(aiming=True, auto_fire=True, manual_rb=False, manual_rt=180)
+        first_output = _output(first_manual)
+
+        plugin.apply(first_manual, first_output)
+
+        self.assertEqual(first_output.right_trigger, 0)
+        self.assertFalse(first_output.auto_fire_active)
+
+        held_output = _output(first_manual)
+        plugin.apply(first_manual, held_output)
+
+        self.assertEqual(held_output.right_trigger, 180)
+        self.assertFalse(held_output.auto_fire_active)
+
+    def test_manual_press_releases_previous_auto_fire_even_after_request_stops(self):
+        plugin = AutoFirePlugin(AutoFireConfig(fire_output="RB"))
+        automatic = _frame(aiming=True, auto_fire=True, manual_rb=False, manual_rt=0)
+        automatic_output = _output(automatic)
+        plugin.apply(automatic, automatic_output)
+        self.assertTrue(automatic_output.buttons["rb"])
+
+        manual_after_auto = _frame(aiming=True, auto_fire=False, manual_rb=True, manual_rt=0)
+        manual_output = _output(manual_after_auto)
+
+        plugin.apply(manual_after_auto, manual_output)
+
+        self.assertFalse(manual_output.buttons["rb"])
+        self.assertFalse(manual_output.auto_fire_active)
+
 
 if __name__ == "__main__":
     unittest.main()

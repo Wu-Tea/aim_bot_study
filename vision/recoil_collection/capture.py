@@ -36,6 +36,7 @@ class MotionTraceSample:
     x: float
     y: float
     center_motion: float
+    manual_marker: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "offset_ms", _require_non_negative_int(self.offset_ms, "MotionTraceSample.offset_ms"))
@@ -45,6 +46,8 @@ class MotionTraceSample:
         if center_motion < 0.0:
             raise ValueError("MotionTraceSample.center_motion must be non-negative")
         object.__setattr__(self, "center_motion", center_motion)
+        if self.manual_marker not in {None, "start", "stop"}:
+            raise ValueError("MotionTraceSample.manual_marker must be one of [None, 'start', 'stop']")
 
 
 @dataclass(slots=True, frozen=True)
@@ -125,6 +128,7 @@ def collect_recoil_profile(
     recognizer: Any,
     weapon_frame_source: Any,
     motion_sampler: Callable[[], Iterable[MotionTraceSample]],
+    recognition_event_override: RecognitionEvent | None = None,
     config: RecoilCollectorConfig | None = None,
     timestamp_fn: Callable[[], str] | None = None,
     segmenter: Callable[..., tuple[RecoilBurstWindow, ...]] = default_segment_bursts,
@@ -141,10 +145,11 @@ def collect_recoil_profile(
     if not standing_only:
         raise RecoilCollectionError("V1 recoil collection requires --standing-only")
 
-    recognition_event = _confirm_weapon_once(
+    recognition_event = _resolve_recognition_event(
         recognizer=recognizer,
         frame_source=weapon_frame_source,
         game=game,
+        override=recognition_event_override,
     )
     started_at = _require_non_empty_str(timestamp_fn(), "timestamp")
     session = RecoilCollectionSession(
@@ -164,7 +169,7 @@ def collect_recoil_profile(
             offset_ms=sample.offset_ms,
             center_motion=sample.center_motion,
             ammo=None,
-            manual_marker=None,
+            manual_marker=sample.manual_marker,
         )
         for sample in motion_samples
     )
@@ -268,14 +273,20 @@ def build_live_motion_sampler(config: RecoilCollectorConfig) -> Callable[[], tup
             crop_width=config.capture_width,
             crop_height=config.capture_height,
         )
+        fire_input_source = _build_live_fire_input_source()
         capture_thread.start()
         try:
-            return _collect_motion_trace_from_thread(capture_thread=capture_thread, config=config)
+            return _collect_motion_trace_from_thread(
+                capture_thread=capture_thread,
+                config=config,
+                fire_input_source=fire_input_source,
+            )
         finally:
             capture_thread.stop()
             join = getattr(capture_thread, "join", None)
             if callable(join):
                 join(timeout=1.0)
+            _close_if_present(fire_input_source)
 
     return _sample_motion_trace
 
@@ -306,6 +317,30 @@ def _confirm_weapon_once(*, recognizer: Any, frame_source: Any, game: str) -> Re
     if event.game != game:
         raise RecoilCollectionError(f"Recognizer returned {event.game!r} while collector is running for {game!r}")
     return event
+
+
+def _resolve_recognition_event(
+    *,
+    recognizer: Any,
+    frame_source: Any,
+    game: str,
+    override: RecognitionEvent | None,
+) -> RecognitionEvent:
+    if override is not None:
+        if not isinstance(override, RecognitionEvent):
+            raise RecoilCollectionError("recognition_event_override must be a RecognitionEvent")
+        if override.degraded:
+            raise RecoilCollectionError("recognition_event_override must not be degraded")
+        if override.game != game:
+            raise RecoilCollectionError(
+                f"recognition_event_override returned {override.game!r} while collector is running for {game!r}"
+            )
+        return override
+    return _confirm_weapon_once(
+        recognizer=recognizer,
+        frame_source=frame_source,
+        game=game,
+    )
 
 
 def _grab_frame(frame_source: Any) -> Any:
@@ -365,7 +400,12 @@ def _compact_timestamp(timestamp: str) -> str:
     return _require_non_empty_str(timestamp, "timestamp").replace("-", "").replace(":", "").lower()
 
 
-def _collect_motion_trace_from_thread(*, capture_thread: Any, config: RecoilCollectorConfig) -> tuple[MotionTraceSample, ...]:
+def _collect_motion_trace_from_thread(
+    *,
+    capture_thread: Any,
+    config: RecoilCollectorConfig,
+    fire_input_source: Any = None,
+) -> tuple[MotionTraceSample, ...]:
     deadline = time.perf_counter() + config.max_capture_seconds
     last_seen_id = 0
     previous_gray = None
@@ -374,18 +414,30 @@ def _collect_motion_trace_from_thread(*, capture_thread: Any, config: RecoilColl
     cumulative_x = 0.0
     cumulative_y = 0.0
     samples: list[MotionTraceSample] = []
+    previous_firing = False
 
     while time.perf_counter() < deadline:
         captured_frame, last_seen_id = capture_thread.get_latest_frame(last_seen_id=last_seen_id, timeout=0.25)
         if captured_frame is None:
             continue
 
+        current_firing = _read_fire_state(fire_input_source)
+        manual_marker = _resolve_manual_marker(previous_firing=previous_firing, current_firing=current_firing)
         current_gray = _to_gray_float32(captured_frame.frame)
         if previous_gray is None:
             first_captured_at = float(captured_frame.captured_at)
-            samples.append(MotionTraceSample(offset_ms=0, x=0.0, y=0.0, center_motion=0.0))
+            samples.append(
+                MotionTraceSample(
+                    offset_ms=0,
+                    x=0.0,
+                    y=0.0,
+                    center_motion=0.0,
+                    manual_marker=manual_marker,
+                )
+            )
             previous_gray = current_gray
             previous_offset_ms = 0
+            previous_firing = current_firing
             continue
 
         delta_x, delta_y = _estimate_phase_shift(previous_gray, current_gray)
@@ -399,12 +451,73 @@ def _collect_motion_trace_from_thread(*, capture_thread: Any, config: RecoilColl
                 x=cumulative_x,
                 y=cumulative_y,
                 center_motion=hypot(delta_x, delta_y),
+                manual_marker=manual_marker,
             )
         )
         previous_gray = current_gray
         previous_offset_ms = offset_ms
+        previous_firing = current_firing
 
     return _coerce_motion_samples(samples)
+
+
+def _build_live_fire_input_source() -> Any:
+    try:
+        return _PygameFireInputSource()
+    except Exception:
+        return None
+
+
+class _PygameFireInputSource:
+    def __init__(self) -> None:
+        from controllers.gamepad.physical_input import PygamePhysicalGamepadReader
+        import pygame
+
+        self._pygame = pygame
+        self._owns_pygame = not pygame.get_init()
+        self._owns_joystick_module = not pygame.joystick.get_init()
+        if self._owns_pygame:
+            pygame.init()
+        if self._owns_joystick_module:
+            pygame.joystick.init()
+        if pygame.joystick.get_count() == 0:
+            raise ValueError("No physical gamepad detected for live recoil collection markers")
+        self._joystick = pygame.joystick.Joystick(0)
+        self._joystick.init()
+        self._reader = PygamePhysicalGamepadReader(pygame_module=pygame, joystick=self._joystick)
+
+    def is_firing(self) -> bool:
+        self._reader.pump()
+        return self._reader.read_right_fire_pressed()
+
+    def close(self) -> None:
+        quit_joystick = getattr(self._joystick, "quit", None)
+        if callable(quit_joystick):
+            quit_joystick()
+        if self._owns_joystick_module and self._pygame.joystick.get_init():
+            self._pygame.joystick.quit()
+        if self._owns_pygame and self._pygame.get_init():
+            self._pygame.quit()
+
+
+def _read_fire_state(fire_input_source: Any) -> bool:
+    if fire_input_source is None:
+        return False
+    is_firing = getattr(fire_input_source, "is_firing", None)
+    if not callable(is_firing):
+        return False
+    try:
+        return bool(is_firing())
+    except Exception:
+        return False
+
+
+def _resolve_manual_marker(*, previous_firing: bool, current_firing: bool) -> str | None:
+    if current_firing and not previous_firing:
+        return "start"
+    if previous_firing and not current_firing:
+        return "stop"
+    return None
 
 
 def _estimate_phase_shift(previous_gray: np.ndarray, current_gray: np.ndarray) -> tuple[float, float]:

@@ -2,6 +2,7 @@ import contextlib
 import importlib
 import io
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -44,6 +45,39 @@ def _load_runtime_launcher_tool_module():
         return importlib.import_module("tools.recoil_runtime_launcher")
     except ModuleNotFoundError as exc:
         raise AssertionError(f"Missing recoil runtime launcher tool: {exc}") from exc
+
+
+def _load_recoil_console_tool_module():
+    try:
+        return importlib.import_module("tools.recoil_toolkit_console")
+    except ModuleNotFoundError as exc:
+        raise AssertionError(f"Missing recoil toolkit console tool: {exc}") from exc
+
+
+def _run_batch_script(
+    script_name: str,
+    *,
+    stdin_lines: tuple[str, ...],
+    extra_env: dict[str, str] | None = None,
+    script_args: tuple[str, ...] = (),
+) -> subprocess.CompletedProcess[str]:
+    payload = "\n".join(stdin_lines) + "\n"
+    env = None
+    if extra_env:
+        env = dict(__import__("os").environ)
+        env.update(extra_env)
+    return subprocess.run(
+        ["cmd", "/d", "/c", script_name, *script_args],
+        cwd=Path(__file__).resolve().parents[2],
+        input=payload,
+        text=True,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=30,
+        check=False,
+        env=env,
+    )
 
 
 class WeaponRecognizerToolTests(unittest.TestCase):
@@ -381,6 +415,38 @@ class WeaponRecognizerToolTests(unittest.TestCase):
                     )
                 )
 
+    def test_build_default_recognizer_accepts_identity_only_directory_without_visual_signatures(self):
+        tool = _load_tool_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            profile_dir = temp_path / "profiles"
+            signature_dir = temp_path / "signatures"
+            profile_dir.mkdir()
+            signature_dir.mkdir()
+            identity_payload = _weapon_record(
+                canonical_weapon_id="cod22-黑色组织传奇",
+                game="cod22",
+                display_name="黑色组织传奇",
+            ).to_dict()
+            (signature_dir / "identity-cod22-黑色组织传奇.json").write_text(
+                json.dumps(identity_payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+
+            recognizer = tool._build_default_recognizer(
+                SimpleNamespace(
+                    game="cod22",
+                    profile_dir=profile_dir,
+                    signature_dir=signature_dir,
+                )
+            )
+
+            self.assertEqual(recognizer.game, "cod22")
+            self.assertEqual(len(recognizer.identity_records), 1)
+            self.assertEqual(recognizer.identity_records[0].canonical_weapon_id, "cod22-黑色组织传奇")
+            self.assertEqual(recognizer.signature_records, ())
+
 
 class WeaponSignatureCaptureToolTests(unittest.TestCase):
     def test_main_writes_signature_identity_and_crop_artifacts_from_image_source(self):
@@ -439,6 +505,115 @@ class WeaponSignatureCaptureToolTests(unittest.TestCase):
             self.assertEqual(saved_identity["signature_refs"], [saved_signature["signature_id"]])
             self.assertEqual(saved_identity["display_name"], "M4")
 
+    def test_main_waits_before_live_capture_when_image_path_is_blank(self):
+        tool = _load_signature_capture_tool_module()
+        adapter = get_adapter("cod20")
+        sleep_calls = []
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            signature_dir = temp_path / "signatures"
+            signature_dir.mkdir()
+            frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
+            left = int(round(adapter.weapon_icon_roi.left * frame.shape[1]))
+            top = int(round(adapter.weapon_icon_roi.top * frame.shape[0]))
+            right = int(round((adapter.weapon_icon_roi.left + adapter.weapon_icon_roi.width) * frame.shape[1]))
+            bottom = int(round((adapter.weapon_icon_roi.top + adapter.weapon_icon_roi.height) * frame.shape[0]))
+            frame[top:bottom, left:right] = (255, 255, 255)
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+
+            exit_code = tool.main(
+                argv=[
+                    "--game",
+                    "cod20",
+                    "--canonical-weapon-id",
+                    "RAM-9",
+                    "--display-name",
+                    "RAM-9",
+                    "--weapon-family",
+                    "smg",
+                    "--signature-dir",
+                    str(signature_dir),
+                    "--live-capture-delay",
+                    "2",
+                ],
+                stdout=stdout,
+                stderr=stderr,
+                frame_grabber_factory=lambda: _StubFrameGrabber(frame),
+                timestamp_fn=lambda: "2026-05-06T16:05:00Z",
+                sleep_fn=lambda seconds: sleep_calls.append(seconds),
+            )
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(sleep_calls, [2.0])
+            self.assertIn("Switch back to the game now", stderr.getvalue())
+
+
+class RecoilToolkitBatchTests(unittest.TestCase):
+    def test_invalid_selection_exits_without_cmd_parser_errors(self):
+        result = _run_batch_script("recoil_toolkit.bat", stdin_lines=("x",))
+        output = result.stdout + result.stderr
+
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("Invalid selection.", output)
+        self.assertNotIn("not recognized as an internal or external command", output)
+
+    def test_collect_recoil_prompts_to_record_identity_first_when_game_has_no_identity_records(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            signatures = temp_path / "weapon_signatures"
+            profiles = temp_path / "recoil_profiles"
+            state = temp_path / "recoil_state"
+            signatures.mkdir()
+            profiles.mkdir()
+            state.mkdir()
+            result = _run_batch_script(
+                "recoil_toolkit.bat",
+                stdin_lines=("2", "3", "1"),
+                extra_env={
+                    "RECOIL_SIGNATURE_DIR": str(signatures),
+                    "RECOIL_PROFILE_DIR": str(profiles),
+                    "RECOIL_STATE_DIR": str(state),
+                },
+            )
+
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("No weapon identity records found for cod22", output)
+        self.assertIn("Run option 1 first", output)
+
+
+class RecoilAppBatchTests(unittest.TestCase):
+    def test_help_passthrough_invokes_python_module_help(self):
+        result = _run_batch_script(
+            "recoil_app_start.bat",
+            stdin_lines=(),
+            extra_env={"PYTHONUTF8": "1"},
+            script_args=("--help",),
+        )
+        output = result.stdout + result.stderr
+
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("Standalone recoil_app console.", output)
+        self.assertIn("--mode {record,recoil}", output)
+
+    def test_interactive_prompt_selects_game_and_mode(self):
+        result = _run_batch_script(
+            "recoil_app_start.bat",
+            stdin_lines=(),
+            extra_env={
+                "RECOIL_APP_PRINT_ONLY": "1",
+                "RECOIL_APP_GAME_CHOICE_OVERRIDE": "2",
+                "RECOIL_APP_MODE_CHOICE_OVERRIDE": "1",
+            },
+        )
+        output = result.stdout + result.stderr
+
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("Resolved command:", output)
+        self.assertIn("-m recoil_app --game cod21 --mode record", output)
+
 
 class RecoilRuntimeLauncherTests(unittest.TestCase):
     def test_resolve_state_file_defaults_to_game_specific_path(self):
@@ -453,17 +628,22 @@ class RecoilRuntimeLauncherTests(unittest.TestCase):
         tool = _load_runtime_launcher_tool_module()
         env = tool.build_controller_env(
             base_env={"VISION_BACKEND": "native", "EXISTING_FLAG": "1"},
+            game="cod21",
             profile_dir=Path("D:/tmp/profiles"),
+            signature_dir=Path("D:/tmp/signatures"),
             state_file=Path("D:/tmp/recoil_state/cod22-latest-state.json"),
             vision_backend="native",
         )
 
         self.assertEqual(env["RECOIL_PROFILE_DIR"], "D:\\tmp\\profiles")
+        self.assertEqual(env["RECOIL_SIGNATURE_DIR"], "D:\\tmp\\signatures")
+        self.assertEqual(env["RECOIL_GAME"], "cod21")
+        self.assertEqual(env["RECOIL_SWITCH_RECOGNITION_MODE"], "y_button_text")
         self.assertEqual(env["RECOIL_RECOGNIZER_STATE_PATH"], "D:\\tmp\\recoil_state\\cod22-latest-state.json")
         self.assertEqual(env["VISION_BACKEND"], "native")
         self.assertEqual(env["EXISTING_FLAG"], "1")
 
-    def test_main_launches_controller_with_recoil_env_and_latest_state_file(self):
+    def test_main_launches_controller_with_local_switch_recognition_env_and_without_recognizer_process(self):
         tool = _load_runtime_launcher_tool_module()
         popen_calls = []
         run_calls = []
@@ -502,7 +682,7 @@ class RecoilRuntimeLauncherTests(unittest.TestCase):
             exit_code = tool.main(
                 argv=[
                     "--game",
-                    "cod22",
+                    "cod21",
                     "--profile-dir",
                     str(profile_dir),
                     "--signature-dir",
@@ -514,17 +694,16 @@ class RecoilRuntimeLauncherTests(unittest.TestCase):
             )
 
         self.assertEqual(exit_code, 0)
-        self.assertEqual(len(popen_calls), 1)
+        self.assertEqual(len(popen_calls), 0)
         self.assertEqual(len(run_calls), 1)
-        recognizer_command = popen_calls[0].command
         controller_call = run_calls[0]
-        self.assertIn("weapon_recognizer.py", " ".join(recognizer_command))
-        self.assertIn("--latest-state-file", recognizer_command)
         self.assertEqual(controller_call["env"]["RECOIL_PROFILE_DIR"], str(profile_dir))
-        self.assertTrue(controller_call["env"]["RECOIL_RECOGNIZER_STATE_PATH"].endswith("cod22-latest-state.json"))
-        self.assertTrue(popen_calls[0].terminated)
+        self.assertEqual(controller_call["env"]["RECOIL_SIGNATURE_DIR"], str(signature_dir))
+        self.assertEqual(controller_call["env"]["RECOIL_GAME"], "cod21")
+        self.assertEqual(controller_call["env"]["RECOIL_SWITCH_RECOGNITION_MODE"], "y_button_text")
+        self.assertTrue(controller_call["env"]["RECOIL_RECOGNIZER_STATE_PATH"].endswith("cod21-latest-state.json"))
         payload = json.loads(stdout.getvalue().strip())
-        self.assertEqual(payload["game"], "cod22")
+        self.assertEqual(payload["game"], "cod21")
         self.assertEqual(payload["profile_dir"], str(profile_dir))
 
 
@@ -539,6 +718,10 @@ class RecoilCollectorToolTests(unittest.TestCase):
                 "--mode",
                 "ads",
                 "--standing-only",
+                "--canonical-weapon-id",
+                "cod22-先驱",
+                "--startup-delay",
+                "3",
                 "--profile-dir",
                 "artifacts/recoil_profiles",
                 "--signature-dir",
@@ -551,6 +734,8 @@ class RecoilCollectorToolTests(unittest.TestCase):
         self.assertEqual(args.game, "cod22")
         self.assertEqual(args.mode, "ads")
         self.assertTrue(args.standing_only)
+        self.assertEqual(args.canonical_weapon_id, "cod22-先驱")
+        self.assertEqual(args.startup_delay, 3.0)
         self.assertEqual(args.profile_dir, Path("artifacts/recoil_profiles"))
         self.assertEqual(args.signature_dir, Path("artifacts/weapon_signatures"))
         self.assertEqual(args.output, Path("artifacts/recoil_profiles/latest-summary.json"))
@@ -630,6 +815,159 @@ class RecoilCollectorToolTests(unittest.TestCase):
             self.assertEqual(saved_profile_summary["burst_count"], 3)
             self.assertIn("profile_path", payload)
             self.assertEqual(stderr.getvalue(), "")
+
+    def test_main_collects_profile_from_manual_fire_markers_even_with_low_motion(self):
+        tool = _load_recoil_tool_module()
+        capture = importlib.import_module("vision.recoil_collection.capture")
+        event = RecognitionEvent(
+            game="cod22",
+            canonical_weapon_id="cod22-m4",
+            confidence=0.93,
+            source="text",
+            timestamp="2026-05-06T14:00:00Z",
+            degraded=False,
+            matched_name="M4",
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            profile_dir = temp_path / "profiles"
+            signature_dir = temp_path / "signatures"
+            output_path = temp_path / "summary.json"
+            signature_dir.mkdir()
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+
+            exit_code = tool.main(
+                argv=[
+                    "--game",
+                    "cod22",
+                    "--mode",
+                    "ads",
+                    "--standing-only",
+                    "--profile-dir",
+                    str(profile_dir),
+                    "--signature-dir",
+                    str(signature_dir),
+                    "--output",
+                    str(output_path),
+                ],
+                stdout=stdout,
+                stderr=stderr,
+                recognizer_factory=lambda args: _StubCollectorRecognizer(event),
+                weapon_frame_grabber_factory=lambda args: _StubFrameGrabber(np.zeros((8, 8, 3), dtype=np.uint8)),
+                motion_sampler_factory=lambda args, config: (lambda: _manual_marker_motion_trace(capture)),
+                timestamp_fn=lambda: "2026-05-06T14:05:00Z",
+            )
+
+            self.assertEqual(exit_code, 0)
+            payload = json.loads(stdout.getvalue().strip())
+            self.assertEqual(payload["profile_summary"]["burst_count"], 3)
+            self.assertEqual(payload["recognized_weapon"]["canonical_weapon_id"], "cod22-m4")
+            self.assertTrue(output_path.exists())
+            self.assertEqual(stderr.getvalue(), "")
+
+    def test_main_uses_explicit_weapon_id_without_hud_confirmation(self):
+        tool = _load_recoil_tool_module()
+        capture = importlib.import_module("vision.recoil_collection.capture")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            profile_dir = temp_path / "profiles"
+            signature_dir = temp_path / "signatures"
+            output_path = temp_path / "summary.json"
+            signature_dir.mkdir()
+            identity_record = _weapon_record(
+                canonical_weapon_id="cod22-先驱",
+                game="cod22",
+                display_name="先驱",
+            )
+            (signature_dir / "identity-cod22-cod22-先驱.json").write_text(
+                json.dumps(identity_record.to_dict(), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            sleep_calls = []
+
+            def _unexpected_recognizer(_args):
+                raise AssertionError("recognizer_factory should not run when --canonical-weapon-id is provided")
+
+            def _unexpected_grabber(_args):
+                raise AssertionError("weapon_frame_grabber_factory should not run when --canonical-weapon-id is provided")
+
+            exit_code = tool.main(
+                argv=[
+                    "--game",
+                    "cod22",
+                    "--mode",
+                    "ads",
+                    "--standing-only",
+                    "--canonical-weapon-id",
+                    "cod22-先驱",
+                    "--startup-delay",
+                    "1.5",
+                    "--profile-dir",
+                    str(profile_dir),
+                    "--signature-dir",
+                    str(signature_dir),
+                    "--output",
+                    str(output_path),
+                ],
+                stdout=stdout,
+                stderr=stderr,
+                recognizer_factory=_unexpected_recognizer,
+                weapon_frame_grabber_factory=_unexpected_grabber,
+                motion_sampler_factory=lambda args, config: (lambda: _manual_marker_motion_trace(capture)),
+                timestamp_fn=lambda: "2026-05-06T14:05:00Z",
+                sleep_fn=lambda seconds: sleep_calls.append(seconds),
+            )
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(sleep_calls, [1.5])
+            payload = json.loads(stdout.getvalue().strip())
+            self.assertEqual(payload["recognized_weapon"]["canonical_weapon_id"], "cod22-先驱")
+            self.assertEqual(payload["recognized_weapon"]["source"], "manual_selection")
+            self.assertEqual(payload["recognized_weapon"]["matched_name"], "先驱")
+            self.assertTrue(output_path.exists())
+            self.assertIn("Switch back to the game now", stderr.getvalue())
+
+    def test_main_rejects_unknown_explicit_weapon_id(self):
+        tool = _load_recoil_tool_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            profile_dir = temp_path / "profiles"
+            signature_dir = temp_path / "signatures"
+            output_path = temp_path / "summary.json"
+            signature_dir.mkdir()
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+
+            exit_code = tool.main(
+                argv=[
+                    "--game",
+                    "cod22",
+                    "--mode",
+                    "ads",
+                    "--standing-only",
+                    "--canonical-weapon-id",
+                    "cod22-不存在",
+                    "--profile-dir",
+                    str(profile_dir),
+                    "--signature-dir",
+                    str(signature_dir),
+                    "--output",
+                    str(output_path),
+                ],
+                stdout=stdout,
+                stderr=stderr,
+            )
+
+            self.assertEqual(exit_code, 1)
+            self.assertEqual(stdout.getvalue(), "")
+            self.assertIn("No weapon identity record found", stderr.getvalue())
+            self.assertFalse(output_path.exists())
 
     def test_main_fails_conservatively_when_weapon_confirmation_is_missing_or_degraded(self):
         tool = _load_recoil_tool_module()
@@ -902,6 +1240,125 @@ def _single_burst_motion_trace(capture_module):
         MotionTraceSample(offset_ms=60, x=1.2, y=-4.0, center_motion=0.05),
         MotionTraceSample(offset_ms=70, x=1.2, y=-4.0, center_motion=0.05),
     )
+
+
+def _manual_marker_motion_trace(capture_module):
+    MotionTraceSample = capture_module.MotionTraceSample
+    return (
+        MotionTraceSample(offset_ms=0, x=0.0, y=0.0, center_motion=0.0),
+        MotionTraceSample(offset_ms=10, x=0.0, y=-0.4, center_motion=0.08, manual_marker="start"),
+        MotionTraceSample(offset_ms=20, x=0.3, y=-1.0, center_motion=0.09),
+        MotionTraceSample(offset_ms=30, x=0.6, y=-1.8, center_motion=0.07),
+        MotionTraceSample(offset_ms=40, x=0.6, y=-1.8, center_motion=0.04, manual_marker="stop"),
+        MotionTraceSample(offset_ms=50, x=0.6, y=-1.8, center_motion=0.02),
+        MotionTraceSample(offset_ms=60, x=0.6, y=-2.3, center_motion=0.08, manual_marker="start"),
+        MotionTraceSample(offset_ms=70, x=0.9, y=-3.0, center_motion=0.09),
+        MotionTraceSample(offset_ms=80, x=1.2, y=-3.9, center_motion=0.08),
+        MotionTraceSample(offset_ms=90, x=1.2, y=-3.9, center_motion=0.03, manual_marker="stop"),
+        MotionTraceSample(offset_ms=100, x=1.2, y=-3.9, center_motion=0.02),
+        MotionTraceSample(offset_ms=110, x=1.2, y=-4.5, center_motion=0.08, manual_marker="start"),
+        MotionTraceSample(offset_ms=120, x=1.5, y=-5.4, center_motion=0.09),
+        MotionTraceSample(offset_ms=130, x=1.8, y=-6.2, center_motion=0.08),
+        MotionTraceSample(offset_ms=140, x=1.8, y=-6.2, center_motion=0.03, manual_marker="stop"),
+    )
+
+
+class RecoilToolkitConsoleTests(unittest.TestCase):
+    def test_collect_flow_passes_explicit_weapon_id_and_startup_delay_to_collector(self):
+        tool = _load_recoil_console_tool_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            signature_dir = temp_path / "weapon_signatures"
+            profile_dir = temp_path / "recoil_profiles"
+            state_dir = temp_path / "recoil_state"
+            signature_dir.mkdir()
+            profile_dir.mkdir()
+            state_dir.mkdir()
+            identity_record = _weapon_record(
+                canonical_weapon_id="cod22-先驱",
+                game="cod22",
+                display_name="先驱",
+            )
+            (signature_dir / "identity-cod22-cod22-先驱.json").write_text(
+                json.dumps(identity_record.to_dict(), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+
+            collector_calls = []
+            stdout = io.StringIO()
+
+            exit_code = tool.main(
+                argv=[],
+                stdout=stdout,
+                stderr=io.StringIO(),
+                input_fn=_input_from_lines(
+                    (
+                        "2",
+                        "3",
+                        "1",
+                        "1",
+                        "",
+                    )
+                ),
+                collector_main=lambda argv, **kwargs: collector_calls.append(list(argv)) or 0,
+                signature_capture_main=lambda argv, **kwargs: 0,
+                runtime_launcher_main=lambda argv, **kwargs: 0,
+                project_root=temp_path,
+                signature_dir=signature_dir,
+                profile_dir=profile_dir,
+                state_dir=state_dir,
+            )
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(len(collector_calls), 1)
+            argv = collector_calls[0]
+            self.assertIn("--canonical-weapon-id", argv)
+            self.assertIn("cod22-先驱", argv)
+            self.assertIn("--startup-delay", argv)
+            self.assertIn("3", argv)
+            self.assertIn("--standing-only", argv)
+            self.assertIn("--mode", argv)
+            self.assertIn("ads", argv)
+
+    def test_collect_flow_stops_cleanly_when_no_identities_exist(self):
+        tool = _load_recoil_console_tool_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            signature_dir = temp_path / "weapon_signatures"
+            profile_dir = temp_path / "recoil_profiles"
+            state_dir = temp_path / "recoil_state"
+            signature_dir.mkdir()
+            profile_dir.mkdir()
+            state_dir.mkdir()
+
+            stdout = io.StringIO()
+            exit_code = tool.main(
+                argv=[],
+                stdout=stdout,
+                stderr=io.StringIO(),
+                input_fn=_input_from_lines(("2", "3", "")),
+                collector_main=lambda argv, **kwargs: (_ for _ in ()).throw(AssertionError("collector should not run")),
+                signature_capture_main=lambda argv, **kwargs: 0,
+                runtime_launcher_main=lambda argv, **kwargs: 0,
+                project_root=temp_path,
+                signature_dir=signature_dir,
+                profile_dir=profile_dir,
+                state_dir=state_dir,
+            )
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn("No weapon identity records found for cod22.", stdout.getvalue())
+
+
+def _input_from_lines(lines: tuple[str, ...]):
+    iterator = iter(lines)
+
+    def _reader(_prompt: str = "") -> str:
+        return next(iterator)
+
+    return _reader
 
 
 if __name__ == "__main__":

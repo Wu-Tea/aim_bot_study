@@ -45,6 +45,33 @@ class WeaponResolverTests(unittest.TestCase):
         self.assertFalse(result.event.degraded)
         self.assertEqual(result.runtime_state.confirmed_weapon_id, "cod22-m4")
 
+    def test_cod22_unique_partial_text_candidate_can_resolve_directly(self):
+        result = _resolve_weapon(
+            adapter=get_adapter("cod22"),
+            identity_records=(
+                _weapon_record(
+                    canonical_weapon_id="cod22-最后通牒",
+                    game="cod22",
+                    display_name="最后通牒",
+                ),
+                _weapon_record(
+                    canonical_weapon_id="cod22-追击者",
+                    game="cod22",
+                    display_name="追击者",
+                ),
+            ),
+            ranked_image_matches=(),
+            text_candidates=("最后通",),
+            runtime_state=_runtime_state(),
+            switch_suspected=True,
+            timestamp="2026-05-06T19:00:00Z",
+        )
+
+        self.assertIsNotNone(result.event)
+        self.assertEqual(result.event.canonical_weapon_id, "cod22-最后通牒")
+        self.assertEqual(result.event.source, "text")
+        self.assertEqual(result.event.matched_name, "最后通")
+
     def test_cod21_text_window_confirmation_carries_forward_cached_weapon(self):
         initial, follow_up = _run_resolver_fixture("cod21_switch_name_confirmation")
 

@@ -4,11 +4,14 @@ import unittest
 import vgamepad as vg
 
 from controllers.base_controller import ControllerTarget
+from controllers.gamepad.weapon_switch_recognition import YButtonTextWeaponRecognizer
 from controllers.gamepad_controller import GamepadController
 from controllers.gamepad.plugin import PluginApplicationTrace
 from controllers.gamepad.state import GamepadFrame
 from controllers.gamepad.state import GamepadOutput
+from runtime.recoil_sidecar.models import RecognizerState
 from vision.recoil_collection.models import RecoilProfileRecord
+from vision.weapon_identity.models import WeaponIdentityRecord
 
 
 class _FakePlugin:
@@ -108,6 +111,45 @@ class _RaisingRecognizerStateService(_FakeRecoilSidecarService):
 
 
 class GamepadControllerHostTests(unittest.TestCase):
+    def test_handle_weapon_switch_button_delegates_to_recoil_app_bridge_when_present(self):
+        controller = GamepadController.__new__(GamepadController)
+        handled = []
+        controller._recoil_app_bridge = type(
+            "_FakeBridge",
+            (),
+            {"handle_buttons": lambda _self, buttons: handled.append(dict(buttons))},
+        )()
+        controller._switch_weapon_recognizer = type(
+            "_FakeSwitchRecognizer",
+            (),
+            {"handle_switch_pressed": lambda _self: handled.append("legacy")},
+        )()
+        controller._last_buttons = {}
+
+        GamepadController._handle_weapon_switch_button(controller, {"y": True})
+
+        self.assertEqual(handled, [{"y": True}])
+        self.assertEqual(controller._last_buttons, {"y": True})
+
+    def test_handle_weapon_switch_button_fires_only_on_y_rising_edges(self):
+        controller = GamepadController.__new__(GamepadController)
+        controller._recoil_app_bridge = None
+        calls = []
+        controller._switch_weapon_recognizer = type(
+            "_FakeSwitchRecognizer",
+            (),
+            {"handle_switch_pressed": lambda _self: calls.append("switch")},
+        )()
+        controller._last_buttons = {}
+
+        GamepadController._handle_weapon_switch_button(controller, {"y": False})
+        GamepadController._handle_weapon_switch_button(controller, {"y": True})
+        GamepadController._handle_weapon_switch_button(controller, {"y": True})
+        GamepadController._handle_weapon_switch_button(controller, {"y": False})
+        GamepadController._handle_weapon_switch_button(controller, {"y": True})
+
+        self.assertEqual(calls, ["switch", "switch"])
+
     def test_axis_to_xbox_uses_nearest_value_across_full_xusb_range(self):
         controller = GamepadController.__new__(GamepadController)
 
@@ -260,6 +302,7 @@ class GamepadControllerHostTests(unittest.TestCase):
 
     def test_get_active_recoil_profile_returns_matching_ready_profile_for_ads(self):
         controller = GamepadController.__new__(GamepadController)
+        controller._recoil_app_bridge = None
         ready_profile = _profile_record(
             profile_id="profile-cod22-m4-ads-standing-v1",
             canonical_weapon_id="cod22-m4",
@@ -304,6 +347,7 @@ class GamepadControllerHostTests(unittest.TestCase):
 
     def test_get_active_recoil_profile_returns_none_when_sidecar_is_degraded(self):
         controller = GamepadController.__new__(GamepadController)
+        controller._recoil_app_bridge = None
         controller._recoil_sidecar_service = _FakeRecoilSidecarService(
             active_profile={
                 "canonical_weapon_id": "cod22-m4",
@@ -326,6 +370,7 @@ class GamepadControllerHostTests(unittest.TestCase):
 
     def test_get_active_recoil_profile_degrades_when_recognizer_state_read_raises(self):
         controller = GamepadController.__new__(GamepadController)
+        controller._recoil_app_bridge = None
         controller._recoil_sidecar_service = _RaisingRecognizerStateService(
             active_profile={
                 "canonical_weapon_id": "cod22-m4",
@@ -345,6 +390,76 @@ class GamepadControllerHostTests(unittest.TestCase):
         profile = GamepadController._get_active_recoil_profile(controller, is_aiming=True)
 
         self.assertIsNone(profile)
+
+    def test_get_active_recoil_profile_uses_recoil_app_bridge_when_present(self):
+        controller = GamepadController.__new__(GamepadController)
+        expected_profile = _profile_record(
+            profile_id="profile-cod22-黑色组织传奇-ads-standing-v1",
+            canonical_weapon_id="cod22-黑色组织传奇",
+            aim_mode="ads",
+            samples_y=(0.0, -80.0, -160.0),
+        )
+        calls = []
+        controller._recoil_app_bridge = type(
+            "_FakeBridge",
+            (),
+            {"get_active_profile": lambda _self, *, is_aiming: calls.append(is_aiming) or expected_profile},
+        )()
+        controller._recoil_sidecar_service = None
+
+        profile = GamepadController._get_active_recoil_profile(controller, is_aiming=True)
+
+        self.assertIs(profile, expected_profile)
+        self.assertEqual(calls, [True])
+
+
+class YButtonTextWeaponRecognizerTests(unittest.TestCase):
+    def test_handle_switch_pressed_replays_cached_slot_immediately(self):
+        published = []
+        recognizer = YButtonTextWeaponRecognizer(
+            game="cod20",
+            identity_records=(_weapon_record(canonical_weapon_id="cod20-王者", game="cod20", display_name="王者"),),
+            state_writer=published.append,
+            capture_runner=lambda slot_index, switch_epoch, task: None,
+        )
+        recognizer.complete_switch_resolution(
+            slot_index=1,
+            switch_epoch=0,
+            state=_recognizer_state("cod20", "cod20-王者", "王者"),
+        )
+
+        recognizer.handle_switch_pressed()
+
+        self.assertEqual(recognizer.active_slot_index, 1)
+        self.assertEqual(len(published), 1)
+        self.assertEqual(published[0].canonical_weapon_id, "cod20-王者")
+        self.assertEqual(published[0].source, "switch_cache")
+
+    def test_stale_switch_epoch_updates_cache_without_overriding_current_slot(self):
+        published = []
+        recognizer = YButtonTextWeaponRecognizer(
+            game="cod21",
+            identity_records=(_weapon_record(canonical_weapon_id="cod21-黑色组织xxx", game="cod21", display_name="黑色组织xxx"),),
+            state_writer=published.append,
+            capture_runner=lambda slot_index, switch_epoch, task: None,
+        )
+
+        recognizer.handle_switch_pressed()
+        recognizer.handle_switch_pressed()
+        recognizer.complete_switch_resolution(
+            slot_index=1,
+            switch_epoch=1,
+            state=_recognizer_state("cod21", "cod21-黑色组织xxx", "黑色组织xxx"),
+        )
+
+        self.assertEqual(published, [])
+
+        recognizer.handle_switch_pressed()
+
+        self.assertEqual(recognizer.active_slot_index, 1)
+        self.assertEqual(len(published), 1)
+        self.assertEqual(published[0].canonical_weapon_id, "cod21-黑色组织xxx")
+        self.assertEqual(published[0].source, "switch_cache")
 
 
 def _profile_record(*, profile_id: str, canonical_weapon_id: str, aim_mode: str, samples_y: tuple[float, ...]):
@@ -367,6 +482,34 @@ def _profile_record(*, profile_id: str, canonical_weapon_id: str, aim_mode: str,
         capture_fps=144.0,
         collector_version="test",
         created_at="2026-05-06T12:00:00Z",
+    )
+
+
+def _weapon_record(*, canonical_weapon_id: str, game: str, display_name: str):
+    return WeaponIdentityRecord(
+        canonical_weapon_id=canonical_weapon_id,
+        game=game,
+        weapon_family="unknown",
+        display_name=display_name,
+        alias_names=(),
+        blueprint_names=(),
+        signature_refs=(),
+        notes="",
+        created_at="2026-05-06T12:00:00Z",
+        updated_at="2026-05-06T12:00:00Z",
+    )
+
+
+def _recognizer_state(game: str, canonical_weapon_id: str, matched_name: str) -> RecognizerState:
+    return RecognizerState(
+        game=game,
+        canonical_weapon_id=canonical_weapon_id,
+        confidence=0.93,
+        source="switch_text",
+        timestamp="2026-05-06T18:00:00Z",
+        degraded=False,
+        matched_name=matched_name,
+        profile_ids=(),
     )
 
 

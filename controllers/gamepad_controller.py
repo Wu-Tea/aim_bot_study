@@ -9,6 +9,7 @@ os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "hide"
 import pygame
 import vgamepad as vg
 
+from recoil_app import GamepadRecoilBridge
 from runtime.recoil_sidecar.models import ActiveProfilePayload
 from runtime.recoil_sidecar.models import RecognizerState
 
@@ -17,14 +18,17 @@ from .gamepad import (
     AIAimPlugin,
     AutoFireConfig,
     AutoFirePlugin,
+    DEFAULT_BUTTON_NAME_MAP,
     DownwardPullDiagnostics,
     GamepadFrame,
     GamepadOutput,
+    PygamePhysicalGamepadReader,
     apply_plugins,
     apply_plugins_with_trace,
     reset_plugins,
     RecoilCompensationConfig,
     RecoilCompensationPlugin,
+    YButtonTextWeaponRecognizer,
 )
 
 
@@ -34,19 +38,7 @@ class GamepadController(BaseController, threading.Thread):
     Enhancement behavior is applied by controller-level plugins.
     """
 
-    BUTTON_NAME_MAP = {
-        0: "a",
-        1: "b",
-        2: "x",
-        3: "y",
-        4: "back",
-        5: "guide",
-        6: "start",
-        7: "left_thumb",
-        8: "right_thumb",
-        9: "lb",
-        10: "rb",
-    }
+    BUTTON_NAME_MAP = DEFAULT_BUTTON_NAME_MAP
 
     XUSB_BUTTON_MAP = {
         "a": vg.XUSB_BUTTON.XUSB_GAMEPAD_A,
@@ -101,15 +93,20 @@ class GamepadController(BaseController, threading.Thread):
             ai_aim_config = replace(ai_aim_config, **overrides)
 
         self._recoil_sidecar_service = recoil_sidecar_service or self._build_recoil_sidecar_service_from_env()
+        self._recoil_app_bridge = self._build_recoil_app_bridge_from_env()
+        self._switch_weapon_recognizer = self._build_weapon_switch_recognizer_from_env()
         self._recoil_profile_cache_key = None
         self._recoil_profile_cache_value = None
+        self._last_buttons = {}
 
         self.plugins = list(plugins) if plugins is not None else [
             AIAimPlugin(ai_aim_config),
             AutoFirePlugin(AutoFireConfig(fire_output=auto_fire_output)),
             RecoilCompensationPlugin(
                 RecoilCompensationConfig(amount=0.20),
-                profile_provider=self._get_active_recoil_profile if self._recoil_sidecar_service is not None else None,
+                profile_provider=self._get_active_recoil_profile
+                if self._recoil_sidecar_service is not None or self._recoil_app_bridge is not None
+                else None,
             ),
         ]
         self._downward_pull_diagnostics = DownwardPullDiagnostics.from_env()
@@ -125,6 +122,7 @@ class GamepadController(BaseController, threading.Thread):
 
             self.joystick = pygame.joystick.Joystick(0)
             self.joystick.init()
+            self._physical_input = PygamePhysicalGamepadReader(pygame_module=pygame, joystick=self.joystick)
             print(f"[Gamepad] Successfully connected to: {self.joystick.get_name()}")
         except Exception as exc:
             print(f"[Error] Gamepad initialization failed: {exc}")
@@ -181,40 +179,13 @@ class GamepadController(BaseController, threading.Thread):
         return int(val)
 
     def _trigger_to_xbox(self, val):
-        return int(((val + 1.0) / 2.0) * 255)
+        return PygamePhysicalGamepadReader.trigger_to_xbox(val)
 
     def _read_buttons(self):
-        button_count = self.joystick.get_numbuttons()
-        return {
-            name: bool(self.joystick.get_button(index)) if index < button_count else False
-            for index, name in self.BUTTON_NAME_MAP.items()
-        }
+        return self._physical_input.read_buttons()
 
     def _read_dpad(self):
-        if self.joystick.get_numhats() > 0:
-            hat_x, hat_y = self.joystick.get_hat(0)
-            return (
-                vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_UP
-                if hat_y == 1
-                else vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_DOWN
-                if hat_y == -1
-                else vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_LEFT
-                if hat_x == -1
-                else vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_RIGHT
-                if hat_x == 1
-                else 0
-            )
-
-        button_count = self.joystick.get_numbuttons()
-        if button_count > 11 and self.joystick.get_button(11):
-            return vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_UP
-        if button_count > 12 and self.joystick.get_button(12):
-            return vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_DOWN
-        if button_count > 13 and self.joystick.get_button(13):
-            return vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_LEFT
-        if button_count > 14 and self.joystick.get_button(14):
-            return vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_RIGHT
-        return 0
+        return self._physical_input.read_dpad()
 
     def _build_frame(
         self,
@@ -269,6 +240,11 @@ class GamepadController(BaseController, threading.Thread):
         )
 
     def _get_active_recoil_profile(self, frame: GamepadFrame | None = None, *, is_aiming: bool | None = None):
+        bridge = getattr(self, "_recoil_app_bridge", None)
+        if bridge is not None:
+            aiming = bool(is_aiming) if is_aiming is not None else bool(getattr(frame, "is_aiming", False))
+            return bridge.get_active_profile(is_aiming=aiming)
+
         service = getattr(self, "_recoil_sidecar_service", None)
         if service is None:
             return None
@@ -321,6 +297,31 @@ class GamepadController(BaseController, threading.Thread):
             recognizer_state_path=recognizer_state_path,
         )
 
+    def _build_recoil_app_bridge_from_env(self):
+        try:
+            return GamepadRecoilBridge.from_env()
+        except (OSError, UnicodeDecodeError, ValueError, json.JSONDecodeError) as exc:
+            print(f"[Recoil] In-process recoil app disabled: {exc}")
+            return None
+
+    def _build_weapon_switch_recognizer_from_env(self):
+        mode = os.environ.get("RECOIL_SWITCH_RECOGNITION_MODE", "").strip().casefold()
+        game = os.environ.get("RECOIL_GAME", "").strip()
+        identity_dir = os.environ.get("RECOIL_SIGNATURE_DIR", "").strip()
+        recognizer_state_path = os.environ.get("RECOIL_RECOGNIZER_STATE_PATH", "").strip()
+        if mode != "y_button_text" or not game or not identity_dir or not recognizer_state_path:
+            return None
+
+        try:
+            return YButtonTextWeaponRecognizer.from_directory(
+                game=game,
+                identity_dir=identity_dir,
+                state_path=recognizer_state_path,
+            )
+        except (OSError, UnicodeDecodeError, ValueError, json.JSONDecodeError) as exc:
+            print(f"[Recoil] Weapon switch recognizer disabled: {exc}")
+            return None
+
     def _apply_plugin_pipeline(self, frame: GamepadFrame, output: GamepadOutput):
         diagnostics = getattr(self, "_downward_pull_diagnostics", None)
         if diagnostics is None or not diagnostics.config.enabled:
@@ -335,6 +336,27 @@ class GamepadController(BaseController, threading.Thread):
             plugins=self.plugins,
         )
         return traces
+
+    def _handle_weapon_switch_button(self, buttons: dict[str, bool]) -> None:
+        bridge = getattr(self, "_recoil_app_bridge", None)
+        if bridge is not None:
+            bridge.handle_buttons(buttons)
+            self._last_buttons = dict(buttons)
+            return
+
+        current_pressed = bool(buttons.get("y", False))
+        previous_pressed = bool(getattr(self, "_last_buttons", {}).get("y", False))
+        if current_pressed and not previous_pressed:
+            recognizer = getattr(self, "_switch_weapon_recognizer", None)
+            if recognizer is not None:
+                recognizer.handle_switch_pressed()
+        self._last_buttons = dict(buttons)
+
+    def _handle_recoil_runtime_fire_state(self, *, is_firing: bool, is_aiming: bool) -> None:
+        bridge = getattr(self, "_recoil_app_bridge", None)
+        if bridge is None:
+            return
+        bridge.handle_fire_state(is_firing=is_firing, is_aiming=is_aiming)
 
     def _apply_dpad(self, dpad_button):
         for button in self.DPAD_BUTTONS:
@@ -359,23 +381,13 @@ class GamepadController(BaseController, threading.Thread):
                 self.virtual_gamepad.release_button(button=button)
 
     def run(self):
-        trigger_initialized = False
-
         while self.running:
-            pygame.event.pump()
+            self._physical_input.pump()
 
             left_x = self._axis_to_xbox(self.joystick.get_axis(0))
             left_y = self._axis_to_xbox(-self.joystick.get_axis(1))
 
-            raw_l2 = self.joystick.get_axis(4)
-            raw_r2 = self.joystick.get_axis(5)
-            if not trigger_initialized and (raw_l2 != 0.0 or raw_r2 != 0.0):
-                trigger_initialized = True
-            if not trigger_initialized:
-                raw_l2, raw_r2 = -1.0, -1.0
-
-            left_trigger = self._trigger_to_xbox(raw_l2)
-            right_trigger = self._trigger_to_xbox(raw_r2)
+            left_trigger, right_trigger = self._physical_input.read_trigger_values()
             self._is_aiming = left_trigger > 10
 
             manual_right_x = self._apply_stick_deadzone(
@@ -386,6 +398,11 @@ class GamepadController(BaseController, threading.Thread):
             )
             buttons = self._read_buttons()
             dpad = self._read_dpad()
+            self._handle_weapon_switch_button(buttons)
+            self._handle_recoil_runtime_fire_state(
+                is_firing=self._physical_input.read_right_fire_pressed(),
+                is_aiming=self._is_aiming,
+            )
 
             frame = self._build_frame(
                 timestamp=time.perf_counter(),

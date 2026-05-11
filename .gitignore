@@ -5,5 +5,9 @@ config.toml
 training_data/
 runs/
 debug_captures/
+artifacts/weapon_examples/
+artifacts/recoil_app/
+artifacts/recoil_profiles/
+artifacts/recoil_plots/
 .worktrees/
 native/vision_native/build/
