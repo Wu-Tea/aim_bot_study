@@ -133,12 +133,15 @@ class GamepadController(BaseController, threading.Thread):
         self.start()
 
     def update(self, dx, dy, target=None):
+        target_timestamp = getattr(target, "observed_at", None)
+        if target_timestamp is None:
+            target_timestamp = time.perf_counter()
         with self.lock:
             self.target_dx = dx
             self.target_dy = dy
             self.target_info = target
             self.target_revision = getattr(self, "target_revision", 0) + 1
-            self.target_timestamp = time.perf_counter()
+            self.target_timestamp = target_timestamp
 
     def reset(self):
         # NOTE: do NOT touch self._auto_fire_requested here. Auto-fire lifecycle

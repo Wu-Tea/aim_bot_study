@@ -307,7 +307,27 @@ def _load_native_module():
         ) from exc
 
 
-def _controller_target_from_native_result(result: dict) -> ControllerTarget | None:
+def _native_observed_at(result: dict, received_at: float | None) -> float | None:
+    if received_at is None:
+        return None
+
+    age_seconds = None
+    if result.get("age_ms") is not None:
+        age_seconds = max(0.0, float(result.get("age_ms", 0.0)) / 1000.0)
+    elif result.get("captured_at_ns") and result.get("result_at_ns"):
+        age_ns = int(result.get("result_at_ns", 0)) - int(result.get("captured_at_ns", 0))
+        age_seconds = max(0.0, float(age_ns) / 1_000_000_000.0)
+
+    if age_seconds is None:
+        return None
+    return received_at - age_seconds
+
+
+def _controller_target_from_native_result(
+    result: dict,
+    *,
+    received_at: float | None = None,
+) -> ControllerTarget | None:
     body_box = None
     if result.get("has_body_box"):
         body_box = (
@@ -327,6 +347,7 @@ def _controller_target_from_native_result(result: dict) -> ControllerTarget | No
             if result.get("target_source") not in (None, "")
             else None
         ),
+        observed_at=_native_observed_at(result, received_at),
     )
 
 
@@ -504,10 +525,11 @@ def process_native_vision(controller=None, cue_provider=None):
 
             _apply_external_cue(engine, resolved_cue_provider)
             result = engine.poll_once()
+            result_received_at = time.perf_counter()
             has_target = bool(result.get("has_target"))
             auto_fire_active = auto_fire_gate.allow_auto_fire(
                 bool(result.get("auto_fire")),
-                time.perf_counter(),
+                result_received_at,
             )
 
             if controller:
@@ -516,7 +538,10 @@ def process_native_vision(controller=None, cue_provider=None):
                     controller.update(
                         float(result.get("dx", 0.0)),
                         float(result.get("dy", 0.0)),
-                        target=_controller_target_from_native_result(result),
+                        target=_controller_target_from_native_result(
+                            result,
+                            received_at=result_received_at,
+                        ),
                     )
                 else:
                     _clear_controller_target(controller)

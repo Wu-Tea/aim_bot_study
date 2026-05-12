@@ -96,12 +96,15 @@ class MouseController(BaseController, threading.Thread):
                 win32api.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
 
     def update(self, dx, dy, target=None):
+        target_timestamp = getattr(target, "observed_at", None)
+        if target_timestamp is None:
+            target_timestamp = time.perf_counter()
         with self.lock:
             self.target_dx = dx
             self.target_dy = dy
             self.target_info = target
             self.target_revision += 1
-            self.target_timestamp = time.perf_counter()
+            self.target_timestamp = target_timestamp
 
     def _clear_target_state_locked(self):
         self.target_dx = 0.0

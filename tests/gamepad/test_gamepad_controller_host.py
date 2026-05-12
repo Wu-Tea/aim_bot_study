@@ -215,6 +215,28 @@ class GamepadControllerHostTests(unittest.TestCase):
         self.assertEqual(controller.plugins[0].reset_calls, 0)
         self.assertEqual(controller.plugins[1].reset_calls, 0)
 
+    def test_update_uses_target_observed_at_when_available(self):
+        controller = GamepadController.__new__(GamepadController)
+        controller.lock = threading.Lock()
+        controller.target_revision = 0
+        target = ControllerTarget(
+            aim_point_x=320.0,
+            aim_point_y=220.0,
+            screen_center_x=320.0,
+            screen_center_y=256.0,
+            body_box=(280.0, 140.0, 360.0, 320.0),
+            observed_at=12.345,
+        )
+
+        with patch("controllers.gamepad_controller.time.perf_counter", return_value=42.0):
+            GamepadController.update(controller, 2.0, -1.0, target=target)
+
+        self.assertEqual(controller.target_dx, 2.0)
+        self.assertEqual(controller.target_dy, -1.0)
+        self.assertIs(controller.target_info, target)
+        self.assertEqual(controller.target_revision, 1)
+        self.assertEqual(controller.target_timestamp, 12.345)
+
     def test_set_auto_rb_is_a_compatibility_alias_for_set_auto_fire(self):
         controller = GamepadController.__new__(GamepadController)
         controller.lock = threading.Lock()

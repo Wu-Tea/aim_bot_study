@@ -369,6 +369,17 @@ class TargetSelectorTests(unittest.TestCase):
         expected_target_y = box[1] + ((box[3] - box[1]) * selector.UPPER_CHEST_RATIO)
         self.assertAlmostEqual(selected.target_y, expected_target_y, places=3)
 
+    def test_wide_low_prone_or_side_box_can_lock_with_lower_body_target_point(self):
+        selector = TargetSelector(crop_size=CROP)
+        box = [236, 250, 404, 318]
+        frame = _frame()
+
+        selected = _confirm_target(selector, _detections(box, confs=[0.95]), frame)
+
+        self.assertIsNotNone(selected)
+        self.assertAlmostEqual(selected.target_x, 320.0, places=3)
+        self.assertAlmostEqual(selected.target_y, 284.0, places=3)
+
     def test_tracking_small_box_jitter_is_smoothed_before_output(self):
         selector = TargetSelector(crop_size=CROP)
         frame = _frame()

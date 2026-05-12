@@ -7,6 +7,8 @@ namespace vision_native {
 namespace {
 
 constexpr float kUpperChestRatio = 0.38f;
+constexpr float kCrouchedTargetRatio = 0.43f;
+constexpr float kWideLowTargetRatio = 0.50f;
 constexpr float kTorsoBoxShrinkX = 0.22f;
 constexpr float kTorsoBoxShrinkTop = 0.18f;
 constexpr float kTorsoBoxShrinkBottom = 0.20f;
@@ -18,6 +20,9 @@ constexpr float kMinTrackingHeightRatio = 0.06f;
 constexpr float kMinPickupAreaRatio = 0.003f;
 constexpr float kMinTrackingAreaRatio = 0.002f;
 constexpr float kMinAspectRatio = 0.85f;
+constexpr float kMinWideLowAspectRatio = 0.30f;
+constexpr float kWideLowAspectThreshold = 0.65f;
+constexpr float kCrouchedHeightRatio = 0.24f;
 constexpr float kMaxAspectRatio = 4.50f;
 constexpr float kConfidenceScoreScale = 400.0f;
 constexpr float kMinSmoothingAlpha = 0.25f;
@@ -119,6 +124,22 @@ float point_distance(
     return std::hypot(lhs.first - rhs.first, lhs.second - rhs.second);
 }
 
+float aspect_ratio_h_over_w(float box_w, float box_h) {
+    return box_w > 0.0f ? (box_h / box_w) : 0.0f;
+}
+
+bool is_wide_low_pose(float box_w, float box_h) {
+    return aspect_ratio_h_over_w(box_w, box_h) < kWideLowAspectThreshold;
+}
+
+bool is_crouched_pose(float box_w, float box_h, int frame_height) {
+    if (frame_height <= 0) {
+        return false;
+    }
+    return aspect_ratio_h_over_w(box_w, box_h) < 1.0f
+        && (box_h / static_cast<float>(frame_height)) <= kCrouchedHeightRatio;
+}
+
 VisionTargetSelector::Rect shift_rect(
     const VisionTargetSelector::Rect& rect,
     float dx,
@@ -138,17 +159,27 @@ std::optional<IntRect> color_roi_bounds(
     const float box_w = rect_width(box);
     const float box_h = rect_height(box);
     const float cx = (box.left + box.right) * 0.5f;
-    const int roi_h = static_cast<int>(std::max(12.0f, std::min(36.0f, box_h * 0.20f)));
-    const int roi_w = static_cast<int>(std::max(24.0f, std::min(80.0f, box_w * 0.80f)));
-    const int roi_bottom = std::max(0, std::min(frame_height, static_cast<int>(box.top) - 2));
-    const int roi_top = std::max(0, roi_bottom - roi_h);
+    const bool wide_low = is_wide_low_pose(box_w, box_h);
+    const int roi_h = wide_low
+        ? static_cast<int>(std::max(12.0f, std::min(32.0f, box_h * 0.35f)))
+        : static_cast<int>(std::max(12.0f, std::min(36.0f, box_h * 0.20f)));
+    const int roi_w = wide_low
+        ? static_cast<int>(std::max(32.0f, std::min(120.0f, box_w * 0.70f)))
+        : static_cast<int>(std::max(24.0f, std::min(80.0f, box_w * 0.80f)));
+    const int roi_top = wide_low
+        ? std::max(0, std::min(frame_height, static_cast<int>(box.top + (box_h * 0.05f))))
+        : std::max(0, std::min(frame_height, static_cast<int>(box.top) - 2)) - roi_h;
+    const int roi_bottom = wide_low
+        ? std::min(frame_height, roi_top + roi_h)
+        : std::max(0, std::min(frame_height, static_cast<int>(box.top) - 2));
+    const int clamped_roi_top = std::max(0, roi_top);
     const int roi_left = std::max(0, static_cast<int>(cx - (static_cast<float>(roi_w) * 0.5f)));
     const int roi_right = std::min(frame_width, static_cast<int>(cx + (static_cast<float>(roi_w) * 0.5f)));
 
-    if ((roi_bottom - roi_top) < 4 || (roi_right - roi_left) < 4) {
+    if ((roi_bottom - clamped_roi_top) < 4 || (roi_right - roi_left) < 4) {
         return std::nullopt;
     }
-    return IntRect{roi_left, roi_top, roi_right, roi_bottom};
+    return IntRect{roi_left, clamped_roi_top, roi_right, roi_bottom};
 }
 
 int effective_frame_width(const VisionTargetSelector::ColorFrameView& frame) {
@@ -513,9 +544,18 @@ VisionTargetSelector::Rect VisionTargetSelector::to_rect(const Detection& detect
 }
 
 std::pair<float, float> VisionTargetSelector::target_point(const Rect& box) const {
+    const float box_w = rect_width(box);
+    const float box_h = rect_height(box);
+    float target_ratio = kUpperChestRatio;
+    if (is_wide_low_pose(box_w, box_h)) {
+        target_ratio = kWideLowTargetRatio;
+    } else if (is_crouched_pose(box_w, box_h, frame_height_)) {
+        target_ratio = kCrouchedTargetRatio;
+    }
+
     return {
         (box.left + box.right) * 0.5f,
-        box.top + (rect_height(box) * kUpperChestRatio),
+        box.top + (box_h * target_ratio),
     };
 }
 
@@ -604,8 +644,9 @@ bool VisionTargetSelector::update_auto_fire(const TargetState* target) {
 }
 
 bool VisionTargetSelector::passes_geometry_gate(float box_w, float box_h, bool tracking_candidate) const {
-    const float aspect_ratio = box_w > 0.0f ? (box_h / box_w) : 0.0f;
-    if (aspect_ratio < kMinAspectRatio || aspect_ratio > kMaxAspectRatio) {
+    const float aspect_ratio = aspect_ratio_h_over_w(box_w, box_h);
+    const float min_aspect = is_wide_low_pose(box_w, box_h) ? kMinWideLowAspectRatio : kMinAspectRatio;
+    if (aspect_ratio < min_aspect || aspect_ratio > kMaxAspectRatio) {
         return false;
     }
 

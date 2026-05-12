@@ -76,6 +76,22 @@ class NativeVisionRunnerMappingTests(unittest.TestCase):
         self.assertIsNotNone(target)
         self.assertEqual(target.target_source, "cue_hold")
 
+    def test_controller_target_estimates_observed_at_from_native_age(self):
+        target = _controller_target_from_native_result(
+            {
+                "target_x": 331.5,
+                "target_y": 201.25,
+                "screen_center_x": 320.0,
+                "screen_center_y": 256.0,
+                "has_body_box": False,
+                "age_ms": 36.0,
+            },
+            received_at=10.0,
+        )
+
+        self.assertIsNotNone(target)
+        self.assertAlmostEqual(target.observed_at, 9.964, places=6)
+
     @patch("vision.native_runner.win32api.GetAsyncKeyState")
     def test_quit_check_is_disabled_when_quit_key_is_zero(self, get_async_key_state):
         config = VisionConfig(quit_key_vk=0)
@@ -185,7 +201,9 @@ class NativeVisionProcessTests(unittest.TestCase):
         controller.update.assert_called_once()
         dx, dy = controller.update.call_args.args
         self.assertEqual((dx, dy), (3.0, -2.0))
-        self.assertIsInstance(controller.update.call_args.kwargs["target"], ControllerTarget)
+        target = controller.update.call_args.kwargs["target"]
+        self.assertIsInstance(target, ControllerTarget)
+        self.assertIsNotNone(target.observed_at)
         controller.set_auto_fire.assert_called()
         perf_tracker.update.assert_called_once()
 

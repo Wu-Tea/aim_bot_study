@@ -10,6 +10,8 @@ class ControllerTarget:
     screen_center_y: float
     body_box: tuple[float, float, float, float] | None = None
     target_source: str | None = None
+    # `time.perf_counter()` domain timestamp for when the source frame was observed.
+    observed_at: float | None = None
 
 
 class BaseController(ABC):

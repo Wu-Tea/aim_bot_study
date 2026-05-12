@@ -174,7 +174,7 @@ def _resolve_tracking_frame(
     )
 
 
-def _controller_target(selected_target) -> ControllerTarget | None:
+def _controller_target(selected_target, *, observed_at: float | None = None) -> ControllerTarget | None:
     if selected_target is None:
         return None
     return ControllerTarget(
@@ -184,6 +184,7 @@ def _controller_target(selected_target) -> ControllerTarget | None:
         screen_center_y=selected_target.screen_center_y,
         body_box=selected_target.selected_box,
         target_source=getattr(selected_target, "source", None),
+        observed_at=observed_at,
     )
 
 
@@ -368,10 +369,11 @@ def process_vision(controller=None):
             if controller:
                 controller.set_auto_fire(auto_fire_active)
                 if best_target_delta:
+                    observed_at = getattr(frame, "captured_at", getattr(result, "captured_at", None))
                     controller.update(
                         best_target_delta[0],
                         best_target_delta[1],
-                        target=_controller_target(selected_target),
+                        target=_controller_target(selected_target, observed_at=observed_at),
                     )
                 else:
                     controller.clear_target()

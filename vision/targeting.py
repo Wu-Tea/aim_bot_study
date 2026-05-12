@@ -16,6 +16,22 @@ LOWER_RED1 = np.array([0, 120, 80])
 UPPER_RED1 = np.array([10, 255, 255])
 LOWER_RED2 = np.array([170, 120, 80])
 UPPER_RED2 = np.array([180, 255, 255])
+WIDE_LOW_ASPECT_THRESHOLD = 0.65
+CROUCHED_HEIGHT_RATIO = 0.24
+
+
+def _aspect_ratio_h_over_w(box_w: float, box_h: float) -> float:
+    return box_h / box_w if box_w > 0.0 else 0.0
+
+
+def _is_wide_low_pose(box_w: float, box_h: float) -> bool:
+    return _aspect_ratio_h_over_w(box_w, box_h) < WIDE_LOW_ASPECT_THRESHOLD
+
+
+def _is_crouched_pose(box_w: float, box_h: float, frame_height: float) -> bool:
+    if frame_height <= 0.0:
+        return False
+    return _aspect_ratio_h_over_w(box_w, box_h) < 1.0 and (box_h / frame_height) <= CROUCHED_HEIGHT_RATIO
 
 
 def color_roi_bounds(box: np.ndarray, frame_shape) -> tuple[int, int, int, int] | None:
@@ -24,10 +40,16 @@ def color_roi_bounds(box: np.ndarray, frame_shape) -> tuple[int, int, int, int] 
     box_w = float(x2 - x1)
     box_h = float(y2 - y1)
     cx = (x1 + x2) * 0.5
-    roi_h = int(max(12, min(36, box_h * 0.20)))
-    roi_w = int(max(24, min(80, box_w * 0.80)))
-    roi_bottom = max(0, min(frame_h, int(y1) - 2))
-    roi_top = max(0, roi_bottom - roi_h)
+    if _is_wide_low_pose(box_w, box_h):
+        roi_h = int(max(12, min(32, box_h * 0.35)))
+        roi_w = int(max(32, min(120, box_w * 0.70)))
+        roi_top = max(0, min(frame_h, int(y1 + (box_h * 0.05))))
+        roi_bottom = min(frame_h, roi_top + roi_h)
+    else:
+        roi_h = int(max(12, min(36, box_h * 0.20)))
+        roi_w = int(max(24, min(80, box_w * 0.80)))
+        roi_bottom = max(0, min(frame_h, int(y1) - 2))
+        roi_top = max(0, roi_bottom - roi_h)
     roi_left = max(0, int(cx - roi_w / 2))
     roi_right = min(frame_w, int(cx + roi_w / 2))
     if (roi_bottom - roi_top) < 4 or (roi_right - roi_left) < 4:
@@ -112,6 +134,8 @@ class TargetSelector:
     PICKUP_ENEMY_CONFIDENCE_THRESHOLD = 0.42
     TRACKING_CONFIDENCE_THRESHOLD = 0.40
     UPPER_CHEST_RATIO = 0.38
+    CROUCHED_TARGET_RATIO = 0.43
+    WIDE_LOW_TARGET_RATIO = 0.50
     TORSO_BOX_SHRINK_X = 0.22
     TORSO_BOX_SHRINK_TOP = 0.18
     TORSO_BOX_SHRINK_BOTTOM = 0.20
@@ -124,6 +148,7 @@ class TargetSelector:
     MIN_PICKUP_AREA_RATIO = 0.003
     MIN_TRACKING_AREA_RATIO = 0.002
     MIN_ASPECT_RATIO = 0.85
+    MIN_WIDE_LOW_ASPECT_RATIO = 0.30
     MAX_ASPECT_RATIO = 4.50
     CONFIDENCE_SCORE_SCALE = 400.0
     MIN_SMOOTHING_ALPHA = 0.25
@@ -357,7 +382,12 @@ class TargetSelector:
         box_w = float(x2 - x1)
         box_h = float(y2 - y1)
         tx = x1 + (box_w * 0.5)
-        ty = y1 + (box_h * self.UPPER_CHEST_RATIO)
+        target_ratio = self.UPPER_CHEST_RATIO
+        if _is_wide_low_pose(box_w, box_h):
+            target_ratio = self.WIDE_LOW_TARGET_RATIO
+        elif _is_crouched_pose(box_w, box_h, self.frame_height):
+            target_ratio = self.CROUCHED_TARGET_RATIO
+        ty = y1 + (box_h * target_ratio)
         return tx, ty
 
     def _fallback_slow_zone(self, box: np.ndarray):
@@ -571,8 +601,9 @@ class TargetSelector:
         return math.hypot(point[0] - last_target_center[0], point[1] - last_target_center[1]) < self.tracking_radius
 
     def _passes_geometry_gate(self, box_w: float, box_h: float, tracking_candidate: bool):
-        aspect_ratio = box_h / box_w if box_w > 0.0 else 0.0
-        if aspect_ratio < self.MIN_ASPECT_RATIO or aspect_ratio > self.MAX_ASPECT_RATIO:
+        aspect_ratio = _aspect_ratio_h_over_w(box_w, box_h)
+        min_aspect = self.MIN_WIDE_LOW_ASPECT_RATIO if _is_wide_low_pose(box_w, box_h) else self.MIN_ASPECT_RATIO
+        if aspect_ratio < min_aspect or aspect_ratio > self.MAX_ASPECT_RATIO:
             return False
 
         min_height = self.frame_height * (
