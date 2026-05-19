@@ -4,7 +4,15 @@ from controllers.gamepad.auto_fire import AutoFireConfig, AutoFirePlugin
 from controllers.gamepad.state import GamepadFrame, GamepadOutput
 
 
-def _frame(*, aiming=True, auto_fire=False, manual_rb=False, manual_rt=0, timestamp=1.0):
+def _frame(
+    *,
+    aiming=True,
+    auto_fire=False,
+    manual_rb=False,
+    manual_rt=0,
+    timestamp=1.0,
+    auto_fire_timestamp=None,
+):
     return GamepadFrame(
         timestamp=timestamp,
         left_x=0,
@@ -18,6 +26,7 @@ def _frame(*, aiming=True, auto_fire=False, manual_rb=False, manual_rt=0, timest
         target_dx=0.0,
         target_dy=0.0,
         auto_fire_requested=auto_fire,
+        auto_fire_timestamp=auto_fire_timestamp,
     )
 
 
@@ -59,6 +68,28 @@ class AutoFirePluginTests(unittest.TestCase):
     def test_auto_fire_is_suppressed_when_not_aiming(self):
         plugin = AutoFirePlugin(AutoFireConfig(fire_output="RB"))
         frame = _frame(aiming=False, auto_fire=True, manual_rb=False, manual_rt=0)
+        output = _output(frame)
+
+        plugin.apply(frame, output)
+
+        self.assertFalse(output.buttons["rb"])
+        self.assertFalse(output.auto_fire_active)
+
+    def test_auto_fire_is_suppressed_when_source_is_stale(self):
+        plugin = AutoFirePlugin(
+            AutoFireConfig(
+                fire_output="RB",
+                max_source_age_ms=50.0,
+            )
+        )
+        frame = _frame(
+            aiming=True,
+            auto_fire=True,
+            manual_rb=False,
+            manual_rt=0,
+            timestamp=1.100,
+            auto_fire_timestamp=1.000,
+        )
         output = _output(frame)
 
         plugin.apply(frame, output)

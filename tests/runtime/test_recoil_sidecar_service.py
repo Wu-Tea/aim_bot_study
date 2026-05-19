@@ -183,6 +183,44 @@ class RecoilSidecarServiceTests(unittest.TestCase):
             self.assertEqual(active_profile.identity_confidence, 0.89)
             self.assertEqual(active_profile.updated_at, "2026-05-06T12:00:00Z")
 
+    def test_unready_magazine_profile_yields_unknown_sidecar_status(self):
+        service_module = _load_service_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            profile_dir = Path(temp_dir) / "profiles"
+            profile_dir.mkdir()
+            _write_profile(
+                profile_dir / "profile-cod22-m4-ads-standing-low-v1.json",
+                _profile_record(
+                    profile_id="profile-cod22-m4-ads-standing-low-v1",
+                    canonical_weapon_id="cod22-m4",
+                    game="cod22",
+                    aim_mode="ads",
+                    confidence=0.95,
+                    profile_type="magazine_curve_v1",
+                    burst_count=1,
+                    support_counts=(1, 1, 1, 1),
+                    fit_summary={"accepted_episode_count": 1.0},
+                ),
+            )
+            service = service_module.RecoilSidecarService(profile_dir=profile_dir)
+
+            active_profile = service.publish_active_profile(
+                _recognizer_payload(
+                    canonical_weapon_id="cod22-m4",
+                    confidence=0.91,
+                    degraded=False,
+                    profile_ids=["profile-cod22-m4-ads-standing-low-v1"],
+                ),
+                context={"aim_mode": "ads"},
+            )
+
+            self.assertEqual(active_profile.status, "unknown")
+            self.assertEqual(active_profile.canonical_weapon_id, "cod22-m4")
+            self.assertIsNone(active_profile.profile_id)
+            self.assertIsNone(active_profile.profile_confidence)
+            self.assertEqual(active_profile.identity_confidence, 0.91)
+
     def test_malformed_recognizer_state_file_yields_unknown_sidecar_status(self):
         service_module = _load_service_module()
 
@@ -217,7 +255,18 @@ def _write_profile(path: Path, record: RecoilProfileRecord) -> None:
     path.write_text(json.dumps(record.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
-def _profile_record(*, profile_id: str, canonical_weapon_id: str, game: str, aim_mode: str, confidence: float):
+def _profile_record(
+    *,
+    profile_id: str,
+    canonical_weapon_id: str,
+    game: str,
+    aim_mode: str,
+    confidence: float,
+    profile_type: str = "burst_average_v1",
+    burst_count: int = 5,
+    support_counts: tuple[int, ...] = (),
+    fit_summary: dict[str, float] | None = None,
+):
     return RecoilProfileRecord(
         profile_id=profile_id,
         canonical_weapon_id=canonical_weapon_id,
@@ -230,13 +279,16 @@ def _profile_record(*, profile_id: str, canonical_weapon_id: str, game: str, aim
         samples_x=(0.0, 0.4, 0.8, 1.1),
         samples_y=(0.0, -1.8, -3.6, -4.5),
         sample_count=4,
-        burst_count=5,
+        burst_count=burst_count,
         variance_summary={"horizontal_stddev": 0.14, "vertical_stddev": 0.32},
         confidence=confidence,
         capture_resolution="1920x1080",
         capture_fps=240.0,
         collector_version="collector-0.1.0",
         created_at="2026-05-06T11:00:00Z",
+        profile_type=profile_type,
+        support_counts=support_counts,
+        fit_summary=fit_summary or {},
     )
 
 

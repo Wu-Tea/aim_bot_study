@@ -167,6 +167,79 @@ class AIAimPluginTests(unittest.TestCase):
         self.assertEqual(plugin._mode, "acquire_mid")
         self.assertGreater(_magnitude(output), plugin.config.stabilize_max_move_px)
 
+    def test_repeated_local_error_frame_recalculates_desired_velocity(self):
+        plugin = AIAimPlugin(
+            AIAimConfig(
+                mid_acquire_gain=1.0,
+                mid_acquire_max_move_px=100.0,
+                mid_acquire_response_horizon_s=0.020,
+                follow_balanced_gain_scale=1.0,
+                follow_balanced_max_move_scale=1.0,
+                follow_balanced_horizon_scale=1.0,
+                follow_balanced_accel_scale=1.0,
+                follow_balanced_error_rate_scale=1.0,
+            )
+        )
+        target = _target(aim_point_x=335.0, aim_point_y=256.0)
+        plugin.apply(
+            _frame(
+                timestamp=1.000,
+                target_dx=20.0,
+                target_dy=0.0,
+                target=target,
+                target_revision=1,
+                target_timestamp=1.000,
+            ),
+            MouseOutput(),
+        )
+        initial_velocity = plugin._desired_velocity_x
+
+        plugin.apply(
+            _frame(
+                timestamp=1.001,
+                target_dx=16.0,
+                target_dy=0.0,
+                target=target,
+                target_revision=1,
+                target_timestamp=1.000,
+            ),
+            MouseOutput(),
+        )
+
+        self.assertEqual(plugin._mode, "acquire_mid")
+        self.assertLess(plugin._desired_velocity_x, initial_velocity)
+
+    def test_stabilize_entry_discards_acquire_velocity_carry(self):
+        plugin = AIAimPlugin()
+        target = _target(aim_point_x=335.0, aim_point_y=256.0)
+        plugin.apply(
+            _frame(
+                timestamp=1.000,
+                target_dx=15.0,
+                target_dy=0.0,
+                target=target,
+                target_revision=1,
+                target_timestamp=1.000,
+            ),
+            MouseOutput(),
+        )
+
+        output = MouseOutput()
+        plugin.apply(
+            _frame(
+                timestamp=1.001,
+                target_dx=6.0,
+                target_dy=0.0,
+                target=target,
+                target_revision=1,
+                target_timestamp=1.000,
+            ),
+            output,
+        )
+
+        self.assertEqual(plugin._mode, "stabilize")
+        self.assertLess(abs(output.move_dx), 0.25)
+
     def test_stabilize_keeps_helping_inside_inner_release_band(self):
         plugin = AIAimPlugin()
         plugin.apply(_frame(target_dx=6.0, target_dy=-4.0, target=_target()), MouseOutput())
@@ -762,6 +835,7 @@ class AIAimPluginTests(unittest.TestCase):
         )
 
         self.assertEqual(plugin._mode, "acquire_mid")
+        self.assertGreater(plugin._acquire_bonus, 0.0)
         self.assertGreater(second.move_dx, first.move_dx)
 
     def test_target_gap_clears_acquire_stall_bonus_before_reacquire(self):

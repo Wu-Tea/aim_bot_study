@@ -4,6 +4,8 @@ import unittest
 
 import numpy as np
 
+from vision.weapon_identity.models import RecognitionEvent
+
 
 def _load_capture_module():
     try:
@@ -13,6 +15,61 @@ def _load_capture_module():
 
 
 class RecoilCapturePhaseCorrelationTests(unittest.TestCase):
+    def test_default_collector_config_targets_magazine_curve_profiles(self):
+        capture = _load_capture_module()
+
+        self.assertEqual(capture.RecoilCollectorConfig().profile_type, "magazine_curve_v1")
+
+    def test_collect_recoil_profile_defaults_to_magazine_curve_profiles(self):
+        capture = _load_capture_module()
+        motion_samples = (
+            capture.MotionTraceSample(offset_ms=0, x=0.0, y=0.0, center_motion=0.0, manual_marker="start"),
+            capture.MotionTraceSample(offset_ms=10, x=0.2, y=-1.0, center_motion=1.0),
+            capture.MotionTraceSample(offset_ms=20, x=0.2, y=-1.0, center_motion=0.1),
+            capture.MotionTraceSample(offset_ms=30, x=0.4, y=-2.0, center_motion=1.0),
+            capture.MotionTraceSample(offset_ms=40, x=0.6, y=-3.0, center_motion=1.0),
+            capture.MotionTraceSample(offset_ms=50, x=0.6, y=-3.0, center_motion=0.1),
+            capture.MotionTraceSample(offset_ms=60, x=0.8, y=-4.0, center_motion=1.0, manual_marker="stop"),
+        )
+
+        def _segmenter(*, session, samples, config):
+            del samples
+            del config
+            return (
+                capture.RecoilBurstWindow(
+                    burst_id=f"{session.session_id}-mag-001",
+                    session_id=session.session_id,
+                    start_offset_ms=0,
+                    end_offset_ms=70,
+                    start_reason="manual",
+                    end_reason="manual",
+                ),
+            )
+
+        result = capture.collect_recoil_profile(
+            game="cod22",
+            aim_mode="ads",
+            standing_only=True,
+            recognizer=None,
+            weapon_frame_source=None,
+            motion_sampler=lambda: motion_samples,
+            recognition_event_override=RecognitionEvent(
+                game="cod22",
+                canonical_weapon_id="cod22-m4",
+                confidence=0.95,
+                source="test",
+                timestamp="2026-05-06T12:00:00Z",
+                degraded=False,
+            ),
+            config=capture.RecoilCollectorConfig(capture_fps=100, min_clean_bursts=1, target_clean_bursts=1),
+            timestamp_fn=lambda: "2026-05-06T12:00:00Z",
+            segmenter=_segmenter,
+        )
+
+        self.assertEqual(result.extracted_profile.profile.profile_type, "magazine_curve_v1")
+        self.assertEqual(result.extracted_profile.profile.samples_y, (0.0, -1.0, -1.0, -2.0, -3.0, -3.0, -4.0))
+        self.assertEqual(result.extracted_profile.profile.fit_summary["accepted_episode_count"], 1.0)
+
     def test_estimate_phase_shift_returns_zero_for_identical_blank_frames(self):
         capture = _load_capture_module()
         blank = np.zeros((64, 64), dtype=np.float32)

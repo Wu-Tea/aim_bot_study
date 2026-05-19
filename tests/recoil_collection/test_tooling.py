@@ -621,6 +621,42 @@ class RecoilAppBatchTests(unittest.TestCase):
         self.assertIn("RECOIL_OCR_PROVIDER=cuda", content)
 
 
+class GamepadStartBatchTests(unittest.TestCase):
+    def test_gamepad_start_prompt_defaults_to_recoil_runtime(self):
+        result = _run_batch_script(
+            "gamepad_start.bat",
+            stdin_lines=("", ""),
+            extra_env={
+                "GAMEPAD_START_PRINT_ONLY": "1",
+                "PYTHONUTF8": "1",
+            },
+        )
+        output = result.stdout + result.stderr
+
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("Select Recoil runtime:", output)
+        self.assertIn("Resolved command:", output)
+        self.assertIn("tools\\recoil_runtime_launcher.py", output)
+        self.assertIn("artifacts\\recoil_app\\weapons", output)
+
+    def test_gamepad_start_prompt_can_disable_recoil_runtime(self):
+        result = _run_batch_script(
+            "gamepad_start.bat",
+            stdin_lines=("",),
+            extra_env={
+                "GAMEPAD_START_PRINT_ONLY": "1",
+                "GAMEPAD_START_RECOIL_CHOICE_OVERRIDE": "2",
+                "PYTHONUTF8": "1",
+            },
+        )
+        output = result.stdout + result.stderr
+
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("Resolved command:", output)
+        self.assertIn("main.py --controller-mode gamepad", output)
+        self.assertNotIn("tools\\recoil_runtime_launcher.py", output)
+
+
 class RecoilRuntimeLauncherTests(unittest.TestCase):
     def test_resolve_state_file_defaults_to_game_specific_path(self):
         tool = _load_runtime_launcher_tool_module()
@@ -644,6 +680,9 @@ class RecoilRuntimeLauncherTests(unittest.TestCase):
         self.assertEqual(env["RECOIL_PROFILE_DIR"], "D:\\tmp\\profiles")
         self.assertEqual(env["RECOIL_SIGNATURE_DIR"], "D:\\tmp\\signatures")
         self.assertEqual(env["RECOIL_GAME"], "cod21")
+        self.assertEqual(env["ENABLE_RECOIL_APP"], "1")
+        self.assertEqual(env["RECOIL_APP_MODE"], "recoil")
+        self.assertEqual(env["RECOIL_WEAPON_DIR"], "D:\\tmp\\signatures")
         self.assertEqual(env["PYTHONNOUSERSITE"], "1")
         self.assertEqual(env["RECOIL_OCR_PROVIDER"], "cuda")
         self.assertEqual(env["RECOIL_SWITCH_RECOGNITION_MODE"], "y_button_text")
@@ -736,11 +775,21 @@ class RecoilRuntimeLauncherTests(unittest.TestCase):
         self.assertEqual(controller_call["env"]["RECOIL_PROFILE_DIR"], str(profile_dir))
         self.assertEqual(controller_call["env"]["RECOIL_SIGNATURE_DIR"], str(signature_dir))
         self.assertEqual(controller_call["env"]["RECOIL_GAME"], "cod21")
+        self.assertEqual(controller_call["env"]["ENABLE_RECOIL_APP"], "1")
+        self.assertEqual(controller_call["env"]["RECOIL_APP_MODE"], "recoil")
+        self.assertEqual(controller_call["env"]["RECOIL_WEAPON_DIR"], str(signature_dir))
         self.assertEqual(controller_call["env"]["RECOIL_SWITCH_RECOGNITION_MODE"], "y_button_text")
         self.assertTrue(controller_call["env"]["RECOIL_RECOGNIZER_STATE_PATH"].endswith("cod21-latest-state.json"))
         payload = json.loads(stdout.getvalue().strip())
         self.assertEqual(payload["game"], "cod21")
         self.assertEqual(payload["profile_dir"], str(profile_dir))
+
+    def test_gamepad_start_recoil_runtime_defaults_to_recoil_app_identity_dir(self):
+        content = (Path(__file__).resolve().parents[2] / "gamepad_start.bat").read_text(encoding="utf-8")
+
+        self.assertIn(r"artifacts\recoil_app\weapons", content)
+        self.assertIn("ENABLE_RECOIL_APP", content)
+        self.assertIn("RECOIL_APP_MODE", content)
 
 
 class RecoilCollectorToolTests(unittest.TestCase):

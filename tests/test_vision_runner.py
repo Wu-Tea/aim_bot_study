@@ -4,7 +4,7 @@ from unittest.mock import Mock, patch
 
 import numpy as np
 
-from controllers.base_controller import BaseController, ControllerTarget
+from controllers.base_controller import BaseController, ControllerTarget, ControllerVisionState
 from vision.runner import (
     TrackingFrameResolution,
     VisionConfig,
@@ -138,6 +138,29 @@ class BaseControllerAliasTests(unittest.TestCase):
         controller.set_auto_rb(True)
 
         self.assertEqual(controller.auto_fire_values, [True])
+
+    def test_update_vision_state_forwards_coherent_state_to_legacy_hooks(self):
+        controller = _AliasController()
+        target = ControllerTarget(
+            aim_point_x=320.0,
+            aim_point_y=210.0,
+            screen_center_x=320.0,
+            screen_center_y=256.0,
+            body_box=(282.0, 128.0, 358.0, 316.0),
+        )
+
+        controller.update_vision_state(
+            ControllerVisionState(
+                dx=8.0,
+                dy=-4.0,
+                target=target,
+                auto_fire_requested=True,
+                observed_at=12.5,
+            )
+        )
+
+        self.assertEqual(controller.auto_fire_values, [True])
+        self.assertEqual(controller.updates, [(8.0, -4.0, target)])
 
     def test_update_can_receive_controller_target_metadata(self):
         controller = _AliasController()
@@ -415,6 +438,8 @@ class VisionRunnerPipelineTests(unittest.TestCase):
         perf_tracker.update.assert_called()
         self.assertIn("wait_ms", perf_tracker.update.call_args.kwargs)
         self.assertIn("age_ms", perf_tracker.update.call_args.kwargs)
+        self.assertIn("source_age_ms", perf_tracker.update.call_args.kwargs)
+        self.assertIn("python_handoff_ms", perf_tracker.update.call_args.kwargs)
         self.assertGreaterEqual(perf_tracker.update.call_args.kwargs["age_ms"], 0.0)
 
     @patch("vision.runner.time.sleep", return_value=None)

@@ -5,9 +5,11 @@
 #include <cuda_runtime_api.h>
 
 #include <chrono>
+#include <cstdlib>
 #include <optional>
 #include <sstream>
 #include <stdexcept>
+#include <string>
 
 namespace vision_native {
 namespace {
@@ -26,6 +28,14 @@ uint64_t now_ns() {
 
 float ns_to_ms(uint64_t delta_ns) {
     return static_cast<float>(delta_ns) / 1'000'000.0f;
+}
+
+std::string default_engine_path() {
+    const char* from_env = std::getenv("VISION_MODEL_PATH");
+    if (from_env != nullptr && from_env[0] != '\0') {
+        return std::string(from_env);
+    }
+    return std::string(kDefaultEnginePath);
 }
 
 std::optional<AimSlowZone> slow_zone_from_body_box(const VisionResult& result) {
@@ -65,7 +75,7 @@ VisionEngine::VisionEngine(
     int timeout_ms)
     : capture_(width, height, adapter_index, output_index, timeout_ms),
       selector_(width, height),
-      engine_(kDefaultEnginePath),
+      engine_(default_engine_path()),
       width_(width),
       height_(height) {
     auto* d3d_device = static_cast<ID3D11Device*>(capture_.d3d11_device());

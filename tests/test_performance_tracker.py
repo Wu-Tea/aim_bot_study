@@ -83,6 +83,41 @@ class PerformanceTrackerTests(unittest.TestCase):
         self.assertIn("age=8.0ms", lines[1])
         self.assertIn("boxes=2.0", lines[1])
 
+    def test_log_outputs_end_to_end_timing_metrics(self):
+        clock = FakeClock()
+        lines = []
+        tracker = PerformanceTracker(
+            enabled=True,
+            log_interval=1.0,
+            clock=clock,
+            printer=lines.append,
+        )
+
+        clock.now = 1.1
+        tracker.update(
+            wait_ms=1.0,
+            preprocess_ms=0.5,
+            color_copy_ms=0.25,
+            infer_ms=2.0,
+            post_ms=3.0,
+            boxes_seen=1,
+            age_ms=4.0,
+            tracking_active=True,
+            source_age_ms=12.0,
+            native_pipeline_ms=8.0,
+            python_handoff_ms=1.5,
+            controller_consume_age_ms=2.0,
+            output_age_ms=15.0,
+        )
+
+        self.assertEqual(len(lines), 2)
+        self.assertIn("src_age=12.0/12.0/12.0ms", lines[0])
+        self.assertIn("native=8.0/8.0/8.0ms", lines[0])
+        self.assertIn("handoff=1.5/1.5/1.5ms", lines[0])
+        self.assertIn("consume=2.0/2.0/2.0ms", lines[0])
+        self.assertIn("out_age=15.0/15.0/15.0ms", lines[0])
+        self.assertIn("out_age=15.0/15.0/15.0ms", lines[1])
+
 
 if __name__ == "__main__":
     unittest.main()

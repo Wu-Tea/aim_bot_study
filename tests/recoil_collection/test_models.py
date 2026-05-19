@@ -56,6 +56,128 @@ class RecoilProfileRecordTests(unittest.TestCase):
         )
         self.assertNotIn("blueprint_names", round_tripped.to_dict())
 
+    def test_round_trip_magazine_curve_metadata(self):
+        profile = RecoilProfileRecord(
+            profile_id="profile-cod22-m4-ads-standing-magazine-v1",
+            canonical_weapon_id="cod22-m4",
+            game="cod22",
+            stance="standing",
+            aim_mode="ads",
+            sample_interval_ms=16,
+            duration_ms=64,
+            initial_delay_ms=0,
+            samples_x=(0.0, 0.2, 0.4, 0.5),
+            samples_y=(0.0, -1.1, -1.1, -2.5),
+            sample_count=4,
+            burst_count=3,
+            variance_summary={"horizontal_stddev": 0.12, "vertical_stddev": 0.28},
+            confidence=0.82,
+            capture_resolution="1920x1080",
+            capture_fps=240.0,
+            collector_version="collector-0.1.0",
+            created_at="2026-05-05T11:00:00Z",
+            profile_type="magazine_curve_v1",
+            support_counts=(3, 3, 2, 2),
+            fit_summary={
+                "episode_count": 3.0,
+                "accepted_episode_count": 2.0,
+                "target_duration_ms": 64.0,
+            },
+        )
+
+        payload = profile.to_dict()
+        round_tripped = RecoilProfileRecord.from_dict(payload)
+
+        self.assertEqual(payload["profile_type"], "magazine_curve_v1")
+        self.assertEqual(payload["support_counts"], [3, 3, 2, 2])
+        self.assertEqual(round_tripped, profile)
+        self.assertEqual(round_tripped.support_counts, (3, 3, 2, 2))
+        self.assertEqual(
+            dict(round_tripped.fit_summary),
+            {
+                "episode_count": 3.0,
+                "accepted_episode_count": 2.0,
+                "target_duration_ms": 64.0,
+            },
+        )
+
+    def test_from_dict_accepts_legacy_payload_without_magazine_metadata(self):
+        payload = {
+            "profile_id": "profile-cod22-m4-ads-standing-v1",
+            "canonical_weapon_id": "cod22-m4",
+            "game": "cod22",
+            "stance": "standing",
+            "aim_mode": "ads",
+            "sample_interval_ms": 16,
+            "duration_ms": 64,
+            "initial_delay_ms": 32,
+            "samples_x": [0.0, 0.8],
+            "samples_y": [0.0, -2.5],
+            "sample_count": 2,
+            "burst_count": 6,
+            "variance_summary": {"horizontal_stddev": 0.19, "vertical_stddev": 0.42},
+            "confidence": 0.88,
+            "capture_resolution": "1920x1080",
+            "capture_fps": 240.0,
+            "collector_version": "collector-0.1.0",
+            "created_at": "2026-05-05T11:00:00Z",
+        }
+
+        profile = RecoilProfileRecord.from_dict(payload)
+
+        self.assertEqual(profile.profile_type, "burst_average_v1")
+        self.assertEqual(profile.support_counts, ())
+        self.assertEqual(dict(profile.fit_summary), {})
+
+    def test_constructor_rejects_unknown_profile_type(self):
+        with self.assertRaisesRegex(ValueError, "profile_type"):
+            RecoilProfileRecord(
+                profile_id="profile-cod22-m4-ads-standing-v1",
+                canonical_weapon_id="cod22-m4",
+                game="cod22",
+                stance="standing",
+                aim_mode="ads",
+                sample_interval_ms=16,
+                duration_ms=64,
+                initial_delay_ms=32,
+                samples_x=(0.0, 0.8),
+                samples_y=(0.0, -2.5),
+                sample_count=2,
+                burst_count=6,
+                variance_summary={"horizontal_stddev": 0.19, "vertical_stddev": 0.42},
+                confidence=0.88,
+                capture_resolution="1920x1080",
+                capture_fps=240.0,
+                collector_version="collector-0.1.0",
+                created_at="2026-05-05T11:00:00Z",
+                profile_type="single_shot_v1",
+            )
+
+    def test_constructor_rejects_support_count_length_mismatch(self):
+        with self.assertRaisesRegex(ValueError, "support_counts"):
+            RecoilProfileRecord(
+                profile_id="profile-cod22-m4-ads-standing-magazine-v1",
+                canonical_weapon_id="cod22-m4",
+                game="cod22",
+                stance="standing",
+                aim_mode="ads",
+                sample_interval_ms=16,
+                duration_ms=64,
+                initial_delay_ms=0,
+                samples_x=(0.0, 0.2),
+                samples_y=(0.0, -1.1),
+                sample_count=2,
+                burst_count=3,
+                variance_summary={"horizontal_stddev": 0.12, "vertical_stddev": 0.28},
+                confidence=0.82,
+                capture_resolution="1920x1080",
+                capture_fps=240.0,
+                collector_version="collector-0.1.0",
+                created_at="2026-05-05T11:00:00Z",
+                profile_type="magazine_curve_v1",
+                support_counts=(3,),
+            )
+
     def test_from_dict_rejects_missing_profile_id(self):
         payload = {
             "canonical_weapon_id": "cod22-m4",

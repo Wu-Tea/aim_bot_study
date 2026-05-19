@@ -11,6 +11,7 @@ _MANUAL_FIRE_TRIGGER_THRESHOLD = 10
 class AutoFireConfig:
     fire_output: Literal["RB", "RT"] = "RB"
     aim_only: bool = True
+    max_source_age_ms: float = 50.0
     manual_takeover_release_seconds: float = 0.035
     manual_takeover_resume_delay_seconds: float = 0.085
 
@@ -28,7 +29,7 @@ class AutoFirePlugin:
         self._manual_takeover_started_at = None
 
     def apply(self, frame: GamepadFrame, output: GamepadOutput) -> None:
-        should_fire = frame.auto_fire_requested
+        should_fire = frame.auto_fire_requested and self._has_fresh_source(frame)
         if self.config.aim_only:
             should_fire = should_fire and frame.is_aiming
 
@@ -77,6 +78,14 @@ class AutoFirePlugin:
 
     def _manual_fire_pressed(self, frame: GamepadFrame) -> bool:
         return bool(frame.buttons.get("rb", False) or frame.right_trigger > _MANUAL_FIRE_TRIGGER_THRESHOLD)
+
+    def _has_fresh_source(self, frame: GamepadFrame) -> bool:
+        max_age_ms = float(self.config.max_source_age_ms)
+        timestamp = getattr(frame, "auto_fire_timestamp", None)
+        if timestamp is None or max_age_ms <= 0.0:
+            return True
+        age_seconds = max(0.0, float(frame.timestamp) - float(timestamp))
+        return age_seconds <= (max_age_ms / 1000.0)
 
     def _release_fire_output(self, output: GamepadOutput) -> None:
         output.buttons["rb"] = False

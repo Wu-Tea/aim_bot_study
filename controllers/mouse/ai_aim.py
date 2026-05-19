@@ -178,15 +178,27 @@ class AIAimPlugin:
                 self._remember_applied_observation(frame)
             return
 
+        previous_velocity_mode = self._last_velocity_mode
         self._mode = self._choose_mode(frame)
-        if is_new_observation or self._mode != self._last_velocity_mode:
-            if is_new_observation:
-                self._update_observed_error_rate(frame)
+        if is_new_observation:
+            self._update_observed_error_rate(frame)
+        if self._mode == "manual":
+            self._reset_acquire_bonus()
+            self._reset_stabilize_integral()
+            self._set_desired_velocity(0.0, 0.0, mode="manual")
+        else:
             self._update_desired_velocity(frame, self._mode)
+            if not is_new_observation:
+                self._dampen_velocity_carry_for_mode_transition(
+                    frame,
+                    previous_mode=previous_velocity_mode,
+                    current_mode=self._mode,
+                )
+                self._apply_near_center_velocity_brake(frame, self._mode)
             self._remember_target(frame)
+        if is_new_observation:
             self._remember_seen_target(frame)
-            if is_new_observation:
-                self._remember_applied_observation(frame)
+            self._remember_applied_observation(frame)
 
         self._emit_smooth_move(frame, output)
 
@@ -619,6 +631,84 @@ class AIAimPlugin:
         )
         self._last_response_accel_scale = accel_scale
 
+    def _dampen_velocity_carry_for_mode_transition(
+        self,
+        frame: MouseFrame,
+        *,
+        previous_mode: str,
+        current_mode: str,
+    ) -> None:
+        if (
+            current_mode != "stabilize"
+            or previous_mode not in {"acquire_far", "acquire_mid", "reacquire"}
+            or frame.target is None
+        ):
+            return
+        self._current_velocity_x = self._trim_stabilize_entry_axis_velocity(
+            current_velocity=self._current_velocity_x,
+            desired_velocity=self._desired_velocity_x,
+            target_error=frame.target_dx,
+        )
+        self._current_velocity_y = self._trim_stabilize_entry_axis_velocity(
+            current_velocity=self._current_velocity_y,
+            desired_velocity=self._desired_velocity_y,
+            target_error=frame.target_dy,
+        )
+
+    @staticmethod
+    def _trim_stabilize_entry_axis_velocity(
+        *,
+        current_velocity: float,
+        desired_velocity: float,
+        target_error: float,
+    ) -> float:
+        if current_velocity == 0.0:
+            return 0.0
+        if target_error == 0.0 or current_velocity * target_error <= 0.0:
+            return 0.0
+        if desired_velocity == 0.0 or current_velocity * desired_velocity <= 0.0:
+            return 0.0
+        if abs(current_velocity) > abs(desired_velocity):
+            return desired_velocity
+        return current_velocity
+
+    def _apply_near_center_velocity_brake(
+        self,
+        frame: MouseFrame,
+        mode: str,
+    ) -> None:
+        if mode != "stabilize" or frame.target is None:
+            return
+        guard_px = max(0.0, self.config.inner_release_band_px)
+        self._current_velocity_x, self._desired_velocity_x = self._brake_axis_if_past_target(
+            current_velocity=self._current_velocity_x,
+            desired_velocity=self._desired_velocity_x,
+            target_error=frame.target_dx,
+            guard_px=guard_px,
+        )
+        self._current_velocity_y, self._desired_velocity_y = self._brake_axis_if_past_target(
+            current_velocity=self._current_velocity_y,
+            desired_velocity=self._desired_velocity_y,
+            target_error=frame.target_dy,
+            guard_px=guard_px,
+        )
+
+    @staticmethod
+    def _brake_axis_if_past_target(
+        *,
+        current_velocity: float,
+        desired_velocity: float,
+        target_error: float,
+        guard_px: float,
+    ) -> tuple[float, float]:
+        if abs(target_error) > guard_px:
+            return current_velocity, desired_velocity
+        if target_error == 0.0:
+            return 0.0, 0.0
+        if current_velocity * target_error < 0.0:
+            return 0.0, 0.0
+        return current_velocity, desired_velocity
+
     def _emit_smooth_move(
         self,
         frame: MouseFrame,
@@ -629,7 +719,6 @@ class AIAimPlugin:
         dt = self._controller_dt(frame.timestamp)
         if dt <= 0.0:
             return
-
         if force_stop:
             self._desired_velocity_x = 0.0
             self._desired_velocity_y = 0.0

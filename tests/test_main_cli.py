@@ -87,6 +87,8 @@ class MainCliTests(unittest.TestCase):
                 perf_log=True,
                 quit_key="0",
                 native_cue_sidecar=False,
+                model_path="D:/models/native.engine",
+                fallback_model_path="D:/models/python.pt",
             ),
             gamepad=RuntimeGamepadConfig(),
         )
@@ -112,6 +114,8 @@ class MainCliTests(unittest.TestCase):
             self.assertEqual(main.os.environ["VISION_PERF_LOG"], "1")
             self.assertEqual(main.os.environ["VISION_QUIT_KEY"], "0")
             self.assertEqual(main.os.environ["VISION_NATIVE_CUE_SIDECAR"], "0")
+            self.assertEqual(main.os.environ["VISION_MODEL_PATH"], "D:/models/native.engine")
+            self.assertEqual(main.os.environ["VISION_FALLBACK_MODEL_PATH"], "D:/models/python.pt")
 
     def test_apply_runtime_overrides_keeps_existing_env_above_config(self):
         runtime = RuntimeConfig(
@@ -145,6 +149,8 @@ class MainCliTests(unittest.TestCase):
                 "VISION_PERF_LOG": "0",
                 "VISION_QUIT_KEY": "Q",
                 "VISION_NATIVE_CUE_SIDECAR": "1",
+                "VISION_MODEL_PATH": "D:/env/native.engine",
+                "VISION_FALLBACK_MODEL_PATH": "D:/env/python.pt",
             },
             clear=True,
         ):
@@ -156,6 +162,8 @@ class MainCliTests(unittest.TestCase):
             self.assertEqual(main.os.environ["VISION_PERF_LOG"], "0")
             self.assertEqual(main.os.environ["VISION_QUIT_KEY"], "Q")
             self.assertEqual(main.os.environ["VISION_NATIVE_CUE_SIDECAR"], "1")
+            self.assertEqual(main.os.environ["VISION_MODEL_PATH"], "D:/env/native.engine")
+            self.assertEqual(main.os.environ["VISION_FALLBACK_MODEL_PATH"], "D:/env/python.pt")
 
     def test_crop_size_cli_overrides_existing_width_and_height_env(self):
         runtime = RuntimeConfig(

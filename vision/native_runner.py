@@ -9,7 +9,12 @@ import cv2
 import numpy as np
 import win32api
 
-from controllers.base_controller import ControllerTarget
+from controllers.base_controller import (
+    ControllerTarget,
+    ControllerVisionState,
+    controller_timing_perf_kwargs,
+    submit_controller_vision_state,
+)
 
 from .debug_capture import DebugFrameCapture
 from .perf import PerformanceTracker
@@ -375,14 +380,6 @@ def _resolve_cue_provider(controller, cue_provider):
     return None
 
 
-def _clear_controller_target(controller) -> None:
-    clear_target = getattr(controller, "clear_target", None)
-    if callable(clear_target):
-        clear_target()
-        return
-    controller.reset()
-
-
 def _create_default_cue_provider(config: VisionConfig):
     if not _env_flag("VISION_NATIVE_CUE_SIDECAR", True):
         return None
@@ -436,6 +433,12 @@ def _native_timeout_ms(config: VisionConfig) -> int:
     if config.capture_fps <= 0:
         return max(1, int(config.frame_timeout * 1000.0))
     return max(1, int(round(1000.0 / float(config.capture_fps))))
+
+
+def _elapsed_ms(start: float | None, end: float | None) -> float | None:
+    if start is None or end is None:
+        return None
+    return max(0.0, (float(end) - float(start)) * 1000.0)
 
 
 def _quit_requested(config: VisionConfig) -> bool:
@@ -527,24 +530,51 @@ def process_native_vision(controller=None, cue_provider=None):
             result = engine.poll_once()
             result_received_at = time.perf_counter()
             has_target = bool(result.get("has_target"))
+            result_observed_at = _native_observed_at(result, result_received_at)
+            state_submitted_at = None
+            source_age_ms = None
+            python_handoff_ms = None
+            controller_timing_kwargs = {}
             auto_fire_active = auto_fire_gate.allow_auto_fire(
                 bool(result.get("auto_fire")),
                 result_received_at,
             )
 
             if controller:
-                controller.set_auto_fire(auto_fire_active)
+                state_submitted_at = time.perf_counter()
                 if has_target:
-                    controller.update(
-                        float(result.get("dx", 0.0)),
-                        float(result.get("dy", 0.0)),
-                        target=_controller_target_from_native_result(
-                            result,
+                    target = _controller_target_from_native_result(
+                        result,
+                        received_at=result_received_at,
+                    )
+                    submit_controller_vision_state(
+                        controller,
+                        ControllerVisionState(
+                            dx=float(result.get("dx", 0.0)),
+                            dy=float(result.get("dy", 0.0)),
+                            target=target,
+                            auto_fire_requested=auto_fire_active,
+                            observed_at=result_observed_at,
                             received_at=result_received_at,
+                            submitted_at=state_submitted_at,
                         ),
                     )
                 else:
-                    _clear_controller_target(controller)
+                    submit_controller_vision_state(
+                        controller,
+                        ControllerVisionState(
+                            target=None,
+                            auto_fire_requested=False,
+                            observed_at=result_observed_at,
+                            received_at=result_received_at,
+                            submitted_at=state_submitted_at,
+                        ),
+                    )
+                source_age_ms = _elapsed_ms(result_observed_at, state_submitted_at)
+                python_handoff_ms = _elapsed_ms(result_received_at, state_submitted_at)
+                controller_timing_kwargs = controller_timing_perf_kwargs(controller)
+                controller_timing_kwargs.pop("source_age_ms", None)
+                controller_timing_kwargs.pop("python_handoff_ms", None)
 
             if debug_overlay is not None:
                 debug_overlay.show_result(
@@ -562,6 +592,10 @@ def process_native_vision(controller=None, cue_provider=None):
                 boxes_seen=int(float(result.get("boxes_seen", 0.0))),
                 age_ms=float(result.get("age_ms", 0.0)),
                 tracking_active=has_target,
+                source_age_ms=source_age_ms,
+                native_pipeline_ms=float(result.get("age_ms", 0.0)),
+                python_handoff_ms=python_handoff_ms,
+                **controller_timing_kwargs,
             )
 
             if _quit_requested(config):

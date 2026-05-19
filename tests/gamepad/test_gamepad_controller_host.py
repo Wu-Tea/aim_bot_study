@@ -1,10 +1,18 @@
 import threading
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import vgamepad as vg
 
-from controllers.base_controller import ControllerTarget
+from controllers.gamepad import AIAimConfig
+from controllers.gamepad import AutoFireConfig
+from controllers.gamepad import RecoilCompensationConfig
+from controllers.base_controller import (
+    ControllerTarget,
+    ControllerTimingSnapshot,
+    ControllerVisionState,
+)
 from controllers.gamepad.weapon_switch_recognition import YButtonTextWeaponRecognizer
 from controllers.gamepad_controller import GamepadController
 from controllers.gamepad.plugin import PluginApplicationTrace
@@ -66,6 +74,7 @@ class _FakeVirtualGamepad:
         self.right = None
         self.lt = None
         self.rt = None
+        self.update_calls = 0
 
     def left_joystick(self, x_value, y_value):
         self.left = (x_value, y_value)
@@ -84,6 +93,31 @@ class _FakeVirtualGamepad:
 
     def release_button(self, button):
         self.released.append(button)
+
+    def update(self):
+        self.update_calls += 1
+
+
+class _FakeJoystick:
+    def init(self):
+        return None
+
+    def get_name(self):
+        return "fake gamepad"
+
+
+class _RecordingLock:
+    def __init__(self):
+        self.enter_count = 0
+        self.exit_count = 0
+
+    def __enter__(self):
+        self.enter_count += 1
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.exit_count += 1
+        return False
 
 
 class _FakeRecoilSidecarService:
@@ -112,6 +146,48 @@ class _RaisingRecognizerStateService(_FakeRecoilSidecarService):
 
 
 class GamepadControllerHostTests(unittest.TestCase):
+    def test_default_plugin_chain_uses_configured_auto_fire_and_recoil_knobs(self):
+        tuning = SimpleNamespace(
+            gamepad_ai_aim=AIAimConfig(),
+            gamepad_auto_fire=AutoFireConfig(
+                max_source_age_ms=35.0,
+                manual_takeover_release_seconds=0.040,
+                manual_takeover_resume_delay_seconds=0.095,
+            ),
+            gamepad_recoil=RecoilCompensationConfig(amount=0.16),
+        )
+
+        with patch.dict("os.environ", {}, clear=True), patch(
+            "config.load_tuning_config",
+            return_value=tuning,
+        ), patch(
+            "controllers.gamepad_controller.vg.VX360Gamepad",
+            return_value=_FakeVirtualGamepad(),
+        ), patch(
+            "controllers.gamepad_controller.pygame.init"
+        ), patch(
+            "controllers.gamepad_controller.pygame.joystick.init"
+        ), patch(
+            "controllers.gamepad_controller.pygame.joystick.get_count",
+            return_value=1,
+        ), patch(
+            "controllers.gamepad_controller.pygame.joystick.Joystick",
+            return_value=_FakeJoystick(),
+        ), patch.object(
+            GamepadController,
+            "start",
+            return_value=None,
+        ):
+            controller = GamepadController(auto_fire_output="RT")
+
+        auto_fire = controller.plugins[1].config
+        recoil = controller.plugins[2].config
+        self.assertEqual(auto_fire.fire_output, "RT")
+        self.assertEqual(auto_fire.max_source_age_ms, 35.0)
+        self.assertEqual(auto_fire.manual_takeover_release_seconds, 0.040)
+        self.assertEqual(auto_fire.manual_takeover_resume_delay_seconds, 0.095)
+        self.assertEqual(recoil.amount, 0.16)
+
     def test_handle_weapon_switch_button_delegates_to_recoil_app_bridge_when_present(self):
         controller = GamepadController.__new__(GamepadController)
         handled = []
@@ -237,6 +313,77 @@ class GamepadControllerHostTests(unittest.TestCase):
         self.assertEqual(controller.target_revision, 1)
         self.assertEqual(controller.target_timestamp, 12.345)
 
+    def test_update_vision_state_updates_target_and_auto_fire_under_one_lock(self):
+        controller = GamepadController.__new__(GamepadController)
+        controller.lock = _RecordingLock()
+        controller.target_revision = 4
+        controller._auto_fire_requested = False
+        controller._auto_fire_timestamp = None
+        controller._vision_received_at = None
+        controller._vision_submitted_at = None
+        target = ControllerTarget(
+            aim_point_x=320.0,
+            aim_point_y=220.0,
+            screen_center_x=320.0,
+            screen_center_y=256.0,
+            body_box=(280.0, 140.0, 360.0, 320.0),
+            observed_at=12.345,
+        )
+
+        GamepadController.update_vision_state(
+            controller,
+            ControllerVisionState(
+                dx=2.0,
+                dy=-1.0,
+                target=target,
+                auto_fire_requested=True,
+                received_at=12.340,
+                submitted_at=12.350,
+            ),
+        )
+
+        self.assertEqual(controller.lock.enter_count, 1)
+        self.assertEqual(controller.lock.exit_count, 1)
+        self.assertEqual(controller.target_dx, 2.0)
+        self.assertEqual(controller.target_dy, -1.0)
+        self.assertIs(controller.target_info, target)
+        self.assertEqual(controller.target_revision, 5)
+        self.assertEqual(controller.target_timestamp, 12.345)
+        self.assertTrue(controller._auto_fire_requested)
+        self.assertEqual(controller._auto_fire_timestamp, 12.345)
+        self.assertEqual(controller._vision_received_at, 12.340)
+        self.assertEqual(controller._vision_submitted_at, 12.350)
+
+    def test_update_vision_state_without_target_suppresses_auto_fire(self):
+        controller = GamepadController.__new__(GamepadController)
+        controller.lock = threading.Lock()
+        controller.target_dx = 9.0
+        controller.target_dy = -3.0
+        controller.target_revision = 2
+        controller.target_timestamp = 11.0
+        controller.target_info = object()
+        controller._auto_fire_requested = True
+        controller._auto_fire_timestamp = 11.0
+
+        with patch("controllers.gamepad_controller.time.perf_counter", return_value=42.0):
+            GamepadController.update_vision_state(
+                controller,
+                ControllerVisionState(
+                    dx=0.0,
+                    dy=0.0,
+                    target=None,
+                    auto_fire_requested=True,
+                ),
+            )
+
+        self.assertEqual(controller.target_dx, 0.0)
+        self.assertEqual(controller.target_dy, 0.0)
+        self.assertIsNone(controller.target_info)
+        self.assertEqual(controller.target_revision, 3)
+        self.assertEqual(controller.target_timestamp, 42.0)
+        self.assertFalse(controller._auto_fire_requested)
+        self.assertIsNone(controller._auto_fire_timestamp)
+
     def test_set_auto_rb_is_a_compatibility_alias_for_set_auto_fire(self):
         controller = GamepadController.__new__(GamepadController)
         controller.lock = threading.Lock()
@@ -268,6 +415,25 @@ class GamepadControllerHostTests(unittest.TestCase):
         self.assertEqual(controller.virtual_gamepad.left, (1, 2))
         self.assertEqual(controller.virtual_gamepad.right, (3, 4))
 
+    @patch("controllers.gamepad_controller.pygame.quit")
+    def test_stop_sends_neutral_output_to_virtual_gamepad(self, _pygame_quit):
+        controller = GamepadController.__new__(GamepadController)
+        controller.running = True
+        controller.virtual_gamepad = _FakeVirtualGamepad()
+
+        GamepadController.stop(controller)
+
+        self.assertFalse(controller.running)
+        self.assertEqual(controller.virtual_gamepad.left, (0, 0))
+        self.assertEqual(controller.virtual_gamepad.right, (0, 0))
+        self.assertEqual(controller.virtual_gamepad.lt, 0)
+        self.assertEqual(controller.virtual_gamepad.rt, 0)
+        self.assertGreaterEqual(
+            len(controller.virtual_gamepad.released),
+            len(GamepadController.XUSB_BUTTON_MAP) + len(GamepadController.DPAD_BUTTONS),
+        )
+        self.assertEqual(controller.virtual_gamepad.update_calls, 1)
+
     def test_build_frame_keeps_controller_target_metadata(self):
         controller = GamepadController.__new__(GamepadController)
         controller.lock = threading.Lock()
@@ -277,6 +443,9 @@ class GamepadControllerHostTests(unittest.TestCase):
         controller.target_revision = 3
         controller.target_timestamp = 12.5
         controller._auto_fire_requested = False
+        controller._auto_fire_timestamp = None
+        controller._vision_received_at = 12.25
+        controller._vision_submitted_at = 12.75
         controller.target_info = ControllerTarget(
             aim_point_x=320.0,
             aim_point_y=210.0,
@@ -302,9 +471,50 @@ class GamepadControllerHostTests(unittest.TestCase):
         self.assertEqual(frame.target_dy, -4.0)
         self.assertEqual(frame.target_revision, 3)
         self.assertEqual(frame.target_timestamp, 12.5)
+        self.assertIsNone(frame.auto_fire_timestamp)
+        self.assertEqual(frame.vision_received_at, 12.25)
+        self.assertEqual(frame.vision_submitted_at, 12.75)
         self.assertEqual(frame.target.aim_point_x, 320.0)
         self.assertEqual(frame.target.screen_center_y, 256.0)
         self.assertEqual(frame.target.body_box, (282.0, 128.0, 358.0, 316.0))
+
+    def test_record_timing_sample_exposes_controller_consume_and_output_age(self):
+        controller = GamepadController.__new__(GamepadController)
+        controller.lock = threading.Lock()
+        controller._last_timing_snapshot = None
+        frame = GamepadFrame(
+            timestamp=10.050,
+            left_x=0,
+            left_y=0,
+            manual_right_x=0,
+            manual_right_y=0,
+            left_trigger=255,
+            right_trigger=0,
+            buttons={"rb": False},
+            is_aiming=True,
+            target_dx=0.0,
+            target_dy=0.0,
+            auto_fire_requested=False,
+            target_timestamp=10.000,
+            target=ControllerTarget(
+                aim_point_x=320.0,
+                aim_point_y=220.0,
+                screen_center_x=320.0,
+                screen_center_y=256.0,
+                observed_at=10.000,
+            ),
+            vision_received_at=10.020,
+            vision_submitted_at=10.030,
+        )
+
+        GamepadController._record_timing_sample(controller, frame, output_sent_at=10.060)
+
+        snapshot = GamepadController.get_timing_snapshot(controller)
+        self.assertIsInstance(snapshot, ControllerTimingSnapshot)
+        self.assertAlmostEqual(snapshot.source_age_ms, 30.0)
+        self.assertAlmostEqual(snapshot.python_handoff_ms, 10.0)
+        self.assertAlmostEqual(snapshot.controller_consume_age_ms, 20.0)
+        self.assertAlmostEqual(snapshot.output_age_ms, 60.0)
 
     def test_apply_plugin_pipeline_emits_traces_to_diagnostics_when_enabled(self):
         controller = GamepadController.__new__(GamepadController)
@@ -464,34 +674,35 @@ class GamepadControllerHostTests(unittest.TestCase):
 
 
 class YButtonTextWeaponRecognizerTests(unittest.TestCase):
-    def test_handle_switch_pressed_replays_cached_slot_immediately(self):
+    def test_handle_switch_pressed_always_starts_capture_even_when_slot_was_seen(self):
         published = []
+        capture_calls = []
         recognizer = YButtonTextWeaponRecognizer(
             game="cod20",
-            identity_records=(_weapon_record(canonical_weapon_id="cod20-王者", game="cod20", display_name="王者"),),
+            identity_records=(_weapon_record(canonical_weapon_id="cod20-m4", game="cod20", display_name="m4"),),
             state_writer=published.append,
-            capture_runner=lambda slot_index, switch_epoch, task: None,
+            capture_runner=lambda slot_index, switch_epoch, task: capture_calls.append((slot_index, switch_epoch)),
         )
         recognizer.complete_switch_resolution(
             slot_index=1,
             switch_epoch=0,
-            state=_recognizer_state("cod20", "cod20-王者", "王者"),
+            state=_recognizer_state("cod20", "cod20-m4", "m4"),
         )
 
         recognizer.handle_switch_pressed()
 
         self.assertEqual(recognizer.active_slot_index, 1)
-        self.assertEqual(len(published), 1)
-        self.assertEqual(published[0].canonical_weapon_id, "cod20-王者")
-        self.assertEqual(published[0].source, "switch_cache")
+        self.assertEqual(published, [])
+        self.assertEqual(capture_calls, [(1, 1)])
 
-    def test_stale_switch_epoch_updates_cache_without_overriding_current_slot(self):
+    def test_stale_switch_epoch_does_not_publish_or_skip_next_capture(self):
         published = []
+        capture_calls = []
         recognizer = YButtonTextWeaponRecognizer(
             game="cod21",
-            identity_records=(_weapon_record(canonical_weapon_id="cod21-黑色组织xxx", game="cod21", display_name="黑色组织xxx"),),
+            identity_records=(_weapon_record(canonical_weapon_id="cod21-m4", game="cod21", display_name="m4"),),
             state_writer=published.append,
-            capture_runner=lambda slot_index, switch_epoch, task: None,
+            capture_runner=lambda slot_index, switch_epoch, task: capture_calls.append((slot_index, switch_epoch)),
         )
 
         recognizer.handle_switch_pressed()
@@ -499,7 +710,7 @@ class YButtonTextWeaponRecognizerTests(unittest.TestCase):
         recognizer.complete_switch_resolution(
             slot_index=1,
             switch_epoch=1,
-            state=_recognizer_state("cod21", "cod21-黑色组织xxx", "黑色组织xxx"),
+            state=_recognizer_state("cod21", "cod21-m4", "m4"),
         )
 
         self.assertEqual(published, [])
@@ -507,9 +718,8 @@ class YButtonTextWeaponRecognizerTests(unittest.TestCase):
         recognizer.handle_switch_pressed()
 
         self.assertEqual(recognizer.active_slot_index, 1)
-        self.assertEqual(len(published), 1)
-        self.assertEqual(published[0].canonical_weapon_id, "cod21-黑色组织xxx")
-        self.assertEqual(published[0].source, "switch_cache")
+        self.assertEqual(published, [])
+        self.assertEqual(capture_calls, [(1, 1), (0, 2), (1, 3)])
 
 
 def _profile_record(*, profile_id: str, canonical_weapon_id: str, aim_mode: str, samples_y: tuple[float, ...]):

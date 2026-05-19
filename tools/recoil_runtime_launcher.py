@@ -112,6 +112,9 @@ def build_controller_env(
     env["RECOIL_GAME"] = str(game)
     env["RECOIL_PROFILE_DIR"] = str(profile_dir)
     env["RECOIL_SIGNATURE_DIR"] = str(signature_dir)
+    env["RECOIL_WEAPON_DIR"] = str(signature_dir)
+    env["ENABLE_RECOIL_APP"] = "1"
+    env["RECOIL_APP_MODE"] = "recoil"
     env["RECOIL_RECOGNIZER_STATE_PATH"] = str(state_file)
     env["RECOIL_SWITCH_RECOGNITION_MODE"] = "y_button_text"
     env["VISION_BACKEND"] = vision_backend

@@ -1,6 +1,6 @@
 # Agent Session Log Index
 
-Last updated: 2026-05-11T23:04:47+08:00
+Last updated: 2026-05-19T21:01:32+08:00
 Updated by: Codex
 Purpose: quick navigation for project continuity. The complete historical log is preserved in `session-log-full.md`.
 
@@ -13,6 +13,35 @@ Purpose: quick navigation for project continuity. The complete historical log is
 
 ## Current Active Thread
 
+- 2026-05-19T21:01:32+08:00 - New draft input recorded: AI abstention for scalp-only targets and recoil recognition reliability.
+  - User raised two trust-boundary problems: scalp/head-only positions may need AI to stop intervening and leave aiming fully manual; `recoil_app_start` OCR weapon-name recognition and recoil-curve recognition feel unreliable.
+  - Draft plan written: `docs/superpowers/plans/2026-05-19-ai-abstention-and-recoil-recognition-draft.md`.
+  - Initial code read found no first-class `head_only/scalp_only/abstain` state in the current target/controller contract.
+  - Initial recoil read found OCR and profile confidence concepts already exist, but profile confidence is not yet a hard readiness gate and switch-name OCR can still be too trusting.
+  - No behavior code changed for this draft; implementation should wait for user confirmation of the scalp-only intervention policy.
+- 2026-05-19T20:53:26+08:00 - Native/gamepad contract hardening implemented and context synced.
+  - Implemented atomic `ControllerVisionState` submission, auto-fire source freshness, neutral gamepad shutdown, end-to-end timing metrics, explicit native empty-gap clearing policy, config/docs cleanup, and benchmark config snapshots.
+  - Native empty detection frames now clear target/fire state; Python fallback prediction remains an explicit policy difference rather than a parity requirement.
+  - Native engine path honors `VISION_MODEL_PATH`; `config.toml.example` exposes model path, auto-fire, and recoil fallback knobs.
+  - Native build passed. Split targeted verification passed across config/main/perf/native scaffold, native runner/parity/bridge, controller/auto-fire, benchmark runners, vision, gamepad, mouse, recoil, and weapon identity suites.
+  - Full unittest discovery timed out in this environment; rely on the recorded split targeted suites unless a future run proves otherwise.
+  - Live `gamepad_start.bat` gameplay smoke is still pending.
+- 2026-05-18T21:26:02+08:00 - Multi-POV native/gamepad review recorded and hardening plan landed.
+  - Review covered native vision latency/freshness, gamepad hand-feel/safety, and long-term architecture around the `native-vision` to `gamepad-controller` boundary.
+  - Highest-priority issues: non-atomic vision/controller update, auto-fire freshness gap, incomplete age semantics, native capture-gap policy, exit neutralization, and config/doc drift.
+  - Plan written: `docs/superpowers/plans/2026-05-18-native-gamepad-contract-hardening-plan.md`.
+  - Review-time verification: `71` selected native/gamepad tests passed.
+  - No business code changed in this record/plan pass.
+- 2026-05-12T14:32:48+08:00 - Native vision freshness and wide-low posture selector committed.
+  - Latest implementation commit: `c38e129 Improve vision target freshness and wide-low selection`.
+  - `ControllerTarget.observed_at` now propagates native `age_ms` or Python capture time to gamepad and mouse controllers, so stale vision results are not restamped as fresh controller targets.
+  - Native and Python selectors now share wide-low posture handling for prone/side-like boxes: lower aspect gate, target point at 0.50 height, and upper-in-box color/cue ROI.
+  - Verification: native build passed; 160 selected tests passed; `git diff --check` passed with LF/CRLF warnings only.
+  - Known residual: `tests.test_native_vision_synthetic_parity` still has the previous occlusion parity failure; live gameplay has not been smoke-tested.
+- 2026-05-12T14:32:48+08:00 - Auto-fire manual takeover and commit-discipline cleanup committed.
+  - `542c3de Fix manual auto-fire takeover window` holds fire output release, then suppresses auto-fire until release + delay totals 120ms.
+  - `9e09a52 Add agent commit discipline guidance` adds `AGENT.md`; context-only progress should not be committed as checkpoint commits.
+  - Verification before the auto-fire commit: 30 selected gamepad tests passed; `git diff --check` passed with LF/CRLF warnings only.
 - 2026-05-11T23:04:47+08:00 - Context log split into index plus full archive.
   - `session-log.md` is now this lightweight index.
   - `session-log-full.md` preserves the previous complete log plus this maintenance note.
@@ -29,16 +58,20 @@ Purpose: quick navigation for project continuity. The complete historical log is
 
 ## Current Follow-Up
 
-- Run the controller benchmark again from commit `9537921` and compare against the current baseline plus recent local runs.
-- Inspect coverage deltas before interpreting turn-recovery, decel-settle, or wrong-input-recovery changes as real improvements.
-- Smoke-test `gamepad_start.bat` after config changes to confirm the default entry still loads the intended config path.
-- If latency remains a concern, instrument the controller loop and native result handoff before considering any C++ controller migration.
-- Keep high-feel gamepad tuning knobs easy to find near the top of config examples.
+- Receive and evaluate the user's next idea against the new contract-hardened baseline.
+- Run live `gamepad_start.bat` smoke when the user is ready: check neutral startup/exit, short target-loss no stale fire, semi-auto manual fire, and timing p95/max.
+- Decide whether to stage/commit the current implementation and whether `.agent-context/` should be included or kept separate.
+- Push/sync `dev` if remote state should include commits `542c3de`, `9e09a52`, `c38e129`, and any future hardening commit.
+- Replay or capture crouch/prone/side benchmark material before expanding posture heuristics further.
+- If latency still feels high, use the new source/native/handoff/consume/output metrics before discussing a controller-to-C++ rewrite.
 
 ## Full Archive Map
 
 Use `session-log-full.md` for the full text of these entries:
 
+- 2026-05-19 - Native/gamepad contract hardening implementation, verification, and context sync.
+- 2026-05-18 - Multi-POV native/gamepad review and contract-hardening plan.
+- 2026-05-12 - Auto-fire manual takeover; commit-discipline guidance; native vision target freshness; wide-low posture selector parity.
 - 2026-05-11 - Gamepad release-tail, benchmark coverage, native/gamepad review findings, recoil_app handoff.
 - 2026-05-05 - Native-only vision scope, upper-body regression coverage, external cue bridge, sidecar fallback, ROI-only color copy, same-target auto-fire fix.
 - 2026-05-01 - Native hotpath review, article reviews, rollback to native pre-hotpath baseline, simplified native baseline, yellow-cue continuation hold.

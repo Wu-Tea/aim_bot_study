@@ -1,4 +1,7 @@
+import os
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -120,6 +123,61 @@ class WeaponTextExtractionTests(unittest.TestCase):
         finally:
             text_module._DEFAULT_OCR_READER = None
             text_module._DEFAULT_OCR_READER_INITIALIZED = False
+
+    def test_load_default_ocr_reader_prepares_cuda_dll_path_before_constructing_reader(self):
+        calls = []
+
+        class FakeRapidOCR:
+            def __init__(self, **kwargs):
+                del kwargs
+                calls.append("rapidocr")
+
+        text_module._DEFAULT_OCR_READER = None
+        text_module._DEFAULT_OCR_READER_INITIALIZED = False
+        try:
+            with patch.dict("sys.modules", {"rapidocr_onnxruntime": SimpleNamespace(RapidOCR=FakeRapidOCR)}):
+                with patch.dict("os.environ", {"RECOIL_OCR_PROVIDER": "cuda"}, clear=False):
+                    with patch(
+                        "vision.weapon_identity.text._available_onnxruntime_providers",
+                        return_value=("CUDAExecutionProvider", "CPUExecutionProvider"),
+                    ):
+                        with patch(
+                            "vision.weapon_identity.text._prepare_cuda_dll_search_path",
+                            side_effect=lambda: calls.append("prepare_cuda_dlls"),
+                        ):
+                            reader = text_module._load_default_ocr_reader()
+
+            self.assertIsNotNone(reader)
+            self.assertEqual(calls, ["prepare_cuda_dlls", "rapidocr"])
+        finally:
+            text_module._DEFAULT_OCR_READER = None
+            text_module._DEFAULT_OCR_READER_INITIALIZED = False
+
+    def test_prepare_cuda_dll_search_path_prepends_discovered_directories(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cuda_dir = Path(temp_dir) / "torch" / "lib"
+            cuda_dir.mkdir(parents=True)
+            dll_handles = []
+
+            with patch(
+                "vision.weapon_identity.text._discover_cuda_dll_dirs",
+                return_value=(cuda_dir,),
+            ):
+                with patch("vision.weapon_identity.text.os.add_dll_directory", create=True) as mock_add:
+                    mock_add.side_effect = lambda path: dll_handles.append(path) or SimpleNamespace(close=lambda: None)
+                    with patch.dict("os.environ", {"PATH": f"C:\\Existing{os.pathsep}{cuda_dir}"}, clear=False):
+                        text_module._CUDA_DLL_SEARCH_PATH_PREPARED = False
+                        text_module._CUDA_DLL_DIRECTORY_HANDLES = []
+                        try:
+                            text_module._prepare_cuda_dll_search_path()
+
+                            path_entries = os.environ["PATH"].split(os.pathsep)
+                            self.assertEqual(path_entries[0], str(cuda_dir))
+                            self.assertEqual(path_entries.count(str(cuda_dir)), 1)
+                            self.assertEqual(dll_handles, [str(cuda_dir)])
+                        finally:
+                            text_module._CUDA_DLL_SEARCH_PATH_PREPARED = False
+                            text_module._CUDA_DLL_DIRECTORY_HANDLES = []
 
 
 if __name__ == "__main__":

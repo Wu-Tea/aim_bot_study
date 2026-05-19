@@ -520,7 +520,7 @@ class NativeVisionTargetingBridgeTests(unittest.TestCase):
         self.assertEqual(exposed_upper["target_source"], "observed")
         self.assertFalse(exposed_upper["auto_fire"])
 
-    def test_autofire_release_grace_frames_apply_after_selected_target_loss(self):
+    def test_autofire_drops_immediately_after_selected_target_loss(self):
         if not hasattr(self.module, "NativeTargetSelector"):
             self.fail("NativeTargetSelector is missing")
 
@@ -537,9 +537,9 @@ class NativeVisionTargetingBridgeTests(unittest.TestCase):
 
         self.assertTrue(locked["auto_fire"])
         self.assertFalse(miss_one["has_target"])
-        self.assertTrue(miss_one["auto_fire"])
-        self.assertTrue(miss_two["auto_fire"])
-        self.assertTrue(miss_three["auto_fire"])
+        self.assertFalse(miss_one["auto_fire"])
+        self.assertFalse(miss_two["auto_fire"])
+        self.assertFalse(miss_three["auto_fire"])
         self.assertFalse(miss_four["auto_fire"])
 
     def test_autofire_reset_clears_release_grace_state(self):

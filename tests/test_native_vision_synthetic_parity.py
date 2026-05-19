@@ -179,20 +179,35 @@ class NativeVisionSyntheticParityTests(unittest.TestCase):
             native_result = native_pipeline.process(rows, frame, timestamp)
             self.assert_result_close(python_result, native_result, step=index)
 
-    def test_center_lock_autofire_and_enhancement_match_python(self):
+    def test_center_lock_matches_until_empty_gap_then_native_clears(self):
         frame = _frame()
         lock_box = [280.0, 240.0, 360.0, 380.0]
         rows = _rows(lock_box, confs=[0.95])
         frame_dt = 1.0 / 80.0
 
-        self.assert_sequence_parity(
-            [
-                (rows, frame, 1.0),
-                (rows, frame, 1.0 + frame_dt),
-                (_rows(), frame, 1.0 + (frame_dt * 2.0)),
-                (_rows(), frame, 1.0 + (frame_dt * 3.0)),
-            ]
-        )
+        python_pipeline = PythonVisionParityPipeline()
+        native_pipeline = NativeVisionParityPipeline(self.module)
+        sequence = [
+            (rows, frame, 1.0),
+            (rows, frame, 1.0 + frame_dt),
+            (_rows(), frame, 1.0 + (frame_dt * 2.0)),
+            (_rows(), frame, 1.0 + (frame_dt * 3.0)),
+        ]
+
+        results = [
+            (
+                python_pipeline.process(rows, frame, timestamp),
+                native_pipeline.process(rows, frame, timestamp),
+            )
+            for rows, frame, timestamp in sequence
+        ]
+
+        self.assert_result_close(results[0][0], results[0][1], step=0)
+        self.assert_result_close(results[1][0], results[1][1], step=1)
+        for step in (2, 3):
+            _python_result, native_result = results[step]
+            self.assertFalse(native_result["has_target"], f"native should clear at step {step}")
+            self.assertFalse(native_result["auto_fire"], f"native should suppress fire at step {step}")
 
     def test_color_filter_and_enemy_pickup_match_python(self):
         frame = _frame()
@@ -209,23 +224,53 @@ class NativeVisionSyntheticParityTests(unittest.TestCase):
             ]
         )
 
-    def test_occlusion_prediction_and_reacquire_match_python(self):
+    def test_native_empty_detection_frames_clear_until_reacquire(self):
         frame = _frame()
         first_box = [300.0, 240.0, 340.0, 360.0]
         second_box = [306.0, 244.0, 346.0, 364.0]
         reacquired_box = [312.0, 248.0, 352.0, 368.0]
         frame_dt = 1.0 / 80.0
 
-        self.assert_sequence_parity(
-            [
-                (_rows(first_box, confs=[0.95]), frame, 1.0),
-                (_rows(first_box, confs=[0.95]), frame, 1.0 + frame_dt),
-                (_rows(second_box, confs=[0.95]), frame, 1.0 + (frame_dt * 2.0)),
-                (_rows(), frame, 1.0 + (frame_dt * 3.0)),
-                (_rows(), frame, 1.0 + (frame_dt * 4.0)),
-                (_rows(reacquired_box, confs=[0.95]), frame, 1.0 + (frame_dt * 5.0)),
-            ]
-        )
+        python_pipeline = PythonVisionParityPipeline()
+        native_pipeline = NativeVisionParityPipeline(self.module)
+        sequence = [
+            (_rows(first_box, confs=[0.95]), frame, 1.0),
+            (_rows(first_box, confs=[0.95]), frame, 1.0 + frame_dt),
+            (_rows(second_box, confs=[0.95]), frame, 1.0 + (frame_dt * 2.0)),
+            (_rows(), frame, 1.0 + (frame_dt * 3.0)),
+            (_rows(), frame, 1.0 + (frame_dt * 4.0)),
+            (_rows(reacquired_box, confs=[0.95]), frame, 1.0 + (frame_dt * 5.0)),
+            (_rows(reacquired_box, confs=[0.95]), frame, 1.0 + (frame_dt * 6.0)),
+        ]
+
+        results = [
+            (
+                python_pipeline.process(rows, frame, timestamp),
+                native_pipeline.process(rows, frame, timestamp),
+            )
+            for rows, frame, timestamp in sequence
+        ]
+
+        for step in range(3):
+            self.assert_result_close(results[step][0], results[step][1], step=step)
+
+        for step in (3, 4):
+            python_result, native_result = results[step]
+            self.assertTrue(python_result["has_target"], f"python should predict at step {step}")
+            self.assertEqual(python_result["target_source"], "predicted")
+            self.assertFalse(native_result["has_target"], f"native should clear at step {step}")
+            self.assertFalse(native_result["auto_fire"], f"native should suppress fire at step {step}")
+            self.assertEqual(native_result["target_source"], "")
+
+        python_result, native_result = results[5]
+        self.assertTrue(python_result["has_target"])
+        self.assertFalse(native_result["has_target"], "native reacquire should require a fresh confirmation frame")
+
+        python_result, native_result = results[6]
+        self.assertTrue(python_result["has_target"])
+        self.assertTrue(native_result["has_target"])
+        self.assertEqual(native_result["target_source"], "observed")
+        self.assertTrue(native_result["auto_fire"])
 
 
 if __name__ == "__main__":

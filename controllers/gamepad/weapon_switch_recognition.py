@@ -32,7 +32,6 @@ _IDENTITY_HINT_KEYS = frozenset(
 @dataclass(slots=True, frozen=True)
 class YButtonTextRecognitionConfig:
     sample_delays_ms: tuple[int, ...] = (150, 240, 340, 460)
-    cache_publish_confidence: float = 0.90
 
     def __post_init__(self) -> None:
         if not self.sample_delays_ms:
@@ -41,11 +40,6 @@ class YButtonTextRecognitionConfig:
             self,
             "sample_delays_ms",
             tuple(_require_non_negative_int(value, "YButtonTextRecognitionConfig.sample_delays_ms[]") for value in self.sample_delays_ms),
-        )
-        object.__setattr__(
-            self,
-            "cache_publish_confidence",
-            _require_confidence(self.cache_publish_confidence, "YButtonTextRecognitionConfig.cache_publish_confidence"),
         )
 
 
@@ -118,10 +112,7 @@ class YButtonTextWeaponRecognizer:
             self._switch_epoch += 1
             slot_index = self._active_slot_index
             switch_epoch = self._switch_epoch
-            cached_state = self._slot_states[slot_index]
-
-        if cached_state is not None:
-            self._state_writer(_clone_state(cached_state, source="switch_cache", timestamp=self._timestamp_fn()))
+            self._slot_states[slot_index] = None
 
         self._capture_runner(
             slot_index,
@@ -353,15 +344,6 @@ def _require_recognizer_state(value: Any, label: str) -> RecognizerState:
     if not isinstance(value, RecognizerState):
         raise ValueError(f"{label} must be a RecognizerState")
     return value
-
-
-def _require_confidence(value: Any, label: str) -> float:
-    if type(value) not in {int, float}:
-        raise ValueError(f"{label} must be a number")
-    confidence = float(value)
-    if confidence < 0.0 or confidence > 1.0:
-        raise ValueError(f"{label} must be between 0.0 and 1.0")
-    return confidence
 
 
 def _require_non_negative_int(value: Any, label: str) -> int:

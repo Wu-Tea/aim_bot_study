@@ -4,14 +4,12 @@ import time
 import win32api
 from pynput import mouse as pynput_mouse
 
-from .base_controller import BaseController
+from .base_controller import BaseController, ControllerVisionState
 from .mouse import (
     AIAimPlugin,
-    AutoFireConfig,
     AutoFirePlugin,
     MouseFrame,
     MouseOutput,
-    RecoilCompensationConfig,
     RecoilCompensationPlugin,
     apply_plugins,
     reset_plugins,
@@ -45,8 +43,13 @@ class MouseController(BaseController, threading.Thread):
         self.target_info = None
         self._inject_remainder_dx = 0.0
         self._inject_remainder_dy = 0.0
+        self._local_motion_dx_since_target = 0.0
+        self._local_motion_dy_since_target = 0.0
         self._is_aiming = False
         self._auto_fire_requested = False
+        self._auto_fire_timestamp = None
+        self._vision_received_at = None
+        self._vision_submitted_at = None
         self._acc_dx = 0.0
         self._acc_dy = 0.0
         self._manual_left_pressed = False
@@ -59,8 +62,8 @@ class MouseController(BaseController, threading.Thread):
         tuning = load_tuning_config()
         self.plugins = list(plugins) if plugins is not None else [
             AIAimPlugin(tuning.mouse_ai_aim),
-            AutoFirePlugin(AutoFireConfig()),
-            RecoilCompensationPlugin(RecoilCompensationConfig()),
+            AutoFirePlugin(tuning.mouse_auto_fire),
+            RecoilCompensationPlugin(tuning.mouse_recoil),
         ]
 
         self._last_mouse_x, self._last_mouse_y = win32api.GetCursorPos()
@@ -105,6 +108,40 @@ class MouseController(BaseController, threading.Thread):
             self.target_info = target
             self.target_revision += 1
             self.target_timestamp = target_timestamp
+            self._local_motion_dx_since_target = 0.0
+            self._local_motion_dy_since_target = 0.0
+
+    def update_vision_state(self, state: ControllerVisionState):
+        state_timestamp = state.observed_at
+        if state_timestamp is None:
+            state_timestamp = getattr(state.target, "observed_at", None)
+        if state_timestamp is None:
+            state_timestamp = time.perf_counter()
+        submitted_at = state.submitted_at
+        if submitted_at is None:
+            submitted_at = time.perf_counter()
+        auto_fire_requested = bool(state.auto_fire_requested and state.target is not None)
+        auto_fire_timestamp = state.auto_fire_observed_at
+        if auto_fire_timestamp is None:
+            auto_fire_timestamp = state_timestamp
+
+        with self.lock:
+            if state.target is None:
+                self.target_dx = 0.0
+                self.target_dy = 0.0
+                self.target_info = None
+            else:
+                self.target_dx = state.dx
+                self.target_dy = state.dy
+                self.target_info = state.target
+            self.target_revision += 1
+            self.target_timestamp = state_timestamp
+            self._local_motion_dx_since_target = 0.0
+            self._local_motion_dy_since_target = 0.0
+            self._auto_fire_requested = auto_fire_requested
+            self._auto_fire_timestamp = auto_fire_timestamp if auto_fire_requested else None
+            self._vision_received_at = state.received_at
+            self._vision_submitted_at = submitted_at
 
     def _clear_target_state_locked(self):
         self.target_dx = 0.0
@@ -112,6 +149,8 @@ class MouseController(BaseController, threading.Thread):
         self.target_info = None
         self.target_revision += 1
         self.target_timestamp = time.perf_counter()
+        self._local_motion_dx_since_target = 0.0
+        self._local_motion_dy_since_target = 0.0
 
     def clear_target(self):
         with self.lock:
@@ -125,6 +164,7 @@ class MouseController(BaseController, threading.Thread):
             self._inject_remainder_dy = 0.0
             self._manual_override_until = None
             self._auto_fire_requested = False
+            self._auto_fire_timestamp = None
             self._manual_left_pressed = False
             synthetic_left_held = self._left_click_held
             self._left_click_held = False
@@ -136,9 +176,12 @@ class MouseController(BaseController, threading.Thread):
     def is_aiming(self):
         return self._is_aiming
 
-    def set_auto_fire(self, pressed: bool):
+    def set_auto_fire(self, pressed: bool, observed_at: float | None = None):
+        if pressed and observed_at is None:
+            observed_at = time.perf_counter()
         with self.lock:
             self._auto_fire_requested = bool(pressed)
+            self._auto_fire_timestamp = observed_at if pressed else None
 
     def set_auto_rb(self, pressed: bool):
         self.set_auto_fire(pressed)
@@ -153,12 +196,21 @@ class MouseController(BaseController, threading.Thread):
             manual_dy = self._acc_dy
             self._acc_dx = 0.0
             self._acc_dy = 0.0
-            target_dx = self.target_dx
-            target_dy = self.target_dy
+            target_dx = self._offset_error_after_motion(
+                self.target_dx,
+                self._local_motion_dx_since_target,
+            )
+            target_dy = self._offset_error_after_motion(
+                self.target_dy,
+                self._local_motion_dy_since_target,
+            )
             auto_fire_requested = self._auto_fire_requested
             target_revision = self.target_revision
             target_timestamp = self.target_timestamp
             target_info = self.target_info
+            auto_fire_timestamp = getattr(self, "_auto_fire_timestamp", None)
+            vision_received_at = getattr(self, "_vision_received_at", None)
+            vision_submitted_at = getattr(self, "_vision_submitted_at", None)
             manual_left_pressed = self._manual_left_pressed
             input_session_id = self._input_session_id
             is_aiming = self._is_aiming
@@ -181,6 +233,9 @@ class MouseController(BaseController, threading.Thread):
             input_session_id=input_session_id,
             target_revision=target_revision,
             target_timestamp=target_timestamp,
+            auto_fire_timestamp=auto_fire_timestamp,
+            vision_received_at=vision_received_at,
+            vision_submitted_at=vision_submitted_at,
             target=target_info,
         )
 
@@ -222,6 +277,9 @@ class MouseController(BaseController, threading.Thread):
             with self.lock:
                 self._acc_dx -= move_x
                 self._acc_dy -= move_y
+                if self.target_info is not None:
+                    self._local_motion_dx_since_target += move_x
+                    self._local_motion_dy_since_target += move_y
 
         if output.left_click and not self._left_click_held:
             # Always send UP before DOWN to create a clean press edge.
@@ -233,6 +291,17 @@ class MouseController(BaseController, threading.Thread):
         elif not output.left_click and self._left_click_held:
             win32api.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
             self._left_click_held = False
+
+    @staticmethod
+    def _offset_error_after_motion(error, motion):
+        if motion == 0:
+            return error
+        adjusted = error - motion
+        if error > 0.0 and adjusted < 0.0:
+            return 0.0
+        if error < 0.0 and adjusted > 0.0:
+            return 0.0
+        return adjusted
 
     def run(self):
         while self.running:

@@ -122,6 +122,79 @@ def extract_recoil_profile(
     )
 
 
+def extract_magazine_recoil_profile(
+    *,
+    session: RecoilCollectionSession,
+    bursts: tuple[RecoilBurstSampleSeries, ...] | list[RecoilBurstSampleSeries],
+    profile_id: str,
+    created_at: str,
+    config: RecoilExtractionConfig,
+) -> ExtractedRecoilProfile:
+    normalized_bursts = tuple(bursts)
+    if not normalized_bursts:
+        raise ValueError("extract_magazine_recoil_profile requires at least one magazine episode")
+    for burst in normalized_bursts:
+        if burst.session_id != session.session_id:
+            raise ValueError("All magazine episodes must belong to the provided session")
+
+    aligned_bursts = tuple(_align_and_resample_burst(burst=burst, config=config) for burst in normalized_bursts)
+    clean_bursts, rejected_burst_ids = _reject_outliers(aligned_bursts=aligned_bursts, config=config)
+    profile_samples_x = tuple(
+        fmean(burst.samples_x[index] for burst in clean_bursts)
+        for index in range(len(clean_bursts[0].samples_x))
+    )
+    profile_samples_y = tuple(
+        fmean(burst.samples_y[index] for burst in clean_bursts)
+        for index in range(len(clean_bursts[0].samples_y))
+    )
+    support_counts = tuple(len(clean_bursts) for _ in range(len(profile_samples_x)))
+    variance_summary = _summarize_variance(clean_bursts)
+    confidence = _compute_magazine_confidence(
+        total_burst_count=len(aligned_bursts),
+        clean_burst_count=len(clean_bursts),
+        samples_x=profile_samples_x,
+        samples_y=profile_samples_y,
+        variance_summary=variance_summary,
+        config=config,
+    )
+    duration_ms = len(profile_samples_x) * config.sample_interval_ms
+
+    profile = RecoilProfileRecord(
+        profile_id=profile_id,
+        canonical_weapon_id=session.canonical_weapon_id,
+        game=session.game,
+        stance=session.stance,
+        aim_mode=session.aim_mode,
+        sample_interval_ms=config.sample_interval_ms,
+        duration_ms=duration_ms,
+        initial_delay_ms=0,
+        samples_x=profile_samples_x,
+        samples_y=profile_samples_y,
+        sample_count=len(profile_samples_x),
+        burst_count=len(clean_bursts),
+        variance_summary=variance_summary,
+        confidence=confidence,
+        capture_resolution=session.capture_resolution,
+        capture_fps=session.capture_fps,
+        collector_version=session.collector_version,
+        created_at=created_at,
+        profile_type="magazine_curve_v1",
+        support_counts=support_counts,
+        fit_summary={
+            "episode_count": float(len(aligned_bursts)),
+            "accepted_episode_count": float(len(clean_bursts)),
+            "rejected_episode_count": float(len(rejected_burst_ids)),
+            "target_duration_ms": float(duration_ms),
+            "sample_interval_ms": float(config.sample_interval_ms),
+        },
+    )
+    return ExtractedRecoilProfile(
+        profile=profile,
+        accepted_burst_ids=tuple(burst.burst_id for burst in clean_bursts),
+        rejected_burst_ids=rejected_burst_ids,
+    )
+
+
 def _align_and_resample_burst(
     *,
     burst: RecoilBurstSampleSeries,
@@ -328,6 +401,40 @@ def _compute_confidence(
     return max(0.0, min(1.0, confidence))
 
 
+def _compute_magazine_confidence(
+    *,
+    total_burst_count: int,
+    clean_burst_count: int,
+    samples_x: tuple[float, ...],
+    samples_y: tuple[float, ...],
+    variance_summary: dict[str, float],
+    config: RecoilExtractionConfig,
+) -> float:
+    support_target = min(2, config.target_clean_bursts)
+    support_factor = min(1.0, clean_burst_count / max(1, support_target))
+    retention_factor = 0.85 + (0.15 * (clean_burst_count / max(1, total_burst_count)))
+    disagreement_scale = max(
+        variance_summary["horizontal_stddev"],
+        variance_summary["vertical_stddev"],
+    )
+    profile_scale = _profile_motion_scale(samples_x=samples_x, samples_y=samples_y)
+    variance_soft_limit = max(config.variance_soft_limit, profile_scale * 0.18)
+    variance_factor = 1.0 / (1.0 + (disagreement_scale / variance_soft_limit))
+    confidence = support_factor * retention_factor * variance_factor
+    if clean_burst_count < config.min_clean_bursts:
+        confidence *= (clean_burst_count / config.min_clean_bursts) ** 2
+    return max(0.0, min(1.0, confidence))
+
+
+def _profile_motion_scale(*, samples_x: tuple[float, ...], samples_y: tuple[float, ...]) -> float:
+    if not samples_x or not samples_y:
+        return 0.0
+    return max(
+        (sample_x**2 + sample_y**2) ** 0.5
+        for sample_x, sample_y in zip(samples_x, samples_y)
+    )
+
+
 def _stabilize_vertical_profile_curve(samples_y: tuple[float, ...]) -> tuple[float, ...]:
     if not samples_y:
         return ()
@@ -353,5 +460,6 @@ def _stabilize_vertical_profile_curve(samples_y: tuple[float, ...]) -> tuple[flo
 __all__ = [
     "ExtractedRecoilProfile",
     "RecoilExtractionConfig",
+    "extract_magazine_recoil_profile",
     "extract_recoil_profile",
 ]

@@ -5,7 +5,11 @@ from typing import Any, Mapping
 
 from controllers.gamepad.adaptive_delta_gain import AdaptiveDeltaGainConfig
 from controllers.gamepad.ai_aim import AIAimConfig as GamepadAIAimConfig
+from controllers.gamepad.auto_fire import AutoFireConfig as GamepadAutoFireConfig
+from controllers.gamepad.recoil_compensation import RecoilCompensationConfig as GamepadRecoilConfig
 from controllers.mouse.ai_aim import AIAimConfig as MouseAIAimConfig
+from controllers.mouse.auto_fire import AutoFireConfig as MouseAutoFireConfig
+from controllers.mouse.recoil_compensation import RecoilCompensationConfig as MouseRecoilConfig
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -21,11 +25,29 @@ RUNTIME_VISION_KEYS = frozenset(
         "perf_log",
         "quit_key",
         "native_cue_sidecar",
+        "model_path",
+        "fallback_model_path",
     }
 )
 RUNTIME_GAMEPAD_KEYS = frozenset(
     {
         "auto_fire_output",
+    }
+)
+GAMEPAD_AUTO_FIRE_KEYS = frozenset(
+    {
+        "aim_only",
+        "max_source_age_ms",
+        "manual_takeover_release_seconds",
+        "manual_takeover_resume_delay_seconds",
+    }
+)
+GAMEPAD_RECOIL_KEYS = frozenset(
+    {
+        "amount",
+        "piecewise_mid_pixels_y",
+        "piecewise_max_pixels_y",
+        "piecewise_mid_ratio_y",
     }
 )
 GAMEPAD_AI_AIM_KEYS = frozenset(
@@ -80,6 +102,19 @@ ADAPTIVE_DELTA_GAIN_KEYS = frozenset(
         "trigger_frames",
         "opposing_input_threshold",
         "stale_seconds",
+    }
+)
+MOUSE_AUTO_FIRE_KEYS = frozenset(
+    {
+        "aim_only",
+        "max_source_age_ms",
+        "hold_seconds",
+        "release_seconds",
+    }
+)
+MOUSE_RECOIL_KEYS = frozenset(
+    {
+        "amount_px",
     }
 )
 MOUSE_AI_AIM_KEYS = frozenset(
@@ -166,6 +201,8 @@ class RuntimeVisionConfig:
     perf_log: bool = True
     quit_key: str = "0"
     native_cue_sidecar: bool = False
+    model_path: str = "models/best.engine"
+    fallback_model_path: str = "models/best.pt"
 
 
 @dataclass(slots=True, frozen=True)
@@ -183,8 +220,12 @@ class RuntimeConfig:
 class TuningConfig:
     runtime: RuntimeConfig
     gamepad_ai_aim: GamepadAIAimConfig
+    gamepad_auto_fire: GamepadAutoFireConfig
+    gamepad_recoil: GamepadRecoilConfig
     adaptive_delta_gain: AdaptiveDeltaGainConfig
     mouse_ai_aim: MouseAIAimConfig
+    mouse_auto_fire: MouseAutoFireConfig
+    mouse_recoil: MouseRecoilConfig
 
 
 def _filter(section: Mapping[str, Any] | None, allowed: frozenset[str]) -> dict[str, Any]:
@@ -230,6 +271,14 @@ def load_tuning_config(path: Path | None = None) -> TuningConfig:
         GamepadAIAimConfig(),
         **_filter(gamepad_section.get("ai_aim"), GAMEPAD_AI_AIM_KEYS),
     )
+    gamepad_auto_fire = replace(
+        GamepadAutoFireConfig(),
+        **_filter(gamepad_section.get("auto_fire"), GAMEPAD_AUTO_FIRE_KEYS),
+    )
+    gamepad_recoil = replace(
+        GamepadRecoilConfig(amount=0.20),
+        **_filter(gamepad_section.get("recoil"), GAMEPAD_RECOIL_KEYS),
+    )
     adaptive = replace(
         AdaptiveDeltaGainConfig(),
         **_filter(gamepad_section.get("adaptive_delta_gain"), ADAPTIVE_DELTA_GAIN_KEYS),
@@ -238,10 +287,22 @@ def load_tuning_config(path: Path | None = None) -> TuningConfig:
         MouseAIAimConfig(),
         **_filter(mouse_section.get("ai_aim"), MOUSE_AI_AIM_KEYS),
     )
+    mouse_auto_fire = replace(
+        MouseAutoFireConfig(),
+        **_filter(mouse_section.get("auto_fire"), MOUSE_AUTO_FIRE_KEYS),
+    )
+    mouse_recoil = replace(
+        MouseRecoilConfig(),
+        **_filter(mouse_section.get("recoil"), MOUSE_RECOIL_KEYS),
+    )
 
     return TuningConfig(
         runtime=runtime,
         gamepad_ai_aim=gamepad_ai_aim,
+        gamepad_auto_fire=gamepad_auto_fire,
+        gamepad_recoil=gamepad_recoil,
         adaptive_delta_gain=adaptive,
         mouse_ai_aim=mouse_ai_aim,
+        mouse_auto_fire=mouse_auto_fire,
+        mouse_recoil=mouse_recoil,
     )

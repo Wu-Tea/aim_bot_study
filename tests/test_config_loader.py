@@ -7,7 +7,11 @@ from config import load_tuning_config
 from config.loader import RuntimeConfig, RuntimeGamepadConfig, RuntimeVisionConfig
 from controllers.gamepad import AdaptiveDeltaGainConfig
 from controllers.gamepad import AIAimConfig as GamepadAIAimConfig
+from controllers.gamepad import AutoFireConfig as GamepadAutoFireConfig
+from controllers.gamepad import RecoilCompensationConfig as GamepadRecoilConfig
 from controllers.mouse import AIAimConfig as MouseAIAimConfig
+from controllers.mouse import AutoFireConfig as MouseAutoFireConfig
+from controllers.mouse import RecoilCompensationConfig as MouseRecoilConfig
 
 
 class TuningConfigLoaderTests(unittest.TestCase):
@@ -22,6 +26,9 @@ class TuningConfigLoaderTests(unittest.TestCase):
         self.assertEqual(config.runtime.vision.backend, "native")
         self.assertEqual(config.runtime.vision.capture_fps, 140)
         self.assertFalse(config.runtime.vision.native_cue_sidecar)
+        self.assertEqual(config.runtime.vision.model_path, "models/best.engine")
+        self.assertEqual(config.gamepad_auto_fire.max_source_age_ms, 50.0)
+        self.assertEqual(config.gamepad_recoil.amount, 0.20)
 
     def test_missing_file_returns_all_dataclass_defaults(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -39,6 +46,13 @@ class TuningConfigLoaderTests(unittest.TestCase):
         )
         self.assertEqual(config.adaptive_delta_gain, AdaptiveDeltaGainConfig())
         self.assertEqual(config.mouse_ai_aim, MouseAIAimConfig())
+        self.assertEqual(config.gamepad_auto_fire, GamepadAutoFireConfig())
+        self.assertEqual(
+            config.gamepad_recoil,
+            GamepadRecoilConfig(amount=0.20),
+        )
+        self.assertEqual(config.mouse_auto_fire, MouseAutoFireConfig())
+        self.assertEqual(config.mouse_recoil, MouseRecoilConfig())
 
     def test_overrides_applied_per_section(self):
         toml = textwrap.dedent(
@@ -51,9 +65,23 @@ class TuningConfigLoaderTests(unittest.TestCase):
             perf_log = false
             quit_key = "Q"
             native_cue_sidecar = true
+            model_path = "D:/models/custom.engine"
+            fallback_model_path = "D:/models/custom.pt"
 
             [runtime.gamepad]
             auto_fire_output = "RT"
+
+            [gamepad.auto_fire]
+            aim_only = false
+            max_source_age_ms = 35.0
+            manual_takeover_release_seconds = 0.040
+            manual_takeover_resume_delay_seconds = 0.095
+
+            [gamepad.recoil]
+            amount = 0.16
+            piecewise_mid_pixels_y = 40.0
+            piecewise_max_pixels_y = 160.0
+            piecewise_mid_ratio_y = 0.60
 
             [gamepad.ai_aim]
             smoothing = 0.42
@@ -132,6 +160,14 @@ class TuningConfigLoaderTests(unittest.TestCase):
             acquire_stall_decay_per_frame = 0.18
             acquire_stall_max_bonus = 0.8
             breakaway_speed_px = 17.0
+
+            [mouse.auto_fire]
+            max_source_age_ms = 40.0
+            hold_seconds = 0.100
+            release_seconds = 0.025
+
+            [mouse.recoil]
+            amount_px = 0.55
             """
         ).strip()
 
@@ -147,7 +183,20 @@ class TuningConfigLoaderTests(unittest.TestCase):
         self.assertFalse(config.runtime.vision.perf_log)
         self.assertEqual(config.runtime.vision.quit_key, "Q")
         self.assertTrue(config.runtime.vision.native_cue_sidecar)
+        self.assertEqual(config.runtime.vision.model_path, "D:/models/custom.engine")
+        self.assertEqual(config.runtime.vision.fallback_model_path, "D:/models/custom.pt")
         self.assertEqual(config.runtime.gamepad.auto_fire_output, "RT")
+
+        self.assertFalse(config.gamepad_auto_fire.aim_only)
+        self.assertEqual(config.gamepad_auto_fire.max_source_age_ms, 35.0)
+        self.assertEqual(config.gamepad_auto_fire.manual_takeover_release_seconds, 0.040)
+        self.assertEqual(config.gamepad_auto_fire.manual_takeover_resume_delay_seconds, 0.095)
+        self.assertEqual(config.gamepad_auto_fire.fire_output, GamepadAutoFireConfig().fire_output)
+
+        self.assertEqual(config.gamepad_recoil.amount, 0.16)
+        self.assertEqual(config.gamepad_recoil.piecewise_mid_pixels_y, 40.0)
+        self.assertEqual(config.gamepad_recoil.piecewise_max_pixels_y, 160.0)
+        self.assertEqual(config.gamepad_recoil.piecewise_mid_ratio_y, 0.60)
 
         self.assertEqual(config.gamepad_ai_aim.smoothing, 0.42)
         self.assertEqual(config.gamepad_ai_aim.max_pixels, 180)
@@ -246,6 +295,10 @@ class TuningConfigLoaderTests(unittest.TestCase):
         self.assertEqual(config.mouse_ai_aim.acquire_stall_decay_per_frame, 0.18)
         self.assertEqual(config.mouse_ai_aim.acquire_stall_max_bonus, 0.8)
         self.assertEqual(config.mouse_ai_aim.breakaway_speed_px, 17.0)
+        self.assertEqual(config.mouse_auto_fire.max_source_age_ms, 40.0)
+        self.assertEqual(config.mouse_auto_fire.hold_seconds, 0.100)
+        self.assertEqual(config.mouse_auto_fire.release_seconds, 0.025)
+        self.assertEqual(config.mouse_recoil.amount_px, 0.55)
 
     def test_unknown_keys_are_ignored(self):
         toml = textwrap.dedent(
@@ -273,6 +326,7 @@ class TuningConfigLoaderTests(unittest.TestCase):
         self.assertEqual(config.runtime.vision.backend, "native")
         self.assertFalse(hasattr(config.runtime.vision, "fake_runtime_key"))
         self.assertEqual(config.mouse_ai_aim.stabilize_gain, 0.07)
+        self.assertFalse(hasattr(config, "not_a_real_section"))
 
     def test_invalid_runtime_choice_falls_back_to_safe_default(self):
         toml = textwrap.dedent(
@@ -307,6 +361,13 @@ class TuningConfigLoaderTests(unittest.TestCase):
         self.assertEqual(config.runtime.gamepad, RuntimeGamepadConfig())
         self.assertEqual(config.adaptive_delta_gain, AdaptiveDeltaGainConfig())
         self.assertEqual(config.mouse_ai_aim, MouseAIAimConfig())
+        self.assertEqual(config.gamepad_auto_fire, GamepadAutoFireConfig())
+        self.assertEqual(
+            config.gamepad_recoil,
+            GamepadRecoilConfig(amount=0.20),
+        )
+        self.assertEqual(config.mouse_auto_fire, MouseAutoFireConfig())
+        self.assertEqual(config.mouse_recoil, MouseRecoilConfig())
 
 
 if __name__ == "__main__":

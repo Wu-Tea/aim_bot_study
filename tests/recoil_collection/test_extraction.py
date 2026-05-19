@@ -394,6 +394,183 @@ class ExtractRecoilProfileTests(unittest.TestCase):
                 config=extraction.RecoilExtractionConfig(sample_interval_ms=10),
             )
 
+    def test_magazine_curve_preserves_internal_burst_pause_plateaus(self):
+        extraction = _load_extraction_module()
+        result = extraction.extract_magazine_recoil_profile(
+            session=_session(),
+            bursts=(
+                _series(
+                    burst_id="mag-a",
+                    start_offset_ms=0,
+                    sample_interval_ms=10,
+                    anchor_x=0.0,
+                    anchor_y=0.0,
+                    deltas_x=(0.0, 0.2, 0.2, 0.4, 0.6, 0.6, 0.8),
+                    deltas_y=(0.0, -1.0, -1.0, -2.0, -3.0, -3.0, -4.0),
+                ),
+                _series(
+                    burst_id="mag-b",
+                    start_offset_ms=3,
+                    sample_interval_ms=10,
+                    anchor_x=15.0,
+                    anchor_y=-8.0,
+                    deltas_x=(0.0, 0.1, 0.1, 0.4, 0.5, 0.5, 0.7),
+                    deltas_y=(0.0, -1.2, -1.2, -2.1, -2.9, -2.9, -3.9),
+                ),
+                _series(
+                    burst_id="mag-c",
+                    start_offset_ms=6,
+                    sample_interval_ms=10,
+                    anchor_x=-20.0,
+                    anchor_y=6.0,
+                    deltas_x=(0.0, 0.3, 0.3, 0.5, 0.7, 0.7, 0.9),
+                    deltas_y=(0.0, -0.8, -0.8, -1.9, -3.1, -3.1, -4.1),
+                ),
+            ),
+            profile_id="profile-cod22-m4-ads-standing-magazine-v1",
+            created_at="2026-05-06T14:00:00Z",
+            config=extraction.RecoilExtractionConfig(
+                sample_interval_ms=10,
+                min_clean_bursts=2,
+                target_clean_bursts=3,
+            ),
+        )
+
+        self.assertEqual(result.accepted_burst_ids, ("mag-a", "mag-b", "mag-c"))
+        self.assertEqual(result.rejected_burst_ids, ())
+        self.assertEqual(result.profile.profile_type, "magazine_curve_v1")
+        self.assertEqual(result.profile.initial_delay_ms, 0)
+        self.assertEqual(result.profile.sample_interval_ms, 10)
+        self.assertEqual(result.profile.duration_ms, 70)
+        self.assertEqual(result.profile.sample_count, 7)
+        self.assertEqual(result.profile.support_counts, (3, 3, 3, 3, 3, 3, 3))
+        self.assertTupleAlmostEqual(result.profile.samples_x, (0.0, 0.2, 0.2, 0.433333333333, 0.6, 0.6, 0.8))
+        self.assertTupleAlmostEqual(result.profile.samples_y, (0.0, -1.0, -1.0, -2.0, -3.0, -3.0, -4.0))
+        self.assertEqual(result.profile.fit_summary["episode_count"], 3.0)
+        self.assertEqual(result.profile.fit_summary["accepted_episode_count"], 3.0)
+        self.assertEqual(result.profile.fit_summary["target_duration_ms"], 70.0)
+
+    def test_magazine_curve_rejects_outlier_episode_before_fitting(self):
+        extraction = _load_extraction_module()
+        result = extraction.extract_magazine_recoil_profile(
+            session=_session(),
+            bursts=(
+                _series(
+                    burst_id="mag-good-a",
+                    start_offset_ms=0,
+                    sample_interval_ms=10,
+                    anchor_x=0.0,
+                    anchor_y=0.0,
+                    deltas_x=(0.0, 0.1, 0.2, 0.3, 0.4),
+                    deltas_y=(0.0, -1.0, -2.0, -3.0, -4.0),
+                ),
+                _series(
+                    burst_id="mag-good-b",
+                    start_offset_ms=2,
+                    sample_interval_ms=10,
+                    anchor_x=4.0,
+                    anchor_y=8.0,
+                    deltas_x=(0.0, 0.2, 0.3, 0.4, 0.5),
+                    deltas_y=(0.0, -1.1, -2.1, -3.1, -4.1),
+                ),
+                _series(
+                    burst_id="mag-outlier",
+                    start_offset_ms=4,
+                    sample_interval_ms=10,
+                    anchor_x=-10.0,
+                    anchor_y=-5.0,
+                    deltas_x=(0.0, 4.0, 8.0, 12.0, 16.0),
+                    deltas_y=(0.0, 2.0, 4.0, 6.0, 8.0),
+                ),
+            ),
+            profile_id="profile-cod22-m4-ads-standing-magazine-v1",
+            created_at="2026-05-06T14:05:00Z",
+            config=extraction.RecoilExtractionConfig(
+                sample_interval_ms=10,
+                min_clean_bursts=3,
+                target_clean_bursts=4,
+            ),
+        )
+
+        self.assertEqual(result.accepted_burst_ids, ("mag-good-a", "mag-good-b"))
+        self.assertEqual(result.rejected_burst_ids, ("mag-outlier",))
+        self.assertEqual(result.profile.profile_type, "magazine_curve_v1")
+        self.assertEqual(result.profile.burst_count, 2)
+        self.assertEqual(result.profile.support_counts, (2, 2, 2, 2, 2))
+        self.assertLess(result.profile.confidence, 0.5)
+
+    def test_magazine_confidence_allows_large_stable_recoil_curves_with_two_recordings(self):
+        extraction = _load_extraction_module()
+        result = extraction.extract_magazine_recoil_profile(
+            session=_session(),
+            bursts=(
+                _series(
+                    burst_id="mag-stable-a",
+                    start_offset_ms=0,
+                    sample_interval_ms=10,
+                    anchor_x=0.0,
+                    anchor_y=0.0,
+                    deltas_x=(0.0, -10.0, -20.0, -30.0, -40.0, -50.0),
+                    deltas_y=(0.0, 40.0, 80.0, 120.0, 160.0, 200.0),
+                ),
+                _series(
+                    burst_id="mag-stable-b",
+                    start_offset_ms=3,
+                    sample_interval_ms=10,
+                    anchor_x=20.0,
+                    anchor_y=-10.0,
+                    deltas_x=(0.0, -12.0, -22.0, -33.0, -42.0, -52.0),
+                    deltas_y=(0.0, 43.0, 83.0, 125.0, 166.0, 205.0),
+                ),
+            ),
+            profile_id="profile-cod22-m4-ads-standing-large-stable",
+            created_at="2026-05-06T14:10:00Z",
+            config=extraction.RecoilExtractionConfig(
+                sample_interval_ms=10,
+                min_clean_bursts=2,
+                target_clean_bursts=2,
+            ),
+        )
+
+        self.assertEqual(result.profile.burst_count, 2)
+        self.assertGreaterEqual(result.profile.confidence, 0.70)
+
+    def test_magazine_confidence_stays_low_when_two_recordings_disagree_in_shape(self):
+        extraction = _load_extraction_module()
+        result = extraction.extract_magazine_recoil_profile(
+            session=_session(),
+            bursts=(
+                _series(
+                    burst_id="mag-disagree-a",
+                    start_offset_ms=0,
+                    sample_interval_ms=10,
+                    anchor_x=0.0,
+                    anchor_y=0.0,
+                    deltas_x=(0.0, -10.0, -20.0, -30.0, -40.0, -50.0),
+                    deltas_y=(0.0, 40.0, 80.0, 120.0, 160.0, 200.0),
+                ),
+                _series(
+                    burst_id="mag-disagree-b",
+                    start_offset_ms=4,
+                    sample_interval_ms=10,
+                    anchor_x=12.0,
+                    anchor_y=-6.0,
+                    deltas_x=(0.0, 4.0, 8.0, 12.0, 16.0, 20.0),
+                    deltas_y=(0.0, 5.0, 10.0, 15.0, 20.0, 25.0),
+                ),
+            ),
+            profile_id="profile-cod22-m4-ads-standing-large-disagreeing",
+            created_at="2026-05-06T14:15:00Z",
+            config=extraction.RecoilExtractionConfig(
+                sample_interval_ms=10,
+                min_clean_bursts=2,
+                target_clean_bursts=2,
+            ),
+        )
+
+        self.assertEqual(result.profile.burst_count, 2)
+        self.assertLess(result.profile.confidence, 0.50)
+
 
 def _load_extraction_fixture(name: str):
     fixture_payload = _load_raw_extraction_fixture(name)

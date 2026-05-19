@@ -207,6 +207,13 @@ class NativeVisionCMakeTests(unittest.TestCase):
         self.assertIn("launch_bgra", combined)
         self.assertIn("TensorRTEngine", combined)
 
+    def test_native_vision_engine_reads_configured_model_path_env(self):
+        content = _read(PROJECT_ROOT / "native" / "vision_native" / "src" / "vision_engine.cpp")
+
+        self.assertIn("VISION_MODEL_PATH", content)
+        self.assertIn("std::getenv", content)
+        self.assertIn("default_engine_path()", content)
+
 
 class NativeVisionProductionIsolationTests(unittest.TestCase):
     def test_native_backend_is_default_for_gamepad_start_without_touching_python_runner(self):

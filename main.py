@@ -116,6 +116,8 @@ def _apply_runtime_overrides(args, runtime_config: RuntimeConfig | None = None):
         _setdefault_env("VISION_CAPTURE_FPS", vision_config.capture_fps)
     _setdefault_env("VISION_QUIT_KEY", vision_config.quit_key)
     _setdefault_env("VISION_NATIVE_CUE_SIDECAR", _bool_env(vision_config.native_cue_sidecar))
+    _setdefault_env("VISION_MODEL_PATH", vision_config.model_path)
+    _setdefault_env("VISION_FALLBACK_MODEL_PATH", vision_config.fallback_model_path)
     if args.vision_debug:
         os.environ["VISION_DEBUG_OVERLAY"] = "1"
     if args.vision_debug_save:

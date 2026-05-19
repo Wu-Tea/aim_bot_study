@@ -12,6 +12,7 @@ import numpy as np
 
 from vision.recoil_collection.extraction import ExtractedRecoilProfile
 from vision.recoil_collection.extraction import RecoilExtractionConfig
+from vision.recoil_collection.extraction import extract_magazine_recoil_profile as default_extract_magazine_recoil_profile
 from vision.recoil_collection.extraction import extract_recoil_profile as default_extract_recoil_profile
 from vision.recoil_collection.models import RecoilBurstSampleSeries
 from vision.recoil_collection.models import RecoilBurstWindow
@@ -63,6 +64,7 @@ class RecoilCollectorConfig:
     min_clean_bursts: int = 3
     target_clean_bursts: int = 4
     collector_version: str = "collector-0.1.0"
+    profile_type: str = "magazine_curve_v1"
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "capture_width", _require_positive_int(self.capture_width, "RecoilCollectorConfig.capture_width"))
@@ -84,6 +86,7 @@ class RecoilCollectorConfig:
         if self.target_clean_bursts < self.min_clean_bursts:
             raise ValueError("RecoilCollectorConfig.target_clean_bursts must be >= min_clean_bursts")
         object.__setattr__(self, "collector_version", _require_non_empty_str(self.collector_version, "RecoilCollectorConfig.collector_version"))
+        object.__setattr__(self, "profile_type", _require_profile_type(self.profile_type, "RecoilCollectorConfig.profile_type"))
 
     @property
     def sample_interval_ms(self) -> int:
@@ -132,7 +135,7 @@ def collect_recoil_profile(
     config: RecoilCollectorConfig | None = None,
     timestamp_fn: Callable[[], str] | None = None,
     segmenter: Callable[..., tuple[RecoilBurstWindow, ...]] = default_segment_bursts,
-    extractor: Callable[..., ExtractedRecoilProfile] = default_extract_recoil_profile,
+    extractor: Callable[..., ExtractedRecoilProfile] | None = None,
 ) -> RecoilCollectionResult:
     collector_config = config or RecoilCollectorConfig()
     timestamp_fn = timestamp_fn or _utc_timestamp
@@ -190,7 +193,8 @@ def collect_recoil_profile(
     if not burst_series:
         raise RecoilCollectionError("No recoil burst sample series could be extracted")
 
-    extracted_profile = extractor(
+    profile_extractor = extractor or _select_default_extractor(collector_config.profile_type)
+    extracted_profile = profile_extractor(
         session=session,
         bursts=burst_series,
         profile_id=_build_profile_id(recognition_event.canonical_weapon_id, aim_mode, started_at),
@@ -213,6 +217,12 @@ def collect_recoil_profile(
         extracted_profile=extracted_profile,
         profile_summary=profile_summary,
     )
+
+
+def _select_default_extractor(profile_type: str) -> Callable[..., ExtractedRecoilProfile]:
+    if profile_type == "magazine_curve_v1":
+        return default_extract_magazine_recoil_profile
+    return default_extract_recoil_profile
 
 
 def build_burst_sample_series(
@@ -579,6 +589,13 @@ def _require_non_empty_str(value: Any, label: str) -> str:
     if not text:
         raise ValueError(f"{label} must be a non-empty string")
     return text
+
+
+def _require_profile_type(value: Any, label: str) -> str:
+    profile_type = _require_non_empty_str(value, label)
+    if profile_type not in {"burst_average_v1", "magazine_curve_v1"}:
+        raise ValueError(f"{label} must be one of ['burst_average_v1', 'magazine_curve_v1']")
+    return profile_type
 
 
 __all__ = [

@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import Mock, call as mock_call, patch
 
-from controllers.base_controller import ControllerTarget
+from controllers.base_controller import ControllerTarget, ControllerVisionState
 from vision.runner import VisionConfig
 from vision.native_runner import (
     NativeVisionDebugOverlay,
@@ -206,6 +206,95 @@ class NativeVisionProcessTests(unittest.TestCase):
         self.assertIsNotNone(target.observed_at)
         controller.set_auto_fire.assert_called()
         perf_tracker.update.assert_called_once()
+
+    @patch("vision.native_runner.win32api.GetAsyncKeyState", side_effect=[0x8000])
+    @patch("vision.native_runner._load_native_module")
+    @patch("vision.native_runner.PerformanceTracker")
+    @patch("vision.native_runner.AdsAutoFireGate")
+    def test_process_native_vision_submits_single_vision_state_when_supported(
+        self,
+        auto_fire_gate_cls,
+        perf_tracker_cls,
+        load_native_module,
+        _get_async_key_state,
+    ):
+        engine = Mock()
+        engine.poll_once.return_value = {
+            "has_target": True,
+            "auto_fire": True,
+            "dx": 3.0,
+            "dy": -2.0,
+            "target_x": 323.0,
+            "target_y": 254.0,
+            "screen_center_x": 320.0,
+            "screen_center_y": 256.0,
+            "has_body_box": True,
+            "body_x1": 280.0,
+            "body_y1": 120.0,
+            "body_x2": 360.0,
+            "body_y2": 320.0,
+            "target_source": "observed",
+            "wait_ms": 1.0,
+            "preprocess_ms": 0.2,
+            "infer_ms": 3.0,
+            "post_ms": 0.4,
+            "age_ms": 4.0,
+            "boxes_seen": 1,
+        }
+        native_module = Mock()
+        native_module.NativeVisionEngine.return_value = engine
+        load_native_module.return_value = native_module
+        perf_tracker_cls.return_value = Mock()
+        auto_fire_gate = Mock()
+        auto_fire_gate.allow_auto_fire.return_value = True
+        auto_fire_gate_cls.return_value = auto_fire_gate
+
+        class VisionStateController:
+            def __init__(self):
+                self.states = []
+                self.legacy_calls = []
+
+            def is_aiming(self):
+                return True
+
+            def update_vision_state(self, state):
+                self.states.append(state)
+
+            def set_auto_fire(self, pressed):
+                self.legacy_calls.append(("set_auto_fire", pressed))
+
+            def update(self, *args, **kwargs):
+                self.legacy_calls.append(("update", args, kwargs))
+
+            def reset(self):
+                self.legacy_calls.append(("reset",))
+
+        controller = VisionStateController()
+
+        process_native_vision(controller=controller)
+
+        self.assertNotIn(("set_auto_fire", True), controller.legacy_calls)
+        self.assertFalse(
+            any(call[0] == "update" for call in controller.legacy_calls),
+            controller.legacy_calls,
+        )
+        self.assertEqual(len(controller.states), 1)
+        state = controller.states[0]
+        self.assertIsInstance(state, ControllerVisionState)
+        self.assertEqual((state.dx, state.dy), (3.0, -2.0))
+        self.assertTrue(state.auto_fire_requested)
+        self.assertIsNotNone(state.received_at)
+        self.assertIsNotNone(state.submitted_at)
+        self.assertGreaterEqual(state.submitted_at, state.received_at)
+        self.assertIsNotNone(state.target)
+        self.assertEqual(state.target.target_source, "observed")
+        auto_fire_gate.allow_auto_fire.assert_called_once()
+
+        perf_kwargs = perf_tracker_cls.return_value.update.call_args.kwargs
+        self.assertIn("source_age_ms", perf_kwargs)
+        self.assertIn("native_pipeline_ms", perf_kwargs)
+        self.assertIn("python_handoff_ms", perf_kwargs)
+        self.assertEqual(perf_kwargs["native_pipeline_ms"], 4.0)
 
     @patch("vision.native_runner.time.sleep")
     @patch("vision.native_runner.win32api.GetAsyncKeyState", side_effect=[0, 0x8000])

@@ -89,6 +89,11 @@ def main(argv: Iterable[str] | None = None) -> int:
     joystick.init()
     reader = PygamePhysicalGamepadReader(pygame_module=pygame, joystick=joystick)
     print(f"[Recoil] Started in {config.mode} mode for {config.game}. Press Ctrl+C to stop.")
+    if config.mode == "recoil":
+        print(
+            "[Recoil] Standalone recoil mode does not create a virtual gamepad; "
+            "launch the main gamepad runtime for live stick output."
+        )
     try:
         while True:
             reader.pump()

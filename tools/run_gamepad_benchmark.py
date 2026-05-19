@@ -660,6 +660,8 @@ def _controller_config_snapshot() -> dict[str, Any]:
     tuning = load_tuning_config()
     return {
         "gamepad_ai_aim": asdict(tuning.gamepad_ai_aim),
+        "gamepad_auto_fire": asdict(tuning.gamepad_auto_fire),
+        "gamepad_recoil": asdict(tuning.gamepad_recoil),
         "adaptive_delta_gain": asdict(tuning.adaptive_delta_gain),
     }
 

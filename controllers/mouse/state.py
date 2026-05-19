@@ -18,6 +18,9 @@ class MouseFrame:
     input_session_id: int = 0
     target_revision: int = 0
     target_timestamp: float | None = None
+    auto_fire_timestamp: float | None = None
+    vision_received_at: float | None = None
+    vision_submitted_at: float | None = None
 
 
 @dataclass(slots=True)

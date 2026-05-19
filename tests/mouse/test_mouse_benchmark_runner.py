@@ -50,6 +50,8 @@ class MouseBenchmarkRunnerTests(unittest.TestCase):
                 "post_under_20_axis_flip_count",
                 result["aggregate_metrics"],
             )
+            self.assertIn("mouse_auto_fire", result["controller_config_snapshot"])
+            self.assertIn("mouse_recoil", result["controller_config_snapshot"])
             self.assertIn("# Mouse ADS Benchmarks", scoreboard_path.read_text(encoding="utf-8"))
 
     def test_run_benchmark_with_gamepad_reference_reports_shared_metric_comparison(self):

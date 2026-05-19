@@ -284,6 +284,8 @@ def _controller_config_snapshot() -> dict[str, Any]:
     tuning = load_tuning_config()
     return {
         "mouse_ai_aim": asdict(tuning.mouse_ai_aim),
+        "mouse_auto_fire": asdict(tuning.mouse_auto_fire),
+        "mouse_recoil": asdict(tuning.mouse_recoil),
     }
 
 

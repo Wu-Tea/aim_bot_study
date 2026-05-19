@@ -1236,7 +1236,8 @@ VisionResult VisionTargetSelector::hold_or_reset(float boxes_seen) {
     if (!active_target_.has_value()) {
         clear_tracking_state();
         VisionResult result = empty_result(boxes_seen);
-        result.auto_fire = update_auto_fire(nullptr);
+        clear_auto_fire_state();
+        result.auto_fire = false;
         return result;
     }
 
@@ -1249,7 +1250,8 @@ VisionResult VisionTargetSelector::hold_or_reset(float boxes_seen) {
 
     clear_tracking_state();
     VisionResult result = empty_result(boxes_seen);
-    result.auto_fire = update_auto_fire(nullptr);
+    clear_auto_fire_state();
+    result.auto_fire = false;
     return result;
 }
 
@@ -1332,7 +1334,8 @@ VisionResult VisionTargetSelector::select_impl(
         }
         clear_tracking_state();
         VisionResult result = empty_result(boxes_seen);
-        result.auto_fire = update_auto_fire(nullptr);
+        clear_auto_fire_state();
+        result.auto_fire = false;
         return result;
     }
 

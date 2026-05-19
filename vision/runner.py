@@ -5,7 +5,12 @@ from pathlib import Path
 
 import win32api
 
-from controllers.base_controller import ControllerTarget
+from controllers.base_controller import (
+    ControllerTarget,
+    ControllerVisionState,
+    controller_timing_perf_kwargs,
+    submit_controller_vision_state,
+)
 
 from .capture import ScreenCaptureThread
 from .debug_capture import DebugFrameCapture
@@ -69,6 +74,12 @@ def _quit_requested(config) -> bool:
     if config.quit_key_vk <= 0:
         return False
     return bool(win32api.GetAsyncKeyState(config.quit_key_vk) & 0x8000)
+
+
+def _elapsed_ms(start: float | None, end: float | None) -> float | None:
+    if start is None or end is None:
+        return None
+    return max(0.0, (float(end) - float(start)) * 1000.0)
 
 
 @dataclass(slots=True, frozen=True)
@@ -300,7 +311,8 @@ def process_vision(controller=None):
                 last_seen_id=last_result_id,
                 timeout=config.frame_timeout,
             )
-            wait_ms = (time.perf_counter() - wait_start) * 1000.0
+            result_received_at = time.perf_counter()
+            wait_ms = (result_received_at - wait_start) * 1000.0
 
             if result is None:
                 gap_frame = last_frame
@@ -315,15 +327,31 @@ def process_vision(controller=None):
                 selected_target = resolved.selected_target
                 best_target_delta = resolved.best_target_delta
                 if controller:
-                    controller.set_auto_fire(False)
+                    submit_at = time.perf_counter()
+                    observed_at = getattr(gap_frame, "captured_at", None)
                     if best_target_delta:
-                        controller.update(
-                            best_target_delta[0],
-                            best_target_delta[1],
-                            target=_controller_target(selected_target),
+                        submit_controller_vision_state(
+                            controller,
+                            ControllerVisionState(
+                                dx=best_target_delta[0],
+                                dy=best_target_delta[1],
+                                target=_controller_target(selected_target, observed_at=observed_at),
+                                auto_fire_requested=False,
+                                observed_at=observed_at,
+                                received_at=result_received_at,
+                                submitted_at=submit_at,
+                            ),
                         )
                     else:
-                        controller.clear_target()
+                        submit_controller_vision_state(
+                            controller,
+                            ControllerVisionState(
+                                target=None,
+                                auto_fire_requested=False,
+                                received_at=result_received_at,
+                                submitted_at=submit_at,
+                            ),
+                        )
                 if debug_overlay is not None:
                     if gap_frame is None:
                         debug_overlay.show_message(
@@ -365,18 +393,43 @@ def process_vision(controller=None):
             auto_fire_active = auto_fire_gate.allow_auto_fire(auto_fire_active, time.perf_counter())
             post_ms = (time.perf_counter() - post_start) * 1000.0
             age_ms = (time.perf_counter() - result.captured_at) * 1000.0
+            source_age_ms = None
+            python_handoff_ms = None
+            controller_timing_kwargs = {}
 
             if controller:
-                controller.set_auto_fire(auto_fire_active)
                 if best_target_delta:
                     observed_at = getattr(frame, "captured_at", getattr(result, "captured_at", None))
-                    controller.update(
-                        best_target_delta[0],
-                        best_target_delta[1],
-                        target=_controller_target(selected_target, observed_at=observed_at),
+                    submit_at = time.perf_counter()
+                    submit_controller_vision_state(
+                        controller,
+                        ControllerVisionState(
+                            dx=best_target_delta[0],
+                            dy=best_target_delta[1],
+                            target=_controller_target(selected_target, observed_at=observed_at),
+                            auto_fire_requested=auto_fire_active,
+                            observed_at=observed_at,
+                            received_at=result_received_at,
+                            submitted_at=submit_at,
+                        ),
                     )
+                    source_age_ms = _elapsed_ms(observed_at, submit_at)
+                    python_handoff_ms = _elapsed_ms(result_received_at, submit_at)
                 else:
-                    controller.clear_target()
+                    submit_at = time.perf_counter()
+                    submit_controller_vision_state(
+                        controller,
+                        ControllerVisionState(
+                            target=None,
+                            auto_fire_requested=False,
+                            received_at=result_received_at,
+                            submitted_at=submit_at,
+                        ),
+                    )
+                    python_handoff_ms = _elapsed_ms(result_received_at, submit_at)
+                controller_timing_kwargs = controller_timing_perf_kwargs(controller)
+                controller_timing_kwargs.pop("source_age_ms", None)
+                controller_timing_kwargs.pop("python_handoff_ms", None)
 
             if debug_overlay is not None:
                 debug_overlay.show(
@@ -398,6 +451,9 @@ def process_vision(controller=None):
                 boxes_seen=boxes_seen,
                 age_ms=age_ms,
                 tracking_active=selected_target is not None,
+                source_age_ms=source_age_ms,
+                python_handoff_ms=python_handoff_ms,
+                **controller_timing_kwargs,
             )
 
             if _quit_requested(config):

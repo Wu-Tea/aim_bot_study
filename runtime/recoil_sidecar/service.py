@@ -8,6 +8,7 @@ from typing import Mapping
 from typing import TextIO
 
 from vision.recoil_collection.models import RecoilProfileRecord
+from vision.recoil_collection.readiness import is_profile_ready_for_compensation
 
 from .models import ActiveProfilePayload
 from .models import RecognizerState
@@ -73,6 +74,7 @@ class RecoilSidecarService:
             and profile.canonical_weapon_id == state.canonical_weapon_id
             and profile.stance == runtime_context.stance
             and (runtime_context.aim_mode is None or profile.aim_mode == runtime_context.aim_mode)
+            and is_profile_ready_for_compensation(profile)
         ]
         return tuple(sorted(matches, key=lambda profile: (-profile.confidence, profile.profile_id)))
 

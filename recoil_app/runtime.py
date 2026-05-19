@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from difflib import SequenceMatcher
+import hashlib
 import json
 from pathlib import Path
 import threading
@@ -8,6 +10,7 @@ import time
 from typing import Any
 from typing import Callable
 from typing import Iterable
+from typing import Mapping
 from typing import TextIO
 
 from runtime.recoil_sidecar.models import RecognizerState
@@ -15,6 +18,14 @@ from vision.recoil_collection.capture import RecoilCollectorConfig
 from vision.recoil_collection.capture import RecoilCollectionError
 from vision.recoil_collection.capture import _collect_motion_trace_from_thread
 from vision.recoil_collection.capture import collect_recoil_profile
+from vision.recoil_collection.extraction import extract_magazine_recoil_profile
+from vision.recoil_collection.models import RecoilBurstSampleSeries
+from vision.recoil_collection.models import RecoilBurstWindow
+from vision.recoil_collection.models import RecoilProfileRecord
+from vision.recoil_collection.models import RecoilProfileSummary
+from vision.recoil_collection.models import RecoilSample
+from vision.recoil_collection.readiness import is_profile_ready_for_compensation
+from vision.recoil_collection.readiness import profile_readiness_reason
 from vision.weapon_identity.adapters import NormalizedROI
 from vision.recoil_collection.storage import load_recoil_profile
 from vision.recoil_collection.storage import save_recoil_profile
@@ -107,9 +118,13 @@ class IdentityStore:
         normalized_name = _require_non_empty_str(display_name, "display_name")
         canonical_weapon_id = _build_canonical_weapon_id(normalized_game, normalized_name)
         with self._lock:
-            for record in self._records_by_game.get(normalized_game, ()):
+            game_records = self._records_by_game.get(normalized_game, ())
+            for record in game_records:
                 if record.canonical_weapon_id == canonical_weapon_id or record.display_name == normalized_name:
                     return record
+            fuzzy_record = _resolve_existing_recoil_identity(normalized_name, game_records)
+            if fuzzy_record is not None:
+                return fuzzy_record
             record = RecoilWeaponRecord(
                 canonical_weapon_id=canonical_weapon_id,
                 game=normalized_game,
@@ -153,6 +168,7 @@ class RecoilProfileStore:
         self._records: tuple[Any, ...] = ()
         self._records_by_key: dict[tuple[str, str, str, str], tuple[Any, ...]] = {}
         self._load_generation = 0
+        self._directory_signature: tuple[tuple[str, int, int], ...] = ()
         self.reload()
 
     @property
@@ -165,21 +181,93 @@ class RecoilProfileStore:
             records = [record for record in self._records if record.profile_id != profile_record.profile_id]
             records.append(profile_record)
             self._set_records(tuple(records))
+            self._directory_signature = self._profile_file_signature()
             self._load_generation += 1
 
     def get_best_profile(self, *, game: str, canonical_weapon_id: str, stance: str, aim_mode: str):
+        self.refresh_if_changed()
         key = (game, canonical_weapon_id, stance, aim_mode)
         matches = self._records_by_key.get(key, ())
-        if not matches:
-            return None
-        return matches[0]
+        for profile in matches:
+            if is_profile_ready_for_compensation(profile):
+                return profile
+        return None
 
     def profile_ids_for_weapon(self, *, game: str, canonical_weapon_id: str, stance: str = "standing") -> tuple[str, ...]:
+        self.refresh_if_changed()
         profile_ids: list[str] = []
         for aim_mode in ("ads", "hipfire"):
             matches = self._records_by_key.get((game, canonical_weapon_id, stance, aim_mode), ())
-            profile_ids.extend(record.profile_id for record in matches)
+            profile_ids.extend(
+                record.profile_id
+                for record in matches
+                if is_profile_ready_for_compensation(record)
+            )
         return tuple(profile_ids)
+
+    def profile_statuses_for_weapon(
+        self,
+        *,
+        game: str,
+        canonical_weapon_id: str,
+        stance: str = "standing",
+    ) -> tuple[dict[str, Any], ...]:
+        self.refresh_if_changed()
+        statuses: list[dict[str, Any]] = []
+        for aim_mode in ("ads", "hipfire"):
+            matches = self._records_by_key.get((game, canonical_weapon_id, stance, aim_mode), ())
+            for record in matches:
+                reason = profile_readiness_reason(record)
+                statuses.append(
+                    {
+                        "profile_id": record.profile_id,
+                        "aim_mode": record.aim_mode,
+                        "profile_type": record.profile_type,
+                        "ready": reason is None,
+                        "reason": reason or "ready",
+                        "confidence": record.confidence,
+                        "burst_count": record.burst_count,
+                        "accepted_episode_count": float(
+                            record.fit_summary.get("accepted_episode_count", record.burst_count)
+                        ),
+                    }
+                )
+        return tuple(statuses)
+
+    def prune_superseded_profiles(self, current_profile: RecoilProfileRecord) -> tuple[str, ...]:
+        current_key = (
+            current_profile.game,
+            current_profile.canonical_weapon_id,
+            current_profile.stance,
+            current_profile.aim_mode,
+        )
+        deleted_profile_ids: list[str] = []
+        with self._lock:
+            kept_records = []
+            for record in self._records:
+                record_key = (record.game, record.canonical_weapon_id, record.stance, record.aim_mode)
+                if record_key == current_key and record.profile_id != current_profile.profile_id:
+                    deleted_profile_ids.append(record.profile_id)
+                    continue
+                kept_records.append(record)
+            for profile_id in deleted_profile_ids:
+                for suffix in (".json", ".summary.json"):
+                    try:
+                        (self.directory / f"{profile_id}{suffix}").unlink(missing_ok=True)
+                    except OSError:
+                        continue
+            if deleted_profile_ids:
+                self._set_records(tuple(kept_records))
+                self._directory_signature = self._profile_file_signature()
+                self._load_generation += 1
+        return tuple(deleted_profile_ids)
+
+    def refresh_if_changed(self) -> None:
+        signature = self._profile_file_signature()
+        with self._lock:
+            unchanged = signature == self._directory_signature
+        if not unchanged:
+            self.reload()
 
     def reload(self) -> None:
         with self._lock:
@@ -192,6 +280,7 @@ class RecoilProfileStore:
                 except Exception:
                     continue
             self._set_records(tuple(records))
+            self._directory_signature = self._profile_file_signature()
             self._load_generation += 1
 
     def _set_records(self, records: tuple[Any, ...]):
@@ -204,6 +293,18 @@ class RecoilProfileStore:
             key: tuple(sorted(values, key=lambda item: (-item.confidence, item.profile_id)))
             for key, values in by_key.items()
         }
+
+    def _profile_file_signature(self) -> tuple[tuple[str, int, int], ...]:
+        signature: list[tuple[str, int, int]] = []
+        for path in sorted(self.directory.glob("*.json")):
+            if path.name.endswith(".summary.json"):
+                continue
+            try:
+                stat = path.stat()
+            except OSError:
+                continue
+            signature.append((path.name, int(stat.st_mtime_ns), int(stat.st_size)))
+        return tuple(signature)
 
 
 class RecoilRuntime:
@@ -250,7 +351,7 @@ class RecoilRuntime:
             self._collector_config = RecoilCollectorConfig(
                 capture_fps=60,
                 min_clean_bursts=1,
-                target_clean_bursts=4,
+                target_clean_bursts=2,
             )
         else:
             self._collector_config = RecoilCollectorConfig()
@@ -279,11 +380,7 @@ class RecoilRuntime:
             self._switch_epoch += 1
             slot_index = self._active_slot_index
             switch_epoch = self._switch_epoch
-            cached_state = self._slot_states[slot_index]
-
-        if cached_state is not None:
-            self._publish_state(cached_state, source="switch_cache")
-            return
+            self._slot_states[slot_index] = None
 
         self._switch_task_runner(
             slot_index,
@@ -407,17 +504,36 @@ class RecoilRuntime:
                 config=self._collector_config,
                 timestamp_fn=self._timestamp_fn,
             )
-            profile_path = self.profile_store.directory / f"{result.extracted_profile.profile.profile_id}.json"
-            summary_path = self.profile_store.directory / f"{result.profile_summary.profile_id}.summary.json"
-            save_recoil_profile(profile_path, result.extracted_profile.profile)
-            save_recoil_profile_summary(summary_path, result.profile_summary)
-            self.profile_store.upsert(result.extracted_profile.profile)
-            if self.plot_dir is not None:
-                _write_plot(
-                    self.plot_dir / f"{result.extracted_profile.profile.profile_id}.png",
-                    result.burst_series,
-                    result.extracted_profile.profile,
+            profile = result.extracted_profile.profile
+            if profile.profile_type == "magazine_curve_v1":
+                self._save_magazine_episode_series(
+                    current_state=current_state,
+                    aim_mode=aim_mode,
+                    captured_at=profile.created_at,
+                    burst_series=tuple(result.burst_series),
+                    motion_samples=tuple(getattr(result, "motion_samples", ())),
+                    burst_windows=tuple(getattr(result, "burst_windows", ())),
                 )
+                profile = self._refit_magazine_profile_from_saved_episodes(
+                    current_state=current_state,
+                    aim_mode=aim_mode,
+                    result=result,
+                )
+            profile_summary = _build_profile_summary(profile)
+            profile_path = self.profile_store.directory / f"{profile.profile_id}.json"
+            summary_path = self.profile_store.directory / f"{profile_summary.profile_id}.summary.json"
+            save_recoil_profile(profile_path, profile)
+            save_recoil_profile_summary(summary_path, profile_summary)
+            self.profile_store.upsert(profile)
+            if profile.profile_type == "magazine_curve_v1":
+                self.profile_store.prune_superseded_profiles(profile)
+            if self.plot_dir is not None:
+                recoil_plot_path, anti_recoil_plot_path = _write_profile_plots(self.plot_dir, profile)
+                self._stdout.write(
+                    f"[Recoil] plot_written recoil={recoil_plot_path} "
+                    f"anti_recoil={anti_recoil_plot_path}\n"
+                )
+                self._stdout.flush()
             self._publish_state(current_state, source="learned")
         except RecoilCollectionError as exc:
             self._stdout.write(
@@ -436,6 +552,103 @@ class RecoilRuntime:
         finally:
             with self._lock:
                 self._learning_keys.discard(learning_key)
+
+    def _save_magazine_episode_series(
+        self,
+        *,
+        current_state: RecognizerState,
+        aim_mode: str,
+        captured_at: str,
+        burst_series: tuple[RecoilBurstSampleSeries, ...],
+        motion_samples: tuple[Any, ...] = (),
+        burst_windows: tuple[RecoilBurstWindow, ...] = (),
+    ) -> None:
+        episode_dir = self.profile_store.directory / "_episodes"
+        episode_dir.mkdir(parents=True, exist_ok=True)
+        episode_series = _build_magazine_episode_series_from_trace(
+            burst_series=burst_series,
+            motion_samples=motion_samples,
+            burst_windows=burst_windows,
+        )
+        if episode_series is None:
+            episode_series = _select_magazine_episode_series(burst_series)
+        if episode_series is None:
+            return
+        for index, series in enumerate((episode_series,)):
+            payload = {
+                "schema_version": 1,
+                "game": current_state.game,
+                "canonical_weapon_id": current_state.canonical_weapon_id,
+                "stance": "standing",
+                "aim_mode": aim_mode,
+                "captured_at": captured_at,
+                "series_index": index,
+                "burst_series": series.to_dict(),
+            }
+            digest = hashlib.sha1(
+                json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+            ).hexdigest()[:16]
+            (episode_dir / f"episode-{digest}.json").write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+
+    def _refit_magazine_profile_from_saved_episodes(
+        self,
+        *,
+        current_state: RecognizerState,
+        aim_mode: str,
+        result: Any,
+    ) -> RecoilProfileRecord:
+        profile = result.extracted_profile.profile
+        episode_series = self._load_magazine_episode_series(
+            game=current_state.game,
+            canonical_weapon_id=current_state.canonical_weapon_id,
+            aim_mode=aim_mode,
+        )
+        if not episode_series:
+            return profile
+
+        normalized_series = _normalize_episode_series_for_session(
+            episode_series,
+            session_id=result.session.session_id,
+        )
+        try:
+            return extract_magazine_recoil_profile(
+                session=result.session,
+                bursts=normalized_series,
+                profile_id=_build_current_profile_id(profile),
+                created_at=profile.created_at,
+                config=self._collector_config.extraction_config(),
+            ).profile
+        except Exception:
+            return profile
+
+    def _load_magazine_episode_series(
+        self,
+        *,
+        game: str,
+        canonical_weapon_id: str,
+        aim_mode: str,
+    ) -> tuple[RecoilBurstSampleSeries, ...]:
+        episode_dir = self.profile_store.directory / "_episodes"
+        if not episode_dir.exists() or not episode_dir.is_dir():
+            return ()
+        result: list[RecoilBurstSampleSeries] = []
+        for path in sorted(episode_dir.glob("episode-*.json")):
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+                if not _magazine_episode_matches(
+                    payload,
+                    game=game,
+                    canonical_weapon_id=canonical_weapon_id,
+                    aim_mode=aim_mode,
+                ):
+                    continue
+                result.append(RecoilBurstSampleSeries.from_dict(payload["burst_series"]))
+            except (OSError, UnicodeDecodeError, ValueError, json.JSONDecodeError, KeyError):
+                continue
+        return _filter_plausible_magazine_episode_series(tuple(result))
 
     def _build_runtime_motion_sampler(self) -> Callable[[], Iterable[Any]]:
         def _sample():
@@ -467,11 +680,24 @@ class RecoilRuntime:
             stance="standing",
             aim_mode="hipfire",
         )
+        profile_statuses = self.profile_store.profile_statuses_for_weapon(
+            game=state.game,
+            canonical_weapon_id=state.canonical_weapon_id,
+            stance="standing",
+        )
+        active_profile_ids = tuple(
+            str(status["profile_id"])
+            for status in profile_statuses
+            if status.get("ready") and status.get("profile_id")
+        )
         compensation_enabled = self.mode == "recoil"
         fallback_active = True if not compensation_enabled else profile_ads is None and profile_hip is None
         if compensation_enabled:
-            status = f"fallback={'20%' if fallback_active else 'profile'}"
+            profile_status = _profile_status_label(profile_statuses, fallback_active=fallback_active)
+            mode_status = _profile_mode_status_label(profile_statuses)
+            status = f"fallback={'20%' if fallback_active else 'profile'} reason={profile_status} {mode_status}"
         else:
+            profile_status = "compensation_off_record"
             status = "compensation=off(record)"
         self._stdout.write(
             f"[Recoil] slot={self._active_slot_index} weapon={state.matched_name or state.canonical_weapon_id} "
@@ -484,7 +710,9 @@ class RecoilRuntime:
                 {
                     "active_slot_index": self._active_slot_index,
                     "fallback_active": fallback_active,
-                    "active_profile_ids": list(state.profile_ids),
+                    "active_profile_ids": list(active_profile_ids),
+                    "profile_status": profile_status,
+                    "profile_candidates": list(profile_statuses),
                     "mode": self.mode,
                     "compensation_enabled": compensation_enabled,
                 }
@@ -677,6 +905,31 @@ class _NullTextIO:
         return None
 
 
+def _profile_status_label(profile_statuses: Iterable[Mapping[str, Any]], *, fallback_active: bool) -> str:
+    statuses = tuple(profile_statuses)
+    if not fallback_active:
+        return "ready_profile"
+    if not statuses:
+        return "no_profile"
+    reasons = sorted({str(status.get("reason", "unknown")) for status in statuses})
+    return "no_ready_profile:" + ",".join(reasons)
+
+
+def _profile_mode_status_label(profile_statuses: Iterable[Mapping[str, Any]]) -> str:
+    ready_modes: list[str] = []
+    unready_modes: list[str] = []
+    for status in profile_statuses:
+        aim_mode = str(status.get("aim_mode") or "unknown")
+        if status.get("ready"):
+            ready_modes.append(aim_mode)
+        else:
+            reason = str(status.get("reason") or "unknown")
+            unready_modes.append(f"{aim_mode}:{reason}")
+    ready_label = ",".join(sorted(set(ready_modes))) if ready_modes else "none"
+    unready_label = ",".join(sorted(set(unready_modes))) if unready_modes else "none"
+    return f"ready_modes={ready_label} unready_modes={unready_label}"
+
+
 class _ImageGrabFrameGrabber:
     def __init__(self, *, image_grab_module: Any, bbox: tuple[int, int, int, int], all_screens: bool):
         self._image_grab_module = image_grab_module
@@ -698,14 +951,27 @@ class _ImageGrabFrameGrabber:
 
 
 class _BackendSwitchFrameGrabber:
-    def __init__(self, *, backend: Any):
+    def __init__(
+        self,
+        *,
+        backend: Any,
+        retry_attempts: int = 5,
+        retry_delay_seconds: float = 0.025,
+        sleep_fn: Callable[[float], None] | None = None,
+    ):
         self._backend = backend
+        self._retry_attempts = max(1, int(retry_attempts))
+        self._retry_delay_seconds = max(0.0, float(retry_delay_seconds))
+        self._sleep_fn = sleep_fn or time.sleep
 
     def grab(self):
-        frame = self._backend.grab()
-        if frame is None:
-            raise ValueError("Unable to capture a HUD frame for weapon confirmation")
-        return frame
+        for attempt_index in range(self._retry_attempts):
+            frame = self._backend.grab()
+            if frame is not None:
+                return frame
+            if attempt_index + 1 < self._retry_attempts and self._retry_delay_seconds > 0.0:
+                self._sleep_fn(self._retry_delay_seconds)
+        raise ValueError("Unable to capture a HUD frame for weapon confirmation")
 
     def close(self) -> None:
         self._backend.close()
@@ -759,39 +1025,235 @@ class _CapturedFrame:
     frame: Any
 
 
-def _write_plot(path: Path, burst_series, profile) -> None:
+def _build_magazine_episode_series_from_trace(
+    *,
+    burst_series: tuple[RecoilBurstSampleSeries, ...],
+    motion_samples: tuple[Any, ...],
+    burst_windows: tuple[RecoilBurstWindow, ...],
+) -> RecoilBurstSampleSeries | None:
+    if not burst_series or not motion_samples or not burst_windows:
+        return None
+
+    first_offset_ms = min(window.start_offset_ms for window in burst_windows)
+    final_offset_ms = max(window.end_offset_ms for window in burst_windows)
+    if final_offset_ms <= first_offset_ms:
+        return None
+
+    samples: list[RecoilSample] = []
+    previous_offset_ms: int | None = None
+    for sample in motion_samples:
+        offset_ms = getattr(sample, "offset_ms", None)
+        if type(offset_ms) is not int or offset_ms < first_offset_ms or offset_ms >= final_offset_ms:
+            continue
+        relative_offset_ms = offset_ms - first_offset_ms
+        if previous_offset_ms is not None and relative_offset_ms <= previous_offset_ms:
+            continue
+        try:
+            recoil_sample = RecoilSample(
+                offset_ms=relative_offset_ms,
+                x=float(getattr(sample, "x")),
+                y=float(getattr(sample, "y")),
+            )
+        except (TypeError, ValueError):
+            continue
+        samples.append(recoil_sample)
+        previous_offset_ms = relative_offset_ms
+
+    if len(samples) < 2:
+        return None
+
+    reference = burst_series[0]
+    return RecoilBurstSampleSeries(
+        burst_id=f"{reference.session_id}-magazine-episode",
+        session_id=reference.session_id,
+        sample_interval_ms=reference.sample_interval_ms,
+        samples=tuple(samples),
+        sample_count=len(samples),
+    )
+
+
+def _select_magazine_episode_series(
+    burst_series: tuple[RecoilBurstSampleSeries, ...],
+) -> RecoilBurstSampleSeries | None:
+    if not burst_series:
+        return None
+    return max(
+        burst_series,
+        key=lambda series: (series.sample_count, _episode_motion_magnitude(series)),
+    )
+
+
+def _episode_motion_magnitude(series: RecoilBurstSampleSeries) -> float:
+    if not series.samples:
+        return 0.0
+    first_sample = series.samples[0]
+    return max(
+        ((sample.x - first_sample.x) ** 2 + (sample.y - first_sample.y) ** 2) ** 0.5
+        for sample in series.samples
+    )
+
+
+def _filter_plausible_magazine_episode_series(
+    episode_series: tuple[RecoilBurstSampleSeries, ...],
+) -> tuple[RecoilBurstSampleSeries, ...]:
+    if len(episode_series) <= 1:
+        return episode_series
+
+    max_sample_count = max(series.sample_count for series in episode_series)
+    max_motion = max(_episode_motion_magnitude(series) for series in episode_series)
+    if max_sample_count < 30 and max_motion < 40.0:
+        return episode_series
+
+    min_sample_count = max(2, int(max_sample_count * 0.5))
+    if max_sample_count >= 30:
+        min_sample_count = max(30, min_sample_count)
+    min_motion = 0.0
+    if max_motion >= 40.0:
+        min_motion = max(20.0, max_motion * 0.2)
+
+    filtered = tuple(
+        series
+        for series in episode_series
+        if series.sample_count >= min_sample_count
+        and _episode_motion_magnitude(series) >= min_motion
+    )
+    return filtered or episode_series
+
+
+def _magazine_episode_matches(
+    payload: Any,
+    *,
+    game: str,
+    canonical_weapon_id: str,
+    aim_mode: str,
+) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    return (
+        payload.get("schema_version") == 1
+        and payload.get("game") == game
+        and payload.get("canonical_weapon_id") == canonical_weapon_id
+        and payload.get("stance") == "standing"
+        and payload.get("aim_mode") == aim_mode
+        and isinstance(payload.get("burst_series"), dict)
+    )
+
+
+def _normalize_episode_series_for_session(
+    episode_series: tuple[RecoilBurstSampleSeries, ...],
+    *,
+    session_id: str,
+) -> tuple[RecoilBurstSampleSeries, ...]:
+    return tuple(
+        RecoilBurstSampleSeries(
+            burst_id=f"{session_id}-episode-{index + 1:03d}",
+            session_id=session_id,
+            sample_interval_ms=series.sample_interval_ms,
+            samples=series.samples,
+            sample_count=series.sample_count,
+        )
+        for index, series in enumerate(episode_series)
+    )
+
+
+def _build_profile_summary(profile: RecoilProfileRecord) -> RecoilProfileSummary:
+    return RecoilProfileSummary(
+        profile_id=profile.profile_id,
+        canonical_weapon_id=profile.canonical_weapon_id,
+        game=profile.game,
+        stance=profile.stance,
+        aim_mode=profile.aim_mode,
+        sample_count=profile.sample_count,
+        burst_count=profile.burst_count,
+        confidence=profile.confidence,
+        peak_abs_x=max(abs(sample_x) for sample_x in profile.samples_x),
+        peak_abs_y=max(abs(sample_y) for sample_y in profile.samples_y),
+        created_at=profile.created_at,
+    )
+
+
+def _build_current_profile_id(profile: RecoilProfileRecord) -> str:
+    return f"profile-{profile.canonical_weapon_id}-{profile.aim_mode}-{profile.stance}-current"
+
+
+def _write_profile_plots(plot_dir: Path, profile: RecoilProfileRecord) -> tuple[Path, Path]:
+    plot_dir.mkdir(parents=True, exist_ok=True)
+    recoil_path = plot_dir / f"{profile.profile_id}.recoil.png"
+    anti_recoil_path = plot_dir / f"{profile.profile_id}.anti_recoil.png"
+    _write_trajectory_plot(
+        recoil_path,
+        profile,
+        invert=False,
+        title="Recoil trajectory",
+        color=(40, 80, 220),
+    )
+    _write_trajectory_plot(
+        anti_recoil_path,
+        profile,
+        invert=True,
+        title="Anti-recoil trajectory",
+        color=(40, 160, 80),
+    )
+    return recoil_path, anti_recoil_path
+
+
+def _write_trajectory_plot(
+    path: Path,
+    profile: RecoilProfileRecord,
+    *,
+    invert: bool,
+    title: str,
+    color: tuple[int, int, int],
+) -> None:
     import cv2
     import numpy as np
 
-    canvas = np.full((720, 960, 3), 255, dtype=np.uint8)
-    origin_x = 120
-    origin_y = 600
-    width = 760
-    height = 460
-    cv2.rectangle(canvas, (origin_x, origin_y - height), (origin_x + width, origin_y), (40, 40, 40), 1)
-    colors = [(180, 180, 255), (180, 255, 180), (255, 180, 180), (200, 220, 120)]
-    for burst_index, burst in enumerate(burst_series):
-        previous = None
-        color = colors[burst_index % len(colors)]
-        max_offset = max(sample.offset_ms for sample in burst.samples) or 1
-        for sample in burst.samples:
-            x = origin_x + int((sample.offset_ms / max_offset) * width)
-            y = origin_y + int(sample.y * 10.0)
-            if previous is not None:
-                cv2.line(canvas, previous, (x, y), color, 1, cv2.LINE_AA)
-            previous = (x, y)
-    previous = None
-    max_profile_offset = max(1, profile.initial_delay_ms + (profile.sample_count * profile.sample_interval_ms))
-    for index, sample_y in enumerate(profile.samples_y):
-        offset_ms = profile.initial_delay_ms + (index * profile.sample_interval_ms)
-        x = origin_x + int((offset_ms / max_profile_offset) * width)
-        y = origin_y + int(sample_y * 10.0)
-        if previous is not None:
-            cv2.line(canvas, previous, (x, y), (40, 40, 220), 2, cv2.LINE_AA)
-        previous = (x, y)
-    cv2.putText(canvas, profile.profile_id, (40, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (20, 20, 20), 2, cv2.LINE_AA)
+    canvas_size = 720
+    margin = 72
+    center = canvas_size // 2
+    canvas = np.full((canvas_size, canvas_size, 3), 250, dtype=np.uint8)
+    points = []
+    for sample_x, sample_y in zip(profile.samples_x, profile.samples_y):
+        x_value = -sample_x if invert else sample_x
+        y_value = -sample_y if invert else sample_y
+        points.append((float(x_value), float(y_value)))
+    if not points:
+        points = [(0.0, 0.0)]
+
+    max_abs = max(1.0, *(abs(value) for point in points for value in point))
+    scale = (center - margin) / (max_abs * 1.12)
+
+    def to_canvas(point: tuple[float, float]) -> tuple[int, int]:
+        return (
+            center + int(round(point[0] * scale)),
+            center + int(round(point[1] * scale)),
+        )
+
+    cv2.rectangle(canvas, (margin, margin), (canvas_size - margin, canvas_size - margin), (90, 90, 90), 1)
+    cv2.line(canvas, (center, margin), (center, canvas_size - margin), (210, 210, 210), 1, cv2.LINE_AA)
+    cv2.line(canvas, (margin, center), (canvas_size - margin, center), (210, 210, 210), 1, cv2.LINE_AA)
+    canvas_points = [to_canvas(point) for point in points]
+    if len(canvas_points) == 1:
+        cv2.circle(canvas, canvas_points[0], 4, color, -1, cv2.LINE_AA)
+    else:
+        for previous, current in zip(canvas_points, canvas_points[1:]):
+            cv2.line(canvas, previous, current, color, 3, cv2.LINE_AA)
+        cv2.arrowedLine(canvas, canvas_points[-2], canvas_points[-1], color, 3, cv2.LINE_AA, tipLength=0.18)
+    cv2.circle(canvas, canvas_points[0], 5, (30, 30, 30), -1, cv2.LINE_AA)
+    cv2.circle(canvas, canvas_points[-1], 6, color, -1, cv2.LINE_AA)
+    cv2.putText(canvas, title, (40, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.72, (20, 20, 20), 2, cv2.LINE_AA)
+    cv2.putText(canvas, profile.profile_id, (40, 66), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (70, 70, 70), 1, cv2.LINE_AA)
+    _write_png_image(path, canvas)
+
+
+def _write_png_image(path: Path, image: Any) -> None:
+    import cv2
+
     path.parent.mkdir(parents=True, exist_ok=True)
-    cv2.imwrite(str(path), canvas)
+    success, encoded = cv2.imencode(".png", image)
+    if not success:
+        raise ValueError(f"Unable to encode recoil plot PNG: {path}")
+    path.write_bytes(encoded.tobytes())
 
 
 def _select_best_name(votes: list[str]) -> str | None:
@@ -820,6 +1282,51 @@ def _select_best_name(votes: list[str]) -> str | None:
 
 def _build_canonical_weapon_id(game: str, display_name: str) -> str:
     return f"{game}-{display_name}"
+
+
+def _resolve_existing_recoil_identity(
+    display_name: str,
+    records: tuple[RecoilWeaponRecord, ...],
+) -> RecoilWeaponRecord | None:
+    normalized_candidate = _normalize_weapon_name_for_match(display_name)
+    if normalized_candidate is None:
+        return None
+
+    scored_matches: list[tuple[float, str, RecoilWeaponRecord]] = []
+    for record in records:
+        score = _score_recoil_identity_match(normalized_candidate, record)
+        if score > 0.0:
+            scored_matches.append((score, record.canonical_weapon_id, record))
+
+    if not scored_matches:
+        return None
+
+    scored_matches.sort(reverse=True)
+    top_score, _, top_record = scored_matches[0]
+    second_score = scored_matches[1][0] if len(scored_matches) > 1 else 0.0
+    if top_score >= 0.78 and (top_score - second_score) >= 0.08:
+        return top_record
+    return None
+
+
+def _score_recoil_identity_match(normalized_candidate: str, record: RecoilWeaponRecord) -> float:
+    best_score = 0.0
+    for value in (record.display_name, record.canonical_weapon_id):
+        normalized_name = _normalize_weapon_name_for_match(value)
+        if normalized_name is None:
+            continue
+        score = SequenceMatcher(None, normalized_candidate, normalized_name).ratio()
+        if normalized_candidate in normalized_name or normalized_name in normalized_candidate:
+            score += 0.25
+        best_score = max(best_score, min(1.0, score))
+    return best_score
+
+
+def _normalize_weapon_name_for_match(value: Any) -> str | None:
+    if type(value) is not str:
+        return None
+    compact = "".join(value.strip().split()).casefold()
+    return compact or None
 
 
 def _normalize_switch_capture_delays(values: Iterable[int]) -> tuple[int, int]:
@@ -857,11 +1364,7 @@ _FULL_FRAME_ROI = NormalizedROI(left=0.0, top=0.0, width=1.0, height=1.0)
 
 
 def _build_switch_capture_roi(game: str) -> NormalizedROI:
-    normalized_game = _require_non_empty_str(game, "game").casefold()
-    if normalized_game == "cod20":
-        return NormalizedROI(left=0.08, top=0.0, width=0.84, height=0.42)
-    if normalized_game == "cod21":
-        return NormalizedROI(left=0.12, top=0.0, width=0.82, height=0.40)
+    _require_non_empty_str(game, "game")
     return _FULL_FRAME_ROI
 
 

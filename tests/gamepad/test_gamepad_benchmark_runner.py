@@ -43,6 +43,8 @@ class GamepadBenchmarkRunnerTests(unittest.TestCase):
             self.assertEqual(result["run_key"], "run-alpha")
             self.assertIsNone(result["baseline_key"])
             self.assertEqual(len(result["scenarios"]), 24)
+            self.assertIn("gamepad_auto_fire", result["controller_config_snapshot"])
+            self.assertIn("gamepad_recoil", result["controller_config_snapshot"])
             self.assertIn("No baseline has been recorded yet.", scoreboard_path.read_text(encoding="utf-8"))
             self.assertIn("no baseline available yet", scoreboard_path.read_text(encoding="utf-8"))
 

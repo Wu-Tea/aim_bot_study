@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from importlib import util as importlib_util
+from pathlib import Path
 from typing import Any
 from typing import Iterable
 import os
@@ -11,6 +13,8 @@ from .adapters import NormalizedROI
 
 _DEFAULT_OCR_READER = None
 _DEFAULT_OCR_READER_INITIALIZED = False
+_CUDA_DLL_SEARCH_PATH_PREPARED = False
+_CUDA_DLL_DIRECTORY_HANDLES: list[Any] = []
 
 _CUDA_PROVIDER = "CUDAExecutionProvider"
 _DML_PROVIDER = "DmlExecutionProvider"
@@ -91,6 +95,8 @@ def _load_default_ocr_reader() -> Any:
                 _DEFAULT_OCR_READER = None
                 return None
             rapidocr_kwargs = _build_rapidocr_kwargs("cpu", (_CPU_PROVIDER,))
+        if _normalize_provider_hint(provider_hint) == "cuda":
+            _prepare_cuda_dll_search_path()
         _DEFAULT_OCR_READER = RapidOCR(**rapidocr_kwargs)
     except Exception:
         _DEFAULT_OCR_READER = None
@@ -156,6 +162,63 @@ def _normalize_provider_hint(value: str) -> str:
 def _allow_cpu_fallback() -> bool:
     value = os.environ.get("RECOIL_OCR_ALLOW_CPU_FALLBACK", "").strip().casefold()
     return value in {"1", "true", "yes", "on"}
+
+
+def _prepare_cuda_dll_search_path() -> None:
+    global _CUDA_DLL_SEARCH_PATH_PREPARED
+    if _CUDA_DLL_SEARCH_PATH_PREPARED:
+        return
+    _CUDA_DLL_SEARCH_PATH_PREPARED = True
+    directories = _dedupe_paths(_discover_cuda_dll_dirs())
+    if not directories:
+        return
+
+    existing_path = os.environ.get("PATH", "")
+    existing_entries = [entry for entry in existing_path.split(os.pathsep) if entry]
+    prepended = [str(directory) for directory in directories]
+    remaining = [entry for entry in existing_entries if _normalize_path_key(Path(entry)) not in {_normalize_path_key(directory) for directory in directories}]
+    os.environ["PATH"] = os.pathsep.join([*prepended, *remaining])
+
+    add_dll_directory = getattr(os, "add_dll_directory", None)
+    if callable(add_dll_directory):
+        for directory in directories:
+            _CUDA_DLL_DIRECTORY_HANDLES.append(add_dll_directory(str(directory)))
+
+
+def _discover_cuda_dll_dirs() -> tuple[Path, ...]:
+    directories: list[Path] = []
+    for raw_path in os.environ.get("RECOIL_CUDA_DLL_DIRS", "").split(os.pathsep):
+        path = Path(raw_path.strip()) if raw_path.strip() else None
+        if path is not None and path.exists():
+            directories.append(path)
+
+    torch_spec = importlib_util.find_spec("torch")
+    if torch_spec is not None and torch_spec.origin:
+        torch_lib = Path(torch_spec.origin).resolve().parent / "lib"
+        if torch_lib.exists():
+            directories.append(torch_lib)
+
+    return tuple(directory for directory in directories if _looks_like_cuda_dll_dir(directory))
+
+
+def _looks_like_cuda_dll_dir(path: Path) -> bool:
+    return any((path / filename).exists() for filename in ("cublasLt64_12.dll", "cudnn64_9.dll"))
+
+
+def _dedupe_paths(paths: Iterable[Path]) -> tuple[Path, ...]:
+    seen: set[str] = set()
+    result: list[Path] = []
+    for path in paths:
+        key = _normalize_path_key(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(path)
+    return tuple(result)
+
+
+def _normalize_path_key(path: Path) -> str:
+    return str(path).casefold() if os.name == "nt" else str(path)
 
 
 def _iter_ocr_strings(raw_output: Any) -> Iterable[str]:

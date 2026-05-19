@@ -6,6 +6,7 @@ from .state import MouseFrame, MouseOutput
 @dataclass(slots=True, frozen=True)
 class AutoFireConfig:
     aim_only: bool = True
+    max_source_age_ms: float = 50.0
     hold_seconds: float = 0.120
     release_seconds: float = 0.030
 
@@ -19,7 +20,7 @@ class AutoFirePlugin:
         self._cycle_start = None
 
     def apply(self, frame: MouseFrame, output: MouseOutput) -> None:
-        want_fire = frame.auto_fire_requested
+        want_fire = frame.auto_fire_requested and self._has_fresh_source(frame)
         if self.config.aim_only:
             want_fire = want_fire and frame.is_aiming
         if frame.manual_left_pressed or frame.manual_override_active:
@@ -40,3 +41,11 @@ class AutoFirePlugin:
 
         output.left_click = pressing
         output.auto_fire_active = pressing
+
+    def _has_fresh_source(self, frame: MouseFrame) -> bool:
+        max_age_ms = float(self.config.max_source_age_ms)
+        timestamp = getattr(frame, "auto_fire_timestamp", None)
+        if timestamp is None or max_age_ms <= 0.0:
+            return True
+        age_seconds = max(0.0, float(frame.timestamp) - float(timestamp))
+        return age_seconds <= (max_age_ms / 1000.0)

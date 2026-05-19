@@ -1,6 +1,6 @@
 # Native Vision Scaffold
 
-Last updated: 2026-04-30
+Last updated: 2026-05-18
 
 ## Current Status
 
@@ -17,16 +17,17 @@ The scaffold proves these things:
 - `VisionEngine` can map the live ROI texture into CUDA and run TensorRT without returning frames to Python
 - C++ now exposes a stateful native target selector for synthetic parity tests and live engine integration
 - native color classification now runs inside the C++ selector path for both pybind tests and the live debug engine
-- native occlusion compensation now carries `observed`, `reconstructed`, and short-horizon `predicted` target sources
-- native auto-fire gating now follows selected-target `fire_zone` plus release grace semantics
+- native empty detection frames now clear the selected target instead of predicting through the gap
+- native target sources currently exposed to Python are `observed`, `cue_hold`, or an empty string when no target is active
+- native auto-fire is suppressed on no-target and cue-hold gap frames, then resumes only after a fresh observed target is confirmed inside the selected-target `fire_zone`
 - native aim enhancement now applies lead prediction, catchup boost, and near-target damping after selection
-- synthetic Python-vs-native parity tests now compare the controller-facing output for lock, color filtering, and short occlusion scenarios
+- synthetic Python-vs-native tests now compare shared lock/color behavior and explicitly document the native-vs-Python difference on empty detection gaps
 - a standalone `vision_native_debug` executable can run the live native loop and print result/perf fields
 - the debug loop now reports real `preprocess_ms`, `infer_ms`, and `boxes_seen` values from native inference
 - Python can now run `NativeVisionEngine` through `--vision-backend native` and hand native `VisionResult` values directly to the existing controller
 - `gamepad_native_debug.bat` starts the C++ vision + Python controller bridge with a synthetic debug window
 
-The default `gamepad_start.bat` path now uses native vision at `VISION_CAPTURE_FPS=140`. Python vision remains available through `--vision-backend python` or by setting `VISION_BACKEND=python` before launch.
+The default `gamepad_start.bat` path now uses native vision at `VISION_CAPTURE_FPS=140`. Runtime defaults come from `config.toml` / `config.toml.example`, with existing environment variables still taking precedence. Python vision remains available through `--vision-backend python` or by setting `VISION_BACKEND=python` before launch.
 
 ## Pipeline Status
 
@@ -79,7 +80,7 @@ Remaining risk at this stage:
 
 ### 3. Target Selector
 
-Status: core Phase 3B parity is implemented for the native debug path; rollout validation is still pending.
+Status: core Phase 3B targeting is implemented for the native debug path; rollout validation is still pending.
 
 What is already native:
 
@@ -90,23 +91,23 @@ What is already native:
 - multi-candidate scoring based on crosshair distance, confidence, area heuristics, and tracking bonus
 - two-frame switch confirmation before replacing the active target
 - friendly/enemy color classification
-- partial-occlusion upper-body reconstruction from recent stable height
-- short occlusion prediction for up to two empty detection frames
-- immediate return to `observed` when a real detection is reacquired after prediction
-- auto-fire recommendation from selected-target `fire_zone` with four-frame release grace
+- partial-occlusion handling that keeps the visible observed box rather than reconstructing a hidden box
+- immediate target clear on empty detection frames in the production native selector
+- reacquire after an empty gap requires a fresh confirmation frame before native target output resumes
+- auto-fire recommendation from selected-target `fire_zone`, with fire suppressed during no-target and cue-hold gap frames
 - aim enhancement through native lead prediction, catchup boost, and near-target damping
 - live `VisionEngine` integration, so debug output already reflects the native selector instead of a highest-confidence placeholder
 
 What still needs validation:
 
-- recorded-scene one-to-one parity validation against the Python runtime
+- recorded-scene validation against the Python runtime, treating empty-gap prediction as an intentional policy difference unless reopened
 - performance comparison against the Python production path
 
 Bottom line:
 
 - **capture:** basically in place
 - **recognition:** basically in place
-- **selector:** lock/switch/color/occlusion/enhancement/auto-fire parity is now implemented in native code, with production-path rollout/perf validation still pending
+- **selector:** lock/switch/color/cue-hold/enhancement/auto-fire behavior is implemented in native code, with production-path rollout/perf validation still pending
 
 ## Migration Protocol
 
@@ -197,7 +198,7 @@ struct VisionResult {
     float body_x2;
     float body_y2;
 
-    const char* target_source; // observed, reconstructed, predicted
+    const char* target_source; // observed, cue_hold, or "" when no target is active
 
     float wait_ms;
     float preprocess_ms;
@@ -209,6 +210,10 @@ struct VisionResult {
 ```
 
 `VisionResult` appears only after Phase 3. In the current Phase 3B checkpoint it carries real native timing, box-count fields, native target selection, auto-fire recommendation, and enhanced `dx` / `dy`. Python consumes it through `vision.native_runner.process_native_vision`; controller code stays in Python.
+
+The native result timing fields are not the whole controller-output latency by themselves. The Python bridge now also reports derived diagnostics for source age, native pipeline age, Python handoff, controller consume age, and final virtual-output age when `VISION_PERF_LOG=1`.
+
+The native engine path defaults to `models/best.engine`. Set `model_path` in `[runtime.vision]` or set `VISION_MODEL_PATH` to override it; the environment variable wins when both are present.
 
 ## Environment
 

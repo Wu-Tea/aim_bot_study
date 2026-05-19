@@ -13,10 +13,9 @@ from recoil_app import GamepadRecoilBridge
 from runtime.recoil_sidecar.models import ActiveProfilePayload
 from runtime.recoil_sidecar.models import RecognizerState
 
-from .base_controller import BaseController
+from .base_controller import BaseController, ControllerTimingSnapshot, ControllerVisionState
 from .gamepad import (
     AIAimPlugin,
-    AutoFireConfig,
     AutoFirePlugin,
     DEFAULT_BUTTON_NAME_MAP,
     DownwardPullDiagnostics,
@@ -26,7 +25,6 @@ from .gamepad import (
     apply_plugins,
     apply_plugins_with_trace,
     reset_plugins,
-    RecoilCompensationConfig,
     RecoilCompensationPlugin,
     YButtonTextWeaponRecognizer,
 )
@@ -75,6 +73,10 @@ class GamepadController(BaseController, threading.Thread):
         self.lock = threading.Lock()
         self._is_aiming = False
         self._auto_fire_requested = False
+        self._auto_fire_timestamp = None
+        self._vision_received_at = None
+        self._vision_submitted_at = None
+        self._last_timing_snapshot = None
         self.target_dx = 0.0
         self.target_dy = 0.0
         self.target_revision = 0
@@ -99,14 +101,16 @@ class GamepadController(BaseController, threading.Thread):
         self._recoil_profile_cache_value = None
         self._last_buttons = {}
 
+        auto_fire_config = replace(tuning.gamepad_auto_fire, fire_output=auto_fire_output)
         self.plugins = list(plugins) if plugins is not None else [
             AIAimPlugin(ai_aim_config),
-            AutoFirePlugin(AutoFireConfig(fire_output=auto_fire_output)),
+            AutoFirePlugin(auto_fire_config),
             RecoilCompensationPlugin(
-                RecoilCompensationConfig(amount=0.20),
+                tuning.gamepad_recoil,
                 profile_provider=self._get_active_recoil_profile
                 if self._recoil_sidecar_service is not None or self._recoil_app_bridge is not None
                 else None,
+                profile_selection_logger=print,
             ),
         ]
         self._downward_pull_diagnostics = DownwardPullDiagnostics.from_env()
@@ -143,6 +147,36 @@ class GamepadController(BaseController, threading.Thread):
             self.target_revision = getattr(self, "target_revision", 0) + 1
             self.target_timestamp = target_timestamp
 
+    def update_vision_state(self, state: ControllerVisionState):
+        state_timestamp = state.observed_at
+        if state_timestamp is None:
+            state_timestamp = getattr(state.target, "observed_at", None)
+        if state_timestamp is None:
+            state_timestamp = time.perf_counter()
+        submitted_at = state.submitted_at
+        if submitted_at is None:
+            submitted_at = time.perf_counter()
+        auto_fire_requested = bool(state.auto_fire_requested and state.target is not None)
+        auto_fire_timestamp = state.auto_fire_observed_at
+        if auto_fire_timestamp is None:
+            auto_fire_timestamp = state_timestamp
+
+        with self.lock:
+            if state.target is None:
+                self.target_dx = 0.0
+                self.target_dy = 0.0
+                self.target_info = None
+            else:
+                self.target_dx = state.dx
+                self.target_dy = state.dy
+                self.target_info = state.target
+            self.target_revision = getattr(self, "target_revision", 0) + 1
+            self.target_timestamp = state_timestamp
+            self._auto_fire_requested = auto_fire_requested
+            self._auto_fire_timestamp = auto_fire_timestamp if auto_fire_requested else None
+            self._vision_received_at = state.received_at
+            self._vision_submitted_at = submitted_at
+
     def reset(self):
         # NOTE: do NOT touch self._auto_fire_requested here. Auto-fire lifecycle
         # is still owned by the vision-layer detector, and resetting it here
@@ -165,16 +199,30 @@ class GamepadController(BaseController, threading.Thread):
     def is_aiming(self):
         return self._is_aiming
 
-    def set_auto_fire(self, pressed: bool):
+    def set_auto_fire(self, pressed: bool, observed_at: float | None = None):
+        if pressed and observed_at is None:
+            observed_at = time.perf_counter()
         with self.lock:
             self._auto_fire_requested = bool(pressed)
+            self._auto_fire_timestamp = observed_at if pressed else None
 
     def set_auto_rb(self, pressed: bool):
         self.set_auto_fire(pressed)
 
     def stop(self):
         self.running = False
+        self._neutralize_virtual_gamepad()
         pygame.quit()
+
+    def _neutralize_virtual_gamepad(self):
+        virtual_gamepad = getattr(self, "virtual_gamepad", None)
+        if virtual_gamepad is None:
+            return
+        try:
+            self._apply_output(GamepadOutput())
+            virtual_gamepad.update()
+        except Exception as exc:
+            print(f"[Gamepad] Failed to neutralize virtual gamepad on stop: {exc}")
 
     def _axis_to_xbox(self, val):
         clamped = max(-1.0, min(1.0, float(val)))
@@ -217,6 +265,9 @@ class GamepadController(BaseController, threading.Thread):
             target_timestamp = self.target_timestamp
             target_info = self.target_info
             auto_fire_requested = self._auto_fire_requested
+            auto_fire_timestamp = getattr(self, "_auto_fire_timestamp", None)
+            vision_received_at = getattr(self, "_vision_received_at", None)
+            vision_submitted_at = getattr(self, "_vision_submitted_at", None)
 
         return GamepadFrame(
             timestamp=timestamp,
@@ -235,6 +286,9 @@ class GamepadController(BaseController, threading.Thread):
             target_revision=target_revision,
             target_timestamp=target_timestamp,
             target=target_info,
+            auto_fire_timestamp=auto_fire_timestamp,
+            vision_received_at=vision_received_at,
+            vision_submitted_at=vision_submitted_at,
         )
 
     def _build_output(self, frame: GamepadFrame):
@@ -429,7 +483,25 @@ class GamepadController(BaseController, threading.Thread):
             self._apply_plugin_pipeline(frame, output)
             self._apply_output(output)
             self.virtual_gamepad.update()
+            self._record_timing_sample(frame, output_sent_at=time.perf_counter())
             time.sleep(0.001)
+
+    def _record_timing_sample(self, frame: GamepadFrame, *, output_sent_at: float):
+        if frame.target is None or frame.target_timestamp is None:
+            snapshot = None
+        else:
+            snapshot = ControllerTimingSnapshot(
+                source_age_ms=_elapsed_ms(frame.target_timestamp, frame.vision_submitted_at),
+                python_handoff_ms=_elapsed_ms(frame.vision_received_at, frame.vision_submitted_at),
+                controller_consume_age_ms=_elapsed_ms(frame.vision_submitted_at, frame.timestamp),
+                output_age_ms=_elapsed_ms(frame.target_timestamp, output_sent_at),
+            )
+        with self.lock:
+            self._last_timing_snapshot = snapshot
+
+    def get_timing_snapshot(self):
+        with self.lock:
+            return getattr(self, "_last_timing_snapshot", None)
 
 
 def _coerce_active_profile_payload(value):
@@ -438,6 +510,12 @@ def _coerce_active_profile_payload(value):
     if isinstance(value, dict):
         return ActiveProfilePayload.from_dict(value)
     raise ValueError("active profile payload must be an ActiveProfilePayload or dict")
+
+
+def _elapsed_ms(start: float | None, end: float | None) -> float | None:
+    if start is None or end is None:
+        return None
+    return max(0.0, (float(end) - float(start)) * 1000.0)
 
 
 def _coerce_recognizer_state(value):

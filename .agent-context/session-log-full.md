@@ -1121,3 +1121,148 @@ Decisions:
 Follow-up:
 - Keep future session summaries concise in `session-log.md`.
 - Append detailed outcomes to `session-log-full.md` when a session materially changes code, verification status, decisions, or active next actions.
+
+## 2026-05-12T14:32:48+08:00 - Auto-fire takeover and native vision freshness context sync
+
+Goal: Sync project context after the latest committed auto-fire and native-vision work so the next session starts from `gamepad_start.bat`, current `dev`, and the new timing/freshness contract rather than the stale gamepad release-tail worktree.
+
+What changed before this sync:
+- Commit `542c3de Fix manual auto-fire takeover window` changed auto-fire so manual RB/RT takeover first releases the virtual fire output, then suppresses auto-fire until release + delay totals 120ms.
+- Commit `9e09a52 Add agent commit discipline guidance` added `AGENT.md`, including the rule that context-only progress should not be committed as checkpoint commits unless the user explicitly asks.
+- Commit `c38e129 Improve vision target freshness and wide-low selection` added `ControllerTarget.observed_at`, propagated native `age_ms` or Python capture time into controller targets, and made gamepad/mouse controllers use that observed time instead of restamping every result as fresh.
+- The same vision commit aligned native and Python wide-low posture handling for prone/side-like boxes: lower aspect gate, target point at 0.50 height, and upper-in-box color/cue ROI.
+
+Verification recorded:
+- Native build completed with `powershell -ExecutionPolicy Bypass -File tools\build_native_vision.ps1`.
+- Selected native vision, runner, gamepad, and mouse controller tests passed: `160` tests OK.
+- Auto-fire/controller verification before the auto-fire commit passed: `30` selected gamepad tests OK.
+- `git diff --check` passed; Git printed LF/CRLF normalization warnings only.
+
+User confirmed:
+- Context should be synced after the latest work.
+
+AI inferred:
+- `infer_ms` should be profiled as native inference/TensorRT time, not as controller communication cost. Controller/Python handoff can still increase target age and consume lag, so end-to-end timestamp instrumentation remains worthwhile.
+- The wide-low selector change is a code-level improvement for prone/side-like targets, but it is not a replacement for benchmark capture/replay or posture-labeled material.
+- Current local `dev` is ahead of `origin/dev` by 3 commits; remote push was not performed during this context sync.
+
+Context files updated:
+- `.agent-context/handoff.md`
+- `.agent-context/session-log.md`
+- `.agent-context/session-log-full.md`
+
+Decisions:
+- No new decision record created.
+- Reason: this sync records implementation state and next actions; it does not change the accepted native-vision or controller architecture decisions.
+
+Follow-up:
+- Push `dev` if remote state should include `542c3de`, `9e09a52`, and `c38e129`.
+- Live-test `gamepad_start.bat` with semi-auto weapons to confirm manual fire is no longer swallowed and the 120ms release + delay guard feels acceptable.
+- Replay or capture crouch/prone/side material before widening posture heuristics further.
+- Add end-to-end timing instrumentation if latency still feels high: native capture/result, Python receive, controller update, gamepad loop consume, and output send.
+- Revisit the known native/Python synthetic occlusion parity failure before treating synthetic parity as fully green.
+
+## 2026-05-18T21:26:02+08:00 - Multi-POV native/gamepad architecture review and plan landing
+
+Goal: Record the review of `native-vision`, `gamepad-controller`, and the surrounding architecture, then land an implementation plan before changing business code.
+
+What was reviewed:
+- Loaded `.agent-context/handoff.md` before README/docs/source, per project instructions.
+- Spawned three focused explorer subagents:
+  - native vision performance/freshness skeptic
+  - gamepad hand-feel and safety reviewer
+  - long-term architecture reviewer
+- Read and synthesized the boundary from native `VisionResult` through `vision/native_runner.py`, controller target state, gamepad plugins, and virtual output.
+
+Review-time verification:
+- `py -3 -B -m unittest tests.test_native_vision_runner tests.gamepad.test_gamepad_auto_fire_plugin tests.gamepad.test_gamepad_ai_aim_plugin tests.gamepad.test_gamepad_controller_host -v`
+  - result: `71` tests passed
+
+Key findings recorded:
+- Auto-fire freshness is weaker than aim freshness. `ai_aim` checks target age, but auto-fire can still consume `frame.auto_fire_requested` without an equivalent observed-time gate.
+- Vision-to-controller update is split across target movement and auto-fire calls, so the gamepad loop can observe a mixed state.
+- Native `age_ms` currently under-explains full latency because it does not include Python receive, controller update, gamepad consume, or virtual output time.
+- Native capture gaps clear target state, while Python fallback logic can hold or predict, so the runtime contract is ambiguous.
+- Native/Python occlusion and auto-fire parity are still unsettled; the known synthetic parity failure remains relevant.
+- Gamepad shutdown should explicitly send a final neutral virtual output.
+- The 1ms gamepad loop should avoid blocking provider reads and should gain consume/output timing before major rewrites are considered.
+- Config/docs drift remains around adaptive gain examples, recoil fallback defaults, native engine path, and stale native target-source docs.
+
+Plan landed:
+- `docs/superpowers/plans/2026-05-18-native-gamepad-contract-hardening-plan.md`
+
+AI inferred:
+- The safest next work is contract hardening before more target heuristics: atomic vision state, auto-fire freshness, and neutral shutdown.
+- Controller behavior should stay in Python until end-to-end timing proves that boundary is the bottleneck.
+- Native/Python parity should be redefined as an explicit compatibility contract or repaired before relying on parity tests as green production evidence.
+
+Context files updated:
+- `.agent-context/handoff.md`
+- `.agent-context/session-log.md`
+- `.agent-context/session-log-full.md`
+
+Decisions:
+- No new decision record created.
+- Reason: this is a proposed implementation plan from review findings, not an accepted architecture decision.
+
+Follow-up:
+- Start Phase 1 of the plan: atomic controller vision-state update, auto-fire freshness gating, and gamepad stop neutralization.
+- Keep live gameplay smoke as a separate requirement; the 71-test review pass is not a gameplay confirmation.
+
+## 2026-05-19T20:53:26+08:00 - Native/gamepad contract hardening implemented and context synced
+
+Goal: Sync project context after implementing the native-vision to controller contract hardening plan, so the next session can start from the current working-tree state and the user's upcoming new idea.
+
+What changed:
+- Implemented a controller-facing `ControllerVisionState` contract in `controllers/base_controller.py` with target deltas, target metadata, auto-fire intent, observed/receive/submit timing, and compatibility helpers for legacy controllers.
+- Updated `GamepadController` and `MouseController` to consume one coherent vision state rather than separate target and auto-fire updates.
+- Added auto-fire source timestamps and freshness gating to gamepad and mouse auto-fire plugins.
+- Added gamepad shutdown neutralization so `GamepadController.stop()` emits a final neutral virtual-gamepad state.
+- Added controller timing snapshots and perf-log propagation for source age, native pipeline age, Python handoff, controller consume age, and virtual output age.
+- Updated `vision/native_runner.py` and `vision/runner.py` to submit one state per vision result and to report the new timing metrics.
+- Chose the native empty-detection policy in code/tests: empty detection frames clear target and suppress fire; confirmed reacquire is required before native target output and auto-fire resume.
+- Updated native C++ selector behavior so no-target and cue-hold gap frames clear/suppress auto-fire.
+- Updated `native/vision_native/src/vision_engine.cpp` so the native engine path honors `VISION_MODEL_PATH`.
+- Exposed high-impact runtime knobs in `config.toml.example` and `config/loader.py`: model path, fallback model path, gamepad/mouse auto-fire freshness/timing, and gamepad/mouse recoil fallback values.
+- Updated `main.py` so config-backed model paths become `VISION_MODEL_PATH` and `VISION_FALLBACK_MODEL_PATH` unless environment variables already override them.
+- Updated gamepad and mouse benchmark runners so generated artifacts include auto-fire and recoil config snapshots, not only aim config.
+- Refreshed docs in `docs/project/NATIVE_VISION.md`, `docs/project/GAMEPAD_OVERVIEW.md`, and the hardening plan.
+
+Verification recorded:
+- Native build passed with `powershell -ExecutionPolicy Bypass -File tools\build_native_vision.ps1`.
+- Python compile check passed with `py -3 -B -m compileall -q config controllers vision tools tests`.
+- `git diff --check` passed; Git printed LF/CRLF normalization warnings only.
+- Focused split test groups passed:
+  - config/main/perf/native scaffold: `40` tests OK
+  - native runner / Python runner / native parity / target bridge: `61` tests OK
+  - gamepad and mouse controller/auto-fire: `52` tests OK
+  - benchmark runners: `24` tests OK
+  - additional vision modules: `102` tests OK
+  - additional gamepad metrics/helpers: `87` tests OK
+  - mouse AI/metrics: `50` tests OK
+  - recoil and weapon identity suites: `156` tests OK
+- `py -3 -B -m unittest discover -v` timed out after 10 minutes in this environment.
+- One oversized combined targeted command also timed out. The split targeted suites above are the usable verification evidence.
+
+User confirmed:
+- Context should be synced before the user provides a new idea.
+
+AI inferred:
+- The next conversation should treat the current implementation as an uncommitted working-tree baseline, not as committed project history.
+- The most important remaining non-code validation is live gameplay smoke through `gamepad_start.bat`.
+- Any future idea that touches target loss, auto-fire, or timing should start by checking whether it changes the `ControllerVisionState` contract or the native empty-gap clearing policy.
+- Full Python/native prediction parity is no longer the assumed production contract; the current tests document the native clearing policy and the Python fallback difference.
+
+Context files updated:
+- `.agent-context/handoff.md`
+- `.agent-context/session-log.md`
+- `.agent-context/session-log-full.md`
+
+Decisions:
+- No new decision record created.
+- Reason: this sync records implemented working-tree state and verification evidence. The native empty-gap policy is reflected in code, tests, and docs, but the user did not ask to create or approve a durable architecture decision record during this sync.
+
+Follow-up:
+- Receive the user's new idea and evaluate it against the hardened native/gamepad baseline.
+- If the user wants to close the current work first, propose live `gamepad_start.bat` smoke or a stage/commit plan.
+- Keep `.agent-context/` out of checkpoint commits unless the user explicitly asks to include context updates.

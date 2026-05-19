@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Mapping
 
@@ -350,6 +350,9 @@ class RecoilProfileRecord:
     capture_fps: float
     collector_version: str
     created_at: str
+    profile_type: str = "burst_average_v1"
+    support_counts: tuple[int, ...] = ()
+    fit_summary: Mapping[str, float] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -459,6 +462,20 @@ class RecoilProfileRecord:
             "created_at",
             _require_non_empty_str(self.created_at, "RecoilProfileRecord.created_at"),
         )
+        object.__setattr__(
+            self,
+            "profile_type",
+            _require_profile_type(self.profile_type, "RecoilProfileRecord.profile_type"),
+        )
+        support_counts = _require_support_counts(self.support_counts, "RecoilProfileRecord.support_counts")
+        if support_counts and len(support_counts) != self.sample_count:
+            raise ValueError("RecoilProfileRecord.support_counts length must match sample_count when present")
+        object.__setattr__(self, "support_counts", support_counts)
+        object.__setattr__(
+            self,
+            "fit_summary",
+            _require_float_mapping(self.fit_summary, "RecoilProfileRecord.fit_summary"),
+        )
 
     @property
     def samples(self) -> tuple[RecoilSample, ...]:
@@ -491,11 +508,14 @@ class RecoilProfileRecord:
             "capture_fps": self.capture_fps,
             "collector_version": self.collector_version,
             "created_at": self.created_at,
+            "profile_type": self.profile_type,
+            "support_counts": list(self.support_counts),
+            "fit_summary": dict(self.fit_summary),
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "RecoilProfileRecord":
-        _require_exact_keys(
+        _require_supported_keys(
             data,
             "RecoilProfileRecord",
             {
@@ -517,6 +537,11 @@ class RecoilProfileRecord:
                 "capture_fps",
                 "collector_version",
                 "created_at",
+            },
+            {
+                "profile_type",
+                "support_counts",
+                "fit_summary",
             },
         )
         return cls(
@@ -567,6 +592,18 @@ class RecoilProfileRecord:
             created_at=_require_non_empty_str(
                 data["created_at"],
                 "RecoilProfileRecord.created_at",
+            ),
+            profile_type=_require_profile_type(
+                data.get("profile_type", "burst_average_v1"),
+                "RecoilProfileRecord.profile_type",
+            ),
+            support_counts=_require_support_counts(
+                data.get("support_counts", ()),
+                "RecoilProfileRecord.support_counts",
+            ),
+            fit_summary=_require_float_mapping(
+                data.get("fit_summary", {}),
+                "RecoilProfileRecord.fit_summary",
             ),
         )
 
@@ -731,6 +768,26 @@ def _require_required_keys(data: Any, label: str, required_keys: set[str]) -> No
         raise ValueError(f"{label} schema mismatch (missing={sorted(missing)})")
 
 
+def _require_supported_keys(
+    data: Any,
+    label: str,
+    required_keys: set[str],
+    optional_keys: set[str],
+) -> None:
+    if not isinstance(data, dict):
+        raise ValueError(f"{label} must be a dict")
+    actual_keys = set(data)
+    missing = required_keys - actual_keys
+    extra = actual_keys - required_keys - optional_keys
+    if missing or extra:
+        details = []
+        if missing:
+            details.append(f"missing={sorted(missing)}")
+        if extra:
+            details.append(f"extra={sorted(extra)}")
+        raise ValueError(f"{label} schema mismatch ({', '.join(details)})")
+
+
 def _require_str(value: Any, label: str) -> str:
     if type(value) is not str:
         raise ValueError(f"{label} must be a string")
@@ -797,6 +854,19 @@ def _require_number_tuple(value: Any, label: str) -> tuple[float, ...]:
     if not isinstance(value, (list, tuple)):
         raise ValueError(f"{label} must be a list or tuple of numbers")
     return tuple(_require_number(item, f"{label}[{index}]") for index, item in enumerate(value))
+
+
+def _require_support_counts(value: Any, label: str) -> tuple[int, ...]:
+    if not isinstance(value, (list, tuple)):
+        raise ValueError(f"{label} must be a list or tuple of integers")
+    return tuple(_require_non_negative_int(item, f"{label}[{index}]") for index, item in enumerate(value))
+
+
+def _require_profile_type(value: Any, label: str) -> str:
+    profile_type = _require_non_empty_str(value, label)
+    if profile_type not in {"burst_average_v1", "magazine_curve_v1"}:
+        raise ValueError(f"{label} must be one of ['burst_average_v1', 'magazine_curve_v1']")
+    return profile_type
 
 
 def _require_recoil_sample_tuple(value: Any, label: str) -> tuple[RecoilSample, ...]:
