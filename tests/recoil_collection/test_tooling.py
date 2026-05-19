@@ -614,6 +614,12 @@ class RecoilAppBatchTests(unittest.TestCase):
         self.assertIn("Resolved command:", output)
         self.assertIn("-m recoil_app --game cod21 --mode record", output)
 
+    def test_start_script_defaults_to_gpu_ocr_environment(self):
+        content = (Path(__file__).resolve().parents[2] / "recoil_app_start.bat").read_text(encoding="utf-8")
+
+        self.assertIn("PYTHONNOUSERSITE=1", content)
+        self.assertIn("RECOIL_OCR_PROVIDER=cuda", content)
+
 
 class RecoilRuntimeLauncherTests(unittest.TestCase):
     def test_resolve_state_file_defaults_to_game_specific_path(self):
@@ -638,6 +644,8 @@ class RecoilRuntimeLauncherTests(unittest.TestCase):
         self.assertEqual(env["RECOIL_PROFILE_DIR"], "D:\\tmp\\profiles")
         self.assertEqual(env["RECOIL_SIGNATURE_DIR"], "D:\\tmp\\signatures")
         self.assertEqual(env["RECOIL_GAME"], "cod21")
+        self.assertEqual(env["PYTHONNOUSERSITE"], "1")
+        self.assertEqual(env["RECOIL_OCR_PROVIDER"], "cuda")
         self.assertEqual(env["RECOIL_SWITCH_RECOGNITION_MODE"], "y_button_text")
         self.assertEqual(env["RECOIL_RECOGNIZER_STATE_PATH"], "D:\\tmp\\recoil_state\\cod22-latest-state.json")
         self.assertEqual(env["VISION_BACKEND"], "native")

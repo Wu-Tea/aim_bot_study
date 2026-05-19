@@ -1,9 +1,11 @@
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
 
 from vision.weapon_identity.adapters import NormalizedROI
+from vision.weapon_identity import text as text_module
 from vision.weapon_identity.text import extract_text_candidates
 from vision.weapon_identity.text import normalize_ocr_lines
 
@@ -82,6 +84,42 @@ class WeaponTextExtractionTests(unittest.TestCase):
         )
 
         self.assertEqual(candidates, ("点22塔恩托", "格克霍娃"))
+
+
+    def test_build_rapidocr_kwargs_uses_cuda_when_provider_is_available(self):
+        kwargs = text_module._build_rapidocr_kwargs(
+            "cuda",
+            ("CUDAExecutionProvider", "CPUExecutionProvider"),
+        )
+
+        self.assertTrue(kwargs["det_use_cuda"])
+        self.assertTrue(kwargs["cls_use_cuda"])
+        self.assertTrue(kwargs["rec_use_cuda"])
+        self.assertNotIn("det_use_dml", kwargs)
+
+    def test_load_default_ocr_reader_does_not_fall_back_to_cpu_for_missing_gpu_provider(self):
+        calls = []
+
+        class FakeRapidOCR:
+            def __init__(self, **kwargs):
+                calls.append(kwargs)
+
+        text_module._DEFAULT_OCR_READER = None
+        text_module._DEFAULT_OCR_READER_INITIALIZED = False
+        try:
+            with patch.dict("sys.modules", {"rapidocr_onnxruntime": SimpleNamespace(RapidOCR=FakeRapidOCR)}):
+                with patch.dict("os.environ", {"RECOIL_OCR_PROVIDER": "cuda"}, clear=False):
+                    with patch(
+                        "vision.weapon_identity.text._available_onnxruntime_providers",
+                        return_value=("CPUExecutionProvider",),
+                    ):
+                        reader = text_module._load_default_ocr_reader()
+
+            self.assertIsNone(reader)
+            self.assertEqual(calls, [])
+        finally:
+            text_module._DEFAULT_OCR_READER = None
+            text_module._DEFAULT_OCR_READER_INITIALIZED = False
 
 
 if __name__ == "__main__":

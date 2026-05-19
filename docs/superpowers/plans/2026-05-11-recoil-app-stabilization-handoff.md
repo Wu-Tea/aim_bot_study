@@ -99,6 +99,8 @@ The current code includes these mitigations:
 - `recoil_app` rejects obvious ammo labels such as `9毫米鲁格手枪弹` and `7.62BLK`.
 - `recoil_app` rejects overlong cross-line OCR garbage.
 - RapidOCR defaults to CUDA, with `RECOIL_OCR_PROVIDER=dml|cpu` overrides.
+- `recoil_app_start.bat` and `tools/recoil_runtime_launcher.py` default `PYTHONNOUSERSITE=1` so a user-site CPU `onnxruntime` package does not shadow the project GPU package.
+- Missing GPU providers no longer silently fall back to CPU unless `RECOIL_OCR_PROVIDER=cpu` or `RECOIL_OCR_ALLOW_CPU_FALLBACK=1` is set.
 - Switch/motion capture prefers DXGI and falls back to `PIL.ImageGrab` only if DXGI setup fails.
 - Standalone console polling is 60 Hz instead of 200 Hz.
 - Record-mode capture defaults to 60 FPS instead of 100 FPS.
@@ -109,6 +111,7 @@ The current code includes these mitigations:
 - Old bad weapon identities may remain under `artifacts/recoil_app/weapons` from earlier misreads. If `switch_cache` prints a bad name, delete the bad identity and restart.
 - DXGI setup can fail on some display configurations. If it does, runtime falls back to `PIL.ImageGrab`, which may be CPU-heavier.
 - CUDA OCR depends on the installed ONNX Runtime provider actually being usable. If CUDA is unstable, try `RECOIL_OCR_PROVIDER=dml`.
+- If OCR returns no candidates after this change, first check `PYTHONNOUSERSITE=1` and `onnxruntime.get_available_providers()`; CPU fallback is intentionally disabled by default to avoid saturating the machine during live play.
 
 ## Next Session Checklist
 

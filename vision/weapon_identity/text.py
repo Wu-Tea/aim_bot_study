@@ -12,6 +12,10 @@ from .adapters import NormalizedROI
 _DEFAULT_OCR_READER = None
 _DEFAULT_OCR_READER_INITIALIZED = False
 
+_CUDA_PROVIDER = "CUDAExecutionProvider"
+_DML_PROVIDER = "DmlExecutionProvider"
+_CPU_PROVIDER = "CPUExecutionProvider"
+
 
 def normalize_ocr_lines(lines: Iterable[str]) -> tuple[str, ...]:
     seen: set[str] = set()
@@ -77,33 +81,81 @@ def _load_default_ocr_reader() -> Any:
         return None
 
     try:
-        provider_hint = os.environ.get("RECOIL_OCR_PROVIDER", "cuda").strip().casefold()
-        rapidocr_kwargs = {
-            "intra_op_num_threads": 1,
-            "inter_op_num_threads": 1,
-        }
-        if provider_hint == "dml":
-            rapidocr_kwargs.update(
-                {
-                    "det_use_dml": True,
-                    "cls_use_dml": True,
-                    "rec_use_dml": True,
-                }
-            )
-        elif provider_hint == "cpu":
-            pass
-        else:
-            rapidocr_kwargs.update(
-                {
-                    "det_use_cuda": True,
-                    "cls_use_cuda": True,
-                    "rec_use_cuda": True,
-                }
-            )
+        provider_hint = os.environ.get("RECOIL_OCR_PROVIDER", "cuda")
+        rapidocr_kwargs = _build_rapidocr_kwargs(
+            provider_hint,
+            _available_onnxruntime_providers(),
+        )
+        if rapidocr_kwargs is None:
+            if not _allow_cpu_fallback():
+                _DEFAULT_OCR_READER = None
+                return None
+            rapidocr_kwargs = _build_rapidocr_kwargs("cpu", (_CPU_PROVIDER,))
         _DEFAULT_OCR_READER = RapidOCR(**rapidocr_kwargs)
     except Exception:
         _DEFAULT_OCR_READER = None
     return _DEFAULT_OCR_READER
+
+
+def _available_onnxruntime_providers() -> tuple[str, ...]:
+    try:
+        import onnxruntime as ort
+    except Exception:
+        return ()
+    try:
+        return tuple(str(provider) for provider in ort.get_available_providers())
+    except Exception:
+        return ()
+
+
+def _build_rapidocr_kwargs(
+    provider_hint: str,
+    available_providers: Iterable[str],
+) -> dict[str, Any] | None:
+    provider = _normalize_provider_hint(provider_hint)
+    available = frozenset(str(provider) for provider in available_providers)
+    kwargs: dict[str, Any] = {
+        "intra_op_num_threads": 1,
+        "inter_op_num_threads": 1,
+    }
+    if provider == "cpu":
+        return kwargs
+    if provider == "dml":
+        if _DML_PROVIDER not in available:
+            return None
+        kwargs.update(
+            {
+                "det_use_dml": True,
+                "cls_use_dml": True,
+                "rec_use_dml": True,
+            }
+        )
+        return kwargs
+
+    if _CUDA_PROVIDER not in available:
+        return None
+    kwargs.update(
+        {
+            "det_use_cuda": True,
+            "cls_use_cuda": True,
+            "rec_use_cuda": True,
+        }
+    )
+    return kwargs
+
+
+def _normalize_provider_hint(value: str) -> str:
+    normalized = str(value or "").strip().casefold()
+    if normalized in {"cpu"}:
+        return "cpu"
+    if normalized in {"dml", "directml", "direct-ml"}:
+        return "dml"
+    return "cuda"
+
+
+def _allow_cpu_fallback() -> bool:
+    value = os.environ.get("RECOIL_OCR_ALLOW_CPU_FALLBACK", "").strip().casefold()
+    return value in {"1", "true", "yes", "on"}
 
 
 def _iter_ocr_strings(raw_output: Any) -> Iterable[str]:

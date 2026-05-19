@@ -9,6 +9,11 @@ if %errorlevel%==0 (
     set "PYTHON_CMD=python"
 )
 
+rem Keep recoil OCR on the project Python environment. Without this, a user-site
+rem CPU onnxruntime package can shadow the installed GPU onnxruntime package.
+if not defined PYTHONNOUSERSITE set "PYTHONNOUSERSITE=1"
+if not defined RECOIL_OCR_PROVIDER set "RECOIL_OCR_PROVIDER=cuda"
+
 if not "%~1"=="" goto passthrough
 
 echo.

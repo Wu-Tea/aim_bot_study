@@ -108,13 +108,20 @@ def build_controller_env(
     state_file: Path,
     vision_backend: str,
 ) -> dict[str, str]:
-    env = dict(base_env or os.environ)
+    env = build_recoil_runtime_env(base_env=base_env)
     env["RECOIL_GAME"] = str(game)
     env["RECOIL_PROFILE_DIR"] = str(profile_dir)
     env["RECOIL_SIGNATURE_DIR"] = str(signature_dir)
     env["RECOIL_RECOGNIZER_STATE_PATH"] = str(state_file)
     env["RECOIL_SWITCH_RECOGNITION_MODE"] = "y_button_text"
     env["VISION_BACKEND"] = vision_backend
+    return env
+
+
+def build_recoil_runtime_env(*, base_env: Mapping[str, str] | None = None) -> dict[str, str]:
+    env = dict(base_env or os.environ)
+    env.setdefault("PYTHONNOUSERSITE", "1")
+    env.setdefault("RECOIL_OCR_PROVIDER", "cuda")
     return env
 
 
@@ -145,7 +152,7 @@ def main(
         popen_factory(
             recognizer_command,
             cwd=str(PROJECT_ROOT),
-            env=dict(os.environ),
+            env=build_recoil_runtime_env(base_env=os.environ),
         )
         payload = {
             "type": "recoil_runtime_launcher",
