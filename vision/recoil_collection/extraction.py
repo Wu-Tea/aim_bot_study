@@ -186,6 +186,9 @@ def extract_magazine_recoil_profile(
             "rejected_episode_count": float(len(rejected_burst_ids)),
             "target_duration_ms": float(duration_ms),
             "sample_interval_ms": float(config.sample_interval_ms),
+            "vertical_direction_reversal": 1.0 if _has_vertical_direction_reversal(profile_samples_y) else 0.0,
+            "horizontal_peak_abs": max(abs(value) for value in profile_samples_x) if profile_samples_x else 0.0,
+            "vertical_peak_abs": max(abs(value) for value in profile_samples_y) if profile_samples_y else 0.0,
         },
     )
     return ExtractedRecoilProfile(
@@ -433,6 +436,12 @@ def _profile_motion_scale(*, samples_x: tuple[float, ...], samples_y: tuple[floa
         (sample_x**2 + sample_y**2) ** 0.5
         for sample_x, sample_y in zip(samples_x, samples_y)
     )
+
+
+def _has_vertical_direction_reversal(samples_y: tuple[float, ...]) -> bool:
+    if len(samples_y) < 4:
+        return False
+    return min(samples_y) < -5.0 and max(samples_y) > 5.0
 
 
 def _stabilize_vertical_profile_curve(samples_y: tuple[float, ...]) -> tuple[float, ...]:

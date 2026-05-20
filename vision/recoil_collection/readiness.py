@@ -42,6 +42,8 @@ def profile_readiness_reason(
         return "accepted_episodes_below_min"
     if profile.support_counts and min(profile.support_counts) < required_support:
         return "support_below_min"
+    if _float_from_mapping(profile.fit_summary, "vertical_direction_reversal", fallback=0.0) >= 1.0:
+        return "vertical_direction_reversal"
     return None
 
 

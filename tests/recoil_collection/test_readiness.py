@@ -39,6 +39,20 @@ class RecoilProfileReadinessTests(unittest.TestCase):
             )
         )
 
+    def test_magazine_profile_with_vertical_reversal_is_not_ready(self):
+        profile = _profile(
+            confidence=0.95,
+            profile_type="magazine_curve_v1",
+            burst_count=2,
+            support_counts=(2, 2, 2),
+            fit_summary={
+                "accepted_episode_count": 2.0,
+                "vertical_direction_reversal": 1.0,
+            },
+        )
+
+        self.assertEqual(profile_readiness_reason(profile), "vertical_direction_reversal")
+
 
 def _profile(
     *,

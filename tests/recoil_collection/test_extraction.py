@@ -571,6 +571,42 @@ class ExtractRecoilProfileTests(unittest.TestCase):
         self.assertEqual(result.profile.burst_count, 2)
         self.assertLess(result.profile.confidence, 0.50)
 
+    def test_magazine_fit_summary_flags_vertical_direction_reversal(self):
+        extraction = _load_extraction_module()
+        result = extraction.extract_magazine_recoil_profile(
+            session=_session(),
+            bursts=(
+                _series(
+                    burst_id="mag-reverse-a",
+                    start_offset_ms=0,
+                    sample_interval_ms=10,
+                    anchor_x=0.0,
+                    anchor_y=0.0,
+                    deltas_x=(0.0, 0.0, 0.0, 0.0),
+                    deltas_y=(0.0, -8.0, 8.0, 10.0),
+                ),
+                _series(
+                    burst_id="mag-reverse-b",
+                    start_offset_ms=3,
+                    sample_interval_ms=10,
+                    anchor_x=4.0,
+                    anchor_y=8.0,
+                    deltas_x=(0.0, 0.0, 0.0, 0.0),
+                    deltas_y=(0.0, -9.0, 7.0, 11.0),
+                ),
+            ),
+            profile_id="profile-cod22-m4-ads-standing-reversing",
+            created_at="2026-05-06T14:20:00Z",
+            config=extraction.RecoilExtractionConfig(
+                sample_interval_ms=10,
+                min_clean_bursts=2,
+                target_clean_bursts=2,
+            ),
+        )
+
+        self.assertEqual(result.profile.fit_summary["vertical_direction_reversal"], 1.0)
+        self.assertEqual(result.profile.fit_summary["vertical_peak_abs"], 10.5)
+
 
 def _load_extraction_fixture(name: str):
     fixture_payload = _load_raw_extraction_fixture(name)
