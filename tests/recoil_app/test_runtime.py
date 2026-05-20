@@ -1002,6 +1002,29 @@ class RecoilRuntimeTests(unittest.TestCase):
             self.assertTrue((plot_dir / f"{profile_id}.anti_recoil.png").exists())
             self.assertFalse((plot_dir / f"{profile_id}.png").exists())
 
+    def test_learning_capture_writes_episode_fit_and_replay_plots(self):
+        runtime = _load_runtime_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            plot_dir = Path(temp_dir) / "plots"
+            profile = _profile_record(
+                profile_id="profile-cod22-m4-ads-standing-current",
+                canonical_weapon_id="cod22-m4",
+                aim_mode="ads",
+                confidence=0.95,
+                profile_type="magazine_curve_v1",
+                burst_count=2,
+                support_counts=(2, 2, 2),
+                fit_summary={"accepted_episode_count": 2.0},
+            )
+
+            paths = runtime._write_profile_plots(plot_dir, profile)
+
+        names = {path.name for path in paths}
+        self.assertIn("profile-cod22-m4-ads-standing-current.recoil.png", names)
+        self.assertIn("profile-cod22-m4-ads-standing-current.anti_recoil.png", names)
+        self.assertIn("profile-cod22-m4-ads-standing-current.timeline.png", names)
+
     def test_profile_plot_writer_uses_unicode_safe_png_output(self):
         runtime = _load_runtime_module()
 
@@ -1019,12 +1042,14 @@ class RecoilRuntimeTests(unittest.TestCase):
             )
 
             with patch("cv2.imwrite", return_value=False):
-                recoil_path, anti_recoil_path = runtime._write_profile_plots(plot_dir, profile)
+                recoil_path, anti_recoil_path, timeline_path = runtime._write_profile_plots(plot_dir, profile)
 
             self.assertTrue(recoil_path.exists())
             self.assertTrue(anti_recoil_path.exists())
+            self.assertTrue(timeline_path.exists())
             self.assertGreater(recoil_path.stat().st_size, 0)
             self.assertGreater(anti_recoil_path.stat().st_size, 0)
+            self.assertGreater(timeline_path.stat().st_size, 0)
 
     def test_recoil_mode_never_starts_learning_session(self):
         runtime = _load_runtime_module()

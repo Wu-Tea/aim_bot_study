@@ -1246,10 +1246,11 @@ def _build_current_profile_id(profile: RecoilProfileRecord) -> str:
     return f"profile-{profile.canonical_weapon_id}-{profile.aim_mode}-{profile.stance}-current"
 
 
-def _write_profile_plots(plot_dir: Path, profile: RecoilProfileRecord) -> tuple[Path, Path]:
+def _write_profile_plots(plot_dir: Path, profile: RecoilProfileRecord) -> tuple[Path, ...]:
     plot_dir.mkdir(parents=True, exist_ok=True)
     recoil_path = plot_dir / f"{profile.profile_id}.recoil.png"
     anti_recoil_path = plot_dir / f"{profile.profile_id}.anti_recoil.png"
+    timeline_path = plot_dir / f"{profile.profile_id}.timeline.png"
     _write_trajectory_plot(
         recoil_path,
         profile,
@@ -1264,7 +1265,8 @@ def _write_profile_plots(plot_dir: Path, profile: RecoilProfileRecord) -> tuple[
         title="Anti-recoil trajectory",
         color=(40, 160, 80),
     )
-    return recoil_path, anti_recoil_path
+    _write_timeline_plot(timeline_path, profile)
+    return recoil_path, anti_recoil_path, timeline_path
 
 
 def _write_trajectory_plot(
@@ -1314,6 +1316,58 @@ def _write_trajectory_plot(
     cv2.putText(canvas, title, (40, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.72, (20, 20, 20), 2, cv2.LINE_AA)
     cv2.putText(canvas, profile.profile_id, (40, 66), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (70, 70, 70), 1, cv2.LINE_AA)
     _write_png_image(path, canvas)
+
+
+def _write_timeline_plot(path: Path, profile: RecoilProfileRecord) -> None:
+    import cv2
+    import numpy as np
+
+    width = 960
+    height = 480
+    left = 72
+    right = width - 48
+    top = 64
+    bottom = height - 56
+    center_y = (top + bottom) // 2
+    canvas = np.full((height, width, 3), 250, dtype=np.uint8)
+    values_recoil = tuple(float(value) for value in profile.samples_y)
+    values_anti = tuple(-value for value in values_recoil)
+    max_abs = max(1.0, *(abs(value) for value in values_recoil + values_anti))
+    scale_y = ((bottom - top) / 2.0) / (max_abs * 1.12)
+    sample_count = max(1, len(values_recoil))
+
+    def to_canvas(index: int, value: float) -> tuple[int, int]:
+        if sample_count <= 1:
+            x = left
+        else:
+            x = left + int(round((index / (sample_count - 1)) * (right - left)))
+        y = center_y - int(round(value * scale_y))
+        return x, max(top, min(bottom, y))
+
+    cv2.rectangle(canvas, (left, top), (right, bottom), (90, 90, 90), 1)
+    cv2.line(canvas, (left, center_y), (right, center_y), (210, 210, 210), 1, cv2.LINE_AA)
+    cv2.putText(canvas, "Timeline: recoil y vs anti-recoil y", (40, 36), cv2.FONT_HERSHEY_SIMPLEX, 0.72, (20, 20, 20), 2, cv2.LINE_AA)
+    cv2.putText(canvas, profile.profile_id, (40, 58), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (70, 70, 70), 1, cv2.LINE_AA)
+    cv2.putText(canvas, "recoil", (left + 8, top + 24), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (40, 80, 220), 1, cv2.LINE_AA)
+    cv2.putText(canvas, "anti", (left + 90, top + 24), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (40, 160, 80), 1, cv2.LINE_AA)
+
+    _draw_timeline_series(canvas, tuple(to_canvas(index, value) for index, value in enumerate(values_recoil)), (40, 80, 220))
+    _draw_timeline_series(canvas, tuple(to_canvas(index, value) for index, value in enumerate(values_anti)), (40, 160, 80))
+    _write_png_image(path, canvas)
+
+
+def _draw_timeline_series(canvas: Any, points: tuple[tuple[int, int], ...], color: tuple[int, int, int]) -> None:
+    import cv2
+
+    if not points:
+        return
+    if len(points) == 1:
+        cv2.circle(canvas, points[0], 4, color, -1, cv2.LINE_AA)
+        return
+    for previous, current in zip(points, points[1:]):
+        cv2.line(canvas, previous, current, color, 2, cv2.LINE_AA)
+    cv2.circle(canvas, points[0], 4, (30, 30, 30), -1, cv2.LINE_AA)
+    cv2.circle(canvas, points[-1], 5, color, -1, cv2.LINE_AA)
 
 
 def _write_png_image(path: Path, image: Any) -> None:
