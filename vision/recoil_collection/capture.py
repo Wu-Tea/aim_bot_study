@@ -19,6 +19,7 @@ from vision.recoil_collection.models import RecoilBurstWindow
 from vision.recoil_collection.models import RecoilCollectionSession
 from vision.recoil_collection.models import RecoilProfileSummary
 from vision.recoil_collection.models import RecoilSample
+from vision.recoil_collection.motion_estimation import estimate_static_roi_motion
 from vision.recoil_collection.segmentation import BurstSegmentationConfig
 from vision.recoil_collection.segmentation import BurstSegmentationSample
 from vision.recoil_collection.segmentation import segment_standing_fire_bursts as default_segment_bursts
@@ -531,12 +532,10 @@ def _resolve_manual_marker(*, previous_firing: bool, current_firing: bool) -> st
 
 
 def _estimate_phase_shift(previous_gray: np.ndarray, current_gray: np.ndarray) -> tuple[float, float]:
-    shift, response = cv2.phaseCorrelate(previous_gray, current_gray)
-    delta_x = float(shift[0]) if np.isfinite(shift[0]) else 0.0
-    delta_y = float(shift[1]) if np.isfinite(shift[1]) else 0.0
-    if not np.isfinite(response) or response < _MIN_VALID_PHASE_CORRELATION_RESPONSE:
+    estimate = estimate_static_roi_motion(previous_gray, current_gray)
+    if estimate.quality < _MIN_VALID_PHASE_CORRELATION_RESPONSE:
         return 0.0, 0.0
-    return delta_x, delta_y
+    return estimate.delta_x, estimate.delta_y
 
 
 def _to_gray_float32(frame: Any) -> np.ndarray:

@@ -106,6 +106,34 @@ class RecoilCapturePhaseCorrelationTests(unittest.TestCase):
         self.assertAlmostEqual(delta_x, 4.0, places=3)
         self.assertAlmostEqual(delta_y, 3.0, places=3)
 
+    def test_static_roi_motion_estimator_ignores_bottom_weapon_animation(self):
+        import cv2
+
+        from vision.recoil_collection.motion_estimation import estimate_static_roi_motion
+
+        base = np.zeros((120, 160, 3), dtype=np.uint8)
+        cv2.rectangle(base, (40, 25), (120, 70), (255, 255, 255), -1)
+        cv2.circle(base, (80, 48), 12, (0, 0, 0), -1)
+        shifted = np.roll(base, shift=5, axis=0)
+        shifted[90:120, :, :] = 255
+
+        result = estimate_static_roi_motion(base, shifted)
+
+        self.assertAlmostEqual(result.delta_y, 5.0, delta=1.0)
+        self.assertGreaterEqual(result.quality, 0.5)
+
+    def test_static_roi_motion_estimator_reports_low_quality_for_blank_frames(self):
+        from vision.recoil_collection.motion_estimation import estimate_static_roi_motion
+
+        result = estimate_static_roi_motion(
+            np.zeros((120, 160, 3), dtype=np.uint8),
+            np.zeros((120, 160, 3), dtype=np.uint8),
+        )
+
+        self.assertEqual(result.delta_x, 0.0)
+        self.assertEqual(result.delta_y, 0.0)
+        self.assertLess(result.quality, 0.5)
+
     def test_collect_motion_trace_marks_fire_trigger_press_and_release(self):
         capture = _load_capture_module()
         textured = np.zeros((64, 64, 3), dtype=np.uint8)
