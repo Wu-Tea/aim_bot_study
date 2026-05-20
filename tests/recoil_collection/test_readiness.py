@@ -39,6 +39,18 @@ class RecoilProfileReadinessTests(unittest.TestCase):
             )
         )
 
+    def test_magazine_profile_ignores_low_confidence_when_structure_is_supported(self):
+        profile = _profile(
+            confidence=0.24,
+            profile_type="magazine_curve_v1",
+            burst_count=3,
+            support_counts=(3, 3, 3),
+            fit_summary={"accepted_episode_count": 3.0},
+        )
+
+        self.assertTrue(is_profile_ready_for_compensation(profile))
+        self.assertIsNone(profile_readiness_reason(profile))
+
     def test_magazine_profile_with_vertical_reversal_is_not_ready(self):
         profile = _profile(
             confidence=0.95,

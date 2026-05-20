@@ -164,6 +164,7 @@ The current host keeps the integration conservative:
 
 - if `RECOIL_PROFILE_DIR` and `RECOIL_RECOGNIZER_STATE_PATH` are both available, the host builds a `RecoilSidecarService` client and enables profile-driven recoil
 - if those paths are not configured, the host keeps the fixed fallback configured under `[gamepad.recoil]` (default `amount = 0.20`)
+- low `confidence` is kept as a diagnostic for magazine-curve profiles, but it does not block runtime use by itself
 - missing calibration keeps magazine-curve profiles out of runtime-ready playback
 - lower `[gamepad.recoil].amount` only after the recording audit and calibration are known good
 

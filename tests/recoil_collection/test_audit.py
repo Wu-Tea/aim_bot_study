@@ -56,6 +56,36 @@ class RecoilAuditTests(unittest.TestCase):
         self.assertIn("vertical_direction_reversal", findings)
         self.assertFalse(report.profiles[0].runtime_ready)
 
+    def test_audit_does_not_block_supported_magazine_profile_on_confidence_only(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            profile = _profile(
+                profile_id="profile-cod22-m4-ads-standing-current",
+                samples_y=(0.0, 8.0, 16.0, 24.0),
+            )
+            profile = RecoilProfileRecord(
+                **{
+                    **profile.to_dict(),
+                    "confidence": 0.24,
+                    "burst_count": 3,
+                    "support_counts": [3, 3, 3, 3],
+                    "fit_summary": {
+                        "episode_count": 4.0,
+                        "accepted_episode_count": 3.0,
+                        "vertical_direction_reversal": 0.0,
+                    },
+                }
+            )
+            (root / f"{profile.profile_id}.json").write_text(
+                __import__("json").dumps(profile.to_dict(), ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+            report = audit_recoil_profile_directory(root)
+
+        self.assertEqual(report.profiles[0].findings, ())
+        self.assertTrue(report.profiles[0].runtime_ready)
+
 
 if __name__ == "__main__":
     unittest.main()

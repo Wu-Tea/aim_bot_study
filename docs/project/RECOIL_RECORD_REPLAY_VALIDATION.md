@@ -17,6 +17,7 @@ Validate one weapon and one aim mode before trusting runtime compensation.
 - `accepted_episode_count >= 2`
 - `support_below_min` absent
 - `vertical_direction_reversal` absent
+- `confidence` is diagnostic only for magazine curves; low confidence alone does not block trial playback
 - recoil and timeline plots show a stable curve, not a large recovery tail
 - calibration file exists for the same game and aim mode
 

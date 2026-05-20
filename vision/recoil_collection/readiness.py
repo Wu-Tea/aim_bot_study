@@ -27,9 +27,9 @@ def profile_readiness_reason(
     min_confidence: float = DEFAULT_MIN_ACTIVE_PROFILE_CONFIDENCE,
     min_magazine_support: int = DEFAULT_MIN_MAGAZINE_SUPPORT,
 ) -> str | None:
-    if profile.confidence < float(min_confidence):
-        return "confidence_below_min"
     if profile.profile_type != "magazine_curve_v1":
+        if profile.confidence < float(min_confidence):
+            return "confidence_below_min"
         return None
 
     required_support = max(1, int(min_magazine_support))

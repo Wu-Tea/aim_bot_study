@@ -313,8 +313,8 @@ class RecoilProfileStoreTests(unittest.TestCase):
                         "profile_id": "profile-cod22-m4-ads-standing-low-confidence-v1",
                         "aim_mode": "ads",
                         "profile_type": "magazine_curve_v1",
-                        "ready": False,
-                        "reason": "confidence_below_min",
+                        "ready": True,
+                        "reason": "ready",
                         "confidence": 0.12,
                         "burst_count": 5,
                         "accepted_episode_count": 5.0,
@@ -397,10 +397,10 @@ class RecoilRuntimeTests(unittest.TestCase):
             )
 
             payload = json.loads(state_path.read_text(encoding="utf-8"))
-            self.assertEqual(payload["profile_status"], "no_ready_profile:confidence_below_min")
+            self.assertEqual(payload["profile_status"], "no_ready_profile:calibration_missing")
             self.assertEqual(payload["active_profile_ids"], [])
-            self.assertEqual(payload["profile_candidates"][0]["reason"], "confidence_below_min")
-            self.assertIn("reason=no_ready_profile:confidence_below_min", printed.getvalue())
+            self.assertEqual(payload["profile_candidates"][0]["reason"], "calibration_missing")
+            self.assertIn("reason=no_ready_profile:calibration_missing", printed.getvalue())
 
     def test_publish_state_refreshes_active_profile_ids_from_profile_store(self):
         runtime = _load_runtime_module()
@@ -508,7 +508,7 @@ class RecoilRuntimeTests(unittest.TestCase):
 
             output = printed.getvalue()
             self.assertIn("ready_modes=ads", output)
-            self.assertIn("unready_modes=hipfire:confidence_below_min", output)
+            self.assertIn("unready_modes=hipfire:accepted_episodes_below_min", output)
 
     def test_recoil_mode_reports_profile_unready_when_calibration_is_missing(self):
         runtime = _load_runtime_module()
