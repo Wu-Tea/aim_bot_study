@@ -366,9 +366,9 @@ class RecoilRuntimeTests(unittest.TestCase):
                     aim_mode="ads",
                     confidence=0.08,
                     profile_type="magazine_curve_v1",
-                    burst_count=5,
-                    support_counts=(5, 5, 5),
-                    fit_summary={"accepted_episode_count": 5.0},
+                    burst_count=1,
+                    support_counts=(1, 1, 1),
+                    fit_summary={"accepted_episode_count": 1.0},
                 )
             )
             printed = io.StringIO()
@@ -397,10 +397,10 @@ class RecoilRuntimeTests(unittest.TestCase):
             )
 
             payload = json.loads(state_path.read_text(encoding="utf-8"))
-            self.assertEqual(payload["profile_status"], "no_ready_profile:calibration_missing")
+            self.assertEqual(payload["profile_status"], "no_ready_profile:accepted_episodes_below_min")
             self.assertEqual(payload["active_profile_ids"], [])
-            self.assertEqual(payload["profile_candidates"][0]["reason"], "calibration_missing")
-            self.assertIn("reason=no_ready_profile:calibration_missing", printed.getvalue())
+            self.assertEqual(payload["profile_candidates"][0]["reason"], "accepted_episodes_below_min")
+            self.assertIn("reason=no_ready_profile:accepted_episodes_below_min", printed.getvalue())
 
     def test_publish_state_refreshes_active_profile_ids_from_profile_store(self):
         runtime = _load_runtime_module()
@@ -510,24 +510,23 @@ class RecoilRuntimeTests(unittest.TestCase):
             self.assertIn("ready_modes=ads", output)
             self.assertIn("unready_modes=hipfire:accepted_episodes_below_min", output)
 
-    def test_recoil_mode_reports_profile_unready_when_calibration_is_missing(self):
+    def test_recoil_mode_allows_uncalibrated_profile_trial_when_calibration_is_missing(self):
         runtime = _load_runtime_module()
 
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
             profile_store = runtime.RecoilProfileStore(temp_path / "profiles")
-            profile_store.upsert(
-                _profile_record(
-                    profile_id="profile-cod22-m4-ads-standing-current",
-                    canonical_weapon_id="cod22-m4",
-                    aim_mode="ads",
-                    confidence=0.95,
-                    profile_type="magazine_curve_v1",
-                    burst_count=2,
-                    support_counts=(2, 2, 2),
-                    fit_summary={"accepted_episode_count": 2.0},
-                )
+            profile = _profile_record(
+                profile_id="profile-cod22-m4-ads-standing-current",
+                canonical_weapon_id="cod22-m4",
+                aim_mode="ads",
+                confidence=0.95,
+                profile_type="magazine_curve_v1",
+                burst_count=2,
+                support_counts=(2, 2, 2),
+                fit_summary={"accepted_episode_count": 2.0},
             )
+            profile_store.upsert(profile)
             state_path = temp_path / "current_weapon.json"
             recoil_runtime = runtime.RecoilRuntime(
                 game="cod22",
@@ -553,10 +552,13 @@ class RecoilRuntimeTests(unittest.TestCase):
             )
 
             payload = json.loads(state_path.read_text(encoding="utf-8"))
+            active_profile = recoil_runtime.get_active_profile(aim_mode="ads")
 
-        self.assertIsNone(recoil_runtime.get_active_profile(aim_mode="ads"))
-        self.assertEqual(payload["profile_status"], "no_ready_profile:calibration_missing")
-        self.assertEqual(payload["profile_candidates"][0]["reason"], "calibration_missing")
+        self.assertEqual(active_profile.profile_id, profile.profile_id)
+        self.assertEqual(payload["profile_status"], "ready_profile")
+        self.assertEqual(payload["active_profile_ids"], [profile.profile_id])
+        self.assertFalse(payload["profile_candidates"][0]["calibration_available"])
+        self.assertEqual(payload["profile_candidates"][0]["reason"], "ready")
 
     def test_recoil_mode_returns_profile_bundle_when_calibration_exists(self):
         runtime = _load_runtime_module()

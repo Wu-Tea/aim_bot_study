@@ -458,7 +458,7 @@ class RecoilRuntime:
             return profile
         calibration = self._load_calibration(aim_mode=aim_mode, stance=stance)
         if calibration is None:
-            return None
+            return profile
         return profile, calibration
 
     def _has_calibration(self, *, aim_mode: str, stance: str = "standing") -> bool:
@@ -726,9 +726,6 @@ class RecoilRuntime:
                 has_calibration = self._has_calibration(aim_mode=aim_mode, stance=stance)
                 runtime_status["calibration_available"] = has_calibration
                 runtime_status["calibration_path"] = str(self.calibration_dir / f"{self.game}-{aim_mode}-{stance}.json")
-                if runtime_status.get("ready") and not has_calibration:
-                    runtime_status["ready"] = False
-                    runtime_status["reason"] = "calibration_missing"
             statuses.append(runtime_status)
         return tuple(statuses)
 
@@ -978,7 +975,13 @@ def _profile_mode_status_label(profile_statuses: Iterable[Mapping[str, Any]]) ->
     for status in profile_statuses:
         aim_mode = str(status.get("aim_mode") or "unknown")
         if status.get("ready"):
-            ready_modes.append(aim_mode)
+            calibration_label = ""
+            if (
+                status.get("profile_type") == "magazine_curve_v1"
+                and status.get("calibration_available") is False
+            ):
+                calibration_label = ":uncalibrated"
+            ready_modes.append(f"{aim_mode}{calibration_label}")
         else:
             reason = str(status.get("reason") or "unknown")
             unready_modes.append(f"{aim_mode}:{reason}")

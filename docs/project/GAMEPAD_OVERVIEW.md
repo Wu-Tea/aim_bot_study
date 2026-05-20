@@ -156,7 +156,7 @@ The profile-driven path:
   - the newer in-process `recoil_app` bridge
   - or the older runtime recoil sidecar contract
 - advances the curve only while `auto_fire_active` or manual `RT/RB` fire input is active
-- treats stored recoil samples as collector screen-response curves and maps per-sample recoil deltas through the matching game/aim/stance calibration file
+- treats stored recoil samples as collector screen-response curves; when a matching game/aim/stance calibration exists, per-sample recoil deltas use that measured mapping, otherwise playback uses the older uncalibrated pixel-to-stick mapping for trial use
 - scales both profile output and fixed fallback output through `[gamepad.recoil].amount`
 - resets playback when firing stops, the active weapon profile changes, or the sidecar falls out of `ready`
 
@@ -165,8 +165,8 @@ The current host keeps the integration conservative:
 - if `RECOIL_PROFILE_DIR` and `RECOIL_RECOGNIZER_STATE_PATH` are both available, the host builds a `RecoilSidecarService` client and enables profile-driven recoil
 - if those paths are not configured, the host keeps the fixed fallback configured under `[gamepad.recoil]` (default `amount = 0.20`)
 - low `confidence` is kept as a diagnostic for magazine-curve profiles, but it does not block runtime use by itself
-- missing calibration keeps magazine-curve profiles out of runtime-ready playback
-- lower `[gamepad.recoil].amount` only after the recording audit and calibration are known good
+- missing calibration no longer blocks magazine-curve trial playback, but logs/status will mark that ready mode as uncalibrated
+- lower `[gamepad.recoil].amount` if the uncalibrated profile trial is too strong, then replace it with measured calibration when available
 
 The current host now supports a deliberately narrow recoil-recognition shortcut for direct use:
 

@@ -19,12 +19,12 @@ Validate one weapon and one aim mode before trusting runtime compensation.
 - `vertical_direction_reversal` absent
 - `confidence` is diagnostic only for magazine curves; low confidence alone does not block trial playback
 - recoil and timeline plots show a stable curve, not a large recovery tail
-- calibration file exists for the same game and aim mode
+- calibration file exists for the same game and aim mode for measured playback; without it, profile playback can still be trialed with the uncalibrated mapping
 
 ## Replay
 
 1. Start `gamepad_start.bat` with recoil runtime enabled.
-2. Confirm startup logs show the selected profile and calibration.
+2. Confirm startup logs show the selected profile. If logs show `uncalibrated`, treat the first replay as a strength/direction smoke test.
 3. Fire a magazine without touching the right stick.
 4. Record residual impact trail.
 
@@ -33,4 +33,5 @@ Validate one weapon and one aim mode before trusting runtime compensation.
 - No profile selected: inspect readiness reasons in `[Recoil]` logs.
 - Profile selected but view dives: calibration scale is wrong.
 - Profile selected but weapon still climbs: profile curve is too small or calibration underestimates stick response.
+- Profile selected with `uncalibrated` in the log: adjust `[gamepad.recoil].amount` carefully or capture a measured calibration.
 - Profile curve looks jagged or sign-reversing: discard the recording set and re-record.
