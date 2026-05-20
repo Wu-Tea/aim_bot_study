@@ -169,6 +169,30 @@ class RecoilCompensationPluginTests(unittest.TestCase):
         self.assertEqual(second.right_x, 118)
         self.assertEqual(second.right_y, -213)
 
+    def test_profile_playback_requires_calibration_when_provider_returns_profile_bundle(self):
+        from vision.recoil_collection.calibration import RecoilControlCalibration
+
+        calibration = RecoilControlCalibration(
+            game="cod22",
+            aim_mode="ads",
+            stance="standing",
+            pixels_per_full_stick_x_per_second=500.0,
+            pixels_per_full_stick_y_per_second=1000.0,
+            created_at="2026-05-20T00:00:00Z",
+        )
+        plugin = RecoilCompensationPlugin(
+            RecoilCompensationConfig(amount=1.0),
+            profile_provider=lambda _frame: (_profile(samples_y=(0.0, 10.0)), calibration),
+        )
+
+        first = GamepadOutput(right_y=0, auto_fire_active=True)
+        plugin.apply(_frame(timestamp=1.00), first)
+        second = GamepadOutput(right_y=0, auto_fire_active=True)
+        plugin.apply(_frame(timestamp=1.01), second)
+
+        self.assertEqual(first.right_y, 0)
+        self.assertEqual(second.right_y, -32767)
+
     def test_profile_selection_logger_reports_active_aim_mode_when_firing(self):
         logs = []
         plugin = RecoilCompensationPlugin(

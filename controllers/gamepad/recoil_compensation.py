@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from vision.recoil_collection.calibration import RecoilControlCalibration
+from vision.recoil_collection.calibration import stick_from_pixels
 from vision.recoil_collection.models import RecoilProfileRecord
 
 from .state import GamepadFrame, GamepadOutput
@@ -24,7 +26,11 @@ class RecoilCompensationPlugin:
         self,
         config: RecoilCompensationConfig | None = None,
         *,
-        profile_provider: Callable[[GamepadFrame], RecoilProfileRecord | None] | None = None,
+        profile_provider: Callable[
+            [GamepadFrame],
+            RecoilProfileRecord | tuple[RecoilProfileRecord | None, RecoilControlCalibration | None] | None,
+        ]
+        | None = None,
         profile_selection_logger: Callable[[str], None] | None = None,
     ):
         self.config = config or RecoilCompensationConfig()
@@ -45,7 +51,7 @@ class RecoilCompensationPlugin:
                 output.right_y -= int(self.config.amount * 32767)
             return
 
-        profile = self._profile_provider(frame)
+        profile, calibration = _coerce_profile_result(self._profile_provider(frame))
         if profile is None:
             self.reset()
             if fire_active:
@@ -66,13 +72,40 @@ class RecoilCompensationPlugin:
         if self._active_fire_started_at is None:
             self._active_fire_started_at = float(frame.timestamp)
 
+        elapsed_ms = max(0, int(round((float(frame.timestamp) - self._active_fire_started_at) * 1000.0)))
         cumulative_pixels_x, cumulative_pixels_y = _cumulative_profile_values(
             profile,
-            elapsed_ms=max(0, int(round((float(frame.timestamp) - self._active_fire_started_at) * 1000.0))),
+            elapsed_ms=elapsed_ms,
         )
         anti_recoil_scale = float(self.config.amount)
-        anti_recoil_stick_x = _map_pixels_to_stick(-cumulative_pixels_x, config=self.config) * anti_recoil_scale
-        anti_recoil_stick_y = _map_pixels_to_stick(-cumulative_pixels_y, config=self.config) * anti_recoil_scale
+        if calibration is not None:
+            previous_pixels_x, previous_pixels_y = _cumulative_profile_values(
+                profile,
+                elapsed_ms=max(0, elapsed_ms - profile.sample_interval_ms),
+            )
+            delta_x = cumulative_pixels_x - previous_pixels_x
+            delta_y = cumulative_pixels_y - previous_pixels_y
+            anti_recoil_stick_x = (
+                stick_from_pixels(
+                    -delta_x,
+                    axis="x",
+                    duration_ms=profile.sample_interval_ms,
+                    calibration=calibration,
+                )
+                * anti_recoil_scale
+            )
+            anti_recoil_stick_y = (
+                stick_from_pixels(
+                    -delta_y,
+                    axis="y",
+                    duration_ms=profile.sample_interval_ms,
+                    calibration=calibration,
+                )
+                * anti_recoil_scale
+            )
+        else:
+            anti_recoil_stick_x = _map_pixels_to_stick(-cumulative_pixels_x, config=self.config) * anti_recoil_scale
+            anti_recoil_stick_y = _map_pixels_to_stick(-cumulative_pixels_y, config=self.config) * anti_recoil_scale
         if anti_recoil_stick_x:
             output.right_x += int(round(anti_recoil_stick_x))
         if anti_recoil_stick_y:
@@ -97,6 +130,16 @@ class RecoilCompensationPlugin:
             f"[Recoil] active_profile aim={aim_mode} profile={profile.profile_id} "
             f"confidence={profile.confidence:.3f}"
         )
+
+
+def _coerce_profile_result(
+    value: RecoilProfileRecord | tuple[RecoilProfileRecord | None, RecoilControlCalibration | None] | None,
+) -> tuple[RecoilProfileRecord | None, RecoilControlCalibration | None]:
+    if value is None:
+        return None, None
+    if isinstance(value, tuple) and len(value) == 2:
+        return value[0], value[1]
+    return value, None
 
 
 def _cumulative_profile_values(profile: RecoilProfileRecord, *, elapsed_ms: int) -> tuple[float, float]:
