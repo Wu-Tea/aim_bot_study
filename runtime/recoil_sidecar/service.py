@@ -7,6 +7,7 @@ from typing import Any
 from typing import Mapping
 from typing import TextIO
 
+from vision.recoil_collection.calibration import load_calibration
 from vision.recoil_collection.models import RecoilProfileRecord
 from vision.recoil_collection.readiness import is_profile_ready_for_compensation
 
@@ -24,10 +25,12 @@ class RecoilSidecarService:
         self,
         *,
         profile_dir: str | PathLike[str],
+        calibration_dir: str | PathLike[str] | None = None,
         recognizer_state_path: str | PathLike[str] | None = None,
         ready_identity_threshold: float = _READY_IDENTITY_THRESHOLD,
     ) -> None:
         self.profile_dir = Path(profile_dir)
+        self.calibration_dir = Path(calibration_dir) if calibration_dir is not None else self.profile_dir.parent / "recoil_calibration"
         self.recognizer_state_path = Path(recognizer_state_path) if recognizer_state_path is not None else None
         self.ready_identity_threshold = _require_confidence(
             ready_identity_threshold,
@@ -75,6 +78,7 @@ class RecoilSidecarService:
             and profile.stance == runtime_context.stance
             and (runtime_context.aim_mode is None or profile.aim_mode == runtime_context.aim_mode)
             and is_profile_ready_for_compensation(profile)
+            and self._has_required_calibration(profile)
         ]
         return tuple(sorted(matches, key=lambda profile: (-profile.confidence, profile.profile_id)))
 
@@ -145,6 +149,18 @@ class RecoilSidecarService:
             return profiles
         hinted_profiles = tuple(profile for profile in profiles if profile.profile_id in profile_ids)
         return hinted_profiles or profiles
+
+    def _has_required_calibration(self, profile: RecoilProfileRecord) -> bool:
+        if profile.profile_type != "magazine_curve_v1":
+            return True
+        path = self.calibration_dir / f"{profile.game}-{profile.aim_mode}-{profile.stance}.json"
+        if not path.is_file():
+            return False
+        try:
+            load_calibration(path)
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
+            return False
+        return True
 
 
 def _coerce_recognizer_state(value: RecognizerState) -> RecognizerState:

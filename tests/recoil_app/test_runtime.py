@@ -420,6 +420,7 @@ class RecoilRuntimeTests(unittest.TestCase):
             )
             profile_store = runtime.RecoilProfileStore(temp_path / "profiles")
             profile_store.upsert(profile)
+            _write_calibration(temp_path / "recoil_calibration", aim_mode="ads")
             recoil_runtime = runtime.RecoilRuntime(
                 game="cod22",
                 mode="recoil",
@@ -479,6 +480,7 @@ class RecoilRuntimeTests(unittest.TestCase):
                     fit_summary={"accepted_episode_count": 1.0},
                 )
             )
+            _write_calibration(temp_path / "recoil_calibration", aim_mode="ads")
             printed = io.StringIO()
             recoil_runtime = runtime.RecoilRuntime(
                 game="cod22",
@@ -507,6 +509,102 @@ class RecoilRuntimeTests(unittest.TestCase):
             output = printed.getvalue()
             self.assertIn("ready_modes=ads", output)
             self.assertIn("unready_modes=hipfire:confidence_below_min", output)
+
+    def test_recoil_mode_reports_profile_unready_when_calibration_is_missing(self):
+        runtime = _load_runtime_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            profile_store = runtime.RecoilProfileStore(temp_path / "profiles")
+            profile_store.upsert(
+                _profile_record(
+                    profile_id="profile-cod22-m4-ads-standing-current",
+                    canonical_weapon_id="cod22-m4",
+                    aim_mode="ads",
+                    confidence=0.95,
+                    profile_type="magazine_curve_v1",
+                    burst_count=2,
+                    support_counts=(2, 2, 2),
+                    fit_summary={"accepted_episode_count": 2.0},
+                )
+            )
+            state_path = temp_path / "current_weapon.json"
+            recoil_runtime = runtime.RecoilRuntime(
+                game="cod22",
+                mode="recoil",
+                identity_store=runtime.IdentityStore(temp_path / "identities"),
+                profile_store=profile_store,
+                state_path=state_path,
+                stdout=io.StringIO(),
+            )
+            recoil_runtime.complete_switch_resolution(
+                slot_index=0,
+                switch_epoch=0,
+                state=RecognizerState(
+                    game="cod22",
+                    canonical_weapon_id="cod22-m4",
+                    confidence=0.95,
+                    source="switch_text",
+                    timestamp="2026-05-20T00:00:00Z",
+                    degraded=False,
+                    matched_name="M4",
+                    profile_ids=(),
+                ),
+            )
+
+            payload = json.loads(state_path.read_text(encoding="utf-8"))
+
+        self.assertIsNone(recoil_runtime.get_active_profile(aim_mode="ads"))
+        self.assertEqual(payload["profile_status"], "no_ready_profile:calibration_missing")
+        self.assertEqual(payload["profile_candidates"][0]["reason"], "calibration_missing")
+
+    def test_recoil_mode_returns_profile_bundle_when_calibration_exists(self):
+        runtime = _load_runtime_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            profile_store = runtime.RecoilProfileStore(temp_path / "profiles")
+            profile = _profile_record(
+                profile_id="profile-cod22-m4-ads-standing-current",
+                canonical_weapon_id="cod22-m4",
+                aim_mode="ads",
+                confidence=0.95,
+                profile_type="magazine_curve_v1",
+                burst_count=2,
+                support_counts=(2, 2, 2),
+                fit_summary={"accepted_episode_count": 2.0},
+            )
+            profile_store.upsert(profile)
+            calibration_dir = temp_path / "recoil_calibration"
+            _write_calibration(calibration_dir, aim_mode="ads")
+            recoil_runtime = runtime.RecoilRuntime(
+                game="cod22",
+                mode="recoil",
+                identity_store=runtime.IdentityStore(temp_path / "identities"),
+                profile_store=profile_store,
+                calibration_dir=calibration_dir,
+                stdout=io.StringIO(),
+            )
+            recoil_runtime.complete_switch_resolution(
+                slot_index=0,
+                switch_epoch=0,
+                state=RecognizerState(
+                    game="cod22",
+                    canonical_weapon_id="cod22-m4",
+                    confidence=0.95,
+                    source="switch_text",
+                    timestamp="2026-05-20T00:00:00Z",
+                    degraded=False,
+                    matched_name="M4",
+                    profile_ids=(),
+                ),
+            )
+
+            active_profile, calibration = recoil_runtime.get_active_profile(aim_mode="ads")
+
+        self.assertEqual(active_profile.profile_id, profile.profile_id)
+        self.assertEqual(calibration.game, "cod22")
+        self.assertEqual(calibration.aim_mode, "ads")
 
     def test_fire_rising_edge_starts_learning_only_when_profile_is_missing(self):
         runtime = _load_runtime_module()
@@ -1454,6 +1552,23 @@ def _burst_series_from_y_values(
             for index, value in enumerate(y_values)
         ),
         sample_count=len(y_values),
+    )
+
+
+def _write_calibration(root: Path, *, aim_mode: str) -> None:
+    from vision.recoil_collection.calibration import RecoilControlCalibration
+    from vision.recoil_collection.calibration import save_calibration
+
+    save_calibration(
+        root / f"cod22-{aim_mode}-standing.json",
+        RecoilControlCalibration(
+            game="cod22",
+            aim_mode=aim_mode,
+            stance="standing",
+            pixels_per_full_stick_x_per_second=500.0,
+            pixels_per_full_stick_y_per_second=1000.0,
+            created_at="2026-05-20T00:00:00Z",
+        ),
     )
 
 

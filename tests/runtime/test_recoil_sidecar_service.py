@@ -221,6 +221,44 @@ class RecoilSidecarServiceTests(unittest.TestCase):
             self.assertIsNone(active_profile.profile_confidence)
             self.assertEqual(active_profile.identity_confidence, 0.91)
 
+    def test_ready_magazine_profile_without_calibration_yields_unknown_sidecar_status(self):
+        service_module = _load_service_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            profile_dir = Path(temp_dir) / "profiles"
+            profile_dir.mkdir()
+            _write_profile(
+                profile_dir / "profile-cod22-m4-ads-standing-ready-v1.json",
+                _profile_record(
+                    profile_id="profile-cod22-m4-ads-standing-ready-v1",
+                    canonical_weapon_id="cod22-m4",
+                    game="cod22",
+                    aim_mode="ads",
+                    confidence=0.95,
+                    profile_type="magazine_curve_v1",
+                    burst_count=2,
+                    support_counts=(2, 2, 2, 2),
+                    fit_summary={"accepted_episode_count": 2.0},
+                ),
+            )
+            service = service_module.RecoilSidecarService(profile_dir=profile_dir)
+
+            active_profile = service.publish_active_profile(
+                _recognizer_payload(
+                    canonical_weapon_id="cod22-m4",
+                    confidence=0.91,
+                    degraded=False,
+                    profile_ids=["profile-cod22-m4-ads-standing-ready-v1"],
+                ),
+                context={"aim_mode": "ads"},
+            )
+
+            self.assertEqual(active_profile.status, "unknown")
+            self.assertEqual(active_profile.canonical_weapon_id, "cod22-m4")
+            self.assertIsNone(active_profile.profile_id)
+            self.assertIsNone(active_profile.profile_confidence)
+            self.assertEqual(active_profile.identity_confidence, 0.91)
+
     def test_malformed_recognizer_state_file_yields_unknown_sidecar_status(self):
         service_module = _load_service_module()
 

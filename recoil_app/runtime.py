@@ -34,6 +34,8 @@ from vision.weapon_identity.adapters import get_adapter
 from vision.weapon_identity.models import RecognitionEvent
 from vision.weapon_identity.text import extract_text_candidates
 from vision.weapon_identity.text import normalize_ocr_lines
+from vision.recoil_collection.calibration import RecoilControlCalibration
+from vision.recoil_collection.calibration import load_calibration
 
 
 @dataclass(slots=True, frozen=True)
@@ -42,6 +44,7 @@ class RecoilAppConfig:
     mode: str = "record"
     weapon_dir: str = "artifacts/recoil_app/weapons"
     profile_dir: str = "artifacts/recoil_profiles"
+    calibration_dir: str = "artifacts/recoil_calibration"
     state_path: str = "artifacts/recoil_app/current_weapon.json"
     plot_dir: str = "artifacts/recoil_plots"
     startup_delay_ms: tuple[int, ...] = (600, 760)
@@ -54,6 +57,7 @@ class RecoilAppConfig:
         object.__setattr__(self, "mode", mode)
         object.__setattr__(self, "weapon_dir", _require_non_empty_str(self.weapon_dir, "RecoilAppConfig.weapon_dir"))
         object.__setattr__(self, "profile_dir", _require_non_empty_str(self.profile_dir, "RecoilAppConfig.profile_dir"))
+        object.__setattr__(self, "calibration_dir", _require_non_empty_str(self.calibration_dir, "RecoilAppConfig.calibration_dir"))
         object.__setattr__(self, "state_path", _require_non_empty_str(self.state_path, "RecoilAppConfig.state_path"))
         object.__setattr__(self, "plot_dir", _require_non_empty_str(self.plot_dir, "RecoilAppConfig.plot_dir"))
         delays = tuple(_require_non_negative_int(value, "RecoilAppConfig.startup_delay_ms[]") for value in self.startup_delay_ms)
@@ -326,6 +330,7 @@ class RecoilRuntime:
         collector_config: RecoilCollectorConfig | None = None,
         switch_capture_delays_ms: tuple[int, ...] | None = None,
         motion_frame_grabber_factory: Callable[[], Any] | None = None,
+        calibration_dir: Path | str | None = None,
         stdout: TextIO | None = None,
     ) -> None:
         self.game = _require_non_empty_str(game, "game")
@@ -334,6 +339,11 @@ class RecoilRuntime:
             raise ValueError("mode must be one of ['record', 'recoil']")
         self.identity_store = identity_store
         self.profile_store = profile_store
+        self.calibration_dir = (
+            Path(calibration_dir)
+            if calibration_dir is not None
+            else self.profile_store.directory.parent / "recoil_calibration"
+        )
         self.state_path = Path(state_path) if state_path is not None else None
         self.plot_dir = Path(plot_dir) if plot_dir is not None else None
         if self.plot_dir is not None:
@@ -436,12 +446,37 @@ class RecoilRuntime:
         current_state = self.current_state
         if current_state is None:
             return None
-        return self.profile_store.get_best_profile(
+        profile = self.profile_store.get_best_profile(
             game=current_state.game,
             canonical_weapon_id=current_state.canonical_weapon_id,
             stance=stance,
             aim_mode=aim_mode,
         )
+        if profile is None:
+            return None
+        if profile.profile_type != "magazine_curve_v1":
+            return profile
+        calibration = self._load_calibration(aim_mode=aim_mode, stance=stance)
+        if calibration is None:
+            return None
+        return profile, calibration
+
+    def _has_calibration(self, *, aim_mode: str, stance: str = "standing") -> bool:
+        return self._load_calibration(aim_mode=aim_mode, stance=stance) is not None
+
+    def _load_calibration(
+        self,
+        *,
+        aim_mode: str,
+        stance: str = "standing",
+    ) -> RecoilControlCalibration | None:
+        path = self.calibration_dir / f"{self.game}-{aim_mode}-{stance}.json"
+        if not path.is_file():
+            return None
+        try:
+            return load_calibration(path)
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
+            return None
 
     def _run_switch_capture(self, *, slot_index: int, switch_epoch: int) -> None:
         try:
@@ -668,20 +703,35 @@ class RecoilRuntime:
 
         return _sample
 
+    def _runtime_profile_statuses_for_weapon(
+        self,
+        *,
+        game: str,
+        canonical_weapon_id: str,
+        stance: str = "standing",
+    ) -> tuple[dict[str, Any], ...]:
+        statuses: list[dict[str, Any]] = []
+        for status in self.profile_store.profile_statuses_for_weapon(
+            game=game,
+            canonical_weapon_id=canonical_weapon_id,
+            stance=stance,
+        ):
+            runtime_status = dict(status)
+            if runtime_status.get("profile_type") == "magazine_curve_v1":
+                aim_mode = str(runtime_status.get("aim_mode") or "")
+                has_calibration = self._has_calibration(aim_mode=aim_mode, stance=stance)
+                runtime_status["calibration_available"] = has_calibration
+                runtime_status["calibration_path"] = str(self.calibration_dir / f"{self.game}-{aim_mode}-{stance}.json")
+                if runtime_status.get("ready") and not has_calibration:
+                    runtime_status["ready"] = False
+                    runtime_status["reason"] = "calibration_missing"
+            statuses.append(runtime_status)
+        return tuple(statuses)
+
     def _publish_state(self, state: RecognizerState, *, source: str) -> None:
-        profile_ads = self.profile_store.get_best_profile(
-            game=state.game,
-            canonical_weapon_id=state.canonical_weapon_id,
-            stance="standing",
-            aim_mode="ads",
-        )
-        profile_hip = self.profile_store.get_best_profile(
-            game=state.game,
-            canonical_weapon_id=state.canonical_weapon_id,
-            stance="standing",
-            aim_mode="hipfire",
-        )
-        profile_statuses = self.profile_store.profile_statuses_for_weapon(
+        profile_ads = self.get_active_profile(aim_mode="ads", stance="standing")
+        profile_hip = self.get_active_profile(aim_mode="hipfire", stance="standing")
+        profile_statuses = self._runtime_profile_statuses_for_weapon(
             game=state.game,
             canonical_weapon_id=state.canonical_weapon_id,
             stance="standing",
@@ -844,6 +894,7 @@ class GamepadRecoilBridge:
                 os.environ.get("RECOIL_SIGNATURE_DIR", str(root / "artifacts" / "recoil_app" / "weapons")),
             ),
             profile_dir=os.environ.get("RECOIL_PROFILE_DIR", str(root / "artifacts" / "recoil_profiles")),
+            calibration_dir=os.environ.get("RECOIL_CALIBRATION_DIR", str(root / "artifacts" / "recoil_calibration")),
             state_path=os.environ.get(
                 "RECOIL_STATE_PATH",
                 str(Path(os.environ.get("RECOIL_STATE_DIR", str(root / "artifacts" / "recoil_app"))) / "current_weapon.json"),
@@ -855,6 +906,7 @@ class GamepadRecoilBridge:
             mode=defaults.mode,
             identity_store=IdentityStore(Path(defaults.weapon_dir)),
             profile_store=RecoilProfileStore(Path(defaults.profile_dir)),
+            calibration_dir=Path(defaults.calibration_dir),
             state_path=Path(defaults.state_path),
             plot_dir=Path(defaults.plot_dir),
             switch_capture_delays_ms=defaults.startup_delay_ms,
