@@ -965,6 +965,7 @@ class RecoilRuntimeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
             plot_dir = temp_path / "plots"
+            printed = io.StringIO()
             recoil_runtime = runtime.RecoilRuntime(
                 game="cod22",
                 identity_store=runtime.IdentityStore(temp_path / "identities"),
@@ -976,6 +977,7 @@ class RecoilRuntimeTests(unittest.TestCase):
                     target_clean_bursts=1,
                 ),
                 timestamp_fn=lambda: "2026-05-06T18:00:00Z",
+                stdout=printed,
             )
             state = RecognizerState(
                 game="cod22",
@@ -1000,7 +1002,10 @@ class RecoilRuntimeTests(unittest.TestCase):
             profile_id = "profile-cod22-m4-ads-standing-current"
             self.assertTrue((plot_dir / f"{profile_id}.recoil.png").exists())
             self.assertTrue((plot_dir / f"{profile_id}.anti_recoil.png").exists())
+            self.assertTrue((plot_dir / f"{profile_id}.timeline.png").exists())
             self.assertFalse((plot_dir / f"{profile_id}.png").exists())
+            self.assertIn("plot_written", printed.getvalue())
+            self.assertNotIn("learn_error", printed.getvalue())
 
     def test_learning_capture_writes_episode_fit_and_replay_plots(self):
         runtime = _load_runtime_module()

@@ -563,10 +563,14 @@ class RecoilRuntime:
             if profile.profile_type == "magazine_curve_v1":
                 self.profile_store.prune_superseded_profiles(profile)
             if self.plot_dir is not None:
-                recoil_plot_path, anti_recoil_plot_path = _write_profile_plots(self.plot_dir, profile)
+                plot_paths = _write_profile_plots(self.plot_dir, profile)
+                recoil_plot_path = plot_paths[0]
+                anti_recoil_plot_path = plot_paths[1]
+                timeline_plot_path = plot_paths[2] if len(plot_paths) > 2 else None
                 self._stdout.write(
                     f"[Recoil] plot_written recoil={recoil_plot_path} "
-                    f"anti_recoil={anti_recoil_plot_path}\n"
+                    f"anti_recoil={anti_recoil_plot_path} "
+                    f"timeline={timeline_plot_path}\n"
                 )
                 self._stdout.flush()
             self._publish_state(current_state, source="learned")
