@@ -766,6 +766,49 @@ class RecoilRuntimeTests(unittest.TestCase):
             self.assertEqual(tuple(sample.offset_ms for sample in loaded[0].samples), (0, 10, 20, 30, 40, 50, 60))
             self.assertEqual(tuple(sample.y for sample in loaded[0].samples), (0.0, -1.0, -2.0, -2.0, -2.0, -3.0, -4.0))
 
+    def test_magazine_episode_storage_includes_quality_diagnostics(self):
+        runtime = _load_runtime_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            recoil_runtime = runtime.RecoilRuntime(
+                game="cod22",
+                identity_store=runtime.IdentityStore(temp_path / "identities"),
+                profile_store=runtime.RecoilProfileStore(temp_path / "profiles"),
+                stdout=io.StringIO(),
+            )
+            state = RecognizerState(
+                game="cod22",
+                canonical_weapon_id="cod22-m4",
+                confidence=0.95,
+                source="switch_text",
+                timestamp="2026-05-20T00:00:00Z",
+                degraded=False,
+                matched_name="M4",
+                profile_ids=(),
+            )
+            series = _burst_series_from_y_values(
+                burst_id="session-a-burst-001",
+                session_id="session-a",
+                y_values=(0.0, -6.0, -8.0, 10.0),
+            )
+
+            recoil_runtime._save_magazine_episode_series(
+                current_state=state,
+                aim_mode="ads",
+                captured_at="2026-05-20T00:00:00Z",
+                burst_series=(series,),
+            )
+
+            episode_file = next((temp_path / "profiles" / "_episodes").glob("episode-*.json"))
+            payload = json.loads(episode_file.read_text(encoding="utf-8"))
+
+        self.assertIn("diagnostics", payload)
+        self.assertEqual(payload["diagnostics"]["sample_count"], 4)
+        self.assertEqual(payload["diagnostics"]["vertical_min"], -8.0)
+        self.assertEqual(payload["diagnostics"]["vertical_max"], 10.0)
+        self.assertIn("vertical_direction_reversal", payload["diagnostics"]["findings"])
+
     def test_load_magazine_episode_series_ignores_legacy_short_fragments_when_full_episodes_exist(self):
         runtime = _load_runtime_module()
 

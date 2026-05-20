@@ -584,6 +584,7 @@ class RecoilRuntime:
                 "captured_at": captured_at,
                 "series_index": index,
                 "burst_series": series.to_dict(),
+                "diagnostics": _episode_diagnostics(series),
             }
             digest = hashlib.sha1(
                 json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
@@ -1091,6 +1092,23 @@ def _episode_motion_magnitude(series: RecoilBurstSampleSeries) -> float:
         ((sample.x - first_sample.x) ** 2 + (sample.y - first_sample.y) ** 2) ** 0.5
         for sample in series.samples
     )
+
+
+def _episode_diagnostics(series: RecoilBurstSampleSeries) -> dict[str, object]:
+    xs = tuple(sample.x for sample in series.samples)
+    ys = tuple(sample.y for sample in series.samples)
+    findings: list[str] = []
+    if len(ys) >= 4 and min(ys) < -5.0 and max(ys) > 5.0:
+        findings.append("vertical_direction_reversal")
+    return {
+        "sample_count": series.sample_count,
+        "duration_ms": series.samples[-1].offset_ms if series.samples else 0,
+        "horizontal_min": min(xs) if xs else 0.0,
+        "horizontal_max": max(xs) if xs else 0.0,
+        "vertical_min": min(ys) if ys else 0.0,
+        "vertical_max": max(ys) if ys else 0.0,
+        "findings": findings,
+    }
 
 
 def _filter_plausible_magazine_episode_series(
