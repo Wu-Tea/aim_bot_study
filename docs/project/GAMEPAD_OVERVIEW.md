@@ -155,8 +155,8 @@ The profile-driven path:
 - reads the current active profile from either:
   - the newer in-process `recoil_app` bridge
   - or the older runtime recoil sidecar contract
-- advances the curve only while `auto_fire_active` is true
-- treats stored recoil samples as collector screen-response curves and maps them into absolute anti-recoil right-stick output
+- advances the curve only while `auto_fire_active` or manual `RT/RB` fire input is active
+- treats stored recoil samples as collector screen-response curves and maps per-sample recoil deltas through the matching game/aim/stance calibration file
 - scales both profile output and fixed fallback output through `[gamepad.recoil].amount`
 - resets playback when firing stops, the active weapon profile changes, or the sidecar falls out of `ready`
 
@@ -164,7 +164,8 @@ The current host keeps the integration conservative:
 
 - if `RECOIL_PROFILE_DIR` and `RECOIL_RECOGNIZER_STATE_PATH` are both available, the host builds a `RecoilSidecarService` client and enables profile-driven recoil
 - if those paths are not configured, the host keeps the fixed fallback configured under `[gamepad.recoil]` (default `amount = 0.20`)
-- lower `[gamepad.recoil].amount` when a recorded profile pulls the view down too hard; raise it when the weapon still climbs
+- missing calibration keeps magazine-curve profiles out of runtime-ready playback
+- lower `[gamepad.recoil].amount` only after the recording audit and calibration are known good
 
 The current host now supports a deliberately narrow recoil-recognition shortcut for direct use:
 
@@ -187,6 +188,8 @@ The new primary recoil path is `recoil_app`, which now supports two runtime mode
   - `[gamepad.recoil].amount`-scaled profile playback, with the same setting used for fixed fallback when no ready profile exists
 
 For the main AI-aim runtime, only `recoil` mode needs to be imported. You do not need to run a separate recoil sidecar process for normal use.
+
+Use `docs/project/RECOIL_RECORD_REPLAY_VALIDATION.md` as the current checklist before trusting a recorded profile for live gamepad recoil compensation.
 
 Recommended paths:
 
@@ -225,8 +228,8 @@ Runtime behavior in this direct-use path:
 - the main gamepad runtime refreshes the profile directory on lookup, so newly recorded profile files can be picked up without restarting `gamepad_start.bat`
 - repeated full-magazine recordings are kept as raw episodes under `artifacts/recoil_profiles/_episodes/`
 - the fitted profile exposed to runtime is a single `*-current.json` file per weapon, stance, and aim mode
-- recoil plots are written after each successful recording as final-profile trajectory images: `*.recoil.png` for measured recoil and `*.anti_recoil.png` for the inverse compensation path
-- successful recordings log a `[Recoil] plot_written ...` line with both plot paths
+- recoil plots are written after each successful recording as final-profile trajectory images: `*.recoil.png` for measured recoil, `*.anti_recoil.png` for the inverse compensation path, and `*.timeline.png` for recoil and anti-recoil on one time axis
+- successful recordings log a `[Recoil] plot_written ...` line with the generated plot paths
 - the recoil app writes the latest `current_weapon` JSON itself after successful `Y` recognition for observability
 - loaded weapon identities and profile records may stay indexed in memory, but `Y` switching always re-recognizes the current HUD weapon before selecting a profile
 - recoil may stay on fallback or no profile immediately after a switch until the new OCR capture confirms the current weapon
