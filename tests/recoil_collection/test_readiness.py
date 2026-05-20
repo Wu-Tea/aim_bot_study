@@ -65,15 +65,44 @@ class RecoilProfileReadinessTests(unittest.TestCase):
 
         self.assertEqual(profile_readiness_reason(profile), "vertical_direction_reversal")
 
+    def test_magazine_profile_with_large_vertical_recovery_tail_is_ready_for_trial_playback(self):
+        profile = _profile(
+            confidence=0.95,
+            profile_type="magazine_curve_v1",
+            burst_count=3,
+            samples_y=(0.0, 120.0, 300.0, 110.0),
+            support_counts=(3, 3, 3, 3),
+            fit_summary={"accepted_episode_count": 3.0},
+        )
+
+        self.assertTrue(is_profile_ready_for_compensation(profile))
+        self.assertIsNone(profile_readiness_reason(profile))
+
+    def test_magazine_profile_with_horizontal_episode_disagreement_is_not_ready(self):
+        profile = _profile(
+            confidence=0.95,
+            profile_type="magazine_curve_v1",
+            burst_count=3,
+            support_counts=(3, 3, 3),
+            fit_summary={
+                "accepted_episode_count": 3.0,
+                "horizontal_final_range": 220.0,
+            },
+        )
+
+        self.assertEqual(profile_readiness_reason(profile), "horizontal_episode_disagreement")
+
 
 def _profile(
     *,
     confidence: float,
     profile_type: str = "burst_average_v1",
     burst_count: int = 4,
+    samples_y: tuple[float, ...] = (0.0, -1.5, -3.0),
     support_counts: tuple[int, ...] = (),
     fit_summary: dict[str, float] | None = None,
 ) -> RecoilProfileRecord:
+    samples_x = tuple(0.0 for _ in samples_y)
     return RecoilProfileRecord(
         profile_id="profile-cod22-m4-ads-standing-v1",
         canonical_weapon_id="cod22-m4",
@@ -81,11 +110,11 @@ def _profile(
         stance="standing",
         aim_mode="ads",
         sample_interval_ms=10,
-        duration_ms=30,
+        duration_ms=len(samples_y) * 10,
         initial_delay_ms=0,
-        samples_x=(0.0, 0.0, 0.0),
-        samples_y=(0.0, -1.5, -3.0),
-        sample_count=3,
+        samples_x=samples_x,
+        samples_y=samples_y,
+        sample_count=len(samples_y),
         burst_count=burst_count,
         variance_summary={"horizontal_stddev": 0.1, "vertical_stddev": 0.2},
         confidence=confidence,

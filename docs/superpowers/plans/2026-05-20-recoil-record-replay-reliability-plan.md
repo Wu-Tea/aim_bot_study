@@ -1180,3 +1180,48 @@ Fix recoil_app record/replay reliability end to end: audit current recordings, p
 ## Scope Boundary
 
 Do not start with `gamepad.recoil.amount` or `config.toml` unless a test in this plan requires it. Configuration visibility is useful, but the priority is to prove that recording and replay are measuring and reproducing the same physical thing.
+
+---
+
+## Follow-up: Horizontal Replay Strength
+
+- [x] Inspect current `小动脉` ADS/hipfire profiles and confirm X motion is recorded but much smaller than Y motion.
+- [x] Add failing gamepad playback/config tests for an independent horizontal profile scale.
+- [x] Add `[gamepad.recoil].horizontal_profile_scale` so X profile compensation can be increased without raising vertical recoil pull.
+- [x] Update replay docs with left/right residual impact troubleshooting.
+- [x] Add `tools/dry_run_recoil_playback.py` to produce a repeatable profile-to-stick JSON replay report before live smoke testing.
+- [x] Split profile recoil strength from the first X feedback experiment with `[gamepad.recoil].feedback_amount` and `[gamepad.recoil].feedback_x_amount`; superseded below by the three-knob `profile_amount` / `profile_x_amount` / `feedback_amount` model.
+
+## Follow-up: Current Recording Trust Gate
+
+- [x] Inspect current `小动脉` ADS/hipfire artifacts and confirm the failure is in the recorded/fitted profile: both curves contain a large vertical recovery tail.
+- [x] Add failing readiness/audit tests for large vertical recovery tails and horizontal episode disagreement.
+- [x] Add magazine fit diagnostics for `vertical_recovery_tail`, `vertical_recovery_ratio`, `vertical_recovery_pixels`, and `horizontal_final_range`.
+- [x] Make readiness/audit reject current-style recovery-tail profiles before gamepad runtime can use them.
+- [x] Include audit diagnostics in `tools/audit_recoil_profiles.py` output so the reason is visible without live-fire retesting.
+- [x] Reset local `[gamepad.recoil].horizontal_profile_scale` to `0.0`; X correction should use per-sample feedback instead of cumulative X playback for right-left-right curves.
+
+## Follow-up: Per-Axis Feedback Tuning
+
+- [x] Add `[gamepad.recoil].feedback_y_amount` so vertical profile playback can be reduced without weakening X feedback; superseded below by `profile_amount`.
+- [x] Increase local `[gamepad.recoil].feedback_x_amount` from `1.00` to `1.35`; superseded below by `profile_x_amount`.
+- [x] Set local `[gamepad.recoil].feedback_y_amount = 0.80` to reduce vertical profile output by 20%; superseded below by `profile_amount`.
+- [x] Include `feedback_y_amount` in active-profile logs and dry-run JSON output; superseded below by the simplified three-knob logging/output.
+
+## Follow-up: Separate Profile And Feedback Coefficients
+
+- [x] Replace vertical profile scaling with `[gamepad.recoil].profile_amount`; the intermediate `[gamepad.recoil].amount` fixed fallback design is superseded below by `feedback_amount`.
+- [x] Remove `horizontal_profile_scale` from current gamepad recoil code, config loader, local config, and dry-run CLI/output.
+- [x] Remove `feedback_y_amount` from current gamepad recoil code, config loader, local config, and dry-run CLI/output.
+- [x] Keep X correction on per-sample delta only; the intermediate `feedback_amount * feedback_x_amount` design is superseded below by `profile_amount * profile_x_amount`.
+- [x] Migrate local vertical profile strength to `profile_amount = 0.25`, preserving the previous effective `amount * feedback_y_amount` behavior.
+
+## Follow-up: Simplified Runtime Coefficients
+
+- [x] Supersede the same-day `amount` / `feedback_x_amount` runtime design with three gamepad recoil knobs only.
+- [x] Use `[gamepad.recoil].profile_amount` as the normal recorded-profile strength for X and Y.
+- [x] Use `[gamepad.recoil].profile_x_amount` as the extra multiplier applied only to recorded profile X deltas.
+- [x] Use `[gamepad.recoil].feedback_amount` only as the fixed fallback down-pull when no ready profile is available.
+- [x] Remove `amount`, `feedback_x_amount`, `feedback_y_amount`, and `horizontal_profile_scale` from current gamepad recoil code, config loader, local config, dry-run CLI/output, and current docs.
+- [x] Treat `vertical_recovery_tail` as an audit warning instead of a runtime hard block so trial playback can use the user's three recoil knobs; this intermediate policy was superseded by removing all runtime profile-quality gates.
+- [x] Remove runtime profile-quality gates entirely: exact matching `game` / `canonical_weapon_id` / `stance` / `aim_mode` profiles are now used for trial playback regardless of accepted episode count, support count, confidence, vertical recovery/reversal, or horizontal disagreement. Keep those findings in audit/status only, and keep record mode's clean-profile check separate so low-support profiles can still be supplemented.

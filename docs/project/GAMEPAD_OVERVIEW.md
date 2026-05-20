@@ -1,6 +1,6 @@
 # Gamepad Overview
 
-Last updated: 2026-05-18
+Last updated: 2026-05-20
 
 ## Goal
 
@@ -157,16 +157,19 @@ The profile-driven path:
   - or the older runtime recoil sidecar contract
 - advances the curve only while `auto_fire_active` or manual `RT/RB` fire input is active
 - treats stored recoil samples as collector screen-response curves; when a matching game/aim/stance calibration exists, per-sample recoil deltas use that measured mapping, otherwise playback uses the older uncalibrated pixel-to-stick mapping for trial use
-- scales both profile output and fixed fallback output through `[gamepad.recoil].amount`
-- resets playback when firing stops, the active weapon profile changes, or the sidecar falls out of `ready`
+- scales profile playback with `[gamepad.recoil].profile_amount`
+- applies extra horizontal profile strength with `[gamepad.recoil].profile_x_amount`; X uses per-sample horizontal changes instead of amplifying the cumulative X curve
+- uses `[gamepad.recoil].feedback_amount` only as the fixed fallback down-pull when no matching profile is available
+- resets playback when firing stops or the active weapon profile changes or disappears
 
 The current host keeps the integration conservative:
 
 - if `RECOIL_PROFILE_DIR` and `RECOIL_RECOGNIZER_STATE_PATH` are both available, the host builds a `RecoilSidecarService` client and enables profile-driven recoil
-- if those paths are not configured, the host keeps the fixed fallback configured under `[gamepad.recoil]` (default `amount = 0.20`)
+- if those paths are not configured, the host keeps the fixed fallback configured under `[gamepad.recoil]` (default `feedback_amount = 0.20`)
 - low `confidence` is kept as a diagnostic for magazine-curve profiles, but it does not block runtime use by itself
+- magazine profile quality findings such as low support, recovery tail, or horizontal disagreement are audit/status diagnostics only; if the weapon id, stance, and aim mode match, runtime trial playback uses the profile
 - missing calibration no longer blocks magazine-curve trial playback, but logs/status will mark that ready mode as uncalibrated
-- lower `[gamepad.recoil].amount` if the uncalibrated profile trial is too strong, then replace it with measured calibration when available
+- lower `[gamepad.recoil].profile_amount` if the uncalibrated profile trial is too strong vertically; raise `[gamepad.recoil].profile_x_amount` if impacts still jump left/right, then replace trial mapping with measured calibration when available
 
 The current host now supports a deliberately narrow recoil-recognition shortcut for direct use:
 
@@ -186,7 +189,7 @@ The new primary recoil path is `recoil_app`, which now supports two runtime mode
 - `recoil`
   - `Y` switch recognition
   - in-memory cached profile lookup
-  - `[gamepad.recoil].amount`-scaled profile playback, with the same setting used for fixed fallback when no ready profile exists
+  - `[gamepad.recoil].profile_amount` / `profile_x_amount` profile playback, with `[gamepad.recoil].feedback_amount` used only for fixed fallback when no matching profile exists
 
 For the main AI-aim runtime, only `recoil` mode needs to be imported. You do not need to run a separate recoil sidecar process for normal use.
 
@@ -231,6 +234,7 @@ Runtime behavior in this direct-use path:
 - the fitted profile exposed to runtime is a single `*-current.json` file per weapon, stance, and aim mode
 - recoil plots are written after each successful recording as final-profile trajectory images: `*.recoil.png` for measured recoil, `*.anti_recoil.png` for the inverse compensation path, and `*.timeline.png` for recoil and anti-recoil on one time axis
 - successful recordings log a `[Recoil] plot_written ...` line with the generated plot paths
+- profile replay can be inspected without live gamepad output through `tools\dry_run_recoil_playback.py`, which prints the same plugin-derived `right_x`/`right_y` stick curve that runtime would apply
 - the recoil app writes the latest `current_weapon` JSON itself after successful `Y` recognition for observability
 - loaded weapon identities and profile records may stay indexed in memory, but `Y` switching always re-recognizes the current HUD weapon before selecting a profile
 - recoil may stay on fallback or no profile immediately after a switch until the new OCR capture confirms the current weapon

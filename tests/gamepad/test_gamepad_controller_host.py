@@ -154,7 +154,11 @@ class GamepadControllerHostTests(unittest.TestCase):
                 manual_takeover_release_seconds=0.040,
                 manual_takeover_resume_delay_seconds=0.095,
             ),
-            gamepad_recoil=RecoilCompensationConfig(amount=0.16),
+            gamepad_recoil=RecoilCompensationConfig(
+                profile_amount=0.16,
+                profile_x_amount=1.40,
+                feedback_amount=0.12,
+            ),
         )
 
         with patch.dict("os.environ", {}, clear=True), patch(
@@ -186,7 +190,9 @@ class GamepadControllerHostTests(unittest.TestCase):
         self.assertEqual(auto_fire.max_source_age_ms, 35.0)
         self.assertEqual(auto_fire.manual_takeover_release_seconds, 0.040)
         self.assertEqual(auto_fire.manual_takeover_resume_delay_seconds, 0.095)
-        self.assertEqual(recoil.amount, 0.16)
+        self.assertEqual(recoil.profile_amount, 0.16)
+        self.assertEqual(recoil.profile_x_amount, 1.40)
+        self.assertEqual(recoil.feedback_amount, 0.12)
 
     def test_handle_weapon_switch_button_delegates_to_recoil_app_bridge_when_present(self):
         controller = GamepadController.__new__(GamepadController)
@@ -605,9 +611,15 @@ class GamepadControllerHostTests(unittest.TestCase):
             {"stance": "standing", "aim_mode": "ads"},
         )
 
-    def test_get_active_recoil_profile_returns_none_when_sidecar_is_degraded(self):
+    def test_get_active_recoil_profile_uses_matching_profile_even_when_sidecar_status_is_degraded(self):
         controller = GamepadController.__new__(GamepadController)
         controller._recoil_app_bridge = None
+        degraded_profile = _profile_record(
+            profile_id="profile-cod22-m4-ads-standing-v1",
+            canonical_weapon_id="cod22-m4",
+            aim_mode="ads",
+            samples_y=(0.0, -80.0, -160.0),
+        )
         controller._recoil_sidecar_service = _FakeRecoilSidecarService(
             active_profile={
                 "canonical_weapon_id": "cod22-m4",
@@ -620,13 +632,24 @@ class GamepadControllerHostTests(unittest.TestCase):
                 "updated_at": "2026-05-06T12:00:00Z",
                 "status": "degraded",
             },
-            recognizer_state=None,
-            matching_profiles=[],
+            recognizer_state={
+                "type": "current_weapon",
+                "game": "cod22",
+                "canonical_weapon_id": "cod22-m4",
+                "confidence": 0.45,
+                "source": "carry_forward",
+                "timestamp": "2026-05-06T12:00:00Z",
+                "degraded": True,
+                "matched_name": None,
+                "profile_ids": ["profile-cod22-m4-ads-standing-v1"],
+            },
+            matching_profiles=[degraded_profile],
         )
 
         profile = GamepadController._get_active_recoil_profile(controller, is_aiming=True)
 
-        self.assertIsNone(profile)
+        self.assertIsNotNone(profile)
+        self.assertEqual(profile.profile_id, "profile-cod22-m4-ads-standing-v1")
 
     def test_get_active_recoil_profile_degrades_when_recognizer_state_read_raises(self):
         controller = GamepadController.__new__(GamepadController)

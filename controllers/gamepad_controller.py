@@ -323,7 +323,7 @@ class GamepadController(BaseController, threading.Thread):
                 return None
 
             payload = _coerce_active_profile_payload(service.publish_active_profile(recognizer_state, context=context))
-            if payload.status != "ready" or not payload.profile_id:
+            if not payload.profile_id:
                 self._recoil_profile_cache_key = None
                 self._recoil_profile_cache_value = None
                 return None

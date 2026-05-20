@@ -607,6 +607,77 @@ class ExtractRecoilProfileTests(unittest.TestCase):
         self.assertEqual(result.profile.fit_summary["vertical_direction_reversal"], 1.0)
         self.assertEqual(result.profile.fit_summary["vertical_peak_abs"], 10.5)
 
+    def test_magazine_fit_summary_flags_vertical_recovery_tail(self):
+        extraction = _load_extraction_module()
+        result = extraction.extract_magazine_recoil_profile(
+            session=_session(),
+            bursts=(
+                _series(
+                    burst_id="mag-recovery-a",
+                    start_offset_ms=0,
+                    sample_interval_ms=10,
+                    anchor_x=0.0,
+                    anchor_y=0.0,
+                    deltas_x=(0.0, 0.0, 0.0, 0.0),
+                    deltas_y=(0.0, 120.0, 300.0, 110.0),
+                ),
+                _series(
+                    burst_id="mag-recovery-b",
+                    start_offset_ms=2,
+                    sample_interval_ms=10,
+                    anchor_x=5.0,
+                    anchor_y=-3.0,
+                    deltas_x=(0.0, 0.0, 0.0, 0.0),
+                    deltas_y=(0.0, 118.0, 302.0, 112.0),
+                ),
+            ),
+            profile_id="profile-cod22-m4-ads-standing-recovery-tail",
+            created_at="2026-05-06T14:25:00Z",
+            config=extraction.RecoilExtractionConfig(
+                sample_interval_ms=10,
+                min_clean_bursts=2,
+                target_clean_bursts=2,
+            ),
+        )
+
+        self.assertEqual(result.profile.fit_summary["vertical_recovery_tail"], 1.0)
+        self.assertAlmostEqual(result.profile.fit_summary["vertical_recovery_ratio"], 111.0 / 301.0)
+
+    def test_magazine_fit_summary_reports_horizontal_episode_disagreement(self):
+        extraction = _load_extraction_module()
+        result = extraction.extract_magazine_recoil_profile(
+            session=_session(),
+            bursts=(
+                _series(
+                    burst_id="mag-right",
+                    start_offset_ms=0,
+                    sample_interval_ms=10,
+                    anchor_x=0.0,
+                    anchor_y=0.0,
+                    deltas_x=(0.0, 40.0, 80.0, 120.0),
+                    deltas_y=(0.0, 60.0, 120.0, 180.0),
+                ),
+                _series(
+                    burst_id="mag-left",
+                    start_offset_ms=3,
+                    sample_interval_ms=10,
+                    anchor_x=12.0,
+                    anchor_y=-4.0,
+                    deltas_x=(0.0, -40.0, -80.0, -120.0),
+                    deltas_y=(0.0, 62.0, 122.0, 182.0),
+                ),
+            ),
+            profile_id="profile-cod22-m4-ads-standing-horizontal-disagree",
+            created_at="2026-05-06T14:30:00Z",
+            config=extraction.RecoilExtractionConfig(
+                sample_interval_ms=10,
+                min_clean_bursts=2,
+                target_clean_bursts=2,
+            ),
+        )
+
+        self.assertEqual(result.profile.fit_summary["horizontal_final_range"], 240.0)
+
 
 def _load_extraction_fixture(name: str):
     fixture_payload = _load_raw_extraction_fixture(name)

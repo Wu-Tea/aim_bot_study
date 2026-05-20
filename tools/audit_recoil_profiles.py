@@ -28,6 +28,7 @@ def main(argv: list[str] | None = None) -> int:
                 "sample_count": profile.sample_count,
                 "duration_ms": profile.duration_ms,
                 "findings": list(profile.findings),
+                "diagnostics": profile.diagnostics,
                 "runtime_ready": profile.runtime_ready,
             }
             for profile in report.profiles

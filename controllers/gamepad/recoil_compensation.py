@@ -15,7 +15,9 @@ _MANUAL_FIRE_TRIGGER_THRESHOLD = 10
 
 @dataclass(slots=True, frozen=True)
 class RecoilCompensationConfig:
-    amount: float = 0.30
+    profile_amount: float = 1.0
+    feedback_amount: float = 0.30
+    profile_x_amount: float = 1.0
     piecewise_mid_pixels_y: float = 45.0
     piecewise_max_pixels_y: float = 180.0
     piecewise_mid_ratio_y: float = 0.65
@@ -47,8 +49,8 @@ class RecoilCompensationPlugin:
     def apply(self, frame: GamepadFrame, output: GamepadOutput) -> None:
         fire_active = output.auto_fire_active or _manual_fire_pressed(frame)
         if self._profile_provider is None:
-            if fire_active and self.config.amount != 0.0:
-                output.right_y -= int(self.config.amount * 32767)
+            if fire_active and self.config.feedback_amount != 0.0:
+                output.right_y -= int(self.config.feedback_amount * 32767)
             return
 
         profile, calibration = _coerce_profile_result(self._profile_provider(frame))
@@ -56,8 +58,8 @@ class RecoilCompensationPlugin:
             self.reset()
             if fire_active:
                 self._log_profile_selection(frame, None)
-            if fire_active and self.config.amount != 0.0:
-                output.right_y -= int(self.config.amount * 32767)
+            if fire_active and self.config.feedback_amount != 0.0:
+                output.right_y -= int(self.config.feedback_amount * 32767)
             return
 
         if self._active_profile_id != profile.profile_id:
@@ -77,23 +79,15 @@ class RecoilCompensationPlugin:
             profile,
             elapsed_ms=elapsed_ms,
         )
-        anti_recoil_scale = float(self.config.amount)
+        profile_scale = max(0.0, float(self.config.profile_amount))
+        profile_x_scale = profile_scale * max(0.0, float(self.config.profile_x_amount))
+        previous_pixels_x, previous_pixels_y = _cumulative_profile_values(
+            profile,
+            elapsed_ms=max(0, elapsed_ms - profile.sample_interval_ms),
+        )
+        delta_x = cumulative_pixels_x - previous_pixels_x
+        delta_y = cumulative_pixels_y - previous_pixels_y
         if calibration is not None:
-            previous_pixels_x, previous_pixels_y = _cumulative_profile_values(
-                profile,
-                elapsed_ms=max(0, elapsed_ms - profile.sample_interval_ms),
-            )
-            delta_x = cumulative_pixels_x - previous_pixels_x
-            delta_y = cumulative_pixels_y - previous_pixels_y
-            anti_recoil_stick_x = (
-                stick_from_pixels(
-                    -delta_x,
-                    axis="x",
-                    duration_ms=profile.sample_interval_ms,
-                    calibration=calibration,
-                )
-                * anti_recoil_scale
-            )
             anti_recoil_stick_y = (
                 stick_from_pixels(
                     -delta_y,
@@ -101,13 +95,25 @@ class RecoilCompensationPlugin:
                     duration_ms=profile.sample_interval_ms,
                     calibration=calibration,
                 )
-                * anti_recoil_scale
+                * profile_scale
+            )
+            profile_stick_x = (
+                stick_from_pixels(
+                    -delta_x,
+                    axis="x",
+                    duration_ms=profile.sample_interval_ms,
+                    calibration=calibration,
+                )
+                * profile_x_scale
             )
         else:
-            anti_recoil_stick_x = _map_pixels_to_stick(-cumulative_pixels_x, config=self.config) * anti_recoil_scale
-            anti_recoil_stick_y = _map_pixels_to_stick(-cumulative_pixels_y, config=self.config) * anti_recoil_scale
-        if anti_recoil_stick_x:
-            output.right_x += int(round(anti_recoil_stick_x))
+            anti_recoil_stick_y = (
+                _map_pixels_to_stick(-cumulative_pixels_y, config=self.config)
+                * profile_scale
+            )
+            profile_stick_x = _map_pixels_to_stick(-delta_x, config=self.config) * profile_x_scale
+        if profile_stick_x:
+            output.right_x += int(round(profile_stick_x))
         if anti_recoil_stick_y:
             output.right_y += int(round(anti_recoil_stick_y))
 
@@ -124,11 +130,12 @@ class RecoilCompensationPlugin:
         self._last_logged_selection_key = key
 
         if profile is None:
-            logger(f"[Recoil] active_profile aim={aim_mode} profile=none fallback={self.config.amount:.0%}")
+            logger(f"[Recoil] active_profile aim={aim_mode} profile=none fallback={self.config.feedback_amount:.0%}")
             return
         logger(
             f"[Recoil] active_profile aim={aim_mode} profile={profile.profile_id} "
-            f"confidence={profile.confidence:.3f}"
+            f"confidence={profile.confidence:.3f} profile_amount={self.config.profile_amount:.2f} "
+            f"profile_x={self.config.profile_x_amount:.2f} feedback={self.config.feedback_amount:.2f}"
         )
 
 

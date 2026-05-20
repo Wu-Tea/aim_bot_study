@@ -147,6 +147,7 @@ def extract_magazine_recoil_profile(
         fmean(burst.samples_y[index] for burst in clean_bursts)
         for index in range(len(clean_bursts[0].samples_y))
     )
+    vertical_recovery_summary = _vertical_recovery_summary(profile_samples_y)
     support_counts = tuple(len(clean_bursts) for _ in range(len(profile_samples_x)))
     variance_summary = _summarize_variance(clean_bursts)
     confidence = _compute_magazine_confidence(
@@ -187,6 +188,10 @@ def extract_magazine_recoil_profile(
             "target_duration_ms": float(duration_ms),
             "sample_interval_ms": float(config.sample_interval_ms),
             "vertical_direction_reversal": 1.0 if _has_vertical_direction_reversal(profile_samples_y) else 0.0,
+            "vertical_recovery_tail": vertical_recovery_summary["vertical_recovery_tail"],
+            "vertical_recovery_ratio": vertical_recovery_summary["vertical_recovery_ratio"],
+            "vertical_recovery_pixels": vertical_recovery_summary["vertical_recovery_pixels"],
+            "horizontal_final_range": _horizontal_final_range(clean_bursts),
             "horizontal_peak_abs": max(abs(value) for value in profile_samples_x) if profile_samples_x else 0.0,
             "vertical_peak_abs": max(abs(value) for value in profile_samples_y) if profile_samples_y else 0.0,
         },
@@ -442,6 +447,45 @@ def _has_vertical_direction_reversal(samples_y: tuple[float, ...]) -> bool:
     if len(samples_y) < 4:
         return False
     return min(samples_y) < -5.0 and max(samples_y) > 5.0
+
+
+def _vertical_recovery_summary(samples_y: tuple[float, ...]) -> dict[str, float]:
+    if len(samples_y) < 4:
+        return {
+            "vertical_recovery_tail": 0.0,
+            "vertical_recovery_ratio": 1.0,
+            "vertical_recovery_pixels": 0.0,
+        }
+    min_y = min(samples_y)
+    max_y = max(samples_y)
+    if abs(max_y) >= abs(min_y):
+        peak_abs = float(abs(max_y))
+        final_abs = float(samples_y[-1])
+    else:
+        peak_abs = float(abs(min_y))
+        final_abs = float(abs(samples_y[-1]))
+    if peak_abs <= 0.0:
+        ratio = 1.0
+        recovery_pixels = 0.0
+    else:
+        final_abs = max(0.0, final_abs)
+        ratio = final_abs / peak_abs
+        recovery_pixels = peak_abs - final_abs
+    has_tail = peak_abs >= 80.0 and recovery_pixels >= 80.0 and ratio <= 0.65
+    return {
+        "vertical_recovery_tail": 1.0 if has_tail else 0.0,
+        "vertical_recovery_ratio": ratio,
+        "vertical_recovery_pixels": recovery_pixels,
+    }
+
+
+def _horizontal_final_range(clean_bursts: tuple[_AlignedBurstCurve, ...]) -> float:
+    if not clean_bursts:
+        return 0.0
+    final_values = tuple(burst.samples_x[-1] for burst in clean_bursts if burst.samples_x)
+    if not final_values:
+        return 0.0
+    return float(max(final_values) - min(final_values))
 
 
 def _stabilize_vertical_profile_curve(samples_y: tuple[float, ...]) -> tuple[float, ...]:

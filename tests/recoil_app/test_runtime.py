@@ -227,12 +227,12 @@ class RecoilProfileStoreTests(unittest.TestCase):
             self.assertEqual(resolved.profile_id, profile.profile_id)
             self.assertGreater(store.load_generation, initial_generation)
 
-    def test_get_best_profile_skips_profiles_that_are_not_ready_for_compensation(self):
+    def test_get_best_profile_returns_matching_profile_even_when_quality_findings_exist(self):
         runtime = _load_runtime_module()
 
         with tempfile.TemporaryDirectory() as temp_dir:
             store = runtime.RecoilProfileStore(Path(temp_dir))
-            single_episode_profile = _profile_record(
+            profile = _profile_record(
                 profile_id="profile-cod22-m4-ads-standing-low-v1",
                 canonical_weapon_id="cod22-m4",
                 aim_mode="ads",
@@ -240,31 +240,13 @@ class RecoilProfileStoreTests(unittest.TestCase):
                 profile_type="magazine_curve_v1",
                 burst_count=1,
                 support_counts=(1, 1, 1),
-                fit_summary={"accepted_episode_count": 1.0},
-            )
-            ready_profile = _profile_record(
-                profile_id="profile-cod22-m4-ads-standing-ready-v1",
-                canonical_weapon_id="cod22-m4",
-                aim_mode="ads",
-                confidence=0.82,
-                profile_type="magazine_curve_v1",
-                burst_count=2,
-                support_counts=(2, 2, 2),
-                fit_summary={"accepted_episode_count": 2.0},
+                fit_summary={
+                    "accepted_episode_count": 1.0,
+                    "horizontal_final_range": 220.0,
+                },
             )
 
-            store.upsert(single_episode_profile)
-
-            self.assertIsNone(
-                store.get_best_profile(
-                    game="cod22",
-                    canonical_weapon_id="cod22-m4",
-                    stance="standing",
-                    aim_mode="ads",
-                )
-            )
-
-            store.upsert(ready_profile)
+            store.upsert(profile)
 
             self.assertEqual(
                 store.get_best_profile(
@@ -273,7 +255,7 @@ class RecoilProfileStoreTests(unittest.TestCase):
                     stance="standing",
                     aim_mode="ads",
                 ).profile_id,
-                ready_profile.profile_id,
+                profile.profile_id,
             )
             self.assertEqual(
                 store.profile_ids_for_weapon(
@@ -281,7 +263,44 @@ class RecoilProfileStoreTests(unittest.TestCase):
                     canonical_weapon_id="cod22-m4",
                     stance="standing",
                 ),
-                (ready_profile.profile_id,),
+                (profile.profile_id,),
+            )
+
+    def test_get_best_profile_allows_vertical_recovery_tail_trial_profile(self):
+        runtime = _load_runtime_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = runtime.RecoilProfileStore(Path(temp_dir))
+            profile = _profile_record(
+                profile_id="profile-cod22-m4-ads-standing-recovery-tail-v1",
+                canonical_weapon_id="cod22-m4",
+                aim_mode="ads",
+                confidence=0.82,
+                profile_type="magazine_curve_v1",
+                burst_count=3,
+                samples_y=(0.0, 120.0, 300.0, 110.0),
+                support_counts=(3, 3, 3, 3),
+                fit_summary={"accepted_episode_count": 3.0, "vertical_recovery_tail": 1.0},
+            )
+
+            store.upsert(profile)
+
+            self.assertEqual(
+                store.get_best_profile(
+                    game="cod22",
+                    canonical_weapon_id="cod22-m4",
+                    stance="standing",
+                    aim_mode="ads",
+                ).profile_id,
+                profile.profile_id,
+            )
+            self.assertEqual(
+                store.profile_statuses_for_weapon(
+                    game="cod22",
+                    canonical_weapon_id="cod22-m4",
+                    stance="standing",
+                )[0]["reason"],
+                "ready",
             )
 
     def test_profile_statuses_explain_unready_candidates(self):
@@ -352,7 +371,7 @@ class RecoilRuntimeTests(unittest.TestCase):
             self.assertTrue(state_path.exists())
             self.assertIn("compensation=off(record)", printed.getvalue())
 
-    def test_publish_state_includes_unready_profile_diagnostics(self):
+    def test_publish_state_uses_matching_profile_even_when_quality_findings_exist(self):
         runtime = _load_runtime_module()
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -397,10 +416,14 @@ class RecoilRuntimeTests(unittest.TestCase):
             )
 
             payload = json.loads(state_path.read_text(encoding="utf-8"))
-            self.assertEqual(payload["profile_status"], "no_ready_profile:accepted_episodes_below_min")
-            self.assertEqual(payload["active_profile_ids"], [])
+            self.assertEqual(payload["profile_status"], "ready_profile")
+            self.assertEqual(payload["active_profile_ids"], ["profile-cod22-m4-ads-standing-low-confidence-v1"])
+            self.assertTrue(payload["profile_candidates"][0]["ready"])
             self.assertEqual(payload["profile_candidates"][0]["reason"], "accepted_episodes_below_min")
-            self.assertIn("reason=no_ready_profile:accepted_episodes_below_min", printed.getvalue())
+            output = printed.getvalue()
+            self.assertIn("fallback=profile reason=ready_profile", output)
+            self.assertIn("ready_modes=ads:uncalibrated", output)
+            self.assertIn("unready_modes=none", output)
 
     def test_publish_state_refreshes_active_profile_ids_from_profile_store(self):
         runtime = _load_runtime_module()
@@ -507,8 +530,8 @@ class RecoilRuntimeTests(unittest.TestCase):
             )
 
             output = printed.getvalue()
-            self.assertIn("ready_modes=ads", output)
-            self.assertIn("unready_modes=hipfire:accepted_episodes_below_min", output)
+            self.assertIn("ready_modes=ads,hipfire:uncalibrated", output)
+            self.assertIn("unready_modes=none", output)
 
     def test_recoil_mode_allows_uncalibrated_profile_trial_when_calibration_is_missing(self):
         runtime = _load_runtime_module()
@@ -742,7 +765,7 @@ class RecoilRuntimeTests(unittest.TestCase):
             with patch.object(runtime, "collect_recoil_profile", side_effect=[first_result, second_result]):
                 recoil_runtime._run_learning_capture(current_state=state, aim_mode="ads")
                 self.assertIsNone(
-                    recoil_runtime.profile_store.get_best_profile(
+                    recoil_runtime.profile_store.get_best_quality_ready_profile(
                         game="cod22",
                         canonical_weapon_id="cod22-m4",
                         stance="standing",
@@ -1448,9 +1471,11 @@ def _profile_record(
     confidence: float,
     profile_type: str = "burst_average_v1",
     burst_count: int = 4,
+    samples_y: tuple[float, ...] = (0.0, -40.0, -80.0),
     support_counts: tuple[int, ...] = (),
     fit_summary: dict[str, float] | None = None,
 ):
+    samples_x = tuple(0.0 for _ in samples_y)
     return RecoilProfileRecord(
         profile_id=profile_id,
         canonical_weapon_id=canonical_weapon_id,
@@ -1458,11 +1483,11 @@ def _profile_record(
         stance="standing",
         aim_mode=aim_mode,
         sample_interval_ms=10,
-        duration_ms=30,
+        duration_ms=len(samples_y) * 10,
         initial_delay_ms=0,
-        samples_x=(0.0, 0.0, 0.0),
-        samples_y=(0.0, -40.0, -80.0),
-        sample_count=3,
+        samples_x=samples_x,
+        samples_y=samples_y,
+        sample_count=len(samples_y),
         burst_count=burst_count,
         variance_summary={"horizontal_stddev": 0.1, "vertical_stddev": 0.2},
         confidence=confidence,

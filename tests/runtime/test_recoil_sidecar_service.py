@@ -183,7 +183,7 @@ class RecoilSidecarServiceTests(unittest.TestCase):
             self.assertEqual(active_profile.identity_confidence, 0.89)
             self.assertEqual(active_profile.updated_at, "2026-05-06T12:00:00Z")
 
-    def test_unready_magazine_profile_yields_unknown_sidecar_status(self):
+    def test_quality_findings_do_not_block_matching_magazine_profile(self):
         service_module = _load_service_module()
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -215,10 +215,10 @@ class RecoilSidecarServiceTests(unittest.TestCase):
                 context={"aim_mode": "ads"},
             )
 
-            self.assertEqual(active_profile.status, "unknown")
+            self.assertEqual(active_profile.status, "ready")
             self.assertEqual(active_profile.canonical_weapon_id, "cod22-m4")
-            self.assertIsNone(active_profile.profile_id)
-            self.assertIsNone(active_profile.profile_confidence)
+            self.assertEqual(active_profile.profile_id, "profile-cod22-m4-ads-standing-low-v1")
+            self.assertEqual(active_profile.profile_confidence, 0.95)
             self.assertEqual(active_profile.identity_confidence, 0.91)
 
     def test_ready_magazine_profile_without_calibration_yields_ready_sidecar_status(self):

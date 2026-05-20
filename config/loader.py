@@ -44,7 +44,9 @@ GAMEPAD_AUTO_FIRE_KEYS = frozenset(
 )
 GAMEPAD_RECOIL_KEYS = frozenset(
     {
-        "amount",
+        "profile_amount",
+        "profile_x_amount",
+        "feedback_amount",
         "piecewise_mid_pixels_y",
         "piecewise_max_pixels_y",
         "piecewise_mid_ratio_y",
@@ -276,7 +278,7 @@ def load_tuning_config(path: Path | None = None) -> TuningConfig:
         **_filter(gamepad_section.get("auto_fire"), GAMEPAD_AUTO_FIRE_KEYS),
     )
     gamepad_recoil = replace(
-        GamepadRecoilConfig(amount=0.20),
+        GamepadRecoilConfig(feedback_amount=0.20),
         **_filter(gamepad_section.get("recoil"), GAMEPAD_RECOIL_KEYS),
     )
     adaptive = replace(

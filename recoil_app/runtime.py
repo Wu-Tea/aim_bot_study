@@ -192,6 +192,12 @@ class RecoilProfileStore:
         self.refresh_if_changed()
         key = (game, canonical_weapon_id, stance, aim_mode)
         matches = self._records_by_key.get(key, ())
+        return matches[0] if matches else None
+
+    def get_best_quality_ready_profile(self, *, game: str, canonical_weapon_id: str, stance: str, aim_mode: str):
+        self.refresh_if_changed()
+        key = (game, canonical_weapon_id, stance, aim_mode)
+        matches = self._records_by_key.get(key, ())
         for profile in matches:
             if is_profile_ready_for_compensation(profile):
                 return profile
@@ -202,11 +208,7 @@ class RecoilProfileStore:
         profile_ids: list[str] = []
         for aim_mode in ("ads", "hipfire"):
             matches = self._records_by_key.get((game, canonical_weapon_id, stance, aim_mode), ())
-            profile_ids.extend(
-                record.profile_id
-                for record in matches
-                if is_profile_ready_for_compensation(record)
-            )
+            profile_ids.extend(record.profile_id for record in matches)
         return tuple(profile_ids)
 
     def profile_statuses_for_weapon(
@@ -227,7 +229,7 @@ class RecoilProfileStore:
                         "profile_id": record.profile_id,
                         "aim_mode": record.aim_mode,
                         "profile_type": record.profile_type,
-                        "ready": reason is None,
+                        "ready": True,
                         "reason": reason or "ready",
                         "confidence": record.confidence,
                         "burst_count": record.burst_count,
@@ -422,7 +424,7 @@ class RecoilRuntime:
         current_state = self.current_state
         if current_state is None:
             return
-        if self.profile_store.get_best_profile(
+        if self.profile_store.get_best_quality_ready_profile(
             game=current_state.game,
             canonical_weapon_id=current_state.canonical_weapon_id,
             stance="standing",

@@ -49,7 +49,7 @@ class TuningConfigLoaderTests(unittest.TestCase):
         self.assertEqual(config.gamepad_auto_fire, GamepadAutoFireConfig())
         self.assertEqual(
             config.gamepad_recoil,
-            GamepadRecoilConfig(amount=0.20),
+            GamepadRecoilConfig(feedback_amount=0.20),
         )
         self.assertEqual(config.mouse_auto_fire, MouseAutoFireConfig())
         self.assertEqual(config.mouse_recoil, MouseRecoilConfig())
@@ -78,7 +78,9 @@ class TuningConfigLoaderTests(unittest.TestCase):
             manual_takeover_resume_delay_seconds = 0.095
 
             [gamepad.recoil]
-            amount = 0.16
+            profile_amount = 0.80
+            profile_x_amount = 1.40
+            feedback_amount = 0.16
             piecewise_mid_pixels_y = 40.0
             piecewise_max_pixels_y = 160.0
             piecewise_mid_ratio_y = 0.60
@@ -193,7 +195,9 @@ class TuningConfigLoaderTests(unittest.TestCase):
         self.assertEqual(config.gamepad_auto_fire.manual_takeover_resume_delay_seconds, 0.095)
         self.assertEqual(config.gamepad_auto_fire.fire_output, GamepadAutoFireConfig().fire_output)
 
-        self.assertEqual(config.gamepad_recoil.amount, 0.16)
+        self.assertEqual(config.gamepad_recoil.profile_amount, 0.80)
+        self.assertEqual(config.gamepad_recoil.profile_x_amount, 1.40)
+        self.assertEqual(config.gamepad_recoil.feedback_amount, 0.16)
         self.assertEqual(config.gamepad_recoil.piecewise_mid_pixels_y, 40.0)
         self.assertEqual(config.gamepad_recoil.piecewise_max_pixels_y, 160.0)
         self.assertEqual(config.gamepad_recoil.piecewise_mid_ratio_y, 0.60)
@@ -364,7 +368,7 @@ class TuningConfigLoaderTests(unittest.TestCase):
         self.assertEqual(config.gamepad_auto_fire, GamepadAutoFireConfig())
         self.assertEqual(
             config.gamepad_recoil,
-            GamepadRecoilConfig(amount=0.20),
+            GamepadRecoilConfig(feedback_amount=0.20),
         )
         self.assertEqual(config.mouse_auto_fire, MouseAutoFireConfig())
         self.assertEqual(config.mouse_recoil, MouseRecoilConfig())
