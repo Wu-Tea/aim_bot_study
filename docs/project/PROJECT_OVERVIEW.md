@@ -26,7 +26,8 @@ This review is based on the current source tree, existing project docs, and `.ag
 | Area | Role |
 | --- | --- |
 | `main.py` | Unified CLI launcher. Creates a controller and starts native or Python vision. |
-| `controller.py` | Factory for `gamepad`, `mouse`, and `kbm_to_gamepad` controller hosts. |
+| `controllers/factory.py` | Factory for `gamepad`, `mouse`, and `kbm_to_gamepad` controller hosts. |
+| `controller.py` | Compatibility shim that re-exports `ControllerFactory` for older imports. |
 | `config/loader.py` | TOML-backed runtime and tuning config loader. |
 | `controllers/base_controller.py` | Shared controller contract and `ControllerVisionState` handoff model. |
 | `controllers/gamepad_controller.py` | Physical gamepad to virtual Xbox 360 host with plugin pipeline. |
@@ -39,6 +40,7 @@ This review is based on the current source tree, existing project docs, and `.ag
 | `vision/recoil_collection/` | Recoil recording, segmentation, extraction, readiness/audit, calibration, and profile storage models. |
 | `recoil_app/` | Console/runtime layer for weapon identity, profile recording, state publishing, and plots. |
 | `runtime/recoil_sidecar/` | File/state based bridge that selects active recoil profiles for the controller runtime. |
+| `scripts/launch/` | Full startup script implementations; root `.bat` files call into these scripts as compatibility shims. |
 | `tools/` | Build, smoke, benchmark, training, recoil audit, dry-run playback, and diagnostic helpers. |
 | `tests/` | Unit and integration-style coverage for vision bridge, controllers, recoil, config, startup scripts, and tools. |
 | `docs/project/` | Current overview, architecture, benchmark, validation, and debugging docs. |

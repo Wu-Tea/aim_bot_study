@@ -3,12 +3,16 @@ import unittest
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+LAUNCH_DIR = PROJECT_ROOT / "scripts" / "launch"
+DEBUG_LAUNCH_DIR = LAUNCH_DIR / "debug"
 
 
 class StartupScriptTests(unittest.TestCase):
     def test_gamepad_start_uses_system_python_launcher_instead_of_broken_venv_python(self):
-        content = (PROJECT_ROOT / "gamepad_start.bat").read_text(encoding="utf-8")
+        shim = (PROJECT_ROOT / "gamepad_start.bat").read_text(encoding="utf-8")
+        content = (LAUNCH_DIR / "gamepad_start.bat").read_text(encoding="utf-8")
 
+        self.assertIn(r"scripts\launch\gamepad_start.bat", shim)
         self.assertNotIn(".venv\\Scripts\\python.exe", content)
         self.assertIn("py -3.11", content)
         self.assertIn("config.toml", content)
@@ -30,8 +34,10 @@ class StartupScriptTests(unittest.TestCase):
         self.assertNotIn("Native (experimental)", content)
 
     def test_gamepad_debug_uses_system_python_launcher_debug_flag_and_backend_prompt(self):
-        content = (PROJECT_ROOT / "gamepad_debug.bat").read_text(encoding="utf-8")
+        shim = (PROJECT_ROOT / "gamepad_debug.bat").read_text(encoding="utf-8")
+        content = (DEBUG_LAUNCH_DIR / "gamepad_debug.bat").read_text(encoding="utf-8")
 
+        self.assertIn(r"scripts\launch\debug\gamepad_debug.bat", shim)
         self.assertNotIn(".venv\\Scripts\\python.exe", content)
         self.assertIn("py -3.11", content)
         self.assertIn("Select Vision backend:", content)
@@ -43,8 +49,10 @@ class StartupScriptTests(unittest.TestCase):
         self.assertIn("--vision-debug-save", content)
 
     def test_gamepad_native_debug_uses_native_backend_and_debug_window(self):
-        content = (PROJECT_ROOT / "gamepad_native_debug.bat").read_text(encoding="utf-8")
+        shim = (PROJECT_ROOT / "gamepad_native_debug.bat").read_text(encoding="utf-8")
+        content = (DEBUG_LAUNCH_DIR / "gamepad_native_debug.bat").read_text(encoding="utf-8")
 
+        self.assertIn(r"scripts\launch\debug\gamepad_native_debug.bat", shim)
         self.assertNotIn(".venv\\Scripts\\python.exe", content)
         self.assertIn("py -3.11", content)
         self.assertIn("--vision-backend native", content)
@@ -54,22 +62,30 @@ class StartupScriptTests(unittest.TestCase):
         self.assertIn('set "VISION_QUIT_KEY=0"', content)
 
     def test_mouse_start_uses_system_python_launcher_instead_of_broken_venv_python(self):
-        content = (PROJECT_ROOT / "mouse_start.bat").read_text(encoding="utf-8")
+        shim = (PROJECT_ROOT / "mouse_start.bat").read_text(encoding="utf-8")
+        content = (LAUNCH_DIR / "mouse_start.bat").read_text(encoding="utf-8")
 
+        self.assertIn(r"scripts\launch\mouse_start.bat", shim)
         self.assertNotIn(".venv\\Scripts\\python.exe", content)
         self.assertIn("py -3.11", content)
 
     def test_mouse_scripts_keep_keyboard_quit_failsafe_enabled(self):
-        for script_name in ("mouse_start.bat", "mouse_native_debug.bat"):
-            with self.subTest(script_name=script_name):
-                content = (PROJECT_ROOT / script_name).read_text(encoding="utf-8")
+        scripts = (
+            LAUNCH_DIR / "mouse_start.bat",
+            DEBUG_LAUNCH_DIR / "mouse_native_debug.bat",
+        )
+        for script_path in scripts:
+            with self.subTest(script_name=script_path.name):
+                content = script_path.read_text(encoding="utf-8")
 
                 self.assertIn('set "VISION_QUIT_KEY=Q"', content)
                 self.assertNotIn('set "VISION_QUIT_KEY=0"', content)
 
     def test_mouse_native_debug_runs_injection_probe_before_launch(self):
-        content = (PROJECT_ROOT / "mouse_native_debug.bat").read_text(encoding="utf-8")
+        shim = (PROJECT_ROOT / "mouse_native_debug.bat").read_text(encoding="utf-8")
+        content = (DEBUG_LAUNCH_DIR / "mouse_native_debug.bat").read_text(encoding="utf-8")
 
+        self.assertIn(r"scripts\launch\debug\mouse_native_debug.bat", shim)
         self.assertIn("MOUSE_PROBE_INPUT", content)
         self.assertIn("tools\\probe_mouse_injection.py --backend %MOUSE_INJECTION_BACKEND%", content)
         self.assertIn("Mouse injection probe failed", content)

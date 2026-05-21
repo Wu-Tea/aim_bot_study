@@ -5,6 +5,8 @@ __pycache__/
 .ruff_cache/
 .tmp*/
 .venv/
+.idea/
+.claude/settings.local.json
 config.toml
 training_data/
 runs/

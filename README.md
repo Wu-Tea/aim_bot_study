@@ -64,6 +64,7 @@ Useful smoke and debug scripts:
 ## Startup scripts
 
 These scripts are the fastest way to use the project without remembering CLI flags.
+The root `.bat` files are compatibility shims; the full implementations live under `scripts/launch/`.
 
 | Script | Purpose | Current behavior |
 | --- | --- | --- |
@@ -112,11 +113,14 @@ docs/project/            Project-facing architecture, benchmark, and status docs
 docs/superpowers/        Historical specs and implementation plans
 models/                  YOLO `.pt`, `.onnx`, and TensorRT `.engine` artifacts
 native/vision_native/    C++ / CUDA / TensorRT native vision runtime
+scripts/launch/          Full launcher script implementations
+scripts/legacy/          Older/manual launcher helpers kept for compatibility
 tests/                   Python test suite
 tools/                   Build, export, benchmark, training, and smoke scripts
 training/                Dataset helpers for detector training
 vision/                  Python vision backend, debug tools, and native bridge
-controller.py            Controller factory
+controllers/factory.py   Controller factory
+controller.py            Compatibility shim exporting ControllerFactory
 main.py                  Unified CLI entry point
 ```
 
@@ -125,7 +129,7 @@ main.py                  Unified CLI entry point
 At a high level:
 
 1. `main.py` parses CLI / env overrides.
-2. `controller.py` builds one controller host:
+2. `controllers/factory.py` builds one controller host:
    - `gamepad`
    - `mouse`
    - `kbm_to_gamepad`

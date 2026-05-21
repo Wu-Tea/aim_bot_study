@@ -615,7 +615,9 @@ class RecoilAppBatchTests(unittest.TestCase):
         self.assertIn("-m recoil_app --game cod21 --mode record", output)
 
     def test_start_script_defaults_to_gpu_ocr_environment(self):
-        content = (Path(__file__).resolve().parents[2] / "recoil_app_start.bat").read_text(encoding="utf-8")
+        content = (
+            Path(__file__).resolve().parents[2] / "scripts" / "launch" / "recoil_app_start.bat"
+        ).read_text(encoding="utf-8")
 
         self.assertIn("PYTHONNOUSERSITE=1", content)
         self.assertIn("RECOIL_OCR_PROVIDER=cuda", content)
@@ -785,7 +787,9 @@ class RecoilRuntimeLauncherTests(unittest.TestCase):
         self.assertEqual(payload["profile_dir"], str(profile_dir))
 
     def test_gamepad_start_recoil_runtime_defaults_to_recoil_app_identity_dir(self):
-        content = (Path(__file__).resolve().parents[2] / "gamepad_start.bat").read_text(encoding="utf-8")
+        content = (
+            Path(__file__).resolve().parents[2] / "scripts" / "launch" / "gamepad_start.bat"
+        ).read_text(encoding="utf-8")
 
         self.assertIn(r"artifacts\recoil_app\weapons", content)
         self.assertIn("ENABLE_RECOIL_APP", content)

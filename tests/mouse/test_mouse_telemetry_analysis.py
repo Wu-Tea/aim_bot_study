@@ -490,7 +490,13 @@ class MouseTelemetryAnalysisTests(unittest.TestCase):
         self.assertEqual(result, 0)
 
     def test_mouse_native_debug_analyzes_only_current_run_telemetry(self):
-        script = Path(__file__).resolve().parents[2] / "mouse_native_debug.bat"
+        script = (
+            Path(__file__).resolve().parents[2]
+            / "scripts"
+            / "launch"
+            / "debug"
+            / "mouse_native_debug.bat"
+        )
         content = script.read_text(encoding="utf-8")
 
         self.assertIn("MOUSE_TELEMETRY_PATH", content)

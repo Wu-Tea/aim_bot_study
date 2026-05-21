@@ -16,12 +16,16 @@ Vision does not own final actuation. Controllers do.
 ## Entry Points
 
 - `controller.py`
+- `controllers/factory.py`
 - `controllers/base_controller.py`
 - `controllers/gamepad_controller.py`
 - `controllers/mouse_controller.py`
 - `controllers/kbm_controller.py`
 
-`ControllerFactory.get_controller(...)` supports:
+`ControllerFactory.get_controller(...)` now lives in `controllers/factory.py`. Root
+`controller.py` remains as a compatibility shim for older imports.
+
+The factory supports:
 
 - `gamepad`
 - `mouse`

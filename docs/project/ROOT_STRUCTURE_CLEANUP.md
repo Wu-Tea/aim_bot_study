@@ -2,6 +2,17 @@
 
 Last reviewed: 2026-05-21
 
+## Current Implementation Status
+
+The first cleanup slice has been applied:
+
+- local `.idea/` and `.claude/settings.local.json` files are ignored and removed from git tracking
+- launcher implementations live under `scripts/launch/`
+- root launcher files remain as compatibility shims
+- `ControllerFactory` lives in `controllers/factory.py`
+- root `controller.py` remains as a compatibility shim
+- `models/README.md` and `artifacts/benchmarks/README.md` document artifact ownership
+
 ## Goal
 
 Make the repository root easier to scan without breaking the current daily launch flow. The project is Windows-oriented and several `.bat` files are real user entry points, so root cleanup should happen in phases rather than one large move.
@@ -13,7 +24,7 @@ The root currently mixes five kinds of things:
 | Kind | Examples | Notes |
 | --- | --- | --- |
 | User entry points | `gamepad_start.bat`, `mouse_start.bat`, `recoil_app_start.bat` | Useful in root because they are launched manually. |
-| Python entry and compatibility files | `main.py`, `controller.py` | `main.py` is the unified launcher. `controller.py` is still imported by `main.py` and tests. |
+| Python entry and compatibility files | `main.py`, `controller.py`, `controllers/factory.py` | `main.py` is the unified launcher. `controllers/factory.py` owns the factory. `controller.py` is a compatibility shim. |
 | Source directories | `controllers/`, `vision/`, `recoil_app/`, `runtime/`, `config/`, `training/` | These are normal top-level package directories. |
 | Runtime and generated state | `config.toml`, `artifacts/`, `debug_captures/`, `native/vision_native/build/`, `.venv/`, `.worktrees/`, `__pycache__/` | Mostly ignored local state. Do not commit these. |
 | Local tool/editor state | `.idea/`, `.claude/` | Currently some files are tracked, but they are better treated as local machine state unless explicitly shared. |

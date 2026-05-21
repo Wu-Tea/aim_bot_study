@@ -2,7 +2,7 @@ import argparse
 import os
 
 from config import RuntimeConfig, load_tuning_config
-from controller import ControllerFactory
+from controllers.factory import ControllerFactory
 from vision import process_native_vision, process_vision
 
 
