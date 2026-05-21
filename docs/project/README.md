@@ -33,6 +33,8 @@ This folder mixes current architecture notes, benchmark records, work snapshots,
   - live mouse telemetry capture, health checks, and failure interpretation
 - `NATIVE_VISION.md`
   - detailed native migration notes, build process, smoke tests, and payload contracts
+- `ROOT_STRUCTURE_CLEANUP.md`
+  - phased root directory cleanup plan and migration order
 
 ## Validation and benchmark docs
 
