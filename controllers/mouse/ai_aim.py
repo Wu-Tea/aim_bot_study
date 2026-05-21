@@ -95,6 +95,36 @@ class AIAimConfig:
     acquire_stall_decay_per_frame: float = 0.20
     acquire_stall_max_bonus: float = 0.75
     breakaway_speed_px: float = 18.0
+    snap_window_seconds: float = 0.140
+    snap_activation_grace_seconds: float = 0.300
+    snap_gain: float = 1.60
+    snap_max_move_px: float = 160.0
+    snap_response_horizon_s: float = 0.090
+    snap_finish_radius_px: float = 18.0
+    body_lock_enter_px: float = 18.0
+    body_lock_exit_px: float = 32.0
+    body_lock_box_tolerance_px: float = 12.0
+    body_lock_gain: float = 0.18
+    body_lock_max_move_px: float = 2.40
+    body_lock_response_horizon_s: float = 0.018
+    body_lock_deadband_px: float = 1.25
+    body_lock_manual_dampen_speed_px: float = 2.0
+    body_lock_manual_scale: float = 0.35
+    body_lock_jitter_cancel_enabled: bool = True
+    body_lock_jitter_cancel_x_inner_radius_px: float = 8.0
+    body_lock_jitter_cancel_x_deadband: float = 0.75
+    body_lock_jitter_cancel_x_soft_px: float = 3.0
+    body_lock_jitter_cancel_x_max_speed: float = 8.0
+    body_lock_jitter_cancel_x_scale: float = 0.55
+    body_lock_jitter_cancel_x_max_move: float = 2.5
+    body_lock_jitter_cancel_x_smoothing: float = 0.55
+    response_adaptive_enabled: bool = True
+    response_px_per_input_initial: float = 0.35
+    response_min_px_per_input: float = 0.08
+    response_max_px_per_input: float = 3.0
+    response_sample_alpha: float = 0.35
+    response_min_motion_input: float = 4.0
+    response_stall_factor: float = 0.72
 
 
 class AIAimPlugin:
@@ -137,13 +167,25 @@ class AIAimPlugin:
         self._filtered_error_rate_y = 0.0
         self._integral_error_x = 0.0
         self._integral_error_y = 0.0
+        self._aim_started_at: float | None = None
+        self._snap_until: float | None = None
+        self._snap_pending_until: float | None = None
+        self._snap_remaining_dx = 0.0
+        self._snap_remaining_dy = 0.0
+        self._last_manual_left_pressed = False
+        self._control_phase = "manual"
+        self._body_lock_jitter_cancel_x = 0.0
+        self._last_body_lock_jitter_cancel_x = 0.0
 
     def apply(self, frame: MouseFrame, output: MouseOutput) -> None:
         if not frame.is_aiming:
             self.reset()
             return
+        self._update_activation_windows(frame)
         if frame.manual_override_active:
             self._mode = "manual"
+            self._control_phase = "manual"
+            self._clear_snap_servo()
             self._reset_acquire_bonus()
             self._reset_stabilize_integral()
             self._set_desired_velocity(0.0, 0.0, mode="manual")
@@ -157,6 +199,8 @@ class AIAimPlugin:
                 self._reacquire_armed_until = self._continuity_until
                 self._recent_target_gap_until = self._continuity_until
             self._mode = "manual"
+            self._control_phase = "manual"
+            self._clear_snap_servo()
             self._last_stabilize_radius = None
             self._reset_acquire_bonus()
             self._reset_stabilize_integral()
@@ -170,6 +214,8 @@ class AIAimPlugin:
             return
         if self._should_guard_target_switch(frame):
             self._mode = "manual"
+            self._control_phase = "manual"
+            self._clear_snap_servo()
             self._reset_acquire_bonus()
             self._reset_stabilize_integral()
             self._set_desired_velocity(0.0, 0.0, mode="manual")
@@ -180,27 +226,39 @@ class AIAimPlugin:
 
         previous_velocity_mode = self._last_velocity_mode
         self._mode = self._choose_mode(frame)
+        self._control_phase = self._choose_control_phase(frame, self._mode)
         if is_new_observation:
             self._update_observed_error_rate(frame)
         if self._mode == "manual":
+            self._control_phase = "manual"
             self._reset_acquire_bonus()
             self._reset_stabilize_integral()
             self._set_desired_velocity(0.0, 0.0, mode="manual")
         else:
-            self._update_desired_velocity(frame, self._mode)
-            if not is_new_observation:
-                self._dampen_velocity_carry_for_mode_transition(
+            if self._control_phase == "snap":
+                self._emit_snap_move(
                     frame,
-                    previous_mode=previous_velocity_mode,
-                    current_mode=self._mode,
+                    output,
+                    is_new_observation=is_new_observation,
                 )
-                self._apply_near_center_velocity_brake(frame, self._mode)
+            else:
+                self._clear_snap_servo()
+                self._update_desired_velocity(frame, self._mode)
+                if not is_new_observation:
+                    self._dampen_velocity_carry_for_mode_transition(
+                        frame,
+                        previous_mode=previous_velocity_mode,
+                        current_mode=self._mode,
+                    )
+                    self._apply_near_center_velocity_brake(frame, self._mode)
+                self._apply_body_lock_manual_velocity_guard(frame)
             self._remember_target(frame)
         if is_new_observation:
             self._remember_seen_target(frame)
             self._remember_applied_observation(frame)
 
-        self._emit_smooth_move(frame, output)
+        if self._control_phase != "snap":
+            self._emit_smooth_move(frame, output)
 
     def _expire_stabilize_context(self, timestamp: float) -> None:
         if self._stabilize_until is None or timestamp <= self._stabilize_until:
@@ -217,6 +275,81 @@ class AIAimPlugin:
         self._last_continuity_target = None
         self._last_continuity_radius = None
         self._clear_pending_switch()
+
+    def _update_activation_windows(self, frame: MouseFrame) -> None:
+        if self._aim_started_at is None:
+            self._aim_started_at = frame.timestamp
+            self._arm_snap_window(frame.timestamp)
+        if frame.manual_left_pressed and not self._last_manual_left_pressed:
+            self._arm_snap_window(frame.timestamp)
+        self._last_manual_left_pressed = frame.manual_left_pressed
+        self._refresh_pending_snap_window(frame)
+
+    def _open_snap_window(self, timestamp: float) -> None:
+        if self.config.snap_window_seconds <= 0.0:
+            self._snap_until = None
+            return
+        self._snap_until = timestamp + self.config.snap_window_seconds
+
+    def _arm_snap_window(self, timestamp: float) -> None:
+        self._open_snap_window(timestamp)
+        grace = max(0.0, self.config.snap_activation_grace_seconds)
+        self._snap_pending_until = timestamp + grace if grace > 0.0 else None
+        self._clear_snap_servo()
+
+    def _refresh_pending_snap_window(self, frame: MouseFrame) -> None:
+        if self._snap_pending_until is None:
+            return
+        if frame.timestamp > self._snap_pending_until:
+            self._snap_pending_until = None
+            return
+        if frame.target is None or frame.target.target_source not in ACQUIRE_TARGET_SOURCES:
+            return
+        self._open_snap_window(frame.timestamp)
+        self._snap_pending_until = None
+
+    def _snap_window_active(self, frame: MouseFrame) -> bool:
+        return self._snap_until is not None and frame.timestamp <= self._snap_until
+
+    def _choose_control_phase(self, frame: MouseFrame, mode: str) -> str:
+        if mode == "manual" or frame.target is None:
+            return "manual"
+        if self._can_body_lock(frame, mode):
+            return "body_lock"
+        if (
+            self._snap_window_active(frame)
+            and frame.target.target_source in ACQUIRE_TARGET_SOURCES
+            and mode in {"acquire_far", "acquire_mid", "reacquire"}
+        ):
+            return "snap"
+        if mode == "stabilize":
+            return "body_lock"
+        return "acquire"
+
+    def _can_body_lock(self, frame: MouseFrame, mode: str) -> bool:
+        if frame.target is None or frame.target.body_box is None:
+            return False
+        radius = self._target_radius(frame)
+        enter_px = max(0.0, self.config.body_lock_enter_px)
+        exit_px = max(enter_px, self.config.body_lock_exit_px)
+        radius_limit = exit_px if self._control_phase == "body_lock" else enter_px
+        if radius <= min(radius_limit, self.config.snap_finish_radius_px):
+            return True
+        if mode == "stabilize" and radius <= radius_limit:
+            return True
+        if self._screen_center_inside_body_lock_box(frame.target):
+            return radius <= radius_limit
+        return False
+
+    def _screen_center_inside_body_lock_box(self, target: ControllerTarget) -> bool:
+        if target.body_box is None:
+            return False
+        left, top, right, bottom = target.body_box
+        tolerance = max(0.0, self.config.body_lock_box_tolerance_px)
+        return (
+            left - tolerance <= target.screen_center_x <= right + tolerance
+            and top - tolerance <= target.screen_center_y <= bottom + tolerance
+        )
 
     def _choose_mode(self, frame: MouseFrame) -> str:
         if self._can_stabilize(frame):
@@ -348,7 +481,25 @@ class AIAimPlugin:
         if mode == "manual":
             return 0.0, 0.0
 
-        if mode == "stabilize":
+        if self._control_phase == "snap":
+            gain = self.config.snap_gain
+            max_move = self.config.snap_max_move_px
+        elif self._control_phase == "body_lock":
+            if frame.target is not None and frame.target.target_source == "predicted":
+                gain = min(self.config.body_lock_gain, self.config.predicted_stabilize_gain)
+                max_move = min(
+                    self.config.body_lock_max_move_px,
+                    self.config.predicted_stabilize_max_move_px,
+                )
+            else:
+                gain = self.config.body_lock_gain
+                max_move = self.config.body_lock_max_move_px
+            gain, max_move = self._scale_body_lock_strength(
+                frame,
+                gain=gain,
+                max_move=max_move,
+            )
+        elif mode == "stabilize":
             if frame.target is not None and frame.target.target_source == "predicted":
                 gain = self.config.predicted_stabilize_gain
                 max_move = self.config.predicted_stabilize_max_move_px
@@ -384,7 +535,17 @@ class AIAimPlugin:
         lead_dx, lead_dy = self._motion_lead(frame, mode)
         move_dx = (frame.target_dx + lead_dx) * gain
         move_dy = (frame.target_dy + lead_dy) * gain
-        return self._clamp_vector(move_dx, move_dy, max_move)
+        move_dx, move_dy = self._apply_body_lock_manual_mix(
+            frame,
+            move_dx=move_dx,
+            move_dy=move_dy,
+        )
+        if self._control_phase == "snap":
+            move_dx, move_dy = self._soft_limit_vector(move_dx, move_dy, max_move)
+        else:
+            move_dx, move_dy = self._clamp_vector(move_dx, move_dy, max_move)
+        move_dx, move_dy = self._scale_move_for_mouse_response(frame, move_dx, move_dy)
+        return self._apply_body_lock_jitter_cancel(frame, move_dx, move_dy)
 
     def _should_reacquire_from_stabilize(
         self, frame: MouseFrame, radius: float
@@ -709,6 +870,69 @@ class AIAimPlugin:
             return 0.0, 0.0
         return current_velocity, desired_velocity
 
+    def _apply_body_lock_manual_velocity_guard(self, frame: MouseFrame) -> None:
+        if (
+            self._control_phase != "body_lock"
+            or frame.target is None
+            or self._manual_speed(frame) < self.config.body_lock_manual_dampen_speed_px
+        ):
+            return
+        deadband = max(0.0, self.config.body_lock_deadband_px)
+        if abs(frame.target_dx) <= deadband:
+            self._desired_velocity_x = 0.0
+            self._current_velocity_x = 0.0
+        if abs(frame.target_dy) <= deadband:
+            self._desired_velocity_y = 0.0
+            self._current_velocity_y = 0.0
+
+    def _emit_snap_move(
+        self,
+        frame: MouseFrame,
+        output: MouseOutput,
+        *,
+        is_new_observation: bool,
+    ) -> None:
+        dt = self._controller_dt(frame.timestamp)
+        self._set_desired_velocity(
+            0.0,
+            0.0,
+            mode=self._mode,
+            horizon_seconds=self.config.snap_response_horizon_s,
+        )
+        self._current_velocity_x = 0.0
+        self._current_velocity_y = 0.0
+        if dt <= 0.0:
+            return
+        profile = _FollowProfile(name="snap_direct")
+        if is_new_observation or not self._has_snap_remaining():
+            self._snap_remaining_dx, self._snap_remaining_dy = self._compute_move(
+                frame,
+                self._mode,
+                profile,
+            )
+        if not self._has_snap_remaining():
+            return
+
+        response_horizon = max(0.001, self.config.snap_response_horizon_s)
+        step_scale = min(1.0, dt / response_horizon)
+        move_dx = self._snap_remaining_dx * step_scale
+        move_dy = self._snap_remaining_dy * step_scale
+        output.move_dx += move_dx
+        output.move_dy += move_dy
+        self._snap_remaining_dx -= move_dx
+        self._snap_remaining_dy -= move_dy
+        if not self._has_snap_remaining():
+            self._clear_snap_servo()
+
+    def _has_snap_remaining(self) -> bool:
+        return (
+            self._snap_remaining_dx ** 2 + self._snap_remaining_dy ** 2
+        ) ** 0.5 >= 0.05
+
+    def _clear_snap_servo(self) -> None:
+        self._snap_remaining_dx = 0.0
+        self._snap_remaining_dy = 0.0
+
     def _emit_smooth_move(
         self,
         frame: MouseFrame,
@@ -849,6 +1073,10 @@ class AIAimPlugin:
         )
 
     def _response_horizon_seconds(self, frame: MouseFrame, mode: str) -> float:
+        if self._control_phase == "snap":
+            return self.config.snap_response_horizon_s
+        if self._control_phase == "body_lock":
+            return self.config.body_lock_response_horizon_s
         if mode == "acquire_mid":
             return self.config.mid_acquire_response_horizon_s
         if mode == "reacquire":
@@ -1000,6 +1228,176 @@ class AIAimPlugin:
         self._acquire_stall_frames = 0
         self._acquire_bonus = 0.0
 
+    def _scale_body_lock_strength(
+        self,
+        frame: MouseFrame,
+        *,
+        gain: float,
+        max_move: float,
+    ) -> tuple[float, float]:
+        release_band = max(0.0, self.config.inner_release_band_px)
+        if release_band <= 0.0:
+            return self._boost_stabilize_for_motion(
+                frame,
+                gain=gain,
+                max_move=max_move,
+                attenuation=1.0,
+            )
+
+        radius = self._target_radius(frame)
+        if radius >= release_band:
+            return self._boost_stabilize_for_motion(
+                frame,
+                gain=gain,
+                max_move=max_move,
+                attenuation=1.0,
+            )
+
+        manual_deadband = max(0.0, self.config.body_lock_deadband_px)
+        if (
+            manual_deadband > 0.0
+            and radius <= manual_deadband
+            and self._manual_speed(frame) >= self.config.body_lock_manual_dampen_speed_px
+        ):
+            return 0.0, 0.0
+
+        attenuation = max(0.25, radius / release_band)
+        return self._boost_stabilize_for_motion(
+            frame,
+            gain=gain * attenuation,
+            max_move=max_move * attenuation,
+            attenuation=attenuation,
+        )
+
+    def _apply_body_lock_manual_mix(
+        self,
+        frame: MouseFrame,
+        *,
+        move_dx: float,
+        move_dy: float,
+    ) -> tuple[float, float]:
+        if (
+            self._control_phase != "body_lock"
+            or self._manual_speed(frame) < self.config.body_lock_manual_dampen_speed_px
+        ):
+            return move_dx, move_dy
+        scale = max(0.0, min(1.0, self.config.body_lock_manual_scale))
+        deadband = max(0.0, self.config.body_lock_deadband_px)
+        if abs(frame.target_dx) <= deadband:
+            move_dx = 0.0
+        else:
+            move_dx = self._resolve_body_lock_manual_axis(
+                planned_move=move_dx,
+                manual_delta=frame.manual_dx,
+                overlap_scale=1.0 - scale,
+            )
+        if abs(frame.target_dy) <= deadband:
+            move_dy = 0.0
+        else:
+            move_dy = self._resolve_body_lock_manual_axis(
+                planned_move=move_dy,
+                manual_delta=frame.manual_dy,
+                overlap_scale=1.0 - scale,
+            )
+        return move_dx, move_dy
+
+    @staticmethod
+    def _resolve_body_lock_manual_axis(
+        *,
+        planned_move: float,
+        manual_delta: float,
+        overlap_scale: float,
+    ) -> float:
+        if planned_move == 0.0 or manual_delta == 0.0:
+            return planned_move
+        if planned_move * manual_delta <= 0.0:
+            return planned_move
+
+        credit = abs(manual_delta) * max(0.0, min(1.0, overlap_scale))
+        remaining = abs(planned_move) - credit
+        if remaining <= 0.0:
+            return 0.0
+        return remaining if planned_move > 0.0 else -remaining
+
+    def _apply_body_lock_jitter_cancel(
+        self,
+        frame: MouseFrame,
+        move_dx: float,
+        move_dy: float,
+    ) -> tuple[float, float]:
+        raw_cancel, keep_smoothing_state = self._body_lock_jitter_cancel_x_target(frame)
+        if not keep_smoothing_state:
+            self._body_lock_jitter_cancel_x = 0.0
+        elif raw_cancel == 0.0:
+            self._body_lock_jitter_cancel_x = 0.0
+        else:
+            smoothing = max(
+                0.0,
+                min(0.95, self.config.body_lock_jitter_cancel_x_smoothing),
+            )
+            self._body_lock_jitter_cancel_x = (
+                self._body_lock_jitter_cancel_x * smoothing
+                + raw_cancel * (1.0 - smoothing)
+            )
+
+        self._last_body_lock_jitter_cancel_x = self._body_lock_jitter_cancel_x
+        return move_dx + self._body_lock_jitter_cancel_x, move_dy
+
+    def _body_lock_jitter_cancel_x_target(
+        self,
+        frame: MouseFrame,
+    ) -> tuple[float, bool]:
+        if (
+            not self.config.body_lock_jitter_cancel_enabled
+            or self._control_phase != "body_lock"
+            or frame.target is None
+        ):
+            return 0.0, False
+
+        inner_radius = max(0.0, self.config.body_lock_jitter_cancel_x_inner_radius_px)
+        if inner_radius > 0.0 and self._target_radius(frame) > inner_radius:
+            return 0.0, False
+
+        manual_x = frame.manual_dx
+        manual_speed = abs(manual_x)
+        deadband = max(0.0, self.config.body_lock_jitter_cancel_x_deadband)
+        if manual_speed <= deadband:
+            return 0.0, True
+
+        max_speed = max(deadband, self.config.body_lock_jitter_cancel_x_max_speed)
+        if max_speed > deadband and manual_speed >= max_speed:
+            return 0.0, False
+
+        max_move = max(0.0, self.config.body_lock_jitter_cancel_x_max_move)
+        if max_move <= 0.0:
+            return 0.0, False
+
+        soft_px = max(deadband, self.config.body_lock_jitter_cancel_x_soft_px)
+        if soft_px <= deadband:
+            ramp = 1.0
+        elif manual_speed >= soft_px:
+            ramp = 1.0
+        else:
+            segment_t = (manual_speed - deadband) / (soft_px - deadband)
+            ramp = self._smoothstep(segment_t)
+
+        scale = max(0.0, self.config.body_lock_jitter_cancel_x_scale)
+        raw_cancel = -self._sign_scalar(manual_x) * manual_speed * scale * ramp
+        return self._clamp_scalar(raw_cancel, max_move), True
+
+    @staticmethod
+    def _smoothstep(value: float) -> float:
+        value = max(0.0, min(1.0, value))
+        return value * value * (3.0 - 2.0 * value)
+
+    @staticmethod
+    def _sign_scalar(value: float) -> float:
+        if value > 0.0:
+            return 1.0
+        if value < 0.0:
+            return -1.0
+        return 0.0
+
     def _scale_stabilize_strength(
         self,
         frame: MouseFrame,
@@ -1091,6 +1489,17 @@ class AIAimPlugin:
         return (frame.manual_dx ** 2 + frame.manual_dy ** 2) ** 0.5
 
     @staticmethod
+    def _scale_move_for_mouse_response(
+        frame: MouseFrame,
+        dx: float,
+        dy: float,
+    ) -> tuple[float, float]:
+        scale = getattr(frame, "response_input_scale", 1.0)
+        if scale <= 0.0:
+            return 0.0, 0.0
+        return dx * scale, dy * scale
+
+    @staticmethod
     def _aim_point_distance(
         current: ControllerTarget, previous: ControllerTarget
     ) -> float:
@@ -1179,6 +1588,15 @@ class AIAimPlugin:
         if max_magnitude <= 0.0 or magnitude <= max_magnitude:
             return dx, dy
         scale = max_magnitude / magnitude
+        return dx * scale, dy * scale
+
+    @staticmethod
+    def _soft_limit_vector(dx: float, dy: float, max_magnitude: float) -> tuple[float, float]:
+        magnitude = (dx ** 2 + dy ** 2) ** 0.5
+        if max_magnitude <= 0.0 or magnitude <= 0.0:
+            return dx, dy
+        limited = (max_magnitude * magnitude) / (max_magnitude + magnitude)
+        scale = limited / magnitude
         return dx * scale, dy * scale
 
     @staticmethod

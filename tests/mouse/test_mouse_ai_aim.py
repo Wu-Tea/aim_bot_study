@@ -33,10 +33,12 @@ def _frame(
     target_dy=-6.0,
     manual_dx=0.0,
     manual_dy=0.0,
+    manual_left_pressed=False,
     manual_override_active=False,
     target=_DEFAULT_TARGET,
     target_revision=1,
     target_timestamp=None,
+    response_input_scale=1.0,
 ):
     return MouseFrame(
         timestamp=timestamp,
@@ -46,15 +48,25 @@ def _frame(
         target_dx=target_dx,
         target_dy=target_dy,
         auto_fire_requested=False,
+        manual_left_pressed=manual_left_pressed,
         manual_override_active=manual_override_active,
         target=_target() if target is _DEFAULT_TARGET else target,
         target_revision=target_revision,
         target_timestamp=timestamp if target_timestamp is None else target_timestamp,
+        response_input_scale=response_input_scale,
     )
 
 
 def _magnitude(output: MouseOutput) -> float:
     return (output.move_dx ** 2 + output.move_dy ** 2) ** 0.5
+
+
+def _sign(value: float) -> int:
+    if value > 0.0:
+        return 1
+    if value < 0.0:
+        return -1
+    return 0
 
 
 class AIAimPluginTests(unittest.TestCase):
@@ -108,6 +120,536 @@ class AIAimPluginTests(unittest.TestCase):
         self.assertEqual(plugin._mode, "acquire_far")
         self.assertGreater(_magnitude(output), 4.0)
 
+    def test_initial_ads_snap_window_uses_fast_snap_phase(self):
+        plugin = AIAimPlugin(
+            AIAimConfig(
+                snap_window_seconds=0.140,
+                snap_gain=1.0,
+                snap_max_move_px=22.0,
+                snap_response_horizon_s=0.010,
+                response_accel_multiplier=3.0,
+            )
+        )
+
+        output = MouseOutput()
+        plugin.apply(
+            _frame(
+                timestamp=1.000,
+                target_dx=72.0,
+                target_dy=0.0,
+                target=_target(
+                    aim_point_x=392.0,
+                    aim_point_y=256.0,
+                    body_box=(352.0, 180.0, 432.0, 340.0),
+                ),
+            ),
+            output,
+        )
+
+        self.assertEqual(plugin._control_phase, "snap")
+        self.assertEqual(plugin._mode, "acquire_far")
+        self.assertLessEqual(plugin._last_response_horizon_seconds_value, 0.010)
+        self.assertGreater(output.move_dx, 8.0)
+
+    def test_snap_new_observations_seed_servo_from_latest_error(self):
+        plugin = AIAimPlugin(
+            AIAimConfig(
+                snap_window_seconds=0.140,
+                snap_gain=1.60,
+                snap_max_move_px=160.0,
+                snap_response_horizon_s=0.090,
+            )
+        )
+
+        moves = []
+        remaining = []
+        for index, error in enumerate((72.0, 52.0, 34.0), start=1):
+            output = MouseOutput()
+            plugin.apply(
+                _frame(
+                    timestamp=1.000 + (index - 1) * (1.0 / 120.0),
+                    target_dx=error,
+                    target_dy=0.0,
+                    target_revision=index,
+                    target_timestamp=1.000 + (index - 1) * (1.0 / 120.0),
+                    target=_target(
+                        aim_point_x=320.0 + error,
+                        aim_point_y=256.0,
+                        body_box=(280.0 + error, 180.0, 360.0 + error, 340.0),
+                    ),
+                ),
+                output,
+            )
+            moves.append(output.move_dx)
+            remaining.append(plugin._snap_remaining_dx)
+
+        self.assertEqual(plugin._control_phase, "snap")
+        self.assertGreater(moves[0], 4.0)
+        self.assertGreater(remaining[0], remaining[1])
+        self.assertGreater(remaining[1], remaining[2])
+        self.assertLess(remaining[0], plugin.config.snap_max_move_px)
+
+    def test_snap_continues_servo_between_slow_vision_observations(self):
+        plugin = AIAimPlugin(
+            AIAimConfig(
+                snap_window_seconds=0.140,
+                snap_gain=1.60,
+                snap_max_move_px=160.0,
+                snap_response_horizon_s=0.090,
+            )
+        )
+
+        first = MouseOutput()
+        plugin.apply(
+            _frame(
+                timestamp=1.000,
+                target_dx=72.0,
+                target_dy=0.0,
+                target_revision=1,
+                target_timestamp=1.000,
+                target=_target(
+                    aim_point_x=392.0,
+                    aim_point_y=256.0,
+                    body_box=(352.0, 180.0, 432.0, 340.0),
+                ),
+            ),
+            first,
+        )
+
+        repeated_moves = []
+        for tick in range(1, 7):
+            output = MouseOutput()
+            plugin.apply(
+                _frame(
+                    timestamp=1.000 + tick * 0.001,
+                    target_dx=72.0,
+                    target_dy=0.0,
+                    target_revision=1,
+                    target_timestamp=1.000,
+                    target=_target(
+                        aim_point_x=392.0 - first.move_dx,
+                        aim_point_y=256.0,
+                        body_box=(
+                            352.0 - first.move_dx,
+                            180.0,
+                            432.0 - first.move_dx,
+                            340.0,
+                        ),
+                    ),
+                ),
+                output,
+            )
+            repeated_moves.append(output.move_dx)
+
+        self.assertEqual(plugin._control_phase, "snap")
+        self.assertGreater(first.move_dx, 4.0)
+        self.assertGreater(sum(repeated_moves), 3.0)
+        self.assertTrue(all(move > 0.0 for move in repeated_moves))
+
+    def test_snap_waits_for_first_target_after_ads_animation(self):
+        plugin = AIAimPlugin(
+            AIAimConfig(
+                snap_window_seconds=0.140,
+                snap_activation_grace_seconds=0.300,
+                snap_gain=1.60,
+                snap_max_move_px=160.0,
+                snap_response_horizon_s=0.090,
+            )
+        )
+        plugin.apply(_frame(timestamp=1.000, target=None), MouseOutput())
+
+        output = MouseOutput()
+        plugin.apply(
+            _frame(
+                timestamp=1.200,
+                target_dx=72.0,
+                target_dy=0.0,
+                target_revision=1,
+                target_timestamp=1.200,
+                target=_target(
+                    aim_point_x=392.0,
+                    aim_point_y=256.0,
+                    body_box=(352.0, 180.0, 432.0, 340.0),
+                ),
+            ),
+            output,
+        )
+
+        self.assertEqual(plugin._control_phase, "snap")
+        self.assertGreater(output.move_dx, 4.0)
+
+    def test_snap_output_scales_with_measured_mouse_response(self):
+        config = AIAimConfig(
+            snap_window_seconds=0.140,
+            snap_gain=1.0,
+            snap_max_move_px=160.0,
+            snap_response_horizon_s=1.0 / 140.0,
+        )
+
+        def run_once(response_input_scale):
+            plugin = AIAimPlugin(config)
+            output = MouseOutput()
+            plugin.apply(
+                _frame(
+                    timestamp=1.000,
+                    target_dx=72.0,
+                    target_dy=0.0,
+                    target=_target(
+                        aim_point_x=392.0,
+                        aim_point_y=256.0,
+                        body_box=(352.0, 180.0, 432.0, 340.0),
+                    ),
+                    response_input_scale=response_input_scale,
+                ),
+                output,
+            )
+            return output.move_dx
+
+        unscaled = run_once(1.0)
+        scaled = run_once(3.0)
+
+        self.assertGreater(unscaled, 1.0)
+        self.assertAlmostEqual(scaled, unscaled * 3.0, delta=0.001)
+
+    def test_manual_left_click_reopens_snap_window_during_existing_ads(self):
+        plugin = AIAimPlugin(AIAimConfig(snap_window_seconds=0.140))
+        plugin.apply(_frame(timestamp=1.000, target=None), MouseOutput())
+
+        output = MouseOutput()
+        plugin.apply(
+            _frame(
+                timestamp=1.200,
+                manual_left_pressed=True,
+                target_dx=72.0,
+                target_dy=0.0,
+                target=_target(
+                    aim_point_x=392.0,
+                    aim_point_y=256.0,
+                    body_box=(352.0, 180.0, 432.0, 340.0),
+                ),
+            ),
+            output,
+        )
+
+        self.assertEqual(plugin._control_phase, "snap")
+        self.assertEqual(plugin._mode, "acquire_far")
+        self.assertGreater(output.move_dx, 8.0)
+
+    def test_snap_transitions_to_body_lock_when_inside_body_window(self):
+        plugin = AIAimPlugin(AIAimConfig(snap_window_seconds=0.140))
+        plugin.apply(
+            _frame(
+                timestamp=1.000,
+                target_dx=64.0,
+                target_dy=0.0,
+                target=_target(
+                    aim_point_x=384.0,
+                    aim_point_y=256.0,
+                    body_box=(344.0, 180.0, 424.0, 340.0),
+                ),
+            ),
+            MouseOutput(),
+        )
+
+        output = MouseOutput()
+        plugin.apply(
+            _frame(
+                timestamp=1.145,
+                target_dx=8.0,
+                target_dy=0.0,
+                target=_target(
+                    aim_point_x=328.0,
+                    aim_point_y=256.0,
+                    body_box=(288.0, 180.0, 368.0, 340.0),
+                ),
+            ),
+            output,
+        )
+
+        self.assertEqual(plugin._control_phase, "body_lock")
+        self.assertEqual(plugin._mode, "stabilize")
+        self.assertNotEqual((output.move_dx, output.move_dy), (0.0, 0.0))
+
+    def test_body_lock_manual_mix_suppresses_small_target_flip_jitter(self):
+        plugin = AIAimPlugin(
+            AIAimConfig(
+                snap_window_seconds=0.0,
+                body_lock_deadband_px=2.0,
+                body_lock_manual_dampen_speed_px=1.0,
+                body_lock_manual_scale=0.25,
+            )
+        )
+        target = _target(
+            aim_point_x=326.0,
+            aim_point_y=256.0,
+            body_box=(286.0, 180.0, 366.0, 340.0),
+        )
+        plugin.apply(
+            _frame(timestamp=1.000, target_dx=6.0, target_dy=0.0, target=target),
+            MouseOutput(),
+        )
+
+        moves = []
+        for index, dx in enumerate((1.0, -1.0, 1.0, -1.0, 1.0, -1.0), start=1):
+            output = MouseOutput()
+            plugin.apply(
+                _frame(
+                    timestamp=1.000 + index * 0.008,
+                    target_dx=dx,
+                    target_dy=0.0,
+                    manual_dx=2.5,
+                    target=_target(
+                        aim_point_x=320.0 + dx,
+                        aim_point_y=256.0,
+                        body_box=(280.0 + dx, 180.0, 360.0 + dx, 340.0),
+                    ),
+                    target_revision=1 + index,
+                ),
+                output,
+            )
+            moves.append(output.move_dx)
+
+        nonzero_signs = [_sign(move) for move in moves if abs(move) >= 0.05]
+        flips = sum(
+            1
+            for previous, current in zip(nonzero_signs, nonzero_signs[1:])
+            if previous != current
+        )
+        self.assertEqual(plugin._control_phase, "body_lock")
+        self.assertEqual(flips, 0)
+        self.assertLessEqual(max(abs(move) for move in moves), 0.25)
+
+    def test_body_lock_opposing_manual_keeps_recovery_strength(self):
+        plugin = AIAimPlugin(AIAimConfig(snap_window_seconds=0.0))
+        target = _target(
+            aim_point_x=330.0,
+            aim_point_y=256.0,
+            body_box=(290.0, 180.0, 370.0, 340.0),
+        )
+        baseline = MouseOutput()
+        plugin.apply(
+            _frame(timestamp=1.000, target_dx=10.0, target_dy=0.0, target=target),
+            baseline,
+        )
+
+        output = MouseOutput()
+        plugin.apply(
+            _frame(
+                timestamp=1.008,
+                target_dx=10.0,
+                target_dy=0.0,
+                manual_dx=-3.0,
+                target_revision=2,
+                target=target,
+            ),
+            output,
+        )
+
+        self.assertEqual(plugin._control_phase, "body_lock")
+        self.assertGreaterEqual(abs(output.move_dx), abs(baseline.move_dx) * 0.75)
+
+    def test_body_lock_manual_arbitration_distinguishes_opposing_and_helpful_input(self):
+        plugin = AIAimPlugin(
+            AIAimConfig(
+                snap_window_seconds=0.0,
+                body_lock_manual_dampen_speed_px=1.0,
+                body_lock_manual_scale=0.35,
+            )
+        )
+        plugin._control_phase = "body_lock"
+
+        opposing_x, _ = plugin._apply_body_lock_manual_mix(
+            _frame(target_dx=10.0, target_dy=0.0, manual_dx=-3.0),
+            move_dx=0.90,
+            move_dy=0.0,
+        )
+        helpful_x, _ = plugin._apply_body_lock_manual_mix(
+            _frame(target_dx=10.0, target_dy=0.0, manual_dx=3.0),
+            move_dx=0.90,
+            move_dy=0.0,
+        )
+        orthogonal_x, _ = plugin._apply_body_lock_manual_mix(
+            _frame(target_dx=10.0, target_dy=0.0, manual_dy=3.0),
+            move_dx=0.90,
+            move_dy=0.0,
+        )
+
+        self.assertAlmostEqual(opposing_x, 0.90)
+        self.assertAlmostEqual(orthogonal_x, 0.90)
+        self.assertLess(abs(helpful_x), 0.25)
+
+    def test_body_lock_orthogonal_manual_keeps_primary_axis_help(self):
+        plugin = AIAimPlugin(AIAimConfig(snap_window_seconds=0.0))
+        target = _target(
+            aim_point_x=330.0,
+            aim_point_y=256.0,
+            body_box=(290.0, 180.0, 370.0, 340.0),
+        )
+        baseline = MouseOutput()
+        plugin.apply(
+            _frame(timestamp=1.000, target_dx=10.0, target_dy=0.0, target=target),
+            baseline,
+        )
+
+        output = MouseOutput()
+        plugin.apply(
+            _frame(
+                timestamp=1.008,
+                target_dx=10.0,
+                target_dy=0.0,
+                manual_dy=3.0,
+                target_revision=2,
+                target=target,
+            ),
+            output,
+        )
+
+        self.assertEqual(plugin._control_phase, "body_lock")
+        self.assertGreaterEqual(abs(output.move_dx), abs(baseline.move_dx) * 0.75)
+
+    def test_body_lock_segmented_x_cancel_offsets_small_manual_jitter(self):
+        plugin = AIAimPlugin(
+            AIAimConfig(
+                snap_window_seconds=0.0,
+                body_lock_jitter_cancel_x_smoothing=0.0,
+                body_lock_jitter_cancel_x_scale=0.60,
+                body_lock_jitter_cancel_x_deadband=0.5,
+                body_lock_jitter_cancel_x_soft_px=3.0,
+                body_lock_jitter_cancel_x_max_speed=8.0,
+                body_lock_jitter_cancel_x_max_move=4.0,
+                body_lock_jitter_cancel_x_inner_radius_px=8.0,
+            )
+        )
+        output = MouseOutput()
+        plugin.apply(
+            _frame(
+                timestamp=1.000,
+                target_dx=2.0,
+                target_dy=0.0,
+                manual_dx=3.0,
+                target=_target(
+                    aim_point_x=322.0,
+                    aim_point_y=256.0,
+                    body_box=(282.0, 180.0, 362.0, 340.0),
+                ),
+            ),
+            output,
+        )
+
+        self.assertEqual(plugin._control_phase, "body_lock")
+        self.assertLess(plugin._last_body_lock_jitter_cancel_x, -1.0)
+
+    def test_body_lock_segmented_x_cancel_ignores_large_manual_turn(self):
+        plugin = AIAimPlugin(
+            AIAimConfig(
+                snap_window_seconds=0.0,
+                body_lock_jitter_cancel_x_smoothing=0.0,
+                body_lock_jitter_cancel_x_scale=0.60,
+                body_lock_jitter_cancel_x_deadband=0.5,
+                body_lock_jitter_cancel_x_soft_px=3.0,
+                body_lock_jitter_cancel_x_max_speed=8.0,
+                body_lock_jitter_cancel_x_max_move=4.0,
+                body_lock_jitter_cancel_x_inner_radius_px=8.0,
+            )
+        )
+        output = MouseOutput()
+        plugin.apply(
+            _frame(
+                timestamp=1.000,
+                target_dx=2.0,
+                target_dy=0.0,
+                manual_dx=12.0,
+                target=_target(
+                    aim_point_x=322.0,
+                    aim_point_y=256.0,
+                    body_box=(282.0, 180.0, 362.0, 340.0),
+                ),
+            ),
+            output,
+        )
+
+        self.assertEqual(plugin._control_phase, "body_lock")
+        self.assertAlmostEqual(plugin._last_body_lock_jitter_cancel_x, 0.0)
+
+    def test_body_lock_segmented_x_cancel_smooths_direction_flip(self):
+        plugin = AIAimPlugin(
+            AIAimConfig(
+                snap_window_seconds=0.0,
+                body_lock_jitter_cancel_x_smoothing=0.5,
+                body_lock_jitter_cancel_x_scale=0.60,
+                body_lock_jitter_cancel_x_deadband=0.5,
+                body_lock_jitter_cancel_x_soft_px=3.0,
+                body_lock_jitter_cancel_x_max_speed=8.0,
+                body_lock_jitter_cancel_x_max_move=4.0,
+                body_lock_jitter_cancel_x_inner_radius_px=8.0,
+            )
+        )
+        target = _target(
+            aim_point_x=322.0,
+            aim_point_y=256.0,
+            body_box=(282.0, 180.0, 362.0, 340.0),
+        )
+        plugin.apply(
+            _frame(
+                timestamp=1.000,
+                target_dx=2.0,
+                target_dy=0.0,
+                manual_dx=3.0,
+                target=target,
+            ),
+            MouseOutput(),
+        )
+        first_cancel = plugin._last_body_lock_jitter_cancel_x
+
+        plugin.apply(
+            _frame(
+                timestamp=1.008,
+                target_dx=2.0,
+                target_dy=0.0,
+                manual_dx=-3.0,
+                target=target,
+                target_revision=2,
+            ),
+            MouseOutput(),
+        )
+        second_cancel = plugin._last_body_lock_jitter_cancel_x
+
+        self.assertLess(first_cancel, 0.0)
+        self.assertGreater(second_cancel, first_cancel)
+        self.assertLess(abs(second_cancel), 1.0)
+
+    def test_body_lock_segmented_x_cancel_waits_until_near_center(self):
+        plugin = AIAimPlugin(
+            AIAimConfig(
+                snap_window_seconds=0.0,
+                body_lock_jitter_cancel_x_smoothing=0.0,
+                body_lock_jitter_cancel_x_scale=0.60,
+                body_lock_jitter_cancel_x_deadband=0.5,
+                body_lock_jitter_cancel_x_soft_px=3.0,
+                body_lock_jitter_cancel_x_max_speed=8.0,
+                body_lock_jitter_cancel_x_max_move=4.0,
+                body_lock_jitter_cancel_x_inner_radius_px=8.0,
+            )
+        )
+        output = MouseOutput()
+        plugin.apply(
+            _frame(
+                timestamp=1.000,
+                target_dx=10.0,
+                target_dy=0.0,
+                manual_dx=3.0,
+                target=_target(
+                    aim_point_x=330.0,
+                    aim_point_y=256.0,
+                    body_box=(290.0, 180.0, 370.0, 340.0),
+                ),
+            ),
+            output,
+        )
+
+        self.assertEqual(plugin._control_phase, "body_lock")
+        self.assertAlmostEqual(plugin._last_body_lock_jitter_cancel_x, 0.0)
+
     def test_reconstructed_target_can_start_acquire_from_manual(self):
         plugin = AIAimPlugin()
         output = MouseOutput()
@@ -123,7 +665,7 @@ class AIAimPluginTests(unittest.TestCase):
         self.assertGreater(_magnitude(output), 4.0)
 
     def test_midrange_observed_target_uses_mid_acquire(self):
-        plugin = AIAimPlugin()
+        plugin = AIAimPlugin(AIAimConfig(snap_window_seconds=0.0))
         output = MouseOutput()
         plugin.apply(
             _frame(target_dx=34.0, target_dy=-18.0, target=_target()),
@@ -161,15 +703,16 @@ class AIAimPluginTests(unittest.TestCase):
         self.assertLessEqual(_magnitude(output), plugin.config.stabilize_max_move_px + 0.01)
 
     def test_midrange_target_does_not_enter_stabilize_too_early(self):
-        plugin = AIAimPlugin()
+        plugin = AIAimPlugin(AIAimConfig(snap_window_seconds=0.0))
         output = MouseOutput()
-        plugin.apply(_frame(target_dx=15.0, target_dy=-8.0, target=_target()), output)
+        plugin.apply(_frame(target_dx=24.0, target_dy=-8.0, target=_target()), output)
         self.assertEqual(plugin._mode, "acquire_mid")
         self.assertGreater(_magnitude(output), plugin.config.stabilize_max_move_px)
 
     def test_repeated_local_error_frame_recalculates_desired_velocity(self):
         plugin = AIAimPlugin(
             AIAimConfig(
+                snap_window_seconds=0.0,
                 mid_acquire_gain=1.0,
                 mid_acquire_max_move_px=100.0,
                 mid_acquire_response_horizon_s=0.020,
@@ -417,7 +960,13 @@ class AIAimPluginTests(unittest.TestCase):
         self.assertLess(_magnitude(output), 2.5)
 
     def test_motion_boost_does_not_apply_after_visibility_gap(self):
-        plugin = AIAimPlugin()
+        plugin = AIAimPlugin(
+            AIAimConfig(
+                snap_window_seconds=0.0,
+                body_lock_gain=0.12,
+                body_lock_max_move_px=0.90,
+            )
+        )
         plugin.apply(
             _frame(
                 timestamp=1.00,
@@ -455,7 +1004,13 @@ class AIAimPluginTests(unittest.TestCase):
         self.assertLess(_magnitude(output), 0.5)
 
     def test_motion_boost_is_reserved_for_axis_dominant_tracking(self):
-        plugin = AIAimPlugin()
+        plugin = AIAimPlugin(
+            AIAimConfig(
+                snap_window_seconds=0.0,
+                body_lock_gain=0.12,
+                body_lock_max_move_px=0.90,
+            )
+        )
         plugin.apply(
             _frame(
                 timestamp=1.00,
@@ -673,6 +1228,7 @@ class AIAimPluginTests(unittest.TestCase):
     def test_far_acquire_adds_motion_lead_for_same_target_family(self):
         plugin = AIAimPlugin(
             AIAimConfig(
+                snap_window_seconds=0.0,
                 acquire_gain=1.0,
                 acquire_max_move_px=100.0,
                 acquire_lead_seconds=0.03,
@@ -712,7 +1268,7 @@ class AIAimPluginTests(unittest.TestCase):
         self.assertGreater(output.move_dx, 54.0)
 
     def test_same_target_revision_continues_with_rate_limited_trajectory(self):
-        plugin = AIAimPlugin()
+        plugin = AIAimPlugin(AIAimConfig(snap_window_seconds=0.0))
         moves = []
 
         for tick in range(7):

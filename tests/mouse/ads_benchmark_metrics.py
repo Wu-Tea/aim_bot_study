@@ -31,9 +31,9 @@ SHARED_GAMEPAD_ADS_METRICS = (
 
 @dataclass(frozen=True, slots=True)
 class MouseAdsBenchmarkConfig:
-    frame_dt: float = 1.0 / 60.0
-    target_sample_hz: float | None = None
-    sim_frames: int = 90
+    frame_dt: float = 1.0 / 120.0
+    target_sample_hz: float | None = 120.0
+    sim_frames: int = 180
     response_delta_threshold_px: float = 1.0
     response_improvement_threshold_px: float = 0.5
     under_target_threshold_px: float = 20.0

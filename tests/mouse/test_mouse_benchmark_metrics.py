@@ -40,6 +40,13 @@ class MouseAdsBenchmarkMetricsTests(unittest.TestCase):
             reticle_delta_px=1.0,
         )
 
+    def test_mouse_ads_benchmark_defaults_to_120hz_controller_cadence(self):
+        config = MouseAdsBenchmarkConfig()
+
+        self.assertAlmostEqual(1.0 / config.frame_dt, 120.0)
+        self.assertEqual(config.target_sample_hz, 120.0)
+        self.assertEqual(config.sim_frames, 180)
+
     def test_evaluate_mouse_ads_scenario_reports_mouse_specific_metrics(self):
         manifest = generate_ads_manifests("mouse-metrics", 12345)[0]
 

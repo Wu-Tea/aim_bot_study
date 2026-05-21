@@ -21,6 +21,7 @@ class MouseFrame:
     auto_fire_timestamp: float | None = None
     vision_received_at: float | None = None
     vision_submitted_at: float | None = None
+    response_input_scale: float = 1.0
 
 
 @dataclass(slots=True)

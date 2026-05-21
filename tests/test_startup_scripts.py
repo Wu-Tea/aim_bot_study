@@ -13,7 +13,7 @@ class StartupScriptTests(unittest.TestCase):
         self.assertIn("py -3.11", content)
         self.assertIn("config.toml", content)
         self.assertIn("AUTO_FIRE_ARG", content)
-        self.assertIn("main.py --controller-mode gamepad %AUTO_FIRE_ARG%", content)
+        self.assertIn("main.py --controller-mode gamepad !AUTO_FIRE_ARG!", content)
         self.assertNotIn('set "VISION_PERF_LOG=1"', content)
         self.assertNotIn("--perf-log", content)
         self.assertNotIn('set "VISION_BACKEND=native"', content)
@@ -58,6 +58,22 @@ class StartupScriptTests(unittest.TestCase):
 
         self.assertNotIn(".venv\\Scripts\\python.exe", content)
         self.assertIn("py -3.11", content)
+
+    def test_mouse_scripts_keep_keyboard_quit_failsafe_enabled(self):
+        for script_name in ("mouse_start.bat", "mouse_native_debug.bat"):
+            with self.subTest(script_name=script_name):
+                content = (PROJECT_ROOT / script_name).read_text(encoding="utf-8")
+
+                self.assertIn('set "VISION_QUIT_KEY=Q"', content)
+                self.assertNotIn('set "VISION_QUIT_KEY=0"', content)
+
+    def test_mouse_native_debug_runs_injection_probe_before_launch(self):
+        content = (PROJECT_ROOT / "mouse_native_debug.bat").read_text(encoding="utf-8")
+
+        self.assertIn("MOUSE_PROBE_INPUT", content)
+        self.assertIn("tools\\probe_mouse_injection.py --backend %MOUSE_INJECTION_BACKEND%", content)
+        self.assertIn("Mouse injection probe failed", content)
+        self.assertIn("exit /b 1", content)
 
 
 if __name__ == "__main__":

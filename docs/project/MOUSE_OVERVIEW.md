@@ -188,11 +188,14 @@ Unlike the gamepad path, mouse recoil and mouse auto-fire are not currently expo
 
 Important host details in `MouseController`:
 
-- right-click controls aiming state
+- right-click controls ADS aiming state
+- left-click can also start a mouse aim session for click-to-snap scenarios
 - transient aiming frames with no target use `clear_target()`
   - clears target deltas/metadata without resetting plugins
-- releasing right-click still triggers full `reset()`
-- injected mouse deltas are subtracted back out of the accumulator so synthetic movement does not loop back in as fake manual input
+- releasing right-click still triggers full `reset()` when left-click is not holding an aim session
+- synthetic movement is suppressed before manual arbitration so injected movement does not loop back in as fake manual input
+- physical right-button polling fail-closes missed ADS releases and releases synthetic left-click holds
+- mouse telemetry can record button state, target age, AI phase, output/move cadence, backend, and injection errors
 - the loop runs at roughly `1000 Hz` through `time.sleep(0.001)`
 
 This path is intentionally additive. It does not try to replace or intercept the physical mouse device.
@@ -204,15 +207,22 @@ This path is intentionally additive. It does not try to replace or intercept the
 - enables `VISION_PERF_LOG=1`
 - defaults `VISION_BACKEND=native`
 - defaults `VISION_CAPTURE_FPS=140`
-- defaults `VISION_QUIT_KEY=0`
+- defaults `VISION_QUIT_KEY=Q`
+- defaults `MOUSE_INJECTION_BACKEND=sendinput`
 - launches `main.py --controller-mode mouse --vision-backend native --perf-log`
 
 `mouse_native_debug.bat` currently:
 
 - enables the same native defaults as `mouse_start.bat`
+- enables `MOUSE_TELEMETRY=1`
+- probes mouse injection before launching unless `MOUSE_PROBE_INPUT=0`
+- writes a run-specific CSV under `artifacts\mouse_telemetry\`
+- analyzes that exact CSV with `tools\analyze_mouse_telemetry.py --assert-healthy`
 - launches `main.py --controller-mode mouse --vision-backend native --vision-debug --vision-debug-save --perf-log`
 
 Neither script provides the gamepad startup prompts.
+
+For live diagnosis of no-effect or stepped pulling, see `MOUSE_TELEMETRY_DEBUGGING.md`.
 
 ## Relationship To `kbm_to_gamepad`
 

@@ -27,7 +27,7 @@ The scaffold proves these things:
 - Python can now run `NativeVisionEngine` through `--vision-backend native` and hand native `VisionResult` values directly to the existing controller
 - `gamepad_native_debug.bat` starts the C++ vision + Python controller bridge with a synthetic debug window
 
-The default `gamepad_start.bat` path now uses native vision at `VISION_CAPTURE_FPS=140`. Runtime defaults come from `config.toml` / `config.toml.example`, with existing environment variables still taking precedence. Python vision remains available through `--vision-backend python` or by setting `VISION_BACKEND=python` before launch.
+The default `gamepad_start.bat` path now uses native vision at `VISION_CAPTURE_FPS=140`. Runtime defaults come from the local project-root `config.toml` when that file exists, with existing environment variables still taking precedence. If `config.toml` is absent, code defaults are used. Python vision remains available through `--vision-backend python` or by setting `VISION_BACKEND=python` before launch.
 
 ## Pipeline Status
 

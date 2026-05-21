@@ -23,13 +23,12 @@ Windows-focused YOLO aim-assist study project with a hybrid runtime:
 py -3.11 -m venv .venv
 .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-Copy-Item config.toml.example config.toml
 ```
 
 Notes:
 
 - The repo is Windows-oriented.
-- `config.toml` is intentionally gitignored so local tuning stays private.
+- Runtime reads the local project-root `config.toml` directly. The file is intentionally gitignored so machine-specific tuning stays private; when it is absent, code defaults are used.
 - `requirements.txt` covers Python packages only. CUDA, TensorRT, Visual Studio C++ tools, and pybind11-backed native build requirements are separate.
 
 ### Native vision prerequisites
@@ -68,12 +67,11 @@ These scripts are the fastest way to use the project without remembering CLI fla
 
 | Script | Purpose | Current behavior |
 | --- | --- | --- |
-| `gamepad_start.bat` | Main gamepad runtime | Uses `config.toml` / `config.toml.example` runtime defaults, lets existing `VISION_*` env vars override them, and prompts for an optional `RB` / `RT` CLI override |
+| `gamepad_start.bat` | Main gamepad runtime | Uses local `config.toml` runtime defaults when present, lets existing `VISION_*` env vars override them, and prompts for optional recoil/runtime choices and `RB` / `RT` CLI override |
 | `gamepad_debug.bat` | Gamepad debug runtime | Prompts for `RB` / `RT` and native vs Python backend, enables `--vision-debug --vision-debug-save`, defaults `VISION_CAPTURE_FPS=140` |
 | `gamepad_native_debug.bat` | Force native gamepad debug | Native-only debug entry with `--vision-debug`, defaults `VISION_CAPTURE_FPS=140` |
 | `mouse_start.bat` | Main native mouse runtime | Uses `--controller-mode mouse`, defaults to native backend, enables perf log, defaults `VISION_CAPTURE_FPS=140` |
 | `mouse_native_debug.bat` | Native mouse debug runtime | Mouse path with `--vision-debug --vision-debug-save`, defaults `VISION_CAPTURE_FPS=140` |
-| `start.bat` | Older minimal launcher | Legacy helper; not the preferred entry point anymore |
 
 Equivalent direct CLI examples:
 

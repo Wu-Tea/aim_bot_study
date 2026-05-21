@@ -1,5 +1,7 @@
 # 项目追踪
 
+> Historical note: this file is older project tracking context. For the current project map, read `PROJECT_OVERVIEW.md` first.
+
 最后更新: 2026-04-05
 
 ## 当前实际情况
@@ -10,7 +12,7 @@
 - 视觉侧当前默认使用 `yolo26n-pose.engine`，失败时回退到 `yolo26n-pose.pt`。
 - 模型、ONNX、engine 文件目前直接放在仓库根目录，还没有做统一配置管理。
 - 项目目前没有 `README`、没有自动化测试、没有独立的配置文件。
-- 仓库里存在一些独立脚本和运行遗留文件，比如 `guaji.py`、`start.bat`、`__pycache__`，暂时没有纳入正式运行主线。
+- 仓库里仍存在一些独立脚本和运行遗留文件，比如 `guaji.py` 和本地 `__pycache__`，暂时没有纳入正式运行主线；当前正式启动入口已经拆成 `gamepad_start.bat`、`mouse_start.bat`、`gamepad_debug.bat`、`gamepad_native_debug.bat`、`mouse_native_debug.bat` 和 `recoil_app_start.bat`。
 
 ## 已完成改动
 

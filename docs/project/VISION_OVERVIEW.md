@@ -117,10 +117,11 @@ The important rule is unchanged: vision sends compact intent, not raw frames, in
 
 ## Current Defaults
 
-Launcher-level defaults now live in `config.toml` / `config.toml.example` under
+Launcher-level defaults can live in the local project-root `config.toml` under
 `[runtime.vision]`. `main.py` applies them before starting either vision
 backend. Existing `VISION_*` environment variables and explicit CLI arguments
-still take precedence.
+still take precedence. If `config.toml` is absent, the runtime uses code
+defaults.
 
 Default runtime baseline:
 

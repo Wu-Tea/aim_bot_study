@@ -13,5 +13,7 @@ artifacts/weapon_examples/
 artifacts/recoil_app/
 artifacts/recoil_profiles/
 artifacts/recoil_plots/
+artifacts/mouse_telemetry/
+artifacts/video_debug/
 .worktrees/
 native/vision_native/build/

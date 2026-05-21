@@ -4,19 +4,23 @@ This folder mixes current architecture notes, benchmark records, work snapshots,
 
 ## Read first
 
-1. `README.md`
+1. `PROJECT_OVERVIEW.md`
+   - project-level map, architecture diagrams, main flows, data contracts, and review notes
+2. `README.md`
    - top-level project entry, startup scripts, dependencies, code structure
-2. `WORKLOG.md`
+3. `WORKLOG.md`
    - latest project snapshot and recent changes
-3. `NATIVE_VISION.md`
+4. `NATIVE_VISION.md`
    - native vision build, runtime, bridge, and validation notes
-4. `CONTROLLER_OVERVIEW.md`
+5. `CONTROLLER_OVERVIEW.md`
    - controller boundaries and supported runtime modes
-5. `VISION_OVERVIEW.md`
+6. `VISION_OVERVIEW.md`
    - Python backend, native backend, and the shared vision-to-controller contract
 
 ## Runtime and architecture docs
 
+- `PROJECT_OVERVIEW.md`
+  - project-level map, architecture diagrams, runtime flow, controller flow, recoil flow, and review findings
 - `CONTROLLER_OVERVIEW.md`
   - controller factory, shared controller contract, startup paths, and recommendations
 - `VISION_OVERVIEW.md`
@@ -25,6 +29,8 @@ This folder mixes current architecture notes, benchmark records, work snapshots,
   - gamepad host architecture and the default plugin chain
 - `MOUSE_OVERVIEW.md`
   - native mouse-output host, continuity rules, and debug entry points
+- `MOUSE_TELEMETRY_DEBUGGING.md`
+  - live mouse telemetry capture, health checks, and failure interpretation
 - `NATIVE_VISION.md`
   - detailed native migration notes, build process, smoke tests, and payload contracts
 
