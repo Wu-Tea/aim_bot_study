@@ -320,6 +320,23 @@ class NativeVisionTargetingBridgeTests(unittest.TestCase):
         raw_target_y = 170.0 + ((250.0 - 170.0) * 0.38)
         self.assertAlmostEqual(locked["target_y"], raw_target_y, places=3)
 
+    def test_crouched_box_uses_middle_upper_body_target_point(self):
+        if not hasattr(self.module, "NativeTargetSelector"):
+            self.fail("NativeTargetSelector is missing")
+
+        selector = self.module.NativeTargetSelector(CROP_W, CROP_H)
+        crouched = np.array([[260.0, 220.0, 380.0, 330.0, 0.95, 0.0]], dtype=np.float32)
+
+        first = selector.select_xyxy(crouched)
+        locked = selector.select_xyxy(crouched)
+
+        self.assertFalse(first["has_target"])
+        self.assertTrue(locked["has_target"])
+        self.assertEqual(locked["target_source"], "observed")
+        self.assertAlmostEqual(locked["target_x"], 320.0, places=3)
+        raw_target_y = 220.0 + ((330.0 - 220.0) * 0.43)
+        self.assertAlmostEqual(locked["target_y"], raw_target_y, places=3)
+
     def test_wide_low_prone_or_side_box_can_lock_with_lower_body_target_point(self):
         if not hasattr(self.module, "NativeTargetSelector"):
             self.fail("NativeTargetSelector is missing")

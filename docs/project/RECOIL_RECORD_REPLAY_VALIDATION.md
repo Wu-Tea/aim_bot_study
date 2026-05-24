@@ -33,7 +33,7 @@ Runtime trial playback is deliberately permissive: when the recognized weapon id
    py -3 -B tools\dry_run_recoil_playback.py --profile artifacts\recoil_profiles\profile-cod22-<weapon>-ads-standing-current.json --frame-count 12
    ```
 
-   Confirm the JSON reports the expected `profile_amount`, `profile_x_amount`, `feedback_amount`, `calibrated`, and `right_x`/`right_y` curve.
+   Confirm the JSON reports the expected `profile_amount`, `profile_x_amount`, `profile_lead_ms`, `feedback_amount`, `calibrated`, and `right_x`/`right_y` curve.
 2. Start `gamepad_start.bat` with recoil runtime enabled.
 3. Confirm startup logs show the selected profile. If logs show `uncalibrated`, treat the first replay as a strength/direction smoke test.
 4. Fire a magazine without touching the right stick.
@@ -48,5 +48,7 @@ Runtime trial playback is deliberately permissive: when the recognized weapon id
 - Profile selected but weapon still climbs: profile curve is too small or calibration underestimates stick response.
 - Profile selected with `uncalibrated` in the log: adjust `[gamepad.recoil].profile_amount` carefully or capture a measured calibration.
 - Profile selected but bullet impacts still jump left/right: tune `[gamepad.recoil].profile_x_amount` in small steps; X uses per-sample profile delta only, not cumulative horizontal profile position.
+- Profile selected but the first bullets jump before compensation catches up: increase `[gamepad.recoil].profile_lead_ms` in small steps, such as `10`, `20`, then `30`.
+- Profile selected but the sight dips or horizontal correction arrives too early: reduce `[gamepad.recoil].profile_lead_ms`.
 - Profile selected but vertical pull feels too strong: lower `[gamepad.recoil].profile_amount`; it scales profile-driven output before the extra X-axis boost is applied.
 - Profile curve looks jagged or sign-reversing: discard the recording set and re-record.

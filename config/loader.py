@@ -47,6 +47,8 @@ GAMEPAD_RECOIL_KEYS = frozenset(
         "profile_amount",
         "profile_x_amount",
         "feedback_amount",
+        "profile_lead_ms",
+        "profile_velocity_reference_ms",
         "piecewise_mid_pixels_y",
         "piecewise_max_pixels_y",
         "piecewise_mid_ratio_y",

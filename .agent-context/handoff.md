@@ -1,6 +1,6 @@
 # Agent Handoff
 
-Last updated: 2026-05-20T17:04:02+08:00
+Last updated: 2026-05-23T10:26:50+08:00
 Updated by: Codex
 Active scope: `recoil_app` record/replay reliability and gamepad recoil playback are implemented for offline/code verification. Runtime profile selection is now permissive for trial playback: a saved profile is used when `game`, `canonical_weapon_id`, `stance`, and `aim_mode` match.
 Staleness: stale after a new live `recoil_app_start.bat` recording pass, calibration capture, `gamepad_start.bat` recoil smoke test, or further change to recoil profile/runtime/config semantics.
@@ -13,9 +13,10 @@ Make recoil recording and playback usable end to end: record full-magazine evide
 
 - Branch/worktree: `dev` in `D:\work\AI\yolo-study-001`.
 - The planned recoil reliability code path is implemented and covered by focused tests.
-- Gamepad recoil runtime currently exposes three knobs:
+- Gamepad recoil runtime currently exposes four knobs:
   - `profile_amount`: normal recorded-profile strength for X and Y.
   - `profile_x_amount`: extra multiplier for recorded profile X deltas only.
+  - `profile_lead_ms`: advance profile playback to compensate runtime/input/game timing delay.
   - `feedback_amount`: fixed fallback down-pull only when no matching profile is active.
 - Runtime no longer blocks matching profiles because of support count, confidence, accepted episode count, vertical recovery/reversal, horizontal disagreement, missing calibration, or sidecar `degraded` status.
 - Audit/status still reports those quality findings so bad recordings remain visible.
@@ -44,9 +45,10 @@ Make recoil recording and playback usable end to end: record full-magazine evide
 ## Next Action
 
 1. Restart `gamepad_start.bat` before live testing so the new runtime/config code is loaded.
-2. Tune only `profile_amount`, `profile_x_amount`, and `feedback_amount`.
-3. For trusted data, record three or more clean full magazines, run the audit tool, inspect `.recoil.png`, `.anti_recoil.png`, and `.timeline.png`, then add calibration if measured playback is needed.
-4. Live smoke test should confirm logs select the matching profile instead of falling back for quality-warning reasons.
+2. Trial `profile_lead_ms = 20`; adjust in small steps if first bullets still jump before compensation catches up or correction arrives too early.
+3. Tune only `profile_amount`, `profile_x_amount`, `profile_lead_ms`, and `feedback_amount`.
+4. For trusted data, record three or more clean full magazines, run the audit tool, inspect `.recoil.png`, `.anti_recoil.png`, and `.timeline.png`, then add calibration if measured playback is needed.
+5. Live smoke test should confirm logs select the matching profile instead of falling back for quality-warning reasons.
 
 ## Do Not Do
 

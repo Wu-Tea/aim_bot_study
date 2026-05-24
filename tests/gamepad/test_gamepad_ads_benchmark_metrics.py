@@ -9,9 +9,11 @@ from tests.gamepad.ads_benchmark_metrics import (
     AdsBenchmarkRunSummary,
     AdsBenchmarkScenarioMetrics,
     DEFAULT_ADS_INPUT_PROFILES,
+    _simulate_ads_closed_loop,
     evaluate_ads_run,
     evaluate_ads_scenario,
 )
+from tests.gamepad.ads_manual_inputs import AdsManualInputConfig
 from tests.gamepad.ads_benchmark_scenarios import (
     AdsLocalizationEvent,
     AdsScenarioManifest,
@@ -108,6 +110,50 @@ class AdsBenchmarkMetricsContractTests(unittest.TestCase):
 
 
 class AdsBenchmarkScenarioEvaluationTests(unittest.TestCase):
+    def test_closed_loop_projects_target_motion_between_repeated_120hz_samples(self):
+        class _PassiveRecordingPlugin:
+            def __init__(self):
+                self.config = AIAimConfig()
+                self.frames = []
+
+            def reset(self):
+                self.frames.clear()
+
+            def apply(self, frame, output):
+                self.frames.append(frame)
+
+        manifest = AdsScenarioManifest(
+            scenario_key="ads-repeated-motion-s00",
+            family="single_strafe_then_decel",
+            engagement_target_id="engagement",
+            targets=(
+                AdsTargetSpec(
+                    target_id="engagement",
+                    initial_dx=0.0,
+                    initial_dy=0.0,
+                    velocity_x=120.0,
+                    velocity_y=0.0,
+                ),
+            ),
+        )
+        plugin = _PassiveRecordingPlugin()
+
+        _simulate_ads_closed_loop(
+            manifest,
+            input_profile="none",
+            input_config=AdsManualInputConfig(),
+            config=AdsBenchmarkConfig(
+                frame_dt=1.0 / 240.0,
+                target_sample_hz=120.0,
+                sim_frames=4,
+            ),
+            plugin_factory=lambda: plugin,
+        )
+
+        self.assertEqual(len(plugin.frames), 4)
+        self.assertEqual(plugin.frames[2].target_revision, plugin.frames[3].target_revision)
+        self.assertGreater(plugin.frames[3].target_dx, plugin.frames[2].target_dx)
+
     def test_evaluate_static_scenario_reports_core_metrics(self):
         manifest = AdsScenarioManifest(
             scenario_key="ads-run-s00",

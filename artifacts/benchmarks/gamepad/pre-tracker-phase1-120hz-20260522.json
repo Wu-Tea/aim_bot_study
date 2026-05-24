@@ -1,0 +1,1028 @@
+{
+  "suite": "phase1",
+  "run_key": "pre-tracker-phase1-120hz-20260522",
+  "run_seed": 1779421700,
+  "baseline_key": "baseline-20260416-2",
+  "timestamp": "2026-05-22T03:48:20Z",
+  "artifact_path": "artifacts/benchmarks/gamepad/pre-tracker-phase1-120hz-20260522.json",
+  "git_metadata": {
+    "commit": "0ada8f27ea953d49fb42b52473976eb6058c8f68",
+    "dirty": true
+  },
+  "benchmark_config": {
+    "frame_dt": 0.016666666666666666,
+    "target_sample_hz": 120.0,
+    "sim_frames": 180,
+    "measure_from_frame": 60,
+    "max_reticle_speed_pps": 1500.0,
+    "stick_max": 32767,
+    "overshoot_threshold_px": 2.0,
+    "turn_recovery_threshold_px": 6.0,
+    "settle_threshold_px": 5.0,
+    "settle_consecutive_frames": 4,
+    "scenario_count": 24,
+    "steady_turns": 8,
+    "turn_then_decel": 8,
+    "decel_resume": 8
+  },
+  "scenario_logic": [
+    "steady_turns: 8 scenarios with one or more heading changes and no hard stop",
+    "turn_then_decel: 8 scenarios with a turn followed by a deceleration event",
+    "decel_resume: 8 scenarios with a deceleration event and optional resume"
+  ],
+  "controller_config_snapshot": {
+    "gamepad_ai_aim": {
+      "smoothing": 0.62,
+      "max_pixels": 130,
+      "piecewise_mid_pixels": 60.0,
+      "piecewise_max_pixels": 230.0,
+      "piecewise_mid_ratio": 0.56,
+      "piecewise_mid_pixels_y": 45.0,
+      "piecewise_max_pixels_y": 180.0,
+      "piecewise_mid_ratio_y": 0.65,
+      "invert_x": false,
+      "invert_y": false,
+      "max_ai_force": 0.64,
+      "max_ai_force_y": 0.8,
+      "deadzone_inner": 1.5,
+      "deadzone_outer": 5.0,
+      "x_deadzone_outer": 3.0,
+      "ai_fade_full": 8000,
+      "ai_delta_gain": 1.0,
+      "target_max_age_ms": 50.0,
+      "ads_snap_window_ms": 100,
+      "ads_snap_smoothing": 0.0,
+      "ads_snap_max_ai_force": 1.0,
+      "ads_snap_max_ai_force_y": 1.0,
+      "ads_snap_max_target_dy_px": 90.0,
+      "body_lock_smoothing": 0.14,
+      "body_lock_max_ai_force": 0.3,
+      "body_lock_opposing_boost_max_ai_force": 0.42,
+      "body_lock_max_ai_force_y": 0.42,
+      "body_lock_box_tolerance_px": 18.0,
+      "body_lock_activation_box_px": 150.0,
+      "body_lock_confidence_frames": 5,
+      "body_lock_confidence_min_strong": 0.5,
+      "body_lock_opposing_suppression_max": 1.0,
+      "body_lock_orthogonal_suppression_max": 0.6,
+      "body_lock_helpful_preservation_floor": 1.0,
+      "body_lock_manual_overlap_scale": 0.0,
+      "body_lock_near_lock_error_px": 32.0,
+      "body_lock_vertical_orthogonal_bias": 1.15,
+      "body_lock_vertical_deadzone_px": 6.0,
+      "body_lock_vertical_tail_inner_px": 2.0,
+      "body_lock_vertical_tail_speed_threshold_px_per_sec": 90.0,
+      "body_lock_release_tail_scale": 0.2,
+      "body_lock_upper_body_ratio": 0.38,
+      "body_lock_lead_frames": 5,
+      "body_lock_lead_seconds": 0.0,
+      "body_lock_vertical_lead_scale": 0.95,
+      "body_lock_lead_max_px": 18.0,
+      "body_lock_target_match_iou": 0.1,
+      "body_lock_target_match_center_px": 48.0
+    },
+    "gamepad_auto_fire": {
+      "fire_output": "RB",
+      "aim_only": true,
+      "max_source_age_ms": 50.0,
+      "manual_takeover_release_seconds": 0.035,
+      "manual_takeover_resume_delay_seconds": 0.085
+    },
+    "gamepad_recoil": {
+      "profile_amount": 0.3,
+      "feedback_amount": 0.2,
+      "profile_x_amount": 3.2,
+      "piecewise_mid_pixels_y": 45.0,
+      "piecewise_max_pixels_y": 180.0,
+      "piecewise_mid_ratio_y": 0.65
+    },
+    "adaptive_delta_gain": {
+      "min_error_px": 6.0,
+      "convergence_epsilon_px": 0.5,
+      "trigger_frames": 3,
+      "gain_per_update": 0.08,
+      "decay_per_update": 0.12,
+      "max_bonus": 0.6,
+      "opposing_input_threshold": 4500,
+      "stale_seconds": 0.15
+    }
+  },
+  "aggregate_metrics": {
+    "mean_error_px": 7.1056686243509155,
+    "p95_error_px": 9.039258123352214,
+    "p99_error_px": 9.402931501006751,
+    "overshoot_events": 10,
+    "max_overshoot_px": 5.394050692189042,
+    "mean_recovery_frames_after_turn": 49.111111111111114,
+    "mean_settle_frames_after_decel": 12.833333333333334,
+    "turn_recovery_coverage_ratio": 0.5625,
+    "decel_settle_coverage_ratio": 0.75
+  },
+  "relative_deltas_vs_baseline": {
+    "mean_error_px": -0.2735435844650021,
+    "p95_error_px": -0.32053306935843656,
+    "p99_error_px": -0.328304794147274,
+    "overshoot_events": -0.4117647058823529,
+    "max_overshoot_px": 0.06541587673677969,
+    "mean_recovery_frames_after_turn": -0.011185682326621814,
+    "mean_settle_frames_after_decel": -0.09259259259259252,
+    "turn_recovery_coverage_ratio": null,
+    "decel_settle_coverage_ratio": null
+  },
+  "scenarios": [
+    {
+      "manifest": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s00",
+        "kind": "steady_turns",
+        "initial_state": {
+          "initial_dx": -5.736729411407666,
+          "initial_dy": -2.8248845024530667,
+          "initial_speed_px_per_sec": 403.4950908691171,
+          "initial_heading_deg": -77.10984265639559
+        },
+        "turn_events": [
+          {
+            "frame": 59,
+            "delta_heading_deg": 67.00929285777269,
+            "speed_scale": 1.0322658427849634
+          },
+          {
+            "frame": 121,
+            "delta_heading_deg": -39.73834784067998,
+            "speed_scale": 0.9811556051762076
+          }
+        ],
+        "decel_events": [],
+        "resume_events": []
+      },
+      "metrics": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s00",
+        "kind": "steady_turns",
+        "mean_error_px": 13.332231637006645,
+        "p95_error_px": 15.452839349283266,
+        "p99_error_px": 16.330471999441595,
+        "overshoot_events": 0,
+        "max_overshoot_px": 0.0,
+        "mean_recovery_frames_after_turn": null,
+        "mean_settle_frames_after_decel": null
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s01",
+        "kind": "steady_turns",
+        "initial_state": {
+          "initial_dx": -12.59827149205811,
+          "initial_dy": -16.751251887251975,
+          "initial_speed_px_per_sec": 285.40647450313577,
+          "initial_heading_deg": -162.27245754131258
+        },
+        "turn_events": [
+          {
+            "frame": 62,
+            "delta_heading_deg": -95.5898985820103,
+            "speed_scale": 0.9484788410320623
+          },
+          {
+            "frame": 82,
+            "delta_heading_deg": 55.40573309127382,
+            "speed_scale": 0.9389844160701162
+          }
+        ],
+        "decel_events": [],
+        "resume_events": []
+      },
+      "metrics": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s01",
+        "kind": "steady_turns",
+        "mean_error_px": 8.783267249308665,
+        "p95_error_px": 10.054541552349816,
+        "p99_error_px": 11.067178757859855,
+        "overshoot_events": 1,
+        "max_overshoot_px": 3.4223246788727266,
+        "mean_recovery_frames_after_turn": 1.0,
+        "mean_settle_frames_after_decel": null
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s02",
+        "kind": "steady_turns",
+        "initial_state": {
+          "initial_dx": 11.491256281526589,
+          "initial_dy": -40.937810768967914,
+          "initial_speed_px_per_sec": 287.45602059767043,
+          "initial_heading_deg": -134.93341779491755
+        },
+        "turn_events": [
+          {
+            "frame": 50,
+            "delta_heading_deg": -104.28091219004894,
+            "speed_scale": 0.952057762743084
+          }
+        ],
+        "decel_events": [],
+        "resume_events": []
+      },
+      "metrics": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s02",
+        "kind": "steady_turns",
+        "mean_error_px": 7.471049739925415,
+        "p95_error_px": 7.531046169774936,
+        "p99_error_px": 7.755243754840584,
+        "overshoot_events": 1,
+        "max_overshoot_px": 2.0928189685081406,
+        "mean_recovery_frames_after_turn": 1.0,
+        "mean_settle_frames_after_decel": null
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s03",
+        "kind": "steady_turns",
+        "initial_state": {
+          "initial_dx": 13.677273123391274,
+          "initial_dy": -2.848491565061579,
+          "initial_speed_px_per_sec": 335.4264335993605,
+          "initial_heading_deg": 1.5211672004565742
+        },
+        "turn_events": [
+          {
+            "frame": 19,
+            "delta_heading_deg": 16.960494881081303,
+            "speed_scale": 1.0175827968890616
+          },
+          {
+            "frame": 54,
+            "delta_heading_deg": 85.35723144463512,
+            "speed_scale": 0.994824594684974
+          }
+        ],
+        "decel_events": [],
+        "resume_events": []
+      },
+      "metrics": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s03",
+        "kind": "steady_turns",
+        "mean_error_px": 8.82887303128189,
+        "p95_error_px": 8.933748618588528,
+        "p99_error_px": 9.304645033172985,
+        "overshoot_events": 0,
+        "max_overshoot_px": 0.0,
+        "mean_recovery_frames_after_turn": null,
+        "mean_settle_frames_after_decel": null
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s04",
+        "kind": "steady_turns",
+        "initial_state": {
+          "initial_dx": 10.882350187632497,
+          "initial_dy": -20.62506002537219,
+          "initial_speed_px_per_sec": 329.9286029713628,
+          "initial_heading_deg": -26.15143727984801
+        },
+        "turn_events": [
+          {
+            "frame": 20,
+            "delta_heading_deg": 62.74380825664494,
+            "speed_scale": 1.0086332859802092
+          }
+        ],
+        "decel_events": [],
+        "resume_events": []
+      },
+      "metrics": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s04",
+        "kind": "steady_turns",
+        "mean_error_px": 10.304262870476624,
+        "p95_error_px": 10.304585909214023,
+        "p99_error_px": 10.30460622690627,
+        "overshoot_events": 0,
+        "max_overshoot_px": 0.0,
+        "mean_recovery_frames_after_turn": null,
+        "mean_settle_frames_after_decel": null
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s05",
+        "kind": "steady_turns",
+        "initial_state": {
+          "initial_dx": 35.050592795795936,
+          "initial_dy": 19.070151594529804,
+          "initial_speed_px_per_sec": 259.39715578389865,
+          "initial_heading_deg": 12.222583364591287
+        },
+        "turn_events": [
+          {
+            "frame": 36,
+            "delta_heading_deg": -9.59972661942237,
+            "speed_scale": 0.9363610901258362
+          }
+        ],
+        "decel_events": [],
+        "resume_events": []
+      },
+      "metrics": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s05",
+        "kind": "steady_turns",
+        "mean_error_px": 7.735888440557535,
+        "p95_error_px": 7.749766026098711,
+        "p99_error_px": 7.761776265907893,
+        "overshoot_events": 0,
+        "max_overshoot_px": 0.0,
+        "mean_recovery_frames_after_turn": null,
+        "mean_settle_frames_after_decel": null
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s06",
+        "kind": "steady_turns",
+        "initial_state": {
+          "initial_dx": -3.108340920040817,
+          "initial_dy": -28.742064215056818,
+          "initial_speed_px_per_sec": 393.5356666445035,
+          "initial_heading_deg": -120.56219377845122
+        },
+        "turn_events": [
+          {
+            "frame": 71,
+            "delta_heading_deg": 79.68599774416765,
+            "speed_scale": 0.9863415619468283
+          },
+          {
+            "frame": 102,
+            "delta_heading_deg": -73.29182912390078,
+            "speed_scale": 0.995850806322737
+          }
+        ],
+        "decel_events": [],
+        "resume_events": []
+      },
+      "metrics": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s06",
+        "kind": "steady_turns",
+        "mean_error_px": 11.164650221682479,
+        "p95_error_px": 12.549453301101401,
+        "p99_error_px": 14.302126431275342,
+        "overshoot_events": 2,
+        "max_overshoot_px": 3.5515358883997408,
+        "mean_recovery_frames_after_turn": null,
+        "mean_settle_frames_after_decel": null
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s07",
+        "kind": "steady_turns",
+        "initial_state": {
+          "initial_dx": -53.09713605121265,
+          "initial_dy": 35.147167101406595,
+          "initial_speed_px_per_sec": 357.58856295153544,
+          "initial_heading_deg": -165.42634735556052
+        },
+        "turn_events": [
+          {
+            "frame": 55,
+            "delta_heading_deg": 79.63969292621252,
+            "speed_scale": 1.028791823346269
+          }
+        ],
+        "decel_events": [],
+        "resume_events": []
+      },
+      "metrics": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s07",
+        "kind": "steady_turns",
+        "mean_error_px": 10.051600694986758,
+        "p95_error_px": 10.155921917230387,
+        "p99_error_px": 10.170240738835371,
+        "overshoot_events": 0,
+        "max_overshoot_px": 0.0,
+        "mean_recovery_frames_after_turn": null,
+        "mean_settle_frames_after_decel": null
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s08",
+        "kind": "turn_then_decel",
+        "initial_state": {
+          "initial_dx": 7.890998360096333,
+          "initial_dy": -6.895638670382034,
+          "initial_speed_px_per_sec": 319.3837184976573,
+          "initial_heading_deg": -154.12327029671377
+        },
+        "turn_events": [
+          {
+            "frame": 37,
+            "delta_heading_deg": 72.16992345306906,
+            "speed_scale": 0.9486362153292262
+          }
+        ],
+        "decel_events": [
+          {
+            "frame": 111,
+            "duration_frames": 16,
+            "target_speed_scale": 0.0,
+            "hard_stop": true
+          }
+        ],
+        "resume_events": []
+      },
+      "metrics": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s08",
+        "kind": "turn_then_decel",
+        "mean_error_px": 4.952188883164864,
+        "p95_error_px": 8.525289808666557,
+        "p99_error_px": 8.5561576761797,
+        "overshoot_events": 0,
+        "max_overshoot_px": 0.0,
+        "mean_recovery_frames_after_turn": 80.0,
+        "mean_settle_frames_after_decel": 10.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s09",
+        "kind": "turn_then_decel",
+        "initial_state": {
+          "initial_dx": 44.330159382707635,
+          "initial_dy": 38.84271021819758,
+          "initial_speed_px_per_sec": 311.2423448959605,
+          "initial_heading_deg": 28.948402467064
+        },
+        "turn_events": [
+          {
+            "frame": 38,
+            "delta_heading_deg": 62.500459147834704,
+            "speed_scale": 0.9599285559413552
+          }
+        ],
+        "decel_events": [
+          {
+            "frame": 85,
+            "duration_frames": 24,
+            "target_speed_scale": 0.4390401121225373,
+            "hard_stop": false
+          }
+        ],
+        "resume_events": []
+      },
+      "metrics": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s09",
+        "kind": "turn_then_decel",
+        "mean_error_px": 5.617706246398788,
+        "p95_error_px": 7.752807240265608,
+        "p99_error_px": 7.758760962579237,
+        "overshoot_events": 0,
+        "max_overshoot_px": 0.0,
+        "mean_recovery_frames_after_turn": 58.0,
+        "mean_settle_frames_after_decel": 21.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s10",
+        "kind": "turn_then_decel",
+        "initial_state": {
+          "initial_dx": 9.594181769790339,
+          "initial_dy": -38.01432854990115,
+          "initial_speed_px_per_sec": 270.4756106103048,
+          "initial_heading_deg": 36.9869968377474
+        },
+        "turn_events": [
+          {
+            "frame": 22,
+            "delta_heading_deg": 24.242166615206372,
+            "speed_scale": 0.9671378378668543
+          }
+        ],
+        "decel_events": [
+          {
+            "frame": 58,
+            "duration_frames": 14,
+            "target_speed_scale": 0.5733964397226305,
+            "hard_stop": false
+          }
+        ],
+        "resume_events": []
+      },
+      "metrics": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s10",
+        "kind": "turn_then_decel",
+        "mean_error_px": 5.555607355282374,
+        "p95_error_px": 6.108086419187535,
+        "p99_error_px": 6.803425730058288,
+        "overshoot_events": 1,
+        "max_overshoot_px": 2.180266789244815,
+        "mean_recovery_frames_after_turn": 45.0,
+        "mean_settle_frames_after_decel": null
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s11",
+        "kind": "turn_then_decel",
+        "initial_state": {
+          "initial_dx": -35.556818890305564,
+          "initial_dy": -40.42326216284147,
+          "initial_speed_px_per_sec": 243.74699054235555,
+          "initial_heading_deg": 112.81281035160436
+        },
+        "turn_events": [
+          {
+            "frame": 55,
+            "delta_heading_deg": -1.6631069170721844,
+            "speed_scale": 0.9395687945614128
+          }
+        ],
+        "decel_events": [
+          {
+            "frame": 93,
+            "duration_frames": 30,
+            "target_speed_scale": 0.6111920726701345,
+            "hard_stop": false
+          }
+        ],
+        "resume_events": []
+      },
+      "metrics": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s11",
+        "kind": "turn_then_decel",
+        "mean_error_px": 5.816395222526457,
+        "p95_error_px": 6.675684449482023,
+        "p99_error_px": 6.861792694195475,
+        "overshoot_events": 0,
+        "max_overshoot_px": 0.0,
+        "mean_recovery_frames_after_turn": 50.0,
+        "mean_settle_frames_after_decel": null
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s12",
+        "kind": "turn_then_decel",
+        "initial_state": {
+          "initial_dx": 39.91851267239545,
+          "initial_dy": 25.714663107216353,
+          "initial_speed_px_per_sec": 339.74849860299423,
+          "initial_heading_deg": -150.61937379616336
+        },
+        "turn_events": [
+          {
+            "frame": 26,
+            "delta_heading_deg": 72.80908804815041,
+            "speed_scale": 0.9905609852340423
+          }
+        ],
+        "decel_events": [
+          {
+            "frame": 99,
+            "duration_frames": 27,
+            "target_speed_scale": 0.6172498327541116,
+            "hard_stop": false
+          }
+        ],
+        "resume_events": []
+      },
+      "metrics": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s12",
+        "kind": "turn_then_decel",
+        "mean_error_px": 7.566184597471891,
+        "p95_error_px": 9.434397790317709,
+        "p99_error_px": 9.43491046986524,
+        "overshoot_events": 1,
+        "max_overshoot_px": 2.1908463318189533,
+        "mean_recovery_frames_after_turn": null,
+        "mean_settle_frames_after_decel": null
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s13",
+        "kind": "turn_then_decel",
+        "initial_state": {
+          "initial_dx": 42.52143274476039,
+          "initial_dy": -4.751021107086807,
+          "initial_speed_px_per_sec": 267.1687749515957,
+          "initial_heading_deg": 9.702093427297797
+        },
+        "turn_events": [
+          {
+            "frame": 35,
+            "delta_heading_deg": 91.50906093275654,
+            "speed_scale": 0.9720458840065789
+          }
+        ],
+        "decel_events": [
+          {
+            "frame": 100,
+            "duration_frames": 25,
+            "target_speed_scale": 0.5055993744284435,
+            "hard_stop": false
+          }
+        ],
+        "resume_events": []
+      },
+      "metrics": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s13",
+        "kind": "turn_then_decel",
+        "mean_error_px": 6.048210304622766,
+        "p95_error_px": 7.390569952695837,
+        "p99_error_px": 7.390723456815509,
+        "overshoot_events": 0,
+        "max_overshoot_px": 0.0,
+        "mean_recovery_frames_after_turn": 78.0,
+        "mean_settle_frames_after_decel": null
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s14",
+        "kind": "turn_then_decel",
+        "initial_state": {
+          "initial_dx": -15.303661415610335,
+          "initial_dy": -0.2954130097313623,
+          "initial_speed_px_per_sec": 244.62010991058267,
+          "initial_heading_deg": -156.89358309651956
+        },
+        "turn_events": [
+          {
+            "frame": 43,
+            "delta_heading_deg": -53.02436177396625,
+            "speed_scale": 0.968291575432644
+          }
+        ],
+        "decel_events": [
+          {
+            "frame": 102,
+            "duration_frames": 14,
+            "target_speed_scale": 0.0,
+            "hard_stop": true
+          }
+        ],
+        "resume_events": []
+      },
+      "metrics": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s14",
+        "kind": "turn_then_decel",
+        "mean_error_px": 4.811719279034115,
+        "p95_error_px": 10.276178108965468,
+        "p99_error_px": 10.277357769952202,
+        "overshoot_events": 0,
+        "max_overshoot_px": 0.0,
+        "mean_recovery_frames_after_turn": 66.0,
+        "mean_settle_frames_after_decel": 9.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s15",
+        "kind": "turn_then_decel",
+        "initial_state": {
+          "initial_dx": -53.76410097076558,
+          "initial_dy": -27.98375581548302,
+          "initial_speed_px_per_sec": 238.26987983966436,
+          "initial_heading_deg": 134.7329528569063
+        },
+        "turn_events": [
+          {
+            "frame": 21,
+            "delta_heading_deg": -12.695045742425776,
+            "speed_scale": 1.0061923153659702
+          }
+        ],
+        "decel_events": [
+          {
+            "frame": 76,
+            "duration_frames": 24,
+            "target_speed_scale": 0.32943083012090996,
+            "hard_stop": false
+          }
+        ],
+        "resume_events": []
+      },
+      "metrics": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s15",
+        "kind": "turn_then_decel",
+        "mean_error_px": 4.822077160326429,
+        "p95_error_px": 6.815237536088172,
+        "p99_error_px": 6.815448305349257,
+        "overshoot_events": 0,
+        "max_overshoot_px": 0.0,
+        "mean_recovery_frames_after_turn": 63.0,
+        "mean_settle_frames_after_decel": 17.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s16",
+        "kind": "decel_resume",
+        "initial_state": {
+          "initial_dx": -13.499033700370063,
+          "initial_dy": 29.726281036344503,
+          "initial_speed_px_per_sec": 345.77881697187854,
+          "initial_heading_deg": 5.301206477502802
+        },
+        "turn_events": [],
+        "decel_events": [
+          {
+            "frame": 22,
+            "duration_frames": 11,
+            "target_speed_scale": 0.0,
+            "hard_stop": true
+          }
+        ],
+        "resume_events": [
+          {
+            "frame": 61,
+            "duration_frames": 19,
+            "target_speed_scale": 0.8053206557407852
+          }
+        ]
+      },
+      "metrics": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s16",
+        "kind": "decel_resume",
+        "mean_error_px": 8.717450973762759,
+        "p95_error_px": 9.612075049874054,
+        "p99_error_px": 9.783905159321042,
+        "overshoot_events": 1,
+        "max_overshoot_px": 5.394050692189042,
+        "mean_recovery_frames_after_turn": null,
+        "mean_settle_frames_after_decel": 9.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s17",
+        "kind": "decel_resume",
+        "initial_state": {
+          "initial_dx": 2.7791191284508443,
+          "initial_dy": 16.617517055095128,
+          "initial_speed_px_per_sec": 279.18023462402994,
+          "initial_heading_deg": 136.71273227051017
+        },
+        "turn_events": [],
+        "decel_events": [
+          {
+            "frame": 64,
+            "duration_frames": 11,
+            "target_speed_scale": 0.0,
+            "hard_stop": true
+          }
+        ],
+        "resume_events": [
+          {
+            "frame": 95,
+            "duration_frames": 16,
+            "target_speed_scale": 1.0153610667489823
+          }
+        ]
+      },
+      "metrics": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s17",
+        "kind": "decel_resume",
+        "mean_error_px": 6.625685282828218,
+        "p95_error_px": 8.702179906136841,
+        "p99_error_px": 8.992439178139401,
+        "overshoot_events": 1,
+        "max_overshoot_px": 2.505149722490146,
+        "mean_recovery_frames_after_turn": null,
+        "mean_settle_frames_after_decel": 7.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s18",
+        "kind": "decel_resume",
+        "initial_state": {
+          "initial_dx": 54.85854619958056,
+          "initial_dy": 8.789890670590125,
+          "initial_speed_px_per_sec": 316.5786862857454,
+          "initial_heading_deg": 32.17845326592979
+        },
+        "turn_events": [],
+        "decel_events": [
+          {
+            "frame": 53,
+            "duration_frames": 27,
+            "target_speed_scale": 0.0,
+            "hard_stop": true
+          }
+        ],
+        "resume_events": [
+          {
+            "frame": 123,
+            "duration_frames": 30,
+            "target_speed_scale": 0.8348587856270158
+          }
+        ]
+      },
+      "metrics": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s18",
+        "kind": "decel_resume",
+        "mean_error_px": 4.448250375585054,
+        "p95_error_px": 8.530761690872485,
+        "p99_error_px": 8.698959044767006,
+        "overshoot_events": 0,
+        "max_overshoot_px": 0.0,
+        "mean_recovery_frames_after_turn": null,
+        "mean_settle_frames_after_decel": 17.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s19",
+        "kind": "decel_resume",
+        "initial_state": {
+          "initial_dx": 1.7503154089038446,
+          "initial_dy": -42.018762950661284,
+          "initial_speed_px_per_sec": 294.3625075683317,
+          "initial_heading_deg": 142.26599779832236
+        },
+        "turn_events": [],
+        "decel_events": [
+          {
+            "frame": 50,
+            "duration_frames": 24,
+            "target_speed_scale": 0.0,
+            "hard_stop": true
+          }
+        ],
+        "resume_events": []
+      },
+      "metrics": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s19",
+        "kind": "decel_resume",
+        "mean_error_px": 1.5363146869553705,
+        "p95_error_px": 4.383774906211397,
+        "p99_error_px": 6.018452286079806,
+        "overshoot_events": 0,
+        "max_overshoot_px": 0.0,
+        "mean_recovery_frames_after_turn": null,
+        "mean_settle_frames_after_decel": 14.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s20",
+        "kind": "decel_resume",
+        "initial_state": {
+          "initial_dx": -20.972388109184052,
+          "initial_dy": -23.177681742923422,
+          "initial_speed_px_per_sec": 289.0705637633451,
+          "initial_heading_deg": -24.019531985774563
+        },
+        "turn_events": [],
+        "decel_events": [
+          {
+            "frame": 66,
+            "duration_frames": 11,
+            "target_speed_scale": 0.0,
+            "hard_stop": true
+          }
+        ],
+        "resume_events": [
+          {
+            "frame": 99,
+            "duration_frames": 20,
+            "target_speed_scale": 0.9454747936954332
+          }
+        ]
+      },
+      "metrics": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s20",
+        "kind": "decel_resume",
+        "mean_error_px": 6.939301809970052,
+        "p95_error_px": 11.397276527444136,
+        "p99_error_px": 12.06653833730587,
+        "overshoot_events": 0,
+        "max_overshoot_px": 0.0,
+        "mean_recovery_frames_after_turn": null,
+        "mean_settle_frames_after_decel": 8.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s21",
+        "kind": "decel_resume",
+        "initial_state": {
+          "initial_dx": 58.13262669199929,
+          "initial_dy": 18.51236080472328,
+          "initial_speed_px_per_sec": 415.99655345379347,
+          "initial_heading_deg": -69.29605165808543
+        },
+        "turn_events": [],
+        "decel_events": [
+          {
+            "frame": 39,
+            "duration_frames": 24,
+            "target_speed_scale": 0.0,
+            "hard_stop": true
+          }
+        ],
+        "resume_events": [
+          {
+            "frame": 122,
+            "duration_frames": 18,
+            "target_speed_scale": 0.9927361190314287
+          }
+        ]
+      },
+      "metrics": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s21",
+        "kind": "decel_resume",
+        "mean_error_px": 5.421857958189289,
+        "p95_error_px": 11.463251006627917,
+        "p99_error_px": 11.79152346723227,
+        "overshoot_events": 0,
+        "max_overshoot_px": 0.0,
+        "mean_recovery_frames_after_turn": null,
+        "mean_settle_frames_after_decel": 17.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s22",
+        "kind": "decel_resume",
+        "initial_state": {
+          "initial_dx": 57.38208614992209,
+          "initial_dy": -16.62152384121874,
+          "initial_speed_px_per_sec": 320.0740627547855,
+          "initial_heading_deg": 147.053121409538
+        },
+        "turn_events": [],
+        "decel_events": [
+          {
+            "frame": 46,
+            "duration_frames": 13,
+            "target_speed_scale": 0.34935914921444045,
+            "hard_stop": false
+          }
+        ],
+        "resume_events": [
+          {
+            "frame": 90,
+            "duration_frames": 36,
+            "target_speed_scale": 1.0382281296505314
+          }
+        ]
+      },
+      "metrics": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s22",
+        "kind": "decel_resume",
+        "mean_error_px": 8.01679001426577,
+        "p95_error_px": 10.607767142917407,
+        "p99_error_px": 10.74706051107646,
+        "overshoot_events": 2,
+        "max_overshoot_px": 2.9197969361062235,
+        "mean_recovery_frames_after_turn": null,
+        "mean_settle_frames_after_decel": 13.0
+      }
+    },
+    {
+      "manifest": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s23",
+        "kind": "decel_resume",
+        "initial_state": {
+          "initial_dx": 31.515548719749845,
+          "initial_dy": -22.546542079331555,
+          "initial_speed_px_per_sec": 296.66720448078615,
+          "initial_heading_deg": -52.418248076773565
+        },
+        "turn_events": [],
+        "decel_events": [
+          {
+            "frame": 22,
+            "duration_frames": 20,
+            "target_speed_scale": 0.0,
+            "hard_stop": true
+          }
+        ],
+        "resume_events": [
+          {
+            "frame": 64,
+            "duration_frames": 16,
+            "target_speed_scale": 0.7251720503959206
+          }
+        ]
+      },
+      "metrics": {
+        "scenario_key": "pre-tracker-phase1-120hz-20260522-s23",
+        "kind": "decel_resume",
+        "mean_error_px": 5.968482948811755,
+        "p95_error_px": 6.5349545810589325,
+        "p99_error_px": 6.67661176700536,
+        "overshoot_events": 0,
+        "max_overshoot_px": 0.0,
+        "mean_recovery_frames_after_turn": null,
+        "mean_settle_frames_after_decel": 12.0
+      }
+    }
+  ]
+}

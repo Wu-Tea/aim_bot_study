@@ -134,5 +134,60 @@ class TrainingScriptImportTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, msg=result.stderr)
         self.assertIn("Prepare a one-class person dataset", result.stdout)
 
+    def test_train_script_help_uses_stable_defaults(self):
+        repo_root = Path(__file__).resolve().parent.parent
+
+        result = subprocess.run(
+            [sys.executable, str(repo_root / "tools" / "train_person_detector.py"), "--help"],
+            capture_output=True,
+            text=True,
+            cwd=repo_root,
+        )
+
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn("Default is false to avoid pagefile pressure", result.stdout)
+        self.assertIn("--auto-augment", result.stdout)
+        self.assertIn("--mosaic", result.stdout)
+
+    def test_validate_script_imports_without_package_errors(self):
+        repo_root = Path(__file__).resolve().parent.parent
+
+        result = subprocess.run(
+            [sys.executable, str(repo_root / "tools" / "validate_person_detector.py"), "--help"],
+            capture_output=True,
+            text=True,
+            cwd=repo_root,
+        )
+
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn("Validate a one-class person detector", result.stdout)
+
+    def test_loop_script_can_dry_run_without_starting_training(self):
+        repo_root = Path(__file__).resolve().parent.parent
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(repo_root / "tools" / "run_person_detector_loop.py"),
+                    "--dry-run",
+                    "--loops",
+                    "1",
+                    "--skip-baseline",
+                    "--run-prefix",
+                    "test_loop_dry_run",
+                    "--artifact-dir",
+                    tmpdir,
+                ],
+                capture_output=True,
+                text=True,
+                cwd=repo_root,
+            )
+
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn("[Loop] complete", result.stdout)
+        self.assertIn("--auto-augment none", result.stdout)
+        self.assertIn("--mosaic 0.0", result.stdout)
+
 if __name__ == "__main__":
     unittest.main()

@@ -86,7 +86,7 @@ What is already native:
 
 - a stateful `NativeTargetSelector` exposed through pybind
 - two-frame pickup confirmation for first lock
-- upper-chest aim point derived from the selected body box
+- posture-aware aim point derived from the selected body box: standing/upper-body, crouched, and wide-low prone/side boxes use different vertical target ratios
 - geometry/confidence gating
 - multi-candidate scoring based on crosshair distance, confidence, area heuristics, and tracking bonus
 - two-frame switch confirmation before replacing the active target
@@ -332,7 +332,7 @@ The current native slice includes:
 
 - a stateful `NativeTargetSelector` pybind entry point for synthetic parity tests
 - two-frame pickup confirmation for first lock
-- upper-chest target point generation from the selected body box
+- posture-aware target point generation from the selected body box
 - multi-candidate scoring based on crosshair distance, confidence, area heuristics, and tracking bonus
 - friendly/enemy color classification for the color band above the body box
 - two-frame switch confirmation before replacing the active target

@@ -8,6 +8,10 @@ from typing import Callable, Sequence
 from controllers.base_controller import ControllerTarget
 from controllers.gamepad.ai_aim import AIAimConfig, AIAimPlugin
 from controllers.gamepad.state import GamepadFrame, GamepadOutput
+from controllers.gamepad.target_tracker import (
+    GamepadTargetTracker,
+    GamepadTargetTrackerConfig,
+)
 
 from tests.gamepad.ads_benchmark_scenarios import (
     AdsScenarioManifest,
@@ -260,6 +264,13 @@ def _simulate_ads_closed_loop(
     reticle_x = 0.0
     reticle_y = 0.0
     records: list[AdsFrameRecord] = []
+    target_tracker = GamepadTargetTracker(
+        GamepadTargetTrackerConfig(
+            reticle_speed_px_per_sec=config.max_reticle_speed_pps,
+            stick_max=config.stick_max,
+        )
+    )
+    last_target_sample_key: tuple[int, str | None] | None = None
 
     for controller_frame in range(config.sim_frames):
         timestamp = controller_frame * config.frame_dt
@@ -295,6 +306,28 @@ def _simulate_ads_closed_loop(
             error_x=engagement_error_x_before or 0.0,
             error_y=engagement_error_y_before or 0.0,
         )
+        target = _controller_target_for_state(localized_error_x_before, localized_error_y_before)
+        target_sample_key = (sample_index, world_state.localized_target_id)
+        if target is None:
+            target_tracker.reset()
+            last_target_sample_key = None
+        elif target_sample_key != last_target_sample_key:
+            target_tracker.update_observation(
+                dx=localized_error_x_before or 0.0,
+                dy=localized_error_y_before or 0.0,
+                target=target,
+                revision=sample_index + 1,
+                observed_at=target_timestamp,
+            )
+            last_target_sample_key = target_sample_key
+        projection = target_tracker.project(timestamp=timestamp)
+        frame_target_dx = localized_error_x_before or 0.0
+        frame_target_dy = localized_error_y_before or 0.0
+        frame_target = target
+        if projection is not None:
+            frame_target_dx = projection.dx
+            frame_target_dy = projection.dy
+            frame_target = projection.target
         frame = GamepadFrame(
             timestamp=timestamp,
             left_x=0,
@@ -305,12 +338,12 @@ def _simulate_ads_closed_loop(
             right_trigger=0,
             buttons={},
             is_aiming=True,
-            target_dx=localized_error_x_before or 0.0,
-            target_dy=localized_error_y_before or 0.0,
+            target_dx=frame_target_dx,
+            target_dy=frame_target_dy,
             auto_fire_requested=False,
             target_revision=sample_index + 1,
             target_timestamp=target_timestamp,
-            target=_controller_target_for_state(localized_error_x_before, localized_error_y_before),
+            target=frame_target,
         )
         output = GamepadOutput()
         plugin.apply(frame, output)
@@ -324,6 +357,7 @@ def _simulate_ads_closed_loop(
         reticle_delta_y = (-output_y / config.stick_max) * config.max_reticle_speed_pps * config.frame_dt
         reticle_x += reticle_delta_x
         reticle_y += reticle_delta_y
+        target_tracker.record_output(GamepadOutput(right_x=output_x, right_y=output_y), dt=config.frame_dt)
 
         engagement_error_x_after, engagement_error_y_after, engagement_error_px_after = _error_components(
             engagement_target,

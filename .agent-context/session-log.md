@@ -1,6 +1,6 @@
 # Agent Session Log Index
 
-Last updated: 2026-05-20T17:04:02+08:00
+Last updated: 2026-05-23T10:26:50+08:00
 Updated by: Codex
 Purpose: quick navigation for project continuity. The complete historical log is preserved in `session-log-full.md`.
 
@@ -13,6 +13,11 @@ Purpose: quick navigation for project continuity. The complete historical log is
 
 ## Current Active Thread
 
+- 2026-05-23T10:26:50+08:00 - Added recoil profile playback lead trial.
+  - User suspected the recoil curve was playing later than the actual firing node and agreed to try an earlier playback offset.
+  - Added `[gamepad.recoil].profile_lead_ms`, applied it to profile playback elapsed time, exposed it in active-profile logs and dry-run JSON/CLI, and set local ignored `config.toml` to `profile_lead_ms = 20`.
+  - TDD red/green coverage added for first-frame lead behavior, config loading, dry-run reporting, and CLI override.
+  - Remaining live question: whether `20ms` is the right lead for current gamepad/runtime timing; try `10`, `20`, `30` and restart `gamepad_start.bat` after config edits.
 - 2026-05-20T17:04:02+08:00 - Cleaned recoil runtime follow-up for commit.
   - Removed a superseded same-day config diagnostics plan and trimmed `handoff.md` down to the current recoil runtime state, verification, and next live checks.
   - Cleaned current recoil playback naming so profile X output is no longer labeled as feedback in code; `feedback_amount` remains fallback-only.

@@ -30,6 +30,7 @@ def _profile(
     profile_id: str = "profile-cod22-m4-ads-standing-v1",
     canonical_weapon_id: str = "cod22-m4",
     aim_mode: str = "ads",
+    sample_interval_ms: int = 10,
     samples_x: tuple[float, ...] | None = None,
     samples_y: tuple[float, ...] = (0.0, -120.0, -260.0),
 ) -> RecoilProfileRecord:
@@ -41,8 +42,8 @@ def _profile(
         game="cod22",
         stance="standing",
         aim_mode=aim_mode,
-        sample_interval_ms=10,
-        duration_ms=len(samples_y) * 10,
+        sample_interval_ms=sample_interval_ms,
+        duration_ms=len(samples_y) * sample_interval_ms,
         initial_delay_ms=0,
         samples_x=samples_x,
         samples_y=samples_y,
@@ -76,7 +77,7 @@ class RecoilCompensationPluginTests(unittest.TestCase):
 
         self.assertEqual(output.right_y, 0)
 
-    def test_profile_driven_playback_maps_collector_curve_into_absolute_anti_recoil_stick(self):
+    def test_profile_driven_playback_maps_collector_curve_into_incremental_anti_recoil_stick(self):
         plugin = RecoilCompensationPlugin(
             RecoilCompensationConfig(profile_amount=1.0),
             profile_provider=lambda _frame: _profile(samples_y=(0.0, 1.8, 3.6, 4.5)),
@@ -96,10 +97,10 @@ class RecoilCompensationPluginTests(unittest.TestCase):
 
         self.assertEqual(first.right_y, 0)
         self.assertEqual(second.right_y, -852)
-        self.assertEqual(third.right_y, -1704)
-        self.assertEqual(fourth.right_y, -2130)
+        self.assertEqual(third.right_y, -852)
+        self.assertEqual(fourth.right_y, -426)
 
-    def test_profile_playback_outputs_absolute_anti_recoil_stick_from_recorded_curve(self):
+    def test_profile_playback_outputs_incremental_anti_recoil_stick_from_recorded_curve(self):
         plugin = RecoilCompensationPlugin(
             RecoilCompensationConfig(profile_amount=1.0, profile_x_amount=0.0),
             profile_provider=lambda _frame: _profile(
@@ -122,7 +123,7 @@ class RecoilCompensationPluginTests(unittest.TestCase):
         self.assertEqual(second.right_x, 0)
         self.assertEqual(second.right_y, -852)
         self.assertEqual(third.right_x, 0)
-        self.assertEqual(third.right_y, -1704)
+        self.assertEqual(third.right_y, -852)
 
     def test_profile_playback_uses_horizontal_sample_delta_not_cumulative_position(self):
         plugin = RecoilCompensationPlugin(
@@ -147,7 +148,7 @@ class RecoilCompensationPluginTests(unittest.TestCase):
         self.assertEqual(second.right_x, 473)
         self.assertEqual(second.right_y, -852)
         self.assertEqual(third.right_x, 473)
-        self.assertEqual(third.right_y, -1704)
+        self.assertEqual(third.right_y, -852)
 
     def test_profile_amount_scales_profile_x_and_y_output(self):
         plugin = RecoilCompensationPlugin(
@@ -197,6 +198,30 @@ class RecoilCompensationPluginTests(unittest.TestCase):
         self.assertEqual(second.right_x, 947)
         self.assertEqual(second.right_y, -852)
 
+    def test_profile_lead_ms_advances_profile_playback_on_first_fire_frame(self):
+        plugin = RecoilCompensationPlugin(
+            RecoilCompensationConfig(
+                profile_amount=1.0,
+                profile_x_amount=1.0,
+                profile_lead_ms=10,
+            ),
+            profile_provider=lambda _frame: _profile(
+                samples_x=(0.0, -1.0, -3.0),
+                samples_y=(0.0, 1.8, 3.6),
+            ),
+        )
+
+        first = GamepadOutput(right_x=0, right_y=0, auto_fire_active=True)
+        plugin.apply(_frame(timestamp=1.00), first)
+
+        second = GamepadOutput(right_x=0, right_y=0, auto_fire_active=True)
+        plugin.apply(_frame(timestamp=1.01), second)
+
+        self.assertEqual(first.right_x, 473)
+        self.assertEqual(first.right_y, -852)
+        self.assertEqual(second.right_x, 947)
+        self.assertEqual(second.right_y, -852)
+
     def test_feedback_amount_does_not_affect_active_profile_playback(self):
         plugin = RecoilCompensationPlugin(
             RecoilCompensationConfig(
@@ -221,7 +246,7 @@ class RecoilCompensationPluginTests(unittest.TestCase):
         self.assertEqual(second.right_x, 473)
         self.assertEqual(second.right_y, -852)
 
-    def test_profile_playback_scales_absolute_anti_recoil_by_configured_amount(self):
+    def test_profile_playback_scales_incremental_anti_recoil_by_configured_amount(self):
         plugin = RecoilCompensationPlugin(
             RecoilCompensationConfig(profile_amount=0.25, profile_x_amount=0.0),
             profile_provider=lambda _frame: _profile(
@@ -240,6 +265,29 @@ class RecoilCompensationPluginTests(unittest.TestCase):
         self.assertEqual(first.right_y, 0)
         self.assertEqual(second.right_x, 0)
         self.assertEqual(second.right_y, -213)
+
+    def test_uncalibrated_profile_playback_normalizes_delta_to_reference_window(self):
+        plugin = RecoilCompensationPlugin(
+            RecoilCompensationConfig(
+                profile_amount=1.0,
+                profile_x_amount=0.0,
+                profile_velocity_reference_ms=100,
+            ),
+            profile_provider=lambda _frame: _profile(
+                sample_interval_ms=20,
+                samples_x=(0.0, -1.0),
+                samples_y=(0.0, 1.8),
+            ),
+        )
+
+        first = GamepadOutput(right_x=0, right_y=0, auto_fire_active=True)
+        plugin.apply(_frame(timestamp=1.00), first)
+
+        second = GamepadOutput(right_x=0, right_y=0, auto_fire_active=True)
+        plugin.apply(_frame(timestamp=1.02), second)
+
+        self.assertEqual(first.right_y, 0)
+        self.assertEqual(second.right_y, -4260)
 
     def test_profile_playback_requires_calibration_when_provider_returns_profile_bundle(self):
         from vision.recoil_collection.calibration import RecoilControlCalibration
@@ -283,7 +331,7 @@ class RecoilCompensationPluginTests(unittest.TestCase):
         self.assertEqual(
             logs,
             [
-                "[Recoil] active_profile aim=ads profile=profile-cod22-m4-ads-standing-current confidence=0.900 profile_amount=1.00 profile_x=1.00 feedback=0.30"
+                "[Recoil] active_profile aim=ads profile=profile-cod22-m4-ads-standing-current confidence=0.900 profile_amount=1.00 profile_x=1.00 feedback=0.30 lead_ms=0 velocity_ref_ms=10"
             ],
         )
 

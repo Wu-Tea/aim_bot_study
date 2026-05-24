@@ -382,6 +382,87 @@ class BenchmarkScenarioEvaluationTests(unittest.TestCase):
         self.assertAlmostEqual(plugin.frames[2].target_dy, 0.0, places=5)
         self.assertGreater(plugin.frames[3].target_dy, 0.0)
 
+    def test_closed_loop_projects_repeated_120hz_target_sample_between_controller_frames(self):
+        class _RightPushRecordingPlugin:
+            def __init__(self):
+                self.frames = []
+
+            def reset(self):
+                self.frames.clear()
+
+            def apply(self, frame, output):
+                self.frames.append(frame)
+                output.right_x = 16384
+
+        manifest = ScenarioManifest(
+            scenario_key="tracking-repeated-sample-s00",
+            kind="steady_turns",
+            initial_state=InitialState(
+                initial_dx=40.0,
+                initial_dy=0.0,
+                initial_speed_px_per_sec=0.0,
+                initial_heading_deg=0.0,
+            ),
+            turn_events=(TurnEvent(frame=999, delta_heading_deg=0.0, speed_scale=1.0),),
+        )
+        plugin = _RightPushRecordingPlugin()
+
+        _simulate_closed_loop(
+            manifest,
+            config=BenchmarkMetricsConfig(
+                frame_dt=1.0 / 240.0,
+                target_sample_hz=120.0,
+                sim_frames=3,
+                measure_from_frame=0,
+            ),
+            plugin_factory=lambda: plugin,
+        )
+
+        self.assertEqual(len(plugin.frames), 3)
+        self.assertEqual(plugin.frames[0].target_revision, plugin.frames[1].target_revision)
+        self.assertAlmostEqual(plugin.frames[0].target_dx, 40.0, places=5)
+        self.assertLess(plugin.frames[1].target_dx, plugin.frames[0].target_dx)
+        self.assertGreater(plugin.frames[1].target_dx, 35.0)
+
+    def test_closed_loop_projects_target_motion_between_repeated_120hz_samples(self):
+        class _PassiveRecordingPlugin:
+            def __init__(self):
+                self.frames = []
+
+            def reset(self):
+                self.frames.clear()
+
+            def apply(self, frame, output):
+                self.frames.append(frame)
+
+        manifest = ScenarioManifest(
+            scenario_key="tracking-repeated-motion-s00",
+            kind="steady_turns",
+            initial_state=InitialState(
+                initial_dx=0.0,
+                initial_dy=0.0,
+                initial_speed_px_per_sec=120.0,
+                initial_heading_deg=0.0,
+            ),
+            turn_events=(TurnEvent(frame=999, delta_heading_deg=0.0, speed_scale=1.0),),
+        )
+        plugin = _PassiveRecordingPlugin()
+
+        _simulate_closed_loop(
+            manifest,
+            config=BenchmarkMetricsConfig(
+                frame_dt=1.0 / 240.0,
+                target_sample_hz=120.0,
+                sim_frames=4,
+                measure_from_frame=0,
+            ),
+            plugin_factory=lambda: plugin,
+        )
+
+        self.assertEqual(len(plugin.frames), 4)
+        self.assertEqual(plugin.frames[2].target_revision, plugin.frames[3].target_revision)
+        self.assertGreater(plugin.frames[3].target_dx, plugin.frames[2].target_dx)
+
     def test_evaluate_scenario_is_deterministic_for_a_stored_manifest(self):
         manifest = generate_phase1_manifests("run-alpha", 12345)[8]
         config = BenchmarkMetricsConfig()

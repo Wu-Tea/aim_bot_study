@@ -18,6 +18,7 @@ from controllers.gamepad_controller import GamepadController
 from controllers.gamepad.plugin import PluginApplicationTrace
 from controllers.gamepad.state import GamepadFrame
 from controllers.gamepad.state import GamepadOutput
+from controllers.gamepad.target_tracker import GamepadTargetProjection
 from runtime.recoil_sidecar.models import RecognizerState
 from vision.recoil_collection.models import RecoilProfileRecord
 from vision.weapon_identity.models import WeaponIdentityRecord
@@ -96,6 +97,26 @@ class _FakeVirtualGamepad:
 
     def update(self):
         self.update_calls += 1
+
+
+class _FakeTargetTracker:
+    def __init__(self, projection=None):
+        self.projection = projection
+        self.update_calls = []
+        self.reset_calls = 0
+        self.record_calls = []
+
+    def update_observation(self, **kwargs):
+        self.update_calls.append(kwargs)
+
+    def project(self, *, timestamp):
+        return self.projection
+
+    def reset(self):
+        self.reset_calls += 1
+
+    def record_output(self, output, *, dt):
+        self.record_calls.append({"output": output, "dt": dt})
 
 
 class _FakeJoystick:
@@ -360,6 +381,47 @@ class GamepadControllerHostTests(unittest.TestCase):
         self.assertEqual(controller._vision_received_at, 12.340)
         self.assertEqual(controller._vision_submitted_at, 12.350)
 
+    def test_update_vision_state_feeds_target_tracker_with_new_revision(self):
+        controller = GamepadController.__new__(GamepadController)
+        controller.lock = threading.Lock()
+        controller.target_revision = 4
+        controller._auto_fire_requested = False
+        controller._auto_fire_timestamp = None
+        controller._vision_received_at = None
+        controller._vision_submitted_at = None
+        controller._target_tracker = _FakeTargetTracker()
+        target = ControllerTarget(
+            aim_point_x=322.0,
+            aim_point_y=255.0,
+            screen_center_x=320.0,
+            screen_center_y=256.0,
+            observed_at=12.345,
+        )
+
+        GamepadController.update_vision_state(
+            controller,
+            ControllerVisionState(
+                dx=2.0,
+                dy=-1.0,
+                target=target,
+                observed_at=12.345,
+                submitted_at=12.350,
+            ),
+        )
+
+        self.assertEqual(
+            controller._target_tracker.update_calls,
+            [
+                {
+                    "dx": 2.0,
+                    "dy": -1.0,
+                    "target": target,
+                    "revision": 5,
+                    "observed_at": 12.345,
+                }
+            ],
+        )
+
     def test_update_vision_state_without_target_suppresses_auto_fire(self):
         controller = GamepadController.__new__(GamepadController)
         controller.lock = threading.Lock()
@@ -483,6 +545,60 @@ class GamepadControllerHostTests(unittest.TestCase):
         self.assertEqual(frame.target.aim_point_x, 320.0)
         self.assertEqual(frame.target.screen_center_y, 256.0)
         self.assertEqual(frame.target.body_box, (282.0, 128.0, 358.0, 316.0))
+
+    def test_build_frame_uses_projected_target_state_when_tracker_has_projection(self):
+        projected_target = ControllerTarget(
+            aim_point_x=332.0,
+            aim_point_y=251.0,
+            screen_center_x=320.0,
+            screen_center_y=256.0,
+            body_box=(302.0, 201.0, 362.0, 321.0),
+        )
+        controller = GamepadController.__new__(GamepadController)
+        controller.lock = threading.Lock()
+        controller._is_aiming = True
+        controller.target_dx = 20.0
+        controller.target_dy = -8.0
+        controller.target_revision = 3
+        controller.target_timestamp = 12.5
+        controller._auto_fire_requested = False
+        controller._auto_fire_timestamp = None
+        controller._vision_received_at = 12.25
+        controller._vision_submitted_at = 12.75
+        controller.target_info = ControllerTarget(
+            aim_point_x=340.0,
+            aim_point_y=248.0,
+            screen_center_x=320.0,
+            screen_center_y=256.0,
+        )
+        controller._target_tracker = _FakeTargetTracker(
+            GamepadTargetProjection(
+                dx=12.0,
+                dy=-5.0,
+                target=projected_target,
+                revision=3,
+                observed_at=12.5,
+            )
+        )
+
+        frame = GamepadController._build_frame(
+            controller,
+            timestamp=12.520,
+            left_x=0,
+            left_y=0,
+            manual_right_x=0,
+            manual_right_y=0,
+            left_trigger=255,
+            right_trigger=0,
+            buttons={},
+            dpad=0,
+        )
+
+        self.assertEqual(frame.target_dx, 12.0)
+        self.assertEqual(frame.target_dy, -5.0)
+        self.assertIs(frame.target, projected_target)
+        self.assertEqual(frame.target_revision, 3)
+        self.assertEqual(frame.target_timestamp, 12.5)
 
     def test_record_timing_sample_exposes_controller_consume_and_output_age(self):
         controller = GamepadController.__new__(GamepadController)

@@ -18,6 +18,8 @@ class RecoilCompensationConfig:
     profile_amount: float = 1.0
     feedback_amount: float = 0.30
     profile_x_amount: float = 1.0
+    profile_lead_ms: int = 0
+    profile_velocity_reference_ms: int = 10
     piecewise_mid_pixels_y: float = 45.0
     piecewise_max_pixels_y: float = 180.0
     piecewise_mid_ratio_y: float = 0.65
@@ -75,15 +77,16 @@ class RecoilCompensationPlugin:
             self._active_fire_started_at = float(frame.timestamp)
 
         elapsed_ms = max(0, int(round((float(frame.timestamp) - self._active_fire_started_at) * 1000.0)))
+        profile_elapsed_ms = elapsed_ms + max(0, int(self.config.profile_lead_ms))
         cumulative_pixels_x, cumulative_pixels_y = _cumulative_profile_values(
             profile,
-            elapsed_ms=elapsed_ms,
+            elapsed_ms=profile_elapsed_ms,
         )
         profile_scale = max(0.0, float(self.config.profile_amount))
         profile_x_scale = profile_scale * max(0.0, float(self.config.profile_x_amount))
         previous_pixels_x, previous_pixels_y = _cumulative_profile_values(
             profile,
-            elapsed_ms=max(0, elapsed_ms - profile.sample_interval_ms),
+            elapsed_ms=max(0, profile_elapsed_ms - profile.sample_interval_ms),
         )
         delta_x = cumulative_pixels_x - previous_pixels_x
         delta_y = cumulative_pixels_y - previous_pixels_y
@@ -107,11 +110,21 @@ class RecoilCompensationPlugin:
                 * profile_x_scale
             )
         else:
+            mapped_delta_y = _normalize_delta_for_uncalibrated_mapping(
+                delta_y,
+                sample_interval_ms=profile.sample_interval_ms,
+                config=self.config,
+            )
+            mapped_delta_x = _normalize_delta_for_uncalibrated_mapping(
+                delta_x,
+                sample_interval_ms=profile.sample_interval_ms,
+                config=self.config,
+            )
             anti_recoil_stick_y = (
-                _map_pixels_to_stick(-cumulative_pixels_y, config=self.config)
+                _map_pixels_to_stick(-mapped_delta_y, config=self.config)
                 * profile_scale
             )
-            profile_stick_x = _map_pixels_to_stick(-delta_x, config=self.config) * profile_x_scale
+            profile_stick_x = _map_pixels_to_stick(-mapped_delta_x, config=self.config) * profile_x_scale
         if profile_stick_x:
             output.right_x += int(round(profile_stick_x))
         if anti_recoil_stick_y:
@@ -135,7 +148,9 @@ class RecoilCompensationPlugin:
         logger(
             f"[Recoil] active_profile aim={aim_mode} profile={profile.profile_id} "
             f"confidence={profile.confidence:.3f} profile_amount={self.config.profile_amount:.2f} "
-            f"profile_x={self.config.profile_x_amount:.2f} feedback={self.config.feedback_amount:.2f}"
+            f"profile_x={self.config.profile_x_amount:.2f} feedback={self.config.feedback_amount:.2f} "
+            f"lead_ms={max(0, int(self.config.profile_lead_ms))} "
+            f"velocity_ref_ms={max(1, int(self.config.profile_velocity_reference_ms))}"
         )
 
 
@@ -180,3 +195,14 @@ def _map_pixels_to_stick(delta: float, *, config: RecoilCompensationConfig) -> f
 
     progress = (abs_delta - mid_pixels) / (max_pixels - mid_pixels)
     return sign * 32767.0 * (mid_ratio + ((1.0 - mid_ratio) * progress))
+
+
+def _normalize_delta_for_uncalibrated_mapping(
+    delta: float,
+    *,
+    sample_interval_ms: int,
+    config: RecoilCompensationConfig,
+) -> float:
+    interval_ms = max(1, int(sample_interval_ms))
+    reference_ms = max(1, int(config.profile_velocity_reference_ms))
+    return float(delta) * (reference_ms / interval_ms)

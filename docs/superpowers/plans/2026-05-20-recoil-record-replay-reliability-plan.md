@@ -1225,3 +1225,10 @@ Do not start with `gamepad.recoil.amount` or `config.toml` unless a test in this
 - [x] Remove `amount`, `feedback_x_amount`, `feedback_y_amount`, and `horizontal_profile_scale` from current gamepad recoil code, config loader, local config, dry-run CLI/output, and current docs.
 - [x] Treat `vertical_recovery_tail` as an audit warning instead of a runtime hard block so trial playback can use the user's three recoil knobs; this intermediate policy was superseded by removing all runtime profile-quality gates.
 - [x] Remove runtime profile-quality gates entirely: exact matching `game` / `canonical_weapon_id` / `stance` / `aim_mode` profiles are now used for trial playback regardless of accepted episode count, support count, confidence, vertical recovery/reversal, or horizontal disagreement. Keep those findings in audit/status only, and keep record mode's clean-profile check separate so low-support profiles can still be supplemented.
+
+## Follow-up: Runtime Playback Lead
+
+- [x] Add `[gamepad.recoil].profile_lead_ms` so profile playback can be advanced to compensate for runtime/input/game timing delay.
+- [x] Apply `profile_lead_ms` to both vertical cumulative playback and horizontal per-sample delta playback.
+- [x] Expose `profile_lead_ms` in active profile logs and `tools/dry_run_recoil_playback.py` output/CLI.
+- [x] Set local ignored `config.toml` to `profile_lead_ms = 20` for live trial.

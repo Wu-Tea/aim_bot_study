@@ -11,7 +11,7 @@
 ## Benchmark Parameters
 
 - `frame_dt`: `0.016666666666666666`
-- `target_sample_hz`: `None`
+- `target_sample_hz`: `120.0`
 - `sim_frames`: `90`
 - `max_reticle_speed_pps`: `1500.0`
 - `stick_max`: `32767`
@@ -44,25 +44,28 @@
 
 ### Latest Run Summary
 
-- Run Key: `ads-baseline-20260418`
-- Timestamp: `2026-04-18T14:10:36Z`
-- Artifact: `artifacts/benchmarks/gamepad_ads/ads-baseline-20260418.json`
-- Git Commit: `490d6733eb5ffdcd99a9fe2cdd453861238f37e8`
+- Run Key: `post-tracker-ads-120hz-20260522`
+- Timestamp: `2026-05-22T04:03:29Z`
+- Artifact: `artifacts/benchmarks/gamepad_ads/post-tracker-ads-120hz-20260522.json`
+- Git Commit: `0ada8f27ea953d49fb42b52473976eb6058c8f68`
 - Dirty Worktree: `true`
 - Baseline Comparison Key: `ads-baseline-20260418`
 
 | Metric | Value | Delta vs Baseline |
 | --- | --- | --- |
-| `wrong_target_snap_rate` | `0.3333333333333333` | `n/a` |
-| `max_single_frame_camera_delta` | `26.25723493822111` | `n/a` |
-| `lock_loss_after_ads_rate` | `0.014492753623188406` | `n/a` |
-| `target_localization_latency_ms` | `0.0` | `n/a` |
-| `time_to_under_20px` | `96.13526570048309` | `n/a` |
-| `time_to_body_lock` | `80.07246376811594` | `n/a` |
-| `reacquire_time_after_occlusion` | `19.841269841269842` | `n/a` |
-| `harmful_input_suppression_during_ads` | `1.0` | `n/a` |
-| `wrong_input_recovery_after_ads_frames` | `3.0` | `n/a` |
+| `wrong_target_snap_rate` | `0.16666666666666666` | `-50.00%` |
+| `max_single_frame_camera_delta` | `26.338331333838717` | `+0.31%` |
+| `lock_loss_after_ads_rate` | `0.0` | `-100.00%` |
+| `target_localization_latency_ms` | `0.0` | `+0.00%` |
+| `time_to_under_20px` | `105.55555555555556` | `+9.80%` |
+| `time_to_body_lock` | `79.83091787439614` | `-0.30%` |
+| `reacquire_time_after_occlusion` | `22.222222222222225` | `+12.00%` |
+| `harmful_input_suppression_during_ads` | `1.0` | `+0.00%` |
+| `wrong_input_recovery_after_ads_frames` | `1.8846153846153846` | `-37.18%` |
 
 ## History vs Baseline
 
-No comparison runs recorded yet.
+| Run Key | Timestamp | Artifact | Dirty | Wrong Target Delta | Max Camera Delta | Lock Loss Delta | Localization Latency Delta | Under 20px Delta | Body Lock Delta | Reacquire Delta | ADS Suppression Delta | Wrong Input Recovery Delta |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `post-tracker-ads-120hz-20260522` | 2026-05-22T04:03:29Z | `artifacts/benchmarks/gamepad_ads/post-tracker-ads-120hz-20260522.json` | dirty | -50.00% | +0.31% | -100.00% | +0.00% | +9.80% | -0.30% | +12.00% | +0.00% | -37.18% |
+| `pre-tracker-ads-120hz-20260522` | 2026-05-22T03:48:20Z | `artifacts/benchmarks/gamepad_ads/pre-tracker-ads-120hz-20260522.json` | dirty | -50.00% | +0.31% | -100.00% | +0.00% | +11.06% | +1.21% | +12.00% | +0.00% | -1.33% |

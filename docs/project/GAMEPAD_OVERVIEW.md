@@ -159,6 +159,7 @@ The profile-driven path:
 - treats stored recoil samples as collector screen-response curves; when a matching game/aim/stance calibration exists, per-sample recoil deltas use that measured mapping, otherwise playback uses the older uncalibrated pixel-to-stick mapping for trial use
 - scales profile playback with `[gamepad.recoil].profile_amount`
 - applies extra horizontal profile strength with `[gamepad.recoil].profile_x_amount`; X uses per-sample horizontal changes instead of amplifying the cumulative X curve
+- advances profile playback with `[gamepad.recoil].profile_lead_ms` to compensate gamepad/runtime/game input timing delay
 - uses `[gamepad.recoil].feedback_amount` only as the fixed fallback down-pull when no matching profile is available
 - resets playback when firing stops or the active weapon profile changes or disappears
 
@@ -169,7 +170,7 @@ The current host keeps the integration conservative:
 - low `confidence` is kept as a diagnostic for magazine-curve profiles, but it does not block runtime use by itself
 - magazine profile quality findings such as low support, recovery tail, or horizontal disagreement are audit/status diagnostics only; if the weapon id, stance, and aim mode match, runtime trial playback uses the profile
 - missing calibration no longer blocks magazine-curve trial playback, but logs/status will mark that ready mode as uncalibrated
-- lower `[gamepad.recoil].profile_amount` if the uncalibrated profile trial is too strong vertically; raise `[gamepad.recoil].profile_x_amount` if impacts still jump left/right, then replace trial mapping with measured calibration when available
+- lower `[gamepad.recoil].profile_amount` if the uncalibrated profile trial is too strong vertically; raise `[gamepad.recoil].profile_x_amount` if impacts still jump left/right; adjust `[gamepad.recoil].profile_lead_ms` if compensation feels late or early, then replace trial mapping with measured calibration when available
 
 The current host now supports a deliberately narrow recoil-recognition shortcut for direct use:
 
@@ -189,7 +190,7 @@ The new primary recoil path is `recoil_app`, which now supports two runtime mode
 - `recoil`
   - `Y` switch recognition
   - in-memory cached profile lookup
-  - `[gamepad.recoil].profile_amount` / `profile_x_amount` profile playback, with `[gamepad.recoil].feedback_amount` used only for fixed fallback when no matching profile exists
+  - `[gamepad.recoil].profile_amount` / `profile_x_amount` / `profile_lead_ms` profile playback, with `[gamepad.recoil].feedback_amount` used only for fixed fallback when no matching profile exists
 
 For the main AI-aim runtime, only `recoil` mode needs to be imported. You do not need to run a separate recoil sidecar process for normal use.
 

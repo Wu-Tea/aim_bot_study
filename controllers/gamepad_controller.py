@@ -28,6 +28,7 @@ from .gamepad import (
     RecoilCompensationPlugin,
     YButtonTextWeaponRecognizer,
 )
+from .gamepad.target_tracker import GamepadTargetTracker, GamepadTargetTrackerConfig
 
 
 class GamepadController(BaseController, threading.Thread):
@@ -82,6 +83,7 @@ class GamepadController(BaseController, threading.Thread):
         self.target_revision = 0
         self.target_timestamp = None
         self.target_info = None
+        self._last_target_tracker_output_at = None
         from config import load_tuning_config
 
         tuning = load_tuning_config()
@@ -93,6 +95,11 @@ class GamepadController(BaseController, threading.Thread):
             if max_pixels is not None:
                 overrides["max_pixels"] = max_pixels
             ai_aim_config = replace(ai_aim_config, **overrides)
+        self._target_tracker = GamepadTargetTracker(
+            GamepadTargetTrackerConfig(
+                max_projection_age_ms=ai_aim_config.target_max_age_ms,
+            )
+        )
 
         self._recoil_sidecar_service = recoil_sidecar_service or self._build_recoil_sidecar_service_from_env()
         self._recoil_app_bridge = self._build_recoil_app_bridge_from_env()
@@ -146,6 +153,17 @@ class GamepadController(BaseController, threading.Thread):
             self.target_info = target
             self.target_revision = getattr(self, "target_revision", 0) + 1
             self.target_timestamp = target_timestamp
+            tracker = getattr(self, "_target_tracker", None)
+            if tracker is not None and target is not None:
+                tracker.update_observation(
+                    dx=dx,
+                    dy=dy,
+                    target=target,
+                    revision=self.target_revision,
+                    observed_at=target_timestamp,
+                )
+            elif tracker is not None:
+                tracker.reset()
 
     def update_vision_state(self, state: ControllerVisionState):
         state_timestamp = state.observed_at
@@ -172,6 +190,17 @@ class GamepadController(BaseController, threading.Thread):
                 self.target_info = state.target
             self.target_revision = getattr(self, "target_revision", 0) + 1
             self.target_timestamp = state_timestamp
+            tracker = getattr(self, "_target_tracker", None)
+            if tracker is not None and state.target is not None:
+                tracker.update_observation(
+                    dx=state.dx,
+                    dy=state.dy,
+                    target=state.target,
+                    revision=self.target_revision,
+                    observed_at=state_timestamp,
+                )
+            elif tracker is not None:
+                tracker.reset()
             self._auto_fire_requested = auto_fire_requested
             self._auto_fire_timestamp = auto_fire_timestamp if auto_fire_requested else None
             self._vision_received_at = state.received_at
@@ -195,6 +224,9 @@ class GamepadController(BaseController, threading.Thread):
         self.target_info = None
         self.target_revision = getattr(self, "target_revision", 0) + 1
         self.target_timestamp = time.perf_counter()
+        tracker = getattr(self, "_target_tracker", None)
+        if tracker is not None:
+            tracker.reset()
 
     def is_aiming(self):
         return self._is_aiming
@@ -264,6 +296,15 @@ class GamepadController(BaseController, threading.Thread):
             target_revision = self.target_revision
             target_timestamp = self.target_timestamp
             target_info = self.target_info
+            tracker = getattr(self, "_target_tracker", None)
+            if tracker is not None:
+                projection = tracker.project(timestamp=timestamp)
+                if projection is not None:
+                    target_dx = projection.dx
+                    target_dy = projection.dy
+                    target_revision = projection.revision
+                    target_timestamp = projection.observed_at
+                    target_info = projection.target
             auto_fire_requested = self._auto_fire_requested
             auto_fire_timestamp = getattr(self, "_auto_fire_timestamp", None)
             vision_received_at = getattr(self, "_vision_received_at", None)
@@ -481,10 +522,24 @@ class GamepadController(BaseController, threading.Thread):
             )
             output = self._build_output(frame)
             self._apply_plugin_pipeline(frame, output)
+            self._record_target_tracker_output(frame, output)
             self._apply_output(output)
             self.virtual_gamepad.update()
             self._record_timing_sample(frame, output_sent_at=time.perf_counter())
             time.sleep(0.001)
+
+    def _record_target_tracker_output(self, frame: GamepadFrame, output: GamepadOutput) -> None:
+        tracker = getattr(self, "_target_tracker", None)
+        if tracker is None:
+            return
+        previous_timestamp = getattr(self, "_last_target_tracker_output_at", None)
+        self._last_target_tracker_output_at = frame.timestamp
+        if previous_timestamp is None:
+            return
+        tracker.record_output(
+            output,
+            dt=max(0.0, frame.timestamp - previous_timestamp),
+        )
 
     def _record_timing_sample(self, frame: GamepadFrame, *, output_sent_at: float):
         if frame.target is None or frame.target_timestamp is None:

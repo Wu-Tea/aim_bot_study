@@ -234,7 +234,8 @@ The current targeting path is box-based.
 
 Important behavior shared by the production design:
 
-- main target point is upper-chest oriented
+- main target point is posture-aware from the selected body box:
+  standing and visible upper-body boxes use an upper-chest point, crouched boxes use a slightly lower middle-upper-body point, and wide-low prone/side boxes use the body midpoint
 - `slow_zone` and `fire_zone` come from the selected body box
 - green above-box color is treated as friendly and rejected
 - yellow and red above-box color add enemy confidence bonus

@@ -380,11 +380,31 @@ class RecoilRuntime:
         self._switch_frame_grabber: Any | None = None
         self._switch_frame_grabber_lock = threading.Lock()
         self._switch_capture_roi = _build_switch_capture_roi(self.game)
+        self._restore_initial_state()
 
     @property
     def current_state(self) -> RecognizerState | None:
         with self._lock:
             return self._slot_states[self._active_slot_index]
+
+    def _restore_initial_state(self) -> None:
+        if self.mode != "recoil" or self.state_path is None or not self.state_path.is_file():
+            return
+        try:
+            payload = json.loads(self.state_path.read_text(encoding="utf-8"))
+            state = RecognizerState.from_dict(payload)
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
+            return
+        if state.game != self.game:
+            return
+        with self._lock:
+            self._active_slot_index = 0
+            self._slot_states[0] = state
+        self._stdout.write(
+            f"[Recoil] restored_state weapon={state.matched_name or state.canonical_weapon_id} "
+            f"source={state.source}\n"
+        )
+        self._stdout.flush()
 
     def handle_switch_pressed(self) -> None:
         with self._lock:

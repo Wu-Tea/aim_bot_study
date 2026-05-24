@@ -343,6 +343,55 @@ class RecoilProfileStoreTests(unittest.TestCase):
 
 
 class RecoilRuntimeTests(unittest.TestCase):
+    def test_recoil_mode_restores_existing_current_weapon_state_on_startup(self):
+        runtime = _load_runtime_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            state_path = temp_path / "current_weapon.json"
+            profile_store = runtime.RecoilProfileStore(temp_path / "profiles")
+            profile = _profile_record(
+                profile_id="profile-cod22-m4-ads-standing-current",
+                canonical_weapon_id="cod22-m4",
+                aim_mode="ads",
+                confidence=0.91,
+                profile_type="magazine_curve_v1",
+                burst_count=3,
+                support_counts=(3, 3, 3),
+                fit_summary={"accepted_episode_count": 3.0},
+            )
+            profile_store.upsert(profile)
+            state = RecognizerState(
+                game="cod22",
+                canonical_weapon_id="cod22-m4",
+                confidence=0.92,
+                source="switch_text",
+                timestamp="2026-05-06T18:00:00Z",
+                degraded=False,
+                matched_name="M4",
+                profile_ids=(profile.profile_id,),
+            )
+            state_path.write_text(
+                json.dumps(state.to_dict(), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+
+            recoil_runtime = runtime.RecoilRuntime(
+                game="cod22",
+                mode="recoil",
+                identity_store=runtime.IdentityStore(temp_path / "identities"),
+                profile_store=profile_store,
+                state_path=state_path,
+                stdout=io.StringIO(),
+            )
+
+            self.assertIsNotNone(recoil_runtime.current_state)
+            self.assertEqual(recoil_runtime.current_state.canonical_weapon_id, "cod22-m4")
+            self.assertEqual(
+                recoil_runtime.get_active_profile(aim_mode="ads", stance="standing").profile_id,
+                profile.profile_id,
+            )
+
     def test_handle_switch_pressed_auto_creates_identity_and_publishes_state(self):
         runtime = _load_runtime_module()
 

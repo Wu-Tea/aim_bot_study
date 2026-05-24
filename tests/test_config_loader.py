@@ -85,6 +85,8 @@ class TuningConfigLoaderTests(unittest.TestCase):
             profile_amount = 0.80
             profile_x_amount = 1.40
             feedback_amount = 0.16
+            profile_lead_ms = 20
+            profile_velocity_reference_ms = 100
             piecewise_mid_pixels_y = 40.0
             piecewise_max_pixels_y = 160.0
             piecewise_mid_ratio_y = 0.60
@@ -231,6 +233,8 @@ class TuningConfigLoaderTests(unittest.TestCase):
         self.assertEqual(config.gamepad_recoil.profile_amount, 0.80)
         self.assertEqual(config.gamepad_recoil.profile_x_amount, 1.40)
         self.assertEqual(config.gamepad_recoil.feedback_amount, 0.16)
+        self.assertEqual(config.gamepad_recoil.profile_lead_ms, 20)
+        self.assertEqual(config.gamepad_recoil.profile_velocity_reference_ms, 100)
         self.assertEqual(config.gamepad_recoil.piecewise_mid_pixels_y, 40.0)
         self.assertEqual(config.gamepad_recoil.piecewise_max_pixels_y, 160.0)
         self.assertEqual(config.gamepad_recoil.piecewise_mid_ratio_y, 0.60)

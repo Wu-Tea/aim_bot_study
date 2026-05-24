@@ -49,6 +49,7 @@ class RecoilPlaybackDryRunTests(unittest.TestCase):
                 profile_amount=1.0,
                 profile_x_amount=2.0,
                 feedback_amount=0.0,
+                profile_lead_ms=10,
             ),
             frame_count=3,
         )
@@ -57,15 +58,17 @@ class RecoilPlaybackDryRunTests(unittest.TestCase):
         self.assertEqual(report["profile_amount"], 1.0)
         self.assertEqual(report["profile_x_amount"], 2.0)
         self.assertEqual(report["feedback_amount"], 0.0)
+        self.assertEqual(report["profile_lead_ms"], 10)
+        self.assertEqual(report["profile_velocity_reference_ms"], 10)
         self.assertFalse(report["calibrated"])
         self.assertEqual(report["peak_abs_right_x"], 947)
-        self.assertEqual(report["peak_abs_right_y"], 1704)
+        self.assertEqual(report["peak_abs_right_y"], 852)
         self.assertEqual(
             report["frames"],
             [
-                {"elapsed_ms": 0, "profile_x": 0.0, "profile_y": 0.0, "right_x": 0, "right_y": 0},
-                {"elapsed_ms": 10, "profile_x": -1.0, "profile_y": 1.8, "right_x": 947, "right_y": -852},
-                {"elapsed_ms": 20, "profile_x": -2.0, "profile_y": 3.6, "right_x": 947, "right_y": -1704},
+                {"elapsed_ms": 0, "profile_x": -1.0, "profile_y": 1.8, "right_x": 947, "right_y": -852},
+                {"elapsed_ms": 10, "profile_x": -2.0, "profile_y": 3.6, "right_x": 947, "right_y": -852},
+                {"elapsed_ms": 20, "profile_x": -2.0, "profile_y": 3.6, "right_x": 0, "right_y": 0},
             ],
         )
 
@@ -89,6 +92,10 @@ class RecoilPlaybackDryRunTests(unittest.TestCase):
                         "1.4",
                         "--feedback-amount",
                         "0.5",
+                        "--profile-lead-ms",
+                        "10",
+                        "--profile-velocity-reference-ms",
+                        "100",
                         "--frame-count",
                         "3",
                     ]
@@ -100,8 +107,10 @@ class RecoilPlaybackDryRunTests(unittest.TestCase):
         self.assertEqual(payload["profile_amount"], 0.8)
         self.assertEqual(payload["profile_x_amount"], 1.4)
         self.assertEqual(payload["feedback_amount"], 0.5)
-        self.assertEqual(payload["frames"][-1]["right_x"], 530)
-        self.assertEqual(payload["frames"][-1]["right_y"], -1363)
+        self.assertEqual(payload["profile_lead_ms"], 10)
+        self.assertEqual(payload["profile_velocity_reference_ms"], 100)
+        self.assertEqual(payload["frames"][-1]["right_x"], 0)
+        self.assertEqual(payload["frames"][-1]["right_y"], 0)
 
 
 if __name__ == "__main__":

@@ -9,8 +9,13 @@ __pycache__/
 .claude/settings.local.json
 config.toml
 training_data/
+models/train/
+yolo26n*.pt
 runs/
 debug_captures/
+artifacts/mpl/
+artifacts/person_detector_loops*/
+artifacts/ultralytics/
 artifacts/weapon_examples/
 artifacts/recoil_app/
 artifacts/recoil_profiles/

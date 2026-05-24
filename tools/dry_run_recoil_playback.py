@@ -44,7 +44,10 @@ def simulate_profile_playback(
         elapsed_ms = index * resolved_step_ms
         output = GamepadOutput(right_x=0, right_y=0, auto_fire_active=True)
         plugin.apply(_frame(timestamp=base_timestamp + (elapsed_ms / 1000.0)), output)
-        profile_x, profile_y = _profile_values_at_elapsed_ms(profile, elapsed_ms=elapsed_ms)
+        profile_x, profile_y = _profile_values_at_elapsed_ms(
+            profile,
+            elapsed_ms=elapsed_ms + max(0, int(config.profile_lead_ms)),
+        )
         frames.append(
             {
                 "elapsed_ms": elapsed_ms,
@@ -65,6 +68,8 @@ def simulate_profile_playback(
         "profile_amount": float(config.profile_amount),
         "profile_x_amount": float(config.profile_x_amount),
         "feedback_amount": float(config.feedback_amount),
+        "profile_lead_ms": int(config.profile_lead_ms),
+        "profile_velocity_reference_ms": int(config.profile_velocity_reference_ms),
         "calibrated": calibration is not None,
         "frame_count": len(frames),
         "peak_abs_right_x": max(abs(frame["right_x"]) for frame in frames),
@@ -107,6 +112,13 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         help="Override [gamepad.recoil].profile_x_amount",
     )
     parser.add_argument("--feedback-amount", type=float, default=None, help="Override fixed fallback down-pull scale")
+    parser.add_argument("--profile-lead-ms", type=int, default=None, help="Advance profile playback by this many milliseconds")
+    parser.add_argument(
+        "--profile-velocity-reference-ms",
+        type=int,
+        default=None,
+        help="Reference window used to map uncalibrated profile deltas into stick output",
+    )
     parser.add_argument("--frame-count", type=int, default=None, help="Number of frames to simulate")
     parser.add_argument("--step-ms", type=int, default=None, help="Simulation step in milliseconds")
     return parser.parse_args(argv)
@@ -126,6 +138,10 @@ def _resolve_config(args: argparse.Namespace) -> RecoilCompensationConfig:
         overrides["profile_x_amount"] = float(args.profile_x_amount)
     if args.feedback_amount is not None:
         overrides["feedback_amount"] = float(args.feedback_amount)
+    if args.profile_lead_ms is not None:
+        overrides["profile_lead_ms"] = int(args.profile_lead_ms)
+    if args.profile_velocity_reference_ms is not None:
+        overrides["profile_velocity_reference_ms"] = int(args.profile_velocity_reference_ms)
     return replace(config, **overrides) if overrides else config
 
 

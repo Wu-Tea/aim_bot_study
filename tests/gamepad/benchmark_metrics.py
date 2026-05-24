@@ -7,6 +7,10 @@ from typing import Callable, Sequence
 
 from controllers.base_controller import ControllerTarget
 from controllers.gamepad.ai_aim import AIAimConfig, AIAimPlugin
+from controllers.gamepad.target_tracker import (
+    GamepadTargetTracker,
+    GamepadTargetTrackerConfig,
+)
 from controllers.gamepad.state import GamepadFrame, GamepadOutput
 
 from tests.gamepad.benchmark_scenarios import (
@@ -203,6 +207,13 @@ def _simulate_closed_loop(
     reticle_x = 0.0
     reticle_y = 0.0
     records: list[_FrameRecord] = []
+    target_tracker = GamepadTargetTracker(
+        GamepadTargetTrackerConfig(
+            reticle_speed_px_per_sec=config.max_reticle_speed_pps,
+            stick_max=config.stick_max,
+        )
+    )
+    last_target_sample_index: int | None = None
 
     for controller_frame in range(config.sim_frames):
         timestamp = controller_frame * config.frame_dt
@@ -237,6 +248,23 @@ def _simulate_closed_loop(
                 body_top + BENCHMARK_BODY_BOX_HEIGHT,
             ),
         )
+        if sample_index != last_target_sample_index:
+            target_tracker.update_observation(
+                dx=error_x,
+                dy=error_y,
+                target=target,
+                revision=sample_index + 1,
+                observed_at=target_timestamp,
+            )
+            last_target_sample_index = sample_index
+        projection = target_tracker.project(timestamp=timestamp)
+        frame_target_dx = error_x
+        frame_target_dy = error_y
+        frame_target = target
+        if projection is not None:
+            frame_target_dx = projection.dx
+            frame_target_dy = projection.dy
+            frame_target = projection.target
         frame = GamepadFrame(
             timestamp=timestamp,
             left_x=0,
@@ -247,12 +275,12 @@ def _simulate_closed_loop(
             right_trigger=0,
             buttons={},
             is_aiming=True,
-            target_dx=error_x,
-            target_dy=error_y,
+            target_dx=frame_target_dx,
+            target_dy=frame_target_dy,
             auto_fire_requested=False,
             target_revision=sample_index + 1,
             target_timestamp=target_timestamp,
-            target=target,
+            target=frame_target,
         )
         output = GamepadOutput()
         plugin.apply(frame, output)
@@ -261,6 +289,7 @@ def _simulate_closed_loop(
         stick_y = _clamp_int(output.right_y, config.stick_max)
         reticle_x += (stick_x / config.stick_max) * config.max_reticle_speed_pps * config.frame_dt
         reticle_y += (-stick_y / config.stick_max) * config.max_reticle_speed_pps * config.frame_dt
+        target_tracker.record_output(GamepadOutput(right_x=stick_x, right_y=stick_y), dt=config.frame_dt)
 
         records.append(
             _FrameRecord(
