@@ -198,6 +198,29 @@ class RecoilCompensationPluginTests(unittest.TestCase):
         self.assertEqual(second.right_x, 947)
         self.assertEqual(second.right_y, -852)
 
+    def test_negative_profile_x_amount_inverts_horizontal_profile_delta(self):
+        plugin = RecoilCompensationPlugin(
+            RecoilCompensationConfig(
+                profile_amount=1.0,
+                profile_x_amount=-1.5,
+            ),
+            profile_provider=lambda _frame: _profile(
+                samples_x=(0.0, -1.0),
+                samples_y=(0.0, 1.8),
+            ),
+        )
+
+        first = GamepadOutput(right_x=0, right_y=0, auto_fire_active=True)
+        plugin.apply(_frame(timestamp=1.00), first)
+
+        second = GamepadOutput(right_x=0, right_y=0, auto_fire_active=True)
+        plugin.apply(_frame(timestamp=1.01), second)
+
+        self.assertEqual(first.right_x, 0)
+        self.assertEqual(first.right_y, 0)
+        self.assertEqual(second.right_x, -710)
+        self.assertEqual(second.right_y, -852)
+
     def test_profile_lead_ms_advances_profile_playback_on_first_fire_frame(self):
         plugin = RecoilCompensationPlugin(
             RecoilCompensationConfig(

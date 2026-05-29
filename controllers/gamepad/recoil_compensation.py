@@ -83,7 +83,7 @@ class RecoilCompensationPlugin:
             elapsed_ms=profile_elapsed_ms,
         )
         profile_scale = max(0.0, float(self.config.profile_amount))
-        profile_x_scale = profile_scale * max(0.0, float(self.config.profile_x_amount))
+        profile_x_scale = profile_scale * float(self.config.profile_x_amount)
         previous_pixels_x, previous_pixels_y = _cumulative_profile_values(
             profile,
             elapsed_ms=max(0, profile_elapsed_ms - profile.sample_interval_ms),

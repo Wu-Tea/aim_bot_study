@@ -47,7 +47,7 @@ Runtime trial playback is deliberately permissive: when the recognized weapon id
 - Profile selected but view dives: calibration scale is wrong.
 - Profile selected but weapon still climbs: profile curve is too small or calibration underestimates stick response.
 - Profile selected with `uncalibrated` in the log: adjust `[gamepad.recoil].profile_amount` carefully or capture a measured calibration.
-- Profile selected but bullet impacts still jump left/right: tune `[gamepad.recoil].profile_x_amount` in small steps; X uses per-sample profile delta only, not cumulative horizontal profile position.
+- Profile selected but bullet impacts still jump left/right: tune `[gamepad.recoil].profile_x_amount` in small positive or negative steps; X uses per-sample profile delta only, not cumulative horizontal profile position, and negative values invert the horizontal correction direction.
 - Profile selected but the first bullets jump before compensation catches up: increase `[gamepad.recoil].profile_lead_ms` in small steps, such as `10`, `20`, then `30`.
 - Profile selected but the sight dips or horizontal correction arrives too early: reduce `[gamepad.recoil].profile_lead_ms`.
 - Profile selected but vertical pull feels too strong: lower `[gamepad.recoil].profile_amount`; it scales profile-driven output before the extra X-axis boost is applied.

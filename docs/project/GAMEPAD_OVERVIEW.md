@@ -158,7 +158,7 @@ The profile-driven path:
 - advances the curve only while `auto_fire_active` or manual `RT/RB` fire input is active
 - treats stored recoil samples as collector screen-response curves; when a matching game/aim/stance calibration exists, per-sample recoil deltas use that measured mapping, otherwise playback uses the older uncalibrated pixel-to-stick mapping for trial use
 - scales profile playback with `[gamepad.recoil].profile_amount`
-- applies extra horizontal profile strength with `[gamepad.recoil].profile_x_amount`; X uses per-sample horizontal changes instead of amplifying the cumulative X curve
+- applies signed extra horizontal profile strength with `[gamepad.recoil].profile_x_amount`; X uses per-sample horizontal changes instead of amplifying the cumulative X curve, and negative values invert horizontal correction for direction checks
 - advances profile playback with `[gamepad.recoil].profile_lead_ms` to compensate gamepad/runtime/game input timing delay
 - uses `[gamepad.recoil].feedback_amount` only as the fixed fallback down-pull when no matching profile is available
 - resets playback when firing stops or the active weapon profile changes or disappears
@@ -170,7 +170,7 @@ The current host keeps the integration conservative:
 - low `confidence` is kept as a diagnostic for magazine-curve profiles, but it does not block runtime use by itself
 - magazine profile quality findings such as low support, recovery tail, or horizontal disagreement are audit/status diagnostics only; if the weapon id, stance, and aim mode match, runtime trial playback uses the profile
 - missing calibration no longer blocks magazine-curve trial playback, but logs/status will mark that ready mode as uncalibrated
-- lower `[gamepad.recoil].profile_amount` if the uncalibrated profile trial is too strong vertically; raise `[gamepad.recoil].profile_x_amount` if impacts still jump left/right; adjust `[gamepad.recoil].profile_lead_ms` if compensation feels late or early, then replace trial mapping with measured calibration when available
+- lower `[gamepad.recoil].profile_amount` if the uncalibrated profile trial is too strong vertically; tune `[gamepad.recoil].profile_x_amount` in small positive or negative steps if impacts still jump left/right; adjust `[gamepad.recoil].profile_lead_ms` if compensation feels late or early, then replace trial mapping with measured calibration when available
 
 The current host now supports a deliberately narrow recoil-recognition shortcut for direct use:
 
