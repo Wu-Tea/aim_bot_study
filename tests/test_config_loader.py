@@ -41,6 +41,7 @@ class TuningConfigLoaderTests(unittest.TestCase):
         self.assertEqual(config.gamepad_ai_aim, GamepadAIAimConfig())
         self.assertEqual(config.gamepad_ai_aim.body_lock_activation_box_px, 150.0)
         self.assertEqual(config.gamepad_ai_aim.ads_snap_max_target_dy_px, 90.0)
+        self.assertFalse(config.runtime.gamepad.rb_counts_as_aiming)
         self.assertEqual(
             config.runtime,
             RuntimeConfig(
@@ -74,6 +75,7 @@ class TuningConfigLoaderTests(unittest.TestCase):
 
             [runtime.gamepad]
             auto_fire_output = "RT"
+            rb_counts_as_aiming = true
 
             [gamepad.auto_fire]
             aim_only = false
@@ -223,6 +225,7 @@ class TuningConfigLoaderTests(unittest.TestCase):
         self.assertEqual(config.runtime.vision.model_path, "D:/models/custom.engine")
         self.assertEqual(config.runtime.vision.fallback_model_path, "D:/models/custom.pt")
         self.assertEqual(config.runtime.gamepad.auto_fire_output, "RT")
+        self.assertTrue(config.runtime.gamepad.rb_counts_as_aiming)
 
         self.assertFalse(config.gamepad_auto_fire.aim_only)
         self.assertEqual(config.gamepad_auto_fire.max_source_age_ms, 35.0)

@@ -87,6 +87,10 @@ class GamepadController(BaseController, threading.Thread):
         from config import load_tuning_config
 
         tuning = load_tuning_config()
+        runtime_gamepad_config = getattr(getattr(tuning, "runtime", None), "gamepad", None)
+        self._rb_counts_as_aiming = bool(
+            getattr(runtime_gamepad_config, "rb_counts_as_aiming", False)
+        )
         ai_aim_config = tuning.gamepad_ai_aim
         if smoothing is not None or max_pixels is not None:
             overrides: dict = {}
@@ -231,6 +235,14 @@ class GamepadController(BaseController, threading.Thread):
     def is_aiming(self):
         return self._is_aiming
 
+    def _update_aiming_state(self, *, left_trigger: int, buttons: dict[str, bool]) -> None:
+        trigger_aiming = left_trigger > 10
+        rb_aiming = bool(
+            getattr(self, "_rb_counts_as_aiming", False)
+            and buttons.get("rb", False)
+        )
+        self._is_aiming = bool(trigger_aiming or rb_aiming)
+
     def set_auto_fire(self, pressed: bool, observed_at: float | None = None):
         if pressed and observed_at is None:
             observed_at = time.perf_counter()
@@ -309,6 +321,13 @@ class GamepadController(BaseController, threading.Thread):
             auto_fire_timestamp = getattr(self, "_auto_fire_timestamp", None)
             vision_received_at = getattr(self, "_vision_received_at", None)
             vision_submitted_at = getattr(self, "_vision_submitted_at", None)
+            is_aiming = bool(
+                self._is_aiming
+                or (
+                    getattr(self, "_rb_counts_as_aiming", False)
+                    and buttons.get("rb", False)
+                )
+            )
 
         return GamepadFrame(
             timestamp=timestamp,
@@ -319,7 +338,7 @@ class GamepadController(BaseController, threading.Thread):
             left_trigger=left_trigger,
             right_trigger=right_trigger,
             buttons=buttons,
-            is_aiming=self._is_aiming,
+            is_aiming=is_aiming,
             target_dx=target_dx,
             target_dy=target_dy,
             auto_fire_requested=auto_fire_requested,
@@ -493,7 +512,6 @@ class GamepadController(BaseController, threading.Thread):
             left_y = self._axis_to_xbox(-self.joystick.get_axis(1))
 
             left_trigger, right_trigger = self._physical_input.read_trigger_values()
-            self._is_aiming = left_trigger > 10
 
             manual_right_x = self._apply_stick_deadzone(
                 self._axis_to_xbox(self.joystick.get_axis(2))
@@ -503,6 +521,7 @@ class GamepadController(BaseController, threading.Thread):
             )
             buttons = self._read_buttons()
             dpad = self._read_dpad()
+            self._update_aiming_state(left_trigger=left_trigger, buttons=buttons)
             self._handle_weapon_switch_button(buttons)
             self._handle_recoil_runtime_fire_state(
                 is_firing=self._physical_input.read_right_fire_pressed(),

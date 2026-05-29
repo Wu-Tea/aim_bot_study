@@ -32,6 +32,7 @@ RUNTIME_VISION_KEYS = frozenset(
 RUNTIME_GAMEPAD_KEYS = frozenset(
     {
         "auto_fire_output",
+        "rb_counts_as_aiming",
     }
 )
 GAMEPAD_AUTO_FIRE_KEYS = frozenset(
@@ -242,6 +243,7 @@ class RuntimeVisionConfig:
 @dataclass(slots=True, frozen=True)
 class RuntimeGamepadConfig:
     auto_fire_output: str = "RB"
+    rb_counts_as_aiming: bool = False
 
 
 @dataclass(slots=True, frozen=True)

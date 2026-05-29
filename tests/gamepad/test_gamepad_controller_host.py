@@ -169,6 +169,9 @@ class _RaisingRecognizerStateService(_FakeRecoilSidecarService):
 class GamepadControllerHostTests(unittest.TestCase):
     def test_default_plugin_chain_uses_configured_auto_fire_and_recoil_knobs(self):
         tuning = SimpleNamespace(
+            runtime=SimpleNamespace(
+                gamepad=SimpleNamespace(rb_counts_as_aiming=True),
+            ),
             gamepad_ai_aim=AIAimConfig(),
             gamepad_auto_fire=AutoFireConfig(
                 max_source_age_ms=35.0,
@@ -214,6 +217,7 @@ class GamepadControllerHostTests(unittest.TestCase):
         self.assertEqual(recoil.profile_amount, 0.16)
         self.assertEqual(recoil.profile_x_amount, 1.40)
         self.assertEqual(recoil.feedback_amount, 0.12)
+        self.assertTrue(controller._rb_counts_as_aiming)
 
     def test_handle_weapon_switch_button_delegates_to_recoil_app_bridge_when_present(self):
         controller = GamepadController.__new__(GamepadController)
@@ -599,6 +603,94 @@ class GamepadControllerHostTests(unittest.TestCase):
         self.assertIs(frame.target, projected_target)
         self.assertEqual(frame.target_revision, 3)
         self.assertEqual(frame.target_timestamp, 12.5)
+
+    def test_build_frame_treats_rb_as_aiming_when_configured(self):
+        controller = GamepadController.__new__(GamepadController)
+        controller.lock = threading.Lock()
+        controller._is_aiming = False
+        controller._rb_counts_as_aiming = True
+        controller.target_dx = 10.0
+        controller.target_dy = 0.0
+        controller.target_revision = 1
+        controller.target_timestamp = 12.5
+        controller.target_info = None
+        controller._auto_fire_requested = False
+        controller._auto_fire_timestamp = None
+        controller._vision_received_at = None
+        controller._vision_submitted_at = None
+        controller._target_tracker = None
+
+        frame = GamepadController._build_frame(
+            controller,
+            timestamp=13.0,
+            left_x=0,
+            left_y=0,
+            manual_right_x=0,
+            manual_right_y=0,
+            left_trigger=0,
+            right_trigger=0,
+            buttons={"rb": True},
+            dpad=0,
+        )
+
+        self.assertTrue(frame.is_aiming)
+
+    def test_build_frame_does_not_treat_rb_as_aiming_by_default(self):
+        controller = GamepadController.__new__(GamepadController)
+        controller.lock = threading.Lock()
+        controller._is_aiming = False
+        controller._rb_counts_as_aiming = False
+        controller.target_dx = 10.0
+        controller.target_dy = 0.0
+        controller.target_revision = 1
+        controller.target_timestamp = 12.5
+        controller.target_info = None
+        controller._auto_fire_requested = False
+        controller._auto_fire_timestamp = None
+        controller._vision_received_at = None
+        controller._vision_submitted_at = None
+        controller._target_tracker = None
+
+        frame = GamepadController._build_frame(
+            controller,
+            timestamp=13.0,
+            left_x=0,
+            left_y=0,
+            manual_right_x=0,
+            manual_right_y=0,
+            left_trigger=0,
+            right_trigger=0,
+            buttons={"rb": True},
+            dpad=0,
+        )
+
+        self.assertFalse(frame.is_aiming)
+
+    def test_update_aiming_state_counts_rb_as_aiming_when_configured(self):
+        controller = GamepadController.__new__(GamepadController)
+        controller._is_aiming = False
+        controller._rb_counts_as_aiming = True
+
+        GamepadController._update_aiming_state(
+            controller,
+            left_trigger=0,
+            buttons={"rb": True},
+        )
+
+        self.assertTrue(GamepadController.is_aiming(controller))
+
+    def test_update_aiming_state_ignores_rb_when_config_is_disabled(self):
+        controller = GamepadController.__new__(GamepadController)
+        controller._is_aiming = False
+        controller._rb_counts_as_aiming = False
+
+        GamepadController._update_aiming_state(
+            controller,
+            left_trigger=0,
+            buttons={"rb": True},
+        )
+
+        self.assertFalse(GamepadController.is_aiming(controller))
 
     def test_record_timing_sample_exposes_controller_consume_and_output_age(self):
         controller = GamepadController.__new__(GamepadController)
