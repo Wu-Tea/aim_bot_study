@@ -1,6 +1,6 @@
 # Gamepad Overview
 
-Last updated: 2026-05-20
+Last updated: 2026-05-29
 
 ## Goal
 
@@ -111,6 +111,7 @@ Important details:
 - body lock only engages when the crosshair is already inside the target body box plus tolerance
 - body lock uses upper-body aim instead of generic box center
 - body lock has controller-side motion compensation after continuity is established
+- body lock also has a near-lock lateral motion assist: when the upper-body lock point is moving quickly and the current X error is inside the release/deadzone window, it applies a short velocity lead and preserves a stronger horizontal tail so side-running targets do not get a zero-output frame right as they cross the reticle
 - manual input is not simply overwritten
   - same-direction help can be preserved
   - harmful opposing input can be suppressed
@@ -121,6 +122,14 @@ Current tuning for `AIAimPlugin` comes from:
 
 - code defaults in `controllers/gamepad/ai_aim.py`
 - optional overrides from `config.toml` under `[gamepad.ai_aim]`
+
+Useful near-lock lateral knobs:
+
+- `body_lock_lateral_motion_min_speed_px_per_sec`
+- `body_lock_lateral_motion_lead_seconds`
+- `body_lock_lateral_motion_lead_window_px`
+- `body_lock_lateral_motion_lead_max_px`
+- `body_lock_lateral_motion_tail_scale`
 
 ## AutoFire
 

@@ -117,6 +117,11 @@ class TuningConfigLoaderTests(unittest.TestCase):
             body_lock_vertical_tail_inner_px = 1.5
             body_lock_vertical_tail_speed_threshold_px_per_sec = 80.0
             body_lock_release_tail_scale = 0.35
+            body_lock_lateral_motion_min_speed_px_per_sec = 140.0
+            body_lock_lateral_motion_lead_seconds = 0.03
+            body_lock_lateral_motion_lead_window_px = 7.0
+            body_lock_lateral_motion_lead_max_px = 5.5
+            body_lock_lateral_motion_tail_scale = 0.55
             body_lock_vertical_lead_scale = 0.8
             body_lock_lead_frames = 6
 
@@ -277,6 +282,14 @@ class TuningConfigLoaderTests(unittest.TestCase):
             80.0,
         )
         self.assertEqual(config.gamepad_ai_aim.body_lock_release_tail_scale, 0.35)
+        self.assertEqual(
+            config.gamepad_ai_aim.body_lock_lateral_motion_min_speed_px_per_sec,
+            140.0,
+        )
+        self.assertEqual(config.gamepad_ai_aim.body_lock_lateral_motion_lead_seconds, 0.03)
+        self.assertEqual(config.gamepad_ai_aim.body_lock_lateral_motion_lead_window_px, 7.0)
+        self.assertEqual(config.gamepad_ai_aim.body_lock_lateral_motion_lead_max_px, 5.5)
+        self.assertEqual(config.gamepad_ai_aim.body_lock_lateral_motion_tail_scale, 0.55)
         self.assertEqual(config.gamepad_ai_aim.body_lock_vertical_lead_scale, 0.8)
         self.assertEqual(config.gamepad_ai_aim.body_lock_lead_frames, 6)
         self.assertEqual(

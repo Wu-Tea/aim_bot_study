@@ -51,6 +51,11 @@ class AIAimConfig:
     body_lock_vertical_tail_inner_px: float = 2.0
     body_lock_vertical_tail_speed_threshold_px_per_sec: float = 90.0
     body_lock_release_tail_scale: float = 0.20
+    body_lock_lateral_motion_min_speed_px_per_sec: float = 120.0
+    body_lock_lateral_motion_lead_seconds: float = 0.04
+    body_lock_lateral_motion_lead_window_px: float = 8.0
+    body_lock_lateral_motion_lead_max_px: float = 7.0
+    body_lock_lateral_motion_tail_scale: float = 0.65
     body_lock_upper_body_ratio: float = 0.38
     body_lock_lead_frames: int = 5
     body_lock_lead_seconds: float = 0.0
@@ -306,10 +311,9 @@ class AIAimPlugin:
                 self.config.body_lock_lead_max_px,
             ) * lead_scale
 
-        return (
-            (lock_x - frame.target.screen_center_x) * self.config.ai_delta_gain,
-            (lock_y - frame.target.screen_center_y) * self.config.ai_delta_gain,
-        )
+        dx = (lock_x - frame.target.screen_center_x) * self.config.ai_delta_gain
+        dy = (lock_y - frame.target.screen_center_y) * self.config.ai_delta_gain
+        return (self._body_lock_lateral_motion_delta(dx), dy)
 
     def _body_lock_confidence(self, frame: GamepadFrame, lock_dx: float, lock_dy: float) -> float:
         if frame.target is None or frame.target.body_box is None:
@@ -529,7 +533,7 @@ class AIAimPlugin:
         release_threshold = self._body_lock_axis_release_threshold(axis)
         if abs(desired_error) <= release_threshold:
             self._set_body_lock_axis_hold(axis, 0)
-            tail_scale = max(0.0, min(1.0, self.config.body_lock_release_tail_scale))
+            tail_scale = self._body_lock_axis_release_tail_scale(axis)
             previous_error = self._last_body_lock_error_x if axis == "x" else self._last_body_lock_error_y
             if self._is_body_lock_zero_cross(axis, previous_error, desired_error):
                 self._clear_body_lock_axis_carry(axis)
@@ -567,6 +571,41 @@ class AIAimPlugin:
             self.config.deadzone_inner + 1.0,
             self.config.x_deadzone_outer * 0.85,
         )
+
+    def _body_lock_lateral_motion_delta(self, dx: float) -> float:
+        if self._motion_frames < 2:
+            return dx
+        if abs(self._motion_velocity_x) < self.config.body_lock_lateral_motion_min_speed_px_per_sec:
+            return dx
+
+        window = max(
+            self.config.body_lock_lateral_motion_lead_window_px,
+            self._body_lock_axis_release_threshold("x"),
+        )
+        abs_dx = abs(dx)
+        if abs_dx >= window:
+            return dx
+
+        near_ratio = 1.0 - min(1.0, abs_dx / max(1.0, window))
+        lead_px = self._clamp(
+            self._motion_velocity_x * self.config.body_lock_lateral_motion_lead_seconds,
+            self.config.body_lock_lateral_motion_lead_max_px,
+        )
+        return dx + (lead_px * near_ratio)
+
+    def _body_lock_axis_release_tail_scale(self, axis: str) -> float:
+        tail_scale = max(0.0, min(1.0, self.config.body_lock_release_tail_scale))
+        if axis != "x":
+            return tail_scale
+        if self._motion_frames < 2:
+            return tail_scale
+        if abs(self._motion_velocity_x) < self.config.body_lock_lateral_motion_min_speed_px_per_sec:
+            return tail_scale
+        moving_tail = max(
+            0.0,
+            min(1.0, self.config.body_lock_lateral_motion_tail_scale),
+        )
+        return max(tail_scale, moving_tail)
 
     def _body_lock_zero_cross_hold_frames(self, axis: str) -> int:
         return 1

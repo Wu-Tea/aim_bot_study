@@ -838,6 +838,78 @@ class AIAimPluginTests(unittest.TestCase):
         self.assertLess(output.right_x, 3000)
         self.assertNotEqual(output.right_y, 0)
 
+    def test_body_lock_preserves_more_horizontal_tail_for_moving_target_inside_release_window(self):
+        def apply_pair(first_dx: float, second_dx: float) -> int:
+            plugin = AIAimPlugin(
+                AIAimConfig(
+                    smoothing=0.0,
+                    body_lock_smoothing=0.18,
+                    ai_delta_gain=1.0,
+                )
+            )
+            first = _frame(
+                aiming=True,
+                timestamp=6.00,
+                target_revision=1,
+                target=_body_lock_target(
+                    upper_body_dx=first_dx,
+                    upper_body_dy=-20.0,
+                ),
+            )
+            second = _frame(
+                aiming=True,
+                timestamp=6.10,
+                target_revision=2,
+                target=_body_lock_target(
+                    upper_body_dx=second_dx,
+                    upper_body_dy=-20.0,
+                ),
+            )
+
+            plugin.apply(first, _output(first))
+            output = _output(second)
+            plugin.apply(second, output)
+            return output.right_x
+
+        static_tail = apply_pair(2.1, 2.1)
+        moving_tail = apply_pair(14.1, 2.1)
+
+        self.assertGreater(static_tail, 0)
+        self.assertGreater(moving_tail, static_tail * 1.8)
+
+    def test_body_lock_uses_lateral_motion_when_current_error_is_inside_deadzone(self):
+        plugin = AIAimPlugin(
+            AIAimConfig(
+                smoothing=0.0,
+                body_lock_smoothing=0.0,
+                ai_delta_gain=1.0,
+            )
+        )
+        first = _frame(
+            aiming=True,
+            timestamp=6.00,
+            target_revision=1,
+            target=_body_lock_target(
+                upper_body_dx=16.0,
+                upper_body_dy=0.0,
+            ),
+        )
+        near_cross = _frame(
+            aiming=True,
+            timestamp=6.10,
+            target_revision=2,
+            target=_body_lock_target(
+                upper_body_dx=0.8,
+                upper_body_dy=0.0,
+            ),
+        )
+
+        plugin.apply(first, _output(first))
+        output = _output(near_cross)
+        plugin.apply(near_cross, output)
+
+        self.assertLess(output.right_x, -500)
+
     def test_body_lock_can_disable_release_tail_to_zero_x_axis_inside_window(self):
         plugin = AIAimPlugin(
             AIAimConfig(
