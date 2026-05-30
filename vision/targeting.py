@@ -170,6 +170,10 @@ class TargetSelector:
     ACTIVE_TARGET_SCORE_SWITCH_MARGIN = 2000.0
     SWITCH_CROSSHAIR_MARGIN_RATIO = 16.0 / 640.0
     CROSSHAIR_PRIORITY_MARGIN_RATIO = 10.0 / 640.0
+    STALE_ACTIVE_HEIGHT_RETAIN_RATIO = 0.75
+    STALE_ACTIVE_SWITCH_CONFIDENCE_SLACK = 0.05
+    STALE_ACTIVE_SWITCH_RADIUS_SCALE = 1.15
+    STALE_ACTIVE_CUE_SWITCH_RADIUS_SCALE = 1.60
     FRIENDLY_MASK_MIN_RATIO = 0.02
     FRIENDLY_MASK_MAX_RATIO = 0.35
     ENEMY_MASK_MIN_RATIO = 0.03
@@ -472,6 +476,11 @@ class TargetSelector:
         if self._active_target is None:
             return point, selected_box, source
 
+        box_w = float(box[2] - box[0])
+        box_h = float(box[3] - box[1])
+        if _is_wide_low_pose(box_w, box_h):
+            return point, selected_box, source
+
         reconstructed = self._compensator.try_reconstruct(
             box,
             timestamp=sample_timestamp,
@@ -677,6 +686,64 @@ class TargetSelector:
         challenger_crosshair_distance = self._crosshair_distance((challenger.target_x, challenger.target_y))
         return challenger_crosshair_distance < (locked_crosshair_distance - self.switch_crosshair_margin)
 
+    @staticmethod
+    def _candidate_is_wide_low(candidate: TargetCandidate) -> bool:
+        return _is_wide_low_pose(candidate.box_width, candidate.box_height)
+
+    @staticmethod
+    def _box_is_wide_low(box: tuple[float, float, float, float] | None) -> bool:
+        if box is None:
+            return False
+        return _is_wide_low_pose(float(box[2] - box[0]), float(box[3] - box[1]))
+
+    @staticmethod
+    def _box_height(box: tuple[float, float, float, float] | None) -> float:
+        if box is None:
+            return 0.0
+        return float(box[3] - box[1])
+
+    @staticmethod
+    def _candidate_has_enemy_evidence(candidate: TargetCandidate) -> bool:
+        return candidate.color_bonus > 0.0
+
+    def _should_escape_stale_active_candidate(
+        self,
+        locked_candidate: TargetCandidate,
+        challenger_candidate: TargetCandidate,
+    ) -> bool:
+        if self._active_target is None:
+            return False
+        if challenger_candidate.source != TargetSource.OBSERVED:
+            return False
+        if challenger_candidate.conf < self.PICKUP_CONFIDENCE_THRESHOLD:
+            return False
+        if not self._candidate_is_wide_low(locked_candidate) or self._candidate_is_wide_low(challenger_candidate):
+            return False
+        if self._box_is_wide_low(self._active_target.selected_box):
+            return False
+
+        previous_height = self._box_height(self._active_target.selected_box)
+        if previous_height <= 0.0 or locked_candidate.box_height >= (previous_height * self.STALE_ACTIVE_HEIGHT_RETAIN_RATIO):
+            return False
+        if self._candidate_has_enemy_evidence(locked_candidate):
+            return False
+
+        challenger_has_enemy_evidence = self._candidate_has_enemy_evidence(challenger_candidate)
+        if (
+            not challenger_has_enemy_evidence
+            and (challenger_candidate.conf + self.STALE_ACTIVE_SWITCH_CONFIDENCE_SLACK) < locked_candidate.conf
+        ):
+            return False
+
+        locked_distance = self._crosshair_distance(locked_candidate.point)
+        challenger_distance = self._crosshair_distance(challenger_candidate.point)
+        radius_scale = (
+            self.STALE_ACTIVE_CUE_SWITCH_RADIUS_SCALE
+            if challenger_has_enemy_evidence
+            else self.STALE_ACTIVE_SWITCH_RADIUS_SCALE
+        )
+        return challenger_distance <= (locked_distance + (self.tracking_radius * radius_scale))
+
     def _prefer_candidate(
         self,
         current_point: tuple[float, float] | None,
@@ -758,6 +825,7 @@ class TargetSelector:
     ) -> tuple[SelectedTarget | None, SelectedTarget | None]:
         best: ScoredCandidate | None = None
         tracked: ScoredCandidate | None = None
+        best_non_active: ScoredCandidate | None = None
         active_match: tuple[float, ScoredCandidate] | None = None
 
         for candidate in candidates:
@@ -782,7 +850,19 @@ class TargetSelector:
                 )
             ):
                 tracked = scored
-            if self._active_target_matches_candidate(candidate.selected_box, candidate.point):
+            matches_active = self._active_target_matches_candidate(candidate.selected_box, candidate.point)
+            if not matches_active and (
+                best_non_active is None
+                or self._prefer_candidate(
+                    best_non_active.candidate.point,
+                    best_non_active.score,
+                    scored.candidate.point,
+                    scored.score,
+                )
+            ):
+                best_non_active = scored
+
+            if matches_active:
                 active_distance = math.hypot(
                     candidate.point[0] - self._active_target.target_x,
                     candidate.point[1] - self._active_target.target_y,
@@ -809,8 +889,20 @@ class TargetSelector:
         ):
             best = tracked
 
+        stale_active_switch = False
+        if (
+            active_match is not None
+            and best_non_active is not None
+            and self._should_escape_stale_active_candidate(
+                active_match[1].candidate,
+                best_non_active.candidate,
+            )
+        ):
+            best = best_non_active
+            stale_active_switch = True
+
         chosen_target = self._target_from_candidate(best.candidate, best.score)
-        active_match_target = None if active_match is None else self._target_from_candidate(
+        active_match_target = None if active_match is None or stale_active_switch else self._target_from_candidate(
             active_match[1].candidate,
             active_match[1].score,
         )

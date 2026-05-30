@@ -85,6 +85,40 @@ def _paint_yellow_dot_above(frame, box, radius=4):
     return float(cx), float(cy)
 
 
+def _target_color_roi_bounds(box, frame_shape):
+    x1, y1, x2, y2 = box
+    frame_h, frame_w = frame_shape[:2]
+    box_w = float(x2 - x1)
+    box_h = float(y2 - y1)
+    cx = (x1 + x2) * 0.5
+    wide_low = (box_h / box_w) < 0.65 if box_w > 0.0 else False
+    if wide_low:
+        roi_h = int(max(12, min(32, box_h * 0.35)))
+        roi_w = int(max(32, min(120, box_w * 0.70)))
+        roi_top = max(0, min(frame_h, int(y1 + (box_h * 0.05))))
+        roi_bottom = min(frame_h, roi_top + roi_h)
+    else:
+        roi_h = int(max(12, min(36, box_h * 0.20)))
+        roi_w = int(max(24, min(80, box_w * 0.80)))
+        roi_bottom = max(0, min(frame_h, int(y1) - 2))
+        roi_top = max(0, roi_bottom - roi_h)
+    roi_left = max(0, int(cx - roi_w / 2))
+    roi_right = min(frame_w, int(cx + roi_w / 2))
+    return roi_left, roi_top, roi_right, roi_bottom
+
+
+def _paint_yellow_marker_for_box(frame, box, radius=4):
+    roi_left, roi_top, roi_right, roi_bottom = _target_color_roi_bounds(box, frame.shape)
+    cx = int(round((roi_left + roi_right) * 0.5))
+    cy = int(round((roi_top + roi_bottom) * 0.5))
+    y1 = max(0, cy - radius)
+    y2 = min(frame.shape[0], cy + radius + 1)
+    x1 = max(0, cx - radius)
+    x2 = min(frame.shape[1], cx + radius + 1)
+    frame[y1:y2, x1:x2] = ENEMY_RGB
+    return float(cx), float(cy)
+
+
 def _subframe(frame, left, top, right, bottom):
     return frame[top:bottom, left:right].copy()
 
@@ -207,6 +241,57 @@ class NativeVisionTargetingBridgeTests(unittest.TestCase):
         self.assertTrue(third["has_target"])
         self.assertAlmostEqual(third["target_x"], 460.0, places=3)
         self.assertAlmostEqual(third["target_y"], _target_y(120.0, 320.0), places=3)
+
+    def test_stale_wide_low_active_switches_to_upright_challenger_after_kill(self):
+        if not hasattr(self.module, "NativeTargetSelector"):
+            self.fail("NativeTargetSelector is missing")
+
+        selector = self.module.NativeTargetSelector(CROP_W, CROP_H)
+        active_upright = np.array([[280.0, 120.0, 360.0, 320.0, 0.95, 0.0]], dtype=np.float32)
+        corpse_and_challenger = np.array(
+            [
+                [250.0, 250.0, 390.0, 310.0, 0.60, 0.0],
+                [390.0, 120.0, 470.0, 320.0, 0.95, 0.0],
+            ],
+            dtype=np.float32,
+        )
+
+        selector.select_xyxy(active_upright)
+        locked = selector.select_xyxy(active_upright)
+        first_after_kill = selector.select_xyxy(corpse_and_challenger)
+        second_after_kill = selector.select_xyxy(corpse_and_challenger)
+
+        self.assertTrue(locked["has_target"])
+        self.assertTrue(first_after_kill["has_target"])
+        self.assertTrue(second_after_kill["has_target"])
+        self.assertLess(second_after_kill["target_x"], 450.0)
+        self.assertGreater(second_after_kill["target_x"], 410.0)
+        self.assertAlmostEqual(second_after_kill["target_y"], _target_y(120.0, 320.0), places=3)
+
+    def test_stale_wide_low_active_with_yellow_marker_does_not_switch_to_challenger(self):
+        if not hasattr(self.module, "NativeTargetSelector"):
+            self.fail("NativeTargetSelector is missing")
+
+        selector = self.module.NativeTargetSelector(CROP_W, CROP_H)
+        active_upright = np.array([[280.0, 120.0, 360.0, 320.0, 0.95, 0.0]], dtype=np.float32)
+        sliding_or_prone_and_challenger = np.array(
+            [
+                [250.0, 250.0, 390.0, 310.0, 0.60, 0.0],
+                [390.0, 120.0, 470.0, 320.0, 0.95, 0.0],
+            ],
+            dtype=np.float32,
+        )
+        frame = _frame()
+        _paint_yellow_marker_for_box(frame, [250.0, 250.0, 390.0, 310.0])
+
+        selector.select_xyxy(active_upright)
+        locked = selector.select_xyxy(active_upright)
+        selector.select_xyxy_rgb(sliding_or_prone_and_challenger, frame)
+        second_after_pose_change = selector.select_xyxy_rgb(sliding_or_prone_and_challenger, frame)
+
+        self.assertTrue(locked["has_target"])
+        self.assertTrue(second_after_pose_change["has_target"])
+        self.assertAlmostEqual(second_after_pose_change["target_x"], 320.0, places=3)
 
     def test_multi_candidate_prefers_target_closer_to_crosshair(self):
         if not hasattr(self.module, "NativeTargetSelector"):

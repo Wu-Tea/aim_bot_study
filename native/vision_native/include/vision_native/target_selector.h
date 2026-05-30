@@ -116,6 +116,11 @@ private:
     bool boxes_match(const Rect& lhs, const Rect& rhs) const;
     bool targets_match(const TargetState& lhs, const TargetState& rhs) const;
     bool active_target_matches_candidate(const Candidate& candidate) const;
+    bool candidate_is_wide_low(const Candidate& candidate) const;
+    bool candidate_has_enemy_evidence(const Candidate& candidate) const;
+    bool should_escape_stale_active_match(
+        const TargetState& locked,
+        const TargetState& challenger) const;
     bool should_switch_targets(const TargetState& locked, const TargetState& challenger) const;
 
     std::optional<TargetState> confirm_pickup(const TargetState& target);

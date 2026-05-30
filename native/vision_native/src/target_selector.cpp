@@ -45,6 +45,10 @@ constexpr float kActiveTargetCenterYRatio = 0.35f;
 constexpr float kActiveTargetScoreSwitchMargin = 2000.0f;
 constexpr float kSwitchCrosshairMarginRatio = 16.0f / 640.0f;
 constexpr float kCrosshairPriorityMarginRatio = 10.0f / 640.0f;
+constexpr float kStaleActiveHeightRetainRatio = 0.75f;
+constexpr float kStaleActiveSwitchConfidenceSlack = 0.05f;
+constexpr float kStaleActiveSwitchRadiusScale = 1.15f;
+constexpr float kStaleActiveCueSwitchRadiusScale = 1.60f;
 constexpr float kPickupConfidenceThreshold = 0.65f;
 constexpr float kPickupEnemyConfidenceThreshold = 0.42f;
 constexpr float kTrackingConfidenceThreshold = 0.40f;
@@ -975,6 +979,60 @@ bool VisionTargetSelector::active_target_matches_candidate(const Candidate& cand
         {active_target_->candidate.target_x, active_target_->candidate.target_y}) <= pickup_confirm_radius_;
 }
 
+bool VisionTargetSelector::candidate_is_wide_low(const Candidate& candidate) const {
+    return is_wide_low_pose(rect_width(candidate.body_box), rect_height(candidate.body_box));
+}
+
+bool VisionTargetSelector::candidate_has_enemy_evidence(const Candidate& candidate) const {
+    return candidate.has_cue || candidate.color_bonus > 0.0f;
+}
+
+bool VisionTargetSelector::should_escape_stale_active_match(
+    const TargetState& locked,
+    const TargetState& challenger) const {
+    if (!active_target_.has_value()) {
+        return false;
+    }
+    if (!source_equals(challenger.candidate.source, "observed")) {
+        return false;
+    }
+    if (challenger.candidate.conf < kPickupConfidenceThreshold) {
+        return false;
+    }
+    if (!candidate_is_wide_low(locked.candidate) || candidate_is_wide_low(challenger.candidate)) {
+        return false;
+    }
+    if (candidate_is_wide_low(active_target_->candidate)) {
+        return false;
+    }
+
+    const float previous_height = rect_height(active_target_->candidate.body_box);
+    const float locked_height = rect_height(locked.candidate.body_box);
+    if (previous_height <= 0.0f || locked_height >= (previous_height * kStaleActiveHeightRetainRatio)) {
+        return false;
+    }
+    if (candidate_has_enemy_evidence(locked.candidate)) {
+        return false;
+    }
+
+    const bool challenger_has_enemy_evidence = candidate_has_enemy_evidence(challenger.candidate);
+    if (!challenger_has_enemy_evidence
+        && (challenger.candidate.conf + kStaleActiveSwitchConfidenceSlack) < locked.candidate.conf) {
+        return false;
+    }
+
+    const float locked_distance = crosshair_distance(
+        locked.candidate.target_x,
+        locked.candidate.target_y);
+    const float challenger_distance = crosshair_distance(
+        challenger.candidate.target_x,
+        challenger.candidate.target_y);
+    const float radius_scale = challenger_has_enemy_evidence
+        ? kStaleActiveCueSwitchRadiusScale
+        : kStaleActiveSwitchRadiusScale;
+    return challenger_distance <= (locked_distance + (tracking_radius_ * radius_scale));
+}
+
 bool VisionTargetSelector::should_switch_targets(
     const TargetState& locked,
     const TargetState& challenger) const {
@@ -1082,6 +1140,7 @@ VisionTargetSelector::select_multi_candidate(
     const std::optional<std::pair<float, float>>& last_target_center) const {
     std::optional<ScoredCandidate> best;
     std::optional<ScoredCandidate> tracked;
+    std::optional<ScoredCandidate> best_non_active;
     std::optional<std::pair<float, ScoredCandidate>> active_match;
 
     for (const auto& candidate : candidates) {
@@ -1099,7 +1158,12 @@ VisionTargetSelector::select_multi_candidate(
             }
         }
 
-        if (active_target_matches_candidate(candidate)) {
+        const bool matches_active = active_target_matches_candidate(candidate);
+        if (!matches_active && prefer_candidate(best_non_active, scored)) {
+            best_non_active = scored;
+        }
+
+        if (matches_active) {
             const float active_distance = point_distance(
                 {candidate.target_x, candidate.target_y},
                 {active_target_->candidate.target_x, active_target_->candidate.target_y});
@@ -1122,6 +1186,18 @@ VisionTargetSelector::select_multi_candidate(
             || best->candidate.target_y != tracked->candidate.target_y)
         && best->score < (tracked->score + kTrackingSwitchMargin)) {
         best = tracked;
+    }
+
+    if (active_match.has_value() && best_non_active.has_value()) {
+        const TargetState locked = target_from_candidate(
+            active_match->second.candidate,
+            active_match->second.score);
+        const TargetState challenger = target_from_candidate(
+            best_non_active->candidate,
+            best_non_active->score);
+        if (should_escape_stale_active_match(locked, challenger)) {
+            best = best_non_active;
+        }
     }
 
     const std::optional<TargetState> chosen_target = target_from_candidate(best->candidate, best->score);
@@ -1159,6 +1235,13 @@ VisionTargetSelector::resolve_active_target_transition(
 
     if (active_match_target.has_value()) {
         if (!targets_match(chosen_target, *active_match_target)) {
+            if (should_escape_stale_active_match(*active_match_target, chosen_target)) {
+                const auto confirmed_switch = confirm_switch(chosen_target);
+                if (!confirmed_switch.has_value()) {
+                    return {*active_target_, true};
+                }
+                return {*confirmed_switch, false};
+            }
             if (should_switch_targets(*active_match_target, chosen_target)) {
                 const auto confirmed_switch = confirm_switch(chosen_target);
                 if (!confirmed_switch.has_value()) {

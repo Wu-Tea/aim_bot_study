@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 
-from vision.targeting import CrosshairPersonHitDetector, ParsedDetections, TargetSelector
+from vision.targeting import CrosshairPersonHitDetector, ParsedDetections, TargetSelector, color_roi_bounds
 
 
 CROP = 640
@@ -34,6 +34,20 @@ def _paint_color_above(frame, box, rgb):
     band_left = min(roi_right, roi_left + band_pad)
     band_right = max(band_left + 1, roi_right - band_pad)
     frame[band_top:band_bottom, band_left:band_right] = rgb
+
+
+def _paint_yellow_marker_for_box(frame, box, radius=4):
+    bounds = color_roi_bounds(np.array(box, dtype=np.float32), frame.shape)
+    if bounds is None:
+        return
+    roi_left, roi_top, roi_right, roi_bottom = bounds
+    cx = int(round((roi_left + roi_right) * 0.5))
+    cy = int(round((roi_top + roi_bottom) * 0.5))
+    y1 = max(0, cy - radius)
+    y2 = min(frame.shape[0], cy + radius + 1)
+    x1 = max(0, cx - radius)
+    x2 = min(frame.shape[1], cx + radius + 1)
+    frame[y1:y2, x1:x2] = ENEMY_RGB
 
 
 def _paint_full_color_above(frame, box, rgb):
@@ -465,6 +479,58 @@ class TargetSelectorTests(unittest.TestCase):
         self.assertIsNotNone(second_switch_frame)
         self.assertLess(first_switch_frame.target_x, 290.0)
         self.assertGreater(second_switch_frame.target_x, 310.0)
+
+    def test_stale_wide_low_active_switches_to_upright_challenger_after_kill(self):
+        selector = TargetSelector(crop_size=CROP)
+        frame = _frame()
+
+        active_upright = [280, 120, 360, 320]
+        corpse = [250, 250, 390, 310]
+        challenger = [390, 120, 470, 320]
+
+        locked = _confirm_target(selector, _detections(active_upright, confs=[0.95]), frame)
+        first_after_kill = selector.select_target(
+            _detections(corpse, challenger, confs=[0.60, 0.95]),
+            frame,
+        )
+        second_after_kill = selector.select_target(
+            _detections(corpse, challenger, confs=[0.60, 0.95]),
+            frame,
+        )
+
+        self.assertIsNotNone(locked)
+        self.assertIsNotNone(first_after_kill)
+        self.assertIsNotNone(second_after_kill)
+        self.assertLess(second_after_kill.target_x, 450.0)
+        self.assertGreater(second_after_kill.target_x, 410.0)
+        self.assertAlmostEqual(
+            second_after_kill.target_y,
+            challenger[1] + ((challenger[3] - challenger[1]) * selector.UPPER_CHEST_RATIO),
+            places=3,
+        )
+
+    def test_stale_wide_low_active_with_yellow_marker_does_not_switch_to_challenger(self):
+        selector = TargetSelector(crop_size=CROP)
+        frame = _frame()
+
+        active_upright = [280, 120, 360, 320]
+        sliding_or_prone = [250, 250, 390, 310]
+        challenger = [390, 120, 470, 320]
+        _paint_yellow_marker_for_box(frame, sliding_or_prone)
+
+        locked = _confirm_target(selector, _detections(active_upright, confs=[0.95]), frame)
+        selector.select_target(
+            _detections(sliding_or_prone, challenger, confs=[0.60, 0.95]),
+            frame,
+        )
+        second_after_pose_change = selector.select_target(
+            _detections(sliding_or_prone, challenger, confs=[0.60, 0.95]),
+            frame,
+        )
+
+        self.assertIsNotNone(locked)
+        self.assertIsNotNone(second_after_pose_change)
+        self.assertAlmostEqual(second_after_pose_change.target_x, 320.0, places=3)
 
     def test_tracking_holds_current_target_for_one_frame_when_only_new_target_appears(self):
         selector = TargetSelector(crop_size=CROP)
