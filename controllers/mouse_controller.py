@@ -10,7 +10,7 @@ from ctypes import wintypes
 import win32api
 from pynput import mouse as pynput_mouse
 
-from .base_controller import BaseController, ControllerVisionState
+from .base_controller import BaseController, ControllerVisionState, _state_authorized_target
 from .mouse import (
     AIAimPlugin,
     AutoFirePlugin,
@@ -345,6 +345,7 @@ class MouseController(BaseController, threading.Thread):
             self._local_motion_updated_at = None
 
     def update_vision_state(self, state: ControllerVisionState):
+        target = _state_authorized_target(state)
         state_timestamp = state.observed_at
         if state_timestamp is None:
             state_timestamp = getattr(state.target, "observed_at", None)
@@ -353,13 +354,15 @@ class MouseController(BaseController, threading.Thread):
         submitted_at = state.submitted_at
         if submitted_at is None:
             submitted_at = time.perf_counter()
-        auto_fire_requested = bool(state.auto_fire_requested and state.target is not None)
+        auto_fire_requested = bool(
+            state.auto_fire_requested and target is not None and state.fire_authority
+        )
         auto_fire_timestamp = state.auto_fire_observed_at
         if auto_fire_timestamp is None:
             auto_fire_timestamp = state_timestamp
 
         with self.lock:
-            if state.target is None:
+            if target is None:
                 self.target_dx = 0.0
                 self.target_dy = 0.0
                 self.target_info = None
@@ -367,12 +370,12 @@ class MouseController(BaseController, threading.Thread):
                 self._update_mouse_response_locked(
                     state.dx,
                     state.dy,
-                    state.target,
+                    target,
                     observed_at=state_timestamp,
                 )
                 self.target_dx = state.dx
                 self.target_dy = state.dy
-                self.target_info = state.target
+                self.target_info = target
             self.target_revision += 1
             self.target_timestamp = state_timestamp
             self._local_motion_dx_since_target = 0.0

@@ -1266,3 +1266,133 @@ Follow-up:
 - Receive the user's new idea and evaluate it against the hardened native/gamepad baseline.
 - If the user wants to close the current work first, propose live `gamepad_start.bat` smoke or a stage/commit plan.
 - Keep `.agent-context/` out of checkpoint commits unless the user explicitly asks to include context updates.
+
+## 2026-05-20 to 2026-05-23 - Recoil runtime follow-up summary preserved during index compaction
+
+Goal: preserve the key recoil runtime entries that previously lived in the long `session-log.md` index before the index was compacted back to a short startup file.
+
+What changed across this range:
+- Simplified gamepad recoil runtime tuning to the current trial knobs: profile strength, profile X multiplier, playback lead, and fallback feedback.
+- Relaxed runtime profile-quality gates so matching profiles can be used for trial playback while audit/status still reports quality findings.
+- Kept record-mode clean-profile checks separate so low-support or noisy profiles remain visible as data-quality issues.
+- Added dry-run/profile playback reporting and config/test coverage around recoil playback lead and runtime knob behavior.
+- Current local live question from that thread remained whether `profile_lead_ms` around `10`, `20`, or `30` best matches actual game timing after restarting `gamepad_start.bat`.
+
+Verification summary:
+- Focused recoil/gamepad/config suites passed during those changes, with the final recorded focused suite at `132` tests OK.
+- Current profile audit and dry-run tools ran successfully at the time of those entries.
+
+Follow-up:
+- Recoil thread is no longer the active handoff objective.
+- Re-open that thread only if the user returns to recoil recording/playback or profile tuning.
+
+## 2026-05-29T14:50:45+08:00 - Targeting research and subagent review consolidated
+
+Goal: sync context after the user asked to evaluate recent targeting research and open subagents to discuss optimization after the latest gamepad controller baseline.
+
+Current targeting context:
+- Latest implementation commit: `a196f92 Improve gamepad body-lock lateral hold`.
+- Branch at sync time: `dev` ahead of `origin/dev` by 1 commit.
+- User-provided report: `D:/Downloads/deep-research-report (14).md`.
+- Current live problem: high FPS detection is not enough; aim quality still suffers from short occlusion, firing effects, side-running targets, and gamepad smoothing/near-lock behavior.
+
+Subagent synthesis:
+- Native selector review recommended active-only low-score association, not global low-threshold pickup.
+- Motion/controller review recommended keeping controller-side projection but making source/tier authority explicit before adding Kalman or optical flow to the hot path.
+- Contract/safety review recommended fail-closed runner/controller gates so weak/cue/predicted targets cannot fire even if continuity increases.
+
+Decision:
+- Created `decisions/DEC-2026-05-29-001-single-target-weak-association-authority-gating.md`.
+- Accepted direction: detector-led single-target weak association plus explicit authority gating, with yellow cue as auxiliary same-target evidence only.
+
+Next action:
+- Implement in slices: contract/logging first, fail-closed fire gate, native active-only low-score continuation, then controller source-aware behavior and benchmarks.
+
+## 2026-05-29T15:25:24+08:00 - Single-target weak association and authority gating implemented
+
+Goal: implement the accepted targeting direction from the research/subagent review without reintroducing the earlier ROI/lifecycle overreach.
+
+What changed:
+- Added native `VisionResult` authority fields: `target_tier`, `aim_authority`, `fire_authority`, `association_stage`, and `target_confidence`.
+- Exposed those fields through pybind and mapped them in `vision/native_runner.py`.
+- Changed runner/controller fire gating so only fire-authorized strong observed targets can request auto-fire.
+- Changed base, gamepad, and mouse controller vision-state handling so `aim_authority=false` targets clear target state instead of entering controller assist.
+- Added native active-only low-score association:
+  - native live engine decodes boxes down to `0.20` for selector continuation
+  - low-score boxes cannot birth, switch, or fire
+  - valid near-active low-score detections output as `associated_weak`
+- Preserved yellow cue as auxiliary continuation:
+  - `cue_hold` can keep a shifted active target hypothesis briefly
+  - `cue_hold` has aim authority but no fire authority
+- Made gamepad source-aware:
+  - weak/low-score targets do not refresh target projection velocity
+  - weak association cannot trigger ADS snap
+  - weak/cue body-lock uses lighter force
+  - predicted/no-authority targets stay manual
+- Added config knobs:
+  - `[gamepad.ai_aim].weak_target_body_lock_force_scale`
+  - `[gamepad.ai_aim].cue_hold_body_lock_force_scale`
+
+Verification:
+- Native build passed:
+  - `powershell -ExecutionPolicy Bypass -File tools\build_native_vision.ps1`
+- Combined targeted regression passed:
+  - `py -3 -B -m unittest tests.test_native_vision_targeting_bridge tests.test_native_vision_runner tests.test_vision_runner tests.gamepad.test_gamepad_controller_host tests.gamepad.test_gamepad_target_tracker tests.gamepad.test_gamepad_ai_aim_plugin tests.mouse.test_mouse_controller_host tests.test_native_vision_scaffold tests.test_config_loader -v`
+  - Result: `204` tests OK.
+- Python compile check passed for modified modules/tests.
+- `git diff --check` passed with LF/CRLF normalization warnings only.
+
+Current state:
+- Worktree is dirty and not yet committed.
+- Latest commit before this dirty worktree remains `a196f92 Improve gamepad body-lock lateral hold`.
+
+Follow-up:
+- Prefer live `gamepad_start.bat` smoke before commit if the user wants gameplay confirmation.
+- Watch weak/cue target feel and auto-fire safety first.
+- If live feel is too sticky, tune weak/cue force scales or tighten native weak association gates.
+- Longer next step: add richer replay/benchmark logs for source/tier, cue age/score, weak gate counts, fire request vs gate result, and controller final output.
+
+## 2026-05-30T17:43:18+08:00 - Targeting/controller upgrade live-tested and checkpointed
+
+Goal: record why this version worked, where the idea came from, and what evidence supports committing it as a baseline.
+
+User feedback:
+- The user live-tested the current implementation and said the change felt very strong, possibly "a bit too strong".
+- The user approved committing it as a version and asked to record how the idea was found.
+
+Search and reasoning path:
+- The starting symptom was not raw detection FPS. The system could run vision around high FPS, but practical aim still missed during short visual loss, firing effects, side-running posture, and gamepad smoothing/timing windows.
+- `D:/Downloads/deep-research-report (14).md` was read as the main research input. The useful conversion was not full MOT/ReID, but detector-led short-horizon continuity for a single controller target.
+- Three subagents reviewed the problem from separate angles:
+  - native selector: use active-only low-score association, not global low-threshold pickup
+  - gamepad motion/projection: keep controller-side projection but make source/tier semantics explicit
+  - contract/safety: fail closed so weak/cue/predicted targets cannot fire
+- A GitHub/open-source scan was used as a sanity check. Most public FPS YOLO projects found were shallower than this app, usually stopping at person detection, nearest/crosshair box choice, or simple smoothing. That pushed the implementation toward local system-specific weaknesses: target authority, short continuation, and controller handoff.
+- Local history also mattered: the earlier ROI/lifecycle rewrite hurt detection quality, while the native YOLO baseline was stable. The version therefore kept native YOLO as birth authority and added weak continuation only around an already-active target.
+
+What was committed in this version:
+- Native/Python target authority fields: `target_tier`, `aim_authority`, `fire_authority`, `association_stage`, and `target_confidence`.
+- Runner/controller fail-closed gates: only fire-authorized strong observed targets can drive auto-fire; no-aim-authority targets clear controller target state.
+- Native active-only low-score continuation: low-score detections can continue the active target as `associated_weak`, but cannot birth, switch, or fire.
+- Yellow cue as auxiliary continuation: `cue_hold` can bridge brief target loss but carries no fire authority.
+- Gamepad source-aware behavior: weak/low-score does not refresh projection velocity; weak/cue body-lock uses reduced force; weak association cannot ADS snap.
+- Auto-fire aim-readiness settling for single-shot behavior.
+- ADS snap timing and opposing-manual handling improvements.
+- Chest-biased target point: after user feedback that `0.50` was too low, native selector, Python fallback, benchmarks, and local config use `0.43`.
+
+Verification:
+- Native build passed:
+  - `powershell -ExecutionPolicy Bypass -File tools\build_native_vision.ps1`
+- Broader native/controller regression passed:
+  - `py -3 -B -m unittest tests.test_native_vision_targeting_bridge tests.test_native_vision_runner tests.test_vision_runner tests.gamepad.test_gamepad_auto_fire_plugin tests.gamepad.test_gamepad_controller_host tests.gamepad.test_gamepad_target_tracker tests.gamepad.test_gamepad_ai_aim_plugin tests.mouse.test_mouse_controller_host tests.test_native_vision_scaffold tests.test_config_loader -v`
+  - Result: `222` tests OK.
+- Related targeting/controller/config regression passed:
+  - `py -3 -B -m unittest tests.test_native_vision_targeting_bridge tests.test_vision_targeting tests.test_vision_occlusion_compensation tests.gamepad.test_gamepad_ai_aim_plugin tests.test_config_loader -v`
+  - Result: `128` tests OK.
+- Python compile check passed for edited Python modules/tests.
+- `git diff --check` passed with LF/CRLF normalization warnings only.
+
+Follow-up:
+- Treat the committed version as the current live baseline.
+- If the assist feels too strong over longer sessions, tune `weak_target_body_lock_force_scale`, `cue_hold_body_lock_force_scale`, native weak association gates, or `body_lock_upper_body_ratio` rather than changing the architecture first.
+- Add richer replay/benchmark logging before the next major controller/targeting redesign.

@@ -13,7 +13,12 @@ from recoil_app import GamepadRecoilBridge
 from runtime.recoil_sidecar.models import ActiveProfilePayload
 from runtime.recoil_sidecar.models import RecognizerState
 
-from .base_controller import BaseController, ControllerTimingSnapshot, ControllerVisionState
+from .base_controller import (
+    BaseController,
+    ControllerTimingSnapshot,
+    ControllerVisionState,
+    _state_authorized_target,
+)
 from .gamepad import (
     AIAimPlugin,
     AutoFirePlugin,
@@ -102,6 +107,18 @@ class GamepadController(BaseController, threading.Thread):
         self._target_tracker = GamepadTargetTracker(
             GamepadTargetTrackerConfig(
                 max_projection_age_ms=ai_aim_config.target_max_age_ms,
+                reticle_speed_px_per_sec=(
+                    ai_aim_config.target_projection_reticle_speed_px_per_sec
+                ),
+                velocity_lowpass_alpha=(
+                    ai_aim_config.target_projection_velocity_lowpass_alpha
+                ),
+                max_target_velocity_px_per_sec=(
+                    ai_aim_config.target_projection_max_velocity_px_per_sec
+                ),
+                weak_observation_velocity_decay=(
+                    ai_aim_config.target_projection_weak_velocity_decay
+                ),
             )
         )
 
@@ -170,6 +187,7 @@ class GamepadController(BaseController, threading.Thread):
                 tracker.reset()
 
     def update_vision_state(self, state: ControllerVisionState):
+        target = _state_authorized_target(state)
         state_timestamp = state.observed_at
         if state_timestamp is None:
             state_timestamp = getattr(state.target, "observed_at", None)
@@ -178,28 +196,30 @@ class GamepadController(BaseController, threading.Thread):
         submitted_at = state.submitted_at
         if submitted_at is None:
             submitted_at = time.perf_counter()
-        auto_fire_requested = bool(state.auto_fire_requested and state.target is not None)
+        auto_fire_requested = bool(
+            state.auto_fire_requested and target is not None and state.fire_authority
+        )
         auto_fire_timestamp = state.auto_fire_observed_at
         if auto_fire_timestamp is None:
             auto_fire_timestamp = state_timestamp
 
         with self.lock:
-            if state.target is None:
+            if target is None:
                 self.target_dx = 0.0
                 self.target_dy = 0.0
                 self.target_info = None
             else:
                 self.target_dx = state.dx
                 self.target_dy = state.dy
-                self.target_info = state.target
+                self.target_info = target
             self.target_revision = getattr(self, "target_revision", 0) + 1
             self.target_timestamp = state_timestamp
             tracker = getattr(self, "_target_tracker", None)
-            if tracker is not None and state.target is not None:
+            if tracker is not None and target is not None:
                 tracker.update_observation(
                     dx=state.dx,
                     dy=state.dy,
-                    target=state.target,
+                    target=target,
                     revision=self.target_revision,
                     observed_at=state_timestamp,
                 )

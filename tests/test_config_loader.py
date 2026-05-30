@@ -82,6 +82,7 @@ class TuningConfigLoaderTests(unittest.TestCase):
             max_source_age_ms = 35.0
             manual_takeover_release_seconds = 0.040
             manual_takeover_resume_delay_seconds = 0.095
+            require_aim_ready = false
 
             [gamepad.recoil]
             profile_amount = 0.80
@@ -99,11 +100,19 @@ class TuningConfigLoaderTests(unittest.TestCase):
             max_ai_force_y = 0.88
             body_lock_opposing_boost_max_ai_force = 0.67
             target_max_age_ms = 42.0
+            target_projection_reticle_speed_px_per_sec = 1300.0
+            target_projection_velocity_lowpass_alpha = 0.25
+            target_projection_max_velocity_px_per_sec = 900.0
+            target_projection_weak_velocity_decay = 0.45
             piecewise_mid_pixels_y = 52
             piecewise_max_pixels_y = 172
             piecewise_mid_ratio_y = 0.7
             ads_snap_window_ms = 120
             ads_snap_max_target_dy_px = 84
+            ads_snap_reticle_speed_px_per_sec = 1200.0
+            ads_snap_time_to_go_gain = 1.15
+            ads_snap_time_to_go_min_remaining_ms = 28.0
+            ads_snap_opposing_manual_suppression_max = 0.40
             body_lock_activation_box_px = 220
             body_lock_confidence_frames = 6
             body_lock_confidence_min_strong = 0.72
@@ -124,6 +133,12 @@ class TuningConfigLoaderTests(unittest.TestCase):
             body_lock_lateral_motion_tail_scale = 0.55
             body_lock_vertical_lead_scale = 0.8
             body_lock_lead_frames = 6
+            weak_target_body_lock_force_scale = 0.44
+            cue_hold_body_lock_force_scale = 0.22
+            auto_fire_ready_error_px = 14.0
+            auto_fire_ready_frames = 3
+            auto_fire_ready_min_ads_ms = 65.0
+            auto_fire_ready_max_ai_stick = 5000.0
 
             [gamepad.adaptive_delta_gain]
             max_bonus = 0.9
@@ -236,6 +251,7 @@ class TuningConfigLoaderTests(unittest.TestCase):
         self.assertEqual(config.gamepad_auto_fire.max_source_age_ms, 35.0)
         self.assertEqual(config.gamepad_auto_fire.manual_takeover_release_seconds, 0.040)
         self.assertEqual(config.gamepad_auto_fire.manual_takeover_resume_delay_seconds, 0.095)
+        self.assertFalse(config.gamepad_auto_fire.require_aim_ready)
         self.assertEqual(config.gamepad_auto_fire.fire_output, GamepadAutoFireConfig().fire_output)
 
         self.assertEqual(config.gamepad_recoil.profile_amount, 0.80)
@@ -252,11 +268,19 @@ class TuningConfigLoaderTests(unittest.TestCase):
         self.assertEqual(config.gamepad_ai_aim.max_ai_force_y, 0.88)
         self.assertEqual(config.gamepad_ai_aim.body_lock_opposing_boost_max_ai_force, 0.67)
         self.assertEqual(config.gamepad_ai_aim.target_max_age_ms, 42.0)
+        self.assertEqual(config.gamepad_ai_aim.target_projection_reticle_speed_px_per_sec, 1300.0)
+        self.assertEqual(config.gamepad_ai_aim.target_projection_velocity_lowpass_alpha, 0.25)
+        self.assertEqual(config.gamepad_ai_aim.target_projection_max_velocity_px_per_sec, 900.0)
+        self.assertEqual(config.gamepad_ai_aim.target_projection_weak_velocity_decay, 0.45)
         self.assertEqual(config.gamepad_ai_aim.piecewise_mid_pixels_y, 52)
         self.assertEqual(config.gamepad_ai_aim.piecewise_max_pixels_y, 172)
         self.assertEqual(config.gamepad_ai_aim.piecewise_mid_ratio_y, 0.7)
         self.assertEqual(config.gamepad_ai_aim.ads_snap_window_ms, 120)
         self.assertEqual(config.gamepad_ai_aim.ads_snap_max_target_dy_px, 84)
+        self.assertEqual(config.gamepad_ai_aim.ads_snap_reticle_speed_px_per_sec, 1200.0)
+        self.assertEqual(config.gamepad_ai_aim.ads_snap_time_to_go_gain, 1.15)
+        self.assertEqual(config.gamepad_ai_aim.ads_snap_time_to_go_min_remaining_ms, 28.0)
+        self.assertEqual(config.gamepad_ai_aim.ads_snap_opposing_manual_suppression_max, 0.40)
         self.assertEqual(config.gamepad_ai_aim.body_lock_activation_box_px, 220)
         self.assertEqual(config.gamepad_ai_aim.body_lock_confidence_frames, 6)
         self.assertEqual(config.gamepad_ai_aim.body_lock_confidence_min_strong, 0.72)
@@ -290,6 +314,12 @@ class TuningConfigLoaderTests(unittest.TestCase):
         self.assertEqual(config.gamepad_ai_aim.body_lock_lateral_motion_lead_window_px, 7.0)
         self.assertEqual(config.gamepad_ai_aim.body_lock_lateral_motion_lead_max_px, 5.5)
         self.assertEqual(config.gamepad_ai_aim.body_lock_lateral_motion_tail_scale, 0.55)
+        self.assertEqual(config.gamepad_ai_aim.weak_target_body_lock_force_scale, 0.44)
+        self.assertEqual(config.gamepad_ai_aim.cue_hold_body_lock_force_scale, 0.22)
+        self.assertEqual(config.gamepad_ai_aim.auto_fire_ready_error_px, 14.0)
+        self.assertEqual(config.gamepad_ai_aim.auto_fire_ready_frames, 3)
+        self.assertEqual(config.gamepad_ai_aim.auto_fire_ready_min_ads_ms, 65.0)
+        self.assertEqual(config.gamepad_ai_aim.auto_fire_ready_max_ai_stick, 5000.0)
         self.assertEqual(config.gamepad_ai_aim.body_lock_vertical_lead_scale, 0.8)
         self.assertEqual(config.gamepad_ai_aim.body_lock_lead_frames, 6)
         self.assertEqual(

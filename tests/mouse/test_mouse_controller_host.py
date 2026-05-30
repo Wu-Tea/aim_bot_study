@@ -224,6 +224,75 @@ class MouseControllerHostTests(unittest.TestCase):
         self.assertEqual(ctrl._vision_received_at, 12.340)
         self.assertEqual(ctrl._vision_submitted_at, 12.350)
 
+    def test_update_vision_state_blocks_auto_fire_without_fire_authority(self):
+        ctrl = self._make_controller([])
+        target = ControllerTarget(
+            aim_point_x=330.0,
+            aim_point_y=220.0,
+            screen_center_x=320.0,
+            screen_center_y=256.0,
+            target_source="cue_hold",
+            target_tier="cue_hold",
+            fire_authority=False,
+            observed_at=12.345,
+        )
+
+        ctrl.update_vision_state(
+            ControllerVisionState(
+                dx=12.5,
+                dy=-8.0,
+                target=target,
+                auto_fire_requested=True,
+                fire_authority=False,
+                observed_at=12.345,
+            )
+        )
+
+        self.assertFalse(ctrl._auto_fire_requested)
+        self.assertIsNone(ctrl._auto_fire_timestamp)
+
+    def test_update_vision_state_clears_target_without_aim_authority(self):
+        ctrl = self._make_controller([])
+        ctrl.target_dx = 10.0
+        ctrl.target_dy = 5.0
+        ctrl.target_info = ControllerTarget(
+            aim_point_x=320.0,
+            aim_point_y=220.0,
+            screen_center_x=320.0,
+            screen_center_y=256.0,
+        )
+        ctrl._auto_fire_requested = True
+        ctrl._auto_fire_timestamp = 10.0
+        target = ControllerTarget(
+            aim_point_x=330.0,
+            aim_point_y=220.0,
+            screen_center_x=320.0,
+            screen_center_y=256.0,
+            target_source="predicted",
+            target_tier="predicted",
+            aim_authority=False,
+            fire_authority=False,
+            observed_at=12.345,
+        )
+
+        ctrl.update_vision_state(
+            ControllerVisionState(
+                dx=12.5,
+                dy=-8.0,
+                target=target,
+                auto_fire_requested=True,
+                aim_authority=False,
+                fire_authority=False,
+                observed_at=12.345,
+            )
+        )
+
+        self.assertAlmostEqual(ctrl.target_dx, 0.0)
+        self.assertAlmostEqual(ctrl.target_dy, 0.0)
+        self.assertIsNone(ctrl.target_info)
+        self.assertFalse(ctrl._auto_fire_requested)
+        self.assertIsNone(ctrl._auto_fire_timestamp)
+
     def test_update_vision_state_without_target_suppresses_auto_fire(self):
         ctrl = self._make_controller([])
         ctrl.target_dx = 10.0
@@ -544,7 +613,12 @@ class MouseControllerHostTests(unittest.TestCase):
         self.assertFalse(frame.manual_override_active)
 
     @patch("controllers.mouse_controller.win32api.mouse_event")
-    def test_observed_injected_motion_is_suppressed_before_manual_accumulator(self, mouse_event):
+    @patch("controllers.mouse_controller.time.perf_counter", side_effect=[10.0, 10.001])
+    def test_observed_injected_motion_is_suppressed_before_manual_accumulator(
+        self,
+        _perf_counter,
+        mouse_event,
+    ):
         ctrl = self._make_controller([])
         ctrl._is_aiming = True
 

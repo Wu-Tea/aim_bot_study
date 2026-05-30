@@ -214,6 +214,15 @@ class NativeVisionCMakeTests(unittest.TestCase):
         self.assertIn("std::getenv", content)
         self.assertIn("default_engine_path()", content)
 
+    def test_native_vision_engine_decodes_low_score_boxes_for_selector_only(self):
+        content = _read(PROJECT_ROOT / "native" / "vision_native" / "src" / "vision_engine.cpp")
+
+        self.assertIn("kSelectorDecodeConfidenceFloor", content)
+        self.assertRegex(
+            content,
+            r"infer_bgra_array\s*\(\s*frame_array\s*,\s*width_\s*,\s*height_\s*,\s*kSelectorDecodeConfidenceFloor\s*\)",
+        )
+
 
 class NativeVisionProductionIsolationTests(unittest.TestCase):
     def test_native_backend_is_default_for_gamepad_start_without_touching_python_runner(self):

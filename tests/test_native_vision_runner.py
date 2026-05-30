@@ -75,6 +75,9 @@ class NativeVisionRunnerMappingTests(unittest.TestCase):
 
         self.assertIsNotNone(target)
         self.assertEqual(target.target_source, "cue_hold")
+        self.assertEqual(target.target_tier, "cue_hold")
+        self.assertTrue(target.aim_authority)
+        self.assertFalse(target.fire_authority)
 
     def test_controller_target_estimates_observed_at_from_native_age(self):
         target = _controller_target_from_native_result(
@@ -151,6 +154,39 @@ class NativeVisionDebugOverlayTests(unittest.TestCase):
 
         self.assertEqual(canvas.shape, (512, 640, 3))
         self.assertGreater(int(canvas.sum()), 0)
+
+    def test_render_result_writes_tier_and_authority_debug_text(self):
+        overlay = NativeVisionDebugOverlay(width=640, height=512, display_window=False)
+
+        with patch("vision.native_runner.cv2.putText") as put_text:
+            overlay.render_result(
+                {
+                    "has_target": True,
+                    "auto_fire": False,
+                    "dx": 12.0,
+                    "dy": -6.0,
+                    "target_x": 332.0,
+                    "target_y": 250.0,
+                    "screen_center_x": 320.0,
+                    "screen_center_y": 256.0,
+                    "has_body_box": False,
+                    "target_source": "associated_weak",
+                    "target_tier": "associated_weak",
+                    "aim_authority": True,
+                    "fire_authority": False,
+                    "target_confidence": 0.31,
+                    "boxes_seen": 1,
+                },
+                is_aiming=True,
+                auto_fire_active=False,
+            )
+
+        texts = [call.args[1] for call in put_text.call_args_list]
+        self.assertTrue(
+            any("tier=associated_weak src=associated_weak" in text for text in texts),
+            texts,
+        )
+        self.assertTrue(any("conf=0.31 aim=Y fire=N" in text for text in texts), texts)
 
 
 class NativeVisionProcessTests(unittest.TestCase):
@@ -234,6 +270,12 @@ class NativeVisionProcessTests(unittest.TestCase):
             "body_x2": 360.0,
             "body_y2": 320.0,
             "target_source": "observed",
+            "target_tier": "observed_strong",
+            "aim_authority": True,
+            "fire_authority": True,
+            "association_stage": "observed",
+            "target_confidence": 0.73,
+            "has_external_cue": True,
             "wait_ms": 1.0,
             "preprocess_ms": 0.2,
             "infer_ms": 3.0,
@@ -295,6 +337,85 @@ class NativeVisionProcessTests(unittest.TestCase):
         self.assertIn("native_pipeline_ms", perf_kwargs)
         self.assertIn("python_handoff_ms", perf_kwargs)
         self.assertEqual(perf_kwargs["native_pipeline_ms"], 4.0)
+        self.assertEqual(perf_kwargs["target_source"], "observed")
+        self.assertEqual(perf_kwargs["target_tier"], "observed_strong")
+        self.assertTrue(perf_kwargs["aim_authority"])
+        self.assertTrue(perf_kwargs["fire_authority"])
+        self.assertTrue(perf_kwargs["has_external_cue"])
+        self.assertTrue(perf_kwargs["native_auto_fire_requested"])
+        self.assertTrue(perf_kwargs["auto_fire_active"])
+
+    @patch("vision.native_runner.win32api.GetAsyncKeyState", side_effect=[0x8000])
+    @patch("vision.native_runner._load_native_module")
+    @patch("vision.native_runner.PerformanceTracker")
+    @patch("vision.native_runner.AdsAutoFireGate")
+    def test_process_native_vision_blocks_cue_hold_auto_fire_even_if_native_requests_it(
+        self,
+        auto_fire_gate_cls,
+        perf_tracker_cls,
+        load_native_module,
+        _get_async_key_state,
+    ):
+        engine = Mock()
+        engine.poll_once.return_value = {
+            "has_target": True,
+            "auto_fire": True,
+            "dx": 5.0,
+            "dy": 1.0,
+            "target_x": 325.0,
+            "target_y": 257.0,
+            "screen_center_x": 320.0,
+            "screen_center_y": 256.0,
+            "has_body_box": True,
+            "body_x1": 290.0,
+            "body_y1": 120.0,
+            "body_x2": 360.0,
+            "body_y2": 320.0,
+            "target_source": "cue_hold",
+            "wait_ms": 1.0,
+            "preprocess_ms": 0.2,
+            "infer_ms": 3.0,
+            "post_ms": 0.4,
+            "age_ms": 4.0,
+            "boxes_seen": 1,
+        }
+        native_module = Mock()
+        native_module.NativeVisionEngine.return_value = engine
+        load_native_module.return_value = native_module
+        perf_tracker_cls.return_value = Mock()
+        auto_fire_gate = Mock()
+        auto_fire_gate.allow_auto_fire.return_value = True
+        auto_fire_gate_cls.return_value = auto_fire_gate
+
+        class VisionStateController:
+            def __init__(self):
+                self.states = []
+
+            def is_aiming(self):
+                return True
+
+            def update_vision_state(self, state):
+                self.states.append(state)
+
+            def set_auto_fire(self, _pressed):
+                return None
+
+            def reset(self):
+                return None
+
+        controller = VisionStateController()
+
+        process_native_vision(controller=controller)
+
+        self.assertEqual(len(controller.states), 1)
+        state = controller.states[0]
+        self.assertFalse(state.auto_fire_requested)
+        self.assertFalse(state.fire_authority)
+        self.assertIsNotNone(state.target)
+        self.assertEqual(state.target.target_source, "cue_hold")
+        self.assertEqual(state.target.target_tier, "cue_hold")
+        self.assertFalse(state.target.fire_authority)
+        auto_fire_gate.allow_auto_fire.assert_called_once()
 
     @patch("vision.native_runner.time.sleep")
     @patch("vision.native_runner.win32api.GetAsyncKeyState", side_effect=[0, 0x8000])

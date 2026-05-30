@@ -148,6 +148,11 @@ py::dict vision_result_to_dict(const vision_native::VisionResult& result_in) {
     result["body_x2"] = result_in.body_x2;
     result["body_y2"] = result_in.body_y2;
     result["target_source"] = result_in.target_source;
+    result["target_tier"] = result_in.target_tier;
+    result["aim_authority"] = result_in.aim_authority;
+    result["fire_authority"] = result_in.fire_authority;
+    result["association_stage"] = result_in.association_stage;
+    result["target_confidence"] = result_in.target_confidence;
     result["has_external_cue"] = result_in.has_external_cue;
     result["external_cue_x"] = result_in.external_cue_x;
     result["external_cue_y"] = result_in.external_cue_y;
@@ -437,6 +442,10 @@ PYBIND11_MODULE(vision_native_cpp, module) {
                 target.dx = target_x - screen_center_x;
                 target.dy = target_y - screen_center_y;
                 target.target_source = source == "predicted" ? "predicted" : "observed";
+                target.target_tier = source == "predicted" ? "predicted" : "observed_strong";
+                target.aim_authority = source != "predicted";
+                target.fire_authority = source != "predicted";
+                target.association_stage = target.target_source;
                 const vision_native::VisionResult enhanced = enhancer.process(
                     target,
                     timestamp,

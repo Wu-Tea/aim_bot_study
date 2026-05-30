@@ -208,7 +208,7 @@ class NativeVisionDebugOverlay:
         cv2.circle(canvas, (tx, ty), 6, color, 2)
         cv2.putText(
             canvas,
-            f"{source} dx={float(result.get('dx', 0.0)):.1f} dy={float(result.get('dy', 0.0)):.1f}",
+            self._target_label(result),
             (tx + 8, max(18, ty - 8)),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.45,
@@ -216,6 +216,48 @@ class NativeVisionDebugOverlay:
             1,
             cv2.LINE_AA,
         )
+
+    def _target_label(self, result: dict) -> str:
+        source = str(result.get("target_source") or "unknown")
+        tier = str(result.get("target_tier") or self._tier_from_source(source))
+        conf = result.get("target_confidence")
+        if conf is None:
+            conf_text = "NA"
+        else:
+            conf_text = f"{float(conf):.2f}"
+        aim = "Y" if bool(result.get("aim_authority", self._default_aim_authority(source, tier))) else "N"
+        fire = "Y" if bool(result.get("fire_authority", source == "observed")) else "N"
+        return (
+            f"tier={tier} src={source} conf={conf_text} aim={aim} fire={fire} "
+            f"dx={float(result.get('dx', 0.0)):.1f} dy={float(result.get('dy', 0.0)):.1f}"
+        )
+
+    @staticmethod
+    def _tier_from_source(source: str) -> str:
+        token = source.strip().casefold()
+        if token == "observed":
+            return "observed_strong"
+        if token in {"associated_weak", "weak_observed", "low_score"}:
+            return "associated_weak"
+        if token in {"cue_hold", "yellow_cue"}:
+            return "cue_hold"
+        if token in {"predicted", "projected", "projection"}:
+            return "predicted"
+        if token in {"", "none", "lost"}:
+            return "none"
+        return source
+
+    @staticmethod
+    def _default_aim_authority(source: str, tier: str) -> bool:
+        source_token = source.strip().casefold()
+        tier_token = tier.strip().casefold()
+        return source_token not in {"predicted", "projected", "projection"} and tier_token not in {
+            "predicted",
+            "projected",
+            "projection",
+            "none",
+            "lost",
+        }
 
     def _draw_status(
         self,
@@ -328,6 +370,74 @@ def _native_observed_at(result: dict, received_at: float | None) -> float | None
     return received_at - age_seconds
 
 
+def _native_text(result: dict, key: str) -> str:
+    value = result.get(key)
+    if value in (None, ""):
+        return ""
+    return str(value).strip()
+
+
+def _native_target_tier(result: dict) -> str | None:
+    explicit_tier = _native_text(result, "target_tier")
+    if explicit_tier:
+        return explicit_tier
+
+    source = _native_text(result, "target_source")
+    if source == "observed":
+        return "observed_strong"
+    if source in {"associated_weak", "weak_observed", "low_score"}:
+        return "associated_weak"
+    if source == "cue_hold":
+        return "cue_hold"
+    if source in {"predicted", "projected", "projection"}:
+        return "predicted"
+    if source:
+        return "unknown"
+    return None
+
+
+def _native_aim_authority(result: dict) -> bool:
+    explicit = result.get("aim_authority")
+    if explicit is not None:
+        return bool(explicit)
+    tier = _native_target_tier(result)
+    if tier is None:
+        return True
+    return tier not in {None, "none", "lost", "predicted"}
+
+
+def _native_fire_authority(result: dict) -> bool:
+    if result.get("has_target") is False:
+        return False
+
+    tier = _native_target_tier(result)
+    source = _native_text(result, "target_source")
+    strong_by_tier = tier in {"observed_strong", "strong_observed", "confirmed"}
+    strong_by_source = tier is None and source == "observed"
+    if not (strong_by_tier or strong_by_source):
+        return False
+
+    explicit = result.get("fire_authority")
+    if explicit is not None:
+        return bool(explicit)
+    return True
+
+
+def _native_association_stage(result: dict) -> str | None:
+    stage = _native_text(result, "association_stage")
+    if stage:
+        return stage
+    source = _native_text(result, "target_source")
+    return source or None
+
+
+def _native_target_confidence(result: dict) -> float | None:
+    value = result.get("target_confidence")
+    if value is None:
+        return None
+    return float(value)
+
+
 def _controller_target_from_native_result(
     result: dict,
     *,
@@ -352,6 +462,11 @@ def _controller_target_from_native_result(
             if result.get("target_source") not in (None, "")
             else None
         ),
+        target_tier=_native_target_tier(result),
+        aim_authority=_native_aim_authority(result),
+        fire_authority=_native_fire_authority(result),
+        association_stage=_native_association_stage(result),
+        target_confidence=_native_target_confidence(result),
         observed_at=_native_observed_at(result, received_at),
     )
 
@@ -535,10 +650,14 @@ def process_native_vision(controller=None, cue_provider=None):
             source_age_ms = None
             python_handoff_ms = None
             controller_timing_kwargs = {}
-            auto_fire_active = auto_fire_gate.allow_auto_fire(
-                bool(result.get("auto_fire")),
+            fire_authority = _native_fire_authority(result)
+            native_auto_fire_requested = bool(result.get("auto_fire"))
+            auto_fire_requested_by_native = native_auto_fire_requested and fire_authority
+            auto_fire_gate_allowed = auto_fire_gate.allow_auto_fire(
+                auto_fire_requested_by_native,
                 result_received_at,
             )
+            auto_fire_active = fire_authority and auto_fire_gate_allowed
 
             if controller:
                 state_submitted_at = time.perf_counter()
@@ -554,6 +673,9 @@ def process_native_vision(controller=None, cue_provider=None):
                             dy=float(result.get("dy", 0.0)),
                             target=target,
                             auto_fire_requested=auto_fire_active,
+                            aim_authority=bool(target.aim_authority),
+                            fire_authority=bool(target.fire_authority),
+                            target_tier=target.target_tier,
                             observed_at=result_observed_at,
                             received_at=result_received_at,
                             submitted_at=state_submitted_at,
@@ -565,6 +687,9 @@ def process_native_vision(controller=None, cue_provider=None):
                         ControllerVisionState(
                             target=None,
                             auto_fire_requested=False,
+                            aim_authority=False,
+                            fire_authority=False,
+                            target_tier="none",
                             observed_at=result_observed_at,
                             received_at=result_received_at,
                             submitted_at=state_submitted_at,
@@ -595,6 +720,13 @@ def process_native_vision(controller=None, cue_provider=None):
                 source_age_ms=source_age_ms,
                 native_pipeline_ms=float(result.get("age_ms", 0.0)),
                 python_handoff_ms=python_handoff_ms,
+                target_source=_native_text(result, "target_source"),
+                target_tier=_native_target_tier(result),
+                aim_authority=_native_aim_authority(result),
+                fire_authority=fire_authority,
+                has_external_cue=bool(result.get("has_external_cue")),
+                native_auto_fire_requested=native_auto_fire_requested,
+                auto_fire_active=auto_fire_active,
                 **controller_timing_kwargs,
             )
 

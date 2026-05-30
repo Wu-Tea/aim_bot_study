@@ -12,6 +12,7 @@ class GamepadTargetTrackerConfig:
     max_projection_age_ms: float = 50.0
     velocity_lowpass_alpha: float = 0.35
     max_target_velocity_px_per_sec: float = 1200.0
+    weak_observation_velocity_decay: float = 0.70
 
 
 @dataclass(slots=True, frozen=True)
@@ -51,11 +52,14 @@ class GamepadTargetTracker:
         dx = float(dx)
         dy = float(dy)
         observed_at = float(observed_at)
+        previous_target = self._target
         if (
-            self._target is not None
+            previous_target is not None
             and target is not None
             and self._observed_at is not None
             and observed_at > self._observed_at
+            and self._is_strong_observation(previous_target)
+            and self._is_strong_observation(target)
         ):
             dt = observed_at - self._observed_at
             raw_vx = (dx - self._observed_dx + self._camera_dx_since_observation) / dt
@@ -67,6 +71,12 @@ class GamepadTargetTracker:
             self._target_velocity_y = self._clamp_velocity(
                 (self._target_velocity_y * alpha) + (raw_vy * (1.0 - alpha))
             )
+        elif (
+            previous_target is not None
+            and target is not None
+            and self._is_continuity_observation(target)
+        ):
+            self._decay_velocity_for_weak_observation()
         else:
             self._target_velocity_x = 0.0
             self._target_velocity_y = 0.0
@@ -141,6 +151,59 @@ class GamepadTargetTracker:
         if limit <= 0.0:
             return 0.0
         return max(-limit, min(limit, value))
+
+    def _decay_velocity_for_weak_observation(self) -> None:
+        decay = max(0.0, min(1.0, self.config.weak_observation_velocity_decay))
+        self._target_velocity_x = self._clamp_velocity(self._target_velocity_x * decay)
+        self._target_velocity_y = self._clamp_velocity(self._target_velocity_y * decay)
+
+    @staticmethod
+    def _is_strong_observation(target: ControllerTarget | None) -> bool:
+        if target is None:
+            return False
+        source = str(getattr(target, "target_source", "") or "").strip().casefold()
+        tier = str(getattr(target, "target_tier", "") or "").strip().casefold()
+        weak_sources = {
+            "associated_weak",
+            "weak_observed",
+            "low_score",
+            "cue_hold",
+            "yellow_cue",
+            "predicted",
+            "projected",
+            "projection",
+        }
+        weak_tiers = {
+            "associated_weak",
+            "weak_observed",
+            "cue_hold",
+            "predicted",
+            "projected",
+            "projection",
+            "none",
+            "lost",
+        }
+        if source in weak_sources or tier in weak_tiers:
+            return False
+        return True
+
+    @staticmethod
+    def _is_continuity_observation(target: ControllerTarget | None) -> bool:
+        if target is None:
+            return False
+        source = str(getattr(target, "target_source", "") or "").strip().casefold()
+        tier = str(getattr(target, "target_tier", "") or "").strip().casefold()
+        return source in {
+            "associated_weak",
+            "weak_observed",
+            "low_score",
+            "cue_hold",
+            "yellow_cue",
+        } or tier in {
+            "associated_weak",
+            "weak_observed",
+            "cue_hold",
+        }
 
     def _clamp_stick(self, value: float) -> float:
         limit = float(max(0, self.config.stick_max))

@@ -12,6 +12,7 @@ class AutoFireConfig:
     fire_output: Literal["RB", "RT"] = "RB"
     aim_only: bool = True
     max_source_age_ms: float = 50.0
+    require_aim_ready: bool = True
     manual_takeover_release_seconds: float = 0.035
     manual_takeover_resume_delay_seconds: float = 0.085
 
@@ -32,6 +33,8 @@ class AutoFirePlugin:
         should_fire = frame.auto_fire_requested and self._has_fresh_source(frame)
         if self.config.aim_only:
             should_fire = should_fire and frame.is_aiming
+        if self.config.require_aim_ready:
+            should_fire = should_fire and bool(getattr(output, "auto_fire_aim_ready", True))
 
         manual_fire_pressed = self._manual_fire_pressed(frame)
         manual_fire_started = manual_fire_pressed and not self._manual_fire_was_pressed

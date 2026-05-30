@@ -18,6 +18,7 @@ def _frame(
     target_revision=0,
     target_timestamp=None,
     target=None,
+    auto_fire_requested=False,
 ):
     if target_timestamp is None:
         target_timestamp = timestamp
@@ -33,7 +34,7 @@ def _frame(
         is_aiming=aiming,
         target_dx=target_dx,
         target_dy=target_dy,
-        auto_fire_requested=False,
+        auto_fire_requested=auto_fire_requested,
         target_revision=target_revision,
         target_timestamp=target_timestamp,
         target=target,
@@ -59,6 +60,10 @@ def _target(
     screen_center_x=320.0,
     screen_center_y=256.0,
     body_box=None,
+    target_source=None,
+    target_tier=None,
+    aim_authority=True,
+    fire_authority=True,
 ):
     return ControllerTarget(
         aim_point_x=aim_point_x,
@@ -66,15 +71,31 @@ def _target(
         screen_center_x=screen_center_x,
         screen_center_y=screen_center_y,
         body_box=body_box,
+        target_source=target_source,
+        target_tier=target_tier,
+        aim_authority=aim_authority,
+        fire_authority=fire_authority,
     )
 
 
-def _body_lock_target(*, upper_body_dx, upper_body_dy, width=80.0, height=180.0):
+def _body_lock_target(
+    *,
+    upper_body_dx,
+    upper_body_dy,
+    width=80.0,
+    height=180.0,
+    target_source=None,
+    target_tier=None,
+    aim_authority=True,
+    upper_body_ratio=None,
+):
+    if upper_body_ratio is None:
+        upper_body_ratio = AIAimConfig().body_lock_upper_body_ratio
     screen_center_x = 320.0
     screen_center_y = 256.0
     upper_body_x = screen_center_x + upper_body_dx
     upper_body_y = screen_center_y + upper_body_dy
-    top = upper_body_y - (height * 0.38)
+    top = upper_body_y - (height * upper_body_ratio)
     bottom = top + height
     left = upper_body_x - (width * 0.5)
     right = left + width
@@ -84,6 +105,9 @@ def _body_lock_target(*, upper_body_dx, upper_body_dy, width=80.0, height=180.0)
         screen_center_x=screen_center_x,
         screen_center_y=screen_center_y,
         body_box=(left, top, right, bottom),
+        target_source=target_source,
+        target_tier=target_tier,
+        aim_authority=aim_authority,
     )
 
 
@@ -262,6 +286,199 @@ class AIAimPluginTests(unittest.TestCase):
 
         self.assertEqual(plugin._mode, "manual")
         self.assertEqual(output.right_x, 1234)
+
+    def test_weak_association_does_not_trigger_ads_snap(self):
+        plugin = AIAimPlugin(
+            AIAimConfig(
+                smoothing=0.0,
+                deadzone_inner=0.0,
+                deadzone_outer=1.0,
+                x_deadzone_outer=1.0,
+                ads_snap_smoothing=0.0,
+                ads_snap_max_ai_force=1.0,
+            )
+        )
+        target = _target(
+            aim_point_x=380.0,
+            aim_point_y=256.0,
+            target_source="associated_weak",
+            target_tier="associated_weak",
+        )
+        frame = _frame(
+            aiming=True,
+            target_dx=60.0,
+            target_dy=0.0,
+            timestamp=1.00,
+            target_revision=1,
+            target=target,
+        )
+        output = _output(frame)
+
+        plugin.apply(frame, output)
+
+        self.assertEqual(plugin._mode, "manual")
+        self.assertEqual(output.right_x, 0)
+
+    def test_ads_snap_marks_auto_fire_not_ready_while_large_correction_remains(self):
+        plugin = AIAimPlugin(
+            AIAimConfig(
+                smoothing=0.0,
+                deadzone_inner=0.0,
+                deadzone_outer=1.0,
+                x_deadzone_outer=1.0,
+                ads_snap_smoothing=0.0,
+                ads_snap_max_ai_force=1.0,
+                auto_fire_ready_error_px=16.0,
+                auto_fire_ready_frames=2,
+                auto_fire_ready_min_ads_ms=0.0,
+                auto_fire_ready_max_ai_stick=6000,
+            )
+        )
+        target = _target(
+            aim_point_x=390.0,
+            aim_point_y=256.0,
+            target_source="observed",
+            target_tier="observed_strong",
+        )
+        frame = _frame(
+            aiming=True,
+            target_dx=70.0,
+            target_dy=0.0,
+            timestamp=1.00,
+            target_revision=1,
+            target=target,
+            auto_fire_requested=True,
+        )
+        output = _output(frame)
+
+        plugin.apply(frame, output)
+
+        self.assertEqual(plugin._mode, "ads_snap")
+        self.assertFalse(output.auto_fire_aim_ready)
+        self.assertEqual(output.auto_fire_aim_ready_reason, "ads_snap")
+
+    def test_body_lock_requires_consecutive_settled_frames_before_auto_fire_ready(self):
+        plugin = AIAimPlugin(
+            AIAimConfig(
+                smoothing=0.0,
+                deadzone_inner=0.0,
+                deadzone_outer=1.0,
+                x_deadzone_outer=1.0,
+                body_lock_smoothing=0.0,
+                body_lock_activation_box_px=160.0,
+                body_lock_box_tolerance_px=20.0,
+                auto_fire_ready_error_px=16.0,
+                auto_fire_ready_frames=2,
+                auto_fire_ready_min_ads_ms=0.0,
+                auto_fire_ready_max_ai_stick=12000,
+            )
+        )
+        target = _body_lock_target(
+            upper_body_dx=6.0,
+            upper_body_dy=4.0,
+            target_source="observed",
+            target_tier="observed_strong",
+        )
+
+        first = _frame(
+            aiming=True,
+            target_dx=6.0,
+            target_dy=4.0,
+            timestamp=1.00,
+            target_revision=1,
+            target=target,
+            auto_fire_requested=True,
+        )
+        first_output = _output(first)
+        plugin.apply(first, first_output)
+
+        second = _frame(
+            aiming=True,
+            target_dx=6.0,
+            target_dy=4.0,
+            timestamp=1.01,
+            target_revision=2,
+            target=target,
+            auto_fire_requested=True,
+        )
+        second_output = _output(second)
+        plugin.apply(second, second_output)
+
+        self.assertEqual(plugin._mode, "body_lock")
+        self.assertFalse(first_output.auto_fire_aim_ready)
+        self.assertEqual(first_output.auto_fire_aim_ready_reason, "settle_frames")
+        self.assertTrue(second_output.auto_fire_aim_ready)
+        self.assertEqual(second_output.auto_fire_aim_ready_reason, "ready")
+
+    def test_weak_association_never_marks_auto_fire_ready(self):
+        plugin = AIAimPlugin(
+            AIAimConfig(
+                smoothing=0.0,
+                deadzone_inner=0.0,
+                deadzone_outer=1.0,
+                x_deadzone_outer=1.0,
+                body_lock_smoothing=0.0,
+                auto_fire_ready_error_px=20.0,
+                auto_fire_ready_frames=1,
+                auto_fire_ready_min_ads_ms=0.0,
+                auto_fire_ready_max_ai_stick=12000,
+            )
+        )
+        target = _body_lock_target(
+            upper_body_dx=4.0,
+            upper_body_dy=3.0,
+            target_source="associated_weak",
+            target_tier="associated_weak",
+        )
+        frame = _frame(
+            aiming=True,
+            target_dx=4.0,
+            target_dy=3.0,
+            timestamp=1.00,
+            target_revision=1,
+            target=target,
+            auto_fire_requested=True,
+        )
+        output = _output(frame)
+
+        plugin.apply(frame, output)
+
+        self.assertFalse(output.auto_fire_aim_ready)
+        self.assertEqual(output.auto_fire_aim_ready_reason, "no_fire_authority")
+
+    def test_target_without_aim_authority_stays_manual_passthrough(self):
+        plugin = AIAimPlugin(
+            AIAimConfig(
+                smoothing=0.0,
+                deadzone_inner=0.0,
+                deadzone_outer=1.0,
+                x_deadzone_outer=1.0,
+                ads_snap_smoothing=0.0,
+                ads_snap_max_ai_force=1.0,
+            )
+        )
+        target = _target(
+            aim_point_x=380.0,
+            aim_point_y=256.0,
+            target_source="predicted",
+            target_tier="predicted",
+            aim_authority=False,
+        )
+        frame = _frame(
+            aiming=True,
+            manual_rx=1200,
+            target_dx=60.0,
+            target_dy=0.0,
+            timestamp=1.00,
+            target_revision=1,
+            target=target,
+        )
+        output = _output(frame)
+
+        plugin.apply(frame, output)
+
+        self.assertEqual(plugin._mode, "manual")
+        self.assertEqual(output.right_x, 1200)
 
     def test_piecewise_mapping_hits_mid_ratio_at_first_breakpoint(self):
         plugin = AIAimPlugin(
@@ -654,6 +871,70 @@ class AIAimPluginTests(unittest.TestCase):
         self.assertNotEqual((lock_output.right_x, lock_output.right_y), (0, 0))
         self.assertEqual((outside_output.right_x, outside_output.right_y), (0, 0))
 
+    def test_default_body_lock_point_uses_chest_ratio(self):
+        plugin = AIAimPlugin(AIAimConfig())
+        frame = _frame(
+            aiming=True,
+            target=_target(
+                aim_point_x=320.0,
+                aim_point_y=220.0,
+                screen_center_x=320.0,
+                screen_center_y=256.0,
+                body_box=(280.0, 120.0, 360.0, 320.0),
+            ),
+        )
+
+        self.assertEqual(plugin._upper_body_point(frame), (320.0, 206.0))
+
+    def test_weak_association_uses_lighter_body_lock_force(self):
+        config = AIAimConfig(
+            smoothing=0.0,
+            body_lock_smoothing=0.0,
+            deadzone_inner=0.0,
+            deadzone_outer=1.0,
+            x_deadzone_outer=1.0,
+            body_lock_max_ai_force=1.0,
+            body_lock_max_ai_force_y=1.0,
+        )
+        strong_plugin = AIAimPlugin(config)
+        weak_plugin = AIAimPlugin(config)
+        strong = _frame(
+            aiming=True,
+            target_dx=30.0,
+            target_dy=-20.0,
+            timestamp=2.00,
+            target_revision=1,
+            target=_body_lock_target(
+                upper_body_dx=30.0,
+                upper_body_dy=-20.0,
+                target_source="observed",
+                target_tier="observed_strong",
+            ),
+        )
+        weak = _frame(
+            aiming=True,
+            target_dx=30.0,
+            target_dy=-20.0,
+            timestamp=2.00,
+            target_revision=1,
+            target=_body_lock_target(
+                upper_body_dx=30.0,
+                upper_body_dy=-20.0,
+                target_source="associated_weak",
+                target_tier="associated_weak",
+            ),
+        )
+        strong_output = _output(strong)
+        weak_output = _output(weak)
+
+        strong_plugin.apply(strong, strong_output)
+        weak_plugin.apply(weak, weak_output)
+
+        self.assertEqual(strong_plugin._mode, "body_lock")
+        self.assertEqual(weak_plugin._mode, "body_lock")
+        self.assertGreater(abs(strong_output.right_x), abs(weak_output.right_x))
+        self.assertGreater(abs(weak_output.right_x), 0)
+
     def test_default_plugin_can_lead_a_matched_body_lock_target_after_multiple_frames(self):
         lead_plugin = AIAimPlugin(
             AIAimConfig(
@@ -749,7 +1030,7 @@ class AIAimPluginTests(unittest.TestCase):
             target=_target(
                 aim_point_x=330.0,
                 aim_point_y=253.5,
-                body_box=(290.0, 185.1, 370.0, 365.1),
+                body_box=(290.0, 176.1, 370.0, 356.1),
             ),
         )
         output = _output(frame)
@@ -778,7 +1059,7 @@ class AIAimPluginTests(unittest.TestCase):
             target=_target(
                 aim_point_x=330.0,
                 aim_point_y=252.0,
-                body_box=(290.0, 183.6, 370.0, 363.6),
+                body_box=(290.0, 174.6, 370.0, 354.6),
             ),
         )
         first_output = _output(frame)
@@ -793,7 +1074,7 @@ class AIAimPluginTests(unittest.TestCase):
             target=_target(
                 aim_point_x=330.0,
                 aim_point_y=252.0,
-                body_box=(290.0, 183.6, 370.0, 363.6),
+                body_box=(290.0, 174.6, 370.0, 354.6),
             ),
         )
         second_output = _output(follow_up)
@@ -1141,7 +1422,7 @@ class AIAimPluginTests(unittest.TestCase):
             target = _target(
                 aim_point_x=328.0,
                 aim_point_y=256.0,
-                body_box=(293.0, 210.0, 363.0, 330.0),
+                body_box=(293.0, 204.4, 363.0, 324.4),
             )
             for i, timestamp in enumerate((0.00, 0.02, 0.04, 0.06), start=1):
                 warm = _frame(
@@ -1501,6 +1782,96 @@ class AIAimPluginTests(unittest.TestCase):
 
         self.assertEqual(strong_manual_output.right_x, strong_manual_frame.manual_right_x)
         self.assertEqual(strong_manual_output.right_y, strong_manual_frame.manual_right_y)
+
+    def test_ads_snap_time_to_go_boosts_late_window_output(self):
+        plugin = AIAimPlugin(
+            AIAimConfig(
+                smoothing=0.0,
+                deadzone_inner=0.0,
+                deadzone_outer=1.0,
+                x_deadzone_outer=1.0,
+                ai_delta_gain=1.0,
+                ads_snap_window_ms=130,
+                ads_snap_smoothing=0.0,
+                ads_snap_max_ai_force=1.0,
+                ads_snap_reticle_speed_px_per_sec=900.0,
+                ads_snap_time_to_go_gain=1.0,
+                ads_snap_time_to_go_min_remaining_ms=25.0,
+            )
+        )
+        target = _target(aim_point_x=360.0, aim_point_y=256.0)
+        early_frame = _frame(
+            aiming=True,
+            target_dx=40.0,
+            target_dy=0.0,
+            manual_rx=0,
+            timestamp=0.00,
+            target_revision=1,
+            target=target,
+        )
+        early_output = _output(early_frame)
+        plugin.apply(early_frame, early_output)
+
+        late_frame = _frame(
+            aiming=True,
+            target_dx=40.0,
+            target_dy=0.0,
+            manual_rx=0,
+            timestamp=0.105,
+            target_revision=2,
+            target=target,
+        )
+        late_output = _output(late_frame)
+        plugin.apply(late_frame, late_output)
+
+        self.assertEqual(plugin._mode, "ads_snap")
+        self.assertGreater(late_output.right_x, early_output.right_x)
+
+    def test_ads_snap_softens_opposing_manual_input_late_in_window(self):
+        target = _target(aim_point_x=420.0, aim_point_y=256.0)
+
+        def late_snap_output(suppression: float) -> int:
+            plugin = AIAimPlugin(
+                AIAimConfig(
+                    smoothing=0.0,
+                    deadzone_inner=0.0,
+                    deadzone_outer=1.0,
+                    x_deadzone_outer=1.0,
+                    ai_delta_gain=1.0,
+                    ads_snap_window_ms=130,
+                    ads_snap_smoothing=0.0,
+                    ads_snap_max_ai_force=1.0,
+                    ads_snap_opposing_manual_suppression_max=suppression,
+                )
+            )
+            warm_frame = _frame(
+                aiming=True,
+                target_dx=100.0,
+                target_dy=0.0,
+                manual_rx=0,
+                timestamp=0.00,
+                target_revision=1,
+                target=target,
+            )
+            plugin.apply(warm_frame, _output(warm_frame))
+            late_frame = _frame(
+                aiming=True,
+                target_dx=100.0,
+                target_dy=0.0,
+                manual_rx=-14000,
+                timestamp=0.100,
+                target_revision=2,
+                target=target,
+            )
+            late_output = _output(late_frame)
+            plugin.apply(late_frame, late_output)
+            return late_output.right_x
+
+        unsuppressed = late_snap_output(0.0)
+        suppressed = late_snap_output(0.5)
+
+        self.assertGreater(suppressed, unsuppressed)
+        self.assertLess(suppressed, late_snap_output(1.0))
 
     def test_ads_snap_clamps_large_vertical_target_error(self):
         plugin = AIAimPlugin(

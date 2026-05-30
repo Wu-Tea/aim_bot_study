@@ -1,12 +1,13 @@
 #include "vision_native/target_selector.h"
 
 #include <algorithm>
+#include <cstring>
 #include <cmath>
 
 namespace vision_native {
 namespace {
 
-constexpr float kUpperChestRatio = 0.38f;
+constexpr float kChestTargetRatio = 0.43f;
 constexpr float kCrouchedTargetRatio = 0.43f;
 constexpr float kWideLowTargetRatio = 0.50f;
 constexpr float kTorsoBoxShrinkX = 0.22f;
@@ -47,6 +48,7 @@ constexpr float kCrosshairPriorityMarginRatio = 10.0f / 640.0f;
 constexpr float kPickupConfidenceThreshold = 0.65f;
 constexpr float kPickupEnemyConfidenceThreshold = 0.42f;
 constexpr float kTrackingConfidenceThreshold = 0.40f;
+constexpr float kWeakAssociationConfidenceThreshold = 0.20f;
 constexpr float kTrackingBonus = 2000.0f;
 constexpr float kMinScoreThreshold = -50000.0f;
 constexpr float kMaxColorBonus = 10000.0f;
@@ -62,6 +64,34 @@ constexpr float kCueHoldSearchGrowthPerFrame = 6.0f;
 constexpr float kCueOffsetSmoothingAlpha = 0.35f;
 constexpr float kAutoFireEdgePadding = 2.0f;
 constexpr int kAutoFireReleaseGraceFrames = 4;
+
+bool source_equals(const char* lhs, const char* rhs) {
+    return lhs != nullptr && rhs != nullptr && std::strcmp(lhs, rhs) == 0;
+}
+
+const char* target_tier_for_source(const char* source) {
+    if (source_equals(source, "observed")) {
+        return "observed_strong";
+    }
+    if (source_equals(source, "associated_weak") || source_equals(source, "weak_observed")) {
+        return "associated_weak";
+    }
+    if (source_equals(source, "cue_hold")) {
+        return "cue_hold";
+    }
+    if (source_equals(source, "predicted") || source_equals(source, "projected")) {
+        return "predicted";
+    }
+    return "unknown";
+}
+
+bool aim_authority_for_source(const char* source) {
+    return !source_equals(source, "predicted") && !source_equals(source, "projected");
+}
+
+bool fire_authority_for_source(const char* source) {
+    return source_equals(source, "observed");
+}
 
 struct ColorClassification {
     float color_bonus = 0.0f;
@@ -531,6 +561,11 @@ VisionResult VisionTargetSelector::result_from_target(const TargetState& target,
     result.body_x2 = target.candidate.body_box.right;
     result.body_y2 = target.candidate.body_box.bottom;
     result.target_source = target.candidate.source;
+    result.target_tier = target_tier_for_source(target.candidate.source);
+    result.aim_authority = aim_authority_for_source(target.candidate.source);
+    result.fire_authority = fire_authority_for_source(target.candidate.source);
+    result.association_stage = target.candidate.source;
+    result.target_confidence = target.candidate.conf;
     return result;
 }
 
@@ -546,7 +581,7 @@ VisionTargetSelector::Rect VisionTargetSelector::to_rect(const Detection& detect
 std::pair<float, float> VisionTargetSelector::target_point(const Rect& box) const {
     const float box_w = rect_width(box);
     const float box_h = rect_height(box);
-    float target_ratio = kUpperChestRatio;
+    float target_ratio = kChestTargetRatio;
     if (is_wide_low_pose(box_w, box_h)) {
         target_ratio = kWideLowTargetRatio;
     } else if (is_crouched_pose(box_w, box_h, frame_height_)) {
@@ -710,6 +745,51 @@ std::optional<VisionTargetSelector::Candidate> VisionTargetSelector::build_candi
     return candidate;
 }
 
+std::optional<VisionTargetSelector::Candidate> VisionTargetSelector::build_weak_association_candidate(
+    const Detection& detection) const {
+    if (!active_target_.has_value() || !last_target_center_.has_value()) {
+        return std::nullopt;
+    }
+    if (detection.is_friendly
+        || detection.conf < kWeakAssociationConfidenceThreshold
+        || detection.conf >= kTrackingConfidenceThreshold) {
+        return std::nullopt;
+    }
+
+    const Rect box = to_rect(detection);
+    const float box_w = rect_width(box);
+    const float box_h = rect_height(box);
+    if (box_w <= 0.0f || box_h <= 0.0f) {
+        return std::nullopt;
+    }
+
+    const auto point = target_point(box);
+    Candidate weak;
+    weak.target_x = point.first;
+    weak.target_y = point.second;
+    weak.conf = detection.conf;
+    weak.color_bonus = detection.color_bonus;
+    weak.has_cue = detection.has_cue_point;
+    weak.cue_x = detection.cue_x;
+    weak.cue_y = detection.cue_y;
+    weak.cue_score = detection.cue_score;
+    weak.body_box = box;
+    weak.slow_zone = fallback_slow_zone(box);
+    weak.fire_zone = fire_zone(box);
+    weak.source = "associated_weak";
+
+    if (!passes_geometry_gate(box_w, box_h, true)) {
+        return std::nullopt;
+    }
+    if (!tracking_distance(weak.target_x, weak.target_y, last_target_center_).has_value()) {
+        return std::nullopt;
+    }
+    if (!active_target_matches_candidate(weak)) {
+        return std::nullopt;
+    }
+    return weak;
+}
+
 std::vector<VisionTargetSelector::Candidate> VisionTargetSelector::build_candidates(
     const DetectionBatch& batch,
     const std::optional<std::pair<float, float>>& last_target_center) const {
@@ -722,6 +802,35 @@ std::vector<VisionTargetSelector::Candidate> VisionTargetSelector::build_candida
         }
     }
     return candidates;
+}
+
+std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::select_weak_association(
+    const DetectionBatch& batch) const {
+    if (!active_target_.has_value()) {
+        return std::nullopt;
+    }
+
+    std::optional<std::pair<float, Candidate>> best;
+    for (const auto& detection : batch.detections) {
+        const auto candidate = build_weak_association_candidate(detection);
+        if (!candidate.has_value()) {
+            continue;
+        }
+        const float distance = point_distance(
+            {candidate->target_x, candidate->target_y},
+            {active_target_->candidate.target_x, active_target_->candidate.target_y});
+        if (!best.has_value()
+            || distance < best->first
+            || (std::fabs(distance - best->first) < 0.001f
+                && candidate->conf > best->second.conf)) {
+            best = std::make_pair(distance, *candidate);
+        }
+    }
+
+    if (!best.has_value()) {
+        return std::nullopt;
+    }
+    return target_from_candidate(best->second, active_target_->score);
 }
 
 float VisionTargetSelector::crosshair_distance(float x, float y) const {
@@ -1304,6 +1413,22 @@ VisionResult VisionTargetSelector::select_impl(
     if (candidates.empty()) {
         clear_pending();
         clear_switch_pending();
+        const auto weak_association = select_weak_association(batch);
+        if (weak_association.has_value()) {
+            active_target_ = *weak_association;
+            hold_frames_ = 0;
+            last_target_center_ = {
+                active_target_->candidate.target_x,
+                active_target_->candidate.target_y,
+            };
+            if (active_target_->candidate.has_cue) {
+                update_cue_tracking(*active_target_);
+            }
+            VisionResult result = result_from_target(*active_target_, boxes_seen);
+            clear_auto_fire_state();
+            result.auto_fire = false;
+            return result;
+        }
         const auto external_cue_hold = try_external_cue_hold(batch);
         if (external_cue_hold.has_value()) {
             active_target_ = *external_cue_hold;

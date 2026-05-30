@@ -172,7 +172,12 @@ class GamepadControllerHostTests(unittest.TestCase):
             runtime=SimpleNamespace(
                 gamepad=SimpleNamespace(rb_counts_as_aiming=True),
             ),
-            gamepad_ai_aim=AIAimConfig(),
+            gamepad_ai_aim=AIAimConfig(
+                target_projection_reticle_speed_px_per_sec=1234.0,
+                target_projection_velocity_lowpass_alpha=0.22,
+                target_projection_max_velocity_px_per_sec=888.0,
+                target_projection_weak_velocity_decay=0.44,
+            ),
             gamepad_auto_fire=AutoFireConfig(
                 max_source_age_ms=35.0,
                 manual_takeover_release_seconds=0.040,
@@ -218,6 +223,10 @@ class GamepadControllerHostTests(unittest.TestCase):
         self.assertEqual(recoil.profile_x_amount, 1.40)
         self.assertEqual(recoil.feedback_amount, 0.12)
         self.assertTrue(controller._rb_counts_as_aiming)
+        self.assertEqual(controller._target_tracker.config.reticle_speed_px_per_sec, 1234.0)
+        self.assertEqual(controller._target_tracker.config.velocity_lowpass_alpha, 0.22)
+        self.assertEqual(controller._target_tracker.config.max_target_velocity_px_per_sec, 888.0)
+        self.assertEqual(controller._target_tracker.config.weak_observation_velocity_decay, 0.44)
 
     def test_handle_weapon_switch_button_delegates_to_recoil_app_bridge_when_present(self):
         controller = GamepadController.__new__(GamepadController)
@@ -384,6 +393,85 @@ class GamepadControllerHostTests(unittest.TestCase):
         self.assertEqual(controller._auto_fire_timestamp, 12.345)
         self.assertEqual(controller._vision_received_at, 12.340)
         self.assertEqual(controller._vision_submitted_at, 12.350)
+
+    def test_update_vision_state_blocks_auto_fire_without_fire_authority(self):
+        controller = GamepadController.__new__(GamepadController)
+        controller.lock = threading.Lock()
+        controller.target_revision = 4
+        controller._auto_fire_requested = True
+        controller._auto_fire_timestamp = 12.0
+        controller._vision_received_at = None
+        controller._vision_submitted_at = None
+        target = ControllerTarget(
+            aim_point_x=320.0,
+            aim_point_y=220.0,
+            screen_center_x=320.0,
+            screen_center_y=256.0,
+            target_source="cue_hold",
+            target_tier="cue_hold",
+            fire_authority=False,
+            observed_at=12.345,
+        )
+
+        GamepadController.update_vision_state(
+            controller,
+            ControllerVisionState(
+                dx=2.0,
+                dy=-1.0,
+                target=target,
+                auto_fire_requested=True,
+                fire_authority=False,
+                observed_at=12.345,
+            ),
+        )
+
+        self.assertFalse(controller._auto_fire_requested)
+        self.assertIsNone(controller._auto_fire_timestamp)
+
+    def test_update_vision_state_clears_target_without_aim_authority(self):
+        controller = GamepadController.__new__(GamepadController)
+        controller.lock = threading.Lock()
+        controller.target_dx = 11.0
+        controller.target_dy = -6.0
+        controller.target_info = object()
+        controller.target_revision = 4
+        controller.target_timestamp = 12.0
+        controller._auto_fire_requested = True
+        controller._auto_fire_timestamp = 12.0
+        controller._vision_received_at = None
+        controller._vision_submitted_at = None
+        controller._target_tracker = _FakeTargetTracker()
+        target = ControllerTarget(
+            aim_point_x=322.0,
+            aim_point_y=255.0,
+            screen_center_x=320.0,
+            screen_center_y=256.0,
+            target_source="predicted",
+            target_tier="predicted",
+            aim_authority=False,
+            fire_authority=False,
+            observed_at=12.345,
+        )
+
+        GamepadController.update_vision_state(
+            controller,
+            ControllerVisionState(
+                dx=2.0,
+                dy=-1.0,
+                target=target,
+                auto_fire_requested=True,
+                aim_authority=False,
+                fire_authority=False,
+                observed_at=12.345,
+            ),
+        )
+
+        self.assertEqual(controller.target_dx, 0.0)
+        self.assertEqual(controller.target_dy, 0.0)
+        self.assertIsNone(controller.target_info)
+        self.assertFalse(controller._auto_fire_requested)
+        self.assertIsNone(controller._auto_fire_timestamp)
+        self.assertEqual(controller._target_tracker.reset_calls, 1)
 
     def test_update_vision_state_feeds_target_tracker_with_new_revision(self):
         controller = GamepadController.__new__(GamepadController)

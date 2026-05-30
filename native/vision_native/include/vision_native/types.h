@@ -81,6 +81,11 @@ struct VisionResult {
     float body_y2 = 0.0f;
 
     const char* target_source = "";
+    const char* target_tier = "none";
+    bool aim_authority = false;
+    bool fire_authority = false;
+    const char* association_stage = "";
+    float target_confidence = 0.0f;
     bool has_external_cue = false;
     float external_cue_x = 0.0f;
     float external_cue_y = 0.0f;

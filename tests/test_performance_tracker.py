@@ -118,6 +118,95 @@ class PerformanceTrackerTests(unittest.TestCase):
         self.assertIn("out_age=15.0/15.0/15.0ms", lines[0])
         self.assertIn("out_age=15.0/15.0/15.0ms", lines[1])
 
+    def test_log_outputs_target_authority_mix(self):
+        clock = FakeClock()
+        lines = []
+        tracker = PerformanceTracker(
+            enabled=True,
+            log_interval=1.0,
+            clock=clock,
+            printer=lines.append,
+        )
+
+        samples = (
+            {
+                "target_source": "observed",
+                "target_tier": "observed_strong",
+                "aim_authority": True,
+                "fire_authority": True,
+                "native_auto_fire_requested": True,
+                "auto_fire_active": True,
+                "has_external_cue": True,
+                "tracking_active": True,
+            },
+            {
+                "target_source": "associated_weak",
+                "target_tier": "associated_weak",
+                "aim_authority": True,
+                "fire_authority": False,
+                "native_auto_fire_requested": True,
+                "auto_fire_active": False,
+                "tracking_active": True,
+            },
+            {
+                "target_source": "cue_hold",
+                "target_tier": "cue_hold",
+                "aim_authority": True,
+                "fire_authority": False,
+                "native_auto_fire_requested": False,
+                "auto_fire_active": False,
+                "has_external_cue": True,
+                "tracking_active": True,
+            },
+            {
+                "target_source": "",
+                "target_tier": "none",
+                "aim_authority": False,
+                "fire_authority": False,
+                "native_auto_fire_requested": False,
+                "auto_fire_active": False,
+                "tracking_active": False,
+            },
+        )
+
+        for index, sample in enumerate(samples):
+            clock.now = 0.2 * index
+            tracker.update(
+                wait_ms=1.0,
+                preprocess_ms=0.5,
+                color_copy_ms=0.0,
+                infer_ms=2.0,
+                post_ms=0.1,
+                boxes_seen=1,
+                age_ms=4.0,
+                **sample,
+            )
+
+        clock.now = 1.1
+        tracker.update(
+            wait_ms=1.0,
+            preprocess_ms=0.5,
+            color_copy_ms=0.0,
+            infer_ms=2.0,
+            post_ms=0.1,
+            boxes_seen=0,
+            age_ms=4.0,
+            tracking_active=False,
+            target_tier="none",
+            aim_authority=False,
+            fire_authority=False,
+            native_auto_fire_requested=False,
+            auto_fire_active=False,
+        )
+
+        self.assertEqual(len(lines), 2)
+        self.assertIn("tier obs=1 weak=1 cue=1 pred=0 none=2 unk=0", lines[0])
+        self.assertIn("auth aim=3 fire=1", lines[0])
+        self.assertIn("cue=2", lines[0])
+        self.assertIn("fire req=2 ok=1 block=1", lines[0])
+        self.assertIn("tier obs=1 weak=1 cue=1 pred=0 none=0 unk=0", lines[1])
+        self.assertIn("fire req=2 ok=1 block=1", lines[1])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -43,6 +43,30 @@ def _output(frame):
 
 
 class AutoFirePluginTests(unittest.TestCase):
+    def test_auto_fire_is_suppressed_when_aim_is_not_ready(self):
+        plugin = AutoFirePlugin(AutoFireConfig(fire_output="RB", require_aim_ready=True))
+        frame = _frame(aiming=True, auto_fire=True, manual_rb=False, manual_rt=0)
+        output = _output(frame)
+        output.auto_fire_aim_ready = False
+        output.auto_fire_aim_ready_reason = "not_settled"
+
+        plugin.apply(frame, output)
+
+        self.assertFalse(output.buttons["rb"])
+        self.assertFalse(output.auto_fire_active)
+
+    def test_aim_ready_gate_can_be_disabled_for_legacy_fire_behavior(self):
+        plugin = AutoFirePlugin(AutoFireConfig(fire_output="RB", require_aim_ready=False))
+        frame = _frame(aiming=True, auto_fire=True, manual_rb=False, manual_rt=0)
+        output = _output(frame)
+        output.auto_fire_aim_ready = False
+        output.auto_fire_aim_ready_reason = "not_settled"
+
+        plugin.apply(frame, output)
+
+        self.assertTrue(output.buttons["rb"])
+        self.assertTrue(output.auto_fire_active)
+
     def test_rb_mode_or_combines_manual_rb_and_auto_fire(self):
         plugin = AutoFirePlugin(AutoFireConfig(fire_output="RB"))
         frame = _frame(aiming=True, auto_fire=True, manual_rb=False, manual_rt=0)

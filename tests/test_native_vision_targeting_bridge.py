@@ -10,6 +10,9 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 NATIVE_BUILD_DIR = PROJECT_ROOT / "native" / "vision_native" / "build" / "Release"
 CROP_W = 640
 CROP_H = 512
+CHEST_TARGET_RATIO = 0.43
+CROUCHED_CHEST_TARGET_RATIO = 0.43
+WIDE_LOW_TARGET_RATIO = 0.50
 NEUTRAL_RGB = (24, 24, 24)
 FRIENDLY_RGB = (0, 255, 0)
 ENEMY_RGB = (255, 255, 0)
@@ -38,6 +41,10 @@ def _load_native_module():
 
 def _frame():
     return np.full((CROP_H, CROP_W, 3), NEUTRAL_RGB, dtype=np.uint8)
+
+
+def _target_y(top: float, bottom: float, ratio: float = CHEST_TARGET_RATIO) -> float:
+    return top + ((bottom - top) * ratio)
 
 
 def _color_roi_bounds(box, frame_shape):
@@ -122,10 +129,14 @@ class NativeVisionTargetingBridgeTests(unittest.TestCase):
 
         self.assertTrue(result["has_target"])
         self.assertEqual(result["target_source"], "observed")
+        self.assertEqual(result["target_tier"], "observed_strong")
+        self.assertTrue(result["aim_authority"])
+        self.assertTrue(result["fire_authority"])
+        self.assertEqual(result["association_stage"], "observed")
         self.assertAlmostEqual(result["target_x"], 320.0, places=3)
-        self.assertAlmostEqual(result["target_y"], 196.0, places=3)
+        self.assertAlmostEqual(result["target_y"], _target_y(120.0, 320.0), places=3)
         self.assertAlmostEqual(result["dx"], 0.0, places=3)
-        self.assertAlmostEqual(result["dy"], -60.0, places=3)
+        self.assertAlmostEqual(result["dy"], _target_y(120.0, 320.0) - 256.0, places=3)
         self.assertEqual(result["boxes_seen"], 1.0)
 
     def test_low_confidence_pickup_is_rejected(self):
@@ -144,6 +155,24 @@ class NativeVisionTargetingBridgeTests(unittest.TestCase):
 
         self.assertFalse(result["has_target"])
         self.assertEqual(result["boxes_seen"], 1.0)
+
+    def test_low_score_detection_cannot_birth_target_even_after_two_frames(self):
+        if not hasattr(self.module, "NativeTargetSelector"):
+            self.fail("NativeTargetSelector is missing")
+
+        selector = self.module.NativeTargetSelector(CROP_W, CROP_H)
+        low_score = np.array(
+            [
+                [280.0, 240.0, 360.0, 380.0, 0.30, 0.0],
+            ],
+            dtype=np.float32,
+        )
+
+        first = selector.select_xyxy(low_score)
+        second = selector.select_xyxy(low_score)
+
+        self.assertFalse(first["has_target"])
+        self.assertFalse(second["has_target"])
 
     def test_switch_requires_two_frames_before_replacing_active_target(self):
         if not hasattr(self.module, "NativeTargetSelector"):
@@ -177,7 +206,7 @@ class NativeVisionTargetingBridgeTests(unittest.TestCase):
         third = selector.select_xyxy(second_target)
         self.assertTrue(third["has_target"])
         self.assertAlmostEqual(third["target_x"], 460.0, places=3)
-        self.assertAlmostEqual(third["target_y"], 196.0, places=3)
+        self.assertAlmostEqual(third["target_y"], _target_y(120.0, 320.0), places=3)
 
     def test_multi_candidate_prefers_target_closer_to_crosshair(self):
         if not hasattr(self.module, "NativeTargetSelector"):
@@ -198,7 +227,7 @@ class NativeVisionTargetingBridgeTests(unittest.TestCase):
         result = selector.select_xyxy(detections)
         self.assertTrue(result["has_target"])
         self.assertAlmostEqual(result["target_x"], 315.0, places=3)
-        self.assertAlmostEqual(result["target_y"], 196.0, places=3)
+        self.assertAlmostEqual(result["target_y"], _target_y(120.0, 320.0), places=3)
 
     def test_green_friendly_target_is_filtered_out_with_rgb_frame(self):
         if not hasattr(self.module, "NativeTargetSelector"):
@@ -233,7 +262,7 @@ class NativeVisionTargetingBridgeTests(unittest.TestCase):
         self.assertFalse(first["has_target"])
         self.assertTrue(result["has_target"])
         self.assertAlmostEqual(result["target_x"], 330.0, places=3)
-        self.assertAlmostEqual(result["target_y"], 233.2, places=3)
+        self.assertAlmostEqual(result["target_y"], _target_y(180.0, 320.0), places=3)
 
     def test_enemy_colored_pickup_can_lock_from_cropped_rgb_subframe(self):
         if not hasattr(self.module, "NativeTargetSelector"):
@@ -254,7 +283,7 @@ class NativeVisionTargetingBridgeTests(unittest.TestCase):
         self.assertTrue(result["has_target"])
         self.assertEqual(result["target_source"], "observed")
         self.assertAlmostEqual(result["target_x"], 330.0, places=3)
-        self.assertAlmostEqual(result["target_y"], 233.2, places=3)
+        self.assertAlmostEqual(result["target_y"], _target_y(180.0, 320.0), places=3)
 
     def test_friendly_candidate_is_filtered_before_enemy_selection(self):
         if not hasattr(self.module, "NativeTargetSelector"):
@@ -299,7 +328,7 @@ class NativeVisionTargetingBridgeTests(unittest.TestCase):
         self.assertEqual(reconstructed["target_source"], "observed")
         self.assertAlmostEqual(reconstructed["body_y1"], 286.0, places=3)
         self.assertAlmostEqual(reconstructed["body_y2"], 362.0, places=3)
-        raw_target_y = 286.0 + ((362.0 - 286.0) * 0.38)
+        raw_target_y = _target_y(286.0, 362.0)
         self.assertAlmostEqual(reconstructed["target_y"], raw_target_y, places=3)
 
     def test_upper_body_only_pickup_uses_visible_upper_body_box_and_target_point(self):
@@ -317,7 +346,7 @@ class NativeVisionTargetingBridgeTests(unittest.TestCase):
         self.assertEqual(locked["target_source"], "observed")
         self.assertAlmostEqual(locked["body_y1"], 170.0, places=3)
         self.assertAlmostEqual(locked["body_y2"], 250.0, places=3)
-        raw_target_y = 170.0 + ((250.0 - 170.0) * 0.38)
+        raw_target_y = _target_y(170.0, 250.0)
         self.assertAlmostEqual(locked["target_y"], raw_target_y, places=3)
 
     def test_crouched_box_uses_middle_upper_body_target_point(self):
@@ -334,7 +363,7 @@ class NativeVisionTargetingBridgeTests(unittest.TestCase):
         self.assertTrue(locked["has_target"])
         self.assertEqual(locked["target_source"], "observed")
         self.assertAlmostEqual(locked["target_x"], 320.0, places=3)
-        raw_target_y = 220.0 + ((330.0 - 220.0) * 0.43)
+        raw_target_y = _target_y(220.0, 330.0, CROUCHED_CHEST_TARGET_RATIO)
         self.assertAlmostEqual(locked["target_y"], raw_target_y, places=3)
 
     def test_wide_low_prone_or_side_box_can_lock_with_lower_body_target_point(self):
@@ -351,7 +380,11 @@ class NativeVisionTargetingBridgeTests(unittest.TestCase):
         self.assertTrue(locked["has_target"])
         self.assertEqual(locked["target_source"], "observed")
         self.assertAlmostEqual(locked["target_x"], 320.0, places=3)
-        self.assertAlmostEqual(locked["target_y"], 284.0, places=3)
+        self.assertAlmostEqual(
+            locked["target_y"],
+            _target_y(250.0, 318.0, WIDE_LOW_TARGET_RATIO),
+            places=3,
+        )
 
     def test_full_body_to_upper_body_followup_updates_to_visible_upper_body_height(self):
         if not hasattr(self.module, "NativeTargetSelector"):
@@ -370,7 +403,7 @@ class NativeVisionTargetingBridgeTests(unittest.TestCase):
         self.assertEqual(exposed_upper["target_source"], "observed")
         self.assertAlmostEqual(exposed_upper["body_y1"], 170.0, places=3)
         self.assertAlmostEqual(exposed_upper["body_y2"], 250.0, places=3)
-        raw_target_y = 170.0 + ((250.0 - 170.0) * 0.38)
+        raw_target_y = _target_y(170.0, 250.0)
         self.assertAlmostEqual(exposed_upper["target_y"], raw_target_y, places=3)
         self.assertLess(exposed_upper["target_y"], locked["target_y"])
 
@@ -393,6 +426,42 @@ class NativeVisionTargetingBridgeTests(unittest.TestCase):
         self.assertTrue(observed["has_target"])
         self.assertFalse(lost["has_target"])
         self.assertFalse(still_lost["has_target"])
+
+    def test_low_score_detection_near_active_target_continues_as_weak_without_fire_authority(self):
+        if not hasattr(self.module, "NativeTargetSelector"):
+            self.fail("NativeTargetSelector is missing")
+
+        selector = self.module.NativeTargetSelector(CROP_W, CROP_H)
+        full = np.array([[280.0, 240.0, 360.0, 380.0, 0.95, 0.0]], dtype=np.float32)
+        weak_same = np.array([[282.0, 242.0, 362.0, 382.0, 0.30, 0.0]], dtype=np.float32)
+
+        selector.select_xyxy(full)
+        locked = selector.select_xyxy(full)
+        weak = selector.select_xyxy(weak_same)
+
+        self.assertTrue(locked["has_target"])
+        self.assertTrue(weak["has_target"])
+        self.assertEqual(weak["target_source"], "associated_weak")
+        self.assertEqual(weak["target_tier"], "associated_weak")
+        self.assertTrue(weak["aim_authority"])
+        self.assertFalse(weak["fire_authority"])
+        self.assertFalse(weak["auto_fire"])
+        self.assertAlmostEqual(weak["target_confidence"], 0.30, places=3)
+
+    def test_low_score_detection_far_from_active_target_does_not_continue(self):
+        if not hasattr(self.module, "NativeTargetSelector"):
+            self.fail("NativeTargetSelector is missing")
+
+        selector = self.module.NativeTargetSelector(CROP_W, CROP_H)
+        full = np.array([[280.0, 240.0, 360.0, 380.0, 0.95, 0.0]], dtype=np.float32)
+        weak_far = np.array([[40.0, 240.0, 120.0, 380.0, 0.30, 0.0]], dtype=np.float32)
+
+        selector.select_xyxy(full)
+        locked = selector.select_xyxy(full)
+        weak = selector.select_xyxy(weak_far)
+
+        self.assertTrue(locked["has_target"])
+        self.assertFalse(weak["has_target"])
 
     def test_reacquired_target_requires_fresh_confirmation_after_empty_gap(self):
         if not hasattr(self.module, "NativeTargetSelector"):
@@ -434,6 +503,10 @@ class NativeVisionTargetingBridgeTests(unittest.TestCase):
         self.assertEqual(locked["target_source"], "observed")
         self.assertTrue(cue_hold["has_target"])
         self.assertEqual(cue_hold["target_source"], "cue_hold")
+        self.assertEqual(cue_hold["target_tier"], "cue_hold")
+        self.assertTrue(cue_hold["aim_authority"])
+        self.assertFalse(cue_hold["fire_authority"])
+        self.assertEqual(cue_hold["association_stage"], "cue_hold")
         self.assertAlmostEqual(cue_hold["target_x"], locked["target_x"], places=3)
         self.assertAlmostEqual(cue_hold["target_y"], locked["target_y"], places=3)
 

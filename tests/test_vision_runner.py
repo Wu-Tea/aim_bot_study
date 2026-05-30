@@ -117,12 +117,13 @@ class _AliasController(BaseController):
     def __init__(self):
         self.auto_fire_values = []
         self.updates = []
+        self.reset_calls = 0
 
     def update(self, dx, dy, target=None):
         self.updates.append((dx, dy, target))
 
     def reset(self):
-        return None
+        self.reset_calls += 1
 
     def is_aiming(self):
         return False
@@ -161,6 +162,61 @@ class BaseControllerAliasTests(unittest.TestCase):
 
         self.assertEqual(controller.auto_fire_values, [True])
         self.assertEqual(controller.updates, [(8.0, -4.0, target)])
+
+    def test_update_vision_state_blocks_auto_fire_when_state_has_no_fire_authority(self):
+        controller = _AliasController()
+        target = ControllerTarget(
+            aim_point_x=320.0,
+            aim_point_y=210.0,
+            screen_center_x=320.0,
+            screen_center_y=256.0,
+            target_source="cue_hold",
+            target_tier="cue_hold",
+            fire_authority=False,
+        )
+
+        controller.update_vision_state(
+            ControllerVisionState(
+                dx=8.0,
+                dy=-4.0,
+                target=target,
+                auto_fire_requested=True,
+                fire_authority=False,
+                observed_at=12.5,
+            )
+        )
+
+        self.assertEqual(controller.auto_fire_values, [False])
+        self.assertEqual(controller.updates, [(8.0, -4.0, target)])
+
+    def test_update_vision_state_blocks_target_when_state_has_no_aim_authority(self):
+        controller = _AliasController()
+        target = ControllerTarget(
+            aim_point_x=320.0,
+            aim_point_y=210.0,
+            screen_center_x=320.0,
+            screen_center_y=256.0,
+            target_source="predicted",
+            target_tier="predicted",
+            aim_authority=False,
+            fire_authority=False,
+        )
+
+        controller.update_vision_state(
+            ControllerVisionState(
+                dx=8.0,
+                dy=-4.0,
+                target=target,
+                auto_fire_requested=True,
+                aim_authority=False,
+                fire_authority=False,
+                observed_at=12.5,
+            )
+        )
+
+        self.assertEqual(controller.auto_fire_values, [False])
+        self.assertEqual(controller.updates, [])
+        self.assertEqual(controller.reset_calls, 1)
 
     def test_update_can_receive_controller_target_metadata(self):
         controller = _AliasController()

@@ -39,6 +39,7 @@ GAMEPAD_AUTO_FIRE_KEYS = frozenset(
     {
         "aim_only",
         "max_source_age_ms",
+        "require_aim_ready",
         "manual_takeover_release_seconds",
         "manual_takeover_resume_delay_seconds",
     }
@@ -63,6 +64,10 @@ GAMEPAD_AI_AIM_KEYS = frozenset(
         "max_ai_force_y",
         "ai_delta_gain",
         "target_max_age_ms",
+        "target_projection_reticle_speed_px_per_sec",
+        "target_projection_velocity_lowpass_alpha",
+        "target_projection_max_velocity_px_per_sec",
+        "target_projection_weak_velocity_decay",
         "piecewise_mid_pixels_y",
         "piecewise_max_pixels_y",
         "piecewise_mid_ratio_y",
@@ -71,6 +76,10 @@ GAMEPAD_AI_AIM_KEYS = frozenset(
         "ads_snap_max_ai_force",
         "ads_snap_max_ai_force_y",
         "ads_snap_max_target_dy_px",
+        "ads_snap_reticle_speed_px_per_sec",
+        "ads_snap_time_to_go_gain",
+        "ads_snap_time_to_go_min_remaining_ms",
+        "ads_snap_opposing_manual_suppression_max",
         "body_lock_smoothing",
         "body_lock_max_ai_force",
         "body_lock_opposing_boost_max_ai_force",
@@ -101,6 +110,12 @@ GAMEPAD_AI_AIM_KEYS = frozenset(
         "body_lock_lead_max_px",
         "body_lock_target_match_iou",
         "body_lock_target_match_center_px",
+        "weak_target_body_lock_force_scale",
+        "cue_hold_body_lock_force_scale",
+        "auto_fire_ready_error_px",
+        "auto_fire_ready_frames",
+        "auto_fire_ready_min_ads_ms",
+        "auto_fire_ready_max_ai_stick",
     }
 )
 ADAPTIVE_DELTA_GAIN_KEYS = frozenset(

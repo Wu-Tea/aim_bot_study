@@ -38,3 +38,7 @@ class GamepadOutput:
     buttons: dict[str, bool] = field(default_factory=dict)
     dpad: int = 0
     auto_fire_active: bool = False
+    auto_fire_aim_ready: bool = True
+    auto_fire_aim_ready_reason: str = ""
+    auto_fire_settle_error_px: float | None = None
+    auto_fire_settle_streak: int = 0

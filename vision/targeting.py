@@ -133,7 +133,7 @@ class TargetSelector:
     PICKUP_CONFIDENCE_THRESHOLD = 0.65
     PICKUP_ENEMY_CONFIDENCE_THRESHOLD = 0.42
     TRACKING_CONFIDENCE_THRESHOLD = 0.40
-    UPPER_CHEST_RATIO = 0.38
+    UPPER_CHEST_RATIO = 0.43
     CROUCHED_TARGET_RATIO = 0.43
     WIDE_LOW_TARGET_RATIO = 0.50
     TORSO_BOX_SHRINK_X = 0.22
@@ -900,6 +900,13 @@ class TargetSelector:
         )
         if not candidates:
             return self._resolve_no_candidates(sample_timestamp=sample_timestamp)
+
+        if last_target_center is None:
+            pickup_candidates = [
+                candidate for candidate in candidates if not self._fails_first_pickup_flick(candidate.point)
+            ]
+            if pickup_candidates:
+                candidates = pickup_candidates
 
         chosen_target, active_match_target = self._select_candidate_targets(
             candidates,

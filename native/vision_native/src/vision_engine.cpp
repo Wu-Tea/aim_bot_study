@@ -15,6 +15,7 @@ namespace vision_native {
 namespace {
 
 constexpr const char* kDefaultEnginePath = "models/best.engine";
+constexpr float kSelectorDecodeConfidenceFloor = 0.20f;
 constexpr float kTorsoBoxShrinkX = 0.22f;
 constexpr float kTorsoBoxShrinkTop = 0.18f;
 constexpr float kTorsoBoxShrinkBottom = 0.20f;
@@ -195,7 +196,11 @@ VisionResult VisionEngine::poll_once() {
             cudaGraphicsSubResourceGetMappedArray(&frame_array, graphics_resource, 0, 0),
             "cudaGraphicsSubResourceGetMappedArray");
 
-        DetectionBatch batch = engine_.infer_bgra_array(frame_array, width_, height_);
+        DetectionBatch batch = engine_.infer_bgra_array(
+            frame_array,
+            width_,
+            height_,
+            kSelectorDecodeConfidenceFloor);
         batch.frame_id = metadata.frame.frame_id;
         batch.captured_at_ns = metadata.frame.captured_at_ns;
         batch.has_external_cue = external_cue_found_;
@@ -274,6 +279,11 @@ VisionResult VisionEngine::poll_once() {
         result.body_x2 = targeting.body_x2;
         result.body_y2 = targeting.body_y2;
         result.target_source = targeting.target_source;
+        result.target_tier = targeting.target_tier;
+        result.aim_authority = targeting.aim_authority;
+        result.fire_authority = targeting.fire_authority;
+        result.association_stage = targeting.association_stage;
+        result.target_confidence = targeting.target_confidence;
         result.boxes_seen = targeting.boxes_seen;
 
         if (result.has_target) {

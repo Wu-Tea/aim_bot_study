@@ -10,6 +10,11 @@ class ControllerTarget:
     screen_center_y: float
     body_box: tuple[float, float, float, float] | None = None
     target_source: str | None = None
+    target_tier: str | None = None
+    aim_authority: bool = True
+    fire_authority: bool = False
+    association_stage: str | None = None
+    target_confidence: float | None = None
     # `time.perf_counter()` domain timestamp for when the source frame was observed.
     observed_at: float | None = None
 
@@ -28,6 +33,9 @@ class ControllerVisionState:
     dy: float = 0.0
     target: ControllerTarget | None = None
     auto_fire_requested: bool = False
+    aim_authority: bool = True
+    fire_authority: bool = True
+    target_tier: str | None = None
     # `time.perf_counter()` domain timestamp for the source state.
     observed_at: float | None = None
     # Optional override when fire intent has a different source timestamp.
@@ -48,6 +56,17 @@ def _state_auto_fire_observed_at(state: ControllerVisionState) -> float | None:
     if state.auto_fire_observed_at is not None:
         return state.auto_fire_observed_at
     return _state_observed_at(state)
+
+
+def _state_authorized_target(state: ControllerVisionState) -> ControllerTarget | None:
+    target = state.target
+    if target is None:
+        return None
+    if not state.aim_authority:
+        return None
+    if not getattr(target, "aim_authority", True):
+        return None
+    return target
 
 
 def _set_auto_fire_compat(controller, pressed: bool, observed_at: float | None = None) -> None:
@@ -73,14 +92,17 @@ def submit_controller_vision_state(controller, state: ControllerVisionState) -> 
         update_vision_state(state)
         return
 
-    auto_fire_requested = bool(state.auto_fire_requested and state.target is not None)
+    target = _state_authorized_target(state)
+    auto_fire_requested = bool(
+        state.auto_fire_requested and target is not None and state.fire_authority
+    )
     _set_auto_fire_compat(
         controller,
         auto_fire_requested,
         observed_at=_state_auto_fire_observed_at(state),
     )
-    if state.target is not None:
-        controller.update(state.dx, state.dy, target=state.target)
+    if target is not None:
+        controller.update(state.dx, state.dy, target=target)
         return
 
     clear_target = getattr(controller, "clear_target", None)
@@ -144,14 +166,17 @@ class BaseController(ABC):
         Receives one coherent vision state. Concrete controllers can override
         this to update target and fire state under one lock.
         """
-        auto_fire_requested = bool(state.auto_fire_requested and state.target is not None)
+        target = _state_authorized_target(state)
+        auto_fire_requested = bool(
+            state.auto_fire_requested and target is not None and state.fire_authority
+        )
         _set_auto_fire_compat(
             self,
             auto_fire_requested,
             observed_at=_state_auto_fire_observed_at(state),
         )
-        if state.target is not None:
-            self.update(state.dx, state.dy, target=state.target)
+        if target is not None:
+            self.update(state.dx, state.dy, target=target)
         else:
             self.clear_target()
 

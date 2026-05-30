@@ -9,6 +9,8 @@ _TIMING_METRICS = (
     ("output_age_ms", "out_age"),
 )
 
+_TARGET_BUCKETS = ("obs", "weak", "cue", "pred", "none", "unk")
+
 
 class PerformanceTracker:
     def __init__(self, enabled: bool = False, log_interval: float = 2.0, clock=None, printer=None):
@@ -39,6 +41,8 @@ class PerformanceTracker:
         self._tracking_boxes_seen = 0
         self._timing_values = {name: [] for name, _label in _TIMING_METRICS}
         self._tracking_timing_values = {name: [] for name, _label in _TIMING_METRICS}
+        self._target_stats = self._new_target_stats()
+        self._tracking_target_stats = self._new_target_stats()
 
     def update(
         self,
@@ -55,6 +59,13 @@ class PerformanceTracker:
         python_handoff_ms: float | None = None,
         controller_consume_age_ms: float | None = None,
         output_age_ms: float | None = None,
+        target_source: str | None = None,
+        target_tier: str | None = None,
+        aim_authority: bool | None = None,
+        fire_authority: bool | None = None,
+        has_external_cue: bool | None = None,
+        native_auto_fire_requested: bool | None = None,
+        auto_fire_active: bool | None = None,
     ):
         if not self.enabled:
             return
@@ -76,6 +87,16 @@ class PerformanceTracker:
         self._age_ms += age_ms
         self._boxes_seen += boxes_seen
         self._record_timing_values(self._timing_values, timing_values)
+        self._record_target_stats(
+            self._target_stats,
+            target_source=target_source,
+            target_tier=target_tier,
+            aim_authority=aim_authority,
+            fire_authority=fire_authority,
+            has_external_cue=has_external_cue,
+            native_auto_fire_requested=native_auto_fire_requested,
+            auto_fire_active=auto_fire_active,
+        )
 
         now = self._clock()
         if tracking_active:
@@ -90,6 +111,16 @@ class PerformanceTracker:
             self._tracking_age_ms += age_ms
             self._tracking_boxes_seen += boxes_seen
             self._record_timing_values(self._tracking_timing_values, timing_values)
+            self._record_target_stats(
+                self._tracking_target_stats,
+                target_source=target_source,
+                target_tier=target_tier,
+                aim_authority=aim_authority,
+                fire_authority=fire_authority,
+                has_external_cue=has_external_cue,
+                native_auto_fire_requested=native_auto_fire_requested,
+                auto_fire_active=auto_fire_active,
+            )
 
         if now - self._window_start < self.log_interval or self._frame_count == 0:
             return
@@ -107,6 +138,7 @@ class PerformanceTracker:
             self._boxes_seen,
             self._window_start,
             self._timing_values,
+            self._target_stats,
         )
         if self._tracking_frame_count > 0 and self._tracking_window_start is not None:
             self._emit(
@@ -122,6 +154,7 @@ class PerformanceTracker:
                 self._tracking_boxes_seen,
                 self._tracking_window_start,
                 self._tracking_timing_values,
+                self._tracking_target_stats,
             )
 
         self.reset_window()
@@ -140,6 +173,7 @@ class PerformanceTracker:
         boxes_sum: float,
         window_start: float,
         timing_values: dict[str, list[float]] | None = None,
+        target_stats: dict | None = None,
     ):
         elapsed = max(now - window_start, 1e-9)
         self._printer(
@@ -150,6 +184,7 @@ class PerformanceTracker:
             f"infer={infer_sum / frame_count:.1f}ms | post={post_sum / frame_count:.1f}ms | "
             f"age={age_sum / frame_count:.1f}ms | boxes={boxes_sum / frame_count:.1f}"
             f"{self._format_timing_values(timing_values)}"
+            f"{self._format_target_stats(target_stats)}"
         )
 
     def _record_timing_values(self, target: dict[str, list[float]], values: dict[str, float | None]) -> None:
@@ -174,3 +209,88 @@ class PerformanceTracker:
         if not parts:
             return ""
         return " | " + " | ".join(parts)
+
+    def _new_target_stats(self) -> dict:
+        return {
+            "tier": {bucket: 0 for bucket in _TARGET_BUCKETS},
+            "aim_authority": 0,
+            "fire_authority": 0,
+            "external_cue": 0,
+            "fire_requested": 0,
+            "fire_allowed": 0,
+            "fire_blocked": 0,
+        }
+
+    def _record_target_stats(
+        self,
+        target: dict,
+        *,
+        target_source: str | None,
+        target_tier: str | None,
+        aim_authority: bool | None,
+        fire_authority: bool | None,
+        has_external_cue: bool | None,
+        native_auto_fire_requested: bool | None,
+        auto_fire_active: bool | None,
+    ) -> None:
+        target["tier"][self._target_bucket(target_source, target_tier)] += 1
+        if aim_authority:
+            target["aim_authority"] += 1
+        if fire_authority:
+            target["fire_authority"] += 1
+        if has_external_cue:
+            target["external_cue"] += 1
+        if native_auto_fire_requested:
+            target["fire_requested"] += 1
+            if auto_fire_active:
+                target["fire_allowed"] += 1
+            else:
+                target["fire_blocked"] += 1
+
+    def _format_target_stats(self, target_stats: dict | None) -> str:
+        if not target_stats:
+            return ""
+        tier_counts = target_stats.get("tier") or {}
+        tier_text = " ".join(
+            f"{bucket}={int(tier_counts.get(bucket, 0))}"
+            for bucket in _TARGET_BUCKETS
+        )
+        return (
+            f" | tier {tier_text}"
+            f" | auth aim={int(target_stats.get('aim_authority', 0))}"
+            f" fire={int(target_stats.get('fire_authority', 0))}"
+            f" | cue={int(target_stats.get('external_cue', 0))}"
+            f" | fire req={int(target_stats.get('fire_requested', 0))}"
+            f" ok={int(target_stats.get('fire_allowed', 0))}"
+            f" block={int(target_stats.get('fire_blocked', 0))}"
+        )
+
+    def _target_bucket(self, source: str | None, tier: str | None) -> str:
+        source_token = self._token(source)
+        tier_token = self._token(tier)
+        if not source_token and not tier_token:
+            return "none"
+        if tier_token in {"none", "lost"}:
+            return "none"
+        if source_token == "observed" or tier_token in {"observed_strong", "strong_observed", "confirmed"}:
+            return "obs"
+        if source_token in {"associated_weak", "weak_observed", "low_score"} or tier_token in {
+            "associated_weak",
+            "weak_observed",
+        }:
+            return "weak"
+        if source_token in {"cue_hold", "yellow_cue"} or tier_token == "cue_hold":
+            return "cue"
+        if source_token in {"predicted", "projected", "projection"} or tier_token in {
+            "predicted",
+            "projected",
+            "projection",
+        }:
+            return "pred"
+        return "unk"
+
+    @staticmethod
+    def _token(value: str | None) -> str:
+        if value is None:
+            return ""
+        return str(value).strip().casefold()

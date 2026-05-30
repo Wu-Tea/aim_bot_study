@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from vision.occlusion_compensation import TargetOcclusionCompensator, TargetSource
 
 
-UPPER_CHEST_RATIO = 0.38
+UPPER_CHEST_RATIO = 0.43
 
 
 @dataclass(slots=True, frozen=True)
@@ -184,7 +184,12 @@ class TargetOcclusionCompensatorTests(unittest.TestCase):
         self.assertAlmostEqual(predicted.selected_box[0], 428.0, places=3)
         self.assertAlmostEqual(predicted.selected_box[3], 488.0, places=3)
         self.assertAlmostEqual(predicted.target_x, 448.0, places=3)
-        self.assertAlmostEqual(predicted.target_y, 413.6, places=3)
+        self.assertAlmostEqual(
+            predicted.target_y,
+            predicted.selected_box[1]
+            + ((predicted.selected_box[3] - predicted.selected_box[1]) * UPPER_CHEST_RATIO),
+            places=3,
+        )
 
     def test_real_observation_clears_prediction_budget(self):
         compensator = TargetOcclusionCompensator()

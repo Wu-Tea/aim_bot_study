@@ -28,11 +28,19 @@ class AIAimConfig:
     ai_fade_full: int = 8000
     ai_delta_gain: float = 1.0
     target_max_age_ms: float = 50.0
+    target_projection_reticle_speed_px_per_sec: float = 1500.0
+    target_projection_velocity_lowpass_alpha: float = 0.35
+    target_projection_max_velocity_px_per_sec: float = 1200.0
+    target_projection_weak_velocity_decay: float = 0.70
     ads_snap_window_ms: int = 100
     ads_snap_smoothing: float = 0.0
     ads_snap_max_ai_force: float = 1.0
     ads_snap_max_ai_force_y: float = 1.0
     ads_snap_max_target_dy_px: float = 90.0
+    ads_snap_reticle_speed_px_per_sec: float = 1500.0
+    ads_snap_time_to_go_gain: float = 1.0
+    ads_snap_time_to_go_min_remaining_ms: float = 35.0
+    ads_snap_opposing_manual_suppression_max: float = 0.35
     body_lock_smoothing: float = 0.14
     body_lock_max_ai_force: float = 0.30
     body_lock_opposing_boost_max_ai_force: float = 0.42
@@ -56,13 +64,19 @@ class AIAimConfig:
     body_lock_lateral_motion_lead_window_px: float = 8.0
     body_lock_lateral_motion_lead_max_px: float = 7.0
     body_lock_lateral_motion_tail_scale: float = 0.65
-    body_lock_upper_body_ratio: float = 0.38
+    body_lock_upper_body_ratio: float = 0.43
     body_lock_lead_frames: int = 5
     body_lock_lead_seconds: float = 0.0
     body_lock_vertical_lead_scale: float = 0.95
     body_lock_lead_max_px: float = 18.0
     body_lock_target_match_iou: float = 0.10
     body_lock_target_match_center_px: float = 48.0
+    weak_target_body_lock_force_scale: float = 0.55
+    cue_hold_body_lock_force_scale: float = 0.35
+    auto_fire_ready_error_px: float = 16.0
+    auto_fire_ready_frames: int = 2
+    auto_fire_ready_min_ads_ms: float = 70.0
+    auto_fire_ready_max_ai_stick: float = 6000.0
 
 
 @dataclass(slots=True, frozen=True)
@@ -94,6 +108,7 @@ class AIAimPlugin:
 
         if not frame.is_aiming:
             self._reset_runtime_state()
+            self._publish_auto_fire_aim_ready(output, False, "not_aiming")
             return
 
         self._begin_ads_session(frame.timestamp)
@@ -140,6 +155,10 @@ class AIAimPlugin:
                 target_dy=desired_dy,
                 manual_x=manual_x,
                 manual_y=manual_y,
+                authority_scale=self._target_body_lock_force_scale(frame)
+                if mode == "body_lock"
+                else 1.0,
+                timestamp=frame.timestamp,
             )
             if mode == "body_lock":
                 desired_ai_x, desired_ai_y = self._apply_body_lock_axis_guards(
@@ -167,6 +186,16 @@ class AIAimPlugin:
                 self.ai_stick_y = (self.ai_stick_y * smoothing) + (desired_ai_y * (1.0 - smoothing))
 
             if mode == "ads_snap":
+                manual_x = self._resolve_ads_snap_opposing_manual(
+                    manual_input=manual_x,
+                    planned_ai=self.ai_stick_x,
+                    timestamp=frame.timestamp,
+                )
+                manual_y = self._resolve_ads_snap_opposing_manual(
+                    manual_input=manual_y,
+                    planned_ai=self.ai_stick_y,
+                    timestamp=frame.timestamp,
+                )
                 # During snap, treat manual same-direction input as part of the
                 # intended total correction instead of stacking AI on top of it.
                 self.ai_stick_x = self._resolve_ads_snap_manual_overlap(
@@ -219,6 +248,13 @@ class AIAimPlugin:
 
         output.right_x = int(manual_x + self.ai_stick_x)
         output.right_y = int(manual_y + self.ai_stick_y)
+        self._update_auto_fire_aim_readiness(
+            frame,
+            output,
+            mode=mode,
+            base_lock_dx=base_lock_dx,
+            base_lock_dy=base_lock_dy,
+        )
         self._mode = mode
 
     def _begin_ads_session(self, timestamp: float) -> None:
@@ -238,8 +274,28 @@ class AIAimPlugin:
             return False
         return (timestamp - self._ads_started_at) <= (self.config.ads_snap_window_ms / 1000.0)
 
+    def _ads_snap_remaining_seconds(self, timestamp: float) -> float | None:
+        if self._ads_started_at is None:
+            return None
+        window = self.config.ads_snap_window_ms / 1000.0
+        if window <= 0.0:
+            return 0.0
+        elapsed = max(0.0, float(timestamp) - self._ads_started_at)
+        return max(0.0, window - elapsed)
+
+    def _ads_snap_progress_ratio(self, timestamp: float) -> float:
+        if self._ads_started_at is None:
+            return 0.0
+        window = self.config.ads_snap_window_ms / 1000.0
+        if window <= 0.0:
+            return 1.0
+        elapsed = max(0.0, float(timestamp) - self._ads_started_at)
+        return max(0.0, min(1.0, elapsed / window))
+
     def _should_trigger_ads_snap(self, frame: GamepadFrame) -> bool:
         if self._ads_snap_used or not self._has_fresh_target(frame):
+            return False
+        if not self._is_strong_target_authority(frame.target):
             return False
         if not self._is_ads_snap_window_open(frame.timestamp):
             self._consume_ads_snap()
@@ -330,7 +386,7 @@ class AIAimPlugin:
         motion_ready = 1.0 if self._motion_frames >= 2 else 0.0
         valid = 1.0 if self._should_body_lock(frame) else 0.0
 
-        return max(
+        confidence = max(
             0.0,
             min(
                 1.0,
@@ -340,6 +396,7 @@ class AIAimPlugin:
                 + (0.10 * motion_ready),
             ),
         )
+        return confidence * self._target_body_lock_force_scale(frame)
 
     def _observe_body_lock_target(self, frame: GamepadFrame) -> int:
         target = frame.target
@@ -670,6 +727,29 @@ class AIAimPlugin:
             return 0.0
         return math.copysign(remaining, planned_ai)
 
+    def _resolve_ads_snap_opposing_manual(
+        self,
+        *,
+        manual_input: float,
+        planned_ai: float,
+        timestamp: float,
+    ) -> float:
+        if manual_input == 0.0 or planned_ai == 0.0:
+            return manual_input
+        if manual_input * planned_ai >= 0.0:
+            return manual_input
+
+        max_suppression = max(
+            0.0,
+            min(1.0, self.config.ads_snap_opposing_manual_suppression_max),
+        )
+        if max_suppression <= 0.0:
+            return manual_input
+
+        progress = self._ads_snap_progress_ratio(timestamp)
+        suppression = max_suppression * (0.35 + (0.65 * progress))
+        return manual_input * (1.0 - suppression)
+
     def _resolve_body_lock_manual_overlap(
         self,
         *,
@@ -774,7 +854,11 @@ class AIAimPlugin:
         )
 
     def _observe_target_motion(self, frame: GamepadFrame) -> None:
-        if not self._has_fresh_target(frame) or frame.target.body_box is None:
+        if (
+            not self._has_fresh_target(frame)
+            or frame.target.body_box is None
+            or not self._is_strong_target_authority(frame.target)
+        ):
             self._reset_motion_tracking()
             return
 
@@ -807,10 +891,165 @@ class AIAimPlugin:
     def _has_fresh_target(self, frame: GamepadFrame) -> bool:
         if frame.target is None:
             return False
+        if not self._has_aim_authority(frame.target):
+            return False
         if frame.target_timestamp is None or self.config.target_max_age_ms <= 0.0:
             return True
         max_age_seconds = self.config.target_max_age_ms / 1000.0
         return (frame.timestamp - frame.target_timestamp) <= max_age_seconds
+
+    def _update_auto_fire_aim_readiness(
+        self,
+        frame: GamepadFrame,
+        output: GamepadOutput,
+        *,
+        mode: str,
+        base_lock_dx: float,
+        base_lock_dy: float,
+    ) -> None:
+        if not frame.auto_fire_requested:
+            self._reset_auto_fire_readiness_tracking()
+            self._publish_auto_fire_aim_ready(output, True, "")
+            return
+
+        if not self._has_fresh_target(frame):
+            self._reset_auto_fire_readiness_tracking()
+            self._publish_auto_fire_aim_ready(output, False, "stale_target")
+            return
+
+        target = frame.target
+        if not self._is_fire_authorized_target(target):
+            self._reset_auto_fire_readiness_tracking()
+            self._publish_auto_fire_aim_ready(output, False, "no_fire_authority")
+            return
+
+        min_ads_seconds = max(0.0, self.config.auto_fire_ready_min_ads_ms) / 1000.0
+        if self._ads_started_at is None or (frame.timestamp - self._ads_started_at) < min_ads_seconds:
+            self._reset_auto_fire_readiness_tracking()
+            self._publish_auto_fire_aim_ready(output, False, "min_ads")
+            return
+
+        if mode == "body_lock":
+            error_px = math.hypot(base_lock_dx, base_lock_dy)
+        else:
+            error_px = math.hypot(
+                frame.target_dx * self.config.ai_delta_gain,
+                frame.target_dy * self.config.ai_delta_gain,
+            )
+
+        if error_px > max(0.0, self.config.auto_fire_ready_error_px):
+            self._reset_auto_fire_readiness_tracking(target)
+            reason = "ads_snap" if mode == "ads_snap" else "not_settled"
+            self._publish_auto_fire_aim_ready(output, False, reason, error_px=error_px)
+            return
+
+        ai_stick_mag = max(abs(self.ai_stick_x), abs(self.ai_stick_y))
+        max_ai_stick = max(0.0, self.config.auto_fire_ready_max_ai_stick)
+        if max_ai_stick > 0.0 and ai_stick_mag > max_ai_stick:
+            self._reset_auto_fire_readiness_tracking(target)
+            self._publish_auto_fire_aim_ready(output, False, "ai_stick_high", error_px=error_px)
+            return
+
+        if self._auto_fire_ready_target is None or not self._targets_match(
+            self._auto_fire_ready_target,
+            target,
+        ):
+            self._auto_fire_ready_frames = 0
+            self._auto_fire_ready_target = target
+
+        self._auto_fire_ready_frames += 1
+        required_frames = max(1, int(self.config.auto_fire_ready_frames))
+        ready = self._auto_fire_ready_frames >= required_frames
+        reason = "ready" if ready else "settle_frames"
+        self._publish_auto_fire_aim_ready(
+            output,
+            ready,
+            reason,
+            error_px=error_px,
+            streak=self._auto_fire_ready_frames,
+        )
+
+    def _publish_auto_fire_aim_ready(
+        self,
+        output: GamepadOutput,
+        ready: bool,
+        reason: str,
+        *,
+        error_px: float | None = None,
+        streak: int | None = None,
+    ) -> None:
+        output.auto_fire_aim_ready = bool(ready)
+        output.auto_fire_aim_ready_reason = reason
+        output.auto_fire_settle_error_px = error_px
+        output.auto_fire_settle_streak = self._auto_fire_ready_frames if streak is None else streak
+        self._last_auto_fire_ready = bool(ready)
+        self._last_auto_fire_ready_reason = reason
+        self._last_auto_fire_ready_error_px = error_px
+
+    def _reset_auto_fire_readiness_tracking(self, target=None) -> None:
+        self._auto_fire_ready_frames = 0
+        self._auto_fire_ready_target = target
+
+    def _is_fire_authorized_target(self, target) -> bool:
+        if target is None:
+            return False
+        return bool(getattr(target, "fire_authority", False)) and self._is_strong_target_authority(target)
+
+    def _target_body_lock_force_scale(self, frame: GamepadFrame) -> float:
+        if frame.target is None:
+            return 0.0
+        if self._is_cue_hold_target(frame.target):
+            return max(0.0, min(1.0, self.config.cue_hold_body_lock_force_scale))
+        if self._is_weak_association_target(frame.target):
+            return max(0.0, min(1.0, self.config.weak_target_body_lock_force_scale))
+        if self._is_strong_target_authority(frame.target):
+            return 1.0
+        return 0.0
+
+    def _is_strong_target_authority(self, target) -> bool:
+        if not self._has_aim_authority(target):
+            return False
+        if self._is_weak_association_target(target) or self._is_cue_hold_target(target):
+            return False
+        return True
+
+    def _has_aim_authority(self, target) -> bool:
+        if target is None:
+            return False
+        if not getattr(target, "aim_authority", True):
+            return False
+        return not self._is_predicted_target(target)
+
+    @staticmethod
+    def _target_token(target, attr: str) -> str:
+        value = getattr(target, attr, None)
+        if value is None:
+            return ""
+        return str(value).strip().casefold()
+
+    def _is_weak_association_target(self, target) -> bool:
+        source = self._target_token(target, "target_source")
+        tier = self._target_token(target, "target_tier")
+        return source in {"associated_weak", "weak_observed", "low_score"} or tier in {
+            "associated_weak",
+            "weak_observed",
+        }
+
+    def _is_cue_hold_target(self, target) -> bool:
+        source = self._target_token(target, "target_source")
+        tier = self._target_token(target, "target_tier")
+        return source in {"cue_hold", "yellow_cue"} or tier == "cue_hold"
+
+    def _is_predicted_target(self, target) -> bool:
+        source = self._target_token(target, "target_source")
+        tier = self._target_token(target, "target_tier")
+        return source in {"predicted", "projected", "projection"} or tier in {
+            "predicted",
+            "projected",
+            "projection",
+            "none",
+            "lost",
+        }
 
     def _targets_match(self, lhs, rhs) -> bool:
         if lhs.body_box is not None and rhs.body_box is not None:
@@ -872,6 +1111,8 @@ class AIAimPlugin:
         target_dy: float,
         manual_x: float = 0.0,
         manual_y: float = 0.0,
+        authority_scale: float = 1.0,
+        timestamp: float | None = None,
     ) -> tuple[float, float, float]:
         x_strength, y_strength = compute_axis_soft_strengths(
             dx=target_dx,
@@ -890,6 +1131,28 @@ class AIAimPlugin:
             max_pixels=self.config.piecewise_max_pixels_y,
             mid_ratio=self.config.piecewise_mid_ratio_y,
         ) * y_strength
+        if mode == "ads_snap":
+            remaining_seconds = (
+                self._ads_snap_remaining_seconds(timestamp)
+                if timestamp is not None
+                else None
+            )
+            desired_ai_x = self._prefer_larger_magnitude(
+                desired_ai_x,
+                self._ads_snap_time_to_go_stick(
+                    target_dx,
+                    axis_strength=x_strength,
+                    remaining_seconds=remaining_seconds,
+                ),
+            )
+            desired_ai_y = self._prefer_larger_magnitude(
+                desired_ai_y,
+                self._ads_snap_time_to_go_stick(
+                    -target_dy,
+                    axis_strength=y_strength,
+                    remaining_seconds=remaining_seconds,
+                ),
+            )
 
         if self.config.invert_x:
             desired_ai_x = -desired_ai_x
@@ -901,11 +1164,14 @@ class AIAimPlugin:
             y_limit = 32767 * self.config.ads_snap_max_ai_force_y
             smoothing = self.config.ads_snap_smoothing
         else:
+            authority_scale = max(0.0, min(1.0, authority_scale))
+            desired_ai_x *= authority_scale
+            desired_ai_y *= authority_scale
             x_force = self.config.body_lock_max_ai_force
             if manual_x * target_dx < 0.0:
                 x_force = max(x_force, self.config.body_lock_opposing_boost_max_ai_force)
-            x_limit = 32767 * x_force
-            y_limit = 32767 * self.config.body_lock_max_ai_force_y
+            x_limit = 32767 * x_force * authority_scale
+            y_limit = 32767 * self.config.body_lock_max_ai_force_y * authority_scale
             smoothing = self.config.body_lock_smoothing
 
         return (
@@ -913,6 +1179,34 @@ class AIAimPlugin:
             self._clamp(desired_ai_y, y_limit),
             smoothing,
         )
+
+    def _ads_snap_time_to_go_stick(
+        self,
+        delta: float,
+        *,
+        axis_strength: float,
+        remaining_seconds: float | None,
+    ) -> float:
+        if remaining_seconds is None or axis_strength <= 0.0 or delta == 0.0:
+            return 0.0
+        reticle_speed = max(1.0, self.config.ads_snap_reticle_speed_px_per_sec)
+        min_remaining = max(
+            0.001,
+            self.config.ads_snap_time_to_go_min_remaining_ms / 1000.0,
+        )
+        effective_remaining = max(min_remaining, remaining_seconds)
+        gain = max(0.0, self.config.ads_snap_time_to_go_gain)
+        required_ratio = min(
+            1.0,
+            (abs(delta) / effective_remaining) * gain / reticle_speed,
+        )
+        return math.copysign(32767.0 * required_ratio * axis_strength, delta)
+
+    @staticmethod
+    def _prefer_larger_magnitude(current: float, candidate: float) -> float:
+        if abs(candidate) > abs(current):
+            return candidate
+        return current
 
     def _reset_runtime_state(self) -> None:
         self.ai_stick_x = 0.0
@@ -922,6 +1216,11 @@ class AIAimPlugin:
         self._ads_snap_used = False
         self._ads_snap_target = None
         self._mode = "manual"
+        self._auto_fire_ready_frames = 0
+        self._auto_fire_ready_target = None
+        self._last_auto_fire_ready = False
+        self._last_auto_fire_ready_reason = ""
+        self._last_auto_fire_ready_error_px: float | None = None
         self._reset_body_lock_arbitration_tracking()
         self._clear_body_lock_arbitration_debug()
         self._reset_motion_tracking()

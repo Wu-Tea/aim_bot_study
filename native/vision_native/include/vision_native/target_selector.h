@@ -93,9 +93,11 @@ private:
     std::optional<Candidate> build_candidate(
         const Detection& detection,
         const std::optional<std::pair<float, float>>& last_target_center) const;
+    std::optional<Candidate> build_weak_association_candidate(const Detection& detection) const;
     std::vector<Candidate> build_candidates(
         const DetectionBatch& batch,
         const std::optional<std::pair<float, float>>& last_target_center) const;
+    std::optional<TargetState> select_weak_association(const DetectionBatch& batch) const;
 
     float crosshair_distance(float x, float y) const;
     std::optional<float> tracking_distance(
