@@ -17,7 +17,7 @@ The mental model is: vision decides "what should be aimed at"; controllers decid
 
 ## Current Situation
 
-The default gamepad path now favors native vision through `gamepad_start.bat`, while Python vision remains available for comparison and fallback. Gamepad and mouse modes are both plugin-based, but the gamepad path is the more mature assisted-controller runtime. The recoil system has grown into a side toolchain: it recognizes weapon identity, records full-magazine recoil evidence, writes profile artifacts and plots, and can feed matching profiles into gamepad recoil playback.
+The default gamepad path now favors native vision through `scripts\launch\gamepad_start.bat`, while Python vision remains available for comparison and fallback. Gamepad and mouse modes are both plugin-based, but the gamepad path is the more mature assisted-controller runtime. The recoil system has grown into a side toolchain: it recognizes weapon identity, records full-magazine recoil evidence, writes profile artifacts and plots, and can feed matching profiles into gamepad recoil playback.
 
 This review is based on the current source tree, existing project docs, and `.agent-context/handoff.md`. The worktree contains existing uncommitted changes, so this overview is added as a standalone document rather than rewriting the older docs index.
 

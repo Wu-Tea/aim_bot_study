@@ -146,20 +146,20 @@ Current shape:
 
 Current scripts:
 
-- `gamepad_start.bat`
+- `scripts\launch\gamepad_start.bat`
   - launches `main.py --controller-mode gamepad`
   - prompts for auto-fire output: `RB` or `RT`
   - defaults to `VISION_BACKEND=native`
   - enables perf logging
-- `gamepad_debug.bat`
+- `scripts\launch\debug\gamepad_debug.bat`
   - launches gamepad mode with debug window and frame saving
   - lets you choose native vs Python backend
-- `gamepad_native_debug.bat`
+- `scripts\launch\debug\gamepad_native_debug.bat`
   - forces native gamepad debug
-- `mouse_start.bat`
+- `scripts\launch\mouse_start.bat`
   - launches `main.py --controller-mode mouse`
   - defaults to native vision
-- `mouse_native_debug.bat`
+- `scripts\launch\debug\mouse_native_debug.bat`
   - launches the native mouse path with debug window and debug-frame saving
 
 Current gap:

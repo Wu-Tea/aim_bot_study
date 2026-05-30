@@ -55,7 +55,7 @@ def _load_recoil_console_tool_module():
 
 
 def _run_batch_script(
-    script_name: str,
+    script_path: str,
     *,
     stdin_lines: tuple[str, ...],
     extra_env: dict[str, str] | None = None,
@@ -67,7 +67,7 @@ def _run_batch_script(
         env = dict(__import__("os").environ)
         env.update(extra_env)
     return subprocess.run(
-        ["cmd", "/d", "/c", script_name, *script_args],
+        ["cmd", "/d", "/c", script_path, *script_args],
         cwd=Path(__file__).resolve().parents[2],
         input=payload,
         text=True,
@@ -552,7 +552,7 @@ class WeaponSignatureCaptureToolTests(unittest.TestCase):
 
 class RecoilToolkitBatchTests(unittest.TestCase):
     def test_invalid_selection_exits_without_cmd_parser_errors(self):
-        result = _run_batch_script("recoil_toolkit.bat", stdin_lines=("x",))
+        result = _run_batch_script(r"scripts\legacy\recoil_toolkit.bat", stdin_lines=("x",))
         output = result.stdout + result.stderr
 
         self.assertEqual(result.returncode, 0)
@@ -569,7 +569,7 @@ class RecoilToolkitBatchTests(unittest.TestCase):
             profiles.mkdir()
             state.mkdir()
             result = _run_batch_script(
-                "recoil_toolkit.bat",
+                r"scripts\legacy\recoil_toolkit.bat",
                 stdin_lines=("2", "3", "1"),
                 extra_env={
                     "RECOIL_SIGNATURE_DIR": str(signatures),
@@ -587,7 +587,7 @@ class RecoilToolkitBatchTests(unittest.TestCase):
 class RecoilAppBatchTests(unittest.TestCase):
     def test_help_passthrough_invokes_python_module_help(self):
         result = _run_batch_script(
-            "recoil_app_start.bat",
+            r"scripts\launch\recoil_app_start.bat",
             stdin_lines=(),
             extra_env={"PYTHONUTF8": "1"},
             script_args=("--help",),
@@ -600,7 +600,7 @@ class RecoilAppBatchTests(unittest.TestCase):
 
     def test_interactive_prompt_selects_game_and_mode(self):
         result = _run_batch_script(
-            "recoil_app_start.bat",
+            r"scripts\launch\recoil_app_start.bat",
             stdin_lines=(),
             extra_env={
                 "RECOIL_APP_PRINT_ONLY": "1",
@@ -626,7 +626,7 @@ class RecoilAppBatchTests(unittest.TestCase):
 class GamepadStartBatchTests(unittest.TestCase):
     def test_gamepad_start_prompt_defaults_to_recoil_runtime(self):
         result = _run_batch_script(
-            "gamepad_start.bat",
+            r"scripts\launch\gamepad_start.bat",
             stdin_lines=("", ""),
             extra_env={
                 "GAMEPAD_START_PRINT_ONLY": "1",
@@ -643,7 +643,7 @@ class GamepadStartBatchTests(unittest.TestCase):
 
     def test_gamepad_start_prompt_can_disable_recoil_runtime(self):
         result = _run_batch_script(
-            "gamepad_start.bat",
+            r"scripts\launch\gamepad_start.bat",
             stdin_lines=("",),
             extra_env={
                 "GAMEPAD_START_PRINT_ONLY": "1",

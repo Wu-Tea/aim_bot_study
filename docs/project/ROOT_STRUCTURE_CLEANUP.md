@@ -1,6 +1,6 @@
 # Root Structure Cleanup
 
-Last reviewed: 2026-05-21
+Last reviewed: 2026-05-30
 
 ## Current Implementation Status
 
@@ -8,14 +8,14 @@ The first cleanup slice has been applied:
 
 - local `.idea/` and `.claude/settings.local.json` files are ignored and removed from git tracking
 - launcher implementations live under `scripts/launch/`
-- root launcher files remain as compatibility shims
+- root launcher compatibility shims have been removed
 - `ControllerFactory` lives in `controllers/factory.py`
 - root `controller.py` remains as a compatibility shim
 - `models/README.md` and `artifacts/benchmarks/README.md` document artifact ownership
 
 ## Goal
 
-Make the repository root easier to scan without breaking the current daily launch flow. The project is Windows-oriented and several `.bat` files are real user entry points, so root cleanup should happen in phases rather than one large move.
+Make the repository root easier to scan without breaking the current daily launch flow. The project is Windows-oriented and several `.bat` files are real user entry points; those entry points now live under `scripts/launch/`.
 
 ## Current Root Shape
 
@@ -23,7 +23,7 @@ The root currently mixes five kinds of things:
 
 | Kind | Examples | Notes |
 | --- | --- | --- |
-| User entry points | `gamepad_start.bat`, `mouse_start.bat`, `recoil_app_start.bat` | Useful in root because they are launched manually. |
+| User entry points | `scripts/launch/gamepad_start.bat`, `scripts/launch/mouse_start.bat`, `scripts/launch/recoil_app_start.bat` | Manual launchers are grouped under `scripts/launch/` instead of the repository root. |
 | Python entry and compatibility files | `main.py`, `controller.py`, `controllers/factory.py` | `main.py` is the unified launcher. `controllers/factory.py` owns the factory. `controller.py` is a compatibility shim. |
 | Source directories | `controllers/`, `vision/`, `recoil_app/`, `runtime/`, `config/`, `training/` | These are normal top-level package directories. |
 | Runtime and generated state | `config.toml`, `artifacts/`, `debug_captures/`, `native/vision_native/build/`, `.venv/`, `.worktrees/`, `__pycache__/` | Mostly ignored local state. Do not commit these. |
@@ -38,9 +38,6 @@ The root currently mixes five kinds of things:
 |-- requirements.txt
 |-- main.py
 |-- controller.py                  # temporary compatibility shim
-|-- gamepad_start.bat              # optional root shim during transition
-|-- mouse_start.bat                # optional root shim during transition
-|-- recoil_app_start.bat           # optional root shim during transition
 |-- config/
 |-- controllers/
 |-- docs/
@@ -65,7 +62,7 @@ The root currently mixes five kinds of things:
 `-- vision/
 ```
 
-The important choice is whether to keep root launcher shims. Keeping shims means the root is not perfectly minimal, but the user's muscle memory and docs stay stable. Removing shims makes the root cleaner but forces every launch command and test fixture to change at once.
+The root launcher shims have been removed. Current docs and tests should point directly at `scripts/launch/` paths.
 
 ## Cleanup Phases
 
@@ -89,15 +86,17 @@ These changes are low risk because they do not move runtime entry points:
 
 ### Phase 2: Launcher Consolidation
 
-Move the full launcher implementations under `scripts/launch/`, then decide whether root files are kept as small shims.
+Move the full launcher implementations under `scripts/launch/`, then remove the old root shims once docs and tests prefer the new paths.
 
 Recommended transition:
 
 1. Move full scripts into `scripts/launch/`.
-2. Keep root `gamepad_start.bat`, `mouse_start.bat`, and `recoil_app_start.bat` as shims that call the moved scripts.
-3. Move debug launchers into `scripts/launch/debug/`.
-4. Move `recoil_toolkit.bat` into `scripts/legacy/` or remove it after `tools.recoil_toolkit_console` is retired.
-5. Update docs and tests to prefer the `scripts/launch/` paths while accepting root shims during the transition.
+2. Move debug launchers into `scripts/launch/debug/`.
+3. Move `recoil_toolkit.bat` into `scripts/legacy/` as `scripts\legacy\recoil_toolkit.bat`.
+4. Remove root launcher shims.
+5. Update docs and tests to prefer the `scripts/launch/` paths.
+
+Status: complete as of 2026-05-30.
 
 ### Phase 3: Python Entry Cleanup
 

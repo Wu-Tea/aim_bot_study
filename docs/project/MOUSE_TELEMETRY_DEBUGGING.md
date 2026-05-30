@@ -8,7 +8,7 @@ moves in small steps, or gets stuck firing.
 Use the debug launcher from the repo root:
 
 ```bat
-mouse_native_debug.bat
+scripts\launch\debug\mouse_native_debug.bat
 ```
 
 The launcher does three things before and after the live run:

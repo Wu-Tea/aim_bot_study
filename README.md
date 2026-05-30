@@ -9,9 +9,9 @@ Windows-focused YOLO aim-assist study project with a hybrid runtime:
 ## Current status
 
 - `main.py` is the single launcher for all controller modes.
-- `gamepad_start.bat` currently defaults to `VISION_BACKEND=native`.
-- `gamepad_debug.bat` and `gamepad_native_debug.bat` expose native-gamepad debug entry points.
-- `mouse_start.bat` and `mouse_native_debug.bat` provide the native mouse-output path.
+- `scripts\launch\gamepad_start.bat` currently defaults to `VISION_BACKEND=native`.
+- `scripts\launch\debug\gamepad_debug.bat` and `scripts\launch\debug\gamepad_native_debug.bat` expose native-gamepad debug entry points.
+- `scripts\launch\mouse_start.bat` and `scripts\launch\debug\mouse_native_debug.bat` provide the native mouse-output path.
 - Native vision lives in `native/vision_native/` and is bridged back into Python through `vision/native_runner.py`.
 - The mouse path continues to evolve and is less settled than the main gamepad path.
 
@@ -64,15 +64,18 @@ Useful smoke and debug scripts:
 ## Startup scripts
 
 These scripts are the fastest way to use the project without remembering CLI flags.
-The root `.bat` files are compatibility shims; the full implementations live under `scripts/launch/`.
+Launcher implementations live under `scripts/launch/`; legacy/manual helpers live under `scripts/legacy/`.
+The old root `.bat` compatibility shims have been removed.
 
 | Script | Purpose | Current behavior |
 | --- | --- | --- |
-| `gamepad_start.bat` | Main gamepad runtime | Uses local `config.toml` runtime defaults when present, lets existing `VISION_*` env vars override them, and prompts for optional recoil/runtime choices and `RB` / `RT` CLI override |
-| `gamepad_debug.bat` | Gamepad debug runtime | Prompts for `RB` / `RT` and native vs Python backend, enables `--vision-debug --vision-debug-save`, defaults `VISION_CAPTURE_FPS=140` |
-| `gamepad_native_debug.bat` | Force native gamepad debug | Native-only debug entry with `--vision-debug`, defaults `VISION_CAPTURE_FPS=140` |
-| `mouse_start.bat` | Main native mouse runtime | Uses `--controller-mode mouse`, defaults to native backend, enables perf log, defaults `VISION_CAPTURE_FPS=140` |
-| `mouse_native_debug.bat` | Native mouse debug runtime | Mouse path with `--vision-debug --vision-debug-save`, defaults `VISION_CAPTURE_FPS=140` |
+| `scripts\launch\gamepad_start.bat` | Main gamepad runtime | Uses local `config.toml` runtime defaults when present, lets existing `VISION_*` env vars override them, and prompts for optional recoil/runtime choices and `RB` / `RT` CLI override |
+| `scripts\launch\debug\gamepad_debug.bat` | Gamepad debug runtime | Prompts for `RB` / `RT` and native vs Python backend, enables `--vision-debug --vision-debug-save`, defaults `VISION_CAPTURE_FPS=140` |
+| `scripts\launch\debug\gamepad_native_debug.bat` | Force native gamepad debug | Native-only debug entry with `--vision-debug`, defaults `VISION_CAPTURE_FPS=140` |
+| `scripts\launch\mouse_start.bat` | Main native mouse runtime | Uses `--controller-mode mouse`, defaults to native backend, enables perf log, defaults `VISION_CAPTURE_FPS=140` |
+| `scripts\launch\debug\mouse_native_debug.bat` | Native mouse debug runtime | Mouse path with `--vision-debug --vision-debug-save`, defaults `VISION_CAPTURE_FPS=140` |
+| `scripts\launch\recoil_app_start.bat` | Standalone recoil app | Recognition, recording, and status debugging entry point |
+| `scripts\legacy\recoil_toolkit.bat` | Legacy recoil helper | Older manual recoil workflows; prefer the recoil app for current testing |
 
 Equivalent direct CLI examples:
 

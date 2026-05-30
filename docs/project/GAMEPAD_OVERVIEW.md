@@ -147,7 +147,7 @@ Current behavior:
 Current source of that choice:
 
 - CLI: `--auto-fire-output`
-- `gamepad_start.bat` prompt
+- `scripts\launch\gamepad_start.bat` prompt
 - `config.toml` default under `[runtime.gamepad]`
 
 Freshness and manual takeover timing are configured under `[gamepad.auto_fire]`.
@@ -208,7 +208,7 @@ Use `docs/project/RECOIL_RECORD_REPLAY_VALIDATION.md` as the current checklist b
 Recommended paths:
 
 1. Standalone testing:
-   - `recoil_app_start.bat`
+   - `scripts\launch\recoil_app_start.bat`
    - or `python -m recoil_app --game cod22 --mode record`
    - or `python -m recoil_app --game cod22 --mode recoil`
 2. Main AI-aim runtime:
@@ -238,8 +238,8 @@ Runtime behavior in this direct-use path:
 
 - `record` mode never exposes compensation; it only learns and saves assets
 - `recoil` mode exposes loaded profiles to the gamepad recoil plugin when imported by the main gamepad runtime
-- standalone `recoil_app_start.bat` does not create or update a virtual gamepad; it is for recognition, recording, and status debugging
-- the main gamepad runtime refreshes the profile directory on lookup, so newly recorded profile files can be picked up without restarting `gamepad_start.bat`
+- standalone `scripts\launch\recoil_app_start.bat` does not create or update a virtual gamepad; it is for recognition, recording, and status debugging
+- the main gamepad runtime refreshes the profile directory on lookup, so newly recorded profile files can be picked up without restarting `scripts\launch\gamepad_start.bat`
 - repeated full-magazine recordings are kept as raw episodes under `artifacts/recoil_profiles/_episodes/`
 - the fitted profile exposed to runtime is a single `*-current.json` file per weapon, stance, and aim mode
 - recoil plots are written after each successful recording as final-profile trajectory images: `*.recoil.png` for measured recoil, `*.anti_recoil.png` for the inverse compensation path, and `*.timeline.png` for recoil and anti-recoil on one time axis
@@ -248,7 +248,7 @@ Runtime behavior in this direct-use path:
 - the recoil app writes the latest `current_weapon` JSON itself after successful `Y` recognition for observability
 - loaded weapon identities and profile records may stay indexed in memory, but `Y` switching always re-recognizes the current HUD weapon before selecting a profile
 - recoil may stay on fallback or no profile immediately after a switch until the new OCR capture confirms the current weapon
-- OCR defaults to CUDA through RapidOCR and `recoil_app_start.bat` sets `PYTHONNOUSERSITE=1` so a user-site CPU `onnxruntime` package does not shadow the project GPU package
+- OCR defaults to CUDA through RapidOCR and `scripts\launch\recoil_app_start.bat` sets `PYTHONNOUSERSITE=1` so a user-site CPU `onnxruntime` package does not shadow the project GPU package
 - set `RECOIL_OCR_PROVIDER=dml` for DirectML or `RECOIL_OCR_PROVIDER=cpu` for explicit CPU OCR; missing GPU providers no longer silently fall back to CPU unless `RECOIL_OCR_ALLOW_CPU_FALLBACK=1`
 - switch and learning capture prefer DXGI and only fall back to `PIL.ImageGrab`
 
@@ -256,19 +256,19 @@ Runtime behavior in this direct-use path:
 
 Current gamepad entry points:
 
-- `gamepad_start.bat`
+- `scripts\launch\gamepad_start.bat`
   - main gamepad runtime
   - prompts for auto-fire output: `RB` or `RT`
   - defaults to `VISION_BACKEND=native`
   - enables `VISION_PERF_LOG=1`
   - currently defaults `VISION_CAPTURE_FPS=140`
   - disables the old quit hotkey through `VISION_QUIT_KEY=0`
-- `gamepad_debug.bat`
+- `scripts\launch\debug\gamepad_debug.bat`
   - gamepad debug runtime
   - prompts for auto-fire output and backend choice
   - enables `--vision-debug --vision-debug-save`
   - defaults `VISION_CAPTURE_FPS=140`
-- `gamepad_native_debug.bat`
+- `scripts\launch\debug\gamepad_native_debug.bat`
   - native-only debug runtime
   - enables `--vision-debug`
   - defaults `VISION_CAPTURE_FPS=140`
@@ -278,9 +278,9 @@ The default production gamepad path is now the hybrid runtime:
 - native C++ for the hot vision loop
 - Python for the controller host, startup scripts, and debug wrapper logic
 
-`gamepad_start.bat` now has an opt-in recoil-runtime path:
+`scripts\launch\gamepad_start.bat` now has an opt-in recoil-runtime path:
 
-- launch `gamepad_start.bat` and choose `1. On` at the recoil-runtime prompt, or press Enter to use the default `On`
+- launch `scripts\launch\gamepad_start.bat` and choose `1. On` at the recoil-runtime prompt, or press Enter to use the default `On`
 - for non-interactive startup, set `ENABLE_RECOIL_RUNTIME=1`
 - optionally set:
   - `RECOIL_GAME`
@@ -288,12 +288,12 @@ The default production gamepad path is now the hybrid runtime:
   - `RECOIL_SIGNATURE_DIR` / `RECOIL_WEAPON_DIR`
   - `RECOIL_STATE_FILE`
   - `RECOIL_RECOGNIZER_FPS`
-- then launch `gamepad_start.bat` normally
+- then launch `scripts\launch\gamepad_start.bat` normally
 - choose `2. Off` or set `ENABLE_RECOIL_RUNTIME=0` for the plain gamepad runtime
 - when this path is enabled, the launcher sets `ENABLE_RECOIL_APP=1` and `RECOIL_APP_MODE=recoil` for the main gamepad process, so recoil_app is consumed in-process by the virtual gamepad runtime
-- the default identity directory is `artifacts/recoil_app/weapons`, matching identities created by `recoil_app_start.bat`
+- the default identity directory is `artifacts/recoil_app/weapons`, matching identities created by `scripts\launch\recoil_app_start.bat`
 
-`recoil_toolkit.bat` is a legacy/debug helper for older manual workflows. Prefer `recoil_app_start.bat` for current testing and `ENABLE_RECOIL_APP=1` for main gamepad integration.
+`scripts\legacy\recoil_toolkit.bat` is a legacy/debug helper for older manual workflows. Prefer `scripts\launch\recoil_app_start.bat` for current testing and `ENABLE_RECOIL_APP=1` for main gamepad integration.
 
 ## Legacy And Support Notes
 

@@ -151,20 +151,20 @@ Current `VisionConfig` defaults in `vision/runner.py`:
 
 Current startup-script behavior:
 
-- `gamepad_start.bat`
+- `scripts\launch\gamepad_start.bat`
   - uses `config.toml` runtime defaults
   - preserves existing `VISION_*` environment overrides
   - only adds an auto-fire CLI override when the user explicitly selects `RB` or `RT`
-- `gamepad_debug.bat`
+- `scripts\launch\debug\gamepad_debug.bat`
   - native by default, Python selectable
   - `VISION_CAPTURE_FPS=140`
-- `gamepad_native_debug.bat`
+- `scripts\launch\debug\gamepad_native_debug.bat`
   - native only
   - `VISION_CAPTURE_FPS=140`
-- `mouse_start.bat`
+- `scripts\launch\mouse_start.bat`
   - `VISION_BACKEND=native`
   - `VISION_CAPTURE_FPS=140`
-- `mouse_native_debug.bat`
+- `scripts\launch\debug\mouse_native_debug.bat`
   - native only
   - `VISION_CAPTURE_FPS=140`
 

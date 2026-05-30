@@ -6,7 +6,7 @@ Validate one weapon and one aim mode before trusting runtime compensation.
 
 ## Record
 
-1. Start `recoil_app_start.bat` in record mode.
+1. Start `scripts\launch\recoil_app_start.bat` in record mode.
 2. Confirm the current weapon with `Y`.
 3. Fire one full magazine at a static wall without touching the right stick.
 4. Repeat at least three times for the same weapon and aim mode.
@@ -34,7 +34,7 @@ Runtime trial playback is deliberately permissive: when the recognized weapon id
    ```
 
    Confirm the JSON reports the expected `profile_amount`, `profile_x_amount`, `profile_lead_ms`, `feedback_amount`, `calibrated`, and `right_x`/`right_y` curve.
-2. Start `gamepad_start.bat` with recoil runtime enabled.
+2. Start `scripts\launch\gamepad_start.bat` with recoil runtime enabled.
 3. Confirm startup logs show the selected profile. If logs show `uncalibrated`, treat the first replay as a strength/direction smoke test.
 4. Fire a magazine without touching the right stick.
 5. Record residual impact trail.

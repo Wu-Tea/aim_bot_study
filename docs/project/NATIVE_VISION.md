@@ -4,7 +4,7 @@ Last updated: 2026-05-18
 
 ## Current Status
 
-Native vision is currently the default `gamepad_start.bat` path, with the Python vision runner kept as a fallback.
+Native vision is currently the default `scripts\launch\gamepad_start.bat` path, with the Python vision runner kept as a fallback.
 
 The scaffold proves these things:
 
@@ -25,9 +25,9 @@ The scaffold proves these things:
 - a standalone `vision_native_debug` executable can run the live native loop and print result/perf fields
 - the debug loop now reports real `preprocess_ms`, `infer_ms`, and `boxes_seen` values from native inference
 - Python can now run `NativeVisionEngine` through `--vision-backend native` and hand native `VisionResult` values directly to the existing controller
-- `gamepad_native_debug.bat` starts the C++ vision + Python controller bridge with a synthetic debug window
+- `scripts\launch\debug\gamepad_native_debug.bat` starts the C++ vision + Python controller bridge with a synthetic debug window
 
-The default `gamepad_start.bat` path now uses native vision at `VISION_CAPTURE_FPS=140`. Runtime defaults come from the local project-root `config.toml` when that file exists, with existing environment variables still taking precedence. If `config.toml` is absent, code defaults are used. Python vision remains available through `--vision-backend python` or by setting `VISION_BACKEND=python` before launch.
+The default `scripts\launch\gamepad_start.bat` path now uses native vision at `VISION_CAPTURE_FPS=140`. Runtime defaults come from the local project-root `config.toml` when that file exists, with existing environment variables still taking precedence. If `config.toml` is absent, code defaults are used. Python vision remains available through `--vision-backend python` or by setting `VISION_BACKEND=python` before launch.
 
 ## Pipeline Status
 
@@ -289,7 +289,7 @@ Run it with:
 .\tools\run_native_vision_capture_smoke.ps1 -BuildFirst
 ```
 
-The capture smoke only proves that native C++ can produce `FramePacket(D3D11Texture + BGRA8)`. Phase 3A is the first checkpoint that feeds that ROI texture directly into native TensorRT preprocessing, but it is still not used by `gamepad_start.bat`.
+The capture smoke only proves that native C++ can produce `FramePacket(D3D11Texture + BGRA8)`. Phase 3A is the first checkpoint that feeds that ROI texture directly into native TensorRT preprocessing, but it is still not used by `scripts\launch\gamepad_start.bat`.
 
 Desktop Duplication can return access denied when run from a restricted shell or while another protected desktop state is active. If the smoke fails with `0x80070005`, rerun it from a normal desktop PowerShell session before treating it as a code regression.
 
@@ -301,7 +301,7 @@ The first native Phase 3 checkpoint was not a direct production switch. It estab
 - `VisionEngine` as the long-lived native runtime boundary
 - `vision_native_debug` as a standalone native verification program
 
-The debug program is part of the migration plan, not an optional extra. It exists to validate native capture, inference, targeting, and perf accounting before and after `gamepad_start.bat` defaults to the native backend.
+The debug program is part of the migration plan, not an optional extra. It exists to validate native capture, inference, targeting, and perf accounting before and after `scripts\launch\gamepad_start.bat` defaults to the native backend.
 
 That foundation milestone is now complete. The follow-on checkpoint is Phase 3A: native capture-to-inference wiring.
 
@@ -344,7 +344,7 @@ The current native slice includes:
 
 Current limitation:
 
-- default production `gamepad_start.bat` now uses the native vision runtime
+- default production `scripts\launch\gamepad_start.bat` now uses the native vision runtime
 - synthetic parity is covered by `tests/test_native_vision_synthetic_parity.py`, but recorded gameplay parity and performance validation have not been completed yet
 - the current live-engine implementation downloads the full `640x512` BGRA ROI to host memory once detections exist, then runs CPU HSV classification; this is acceptable for parity work but is not the final low-latency form
 
@@ -378,7 +378,7 @@ Phase 4 must not start until the native debug harness can prove all of the follo
 - the native output is comparable against the Python baseline for the same scenarios
 - cold-start and steady-state behavior are both understood
 
-That checkpoint has been reached far enough for `gamepad_start.bat` to load native vision by default, while keeping the Python path available as a fallback.
+That checkpoint has been reached far enough for `scripts\launch\gamepad_start.bat` to load native vision by default, while keeping the Python path available as a fallback.
 
 ## Phase 3 Foundation Debug
 
@@ -395,16 +395,16 @@ The current output proves the `VisionEngine -> VisionResult` boundary, live ROI 
 Run the C++ vision + Python controller bridge with:
 
 ```powershell
-.\gamepad_native_debug.bat
+.\scripts\launch\debug\gamepad_native_debug.bat
 ```
 
 The normal debug script also exposes the same native path and defaults to it:
 
 ```powershell
-.\gamepad_debug.bat
+.\scripts\launch\debug\gamepad_debug.bat
 ```
 
-`gamepad_start.bat`, `gamepad_debug.bat`, and `gamepad_native_debug.bat` default to `VISION_CAPTURE_FPS=140` unless the environment variable is already set.
+`scripts\launch\gamepad_start.bat`, `scripts\launch\debug\gamepad_debug.bat`, and `scripts\launch\debug\gamepad_native_debug.bat` default to `VISION_CAPTURE_FPS=140` unless the environment variable is already set.
 
 The gamepad scripts also default `VISION_QUIT_KEY=0`. This disables the old keyboard quit hotkey, which could otherwise stop the process during gameplay if the game or user input touched the same key.
 

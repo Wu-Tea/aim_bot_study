@@ -202,7 +202,7 @@ This path is intentionally additive. It does not try to replace or intercept the
 
 ## Startup
 
-`mouse_start.bat` currently:
+`scripts\launch\mouse_start.bat` currently:
 
 - enables `VISION_PERF_LOG=1`
 - defaults `VISION_BACKEND=native`
@@ -211,9 +211,9 @@ This path is intentionally additive. It does not try to replace or intercept the
 - defaults `MOUSE_INJECTION_BACKEND=sendinput`
 - launches `main.py --controller-mode mouse --vision-backend native --perf-log`
 
-`mouse_native_debug.bat` currently:
+`scripts\launch\debug\mouse_native_debug.bat` currently:
 
-- enables the same native defaults as `mouse_start.bat`
+- enables the same native defaults as `scripts\launch\mouse_start.bat`
 - enables `MOUSE_TELEMETRY=1`
 - probes mouse injection before launching unless `MOUSE_PROBE_INPUT=0`
 - writes a run-specific CSV under `artifacts\mouse_telemetry\`
