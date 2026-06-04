@@ -380,7 +380,7 @@ class TargetSelectorTests(unittest.TestCase):
         self.assertLess(slow_top, selector.screen_center_y)
         self.assertGreater(slow_bottom, selector.screen_center_y)
         self.assertAlmostEqual(selected.target_x, 320.0, places=3)
-        expected_target_y = box[1] + ((box[3] - box[1]) * selector.UPPER_CHEST_RATIO)
+        expected_target_y = box[1] + ((box[3] - box[1]) * 0.40)
         self.assertAlmostEqual(selected.target_y, expected_target_y, places=3)
 
     def test_crouched_box_uses_middle_upper_body_target_point(self):
@@ -392,7 +392,7 @@ class TargetSelectorTests(unittest.TestCase):
 
         self.assertIsNotNone(selected)
         self.assertAlmostEqual(selected.target_x, 320.0, places=3)
-        expected_target_y = box[1] + ((box[3] - box[1]) * selector.CROUCHED_TARGET_RATIO)
+        expected_target_y = box[1] + ((box[3] - box[1]) * 0.40)
         self.assertAlmostEqual(selected.target_y, expected_target_y, places=3)
 
     def test_wide_low_prone_or_side_box_can_lock_with_lower_body_target_point(self):

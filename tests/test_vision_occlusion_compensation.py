@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from vision.occlusion_compensation import TargetOcclusionCompensator, TargetSource
 
 
-UPPER_CHEST_RATIO = 0.43
+UPPER_CHEST_RATIO = 0.40
 
 
 @dataclass(slots=True, frozen=True)

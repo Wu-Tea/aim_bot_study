@@ -635,7 +635,7 @@ def _controller_target_for_state(
         return None
     aim_point_x = 320.0 + error_x
     aim_point_y = 256.0 + error_y
-    body_top = aim_point_y - (180.0 * 0.43)
+    body_top = aim_point_y - (180.0 * 0.40)
     return ControllerTarget(
         aim_point_x=aim_point_x,
         aim_point_y=aim_point_y,

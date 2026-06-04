@@ -884,7 +884,7 @@ class AIAimPluginTests(unittest.TestCase):
             ),
         )
 
-        self.assertEqual(plugin._upper_body_point(frame), (320.0, 206.0))
+        self.assertEqual(plugin._upper_body_point(frame), (320.0, 200.0))
 
     def test_weak_association_uses_lighter_body_lock_force(self):
         config = AIAimConfig(
@@ -1030,7 +1030,7 @@ class AIAimPluginTests(unittest.TestCase):
             target=_target(
                 aim_point_x=330.0,
                 aim_point_y=253.5,
-                body_box=(290.0, 176.1, 370.0, 356.1),
+                body_box=(290.0, 181.5, 370.0, 361.5),
             ),
         )
         output = _output(frame)
@@ -1059,7 +1059,7 @@ class AIAimPluginTests(unittest.TestCase):
             target=_target(
                 aim_point_x=330.0,
                 aim_point_y=252.0,
-                body_box=(290.0, 174.6, 370.0, 354.6),
+                body_box=(290.0, 180.0, 370.0, 360.0),
             ),
         )
         first_output = _output(frame)
@@ -1074,7 +1074,7 @@ class AIAimPluginTests(unittest.TestCase):
             target=_target(
                 aim_point_x=330.0,
                 aim_point_y=252.0,
-                body_box=(290.0, 174.6, 370.0, 354.6),
+                body_box=(290.0, 180.0, 370.0, 360.0),
             ),
         )
         second_output = _output(follow_up)

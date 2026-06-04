@@ -64,7 +64,7 @@ class AIAimConfig:
     body_lock_lateral_motion_lead_window_px: float = 8.0
     body_lock_lateral_motion_lead_max_px: float = 7.0
     body_lock_lateral_motion_tail_scale: float = 0.65
-    body_lock_upper_body_ratio: float = 0.43
+    body_lock_upper_body_ratio: float = 0.40
     body_lock_lead_frames: int = 5
     body_lock_lead_seconds: float = 0.0
     body_lock_vertical_lead_scale: float = 0.95
