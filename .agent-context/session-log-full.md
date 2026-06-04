@@ -1396,3 +1396,39 @@ Follow-up:
 - Treat the committed version as the current live baseline.
 - If the assist feels too strong over longer sessions, tune `weak_target_body_lock_force_scale`, `cue_hold_body_lock_force_scale`, native weak association gates, or `body_lock_upper_body_ratio` rather than changing the architecture first.
 - Add richer replay/benchmark logging before the next major controller/targeting redesign.
+
+## 2026-06-04T23:42:57+08:00 - Recoil despike and aim-assist dynamics direction accepted
+
+Goal: record the next controller-feel direction after the native targeting and gamepad assist baseline became strong enough that live feel issues shifted toward smoothness.
+
+User feedback:
+- The user first observed that stronger vision and `ai_aim` can make camera control feel too sharp or non-human.
+- The user then clarified that the main practical issue appears on weapons with recoil enabled: the camera becomes shaky.
+- The user emphasized that recoil parameters have already been tuned for a long time, so the fix should not change overall recoil feel. The desired change is to remove curve spikes or recording noise from recoil playback.
+- The user accepted the simplified two-part direction and asked to record it.
+
+Important local facts:
+- `RecoilCompensationPlugin` currently turns a cumulative recoil profile into per-frame output by subtracting adjacent samples, then mapping that delta into stick output. This can amplify a single noisy sample into a visible camera jerk.
+- The gamepad controller is plugin-list based: each plugin mutates the same `GamepadOutput` in order. Therefore, placing a smoothing layer after recoil would also smooth tuned recoil and manual input, while placing it immediately after `AIAimPlugin` can smooth only AI assist.
+
+Accepted direction:
+- Recoil: do a conservative despike pass when a recoil profile is read or activated. Build an in-memory playback cache from incremental deltas; repair only obvious local spikes; do not overwrite original recoil files; avoid broad low-pass smoothing that changes the whole weapon curve.
+- Aim assist: add an `AimAssistDynamicsPlugin` after `AIAimPlugin` and before recoil playback. It should compute raw assist as `output.right_stick - frame.manual_right_stick`, smooth that assist delta, then write `manual + smoothed_assist` back to output. Manual input must remain immediate, and recoil output must remain outside this dynamics layer.
+
+Rejected directions:
+- Do not add a state-heavy recoil-aware branch inside `AIAimPlugin` as the first pass; it couples aim, fire, and recoil state when the current goal is simpler output shaping.
+- Do not smooth final gamepad output after all plugins; that would delay manual input and alter tuned recoil.
+- Do not globally low-pass recoil curves; it risks changing weapon timing and compensation strength.
+- Do not rewrite recoil profile files during smoothing; raw recordings should remain available.
+
+Suggested verification for implementation:
+- Non-spiky recoil curves remain unchanged or nearly unchanged.
+- Single-frame recoil delta spikes are reduced.
+- Final cumulative recoil stays close to the original curve.
+- Turning despike off restores exact old recoil playback.
+- Pure manual input is unchanged by assist dynamics.
+- Sudden AI assist changes ramp instead of jumping, and assist release does not hard-stop.
+- Recoil output is not smoothed by `AimAssistDynamicsPlugin`.
+
+Decision recorded:
+- `decisions/DEC-2026-06-04-001-recoil-despike-and-assist-dynamics.md`.

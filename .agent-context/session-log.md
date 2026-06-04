@@ -1,6 +1,6 @@
 # Agent Session Log Index
 
-Last updated: 2026-05-30T17:43:18+08:00
+Last updated: 2026-06-04T23:42:57+08:00
 Updated by: Codex
 Purpose: quick navigation for project continuity. The complete historical log is preserved in `session-log-full.md`.
 
@@ -13,6 +13,11 @@ Purpose: quick navigation for project continuity. The complete historical log is
 
 ## Current Active Thread
 
+- 2026-06-04T23:42:57+08:00 - Accepted next controller-feel direction: recoil despike plus aim-assist dynamics.
+  - User clarified that the shaky feel mainly appears on weapons with recoil enabled, and that current recoil parameters were tuned carefully; the goal is to remove curve spikes/micro-jitter without changing overall recoil strength, timing, or feel.
+  - Accepted direction: at recoil profile read/activation time, generate a conservative despiked playback cache from profile deltas. Do not overwrite original recoil files, and do not apply broad low-pass smoothing that would soften the whole weapon curve.
+  - Accepted direction: add an `AimAssistDynamicsPlugin` in the plugin list after `AIAimPlugin` and before recoil playback. It should smooth only AI assist delta (`output.right_stick - frame.manual_right_stick`) so manual input remains immediate and recoil output is not delayed.
+  - Decision recorded: `decisions/DEC-2026-06-04-001-recoil-despike-and-assist-dynamics.md`.
 - 2026-05-30T17:43:18+08:00 - Live-tested targeting/controller upgrade checkpointed as a version.
   - User live-tested the current weak-association/source-aware controller changes and reported the effect felt very strong, possibly too strong, but good enough to commit as a version.
   - Search path recorded: high-FPS detection was insufficient in practice; `deep-research-report (14).md` pointed toward detector-led short-horizon continuity; subagents split native selector, controller motion/projection, and contract/safety; GitHub/open-source comparison showed most FPS YOLO projects stay shallower; final direction became active-only weak association plus explicit target authority.
@@ -45,16 +50,11 @@ Purpose: quick navigation for project continuity. The complete historical log is
 
 ## Current Follow-Up
 
-- Treat the committed targeting/controller upgrade as the current live baseline.
-- Live follow-up focus:
-  - whether weak/cue continuation feels too strong or sticky over longer sessions
-  - whether single-shot auto-fire settling feels delayed or conservative
-  - whether `body_lock_upper_body_ratio = 0.43` remains the preferred chest point
-- If tuning is needed, start with:
-  - `[gamepad.ai_aim].weak_target_body_lock_force_scale`
-  - `[gamepad.ai_aim].cue_hold_body_lock_force_scale`
-  - native weak association confidence and geometry gates
-  - `[gamepad.ai_aim].body_lock_upper_body_ratio`
+- Treat the committed native targeting/controller upgrade as the current live baseline; current target point is `body_lock_upper_body_ratio = 0.40`.
+- Next implementation focus:
+  - recoil playback despike at profile read/activation time, preserving tuned recoil feel
+  - `AimAssistDynamicsPlugin` after `AIAimPlugin`, smoothing only AI assist delta and not manual input or recoil
+- If targeting feels too strong later, tune weak/cue force scales and native weak association gates separately from recoil/assist smoothing.
 - Longer next step after this commit: add richer replay/benchmark logging for source/tier, weak gate counts, cue age/score, fire request vs gate result, and controller final output.
 
 ## Full Archive Map

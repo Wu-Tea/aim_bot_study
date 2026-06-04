@@ -1,22 +1,23 @@
 # Agent Handoff
 
-Last updated: 2026-05-30T17:43:18+08:00
+Last updated: 2026-06-04T23:42:57+08:00
 Updated by: Codex
-Active scope: COD/FPS native targeting and gamepad aim assist version checkpoint.
-Staleness: stale after a new detector/model baseline, another targeting/controller contract change, or live evidence that weak/cue continuation feels sticky or overpowered.
+Active scope: COD/FPS native targeting, gamepad aim assist feel, and recoil playback smoothing.
+Staleness: stale after recoil/aim dynamics implementation, a new detector/model baseline, another targeting/controller contract change, or live evidence that assist/recoil smoothing hurts weapon feel.
 
 ## Current Objective
 
-Checkpoint the live-tested native YOLO single-target stability upgrade: short visual loss, firing/weapon occlusion, and side-running should be smoother while weak, cue-only, or predicted targets still cannot become fire authority.
+Prepare the next controller-feel iteration on top of the live-tested native YOLO single-target baseline: remove recoil profile curve spikes without changing tuned weapon feel, and make AI aim assist output smoother without delaying user manual input.
 
 ## Current State
 
 - Branch: `dev` in `D:\work\AI\yolo-study-001`.
 - Baseline before this version: `a196f92 Improve gamepad body-lock lateral hold`.
-- This handoff is part of the commit that checkpoints the targeting/controller upgrade after user live testing.
+- Recent commits include `cf0c11c Tune target lock ratio to chest` and `94cdc1a Remove bundled official YOLO artifacts`.
 - The system uses native YOLO/TensorRT person detection, native target selection, Python runner handoff, and gamepad controller-side projection.
 - User-provided report `D:/Downloads/deep-research-report (14).md` and subagent synthesis led to the accepted direction in `decisions/DEC-2026-05-29-001-single-target-weak-association-authority-gating.md`.
 - User live feedback on 2026-05-30: the change feels very strong, possibly "a bit too strong"; acceptable to checkpoint as a version.
+- User follow-up on 2026-06-04: some weapons with recoil enabled make the camera feel shaky; recoil parameters were tuned carefully, so do not change overall recoil feel. Accepted next direction is in `decisions/DEC-2026-06-04-001-recoil-despike-and-assist-dynamics.md`.
 
 ## Implemented In This Version
 
@@ -45,7 +46,7 @@ Checkpoint the live-tested native YOLO single-target stability upgrade: short vi
   - weak association cannot trigger ADS snap
   - weak/cue body-lock uses lighter force scales
   - predicted/no-authority targets stay manual
-- Adjusted default body-lock/selector aim point from head-biased `0.38` to chest-biased `0.43` after live feedback that `0.50` was too low.
+- Adjusted default body-lock/selector aim point from head-biased `0.38` to chest-biased `0.43`, then to `0.40` after live feedback that `0.43` was slightly too low.
 - Added config knobs:
   - `[gamepad.ai_aim].weak_target_body_lock_force_scale`
   - `[gamepad.ai_aim].cue_hold_body_lock_force_scale`
@@ -74,13 +75,10 @@ Checkpoint the live-tested native YOLO single-target stability upgrade: short vi
 
 ## Recommended Next Actions
 
-1. Treat this version as the current gameplay baseline after commit.
-2. If live feel is too strong or sticky, tune conservatively:
-   - `weak_target_body_lock_force_scale`
-   - `cue_hold_body_lock_force_scale`
-   - native weak association gates around confidence/distance
-   - `body_lock_upper_body_ratio` around `0.41` to `0.44`
-3. Longer next step: add replay/benchmark logs for source/tier, weak gate counts, cue age/score, fire request vs gate result, and controller final output.
+1. Treat the native YOLO/authority-gated targeting version as the current gameplay baseline.
+2. Implement recoil profile despike at profile read/activation time: generate a playback cache that removes obvious local delta spikes without overwriting original recoil records or changing total recoil feel.
+3. Implement an `AimAssistDynamicsPlugin` after `AIAimPlugin` and before recoil playback: smooth only `output.right_stick - frame.manual_right_stick`, leaving manual input and recoil output untouched.
+4. Longer next step: add replay/benchmark logs for source/tier, weak gate counts, cue age/score, fire request vs gate result, controller final output, and assist/recoil output deltas.
 
 ## Do Not Do Without New Evidence
 
@@ -88,6 +86,8 @@ Checkpoint the live-tested native YOLO single-target stability upgrade: short vi
 - Do not allow cue-only, weak-only, or predicted-only targets to birth a controller-trusted target or trigger auto-fire.
 - Do not lower the detector threshold globally and feed all low-score boxes through normal birth/switch selection.
 - Do not move the controller hot path to C++ before timing logs show Python/native communication is the bottleneck.
+- Do not smooth final gamepad output after recoil; that would also change tuned recoil and manual feel.
+- Do not globally low-pass recoil curves unless live evidence shows conservative despike is insufficient.
 - Do not revert unrelated user or generated worktree changes.
 - For training/data jobs, avoid heavy writes to `C:` and avoid RAM-backed modes unless the user explicitly approves.
 
@@ -98,3 +98,4 @@ Checkpoint the live-tested native YOLO single-target stability upgrade: short vi
 - `decisions/DEC-2026-05-05-001-add-external-yellow-cue-input-and-sidecar-fallback.md`
 - `decisions/DEC-2026-05-05-002-scope-active-vision-work-to-native.md`
 - `decisions/DEC-2026-05-29-001-single-target-weak-association-authority-gating.md`
+- `decisions/DEC-2026-06-04-001-recoil-despike-and-assist-dynamics.md`
