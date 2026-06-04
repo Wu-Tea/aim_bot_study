@@ -77,6 +77,12 @@ def _parse_args(argv=None):
     parser.add_argument("--lrf", type=float, default=None, help="Final learning-rate fraction. Omit to use default.")
     parser.add_argument("--cos-lr", action="store_true", help="Use cosine learning-rate schedule.")
     parser.add_argument("--patience", type=int, default=100, help="Early-stopping patience.")
+    parser.add_argument(
+        "--freeze",
+        type=int,
+        default=0,
+        help="Freeze the first N model layers during fine-tuning. 0 leaves all layers trainable.",
+    )
     return parser.parse_args(argv)
 
 
@@ -112,6 +118,7 @@ def main(argv=None):
         "optimizer": args.optimizer,
         "cos_lr": args.cos_lr,
         "patience": args.patience,
+        "freeze": args.freeze,
         "degrees": 0.0,
         "shear": 0.0,
         "perspective": 0.0,

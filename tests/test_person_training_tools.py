@@ -1,3 +1,4 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -161,6 +162,42 @@ class TrainingScriptImportTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, msg=result.stderr)
         self.assertIn("Validate a one-class person detector", result.stdout)
+
+    def test_prepare_roboflow_visible_body_script_imports_without_package_errors(self):
+        repo_root = Path(__file__).resolve().parent.parent
+
+        result = subprocess.run(
+            [sys.executable, str(repo_root / "tools" / "prepare_roboflow_visible_body_dataset.py"), "--help"],
+            capture_output=True,
+            text=True,
+            cwd=repo_root,
+        )
+
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn("Prepare a disk-backed one-class visible-body dataset", result.stdout)
+
+    def test_export_trt_script_imports_from_tools_working_directory(self):
+        repo_root = Path(__file__).resolve().parent.parent
+        script_path = repo_root / "tools" / "export_trt.py"
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env = dict(os.environ)
+            env["YOLO_CONFIG_DIR"] = str(Path(tmpdir) / "ultralytics")
+            snippet = (
+                "import runpy\n"
+                f"runpy.run_path({str(script_path)!r}, run_name='not_main')\n"
+                "print('export_trt imported')\n"
+            )
+            result = subprocess.run(
+                [sys.executable, "-c", snippet],
+                capture_output=True,
+                text=True,
+                cwd=repo_root / "tools",
+                env=env,
+            )
+
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn("export_trt imported", result.stdout)
 
     def test_loop_script_can_dry_run_without_starting_training(self):
         repo_root = Path(__file__).resolve().parent.parent
