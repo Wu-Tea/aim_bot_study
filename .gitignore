@@ -1,6 +1,7 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.cache/
 .mypy_cache/
 .ruff_cache/
 .tmp*/
@@ -22,5 +23,6 @@ artifacts/recoil_profiles/
 artifacts/recoil_plots/
 artifacts/mouse_telemetry/
 artifacts/video_debug/
+Ultralytics/
 .worktrees/
 native/vision_native/build/
