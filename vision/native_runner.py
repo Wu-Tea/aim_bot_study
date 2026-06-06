@@ -556,6 +556,44 @@ def _elapsed_ms(start: float | None, end: float | None) -> float | None:
     return max(0.0, (float(end) - float(start)) * 1000.0)
 
 
+def _optional_float(result: dict, key: str) -> float | None:
+    value = result.get(key)
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _target_box_perf_kwargs(result: dict, capture_width: int, capture_height: int) -> dict:
+    if not bool(result.get("has_body_box")):
+        return {}
+
+    x1 = _optional_float(result, "body_x1")
+    y1 = _optional_float(result, "body_y1")
+    x2 = _optional_float(result, "body_x2")
+    y2 = _optional_float(result, "body_y2")
+    if x1 is None or y1 is None or x2 is None or y2 is None:
+        return {}
+
+    box_width = max(0.0, x2 - x1)
+    box_height = max(0.0, y2 - y1)
+    if box_width <= 0.0 or box_height <= 0.0:
+        return {}
+
+    width = float(capture_width)
+    height = float(capture_height)
+    edge_margin = min(x1, y1, width - x2, height - y2)
+    return {
+        "target_box_width_px": box_width,
+        "target_box_height_px": box_height,
+        "target_edge_margin_px": edge_margin,
+        "capture_width_px": width,
+        "capture_height_px": height,
+    }
+
+
 def _quit_requested(config: VisionConfig) -> bool:
     if config.quit_key_vk <= 0:
         return False
@@ -641,7 +679,13 @@ def process_native_vision(controller=None, cue_provider=None):
                 engine.set_aiming(True)
             was_aiming = True
 
-            _apply_external_cue(engine, resolved_cue_provider)
+            external_cue_ms = None
+            if resolved_cue_provider is not None:
+                cue_start = time.perf_counter()
+                _apply_external_cue(engine, resolved_cue_provider)
+                external_cue_ms = _elapsed_ms(cue_start, time.perf_counter())
+            else:
+                _apply_external_cue(engine, resolved_cue_provider)
             result = engine.poll_once()
             result_received_at = time.perf_counter()
             has_target = bool(result.get("has_target"))
@@ -720,6 +764,18 @@ def process_native_vision(controller=None, cue_provider=None):
                 source_age_ms=source_age_ms,
                 native_pipeline_ms=float(result.get("age_ms", 0.0)),
                 python_handoff_ms=python_handoff_ms,
+                native_capture_acquire_ms=_optional_float(result, "capture_acquire_ms"),
+                native_capture_copy_ms=_optional_float(result, "capture_copy_ms"),
+                native_cuda_map_ms=_optional_float(result, "cuda_map_ms"),
+                native_output_copy_sync_ms=_optional_float(result, "output_copy_sync_ms"),
+                native_gpu_total_ms=_optional_float(result, "gpu_total_ms"),
+                native_output_copy_ms=_optional_float(result, "output_copy_ms"),
+                native_output_wait_ms=_optional_float(result, "output_wait_ms"),
+                native_decode_ms=_optional_float(result, "decode_ms"),
+                native_selector_ms=_optional_float(result, "selector_ms"),
+                native_enhance_ms=_optional_float(result, "enhance_ms"),
+                native_cuda_unmap_ms=_optional_float(result, "cuda_unmap_ms"),
+                external_cue_ms=external_cue_ms,
                 target_source=_native_text(result, "target_source"),
                 target_tier=_native_target_tier(result),
                 aim_authority=_native_aim_authority(result),
@@ -727,6 +783,7 @@ def process_native_vision(controller=None, cue_provider=None):
                 has_external_cue=bool(result.get("has_external_cue")),
                 native_auto_fire_requested=native_auto_fire_requested,
                 auto_fire_active=auto_fire_active,
+                **_target_box_perf_kwargs(result, config.capture_width, config.capture_height),
                 **controller_timing_kwargs,
             )
 

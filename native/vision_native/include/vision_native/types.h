@@ -55,6 +55,10 @@ struct DetectionBatch {
     std::vector<Detection> detections;
     float preprocess_ms = 0.0f;
     float infer_ms = 0.0f;
+    float output_copy_sync_ms = 0.0f;
+    float gpu_total_ms = 0.0f;
+    float output_copy_ms = 0.0f;
+    float output_wait_ms = 0.0f;
     float decode_ms = 0.0f;
 };
 
@@ -63,6 +67,7 @@ struct VisionResult {
     uint64_t captured_at_ns = 0;
     uint64_t inferred_at_ns = 0;
     uint64_t result_at_ns = 0;
+    bool frame_updated = false;
 
     bool has_target = false;
     bool auto_fire = false;
@@ -92,9 +97,20 @@ struct VisionResult {
     float external_cue_score = 0.0f;
 
     float wait_ms = 0.0f;
+    float capture_acquire_ms = 0.0f;
+    float capture_copy_ms = 0.0f;
+    float cuda_map_ms = 0.0f;
     float preprocess_ms = 0.0f;
     float color_copy_ms = 0.0f;
     float infer_ms = 0.0f;
+    float output_copy_sync_ms = 0.0f;
+    float gpu_total_ms = 0.0f;
+    float output_copy_ms = 0.0f;
+    float output_wait_ms = 0.0f;
+    float decode_ms = 0.0f;
+    float selector_ms = 0.0f;
+    float enhance_ms = 0.0f;
+    float cuda_unmap_ms = 0.0f;
     float post_ms = 0.0f;
     float age_ms = 0.0f;
     float boxes_seen = 0.0f;

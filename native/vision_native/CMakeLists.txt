@@ -12,6 +12,10 @@ if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
     set(CMAKE_CUDA_ARCHITECTURES 89)
 endif()
 
+option(NATIVE_ENABLE_VIGEM "Enable ViGEmClient output for cod_native_runtime" OFF)
+set(ViGEmClient_DLL "" CACHE FILEPATH "Path to ViGEmClient.dll copied beside cod_native_runtime")
+set(SDL2_DLL "" CACHE FILEPATH "Path to SDL2.dll copied beside cod_native_runtime")
+
 set(TensorRT_ROOT "" CACHE PATH "Path to the TensorRT Windows SDK root")
 
 if(NOT TensorRT_ROOT)
@@ -21,6 +25,28 @@ if(NOT TensorRT_ROOT)
         set(TensorRT_ROOT "$ENV{TENSORRT_ROOT}")
     else()
         set(TensorRT_ROOT "D:/env/TensorRT-10.15.1.29")
+    endif()
+endif()
+
+if(NOT ViGEmClient_DLL)
+    if(DEFINED ENV{VIGEM_CLIENT_DLL})
+        set(ViGEmClient_DLL "$ENV{VIGEM_CLIENT_DLL}" CACHE FILEPATH "Path to ViGEmClient.dll" FORCE)
+    else()
+        set(_default_vigem_client_dll "D:/env/python/Lib/site-packages/vgamepad/win/vigem/client/x64/ViGEmClient.dll")
+        if(EXISTS "${_default_vigem_client_dll}")
+            set(ViGEmClient_DLL "${_default_vigem_client_dll}" CACHE FILEPATH "Path to ViGEmClient.dll" FORCE)
+        endif()
+    endif()
+endif()
+
+if(NOT SDL2_DLL)
+    if(DEFINED ENV{SDL2_DLL})
+        set(SDL2_DLL "$ENV{SDL2_DLL}" CACHE FILEPATH "Path to SDL2.dll" FORCE)
+    else()
+        set(_default_sdl2_dll "D:/env/python/Lib/site-packages/pygame/SDL2.dll")
+        if(EXISTS "${_default_sdl2_dll}")
+            set(SDL2_DLL "${_default_sdl2_dll}" CACHE FILEPATH "Path to SDL2.dll" FORCE)
+        endif()
     endif()
 endif()
 
@@ -97,6 +123,97 @@ add_executable(vision_native_debug
 
 target_link_libraries(vision_native_debug PRIVATE vision_native_core)
 
+# Native runtime source layout: native/runtime_app and native/controller_native.
+add_executable(cod_native_runtime
+    ../runtime_app/main.cpp
+    ../runtime_app/runtime_loop.cpp
+    ../runtime_app/perf_logger.cpp
+    ../runtime_app/downward_diagnostics.cpp
+    ../controller_native/runtime_config.cpp
+    ../controller_native/target_tracker.cpp
+    ../controller_native/ai_aim.cpp
+    ../controller_native/aim_assist_dynamics.cpp
+    ../controller_native/recoil_profile.cpp
+    ../controller_native/recoil_calibration.cpp
+    ../controller_native/recoil_compensation.cpp
+    ../controller_native/weapon_recognizer.cpp
+    ../controller_native/native_gamepad_controller.cpp
+    ../controller_native/virtual_gamepad.cpp
+    ../controller_native/xinput_reader.cpp
+    ../controller_native/sdl_gamepad_reader.cpp
+)
+
+target_include_directories(cod_native_runtime PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
+target_compile_definitions(cod_native_runtime
+    PRIVATE
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
+        $<$<BOOL:${NATIVE_ENABLE_VIGEM}>:NATIVE_ENABLE_VIGEM>
+)
+
+target_link_libraries(cod_native_runtime PRIVATE
+    vision_native_core
+    d3d11
+    dxgi
+    xinput
+    gdi32
+    windowsapp
+)
+
+if(ViGEmClient_DLL AND EXISTS "${ViGEmClient_DLL}")
+    add_custom_command(TARGET cod_native_runtime POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${ViGEmClient_DLL}"
+            "$<TARGET_FILE_DIR:cod_native_runtime>/ViGEmClient.dll"
+        VERBATIM
+    )
+else()
+    message(WARNING "ViGEmClient.dll not found; cod_native_runtime will fall back to logging output unless VIGEM_CLIENT_DLL is set at runtime.")
+endif()
+
+if(SDL2_DLL AND EXISTS "${SDL2_DLL}")
+    add_custom_command(TARGET cod_native_runtime POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${SDL2_DLL}"
+            "$<TARGET_FILE_DIR:cod_native_runtime>/SDL2.dll"
+        VERBATIM
+    )
+else()
+    message(WARNING "SDL2.dll not found; cod_native_runtime will fall back to XInput unless SDL2_DLL is set at runtime.")
+endif()
+
+add_executable(cod_native_controller_tests
+    ../controller_native/controller_behavior_tests.cpp
+    ../controller_native/target_tracker.cpp
+    ../controller_native/ai_aim.cpp
+    ../controller_native/aim_assist_dynamics.cpp
+    ../controller_native/recoil_profile.cpp
+    ../controller_native/recoil_calibration.cpp
+    ../controller_native/recoil_compensation.cpp
+    ../controller_native/weapon_recognizer.cpp
+    ../controller_native/native_gamepad_controller.cpp
+)
+
+target_include_directories(cod_native_controller_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
+target_compile_definitions(cod_native_controller_tests
+    PRIVATE
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
+)
+
+target_link_libraries(cod_native_controller_tests PRIVATE
+    gdi32
+    windowsapp
+)
+
 pybind11_add_module(vision_native_cpp
     src/vision_native_module.cpp
 )
@@ -112,7 +229,7 @@ set(_runtime_dlls
     nvinfer_plugin_10.dll
 )
 
-foreach(_target vision_native_smoke vision_native_debug vision_native_cpp)
+foreach(_target vision_native_smoke vision_native_debug cod_native_runtime vision_native_cpp)
     foreach(_dll IN LISTS _runtime_dlls)
         add_custom_command(TARGET ${_target} POST_BUILD
             COMMAND "${CMAKE_COMMAND}" -E copy_if_different

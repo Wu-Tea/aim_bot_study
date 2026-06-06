@@ -12,9 +12,11 @@ This folder mixes current architecture notes, benchmark records, work snapshots,
    - latest project snapshot and recent changes
 4. `NATIVE_VISION.md`
    - native vision build, runtime, bridge, and validation notes
-5. `CONTROLLER_OVERVIEW.md`
+5. `NATIVE_CPP_RUNTIME.md`
+   - gamepad C++ live runtime launch, validation, fallback, and acceptance checklist
+6. `CONTROLLER_OVERVIEW.md`
    - controller boundaries and supported runtime modes
-6. `VISION_OVERVIEW.md`
+7. `VISION_OVERVIEW.md`
    - Python backend, native backend, and the shared vision-to-controller contract
 
 ## Runtime and architecture docs
@@ -33,6 +35,8 @@ This folder mixes current architecture notes, benchmark records, work snapshots,
   - live mouse telemetry capture, health checks, and failure interpretation
 - `NATIVE_VISION.md`
   - detailed native migration notes, build process, smoke tests, and payload contracts
+- `NATIVE_CPP_RUNTIME.md`
+  - gamepad C++ live runtime launch, validation, fallback, and acceptance checklist
 - `ROOT_STRUCTURE_CLEANUP.md`
   - phased root directory cleanup plan and migration order
 

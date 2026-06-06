@@ -6,8 +6,13 @@ from unittest.mock import patch
 import vgamepad as vg
 
 from controllers.gamepad import AIAimConfig
+from controllers.gamepad import AIAimPlugin
+from controllers.gamepad import AimAssistDynamicsConfig
+from controllers.gamepad import AimAssistDynamicsPlugin
 from controllers.gamepad import AutoFireConfig
+from controllers.gamepad import AutoFirePlugin
 from controllers.gamepad import RecoilCompensationConfig
+from controllers.gamepad import RecoilCompensationPlugin
 from controllers.base_controller import (
     ControllerTarget,
     ControllerTimingSnapshot,
@@ -183,10 +188,15 @@ class GamepadControllerHostTests(unittest.TestCase):
                 manual_takeover_release_seconds=0.040,
                 manual_takeover_resume_delay_seconds=0.095,
             ),
+            gamepad_aim_assist_dynamics=AimAssistDynamicsConfig(
+                recoil_jitter_assist_threshold=1450.0,
+                recoil_jitter_flip_scale=0.15,
+            ),
             gamepad_recoil=RecoilCompensationConfig(
                 profile_amount=0.16,
                 profile_x_amount=1.40,
                 feedback_amount=0.12,
+                selection_log_enabled=False,
             ),
         )
 
@@ -213,8 +223,15 @@ class GamepadControllerHostTests(unittest.TestCase):
         ):
             controller = GamepadController(auto_fire_output="RT")
 
+        self.assertEqual(
+            [type(plugin) for plugin in controller.plugins],
+            [AIAimPlugin, AutoFirePlugin, AimAssistDynamicsPlugin, RecoilCompensationPlugin],
+        )
         auto_fire = controller.plugins[1].config
-        recoil = controller.plugins[2].config
+        dynamics = controller.plugins[2].config
+        recoil = controller.plugins[3].config
+        self.assertEqual(dynamics.recoil_jitter_assist_threshold, 1450.0)
+        self.assertEqual(dynamics.recoil_jitter_flip_scale, 0.15)
         self.assertEqual(auto_fire.fire_output, "RT")
         self.assertEqual(auto_fire.max_source_age_ms, 35.0)
         self.assertEqual(auto_fire.manual_takeover_release_seconds, 0.040)
@@ -222,6 +239,8 @@ class GamepadControllerHostTests(unittest.TestCase):
         self.assertEqual(recoil.profile_amount, 0.16)
         self.assertEqual(recoil.profile_x_amount, 1.40)
         self.assertEqual(recoil.feedback_amount, 0.12)
+        self.assertFalse(controller.plugins[3].config.selection_log_enabled)
+        self.assertIsNone(controller.plugins[3]._profile_selection_logger)
         self.assertTrue(controller._rb_counts_as_aiming)
         self.assertEqual(controller._target_tracker.config.reticle_speed_px_per_sec, 1234.0)
         self.assertEqual(controller._target_tracker.config.velocity_lowpass_alpha, 0.22)

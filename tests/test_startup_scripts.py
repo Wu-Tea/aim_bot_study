@@ -1,4 +1,5 @@
 from pathlib import Path
+import subprocess
 import unittest
 
 
@@ -24,17 +25,21 @@ class StartupScriptTests(unittest.TestCase):
                 self.assertFalse((PROJECT_ROOT / root_name).exists())
                 self.assertTrue(consolidated_path.exists())
 
-    def test_gamepad_start_uses_system_python_launcher_instead_of_broken_venv_python(self):
+    def test_gamepad_start_defaults_to_native_cpp_and_keeps_python_fallback(self):
         content = (LAUNCH_DIR / "gamepad_start.bat").read_text(encoding="utf-8")
 
         self.assertFalse((PROJECT_ROOT / "gamepad_start.bat").exists())
         self.assertNotIn(".venv\\Scripts\\python.exe", content)
+        self.assertIn("GAMEPAD_RUNTIME", content)
+        self.assertIn("gamepad_native_cpp_start.bat", content)
+        self.assertIn("Native C++ gamepad runtime", content)
+        self.assertIn("Python fallback", content)
         self.assertIn("py -3.11", content)
         self.assertIn("config.toml", content)
         self.assertIn("AUTO_FIRE_ARG", content)
         self.assertIn("main.py --controller-mode gamepad !AUTO_FIRE_ARG!", content)
+        self.assertIn("tools\\recoil_runtime_launcher.py", content)
         self.assertNotIn('set "VISION_PERF_LOG=1"', content)
-        self.assertNotIn("--perf-log", content)
         self.assertNotIn('set "VISION_BACKEND=native"', content)
         self.assertNotIn('set "VISION_CAPTURE_FPS=140"', content)
         self.assertNotIn('set "VISION_QUIT_KEY=0"', content)
@@ -47,6 +52,51 @@ class StartupScriptTests(unittest.TestCase):
         self.assertNotIn("idle_capture_fps=", content)
         self.assertNotIn("Select Vision preprocessor:", content)
         self.assertNotIn("Native (experimental)", content)
+
+    def test_gamepad_start_print_only_can_resolve_python_fallback(self):
+        command = (
+            'set GAMEPAD_RUNTIME=python&& '
+            'set GAMEPAD_START_PRINT_ONLY=1&& '
+            'set GAMEPAD_START_FIRE_CHOICE_OVERRIDE=1&& '
+            'set GAMEPAD_START_RECOIL_CHOICE_OVERRIDE=2&& '
+            'scripts\\launch\\gamepad_start.bat'
+        )
+
+        completed = subprocess.run(
+            ["cmd", "/c", command],
+            cwd=PROJECT_ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            check=False,
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stdout)
+        self.assertIn("Launching Python fallback gamepad runtime.", completed.stdout)
+        self.assertIn("Resolved command:", completed.stdout)
+        self.assertIn("main.py --controller-mode gamepad --auto-fire-output RB", completed.stdout)
+
+    def test_gamepad_start_print_only_resolves_default_native_runtime(self):
+        command = (
+            'set GAMEPAD_START_PRINT_ONLY=1&& '
+            'set GAMEPAD_START_FIRE_CHOICE_OVERRIDE=2&& '
+            'set GAMEPAD_START_RECOIL_CHOICE_OVERRIDE=1&& '
+            'scripts\\launch\\gamepad_start.bat'
+        )
+
+        completed = subprocess.run(
+            ["cmd", "/c", command],
+            cwd=PROJECT_ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            check=False,
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stdout)
+        self.assertIn("Launching Native C++ gamepad runtime.", completed.stdout)
+        self.assertIn("cod_native_runtime.exe", completed.stdout)
+        self.assertIn("--config config.toml --perf-log --auto-fire-output RT", completed.stdout)
 
     def test_gamepad_debug_uses_system_python_launcher_debug_flag_and_backend_prompt(self):
         content = (DEBUG_LAUNCH_DIR / "gamepad_debug.bat").read_text(encoding="utf-8")

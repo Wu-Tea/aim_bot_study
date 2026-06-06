@@ -65,6 +65,10 @@ py::dict batch_to_dict(const vision_native::DetectionBatch& batch) {
     result["frame_height"] = batch.frame_height;
     result["preprocess_ms"] = batch.preprocess_ms;
     result["infer_ms"] = batch.infer_ms;
+    result["output_copy_sync_ms"] = batch.output_copy_sync_ms;
+    result["gpu_total_ms"] = batch.gpu_total_ms;
+    result["output_copy_ms"] = batch.output_copy_ms;
+    result["output_wait_ms"] = batch.output_wait_ms;
     result["decode_ms"] = batch.decode_ms;
 
     py::list detections;
@@ -134,6 +138,7 @@ py::dict vision_result_to_dict(const vision_native::VisionResult& result_in) {
     result["captured_at_ns"] = result_in.captured_at_ns;
     result["inferred_at_ns"] = result_in.inferred_at_ns;
     result["result_at_ns"] = result_in.result_at_ns;
+    result["frame_updated"] = result_in.frame_updated;
     result["has_target"] = result_in.has_target;
     result["auto_fire"] = result_in.auto_fire;
     result["dx"] = result_in.dx;
@@ -158,9 +163,20 @@ py::dict vision_result_to_dict(const vision_native::VisionResult& result_in) {
     result["external_cue_y"] = result_in.external_cue_y;
     result["external_cue_score"] = result_in.external_cue_score;
     result["wait_ms"] = result_in.wait_ms;
+    result["capture_acquire_ms"] = result_in.capture_acquire_ms;
+    result["capture_copy_ms"] = result_in.capture_copy_ms;
+    result["cuda_map_ms"] = result_in.cuda_map_ms;
     result["preprocess_ms"] = result_in.preprocess_ms;
     result["color_copy_ms"] = result_in.color_copy_ms;
     result["infer_ms"] = result_in.infer_ms;
+    result["output_copy_sync_ms"] = result_in.output_copy_sync_ms;
+    result["gpu_total_ms"] = result_in.gpu_total_ms;
+    result["output_copy_ms"] = result_in.output_copy_ms;
+    result["output_wait_ms"] = result_in.output_wait_ms;
+    result["decode_ms"] = result_in.decode_ms;
+    result["selector_ms"] = result_in.selector_ms;
+    result["enhance_ms"] = result_in.enhance_ms;
+    result["cuda_unmap_ms"] = result_in.cuda_unmap_ms;
     result["post_ms"] = result_in.post_ms;
     result["age_ms"] = result_in.age_ms;
     result["boxes_seen"] = result_in.boxes_seen;

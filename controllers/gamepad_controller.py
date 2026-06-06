@@ -21,6 +21,8 @@ from .base_controller import (
 )
 from .gamepad import (
     AIAimPlugin,
+    AimAssistDynamicsConfig,
+    AimAssistDynamicsPlugin,
     AutoFirePlugin,
     DEFAULT_BUTTON_NAME_MAP,
     DownwardPullDiagnostics,
@@ -130,15 +132,23 @@ class GamepadController(BaseController, threading.Thread):
         self._last_buttons = {}
 
         auto_fire_config = replace(tuning.gamepad_auto_fire, fire_output=auto_fire_output)
+        aim_assist_dynamics_config = getattr(
+            tuning,
+            "gamepad_aim_assist_dynamics",
+            AimAssistDynamicsConfig(),
+        )
         self.plugins = list(plugins) if plugins is not None else [
             AIAimPlugin(ai_aim_config),
             AutoFirePlugin(auto_fire_config),
+            AimAssistDynamicsPlugin(aim_assist_dynamics_config),
             RecoilCompensationPlugin(
                 tuning.gamepad_recoil,
                 profile_provider=self._get_active_recoil_profile
                 if self._recoil_sidecar_service is not None or self._recoil_app_bridge is not None
                 else None,
-                profile_selection_logger=print,
+                profile_selection_logger=print
+                if getattr(tuning.gamepad_recoil, "selection_log_enabled", True)
+                else None,
             ),
         ]
         self._downward_pull_diagnostics = DownwardPullDiagnostics.from_env()

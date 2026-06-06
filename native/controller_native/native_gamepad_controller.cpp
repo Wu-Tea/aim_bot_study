@@ -1,0 +1,614 @@
+#include "native_gamepad_controller.h"
+
+#include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <cstdint>
+#include <optional>
+#include <utility>
+
+namespace controller_native {
+
+namespace {
+
+double ns_to_seconds(std::uint64_t ns) {
+    return static_cast<double>(ns) / 1'000'000'000.0;
+}
+
+std::string safe_c_string(const char* value, const char* fallback) {
+    if (value == nullptr || value[0] == '\0') {
+        return std::string(fallback);
+    }
+    return std::string(value);
+}
+
+double current_seconds() {
+    return std::chrono::duration<double>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+float clamp_unit(float value) {
+    return std::max(-1.0f, std::min(1.0f, value));
+}
+
+NativeTargetTrackerConfig target_tracker_config_from_ai_aim(const GamepadAiAimConfig& config) {
+    NativeTargetTrackerConfig tracker_config;
+    tracker_config.reticle_speed_px_per_sec = config.target_projection_reticle_speed_px_per_sec;
+    tracker_config.max_projection_age_ms = config.target_max_age_ms;
+    tracker_config.velocity_lowpass_alpha = config.target_projection_velocity_lowpass_alpha;
+    tracker_config.max_target_velocity_px_per_sec = config.target_projection_max_velocity_px_per_sec;
+    tracker_config.weak_observation_velocity_decay = config.target_projection_weak_velocity_decay;
+    return tracker_config;
+}
+
+}  // namespace
+
+NativeGamepadController::NativeGamepadController(GamepadRuntimeConfig config)
+    : config_(std::move(config)),
+      ai_aim_(config_.ai_aim),
+      aim_assist_dynamics_(config_.aim_assist_dynamics),
+      recoil_(config_.recoil),
+      target_tracker_(target_tracker_config_from_ai_aim(config_.ai_aim)) {
+    recoil_.set_recognizer_state_path(config_.recoil.recognizer_state_path);
+    if (!config_.recoil.recognizer_state_path.empty()) {
+        recoil_.load_profile_directory(config_.recoil.profile_directory);
+    }
+    recoil_.load_calibration_directory(config_.recoil.calibration_directory);
+}
+
+void NativeGamepadController::reset() {
+    latest_vision_state_ = NativeControllerVisionState{};
+    target_tracker_.reset();
+    ai_aim_.reset();
+    aim_assist_dynamics_.reset();
+    recoil_.reset();
+    last_pipeline_traces_.clear();
+    manual_fire_was_pressed_ = false;
+    auto_fire_was_active_ = false;
+    manual_takeover_started_at_seconds_ = -1.0;
+    last_output_at_seconds_ = 0.0;
+    ads_active_ = false;
+    ads_started_at_seconds_ = 0.0;
+    reset_auto_fire_readiness_tracking();
+}
+
+void NativeGamepadController::submit_vision_state(const NativeControllerVisionState& state) {
+    latest_vision_state_ = state;
+    NativeTargetTrackerObservation observation;
+    observation.has_target = state.has_target && state.aim_authority;
+    observation.dx = state.dx;
+    observation.dy = state.dy;
+    observation.target_tier = state.target_tier;
+    observation.observed_at_seconds = state.observed_at_seconds > 0.0
+        ? state.observed_at_seconds
+        : current_seconds();
+    target_tracker_.update_observation(observation);
+}
+
+void NativeGamepadController::submit_vision_result(const vision_native::VisionResult& result) {
+    if (!result.frame_updated) {
+        return;
+    }
+
+    NativeControllerVisionState state;
+    state.has_target = result.has_target;
+    state.auto_fire_requested = result.auto_fire;
+    state.dx = result.dx;
+    state.dy = result.dy;
+    state.target_x = result.target_x;
+    state.target_y = result.target_y;
+    state.screen_center_x = result.screen_center_x;
+    state.screen_center_y = result.screen_center_y;
+    state.has_body_box = result.has_body_box;
+    state.body_x1 = result.body_x1;
+    state.body_y1 = result.body_y1;
+    state.body_x2 = result.body_x2;
+    state.body_y2 = result.body_y2;
+    state.aim_authority = result.aim_authority;
+    state.fire_authority = result.fire_authority;
+    state.target_tier = safe_c_string(result.target_tier, "none");
+    state.observed_at_seconds = ns_to_seconds(
+        result.result_at_ns != 0 ? result.result_at_ns : result.captured_at_ns);
+    submit_vision_state(state);
+}
+
+GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadState& physical) {
+    last_pipeline_traces_.clear();
+
+    GamepadOutputState output;
+    output.left_x = physical.left_x;
+    output.left_y = physical.left_y;
+    output.right_x = physical.right_x;
+    output.right_y = physical.right_y;
+    output.left_trigger = physical.left_trigger;
+    output.right_trigger = physical.right_trigger;
+    output.rb = physical.rb;
+    output.lb = physical.lb;
+    output.a = physical.a;
+    output.b = physical.b;
+    output.x = physical.x;
+    output.y = physical.y;
+    output.back = physical.back;
+    output.guide = physical.guide;
+    output.start = physical.start;
+    output.left_thumb = physical.left_thumb;
+    output.right_thumb = physical.right_thumb;
+    output.dpad_up = physical.dpad_up;
+    output.dpad_down = physical.dpad_down;
+    output.dpad_left = physical.dpad_left;
+    output.dpad_right = physical.dpad_right;
+
+    const double now = current_seconds();
+    const NativeControllerVisionState frame_vision_state = vision_state_for_frame(now);
+    const bool aiming = is_aiming(physical);
+    update_ads_state(aiming, now);
+    const bool auto_fire_requested = frame_vision_state.auto_fire_requested;
+    const float manual_right_x = output.right_x;
+    const float manual_right_y = output.right_y;
+
+    float stage_before_right_y = output.right_y;
+    apply_ai_aim(output, physical, frame_vision_state, now);
+    record_stage_trace("ai_aim", stage_before_right_y, output, false, false);
+
+    const bool aim_ready = auto_fire_aim_ready(
+        frame_vision_state,
+        aiming,
+        now,
+        manual_right_x,
+        manual_right_y,
+        output);
+    bool should_fire = auto_fire_allowed(frame_vision_state, aiming, now, aim_ready);
+    stage_before_right_y = output.right_y;
+    apply_aim_assist_dynamics(output, manual_right_x, manual_right_y, physical, should_fire);
+    record_stage_trace(
+        "aim_assist_dynamics",
+        stage_before_right_y,
+        output,
+        should_fire,
+        should_fire);
+
+    const bool manual_fire_is_pressed = manual_fire_pressed(physical);
+    const bool manual_fire_started = manual_fire_is_pressed && !manual_fire_was_pressed_;
+    if (manual_fire_started && (should_fire || auto_fire_was_active_)) {
+        manual_takeover_started_at_seconds_ = now;
+    }
+
+    double takeover_elapsed = manual_takeover_elapsed(now);
+    bool in_takeover_release = takeover_elapsed >= 0.0 &&
+        takeover_elapsed < std::max(0.0f, config_.auto_fire.manual_takeover_release_seconds);
+    bool in_takeover_guard = takeover_elapsed >= 0.0 &&
+        takeover_elapsed < manual_takeover_total_seconds();
+    if (takeover_elapsed >= manual_takeover_total_seconds()) {
+        manual_takeover_started_at_seconds_ = -1.0;
+        in_takeover_release = false;
+        in_takeover_guard = false;
+    }
+
+    manual_fire_was_pressed_ = manual_fire_is_pressed;
+    if (manual_fire_is_pressed) {
+        should_fire = false;
+        if (in_takeover_release) {
+            release_fire_output(output);
+        }
+    } else if (in_takeover_guard) {
+        should_fire = false;
+        release_fire_output(output);
+    }
+
+    if (auto_fire_requested) {
+        ++auto_fire_counters_.requested;
+        if (should_fire) {
+            ++auto_fire_counters_.allowed;
+        } else {
+            ++auto_fire_counters_.blocked;
+        }
+    }
+    stage_before_right_y = output.right_y;
+    apply_auto_fire(output, should_fire);
+    record_stage_trace("auto_fire", stage_before_right_y, output, false, should_fire);
+
+    auto_fire_was_active_ = should_fire;
+    stage_before_right_y = output.right_y;
+    apply_recoil(output, physical, should_fire, frame_vision_state, now);
+    record_stage_trace("recoil", stage_before_right_y, output, should_fire, should_fire);
+    record_target_tracker_output(output, now);
+    return output;
+}
+
+NativeAutoFireCounters NativeGamepadController::auto_fire_counters() const {
+    return auto_fire_counters_;
+}
+
+const std::vector<NativeControllerStageTrace>& NativeGamepadController::last_pipeline_traces() const {
+    return last_pipeline_traces_;
+}
+
+bool NativeGamepadController::is_aiming(const PhysicalGamepadState& physical) const {
+    return physical.left_trigger > 0.05f || (
+        config_.rb_counts_as_aiming && physical.rb);
+}
+
+NativeControllerVisionState NativeGamepadController::vision_state_for_frame(double now_seconds) const {
+    NativeControllerVisionState state = latest_vision_state_;
+    if (!state.has_target || !state.aim_authority) {
+        return state;
+    }
+    const std::optional<NativeTargetProjection> projection = target_tracker_.project(now_seconds);
+    if (!projection.has_value()) {
+        return state;
+    }
+    state.dx = projection->dx;
+    state.dy = projection->dy;
+    state.observed_at_seconds = projection->observed_at_seconds;
+    return state;
+}
+
+bool NativeGamepadController::auto_fire_allowed(
+    const NativeControllerVisionState& vision_state,
+    bool aiming,
+    double now_seconds,
+    bool aim_ready) const {
+    const bool aiming_allowed = !config_.auto_fire.aim_only || aiming;
+    const bool readiness_allowed = !config_.auto_fire.require_aim_ready || aim_ready;
+    return aiming_allowed &&
+        readiness_allowed &&
+        vision_state.auto_fire_requested &&
+        vision_state.has_target &&
+        vision_state.fire_authority &&
+        has_fresh_auto_fire_source(vision_state, now_seconds);
+}
+
+bool NativeGamepadController::has_fresh_auto_fire_source(
+    const NativeControllerVisionState& vision_state,
+    double now_seconds) const {
+    const float max_age_ms = config_.auto_fire.max_source_age_ms;
+    if (max_age_ms <= 0.0f || vision_state.observed_at_seconds <= 0.0 ||
+        now_seconds <= 0.0) {
+        return true;
+    }
+    const double age_seconds = std::max(0.0, now_seconds - vision_state.observed_at_seconds);
+    return age_seconds <= (static_cast<double>(max_age_ms) / 1000.0);
+}
+
+bool NativeGamepadController::has_fresh_aim_target(
+    const NativeControllerVisionState& vision_state,
+    double now_seconds) const {
+    const float max_age_ms = config_.ai_aim.target_max_age_ms;
+    if (max_age_ms <= 0.0f || vision_state.observed_at_seconds <= 0.0 ||
+        now_seconds <= 0.0) {
+        return vision_state.has_target && vision_state.aim_authority;
+    }
+    const double age_seconds = std::max(0.0, now_seconds - vision_state.observed_at_seconds);
+    return vision_state.has_target &&
+        vision_state.aim_authority &&
+        age_seconds <= (static_cast<double>(max_age_ms) / 1000.0);
+}
+
+void NativeGamepadController::update_ads_state(bool aiming, double now_seconds) {
+    if (aiming) {
+        if (!ads_active_) {
+            ads_active_ = true;
+            ads_started_at_seconds_ = now_seconds;
+            reset_auto_fire_readiness_tracking();
+        }
+        return;
+    }
+
+    ads_active_ = false;
+    ads_started_at_seconds_ = 0.0;
+    reset_auto_fire_readiness_tracking();
+}
+
+bool NativeGamepadController::auto_fire_aim_ready(
+    const NativeControllerVisionState& vision_state,
+    bool aiming,
+    double now_seconds,
+    float manual_right_x,
+    float manual_right_y,
+    const GamepadOutputState& output) {
+    if (!config_.auto_fire.require_aim_ready) {
+        return true;
+    }
+    if (!vision_state.auto_fire_requested) {
+        reset_auto_fire_readiness_tracking();
+        return true;
+    }
+    if (!aiming || !has_fresh_aim_target(vision_state, now_seconds)) {
+        reset_auto_fire_readiness_tracking();
+        return false;
+    }
+    if (!is_strong_fire_target(vision_state)) {
+        reset_auto_fire_readiness_tracking();
+        return false;
+    }
+
+    const double min_ads_seconds =
+        static_cast<double>(std::max(0.0f, config_.ai_aim.auto_fire_ready_min_ads_ms)) / 1000.0;
+    if (!ads_active_ || ads_started_at_seconds_ <= 0.0 ||
+        now_seconds - ads_started_at_seconds_ < min_ads_seconds) {
+        reset_auto_fire_readiness_tracking();
+        return false;
+    }
+
+    float settle_dx = vision_state.dx;
+    float settle_dy = vision_state.dy;
+    float body_lock_dx = 0.0f;
+    float body_lock_dy = 0.0f;
+    if (body_lock_error_for_state(vision_state, &body_lock_dx, &body_lock_dy)) {
+        settle_dx = body_lock_dx;
+        settle_dy = body_lock_dy;
+    }
+    const float error_px = static_cast<float>(std::hypot(
+        settle_dx * config_.ai_aim.ai_delta_gain,
+        settle_dy * config_.ai_aim.ai_delta_gain));
+    if (error_px > std::max(0.0f, config_.ai_aim.auto_fire_ready_error_px)) {
+        reset_auto_fire_readiness_tracking();
+        return false;
+    }
+
+    const float ai_stick_mag =
+        std::max(
+            std::fabs(output.right_x - manual_right_x),
+            std::fabs(output.right_y - manual_right_y)) *
+        32767.0f;
+    const float max_ai_stick = std::max(0.0f, config_.ai_aim.auto_fire_ready_max_ai_stick);
+    if (max_ai_stick > 0.0f && ai_stick_mag > max_ai_stick) {
+        reset_auto_fire_readiness_tracking();
+        return false;
+    }
+
+    ++auto_fire_ready_frames_;
+    return auto_fire_ready_frames_ >= std::max(1, config_.ai_aim.auto_fire_ready_frames);
+}
+
+void NativeGamepadController::reset_auto_fire_readiness_tracking() {
+    auto_fire_ready_frames_ = 0;
+}
+
+bool NativeGamepadController::is_strong_fire_target(
+    const NativeControllerVisionState& vision_state) const {
+    if (!vision_state.fire_authority || !vision_state.aim_authority) {
+        return false;
+    }
+    return is_strong_aim_target(vision_state);
+}
+
+bool NativeGamepadController::is_strong_aim_target(
+    const NativeControllerVisionState& vision_state) const {
+    if (!vision_state.aim_authority) {
+        return false;
+    }
+    const std::string& tier = vision_state.target_tier;
+    return tier != "associated_weak" &&
+        tier != "weak" &&
+        tier != "weak_association" &&
+        tier != "weak_observed" &&
+        tier != "cue_hold" &&
+        tier != "predicted" &&
+        tier != "projected" &&
+        tier != "projection" &&
+        tier != "none" &&
+        tier != "lost";
+}
+
+bool NativeGamepadController::ads_snap_active_for_frame(
+    const NativeControllerVisionState& vision_state,
+    bool aiming,
+    double now_seconds) const {
+    if (!aiming || !has_fresh_aim_target(vision_state, now_seconds) ||
+        !is_strong_aim_target(vision_state)) {
+        return false;
+    }
+    if (!ads_active_ || ads_started_at_seconds_ <= 0.0) {
+        return false;
+    }
+    const double window_seconds =
+        static_cast<double>(std::max(0, config_.ai_aim.ads_snap_window_ms)) / 1000.0;
+    return now_seconds - ads_started_at_seconds_ <= window_seconds;
+}
+
+float NativeGamepadController::ads_snap_progress_ratio(double now_seconds) const {
+    if (!ads_active_ || ads_started_at_seconds_ <= 0.0) {
+        return 0.0f;
+    }
+    const double window_seconds =
+        static_cast<double>(std::max(1, config_.ai_aim.ads_snap_window_ms)) / 1000.0;
+    const double elapsed = std::max(0.0, now_seconds - ads_started_at_seconds_);
+    return static_cast<float>(std::max(0.0, std::min(1.0, elapsed / window_seconds)));
+}
+
+float NativeGamepadController::ads_snap_remaining_seconds(double now_seconds) const {
+    if (!ads_active_ || ads_started_at_seconds_ <= 0.0) {
+        return 0.0f;
+    }
+    const double window_seconds =
+        static_cast<double>(std::max(1, config_.ai_aim.ads_snap_window_ms)) / 1000.0;
+    const double elapsed = std::max(0.0, now_seconds - ads_started_at_seconds_);
+    return static_cast<float>(std::max(0.0, window_seconds - elapsed));
+}
+
+bool NativeGamepadController::body_lock_error_for_state(
+    const NativeControllerVisionState& vision_state,
+    float* out_dx,
+    float* out_dy) const {
+    if (!vision_state.has_target || !vision_state.aim_authority ||
+        !vision_state.has_body_box ||
+        vision_state.body_x2 <= vision_state.body_x1 ||
+        vision_state.body_y2 <= vision_state.body_y1) {
+        return false;
+    }
+    const float tolerance = std::max(0.0f, config_.ai_aim.body_lock_box_tolerance_px);
+    if (vision_state.screen_center_x < vision_state.body_x1 - tolerance ||
+        vision_state.screen_center_x > vision_state.body_x2 + tolerance ||
+        vision_state.screen_center_y < vision_state.body_y1 - tolerance ||
+        vision_state.screen_center_y > vision_state.body_y2 + tolerance) {
+        return false;
+    }
+
+    const float ratio = std::max(
+        0.0f,
+        std::min(1.0f, config_.ai_aim.body_lock_upper_body_ratio));
+    const float lock_x = (vision_state.body_x1 + vision_state.body_x2) * 0.5f;
+    const float lock_y =
+        vision_state.body_y1 + ((vision_state.body_y2 - vision_state.body_y1) * ratio);
+    const float lock_dx = lock_x - vision_state.screen_center_x;
+    const float lock_dy = lock_y - vision_state.screen_center_y;
+    const float activation_half =
+        std::max(0.0f, config_.ai_aim.body_lock_activation_box_px) * 0.5f;
+    if (std::fabs(lock_dx * config_.ai_aim.ai_delta_gain) > activation_half ||
+        std::fabs(lock_dy * config_.ai_aim.ai_delta_gain) > activation_half) {
+        return false;
+    }
+
+    if (out_dx != nullptr) {
+        *out_dx = lock_dx;
+    }
+    if (out_dy != nullptr) {
+        *out_dy = lock_dy;
+    }
+    return true;
+}
+
+bool NativeGamepadController::manual_fire_pressed(const PhysicalGamepadState& physical) const {
+    return physical.rb || physical.right_trigger > 0.04f;
+}
+
+double NativeGamepadController::manual_takeover_elapsed(double now_seconds) const {
+    if (manual_takeover_started_at_seconds_ < 0.0) {
+        return -1.0;
+    }
+    return std::max(0.0, now_seconds - manual_takeover_started_at_seconds_);
+}
+
+double NativeGamepadController::manual_takeover_total_seconds() const {
+    return std::max(0.0f, config_.auto_fire.manual_takeover_release_seconds) +
+        std::max(0.0f, config_.auto_fire.manual_takeover_resume_delay_seconds);
+}
+
+void NativeGamepadController::apply_auto_fire(
+    GamepadOutputState& output,
+    bool should_fire) const {
+    if (!should_fire) {
+        return;
+    }
+    if (config_.auto_fire.fire_output == "RT") {
+        output.right_trigger = 1.0f;
+        return;
+    }
+    output.rb = true;
+}
+
+void NativeGamepadController::release_fire_output(GamepadOutputState& output) const {
+    output.rb = false;
+    output.right_trigger = 0.0f;
+}
+
+void NativeGamepadController::apply_ai_aim(
+    GamepadOutputState& output,
+    const PhysicalGamepadState& physical,
+    const NativeControllerVisionState& vision_state,
+    double now_seconds) {
+    NativeAiAimInput input;
+    input.aiming = is_aiming(physical);
+    input.has_target = vision_state.has_target;
+    input.aim_authority = vision_state.aim_authority;
+    input.ads_snap_active = ads_snap_active_for_frame(vision_state, input.aiming, now_seconds);
+    input.ads_snap_progress_ratio = ads_snap_progress_ratio(now_seconds);
+    input.ads_snap_remaining_seconds = ads_snap_remaining_seconds(now_seconds);
+    input.dx = vision_state.dx;
+    input.dy = vision_state.dy;
+    input.target_x = vision_state.target_x;
+    input.target_y = vision_state.target_y;
+    input.screen_center_x = vision_state.screen_center_x;
+    input.screen_center_y = vision_state.screen_center_y;
+    input.has_body_box = vision_state.has_body_box;
+    input.body_x1 = vision_state.body_x1;
+    input.body_y1 = vision_state.body_y1;
+    input.body_x2 = vision_state.body_x2;
+    input.body_y2 = vision_state.body_y2;
+    input.target_tier = vision_state.target_tier;
+    input.observed_at_seconds = vision_state.observed_at_seconds;
+    input.now_seconds = now_seconds;
+    input.manual_right_x = output.right_x;
+    input.manual_right_y = output.right_y;
+
+    const NativeAiAimOutput assist = ai_aim_.compute(input);
+    if (!assist.has_assist) {
+        return;
+    }
+    output.right_x = clamp_unit(output.right_x + assist.assist_x);
+    output.right_y = clamp_unit(output.right_y + assist.assist_y);
+}
+
+void NativeGamepadController::apply_aim_assist_dynamics(
+    GamepadOutputState& output,
+    float manual_right_x,
+    float manual_right_y,
+    const PhysicalGamepadState& physical,
+    bool auto_fire_active) {
+    NativeAimAssistDynamicsInput input;
+    input.manual_right_x = manual_right_x;
+    input.manual_right_y = manual_right_y;
+    input.assisted_right_x = output.right_x;
+    input.assisted_right_y = output.right_y;
+    input.recoil_active = false;
+    input.manual_fire_active = physical.rb || physical.right_trigger > 0.04f;
+    input.auto_fire_active = auto_fire_active;
+    input.now_seconds = current_seconds();
+
+    const NativeAimAssistDynamicsOutput shaped = aim_assist_dynamics_.apply(input);
+    output.right_x = shaped.right_x;
+    output.right_y = shaped.right_y;
+}
+
+void NativeGamepadController::apply_recoil(
+    GamepadOutputState& output,
+    const PhysicalGamepadState& physical,
+    bool auto_fire_active,
+    const NativeControllerVisionState& vision_state,
+    double now_seconds) {
+    NativeRecoilInput input;
+    input.fire_active = auto_fire_active || physical.rb || physical.right_trigger > 0.04f;
+    input.aiming = is_aiming(physical);
+    input.target_dx = vision_state.dx;
+    input.target_dy = vision_state.dy;
+    input.target_observed_at_seconds = vision_state.observed_at_seconds;
+    input.now_seconds = now_seconds;
+
+    const NativeRecoilOutput recoil_output = recoil_.compute(input);
+    if (!recoil_output.recoil_active) {
+        return;
+    }
+    output.right_x = clamp_unit(output.right_x + recoil_output.right_x_delta);
+    output.right_y = clamp_unit(output.right_y + recoil_output.right_y_delta);
+}
+
+void NativeGamepadController::record_target_tracker_output(
+    const GamepadOutputState& output,
+    double now_seconds) {
+    if (last_output_at_seconds_ > 0.0 && now_seconds >= last_output_at_seconds_) {
+        target_tracker_.record_output(
+            output.right_x,
+            output.right_y,
+            now_seconds - last_output_at_seconds_);
+    }
+    last_output_at_seconds_ = now_seconds;
+}
+
+void NativeGamepadController::record_stage_trace(
+    const std::string& stage_name,
+    float before_right_y,
+    const GamepadOutputState& output,
+    bool before_auto_fire_active,
+    bool after_auto_fire_active) {
+    NativeControllerStageTrace trace;
+    trace.stage_name = stage_name;
+    trace.before_right_y = before_right_y;
+    trace.after_right_y = output.right_y;
+    trace.delta_right_y = output.right_y - before_right_y;
+    trace.before_auto_fire_active = before_auto_fire_active;
+    trace.after_auto_fire_active = after_auto_fire_active;
+    last_pipeline_traces_.push_back(std::move(trace));
+}
+
+}  // namespace controller_native

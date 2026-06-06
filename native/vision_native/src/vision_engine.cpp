@@ -170,6 +170,8 @@ VisionResult VisionEngine::poll_once() {
     result.frame_id = metadata.frame.frame_id;
     result.captured_at_ns = metadata.frame.captured_at_ns;
     result.wait_ms = metadata.acquire_ms + metadata.copy_ms;
+    result.capture_acquire_ms = metadata.acquire_ms;
+    result.capture_copy_ms = metadata.copy_ms;
     result.target_x = result.screen_center_x;
     result.target_y = result.screen_center_y;
 
@@ -180,6 +182,7 @@ VisionResult VisionEngine::poll_once() {
         }
         return result;
     }
+    result.frame_updated = true;
 
     cudaGraphicsResource_t graphics_resource = static_cast<cudaGraphicsResource_t>(graphics_resource_);
     if (graphics_resource == nullptr) {
@@ -188,6 +191,7 @@ VisionResult VisionEngine::poll_once() {
 
     bool mapped = false;
     try {
+        const uint64_t map_start = now_ns();
         check_cuda(cudaGraphicsMapResources(1, &graphics_resource, nullptr), "cudaGraphicsMapResources");
         mapped = true;
 
@@ -195,6 +199,7 @@ VisionResult VisionEngine::poll_once() {
         check_cuda(
             cudaGraphicsSubResourceGetMappedArray(&frame_array, graphics_resource, 0, 0),
             "cudaGraphicsSubResourceGetMappedArray");
+        result.cuda_map_ms = ns_to_ms(now_ns() - map_start);
 
         DetectionBatch batch = engine_.infer_bgra_array(
             frame_array,
@@ -234,7 +239,9 @@ VisionResult VisionEngine::poll_once() {
             has_color_frame = true;
         }
 
+        const uint64_t unmap_start = now_ns();
         check_cuda(cudaGraphicsUnmapResources(1, &graphics_resource, nullptr), "cudaGraphicsUnmapResources");
+        result.cuda_unmap_ms = ns_to_ms(now_ns() - unmap_start);
         mapped = false;
 
         const uint64_t post_start = now_ns();
@@ -247,9 +254,15 @@ VisionResult VisionEngine::poll_once() {
         result.external_cue_score = batch.external_cue_score;
         result.preprocess_ms = batch.preprocess_ms;
         result.infer_ms = batch.infer_ms;
+        result.output_copy_sync_ms = batch.output_copy_sync_ms;
+        result.gpu_total_ms = batch.gpu_total_ms;
+        result.output_copy_ms = batch.output_copy_ms;
+        result.output_wait_ms = batch.output_wait_ms;
+        result.decode_ms = batch.decode_ms;
         result.boxes_seen = static_cast<float>(batch.detections.size());
 
         VisionResult targeting;
+        const uint64_t selector_start = now_ns();
         if (has_color_frame) {
             targeting = selector_.select_with_frame(
                 batch,
@@ -267,6 +280,7 @@ VisionResult VisionEngine::poll_once() {
         } else {
             targeting = selector_.select(batch);
         }
+        result.selector_ms = ns_to_ms(now_ns() - selector_start);
         result.has_target = targeting.has_target;
         result.auto_fire = targeting.auto_fire;
         result.dx = targeting.dx;
@@ -287,6 +301,7 @@ VisionResult VisionEngine::poll_once() {
         result.boxes_seen = targeting.boxes_seen;
 
         if (result.has_target) {
+            const uint64_t enhance_start = now_ns();
             const double enhancement_timestamp =
                 batch.inferred_at_ns != 0
                     ? static_cast<double>(batch.inferred_at_ns) / 1'000'000'000.0
@@ -297,6 +312,7 @@ VisionResult VisionEngine::poll_once() {
                 slow_zone_from_body_box(result));
             result.dx = enhanced.dx;
             result.dy = enhanced.dy;
+            result.enhance_ms = ns_to_ms(now_ns() - enhance_start);
         } else {
             enhancer_.reset();
         }

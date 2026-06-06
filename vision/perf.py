@@ -9,7 +9,25 @@ _TIMING_METRICS = (
     ("output_age_ms", "out_age"),
 )
 
+_NATIVE_DETAIL_METRICS = (
+    ("native_capture_acquire_ms", "cap_acq"),
+    ("native_capture_copy_ms", "cap_copy"),
+    ("native_cuda_map_ms", "cuda_map"),
+    ("native_output_copy_sync_ms", "out_sync"),
+    ("native_gpu_total_ms", "gpu_total"),
+    ("native_output_copy_ms", "d2h_copy"),
+    ("native_output_wait_ms", "sync_wait"),
+    ("native_decode_ms", "decode"),
+    ("native_selector_ms", "selector"),
+    ("native_enhance_ms", "enhance"),
+    ("native_cuda_unmap_ms", "cuda_unmap"),
+    ("external_cue_ms", "cue_ms"),
+)
+
 _TARGET_BUCKETS = ("obs", "weak", "cue", "pred", "none", "unk")
+_NEAR_BOX_WIDTH_RATIO = 0.35
+_NEAR_BOX_HEIGHT_RATIO = 0.55
+_EDGE_MARGIN_PX = 32.0
 
 
 class PerformanceTracker:
@@ -41,8 +59,12 @@ class PerformanceTracker:
         self._tracking_boxes_seen = 0
         self._timing_values = {name: [] for name, _label in _TIMING_METRICS}
         self._tracking_timing_values = {name: [] for name, _label in _TIMING_METRICS}
+        self._native_detail_values = {name: [] for name, _label in _NATIVE_DETAIL_METRICS}
+        self._tracking_native_detail_values = {name: [] for name, _label in _NATIVE_DETAIL_METRICS}
         self._target_stats = self._new_target_stats()
         self._tracking_target_stats = self._new_target_stats()
+        self._box_stats = self._new_box_stats()
+        self._tracking_box_stats = self._new_box_stats()
 
     def update(
         self,
@@ -59,6 +81,18 @@ class PerformanceTracker:
         python_handoff_ms: float | None = None,
         controller_consume_age_ms: float | None = None,
         output_age_ms: float | None = None,
+        native_capture_acquire_ms: float | None = None,
+        native_capture_copy_ms: float | None = None,
+        native_cuda_map_ms: float | None = None,
+        native_output_copy_sync_ms: float | None = None,
+        native_gpu_total_ms: float | None = None,
+        native_output_copy_ms: float | None = None,
+        native_output_wait_ms: float | None = None,
+        native_decode_ms: float | None = None,
+        native_selector_ms: float | None = None,
+        native_enhance_ms: float | None = None,
+        native_cuda_unmap_ms: float | None = None,
+        external_cue_ms: float | None = None,
         target_source: str | None = None,
         target_tier: str | None = None,
         aim_authority: bool | None = None,
@@ -66,6 +100,11 @@ class PerformanceTracker:
         has_external_cue: bool | None = None,
         native_auto_fire_requested: bool | None = None,
         auto_fire_active: bool | None = None,
+        target_box_width_px: float | None = None,
+        target_box_height_px: float | None = None,
+        target_edge_margin_px: float | None = None,
+        capture_width_px: float | None = None,
+        capture_height_px: float | None = None,
     ):
         if not self.enabled:
             return
@@ -77,6 +116,20 @@ class PerformanceTracker:
             "controller_consume_age_ms": controller_consume_age_ms,
             "output_age_ms": output_age_ms,
         }
+        native_detail_values = {
+            "native_capture_acquire_ms": native_capture_acquire_ms,
+            "native_capture_copy_ms": native_capture_copy_ms,
+            "native_cuda_map_ms": native_cuda_map_ms,
+            "native_output_copy_sync_ms": native_output_copy_sync_ms,
+            "native_gpu_total_ms": native_gpu_total_ms,
+            "native_output_copy_ms": native_output_copy_ms,
+            "native_output_wait_ms": native_output_wait_ms,
+            "native_decode_ms": native_decode_ms,
+            "native_selector_ms": native_selector_ms,
+            "native_enhance_ms": native_enhance_ms,
+            "native_cuda_unmap_ms": native_cuda_unmap_ms,
+            "external_cue_ms": external_cue_ms,
+        }
 
         self._frame_count += 1
         self._wait_ms += wait_ms
@@ -87,6 +140,7 @@ class PerformanceTracker:
         self._age_ms += age_ms
         self._boxes_seen += boxes_seen
         self._record_timing_values(self._timing_values, timing_values)
+        self._record_timing_values(self._native_detail_values, native_detail_values)
         self._record_target_stats(
             self._target_stats,
             target_source=target_source,
@@ -96,6 +150,14 @@ class PerformanceTracker:
             has_external_cue=has_external_cue,
             native_auto_fire_requested=native_auto_fire_requested,
             auto_fire_active=auto_fire_active,
+        )
+        self._record_box_stats(
+            self._box_stats,
+            target_box_width_px=target_box_width_px,
+            target_box_height_px=target_box_height_px,
+            target_edge_margin_px=target_edge_margin_px,
+            capture_width_px=capture_width_px,
+            capture_height_px=capture_height_px,
         )
 
         now = self._clock()
@@ -111,6 +173,7 @@ class PerformanceTracker:
             self._tracking_age_ms += age_ms
             self._tracking_boxes_seen += boxes_seen
             self._record_timing_values(self._tracking_timing_values, timing_values)
+            self._record_timing_values(self._tracking_native_detail_values, native_detail_values)
             self._record_target_stats(
                 self._tracking_target_stats,
                 target_source=target_source,
@@ -120,6 +183,14 @@ class PerformanceTracker:
                 has_external_cue=has_external_cue,
                 native_auto_fire_requested=native_auto_fire_requested,
                 auto_fire_active=auto_fire_active,
+            )
+            self._record_box_stats(
+                self._tracking_box_stats,
+                target_box_width_px=target_box_width_px,
+                target_box_height_px=target_box_height_px,
+                target_edge_margin_px=target_edge_margin_px,
+                capture_width_px=capture_width_px,
+                capture_height_px=capture_height_px,
             )
 
         if now - self._window_start < self.log_interval or self._frame_count == 0:
@@ -138,7 +209,9 @@ class PerformanceTracker:
             self._boxes_seen,
             self._window_start,
             self._timing_values,
+            self._native_detail_values,
             self._target_stats,
+            self._box_stats,
         )
         if self._tracking_frame_count > 0 and self._tracking_window_start is not None:
             self._emit(
@@ -154,7 +227,9 @@ class PerformanceTracker:
                 self._tracking_boxes_seen,
                 self._tracking_window_start,
                 self._tracking_timing_values,
+                self._tracking_native_detail_values,
                 self._tracking_target_stats,
+                self._tracking_box_stats,
             )
 
         self.reset_window()
@@ -173,7 +248,9 @@ class PerformanceTracker:
         boxes_sum: float,
         window_start: float,
         timing_values: dict[str, list[float]] | None = None,
+        native_detail_values: dict[str, list[float]] | None = None,
         target_stats: dict | None = None,
+        box_stats: dict | None = None,
     ):
         elapsed = max(now - window_start, 1e-9)
         self._printer(
@@ -184,7 +261,9 @@ class PerformanceTracker:
             f"infer={infer_sum / frame_count:.1f}ms | post={post_sum / frame_count:.1f}ms | "
             f"age={age_sum / frame_count:.1f}ms | boxes={boxes_sum / frame_count:.1f}"
             f"{self._format_timing_values(timing_values)}"
+            f"{self._format_native_detail_values(native_detail_values)}"
             f"{self._format_target_stats(target_stats)}"
+            f"{self._format_box_stats(box_stats)}"
         )
 
     def _record_timing_values(self, target: dict[str, list[float]], values: dict[str, float | None]) -> None:
@@ -210,6 +289,23 @@ class PerformanceTracker:
             return ""
         return " | " + " | ".join(parts)
 
+    def _format_native_detail_values(self, timing_values: dict[str, list[float]] | None) -> str:
+        if not timing_values:
+            return ""
+
+        parts = []
+        for name, label in _NATIVE_DETAIL_METRICS:
+            values = timing_values.get(name) or []
+            if not values:
+                continue
+            ordered = sorted(values)
+            p95_index = min(len(ordered) - 1, max(0, int((len(ordered) * 0.95) + 0.999999) - 1))
+            average = sum(values) / len(values)
+            parts.append(f"{label}={average:.1f}/{ordered[p95_index]:.1f}/{max(values):.1f}ms")
+        if not parts:
+            return ""
+        return " | detail " + " ".join(parts)
+
     def _new_target_stats(self) -> dict:
         return {
             "tier": {bucket: 0 for bucket in _TARGET_BUCKETS},
@@ -220,6 +316,48 @@ class PerformanceTracker:
             "fire_allowed": 0,
             "fire_blocked": 0,
         }
+
+    def _new_box_stats(self) -> dict:
+        return {
+            "samples": 0,
+            "near": 0,
+            "edge": 0,
+            "near_edge": 0,
+        }
+
+    def _record_box_stats(
+        self,
+        target: dict,
+        *,
+        target_box_width_px: float | None,
+        target_box_height_px: float | None,
+        target_edge_margin_px: float | None,
+        capture_width_px: float | None,
+        capture_height_px: float | None,
+    ) -> None:
+        if (
+            target_box_width_px is None
+            or target_box_height_px is None
+            or target_edge_margin_px is None
+            or capture_width_px is None
+            or capture_height_px is None
+        ):
+            return
+        if capture_width_px <= 0.0 or capture_height_px <= 0.0:
+            return
+
+        target["samples"] += 1
+        near = (
+            (float(target_box_width_px) / float(capture_width_px)) >= _NEAR_BOX_WIDTH_RATIO
+            or (float(target_box_height_px) / float(capture_height_px)) >= _NEAR_BOX_HEIGHT_RATIO
+        )
+        edge = float(target_edge_margin_px) <= _EDGE_MARGIN_PX
+        if near:
+            target["near"] += 1
+        if edge:
+            target["edge"] += 1
+        if near and edge:
+            target["near_edge"] += 1
 
     def _record_target_stats(
         self,
@@ -263,6 +401,16 @@ class PerformanceTracker:
             f" | fire req={int(target_stats.get('fire_requested', 0))}"
             f" ok={int(target_stats.get('fire_allowed', 0))}"
             f" block={int(target_stats.get('fire_blocked', 0))}"
+        )
+
+    def _format_box_stats(self, box_stats: dict | None) -> str:
+        if not box_stats or int(box_stats.get("samples", 0)) <= 0:
+            return ""
+        return (
+            f" | box samples={int(box_stats.get('samples', 0))}"
+            f" near={int(box_stats.get('near', 0))}"
+            f" edge={int(box_stats.get('edge', 0))}"
+            f" near_edge={int(box_stats.get('near_edge', 0))}"
         )
 
     def _target_bucket(self, source: str | None, tier: str | None) -> str:

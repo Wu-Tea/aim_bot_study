@@ -46,6 +46,7 @@ public:
 private:
     void load_engine(const std::string& engine_path);
     void allocate_buffers();
+    void allocate_timing_events();
     void ensure_frame_buffer(size_t bytes);
 
     std::unique_ptr<nvinfer1::ILogger> logger_;
@@ -67,8 +68,14 @@ private:
     size_t device_frame_bytes_ = 0;
     float* device_input_ = nullptr;
     float* device_output_ = nullptr;
-    std::vector<float> host_output_;
+    float* host_output_ = nullptr;
     void* stream_ = nullptr;
+    cudaEvent_t preprocess_start_event_ = nullptr;
+    cudaEvent_t preprocess_end_event_ = nullptr;
+    cudaEvent_t infer_start_event_ = nullptr;
+    cudaEvent_t infer_end_event_ = nullptr;
+    cudaEvent_t output_copy_start_event_ = nullptr;
+    cudaEvent_t output_copy_end_event_ = nullptr;
     uint64_t next_frame_id_ = 1;
 };
 

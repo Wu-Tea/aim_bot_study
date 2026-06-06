@@ -2,6 +2,34 @@
 setlocal EnableDelayedExpansion
 cd /d "%~dp0..\.."
 
+set "RESULT=0"
+set "REQUESTED_GAMEPAD_RUNTIME=%GAMEPAD_RUNTIME%"
+if "%REQUESTED_GAMEPAD_RUNTIME%"=="" set "REQUESTED_GAMEPAD_RUNTIME=native"
+
+if /I "%REQUESTED_GAMEPAD_RUNTIME%"=="native" goto native_cpp
+if /I "%REQUESTED_GAMEPAD_RUNTIME%"=="cpp" goto native_cpp
+if /I "%REQUESTED_GAMEPAD_RUNTIME%"=="c++" goto native_cpp
+if /I "%REQUESTED_GAMEPAD_RUNTIME%"=="python" goto pyfallback
+if /I "%REQUESTED_GAMEPAD_RUNTIME%"=="fallback" goto pyfallback
+
+echo Invalid GAMEPAD_RUNTIME=%REQUESTED_GAMEPAD_RUNTIME%. Using native C++ gamepad runtime.
+goto native_cpp
+
+:native_cpp
+echo Launching Native C++ gamepad runtime.
+echo Set GAMEPAD_RUNTIME=python to use the Python fallback.
+if "%GAMEPAD_START_PRINT_ONLY%"=="1" (
+    call "%~dp0gamepad_native_cpp_start.bat"
+    set "RESULT=!ERRORLEVEL!"
+    goto finish
+)
+call "%~dp0gamepad_native_cpp_start.bat"
+set "RESULT=!ERRORLEVEL!"
+goto finish
+
+:pyfallback
+echo Launching Python fallback gamepad runtime.
+
 set "AUTO_FIRE_ARG="
 set "AUTO_FIRE_LABEL=config/default"
 
@@ -9,15 +37,21 @@ echo Select AutoFire output:
 echo 1. RB
 echo 2. RT
 echo Press Enter to use config.toml/default.
-set /p "FIRE_CHOICE=Choose [1/2/Enter]: "
+if defined GAMEPAD_START_FIRE_CHOICE_OVERRIDE (
+    set "FIRE_CHOICE=%GAMEPAD_START_FIRE_CHOICE_OVERRIDE%"
+) else (
+    set /p "FIRE_CHOICE=Choose [1/2/Enter]: "
+)
+set "FIRE_CHOICE=!FIRE_CHOICE: =!"
+set "FIRE_CHOICE=!FIRE_CHOICE:~0,1!"
 
-if /I "%FIRE_CHOICE%"=="1" (
+if /I "!FIRE_CHOICE!"=="1" (
     set "AUTO_FIRE_ARG=--auto-fire-output RB"
     set "AUTO_FIRE_LABEL=RB"
-) else if /I "%FIRE_CHOICE%"=="2" (
+) else if /I "!FIRE_CHOICE!"=="2" (
     set "AUTO_FIRE_ARG=--auto-fire-output RT"
     set "AUTO_FIRE_LABEL=RT"
-) else if not "%FIRE_CHOICE%"=="" (
+) else if not "!FIRE_CHOICE!"=="" (
     echo Invalid selection. Using config.toml/default.
 )
 
@@ -49,8 +83,8 @@ if %errorlevel%==0 (
 )
 
 echo Vision settings: config.toml defaults with existing VISION_* environment overrides.
-echo Launching gamepad mode with AutoFire=%AUTO_FIRE_LABEL%
-if /I "%ENABLE_RECOIL_RUNTIME%"=="1" (
+echo Launching Python fallback gamepad mode with AutoFire=!AUTO_FIRE_LABEL!
+if /I "!ENABLE_RECOIL_RUNTIME!"=="1" (
     if not defined RECOIL_GAME set "RECOIL_GAME=cod22"
     if not defined RECOIL_PROFILE_DIR set "RECOIL_PROFILE_DIR=%cd%\artifacts\recoil_profiles"
     if not defined RECOIL_SIGNATURE_DIR set "RECOIL_SIGNATURE_DIR=%cd%\artifacts\recoil_app\weapons"
@@ -61,16 +95,23 @@ if /I "%ENABLE_RECOIL_RUNTIME%"=="1" (
     echo Recoil runtime enabled for !RECOIL_GAME!
     if "%GAMEPAD_START_PRINT_ONLY%"=="1" (
         echo Resolved command: !PYTHON_CMD! tools\recoil_runtime_launcher.py --game !RECOIL_GAME! --profile-dir "!RECOIL_PROFILE_DIR!" --signature-dir "!RECOIL_SIGNATURE_DIR!" --state-file "!RECOIL_STATE_FILE!" --recognizer-fps !RECOIL_RECOGNIZER_FPS! --controller-mode gamepad !AUTO_FIRE_ARG!
-        goto end
+        goto end_success
     )
     !PYTHON_CMD! tools\recoil_runtime_launcher.py --game !RECOIL_GAME! --profile-dir "!RECOIL_PROFILE_DIR!" --signature-dir "!RECOIL_SIGNATURE_DIR!" --state-file "!RECOIL_STATE_FILE!" --recognizer-fps !RECOIL_RECOGNIZER_FPS! --controller-mode gamepad !AUTO_FIRE_ARG!
+    set "RESULT=!ERRORLEVEL!"
 ) else (
     if "%GAMEPAD_START_PRINT_ONLY%"=="1" (
         echo Resolved command: !PYTHON_CMD! main.py --controller-mode gamepad !AUTO_FIRE_ARG!
-        goto end
+        goto end_success
     )
     !PYTHON_CMD! main.py --controller-mode gamepad !AUTO_FIRE_ARG!
+    set "RESULT=!ERRORLEVEL!"
 )
+goto finish
 
-:end
+:end_success
+set "RESULT=0"
+
+:finish
 if not "%GAMEPAD_START_PRINT_ONLY%"=="1" pause
+exit /b !RESULT!

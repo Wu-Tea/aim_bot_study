@@ -223,6 +223,31 @@ class NativeVisionCMakeTests(unittest.TestCase):
             r"infer_bgra_array\s*\(\s*frame_array\s*,\s*width_\s*,\s*height_\s*,\s*kSelectorDecodeConfidenceFloor\s*\)",
         )
 
+    def test_native_inference_can_resize_capture_roi_to_engine_input(self):
+        preprocess_header = _read(PROJECT_ROOT / "native" / "vision_native" / "include" / "vision_native" / "preprocess.h")
+        preprocess_source = _read(PROJECT_ROOT / "native" / "vision_native" / "src" / "preprocess.cu")
+        engine_source = _read(PROJECT_ROOT / "native" / "vision_native" / "src" / "tensorrt_engine.cpp")
+
+        self.assertIn("src_width", preprocess_header)
+        self.assertIn("dst_width", preprocess_header)
+        self.assertIn("src_height", preprocess_source)
+        self.assertIn("dst_height", preprocess_source)
+        self.assertIn("input_width_", engine_source)
+        self.assertIn("scale_x", engine_source)
+        self.assertIn("scale_y", engine_source)
+        self.assertRegex(
+            engine_source,
+            r"launch_bgra_hwc_to_chw_float\s*\([^;]*input_width_\s*,\s*input_height_",
+        )
+        self.assertNotRegex(engine_source, r"width\s*!=\s*input_width_")
+
+    def test_native_preprocess_keeps_same_size_fast_path(self):
+        preprocess_source = _read(PROJECT_ROOT / "native" / "vision_native" / "src" / "preprocess.cu")
+
+        self.assertIn("rgb_hwc_to_chw_float_direct_kernel", preprocess_source)
+        self.assertIn("bgra_hwc_to_chw_float_direct_kernel", preprocess_source)
+        self.assertIn("src_width == dst_width && src_height == dst_height", preprocess_source)
+
 
 class NativeVisionProductionIsolationTests(unittest.TestCase):
     def test_native_backend_is_default_for_gamepad_start_without_touching_python_runner(self):

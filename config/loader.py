@@ -5,6 +5,7 @@ from typing import Any, Mapping
 
 from controllers.gamepad.adaptive_delta_gain import AdaptiveDeltaGainConfig
 from controllers.gamepad.ai_aim import AIAimConfig as GamepadAIAimConfig
+from controllers.gamepad.aim_assist_dynamics import AimAssistDynamicsConfig
 from controllers.gamepad.auto_fire import AutoFireConfig as GamepadAutoFireConfig
 from controllers.gamepad.recoil_compensation import RecoilCompensationConfig as GamepadRecoilConfig
 from controllers.mouse.ai_aim import AIAimConfig as MouseAIAimConfig
@@ -51,9 +52,23 @@ GAMEPAD_RECOIL_KEYS = frozenset(
         "feedback_amount",
         "profile_lead_ms",
         "profile_velocity_reference_ms",
+        "profile_despike_enabled",
+        "profile_despike_threshold_px",
+        "profile_despike_ratio",
+        "target_direction_yield_enabled",
+        "selection_log_enabled",
         "piecewise_mid_pixels_y",
         "piecewise_max_pixels_y",
         "piecewise_mid_ratio_y",
+    }
+)
+GAMEPAD_AIM_ASSIST_DYNAMICS_KEYS = frozenset(
+    {
+        "enabled",
+        "recoil_jitter_guard_enabled",
+        "recoil_jitter_assist_threshold",
+        "recoil_jitter_flip_scale",
+        "recoil_jitter_memory_seconds",
     }
 )
 GAMEPAD_AI_AIM_KEYS = frozenset(
@@ -276,6 +291,7 @@ class RuntimeConfig:
 class TuningConfig:
     runtime: RuntimeConfig
     gamepad_ai_aim: GamepadAIAimConfig
+    gamepad_aim_assist_dynamics: AimAssistDynamicsConfig
     gamepad_auto_fire: GamepadAutoFireConfig
     gamepad_recoil: GamepadRecoilConfig
     adaptive_delta_gain: AdaptiveDeltaGainConfig
@@ -327,6 +343,13 @@ def load_tuning_config(path: Path | None = None) -> TuningConfig:
         GamepadAIAimConfig(),
         **_filter(gamepad_section.get("ai_aim"), GAMEPAD_AI_AIM_KEYS),
     )
+    gamepad_aim_assist_dynamics = replace(
+        AimAssistDynamicsConfig(),
+        **_filter(
+            gamepad_section.get("aim_assist_dynamics"),
+            GAMEPAD_AIM_ASSIST_DYNAMICS_KEYS,
+        ),
+    )
     gamepad_auto_fire = replace(
         GamepadAutoFireConfig(),
         **_filter(gamepad_section.get("auto_fire"), GAMEPAD_AUTO_FIRE_KEYS),
@@ -355,6 +378,7 @@ def load_tuning_config(path: Path | None = None) -> TuningConfig:
     return TuningConfig(
         runtime=runtime,
         gamepad_ai_aim=gamepad_ai_aim,
+        gamepad_aim_assist_dynamics=gamepad_aim_assist_dynamics,
         gamepad_auto_fire=gamepad_auto_fire,
         gamepad_recoil=gamepad_recoil,
         adaptive_delta_gain=adaptive,

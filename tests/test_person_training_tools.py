@@ -199,6 +199,17 @@ class TrainingScriptImportTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, msg=result.stderr)
         self.assertIn("export_trt imported", result.stdout)
 
+    def test_export_trt_script_has_independent_engine_shape_args(self):
+        repo_root = Path(__file__).resolve().parent.parent
+        content = (repo_root / "tools" / "export_trt.py").read_text(encoding="utf-8")
+
+        self.assertIn("--width", content)
+        self.assertIn("--height", content)
+        self.assertIn("--output", content)
+        self.assertIn("imgsz", content)
+        self.assertIn("args.width", content)
+        self.assertIn("args.height", content)
+
     def test_loop_script_can_dry_run_without_starting_training(self):
         repo_root = Path(__file__).resolve().parent.parent
 

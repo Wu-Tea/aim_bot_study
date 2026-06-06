@@ -6,6 +6,7 @@ from pathlib import Path
 from config import load_tuning_config
 from config.loader import RuntimeConfig, RuntimeGamepadConfig, RuntimeVisionConfig
 from controllers.gamepad import AdaptiveDeltaGainConfig
+from controllers.gamepad import AimAssistDynamicsConfig
 from controllers.gamepad import AIAimConfig as GamepadAIAimConfig
 from controllers.gamepad import AutoFireConfig as GamepadAutoFireConfig
 from controllers.gamepad import RecoilCompensationConfig as GamepadRecoilConfig
@@ -50,6 +51,7 @@ class TuningConfigLoaderTests(unittest.TestCase):
             ),
         )
         self.assertEqual(config.adaptive_delta_gain, AdaptiveDeltaGainConfig())
+        self.assertEqual(config.gamepad_aim_assist_dynamics, AimAssistDynamicsConfig())
         self.assertEqual(config.mouse_ai_aim, MouseAIAimConfig())
         self.assertEqual(config.gamepad_auto_fire, GamepadAutoFireConfig())
         self.assertEqual(
@@ -90,9 +92,21 @@ class TuningConfigLoaderTests(unittest.TestCase):
             feedback_amount = 0.16
             profile_lead_ms = 20
             profile_velocity_reference_ms = 100
+            profile_despike_enabled = false
+            profile_despike_threshold_px = 1.5
+            profile_despike_ratio = 3.0
+            target_direction_yield_enabled = false
+            selection_log_enabled = false
             piecewise_mid_pixels_y = 40.0
             piecewise_max_pixels_y = 160.0
             piecewise_mid_ratio_y = 0.60
+
+            [gamepad.aim_assist_dynamics]
+            enabled = true
+            recoil_jitter_guard_enabled = true
+            recoil_jitter_assist_threshold = 1450.0
+            recoil_jitter_flip_scale = 0.15
+            recoil_jitter_memory_seconds = 0.045
 
             [gamepad.ai_aim]
             smoothing = 0.42
@@ -259,9 +273,20 @@ class TuningConfigLoaderTests(unittest.TestCase):
         self.assertEqual(config.gamepad_recoil.feedback_amount, 0.16)
         self.assertEqual(config.gamepad_recoil.profile_lead_ms, 20)
         self.assertEqual(config.gamepad_recoil.profile_velocity_reference_ms, 100)
+        self.assertFalse(config.gamepad_recoil.profile_despike_enabled)
+        self.assertEqual(config.gamepad_recoil.profile_despike_threshold_px, 1.5)
+        self.assertEqual(config.gamepad_recoil.profile_despike_ratio, 3.0)
+        self.assertFalse(config.gamepad_recoil.target_direction_yield_enabled)
+        self.assertFalse(config.gamepad_recoil.selection_log_enabled)
         self.assertEqual(config.gamepad_recoil.piecewise_mid_pixels_y, 40.0)
         self.assertEqual(config.gamepad_recoil.piecewise_max_pixels_y, 160.0)
         self.assertEqual(config.gamepad_recoil.piecewise_mid_ratio_y, 0.60)
+
+        self.assertTrue(config.gamepad_aim_assist_dynamics.enabled)
+        self.assertTrue(config.gamepad_aim_assist_dynamics.recoil_jitter_guard_enabled)
+        self.assertEqual(config.gamepad_aim_assist_dynamics.recoil_jitter_assist_threshold, 1450.0)
+        self.assertEqual(config.gamepad_aim_assist_dynamics.recoil_jitter_flip_scale, 0.15)
+        self.assertEqual(config.gamepad_aim_assist_dynamics.recoil_jitter_memory_seconds, 0.045)
 
         self.assertEqual(config.gamepad_ai_aim.smoothing, 0.42)
         self.assertEqual(config.gamepad_ai_aim.max_pixels, 180)

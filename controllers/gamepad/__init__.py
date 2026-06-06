@@ -4,6 +4,7 @@ from .adaptive_delta_gain import (
     AdaptiveDeltaGainConfig,
 )
 from .ai_aim import AIAimConfig, AIAimPlugin
+from .aim_assist_dynamics import AimAssistDynamicsConfig, AimAssistDynamicsPlugin
 from .auto_fire import AutoFireConfig, AutoFirePlugin
 from .diagnostics import DownwardPullDiagnostics, DownwardPullDiagnosticsConfig
 from .horizontal_assist import (
@@ -40,6 +41,8 @@ __all__ = [
     "AIAimContext",
     "AIAimConfig",
     "AIAimPlugin",
+    "AimAssistDynamicsConfig",
+    "AimAssistDynamicsPlugin",
     "AIAimSubPlugin",
     "HorizontalAssistSubPlugin",
     "LegacyAIAimPlugin",

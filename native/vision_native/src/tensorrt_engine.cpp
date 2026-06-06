@@ -7,6 +7,7 @@
 #include <NvInferPlugin.h>
 #include <cuda_runtime.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <memory>
@@ -71,6 +72,24 @@ TensorRTEngine::TensorRTEngine(std::string engine_path) {
 }
 
 TensorRTEngine::~TensorRTEngine() {
+    if (output_copy_end_event_ != nullptr) {
+        cudaEventDestroy(output_copy_end_event_);
+    }
+    if (output_copy_start_event_ != nullptr) {
+        cudaEventDestroy(output_copy_start_event_);
+    }
+    if (infer_end_event_ != nullptr) {
+        cudaEventDestroy(infer_end_event_);
+    }
+    if (infer_start_event_ != nullptr) {
+        cudaEventDestroy(infer_start_event_);
+    }
+    if (preprocess_end_event_ != nullptr) {
+        cudaEventDestroy(preprocess_end_event_);
+    }
+    if (preprocess_start_event_ != nullptr) {
+        cudaEventDestroy(preprocess_start_event_);
+    }
     if (stream_ != nullptr) {
         cudaStreamDestroy(static_cast<cudaStream_t>(stream_));
     }
@@ -82,6 +101,9 @@ TensorRTEngine::~TensorRTEngine() {
     }
     if (device_output_ != nullptr) {
         cudaFree(device_output_);
+    }
+    if (host_output_ != nullptr) {
+        cudaFreeHost(host_output_);
     }
 }
 
@@ -150,7 +172,17 @@ void TensorRTEngine::allocate_buffers() {
     stream_ = stream;
     check_cuda(cudaMalloc(reinterpret_cast<void**>(&device_input_), input_element_count_ * sizeof(float)), "cudaMalloc input");
     check_cuda(cudaMalloc(reinterpret_cast<void**>(&device_output_), output_element_count_ * sizeof(float)), "cudaMalloc output");
-    host_output_.resize(output_element_count_);
+    check_cuda(cudaMallocHost(reinterpret_cast<void**>(&host_output_), output_element_count_ * sizeof(float)), "cudaMallocHost output");
+    allocate_timing_events();
+}
+
+void TensorRTEngine::allocate_timing_events() {
+    check_cuda(cudaEventCreate(&preprocess_start_event_), "cudaEventCreate preprocess_start");
+    check_cuda(cudaEventCreate(&preprocess_end_event_), "cudaEventCreate preprocess_end");
+    check_cuda(cudaEventCreate(&infer_start_event_), "cudaEventCreate infer_start");
+    check_cuda(cudaEventCreate(&infer_end_event_), "cudaEventCreate infer_end");
+    check_cuda(cudaEventCreate(&output_copy_start_event_), "cudaEventCreate output_copy_start");
+    check_cuda(cudaEventCreate(&output_copy_end_event_), "cudaEventCreate output_copy_end");
 }
 
 void TensorRTEngine::ensure_frame_buffer(size_t bytes) {
@@ -174,10 +206,9 @@ DetectionBatch TensorRTEngine::infer_rgb(
     if (frame_rgb == nullptr) {
         throw std::runtime_error("frame_rgb must not be null");
     }
-    if (width != input_width_ || height != input_height_) {
+    if (width <= 0 || height <= 0) {
         std::ostringstream out;
-        out << "frame shape mismatch: expected " << input_height_ << "x" << input_width_
-            << " RGB, got " << height << "x" << width;
+        out << "frame shape must be positive, got " << height << "x" << width;
         throw std::runtime_error(out.str());
     }
     if (row_pitch < width * 3) {
@@ -193,27 +224,20 @@ DetectionBatch TensorRTEngine::infer_rgb(
     const size_t frame_bytes = static_cast<size_t>(row_pitch) * static_cast<size_t>(height);
     ensure_frame_buffer(frame_bytes);
 
-    cudaEvent_t preprocess_start = nullptr;
-    cudaEvent_t preprocess_end = nullptr;
-    cudaEvent_t infer_start = nullptr;
-    cudaEvent_t infer_end = nullptr;
-    check_cuda(cudaEventCreate(&preprocess_start), "cudaEventCreate preprocess_start");
-    check_cuda(cudaEventCreate(&preprocess_end), "cudaEventCreate preprocess_end");
-    check_cuda(cudaEventCreate(&infer_start), "cudaEventCreate infer_start");
-    check_cuda(cudaEventCreate(&infer_end), "cudaEventCreate infer_end");
-
     cudaStream_t stream = static_cast<cudaStream_t>(stream_);
-    check_cuda(cudaEventRecord(preprocess_start, stream), "cudaEventRecord preprocess_start");
+    check_cuda(cudaEventRecord(preprocess_start_event_, stream), "cudaEventRecord preprocess_start");
     check_cuda(cudaMemcpyAsync(device_frame_, frame_rgb, frame_bytes, cudaMemcpyHostToDevice, stream), "cudaMemcpyAsync frame");
     launch_rgb_hwc_to_chw_float(
         static_cast<const uint8_t*>(device_frame_),
         width,
         height,
         row_pitch,
+        input_width_,
+        input_height_,
         device_input_,
         stream);
     check_cuda(cudaGetLastError(), "launch_rgb_hwc_to_chw_float");
-    check_cuda(cudaEventRecord(preprocess_end, stream), "cudaEventRecord preprocess_end");
+    check_cuda(cudaEventRecord(preprocess_end_event_, stream), "cudaEventRecord preprocess_end");
 
     if (!context_->setTensorAddress(input_name_.c_str(), device_input_)) {
         throw std::runtime_error("failed to set TensorRT input address");
@@ -222,36 +246,42 @@ DetectionBatch TensorRTEngine::infer_rgb(
         throw std::runtime_error("failed to set TensorRT output address");
     }
 
-    check_cuda(cudaEventRecord(infer_start, stream), "cudaEventRecord infer_start");
+    check_cuda(cudaEventRecord(infer_start_event_, stream), "cudaEventRecord infer_start");
     if (!context_->enqueueV3(stream)) {
         throw std::runtime_error("TensorRT enqueueV3 failed");
     }
-    check_cuda(cudaEventRecord(infer_end, stream), "cudaEventRecord infer_end");
+    check_cuda(cudaEventRecord(infer_end_event_, stream), "cudaEventRecord infer_end");
+    const uint64_t output_copy_start = now_ns();
+    check_cuda(cudaEventRecord(output_copy_start_event_, stream), "cudaEventRecord output_copy_start");
     check_cuda(
-        cudaMemcpyAsync(host_output_.data(), device_output_, output_element_count_ * sizeof(float), cudaMemcpyDeviceToHost, stream),
+        cudaMemcpyAsync(host_output_, device_output_, output_element_count_ * sizeof(float), cudaMemcpyDeviceToHost, stream),
         "cudaMemcpyAsync output");
+    check_cuda(cudaEventRecord(output_copy_end_event_, stream), "cudaEventRecord output_copy_end");
     check_cuda(cudaStreamSynchronize(stream), "cudaStreamSynchronize");
+    const uint64_t output_copy_end = now_ns();
+    batch.output_copy_sync_ms = static_cast<float>(output_copy_end - output_copy_start) / 1'000'000.0f;
 
-    check_cuda(cudaEventElapsedTime(&batch.preprocess_ms, preprocess_start, preprocess_end), "cudaEventElapsedTime preprocess");
-    check_cuda(cudaEventElapsedTime(&batch.infer_ms, infer_start, infer_end), "cudaEventElapsedTime infer");
-    cudaEventDestroy(preprocess_start);
-    cudaEventDestroy(preprocess_end);
-    cudaEventDestroy(infer_start);
-    cudaEventDestroy(infer_end);
+    check_cuda(cudaEventElapsedTime(&batch.preprocess_ms, preprocess_start_event_, preprocess_end_event_), "cudaEventElapsedTime preprocess");
+    check_cuda(cudaEventElapsedTime(&batch.infer_ms, infer_start_event_, infer_end_event_), "cudaEventElapsedTime infer");
+    check_cuda(cudaEventElapsedTime(&batch.gpu_total_ms, preprocess_start_event_, infer_end_event_), "cudaEventElapsedTime gpu_total");
+    check_cuda(cudaEventElapsedTime(&batch.output_copy_ms, output_copy_start_event_, output_copy_end_event_), "cudaEventElapsedTime output_copy");
+    batch.output_wait_ms = std::max(0.0f, batch.output_copy_sync_ms - batch.output_copy_ms);
 
     const uint64_t decode_start = now_ns();
+    const float scale_x = static_cast<float>(width) / static_cast<float>(input_width_);
+    const float scale_y = static_cast<float>(height) / static_cast<float>(input_height_);
     for (int row = 0; row < output_rows_; ++row) {
-        const float* item = host_output_.data() + (static_cast<size_t>(row) * output_cols_);
+        const float* item = host_output_ + (static_cast<size_t>(row) * output_cols_);
         const float conf = item[4];
         if (conf < conf_threshold) {
             continue;
         }
 
         Detection detection;
-        detection.x1 = item[0];
-        detection.y1 = item[1];
-        detection.x2 = item[2];
-        detection.y2 = item[3];
+        detection.x1 = item[0] * scale_x;
+        detection.y1 = item[1] * scale_y;
+        detection.x2 = item[2] * scale_x;
+        detection.y2 = item[3] * scale_y;
         detection.conf = conf;
         detection.class_id = static_cast<int>(std::round(item[5]));
         batch.detections.push_back(detection);
@@ -270,10 +300,9 @@ DetectionBatch TensorRTEngine::infer_bgra_array(
     if (frame_bgra == nullptr) {
         throw std::runtime_error("frame_bgra must not be null");
     }
-    if (width != input_width_ || height != input_height_) {
+    if (width <= 0 || height <= 0) {
         std::ostringstream out;
-        out << "frame shape mismatch: expected " << input_height_ << "x" << input_width_
-            << " BGRA, got " << height << "x" << width;
+        out << "frame shape must be positive, got " << height << "x" << width;
         throw std::runtime_error(out.str());
     }
 
@@ -287,17 +316,8 @@ DetectionBatch TensorRTEngine::infer_bgra_array(
     const size_t frame_bytes = static_cast<size_t>(row_pitch) * static_cast<size_t>(height);
     ensure_frame_buffer(frame_bytes);
 
-    cudaEvent_t preprocess_start = nullptr;
-    cudaEvent_t preprocess_end = nullptr;
-    cudaEvent_t infer_start = nullptr;
-    cudaEvent_t infer_end = nullptr;
-    check_cuda(cudaEventCreate(&preprocess_start), "cudaEventCreate preprocess_start");
-    check_cuda(cudaEventCreate(&preprocess_end), "cudaEventCreate preprocess_end");
-    check_cuda(cudaEventCreate(&infer_start), "cudaEventCreate infer_start");
-    check_cuda(cudaEventCreate(&infer_end), "cudaEventCreate infer_end");
-
     cudaStream_t stream = static_cast<cudaStream_t>(stream_);
-    check_cuda(cudaEventRecord(preprocess_start, stream), "cudaEventRecord preprocess_start");
+    check_cuda(cudaEventRecord(preprocess_start_event_, stream), "cudaEventRecord preprocess_start");
     check_cuda(
         cudaMemcpy2DFromArrayAsync(
             device_frame_,
@@ -315,10 +335,12 @@ DetectionBatch TensorRTEngine::infer_bgra_array(
         width,
         height,
         row_pitch,
+        input_width_,
+        input_height_,
         device_input_,
         stream);
     check_cuda(cudaGetLastError(), "launch_bgra_hwc_to_chw_float");
-    check_cuda(cudaEventRecord(preprocess_end, stream), "cudaEventRecord preprocess_end");
+    check_cuda(cudaEventRecord(preprocess_end_event_, stream), "cudaEventRecord preprocess_end");
 
     if (!context_->setTensorAddress(input_name_.c_str(), device_input_)) {
         throw std::runtime_error("failed to set TensorRT input address");
@@ -327,36 +349,42 @@ DetectionBatch TensorRTEngine::infer_bgra_array(
         throw std::runtime_error("failed to set TensorRT output address");
     }
 
-    check_cuda(cudaEventRecord(infer_start, stream), "cudaEventRecord infer_start");
+    check_cuda(cudaEventRecord(infer_start_event_, stream), "cudaEventRecord infer_start");
     if (!context_->enqueueV3(stream)) {
         throw std::runtime_error("TensorRT enqueueV3 failed");
     }
-    check_cuda(cudaEventRecord(infer_end, stream), "cudaEventRecord infer_end");
+    check_cuda(cudaEventRecord(infer_end_event_, stream), "cudaEventRecord infer_end");
+    const uint64_t output_copy_start = now_ns();
+    check_cuda(cudaEventRecord(output_copy_start_event_, stream), "cudaEventRecord output_copy_start");
     check_cuda(
-        cudaMemcpyAsync(host_output_.data(), device_output_, output_element_count_ * sizeof(float), cudaMemcpyDeviceToHost, stream),
+        cudaMemcpyAsync(host_output_, device_output_, output_element_count_ * sizeof(float), cudaMemcpyDeviceToHost, stream),
         "cudaMemcpyAsync output");
+    check_cuda(cudaEventRecord(output_copy_end_event_, stream), "cudaEventRecord output_copy_end");
     check_cuda(cudaStreamSynchronize(stream), "cudaStreamSynchronize");
+    const uint64_t output_copy_end = now_ns();
+    batch.output_copy_sync_ms = static_cast<float>(output_copy_end - output_copy_start) / 1'000'000.0f;
 
-    check_cuda(cudaEventElapsedTime(&batch.preprocess_ms, preprocess_start, preprocess_end), "cudaEventElapsedTime preprocess");
-    check_cuda(cudaEventElapsedTime(&batch.infer_ms, infer_start, infer_end), "cudaEventElapsedTime infer");
-    cudaEventDestroy(preprocess_start);
-    cudaEventDestroy(preprocess_end);
-    cudaEventDestroy(infer_start);
-    cudaEventDestroy(infer_end);
+    check_cuda(cudaEventElapsedTime(&batch.preprocess_ms, preprocess_start_event_, preprocess_end_event_), "cudaEventElapsedTime preprocess");
+    check_cuda(cudaEventElapsedTime(&batch.infer_ms, infer_start_event_, infer_end_event_), "cudaEventElapsedTime infer");
+    check_cuda(cudaEventElapsedTime(&batch.gpu_total_ms, preprocess_start_event_, infer_end_event_), "cudaEventElapsedTime gpu_total");
+    check_cuda(cudaEventElapsedTime(&batch.output_copy_ms, output_copy_start_event_, output_copy_end_event_), "cudaEventElapsedTime output_copy");
+    batch.output_wait_ms = std::max(0.0f, batch.output_copy_sync_ms - batch.output_copy_ms);
 
     const uint64_t decode_start = now_ns();
+    const float scale_x = static_cast<float>(width) / static_cast<float>(input_width_);
+    const float scale_y = static_cast<float>(height) / static_cast<float>(input_height_);
     for (int row = 0; row < output_rows_; ++row) {
-        const float* item = host_output_.data() + (static_cast<size_t>(row) * output_cols_);
+        const float* item = host_output_ + (static_cast<size_t>(row) * output_cols_);
         const float conf = item[4];
         if (conf < conf_threshold) {
             continue;
         }
 
         Detection detection;
-        detection.x1 = item[0];
-        detection.y1 = item[1];
-        detection.x2 = item[2];
-        detection.y2 = item[3];
+        detection.x1 = item[0] * scale_x;
+        detection.y1 = item[1] * scale_y;
+        detection.x2 = item[2] * scale_x;
+        detection.y2 = item[3] * scale_y;
         detection.conf = conf;
         detection.class_id = static_cast<int>(std::round(item[5]));
         batch.detections.push_back(detection);

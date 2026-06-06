@@ -277,8 +277,19 @@ class NativeVisionProcessTests(unittest.TestCase):
             "target_confidence": 0.73,
             "has_external_cue": True,
             "wait_ms": 1.0,
+            "capture_acquire_ms": 0.7,
+            "capture_copy_ms": 0.3,
             "preprocess_ms": 0.2,
+            "cuda_map_ms": 0.4,
             "infer_ms": 3.0,
+            "output_copy_sync_ms": 0.8,
+            "gpu_total_ms": 3.4,
+            "output_copy_ms": 0.2,
+            "output_wait_ms": 0.6,
+            "decode_ms": 0.1,
+            "selector_ms": 0.5,
+            "enhance_ms": 0.2,
+            "cuda_unmap_ms": 0.1,
             "post_ms": 0.4,
             "age_ms": 4.0,
             "boxes_seen": 1,
@@ -344,6 +355,24 @@ class NativeVisionProcessTests(unittest.TestCase):
         self.assertTrue(perf_kwargs["has_external_cue"])
         self.assertTrue(perf_kwargs["native_auto_fire_requested"])
         self.assertTrue(perf_kwargs["auto_fire_active"])
+        self.assertEqual(perf_kwargs["native_capture_acquire_ms"], 0.7)
+        self.assertEqual(perf_kwargs["native_capture_copy_ms"], 0.3)
+        self.assertEqual(perf_kwargs["native_cuda_map_ms"], 0.4)
+        self.assertEqual(perf_kwargs["native_output_copy_sync_ms"], 0.8)
+        self.assertEqual(perf_kwargs["native_gpu_total_ms"], 3.4)
+        self.assertEqual(perf_kwargs["native_output_copy_ms"], 0.2)
+        self.assertEqual(perf_kwargs["native_output_wait_ms"], 0.6)
+        self.assertEqual(perf_kwargs["native_decode_ms"], 0.1)
+        self.assertEqual(perf_kwargs["native_selector_ms"], 0.5)
+        self.assertEqual(perf_kwargs["native_enhance_ms"], 0.2)
+        self.assertEqual(perf_kwargs["native_cuda_unmap_ms"], 0.1)
+        self.assertEqual(perf_kwargs["target_box_width_px"], 80.0)
+        self.assertEqual(perf_kwargs["target_box_height_px"], 200.0)
+        self.assertEqual(perf_kwargs["target_edge_margin_px"], 120.0)
+        self.assertEqual(perf_kwargs["capture_width_px"], 640.0)
+        self.assertEqual(perf_kwargs["capture_height_px"], 512.0)
+        self.assertIsNotNone(perf_kwargs["external_cue_ms"])
+        self.assertGreaterEqual(perf_kwargs["external_cue_ms"], 0.0)
 
     @patch("vision.native_runner.win32api.GetAsyncKeyState", side_effect=[0x8000])
     @patch("vision.native_runner._load_native_module")
@@ -568,6 +597,9 @@ class NativeVisionProcessTests(unittest.TestCase):
         )
 
         engine.set_external_cue.assert_any_call(True, 321.0, 170.0, 0.75)
+        perf_kwargs = perf_tracker_cls.return_value.update.call_args.kwargs
+        self.assertIsNotNone(perf_kwargs["external_cue_ms"])
+        self.assertGreaterEqual(perf_kwargs["external_cue_ms"], 0.0)
 
     @patch("vision.native_runner.win32api.GetAsyncKeyState", side_effect=[0x8000])
     @patch("vision.native_runner._create_default_cue_provider")

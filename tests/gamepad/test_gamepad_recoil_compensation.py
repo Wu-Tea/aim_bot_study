@@ -8,7 +8,14 @@ from controllers.gamepad.state import GamepadFrame, GamepadOutput
 from vision.recoil_collection.models import RecoilProfileRecord
 
 
-def _frame(*, timestamp: float = 1.0, right_trigger: int = 0):
+def _frame(
+    *,
+    timestamp: float = 1.0,
+    right_trigger: int = 0,
+    target_dx: float = 0.0,
+    target_dy: float = 0.0,
+    target_timestamp: float | None = None,
+):
     return GamepadFrame(
         timestamp=timestamp,
         left_x=0,
@@ -19,9 +26,10 @@ def _frame(*, timestamp: float = 1.0, right_trigger: int = 0):
         right_trigger=right_trigger,
         buttons={"rb": False},
         is_aiming=True,
-        target_dx=0.0,
-        target_dy=0.0,
+        target_dx=target_dx,
+        target_dy=target_dy,
         auto_fire_requested=False,
+        target_timestamp=target_timestamp,
     )
 
 
@@ -336,6 +344,139 @@ class RecoilCompensationPluginTests(unittest.TestCase):
         self.assertEqual(first.right_y, 0)
         self.assertEqual(second.right_y, -32767)
 
+    def test_target_direction_can_zero_conflicting_vertical_recoil_without_stopping_timeline(self):
+        plugin = RecoilCompensationPlugin(
+            RecoilCompensationConfig(profile_amount=1.0),
+            profile_provider=lambda _frame: _profile(samples_y=(0.0, 1.8, 5.4)),
+        )
+
+        first = GamepadOutput(right_y=0, auto_fire_active=True)
+        plugin.apply(_frame(timestamp=1.00, target_dy=-40.0, target_timestamp=0.99), first)
+
+        conflicting = GamepadOutput(right_y=0, auto_fire_active=True)
+        plugin.apply(_frame(timestamp=1.01, target_dy=-40.0, target_timestamp=1.00), conflicting)
+
+        aligned = GamepadOutput(right_y=0, auto_fire_active=True)
+        plugin.apply(_frame(timestamp=1.02, target_dy=40.0, target_timestamp=1.01), aligned)
+
+        self.assertEqual(first.right_y, 0)
+        self.assertEqual(conflicting.right_y, 0)
+        self.assertEqual(aligned.right_y, -1704)
+
+    def test_target_direction_scales_conflicting_vertical_recoil_by_target_error(self):
+        plugin = RecoilCompensationPlugin(
+            RecoilCompensationConfig(profile_amount=1.0),
+            profile_provider=lambda _frame: _profile(samples_y=(0.0, 1.8)),
+        )
+
+        first = GamepadOutput(right_y=0, auto_fire_active=True)
+        plugin.apply(_frame(timestamp=1.00, target_dy=-20.0, target_timestamp=0.99), first)
+
+        scaled = GamepadOutput(right_y=0, auto_fire_active=True)
+        plugin.apply(_frame(timestamp=1.01, target_dy=-20.0, target_timestamp=1.00), scaled)
+
+        self.assertEqual(first.right_y, 0)
+        self.assertEqual(scaled.right_y, -426)
+
+    def test_target_direction_keeps_vertical_recoil_when_aligned(self):
+        plugin = RecoilCompensationPlugin(
+            RecoilCompensationConfig(profile_amount=1.0),
+            profile_provider=lambda _frame: _profile(samples_y=(0.0, 1.8)),
+        )
+
+        plugin.apply(
+            _frame(timestamp=1.00, target_dy=40.0, target_timestamp=0.99),
+            GamepadOutput(right_y=0, auto_fire_active=True),
+        )
+        output = GamepadOutput(right_y=0, auto_fire_active=True)
+        plugin.apply(_frame(timestamp=1.01, target_dy=40.0, target_timestamp=1.00), output)
+
+        self.assertEqual(output.right_y, -852)
+
+    def test_target_direction_can_zero_conflicting_horizontal_recoil(self):
+        plugin = RecoilCompensationPlugin(
+            RecoilCompensationConfig(profile_amount=1.0, profile_x_amount=1.0),
+            profile_provider=lambda _frame: _profile(
+                samples_x=(0.0, 1.8),
+                samples_y=(0.0, 0.0),
+            ),
+        )
+
+        plugin.apply(
+            _frame(timestamp=1.00, target_dx=40.0, target_timestamp=0.99),
+            GamepadOutput(right_x=0, auto_fire_active=True),
+        )
+        output = GamepadOutput(right_x=0, auto_fire_active=True)
+        plugin.apply(_frame(timestamp=1.01, target_dx=40.0, target_timestamp=1.00), output)
+
+        self.assertEqual(output.right_x, 0)
+
+    def test_target_direction_keeps_horizontal_recoil_when_aligned(self):
+        plugin = RecoilCompensationPlugin(
+            RecoilCompensationConfig(profile_amount=1.0, profile_x_amount=1.0),
+            profile_provider=lambda _frame: _profile(
+                samples_x=(0.0, 1.8),
+                samples_y=(0.0, 0.0),
+            ),
+        )
+
+        plugin.apply(
+            _frame(timestamp=1.00, target_dx=-40.0, target_timestamp=0.99),
+            GamepadOutput(right_x=0, auto_fire_active=True),
+        )
+        output = GamepadOutput(right_x=0, auto_fire_active=True)
+        plugin.apply(_frame(timestamp=1.01, target_dx=-40.0, target_timestamp=1.00), output)
+
+        self.assertEqual(output.right_x, -852)
+
+    def test_small_target_error_does_not_yield_recoil(self):
+        plugin = RecoilCompensationPlugin(
+            RecoilCompensationConfig(profile_amount=1.0),
+            profile_provider=lambda _frame: _profile(samples_y=(0.0, 1.8)),
+        )
+
+        plugin.apply(
+            _frame(timestamp=1.00, target_dy=-4.0, target_timestamp=0.99),
+            GamepadOutput(right_y=0, auto_fire_active=True),
+        )
+        output = GamepadOutput(right_y=0, auto_fire_active=True)
+        plugin.apply(_frame(timestamp=1.01, target_dy=-4.0, target_timestamp=1.00), output)
+
+        self.assertEqual(output.right_y, -852)
+
+    def test_stale_target_does_not_yield_recoil(self):
+        plugin = RecoilCompensationPlugin(
+            RecoilCompensationConfig(profile_amount=1.0),
+            profile_provider=lambda _frame: _profile(samples_y=(0.0, 1.8)),
+        )
+
+        plugin.apply(
+            _frame(timestamp=1.00, target_dy=-40.0, target_timestamp=0.80),
+            GamepadOutput(right_y=0, auto_fire_active=True),
+        )
+        output = GamepadOutput(right_y=0, auto_fire_active=True)
+        plugin.apply(_frame(timestamp=1.01, target_dy=-40.0, target_timestamp=0.80), output)
+
+        self.assertEqual(output.right_y, -852)
+
+    def test_target_direction_yield_can_be_disabled(self):
+        plugin = RecoilCompensationPlugin(
+            RecoilCompensationConfig(
+                profile_amount=1.0,
+                target_direction_yield_enabled=False,
+            ),
+            profile_provider=lambda _frame: _profile(samples_y=(0.0, 1.8)),
+        )
+
+        plugin.apply(
+            _frame(timestamp=1.00, target_dy=-40.0, target_timestamp=0.99),
+            GamepadOutput(right_y=0, auto_fire_active=True),
+        )
+        output = GamepadOutput(right_y=0, auto_fire_active=True)
+        plugin.apply(_frame(timestamp=1.01, target_dy=-40.0, target_timestamp=1.00), output)
+
+        self.assertEqual(output.right_y, -852)
+
     def test_profile_selection_logger_reports_active_aim_mode_when_firing(self):
         logs = []
         plugin = RecoilCompensationPlugin(
@@ -369,6 +510,18 @@ class RecoilCompensationPluginTests(unittest.TestCase):
         plugin.apply(_frame(timestamp=1.00, right_trigger=255), GamepadOutput(auto_fire_active=False))
 
         self.assertEqual(logs, ["[Recoil] active_profile aim=ads profile=none fallback=15%"])
+
+    def test_profile_selection_logger_can_be_disabled_by_config(self):
+        logs = []
+        plugin = RecoilCompensationPlugin(
+            RecoilCompensationConfig(selection_log_enabled=False),
+            profile_provider=lambda _frame: _profile(samples_y=(0.0, -1.8, -3.6)),
+            profile_selection_logger=logs.append,
+        )
+
+        plugin.apply(_frame(timestamp=1.00, right_trigger=255), GamepadOutput(auto_fire_active=False))
+
+        self.assertEqual(logs, [])
 
     def test_stop_firing_resets_profile_playback_to_the_start(self):
         plugin = RecoilCompensationPlugin(
@@ -489,6 +642,45 @@ class RecoilCompensationPluginTests(unittest.TestCase):
         plugin.apply(_frame(timestamp=1.00, right_trigger=255), output)
 
         self.assertEqual(output.right_y, -6553)
+
+    def test_profile_despike_reduces_isolated_cumulative_sample_spike(self):
+        profile = _profile(samples_y=(0.0, 1.0, 12.0, 2.0, 3.0))
+        plugin = RecoilCompensationPlugin(
+            RecoilCompensationConfig(profile_amount=1.0),
+            profile_provider=lambda _frame: profile,
+        )
+
+        outputs = []
+        for index in range(profile.sample_count):
+            output = GamepadOutput(right_y=0, auto_fire_active=True)
+            plugin.apply(_frame(timestamp=1.00 + (index * 0.01)), output)
+            outputs.append(output.right_y)
+
+        self.assertEqual(outputs[0], 0)
+        self.assertLess(max(abs(value) for value in outputs), 1000)
+        self.assertLessEqual(max(outputs), 0)
+        self.assertEqual(outputs[-1], -473)
+
+    def test_profile_despike_disabled_preserves_recorded_spike_playback(self):
+        profile = _profile(samples_y=(0.0, 1.0, 12.0, 2.0, 3.0))
+        plugin = RecoilCompensationPlugin(
+            RecoilCompensationConfig(
+                profile_amount=1.0,
+                profile_despike_enabled=False,
+            ),
+            profile_provider=lambda _frame: profile,
+        )
+
+        outputs = []
+        for index in range(profile.sample_count):
+            output = GamepadOutput(right_y=0, auto_fire_active=True)
+            plugin.apply(_frame(timestamp=1.00 + (index * 0.01)), output)
+            outputs.append(output.right_y)
+
+        self.assertEqual(outputs[0], 0)
+        self.assertLess(outputs[2], -5000)
+        self.assertGreater(outputs[3], 4500)
+        self.assertEqual(outputs[-1], -473)
 
 
 if __name__ == "__main__":
