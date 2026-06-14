@@ -924,7 +924,7 @@ git commit -m "refactor: split recoil compensation from tracker motion"
 - Modify: `native/runtime_app/runtime_loop.cpp`
 - Modify: `native/vision_native/CMakeLists.txt`
 
-- [ ] **Step 1: Define replay schema**
+- [x] **Step 1: Define replay schema**
 
 Replay frames should include:
 
@@ -947,7 +947,7 @@ weapon/recoil state
 stage timing
 ```
 
-- [ ] **Step 2: Extend aim-only perf logs**
+- [x] **Step 2: Extend aim-only perf logs**
 
 Add tracker/controller fields without making per-frame logging mandatory in normal runs.
 
@@ -961,7 +961,9 @@ experimental Kalman backend
 detector-only baseline
 ```
 
-- [ ] **Step 4: Add benchmark metrics**
+Status: a compile-time runner entry point exists; full backend replay comparison remains pending.
+
+- [x] **Step 4: Add benchmark metrics**
 
 Required metrics:
 
@@ -977,7 +979,7 @@ stale fire violations
 CPU time per tick
 ```
 
-- [ ] **Step 5: Run verification and commit**
+- [x] **Step 5: Run verification and commit**
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\build_native_vision.ps1

@@ -396,11 +396,17 @@ void RuntimeLoop::run_once() {
             perf_logger_.record_sample(snapshot);
         }
         if (log_aim_perf_file) {
+            const controller_native::NativeControllerOutputComponents& output_components =
+                controller_.last_output_components();
+            const controller_native::GamepadOutputState tracker_motion_output =
+                controller_.last_tracker_motion_output();
             aim_perf_file_logger_.record_aim_sample(
                 tick_count_,
                 aiming,
                 snapshot,
-                result);
+                result,
+                &output_components,
+                &tracker_motion_output);
         }
         if (log_vision) {
             log_vision_result(

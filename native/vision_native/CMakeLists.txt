@@ -130,6 +130,10 @@ add_executable(cod_native_runtime
     ../runtime_app/perf_logger.cpp
     ../runtime_app/aim_perf_file_logger.cpp
     ../runtime_app/downward_diagnostics.cpp
+    ../runtime_app/native_replay_writer.cpp
+    ../runtime_app/native_replay_runner.cpp
+    ../replay_native/replay_reader.cpp
+    ../replay_native/replay_metrics.cpp
     ../tracking_native/association.cpp
     ../tracking_native/ego_motion_buffer.cpp
     ../tracking_native/projection_model.cpp
@@ -200,6 +204,11 @@ endif()
 
 add_executable(cod_native_controller_tests
     ../controller_native/controller_behavior_tests.cpp
+    ../runtime_app/aim_perf_file_logger.cpp
+    ../runtime_app/native_replay_writer.cpp
+    ../runtime_app/native_replay_runner.cpp
+    ../replay_native/replay_reader.cpp
+    ../replay_native/replay_metrics.cpp
     ../tracking_native/association.cpp
     ../tracking_native/ego_motion_buffer.cpp
     ../tracking_native/projection_model.cpp
