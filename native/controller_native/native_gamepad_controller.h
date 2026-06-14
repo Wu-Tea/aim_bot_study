@@ -2,6 +2,7 @@
 
 #include "aim_assist_dynamics.h"
 #include "ai_aim.h"
+#include "controller_tick_context.h"
 #include "recoil_compensation.h"
 #include "runtime_config.h"
 #include "target_tracker.h"
@@ -10,33 +11,9 @@
 #include "xinput_reader.h"
 
 #include <cstdint>
-#include <string>
 #include <vector>
 
 namespace controller_native {
-
-struct NativeControllerVisionState {
-    bool has_target = false;
-    bool auto_fire_requested = false;
-    float dx = 0.0f;
-    float dy = 0.0f;
-    float target_x = 0.0f;
-    float target_y = 0.0f;
-    float screen_center_x = 0.0f;
-    float screen_center_y = 0.0f;
-    bool has_body_box = false;
-    float body_x1 = 0.0f;
-    float body_y1 = 0.0f;
-    float body_x2 = 0.0f;
-    float body_y2 = 0.0f;
-    bool aim_authority = false;
-    bool fire_authority = false;
-    std::string target_tier = "none";
-    double observed_at_seconds = 0.0;
-    bool has_tracker_projection = false;
-    float tracker_dx = 0.0f;
-    float tracker_dy = 0.0f;
-};
 
 struct NativeAutoFireCounters {
     std::uint64_t requested = 0;
@@ -64,6 +41,7 @@ public:
     NativeAutoFireCounters auto_fire_counters() const;
     const std::vector<NativeControllerStageTrace>& last_pipeline_traces() const;
     GamepadOutputState last_tracker_motion_output() const;
+    const NativeControllerOutputComponents& last_output_components() const;
 
 private:
     bool is_aiming(const PhysicalGamepadState& physical) const;
@@ -139,6 +117,7 @@ private:
     NativeAutoFireCounters auto_fire_counters_;
     std::vector<NativeControllerStageTrace> last_pipeline_traces_;
     GamepadOutputState last_tracker_motion_output_;
+    NativeControllerOutputComponents last_output_components_;
     bool manual_fire_was_pressed_ = false;
     bool auto_fire_was_active_ = false;
     double manual_takeover_started_at_seconds_ = -1.0;

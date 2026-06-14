@@ -1,6 +1,8 @@
 #include "aim_assist_dynamics.h"
 #include "ai_aim.h"
+#include "controller_tick_context.h"
 #include "native_gamepad_controller.h"
+#include "output_mixer.h"
 #include "recoil_compensation.h"
 #include "recoil_profile.h"
 #include "target_tracker.h"
@@ -628,6 +630,33 @@ void test_controller_records_pipeline_stage_traces() {
         "last trace should end at final output right_y");
 }
 
+void test_controller_tick_context_carries_tracker_snapshot_and_output_components() {
+    controller_native::NativeControllerTickContext context;
+    context.physical = aiming_physical_state();
+    context.vision.has_target = true;
+    context.vision.aim_authority = true;
+    context.vision.dx = 12.0f;
+    context.tracker_snapshot.has_target = true;
+    context.tracker_snapshot.aim_error_px = {10.0f, -2.0f};
+    context.now = {42.0};
+    context.dt = {0.008};
+    context.aiming = true;
+    context.manual_fire_pressed = true;
+    context.auto_fire_active = false;
+    context.output_components.manual_stick = {0.20f, -0.10f};
+    context.output_components.final_stick = {0.30f, -0.15f};
+
+    require_true(context.aiming, "tick context should carry ADS state");
+    require_true(
+        context.tracker_snapshot.has_target,
+        "tick context should carry current tracker snapshot");
+    require_near(
+        context.output_components.final_stick.x,
+        0.30f,
+        0.001f,
+        "tick context should carry output components for later tracker samples");
+}
+
 void test_auto_fire_manual_takeover_releases_output_briefly() {
     controller_native::GamepadRuntimeConfig config;
     config.auto_fire_output = "RB";
@@ -1066,6 +1095,80 @@ void test_controller_tracker_records_pre_recoil_motion() {
         0.30f,
         0.001f,
         "tracker should record pre-recoil manual motion, not recoil-compensated final motion");
+}
+
+void test_controller_output_components_capture_recoil_after_tracker_sample() {
+    const std::filesystem::path root = make_temp_test_dir("controller_output_components");
+    const std::filesystem::path profile_dir = root / "profiles";
+    const std::filesystem::path state_path = root / "latest-state.json";
+    std::filesystem::create_directories(profile_dir);
+    write_text_file(
+        profile_dir / "profile-cod22-m4-ads-standing-side.json",
+        recoil_profile_xy_json(
+            "profile-cod22-m4-ads-standing-side",
+            "cod22-m4",
+            "ads",
+            0.95f,
+            10.0f,
+            0.0f));
+    write_text_file(
+        state_path,
+        recognizer_state_json("cod22-m4", "profile-cod22-m4-ads-standing-side"));
+
+    controller_native::GamepadRuntimeConfig config;
+    config.ai_aim.max_pixels = 100.0f;
+    config.ai_aim.max_ai_force = 1.0f;
+    config.ai_aim.max_ai_force_y = 1.0f;
+    config.ai_aim.piecewise_mid_pixels = 0.0f;
+    config.ai_aim.piecewise_mid_pixels_y = 0.0f;
+    config.ai_aim.ads_snap_window_ms = 0;
+    config.aim_assist_dynamics.enabled = false;
+    config.recoil.enabled = true;
+    config.recoil.selection_log_enabled = false;
+    config.recoil.profile_directory = profile_dir.string();
+    config.recoil.recognizer_state_path = state_path.string();
+    config.recoil.profile_amount = 1.0f;
+    config.recoil.profile_x_amount = 1.0f;
+    config.recoil.profile_velocity_reference_ms = 10.0f;
+    config.recoil.profile_despike_enabled = false;
+    config.recoil.piecewise_mid_pixels_y = 10.0f;
+    config.recoil.piecewise_max_pixels_y = 20.0f;
+    config.recoil.piecewise_mid_ratio_y = 0.50f;
+    config.recoil.target_direction_yield_enabled = false;
+    controller_native::NativeGamepadController controller(config);
+
+    controller_native::NativeControllerVisionState target;
+    target.has_target = true;
+    target.aim_authority = true;
+    target.fire_authority = true;
+    target.dx = 0.0f;
+    target.dy = 0.0f;
+    target.target_tier = "strong";
+    target.observed_at_seconds = now_seconds();
+    controller.submit_vision_state(target);
+
+    controller_native::PhysicalGamepadState firing = aiming_physical_state();
+    firing.right_x = 0.30f;
+    firing.right_trigger = 1.0f;
+    controller.build_output(firing);
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    const controller_native::GamepadOutputState firing_output = controller.build_output(firing);
+    const controller_native::NativeControllerOutputComponents& components =
+        controller.last_output_components();
+
+    require_near(
+        components.manual_stick.x,
+        0.30f,
+        0.001f,
+        "output components should retain physical manual stick");
+    require_near(
+        components.final_stick.x,
+        firing_output.right_x,
+        0.001f,
+        "output components should retain final stick");
+    require_true(
+        components.recoil_stick.x < -0.40f,
+        "output components should expose recoil contribution separately");
 }
 
 void test_controller_projects_body_box_during_no_update_ticks() {
@@ -2546,6 +2649,7 @@ int main() {
         test_auto_fire_blocks_stale_source();
         test_controller_passes_extended_buttons_and_dpad_through();
         test_controller_records_pipeline_stage_traces();
+        test_controller_tick_context_carries_tracker_snapshot_and_output_components();
         test_auto_fire_manual_takeover_releases_output_briefly();
         test_auto_fire_requires_aim_ready_settle_frames();
         test_auto_fire_aim_ready_gate_can_be_disabled();
@@ -2558,6 +2662,7 @@ int main() {
         test_controller_projects_target_during_no_update_ticks();
         test_controller_expires_projection_before_aim_target_age();
         test_controller_tracker_records_pre_recoil_motion();
+        test_controller_output_components_capture_recoil_after_tracker_sample();
         test_controller_projects_body_box_during_no_update_ticks();
         test_ai_aim_scales_weak_and_cue_targets();
         test_ai_aim_body_lock_uses_upper_body_point_from_body_box();

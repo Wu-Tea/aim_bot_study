@@ -644,7 +644,7 @@ git commit -m "refactor: add legacy tracker contract adapter"
 - Modify: `native/controller_native/native_gamepad_controller.h`
 - Modify: `native/controller_native/controller_behavior_tests.cpp`
 
-- [ ] **Step 1: Define tick context**
+- [x] **Step 1: Define tick context**
 
 Create a tick context type containing physical input, current vision/tracker snapshot, recoil state, config-derived state, and timestamps. The first version should be a passive struct and should not change output behavior.
 
@@ -661,7 +661,7 @@ fire state
 weapon/recoil state
 ```
 
-- [ ] **Step 2: Define output components**
+- [x] **Step 2: Define output components**
 
 Create an output component struct:
 
@@ -676,7 +676,7 @@ fire button state
 
 This type should become the source for `TrackerControlSample` later.
 
-- [ ] **Step 3: Move build-output stages behind named functions**
+- [x] **Step 3: Move build-output stages behind named functions**
 
 Split the current `NativeGamepadController::build_output` order into explicit stage calls:
 
@@ -693,7 +693,7 @@ record tracker sample
 
 The function order must remain unchanged in this wave.
 
-- [ ] **Step 4: Add stage-order test**
+- [x] **Step 4: Add stage-order test**
 
 Add a controller behavior test that proves tracker recording still happens from the same pre-recoil motion component as the current baseline.
 
@@ -704,13 +704,13 @@ recoil-only output does not move tracker projection in default mode
 manual/assist movement still moves tracker projection
 ```
 
-- [ ] **Step 5: Run verification**
+- [x] **Step 5: Run verification**
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\build_native_vision.ps1
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add native/controller_native native/vision_native/CMakeLists.txt

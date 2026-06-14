@@ -139,6 +139,8 @@ add_executable(cod_native_runtime
     ../controller_native/recoil_calibration.cpp
     ../controller_native/recoil_compensation.cpp
     ../controller_native/weapon_recognizer.cpp
+    ../controller_native/output_mixer.cpp
+    ../controller_native/controller_pipeline.cpp
     ../controller_native/native_gamepad_controller.cpp
     ../controller_native/virtual_gamepad.cpp
     ../controller_native/xinput_reader.cpp
@@ -198,6 +200,8 @@ add_executable(cod_native_controller_tests
     ../controller_native/recoil_calibration.cpp
     ../controller_native/recoil_compensation.cpp
     ../controller_native/weapon_recognizer.cpp
+    ../controller_native/output_mixer.cpp
+    ../controller_native/controller_pipeline.cpp
     ../controller_native/native_gamepad_controller.cpp
 )
 

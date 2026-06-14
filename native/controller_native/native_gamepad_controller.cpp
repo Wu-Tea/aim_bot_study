@@ -1,5 +1,7 @@
 #include "native_gamepad_controller.h"
 
+#include "controller_pipeline.h"
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -69,6 +71,7 @@ void NativeGamepadController::reset() {
     recoil_.reset();
     last_pipeline_traces_.clear();
     last_tracker_motion_output_ = GamepadOutputState{};
+    last_output_components_ = NativeControllerOutputComponents{};
     manual_fire_was_pressed_ = false;
     auto_fire_was_active_ = false;
     manual_takeover_started_at_seconds_ = -1.0;
@@ -121,28 +124,9 @@ void NativeGamepadController::submit_vision_result(const vision_native::VisionRe
 GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadState& physical) {
     last_pipeline_traces_.clear();
 
-    GamepadOutputState output;
-    output.left_x = physical.left_x;
-    output.left_y = physical.left_y;
-    output.right_x = physical.right_x;
-    output.right_y = physical.right_y;
-    output.left_trigger = physical.left_trigger;
-    output.right_trigger = physical.right_trigger;
-    output.rb = physical.rb;
-    output.lb = physical.lb;
-    output.a = physical.a;
-    output.b = physical.b;
-    output.x = physical.x;
-    output.y = physical.y;
-    output.back = physical.back;
-    output.guide = physical.guide;
-    output.start = physical.start;
-    output.left_thumb = physical.left_thumb;
-    output.right_thumb = physical.right_thumb;
-    output.dpad_up = physical.dpad_up;
-    output.dpad_down = physical.dpad_down;
-    output.dpad_left = physical.dpad_left;
-    output.dpad_right = physical.dpad_right;
+    GamepadOutputState output = output_from_physical_input(physical);
+    NativeControllerOutputComponents output_components =
+        output_components_from_manual_output(output);
 
     const double now = current_seconds();
     const NativeControllerVisionState frame_vision_state = vision_state_for_frame(now);
@@ -152,8 +136,13 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
     const float manual_right_x = output.right_x;
     const float manual_right_y = output.right_y;
 
+    GamepadOutputState stage_before_output = output;
     float stage_before_right_y = output.right_y;
     apply_ai_aim(output, physical, frame_vision_state, now);
+    capture_output_component_delta(
+        stage_before_output,
+        output,
+        &output_components.ai_aim_stick);
     record_stage_trace("ai_aim", stage_before_right_y, output, false, false);
 
     const bool aim_ready = auto_fire_aim_ready(
@@ -164,8 +153,13 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
         manual_right_y,
         output);
     bool should_fire = auto_fire_allowed(frame_vision_state, aiming, now, aim_ready);
+    stage_before_output = output;
     stage_before_right_y = output.right_y;
     apply_aim_assist_dynamics(output, manual_right_x, manual_right_y, physical, should_fire);
+    capture_output_component_delta(
+        stage_before_output,
+        output,
+        &output_components.dynamic_adjustment_stick);
     record_stage_trace(
         "aim_assist_dynamics",
         stage_before_right_y,
@@ -215,10 +209,17 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
 
     const GamepadOutputState tracker_motion_output = output;
     auto_fire_was_active_ = should_fire;
+    stage_before_output = output;
     stage_before_right_y = output.right_y;
     apply_recoil(output, physical, should_fire, frame_vision_state, now);
+    capture_output_component_delta(
+        stage_before_output,
+        output,
+        &output_components.recoil_stick);
     record_stage_trace("recoil", stage_before_right_y, output, should_fire, should_fire);
     record_target_tracker_output(tracker_motion_output, now);
+    capture_final_output_component(output, &output_components);
+    last_output_components_ = output_components;
     return output;
 }
 
@@ -232,6 +233,10 @@ const std::vector<NativeControllerStageTrace>& NativeGamepadController::last_pip
 
 GamepadOutputState NativeGamepadController::last_tracker_motion_output() const {
     return last_tracker_motion_output_;
+}
+
+const NativeControllerOutputComponents& NativeGamepadController::last_output_components() const {
+    return last_output_components_;
 }
 
 bool NativeGamepadController::is_aiming(const PhysicalGamepadState& physical) const {
