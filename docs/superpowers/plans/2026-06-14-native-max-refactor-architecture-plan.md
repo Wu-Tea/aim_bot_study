@@ -875,11 +875,11 @@ git commit -m "refactor: add tracker backend interface"
 - Modify: `native/controller_native/controller_behavior_tests.cpp`
 - Modify: `native/vision_native/CMakeLists.txt`
 
-- [ ] **Step 1: Move recoil compensation behind explicit policy**
+- [x] **Step 1: Move recoil compensation behind explicit policy**
 
 The recoil policy should output a recoil stick component, not directly mutate the same output state that tracker consumes.
 
-- [ ] **Step 2: Add disabled recoil visual model**
+- [x] **Step 2: Add disabled recoil visual model**
 
 Default behavior:
 
@@ -889,7 +889,7 @@ visual displacement returns zero
 tracker ego-motion remains pre-recoil/default mode
 ```
 
-- [ ] **Step 3: Add recoil component tests**
+- [x] **Step 3: Add recoil component tests**
 
 Required tests:
 
@@ -900,7 +900,7 @@ tracker default ego-motion excludes anti-recoil component
 experimental final-stick mode requires explicit config enable
 ```
 
-- [ ] **Step 4: Run verification and commit**
+- [x] **Step 4: Run verification and commit**
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\build_native_vision.ps1

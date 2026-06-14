@@ -374,6 +374,9 @@ void apply_gamepad_recoil_value(
         config.native_recognizer_enabled = parse_bool_value(value, config.native_recognizer_enabled);
     } else if (key == "recognizer_log_enabled") {
         config.recognizer_log_enabled = parse_bool_value(value, config.recognizer_log_enabled);
+    } else if (key == "tracker_ego_motion_includes_recoil") {
+        config.tracker_ego_motion_includes_recoil =
+            parse_bool_value(value, config.tracker_ego_motion_includes_recoil);
     } else if (key == "recognizer_game") {
         config.recognizer_game = parse_string_value(value);
     } else if (key == "profile_directory") {

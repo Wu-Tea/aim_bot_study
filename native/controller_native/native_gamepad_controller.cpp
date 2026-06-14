@@ -234,7 +234,9 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
         output,
         &output_components.recoil_stick);
     record_stage_trace("recoil", stage_before_right_y, output, should_fire, should_fire);
-    record_target_tracker_output(tracker_motion_output, now);
+    const GamepadOutputState tracker_sample_output =
+        config_.recoil.tracker_ego_motion_includes_recoil ? output : tracker_motion_output;
+    record_target_tracker_output(tracker_sample_output, now);
     capture_final_output_component(output, &output_components);
     last_output_components_ = output_components;
     return output;
@@ -642,12 +644,12 @@ void NativeGamepadController::apply_recoil(
     input.target_observed_at_seconds = vision_state.observed_at_seconds;
     input.now_seconds = now_seconds;
 
-    const NativeRecoilOutput recoil_output = recoil_.compute(input);
+    const recoil_native::RecoilBoundaryOutput recoil_output = recoil_.compute(input);
     if (!recoil_output.recoil_active) {
         return;
     }
-    output.right_x = clamp_unit(output.right_x + recoil_output.right_x_delta);
-    output.right_y = clamp_unit(output.right_y + recoil_output.right_y_delta);
+    output.right_x = clamp_unit(output.right_x + recoil_output.recoil_stick.x);
+    output.right_y = clamp_unit(output.right_y + recoil_output.recoil_stick.y);
 }
 
 void NativeGamepadController::record_target_tracker_output(

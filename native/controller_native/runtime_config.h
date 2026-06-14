@@ -108,6 +108,7 @@ struct GamepadRecoilConfig {
     bool profile_despike_enabled = true;
     bool native_recognizer_enabled = true;
     bool recognizer_log_enabled = false;
+    bool tracker_ego_motion_includes_recoil = false;
     std::string recognizer_game = "cod22";
     std::string profile_directory = "artifacts/recoil_profiles";
     std::string calibration_directory = "artifacts/recoil_calibration";

@@ -14,6 +14,7 @@
 #include "../tracking_native/legacy_projection_tracker.h"
 #include "../tracking_native/tracker_authority.h"
 #include "../tracking_native/tracker_backend.h"
+#include "../recoil_native/recoil_visual_model.h"
 
 #include <cmath>
 #include <chrono>
@@ -1230,6 +1231,84 @@ void test_controller_tracker_records_pre_recoil_motion() {
         0.30f,
         0.001f,
         "tracker should record pre-recoil manual motion, not recoil-compensated final motion");
+}
+
+void test_recoil_visual_model_disabled_returns_zero_displacement() {
+    recoil_native::DisabledRecoilVisualModel model;
+    const recoil_native::RecoilVisualDisplacement displacement =
+        model.compute(recoil_native::RecoilVisualInput{});
+    require_near(displacement.stick.x, 0.0f, 0.001f, "disabled recoil visual model x");
+    require_near(displacement.stick.y, 0.0f, 0.001f, "disabled recoil visual model y");
+}
+
+void test_controller_tracker_final_stick_ego_motion_requires_config_enable() {
+    const std::filesystem::path root = make_temp_test_dir("tracker_final_stick_recoil_motion");
+    const std::filesystem::path profile_dir = root / "profiles";
+    const std::filesystem::path state_path = root / "latest-state.json";
+    std::filesystem::create_directories(profile_dir);
+    write_text_file(
+        profile_dir / "profile-cod22-m4-ads-standing-side.json",
+        recoil_profile_xy_json(
+            "profile-cod22-m4-ads-standing-side",
+            "cod22-m4",
+            "ads",
+            0.95f,
+            10.0f,
+            0.0f));
+    write_text_file(
+        state_path,
+        recognizer_state_json("cod22-m4", "profile-cod22-m4-ads-standing-side"));
+
+    controller_native::GamepadRuntimeConfig config;
+    config.ai_aim.max_pixels = 100.0f;
+    config.ai_aim.max_ai_force = 1.0f;
+    config.ai_aim.max_ai_force_y = 1.0f;
+    config.ai_aim.piecewise_mid_pixels = 0.0f;
+    config.ai_aim.piecewise_mid_pixels_y = 0.0f;
+    config.ai_aim.ads_snap_window_ms = 0;
+    config.ai_aim.target_max_age_ms = 500.0f;
+    config.ai_aim.target_projection_max_age_ms = 500.0f;
+    config.ai_aim.target_projection_reticle_speed_px_per_sec = 3000.0f;
+    config.aim_assist_dynamics.enabled = false;
+    config.recoil.enabled = true;
+    config.recoil.selection_log_enabled = false;
+    config.recoil.tracker_ego_motion_includes_recoil = true;
+    config.recoil.profile_directory = profile_dir.string();
+    config.recoil.recognizer_state_path = state_path.string();
+    config.recoil.profile_amount = 1.0f;
+    config.recoil.profile_x_amount = 1.0f;
+    config.recoil.profile_velocity_reference_ms = 10.0f;
+    config.recoil.profile_despike_enabled = false;
+    config.recoil.piecewise_mid_pixels_y = 10.0f;
+    config.recoil.piecewise_max_pixels_y = 20.0f;
+    config.recoil.piecewise_mid_ratio_y = 0.50f;
+    config.recoil.target_direction_yield_enabled = false;
+    controller_native::NativeGamepadController controller(config);
+
+    controller_native::NativeControllerVisionState target;
+    target.has_target = true;
+    target.aim_authority = true;
+    target.fire_authority = true;
+    target.dx = 0.0f;
+    target.dy = 0.0f;
+    target.target_tier = "strong";
+    target.observed_at_seconds = now_seconds();
+    controller.submit_vision_state(target);
+
+    controller_native::PhysicalGamepadState firing = aiming_physical_state();
+    firing.right_x = 0.30f;
+    firing.right_trigger = 1.0f;
+    controller.build_output(firing);
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    const controller_native::GamepadOutputState firing_output = controller.build_output(firing);
+    require_true(
+        firing_output.right_x < -0.10f,
+        "test setup should produce opposing recoil compensation in final-stick tracker mode");
+    require_near(
+        controller.last_tracker_motion_output().right_x,
+        firing_output.right_x,
+        0.001f,
+        "explicit final-stick tracker mode should include recoil component");
 }
 
 void test_controller_output_components_capture_recoil_after_tracker_sample() {
@@ -2805,6 +2884,8 @@ int main() {
         test_controller_projects_target_during_no_update_ticks();
         test_controller_expires_projection_before_aim_target_age();
         test_controller_tracker_records_pre_recoil_motion();
+        test_recoil_visual_model_disabled_returns_zero_displacement();
+        test_controller_tracker_final_stick_ego_motion_requires_config_enable();
         test_controller_output_components_capture_recoil_after_tracker_sample();
         test_controller_projects_body_box_during_no_update_ticks();
         test_ai_aim_scales_weak_and_cue_targets();

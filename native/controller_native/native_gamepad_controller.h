@@ -3,11 +3,12 @@
 #include "aim_assist_dynamics.h"
 #include "ai_aim.h"
 #include "controller_tick_context.h"
-#include "recoil_compensation.h"
 #include "runtime_config.h"
 #include "virtual_gamepad.h"
 #include "vision_native/types.h"
 #include "xinput_reader.h"
+
+#include "../recoil_native/recoil_compensation.h"
 
 #include <cstdint>
 #include <memory>
@@ -111,7 +112,7 @@ private:
     GamepadRuntimeConfig config_;
     NativeAiAim ai_aim_;
     NativeAimAssistDynamics aim_assist_dynamics_;
-    NativeRecoilCompensation recoil_;
+    recoil_native::RecoilCompensationPolicy recoil_;
     std::unique_ptr<tracking_native::TrackerBackend> target_tracker_;
     NativeControllerVisionState latest_vision_state_;
     NativeAutoFireCounters auto_fire_counters_;
