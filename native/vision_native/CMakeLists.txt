@@ -130,6 +130,7 @@ add_executable(cod_native_runtime
     ../runtime_app/perf_logger.cpp
     ../runtime_app/aim_perf_file_logger.cpp
     ../runtime_app/downward_diagnostics.cpp
+    ../tracking_native/tracker_authority.cpp
     ../tracking_native/legacy_projection_tracker.cpp
     ../controller_native/runtime_config.cpp
     ../controller_native/target_tracker.cpp
@@ -192,6 +193,7 @@ endif()
 
 add_executable(cod_native_controller_tests
     ../controller_native/controller_behavior_tests.cpp
+    ../tracking_native/tracker_authority.cpp
     ../tracking_native/legacy_projection_tracker.cpp
     ../controller_native/target_tracker.cpp
     ../controller_native/ai_aim.cpp

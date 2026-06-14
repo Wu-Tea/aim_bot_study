@@ -12,6 +12,7 @@
 #include "../common_native/stick_types.h"
 #include "../common_native/time_types.h"
 #include "../tracking_native/legacy_projection_tracker.h"
+#include "../tracking_native/tracker_authority.h"
 
 #include <cmath>
 #include <chrono>
@@ -522,6 +523,49 @@ void test_recoil_weapon_switch_scheduler_triggers_only_on_y_rising_edge() {
     require_true(scheduler.pending_count() == 2, "pressing Y again should schedule a fresh recoil OCR capture pair");
 }
 
+void test_tracker_authority_classifies_target_tiers() {
+    const tracking_native::TargetAuthorityDecision strong =
+        tracking_native::classify_target_authority(true, true, true, "strong");
+    require_true(
+        strong.tier_class == tracking_native::TargetTierClass::StrongObserved,
+        "strong target should classify as strong observed");
+    require_true(strong.is_strong_aim_target, "strong target should be strong aim target");
+    require_true(
+        strong.assist_authority == common_native::AssistAuthority::AimObserved,
+        "strong target should get observed assist authority");
+    require_true(
+        strong.fire_authority == common_native::FireAuthority::ObservedOnly,
+        "strong target with fire flag should get observed fire authority");
+
+    const tracking_native::TargetAuthorityDecision weak =
+        tracking_native::classify_target_authority(true, true, true, "weak_observed");
+    require_true(
+        weak.tier_class == tracking_native::TargetTierClass::WeakContinuity,
+        "weak_observed should classify as weak continuity");
+    require_true(!weak.is_strong_aim_target, "weak target should not be strong aim target");
+    require_true(
+        weak.assist_authority == common_native::AssistAuthority::AimCoast,
+        "weak target should get coast assist authority");
+    require_true(
+        weak.fire_authority == common_native::FireAuthority::None,
+        "weak target should not get fire authority");
+
+    const tracking_native::TargetAuthorityDecision projected =
+        tracking_native::classify_target_authority(true, true, true, "projected");
+    require_true(
+        projected.tier_class == tracking_native::TargetTierClass::Projected,
+        "projected target should classify as projected");
+    require_true(
+        projected.fire_authority == common_native::FireAuthority::None,
+        "projected target should not get fire authority");
+
+    const tracking_native::TargetAuthorityDecision unknown =
+        tracking_native::classify_target_authority(true, true, true, "new_detector_tier");
+    require_true(
+        unknown.tier_class == tracking_native::TargetTierClass::StrongObserved,
+        "unknown non-empty target tier should preserve legacy strong behavior");
+}
+
 void test_auto_fire_requires_fire_authority() {
     controller_native::GamepadRuntimeConfig config;
     config.auto_fire_output = "RB";
@@ -542,6 +586,19 @@ void test_auto_fire_requires_fire_authority() {
     controller_native::NativeAutoFireCounters counters = controller.auto_fire_counters();
     require_true(counters.requested == 1, "blocked auto-fire should count one request");
     require_true(counters.blocked == 1, "blocked auto-fire should count one block");
+
+    blocked.fire_authority = true;
+    blocked.target_tier = "cue_hold";
+    blocked.observed_at_seconds = now_seconds();
+    controller.submit_vision_state(blocked);
+    output = controller.build_output(aiming_physical_state());
+    require_true(!output.rb, "auto-fire must stay blocked for cue-only targets");
+
+    blocked.target_tier = "projected";
+    blocked.observed_at_seconds = now_seconds();
+    controller.submit_vision_state(blocked);
+    output = controller.build_output(aiming_physical_state());
+    require_true(!output.rb, "auto-fire must stay blocked for projected targets");
 
     blocked.fire_authority = true;
     blocked.target_tier = "strong";
@@ -1256,6 +1313,9 @@ void test_ai_aim_scales_weak_and_cue_targets() {
 
     input.target_tier = "associated_weak";
     require_near(ai_aim.compute(input).assist_x, 0.25f, 0.001f, "weak assist scale");
+
+    input.target_tier = "weak_observed";
+    require_near(ai_aim.compute(input).assist_x, 0.25f, 0.001f, "weak observed assist scale");
 
     input.target_tier = "cue_hold";
     require_near(ai_aim.compute(input).assist_x, 0.125f, 0.001f, "cue assist scale");
@@ -2645,6 +2705,7 @@ void test_recoil_selection_logging_reports_fallback_and_profile_once() {
 int main() {
     try {
         test_common_native_types_compile();
+        test_tracker_authority_classifies_target_tiers();
         test_auto_fire_requires_fire_authority();
         test_auto_fire_blocks_stale_source();
         test_controller_passes_extended_buttons_and_dpad_through();

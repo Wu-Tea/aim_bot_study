@@ -727,7 +727,7 @@ git commit -m "refactor: extract native controller pipeline stages"
 - Modify: `native/controller_native/ai_aim.cpp`
 - Modify: `native/controller_native/controller_behavior_tests.cpp`
 
-- [ ] **Step 1: Move target-tier classification into one helper**
+- [x] **Step 1: Move target-tier classification into one helper**
 
 Create a helper that maps target tier strings to:
 
@@ -738,7 +738,7 @@ projected/predicted
 lost/none
 ```
 
-- [ ] **Step 2: Replace duplicated tier checks**
+- [x] **Step 2: Replace duplicated tier checks**
 
 Replace duplicated checks in:
 
@@ -748,7 +748,7 @@ native_gamepad_controller.cpp
 ai_aim.cpp if it parses the same strings
 ```
 
-- [ ] **Step 3: Route controller decisions through authority**
+- [x] **Step 3: Route controller decisions through authority**
 
 Controller code should read:
 
@@ -759,7 +759,7 @@ FireAuthority for auto-fire/fire gate
 
 It should not decide fire authority from tier strings directly.
 
-- [ ] **Step 4: Add authority tests**
+- [x] **Step 4: Add authority tests**
 
 Required tests:
 
@@ -771,7 +771,7 @@ missed target clears fire authority
 auto-fire ignores projected-only snapshots
 ```
 
-- [ ] **Step 5: Run verification and commit**
+- [x] **Step 5: Run verification and commit**
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\build_native_vision.ps1

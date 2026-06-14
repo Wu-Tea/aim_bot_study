@@ -1,5 +1,7 @@
 #include "ai_aim.h"
 
+#include "../tracking_native/tracker_authority.h"
+
 #include <algorithm>
 #include <cmath>
 #include <utility>
@@ -10,31 +12,6 @@ namespace {
 
 float clamp_unit(float value) {
     return std::max(-1.0f, std::min(1.0f, value));
-}
-
-bool is_weak_target_tier(const std::string& target_tier) {
-    return target_tier == "associated_weak" ||
-        target_tier == "weak" ||
-        target_tier == "weak_association";
-}
-
-bool is_cue_hold_tier(const std::string& target_tier) {
-    return target_tier == "cue_hold";
-}
-
-bool is_projected_target_tier(const std::string& target_tier) {
-    return target_tier == "projected" ||
-        target_tier == "projection" ||
-        target_tier == "predicted";
-}
-
-bool is_strong_target_tier(const std::string& target_tier) {
-    return !target_tier.empty() &&
-        target_tier != "none" &&
-        target_tier != "lost" &&
-        !is_weak_target_tier(target_tier) &&
-        !is_cue_hold_tier(target_tier) &&
-        !is_projected_target_tier(target_tier);
 }
 
 }  // namespace
@@ -122,7 +99,7 @@ NativeAiAimOutput NativeAiAim::compute(const NativeAiAimInput& input) {
 
     float lock_confidence = 0.0f;
     if (body_lock_active) {
-        if (is_strong_target_tier(input.target_tier)) {
+        if (tracking_native::is_strong_observation(input.target_tier)) {
             observe_body_lock_motion(input);
         } else {
             reset_motion_tracking();
@@ -233,10 +210,11 @@ NativeAiAimOutput NativeAiAim::compute(const NativeAiAimInput& input) {
 }
 
 float NativeAiAim::target_authority_scale(const std::string& target_tier) const {
-    if (is_cue_hold_tier(target_tier)) {
+    if (tracking_native::is_cue_hold_observation(target_tier)) {
         return std::max(0.0f, std::min(1.0f, config_.cue_hold_body_lock_force_scale));
     }
-    if (is_weak_target_tier(target_tier)) {
+    if (tracking_native::classify_target_tier(target_tier) ==
+        tracking_native::TargetTierClass::WeakContinuity) {
         return std::max(0.0f, std::min(1.0f, config_.weak_target_body_lock_force_scale));
     }
     return 1.0f;
@@ -271,7 +249,8 @@ std::pair<float, float> NativeAiAim::body_lock_target_delta(const NativeAiAimInp
 
 std::pair<float, float> NativeAiAim::body_lock_motion_lead_delta(
     const NativeAiAimInput& input) const {
-    if (!is_strong_target_tier(input.target_tier) || !has_sustained_body_lock_motion()) {
+    if (!tracking_native::is_strong_observation(input.target_tier) ||
+        !has_sustained_body_lock_motion()) {
         return {0.0f, 0.0f};
     }
     if (motion_frames_ < std::max(1, config_.body_lock_lead_frames)) {

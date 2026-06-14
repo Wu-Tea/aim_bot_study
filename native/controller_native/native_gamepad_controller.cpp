@@ -2,6 +2,8 @@
 
 #include "controller_pipeline.h"
 
+#include "../tracking_native/tracker_authority.h"
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -83,8 +85,15 @@ void NativeGamepadController::reset() {
 
 void NativeGamepadController::submit_vision_state(const NativeControllerVisionState& state) {
     latest_vision_state_ = state;
+    const tracking_native::TargetAuthorityDecision authority =
+        tracking_native::classify_target_authority(
+            state.has_target,
+            state.aim_authority,
+            state.fire_authority,
+            state.target_tier);
     NativeTargetTrackerObservation observation;
-    observation.has_target = state.has_target && state.aim_authority;
+    observation.has_target =
+        authority.assist_authority != common_native::AssistAuthority::None;
     observation.dx = state.dx;
     observation.dy = state.dy;
     observation.target_tier = state.target_tier;
@@ -246,7 +255,13 @@ bool NativeGamepadController::is_aiming(const PhysicalGamepadState& physical) co
 
 NativeControllerVisionState NativeGamepadController::vision_state_for_frame(double now_seconds) const {
     NativeControllerVisionState state = latest_vision_state_;
-    if (!state.has_target || !state.aim_authority) {
+    const tracking_native::TargetAuthorityDecision authority =
+        tracking_native::classify_target_authority(
+            state.has_target,
+            state.aim_authority,
+            state.fire_authority,
+            state.target_tier);
+    if (authority.assist_authority == common_native::AssistAuthority::None) {
         return state;
     }
     const std::optional<NativeTargetProjection> projection = target_tracker_.project(now_seconds);
@@ -277,13 +292,19 @@ bool NativeGamepadController::auto_fire_allowed(
     bool aiming,
     double now_seconds,
     bool aim_ready) const {
+    const tracking_native::TargetAuthorityDecision authority =
+        tracking_native::classify_target_authority(
+            vision_state.has_target,
+            vision_state.aim_authority,
+            vision_state.fire_authority,
+            vision_state.target_tier);
     const bool aiming_allowed = !config_.auto_fire.aim_only || aiming;
     const bool readiness_allowed = !config_.auto_fire.require_aim_ready || aim_ready;
     return aiming_allowed &&
         readiness_allowed &&
         vision_state.auto_fire_requested &&
         vision_state.has_target &&
-        vision_state.fire_authority &&
+        authority.fire_authority == common_native::FireAuthority::ObservedOnly &&
         has_fresh_auto_fire_source(vision_state, now_seconds);
 }
 
@@ -399,28 +420,24 @@ void NativeGamepadController::reset_auto_fire_readiness_tracking() {
 
 bool NativeGamepadController::is_strong_fire_target(
     const NativeControllerVisionState& vision_state) const {
-    if (!vision_state.fire_authority || !vision_state.aim_authority) {
-        return false;
-    }
-    return is_strong_aim_target(vision_state);
+    const tracking_native::TargetAuthorityDecision authority =
+        tracking_native::classify_target_authority(
+            vision_state.has_target,
+            vision_state.aim_authority,
+            vision_state.fire_authority,
+            vision_state.target_tier);
+    return authority.fire_authority == common_native::FireAuthority::ObservedOnly;
 }
 
 bool NativeGamepadController::is_strong_aim_target(
     const NativeControllerVisionState& vision_state) const {
-    if (!vision_state.aim_authority) {
-        return false;
-    }
-    const std::string& tier = vision_state.target_tier;
-    return tier != "associated_weak" &&
-        tier != "weak" &&
-        tier != "weak_association" &&
-        tier != "weak_observed" &&
-        tier != "cue_hold" &&
-        tier != "predicted" &&
-        tier != "projected" &&
-        tier != "projection" &&
-        tier != "none" &&
-        tier != "lost";
+    const tracking_native::TargetAuthorityDecision authority =
+        tracking_native::classify_target_authority(
+            vision_state.has_target,
+            vision_state.aim_authority,
+            vision_state.fire_authority,
+            vision_state.target_tier);
+    return authority.is_strong_aim_target;
 }
 
 bool NativeGamepadController::ads_snap_active_for_frame(
