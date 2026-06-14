@@ -16,6 +16,10 @@ class AimAssistDynamicsConfig:
     recoil_jitter_assist_threshold: float = 1400.0
     recoil_jitter_flip_scale: float = 0.20
     recoil_jitter_memory_seconds: float = 0.050
+    manual_curve_straighten_enabled: bool = True
+    manual_curve_straighten_strength: float = 0.30
+    manual_curve_straighten_min_manual: float = 1600.0
+    manual_curve_straighten_min_assist: float = 900.0
 
 
 class AimAssistDynamicsPlugin:
@@ -35,27 +39,66 @@ class AimAssistDynamicsPlugin:
     def apply(self, frame: GamepadFrame, output: GamepadOutput) -> None:
         if not self.config.enabled:
             return
-        if not self._recoil_active(frame, output):
-            self.reset()
-            return
 
         raw_assist_x = float(int(output.right_x) - int(frame.manual_right_x))
         raw_assist_y = float(int(output.right_y) - int(frame.manual_right_y))
-        guarded_assist_x = self._guard_recoil_axis_jitter(
-            frame,
+        manual_x, manual_y = self._straighten_manual_curve(
+            float(frame.manual_right_x),
+            float(frame.manual_right_y),
             raw_assist_x,
-            previous=self._last_raw_assist_x,
-        )
-        guarded_assist_y = self._guard_recoil_axis_jitter(
-            frame,
             raw_assist_y,
-            previous=self._last_raw_assist_y,
         )
-        self._last_raw_assist_x = raw_assist_x
-        self._last_raw_assist_y = raw_assist_y
-        self._last_timestamp = float(frame.timestamp)
-        output.right_x = _clamp_stick(int(round(int(frame.manual_right_x) + guarded_assist_x)))
-        output.right_y = _clamp_stick(int(round(int(frame.manual_right_y) + guarded_assist_y)))
+        guarded_assist_x = raw_assist_x
+        guarded_assist_y = raw_assist_y
+        if self._recoil_active(frame, output):
+            guarded_assist_x = self._guard_recoil_axis_jitter(
+                frame,
+                raw_assist_x,
+                previous=self._last_raw_assist_x,
+            )
+            guarded_assist_y = self._guard_recoil_axis_jitter(
+                frame,
+                raw_assist_y,
+                previous=self._last_raw_assist_y,
+            )
+            self._last_raw_assist_x = raw_assist_x
+            self._last_raw_assist_y = raw_assist_y
+            self._last_timestamp = float(frame.timestamp)
+        else:
+            self.reset()
+        output.right_x = _clamp_stick(int(round(manual_x + guarded_assist_x)))
+        output.right_y = _clamp_stick(int(round(manual_y + guarded_assist_y)))
+
+    def _straighten_manual_curve(
+        self,
+        manual_x: float,
+        manual_y: float,
+        assist_x: float,
+        assist_y: float,
+    ) -> tuple[float, float]:
+        if not self.config.manual_curve_straighten_enabled:
+            return manual_x, manual_y
+        assist_mag = (assist_x * assist_x + assist_y * assist_y) ** 0.5
+        manual_mag = (manual_x * manual_x + manual_y * manual_y) ** 0.5
+        if (
+            assist_mag < max(0.0, float(self.config.manual_curve_straighten_min_assist))
+            or manual_mag < max(0.0, float(self.config.manual_curve_straighten_min_manual))
+            or assist_mag <= 1e-6
+        ):
+            return manual_x, manual_y
+        strength = max(0.0, min(0.85, float(self.config.manual_curve_straighten_strength)))
+        if strength <= 0.0:
+            return manual_x, manual_y
+        ux = assist_x / assist_mag
+        uy = assist_y / assist_mag
+        parallel = manual_x * ux + manual_y * uy
+        parallel_x = ux * parallel
+        parallel_y = uy * parallel
+        keep_orthogonal = 1.0 - strength
+        return (
+            parallel_x + ((manual_x - parallel_x) * keep_orthogonal),
+            parallel_y + ((manual_y - parallel_y) * keep_orthogonal),
+        )
 
     def _guard_recoil_axis_jitter(
         self,

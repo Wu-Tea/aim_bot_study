@@ -57,6 +57,12 @@ Purpose: quick navigation for project continuity. The complete historical log is
 - If targeting feels too strong later, tune weak/cue force scales and native weak association gates separately from recoil/assist smoothing.
 - Longer next step after this commit: add richer replay/benchmark logging for source/tier, weak gate counts, cue age/score, fire request vs gate result, and controller final output.
 
+- 2026-06-14T21:50:00+08:00 - User-confirmed C++ testing rule and next controller-mixing direction.
+  - User requested recording in Agent Context Sync that C++ changes should include unit tests while modifying behavior.
+  - Durable working rule: C++ controller/runtime behavior edits should add or update focused native unit tests in the same change.
+  - User hypothesis for current ADS overpull: the issue is likely mixed user input arbitration, not simply ADS force being too high.
+  - Next controller-feel direction: keep or increase ADS/body-lock correction strength where useful, but improve mixed-input adjudication so manual input that bends away from the AI correction is partially suppressed while helpful/aligned input is preserved.
+
 ## Full Archive Map
 
 Use `session-log-full.md` for the full text or compact summaries of these ranges:

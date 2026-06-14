@@ -28,6 +28,7 @@ class AIAimConfig:
     ai_fade_full: int = 8000
     ai_delta_gain: float = 1.0
     target_max_age_ms: float = 50.0
+    target_projection_max_age_ms: float = 24.0
     target_projection_reticle_speed_px_per_sec: float = 1500.0
     target_projection_velocity_lowpass_alpha: float = 0.35
     target_projection_max_velocity_px_per_sec: float = 1200.0

@@ -4,6 +4,11 @@ This document covers the gamepad live runtime that runs as a single C++
 process. It keeps the existing native vision module as the vision
 implementation and moves the gamepad controller-side runtime out of Python.
 
+This is the authoritative document for the current default gamepad runtime.
+When older docs mention a Python gamepad host or a hybrid C++ vision/Python
+controller path, treat that as fallback or historical context unless the task
+explicitly targets Python.
+
 ## What It Is
 
 The native C++ runtime is `cod_native_runtime.exe`. It owns the gamepad live

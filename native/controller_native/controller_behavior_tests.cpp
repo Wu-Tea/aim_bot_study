@@ -105,6 +105,31 @@ std::string recoil_profile_json(
     return out.str();
 }
 
+std::string recoil_profile_xy_json(
+    const std::string& profile_id,
+    const std::string& weapon_id,
+    const std::string& aim_mode,
+    float confidence,
+    float x_sample,
+    float y_sample) {
+    std::ostringstream out;
+    out
+        << "{\n"
+        << "  \"profile_id\": \"" << profile_id << "\",\n"
+        << "  \"canonical_weapon_id\": \"" << weapon_id << "\",\n"
+        << "  \"game\": \"cod22\",\n"
+        << "  \"stance\": \"standing\",\n"
+        << "  \"aim_mode\": \"" << aim_mode << "\",\n"
+        << "  \"confidence\": " << confidence << ",\n"
+        << "  \"sample_interval_ms\": 10,\n"
+        << "  \"duration_ms\": 20,\n"
+        << "  \"initial_delay_ms\": 0,\n"
+        << "  \"samples_x\": [0.0, " << x_sample << ", " << (x_sample * 2.0f) << "],\n"
+        << "  \"samples_y\": [0.0, " << y_sample << ", " << (y_sample * 2.0f) << "]\n"
+        << "}\n";
+    return out.str();
+}
+
 std::string recoil_calibration_json(
     const std::string& aim_mode,
     float x_rate,
@@ -655,6 +680,50 @@ void test_auto_fire_aim_ready_gate_can_be_disabled() {
     require_true(output.rb, "disabled aim-ready gate should keep legacy first-frame fire");
 }
 
+void test_auto_fire_ready_allows_manual_right_stick_when_fire_zone_is_hit() {
+    controller_native::GamepadRuntimeConfig config;
+    config.auto_fire_output = "RB";
+    config.auto_fire.require_aim_ready = true;
+    config.auto_fire.max_source_age_ms = 0.0f;
+    config.ai_aim.target_max_age_ms = 0.0f;
+    config.ai_aim.auto_fire_ready_error_px = 4.0f;
+    config.ai_aim.auto_fire_ready_frames = 1;
+    config.ai_aim.auto_fire_ready_min_ads_ms = 0.0f;
+    config.ai_aim.auto_fire_ready_max_ai_stick = 6000.0f;
+    config.ai_aim.body_lock_box_tolerance_px = 20.0f;
+    config.ai_aim.body_lock_activation_box_px = 160.0f;
+    config.ai_aim.body_lock_upper_body_ratio = 0.40f;
+    config.aim_assist_dynamics.enabled = false;
+    config.recoil.enabled = false;
+    controller_native::NativeGamepadController controller(config);
+
+    vision_native::VisionResult target;
+    target.frame_updated = true;
+    target.has_target = true;
+    target.auto_fire = true;
+    target.aim_authority = true;
+    target.fire_authority = true;
+    target.dx = 0.0f;
+    target.dy = 0.0f;
+    target.screen_center_x = 320.0f;
+    target.screen_center_y = 256.0f;
+    target.has_body_box = true;
+    target.body_x1 = 290.0f;
+    target.body_y1 = 200.0f;
+    target.body_x2 = 350.0f;
+    target.body_y2 = 340.0f;
+    target.target_tier = "strong";
+    target.result_at_ns = now_ns();
+    controller.submit_vision_result(target);
+
+    controller_native::PhysicalGamepadState physical = aiming_physical_state();
+    physical.right_x = 0.35f;
+    const controller_native::GamepadOutputState output = controller.build_output(physical);
+    require_true(
+        output.rb,
+        "auto-fire should not treat manual right-stick tracking as unsettled AI pull when fire-zone is hit");
+}
+
 void test_no_update_vision_result_preserves_latest_target() {
     controller_native::GamepadRuntimeConfig config;
     config.ai_aim.max_pixels = 100.0f;
@@ -725,6 +794,7 @@ void test_controller_projects_target_during_no_update_ticks() {
     config.ai_aim.piecewise_mid_pixels_y = 0.0f;
     config.ai_aim.ads_snap_time_to_go_gain = 0.0f;
     config.ai_aim.target_max_age_ms = 500.0f;
+    config.ai_aim.target_projection_max_age_ms = 500.0f;
     config.ai_aim.target_projection_reticle_speed_px_per_sec = 1000.0f;
     config.aim_assist_dynamics.enabled = false;
     config.recoil.enabled = false;
@@ -756,6 +826,176 @@ void test_controller_projects_target_during_no_update_ticks() {
     require_true(
         third.right_x < second.right_x - 0.03f,
         "controller should use projected target error after output moves the reticle");
+}
+
+void test_controller_expires_projection_before_aim_target_age() {
+    controller_native::GamepadRuntimeConfig config;
+    config.ai_aim.max_pixels = 100.0f;
+    config.ai_aim.max_ai_force = 1.0f;
+    config.ai_aim.max_ai_force_y = 1.0f;
+    config.ai_aim.piecewise_mid_pixels = 0.0f;
+    config.ai_aim.piecewise_mid_pixels_y = 0.0f;
+    config.ai_aim.ads_snap_time_to_go_gain = 0.0f;
+    config.ai_aim.target_max_age_ms = 500.0f;
+    config.ai_aim.target_projection_max_age_ms = 5.0f;
+    config.ai_aim.target_projection_reticle_speed_px_per_sec = 1000.0f;
+    config.aim_assist_dynamics.enabled = false;
+    config.recoil.enabled = false;
+    controller_native::NativeGamepadController controller(config);
+
+    vision_native::VisionResult target;
+    target.frame_updated = true;
+    target.has_target = true;
+    target.aim_authority = true;
+    target.fire_authority = true;
+    target.dx = 50.0f;
+    target.dy = 0.0f;
+    target.target_tier = "strong";
+    target.result_at_ns = now_ns();
+    controller.submit_vision_result(target);
+
+    const controller_native::GamepadOutputState first =
+        controller.build_output(aiming_physical_state());
+    require_true(first.right_x > 0.40f, "fresh target should produce assist");
+
+    vision_native::VisionResult no_update;
+    no_update.frame_updated = false;
+    no_update.has_target = false;
+    controller.submit_vision_result(no_update);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    const controller_native::GamepadOutputState second =
+        controller.build_output(aiming_physical_state());
+    require_true(
+        second.right_x > first.right_x - 0.05f,
+        "stale projection should expire before the target itself expires");
+}
+
+void test_controller_tracker_records_pre_recoil_motion() {
+    const std::filesystem::path root = make_temp_test_dir("tracker_pre_recoil_motion");
+    const std::filesystem::path profile_dir = root / "profiles";
+    const std::filesystem::path state_path = root / "latest-state.json";
+    std::filesystem::create_directories(profile_dir);
+    write_text_file(
+        profile_dir / "profile-cod22-m4-ads-standing-side.json",
+        recoil_profile_xy_json(
+            "profile-cod22-m4-ads-standing-side",
+            "cod22-m4",
+            "ads",
+            0.95f,
+            10.0f,
+            0.0f));
+    write_text_file(
+        state_path,
+        recognizer_state_json("cod22-m4", "profile-cod22-m4-ads-standing-side"));
+
+    controller_native::GamepadRuntimeConfig config;
+    config.ai_aim.max_pixels = 100.0f;
+    config.ai_aim.max_ai_force = 1.0f;
+    config.ai_aim.max_ai_force_y = 1.0f;
+    config.ai_aim.piecewise_mid_pixels = 0.0f;
+    config.ai_aim.piecewise_mid_pixels_y = 0.0f;
+    config.ai_aim.ads_snap_window_ms = 0;
+    config.ai_aim.target_max_age_ms = 500.0f;
+    config.ai_aim.target_projection_max_age_ms = 500.0f;
+    config.ai_aim.target_projection_reticle_speed_px_per_sec = 3000.0f;
+    config.aim_assist_dynamics.enabled = false;
+    config.recoil.enabled = true;
+    config.recoil.selection_log_enabled = false;
+    config.recoil.profile_directory = profile_dir.string();
+    config.recoil.recognizer_state_path = state_path.string();
+    config.recoil.profile_amount = 1.0f;
+    config.recoil.profile_x_amount = 1.0f;
+    config.recoil.profile_velocity_reference_ms = 10.0f;
+    config.recoil.profile_despike_enabled = false;
+    config.recoil.piecewise_mid_pixels_y = 10.0f;
+    config.recoil.piecewise_max_pixels_y = 20.0f;
+    config.recoil.piecewise_mid_ratio_y = 0.50f;
+    config.recoil.target_direction_yield_enabled = false;
+    controller_native::NativeGamepadController controller(config);
+
+    controller_native::NativeControllerVisionState target;
+    target.has_target = true;
+    target.aim_authority = true;
+    target.fire_authority = true;
+    target.dx = 0.0f;
+    target.dy = 0.0f;
+    target.target_tier = "strong";
+    target.observed_at_seconds = now_seconds();
+    controller.submit_vision_state(target);
+
+    controller_native::PhysicalGamepadState firing = aiming_physical_state();
+    firing.right_x = 0.30f;
+    firing.right_trigger = 1.0f;
+    controller.build_output(firing);
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    const controller_native::GamepadOutputState firing_output = controller.build_output(firing);
+    require_true(firing_output.right_x < -0.10f, "test setup should produce opposing recoil compensation");
+    require_near(
+        controller.last_tracker_motion_output().right_x,
+        0.30f,
+        0.001f,
+        "tracker should record pre-recoil manual motion, not recoil-compensated final motion");
+}
+
+void test_controller_projects_body_box_during_no_update_ticks() {
+    controller_native::GamepadRuntimeConfig config;
+    config.ai_aim.max_pixels = 100.0f;
+    config.ai_aim.max_ai_force = 1.0f;
+    config.ai_aim.max_ai_force_y = 1.0f;
+    config.ai_aim.piecewise_mid_pixels = 0.0f;
+    config.ai_aim.piecewise_mid_pixels_y = 0.0f;
+    config.ai_aim.ads_snap_window_ms = 0;
+    config.ai_aim.target_max_age_ms = 500.0f;
+    config.ai_aim.target_projection_max_age_ms = 500.0f;
+    config.ai_aim.target_projection_reticle_speed_px_per_sec = 1000.0f;
+    config.ai_aim.body_lock_max_ai_force = 1.0f;
+    config.ai_aim.body_lock_max_ai_force_y = 0.0f;
+    config.ai_aim.body_lock_box_tolerance_px = 80.0f;
+    config.ai_aim.body_lock_activation_box_px = 240.0f;
+    config.ai_aim.body_lock_upper_body_ratio = 0.50f;
+    config.ai_aim.body_lock_smoothing = 0.0f;
+    config.ai_aim.body_lock_lateral_motion_min_speed_px_per_sec = 1000000.0f;
+    config.aim_assist_dynamics.enabled = false;
+    config.recoil.enabled = false;
+    controller_native::NativeGamepadController controller(config);
+
+    vision_native::VisionResult target;
+    target.frame_updated = true;
+    target.has_target = true;
+    target.aim_authority = true;
+    target.fire_authority = true;
+    target.dx = 40.0f;
+    target.dy = 0.0f;
+    target.screen_center_x = 320.0f;
+    target.screen_center_y = 256.0f;
+    target.has_body_box = true;
+    target.body_x1 = 330.0f;
+    target.body_y1 = 196.0f;
+    target.body_x2 = 390.0f;
+    target.body_y2 = 316.0f;
+    target.target_tier = "strong";
+    target.result_at_ns = now_ns();
+    controller.submit_vision_result(target);
+
+    const controller_native::GamepadOutputState first =
+        controller.build_output(aiming_physical_state());
+    require_true(first.right_x > 0.30f, "fresh body-lock box should produce lateral assist");
+
+    vision_native::VisionResult no_update;
+    no_update.frame_updated = false;
+    no_update.has_target = false;
+    controller.submit_vision_result(no_update);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    const controller_native::GamepadOutputState second =
+        controller.build_output(aiming_physical_state());
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    const controller_native::GamepadOutputState third =
+        controller.build_output(aiming_physical_state());
+    require_true(
+        third.right_x < second.right_x - 0.03f,
+        "controller should project the body-lock box between no-update ticks");
 }
 
 void test_ai_aim_scales_weak_and_cue_targets() {
@@ -1066,6 +1306,142 @@ void test_body_lock_uses_lateral_motion_when_current_error_is_inside_deadzone() 
     require_true(
         output.assist_x < -0.01f,
         "body-lock should lead against lateral target motion inside the release window");
+}
+
+float body_lock_assist_after_motion_sequence(
+    controller_native::GamepadAiAimConfig config,
+    const std::vector<float>& center_offsets,
+    const std::string& target_tier = "strong") {
+    controller_native::NativeAiAim ai_aim(config);
+
+    controller_native::NativeAiAimInput input;
+    input.aiming = true;
+    input.has_target = true;
+    input.aim_authority = true;
+    input.ads_snap_active = false;
+    input.target_tier = target_tier;
+    input.observed_at_seconds = 10.0;
+    input.screen_center_x = 320.0f;
+    input.screen_center_y = 256.0f;
+    input.has_body_box = true;
+    input.body_y1 = 180.0f;
+    input.body_y2 = 360.0f;
+
+    controller_native::NativeAiAimOutput output;
+    for (std::size_t index = 0; index < center_offsets.size(); ++index) {
+        input.now_seconds = 10.00 + (static_cast<double>(index) * 0.01);
+        const float center_x = 320.0f + center_offsets[index];
+        input.body_x1 = center_x - 40.0f;
+        input.body_x2 = center_x + 40.0f;
+        output = ai_aim.compute(input);
+    }
+    return output.assist_x;
+}
+
+void test_body_lock_sustained_motion_lead_increases_follow_after_consistent_strong_history() {
+    controller_native::GamepadAiAimConfig baseline_config;
+    baseline_config.max_pixels = 100.0f;
+    baseline_config.target_max_age_ms = 0.0f;
+    baseline_config.piecewise_mid_pixels = 0.0f;
+    baseline_config.piecewise_mid_pixels_y = 0.0f;
+    baseline_config.deadzone_inner = 0.0f;
+    baseline_config.deadzone_outer = 1.0f;
+    baseline_config.x_deadzone_outer = 1.0f;
+    baseline_config.body_lock_max_ai_force = 1.0f;
+    baseline_config.body_lock_max_ai_force_y = 0.0f;
+    baseline_config.body_lock_box_tolerance_px = 80.0f;
+    baseline_config.body_lock_activation_box_px = 240.0f;
+    baseline_config.body_lock_smoothing = 0.0f;
+    baseline_config.body_lock_lateral_motion_min_speed_px_per_sec = 40.0f;
+    baseline_config.body_lock_lead_frames = 3;
+    baseline_config.body_lock_lead_max_px = 10.0f;
+    baseline_config.body_lock_lead_seconds = 0.0f;
+
+    controller_native::GamepadAiAimConfig lead_config = baseline_config;
+    lead_config.body_lock_lead_seconds = 0.012f;
+
+    const std::vector<float> offsets = {2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
+    const float baseline = body_lock_assist_after_motion_sequence(baseline_config, offsets);
+    const float lead = body_lock_assist_after_motion_sequence(lead_config, offsets);
+
+    std::ostringstream message;
+    message << "sustained strong same-direction motion should increase body-lock follow assist; baseline="
+            << baseline << " lead=" << lead;
+    require_true(
+        lead > baseline + 0.004f,
+        message.str());
+}
+
+void test_body_lock_sustained_motion_lead_clears_on_direction_reversal() {
+    controller_native::GamepadAiAimConfig baseline_config;
+    baseline_config.max_pixels = 100.0f;
+    baseline_config.target_max_age_ms = 0.0f;
+    baseline_config.piecewise_mid_pixels = 0.0f;
+    baseline_config.piecewise_mid_pixels_y = 0.0f;
+    baseline_config.deadzone_inner = 0.0f;
+    baseline_config.deadzone_outer = 1.0f;
+    baseline_config.x_deadzone_outer = 1.0f;
+    baseline_config.body_lock_max_ai_force = 1.0f;
+    baseline_config.body_lock_max_ai_force_y = 0.0f;
+    baseline_config.body_lock_box_tolerance_px = 80.0f;
+    baseline_config.body_lock_activation_box_px = 240.0f;
+    baseline_config.body_lock_smoothing = 0.0f;
+    baseline_config.body_lock_lateral_motion_min_speed_px_per_sec = 40.0f;
+    baseline_config.body_lock_lead_frames = 3;
+    baseline_config.body_lock_lead_max_px = 10.0f;
+    baseline_config.body_lock_lead_seconds = 0.0f;
+
+    controller_native::GamepadAiAimConfig lead_config = baseline_config;
+    lead_config.body_lock_lead_seconds = 0.012f;
+
+    const std::vector<float> offsets = {2.0f, 3.0f, 4.0f, 5.0f, 4.0f};
+    const float baseline = body_lock_assist_after_motion_sequence(baseline_config, offsets);
+    const float lead = body_lock_assist_after_motion_sequence(lead_config, offsets);
+
+    require_near(
+        lead,
+        baseline,
+        0.004f,
+        "direction reversal should clear sustained-motion lead before it pulls the wrong way");
+}
+
+void test_body_lock_sustained_motion_lead_ignores_weak_targets() {
+    controller_native::GamepadAiAimConfig baseline_config;
+    baseline_config.max_pixels = 100.0f;
+    baseline_config.target_max_age_ms = 0.0f;
+    baseline_config.piecewise_mid_pixels = 0.0f;
+    baseline_config.piecewise_mid_pixels_y = 0.0f;
+    baseline_config.deadzone_inner = 0.0f;
+    baseline_config.deadzone_outer = 1.0f;
+    baseline_config.x_deadzone_outer = 1.0f;
+    baseline_config.body_lock_max_ai_force = 1.0f;
+    baseline_config.body_lock_max_ai_force_y = 0.0f;
+    baseline_config.body_lock_box_tolerance_px = 80.0f;
+    baseline_config.body_lock_activation_box_px = 240.0f;
+    baseline_config.body_lock_smoothing = 0.0f;
+    baseline_config.body_lock_lateral_motion_min_speed_px_per_sec = 40.0f;
+    baseline_config.body_lock_lead_frames = 3;
+    baseline_config.body_lock_lead_max_px = 10.0f;
+    baseline_config.body_lock_lead_seconds = 0.0f;
+
+    controller_native::GamepadAiAimConfig lead_config = baseline_config;
+    lead_config.body_lock_lead_seconds = 0.012f;
+
+    const std::vector<float> offsets = {2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
+    const float baseline = body_lock_assist_after_motion_sequence(
+        baseline_config,
+        offsets,
+        "associated_weak");
+    const float lead = body_lock_assist_after_motion_sequence(
+        lead_config,
+        offsets,
+        "associated_weak");
+
+    require_near(
+        lead,
+        baseline,
+        0.004f,
+        "weak targets should not use sustained-motion lead");
 }
 
 void test_body_lock_can_disable_release_tail_to_zero_x_axis_inside_window() {
@@ -1499,6 +1875,73 @@ void test_ads_snap_softens_opposing_manual_instead_of_canceling_snap() {
         "ADS snap should lightly suppress opposing manual input early in the snap window");
 }
 
+void test_ads_snap_damps_orthogonal_manual_curve_without_removing_it() {
+    controller_native::GamepadAiAimConfig config;
+    config.max_pixels = 100.0f;
+    config.piecewise_mid_pixels = 0.0f;
+    config.deadzone_inner = 0.0f;
+    config.deadzone_outer = 1.0f;
+    config.x_deadzone_outer = 1.0f;
+    config.ads_snap_max_ai_force = 1.0f;
+    config.ads_snap_time_to_go_gain = 0.0f;
+    config.ads_snap_opposing_manual_suppression_max = 0.50f;
+    controller_native::NativeAiAim ai_aim(config);
+
+    controller_native::NativeAiAimInput input;
+    input.aiming = true;
+    input.has_target = true;
+    input.aim_authority = true;
+    input.ads_snap_active = true;
+    input.ads_snap_progress_ratio = 1.0f;
+    input.dx = 50.0f;
+    input.dy = 0.0f;
+    input.target_tier = "strong";
+    input.manual_right_y = 0.50f;
+    input.observed_at_seconds = 10.0;
+    input.now_seconds = 10.01;
+
+    const controller_native::NativeAiAimOutput output = ai_aim.compute(input);
+    const float final_x = input.manual_right_x + output.assist_x;
+    const float final_y = input.manual_right_y + output.assist_y;
+    require_near(final_x, 0.50f, 0.001f, "ADS snap should keep full planned correction on the snap axis");
+    require_near(final_y, 0.30f, 0.001f, "ADS snap should damp but not erase orthogonal manual curve");
+}
+
+void test_ads_snap_uses_tracker_projection_as_mixing_reference() {
+    controller_native::GamepadAiAimConfig config;
+    config.max_pixels = 100.0f;
+    config.piecewise_mid_pixels = 0.0f;
+    config.deadzone_inner = 0.0f;
+    config.deadzone_outer = 1.0f;
+    config.x_deadzone_outer = 1.0f;
+    config.ads_snap_max_ai_force = 1.0f;
+    config.ads_snap_time_to_go_gain = 0.0f;
+    config.ads_snap_opposing_manual_suppression_max = 0.50f;
+    controller_native::NativeAiAim ai_aim(config);
+
+    controller_native::NativeAiAimInput input;
+    input.aiming = true;
+    input.has_target = true;
+    input.aim_authority = true;
+    input.ads_snap_active = true;
+    input.ads_snap_progress_ratio = 1.0f;
+    input.dx = 50.0f;
+    input.dy = 0.0f;
+    input.has_mixing_reference = true;
+    input.mixing_reference_dx = 50.0f;
+    input.mixing_reference_dy = -50.0f;
+    input.target_tier = "strong";
+    input.manual_right_y = 0.50f;
+    input.observed_at_seconds = 10.0;
+    input.now_seconds = 10.01;
+
+    const controller_native::NativeAiAimOutput output = ai_aim.compute(input);
+    const float final_x = input.manual_right_x + output.assist_x;
+    const float final_y = input.manual_right_y + output.assist_y;
+    require_near(final_x, 0.50f, 0.001f, "tracker reference should not weaken snap-axis correction");
+    require_near(final_y, 0.40f, 0.001f, "tracker reference should preserve more manual input that follows projected target direction");
+}
+
 void test_ai_aim_piecewise_mapping_matches_python_midpoint() {
     controller_native::GamepadAiAimConfig config;
     config.piecewise_mid_pixels = 60.0f;
@@ -1662,6 +2105,27 @@ void test_aim_assist_dynamics_guards_small_recoil_sign_flip() {
     input.assisted_right_x = -0.20f;
     output = dynamics.apply(input);
     require_near(output.right_x, -0.04f, 0.001f, "small recoil sign flip should be scaled");
+}
+
+void test_aim_assist_dynamics_straightens_manual_curve_without_recoil_active() {
+    controller_native::GamepadAimAssistDynamicsConfig config;
+    config.enabled = true;
+    config.manual_curve_straighten_enabled = true;
+    config.manual_curve_straighten_strength = 0.50f;
+    config.manual_curve_straighten_min_manual = 0.0f;
+    config.manual_curve_straighten_min_assist = 0.0f;
+    controller_native::NativeAimAssistDynamics dynamics(config);
+
+    controller_native::NativeAimAssistDynamicsInput input;
+    input.manual_right_x = 0.0f;
+    input.manual_right_y = 0.40f;
+    input.assisted_right_x = 0.30f;
+    input.assisted_right_y = 0.40f;
+    input.now_seconds = 20.0;
+
+    const controller_native::NativeAimAssistDynamicsOutput output = dynamics.apply(input);
+    require_near(output.right_x, 0.30f, 0.001f, "straightening should preserve planned assist x");
+    require_near(output.right_y, 0.20f, 0.001f, "straightening should only damp the curved manual axis");
 }
 
 void test_recoil_profile_despike_repairs_playback_cache_only() {
@@ -1954,9 +2418,13 @@ int main() {
         test_auto_fire_manual_takeover_releases_output_briefly();
         test_auto_fire_requires_aim_ready_settle_frames();
         test_auto_fire_aim_ready_gate_can_be_disabled();
+        test_auto_fire_ready_allows_manual_right_stick_when_fire_zone_is_hit();
         test_no_update_vision_result_preserves_latest_target();
         test_target_tracker_projects_camera_motion_between_vision_frames();
         test_controller_projects_target_during_no_update_ticks();
+        test_controller_expires_projection_before_aim_target_age();
+        test_controller_tracker_records_pre_recoil_motion();
+        test_controller_projects_body_box_during_no_update_ticks();
         test_ai_aim_scales_weak_and_cue_targets();
         test_ai_aim_body_lock_uses_upper_body_point_from_body_box();
         test_body_lock_suppresses_harmful_manual_input_after_confidence_builds();
@@ -1964,6 +2432,9 @@ int main() {
         test_body_lock_damps_orthogonal_manual_input_near_lock();
         test_body_lock_restores_vertical_tail_help_after_continuous_target_history();
         test_body_lock_uses_lateral_motion_when_current_error_is_inside_deadzone();
+        test_body_lock_sustained_motion_lead_increases_follow_after_consistent_strong_history();
+        test_body_lock_sustained_motion_lead_clears_on_direction_reversal();
+        test_body_lock_sustained_motion_lead_ignores_weak_targets();
         test_body_lock_can_disable_release_tail_to_zero_x_axis_inside_window();
         test_body_lock_preserves_more_horizontal_tail_for_moving_target_inside_release_window();
         test_body_lock_clears_release_tail_carry_on_near_zero_x_sign_flip();
@@ -1974,12 +2445,15 @@ int main() {
         test_auto_fire_ready_uses_body_lock_error_when_body_box_is_active();
         test_ads_snap_counts_same_direction_manual_as_planned_correction();
         test_ads_snap_softens_opposing_manual_instead_of_canceling_snap();
+        test_ads_snap_damps_orthogonal_manual_curve_without_removing_it();
+        test_ads_snap_uses_tracker_projection_as_mixing_reference();
         test_ai_aim_piecewise_mapping_matches_python_midpoint();
         test_ads_snap_time_to_go_can_override_piecewise_mapping();
         test_ads_snap_clamps_vertical_target_delta_before_mapping();
         test_ads_snap_smoothing_interpolates_first_assist_frame();
         test_ai_aim_deadzone_suppresses_tiny_target_error();
         test_aim_assist_dynamics_guards_small_recoil_sign_flip();
+        test_aim_assist_dynamics_straightens_manual_curve_without_recoil_active();
         test_recoil_profile_despike_repairs_playback_cache_only();
         test_recoil_weapon_recognizer_writes_current_weapon_state_from_text();
         test_recoil_weapon_recognizer_does_not_create_unknown_identity_from_live_ocr();

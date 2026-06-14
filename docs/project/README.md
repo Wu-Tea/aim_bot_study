@@ -4,16 +4,16 @@ This folder mixes current architecture notes, benchmark records, work snapshots,
 
 ## Read first
 
-1. `PROJECT_OVERVIEW.md`
+1. `NATIVE_CPP_RUNTIME.md`
+   - current default gamepad runtime, launch path, validation, fallback, and acceptance checklist
+2. `PROJECT_OVERVIEW.md`
    - project-level map, architecture diagrams, main flows, data contracts, and review notes
-2. `README.md`
+3. `README.md`
    - top-level project entry, startup scripts, dependencies, code structure
-3. `WORKLOG.md`
+4. `WORKLOG.md`
    - latest project snapshot and recent changes
-4. `NATIVE_VISION.md`
+5. `NATIVE_VISION.md`
    - native vision build, runtime, bridge, and validation notes
-5. `NATIVE_CPP_RUNTIME.md`
-   - gamepad C++ live runtime launch, validation, fallback, and acceptance checklist
 6. `CONTROLLER_OVERVIEW.md`
    - controller boundaries and supported runtime modes
 7. `VISION_OVERVIEW.md`
@@ -21,6 +21,8 @@ This folder mixes current architecture notes, benchmark records, work snapshots,
 
 ## Runtime and architecture docs
 
+- `NATIVE_CPP_RUNTIME.md`
+  - current default full native C++ gamepad runtime launch, validation, fallback, and acceptance checklist
 - `PROJECT_OVERVIEW.md`
   - project-level map, architecture diagrams, runtime flow, controller flow, recoil flow, and review findings
 - `CONTROLLER_OVERVIEW.md`
@@ -35,8 +37,6 @@ This folder mixes current architecture notes, benchmark records, work snapshots,
   - live mouse telemetry capture, health checks, and failure interpretation
 - `NATIVE_VISION.md`
   - detailed native migration notes, build process, smoke tests, and payload contracts
-- `NATIVE_CPP_RUNTIME.md`
-  - gamepad C++ live runtime launch, validation, fallback, and acceptance checklist
 - `ROOT_STRUCTURE_CLEANUP.md`
   - phased root directory cleanup plan and migration order
 
@@ -76,6 +76,7 @@ Outside this folder, the repository also keeps:
 If two documents disagree:
 
 1. trust the current startup scripts and code
-2. then trust `WORKLOG.md`
-3. then trust the latest overview doc
-4. treat older plans, benchmarks, and tracking notes as historical context
+2. then trust `NATIVE_CPP_RUNTIME.md`
+3. then trust `WORKLOG.md`
+4. then trust the latest overview doc
+5. treat older plans, benchmarks, and tracking notes as historical context

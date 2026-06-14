@@ -1,0 +1,13 @@
+Build/test verification performed in this environment:
+
+cmake -S . -B build
+cmake --build build -j2
+./build/tracker_invariants
+./build/synthetic_replay
+
+Output:
+tracker_invariants: OK
+synthetic_replay results
+frames_ingested=298 frames_missing=24
+samples=477 p50_error_px=4.41936 p95_error_px=8.34269 p99_error_px=9.75072
+predicted_only_fire_violations=0

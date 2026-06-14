@@ -1,18 +1,28 @@
 # yolo-study-001
 
-Windows-focused YOLO aim-assist study project with a hybrid runtime:
+Windows-focused YOLO aim-assist study project. The default live gamepad path is
+now a full native C++ runtime:
 
-- Python still owns startup, configuration, controller orchestration, debug tooling, and most tests.
-- Native C++ now owns the hot vision path for the current default gamepad runtime.
-- Python vision remains available as a fallback and comparison path through `--vision-backend python`.
+- `scripts\launch\gamepad_start.bat` defaults to `GAMEPAD_RUNTIME=native`.
+- The native path starts `native\vision_native\build\Release\cod_native_runtime.exe`.
+- C++ owns live gamepad capture, TensorRT vision, target selection, controller
+  state, `ai_aim`, auto-fire, aim-assist dynamics, recoil playback, and ViGEm
+  output.
+- Python remains available mainly for fallback, training/export, recoil tooling,
+  debug utilities, and tests.
 
 ## Current status
 
-- `main.py` is the single launcher for all controller modes.
-- `scripts\launch\gamepad_start.bat` currently defaults to `VISION_BACKEND=native`.
-- `scripts\launch\debug\gamepad_debug.bat` and `scripts\launch\debug\gamepad_native_debug.bat` expose native-gamepad debug entry points.
+- `scripts\launch\gamepad_start.bat` is the normal gamepad entry point and
+  calls `scripts\launch\gamepad_native_cpp_start.bat` by default.
+- Set `GAMEPAD_RUNTIME=python` only when you explicitly need the older Python
+  gamepad fallback.
+- `main.py` remains the launcher for Python fallback modes, mouse mode,
+  keyboard/mouse-to-gamepad mode, and tooling-oriented debug paths.
+- `scripts\launch\debug\gamepad_debug.bat` and `scripts\launch\debug\gamepad_native_debug.bat` expose older Python-hosted native-vision debug entry points.
 - `scripts\launch\mouse_start.bat` and `scripts\launch\debug\mouse_native_debug.bat` provide the native mouse-output path.
-- Native vision lives in `native/vision_native/` and is bridged back into Python through `vision/native_runner.py`.
+- Native vision and the production native gamepad runtime live under
+  `native/vision_native/`, `native/runtime_app/`, and `native/controller_native/`.
 - The mouse path continues to evolve and is less settled than the main gamepad path.
 
 ## Quick start
@@ -31,9 +41,10 @@ Notes:
 - Runtime reads the local project-root `config.toml` directly. The file is intentionally gitignored so machine-specific tuning stays private; when it is absent, code defaults are used.
 - `requirements.txt` covers Python packages only. CUDA, TensorRT, Visual Studio C++ tools, and pybind11-backed native build requirements are separate.
 
-### Native vision prerequisites
+### Native C++ runtime prerequisites
 
-Native vision requires a local Windows CUDA + TensorRT toolchain. The current build script defaults are:
+The native C++ gamepad runtime requires a local Windows CUDA + TensorRT
+toolchain. The current build script defaults are:
 
 - `CUDA_PATH = C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.1`
 - `TensorRT_ROOT = D:\env\TensorRT-10.15.1.29`
@@ -46,7 +57,7 @@ Expected tools/components:
 - TensorRT 10.15.1.29 Windows SDK
 - `pybind11` installed in the Python environment used for the native build
 
-Build the native module with:
+Build the native module and runtime executable with:
 
 ```powershell
 .\tools\build_native_vision.ps1
@@ -55,6 +66,7 @@ Build the native module with:
 Useful smoke and debug scripts:
 
 ```powershell
+.\tools\check_native_cpp_gamepad_runtime.ps1 -BuildFirst
 .\tools\run_native_vision_smoke.ps1 -BuildFirst
 .\tools\run_native_vision_infer_smoke.ps1 -BuildFirst
 .\tools\run_native_vision_capture_smoke.ps1 -BuildFirst
@@ -69,9 +81,10 @@ The old root `.bat` compatibility shims have been removed.
 
 | Script | Purpose | Current behavior |
 | --- | --- | --- |
-| `scripts\launch\gamepad_start.bat` | Main gamepad runtime | Uses local `config.toml` runtime defaults when present, lets existing `VISION_*` env vars override them, and prompts for optional recoil/runtime choices and `RB` / `RT` CLI override |
-| `scripts\launch\debug\gamepad_debug.bat` | Gamepad debug runtime | Prompts for `RB` / `RT` and native vs Python backend, enables `--vision-debug --vision-debug-save`, defaults `VISION_CAPTURE_FPS=140` |
-| `scripts\launch\debug\gamepad_native_debug.bat` | Force native gamepad debug | Native-only debug entry with `--vision-debug`, defaults `VISION_CAPTURE_FPS=140` |
+| `scripts\launch\gamepad_start.bat` | Main gamepad runtime | Defaults to full native C++ gamepad runtime; set `GAMEPAD_RUNTIME=python` for the old Python fallback |
+| `scripts\launch\gamepad_native_cpp_start.bat` | Direct native C++ gamepad runtime | Starts `cod_native_runtime.exe`, prompts for recoil profile selection and `RB` / `RT` override |
+| `scripts\launch\debug\gamepad_debug.bat` | Python-hosted gamepad debug runtime | Prompts for `RB` / `RT` and native vs Python vision backend, enables `--vision-debug --vision-debug-save`, defaults `VISION_CAPTURE_FPS=140` |
+| `scripts\launch\debug\gamepad_native_debug.bat` | Python-hosted native-vision debug | Forces native vision through the Python controller bridge with `--vision-debug`, defaults `VISION_CAPTURE_FPS=140` |
 | `scripts\launch\mouse_start.bat` | Main native mouse runtime | Uses `--controller-mode mouse`, defaults to native backend, enables perf log, defaults `VISION_CAPTURE_FPS=140` |
 | `scripts\launch\debug\mouse_native_debug.bat` | Native mouse debug runtime | Mouse path with `--vision-debug --vision-debug-save`, defaults `VISION_CAPTURE_FPS=140` |
 | `scripts\launch\recoil_app_start.bat` | Standalone recoil app | Recognition, recording, and status debugging entry point |
@@ -80,7 +93,8 @@ The old root `.bat` compatibility shims have been removed.
 Equivalent direct CLI examples:
 
 ```powershell
-py -3.11 main.py --controller-mode gamepad
+native\vision_native\build\Release\cod_native_runtime.exe --config config.toml --perf-log
+$env:GAMEPAD_RUNTIME = "python"
 py -3.11 main.py --controller-mode gamepad --vision-backend native --perf-log
 py -3.11 main.py --controller-mode gamepad --vision-backend python --vision-debug
 py -3.11 main.py --controller-mode mouse --vision-backend native --vision-debug --vision-debug-save --perf-log
@@ -88,12 +102,12 @@ py -3.11 main.py --controller-mode mouse --vision-backend native --vision-debug 
 
 ## TensorRT and model notes
 
-- Default runtime engine: `models/best.engine`
+- Default native runtime engine: `models/best.engine`
 - Default Python fallback model: `models/best.pt`
 - Training / export helper: `tools/export_trt.py`
-- Native module output location: `native/vision_native/build/Release`
+- Native module and runtime output location: `native/vision_native/build/Release`
 
-The native runtime loader in `vision/native_runner.py` automatically tries to:
+The Python fallback loader in `vision/native_runner.py` automatically tries to:
 
 - add the native build directory to `sys.path`
 - prepend TensorRT and CUDA `bin` folders to `PATH`
@@ -102,8 +116,8 @@ The native runtime loader in `vision/native_runner.py` automatically tries to:
 If the native module is missing, the expected recovery path is:
 
 1. Build with `.\tools\build_native_vision.ps1`
-2. Retry one of the native startup scripts
-3. Fall back to `--vision-backend python` if you only need the Python path
+2. Retry `scripts\launch\gamepad_start.bat`
+3. Set `GAMEPAD_RUNTIME=python` or `--vision-backend python` only if you need the fallback path
 
 ## Repository structure
 
@@ -116,6 +130,8 @@ docs/project/            Project-facing architecture, benchmark, and status docs
 docs/superpowers/        Historical specs and implementation plans
 models/                  YOLO `.pt`, `.onnx`, and TensorRT `.engine` artifacts
 native/vision_native/    C++ / CUDA / TensorRT native vision runtime
+native/runtime_app/      Full native C++ gamepad runtime executable
+native/controller_native/ Native C++ gamepad controller, recoil, input, and ViGEm output
 scripts/launch/          Full launcher script implementations
 scripts/legacy/          Older/manual launcher helpers kept for compatibility
 tests/                   Python test suite
@@ -129,26 +145,33 @@ main.py                  Unified CLI entry point
 
 ## Runtime architecture
 
-At a high level:
+At a high level, the default gamepad runtime is:
+
+1. `scripts\launch\gamepad_start.bat` selects `GAMEPAD_RUNTIME=native`.
+2. `scripts\launch\gamepad_native_cpp_start.bat` starts `cod_native_runtime.exe`.
+3. `native/runtime_app` reads config and physical gamepad input.
+4. `native/vision_native` captures the ROI and runs TensorRT + target selection.
+5. `native/controller_native` applies `ai_aim`, auto-fire, aim-assist dynamics,
+   recoil, and final ViGEm output.
+
+The Python architecture still exists for fallback and non-gamepad modes:
 
 1. `main.py` parses CLI / env overrides.
-2. `controllers/factory.py` builds one controller host:
-   - `gamepad`
-   - `mouse`
-   - `kbm_to_gamepad`
-3. Vision runs through one backend:
-   - `vision/runner.py` for the Python backend
-   - `vision/native_runner.py` for the native backend
-4. Vision only hands compact deltas and target metadata to the controller layer.
-5. Controllers own input reading, AI/manual mixing, auto-fire actuation, and final device output.
+2. `controllers/factory.py` builds a Python controller host.
+3. Vision runs through `vision/runner.py` or `vision/native_runner.py`.
+4. Python controllers own input reading, AI/manual mixing, auto-fire actuation,
+   and final device output.
 
 Important code entry points:
 
-- Python backend: `vision/runner.py`
-- Native backend bridge: `vision/native_runner.py`
-- Native C++ engine: `native/vision_native/src/vision_engine.cpp`
+- Default native runtime: `native/runtime_app/main.cpp`
+- Native runtime loop: `native/runtime_app/runtime_loop.cpp`
+- Native gamepad controller: `native/controller_native/native_gamepad_controller.cpp`
+- Native vision engine: `native/vision_native/src/vision_engine.cpp`
+- Python fallback backend: `vision/runner.py`
+- Python native-vision bridge: `vision/native_runner.py`
 - Controller base contract: `controllers/base_controller.py`
-- Gamepad host: `controllers/gamepad_controller.py`
+- Python fallback gamepad host: `controllers/gamepad_controller.py`
 - Mouse host: `controllers/mouse_controller.py`
 
 ## Documentation map
@@ -157,9 +180,10 @@ Read these first:
 
 1. `docs/project/README.md`
 2. `docs/project/WORKLOG.md`
-3. `docs/project/NATIVE_VISION.md`
-4. `docs/project/CONTROLLER_OVERVIEW.md`
-5. `docs/project/VISION_OVERVIEW.md`
+3. `docs/project/NATIVE_CPP_RUNTIME.md`
+4. `docs/project/NATIVE_VISION.md`
+5. `docs/project/CONTROLLER_OVERVIEW.md`
+6. `docs/project/VISION_OVERVIEW.md`
 
 Useful project docs:
 

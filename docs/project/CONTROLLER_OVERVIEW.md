@@ -1,6 +1,6 @@
 # Controller Overview
 
-Last updated: 2026-04-30
+Last updated: 2026-06-11
 
 ## Goal
 
@@ -13,6 +13,11 @@ The controller layer is responsible for:
 
 Vision does not own final actuation. Controllers do.
 
+For live gamepad play, the default controller layer is now native C++ under
+`native/controller_native/` and is driven by `cod_native_runtime.exe`. The
+Python controller layer remains available for fallback gamepad mode, mouse,
+`kbm_to_gamepad`, debug tooling, and tests.
+
 ## Entry Points
 
 - `controller.py`
@@ -21,6 +26,9 @@ Vision does not own final actuation. Controllers do.
 - `controllers/gamepad_controller.py`
 - `controllers/mouse_controller.py`
 - `controllers/kbm_controller.py`
+- `native/runtime_app/main.cpp`
+- `native/runtime_app/runtime_loop.cpp`
+- `native/controller_native/native_gamepad_controller.cpp`
 
 `ControllerFactory.get_controller(...)` now lives in `controllers/factory.py`. Root
 `controller.py` remains as a compatibility shim for older imports.
@@ -35,7 +43,7 @@ Unknown modes fall back to the native mouse controller.
 
 ## Shared Interface
 
-All controllers implement the `BaseController` contract:
+Python controllers implement the `BaseController` contract:
 
 - `update(dx, dy, target=None)`
 - `reset()`
@@ -65,7 +73,13 @@ Current usage:
 
 ## Vision To Controller Boundary
 
-Both vision backends call the same narrow controller surface:
+Default native gamepad runtime:
+
+- `native/vision_native` emits `VisionResult`
+- `native/runtime_app` passes that result directly to `NativeGamepadController`
+- no Python controller or pybind handoff is required during normal gamepad play
+
+Python fallback and non-gamepad modes call the same narrow controller surface:
 
 - `is_aiming()`
 - `update(dx, dy, target=ControllerTarget | None)`
@@ -73,7 +87,7 @@ Both vision backends call the same narrow controller surface:
 - `set_auto_fire(bool)`
 - `reset()`
 
-That boundary is intentionally small so the project can switch between Python and native vision without repeatedly redesigning controller code.
+That Python boundary stays intentionally small so fallback and debug modes can switch between Python and native vision without repeatedly redesigning controller code.
 
 Vision decides:
 
@@ -92,19 +106,28 @@ Controller decides:
 
 ### `gamepad`
 
-File:
+Default files:
+
+- `native/runtime_app/runtime_loop.cpp`
+- `native/controller_native/native_gamepad_controller.cpp`
+- `native/controller_native/xinput_reader.cpp`
+- `native/controller_native/sdl_gamepad_reader.cpp`
+- `native/controller_native/virtual_gamepad.cpp`
+
+Python fallback file:
 
 - `controllers/gamepad_controller.py`
 
 Purpose:
 
 - mirror a physical gamepad into a virtual Xbox 360 pad
-- run controller-local plugins before final writeback
+- run controller-local AI aim, auto-fire, aim-assist dynamics, and recoil before final writeback
 
 Current shape:
 
-- plugin-based
-- uses `ControllerTarget` metadata
+- native C++ by default
+- uses `VisionResult` authority and target metadata
+- Python plugin host remains available behind `GAMEPAD_RUNTIME=python`
 - current primary assisted mode
 
 ### `mouse`
@@ -147,15 +170,17 @@ Current shape:
 Current scripts:
 
 - `scripts\launch\gamepad_start.bat`
-  - launches `main.py --controller-mode gamepad`
+  - launches the full native C++ gamepad runtime by default
+  - set `GAMEPAD_RUNTIME=python` to launch `main.py --controller-mode gamepad`
+- `scripts\launch\gamepad_native_cpp_start.bat`
+  - runs `native\vision_native\build\Release\cod_native_runtime.exe --config config.toml --perf-log`
   - prompts for auto-fire output: `RB` or `RT`
-  - defaults to `VISION_BACKEND=native`
-  - enables perf logging
+  - prompts for native recoil profile selection
 - `scripts\launch\debug\gamepad_debug.bat`
-  - launches gamepad mode with debug window and frame saving
+  - launches Python-hosted gamepad mode with debug window and frame saving
   - lets you choose native vs Python backend
 - `scripts\launch\debug\gamepad_native_debug.bat`
-  - forces native gamepad debug
+  - forces the Python-hosted native-vision debug bridge
 - `scripts\launch\mouse_start.bat`
   - launches `main.py --controller-mode mouse`
   - defaults to native vision
@@ -179,22 +204,24 @@ Controller-related configuration comes from two places:
      - `gamepad.adaptive_delta_gain`
      - `mouse.ai_aim`
 2. startup or CLI choices
+   - `GAMEPAD_RUNTIME`
    - `--controller-mode`
    - `--auto-fire-output`
    - `--vision-backend`
    - the `.bat` script prompts and existing environment overrides
 
-Important limitation:
+Important notes:
 
-- native C++ selector and aim-enhancement constants are not yet exposed through the config loader
-- some defaults are still instantiated directly in controller code
+- live gamepad runtime defaults should be checked in `native/controller_native/runtime_config.h` and `config/loader.py`
+- some fallback defaults are still instantiated directly in Python controller code
 - debug-specific startup behavior still lives in the `.bat` wrappers
 
 ## Current Recommendation
 
 For current assisted play and ongoing tuning:
 
-- use `gamepad` when you want the most mature controller path
+- use `scripts\launch\gamepad_start.bat` for the current full native C++ gamepad path
+- set `GAMEPAD_RUNTIME=python` only for fallback/comparison work
 - use `mouse` when you want native mouse output and a smaller feature surface
 - treat `kbm_to_gamepad` as supported but less actively structured
 

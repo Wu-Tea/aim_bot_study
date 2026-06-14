@@ -1,101 +1,113 @@
 # Agent Handoff
 
-Last updated: 2026-06-04T23:42:57+08:00
+Last updated: 2026-06-11T00:00:00+08:00
 Updated by: Codex
-Active scope: COD/FPS native targeting, gamepad aim assist feel, and recoil playback smoothing.
-Staleness: stale after recoil/aim dynamics implementation, a new detector/model baseline, another targeting/controller contract change, or live evidence that assist/recoil smoothing hurts weapon feel.
+Active scope: COD/FPS full native C++ gamepad runtime, native vision performance, native controller feel, and recoil playback.
+Staleness: stale after another runtime-entry change, a new detector/model baseline, major native controller behavior changes, or live evidence that C++ runtime feel/perf regressed versus the Python fallback.
 
 ## Current Objective
 
-Prepare the next controller-feel iteration on top of the live-tested native YOLO single-target baseline: remove recoil profile curve spikes without changing tuned weapon feel, and make AI aim assist output smoother without delaying user manual input.
+Treat the default gamepad runtime as full native C++ and keep documentation, debugging, and future optimization work aligned with that reality. Python remains useful for fallback, tools, tests, training/export, recoil app workflows, and comparison, but it should not be assumed to be part of the normal live gamepad hot path.
 
 ## Current State
 
-- Branch: `dev` in `D:\work\AI\yolo-study-001`.
-- Baseline before this version: `a196f92 Improve gamepad body-lock lateral hold`.
-- Recent commits include `cf0c11c Tune target lock ratio to chest` and `94cdc1a Remove bundled official YOLO artifacts`.
-- The system uses native YOLO/TensorRT person detection, native target selection, Python runner handoff, and gamepad controller-side projection.
-- User-provided report `D:/Downloads/deep-research-report (14).md` and subagent synthesis led to the accepted direction in `decisions/DEC-2026-05-29-001-single-target-weak-association-authority-gating.md`.
-- User live feedback on 2026-05-30: the change feels very strong, possibly "a bit too strong"; acceptable to checkpoint as a version.
-- User follow-up on 2026-06-04: some weapons with recoil enabled make the camera feel shaky; recoil parameters were tuned carefully, so do not change overall recoil feel. Accepted next direction is in `decisions/DEC-2026-06-04-001-recoil-despike-and-assist-dynamics.md`.
+- Branch/workspace: `D:\work\AI\yolo-study-001`.
+- Default gamepad launch path:
+  - `scripts\launch\gamepad_start.bat`
+  - defaults to `GAMEPAD_RUNTIME=native`
+  - calls `scripts\launch\gamepad_native_cpp_start.bat`
+  - starts `native\vision_native\build\Release\cod_native_runtime.exe --config config.toml --perf-log`
+- Set `GAMEPAD_RUNTIME=python` only when explicitly using the older Python gamepad fallback.
+- Default live gamepad runtime is now C++ end to end:
+  - config loading
+  - physical gamepad input
+  - native ROI capture
+  - CUDA preprocess
+  - TensorRT inference
+  - native target selector and authority fields
+  - native `ai_aim`
+  - native auto-fire gate
+  - native aim-assist dynamics
+  - native recoil profile selection/despike/target-direction yield/playback
+  - native ViGEm output
+- Python gamepad host and `vision/native_runner.py` are fallback/debug/reference paths, not the default gamepad runtime.
+- Mouse and `kbm_to_gamepad` still use Python-side hosts.
+- User-provided C++ runtime logs on 2026-06-07 showed `[Vision][CPP]` lines with typical native GPU timing around `6-10ms` and vision `age` around `8-12ms`. Interpretation from that evidence: Python/native communication is no longer the likely live-gamepad bottleneck; remaining performance work should be measured in native C++ runtime/GPU timing first.
 
 ## Implemented In This Version
 
-- Added tiered native/Python target authority fields:
-  - `target_tier`
-  - `aim_authority`
-  - `fire_authority`
-  - `association_stage`
-  - `target_confidence`
-- Added runner/controller fail-closed gates:
-  - only fire-authorized strong observed targets may pass auto-fire
-  - `aim_authority=false` targets clear controller target state instead of entering assist
-- Added native active-only low-score association:
-  - native live decode keeps boxes down to `0.20` for selector continuation
-  - low-score boxes cannot birth, switch, or fire
-  - near active low-score matches output as `associated_weak`
-- Preserved yellow cue as auxiliary continuation:
-  - `cue_hold` can keep a shifted active target visible briefly
-  - `cue_hold` has aim authority but no fire authority
-- Added source-aware controller projection and auto-fire settling:
-  - weak/cue/predicted targets do not become fire-authorized
-  - single-shot auto-fire waits for an aim-ready/settled signal
-  - ADS snap got time-to-go and opposing-manual handling improvements
-- Made gamepad controller source-aware:
-  - weak/low-score targets do not refresh projection velocity
-  - weak association cannot trigger ADS snap
-  - weak/cue body-lock uses lighter force scales
-  - predicted/no-authority targets stay manual
-- Adjusted default body-lock/selector aim point from head-biased `0.38` to chest-biased `0.43`, then to `0.40` after live feedback that `0.43` was slightly too low.
-- Added config knobs:
-  - `[gamepad.ai_aim].weak_target_body_lock_force_scale`
-  - `[gamepad.ai_aim].cue_hold_body_lock_force_scale`
+- Full native C++ runtime implementation exists under:
+  - `native/runtime_app/`
+  - `native/controller_native/`
+- Native runtime launcher exists:
+  - `scripts\launch\gamepad_native_cpp_start.bat`
+- Default launcher chooses native runtime:
+  - `scripts\launch\gamepad_start.bat`
+  - supports `GAMEPAD_RUNTIME=python` fallback.
+- Native gamepad behavior modules include:
+  - `ai_aim.cpp`
+  - `aim_assist_dynamics.cpp`
+  - `recoil_compensation.cpp`
+  - `target_tracker.cpp`
+  - `virtual_gamepad.cpp`
+  - `xinput_reader.cpp`
+  - `sdl_gamepad_reader.cpp`
+  - `weapon_recognizer.cpp`
+- Native recoil path includes profile loading, calibration lookup, profile despike, target-direction yield, and selection-log gating.
+- Native perf/logging path now emits `[Vision][CPP]` and `[Perf][CPP]` style diagnostics.
+- Documentation was updated on 2026-06-11 to mark full native C++ as the default:
+  - `README.md`
+  - `docs/project/README.md`
+  - `docs/project/WORKLOG.md`
+  - `docs/project/PROJECT_OVERVIEW.md`
+  - `docs/project/GAMEPAD_OVERVIEW.md`
+  - `docs/project/CONTROLLER_OVERVIEW.md`
+  - `docs/project/NATIVE_VISION.md`
+  - `docs/project/VISION_OVERVIEW.md`
+  - `docs/project/NATIVE_CPP_RUNTIME.md`
 
-## How The Idea Was Found
+## Current Debugging Posture
 
-- The starting observation was that high-FPS detection alone did not fix practical misses; failures clustered around short occlusion, firing effects, side-running posture, and controller timing.
-- `D:/Downloads/deep-research-report (14).md` reframed the work toward detector-led short-horizon continuity rather than full MOT/ReID.
-- Three subagents split the problem into native selector, gamepad motion/projection, and controller contract/safety. All converged on active-only weak association plus explicit target authority.
-- A GitHub/open-source scan was used as a sanity check: most public FPS YOLO projects stop at detection/box selection, while this project already needed deeper controller-facing semantics.
-- The final implementation came from combining local evidence with the research: keep detector as birth/fire authority, let low-score/cue evidence continue the active target briefly, and make runner/controller fail closed by source/tier.
+- For live gamepad runtime questions, read `docs/project/NATIVE_CPP_RUNTIME.md` first.
+- For native gamepad behavior, inspect `native/controller_native/` before Python `controllers/gamepad/`.
+- For native runtime scheduling/logs, inspect `native/runtime_app/runtime_loop.cpp` and `native/runtime_app/perf_logger.cpp`.
+- For C++ controller/runtime behavior changes, add or update focused native unit tests in the same change; do not treat live tuning alone as sufficient verification.
+- For vision timing, inspect C++ runtime logs first:
+  - `pre`
+  - `infer`
+  - `gpu`
+  - `wait`
+  - `age`
+  - controller/output timing when available
+- Python fallback remains useful to compare behavior and bisect regressions, but should not drive default-path assumptions.
 
-## Verification Evidence
+## Known Follow-Ups
 
-- Native build passed:
-  - `powershell -ExecutionPolicy Bypass -File tools\build_native_vision.ps1`
-- Targeted combined regression passed:
-  - `py -3 -B -m unittest tests.test_native_vision_targeting_bridge tests.test_native_vision_runner tests.test_vision_runner tests.gamepad.test_gamepad_auto_fire_plugin tests.gamepad.test_gamepad_controller_host tests.gamepad.test_gamepad_target_tracker tests.gamepad.test_gamepad_ai_aim_plugin tests.mouse.test_mouse_controller_host tests.test_native_vision_scaffold tests.test_config_loader -v`
-  - Result: `222` tests OK.
-- Related targeting/controller/config regression passed:
-  - `py -3 -B -m unittest tests.test_native_vision_targeting_bridge tests.test_vision_targeting tests.test_vision_occlusion_compensation tests.gamepad.test_gamepad_ai_aim_plugin tests.test_config_loader -v`
-  - Result: `128` tests OK.
-- Python compile check passed for modified modules/tests.
-- `git diff --check` passed; only LF/CRLF normalization warnings were printed.
-- User live smoke tested and approved checkpointing this version.
-
-## Recommended Next Actions
-
-1. Treat the native YOLO/authority-gated targeting version as the current gameplay baseline.
-2. Implement recoil profile despike at profile read/activation time: generate a playback cache that removes obvious local delta spikes without overwriting original recoil records or changing total recoil feel.
-3. Implement an `AimAssistDynamicsPlugin` after `AIAimPlugin` and before recoil playback: smooth only `output.right_stick - frame.manual_right_stick`, leaving manual input and recoil output untouched.
-4. Longer next step: add replay/benchmark logs for source/tier, weak gate counts, cue age/score, fire request vs gate result, controller final output, and assist/recoil output deltas.
+1. Verify `[Perf][CPP]` reports actual measured runtime/window FPS rather than hard-coded loop assumptions.
+2. Add or verify native output-age style fields comparable to old Python `out_age` so C++ logs can be compared cleanly.
+3. Check target freshness on ADS transitions:
+   - if `VisionResult.frame_updated=false`, native controller currently ignores the result
+   - ensure stale `latest_vision_state_` cannot create a first-frame old-target pull when ADS resumes
+4. Continue A/B tests with smaller TensorRT engines if GPU timing remains the main bottleneck.
+5. Keep validating `ai_aim + recoil` overlap for jitter under the native pipeline.
 
 ## Do Not Do Without New Evidence
 
-- Do not introduce full MOT, ReID, SLAM, dense optical flow, or long prediction-only target authority as the next step.
-- Do not allow cue-only, weak-only, or predicted-only targets to birth a controller-trusted target or trigger auto-fire.
-- Do not lower the detector threshold globally and feed all low-score boxes through normal birth/switch selection.
-- Do not move the controller hot path to C++ before timing logs show Python/native communication is the bottleneck.
-- Do not smooth final gamepad output after recoil; that would also change tuned recoil and manual feel.
-- Do not globally low-pass recoil curves unless live evidence shows conservative despike is insufficient.
+- Do not assume Python/native handoff is the live gamepad bottleneck; default runtime no longer uses that handoff.
+- Do not make Python `controllers/gamepad/` changes expecting them to affect the default gamepad runtime.
+- Do not remove the Python fallback; it is still useful for comparison, tools, tests, and recovery.
+- Do not give cue-only, weak-only, or predicted-only targets fire authority.
+- Do not smooth final gamepad output after recoil unless live evidence shows that tuned recoil/manual feel can tolerate it.
 - Do not revert unrelated user or generated worktree changes.
 - For training/data jobs, avoid heavy writes to `C:` and avoid RAM-backed modes unless the user explicitly approves.
 
-## Related Decisions
+## Related Decisions And Docs
 
+- `docs/project/NATIVE_CPP_RUNTIME.md`
+- `docs/project/PROJECT_OVERVIEW.md`
+- `docs/project/GAMEPAD_OVERVIEW.md`
+- `docs/superpowers/plans/2026-06-06-native-cpp-runtime-migration.md`
 - `decisions/DEC-2026-05-01-005-use-yellow-cue-as-short-continuation-hold.md`
-- `decisions/DEC-2026-05-01-006-prioritize-native-hotpath-copy-reduction-over-full-controller-cpp-rewrite.md`
 - `decisions/DEC-2026-05-05-001-add-external-yellow-cue-input-and-sidecar-fallback.md`
-- `decisions/DEC-2026-05-05-002-scope-active-vision-work-to-native.md`
 - `decisions/DEC-2026-05-29-001-single-target-weak-association-authority-gating.md`
 - `decisions/DEC-2026-06-04-001-recoil-despike-and-assist-dynamics.md`

@@ -107,6 +107,10 @@ class TuningConfigLoaderTests(unittest.TestCase):
             recoil_jitter_assist_threshold = 1450.0
             recoil_jitter_flip_scale = 0.15
             recoil_jitter_memory_seconds = 0.045
+            manual_curve_straighten_enabled = true
+            manual_curve_straighten_strength = 0.37
+            manual_curve_straighten_min_manual = 1700.0
+            manual_curve_straighten_min_assist = 950.0
 
             [gamepad.ai_aim]
             smoothing = 0.42
@@ -114,6 +118,7 @@ class TuningConfigLoaderTests(unittest.TestCase):
             max_ai_force_y = 0.88
             body_lock_opposing_boost_max_ai_force = 0.67
             target_max_age_ms = 42.0
+            target_projection_max_age_ms = 18.0
             target_projection_reticle_speed_px_per_sec = 1300.0
             target_projection_velocity_lowpass_alpha = 0.25
             target_projection_max_velocity_px_per_sec = 900.0
@@ -287,12 +292,17 @@ class TuningConfigLoaderTests(unittest.TestCase):
         self.assertEqual(config.gamepad_aim_assist_dynamics.recoil_jitter_assist_threshold, 1450.0)
         self.assertEqual(config.gamepad_aim_assist_dynamics.recoil_jitter_flip_scale, 0.15)
         self.assertEqual(config.gamepad_aim_assist_dynamics.recoil_jitter_memory_seconds, 0.045)
+        self.assertTrue(config.gamepad_aim_assist_dynamics.manual_curve_straighten_enabled)
+        self.assertEqual(config.gamepad_aim_assist_dynamics.manual_curve_straighten_strength, 0.37)
+        self.assertEqual(config.gamepad_aim_assist_dynamics.manual_curve_straighten_min_manual, 1700.0)
+        self.assertEqual(config.gamepad_aim_assist_dynamics.manual_curve_straighten_min_assist, 950.0)
 
         self.assertEqual(config.gamepad_ai_aim.smoothing, 0.42)
         self.assertEqual(config.gamepad_ai_aim.max_pixels, 180)
         self.assertEqual(config.gamepad_ai_aim.max_ai_force_y, 0.88)
         self.assertEqual(config.gamepad_ai_aim.body_lock_opposing_boost_max_ai_force, 0.67)
         self.assertEqual(config.gamepad_ai_aim.target_max_age_ms, 42.0)
+        self.assertEqual(config.gamepad_ai_aim.target_projection_max_age_ms, 18.0)
         self.assertEqual(config.gamepad_ai_aim.target_projection_reticle_speed_px_per_sec, 1300.0)
         self.assertEqual(config.gamepad_ai_aim.target_projection_velocity_lowpass_alpha, 0.25)
         self.assertEqual(config.gamepad_ai_aim.target_projection_max_velocity_px_per_sec, 900.0)

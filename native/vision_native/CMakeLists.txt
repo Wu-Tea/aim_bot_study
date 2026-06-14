@@ -128,6 +128,7 @@ add_executable(cod_native_runtime
     ../runtime_app/main.cpp
     ../runtime_app/runtime_loop.cpp
     ../runtime_app/perf_logger.cpp
+    ../runtime_app/aim_perf_file_logger.cpp
     ../runtime_app/downward_diagnostics.cpp
     ../controller_native/runtime_config.cpp
     ../controller_native/target_tracker.cpp

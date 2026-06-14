@@ -1,6 +1,6 @@
 # Vision Overview
 
-Last updated: 2026-04-30
+Last updated: 2026-06-11
 
 ## Goal
 
@@ -10,7 +10,7 @@ The current vision stack is optimized for:
 - box-based target selection for controller handoff
 - friendly rejection from color cues above the box
 - short-horizon occlusion recovery and motion-aware target deltas
-- keeping the controller boundary small and stable across Python and native backends
+- keeping the vision-to-controller boundary small in both the default native C++ runtime and Python fallback paths
 
 The main targeting path is detector-first. It does not depend on pose keypoints.
 
@@ -28,9 +28,14 @@ The main targeting path is detector-first. It does not depend on pose keypoints.
 - `process_vision(controller=...)` for `--vision-backend python`
 - `process_native_vision(controller=...)` for `--vision-backend native`
 
+That `main.py` path is now the Python fallback/debug path for gamepad. The
+normal gamepad runtime starts `cod_native_runtime.exe`, which calls
+`VisionEngine` directly in process.
+
 ## Current Backends
 
-There are two real runtime backends today.
+There are two Python-visible vision backends today, plus the default native C++
+runtime path.
 
 ### Python backend
 
@@ -58,12 +63,12 @@ Implemented in:
 Behavior:
 
 - native C++ owns capture, preprocessing, TensorRT inference, selection, occlusion compensation, enhancement, and auto-fire recommendation
-- Python keeps the controller host and the startup/debug wrapper surface
-- native results are bridged back into Python as a compact `VisionResult`-shaped payload
+- in the default gamepad runtime, native results go directly to `NativeGamepadController`
+- in Python fallback/debug paths, native results are bridged back into Python as a compact `VisionResult`-shaped payload
 
 ## Runtime States
 
-Both backends follow the same practical runtime states:
+The default C++ runtime and Python fallback backends follow the same practical vision states:
 
 1. `Idle`
    - the controller is not actively aiming
@@ -95,7 +100,16 @@ Both backends follow the same practical runtime states:
 10. `AdsAutoFireGate` blocks auto-fire during the first `120ms` after aiming begins.
 11. The controller receives compact target metadata only.
 
-### Native backend pipeline
+### Default native C++ gamepad pipeline
+
+1. `cod_native_runtime.exe` creates `VisionEngine`.
+2. `VisionEngine` performs centered ROI capture natively.
+3. Native preprocessing maps the ROI into TensorRT input tensors.
+4. TensorRT inference runs in C++ against `models/best.engine`.
+5. Native target selection, authority fields, aim enhancement, and auto-fire recommendation run in C++.
+6. `NativeGamepadController` consumes `VisionResult` directly.
+
+### Python-hosted native backend pipeline
 
 1. `vision/native_runner.py` loads `vision_native_cpp` from `native/vision_native/build/Release`.
 2. `NativeVisionEngine` performs centered ROI capture natively.
@@ -111,7 +125,7 @@ Both backends follow the same practical runtime states:
    - `infer_ms`
    - `post_ms`
    - `age_ms`
-7. The existing Python controller consumes that compact payload through the same controller boundary.
+7. The Python fallback controller consumes that compact payload through the same controller boundary.
 
 The important rule is unchanged: vision sends compact intent, not raw frames, into the controller layer.
 
@@ -123,9 +137,10 @@ backend. Existing `VISION_*` environment variables and explicit CLI arguments
 still take precedence. If `config.toml` is absent, the runtime uses code
 defaults.
 
-Default runtime baseline:
+Default gamepad runtime baseline:
 
-- `backend = "native"`
+- `GAMEPAD_RUNTIME = "native"`
+- executable: `native\vision_native\build\Release\cod_native_runtime.exe`
 - `capture_fps = 140`
 - `crop_width = 640`
 - `crop_height = 512`
@@ -152,9 +167,12 @@ Current `VisionConfig` defaults in `vision/runner.py`:
 Current startup-script behavior:
 
 - `scripts\launch\gamepad_start.bat`
+  - defaults to full native C++ gamepad runtime
+  - set `GAMEPAD_RUNTIME=python` for the older Python fallback
+- `scripts\launch\gamepad_native_cpp_start.bat`
+  - starts `cod_native_runtime.exe`
   - uses `config.toml` runtime defaults
-  - preserves existing `VISION_*` environment overrides
-  - only adds an auto-fire CLI override when the user explicitly selects `RB` or `RT`
+  - prompts for auto-fire output and recoil profile selection
 - `scripts\launch\debug\gamepad_debug.bat`
   - native by default, Python selectable
   - `VISION_CAPTURE_FPS=140`
@@ -192,7 +210,7 @@ Useful CLI and env controls:
 The Python fast path is still important:
 
 - it is the fallback runtime when native is unavailable
-- it remains a useful behavior oracle during native validation
+- it remains useful for comparison and bisecting regressions
 - it still uses TensorRT `best.engine` when possible
 
 What is already implemented:
@@ -209,8 +227,8 @@ Current limitation:
 
 Native vision is no longer just a scaffold:
 
-- it is integrated into `main.py` through `--vision-backend native`
-- current gamepad startup scripts default to the native backend
+- it is integrated into the default full native C++ gamepad runtime
+- it is also integrated into `main.py` through `--vision-backend native` for fallback/debug paths
 - current mouse startup scripts also default to native
 - Python remains available as a fallback
 

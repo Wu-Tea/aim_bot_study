@@ -31,10 +31,15 @@ float clamp_unit(float value) {
     return std::max(-1.0f, std::min(1.0f, value));
 }
 
+bool has_manual_right_stick_input(float manual_right_x, float manual_right_y) {
+    constexpr float kManualFireReadyStickThreshold = 0.08f;
+    return std::hypot(manual_right_x, manual_right_y) >= kManualFireReadyStickThreshold;
+}
+
 NativeTargetTrackerConfig target_tracker_config_from_ai_aim(const GamepadAiAimConfig& config) {
     NativeTargetTrackerConfig tracker_config;
     tracker_config.reticle_speed_px_per_sec = config.target_projection_reticle_speed_px_per_sec;
-    tracker_config.max_projection_age_ms = config.target_max_age_ms;
+    tracker_config.max_projection_age_ms = config.target_projection_max_age_ms;
     tracker_config.velocity_lowpass_alpha = config.target_projection_velocity_lowpass_alpha;
     tracker_config.max_target_velocity_px_per_sec = config.target_projection_max_velocity_px_per_sec;
     tracker_config.weak_observation_velocity_decay = config.target_projection_weak_velocity_decay;
@@ -63,6 +68,7 @@ void NativeGamepadController::reset() {
     aim_assist_dynamics_.reset();
     recoil_.reset();
     last_pipeline_traces_.clear();
+    last_tracker_motion_output_ = GamepadOutputState{};
     manual_fire_was_pressed_ = false;
     auto_fire_was_active_ = false;
     manual_takeover_started_at_seconds_ = -1.0;
@@ -207,11 +213,12 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
     apply_auto_fire(output, should_fire);
     record_stage_trace("auto_fire", stage_before_right_y, output, false, should_fire);
 
+    const GamepadOutputState tracker_motion_output = output;
     auto_fire_was_active_ = should_fire;
     stage_before_right_y = output.right_y;
     apply_recoil(output, physical, should_fire, frame_vision_state, now);
     record_stage_trace("recoil", stage_before_right_y, output, should_fire, should_fire);
-    record_target_tracker_output(output, now);
+    record_target_tracker_output(tracker_motion_output, now);
     return output;
 }
 
@@ -221,6 +228,10 @@ NativeAutoFireCounters NativeGamepadController::auto_fire_counters() const {
 
 const std::vector<NativeControllerStageTrace>& NativeGamepadController::last_pipeline_traces() const {
     return last_pipeline_traces_;
+}
+
+GamepadOutputState NativeGamepadController::last_tracker_motion_output() const {
+    return last_tracker_motion_output_;
 }
 
 bool NativeGamepadController::is_aiming(const PhysicalGamepadState& physical) const {
@@ -237,9 +248,22 @@ NativeControllerVisionState NativeGamepadController::vision_state_for_frame(doub
     if (!projection.has_value()) {
         return state;
     }
+    const float projection_delta_x = projection->dx - state.dx;
+    const float projection_delta_y = projection->dy - state.dy;
     state.dx = projection->dx;
     state.dy = projection->dy;
+    state.target_x += projection_delta_x;
+    state.target_y += projection_delta_y;
+    if (state.has_body_box) {
+        state.body_x1 += projection_delta_x;
+        state.body_x2 += projection_delta_x;
+        state.body_y1 += projection_delta_y;
+        state.body_y2 += projection_delta_y;
+    }
     state.observed_at_seconds = projection->observed_at_seconds;
+    state.has_tracker_projection = true;
+    state.tracker_dx = projection->dx;
+    state.tracker_dy = projection->dy;
     return state;
 }
 
@@ -352,7 +376,10 @@ bool NativeGamepadController::auto_fire_aim_ready(
             std::fabs(output.right_y - manual_right_y)) *
         32767.0f;
     const float max_ai_stick = std::max(0.0f, config_.ai_aim.auto_fire_ready_max_ai_stick);
-    if (max_ai_stick > 0.0f && ai_stick_mag > max_ai_stick) {
+    const bool manual_tracking =
+        has_manual_right_stick_input(manual_right_x, manual_right_y) &&
+        vision_state.auto_fire_requested;
+    if (max_ai_stick > 0.0f && ai_stick_mag > max_ai_stick && !manual_tracking) {
         reset_auto_fire_readiness_tracking();
         return false;
     }
@@ -517,6 +544,9 @@ void NativeGamepadController::apply_ai_aim(
     input.ads_snap_remaining_seconds = ads_snap_remaining_seconds(now_seconds);
     input.dx = vision_state.dx;
     input.dy = vision_state.dy;
+    input.has_mixing_reference = vision_state.has_tracker_projection;
+    input.mixing_reference_dx = vision_state.tracker_dx;
+    input.mixing_reference_dy = vision_state.tracker_dy;
     input.target_x = vision_state.target_x;
     input.target_y = vision_state.target_y;
     input.screen_center_x = vision_state.screen_center_x;
@@ -586,6 +616,7 @@ void NativeGamepadController::apply_recoil(
 void NativeGamepadController::record_target_tracker_output(
     const GamepadOutputState& output,
     double now_seconds) {
+    last_tracker_motion_output_ = output;
     if (last_output_at_seconds_ > 0.0 && now_seconds >= last_output_at_seconds_) {
         target_tracker_.record_output(
             output.right_x,

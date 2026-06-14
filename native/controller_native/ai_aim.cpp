@@ -22,6 +22,21 @@ bool is_cue_hold_tier(const std::string& target_tier) {
     return target_tier == "cue_hold";
 }
 
+bool is_projected_target_tier(const std::string& target_tier) {
+    return target_tier == "projected" ||
+        target_tier == "projection" ||
+        target_tier == "predicted";
+}
+
+bool is_strong_target_tier(const std::string& target_tier) {
+    return !target_tier.empty() &&
+        target_tier != "none" &&
+        target_tier != "lost" &&
+        !is_weak_target_tier(target_tier) &&
+        !is_cue_hold_tier(target_tier) &&
+        !is_projected_target_tier(target_tier);
+}
+
 }  // namespace
 
 NativeAiAim::NativeAiAim(GamepadAiAimConfig config)
@@ -107,7 +122,11 @@ NativeAiAimOutput NativeAiAim::compute(const NativeAiAimInput& input) {
 
     float lock_confidence = 0.0f;
     if (body_lock_active) {
-        observe_body_lock_motion(input);
+        if (is_strong_target_tier(input.target_tier)) {
+            observe_body_lock_motion(input);
+        } else {
+            reset_motion_tracking();
+        }
         const auto [lock_dx, lock_dy] = body_lock_target_delta(input);
         target_error_x = body_lock_lateral_motion_delta(lock_dx);
         target_error_y = lock_dy;
@@ -174,18 +193,23 @@ NativeAiAimOutput NativeAiAim::compute(const NativeAiAimInput& input) {
     if (ads_snap_mode) {
         const float planned_x = output.assist_x;
         const float planned_y = output.assist_y;
-        const float manual_x = resolve_ads_snap_opposing_manual(
+        const float reference_x = input.has_mixing_reference ? input.mixing_reference_dx : planned_x;
+        const float reference_y = input.has_mixing_reference ? -input.mixing_reference_dy : planned_y;
+        const auto [manual_x, manual_y] = resolve_ads_snap_manual(
             input.manual_right_x,
-            planned_x,
-            input.ads_snap_progress_ratio);
-        const float manual_y = resolve_ads_snap_opposing_manual(
             input.manual_right_y,
-            planned_y,
+            reference_x,
+            reference_y,
             input.ads_snap_progress_ratio);
+        const auto [remaining_x, remaining_y] = resolve_ads_snap_planned_after_manual(
+            planned_x,
+            planned_y,
+            manual_x,
+            manual_y);
         output.assist_x = (manual_x - input.manual_right_x) +
-            resolve_ads_snap_manual_overlap(planned_x, manual_x);
+            remaining_x;
         output.assist_y = (manual_y - input.manual_right_y) +
-            resolve_ads_snap_manual_overlap(planned_y, manual_y);
+            remaining_y;
     } else if (body_lock_active) {
         const float planned_x = output.assist_x;
         const float planned_y = output.assist_y;
@@ -238,14 +262,18 @@ std::pair<float, float> NativeAiAim::body_lock_target_delta(const NativeAiAimInp
     const float upper_body_ratio = std::max(
         0.0f,
         std::min(1.0f, config_.body_lock_upper_body_ratio));
-    const auto [lead_x, lead_y] = body_lock_motion_lead_delta();
+    const auto [lead_x, lead_y] = body_lock_motion_lead_delta(input);
     const float lock_x = ((input.body_x1 + input.body_x2) * 0.5f) + lead_x;
     const float lock_y =
         input.body_y1 + ((input.body_y2 - input.body_y1) * upper_body_ratio) + lead_y;
     return {lock_x - input.screen_center_x, lock_y - input.screen_center_y};
 }
 
-std::pair<float, float> NativeAiAim::body_lock_motion_lead_delta() const {
+std::pair<float, float> NativeAiAim::body_lock_motion_lead_delta(
+    const NativeAiAimInput& input) const {
+    if (!is_strong_target_tier(input.target_tier) || !has_sustained_body_lock_motion()) {
+        return {0.0f, 0.0f};
+    }
     if (motion_frames_ < std::max(1, config_.body_lock_lead_frames)) {
         return {0.0f, 0.0f};
     }
@@ -291,6 +319,7 @@ void NativeAiAim::observe_body_lock_motion(const NativeAiAimInput& input) {
         motion_velocity_y_ = 0.0f;
         motion_timestamp_seconds_ = timestamp;
         motion_frames_ = 1;
+        reset_motion_consistency();
         return;
     }
 
@@ -298,6 +327,7 @@ void NativeAiAim::observe_body_lock_motion(const NativeAiAimInput& input) {
     if (dt > 0.0) {
         motion_velocity_x_ = (point_x - motion_point_x_) / static_cast<float>(dt);
         motion_velocity_y_ = (point_y - motion_point_y_) / static_cast<float>(dt);
+        update_motion_consistency(motion_velocity_x_, motion_velocity_y_);
     }
     motion_box_center_x_ = center_x;
     motion_box_center_y_ = center_y;
@@ -317,6 +347,58 @@ void NativeAiAim::reset_motion_tracking() {
     motion_velocity_x_ = 0.0f;
     motion_velocity_y_ = 0.0f;
     motion_timestamp_seconds_ = 0.0;
+    reset_motion_consistency();
+}
+
+void NativeAiAim::reset_motion_consistency() {
+    motion_consistent_frames_ = 0;
+    has_motion_direction_ = false;
+    motion_direction_x_ = 0.0f;
+    motion_direction_y_ = 0.0f;
+}
+
+void NativeAiAim::update_motion_consistency(float velocity_x, float velocity_y) {
+    const float speed = std::sqrt((velocity_x * velocity_x) + (velocity_y * velocity_y));
+    constexpr float kMinSustainedLeadSpeedPxPerSec = 1.0f;
+    const float min_speed = kMinSustainedLeadSpeedPxPerSec;
+    if (speed < min_speed) {
+        reset_motion_consistency();
+        return;
+    }
+
+    const float dir_x = velocity_x / speed;
+    const float dir_y = velocity_y / speed;
+    if (!has_motion_direction_) {
+        has_motion_direction_ = true;
+        motion_direction_x_ = dir_x;
+        motion_direction_y_ = dir_y;
+        motion_consistent_frames_ = 1;
+        return;
+    }
+
+    const float dot = (motion_direction_x_ * dir_x) + (motion_direction_y_ * dir_y);
+    constexpr float kMinConsistentDirectionDot = 0.72f;
+    if (dot < kMinConsistentDirectionDot) {
+        motion_direction_x_ = dir_x;
+        motion_direction_y_ = dir_y;
+        motion_consistent_frames_ = 1;
+        return;
+    }
+
+    motion_direction_x_ = (motion_direction_x_ * 0.65f) + (dir_x * 0.35f);
+    motion_direction_y_ = (motion_direction_y_ * 0.65f) + (dir_y * 0.35f);
+    const float direction_norm = std::sqrt(
+        (motion_direction_x_ * motion_direction_x_) +
+        (motion_direction_y_ * motion_direction_y_));
+    if (direction_norm > 0.000001f) {
+        motion_direction_x_ /= direction_norm;
+        motion_direction_y_ /= direction_norm;
+    }
+    ++motion_consistent_frames_;
+}
+
+bool NativeAiAim::has_sustained_body_lock_motion() const {
+    return (motion_consistent_frames_ + 1) >= std::max(1, config_.body_lock_lead_frames);
 }
 
 float NativeAiAim::body_lock_lateral_motion_delta(float dx) const {
@@ -712,39 +794,57 @@ float NativeAiAim::resolve_body_lock_manual_overlap(
     return std::copysign(remaining, planned_ai);
 }
 
-float NativeAiAim::resolve_ads_snap_manual_overlap(float planned_ai, float manual_input) const {
-    if (planned_ai == 0.0f || manual_input == 0.0f) {
-        return planned_ai;
-    }
-    if (planned_ai * manual_input <= 0.0f) {
-        return planned_ai;
-    }
-    const float remaining = std::fabs(planned_ai) - std::fabs(manual_input);
-    if (remaining <= 0.0f) {
-        return 0.0f;
-    }
-    return std::copysign(remaining, planned_ai);
-}
-
-float NativeAiAim::resolve_ads_snap_opposing_manual(
-    float manual_input,
-    float planned_ai,
+std::pair<float, float> NativeAiAim::resolve_ads_snap_manual(
+    float manual_x,
+    float manual_y,
+    float reference_x,
+    float reference_y,
     float progress_ratio) const {
-    if (manual_input == 0.0f || planned_ai == 0.0f) {
-        return manual_input;
+    const float reference_norm = std::sqrt((reference_x * reference_x) + (reference_y * reference_y));
+    if (reference_norm <= 0.000001f) {
+        return {manual_x, manual_y};
     }
-    if (manual_input * planned_ai >= 0.0f) {
-        return manual_input;
-    }
+
     const float max_suppression = std::max(
         0.0f,
         std::min(1.0f, config_.ads_snap_opposing_manual_suppression_max));
     if (max_suppression <= 0.0f) {
-        return manual_input;
+        return {manual_x, manual_y};
     }
+
     const float progress = std::max(0.0f, std::min(1.0f, progress_ratio));
-    const float suppression = max_suppression * (0.35f + (0.65f * progress));
-    return manual_input * (1.0f - suppression);
+    const float ux = reference_x / reference_norm;
+    const float uy = reference_y / reference_norm;
+    const float parallel = (manual_x * ux) + (manual_y * uy);
+    const float parallel_x = ux * parallel;
+    const float parallel_y = uy * parallel;
+    const float orthogonal_x = manual_x - parallel_x;
+    const float orthogonal_y = manual_y - parallel_y;
+    const float helpful = std::max(0.0f, parallel);
+    const float harmful = std::max(0.0f, -parallel);
+    const float harmful_suppression = max_suppression * (0.35f + (0.65f * progress));
+    const float orthogonal_suppression = max_suppression * (0.20f + (0.60f * progress));
+    const float sanitized_parallel = helpful - (harmful * (1.0f - harmful_suppression));
+    return {
+        (ux * sanitized_parallel) + (orthogonal_x * (1.0f - orthogonal_suppression)),
+        (uy * sanitized_parallel) + (orthogonal_y * (1.0f - orthogonal_suppression))};
+}
+
+std::pair<float, float> NativeAiAim::resolve_ads_snap_planned_after_manual(
+    float planned_x,
+    float planned_y,
+    float manual_x,
+    float manual_y) const {
+    const float planned_norm = std::sqrt((planned_x * planned_x) + (planned_y * planned_y));
+    if (planned_norm <= 0.000001f) {
+        return {planned_x, planned_y};
+    }
+
+    const float ux = planned_x / planned_norm;
+    const float uy = planned_y / planned_norm;
+    const float helpful_parallel = std::max(0.0f, (manual_x * ux) + (manual_y * uy));
+    const float remaining = std::max(0.0f, planned_norm - helpful_parallel);
+    return {ux * remaining, uy * remaining};
 }
 
 float NativeAiAim::compute_axis(

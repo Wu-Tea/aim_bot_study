@@ -6,6 +6,7 @@
 #include "controller_native/virtual_gamepad.h"
 #include "controller_native/weapon_recognizer.h"
 #include "controller_native/xinput_reader.h"
+#include "aim_perf_file_logger.h"
 #include "downward_diagnostics.h"
 #include "perf_logger.h"
 #include "vision_native/vision_engine.h"
@@ -37,6 +38,7 @@ private:
 
     controller_native::RuntimeConfig config_;
     PerfLogger perf_logger_;
+    AimPerfFileLogger aim_perf_file_logger_;
     DownwardPullDiagnostics downward_diagnostics_;
     bool perf_log_ = false;
     bool gamepad_perf_log_ = false;

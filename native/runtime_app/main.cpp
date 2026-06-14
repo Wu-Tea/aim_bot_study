@@ -76,6 +76,9 @@ void print_startup_summary(
         << "@" << config.vision.capture_fps
         << " model=" << config.vision.model_path
         << " perf_log=" << (options.perf_log || config.vision.perf_log ? "true" : "false")
+        << " aim_perf_file_log=" << (config.vision.aim_perf_file_log ? "true" : "false")
+        << " aim_perf_log_dir=" << config.vision.aim_perf_log_dir
+        << " aim_perf_log_interval_ticks=" << config.vision.aim_perf_log_interval_ticks
         << " auto_fire=" << config.gamepad.auto_fire.fire_output
         << '\n';
 }

@@ -101,6 +101,13 @@ void apply_runtime_vision_value(
         config.native_cue_sidecar = parse_bool_value(value, config.native_cue_sidecar);
     } else if (key == "perf_log") {
         config.perf_log = parse_bool_value(value, config.perf_log);
+    } else if (key == "aim_perf_file_log") {
+        config.aim_perf_file_log = parse_bool_value(value, config.aim_perf_file_log);
+    } else if (key == "aim_perf_log_dir") {
+        config.aim_perf_log_dir = parse_string_value(value);
+    } else if (key == "aim_perf_log_interval_ticks") {
+        config.aim_perf_log_interval_ticks =
+            parse_uint_value(value, config.aim_perf_log_interval_ticks);
     }
 }
 
@@ -173,6 +180,9 @@ void apply_gamepad_ai_aim_value(
         config.x_deadzone_outer = parse_float_value(value, config.x_deadzone_outer);
     } else if (key == "target_max_age_ms") {
         config.target_max_age_ms = parse_float_value(value, config.target_max_age_ms);
+    } else if (key == "target_projection_max_age_ms") {
+        config.target_projection_max_age_ms =
+            parse_float_value(value, config.target_projection_max_age_ms);
     } else if (key == "target_projection_reticle_speed_px_per_sec") {
         config.target_projection_reticle_speed_px_per_sec =
             parse_float_value(value, config.target_projection_reticle_speed_px_per_sec);
@@ -329,6 +339,18 @@ void apply_gamepad_aim_assist_dynamics_value(
     } else if (key == "recoil_jitter_memory_seconds") {
         config.recoil_jitter_memory_seconds =
             parse_float_value(value, config.recoil_jitter_memory_seconds);
+    } else if (key == "manual_curve_straighten_enabled") {
+        config.manual_curve_straighten_enabled =
+            parse_bool_value(value, config.manual_curve_straighten_enabled);
+    } else if (key == "manual_curve_straighten_strength") {
+        config.manual_curve_straighten_strength =
+            parse_float_value(value, config.manual_curve_straighten_strength);
+    } else if (key == "manual_curve_straighten_min_manual") {
+        config.manual_curve_straighten_min_manual =
+            parse_float_value(value, config.manual_curve_straighten_min_manual);
+    } else if (key == "manual_curve_straighten_min_assist") {
+        config.manual_curve_straighten_min_assist =
+            parse_float_value(value, config.manual_curve_straighten_min_assist);
     }
 }
 
@@ -449,6 +471,26 @@ void apply_gamepad_environment_overrides(GamepadRuntimeConfig& config) {
     }
 }
 
+void apply_vision_environment_overrides(VisionRuntimeConfig& config) {
+    if (const char* aim_perf_file_log = std::getenv("VISION_AIM_PERF_FILE_LOG")) {
+        if (aim_perf_file_log[0] != '\0') {
+            config.aim_perf_file_log =
+                parse_bool_value(aim_perf_file_log, config.aim_perf_file_log);
+        }
+    }
+    if (const char* aim_perf_log_dir = std::getenv("VISION_AIM_PERF_LOG_DIR")) {
+        if (aim_perf_log_dir[0] != '\0') {
+            config.aim_perf_log_dir = aim_perf_log_dir;
+        }
+    }
+    if (const char* interval = std::getenv("VISION_AIM_PERF_LOG_INTERVAL_TICKS")) {
+        if (interval[0] != '\0') {
+            config.aim_perf_log_interval_ticks =
+                parse_uint_value(interval, config.aim_perf_log_interval_ticks);
+        }
+    }
+}
+
 void apply_value(
     RuntimeConfig& config,
     const std::string& section,
@@ -502,6 +544,7 @@ RuntimeConfig load_runtime_config(const std::filesystem::path& path) {
         apply_value(config, section, key, value);
     }
 
+    apply_vision_environment_overrides(config.vision);
     apply_recoil_environment_overrides(config.gamepad.recoil);
     apply_gamepad_environment_overrides(config.gamepad);
     return config;

@@ -33,6 +33,9 @@ struct NativeControllerVisionState {
     bool fire_authority = false;
     std::string target_tier = "none";
     double observed_at_seconds = 0.0;
+    bool has_tracker_projection = false;
+    float tracker_dx = 0.0f;
+    float tracker_dy = 0.0f;
 };
 
 struct NativeAutoFireCounters {
@@ -60,6 +63,7 @@ public:
     GamepadOutputState build_output(const PhysicalGamepadState& physical);
     NativeAutoFireCounters auto_fire_counters() const;
     const std::vector<NativeControllerStageTrace>& last_pipeline_traces() const;
+    GamepadOutputState last_tracker_motion_output() const;
 
 private:
     bool is_aiming(const PhysicalGamepadState& physical) const;
@@ -134,6 +138,7 @@ private:
     NativeControllerVisionState latest_vision_state_;
     NativeAutoFireCounters auto_fire_counters_;
     std::vector<NativeControllerStageTrace> last_pipeline_traces_;
+    GamepadOutputState last_tracker_motion_output_;
     bool manual_fire_was_pressed_ = false;
     bool auto_fire_was_active_ = false;
     double manual_takeover_started_at_seconds_ = -1.0;

@@ -2,6 +2,8 @@
 
 #include "runtime_config.h"
 
+#include <utility>
+
 namespace controller_native {
 
 struct NativeAimAssistDynamicsInput {
@@ -28,6 +30,11 @@ public:
     NativeAimAssistDynamicsOutput apply(const NativeAimAssistDynamicsInput& input);
 
 private:
+    std::pair<float, float> straighten_manual_curve(
+        float manual_x,
+        float manual_y,
+        float assist_x,
+        float assist_y) const;
     float guard_recoil_axis_jitter(float raw_assist, float previous_assist, double now_seconds) const;
     bool within_memory_window(double now_seconds) const;
 

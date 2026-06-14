@@ -3,6 +3,7 @@
 #include "runtime_config.h"
 
 #include <string>
+#include <utility>
 
 namespace controller_native {
 
@@ -15,6 +16,9 @@ struct NativeAiAimInput {
     float ads_snap_remaining_seconds = 0.0f;
     float dx = 0.0f;
     float dy = 0.0f;
+    bool has_mixing_reference = false;
+    float mixing_reference_dx = 0.0f;
+    float mixing_reference_dy = 0.0f;
     std::string target_tier = "none";
     float target_x = 0.0f;
     float target_y = 0.0f;
@@ -48,9 +52,12 @@ private:
     float target_authority_scale(const std::string& target_tier) const;
     bool should_body_lock(const NativeAiAimInput& input) const;
     std::pair<float, float> body_lock_target_delta(const NativeAiAimInput& input) const;
-    std::pair<float, float> body_lock_motion_lead_delta() const;
+    std::pair<float, float> body_lock_motion_lead_delta(const NativeAiAimInput& input) const;
     void observe_body_lock_motion(const NativeAiAimInput& input);
     void reset_motion_tracking();
+    void reset_motion_consistency();
+    void update_motion_consistency(float velocity_x, float velocity_y);
+    bool has_sustained_body_lock_motion() const;
     float body_lock_lateral_motion_delta(float dx) const;
     float body_lock_axis_release_threshold(bool y_axis) const;
     float body_lock_axis_release_tail_scale(bool y_axis) const;
@@ -83,11 +90,17 @@ private:
         float planned_ai,
         float manual_input,
         float error_radius) const;
-    float resolve_ads_snap_manual_overlap(float planned_ai, float manual_input) const;
-    float resolve_ads_snap_opposing_manual(
-        float manual_input,
-        float planned_ai,
+    std::pair<float, float> resolve_ads_snap_manual(
+        float manual_x,
+        float manual_y,
+        float reference_x,
+        float reference_y,
         float progress_ratio) const;
+    std::pair<float, float> resolve_ads_snap_planned_after_manual(
+        float planned_x,
+        float planned_y,
+        float manual_x,
+        float manual_y) const;
     float compute_axis(
         float error_px,
         float manual,
@@ -130,6 +143,10 @@ private:
     float motion_velocity_x_ = 0.0f;
     float motion_velocity_y_ = 0.0f;
     double motion_timestamp_seconds_ = 0.0;
+    int motion_consistent_frames_ = 0;
+    bool has_motion_direction_ = false;
+    float motion_direction_x_ = 0.0f;
+    float motion_direction_y_ = 0.0f;
 };
 
 }  // namespace controller_native

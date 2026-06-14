@@ -69,6 +69,10 @@ GAMEPAD_AIM_ASSIST_DYNAMICS_KEYS = frozenset(
         "recoil_jitter_assist_threshold",
         "recoil_jitter_flip_scale",
         "recoil_jitter_memory_seconds",
+        "manual_curve_straighten_enabled",
+        "manual_curve_straighten_strength",
+        "manual_curve_straighten_min_manual",
+        "manual_curve_straighten_min_assist",
     }
 )
 GAMEPAD_AI_AIM_KEYS = frozenset(
@@ -79,6 +83,7 @@ GAMEPAD_AI_AIM_KEYS = frozenset(
         "max_ai_force_y",
         "ai_delta_gain",
         "target_max_age_ms",
+        "target_projection_max_age_ms",
         "target_projection_reticle_speed_px_per_sec",
         "target_projection_velocity_lowpass_alpha",
         "target_projection_max_velocity_px_per_sec",

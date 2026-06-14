@@ -1,5 +1,32 @@
 # Worklog
 
+## 2026-06-11 (full native C++ gamepad runtime default)
+
+### Current progress
+
+- `scripts\launch\gamepad_start.bat` now defaults to `GAMEPAD_RUNTIME=native`.
+- The default gamepad path starts `scripts\launch\gamepad_native_cpp_start.bat`, which runs `native\vision_native\build\Release\cod_native_runtime.exe`.
+- The live gamepad loop is now C++ end to end:
+  - config loading from `config.toml`
+  - physical gamepad input
+  - native ROI capture
+  - CUDA preprocessing
+  - TensorRT inference
+  - native target selection and authority fields
+  - native `ai_aim`
+  - native auto-fire gate
+  - native aim-assist dynamics
+  - native recoil profile selection, despike, target-direction yield, and playback
+  - native ViGEm virtual gamepad output
+- Python remains available for fallback, mouse and `kbm_to_gamepad` modes, training/export, recoil tooling, debug helpers, and tests.
+- Use `GAMEPAD_RUNTIME=python` only when comparing against or bisecting the old Python gamepad path.
+
+### Practical documentation rule
+
+- For live gamepad runtime questions, read `docs/project/NATIVE_CPP_RUNTIME.md` first.
+- Treat Python gamepad docs and older hybrid-runtime notes as fallback/reference material unless the task explicitly targets Python.
+- The main performance bottleneck should now be evaluated inside native C++ logs and TensorRT/GPU timing, not assumed to be Python/native communication.
+
 ## 2026-04-22 (project status snapshot)
 
 ### Current progress

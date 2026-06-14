@@ -14,6 +14,9 @@ struct VisionRuntimeConfig {
     std::string quit_key = "0";
     bool native_cue_sidecar = false;
     bool perf_log = true;
+    bool aim_perf_file_log = true;
+    std::string aim_perf_log_dir = "runs/native_perf";
+    unsigned int aim_perf_log_interval_ticks = 1;
 };
 
 struct GamepadAiAimConfig {
@@ -32,6 +35,7 @@ struct GamepadAiAimConfig {
     float deadzone_outer = 5.0f;
     float x_deadzone_outer = 3.0f;
     float target_max_age_ms = 50.0f;
+    float target_projection_max_age_ms = 24.0f;
     float target_projection_reticle_speed_px_per_sec = 1500.0f;
     float target_projection_velocity_lowpass_alpha = 0.35f;
     float target_projection_max_velocity_px_per_sec = 1200.0f;
@@ -89,6 +93,10 @@ struct GamepadAimAssistDynamicsConfig {
     float recoil_jitter_assist_threshold = 1400.0f;
     float recoil_jitter_flip_scale = 0.20f;
     float recoil_jitter_memory_seconds = 0.050f;
+    bool manual_curve_straighten_enabled = true;
+    float manual_curve_straighten_strength = 0.30f;
+    float manual_curve_straighten_min_manual = 1600.0f;
+    float manual_curve_straighten_min_assist = 900.0f;
 };
 
 struct GamepadRecoilConfig {

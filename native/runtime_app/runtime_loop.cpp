@@ -256,6 +256,10 @@ RuntimeLoop::RuntimeLoop(
     unsigned int max_ticks)
     : config_(std::move(config)),
       perf_logger_(gamepad_perf_log_enabled(perf_log)),
+      aim_perf_file_logger_(
+          config_.vision.aim_perf_file_log,
+          config_.vision.aim_perf_log_dir,
+          config_.vision.aim_perf_log_interval_ticks),
       downward_diagnostics_(DownwardPullDiagnostics::from_environment()),
       perf_log_(perf_log),
       gamepad_perf_log_(gamepad_perf_log_enabled(perf_log)),
@@ -357,41 +361,50 @@ void RuntimeLoop::run_once() {
 
     const bool log_vision = perf_log_ && should_log_vision_tick(tick_count_);
     const bool log_gamepad_perf = gamepad_perf_log_ && should_log_vision_tick(tick_count_);
-    if (log_vision || log_gamepad_perf) {
+    const bool log_aim_perf_file = config_.vision.aim_perf_file_log && aiming;
+    if (log_vision || log_gamepad_perf || log_aim_perf_file) {
         const auto elapsed = std::chrono::steady_clock::now() - tick_started;
         const auto controller_pipeline_elapsed = vigem_update_started - controller_pipeline_started;
         const auto vigem_update_elapsed = vigem_update_finished - vigem_update_started;
         const std::uint64_t output_sent_at_ns = steady_time_point_ns(vigem_update_finished);
         const controller_native::NativeAutoFireCounters fire = controller_.auto_fire_counters();
-        const vision_native::VisionResult& result = latest_vision_result_;
+        const vision_native::VisionResult* result =
+            has_latest_vision_result_ ? &latest_vision_result_ : nullptr;
+        PerfSnapshot snapshot;
+        snapshot.loop_fps = 1000.0;
+        snapshot.native_ms = result != nullptr ? result->post_ms : 0.0;
+        snapshot.consume_ms = result != nullptr
+            ? elapsed_ms_between_ns(latest_result_timestamp_ns_, latest_controller_consume_started_ns_)
+            : 0.0;
+        snapshot.out_age_ms = result != nullptr
+            ? elapsed_ms_between_ns(latest_result_timestamp_ns_, output_sent_at_ns)
+            : 0.0;
+        snapshot.gpu_total_ms = result != nullptr ? result->gpu_total_ms : 0.0;
+        snapshot.sync_wait_ms = result != nullptr ? result->output_wait_ms : 0.0;
+        snapshot.ctrl_loop_ms = std::chrono::duration<double, std::milli>(elapsed).count();
+        snapshot.ctrl_pipeline_ms =
+            std::chrono::duration<double, std::milli>(controller_pipeline_elapsed).count();
+        snapshot.vigem_update_ms =
+            std::chrono::duration<double, std::milli>(vigem_update_elapsed).count();
+        snapshot.target_tier =
+            result != nullptr && result->target_tier != nullptr ? result->target_tier : "none";
+        snapshot.fire_requested = fire.requested;
+        snapshot.fire_allowed = fire.allowed;
+        snapshot.fire_blocked = fire.blocked;
+        snapshot.box_samples = result != nullptr ? result->boxes_seen : 0.0;
         if (log_gamepad_perf) {
-            PerfSnapshot snapshot;
-            snapshot.loop_fps = 1000.0;
-            snapshot.native_ms = has_latest_vision_result_ ? result.post_ms : 0.0;
-            snapshot.consume_ms = has_latest_vision_result_
-                ? elapsed_ms_between_ns(latest_result_timestamp_ns_, latest_controller_consume_started_ns_)
-                : 0.0;
-            snapshot.out_age_ms = has_latest_vision_result_
-                ? elapsed_ms_between_ns(latest_result_timestamp_ns_, output_sent_at_ns)
-                : 0.0;
-            snapshot.gpu_total_ms = has_latest_vision_result_ ? result.gpu_total_ms : 0.0;
-            snapshot.sync_wait_ms = has_latest_vision_result_ ? result.output_wait_ms : 0.0;
-            snapshot.ctrl_loop_ms = std::chrono::duration<double, std::milli>(elapsed).count();
-            snapshot.ctrl_pipeline_ms =
-                std::chrono::duration<double, std::milli>(controller_pipeline_elapsed).count();
-            snapshot.vigem_update_ms =
-                std::chrono::duration<double, std::milli>(vigem_update_elapsed).count();
-            snapshot.target_tier =
-                has_latest_vision_result_ && result.target_tier != nullptr ? result.target_tier : "none";
-            snapshot.fire_requested = fire.requested;
-            snapshot.fire_allowed = fire.allowed;
-            snapshot.fire_blocked = fire.blocked;
-            snapshot.box_samples = has_latest_vision_result_ ? result.boxes_seen : 0.0;
             perf_logger_.record_sample(snapshot);
+        }
+        if (log_aim_perf_file) {
+            aim_perf_file_logger_.record_aim_sample(
+                tick_count_,
+                aiming,
+                snapshot,
+                result);
         }
         if (log_vision) {
             log_vision_result(
-                has_latest_vision_result_ ? &latest_vision_result_ : nullptr,
+                result,
                 latest_vision_aiming_,
                 tick_count_);
         }

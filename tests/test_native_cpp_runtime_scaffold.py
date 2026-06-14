@@ -65,6 +65,9 @@ class NativeCppRuntimeScaffoldTests(unittest.TestCase):
         self.assertIn("int capture_fps = 140", config_header)
         self.assertIn("bool perf_log = true", config_header)
         self.assertIn("bool native_cue_sidecar = false", config_header)
+        self.assertIn("bool aim_perf_file_log = true", config_header)
+        self.assertIn('std::string aim_perf_log_dir = "runs/native_perf"', config_header)
+        self.assertIn("unsigned int aim_perf_log_interval_ticks = 1", config_header)
 
     def test_runtime_entrypoint_exposes_config_and_perf_log_flags(self):
         main_cpp = _read(RUNTIME_APP_DIR / "main.cpp")
@@ -75,6 +78,109 @@ class NativeCppRuntimeScaffoldTests(unittest.TestCase):
         self.assertIn("std::stoul", main_cpp)
         self.assertIn("load_runtime_config", main_cpp)
         self.assertIn("RuntimeLoop", main_cpp)
+
+    def test_native_runtime_declares_aim_perf_file_logger_sources(self):
+        cmake = _read(CMAKE_FILE)
+        runtime_header = _read(RUNTIME_APP_DIR / "runtime_loop.h")
+        runtime_source = _read(RUNTIME_APP_DIR / "runtime_loop.cpp")
+
+        self.assertTrue((RUNTIME_APP_DIR / "aim_perf_file_logger.h").exists())
+        self.assertTrue((RUNTIME_APP_DIR / "aim_perf_file_logger.cpp").exists())
+        self.assertIn("../runtime_app/aim_perf_file_logger.cpp", cmake)
+        self.assertIn('#include "aim_perf_file_logger.h"', runtime_header)
+        self.assertIn("AimPerfFileLogger", runtime_header)
+        self.assertIn("record_aim_sample", runtime_source)
+
+    def test_aim_perf_file_logger_uses_startup_timestamped_project_log_path(self):
+        header = _read(RUNTIME_APP_DIR / "aim_perf_file_logger.h")
+        source = _read(RUNTIME_APP_DIR / "aim_perf_file_logger.cpp")
+
+        self.assertIn("class AimPerfFileLogger", header)
+        self.assertIn("std::filesystem::path", header)
+        self.assertIn("log_directory", header)
+        self.assertIn("log_interval_ticks", header)
+        self.assertIn("runs", source)
+        self.assertIn("native_perf", source)
+        self.assertIn("native_aim_perf_", source)
+        self.assertIn("%Y%m%d_%H%M%S", source)
+        self.assertIn(".jsonl", source)
+        self.assertIn("std::filesystem::create_directories", source)
+        self.assertIn("std::put_time", source)
+
+    def test_aim_perf_file_logger_gates_records_to_aim_state(self):
+        header = _read(RUNTIME_APP_DIR / "aim_perf_file_logger.h")
+        source = _read(RUNTIME_APP_DIR / "aim_perf_file_logger.cpp")
+        runtime_source = _read(RUNTIME_APP_DIR / "runtime_loop.cpp")
+
+        self.assertIn("bool aiming", header)
+        self.assertIn("if (!enabled_ || !aiming", source)
+        self.assertIn("record_aim_sample(", runtime_source)
+        self.assertIn("aiming,", runtime_source)
+        self.assertIn("is_aiming", runtime_source)
+
+    def test_aim_perf_file_logger_uses_configured_enable_dir_and_sample_interval(self):
+        config_header = _read(CONTROLLER_NATIVE_DIR / "runtime_config.h")
+        config_source = _read(CONTROLLER_NATIVE_DIR / "runtime_config.cpp")
+        runtime_source = _read(RUNTIME_APP_DIR / "runtime_loop.cpp")
+        logger_source = _read(RUNTIME_APP_DIR / "aim_perf_file_logger.cpp")
+
+        self.assertIn("aim_perf_file_log", config_header)
+        self.assertIn("aim_perf_log_dir", config_header)
+        self.assertIn("aim_perf_log_interval_ticks", config_header)
+        self.assertIn("aim_perf_file_log", config_source)
+        self.assertIn("aim_perf_log_dir", config_source)
+        self.assertIn("aim_perf_log_interval_ticks", config_source)
+        self.assertIn("VISION_AIM_PERF_FILE_LOG", config_source)
+        self.assertIn("VISION_AIM_PERF_LOG_DIR", config_source)
+        self.assertIn("VISION_AIM_PERF_LOG_INTERVAL_TICKS", config_source)
+        self.assertIn("config_.vision.aim_perf_file_log", runtime_source)
+        self.assertIn("config_.vision.aim_perf_log_dir", runtime_source)
+        self.assertIn("config_.vision.aim_perf_log_interval_ticks", runtime_source)
+        self.assertIn("log_interval_ticks_", logger_source)
+        self.assertIn("tick_count % log_interval_ticks_", logger_source)
+
+    def test_aim_perf_file_logger_writes_detailed_runtime_fields(self):
+        source = _read(RUNTIME_APP_DIR / "aim_perf_file_logger.cpp")
+
+        expected_fields = [
+            "tick",
+            "aiming",
+            "frame_updated",
+            "frame_id",
+            "target",
+            "tier",
+            "source",
+            "stage",
+            "aim_authority",
+            "fire_authority",
+            "confidence",
+            "dx",
+            "dy",
+            "capture_ms",
+            "copy_ms",
+            "cuda_map_ms",
+            "preprocess_ms",
+            "infer_ms",
+            "gpu_total_ms",
+            "output_wait_ms",
+            "decode_ms",
+            "selector_ms",
+            "enhance_ms",
+            "post_ms",
+            "age_ms",
+            "consume_ms",
+            "out_age_ms",
+            "ctrl_loop_ms",
+            "ctrl_pipeline_ms",
+            "vigem_update_ms",
+            "fire_requested",
+            "fire_allowed",
+            "fire_blocked",
+            "boxes_seen",
+        ]
+        for field in expected_fields:
+            with self.subTest(field=field):
+                self.assertIn(field, source)
 
     def test_xinput_reader_contract_exists(self):
         header = _read(CONTROLLER_NATIVE_DIR / "xinput_reader.h")
