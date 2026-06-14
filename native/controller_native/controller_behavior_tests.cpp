@@ -5,6 +5,10 @@
 #include "recoil_profile.h"
 #include "target_tracker.h"
 #include "weapon_recognizer.h"
+#include "../common_native/authority_types.h"
+#include "../common_native/screen_geometry.h"
+#include "../common_native/stick_types.h"
+#include "../common_native/time_types.h"
 
 #include <cmath>
 #include <chrono>
@@ -103,6 +107,38 @@ std::string recoil_profile_json(
         << "  \"samples_y\": [0.0, " << y_sample << ", " << (y_sample * 2.0f) << "]\n"
         << "}\n";
     return out.str();
+}
+
+void test_common_native_types_compile() {
+    common_native::TimeSeconds now{10.0};
+    common_native::TimeSeconds then{9.5};
+    const auto dt = now - then;
+    require_near(
+        static_cast<float>(common_native::duration_ms(dt)),
+        500.0f,
+        0.01f,
+        "time wrapper should compute milliseconds");
+
+    common_native::Vec2f point{12.0f, -4.0f};
+    common_native::Box2f box{10.0f, 20.0f, 30.0f, 40.0f};
+    common_native::ScreenSize screen{384.0f, 352.0f};
+    require_near(point.x + box.w + screen.height, 394.0f, 0.001f, "screen geometry types should store values");
+
+    common_native::StickComponents components;
+    components.manual = {0.10f, 0.20f};
+    components.assist = {0.30f, 0.40f};
+    components.recoil = {-0.05f, -0.15f};
+    components.final_output = {0.35f, 0.45f};
+    require_near(components.final_output.x, 0.35f, 0.0001f, "stick components should store final x");
+
+    const auto assist = common_native::AssistAuthority::AimObserved;
+    const auto fire = common_native::FireAuthority::ObservedOnly;
+    require_true(
+        assist == common_native::AssistAuthority::AimObserved,
+        "assist authority enum should compare");
+    require_true(
+        fire == common_native::FireAuthority::ObservedOnly,
+        "fire authority enum should compare");
 }
 
 std::string recoil_profile_xy_json(
@@ -2411,6 +2447,7 @@ void test_recoil_selection_logging_reports_fallback_and_profile_once() {
 
 int main() {
     try {
+        test_common_native_types_compile();
         test_auto_fire_requires_fire_authority();
         test_auto_fire_blocks_stale_source();
         test_controller_passes_extended_buttons_and_dpad_through();

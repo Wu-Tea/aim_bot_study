@@ -256,7 +256,7 @@ Do not commit local-only secrets, private configs, generated logs, or heavyweigh
 - Modify: `native/vision_native/CMakeLists.txt`
 - Modify: `native/controller_native/controller_behavior_tests.cpp`
 
-- [ ] **Step 1: Add native time types**
+- [x] **Step 1: Add native time types**
 
 Create `native/common_native/time_types.h` with explicit runtime timestamp wrappers:
 
@@ -284,7 +284,7 @@ inline DurationSeconds operator-(TimeSeconds newer, TimeSeconds older) {
 }  // namespace common_native
 ```
 
-- [ ] **Step 2: Add screen geometry types**
+- [x] **Step 2: Add screen geometry types**
 
 Create `native/common_native/screen_geometry.h`:
 
@@ -313,7 +313,7 @@ struct ScreenSize {
 }  // namespace common_native
 ```
 
-- [ ] **Step 3: Add stick component types**
+- [x] **Step 3: Add stick component types**
 
 Create `native/common_native/stick_types.h`:
 
@@ -338,7 +338,7 @@ struct StickComponents {
 }  // namespace common_native
 ```
 
-- [ ] **Step 4: Add authority enums**
+- [x] **Step 4: Add authority enums**
 
 Create `native/common_native/authority_types.h`:
 
@@ -363,7 +363,7 @@ enum class FireAuthority : std::uint8_t {
 }  // namespace common_native
 ```
 
-- [ ] **Step 5: Add a compile-only test**
+- [x] **Step 5: Add a compile-only test**
 
 Add a small test in `native/controller_native/controller_behavior_tests.cpp`:
 
@@ -392,7 +392,7 @@ bool test_common_native_types_compile() {
 
 Register the test in the existing test list using the same pattern already used in the file.
 
-- [ ] **Step 6: Run verification**
+- [x] **Step 6: Run verification**
 
 Run:
 
@@ -407,7 +407,7 @@ new compile-only test passes
 no controller behavior changes
 ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```powershell
 git add native/common_native native/vision_native/CMakeLists.txt native/controller_native/controller_behavior_tests.cpp
