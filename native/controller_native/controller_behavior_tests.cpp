@@ -9,6 +9,7 @@
 #include "../common_native/screen_geometry.h"
 #include "../common_native/stick_types.h"
 #include "../common_native/time_types.h"
+#include "../tracking_native/legacy_projection_tracker.h"
 
 #include <cmath>
 #include <chrono>
@@ -819,6 +820,99 @@ void test_target_tracker_projects_camera_motion_between_vision_frames() {
     const auto projection = tracker.project(10.020);
     require_true(projection.has_value(), "tracker should project a fresh target");
     require_near(projection->dx, 40.0f, 0.001f, "projected dx should subtract camera motion");
+}
+
+void test_legacy_projection_tracker_matches_native_project_output() {
+    controller_native::NativeTargetTrackerConfig config;
+    config.reticle_speed_px_per_sec = 1000.0f;
+    config.max_projection_age_ms = 100.0f;
+
+    controller_native::NativeGamepadTargetTracker direct(config);
+    tracking_native::LegacyProjectionTracker adapter(config);
+
+    controller_native::NativeTargetTrackerObservation direct_observation;
+    direct_observation.has_target = true;
+    direct_observation.dx = 50.0f;
+    direct_observation.dy = 4.0f;
+    direct_observation.target_tier = "strong";
+    direct_observation.observed_at_seconds = 10.0;
+    direct.update_observation(direct_observation);
+
+    tracking_native::TrackerObservation adapter_observation;
+    adapter_observation.has_target = true;
+    adapter_observation.aim_error_px = {50.0f, 4.0f};
+    adapter_observation.target_tier = "strong";
+    adapter_observation.capture_time = {10.0};
+    adapter.ingest(adapter_observation);
+
+    direct.record_output(0.50f, -0.25f, 0.020);
+
+    tracking_native::TrackerControlSample sample;
+    sample.apply_time = {10.020};
+    sample.dt = {0.020};
+    sample.sticks.final_output = {0.50f, -0.25f};
+    adapter.push_control_sample(sample);
+
+    const auto direct_projection = direct.project(10.020);
+    const auto adapter_snapshot = adapter.query({10.020});
+
+    require_true(direct_projection.has_value(), "direct tracker should project a fresh target");
+    require_true(adapter_snapshot.has_target, "legacy adapter should project a fresh target");
+    require_true(
+        adapter_snapshot.source == tracking_native::TrackerSnapshotSource::Projected,
+        "legacy adapter should mark projected snapshots");
+    require_near(
+        adapter_snapshot.aim_error_px.x,
+        direct_projection->dx,
+        0.001f,
+        "legacy adapter dx should match direct tracker projection");
+    require_near(
+        adapter_snapshot.aim_error_px.y,
+        direct_projection->dy,
+        0.001f,
+        "legacy adapter dy should match direct tracker projection");
+    require_true(
+        adapter_snapshot.fire_authority == common_native::FireAuthority::None,
+        "projected adapter snapshots should not grant fire authority");
+}
+
+void test_legacy_projection_tracker_expires_after_max_age() {
+    controller_native::NativeTargetTrackerConfig config;
+    config.max_projection_age_ms = 5.0f;
+    tracking_native::LegacyProjectionTracker adapter(config);
+
+    tracking_native::TrackerObservation observation;
+    observation.has_target = true;
+    observation.aim_error_px = {50.0f, 0.0f};
+    observation.target_tier = "strong";
+    observation.capture_time = {10.0};
+    adapter.ingest(observation);
+
+    const auto snapshot = adapter.query({10.020});
+    require_true(!snapshot.has_target, "legacy adapter projection should expire after max age");
+    require_true(
+        snapshot.source == tracking_native::TrackerSnapshotSource::Absent,
+        "expired adapter projection should be absent");
+}
+
+void test_legacy_projection_tracker_empty_observation_clears_snapshot() {
+    tracking_native::LegacyProjectionTracker adapter;
+
+    tracking_native::TrackerObservation observation;
+    observation.has_target = true;
+    observation.aim_error_px = {50.0f, 0.0f};
+    observation.target_tier = "strong";
+    observation.capture_time = {10.0};
+    adapter.ingest(observation);
+    require_true(adapter.query({10.001}).has_target, "test setup should create a target");
+
+    tracking_native::TrackerObservation empty_observation;
+    empty_observation.has_target = false;
+    empty_observation.capture_time = {10.010};
+    adapter.ingest(empty_observation);
+
+    const auto snapshot = adapter.query({10.011});
+    require_true(!snapshot.has_target, "empty observation should clear legacy adapter snapshot");
 }
 
 void test_controller_projects_target_during_no_update_ticks() {
@@ -2458,6 +2552,9 @@ int main() {
         test_auto_fire_ready_allows_manual_right_stick_when_fire_zone_is_hit();
         test_no_update_vision_result_preserves_latest_target();
         test_target_tracker_projects_camera_motion_between_vision_frames();
+        test_legacy_projection_tracker_matches_native_project_output();
+        test_legacy_projection_tracker_expires_after_max_age();
+        test_legacy_projection_tracker_empty_observation_clears_snapshot();
         test_controller_projects_target_during_no_update_ticks();
         test_controller_expires_projection_before_aim_target_age();
         test_controller_tracker_records_pre_recoil_motion();

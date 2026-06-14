@@ -425,7 +425,7 @@ git commit -m "refactor: add shared native runtime contract types"
 - Modify: `native/controller_native/controller_behavior_tests.cpp`
 - Modify: `native/vision_native/CMakeLists.txt`
 
-- [ ] **Step 1: Add tracker contract**
+- [x] **Step 1: Add tracker contract**
 
 Create `native/tracking_native/tracker_contract.h`:
 
@@ -480,7 +480,7 @@ struct TrackerSnapshot {
 }  // namespace tracking_native
 ```
 
-- [ ] **Step 2: Add legacy adapter wrapper**
+- [x] **Step 2: Add legacy adapter wrapper**
 
 Create `native/tracking_native/legacy_projection_tracker.h`:
 
@@ -599,7 +599,7 @@ TrackerSnapshot LegacyProjectionTracker::query(const TrackerQuery& query) const 
 }  // namespace tracking_native
 ```
 
-- [ ] **Step 3: Add adapter parity tests**
+- [x] **Step 3: Add adapter parity tests**
 
 Add tests that instantiate both `NativeGamepadTargetTracker` and `LegacyProjectionTracker` with the same config, then compare projection results after the same observation/control sample.
 
@@ -611,7 +611,7 @@ test_legacy_projection_tracker_expires_after_max_age
 test_legacy_projection_tracker_empty_observation_clears_snapshot
 ```
 
-- [ ] **Step 4: Run verification**
+- [x] **Step 4: Run verification**
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\build_native_vision.ps1
@@ -625,7 +625,7 @@ existing controller behavior tests pass
 no live controller integration changed yet
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add native/tracking_native native/controller_native/controller_behavior_tests.cpp native/vision_native/CMakeLists.txt
