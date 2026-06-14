@@ -1,6 +1,7 @@
 #include "native_gamepad_controller.h"
 
 #include "controller_pipeline.h"
+#include "target_tracker.h"
 
 #include "../tracking_native/tracker_authority.h"
 
@@ -57,7 +58,9 @@ NativeGamepadController::NativeGamepadController(GamepadRuntimeConfig config)
       ai_aim_(config_.ai_aim),
       aim_assist_dynamics_(config_.aim_assist_dynamics),
       recoil_(config_.recoil),
-      target_tracker_(target_tracker_config_from_ai_aim(config_.ai_aim)) {
+      target_tracker_(tracking_native::create_tracker_backend(
+          config_.tracker_backend,
+          target_tracker_config_from_ai_aim(config_.ai_aim))) {
     recoil_.set_recognizer_state_path(config_.recoil.recognizer_state_path);
     if (!config_.recoil.recognizer_state_path.empty()) {
         recoil_.load_profile_directory(config_.recoil.profile_directory);
@@ -67,7 +70,7 @@ NativeGamepadController::NativeGamepadController(GamepadRuntimeConfig config)
 
 void NativeGamepadController::reset() {
     latest_vision_state_ = NativeControllerVisionState{};
-    target_tracker_.reset();
+    target_tracker_->reset();
     ai_aim_.reset();
     aim_assist_dynamics_.reset();
     recoil_.reset();
@@ -91,16 +94,21 @@ void NativeGamepadController::submit_vision_state(const NativeControllerVisionSt
             state.aim_authority,
             state.fire_authority,
             state.target_tier);
-    NativeTargetTrackerObservation observation;
+    tracking_native::TrackerObservation observation;
     observation.has_target =
         authority.assist_authority != common_native::AssistAuthority::None;
-    observation.dx = state.dx;
-    observation.dy = state.dy;
+    observation.aim_error_px = {state.dx, state.dy};
+    observation.has_body_box = state.has_body_box;
+    observation.body_box_px = {
+        state.body_x1,
+        state.body_y1,
+        std::max(0.0f, state.body_x2 - state.body_x1),
+        std::max(0.0f, state.body_y2 - state.body_y1)};
     observation.target_tier = state.target_tier;
-    observation.observed_at_seconds = state.observed_at_seconds > 0.0
+    observation.capture_time = {state.observed_at_seconds > 0.0
         ? state.observed_at_seconds
-        : current_seconds();
-    target_tracker_.update_observation(observation);
+        : current_seconds()};
+    target_tracker_->ingest(observation);
 }
 
 void NativeGamepadController::submit_vision_result(const vision_native::VisionResult& result) {
@@ -264,26 +272,33 @@ NativeControllerVisionState NativeGamepadController::vision_state_for_frame(doub
     if (authority.assist_authority == common_native::AssistAuthority::None) {
         return state;
     }
-    const std::optional<NativeTargetProjection> projection = target_tracker_.project(now_seconds);
-    if (!projection.has_value()) {
+    const tracking_native::TrackerSnapshot projection =
+        target_tracker_->query({now_seconds});
+    if (!projection.has_target) {
         return state;
     }
-    const float projection_delta_x = projection->dx - state.dx;
-    const float projection_delta_y = projection->dy - state.dy;
-    state.dx = projection->dx;
-    state.dy = projection->dy;
+    const float projection_delta_x = projection.aim_error_px.x - state.dx;
+    const float projection_delta_y = projection.aim_error_px.y - state.dy;
+    state.dx = projection.aim_error_px.x;
+    state.dy = projection.aim_error_px.y;
     state.target_x += projection_delta_x;
     state.target_y += projection_delta_y;
-    if (state.has_body_box) {
+    if (projection.has_body_box) {
+        state.has_body_box = true;
+        state.body_x1 = projection.body_box_px.x;
+        state.body_y1 = projection.body_box_px.y;
+        state.body_x2 = projection.body_box_px.x + projection.body_box_px.w;
+        state.body_y2 = projection.body_box_px.y + projection.body_box_px.h;
+    } else if (state.has_body_box) {
         state.body_x1 += projection_delta_x;
         state.body_x2 += projection_delta_x;
         state.body_y1 += projection_delta_y;
         state.body_y2 += projection_delta_y;
     }
-    state.observed_at_seconds = projection->observed_at_seconds;
+    state.observed_at_seconds = projection.observed_at.value;
     state.has_tracker_projection = true;
-    state.tracker_dx = projection->dx;
-    state.tracker_dy = projection->dy;
+    state.tracker_dx = projection.aim_error_px.x;
+    state.tracker_dy = projection.aim_error_px.y;
     return state;
 }
 
@@ -640,10 +655,11 @@ void NativeGamepadController::record_target_tracker_output(
     double now_seconds) {
     last_tracker_motion_output_ = output;
     if (last_output_at_seconds_ > 0.0 && now_seconds >= last_output_at_seconds_) {
-        target_tracker_.record_output(
-            output.right_x,
-            output.right_y,
-            now_seconds - last_output_at_seconds_);
+        tracking_native::TrackerControlSample sample;
+        sample.apply_time = {now_seconds};
+        sample.dt = {now_seconds - last_output_at_seconds_};
+        sample.sticks.final_output = {output.right_x, output.right_y};
+        target_tracker_->push_control_sample(sample);
     }
     last_output_at_seconds_ = now_seconds;
 }

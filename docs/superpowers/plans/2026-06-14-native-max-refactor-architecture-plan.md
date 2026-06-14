@@ -797,7 +797,7 @@ git commit -m "refactor: centralize tracker authority decisions"
 - Modify: `config.toml`
 - Modify: `native/controller_native/controller_behavior_tests.cpp`
 
-- [ ] **Step 1: Add backend enum**
+- [x] **Step 1: Add backend enum**
 
 Add config support for:
 
@@ -812,7 +812,7 @@ Default must remain:
 legacy_projection
 ```
 
-- [ ] **Step 2: Add backend interface**
+- [x] **Step 2: Add backend interface**
 
 The interface should expose:
 
@@ -824,11 +824,11 @@ query(TrackerQuery) -> TrackerSnapshot
 debug_tracks()
 ```
 
-- [ ] **Step 3: Keep legacy backend as default implementation**
+- [x] **Step 3: Keep legacy backend as default implementation**
 
 Wrap the current adapter as the default backend.
 
-- [ ] **Step 4: Import only low-risk reference components first**
+- [x] **Step 4: Import only low-risk reference components first**
 
 Import or adapt:
 
@@ -840,11 +840,11 @@ authority type ideas
 
 Do not import full `fps::TargetTracker` in this step.
 
-- [ ] **Step 5: Add experimental Kalman backend behind config**
+- [x] **Step 5: Add experimental Kalman backend behind config**
 
 The experimental backend can use package ideas, but it must be off by default.
 
-- [ ] **Step 6: Add backend parity tests**
+- [x] **Step 6: Add backend parity tests**
 
 Required tests:
 
@@ -855,7 +855,7 @@ experimental backend can be constructed
 legacy backend behavior remains unchanged under default config
 ```
 
-- [ ] **Step 7: Run verification and commit**
+- [x] **Step 7: Run verification and commit**
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\build_native_vision.ps1

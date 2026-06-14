@@ -124,6 +124,9 @@ void apply_runtime_gamepad_value(
         config.xinput_auto_detect = parse_bool_value(value, config.xinput_auto_detect);
     } else if (key == "xinput_user_index") {
         config.xinput_user_index = parse_uint_value(value, config.xinput_user_index);
+    } else if (key == "tracker_backend") {
+        config.tracker_backend =
+            tracking_native::parse_tracker_backend_kind(parse_string_value(value));
     }
 }
 

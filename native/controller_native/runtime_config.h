@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../tracking_native/tracker_backend.h"
+
 #include <filesystem>
 #include <string>
 
@@ -138,6 +140,8 @@ struct GamepadRuntimeConfig {
     bool rb_counts_as_aiming = false;
     bool xinput_auto_detect = true;
     unsigned int xinput_user_index = 0;
+    tracking_native::TrackerBackendKind tracker_backend =
+        tracking_native::TrackerBackendKind::LegacyProjection;
     GamepadAutoFireConfig auto_fire;
     GamepadAiAimConfig ai_aim;
     GamepadAimAssistDynamicsConfig aim_assist_dynamics;

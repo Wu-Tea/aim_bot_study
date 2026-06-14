@@ -71,4 +71,8 @@ TrackerSnapshot LegacyProjectionTracker::query(const TrackerQuery& query) const 
     return snapshot;
 }
 
+std::vector<TrackerDebugTrack> LegacyProjectionTracker::debug_tracks() const {
+    return {};
+}
+
 }  // namespace tracking_native

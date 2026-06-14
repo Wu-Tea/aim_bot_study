@@ -1,20 +1,22 @@
 #pragma once
 
+#include "tracker_backend.h"
 #include "tracker_contract.h"
 
 #include "../controller_native/target_tracker.h"
 
 namespace tracking_native {
 
-class LegacyProjectionTracker {
+class LegacyProjectionTracker final : public TrackerBackend {
 public:
     explicit LegacyProjectionTracker(
         controller_native::NativeTargetTrackerConfig config = {});
 
-    void reset();
-    void ingest(const TrackerObservation& observation);
-    void push_control_sample(const TrackerControlSample& sample);
-    TrackerSnapshot query(const TrackerQuery& query) const;
+    void reset() override;
+    void ingest(const TrackerObservation& observation) override;
+    void push_control_sample(const TrackerControlSample& sample) override;
+    TrackerSnapshot query(const TrackerQuery& query) const override;
+    std::vector<TrackerDebugTrack> debug_tracks() const override;
 
 private:
     controller_native::NativeGamepadTargetTracker inner_;

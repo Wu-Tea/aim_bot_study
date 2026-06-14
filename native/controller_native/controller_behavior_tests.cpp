@@ -13,6 +13,7 @@
 #include "../common_native/time_types.h"
 #include "../tracking_native/legacy_projection_tracker.h"
 #include "../tracking_native/tracker_authority.h"
+#include "../tracking_native/tracker_backend.h"
 
 #include <cmath>
 #include <chrono>
@@ -21,6 +22,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <optional>
 #include <sstream>
 #include <stdexcept>
@@ -999,6 +1001,82 @@ void test_legacy_projection_tracker_empty_observation_clears_snapshot() {
 
     const auto snapshot = adapter.query({10.011});
     require_true(!snapshot.has_target, "empty observation should clear legacy adapter snapshot");
+}
+
+void test_tracker_backend_config_defaults_to_legacy_projection() {
+    controller_native::GamepadRuntimeConfig config;
+    require_true(
+        config.tracker_backend == tracking_native::TrackerBackendKind::LegacyProjection,
+        "default tracker backend should remain legacy_projection");
+}
+
+void test_runtime_config_rejects_unknown_tracker_backend() {
+    const std::filesystem::path root = make_temp_test_dir("unknown_tracker_backend");
+    const std::filesystem::path config_path = root / "config.toml";
+    write_text_file(
+        config_path,
+        "[runtime.gamepad]\ntracker_backend = \"unknown_backend\"\n");
+
+    bool threw = false;
+    try {
+        (void)controller_native::load_runtime_config(config_path);
+    } catch (const std::runtime_error& exc) {
+        threw = std::string(exc.what()).find("tracker_backend") != std::string::npos;
+    }
+    require_true(threw, "unknown tracker backend should fail config load clearly");
+}
+
+void test_experimental_kalman_tracker_backend_can_be_constructed() {
+    controller_native::NativeTargetTrackerConfig config;
+    std::unique_ptr<tracking_native::TrackerBackend> backend =
+        tracking_native::create_tracker_backend(
+            tracking_native::TrackerBackendKind::KalmanExperimental,
+            config);
+    require_true(static_cast<bool>(backend), "experimental Kalman backend should construct");
+    require_true(
+        !backend->query({10.0}).has_target,
+        "empty experimental Kalman backend should have no target");
+}
+
+void test_default_tracker_backend_matches_legacy_projection() {
+    controller_native::NativeTargetTrackerConfig config;
+    config.reticle_speed_px_per_sec = 1000.0f;
+    config.max_projection_age_ms = 100.0f;
+    tracking_native::LegacyProjectionTracker legacy(config);
+    std::unique_ptr<tracking_native::TrackerBackend> backend =
+        tracking_native::create_tracker_backend(
+            tracking_native::TrackerBackendKind::LegacyProjection,
+            config);
+
+    tracking_native::TrackerObservation observation;
+    observation.has_target = true;
+    observation.aim_error_px = {50.0f, 4.0f};
+    observation.target_tier = "strong";
+    observation.capture_time = {10.0};
+    legacy.ingest(observation);
+    backend->ingest(observation);
+
+    tracking_native::TrackerControlSample sample;
+    sample.apply_time = {10.020};
+    sample.dt = {0.020};
+    sample.sticks.final_output = {0.50f, -0.25f};
+    legacy.push_control_sample(sample);
+    backend->push_control_sample(sample);
+
+    const tracking_native::TrackerSnapshot legacy_snapshot = legacy.query({10.020});
+    const tracking_native::TrackerSnapshot backend_snapshot = backend->query({10.020});
+    require_true(legacy_snapshot.has_target, "legacy setup should project a target");
+    require_true(backend_snapshot.has_target, "default backend should project a target");
+    require_near(
+        backend_snapshot.aim_error_px.x,
+        legacy_snapshot.aim_error_px.x,
+        0.001f,
+        "default backend dx should match legacy projection");
+    require_near(
+        backend_snapshot.aim_error_px.y,
+        legacy_snapshot.aim_error_px.y,
+        0.001f,
+        "default backend dy should match legacy projection");
 }
 
 void test_controller_projects_target_during_no_update_ticks() {
@@ -2720,6 +2798,10 @@ int main() {
         test_legacy_projection_tracker_matches_native_project_output();
         test_legacy_projection_tracker_expires_after_max_age();
         test_legacy_projection_tracker_empty_observation_clears_snapshot();
+        test_tracker_backend_config_defaults_to_legacy_projection();
+        test_runtime_config_rejects_unknown_tracker_backend();
+        test_experimental_kalman_tracker_backend_can_be_constructed();
+        test_default_tracker_backend_matches_legacy_projection();
         test_controller_projects_target_during_no_update_ticks();
         test_controller_expires_projection_before_aim_target_age();
         test_controller_tracker_records_pre_recoil_motion();

@@ -5,12 +5,12 @@
 #include "controller_tick_context.h"
 #include "recoil_compensation.h"
 #include "runtime_config.h"
-#include "target_tracker.h"
 #include "virtual_gamepad.h"
 #include "vision_native/types.h"
 #include "xinput_reader.h"
 
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 namespace controller_native {
@@ -112,7 +112,7 @@ private:
     NativeAiAim ai_aim_;
     NativeAimAssistDynamics aim_assist_dynamics_;
     NativeRecoilCompensation recoil_;
-    NativeGamepadTargetTracker target_tracker_;
+    std::unique_ptr<tracking_native::TrackerBackend> target_tracker_;
     NativeControllerVisionState latest_vision_state_;
     NativeAutoFireCounters auto_fire_counters_;
     std::vector<NativeControllerStageTrace> last_pipeline_traces_;
