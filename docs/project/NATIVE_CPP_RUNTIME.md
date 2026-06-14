@@ -90,6 +90,63 @@ into the native gamepad controller in process.
 Do not add Python vision work to this path. The runtime should not require
 Python packages during gameplay.
 
+## Tracker And Authority
+
+The default tracker backend is `legacy_projection`. It preserves the current
+live-feel projection behavior while the experimental tracker path is developed
+behind config.
+
+Available backend config:
+
+```toml
+[runtime.gamepad]
+tracker_backend = "legacy_projection"
+# tracker_backend = "kalman_experimental"
+```
+
+Fire authority remains observed-only. Weak, cue-hold, projected, or coasting
+targets may help aim with reduced authority, but they must not grant fire
+authority.
+
+## Recoil Boundary
+
+Recoil compensation is now behind `native/recoil_native/RecoilCompensationPolicy`.
+The legacy recoil math remains the source of anti-recoil stick output; the new
+boundary exposes that output as a separate `recoil_stick` component.
+
+By default, tracker ego-motion uses the pre-recoil output sample. This avoids
+feeding anti-recoil into target projection and preserves the tuned feel:
+
+```toml
+[gamepad.recoil]
+tracker_ego_motion_includes_recoil = false
+```
+
+`true` is an experimental final-stick mode for replay and diagnosis only until
+live testing proves it improves projection.
+
+The recoil visual displacement model exists but is disabled by default and
+returns zero displacement. Do not depend on it for live tracker correction until
+it is calibrated with evidence.
+
+## Replay And Benchmark Status
+
+The native replay skeleton defines frame schema, benchmark metric summaries,
+and a compile-time runner/writer entry point. Aim perf JSONL logs now include
+controller stick components:
+
+- `manual_x`, `manual_y`
+- `ai_aim_x`, `ai_aim_y`
+- `dynamic_x`, `dynamic_y`
+- `recoil_x`, `recoil_y`
+- `final_x`, `final_y`
+- `tracker_sample_x`, `tracker_sample_y`
+- `fire_button`
+
+Full deterministic backend comparison is still pending. The intended comparison
+targets are `legacy_projection`, `kalman_experimental`, and detector-only
+baseline.
+
 ## Build
 
 Build the native project before launch:
@@ -128,6 +185,12 @@ The runtime exits through the configured quit key from `config.toml` and also
 handles console stop signals such as Ctrl+C. In both cases the loop requests a
 normal shutdown and sends a neutral `GamepadOutputState` to the virtual gamepad
 before the process returns.
+
+The current rollback anchor for the accepted pre-refactor feel is:
+
+```text
+f00c338 checkpoint: native controller tuning baseline
+```
 
 ## Acceptance Checklist
 

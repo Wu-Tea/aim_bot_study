@@ -1166,7 +1166,7 @@ tracker stops receiving samples after shutdown
 perf logger closes file cleanly
 ```
 
-- [ ] **Step 4: Update docs**
+- [x] **Step 4: Update docs**
 
 Update `docs/project/NATIVE_CPP_RUNTIME.md` with:
 
@@ -1179,7 +1179,7 @@ replay benchmark workflow
 rollback checkpoint
 ```
 
-- [ ] **Step 5: Run verification and commit**
+- [x] **Step 5: Run verification and commit**
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\build_native_vision.ps1

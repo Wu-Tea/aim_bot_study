@@ -79,6 +79,12 @@ void print_startup_summary(
         << " aim_perf_file_log=" << (config.vision.aim_perf_file_log ? "true" : "false")
         << " aim_perf_log_dir=" << config.vision.aim_perf_log_dir
         << " aim_perf_log_interval_ticks=" << config.vision.aim_perf_log_interval_ticks
+        << " tracker_backend="
+        << tracking_native::tracker_backend_kind_name(config.gamepad.tracker_backend)
+        << " tracker_motion="
+        << (config.gamepad.recoil.tracker_ego_motion_includes_recoil
+            ? "final_stick"
+            : "pre_recoil")
         << " auto_fire=" << config.gamepad.auto_fire.fire_output
         << '\n';
 }
