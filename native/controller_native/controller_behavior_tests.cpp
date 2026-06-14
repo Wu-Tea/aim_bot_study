@@ -1,5 +1,6 @@
 #include "aim_assist_dynamics.h"
 #include "ai_aim.h"
+#include "bodylock_policy.h"
 #include "controller_tick_context.h"
 #include "native_gamepad_controller.h"
 #include "output_mixer.h"
@@ -256,6 +257,74 @@ void test_aim_perf_file_logger_writes_controller_components() {
     require_true(
         log.find("\"fire_button\":true") != std::string::npos,
         "aim perf log should include fire button state");
+}
+
+controller_native::BodyLockMotionObservation body_lock_motion_box(
+    float center_x,
+    double now_seconds_value,
+    bool strong_observation = true) {
+    controller_native::BodyLockMotionObservation observation;
+    observation.strong_observation = strong_observation;
+    observation.has_body_box = true;
+    observation.body_x1 = center_x - 10.0f;
+    observation.body_x2 = center_x + 10.0f;
+    observation.body_y1 = 90.0f;
+    observation.body_y2 = 130.0f;
+    observation.now_seconds = now_seconds_value;
+    return observation;
+}
+
+void test_bodylock_motion_policy_leads_after_consistent_direction() {
+    controller_native::GamepadAiAimConfig config;
+    config.body_lock_upper_body_ratio = 0.50f;
+    config.body_lock_lead_frames = 3;
+    config.body_lock_lead_seconds = 0.05f;
+    config.body_lock_lead_max_px = 8.0f;
+    controller_native::BodyLockMotionPolicy policy(config);
+
+    policy.observe(body_lock_motion_box(100.0f, 10.0));
+    policy.observe(body_lock_motion_box(110.0f, 10.1));
+    policy.observe(body_lock_motion_box(120.0f, 10.2));
+
+    require_true(policy.has_sustained_motion(), "consistent body motion should become sustained");
+    const common_native::Vec2f lead = policy.lead_delta();
+    require_near(lead.x, 5.0f, 0.001f, "bodylock sustained motion should lead horizontally");
+    require_near(lead.y, 0.0f, 0.001f, "bodylock sustained motion should not invent vertical lead");
+}
+
+void test_bodylock_motion_policy_clears_lead_on_direction_reversal() {
+    controller_native::GamepadAiAimConfig config;
+    config.body_lock_upper_body_ratio = 0.50f;
+    config.body_lock_lead_frames = 3;
+    config.body_lock_lead_seconds = 0.05f;
+    config.body_lock_lead_max_px = 8.0f;
+    controller_native::BodyLockMotionPolicy policy(config);
+
+    policy.observe(body_lock_motion_box(100.0f, 20.0));
+    policy.observe(body_lock_motion_box(110.0f, 20.1));
+    policy.observe(body_lock_motion_box(120.0f, 20.2));
+    require_true(policy.has_sustained_motion(), "test setup should build sustained motion");
+
+    policy.observe(body_lock_motion_box(110.0f, 20.3));
+    require_true(!policy.has_sustained_motion(), "direction reversal should clear sustained lead");
+    const common_native::Vec2f lead = policy.lead_delta();
+    require_near(lead.x, 0.0f, 0.001f, "direction reversal should clear horizontal lead");
+}
+
+void test_bodylock_motion_policy_ignores_weak_observations() {
+    controller_native::GamepadAiAimConfig config;
+    config.body_lock_lead_frames = 3;
+    config.body_lock_lead_seconds = 0.05f;
+    config.body_lock_lead_max_px = 8.0f;
+    controller_native::BodyLockMotionPolicy policy(config);
+
+    policy.observe(body_lock_motion_box(100.0f, 30.0));
+    policy.observe(body_lock_motion_box(110.0f, 30.1));
+    policy.observe(body_lock_motion_box(120.0f, 30.2, false));
+
+    require_true(!policy.has_sustained_motion(), "weak observation should not sustain motion lead");
+    const common_native::Vec2f lead = policy.lead_delta();
+    require_near(lead.x, 0.0f, 0.001f, "weak observation should clear lead");
 }
 
 std::string recoil_profile_xy_json(
@@ -2975,6 +3044,9 @@ int main() {
         test_replay_schema_captures_controller_components();
         test_replay_metrics_summarizes_error_and_fire_violations();
         test_aim_perf_file_logger_writes_controller_components();
+        test_bodylock_motion_policy_leads_after_consistent_direction();
+        test_bodylock_motion_policy_clears_lead_on_direction_reversal();
+        test_bodylock_motion_policy_ignores_weak_observations();
         test_tracker_authority_classifies_target_tiers();
         test_auto_fire_requires_fire_authority();
         test_auto_fire_blocks_stale_source();

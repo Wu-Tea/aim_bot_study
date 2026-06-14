@@ -144,6 +144,7 @@ add_executable(cod_native_runtime
     ../controller_native/runtime_config.cpp
     ../controller_native/target_tracker.cpp
     ../controller_native/ai_aim.cpp
+    ../controller_native/bodylock_policy.cpp
     ../controller_native/aim_assist_dynamics.cpp
     ../controller_native/recoil_profile.cpp
     ../controller_native/recoil_calibration.cpp
@@ -219,6 +220,7 @@ add_executable(cod_native_controller_tests
     ../controller_native/runtime_config.cpp
     ../controller_native/target_tracker.cpp
     ../controller_native/ai_aim.cpp
+    ../controller_native/bodylock_policy.cpp
     ../controller_native/aim_assist_dynamics.cpp
     ../controller_native/recoil_profile.cpp
     ../controller_native/recoil_calibration.cpp

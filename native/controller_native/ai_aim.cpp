@@ -17,7 +17,8 @@ float clamp_unit(float value) {
 }  // namespace
 
 NativeAiAim::NativeAiAim(GamepadAiAimConfig config)
-    : config_(std::move(config)) {}
+    : config_(std::move(config)),
+      body_lock_motion_(config_) {}
 
 void NativeAiAim::reset() {
     body_lock_frames_ = 0;
@@ -249,161 +250,34 @@ std::pair<float, float> NativeAiAim::body_lock_target_delta(const NativeAiAimInp
 
 std::pair<float, float> NativeAiAim::body_lock_motion_lead_delta(
     const NativeAiAimInput& input) const {
-    if (!tracking_native::is_strong_observation(input.target_tier) ||
-        !has_sustained_body_lock_motion()) {
+    if (!tracking_native::is_strong_observation(input.target_tier)) {
         return {0.0f, 0.0f};
     }
-    if (motion_frames_ < std::max(1, config_.body_lock_lead_frames)) {
-        return {0.0f, 0.0f};
-    }
-    const float lead_seconds = std::max(0.0f, config_.body_lock_lead_seconds);
-    const float lead_max = std::max(0.0f, config_.body_lock_lead_max_px);
-    if (lead_seconds <= 0.0f || lead_max <= 0.0f) {
-        return {0.0f, 0.0f};
-    }
-    const float lead_x =
-        std::max(-lead_max, std::min(lead_max, motion_velocity_x_ * lead_seconds));
-    const float vertical_scale = std::max(0.0f, config_.body_lock_vertical_lead_scale);
-    const float lead_y = std::max(
-        -lead_max,
-        std::min(lead_max, motion_velocity_y_ * lead_seconds * vertical_scale));
-    return {lead_x, lead_y};
+    const common_native::Vec2f lead = body_lock_motion_.lead_delta();
+    return {lead.x, lead.y};
 }
 
 void NativeAiAim::observe_body_lock_motion(const NativeAiAimInput& input) {
-    if (!input.has_body_box || input.body_x2 <= input.body_x1 || input.body_y2 <= input.body_y1) {
-        reset_motion_tracking();
-        return;
-    }
-    const float upper_body_ratio = std::max(
-        0.0f,
-        std::min(1.0f, config_.body_lock_upper_body_ratio));
-    const float center_x = (input.body_x1 + input.body_x2) * 0.5f;
-    const float center_y = (input.body_y1 + input.body_y2) * 0.5f;
-    const float point_x = center_x;
-    const float point_y = input.body_y1 + ((input.body_y2 - input.body_y1) * upper_body_ratio);
-    const double timestamp =
-        input.now_seconds > 0.0 ? input.now_seconds : input.observed_at_seconds;
-    const float match_limit = std::max(1.0f, config_.body_lock_activation_box_px * 0.5f);
-    if (!has_motion_reference_ ||
-        std::fabs(center_x - motion_box_center_x_) > match_limit ||
-        std::fabs(center_y - motion_box_center_y_) > match_limit ||
-        timestamp <= 0.0) {
-        has_motion_reference_ = true;
-        motion_box_center_x_ = center_x;
-        motion_box_center_y_ = center_y;
-        motion_point_x_ = point_x;
-        motion_point_y_ = point_y;
-        motion_velocity_x_ = 0.0f;
-        motion_velocity_y_ = 0.0f;
-        motion_timestamp_seconds_ = timestamp;
-        motion_frames_ = 1;
-        reset_motion_consistency();
-        return;
-    }
-
-    const double dt = timestamp - motion_timestamp_seconds_;
-    if (dt > 0.0) {
-        motion_velocity_x_ = (point_x - motion_point_x_) / static_cast<float>(dt);
-        motion_velocity_y_ = (point_y - motion_point_y_) / static_cast<float>(dt);
-        update_motion_consistency(motion_velocity_x_, motion_velocity_y_);
-    }
-    motion_box_center_x_ = center_x;
-    motion_box_center_y_ = center_y;
-    motion_point_x_ = point_x;
-    motion_point_y_ = point_y;
-    motion_timestamp_seconds_ = timestamp;
-    ++motion_frames_;
+    BodyLockMotionObservation observation;
+    observation.strong_observation = tracking_native::is_strong_observation(input.target_tier);
+    observation.has_body_box = input.has_body_box;
+    observation.body_x1 = input.body_x1;
+    observation.body_y1 = input.body_y1;
+    observation.body_x2 = input.body_x2;
+    observation.body_y2 = input.body_y2;
+    observation.observed_at_seconds = input.observed_at_seconds;
+    observation.now_seconds = input.now_seconds;
+    body_lock_motion_.observe(observation);
 }
 
 void NativeAiAim::reset_motion_tracking() {
-    motion_frames_ = 0;
-    has_motion_reference_ = false;
-    motion_box_center_x_ = 0.0f;
-    motion_box_center_y_ = 0.0f;
-    motion_point_x_ = 0.0f;
-    motion_point_y_ = 0.0f;
-    motion_velocity_x_ = 0.0f;
-    motion_velocity_y_ = 0.0f;
-    motion_timestamp_seconds_ = 0.0;
-    reset_motion_consistency();
-}
-
-void NativeAiAim::reset_motion_consistency() {
-    motion_consistent_frames_ = 0;
-    has_motion_direction_ = false;
-    motion_direction_x_ = 0.0f;
-    motion_direction_y_ = 0.0f;
-}
-
-void NativeAiAim::update_motion_consistency(float velocity_x, float velocity_y) {
-    const float speed = std::sqrt((velocity_x * velocity_x) + (velocity_y * velocity_y));
-    constexpr float kMinSustainedLeadSpeedPxPerSec = 1.0f;
-    const float min_speed = kMinSustainedLeadSpeedPxPerSec;
-    if (speed < min_speed) {
-        reset_motion_consistency();
-        return;
-    }
-
-    const float dir_x = velocity_x / speed;
-    const float dir_y = velocity_y / speed;
-    if (!has_motion_direction_) {
-        has_motion_direction_ = true;
-        motion_direction_x_ = dir_x;
-        motion_direction_y_ = dir_y;
-        motion_consistent_frames_ = 1;
-        return;
-    }
-
-    const float dot = (motion_direction_x_ * dir_x) + (motion_direction_y_ * dir_y);
-    constexpr float kMinConsistentDirectionDot = 0.72f;
-    if (dot < kMinConsistentDirectionDot) {
-        motion_direction_x_ = dir_x;
-        motion_direction_y_ = dir_y;
-        motion_consistent_frames_ = 1;
-        return;
-    }
-
-    motion_direction_x_ = (motion_direction_x_ * 0.65f) + (dir_x * 0.35f);
-    motion_direction_y_ = (motion_direction_y_ * 0.65f) + (dir_y * 0.35f);
-    const float direction_norm = std::sqrt(
-        (motion_direction_x_ * motion_direction_x_) +
-        (motion_direction_y_ * motion_direction_y_));
-    if (direction_norm > 0.000001f) {
-        motion_direction_x_ /= direction_norm;
-        motion_direction_y_ /= direction_norm;
-    }
-    ++motion_consistent_frames_;
-}
-
-bool NativeAiAim::has_sustained_body_lock_motion() const {
-    return (motion_consistent_frames_ + 1) >= std::max(1, config_.body_lock_lead_frames);
+    body_lock_motion_.reset();
 }
 
 float NativeAiAim::body_lock_lateral_motion_delta(float dx) const {
-    if (motion_frames_ < 2) {
-        return dx;
-    }
-    if (std::fabs(motion_velocity_x_) <
-        std::max(0.0f, config_.body_lock_lateral_motion_min_speed_px_per_sec)) {
-        return dx;
-    }
-
-    const float window = std::max(
-        config_.body_lock_lateral_motion_lead_window_px,
+    return body_lock_motion_.lateral_motion_delta(
+        dx,
         body_lock_axis_release_threshold(false));
-    const float abs_dx = std::fabs(dx);
-    if (abs_dx >= window) {
-        return dx;
-    }
-
-    const float near_ratio = 1.0f - std::min(1.0f, abs_dx / std::max(1.0f, window));
-    const float lead_limit = std::max(0.0f, config_.body_lock_lateral_motion_lead_max_px);
-    const float raw_lead = motion_velocity_x_ * std::max(
-        0.0f,
-        config_.body_lock_lateral_motion_lead_seconds);
-    const float lead_px = std::max(-lead_limit, std::min(lead_limit, raw_lead));
-    return dx + (lead_px * near_ratio);
 }
 
 float NativeAiAim::body_lock_axis_release_threshold(bool y_axis) const {
@@ -419,17 +293,7 @@ float NativeAiAim::body_lock_axis_release_threshold(bool y_axis) const {
 
 float NativeAiAim::body_lock_axis_release_tail_scale(bool y_axis) const {
     const float tail_scale = std::max(0.0f, std::min(1.0f, config_.body_lock_release_tail_scale));
-    if (y_axis || motion_frames_ < 2) {
-        return tail_scale;
-    }
-    if (std::fabs(motion_velocity_x_) <
-        std::max(0.0f, config_.body_lock_lateral_motion_min_speed_px_per_sec)) {
-        return tail_scale;
-    }
-    const float moving_tail = std::max(
-        0.0f,
-        std::min(1.0f, config_.body_lock_lateral_motion_tail_scale));
-    return std::max(tail_scale, moving_tail);
+    return body_lock_motion_.axis_release_tail_scale(y_axis, tail_scale);
 }
 
 float NativeAiAim::body_lock_zero_cross_guard_px(bool y_axis) const {
@@ -690,36 +554,7 @@ std::pair<float, float> NativeAiAim::resolve_body_lock_manual(
 }
 
 float NativeAiAim::body_lock_vertical_ai_scale(float desired_dy) const {
-    const float abs_dy = std::fabs(desired_dy);
-    const float deadzone = std::max(0.0f, config_.body_lock_vertical_deadzone_px);
-    if (abs_dy > deadzone) {
-        return 1.0f;
-    }
-    if (motion_frames_ < 2) {
-        return -1.0f;
-    }
-    const float motion_speed =
-        std::sqrt((motion_velocity_x_ * motion_velocity_x_) + (motion_velocity_y_ * motion_velocity_y_));
-    if (motion_speed >
-        std::max(1.0f, config_.body_lock_vertical_tail_speed_threshold_px_per_sec)) {
-        return -1.0f;
-    }
-
-    float scale = soft_ramp_strength(
-        abs_dy,
-        std::max(0.0f, config_.body_lock_vertical_tail_inner_px),
-        deadzone);
-    const float settle_speed_threshold = std::max(
-        1.0f,
-        config_.body_lock_vertical_tail_speed_threshold_px_per_sec * 0.4f);
-    if (abs_dy > (config_.body_lock_vertical_tail_inner_px * 0.6f) &&
-        motion_speed <= settle_speed_threshold) {
-        const float settle_ratio = std::max(
-            0.0f,
-            1.0f - std::min(1.0f, motion_speed / settle_speed_threshold));
-        scale = std::max(scale, 0.15f + (0.30f * settle_ratio));
-    }
-    return scale;
+    return body_lock_motion_.vertical_ai_scale(desired_dy);
 }
 
 float NativeAiAim::resolve_body_lock_harmful_manual(

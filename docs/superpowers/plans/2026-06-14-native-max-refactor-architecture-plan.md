@@ -1020,7 +1020,7 @@ snap stick component
 snap debug fields
 ```
 
-- [ ] **Step 2: Extract bodylock policy**
+- [x] **Step 2: Extract bodylock policy**
 
 Bodylock should take the same tracker snapshot, plus short-term body motion if still needed.
 
@@ -1031,6 +1031,8 @@ NativeAiAim::observe_body_lock_motion
 motion_velocity_x_
 motion_velocity_y_
 ```
+
+Status: short-horizon body-lock motion tracking and sustained-motion lead moved into `BodyLockMotionPolicy`; full bodylock target selection remains in `NativeAiAim`.
 
 - [ ] **Step 3: Extract manual intent policy**
 
@@ -1054,7 +1056,7 @@ manual intent does not reject it
 projection age cap is satisfied
 ```
 
-- [ ] **Step 5: Add sustained-motion follow boost**
+- [x] **Step 5: Add sustained-motion follow boost**
 
 This is the optimization for targets that keep moving in one direction. The tracker should expose velocity and consistency; controller policy should decide how much extra follow speed or one-tick lead is allowed.
 
@@ -1090,7 +1092,7 @@ lead never grants fire authority
 lead affects aim command only, not target identity
 ```
 
-- [ ] **Step 6: Add feel-policy tests**
+- [x] **Step 6: Add feel-policy tests**
 
 Required tests:
 
@@ -1108,7 +1110,7 @@ direction reversal clears boost within one controller tick
 manual override disables sustained-motion boost
 ```
 
-- [ ] **Step 7: Run verification and commit**
+- [x] **Step 7: Run verification and commit**
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\build_native_vision.ps1
