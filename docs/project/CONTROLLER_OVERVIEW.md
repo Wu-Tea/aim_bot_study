@@ -1,6 +1,6 @@
 # Controller Overview
 
-Last updated: 2026-06-11
+Last updated: 2026-06-15
 
 ## Goal
 
@@ -101,6 +101,28 @@ Controller decides:
 - how user input is read
 - how AI output mixes with local input
 - which physical or virtual device receives the final output
+
+## Native Gamepad Pipeline Contract
+
+For the default native gamepad runtime, keep this order:
+
+1. vision/tracker state
+2. controller assistance
+3. auto-fire output decision
+4. recoil feed-forward playback
+5. final device output
+
+Recoil is the final feed-forward stage. It must not consume target dx/dy,
+tracker state, target freshness, or controller correction errors. Tracker may
+receive component-aware final camera motion for ego projection, but
+manual/assist/dynamics/recoil/final components must remain separately
+attributed for logs, tests, and benchmark checks.
+
+Before live acceptance after native tracker/controller/recoil changes, run:
+
+```powershell
+scripts\verify\native_pipeline_contract.bat
+```
 
 ## Current Modes
 

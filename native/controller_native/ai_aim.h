@@ -13,6 +13,7 @@ struct NativeAiAimInput {
     bool has_target = false;
     bool aim_authority = false;
     bool ads_snap_active = true;
+    bool fire_active = false;
     float ads_snap_progress_ratio = 0.0f;
     float ads_snap_remaining_seconds = 0.0f;
     float dx = 0.0f;
@@ -88,6 +89,10 @@ private:
         float planned_ai,
         float manual_input,
         float error_radius) const;
+    float apply_body_lock_manual_escape_floor(
+        float assist,
+        float manual_input,
+        float lock_confidence) const;
     std::pair<float, float> resolve_ads_snap_manual(
         float manual_x,
         float manual_y,

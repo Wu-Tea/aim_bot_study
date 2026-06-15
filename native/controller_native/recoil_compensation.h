@@ -10,12 +10,11 @@
 
 namespace controller_native {
 
+// Recoil is feed-forward playback. It must not consume target, tracker, or
+// controller correction errors; those belong to aim/controller stages.
 struct NativeRecoilInput {
     bool fire_active = false;
     bool aiming = false;
-    float target_dx = 0.0f;
-    float target_dy = 0.0f;
-    double target_observed_at_seconds = 0.0;
     double now_seconds = 0.0;
 };
 
@@ -44,11 +43,6 @@ private:
     float map_calibrated_pixels_to_stick(float pixels, const std::string& axis, int duration_ms) const;
     float normalize_delta_for_uncalibrated_mapping(float delta, int sample_interval_ms) const;
     float map_pixels_to_stick(float delta) const;
-    float target_direction_yield(
-        float recoil_stick,
-        float target_error_px,
-        float desired_stick_direction,
-        const NativeRecoilInput& input) const;
 
     GamepadRecoilConfig config_;
     std::optional<RecoilProfile> active_profile_;

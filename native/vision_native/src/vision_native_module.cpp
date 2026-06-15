@@ -53,6 +53,10 @@ py::dict detection_to_dict(const vision_native::Detection& detection) {
     result["color_bonus"] = detection.color_bonus;
     result["is_friendly"] = detection.is_friendly;
     result["color_classified"] = detection.color_classified;
+    result["has_cue_point"] = detection.has_cue_point;
+    result["cue_x"] = detection.cue_x;
+    result["cue_y"] = detection.cue_y;
+    result["cue_score"] = detection.cue_score;
     return result;
 }
 
@@ -180,6 +184,11 @@ py::dict vision_result_to_dict(const vision_native::VisionResult& result_in) {
     result["post_ms"] = result_in.post_ms;
     result["age_ms"] = result_in.age_ms;
     result["boxes_seen"] = result_in.boxes_seen;
+    py::list detections;
+    for (const auto& detection : result_in.detections) {
+        detections.append(detection_to_dict(detection));
+    }
+    result["detections"] = detections;
     return result;
 }
 

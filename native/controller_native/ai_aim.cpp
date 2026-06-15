@@ -90,6 +90,18 @@ NativeAiAimOutput NativeAiAim::compute(const NativeAiAimInput& input) {
         : config_.max_ai_force_y;
 
     if (ads_snap_mode) {
+        const float ads_fov_scale = std::max(0.05f, std::min(2.0f, config_.ads_snap_fov_scale));
+        const float transition_ms = std::max(0.0f, config_.ads_snap_fov_transition_ms);
+        float transition_progress = 1.0f;
+        if (transition_ms > 0.0f) {
+            const float snap_window_ms = static_cast<float>(std::max(1, config_.ads_snap_window_ms));
+            const float elapsed_ms =
+                std::max(0.0f, std::min(1.0f, input.ads_snap_progress_ratio)) * snap_window_ms;
+            transition_progress = std::max(0.0f, std::min(1.0f, elapsed_ms / transition_ms));
+        }
+        const float fov_scale = 1.0f + ((ads_fov_scale - 1.0f) * transition_progress);
+        target_error_x *= fov_scale;
+        target_error_y *= fov_scale;
         const float scaled_dy = target_error_y * config_.ai_delta_gain;
         const float limit = std::max(0.0f, config_.ads_snap_max_target_dy_px);
         const float clamped_dy = std::max(-limit, std::min(limit, scaled_dy));
@@ -205,6 +217,10 @@ NativeAiAimOutput NativeAiAim::compute(const NativeAiAimInput& input) {
             resolve_body_lock_manual_overlap(planned_x, manual_x, error_radius);
         output.assist_y = (manual_y - input.manual_right_y) +
             resolve_body_lock_manual_overlap(planned_y, manual_y, error_radius);
+        output.assist_x =
+            apply_body_lock_manual_escape_floor(output.assist_x, input.manual_right_x, lock_confidence);
+        output.assist_y =
+            apply_body_lock_manual_escape_floor(output.assist_y, input.manual_right_y, lock_confidence);
     }
     output.has_assist = output.assist_x != 0.0f || output.assist_y != 0.0f;
     return output;
@@ -606,6 +622,40 @@ float NativeAiAim::resolve_body_lock_manual_overlap(
         return 0.0f;
     }
     return std::copysign(remaining, planned_ai);
+}
+
+float NativeAiAim::apply_body_lock_manual_escape_floor(
+    float assist,
+    float manual_input,
+    float lock_confidence) const {
+    const float confidence_floor = std::max(
+        0.0f,
+        std::min(1.0f, config_.body_lock_confidence_min_strong));
+    if (lock_confidence < confidence_floor) {
+        return assist;
+    }
+    const float manual_abs = std::fabs(manual_input);
+    const float threshold = std::max(
+        0.0f,
+        std::min(1.0f, config_.body_lock_manual_escape_input_threshold));
+    if (manual_abs < threshold) {
+        return assist;
+    }
+    const float preservation = std::max(
+        0.0f,
+        std::min(1.0f, config_.body_lock_manual_escape_preservation));
+    if (preservation <= 0.0f) {
+        return assist;
+    }
+
+    const float final_input = manual_input + assist;
+    const float minimum_final_abs = manual_abs * preservation;
+    if (manual_input * final_input > 0.0f &&
+        std::fabs(final_input) >= minimum_final_abs) {
+        return assist;
+    }
+    const float preserved_final = std::copysign(minimum_final_abs, manual_input);
+    return preserved_final - manual_input;
 }
 
 std::pair<float, float> NativeAiAim::resolve_ads_snap_manual(

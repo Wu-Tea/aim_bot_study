@@ -55,13 +55,13 @@ void TargetTracker::ingestVisionFrame(const VisionFrame& frame) {
 
         const Vec2 bodyTrack = projection_.screenToTrack(d.bodyCenterPx, frame.mode);
         const Vec2 aimTrack = d.validAimPoint ? projection_.screenToTrack(d.aimPointPx, frame.mode) : bodyTrack;
-        measurements.push_back({
-            .detectionIndex = measurements.size(),
-            .detection = d,
-            .bodyCompTrack = bodyTrack + Ecap,
-            .aimOffsetTrack = aimTrack - bodyTrack,
-            .R = measurementNoise(d),
-        });
+        AssociationMeasurement measurement;
+        measurement.detectionIndex = measurements.size();
+        measurement.detection = d;
+        measurement.bodyCompTrack = bodyTrack + Ecap;
+        measurement.aimOffsetTrack = aimTrack - bodyTrack;
+        measurement.R = measurementNoise(d);
+        measurements.push_back(measurement);
     }
 
     for (Track& tr : tracks_) {
@@ -79,17 +79,17 @@ void TargetTracker::ingestVisionFrame(const VisionFrame& frame) {
             continue;
         }
         const Vec2 bodyScreenLikeTrack = tr.filter.position() - Ecap;
-        views.push_back({
-            .trackIndex = i,
-            .trackId = tr.id,
-            .predictedBodyCompTrack = tr.filter.position(),
-            .predictedPosCov = tr.filter.positionCovariance(),
-            .predictedBoxPx = predictedBoxPx(tr, bodyScreenLikeTrack, frame.mode),
-            .boxSizePx = tr.boxSizePx,
-            .cls = tr.cls,
-            .tier = tr.tier,
-            .confirmed = tr.life == TrackLife::Confirmed || tr.life == TrackLife::Coasting,
-        });
+        AssociationTrackView view;
+        view.trackIndex = i;
+        view.trackId = tr.id;
+        view.predictedBodyCompTrack = tr.filter.position();
+        view.predictedPosCov = tr.filter.positionCovariance();
+        view.predictedBoxPx = predictedBoxPx(tr, bodyScreenLikeTrack, frame.mode);
+        view.boxSizePx = tr.boxSizePx;
+        view.cls = tr.cls;
+        view.tier = tr.tier;
+        view.confirmed = tr.life == TrackLife::Confirmed || tr.life == TrackLife::Coasting;
+        views.push_back(view);
     }
 
     const AssociationResult assoc = associator_.match(views, measurements);
@@ -351,18 +351,18 @@ std::vector<TrackDebugInfo> TargetTracker::debugTracks() const {
     std::vector<TrackDebugInfo> dbg;
     dbg.reserve(tracks_.size());
     for (const Track& tr : tracks_) {
-        dbg.push_back({
-            .id = tr.id,
-            .life = tr.life,
-            .compensatedPosition = tr.filter.position(),
-            .compensatedVelocity = tr.filter.velocity(),
-            .lastInnovation = tr.lastInnovation,
-            .lastMahalanobisD2 = tr.lastMahalanobisD2,
-            .lastAssociationCost = tr.lastAssociationCost,
-            .confidence = tr.confidence,
-            .hitStreak = tr.hitStreak,
-            .missStreak = tr.missStreak,
-        });
+        TrackDebugInfo info;
+        info.id = tr.id;
+        info.life = tr.life;
+        info.compensatedPosition = tr.filter.position();
+        info.compensatedVelocity = tr.filter.velocity();
+        info.lastInnovation = tr.lastInnovation;
+        info.lastMahalanobisD2 = tr.lastMahalanobisD2;
+        info.lastAssociationCost = tr.lastAssociationCost;
+        info.confidence = tr.confidence;
+        info.hitStreak = tr.hitStreak;
+        info.missStreak = tr.missStreak;
+        dbg.push_back(info);
     }
     return dbg;
 }

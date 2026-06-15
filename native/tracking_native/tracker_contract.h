@@ -5,7 +5,9 @@
 #include "../common_native/stick_types.h"
 #include "../common_native/time_types.h"
 
+#include <cstdint>
 #include <string>
+#include <vector>
 
 namespace tracking_native {
 
@@ -16,13 +18,28 @@ enum class TrackerSnapshotSource {
     Coast,
 };
 
+struct TrackerDetection {
+    std::uint64_t id = 0;
+    common_native::Box2f body_box_px;
+    common_native::Vec2f aim_point_px;
+    bool has_aim_point = false;
+    float confidence = 0.0f;
+    int class_id = 0;
+    std::string target_tier = "observed_strong";
+    bool is_friendly = false;
+};
+
 struct TrackerObservation {
+    std::uint64_t frame_id = 0;
     bool has_target = false;
     common_native::Vec2f aim_error_px;
     common_native::Box2f body_box_px;
     bool has_body_box = false;
     std::string target_tier = "none";
     common_native::TimeSeconds capture_time;
+    common_native::TimeSeconds ready_time;
+    common_native::Vec2f screen_center_px;
+    std::vector<TrackerDetection> detections;
 };
 
 struct TrackerControlSample {

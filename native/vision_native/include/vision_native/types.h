@@ -114,6 +114,7 @@ struct VisionResult {
     float post_ms = 0.0f;
     float age_ms = 0.0f;
     float boxes_seen = 0.0f;
+    std::vector<Detection> detections;
 };
 
 } // namespace vision_native

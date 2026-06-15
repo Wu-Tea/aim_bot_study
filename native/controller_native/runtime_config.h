@@ -11,7 +11,7 @@ struct VisionRuntimeConfig {
     int capture_width = 640;
     int capture_height = 512;
     int capture_fps = 140;
-    std::string model_path = "models/best.engine";
+    std::string model_path = "models/candidates/body_union_manual_core_x2_neg_e6_640x512.engine";
     std::string fallback_model_path = "models/best.pt";
     std::string quit_key = "0";
     bool native_cue_sidecar = false;
@@ -36,8 +36,8 @@ struct GamepadAiAimConfig {
     float deadzone_inner = 1.5f;
     float deadzone_outer = 5.0f;
     float x_deadzone_outer = 3.0f;
-    float target_max_age_ms = 50.0f;
-    float target_projection_max_age_ms = 24.0f;
+    float target_max_age_ms = 96.0f;
+    float target_projection_max_age_ms = 96.0f;
     float target_projection_reticle_speed_px_per_sec = 1500.0f;
     float target_projection_velocity_lowpass_alpha = 0.35f;
     float target_projection_max_velocity_px_per_sec = 1200.0f;
@@ -46,6 +46,8 @@ struct GamepadAiAimConfig {
     float ads_snap_smoothing = 0.0f;
     float ads_snap_max_ai_force = 1.0f;
     float ads_snap_max_ai_force_y = 1.0f;
+    float ads_snap_fov_scale = 1.0f;
+    float ads_snap_fov_transition_ms = 0.0f;
     float ads_snap_max_target_dy_px = 90.0f;
     float ads_snap_reticle_speed_px_per_sec = 1500.0f;
     float ads_snap_time_to_go_gain = 1.0f;
@@ -69,6 +71,8 @@ struct GamepadAiAimConfig {
     float body_lock_orthogonal_suppression_max = 0.60f;
     float body_lock_helpful_preservation_floor = 1.0f;
     float body_lock_manual_overlap_scale = 0.0f;
+    float body_lock_manual_escape_input_threshold = 0.45f;
+    float body_lock_manual_escape_preservation = 0.55f;
     float body_lock_near_lock_error_px = 32.0f;
     float body_lock_vertical_orthogonal_bias = 1.15f;
     float body_lock_vertical_deadzone_px = 6.0f;
@@ -104,11 +108,9 @@ struct GamepadAimAssistDynamicsConfig {
 struct GamepadRecoilConfig {
     bool enabled = true;
     bool selection_log_enabled = true;
-    bool target_direction_yield_enabled = true;
     bool profile_despike_enabled = true;
     bool native_recognizer_enabled = true;
     bool recognizer_log_enabled = false;
-    bool tracker_ego_motion_includes_recoil = false;
     std::string recognizer_game = "cod22";
     std::string profile_directory = "artifacts/recoil_profiles";
     std::string calibration_directory = "artifacts/recoil_calibration";
@@ -142,7 +144,7 @@ struct GamepadRuntimeConfig {
     bool xinput_auto_detect = true;
     unsigned int xinput_user_index = 0;
     tracking_native::TrackerBackendKind tracker_backend =
-        tracking_native::TrackerBackendKind::LegacyProjection;
+        tracking_native::TrackerBackendKind::FpsReference;
     GamepadAutoFireConfig auto_fire;
     GamepadAiAimConfig ai_aim;
     GamepadAimAssistDynamicsConfig aim_assist_dynamics;

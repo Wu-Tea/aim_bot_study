@@ -81,10 +81,12 @@ void print_startup_summary(
         << " aim_perf_log_interval_ticks=" << config.vision.aim_perf_log_interval_ticks
         << " tracker_backend="
         << tracking_native::tracker_backend_kind_name(config.gamepad.tracker_backend)
-        << " tracker_motion="
-        << (config.gamepad.recoil.tracker_ego_motion_includes_recoil
-            ? "final_stick"
-            : "pre_recoil")
+        << " tracker_motion=component_aware_final"
+        << " recoil=" << (config.gamepad.recoil.enabled ? "on" : "off")
+        << " recoil_state=" << (
+            config.gamepad.recoil.recognizer_state_path.empty()
+                ? "none"
+                : config.gamepad.recoil.recognizer_state_path)
         << " auto_fire=" << config.gamepad.auto_fire.fire_output
         << '\n';
 }

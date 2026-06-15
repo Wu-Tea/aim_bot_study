@@ -11,6 +11,7 @@
 namespace tracking_native {
 
 enum class TrackerBackendKind {
+    FpsReference,
     LegacyProjection,
     KalmanExperimental,
 };

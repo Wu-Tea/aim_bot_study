@@ -46,7 +46,7 @@ public:
 
 private:
     bool is_aiming(const PhysicalGamepadState& physical) const;
-    NativeControllerVisionState vision_state_for_frame(double now_seconds) const;
+    NativeControllerVisionState vision_state_for_frame(double now_seconds);
     bool auto_fire_allowed(
         const NativeControllerVisionState& vision_state,
         bool aiming,
@@ -99,9 +99,16 @@ private:
         GamepadOutputState& output,
         const PhysicalGamepadState& physical,
         bool auto_fire_active,
-        const NativeControllerVisionState& vision_state,
         double now_seconds);
-    void record_target_tracker_output(const GamepadOutputState& output, double now_seconds);
+    void ingest_tracker_observation(
+        const NativeControllerVisionState& state,
+        const std::vector<tracking_native::TrackerDetection>& detections,
+        std::uint64_t frame_id,
+        double capture_time_seconds,
+        double ready_time_seconds);
+    void record_target_tracker_output(
+        const NativeControllerOutputComponents& components,
+        double now_seconds);
     void record_stage_trace(
         const std::string& stage_name,
         float before_right_y,
@@ -123,6 +130,8 @@ private:
     bool auto_fire_was_active_ = false;
     double manual_takeover_started_at_seconds_ = -1.0;
     double last_output_at_seconds_ = 0.0;
+    std::uint64_t latest_vision_sequence_ = 0;
+    std::uint64_t raw_vision_sequence_consumed_ = 0;
     bool ads_active_ = false;
     double ads_started_at_seconds_ = 0.0;
     int auto_fire_ready_frames_ = 0;
