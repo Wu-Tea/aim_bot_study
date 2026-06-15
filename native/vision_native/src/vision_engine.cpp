@@ -10,11 +10,13 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <utility>
 
 namespace vision_native {
 namespace {
 
-constexpr const char* kDefaultEnginePath = "models/best.engine";
+constexpr const char* kDefaultEnginePath =
+    "models/candidates/body_union_manual_core_x2_neg_e6_640x512.engine";
 constexpr float kSelectorDecodeConfidenceFloor = 0.20f;
 constexpr float kTorsoBoxShrinkX = 0.22f;
 constexpr float kTorsoBoxShrinkTop = 0.18f;
@@ -299,6 +301,7 @@ VisionResult VisionEngine::poll_once() {
         result.association_stage = targeting.association_stage;
         result.target_confidence = targeting.target_confidence;
         result.boxes_seen = targeting.boxes_seen;
+        result.detections = std::move(targeting.detections);
 
         if (result.has_target) {
             const uint64_t enhance_start = now_ns();

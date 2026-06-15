@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstring>
 #include <cmath>
+#include <utility>
 
 namespace vision_native {
 namespace {
@@ -534,12 +535,6 @@ std::optional<VisionTargetSelector::FrameRegion> VisionTargetSelector::required_
         return std::nullopt;
     }
     return cue_hold_search_region();
-}
-
-VisionResult VisionTargetSelector::select_with_frame(
-    const DetectionBatch& batch,
-    const ColorFrameView& frame) {
-    return select_impl(annotate_colors(batch, frame), &frame);
 }
 
 VisionResult VisionTargetSelector::empty_result(float boxes_seen) const {
@@ -1484,7 +1479,18 @@ VisionResult VisionTargetSelector::finalize_selected_target(
 }
 
 VisionResult VisionTargetSelector::select(const DetectionBatch& batch) {
-    return select_impl(batch, nullptr);
+    VisionResult result = select_impl(batch, nullptr);
+    result.detections = batch.detections;
+    return result;
+}
+
+VisionResult VisionTargetSelector::select_with_frame(
+    const DetectionBatch& batch,
+    const ColorFrameView& frame) {
+    DetectionBatch annotated = annotate_colors(batch, frame);
+    VisionResult result = select_impl(annotated, &frame);
+    result.detections = std::move(annotated.detections);
+    return result;
 }
 
 VisionResult VisionTargetSelector::select_impl(

@@ -124,6 +124,33 @@ double capture_transfer_ms(const vision_native::VisionResult& result) {
     return std::max(0.0f, result.wait_ms - result.capture_acquire_ms);
 }
 
+void write_controller_components(
+    std::ofstream& output,
+    const controller_native::NativeControllerOutputComponents* components,
+    const controller_native::GamepadOutputState* tracker_motion_output) {
+    controller_native::NativeControllerOutputComponents zero_components;
+    const controller_native::NativeControllerOutputComponents& value =
+        components != nullptr ? *components : zero_components;
+    controller_native::GamepadOutputState zero_tracker_output;
+    const controller_native::GamepadOutputState& tracker =
+        tracker_motion_output != nullptr ? *tracker_motion_output : zero_tracker_output;
+
+    output
+        << ",\"manual_x\":" << value.manual_stick.x
+        << ",\"manual_y\":" << value.manual_stick.y
+        << ",\"ai_aim_x\":" << value.ai_aim_stick.x
+        << ",\"ai_aim_y\":" << value.ai_aim_stick.y
+        << ",\"dynamic_x\":" << value.dynamic_adjustment_stick.x
+        << ",\"dynamic_y\":" << value.dynamic_adjustment_stick.y
+        << ",\"recoil_x\":" << value.recoil_stick.x
+        << ",\"recoil_y\":" << value.recoil_stick.y
+        << ",\"final_x\":" << value.final_stick.x
+        << ",\"final_y\":" << value.final_stick.y
+        << ",\"tracker_sample_x\":" << tracker.right_x
+        << ",\"tracker_sample_y\":" << tracker.right_y
+        << ",\"fire_button\":" << (value.fire_button ? "true" : "false");
+}
+
 }  // namespace
 
 AimPerfFileLogger::AimPerfFileLogger(
@@ -160,7 +187,9 @@ void AimPerfFileLogger::record_aim_sample(
     unsigned int tick_count,
     bool aiming,
     const PerfSnapshot& snapshot,
-    const vision_native::VisionResult* result) {
+    const vision_native::VisionResult* result,
+    const controller_native::NativeControllerOutputComponents* output_components,
+    const controller_native::GamepadOutputState* tracker_motion_output) {
     if (!enabled_ || !aiming || !output_.is_open()) {
         return;
     }
@@ -240,7 +269,9 @@ void AimPerfFileLogger::record_aim_sample(
         << ",\"fire_requested\":" << snapshot.fire_requested
         << ",\"fire_allowed\":" << snapshot.fire_allowed
         << ",\"fire_blocked\":" << snapshot.fire_blocked
-        << "}\n";
+        << ",\"box_samples\":" << snapshot.box_samples;
+    write_controller_components(output_, output_components, tracker_motion_output);
+    output_ << "}\n";
 }
 
 const std::filesystem::path& AimPerfFileLogger::log_path() const noexcept {

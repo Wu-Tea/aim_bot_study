@@ -1,5 +1,23 @@
 # Worklog
 
+## 2026-06-15 (native tracker/controller/recoil boundary contract)
+
+### Current progress
+
+- Native gamepad pipeline contract is now documented and covered by tests:
+  - vision/tracker state feeds controller assistance before recoil
+  - recoil remains the final feed-forward playback stage
+  - recoil does not consume target dx/dy, tracker state, target freshness, or controller correction errors
+  - tracker receives component-aware final camera motion while output components keep manual/assist/dynamics/recoil/final attribution separate
+- Removed the native recoil target-direction yield path and the old recoil/tracker pre/post toggle from the current runtime contract.
+- Added `scripts\verify\native_pipeline_contract.bat` / `.ps1` as the pre-acceptance check for native tracker/controller/recoil changes.
+- The check builds native controller/runtime/benchmark targets, rejects known recoil/controller coupling patterns, runs native controller behavior tests, runs a one-tick runtime smoke, verifies `tracker_motion=component_aware_final`, and runs a short gamepad benchmark smoke.
+
+### Practical rule
+
+- Run `scripts\verify\native_pipeline_contract.bat` before live acceptance when changing native tracker, controller, or recoil behavior.
+- Live gameplay acceptance is still required for final recoil feel.
+
 ## 2026-06-11 (full native C++ gamepad runtime default)
 
 ### Current progress
@@ -16,7 +34,7 @@
   - native `ai_aim`
   - native auto-fire gate
   - native aim-assist dynamics
-  - native recoil profile selection, despike, target-direction yield, and playback
+  - native recoil profile selection, despike, and playback
   - native ViGEm virtual gamepad output
 - Python remains available for fallback, mouse and `kbm_to_gamepad` modes, training/export, recoil tooling, debug helpers, and tests.
 - Use `GAMEPAD_RUNTIME=python` only when comparing against or bisecting the old Python gamepad path.

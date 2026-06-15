@@ -11,16 +11,8 @@ namespace controller_native {
 
 namespace {
 
-constexpr float kTargetDirectionYieldSoftErrorPx = 8.0f;
-constexpr float kTargetDirectionYieldFullErrorPx = 32.0f;
-constexpr double kTargetDirectionYieldStaleSeconds = 0.080;
-
 float clamp_unit(float value) {
     return std::max(-1.0f, std::min(1.0f, value));
-}
-
-bool same_sign(float a, float b) {
-    return (a > 0.0f) == (b > 0.0f);
 }
 
 }  // namespace
@@ -80,11 +72,7 @@ NativeRecoilOutput NativeRecoilCompensation::compute(const NativeRecoilInput& in
     select_runtime_profile_for_context(input.aiming);
     output.recoil_active = true;
     if (!playback_profile_.has_value() || playback_profile_->empty()) {
-        output.right_y_delta = target_direction_yield(
-            -std::max(0.0f, config_.feedback_amount),
-            input.target_dy,
-            -input.target_dy,
-            input);
+        output.right_y_delta = -std::max(0.0f, config_.feedback_amount);
         return output;
     }
 
@@ -129,16 +117,8 @@ NativeRecoilOutput NativeRecoilCompensation::compute(const NativeRecoilInput& in
     }
 
     // profile_despike is applied by build_recoil_playback_profile; raw JSON stays untouched.
-    output.right_x_delta = target_direction_yield(
-        profile_stick_x,
-        input.target_dx,
-        input.target_dx,
-        input);
-    output.right_y_delta = target_direction_yield(
-        anti_recoil_stick_y,
-        input.target_dy,
-        -input.target_dy,
-        input);
+    output.right_x_delta = profile_stick_x;
+    output.right_y_delta = anti_recoil_stick_y;
     return output;
 }
 
@@ -267,37 +247,6 @@ float NativeRecoilCompensation::map_pixels_to_stick(float delta) const {
     }
     const float progress = (abs_delta - mid_pixels) / (max_pixels - mid_pixels);
     return sign * (mid_ratio + ((1.0f - mid_ratio) * progress));
-}
-
-float NativeRecoilCompensation::target_direction_yield(
-    float recoil_stick,
-    float target_error_px,
-    float desired_stick_direction,
-    const NativeRecoilInput& input) const {
-    if (!config_.target_direction_yield_enabled) {
-        return recoil_stick;
-    }
-    if (recoil_stick == 0.0f || desired_stick_direction == 0.0f) {
-        return recoil_stick;
-    }
-    if (input.target_observed_at_seconds <= 0.0 ||
-        input.now_seconds - input.target_observed_at_seconds > kTargetDirectionYieldStaleSeconds) {
-        return recoil_stick;
-    }
-    if (same_sign(recoil_stick, desired_stick_direction)) {
-        return recoil_stick;
-    }
-
-    const float error_px = std::fabs(target_error_px);
-    if (error_px <= kTargetDirectionYieldSoftErrorPx) {
-        return recoil_stick;
-    }
-    if (error_px >= kTargetDirectionYieldFullErrorPx) {
-        return 0.0f;
-    }
-    const float yield_window = kTargetDirectionYieldFullErrorPx - kTargetDirectionYieldSoftErrorPx;
-    const float keep_scale = (kTargetDirectionYieldFullErrorPx - error_px) / yield_window;
-    return recoil_stick * clamp_unit(keep_scale);
 }
 
 }  // namespace controller_native

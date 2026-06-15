@@ -124,6 +124,14 @@ The default native controller order is:
 4. native recoil compensation
 5. ViGEm output
 
+Native tracker/controller/recoil contract:
+
+- vision/tracker state feeds controller assistance before recoil
+- recoil is the final feed-forward playback stage
+- recoil does not consume target dx/dy, tracker state, target freshness, or controller correction errors
+- tracker receives component-aware final camera motion for ego projection while `manual`, `assist`, `dynamics`, `recoil`, and `final` output components remain separately attributed
+- run `scripts\verify\native_pipeline_contract.bat` after native controller/tracker/recoil changes
+
 The Python fallback plugin chain created in `GamepadController.__init__` is:
 
 1. `AIAimPlugin`
@@ -221,6 +229,7 @@ The current native host keeps the integration conservative:
 
 - if `RECOIL_PROFILE_DIR` and `RECOIL_RECOGNIZER_STATE_PATH` are both available, the host enables profile-driven recoil
 - if those paths are not configured, the host keeps the fixed fallback configured under `[gamepad.recoil]` (default `feedback_amount = 0.20`)
+- recoil playback is independent from target/tracker/controller correction state; tune controller assistance and recoil profile playback separately
 - low `confidence` is kept as a diagnostic for magazine-curve profiles, but it does not block runtime use by itself
 - magazine profile quality findings such as low support, recovery tail, or horizontal disagreement are audit/status diagnostics only; if the weapon id, stance, and aim mode match, runtime trial playback uses the profile
 - missing calibration no longer blocks magazine-curve trial playback, but logs/status will mark that ready mode as uncalibrated
@@ -321,6 +330,9 @@ Current gamepad entry points:
   - Python-hosted native-vision debug runtime
   - enables `--vision-debug`
   - defaults `VISION_CAPTURE_FPS=140`
+- `scripts\verify\native_pipeline_contract.bat`
+  - pre-acceptance native pipeline contract check
+  - use before live acceptance when changing native tracker/controller/recoil behavior
 
 The default production gamepad path is now full native C++:
 

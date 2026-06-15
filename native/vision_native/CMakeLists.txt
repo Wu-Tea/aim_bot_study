@@ -124,20 +124,48 @@ add_executable(vision_native_debug
 target_link_libraries(vision_native_debug PRIVATE vision_native_core)
 
 # Native runtime source layout: native/runtime_app and native/controller_native.
+set(FPS_TRACKER_PACKAGE_SOURCES
+    ../fps_2d_tracker_package/src/association.cpp
+    ../fps_2d_tracker_package/src/ego_motion_buffer.cpp
+    ../fps_2d_tracker_package/src/kalman_cv2d.cpp
+    ../fps_2d_tracker_package/src/projection_model.cpp
+    ../fps_2d_tracker_package/src/recoil_visual_model.cpp
+    ../fps_2d_tracker_package/src/stick_projector.cpp
+    ../fps_2d_tracker_package/src/target_tracker.cpp
+)
+
 add_executable(cod_native_runtime
     ../runtime_app/main.cpp
     ../runtime_app/runtime_loop.cpp
     ../runtime_app/perf_logger.cpp
     ../runtime_app/aim_perf_file_logger.cpp
     ../runtime_app/downward_diagnostics.cpp
+    ../runtime_app/native_replay_writer.cpp
+    ../runtime_app/native_replay_runner.cpp
+    ../replay_native/replay_reader.cpp
+    ../replay_native/replay_metrics.cpp
+    ../tracking_native/association.cpp
+    ../tracking_native/ego_motion_buffer.cpp
+    ../tracking_native/projection_model.cpp
+    ../tracking_native/tracker_authority.cpp
+    ../tracking_native/kalman_tracker.cpp
+    ../tracking_native/fps_reference_tracker.cpp
+    ../tracking_native/tracker_backend.cpp
+    ../tracking_native/legacy_projection_tracker.cpp
+    ${FPS_TRACKER_PACKAGE_SOURCES}
     ../controller_native/runtime_config.cpp
     ../controller_native/target_tracker.cpp
     ../controller_native/ai_aim.cpp
+    ../controller_native/bodylock_policy.cpp
     ../controller_native/aim_assist_dynamics.cpp
     ../controller_native/recoil_profile.cpp
     ../controller_native/recoil_calibration.cpp
     ../controller_native/recoil_compensation.cpp
+    ../recoil_native/recoil_compensation.cpp
+    ../recoil_native/recoil_visual_model.cpp
     ../controller_native/weapon_recognizer.cpp
+    ../controller_native/output_mixer.cpp
+    ../controller_native/controller_pipeline.cpp
     ../controller_native/native_gamepad_controller.cpp
     ../controller_native/virtual_gamepad.cpp
     ../controller_native/xinput_reader.cpp
@@ -147,6 +175,7 @@ add_executable(cod_native_runtime
 target_include_directories(cod_native_runtime PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/..
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fps_2d_tracker_package/include
 )
 
 target_compile_definitions(cod_native_runtime
@@ -189,19 +218,40 @@ endif()
 
 add_executable(cod_native_controller_tests
     ../controller_native/controller_behavior_tests.cpp
+    ../runtime_app/aim_perf_file_logger.cpp
+    ../runtime_app/native_replay_writer.cpp
+    ../runtime_app/native_replay_runner.cpp
+    ../replay_native/replay_reader.cpp
+    ../replay_native/replay_metrics.cpp
+    ../tracking_native/association.cpp
+    ../tracking_native/ego_motion_buffer.cpp
+    ../tracking_native/projection_model.cpp
+    ../tracking_native/tracker_authority.cpp
+    ../tracking_native/kalman_tracker.cpp
+    ../tracking_native/fps_reference_tracker.cpp
+    ../tracking_native/tracker_backend.cpp
+    ../tracking_native/legacy_projection_tracker.cpp
+    ${FPS_TRACKER_PACKAGE_SOURCES}
+    ../controller_native/runtime_config.cpp
     ../controller_native/target_tracker.cpp
     ../controller_native/ai_aim.cpp
+    ../controller_native/bodylock_policy.cpp
     ../controller_native/aim_assist_dynamics.cpp
     ../controller_native/recoil_profile.cpp
     ../controller_native/recoil_calibration.cpp
     ../controller_native/recoil_compensation.cpp
+    ../recoil_native/recoil_compensation.cpp
+    ../recoil_native/recoil_visual_model.cpp
     ../controller_native/weapon_recognizer.cpp
+    ../controller_native/output_mixer.cpp
+    ../controller_native/controller_pipeline.cpp
     ../controller_native/native_gamepad_controller.cpp
 )
 
 target_include_directories(cod_native_controller_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/..
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fps_2d_tracker_package/include
 )
 
 target_compile_definitions(cod_native_controller_tests
@@ -211,6 +261,49 @@ target_compile_definitions(cod_native_controller_tests
 )
 
 target_link_libraries(cod_native_controller_tests PRIVATE
+    gdi32
+    windowsapp
+)
+
+add_executable(cod_native_gamepad_benchmark
+    ../controller_native/cod_native_gamepad_benchmark.cpp
+    ../tracking_native/association.cpp
+    ../tracking_native/ego_motion_buffer.cpp
+    ../tracking_native/projection_model.cpp
+    ../tracking_native/tracker_authority.cpp
+    ../tracking_native/kalman_tracker.cpp
+    ../tracking_native/fps_reference_tracker.cpp
+    ../tracking_native/tracker_backend.cpp
+    ../tracking_native/legacy_projection_tracker.cpp
+    ${FPS_TRACKER_PACKAGE_SOURCES}
+    ../controller_native/runtime_config.cpp
+    ../controller_native/target_tracker.cpp
+    ../controller_native/ai_aim.cpp
+    ../controller_native/bodylock_policy.cpp
+    ../controller_native/aim_assist_dynamics.cpp
+    ../controller_native/recoil_profile.cpp
+    ../controller_native/recoil_calibration.cpp
+    ../controller_native/recoil_compensation.cpp
+    ../recoil_native/recoil_compensation.cpp
+    ../recoil_native/recoil_visual_model.cpp
+    ../controller_native/output_mixer.cpp
+    ../controller_native/controller_pipeline.cpp
+    ../controller_native/native_gamepad_controller.cpp
+)
+
+target_include_directories(cod_native_gamepad_benchmark PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fps_2d_tracker_package/include
+)
+
+target_compile_definitions(cod_native_gamepad_benchmark
+    PRIVATE
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
+)
+
+target_link_libraries(cod_native_gamepad_benchmark PRIVATE
     gdi32
     windowsapp
 )

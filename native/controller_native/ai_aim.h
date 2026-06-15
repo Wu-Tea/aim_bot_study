@@ -1,5 +1,6 @@
 #pragma once
 
+#include "bodylock_policy.h"
 #include "runtime_config.h"
 
 #include <string>
@@ -12,6 +13,7 @@ struct NativeAiAimInput {
     bool has_target = false;
     bool aim_authority = false;
     bool ads_snap_active = true;
+    bool fire_active = false;
     float ads_snap_progress_ratio = 0.0f;
     float ads_snap_remaining_seconds = 0.0f;
     float dx = 0.0f;
@@ -55,9 +57,6 @@ private:
     std::pair<float, float> body_lock_motion_lead_delta(const NativeAiAimInput& input) const;
     void observe_body_lock_motion(const NativeAiAimInput& input);
     void reset_motion_tracking();
-    void reset_motion_consistency();
-    void update_motion_consistency(float velocity_x, float velocity_y);
-    bool has_sustained_body_lock_motion() const;
     float body_lock_lateral_motion_delta(float dx) const;
     float body_lock_axis_release_threshold(bool y_axis) const;
     float body_lock_axis_release_tail_scale(bool y_axis) const;
@@ -90,6 +89,10 @@ private:
         float planned_ai,
         float manual_input,
         float error_radius) const;
+    float apply_body_lock_manual_escape_floor(
+        float assist,
+        float manual_input,
+        float lock_confidence) const;
     std::pair<float, float> resolve_ads_snap_manual(
         float manual_x,
         float manual_y,
@@ -134,19 +137,7 @@ private:
     float last_body_lock_error_y_ = 0.0f;
     int body_lock_zero_cross_hold_x_ = 0;
     int body_lock_zero_cross_hold_y_ = 0;
-    int motion_frames_ = 0;
-    bool has_motion_reference_ = false;
-    float motion_box_center_x_ = 0.0f;
-    float motion_box_center_y_ = 0.0f;
-    float motion_point_x_ = 0.0f;
-    float motion_point_y_ = 0.0f;
-    float motion_velocity_x_ = 0.0f;
-    float motion_velocity_y_ = 0.0f;
-    double motion_timestamp_seconds_ = 0.0;
-    int motion_consistent_frames_ = 0;
-    bool has_motion_direction_ = false;
-    float motion_direction_x_ = 0.0f;
-    float motion_direction_y_ = 0.0f;
+    BodyLockMotionPolicy body_lock_motion_;
 };
 
 }  // namespace controller_native

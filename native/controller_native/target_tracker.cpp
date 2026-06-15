@@ -1,7 +1,8 @@
 #include "target_tracker.h"
 
+#include "../tracking_native/tracker_authority.h"
+
 #include <algorithm>
-#include <cctype>
 #include <cmath>
 #include <utility>
 
@@ -11,13 +12,6 @@ namespace {
 
 float clamp_unit(float value) {
     return std::max(0.0f, std::min(1.0f, value));
-}
-
-std::string normalized_tier(std::string value) {
-    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
-        return static_cast<char>(std::tolower(ch));
-    });
-    return value;
 }
 
 }  // namespace
@@ -46,8 +40,8 @@ void NativeGamepadTargetTracker::update_observation(
     const bool had_previous = observed_at_seconds_ > 0.0;
     if (had_previous &&
         observation.observed_at_seconds > observed_at_seconds_ &&
-        is_strong_observation(target_tier_) &&
-        is_strong_observation(observation.target_tier)) {
+        tracking_native::is_strong_observation(target_tier_) &&
+        tracking_native::is_strong_observation(observation.target_tier)) {
         const double dt = observation.observed_at_seconds - observed_at_seconds_;
         const float raw_vx = static_cast<float>(
             (observation.dx - observed_dx_ + camera_dx_since_observation_) / dt);
@@ -56,7 +50,9 @@ void NativeGamepadTargetTracker::update_observation(
         const float alpha = clamp_unit(config_.velocity_lowpass_alpha);
         target_velocity_x_ = clamp_velocity((target_velocity_x_ * alpha) + (raw_vx * (1.0f - alpha)));
         target_velocity_y_ = clamp_velocity((target_velocity_y_ * alpha) + (raw_vy * (1.0f - alpha)));
-    } else if (had_previous && is_continuity_observation(observation.target_tier)) {
+    } else if (
+        had_previous &&
+        tracking_native::is_weak_continuity_observation(observation.target_tier)) {
         decay_velocity_for_weak_observation();
     } else {
         target_velocity_x_ = 0.0f;
@@ -106,29 +102,6 @@ std::optional<NativeTargetProjection> NativeGamepadTargetTracker::project(
         camera_dy_since_observation_;
     projection.observed_at_seconds = observed_at_seconds_;
     return projection;
-}
-
-bool NativeGamepadTargetTracker::is_strong_observation(const std::string& target_tier) const {
-    const std::string tier = normalized_tier(target_tier);
-    return tier != "associated_weak" &&
-        tier != "weak" &&
-        tier != "weak_association" &&
-        tier != "weak_observed" &&
-        tier != "cue_hold" &&
-        tier != "predicted" &&
-        tier != "projected" &&
-        tier != "projection" &&
-        tier != "none" &&
-        tier != "lost";
-}
-
-bool NativeGamepadTargetTracker::is_continuity_observation(const std::string& target_tier) const {
-    const std::string tier = normalized_tier(target_tier);
-    return tier == "associated_weak" ||
-        tier == "weak" ||
-        tier == "weak_association" ||
-        tier == "weak_observed" ||
-        tier == "cue_hold";
 }
 
 float NativeGamepadTargetTracker::clamp_velocity(float value) const {

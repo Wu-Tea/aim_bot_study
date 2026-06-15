@@ -37,8 +37,6 @@ public:
     std::optional<NativeTargetProjection> project(double timestamp_seconds) const;
 
 private:
-    bool is_strong_observation(const std::string& target_tier) const;
-    bool is_continuity_observation(const std::string& target_tier) const;
     float clamp_velocity(float value) const;
     void decay_velocity_for_weak_observation();
 

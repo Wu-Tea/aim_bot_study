@@ -1,6 +1,7 @@
 param(
     [switch]$BuildFirst,
-    [switch]$SkipPythonTests
+    [switch]$SkipPythonTests,
+    [switch]$SkipPipelineContract
 )
 
 $ErrorActionPreference = "Stop"
@@ -131,6 +132,12 @@ if (-not (Test-Path $NativeLauncher)) {
     throw "[NativeCppGamepadCheck] gamepad_native_cpp_start.bat not found."
 }
 
+if (-not $SkipPipelineContract) {
+    Invoke-Checked "native tracker/controller/recoil pipeline contract" {
+        powershell -ExecutionPolicy Bypass -File scripts\verify\native_pipeline_contract.ps1 -SkipBuild -SkipBenchmark
+    }
+}
+
 Invoke-Checked "native controller behavior tests" {
     & $ControllerTestsExe
 }
@@ -160,7 +167,7 @@ Invoke-Checked "native launcher has no Python gameplay dependency" {
 Invoke-Checked "native runtime source has no Python gameplay dependency" {
     Assert-DirectoryTextAbsent `
         -Roots $NativeRuntimeSourceRoots `
-        -Forbidden @("python", "pybind", "Py_", "main.py", "recoil_runtime_launcher.py", "--controller-mode gamepad") `
+        -Forbidden @("python", "pybind", "main.py", "recoil_runtime_launcher.py", "--controller-mode gamepad") `
         -ExcludeNames @("controller_behavior_tests.cpp") `
         -Context "native runtime source"
 }

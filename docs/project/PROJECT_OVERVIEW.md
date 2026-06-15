@@ -289,8 +289,23 @@ Current recoil behavior from the latest handoff:
 Use focused suites before full discovery because some live/hardware paths are environment-sensitive.
 
 ```powershell
+scripts\verify\native_pipeline_contract.bat
+```
+
+Use the native pipeline contract before live acceptance when changing
+`vision -> tracker -> controller -> recoil`. It rejects known recoil/controller
+coupling regressions, runs native controller behavior tests, runs a one-tick
+runtime smoke, verifies `tracker_motion=component_aware_final`, and runs a
+short native gamepad benchmark smoke.
+
+For broader native runtime launcher/scaffold checks:
+
+```powershell
 powershell -ExecutionPolicy Bypass -File tools\check_native_cpp_gamepad_runtime.ps1 -BuildFirst
 ```
+
+This broader check calls the core pipeline contract by default; pass
+`-SkipPipelineContract` only when isolating launcher/scaffold failures.
 
 ```powershell
 py -3 -B -m unittest tests.test_main_cli tests.test_startup_scripts tests.test_config_loader -v

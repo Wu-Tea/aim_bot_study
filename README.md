@@ -66,12 +66,22 @@ Build the native module and runtime executable with:
 Useful smoke and debug scripts:
 
 ```powershell
+.\scripts\verify\native_pipeline_contract.bat
 .\tools\check_native_cpp_gamepad_runtime.ps1 -BuildFirst
 .\tools\run_native_vision_smoke.ps1 -BuildFirst
 .\tools\run_native_vision_infer_smoke.ps1 -BuildFirst
 .\tools\run_native_vision_capture_smoke.ps1 -BuildFirst
 .\tools\run_native_vision_debug.ps1 -BuildFirst
 ```
+
+Use `scripts\verify\native_pipeline_contract.bat` before live acceptance when
+changing the native `vision -> tracker -> controller -> recoil` path. It checks
+known recoil/controller coupling regressions, runs native controller tests,
+runs a one-tick runtime smoke, verifies `tracker_motion=component_aware_final`,
+and runs a short native gamepad benchmark smoke. The older
+`tools\check_native_cpp_gamepad_runtime.ps1` remains useful for broader runtime
+launcher/scaffold checks and now calls the core pipeline contract unless
+`-SkipPipelineContract` is supplied.
 
 ## Startup scripts
 

@@ -256,7 +256,7 @@ Do not commit local-only secrets, private configs, generated logs, or heavyweigh
 - Modify: `native/vision_native/CMakeLists.txt`
 - Modify: `native/controller_native/controller_behavior_tests.cpp`
 
-- [ ] **Step 1: Add native time types**
+- [x] **Step 1: Add native time types**
 
 Create `native/common_native/time_types.h` with explicit runtime timestamp wrappers:
 
@@ -284,7 +284,7 @@ inline DurationSeconds operator-(TimeSeconds newer, TimeSeconds older) {
 }  // namespace common_native
 ```
 
-- [ ] **Step 2: Add screen geometry types**
+- [x] **Step 2: Add screen geometry types**
 
 Create `native/common_native/screen_geometry.h`:
 
@@ -313,7 +313,7 @@ struct ScreenSize {
 }  // namespace common_native
 ```
 
-- [ ] **Step 3: Add stick component types**
+- [x] **Step 3: Add stick component types**
 
 Create `native/common_native/stick_types.h`:
 
@@ -338,7 +338,7 @@ struct StickComponents {
 }  // namespace common_native
 ```
 
-- [ ] **Step 4: Add authority enums**
+- [x] **Step 4: Add authority enums**
 
 Create `native/common_native/authority_types.h`:
 
@@ -363,7 +363,7 @@ enum class FireAuthority : std::uint8_t {
 }  // namespace common_native
 ```
 
-- [ ] **Step 5: Add a compile-only test**
+- [x] **Step 5: Add a compile-only test**
 
 Add a small test in `native/controller_native/controller_behavior_tests.cpp`:
 
@@ -392,7 +392,7 @@ bool test_common_native_types_compile() {
 
 Register the test in the existing test list using the same pattern already used in the file.
 
-- [ ] **Step 6: Run verification**
+- [x] **Step 6: Run verification**
 
 Run:
 
@@ -407,7 +407,7 @@ new compile-only test passes
 no controller behavior changes
 ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```powershell
 git add native/common_native native/vision_native/CMakeLists.txt native/controller_native/controller_behavior_tests.cpp
@@ -425,7 +425,7 @@ git commit -m "refactor: add shared native runtime contract types"
 - Modify: `native/controller_native/controller_behavior_tests.cpp`
 - Modify: `native/vision_native/CMakeLists.txt`
 
-- [ ] **Step 1: Add tracker contract**
+- [x] **Step 1: Add tracker contract**
 
 Create `native/tracking_native/tracker_contract.h`:
 
@@ -480,7 +480,7 @@ struct TrackerSnapshot {
 }  // namespace tracking_native
 ```
 
-- [ ] **Step 2: Add legacy adapter wrapper**
+- [x] **Step 2: Add legacy adapter wrapper**
 
 Create `native/tracking_native/legacy_projection_tracker.h`:
 
@@ -599,7 +599,7 @@ TrackerSnapshot LegacyProjectionTracker::query(const TrackerQuery& query) const 
 }  // namespace tracking_native
 ```
 
-- [ ] **Step 3: Add adapter parity tests**
+- [x] **Step 3: Add adapter parity tests**
 
 Add tests that instantiate both `NativeGamepadTargetTracker` and `LegacyProjectionTracker` with the same config, then compare projection results after the same observation/control sample.
 
@@ -611,7 +611,7 @@ test_legacy_projection_tracker_expires_after_max_age
 test_legacy_projection_tracker_empty_observation_clears_snapshot
 ```
 
-- [ ] **Step 4: Run verification**
+- [x] **Step 4: Run verification**
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\build_native_vision.ps1
@@ -625,7 +625,7 @@ existing controller behavior tests pass
 no live controller integration changed yet
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add native/tracking_native native/controller_native/controller_behavior_tests.cpp native/vision_native/CMakeLists.txt
@@ -644,7 +644,7 @@ git commit -m "refactor: add legacy tracker contract adapter"
 - Modify: `native/controller_native/native_gamepad_controller.h`
 - Modify: `native/controller_native/controller_behavior_tests.cpp`
 
-- [ ] **Step 1: Define tick context**
+- [x] **Step 1: Define tick context**
 
 Create a tick context type containing physical input, current vision/tracker snapshot, recoil state, config-derived state, and timestamps. The first version should be a passive struct and should not change output behavior.
 
@@ -661,7 +661,7 @@ fire state
 weapon/recoil state
 ```
 
-- [ ] **Step 2: Define output components**
+- [x] **Step 2: Define output components**
 
 Create an output component struct:
 
@@ -676,7 +676,7 @@ fire button state
 
 This type should become the source for `TrackerControlSample` later.
 
-- [ ] **Step 3: Move build-output stages behind named functions**
+- [x] **Step 3: Move build-output stages behind named functions**
 
 Split the current `NativeGamepadController::build_output` order into explicit stage calls:
 
@@ -693,7 +693,7 @@ record tracker sample
 
 The function order must remain unchanged in this wave.
 
-- [ ] **Step 4: Add stage-order test**
+- [x] **Step 4: Add stage-order test**
 
 Add a controller behavior test that proves tracker recording still happens from the same pre-recoil motion component as the current baseline.
 
@@ -704,13 +704,13 @@ recoil-only output does not move tracker projection in default mode
 manual/assist movement still moves tracker projection
 ```
 
-- [ ] **Step 5: Run verification**
+- [x] **Step 5: Run verification**
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\build_native_vision.ps1
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add native/controller_native native/vision_native/CMakeLists.txt
@@ -727,7 +727,7 @@ git commit -m "refactor: extract native controller pipeline stages"
 - Modify: `native/controller_native/ai_aim.cpp`
 - Modify: `native/controller_native/controller_behavior_tests.cpp`
 
-- [ ] **Step 1: Move target-tier classification into one helper**
+- [x] **Step 1: Move target-tier classification into one helper**
 
 Create a helper that maps target tier strings to:
 
@@ -738,7 +738,7 @@ projected/predicted
 lost/none
 ```
 
-- [ ] **Step 2: Replace duplicated tier checks**
+- [x] **Step 2: Replace duplicated tier checks**
 
 Replace duplicated checks in:
 
@@ -748,7 +748,7 @@ native_gamepad_controller.cpp
 ai_aim.cpp if it parses the same strings
 ```
 
-- [ ] **Step 3: Route controller decisions through authority**
+- [x] **Step 3: Route controller decisions through authority**
 
 Controller code should read:
 
@@ -759,7 +759,7 @@ FireAuthority for auto-fire/fire gate
 
 It should not decide fire authority from tier strings directly.
 
-- [ ] **Step 4: Add authority tests**
+- [x] **Step 4: Add authority tests**
 
 Required tests:
 
@@ -771,7 +771,7 @@ missed target clears fire authority
 auto-fire ignores projected-only snapshots
 ```
 
-- [ ] **Step 5: Run verification and commit**
+- [x] **Step 5: Run verification and commit**
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\build_native_vision.ps1
@@ -797,7 +797,7 @@ git commit -m "refactor: centralize tracker authority decisions"
 - Modify: `config.toml`
 - Modify: `native/controller_native/controller_behavior_tests.cpp`
 
-- [ ] **Step 1: Add backend enum**
+- [x] **Step 1: Add backend enum**
 
 Add config support for:
 
@@ -812,7 +812,7 @@ Default must remain:
 legacy_projection
 ```
 
-- [ ] **Step 2: Add backend interface**
+- [x] **Step 2: Add backend interface**
 
 The interface should expose:
 
@@ -824,11 +824,11 @@ query(TrackerQuery) -> TrackerSnapshot
 debug_tracks()
 ```
 
-- [ ] **Step 3: Keep legacy backend as default implementation**
+- [x] **Step 3: Keep legacy backend as default implementation**
 
 Wrap the current adapter as the default backend.
 
-- [ ] **Step 4: Import only low-risk reference components first**
+- [x] **Step 4: Import only low-risk reference components first**
 
 Import or adapt:
 
@@ -840,11 +840,11 @@ authority type ideas
 
 Do not import full `fps::TargetTracker` in this step.
 
-- [ ] **Step 5: Add experimental Kalman backend behind config**
+- [x] **Step 5: Add experimental Kalman backend behind config**
 
 The experimental backend can use package ideas, but it must be off by default.
 
-- [ ] **Step 6: Add backend parity tests**
+- [x] **Step 6: Add backend parity tests**
 
 Required tests:
 
@@ -855,7 +855,7 @@ experimental backend can be constructed
 legacy backend behavior remains unchanged under default config
 ```
 
-- [ ] **Step 7: Run verification and commit**
+- [x] **Step 7: Run verification and commit**
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\build_native_vision.ps1
@@ -875,11 +875,11 @@ git commit -m "refactor: add tracker backend interface"
 - Modify: `native/controller_native/controller_behavior_tests.cpp`
 - Modify: `native/vision_native/CMakeLists.txt`
 
-- [ ] **Step 1: Move recoil compensation behind explicit policy**
+- [x] **Step 1: Move recoil compensation behind explicit policy**
 
 The recoil policy should output a recoil stick component, not directly mutate the same output state that tracker consumes.
 
-- [ ] **Step 2: Add disabled recoil visual model**
+- [x] **Step 2: Add disabled recoil visual model**
 
 Default behavior:
 
@@ -889,7 +889,7 @@ visual displacement returns zero
 tracker ego-motion remains pre-recoil/default mode
 ```
 
-- [ ] **Step 3: Add recoil component tests**
+- [x] **Step 3: Add recoil component tests**
 
 Required tests:
 
@@ -900,7 +900,7 @@ tracker default ego-motion excludes anti-recoil component
 experimental final-stick mode requires explicit config enable
 ```
 
-- [ ] **Step 4: Run verification and commit**
+- [x] **Step 4: Run verification and commit**
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\build_native_vision.ps1
@@ -924,7 +924,7 @@ git commit -m "refactor: split recoil compensation from tracker motion"
 - Modify: `native/runtime_app/runtime_loop.cpp`
 - Modify: `native/vision_native/CMakeLists.txt`
 
-- [ ] **Step 1: Define replay schema**
+- [x] **Step 1: Define replay schema**
 
 Replay frames should include:
 
@@ -947,7 +947,7 @@ weapon/recoil state
 stage timing
 ```
 
-- [ ] **Step 2: Extend aim-only perf logs**
+- [x] **Step 2: Extend aim-only perf logs**
 
 Add tracker/controller fields without making per-frame logging mandatory in normal runs.
 
@@ -961,7 +961,9 @@ experimental Kalman backend
 detector-only baseline
 ```
 
-- [ ] **Step 4: Add benchmark metrics**
+Status: a compile-time runner entry point exists; full backend replay comparison remains pending.
+
+- [x] **Step 4: Add benchmark metrics**
 
 Required metrics:
 
@@ -977,7 +979,7 @@ stale fire violations
 CPU time per tick
 ```
 
-- [ ] **Step 5: Run verification and commit**
+- [x] **Step 5: Run verification and commit**
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\build_native_vision.ps1
@@ -1018,7 +1020,7 @@ snap stick component
 snap debug fields
 ```
 
-- [ ] **Step 2: Extract bodylock policy**
+- [x] **Step 2: Extract bodylock policy**
 
 Bodylock should take the same tracker snapshot, plus short-term body motion if still needed.
 
@@ -1029,6 +1031,8 @@ NativeAiAim::observe_body_lock_motion
 motion_velocity_x_
 motion_velocity_y_
 ```
+
+Status: short-horizon body-lock motion tracking and sustained-motion lead moved into `BodyLockMotionPolicy`; full bodylock target selection remains in `NativeAiAim`.
 
 - [ ] **Step 3: Extract manual intent policy**
 
@@ -1052,7 +1056,7 @@ manual intent does not reject it
 projection age cap is satisfied
 ```
 
-- [ ] **Step 5: Add sustained-motion follow boost**
+- [x] **Step 5: Add sustained-motion follow boost**
 
 This is the optimization for targets that keep moving in one direction. The tracker should expose velocity and consistency; controller policy should decide how much extra follow speed or one-tick lead is allowed.
 
@@ -1088,7 +1092,7 @@ lead never grants fire authority
 lead affects aim command only, not target identity
 ```
 
-- [ ] **Step 6: Add feel-policy tests**
+- [x] **Step 6: Add feel-policy tests**
 
 Required tests:
 
@@ -1106,7 +1110,7 @@ direction reversal clears boost within one controller tick
 manual override disables sustained-motion boost
 ```
 
-- [ ] **Step 7: Run verification and commit**
+- [x] **Step 7: Run verification and commit**
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\build_native_vision.ps1
@@ -1162,7 +1166,7 @@ tracker stops receiving samples after shutdown
 perf logger closes file cleanly
 ```
 
-- [ ] **Step 4: Update docs**
+- [x] **Step 4: Update docs**
 
 Update `docs/project/NATIVE_CPP_RUNTIME.md` with:
 
@@ -1175,7 +1179,7 @@ replay benchmark workflow
 rollback checkpoint
 ```
 
-- [ ] **Step 5: Run verification and commit**
+- [x] **Step 5: Run verification and commit**
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\build_native_vision.ps1

@@ -124,6 +124,9 @@ void apply_runtime_gamepad_value(
         config.xinput_auto_detect = parse_bool_value(value, config.xinput_auto_detect);
     } else if (key == "xinput_user_index") {
         config.xinput_user_index = parse_uint_value(value, config.xinput_user_index);
+    } else if (key == "tracker_backend") {
+        config.tracker_backend =
+            tracking_native::parse_tracker_backend_kind(parse_string_value(value));
     }
 }
 
@@ -203,6 +206,11 @@ void apply_gamepad_ai_aim_value(
         config.ads_snap_max_ai_force = parse_float_value(value, config.ads_snap_max_ai_force);
     } else if (key == "ads_snap_max_ai_force_y") {
         config.ads_snap_max_ai_force_y = parse_float_value(value, config.ads_snap_max_ai_force_y);
+    } else if (key == "ads_snap_fov_scale") {
+        config.ads_snap_fov_scale = parse_float_value(value, config.ads_snap_fov_scale);
+    } else if (key == "ads_snap_fov_transition_ms") {
+        config.ads_snap_fov_transition_ms =
+            parse_float_value(value, config.ads_snap_fov_transition_ms);
     } else if (key == "ads_snap_max_target_dy_px") {
         config.ads_snap_max_target_dy_px =
             parse_float_value(value, config.ads_snap_max_target_dy_px);
@@ -268,6 +276,12 @@ void apply_gamepad_ai_aim_value(
     } else if (key == "body_lock_manual_overlap_scale") {
         config.body_lock_manual_overlap_scale =
             parse_float_value(value, config.body_lock_manual_overlap_scale);
+    } else if (key == "body_lock_manual_escape_input_threshold") {
+        config.body_lock_manual_escape_input_threshold =
+            parse_float_value(value, config.body_lock_manual_escape_input_threshold);
+    } else if (key == "body_lock_manual_escape_preservation") {
+        config.body_lock_manual_escape_preservation =
+            parse_float_value(value, config.body_lock_manual_escape_preservation);
     } else if (key == "body_lock_near_lock_error_px") {
         config.body_lock_near_lock_error_px =
             parse_float_value(value, config.body_lock_near_lock_error_px);
@@ -362,9 +376,6 @@ void apply_gamepad_recoil_value(
         config.enabled = parse_bool_value(value, config.enabled);
     } else if (key == "selection_log_enabled") {
         config.selection_log_enabled = parse_bool_value(value, config.selection_log_enabled);
-    } else if (key == "target_direction_yield_enabled") {
-        config.target_direction_yield_enabled =
-            parse_bool_value(value, config.target_direction_yield_enabled);
     } else if (key == "profile_despike_enabled") {
         config.profile_despike_enabled = parse_bool_value(value, config.profile_despike_enabled);
     } else if (key == "native_recognizer_enabled") {
@@ -409,6 +420,16 @@ void apply_gamepad_recoil_value(
 }
 
 void apply_recoil_environment_overrides(GamepadRecoilConfig& config) {
+    if (const char* enabled = std::getenv("ENABLE_RECOIL_RUNTIME")) {
+        if (enabled[0] != '\0') {
+            config.enabled = parse_bool_value(enabled, config.enabled);
+        }
+    }
+    if (const char* enabled = std::getenv("RECOIL_ENABLED")) {
+        if (enabled[0] != '\0') {
+            config.enabled = parse_bool_value(enabled, config.enabled);
+        }
+    }
     if (const char* game = std::getenv("RECOIL_GAME")) {
         if (game[0] != '\0') {
             config.recognizer_game = game;
@@ -454,6 +475,12 @@ void apply_recoil_environment_overrides(GamepadRecoilConfig& config) {
         if (recognizer_state_path[0] != '\0') {
             config.recognizer_state_path = recognizer_state_path;
         }
+    }
+}
+
+void apply_recoil_runtime_defaults(GamepadRecoilConfig& config) {
+    if (config.recognizer_state_path.empty()) {
+        config.recognizer_state_path = "artifacts/recoil_app/current_weapon.json";
     }
 }
 
@@ -520,6 +547,10 @@ RuntimeConfig load_runtime_config(const std::filesystem::path& path) {
         : path;
     std::ifstream input(config_path);
     if (!input) {
+        apply_recoil_runtime_defaults(config.gamepad.recoil);
+        apply_vision_environment_overrides(config.vision);
+        apply_recoil_environment_overrides(config.gamepad.recoil);
+        apply_gamepad_environment_overrides(config.gamepad);
         return config;
     }
 
@@ -544,6 +575,7 @@ RuntimeConfig load_runtime_config(const std::filesystem::path& path) {
         apply_value(config, section, key, value);
     }
 
+    apply_recoil_runtime_defaults(config.gamepad.recoil);
     apply_vision_environment_overrides(config.vision);
     apply_recoil_environment_overrides(config.gamepad.recoil);
     apply_gamepad_environment_overrides(config.gamepad);

@@ -1,6 +1,6 @@
 # Agent Session Log Index
 
-Last updated: 2026-06-04T23:42:57+08:00
+Last updated: 2026-06-15T16:35:00+08:00
 Updated by: Codex
 Purpose: quick navigation for project continuity. The complete historical log is preserved in `session-log-full.md`.
 
@@ -13,6 +13,15 @@ Purpose: quick navigation for project continuity. The complete historical log is
 
 ## Current Active Thread
 
+- 2026-06-15T16:35:00+08:00 - Native tracker/controller/recoil boundary contract implemented and documented.
+  - User goal: make `vision -> tracker -> controller -> recoil` directly verifiable so controller changes stop breaking recoil feel.
+  - Recoil boundary: native recoil is now final feed-forward playback and must not consume target dx/dy, tracker state, target freshness, or controller correction errors.
+  - Tracker boundary: tracker receives component-aware final camera motion for ego projection while manual/assist/dynamics/recoil/final output components remain separately attributed.
+  - Removed the current runtime contract around recoil target-direction yield and old pre/post recoil tracker toggles; future changes must not reintroduce them without evidence and focused native contract tests.
+  - Added/updated native tests for recoil input isolation, deterministic recoil playback without controller target state, component-aware final tracker motion, and recoil as final independent component.
+  - Added `scripts\verify\native_pipeline_contract.bat` / `.ps1`; the script rejects known recoil/controller coupling patterns, builds native controller/runtime/benchmark targets, runs native controller tests, checks runtime `tracker_motion=component_aware_final`, and runs a short benchmark smoke.
+  - `tools\check_native_cpp_gamepad_runtime.ps1` now calls the core pipeline contract by default; pass `-SkipPipelineContract` only when isolating launcher/scaffold checks.
+  - Verification during this work: `scripts\verify\native_pipeline_contract.bat` PASS and `powershell -ExecutionPolicy Bypass -File tools\check_native_cpp_gamepad_runtime.ps1 -SkipPythonTests` PASS. Live gameplay recoil feel still requires user validation.
 - 2026-06-04T23:42:57+08:00 - Accepted next controller-feel direction: recoil despike plus aim-assist dynamics.
   - User clarified that the shaky feel mainly appears on weapons with recoil enabled, and that current recoil parameters were tuned carefully; the goal is to remove curve spikes/micro-jitter without changing overall recoil strength, timing, or feel.
   - Accepted direction: at recoil profile read/activation time, generate a conservative despiked playback cache from profile deltas. Do not overwrite original recoil files, and do not apply broad low-pass smoothing that would soften the whole weapon curve.
@@ -62,6 +71,12 @@ Purpose: quick navigation for project continuity. The complete historical log is
   - Durable working rule: C++ controller/runtime behavior edits should add or update focused native unit tests in the same change.
   - User hypothesis for current ADS overpull: the issue is likely mixed user input arbitration, not simply ADS force being too high.
   - Next controller-feel direction: keep or increase ADS/body-lock correction strength where useful, but improve mixed-input adjudication so manual input that bends away from the AI correction is partially suppressed while helpful/aligned input is preserved.
+- 2026-06-16T00:58:00+08:00 - Recoil playback feel restored after cumulative-Y regression.
+  - Current structure still keeps recoil independent from tracker/controller target feedback; `NativeRecoilInput` must not grow target dx/dy/freshness fields.
+  - Adapted the dev-branch recoil presentation by using per-sample Y profile delta for uncalibrated playback, instead of cumulative Y from fire start.
+  - Restored live fallback feedback to a constant 30% down-pull in config.
+  - Added native tests for recoil target-input exclusion, deterministic profile playback, constant fallback over 500ms+, and per-sample delta playback.
+  - Verification: `cod_native_controller_tests`, `scripts\verify\native_pipeline_contract.bat`, and `git diff --check` passed.
 
 ## Full Archive Map
 

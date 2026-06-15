@@ -1,5 +1,7 @@
 #pragma once
 
+#include "controller_native/controller_tick_context.h"
+#include "controller_native/virtual_gamepad.h"
 #include "perf_logger.h"
 #include "vision_native/types.h"
 
@@ -20,7 +22,9 @@ public:
         unsigned int tick_count,
         bool aiming,
         const PerfSnapshot& snapshot,
-        const vision_native::VisionResult* result);
+        const vision_native::VisionResult* result,
+        const controller_native::NativeControllerOutputComponents* output_components = nullptr,
+        const controller_native::GamepadOutputState* tracker_motion_output = nullptr);
 
     const std::filesystem::path& log_path() const noexcept;
 

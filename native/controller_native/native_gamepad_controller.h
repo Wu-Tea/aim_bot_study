@@ -2,41 +2,19 @@
 
 #include "aim_assist_dynamics.h"
 #include "ai_aim.h"
-#include "recoil_compensation.h"
+#include "controller_tick_context.h"
 #include "runtime_config.h"
-#include "target_tracker.h"
 #include "virtual_gamepad.h"
 #include "vision_native/types.h"
 #include "xinput_reader.h"
 
+#include "../recoil_native/recoil_compensation.h"
+
 #include <cstdint>
-#include <string>
+#include <memory>
 #include <vector>
 
 namespace controller_native {
-
-struct NativeControllerVisionState {
-    bool has_target = false;
-    bool auto_fire_requested = false;
-    float dx = 0.0f;
-    float dy = 0.0f;
-    float target_x = 0.0f;
-    float target_y = 0.0f;
-    float screen_center_x = 0.0f;
-    float screen_center_y = 0.0f;
-    bool has_body_box = false;
-    float body_x1 = 0.0f;
-    float body_y1 = 0.0f;
-    float body_x2 = 0.0f;
-    float body_y2 = 0.0f;
-    bool aim_authority = false;
-    bool fire_authority = false;
-    std::string target_tier = "none";
-    double observed_at_seconds = 0.0;
-    bool has_tracker_projection = false;
-    float tracker_dx = 0.0f;
-    float tracker_dy = 0.0f;
-};
 
 struct NativeAutoFireCounters {
     std::uint64_t requested = 0;
@@ -64,10 +42,11 @@ public:
     NativeAutoFireCounters auto_fire_counters() const;
     const std::vector<NativeControllerStageTrace>& last_pipeline_traces() const;
     GamepadOutputState last_tracker_motion_output() const;
+    const NativeControllerOutputComponents& last_output_components() const;
 
 private:
     bool is_aiming(const PhysicalGamepadState& physical) const;
-    NativeControllerVisionState vision_state_for_frame(double now_seconds) const;
+    NativeControllerVisionState vision_state_for_frame(double now_seconds);
     bool auto_fire_allowed(
         const NativeControllerVisionState& vision_state,
         bool aiming,
@@ -120,9 +99,16 @@ private:
         GamepadOutputState& output,
         const PhysicalGamepadState& physical,
         bool auto_fire_active,
-        const NativeControllerVisionState& vision_state,
         double now_seconds);
-    void record_target_tracker_output(const GamepadOutputState& output, double now_seconds);
+    void ingest_tracker_observation(
+        const NativeControllerVisionState& state,
+        const std::vector<tracking_native::TrackerDetection>& detections,
+        std::uint64_t frame_id,
+        double capture_time_seconds,
+        double ready_time_seconds);
+    void record_target_tracker_output(
+        const NativeControllerOutputComponents& components,
+        double now_seconds);
     void record_stage_trace(
         const std::string& stage_name,
         float before_right_y,
@@ -133,16 +119,19 @@ private:
     GamepadRuntimeConfig config_;
     NativeAiAim ai_aim_;
     NativeAimAssistDynamics aim_assist_dynamics_;
-    NativeRecoilCompensation recoil_;
-    NativeGamepadTargetTracker target_tracker_;
+    recoil_native::RecoilCompensationPolicy recoil_;
+    std::unique_ptr<tracking_native::TrackerBackend> target_tracker_;
     NativeControllerVisionState latest_vision_state_;
     NativeAutoFireCounters auto_fire_counters_;
     std::vector<NativeControllerStageTrace> last_pipeline_traces_;
     GamepadOutputState last_tracker_motion_output_;
+    NativeControllerOutputComponents last_output_components_;
     bool manual_fire_was_pressed_ = false;
     bool auto_fire_was_active_ = false;
     double manual_takeover_started_at_seconds_ = -1.0;
     double last_output_at_seconds_ = 0.0;
+    std::uint64_t latest_vision_sequence_ = 0;
+    std::uint64_t raw_vision_sequence_consumed_ = 0;
     bool ads_active_ = false;
     double ads_started_at_seconds_ = 0.0;
     int auto_fire_ready_frames_ = 0;
