@@ -93,6 +93,7 @@ private:
         float assist,
         float manual_input,
         float lock_confidence) const;
+    float apply_fire_active_vertical_guard(float assist_y, const NativeAiAimInput& input) const;
     std::pair<float, float> resolve_ads_snap_manual(
         float manual_x,
         float manual_y,

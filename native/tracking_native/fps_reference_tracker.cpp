@@ -208,20 +208,25 @@ fps::VisionFrame FpsReferenceTracker::make_vision_frame(
     frame.mode.zoom = 1.0;
     frame.mode.sensitivity = 1.0;
 
+    // Raw detector boxes are only target candidates after the selector/controller
+    // grants assist authority. A no-target frame with boxes is a processed miss,
+    // not permission for tracker-only aim assist.
     frame.detections.reserve(
-        observation.detections.empty() && observation.has_target
-            ? 1u
-            : observation.detections.size());
+        observation.has_target
+            ? (observation.detections.empty() ? 1u : observation.detections.size())
+            : 0u);
     std::uint64_t fallback_id_base = frame.frameSeq << 32u;
-    for (std::size_t index = 0; index < observation.detections.size(); ++index) {
-        const TrackerDetection& detection = observation.detections[index];
-        if (detection.is_friendly || detection.body_box_px.w <= 1.0f ||
-            detection.body_box_px.h <= 1.0f || detection.confidence <= 0.0f) {
-            continue;
+    if (observation.has_target) {
+        for (std::size_t index = 0; index < observation.detections.size(); ++index) {
+            const TrackerDetection& detection = observation.detections[index];
+            if (detection.is_friendly || detection.body_box_px.w <= 1.0f ||
+                detection.body_box_px.h <= 1.0f || detection.confidence <= 0.0f) {
+                continue;
+            }
+            frame.detections.push_back(make_detection(
+                detection,
+                fallback_id_base | static_cast<std::uint64_t>(index + 1u)));
         }
-        frame.detections.push_back(make_detection(
-            detection,
-            fallback_id_base | static_cast<std::uint64_t>(index + 1u)));
     }
 
     if (frame.detections.empty() && observation.has_target) {

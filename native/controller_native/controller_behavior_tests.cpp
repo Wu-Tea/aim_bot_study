@@ -1616,6 +1616,68 @@ void test_fps_reference_controller_clears_no_update_after_projection_ttl() {
         "fps_reference no-update projection should be destroyed after projection TTL");
 }
 
+void test_fps_reference_controller_ignores_unauthorized_raw_detections() {
+    controller_native::GamepadRuntimeConfig config;
+    config.tracker_backend = tracking_native::TrackerBackendKind::FpsReference;
+    config.ai_aim.max_pixels = 100.0f;
+    config.ai_aim.max_ai_force = 1.0f;
+    config.ai_aim.max_ai_force_y = 1.0f;
+    config.ai_aim.piecewise_mid_pixels = 0.0f;
+    config.ai_aim.piecewise_mid_pixels_y = 0.0f;
+    config.ai_aim.ads_snap_time_to_go_gain = 0.0f;
+    config.ai_aim.target_max_age_ms = 500.0f;
+    config.ai_aim.target_projection_max_age_ms = 200.0f;
+    config.aim_assist_dynamics.enabled = false;
+    config.recoil.enabled = false;
+    controller_native::NativeGamepadController controller(config);
+
+    const std::uint64_t base_ns = now_ns();
+    auto make_rejected_result = [&](std::uint64_t frame_id, std::uint64_t offset_ns) {
+        vision_native::VisionResult result;
+        result.frame_updated = true;
+        result.frame_id = frame_id;
+        result.has_target = false;
+        result.aim_authority = false;
+        result.fire_authority = false;
+        result.screen_center_x = 320.0f;
+        result.screen_center_y = 360.0f;
+        result.target_tier = "none";
+        result.captured_at_ns = base_ns + offset_ns;
+        result.result_at_ns = result.captured_at_ns + 1'000'000ull;
+
+        vision_native::Detection detection;
+        detection.x1 = 290.0f;
+        detection.y1 = 300.0f;
+        detection.x2 = 350.0f;
+        detection.y2 = 500.0f;
+        detection.conf = 0.95f;
+        detection.class_id = 1;
+        result.detections.push_back(detection);
+        result.boxes_seen = 1;
+        return result;
+    };
+
+    controller.submit_vision_result(make_rejected_result(1, 0));
+    controller.submit_vision_result(make_rejected_result(2, 5'000'000ull));
+    const controller_native::GamepadOutputState output =
+        controller.build_output(aiming_physical_state());
+    require_near(
+        output.right_x,
+        0.0f,
+        0.001f,
+        "unauthorized raw detections should not create horizontal aim assist");
+    require_near(
+        output.right_y,
+        0.0f,
+        0.001f,
+        "unauthorized raw detections should not create vertical aim assist");
+    require_near(
+        controller.last_output_components().ai_aim_stick.y,
+        0.0f,
+        0.001f,
+        "tracker must not promote selector-rejected raw detections into body-lock");
+}
+
 void test_controller_prefers_fresh_vision_over_tracker_projection() {
     controller_native::GamepadRuntimeConfig config;
     config.ai_aim.max_pixels = 500.0f;
@@ -3219,7 +3281,7 @@ void test_ai_aim_fire_active_does_not_add_ads_snap_force_cap() {
     input.ads_snap_active = true;
     input.fire_active = true;
     input.dx = 100.0f;
-    input.dy = 100.0f;
+    input.dy = -100.0f;
     input.target_tier = "strong";
     input.observed_at_seconds = 10.0;
     input.now_seconds = 10.01;
@@ -3238,10 +3300,76 @@ void test_ai_aim_fire_active_does_not_add_ads_snap_force_cap() {
         firing_output.assist_y,
         non_firing_output.assist_y,
         0.001f,
-        "fire-active ADS snap y should use the same configured force as non-firing ADS snap");
+        "fire-active ADS snap upward y should use the same configured force as non-firing ADS snap");
 }
 
-void test_body_lock_fire_active_does_not_add_force_cap() {
+void test_ai_aim_fire_active_caps_downward_ads_snap_vertical_stack() {
+    controller_native::GamepadAiAimConfig config;
+    config.max_pixels = 100.0f;
+    config.deadzone_inner = 0.0f;
+    config.deadzone_outer = 0.0f;
+    config.x_deadzone_outer = 0.0f;
+    config.piecewise_mid_pixels = 0.0f;
+    config.piecewise_mid_pixels_y = 0.0f;
+    config.ads_snap_max_ai_force = 4.0f;
+    config.ads_snap_max_ai_force_y = 4.0f;
+    config.ads_snap_max_target_dy_px = 1000.0f;
+    controller_native::NativeAiAim ai_aim(config);
+
+    controller_native::NativeAiAimInput input;
+    input.aiming = true;
+    input.has_target = true;
+    input.aim_authority = true;
+    input.ads_snap_active = true;
+    input.fire_active = true;
+    input.dx = 100.0f;
+    input.dy = 100.0f;
+    input.target_tier = "strong";
+    input.observed_at_seconds = 10.0;
+    input.now_seconds = 10.01;
+
+    const controller_native::NativeAiAimOutput output = ai_aim.compute(input);
+    require_true(output.assist_y < 0.0f, "test setup should request downward ADS snap");
+    require_true(
+        output.assist_y >= -0.1801f,
+        "fire-active downward ADS snap should not stack hard with recoil down-pull");
+}
+
+void test_fire_active_projected_target_suppresses_vertical_aim_assist() {
+    controller_native::GamepadAiAimConfig config;
+    config.max_pixels = 100.0f;
+    config.deadzone_inner = 0.0f;
+    config.deadzone_outer = 0.0f;
+    config.x_deadzone_outer = 0.0f;
+    config.piecewise_mid_pixels = 0.0f;
+    config.piecewise_mid_pixels_y = 0.0f;
+    config.ads_snap_max_ai_force = 2.0f;
+    config.ads_snap_max_ai_force_y = 2.0f;
+    config.ads_snap_max_target_dy_px = 1000.0f;
+    controller_native::NativeAiAim ai_aim(config);
+
+    controller_native::NativeAiAimInput input;
+    input.aiming = true;
+    input.has_target = true;
+    input.aim_authority = true;
+    input.ads_snap_active = true;
+    input.fire_active = true;
+    input.dx = 50.0f;
+    input.dy = 50.0f;
+    input.target_tier = "projected";
+    input.observed_at_seconds = 10.0;
+    input.now_seconds = 10.01;
+
+    const controller_native::NativeAiAimOutput output = ai_aim.compute(input);
+    require_true(std::fabs(output.assist_x) > 0.01f, "projected target can keep horizontal assist");
+    require_near(
+        output.assist_y,
+        0.0f,
+        0.001f,
+        "fire-active projected target should not add vertical aim assist on top of recoil");
+}
+
+void test_body_lock_fire_active_caps_downward_vertical_stack_without_x_force_cap() {
     controller_native::GamepadAiAimConfig config;
     config.max_pixels = 100.0f;
     config.deadzone_inner = 0.0f;
@@ -3283,11 +3411,12 @@ void test_body_lock_fire_active_does_not_add_force_cap() {
         non_firing_output.assist_x,
         0.001f,
         "fire-active body-lock x should use the same configured force as non-firing body-lock");
-    require_near(
-        firing_output.assist_y,
-        non_firing_output.assist_y,
-        0.001f,
-        "fire-active body-lock y should use the same configured force as non-firing body-lock");
+    require_true(
+        non_firing_output.assist_y < -0.18f,
+        "test setup should produce stronger non-firing downward body-lock");
+    require_true(
+        firing_output.assist_y >= -0.1801f,
+        "fire-active downward body-lock should not stack hard with recoil down-pull");
 }
 
 void test_ads_snap_smoothing_interpolates_first_assist_frame() {
@@ -3887,6 +4016,7 @@ int main() {
         test_controller_projects_target_during_no_update_ticks();
         test_controller_expires_projection_before_aim_target_age();
         test_fps_reference_controller_clears_no_update_after_projection_ttl();
+        test_fps_reference_controller_ignores_unauthorized_raw_detections();
         test_controller_tracker_records_component_aware_final_motion();
         test_controller_recoil_ignores_tracker_only_projected_targets();
         test_recoil_visual_model_disabled_returns_zero_displacement();
@@ -3922,7 +4052,9 @@ int main() {
         test_ads_snap_time_to_go_can_override_piecewise_mapping();
         test_ads_snap_clamps_vertical_target_delta_before_mapping();
         test_ai_aim_fire_active_does_not_add_ads_snap_force_cap();
-        test_body_lock_fire_active_does_not_add_force_cap();
+        test_ai_aim_fire_active_caps_downward_ads_snap_vertical_stack();
+        test_fire_active_projected_target_suppresses_vertical_aim_assist();
+        test_body_lock_fire_active_caps_downward_vertical_stack_without_x_force_cap();
         test_ads_snap_smoothing_interpolates_first_assist_frame();
         test_ai_aim_deadzone_suppresses_tiny_target_error();
         test_aim_assist_dynamics_guards_small_recoil_sign_flip();

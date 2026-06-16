@@ -222,6 +222,7 @@ NativeAiAimOutput NativeAiAim::compute(const NativeAiAimInput& input) {
         output.assist_y =
             apply_body_lock_manual_escape_floor(output.assist_y, input.manual_right_y, lock_confidence);
     }
+    output.assist_y = apply_fire_active_vertical_guard(output.assist_y, input);
     output.has_assist = output.assist_x != 0.0f || output.assist_y != 0.0f;
     return output;
 }
@@ -656,6 +657,19 @@ float NativeAiAim::apply_body_lock_manual_escape_floor(
     }
     const float preserved_final = std::copysign(minimum_final_abs, manual_input);
     return preserved_final - manual_input;
+}
+
+float NativeAiAim::apply_fire_active_vertical_guard(
+    float assist_y,
+    const NativeAiAimInput& input) const {
+    if (!input.fire_active || assist_y >= 0.0f) {
+        return assist_y;
+    }
+    if (tracking_native::is_projected_observation(input.target_tier)) {
+        return 0.0f;
+    }
+    constexpr float kFireActiveDownwardAssistCap = 0.18f;
+    return std::max(assist_y, -kFireActiveDownwardAssistCap);
 }
 
 std::pair<float, float> NativeAiAim::resolve_ads_snap_manual(
