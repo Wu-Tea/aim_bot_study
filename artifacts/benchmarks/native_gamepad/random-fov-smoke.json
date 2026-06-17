@@ -1,0 +1,135 @@
+{
+  "run_key": "random-fov-smoke",
+  "config_path": "config.toml",
+  "recoil_state_override": "",
+  "frames_per_case": 20,
+  "dt_ms": 1.000000,
+  "random_fov_ticks": 120,
+  "random_fov_seed": 42,
+  "metadata": {
+    "offline": true,
+    "uses_capture": false,
+    "uses_vigem": false,
+    "recoil_recognizer_state_path": "",
+    "recoil_profile_directory": "artifacts/recoil_profiles",
+    "recoil_profile_amount": 0.300000,
+    "recoil_profile_x_amount": 3.200000,
+    "recoil_feedback_amount": 0.200000,
+    "target_direction_yield_enabled": true
+  },
+  "scenarios": [
+    {
+      "name": "bodylock_edge_escape",
+      "frames": 40,
+      "blocked_frames": 0,
+      "recovery_frames": -1,
+      "x": {
+        "manual_frames": 30,
+        "final_opposes_manual_rate": 0.000000,
+        "final_blocks_manual_rate": 0.000000,
+        "mean_manual_preservation_ratio": 0.480064,
+        "recoil_opposes_manual_rate": 0.000000,
+        "mean_abs_recoil": 0.000000,
+        "mean_abs_final": 0.211576
+      },
+      "y": {
+        "manual_frames": 0,
+        "final_opposes_manual_rate": 0.000000,
+        "final_blocks_manual_rate": 0.000000,
+        "mean_manual_preservation_ratio": 0.000000,
+        "recoil_opposes_manual_rate": 0.000000,
+        "mean_abs_recoil": 0.000000,
+        "mean_abs_final": 0.091647
+      }
+    },
+    {
+      "name": "ads_wrong_input_recovery",
+      "frames": 20,
+      "blocked_frames": 0,
+      "recovery_frames": 0,
+      "x": {
+        "manual_frames": 20,
+        "final_opposes_manual_rate": 0.200000,
+        "final_blocks_manual_rate": 0.200000,
+        "mean_manual_preservation_ratio": 1.050000,
+        "recoil_opposes_manual_rate": 0.000000,
+        "mean_abs_recoil": 0.000000,
+        "mean_abs_final": 0.465255
+      },
+      "y": {
+        "manual_frames": 0,
+        "final_opposes_manual_rate": 0.000000,
+        "final_blocks_manual_rate": 0.000000,
+        "mean_manual_preservation_ratio": 0.000000,
+        "recoil_opposes_manual_rate": 0.000000,
+        "mean_abs_recoil": 0.000000,
+        "mean_abs_final": 0.112663
+      }
+    },
+    {
+      "name": "recoil_manual_conflict",
+      "frames": 20,
+      "blocked_frames": 0,
+      "recovery_frames": -1,
+      "x": {
+        "manual_frames": 20,
+        "final_opposes_manual_rate": 0.000000,
+        "final_blocks_manual_rate": 0.000000,
+        "mean_manual_preservation_ratio": 1.313611,
+        "recoil_opposes_manual_rate": 0.000000,
+        "mean_abs_recoil": 0.000000,
+        "mean_abs_final": 0.105089
+      },
+      "y": {
+        "manual_frames": 20,
+        "final_opposes_manual_rate": 1.000000,
+        "final_blocks_manual_rate": 1.000000,
+        "mean_manual_preservation_ratio": 0.000000,
+        "recoil_opposes_manual_rate": 1.000000,
+        "mean_abs_recoil": 0.183333,
+        "mean_abs_final": 0.043689
+      }
+    },
+    {
+      "name": "tracker_random_fov_100hz",
+      "frames": 120,
+      "blocked_frames": 0,
+      "recovery_frames": -1,
+      "x": {
+        "manual_frames": 0,
+        "final_opposes_manual_rate": 0.000000,
+        "final_blocks_manual_rate": 0.000000,
+        "mean_manual_preservation_ratio": 0.000000,
+        "recoil_opposes_manual_rate": 0.000000,
+        "mean_abs_recoil": 0.000000,
+        "mean_abs_final": 0.039532
+      },
+      "y": {
+        "manual_frames": 0,
+        "final_opposes_manual_rate": 0.000000,
+        "final_blocks_manual_rate": 0.000000,
+        "mean_manual_preservation_ratio": 0.000000,
+        "recoil_opposes_manual_rate": 0.000000,
+        "mean_abs_recoil": 0.000000,
+        "mean_abs_final": 0.008744
+      },
+      "random_fov": {
+        "controller_hz": 1000.000000,
+        "vision_hz": 100.000000,
+        "vision_samples": 12,
+        "tracker_only_ticks": 108,
+        "fov_change_events": 1,
+        "large_vision_jumps": 0,
+        "fov_min_scale": 0.620000,
+        "fov_max_scale": 1.000000,
+        "mean_fov_scale": 0.964614,
+        "mean_abs_expected_dx": 83.702854,
+        "mean_abs_final_x": 0.039532,
+        "fresh_wrong_direction_rate": 0.000000,
+        "tracker_wrong_direction_rate": 0.000000,
+        "fresh_insensitive_rate": 0.916667,
+        "tracker_insensitive_rate": 0.953704
+      }
+    }
+  ]
+}

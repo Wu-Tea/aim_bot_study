@@ -1,0 +1,91 @@
+{
+  "run_key": "native-smoke",
+  "config_path": "config.toml",
+  "frames_per_case": 120,
+  "dt_ms": 8.333000,
+  "metadata": {
+    "offline": true,
+    "uses_capture": false,
+    "uses_vigem": false,
+    "recoil_recognizer_state_path": "",
+    "recoil_profile_directory": "artifacts/recoil_profiles",
+    "recoil_profile_amount": 1.200000,
+    "recoil_profile_x_amount": -0.750000,
+    "recoil_feedback_amount": 0.240000,
+    "target_direction_yield_enabled": true
+  },
+  "scenarios": [
+    {
+      "name": "bodylock_edge_escape",
+      "frames": 240,
+      "blocked_frames": 210,
+      "recovery_frames": -1,
+      "x": {
+        "manual_frames": 210,
+        "final_opposes_manual_rate": 0.000000,
+        "final_blocks_manual_rate": 1.000000,
+        "mean_manual_preservation_ratio": 0.223868,
+        "recoil_opposes_manual_rate": 0.000000,
+        "mean_abs_recoil": 0.000000,
+        "mean_abs_final": 0.113767
+      },
+      "y": {
+        "manual_frames": 0,
+        "final_opposes_manual_rate": 0.000000,
+        "final_blocks_manual_rate": 0.000000,
+        "mean_manual_preservation_ratio": 0.000000,
+        "recoil_opposes_manual_rate": 0.000000,
+        "mean_abs_recoil": 0.000000,
+        "mean_abs_final": 0.129596
+      }
+    },
+    {
+      "name": "ads_wrong_input_recovery",
+      "frames": 120,
+      "blocked_frames": 0,
+      "recovery_frames": 0,
+      "x": {
+        "manual_frames": 120,
+        "final_opposes_manual_rate": 0.075000,
+        "final_blocks_manual_rate": 0.083333,
+        "mean_manual_preservation_ratio": 0.917044,
+        "recoil_opposes_manual_rate": 0.000000,
+        "mean_abs_recoil": 0.000000,
+        "mean_abs_final": 0.303726
+      },
+      "y": {
+        "manual_frames": 0,
+        "final_opposes_manual_rate": 0.000000,
+        "final_blocks_manual_rate": 0.000000,
+        "mean_manual_preservation_ratio": 0.000000,
+        "recoil_opposes_manual_rate": 0.000000,
+        "mean_abs_recoil": 0.000000,
+        "mean_abs_final": 0.022605
+      }
+    },
+    {
+      "name": "recoil_manual_conflict",
+      "frames": 120,
+      "blocked_frames": 0,
+      "recovery_frames": -1,
+      "x": {
+        "manual_frames": 120,
+        "final_opposes_manual_rate": 0.000000,
+        "final_blocks_manual_rate": 0.000000,
+        "mean_manual_preservation_ratio": 1.255236,
+        "recoil_opposes_manual_rate": 0.000000,
+        "mean_abs_recoil": 0.000000,
+        "mean_abs_final": 0.100419
+      },
+      "y": {
+        "manual_frames": 120,
+        "final_opposes_manual_rate": 1.000000,
+        "final_blocks_manual_rate": 1.000000,
+        "mean_manual_preservation_ratio": 0.000000,
+        "recoil_opposes_manual_rate": 1.000000,
+        "mean_abs_recoil": 0.218651,
+        "mean_abs_final": 0.073547
+      }
+    }
+  ]
+}
