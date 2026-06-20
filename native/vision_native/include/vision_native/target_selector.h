@@ -94,9 +94,9 @@ private:
         const Detection& detection,
         const std::optional<std::pair<float, float>>& last_target_center) const;
     std::optional<Candidate> build_weak_association_candidate(const Detection& detection) const;
-    std::vector<Candidate> build_candidates(
+    void build_candidates(
         const DetectionBatch& batch,
-        const std::optional<std::pair<float, float>>& last_target_center) const;
+        const std::optional<std::pair<float, float>>& last_target_center);
     std::optional<TargetState> select_weak_association(const DetectionBatch& batch) const;
 
     float crosshair_distance(float x, float y) const;
@@ -182,6 +182,7 @@ private:
     int cue_hold_frames_ = 0;
     bool auto_fire_holding_ = false;
     int auto_fire_miss_frames_ = 0;
+    std::vector<Candidate> candidate_scratch_;
 };
 
 } // namespace vision_native

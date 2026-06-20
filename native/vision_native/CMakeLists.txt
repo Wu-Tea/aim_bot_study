@@ -123,6 +123,12 @@ add_executable(vision_native_debug
 
 target_link_libraries(vision_native_debug PRIVATE vision_native_core)
 
+add_executable(vision_native_bgra_benchmark
+    src/bgra_benchmark.cpp
+)
+
+target_link_libraries(vision_native_bgra_benchmark PRIVATE vision_native_core)
+
 # Native runtime source layout: native/runtime_app and native/controller_native.
 set(FPS_TRACKER_PACKAGE_SOURCES
     ../fps_2d_tracker_package/src/association.cpp
@@ -323,7 +329,7 @@ set(_runtime_dlls
     nvinfer_plugin_10.dll
 )
 
-foreach(_target vision_native_smoke vision_native_debug cod_native_runtime vision_native_cpp)
+foreach(_target vision_native_smoke vision_native_debug vision_native_bgra_benchmark cod_native_runtime vision_native_cpp)
     foreach(_dll IN LISTS _runtime_dlls)
         add_custom_command(TARGET ${_target} POST_BUILD
             COMMAND "${CMAKE_COMMAND}" -E copy_if_different

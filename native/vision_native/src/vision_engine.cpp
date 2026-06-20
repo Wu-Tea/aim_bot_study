@@ -75,10 +75,11 @@ VisionEngine::VisionEngine(
     int height,
     int adapter_index,
     int output_index,
-    int timeout_ms)
+    int timeout_ms,
+    std::string engine_path)
     : capture_(width, height, adapter_index, output_index, timeout_ms),
       selector_(width, height),
-      engine_(default_engine_path()),
+      engine_(engine_path.empty() ? default_engine_path() : std::move(engine_path)),
       width_(width),
       height_(height) {
     auto* d3d_device = static_cast<ID3D11Device*>(capture_.d3d11_device());
@@ -222,7 +223,7 @@ VisionResult VisionEngine::poll_once() {
             const int region_height = color_region->bottom - color_region->top;
             const size_t host_bytes =
                 static_cast<size_t>(region_width) * static_cast<size_t>(region_height) * 4;
-            if (host_color_frame_.size() != host_bytes) {
+            if (host_color_frame_.size() < host_bytes) {
                 host_color_frame_.resize(host_bytes);
             }
             const uint64_t color_copy_start = now_ns();
@@ -261,6 +262,7 @@ VisionResult VisionEngine::poll_once() {
         result.output_copy_ms = batch.output_copy_ms;
         result.output_wait_ms = batch.output_wait_ms;
         result.decode_ms = batch.decode_ms;
+        result.preprocess_mode = batch.preprocess_mode;
         result.boxes_seen = static_cast<float>(batch.detections.size());
 
         VisionResult targeting;

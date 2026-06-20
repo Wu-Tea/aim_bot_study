@@ -220,6 +220,7 @@ DetectionBatch TensorRTEngine::infer_rgb(
     batch.captured_at_ns = now_ns();
     batch.frame_width = width;
     batch.frame_height = height;
+    batch.preprocess_mode = PreprocessMode::RgbHostCopy;
 
     const size_t frame_bytes = static_cast<size_t>(row_pitch) * static_cast<size_t>(height);
     ensure_frame_buffer(frame_bytes);
@@ -268,6 +269,7 @@ DetectionBatch TensorRTEngine::infer_rgb(
     batch.output_wait_ms = std::max(0.0f, batch.output_copy_sync_ms - batch.output_copy_ms);
 
     const uint64_t decode_start = now_ns();
+    batch.detections.reserve(static_cast<size_t>(output_rows_));
     const float scale_x = static_cast<float>(width) / static_cast<float>(input_width_);
     const float scale_y = static_cast<float>(height) / static_cast<float>(input_height_);
     for (int row = 0; row < output_rows_; ++row) {
@@ -311,6 +313,7 @@ DetectionBatch TensorRTEngine::infer_bgra_array(
     batch.captured_at_ns = now_ns();
     batch.frame_width = width;
     batch.frame_height = height;
+    batch.preprocess_mode = PreprocessMode::OldBgraCopy;
 
     const int row_pitch = width * 4;
     const size_t frame_bytes = static_cast<size_t>(row_pitch) * static_cast<size_t>(height);
@@ -371,6 +374,7 @@ DetectionBatch TensorRTEngine::infer_bgra_array(
     batch.output_wait_ms = std::max(0.0f, batch.output_copy_sync_ms - batch.output_copy_ms);
 
     const uint64_t decode_start = now_ns();
+    batch.detections.reserve(static_cast<size_t>(output_rows_));
     const float scale_x = static_cast<float>(width) / static_cast<float>(input_width_);
     const float scale_y = static_cast<float>(height) / static_cast<float>(input_height_);
     for (int row = 0; row < output_rows_; ++row) {

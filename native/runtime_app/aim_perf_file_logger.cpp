@@ -221,6 +221,7 @@ void AimPerfFileLogger::record_aim_sample(
             << ",\"copy_ms\":0"
             << ",\"capture_transfer_ms\":0"
             << ",\"cuda_map_ms\":0"
+            << ",\"preprocess_mode\":\"none\""
             << ",\"preprocess_ms\":0"
             << ",\"infer_ms\":0"
             << ",\"gpu_total_ms\":0"
@@ -248,6 +249,8 @@ void AimPerfFileLogger::record_aim_sample(
             << ",\"copy_ms\":" << result->capture_copy_ms
             << ",\"capture_transfer_ms\":" << capture_transfer_ms(*result)
             << ",\"cuda_map_ms\":" << result->cuda_map_ms
+            << ",\"preprocess_mode\":" << json_string(
+                vision_native::preprocess_mode_name(result->preprocess_mode))
             << ",\"preprocess_ms\":" << result->preprocess_ms
             << ",\"infer_ms\":" << result->infer_ms
             << ",\"gpu_total_ms\":" << result->gpu_total_ms

@@ -15,6 +15,24 @@ enum class MemoryKind {
     D3D11Texture,
 };
 
+enum class PreprocessMode {
+    Unknown,
+    RgbHostCopy,
+    OldBgraCopy,
+};
+
+inline const char* preprocess_mode_name(PreprocessMode mode) {
+    switch (mode) {
+    case PreprocessMode::RgbHostCopy:
+        return "rgb_host_copy";
+    case PreprocessMode::OldBgraCopy:
+        return "old_bgra_copy";
+    case PreprocessMode::Unknown:
+    default:
+        return "none";
+    }
+}
+
 struct FramePacket {
     uint64_t frame_id = 0;
     uint64_t captured_at_ns = 0;
@@ -60,6 +78,7 @@ struct DetectionBatch {
     float output_copy_ms = 0.0f;
     float output_wait_ms = 0.0f;
     float decode_ms = 0.0f;
+    PreprocessMode preprocess_mode = PreprocessMode::Unknown;
 };
 
 struct VisionResult {
@@ -114,6 +133,7 @@ struct VisionResult {
     float post_ms = 0.0f;
     float age_ms = 0.0f;
     float boxes_seen = 0.0f;
+    PreprocessMode preprocess_mode = PreprocessMode::Unknown;
     std::vector<Detection> detections;
 };
 

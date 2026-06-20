@@ -28,14 +28,6 @@ int virtual_key_from_quit_key(const std::string& quit_key) {
     return std::toupper(first);
 }
 
-void set_environment_variable(const char* name, const std::string& value) {
-#if defined(_WIN32)
-    _putenv_s(name, value.c_str());
-#else
-    setenv(name, value.c_str(), 1);
-#endif
-}
-
 std::chrono::steady_clock::duration capture_interval_for_fps(int capture_fps) {
     if (capture_fps <= 0) {
         return std::chrono::steady_clock::duration::zero();
@@ -215,6 +207,7 @@ void log_vision_result(
     if (result == nullptr) {
         std::cout << " updated=0 frame=0 boxes=0 target=0 source=none stage=none"
                   << " conf=0 dx=0 dy=0 aim_auth=0 fire_auth=0"
+                  << " mode=none"
                   << " cap=0ms copy=0ms pre=0ms infer=0ms decode=0ms"
                   << " selector=0ms enhance=0ms age=0ms\n";
         return;
@@ -233,6 +226,7 @@ void log_vision_result(
         << " dy=" << result->dy
         << " aim_auth=" << (result->aim_authority ? 1 : 0)
         << " fire_auth=" << (result->fire_authority ? 1 : 0)
+        << " mode=" << vision_native::preprocess_mode_name(result->preprocess_mode)
         << " cap=" << result->capture_acquire_ms
         << "ms copy=" << capture_transfer_ms(*result)
         << "ms map=" << result->cuda_map_ms
@@ -292,13 +286,13 @@ RuntimeLoop::RuntimeLoop(
                       << " state=\"" << config_.gamepad.recoil.recognizer_state_path << "\"\n";
         }
     }
-    set_environment_variable("VISION_MODEL_PATH", config_.vision.model_path);
     vision_engine_ = std::make_unique<vision_native::VisionEngine>(
         config_.vision.capture_width,
         config_.vision.capture_height,
         0,
         -1,
-        0);
+        0,
+        config_.vision.model_path);
 }
 
 int RuntimeLoop::run() {

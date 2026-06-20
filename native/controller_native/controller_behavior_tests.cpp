@@ -278,12 +278,16 @@ void test_aim_perf_file_logger_writes_controller_components() {
         controller_native::GamepadOutputState tracker_output;
         tracker_output.right_x = 0.10f;
         tracker_output.right_y = 0.20f;
+        vision_native::VisionResult vision;
+        vision.frame_updated = true;
+        vision.frame_id = 7;
+        vision.preprocess_mode = vision_native::PreprocessMode::OldBgraCopy;
         runtime_app::PerfSnapshot snapshot;
         logger.record_aim_sample(
             1,
             true,
             snapshot,
-            nullptr,
+            &vision,
             &components,
             &tracker_output);
         log_path = logger.log_path();
@@ -302,6 +306,9 @@ void test_aim_perf_file_logger_writes_controller_components() {
     require_true(
         log.find("\"fire_button\":true") != std::string::npos,
         "aim perf log should include fire button state");
+    require_true(
+        log.find("\"preprocess_mode\":\"old_bgra_copy\"") != std::string::npos,
+        "aim perf log should include preprocess mode");
 }
 
 controller_native::BodyLockMotionObservation body_lock_motion_box(

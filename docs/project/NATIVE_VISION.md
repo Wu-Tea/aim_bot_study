@@ -224,7 +224,7 @@ struct VisionResult {
 
 The native result timing fields are not the whole controller-output latency by themselves. The Python bridge now also reports derived diagnostics for source age, native pipeline age, Python handoff, controller consume age, and final virtual-output age when `VISION_PERF_LOG=1`.
 
-The native engine path defaults to `models/best.engine`. Set `model_path` in `[runtime.vision]` or set `VISION_MODEL_PATH` to override it; the environment variable wins when both are present.
+The native runtime engine path is read from `model_path` in `[runtime.vision]`. Lower-level `VisionEngine` callers that do not pass an explicit engine path still fall back to `VISION_MODEL_PATH` and then the built-in default.
 
 ## Environment
 

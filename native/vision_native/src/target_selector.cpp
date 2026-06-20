@@ -1,6 +1,7 @@
 #include "vision_native/target_selector.h"
 
 #include <algorithm>
+#include <cassert>
 #include <cstring>
 #include <cmath>
 #include <utility>
@@ -252,8 +253,13 @@ void read_rgb(
     int& b) {
     const int local_x = x - frame.origin_x;
     const int local_y = y - frame.origin_y;
+    assert(frame.data != nullptr);
+    assert(local_x >= 0 && local_x < frame.width);
+    assert(local_y >= 0 && local_y < frame.height);
+    assert(frame.row_pitch > 0);
     const uint8_t* pixel = frame.data + (static_cast<size_t>(local_y) * frame.row_pitch);
     if (frame.format == PixelFormat::BGRA8) {
+        assert(frame.row_pitch >= frame.width * 4);
         pixel += static_cast<size_t>(local_x) * 4;
         b = pixel[0];
         g = pixel[1];
@@ -261,6 +267,7 @@ void read_rgb(
         return;
     }
 
+    assert(frame.row_pitch >= frame.width * 3);
     pixel += static_cast<size_t>(local_x) * 3;
     r = pixel[0];
     g = pixel[1];
@@ -789,18 +796,17 @@ std::optional<VisionTargetSelector::Candidate> VisionTargetSelector::build_weak_
     return weak;
 }
 
-std::vector<VisionTargetSelector::Candidate> VisionTargetSelector::build_candidates(
+void VisionTargetSelector::build_candidates(
     const DetectionBatch& batch,
-    const std::optional<std::pair<float, float>>& last_target_center) const {
-    std::vector<Candidate> candidates;
-    candidates.reserve(batch.detections.size());
+    const std::optional<std::pair<float, float>>& last_target_center) {
+    candidate_scratch_.clear();
+    candidate_scratch_.reserve(batch.detections.size());
     for (const auto& detection : batch.detections) {
         const auto candidate = build_candidate(detection, last_target_center);
         if (candidate.has_value()) {
-            candidates.push_back(*candidate);
+            candidate_scratch_.push_back(*candidate);
         }
     }
-    return candidates;
 }
 
 std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::select_weak_association(
@@ -1480,6 +1486,7 @@ VisionResult VisionTargetSelector::finalize_selected_target(
 
 VisionResult VisionTargetSelector::select(const DetectionBatch& batch) {
     VisionResult result = select_impl(batch, nullptr);
+    result.preprocess_mode = batch.preprocess_mode;
     result.detections = batch.detections;
     return result;
 }
@@ -1489,6 +1496,7 @@ VisionResult VisionTargetSelector::select_with_frame(
     const ColorFrameView& frame) {
     DetectionBatch annotated = annotate_colors(batch, frame);
     VisionResult result = select_impl(annotated, &frame);
+    result.preprocess_mode = batch.preprocess_mode;
     result.detections = std::move(annotated.detections);
     return result;
 }
@@ -1498,7 +1506,8 @@ VisionResult VisionTargetSelector::select_impl(
     const ColorFrameView* frame) {
     const float boxes_seen = static_cast<float>(batch.detections.size());
     const auto last_target_center = last_target_center_;
-    const auto candidates = build_candidates(batch, last_target_center);
+    build_candidates(batch, last_target_center);
+    const auto& candidates = candidate_scratch_;
     if (candidates.empty()) {
         clear_pending();
         clear_switch_pending();

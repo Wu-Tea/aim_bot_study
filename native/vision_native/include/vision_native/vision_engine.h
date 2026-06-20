@@ -8,6 +8,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <string>
 #include <vector>
 
 namespace vision_native {
@@ -19,7 +20,8 @@ public:
         int height,
         int adapter_index = 0,
         int output_index = -1,
-        int timeout_ms = 0);
+        int timeout_ms = 0,
+        std::string engine_path = {});
     ~VisionEngine();
 
     VisionEngine(const VisionEngine&) = delete;
