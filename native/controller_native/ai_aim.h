@@ -49,6 +49,7 @@ public:
 
     void reset();
     NativeAiAimOutput compute(const NativeAiAimInput& input);
+    const std::string& last_mode() const;
 
 private:
     float target_authority_scale(const std::string& target_tier) const;
@@ -70,7 +71,7 @@ private:
     float apply_body_lock_axis_guard(float desired_ai, float desired_error, bool y_axis);
     void remember_body_lock_errors(float error_x, float error_y);
     void apply_ads_snap_smoothing(NativeAiAimOutput& output);
-    void apply_body_lock_smoothing(NativeAiAimOutput& output);
+    void apply_body_lock_smoothing(NativeAiAimOutput& output, float stabilize_ratio);
     float observe_body_lock_confidence(const NativeAiAimInput& input, float lock_dx, float lock_dy);
     std::pair<float, float> resolve_body_lock_manual(
         float manual_x,
@@ -139,6 +140,7 @@ private:
     int body_lock_zero_cross_hold_x_ = 0;
     int body_lock_zero_cross_hold_y_ = 0;
     BodyLockMotionPolicy body_lock_motion_;
+    std::string last_mode_ = "manual";
 };
 
 }  // namespace controller_native

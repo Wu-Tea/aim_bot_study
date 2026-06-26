@@ -39,6 +39,7 @@ void NativeAiAim::reset() {
     last_body_lock_error_y_ = 0.0f;
     body_lock_zero_cross_hold_x_ = 0;
     body_lock_zero_cross_hold_y_ = 0;
+    last_mode_ = "manual";
     reset_motion_tracking();
 }
 
@@ -74,6 +75,7 @@ NativeAiAimOutput NativeAiAim::compute(const NativeAiAimInput& input) {
     }
 
     const bool ads_snap_mode = !body_lock_active && input.ads_snap_active;
+    last_mode_ = ads_snap_mode ? "ads_snap" : "body_lock";
     if (!ads_snap_mode) {
         ads_snap_ai_stick_x_ = 0.0f;
         ads_snap_ai_stick_y_ = 0.0f;
@@ -134,6 +136,14 @@ NativeAiAimOutput NativeAiAim::compute(const NativeAiAimInput& input) {
     if (x_strength <= 0.0f && y_strength <= 0.0f) {
         return output;
     }
+    float body_lock_y_force_scale = 1.0f;
+    if (body_lock_active) {
+        const float near_lock_px = std::max(1.0f, config_.body_lock_near_lock_error_px);
+        const float abs_guard_y = std::fabs(body_lock_guard_error_y);
+        if (abs_guard_y < near_lock_px) {
+            body_lock_y_force_scale = std::max(0.55f, abs_guard_y / near_lock_px);
+        }
+    }
 
     output.assist_x = compute_axis(
         target_error_x,
@@ -145,7 +155,7 @@ NativeAiAimOutput NativeAiAim::compute(const NativeAiAimInput& input) {
     output.assist_y = compute_axis(
         -target_error_y,
         (ads_snap_mode || body_lock_active) ? 0.0f : input.manual_right_y,
-        max_force_y,
+        max_force_y * body_lock_y_force_scale,
         scale,
         y_strength,
         true);
@@ -172,13 +182,19 @@ NativeAiAimOutput NativeAiAim::compute(const NativeAiAimInput& input) {
         remember_body_lock_errors(body_lock_guard_error_x, body_lock_guard_error_y);
     }
     if (body_lock_active) {
+        const float stabilize_ratio =
+            body_lock_motion_.stabilize_ratio(body_lock_guard_error_x, body_lock_guard_error_y);
+        if (stabilize_ratio > 0.0f) {
+            output.assist_x *= 1.0f + (0.85f * stabilize_ratio);
+            output.assist_y *= 1.0f + (0.35f * stabilize_ratio);
+        }
         const float vertical_scale = body_lock_vertical_ai_scale(target_error_y);
         if (vertical_scale < 0.0f) {
             output.assist_y = 0.0f;
         } else {
             output.assist_y *= vertical_scale;
         }
-        apply_body_lock_smoothing(output);
+        apply_body_lock_smoothing(output, stabilize_ratio);
     }
     if (ads_snap_mode) {
         const float planned_x = output.assist_x;
@@ -440,8 +456,12 @@ void NativeAiAim::apply_ads_snap_smoothing(NativeAiAimOutput& output) {
     output.assist_y = ads_snap_ai_stick_y_;
 }
 
-void NativeAiAim::apply_body_lock_smoothing(NativeAiAimOutput& output) {
-    const float smoothing = std::max(0.0f, std::min(0.95f, config_.body_lock_smoothing));
+void NativeAiAim::apply_body_lock_smoothing(NativeAiAimOutput& output, float stabilize_ratio) {
+    float smoothing = std::max(0.0f, std::min(0.95f, config_.body_lock_smoothing));
+    const float clamped_stabilize = std::max(0.0f, std::min(1.0f, stabilize_ratio));
+    if (clamped_stabilize > 0.0f) {
+        smoothing *= std::max(0.15f, 1.0f - (0.85f * clamped_stabilize));
+    }
     body_lock_ai_stick_x_ =
         (body_lock_ai_stick_x_ * smoothing) + (output.assist_x * (1.0f - smoothing));
     body_lock_ai_stick_y_ =
@@ -814,6 +834,10 @@ float NativeAiAim::ads_snap_time_to_go_stick(
 
 float NativeAiAim::prefer_larger_magnitude(float current, float candidate) const {
     return std::fabs(candidate) > std::fabs(current) ? candidate : current;
+}
+
+const std::string& NativeAiAim::last_mode() const {
+    return last_mode_;
 }
 
 }  // namespace controller_native

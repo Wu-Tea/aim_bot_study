@@ -11,6 +11,7 @@
 #include "../recoil_native/recoil_compensation.h"
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -33,7 +34,9 @@ struct NativeControllerStageTrace {
 
 class NativeGamepadController {
 public:
-    explicit NativeGamepadController(GamepadRuntimeConfig config = {});
+    explicit NativeGamepadController(
+        GamepadRuntimeConfig config = {},
+        std::function<double()> clock = {});
 
     void reset();
     void submit_vision_state(const NativeControllerVisionState& state);
@@ -43,6 +46,7 @@ public:
     const std::vector<NativeControllerStageTrace>& last_pipeline_traces() const;
     GamepadOutputState last_tracker_motion_output() const;
     const NativeControllerOutputComponents& last_output_components() const;
+    const std::string& last_ai_aim_mode() const;
 
 private:
     bool is_aiming(const PhysicalGamepadState& physical) const;
@@ -89,6 +93,13 @@ private:
         const PhysicalGamepadState& physical,
         const NativeControllerVisionState& vision_state,
         double now_seconds);
+    void apply_body_lock_short_plan(
+        GamepadOutputState& output,
+        float manual_right_x,
+        float manual_right_y,
+        bool vertical_plan_allowed,
+        const NativeControllerVisionState& vision_state,
+        double now_seconds);
     void apply_aim_assist_dynamics(
         GamepadOutputState& output,
         float manual_right_x,
@@ -115,6 +126,7 @@ private:
         const GamepadOutputState& output,
         bool before_auto_fire_active,
         bool after_auto_fire_active);
+    double now_seconds() const;
 
     GamepadRuntimeConfig config_;
     NativeAiAim ai_aim_;
@@ -126,6 +138,7 @@ private:
     std::vector<NativeControllerStageTrace> last_pipeline_traces_;
     GamepadOutputState last_tracker_motion_output_;
     NativeControllerOutputComponents last_output_components_;
+    std::function<double()> clock_;
     bool manual_fire_was_pressed_ = false;
     bool auto_fire_was_active_ = false;
     double manual_takeover_started_at_seconds_ = -1.0;
@@ -135,6 +148,12 @@ private:
     bool ads_active_ = false;
     double ads_started_at_seconds_ = 0.0;
     int auto_fire_ready_frames_ = 0;
+    bool has_last_body_lock_short_plan_x_ = false;
+    bool has_last_body_lock_short_plan_y_ = false;
+    float last_body_lock_short_plan_x_ = 0.0f;
+    float last_body_lock_short_plan_y_ = 0.0f;
+    double body_lock_short_plan_x_until_seconds_ = 0.0;
+    double body_lock_short_plan_y_until_seconds_ = 0.0;
 };
 
 }  // namespace controller_native

@@ -99,6 +99,11 @@ std::pair<float, float> NativeAimAssistDynamics::straighten_manual_curve(
     const float ux = assist_x / assist_mag;
     const float uy = assist_y / assist_mag;
     const float parallel = (manual_x * ux) + (manual_y * uy);
+    const float alignment = parallel / manual_mag;
+    constexpr float kMinStraightenAlignment = 0.95f;
+    if (alignment < kMinStraightenAlignment) {
+        return {manual_x, manual_y};
+    }
     const float parallel_x = ux * parallel;
     const float parallel_y = uy * parallel;
     const float orthogonal_x = manual_x - parallel_x;

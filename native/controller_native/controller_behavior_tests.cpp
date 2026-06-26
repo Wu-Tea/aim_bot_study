@@ -379,6 +379,40 @@ void test_bodylock_motion_policy_ignores_weak_observations() {
     require_near(lead.x, 0.0f, 0.001f, "weak observation should clear lead");
 }
 
+void test_bodylock_motion_policy_stabilizes_low_speed_near_lock() {
+    controller_native::GamepadAiAimConfig config;
+    config.body_lock_near_lock_error_px = 48.0f;
+    config.body_lock_vertical_tail_speed_threshold_px_per_sec = 90.0f;
+    controller_native::BodyLockMotionPolicy policy(config);
+
+    policy.observe(body_lock_motion_box(100.0f, 40.0));
+    policy.observe(body_lock_motion_box(100.0f, 40.1));
+
+    const float ratio = policy.stabilize_ratio(8.0f, 6.0f);
+    require_true(ratio > 0.50f, "low-speed body lock should stabilize near lock");
+}
+
+void test_bodylock_motion_policy_does_not_stabilize_fast_or_far_targets() {
+    controller_native::GamepadAiAimConfig config;
+    config.body_lock_near_lock_error_px = 48.0f;
+    config.body_lock_vertical_tail_speed_threshold_px_per_sec = 90.0f;
+    controller_native::BodyLockMotionPolicy policy(config);
+
+    policy.observe(body_lock_motion_box(100.0f, 41.0));
+    policy.observe(body_lock_motion_box(130.0f, 41.1));
+
+    require_near(
+        policy.stabilize_ratio(8.0f, 6.0f),
+        0.0f,
+        0.001f,
+        "fast body lock target should not stabilize");
+    require_near(
+        policy.stabilize_ratio(80.0f, 0.0f),
+        0.0f,
+        0.001f,
+        "far body lock target should not stabilize");
+}
+
 std::string recoil_profile_xy_json(
     const std::string& profile_id,
     const std::string& weapon_id,
@@ -2741,6 +2775,75 @@ void test_body_lock_clears_release_tail_carry_on_near_zero_x_sign_flip() {
         "body-lock zero-cross guard should not snap hard across center");
 }
 
+void test_controller_body_lock_short_plan_zeros_small_vector_turn_near_lock() {
+    controller_native::GamepadRuntimeConfig config;
+    config.ai_aim.target_max_age_ms = 0.0f;
+    config.ai_aim.piecewise_mid_pixels = 0.0f;
+    config.ai_aim.piecewise_mid_pixels_y = 0.0f;
+    config.ai_aim.max_ai_force = 0.0f;
+    config.ai_aim.max_ai_force_y = 0.0f;
+    config.ai_aim.body_lock_max_ai_force = 0.0f;
+    config.ai_aim.body_lock_max_ai_force_y = 0.0f;
+    config.ai_aim.body_lock_box_tolerance_px = 20.0f;
+    config.ai_aim.body_lock_activation_box_px = 180.0f;
+    config.ai_aim.body_lock_upper_body_ratio = 0.50f;
+    config.ai_aim.body_lock_confidence_frames = 1;
+    config.ai_aim.body_lock_manual_escape_input_threshold = 1.0f;
+    config.ai_aim.body_lock_near_lock_error_px = 32.0f;
+    config.aim_assist_dynamics.enabled = false;
+    config.recoil.enabled = false;
+
+    double now = 10.0;
+    controller_native::NativeGamepadController controller(
+        config,
+        [&now]() { return now; });
+
+    const auto submit_body_lock_target = [&]() {
+        controller_native::NativeControllerVisionState target;
+        target.has_target = true;
+        target.aim_authority = true;
+        target.fire_authority = true;
+        target.target_tier = "strong";
+        target.dx = 1.0f;
+        target.dy = 0.0f;
+        target.screen_center_x = 320.0f;
+        target.screen_center_y = 256.0f;
+        target.has_body_box = true;
+        target.body_x1 = 281.0f;
+        target.body_x2 = 361.0f;
+        target.body_y1 = 166.0f;
+        target.body_y2 = 346.0f;
+        target.observed_at_seconds = now;
+        controller.submit_vision_state(target);
+    };
+    auto physical_with_stick = [](float right_x, float right_y) {
+        controller_native::PhysicalGamepadState physical = aiming_physical_state();
+        physical.right_x = right_x;
+        physical.right_y = right_y;
+        return physical;
+    };
+
+    submit_body_lock_target();
+    controller.build_output(physical_with_stick(0.07f, 0.0f));
+    const auto first = controller.last_output_components().final_stick;
+    require_true(first.x > 0.06f, "test setup should keep the first small body-lock x vector");
+
+    now = 10.001;
+    submit_body_lock_target();
+    controller.build_output(physical_with_stick(0.0f, 0.07f));
+    const auto second = controller.last_output_components().final_stick;
+    require_near(
+        second.x,
+        0.0f,
+        0.001f,
+        "body-lock short plan should zero x on a small near-lock vector turn");
+    require_near(
+        second.y,
+        0.0f,
+        0.001f,
+        "body-lock short plan should zero y on a small near-lock vector turn");
+}
+
 void test_body_lock_clears_vertical_axis_on_near_zero_sign_flip() {
     controller_native::GamepadAiAimConfig config;
     config.max_pixels = 100.0f;
@@ -3518,9 +3621,19 @@ void test_aim_assist_dynamics_straightens_manual_curve_without_recoil_active() {
     input.assisted_right_y = 0.40f;
     input.now_seconds = 20.0;
 
-    const controller_native::NativeAimAssistDynamicsOutput output = dynamics.apply(input);
-    require_near(output.right_x, 0.30f, 0.001f, "straightening should preserve planned assist x");
-    require_near(output.right_y, 0.20f, 0.001f, "straightening should only damp the curved manual axis");
+    controller_native::NativeAimAssistDynamicsOutput output = dynamics.apply(input);
+    require_near(output.right_x, 0.30f, 0.001f, "low-alignment straightening should preserve planned assist x");
+    require_near(output.right_y, 0.40f, 0.001f, "low-alignment straightening should preserve manual curve");
+
+    input.manual_right_x = 0.30f;
+    input.manual_right_y = 0.05f;
+    input.assisted_right_x = 0.60f;
+    input.assisted_right_y = 0.05f;
+    input.now_seconds = 20.02;
+
+    output = dynamics.apply(input);
+    require_near(output.right_x, 0.60f, 0.001f, "high-alignment straightening should preserve planned assist x");
+    require_near(output.right_y, 0.025f, 0.001f, "high-alignment straightening should damp the curved manual axis");
 }
 
 void test_recoil_profile_despike_repairs_playback_cache_only() {
@@ -3996,6 +4109,8 @@ int main() {
         test_bodylock_motion_policy_leads_after_consistent_direction();
         test_bodylock_motion_policy_clears_lead_on_direction_reversal();
         test_bodylock_motion_policy_ignores_weak_observations();
+        test_bodylock_motion_policy_stabilizes_low_speed_near_lock();
+        test_bodylock_motion_policy_does_not_stabilize_fast_or_far_targets();
         test_tracker_authority_classifies_target_tiers();
         test_auto_fire_requires_fire_authority();
         test_auto_fire_blocks_stale_source();
@@ -4044,6 +4159,7 @@ int main() {
         test_body_lock_can_disable_release_tail_to_zero_x_axis_inside_window();
         test_body_lock_preserves_more_horizontal_tail_for_moving_target_inside_release_window();
         test_body_lock_clears_release_tail_carry_on_near_zero_x_sign_flip();
+        test_controller_body_lock_short_plan_zeros_small_vector_turn_near_lock();
         test_body_lock_clears_vertical_axis_on_near_zero_sign_flip();
         test_body_lock_applies_motion_lead_after_configured_history_frames();
         test_body_lock_confidence_resets_when_body_box_no_longer_matches_target();

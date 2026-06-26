@@ -19,6 +19,11 @@ struct VisionRuntimeConfig {
     bool aim_perf_file_log = true;
     std::string aim_perf_log_dir = "runs/native_perf";
     unsigned int aim_perf_log_interval_ticks = 1;
+
+    // fusion visual overlay channel (disabled by default)
+    bool fusion_enabled = false;
+    std::string fusion_session = "dev";
+    bool fusion_show_all_detections = false;
 };
 
 struct GamepadAiAimConfig {

@@ -41,6 +41,16 @@ bool has_manual_right_stick_input(float manual_right_x, float manual_right_y) {
     return std::hypot(manual_right_x, manual_right_y) >= kManualFireReadyStickThreshold;
 }
 
+int axis_sign(float value, float deadzone) {
+    if (value > deadzone) {
+        return 1;
+    }
+    if (value < -deadzone) {
+        return -1;
+    }
+    return 0;
+}
+
 NativeControllerVisionState cleared_target_state(NativeControllerVisionState state) {
     state.has_target = false;
     state.auto_fire_requested = false;
@@ -98,14 +108,17 @@ NativeTargetTrackerConfig target_tracker_config_from_ai_aim(const GamepadAiAimCo
 
 }  // namespace
 
-NativeGamepadController::NativeGamepadController(GamepadRuntimeConfig config)
+NativeGamepadController::NativeGamepadController(
+    GamepadRuntimeConfig config,
+    std::function<double()> clock)
     : config_(std::move(config)),
       ai_aim_(config_.ai_aim),
       aim_assist_dynamics_(config_.aim_assist_dynamics),
       recoil_(config_.recoil),
       target_tracker_(tracking_native::create_tracker_backend(
           config_.tracker_backend,
-          target_tracker_config_from_ai_aim(config_.ai_aim))) {
+          target_tracker_config_from_ai_aim(config_.ai_aim))),
+      clock_(std::move(clock)) {
     recoil_.set_recognizer_state_path(config_.recoil.recognizer_state_path);
     if (!config_.recoil.recognizer_state_path.empty()) {
         recoil_.load_profile_directory(config_.recoil.profile_directory);
@@ -130,6 +143,12 @@ void NativeGamepadController::reset() {
     raw_vision_sequence_consumed_ = 0;
     ads_active_ = false;
     ads_started_at_seconds_ = 0.0;
+    has_last_body_lock_short_plan_x_ = false;
+    has_last_body_lock_short_plan_y_ = false;
+    last_body_lock_short_plan_x_ = 0.0f;
+    last_body_lock_short_plan_y_ = 0.0f;
+    body_lock_short_plan_x_until_seconds_ = 0.0;
+    body_lock_short_plan_y_until_seconds_ = 0.0;
     reset_auto_fire_readiness_tracking();
 }
 
@@ -138,7 +157,7 @@ void NativeGamepadController::submit_vision_state(const NativeControllerVisionSt
     ++latest_vision_sequence_;
     const double capture_time = state.observed_at_seconds > 0.0
         ? state.observed_at_seconds
-        : current_seconds();
+        : now_seconds();
     ingest_tracker_observation(state, {}, 0, capture_time, capture_time);
 }
 
@@ -166,7 +185,7 @@ void NativeGamepadController::ingest_tracker_observation(
         std::max(0.0f, state.body_y2 - state.body_y1)};
     observation.target_tier = state.target_tier;
     observation.capture_time = {
-        capture_time_seconds > 0.0 ? capture_time_seconds : current_seconds()};
+        capture_time_seconds > 0.0 ? capture_time_seconds : now_seconds()};
     observation.ready_time = {
         ready_time_seconds > 0.0 ? ready_time_seconds : observation.capture_time.value};
     observation.screen_center_px = {state.screen_center_x, state.screen_center_y};
@@ -245,7 +264,7 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
     NativeControllerOutputComponents output_components =
         output_components_from_manual_output(output);
 
-    const double now = current_seconds();
+    const double now = now_seconds();
     const NativeControllerVisionState frame_vision_state = vision_state_for_frame(now);
     const bool aiming = is_aiming(physical);
     update_ads_state(aiming, now);
@@ -357,6 +376,10 @@ GamepadOutputState NativeGamepadController::last_tracker_motion_output() const {
 
 const NativeControllerOutputComponents& NativeGamepadController::last_output_components() const {
     return last_output_components_;
+}
+
+const std::string& NativeGamepadController::last_ai_aim_mode() const {
+    return ai_aim_.last_mode();
 }
 
 bool NativeGamepadController::is_aiming(const PhysicalGamepadState& physical) const {
@@ -759,11 +782,123 @@ void NativeGamepadController::apply_ai_aim(
     input.manual_right_y = output.right_y;
 
     const NativeAiAimOutput assist = ai_aim_.compute(input);
-    if (!assist.has_assist) {
+    if (assist.has_assist) {
+        output.right_x = clamp_unit(output.right_x + assist.assist_x);
+        output.right_y = clamp_unit(output.right_y + assist.assist_y);
+    }
+    apply_body_lock_short_plan(
+        output,
+        input.manual_right_x,
+        input.manual_right_y,
+        !input.fire_active,
+        vision_state,
+        now_seconds);
+}
+
+void NativeGamepadController::apply_body_lock_short_plan(
+    GamepadOutputState& output,
+    float manual_right_x,
+    float manual_right_y,
+    bool vertical_plan_allowed,
+    const NativeControllerVisionState& vision_state,
+    double now_seconds) {
+    float lock_dx = 0.0f;
+    float lock_dy = 0.0f;
+    if (ai_aim_.last_mode() != "body_lock" ||
+        !body_lock_error_for_state(vision_state, &lock_dx, &lock_dy)) {
+        has_last_body_lock_short_plan_x_ = false;
+        has_last_body_lock_short_plan_y_ = false;
+        last_body_lock_short_plan_x_ = 0.0f;
+        last_body_lock_short_plan_y_ = 0.0f;
+        body_lock_short_plan_x_until_seconds_ = 0.0;
+        body_lock_short_plan_y_until_seconds_ = 0.0;
         return;
     }
-    output.right_x = clamp_unit(output.right_x + assist.assist_x);
-    output.right_y = clamp_unit(output.right_y + assist.assist_y);
+
+    const float near_lock_px = std::max(1.0f, config_.ai_aim.body_lock_near_lock_error_px);
+    const float error_radius = std::hypot(lock_dx, lock_dy);
+    const float manual_escape_threshold = std::max(
+        0.0f,
+        std::min(1.0f, config_.ai_aim.body_lock_manual_escape_input_threshold));
+    if (error_radius > near_lock_px) {
+        body_lock_short_plan_x_until_seconds_ = 0.0;
+        body_lock_short_plan_y_until_seconds_ = 0.0;
+        has_last_body_lock_short_plan_x_ = true;
+        has_last_body_lock_short_plan_y_ = true;
+        last_body_lock_short_plan_x_ = output.right_x;
+        last_body_lock_short_plan_y_ = output.right_y;
+        return;
+    }
+
+    constexpr float kOutputDeadzone = 0.015f;
+    constexpr double kShortPlanSeconds = 0.018;
+    const float previous_plan_x = last_body_lock_short_plan_x_;
+    const float previous_plan_y = last_body_lock_short_plan_y_;
+    const bool had_previous_plan =
+        has_last_body_lock_short_plan_x_ && has_last_body_lock_short_plan_y_;
+    if (std::fabs(manual_right_x) < manual_escape_threshold) {
+        const int previous_sign =
+            has_last_body_lock_short_plan_x_
+                ? axis_sign(last_body_lock_short_plan_x_, kOutputDeadzone)
+                : 0;
+        const int current_sign = axis_sign(output.right_x, kOutputDeadzone);
+        if (previous_sign != 0 && current_sign != 0 && previous_sign != current_sign) {
+            body_lock_short_plan_x_until_seconds_ = now_seconds + kShortPlanSeconds;
+        }
+    } else {
+        body_lock_short_plan_x_until_seconds_ = 0.0;
+    }
+
+    if (body_lock_short_plan_x_until_seconds_ > 0.0 &&
+        now_seconds <= body_lock_short_plan_x_until_seconds_) {
+        output.right_x = 0.0f;
+    }
+
+    if (vertical_plan_allowed && std::fabs(manual_right_y) < manual_escape_threshold) {
+        const int previous_sign =
+            has_last_body_lock_short_plan_y_
+                ? axis_sign(last_body_lock_short_plan_y_, kOutputDeadzone)
+                : 0;
+        const int current_sign = axis_sign(output.right_y, kOutputDeadzone);
+        if (previous_sign != 0 && current_sign != 0 && previous_sign != current_sign) {
+            body_lock_short_plan_y_until_seconds_ = now_seconds + kShortPlanSeconds;
+        }
+    } else {
+        body_lock_short_plan_y_until_seconds_ = 0.0;
+    }
+
+    if (body_lock_short_plan_y_until_seconds_ > 0.0 &&
+        now_seconds <= body_lock_short_plan_y_until_seconds_) {
+        output.right_y = 0.0f;
+    }
+
+    if (vertical_plan_allowed &&
+        std::fabs(manual_right_x) < manual_escape_threshold &&
+        std::fabs(manual_right_y) < manual_escape_threshold &&
+        had_previous_plan) {
+        const float previous_mag = std::hypot(previous_plan_x, previous_plan_y);
+        const float current_mag = std::hypot(output.right_x, output.right_y);
+        constexpr float kSmallPlanMagnitude = 0.08f;
+        if (previous_mag >= kOutputDeadzone &&
+            current_mag >= kOutputDeadzone &&
+            previous_mag <= kSmallPlanMagnitude &&
+            current_mag <= kSmallPlanMagnitude) {
+            const float alignment =
+                ((previous_plan_x * output.right_x) + (previous_plan_y * output.right_y)) /
+                (previous_mag * current_mag);
+            if (alignment < 0.25f) {
+                body_lock_short_plan_x_until_seconds_ = now_seconds + kShortPlanSeconds;
+                body_lock_short_plan_y_until_seconds_ = now_seconds + kShortPlanSeconds;
+                output.right_x = 0.0f;
+                output.right_y = 0.0f;
+            }
+        }
+    }
+
+    has_last_body_lock_short_plan_x_ = true;
+    has_last_body_lock_short_plan_y_ = true;
+    last_body_lock_short_plan_x_ = output.right_x;
+    last_body_lock_short_plan_y_ = output.right_y;
 }
 
 void NativeGamepadController::apply_aim_assist_dynamics(
@@ -780,7 +915,7 @@ void NativeGamepadController::apply_aim_assist_dynamics(
     input.recoil_active = false;
     input.manual_fire_active = physical.rb || physical.right_trigger > 0.04f;
     input.auto_fire_active = auto_fire_active;
-    input.now_seconds = current_seconds();
+    input.now_seconds = now_seconds();
 
     const NativeAimAssistDynamicsOutput shaped = aim_assist_dynamics_.apply(input);
     output.right_x = shaped.right_x;
@@ -842,6 +977,10 @@ void NativeGamepadController::record_stage_trace(
     trace.before_auto_fire_active = before_auto_fire_active;
     trace.after_auto_fire_active = after_auto_fire_active;
     last_pipeline_traces_.push_back(std::move(trace));
+}
+
+double NativeGamepadController::now_seconds() const {
+    return clock_ ? clock_() : current_seconds();
 }
 
 }  // namespace controller_native

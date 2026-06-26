@@ -108,6 +108,13 @@ void apply_runtime_vision_value(
     } else if (key == "aim_perf_log_interval_ticks") {
         config.aim_perf_log_interval_ticks =
             parse_uint_value(value, config.aim_perf_log_interval_ticks);
+    } else if (key == "fusion_enabled") {
+        config.fusion_enabled = parse_bool_value(value, config.fusion_enabled);
+    } else if (key == "fusion_session") {
+        config.fusion_session = parse_string_value(value);
+    } else if (key == "fusion_show_all_detections") {
+        config.fusion_show_all_detections =
+            parse_bool_value(value, config.fusion_show_all_detections);
     }
 }
 
@@ -514,6 +521,31 @@ void apply_vision_environment_overrides(VisionRuntimeConfig& config) {
         if (interval[0] != '\0') {
             config.aim_perf_log_interval_ticks =
                 parse_uint_value(interval, config.aim_perf_log_interval_ticks);
+        }
+    }
+    // fusion channel env overrides
+    if (const char* fusion_enabled = std::getenv("FUSION_ENABLED")) {
+        if (fusion_enabled[0] != '\0') {
+            config.fusion_enabled =
+                parse_bool_value(fusion_enabled, config.fusion_enabled);
+        }
+    }
+    if (const char* fusion_off = std::getenv("FUSION_FORCE_OFF")) {
+        if (fusion_off[0] != '\0') {
+            if (parse_bool_value(fusion_off, false)) {
+                config.fusion_enabled = false;
+            }
+        }
+    }
+    if (const char* fusion_session = std::getenv("FUSION_SESSION")) {
+        if (fusion_session[0] != '\0') {
+            config.fusion_session = fusion_session;
+        }
+    }
+    if (const char* fusion_show = std::getenv("FUSION_SHOW_ALL_DETECTIONS")) {
+        if (fusion_show[0] != '\0') {
+            config.fusion_show_all_detections =
+                parse_bool_value(fusion_show, config.fusion_show_all_detections);
         }
     }
 }

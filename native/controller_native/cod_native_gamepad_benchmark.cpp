@@ -25,11 +25,12 @@ struct CliOptions {
     std::filesystem::path recoil_state_path;
     int frames = 120;
     double dt_ms = 8.333;
-    int random_fov_ticks = 800;
+    int random_fov_ticks = 72000;
     unsigned int random_fov_seed = 1337;
     double random_fov_min_scale = 0.68;
     double random_fov_max_scale = 1.0;
     double random_fov_ai_force_scale = 1.0;
+    bool self_test = false;
 };
 
 struct AxisStats {
@@ -40,6 +41,79 @@ struct AxisStats {
     double abs_recoil_sum = 0.0;
     double abs_final_sum = 0.0;
     int recoil_opposes_manual = 0;
+};
+
+struct RandomFovSample {
+    int segment = 0;
+    int tick = 0;
+    int global_tick = 0;
+    double error_x = 0.0;
+    double error_y = 0.0;
+    std::string mode = "manual";
+    double final_x = 0.0;
+    double final_y = 0.0;
+    double manual_x = 0.0;
+    double manual_y = 0.0;
+    double ai_aim_x = 0.0;
+    double ai_aim_y = 0.0;
+    double dynamics_x = 0.0;
+    double dynamics_y = 0.0;
+    double fov_scale = 1.0;
+    double expected_dx = 0.0;
+    double expected_dy = 0.0;
+    double target_speed_px_per_sec = 0.0;
+    double heading_deg = 0.0;
+};
+
+struct RandomFovOvershootEvent {
+    std::string axis = "x";
+    int segment = 0;
+    int crossing_tick = 0;
+    int peak_tick = 0;
+    int crossing_global_tick = 0;
+    int peak_global_tick = 0;
+    std::string peak_mode = "manual";
+    double previous_error = 0.0;
+    double crossing_error = 0.0;
+    double peak_error = 0.0;
+    double peak_abs_px = 0.0;
+    double final_x = 0.0;
+    double final_y = 0.0;
+    double manual_x = 0.0;
+    double manual_y = 0.0;
+    double ai_aim_x = 0.0;
+    double ai_aim_y = 0.0;
+    double dynamics_x = 0.0;
+    double dynamics_y = 0.0;
+    double fov_scale = 1.0;
+    double expected_dx = 0.0;
+    double expected_dy = 0.0;
+    double target_speed_px_per_sec = 0.0;
+    double heading_deg = 0.0;
+};
+
+struct RandomFovTurnEvent {
+    int segment = 0;
+    int tick = 0;
+    int global_tick = 0;
+    std::string mode = "manual";
+    double turn_degrees = 0.0;
+    double output_delta = 0.0;
+    double previous_output_x = 0.0;
+    double previous_output_y = 0.0;
+    double output_x = 0.0;
+    double output_y = 0.0;
+    double manual_x = 0.0;
+    double manual_y = 0.0;
+    double ai_aim_x = 0.0;
+    double ai_aim_y = 0.0;
+    double dynamics_x = 0.0;
+    double dynamics_y = 0.0;
+    double fov_scale = 1.0;
+    double expected_dx = 0.0;
+    double expected_dy = 0.0;
+    double target_speed_px_per_sec = 0.0;
+    double heading_deg = 0.0;
 };
 
 struct ScenarioMetrics {
@@ -69,9 +143,82 @@ struct ScenarioMetrics {
     double random_fov_mean_error_px = 0.0;
     double random_fov_p95_error_px = 0.0;
     double random_fov_p99_error_px = 0.0;
+    int random_fov_direction_samples = 0;
+    int random_fov_manual_direction_samples = 0;
+    int random_fov_turn_samples = 0;
+    double random_fov_mean_target_alignment = 0.0;
+    double random_fov_mean_manual_alignment = 0.0;
+    double random_fov_direction_score = 0.0;
+    double random_fov_manual_direction_score = 0.0;
+    double random_fov_mean_turn_degrees = 0.0;
+    double random_fov_p95_turn_degrees = 0.0;
+    double random_fov_turn_smoothness_score = 0.0;
+    double random_fov_mean_output_delta = 0.0;
+    double random_fov_p95_output_delta = 0.0;
+    std::vector<RandomFovTurnEvent> random_fov_turn_details;
     int random_fov_overshoot_events = 0;
+    int random_fov_overshoot_events_x = 0;
+    int random_fov_overshoot_events_y = 0;
+    int random_fov_overshoot_ads_snap = 0;
+    int random_fov_overshoot_body_lock = 0;
+    int random_fov_overshoot_manual = 0;
     double random_fov_max_overshoot_px = 0.0;
+    std::vector<RandomFovOvershootEvent> random_fov_overshoot_details;
     double random_fov_ai_force_scale = 1.0;
+    bool has_ads_settle = false;
+    int ads_settle_ticks = 0;
+    int ads_settle_measured_ticks = 0;
+    int ads_settle_vision_samples = 0;
+    int ads_settle_settled_tick = -1;
+    int ads_settle_overshoot_events = 0;
+    int ads_settle_overshoot_events_x = 0;
+    int ads_settle_overshoot_events_y = 0;
+    double ads_settle_initial_dx = 0.0;
+    double ads_settle_initial_dy = 0.0;
+    double ads_settle_fov_start_scale = 1.0;
+    double ads_settle_fov_end_scale = 1.0;
+    double ads_settle_fov_transition_ms = 0.0;
+    double ads_settle_snap_window_ms = 0.0;
+    double ads_settle_ai_force_scale = 1.0;
+    double ads_settle_mean_error_px = 0.0;
+    double ads_settle_p95_error_px = 0.0;
+    double ads_settle_p99_error_px = 0.0;
+    double ads_settle_max_overshoot_px = 0.0;
+    double ads_settle_max_overshoot_x_px = 0.0;
+    double ads_settle_max_overshoot_y_px = 0.0;
+    double ads_settle_final_error_px = 0.0;
+    double ads_settle_min_abs_x_px = 0.0;
+    double ads_settle_min_abs_y_px = 0.0;
+    bool has_ads_parity = false;
+    int ads_parity_cases = 0;
+    int ads_parity_frames_per_case = 0;
+    int ads_parity_overshoot_cases = 0;
+    int ads_parity_overshoot_events = 0;
+    int ads_parity_crossing_events = 0;
+    int ads_parity_ads_snap_crossing_events = 0;
+    int ads_parity_body_lock_crossing_events = 0;
+    int ads_parity_manual_crossing_events = 0;
+    int ads_parity_ads_snap_overshoot_events = 0;
+    int ads_parity_body_lock_overshoot_events = 0;
+    int ads_parity_manual_overshoot_events = 0;
+    int ads_parity_overshoot_events_x = 0;
+    int ads_parity_overshoot_events_y = 0;
+    int ads_parity_overshoot_events_none = 0;
+    int ads_parity_overshoot_events_aligned_follow = 0;
+    int ads_parity_overshoot_events_opposing_burst = 0;
+    int ads_parity_overshoot_events_overshoot_recover = 0;
+    int ads_parity_overshoot_recover_cases = 0;
+    int ads_parity_overshoot_recover_events = 0;
+    int ads_parity_under_20_cases = 0;
+    double ads_parity_frame_dt_ms = 0.0;
+    double ads_parity_target_sample_hz = 0.0;
+    double ads_parity_mean_error_px = 0.0;
+    double ads_parity_p95_error_px = 0.0;
+    double ads_parity_p99_error_px = 0.0;
+    double ads_parity_final_error_px = 0.0;
+    double ads_parity_mean_time_to_under_20_ms = 0.0;
+    double ads_parity_max_single_frame_camera_delta_px = 0.0;
+    double ads_parity_max_overshoot_px = 0.0;
 };
 
 double current_seconds() {
@@ -99,7 +246,8 @@ void print_usage() {
         << "[--run-key key] [--output path] [--frames n] [--dt-ms ms] "
         << "[--recoil-state path] [--random-fov-ticks n] "
         << "[--random-fov-seed n] [--random-fov-min-scale v] "
-        << "[--random-fov-max-scale v] [--random-fov-ai-force-scale v]\n";
+        << "[--random-fov-max-scale v] [--random-fov-ai-force-scale v] "
+        << "[--self-test]\n";
 }
 
 CliOptions parse_args(int argc, char** argv) {
@@ -110,7 +258,9 @@ CliOptions parse_args(int argc, char** argv) {
             print_usage();
             std::exit(0);
         }
-        if (arg == "--config" && index + 1 < argc) {
+        if (arg == "--self-test") {
+            options.self_test = true;
+        } else if (arg == "--config" && index + 1 < argc) {
             options.config_path = argv[++index];
         } else if (arg == "--run-key" && index + 1 < argc) {
             options.run_key = argv[++index];
@@ -157,10 +307,14 @@ CliOptions parse_args(int argc, char** argv) {
     return options;
 }
 
-controller_native::PhysicalGamepadState aiming_state(float manual_x, float manual_y) {
+controller_native::PhysicalGamepadState aiming_state(
+    float manual_x,
+    float manual_y,
+    bool fire_active = false) {
     controller_native::PhysicalGamepadState state;
     state.connected = true;
     state.left_trigger = 1.0f;
+    state.right_trigger = fire_active ? 1.0f : 0.0f;
     state.right_x = manual_x;
     state.right_y = manual_y;
     return state;
@@ -185,6 +339,22 @@ controller_native::NativeControllerVisionState target_state(float dx, float dy, 
     state.fire_authority = true;
     state.target_tier = "observed_strong";
     state.observed_at_seconds = now;
+    return state;
+}
+
+controller_native::NativeControllerVisionState benchmark_target_state(
+    float dx,
+    float dy,
+    double now) {
+    constexpr float kBodyBoxWidth = 84.0f;
+    constexpr float kBodyBoxHeight = 180.0f;
+    constexpr float kUpperBodyRatio = 0.40f;
+    controller_native::NativeControllerVisionState state =
+        target_state(dx, dy, now);
+    state.body_x1 = state.target_x - (kBodyBoxWidth * 0.5f);
+    state.body_x2 = state.target_x + (kBodyBoxWidth * 0.5f);
+    state.body_y1 = state.target_y - (kBodyBoxHeight * kUpperBodyRatio);
+    state.body_y2 = state.body_y1 + kBodyBoxHeight;
     return state;
 }
 
@@ -225,6 +395,10 @@ float clamp_float(float value, float minimum, float maximum) {
     return std::max(minimum, std::min(maximum, value));
 }
 
+double clamp_double(double value, double minimum, double maximum) {
+    return std::max(minimum, std::min(maximum, value));
+}
+
 double mean_value(const std::vector<double>& values) {
     if (values.empty()) {
         return 0.0;
@@ -247,45 +421,401 @@ double nearest_rank_percentile(std::vector<double> values, double percentile) {
     return values[std::min(index, values.size() - 1u)];
 }
 
-double qualifying_overshoot(double previous, double current, double threshold_px) {
-    if (previous > 0.0 && current < 0.0 && std::fabs(current) > threshold_px) {
-        return std::fabs(current);
+double vector_magnitude(double x, double y) {
+    return std::sqrt((x * x) + (y * y));
+}
+
+double vector_alignment(
+    double ax,
+    double ay,
+    double bx,
+    double by,
+    double min_magnitude) {
+    const double a_mag = vector_magnitude(ax, ay);
+    const double b_mag = vector_magnitude(bx, by);
+    if (a_mag < min_magnitude || b_mag < min_magnitude) {
+        return 0.0;
     }
-    if (previous < 0.0 && current > 0.0 && std::fabs(current) > threshold_px) {
-        return std::fabs(current);
+    return std::max(-1.0, std::min(1.0, ((ax * bx) + (ay * by)) / (a_mag * b_mag)));
+}
+
+double vector_turn_degrees(
+    double previous_x,
+    double previous_y,
+    double current_x,
+    double current_y,
+    double min_magnitude) {
+    const double alignment = vector_alignment(
+        previous_x,
+        previous_y,
+        current_x,
+        current_y,
+        min_magnitude);
+    return std::acos(std::max(-1.0, std::min(1.0, alignment))) * (180.0 / 3.14159265358979323846);
+}
+
+double alignment_score(double mean_alignment) {
+    return std::max(0.0, std::min(100.0, 50.0 * (mean_alignment + 1.0)));
+}
+
+double turn_smoothness_score(double p95_turn_degrees) {
+    return std::max(0.0, std::min(100.0, 100.0 * (1.0 - (p95_turn_degrees / 180.0))));
+}
+
+int signum(double value) {
+    if (value > 0.0) {
+        return 1;
     }
-    return 0.0;
+    if (value < 0.0) {
+        return -1;
+    }
+    return 0;
+}
+
+struct OvershootStats {
+    int count = 0;
+    double max_px = 0.0;
+};
+
+struct ModeOvershootStats {
+    int count = 0;
+    int ads_snap_count = 0;
+    int body_lock_count = 0;
+    int manual_count = 0;
+    double max_px = 0.0;
+};
+
+OvershootStats axis_overshoot_stats(const std::vector<double>& errors, double threshold_px) {
+    OvershootStats stats;
+    if (errors.size() < 2) {
+        return stats;
+    }
+
+    const auto finish_episode = [&](bool active, double peak_abs) {
+        if (active && peak_abs > threshold_px) {
+            ++stats.count;
+            stats.max_px = std::max(stats.max_px, peak_abs);
+        }
+    };
+
+    bool active = false;
+    int active_side = 0;
+    double peak_abs = 0.0;
+    int previous_sign = signum(errors.front());
+    for (std::size_t index = 1; index < errors.size(); ++index) {
+        const double current = errors[index];
+        const int current_sign = signum(current);
+        if (current_sign == 0) {
+            previous_sign = current_sign;
+            continue;
+        }
+
+        const bool crossed =
+            previous_sign != 0 && current_sign != previous_sign;
+        if (crossed) {
+            finish_episode(active, peak_abs);
+            active = true;
+            active_side = current_sign;
+            peak_abs = std::fabs(current);
+        } else if (active && current_sign == active_side) {
+            peak_abs = std::max(peak_abs, std::fabs(current));
+        } else if (active && current_sign != active_side) {
+            finish_episode(active, peak_abs);
+            active = false;
+            active_side = 0;
+            peak_abs = 0.0;
+        }
+        previous_sign = current_sign;
+    }
+    finish_episode(active, peak_abs);
+    return stats;
+}
+
+void count_overshoot_mode(ModeOvershootStats& stats, const std::string& mode) {
+    if (mode == "ads_snap") {
+        ++stats.ads_snap_count;
+    } else if (mode == "body_lock") {
+        ++stats.body_lock_count;
+    } else {
+        ++stats.manual_count;
+    }
+}
+
+ModeOvershootStats axis_mode_overshoot_stats(
+    const std::vector<double>& errors,
+    const std::vector<std::string>& modes,
+    double threshold_px) {
+    ModeOvershootStats stats;
+    if (errors.size() < 2 || errors.size() != modes.size()) {
+        return stats;
+    }
+
+    const auto finish_episode = [&](bool active, double peak_abs, const std::string& peak_mode) {
+        if (active && peak_abs > threshold_px) {
+            ++stats.count;
+            stats.max_px = std::max(stats.max_px, peak_abs);
+            count_overshoot_mode(stats, peak_mode);
+        }
+    };
+
+    bool active = false;
+    int active_side = 0;
+    double peak_abs = 0.0;
+    std::string peak_mode = "manual";
+    int previous_sign = signum(errors.front());
+    for (std::size_t index = 1; index < errors.size(); ++index) {
+        const double current = errors[index];
+        const int current_sign = signum(current);
+        if (current_sign == 0) {
+            previous_sign = current_sign;
+            continue;
+        }
+
+        const bool crossed =
+            previous_sign != 0 && current_sign != previous_sign;
+        if (crossed) {
+            finish_episode(active, peak_abs, peak_mode);
+            active = true;
+            active_side = current_sign;
+            peak_abs = std::fabs(current);
+            peak_mode = modes[index];
+        } else if (active && current_sign == active_side) {
+            const double current_abs = std::fabs(current);
+            if (current_abs > peak_abs) {
+                peak_abs = current_abs;
+                peak_mode = modes[index];
+            }
+        } else if (active && current_sign != active_side) {
+            finish_episode(active, peak_abs, peak_mode);
+            active = false;
+            active_side = 0;
+            peak_abs = 0.0;
+            peak_mode = "manual";
+        }
+        previous_sign = current_sign;
+    }
+    finish_episode(active, peak_abs, peak_mode);
+    return stats;
+}
+
+std::vector<RandomFovOvershootEvent> random_fov_axis_overshoot_events(
+    const std::vector<RandomFovSample>& samples,
+    bool y_axis,
+    double threshold_px) {
+    std::vector<RandomFovOvershootEvent> events;
+    if (samples.size() < 2) {
+        return events;
+    }
+
+    const auto error_for_sample = [y_axis](const RandomFovSample& sample) {
+        return y_axis ? sample.error_y : sample.error_x;
+    };
+    const auto make_event = [&](double previous_error, const RandomFovSample& crossing_sample) {
+        RandomFovOvershootEvent event;
+        event.axis = y_axis ? "y" : "x";
+        event.segment = crossing_sample.segment;
+        event.crossing_tick = crossing_sample.tick;
+        event.peak_tick = crossing_sample.tick;
+        event.crossing_global_tick = crossing_sample.global_tick;
+        event.peak_global_tick = crossing_sample.global_tick;
+        event.peak_mode = crossing_sample.mode;
+        event.previous_error = previous_error;
+        event.crossing_error = error_for_sample(crossing_sample);
+        event.peak_error = event.crossing_error;
+        event.peak_abs_px = std::fabs(event.crossing_error);
+        event.final_x = crossing_sample.final_x;
+        event.final_y = crossing_sample.final_y;
+        event.manual_x = crossing_sample.manual_x;
+        event.manual_y = crossing_sample.manual_y;
+        event.ai_aim_x = crossing_sample.ai_aim_x;
+        event.ai_aim_y = crossing_sample.ai_aim_y;
+        event.dynamics_x = crossing_sample.dynamics_x;
+        event.dynamics_y = crossing_sample.dynamics_y;
+        event.fov_scale = crossing_sample.fov_scale;
+        event.expected_dx = crossing_sample.expected_dx;
+        event.expected_dy = crossing_sample.expected_dy;
+        event.target_speed_px_per_sec = crossing_sample.target_speed_px_per_sec;
+        event.heading_deg = crossing_sample.heading_deg;
+        return event;
+    };
+    const auto apply_peak = [&](RandomFovOvershootEvent& event, const RandomFovSample& sample) {
+        const double error = error_for_sample(sample);
+        event.peak_tick = sample.tick;
+        event.peak_global_tick = sample.global_tick;
+        event.peak_mode = sample.mode;
+        event.peak_error = error;
+        event.peak_abs_px = std::fabs(error);
+        event.final_x = sample.final_x;
+        event.final_y = sample.final_y;
+        event.manual_x = sample.manual_x;
+        event.manual_y = sample.manual_y;
+        event.ai_aim_x = sample.ai_aim_x;
+        event.ai_aim_y = sample.ai_aim_y;
+        event.dynamics_x = sample.dynamics_x;
+        event.dynamics_y = sample.dynamics_y;
+        event.fov_scale = sample.fov_scale;
+        event.expected_dx = sample.expected_dx;
+        event.expected_dy = sample.expected_dy;
+        event.target_speed_px_per_sec = sample.target_speed_px_per_sec;
+        event.heading_deg = sample.heading_deg;
+    };
+    const auto finish_episode = [&](bool active, const RandomFovOvershootEvent& event) {
+        if (active && event.peak_abs_px > threshold_px) {
+            events.push_back(event);
+        }
+    };
+
+    bool active = false;
+    int active_side = 0;
+    RandomFovOvershootEvent active_event;
+    double previous_error = error_for_sample(samples.front());
+    int previous_sign = signum(previous_error);
+    for (std::size_t index = 1; index < samples.size(); ++index) {
+        const double current = error_for_sample(samples[index]);
+        const int current_sign = signum(current);
+        if (current_sign == 0) {
+            previous_error = current;
+            previous_sign = current_sign;
+            continue;
+        }
+
+        const bool crossed =
+            previous_sign != 0 && current_sign != previous_sign;
+        if (crossed) {
+            finish_episode(active, active_event);
+            active = true;
+            active_side = current_sign;
+            active_event = make_event(previous_error, samples[index]);
+        } else if (active && current_sign == active_side) {
+            const double current_abs = std::fabs(current);
+            if (current_abs > active_event.peak_abs_px) {
+                apply_peak(active_event, samples[index]);
+            }
+        } else if (active && current_sign != active_side) {
+            finish_episode(active, active_event);
+            active = false;
+            active_side = 0;
+            active_event = RandomFovOvershootEvent{};
+        }
+        previous_error = current;
+        previous_sign = current_sign;
+    }
+    finish_episode(active, active_event);
+    return events;
 }
 
 int axis_overshoot_count(const std::vector<double>& errors, double threshold_px) {
-    if (errors.size() < 2) {
-        return 0;
-    }
-    int count = 0;
-    double previous = errors.front();
-    for (std::size_t index = 1; index < errors.size(); ++index) {
-        const double current = errors[index];
-        if (qualifying_overshoot(previous, current, threshold_px) > 0.0) {
-            ++count;
-        }
-        previous = current;
-    }
-    return count;
+    return axis_overshoot_stats(errors, threshold_px).count;
 }
 
 double axis_max_overshoot(const std::vector<double>& errors, double threshold_px) {
-    if (errors.size() < 2) {
-        return 0.0;
+    return axis_overshoot_stats(errors, threshold_px).max_px;
+}
+
+void require_benchmark_check(bool condition, const char* message) {
+    if (!condition) {
+        throw std::runtime_error(message);
     }
-    double max_overshoot = 0.0;
-    double previous = errors.front();
-    for (std::size_t index = 1; index < errors.size(); ++index) {
-        const double current = errors[index];
-        max_overshoot =
-            std::max(max_overshoot, qualifying_overshoot(previous, current, threshold_px));
-        previous = current;
+}
+
+void require_near(double actual, double expected, double tolerance, const char* message) {
+    if (std::fabs(actual - expected) > tolerance) {
+        std::ostringstream out;
+        out << message << ": expected " << expected << " got " << actual;
+        throw std::runtime_error(out.str());
     }
-    return max_overshoot;
+}
+
+void run_self_test() {
+    const std::vector<double> crossed_then_deepened = {6.0, 2.5, -1.0, -4.0};
+    require_benchmark_check(
+        axis_overshoot_count(crossed_then_deepened, 2.0) == 1,
+        "overshoot count should include crossings that deepen after the crossing sample");
+    require_near(
+        axis_max_overshoot(crossed_then_deepened, 2.0),
+        4.0,
+        0.001,
+        "max overshoot should include the deepest same-side excursion after crossing");
+
+    const std::vector<double> noise_crossing = {4.0, -1.0, 0.5, -0.75};
+    require_benchmark_check(
+        axis_overshoot_count(noise_crossing, 2.0) == 0,
+        "overshoot count should ignore crossings that stay inside the threshold");
+    require_near(
+        axis_max_overshoot(noise_crossing, 2.0),
+        0.0,
+        0.001,
+        "max overshoot should ignore threshold-sized noise");
+    std::vector<RandomFovSample> diagnostic_samples;
+    diagnostic_samples.push_back(RandomFovSample{});
+    diagnostic_samples.back().error_x = 6.0;
+    diagnostic_samples.back().mode = "body_lock";
+    diagnostic_samples.push_back(RandomFovSample{});
+    diagnostic_samples.back().error_x = -1.0;
+    diagnostic_samples.back().tick = 1;
+    diagnostic_samples.back().global_tick = 1;
+    diagnostic_samples.back().mode = "body_lock";
+    diagnostic_samples.push_back(RandomFovSample{});
+    diagnostic_samples.back().error_x = -4.0;
+    diagnostic_samples.back().tick = 2;
+    diagnostic_samples.back().global_tick = 2;
+    diagnostic_samples.back().mode = "body_lock";
+    diagnostic_samples.back().final_x = -0.10;
+    const std::vector<RandomFovOvershootEvent> diagnostic_events =
+        random_fov_axis_overshoot_events(diagnostic_samples, false, 2.0);
+    require_benchmark_check(
+        diagnostic_events.size() == 1,
+        "overshoot detail should use the same episode threshold as overshoot count");
+    require_near(
+        diagnostic_events.front().peak_abs_px,
+        4.0,
+        0.001,
+        "overshoot detail should report the deepest same-side peak");
+    require_near(
+        diagnostic_events.front().final_x,
+        -0.10,
+        0.001,
+        "overshoot detail should preserve component context at the peak sample");
+
+    require_near(
+        vector_alignment(1.0, 0.0, 2.0, 0.0, 0.001),
+        1.0,
+        0.001,
+        "vector alignment should score same-direction vectors as 1");
+    require_near(
+        vector_alignment(1.0, 0.0, -2.0, 0.0, 0.001),
+        -1.0,
+        0.001,
+        "vector alignment should score opposite-direction vectors as -1");
+    require_near(
+        vector_turn_degrees(1.0, 0.0, 0.0, 1.0, 0.001),
+        90.0,
+        0.001,
+        "turn angle should report right-angle direction changes");
+    require_near(
+        alignment_score(1.0),
+        100.0,
+        0.001,
+        "alignment score should map perfect alignment to 100");
+    require_near(
+        turn_smoothness_score(90.0),
+        50.0,
+        0.001,
+        "turn smoothness score should treat right-angle changes as mid quality");
+
+    const std::vector<std::string> mode_sequence = {
+        "ads_snap",
+        "ads_snap",
+        "body_lock",
+        "body_lock",
+    };
+    const ModeOvershootStats mode_overshoot =
+        axis_mode_overshoot_stats(crossed_then_deepened, mode_sequence, 2.0);
+    require_benchmark_check(
+        mode_overshoot.count == 1 && mode_overshoot.body_lock_count == 1,
+        "mode overshoot count should attribute the episode to the peak excursion mode");
+
+    std::cout << "[NativeGamepadBenchmark] self-test PASS\n";
 }
 
 void add_axis_sample(AxisStats& stats, float manual, float final_value, float recoil) {
@@ -333,6 +863,345 @@ void sleep_dt(double dt_ms) {
         return;
     }
     std::this_thread::sleep_for(std::chrono::duration<double, std::milli>(dt_ms));
+}
+
+struct AdsParityCase {
+    const char* family = "single_static_offset";
+    double initial_dx = 0.0;
+    double initial_dy = 0.0;
+    double velocity_x = 0.0;
+    double velocity_y = 0.0;
+    int decel_start_frame = -1;
+    int decel_duration_frames = 0;
+    double decel_target_speed_scale = 1.0;
+};
+
+struct AdsManualFrame {
+    float x = 0.0f;
+    float y = 0.0f;
+    bool overshoot_recover = false;
+};
+
+struct AdsCaseResult {
+    int overshoot_events = 0;
+    int crossing_events = 0;
+    int ads_snap_crossing_events = 0;
+    int body_lock_crossing_events = 0;
+    int manual_crossing_events = 0;
+    int ads_snap_overshoot_events = 0;
+    int body_lock_overshoot_events = 0;
+    int manual_overshoot_events = 0;
+    int overshoot_events_x = 0;
+    int overshoot_events_y = 0;
+    int time_to_under_20_frame = -1;
+    double mean_error_px = 0.0;
+    double p95_error_px = 0.0;
+    double p99_error_px = 0.0;
+    double final_error_px = 0.0;
+    double max_single_frame_camera_delta_px = 0.0;
+    double max_overshoot_px = 0.0;
+};
+
+double ads_velocity_scale_for_frame(const AdsParityCase& scenario, int frame) {
+    if (scenario.decel_start_frame < 0 || frame < scenario.decel_start_frame) {
+        return 1.0;
+    }
+    if (scenario.decel_duration_frames <= 1) {
+        return scenario.decel_target_speed_scale;
+    }
+    const int step_index =
+        std::min(scenario.decel_duration_frames - 1, frame - scenario.decel_start_frame);
+    const double progress = clamp_double(
+        static_cast<double>(step_index) /
+            static_cast<double>(scenario.decel_duration_frames - 1),
+        0.0,
+        1.0);
+    return 1.0 + ((scenario.decel_target_speed_scale - 1.0) * progress);
+}
+
+float ads_manual_axis_x(double error_x, double scale) {
+    constexpr double kMaxManualRatio = 0.72;
+    constexpr double kFullScaleX = 90.0;
+    return static_cast<float>(clamp_double(
+        (error_x / kFullScaleX) * kMaxManualRatio * scale,
+        -1.0,
+        1.0));
+}
+
+float ads_manual_axis_y(double error_y, double scale) {
+    constexpr double kMaxManualRatio = 0.72;
+    constexpr double kFullScaleY = 80.0;
+    return static_cast<float>(clamp_double(
+        (-error_y / kFullScaleY) * kMaxManualRatio * scale,
+        -1.0,
+        1.0));
+}
+
+AdsManualFrame ads_manual_frame(
+    const std::string& profile,
+    int frame,
+    double error_x,
+    double error_y) {
+    constexpr double kAlignedScale = 0.62;
+    constexpr double kOpposingScale = 0.55;
+    constexpr double kRecoverScale = 0.48;
+    constexpr double kVerticalTailScale = 0.16;
+    AdsManualFrame manual;
+    if (profile == "none") {
+        return manual;
+    }
+    if (profile == "aligned_follow") {
+        manual.x = ads_manual_axis_x(error_x, kAlignedScale);
+        manual.y = ads_manual_axis_y(error_y, kAlignedScale);
+        return manual;
+    }
+    if (profile == "opposing_burst") {
+        const bool in_burst = frame >= 4 && frame <= 7;
+        const double scale = in_burst ? -kOpposingScale : kAlignedScale;
+        manual.x = ads_manual_axis_x(error_x, scale);
+        manual.y = ads_manual_axis_y(error_y, scale);
+        return manual;
+    }
+
+    manual.overshoot_recover = true;
+    if (frame < 3) {
+        manual.x = ads_manual_axis_x(error_x, kAlignedScale);
+        manual.y = ads_manual_axis_y(error_y, kAlignedScale);
+    } else if (frame < 6) {
+        manual.x = ads_manual_axis_x(error_x, -kRecoverScale);
+        manual.y = ads_manual_axis_y(error_y, -kRecoverScale);
+    } else {
+        manual.x = ads_manual_axis_x(error_x, kRecoverScale * 0.35);
+        manual.y = ads_manual_axis_y(error_y, kVerticalTailScale);
+    }
+    return manual;
+}
+
+AdsCaseResult run_ads_parity_case(
+    controller_native::GamepadRuntimeConfig config,
+    const AdsParityCase& scenario,
+    const std::string& profile,
+    bool enable_dynamics,
+    bool fire_active) {
+    constexpr int kSimFrames = 90;
+    constexpr double kFrameDt = 1.0 / 60.0;
+    constexpr double kReticleSpeed = 1500.0;
+    constexpr double kOvershootThresholdPx = 2.0;
+    constexpr double kUnderTargetThresholdPx = 20.0;
+    constexpr int kUnderTargetConsecutiveFrames = 2;
+
+    config.recoil.enabled = false;
+    config.aim_assist_dynamics.enabled = enable_dynamics;
+
+    double simulated_now = 1.0;
+    controller_native::NativeGamepadController controller(
+        config,
+        [&simulated_now]() { return simulated_now; });
+    double target_x = scenario.initial_dx;
+    double target_y = scenario.initial_dy;
+    double reticle_x = 0.0;
+    double reticle_y = 0.0;
+    int under_target_streak = 0;
+    AdsCaseResult result;
+    std::vector<double> errors;
+    std::vector<double> x_errors;
+    std::vector<double> y_errors;
+    std::vector<std::string> modes;
+    errors.reserve(kSimFrames);
+    x_errors.reserve(kSimFrames);
+    y_errors.reserve(kSimFrames);
+    modes.reserve(kSimFrames);
+    bool has_previous_error = false;
+    double previous_error_x = 0.0;
+    double previous_error_y = 0.0;
+
+    for (int frame = 0; frame < kSimFrames; ++frame) {
+        simulated_now = 1.0 + (static_cast<double>(frame) * kFrameDt);
+        const double velocity_scale = ads_velocity_scale_for_frame(scenario, frame);
+        target_x += scenario.velocity_x * velocity_scale * kFrameDt;
+        target_y += scenario.velocity_y * velocity_scale * kFrameDt;
+
+        const double error_x_before = target_x - reticle_x;
+        const double error_y_before = target_y - reticle_y;
+        const AdsManualFrame manual =
+            ads_manual_frame(profile, frame, error_x_before, error_y_before);
+        controller.submit_vision_state(
+            benchmark_target_state(
+                static_cast<float>(error_x_before),
+                static_cast<float>(error_y_before),
+                simulated_now));
+        controller.build_output(aiming_state(manual.x, manual.y, fire_active));
+        const controller_native::NativeControllerOutputComponents& components =
+            controller.last_output_components();
+        const double reticle_delta_x =
+            static_cast<double>(components.final_stick.x) * kReticleSpeed * kFrameDt;
+        const double reticle_delta_y =
+            -static_cast<double>(components.final_stick.y) * kReticleSpeed * kFrameDt;
+        reticle_x += reticle_delta_x;
+        reticle_y += reticle_delta_y;
+        result.max_single_frame_camera_delta_px = std::max(
+            result.max_single_frame_camera_delta_px,
+            std::hypot(reticle_delta_x, reticle_delta_y));
+
+        const double error_x_after = target_x - reticle_x;
+        const double error_y_after = target_y - reticle_y;
+        const double radial_after = std::hypot(error_x_after, error_y_after);
+        const std::string& mode = controller.last_ai_aim_mode();
+        const auto record_crossing = [&](double previous, double current) {
+            if (previous == 0.0 || current == 0.0 ||
+                previous * current >= 0.0 ||
+                std::fabs(current) <= kOvershootThresholdPx) {
+                return;
+            }
+            ++result.crossing_events;
+            if (mode == "ads_snap") {
+                ++result.ads_snap_crossing_events;
+            } else if (mode == "body_lock") {
+                ++result.body_lock_crossing_events;
+            } else {
+                ++result.manual_crossing_events;
+            }
+        };
+        if (has_previous_error) {
+            record_crossing(previous_error_x, error_x_after);
+            record_crossing(previous_error_y, error_y_after);
+        }
+        previous_error_x = error_x_after;
+        previous_error_y = error_y_after;
+        has_previous_error = true;
+        x_errors.push_back(error_x_after);
+        y_errors.push_back(error_y_after);
+        modes.push_back(mode);
+        errors.push_back(radial_after);
+        if (radial_after <= kUnderTargetThresholdPx) {
+            ++under_target_streak;
+            if (result.time_to_under_20_frame < 0 &&
+                under_target_streak >= kUnderTargetConsecutiveFrames) {
+                result.time_to_under_20_frame =
+                    frame - kUnderTargetConsecutiveFrames + 1;
+            }
+        } else {
+            under_target_streak = 0;
+        }
+    }
+
+    const ModeOvershootStats x_overshoot =
+        axis_mode_overshoot_stats(x_errors, modes, kOvershootThresholdPx);
+    const ModeOvershootStats y_overshoot =
+        axis_mode_overshoot_stats(y_errors, modes, kOvershootThresholdPx);
+    result.overshoot_events = x_overshoot.count + y_overshoot.count;
+    result.overshoot_events_x = x_overshoot.count;
+    result.overshoot_events_y = y_overshoot.count;
+    result.ads_snap_overshoot_events =
+        x_overshoot.ads_snap_count + y_overshoot.ads_snap_count;
+    result.body_lock_overshoot_events =
+        x_overshoot.body_lock_count + y_overshoot.body_lock_count;
+    result.manual_overshoot_events =
+        x_overshoot.manual_count + y_overshoot.manual_count;
+    result.max_overshoot_px = std::max(x_overshoot.max_px, y_overshoot.max_px);
+    result.mean_error_px = mean_value(errors);
+    result.p95_error_px = nearest_rank_percentile(errors, 0.95);
+    result.p99_error_px = nearest_rank_percentile(errors, 0.99);
+    result.final_error_px = errors.empty() ? 0.0 : errors.back();
+    return result;
+}
+
+ScenarioMetrics run_ads_python_parity_60hz(
+    controller_native::GamepadRuntimeConfig config,
+    const std::string& name = "ads_python_parity_60hz",
+    bool enable_dynamics = false,
+    bool fire_active = false) {
+    ScenarioMetrics metrics;
+    metrics.name = name;
+    metrics.has_ads_parity = true;
+    metrics.ads_parity_frames_per_case = 90;
+    metrics.ads_parity_frame_dt_ms = 1000.0 / 60.0;
+    metrics.ads_parity_target_sample_hz = 60.0;
+
+    const std::vector<AdsParityCase> scenarios = {
+        {"single_static_offset", 160.0, 16.0, 0.0, 0.0, -1, 0, 1.0},
+        {"single_static_offset", -80.0, -48.0, 0.0, 0.0, -1, 0, 1.0},
+        {"single_strafe_then_decel", 120.0, -24.0, -320.0, 0.0, 18, 12, 0.35},
+        {"single_diagonal_then_decel", -100.0, 50.0, 226.0, -226.0, 24, 18, 0.15},
+    };
+    const std::vector<std::string> profiles = {
+        "none",
+        "aligned_follow",
+        "opposing_burst",
+        "overshoot_recover",
+    };
+
+    std::vector<double> mean_errors;
+    std::vector<double> p95_errors;
+    std::vector<double> p99_errors;
+    std::vector<double> final_errors;
+    std::vector<double> time_to_under_ms;
+    for (const AdsParityCase& scenario : scenarios) {
+        for (const std::string& profile : profiles) {
+            const AdsCaseResult result =
+                run_ads_parity_case(config, scenario, profile, enable_dynamics, fire_active);
+            ++metrics.ads_parity_cases;
+            metrics.ads_parity_overshoot_events += result.overshoot_events;
+            metrics.ads_parity_crossing_events += result.crossing_events;
+            metrics.ads_parity_ads_snap_crossing_events +=
+                result.ads_snap_crossing_events;
+            metrics.ads_parity_body_lock_crossing_events +=
+                result.body_lock_crossing_events;
+            metrics.ads_parity_manual_crossing_events +=
+                result.manual_crossing_events;
+            metrics.ads_parity_ads_snap_overshoot_events +=
+                result.ads_snap_overshoot_events;
+            metrics.ads_parity_body_lock_overshoot_events +=
+                result.body_lock_overshoot_events;
+            metrics.ads_parity_manual_overshoot_events +=
+                result.manual_overshoot_events;
+            metrics.ads_parity_overshoot_events_x += result.overshoot_events_x;
+            metrics.ads_parity_overshoot_events_y += result.overshoot_events_y;
+            if (profile == "none") {
+                metrics.ads_parity_overshoot_events_none += result.overshoot_events;
+            } else if (profile == "aligned_follow") {
+                metrics.ads_parity_overshoot_events_aligned_follow += result.overshoot_events;
+            } else if (profile == "opposing_burst") {
+                metrics.ads_parity_overshoot_events_opposing_burst += result.overshoot_events;
+            } else if (profile == "overshoot_recover") {
+                metrics.ads_parity_overshoot_events_overshoot_recover += result.overshoot_events;
+            }
+            if (result.overshoot_events > 0) {
+                ++metrics.ads_parity_overshoot_cases;
+            }
+            if (profile == "overshoot_recover") {
+                metrics.ads_parity_overshoot_recover_events +=
+                    result.overshoot_events;
+                if (result.overshoot_events > 0) {
+                    ++metrics.ads_parity_overshoot_recover_cases;
+                }
+            }
+            if (result.time_to_under_20_frame >= 0) {
+                ++metrics.ads_parity_under_20_cases;
+                time_to_under_ms.push_back(
+                    static_cast<double>(result.time_to_under_20_frame) *
+                    metrics.ads_parity_frame_dt_ms);
+            }
+            metrics.ads_parity_max_single_frame_camera_delta_px = std::max(
+                metrics.ads_parity_max_single_frame_camera_delta_px,
+                result.max_single_frame_camera_delta_px);
+            metrics.ads_parity_max_overshoot_px = std::max(
+                metrics.ads_parity_max_overshoot_px,
+                result.max_overshoot_px);
+            mean_errors.push_back(result.mean_error_px);
+            p95_errors.push_back(result.p95_error_px);
+            p99_errors.push_back(result.p99_error_px);
+            final_errors.push_back(result.final_error_px);
+        }
+    }
+
+    metrics.frames = metrics.ads_parity_cases * metrics.ads_parity_frames_per_case;
+    metrics.ads_parity_mean_error_px = mean_value(mean_errors);
+    metrics.ads_parity_p95_error_px = mean_value(p95_errors);
+    metrics.ads_parity_p99_error_px = mean_value(p99_errors);
+    metrics.ads_parity_final_error_px = mean_value(final_errors);
+    metrics.ads_parity_mean_time_to_under_20_ms = mean_value(time_to_under_ms);
+    return metrics;
 }
 
 ScenarioMetrics run_bodylock_edge_escape(
@@ -417,9 +1286,11 @@ ScenarioMetrics run_recoil_manual_conflict(
 
 ScenarioMetrics run_tracker_random_fov_100hz(
     controller_native::GamepadRuntimeConfig config,
-    const CliOptions& options) {
+    const CliOptions& options,
+    const std::string& name = "tracker_random_fov_100hz",
+    bool enable_dynamics = false) {
     ScenarioMetrics metrics;
-    metrics.name = "tracker_random_fov_100hz";
+    metrics.name = name;
     metrics.has_random_fov = true;
     metrics.random_fov_min_scale = options.random_fov_min_scale;
     metrics.random_fov_max_scale = options.random_fov_max_scale;
@@ -430,16 +1301,20 @@ ScenarioMetrics run_tracker_random_fov_100hz(
 
     constexpr double kControllerHz = 1000.0;
     constexpr double kVisionHz = 100.0;
+    constexpr double kMetricHz = 60.0;
     constexpr double kDtSeconds = 1.0 / kControllerHz;
     constexpr int kVisionIntervalTicks =
         static_cast<int>(kControllerHz / kVisionHz);
+    const int kMetricIntervalTicks = std::max(
+        1,
+        static_cast<int>(std::round(kControllerHz / kMetricHz)));
     constexpr double kDirectionDeadzonePx = 6.0;
     constexpr double kOutputDeadzone = 0.015;
     const double reticle_speed =
         std::max(1.0f, config.ai_aim.target_projection_reticle_speed_px_per_sec);
 
     config.recoil.enabled = false;
-    config.aim_assist_dynamics.enabled = false;
+    config.aim_assist_dynamics.enabled = enable_dynamics;
     config.ai_aim.ads_snap_window_ms =
         std::max(config.ai_aim.ads_snap_window_ms, options.random_fov_ticks + 20);
     config.ai_aim.target_max_age_ms = std::max(config.ai_aim.target_max_age_ms, 80.0f);
@@ -454,154 +1329,469 @@ ScenarioMetrics run_tracker_random_fov_100hz(
     config.ai_aim.body_lock_opposing_boost_max_ai_force *= force_scale;
     config.ai_aim.body_lock_max_ai_force_y *= force_scale;
 
-    controller_native::NativeGamepadController controller(config);
+    double simulated_now = 1.0;
     std::mt19937 rng(options.random_fov_seed);
     std::uniform_real_distribution<double> fov_distribution(
         options.random_fov_min_scale,
         options.random_fov_max_scale);
     std::uniform_int_distribution<int> hold_distribution(45, 115);
+    std::uniform_real_distribution<double> phase_distribution(0.0, 6.28318530717958647692);
+    std::uniform_real_distribution<double> amplitude_distribution(0.85, 1.15);
+    std::uniform_real_distribution<double> initial_dx_distribution(-60.0, 60.0);
+    std::uniform_real_distribution<double> initial_dy_distribution(-45.0, 45.0);
+    std::uniform_real_distribution<double> speed_distribution(220.0, 420.0);
+    std::uniform_real_distribution<double> heading_distribution(-170.0, 170.0);
+    std::uniform_real_distribution<double> turn_delta_distribution(-120.0, 120.0);
+    std::uniform_real_distribution<double> second_turn_delta_distribution(-100.0, 100.0);
+    std::uniform_real_distribution<double> steady_turn_speed_scale_distribution(0.92, 1.04);
+    std::uniform_real_distribution<double> turn_decel_speed_scale_distribution(0.88, 1.02);
+    std::uniform_real_distribution<double> soft_decel_scale_distribution(0.12, 0.65);
+    std::uniform_real_distribution<double> resume_scale_distribution(0.70, 1.05);
+    std::uniform_real_distribution<double> probability_distribution(0.0, 1.0);
+    const auto frame_to_tick = [](int frame) {
+        return static_cast<int>(std::round(
+            static_cast<double>(frame) * (1000.0 / 60.0)));
+    };
+    auto random_int = [&rng](int min_value, int max_value) {
+        return std::uniform_int_distribution<int>(min_value, max_value)(rng);
+    };
 
-    double fov_scale = 1.0;
-    double fov_start = 1.0;
-    double fov_target = fov_distribution(rng);
-    int fov_transition_start_tick = 0;
     int fov_transition_ticks = std::max(
         1,
         static_cast<int>(std::round(
             std::max(1.0f, config.ai_aim.ads_snap_fov_transition_ms))));
-    int next_fov_change_tick = fov_transition_ticks + hold_distribution(rng);
-    metrics.random_fov_change_events = 1;
-
-    double target_x_position = 48.0;
-    double target_y_position = -10.0;
-    double reticle_x_position = 0.0;
-    double reticle_y_position = 0.0;
-    double previous_vision_dx = 0.0;
-    bool has_previous_vision_dx = false;
     double fov_sum = 0.0;
     double abs_expected_dx_sum = 0.0;
     double abs_final_x_sum = 0.0;
     double abs_ai_aim_x_sum = 0.0;
+    double target_alignment_sum = 0.0;
+    double manual_alignment_sum = 0.0;
+    std::vector<double> turn_degrees;
+    std::vector<double> output_deltas;
     std::vector<double> residual_errors;
     residual_errors.reserve(static_cast<std::size_t>(options.random_fov_ticks));
-    std::vector<double> residual_x_errors;
-    std::vector<double> residual_y_errors;
-    residual_x_errors.reserve(static_cast<std::size_t>(options.random_fov_ticks));
-    residual_y_errors.reserve(static_cast<std::size_t>(options.random_fov_ticks));
+    turn_degrees.reserve(static_cast<std::size_t>(options.random_fov_ticks));
+    output_deltas.reserve(static_cast<std::size_t>(options.random_fov_ticks));
+    constexpr double kOvershootThresholdPx = 2.0;
+    constexpr int kReferenceScenarioCount = 24;
+    const int segment_count =
+        std::max(1, std::min(kReferenceScenarioCount, options.random_fov_ticks));
+    const int base_segment_ticks = options.random_fov_ticks / segment_count;
+    const int extra_segment_ticks = options.random_fov_ticks % segment_count;
+    int total_overshoot_events = 0;
+    int total_overshoot_events_x = 0;
+    int total_overshoot_events_y = 0;
+    int total_overshoot_ads_snap = 0;
+    int total_overshoot_body_lock = 0;
+    int total_overshoot_manual = 0;
+    double max_overshoot_px = 0.0;
+    int global_tick = 0;
 
-    const int measure_start_tick = std::min(
-        options.random_fov_ticks - 1,
-        std::max(0, options.random_fov_ticks / 3));
-
-    for (int tick = 0; tick < options.random_fov_ticks; ++tick) {
-        if (tick >= next_fov_change_tick) {
-            fov_start = fov_scale;
-            fov_target = fov_distribution(rng);
-            fov_transition_start_tick = tick;
-            next_fov_change_tick =
-                tick + fov_transition_ticks + hold_distribution(rng);
-            ++metrics.random_fov_change_events;
+    for (int segment = 0; segment < segment_count; ++segment) {
+        const int segment_ticks =
+            base_segment_ticks + (segment < extra_segment_ticks ? 1 : 0);
+        if (segment_ticks <= 0) {
+            continue;
         }
-        const double fov_progress =
-            static_cast<double>(tick - fov_transition_start_tick) /
-            static_cast<double>(fov_transition_ticks);
-        fov_scale = lerp(fov_start, fov_target, fov_progress);
-
-        const double t = static_cast<double>(tick) * kDtSeconds;
-        target_x_position +=
-            ((210.0 * std::sin(t * 4.3)) + (85.0 * std::sin(t * 11.0))) *
-            kDtSeconds;
-        target_y_position += (58.0 * std::sin(t * 3.1)) * kDtSeconds;
-        const double expected_dx =
-            (target_x_position - reticle_x_position) * fov_scale;
-        const double expected_dy =
-            (target_y_position - reticle_y_position) * fov_scale;
-        const bool vision_tick = tick % kVisionIntervalTicks == 0;
-        if (vision_tick) {
-            controller.submit_vision_state(
-                target_state(
-                    static_cast<float>(expected_dx),
-                    static_cast<float>(expected_dy),
-                    current_seconds()));
-            ++metrics.random_fov_vision_samples;
-            if (has_previous_vision_dx &&
-                std::fabs(expected_dx - previous_vision_dx) > 18.0) {
-                ++metrics.random_fov_large_vision_jumps;
+        controller_native::NativeGamepadController controller(
+            config,
+            [&simulated_now]() { return simulated_now; });
+        const double manual_phase_x = phase_distribution(rng);
+        const double manual_phase_y = phase_distribution(rng);
+        const double manual_noise_x = 0.055 * amplitude_distribution(rng);
+        const double manual_noise_y = 0.035 * amplitude_distribution(rng);
+        double base_speed_px_per_sec = speed_distribution(rng);
+        double current_speed_px_per_sec = base_speed_px_per_sec;
+        double current_heading_deg = heading_distribution(rng);
+        int first_turn_tick = -1;
+        int second_turn_tick = -1;
+        double first_turn_delta_deg = 0.0;
+        double second_turn_delta_deg = 0.0;
+        double first_turn_speed_scale = 1.0;
+        double second_turn_speed_scale = 1.0;
+        int decel_start_tick = -1;
+        int decel_duration_ticks = 1;
+        double decel_target_speed_scale = 1.0;
+        int resume_start_tick = -1;
+        int resume_duration_ticks = 1;
+        double resume_target_speed_scale = 1.0;
+        bool decel_active = false;
+        bool resume_active = false;
+        double transition_start_speed_scale = 1.0;
+        double transition_end_speed_scale = 1.0;
+        int transition_start_tick = 0;
+        int transition_duration_ticks = 1;
+        const int phase1_slot = segment % kReferenceScenarioCount;
+        if (phase1_slot < 8) {
+            first_turn_tick = frame_to_tick(random_int(18, 72));
+            first_turn_delta_deg = turn_delta_distribution(rng);
+            first_turn_speed_scale = steady_turn_speed_scale_distribution(rng);
+            if (probability_distribution(rng) < 0.5) {
+                const int first_frame =
+                    static_cast<int>(std::round(first_turn_tick / (1000.0 / 60.0)));
+                const int second_frame =
+                    random_int(first_frame + 18, std::min(150, first_frame + 70));
+                second_turn_tick = frame_to_tick(second_frame);
+                second_turn_delta_deg = second_turn_delta_distribution(rng);
+                second_turn_speed_scale = steady_turn_speed_scale_distribution(rng);
             }
-            previous_vision_dx = expected_dx;
-            has_previous_vision_dx = true;
+        } else if (phase1_slot < 16) {
+            const int turn_frame = random_int(16, 60);
+            first_turn_tick = frame_to_tick(turn_frame);
+            first_turn_delta_deg = turn_delta_distribution(rng);
+            first_turn_speed_scale = turn_decel_speed_scale_distribution(rng);
+            const int decel_frame_min = std::min(150, turn_frame + 18);
+            const int decel_frame_max = std::min(170, turn_frame + 80);
+            decel_start_tick = frame_to_tick(
+                random_int(decel_frame_min, std::max(decel_frame_min, decel_frame_max)));
+            decel_duration_ticks = frame_to_tick(random_int(10, 30));
+            decel_target_speed_scale =
+                probability_distribution(rng) < 0.35 ? 0.0 : soft_decel_scale_distribution(rng);
         } else {
-            ++metrics.random_fov_tracker_only_ticks;
+            const int decel_frame = random_int(18, 72);
+            decel_start_tick = frame_to_tick(decel_frame);
+            decel_duration_ticks = frame_to_tick(random_int(10, 30));
+            decel_target_speed_scale =
+                probability_distribution(rng) < 0.35 ? 0.0 : soft_decel_scale_distribution(rng);
+            if (probability_distribution(rng) < 0.875) {
+                const int resume_frame_min =
+                    std::min(160, decel_frame + static_cast<int>(
+                        std::round(decel_duration_ticks / (1000.0 / 60.0))) + 12);
+                const int resume_frame_max =
+                    std::min(176, decel_frame + static_cast<int>(
+                        std::round(decel_duration_ticks / (1000.0 / 60.0))) + 70);
+                resume_start_tick = frame_to_tick(
+                    random_int(resume_frame_min, std::max(resume_frame_min, resume_frame_max)));
+                resume_duration_ticks = frame_to_tick(random_int(12, 36));
+                resume_target_speed_scale = resume_scale_distribution(rng);
+            }
         }
 
-        float manual_x = clamp_float(
-            static_cast<float>((expected_dx / 90.0) * 0.72),
-            -0.72f,
-            0.72f);
-        float manual_y = clamp_float(
-            static_cast<float>((-expected_dy / 80.0) * 0.72),
-            -0.72f,
-            0.72f);
-        const int manual_phase = tick % 260;
-        if (manual_phase >= 105 && manual_phase < 140) {
-            manual_x = clamp_float(-manual_x * 0.75f, -0.72f, 0.72f);
-            manual_y = clamp_float(manual_y * 0.45f, -0.72f, 0.72f);
-        } else if (manual_phase >= 140 && manual_phase < 160) {
-            manual_x = clamp_float(manual_x * 0.40f, -0.72f, 0.72f);
-            manual_y = clamp_float(manual_y * 0.65f, -0.72f, 0.72f);
-        } else {
+        double fov_scale = 1.0;
+        double fov_start = 1.0;
+        double fov_target = fov_distribution(rng);
+        int fov_transition_start_tick = 0;
+        int next_fov_change_tick = fov_transition_ticks + hold_distribution(rng);
+        ++metrics.random_fov_change_events;
+
+        double target_x_position = initial_dx_distribution(rng);
+        double target_y_position = initial_dy_distribution(rng);
+        double reticle_x_position = 0.0;
+        double reticle_y_position = 0.0;
+        double previous_vision_dx = 0.0;
+        bool has_previous_vision_dx = false;
+        double previous_output_x = 0.0;
+        double previous_output_y = 0.0;
+        bool has_previous_output = false;
+        std::vector<double> segment_residual_x_errors;
+        std::vector<double> segment_residual_y_errors;
+        std::vector<std::string> segment_modes;
+        std::vector<RandomFovSample> segment_samples;
+        segment_residual_x_errors.reserve(
+            static_cast<std::size_t>(segment_ticks));
+        segment_residual_y_errors.reserve(
+            static_cast<std::size_t>(segment_ticks));
+        segment_modes.reserve(static_cast<std::size_t>(segment_ticks));
+        segment_samples.reserve(static_cast<std::size_t>(segment_ticks));
+
+        const int measure_start_tick = std::min(
+            segment_ticks - 1,
+            std::max(0, segment_ticks / 3));
+
+        for (int tick = 0; tick < segment_ticks; ++tick, ++global_tick) {
+            simulated_now = 1.0 + (static_cast<double>(global_tick) * kDtSeconds);
+            if (tick >= next_fov_change_tick) {
+                fov_start = fov_scale;
+                fov_target = fov_distribution(rng);
+                fov_transition_start_tick = tick;
+                next_fov_change_tick =
+                    tick + fov_transition_ticks + hold_distribution(rng);
+                ++metrics.random_fov_change_events;
+            }
+            const double fov_progress =
+                static_cast<double>(tick - fov_transition_start_tick) /
+                static_cast<double>(fov_transition_ticks);
+            fov_scale = lerp(fov_start, fov_target, fov_progress);
+
+            if (tick == first_turn_tick) {
+                current_heading_deg = std::fmod(
+                    current_heading_deg + first_turn_delta_deg + 360.0,
+                    360.0);
+                current_speed_px_per_sec = base_speed_px_per_sec * first_turn_speed_scale;
+            }
+            if (tick == second_turn_tick) {
+                current_heading_deg = std::fmod(
+                    current_heading_deg + second_turn_delta_deg + 360.0,
+                    360.0);
+                current_speed_px_per_sec = base_speed_px_per_sec * second_turn_speed_scale;
+            }
+            if (tick == decel_start_tick) {
+                decel_active = true;
+                resume_active = false;
+                transition_start_tick = tick;
+                transition_duration_ticks = std::max(1, decel_duration_ticks);
+                transition_start_speed_scale =
+                    base_speed_px_per_sec <= 0.0
+                        ? 0.0
+                        : current_speed_px_per_sec / base_speed_px_per_sec;
+                transition_end_speed_scale = decel_target_speed_scale;
+            }
+            if (tick == resume_start_tick) {
+                resume_active = true;
+                decel_active = false;
+                transition_start_tick = tick;
+                transition_duration_ticks = std::max(1, resume_duration_ticks);
+                transition_start_speed_scale =
+                    base_speed_px_per_sec <= 0.0
+                        ? 0.0
+                        : current_speed_px_per_sec / base_speed_px_per_sec;
+                transition_end_speed_scale = resume_target_speed_scale;
+            }
+            if (decel_active || resume_active) {
+                const double progress = static_cast<double>(tick - transition_start_tick) /
+                    static_cast<double>(transition_duration_ticks);
+                const double speed_scale = lerp(
+                    transition_start_speed_scale,
+                    transition_end_speed_scale,
+                    progress);
+                current_speed_px_per_sec = base_speed_px_per_sec * speed_scale;
+                if (progress >= 1.0) {
+                    decel_active = false;
+                    resume_active = false;
+                    current_speed_px_per_sec =
+                        base_speed_px_per_sec * transition_end_speed_scale;
+                }
+            }
+            const double t = static_cast<double>(tick) * kDtSeconds;
+            const double heading_rad =
+                current_heading_deg * 3.14159265358979323846 / 180.0;
+            target_x_position +=
+                std::cos(heading_rad) * current_speed_px_per_sec * kDtSeconds;
+            target_y_position +=
+                std::sin(heading_rad) * current_speed_px_per_sec * kDtSeconds;
+            const double expected_dx =
+                (target_x_position - reticle_x_position) * fov_scale;
+            const double expected_dy =
+                (target_y_position - reticle_y_position) * fov_scale;
+            const bool vision_tick = tick % kVisionIntervalTicks == 0;
+            if (vision_tick) {
+                controller.submit_vision_state(
+                    target_state(
+                        static_cast<float>(expected_dx),
+                        static_cast<float>(expected_dy),
+                        simulated_now));
+                ++metrics.random_fov_vision_samples;
+                if (has_previous_vision_dx &&
+                    std::fabs(expected_dx - previous_vision_dx) > 18.0) {
+                    ++metrics.random_fov_large_vision_jumps;
+                }
+                previous_vision_dx = expected_dx;
+                has_previous_vision_dx = true;
+            } else {
+                ++metrics.random_fov_tracker_only_ticks;
+            }
+
+            float manual_x = clamp_float(
+                static_cast<float>((expected_dx / 90.0) * 0.72),
+                -0.72f,
+                0.72f);
+            float manual_y = clamp_float(
+                static_cast<float>((-expected_dy / 80.0) * 0.72),
+                -0.72f,
+                0.72f);
             manual_x = clamp_float(
-                manual_x + static_cast<float>(0.055 * std::sin(t * 31.0)),
+                manual_x + static_cast<float>(
+                    manual_noise_x * std::sin((t * 31.0) + manual_phase_x)),
                 -0.72f,
                 0.72f);
             manual_y = clamp_float(
-                manual_y + static_cast<float>(0.035 * std::sin(t * 19.0)),
+                manual_y + static_cast<float>(
+                    manual_noise_y * std::sin((t * 19.0) + manual_phase_y)),
                 -0.72f,
                 0.72f);
+
+            controller.build_output(aiming_state(manual_x, manual_y));
+            const controller_native::NativeControllerOutputComponents& components =
+                controller.last_output_components();
+            add_frame_sample(metrics, components);
+            const double output_move_x = components.final_stick.x;
+            const double output_move_y = -components.final_stick.y;
+            const double manual_move_x = manual_x;
+            const double manual_move_y = -manual_y;
+
+            const int expected_dir = direction(expected_dx, kDirectionDeadzonePx);
+            const int output_dir = direction(components.final_stick.x, kOutputDeadzone);
+            const bool output_insensitive =
+                expected_dir != 0 && std::fabs(components.final_stick.x) < kOutputDeadzone;
+            if (vision_tick) {
+                if (expected_dir != 0 && output_dir != 0 && output_dir != expected_dir) {
+                    ++metrics.random_fov_fresh_wrong_direction;
+                }
+                if (output_insensitive) {
+                    ++metrics.random_fov_fresh_insensitive;
+                }
+            } else {
+                if (expected_dir != 0 && output_dir != 0 && output_dir != expected_dir) {
+                    ++metrics.random_fov_tracker_wrong_direction;
+                }
+                if (output_insensitive) {
+                    ++metrics.random_fov_tracker_insensitive;
+                }
+            }
+
+            fov_sum += fov_scale;
+            abs_expected_dx_sum += std::fabs(expected_dx);
+            abs_final_x_sum += std::fabs(components.final_stick.x);
+            abs_ai_aim_x_sum += std::fabs(components.ai_aim_stick.x);
+            const bool metric_sample_tick =
+                tick >= measure_start_tick &&
+                ((tick - measure_start_tick) % kMetricIntervalTicks) == 0;
+            if (metric_sample_tick) {
+                constexpr double kVectorDeadzone = 0.015;
+                target_alignment_sum += vector_alignment(
+                    output_move_x,
+                    output_move_y,
+                    expected_dx,
+                    expected_dy,
+                    kVectorDeadzone);
+                ++metrics.random_fov_direction_samples;
+
+                if (vector_magnitude(manual_move_x, manual_move_y) >= kVectorDeadzone) {
+                    manual_alignment_sum += vector_alignment(
+                        output_move_x,
+                        output_move_y,
+                        manual_move_x,
+                        manual_move_y,
+                        kVectorDeadzone);
+                    ++metrics.random_fov_manual_direction_samples;
+                }
+                if (has_previous_output) {
+                    const double previous_mag =
+                        vector_magnitude(previous_output_x, previous_output_y);
+                    const double current_mag =
+                        vector_magnitude(output_move_x, output_move_y);
+                    if (previous_mag >= kVectorDeadzone &&
+                        current_mag >= kVectorDeadzone) {
+                        const double turn_degrees_value = vector_turn_degrees(
+                            previous_output_x,
+                            previous_output_y,
+                            output_move_x,
+                            output_move_y,
+                            kVectorDeadzone);
+                        const double output_delta = vector_magnitude(
+                            output_move_x - previous_output_x,
+                            output_move_y - previous_output_y);
+                        turn_degrees.push_back(turn_degrees_value);
+                        output_deltas.push_back(output_delta);
+                        RandomFovTurnEvent turn_event;
+                        turn_event.segment = segment;
+                        turn_event.tick = tick;
+                        turn_event.global_tick = global_tick;
+                        turn_event.mode = controller.last_ai_aim_mode();
+                        turn_event.turn_degrees = turn_degrees_value;
+                        turn_event.output_delta = output_delta;
+                        turn_event.previous_output_x = previous_output_x;
+                        turn_event.previous_output_y = previous_output_y;
+                        turn_event.output_x = output_move_x;
+                        turn_event.output_y = output_move_y;
+                        turn_event.manual_x = manual_x;
+                        turn_event.manual_y = manual_y;
+                        turn_event.ai_aim_x = components.ai_aim_stick.x;
+                        turn_event.ai_aim_y = components.ai_aim_stick.y;
+                        turn_event.dynamics_x = components.dynamic_adjustment_stick.x;
+                        turn_event.dynamics_y = components.dynamic_adjustment_stick.y;
+                        turn_event.fov_scale = fov_scale;
+                        turn_event.expected_dx = expected_dx;
+                        turn_event.expected_dy = expected_dy;
+                        turn_event.target_speed_px_per_sec = current_speed_px_per_sec;
+                        turn_event.heading_deg = current_heading_deg;
+                        metrics.random_fov_turn_details.push_back(std::move(turn_event));
+                        ++metrics.random_fov_turn_samples;
+                    }
+                }
+                previous_output_x = output_move_x;
+                previous_output_y = output_move_y;
+                has_previous_output = true;
+            }
+            reticle_x_position +=
+                components.final_stick.x * reticle_speed * kDtSeconds;
+            reticle_y_position +=
+                -components.final_stick.y * reticle_speed * kDtSeconds;
+            const double residual_dx =
+                (target_x_position - reticle_x_position) * fov_scale;
+            const double residual_dy =
+                (target_y_position - reticle_y_position) * fov_scale;
+            if (metric_sample_tick) {
+                residual_errors.push_back(std::hypot(residual_dx, residual_dy));
+                segment_residual_x_errors.push_back(residual_dx);
+                segment_residual_y_errors.push_back(residual_dy);
+                segment_modes.push_back(controller.last_ai_aim_mode());
+                RandomFovSample sample;
+                sample.segment = segment;
+                sample.tick = tick;
+                sample.global_tick = global_tick;
+                sample.error_x = residual_dx;
+                sample.error_y = residual_dy;
+                sample.mode = controller.last_ai_aim_mode();
+                sample.final_x = components.final_stick.x;
+                sample.final_y = components.final_stick.y;
+                sample.manual_x = components.manual_stick.x;
+                sample.manual_y = components.manual_stick.y;
+                sample.ai_aim_x = components.ai_aim_stick.x;
+                sample.ai_aim_y = components.ai_aim_stick.y;
+                sample.dynamics_x = components.dynamic_adjustment_stick.x;
+                sample.dynamics_y = components.dynamic_adjustment_stick.y;
+                sample.fov_scale = fov_scale;
+                sample.expected_dx = expected_dx;
+                sample.expected_dy = expected_dy;
+                sample.target_speed_px_per_sec = current_speed_px_per_sec;
+                sample.heading_deg = current_heading_deg;
+                segment_samples.push_back(std::move(sample));
+                ++metrics.random_fov_measured_ticks;
+            }
         }
 
-        controller.build_output(aiming_state(manual_x, manual_y));
-        const controller_native::NativeControllerOutputComponents& components =
-            controller.last_output_components();
-        add_frame_sample(metrics, components);
-
-        const int expected_dir = direction(expected_dx, kDirectionDeadzonePx);
-        const int output_dir = direction(components.final_stick.x, kOutputDeadzone);
-        const bool output_insensitive =
-            expected_dir != 0 && std::fabs(components.final_stick.x) < kOutputDeadzone;
-        if (vision_tick) {
-            if (expected_dir != 0 && output_dir != 0 && output_dir != expected_dir) {
-                ++metrics.random_fov_fresh_wrong_direction;
-            }
-            if (output_insensitive) {
-                ++metrics.random_fov_fresh_insensitive;
-            }
-        } else {
-            if (expected_dir != 0 && output_dir != 0 && output_dir != expected_dir) {
-                ++metrics.random_fov_tracker_wrong_direction;
-            }
-            if (output_insensitive) {
-                ++metrics.random_fov_tracker_insensitive;
-            }
-        }
-
-        fov_sum += fov_scale;
-        abs_expected_dx_sum += std::fabs(expected_dx);
-        abs_final_x_sum += std::fabs(components.final_stick.x);
-        abs_ai_aim_x_sum += std::fabs(components.ai_aim_stick.x);
-        reticle_x_position += components.final_stick.x * reticle_speed * kDtSeconds;
-        reticle_y_position += -components.final_stick.y * reticle_speed * kDtSeconds;
-        const double residual_dx =
-            (target_x_position - reticle_x_position) * fov_scale;
-        const double residual_dy =
-            (target_y_position - reticle_y_position) * fov_scale;
-        if (tick >= measure_start_tick) {
-            residual_errors.push_back(std::hypot(residual_dx, residual_dy));
-            residual_x_errors.push_back(residual_dx);
-            residual_y_errors.push_back(residual_dy);
-            ++metrics.random_fov_measured_ticks;
-        }
-        sleep_dt(1000.0 / kControllerHz);
+        const ModeOvershootStats segment_x_overshoot =
+            axis_mode_overshoot_stats(
+                segment_residual_x_errors,
+                segment_modes,
+                kOvershootThresholdPx);
+        const ModeOvershootStats segment_y_overshoot =
+            axis_mode_overshoot_stats(
+                segment_residual_y_errors,
+                segment_modes,
+                kOvershootThresholdPx);
+        total_overshoot_events_x += segment_x_overshoot.count;
+        total_overshoot_events_y += segment_y_overshoot.count;
+        total_overshoot_events +=
+            segment_x_overshoot.count + segment_y_overshoot.count;
+        total_overshoot_ads_snap +=
+            segment_x_overshoot.ads_snap_count + segment_y_overshoot.ads_snap_count;
+        total_overshoot_body_lock +=
+            segment_x_overshoot.body_lock_count + segment_y_overshoot.body_lock_count;
+        total_overshoot_manual +=
+            segment_x_overshoot.manual_count + segment_y_overshoot.manual_count;
+        max_overshoot_px = std::max(
+            max_overshoot_px,
+            std::max(segment_x_overshoot.max_px, segment_y_overshoot.max_px));
+        std::vector<RandomFovOvershootEvent> segment_x_details =
+            random_fov_axis_overshoot_events(
+                segment_samples,
+                false,
+                kOvershootThresholdPx);
+        std::vector<RandomFovOvershootEvent> segment_y_details =
+            random_fov_axis_overshoot_events(
+                segment_samples,
+                true,
+                kOvershootThresholdPx);
+        metrics.random_fov_overshoot_details.insert(
+            metrics.random_fov_overshoot_details.end(),
+            segment_x_details.begin(),
+            segment_x_details.end());
+        metrics.random_fov_overshoot_details.insert(
+            metrics.random_fov_overshoot_details.end(),
+            segment_y_details.begin(),
+            segment_y_details.end());
     }
 
     const double safe_ticks = static_cast<double>(std::max(1, options.random_fov_ticks));
@@ -622,14 +1812,174 @@ ScenarioMetrics run_tracker_random_fov_100hz(
         nearest_rank_percentile(residual_errors, 0.95);
     metrics.random_fov_p99_error_px =
         nearest_rank_percentile(residual_errors, 0.99);
+    metrics.random_fov_mean_target_alignment =
+        metrics.random_fov_direction_samples <= 0
+            ? 0.0
+            : target_alignment_sum /
+                static_cast<double>(metrics.random_fov_direction_samples);
+    metrics.random_fov_mean_manual_alignment =
+        metrics.random_fov_manual_direction_samples <= 0
+            ? 0.0
+            : manual_alignment_sum /
+                static_cast<double>(metrics.random_fov_manual_direction_samples);
+    metrics.random_fov_direction_score =
+        alignment_score(metrics.random_fov_mean_target_alignment);
+    metrics.random_fov_manual_direction_score =
+        alignment_score(metrics.random_fov_mean_manual_alignment);
+    metrics.random_fov_mean_turn_degrees = mean_value(turn_degrees);
+    metrics.random_fov_p95_turn_degrees =
+        nearest_rank_percentile(turn_degrees, 0.95);
+    metrics.random_fov_turn_smoothness_score =
+        turn_smoothness_score(metrics.random_fov_p95_turn_degrees);
+    metrics.random_fov_mean_output_delta = mean_value(output_deltas);
+    metrics.random_fov_p95_output_delta =
+        nearest_rank_percentile(output_deltas, 0.95);
+    metrics.random_fov_overshoot_events = total_overshoot_events;
+    metrics.random_fov_overshoot_events_x = total_overshoot_events_x;
+    metrics.random_fov_overshoot_events_y = total_overshoot_events_y;
+    metrics.random_fov_overshoot_ads_snap = total_overshoot_ads_snap;
+    metrics.random_fov_overshoot_body_lock = total_overshoot_body_lock;
+    metrics.random_fov_overshoot_manual = total_overshoot_manual;
+    metrics.random_fov_max_overshoot_px = max_overshoot_px;
+    return metrics;
+}
+
+ScenarioMetrics run_ads_fov_settle_130ms(
+    controller_native::GamepadRuntimeConfig config,
+    const CliOptions& options) {
+    ScenarioMetrics metrics;
+    metrics.name = "ads_fov_settle_130ms";
+    metrics.has_ads_settle = true;
+
+    constexpr double kControllerHz = 1000.0;
+    constexpr double kVisionHz = 100.0;
+    constexpr double kDtSeconds = 1.0 / kControllerHz;
+    constexpr int kVisionIntervalTicks =
+        static_cast<int>(kControllerHz / kVisionHz);
+    constexpr double kSettleThresholdPx = 3.0;
+    constexpr int kSettleHoldTicks = 10;
     constexpr double kOvershootThresholdPx = 2.0;
-    metrics.random_fov_overshoot_events =
-        axis_overshoot_count(residual_x_errors, kOvershootThresholdPx) +
-        axis_overshoot_count(residual_y_errors, kOvershootThresholdPx);
-    metrics.random_fov_max_overshoot_px =
-        std::max(
-            axis_max_overshoot(residual_x_errors, kOvershootThresholdPx),
-            axis_max_overshoot(residual_y_errors, kOvershootThresholdPx));
+
+    config.recoil.enabled = false;
+    config.aim_assist_dynamics.enabled = false;
+    config.ai_aim.target_max_age_ms = std::max(config.ai_aim.target_max_age_ms, 80.0f);
+    config.ai_aim.target_projection_max_age_ms =
+        std::max(config.ai_aim.target_projection_max_age_ms, 40.0f);
+    const float force_scale = static_cast<float>(options.random_fov_ai_force_scale);
+    config.ai_aim.max_ai_force *= force_scale;
+    config.ai_aim.max_ai_force_y *= force_scale;
+    config.ai_aim.ads_snap_max_ai_force *= force_scale;
+    config.ai_aim.ads_snap_max_ai_force_y *= force_scale;
+    config.ai_aim.body_lock_max_ai_force *= force_scale;
+    config.ai_aim.body_lock_opposing_boost_max_ai_force *= force_scale;
+    config.ai_aim.body_lock_max_ai_force_y *= force_scale;
+
+    const int snap_window_ms = std::max(1, config.ai_aim.ads_snap_window_ms);
+    const int total_ticks = std::max(240, snap_window_ms + 110);
+    const double reticle_speed =
+        std::max(1.0f, config.ai_aim.target_projection_reticle_speed_px_per_sec);
+    const double fov_start = 1.0;
+    const double fov_end =
+        std::max(0.05f, std::min(2.0f, config.ai_aim.ads_snap_fov_scale));
+    const double fov_transition_ms =
+        std::max(1.0f, config.ai_aim.ads_snap_fov_transition_ms);
+    const double target_x_position = 72.0;
+    const double target_y_position = -12.0;
+    double reticle_x_position = 0.0;
+    double reticle_y_position = 0.0;
+    int settle_hold = 0;
+
+    std::vector<double> residual_errors;
+    std::vector<double> residual_x_errors;
+    std::vector<double> residual_y_errors;
+    residual_errors.reserve(static_cast<std::size_t>(total_ticks));
+    residual_x_errors.reserve(static_cast<std::size_t>(total_ticks));
+    residual_y_errors.reserve(static_cast<std::size_t>(total_ticks));
+
+    double simulated_now = 1.0;
+    controller_native::NativeGamepadController controller(
+        config,
+        [&simulated_now]() { return simulated_now; });
+    for (int tick = 0; tick < total_ticks; ++tick) {
+        simulated_now = 1.0 + (static_cast<double>(tick) * kDtSeconds);
+        const double expected_dx = target_x_position - reticle_x_position;
+        const double expected_dy = target_y_position - reticle_y_position;
+        const bool vision_tick = tick % kVisionIntervalTicks == 0;
+        if (vision_tick) {
+            controller.submit_vision_state(
+                target_state(
+                    static_cast<float>(expected_dx),
+                    static_cast<float>(expected_dy),
+                    simulated_now));
+            ++metrics.ads_settle_vision_samples;
+        }
+
+        controller.build_output(aiming_state(0.0f, 0.0f));
+        const controller_native::NativeControllerOutputComponents& components =
+            controller.last_output_components();
+        add_frame_sample(metrics, components);
+
+        reticle_x_position += components.final_stick.x * reticle_speed * kDtSeconds;
+        reticle_y_position += -components.final_stick.y * reticle_speed * kDtSeconds;
+        const double residual_dx = target_x_position - reticle_x_position;
+        const double residual_dy = target_y_position - reticle_y_position;
+        const double residual_radius = std::hypot(residual_dx, residual_dy);
+        residual_x_errors.push_back(residual_dx);
+        residual_y_errors.push_back(residual_dy);
+        residual_errors.push_back(residual_radius);
+        ++metrics.ads_settle_measured_ticks;
+
+        if (residual_radius <= kSettleThresholdPx) {
+            ++settle_hold;
+            if (metrics.ads_settle_settled_tick < 0 && settle_hold >= kSettleHoldTicks) {
+                metrics.ads_settle_settled_tick = tick - kSettleHoldTicks + 1;
+            }
+        } else {
+            settle_hold = 0;
+        }
+
+    }
+
+    const OvershootStats x_overshoot =
+        axis_overshoot_stats(residual_x_errors, kOvershootThresholdPx);
+    const OvershootStats y_overshoot =
+        axis_overshoot_stats(residual_y_errors, kOvershootThresholdPx);
+    metrics.ads_settle_ticks = total_ticks;
+    metrics.ads_settle_initial_dx = target_x_position;
+    metrics.ads_settle_initial_dy = target_y_position;
+    metrics.ads_settle_fov_start_scale = fov_start;
+    metrics.ads_settle_fov_end_scale = fov_end;
+    metrics.ads_settle_fov_transition_ms = fov_transition_ms;
+    metrics.ads_settle_snap_window_ms = static_cast<double>(snap_window_ms);
+    metrics.ads_settle_ai_force_scale = options.random_fov_ai_force_scale;
+    metrics.ads_settle_mean_error_px = mean_value(residual_errors);
+    metrics.ads_settle_p95_error_px =
+        nearest_rank_percentile(residual_errors, 0.95);
+    metrics.ads_settle_p99_error_px =
+        nearest_rank_percentile(residual_errors, 0.99);
+    metrics.ads_settle_overshoot_events_x = x_overshoot.count;
+    metrics.ads_settle_overshoot_events_y = y_overshoot.count;
+    metrics.ads_settle_overshoot_events = x_overshoot.count + y_overshoot.count;
+    metrics.ads_settle_max_overshoot_x_px = x_overshoot.max_px;
+    metrics.ads_settle_max_overshoot_y_px = y_overshoot.max_px;
+    metrics.ads_settle_max_overshoot_px =
+        std::max(x_overshoot.max_px, y_overshoot.max_px);
+    metrics.ads_settle_final_error_px =
+        residual_errors.empty() ? 0.0 : residual_errors.back();
+    metrics.ads_settle_min_abs_x_px =
+        residual_x_errors.empty() ? 0.0 : std::fabs(*std::min_element(
+            residual_x_errors.begin(),
+            residual_x_errors.end(),
+            [](double left, double right) {
+                return std::fabs(left) < std::fabs(right);
+            }));
+    metrics.ads_settle_min_abs_y_px =
+        residual_y_errors.empty() ? 0.0 : std::fabs(*std::min_element(
+            residual_y_errors.begin(),
+            residual_y_errors.end(),
+            [](double left, double right) {
+                return std::fabs(left) < std::fabs(right);
+            }));
     return metrics;
 }
 
@@ -669,6 +2019,85 @@ void write_axis_json(std::ostream& out, const AxisStats& stats, int frames, cons
         << indent << "\"recoil_opposes_manual_rate\": " << rate(stats.recoil_opposes_manual, stats.manual_frames) << ",\n"
         << indent << "\"mean_abs_recoil\": " << mean_abs_recoil(stats, frames) << ",\n"
         << indent << "\"mean_abs_final\": " << mean_abs_final(stats, frames) << "\n";
+}
+
+void write_random_fov_overshoot_details_json(
+    std::ostream& out,
+    const std::vector<RandomFovOvershootEvent>& events,
+    const char* indent) {
+    out << indent << "[";
+    if (!events.empty()) {
+        out << "\n";
+    }
+    for (std::size_t index = 0; index < events.size(); ++index) {
+        const RandomFovOvershootEvent& event = events[index];
+        out
+            << indent << "  {\n"
+            << indent << "    \"axis\": \"" << escape_json(event.axis) << "\",\n"
+            << indent << "    \"segment\": " << event.segment << ",\n"
+            << indent << "    \"crossing_tick\": " << event.crossing_tick << ",\n"
+            << indent << "    \"peak_tick\": " << event.peak_tick << ",\n"
+            << indent << "    \"crossing_global_tick\": " << event.crossing_global_tick << ",\n"
+            << indent << "    \"peak_global_tick\": " << event.peak_global_tick << ",\n"
+            << indent << "    \"peak_mode\": \"" << escape_json(event.peak_mode) << "\",\n"
+            << indent << "    \"previous_error\": " << event.previous_error << ",\n"
+            << indent << "    \"crossing_error\": " << event.crossing_error << ",\n"
+            << indent << "    \"peak_error\": " << event.peak_error << ",\n"
+            << indent << "    \"peak_abs_px\": " << event.peak_abs_px << ",\n"
+            << indent << "    \"final_x\": " << event.final_x << ",\n"
+            << indent << "    \"final_y\": " << event.final_y << ",\n"
+            << indent << "    \"manual_x\": " << event.manual_x << ",\n"
+            << indent << "    \"manual_y\": " << event.manual_y << ",\n"
+            << indent << "    \"ai_aim_x\": " << event.ai_aim_x << ",\n"
+            << indent << "    \"ai_aim_y\": " << event.ai_aim_y << ",\n"
+            << indent << "    \"dynamics_x\": " << event.dynamics_x << ",\n"
+            << indent << "    \"dynamics_y\": " << event.dynamics_y << ",\n"
+            << indent << "    \"fov_scale\": " << event.fov_scale << ",\n"
+            << indent << "    \"expected_dx\": " << event.expected_dx << ",\n"
+            << indent << "    \"expected_dy\": " << event.expected_dy << ",\n"
+            << indent << "    \"target_speed_px_per_sec\": " << event.target_speed_px_per_sec << ",\n"
+            << indent << "    \"heading_deg\": " << event.heading_deg << "\n"
+            << indent << "  }" << (index + 1 == events.size() ? "\n" : ",\n");
+    }
+    out << indent << "]";
+}
+
+void write_random_fov_turn_details_json(
+    std::ostream& out,
+    const std::vector<RandomFovTurnEvent>& events,
+    const char* indent) {
+    out << indent << "[";
+    if (!events.empty()) {
+        out << "\n";
+    }
+    for (std::size_t index = 0; index < events.size(); ++index) {
+        const RandomFovTurnEvent& event = events[index];
+        out
+            << indent << "  {\n"
+            << indent << "    \"segment\": " << event.segment << ",\n"
+            << indent << "    \"tick\": " << event.tick << ",\n"
+            << indent << "    \"global_tick\": " << event.global_tick << ",\n"
+            << indent << "    \"mode\": \"" << escape_json(event.mode) << "\",\n"
+            << indent << "    \"turn_degrees\": " << event.turn_degrees << ",\n"
+            << indent << "    \"output_delta\": " << event.output_delta << ",\n"
+            << indent << "    \"previous_output_x\": " << event.previous_output_x << ",\n"
+            << indent << "    \"previous_output_y\": " << event.previous_output_y << ",\n"
+            << indent << "    \"output_x\": " << event.output_x << ",\n"
+            << indent << "    \"output_y\": " << event.output_y << ",\n"
+            << indent << "    \"manual_x\": " << event.manual_x << ",\n"
+            << indent << "    \"manual_y\": " << event.manual_y << ",\n"
+            << indent << "    \"ai_aim_x\": " << event.ai_aim_x << ",\n"
+            << indent << "    \"ai_aim_y\": " << event.ai_aim_y << ",\n"
+            << indent << "    \"dynamics_x\": " << event.dynamics_x << ",\n"
+            << indent << "    \"dynamics_y\": " << event.dynamics_y << ",\n"
+            << indent << "    \"fov_scale\": " << event.fov_scale << ",\n"
+            << indent << "    \"expected_dx\": " << event.expected_dx << ",\n"
+            << indent << "    \"expected_dy\": " << event.expected_dy << ",\n"
+            << indent << "    \"target_speed_px_per_sec\": " << event.target_speed_px_per_sec << ",\n"
+            << indent << "    \"heading_deg\": " << event.heading_deg << "\n"
+            << indent << "  }" << (index + 1 == events.size() ? "\n" : ",\n");
+    }
+    out << indent << "]";
 }
 
 void write_json(
@@ -745,8 +2174,48 @@ void write_json(
                 << "        \"mean_error_px\": " << scenario.random_fov_mean_error_px << ",\n"
                 << "        \"p95_error_px\": " << scenario.random_fov_p95_error_px << ",\n"
                 << "        \"p99_error_px\": " << scenario.random_fov_p99_error_px << ",\n"
+                << "        \"direction_samples\": " << scenario.random_fov_direction_samples << ",\n"
+                << "        \"manual_direction_samples\": "
+                << scenario.random_fov_manual_direction_samples << ",\n"
+                << "        \"turn_samples\": " << scenario.random_fov_turn_samples << ",\n"
+                << "        \"mean_target_alignment\": "
+                << scenario.random_fov_mean_target_alignment << ",\n"
+                << "        \"mean_manual_alignment\": "
+                << scenario.random_fov_mean_manual_alignment << ",\n"
+                << "        \"direction_score\": " << scenario.random_fov_direction_score << ",\n"
+                << "        \"manual_direction_score\": "
+                << scenario.random_fov_manual_direction_score << ",\n"
+                << "        \"mean_turn_degrees\": "
+                << scenario.random_fov_mean_turn_degrees << ",\n"
+                << "        \"p95_turn_degrees\": "
+                << scenario.random_fov_p95_turn_degrees << ",\n"
+                << "        \"turn_smoothness_score\": "
+                << scenario.random_fov_turn_smoothness_score << ",\n"
+                << "        \"mean_output_delta\": "
+                << scenario.random_fov_mean_output_delta << ",\n"
+                << "        \"p95_output_delta\": "
+                << scenario.random_fov_p95_output_delta << ",\n"
+                << "        \"turn_details\": ";
+            write_random_fov_turn_details_json(
+                out,
+                scenario.random_fov_turn_details,
+                "        ");
+            out
+                << ",\n"
                 << "        \"overshoot_events\": " << scenario.random_fov_overshoot_events << ",\n"
+                << "        \"overshoot_events_x\": " << scenario.random_fov_overshoot_events_x << ",\n"
+                << "        \"overshoot_events_y\": " << scenario.random_fov_overshoot_events_y << ",\n"
+                << "        \"overshoot_ads_snap\": " << scenario.random_fov_overshoot_ads_snap << ",\n"
+                << "        \"overshoot_body_lock\": " << scenario.random_fov_overshoot_body_lock << ",\n"
+                << "        \"overshoot_manual\": " << scenario.random_fov_overshoot_manual << ",\n"
                 << "        \"max_overshoot_px\": " << scenario.random_fov_max_overshoot_px << ",\n"
+                << "        \"overshoot_details\": ";
+            write_random_fov_overshoot_details_json(
+                out,
+                scenario.random_fov_overshoot_details,
+                "        ");
+            out
+                << ",\n"
                 << "        \"fresh_wrong_direction_rate\": "
                 << rate(
                     scenario.random_fov_fresh_wrong_direction,
@@ -763,6 +2232,87 @@ void write_json(
                 << rate(
                     scenario.random_fov_tracker_insensitive,
                     scenario.random_fov_tracker_only_ticks) << "\n"
+                << "      }";
+        }
+        if (scenario.has_ads_settle) {
+            out
+                << ",\n"
+                << "      \"ads_settle\": {\n"
+                << "        \"controller_hz\": 1000.000000,\n"
+                << "        \"vision_hz\": 100.000000,\n"
+                << "        \"ticks\": " << scenario.ads_settle_ticks << ",\n"
+                << "        \"measured_ticks\": " << scenario.ads_settle_measured_ticks << ",\n"
+                << "        \"vision_samples\": " << scenario.ads_settle_vision_samples << ",\n"
+                << "        \"initial_dx\": " << scenario.ads_settle_initial_dx << ",\n"
+                << "        \"initial_dy\": " << scenario.ads_settle_initial_dy << ",\n"
+                << "        \"fov_start_scale\": " << scenario.ads_settle_fov_start_scale << ",\n"
+                << "        \"fov_end_scale\": " << scenario.ads_settle_fov_end_scale << ",\n"
+                << "        \"fov_transition_ms\": " << scenario.ads_settle_fov_transition_ms << ",\n"
+                << "        \"snap_window_ms\": " << scenario.ads_settle_snap_window_ms << ",\n"
+                << "        \"ai_force_scale\": " << scenario.ads_settle_ai_force_scale << ",\n"
+                << "        \"settled_tick\": " << scenario.ads_settle_settled_tick << ",\n"
+                << "        \"mean_error_px\": " << scenario.ads_settle_mean_error_px << ",\n"
+                << "        \"p95_error_px\": " << scenario.ads_settle_p95_error_px << ",\n"
+                << "        \"p99_error_px\": " << scenario.ads_settle_p99_error_px << ",\n"
+                << "        \"final_error_px\": " << scenario.ads_settle_final_error_px << ",\n"
+                << "        \"min_abs_x_px\": " << scenario.ads_settle_min_abs_x_px << ",\n"
+                << "        \"min_abs_y_px\": " << scenario.ads_settle_min_abs_y_px << ",\n"
+                << "        \"overshoot_events\": " << scenario.ads_settle_overshoot_events << ",\n"
+                << "        \"overshoot_events_x\": " << scenario.ads_settle_overshoot_events_x << ",\n"
+                << "        \"overshoot_events_y\": " << scenario.ads_settle_overshoot_events_y << ",\n"
+                << "        \"max_overshoot_px\": " << scenario.ads_settle_max_overshoot_px << ",\n"
+                << "        \"max_overshoot_x_px\": " << scenario.ads_settle_max_overshoot_x_px << ",\n"
+                << "        \"max_overshoot_y_px\": " << scenario.ads_settle_max_overshoot_y_px << "\n"
+                << "      }";
+        }
+        if (scenario.has_ads_parity) {
+            out
+                << ",\n"
+                << "      \"ads_python_parity\": {\n"
+                << "        \"controller_hz\": 60.000000,\n"
+                << "        \"target_sample_hz\": " << scenario.ads_parity_target_sample_hz << ",\n"
+                << "        \"frame_dt_ms\": " << scenario.ads_parity_frame_dt_ms << ",\n"
+                << "        \"cases\": " << scenario.ads_parity_cases << ",\n"
+                << "        \"frames_per_case\": " << scenario.ads_parity_frames_per_case << ",\n"
+                << "        \"overshoot_cases\": " << scenario.ads_parity_overshoot_cases << ",\n"
+                << "        \"overshoot_events\": " << scenario.ads_parity_overshoot_events << ",\n"
+                << "        \"overshoot_events_x\": " << scenario.ads_parity_overshoot_events_x << ",\n"
+                << "        \"overshoot_events_y\": " << scenario.ads_parity_overshoot_events_y << ",\n"
+                << "        \"crossing_events\": " << scenario.ads_parity_crossing_events << ",\n"
+                << "        \"ads_snap_crossing_events\": "
+                << scenario.ads_parity_ads_snap_crossing_events << ",\n"
+                << "        \"body_lock_crossing_events\": "
+                << scenario.ads_parity_body_lock_crossing_events << ",\n"
+                << "        \"manual_crossing_events\": "
+                << scenario.ads_parity_manual_crossing_events << ",\n"
+                << "        \"ads_snap_overshoot_events\": "
+                << scenario.ads_parity_ads_snap_overshoot_events << ",\n"
+                << "        \"body_lock_overshoot_events\": "
+                << scenario.ads_parity_body_lock_overshoot_events << ",\n"
+                << "        \"manual_overshoot_events\": "
+                << scenario.ads_parity_manual_overshoot_events << ",\n"
+                << "        \"overshoot_events_none\": "
+                << scenario.ads_parity_overshoot_events_none << ",\n"
+                << "        \"overshoot_events_aligned_follow\": "
+                << scenario.ads_parity_overshoot_events_aligned_follow << ",\n"
+                << "        \"overshoot_events_opposing_burst\": "
+                << scenario.ads_parity_overshoot_events_opposing_burst << ",\n"
+                << "        \"overshoot_events_overshoot_recover\": "
+                << scenario.ads_parity_overshoot_events_overshoot_recover << ",\n"
+                << "        \"overshoot_recover_cases\": "
+                << scenario.ads_parity_overshoot_recover_cases << ",\n"
+                << "        \"overshoot_recover_events\": "
+                << scenario.ads_parity_overshoot_recover_events << ",\n"
+                << "        \"under_20_cases\": " << scenario.ads_parity_under_20_cases << ",\n"
+                << "        \"mean_time_to_under_20_ms\": "
+                << scenario.ads_parity_mean_time_to_under_20_ms << ",\n"
+                << "        \"mean_error_px\": " << scenario.ads_parity_mean_error_px << ",\n"
+                << "        \"p95_error_px\": " << scenario.ads_parity_p95_error_px << ",\n"
+                << "        \"p99_error_px\": " << scenario.ads_parity_p99_error_px << ",\n"
+                << "        \"final_error_px\": " << scenario.ads_parity_final_error_px << ",\n"
+                << "        \"max_single_frame_camera_delta_px\": "
+                << scenario.ads_parity_max_single_frame_camera_delta_px << ",\n"
+                << "        \"max_overshoot_px\": " << scenario.ads_parity_max_overshoot_px << "\n"
                 << "      }";
         }
         out
@@ -819,11 +2369,64 @@ void print_summary(
                 << " mean_err=" << scenario.random_fov_mean_error_px
                 << " p95_err=" << scenario.random_fov_p95_error_px
                 << " p99_err=" << scenario.random_fov_p99_error_px
+                << " dir_score=" << scenario.random_fov_direction_score
+                << " manual_dir_score=" << scenario.random_fov_manual_direction_score
+                << " smooth_score=" << scenario.random_fov_turn_smoothness_score
+                << " p95_turn=" << scenario.random_fov_p95_turn_degrees
+                << " p95_delta=" << scenario.random_fov_p95_output_delta
                 << " overshoots=" << scenario.random_fov_overshoot_events
+                << " over_x=" << scenario.random_fov_overshoot_events_x
+                << " over_y=" << scenario.random_fov_overshoot_events_y
+                << " ads_over=" << scenario.random_fov_overshoot_ads_snap
+                << " body_over=" << scenario.random_fov_overshoot_body_lock
+                << " manual_over=" << scenario.random_fov_overshoot_manual
                 << " max_over=" << scenario.random_fov_max_overshoot_px
                 << " mean_dx=" << scenario.random_fov_mean_abs_expected_dx
                 << " mean_out_x=" << scenario.random_fov_mean_abs_final_x
                 << " out_per_100px=" << scenario.random_fov_output_per_100px_error;
+        }
+        if (scenario.has_ads_settle) {
+            std::cout
+                << " ticks=" << scenario.ads_settle_ticks
+                << " snap_ms=" << scenario.ads_settle_snap_window_ms
+                << " force_scale=" << scenario.ads_settle_ai_force_scale
+                << " fov=" << scenario.ads_settle_fov_start_scale
+                << "->" << scenario.ads_settle_fov_end_scale
+                << " settled=" << scenario.ads_settle_settled_tick
+                << " mean_err=" << scenario.ads_settle_mean_error_px
+                << " p95_err=" << scenario.ads_settle_p95_error_px
+                << " final_err=" << scenario.ads_settle_final_error_px
+                << " overshoots=" << scenario.ads_settle_overshoot_events
+                << " max_over=" << scenario.ads_settle_max_overshoot_px;
+        }
+        if (scenario.has_ads_parity) {
+            std::cout
+                << " cases=" << scenario.ads_parity_cases
+                << " hz=60"
+                << " mean_err=" << scenario.ads_parity_mean_error_px
+                << " p95_err=" << scenario.ads_parity_p95_error_px
+                << " final_err=" << scenario.ads_parity_final_error_px
+                << " under20_cases=" << scenario.ads_parity_under_20_cases
+                << " overshoot_cases=" << scenario.ads_parity_overshoot_cases
+                << " overshoots=" << scenario.ads_parity_overshoot_events
+                << " over_x=" << scenario.ads_parity_overshoot_events_x
+                << " over_y=" << scenario.ads_parity_overshoot_events_y
+                << " crossings=" << scenario.ads_parity_crossing_events
+                << " ads_cross=" << scenario.ads_parity_ads_snap_crossing_events
+                << " body_cross=" << scenario.ads_parity_body_lock_crossing_events
+                << " ads_over=" << scenario.ads_parity_ads_snap_overshoot_events
+                << " body_over=" << scenario.ads_parity_body_lock_overshoot_events
+                << " manual_over=" << scenario.ads_parity_manual_overshoot_events
+                << " profile_over=[none:" << scenario.ads_parity_overshoot_events_none
+                << ",aligned:" << scenario.ads_parity_overshoot_events_aligned_follow
+                << ",opposing:" << scenario.ads_parity_overshoot_events_opposing_burst
+                << ",recover:" << scenario.ads_parity_overshoot_events_overshoot_recover
+                << "]"
+                << " overshoot_recover_events="
+                << scenario.ads_parity_overshoot_recover_events
+                << " max_over=" << scenario.ads_parity_max_overshoot_px
+                << " max_frame_delta="
+                << scenario.ads_parity_max_single_frame_camera_delta_px;
         }
         std::cout << "\n";
     }
@@ -835,6 +2438,11 @@ void print_summary(
 int main(int argc, char** argv) {
     try {
         const CliOptions options = parse_args(argc, argv);
+        if (options.self_test) {
+            run_self_test();
+            return 0;
+        }
+
         controller_native::RuntimeConfig runtime_config =
             controller_native::load_runtime_config(options.config_path);
         if (!options.recoil_state_path.empty()) {
@@ -855,10 +2463,27 @@ int main(int argc, char** argv) {
             runtime_config.gamepad,
             options.frames,
             options.dt_ms));
+        scenarios.push_back(run_ads_python_parity_60hz(runtime_config.gamepad));
+        scenarios.push_back(run_ads_python_parity_60hz(
+            runtime_config.gamepad,
+            "ads_python_parity_60hz_dynamic",
+            true,
+            false));
+        scenarios.push_back(run_ads_python_parity_60hz(
+            runtime_config.gamepad,
+            "ads_python_parity_60hz_dynamic_fire",
+            true,
+            true));
+        scenarios.push_back(run_ads_fov_settle_130ms(runtime_config.gamepad, options));
         if (options.random_fov_ticks > 0) {
             scenarios.push_back(run_tracker_random_fov_100hz(
                 runtime_config.gamepad,
                 options));
+            scenarios.push_back(run_tracker_random_fov_100hz(
+                runtime_config.gamepad,
+                options,
+                "tracker_random_fov_100hz_dynamic",
+                true));
         }
 
         write_json(options, runtime_config, scenarios);
