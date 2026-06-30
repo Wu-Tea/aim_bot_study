@@ -8,6 +8,7 @@
 #include "controller_native/xinput_reader.h"
 #include "aim_perf_file_logger.h"
 #include "downward_diagnostics.h"
+#include "fusion_channel_publisher.h"
 #include "perf_logger.h"
 #include "vision_native/vision_engine.h"
 
@@ -59,6 +60,10 @@ private:
     std::atomic_bool stop_requested_{false};
     unsigned int tick_count_ = 0;
     unsigned int max_ticks_ = 0;
+
+    // fusion visual overlay
+    FusionChannelPublisher fusion_publisher_;
+    bool fusion_enabled_ = false;
 };
 
 }  // namespace runtime_app

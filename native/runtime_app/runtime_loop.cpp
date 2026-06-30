@@ -242,6 +242,67 @@ void log_vision_result(
         << "ms\n";
 }
 
+void populate_fusion_target(
+    const vision_native::VisionResult& src,
+    int frame_width,
+    int frame_height,
+    shared_fusion::FusionTarget& dst) {
+    dst.has_target = src.has_target;
+    dst.auto_fire  = src.auto_fire;
+    dst.confidence = src.target_confidence;
+    dst.has_body_box = src.has_body_box;
+
+    if (frame_width > 0 && frame_height > 0) {
+        const float iw = 1.0f / static_cast<float>(frame_width);
+        const float ih = 1.0f / static_cast<float>(frame_height);
+        dst.target_x = src.target_x * iw;
+        dst.target_y = src.target_y * ih;
+        dst.dx = src.dx * iw;
+        dst.dy = src.dy * ih;
+        if (src.has_body_box) {
+            dst.body_x1 = src.body_x1 * iw;
+            dst.body_y1 = src.body_y1 * ih;
+            dst.body_x2 = src.body_x2 * iw;
+            dst.body_y2 = src.body_y2 * ih;
+        }
+    }
+}
+
+void populate_fusion_detections(
+    const vision_native::VisionResult& src,
+    int frame_width,
+    int frame_height,
+    shared_fusion::FusionDetection* dst,
+    std::uint32_t& count) {
+    count = 0;
+    const std::size_t src_count = src.detections.size();
+    if (src_count == 0 || dst == nullptr) {
+        return;
+    }
+
+    const float iw = (frame_width > 0)
+        ? 1.0f / static_cast<float>(frame_width) : 0.0f;
+    const float ih = (frame_height > 0)
+        ? 1.0f / static_cast<float>(frame_height) : 0.0f;
+
+    const std::uint32_t limit = std::min(
+        static_cast<std::uint32_t>(src_count),
+        shared_fusion::FUSION_CHANNEL_MAX_DETECTIONS);
+
+    for (std::uint32_t i = 0; i < limit; ++i) {
+        const auto& d = src.detections[i];
+        dst[i].x1          = d.x1 * iw;
+        dst[i].y1          = d.y1 * ih;
+        dst[i].x2          = d.x2 * iw;
+        dst[i].y2          = d.y2 * ih;
+        dst[i].conf        = d.conf;
+        dst[i].class_id    = d.class_id;
+        dst[i].color_bonus = d.color_bonus;
+        dst[i].is_friendly = d.is_friendly;
+    }
+    count = limit;
+}
+
 }  // namespace
 
 RuntimeLoop::RuntimeLoop(
@@ -293,6 +354,22 @@ RuntimeLoop::RuntimeLoop(
         -1,
         0,
         config_.vision.model_path);
+
+    // --- fusion visual overlay channel (disabled by default) ---
+    if (config_.vision.fusion_enabled) {
+        fusion_enabled_ = fusion_publisher_.open(
+            config_.vision.fusion_session.c_str(),
+            config_.vision.fusion_show_all_detections);
+        if (fusion_enabled_) {
+            std::cout << "[Fusion][CPP] channel=ready"
+                      << " session=\"" << config_.vision.fusion_session << "\""
+                      << " show_all=" << (config_.vision.fusion_show_all_detections ? 1 : 0)
+                      << '\n';
+        } else {
+            std::cout << "[Fusion][CPP] channel=unavailable (check FUSION_FORCE_OFF or kernel objects)"
+                      << '\n';
+        }
+    }
 }
 
 int RuntimeLoop::run() {
@@ -337,6 +414,27 @@ void RuntimeLoop::run_once() {
             result.captured_at_ns != 0 ? result.captured_at_ns : result.result_at_ns;
         latest_controller_consume_started_ns_ =
             steady_time_point_ns(controller_consume_started);
+
+        // --- fusion visual overlay publish (best-effort, no hot-path wait) ---
+        if (fusion_enabled_ && result.frame_updated) {
+            const int fw = config_.vision.capture_width;
+            const int fh = config_.vision.capture_height;
+
+            shared_fusion::FusionTarget ftarget{};
+            populate_fusion_target(result, fw, fh, ftarget);
+
+            shared_fusion::FusionDetection fdetections[shared_fusion::FUSION_CHANNEL_MAX_DETECTIONS];
+            std::uint32_t fcount = 0;
+            populate_fusion_detections(result, fw, fh, fdetections, fcount);
+
+            fusion_publisher_.publish(
+                result.frame_id, fw, fh, ftarget, fdetections, fcount);
+
+            if (!fusion_publisher_.enabled()) {
+                fusion_enabled_ = false;
+                std::cout << "[Fusion][CPP] self-disabled after repeated publish failures\n";
+            }
+        }
     }
     poll_due_recoil_recognizer(std::chrono::steady_clock::now());
 

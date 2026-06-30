@@ -88,6 +88,8 @@ void print_startup_summary(
                 ? "none"
                 : config.gamepad.recoil.recognizer_state_path)
         << " auto_fire=" << config.gamepad.auto_fire.fire_output
+        << " fusion=" << (config.vision.fusion_enabled ? "on" : "off")
+        << " fusion_session=" << config.vision.fusion_session
         << '\n';
 }
 

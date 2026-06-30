@@ -85,6 +85,21 @@ add_library(vision_native_core STATIC
     src/vision_engine.cpp
 )
 
+# Fusion shared-memory ABI library
+add_library(fusion_shared STATIC
+    ../shared_fusion/fusion_channel.cpp
+    ../shared_fusion/fusion_channel.h
+)
+
+target_include_directories(fusion_shared
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
+target_compile_options(fusion_shared PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/utf-8>
+)
+
 target_include_directories(vision_native_core
     PUBLIC
         include
@@ -143,6 +158,7 @@ set(FPS_TRACKER_PACKAGE_SOURCES
 add_executable(cod_native_runtime
     ../runtime_app/main.cpp
     ../runtime_app/runtime_loop.cpp
+    ../runtime_app/fusion_channel_publisher.cpp
     ../runtime_app/perf_logger.cpp
     ../runtime_app/aim_perf_file_logger.cpp
     ../runtime_app/downward_diagnostics.cpp
@@ -191,8 +207,13 @@ target_compile_definitions(cod_native_runtime
         $<$<BOOL:${NATIVE_ENABLE_VIGEM}>:NATIVE_ENABLE_VIGEM>
 )
 
+target_compile_options(cod_native_runtime PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/utf-8>
+)
+
 target_link_libraries(cod_native_runtime PRIVATE
     vision_native_core
+    fusion_shared
     d3d11
     dxgi
     xinput
@@ -312,6 +333,35 @@ target_compile_definitions(cod_native_gamepad_benchmark
 target_link_libraries(cod_native_gamepad_benchmark PRIVATE
     gdi32
     windowsapp
+)
+
+# Fusion visual overlay canvas (separate process, D3D11 + D2D1 + DirectComposition)
+add_executable(fusion_canvas
+    ../overlay_canvas/fusion_canvas.cpp
+)
+
+target_include_directories(fusion_canvas PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
+target_compile_definitions(fusion_canvas
+    PRIVATE
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
+)
+
+target_compile_options(fusion_canvas PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/utf-8>
+)
+
+target_link_libraries(fusion_canvas PRIVATE
+    fusion_shared
+    d3d11
+    d2d1
+    dxgi
+    dcomp
+    dwrite
+    Shcore
 )
 
 pybind11_add_module(vision_native_cpp

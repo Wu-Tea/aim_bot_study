@@ -1,17 +1,24 @@
 # Agent Handoff
 
-Last updated: 2026-06-15T16:35:00+08:00
+Last updated: 2026-06-25T01:23:41+08:00
 Updated by: Codex
-Active scope: COD/FPS full native C++ gamepad runtime, native vision performance, native controller feel, and recoil playback.
+Active scope: COD/FPS full native C++ gamepad runtime, native vision performance, native controller feel, recoil playback, and performance-first audio/visual fusion canvas execution.
 Staleness: stale after another runtime-entry change, a new detector/model baseline, major native controller behavior changes, or live evidence that C++ runtime feel/perf regressed versus the Python fallback.
 
 ## Current Objective
+
+Build a usable performance-first visual fusion skeleton without polluting the native runtime hot path. The first usable slice should be able to show native vision targets or all vision detections on a full-screen canvas while keeping fusion disabled by default, preserving game/vision performance boundaries, and leaving audio as visual-only later work.
 
 Treat the default gamepad runtime as full native C++ and keep documentation, debugging, and future optimization work aligned with that reality. Python remains useful for fallback, tools, tests, training/export, recoil app workflows, and comparison, but it should not be assumed to be part of the normal live gamepad hot path.
 
 ## Current State
 
 - Branch/workspace: `D:\work\AI\yolo-study-001`.
+- Fusion execution decision recorded on 2026-06-25:
+  - `decisions/DEC-2026-06-25-001-performance-first-fusion-canvas.md`
+  - Do not build complete audio+visual fusion first and optimize later.
+  - Start with a usable vision-target canvas/publisher skeleton plus performance/kill-switch boundaries.
+  - Full audio capture/DSP/ONNX remains later and visual-only by default.
 - Default gamepad launch path:
   - `scripts\launch\gamepad_start.bat`
   - defaults to `GAMEPAD_RUNTIME=native`
@@ -94,6 +101,14 @@ Treat the default gamepad runtime as full native C++ and keep documentation, deb
 
 ## Known Follow-Ups
 
+0. Fusion canvas target-marker correction from 2026-06-25:
+   - Default overlay behavior is now target-dot only, not all detection boxes.
+   - The dot maps `VisionResult.dx/dy` as a center-relative screen offset, avoiding the previous normalized-capture-to-fullscreen stretch.
+   - `FUSION_SHOW_ALL_DETECTIONS=1` remains available only for explicit debug mode.
+   - Canvas now clears stale target data after 250ms; default idle mode is transparent hide, with optional `FUSION_IDLE_MODE=crosshair`.
+   - Canvas now calls `SetWindowDisplayAffinity(..., WDA_EXCLUDEFROMCAPTURE)` so the overlay is less likely to feed back into Windows capture / DXGI duplication.
+   - Process-specific vision capture should proceed as window/output-aware DXGI ROI alignment first, not swapchain injection.
+   - Build/test status: `fusion_canvas` Release, `cod_native_runtime` Release, and `cod_native_controller_tests.exe` passed after this correction.
 1. Verify `[Perf][CPP]` reports actual measured runtime/window FPS rather than hard-coded loop assumptions.
 2. Add or verify native output-age style fields comparable to old Python `out_age` so C++ logs can be compared cleanly.
 3. Check target freshness on ADS transitions:

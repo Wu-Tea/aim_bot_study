@@ -1,6 +1,6 @@
 # Agent Session Log Index
 
-Last updated: 2026-06-15T16:35:00+08:00
+Last updated: 2026-06-25T00:45:00+08:00
 Updated by: Codex
 Purpose: quick navigation for project continuity. The complete historical log is preserved in `session-log-full.md`.
 
@@ -13,6 +13,37 @@ Purpose: quick navigation for project continuity. The complete historical log is
 
 ## Current Active Thread
 
+- 2026-06-25T00:45:00+08:00 - Integrated audio + visual fusion plan matured through 3 review cycles.
+  - User goal: read the audio/visual reference materials, produce a mature one-step audio+screen-fusion scheme, and use a `gpt-5.5` subagent for review/discussion with at least three self-review cycles.
+  - Added integrated authority document: `docs/project/AUDIO_VISUAL_FUSION_PLAN.md`.
+  - Final process model: `audio_direction.exe` owns process-loopback capture, DSP/event/direction, and `AudioFusionChannel`; `cod_native_runtime.exe` owns vision/controller/recoil authority and `VisionFusionChannel`; `fusion_canvas.exe` only visually composes validated source channels over a fullscreen DirectComposition/D3D11 canvas.
+  - Authority boundary: canvas output and audio markers never feed back into controller/recoil/fire/target-selection state; any future audio-to-vision weak cue requires a separate ADR and stays unable to grant fire or recoil authority.
+  - Lifecycle model: one launcher/future thin supervisor owns process start/restart and session nonce; producers do not launch or restart each other or the canvas.
+  - IPC model: same-user `Local\YoloStudy001.Fusion.<session_nonce>.<source_type>.<kind>` mappings/events, producer identity, active buffer index, release/acquire ordering, malformed/stale/wrong-nonce rejection, and per-source counters.
+  - Synced split docs: `docs/project/AUDIO_DIRECTION_PIPELINE.md` and `docs/project/FULLSCREEN_CANVAS_FUSION.md` now use producer source-channel language instead of a runtime-owned final snapshot.
+  - `gpt-5.5` subagent review cycles: cycle 1 fixed visual-composition vs gameplay-fusion ownership, cycle 2 hardened lifecycle/IPC, cycle 3 found no P0/P1 blockers and accepted the plan as mature implementation authority.
+
+- 2026-06-24T23:55:50+08:00 - Audio direction pipeline requirements and mature scheme drafted.
+  - User goal: start exploring the audio feature chain: capture target audio -> extract key audio -> estimate direction -> mark it on screen.
+  - Added authoritative project design draft: `docs/project/AUDIO_DIRECTION_PIPELINE.md`.
+  - Default architecture: WASAPI process loopback captures configured target process tree; audio callback writes timestamped PCM to a preallocated ring; DSP/template detector extracts key events; direction estimator produces head-relative direction/confidence; runtime publishes `SourceType=Audio` primitives to fullscreen canvas.
+  - Default behavior deliberately keeps audio as visual direction hints, not controller authority: no recoil input, no fire authority, and no aim-assist target selection unless a future ADR explicitly enables a weak external cue.
+  - Major open decisions recorded: whether audio can ever feed `VisionEngine::set_external_cue`, whether multichannel capture is first-class, resampler choice, template calibration workflow, and C++17/C++20 target strategy.
+- 2026-06-24T23:21:48+08:00 - Fullscreen canvas visual-fusion direction refined.
+  - User clarified the desired visual fusion should behave like the whole screen is a canvas, not like a small constrained overlay window.
+  - Current mature scheme: an external fullscreen canvas process using transparent top-level HWND(s) only as compositor anchors, with DirectComposition + D3D11 composition swapchain + Direct2D/DirectWrite drawing. User-facing behavior is windowless, focusless, click-through, whole-screen drawing with hotkey toggle.
+  - Important boundary: a reliable user-mode Windows implementation still needs a compositor participant; true direct drawing into final scanout is not available through a normal public API without target swapchain rendering or driver/display-layer work.
+  - Rejected as default: desktop DC/GDI drawing, capture-and-replay compositor, DXGI Desktop Duplication as renderer, Windows Graphics Capture as renderer, arbitrary hardware overlay plane, and swapchain hooks/injection.
+  - Follow-up architecture review expanded the scheme with DirectFlip/MPO, FSE, VRR, HDR, multi-monitor DPI, hotkey fallback, IPC, frame pacing, crash recovery, telemetry, and acceptance gates.
+  - Authoritative project design: `docs/project/FULLSCREEN_CANVAS_FUSION.md`; research checkpoint: `research-2026-06-24-fullscreen-canvas-fusion.md`.
+- 2026-06-24T23:17:45+08:00 - Visual fusion and audio-direction research checkpoint recorded.
+  - User goal: research two proposed native C++ feature tracks: high-performance unobtrusive visual fusion / screen markers, and process-audio capture with target sound recognition plus direction assistance.
+  - Local baseline: `native/voice/SoundDirectionAssist_Codex_Pack` already proposes Win11/C++20, WASAPI process-loopback capture, deterministic DSP before ONNX, and external no-injection overlay.
+  - Current recommended visual path: external DirectComposition + D3D11/Direct2D overlay process; prototype may use transparent layered HWND + Direct2D/D3D11 or Dear ImGui DX11 diagnostics. Avoid swapchain hooks as a default path because of stability and anti-cheat risk.
+  - Current recommended audio path: WASAPI process-specific loopback via `ActivateAudioInterfaceAsync` and `AUDIOCLIENT_ACTIVATION_PARAMS`, then KissFFT-style DSP baseline with ILD/bandwise ILD/GCC-PHAT features; add ONNX Runtime only after real captures prove DSP is insufficient.
+  - Key feasibility caveat: game loopback is rendered stereo/multichannel mix, not microphone-array input. Stereo can usually support left/right bias with confidence, but reliable absolute azimuth/front-back requires real validation or multichannel data.
+  - Integration note: existing `vision_native::VisionEngine::set_external_cue(...)` can serve as the first bridge from audio direction to the current native vision/selector path.
+  - Detailed checkpoint: `research-2026-06-24-visual-audio-fusion.md`.
 - 2026-06-15T16:35:00+08:00 - Native tracker/controller/recoil boundary contract implemented and documented.
   - User goal: make `vision -> tracker -> controller -> recoil` directly verifiable so controller changes stop breaking recoil feel.
   - Recoil boundary: native recoil is now final feed-forward playback and must not consume target dx/dy, tracker state, target freshness, or controller correction errors.
@@ -58,6 +89,18 @@ Purpose: quick navigation for project continuity. The complete historical log is
   - Split targeted verification passed; full unittest discovery timed out in this environment.
 
 ## Current Follow-Up
+
+- 2026-06-25T01:23:41+08:00 - Performance-first fusion canvas execution decision recorded.
+  - User asked to record the decision and begin execution toward a usable version.
+  - Decision recorded: `decisions/DEC-2026-06-25-001-performance-first-fusion-canvas.md`.
+  - Current execution direction: do not build full audio+visual fusion first and optimize later; instead build a usable vision-target canvas/publisher skeleton with performance and kill-switch boundaries from the start.
+  - First usable target: show native vision target or all vision detections on a full-screen canvas while preserving native runtime hot-path isolation and keeping audio visual-only for later phases.
+
+- 2026-06-24T23:59:00+08:00 - Audio-direction GitHub scan with `E:\AI\resp_scanner`.
+  - Added scanner config under `E:\AI\resp_scanner\config\audio-direction-scan\` and wrote report `E:\AI\resp_scanner\reports\audio-direction-scan\2026-06-24.md`.
+  - First-pass scan found useful references for process-level WASAPI capture, FFT/IPC visualization, GCC-PHAT/DOA algorithms, and D3D11/DirectComposition overlays.
+  - Key conclusion: no single repository covers capture -> event extraction -> direction -> fullscreen marker rendering. Keep a custom native C++ pipeline; use `bozbez/win-capture-audio`, `I-AM-ENGINEER/ProcessAudioCaptureWin`, `thomas-quant/wasapi-loopback`, `art-jin/ESP32_S3_CAM_Mic3_PMW1`, and `anzhelion/win-overlay-d3d11` as references with license/maturity caution.
+  - Detailed notes: `research-2026-06-24-audio-direction-github-scan.md`.
 
 - Treat the committed native targeting/controller upgrade as the current live baseline; current target point is `body_lock_upper_body_ratio = 0.40`.
 - Next implementation focus:
@@ -107,6 +150,59 @@ Use `session-log-full.md` for the full text or compact summaries of these ranges
 - `decisions/DEC-2026-05-05-001-add-external-yellow-cue-input-and-sidecar-fallback.md`
 - `decisions/DEC-2026-05-05-002-scope-active-vision-work-to-native.md`
 - `decisions/DEC-2026-05-29-001-single-target-weak-association-authority-gating.md`
+- `decisions/DEC-2026-06-25-001-performance-first-fusion-canvas.md`
+
+## 2026-06-25 - Fusion Canvas Usability Correction
+
+- User rejected the first overlay-marker result as unusable: too many markers and positions not tied to the actual game view.
+- Root cause found in code and confirmed against 1920x1080 capture video: the canvas stretched normalized vision/capture coordinates across the whole screen, which magnified offsets and made markers visually unrelated to the target.
+- Corrected default mode to target-dot only:
+  - `FUSION_SHOW_ALL_DETECTIONS` now defaults to `0` in the launcher and runtime config.
+  - `FusionChannelPublisher` now respects `show_all_` and publishes zero detections unless explicitly enabled.
+  - `fusion_canvas` no longer draws the body box or bottom status text in default target mode.
+  - selected target marker is rendered as a small circle using screen center plus the normalized `dx/dy` restored to capture pixels.
+- Verification:
+  - `fusion_canvas` Release build passed.
+  - `cod_native_runtime` Release build passed after stopping the existing locked runtime process.
+  - `native\vision_native\build\Release\cod_native_controller_tests.exe` passed.
+  - `git diff --check` only reported existing LF/CRLF warnings.
+
+## 2026-06-25 - Fusion Canvas Idle Behavior And Capture Direction
+
+- User accepted that target mapping is now roughly correct, then requested two optimizations:
+  - Consider recognizing only the target process/game picture rather than generic desktop screenshot capture.
+  - When vision data is unavailable, canvas should either show a center crosshair or disappear.
+- Current capture architecture review:
+  - Native vision uses DXGI Desktop Duplication in `native\vision_native\src\dxgi_capture.cpp`.
+  - It already copies only a center ROI texture, not a full GDI screenshot.
+  - The next process-specific step should be window/output-aware ROI alignment: find target process HWND/window rect, map it to the selected DXGI output, and center/crop within that game rect.
+  - Avoid swapchain injection/Present hooking as the first step because it is higher risk for game stability, anti-cheat compatibility, and performance isolation.
+- Implemented canvas idle mode:
+  - `fusion_canvas` now treats data as stale after 250ms without a new frame and clears the previous target instead of holding a stale dot.
+  - Default idle behavior is `hide` (transparent/no marker).
+  - Optional center crosshair mode is available with `FUSION_IDLE_MODE=crosshair` or `--idle-mode crosshair`.
+  - `scripts\launch\gamepad_fusion_canvas_start.bat` defaults `FUSION_IDLE_MODE=hide` and passes `--idle-mode`.
+- Verification:
+  - `fusion_canvas` Release build passed.
+  - Print-only launcher check shows `--idle-mode hide`.
+  - `git diff --check` only reported existing LF/CRLF warnings.
+
+## 2026-06-25 - Prevent Canvas Feedback Into Vision Capture
+
+- User clarified that the target-process capture idea is mainly about avoiding canvas interference with vision.
+- Risk model:
+  - DXGI Desktop Duplication can observe the composed desktop rather than a raw game-only frame.
+  - If the overlay is visible to that capture path, the marker/crosshair may be fed back into the next vision frame.
+- Implemented first-line isolation:
+  - `fusion_canvas` now calls `SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE)` on its top-level overlay window.
+  - Successful or failed display-affinity setup is logged in the canvas log.
+  - This keeps the lower-risk current DirectComposition overlay path while trying to exclude the overlay from Windows capture APIs.
+- Verification:
+  - `fusion_canvas` Release build passed.
+  - `git diff --check` only reported existing LF/CRLF warnings.
+- Follow-up if interference remains:
+  - Check `runs\fusion_canvas\fusion_canvas.log` for `display_affinity=exclude_from_capture`.
+  - If unsupported/ineffective, implement process-window-aware DXGI ROI alignment next.
 
 ## Maintenance Notes
 
