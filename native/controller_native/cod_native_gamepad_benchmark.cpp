@@ -62,6 +62,16 @@ struct RandomFovSample {
     double fov_scale = 1.0;
     double expected_dx = 0.0;
     double expected_dy = 0.0;
+    bool vision_has_target = false;
+    bool vision_aim_authority = false;
+    bool vision_fire_authority = false;
+    std::string vision_target_tier = "none";
+    double vision_dx = 0.0;
+    double vision_dy = 0.0;
+    bool vision_has_tracker_projection = false;
+    double vision_tracker_dx = 0.0;
+    double vision_tracker_dy = 0.0;
+    double vision_age_ms = 0.0;
     double target_speed_px_per_sec = 0.0;
     double heading_deg = 0.0;
 };
@@ -89,6 +99,16 @@ struct RandomFovOvershootEvent {
     double fov_scale = 1.0;
     double expected_dx = 0.0;
     double expected_dy = 0.0;
+    bool vision_has_target = false;
+    bool vision_aim_authority = false;
+    bool vision_fire_authority = false;
+    std::string vision_target_tier = "none";
+    double vision_dx = 0.0;
+    double vision_dy = 0.0;
+    bool vision_has_tracker_projection = false;
+    double vision_tracker_dx = 0.0;
+    double vision_tracker_dy = 0.0;
+    double vision_age_ms = 0.0;
     double target_speed_px_per_sec = 0.0;
     double heading_deg = 0.0;
 };
@@ -471,6 +491,25 @@ double ads_err_target_window_offset_radius(const AdsErrTargetWindow& window) {
     return std::hypot(window.offset_dx, window.offset_dy);
 }
 
+void copy_frame_vision_to_sample(
+    RandomFovSample& sample,
+    const controller_native::NativeControllerVisionState& vision_state,
+    double now_seconds) {
+    sample.vision_has_target = vision_state.has_target;
+    sample.vision_aim_authority = vision_state.aim_authority;
+    sample.vision_fire_authority = vision_state.fire_authority;
+    sample.vision_target_tier = vision_state.target_tier;
+    sample.vision_dx = vision_state.dx;
+    sample.vision_dy = vision_state.dy;
+    sample.vision_has_tracker_projection = vision_state.has_tracker_projection;
+    sample.vision_tracker_dx = vision_state.tracker_dx;
+    sample.vision_tracker_dy = vision_state.tracker_dy;
+    sample.vision_age_ms =
+        vision_state.observed_at_seconds > 0.0 && now_seconds > 0.0
+            ? std::max(0.0, now_seconds - vision_state.observed_at_seconds) * 1000.0
+            : 0.0;
+}
+
 float clamp_float(float value, float minimum, float maximum) {
     return std::max(minimum, std::min(maximum, value));
 }
@@ -714,6 +753,16 @@ std::vector<RandomFovOvershootEvent> random_fov_axis_overshoot_events(
         event.fov_scale = crossing_sample.fov_scale;
         event.expected_dx = crossing_sample.expected_dx;
         event.expected_dy = crossing_sample.expected_dy;
+        event.vision_has_target = crossing_sample.vision_has_target;
+        event.vision_aim_authority = crossing_sample.vision_aim_authority;
+        event.vision_fire_authority = crossing_sample.vision_fire_authority;
+        event.vision_target_tier = crossing_sample.vision_target_tier;
+        event.vision_dx = crossing_sample.vision_dx;
+        event.vision_dy = crossing_sample.vision_dy;
+        event.vision_has_tracker_projection = crossing_sample.vision_has_tracker_projection;
+        event.vision_tracker_dx = crossing_sample.vision_tracker_dx;
+        event.vision_tracker_dy = crossing_sample.vision_tracker_dy;
+        event.vision_age_ms = crossing_sample.vision_age_ms;
         event.target_speed_px_per_sec = crossing_sample.target_speed_px_per_sec;
         event.heading_deg = crossing_sample.heading_deg;
         return event;
@@ -736,6 +785,16 @@ std::vector<RandomFovOvershootEvent> random_fov_axis_overshoot_events(
         event.fov_scale = sample.fov_scale;
         event.expected_dx = sample.expected_dx;
         event.expected_dy = sample.expected_dy;
+        event.vision_has_target = sample.vision_has_target;
+        event.vision_aim_authority = sample.vision_aim_authority;
+        event.vision_fire_authority = sample.vision_fire_authority;
+        event.vision_target_tier = sample.vision_target_tier;
+        event.vision_dx = sample.vision_dx;
+        event.vision_dy = sample.vision_dy;
+        event.vision_has_tracker_projection = sample.vision_has_tracker_projection;
+        event.vision_tracker_dx = sample.vision_tracker_dx;
+        event.vision_tracker_dy = sample.vision_tracker_dy;
+        event.vision_age_ms = sample.vision_age_ms;
         event.target_speed_px_per_sec = sample.target_speed_px_per_sec;
         event.heading_deg = sample.heading_deg;
     };
@@ -1855,6 +1914,10 @@ ScenarioMetrics run_tracker_random_fov_100hz(
                 sample.fov_scale = fov_scale;
                 sample.expected_dx = expected_dx;
                 sample.expected_dy = expected_dy;
+                copy_frame_vision_to_sample(
+                    sample,
+                    controller.last_frame_vision_state(),
+                    simulated_now);
                 sample.target_speed_px_per_sec = current_speed_px_per_sec;
                 sample.heading_deg = current_heading_deg;
                 segment_samples.push_back(std::move(sample));
@@ -2438,6 +2501,10 @@ ScenarioMetrics run_ads_diagonal_manual_stress_100hz(
             sample.fov_scale = fov_scale;
             sample.expected_dx = expected_vision_dx;
             sample.expected_dy = expected_vision_dy;
+            copy_frame_vision_to_sample(
+                sample,
+                controller.last_frame_vision_state(),
+                simulated_now);
             samples.push_back(std::move(sample));
         }
         for (const AdsErrTargetWindow& window : err_windows) {
@@ -2597,6 +2664,21 @@ void write_random_fov_overshoot_details_json(
             << indent << "    \"fov_scale\": " << event.fov_scale << ",\n"
             << indent << "    \"expected_dx\": " << event.expected_dx << ",\n"
             << indent << "    \"expected_dy\": " << event.expected_dy << ",\n"
+            << indent << "    \"vision_has_target\": "
+            << (event.vision_has_target ? "true" : "false") << ",\n"
+            << indent << "    \"vision_aim_authority\": "
+            << (event.vision_aim_authority ? "true" : "false") << ",\n"
+            << indent << "    \"vision_fire_authority\": "
+            << (event.vision_fire_authority ? "true" : "false") << ",\n"
+            << indent << "    \"vision_target_tier\": \""
+            << escape_json(event.vision_target_tier) << "\",\n"
+            << indent << "    \"vision_dx\": " << event.vision_dx << ",\n"
+            << indent << "    \"vision_dy\": " << event.vision_dy << ",\n"
+            << indent << "    \"vision_has_tracker_projection\": "
+            << (event.vision_has_tracker_projection ? "true" : "false") << ",\n"
+            << indent << "    \"vision_tracker_dx\": " << event.vision_tracker_dx << ",\n"
+            << indent << "    \"vision_tracker_dy\": " << event.vision_tracker_dy << ",\n"
+            << indent << "    \"vision_age_ms\": " << event.vision_age_ms << ",\n"
             << indent << "    \"target_speed_px_per_sec\": " << event.target_speed_px_per_sec << ",\n"
             << indent << "    \"heading_deg\": " << event.heading_deg << "\n"
             << indent << "  }" << (index + 1 == events.size() ? "\n" : ",\n");

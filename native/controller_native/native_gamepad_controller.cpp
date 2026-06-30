@@ -135,6 +135,7 @@ void NativeGamepadController::reset() {
     last_pipeline_traces_.clear();
     last_tracker_motion_output_ = GamepadOutputState{};
     last_output_components_ = NativeControllerOutputComponents{};
+    last_frame_vision_state_ = NativeControllerVisionState{};
     manual_fire_was_pressed_ = false;
     auto_fire_was_active_ = false;
     manual_takeover_started_at_seconds_ = -1.0;
@@ -153,20 +154,42 @@ void NativeGamepadController::reset() {
     has_last_aim_error_for_plan_ = false;
     last_aim_plan_error_x_ = 0.0f;
     last_aim_plan_error_y_ = 0.0f;
+    has_last_output_validation_error_ = false;
+    last_output_validation_error_x_ = 0.0f;
+    last_output_validation_error_y_ = 0.0f;
+    has_committed_target_ = false;
+    committed_target_dx_ = 0.0f;
+    committed_target_dy_ = 0.0f;
+    has_candidate_target_ = false;
+    candidate_target_dx_ = 0.0f;
+    candidate_target_dy_ = 0.0f;
+    candidate_first_observed_at_seconds_ = 0.0;
+    candidate_last_observed_at_seconds_ = 0.0;
+    candidate_fresh_samples_ = 0;
+    candidate_projection_hold_until_seconds_ = 0.0;
+    candidate_reacquire_snap_until_seconds_ = 0.0;
+    candidate_output_hold_until_seconds_ = 0.0;
     body_lock_short_plan_x_until_seconds_ = 0.0;
     body_lock_short_plan_y_until_seconds_ = 0.0;
     body_lock_manual_brake_x_until_seconds_ = 0.0;
     body_lock_manual_brake_y_until_seconds_ = 0.0;
+    body_lock_manual_brake_x_sign_ = 0;
+    body_lock_manual_brake_y_sign_ = 0;
     reset_auto_fire_readiness_tracking();
 }
 
 void NativeGamepadController::submit_vision_state(const NativeControllerVisionState& state) {
-    latest_vision_state_ = state;
-    ++latest_vision_sequence_;
     const double capture_time = state.observed_at_seconds > 0.0
         ? state.observed_at_seconds
         : now_seconds();
-    ingest_tracker_observation(state, {}, 0, capture_time, capture_time);
+    const double ready_time = now_seconds();
+    bool suppress_tracker_ingest = false;
+    latest_vision_state_ =
+        credibility_gated_vision_state(state, ready_time, &suppress_tracker_ingest);
+    ++latest_vision_sequence_;
+    if (!suppress_tracker_ingest) {
+        ingest_tracker_observation(state, {}, 0, capture_time, ready_time);
+    }
 }
 
 void NativeGamepadController::ingest_tracker_observation(
@@ -200,6 +223,208 @@ void NativeGamepadController::ingest_tracker_observation(
     observation.frame_id = frame_id;
     observation.detections = detections;
     target_tracker_->ingest(observation);
+}
+
+NativeControllerVisionState NativeGamepadController::credibility_gated_vision_state(
+    const NativeControllerVisionState& state,
+    double query_time_seconds,
+    bool* suppress_tracker_ingest) {
+    if (suppress_tracker_ingest) {
+        *suppress_tracker_ingest = false;
+    }
+    const tracking_native::TargetAuthorityDecision authority =
+        tracking_native::classify_target_authority(
+            state.has_target,
+            state.aim_authority,
+            state.fire_authority,
+            state.target_tier);
+    if (authority.assist_authority == common_native::AssistAuthority::None) {
+        has_candidate_target_ = false;
+        candidate_fresh_samples_ = 0;
+        candidate_projection_hold_until_seconds_ = 0.0;
+        candidate_reacquire_snap_until_seconds_ = 0.0;
+        if (!state.has_target) {
+            has_committed_target_ = false;
+            committed_target_dx_ = 0.0f;
+            committed_target_dy_ = 0.0f;
+        }
+        return state;
+    }
+    const auto open_candidate_reacquire_snap = [&]() {
+        const double configured_snap_seconds =
+            static_cast<double>(std::max(0, config_.ai_aim.ads_snap_window_ms)) / 1000.0;
+        if (configured_snap_seconds <= 0.0) {
+            return;
+        }
+        const double reacquire_seconds =
+            std::max(0.160, std::min(0.280, configured_snap_seconds * 2.0));
+        candidate_reacquire_snap_until_seconds_ =
+            query_time_seconds + reacquire_seconds;
+    };
+    const double query_time =
+        query_time_seconds > 0.0 ? query_time_seconds : now_seconds();
+    const double candidate_time = state.observed_at_seconds > 0.0
+        ? state.observed_at_seconds
+        : query_time;
+    const tracking_native::TrackerSnapshot projection =
+        target_tracker_->query({query_time});
+    constexpr float kSuspiciousJumpPx = 48.0f;
+    constexpr float kCandidateMatchPx = 80.0f;
+    constexpr int kCandidateAcceptSamples = 4;
+    constexpr double kCandidateAcceptSeconds = 0.070;
+    constexpr double kCandidateMaxGapSeconds = 0.055;
+    const auto update_candidate_from_state = [&]() {
+        const bool matches_candidate =
+            has_candidate_target_ &&
+            candidate_time >= candidate_last_observed_at_seconds_ &&
+            (candidate_time - candidate_last_observed_at_seconds_) <=
+                kCandidateMaxGapSeconds &&
+            std::hypot(state.dx - candidate_target_dx_, state.dy - candidate_target_dy_) <=
+                kCandidateMatchPx;
+        if (!matches_candidate) {
+            has_candidate_target_ = true;
+            candidate_target_dx_ = state.dx;
+            candidate_target_dy_ = state.dy;
+            candidate_first_observed_at_seconds_ = candidate_time;
+            candidate_last_observed_at_seconds_ = candidate_time;
+            candidate_fresh_samples_ = 1;
+        } else {
+            candidate_target_dx_ = state.dx;
+            candidate_target_dy_ = state.dy;
+            candidate_last_observed_at_seconds_ = candidate_time;
+            ++candidate_fresh_samples_;
+        }
+    };
+    const auto candidate_verified = [&](int min_samples, double min_seconds) {
+        return authority.is_strong_aim_target &&
+            candidate_fresh_samples_ >= min_samples &&
+            (candidate_last_observed_at_seconds_ - candidate_first_observed_at_seconds_) >=
+                min_seconds;
+    };
+    const auto commit_observed_state = [&](bool reopen_snap_for_candidate) {
+        if (reopen_snap_for_candidate) {
+            open_candidate_reacquire_snap();
+        } else {
+            candidate_reacquire_snap_until_seconds_ = 0.0;
+        }
+        has_committed_target_ = true;
+        committed_target_dx_ = state.dx;
+        committed_target_dy_ = state.dy;
+        has_candidate_target_ = false;
+        candidate_fresh_samples_ = 0;
+        candidate_projection_hold_until_seconds_ = 0.0;
+        candidate_output_hold_until_seconds_ = 0.0;
+    };
+    const auto candidate_hold_state = [&]() {
+        NativeControllerVisionState gated = state;
+        gated.has_target = false;
+        gated.aim_authority = false;
+        gated.fire_authority = false;
+        gated.auto_fire_requested = false;
+        gated.target_tier = "none";
+        gated.has_tracker_projection = false;
+        gated.tracker_dx = 0.0f;
+        gated.tracker_dy = 0.0f;
+        return gated;
+    };
+    if (!projection.has_target ||
+        projection.assist_authority == common_native::AssistAuthority::None ||
+        projection.projection_age_ms > 80.0) {
+        const double submit_age_ms =
+            state.observed_at_seconds > 0.0 && query_time > 0.0
+                ? std::max(0.0, query_time - state.observed_at_seconds) * 1000.0
+                : 0.0;
+        const bool fresh_submit_timestamp = submit_age_ms <= 5.0;
+        const float committed_jump_px = has_committed_target_
+            ? std::hypot(
+                state.dx - committed_target_dx_,
+                state.dy - committed_target_dy_)
+            : 0.0f;
+        const bool suspicious_against_committed =
+            fresh_submit_timestamp &&
+            has_committed_target_ &&
+            committed_jump_px > kSuspiciousJumpPx;
+        if (authority.is_strong_aim_target && fresh_submit_timestamp &&
+            (has_candidate_target_ || suspicious_against_committed)) {
+            update_candidate_from_state();
+            constexpr int kNoProjectionAcceptSamples = 5;
+            constexpr double kNoProjectionAcceptSeconds = 0.070;
+            if (candidate_verified(kNoProjectionAcceptSamples, kNoProjectionAcceptSeconds)) {
+                commit_observed_state(true);
+                return state;
+            }
+            if (suppress_tracker_ingest) {
+                *suppress_tracker_ingest = true;
+            }
+            candidate_output_hold_until_seconds_ =
+                std::max(candidate_output_hold_until_seconds_, query_time + 0.080);
+            return candidate_hold_state();
+        }
+        if (authority.is_strong_aim_target) {
+            commit_observed_state(has_candidate_target_);
+        }
+        return state;
+    }
+
+    const float jump_px = std::hypot(
+        state.dx - projection.aim_error_px.x,
+        state.dy - projection.aim_error_px.y);
+    if (jump_px <= kSuspiciousJumpPx) {
+        if (authority.is_strong_aim_target) {
+            commit_observed_state(has_candidate_target_);
+        }
+        return state;
+    }
+
+    update_candidate_from_state();
+    if (candidate_verified(kCandidateAcceptSamples, kCandidateAcceptSeconds)) {
+        commit_observed_state(true);
+        return state;
+    }
+
+    NativeControllerVisionState gated = state;
+    const float projection_delta_x = projection.aim_error_px.x - gated.dx;
+    const float projection_delta_y = projection.aim_error_px.y - gated.dy;
+    gated.dx = projection.aim_error_px.x;
+    gated.dy = projection.aim_error_px.y;
+    gated.target_x += projection_delta_x;
+    gated.target_y += projection_delta_y;
+    if (projection.has_body_box) {
+        gated.has_body_box = true;
+        gated.body_x1 = projection.body_box_px.x;
+        gated.body_y1 = projection.body_box_px.y;
+        gated.body_x2 = projection.body_box_px.x + projection.body_box_px.w;
+        gated.body_y2 = projection.body_box_px.y + projection.body_box_px.h;
+    } else if (gated.has_body_box) {
+        gated.body_x1 += projection_delta_x;
+        gated.body_x2 += projection_delta_x;
+        gated.body_y1 += projection_delta_y;
+        gated.body_y2 += projection_delta_y;
+    }
+    gated.has_target = true;
+    gated.aim_authority = true;
+    gated.fire_authority = false;
+    gated.auto_fire_requested = false;
+    gated.target_tier = "projected";
+    gated.observed_at_seconds = query_time_seconds;
+    gated.has_tracker_projection = true;
+    gated.tracker_dx = projection.aim_error_px.x;
+    gated.tracker_dy = projection.aim_error_px.y;
+    if (suppress_tracker_ingest) {
+        *suppress_tracker_ingest = true;
+    }
+    double projection_hold_seconds = 0.055;
+    const float aim_max_age_ms = std::max(0.0f, config_.ai_aim.target_max_age_ms);
+    if (ads_active_ && aim_max_age_ms > 0.0f && aim_max_age_ms <= 140.0f) {
+        projection_hold_seconds = std::max(
+            projection_hold_seconds,
+            std::min(0.090, static_cast<double>(aim_max_age_ms) / 1000.0));
+    }
+    candidate_projection_hold_until_seconds_ =
+        std::max(
+            candidate_projection_hold_until_seconds_,
+            query_time_seconds + projection_hold_seconds);
+    return gated;
 }
 
 void NativeGamepadController::submit_vision_result(const vision_native::VisionResult& result) {
@@ -251,18 +476,24 @@ void NativeGamepadController::submit_vision_result(const vision_native::VisionRe
     state.target_tier = safe_c_string(result.target_tier, "none");
     state.observed_at_seconds = ns_to_seconds(
         result.result_at_ns != 0 ? result.result_at_ns : result.captured_at_ns);
-    latest_vision_state_ = state;
-    ++latest_vision_sequence_;
     const double capture_time_seconds = ns_to_seconds(
         result.captured_at_ns != 0 ? result.captured_at_ns : result.result_at_ns);
     const double ready_time_seconds = ns_to_seconds(
         result.result_at_ns != 0 ? result.result_at_ns : result.captured_at_ns);
-    ingest_tracker_observation(
+    bool suppress_tracker_ingest = false;
+    latest_vision_state_ = credibility_gated_vision_state(
         state,
-        tracker_detections,
-        result.frame_id,
-        capture_time_seconds,
-        ready_time_seconds);
+        ready_time_seconds > 0.0 ? ready_time_seconds : capture_time_seconds,
+        &suppress_tracker_ingest);
+    ++latest_vision_sequence_;
+    if (!suppress_tracker_ingest) {
+        ingest_tracker_observation(
+            state,
+            tracker_detections,
+            result.frame_id,
+            capture_time_seconds,
+            ready_time_seconds);
+    }
 }
 
 GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadState& physical) {
@@ -274,6 +505,7 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
 
     const double now = now_seconds();
     const NativeControllerVisionState frame_vision_state = vision_state_for_frame(now);
+    last_frame_vision_state_ = frame_vision_state;
     const bool aiming = is_aiming(physical);
     update_ads_state(aiming, now);
     const bool auto_fire_requested = frame_vision_state.auto_fire_requested;
@@ -386,6 +618,10 @@ const NativeControllerOutputComponents& NativeGamepadController::last_output_com
     return last_output_components_;
 }
 
+const NativeControllerVisionState& NativeGamepadController::last_frame_vision_state() const {
+    return last_frame_vision_state_;
+}
+
 const std::string& NativeGamepadController::last_ai_aim_mode() const {
     return ai_aim_.last_mode();
 }
@@ -414,18 +650,93 @@ NativeControllerVisionState NativeGamepadController::vision_state_for_frame(doub
     if (projection.has_target &&
         projection_max_age_ms > 0.0f &&
         projection.projection_age_ms > static_cast<double>(projection_max_age_ms)) {
+        const float aim_max_age_ms =
+            std::max(0.0f, config_.ai_aim.target_max_age_ms);
+        const bool short_ads_occlusion_grace =
+            aim_max_age_ms > 0.0f &&
+            aim_max_age_ms <= projection_max_age_ms + 60.0f;
+        if (ads_active_ &&
+            short_ads_occlusion_grace &&
+            has_fresh_aim_target(state, now_seconds) &&
+            (is_strong_aim_target(state) ||
+             tracking_native::is_projected_observation(state.target_tier))) {
+            candidate_projection_hold_until_seconds_ = 0.0;
+            state.has_tracker_projection = false;
+            state.tracker_dx = 0.0f;
+            state.tracker_dy = 0.0f;
+            return state;
+        }
         latest_vision_state_ = cleared_target_state(latest_vision_state_);
         target_tracker_->reset();
+        candidate_projection_hold_until_seconds_ = 0.0;
         return cleared_target_state(state);
     }
     if (!projection.has_target ||
         projection.assist_authority == common_native::AssistAuthority::None) {
+        candidate_projection_hold_until_seconds_ = 0.0;
         if (state_expired_for_projection) {
+            const float aim_max_age_ms =
+                std::max(0.0f, config_.ai_aim.target_max_age_ms);
+            const bool short_ads_occlusion_grace =
+                aim_max_age_ms > 0.0f &&
+                aim_max_age_ms <= projection_max_age_ms + 60.0f;
+            if (ads_active_ &&
+                short_ads_occlusion_grace &&
+                has_fresh_aim_target(state, now_seconds) &&
+                (is_strong_aim_target(state) ||
+                 tracking_native::is_projected_observation(state.target_tier))) {
+                state.has_tracker_projection = false;
+                state.tracker_dx = 0.0f;
+                state.tracker_dy = 0.0f;
+                return state;
+            }
             latest_vision_state_ = cleared_target_state(latest_vision_state_);
             target_tracker_->reset();
             return cleared_target_state(state);
         }
         return state;
+    }
+    if (candidate_projection_hold_until_seconds_ > 0.0 &&
+        now_seconds <= candidate_projection_hold_until_seconds_) {
+        NativeControllerVisionState held = state;
+        const float projection_delta_x = projection.aim_error_px.x - held.dx;
+        const float projection_delta_y = projection.aim_error_px.y - held.dy;
+        held.dx = projection.aim_error_px.x;
+        held.dy = projection.aim_error_px.y;
+        held.target_x += projection_delta_x;
+        held.target_y += projection_delta_y;
+        if (projection.has_body_box) {
+            held.has_body_box = true;
+            held.body_x1 = projection.body_box_px.x;
+            held.body_y1 = projection.body_box_px.y;
+            held.body_x2 = projection.body_box_px.x + projection.body_box_px.w;
+            held.body_y2 = projection.body_box_px.y + projection.body_box_px.h;
+        } else if (held.has_body_box) {
+            held.body_x1 += projection_delta_x;
+            held.body_x2 += projection_delta_x;
+            held.body_y1 += projection_delta_y;
+            held.body_y2 += projection_delta_y;
+        }
+        held.has_target = true;
+        held.aim_authority = true;
+        held.fire_authority = false;
+        held.auto_fire_requested = false;
+        held.target_tier = "projected";
+        held.observed_at_seconds = now_seconds;
+        held.has_tracker_projection = true;
+        held.tracker_dx = projection.aim_error_px.x;
+        held.tracker_dy = projection.aim_error_px.y;
+        return held;
+    }
+    if (candidate_projection_hold_until_seconds_ > 0.0 &&
+        now_seconds > candidate_projection_hold_until_seconds_) {
+        candidate_projection_hold_until_seconds_ = 0.0;
+    }
+    if (candidate_output_hold_until_seconds_ > 0.0) {
+        if (now_seconds <= candidate_output_hold_until_seconds_) {
+            return state;
+        }
+        candidate_output_hold_until_seconds_ = 0.0;
     }
 
     const bool had_selector_target =
@@ -477,7 +788,7 @@ NativeControllerVisionState NativeGamepadController::vision_state_for_frame(doub
         state.body_y1 += projection_delta_y;
         state.body_y2 += projection_delta_y;
     }
-    state.observed_at_seconds = projection.observed_at.value;
+    state.observed_at_seconds = now_seconds;
     if (!had_selector_target && projection.source != tracking_native::TrackerSnapshotSource::Observed) {
         state.fire_authority = false;
         state.auto_fire_requested = false;
@@ -548,6 +859,8 @@ void NativeGamepadController::update_ads_state(bool aiming, double now_seconds) 
 
     ads_active_ = false;
     ads_started_at_seconds_ = 0.0;
+    candidate_reacquire_snap_until_seconds_ = 0.0;
+    candidate_output_hold_until_seconds_ = 0.0;
     reset_auto_fire_readiness_tracking();
 }
 
@@ -649,6 +962,10 @@ bool NativeGamepadController::ads_snap_active_for_frame(
     if (!aiming || !has_fresh_aim_target(vision_state, now_seconds) ||
         !is_strong_aim_target(vision_state)) {
         return false;
+    }
+    if (candidate_reacquire_snap_until_seconds_ > 0.0 &&
+        now_seconds <= candidate_reacquire_snap_until_seconds_) {
+        return true;
     }
     if (!ads_active_ || ads_started_at_seconds_ <= 0.0) {
         return false;
@@ -801,6 +1118,146 @@ void NativeGamepadController::apply_ai_aim(
         !input.fire_active,
         vision_state,
         now_seconds);
+    if (vision_state.has_tracker_projection) {
+        constexpr float kManualCorrectionDeadzone = 0.05f;
+        const auto manual_corrects_tracker_axis = [&](
+            float manual_axis,
+            float tracker_error,
+            bool y_axis) {
+            if (std::fabs(manual_axis) <= kManualCorrectionDeadzone ||
+                std::fabs(tracker_error) <= 1.0f) {
+                return false;
+            }
+            return y_axis
+                ? (manual_axis * tracker_error < 0.0f)
+                : (manual_axis * tracker_error > 0.0f);
+        };
+        const auto preserve_manual_correction = [&](
+            float tracker_error,
+            float manual_axis,
+            float& output_axis,
+            bool y_axis) {
+            if (!manual_corrects_tracker_axis(manual_axis, tracker_error, y_axis)) {
+                return;
+            }
+            const bool output_opposes_manual = output_axis * manual_axis < 0.0f;
+            const bool output_erases_manual =
+                std::fabs(output_axis) < (std::fabs(manual_axis) * 0.75f);
+            if (output_opposes_manual || output_erases_manual) {
+                output_axis = manual_axis;
+            }
+        };
+        preserve_manual_correction(
+            vision_state.tracker_dx,
+            input.manual_right_x,
+            output.right_x,
+            false);
+        preserve_manual_correction(
+            vision_state.tracker_dy,
+            input.manual_right_y,
+            output.right_y,
+            true);
+        if (!vision_state.aim_authority ||
+            tracking_native::is_projected_observation(vision_state.target_tier)) {
+            const auto output_pushes_away_tracker = [](
+                float output_axis,
+                float tracker_error,
+                bool y_axis) {
+                if (output_axis == 0.0f || std::fabs(tracker_error) <= 1.0f) {
+                    return false;
+                }
+                return y_axis
+                    ? (output_axis * tracker_error > 0.0f)
+                    : (output_axis * tracker_error < 0.0f);
+            };
+            if (output_pushes_away_tracker(output.right_x, vision_state.tracker_dx, false)) {
+                output.right_x = 0.0f;
+            }
+            if (output_pushes_away_tracker(output.right_y, vision_state.tracker_dy, true)) {
+                output.right_y = 0.0f;
+            }
+        }
+    }
+    if (vision_state.has_target && vision_state.aim_authority &&
+        !tracking_native::is_projected_observation(vision_state.target_tier)) {
+        constexpr float kCrossErrorDeadzonePx = 1.0f;
+        const float validation_arm_px = std::max(
+            16.0f,
+            config_.ai_aim.body_lock_near_lock_error_px);
+        const auto output_pushes_away = [](float output_axis, float error, bool y_axis) {
+            if (output_axis == 0.0f || error == 0.0f) {
+                return false;
+            }
+            return y_axis ? (output_axis * error > 0.0f) : (output_axis * error < 0.0f);
+        };
+        const auto zero_crossed_wrong_way_axis = [&](
+            float previous_error,
+            float current_error,
+            float& output_axis,
+            bool y_axis) {
+            const int previous_sign = axis_sign(previous_error, kCrossErrorDeadzonePx);
+            const int current_sign = axis_sign(current_error, kCrossErrorDeadzonePx);
+            const bool crossed =
+                previous_sign != 0 && current_sign != 0 && previous_sign != current_sign;
+            if (crossed &&
+                std::fabs(current_error) <= validation_arm_px &&
+                output_pushes_away(output_axis, current_error, y_axis)) {
+                output_axis = 0.0f;
+            }
+        };
+        const float aim_target_max_age_ms =
+            std::max(0.0f, config_.ai_aim.target_max_age_ms);
+        const double vision_age_ms =
+            vision_state.observed_at_seconds > 0.0 && now_seconds > 0.0
+                ? std::max(0.0, now_seconds - vision_state.observed_at_seconds) * 1000.0
+                : 0.0;
+        const double stale_guard_age_ms =
+            aim_target_max_age_ms > 0.0f
+                ? std::min(
+                    60.0,
+                    std::max(45.0, static_cast<double>(aim_target_max_age_ms) * 0.60))
+                : 0.0;
+        const auto zero_stale_wrong_way_axis = [&](
+            float current_error,
+            float& output_axis,
+            bool y_axis) {
+            if (ads_active_ &&
+                stale_guard_age_ms > 0.0 &&
+                vision_age_ms >= stale_guard_age_ms &&
+                output_pushes_away(output_axis, current_error, y_axis)) {
+                output_axis = 0.0f;
+            }
+        };
+        if (has_last_output_validation_error_) {
+            zero_crossed_wrong_way_axis(
+                last_output_validation_error_x_,
+                vision_state.dx,
+                output.right_x,
+                false);
+            zero_crossed_wrong_way_axis(
+                last_output_validation_error_y_,
+                vision_state.dy,
+                output.right_y,
+                true);
+        }
+        zero_stale_wrong_way_axis(vision_state.dx, output.right_x, false);
+        zero_stale_wrong_way_axis(vision_state.dy, output.right_y, true);
+        has_last_output_validation_error_ = true;
+        last_output_validation_error_x_ = vision_state.dx;
+        last_output_validation_error_y_ = vision_state.dy;
+    } else {
+        has_last_output_validation_error_ = false;
+        last_output_validation_error_x_ = 0.0f;
+        last_output_validation_error_y_ = 0.0f;
+    }
+    if (candidate_output_hold_until_seconds_ > 0.0 &&
+        now_seconds <= candidate_output_hold_until_seconds_) {
+        output.right_x = 0.0f;
+        output.right_y = 0.0f;
+    } else if (candidate_output_hold_until_seconds_ > 0.0 &&
+        now_seconds > candidate_output_hold_until_seconds_) {
+        candidate_output_hold_until_seconds_ = 0.0;
+    }
 }
 
 void NativeGamepadController::apply_body_lock_short_plan(
@@ -817,7 +1274,7 @@ void NativeGamepadController::apply_body_lock_short_plan(
         std::min(1.0f, config_.ai_aim.body_lock_manual_escape_input_threshold));
     constexpr float kOutputDeadzone = 0.015f;
     constexpr float kCrossErrorDeadzonePx = 1.0f;
-    constexpr float kManualCrossBrakeOutputCap = 0.18f;
+    constexpr float kManualCrossBrakeOutputCap = 0.0f;
     constexpr double kManualCrossBrakeSeconds = 0.130;
     const float manual_cross_brake_arm_px = std::max(
         16.0f,
@@ -835,23 +1292,32 @@ void NativeGamepadController::apply_body_lock_short_plan(
         return y_axis ? (output_axis * error > 0.0f) : (output_axis * error < 0.0f);
     };
     const auto apply_active_manual_cross_brake = [&](
-        float current_error,
         float manual_axis,
         float& output_axis,
         double& brake_until_seconds,
-        bool y_axis) {
+        int& brake_manual_sign) {
         if (brake_until_seconds <= 0.0) {
             return;
         }
         if (now_seconds > brake_until_seconds) {
             brake_until_seconds = 0.0;
+            brake_manual_sign = 0;
             return;
         }
-        if (!manual_pushes_away(manual_axis, current_error, y_axis)) {
+        const int manual_sign = axis_sign(manual_axis, kOutputDeadzone);
+        if (manual_sign == 0) {
             brake_until_seconds = 0.0;
+            brake_manual_sign = 0;
             return;
         }
-        if (!output_pushes_away(output_axis, current_error, y_axis)) {
+        if (brake_manual_sign == 0) {
+            brake_manual_sign = manual_sign;
+        } else if (manual_sign != brake_manual_sign) {
+            brake_until_seconds = 0.0;
+            brake_manual_sign = 0;
+            return;
+        }
+        if (axis_sign(output_axis, kOutputDeadzone) != brake_manual_sign) {
             return;
         }
         if (std::fabs(output_axis) <= kManualCrossBrakeOutputCap) {
@@ -865,26 +1331,33 @@ void NativeGamepadController::apply_body_lock_short_plan(
         float manual_axis,
         float& output_axis,
         double& brake_until_seconds,
+        int& brake_manual_sign,
         bool y_axis) {
         const int previous_sign = axis_sign(previous_error, kCrossErrorDeadzonePx);
         const int current_sign = axis_sign(current_error, kCrossErrorDeadzonePx);
+        const int manual_sign = axis_sign(manual_axis, kOutputDeadzone);
         const bool crossed =
             previous_sign != 0 && current_sign != 0 && previous_sign != current_sign;
-        const bool strong_wrong_way_near_center =
+        const bool strong_manual_near_center =
             std::fabs(current_error) <= manual_cross_brake_arm_px &&
-            std::fabs(manual_axis) >= manual_escape_threshold &&
+            std::fabs(manual_axis) >= manual_escape_threshold;
+        const bool crossed_with_wrong_way_manual =
+            crossed &&
+            std::fabs(manual_axis) >= kOutputDeadzone &&
             manual_pushes_away(manual_axis, current_error, y_axis);
-        if ((crossed || strong_wrong_way_near_center) &&
-            std::fabs(manual_axis) >= manual_escape_threshold &&
-            manual_pushes_away(manual_axis, current_error, y_axis)) {
+        const bool strong_wrong_way_manual =
+            strong_manual_near_center &&
+            manual_pushes_away(manual_axis, current_error, y_axis);
+        if (crossed_with_wrong_way_manual || strong_wrong_way_manual ||
+            strong_manual_near_center) {
             brake_until_seconds = now_seconds + kManualCrossBrakeSeconds;
+            brake_manual_sign = manual_sign;
         }
         apply_active_manual_cross_brake(
-            current_error,
             manual_axis,
             output_axis,
             brake_until_seconds,
-            y_axis);
+            brake_manual_sign);
     };
 
     if (vision_state.has_target && vision_state.aim_authority) {
@@ -895,6 +1368,7 @@ void NativeGamepadController::apply_body_lock_short_plan(
                 manual_right_x,
                 output.right_x,
                 body_lock_manual_brake_x_until_seconds_,
+                body_lock_manual_brake_x_sign_,
                 false);
             update_manual_cross_brake(
                 last_aim_plan_error_y_,
@@ -902,6 +1376,7 @@ void NativeGamepadController::apply_body_lock_short_plan(
                 manual_right_y,
                 output.right_y,
                 body_lock_manual_brake_y_until_seconds_,
+                body_lock_manual_brake_y_sign_,
                 true);
         }
         has_last_aim_error_for_plan_ = true;
@@ -919,20 +1394,20 @@ void NativeGamepadController::apply_body_lock_short_plan(
     if (!body_lock_available) {
         if (vision_state.has_target && vision_state.aim_authority) {
             apply_active_manual_cross_brake(
-                vision_state.dx,
                 manual_right_x,
                 output.right_x,
                 body_lock_manual_brake_x_until_seconds_,
-                false);
+                body_lock_manual_brake_x_sign_);
             apply_active_manual_cross_brake(
-                vision_state.dy,
                 manual_right_y,
                 output.right_y,
                 body_lock_manual_brake_y_until_seconds_,
-                true);
+                body_lock_manual_brake_y_sign_);
         } else {
             body_lock_manual_brake_x_until_seconds_ = 0.0;
             body_lock_manual_brake_y_until_seconds_ = 0.0;
+            body_lock_manual_brake_x_sign_ = 0;
+            body_lock_manual_brake_y_sign_ = 0;
         }
         has_last_body_lock_short_plan_x_ = false;
         has_last_body_lock_short_plan_y_ = false;
@@ -956,6 +1431,7 @@ void NativeGamepadController::apply_body_lock_short_plan(
             manual_right_x,
             output.right_x,
             body_lock_manual_brake_x_until_seconds_,
+            body_lock_manual_brake_x_sign_,
             false);
         update_manual_cross_brake(
             last_body_lock_plan_error_y_,
@@ -963,6 +1439,7 @@ void NativeGamepadController::apply_body_lock_short_plan(
             manual_right_y,
             output.right_y,
             body_lock_manual_brake_y_until_seconds_,
+            body_lock_manual_brake_y_sign_,
             true);
     }
     if (error_radius > near_lock_px) {

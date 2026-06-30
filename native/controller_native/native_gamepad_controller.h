@@ -46,6 +46,7 @@ public:
     const std::vector<NativeControllerStageTrace>& last_pipeline_traces() const;
     GamepadOutputState last_tracker_motion_output() const;
     const NativeControllerOutputComponents& last_output_components() const;
+    const NativeControllerVisionState& last_frame_vision_state() const;
     const std::string& last_ai_aim_mode() const;
 
 private:
@@ -117,6 +118,10 @@ private:
         std::uint64_t frame_id,
         double capture_time_seconds,
         double ready_time_seconds);
+    NativeControllerVisionState credibility_gated_vision_state(
+        const NativeControllerVisionState& state,
+        double query_time_seconds,
+        bool* suppress_tracker_ingest);
     void record_target_tracker_output(
         const NativeControllerOutputComponents& components,
         double now_seconds);
@@ -138,6 +143,7 @@ private:
     std::vector<NativeControllerStageTrace> last_pipeline_traces_;
     GamepadOutputState last_tracker_motion_output_;
     NativeControllerOutputComponents last_output_components_;
+    NativeControllerVisionState last_frame_vision_state_;
     std::function<double()> clock_;
     bool manual_fire_was_pressed_ = false;
     bool auto_fire_was_active_ = false;
@@ -158,10 +164,27 @@ private:
     bool has_last_aim_error_for_plan_ = false;
     float last_aim_plan_error_x_ = 0.0f;
     float last_aim_plan_error_y_ = 0.0f;
+    bool has_last_output_validation_error_ = false;
+    float last_output_validation_error_x_ = 0.0f;
+    float last_output_validation_error_y_ = 0.0f;
+    bool has_committed_target_ = false;
+    float committed_target_dx_ = 0.0f;
+    float committed_target_dy_ = 0.0f;
+    bool has_candidate_target_ = false;
+    float candidate_target_dx_ = 0.0f;
+    float candidate_target_dy_ = 0.0f;
+    double candidate_first_observed_at_seconds_ = 0.0;
+    double candidate_last_observed_at_seconds_ = 0.0;
+    int candidate_fresh_samples_ = 0;
+    double candidate_projection_hold_until_seconds_ = 0.0;
+    double candidate_reacquire_snap_until_seconds_ = 0.0;
+    double candidate_output_hold_until_seconds_ = 0.0;
     double body_lock_short_plan_x_until_seconds_ = 0.0;
     double body_lock_short_plan_y_until_seconds_ = 0.0;
     double body_lock_manual_brake_x_until_seconds_ = 0.0;
     double body_lock_manual_brake_y_until_seconds_ = 0.0;
+    int body_lock_manual_brake_x_sign_ = 0;
+    int body_lock_manual_brake_y_sign_ = 0;
 };
 
 }  // namespace controller_native

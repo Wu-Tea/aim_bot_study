@@ -2904,8 +2904,17 @@ void test_controller_body_lock_brakes_large_manual_after_target_crossing() {
     const auto crossed = controller.last_output_components().final_stick;
 
     require_true(
-        crossed.x <= 0.25f,
-        "body-lock should brake strong manual input that keeps pushing away after target crossing");
+        crossed.x <= 0.10f,
+        "body-lock should tightly brake strong manual input that keeps pushing away after target crossing");
+
+    now = 20.021;
+    submit_body_lock_target(-8.0f);
+    controller.build_output(strong_right_pull());
+    const auto sustained = controller.last_output_components().final_stick;
+
+    require_true(
+        sustained.x <= 0.10f,
+        "body-lock should keep sustained wrong-way manual brake below the low cap");
 }
 
 void test_controller_ads_brakes_large_manual_after_target_crossing_without_body_lock() {
@@ -2953,8 +2962,997 @@ void test_controller_ads_brakes_large_manual_after_target_crossing_without_body_
     const auto crossed = controller.last_output_components().final_stick;
 
     require_true(
-        crossed.y <= 0.25f,
-        "ADS should brake strong manual input that keeps pushing away after target crossing without body lock");
+        crossed.y <= 0.10f,
+        "ADS should tightly brake strong manual input that keeps pushing away after target crossing without body lock");
+
+    now = 30.021;
+    submit_target(8.0f);
+    controller.build_output(strong_up_pull());
+    const auto sustained = controller.last_output_components().final_stick;
+
+    require_true(
+        sustained.y <= 0.10f,
+        "ADS should keep sustained wrong-way manual brake below the low cap");
+}
+
+void test_controller_ads_zeros_small_manual_after_target_crossing_without_body_lock() {
+    controller_native::GamepadRuntimeConfig config;
+    config.ai_aim.target_max_age_ms = 0.0f;
+    config.ai_aim.ads_snap_window_ms = 0;
+    config.ai_aim.ads_snap_max_ai_force = 0.0f;
+    config.ai_aim.ads_snap_max_ai_force_y = 0.0f;
+    config.ai_aim.max_ai_force = 0.0f;
+    config.ai_aim.max_ai_force_y = 0.0f;
+    config.aim_assist_dynamics.enabled = false;
+    config.recoil.enabled = false;
+
+    double now = 31.0;
+    controller_native::NativeGamepadController controller(
+        config,
+        [&now]() { return now; });
+
+    const auto submit_target = [&](float dy) {
+        controller_native::NativeControllerVisionState target;
+        target.has_target = true;
+        target.aim_authority = true;
+        target.fire_authority = true;
+        target.target_tier = "strong";
+        target.dx = 96.0f;
+        target.dy = dy;
+        target.screen_center_x = 320.0f;
+        target.screen_center_y = 256.0f;
+        target.has_body_box = false;
+        target.observed_at_seconds = now;
+        controller.submit_vision_state(target);
+    };
+    auto small_up_pull = []() {
+        controller_native::PhysicalGamepadState physical = aiming_physical_state();
+        physical.right_y = 0.15f;
+        return physical;
+    };
+
+    submit_target(-4.0f);
+    controller.build_output(small_up_pull());
+
+    now = 31.001;
+    submit_target(4.0f);
+    controller.build_output(small_up_pull());
+    const auto crossed = controller.last_output_components().final_stick;
+
+    require_true(
+        std::fabs(crossed.y) <= 0.02f,
+        "ADS should zero small wrong-way manual input immediately after target crossing");
+
+    now = 31.021;
+    submit_target(4.0f);
+    controller.build_output(small_up_pull());
+    const auto sustained = controller.last_output_components().final_stick;
+
+    require_true(
+        std::fabs(sustained.y) <= 0.02f,
+        "ADS should keep small wrong-way manual input zeroed during the brake window");
+}
+
+void test_controller_ads_cross_brake_survives_fresh_stale_sign_flip() {
+    controller_native::GamepadRuntimeConfig config;
+    config.ai_aim.target_max_age_ms = 0.0f;
+    config.ai_aim.ads_snap_window_ms = 0;
+    config.ai_aim.ads_snap_max_ai_force = 0.0f;
+    config.ai_aim.ads_snap_max_ai_force_y = 0.0f;
+    config.ai_aim.max_ai_force = 0.0f;
+    config.ai_aim.max_ai_force_y = 0.0f;
+    config.ai_aim.body_lock_manual_escape_input_threshold = 0.45f;
+    config.ai_aim.body_lock_near_lock_error_px = 32.0f;
+    config.aim_assist_dynamics.enabled = false;
+    config.recoil.enabled = false;
+
+    double now = 32.0;
+    controller_native::NativeGamepadController controller(
+        config,
+        [&now]() { return now; });
+
+    const auto submit_target = [&](float dx) {
+        controller_native::NativeControllerVisionState target;
+        target.has_target = true;
+        target.aim_authority = true;
+        target.fire_authority = true;
+        target.target_tier = "strong";
+        target.dx = dx;
+        target.dy = 0.0f;
+        target.screen_center_x = 320.0f;
+        target.screen_center_y = 256.0f;
+        target.has_body_box = false;
+        target.observed_at_seconds = now;
+        controller.submit_vision_state(target);
+    };
+    auto left_pull = []() {
+        controller_native::PhysicalGamepadState physical = aiming_physical_state();
+        physical.right_x = -0.20f;
+        return physical;
+    };
+
+    submit_target(-4.0f);
+    controller.build_output(left_pull());
+
+    now = 32.001;
+    submit_target(4.0f);
+    controller.build_output(left_pull());
+    const auto crossed = controller.last_output_components().final_stick;
+    require_true(
+        std::fabs(crossed.x) <= 0.02f,
+        "ADS x crossing should arm a short brake for the wrong-way manual direction");
+
+    now = 32.021;
+    submit_target(-18.0f);
+    controller.build_output(left_pull());
+    const auto stale_sign = controller.last_output_components().final_stick;
+    require_true(
+        std::fabs(stale_sign.x) <= 0.02f,
+        "fresh-stale vision sign flip should not release an active ADS cross brake while manual direction is unchanged");
+}
+
+void test_controller_output_validation_zeros_wrong_way_after_x_crossing() {
+    controller_native::GamepadRuntimeConfig config;
+    config.ai_aim.target_max_age_ms = 0.0f;
+    config.ai_aim.ads_snap_window_ms = 0;
+    config.ai_aim.ads_snap_max_ai_force = 0.0f;
+    config.ai_aim.ads_snap_max_ai_force_y = 0.0f;
+    config.ai_aim.max_ai_force = 0.0f;
+    config.ai_aim.max_ai_force_y = 0.0f;
+    config.ai_aim.body_lock_manual_escape_input_threshold = 0.45f;
+    config.ai_aim.body_lock_near_lock_error_px = 32.0f;
+    config.aim_assist_dynamics.enabled = false;
+    config.recoil.enabled = false;
+
+    double now = 40.0;
+    controller_native::NativeGamepadController controller(
+        config,
+        [&now]() { return now; });
+
+    const auto submit_target = [&](float dx) {
+        controller_native::NativeControllerVisionState target;
+        target.has_target = true;
+        target.aim_authority = true;
+        target.fire_authority = true;
+        target.target_tier = "strong";
+        target.dx = dx;
+        target.dy = 0.0f;
+        target.screen_center_x = 320.0f;
+        target.screen_center_y = 256.0f;
+        target.has_body_box = false;
+        target.observed_at_seconds = now;
+        controller.submit_vision_state(target);
+    };
+    auto strong_right_pull = []() {
+        controller_native::PhysicalGamepadState physical = aiming_physical_state();
+        physical.right_x = 0.92f;
+        return physical;
+    };
+
+    submit_target(4.0f);
+    controller.build_output(strong_right_pull());
+
+    now = 40.001;
+    submit_target(-4.0f);
+    controller.build_output(strong_right_pull());
+    const auto crossed = controller.last_output_components().final_stick;
+
+    require_true(
+        std::fabs(crossed.x) <= 0.05f,
+        "target-aware output validation should zero a crossed x axis that keeps pushing away");
+}
+
+void test_controller_output_validation_caps_only_crossed_axis_on_diagonal() {
+    controller_native::GamepadRuntimeConfig config;
+    config.ai_aim.target_max_age_ms = 0.0f;
+    config.ai_aim.ads_snap_window_ms = 0;
+    config.ai_aim.ads_snap_max_ai_force = 0.0f;
+    config.ai_aim.ads_snap_max_ai_force_y = 0.0f;
+    config.ai_aim.max_ai_force = 0.0f;
+    config.ai_aim.max_ai_force_y = 0.0f;
+    config.ai_aim.body_lock_manual_escape_input_threshold = 0.45f;
+    config.ai_aim.body_lock_near_lock_error_px = 32.0f;
+    config.aim_assist_dynamics.enabled = false;
+    config.recoil.enabled = false;
+
+    double now = 41.0;
+    controller_native::NativeGamepadController controller(
+        config,
+        [&now]() { return now; });
+
+    const auto submit_target = [&](float dx, float dy) {
+        controller_native::NativeControllerVisionState target;
+        target.has_target = true;
+        target.aim_authority = true;
+        target.fire_authority = true;
+        target.target_tier = "strong";
+        target.dx = dx;
+        target.dy = dy;
+        target.screen_center_x = 320.0f;
+        target.screen_center_y = 256.0f;
+        target.has_body_box = false;
+        target.observed_at_seconds = now;
+        controller.submit_vision_state(target);
+    };
+    auto diagonal_pull = []() {
+        controller_native::PhysicalGamepadState physical = aiming_physical_state();
+        physical.right_x = 0.92f;
+        physical.right_y = 0.56f;
+        return physical;
+    };
+
+    submit_target(4.0f, -44.0f);
+    controller.build_output(diagonal_pull());
+
+    now = 41.001;
+    submit_target(-4.0f, -44.0f);
+    controller.build_output(diagonal_pull());
+    const auto crossed = controller.last_output_components().final_stick;
+
+    require_true(
+        std::fabs(crossed.x) <= 0.05f,
+        "target-aware output validation should zero only the crossed x axis");
+    require_true(
+        crossed.y >= 0.35f,
+        "target-aware output validation should preserve the still-correct y correction");
+}
+
+void test_controller_output_validation_yields_to_manual_correction_with_tracker_reference() {
+    controller_native::GamepadRuntimeConfig config;
+    config.ai_aim.target_max_age_ms = 0.0f;
+    config.ai_aim.ads_snap_window_ms = 0;
+    config.ai_aim.ads_snap_max_ai_force = 0.0f;
+    config.ai_aim.ads_snap_max_ai_force_y = 0.0f;
+    config.ai_aim.max_ai_force = 0.80f;
+    config.ai_aim.max_ai_force_y = 0.0f;
+    config.aim_assist_dynamics.enabled = false;
+    config.recoil.enabled = false;
+
+    double now = 42.0;
+    controller_native::NativeGamepadController controller(
+        config,
+        [&now]() { return now; });
+
+    controller_native::NativeControllerVisionState target;
+    target.has_target = true;
+    target.aim_authority = true;
+    target.fire_authority = true;
+    target.target_tier = "strong";
+    target.dx = -82.0f;
+    target.dy = 0.0f;
+    target.screen_center_x = 320.0f;
+    target.screen_center_y = 256.0f;
+    target.has_body_box = false;
+    target.has_tracker_projection = true;
+    target.tracker_dx = 18.0f;
+    target.tracker_dy = 0.0f;
+    target.observed_at_seconds = now;
+    controller.submit_vision_state(target);
+
+    controller_native::PhysicalGamepadState physical = aiming_physical_state();
+    physical.right_x = 0.34f;
+    controller.build_output(physical);
+    const auto mixed = controller.last_output_components().final_stick;
+
+    require_true(
+        mixed.x >= 0.25f,
+        "manual correction backed by tracker reference should not be opposed by stale AI aim");
+}
+
+void test_controller_output_validation_zeros_stale_observed_wrong_way_ads_manual() {
+    controller_native::GamepadRuntimeConfig config;
+    config.ai_aim.target_max_age_ms = 80.0f;
+    config.ai_aim.ads_snap_window_ms = 0;
+    config.ai_aim.ads_snap_max_ai_force = 0.0f;
+    config.ai_aim.ads_snap_max_ai_force_y = 0.0f;
+    config.ai_aim.max_ai_force = 0.0f;
+    config.ai_aim.max_ai_force_y = 0.0f;
+    config.aim_assist_dynamics.enabled = false;
+    config.recoil.enabled = false;
+
+    double now = 42.5;
+    controller_native::NativeGamepadController controller(
+        config,
+        [&now]() { return now; });
+
+    controller_native::NativeControllerVisionState target;
+    target.has_target = true;
+    target.aim_authority = true;
+    target.fire_authority = true;
+    target.target_tier = "strong";
+    target.dx = 72.0f;
+    target.dy = 0.0f;
+    target.screen_center_x = 320.0f;
+    target.screen_center_y = 256.0f;
+    target.observed_at_seconds = now - 0.070;
+    controller.submit_vision_state(target);
+
+    controller_native::PhysicalGamepadState physical = aiming_physical_state();
+    physical.right_x = -0.20f;
+    controller.build_output(physical);
+    const auto output = controller.last_output_components().final_stick;
+
+    require_near(
+        output.x,
+        0.0f,
+        0.02f,
+        "stale observed ADS target should zero wrong-way manual output before TTL expiry");
+}
+
+void test_controller_suspicious_target_jump_holds_ai_aim_until_verified() {
+    controller_native::GamepadRuntimeConfig config;
+    config.tracker_backend = tracking_native::TrackerBackendKind::LegacyProjection;
+    config.ai_aim.target_max_age_ms = 500.0f;
+    config.ai_aim.target_projection_max_age_ms = 500.0f;
+    config.ai_aim.ads_snap_window_ms = 200;
+    config.ai_aim.max_pixels = 100.0f;
+    config.ai_aim.deadzone_inner = 0.0f;
+    config.ai_aim.deadzone_outer = 0.0f;
+    config.ai_aim.x_deadzone_outer = 0.0f;
+    config.ai_aim.piecewise_mid_pixels = 0.0f;
+    config.ai_aim.piecewise_mid_pixels_y = 0.0f;
+    config.ai_aim.ads_snap_max_ai_force = 1.0f;
+    config.ai_aim.ads_snap_max_ai_force_y = 1.0f;
+    config.aim_assist_dynamics.enabled = false;
+    config.recoil.enabled = false;
+
+    double now = 50.0;
+    controller_native::NativeGamepadController controller(
+        config,
+        [&now]() { return now; });
+
+    auto submit_target = [&](float dx) {
+        controller_native::NativeControllerVisionState target;
+        target.has_target = true;
+        target.aim_authority = true;
+        target.fire_authority = true;
+        target.target_tier = "strong";
+        target.dx = dx;
+        target.dy = 0.0f;
+        target.screen_center_x = 320.0f;
+        target.screen_center_y = 256.0f;
+        target.target_x = target.screen_center_x + dx;
+        target.target_y = target.screen_center_y;
+        target.has_body_box = true;
+        target.body_x1 = target.target_x - 42.0f;
+        target.body_x2 = target.target_x + 42.0f;
+        target.body_y1 = target.target_y - 72.0f;
+        target.body_y2 = target.target_y + 108.0f;
+        target.observed_at_seconds = now;
+        controller.submit_vision_state(target);
+    };
+
+    submit_target(18.0f);
+    controller.build_output(aiming_physical_state());
+
+    now = 50.010;
+    submit_target(160.0f);
+    controller.build_output(aiming_physical_state());
+    const auto held = controller.last_output_components().final_stick;
+
+    if (!(held.x > 0.05f && held.x < 0.50f)) {
+        std::ostringstream out;
+        out << "single suspicious target jump should coast on tracker projection instead of aiming at raw jump actual="
+            << held.x;
+        throw std::runtime_error(out.str());
+    }
+}
+
+void test_controller_moderate_stale_jump_coasts_on_tracker_projection() {
+    controller_native::GamepadRuntimeConfig config;
+    config.tracker_backend = tracking_native::TrackerBackendKind::LegacyProjection;
+    config.ai_aim.target_max_age_ms = 500.0f;
+    config.ai_aim.target_projection_max_age_ms = 500.0f;
+    config.ai_aim.ads_snap_window_ms = 200;
+    config.ai_aim.max_pixels = 100.0f;
+    config.ai_aim.deadzone_inner = 0.0f;
+    config.ai_aim.deadzone_outer = 0.0f;
+    config.ai_aim.x_deadzone_outer = 0.0f;
+    config.ai_aim.piecewise_mid_pixels = 0.0f;
+    config.ai_aim.piecewise_mid_pixels_y = 0.0f;
+    config.ai_aim.ads_snap_max_ai_force = 1.0f;
+    config.ai_aim.ads_snap_max_ai_force_y = 1.0f;
+    config.aim_assist_dynamics.enabled = false;
+    config.recoil.enabled = false;
+
+    double now = 54.0;
+    controller_native::NativeGamepadController controller(
+        config,
+        [&now]() { return now; });
+
+    auto submit_target = [&](float dx) {
+        controller_native::NativeControllerVisionState target;
+        target.has_target = true;
+        target.aim_authority = true;
+        target.fire_authority = true;
+        target.target_tier = "strong";
+        target.dx = dx;
+        target.dy = 0.0f;
+        target.screen_center_x = 320.0f;
+        target.screen_center_y = 256.0f;
+        target.target_x = target.screen_center_x + dx;
+        target.target_y = target.screen_center_y;
+        target.has_body_box = true;
+        target.body_x1 = target.target_x - 42.0f;
+        target.body_x2 = target.target_x + 42.0f;
+        target.body_y1 = target.target_y - 72.0f;
+        target.body_y2 = target.target_y + 108.0f;
+        target.observed_at_seconds = now;
+        controller.submit_vision_state(target);
+    };
+
+    submit_target(18.0f);
+    controller.build_output(aiming_physical_state());
+
+    now = 54.010;
+    submit_target(80.0f);
+    controller.build_output(aiming_physical_state());
+    const auto held = controller.last_output_components().final_stick;
+
+    require_true(
+        held.x > 0.05f && held.x < 0.50f,
+        "moderate stale-position jump should coast on tracker projection instead of raw target");
+}
+
+void test_controller_fresh_stale_jump_inside_candidate_threshold_uses_tracker_projection() {
+    controller_native::GamepadRuntimeConfig config;
+    config.tracker_backend = tracking_native::TrackerBackendKind::LegacyProjection;
+    config.ai_aim.target_max_age_ms = 500.0f;
+    config.ai_aim.target_projection_max_age_ms = 500.0f;
+    config.ai_aim.ads_snap_window_ms = 200;
+    config.ai_aim.max_pixels = 100.0f;
+    config.ai_aim.deadzone_inner = 0.0f;
+    config.ai_aim.deadzone_outer = 0.0f;
+    config.ai_aim.x_deadzone_outer = 0.0f;
+    config.ai_aim.piecewise_mid_pixels = 0.0f;
+    config.ai_aim.piecewise_mid_pixels_y = 0.0f;
+    config.ai_aim.ads_snap_max_ai_force = 1.0f;
+    config.ai_aim.ads_snap_max_ai_force_y = 1.0f;
+    config.aim_assist_dynamics.enabled = false;
+    config.recoil.enabled = false;
+
+    double now = 56.0;
+    controller_native::NativeGamepadController controller(
+        config,
+        [&now]() { return now; });
+
+    auto submit_target = [&](float dx) {
+        controller_native::NativeControllerVisionState target;
+        target.has_target = true;
+        target.aim_authority = true;
+        target.fire_authority = true;
+        target.target_tier = "strong";
+        target.dx = dx;
+        target.dy = 0.0f;
+        target.screen_center_x = 320.0f;
+        target.screen_center_y = 256.0f;
+        target.target_x = target.screen_center_x + dx;
+        target.target_y = target.screen_center_y;
+        target.has_body_box = true;
+        target.body_x1 = target.target_x - 42.0f;
+        target.body_x2 = target.target_x + 42.0f;
+        target.body_y1 = target.target_y - 72.0f;
+        target.body_y2 = target.target_y + 108.0f;
+        target.observed_at_seconds = now;
+        controller.submit_vision_state(target);
+    };
+
+    submit_target(18.0f);
+
+    now = 56.010;
+    submit_target(60.0f);
+    controller.build_output(aiming_physical_state());
+    const auto held = controller.last_output_components().final_stick;
+
+    require_true(
+        held.x > 0.05f && held.x < 0.30f,
+        "fresh-timestamp stale jump inside the candidate threshold should stay near tracker projection");
+}
+
+void test_controller_ads_holds_recent_strong_target_when_projection_ages_out() {
+    controller_native::GamepadRuntimeConfig config;
+    config.tracker_backend = tracking_native::TrackerBackendKind::LegacyProjection;
+    config.ai_aim.target_max_age_ms = 80.0f;
+    config.ai_aim.target_projection_max_age_ms = 40.0f;
+    config.ai_aim.ads_snap_window_ms = 0;
+    config.ai_aim.max_pixels = 100.0f;
+    config.ai_aim.deadzone_inner = 0.0f;
+    config.ai_aim.deadzone_outer = 0.0f;
+    config.ai_aim.x_deadzone_outer = 0.0f;
+    config.ai_aim.piecewise_mid_pixels = 0.0f;
+    config.ai_aim.piecewise_mid_pixels_y = 0.0f;
+    config.ai_aim.max_ai_force = 0.0f;
+    config.ai_aim.max_ai_force_y = 0.0f;
+    config.ai_aim.body_lock_max_ai_force = 1.0f;
+    config.ai_aim.body_lock_max_ai_force_y = 1.0f;
+    config.ai_aim.body_lock_box_tolerance_px = 80.0f;
+    config.ai_aim.body_lock_activation_box_px = 240.0f;
+    config.ai_aim.body_lock_confidence_frames = 1;
+    config.ai_aim.body_lock_smoothing = 0.0f;
+    config.aim_assist_dynamics.enabled = false;
+    config.recoil.enabled = false;
+
+    double now = 57.0;
+    controller_native::NativeGamepadController controller(
+        config,
+        [&now]() { return now; });
+
+    controller_native::NativeControllerVisionState target;
+    target.has_target = true;
+    target.aim_authority = true;
+    target.fire_authority = true;
+    target.target_tier = "strong";
+    target.dx = 24.0f;
+    target.dy = 0.0f;
+    target.screen_center_x = 320.0f;
+    target.screen_center_y = 256.0f;
+    target.target_x = target.screen_center_x + target.dx;
+    target.target_y = target.screen_center_y;
+    target.has_body_box = true;
+    target.body_x1 = target.target_x - 42.0f;
+    target.body_x2 = target.target_x + 42.0f;
+    target.body_y1 = target.target_y - 72.0f;
+    target.body_y2 = target.body_y1 + 180.0f;
+    target.observed_at_seconds = now;
+    controller.submit_vision_state(target);
+    controller.build_output(aiming_physical_state());
+
+    now = 57.060;
+    controller.build_output(aiming_physical_state());
+    const auto held = controller.last_output_components().final_stick;
+
+    require_true(
+        controller.last_ai_aim_mode() == "body_lock",
+        "ADS should keep a recent strong target usable after projection age alone expires");
+    require_true(
+        held.x > 0.05f,
+        "ADS should keep assisting a recent strong target until target max age expires");
+}
+
+void test_controller_accepts_sustained_candidate_after_fresh_samples() {
+    controller_native::GamepadRuntimeConfig config;
+    config.tracker_backend = tracking_native::TrackerBackendKind::LegacyProjection;
+    config.ai_aim.target_max_age_ms = 500.0f;
+    config.ai_aim.target_projection_max_age_ms = 500.0f;
+    config.ai_aim.ads_snap_window_ms = 200;
+    config.ai_aim.max_pixels = 100.0f;
+    config.ai_aim.deadzone_inner = 0.0f;
+    config.ai_aim.deadzone_outer = 0.0f;
+    config.ai_aim.x_deadzone_outer = 0.0f;
+    config.ai_aim.piecewise_mid_pixels = 0.0f;
+    config.ai_aim.piecewise_mid_pixels_y = 0.0f;
+    config.ai_aim.ads_snap_max_ai_force = 1.0f;
+    config.ai_aim.ads_snap_max_ai_force_y = 1.0f;
+    config.aim_assist_dynamics.enabled = false;
+    config.recoil.enabled = false;
+
+    double now = 51.0;
+    controller_native::NativeGamepadController controller(
+        config,
+        [&now]() { return now; });
+
+    auto submit_target = [&](float dx) {
+        controller_native::NativeControllerVisionState target;
+        target.has_target = true;
+        target.aim_authority = true;
+        target.fire_authority = true;
+        target.target_tier = "strong";
+        target.dx = dx;
+        target.dy = 0.0f;
+        target.screen_center_x = 320.0f;
+        target.screen_center_y = 256.0f;
+        target.observed_at_seconds = now;
+        controller.submit_vision_state(target);
+    };
+
+    submit_target(18.0f);
+    controller.build_output(aiming_physical_state());
+
+    for (int sample = 0; sample < 5; ++sample) {
+        now = 51.020 + (static_cast<double>(sample) * 0.020);
+        submit_target(-160.0f);
+    }
+    controller.build_output(aiming_physical_state());
+    const auto accepted = controller.last_output_components().final_stick;
+
+    require_true(
+        accepted.x < -0.30f,
+        "sustained candidate with consecutive fresh samples should become the aim target");
+}
+
+void test_controller_candidate_hold_zeros_manual_away_from_tracker_reference() {
+    controller_native::GamepadRuntimeConfig config;
+    config.tracker_backend = tracking_native::TrackerBackendKind::LegacyProjection;
+    config.ai_aim.target_max_age_ms = 500.0f;
+    config.ai_aim.target_projection_max_age_ms = 500.0f;
+    config.ai_aim.ads_snap_window_ms = 200;
+    config.ai_aim.max_pixels = 100.0f;
+    config.ai_aim.deadzone_inner = 0.0f;
+    config.ai_aim.deadzone_outer = 0.0f;
+    config.ai_aim.x_deadzone_outer = 0.0f;
+    config.ai_aim.piecewise_mid_pixels = 0.0f;
+    config.ai_aim.piecewise_mid_pixels_y = 0.0f;
+    config.ai_aim.ads_snap_max_ai_force = 1.0f;
+    config.ai_aim.ads_snap_max_ai_force_y = 1.0f;
+    config.aim_assist_dynamics.enabled = false;
+    config.recoil.enabled = false;
+
+    double now = 52.0;
+    controller_native::NativeGamepadController controller(
+        config,
+        [&now]() { return now; });
+
+    auto submit_target = [&](float dx) {
+        controller_native::NativeControllerVisionState target;
+        target.has_target = true;
+        target.aim_authority = true;
+        target.fire_authority = true;
+        target.target_tier = "strong";
+        target.dx = dx;
+        target.dy = 0.0f;
+        target.screen_center_x = 320.0f;
+        target.screen_center_y = 256.0f;
+        target.observed_at_seconds = now;
+        controller.submit_vision_state(target);
+    };
+
+    submit_target(18.0f);
+    controller.build_output(aiming_physical_state());
+
+    now = 52.010;
+    submit_target(160.0f);
+    controller_native::PhysicalGamepadState physical = aiming_physical_state();
+    physical.right_x = -0.92f;
+    controller.build_output(physical);
+    const auto held = controller.last_output_components().final_stick;
+
+    require_near(
+        held.x,
+        0.0f,
+        0.05f,
+        "candidate hold should zero manual output that pushes away from tracker reference");
+}
+
+void test_controller_ads_candidate_projection_hold_survives_short_occlusion_gap() {
+    controller_native::GamepadRuntimeConfig config;
+    config.tracker_backend = tracking_native::TrackerBackendKind::LegacyProjection;
+    config.ai_aim.target_max_age_ms = 80.0f;
+    config.ai_aim.target_projection_max_age_ms = 80.0f;
+    config.ai_aim.ads_snap_window_ms = 0;
+    config.ai_aim.max_pixels = 100.0f;
+    config.ai_aim.deadzone_inner = 0.0f;
+    config.ai_aim.deadzone_outer = 0.0f;
+    config.ai_aim.x_deadzone_outer = 0.0f;
+    config.ai_aim.piecewise_mid_pixels = 0.0f;
+    config.ai_aim.piecewise_mid_pixels_y = 0.0f;
+    config.ai_aim.ads_snap_max_ai_force = 0.0f;
+    config.ai_aim.ads_snap_max_ai_force_y = 0.0f;
+    config.ai_aim.max_ai_force = 0.0f;
+    config.ai_aim.max_ai_force_y = 0.0f;
+    config.aim_assist_dynamics.enabled = false;
+    config.recoil.enabled = false;
+
+    double now = 52.5;
+    controller_native::NativeGamepadController controller(
+        config,
+        [&now]() { return now; });
+
+    auto submit_target = [&](float dx) {
+        controller_native::NativeControllerVisionState target;
+        target.has_target = true;
+        target.aim_authority = true;
+        target.fire_authority = true;
+        target.target_tier = "strong";
+        target.dx = dx;
+        target.dy = 0.0f;
+        target.screen_center_x = 320.0f;
+        target.screen_center_y = 256.0f;
+        target.observed_at_seconds = now;
+        controller.submit_vision_state(target);
+    };
+
+    submit_target(18.0f);
+    controller.build_output(aiming_physical_state());
+
+    now = 52.510;
+    submit_target(160.0f);
+    controller.build_output(aiming_physical_state());
+
+    now = 52.570;
+    controller_native::PhysicalGamepadState physical = aiming_physical_state();
+    physical.right_x = -0.92f;
+    controller.build_output(physical);
+    const auto held = controller.last_output_components().final_stick;
+
+    require_near(
+        held.x,
+        0.0f,
+        0.05f,
+        "ADS candidate projection hold should survive a short occlusion gap and block manual away from tracker");
+}
+
+void test_controller_candidate_projection_hold_uses_projection_time_for_freshness() {
+    controller_native::GamepadRuntimeConfig config;
+    config.tracker_backend = tracking_native::TrackerBackendKind::LegacyProjection;
+    config.ai_aim.target_max_age_ms = 30.0f;
+    config.ai_aim.target_projection_max_age_ms = 80.0f;
+    config.ai_aim.ads_snap_window_ms = 0;
+    config.ai_aim.max_pixels = 100.0f;
+    config.ai_aim.deadzone_inner = 0.0f;
+    config.ai_aim.deadzone_outer = 0.0f;
+    config.ai_aim.x_deadzone_outer = 0.0f;
+    config.ai_aim.piecewise_mid_pixels = 0.0f;
+    config.ai_aim.piecewise_mid_pixels_y = 0.0f;
+    config.ai_aim.ads_snap_max_ai_force = 0.0f;
+    config.ai_aim.ads_snap_max_ai_force_y = 0.0f;
+    config.ai_aim.max_ai_force = 0.0f;
+    config.ai_aim.max_ai_force_y = 0.0f;
+    config.aim_assist_dynamics.enabled = false;
+    config.recoil.enabled = false;
+
+    double now = 52.8;
+    controller_native::NativeGamepadController controller(
+        config,
+        [&now]() { return now; });
+
+    auto submit_target = [&](float dx) {
+        controller_native::NativeControllerVisionState target;
+        target.has_target = true;
+        target.aim_authority = true;
+        target.fire_authority = true;
+        target.target_tier = "strong";
+        target.dx = dx;
+        target.dy = 0.0f;
+        target.screen_center_x = 320.0f;
+        target.screen_center_y = 256.0f;
+        target.observed_at_seconds = now;
+        controller.submit_vision_state(target);
+    };
+
+    submit_target(18.0f);
+    controller.build_output(aiming_physical_state());
+
+    now = 52.810;
+    submit_target(160.0f);
+    controller.build_output(aiming_physical_state());
+
+    now = 52.845;
+    controller_native::PhysicalGamepadState physical = aiming_physical_state();
+    physical.right_x = -0.92f;
+    controller.build_output(physical);
+    const auto held = controller.last_output_components().final_stick;
+
+    require_near(
+        held.x,
+        0.0f,
+        0.05f,
+        "active candidate projection hold should stay fresh for output validation until the hold window expires");
+}
+
+void test_controller_suspicious_candidate_without_projection_holds_output_until_verified() {
+    controller_native::GamepadRuntimeConfig config;
+    config.tracker_backend = tracking_native::TrackerBackendKind::LegacyProjection;
+    config.ai_aim.target_max_age_ms = 500.0f;
+    config.ai_aim.target_projection_max_age_ms = 500.0f;
+    config.ai_aim.ads_snap_window_ms = 200;
+    config.ai_aim.max_pixels = 100.0f;
+    config.ai_aim.deadzone_inner = 0.0f;
+    config.ai_aim.deadzone_outer = 0.0f;
+    config.ai_aim.x_deadzone_outer = 0.0f;
+    config.ai_aim.piecewise_mid_pixels = 0.0f;
+    config.ai_aim.piecewise_mid_pixels_y = 0.0f;
+    config.ai_aim.ads_snap_max_ai_force = 1.0f;
+    config.ai_aim.ads_snap_max_ai_force_y = 1.0f;
+    config.aim_assist_dynamics.enabled = false;
+    config.recoil.enabled = false;
+
+    double now = 52.95;
+    controller_native::NativeGamepadController controller(
+        config,
+        [&now]() { return now; });
+
+    auto submit_target = [&](float dx, float dy) {
+        controller_native::NativeControllerVisionState target;
+        target.has_target = true;
+        target.aim_authority = true;
+        target.fire_authority = true;
+        target.target_tier = "strong";
+        target.dx = dx;
+        target.dy = dy;
+        target.screen_center_x = 320.0f;
+        target.screen_center_y = 256.0f;
+        target.observed_at_seconds = now;
+        controller.submit_vision_state(target);
+    };
+
+    submit_target(18.0f, 0.0f);
+    controller.build_output(aiming_physical_state());
+
+    now = 53.150;
+    submit_target(160.0f, -120.0f);
+    controller_native::PhysicalGamepadState physical = aiming_physical_state();
+    physical.right_x = -0.72f;
+    physical.right_y = 0.64f;
+    controller.build_output(physical);
+
+    const auto& frame = controller.last_frame_vision_state();
+    const auto output = controller.last_output_components().final_stick;
+    require_true(
+        !frame.has_target && !frame.fire_authority,
+        "suspicious no-projection candidate should not become an aim target while unverified");
+    require_near(
+        output.x,
+        0.0f,
+        0.02f,
+        "suspicious no-projection candidate should hold x output while waiting for verification");
+    require_near(
+        output.y,
+        0.0f,
+        0.02f,
+        "suspicious no-projection candidate should hold y output while waiting for verification");
+}
+
+void test_controller_accepts_moving_candidate_after_fresh_samples() {
+    controller_native::GamepadRuntimeConfig config;
+    config.tracker_backend = tracking_native::TrackerBackendKind::LegacyProjection;
+    config.ai_aim.target_max_age_ms = 500.0f;
+    config.ai_aim.target_projection_max_age_ms = 500.0f;
+    config.ai_aim.ads_snap_window_ms = 200;
+    config.ai_aim.max_pixels = 100.0f;
+    config.ai_aim.deadzone_inner = 0.0f;
+    config.ai_aim.deadzone_outer = 0.0f;
+    config.ai_aim.x_deadzone_outer = 0.0f;
+    config.ai_aim.piecewise_mid_pixels = 0.0f;
+    config.ai_aim.piecewise_mid_pixels_y = 0.0f;
+    config.ai_aim.ads_snap_max_ai_force = 1.0f;
+    config.ai_aim.ads_snap_max_ai_force_y = 1.0f;
+    config.aim_assist_dynamics.enabled = false;
+    config.recoil.enabled = false;
+
+    double now = 53.0;
+    controller_native::NativeGamepadController controller(
+        config,
+        [&now]() { return now; });
+
+    auto submit_target = [&](float dx) {
+        controller_native::NativeControllerVisionState target;
+        target.has_target = true;
+        target.aim_authority = true;
+        target.fire_authority = true;
+        target.target_tier = "strong";
+        target.dx = dx;
+        target.dy = 0.0f;
+        target.screen_center_x = 320.0f;
+        target.screen_center_y = 256.0f;
+        target.observed_at_seconds = now;
+        controller.submit_vision_state(target);
+    };
+
+    submit_target(18.0f);
+    controller.build_output(aiming_physical_state());
+
+    const float moving_candidate_dx[] = {-160.0f, -110.0f, -70.0f, -80.0f, -90.0f};
+    for (int sample = 0; sample < 5; ++sample) {
+        now = 53.005 + (static_cast<double>(sample) * 0.0175);
+        submit_target(moving_candidate_dx[sample]);
+    }
+    controller.build_output(aiming_physical_state());
+    const auto accepted = controller.last_output_components().final_stick;
+
+    require_true(
+        accepted.x < -0.20f,
+        "moving candidate should verify after sustained fresh samples instead of staying manual-only");
+}
+
+void test_controller_verified_candidate_reopens_ads_snap_after_initial_window() {
+    controller_native::GamepadRuntimeConfig config;
+    config.tracker_backend = tracking_native::TrackerBackendKind::LegacyProjection;
+    config.ai_aim.target_max_age_ms = 500.0f;
+    config.ai_aim.target_projection_max_age_ms = 500.0f;
+    config.ai_aim.ads_snap_window_ms = 120;
+    config.ai_aim.max_pixels = 100.0f;
+    config.ai_aim.deadzone_inner = 0.0f;
+    config.ai_aim.deadzone_outer = 0.0f;
+    config.ai_aim.x_deadzone_outer = 0.0f;
+    config.ai_aim.piecewise_mid_pixels = 0.0f;
+    config.ai_aim.piecewise_mid_pixels_y = 0.0f;
+    config.ai_aim.ads_snap_max_ai_force = 1.0f;
+    config.ai_aim.ads_snap_max_ai_force_y = 1.0f;
+    config.aim_assist_dynamics.enabled = false;
+    config.recoil.enabled = false;
+
+    double now = 55.0;
+    controller_native::NativeGamepadController controller(
+        config,
+        [&now]() { return now; });
+    controller.build_output(aiming_physical_state());
+
+    auto submit_target = [&](float dx) {
+        controller_native::NativeControllerVisionState target;
+        target.has_target = true;
+        target.aim_authority = true;
+        target.fire_authority = true;
+        target.target_tier = "strong";
+        target.dx = dx;
+        target.dy = 0.0f;
+        target.screen_center_x = 320.0f;
+        target.screen_center_y = 256.0f;
+        target.observed_at_seconds = now;
+        controller.submit_vision_state(target);
+    };
+
+    now = 55.300;
+    submit_target(18.0f);
+    controller.build_output(aiming_physical_state());
+
+    for (int sample = 0; sample < 5; ++sample) {
+        now = 55.305 + (static_cast<double>(sample) * 0.0175);
+        submit_target(-110.0f);
+    }
+    controller.build_output(aiming_physical_state());
+    const auto reacquired = controller.last_output_components().final_stick;
+
+    require_true(
+        reacquired.x < -0.30f,
+        "verified candidate should reopen ADS snap briefly after the initial ADS window");
+}
+
+void test_controller_candidate_returning_to_projection_envelope_reopens_ads_snap() {
+    controller_native::GamepadRuntimeConfig config;
+    config.tracker_backend = tracking_native::TrackerBackendKind::LegacyProjection;
+    config.ai_aim.target_max_age_ms = 500.0f;
+    config.ai_aim.target_projection_max_age_ms = 500.0f;
+    config.ai_aim.ads_snap_window_ms = 120;
+    config.ai_aim.max_pixels = 100.0f;
+    config.ai_aim.deadzone_inner = 0.0f;
+    config.ai_aim.deadzone_outer = 0.0f;
+    config.ai_aim.x_deadzone_outer = 0.0f;
+    config.ai_aim.piecewise_mid_pixels = 0.0f;
+    config.ai_aim.piecewise_mid_pixels_y = 0.0f;
+    config.ai_aim.ads_snap_max_ai_force = 1.0f;
+    config.ai_aim.ads_snap_max_ai_force_y = 1.0f;
+    config.aim_assist_dynamics.enabled = false;
+    config.recoil.enabled = false;
+
+    double now = 56.0;
+    controller_native::NativeGamepadController controller(
+        config,
+        [&now]() { return now; });
+    controller.build_output(aiming_physical_state());
+
+    auto submit_target = [&](float dx) {
+        controller_native::NativeControllerVisionState target;
+        target.has_target = true;
+        target.aim_authority = true;
+        target.fire_authority = true;
+        target.target_tier = "strong";
+        target.dx = dx;
+        target.dy = 0.0f;
+        target.screen_center_x = 320.0f;
+        target.screen_center_y = 256.0f;
+        target.observed_at_seconds = now;
+        controller.submit_vision_state(target);
+    };
+
+    now = 56.300;
+    submit_target(18.0f);
+    controller.build_output(aiming_physical_state());
+
+    now = 56.320;
+    submit_target(120.0f);
+    controller.build_output(aiming_physical_state());
+
+    now = 56.340;
+    submit_target(22.0f);
+    controller.build_output(aiming_physical_state());
+    const auto reacquired = controller.last_output_components().final_stick;
+
+    if (!(reacquired.x > 0.10f)) {
+        std::ostringstream out;
+        out << "candidate returning to projection envelope should reopen ADS snap briefly actual="
+            << reacquired.x;
+        throw std::runtime_error(out.str());
+    }
 }
 
 void test_body_lock_clears_vertical_axis_on_near_zero_sign_flip() {
@@ -4275,6 +5273,24 @@ int main() {
         test_controller_body_lock_short_plan_zeros_small_vector_turn_near_lock();
         test_controller_body_lock_brakes_large_manual_after_target_crossing();
         test_controller_ads_brakes_large_manual_after_target_crossing_without_body_lock();
+        test_controller_ads_zeros_small_manual_after_target_crossing_without_body_lock();
+        test_controller_ads_cross_brake_survives_fresh_stale_sign_flip();
+        test_controller_output_validation_zeros_wrong_way_after_x_crossing();
+        test_controller_output_validation_caps_only_crossed_axis_on_diagonal();
+        test_controller_output_validation_yields_to_manual_correction_with_tracker_reference();
+        test_controller_output_validation_zeros_stale_observed_wrong_way_ads_manual();
+        test_controller_suspicious_target_jump_holds_ai_aim_until_verified();
+        test_controller_moderate_stale_jump_coasts_on_tracker_projection();
+        test_controller_fresh_stale_jump_inside_candidate_threshold_uses_tracker_projection();
+        test_controller_accepts_sustained_candidate_after_fresh_samples();
+        test_controller_candidate_hold_zeros_manual_away_from_tracker_reference();
+        test_controller_ads_candidate_projection_hold_survives_short_occlusion_gap();
+        test_controller_candidate_projection_hold_uses_projection_time_for_freshness();
+        test_controller_suspicious_candidate_without_projection_holds_output_until_verified();
+        test_controller_accepts_moving_candidate_after_fresh_samples();
+        test_controller_verified_candidate_reopens_ads_snap_after_initial_window();
+        test_controller_candidate_returning_to_projection_envelope_reopens_ads_snap();
+        test_controller_ads_holds_recent_strong_target_when_projection_ages_out();
         test_body_lock_clears_vertical_axis_on_near_zero_sign_flip();
         test_body_lock_applies_motion_lead_after_configured_history_frames();
         test_body_lock_confidence_resets_when_body_box_no_longer_matches_target();

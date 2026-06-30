@@ -40,14 +40,19 @@ function Invoke-Checked {
 }
 
 function Assert-NoForbiddenCoupling {
+    $runtimeConfigForScan = if ([System.IO.Path]::IsPathRooted($RuntimeConfig)) {
+        $RuntimeConfig
+    } else {
+        Join-Path $repoRoot $RuntimeConfig
+    }
     $boundaryFiles = @(
         "native\controller_native\recoil_compensation.h",
         "native\controller_native\recoil_compensation.cpp",
         "native\controller_native\runtime_config.h",
         "native\controller_native\runtime_config.cpp",
         "native\controller_native\native_gamepad_controller.cpp",
-        "config.toml"
-    )
+        $runtimeConfigForScan
+    ) | Where-Object { Test-Path $_ }
     $recoilFiles = @(
         "native\controller_native\recoil_compensation.h",
         "native\controller_native\recoil_compensation.cpp"
@@ -97,6 +102,12 @@ function Assert-NoForbiddenCoupling {
 
 $cmake = Resolve-CMake
 $buildPath = Join-Path $repoRoot $BuildDir
+$runtimeConfigPath = if ([System.IO.Path]::IsPathRooted($RuntimeConfig)) {
+    [System.IO.Path]::GetFullPath($RuntimeConfig)
+} else {
+    Join-Path $repoRoot $RuntimeConfig
+}
+$runtimeWorkingDir = Split-Path -Parent $runtimeConfigPath
 $runtimeExe = Join-Path $buildPath "$Configuration\cod_native_runtime.exe"
 $testsExe = Join-Path $buildPath "$Configuration\cod_native_controller_tests.exe"
 $benchmarkExe = Join-Path $buildPath "$Configuration\cod_native_gamepad_benchmark.exe"
@@ -127,8 +138,13 @@ if ($testExit -ne 0 -or (($testOutput -join "`n") -notmatch "\[NativeControllerT
     throw "Native controller contract tests failed."
 }
 
-$runtimeOutput = & $runtimeExe --config $RuntimeConfig --once 2>&1
-$runtimeExit = $LASTEXITCODE
+Push-Location $runtimeWorkingDir
+try {
+    $runtimeOutput = & $runtimeExe --config $runtimeConfigPath --once 2>&1
+    $runtimeExit = $LASTEXITCODE
+} finally {
+    Pop-Location
+}
 $runtimeOutput | ForEach-Object { Write-Output $_ }
 if ($runtimeExit -ne 0) {
     throw "Native runtime smoke failed."
@@ -142,7 +158,7 @@ if (-not $SkipBenchmark) {
         throw "Native gamepad benchmark executable not found: $benchmarkExe"
     }
     New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
-    Invoke-Checked $benchmarkExe @("--config", $RuntimeConfig, "--frames", "8", "--output", $benchmarkOutput)
+    Invoke-Checked $benchmarkExe @("--config", $runtimeConfigPath, "--frames", "8", "--output", $benchmarkOutput)
     if (-not (Test-Path $benchmarkOutput)) {
         throw "Benchmark artifact was not written: $benchmarkOutput"
     }
