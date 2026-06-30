@@ -152,8 +152,16 @@ private:
     bool has_last_body_lock_short_plan_y_ = false;
     float last_body_lock_short_plan_x_ = 0.0f;
     float last_body_lock_short_plan_y_ = 0.0f;
+    bool has_last_body_lock_error_for_plan_ = false;
+    float last_body_lock_plan_error_x_ = 0.0f;
+    float last_body_lock_plan_error_y_ = 0.0f;
+    bool has_last_aim_error_for_plan_ = false;
+    float last_aim_plan_error_x_ = 0.0f;
+    float last_aim_plan_error_y_ = 0.0f;
     double body_lock_short_plan_x_until_seconds_ = 0.0;
     double body_lock_short_plan_y_until_seconds_ = 0.0;
+    double body_lock_manual_brake_x_until_seconds_ = 0.0;
+    double body_lock_manual_brake_y_until_seconds_ = 0.0;
 };
 
 }  // namespace controller_native

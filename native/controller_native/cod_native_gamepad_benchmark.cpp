@@ -2,6 +2,7 @@
 #include "runtime_config.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
@@ -116,6 +117,18 @@ struct RandomFovTurnEvent {
     double heading_deg = 0.0;
 };
 
+struct AdsErrTargetWindow {
+    int start_tick = 0;
+    int end_tick = 0;
+    double offset_dx = 0.0;
+    double offset_dy = 0.0;
+    bool was_active = false;
+    bool recovery_pending = false;
+    bool recovery_recorded = false;
+    int recovery_start_tick = -1;
+    double peak_recovery_error_px = 0.0;
+};
+
 struct ScenarioMetrics {
     std::string name;
     int frames = 0;
@@ -219,6 +232,45 @@ struct ScenarioMetrics {
     double ads_parity_mean_time_to_under_20_ms = 0.0;
     double ads_parity_max_single_frame_camera_delta_px = 0.0;
     double ads_parity_max_overshoot_px = 0.0;
+    bool has_ads_manual_stress = false;
+    int ads_manual_stress_cases = 0;
+    int ads_manual_stress_ticks_per_case = 0;
+    int ads_manual_stress_vision_samples = 0;
+    int ads_manual_stress_vision_dropped_ticks = 0;
+    int ads_manual_stress_delayed_submissions = 0;
+    int ads_manual_stress_fov_change_events = 0;
+    int ads_manual_stress_large_vision_jumps = 0;
+    int ads_manual_stress_err_target_windows = 0;
+    int ads_manual_stress_err_target_samples = 0;
+    int ads_manual_stress_err_target_recovered_windows = 0;
+    int ads_manual_stress_measured_ticks = 0;
+    int ads_manual_stress_overshoot_events = 0;
+    int ads_manual_stress_overshoot_events_x = 0;
+    int ads_manual_stress_overshoot_events_y = 0;
+    int ads_manual_stress_overshoot_ads_snap = 0;
+    int ads_manual_stress_overshoot_body_lock = 0;
+    int ads_manual_stress_overshoot_manual = 0;
+    int ads_manual_stress_large_overshoot_events = 0;
+    double ads_manual_stress_mean_error_px = 0.0;
+    double ads_manual_stress_p95_error_px = 0.0;
+    double ads_manual_stress_p99_error_px = 0.0;
+    double ads_manual_stress_final_error_px = 0.0;
+    double ads_manual_stress_max_overshoot_px = 0.0;
+    double ads_manual_stress_max_single_frame_camera_delta_px = 0.0;
+    double ads_manual_stress_vision_hz = 100.0;
+    double ads_manual_stress_mean_fov_scale = 1.0;
+    double ads_manual_stress_max_report_age_ms = 0.0;
+    double ads_manual_stress_max_err_target_offset_px = 0.0;
+    double ads_manual_stress_mean_err_target_recovery_ms = 0.0;
+    double ads_manual_stress_p95_err_target_recovery_ms = 0.0;
+    double ads_manual_stress_max_err_target_recovery_error_px = 0.0;
+    double ads_manual_stress_mean_target_alignment = 0.0;
+    double ads_manual_stress_mean_manual_alignment = 0.0;
+    double ads_manual_stress_direction_score = 0.0;
+    double ads_manual_stress_manual_direction_score = 0.0;
+    double ads_manual_stress_p95_turn_degrees = 0.0;
+    double ads_manual_stress_turn_smoothness_score = 0.0;
+    std::vector<RandomFovOvershootEvent> ads_manual_stress_overshoot_details;
 };
 
 double current_seconds() {
@@ -389,6 +441,34 @@ int direction(double value, double deadzone) {
 double lerp(double from, double to, double ratio) {
     const double t = std::max(0.0, std::min(1.0, ratio));
     return from + ((to - from) * t);
+}
+
+double ads_lag_stress_fov_scale_for_tick(int tick) {
+    if (tick < 45) {
+        return 1.0;
+    }
+    if (tick < 135) {
+        return lerp(1.0, 0.72, static_cast<double>(tick - 45) / 90.0);
+    }
+    if (tick < 240) {
+        return 0.72;
+    }
+    if (tick < 320) {
+        return lerp(0.72, 1.0, static_cast<double>(tick - 240) / 80.0);
+    }
+    return 1.0;
+}
+
+bool ads_lag_stress_drops_vision_tick(int tick) {
+    return (tick >= 140 && tick < 186) || (tick >= 275 && tick < 338);
+}
+
+bool ads_err_target_window_active(const AdsErrTargetWindow& window, int tick) {
+    return tick >= window.start_tick && tick < window.end_tick;
+}
+
+double ads_err_target_window_offset_radius(const AdsErrTargetWindow& window) {
+    return std::hypot(window.offset_dx, window.offset_dy);
 }
 
 float clamp_float(float value, float minimum, float maximum) {
@@ -814,6 +894,37 @@ void run_self_test() {
     require_benchmark_check(
         mode_overshoot.count == 1 && mode_overshoot.body_lock_count == 1,
         "mode overshoot count should attribute the episode to the peak excursion mode");
+    require_near(
+        ads_lag_stress_fov_scale_for_tick(0),
+        1.0,
+        0.001,
+        "ADS lag stress should start at full FOV scale");
+    require_near(
+        ads_lag_stress_fov_scale_for_tick(135),
+        0.72,
+        0.001,
+        "ADS lag stress should settle at the narrowed FOV scale");
+    require_benchmark_check(
+        !ads_lag_stress_drops_vision_tick(139),
+        "ADS lag stress should keep vision before the first occlusion window");
+    require_benchmark_check(
+        ads_lag_stress_drops_vision_tick(145),
+        "ADS lag stress should drop vision during the first occlusion window");
+    require_benchmark_check(
+        !ads_lag_stress_drops_vision_tick(190),
+        "ADS lag stress should resume vision after the first occlusion window");
+    const AdsErrTargetWindow diagnostic_err_window{30, 45, 70.0, -55.0};
+    require_benchmark_check(
+        ads_err_target_window_active(diagnostic_err_window, 30),
+        "err-target window should be active on its first tick");
+    require_benchmark_check(
+        !ads_err_target_window_active(diagnostic_err_window, 45),
+        "err-target window should be inactive on its end tick");
+    require_near(
+        ads_err_target_window_offset_radius(diagnostic_err_window),
+        std::hypot(70.0, -55.0),
+        0.001,
+        "err-target window should report its offset radius");
 
     std::cout << "[NativeGamepadBenchmark] self-test PASS\n";
 }
@@ -1983,6 +2094,437 @@ ScenarioMetrics run_ads_fov_settle_130ms(
     return metrics;
 }
 
+ScenarioMetrics run_ads_diagonal_manual_stress_100hz(
+    controller_native::GamepadRuntimeConfig config,
+    const std::string& name = "ads_diagonal_manual_stress_100hz",
+    bool enable_dynamics = false,
+    bool fire_active = false,
+    bool simulate_late_fov_occlusion = false,
+    bool fresh_timestamp_for_late_position = false,
+    bool simulate_err_targets = false,
+    unsigned int err_target_seed = 1337) {
+    ScenarioMetrics metrics;
+    metrics.name = name;
+    metrics.has_ads_manual_stress = true;
+
+    constexpr double kControllerHz = 1000.0;
+    const double kVisionHz = simulate_late_fov_occlusion ? 50.0 : 100.0;
+    constexpr double kDtSeconds = 1.0 / kControllerHz;
+    const int kVisionIntervalTicks =
+        std::max(1, static_cast<int>(std::round(kControllerHz / kVisionHz)));
+    constexpr int kTicksPerCase = 520;
+    constexpr double kReticleSpeed = 1500.0;
+    constexpr double kOvershootThresholdPx = 2.0;
+    constexpr double kLargeOvershootThresholdPx = 50.0;
+    constexpr double kVectorDeadzone = 0.015;
+    constexpr double kErrTargetRecoveredThresholdPx = 20.0;
+    const int kVisionLagTicks = simulate_late_fov_occlusion ? 20 : 0;
+    metrics.ads_manual_stress_vision_hz = kVisionHz;
+    metrics.ads_manual_stress_fov_change_events =
+        simulate_late_fov_occlusion ? 2 : 0;
+
+    struct StressCase {
+        double initial_dx = 0.0;
+        double initial_dy = 0.0;
+        double aligned_x = 0.0;
+        double aligned_y = 0.0;
+        double reverse_x = 0.0;
+        double reverse_y = 0.0;
+    };
+
+    const std::vector<StressCase> cases = {
+        {96.0, -72.0, 0.92, 0.82, -0.72, -0.64},
+        {-96.0, -72.0, -0.92, 0.82, 0.72, -0.64},
+        {96.0, 72.0, 0.92, -0.82, -0.72, 0.64},
+        {-96.0, 72.0, -0.92, -0.82, 0.72, 0.64},
+    };
+    struct VisionHistorySample {
+        double dx = 0.0;
+        double dy = 0.0;
+        double observed_at = 0.0;
+    };
+
+    config.recoil.enabled = false;
+    config.aim_assist_dynamics.enabled = enable_dynamics;
+    config.ai_aim.target_max_age_ms = std::max(config.ai_aim.target_max_age_ms, 80.0f);
+    config.ai_aim.target_projection_max_age_ms =
+        std::max(config.ai_aim.target_projection_max_age_ms, 40.0f);
+
+    std::vector<double> residual_errors;
+    std::vector<double> final_errors;
+    std::vector<double> turn_degrees;
+    residual_errors.reserve(cases.size() * kTicksPerCase);
+    final_errors.reserve(cases.size());
+    turn_degrees.reserve(cases.size() * kTicksPerCase);
+
+    double target_alignment_sum = 0.0;
+    double manual_alignment_sum = 0.0;
+    int target_alignment_samples = 0;
+    int manual_alignment_samples = 0;
+    int global_tick = 0;
+    double fov_scale_sum = 0.0;
+    std::mt19937 err_target_rng(err_target_seed);
+    std::uniform_int_distribution<int> err_duration_distribution(34, 68);
+    std::uniform_real_distribution<double> err_magnitude_distribution(76.0, 150.0);
+    std::uniform_real_distribution<double> err_angle_distribution(
+        0.0,
+        6.28318530717958647692);
+    std::vector<double> err_recovery_ms;
+
+    for (std::size_t case_index = 0; case_index < cases.size(); ++case_index) {
+        const StressCase& stress = cases[case_index];
+        double simulated_now = 1.0;
+        controller_native::NativeGamepadController controller(
+            config,
+            [&simulated_now]() { return simulated_now; });
+        const double target_x_position = stress.initial_dx;
+        const double target_y_position = stress.initial_dy;
+        double reticle_x_position = 0.0;
+        double reticle_y_position = 0.0;
+        double previous_output_x = 0.0;
+        double previous_output_y = 0.0;
+        bool has_previous_output = false;
+        double previous_reported_vision_dx = 0.0;
+        bool has_previous_reported_vision_dx = false;
+        std::vector<double> x_errors;
+        std::vector<double> y_errors;
+        std::vector<std::string> modes;
+        std::vector<RandomFovSample> samples;
+        std::vector<VisionHistorySample> vision_history;
+        std::vector<AdsErrTargetWindow> err_windows;
+        x_errors.reserve(kTicksPerCase);
+        y_errors.reserve(kTicksPerCase);
+        modes.reserve(kTicksPerCase);
+        samples.reserve(kTicksPerCase);
+        vision_history.reserve(kTicksPerCase);
+        if (simulate_err_targets) {
+            const std::array<std::pair<int, int>, 3> start_ranges = {{
+                {72, 124},
+                {186, 246},
+                {318, 398},
+            }};
+            for (const auto& start_range : start_ranges) {
+                std::uniform_int_distribution<int> start_distribution(
+                    start_range.first,
+                    start_range.second);
+                const int start_tick = start_distribution(err_target_rng);
+                const int duration_ticks = err_duration_distribution(err_target_rng);
+                const double magnitude = err_magnitude_distribution(err_target_rng);
+                const double angle = err_angle_distribution(err_target_rng);
+                AdsErrTargetWindow window;
+                window.start_tick = start_tick;
+                window.end_tick =
+                    std::min(kTicksPerCase - 1, start_tick + duration_ticks);
+                window.offset_dx = std::cos(angle) * magnitude;
+                window.offset_dy = std::sin(angle) * magnitude;
+                metrics.ads_manual_stress_max_err_target_offset_px = std::max(
+                    metrics.ads_manual_stress_max_err_target_offset_px,
+                    ads_err_target_window_offset_radius(window));
+                err_windows.push_back(window);
+            }
+            metrics.ads_manual_stress_err_target_windows +=
+                static_cast<int>(err_windows.size());
+        }
+
+        for (int tick = 0; tick < kTicksPerCase; ++tick, ++global_tick) {
+            simulated_now = 1.0 + (static_cast<double>(global_tick) * kDtSeconds);
+            const double fov_scale = simulate_late_fov_occlusion
+                ? ads_lag_stress_fov_scale_for_tick(tick)
+                : 1.0;
+            const double expected_dx = target_x_position - reticle_x_position;
+            const double expected_dy = target_y_position - reticle_y_position;
+            const double expected_vision_dx = expected_dx * fov_scale;
+            const double expected_vision_dy = expected_dy * fov_scale;
+            fov_scale_sum += fov_scale;
+            vision_history.push_back(
+                VisionHistorySample{expected_vision_dx, expected_vision_dy, simulated_now});
+            if (tick % kVisionIntervalTicks == 0) {
+                if (simulate_late_fov_occlusion &&
+                    ads_lag_stress_drops_vision_tick(tick)) {
+                    ++metrics.ads_manual_stress_vision_dropped_ticks;
+                } else {
+                    const int report_index = std::max(
+                        0,
+                        static_cast<int>(vision_history.size()) - 1 - kVisionLagTicks);
+                    const VisionHistorySample& report = vision_history[report_index];
+                    const double reported_observed_at =
+                        fresh_timestamp_for_late_position
+                            ? simulated_now
+                            : report.observed_at;
+                    double reported_dx = report.dx;
+                    double reported_dy = report.dy;
+                    for (const AdsErrTargetWindow& window : err_windows) {
+                        if (ads_err_target_window_active(window, tick)) {
+                            reported_dx += window.offset_dx;
+                            reported_dy += window.offset_dy;
+                            ++metrics.ads_manual_stress_err_target_samples;
+                            break;
+                        }
+                    }
+                    controller.submit_vision_state(
+                        benchmark_target_state(
+                            static_cast<float>(reported_dx),
+                            static_cast<float>(reported_dy),
+                            reported_observed_at));
+                    ++metrics.ads_manual_stress_vision_samples;
+                    if (kVisionLagTicks > 0) {
+                        ++metrics.ads_manual_stress_delayed_submissions;
+                    }
+                    metrics.ads_manual_stress_max_report_age_ms = std::max(
+                        metrics.ads_manual_stress_max_report_age_ms,
+                        (simulated_now - reported_observed_at) * 1000.0);
+                    if (has_previous_reported_vision_dx &&
+                        std::fabs(reported_dx - previous_reported_vision_dx) > 18.0) {
+                        ++metrics.ads_manual_stress_large_vision_jumps;
+                    }
+                    previous_reported_vision_dx = reported_dx;
+                    has_previous_reported_vision_dx = true;
+                }
+            } else if (simulate_late_fov_occlusion) {
+                ++metrics.ads_manual_stress_vision_dropped_ticks;
+            }
+            if (!simulate_late_fov_occlusion && tick % kVisionIntervalTicks == 0) {
+                double reported_dx = expected_vision_dx;
+                double reported_dy = expected_vision_dy;
+                for (const AdsErrTargetWindow& window : err_windows) {
+                    if (ads_err_target_window_active(window, tick)) {
+                        reported_dx += window.offset_dx;
+                        reported_dy += window.offset_dy;
+                        ++metrics.ads_manual_stress_err_target_samples;
+                        break;
+                    }
+                }
+                controller.submit_vision_state(
+                    benchmark_target_state(
+                        static_cast<float>(reported_dx),
+                        static_cast<float>(reported_dy),
+                        simulated_now));
+                ++metrics.ads_manual_stress_vision_samples;
+                if (has_previous_reported_vision_dx &&
+                    std::fabs(reported_dx - previous_reported_vision_dx) > 18.0) {
+                    ++metrics.ads_manual_stress_large_vision_jumps;
+                }
+                previous_reported_vision_dx = reported_dx;
+                has_previous_reported_vision_dx = true;
+            }
+
+            float manual_x = 0.0f;
+            float manual_y = 0.0f;
+            if (tick < 170) {
+                manual_x = static_cast<float>(stress.aligned_x);
+                manual_y = static_cast<float>(stress.aligned_y);
+            } else if (tick < 260) {
+                manual_x = static_cast<float>(stress.reverse_x);
+                manual_y = static_cast<float>(stress.reverse_y);
+            } else if (tick < 340) {
+                manual_x = static_cast<float>(stress.aligned_x * 0.18);
+                manual_y = static_cast<float>(stress.aligned_y * 0.18);
+            }
+
+            controller.build_output(aiming_state(manual_x, manual_y, fire_active));
+            const controller_native::NativeControllerOutputComponents& components =
+                controller.last_output_components();
+            add_frame_sample(metrics, components);
+
+            const double reticle_delta_x =
+                static_cast<double>(components.final_stick.x) * kReticleSpeed * kDtSeconds;
+            const double reticle_delta_y =
+                -static_cast<double>(components.final_stick.y) * kReticleSpeed * kDtSeconds;
+            reticle_x_position += reticle_delta_x;
+            reticle_y_position += reticle_delta_y;
+            metrics.ads_manual_stress_max_single_frame_camera_delta_px = std::max(
+                metrics.ads_manual_stress_max_single_frame_camera_delta_px,
+                std::hypot(reticle_delta_x, reticle_delta_y));
+
+            const double residual_dx = target_x_position - reticle_x_position;
+            const double residual_dy = target_y_position - reticle_y_position;
+            const double scaled_residual_dx = residual_dx * fov_scale;
+            const double scaled_residual_dy = residual_dy * fov_scale;
+            const double residual_radius =
+                std::hypot(scaled_residual_dx, scaled_residual_dy);
+            const double output_move_x = components.final_stick.x;
+            const double output_move_y = -components.final_stick.y;
+            const double manual_move_x = manual_x;
+            const double manual_move_y = -manual_y;
+            for (AdsErrTargetWindow& window : err_windows) {
+                const bool err_active = ads_err_target_window_active(window, tick);
+                if (err_active) {
+                    window.was_active = true;
+                    continue;
+                }
+                if (window.was_active &&
+                    !window.recovery_pending &&
+                    !window.recovery_recorded &&
+                    tick >= window.end_tick) {
+                    window.recovery_pending = true;
+                    window.recovery_start_tick = tick;
+                    window.peak_recovery_error_px = residual_radius;
+                }
+                if (window.recovery_pending) {
+                    window.peak_recovery_error_px = std::max(
+                        window.peak_recovery_error_px,
+                        residual_radius);
+                    if (residual_radius <= kErrTargetRecoveredThresholdPx) {
+                        const double recovery_ms =
+                            static_cast<double>(tick - window.recovery_start_tick) *
+                            kDtSeconds * 1000.0;
+                        err_recovery_ms.push_back(recovery_ms);
+                        ++metrics.ads_manual_stress_err_target_recovered_windows;
+                        metrics.ads_manual_stress_max_err_target_recovery_error_px =
+                            std::max(
+                                metrics.ads_manual_stress_max_err_target_recovery_error_px,
+                                window.peak_recovery_error_px);
+                        window.recovery_pending = false;
+                        window.recovery_recorded = true;
+                    }
+                }
+            }
+            residual_errors.push_back(residual_radius);
+            x_errors.push_back(scaled_residual_dx);
+            y_errors.push_back(scaled_residual_dy);
+            modes.push_back(controller.last_ai_aim_mode());
+            ++metrics.ads_manual_stress_measured_ticks;
+
+            target_alignment_sum += vector_alignment(
+                output_move_x,
+                output_move_y,
+                scaled_residual_dx,
+                scaled_residual_dy,
+                kVectorDeadzone);
+            ++target_alignment_samples;
+            if (vector_magnitude(manual_move_x, manual_move_y) >= kVectorDeadzone) {
+                manual_alignment_sum += vector_alignment(
+                    output_move_x,
+                    output_move_y,
+                    manual_move_x,
+                    manual_move_y,
+                    kVectorDeadzone);
+                ++manual_alignment_samples;
+            }
+            if (has_previous_output) {
+                const double previous_mag =
+                    vector_magnitude(previous_output_x, previous_output_y);
+                const double current_mag =
+                    vector_magnitude(output_move_x, output_move_y);
+                if (previous_mag >= kVectorDeadzone &&
+                    current_mag >= kVectorDeadzone) {
+                    turn_degrees.push_back(vector_turn_degrees(
+                        previous_output_x,
+                        previous_output_y,
+                        output_move_x,
+                        output_move_y,
+                        kVectorDeadzone));
+                }
+            }
+            previous_output_x = output_move_x;
+            previous_output_y = output_move_y;
+            has_previous_output = true;
+
+            RandomFovSample sample;
+            sample.segment = static_cast<int>(case_index);
+            sample.tick = tick;
+            sample.global_tick = global_tick;
+            sample.error_x = scaled_residual_dx;
+            sample.error_y = scaled_residual_dy;
+            sample.mode = controller.last_ai_aim_mode();
+            sample.final_x = components.final_stick.x;
+            sample.final_y = components.final_stick.y;
+            sample.manual_x = components.manual_stick.x;
+            sample.manual_y = components.manual_stick.y;
+            sample.ai_aim_x = components.ai_aim_stick.x;
+            sample.ai_aim_y = components.ai_aim_stick.y;
+            sample.dynamics_x = components.dynamic_adjustment_stick.x;
+            sample.dynamics_y = components.dynamic_adjustment_stick.y;
+            sample.fov_scale = fov_scale;
+            sample.expected_dx = expected_vision_dx;
+            sample.expected_dy = expected_vision_dy;
+            samples.push_back(std::move(sample));
+        }
+        for (const AdsErrTargetWindow& window : err_windows) {
+            if (window.recovery_pending) {
+                metrics.ads_manual_stress_max_err_target_recovery_error_px = std::max(
+                    metrics.ads_manual_stress_max_err_target_recovery_error_px,
+                    window.peak_recovery_error_px);
+            }
+        }
+
+        const ModeOvershootStats x_overshoot =
+            axis_mode_overshoot_stats(x_errors, modes, kOvershootThresholdPx);
+        const ModeOvershootStats y_overshoot =
+            axis_mode_overshoot_stats(y_errors, modes, kOvershootThresholdPx);
+        metrics.ads_manual_stress_overshoot_events_x += x_overshoot.count;
+        metrics.ads_manual_stress_overshoot_events_y += y_overshoot.count;
+        metrics.ads_manual_stress_overshoot_events +=
+            x_overshoot.count + y_overshoot.count;
+        metrics.ads_manual_stress_overshoot_ads_snap +=
+            x_overshoot.ads_snap_count + y_overshoot.ads_snap_count;
+        metrics.ads_manual_stress_overshoot_body_lock +=
+            x_overshoot.body_lock_count + y_overshoot.body_lock_count;
+        metrics.ads_manual_stress_overshoot_manual +=
+            x_overshoot.manual_count + y_overshoot.manual_count;
+        metrics.ads_manual_stress_max_overshoot_px = std::max(
+            metrics.ads_manual_stress_max_overshoot_px,
+            std::max(x_overshoot.max_px, y_overshoot.max_px));
+        final_errors.push_back(std::hypot(x_errors.back(), y_errors.back()));
+
+        std::vector<RandomFovOvershootEvent> x_details =
+            random_fov_axis_overshoot_events(samples, false, kOvershootThresholdPx);
+        std::vector<RandomFovOvershootEvent> y_details =
+            random_fov_axis_overshoot_events(samples, true, kOvershootThresholdPx);
+        for (const RandomFovOvershootEvent& event : x_details) {
+            if (event.peak_abs_px >= kLargeOvershootThresholdPx) {
+                ++metrics.ads_manual_stress_large_overshoot_events;
+            }
+        }
+        for (const RandomFovOvershootEvent& event : y_details) {
+            if (event.peak_abs_px >= kLargeOvershootThresholdPx) {
+                ++metrics.ads_manual_stress_large_overshoot_events;
+            }
+        }
+        metrics.ads_manual_stress_overshoot_details.insert(
+            metrics.ads_manual_stress_overshoot_details.end(),
+            x_details.begin(),
+            x_details.end());
+        metrics.ads_manual_stress_overshoot_details.insert(
+            metrics.ads_manual_stress_overshoot_details.end(),
+            y_details.begin(),
+            y_details.end());
+    }
+
+    metrics.ads_manual_stress_cases = static_cast<int>(cases.size());
+    metrics.ads_manual_stress_ticks_per_case = kTicksPerCase;
+    metrics.ads_manual_stress_mean_error_px = mean_value(residual_errors);
+    metrics.ads_manual_stress_p95_error_px =
+        nearest_rank_percentile(residual_errors, 0.95);
+    metrics.ads_manual_stress_p99_error_px =
+        nearest_rank_percentile(residual_errors, 0.99);
+    metrics.ads_manual_stress_final_error_px = mean_value(final_errors);
+    metrics.ads_manual_stress_mean_err_target_recovery_ms =
+        mean_value(err_recovery_ms);
+    metrics.ads_manual_stress_p95_err_target_recovery_ms =
+        nearest_rank_percentile(err_recovery_ms, 0.95);
+    const double total_ticks =
+        static_cast<double>(std::max(1, metrics.ads_manual_stress_measured_ticks));
+    metrics.ads_manual_stress_mean_fov_scale = fov_scale_sum / total_ticks;
+    metrics.ads_manual_stress_mean_target_alignment =
+        target_alignment_samples <= 0
+            ? 0.0
+            : target_alignment_sum / static_cast<double>(target_alignment_samples);
+    metrics.ads_manual_stress_mean_manual_alignment =
+        manual_alignment_samples <= 0
+            ? 0.0
+            : manual_alignment_sum / static_cast<double>(manual_alignment_samples);
+    metrics.ads_manual_stress_direction_score =
+        alignment_score(metrics.ads_manual_stress_mean_target_alignment);
+    metrics.ads_manual_stress_manual_direction_score =
+        alignment_score(metrics.ads_manual_stress_mean_manual_alignment);
+    metrics.ads_manual_stress_p95_turn_degrees =
+        nearest_rank_percentile(turn_degrees, 0.95);
+    metrics.ads_manual_stress_turn_smoothness_score =
+        turn_smoothness_score(metrics.ads_manual_stress_p95_turn_degrees);
+    return metrics;
+}
+
 std::string escape_json(const std::string& value) {
     std::ostringstream out;
     for (const char ch : value) {
@@ -2315,6 +2857,93 @@ void write_json(
                 << "        \"max_overshoot_px\": " << scenario.ads_parity_max_overshoot_px << "\n"
                 << "      }";
         }
+        if (scenario.has_ads_manual_stress) {
+            out
+                << ",\n"
+                << "      \"ads_manual_stress\": {\n"
+                << "        \"controller_hz\": 1000.000000,\n"
+                << "        \"vision_hz\": "
+                << scenario.ads_manual_stress_vision_hz << ",\n"
+                << "        \"vision_samples\": "
+                << scenario.ads_manual_stress_vision_samples << ",\n"
+                << "        \"vision_no_submit_ticks\": "
+                << scenario.ads_manual_stress_vision_dropped_ticks << ",\n"
+                << "        \"delayed_submissions\": "
+                << scenario.ads_manual_stress_delayed_submissions << ",\n"
+                << "        \"fov_change_events\": "
+                << scenario.ads_manual_stress_fov_change_events << ",\n"
+                << "        \"large_vision_jumps\": "
+                << scenario.ads_manual_stress_large_vision_jumps << ",\n"
+                << "        \"err_target_windows\": "
+                << scenario.ads_manual_stress_err_target_windows << ",\n"
+                << "        \"err_target_samples\": "
+                << scenario.ads_manual_stress_err_target_samples << ",\n"
+                << "        \"err_target_recovered_windows\": "
+                << scenario.ads_manual_stress_err_target_recovered_windows << ",\n"
+                << "        \"max_err_target_offset_px\": "
+                << scenario.ads_manual_stress_max_err_target_offset_px << ",\n"
+                << "        \"mean_err_target_recovery_ms\": "
+                << scenario.ads_manual_stress_mean_err_target_recovery_ms << ",\n"
+                << "        \"p95_err_target_recovery_ms\": "
+                << scenario.ads_manual_stress_p95_err_target_recovery_ms << ",\n"
+                << "        \"max_err_target_recovery_error_px\": "
+                << scenario.ads_manual_stress_max_err_target_recovery_error_px << ",\n"
+                << "        \"mean_fov_scale\": "
+                << scenario.ads_manual_stress_mean_fov_scale << ",\n"
+                << "        \"max_report_age_ms\": "
+                << scenario.ads_manual_stress_max_report_age_ms << ",\n"
+                << "        \"cases\": " << scenario.ads_manual_stress_cases << ",\n"
+                << "        \"ticks_per_case\": "
+                << scenario.ads_manual_stress_ticks_per_case << ",\n"
+                << "        \"measured_ticks\": "
+                << scenario.ads_manual_stress_measured_ticks << ",\n"
+                << "        \"mean_error_px\": "
+                << scenario.ads_manual_stress_mean_error_px << ",\n"
+                << "        \"p95_error_px\": "
+                << scenario.ads_manual_stress_p95_error_px << ",\n"
+                << "        \"p99_error_px\": "
+                << scenario.ads_manual_stress_p99_error_px << ",\n"
+                << "        \"final_error_px\": "
+                << scenario.ads_manual_stress_final_error_px << ",\n"
+                << "        \"overshoot_events\": "
+                << scenario.ads_manual_stress_overshoot_events << ",\n"
+                << "        \"overshoot_events_x\": "
+                << scenario.ads_manual_stress_overshoot_events_x << ",\n"
+                << "        \"overshoot_events_y\": "
+                << scenario.ads_manual_stress_overshoot_events_y << ",\n"
+                << "        \"overshoot_ads_snap\": "
+                << scenario.ads_manual_stress_overshoot_ads_snap << ",\n"
+                << "        \"overshoot_body_lock\": "
+                << scenario.ads_manual_stress_overshoot_body_lock << ",\n"
+                << "        \"overshoot_manual\": "
+                << scenario.ads_manual_stress_overshoot_manual << ",\n"
+                << "        \"large_overshoot_events_50px\": "
+                << scenario.ads_manual_stress_large_overshoot_events << ",\n"
+                << "        \"max_overshoot_px\": "
+                << scenario.ads_manual_stress_max_overshoot_px << ",\n"
+                << "        \"max_single_frame_camera_delta_px\": "
+                << scenario.ads_manual_stress_max_single_frame_camera_delta_px << ",\n"
+                << "        \"mean_target_alignment\": "
+                << scenario.ads_manual_stress_mean_target_alignment << ",\n"
+                << "        \"mean_manual_alignment\": "
+                << scenario.ads_manual_stress_mean_manual_alignment << ",\n"
+                << "        \"direction_score\": "
+                << scenario.ads_manual_stress_direction_score << ",\n"
+                << "        \"manual_direction_score\": "
+                << scenario.ads_manual_stress_manual_direction_score << ",\n"
+                << "        \"p95_turn_degrees\": "
+                << scenario.ads_manual_stress_p95_turn_degrees << ",\n"
+                << "        \"turn_smoothness_score\": "
+                << scenario.ads_manual_stress_turn_smoothness_score << ",\n"
+                << "        \"overshoot_details\": ";
+            write_random_fov_overshoot_details_json(
+                out,
+                scenario.ads_manual_stress_overshoot_details,
+                "        ");
+            out
+                << "\n"
+                << "      }";
+        }
         out
             << "\n"
             << "    }" << (index + 1 == scenarios.size() ? "\n" : ",\n");
@@ -2428,6 +3057,58 @@ void print_summary(
                 << " max_frame_delta="
                 << scenario.ads_parity_max_single_frame_camera_delta_px;
         }
+        if (scenario.has_ads_manual_stress) {
+            std::cout
+                << " cases=" << scenario.ads_manual_stress_cases
+                << " hz=1000/" << scenario.ads_manual_stress_vision_hz
+                << " vision_samples=" << scenario.ads_manual_stress_vision_samples
+                << " no_submit_ticks="
+                << scenario.ads_manual_stress_vision_dropped_ticks
+                << " delayed="
+                << scenario.ads_manual_stress_delayed_submissions
+                << " fov_events="
+                << scenario.ads_manual_stress_fov_change_events
+                << " large_jumps="
+                << scenario.ads_manual_stress_large_vision_jumps
+                << " err_windows="
+                << scenario.ads_manual_stress_err_target_windows
+                << " err_samples="
+                << scenario.ads_manual_stress_err_target_samples
+                << " err_recovered="
+                << scenario.ads_manual_stress_err_target_recovered_windows
+                << " err_offset="
+                << scenario.ads_manual_stress_max_err_target_offset_px
+                << " err_recover_mean_ms="
+                << scenario.ads_manual_stress_mean_err_target_recovery_ms
+                << " err_recover_p95_ms="
+                << scenario.ads_manual_stress_p95_err_target_recovery_ms
+                << " err_peak="
+                << scenario.ads_manual_stress_max_err_target_recovery_error_px
+                << " mean_fov="
+                << scenario.ads_manual_stress_mean_fov_scale
+                << " max_report_age_ms="
+                << scenario.ads_manual_stress_max_report_age_ms
+                << " mean_err=" << scenario.ads_manual_stress_mean_error_px
+                << " p95_err=" << scenario.ads_manual_stress_p95_error_px
+                << " p99_err=" << scenario.ads_manual_stress_p99_error_px
+                << " final_err=" << scenario.ads_manual_stress_final_error_px
+                << " overshoots=" << scenario.ads_manual_stress_overshoot_events
+                << " over_x=" << scenario.ads_manual_stress_overshoot_events_x
+                << " over_y=" << scenario.ads_manual_stress_overshoot_events_y
+                << " ads_over=" << scenario.ads_manual_stress_overshoot_ads_snap
+                << " body_over=" << scenario.ads_manual_stress_overshoot_body_lock
+                << " manual_over=" << scenario.ads_manual_stress_overshoot_manual
+                << " large50=" << scenario.ads_manual_stress_large_overshoot_events
+                << " max_over=" << scenario.ads_manual_stress_max_overshoot_px
+                << " max_frame_delta="
+                << scenario.ads_manual_stress_max_single_frame_camera_delta_px
+                << " dir_score=" << scenario.ads_manual_stress_direction_score
+                << " manual_dir_score="
+                << scenario.ads_manual_stress_manual_direction_score
+                << " smooth_score="
+                << scenario.ads_manual_stress_turn_smoothness_score
+                << " p95_turn=" << scenario.ads_manual_stress_p95_turn_degrees;
+        }
         std::cout << "\n";
     }
     std::cout << "[NativeGamepadBenchmark] artifact=" << options.output_path.string() << "\n";
@@ -2475,6 +3156,55 @@ int main(int argc, char** argv) {
             true,
             true));
         scenarios.push_back(run_ads_fov_settle_130ms(runtime_config.gamepad, options));
+        scenarios.push_back(
+            run_ads_diagonal_manual_stress_100hz(runtime_config.gamepad));
+        scenarios.push_back(run_ads_diagonal_manual_stress_100hz(
+            runtime_config.gamepad,
+            "ads_diagonal_manual_stress_100hz_dynamic",
+            true,
+            false));
+        scenarios.push_back(run_ads_diagonal_manual_stress_100hz(
+            runtime_config.gamepad,
+            "ads_diagonal_manual_stress_100hz_dynamic_fire",
+            true,
+            true));
+        scenarios.push_back(run_ads_diagonal_manual_stress_100hz(
+            runtime_config.gamepad,
+            "ads_diagonal_late_vision_fov_occlusion_50hz",
+            false,
+            false,
+            true));
+        scenarios.push_back(run_ads_diagonal_manual_stress_100hz(
+            runtime_config.gamepad,
+            "ads_diagonal_late_vision_fov_occlusion_50hz_dynamic_fire",
+            true,
+            true,
+            true));
+        scenarios.push_back(run_ads_diagonal_manual_stress_100hz(
+            runtime_config.gamepad,
+            "ads_diagonal_late_position_fresh_timestamp_fov_occlusion_50hz_dynamic_fire",
+            true,
+            true,
+            true,
+            true));
+        scenarios.push_back(run_ads_diagonal_manual_stress_100hz(
+            runtime_config.gamepad,
+            "ads_diagonal_err_target_recovery_100hz_dynamic_fire",
+            true,
+            true,
+            false,
+            false,
+            true,
+            options.random_fov_seed));
+        scenarios.push_back(run_ads_diagonal_manual_stress_100hz(
+            runtime_config.gamepad,
+            "ads_diagonal_err_target_late_position_fov_occlusion_50hz_dynamic_fire",
+            true,
+            true,
+            true,
+            true,
+            true,
+            options.random_fov_seed));
         if (options.random_fov_ticks > 0) {
             scenarios.push_back(run_tracker_random_fov_100hz(
                 runtime_config.gamepad,

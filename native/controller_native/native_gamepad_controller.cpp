@@ -147,8 +147,16 @@ void NativeGamepadController::reset() {
     has_last_body_lock_short_plan_y_ = false;
     last_body_lock_short_plan_x_ = 0.0f;
     last_body_lock_short_plan_y_ = 0.0f;
+    has_last_body_lock_error_for_plan_ = false;
+    last_body_lock_plan_error_x_ = 0.0f;
+    last_body_lock_plan_error_y_ = 0.0f;
+    has_last_aim_error_for_plan_ = false;
+    last_aim_plan_error_x_ = 0.0f;
+    last_aim_plan_error_y_ = 0.0f;
     body_lock_short_plan_x_until_seconds_ = 0.0;
     body_lock_short_plan_y_until_seconds_ = 0.0;
+    body_lock_manual_brake_x_until_seconds_ = 0.0;
+    body_lock_manual_brake_y_until_seconds_ = 0.0;
     reset_auto_fire_readiness_tracking();
 }
 
@@ -804,12 +812,135 @@ void NativeGamepadController::apply_body_lock_short_plan(
     double now_seconds) {
     float lock_dx = 0.0f;
     float lock_dy = 0.0f;
-    if (ai_aim_.last_mode() != "body_lock" ||
-        !body_lock_error_for_state(vision_state, &lock_dx, &lock_dy)) {
+    const float manual_escape_threshold = std::max(
+        0.0f,
+        std::min(1.0f, config_.ai_aim.body_lock_manual_escape_input_threshold));
+    constexpr float kOutputDeadzone = 0.015f;
+    constexpr float kCrossErrorDeadzonePx = 1.0f;
+    constexpr float kManualCrossBrakeOutputCap = 0.18f;
+    constexpr double kManualCrossBrakeSeconds = 0.130;
+    const float manual_cross_brake_arm_px = std::max(
+        16.0f,
+        config_.ai_aim.body_lock_near_lock_error_px);
+    const auto manual_pushes_away = [](float manual, float error, bool y_axis) {
+        if (manual == 0.0f || error == 0.0f) {
+            return false;
+        }
+        return y_axis ? (manual * error > 0.0f) : (manual * error < 0.0f);
+    };
+    const auto output_pushes_away = [](float output_axis, float error, bool y_axis) {
+        if (output_axis == 0.0f || error == 0.0f) {
+            return false;
+        }
+        return y_axis ? (output_axis * error > 0.0f) : (output_axis * error < 0.0f);
+    };
+    const auto apply_active_manual_cross_brake = [&](
+        float current_error,
+        float manual_axis,
+        float& output_axis,
+        double& brake_until_seconds,
+        bool y_axis) {
+        if (brake_until_seconds <= 0.0) {
+            return;
+        }
+        if (now_seconds > brake_until_seconds) {
+            brake_until_seconds = 0.0;
+            return;
+        }
+        if (!manual_pushes_away(manual_axis, current_error, y_axis)) {
+            brake_until_seconds = 0.0;
+            return;
+        }
+        if (!output_pushes_away(output_axis, current_error, y_axis)) {
+            return;
+        }
+        if (std::fabs(output_axis) <= kManualCrossBrakeOutputCap) {
+            return;
+        }
+        output_axis = std::copysign(kManualCrossBrakeOutputCap, output_axis);
+    };
+    const auto update_manual_cross_brake = [&](
+        float previous_error,
+        float current_error,
+        float manual_axis,
+        float& output_axis,
+        double& brake_until_seconds,
+        bool y_axis) {
+        const int previous_sign = axis_sign(previous_error, kCrossErrorDeadzonePx);
+        const int current_sign = axis_sign(current_error, kCrossErrorDeadzonePx);
+        const bool crossed =
+            previous_sign != 0 && current_sign != 0 && previous_sign != current_sign;
+        const bool strong_wrong_way_near_center =
+            std::fabs(current_error) <= manual_cross_brake_arm_px &&
+            std::fabs(manual_axis) >= manual_escape_threshold &&
+            manual_pushes_away(manual_axis, current_error, y_axis);
+        if ((crossed || strong_wrong_way_near_center) &&
+            std::fabs(manual_axis) >= manual_escape_threshold &&
+            manual_pushes_away(manual_axis, current_error, y_axis)) {
+            brake_until_seconds = now_seconds + kManualCrossBrakeSeconds;
+        }
+        apply_active_manual_cross_brake(
+            current_error,
+            manual_axis,
+            output_axis,
+            brake_until_seconds,
+            y_axis);
+    };
+
+    if (vision_state.has_target && vision_state.aim_authority) {
+        if (has_last_aim_error_for_plan_) {
+            update_manual_cross_brake(
+                last_aim_plan_error_x_,
+                vision_state.dx,
+                manual_right_x,
+                output.right_x,
+                body_lock_manual_brake_x_until_seconds_,
+                false);
+            update_manual_cross_brake(
+                last_aim_plan_error_y_,
+                vision_state.dy,
+                manual_right_y,
+                output.right_y,
+                body_lock_manual_brake_y_until_seconds_,
+                true);
+        }
+        has_last_aim_error_for_plan_ = true;
+        last_aim_plan_error_x_ = vision_state.dx;
+        last_aim_plan_error_y_ = vision_state.dy;
+    } else {
+        has_last_aim_error_for_plan_ = false;
+        last_aim_plan_error_x_ = 0.0f;
+        last_aim_plan_error_y_ = 0.0f;
+    }
+
+    const bool body_lock_available =
+        ai_aim_.last_mode() == "body_lock" &&
+        body_lock_error_for_state(vision_state, &lock_dx, &lock_dy);
+    if (!body_lock_available) {
+        if (vision_state.has_target && vision_state.aim_authority) {
+            apply_active_manual_cross_brake(
+                vision_state.dx,
+                manual_right_x,
+                output.right_x,
+                body_lock_manual_brake_x_until_seconds_,
+                false);
+            apply_active_manual_cross_brake(
+                vision_state.dy,
+                manual_right_y,
+                output.right_y,
+                body_lock_manual_brake_y_until_seconds_,
+                true);
+        } else {
+            body_lock_manual_brake_x_until_seconds_ = 0.0;
+            body_lock_manual_brake_y_until_seconds_ = 0.0;
+        }
         has_last_body_lock_short_plan_x_ = false;
         has_last_body_lock_short_plan_y_ = false;
+        has_last_body_lock_error_for_plan_ = false;
         last_body_lock_short_plan_x_ = 0.0f;
         last_body_lock_short_plan_y_ = 0.0f;
+        last_body_lock_plan_error_x_ = 0.0f;
+        last_body_lock_plan_error_y_ = 0.0f;
         body_lock_short_plan_x_until_seconds_ = 0.0;
         body_lock_short_plan_y_until_seconds_ = 0.0;
         return;
@@ -817,9 +948,23 @@ void NativeGamepadController::apply_body_lock_short_plan(
 
     const float near_lock_px = std::max(1.0f, config_.ai_aim.body_lock_near_lock_error_px);
     const float error_radius = std::hypot(lock_dx, lock_dy);
-    const float manual_escape_threshold = std::max(
-        0.0f,
-        std::min(1.0f, config_.ai_aim.body_lock_manual_escape_input_threshold));
+
+    if (has_last_body_lock_error_for_plan_) {
+        update_manual_cross_brake(
+            last_body_lock_plan_error_x_,
+            lock_dx,
+            manual_right_x,
+            output.right_x,
+            body_lock_manual_brake_x_until_seconds_,
+            false);
+        update_manual_cross_brake(
+            last_body_lock_plan_error_y_,
+            lock_dy,
+            manual_right_y,
+            output.right_y,
+            body_lock_manual_brake_y_until_seconds_,
+            true);
+    }
     if (error_radius > near_lock_px) {
         body_lock_short_plan_x_until_seconds_ = 0.0;
         body_lock_short_plan_y_until_seconds_ = 0.0;
@@ -827,10 +972,12 @@ void NativeGamepadController::apply_body_lock_short_plan(
         has_last_body_lock_short_plan_y_ = true;
         last_body_lock_short_plan_x_ = output.right_x;
         last_body_lock_short_plan_y_ = output.right_y;
+        has_last_body_lock_error_for_plan_ = true;
+        last_body_lock_plan_error_x_ = lock_dx;
+        last_body_lock_plan_error_y_ = lock_dy;
         return;
     }
 
-    constexpr float kOutputDeadzone = 0.015f;
     constexpr double kShortPlanSeconds = 0.018;
     const float previous_plan_x = last_body_lock_short_plan_x_;
     const float previous_plan_y = last_body_lock_short_plan_y_;
@@ -899,6 +1046,9 @@ void NativeGamepadController::apply_body_lock_short_plan(
     has_last_body_lock_short_plan_y_ = true;
     last_body_lock_short_plan_x_ = output.right_x;
     last_body_lock_short_plan_y_ = output.right_y;
+    has_last_body_lock_error_for_plan_ = true;
+    last_body_lock_plan_error_x_ = lock_dx;
+    last_body_lock_plan_error_y_ = lock_dy;
 }
 
 void NativeGamepadController::apply_aim_assist_dynamics(

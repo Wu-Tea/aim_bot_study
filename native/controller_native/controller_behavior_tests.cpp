@@ -2844,6 +2844,119 @@ void test_controller_body_lock_short_plan_zeros_small_vector_turn_near_lock() {
         "body-lock short plan should zero y on a small near-lock vector turn");
 }
 
+void test_controller_body_lock_brakes_large_manual_after_target_crossing() {
+    controller_native::GamepadRuntimeConfig config;
+    config.ai_aim.target_max_age_ms = 0.0f;
+    config.ai_aim.piecewise_mid_pixels = 0.0f;
+    config.ai_aim.piecewise_mid_pixels_y = 0.0f;
+    config.ai_aim.deadzone_inner = 0.0f;
+    config.ai_aim.deadzone_outer = 1.0f;
+    config.ai_aim.x_deadzone_outer = 1.0f;
+    config.ai_aim.body_lock_smoothing = 0.0f;
+    config.ai_aim.body_lock_max_ai_force = 0.42f;
+    config.ai_aim.body_lock_opposing_boost_max_ai_force = 0.42f;
+    config.ai_aim.body_lock_max_ai_force_y = 0.0f;
+    config.ai_aim.body_lock_box_tolerance_px = 20.0f;
+    config.ai_aim.body_lock_activation_box_px = 180.0f;
+    config.ai_aim.body_lock_upper_body_ratio = 0.50f;
+    config.ai_aim.body_lock_confidence_frames = 1;
+    config.ai_aim.body_lock_manual_escape_input_threshold = 0.45f;
+    config.ai_aim.body_lock_manual_escape_preservation = 0.55f;
+    config.ai_aim.body_lock_near_lock_error_px = 32.0f;
+    config.aim_assist_dynamics.enabled = false;
+    config.recoil.enabled = false;
+
+    double now = 20.0;
+    controller_native::NativeGamepadController controller(
+        config,
+        [&now]() { return now; });
+
+    const auto submit_body_lock_target = [&](float lock_dx) {
+        controller_native::NativeControllerVisionState target;
+        target.has_target = true;
+        target.aim_authority = true;
+        target.fire_authority = true;
+        target.target_tier = "strong";
+        target.dx = lock_dx;
+        target.dy = 0.0f;
+        target.screen_center_x = 320.0f;
+        target.screen_center_y = 256.0f;
+        target.has_body_box = true;
+        target.body_x1 = 280.0f + lock_dx;
+        target.body_x2 = 360.0f + lock_dx;
+        target.body_y1 = 216.0f;
+        target.body_y2 = 296.0f;
+        target.observed_at_seconds = now;
+        controller.submit_vision_state(target);
+    };
+    auto strong_right_pull = []() {
+        controller_native::PhysicalGamepadState physical = aiming_physical_state();
+        physical.right_x = 0.92f;
+        return physical;
+    };
+
+    submit_body_lock_target(4.0f);
+    controller.build_output(strong_right_pull());
+
+    now = 20.001;
+    submit_body_lock_target(-4.0f);
+    controller.build_output(strong_right_pull());
+    const auto crossed = controller.last_output_components().final_stick;
+
+    require_true(
+        crossed.x <= 0.25f,
+        "body-lock should brake strong manual input that keeps pushing away after target crossing");
+}
+
+void test_controller_ads_brakes_large_manual_after_target_crossing_without_body_lock() {
+    controller_native::GamepadRuntimeConfig config;
+    config.ai_aim.target_max_age_ms = 0.0f;
+    config.ai_aim.ads_snap_window_ms = 0;
+    config.ai_aim.ads_snap_max_ai_force = 0.0f;
+    config.ai_aim.ads_snap_max_ai_force_y = 0.0f;
+    config.ai_aim.max_ai_force = 0.0f;
+    config.ai_aim.max_ai_force_y = 0.0f;
+    config.aim_assist_dynamics.enabled = false;
+    config.recoil.enabled = false;
+
+    double now = 30.0;
+    controller_native::NativeGamepadController controller(
+        config,
+        [&now]() { return now; });
+
+    const auto submit_target = [&](float dy) {
+        controller_native::NativeControllerVisionState target;
+        target.has_target = true;
+        target.aim_authority = true;
+        target.fire_authority = true;
+        target.target_tier = "strong";
+        target.dx = 96.0f;
+        target.dy = dy;
+        target.screen_center_x = 320.0f;
+        target.screen_center_y = 256.0f;
+        target.has_body_box = false;
+        target.observed_at_seconds = now;
+        controller.submit_vision_state(target);
+    };
+    auto strong_up_pull = []() {
+        controller_native::PhysicalGamepadState physical = aiming_physical_state();
+        physical.right_y = 0.82f;
+        return physical;
+    };
+
+    submit_target(-4.0f);
+    controller.build_output(strong_up_pull());
+
+    now = 30.001;
+    submit_target(4.0f);
+    controller.build_output(strong_up_pull());
+    const auto crossed = controller.last_output_components().final_stick;
+
+    require_true(
+        crossed.y <= 0.25f,
+        "ADS should brake strong manual input that keeps pushing away after target crossing without body lock");
+}
+
 void test_body_lock_clears_vertical_axis_on_near_zero_sign_flip() {
     controller_native::GamepadAiAimConfig config;
     config.max_pixels = 100.0f;
@@ -4160,6 +4273,8 @@ int main() {
         test_body_lock_preserves_more_horizontal_tail_for_moving_target_inside_release_window();
         test_body_lock_clears_release_tail_carry_on_near_zero_x_sign_flip();
         test_controller_body_lock_short_plan_zeros_small_vector_turn_near_lock();
+        test_controller_body_lock_brakes_large_manual_after_target_crossing();
+        test_controller_ads_brakes_large_manual_after_target_crossing_without_body_lock();
         test_body_lock_clears_vertical_axis_on_near_zero_sign_flip();
         test_body_lock_applies_motion_lead_after_configured_history_frames();
         test_body_lock_confidence_resets_when_body_box_no_longer_matches_target();
