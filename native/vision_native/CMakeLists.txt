@@ -189,6 +189,7 @@ add_executable(cod_native_runtime
     ../controller_native/output_mixer.cpp
     ../controller_native/controller_pipeline.cpp
     ../controller_native/vision_snapshot_adapter.cpp
+    ../controller_native/target_snapshot_provider.cpp
     ../controller_native/native_gamepad_controller.cpp
     ../controller_native/virtual_gamepad.cpp
     ../controller_native/xinput_reader.cpp
@@ -274,6 +275,7 @@ add_executable(cod_native_controller_tests
     ../controller_native/output_mixer.cpp
     ../controller_native/controller_pipeline.cpp
     ../controller_native/vision_snapshot_adapter.cpp
+    ../controller_native/target_snapshot_provider.cpp
     ../controller_native/native_gamepad_controller.cpp
 )
 
@@ -310,6 +312,32 @@ target_compile_definitions(cod_native_controller_protocol_tests
         WIN32_LEAN_AND_MEAN
 )
 
+add_executable(cod_native_target_snapshot_tests
+    ../controller_native/target_snapshot_provider_tests.cpp
+    ../controller_native/target_snapshot_provider.cpp
+    ../tracking_native/association.cpp
+    ../tracking_native/ego_motion_buffer.cpp
+    ../tracking_native/projection_model.cpp
+    ../tracking_native/tracker_authority.cpp
+    ../tracking_native/kalman_tracker.cpp
+    ../tracking_native/fps_reference_tracker.cpp
+    ../tracking_native/tracker_backend.cpp
+    ../tracking_native/legacy_projection_tracker.cpp
+    ${FPS_TRACKER_PACKAGE_SOURCES}
+)
+
+target_include_directories(cod_native_target_snapshot_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fps_2d_tracker_package/include
+)
+
+target_compile_definitions(cod_native_target_snapshot_tests
+    PRIVATE
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
+)
+
 add_executable(cod_native_gamepad_benchmark
     ../controller_native/cod_native_gamepad_benchmark.cpp
     ../tracking_native/association.cpp
@@ -334,6 +362,7 @@ add_executable(cod_native_gamepad_benchmark
     ../controller_native/output_mixer.cpp
     ../controller_native/controller_pipeline.cpp
     ../controller_native/vision_snapshot_adapter.cpp
+    ../controller_native/target_snapshot_provider.cpp
     ../controller_native/native_gamepad_controller.cpp
 )
 

@@ -5,6 +5,7 @@
 #include "controller_tick_context.h"
 #include "controller_vision_snapshot.h"
 #include "runtime_config.h"
+#include "target_snapshot_provider.h"
 #include "virtual_gamepad.h"
 #include "xinput_reader.h"
 
@@ -12,7 +13,6 @@
 
 #include <cstdint>
 #include <functional>
-#include <memory>
 #include <vector>
 
 namespace vision_native {
@@ -56,7 +56,6 @@ public:
 
 private:
     bool is_aiming(const PhysicalGamepadState& physical) const;
-    NativeControllerVisionState vision_state_for_frame(double now_seconds);
     bool auto_fire_allowed(
         const NativeControllerVisionState& vision_state,
         bool aiming,
@@ -117,16 +116,6 @@ private:
         const PhysicalGamepadState& physical,
         bool auto_fire_active,
         double now_seconds);
-    void ingest_tracker_observation(
-        const NativeControllerVisionState& state,
-        const std::vector<tracking_native::TrackerDetection>& detections,
-        std::uint64_t frame_id,
-        double capture_time_seconds,
-        double ready_time_seconds);
-    NativeControllerVisionState credibility_gated_vision_state(
-        const NativeControllerVisionState& state,
-        double query_time_seconds,
-        bool* suppress_tracker_ingest);
     void record_target_tracker_output(
         const NativeControllerOutputComponents& components,
         double now_seconds);
@@ -142,8 +131,7 @@ private:
     NativeAiAim ai_aim_;
     NativeAimAssistDynamics aim_assist_dynamics_;
     recoil_native::RecoilCompensationPolicy recoil_;
-    std::unique_ptr<tracking_native::TrackerBackend> target_tracker_;
-    NativeControllerVisionState latest_vision_state_;
+    TargetSnapshotProvider target_snapshot_provider_;
     NativeAutoFireCounters auto_fire_counters_;
     std::vector<NativeControllerStageTrace> last_pipeline_traces_;
     GamepadOutputState last_tracker_motion_output_;
@@ -153,9 +141,6 @@ private:
     bool manual_fire_was_pressed_ = false;
     bool auto_fire_was_active_ = false;
     double manual_takeover_started_at_seconds_ = -1.0;
-    double last_output_at_seconds_ = 0.0;
-    std::uint64_t latest_vision_sequence_ = 0;
-    std::uint64_t raw_vision_sequence_consumed_ = 0;
     bool ads_active_ = false;
     double ads_started_at_seconds_ = 0.0;
     int auto_fire_ready_frames_ = 0;
@@ -174,18 +159,6 @@ private:
     float last_output_validation_error_y_ = 0.0f;
     double output_validation_correction_x_until_seconds_ = 0.0;
     double output_validation_correction_y_until_seconds_ = 0.0;
-    bool has_committed_target_ = false;
-    float committed_target_dx_ = 0.0f;
-    float committed_target_dy_ = 0.0f;
-    bool has_candidate_target_ = false;
-    float candidate_target_dx_ = 0.0f;
-    float candidate_target_dy_ = 0.0f;
-    double candidate_first_observed_at_seconds_ = 0.0;
-    double candidate_last_observed_at_seconds_ = 0.0;
-    int candidate_fresh_samples_ = 0;
-    double candidate_projection_hold_until_seconds_ = 0.0;
-    double candidate_reacquire_snap_until_seconds_ = 0.0;
-    double candidate_output_hold_until_seconds_ = 0.0;
     double body_lock_short_plan_x_until_seconds_ = 0.0;
     double body_lock_short_plan_y_until_seconds_ = 0.0;
     double body_lock_manual_brake_x_until_seconds_ = 0.0;
