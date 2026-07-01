@@ -3,6 +3,7 @@
 #include "ads_state_tracker.h"
 #include "aim_assist_dynamics.h"
 #include "ai_aim.h"
+#include "auto_fire_gate.h"
 #include "controller_tick_context.h"
 #include "controller_vision_snapshot.h"
 #include "runtime_config.h"
@@ -21,12 +22,6 @@ struct VisionResult;
 }
 
 namespace controller_native {
-
-struct NativeAutoFireCounters {
-    std::uint64_t requested = 0;
-    std::uint64_t allowed = 0;
-    std::uint64_t blocked = 0;
-};
 
 struct NativeControllerStageTrace {
     std::string stage_name;
@@ -57,27 +52,10 @@ public:
 
 private:
     bool is_aiming(const PhysicalGamepadState& physical) const;
-    bool auto_fire_allowed(
-        const NativeControllerVisionState& vision_state,
-        bool aiming,
-        double now_seconds,
-        bool aim_ready) const;
-    bool has_fresh_auto_fire_source(
-        const NativeControllerVisionState& vision_state,
-        double now_seconds) const;
     bool has_fresh_aim_target(
         const NativeControllerVisionState& vision_state,
         double now_seconds) const;
     void update_ads_state(bool aiming, double now_seconds);
-    bool auto_fire_aim_ready(
-        const NativeControllerVisionState& vision_state,
-        bool aiming,
-        double now_seconds,
-        float manual_right_x,
-        float manual_right_y,
-        const GamepadOutputState& output);
-    void reset_auto_fire_readiness_tracking();
-    bool is_strong_fire_target(const NativeControllerVisionState& vision_state) const;
     bool is_strong_aim_target(const NativeControllerVisionState& vision_state) const;
     bool ads_snap_active_for_frame(
         const NativeControllerVisionState& vision_state,
@@ -90,10 +68,6 @@ private:
         float* out_dx,
         float* out_dy) const;
     bool manual_fire_pressed(const PhysicalGamepadState& physical) const;
-    double manual_takeover_elapsed(double now_seconds) const;
-    double manual_takeover_total_seconds() const;
-    void apply_auto_fire(GamepadOutputState& output, bool should_fire) const;
-    void release_fire_output(GamepadOutputState& output) const;
     void apply_ai_aim(
         GamepadOutputState& output,
         const PhysicalGamepadState& physical,
@@ -133,17 +107,13 @@ private:
     NativeAimAssistDynamics aim_assist_dynamics_;
     recoil_native::RecoilCompensationPolicy recoil_;
     AdsStateTracker ads_state_tracker_;
+    AutoFireGate auto_fire_gate_;
     TargetSnapshotProvider target_snapshot_provider_;
-    NativeAutoFireCounters auto_fire_counters_;
     std::vector<NativeControllerStageTrace> last_pipeline_traces_;
     GamepadOutputState last_tracker_motion_output_;
     NativeControllerOutputComponents last_output_components_;
     NativeControllerVisionState last_frame_vision_state_;
     std::function<double()> clock_;
-    bool manual_fire_was_pressed_ = false;
-    bool auto_fire_was_active_ = false;
-    double manual_takeover_started_at_seconds_ = -1.0;
-    int auto_fire_ready_frames_ = 0;
     bool has_last_body_lock_short_plan_x_ = false;
     bool has_last_body_lock_short_plan_y_ = false;
     float last_body_lock_short_plan_x_ = 0.0f;

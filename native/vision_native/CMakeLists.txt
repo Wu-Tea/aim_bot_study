@@ -177,6 +177,7 @@ add_executable(cod_native_runtime
     ${FPS_TRACKER_PACKAGE_SOURCES}
     ../controller_native/runtime_config.cpp
     ../controller_native/ads_state_tracker.cpp
+    ../controller_native/auto_fire_gate.cpp
     ../controller_native/target_tracker.cpp
     ../controller_native/ai_aim.cpp
     ../controller_native/bodylock_policy.cpp
@@ -264,6 +265,7 @@ add_executable(cod_native_controller_tests
     ${FPS_TRACKER_PACKAGE_SOURCES}
     ../controller_native/runtime_config.cpp
     ../controller_native/ads_state_tracker.cpp
+    ../controller_native/auto_fire_gate.cpp
     ../controller_native/target_tracker.cpp
     ../controller_native/ai_aim.cpp
     ../controller_native/bodylock_policy.cpp
@@ -356,6 +358,23 @@ target_compile_definitions(cod_native_ads_state_tests
         WIN32_LEAN_AND_MEAN
 )
 
+add_executable(cod_native_auto_fire_tests
+    ../controller_native/auto_fire_gate_tests.cpp
+    ../controller_native/auto_fire_gate.cpp
+    ../tracking_native/tracker_authority.cpp
+)
+
+target_include_directories(cod_native_auto_fire_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
+target_compile_definitions(cod_native_auto_fire_tests
+    PRIVATE
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
+)
+
 add_executable(cod_native_gamepad_benchmark
     ../controller_native/cod_native_gamepad_benchmark.cpp
     ../tracking_native/association.cpp
@@ -369,6 +388,7 @@ add_executable(cod_native_gamepad_benchmark
     ${FPS_TRACKER_PACKAGE_SOURCES}
     ../controller_native/runtime_config.cpp
     ../controller_native/ads_state_tracker.cpp
+    ../controller_native/auto_fire_gate.cpp
     ../controller_native/target_tracker.cpp
     ../controller_native/ai_aim.cpp
     ../controller_native/bodylock_policy.cpp
