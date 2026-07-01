@@ -70,6 +70,14 @@ constexpr float kCueHoldSearchGrowthPerFrame = 6.0f;
 constexpr float kCueOffsetSmoothingAlpha = 0.35f;
 constexpr float kAutoFireEdgePadding = 2.0f;
 constexpr int kAutoFireReleaseGraceFrames = 4;
+constexpr float kIntentMinStrength = 0.05f;
+constexpr float kIntentScoreScale = 700.0f;
+
+struct IntentScore {
+    bool applied = false;
+    const char* decision = "none";
+    float bonus = 0.0f;
+};
 
 bool source_equals(const char* lhs, const char* rhs) {
     return lhs != nullptr && rhs != nullptr && std::strcmp(lhs, rhs) == 0;
@@ -158,6 +166,18 @@ float point_distance(
     const std::pair<float, float>& lhs,
     const std::pair<float, float>& rhs) {
     return std::hypot(lhs.first - rhs.first, lhs.second - rhs.second);
+}
+
+float clamp01(float value) {
+    return std::max(0.0f, std::min(1.0f, value));
+}
+
+std::optional<std::pair<float, float>> normalized_vector(float x, float y) {
+    const float length = std::hypot(x, y);
+    if (length <= 0.001f) {
+        return std::nullopt;
+    }
+    return std::make_pair(x / length, y / length);
 }
 
 float aspect_ratio_h_over_w(float box_w, float box_h) {
@@ -314,6 +334,62 @@ bool in_hsv_range(
     return lower_h <= h && h <= upper_h
         && lower_s <= s && s <= upper_s
         && lower_v <= v && v <= upper_v;
+}
+
+IntentScore score_intent(
+    const VisionTargetSelector::Candidate& candidate,
+    float screen_center_x,
+    float screen_center_y,
+    float frame_width,
+    float frame_height,
+    const pipeline_contract::UserAimIntent* intent) {
+    if (intent == nullptr || !intent->valid || !intent->aiming) {
+        return {};
+    }
+
+    const float strength = clamp01(intent->strength);
+    if (strength < kIntentMinStrength) {
+        return {};
+    }
+
+    if (intent->has_point) {
+        const float avg_dim = (frame_width + frame_height) * 0.5f;
+        const float max_distance = std::max(1.0f, avg_dim * 0.45f);
+        const float distance = std::hypot(
+            candidate.target_x - intent->point_px.x,
+            candidate.target_y - intent->point_px.y);
+        const float proximity = clamp01(1.0f - (distance / max_distance));
+        if (proximity <= 0.0f) {
+            return {};
+        }
+        return IntentScore{true, "applied_point", proximity * strength * kIntentScoreScale};
+    }
+
+    if (!intent->has_direction) {
+        return {};
+    }
+
+    const auto intent_direction =
+        normalized_vector(intent->direction.x, intent->direction.y);
+    const auto candidate_direction = normalized_vector(
+        candidate.target_x - screen_center_x,
+        candidate.target_y - screen_center_y);
+    if (!intent_direction.has_value() || !candidate_direction.has_value()) {
+        return {};
+    }
+
+    const float alignment =
+        (intent_direction->first * candidate_direction->first)
+        + (intent_direction->second * candidate_direction->second);
+    const float positive_alignment = clamp01(alignment);
+    if (positive_alignment <= 0.0f) {
+        return {};
+    }
+    return IntentScore{
+        true,
+        "applied_direction",
+        positive_alignment * strength * kIntentScoreScale,
+    };
 }
 
 bool is_friendly_hsv(float h, float s, float v) {
@@ -572,6 +648,9 @@ VisionResult VisionTargetSelector::result_from_target(const TargetState& target,
     result.fire_authority = fire_authority_for_source(target.candidate.source);
     result.association_stage = target.candidate.source;
     result.target_confidence = target.candidate.conf;
+    result.intent_applied = target.intent_applied;
+    result.intent_decision = target.intent_decision;
+    result.intent_score = target.intent_score;
     return result;
 }
 
@@ -889,7 +968,8 @@ bool VisionTargetSelector::prefer_candidate(
 
 VisionTargetSelector::ScoredCandidate VisionTargetSelector::score_candidate(
     const Candidate& candidate,
-    const std::optional<std::pair<float, float>>& last_target_center) const {
+    const std::optional<std::pair<float, float>>& last_target_center,
+    const pipeline_contract::UserAimIntent* intent) const {
     const float half_w = frame_width_ * 0.5f;
     const float half_h = frame_height_ * 0.5f;
     const float norm_dx = (candidate.target_x - screen_center_x_) / half_w;
@@ -912,12 +992,23 @@ VisionTargetSelector::ScoredCandidate VisionTargetSelector::score_candidate(
         candidate.target_y,
         last_target_center);
     score += tracking_bonus_for_distance(distance);
+    const IntentScore intent_score = score_intent(
+        candidate,
+        screen_center_x_,
+        screen_center_y_,
+        frame_width_,
+        frame_height_,
+        intent);
+    score += intent_score.bonus;
 
     ScoredCandidate scored;
     scored.candidate = candidate;
     scored.score = score;
     scored.has_tracking_distance = distance.has_value();
     scored.tracking_distance = distance.value_or(0.0f);
+    scored.intent_applied = intent_score.applied;
+    scored.intent_decision = intent_score.decision;
+    scored.intent_score = intent_score.bonus;
     return scored;
 }
 
@@ -927,6 +1018,15 @@ VisionTargetSelector::TargetState VisionTargetSelector::target_from_candidate(
     TargetState target;
     target.candidate = candidate;
     target.score = score;
+    return target;
+}
+
+VisionTargetSelector::TargetState VisionTargetSelector::target_from_scored_candidate(
+    const ScoredCandidate& scored) const {
+    TargetState target = target_from_candidate(scored.candidate, scored.score);
+    target.intent_applied = scored.intent_applied;
+    target.intent_decision = scored.intent_decision;
+    target.intent_score = scored.intent_score;
     return target;
 }
 
@@ -1121,13 +1221,17 @@ std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::commit_ta
         clear_switch_pending();
     }
 
-    active_target_ = *committed;
+    TargetState stored_target = *committed;
+    stored_target.intent_applied = false;
+    stored_target.intent_decision = "none";
+    stored_target.intent_score = 0.0f;
+    active_target_ = stored_target;
     hold_frames_ = 0;
     last_target_center_ = {
         active_target_->candidate.target_x,
         active_target_->candidate.target_y,
     };
-    return active_target_;
+    return committed;
 }
 
 std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::select_single_candidate(
@@ -1138,14 +1242,15 @@ std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::select_si
 std::pair<std::optional<VisionTargetSelector::TargetState>, std::optional<VisionTargetSelector::TargetState>>
 VisionTargetSelector::select_multi_candidate(
     const std::vector<Candidate>& candidates,
-    const std::optional<std::pair<float, float>>& last_target_center) const {
+    const std::optional<std::pair<float, float>>& last_target_center,
+    const pipeline_contract::UserAimIntent* intent) const {
     std::optional<ScoredCandidate> best;
     std::optional<ScoredCandidate> tracked;
     std::optional<ScoredCandidate> best_non_active;
     std::optional<std::pair<float, ScoredCandidate>> active_match;
 
     for (const auto& candidate : candidates) {
-        const ScoredCandidate scored = score_candidate(candidate, last_target_center);
+        const ScoredCandidate scored = score_candidate(candidate, last_target_center, intent);
         if (prefer_candidate(best, scored)) {
             best = scored;
         }
@@ -1190,20 +1295,16 @@ VisionTargetSelector::select_multi_candidate(
     }
 
     if (active_match.has_value() && best_non_active.has_value()) {
-        const TargetState locked = target_from_candidate(
-            active_match->second.candidate,
-            active_match->second.score);
-        const TargetState challenger = target_from_candidate(
-            best_non_active->candidate,
-            best_non_active->score);
+        const TargetState locked = target_from_scored_candidate(active_match->second);
+        const TargetState challenger = target_from_scored_candidate(*best_non_active);
         if (should_escape_stale_active_match(locked, challenger)) {
             best = best_non_active;
         }
     }
 
-    const std::optional<TargetState> chosen_target = target_from_candidate(best->candidate, best->score);
+    const std::optional<TargetState> chosen_target = target_from_scored_candidate(*best);
     const std::optional<TargetState> active_match_target = active_match.has_value()
-        ? std::optional<TargetState>(target_from_candidate(active_match->second.candidate, active_match->second.score))
+        ? std::optional<TargetState>(target_from_scored_candidate(active_match->second))
         : std::nullopt;
     return {chosen_target, active_match_target};
 }
@@ -1211,7 +1312,8 @@ VisionTargetSelector::select_multi_candidate(
 std::pair<std::optional<VisionTargetSelector::TargetState>, std::optional<VisionTargetSelector::TargetState>>
 VisionTargetSelector::select_candidate_targets(
     const std::vector<Candidate>& candidates,
-    const std::optional<std::pair<float, float>>& last_target_center) const {
+    const std::optional<std::pair<float, float>>& last_target_center,
+    const pipeline_contract::UserAimIntent* intent) const {
     if (candidates.empty()) {
         return {std::nullopt, std::nullopt};
     }
@@ -1222,7 +1324,7 @@ VisionTargetSelector::select_candidate_targets(
             : std::nullopt;
         return {chosen, active_match};
     }
-    return select_multi_candidate(candidates, last_target_center);
+    return select_multi_candidate(candidates, last_target_center, intent);
 }
 
 std::pair<std::optional<VisionTargetSelector::TargetState>, bool>
@@ -1485,7 +1587,19 @@ VisionResult VisionTargetSelector::finalize_selected_target(
 }
 
 VisionResult VisionTargetSelector::select(const DetectionBatch& batch) {
-    VisionResult result = select_impl(batch, nullptr);
+    VisionResult result = select_impl(batch, nullptr, nullptr);
+    result.preprocess_mode = batch.preprocess_mode;
+    result.detections = batch.detections;
+    return result;
+}
+
+VisionResult VisionTargetSelector::select(
+    const DetectionBatch& batch,
+    const pipeline_contract::UserAimIntent& intent) {
+    VisionResult result = select_impl(batch, nullptr, &intent);
+    if (intent.valid) {
+        result.intent_id = intent.intent_id;
+    }
     result.preprocess_mode = batch.preprocess_mode;
     result.detections = batch.detections;
     return result;
@@ -1495,7 +1609,21 @@ VisionResult VisionTargetSelector::select_with_frame(
     const DetectionBatch& batch,
     const ColorFrameView& frame) {
     DetectionBatch annotated = annotate_colors(batch, frame);
-    VisionResult result = select_impl(annotated, &frame);
+    VisionResult result = select_impl(annotated, &frame, nullptr);
+    result.preprocess_mode = batch.preprocess_mode;
+    result.detections = std::move(annotated.detections);
+    return result;
+}
+
+VisionResult VisionTargetSelector::select_with_frame(
+    const DetectionBatch& batch,
+    const ColorFrameView& frame,
+    const pipeline_contract::UserAimIntent& intent) {
+    DetectionBatch annotated = annotate_colors(batch, frame);
+    VisionResult result = select_impl(annotated, &frame, &intent);
+    if (intent.valid) {
+        result.intent_id = intent.intent_id;
+    }
     result.preprocess_mode = batch.preprocess_mode;
     result.detections = std::move(annotated.detections);
     return result;
@@ -1503,7 +1631,8 @@ VisionResult VisionTargetSelector::select_with_frame(
 
 VisionResult VisionTargetSelector::select_impl(
     const DetectionBatch& batch,
-    const ColorFrameView* frame) {
+    const ColorFrameView* frame,
+    const pipeline_contract::UserAimIntent* intent) {
     const float boxes_seen = static_cast<float>(batch.detections.size());
     const auto last_target_center = last_target_center_;
     build_candidates(batch, last_target_center);
@@ -1562,7 +1691,7 @@ VisionResult VisionTargetSelector::select_impl(
         return result;
     }
 
-    const auto selected = select_candidate_targets(candidates, last_target_center);
+    const auto selected = select_candidate_targets(candidates, last_target_center, intent);
     if (!selected.first.has_value()) {
         return hold_or_reset(boxes_seen);
     }

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "pipeline_contract/target_snapshot.h"
 #include "vision_native/types.h"
 
 #include <cstdint>
@@ -34,7 +35,14 @@ public:
 
     void reset();
     VisionResult select(const DetectionBatch& batch);
+    VisionResult select(
+        const DetectionBatch& batch,
+        const pipeline_contract::UserAimIntent& intent);
     VisionResult select_with_frame(const DetectionBatch& batch, const ColorFrameView& frame);
+    VisionResult select_with_frame(
+        const DetectionBatch& batch,
+        const ColorFrameView& frame,
+        const pipeline_contract::UserAimIntent& intent);
     bool wants_color_frame() const;
     std::optional<FrameRegion> required_color_region(const DetectionBatch& batch) const;
 
@@ -65,17 +73,26 @@ public:
         float score = 0.0f;
         bool has_tracking_distance = false;
         float tracking_distance = 0.0f;
+        bool intent_applied = false;
+        const char* intent_decision = "none";
+        float intent_score = 0.0f;
     };
 
     struct TargetState {
         Candidate candidate;
         float score = 0.0f;
+        bool intent_applied = false;
+        const char* intent_decision = "none";
+        float intent_score = 0.0f;
     };
 
 private:
     VisionResult empty_result(float boxes_seen) const;
     VisionResult result_from_target(const TargetState& target, float boxes_seen) const;
-    VisionResult select_impl(const DetectionBatch& batch, const ColorFrameView* frame);
+    VisionResult select_impl(
+        const DetectionBatch& batch,
+        const ColorFrameView* frame,
+        const pipeline_contract::UserAimIntent* intent);
 
     Rect to_rect(const Detection& detection) const;
     std::pair<float, float> target_point(const Rect& box) const;
@@ -110,8 +127,10 @@ private:
         const ScoredCandidate& challenger) const;
     ScoredCandidate score_candidate(
         const Candidate& candidate,
-        const std::optional<std::pair<float, float>>& last_target_center) const;
+        const std::optional<std::pair<float, float>>& last_target_center,
+        const pipeline_contract::UserAimIntent* intent) const;
     TargetState target_from_candidate(const Candidate& candidate, float score) const;
+    TargetState target_from_scored_candidate(const ScoredCandidate& scored) const;
 
     bool boxes_match(const Rect& lhs, const Rect& rhs) const;
     bool targets_match(const TargetState& lhs, const TargetState& rhs) const;
@@ -132,10 +151,12 @@ private:
     std::optional<TargetState> select_single_candidate(const Candidate& candidate) const;
     std::pair<std::optional<TargetState>, std::optional<TargetState>> select_multi_candidate(
         const std::vector<Candidate>& candidates,
-        const std::optional<std::pair<float, float>>& last_target_center) const;
+        const std::optional<std::pair<float, float>>& last_target_center,
+        const pipeline_contract::UserAimIntent* intent) const;
     std::pair<std::optional<TargetState>, std::optional<TargetState>> select_candidate_targets(
         const std::vector<Candidate>& candidates,
-        const std::optional<std::pair<float, float>>& last_target_center) const;
+        const std::optional<std::pair<float, float>>& last_target_center,
+        const pipeline_contract::UserAimIntent* intent) const;
 
     std::pair<std::optional<TargetState>, bool> resolve_active_target_transition(
         const TargetState& chosen_target,

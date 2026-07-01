@@ -103,6 +103,7 @@ target_compile_options(fusion_shared PRIVATE
 target_include_directories(vision_native_core
     PUBLIC
         include
+        ${CMAKE_CURRENT_SOURCE_DIR}/..
     PRIVATE
         "${TensorRT_INCLUDE_DIR}"
 )
@@ -143,6 +144,23 @@ add_executable(vision_native_bgra_benchmark
 )
 
 target_link_libraries(vision_native_bgra_benchmark PRIVATE vision_native_core)
+
+add_executable(cod_native_target_selector_tests
+    src/target_selector_tests.cpp
+)
+
+target_include_directories(cod_native_target_selector_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
+target_compile_definitions(cod_native_target_selector_tests
+    PRIVATE
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
+)
+
+target_link_libraries(cod_native_target_selector_tests PRIVATE vision_native_core)
 
 # Native runtime source layout: native/runtime_app and native/controller_native.
 set(FPS_TRACKER_PACKAGE_SOURCES
