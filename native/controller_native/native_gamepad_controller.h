@@ -4,6 +4,7 @@
 #include "aim_assist_dynamics.h"
 #include "ai_aim.h"
 #include "auto_fire_gate.h"
+#include "body_lock_short_plan_policy.h"
 #include "controller_tick_context.h"
 #include "controller_vision_snapshot.h"
 #include "output_validation_policy.h"
@@ -109,6 +110,7 @@ private:
     recoil_native::RecoilCompensationPolicy recoil_;
     AdsStateTracker ads_state_tracker_;
     AutoFireGate auto_fire_gate_;
+    BodyLockShortPlanPolicy body_lock_short_plan_policy_;
     OutputValidationPolicy output_validation_policy_;
     TargetSnapshotProvider target_snapshot_provider_;
     std::vector<NativeControllerStageTrace> last_pipeline_traces_;
@@ -116,22 +118,6 @@ private:
     NativeControllerOutputComponents last_output_components_;
     NativeControllerVisionState last_frame_vision_state_;
     std::function<double()> clock_;
-    bool has_last_body_lock_short_plan_x_ = false;
-    bool has_last_body_lock_short_plan_y_ = false;
-    float last_body_lock_short_plan_x_ = 0.0f;
-    float last_body_lock_short_plan_y_ = 0.0f;
-    bool has_last_body_lock_error_for_plan_ = false;
-    float last_body_lock_plan_error_x_ = 0.0f;
-    float last_body_lock_plan_error_y_ = 0.0f;
-    bool has_last_aim_error_for_plan_ = false;
-    float last_aim_plan_error_x_ = 0.0f;
-    float last_aim_plan_error_y_ = 0.0f;
-    double body_lock_short_plan_x_until_seconds_ = 0.0;
-    double body_lock_short_plan_y_until_seconds_ = 0.0;
-    double body_lock_manual_brake_x_until_seconds_ = 0.0;
-    double body_lock_manual_brake_y_until_seconds_ = 0.0;
-    int body_lock_manual_brake_x_sign_ = 0;
-    int body_lock_manual_brake_y_sign_ = 0;
 };
 
 }  // namespace controller_native
