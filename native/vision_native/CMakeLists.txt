@@ -189,6 +189,7 @@ add_executable(cod_native_runtime
     ../recoil_native/recoil_visual_model.cpp
     ../controller_native/weapon_recognizer.cpp
     ../controller_native/output_mixer.cpp
+    ../controller_native/output_validation_policy.cpp
     ../controller_native/controller_pipeline.cpp
     ../controller_native/vision_snapshot_adapter.cpp
     ../controller_native/target_snapshot_provider.cpp
@@ -277,6 +278,7 @@ add_executable(cod_native_controller_tests
     ../recoil_native/recoil_visual_model.cpp
     ../controller_native/weapon_recognizer.cpp
     ../controller_native/output_mixer.cpp
+    ../controller_native/output_validation_policy.cpp
     ../controller_native/controller_pipeline.cpp
     ../controller_native/vision_snapshot_adapter.cpp
     ../controller_native/target_snapshot_provider.cpp
@@ -375,6 +377,23 @@ target_compile_definitions(cod_native_auto_fire_tests
         WIN32_LEAN_AND_MEAN
 )
 
+add_executable(cod_native_output_validation_tests
+    ../controller_native/output_validation_policy_tests.cpp
+    ../controller_native/output_validation_policy.cpp
+    ../tracking_native/tracker_authority.cpp
+)
+
+target_include_directories(cod_native_output_validation_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
+target_compile_definitions(cod_native_output_validation_tests
+    PRIVATE
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
+)
+
 add_executable(cod_native_gamepad_benchmark
     ../controller_native/cod_native_gamepad_benchmark.cpp
     ../tracking_native/association.cpp
@@ -399,6 +418,7 @@ add_executable(cod_native_gamepad_benchmark
     ../recoil_native/recoil_compensation.cpp
     ../recoil_native/recoil_visual_model.cpp
     ../controller_native/output_mixer.cpp
+    ../controller_native/output_validation_policy.cpp
     ../controller_native/controller_pipeline.cpp
     ../controller_native/vision_snapshot_adapter.cpp
     ../controller_native/target_snapshot_provider.cpp

@@ -6,6 +6,7 @@
 #include "auto_fire_gate.h"
 #include "controller_tick_context.h"
 #include "controller_vision_snapshot.h"
+#include "output_validation_policy.h"
 #include "runtime_config.h"
 #include "target_snapshot_provider.h"
 #include "virtual_gamepad.h"
@@ -108,6 +109,7 @@ private:
     recoil_native::RecoilCompensationPolicy recoil_;
     AdsStateTracker ads_state_tracker_;
     AutoFireGate auto_fire_gate_;
+    OutputValidationPolicy output_validation_policy_;
     TargetSnapshotProvider target_snapshot_provider_;
     std::vector<NativeControllerStageTrace> last_pipeline_traces_;
     GamepadOutputState last_tracker_motion_output_;
@@ -124,11 +126,6 @@ private:
     bool has_last_aim_error_for_plan_ = false;
     float last_aim_plan_error_x_ = 0.0f;
     float last_aim_plan_error_y_ = 0.0f;
-    bool has_last_output_validation_error_ = false;
-    float last_output_validation_error_x_ = 0.0f;
-    float last_output_validation_error_y_ = 0.0f;
-    double output_validation_correction_x_until_seconds_ = 0.0;
-    double output_validation_correction_y_until_seconds_ = 0.0;
     double body_lock_short_plan_x_until_seconds_ = 0.0;
     double body_lock_short_plan_y_until_seconds_ = 0.0;
     double body_lock_manual_brake_x_until_seconds_ = 0.0;
