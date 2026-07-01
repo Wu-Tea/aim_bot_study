@@ -2904,7 +2904,7 @@ void test_controller_body_lock_brakes_large_manual_after_target_crossing() {
     const auto crossed = controller.last_output_components().final_stick;
 
     require_true(
-        crossed.x <= 0.10f,
+        crossed.x <= 0.26f,
         "body-lock should tightly brake strong manual input that keeps pushing away after target crossing");
 
     now = 20.021;
@@ -2912,9 +2912,88 @@ void test_controller_body_lock_brakes_large_manual_after_target_crossing() {
     controller.build_output(strong_right_pull());
     const auto sustained = controller.last_output_components().final_stick;
 
+    if (!(sustained.x <= 0.26f)) {
+        std::ostringstream out;
+        out << "body-lock should keep sustained wrong-way manual brake bounded actual="
+            << sustained.x;
+        throw std::runtime_error(out.str());
+    }
+}
+
+void test_controller_body_lock_preserves_helpful_manual_near_lock_edge() {
+    controller_native::GamepadRuntimeConfig config;
+    config.ai_aim.target_max_age_ms = 0.0f;
+    config.ai_aim.piecewise_mid_pixels = 0.0f;
+    config.ai_aim.piecewise_mid_pixels_y = 0.0f;
+    config.ai_aim.deadzone_inner = 0.0f;
+    config.ai_aim.deadzone_outer = 1.0f;
+    config.ai_aim.x_deadzone_outer = 1.0f;
+    config.ai_aim.ads_snap_window_ms = 0;
+    config.ai_aim.max_ai_force = 0.0f;
+    config.ai_aim.max_ai_force_y = 0.0f;
+    config.ai_aim.body_lock_smoothing = 0.0f;
+    config.ai_aim.body_lock_max_ai_force = 0.42f;
+    config.ai_aim.body_lock_opposing_boost_max_ai_force = 0.42f;
+    config.ai_aim.body_lock_max_ai_force_y = 0.0f;
+    config.ai_aim.body_lock_box_tolerance_px = 20.0f;
+    config.ai_aim.body_lock_activation_box_px = 180.0f;
+    config.ai_aim.body_lock_upper_body_ratio = 0.50f;
+    config.ai_aim.body_lock_confidence_frames = 1;
+    config.ai_aim.body_lock_manual_escape_input_threshold = 0.45f;
+    config.ai_aim.body_lock_manual_escape_preservation = 0.55f;
+    config.ai_aim.body_lock_near_lock_error_px = 52.0f;
+    config.aim_assist_dynamics.enabled = false;
+    config.recoil.enabled = false;
+
+    double now = 21.0;
+    controller_native::NativeGamepadController controller(
+        config,
+        [&now]() { return now; });
+
+    const auto submit_body_lock_target = [&](float lock_dx) {
+        controller_native::NativeControllerVisionState target;
+        target.has_target = true;
+        target.aim_authority = true;
+        target.fire_authority = true;
+        target.target_tier = "strong";
+        target.dx = lock_dx;
+        target.dy = 0.0f;
+        target.screen_center_x = 320.0f;
+        target.screen_center_y = 256.0f;
+        target.has_body_box = true;
+        target.body_x1 = 280.0f + lock_dx;
+        target.body_x2 = 360.0f + lock_dx;
+        target.body_y1 = 216.0f;
+        target.body_y2 = 296.0f;
+        target.observed_at_seconds = now;
+        controller.submit_vision_state(target);
+    };
+    auto helpful_right_pull = []() {
+        controller_native::PhysicalGamepadState physical = aiming_physical_state();
+        physical.right_x = 0.50f;
+        return physical;
+    };
+
+    constexpr float kNearLockDx[] = {50.0f, 49.0f, 51.0f, 50.0f, 48.0f, 50.0f};
+    float min_output_x = 1.0f;
+    int hard_brake_frames = 0;
+    for (float lock_dx : kNearLockDx) {
+        submit_body_lock_target(lock_dx);
+        controller.build_output(helpful_right_pull());
+        const auto output = controller.last_output_components().final_stick;
+        min_output_x = std::min(min_output_x, output.x);
+        if (output.x < 0.45f) {
+            ++hard_brake_frames;
+        }
+        now += 0.010;
+    }
+
     require_true(
-        sustained.x <= 0.10f,
-        "body-lock should keep sustained wrong-way manual brake below the low cap");
+        hard_brake_frames == 0,
+        "body-lock should not repeatedly slow helpful manual input around the near-lock edge");
+    require_true(
+        min_output_x >= 0.45f,
+        "body-lock should preserve most of a useful rightward correction near the 50px lock edge");
 }
 
 void test_controller_ads_brakes_large_manual_after_target_crossing_without_body_lock() {
@@ -2962,7 +3041,7 @@ void test_controller_ads_brakes_large_manual_after_target_crossing_without_body_
     const auto crossed = controller.last_output_components().final_stick;
 
     require_true(
-        crossed.y <= 0.10f,
+        crossed.y <= 0.26f,
         "ADS should tightly brake strong manual input that keeps pushing away after target crossing without body lock");
 
     now = 30.021;
@@ -2971,11 +3050,11 @@ void test_controller_ads_brakes_large_manual_after_target_crossing_without_body_
     const auto sustained = controller.last_output_components().final_stick;
 
     require_true(
-        sustained.y <= 0.10f,
-        "ADS should keep sustained wrong-way manual brake below the low cap");
+        sustained.y <= 0.26f,
+        "ADS should keep sustained wrong-way manual brake bounded");
 }
 
-void test_controller_ads_zeros_small_manual_after_target_crossing_without_body_lock() {
+void test_controller_ads_corrects_small_manual_after_target_crossing_without_body_lock() {
     controller_native::GamepadRuntimeConfig config;
     config.ai_aim.target_max_age_ms = 0.0f;
     config.ai_aim.ads_snap_window_ms = 0;
@@ -3020,8 +3099,8 @@ void test_controller_ads_zeros_small_manual_after_target_crossing_without_body_l
     const auto crossed = controller.last_output_components().final_stick;
 
     require_true(
-        std::fabs(crossed.y) <= 0.02f,
-        "ADS should zero small wrong-way manual input immediately after target crossing");
+        crossed.y < -0.03f && crossed.y >= -0.10f,
+        "ADS should turn small wrong-way manual input into a bounded correction after target crossing");
 
     now = 31.021;
     submit_target(4.0f);
@@ -3029,8 +3108,8 @@ void test_controller_ads_zeros_small_manual_after_target_crossing_without_body_l
     const auto sustained = controller.last_output_components().final_stick;
 
     require_true(
-        std::fabs(sustained.y) <= 0.02f,
-        "ADS should keep small wrong-way manual input zeroed during the brake window");
+        sustained.y < -0.03f && sustained.y >= -0.10f,
+        "ADS should keep a bounded correction during the brake window instead of zeroing output");
 }
 
 void test_controller_ads_cross_brake_survives_fresh_stale_sign_flip() {
@@ -3079,19 +3158,19 @@ void test_controller_ads_cross_brake_survives_fresh_stale_sign_flip() {
     controller.build_output(left_pull());
     const auto crossed = controller.last_output_components().final_stick;
     require_true(
-        std::fabs(crossed.x) <= 0.02f,
-        "ADS x crossing should arm a short brake for the wrong-way manual direction");
+        crossed.x > 0.03f && crossed.x <= 0.14f,
+        "ADS x crossing should apply a bounded correction for the wrong-way manual direction");
 
     now = 32.021;
     submit_target(-18.0f);
     controller.build_output(left_pull());
     const auto stale_sign = controller.last_output_components().final_stick;
     require_true(
-        std::fabs(stale_sign.x) <= 0.02f,
-        "fresh-stale vision sign flip should not release an active ADS cross brake while manual direction is unchanged");
+        stale_sign.x < -0.03f,
+        "fresh-stale vision sign flip should allow the current helpful manual direction instead of hard-zeroing");
 }
 
-void test_controller_output_validation_zeros_wrong_way_after_x_crossing() {
+void test_controller_output_validation_corrects_wrong_way_after_x_crossing() {
     controller_native::GamepadRuntimeConfig config;
     config.ai_aim.target_max_age_ms = 0.0f;
     config.ai_aim.ads_snap_window_ms = 0;
@@ -3138,8 +3217,8 @@ void test_controller_output_validation_zeros_wrong_way_after_x_crossing() {
     const auto crossed = controller.last_output_components().final_stick;
 
     require_true(
-        std::fabs(crossed.x) <= 0.05f,
-        "target-aware output validation should zero a crossed x axis that keeps pushing away");
+        crossed.x < -0.03f && crossed.x >= -0.26f,
+        "target-aware output validation should correct a crossed x axis that keeps pushing away");
 }
 
 void test_controller_output_validation_caps_only_crossed_axis_on_diagonal() {
@@ -3190,8 +3269,8 @@ void test_controller_output_validation_caps_only_crossed_axis_on_diagonal() {
     const auto crossed = controller.last_output_components().final_stick;
 
     require_true(
-        std::fabs(crossed.x) <= 0.05f,
-        "target-aware output validation should zero only the crossed x axis");
+        crossed.x < -0.03f && crossed.x >= -0.26f,
+        "target-aware output validation should correct only the crossed x axis");
     require_true(
         crossed.y >= 0.35f,
         "target-aware output validation should preserve the still-correct y correction");
@@ -3239,7 +3318,7 @@ void test_controller_output_validation_yields_to_manual_correction_with_tracker_
         "manual correction backed by tracker reference should not be opposed by stale AI aim");
 }
 
-void test_controller_output_validation_zeros_stale_observed_wrong_way_ads_manual() {
+void test_controller_output_validation_corrects_stale_observed_wrong_way_ads_manual() {
     controller_native::GamepadRuntimeConfig config;
     config.ai_aim.target_max_age_ms = 80.0f;
     config.ai_aim.ads_snap_window_ms = 0;
@@ -3272,11 +3351,9 @@ void test_controller_output_validation_zeros_stale_observed_wrong_way_ads_manual
     controller.build_output(physical);
     const auto output = controller.last_output_components().final_stick;
 
-    require_near(
-        output.x,
-        0.0f,
-        0.02f,
-        "stale observed ADS target should zero wrong-way manual output before TTL expiry");
+    require_true(
+        output.x > 0.03f && output.x <= 0.14f,
+        "stale observed ADS target should apply a bounded correction before TTL expiry");
 }
 
 void test_controller_suspicious_target_jump_holds_ai_aim_until_verified() {
@@ -5272,13 +5349,14 @@ int main() {
         test_body_lock_clears_release_tail_carry_on_near_zero_x_sign_flip();
         test_controller_body_lock_short_plan_zeros_small_vector_turn_near_lock();
         test_controller_body_lock_brakes_large_manual_after_target_crossing();
+        test_controller_body_lock_preserves_helpful_manual_near_lock_edge();
         test_controller_ads_brakes_large_manual_after_target_crossing_without_body_lock();
-        test_controller_ads_zeros_small_manual_after_target_crossing_without_body_lock();
+        test_controller_ads_corrects_small_manual_after_target_crossing_without_body_lock();
         test_controller_ads_cross_brake_survives_fresh_stale_sign_flip();
-        test_controller_output_validation_zeros_wrong_way_after_x_crossing();
+        test_controller_output_validation_corrects_wrong_way_after_x_crossing();
         test_controller_output_validation_caps_only_crossed_axis_on_diagonal();
         test_controller_output_validation_yields_to_manual_correction_with_tracker_reference();
-        test_controller_output_validation_zeros_stale_observed_wrong_way_ads_manual();
+        test_controller_output_validation_corrects_stale_observed_wrong_way_ads_manual();
         test_controller_suspicious_target_jump_holds_ai_aim_until_verified();
         test_controller_moderate_stale_jump_coasts_on_tracker_projection();
         test_controller_fresh_stale_jump_inside_candidate_threshold_uses_tracker_projection();

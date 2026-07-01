@@ -1,0 +1,190 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/sda/app_config.schema.json",
+  "title": "SoundDirectionAssist App Config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "audio",
+    "direction",
+    "overlay",
+    "privacy"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "audio": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "capture_mode",
+        "internal_sample_rate_hz",
+        "channels"
+      ],
+      "properties": {
+        "capture_mode": {
+          "enum": [
+            "process_loopback",
+            "endpoint_loopback",
+            "wav_replay",
+            "synthetic"
+          ]
+        },
+        "target_pid": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "internal_sample_rate_hz": {
+          "type": "integer",
+          "const": 48000
+        },
+        "channels": {
+          "type": "integer",
+          "const": 2
+        },
+        "ring_buffer_ms": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 5000,
+          "default": 1000
+        }
+      }
+    },
+    "direction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "min_confidence",
+        "unknown_enabled"
+      ],
+      "properties": {
+        "mode": {
+          "enum": [
+            "three_way",
+            "four_way",
+            "eight_way"
+          ]
+        },
+        "ild_center_threshold_db": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 20,
+          "default": 1.5
+        },
+        "gcc_max_lag_ms": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 5.0,
+          "default": 1.2
+        },
+        "min_confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.65
+        },
+        "unknown_enabled": {
+          "type": "boolean",
+          "const": true
+        }
+      }
+    },
+    "overlay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "opacity",
+        "scale",
+        "click_through_when_locked"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "opacity": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 1.0,
+          "default": 0.85
+        },
+        "scale": {
+          "type": "number",
+          "minimum": 0.5,
+          "maximum": 3.0,
+          "default": 1.0
+        },
+        "click_through_when_locked": {
+          "type": "boolean",
+          "default": true
+        },
+        "always_on_top": {
+          "type": "boolean",
+          "default": true
+        },
+        "show_numeric_confidence": {
+          "type": "boolean",
+          "default": false
+        },
+        "reduce_motion": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "record_raw_audio",
+        "telemetry",
+        "network_enabled"
+      ],
+      "properties": {
+        "record_raw_audio": {
+          "type": "boolean",
+          "const": false
+        },
+        "telemetry": {
+          "type": "boolean",
+          "const": false
+        },
+        "network_enabled": {
+          "type": "boolean",
+          "const": false
+        }
+      }
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[a-fA-F0-9]{64}$"
+        }
+      }
+    }
+  }
+}

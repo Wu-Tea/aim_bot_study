@@ -51,6 +51,33 @@ int axis_sign(float value, float deadzone) {
     return 0;
 }
 
+constexpr float kWrongWayCorrectionCap = 0.24f;
+constexpr float kWrongWayCorrectionMin = 0.08f;
+
+float target_correction_sign(float error, bool y_axis, float error_deadzone) {
+    const int error_sign = axis_sign(error, error_deadzone);
+    if (error_sign == 0) {
+        return 0.0f;
+    }
+    return static_cast<float>(y_axis ? -error_sign : error_sign);
+}
+
+float bounded_wrong_way_correction(
+    float output_axis,
+    float current_error,
+    bool y_axis,
+    float error_deadzone) {
+    const float correction_sign =
+        target_correction_sign(current_error, y_axis, error_deadzone);
+    if (correction_sign == 0.0f) {
+        return 0.0f;
+    }
+    const float correction_magnitude = std::min(
+        kWrongWayCorrectionCap,
+        std::max(kWrongWayCorrectionMin, std::fabs(output_axis) * 0.45f));
+    return correction_sign * correction_magnitude;
+}
+
 NativeControllerVisionState cleared_target_state(NativeControllerVisionState state) {
     state.has_target = false;
     state.auto_fire_requested = false;
@@ -157,6 +184,8 @@ void NativeGamepadController::reset() {
     has_last_output_validation_error_ = false;
     last_output_validation_error_x_ = 0.0f;
     last_output_validation_error_y_ = 0.0f;
+    output_validation_correction_x_until_seconds_ = 0.0;
+    output_validation_correction_y_until_seconds_ = 0.0;
     has_committed_target_ = false;
     committed_target_dx_ = 0.0f;
     committed_target_dy_ = 0.0f;
@@ -1181,6 +1210,7 @@ void NativeGamepadController::apply_ai_aim(
     if (vision_state.has_target && vision_state.aim_authority &&
         !tracking_native::is_projected_observation(vision_state.target_tier)) {
         constexpr float kCrossErrorDeadzonePx = 1.0f;
+        constexpr double kOutputValidationCorrectionSeconds = 0.130;
         const float validation_arm_px = std::max(
             16.0f,
             config_.ai_aim.body_lock_near_lock_error_px);
@@ -1190,10 +1220,21 @@ void NativeGamepadController::apply_ai_aim(
             }
             return y_axis ? (output_axis * error > 0.0f) : (output_axis * error < 0.0f);
         };
-        const auto zero_crossed_wrong_way_axis = [&](
+        const auto apply_bounded_wrong_way_correction = [&](
+            float current_error,
+            float& output_axis,
+            bool y_axis) {
+            output_axis = bounded_wrong_way_correction(
+                output_axis,
+                current_error,
+                y_axis,
+                kCrossErrorDeadzonePx);
+        };
+        const auto correct_crossed_wrong_way_axis = [&](
             float previous_error,
             float current_error,
             float& output_axis,
+            double& correction_until_seconds,
             bool y_axis) {
             const int previous_sign = axis_sign(previous_error, kCrossErrorDeadzonePx);
             const int current_sign = axis_sign(current_error, kCrossErrorDeadzonePx);
@@ -1202,7 +1243,24 @@ void NativeGamepadController::apply_ai_aim(
             if (crossed &&
                 std::fabs(current_error) <= validation_arm_px &&
                 output_pushes_away(output_axis, current_error, y_axis)) {
-                output_axis = 0.0f;
+                correction_until_seconds = now_seconds + kOutputValidationCorrectionSeconds;
+                apply_bounded_wrong_way_correction(current_error, output_axis, y_axis);
+            }
+        };
+        const auto correct_active_wrong_way_axis = [&](
+            float current_error,
+            float& output_axis,
+            double& correction_until_seconds,
+            bool y_axis) {
+            if (correction_until_seconds <= 0.0) {
+                return;
+            }
+            if (now_seconds > correction_until_seconds) {
+                correction_until_seconds = 0.0;
+                return;
+            }
+            if (output_pushes_away(output_axis, current_error, y_axis)) {
+                apply_bounded_wrong_way_correction(current_error, output_axis, y_axis);
             }
         };
         const float aim_target_max_age_ms =
@@ -1217,7 +1275,7 @@ void NativeGamepadController::apply_ai_aim(
                     60.0,
                     std::max(45.0, static_cast<double>(aim_target_max_age_ms) * 0.60))
                 : 0.0;
-        const auto zero_stale_wrong_way_axis = [&](
+        const auto correct_stale_wrong_way_axis = [&](
             float current_error,
             float& output_axis,
             bool y_axis) {
@@ -1225,23 +1283,35 @@ void NativeGamepadController::apply_ai_aim(
                 stale_guard_age_ms > 0.0 &&
                 vision_age_ms >= stale_guard_age_ms &&
                 output_pushes_away(output_axis, current_error, y_axis)) {
-                output_axis = 0.0f;
+                apply_bounded_wrong_way_correction(current_error, output_axis, y_axis);
             }
         };
         if (has_last_output_validation_error_) {
-            zero_crossed_wrong_way_axis(
+            correct_crossed_wrong_way_axis(
                 last_output_validation_error_x_,
                 vision_state.dx,
                 output.right_x,
+                output_validation_correction_x_until_seconds_,
                 false);
-            zero_crossed_wrong_way_axis(
+            correct_crossed_wrong_way_axis(
                 last_output_validation_error_y_,
                 vision_state.dy,
                 output.right_y,
+                output_validation_correction_y_until_seconds_,
                 true);
         }
-        zero_stale_wrong_way_axis(vision_state.dx, output.right_x, false);
-        zero_stale_wrong_way_axis(vision_state.dy, output.right_y, true);
+        correct_active_wrong_way_axis(
+            vision_state.dx,
+            output.right_x,
+            output_validation_correction_x_until_seconds_,
+            false);
+        correct_active_wrong_way_axis(
+            vision_state.dy,
+            output.right_y,
+            output_validation_correction_y_until_seconds_,
+            true);
+        correct_stale_wrong_way_axis(vision_state.dx, output.right_x, false);
+        correct_stale_wrong_way_axis(vision_state.dy, output.right_y, true);
         has_last_output_validation_error_ = true;
         last_output_validation_error_x_ = vision_state.dx;
         last_output_validation_error_y_ = vision_state.dy;
@@ -1249,6 +1319,8 @@ void NativeGamepadController::apply_ai_aim(
         has_last_output_validation_error_ = false;
         last_output_validation_error_x_ = 0.0f;
         last_output_validation_error_y_ = 0.0f;
+        output_validation_correction_x_until_seconds_ = 0.0;
+        output_validation_correction_y_until_seconds_ = 0.0;
     }
     if (candidate_output_hold_until_seconds_ > 0.0 &&
         now_seconds <= candidate_output_hold_until_seconds_) {
@@ -1274,7 +1346,7 @@ void NativeGamepadController::apply_body_lock_short_plan(
         std::min(1.0f, config_.ai_aim.body_lock_manual_escape_input_threshold));
     constexpr float kOutputDeadzone = 0.015f;
     constexpr float kCrossErrorDeadzonePx = 1.0f;
-    constexpr float kManualCrossBrakeOutputCap = 0.0f;
+    constexpr float kManualCrossBrakeOutputCap = 0.08f;
     constexpr double kManualCrossBrakeSeconds = 0.130;
     const float manual_cross_brake_arm_px = std::max(
         16.0f,
@@ -1295,7 +1367,9 @@ void NativeGamepadController::apply_body_lock_short_plan(
         float manual_axis,
         float& output_axis,
         double& brake_until_seconds,
-        int& brake_manual_sign) {
+        int& brake_manual_sign,
+        float current_error,
+        bool y_axis) {
         if (brake_until_seconds <= 0.0) {
             return;
         }
@@ -1321,6 +1395,21 @@ void NativeGamepadController::apply_body_lock_short_plan(
             return;
         }
         if (std::fabs(output_axis) <= kManualCrossBrakeOutputCap) {
+            if (output_pushes_away(output_axis, current_error, y_axis)) {
+                output_axis = bounded_wrong_way_correction(
+                    output_axis,
+                    current_error,
+                    y_axis,
+                    kCrossErrorDeadzonePx);
+            }
+            return;
+        }
+        if (output_pushes_away(output_axis, current_error, y_axis)) {
+            output_axis = bounded_wrong_way_correction(
+                output_axis,
+                current_error,
+                y_axis,
+                kCrossErrorDeadzonePx);
             return;
         }
         output_axis = std::copysign(kManualCrossBrakeOutputCap, output_axis);
@@ -1338,18 +1427,27 @@ void NativeGamepadController::apply_body_lock_short_plan(
         const int manual_sign = axis_sign(manual_axis, kOutputDeadzone);
         const bool crossed =
             previous_sign != 0 && current_sign != 0 && previous_sign != current_sign;
-        const bool strong_manual_near_center =
-            std::fabs(current_error) <= manual_cross_brake_arm_px &&
-            std::fabs(manual_axis) >= manual_escape_threshold;
+        const bool same_side_moving_away =
+            previous_sign != 0 &&
+            previous_sign == current_sign &&
+            std::fabs(current_error) <= manual_cross_brake_arm_px * 2.0f &&
+            std::fabs(current_error) > std::fabs(previous_error) + kCrossErrorDeadzonePx;
         const bool crossed_with_wrong_way_manual =
             crossed &&
+            std::fabs(current_error) <= manual_cross_brake_arm_px &&
             std::fabs(manual_axis) >= kOutputDeadzone &&
             manual_pushes_away(manual_axis, current_error, y_axis);
-        const bool strong_wrong_way_manual =
-            strong_manual_near_center &&
+        const bool worsening_with_wrong_way_manual =
+            same_side_moving_away &&
+            std::fabs(manual_axis) >= manual_escape_threshold &&
             manual_pushes_away(manual_axis, current_error, y_axis);
-        if (crossed_with_wrong_way_manual || strong_wrong_way_manual ||
-            strong_manual_near_center) {
+        const bool large_wrong_way_manual =
+            std::fabs(current_error) > manual_cross_brake_arm_px &&
+            std::fabs(current_error) <= manual_cross_brake_arm_px * 2.0f &&
+            std::fabs(manual_axis) >= manual_escape_threshold &&
+            manual_pushes_away(manual_axis, current_error, y_axis);
+        if (crossed_with_wrong_way_manual || worsening_with_wrong_way_manual ||
+            large_wrong_way_manual) {
             brake_until_seconds = now_seconds + kManualCrossBrakeSeconds;
             brake_manual_sign = manual_sign;
         }
@@ -1357,7 +1455,9 @@ void NativeGamepadController::apply_body_lock_short_plan(
             manual_axis,
             output_axis,
             brake_until_seconds,
-            brake_manual_sign);
+            brake_manual_sign,
+            current_error,
+            y_axis);
     };
 
     if (vision_state.has_target && vision_state.aim_authority) {
@@ -1397,12 +1497,16 @@ void NativeGamepadController::apply_body_lock_short_plan(
                 manual_right_x,
                 output.right_x,
                 body_lock_manual_brake_x_until_seconds_,
-                body_lock_manual_brake_x_sign_);
+                body_lock_manual_brake_x_sign_,
+                vision_state.dx,
+                false);
             apply_active_manual_cross_brake(
                 manual_right_y,
                 output.right_y,
                 body_lock_manual_brake_y_until_seconds_,
-                body_lock_manual_brake_y_sign_);
+                body_lock_manual_brake_y_sign_,
+                vision_state.dy,
+                true);
         } else {
             body_lock_manual_brake_x_until_seconds_ = 0.0;
             body_lock_manual_brake_y_until_seconds_ = 0.0;

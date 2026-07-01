@@ -8,6 +8,7 @@ __pycache__/
 .venv/
 .idea/
 .claude/settings.local.json
+.agent-context/claude-runs/
 config.toml
 training_data/
 models/train/
@@ -28,6 +29,8 @@ artifacts/recoil_profiles/
 artifacts/recoil_plots/
 artifacts/mouse_telemetry/
 artifacts/video_debug/
+artifacts/video_review/
+artifacts/benchmarks/native_gamepad/*-20*.json
 Ultralytics/
 .worktrees/
 native/vision_native/build/

@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "audio": {
+    "capture_mode": "wav_replay",
+    "target_pid": null,
+    "internal_sample_rate_hz": 48000,
+    "channels": 2,
+    "ring_buffer_ms": 1000
+  },
+  "direction": {
+    "mode": "three_way",
+    "ild_center_threshold_db": 1.5,
+    "gcc_max_lag_ms": 1.2,
+    "min_confidence": 0.65,
+    "unknown_enabled": true
+  },
+  "overlay": {
+    "enabled": true,
+    "opacity": 0.85,
+    "scale": 1.0,
+    "click_through_when_locked": true,
+    "always_on_top": true,
+    "show_numeric_confidence": false,
+    "reduce_motion": false
+  },
+  "privacy": {
+    "record_raw_audio": false,
+    "telemetry": false,
+    "network_enabled": false
+  },
+  "model": {
+    "enabled": false,
+    "path": null,
+    "sha256": null
+  }
+}

@@ -167,6 +167,8 @@ private:
     bool has_last_output_validation_error_ = false;
     float last_output_validation_error_x_ = 0.0f;
     float last_output_validation_error_y_ = 0.0f;
+    double output_validation_correction_x_until_seconds_ = 0.0;
+    double output_validation_correction_y_until_seconds_ = 0.0;
     bool has_committed_target_ = false;
     float committed_target_dx_ = 0.0f;
     float committed_target_dy_ = 0.0f;
