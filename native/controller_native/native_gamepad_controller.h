@@ -3,17 +3,21 @@
 #include "aim_assist_dynamics.h"
 #include "ai_aim.h"
 #include "controller_tick_context.h"
+#include "controller_vision_snapshot.h"
 #include "runtime_config.h"
 #include "virtual_gamepad.h"
 #include "xinput_reader.h"
 
 #include "../recoil_native/recoil_compensation.h"
-#include "../vision_native/include/vision_native/types.h"
 
 #include <cstdint>
 #include <functional>
 #include <memory>
 #include <vector>
+
+namespace vision_native {
+struct VisionResult;
+}
 
 namespace controller_native {
 
@@ -40,6 +44,7 @@ public:
 
     void reset();
     void submit_vision_state(const NativeControllerVisionState& state);
+    void submit_vision_snapshot(const ControllerVisionSnapshot& snapshot);
     void submit_vision_result(const vision_native::VisionResult& result);
     GamepadOutputState build_output(const PhysicalGamepadState& physical);
     NativeAutoFireCounters auto_fire_counters() const;

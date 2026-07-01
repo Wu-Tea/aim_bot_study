@@ -1196,6 +1196,51 @@ void test_no_update_vision_result_preserves_latest_target() {
     require_near(output.right_x, 0.0f, 0.001f, "processed no-target frame should clear assist");
 }
 
+void test_controller_accepts_controller_vision_snapshot_without_vision_result() {
+    controller_native::GamepadRuntimeConfig config;
+    config.ai_aim.max_pixels = 100.0f;
+    config.ai_aim.max_ai_force = 1.0f;
+    config.ai_aim.max_ai_force_y = 1.0f;
+    config.ai_aim.target_max_age_ms = 0.0f;
+    controller_native::NativeGamepadController controller(config);
+
+    controller_native::ControllerVisionSnapshot snapshot;
+    snapshot.frame_updated = true;
+    snapshot.frame_id = 101;
+    snapshot.capture_time_seconds = 10.0;
+    snapshot.ready_time_seconds = 10.010;
+    snapshot.state.has_target = true;
+    snapshot.state.aim_authority = true;
+    snapshot.state.fire_authority = true;
+    snapshot.state.dx = 50.0f;
+    snapshot.state.dy = 0.0f;
+    snapshot.state.screen_center_x = 320.0f;
+    snapshot.state.screen_center_y = 256.0f;
+    snapshot.state.target_tier = "strong";
+
+    tracking_native::TrackerDetection detection;
+    detection.id = 77;
+    detection.body_box_px = {280.0f, 200.0f, 80.0f, 140.0f};
+    detection.aim_point_px = {320.0f, 256.0f};
+    detection.has_aim_point = true;
+    detection.confidence = 0.90f;
+    detection.target_tier = "observed_strong";
+    snapshot.tracker_detections.push_back(detection);
+
+    controller.submit_vision_snapshot(snapshot);
+    controller_native::GamepadOutputState output =
+        controller.build_output(aiming_physical_state());
+    require_true(output.right_x > 0.40f, "controller snapshot should produce right-stick assist");
+
+    controller_native::ControllerVisionSnapshot no_update;
+    no_update.frame_updated = false;
+    no_update.state.has_target = false;
+    controller.submit_vision_snapshot(no_update);
+
+    output = controller.build_output(aiming_physical_state());
+    require_true(output.right_x > 0.40f, "no-update controller snapshot must not clear latest target");
+}
+
 void test_target_tracker_projects_camera_motion_between_vision_frames() {
     controller_native::NativeTargetTrackerConfig config;
     config.reticle_speed_px_per_sec = 1000.0f;
@@ -5311,6 +5356,7 @@ int main() {
         test_auto_fire_aim_ready_gate_can_be_disabled();
         test_auto_fire_ready_allows_manual_right_stick_when_fire_zone_is_hit();
         test_no_update_vision_result_preserves_latest_target();
+        test_controller_accepts_controller_vision_snapshot_without_vision_result();
         test_target_tracker_projects_camera_motion_between_vision_frames();
         test_legacy_projection_tracker_matches_native_project_output();
         test_legacy_projection_tracker_expires_after_max_age();
