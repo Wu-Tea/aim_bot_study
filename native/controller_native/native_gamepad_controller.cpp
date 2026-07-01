@@ -96,8 +96,7 @@ void NativeGamepadController::reset() {
     manual_fire_was_pressed_ = false;
     auto_fire_was_active_ = false;
     manual_takeover_started_at_seconds_ = -1.0;
-    ads_active_ = false;
-    ads_started_at_seconds_ = 0.0;
+    ads_state_tracker_.reset();
     has_last_body_lock_short_plan_x_ = false;
     has_last_body_lock_short_plan_y_ = false;
     last_body_lock_short_plan_x_ = 0.0f;
@@ -123,7 +122,10 @@ void NativeGamepadController::reset() {
 }
 
 void NativeGamepadController::submit_vision_state(const NativeControllerVisionState& state) {
-    target_snapshot_provider_.submit_vision_state(state, now_seconds(), ads_active_);
+    target_snapshot_provider_.submit_vision_state(
+        state,
+        now_seconds(),
+        ads_state_tracker_.active());
 }
 
 void NativeGamepadController::submit_vision_result(const vision_native::VisionResult& result) {
@@ -132,7 +134,10 @@ void NativeGamepadController::submit_vision_result(const vision_native::VisionRe
 }
 
 void NativeGamepadController::submit_vision_snapshot(const ControllerVisionSnapshot& snapshot) {
-    target_snapshot_provider_.submit_vision_snapshot(snapshot, now_seconds(), ads_active_);
+    target_snapshot_provider_.submit_vision_snapshot(
+        snapshot,
+        now_seconds(),
+        ads_state_tracker_.active());
 }
 
 GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadState& physical) {
@@ -144,7 +149,7 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
 
     const double now = now_seconds();
     const NativeControllerVisionState frame_vision_state =
-        target_snapshot_provider_.vision_state_for_frame(now, ads_active_);
+        target_snapshot_provider_.vision_state_for_frame(now, ads_state_tracker_.active());
     last_frame_vision_state_ = frame_vision_state;
     const bool aiming = is_aiming(physical);
     update_ads_state(aiming, now);
@@ -319,19 +324,15 @@ bool NativeGamepadController::has_fresh_aim_target(
 }
 
 void NativeGamepadController::update_ads_state(bool aiming, double now_seconds) {
-    if (aiming) {
-        if (!ads_active_) {
-            ads_active_ = true;
-            ads_started_at_seconds_ = now_seconds;
-            reset_auto_fire_readiness_tracking();
-        }
+    const AdsStateTransition transition = ads_state_tracker_.update(aiming, now_seconds);
+    if (transition.started) {
+        reset_auto_fire_readiness_tracking();
         return;
     }
-
-    ads_active_ = false;
-    ads_started_at_seconds_ = 0.0;
-    target_snapshot_provider_.clear_ads_transient_state();
-    reset_auto_fire_readiness_tracking();
+    if (transition.stopped) {
+        target_snapshot_provider_.clear_ads_transient_state();
+        reset_auto_fire_readiness_tracking();
+    }
 }
 
 bool NativeGamepadController::auto_fire_aim_ready(
@@ -357,10 +358,9 @@ bool NativeGamepadController::auto_fire_aim_ready(
         return false;
     }
 
-    const double min_ads_seconds =
-        static_cast<double>(std::max(0.0f, config_.ai_aim.auto_fire_ready_min_ads_ms)) / 1000.0;
-    if (!ads_active_ || ads_started_at_seconds_ <= 0.0 ||
-        now_seconds - ads_started_at_seconds_ < min_ads_seconds) {
+    if (!ads_state_tracker_.min_ads_elapsed(
+            config_.ai_aim.auto_fire_ready_min_ads_ms,
+            now_seconds)) {
         reset_auto_fire_readiness_tracking();
         return false;
     }
@@ -436,32 +436,21 @@ bool NativeGamepadController::ads_snap_active_for_frame(
     if (target_snapshot_provider_.candidate_reacquire_snap_active(now_seconds)) {
         return true;
     }
-    if (!ads_active_ || ads_started_at_seconds_ <= 0.0) {
-        return false;
-    }
-    const double window_seconds =
-        static_cast<double>(std::max(0, config_.ai_aim.ads_snap_window_ms)) / 1000.0;
-    return now_seconds - ads_started_at_seconds_ <= window_seconds;
+    return ads_state_tracker_.snap_window_active(
+        config_.ai_aim.ads_snap_window_ms,
+        now_seconds);
 }
 
 float NativeGamepadController::ads_snap_progress_ratio(double now_seconds) const {
-    if (!ads_active_ || ads_started_at_seconds_ <= 0.0) {
-        return 0.0f;
-    }
-    const double window_seconds =
-        static_cast<double>(std::max(1, config_.ai_aim.ads_snap_window_ms)) / 1000.0;
-    const double elapsed = std::max(0.0, now_seconds - ads_started_at_seconds_);
-    return static_cast<float>(std::max(0.0, std::min(1.0, elapsed / window_seconds)));
+    return ads_state_tracker_.snap_progress_ratio(
+        config_.ai_aim.ads_snap_window_ms,
+        now_seconds);
 }
 
 float NativeGamepadController::ads_snap_remaining_seconds(double now_seconds) const {
-    if (!ads_active_ || ads_started_at_seconds_ <= 0.0) {
-        return 0.0f;
-    }
-    const double window_seconds =
-        static_cast<double>(std::max(1, config_.ai_aim.ads_snap_window_ms)) / 1000.0;
-    const double elapsed = std::max(0.0, now_seconds - ads_started_at_seconds_);
-    return static_cast<float>(std::max(0.0, window_seconds - elapsed));
+    return ads_state_tracker_.snap_remaining_seconds(
+        config_.ai_aim.ads_snap_window_ms,
+        now_seconds);
 }
 
 bool NativeGamepadController::body_lock_error_for_state(
@@ -719,7 +708,7 @@ void NativeGamepadController::apply_ai_aim(
             float current_error,
             float& output_axis,
             bool y_axis) {
-            if (ads_active_ &&
+            if (ads_state_tracker_.active() &&
                 stale_guard_age_ms > 0.0 &&
                 vision_age_ms >= stale_guard_age_ms &&
                 output_pushes_away(output_axis, current_error, y_axis)) {

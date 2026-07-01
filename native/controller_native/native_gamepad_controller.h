@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ads_state_tracker.h"
 #include "aim_assist_dynamics.h"
 #include "ai_aim.h"
 #include "controller_tick_context.h"
@@ -131,6 +132,7 @@ private:
     NativeAiAim ai_aim_;
     NativeAimAssistDynamics aim_assist_dynamics_;
     recoil_native::RecoilCompensationPolicy recoil_;
+    AdsStateTracker ads_state_tracker_;
     TargetSnapshotProvider target_snapshot_provider_;
     NativeAutoFireCounters auto_fire_counters_;
     std::vector<NativeControllerStageTrace> last_pipeline_traces_;
@@ -141,8 +143,6 @@ private:
     bool manual_fire_was_pressed_ = false;
     bool auto_fire_was_active_ = false;
     double manual_takeover_started_at_seconds_ = -1.0;
-    bool ads_active_ = false;
-    double ads_started_at_seconds_ = 0.0;
     int auto_fire_ready_frames_ = 0;
     bool has_last_body_lock_short_plan_x_ = false;
     bool has_last_body_lock_short_plan_y_ = false;
