@@ -7,7 +7,7 @@ namespace tracking_native {
 
 class KalmanTracker final : public TrackerBackend {
 public:
-    explicit KalmanTracker(controller_native::NativeTargetTrackerConfig config = {});
+    explicit KalmanTracker(pipeline_contract::TargetTrackerConfig config = {});
 
     void reset() override;
     void ingest(const TrackerObservation& observation) override;
@@ -19,7 +19,7 @@ private:
     float clamp_velocity(float value) const;
     void decay_velocity_for_weak_observation();
 
-    controller_native::NativeTargetTrackerConfig config_;
+    pipeline_contract::TargetTrackerConfig config_;
     EgoMotionBuffer ego_motion_;
     common_native::Vec2f observed_error_px_;
     common_native::Vec2f velocity_px_per_sec_;

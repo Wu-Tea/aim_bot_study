@@ -2,7 +2,7 @@
 
 #include "tracker_contract.h"
 
-#include "../controller_native/target_tracker.h"
+#include "../pipeline_contract/tracker_config.h"
 
 #include <memory>
 #include <string_view>
@@ -38,6 +38,6 @@ std::string_view tracker_backend_kind_name(TrackerBackendKind kind);
 
 std::unique_ptr<TrackerBackend> create_tracker_backend(
     TrackerBackendKind kind,
-    controller_native::NativeTargetTrackerConfig config);
+    pipeline_contract::TargetTrackerConfig config);
 
 }  // namespace tracking_native

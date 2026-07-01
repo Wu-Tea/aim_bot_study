@@ -2,30 +2,19 @@
 
 #include "controller_pipeline.h"
 #include "target_tracker.h"
+#include "vision_snapshot_adapter.h"
 
 #include "../tracking_native/tracker_authority.h"
 
 #include <algorithm>
 #include <chrono>
 #include <cmath>
-#include <cstdint>
 #include <optional>
 #include <utility>
 
 namespace controller_native {
 
 namespace {
-
-double ns_to_seconds(std::uint64_t ns) {
-    return static_cast<double>(ns) / 1'000'000'000.0;
-}
-
-std::string safe_c_string(const char* value, const char* fallback) {
-    if (value == nullptr || value[0] == '\0') {
-        return std::string(fallback);
-    }
-    return std::string(value);
-}
 
 double current_seconds() {
     return std::chrono::duration<double>(
@@ -111,20 +100,9 @@ bool state_age_exceeds_ms(
     return age_ms > static_cast<double>(max_age_ms);
 }
 
-std::uint64_t tracker_detection_id(std::uint64_t frame_id, std::size_t index) {
-    return ((frame_id & 0xffffffffull) << 32ull) |
-        static_cast<std::uint64_t>(index + 1u);
-}
-
-std::string tracker_tier_for_detection(const vision_native::Detection& detection) {
-    if (detection.conf < 0.40f && detection.color_bonus <= 0.0f) {
-        return "associated_weak";
-    }
-    return "observed_strong";
-}
-
-NativeTargetTrackerConfig target_tracker_config_from_ai_aim(const GamepadAiAimConfig& config) {
-    NativeTargetTrackerConfig tracker_config;
+pipeline_contract::TargetTrackerConfig target_tracker_config_from_ai_aim(
+    const GamepadAiAimConfig& config) {
+    pipeline_contract::TargetTrackerConfig tracker_config;
     tracker_config.reticle_speed_px_per_sec = config.target_projection_reticle_speed_px_per_sec;
     tracker_config.max_projection_age_ms = config.target_projection_max_age_ms;
     tracker_config.velocity_lowpass_alpha = config.target_projection_velocity_lowpass_alpha;
@@ -457,71 +435,26 @@ NativeControllerVisionState NativeGamepadController::credibility_gated_vision_st
 }
 
 void NativeGamepadController::submit_vision_result(const vision_native::VisionResult& result) {
-    if (!result.frame_updated) {
+    const ControllerVisionSnapshot snapshot = adapt_vision_result(result);
+    if (!snapshot.frame_updated) {
         return;
     }
 
-    std::vector<tracking_native::TrackerDetection> tracker_detections;
-    tracker_detections.reserve(result.detections.size());
-    for (std::size_t index = 0; index < result.detections.size(); ++index) {
-        const vision_native::Detection& detection = result.detections[index];
-        const float width = std::max(0.0f, detection.x2 - detection.x1);
-        const float height = std::max(0.0f, detection.y2 - detection.y1);
-        if (width <= 1.0f || height <= 1.0f) {
-            continue;
-        }
-
-        tracking_native::TrackerDetection tracker_detection;
-        tracker_detection.id = tracker_detection_id(result.frame_id, index);
-        tracker_detection.body_box_px = {detection.x1, detection.y1, width, height};
-        tracker_detection.aim_point_px = {
-            (detection.x1 + detection.x2) * 0.5f,
-            detection.y1 + (height * 0.40f)};
-        tracker_detection.has_aim_point = true;
-        tracker_detection.confidence =
-            std::max(0.0f, std::min(1.0f, detection.conf + detection.color_bonus));
-        tracker_detection.class_id = detection.class_id;
-        tracker_detection.target_tier = tracker_tier_for_detection(detection);
-        tracker_detection.is_friendly = detection.is_friendly;
-        tracker_detections.push_back(std::move(tracker_detection));
-    }
-
-    NativeControllerVisionState state;
-    state.has_target = result.has_target;
-    state.auto_fire_requested = result.auto_fire;
-    state.dx = result.dx;
-    state.dy = result.dy;
-    state.target_x = result.target_x;
-    state.target_y = result.target_y;
-    state.screen_center_x = result.screen_center_x;
-    state.screen_center_y = result.screen_center_y;
-    state.has_body_box = result.has_body_box;
-    state.body_x1 = result.body_x1;
-    state.body_y1 = result.body_y1;
-    state.body_x2 = result.body_x2;
-    state.body_y2 = result.body_y2;
-    state.aim_authority = result.aim_authority;
-    state.fire_authority = result.fire_authority;
-    state.target_tier = safe_c_string(result.target_tier, "none");
-    state.observed_at_seconds = ns_to_seconds(
-        result.result_at_ns != 0 ? result.result_at_ns : result.captured_at_ns);
-    const double capture_time_seconds = ns_to_seconds(
-        result.captured_at_ns != 0 ? result.captured_at_ns : result.result_at_ns);
-    const double ready_time_seconds = ns_to_seconds(
-        result.result_at_ns != 0 ? result.result_at_ns : result.captured_at_ns);
     bool suppress_tracker_ingest = false;
     latest_vision_state_ = credibility_gated_vision_state(
-        state,
-        ready_time_seconds > 0.0 ? ready_time_seconds : capture_time_seconds,
+        snapshot.state,
+        snapshot.ready_time_seconds > 0.0
+            ? snapshot.ready_time_seconds
+            : snapshot.capture_time_seconds,
         &suppress_tracker_ingest);
     ++latest_vision_sequence_;
     if (!suppress_tracker_ingest) {
         ingest_tracker_observation(
-            state,
-            tracker_detections,
-            result.frame_id,
-            capture_time_seconds,
-            ready_time_seconds);
+            snapshot.state,
+            snapshot.tracker_detections,
+            snapshot.frame_id,
+            snapshot.capture_time_seconds,
+            snapshot.ready_time_seconds);
     }
 }
 

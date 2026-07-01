@@ -188,6 +188,7 @@ add_executable(cod_native_runtime
     ../controller_native/weapon_recognizer.cpp
     ../controller_native/output_mixer.cpp
     ../controller_native/controller_pipeline.cpp
+    ../controller_native/vision_snapshot_adapter.cpp
     ../controller_native/native_gamepad_controller.cpp
     ../controller_native/virtual_gamepad.cpp
     ../controller_native/xinput_reader.cpp
@@ -272,6 +273,7 @@ add_executable(cod_native_controller_tests
     ../controller_native/weapon_recognizer.cpp
     ../controller_native/output_mixer.cpp
     ../controller_native/controller_pipeline.cpp
+    ../controller_native/vision_snapshot_adapter.cpp
     ../controller_native/native_gamepad_controller.cpp
 )
 
@@ -290,6 +292,22 @@ target_compile_definitions(cod_native_controller_tests
 target_link_libraries(cod_native_controller_tests PRIVATE
     gdi32
     windowsapp
+)
+
+add_executable(cod_native_controller_protocol_tests
+    ../controller_native/controller_protocol_tests.cpp
+    ../controller_native/vision_snapshot_adapter.cpp
+)
+
+target_include_directories(cod_native_controller_protocol_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
+target_compile_definitions(cod_native_controller_protocol_tests
+    PRIVATE
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
 )
 
 add_executable(cod_native_gamepad_benchmark
@@ -315,6 +333,7 @@ add_executable(cod_native_gamepad_benchmark
     ../recoil_native/recoil_visual_model.cpp
     ../controller_native/output_mixer.cpp
     ../controller_native/controller_pipeline.cpp
+    ../controller_native/vision_snapshot_adapter.cpp
     ../controller_native/native_gamepad_controller.cpp
 )
 

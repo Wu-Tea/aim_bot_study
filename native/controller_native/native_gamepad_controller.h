@@ -5,10 +5,10 @@
 #include "controller_tick_context.h"
 #include "runtime_config.h"
 #include "virtual_gamepad.h"
-#include "vision_native/types.h"
 #include "xinput_reader.h"
 
 #include "../recoil_native/recoil_compensation.h"
+#include "../vision_native/include/vision_native/types.h"
 
 #include <cstdint>
 #include <functional>

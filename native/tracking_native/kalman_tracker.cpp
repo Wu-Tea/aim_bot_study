@@ -15,7 +15,7 @@ float clamp_unit(float value) {
 
 }  // namespace
 
-KalmanTracker::KalmanTracker(controller_native::NativeTargetTrackerConfig config)
+KalmanTracker::KalmanTracker(pipeline_contract::TargetTrackerConfig config)
     : config_(config) {}
 
 void KalmanTracker::reset() {
