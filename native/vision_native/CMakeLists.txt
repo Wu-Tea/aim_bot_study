@@ -475,6 +475,7 @@ target_compile_definitions(cod_native_gamepad_benchmark
 )
 
 target_link_libraries(cod_native_gamepad_benchmark PRIVATE
+    vision_native_core
     gdi32
     windowsapp
 )
