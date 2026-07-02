@@ -101,7 +101,7 @@ TrackerSnapshotSource snapshot_source(fps::TrackLife life, bool predicted_only) 
 }
 
 fps::TrackerConfig make_fps_config(
-    const controller_native::NativeTargetTrackerConfig& config,
+    const pipeline_contract::TargetTrackerConfig& config,
     float screen_width,
     float screen_height) {
     fps::TrackerConfig fps_config;
@@ -138,7 +138,7 @@ fps::TrackerConfig make_fps_config(
 
 }  // namespace
 
-FpsReferenceTracker::FpsReferenceTracker(controller_native::NativeTargetTrackerConfig config)
+FpsReferenceTracker::FpsReferenceTracker(pipeline_contract::TargetTrackerConfig config)
     : config_(config) {
     rebuild_tracker(screen_width_, screen_height_);
 }

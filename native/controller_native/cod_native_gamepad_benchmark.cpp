@@ -1,15 +1,23 @@
 #include "native_gamepad_controller.h"
 #include "runtime_config.h"
+#include "../runtime_app/vision_controller_adapter.h"
+
+#include "pipeline_contract/target_snapshot.h"
+#include "vision_native/target_selector.h"
 
 #include <algorithm>
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstring>
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <initializer_list>
 #include <iostream>
+#include <optional>
 #include <random>
 #include <sstream>
 #include <stdexcept>
@@ -20,6 +28,7 @@
 namespace {
 
 struct CliOptions {
+    std::string suite = "all";
     std::filesystem::path config_path = "config.toml";
     std::string run_key;
     std::filesystem::path output_path;
@@ -28,6 +37,8 @@ struct CliOptions {
     double dt_ms = 8.333;
     int random_fov_ticks = 72000;
     unsigned int random_fov_seed = 1337;
+    unsigned int selector_intent_seed = 1337;
+    unsigned int roi_fallback_seed = 1337;
     double random_fov_min_scale = 0.68;
     double random_fov_max_scale = 1.0;
     double random_fov_ai_force_scale = 1.0;
@@ -291,6 +302,30 @@ struct ScenarioMetrics {
     double ads_manual_stress_p95_turn_degrees = 0.0;
     double ads_manual_stress_turn_smoothness_score = 0.0;
     std::vector<RandomFovOvershootEvent> ads_manual_stress_overshoot_details;
+    bool has_selector_intent = false;
+    int selector_intent_seed = 0;
+    int selector_intent_ticks = 0;
+    int selector_intent_target_frames = 0;
+    int selector_intent_wrong_target_frames = 0;
+    int selector_intent_switches = 0;
+    int selector_intent_ping_pong_switches = 0;
+    int selector_intent_fire_authority_leaks = 0;
+    int selector_intent_intent_applied_frames = 0;
+    int selector_intent_ignored_active_lock_frames = 0;
+    int selector_intent_delayed_switch_confirm_frames = 0;
+    int selector_intent_weak_no_fire_frames = 0;
+    double selector_intent_wrong_target_rate = 0.0;
+    bool has_roi_fallback = false;
+    int roi_fallback_seed = 0;
+    int roi_fallback_ticks = 0;
+    int roi_fallback_requested_regions = 0;
+    int roi_fallback_partial_regions = 0;
+    int roi_fallback_full_frame_requests = 0;
+    int roi_fallback_external_cue_no_full_frame_frames = 0;
+    int roi_fallback_roi_miss_hold_frames = 0;
+    int roi_fallback_edge_clamped_regions = 0;
+    int roi_fallback_target_loss_frames = 0;
+    double roi_fallback_processed_area_ratio = 0.0;
 };
 
 double current_seconds() {
@@ -314,12 +349,13 @@ std::string default_run_key() {
 
 void print_usage() {
     std::cout
-        << "Usage: cod_native_gamepad_benchmark [--config config.toml] "
+        << "Usage: cod_native_gamepad_benchmark [--suite all|selector_intent|roi_fallback] "
+        << "[--config config.toml] "
         << "[--run-key key] [--output path] [--frames n] [--dt-ms ms] "
         << "[--recoil-state path] [--random-fov-ticks n] "
         << "[--random-fov-seed n] [--random-fov-min-scale v] "
         << "[--random-fov-max-scale v] [--random-fov-ai-force-scale v] "
-        << "[--self-test]\n";
+        << "[--selector-intent-seed n] [--roi-fallback-seed n] [--self-test]\n";
 }
 
 CliOptions parse_args(int argc, char** argv) {
@@ -332,6 +368,8 @@ CliOptions parse_args(int argc, char** argv) {
         }
         if (arg == "--self-test") {
             options.self_test = true;
+        } else if (arg == "--suite" && index + 1 < argc) {
+            options.suite = argv[++index];
         } else if (arg == "--config" && index + 1 < argc) {
             options.config_path = argv[++index];
         } else if (arg == "--run-key" && index + 1 < argc) {
@@ -349,6 +387,12 @@ CliOptions parse_args(int argc, char** argv) {
         } else if (arg == "--random-fov-seed" && index + 1 < argc) {
             options.random_fov_seed = static_cast<unsigned int>(
                 std::stoul(argv[++index]));
+        } else if (arg == "--selector-intent-seed" && index + 1 < argc) {
+            options.selector_intent_seed = static_cast<unsigned int>(
+                std::stoul(argv[++index]));
+        } else if (arg == "--roi-fallback-seed" && index + 1 < argc) {
+            options.roi_fallback_seed = static_cast<unsigned int>(
+                std::stoul(argv[++index]));
         } else if (arg == "--random-fov-min-scale" && index + 1 < argc) {
             options.random_fov_min_scale = std::stod(argv[++index]);
         } else if (arg == "--random-fov-max-scale" && index + 1 < argc) {
@@ -361,6 +405,11 @@ CliOptions parse_args(int argc, char** argv) {
     }
     if (options.random_fov_min_scale > options.random_fov_max_scale) {
         std::swap(options.random_fov_min_scale, options.random_fov_max_scale);
+    }
+    if (options.suite != "all"
+        && options.suite != "selector_intent"
+        && options.suite != "roi_fallback") {
+        throw std::runtime_error("unknown suite: " + options.suite);
     }
     options.random_fov_min_scale =
         std::max(0.05, std::min(2.0, options.random_fov_min_scale));
@@ -865,7 +914,86 @@ void require_near(double actual, double expected, double tolerance, const char* 
     }
 }
 
+std::vector<ScenarioMetrics> run_selector_intent_suite(unsigned int seed);
+std::vector<ScenarioMetrics> run_roi_fallback_suite(unsigned int seed);
+
 void run_self_test() {
+    const char* selector_suite_argv[] = {
+        "cod_native_gamepad_benchmark",
+        "--suite",
+        "selector_intent",
+        "--selector-intent-seed",
+        "2026",
+    };
+    const CliOptions selector_suite_options = parse_args(
+        static_cast<int>(std::size(selector_suite_argv)),
+        const_cast<char**>(selector_suite_argv));
+    require_benchmark_check(
+        selector_suite_options.suite == "selector_intent",
+        "CLI should parse selector_intent suite");
+    require_benchmark_check(
+        selector_suite_options.selector_intent_seed == 2026,
+        "CLI should parse selector intent seed");
+    const std::vector<ScenarioMetrics> selector_suite =
+        run_selector_intent_suite(selector_suite_options.selector_intent_seed);
+    require_benchmark_check(
+        selector_suite.size() == 3,
+        "selector_intent suite should produce three benchmark scenarios");
+    require_benchmark_check(
+        selector_suite.front().has_selector_intent,
+        "selector_intent scenarios should expose selector metrics");
+    require_benchmark_check(
+        selector_suite.front().selector_intent_seed == 2026,
+        "selector_intent scenarios should preserve the requested seed");
+    require_benchmark_check(
+        selector_suite.front().selector_intent_wrong_target_frames == 0,
+        "two-target selector intent benchmark should not choose the wrong plausible target");
+    require_benchmark_check(
+        selector_suite[1].selector_intent_ping_pong_switches == 0,
+        "crossing selector intent benchmark should not ping-pong targets");
+    require_benchmark_check(
+        selector_suite[2].selector_intent_fire_authority_leaks == 0,
+        "weak selector intent benchmark must not leak fire authority");
+
+    const char* roi_suite_argv[] = {
+        "cod_native_gamepad_benchmark",
+        "--suite",
+        "roi_fallback",
+        "--roi-fallback-seed",
+        "2026",
+    };
+    const CliOptions roi_suite_options = parse_args(
+        static_cast<int>(std::size(roi_suite_argv)),
+        const_cast<char**>(roi_suite_argv));
+    require_benchmark_check(
+        roi_suite_options.suite == "roi_fallback",
+        "CLI should parse roi_fallback suite");
+    require_benchmark_check(
+        roi_suite_options.roi_fallback_seed == 2026,
+        "CLI should parse ROI fallback seed");
+    const std::vector<ScenarioMetrics> roi_suite =
+        run_roi_fallback_suite(roi_suite_options.roi_fallback_seed);
+    require_benchmark_check(
+        roi_suite.size() == 3,
+        "roi_fallback suite should produce three benchmark scenarios");
+    require_benchmark_check(
+        roi_suite.front().has_roi_fallback,
+        "roi_fallback scenarios should expose ROI metrics");
+    require_benchmark_check(
+        roi_suite.front().roi_fallback_partial_regions > 0,
+        "partial color frame ROI benchmark should use partial regions");
+    require_benchmark_check(
+        roi_suite[1].roi_fallback_external_cue_no_full_frame_frames > 0,
+        "external cue ROI benchmark should avoid full color frame requests");
+    require_benchmark_check(
+        roi_suite[2].roi_fallback_edge_clamped_regions > 0,
+        "edge ROI benchmark should report clamped regions");
+    for (const ScenarioMetrics& scenario : roi_suite) {
+        require_benchmark_check(
+            scenario.roi_fallback_target_loss_frames == 0,
+            "ROI fallback benchmark should not lose target authority from ROI-only misses");
+    }
+
     const std::vector<double> crossed_then_deepened = {6.0, 2.5, -1.0, -4.0};
     require_benchmark_check(
         axis_overshoot_count(crossed_then_deepened, 2.0) == 1,
@@ -986,6 +1114,470 @@ void run_self_test() {
         "err-target window should report its offset radius");
 
     std::cout << "[NativeGamepadBenchmark] self-test PASS\n";
+}
+
+vision_native::Detection selector_intent_detection(
+    float target_x,
+    float target_y,
+    float conf) {
+    constexpr float width = 60.0f;
+    constexpr float height = 140.0f;
+    vision_native::Detection detection;
+    detection.x1 = target_x - (width * 0.5f);
+    detection.x2 = target_x + (width * 0.5f);
+    detection.y1 = target_y - (height * 0.40f);
+    detection.y2 = detection.y1 + height;
+    detection.conf = conf;
+    return detection;
+}
+
+vision_native::DetectionBatch selector_intent_batch(
+    std::uint64_t frame_id,
+    std::initializer_list<vision_native::Detection> detections) {
+    vision_native::DetectionBatch batch;
+    batch.frame_id = frame_id;
+    batch.captured_at_ns = frame_id * 10'000'000ull;
+    batch.inferred_at_ns = batch.captured_at_ns + 1'000'000ull;
+    batch.frame_width = 640;
+    batch.frame_height = 512;
+    batch.detections.insert(batch.detections.end(), detections.begin(), detections.end());
+    return batch;
+}
+
+pipeline_contract::UserAimIntent selector_intent_direction(
+    std::uint64_t intent_id,
+    float x,
+    float y,
+    float strength = 1.0f) {
+    pipeline_contract::UserAimIntent intent;
+    intent.valid = true;
+    intent.intent_id = intent_id;
+    intent.strength = strength;
+    intent.has_direction = true;
+    intent.direction.x = x;
+    intent.direction.y = y;
+    intent.aiming = true;
+    return intent;
+}
+
+int selector_intent_bucket(const controller_native::ControllerVisionSnapshot& snapshot) {
+    if (!snapshot.frame_updated || !snapshot.state.has_target) {
+        return 0;
+    }
+    return snapshot.state.target_x < snapshot.state.screen_center_x ? -1 : 1;
+}
+
+void selector_intent_apply_frame_metadata(
+    vision_native::VisionResult& result,
+    const vision_native::DetectionBatch& batch) {
+    result.frame_updated = true;
+    result.frame_id = batch.frame_id;
+    result.captured_at_ns = batch.captured_at_ns;
+    result.inferred_at_ns = batch.inferred_at_ns;
+    result.result_at_ns = batch.inferred_at_ns + 1'000'000ull;
+}
+
+void selector_intent_record_decision(
+    ScenarioMetrics& metrics,
+    const vision_native::VisionResult& result,
+    const controller_native::ControllerVisionSnapshot& snapshot) {
+    ++metrics.selector_intent_ticks;
+    if (snapshot.frame_updated && snapshot.state.has_target) {
+        ++metrics.selector_intent_target_frames;
+    }
+    if (result.intent_applied) {
+        ++metrics.selector_intent_intent_applied_frames;
+    }
+    const char* decision = result.intent_decision == nullptr ? "none" : result.intent_decision;
+    if (std::strcmp(decision, "ignored_active_lock") == 0) {
+        ++metrics.selector_intent_ignored_active_lock_frames;
+    } else if (std::strcmp(decision, "delayed_switch_confirm") == 0) {
+        ++metrics.selector_intent_delayed_switch_confirm_frames;
+    }
+}
+
+void selector_intent_finish_rates(ScenarioMetrics& metrics) {
+    metrics.frames = metrics.selector_intent_ticks;
+    metrics.selector_intent_wrong_target_rate = rate(
+        metrics.selector_intent_wrong_target_frames,
+        metrics.selector_intent_target_frames);
+}
+
+ScenarioMetrics run_selector_intent_two_targets_manual_sweep_100hz(unsigned int seed) {
+    constexpr int kTicks = 240;
+    std::mt19937 rng(seed);
+    std::uniform_real_distribution<float> jitter(-1.5f, 1.5f);
+    vision_native::VisionTargetSelector selector(640, 512);
+    ScenarioMetrics metrics;
+    metrics.name = "selector_intent_two_targets_manual_sweep_100hz";
+    metrics.has_selector_intent = true;
+    metrics.selector_intent_seed = static_cast<int>(seed);
+
+    int previous_bucket = 0;
+    int bucket_before_previous = 0;
+    for (int tick = 0; tick < kTicks; ++tick) {
+        const float left_x =
+            260.0f + (std::sin(static_cast<float>(tick) * 0.031f) * 3.0f) + jitter(rng);
+        const float right_x =
+            380.0f + (std::cos(static_cast<float>(tick) * 0.027f) * 3.0f) + jitter(rng);
+        const vision_native::DetectionBatch batch = selector_intent_batch(
+            static_cast<std::uint64_t>(tick + 1),
+            {
+                selector_intent_detection(left_x, 256.0f, 0.92f),
+                selector_intent_detection(right_x, 256.0f, 0.92f),
+            });
+        vision_native::VisionResult result = selector.select(
+            batch,
+            selector_intent_direction(static_cast<std::uint64_t>(seed) * 1000ull + tick, 1.0f, 0.0f));
+        selector_intent_apply_frame_metadata(result, batch);
+        const controller_native::ControllerVisionSnapshot snapshot =
+            runtime_app::adapt_vision_result(result);
+        selector_intent_record_decision(metrics, result, snapshot);
+
+        const int bucket = selector_intent_bucket(snapshot);
+        if (tick >= 1 && bucket != 0 && bucket != 1) {
+            ++metrics.selector_intent_wrong_target_frames;
+        }
+        if (bucket != 0 && previous_bucket != 0 && bucket != previous_bucket) {
+            ++metrics.selector_intent_switches;
+            if (bucket == bucket_before_previous) {
+                ++metrics.selector_intent_ping_pong_switches;
+            }
+        }
+        if (bucket != 0) {
+            bucket_before_previous = previous_bucket;
+            previous_bucket = bucket;
+        }
+    }
+
+    selector_intent_finish_rates(metrics);
+    return metrics;
+}
+
+ScenarioMetrics run_selector_intent_crossing_targets_active_lock(unsigned int seed) {
+    constexpr int kTicks = 90;
+    vision_native::VisionTargetSelector selector(640, 512);
+    ScenarioMetrics metrics;
+    metrics.name = "selector_intent_crossing_targets_active_lock";
+    metrics.has_selector_intent = true;
+    metrics.selector_intent_seed = static_cast<int>(seed);
+
+    const vision_native::DetectionBatch lock_batch = selector_intent_batch(
+        1,
+        {selector_intent_detection(260.0f, 256.0f, 0.92f)});
+    selector.select(lock_batch);
+    selector.select(lock_batch);
+
+    int previous_bucket = -1;
+    int bucket_before_previous = 0;
+    for (int tick = 0; tick < kTicks; ++tick) {
+        const float challenger_x = 336.0f + std::min(18.0f, static_cast<float>(tick) * 0.20f);
+        const vision_native::DetectionBatch batch = selector_intent_batch(
+            static_cast<std::uint64_t>(tick + 2),
+            {
+                selector_intent_detection(260.0f, 256.0f, 0.40f),
+                selector_intent_detection(challenger_x, 256.0f, 0.92f),
+            });
+        vision_native::VisionResult result = selector.select(
+            batch,
+            selector_intent_direction(static_cast<std::uint64_t>(seed) * 2000ull + tick, 1.0f, 0.0f));
+        selector_intent_apply_frame_metadata(result, batch);
+        const controller_native::ControllerVisionSnapshot snapshot =
+            runtime_app::adapt_vision_result(result);
+        selector_intent_record_decision(metrics, result, snapshot);
+
+        const int bucket = selector_intent_bucket(snapshot);
+        if (tick >= 2 && bucket != 0 && bucket != 1) {
+            ++metrics.selector_intent_wrong_target_frames;
+        }
+        if (bucket != 0 && previous_bucket != 0 && bucket != previous_bucket) {
+            ++metrics.selector_intent_switches;
+            if (bucket == bucket_before_previous) {
+                ++metrics.selector_intent_ping_pong_switches;
+            }
+        }
+        if (bucket != 0) {
+            bucket_before_previous = previous_bucket;
+            previous_bucket = bucket;
+        }
+    }
+
+    selector_intent_finish_rates(metrics);
+    return metrics;
+}
+
+ScenarioMetrics run_selector_intent_weak_continuation_no_fire(unsigned int seed) {
+    constexpr int kTicks = 80;
+    vision_native::VisionTargetSelector selector(640, 512);
+    ScenarioMetrics metrics;
+    metrics.name = "selector_intent_weak_continuation_no_fire";
+    metrics.has_selector_intent = true;
+    metrics.selector_intent_seed = static_cast<int>(seed);
+
+    const vision_native::DetectionBatch lock_batch = selector_intent_batch(
+        1,
+        {selector_intent_detection(320.0f, 256.0f, 0.92f)});
+    selector.select(lock_batch);
+    selector.select(lock_batch);
+
+    for (int tick = 0; tick < kTicks; ++tick) {
+        const float weak_x = 320.0f + (std::sin(static_cast<float>(tick) * 0.045f) * 2.0f);
+        const vision_native::DetectionBatch batch = selector_intent_batch(
+            static_cast<std::uint64_t>(tick + 2),
+            {selector_intent_detection(weak_x, 256.0f, 0.30f)});
+        vision_native::VisionResult result = selector.select(
+            batch,
+            selector_intent_direction(static_cast<std::uint64_t>(seed) * 3000ull + tick, 1.0f, 0.0f));
+        selector_intent_apply_frame_metadata(result, batch);
+        const controller_native::ControllerVisionSnapshot snapshot =
+            runtime_app::adapt_vision_result(result);
+        selector_intent_record_decision(metrics, result, snapshot);
+
+        if (snapshot.frame_updated && snapshot.state.has_target) {
+            if (snapshot.state.fire_authority) {
+                ++metrics.selector_intent_fire_authority_leaks;
+            } else if (std::strcmp(result.target_source, "associated_weak") == 0) {
+                ++metrics.selector_intent_weak_no_fire_frames;
+            }
+        }
+    }
+
+    selector_intent_finish_rates(metrics);
+    return metrics;
+}
+
+std::vector<ScenarioMetrics> run_selector_intent_suite(unsigned int seed) {
+    return {
+        run_selector_intent_two_targets_manual_sweep_100hz(seed),
+        run_selector_intent_crossing_targets_active_lock(seed),
+        run_selector_intent_weak_continuation_no_fire(seed),
+    };
+}
+
+int roi_area(const vision_native::VisionTargetSelector::FrameRegion& region) {
+    return std::max(0, region.right - region.left) *
+        std::max(0, region.bottom - region.top);
+}
+
+struct RoiColorFrame {
+    std::vector<std::uint8_t> pixels;
+    vision_native::VisionTargetSelector::ColorFrameView view;
+};
+
+RoiColorFrame make_roi_color_frame(
+    const vision_native::VisionTargetSelector::FrameRegion& region,
+    int frame_width,
+    int frame_height,
+    bool enemy_colored) {
+    RoiColorFrame frame;
+    frame.view.width = std::max(0, region.right - region.left);
+    frame.view.height = std::max(0, region.bottom - region.top);
+    frame.view.origin_x = region.left;
+    frame.view.origin_y = region.top;
+    frame.view.frame_width = frame_width;
+    frame.view.frame_height = frame_height;
+    frame.view.row_pitch = frame.view.width * 3;
+    frame.view.format = vision_native::PixelFormat::RGB8;
+    frame.pixels.assign(
+        static_cast<std::size_t>(std::max(0, frame.view.row_pitch * frame.view.height)),
+        0);
+    for (int y = 0; y < frame.view.height; ++y) {
+        for (int x = 0; x < frame.view.width; ++x) {
+            const std::size_t offset =
+                static_cast<std::size_t>(y * frame.view.row_pitch + x * 3);
+            if (enemy_colored && ((x + (y * 2)) % 5 == 0)) {
+                frame.pixels[offset + 0] = 255;
+                frame.pixels[offset + 1] = 0;
+                frame.pixels[offset + 2] = 0;
+            } else {
+                frame.pixels[offset + 0] = 12;
+                frame.pixels[offset + 1] = 12;
+                frame.pixels[offset + 2] = 12;
+            }
+        }
+    }
+    frame.view.data = frame.pixels.data();
+    return frame;
+}
+
+vision_native::DetectionBatch roi_single_target_batch(
+    std::uint64_t frame_id,
+    float target_x,
+    float target_y,
+    float conf) {
+    return selector_intent_batch(
+        frame_id,
+        {selector_intent_detection(target_x, target_y, conf)});
+}
+
+void roi_record_result(
+    ScenarioMetrics& metrics,
+    const vision_native::VisionTargetSelector& selector,
+    const vision_native::DetectionBatch& batch,
+    const std::optional<vision_native::VisionTargetSelector::FrameRegion>& region,
+    const vision_native::VisionResult& result,
+    bool partial_frame,
+    bool expected_target) {
+    ++metrics.roi_fallback_ticks;
+    if (region.has_value()) {
+        ++metrics.roi_fallback_requested_regions;
+        metrics.roi_fallback_processed_area_ratio +=
+            static_cast<double>(roi_area(*region)) / static_cast<double>(640 * 512);
+        if (partial_frame) {
+            ++metrics.roi_fallback_partial_regions;
+        }
+        if (region->left == 0 || region->top == 0 || region->right == 640 || region->bottom == 512) {
+            ++metrics.roi_fallback_edge_clamped_regions;
+        }
+    } else if (!batch.has_external_cue && selector.wants_color_frame()) {
+        ++metrics.roi_fallback_full_frame_requests;
+    }
+    if (expected_target && !result.has_target) {
+        ++metrics.roi_fallback_target_loss_frames;
+    }
+}
+
+void roi_finish_rates(ScenarioMetrics& metrics) {
+    metrics.frames = metrics.roi_fallback_ticks;
+    if (metrics.roi_fallback_requested_regions > 0) {
+        metrics.roi_fallback_processed_area_ratio /=
+            static_cast<double>(metrics.roi_fallback_requested_regions);
+    }
+}
+
+ScenarioMetrics run_roi_fallback_partial_color_frame(unsigned int seed) {
+    std::mt19937 rng(seed);
+    std::uniform_real_distribution<float> jitter(-2.0f, 2.0f);
+    vision_native::VisionTargetSelector selector(640, 512);
+    ScenarioMetrics metrics;
+    metrics.name = "roi_fallback_partial_color_frame";
+    metrics.has_roi_fallback = true;
+    metrics.roi_fallback_seed = static_cast<int>(seed);
+
+    for (int tick = 0; tick < 120; ++tick) {
+        if (tick > 2 && tick % 40 == 20) {
+            vision_native::DetectionBatch miss_batch;
+            miss_batch.frame_id = static_cast<std::uint64_t>(tick + 1);
+            miss_batch.captured_at_ns = miss_batch.frame_id * 10'000'000ull;
+            miss_batch.inferred_at_ns = miss_batch.captured_at_ns + 1'000'000ull;
+            miss_batch.frame_width = 640;
+            miss_batch.frame_height = 512;
+            const auto miss_region = selector.required_color_region(miss_batch);
+            RoiColorFrame miss_frame = make_roi_color_frame({0, 0, 8, 8}, 640, 512, false);
+            vision_native::VisionResult miss_result =
+                selector.select_with_frame(miss_batch, miss_frame.view);
+            selector_intent_apply_frame_metadata(miss_result, miss_batch);
+            if (miss_result.has_target) {
+                ++metrics.roi_fallback_roi_miss_hold_frames;
+            }
+            roi_record_result(
+                metrics,
+                selector,
+                miss_batch,
+                miss_region,
+                miss_result,
+                false,
+                true);
+            continue;
+        }
+
+        const vision_native::DetectionBatch batch = roi_single_target_batch(
+            static_cast<std::uint64_t>(tick + 1),
+            320.0f + jitter(rng),
+            256.0f + jitter(rng),
+            0.45f);
+        const auto region = selector.required_color_region(batch);
+        if (!region.has_value()) {
+            ++metrics.roi_fallback_target_loss_frames;
+            ++metrics.roi_fallback_ticks;
+            continue;
+        }
+        RoiColorFrame frame = make_roi_color_frame(*region, 640, 512, true);
+        vision_native::VisionResult result = selector.select_with_frame(batch, frame.view);
+        selector_intent_apply_frame_metadata(result, batch);
+        roi_record_result(metrics, selector, batch, region, result, true, tick >= 1);
+    }
+
+    roi_finish_rates(metrics);
+    return metrics;
+}
+
+ScenarioMetrics run_roi_external_cue_no_full_color_frame(unsigned int seed) {
+    vision_native::VisionTargetSelector selector(640, 512);
+    ScenarioMetrics metrics;
+    metrics.name = "roi_external_cue_no_full_color_frame";
+    metrics.has_roi_fallback = true;
+    metrics.roi_fallback_seed = static_cast<int>(seed);
+
+    const vision_native::DetectionBatch setup = roi_single_target_batch(1, 320.0f, 256.0f, 0.45f);
+    const auto setup_region = selector.required_color_region(setup);
+    if (setup_region.has_value()) {
+        RoiColorFrame frame = make_roi_color_frame(*setup_region, 640, 512, true);
+        selector.select_with_frame(setup, frame.view);
+        selector.select_with_frame(setup, frame.view);
+    }
+
+    for (int tick = 0; tick < 80; ++tick) {
+        vision_native::DetectionBatch cue_batch;
+        cue_batch.frame_id = static_cast<std::uint64_t>(tick + 2);
+        cue_batch.captured_at_ns = cue_batch.frame_id * 10'000'000ull;
+        cue_batch.inferred_at_ns = cue_batch.captured_at_ns + 1'000'000ull;
+        cue_batch.frame_width = 640;
+        cue_batch.frame_height = 512;
+        cue_batch.has_external_cue = true;
+        cue_batch.external_cue_x = 320.0f + (std::sin(static_cast<float>(tick) * 0.05f) * 2.0f);
+        cue_batch.external_cue_y = 200.0f + (std::cos(static_cast<float>(tick) * 0.05f) * 2.0f);
+        cue_batch.external_cue_score = 0.90f;
+
+        const auto region = selector.required_color_region(cue_batch);
+        if (!region.has_value()) {
+            ++metrics.roi_fallback_external_cue_no_full_frame_frames;
+        }
+        vision_native::VisionResult result = selector.select(cue_batch);
+        selector_intent_apply_frame_metadata(result, cue_batch);
+        roi_record_result(metrics, selector, cue_batch, region, result, false, false);
+    }
+
+    roi_finish_rates(metrics);
+    return metrics;
+}
+
+ScenarioMetrics run_roi_boundary_candidate_at_screen_edge(unsigned int seed) {
+    vision_native::VisionTargetSelector selector(640, 512);
+    ScenarioMetrics metrics;
+    metrics.name = "roi_boundary_candidate_at_screen_edge";
+    metrics.has_roi_fallback = true;
+    metrics.roi_fallback_seed = static_cast<int>(seed);
+
+    for (int tick = 0; tick < 120; ++tick) {
+        const float target_x = tick % 2 == 0 ? 10.0f : 630.0f;
+        const float target_y = tick % 3 == 0 ? 72.0f : 498.0f;
+        const vision_native::DetectionBatch batch = roi_single_target_batch(
+            static_cast<std::uint64_t>(tick + 1),
+            target_x,
+            target_y,
+            0.92f);
+        const auto region = selector.required_color_region(batch);
+        if (region.has_value()) {
+            RoiColorFrame frame = make_roi_color_frame(*region, 640, 512, true);
+            vision_native::VisionResult result = selector.select_with_frame(batch, frame.view);
+            selector_intent_apply_frame_metadata(result, batch);
+            roi_record_result(metrics, selector, batch, region, result, true, false);
+        } else {
+            ++metrics.roi_fallback_ticks;
+        }
+    }
+
+    roi_finish_rates(metrics);
+    return metrics;
+}
+
+std::vector<ScenarioMetrics> run_roi_fallback_suite(unsigned int seed) {
+    return {
+        run_roi_fallback_partial_color_frame(seed),
+        run_roi_external_cue_no_full_color_frame(seed),
+        run_roi_boundary_candidate_at_screen_edge(seed),
+    };
 }
 
 void add_axis_sample(AxisStats& stats, float manual, float final_value, float recoil) {
@@ -2740,12 +3332,15 @@ void write_json(
     out
         << "{\n"
         << "  \"run_key\": \"" << escape_json(options.run_key) << "\",\n"
+        << "  \"suite\": \"" << escape_json(options.suite) << "\",\n"
         << "  \"config_path\": \"" << escape_json(options.config_path.string()) << "\",\n"
         << "  \"recoil_state_override\": \"" << escape_json(options.recoil_state_path.string()) << "\",\n"
         << "  \"frames_per_case\": " << options.frames << ",\n"
         << "  \"dt_ms\": " << options.dt_ms << ",\n"
         << "  \"random_fov_ticks\": " << options.random_fov_ticks << ",\n"
         << "  \"random_fov_seed\": " << options.random_fov_seed << ",\n"
+        << "  \"selector_intent_seed\": " << options.selector_intent_seed << ",\n"
+        << "  \"roi_fallback_seed\": " << options.roi_fallback_seed << ",\n"
         << "  \"random_fov_ai_force_scale\": " << options.random_fov_ai_force_scale << ",\n"
         << "  \"metadata\": {\n"
         << "    \"offline\": true,\n"
@@ -3026,6 +3621,57 @@ void write_json(
                 << "\n"
                 << "      }";
         }
+        if (scenario.has_selector_intent) {
+            out
+                << ",\n"
+                << "      \"selector_intent\": {\n"
+                << "        \"controller_hz\": 100.000000,\n"
+                << "        \"seed\": " << scenario.selector_intent_seed << ",\n"
+                << "        \"ticks\": " << scenario.selector_intent_ticks << ",\n"
+                << "        \"target_frames\": " << scenario.selector_intent_target_frames << ",\n"
+                << "        \"wrong_target_frames\": "
+                << scenario.selector_intent_wrong_target_frames << ",\n"
+                << "        \"wrong_target_rate\": "
+                << scenario.selector_intent_wrong_target_rate << ",\n"
+                << "        \"switches\": " << scenario.selector_intent_switches << ",\n"
+                << "        \"ping_pong_switches\": "
+                << scenario.selector_intent_ping_pong_switches << ",\n"
+                << "        \"fire_authority_leaks\": "
+                << scenario.selector_intent_fire_authority_leaks << ",\n"
+                << "        \"intent_applied_frames\": "
+                << scenario.selector_intent_intent_applied_frames << ",\n"
+                << "        \"ignored_active_lock_frames\": "
+                << scenario.selector_intent_ignored_active_lock_frames << ",\n"
+                << "        \"delayed_switch_confirm_frames\": "
+                << scenario.selector_intent_delayed_switch_confirm_frames << ",\n"
+                << "        \"weak_no_fire_frames\": "
+                << scenario.selector_intent_weak_no_fire_frames << "\n"
+                << "      }";
+        }
+        if (scenario.has_roi_fallback) {
+            out
+                << ",\n"
+                << "      \"roi_fallback\": {\n"
+                << "        \"seed\": " << scenario.roi_fallback_seed << ",\n"
+                << "        \"ticks\": " << scenario.roi_fallback_ticks << ",\n"
+                << "        \"requested_regions\": "
+                << scenario.roi_fallback_requested_regions << ",\n"
+                << "        \"partial_regions\": "
+                << scenario.roi_fallback_partial_regions << ",\n"
+                << "        \"full_frame_requests\": "
+                << scenario.roi_fallback_full_frame_requests << ",\n"
+                << "        \"external_cue_no_full_frame_frames\": "
+                << scenario.roi_fallback_external_cue_no_full_frame_frames << ",\n"
+                << "        \"roi_miss_hold_frames\": "
+                << scenario.roi_fallback_roi_miss_hold_frames << ",\n"
+                << "        \"edge_clamped_regions\": "
+                << scenario.roi_fallback_edge_clamped_regions << ",\n"
+                << "        \"target_loss_frames\": "
+                << scenario.roi_fallback_target_loss_frames << ",\n"
+                << "        \"processed_area_ratio\": "
+                << scenario.roi_fallback_processed_area_ratio << "\n"
+                << "      }";
+        }
         out
             << "\n"
             << "    }" << (index + 1 == scenarios.size() ? "\n" : ",\n");
@@ -3191,6 +3837,38 @@ void print_summary(
                 << scenario.ads_manual_stress_turn_smoothness_score
                 << " p95_turn=" << scenario.ads_manual_stress_p95_turn_degrees;
         }
+        if (scenario.has_selector_intent) {
+            std::cout
+                << " selector_hz=100"
+                << " seed=" << scenario.selector_intent_seed
+                << " ticks=" << scenario.selector_intent_ticks
+                << " targets=" << scenario.selector_intent_target_frames
+                << " wrong=" << scenario.selector_intent_wrong_target_frames
+                << " wrong_rate=" << scenario.selector_intent_wrong_target_rate
+                << " switches=" << scenario.selector_intent_switches
+                << " pingpong=" << scenario.selector_intent_ping_pong_switches
+                << " fire_leaks=" << scenario.selector_intent_fire_authority_leaks
+                << " applied=" << scenario.selector_intent_intent_applied_frames
+                << " ignored_lock="
+                << scenario.selector_intent_ignored_active_lock_frames
+                << " delayed_switch="
+                << scenario.selector_intent_delayed_switch_confirm_frames
+                << " weak_no_fire=" << scenario.selector_intent_weak_no_fire_frames;
+        }
+        if (scenario.has_roi_fallback) {
+            std::cout
+                << " roi_seed=" << scenario.roi_fallback_seed
+                << " ticks=" << scenario.roi_fallback_ticks
+                << " requested=" << scenario.roi_fallback_requested_regions
+                << " partial=" << scenario.roi_fallback_partial_regions
+                << " full_requests=" << scenario.roi_fallback_full_frame_requests
+                << " external_no_full="
+                << scenario.roi_fallback_external_cue_no_full_frame_frames
+                << " miss_hold=" << scenario.roi_fallback_roi_miss_hold_frames
+                << " edge_clamp=" << scenario.roi_fallback_edge_clamped_regions
+                << " target_loss=" << scenario.roi_fallback_target_loss_frames
+                << " area_ratio=" << scenario.roi_fallback_processed_area_ratio;
+        }
         std::cout << "\n";
     }
     std::cout << "[NativeGamepadBenchmark] artifact=" << options.output_path.string() << "\n";
@@ -3206,96 +3884,102 @@ int main(int argc, char** argv) {
             return 0;
         }
 
-        controller_native::RuntimeConfig runtime_config =
-            controller_native::load_runtime_config(options.config_path);
-        if (!options.recoil_state_path.empty()) {
-            runtime_config.gamepad.recoil.recognizer_state_path =
-                options.recoil_state_path.string();
-        }
-
+        controller_native::RuntimeConfig runtime_config;
         std::vector<ScenarioMetrics> scenarios;
-        scenarios.push_back(run_bodylock_edge_escape(
-            runtime_config.gamepad,
-            options.frames,
-            options.dt_ms));
-        scenarios.push_back(run_ads_wrong_input_recovery(
-            runtime_config.gamepad,
-            options.frames,
-            options.dt_ms));
-        scenarios.push_back(run_recoil_manual_conflict(
-            runtime_config.gamepad,
-            options.frames,
-            options.dt_ms));
-        scenarios.push_back(run_ads_python_parity_60hz(runtime_config.gamepad));
-        scenarios.push_back(run_ads_python_parity_60hz(
-            runtime_config.gamepad,
-            "ads_python_parity_60hz_dynamic",
-            true,
-            false));
-        scenarios.push_back(run_ads_python_parity_60hz(
-            runtime_config.gamepad,
-            "ads_python_parity_60hz_dynamic_fire",
-            true,
-            true));
-        scenarios.push_back(run_ads_fov_settle_130ms(runtime_config.gamepad, options));
-        scenarios.push_back(
-            run_ads_diagonal_manual_stress_100hz(runtime_config.gamepad));
-        scenarios.push_back(run_ads_diagonal_manual_stress_100hz(
-            runtime_config.gamepad,
-            "ads_diagonal_manual_stress_100hz_dynamic",
-            true,
-            false));
-        scenarios.push_back(run_ads_diagonal_manual_stress_100hz(
-            runtime_config.gamepad,
-            "ads_diagonal_manual_stress_100hz_dynamic_fire",
-            true,
-            true));
-        scenarios.push_back(run_ads_diagonal_manual_stress_100hz(
-            runtime_config.gamepad,
-            "ads_diagonal_late_vision_fov_occlusion_50hz",
-            false,
-            false,
-            true));
-        scenarios.push_back(run_ads_diagonal_manual_stress_100hz(
-            runtime_config.gamepad,
-            "ads_diagonal_late_vision_fov_occlusion_50hz_dynamic_fire",
-            true,
-            true,
-            true));
-        scenarios.push_back(run_ads_diagonal_manual_stress_100hz(
-            runtime_config.gamepad,
-            "ads_diagonal_late_position_fresh_timestamp_fov_occlusion_50hz_dynamic_fire",
-            true,
-            true,
-            true,
-            true));
-        scenarios.push_back(run_ads_diagonal_manual_stress_100hz(
-            runtime_config.gamepad,
-            "ads_diagonal_err_target_recovery_100hz_dynamic_fire",
-            true,
-            true,
-            false,
-            false,
-            true,
-            options.random_fov_seed));
-        scenarios.push_back(run_ads_diagonal_manual_stress_100hz(
-            runtime_config.gamepad,
-            "ads_diagonal_err_target_late_position_fov_occlusion_50hz_dynamic_fire",
-            true,
-            true,
-            true,
-            true,
-            true,
-            options.random_fov_seed));
-        if (options.random_fov_ticks > 0) {
-            scenarios.push_back(run_tracker_random_fov_100hz(
+        if (options.suite == "selector_intent") {
+            scenarios = run_selector_intent_suite(options.selector_intent_seed);
+        } else if (options.suite == "roi_fallback") {
+            scenarios = run_roi_fallback_suite(options.roi_fallback_seed);
+        } else {
+            runtime_config = controller_native::load_runtime_config(options.config_path);
+            if (!options.recoil_state_path.empty()) {
+                runtime_config.gamepad.recoil.recognizer_state_path =
+                    options.recoil_state_path.string();
+            }
+
+            scenarios.push_back(run_bodylock_edge_escape(
                 runtime_config.gamepad,
-                options));
-            scenarios.push_back(run_tracker_random_fov_100hz(
+                options.frames,
+                options.dt_ms));
+            scenarios.push_back(run_ads_wrong_input_recovery(
                 runtime_config.gamepad,
-                options,
-                "tracker_random_fov_100hz_dynamic",
+                options.frames,
+                options.dt_ms));
+            scenarios.push_back(run_recoil_manual_conflict(
+                runtime_config.gamepad,
+                options.frames,
+                options.dt_ms));
+            scenarios.push_back(run_ads_python_parity_60hz(runtime_config.gamepad));
+            scenarios.push_back(run_ads_python_parity_60hz(
+                runtime_config.gamepad,
+                "ads_python_parity_60hz_dynamic",
+                true,
+                false));
+            scenarios.push_back(run_ads_python_parity_60hz(
+                runtime_config.gamepad,
+                "ads_python_parity_60hz_dynamic_fire",
+                true,
                 true));
+            scenarios.push_back(run_ads_fov_settle_130ms(runtime_config.gamepad, options));
+            scenarios.push_back(
+                run_ads_diagonal_manual_stress_100hz(runtime_config.gamepad));
+            scenarios.push_back(run_ads_diagonal_manual_stress_100hz(
+                runtime_config.gamepad,
+                "ads_diagonal_manual_stress_100hz_dynamic",
+                true,
+                false));
+            scenarios.push_back(run_ads_diagonal_manual_stress_100hz(
+                runtime_config.gamepad,
+                "ads_diagonal_manual_stress_100hz_dynamic_fire",
+                true,
+                true));
+            scenarios.push_back(run_ads_diagonal_manual_stress_100hz(
+                runtime_config.gamepad,
+                "ads_diagonal_late_vision_fov_occlusion_50hz",
+                false,
+                false,
+                true));
+            scenarios.push_back(run_ads_diagonal_manual_stress_100hz(
+                runtime_config.gamepad,
+                "ads_diagonal_late_vision_fov_occlusion_50hz_dynamic_fire",
+                true,
+                true,
+                true));
+            scenarios.push_back(run_ads_diagonal_manual_stress_100hz(
+                runtime_config.gamepad,
+                "ads_diagonal_late_position_fresh_timestamp_fov_occlusion_50hz_dynamic_fire",
+                true,
+                true,
+                true,
+                true));
+            scenarios.push_back(run_ads_diagonal_manual_stress_100hz(
+                runtime_config.gamepad,
+                "ads_diagonal_err_target_recovery_100hz_dynamic_fire",
+                true,
+                true,
+                false,
+                false,
+                true,
+                options.random_fov_seed));
+            scenarios.push_back(run_ads_diagonal_manual_stress_100hz(
+                runtime_config.gamepad,
+                "ads_diagonal_err_target_late_position_fov_occlusion_50hz_dynamic_fire",
+                true,
+                true,
+                true,
+                true,
+                true,
+                options.random_fov_seed));
+            if (options.random_fov_ticks > 0) {
+                scenarios.push_back(run_tracker_random_fov_100hz(
+                    runtime_config.gamepad,
+                    options));
+                scenarios.push_back(run_tracker_random_fov_100hz(
+                    runtime_config.gamepad,
+                    options,
+                    "tracker_random_fov_100hz_dynamic",
+                    true));
+            }
         }
 
         write_json(options, runtime_config, scenarios);

@@ -103,6 +103,7 @@ target_compile_options(fusion_shared PRIVATE
 target_include_directories(vision_native_core
     PUBLIC
         include
+        ${CMAKE_CURRENT_SOURCE_DIR}/..
     PRIVATE
         "${TensorRT_INCLUDE_DIR}"
 )
@@ -144,6 +145,23 @@ add_executable(vision_native_bgra_benchmark
 
 target_link_libraries(vision_native_bgra_benchmark PRIVATE vision_native_core)
 
+add_executable(cod_native_target_selector_tests
+    src/target_selector_tests.cpp
+)
+
+target_include_directories(cod_native_target_selector_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
+target_compile_definitions(cod_native_target_selector_tests
+    PRIVATE
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
+)
+
+target_link_libraries(cod_native_target_selector_tests PRIVATE vision_native_core)
+
 # Native runtime source layout: native/runtime_app and native/controller_native.
 set(FPS_TRACKER_PACKAGE_SOURCES
     ../fps_2d_tracker_package/src/association.cpp
@@ -176,8 +194,11 @@ add_executable(cod_native_runtime
     ../tracking_native/legacy_projection_tracker.cpp
     ${FPS_TRACKER_PACKAGE_SOURCES}
     ../controller_native/runtime_config.cpp
+    ../controller_native/ads_state_tracker.cpp
+    ../controller_native/auto_fire_gate.cpp
     ../controller_native/target_tracker.cpp
     ../controller_native/ai_aim.cpp
+    ../controller_native/body_lock_short_plan_policy.cpp
     ../controller_native/bodylock_policy.cpp
     ../controller_native/aim_assist_dynamics.cpp
     ../controller_native/recoil_profile.cpp
@@ -187,7 +208,10 @@ add_executable(cod_native_runtime
     ../recoil_native/recoil_visual_model.cpp
     ../controller_native/weapon_recognizer.cpp
     ../controller_native/output_mixer.cpp
+    ../controller_native/output_validation_policy.cpp
     ../controller_native/controller_pipeline.cpp
+    ../runtime_app/vision_controller_adapter.cpp
+    ../controller_native/target_snapshot_provider.cpp
     ../controller_native/native_gamepad_controller.cpp
     ../controller_native/virtual_gamepad.cpp
     ../controller_native/xinput_reader.cpp
@@ -245,11 +269,6 @@ endif()
 
 add_executable(cod_native_controller_tests
     ../controller_native/controller_behavior_tests.cpp
-    ../runtime_app/aim_perf_file_logger.cpp
-    ../runtime_app/native_replay_writer.cpp
-    ../runtime_app/native_replay_runner.cpp
-    ../replay_native/replay_reader.cpp
-    ../replay_native/replay_metrics.cpp
     ../tracking_native/association.cpp
     ../tracking_native/ego_motion_buffer.cpp
     ../tracking_native/projection_model.cpp
@@ -260,8 +279,11 @@ add_executable(cod_native_controller_tests
     ../tracking_native/legacy_projection_tracker.cpp
     ${FPS_TRACKER_PACKAGE_SOURCES}
     ../controller_native/runtime_config.cpp
+    ../controller_native/ads_state_tracker.cpp
+    ../controller_native/auto_fire_gate.cpp
     ../controller_native/target_tracker.cpp
     ../controller_native/ai_aim.cpp
+    ../controller_native/body_lock_short_plan_policy.cpp
     ../controller_native/bodylock_policy.cpp
     ../controller_native/aim_assist_dynamics.cpp
     ../controller_native/recoil_profile.cpp
@@ -271,7 +293,10 @@ add_executable(cod_native_controller_tests
     ../recoil_native/recoil_visual_model.cpp
     ../controller_native/weapon_recognizer.cpp
     ../controller_native/output_mixer.cpp
+    ../controller_native/output_validation_policy.cpp
     ../controller_native/controller_pipeline.cpp
+    ../runtime_app/vision_controller_adapter.cpp
+    ../controller_native/target_snapshot_provider.cpp
     ../controller_native/native_gamepad_controller.cpp
 )
 
@@ -292,6 +317,175 @@ target_link_libraries(cod_native_controller_tests PRIVATE
     windowsapp
 )
 
+add_executable(cod_native_controller_protocol_tests
+    ../controller_native/controller_protocol_tests.cpp
+    ../runtime_app/vision_controller_adapter.cpp
+)
+
+target_include_directories(cod_native_controller_protocol_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
+target_compile_definitions(cod_native_controller_protocol_tests
+    PRIVATE
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
+)
+
+add_executable(cod_native_target_snapshot_tests
+    ../controller_native/target_snapshot_provider_tests.cpp
+    ../controller_native/target_snapshot_provider.cpp
+    ../tracking_native/association.cpp
+    ../tracking_native/ego_motion_buffer.cpp
+    ../tracking_native/projection_model.cpp
+    ../tracking_native/tracker_authority.cpp
+    ../tracking_native/kalman_tracker.cpp
+    ../tracking_native/fps_reference_tracker.cpp
+    ../tracking_native/tracker_backend.cpp
+    ../tracking_native/legacy_projection_tracker.cpp
+    ${FPS_TRACKER_PACKAGE_SOURCES}
+)
+
+target_include_directories(cod_native_target_snapshot_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fps_2d_tracker_package/include
+)
+
+target_compile_definitions(cod_native_target_snapshot_tests
+    PRIVATE
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
+)
+
+add_executable(cod_native_ads_state_tests
+    ../controller_native/ads_state_tracker_tests.cpp
+    ../controller_native/ads_state_tracker.cpp
+)
+
+target_include_directories(cod_native_ads_state_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
+target_compile_definitions(cod_native_ads_state_tests
+    PRIVATE
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
+)
+
+add_executable(cod_native_auto_fire_tests
+    ../controller_native/auto_fire_gate_tests.cpp
+    ../controller_native/auto_fire_gate.cpp
+    ../tracking_native/tracker_authority.cpp
+)
+
+target_include_directories(cod_native_auto_fire_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
+target_compile_definitions(cod_native_auto_fire_tests
+    PRIVATE
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
+)
+
+add_executable(cod_native_output_validation_tests
+    ../controller_native/output_validation_policy_tests.cpp
+    ../controller_native/output_validation_policy.cpp
+    ../tracking_native/tracker_authority.cpp
+)
+
+target_include_directories(cod_native_output_validation_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
+target_compile_definitions(cod_native_output_validation_tests
+    PRIVATE
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
+)
+
+add_executable(cod_native_body_lock_plan_tests
+    ../controller_native/body_lock_short_plan_policy_tests.cpp
+    ../controller_native/body_lock_short_plan_policy.cpp
+)
+
+target_include_directories(cod_native_body_lock_plan_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
+target_compile_definitions(cod_native_body_lock_plan_tests
+    PRIVATE
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
+)
+
+add_executable(cod_native_recoil_contract_tests
+    ../controller_native/recoil_contract_tests.cpp
+    ../controller_native/recoil_profile.cpp
+    ../controller_native/recoil_calibration.cpp
+    ../controller_native/recoil_compensation.cpp
+    ../recoil_native/recoil_visual_model.cpp
+)
+
+target_include_directories(cod_native_recoil_contract_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
+target_compile_definitions(cod_native_recoil_contract_tests
+    PRIVATE
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
+)
+
+target_link_libraries(cod_native_recoil_contract_tests PRIVATE
+    windowsapp
+)
+
+add_executable(cod_native_weapon_recognizer_tests
+    ../controller_native/weapon_recognizer_tests.cpp
+    ../controller_native/weapon_recognizer.cpp
+    ../controller_native/recoil_profile.cpp
+)
+
+target_include_directories(cod_native_weapon_recognizer_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
+target_compile_definitions(cod_native_weapon_recognizer_tests
+    PRIVATE
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
+)
+
+target_link_libraries(cod_native_weapon_recognizer_tests PRIVATE
+    windowsapp
+)
+
+add_executable(cod_native_benchmark_metrics_tests
+    ../controller_native/benchmark_metrics_tests.cpp
+    ../runtime_app/aim_perf_file_logger.cpp
+    ../replay_native/replay_metrics.cpp
+)
+
+target_include_directories(cod_native_benchmark_metrics_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
+target_compile_definitions(cod_native_benchmark_metrics_tests
+    PRIVATE
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
+)
+
 add_executable(cod_native_gamepad_benchmark
     ../controller_native/cod_native_gamepad_benchmark.cpp
     ../tracking_native/association.cpp
@@ -304,8 +498,11 @@ add_executable(cod_native_gamepad_benchmark
     ../tracking_native/legacy_projection_tracker.cpp
     ${FPS_TRACKER_PACKAGE_SOURCES}
     ../controller_native/runtime_config.cpp
+    ../controller_native/ads_state_tracker.cpp
+    ../controller_native/auto_fire_gate.cpp
     ../controller_native/target_tracker.cpp
     ../controller_native/ai_aim.cpp
+    ../controller_native/body_lock_short_plan_policy.cpp
     ../controller_native/bodylock_policy.cpp
     ../controller_native/aim_assist_dynamics.cpp
     ../controller_native/recoil_profile.cpp
@@ -314,7 +511,10 @@ add_executable(cod_native_gamepad_benchmark
     ../recoil_native/recoil_compensation.cpp
     ../recoil_native/recoil_visual_model.cpp
     ../controller_native/output_mixer.cpp
+    ../controller_native/output_validation_policy.cpp
     ../controller_native/controller_pipeline.cpp
+    ../runtime_app/vision_controller_adapter.cpp
+    ../controller_native/target_snapshot_provider.cpp
     ../controller_native/native_gamepad_controller.cpp
 )
 
@@ -331,6 +531,7 @@ target_compile_definitions(cod_native_gamepad_benchmark
 )
 
 target_link_libraries(cod_native_gamepad_benchmark PRIVATE
+    vision_native_core
     gdi32
     windowsapp
 )

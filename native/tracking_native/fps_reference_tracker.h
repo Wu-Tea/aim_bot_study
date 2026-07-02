@@ -2,8 +2,6 @@
 
 #include "tracker_backend.h"
 
-#include "../controller_native/target_tracker.h"
-
 #include <fps_tracker/target_tracker.hpp>
 
 #include <memory>
@@ -13,7 +11,7 @@ namespace tracking_native {
 class FpsReferenceTracker final : public TrackerBackend {
 public:
     explicit FpsReferenceTracker(
-        controller_native::NativeTargetTrackerConfig config = {});
+        pipeline_contract::TargetTrackerConfig config = {});
 
     void reset() override;
     void ingest(const TrackerObservation& observation) override;
@@ -32,7 +30,7 @@ private:
         const TrackerObservation& observation,
         std::uint64_t fallback_id) const;
 
-    controller_native::NativeTargetTrackerConfig config_;
+    pipeline_contract::TargetTrackerConfig config_;
     std::unique_ptr<fps::TargetTracker> tracker_;
     float screen_width_ = 640.0f;
     float screen_height_ = 512.0f;

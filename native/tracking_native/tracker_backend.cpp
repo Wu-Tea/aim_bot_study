@@ -53,7 +53,7 @@ std::string_view tracker_backend_kind_name(TrackerBackendKind kind) {
 
 std::unique_ptr<TrackerBackend> create_tracker_backend(
     TrackerBackendKind kind,
-    controller_native::NativeTargetTrackerConfig config) {
+    pipeline_contract::TargetTrackerConfig config) {
     switch (kind) {
     case TrackerBackendKind::FpsReference:
         return std::make_unique<FpsReferenceTracker>(config);

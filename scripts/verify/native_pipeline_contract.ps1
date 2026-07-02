@@ -60,6 +60,17 @@ function Assert-NoForbiddenCoupling {
     $controllerFiles = @(
         "native\controller_native\native_gamepad_controller.cpp"
     )
+    $controllerPublicHeaders = @(
+        "native\controller_native\native_gamepad_controller.h"
+    )
+    $controllerProductionFiles = Get-ChildItem -Path "native\controller_native" -Include "*.h", "*.cpp" -Recurse |
+        Where-Object {
+            $_.Name -notlike "*_tests.cpp" -and
+            $_.Name -ne "cod_native_gamepad_benchmark.cpp"
+        }
+    $trackingHeaders = Get-ChildItem -Path "native\tracking_native" -Include "*.h" -Recurse
+    $controllerBehaviorTest = "native\controller_native\controller_behavior_tests.cpp"
+    $cmakeLists = "native\vision_native\CMakeLists.txt"
     $forbiddenBoundaryPatterns = @(
         "target_direction_yield",
         "target_observed_at_seconds",
@@ -96,6 +107,74 @@ function Assert-NoForbiddenCoupling {
                 "$($_.Path):$($_.LineNumber): $($_.Line.Trim())"
             }) -join "`n"
             throw "Forbidden controller-to-recoil target feedback assignment found: $pattern`n$details"
+        }
+    }
+
+    $matches = Select-String -Path $controllerPublicHeaders -Pattern "vision_native" -ErrorAction SilentlyContinue
+    if ($matches) {
+        $details = ($matches | ForEach-Object {
+            "$($_.Path):$($_.LineNumber): $($_.Line.Trim())"
+        }) -join "`n"
+        throw "Forbidden controller public header dependency on vision_native found.`n$details"
+    }
+
+    $matches = Select-String -Path $controllerProductionFiles.FullName -Pattern "vision_native" -ErrorAction SilentlyContinue
+    if ($matches) {
+        $details = ($matches | ForEach-Object {
+            "$($_.Path):$($_.LineNumber): $($_.Line.Trim())"
+        }) -join "`n"
+        throw "Forbidden controller production dependency on vision_native found.`n$details"
+    }
+
+    $matches = Select-String -Path $trackingHeaders.FullName -Pattern "controller_native" -ErrorAction SilentlyContinue
+    if ($matches) {
+        $details = ($matches | ForEach-Object {
+            "$($_.Path):$($_.LineNumber): $($_.Line.Trim())"
+        }) -join "`n"
+        throw "Forbidden tracking header dependency on controller_native found.`n$details"
+    }
+
+    $requiredSplitTestFiles = @(
+        "native\vision_native\src\target_selector_tests.cpp",
+        "native\controller_native\controller_protocol_tests.cpp",
+        "native\controller_native\recoil_contract_tests.cpp",
+        "native\controller_native\weapon_recognizer_tests.cpp",
+        "native\controller_native\benchmark_metrics_tests.cpp"
+    )
+    foreach ($testFile in $requiredSplitTestFiles) {
+        if (-not (Test-Path $testFile)) {
+            throw "Required split test file not found: $testFile"
+        }
+    }
+
+    $requiredSplitTargets = @(
+        "cod_native_target_selector_tests",
+        "cod_native_controller_protocol_tests",
+        "cod_native_recoil_contract_tests",
+        "cod_native_weapon_recognizer_tests",
+        "cod_native_benchmark_metrics_tests"
+    )
+    foreach ($targetName in $requiredSplitTargets) {
+        $targetMatch = Select-String -Path $cmakeLists -Pattern $targetName -SimpleMatch -ErrorAction SilentlyContinue
+        if (-not $targetMatch) {
+            throw "Required split test target not found in CMakeLists.txt: $targetName"
+        }
+    }
+
+    $controllerBehaviorMetricsPatterns = @(
+        "test_replay_schema_captures_controller_components",
+        "test_replay_metrics_summarizes_error_and_fire_violations",
+        "test_aim_perf_file_logger_writes_controller_components",
+        "AimPerfFileLogger",
+        "replay_native"
+    )
+    foreach ($pattern in $controllerBehaviorMetricsPatterns) {
+        $matches = Select-String -Path $controllerBehaviorTest -Pattern $pattern -SimpleMatch -ErrorAction SilentlyContinue
+        if ($matches) {
+            $details = ($matches | ForEach-Object {
+                "$($_.Path):$($_.LineNumber): $($_.Line.Trim())"
+            }) -join "`n"
+            throw "Benchmark metrics coverage leaked back into controller_behavior_tests.cpp: $pattern`n$details"
         }
     }
 }

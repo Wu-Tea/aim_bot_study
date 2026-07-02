@@ -110,6 +110,10 @@ struct VisionResult {
     bool fire_authority = false;
     const char* association_stage = "";
     float target_confidence = 0.0f;
+    uint64_t intent_id = 0;
+    bool intent_applied = false;
+    const char* intent_decision = "none";
+    float intent_score = 0.0f;
     bool has_external_cue = false;
     float external_cue_x = 0.0f;
     float external_cue_y = 0.0f;

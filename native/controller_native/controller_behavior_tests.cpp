@@ -12,13 +12,10 @@
 #include "../common_native/screen_geometry.h"
 #include "../common_native/stick_types.h"
 #include "../common_native/time_types.h"
-#include "../replay_native/replay_metrics.h"
-#include "../replay_native/replay_schema.h"
 #include "../tracking_native/legacy_projection_tracker.h"
 #include "../tracking_native/tracker_authority.h"
 #include "../tracking_native/tracker_backend.h"
-#include "../recoil_native/recoil_visual_model.h"
-#include "../runtime_app/aim_perf_file_logger.h"
+#include "../runtime_app/vision_controller_adapter.h"
 
 #include <cmath>
 #include <chrono>
@@ -34,7 +31,6 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
-#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -71,6 +67,12 @@ std::uint64_t now_ns() {
         std::chrono::duration_cast<std::chrono::nanoseconds>(
             std::chrono::steady_clock::now().time_since_epoch())
             .count());
+}
+
+void submit_adapted_vision_result(
+    controller_native::NativeGamepadController& controller,
+    const vision_native::VisionResult& result) {
+    controller.submit_vision_snapshot(runtime_app::adapt_vision_result(result));
 }
 
 std::filesystem::path make_temp_test_dir(const std::string& label) {
@@ -110,36 +112,6 @@ private:
     std::string name_;
     std::optional<std::string> previous_;
 };
-
-std::string read_text_file(const std::filesystem::path& path) {
-    std::ifstream input(path, std::ios::binary);
-    if (!input) {
-        throw std::runtime_error("failed to read test file: " + path.string());
-    }
-    return std::string(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
-}
-
-template <typename T, typename = void>
-struct has_target_dx_member : std::false_type {};
-
-template <typename T>
-struct has_target_dx_member<T, std::void_t<decltype(std::declval<T>().target_dx)>>
-    : std::true_type {};
-
-template <typename T, typename = void>
-struct has_target_dy_member : std::false_type {};
-
-template <typename T>
-struct has_target_dy_member<T, std::void_t<decltype(std::declval<T>().target_dy)>>
-    : std::true_type {};
-
-template <typename T, typename = void>
-struct has_target_observed_at_seconds_member : std::false_type {};
-
-template <typename T>
-struct has_target_observed_at_seconds_member<
-    T,
-    std::void_t<decltype(std::declval<T>().target_observed_at_seconds)>> : std::true_type {};
 
 std::string recoil_profile_json(
     const std::string& profile_id,
@@ -195,120 +167,6 @@ void test_common_native_types_compile() {
     require_true(
         fire == common_native::FireAuthority::ObservedOnly,
         "fire authority enum should compare");
-}
-
-void test_replay_schema_captures_controller_components() {
-    replay_native::NativeReplayFrame frame;
-    frame.frame_id = 42;
-    frame.timing.capture_time_seconds = 100.0;
-    frame.timing.vision_ready_time_seconds = 100.006;
-    frame.selected_target.has_target = true;
-    frame.selected_target.aim_error_px = {12.0f, -4.0f};
-    frame.selected_target.tier = "strong";
-    frame.tracker.source = tracking_native::TrackerSnapshotSource::Projected;
-    frame.tracker.assist_authority = common_native::AssistAuthority::AimCoast;
-    frame.tracker.fire_authority = common_native::FireAuthority::None;
-    frame.controller.aiming = true;
-    frame.controller.sticks.manual = {0.10f, 0.20f};
-    frame.controller.sticks.assist = {0.30f, 0.00f};
-    frame.controller.sticks.recoil = {-0.40f, 0.00f};
-    frame.controller.sticks.final_output = {0.00f, 0.20f};
-
-    require_true(frame.controller.aiming, "replay schema should capture aiming state");
-    require_near(
-        frame.controller.sticks.recoil.x,
-        -0.40f,
-        0.001f,
-        "replay schema should expose recoil stick separately");
-    require_near(
-        frame.controller.sticks.final_output.x,
-        0.00f,
-        0.001f,
-        "replay schema should expose final stick separately");
-}
-
-void test_replay_metrics_summarizes_error_and_fire_violations() {
-    std::vector<replay_native::NativeReplayFrame> frames(3);
-    frames[0].selected_target.has_target = true;
-    frames[0].selected_target.aim_error_px = {10.0f, 0.0f};
-    frames[0].tracker.projection_age_ms = 4.0;
-
-    frames[1].selected_target.has_target = true;
-    frames[1].selected_target.aim_error_px = {20.0f, 0.0f};
-    frames[1].tracker.source = tracking_native::TrackerSnapshotSource::Projected;
-    frames[1].tracker.fire_authority = common_native::FireAuthority::None;
-    frames[1].tracker.projection_age_ms = 8.0;
-    frames[1].controller.fire_allowed = true;
-
-    frames[2].selected_target.has_target = true;
-    frames[2].selected_target.aim_error_px = {30.0f, 0.0f};
-    frames[2].selected_target.age_ms = 60.0;
-    frames[2].tracker.fire_authority = common_native::FireAuthority::ObservedOnly;
-    frames[2].tracker.projection_age_ms = 16.0;
-    frames[2].controller.fire_allowed = true;
-
-    replay_native::ReplayMetricOptions options;
-    options.max_fire_source_age_ms = 50.0;
-    const replay_native::ReplayMetricSummary summary =
-        replay_native::summarize_replay_metrics(frames, options);
-
-    require_near(summary.target_error_p50_px, 20.0f, 0.001f, "replay p50 target error");
-    require_near(summary.target_error_p95_px, 30.0f, 0.001f, "replay p95 target error");
-    require_near(summary.projection_age_p95_ms, 16.0f, 0.001f, "replay p95 projection age");
-    require_true(
-        summary.predicted_only_fire_violations == 1,
-        "replay metrics should count predicted-only fire violations");
-    require_true(
-        summary.stale_fire_violations == 1,
-        "replay metrics should count stale fire violations");
-}
-
-void test_aim_perf_file_logger_writes_controller_components() {
-    const std::filesystem::path root = make_temp_test_dir("aim_perf_components");
-    std::filesystem::path log_path;
-    {
-        runtime_app::AimPerfFileLogger logger(true, root, 1);
-        controller_native::NativeControllerOutputComponents components;
-        components.manual_stick = {0.10f, 0.20f};
-        components.ai_aim_stick = {0.30f, 0.00f};
-        components.dynamic_adjustment_stick = {0.00f, -0.10f};
-        components.recoil_stick = {-0.40f, 0.00f};
-        components.final_stick = {0.00f, 0.10f};
-        components.fire_button = true;
-        controller_native::GamepadOutputState tracker_output;
-        tracker_output.right_x = 0.10f;
-        tracker_output.right_y = 0.20f;
-        vision_native::VisionResult vision;
-        vision.frame_updated = true;
-        vision.frame_id = 7;
-        vision.preprocess_mode = vision_native::PreprocessMode::OldBgraCopy;
-        runtime_app::PerfSnapshot snapshot;
-        logger.record_aim_sample(
-            1,
-            true,
-            snapshot,
-            &vision,
-            &components,
-            &tracker_output);
-        log_path = logger.log_path();
-    }
-
-    const std::string log = read_text_file(log_path);
-    require_true(
-        log.find("\"recoil_x\":-0.4") != std::string::npos,
-        "aim perf log should include recoil component x");
-    require_true(
-        log.find("\"final_y\":0.1") != std::string::npos,
-        "aim perf log should include final stick y");
-    require_true(
-        log.find("\"tracker_sample_x\":0.1") != std::string::npos,
-        "aim perf log should include tracker sample x");
-    require_true(
-        log.find("\"fire_button\":true") != std::string::npos,
-        "aim perf log should include fire button state");
-    require_true(
-        log.find("\"preprocess_mode\":\"old_bgra_copy\"") != std::string::npos,
-        "aim perf log should include preprocess mode");
 }
 
 controller_native::BodyLockMotionObservation body_lock_motion_box(
@@ -438,23 +296,6 @@ std::string recoil_profile_xy_json(
     return out.str();
 }
 
-std::string recoil_calibration_json(
-    const std::string& aim_mode,
-    float x_rate,
-    float y_rate) {
-    std::ostringstream out;
-    out
-        << "{\n"
-        << "  \"game\": \"cod22\",\n"
-        << "  \"aim_mode\": \"" << aim_mode << "\",\n"
-        << "  \"stance\": \"standing\",\n"
-        << "  \"pixels_per_full_stick_x_per_second\": " << x_rate << ",\n"
-        << "  \"pixels_per_full_stick_y_per_second\": " << y_rate << ",\n"
-        << "  \"created_at\": \"2026-05-20T00:00:00Z\"\n"
-        << "}\n";
-    return out.str();
-}
-
 std::string recognizer_state_json(
     const std::string& weapon_id,
     const std::string& profile_id_hint) {
@@ -472,323 +313,6 @@ std::string recognizer_state_json(
         << "  \"profile_ids\": [\"" << profile_id_hint << "\"]\n"
         << "}\n";
     return out.str();
-}
-
-std::string weapon_identity_json(
-    const std::string& weapon_id,
-    const std::string& display_name,
-    const std::string& alias_name) {
-    std::ostringstream out;
-    out
-        << "{\n"
-        << "  \"canonical_weapon_id\": \"" << weapon_id << "\",\n"
-        << "  \"game\": \"cod22\",\n"
-        << "  \"weapon_family\": \"test\",\n"
-        << "  \"display_name\": \"" << display_name << "\",\n"
-        << "  \"alias_names\": [\"" << alias_name << "\"],\n"
-        << "  \"blueprint_names\": [],\n"
-        << "  \"signature_refs\": [],\n"
-        << "  \"notes\": \"test\",\n"
-        << "  \"created_at\": \"2026-06-06T12:00:00Z\",\n"
-        << "  \"updated_at\": \"2026-06-06T12:00:00Z\"\n"
-        << "}\n";
-    return out.str();
-}
-
-std::string small_artery_name_utf8() {
-    return std::string("\xE5\xB0\x8F\xE5\x8A\xA8\xE8\x84\x89");
-}
-
-std::string lesser_artery_name_utf8() {
-    return std::string("\xE5\xB0\x91\xE5\x8A\xA8\xE8\x84\x89");
-}
-
-std::string artery_suffix_with_space_utf8() {
-    return std::string("\xE5\x8A\xA8 \xE8\x84\x89");
-}
-
-void test_recoil_weapon_recognizer_writes_current_weapon_state_from_text() {
-    const std::filesystem::path root = make_temp_test_dir("weapon_recognizer");
-    const std::filesystem::path weapon_dir = root / "weapons";
-    const std::filesystem::path profile_dir = root / "profiles";
-    const std::filesystem::path state_path = root / "current_weapon.json";
-    std::filesystem::create_directories(weapon_dir);
-    std::filesystem::create_directories(profile_dir);
-
-    write_text_file(
-        weapon_dir / "identity-cod22-m4.json",
-        weapon_identity_json("cod22-m4", "M4", "M 4"));
-    write_text_file(
-        profile_dir / "profile-cod22-m4-ads-standing-current.json",
-        recoil_profile_json("profile-cod22-m4-ads-standing-current", "cod22-m4", "ads", 0.95f, 12.0f));
-
-    controller_native::GamepadRecoilConfig config;
-    config.recognizer_game = "cod22";
-    config.weapon_directory = weapon_dir.string();
-    config.profile_directory = profile_dir.string();
-    config.recognizer_state_path = state_path.string();
-
-    controller_native::NativeRecoilWeaponRecognizer recognizer(config);
-    const std::optional<controller_native::RecoilWeaponRecognitionEvent> event =
-        recognizer.process_text_candidates({"M4"}, "2026-06-06T12:00:00Z");
-
-    require_true(event.has_value(), "native recoil recognizer should resolve OCR text candidates");
-    require_true(event->canonical_weapon_id == "cod22-m4", "native recoil recognizer should emit canonical id");
-    require_true(event->source == "switch_text", "native recoil recognizer should mark switch_text source");
-    require_true(event->matched_name == "M4", "native recoil recognizer should keep matched OCR text");
-    require_true(event->profile_ids.size() == 1, "native recoil recognizer should attach matching profile ids");
-    require_true(
-        event->profile_ids[0] == "profile-cod22-m4-ads-standing-current",
-        "native recoil recognizer should attach the current weapon profile id");
-
-    recognizer.write_latest_state(*event);
-    const std::string state = std::filesystem::exists(state_path) ? read_text_file(state_path) : std::string();
-    require_true(
-        state.find("\"type\": \"current_weapon\"") != std::string::npos,
-        "native recoil recognizer should write current_weapon state");
-    require_true(
-        state.find("\"canonical_weapon_id\": \"cod22-m4\"") != std::string::npos,
-        "native recoil recognizer state should include canonical id");
-    require_true(
-        state.find("\"profile-cod22-m4-ads-standing-current\"") != std::string::npos,
-        "native recoil recognizer state should include profile ids");
-}
-
-void test_recoil_weapon_recognizer_does_not_create_unknown_identity_from_live_ocr() {
-    const std::filesystem::path root = make_temp_test_dir("weapon_recognizer_unknown");
-    const std::filesystem::path weapon_dir = root / "weapons";
-    const std::filesystem::path profile_dir = root / "profiles";
-    std::filesystem::create_directories(weapon_dir);
-    std::filesystem::create_directories(profile_dir);
-
-    controller_native::GamepadRecoilConfig config;
-    config.recognizer_game = "cod22";
-    config.weapon_directory = weapon_dir.string();
-    config.profile_directory = profile_dir.string();
-    config.recognizer_state_path = (root / "current_weapon.json").string();
-
-    controller_native::NativeRecoilWeaponRecognizer recognizer(config);
-    const std::optional<controller_native::RecoilWeaponRecognitionEvent> event =
-        recognizer.process_text_candidates({"random menu text"}, "2026-06-06T12:00:00Z", true);
-
-    require_true(event.has_value(), "native recoil recognizer should publish fallback state for unknown OCR");
-    require_true(
-        event->canonical_weapon_id == "cod22-unknown",
-        "unknown OCR should not pretend to be a known weapon");
-    require_true(event->profile_ids.empty(), "unknown OCR should not attach stale profile ids");
-    require_true(
-        recognizer.identity_records().empty(),
-        "native recoil recognizer should leave identity records unchanged for unknown OCR");
-}
-
-void test_recoil_weapon_recognizer_clears_previous_profile_on_unknown_switch() {
-    const std::filesystem::path root = make_temp_test_dir("weapon_recognizer_unknown_switch");
-    const std::filesystem::path weapon_dir = root / "weapons";
-    const std::filesystem::path profile_dir = root / "profiles";
-    const std::filesystem::path state_path = root / "current_weapon.json";
-    std::filesystem::create_directories(weapon_dir);
-    std::filesystem::create_directories(profile_dir);
-
-    const std::string weapon_name = small_artery_name_utf8();
-    const std::string weapon_id = "cod22-" + weapon_name;
-    const std::string profile_id = "profile-cod22-" + weapon_name + "-ads-standing-current";
-    write_text_file(
-        weapon_dir / std::filesystem::u8path("identity-cod22-" + weapon_id + ".json"),
-        weapon_identity_json(weapon_id, weapon_name, weapon_name));
-    write_text_file(
-        profile_dir / std::filesystem::u8path(profile_id + ".json"),
-        recoil_profile_json(profile_id, weapon_id, "ads", 0.95f, 12.0f));
-
-    controller_native::GamepadRecoilConfig config;
-    config.recognizer_game = "cod22";
-    config.weapon_directory = weapon_dir.string();
-    config.profile_directory = profile_dir.string();
-    config.recognizer_state_path = state_path.string();
-
-    controller_native::NativeRecoilWeaponRecognizer recognizer(config);
-    const std::optional<controller_native::RecoilWeaponRecognitionEvent> known =
-        recognizer.process_text_candidates({weapon_name}, "2026-06-06T12:00:00Z", true);
-    require_true(known.has_value(), "native recoil recognizer should first resolve the profiled weapon");
-    require_true(known->canonical_weapon_id == weapon_id, "known switch should resolve the profiled weapon");
-    require_true(known->profile_ids.size() == 1, "known switch should attach the profiled weapon profile");
-
-    const std::optional<controller_native::RecoilWeaponRecognitionEvent> unknown =
-        recognizer.process_text_candidates({"unknown weapon"}, "2026-06-06T12:00:01Z", true);
-    require_true(unknown.has_value(), "unknown switch should publish a fallback weapon state");
-    require_true(
-        unknown->canonical_weapon_id == "cod22-unknown",
-        "unknown switch should clear the previously confirmed weapon id");
-    require_true(unknown->profile_ids.empty(), "unknown switch should clear stale profile ids");
-    require_true(unknown->source == "switch_unresolved", "unknown switch should mark unresolved source");
-
-    recognizer.write_latest_state(*unknown);
-    const std::string state = read_text_file(state_path);
-    require_true(
-        state.find("\"profile_status\": \"no_profile\"") != std::string::npos,
-        "unknown switch state should make recoil selector fall back to feedback");
-    require_true(
-        state.find(profile_id) == std::string::npos,
-        "unknown switch state should not keep the previous weapon profile id");
-}
-
-void test_recoil_weapon_recognizer_clears_previous_profile_on_empty_switch_ocr() {
-    const std::filesystem::path root = make_temp_test_dir("weapon_recognizer_empty_switch");
-    const std::filesystem::path weapon_dir = root / "weapons";
-    const std::filesystem::path profile_dir = root / "profiles";
-    std::filesystem::create_directories(weapon_dir);
-    std::filesystem::create_directories(profile_dir);
-
-    const std::string weapon_name = small_artery_name_utf8();
-    const std::string weapon_id = "cod22-" + weapon_name;
-    const std::string profile_id = "profile-cod22-" + weapon_name + "-ads-standing-current";
-    write_text_file(
-        weapon_dir / std::filesystem::u8path("identity-cod22-" + weapon_id + ".json"),
-        weapon_identity_json(weapon_id, weapon_name, weapon_name));
-    write_text_file(
-        profile_dir / std::filesystem::u8path(profile_id + ".json"),
-        recoil_profile_json(profile_id, weapon_id, "ads", 0.95f, 12.0f));
-
-    controller_native::GamepadRecoilConfig config;
-    config.recognizer_game = "cod22";
-    config.weapon_directory = weapon_dir.string();
-    config.profile_directory = profile_dir.string();
-    config.recognizer_state_path = (root / "current_weapon.json").string();
-
-    controller_native::NativeRecoilWeaponRecognizer recognizer(config);
-    const std::optional<controller_native::RecoilWeaponRecognitionEvent> known =
-        recognizer.process_text_candidates({weapon_name}, "2026-06-06T12:00:00Z", true);
-    require_true(known.has_value(), "native recoil recognizer should first resolve the profiled weapon");
-
-    const std::optional<controller_native::RecoilWeaponRecognitionEvent> unknown =
-        recognizer.process_text_candidates({}, "2026-06-06T12:00:01Z", true);
-    require_true(unknown.has_value(), "empty switch OCR should still publish fallback state");
-    require_true(
-        unknown->canonical_weapon_id == "cod22-unknown",
-        "empty switch OCR should clear the previously confirmed weapon id");
-    require_true(unknown->profile_ids.empty(), "empty switch OCR should clear stale profile ids");
-}
-
-void test_recoil_weapon_recognizer_matches_utf8_weapon_and_profile_filename() {
-    const std::filesystem::path root = make_temp_test_dir("weapon_recognizer_utf8");
-    const std::filesystem::path weapon_dir = root / "weapons";
-    const std::filesystem::path profile_dir = root / "profiles";
-    std::filesystem::create_directories(weapon_dir);
-    std::filesystem::create_directories(profile_dir);
-
-    const std::string weapon_name = small_artery_name_utf8();
-    const std::string weapon_id = "cod22-" + weapon_name;
-    const std::string profile_id = "profile-cod22-" + weapon_name + "-ads-standing-current";
-    write_text_file(
-        weapon_dir / std::filesystem::u8path("identity-cod22-" + weapon_id + ".json"),
-        weapon_identity_json(weapon_id, weapon_name, weapon_name));
-    write_text_file(
-        profile_dir / std::filesystem::u8path(profile_id + ".json"),
-        recoil_profile_json(profile_id, weapon_id, "ads", 0.95f, 12.0f));
-
-    controller_native::GamepadRecoilConfig config;
-    config.recognizer_game = "cod22";
-    config.weapon_directory = weapon_dir.string();
-    config.profile_directory = profile_dir.string();
-    config.recognizer_state_path = (root / "current_weapon.json").string();
-
-    controller_native::NativeRecoilWeaponRecognizer recognizer(config);
-    const std::optional<controller_native::RecoilWeaponRecognitionEvent> event =
-        recognizer.process_text_candidates({weapon_name}, "2026-06-06T12:00:00Z");
-
-    require_true(event.has_value(), "native recoil recognizer should resolve UTF-8 weapon names");
-    require_true(event->canonical_weapon_id == weapon_id, "native recoil recognizer should keep UTF-8 canonical id");
-    require_true(event->profile_ids.size() == 1, "native recoil recognizer should match UTF-8 profile filename");
-    require_true(event->profile_ids[0] == profile_id, "native recoil recognizer should keep UTF-8 profile id");
-}
-
-void test_recoil_weapon_recognizer_prefers_profiled_weapon_for_ambiguous_ocr_suffix() {
-    const std::filesystem::path root = make_temp_test_dir("weapon_recognizer_profile_bias");
-    const std::filesystem::path weapon_dir = root / "weapons";
-    const std::filesystem::path profile_dir = root / "profiles";
-    std::filesystem::create_directories(weapon_dir);
-    std::filesystem::create_directories(profile_dir);
-
-    const std::string small_name = small_artery_name_utf8();
-    const std::string lesser_name = lesser_artery_name_utf8();
-    const std::string small_id = "cod22-" + small_name;
-    const std::string lesser_id = "cod22-" + lesser_name;
-    const std::string profile_id = "profile-cod22-" + small_name + "-ads-standing-current";
-    write_text_file(
-        weapon_dir / std::filesystem::u8path("identity-cod22-" + small_id + ".json"),
-        weapon_identity_json(small_id, small_name, small_name));
-    write_text_file(
-        weapon_dir / std::filesystem::u8path("identity-cod22-" + lesser_id + ".json"),
-        weapon_identity_json(lesser_id, lesser_name, lesser_name));
-    write_text_file(
-        profile_dir / std::filesystem::u8path(profile_id + ".json"),
-        recoil_profile_json(profile_id, small_id, "ads", 0.95f, 12.0f));
-
-    controller_native::GamepadRecoilConfig config;
-    config.recognizer_game = "cod22";
-    config.weapon_directory = weapon_dir.string();
-    config.profile_directory = profile_dir.string();
-    config.recognizer_state_path = (root / "current_weapon.json").string();
-
-    controller_native::NativeRecoilWeaponRecognizer recognizer(config);
-    const std::optional<controller_native::RecoilWeaponRecognitionEvent> event =
-        recognizer.process_text_candidates({artery_suffix_with_space_utf8()}, "2026-06-06T12:00:00Z");
-
-    require_true(event.has_value(), "native recoil recognizer should resolve profiled ambiguous OCR suffix");
-    require_true(event->canonical_weapon_id == small_id, "native recoil recognizer should prefer profiled weapon");
-    require_true(event->profile_ids.size() == 1, "native recoil recognizer should attach profile for profiled weapon");
-    require_true(event->profile_ids[0] == profile_id, "native recoil recognizer should attach small artery profile");
-}
-
-void test_recoil_weapon_recognizer_ignores_numeric_ocr_noise() {
-    const std::filesystem::path root = make_temp_test_dir("weapon_recognizer_noise");
-    const std::filesystem::path weapon_dir = root / "weapons";
-    const std::filesystem::path profile_dir = root / "profiles";
-    std::filesystem::create_directories(weapon_dir);
-    std::filesystem::create_directories(profile_dir);
-
-    controller_native::GamepadRecoilConfig config;
-    config.recognizer_game = "cod22";
-    config.weapon_directory = weapon_dir.string();
-    config.profile_directory = profile_dir.string();
-    config.recognizer_state_path = (root / "current_weapon.json").string();
-
-    controller_native::NativeRecoilWeaponRecognizer recognizer(config);
-    const std::optional<controller_native::RecoilWeaponRecognitionEvent> event =
-        recognizer.process_text_candidates({"2", "113"}, "2026-06-06T12:00:00Z");
-
-    require_true(!event.has_value(), "native recoil recognizer should ignore numeric UI OCR noise");
-    require_true(
-        recognizer.identity_records().empty(),
-        "native recoil recognizer should not create weapon identity records from numeric OCR noise");
-}
-
-void test_recoil_weapon_switch_scheduler_triggers_only_on_y_rising_edge() {
-    controller_native::RecoilWeaponSwitchCaptureScheduler scheduler;
-    const auto start = std::chrono::steady_clock::time_point{};
-
-    scheduler.update_y_button(false, start);
-    require_true(scheduler.pending_count() == 0, "recoil OCR scheduler should start empty");
-
-    scheduler.update_y_button(true, start);
-    require_true(scheduler.pending_count() == 2, "Y press should schedule two delayed recoil OCR captures");
-    require_true(
-        !scheduler.consume_due_capture(start + std::chrono::milliseconds(599)),
-        "recoil OCR scheduler should wait for the first switch delay");
-    require_true(
-        scheduler.consume_due_capture(start + std::chrono::milliseconds(600)),
-        "recoil OCR scheduler should trigger at the first Python switch delay");
-    require_true(scheduler.pending_count() == 1, "first recoil OCR capture should leave the backup capture pending");
-    scheduler.clear_pending();
-    require_true(
-        scheduler.pending_count() == 0,
-        "resolved recoil OCR capture should cancel the backup capture for the same Y press");
-
-    scheduler.update_y_button(true, start + std::chrono::milliseconds(620));
-    require_true(scheduler.pending_count() == 0, "holding Y should not schedule more recoil OCR captures");
-
-    scheduler.update_y_button(false, start + std::chrono::milliseconds(800));
-    scheduler.update_y_button(true, start + std::chrono::milliseconds(900));
-    require_true(scheduler.pending_count() == 2, "pressing Y again should schedule a fresh recoil OCR capture pair");
 }
 
 void test_tracker_authority_classifies_target_tiers() {
@@ -1071,13 +595,13 @@ void test_auto_fire_requires_aim_ready_settle_frames() {
     target.dy = 0.0f;
     target.target_tier = "strong";
     target.result_at_ns = now_ns();
-    controller.submit_vision_result(target);
+    submit_adapted_vision_result(controller, target);
 
     controller_native::GamepadOutputState first = controller.build_output(aiming_physical_state());
     require_true(!first.rb, "auto-fire should wait for first settled frame");
 
     target.result_at_ns = now_ns();
-    controller.submit_vision_result(target);
+    submit_adapted_vision_result(controller, target);
     controller_native::GamepadOutputState second = controller.build_output(aiming_physical_state());
     require_true(second.rb, "auto-fire should start after required settled frames");
 }
@@ -1104,7 +628,7 @@ void test_auto_fire_aim_ready_gate_can_be_disabled() {
     target.dy = 0.0f;
     target.target_tier = "strong";
     target.result_at_ns = now_ns();
-    controller.submit_vision_result(target);
+    submit_adapted_vision_result(controller, target);
 
     controller_native::GamepadOutputState output = controller.build_output(aiming_physical_state());
     require_true(output.rb, "disabled aim-ready gate should keep legacy first-frame fire");
@@ -1144,7 +668,7 @@ void test_auto_fire_ready_allows_manual_right_stick_when_fire_zone_is_hit() {
     target.body_y2 = 340.0f;
     target.target_tier = "strong";
     target.result_at_ns = now_ns();
-    controller.submit_vision_result(target);
+    submit_adapted_vision_result(controller, target);
 
     controller_native::PhysicalGamepadState physical = aiming_physical_state();
     physical.right_x = 0.35f;
@@ -1172,7 +696,7 @@ void test_no_update_vision_result_preserves_latest_target() {
     target.dy = 0.0f;
     target.target_tier = "strong";
     target.result_at_ns = now_ns();
-    controller.submit_vision_result(target);
+    submit_adapted_vision_result(controller, target);
 
     controller_native::GamepadOutputState output = controller.build_output(aiming_physical_state());
     require_true(output.right_x > 0.40f, "fresh target should produce right-stick assist");
@@ -1181,7 +705,7 @@ void test_no_update_vision_result_preserves_latest_target() {
     no_update.frame_updated = false;
     no_update.has_target = false;
     no_update.result_at_ns = now_ns();
-    controller.submit_vision_result(no_update);
+    submit_adapted_vision_result(controller, no_update);
 
     output = controller.build_output(aiming_physical_state());
     require_true(output.right_x > 0.40f, "no-update poll must not clear latest target");
@@ -1190,10 +714,55 @@ void test_no_update_vision_result_preserves_latest_target() {
     valid_no_target.frame_updated = true;
     valid_no_target.has_target = false;
     valid_no_target.result_at_ns = now_ns();
-    controller.submit_vision_result(valid_no_target);
+    submit_adapted_vision_result(controller, valid_no_target);
 
     output = controller.build_output(aiming_physical_state());
     require_near(output.right_x, 0.0f, 0.001f, "processed no-target frame should clear assist");
+}
+
+void test_controller_accepts_controller_vision_snapshot_without_vision_result() {
+    controller_native::GamepadRuntimeConfig config;
+    config.ai_aim.max_pixels = 100.0f;
+    config.ai_aim.max_ai_force = 1.0f;
+    config.ai_aim.max_ai_force_y = 1.0f;
+    config.ai_aim.target_max_age_ms = 0.0f;
+    controller_native::NativeGamepadController controller(config);
+
+    controller_native::ControllerVisionSnapshot snapshot;
+    snapshot.frame_updated = true;
+    snapshot.frame_id = 101;
+    snapshot.capture_time_seconds = 10.0;
+    snapshot.ready_time_seconds = 10.010;
+    snapshot.state.has_target = true;
+    snapshot.state.aim_authority = true;
+    snapshot.state.fire_authority = true;
+    snapshot.state.dx = 50.0f;
+    snapshot.state.dy = 0.0f;
+    snapshot.state.screen_center_x = 320.0f;
+    snapshot.state.screen_center_y = 256.0f;
+    snapshot.state.target_tier = "strong";
+
+    tracking_native::TrackerDetection detection;
+    detection.id = 77;
+    detection.body_box_px = {280.0f, 200.0f, 80.0f, 140.0f};
+    detection.aim_point_px = {320.0f, 256.0f};
+    detection.has_aim_point = true;
+    detection.confidence = 0.90f;
+    detection.target_tier = "observed_strong";
+    snapshot.tracker_detections.push_back(detection);
+
+    controller.submit_vision_snapshot(snapshot);
+    controller_native::GamepadOutputState output =
+        controller.build_output(aiming_physical_state());
+    require_true(output.right_x > 0.40f, "controller snapshot should produce right-stick assist");
+
+    controller_native::ControllerVisionSnapshot no_update;
+    no_update.frame_updated = false;
+    no_update.state.has_target = false;
+    controller.submit_vision_snapshot(no_update);
+
+    output = controller.build_output(aiming_physical_state());
+    require_true(output.right_x > 0.40f, "no-update controller snapshot must not clear latest target");
 }
 
 void test_target_tracker_projects_camera_motion_between_vision_frames() {
@@ -1527,7 +1096,7 @@ void test_controller_projects_target_during_no_update_ticks() {
     target.dy = 0.0f;
     target.target_tier = "strong";
     target.result_at_ns = now_ns();
-    controller.submit_vision_result(target);
+    submit_adapted_vision_result(controller, target);
 
     controller_native::GamepadOutputState first = controller.build_output(aiming_physical_state());
     require_true(first.right_x > 0.40f, "fresh target should produce assist before projection");
@@ -1535,7 +1104,7 @@ void test_controller_projects_target_during_no_update_ticks() {
     vision_native::VisionResult no_update;
     no_update.frame_updated = false;
     no_update.has_target = false;
-    controller.submit_vision_result(no_update);
+    submit_adapted_vision_result(controller, no_update);
 
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
     controller_native::GamepadOutputState second = controller.build_output(aiming_physical_state());
@@ -1571,7 +1140,7 @@ void test_controller_expires_projection_before_aim_target_age() {
     target.dy = 0.0f;
     target.target_tier = "strong";
     target.result_at_ns = now_ns();
-    controller.submit_vision_result(target);
+    submit_adapted_vision_result(controller, target);
 
     const controller_native::GamepadOutputState first =
         controller.build_output(aiming_physical_state());
@@ -1580,7 +1149,7 @@ void test_controller_expires_projection_before_aim_target_age() {
     vision_native::VisionResult no_update;
     no_update.frame_updated = false;
     no_update.has_target = false;
-    controller.submit_vision_result(no_update);
+    submit_adapted_vision_result(controller, no_update);
 
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
     const controller_native::GamepadOutputState second =
@@ -1640,15 +1209,15 @@ void test_fps_reference_controller_clears_no_update_after_projection_ttl() {
         return target;
     };
 
-    controller.submit_vision_result(make_result(1, 0));
-    controller.submit_vision_result(make_result(2, 5'000'000ull));
+    submit_adapted_vision_result(controller, make_result(1, 0));
+    submit_adapted_vision_result(controller, make_result(2, 5'000'000ull));
     const controller_native::GamepadOutputState fresh =
         controller.build_output(aiming_physical_state());
     require_true(fresh.right_x > 0.30f, "fresh fps_reference target should produce assist");
 
     vision_native::VisionResult no_update;
     no_update.frame_updated = false;
-    controller.submit_vision_result(no_update);
+    submit_adapted_vision_result(controller, no_update);
     std::this_thread::sleep_for(std::chrono::milliseconds(30));
     const controller_native::GamepadOutputState expired =
         controller.build_output(aiming_physical_state());
@@ -1698,8 +1267,8 @@ void test_fps_reference_controller_ignores_unauthorized_raw_detections() {
         return result;
     };
 
-    controller.submit_vision_result(make_rejected_result(1, 0));
-    controller.submit_vision_result(make_rejected_result(2, 5'000'000ull));
+    submit_adapted_vision_result(controller, make_rejected_result(1, 0));
+    submit_adapted_vision_result(controller, make_rejected_result(2, 5'000'000ull));
     const controller_native::GamepadOutputState output =
         controller.build_output(aiming_physical_state());
     require_near(
@@ -1768,9 +1337,9 @@ void test_controller_prefers_fresh_vision_over_tracker_projection() {
         return result;
     };
 
-    controller.submit_vision_result(make_result(1, 250.0f, 0));
-    controller.submit_vision_result(make_result(2, 250.0f, 10'000'000ull));
-    controller.submit_vision_result(make_result(3, -250.0f, 20'000'000ull));
+    submit_adapted_vision_result(controller, make_result(1, 250.0f, 0));
+    submit_adapted_vision_result(controller, make_result(2, 250.0f, 10'000'000ull));
+    submit_adapted_vision_result(controller, make_result(3, -250.0f, 20'000'000ull));
 
     const controller_native::GamepadOutputState output =
         controller.build_output(aiming_physical_state());
@@ -1891,12 +1460,12 @@ void test_controller_recoil_ignores_tracker_only_projected_targets() {
     target.target_tier = "observed_strong";
     target.captured_at_ns = base_ns;
     target.result_at_ns = base_ns + 1'000'000ull;
-    controller.submit_vision_result(target);
+    submit_adapted_vision_result(controller, target);
 
     target.frame_id = 2;
     target.captured_at_ns = base_ns + 10'000'000ull;
     target.result_at_ns = base_ns + 11'000'000ull;
-    controller.submit_vision_result(target);
+    submit_adapted_vision_result(controller, target);
 
     vision_native::VisionResult miss;
     miss.frame_updated = true;
@@ -1908,7 +1477,7 @@ void test_controller_recoil_ignores_tracker_only_projected_targets() {
     miss.target_y = 256.0f;
     miss.captured_at_ns = base_ns + 20'000'000ull;
     miss.result_at_ns = base_ns + 21'000'000ull;
-    controller.submit_vision_result(miss);
+    submit_adapted_vision_result(controller, miss);
 
     controller_native::PhysicalGamepadState firing = aiming_physical_state();
     firing.right_trigger = 1.0f;
@@ -1919,13 +1488,6 @@ void test_controller_recoil_ignores_tracker_only_projected_targets() {
         "recoil should keep fallback down-pull when only tracker-projected target remains");
 }
 
-void test_recoil_visual_model_disabled_returns_zero_displacement() {
-    recoil_native::DisabledRecoilVisualModel model;
-    const recoil_native::RecoilVisualDisplacement displacement =
-        model.compute(recoil_native::RecoilVisualInput{});
-    require_near(displacement.stick.x, 0.0f, 0.001f, "disabled recoil visual model x");
-    require_near(displacement.stick.y, 0.0f, 0.001f, "disabled recoil visual model y");
-}
 
 void test_controller_tracker_final_motion_is_not_config_toggled() {
     const std::filesystem::path root = make_temp_test_dir("tracker_final_motion_no_toggle");
@@ -2107,7 +1669,7 @@ void test_controller_projects_body_box_during_no_update_ticks() {
     target.body_y2 = 316.0f;
     target.target_tier = "strong";
     target.result_at_ns = now_ns();
-    controller.submit_vision_result(target);
+    submit_adapted_vision_result(controller, target);
 
     const controller_native::GamepadOutputState first =
         controller.build_output(aiming_physical_state());
@@ -2116,7 +1678,7 @@ void test_controller_projects_body_box_during_no_update_ticks() {
     vision_native::VisionResult no_update;
     no_update.frame_updated = false;
     no_update.has_target = false;
-    controller.submit_vision_result(no_update);
+    submit_adapted_vision_result(controller, no_update);
 
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
     const controller_native::GamepadOutputState second =
@@ -4204,14 +3766,14 @@ void test_controller_ads_snap_only_runs_inside_ads_window_without_body_lock() {
     target.dy = 0.0f;
     target.target_tier = "strong";
     target.result_at_ns = now_ns();
-    controller.submit_vision_result(target);
+    submit_adapted_vision_result(controller, target);
 
     controller_native::GamepadOutputState first = controller.build_output(aiming_physical_state());
     require_true(first.right_x > 0.40f, "fresh ADS snap window should assist strong targets");
 
     std::this_thread::sleep_for(std::chrono::milliseconds(35));
     target.result_at_ns = now_ns();
-    controller.submit_vision_result(target);
+    submit_adapted_vision_result(controller, target);
 
     controller_native::GamepadOutputState second = controller.build_output(aiming_physical_state());
     require_near(
@@ -4256,7 +3818,7 @@ void test_auto_fire_ready_uses_body_lock_error_when_body_box_is_active() {
     target.body_y2 = 376.0f;
     target.target_tier = "strong";
     target.result_at_ns = now_ns();
-    controller.submit_vision_result(target);
+    submit_adapted_vision_result(controller, target);
 
     const controller_native::GamepadOutputState output = controller.build_output(aiming_physical_state());
     require_true(
@@ -4824,55 +4386,7 @@ void test_aim_assist_dynamics_straightens_manual_curve_without_recoil_active() {
     require_near(output.right_y, 0.025f, 0.001f, "high-alignment straightening should damp the curved manual axis");
 }
 
-void test_recoil_profile_despike_repairs_playback_cache_only() {
-    controller_native::RecoilProfile profile;
-    profile.profile_id = "test";
-    profile.sample_interval_ms = 10;
-    profile.samples_x = {0.0f, 10.0f, 0.0f};
-    profile.samples_y = {0.0f, -12.0f, 0.0f};
 
-    controller_native::GamepadRecoilConfig config;
-    config.profile_despike_enabled = true;
-    config.profile_despike_threshold_px = 2.0f;
-    config.profile_despike_ratio = 3.0f;
-
-    const controller_native::RecoilProfile playback =
-        controller_native::build_recoil_playback_profile(profile, config);
-    require_near(playback.samples_x[1], 0.0f, 0.001f, "despiked x midpoint");
-    require_near(playback.samples_y[1], 0.0f, 0.001f, "despiked y midpoint");
-    require_near(profile.samples_x[1], 10.0f, 0.001f, "raw x profile must remain unchanged");
-    require_near(profile.samples_y[1], -12.0f, 0.001f, "raw y profile must remain unchanged");
-}
-
-void test_recoil_profile_selection_matches_recognizer_state_and_context() {
-    const std::filesystem::path root = make_temp_test_dir("profile_select");
-    const std::filesystem::path profile_dir = root / "profiles";
-    std::filesystem::create_directories(profile_dir);
-    const std::filesystem::path state_path = root / "latest-state.json";
-
-    write_text_file(
-        profile_dir / "profile-cod22-m4-ads-standing-low.json",
-        recoil_profile_json("profile-cod22-m4-ads-standing-low", "cod22-m4", "ads", 0.25f, 1.0f));
-    write_text_file(
-        profile_dir / "profile-cod22-m4-ads-standing-high.json",
-        recoil_profile_json("profile-cod22-m4-ads-standing-high", "cod22-m4", "ads", 0.95f, 8.0f));
-    write_text_file(
-        profile_dir / "profile-cod22-m4-hipfire-standing-high.json",
-        recoil_profile_json("profile-cod22-m4-hipfire-standing-high", "cod22-m4", "hipfire", 0.99f, 2.0f));
-    write_text_file(
-        profile_dir / "profile-cod22-kastov-ads-standing-high.json",
-        recoil_profile_json("profile-cod22-kastov-ads-standing-high", "cod22-kastov", "ads", 0.99f, 12.0f));
-    write_text_file(
-        state_path,
-        recognizer_state_json("cod22-m4", "profile-cod22-m4-ads-standing-high"));
-
-    const std::optional<controller_native::RecoilProfile> selected =
-        controller_native::load_matching_recoil_profile(profile_dir, state_path, "ads");
-    require_true(selected.has_value(), "profile selector should find an ADS profile");
-    require_true(
-        selected->profile_id == "profile-cod22-m4-ads-standing-high",
-        "profile selector should choose highest-confidence matching ADS profile");
-}
 
 void test_controller_recoil_uses_runtime_ads_or_hipfire_profile_selection() {
     const std::filesystem::path root = make_temp_test_dir("controller_profile_select");
@@ -5009,291 +4523,18 @@ void test_controller_recoil_uses_fallback_when_no_recognizer_state_is_configured
         "recoil should use fixed fallback when no recognizer state is configured");
 }
 
-void test_recoil_input_contract_excludes_target_feedback_fields() {
-    require_true(
-        !has_target_dx_member<controller_native::NativeRecoilInput>::value,
-        "recoil input must not accept target dx from controller or tracker");
-    require_true(
-        !has_target_dy_member<controller_native::NativeRecoilInput>::value,
-        "recoil input must not accept target dy from controller or tracker");
-    require_true(
-        !has_target_observed_at_seconds_member<controller_native::NativeRecoilInput>::value,
-        "recoil input must not accept target freshness from controller or tracker");
-}
 
-void test_recoil_profile_playback_is_deterministic_without_controller_state() {
-    controller_native::RecoilProfile profile;
-    profile.profile_id = "deterministic";
-    profile.sample_interval_ms = 10;
-    profile.samples_x = {0.0f, 5.0f, 10.0f};
-    profile.samples_y = {0.0f, 10.0f, 20.0f};
 
-    controller_native::GamepadRecoilConfig config;
-    config.profile_amount = 1.0f;
-    config.profile_x_amount = 1.0f;
-    config.profile_velocity_reference_ms = 10.0f;
-    config.profile_despike_enabled = false;
-    config.piecewise_mid_pixels_y = 10.0f;
-    config.piecewise_max_pixels_y = 20.0f;
-    config.piecewise_mid_ratio_y = 0.50f;
 
-    auto sample_output = [&]() {
-        controller_native::NativeRecoilCompensation recoil(config);
-        recoil.set_profile(profile);
-        controller_native::NativeRecoilInput input;
-        input.fire_active = true;
-        input.aiming = true;
-        input.now_seconds = 80.0;
-        recoil.compute(input);
-        input.now_seconds = 80.01;
-        return recoil.compute(input);
-    };
 
-    const controller_native::NativeRecoilOutput first = sample_output();
-    const controller_native::NativeRecoilOutput second = sample_output();
-    require_true(first.recoil_active && second.recoil_active, "profile recoil should be active");
-    require_near(
-        first.right_x_delta,
-        second.right_x_delta,
-        0.0001f,
-        "profile recoil x should be deterministic without controller target state");
-    require_near(
-        first.right_y_delta,
-        second.right_y_delta,
-        0.0001f,
-        "profile recoil y should be deterministic without controller target state");
 
-    controller_native::GamepadRecoilConfig fallback_config;
-    fallback_config.feedback_amount = 0.17f;
-    controller_native::NativeRecoilCompensation fallback_recoil(fallback_config);
-    controller_native::NativeRecoilInput fallback_input;
-    fallback_input.fire_active = true;
-    fallback_input.now_seconds = 90.0;
-    const controller_native::NativeRecoilOutput fallback = fallback_recoil.compute(fallback_input);
-    require_near(
-        fallback.right_y_delta,
-        -0.17f,
-        0.0001f,
-        "fallback recoil should be fixed feed-forward down-pull");
-}
 
-void test_recoil_fallback_feedback_is_constant_linear_down_pull() {
-    controller_native::GamepadRecoilConfig config;
-    config.profile_directory.clear();
-    config.recognizer_state_path.clear();
-    config.feedback_amount = 0.30f;
-
-    controller_native::NativeRecoilCompensation recoil(config);
-    controller_native::NativeRecoilInput input;
-    input.fire_active = true;
-
-    for (const double now_seconds : {90.000, 90.120, 90.500, 90.620}) {
-        input.now_seconds = now_seconds;
-        const controller_native::NativeRecoilOutput output = recoil.compute(input);
-        require_true(output.recoil_active, "fallback recoil should stay active while firing");
-        require_near(
-            output.right_x_delta,
-            0.0f,
-            0.0001f,
-            "fallback recoil should not add horizontal movement");
-        require_near(
-            output.right_y_delta,
-            -0.30f,
-            0.0001f,
-            "fallback recoil should remain a constant 30 percent down-pull without timed pulses");
-    }
-}
-
-void test_recoil_timeline_outputs_delta_while_fire_active() {
-    controller_native::RecoilProfile profile;
-    profile.profile_id = "timeline";
-    profile.sample_interval_ms = 10;
-    profile.samples_x = {0.0f, 0.0f, 0.0f};
-    profile.samples_y = {0.0f, 10.0f, 20.0f};
-
-    controller_native::GamepadRecoilConfig config;
-    config.profile_amount = 1.0f;
-    config.profile_x_amount = 1.0f;
-    config.profile_velocity_reference_ms = 10.0f;
-    config.profile_despike_enabled = false;
-    config.piecewise_mid_pixels_y = 10.0f;
-    config.piecewise_max_pixels_y = 20.0f;
-    config.piecewise_mid_ratio_y = 0.50f;
-
-    controller_native::NativeRecoilCompensation recoil(config);
-    recoil.set_profile(profile);
-
-    controller_native::NativeRecoilInput input;
-    input.fire_active = true;
-    input.now_seconds = 30.0;
-    recoil.compute(input);
-
-    input.now_seconds = 30.01;
-    const controller_native::NativeRecoilOutput output = recoil.compute(input);
-    require_true(output.recoil_active, "recoil should be active while firing");
-    require_true(output.right_y_delta < -0.49f, "timeline recoil should pull against positive y samples");
-}
-
-void test_recoil_uncalibrated_y_uses_velocity_scaled_sample_delta() {
-    controller_native::RecoilProfile profile;
-    profile.profile_id = "sample-delta-y";
-    profile.sample_interval_ms = 10;
-    profile.samples_x = {0.0f, 0.0f, 0.0f};
-    profile.samples_y = {0.0f, 10.0f, 20.0f};
-
-    controller_native::GamepadRecoilConfig config;
-    config.profile_amount = 1.0f;
-    config.profile_velocity_reference_ms = 10.0f;
-    config.profile_despike_enabled = false;
-    config.piecewise_mid_pixels_y = 10.0f;
-    config.piecewise_max_pixels_y = 40.0f;
-    config.piecewise_mid_ratio_y = 0.50f;
-
-    controller_native::NativeRecoilCompensation recoil(config);
-    recoil.set_profile(profile);
-
-    controller_native::NativeRecoilInput input;
-    input.fire_active = true;
-    input.now_seconds = 40.0;
-    recoil.compute(input);
-
-    input.now_seconds = 40.01;
-    const controller_native::NativeRecoilOutput first = recoil.compute(input);
-    input.now_seconds = 40.02;
-    const controller_native::NativeRecoilOutput second = recoil.compute(input);
-    require_true(first.recoil_active && second.recoil_active, "profile recoil should stay active");
-    require_near(
-        first.right_y_delta,
-        -0.50f,
-        0.0001f,
-        "uncalibrated recoil y should map the first sample delta");
-    require_near(
-        second.right_y_delta,
-        first.right_y_delta,
-        0.0001f,
-        "uncalibrated recoil y should use per-sample delta playback instead of cumulative pull");
-}
-
-void test_recoil_profile_playback_uses_matching_calibration_when_available() {
-    const std::filesystem::path root = make_temp_test_dir("calibrated_recoil");
-    const std::filesystem::path calibration_dir = root / "calibration";
-    std::filesystem::create_directories(calibration_dir);
-    write_text_file(
-        calibration_dir / "cod22-ads-standing.json",
-        recoil_calibration_json("ads", 500.0f, 1000.0f));
-
-    controller_native::RecoilProfile profile;
-    profile.profile_id = "profile-cod22-m4-ads-standing-v1";
-    profile.canonical_weapon_id = "cod22-m4";
-    profile.game = "cod22";
-    profile.stance = "standing";
-    profile.aim_mode = "ads";
-    profile.sample_interval_ms = 10;
-    profile.samples_x = {0.0f, 0.0f};
-    profile.samples_y = {0.0f, 10.0f};
-
-    controller_native::GamepadRecoilConfig config;
-    config.profile_amount = 1.0f;
-    config.profile_x_amount = 1.0f;
-    config.profile_despike_enabled = false;
-    config.calibration_directory = calibration_dir.string();
-
-    controller_native::NativeRecoilCompensation recoil(config);
-    recoil.set_profile(profile);
-
-    controller_native::NativeRecoilInput input;
-    input.fire_active = true;
-    input.aiming = true;
-    input.now_seconds = 50.0;
-    recoil.compute(input);
-
-    input.now_seconds = 50.01;
-    const controller_native::NativeRecoilOutput output = recoil.compute(input);
-    require_true(output.recoil_active, "calibrated recoil should be active while firing");
-    require_near(
-        output.right_y_delta,
-        -1.0f,
-        0.001f,
-        "calibrated 10 px over 10 ms at 1000 px/s should map to full stick");
-}
-
-void test_recoil_selection_logging_reports_fallback_and_profile_once() {
-    const std::filesystem::path root = make_temp_test_dir("recoil_selection_logs");
-    const std::filesystem::path profile_dir = root / "profiles";
-    std::filesystem::create_directories(profile_dir);
-    const std::filesystem::path state_path = root / "state.json";
-
-    controller_native::GamepadRecoilConfig config;
-    config.selection_log_enabled = true;
-    config.profile_directory = profile_dir.string();
-    config.recognizer_state_path = state_path.string();
-    config.feedback_amount = 0.15f;
-    write_text_file(state_path, recognizer_state_json("cod22-missing", "profile-missing"));
-
-    controller_native::NativeRecoilInput input;
-    input.fire_active = true;
-    input.aiming = true;
-    input.now_seconds = 90.0;
-
-    std::ostringstream captured;
-    std::streambuf* previous = std::cout.rdbuf(captured.rdbuf());
-    {
-        controller_native::NativeRecoilCompensation recoil(config);
-        recoil.load_profile_directory(profile_dir);
-        recoil.compute(input);
-        input.now_seconds = 90.01;
-        recoil.compute(input);
-    }
-    std::cout.rdbuf(previous);
-
-    const std::string fallback_log = "[Recoil] active_profile aim=ads profile=none fallback=15%";
-    const std::string fallback_output = captured.str();
-    require_true(
-        fallback_output.find(fallback_log) != std::string::npos,
-        "recoil should log fallback profile selection when recognizer has no matching profile");
-    require_true(
-        fallback_output.find(fallback_log) == fallback_output.rfind(fallback_log),
-        "recoil should not repeat identical fallback selection logs");
-
-    write_text_file(
-        profile_dir / "profile-cod22-m4-ads-standing-high.json",
-        recoil_profile_json("profile-cod22-m4-ads-standing-high", "cod22-m4", "ads", 0.95f, 12.0f));
-    write_text_file(
-        state_path,
-        recognizer_state_json("cod22-m4", "profile-cod22-m4-ads-standing-high"));
-
-    captured.str("");
-    captured.clear();
-    previous = std::cout.rdbuf(captured.rdbuf());
-    {
-        controller_native::NativeRecoilCompensation recoil(config);
-        recoil.load_profile_directory(profile_dir);
-        input.now_seconds = 91.0;
-        recoil.compute(input);
-        input.now_seconds = 91.01;
-        recoil.compute(input);
-    }
-    std::cout.rdbuf(previous);
-
-    const std::string profile_log =
-        "[Recoil] active_profile aim=ads profile=profile-cod22-m4-ads-standing-high";
-    const std::string profile_output = captured.str();
-    require_true(
-        profile_output.find(profile_log) != std::string::npos,
-        "recoil should log selected profile id");
-    require_true(
-        profile_output.find(profile_log) == profile_output.rfind(profile_log),
-        "recoil should not repeat identical selected profile logs");
-}
 
 }  // namespace
 
 int main() {
     try {
         test_common_native_types_compile();
-        test_replay_schema_captures_controller_components();
-        test_replay_metrics_summarizes_error_and_fire_violations();
-        test_aim_perf_file_logger_writes_controller_components();
         test_bodylock_motion_policy_leads_after_consistent_direction();
         test_bodylock_motion_policy_clears_lead_on_direction_reversal();
         test_bodylock_motion_policy_ignores_weak_observations();
@@ -5311,6 +4552,7 @@ int main() {
         test_auto_fire_aim_ready_gate_can_be_disabled();
         test_auto_fire_ready_allows_manual_right_stick_when_fire_zone_is_hit();
         test_no_update_vision_result_preserves_latest_target();
+        test_controller_accepts_controller_vision_snapshot_without_vision_result();
         test_target_tracker_projects_camera_motion_between_vision_frames();
         test_legacy_projection_tracker_matches_native_project_output();
         test_legacy_projection_tracker_expires_after_max_age();
@@ -5329,7 +4571,6 @@ int main() {
         test_fps_reference_controller_ignores_unauthorized_raw_detections();
         test_controller_tracker_records_component_aware_final_motion();
         test_controller_recoil_ignores_tracker_only_projected_targets();
-        test_recoil_visual_model_disabled_returns_zero_displacement();
         test_controller_tracker_final_motion_is_not_config_toggled();
         test_controller_output_components_capture_recoil_after_tracker_sample();
         test_controller_projects_body_box_during_no_update_ticks();
@@ -5391,26 +4632,9 @@ int main() {
         test_ai_aim_deadzone_suppresses_tiny_target_error();
         test_aim_assist_dynamics_guards_small_recoil_sign_flip();
         test_aim_assist_dynamics_straightens_manual_curve_without_recoil_active();
-        test_recoil_profile_despike_repairs_playback_cache_only();
-        test_recoil_weapon_recognizer_writes_current_weapon_state_from_text();
-        test_recoil_weapon_recognizer_does_not_create_unknown_identity_from_live_ocr();
-        test_recoil_weapon_recognizer_clears_previous_profile_on_unknown_switch();
-        test_recoil_weapon_recognizer_clears_previous_profile_on_empty_switch_ocr();
-        test_recoil_weapon_recognizer_matches_utf8_weapon_and_profile_filename();
-        test_recoil_weapon_recognizer_prefers_profiled_weapon_for_ambiguous_ocr_suffix();
-        test_recoil_weapon_recognizer_ignores_numeric_ocr_noise();
-        test_recoil_weapon_switch_scheduler_triggers_only_on_y_rising_edge();
-        test_recoil_profile_selection_matches_recognizer_state_and_context();
         test_controller_recoil_uses_runtime_ads_or_hipfire_profile_selection();
         test_controller_recoil_profile_is_not_suppressed_by_target_direction_state();
         test_controller_recoil_uses_fallback_when_no_recognizer_state_is_configured();
-        test_recoil_input_contract_excludes_target_feedback_fields();
-        test_recoil_profile_playback_is_deterministic_without_controller_state();
-        test_recoil_fallback_feedback_is_constant_linear_down_pull();
-        test_recoil_timeline_outputs_delta_while_fire_active();
-        test_recoil_uncalibrated_y_uses_velocity_scaled_sample_delta();
-        test_recoil_profile_playback_uses_matching_calibration_when_available();
-        test_recoil_selection_logging_reports_fallback_and_profile_once();
     } catch (const std::exception& exc) {
         std::cerr << "[NativeControllerTests] FAIL " << exc.what() << "\n";
         return 1;

@@ -1,27 +1,25 @@
 #pragma once
 
+#include "ads_state_tracker.h"
 #include "aim_assist_dynamics.h"
 #include "ai_aim.h"
+#include "auto_fire_gate.h"
+#include "body_lock_short_plan_policy.h"
 #include "controller_tick_context.h"
+#include "controller_vision_snapshot.h"
+#include "output_validation_policy.h"
 #include "runtime_config.h"
+#include "target_snapshot_provider.h"
 #include "virtual_gamepad.h"
-#include "vision_native/types.h"
 #include "xinput_reader.h"
 
 #include "../recoil_native/recoil_compensation.h"
 
 #include <cstdint>
 #include <functional>
-#include <memory>
 #include <vector>
 
 namespace controller_native {
-
-struct NativeAutoFireCounters {
-    std::uint64_t requested = 0;
-    std::uint64_t allowed = 0;
-    std::uint64_t blocked = 0;
-};
 
 struct NativeControllerStageTrace {
     std::string stage_name;
@@ -40,7 +38,7 @@ public:
 
     void reset();
     void submit_vision_state(const NativeControllerVisionState& state);
-    void submit_vision_result(const vision_native::VisionResult& result);
+    void submit_vision_snapshot(const ControllerVisionSnapshot& snapshot);
     GamepadOutputState build_output(const PhysicalGamepadState& physical);
     NativeAutoFireCounters auto_fire_counters() const;
     const std::vector<NativeControllerStageTrace>& last_pipeline_traces() const;
@@ -51,28 +49,10 @@ public:
 
 private:
     bool is_aiming(const PhysicalGamepadState& physical) const;
-    NativeControllerVisionState vision_state_for_frame(double now_seconds);
-    bool auto_fire_allowed(
-        const NativeControllerVisionState& vision_state,
-        bool aiming,
-        double now_seconds,
-        bool aim_ready) const;
-    bool has_fresh_auto_fire_source(
-        const NativeControllerVisionState& vision_state,
-        double now_seconds) const;
     bool has_fresh_aim_target(
         const NativeControllerVisionState& vision_state,
         double now_seconds) const;
     void update_ads_state(bool aiming, double now_seconds);
-    bool auto_fire_aim_ready(
-        const NativeControllerVisionState& vision_state,
-        bool aiming,
-        double now_seconds,
-        float manual_right_x,
-        float manual_right_y,
-        const GamepadOutputState& output);
-    void reset_auto_fire_readiness_tracking();
-    bool is_strong_fire_target(const NativeControllerVisionState& vision_state) const;
     bool is_strong_aim_target(const NativeControllerVisionState& vision_state) const;
     bool ads_snap_active_for_frame(
         const NativeControllerVisionState& vision_state,
@@ -85,10 +65,6 @@ private:
         float* out_dx,
         float* out_dy) const;
     bool manual_fire_pressed(const PhysicalGamepadState& physical) const;
-    double manual_takeover_elapsed(double now_seconds) const;
-    double manual_takeover_total_seconds() const;
-    void apply_auto_fire(GamepadOutputState& output, bool should_fire) const;
-    void release_fire_output(GamepadOutputState& output) const;
     void apply_ai_aim(
         GamepadOutputState& output,
         const PhysicalGamepadState& physical,
@@ -112,16 +88,6 @@ private:
         const PhysicalGamepadState& physical,
         bool auto_fire_active,
         double now_seconds);
-    void ingest_tracker_observation(
-        const NativeControllerVisionState& state,
-        const std::vector<tracking_native::TrackerDetection>& detections,
-        std::uint64_t frame_id,
-        double capture_time_seconds,
-        double ready_time_seconds);
-    NativeControllerVisionState credibility_gated_vision_state(
-        const NativeControllerVisionState& state,
-        double query_time_seconds,
-        bool* suppress_tracker_ingest);
     void record_target_tracker_output(
         const NativeControllerOutputComponents& components,
         double now_seconds);
@@ -137,56 +103,16 @@ private:
     NativeAiAim ai_aim_;
     NativeAimAssistDynamics aim_assist_dynamics_;
     recoil_native::RecoilCompensationPolicy recoil_;
-    std::unique_ptr<tracking_native::TrackerBackend> target_tracker_;
-    NativeControllerVisionState latest_vision_state_;
-    NativeAutoFireCounters auto_fire_counters_;
+    AdsStateTracker ads_state_tracker_;
+    AutoFireGate auto_fire_gate_;
+    BodyLockShortPlanPolicy body_lock_short_plan_policy_;
+    OutputValidationPolicy output_validation_policy_;
+    TargetSnapshotProvider target_snapshot_provider_;
     std::vector<NativeControllerStageTrace> last_pipeline_traces_;
     GamepadOutputState last_tracker_motion_output_;
     NativeControllerOutputComponents last_output_components_;
     NativeControllerVisionState last_frame_vision_state_;
     std::function<double()> clock_;
-    bool manual_fire_was_pressed_ = false;
-    bool auto_fire_was_active_ = false;
-    double manual_takeover_started_at_seconds_ = -1.0;
-    double last_output_at_seconds_ = 0.0;
-    std::uint64_t latest_vision_sequence_ = 0;
-    std::uint64_t raw_vision_sequence_consumed_ = 0;
-    bool ads_active_ = false;
-    double ads_started_at_seconds_ = 0.0;
-    int auto_fire_ready_frames_ = 0;
-    bool has_last_body_lock_short_plan_x_ = false;
-    bool has_last_body_lock_short_plan_y_ = false;
-    float last_body_lock_short_plan_x_ = 0.0f;
-    float last_body_lock_short_plan_y_ = 0.0f;
-    bool has_last_body_lock_error_for_plan_ = false;
-    float last_body_lock_plan_error_x_ = 0.0f;
-    float last_body_lock_plan_error_y_ = 0.0f;
-    bool has_last_aim_error_for_plan_ = false;
-    float last_aim_plan_error_x_ = 0.0f;
-    float last_aim_plan_error_y_ = 0.0f;
-    bool has_last_output_validation_error_ = false;
-    float last_output_validation_error_x_ = 0.0f;
-    float last_output_validation_error_y_ = 0.0f;
-    double output_validation_correction_x_until_seconds_ = 0.0;
-    double output_validation_correction_y_until_seconds_ = 0.0;
-    bool has_committed_target_ = false;
-    float committed_target_dx_ = 0.0f;
-    float committed_target_dy_ = 0.0f;
-    bool has_candidate_target_ = false;
-    float candidate_target_dx_ = 0.0f;
-    float candidate_target_dy_ = 0.0f;
-    double candidate_first_observed_at_seconds_ = 0.0;
-    double candidate_last_observed_at_seconds_ = 0.0;
-    int candidate_fresh_samples_ = 0;
-    double candidate_projection_hold_until_seconds_ = 0.0;
-    double candidate_reacquire_snap_until_seconds_ = 0.0;
-    double candidate_output_hold_until_seconds_ = 0.0;
-    double body_lock_short_plan_x_until_seconds_ = 0.0;
-    double body_lock_short_plan_y_until_seconds_ = 0.0;
-    double body_lock_manual_brake_x_until_seconds_ = 0.0;
-    double body_lock_manual_brake_y_until_seconds_ = 0.0;
-    int body_lock_manual_brake_x_sign_ = 0;
-    int body_lock_manual_brake_y_sign_ = 0;
 };
 
 }  // namespace controller_native
