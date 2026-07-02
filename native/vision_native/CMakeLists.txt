@@ -430,6 +430,27 @@ target_compile_definitions(cod_native_body_lock_plan_tests
         WIN32_LEAN_AND_MEAN
 )
 
+add_executable(cod_native_weapon_recognizer_tests
+    ../controller_native/weapon_recognizer_tests.cpp
+    ../controller_native/weapon_recognizer.cpp
+    ../controller_native/recoil_profile.cpp
+)
+
+target_include_directories(cod_native_weapon_recognizer_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
+target_compile_definitions(cod_native_weapon_recognizer_tests
+    PRIVATE
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
+)
+
+target_link_libraries(cod_native_weapon_recognizer_tests PRIVATE
+    windowsapp
+)
+
 add_executable(cod_native_gamepad_benchmark
     ../controller_native/cod_native_gamepad_benchmark.cpp
     ../tracking_native/association.cpp
