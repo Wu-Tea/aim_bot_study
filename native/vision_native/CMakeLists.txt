@@ -430,6 +430,29 @@ target_compile_definitions(cod_native_body_lock_plan_tests
         WIN32_LEAN_AND_MEAN
 )
 
+add_executable(cod_native_recoil_contract_tests
+    ../controller_native/recoil_contract_tests.cpp
+    ../controller_native/recoil_profile.cpp
+    ../controller_native/recoil_calibration.cpp
+    ../controller_native/recoil_compensation.cpp
+    ../recoil_native/recoil_visual_model.cpp
+)
+
+target_include_directories(cod_native_recoil_contract_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
+target_compile_definitions(cod_native_recoil_contract_tests
+    PRIVATE
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
+)
+
+target_link_libraries(cod_native_recoil_contract_tests PRIVATE
+    windowsapp
+)
+
 add_executable(cod_native_weapon_recognizer_tests
     ../controller_native/weapon_recognizer_tests.cpp
     ../controller_native/weapon_recognizer.cpp
