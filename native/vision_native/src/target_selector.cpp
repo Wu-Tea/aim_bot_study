@@ -1348,12 +1348,24 @@ VisionTargetSelector::resolve_active_target_transition(
             if (should_switch_targets(*active_match_target, chosen_target)) {
                 const auto confirmed_switch = confirm_switch(chosen_target);
                 if (!confirmed_switch.has_value()) {
-                    return {*active_match_target, true};
+                    TargetState retained = *active_match_target;
+                    if (chosen_target.intent_applied) {
+                        retained.intent_applied = false;
+                        retained.intent_decision = "delayed_switch_confirm";
+                        retained.intent_score = chosen_target.intent_score;
+                    }
+                    return {retained, true};
                 }
                 return {*confirmed_switch, false};
             }
             clear_switch_pending();
-            return {*active_match_target, false};
+            TargetState retained = *active_match_target;
+            if (chosen_target.intent_applied) {
+                retained.intent_applied = false;
+                retained.intent_decision = "ignored_active_lock";
+                retained.intent_score = chosen_target.intent_score;
+            }
+            return {retained, false};
         }
 
         clear_switch_pending();

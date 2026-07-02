@@ -63,6 +63,14 @@ pipeline_contract::UserAimIntent rightward_intent(std::uint64_t intent_id) {
     return intent;
 }
 
+vision_native::DetectionBatch single_target_batch(float target_x, float target_y, float conf) {
+    vision_native::DetectionBatch batch;
+    batch.frame_width = 640;
+    batch.frame_height = 512;
+    batch.detections.push_back(detection_for_target(target_x, target_y, conf));
+    return batch;
+}
+
 void test_intent_direction_ranks_plausible_multi_target_candidates() {
     vision_native::VisionTargetSelector selector(640, 512);
     const auto batch = two_target_batch();
@@ -84,6 +92,83 @@ void test_intent_direction_ranks_plausible_multi_target_candidates() {
         "applied_direction",
         "intent-ranked result should report direction application reason");
     require_true(result.fire_authority, "intent must not strip observed fire authority");
+}
+
+void test_intent_favored_challenger_logs_ignored_active_lock() {
+    vision_native::VisionTargetSelector selector(640, 512);
+    const auto active_batch = single_target_batch(296.0f, 256.0f, 0.92f);
+
+    selector.select(active_batch);
+    const vision_native::VisionResult locked = selector.select(active_batch);
+    require_true(locked.has_target, "setup should acquire active target");
+    require_near(locked.target_x, 296.0f, 0.001f, "setup should lock left target");
+
+    vision_native::DetectionBatch crossing;
+    crossing.frame_width = 640;
+    crossing.frame_height = 512;
+    crossing.detections.push_back(detection_for_target(296.0f, 256.0f, 0.40f));
+    crossing.detections.push_back(detection_for_target(344.0f, 256.0f, 0.92f));
+
+    const vision_native::VisionResult result = selector.select(crossing, rightward_intent(13));
+
+    require_true(result.has_target, "active-lock frame should retain a target");
+    require_near(
+        result.target_x,
+        296.0f,
+        0.001f,
+        "intent-favored challenger should not switch away from active target immediately");
+    require_true(result.intent_id == 13, "active-lock ignored intent should carry intent id");
+    require_true(!result.intent_applied, "active-lock ignored intent should not report applied");
+    require_text(
+        result.intent_decision,
+        "ignored_active_lock",
+        "active-lock ignored intent should explain why the intent did not switch targets");
+}
+
+void test_intent_switch_waits_for_confirmation_before_changing_active_target() {
+    vision_native::VisionTargetSelector selector(640, 512);
+    const auto active_batch = single_target_batch(260.0f, 256.0f, 0.92f);
+
+    selector.select(active_batch);
+    const vision_native::VisionResult locked = selector.select(active_batch);
+    require_true(locked.has_target, "setup should acquire active target");
+    require_near(locked.target_x, 260.0f, 0.001f, "setup should lock far-left target");
+
+    vision_native::DetectionBatch crossing;
+    crossing.frame_width = 640;
+    crossing.frame_height = 512;
+    crossing.detections.push_back(detection_for_target(260.0f, 256.0f, 0.40f));
+    crossing.detections.push_back(detection_for_target(336.0f, 256.0f, 0.92f));
+
+    const auto intent = rightward_intent(17);
+    const vision_native::VisionResult first = selector.select(crossing, intent);
+
+    require_true(first.has_target, "first switch-confirm frame should retain a target");
+    require_near(
+        first.target_x,
+        260.0f,
+        0.001f,
+        "first switch-confirm frame should retain active target");
+    require_true(first.intent_id == 17, "delayed switch should carry intent id");
+    require_true(!first.intent_applied, "delayed switch should not report applied yet");
+    require_text(
+        first.intent_decision,
+        "delayed_switch_confirm",
+        "delayed switch should explain that switch confirmation is pending");
+
+    const vision_native::VisionResult second = selector.select(crossing, intent);
+
+    require_true(second.has_target, "confirmed switch should retain a target");
+    require_near(
+        second.target_x,
+        336.0f,
+        0.001f,
+        "second switch-confirm frame should switch to challenger");
+    require_true(second.intent_applied, "confirmed switch should report applied intent");
+    require_text(
+        second.intent_decision,
+        "applied_direction",
+        "confirmed switch should preserve applied intent reason");
 }
 
 void test_intent_does_not_grant_fire_authority_to_weak_association() {
@@ -146,6 +231,8 @@ void test_intent_metadata_does_not_leak_into_later_hold_frame() {
 int main() {
     try {
         test_intent_direction_ranks_plausible_multi_target_candidates();
+        test_intent_favored_challenger_logs_ignored_active_lock();
+        test_intent_switch_waits_for_confirmation_before_changing_active_target();
         test_intent_does_not_grant_fire_authority_to_weak_association();
         test_intent_metadata_does_not_leak_into_later_hold_frame();
         return 0;
