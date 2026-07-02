@@ -19,10 +19,6 @@
 #include <functional>
 #include <vector>
 
-namespace vision_native {
-struct VisionResult;
-}
-
 namespace controller_native {
 
 struct NativeControllerStageTrace {
@@ -43,7 +39,6 @@ public:
     void reset();
     void submit_vision_state(const NativeControllerVisionState& state);
     void submit_vision_snapshot(const ControllerVisionSnapshot& snapshot);
-    void submit_vision_result(const vision_native::VisionResult& result);
     GamepadOutputState build_output(const PhysicalGamepadState& physical);
     NativeAutoFireCounters auto_fire_counters() const;
     const std::vector<NativeControllerStageTrace>& last_pipeline_traces() const;

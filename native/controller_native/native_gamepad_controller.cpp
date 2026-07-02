@@ -1,10 +1,8 @@
 #include "native_gamepad_controller.h"
 
 #include "controller_pipeline.h"
-#include "vision_snapshot_adapter.h"
 
 #include "../tracking_native/tracker_authority.h"
-#include "../vision_native/include/vision_native/types.h"
 
 #include <algorithm>
 #include <chrono>
@@ -65,11 +63,6 @@ void NativeGamepadController::submit_vision_state(const NativeControllerVisionSt
         state,
         now_seconds(),
         ads_state_tracker_.active());
-}
-
-void NativeGamepadController::submit_vision_result(const vision_native::VisionResult& result) {
-    const ControllerVisionSnapshot snapshot = adapt_vision_result(result);
-    submit_vision_snapshot(snapshot);
 }
 
 void NativeGamepadController::submit_vision_snapshot(const ControllerVisionSnapshot& snapshot) {

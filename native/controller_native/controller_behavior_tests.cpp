@@ -7,6 +7,7 @@
 #include "recoil_compensation.h"
 #include "recoil_profile.h"
 #include "target_tracker.h"
+#include "vision_snapshot_adapter.h"
 #include "weapon_recognizer.h"
 #include "../common_native/authority_types.h"
 #include "../common_native/screen_geometry.h"
@@ -71,6 +72,12 @@ std::uint64_t now_ns() {
         std::chrono::duration_cast<std::chrono::nanoseconds>(
             std::chrono::steady_clock::now().time_since_epoch())
             .count());
+}
+
+void submit_vision_result(
+    controller_native::NativeGamepadController& controller,
+    const vision_native::VisionResult& result) {
+    controller.submit_vision_snapshot(controller_native::adapt_vision_result(result));
 }
 
 std::filesystem::path make_temp_test_dir(const std::string& label) {
@@ -1071,13 +1078,13 @@ void test_auto_fire_requires_aim_ready_settle_frames() {
     target.dy = 0.0f;
     target.target_tier = "strong";
     target.result_at_ns = now_ns();
-    controller.submit_vision_result(target);
+    submit_vision_result(controller, target);
 
     controller_native::GamepadOutputState first = controller.build_output(aiming_physical_state());
     require_true(!first.rb, "auto-fire should wait for first settled frame");
 
     target.result_at_ns = now_ns();
-    controller.submit_vision_result(target);
+    submit_vision_result(controller, target);
     controller_native::GamepadOutputState second = controller.build_output(aiming_physical_state());
     require_true(second.rb, "auto-fire should start after required settled frames");
 }
@@ -1104,7 +1111,7 @@ void test_auto_fire_aim_ready_gate_can_be_disabled() {
     target.dy = 0.0f;
     target.target_tier = "strong";
     target.result_at_ns = now_ns();
-    controller.submit_vision_result(target);
+    submit_vision_result(controller, target);
 
     controller_native::GamepadOutputState output = controller.build_output(aiming_physical_state());
     require_true(output.rb, "disabled aim-ready gate should keep legacy first-frame fire");
@@ -1144,7 +1151,7 @@ void test_auto_fire_ready_allows_manual_right_stick_when_fire_zone_is_hit() {
     target.body_y2 = 340.0f;
     target.target_tier = "strong";
     target.result_at_ns = now_ns();
-    controller.submit_vision_result(target);
+    submit_vision_result(controller, target);
 
     controller_native::PhysicalGamepadState physical = aiming_physical_state();
     physical.right_x = 0.35f;
@@ -1172,7 +1179,7 @@ void test_no_update_vision_result_preserves_latest_target() {
     target.dy = 0.0f;
     target.target_tier = "strong";
     target.result_at_ns = now_ns();
-    controller.submit_vision_result(target);
+    submit_vision_result(controller, target);
 
     controller_native::GamepadOutputState output = controller.build_output(aiming_physical_state());
     require_true(output.right_x > 0.40f, "fresh target should produce right-stick assist");
@@ -1181,7 +1188,7 @@ void test_no_update_vision_result_preserves_latest_target() {
     no_update.frame_updated = false;
     no_update.has_target = false;
     no_update.result_at_ns = now_ns();
-    controller.submit_vision_result(no_update);
+    submit_vision_result(controller, no_update);
 
     output = controller.build_output(aiming_physical_state());
     require_true(output.right_x > 0.40f, "no-update poll must not clear latest target");
@@ -1190,7 +1197,7 @@ void test_no_update_vision_result_preserves_latest_target() {
     valid_no_target.frame_updated = true;
     valid_no_target.has_target = false;
     valid_no_target.result_at_ns = now_ns();
-    controller.submit_vision_result(valid_no_target);
+    submit_vision_result(controller, valid_no_target);
 
     output = controller.build_output(aiming_physical_state());
     require_near(output.right_x, 0.0f, 0.001f, "processed no-target frame should clear assist");
@@ -1572,7 +1579,7 @@ void test_controller_projects_target_during_no_update_ticks() {
     target.dy = 0.0f;
     target.target_tier = "strong";
     target.result_at_ns = now_ns();
-    controller.submit_vision_result(target);
+    submit_vision_result(controller, target);
 
     controller_native::GamepadOutputState first = controller.build_output(aiming_physical_state());
     require_true(first.right_x > 0.40f, "fresh target should produce assist before projection");
@@ -1580,7 +1587,7 @@ void test_controller_projects_target_during_no_update_ticks() {
     vision_native::VisionResult no_update;
     no_update.frame_updated = false;
     no_update.has_target = false;
-    controller.submit_vision_result(no_update);
+    submit_vision_result(controller, no_update);
 
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
     controller_native::GamepadOutputState second = controller.build_output(aiming_physical_state());
@@ -1616,7 +1623,7 @@ void test_controller_expires_projection_before_aim_target_age() {
     target.dy = 0.0f;
     target.target_tier = "strong";
     target.result_at_ns = now_ns();
-    controller.submit_vision_result(target);
+    submit_vision_result(controller, target);
 
     const controller_native::GamepadOutputState first =
         controller.build_output(aiming_physical_state());
@@ -1625,7 +1632,7 @@ void test_controller_expires_projection_before_aim_target_age() {
     vision_native::VisionResult no_update;
     no_update.frame_updated = false;
     no_update.has_target = false;
-    controller.submit_vision_result(no_update);
+    submit_vision_result(controller, no_update);
 
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
     const controller_native::GamepadOutputState second =
@@ -1685,15 +1692,15 @@ void test_fps_reference_controller_clears_no_update_after_projection_ttl() {
         return target;
     };
 
-    controller.submit_vision_result(make_result(1, 0));
-    controller.submit_vision_result(make_result(2, 5'000'000ull));
+    submit_vision_result(controller, make_result(1, 0));
+    submit_vision_result(controller, make_result(2, 5'000'000ull));
     const controller_native::GamepadOutputState fresh =
         controller.build_output(aiming_physical_state());
     require_true(fresh.right_x > 0.30f, "fresh fps_reference target should produce assist");
 
     vision_native::VisionResult no_update;
     no_update.frame_updated = false;
-    controller.submit_vision_result(no_update);
+    submit_vision_result(controller, no_update);
     std::this_thread::sleep_for(std::chrono::milliseconds(30));
     const controller_native::GamepadOutputState expired =
         controller.build_output(aiming_physical_state());
@@ -1743,8 +1750,8 @@ void test_fps_reference_controller_ignores_unauthorized_raw_detections() {
         return result;
     };
 
-    controller.submit_vision_result(make_rejected_result(1, 0));
-    controller.submit_vision_result(make_rejected_result(2, 5'000'000ull));
+    submit_vision_result(controller, make_rejected_result(1, 0));
+    submit_vision_result(controller, make_rejected_result(2, 5'000'000ull));
     const controller_native::GamepadOutputState output =
         controller.build_output(aiming_physical_state());
     require_near(
@@ -1813,9 +1820,9 @@ void test_controller_prefers_fresh_vision_over_tracker_projection() {
         return result;
     };
 
-    controller.submit_vision_result(make_result(1, 250.0f, 0));
-    controller.submit_vision_result(make_result(2, 250.0f, 10'000'000ull));
-    controller.submit_vision_result(make_result(3, -250.0f, 20'000'000ull));
+    submit_vision_result(controller, make_result(1, 250.0f, 0));
+    submit_vision_result(controller, make_result(2, 250.0f, 10'000'000ull));
+    submit_vision_result(controller, make_result(3, -250.0f, 20'000'000ull));
 
     const controller_native::GamepadOutputState output =
         controller.build_output(aiming_physical_state());
@@ -1936,12 +1943,12 @@ void test_controller_recoil_ignores_tracker_only_projected_targets() {
     target.target_tier = "observed_strong";
     target.captured_at_ns = base_ns;
     target.result_at_ns = base_ns + 1'000'000ull;
-    controller.submit_vision_result(target);
+    submit_vision_result(controller, target);
 
     target.frame_id = 2;
     target.captured_at_ns = base_ns + 10'000'000ull;
     target.result_at_ns = base_ns + 11'000'000ull;
-    controller.submit_vision_result(target);
+    submit_vision_result(controller, target);
 
     vision_native::VisionResult miss;
     miss.frame_updated = true;
@@ -1953,7 +1960,7 @@ void test_controller_recoil_ignores_tracker_only_projected_targets() {
     miss.target_y = 256.0f;
     miss.captured_at_ns = base_ns + 20'000'000ull;
     miss.result_at_ns = base_ns + 21'000'000ull;
-    controller.submit_vision_result(miss);
+    submit_vision_result(controller, miss);
 
     controller_native::PhysicalGamepadState firing = aiming_physical_state();
     firing.right_trigger = 1.0f;
@@ -2152,7 +2159,7 @@ void test_controller_projects_body_box_during_no_update_ticks() {
     target.body_y2 = 316.0f;
     target.target_tier = "strong";
     target.result_at_ns = now_ns();
-    controller.submit_vision_result(target);
+    submit_vision_result(controller, target);
 
     const controller_native::GamepadOutputState first =
         controller.build_output(aiming_physical_state());
@@ -2161,7 +2168,7 @@ void test_controller_projects_body_box_during_no_update_ticks() {
     vision_native::VisionResult no_update;
     no_update.frame_updated = false;
     no_update.has_target = false;
-    controller.submit_vision_result(no_update);
+    submit_vision_result(controller, no_update);
 
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
     const controller_native::GamepadOutputState second =
@@ -4249,14 +4256,14 @@ void test_controller_ads_snap_only_runs_inside_ads_window_without_body_lock() {
     target.dy = 0.0f;
     target.target_tier = "strong";
     target.result_at_ns = now_ns();
-    controller.submit_vision_result(target);
+    submit_vision_result(controller, target);
 
     controller_native::GamepadOutputState first = controller.build_output(aiming_physical_state());
     require_true(first.right_x > 0.40f, "fresh ADS snap window should assist strong targets");
 
     std::this_thread::sleep_for(std::chrono::milliseconds(35));
     target.result_at_ns = now_ns();
-    controller.submit_vision_result(target);
+    submit_vision_result(controller, target);
 
     controller_native::GamepadOutputState second = controller.build_output(aiming_physical_state());
     require_near(
@@ -4301,7 +4308,7 @@ void test_auto_fire_ready_uses_body_lock_error_when_body_box_is_active() {
     target.body_y2 = 376.0f;
     target.target_tier = "strong";
     target.result_at_ns = now_ns();
-    controller.submit_vision_result(target);
+    submit_vision_result(controller, target);
 
     const controller_native::GamepadOutputState output = controller.build_output(aiming_physical_state());
     require_true(

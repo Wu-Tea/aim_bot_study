@@ -60,6 +60,9 @@ function Assert-NoForbiddenCoupling {
     $controllerFiles = @(
         "native\controller_native\native_gamepad_controller.cpp"
     )
+    $controllerPublicHeaders = @(
+        "native\controller_native\native_gamepad_controller.h"
+    )
     $forbiddenBoundaryPatterns = @(
         "target_direction_yield",
         "target_observed_at_seconds",
@@ -97,6 +100,14 @@ function Assert-NoForbiddenCoupling {
             }) -join "`n"
             throw "Forbidden controller-to-recoil target feedback assignment found: $pattern`n$details"
         }
+    }
+
+    $matches = Select-String -Path $controllerPublicHeaders -Pattern "vision_native" -ErrorAction SilentlyContinue
+    if ($matches) {
+        $details = ($matches | ForEach-Object {
+            "$($_.Path):$($_.LineNumber): $($_.Line.Trim())"
+        }) -join "`n"
+        throw "Forbidden controller public header dependency on vision_native found.`n$details"
     }
 }
 
