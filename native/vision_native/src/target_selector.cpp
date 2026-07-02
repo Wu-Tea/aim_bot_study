@@ -1682,6 +1682,10 @@ VisionResult VisionTargetSelector::select_impl(
             return result;
         }
         if (frame != nullptr) {
+            const auto cue_region = cue_hold_search_region();
+            if (cue_region.has_value() && !frame_covers(*cue_region, *frame)) {
+                return hold_or_reset(boxes_seen);
+            }
             const auto cue_hold = try_cue_hold(*frame);
             if (cue_hold.has_value()) {
                 active_target_ = *cue_hold;

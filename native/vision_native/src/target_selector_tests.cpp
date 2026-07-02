@@ -2,10 +2,13 @@
 
 #include "pipeline_contract/target_snapshot.h"
 
+#include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <iostream>
 #include <stdexcept>
+#include <vector>
 
 namespace {
 
@@ -69,6 +72,50 @@ vision_native::DetectionBatch single_target_batch(float target_x, float target_y
     batch.frame_height = 512;
     batch.detections.push_back(detection_for_target(target_x, target_y, conf));
     return batch;
+}
+
+int region_area(const vision_native::VisionTargetSelector::FrameRegion& region) {
+    return std::max(0, region.right - region.left) *
+        std::max(0, region.bottom - region.top);
+}
+
+struct ColorFrameFixture {
+    std::vector<std::uint8_t> pixels;
+    vision_native::VisionTargetSelector::ColorFrameView view;
+};
+
+ColorFrameFixture color_frame_for_region(
+    const vision_native::VisionTargetSelector::FrameRegion& region,
+    bool enemy_colored) {
+    ColorFrameFixture frame;
+    frame.view.width = std::max(0, region.right - region.left);
+    frame.view.height = std::max(0, region.bottom - region.top);
+    frame.view.row_pitch = frame.view.width * 3;
+    frame.view.origin_x = region.left;
+    frame.view.origin_y = region.top;
+    frame.view.frame_width = 640;
+    frame.view.frame_height = 512;
+    frame.view.format = vision_native::PixelFormat::RGB8;
+    frame.pixels.assign(
+        static_cast<std::size_t>(std::max(0, frame.view.row_pitch * frame.view.height)),
+        0);
+    for (int y = 0; y < frame.view.height; ++y) {
+        for (int x = 0; x < frame.view.width; ++x) {
+            const std::size_t offset =
+                static_cast<std::size_t>(y * frame.view.row_pitch + x * 3);
+            if (enemy_colored && ((x + (y * 2)) % 5 == 0)) {
+                frame.pixels[offset + 0] = 255;
+                frame.pixels[offset + 1] = 0;
+                frame.pixels[offset + 2] = 0;
+            } else {
+                frame.pixels[offset + 0] = 12;
+                frame.pixels[offset + 1] = 12;
+                frame.pixels[offset + 2] = 12;
+            }
+        }
+    }
+    frame.view.data = frame.pixels.data();
+    return frame;
 }
 
 void test_intent_direction_ranks_plausible_multi_target_candidates() {
@@ -226,6 +273,89 @@ void test_intent_metadata_does_not_leak_into_later_hold_frame() {
         "hold frame without current intent should not carry old intent decision");
 }
 
+void test_partial_color_frame_origin_classifies_candidate_cue() {
+    vision_native::VisionTargetSelector selector(640, 512);
+    const auto batch = single_target_batch(320.0f, 256.0f, 0.45f);
+    const auto region = selector.required_color_region(batch);
+    require_true(region.has_value(), "selector should request a color ROI for plausible low-confidence pickup");
+    require_true(region_area(*region) < 640 * 512, "requested color ROI should be partial");
+
+    ColorFrameFixture frame = color_frame_for_region(*region, true);
+    const vision_native::VisionResult result = selector.select_with_frame(batch, frame.view);
+
+    require_true(!result.detections.empty(), "annotated result should preserve detections");
+    require_true(
+        result.detections.front().color_classified,
+        "partial color frame should mark detection color classified");
+    require_true(
+        result.detections.front().has_cue_point,
+        "partial color frame origin should let selector detect enemy cue pixels");
+}
+
+void test_roi_miss_does_not_immediately_clear_active_target() {
+    vision_native::VisionTargetSelector selector(640, 512);
+    const auto batch = single_target_batch(320.0f, 256.0f, 0.45f);
+    const auto region = selector.required_color_region(batch);
+    require_true(region.has_value(), "setup should request color ROI");
+    ColorFrameFixture frame = color_frame_for_region(*region, true);
+
+    selector.select_with_frame(batch, frame.view);
+    const vision_native::VisionResult locked = selector.select_with_frame(batch, frame.view);
+    require_true(locked.has_target, "setup should acquire target with cue evidence");
+    require_true(selector.wants_color_frame(), "setup should leave selector wanting cue-hold color frame");
+
+    vision_native::DetectionBatch empty;
+    empty.frame_width = 640;
+    empty.frame_height = 512;
+    const auto cue_region = selector.required_color_region(empty);
+    require_true(cue_region.has_value(), "active cue target should request cue-hold ROI");
+
+    ColorFrameFixture missing_roi = color_frame_for_region({0, 0, 8, 8}, false);
+    const vision_native::VisionResult held = selector.select_with_frame(empty, missing_roi.view);
+
+    require_true(
+        held.has_target,
+        "a partial color frame that misses the requested cue ROI must not immediately clear active target");
+}
+
+void test_required_color_region_clamps_edge_candidate_to_screen() {
+    vision_native::VisionTargetSelector selector(640, 512);
+    const auto batch = single_target_batch(10.0f, 72.0f, 0.92f);
+
+    const auto region = selector.required_color_region(batch);
+
+    require_true(region.has_value(), "edge candidate should still request a color ROI");
+    require_true(region->left >= 0, "edge ROI left should clamp to screen");
+    require_true(region->top >= 0, "edge ROI top should clamp to screen");
+    require_true(region->right <= 640, "edge ROI right should clamp to screen");
+    require_true(region->bottom <= 512, "edge ROI bottom should clamp to screen");
+}
+
+void test_external_cue_continuation_does_not_request_full_color_frame() {
+    vision_native::VisionTargetSelector selector(640, 512);
+    const auto batch = single_target_batch(320.0f, 256.0f, 0.45f);
+    const auto region = selector.required_color_region(batch);
+    require_true(region.has_value(), "setup should request color ROI");
+    ColorFrameFixture frame = color_frame_for_region(*region, true);
+    selector.select_with_frame(batch, frame.view);
+    const vision_native::VisionResult locked = selector.select_with_frame(batch, frame.view);
+    require_true(locked.has_target, "setup should acquire target with cue evidence");
+
+    vision_native::DetectionBatch cue;
+    cue.frame_width = 640;
+    cue.frame_height = 512;
+    cue.has_external_cue = true;
+    cue.external_cue_x = locked.detections.front().cue_x;
+    cue.external_cue_y = locked.detections.front().cue_y;
+    cue.external_cue_score = 0.90f;
+
+    const auto requested = selector.required_color_region(cue);
+
+    require_true(
+        !requested.has_value(),
+        "external cue continuation should not request a full color frame when there are no detections");
+}
+
 }  // namespace
 
 int main() {
@@ -235,6 +365,10 @@ int main() {
         test_intent_switch_waits_for_confirmation_before_changing_active_target();
         test_intent_does_not_grant_fire_authority_to_weak_association();
         test_intent_metadata_does_not_leak_into_later_hold_frame();
+        test_partial_color_frame_origin_classifies_candidate_cue();
+        test_roi_miss_does_not_immediately_clear_active_target();
+        test_required_color_region_clamps_edge_candidate_to_screen();
+        test_external_cue_continuation_does_not_request_full_color_frame();
         return 0;
     } catch (const std::exception& exc) {
         std::cerr << "[TargetSelectorTests] FAIL " << exc.what() << "\n";
