@@ -7,7 +7,6 @@
 #include "recoil_compensation.h"
 #include "recoil_profile.h"
 #include "target_tracker.h"
-#include "vision_snapshot_adapter.h"
 #include "weapon_recognizer.h"
 #include "../common_native/authority_types.h"
 #include "../common_native/screen_geometry.h"
@@ -20,6 +19,7 @@
 #include "../tracking_native/tracker_backend.h"
 #include "../recoil_native/recoil_visual_model.h"
 #include "../runtime_app/aim_perf_file_logger.h"
+#include "../runtime_app/vision_controller_adapter.h"
 
 #include <cmath>
 #include <chrono>
@@ -77,7 +77,7 @@ std::uint64_t now_ns() {
 void submit_vision_result(
     controller_native::NativeGamepadController& controller,
     const vision_native::VisionResult& result) {
-    controller.submit_vision_snapshot(controller_native::adapt_vision_result(result));
+    controller.submit_vision_snapshot(runtime_app::adapt_vision_result(result));
 }
 
 std::filesystem::path make_temp_test_dir(const std::string& label) {

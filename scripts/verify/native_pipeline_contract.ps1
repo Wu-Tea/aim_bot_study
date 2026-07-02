@@ -63,6 +63,11 @@ function Assert-NoForbiddenCoupling {
     $controllerPublicHeaders = @(
         "native\controller_native\native_gamepad_controller.h"
     )
+    $controllerProductionFiles = Get-ChildItem -Path "native\controller_native" -Include "*.h", "*.cpp" -Recurse |
+        Where-Object {
+            $_.Name -notlike "*_tests.cpp" -and
+            $_.Name -ne "cod_native_gamepad_benchmark.cpp"
+        }
     $forbiddenBoundaryPatterns = @(
         "target_direction_yield",
         "target_observed_at_seconds",
@@ -108,6 +113,14 @@ function Assert-NoForbiddenCoupling {
             "$($_.Path):$($_.LineNumber): $($_.Line.Trim())"
         }) -join "`n"
         throw "Forbidden controller public header dependency on vision_native found.`n$details"
+    }
+
+    $matches = Select-String -Path $controllerProductionFiles.FullName -Pattern "vision_native" -ErrorAction SilentlyContinue
+    if ($matches) {
+        $details = ($matches | ForEach-Object {
+            "$($_.Path):$($_.LineNumber): $($_.Line.Trim())"
+        }) -join "`n"
+        throw "Forbidden controller production dependency on vision_native found.`n$details"
     }
 }
 

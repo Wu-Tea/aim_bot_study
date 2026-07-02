@@ -1,6 +1,6 @@
 #include "runtime_loop.h"
 
-#include "../controller_native/vision_snapshot_adapter.h"
+#include "vision_controller_adapter.h"
 
 #include <Windows.h>
 
@@ -410,7 +410,7 @@ void RuntimeLoop::run_once() {
         vision_native::VisionResult result = vision_engine_->poll_once();
         const auto controller_consume_started = std::chrono::steady_clock::now();
         controller_.submit_vision_snapshot(
-            controller_native::adapt_vision_result(result));
+            adapt_vision_result(result));
         latest_vision_result_ = result;
         has_latest_vision_result_ = true;
         latest_result_timestamp_ns_ =

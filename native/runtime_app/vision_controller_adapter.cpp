@@ -1,11 +1,11 @@
-#include "vision_snapshot_adapter.h"
+#include "vision_controller_adapter.h"
 
 #include <algorithm>
 #include <cstdint>
 #include <string>
 #include <utility>
 
-namespace controller_native {
+namespace runtime_app {
 
 namespace {
 
@@ -34,9 +34,9 @@ std::string tracker_tier_for_detection(const vision_native::Detection& detection
 
 }  // namespace
 
-ControllerVisionSnapshot adapt_vision_result(
+controller_native::ControllerVisionSnapshot adapt_vision_result(
     const vision_native::VisionResult& result) {
-    ControllerVisionSnapshot snapshot;
+    controller_native::ControllerVisionSnapshot snapshot;
     snapshot.frame_updated = result.frame_updated;
     if (!result.frame_updated) {
         return snapshot;
@@ -72,7 +72,7 @@ ControllerVisionSnapshot adapt_vision_result(
         snapshot.tracker_detections.push_back(std::move(tracker_detection));
     }
 
-    NativeControllerVisionState state;
+    controller_native::NativeControllerVisionState state;
     state.has_target = result.has_target;
     state.auto_fire_requested = result.auto_fire;
     state.dx = result.dx;
@@ -95,4 +95,4 @@ ControllerVisionSnapshot adapt_vision_result(
     return snapshot;
 }
 
-}  // namespace controller_native
+}  // namespace runtime_app

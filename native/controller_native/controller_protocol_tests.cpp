@@ -1,4 +1,4 @@
-#include "vision_snapshot_adapter.h"
+#include "../runtime_app/vision_controller_adapter.h"
 
 #include <cmath>
 #include <stdexcept>
@@ -53,7 +53,7 @@ void test_adapter_ignores_unupdated_frame() {
     result.detections.push_back(detection(10.0f, 20.0f, 30.0f, 60.0f, 0.9f, 0.0f, 1));
 
     const controller_native::ControllerVisionSnapshot snapshot =
-        controller_native::adapt_vision_result(result);
+        runtime_app::adapt_vision_result(result);
 
     require_true(!snapshot.frame_updated, "adapter should preserve frame_updated=false");
     require_true(!snapshot.state.has_target, "adapter should not expose stale target state");
@@ -84,7 +84,7 @@ void test_adapter_maps_target_fields_and_timestamps() {
     result.result_at_ns = 2'012'000'000ull;
 
     const controller_native::ControllerVisionSnapshot snapshot =
-        controller_native::adapt_vision_result(result);
+        runtime_app::adapt_vision_result(result);
 
     require_true(snapshot.frame_updated, "adapter should consume updated frame");
     require_true(snapshot.frame_id == 42, "adapter should preserve frame id");
@@ -125,7 +125,7 @@ void test_adapter_forwards_valid_detections_for_tracker() {
     result.detections.push_back(detection(100.0f, 110.0f, 140.0f, 210.0f, 0.20f, 0.0f, 2, true));
 
     const controller_native::ControllerVisionSnapshot snapshot =
-        controller_native::adapt_vision_result(result);
+        runtime_app::adapt_vision_result(result);
 
     require_true(
         snapshot.tracker_detections.size() == 2,

@@ -1,6 +1,6 @@
 #include "native_gamepad_controller.h"
 #include "runtime_config.h"
-#include "vision_snapshot_adapter.h"
+#include "../runtime_app/vision_controller_adapter.h"
 
 #include "pipeline_contract/target_snapshot.h"
 #include "vision_native/target_selector.h"
@@ -1231,7 +1231,7 @@ ScenarioMetrics run_selector_intent_two_targets_manual_sweep_100hz(unsigned int 
             selector_intent_direction(static_cast<std::uint64_t>(seed) * 1000ull + tick, 1.0f, 0.0f));
         selector_intent_apply_frame_metadata(result, batch);
         const controller_native::ControllerVisionSnapshot snapshot =
-            controller_native::adapt_vision_result(result);
+            runtime_app::adapt_vision_result(result);
         selector_intent_record_decision(metrics, result, snapshot);
 
         const int bucket = selector_intent_bucket(snapshot);
@@ -1283,7 +1283,7 @@ ScenarioMetrics run_selector_intent_crossing_targets_active_lock(unsigned int se
             selector_intent_direction(static_cast<std::uint64_t>(seed) * 2000ull + tick, 1.0f, 0.0f));
         selector_intent_apply_frame_metadata(result, batch);
         const controller_native::ControllerVisionSnapshot snapshot =
-            controller_native::adapt_vision_result(result);
+            runtime_app::adapt_vision_result(result);
         selector_intent_record_decision(metrics, result, snapshot);
 
         const int bucket = selector_intent_bucket(snapshot);
@@ -1330,7 +1330,7 @@ ScenarioMetrics run_selector_intent_weak_continuation_no_fire(unsigned int seed)
             selector_intent_direction(static_cast<std::uint64_t>(seed) * 3000ull + tick, 1.0f, 0.0f));
         selector_intent_apply_frame_metadata(result, batch);
         const controller_native::ControllerVisionSnapshot snapshot =
-            controller_native::adapt_vision_result(result);
+            runtime_app::adapt_vision_result(result);
         selector_intent_record_decision(metrics, result, snapshot);
 
         if (snapshot.frame_updated && snapshot.state.has_target) {

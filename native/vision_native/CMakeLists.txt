@@ -210,7 +210,7 @@ add_executable(cod_native_runtime
     ../controller_native/output_mixer.cpp
     ../controller_native/output_validation_policy.cpp
     ../controller_native/controller_pipeline.cpp
-    ../controller_native/vision_snapshot_adapter.cpp
+    ../runtime_app/vision_controller_adapter.cpp
     ../controller_native/target_snapshot_provider.cpp
     ../controller_native/native_gamepad_controller.cpp
     ../controller_native/virtual_gamepad.cpp
@@ -300,7 +300,7 @@ add_executable(cod_native_controller_tests
     ../controller_native/output_mixer.cpp
     ../controller_native/output_validation_policy.cpp
     ../controller_native/controller_pipeline.cpp
-    ../controller_native/vision_snapshot_adapter.cpp
+    ../runtime_app/vision_controller_adapter.cpp
     ../controller_native/target_snapshot_provider.cpp
     ../controller_native/native_gamepad_controller.cpp
 )
@@ -324,7 +324,7 @@ target_link_libraries(cod_native_controller_tests PRIVATE
 
 add_executable(cod_native_controller_protocol_tests
     ../controller_native/controller_protocol_tests.cpp
-    ../controller_native/vision_snapshot_adapter.cpp
+    ../runtime_app/vision_controller_adapter.cpp
 )
 
 target_include_directories(cod_native_controller_protocol_tests PRIVATE
@@ -457,7 +457,7 @@ add_executable(cod_native_gamepad_benchmark
     ../controller_native/output_mixer.cpp
     ../controller_native/output_validation_policy.cpp
     ../controller_native/controller_pipeline.cpp
-    ../controller_native/vision_snapshot_adapter.cpp
+    ../runtime_app/vision_controller_adapter.cpp
     ../controller_native/target_snapshot_provider.cpp
     ../controller_native/native_gamepad_controller.cpp
 )
