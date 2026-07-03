@@ -26,6 +26,7 @@ constexpr float kWrongWayCorrectionMin = 0.08f;
 constexpr double kManualCrossBrakeSeconds = 0.130;
 constexpr double kShortPlanSeconds = 0.018;
 constexpr float kSmallPlanMagnitude = 0.08f;
+constexpr float kSmallVectorTurnScale = 0.55f;
 
 bool manual_pushes_away(float manual, float error, bool y_axis) {
     if (manual == 0.0f || error == 0.0f) {
@@ -204,10 +205,8 @@ GamepadOutputState BodyLockShortPlanPolicy::apply(
                 ((previous_plan_x * output.right_x) + (previous_plan_y * output.right_y)) /
                 (previous_mag * current_mag);
             if (alignment < 0.25f) {
-                short_plan_x_until_seconds_ = input.now_seconds + kShortPlanSeconds;
-                short_plan_y_until_seconds_ = input.now_seconds + kShortPlanSeconds;
-                output.right_x = 0.0f;
-                output.right_y = 0.0f;
+                output.right_x *= kSmallVectorTurnScale;
+                output.right_y *= kSmallVectorTurnScale;
             }
         }
     }

@@ -311,6 +311,11 @@ struct ScenarioMetrics {
     double ads_manual_stress_manual_direction_score = 0.0;
     double ads_manual_stress_p95_turn_degrees = 0.0;
     double ads_manual_stress_turn_smoothness_score = 0.0;
+    int ads_manual_stress_body_lock_frames = 0;
+    double ads_manual_stress_body_lock_ratio = 0.0;
+    double ads_manual_stress_occlusion_peak_error_px = 0.0;
+    double ads_manual_stress_slide_down_lag_p95_px = 0.0;
+    double ads_manual_stress_slide_recover_ms = 0.0;
     std::vector<RandomFovOvershootEvent> ads_manual_stress_overshoot_details;
     bool has_selector_intent = false;
     int selector_intent_seed = 0;
@@ -1073,6 +1078,14 @@ ScenarioMetrics run_tracker_random_fov_100hz(
     bool enable_dynamics,
     bool enable_short_plan,
     bool pure_ads);
+ScenarioMetrics run_ads_bodylock_moving_chase_100hz(
+    controller_native::GamepadRuntimeConfig config,
+    unsigned int seed,
+    const std::string& name,
+    bool enable_dynamics,
+    bool fire_active,
+    bool slide_motion,
+    bool occlusion_gap);
 
 void run_self_test() {
     const char* selector_suite_argv[] = {
@@ -1168,6 +1181,43 @@ void run_self_test() {
         pure_ads_metrics.has_random_fov &&
             pure_ads_metrics.random_fov_manual_direction_samples == 0,
         "pure ADS random FOV benchmark should not include manual stick direction samples");
+
+    controller_native::GamepadRuntimeConfig moving_config;
+    moving_config.recoil.enabled = false;
+    const ScenarioMetrics moving_chase = run_ads_bodylock_moving_chase_100hz(
+        moving_config,
+        20260704,
+        "ads_bodylock_moving_chase_100hz_self_test",
+        true,
+        false,
+        false,
+        false);
+    require_benchmark_check(
+        moving_chase.has_ads_manual_stress &&
+            moving_chase.ads_manual_stress_body_lock_frames > 0,
+        "moving chase benchmark should exercise body-lock frames");
+    require_benchmark_check(
+        moving_chase.ads_manual_stress_vision_samples > 0 &&
+            moving_chase.ads_manual_stress_measured_ticks > 0,
+        "moving chase benchmark should produce vision and measured ticks");
+
+    const ScenarioMetrics slide_occluded = run_ads_bodylock_moving_chase_100hz(
+        moving_config,
+        20260704,
+        "ads_bodylock_slide_occlusion_chase_100hz_self_test",
+        true,
+        true,
+        true,
+        true);
+    require_benchmark_check(
+        slide_occluded.ads_manual_stress_vision_dropped_ticks > 0,
+        "slide occlusion benchmark should include no-submit vision ticks");
+    require_benchmark_check(
+        slide_occluded.ads_manual_stress_slide_down_lag_p95_px > 0.0,
+        "slide benchmark should measure downward tracking lag");
+    require_benchmark_check(
+        slide_occluded.ads_manual_stress_occlusion_peak_error_px > 0.0,
+        "slide occlusion benchmark should measure peak occlusion error");
 
     const std::vector<double> crossed_then_deepened = {6.0, 2.5, -1.0, -4.0};
     require_benchmark_check(
@@ -3403,6 +3453,411 @@ ScenarioMetrics run_ads_diagonal_manual_stress_100hz(
     return metrics;
 }
 
+ScenarioMetrics run_ads_bodylock_moving_chase_100hz(
+    controller_native::GamepadRuntimeConfig config,
+    unsigned int seed,
+    const std::string& name,
+    bool enable_dynamics,
+    bool fire_active,
+    bool slide_motion,
+    bool occlusion_gap) {
+    ScenarioMetrics metrics;
+    metrics.name = name;
+    metrics.has_ads_manual_stress = true;
+
+    constexpr double kControllerHz = 1000.0;
+    constexpr double kVisionHz = 100.0;
+    constexpr double kDtSeconds = 1.0 / kControllerHz;
+    constexpr int kVisionIntervalTicks = 10;
+    constexpr int kTicksPerCase = 680;
+    constexpr double kReticleSpeed = 1500.0;
+    constexpr double kOvershootThresholdPx = 2.0;
+    constexpr double kLargeOvershootThresholdPx = 50.0;
+    constexpr double kVectorDeadzone = 0.015;
+    constexpr int kSlideStartTick = 210;
+    constexpr int kSlideEndTick = 410;
+    constexpr int kOcclusionStartTick = 285;
+    constexpr int kOcclusionEndTick = 405;
+    constexpr double kRecoverThresholdPx = 22.0;
+
+    struct MovingCase {
+        double start_dx = 0.0;
+        double start_dy = 0.0;
+        double velocity_x = 0.0;
+        double velocity_y = 0.0;
+        double wave_x = 0.0;
+        double wave_y = 0.0;
+    };
+
+    std::mt19937 rng(seed);
+    std::uniform_real_distribution<double> start_x_distribution(82.0, 132.0);
+    std::uniform_real_distribution<double> start_y_distribution(-42.0, 34.0);
+    std::uniform_real_distribution<double> speed_distribution(130.0, 240.0);
+    std::uniform_real_distribution<double> vertical_distribution(-35.0, 55.0);
+    std::uniform_real_distribution<double> wave_distribution(8.0, 22.0);
+    std::vector<MovingCase> cases;
+    cases.reserve(4);
+    for (int index = 0; index < 4; ++index) {
+        const double side = index % 2 == 0 ? 1.0 : -1.0;
+        MovingCase moving;
+        moving.start_dx = side * start_x_distribution(rng);
+        moving.start_dy = start_y_distribution(rng);
+        moving.velocity_x = -side * speed_distribution(rng);
+        moving.velocity_y = vertical_distribution(rng);
+        moving.wave_x = side * wave_distribution(rng);
+        moving.wave_y = wave_distribution(rng);
+        cases.push_back(moving);
+    }
+
+    config.recoil.enabled = false;
+    config.aim_assist_dynamics.enabled = enable_dynamics;
+    config.ai_aim.target_max_age_ms = std::max(config.ai_aim.target_max_age_ms, 160.0f);
+    config.ai_aim.target_projection_max_age_ms =
+        std::max(config.ai_aim.target_projection_max_age_ms, 180.0f);
+    config.ai_aim.ads_snap_window_ms = std::max(config.ai_aim.ads_snap_window_ms, 180);
+    config.ai_aim.body_lock_box_tolerance_px =
+        std::max(config.ai_aim.body_lock_box_tolerance_px, 28.0f);
+    config.ai_aim.body_lock_activation_box_px =
+        std::max(config.ai_aim.body_lock_activation_box_px, 190.0f);
+    config.ai_aim.body_lock_confidence_frames =
+        std::max(config.ai_aim.body_lock_confidence_frames, 1);
+
+    const auto smooth_step = [](double value) {
+        const double t = std::max(0.0, std::min(1.0, value));
+        return t * t * (3.0 - (2.0 * t));
+    };
+    const auto moving_body_state = [](
+        float dx,
+        float dy,
+        double now,
+        float body_width,
+        float body_height) {
+        controller_native::NativeControllerVisionState state =
+            target_state(dx, dy, now);
+        const float ratio = 0.40f;
+        state.body_x1 = state.target_x - (body_width * 0.5f);
+        state.body_x2 = state.target_x + (body_width * 0.5f);
+        state.body_y1 = state.target_y - (body_height * ratio);
+        state.body_y2 = state.body_y1 + body_height;
+        return state;
+    };
+
+    std::vector<double> residual_errors;
+    std::vector<double> final_errors;
+    std::vector<double> turn_degrees;
+    std::vector<double> slide_down_lags;
+    std::vector<double> slide_recovery_ms;
+    residual_errors.reserve(cases.size() * kTicksPerCase);
+    final_errors.reserve(cases.size());
+    turn_degrees.reserve(cases.size() * kTicksPerCase);
+    slide_down_lags.reserve(cases.size() * (kSlideEndTick - kSlideStartTick));
+
+    double target_alignment_sum = 0.0;
+    double manual_alignment_sum = 0.0;
+    int target_alignment_samples = 0;
+    int manual_alignment_samples = 0;
+    int global_tick = 0;
+    double fov_scale_sum = 0.0;
+
+    for (std::size_t case_index = 0; case_index < cases.size(); ++case_index) {
+        const MovingCase& moving = cases[case_index];
+        double simulated_now = 1.0;
+        controller_native::NativeGamepadController controller(
+            config,
+            [&simulated_now]() { return simulated_now; });
+        double reticle_x_position = 0.0;
+        double reticle_y_position = 0.0;
+        double previous_output_x = 0.0;
+        double previous_output_y = 0.0;
+        bool has_previous_output = false;
+        double previous_reported_dx = 0.0;
+        double previous_reported_dy = 0.0;
+        bool has_previous_report = false;
+        bool recover_pending = false;
+        int recover_start_tick = -1;
+
+        std::vector<double> x_errors;
+        std::vector<double> y_errors;
+        std::vector<std::string> modes;
+        std::vector<RandomFovSample> samples;
+        x_errors.reserve(kTicksPerCase);
+        y_errors.reserve(kTicksPerCase);
+        modes.reserve(kTicksPerCase);
+        samples.reserve(kTicksPerCase);
+
+        for (int tick = 0; tick < kTicksPerCase; ++tick, ++global_tick) {
+            simulated_now = 1.0 + (static_cast<double>(global_tick) * kDtSeconds);
+            const double seconds = static_cast<double>(tick) * kDtSeconds;
+            const double slide_ratio = slide_motion
+                ? smooth_step(
+                    static_cast<double>(tick - kSlideStartTick) /
+                    static_cast<double>(kSlideEndTick - kSlideStartTick))
+                : 0.0;
+            const double slide_release_ratio = slide_motion
+                ? smooth_step(
+                    static_cast<double>(tick - kSlideEndTick) /
+                    static_cast<double>(kTicksPerCase - kSlideEndTick))
+                : 0.0;
+            const double slide_shape = slide_ratio * (1.0 - (0.35 * slide_release_ratio));
+            const double slide_dir = moving.velocity_x >= 0.0 ? 1.0 : -1.0;
+            const double target_x_position =
+                moving.start_dx +
+                (moving.velocity_x * seconds) +
+                (moving.wave_x * std::sin(seconds * 10.0)) +
+                (slide_motion ? slide_dir * 72.0 * slide_shape : 0.0);
+            const double target_y_position =
+                moving.start_dy +
+                (moving.velocity_y * seconds) +
+                (moving.wave_y * std::sin(seconds * 7.0 + 0.6)) +
+                (slide_motion ? 92.0 * slide_shape : 0.0);
+            const double body_height = slide_motion
+                ? lerp(180.0, 82.0, slide_shape)
+                : 180.0;
+            const double body_width = slide_motion
+                ? lerp(84.0, 112.0, slide_shape)
+                : 84.0;
+            const double expected_dx = target_x_position - reticle_x_position;
+            const double expected_dy = target_y_position - reticle_y_position;
+            fov_scale_sum += 1.0;
+
+            const bool in_occlusion =
+                occlusion_gap &&
+                tick >= kOcclusionStartTick &&
+                tick < kOcclusionEndTick;
+            if (in_occlusion) {
+                ++metrics.ads_manual_stress_vision_dropped_ticks;
+            }
+            if (tick % kVisionIntervalTicks == 0 && !in_occlusion) {
+                controller.submit_vision_state(
+                    moving_body_state(
+                        static_cast<float>(expected_dx),
+                        static_cast<float>(expected_dy),
+                        simulated_now,
+                        static_cast<float>(body_width),
+                        static_cast<float>(body_height)));
+                ++metrics.ads_manual_stress_vision_samples;
+                if (has_previous_report &&
+                    std::hypot(
+                        expected_dx - previous_reported_dx,
+                        expected_dy - previous_reported_dy) > 18.0) {
+                    ++metrics.ads_manual_stress_large_vision_jumps;
+                }
+                previous_reported_dx = expected_dx;
+                previous_reported_dy = expected_dy;
+                has_previous_report = true;
+            }
+
+            const double desired_move_x =
+                (expected_dx * 0.0045) + (moving.velocity_x / 900.0);
+            const double desired_move_y =
+                (expected_dy * 0.0040) + ((moving.velocity_y + (slide_motion ? 180.0 * slide_shape : 0.0)) / 950.0);
+            float manual_x = static_cast<float>(clamp_double(desired_move_x, -0.42, 0.42));
+            float manual_y = static_cast<float>(clamp_double(-desired_move_y, -0.42, 0.42));
+            if (tick < 70) {
+                manual_x *= 0.35f;
+                manual_y *= 0.35f;
+            }
+            if (occlusion_gap && in_occlusion) {
+                manual_x *= 0.70f;
+                manual_y *= 0.70f;
+            }
+
+            controller.build_output(aiming_state(manual_x, manual_y, fire_active));
+            const controller_native::NativeControllerOutputComponents& components =
+                controller.last_output_components();
+            add_frame_sample(metrics, components);
+            const std::string mode = controller.last_ai_aim_mode();
+            if (mode == "body_lock") {
+                ++metrics.ads_manual_stress_body_lock_frames;
+            }
+
+            const double reticle_delta_x =
+                static_cast<double>(components.final_stick.x) * kReticleSpeed * kDtSeconds;
+            const double reticle_delta_y =
+                -static_cast<double>(components.final_stick.y) * kReticleSpeed * kDtSeconds;
+            reticle_x_position += reticle_delta_x;
+            reticle_y_position += reticle_delta_y;
+            metrics.ads_manual_stress_max_single_frame_camera_delta_px = std::max(
+                metrics.ads_manual_stress_max_single_frame_camera_delta_px,
+                std::hypot(reticle_delta_x, reticle_delta_y));
+
+            const double residual_dx = target_x_position - reticle_x_position;
+            const double residual_dy = target_y_position - reticle_y_position;
+            const double residual_radius = std::hypot(residual_dx, residual_dy);
+            residual_errors.push_back(residual_radius);
+            x_errors.push_back(residual_dx);
+            y_errors.push_back(residual_dy);
+            modes.push_back(mode);
+            ++metrics.ads_manual_stress_measured_ticks;
+            if (in_occlusion) {
+                metrics.ads_manual_stress_occlusion_peak_error_px = std::max(
+                    metrics.ads_manual_stress_occlusion_peak_error_px,
+                    residual_radius);
+            }
+            if (slide_motion && tick >= kSlideStartTick && tick < kSlideEndTick) {
+                slide_down_lags.push_back(std::max(0.0, residual_dy));
+            }
+            if (occlusion_gap && tick == kOcclusionEndTick) {
+                recover_pending = true;
+                recover_start_tick = tick;
+            }
+            if (recover_pending && residual_radius <= kRecoverThresholdPx) {
+                slide_recovery_ms.push_back(
+                    static_cast<double>(tick - recover_start_tick) * kDtSeconds * 1000.0);
+                recover_pending = false;
+            }
+
+            const double output_move_x = components.final_stick.x;
+            const double output_move_y = -components.final_stick.y;
+            const double manual_move_x = manual_x;
+            const double manual_move_y = -manual_y;
+            target_alignment_sum += vector_alignment(
+                output_move_x,
+                output_move_y,
+                residual_dx,
+                residual_dy,
+                kVectorDeadzone);
+            ++target_alignment_samples;
+            if (vector_magnitude(manual_move_x, manual_move_y) >= kVectorDeadzone) {
+                manual_alignment_sum += vector_alignment(
+                    output_move_x,
+                    output_move_y,
+                    manual_move_x,
+                    manual_move_y,
+                    kVectorDeadzone);
+                ++manual_alignment_samples;
+            }
+            if (has_previous_output) {
+                const double previous_mag =
+                    vector_magnitude(previous_output_x, previous_output_y);
+                const double current_mag =
+                    vector_magnitude(output_move_x, output_move_y);
+                if (previous_mag >= kVectorDeadzone &&
+                    current_mag >= kVectorDeadzone) {
+                    turn_degrees.push_back(vector_turn_degrees(
+                        previous_output_x,
+                        previous_output_y,
+                        output_move_x,
+                        output_move_y,
+                        kVectorDeadzone));
+                }
+            }
+            previous_output_x = output_move_x;
+            previous_output_y = output_move_y;
+            has_previous_output = true;
+
+            RandomFovSample sample;
+            sample.segment = static_cast<int>(case_index);
+            sample.tick = tick;
+            sample.global_tick = global_tick;
+            sample.error_x = residual_dx;
+            sample.error_y = residual_dy;
+            sample.mode = mode;
+            sample.final_x = components.final_stick.x;
+            sample.final_y = components.final_stick.y;
+            sample.manual_x = components.manual_stick.x;
+            sample.manual_y = components.manual_stick.y;
+            sample.ai_aim_x = components.ai_aim_stick.x;
+            sample.ai_aim_y = components.ai_aim_stick.y;
+            sample.dynamics_x = components.dynamic_adjustment_stick.x;
+            sample.dynamics_y = components.dynamic_adjustment_stick.y;
+            sample.fov_scale = 1.0;
+            sample.expected_dx = expected_dx;
+            sample.expected_dy = expected_dy;
+            sample.target_speed_px_per_sec = std::hypot(
+                moving.velocity_x + (slide_motion ? slide_dir * 360.0 * slide_shape : 0.0),
+                moving.velocity_y + (slide_motion ? 300.0 * slide_shape : 0.0));
+            sample.heading_deg = std::atan2(
+                moving.velocity_y + (slide_motion ? 300.0 * slide_shape : 0.0),
+                moving.velocity_x + (slide_motion ? slide_dir * 360.0 * slide_shape : 0.0)) *
+                180.0 / 3.14159265358979323846;
+            copy_frame_vision_to_sample(
+                sample,
+                controller.last_frame_vision_state(),
+                simulated_now);
+            samples.push_back(std::move(sample));
+        }
+
+        const ModeOvershootStats x_overshoot =
+            axis_mode_overshoot_stats(x_errors, modes, kOvershootThresholdPx);
+        const ModeOvershootStats y_overshoot =
+            axis_mode_overshoot_stats(y_errors, modes, kOvershootThresholdPx);
+        metrics.ads_manual_stress_overshoot_events_x += x_overshoot.count;
+        metrics.ads_manual_stress_overshoot_events_y += y_overshoot.count;
+        metrics.ads_manual_stress_overshoot_events +=
+            x_overshoot.count + y_overshoot.count;
+        metrics.ads_manual_stress_overshoot_ads_snap +=
+            x_overshoot.ads_snap_count + y_overshoot.ads_snap_count;
+        metrics.ads_manual_stress_overshoot_body_lock +=
+            x_overshoot.body_lock_count + y_overshoot.body_lock_count;
+        metrics.ads_manual_stress_overshoot_manual +=
+            x_overshoot.manual_count + y_overshoot.manual_count;
+        metrics.ads_manual_stress_max_overshoot_px = std::max(
+            metrics.ads_manual_stress_max_overshoot_px,
+            std::max(x_overshoot.max_px, y_overshoot.max_px));
+        final_errors.push_back(std::hypot(x_errors.back(), y_errors.back()));
+
+        std::vector<RandomFovOvershootEvent> x_details =
+            random_fov_axis_overshoot_events(samples, false, kOvershootThresholdPx);
+        std::vector<RandomFovOvershootEvent> y_details =
+            random_fov_axis_overshoot_events(samples, true, kOvershootThresholdPx);
+        for (const RandomFovOvershootEvent& event : x_details) {
+            if (event.peak_abs_px >= kLargeOvershootThresholdPx) {
+                ++metrics.ads_manual_stress_large_overshoot_events;
+            }
+        }
+        for (const RandomFovOvershootEvent& event : y_details) {
+            if (event.peak_abs_px >= kLargeOvershootThresholdPx) {
+                ++metrics.ads_manual_stress_large_overshoot_events;
+            }
+        }
+        metrics.ads_manual_stress_overshoot_details.insert(
+            metrics.ads_manual_stress_overshoot_details.end(),
+            x_details.begin(),
+            x_details.end());
+        metrics.ads_manual_stress_overshoot_details.insert(
+            metrics.ads_manual_stress_overshoot_details.end(),
+            y_details.begin(),
+            y_details.end());
+    }
+
+    metrics.ads_manual_stress_cases = static_cast<int>(cases.size());
+    metrics.ads_manual_stress_ticks_per_case = kTicksPerCase;
+    metrics.ads_manual_stress_vision_hz = kVisionHz;
+    metrics.ads_manual_stress_mean_error_px = mean_value(residual_errors);
+    metrics.ads_manual_stress_p95_error_px =
+        nearest_rank_percentile(residual_errors, 0.95);
+    metrics.ads_manual_stress_p99_error_px =
+        nearest_rank_percentile(residual_errors, 0.99);
+    metrics.ads_manual_stress_final_error_px = mean_value(final_errors);
+    const double total_ticks =
+        static_cast<double>(std::max(1, metrics.ads_manual_stress_measured_ticks));
+    metrics.ads_manual_stress_mean_fov_scale = fov_scale_sum / total_ticks;
+    metrics.ads_manual_stress_body_lock_ratio =
+        static_cast<double>(metrics.ads_manual_stress_body_lock_frames) / total_ticks;
+    metrics.ads_manual_stress_slide_down_lag_p95_px =
+        nearest_rank_percentile(slide_down_lags, 0.95);
+    metrics.ads_manual_stress_slide_recover_ms =
+        nearest_rank_percentile(slide_recovery_ms, 0.95);
+    metrics.ads_manual_stress_mean_target_alignment =
+        target_alignment_samples <= 0
+            ? 0.0
+            : target_alignment_sum / static_cast<double>(target_alignment_samples);
+    metrics.ads_manual_stress_mean_manual_alignment =
+        manual_alignment_samples <= 0
+            ? 0.0
+            : manual_alignment_sum / static_cast<double>(manual_alignment_samples);
+    metrics.ads_manual_stress_direction_score =
+        alignment_score(metrics.ads_manual_stress_mean_target_alignment);
+    metrics.ads_manual_stress_manual_direction_score =
+        alignment_score(metrics.ads_manual_stress_mean_manual_alignment);
+    metrics.ads_manual_stress_p95_turn_degrees =
+        nearest_rank_percentile(turn_degrees, 0.95);
+    metrics.ads_manual_stress_turn_smoothness_score =
+        turn_smoothness_score(metrics.ads_manual_stress_p95_turn_degrees);
+    return metrics;
+}
+
 std::string escape_json(const std::string& value) {
     std::ostringstream out;
     for (const char ch : value) {
@@ -3831,6 +4286,16 @@ void write_json(
                 << scenario.ads_manual_stress_p95_turn_degrees << ",\n"
                 << "        \"turn_smoothness_score\": "
                 << scenario.ads_manual_stress_turn_smoothness_score << ",\n"
+                << "        \"body_lock_frames\": "
+                << scenario.ads_manual_stress_body_lock_frames << ",\n"
+                << "        \"body_lock_ratio\": "
+                << scenario.ads_manual_stress_body_lock_ratio << ",\n"
+                << "        \"occlusion_peak_error_px\": "
+                << scenario.ads_manual_stress_occlusion_peak_error_px << ",\n"
+                << "        \"slide_down_lag_p95_px\": "
+                << scenario.ads_manual_stress_slide_down_lag_p95_px << ",\n"
+                << "        \"slide_recover_ms\": "
+                << scenario.ads_manual_stress_slide_recover_ms << ",\n"
                 << "        \"overshoot_details\": ";
             write_random_fov_overshoot_details_json(
                 out,
@@ -4054,7 +4519,17 @@ void print_summary(
                 << scenario.ads_manual_stress_manual_direction_score
                 << " smooth_score="
                 << scenario.ads_manual_stress_turn_smoothness_score
-                << " p95_turn=" << scenario.ads_manual_stress_p95_turn_degrees;
+                << " p95_turn=" << scenario.ads_manual_stress_p95_turn_degrees
+                << " body_lock_frames="
+                << scenario.ads_manual_stress_body_lock_frames
+                << " body_lock_ratio="
+                << scenario.ads_manual_stress_body_lock_ratio
+                << " occlusion_peak="
+                << scenario.ads_manual_stress_occlusion_peak_error_px
+                << " slide_down_lag_p95="
+                << scenario.ads_manual_stress_slide_down_lag_p95_px
+                << " slide_recover_ms="
+                << scenario.ads_manual_stress_slide_recover_ms;
         }
         if (scenario.has_selector_intent) {
             std::cout
@@ -4189,6 +4664,30 @@ int main(int argc, char** argv) {
                 true,
                 true,
                 options.random_fov_seed));
+            scenarios.push_back(run_ads_bodylock_moving_chase_100hz(
+                runtime_config.gamepad,
+                options.random_fov_seed,
+                "ads_bodylock_moving_chase_100hz_dynamic",
+                true,
+                false,
+                false,
+                false));
+            scenarios.push_back(run_ads_bodylock_moving_chase_100hz(
+                runtime_config.gamepad,
+                options.random_fov_seed,
+                "ads_bodylock_slide_visible_chase_100hz_dynamic",
+                true,
+                false,
+                true,
+                false));
+            scenarios.push_back(run_ads_bodylock_moving_chase_100hz(
+                runtime_config.gamepad,
+                options.random_fov_seed,
+                "ads_bodylock_slide_occlusion_chase_100hz_dynamic_fire",
+                true,
+                true,
+                true,
+                true));
             if (options.random_fov_ticks > 0) {
                 scenarios.push_back(run_tracker_random_fov_100hz(
                     runtime_config.gamepad,

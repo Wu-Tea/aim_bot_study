@@ -83,6 +83,12 @@ private:
         float manual_right_y,
         const PhysicalGamepadState& physical,
         bool auto_fire_active);
+    void apply_ads_near_target_brake(
+        GamepadOutputState& output,
+        float manual_right_x,
+        float manual_right_y,
+        const NativeControllerVisionState& vision_state,
+        double now_seconds) const;
     void apply_recoil(
         GamepadOutputState& output,
         const PhysicalGamepadState& physical,

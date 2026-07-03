@@ -22,6 +22,69 @@ float clamp_unit(float value) {
     return std::max(-1.0f, std::min(1.0f, value));
 }
 
+float axis_sign(float value) {
+    if (value > 0.0f) {
+        return 1.0f;
+    }
+    if (value < 0.0f) {
+        return -1.0f;
+    }
+    return 0.0f;
+}
+
+float apply_near_target_axis_brake(
+    float target_error_px,
+    float output_axis,
+    float manual_axis,
+    float reticle_speed_px_per_sec) {
+    constexpr float kAxisDeadzone = 0.015f;
+    constexpr float kNearErrorPx = 18.0f;
+    constexpr float kFarErrorPx = 36.0f;
+    constexpr float kNearHorizonSeconds = 0.022f;
+    constexpr float kFarHorizonSeconds = 0.016f;
+    constexpr float kNearOvershootBudgetPx = 12.0f;
+    constexpr float kFarOvershootBudgetPx = 18.0f;
+
+    const float abs_error = std::fabs(target_error_px);
+    if (abs_error <= 0.0f || abs_error > kFarErrorPx ||
+        std::fabs(output_axis) <= kAxisDeadzone) {
+        return output_axis;
+    }
+
+    const float target_direction = axis_sign(target_error_px);
+    if (target_direction == 0.0f || axis_sign(output_axis) != target_direction) {
+        return output_axis;
+    }
+
+    const float t =
+        std::max(0.0f, std::min(1.0f, (abs_error - kNearErrorPx) / (kFarErrorPx - kNearErrorPx)));
+    const float horizon_seconds =
+        kNearHorizonSeconds + ((kFarHorizonSeconds - kNearHorizonSeconds) * t);
+    const float overshoot_budget_px =
+        kNearOvershootBudgetPx + ((kFarOvershootBudgetPx - kNearOvershootBudgetPx) * t);
+    const float safe_speed =
+        std::max(1.0f, std::fabs(reticle_speed_px_per_sec));
+    const float allowed_abs_axis =
+        std::max(kAxisDeadzone, (abs_error + overshoot_budget_px) / (safe_speed * horizon_seconds));
+    if (std::fabs(output_axis) <= allowed_abs_axis) {
+        return output_axis;
+    }
+
+    const float desired_axis = target_direction * allowed_abs_axis;
+    const float raw_assist_axis = output_axis - manual_axis;
+    float planned_assist_axis = desired_axis - manual_axis;
+
+    if (std::fabs(raw_assist_axis) <= kAxisDeadzone) {
+        return output_axis;
+    }
+    if (axis_sign(planned_assist_axis) != axis_sign(raw_assist_axis)) {
+        planned_assist_axis = 0.0f;
+    } else if (std::fabs(planned_assist_axis) > std::fabs(raw_assist_axis)) {
+        planned_assist_axis = raw_assist_axis;
+    }
+    return clamp_unit(manual_axis + planned_assist_axis);
+}
+
 }  // namespace
 
 NativeGamepadController::NativeGamepadController(
@@ -155,6 +218,13 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
         output,
         false,
         auto_fire_decision.should_fire);
+
+    apply_ads_near_target_brake(
+        output,
+        manual_right_x,
+        manual_right_y,
+        frame_vision_state,
+        now);
 
     stage_before_output = output;
     stage_before_right_y = output.right_y;
@@ -420,6 +490,35 @@ void NativeGamepadController::apply_aim_assist_dynamics(
     const NativeAimAssistDynamicsOutput shaped = aim_assist_dynamics_.apply(input);
     output.right_x = shaped.right_x;
     output.right_y = shaped.right_y;
+}
+
+void NativeGamepadController::apply_ads_near_target_brake(
+    GamepadOutputState& output,
+    float manual_right_x,
+    float manual_right_y,
+    const NativeControllerVisionState& vision_state,
+    double now_seconds) const {
+    if (!ads_state_tracker_.active() || ai_aim_.last_mode() != "ads_snap" ||
+        !has_fresh_aim_target(vision_state, now_seconds)) {
+        return;
+    }
+
+    const float reticle_speed =
+        std::max(1.0f, config_.ai_aim.target_projection_reticle_speed_px_per_sec);
+    output.right_x = apply_near_target_axis_brake(
+        vision_state.dx,
+        output.right_x,
+        manual_right_x,
+        reticle_speed);
+
+    const float output_move_y = -output.right_y;
+    const float manual_move_y = -manual_right_y;
+    const float shaped_move_y = apply_near_target_axis_brake(
+        vision_state.dy,
+        output_move_y,
+        manual_move_y,
+        reticle_speed);
+    output.right_y = clamp_unit(-shaped_move_y);
 }
 
 void NativeGamepadController::apply_recoil(

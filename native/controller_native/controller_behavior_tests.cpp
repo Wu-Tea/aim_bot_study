@@ -2337,7 +2337,7 @@ void test_body_lock_clears_release_tail_carry_on_near_zero_x_sign_flip() {
         "body-lock zero-cross guard should not snap hard across center");
 }
 
-void test_controller_body_lock_short_plan_zeros_small_vector_turn_near_lock() {
+void test_controller_body_lock_short_plan_damps_small_vector_turn_near_lock() {
     controller_native::GamepadRuntimeConfig config;
     config.ai_aim.target_max_age_ms = 0.0f;
     config.ai_aim.piecewise_mid_pixels = 0.0f;
@@ -2394,16 +2394,12 @@ void test_controller_body_lock_short_plan_zeros_small_vector_turn_near_lock() {
     submit_body_lock_target();
     controller.build_output(physical_with_stick(0.0f, 0.07f));
     const auto second = controller.last_output_components().final_stick;
-    require_near(
-        second.x,
-        0.0f,
-        0.001f,
-        "body-lock short plan should zero x on a small near-lock vector turn");
-    require_near(
-        second.y,
-        0.0f,
-        0.001f,
-        "body-lock short plan should zero y on a small near-lock vector turn");
+    require_true(
+        std::fabs(second.x) <= 0.02f,
+        "body-lock short plan should clear stale x carry on a small near-lock vector turn");
+    require_true(
+        second.y >= 0.03f && second.y <= 0.07f,
+        "body-lock short plan should damp, not zero, the current small vector turn for moving targets");
 }
 
 void test_controller_body_lock_brakes_large_manual_after_target_crossing() {
@@ -2730,6 +2726,94 @@ void test_controller_ads_cross_brake_survives_fresh_stale_sign_flip() {
     require_true(
         stale_sign.x < -0.03f,
         "fresh-stale vision sign flip should allow the current helpful manual direction instead of hard-zeroing");
+}
+
+void test_controller_ads_near_target_brake_allows_bounded_chase_before_crossing() {
+    controller_native::GamepadRuntimeConfig config;
+    config.ai_aim.target_max_age_ms = 0.0f;
+    config.ai_aim.max_pixels = 100.0f;
+    config.ai_aim.deadzone_inner = 0.0f;
+    config.ai_aim.deadzone_outer = 0.0f;
+    config.ai_aim.x_deadzone_outer = 0.0f;
+    config.ai_aim.piecewise_mid_pixels = 0.0f;
+    config.ai_aim.piecewise_mid_pixels_y = 0.0f;
+    config.ai_aim.ads_snap_window_ms = 120;
+    config.ai_aim.ads_snap_max_ai_force = 1.0f;
+    config.ai_aim.ads_snap_max_ai_force_y = 1.0f;
+    config.ai_aim.ads_snap_reticle_speed_px_per_sec = 1500.0f;
+    config.ai_aim.target_projection_reticle_speed_px_per_sec = 1500.0f;
+    config.ai_aim.ads_snap_time_to_go_min_remaining_ms = 1.0f;
+    config.aim_assist_dynamics.enabled = false;
+    config.recoil.enabled = false;
+
+    double now = 33.0;
+    controller_native::NativeGamepadController controller(
+        config,
+        [&now]() { return now; });
+    controller.build_output(aiming_physical_state());
+
+    now = 33.119;
+    controller_native::NativeControllerVisionState target;
+    target.has_target = true;
+    target.aim_authority = true;
+    target.fire_authority = true;
+    target.target_tier = "strong";
+    target.dx = 6.0f;
+    target.dy = 0.0f;
+    target.screen_center_x = 320.0f;
+    target.screen_center_y = 256.0f;
+    target.observed_at_seconds = now;
+    controller.submit_vision_state(target);
+
+    const auto output = controller.build_output(aiming_physical_state());
+    require_true(
+        output.right_x >= 0.45f && output.right_x <= 0.65f,
+        "ADS near-target brake should allow bounded chase for moving targets without full-force crossing");
+}
+
+void test_controller_ads_near_target_brake_preserves_manual_input() {
+    controller_native::GamepadRuntimeConfig config;
+    config.ai_aim.target_max_age_ms = 0.0f;
+    config.ai_aim.max_pixels = 100.0f;
+    config.ai_aim.deadzone_inner = 0.0f;
+    config.ai_aim.deadzone_outer = 0.0f;
+    config.ai_aim.x_deadzone_outer = 0.0f;
+    config.ai_aim.piecewise_mid_pixels = 0.0f;
+    config.ai_aim.piecewise_mid_pixels_y = 0.0f;
+    config.ai_aim.ads_snap_window_ms = 120;
+    config.ai_aim.ads_snap_max_ai_force = 1.0f;
+    config.ai_aim.ads_snap_max_ai_force_y = 1.0f;
+    config.ai_aim.ads_snap_reticle_speed_px_per_sec = 1500.0f;
+    config.ai_aim.target_projection_reticle_speed_px_per_sec = 1500.0f;
+    config.ai_aim.ads_snap_time_to_go_min_remaining_ms = 1.0f;
+    config.aim_assist_dynamics.enabled = false;
+    config.recoil.enabled = false;
+
+    double now = 34.0;
+    controller_native::NativeGamepadController controller(
+        config,
+        [&now]() { return now; });
+    controller.build_output(aiming_physical_state());
+
+    now = 34.119;
+    controller_native::NativeControllerVisionState target;
+    target.has_target = true;
+    target.aim_authority = true;
+    target.fire_authority = true;
+    target.target_tier = "strong";
+    target.dx = 6.0f;
+    target.dy = 0.0f;
+    target.screen_center_x = 320.0f;
+    target.screen_center_y = 256.0f;
+    target.observed_at_seconds = now;
+    controller.submit_vision_state(target);
+
+    controller_native::PhysicalGamepadState physical = aiming_physical_state();
+    physical.right_x = 0.35f;
+    const auto output = controller.build_output(physical);
+    require_true(
+        output.right_x >= 0.45f && output.right_x <= 0.65f,
+        "ADS near-target brake should preserve helpful manual input while limiting excess assist");
 }
 
 void test_controller_output_validation_corrects_wrong_way_after_x_crossing() {
@@ -4606,12 +4690,14 @@ int main() {
         test_body_lock_can_disable_release_tail_to_zero_x_axis_inside_window();
         test_body_lock_preserves_more_horizontal_tail_for_moving_target_inside_release_window();
         test_body_lock_clears_release_tail_carry_on_near_zero_x_sign_flip();
-        test_controller_body_lock_short_plan_zeros_small_vector_turn_near_lock();
+        test_controller_body_lock_short_plan_damps_small_vector_turn_near_lock();
         test_controller_body_lock_brakes_large_manual_after_target_crossing();
         test_controller_body_lock_preserves_helpful_manual_near_lock_edge();
         test_controller_ads_brakes_large_manual_after_target_crossing_without_body_lock();
         test_controller_ads_corrects_small_manual_after_target_crossing_without_body_lock();
         test_controller_ads_cross_brake_survives_fresh_stale_sign_flip();
+        test_controller_ads_near_target_brake_allows_bounded_chase_before_crossing();
+        test_controller_ads_near_target_brake_preserves_manual_input();
         test_controller_output_validation_corrects_wrong_way_after_x_crossing();
         test_controller_output_validation_caps_only_crossed_axis_on_diagonal();
         test_controller_output_validation_yields_to_manual_correction_with_tracker_reference();

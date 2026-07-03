@@ -90,7 +90,7 @@ struct GamepadAiAimConfig {
     float body_lock_lateral_motion_lead_max_px = 7.0f;
     float body_lock_lateral_motion_tail_scale = 0.65f;
     int body_lock_lead_frames = 5;
-    float body_lock_lead_seconds = 0.0f;
+    float body_lock_lead_seconds = 0.026f;
     float body_lock_vertical_lead_scale = 0.95f;
     float body_lock_lead_max_px = 18.0f;
     float body_lock_target_match_iou = 0.10f;
