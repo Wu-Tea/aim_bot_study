@@ -1066,6 +1066,13 @@ void require_near(double actual, double expected, double tolerance, const char* 
 
 std::vector<ScenarioMetrics> run_selector_intent_suite(unsigned int seed);
 std::vector<ScenarioMetrics> run_roi_fallback_suite(unsigned int seed);
+ScenarioMetrics run_tracker_random_fov_100hz(
+    controller_native::GamepadRuntimeConfig config,
+    const CliOptions& options,
+    const std::string& name,
+    bool enable_dynamics,
+    bool enable_short_plan,
+    bool pure_ads);
 
 void run_self_test() {
     const char* selector_suite_argv[] = {
@@ -1143,6 +1150,24 @@ void run_self_test() {
             scenario.roi_fallback_target_loss_frames == 0,
             "ROI fallback benchmark should not lose target authority from ROI-only misses");
     }
+
+    controller_native::GamepadRuntimeConfig pure_ads_config;
+    pure_ads_config.recoil.enabled = false;
+    pure_ads_config.aim_assist_dynamics.enabled = false;
+    CliOptions pure_ads_options;
+    pure_ads_options.random_fov_ticks = 960;
+    pure_ads_options.random_fov_seed = 20260703;
+    const ScenarioMetrics pure_ads_metrics = run_tracker_random_fov_100hz(
+        pure_ads_config,
+        pure_ads_options,
+        "ads_pure_random_fov_100hz_self_test",
+        false,
+        false,
+        true);
+    require_benchmark_check(
+        pure_ads_metrics.has_random_fov &&
+            pure_ads_metrics.random_fov_manual_direction_samples == 0,
+        "pure ADS random FOV benchmark should not include manual stick direction samples");
 
     const std::vector<double> crossed_then_deepened = {6.0, 2.5, -1.0, -4.0};
     require_benchmark_check(
@@ -2228,7 +2253,8 @@ ScenarioMetrics run_tracker_random_fov_100hz(
     const CliOptions& options,
     const std::string& name = "tracker_random_fov_100hz",
     bool enable_dynamics = false,
-    bool enable_short_plan = false) {
+    bool enable_short_plan = false,
+    bool pure_ads = false) {
     ScenarioMetrics metrics;
     metrics.name = name;
     metrics.has_random_fov = true;
@@ -2550,6 +2576,10 @@ ScenarioMetrics run_tracker_random_fov_100hz(
                     manual_noise_y * std::sin((t * 19.0) + manual_phase_y)),
                 -0.72f,
                 0.72f);
+            if (pure_ads) {
+                manual_x = 0.0f;
+                manual_y = 0.0f;
+            }
 
             controller.build_output(aiming_state(manual_x, manual_y));
             const controller_native::NativeControllerOutputComponents& raw_components =
@@ -4178,6 +4208,20 @@ int main(int argc, char** argv) {
                     runtime_config.gamepad,
                     options,
                     "tracker_random_fov_100hz_dynamic_short_plan",
+                    true,
+                    true));
+                scenarios.push_back(run_tracker_random_fov_100hz(
+                    runtime_config.gamepad,
+                    options,
+                    "ads_pure_random_fov_100hz_dynamic",
+                    true,
+                    false,
+                    true));
+                scenarios.push_back(run_tracker_random_fov_100hz(
+                    runtime_config.gamepad,
+                    options,
+                    "ads_pure_random_fov_100hz_dynamic_short_plan",
+                    true,
                     true,
                     true));
             }
