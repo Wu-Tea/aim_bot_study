@@ -100,7 +100,7 @@ void test_stale_ads_observed_target_corrects_wrong_way_without_prior_crossing() 
         "stale ADS guard should bound wrong-way x output before target TTL expires");
 }
 
-void test_tracker_projection_preserves_manual_correction_and_zeros_projected_wrong_way() {
+void test_tracker_projection_preserves_manual_correction_and_bounds_projected_wrong_way() {
     controller_native::GamepadAiAimConfig config;
     controller_native::OutputValidationPolicy policy(config);
 
@@ -124,23 +124,23 @@ void test_tracker_projection_preserves_manual_correction_and_zeros_projected_wro
     output = policy.apply(projected);
     require_near(
         output.right_x,
-        0.0f,
+        0.135f,
         0.001f,
-        "projected tracker reference should zero output that pushes away from target");
+        "projected tracker reference should bounded-correct output that pushes away from target");
 }
 
-void test_candidate_output_hold_zeros_final_stick_axes() {
+void test_candidate_output_hold_bounds_wrong_way_axes_without_hard_zero() {
     controller_native::GamepadAiAimConfig config;
     controller_native::OutputValidationPolicy policy(config);
 
     controller_native::OutputValidationPolicyInput input = base_input(20.0f, -10.0f, 12.000);
     input.candidate_output_hold_active = true;
-    input.output.right_x = 0.50f;
+    input.output.right_x = -0.50f;
     input.output.right_y = -0.25f;
     const controller_native::GamepadOutputState output = policy.apply(input);
 
-    require_near(output.right_x, 0.0f, 0.001f, "candidate hold should zero x");
-    require_near(output.right_y, 0.0f, 0.001f, "candidate hold should zero y");
+    require_near(output.right_x, 0.225f, 0.001f, "candidate hold should correct wrong-way x");
+    require_near(output.right_y, 0.1125f, 0.001f, "candidate hold should correct wrong-way y");
 }
 
 }  // namespace
@@ -149,7 +149,7 @@ int main() {
     test_crossed_wrong_way_x_axis_gets_bounded_correction();
     test_active_wrong_way_window_continues_after_crossing();
     test_stale_ads_observed_target_corrects_wrong_way_without_prior_crossing();
-    test_tracker_projection_preserves_manual_correction_and_zeros_projected_wrong_way();
-    test_candidate_output_hold_zeros_final_stick_axes();
+    test_tracker_projection_preserves_manual_correction_and_bounds_projected_wrong_way();
+    test_candidate_output_hold_bounds_wrong_way_axes_without_hard_zero();
     return 0;
 }

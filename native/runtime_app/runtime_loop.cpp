@@ -493,6 +493,8 @@ void RuntimeLoop::run_once() {
         if (log_aim_perf_file) {
             const controller_native::NativeControllerOutputComponents& output_components =
                 controller_.last_output_components();
+            const controller_native::NativeControllerVisionState& controller_vision_state =
+                controller_.last_frame_vision_state();
             const controller_native::GamepadOutputState tracker_motion_output =
                 controller_.last_tracker_motion_output();
             aim_perf_file_logger_.record_aim_sample(
@@ -500,6 +502,7 @@ void RuntimeLoop::run_once() {
                 aiming,
                 snapshot,
                 result,
+                &controller_vision_state,
                 &output_components,
                 &tracker_motion_output);
         }

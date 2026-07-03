@@ -138,12 +138,23 @@ void test_aim_perf_file_logger_writes_controller_components() {
         vision.frame_updated = true;
         vision.frame_id = 7;
         vision.preprocess_mode = vision_native::PreprocessMode::OldBgraCopy;
+        controller_native::NativeControllerVisionState controller_vision;
+        controller_vision.has_target = true;
+        controller_vision.aim_authority = true;
+        controller_vision.fire_authority = false;
+        controller_vision.target_tier = "projected";
+        controller_vision.dx = 12.0f;
+        controller_vision.dy = -8.0f;
+        controller_vision.has_tracker_projection = true;
+        controller_vision.tracker_dx = 10.0f;
+        controller_vision.tracker_dy = -6.0f;
         runtime_app::PerfSnapshot snapshot;
         logger.record_aim_sample(
             1,
             true,
             snapshot,
             &vision,
+            &controller_vision,
             &components,
             &tracker_output);
         log_path = logger.log_path();
@@ -165,6 +176,15 @@ void test_aim_perf_file_logger_writes_controller_components() {
     require_true(
         log.find("\"preprocess_mode\":\"old_bgra_copy\"") != std::string::npos,
         "aim perf log should include preprocess mode");
+    require_true(
+        log.find("\"controller_target\":true") != std::string::npos,
+        "aim perf log should include controller target state");
+    require_true(
+        log.find("\"controller_tier\":\"projected\"") != std::string::npos,
+        "aim perf log should include controller target tier");
+    require_true(
+        log.find("\"controller_tracker_dx\":10") != std::string::npos,
+        "aim perf log should include controller tracker dx");
 }
 
 }  // namespace

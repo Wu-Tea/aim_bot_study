@@ -76,8 +76,20 @@ GamepadOutputState OutputValidationPolicy::apply(
     apply_tracker_projection_guard(input, output);
     apply_observed_target_guard(input, output);
     if (input.candidate_output_hold_active) {
-        output.right_x = 0.0f;
-        output.right_y = 0.0f;
+        if (output_pushes_away(output.right_x, input.vision_state.dx, false)) {
+            output.right_x = bounded_wrong_way_correction(
+                output.right_x,
+                input.vision_state.dx,
+                false,
+                kCrossErrorDeadzonePx);
+        }
+        if (output_pushes_away(output.right_y, input.vision_state.dy, true)) {
+            output.right_y = bounded_wrong_way_correction(
+                output.right_y,
+                input.vision_state.dy,
+                true,
+                kCrossErrorDeadzonePx);
+        }
     }
     return output;
 }
@@ -131,10 +143,18 @@ void OutputValidationPolicy::apply_tracker_projection_guard(
     if (!vision_state.aim_authority ||
         tracking_native::is_projected_observation(vision_state.target_tier)) {
         if (output_pushes_away(output.right_x, vision_state.tracker_dx, false)) {
-            output.right_x = 0.0f;
+            output.right_x = bounded_wrong_way_correction(
+                output.right_x,
+                vision_state.tracker_dx,
+                false,
+                kCrossErrorDeadzonePx);
         }
         if (output_pushes_away(output.right_y, vision_state.tracker_dy, true)) {
-            output.right_y = 0.0f;
+            output.right_y = bounded_wrong_way_correction(
+                output.right_y,
+                vision_state.tracker_dy,
+                true,
+                kCrossErrorDeadzonePx);
         }
     }
 }

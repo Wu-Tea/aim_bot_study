@@ -151,6 +151,24 @@ void write_controller_components(
         << ",\"fire_button\":" << (value.fire_button ? "true" : "false");
 }
 
+void write_controller_vision_state(
+    std::ofstream& output,
+    const controller_native::NativeControllerVisionState* state) {
+    controller_native::NativeControllerVisionState empty_state;
+    const controller_native::NativeControllerVisionState& value =
+        state != nullptr ? *state : empty_state;
+    output
+        << ",\"controller_target\":" << (value.has_target ? "true" : "false")
+        << ",\"controller_aim_authority\":" << (value.aim_authority ? "true" : "false")
+        << ",\"controller_fire_authority\":" << (value.fire_authority ? "true" : "false")
+        << ",\"controller_tier\":" << json_string(value.target_tier)
+        << ",\"controller_dx\":" << value.dx
+        << ",\"controller_dy\":" << value.dy
+        << ",\"controller_projection\":" << (value.has_tracker_projection ? "true" : "false")
+        << ",\"controller_tracker_dx\":" << value.tracker_dx
+        << ",\"controller_tracker_dy\":" << value.tracker_dy;
+}
+
 }  // namespace
 
 AimPerfFileLogger::AimPerfFileLogger(
@@ -188,6 +206,7 @@ void AimPerfFileLogger::record_aim_sample(
     bool aiming,
     const PerfSnapshot& snapshot,
     const vision_native::VisionResult* result,
+    const controller_native::NativeControllerVisionState* controller_vision_state,
     const controller_native::NativeControllerOutputComponents* output_components,
     const controller_native::GamepadOutputState* tracker_motion_output) {
     if (!enabled_ || !aiming || !output_.is_open()) {
@@ -274,6 +293,7 @@ void AimPerfFileLogger::record_aim_sample(
         << ",\"fire_blocked\":" << snapshot.fire_blocked
         << ",\"box_samples\":" << snapshot.box_samples;
     write_controller_components(output_, output_components, tracker_motion_output);
+    write_controller_vision_state(output_, controller_vision_state);
     output_ << "}\n";
 }
 

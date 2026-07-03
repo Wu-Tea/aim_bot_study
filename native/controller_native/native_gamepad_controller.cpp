@@ -80,11 +80,11 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
         output_components_from_manual_output(output);
 
     const double now = now_seconds();
+    const bool aiming = is_aiming(physical);
+    update_ads_state(aiming, now);
     const NativeControllerVisionState frame_vision_state =
         target_snapshot_provider_.vision_state_for_frame(now, ads_state_tracker_.active());
     last_frame_vision_state_ = frame_vision_state;
-    const bool aiming = is_aiming(physical);
-    update_ads_state(aiming, now);
     const float manual_right_x = output.right_x;
     const float manual_right_y = output.right_y;
 
@@ -202,7 +202,7 @@ const std::string& NativeGamepadController::last_ai_aim_mode() const {
 }
 
 bool NativeGamepadController::is_aiming(const PhysicalGamepadState& physical) const {
-    return physical.left_trigger > 0.05f || (
+    return physical.left_trigger > 0.05f || physical.left_thumb || (
         config_.rb_counts_as_aiming && physical.rb);
 }
 

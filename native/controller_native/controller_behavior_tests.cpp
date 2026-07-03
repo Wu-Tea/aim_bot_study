@@ -3199,7 +3199,7 @@ void test_controller_accepts_sustained_candidate_after_fresh_samples() {
         "sustained candidate with consecutive fresh samples should become the aim target");
 }
 
-void test_controller_candidate_hold_zeros_manual_away_from_tracker_reference() {
+void test_controller_candidate_hold_corrects_manual_away_from_candidate() {
     controller_native::GamepadRuntimeConfig config;
     config.tracker_backend = tracking_native::TrackerBackendKind::LegacyProjection;
     config.ai_aim.target_max_age_ms = 500.0f;
@@ -3245,11 +3245,9 @@ void test_controller_candidate_hold_zeros_manual_away_from_tracker_reference() {
     controller.build_output(physical);
     const auto held = controller.last_output_components().final_stick;
 
-    require_near(
-        held.x,
-        0.0f,
-        0.05f,
-        "candidate hold should zero manual output that pushes away from tracker reference");
+    require_true(
+        held.x > 0.20f && held.x < 0.26f,
+        "candidate hold should apply bounded correction instead of hard-zeroing manual output");
 }
 
 void test_controller_ads_candidate_projection_hold_survives_short_occlusion_gap() {
@@ -3303,11 +3301,9 @@ void test_controller_ads_candidate_projection_hold_survives_short_occlusion_gap(
     controller.build_output(physical);
     const auto held = controller.last_output_components().final_stick;
 
-    require_near(
-        held.x,
-        0.0f,
-        0.05f,
-        "ADS candidate projection hold should survive a short occlusion gap and block manual away from tracker");
+    require_true(
+        held.x > 0.20f && held.x < 0.26f,
+        "ADS candidate projection hold should correct away-from-candidate manual without hard zero");
 }
 
 void test_controller_candidate_projection_hold_uses_projection_time_for_freshness() {
@@ -3361,11 +3357,9 @@ void test_controller_candidate_projection_hold_uses_projection_time_for_freshnes
     controller.build_output(physical);
     const auto held = controller.last_output_components().final_stick;
 
-    require_near(
-        held.x,
-        0.0f,
-        0.05f,
-        "active candidate projection hold should stay fresh for output validation until the hold window expires");
+    require_true(
+        held.x > 0.20f && held.x < 0.26f,
+        "active candidate projection hold should stay fresh and bounded-correct wrong-way manual");
 }
 
 void test_controller_suspicious_candidate_without_projection_holds_output_until_verified() {
@@ -3419,16 +3413,12 @@ void test_controller_suspicious_candidate_without_projection_holds_output_until_
     require_true(
         !frame.has_target && !frame.fire_authority,
         "suspicious no-projection candidate should not become an aim target while unverified");
-    require_near(
-        output.x,
-        0.0f,
-        0.02f,
-        "suspicious no-projection candidate should hold x output while waiting for verification");
-    require_near(
-        output.y,
-        0.0f,
-        0.02f,
-        "suspicious no-projection candidate should hold y output while waiting for verification");
+    require_true(
+        output.x > 0.20f && output.x < 0.26f,
+        "suspicious no-projection candidate should bounded-correct x while waiting for verification");
+    require_true(
+        output.y > 0.60f && output.y < 0.68f,
+        "suspicious no-projection candidate should preserve y output that already moves toward the candidate");
 }
 
 void test_controller_accepts_moving_candidate_after_fresh_samples() {
@@ -3781,6 +3771,33 @@ void test_controller_ads_snap_only_runs_inside_ads_window_without_body_lock() {
         0.0f,
         0.001f,
         "ADS snap should stop after the snap window when body-lock is unavailable");
+}
+
+void test_controller_left_thumb_counts_as_aiming() {
+    controller_native::GamepadRuntimeConfig config;
+    config.ai_aim.max_pixels = 100.0f;
+    config.ai_aim.max_ai_force = 1.0f;
+    config.ai_aim.ads_snap_window_ms = 120;
+    config.aim_assist_dynamics.enabled = false;
+    config.recoil.enabled = false;
+    controller_native::NativeGamepadController controller(config);
+
+    vision_native::VisionResult target;
+    target.frame_updated = true;
+    target.has_target = true;
+    target.aim_authority = true;
+    target.fire_authority = true;
+    target.dx = 50.0f;
+    target.dy = 0.0f;
+    target.target_tier = "strong";
+    target.result_at_ns = now_ns();
+    submit_adapted_vision_result(controller, target);
+
+    controller_native::PhysicalGamepadState physical;
+    physical.connected = true;
+    physical.left_thumb = true;
+    const controller_native::GamepadOutputState output = controller.build_output(physical);
+    require_true(output.right_x > 0.40f, "holding L3 should count as aiming for aim assist");
 }
 
 void test_auto_fire_ready_uses_body_lock_error_when_body_box_is_active() {
@@ -4551,6 +4568,7 @@ int main() {
         test_auto_fire_requires_aim_ready_settle_frames();
         test_auto_fire_aim_ready_gate_can_be_disabled();
         test_auto_fire_ready_allows_manual_right_stick_when_fire_zone_is_hit();
+        test_controller_left_thumb_counts_as_aiming();
         test_no_update_vision_result_preserves_latest_target();
         test_controller_accepts_controller_vision_snapshot_without_vision_result();
         test_target_tracker_projects_camera_motion_between_vision_frames();
@@ -4602,7 +4620,7 @@ int main() {
         test_controller_moderate_stale_jump_coasts_on_tracker_projection();
         test_controller_fresh_stale_jump_inside_candidate_threshold_uses_tracker_projection();
         test_controller_accepts_sustained_candidate_after_fresh_samples();
-        test_controller_candidate_hold_zeros_manual_away_from_tracker_reference();
+        test_controller_candidate_hold_corrects_manual_away_from_candidate();
         test_controller_ads_candidate_projection_hold_survives_short_occlusion_gap();
         test_controller_candidate_projection_hold_uses_projection_time_for_freshness();
         test_controller_suspicious_candidate_without_projection_holds_output_until_verified();

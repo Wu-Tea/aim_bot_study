@@ -23,6 +23,7 @@ public:
         bool aiming,
         const PerfSnapshot& snapshot,
         const vision_native::VisionResult* result,
+        const controller_native::NativeControllerVisionState* controller_vision_state = nullptr,
         const controller_native::NativeControllerOutputComponents* output_components = nullptr,
         const controller_native::GamepadOutputState* tracker_motion_output = nullptr);
 

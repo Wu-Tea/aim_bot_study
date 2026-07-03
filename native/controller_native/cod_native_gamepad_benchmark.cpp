@@ -45,6 +45,16 @@ struct CliOptions {
     bool self_test = false;
 };
 
+struct BenchmarkShortTermOutputPlan {
+    bool has_output = false;
+    double output_x = 0.0;
+    double output_y = 0.0;
+    int shaped_ticks = 0;
+    bool has_expected = false;
+    double expected_dx = 0.0;
+    double expected_dy = 0.0;
+};
+
 struct AxisStats {
     int manual_frames = 0;
     int final_opposes_manual = 0;
@@ -598,6 +608,146 @@ double vector_alignment(
     double ay,
     double bx,
     double by,
+    double min_magnitude);
+
+double vector_turn_degrees(
+    double previous_x,
+    double previous_y,
+    double current_x,
+    double current_y,
+    double min_magnitude);
+
+void reset_benchmark_short_plan(
+    BenchmarkShortTermOutputPlan& plan,
+    double output_x,
+    double output_y,
+    double expected_dx,
+    double expected_dy) {
+    plan.has_output = true;
+    plan.output_x = output_x;
+    plan.output_y = output_y;
+    plan.shaped_ticks = 0;
+    plan.has_expected = true;
+    plan.expected_dx = expected_dx;
+    plan.expected_dy = expected_dy;
+}
+
+void apply_benchmark_short_plan(
+    BenchmarkShortTermOutputPlan& plan,
+    controller_native::NativeControllerOutputComponents& components,
+    double expected_dx,
+    double expected_dy,
+    double reticle_speed) {
+    constexpr double kVectorDeadzone = 0.015;
+    constexpr double kManualYieldMagnitude = 0.18;
+    constexpr double kManualYieldAlignment = 0.25;
+    constexpr double kTargetJumpResetPx = 24.0;
+    constexpr double kFarErrorResetPx = 96.0;
+    constexpr double kBrakeNearErrorPx = 18.0;
+    constexpr double kBrakeFarErrorPx = 36.0;
+    constexpr double kNearHorizonSeconds = 0.022;
+    constexpr double kFarHorizonSeconds = 0.016;
+    constexpr double kCrossingFraction = 0.72;
+
+    const double raw_x = components.final_stick.x;
+    const double raw_y = -components.final_stick.y;
+    const double manual_x = components.manual_stick.x;
+    const double manual_y = -components.manual_stick.y;
+    const double raw_assist_x = raw_x - manual_x;
+    const double raw_assist_y = raw_y - manual_y;
+    const double manual_magnitude = vector_magnitude(manual_x, manual_y);
+    const double error_radius = std::hypot(expected_dx, expected_dy);
+    const double output_magnitude = vector_magnitude(raw_x, raw_y);
+
+    const bool manual_opposes_plan =
+        plan.has_output &&
+        manual_magnitude >= kManualYieldMagnitude &&
+        vector_alignment(
+            manual_x,
+            manual_y,
+            plan.output_x,
+            plan.output_y,
+            kVectorDeadzone) < -0.15;
+    const bool manual_fights_raw =
+        manual_magnitude >= kManualYieldMagnitude &&
+        vector_alignment(manual_x, manual_y, raw_x, raw_y, kVectorDeadzone) <
+            kManualYieldAlignment;
+    const bool manual_is_correcting = manual_opposes_plan || manual_fights_raw;
+    const bool target_jump =
+        plan.has_expected &&
+        std::hypot(expected_dx - plan.expected_dx, expected_dy - plan.expected_dy) >
+            kTargetJumpResetPx;
+    if (manual_is_correcting || target_jump || error_radius > kFarErrorResetPx ||
+        output_magnitude < kVectorDeadzone) {
+        reset_benchmark_short_plan(
+            plan,
+            raw_assist_x,
+            raw_assist_y,
+            expected_dx,
+            expected_dy);
+        return;
+    }
+
+    const auto signum_double = [](double value) {
+        if (value > 0.0) {
+            return 1.0;
+        }
+        if (value < 0.0) {
+            return -1.0;
+        }
+        return 0.0;
+    };
+    const auto planned_axis = [&](double error, double raw, double manual) {
+        const double abs_error = std::fabs(error);
+        if (abs_error > kBrakeFarErrorPx) {
+            return raw;
+        }
+        const double error_sign = signum_double(error);
+        const double raw_sign = signum_double(raw);
+        if (error_sign == 0.0 || raw_sign != error_sign ||
+            std::fabs(raw) < kVectorDeadzone) {
+            return raw;
+        }
+        const double horizon_seconds =
+            abs_error <= kBrakeNearErrorPx ? kNearHorizonSeconds : kFarHorizonSeconds;
+        const double allowed_abs =
+            (abs_error * kCrossingFraction) /
+            std::max(reticle_speed * horizon_seconds, 1.0);
+        if (std::fabs(raw) <= allowed_abs) {
+            return raw;
+        }
+        const double raw_assist = raw - manual;
+        const double desired = error_sign * allowed_abs;
+        double planned_assist = desired - manual;
+        if (signum_double(planned_assist) != signum_double(raw_assist)) {
+            planned_assist = 0.0;
+        } else if (std::fabs(planned_assist) > std::fabs(raw_assist)) {
+            planned_assist = raw_assist;
+        }
+        return manual + planned_assist;
+    };
+
+    const double shaped_x = planned_axis(expected_dx, raw_x, manual_x);
+    const double shaped_y = planned_axis(expected_dy, raw_y, manual_y);
+
+    ++plan.shaped_ticks;
+    plan.has_output = true;
+    plan.output_x = shaped_x - manual_x;
+    plan.output_y = shaped_y - manual_y;
+    plan.has_expected = true;
+    plan.expected_dx = expected_dx;
+    plan.expected_dy = expected_dy;
+    components.final_stick.x =
+        clamp_float(static_cast<float>(shaped_x), -1.0f, 1.0f);
+    components.final_stick.y =
+        clamp_float(static_cast<float>(-shaped_y), -1.0f, 1.0f);
+}
+
+double vector_alignment(
+    double ax,
+    double ay,
+    double bx,
+    double by,
     double min_magnitude) {
     const double a_mag = vector_magnitude(ax, ay);
     const double b_mag = vector_magnitude(bx, by);
@@ -1069,6 +1219,33 @@ void run_self_test() {
         50.0,
         0.001,
         "turn smoothness score should treat right-angle changes as mid quality");
+
+    BenchmarkShortTermOutputPlan plan;
+    controller_native::NativeControllerOutputComponents planned_components;
+    planned_components.final_stick.x = 0.60f;
+    planned_components.final_stick.y = 0.0f;
+    apply_benchmark_short_plan(plan, planned_components, 6.0, 0.0, 1200.0);
+    require_benchmark_check(
+        planned_components.final_stick.x > 0.0f &&
+            planned_components.final_stick.x < 0.30f,
+        "benchmark short plan should brake near-target AI output before crossing");
+
+    BenchmarkShortTermOutputPlan manual_yield_plan;
+    controller_native::NativeControllerOutputComponents manual_yield_components;
+    manual_yield_components.final_stick.x = 0.50f;
+    manual_yield_components.final_stick.y = 0.0f;
+    manual_yield_components.manual_stick.x = -0.30f;
+    apply_benchmark_short_plan(
+        manual_yield_plan,
+        manual_yield_components,
+        18.0,
+        0.0,
+        1200.0);
+    require_near(
+        manual_yield_components.final_stick.x,
+        0.50,
+        0.001,
+        "benchmark short plan should yield immediately to manual correction");
 
     const std::vector<std::string> mode_sequence = {
         "ads_snap",
@@ -2050,7 +2227,8 @@ ScenarioMetrics run_tracker_random_fov_100hz(
     controller_native::GamepadRuntimeConfig config,
     const CliOptions& options,
     const std::string& name = "tracker_random_fov_100hz",
-    bool enable_dynamics = false) {
+    bool enable_dynamics = false,
+    bool enable_short_plan = false) {
     ScenarioMetrics metrics;
     metrics.name = name;
     metrics.has_random_fov = true;
@@ -2245,6 +2423,7 @@ ScenarioMetrics run_tracker_random_fov_100hz(
         double previous_output_x = 0.0;
         double previous_output_y = 0.0;
         bool has_previous_output = false;
+        BenchmarkShortTermOutputPlan short_plan;
         std::vector<double> segment_residual_x_errors;
         std::vector<double> segment_residual_y_errors;
         std::vector<std::string> segment_modes;
@@ -2373,8 +2552,18 @@ ScenarioMetrics run_tracker_random_fov_100hz(
                 0.72f);
 
             controller.build_output(aiming_state(manual_x, manual_y));
-            const controller_native::NativeControllerOutputComponents& components =
+            const controller_native::NativeControllerOutputComponents& raw_components =
                 controller.last_output_components();
+            controller_native::NativeControllerOutputComponents components =
+                raw_components;
+            if (enable_short_plan) {
+                apply_benchmark_short_plan(
+                    short_plan,
+                    components,
+                    expected_dx,
+                    expected_dy,
+                    reticle_speed);
+            }
             add_frame_sample(metrics, components);
             const double output_move_x = components.final_stick.x;
             const double output_move_y = -components.final_stick.y;
@@ -3977,7 +4166,19 @@ int main(int argc, char** argv) {
                 scenarios.push_back(run_tracker_random_fov_100hz(
                     runtime_config.gamepad,
                     options,
+                    "tracker_random_fov_100hz_short_plan",
+                    false,
+                    true));
+                scenarios.push_back(run_tracker_random_fov_100hz(
+                    runtime_config.gamepad,
+                    options,
                     "tracker_random_fov_100hz_dynamic",
+                    true));
+                scenarios.push_back(run_tracker_random_fov_100hz(
+                    runtime_config.gamepad,
+                    options,
+                    "tracker_random_fov_100hz_dynamic_short_plan",
+                    true,
                     true));
             }
         }
