@@ -343,6 +343,14 @@ struct ScenarioMetrics {
     double roi_fallback_processed_area_ratio = 0.0;
 };
 
+enum class BodylockChaseMotionProfile {
+    Smooth,
+    Slide,
+    CrouchCycle,
+    Jump,
+    ArcJump,
+};
+
 double current_seconds() {
     return std::chrono::duration<double>(
         std::chrono::steady_clock::now().time_since_epoch()).count();
@@ -1084,7 +1092,7 @@ ScenarioMetrics run_ads_bodylock_moving_chase_100hz(
     const std::string& name,
     bool enable_dynamics,
     bool fire_active,
-    bool slide_motion,
+    BodylockChaseMotionProfile motion_profile,
     bool occlusion_gap);
 
 void run_self_test() {
@@ -1190,7 +1198,7 @@ void run_self_test() {
         "ads_bodylock_moving_chase_100hz_self_test",
         true,
         false,
-        false,
+        BodylockChaseMotionProfile::Smooth,
         false);
     require_benchmark_check(
         moving_chase.has_ads_manual_stress &&
@@ -1207,7 +1215,7 @@ void run_self_test() {
         "ads_bodylock_slide_occlusion_chase_100hz_self_test",
         true,
         true,
-        true,
+        BodylockChaseMotionProfile::Slide,
         true);
     require_benchmark_check(
         slide_occluded.ads_manual_stress_vision_dropped_ticks > 0,
@@ -1218,6 +1226,20 @@ void run_self_test() {
     require_benchmark_check(
         slide_occluded.ads_manual_stress_occlusion_peak_error_px > 0.0,
         "slide occlusion benchmark should measure peak occlusion error");
+
+    const ScenarioMetrics arc_jump = run_ads_bodylock_moving_chase_100hz(
+        moving_config,
+        20260704,
+        "ads_bodylock_arc_jump_chase_100hz_self_test",
+        true,
+        false,
+        BodylockChaseMotionProfile::ArcJump,
+        false);
+    require_benchmark_check(
+        arc_jump.has_ads_manual_stress &&
+            arc_jump.ads_manual_stress_body_lock_frames > 0 &&
+            arc_jump.ads_manual_stress_measured_ticks > 0,
+        "arc jump benchmark should exercise body-lock movement samples");
 
     const std::vector<double> crossed_then_deepened = {6.0, 2.5, -1.0, -4.0};
     require_benchmark_check(
@@ -3459,7 +3481,7 @@ ScenarioMetrics run_ads_bodylock_moving_chase_100hz(
     const std::string& name,
     bool enable_dynamics,
     bool fire_active,
-    bool slide_motion,
+    BodylockChaseMotionProfile motion_profile,
     bool occlusion_gap) {
     ScenarioMetrics metrics;
     metrics.name = name;
@@ -3479,6 +3501,7 @@ ScenarioMetrics run_ads_bodylock_moving_chase_100hz(
     constexpr int kOcclusionStartTick = 285;
     constexpr int kOcclusionEndTick = 405;
     constexpr double kRecoverThresholdPx = 22.0;
+    constexpr double kPi = 3.14159265358979323846;
 
     struct MovingCase {
         double start_dx = 0.0;
@@ -3588,6 +3611,15 @@ ScenarioMetrics run_ads_bodylock_moving_chase_100hz(
         for (int tick = 0; tick < kTicksPerCase; ++tick, ++global_tick) {
             simulated_now = 1.0 + (static_cast<double>(global_tick) * kDtSeconds);
             const double seconds = static_cast<double>(tick) * kDtSeconds;
+            const bool slide_motion =
+                motion_profile == BodylockChaseMotionProfile::Slide;
+            const bool crouch_cycle_motion =
+                motion_profile == BodylockChaseMotionProfile::CrouchCycle;
+            const bool jump_motion =
+                motion_profile == BodylockChaseMotionProfile::Jump ||
+                motion_profile == BodylockChaseMotionProfile::ArcJump;
+            const bool arc_jump_motion =
+                motion_profile == BodylockChaseMotionProfile::ArcJump;
             const double slide_ratio = slide_motion
                 ? smooth_step(
                     static_cast<double>(tick - kSlideStartTick) /
@@ -3599,23 +3631,39 @@ ScenarioMetrics run_ads_bodylock_moving_chase_100hz(
                     static_cast<double>(kTicksPerCase - kSlideEndTick))
                 : 0.0;
             const double slide_shape = slide_ratio * (1.0 - (0.35 * slide_release_ratio));
+            const double crouch_shape = crouch_cycle_motion
+                ? 0.5 * (1.0 - std::cos(seconds * kPi * 8.0))
+                : 0.0;
+            const double jump_window = jump_motion
+                ? std::max(
+                    0.0,
+                    std::min(
+                        1.0,
+                        static_cast<double>(tick - 155) / 320.0))
+                : 0.0;
+            const double jump_shape =
+                jump_motion ? std::sin(jump_window * kPi) : 0.0;
             const double slide_dir = moving.velocity_x >= 0.0 ? 1.0 : -1.0;
             const double target_x_position =
                 moving.start_dx +
                 (moving.velocity_x * seconds) +
                 (moving.wave_x * std::sin(seconds * 10.0)) +
-                (slide_motion ? slide_dir * 72.0 * slide_shape : 0.0);
+                (slide_motion ? slide_dir * 72.0 * slide_shape : 0.0) +
+                (arc_jump_motion ? slide_dir * 58.0 * jump_shape : 0.0);
             const double target_y_position =
                 moving.start_dy +
                 (moving.velocity_y * seconds) +
                 (moving.wave_y * std::sin(seconds * 7.0 + 0.6)) +
-                (slide_motion ? 92.0 * slide_shape : 0.0);
+                (slide_motion ? 92.0 * slide_shape : 0.0) +
+                (crouch_cycle_motion ? 45.0 * crouch_shape : 0.0) -
+                (jump_motion ? 95.0 * jump_shape : 0.0);
+            const double pose_compress = std::max(slide_shape, crouch_shape);
             const double body_height = slide_motion
                 ? lerp(180.0, 82.0, slide_shape)
-                : 180.0;
+                : (crouch_cycle_motion ? lerp(180.0, 112.0, pose_compress) : 180.0);
             const double body_width = slide_motion
                 ? lerp(84.0, 112.0, slide_shape)
-                : 84.0;
+                : (crouch_cycle_motion ? lerp(84.0, 98.0, pose_compress) : 84.0);
             const double expected_dx = target_x_position - reticle_x_position;
             const double expected_dy = target_y_position - reticle_y_position;
             fov_scale_sum += 1.0;
@@ -3650,7 +3698,11 @@ ScenarioMetrics run_ads_bodylock_moving_chase_100hz(
             const double desired_move_x =
                 (expected_dx * 0.0045) + (moving.velocity_x / 900.0);
             const double desired_move_y =
-                (expected_dy * 0.0040) + ((moving.velocity_y + (slide_motion ? 180.0 * slide_shape : 0.0)) / 950.0);
+                (expected_dy * 0.0040) +
+                ((moving.velocity_y +
+                     (slide_motion ? 180.0 * slide_shape : 0.0) -
+                     (jump_motion ? 130.0 * jump_shape : 0.0)) /
+                    950.0);
             float manual_x = static_cast<float>(clamp_double(desired_move_x, -0.42, 0.42));
             float manual_y = static_cast<float>(clamp_double(-desired_move_y, -0.42, 0.42));
             if (tick < 70) {
@@ -3765,12 +3817,20 @@ ScenarioMetrics run_ads_bodylock_moving_chase_100hz(
             sample.expected_dx = expected_dx;
             sample.expected_dy = expected_dy;
             sample.target_speed_px_per_sec = std::hypot(
-                moving.velocity_x + (slide_motion ? slide_dir * 360.0 * slide_shape : 0.0),
-                moving.velocity_y + (slide_motion ? 300.0 * slide_shape : 0.0));
+                moving.velocity_x +
+                    (slide_motion ? slide_dir * 360.0 * slide_shape : 0.0) +
+                    (arc_jump_motion ? slide_dir * 180.0 * jump_shape : 0.0),
+                moving.velocity_y +
+                    (slide_motion ? 300.0 * slide_shape : 0.0) -
+                    (jump_motion ? 260.0 * jump_shape : 0.0));
             sample.heading_deg = std::atan2(
-                moving.velocity_y + (slide_motion ? 300.0 * slide_shape : 0.0),
-                moving.velocity_x + (slide_motion ? slide_dir * 360.0 * slide_shape : 0.0)) *
-                180.0 / 3.14159265358979323846;
+                moving.velocity_y +
+                    (slide_motion ? 300.0 * slide_shape : 0.0) -
+                    (jump_motion ? 260.0 * jump_shape : 0.0),
+                moving.velocity_x +
+                    (slide_motion ? slide_dir * 360.0 * slide_shape : 0.0) +
+                    (arc_jump_motion ? slide_dir * 180.0 * jump_shape : 0.0)) *
+                180.0 / kPi;
             copy_frame_vision_to_sample(
                 sample,
                 controller.last_frame_vision_state(),
@@ -4670,7 +4730,7 @@ int main(int argc, char** argv) {
                 "ads_bodylock_moving_chase_100hz_dynamic",
                 true,
                 false,
-                false,
+                BodylockChaseMotionProfile::Smooth,
                 false));
             scenarios.push_back(run_ads_bodylock_moving_chase_100hz(
                 runtime_config.gamepad,
@@ -4678,7 +4738,7 @@ int main(int argc, char** argv) {
                 "ads_bodylock_slide_visible_chase_100hz_dynamic",
                 true,
                 false,
-                true,
+                BodylockChaseMotionProfile::Slide,
                 false));
             scenarios.push_back(run_ads_bodylock_moving_chase_100hz(
                 runtime_config.gamepad,
@@ -4686,8 +4746,32 @@ int main(int argc, char** argv) {
                 "ads_bodylock_slide_occlusion_chase_100hz_dynamic_fire",
                 true,
                 true,
-                true,
+                BodylockChaseMotionProfile::Slide,
                 true));
+            scenarios.push_back(run_ads_bodylock_moving_chase_100hz(
+                runtime_config.gamepad,
+                options.random_fov_seed,
+                "ads_bodylock_crouch_cycle_chase_100hz_dynamic",
+                true,
+                false,
+                BodylockChaseMotionProfile::CrouchCycle,
+                false));
+            scenarios.push_back(run_ads_bodylock_moving_chase_100hz(
+                runtime_config.gamepad,
+                options.random_fov_seed,
+                "ads_bodylock_jump_chase_100hz_dynamic",
+                true,
+                false,
+                BodylockChaseMotionProfile::Jump,
+                false));
+            scenarios.push_back(run_ads_bodylock_moving_chase_100hz(
+                runtime_config.gamepad,
+                options.random_fov_seed,
+                "ads_bodylock_arc_jump_chase_100hz_dynamic",
+                true,
+                false,
+                BodylockChaseMotionProfile::ArcJump,
+                false));
             if (options.random_fov_ticks > 0) {
                 scenarios.push_back(run_tracker_random_fov_100hz(
                     runtime_config.gamepad,

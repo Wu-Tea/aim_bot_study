@@ -196,6 +196,19 @@ bool is_crouched_pose(float box_w, float box_h, int frame_height) {
         && (box_h / static_cast<float>(frame_height)) <= kCrouchedHeightRatio;
 }
 
+bool has_enemy_cue_evidence(const Detection& detection) {
+    return detection.has_cue_point || detection.color_bonus > 0.0f;
+}
+
+bool is_color_checked_wide_low_without_enemy_cue(
+    const Detection& detection,
+    float box_w,
+    float box_h) {
+    return detection.color_classified
+        && is_wide_low_pose(box_w, box_h)
+        && !has_enemy_cue_evidence(detection);
+}
+
 VisionTargetSelector::Rect shift_rect(
     const VisionTargetSelector::Rect& rect,
     float dx,
@@ -797,6 +810,9 @@ std::optional<VisionTargetSelector::Candidate> VisionTargetSelector::build_candi
     if (detection.is_friendly) {
         return std::nullopt;
     }
+    if (is_color_checked_wide_low_without_enemy_cue(detection, box_w, box_h)) {
+        return std::nullopt;
+    }
 
     const auto point = target_point(box);
     Candidate observed;
@@ -845,6 +861,9 @@ std::optional<VisionTargetSelector::Candidate> VisionTargetSelector::build_weak_
     const float box_w = rect_width(box);
     const float box_h = rect_height(box);
     if (box_w <= 0.0f || box_h <= 0.0f) {
+        return std::nullopt;
+    }
+    if (is_color_checked_wide_low_without_enemy_cue(detection, box_w, box_h)) {
         return std::nullopt;
     }
 

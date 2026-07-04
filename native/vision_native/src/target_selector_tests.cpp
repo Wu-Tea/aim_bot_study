@@ -74,6 +74,21 @@ vision_native::DetectionBatch single_target_batch(float target_x, float target_y
     return batch;
 }
 
+vision_native::Detection wide_low_detection_for_target(
+    float target_x,
+    float target_y,
+    float conf) {
+    constexpr float width = 120.0f;
+    constexpr float height = 60.0f;
+    vision_native::Detection detection;
+    detection.x1 = target_x - (width * 0.5f);
+    detection.x2 = target_x + (width * 0.5f);
+    detection.y1 = target_y - (height * 0.50f);
+    detection.y2 = detection.y1 + height;
+    detection.conf = conf;
+    return detection;
+}
+
 int region_area(const vision_native::VisionTargetSelector::FrameRegion& region) {
     return std::max(0, region.right - region.left) *
         std::max(0, region.bottom - region.top);
@@ -356,6 +371,31 @@ void test_external_cue_continuation_does_not_request_full_color_frame() {
         "external cue continuation should not request a full color frame when there are no detections");
 }
 
+void test_wide_low_no_cue_candidate_does_not_keep_dead_active_target_locked() {
+    vision_native::VisionTargetSelector selector(640, 512);
+    const auto live = single_target_batch(320.0f, 256.0f, 0.45f);
+    const auto live_region = selector.required_color_region(live);
+    require_true(live_region.has_value(), "setup should request a live target color ROI");
+    ColorFrameFixture live_frame = color_frame_for_region(*live_region, true);
+
+    selector.select_with_frame(live, live_frame.view);
+    const vision_native::VisionResult locked = selector.select_with_frame(live, live_frame.view);
+    require_true(locked.has_target, "setup should acquire target with head cue evidence");
+    require_true(selector.wants_color_frame(), "setup should keep cue tracking active");
+
+    vision_native::DetectionBatch corpse;
+    corpse.frame_width = 640;
+    corpse.frame_height = 512;
+    corpse.detections.push_back(wide_low_detection_for_target(320.0f, 280.0f, 0.92f));
+    ColorFrameFixture dark_full_frame = color_frame_for_region({0, 0, 640, 512}, false);
+
+    const vision_native::VisionResult result = selector.select_with_frame(corpse, dark_full_frame.view);
+
+    require_true(
+        !result.has_target,
+        "wide-low candidate without head cue evidence should not keep a just-dead target locked");
+}
+
 }  // namespace
 
 int main() {
@@ -369,6 +409,7 @@ int main() {
         test_roi_miss_does_not_immediately_clear_active_target();
         test_required_color_region_clamps_edge_candidate_to_screen();
         test_external_cue_continuation_does_not_request_full_color_frame();
+        test_wide_low_no_cue_candidate_does_not_keep_dead_active_target_locked();
         return 0;
     } catch (const std::exception& exc) {
         std::cerr << "[TargetSelectorTests] FAIL " << exc.what() << "\n";
