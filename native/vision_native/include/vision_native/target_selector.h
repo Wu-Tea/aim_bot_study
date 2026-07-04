@@ -65,6 +65,9 @@ public:
         Rect body_box;
         Rect slow_zone;
         Rect fire_zone;
+        float live_score = 1.0f;
+        float corpse_risk = 0.0f;
+        float uncertainty = 0.0f;
         const char* source = "observed";
     };
 

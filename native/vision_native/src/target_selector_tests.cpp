@@ -371,6 +371,27 @@ void test_external_cue_continuation_does_not_request_full_color_frame() {
         "external cue continuation should not request a full color frame when there are no detections");
 }
 
+void test_wide_low_no_cue_candidate_degrades_to_weak_without_death_transition() {
+    vision_native::VisionTargetSelector selector(640, 512);
+    vision_native::DetectionBatch uncertain;
+    uncertain.frame_width = 640;
+    uncertain.frame_height = 512;
+    uncertain.detections.push_back(wide_low_detection_for_target(320.0f, 256.0f, 0.92f));
+    ColorFrameFixture dark_full_frame = color_frame_for_region({0, 0, 640, 512}, false);
+
+    selector.select_with_frame(uncertain, dark_full_frame.view);
+    const vision_native::VisionResult result =
+        selector.select_with_frame(uncertain, dark_full_frame.view);
+
+    require_true(result.has_target, "wide-low no-cue candidate should remain aimable as weak evidence");
+    require_text(
+        result.target_source,
+        "weak_observed",
+        "wide-low no-cue candidate should be downgraded instead of treated as strong observed");
+    require_true(result.aim_authority, "weak observed target should retain aim authority");
+    require_true(!result.fire_authority, "weak observed target must not grant fire authority");
+}
+
 void test_wide_low_no_cue_candidate_does_not_keep_dead_active_target_locked() {
     vision_native::VisionTargetSelector selector(640, 512);
     const auto live = single_target_batch(320.0f, 256.0f, 0.45f);
@@ -409,6 +430,7 @@ int main() {
         test_roi_miss_does_not_immediately_clear_active_target();
         test_required_color_region_clamps_edge_candidate_to_screen();
         test_external_cue_continuation_does_not_request_full_color_frame();
+        test_wide_low_no_cue_candidate_degrades_to_weak_without_death_transition();
         test_wide_low_no_cue_candidate_does_not_keep_dead_active_target_locked();
         return 0;
     } catch (const std::exception& exc) {

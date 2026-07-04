@@ -72,11 +72,25 @@ constexpr float kAutoFireEdgePadding = 2.0f;
 constexpr int kAutoFireReleaseGraceFrames = 4;
 constexpr float kIntentMinStrength = 0.05f;
 constexpr float kIntentScoreScale = 700.0f;
+constexpr float kWeakObservedScorePenalty = 1200.0f;
+constexpr float kTargetValidityScoreScale = 250.0f;
+constexpr float kCorpseRiskScoreScale = 650.0f;
+constexpr float kCorpseRejectRiskThreshold = 0.85f;
+constexpr float kCorpseRejectLiveScoreThreshold = 0.75f;
+constexpr float kWeakObservedRiskThreshold = 0.50f;
 
 struct IntentScore {
     bool applied = false;
     const char* decision = "none";
     float bonus = 0.0f;
+};
+
+struct TargetEvidence {
+    float live_score = 1.0f;
+    float corpse_risk = 0.0f;
+    float uncertainty = 0.0f;
+    bool reject = false;
+    bool weak_only = false;
 };
 
 bool source_equals(const char* lhs, const char* rhs) {
@@ -200,13 +214,67 @@ bool has_enemy_cue_evidence(const Detection& detection) {
     return detection.has_cue_point || detection.color_bonus > 0.0f;
 }
 
+bool is_color_checked_without_enemy_cue(const Detection& detection) {
+    return detection.color_classified && !has_enemy_cue_evidence(detection);
+}
+
 bool is_color_checked_wide_low_without_enemy_cue(
     const Detection& detection,
     float box_w,
     float box_h) {
-    return detection.color_classified
-        && is_wide_low_pose(box_w, box_h)
-        && !has_enemy_cue_evidence(detection);
+    return is_color_checked_without_enemy_cue(detection)
+        && is_wide_low_pose(box_w, box_h);
+}
+
+TargetEvidence evaluate_target_evidence(
+    const Detection& detection,
+    float box_w,
+    float box_h,
+    bool tracking_candidate,
+    bool active_match,
+    bool active_had_enemy_evidence) {
+    const bool wide_low_without_enemy_cue =
+        is_color_checked_wide_low_without_enemy_cue(detection, box_w, box_h);
+    const bool checked_missing_enemy_cue = is_color_checked_without_enemy_cue(detection);
+
+    TargetEvidence evidence;
+    evidence.live_score = clamp01(detection.conf);
+    evidence.uncertainty = detection.color_classified ? 0.15f : 0.35f;
+
+    if (has_enemy_cue_evidence(detection)) {
+        evidence.live_score += 0.30f;
+        evidence.uncertainty -= 0.10f;
+    }
+    if (tracking_candidate) {
+        evidence.live_score += 0.10f;
+        evidence.uncertainty -= 0.05f;
+    }
+    if (active_match) {
+        evidence.live_score += 0.05f;
+    }
+    if (checked_missing_enemy_cue) {
+        evidence.uncertainty += 0.20f;
+    }
+    if (wide_low_without_enemy_cue) {
+        evidence.live_score -= 0.25f;
+        evidence.corpse_risk += 0.60f;
+        evidence.uncertainty += 0.25f;
+    }
+    if (active_match && active_had_enemy_evidence && checked_missing_enemy_cue) {
+        evidence.live_score -= 0.20f;
+        evidence.corpse_risk += 0.30f;
+    }
+    if (active_match && wide_low_without_enemy_cue) {
+        evidence.corpse_risk += 0.08f;
+    }
+
+    evidence.live_score = clamp01(evidence.live_score);
+    evidence.corpse_risk = clamp01(evidence.corpse_risk);
+    evidence.uncertainty = clamp01(evidence.uncertainty);
+    evidence.reject = evidence.corpse_risk >= kCorpseRejectRiskThreshold
+        && evidence.live_score < kCorpseRejectLiveScoreThreshold;
+    evidence.weak_only = evidence.corpse_risk >= kWeakObservedRiskThreshold;
+    return evidence;
 }
 
 VisionTargetSelector::Rect shift_rect(
@@ -810,9 +878,6 @@ std::optional<VisionTargetSelector::Candidate> VisionTargetSelector::build_candi
     if (detection.is_friendly) {
         return std::nullopt;
     }
-    if (is_color_checked_wide_low_without_enemy_cue(detection, box_w, box_h)) {
-        return std::nullopt;
-    }
 
     const auto point = target_point(box);
     Candidate observed;
@@ -829,21 +894,38 @@ std::optional<VisionTargetSelector::Candidate> VisionTargetSelector::build_candi
     observed.fire_zone = fire_zone(box);
     observed.source = "observed";
 
-    const Candidate candidate = observed;
     const bool tracking_candidate = tracking_distance(
-        candidate.target_x,
-        candidate.target_y,
+        observed.target_x,
+        observed.target_y,
         last_target_center).has_value();
-    const float candidate_w = rect_width(candidate.body_box);
-    const float candidate_h = rect_height(candidate.body_box);
-    if (!passes_geometry_gate(candidate_w, candidate_h, tracking_candidate)) {
+    if (!passes_geometry_gate(box_w, box_h, tracking_candidate)) {
         return std::nullopt;
     }
     if (!passes_confidence_gate(detection.conf, tracking_candidate, detection.color_bonus > 0.0f)) {
         return std::nullopt;
     }
 
-    return candidate;
+    const bool active_match = active_target_matches_candidate(observed);
+    const bool active_had_enemy_evidence =
+        active_target_.has_value() && candidate_has_enemy_evidence(active_target_->candidate);
+    const TargetEvidence evidence = evaluate_target_evidence(
+        detection,
+        box_w,
+        box_h,
+        tracking_candidate,
+        active_match,
+        active_had_enemy_evidence);
+    if (evidence.reject) {
+        return std::nullopt;
+    }
+    observed.live_score = evidence.live_score;
+    observed.corpse_risk = evidence.corpse_risk;
+    observed.uncertainty = evidence.uncertainty;
+    if (evidence.weak_only) {
+        observed.source = "weak_observed";
+    }
+
+    return observed;
 }
 
 std::optional<VisionTargetSelector::Candidate> VisionTargetSelector::build_weak_association_candidate(
@@ -861,9 +943,6 @@ std::optional<VisionTargetSelector::Candidate> VisionTargetSelector::build_weak_
     const float box_w = rect_width(box);
     const float box_h = rect_height(box);
     if (box_w <= 0.0f || box_h <= 0.0f) {
-        return std::nullopt;
-    }
-    if (is_color_checked_wide_low_without_enemy_cue(detection, box_w, box_h)) {
         return std::nullopt;
     }
 
@@ -891,6 +970,21 @@ std::optional<VisionTargetSelector::Candidate> VisionTargetSelector::build_weak_
     if (!active_target_matches_candidate(weak)) {
         return std::nullopt;
     }
+    const bool active_had_enemy_evidence =
+        active_target_.has_value() && candidate_has_enemy_evidence(active_target_->candidate);
+    const TargetEvidence evidence = evaluate_target_evidence(
+        detection,
+        box_w,
+        box_h,
+        true,
+        true,
+        active_had_enemy_evidence);
+    if (evidence.reject) {
+        return std::nullopt;
+    }
+    weak.live_score = evidence.live_score;
+    weak.corpse_risk = evidence.corpse_risk;
+    weak.uncertainty = evidence.uncertainty;
     return weak;
 }
 
@@ -1004,6 +1098,12 @@ VisionTargetSelector::ScoredCandidate VisionTargetSelector::score_candidate(
     } else {
         const float area_diff = std::fabs(area - ideal_area_);
         score += (ideal_area_ - area_diff) * 0.005f;
+    }
+    score += candidate.live_score * kTargetValidityScoreScale;
+    score -= candidate.corpse_risk * kCorpseRiskScoreScale;
+    score -= candidate.uncertainty * kTargetValidityScoreScale;
+    if (source_equals(candidate.source, "weak_observed")) {
+        score -= kWeakObservedScorePenalty;
     }
 
     const std::optional<float> distance = tracking_distance(

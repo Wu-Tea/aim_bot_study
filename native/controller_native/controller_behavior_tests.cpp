@@ -358,6 +358,32 @@ void test_tracker_authority_classifies_target_tiers() {
         "unknown non-empty target tier should preserve legacy strong behavior");
 }
 
+void test_adapter_downgrades_color_checked_wide_low_detection_without_enemy_evidence() {
+    vision_native::VisionResult result;
+    result.frame_updated = true;
+    result.frame_id = 42;
+    result.result_at_ns = now_ns();
+
+    vision_native::Detection detection;
+    detection.x1 = 260.0f;
+    detection.y1 = 240.0f;
+    detection.x2 = 380.0f;
+    detection.y2 = 300.0f;
+    detection.conf = 0.92f;
+    detection.color_classified = true;
+    detection.has_cue_point = false;
+    detection.color_bonus = 0.0f;
+    result.detections.push_back(detection);
+
+    const controller_native::ControllerVisionSnapshot snapshot =
+        runtime_app::adapt_vision_result(result);
+
+    require_true(snapshot.tracker_detections.size() == 1u, "adapter should keep valid detection");
+    require_true(
+        snapshot.tracker_detections.front().target_tier == "associated_weak",
+        "adapter should downgrade color-checked wide-low no-cue detections for tracker");
+}
+
 void test_auto_fire_requires_fire_authority() {
     controller_native::GamepadRuntimeConfig config;
     config.auto_fire_output = "RB";
@@ -4642,6 +4668,7 @@ int main() {
         test_bodylock_motion_policy_stabilizes_low_speed_near_lock();
         test_bodylock_motion_policy_does_not_stabilize_fast_or_far_targets();
         test_tracker_authority_classifies_target_tiers();
+        test_adapter_downgrades_color_checked_wide_low_detection_without_enemy_evidence();
         test_auto_fire_requires_fire_authority();
         test_auto_fire_blocks_stale_source();
         test_controller_passes_extended_buttons_and_dpad_through();
