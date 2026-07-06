@@ -1,0 +1,12 @@
+{
+  "model": "models\\candidates\\body_union_manual_core_x2_neg_e6_480x416_ws10.engine",
+  "width": 480,
+  "height": 416,
+  "warmup": 50,
+  "iterations": 1000,
+  "preprocess_mode": "old_bgra_copy",
+  "preprocess_ms": {"p50": 0.031968, "p95": 0.129976, "p99": 0.381340},
+  "infer_ms": {"p50": 1.723392, "p95": 2.605589, "p99": 3.094569},
+  "gpu_total_ms": {"p50": 1.795264, "p95": 2.667616, "p99": 3.118498},
+  "detection_counts": {"0": 1000}
+}

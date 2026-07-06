@@ -109,6 +109,41 @@ class VisionBenchmarkToolTests(unittest.TestCase):
         self.assertAlmostEqual(metrics["recall"], 2 / 3)
         self.assertAlmostEqual(metrics["infer_ms"]["p50"], 2.0)
 
+    def test_parse_nvidia_smi_sample(self):
+        sample = bench.parse_nvidia_smi_sample("0, 71, 12, 2048, 8192, 88.5, 63", timestamp=123.0)
+
+        self.assertIsNotNone(sample)
+        assert sample is not None
+        self.assertEqual(sample.index, 0)
+        self.assertEqual(sample.utilization_gpu_percent, 71.0)
+        self.assertEqual(sample.memory_used_mb, 2048.0)
+        self.assertEqual(sample.power_draw_w, 88.5)
+
+    def test_gpu_resource_summary_and_efficiency(self):
+        samples = [
+            bench.GpuSample(timestamp=0.0, index=0, utilization_gpu_percent=20.0, memory_used_mb=1000.0, power_draw_w=50.0),
+            bench.GpuSample(timestamp=1.0, index=0, utilization_gpu_percent=60.0, memory_used_mb=2000.0, power_draw_w=70.0),
+        ]
+
+        resource = bench.summarize_gpu_samples(samples, duration_seconds=2.0)
+        efficiency = bench.build_efficiency_metrics(
+            {
+                "images": 100,
+                "tp": 80,
+                "fp": 10,
+                "f1": 0.8,
+                "gpu_total_ms": {"p50": 2.0, "p95": 4.0},
+            },
+            resource,
+        )
+
+        self.assertEqual(resource["sample_count"], 2)
+        self.assertAlmostEqual(resource["utilization_gpu_percent"]["avg"], 40.0)
+        self.assertAlmostEqual(resource["energy_joules"], 120.0)
+        self.assertAlmostEqual(efficiency["images_per_second"], 50.0)
+        self.assertAlmostEqual(efficiency["true_positive_per_kj"], 80 / 0.12)
+        self.assertAlmostEqual(efficiency["f1_per_gpu_total_ms_p50"], 0.4)
+
 
 if __name__ == "__main__":
     unittest.main()

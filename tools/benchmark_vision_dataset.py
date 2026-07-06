@@ -4,7 +4,10 @@ import argparse
 import json
 import math
 import re
+import shutil
+import subprocess
 import sys
+import threading
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -81,6 +84,18 @@ class MatchResult:
     matched_ious: list[float] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class GpuSample:
+    timestamp: float
+    index: int
+    utilization_gpu_percent: float | None = None
+    utilization_memory_percent: float | None = None
+    memory_used_mb: float | None = None
+    memory_total_mb: float | None = None
+    power_draw_w: float | None = None
+    temperature_c: float | None = None
+
+
 @dataclass
 class DatasetSummary:
     dataset: str
@@ -152,6 +167,11 @@ def _append_if_number(values: list[float], value: Any) -> None:
         values.append(float(value))
 
 
+def _append_optional_number(values: list[float], value: float | None) -> None:
+    if value is not None and math.isfinite(value):
+        values.append(value)
+
+
 def _safe_div(numerator: float, denominator: float) -> float:
     if denominator <= 0:
         return 0.0
@@ -193,6 +213,152 @@ def _timing_summary(values: Sequence[float]) -> dict[str, float]:
         "p99": percentile(values, 0.99),
         "max": max(values),
     }
+
+
+def _parse_optional_float(value: str) -> float | None:
+    cleaned = value.strip()
+    if not cleaned or cleaned.upper() in {"N/A", "[N/A]", "NOT SUPPORTED", "[NOT SUPPORTED]"}:
+        return None
+    cleaned = cleaned.replace("%", "").replace("MiB", "").replace("W", "").replace("C", "").strip()
+    try:
+        parsed = float(cleaned)
+    except ValueError:
+        return None
+    return parsed if math.isfinite(parsed) else None
+
+
+def parse_nvidia_smi_sample(line: str, timestamp: float) -> GpuSample | None:
+    parts = [part.strip() for part in line.split(",")]
+    if len(parts) < 7:
+        return None
+    index = _parse_optional_float(parts[0])
+    if index is None:
+        return None
+    return GpuSample(
+        timestamp=timestamp,
+        index=int(index),
+        utilization_gpu_percent=_parse_optional_float(parts[1]),
+        utilization_memory_percent=_parse_optional_float(parts[2]),
+        memory_used_mb=_parse_optional_float(parts[3]),
+        memory_total_mb=_parse_optional_float(parts[4]),
+        power_draw_w=_parse_optional_float(parts[5]),
+        temperature_c=_parse_optional_float(parts[6]),
+    )
+
+
+def summarize_gpu_samples(samples: Sequence[GpuSample], duration_seconds: float, error: str | None = None) -> dict[str, Any]:
+    gpu_util: list[float] = []
+    mem_util: list[float] = []
+    mem_used: list[float] = []
+    mem_total: list[float] = []
+    power_draw: list[float] = []
+    temperature: list[float] = []
+    indexes = sorted({sample.index for sample in samples})
+    for sample in samples:
+        _append_optional_number(gpu_util, sample.utilization_gpu_percent)
+        _append_optional_number(mem_util, sample.utilization_memory_percent)
+        _append_optional_number(mem_used, sample.memory_used_mb)
+        _append_optional_number(mem_total, sample.memory_total_mb)
+        _append_optional_number(power_draw, sample.power_draw_w)
+        _append_optional_number(temperature, sample.temperature_c)
+    avg_power = sum(power_draw) / len(power_draw) if power_draw else 0.0
+    energy_joules = avg_power * max(0.0, duration_seconds)
+    return {
+        "enabled": True,
+        "duration_seconds": max(0.0, duration_seconds),
+        "sample_count": len(samples),
+        "gpu_indexes": indexes,
+        "error": error,
+        "utilization_gpu_percent": _timing_summary(gpu_util),
+        "utilization_memory_percent": _timing_summary(mem_util),
+        "memory_used_mb": _timing_summary(mem_used),
+        "memory_total_mb": max(mem_total) if mem_total else 0.0,
+        "power_draw_w": _timing_summary(power_draw),
+        "energy_joules": energy_joules,
+        "energy_wh": energy_joules / 3600.0,
+        "temperature_c": _timing_summary(temperature),
+    }
+
+
+def build_efficiency_metrics(overall: dict[str, Any], gpu_resource: dict[str, Any] | None) -> dict[str, Any]:
+    duration = float(gpu_resource.get("duration_seconds", 0.0)) if gpu_resource else 0.0
+    energy_joules = float(gpu_resource.get("energy_joules", 0.0)) if gpu_resource else 0.0
+    energy_kj = energy_joules / 1000.0
+    gpu_p50 = float(overall.get("gpu_total_ms", {}).get("p50", 0.0))
+    gpu_p95 = float(overall.get("gpu_total_ms", {}).get("p95", 0.0))
+    images = float(overall.get("images", 0.0))
+    tp = float(overall.get("tp", 0.0))
+    fp = float(overall.get("fp", 0.0))
+    f1 = float(overall.get("f1", 0.0))
+    return {
+        "images_per_second": _safe_div(images, duration),
+        "true_positive_per_second": _safe_div(tp, duration),
+        "false_positive_per_second": _safe_div(fp, duration),
+        "images_per_kj": _safe_div(images, energy_kj),
+        "true_positive_per_kj": _safe_div(tp, energy_kj),
+        "f1_per_kj": _safe_div(f1, energy_kj),
+        "f1_per_gpu_total_ms_p50": _safe_div(f1, gpu_p50),
+        "f1_per_gpu_total_ms_p95": _safe_div(f1, gpu_p95),
+    }
+
+
+class GpuResourceMonitor:
+    def __init__(self, *, interval_seconds: float, gpu_index: int) -> None:
+        self.interval_seconds = max(0.05, interval_seconds)
+        self.gpu_index = gpu_index
+        self.samples: list[GpuSample] = []
+        self.error: str | None = None
+        self.start_time = 0.0
+        self.end_time = 0.0
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._nvidia_smi = shutil.which("nvidia-smi")
+
+    def start(self) -> None:
+        self.start_time = time.perf_counter()
+        if not self._nvidia_smi:
+            self.error = "nvidia-smi not found on PATH"
+            return
+        self._thread = threading.Thread(target=self._run, name="gpu-resource-monitor", daemon=True)
+        self._thread.start()
+
+    def stop(self) -> dict[str, Any]:
+        self.end_time = time.perf_counter()
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=max(1.0, self.interval_seconds * 2.0))
+        duration = (self.end_time or time.perf_counter()) - (self.start_time or time.perf_counter())
+        return summarize_gpu_samples(self.samples, duration, self.error)
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            self._sample_once()
+            self._stop.wait(self.interval_seconds)
+
+    def _sample_once(self) -> None:
+        if not self._nvidia_smi:
+            return
+        cmd = [
+            self._nvidia_smi,
+            f"--id={self.gpu_index}",
+            "--query-gpu=index,utilization.gpu,utilization.memory,memory.used,memory.total,power.draw,temperature.gpu",
+            "--format=csv,noheader,nounits",
+        ]
+        try:
+            completed = subprocess.run(cmd, capture_output=True, text=True, timeout=2.0, check=False)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            if self.error is None:
+                self.error = str(exc)
+            return
+        if completed.returncode != 0:
+            if self.error is None:
+                self.error = completed.stderr.strip() or f"nvidia-smi exited with {completed.returncode}"
+            return
+        timestamp = time.perf_counter()
+        for line in completed.stdout.splitlines():
+            sample = parse_nvidia_smi_sample(line, timestamp)
+            if sample is not None:
+                self.samples.append(sample)
 
 
 def load_data_yaml(path: Path) -> dict[str, Any]:
@@ -675,7 +841,14 @@ def print_summary(summaries: Sequence[DatasetSummary]) -> None:
         )
 
 
-def write_json(path: Path, summaries: Sequence[DatasetSummary], args: argparse.Namespace) -> None:
+def write_json(
+    path: Path,
+    summaries: Sequence[DatasetSummary],
+    args: argparse.Namespace,
+    *,
+    gpu_resource: dict[str, Any] | None = None,
+) -> None:
+    overall = aggregate_summaries(summaries).metrics()
     output = {
         "parameters": {
             "model": str(resolve_project_path(args.model)),
@@ -689,10 +862,16 @@ def write_json(path: Path, summaries: Sequence[DatasetSummary], args: argparse.N
             "crop_width": args.crop_width,
             "crop_height": args.crop_height,
             "warmup": args.warmup,
+            "gpu_monitor": args.gpu_monitor,
+            "gpu_monitor_interval_ms": args.gpu_monitor_interval_ms,
+            "gpu_index": args.gpu_index,
         },
         "datasets": [summary.metrics() for summary in summaries],
-        "overall": aggregate_summaries(summaries).metrics(),
+        "overall": overall,
     }
+    if gpu_resource is not None:
+        output["gpu_resource"] = gpu_resource
+        output["efficiency"] = build_efficiency_metrics(overall, gpu_resource)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(output, indent=2, ensure_ascii=False), encoding="utf-8")
 
@@ -735,6 +914,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-json", type=Path, default=None, help="Optional summary JSON output path.")
     parser.add_argument("--save-failures", type=Path, default=None, help="Optional directory for annotated FP/FN images.")
     parser.add_argument("--max-failures", type=int, default=100, help="Max annotated failure images to save.")
+    parser.add_argument("--gpu-monitor", action="store_true", help="Sample GPU utilization, memory, power, and energy via nvidia-smi.")
+    parser.add_argument("--gpu-index", type=int, default=0, help="GPU index to sample when --gpu-monitor is enabled.")
+    parser.add_argument(
+        "--gpu-monitor-interval-ms",
+        type=int,
+        default=500,
+        help="GPU resource sampling interval in milliseconds when --gpu-monitor is enabled.",
+    )
     return parser
 
 
@@ -772,8 +959,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     engine = vision_native_cpp.NativeEngine(str(model_path))
 
     failure_writer = FailureWriter(resolve_project_path(args.save_failures), args.max_failures) if args.save_failures else None
+    gpu_monitor = (
+        GpuResourceMonitor(interval_seconds=args.gpu_monitor_interval_ms / 1000.0, gpu_index=args.gpu_index)
+        if args.gpu_monitor
+        else None
+    )
+    gpu_resource: dict[str, Any] | None = None
     summaries: list[DatasetSummary] = []
     try:
+        if gpu_monitor is not None:
+            gpu_monitor.start()
         for dataset in datasets:
             summaries.append(
                 benchmark_split(
@@ -791,13 +986,28 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             )
     finally:
+        if gpu_monitor is not None:
+            gpu_resource = gpu_monitor.stop()
         if failure_writer is not None:
             failure_writer.close()
 
     print_summary(summaries)
+    if gpu_resource is not None:
+        gpu_util = gpu_resource["utilization_gpu_percent"]
+        power = gpu_resource["power_draw_w"]
+        print(
+            "gpu_resource "
+            f"samples={gpu_resource['sample_count']} "
+            f"duration={gpu_resource['duration_seconds']:.3f}s "
+            f"util avg/p95={gpu_util['avg']:.1f}/{gpu_util['p95']:.1f}% "
+            f"power avg/p95={power['avg']:.1f}/{power['p95']:.1f}W "
+            f"energy={gpu_resource['energy_joules']:.1f}J"
+        )
+        if gpu_resource.get("error"):
+            print(f"gpu_resource warning: {gpu_resource['error']}", file=sys.stderr)
     if args.output_json is not None:
         output_json = resolve_project_path(args.output_json)
-        write_json(output_json, summaries, args)
+        write_json(output_json, summaries, args, gpu_resource=gpu_resource)
         print(f"wrote {output_json}")
     if failure_writer is not None:
         print(f"wrote failures to {failure_writer.output_dir}")
