@@ -38,6 +38,12 @@ The main live issue is multi-target selection: the user may intend a close side-
 ## Current Design Direction
 
 - Pass live user right-stick intent into native vision selection.
+- Next benchmark target: add a deterministic `ManualInputModel` so AimLab can simulate human-like manual input instead of perfect intent:
+  - reaction delay / slow input ramp
+  - direction noise
+  - overshoot and short reverse correction
+  - low-strength or uncertain frames
+  - stable intent derived from a short smoothed manual-input window
 - Split broad vision detection from narrower ADS strong-snap eligibility.
 - Use cue/live/validity evidence as authority gating, not only score bonus, especially for corpse-lock avoidance.
 - Keep base vision crop broad for now; do not hard-crop vision from user input as the first fix.
@@ -53,6 +59,7 @@ The main live issue is multi-target selection: the user may intend a close side-
 - Corpse/dead-target locking still needs stronger cue/validity authority handling.
 - Tracker short memory is necessary for sliding, jumping, arc movement, and brief occlusion, but can become harmful if it overpowers live evidence or user correction.
 - Most AimLab default scenarios still use fallback perfect scoring; expand them one by one before treating aggregate score as representative.
+- Current near-side selector benchmark uses perfect lower-left intent; it should gain manual profiles (`manual_clean`, `manual_slow`, `manual_noisy_recover`) before using it as evidence for real user feel.
 
 ## Verification Rules
 

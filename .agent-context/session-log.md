@@ -38,6 +38,17 @@ Purpose: quick navigation for project continuity. Full older history is preserve
     - `scripts\verify\native_pipeline_contract.bat` PASS
     - `git diff --check` PASS
   - Remaining benchmark limitation: most default scenarios still use fallback perfect scoring. Expand `multi_target_flick`, `corpse_cue_loss`, and `err_target_recovery` into selector/controller-backed scenarios before trusting aggregate score.
+  - Next target recorded: replace/augment perfect user intent with deterministic manual-input profiles.
+    - Goal: benchmark should simulate real user input that can be delayed, slow, noisy, low-strength, overshoot, and briefly reverse during correction.
+    - Proposed benchmark model: `ManualInputModel` emits both physical-style `manual_stick` and smoothed `UserAimIntent`.
+    - Initial profiles:
+      - `manual_clean`: short reaction delay, low noise, mostly correct direction.
+      - `manual_slow`: longer reaction delay, slow strength ramp, late braking.
+      - `manual_noisy_recover`: higher noise, overshoot, short reverse correction frames.
+    - Scoring target:
+      - userInput correct -> selector should select intended target faster.
+      - userInput temporarily wrong/reversing -> selector should not be dragged into unstable target switches.
+      - output should report intent/helpfulness/fight so the result is not just perfect-intent upper bound.
 
 - 2026-07-06 - Intent-aware target selection and ADS authority direction.
   - User reported live multi-target mislock: intended target was a close side-running enemy at lower-left, but ADS snapped to a farther/smaller front-facing target on the right/up.
