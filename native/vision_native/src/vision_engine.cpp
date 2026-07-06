@@ -130,11 +130,16 @@ void VisionEngine::set_aiming(bool aiming) {
     if (!aiming) {
         selector_.reset();
         enhancer_.reset();
+        user_aim_intent_ = pipeline_contract::UserAimIntent{};
         external_cue_found_ = false;
         external_cue_x_ = 0.0f;
         external_cue_y_ = 0.0f;
         external_cue_score_ = 0.0f;
     }
+}
+
+void VisionEngine::set_user_aim_intent(const pipeline_contract::UserAimIntent& intent) {
+    user_aim_intent_ = intent;
 }
 
 void VisionEngine::set_external_cue(bool found, float cue_x, float cue_y, float cue_score) {
@@ -148,6 +153,7 @@ void VisionEngine::reset() {
     aiming_.store(false, std::memory_order_relaxed);
     selector_.reset();
     enhancer_.reset();
+    user_aim_intent_ = pipeline_contract::UserAimIntent{};
     external_cue_found_ = false;
     external_cue_x_ = 0.0f;
     external_cue_y_ = 0.0f;
@@ -266,6 +272,7 @@ VisionResult VisionEngine::poll_once() {
         result.boxes_seen = static_cast<float>(batch.detections.size());
 
         VisionResult targeting;
+        const pipeline_contract::UserAimIntent user_aim_intent = user_aim_intent_;
         const uint64_t selector_start = now_ns();
         if (has_color_frame) {
             targeting = selector_.select_with_frame(
@@ -280,9 +287,10 @@ VisionResult VisionEngine::poll_once() {
                     width_,
                     height_,
                     PixelFormat::BGRA8,
-                });
+                },
+                user_aim_intent);
         } else {
-            targeting = selector_.select(batch);
+            targeting = selector_.select(batch, user_aim_intent);
         }
         result.selector_ms = ns_to_ms(now_ns() - selector_start);
         result.has_target = targeting.has_target;
@@ -302,6 +310,10 @@ VisionResult VisionEngine::poll_once() {
         result.fire_authority = targeting.fire_authority;
         result.association_stage = targeting.association_stage;
         result.target_confidence = targeting.target_confidence;
+        result.intent_id = targeting.intent_id;
+        result.intent_applied = targeting.intent_applied;
+        result.intent_decision = targeting.intent_decision;
+        result.intent_score = targeting.intent_score;
         result.boxes_seen = targeting.boxes_seen;
         result.detections = std::move(targeting.detections);
 

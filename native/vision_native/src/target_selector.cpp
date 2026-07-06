@@ -72,6 +72,8 @@ constexpr float kAutoFireEdgePadding = 2.0f;
 constexpr int kAutoFireReleaseGraceFrames = 4;
 constexpr float kIntentMinStrength = 0.05f;
 constexpr float kIntentScoreScale = 700.0f;
+constexpr float kIntentPickupConfidenceThreshold = 0.50f;
+constexpr float kIntentPickupScoreThreshold = kIntentScoreScale * 0.85f;
 constexpr float kWeakObservedScorePenalty = 1200.0f;
 constexpr float kTargetValidityScoreScale = 250.0f;
 constexpr float kCorpseRiskScoreScale = 650.0f;
@@ -868,7 +870,8 @@ bool VisionTargetSelector::passes_confidence_gate(
 
 std::optional<VisionTargetSelector::Candidate> VisionTargetSelector::build_candidate(
     const Detection& detection,
-    const std::optional<std::pair<float, float>>& last_target_center) const {
+    const std::optional<std::pair<float, float>>& last_target_center,
+    const pipeline_contract::UserAimIntent* intent) const {
     const Rect box = to_rect(detection);
     const float box_w = rect_width(box);
     const float box_h = rect_height(box);
@@ -901,7 +904,20 @@ std::optional<VisionTargetSelector::Candidate> VisionTargetSelector::build_candi
     if (!passes_geometry_gate(box_w, box_h, tracking_candidate)) {
         return std::nullopt;
     }
-    if (!passes_confidence_gate(detection.conf, tracking_candidate, detection.color_bonus > 0.0f)) {
+    const IntentScore pickup_intent_score = score_intent(
+        observed,
+        screen_center_x_,
+        screen_center_y_,
+        frame_width_,
+        frame_height_,
+        intent);
+    const bool intent_supported_pickup =
+        !tracking_candidate
+        && source_equals(pickup_intent_score.decision, "applied_direction")
+        && pickup_intent_score.bonus >= kIntentPickupScoreThreshold
+        && detection.conf >= kIntentPickupConfidenceThreshold;
+    if (!passes_confidence_gate(detection.conf, tracking_candidate, detection.color_bonus > 0.0f)
+        && !intent_supported_pickup) {
         return std::nullopt;
     }
 
@@ -990,11 +1006,12 @@ std::optional<VisionTargetSelector::Candidate> VisionTargetSelector::build_weak_
 
 void VisionTargetSelector::build_candidates(
     const DetectionBatch& batch,
-    const std::optional<std::pair<float, float>>& last_target_center) {
+    const std::optional<std::pair<float, float>>& last_target_center,
+    const pipeline_contract::UserAimIntent* intent) {
     candidate_scratch_.clear();
     candidate_scratch_.reserve(batch.detections.size());
     for (const auto& detection : batch.detections) {
-        const auto candidate = build_candidate(detection, last_target_center);
+        const auto candidate = build_candidate(detection, last_target_center, intent);
         if (candidate.has_value()) {
             candidate_scratch_.push_back(*candidate);
         }
@@ -1766,7 +1783,7 @@ VisionResult VisionTargetSelector::select_impl(
     const pipeline_contract::UserAimIntent* intent) {
     const float boxes_seen = static_cast<float>(batch.detections.size());
     const auto last_target_center = last_target_center_;
-    build_candidates(batch, last_target_center);
+    build_candidates(batch, last_target_center, intent);
     const auto& candidates = candidate_scratch_;
     if (candidates.empty()) {
         clear_pending();

@@ -45,6 +45,38 @@ std::uint64_t steady_time_point_ns(const std::chrono::steady_clock::time_point& 
             .count());
 }
 
+common_native::TimeSeconds steady_time_seconds(const std::chrono::steady_clock::time_point& value) {
+    return common_native::TimeSeconds{
+        static_cast<double>(steady_time_point_ns(value)) / 1'000'000'000.0,
+    };
+}
+
+pipeline_contract::UserAimIntent build_user_aim_intent(
+    const controller_native::PhysicalGamepadState& physical,
+    bool aiming,
+    std::uint64_t intent_id,
+    std::chrono::steady_clock::time_point timestamp) {
+    pipeline_contract::UserAimIntent intent;
+    intent.intent_id = intent_id;
+    intent.timestamp = steady_time_seconds(timestamp);
+    intent.aiming = aiming;
+    if (!aiming) {
+        return intent;
+    }
+
+    const float strength = std::hypot(physical.right_x, physical.right_y);
+    intent.strength = std::min(1.0f, strength);
+    if (strength <= 0.05f) {
+        return intent;
+    }
+
+    intent.valid = true;
+    intent.has_direction = true;
+    intent.direction.x = physical.right_x / strength;
+    intent.direction.y = -physical.right_y / strength;
+    return intent;
+}
+
 double elapsed_ms_between_ns(std::uint64_t start_ns, std::uint64_t end_ns) {
     if (start_ns == 0 || end_ns <= start_ns) {
         return 0.0;
@@ -405,6 +437,11 @@ void RuntimeLoop::run_once() {
     const bool aiming = is_aiming(physical);
     latest_vision_aiming_ = aiming;
     vision_engine_->set_aiming(aiming);
+    vision_engine_->set_user_aim_intent(build_user_aim_intent(
+        physical,
+        aiming,
+        static_cast<std::uint64_t>(tick_count_) + 1u,
+        tick_started));
     if (should_poll_vision(tick_started)) {
         last_vision_poll_at_ = tick_started;
         vision_native::VisionResult result = vision_engine_->poll_once();
@@ -573,7 +610,7 @@ bool RuntimeLoop::should_stop_requested() const {
 }
 
 bool RuntimeLoop::is_aiming(const controller_native::PhysicalGamepadState& physical) const {
-    return physical.left_trigger > 0.05f || (
+    return physical.left_trigger > 0.05f || physical.left_thumb || (
         config_.gamepad.rb_counts_as_aiming && physical.rb);
 }
 

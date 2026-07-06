@@ -112,11 +112,13 @@ private:
 
     std::optional<Candidate> build_candidate(
         const Detection& detection,
-        const std::optional<std::pair<float, float>>& last_target_center) const;
+        const std::optional<std::pair<float, float>>& last_target_center,
+        const pipeline_contract::UserAimIntent* intent) const;
     std::optional<Candidate> build_weak_association_candidate(const Detection& detection) const;
     void build_candidates(
         const DetectionBatch& batch,
-        const std::optional<std::pair<float, float>>& last_target_center);
+        const std::optional<std::pair<float, float>>& last_target_center,
+        const pipeline_contract::UserAimIntent* intent);
     std::optional<TargetState> select_weak_association(const DetectionBatch& batch) const;
 
     float crosshair_distance(float x, float y) const;

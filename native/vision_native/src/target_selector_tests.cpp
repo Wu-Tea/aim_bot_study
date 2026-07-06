@@ -66,6 +66,18 @@ pipeline_contract::UserAimIntent rightward_intent(std::uint64_t intent_id) {
     return intent;
 }
 
+pipeline_contract::UserAimIntent lower_left_intent(std::uint64_t intent_id) {
+    pipeline_contract::UserAimIntent intent;
+    intent.valid = true;
+    intent.intent_id = intent_id;
+    intent.strength = 1.0f;
+    intent.has_direction = true;
+    intent.direction.x = -0.75f;
+    intent.direction.y = 0.65f;
+    intent.aiming = true;
+    return intent;
+}
+
 vision_native::DetectionBatch single_target_batch(float target_x, float target_y, float conf) {
     vision_native::DetectionBatch batch;
     batch.frame_width = 640;
@@ -154,6 +166,25 @@ void test_intent_direction_ranks_plausible_multi_target_candidates() {
         "applied_direction",
         "intent-ranked result should report direction application reason");
     require_true(result.fire_authority, "intent must not strip observed fire authority");
+}
+
+void test_user_intent_prefers_lower_left_close_target_over_far_upper_right() {
+    vision_native::VisionTargetSelector selector(640, 512);
+    vision_native::DetectionBatch batch;
+    batch.frame_width = 640;
+    batch.frame_height = 512;
+    batch.detections.push_back(detection_for_target(250.0f, 310.0f, 0.58f));
+    batch.detections.push_back(detection_for_target(390.0f, 210.0f, 0.86f));
+    const auto intent = lower_left_intent(23);
+
+    selector.select(batch, intent);
+    const vision_native::VisionResult result = selector.select(batch, intent);
+
+    require_true(result.has_target, "lower-left intent scenario should select a target");
+    require_true(result.target_x < 320.0f, "lower-left intent should not select upper-right target");
+    require_true(result.target_y > 256.0f, "lower-left intent should keep selection below center");
+    require_true(result.intent_applied, "lower-left intent should be applied");
+    require_true(result.intent_id == 23, "lower-left intent result should carry intent id");
 }
 
 void test_intent_favored_challenger_logs_ignored_active_lock() {
@@ -422,6 +453,7 @@ void test_wide_low_no_cue_candidate_does_not_keep_dead_active_target_locked() {
 int main() {
     try {
         test_intent_direction_ranks_plausible_multi_target_candidates();
+        test_user_intent_prefers_lower_left_close_target_over_far_upper_right();
         test_intent_favored_challenger_logs_ignored_active_lock();
         test_intent_switch_waits_for_confirmation_before_changing_active_target();
         test_intent_does_not_grant_fire_authority_to_weak_association();
