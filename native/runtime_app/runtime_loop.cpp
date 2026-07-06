@@ -610,9 +610,8 @@ bool RuntimeLoop::should_stop_requested() const {
     return (GetAsyncKeyState(quit_key) & 0x8000) != 0;
 }
 
-bool RuntimeLoop::is_aiming(const controller_native::PhysicalGamepadState& physical) const {
-    return physical.left_trigger > 0.05f || physical.left_thumb || (
-        config_.gamepad.rb_counts_as_aiming && physical.rb);
+bool RuntimeLoop::is_aiming(const controller_native::PhysicalGamepadState& physical) {
+    return aim_activation_tracker_.update(physical, config_.gamepad.rb_counts_as_aiming);
 }
 
 }  // namespace runtime_app

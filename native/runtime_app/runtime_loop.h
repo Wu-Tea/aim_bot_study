@@ -35,7 +35,7 @@ private:
         std::chrono::steady_clock::time_point now);
     void poll_due_recoil_recognizer(std::chrono::steady_clock::time_point now);
     bool should_stop_requested() const;
-    bool is_aiming(const controller_native::PhysicalGamepadState& physical) const;
+    bool is_aiming(const controller_native::PhysicalGamepadState& physical);
 
     controller_native::RuntimeConfig config_;
     PerfLogger perf_logger_;
@@ -46,6 +46,7 @@ private:
     std::unique_ptr<controller_native::SdlGamepadReader> sdl_input_reader_;
     controller_native::XInputReader input_reader_;
     controller_native::NativeGamepadController controller_;
+    controller_native::AimActivationTracker aim_activation_tracker_;
     controller_native::VirtualGamepad virtual_gamepad_;
     std::unique_ptr<controller_native::NativeRecoilWeaponRuntimeRecognizer> recoil_weapon_recognizer_;
     controller_native::RecoilWeaponSwitchCaptureScheduler recoil_switch_scheduler_;

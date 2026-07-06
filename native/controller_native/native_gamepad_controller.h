@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ads_state_tracker.h"
+#include "aim_activation.h"
 #include "aim_assist_dynamics.h"
 #include "ai_aim.h"
 #include "auto_fire_gate.h"
@@ -48,7 +49,7 @@ public:
     const std::string& last_ai_aim_mode() const;
 
 private:
-    bool is_aiming(const PhysicalGamepadState& physical) const;
+    bool is_aiming(const PhysicalGamepadState& physical);
     bool has_fresh_aim_target(
         const NativeControllerVisionState& vision_state,
         double now_seconds) const;
@@ -110,6 +111,7 @@ private:
     NativeAimAssistDynamics aim_assist_dynamics_;
     recoil_native::RecoilCompensationPolicy recoil_;
     AdsStateTracker ads_state_tracker_;
+    AimActivationTracker aim_activation_tracker_;
     AutoFireGate auto_fire_gate_;
     BodyLockShortPlanPolicy body_lock_short_plan_policy_;
     OutputValidationPolicy output_validation_policy_;

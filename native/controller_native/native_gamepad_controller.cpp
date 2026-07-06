@@ -119,6 +119,7 @@ void NativeGamepadController::reset() {
     body_lock_short_plan_policy_.reset();
     output_validation_policy_.reset();
     ads_state_tracker_.reset();
+    aim_activation_tracker_.reset();
     last_ads_stopped_at_seconds_ = 0.0;
 }
 
@@ -272,9 +273,8 @@ const std::string& NativeGamepadController::last_ai_aim_mode() const {
     return ai_aim_.last_mode();
 }
 
-bool NativeGamepadController::is_aiming(const PhysicalGamepadState& physical) const {
-    return physical.left_trigger > 0.05f || physical.left_thumb || (
-        config_.rb_counts_as_aiming && physical.rb);
+bool NativeGamepadController::is_aiming(const PhysicalGamepadState& physical) {
+    return aim_activation_tracker_.update(physical, config_.rb_counts_as_aiming);
 }
 
 bool NativeGamepadController::has_fresh_aim_target(

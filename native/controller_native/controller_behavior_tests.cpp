@@ -3935,7 +3935,7 @@ void test_controller_ads_snap_only_runs_inside_ads_window_without_body_lock() {
         "ADS snap should stop after the snap window when body-lock is unavailable");
 }
 
-void test_controller_left_thumb_counts_as_aiming() {
+void test_controller_left_thumb_does_not_count_as_aiming() {
     controller_native::GamepadRuntimeConfig config;
     config.ai_aim.max_pixels = 100.0f;
     config.ai_aim.max_ai_force = 1.0f;
@@ -3959,7 +3959,69 @@ void test_controller_left_thumb_counts_as_aiming() {
     physical.connected = true;
     physical.left_thumb = true;
     const controller_native::GamepadOutputState output = controller.build_output(physical);
-    require_true(output.right_x > 0.40f, "holding L3 should count as aiming for aim assist");
+    require_near(output.right_x, 0.0f, 0.001f, "holding L3 must not count as aiming for aim assist");
+}
+
+void test_controller_left_trigger_release_drop_ends_aiming_before_idle() {
+    controller_native::GamepadRuntimeConfig config;
+    config.ai_aim.max_pixels = 100.0f;
+    config.ai_aim.max_ai_force = 1.0f;
+    config.ai_aim.ads_snap_window_ms = 120;
+    config.aim_assist_dynamics.enabled = false;
+    config.recoil.enabled = false;
+    controller_native::NativeGamepadController controller(config);
+
+    vision_native::VisionResult target;
+    target.frame_updated = true;
+    target.has_target = true;
+    target.aim_authority = true;
+    target.fire_authority = true;
+    target.dx = 50.0f;
+    target.dy = 0.0f;
+    target.target_tier = "strong";
+    target.result_at_ns = now_ns();
+    submit_adapted_vision_result(controller, target);
+
+    controller_native::PhysicalGamepadState physical;
+    physical.connected = true;
+    physical.left_trigger = 0.60f;
+    controller_native::GamepadOutputState output = controller.build_output(physical);
+    require_true(output.right_x > 0.40f, "pressed LT should start aim assist immediately");
+
+    physical.left_trigger = 0.48f;
+    output = controller.build_output(physical);
+    require_near(
+        output.right_x,
+        0.0f,
+        0.001f,
+        "LT release drop should cancel aim assist before the trigger is fully idle");
+}
+
+void test_controller_light_left_trigger_press_counts_as_aiming() {
+    controller_native::GamepadRuntimeConfig config;
+    config.ai_aim.max_pixels = 100.0f;
+    config.ai_aim.max_ai_force = 1.0f;
+    config.ai_aim.ads_snap_window_ms = 120;
+    config.aim_assist_dynamics.enabled = false;
+    config.recoil.enabled = false;
+    controller_native::NativeGamepadController controller(config);
+
+    vision_native::VisionResult target;
+    target.frame_updated = true;
+    target.has_target = true;
+    target.aim_authority = true;
+    target.fire_authority = true;
+    target.dx = 50.0f;
+    target.dy = 0.0f;
+    target.target_tier = "strong";
+    target.result_at_ns = now_ns();
+    submit_adapted_vision_result(controller, target);
+
+    controller_native::PhysicalGamepadState physical;
+    physical.connected = true;
+    physical.left_trigger = 0.10f;
+    const controller_native::GamepadOutputState output = controller.build_output(physical);
+    require_true(output.right_x > 0.40f, "light LT press should count as aiming immediately");
 }
 
 void test_auto_fire_ready_uses_body_lock_error_when_body_box_is_active() {
@@ -4731,7 +4793,9 @@ int main() {
         test_auto_fire_requires_aim_ready_settle_frames();
         test_auto_fire_aim_ready_gate_can_be_disabled();
         test_auto_fire_ready_allows_manual_right_stick_when_fire_zone_is_hit();
-        test_controller_left_thumb_counts_as_aiming();
+        test_controller_left_thumb_does_not_count_as_aiming();
+        test_controller_left_trigger_release_drop_ends_aiming_before_idle();
+        test_controller_light_left_trigger_press_counts_as_aiming();
         test_no_update_vision_result_preserves_latest_target();
         test_controller_ads_resume_waits_for_fresh_vision();
         test_controller_accepts_controller_vision_snapshot_without_vision_result();
