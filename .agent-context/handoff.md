@@ -1,6 +1,6 @@
 # Agent Handoff
 
-Last updated: 2026-07-06T17:35:00+08:00
+Last updated: 2026-07-06T18:08:00+08:00
 Updated by: Codex
 Active scope: Native C++ COD/FPS gamepad runtime, target selection, ADS/bodylock authority, tracker/controller feel, recoil isolation, native vision performance.
 Staleness: stale after a runtime-entry change, detector/model baseline change, major native controller/selector behavior change, or live evidence that current native feel/perf regressed.
@@ -32,13 +32,15 @@ The main live issue is multi-target selection: the user may intend a close side-
 - Recent video/live review conclusion: obvious assist systems that treat every detection as strong authority look too visible and can overshoot or hold wrong targets. This project should keep ADS/bodylock authority separated and evidence-gated.
 - Native AimLab benchmark now has `cod_native_aimlab_benchmark` plus real selector-backed near-side-vs-far-front scenarios:
   - no intent: `final=0`, `wrong_ads=119`, `fight=119`
-  - lower-left intent: `final=100`, `wrong_ads=0`, `fight=0`
+  - perfect lower-left intent: `final=100`, `wrong_ads=0`, `fight=0`
+  - established manual clean/slow/noisy intent: `final=100`, `wrong_ads=0`, `fight=0`
+  - late slow manual intent: `final=0`, `wrong_ads=67`, `fight=59`
 - Live native runtime now builds `UserAimIntent` from physical right stick and passes it through `VisionEngine` into `VisionTargetSelector`; L3 also counts as aiming.
 
 ## Current Design Direction
 
 - Pass live user right-stick intent into native vision selection.
-- Next benchmark target: add a deterministic `ManualInputModel` so AimLab can simulate human-like manual input instead of perfect intent:
+- AimLab now includes a deterministic `ManualInputModel` so benchmarks can simulate human-like manual input instead of only perfect intent:
   - reaction delay / slow input ramp
   - direction noise
   - overshoot and short reverse correction
@@ -59,7 +61,7 @@ The main live issue is multi-target selection: the user may intend a close side-
 - Corpse/dead-target locking still needs stronger cue/validity authority handling.
 - Tracker short memory is necessary for sliding, jumping, arc movement, and brief occlusion, but can become harmful if it overpowers live evidence or user correction.
 - Most AimLab default scenarios still use fallback perfect scoring; expand them one by one before treating aggregate score as representative.
-- Current near-side selector benchmark uses perfect lower-left intent; it should gain manual profiles (`manual_clean`, `manual_slow`, `manual_noisy_recover`) before using it as evidence for real user feel.
+- Current near-side selector benchmark has both established manual profiles and a late slow profile. Treat the established profiles as proof that userInput can steer selector pickup; treat `near_side_vs_far_front_manual_slow_late` as evidence that late intent still leaves a sticky wrong-target risk.
 
 ## Verification Rules
 

@@ -98,6 +98,74 @@ void test_real_selector_intent_improves_near_side_vs_far_front() {
         "intent-aware selector scenario should score materially better than baseline");
 }
 
+void test_manual_intent_variants_improve_near_side_vs_far_front() {
+    const auto baseline = controller_native::aimlab::run_scenario(
+        "near_side_vs_far_front_no_intent",
+        12345);
+    const auto perfect = controller_native::aimlab::run_scenario(
+        "near_side_vs_far_front_intent",
+        12345);
+    const auto clean = controller_native::aimlab::run_scenario(
+        "near_side_vs_far_front_manual_clean",
+        12345);
+    const auto slow = controller_native::aimlab::run_scenario(
+        "near_side_vs_far_front_manual_slow",
+        12345);
+    const auto noisy = controller_native::aimlab::run_scenario(
+        "near_side_vs_far_front_manual_noisy_recover",
+        12345);
+
+    expect_true(clean.frames == baseline.frames, "clean manual scenario should run full selector frame count");
+    expect_true(slow.frames == baseline.frames, "slow manual scenario should run full selector frame count");
+    expect_true(noisy.frames == baseline.frames, "noisy manual scenario should run full selector frame count");
+
+    expect_true(
+        clean.wrong_target_ads_snap_count < baseline.wrong_target_ads_snap_count,
+        "clean manual input should reduce wrong ADS snaps versus no intent");
+    expect_true(
+        slow.wrong_target_ads_snap_count < baseline.wrong_target_ads_snap_count,
+        "slow manual input should reduce wrong ADS snaps versus no intent");
+    expect_true(
+        noisy.wrong_target_ads_snap_count < baseline.wrong_target_ads_snap_count,
+        "noisy manual input should reduce wrong ADS snaps versus no intent");
+
+    expect_true(
+        clean.final_score > baseline.final_score + 40.0,
+        "clean manual input should materially improve final score");
+    expect_true(
+        slow.final_score > baseline.final_score + 25.0,
+        "established slow manual input should still improve final score");
+    expect_true(
+        noisy.final_score > baseline.final_score + 25.0,
+        "noisy manual input should still improve final score despite correction noise");
+    expect_true(
+        clean.final_score <= perfect.final_score + 0.001,
+        "clean manual input should not exceed perfect intent baseline");
+    expect_true(
+        slow.final_score <= perfect.final_score + 0.001,
+        "slow manual input should not exceed perfect intent baseline");
+    expect_true(
+        noisy.final_score <= perfect.final_score + 0.001,
+        "noisy manual input should not exceed perfect intent baseline");
+}
+
+void test_late_manual_intent_exposes_sticky_selector_risk() {
+    const auto baseline = controller_native::aimlab::run_scenario(
+        "near_side_vs_far_front_no_intent",
+        12345);
+    const auto late = controller_native::aimlab::run_scenario(
+        "near_side_vs_far_front_manual_slow_late",
+        12345);
+
+    expect_true(late.frames == baseline.frames, "late manual scenario should run full selector frame count");
+    expect_true(
+        late.wrong_target_ads_snap_count > 0,
+        "late manual scenario should expose sticky wrong-target ADS snaps");
+    expect_true(
+        late.final_score < 50.0,
+        "late manual scenario should remain a visible risk rather than a passing idealized case");
+}
+
 void test_unknown_scenario_fails_closed() {
     const auto report = controller_native::aimlab::run_scenario(
         "not_a_real_scenario",
@@ -135,6 +203,26 @@ void test_manual_input_model_slow_profile_has_delay_and_ramp() {
     expect_true(
         controller_native::aimlab::vector_length(ramping.manual_stick) < 0.40,
         "slow profile should ramp in rather than jump to full input");
+}
+
+void test_manual_input_model_exports_confident_established_intent() {
+    controller_native::aimlab::ManualInputModel model(
+        controller_native::aimlab::ManualInputProfile::Clean,
+        12345);
+
+    controller_native::aimlab::ManualInputFrame frame;
+    frame.frame_index = 78;
+    frame.timestamp_seconds = 0.65;
+    frame.reticle_px = {320.0f, 256.0f};
+    frame.target_px = {250.0f, 310.0f};
+    const auto sample = model.update(frame);
+
+    expect_true(sample.intent.valid, "established manual input should export valid intent");
+    expect_true(sample.intent.has_direction, "established manual input should export direction");
+    expect_true(sample.intent.strength > 0.85f, "established intent should be strong enough for selector pickup");
+    expect_true(
+        controller_native::aimlab::vector_length(sample.manual_stick) < 0.90,
+        "intent confidence should not require physically pegged stick input");
 }
 
 void test_manual_input_model_noisy_profile_detects_reverse_correction() {
@@ -190,8 +278,11 @@ int main() {
     test_helpful_output_increases_cooperation_score();
     test_near_side_vs_far_front_penalizes_far_wrong_target();
     test_real_selector_intent_improves_near_side_vs_far_front();
+    test_manual_intent_variants_improve_near_side_vs_far_front();
+    test_late_manual_intent_exposes_sticky_selector_risk();
     test_unknown_scenario_fails_closed();
     test_manual_input_model_slow_profile_has_delay_and_ramp();
+    test_manual_input_model_exports_confident_established_intent();
     test_manual_input_model_noisy_profile_detects_reverse_correction();
     test_manual_input_model_is_deterministic_for_seed();
     std::cout << "cod_native_aimlab_benchmark_tests PASS\n";

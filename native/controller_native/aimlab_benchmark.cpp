@@ -23,6 +23,16 @@ double clamp_score(double value) {
 namespace {
 
 constexpr double kPi = 3.14159265358979323846;
+constexpr double kManualIntentFullStrengthStick = 0.55;
+
+enum class NearSideIntentMode {
+    None,
+    Perfect,
+    ManualClean,
+    ManualSlow,
+    ManualNoisyRecover,
+    ManualSlowLate,
+};
 
 struct ManualProfileParams {
     double reaction_delay_seconds = 0.08;
@@ -51,6 +61,10 @@ double clamp01(double value) {
 
 common_native::Vec2f add(common_native::Vec2f lhs, common_native::Vec2f rhs) {
     return {lhs.x + rhs.x, lhs.y + rhs.y};
+}
+
+common_native::Vec2f subtract(common_native::Vec2f lhs, common_native::Vec2f rhs) {
+    return {lhs.x - rhs.x, lhs.y - rhs.y};
 }
 
 common_native::Vec2f scale(common_native::Vec2f value, double amount) {
@@ -167,7 +181,8 @@ ManualInputSample ManualInputModel::update(const ManualInputFrame& frame) {
     }
 
     const double smoothed_length = vector_length(smoothed);
-    sample.intent.strength = static_cast<float>(std::min(1.0, smoothed_length));
+    sample.intent.strength =
+        static_cast<float>(std::min(1.0, smoothed_length / kManualIntentFullStrengthStick));
     if (frame.aiming && smoothed_length > 0.05) {
         sample.intent.valid = true;
         sample.intent.has_direction = true;
@@ -280,38 +295,113 @@ int selected_target_id(const vision_native::VisionResult& result) {
     return result.target_x < 320.0f && result.target_y > 256.0f ? 1 : 2;
 }
 
-ScoreReport run_selector_near_side_vs_far_front(bool use_intent) {
+bool is_manual_mode(NearSideIntentMode mode) {
+    return mode == NearSideIntentMode::ManualClean
+        || mode == NearSideIntentMode::ManualSlow
+        || mode == NearSideIntentMode::ManualNoisyRecover
+        || mode == NearSideIntentMode::ManualSlowLate;
+}
+
+ManualInputProfile manual_profile_for_mode(NearSideIntentMode mode) {
+    switch (mode) {
+    case NearSideIntentMode::ManualSlow:
+    case NearSideIntentMode::ManualSlowLate:
+        return ManualInputProfile::Slow;
+    case NearSideIntentMode::ManualNoisyRecover:
+        return ManualInputProfile::NoisyRecover;
+    case NearSideIntentMode::ManualClean:
+    case NearSideIntentMode::None:
+    case NearSideIntentMode::Perfect:
+        return ManualInputProfile::Clean;
+    }
+    return ManualInputProfile::Clean;
+}
+
+double manual_start_offset_seconds(NearSideIntentMode mode) {
+    if (mode == NearSideIntentMode::ManualSlowLate) {
+        return 0.0;
+    }
+    return 0.65;
+}
+
+vision_native::VisionResult select_with_mode(
+    vision_native::VisionTargetSelector& selector,
+    const vision_native::DetectionBatch& batch,
+    NearSideIntentMode mode,
+    const pipeline_contract::UserAimIntent& intent) {
+    if (mode == NearSideIntentMode::None) {
+        return selector.select(batch);
+    }
+    return selector.select(batch, intent);
+}
+
+common_native::Vec2f target_for_id(int target_id) {
+    if (target_id == 1) {
+        return {250.0f, 310.0f};
+    }
+    return {390.0f, 210.0f};
+}
+
+ScoreReport run_selector_near_side_vs_far_front(NearSideIntentMode mode, std::uint32_t seed) {
     vision_native::VisionTargetSelector selector(640, 512);
     ScoreAggregator scorer;
+    ManualInputModel manual_model(manual_profile_for_mode(mode), seed);
+    common_native::Vec2f reticle_px{320.0f, 256.0f};
+    constexpr common_native::Vec2f intended_target{250.0f, 310.0f};
+
     for (int frame_index = 0; frame_index < 120; ++frame_index) {
         const std::uint64_t frame_id = static_cast<std::uint64_t>(frame_index + 1);
         const vision_native::DetectionBatch batch = near_side_vs_far_front_batch(frame_id);
-        const vision_native::VisionResult result = use_intent
-            ? selector.select(batch, lower_left_intent(frame_id))
-            : selector.select(batch);
+
+        pipeline_contract::UserAimIntent intent;
+        ManualInputSample manual_sample;
+        common_native::Vec2f user_input{-0.6f, 0.4f};
+        if (mode == NearSideIntentMode::Perfect) {
+            intent = lower_left_intent(frame_id);
+        } else if (is_manual_mode(mode)) {
+            ManualInputFrame manual_frame;
+            manual_frame.frame_index = frame_id;
+            manual_frame.timestamp_seconds =
+                manual_start_offset_seconds(mode) + (static_cast<double>(frame_index) / 120.0);
+            manual_frame.reticle_px = reticle_px;
+            manual_frame.target_px = intended_target;
+            manual_frame.aiming = true;
+            manual_sample = manual_model.update(manual_frame);
+            intent = manual_sample.intent;
+            user_input = manual_sample.manual_stick;
+        }
+
+        const vision_native::VisionResult result = select_with_mode(selector, batch, mode, intent);
 
         FrameScoreInput frame;
         frame.intended_target_id = 1;
         frame.selected_target_id = selected_target_id(result);
         frame.has_selected_target = result.has_target;
-        frame.strong_snap_active = result.has_target && result.aim_authority;
-        frame.user_input = {-0.6f, 0.4f};
+        frame.strong_snap_active =
+            result.has_target
+            && result.aim_authority
+            && (!is_manual_mode(mode) || intent.valid);
+        frame.user_input = user_input;
         frame.dt_seconds = 1.0 / 120.0;
 
         if (frame.selected_target_id == 1) {
             frame.aim_error_before_px = {-70.0f, 54.0f};
             frame.aim_error_after_px = {-28.0f, 22.0f};
-            frame.controller_output = {-0.6f, 0.4f};
+            frame.controller_output = normalized_or_zero(subtract(intended_target, reticle_px));
         } else if (frame.selected_target_id == 2) {
             frame.aim_error_before_px = {-70.0f, 54.0f};
             frame.aim_error_after_px = {-91.0f, 71.0f};
-            frame.controller_output = {0.7f, -0.25f};
+            frame.controller_output = normalized_or_zero(subtract(target_for_id(2), reticle_px));
         } else {
             frame.aim_error_before_px = {-70.0f, 54.0f};
             frame.aim_error_after_px = {-70.0f, 54.0f};
         }
 
         scorer.add_frame(frame);
+
+        if (is_manual_mode(mode)) {
+            reticle_px = add(reticle_px, scale(manual_sample.manual_stick, 6.0));
+        }
     }
     return scorer.report();
 }
@@ -352,7 +442,12 @@ std::vector<std::string> default_scenarios() {
     return {
         "multi_target_flick",
         "near_side_vs_far_front_no_intent",
+        "near_side_vs_far_front_perfect_intent",
         "near_side_vs_far_front_intent",
+        "near_side_vs_far_front_manual_clean",
+        "near_side_vs_far_front_manual_slow",
+        "near_side_vs_far_front_manual_noisy_recover",
+        "near_side_vs_far_front_manual_slow_late",
         "ads_diagonal_pull",
         "moving_track",
         "slide_occlusion_delay",
@@ -361,15 +456,28 @@ std::vector<std::string> default_scenarios() {
     };
 }
 
-ScoreReport run_scenario(const std::string& name, std::uint32_t /*seed*/) {
+ScoreReport run_scenario(const std::string& name, std::uint32_t seed) {
     if (name == "near_side_vs_far_front") {
-        return run_selector_near_side_vs_far_front(false);
+        return run_selector_near_side_vs_far_front(NearSideIntentMode::None, seed);
     }
     if (name == "near_side_vs_far_front_no_intent") {
-        return run_selector_near_side_vs_far_front(false);
+        return run_selector_near_side_vs_far_front(NearSideIntentMode::None, seed);
     }
-    if (name == "near_side_vs_far_front_intent") {
-        return run_selector_near_side_vs_far_front(true);
+    if (name == "near_side_vs_far_front_intent"
+        || name == "near_side_vs_far_front_perfect_intent") {
+        return run_selector_near_side_vs_far_front(NearSideIntentMode::Perfect, seed);
+    }
+    if (name == "near_side_vs_far_front_manual_clean") {
+        return run_selector_near_side_vs_far_front(NearSideIntentMode::ManualClean, seed);
+    }
+    if (name == "near_side_vs_far_front_manual_slow") {
+        return run_selector_near_side_vs_far_front(NearSideIntentMode::ManualSlow, seed);
+    }
+    if (name == "near_side_vs_far_front_manual_noisy_recover") {
+        return run_selector_near_side_vs_far_front(NearSideIntentMode::ManualNoisyRecover, seed);
+    }
+    if (name == "near_side_vs_far_front_manual_slow_late") {
+        return run_selector_near_side_vs_far_front(NearSideIntentMode::ManualSlowLate, seed);
     }
     for (const auto& scenario : default_scenarios()) {
         if (name == scenario) {
