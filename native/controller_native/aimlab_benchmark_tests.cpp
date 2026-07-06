@@ -74,12 +74,37 @@ void test_near_side_vs_far_front_penalizes_far_wrong_target() {
     expect_true(report.selection_score < 80.0, "wrong far target should reduce selection score");
 }
 
+void test_real_selector_intent_improves_near_side_vs_far_front() {
+    const auto baseline = controller_native::aimlab::run_scenario(
+        "near_side_vs_far_front_no_intent",
+        12345);
+    const auto intent = controller_native::aimlab::run_scenario(
+        "near_side_vs_far_front_intent",
+        12345);
+
+    expect_true(baseline.frames > 30, "selector baseline scenario should run multiple frames");
+    expect_true(intent.frames == baseline.frames, "paired selector scenarios should use same frame count");
+    expect_true(
+        baseline.wrong_target_ads_snap_count > 0,
+        "selector baseline should expose wrong high-confidence target lock");
+    expect_true(
+        intent.wrong_target_ads_snap_count == 0,
+        "intent-aware selector should avoid wrong high-confidence target lock");
+    expect_true(
+        intent.time_on_intended_target_ratio > 0.90,
+        "intent-aware selector should stay on intended target");
+    expect_true(
+        intent.final_score > baseline.final_score + 50.0,
+        "intent-aware selector scenario should score materially better than baseline");
+}
+
 }  // namespace
 
 int main() {
     test_wrong_strong_lock_reduces_selection_score();
     test_helpful_output_increases_cooperation_score();
     test_near_side_vs_far_front_penalizes_far_wrong_target();
+    test_real_selector_intent_improves_near_side_vs_far_front();
     std::cout << "cod_native_aimlab_benchmark_tests PASS\n";
     return 0;
 }

@@ -552,6 +552,10 @@ target_compile_definitions(cod_native_aimlab_benchmark_tests
         WIN32_LEAN_AND_MEAN
 )
 
+target_link_libraries(cod_native_aimlab_benchmark_tests PRIVATE
+    vision_native_core
+)
+
 add_executable(cod_native_aimlab_benchmark
     ../controller_native/cod_native_aimlab_benchmark.cpp
     ../controller_native/aimlab_benchmark.cpp
@@ -566,6 +570,10 @@ target_compile_definitions(cod_native_aimlab_benchmark
     PRIVATE
         NOMINMAX
         WIN32_LEAN_AND_MEAN
+)
+
+target_link_libraries(cod_native_aimlab_benchmark PRIVATE
+    vision_native_core
 )
 
 # Fusion visual overlay canvas (separate process, D3D11 + D2D1 + DirectComposition)

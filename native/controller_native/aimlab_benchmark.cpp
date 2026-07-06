@@ -1,5 +1,8 @@
 #include "aimlab_benchmark.h"
 
+#include "pipeline_contract/target_snapshot.h"
+#include "vision_native/target_selector.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -78,20 +81,80 @@ ScoreReport ScoreAggregator::report() const {
 
 namespace {
 
-ScoreReport run_near_side_vs_far_front() {
-    controller_native::aimlab::ScoreAggregator scorer;
+vision_native::Detection detection_for_target(float target_x, float target_y, float conf) {
+    constexpr float width = 60.0f;
+    constexpr float height = 140.0f;
+    vision_native::Detection detection;
+    detection.x1 = target_x - (width * 0.5f);
+    detection.x2 = target_x + (width * 0.5f);
+    detection.y1 = target_y - (height * 0.40f);
+    detection.y2 = detection.y1 + height;
+    detection.conf = conf;
+    return detection;
+}
+
+vision_native::DetectionBatch near_side_vs_far_front_batch(std::uint64_t frame_id) {
+    vision_native::DetectionBatch batch;
+    batch.frame_id = frame_id;
+    batch.captured_at_ns = frame_id * 10'000'000ull;
+    batch.inferred_at_ns = batch.captured_at_ns + 1'000'000ull;
+    batch.frame_width = 640;
+    batch.frame_height = 512;
+    batch.detections.push_back(detection_for_target(250.0f, 310.0f, 0.58f));
+    batch.detections.push_back(detection_for_target(390.0f, 210.0f, 0.86f));
+    return batch;
+}
+
+pipeline_contract::UserAimIntent lower_left_intent(std::uint64_t intent_id) {
+    pipeline_contract::UserAimIntent intent;
+    intent.valid = true;
+    intent.intent_id = intent_id;
+    intent.strength = 1.0f;
+    intent.has_direction = true;
+    intent.direction.x = -0.75f;
+    intent.direction.y = 0.65f;
+    intent.aiming = true;
+    return intent;
+}
+
+int selected_target_id(const vision_native::VisionResult& result) {
+    if (!result.has_target) {
+        return -1;
+    }
+    return result.target_x < 320.0f && result.target_y > 256.0f ? 1 : 2;
+}
+
+ScoreReport run_selector_near_side_vs_far_front(bool use_intent) {
+    vision_native::VisionTargetSelector selector(640, 512);
+    ScoreAggregator scorer;
     for (int frame_index = 0; frame_index < 120; ++frame_index) {
-        (void)frame_index;
-        controller_native::aimlab::FrameScoreInput frame;
+        const std::uint64_t frame_id = static_cast<std::uint64_t>(frame_index + 1);
+        const vision_native::DetectionBatch batch = near_side_vs_far_front_batch(frame_id);
+        const vision_native::VisionResult result = use_intent
+            ? selector.select(batch, lower_left_intent(frame_id))
+            : selector.select(batch);
+
+        FrameScoreInput frame;
         frame.intended_target_id = 1;
-        frame.selected_target_id = 2;
-        frame.has_selected_target = true;
-        frame.strong_snap_active = true;
-        frame.aim_error_before_px = {-70.0f, 48.0f};
-        frame.aim_error_after_px = {-82.0f, 55.0f};
-        frame.controller_output = {0.7f, -0.2f};
+        frame.selected_target_id = selected_target_id(result);
+        frame.has_selected_target = result.has_target;
+        frame.strong_snap_active = result.has_target && result.aim_authority;
         frame.user_input = {-0.6f, 0.4f};
         frame.dt_seconds = 1.0 / 120.0;
+
+        if (frame.selected_target_id == 1) {
+            frame.aim_error_before_px = {-70.0f, 54.0f};
+            frame.aim_error_after_px = {-28.0f, 22.0f};
+            frame.controller_output = {-0.6f, 0.4f};
+        } else if (frame.selected_target_id == 2) {
+            frame.aim_error_before_px = {-70.0f, 54.0f};
+            frame.aim_error_after_px = {-91.0f, 71.0f};
+            frame.controller_output = {0.7f, -0.25f};
+        } else {
+            frame.aim_error_before_px = {-70.0f, 54.0f};
+            frame.aim_error_after_px = {-70.0f, 54.0f};
+        }
+
         scorer.add_frame(frame);
     }
     return scorer.report();
@@ -102,7 +165,8 @@ ScoreReport run_near_side_vs_far_front() {
 std::vector<std::string> default_scenarios() {
     return {
         "multi_target_flick",
-        "near_side_vs_far_front",
+        "near_side_vs_far_front_no_intent",
+        "near_side_vs_far_front_intent",
         "ads_diagonal_pull",
         "moving_track",
         "slide_occlusion_delay",
@@ -113,7 +177,13 @@ std::vector<std::string> default_scenarios() {
 
 ScoreReport run_scenario(const std::string& name, std::uint32_t /*seed*/) {
     if (name == "near_side_vs_far_front") {
-        return run_near_side_vs_far_front();
+        return run_selector_near_side_vs_far_front(false);
+    }
+    if (name == "near_side_vs_far_front_no_intent") {
+        return run_selector_near_side_vs_far_front(false);
+    }
+    if (name == "near_side_vs_far_front_intent") {
+        return run_selector_near_side_vs_far_front(true);
     }
     controller_native::aimlab::ScoreAggregator scorer;
     for (int frame_index = 0; frame_index < 60; ++frame_index) {
