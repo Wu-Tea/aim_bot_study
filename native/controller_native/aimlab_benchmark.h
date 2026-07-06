@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common_native/screen_geometry.h"
+#include "pipeline_contract/target_snapshot.h"
 
 #include <cstdint>
 #include <string>
@@ -62,6 +63,41 @@ struct SyntheticTarget {
     common_native::Vec2f velocity_px_per_sec;
     bool alive = true;
     bool friendly_or_unknown = false;
+};
+
+enum class ManualInputProfile {
+    Clean,
+    Slow,
+    NoisyRecover,
+};
+
+struct ManualInputFrame {
+    std::uint64_t frame_index = 0;
+    double timestamp_seconds = 0.0;
+    common_native::Vec2f reticle_px;
+    common_native::Vec2f target_px;
+    bool aiming = true;
+};
+
+struct ManualInputSample {
+    common_native::Vec2f manual_stick;
+    pipeline_contract::UserAimIntent intent;
+    bool reaction_ready = false;
+    bool reverse_correction = false;
+};
+
+class ManualInputModel {
+public:
+    ManualInputModel(ManualInputProfile profile, std::uint32_t seed);
+
+    ManualInputSample update(const ManualInputFrame& frame);
+
+private:
+    ManualInputProfile profile_;
+    std::uint32_t seed_ = 0;
+    std::vector<common_native::Vec2f> recent_manual_;
+    common_native::Vec2f previous_error_px_;
+    bool has_previous_error_ = false;
 };
 
 ScoreReport run_scenario(const std::string& name, std::uint32_t seed);

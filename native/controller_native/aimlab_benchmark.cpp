@@ -20,6 +20,162 @@ double clamp_score(double value) {
     return std::max(0.0, std::min(100.0, value));
 }
 
+namespace {
+
+constexpr double kPi = 3.14159265358979323846;
+
+struct ManualProfileParams {
+    double reaction_delay_seconds = 0.08;
+    double ramp_seconds = 0.16;
+    double max_strength = 0.85;
+    double noise_degrees = 4.0;
+    std::size_t smoothing_frames = 4;
+    double reverse_min_strength = 0.0;
+};
+
+ManualProfileParams manual_profile_params(ManualInputProfile profile) {
+    switch (profile) {
+    case ManualInputProfile::Clean:
+        return ManualProfileParams{0.08, 0.14, 0.82, 3.0, 4, 0.0};
+    case ManualInputProfile::Slow:
+        return ManualProfileParams{0.16, 0.35, 0.72, 5.0, 5, 0.0};
+    case ManualInputProfile::NoisyRecover:
+        return ManualProfileParams{0.08, 0.18, 0.85, 12.0, 4, 0.35};
+    }
+    return {};
+}
+
+double clamp01(double value) {
+    return std::max(0.0, std::min(1.0, value));
+}
+
+common_native::Vec2f add(common_native::Vec2f lhs, common_native::Vec2f rhs) {
+    return {lhs.x + rhs.x, lhs.y + rhs.y};
+}
+
+common_native::Vec2f scale(common_native::Vec2f value, double amount) {
+    return {
+        static_cast<float>(static_cast<double>(value.x) * amount),
+        static_cast<float>(static_cast<double>(value.y) * amount),
+    };
+}
+
+common_native::Vec2f normalized_or_zero(common_native::Vec2f value) {
+    const double length = vector_length(value);
+    if (length <= 0.001) {
+        return {};
+    }
+    return scale(value, 1.0 / length);
+}
+
+common_native::Vec2f rotate(common_native::Vec2f value, double radians) {
+    const double c = std::cos(radians);
+    const double s = std::sin(radians);
+    return {
+        static_cast<float>(static_cast<double>(value.x) * c - static_cast<double>(value.y) * s),
+        static_cast<float>(static_cast<double>(value.x) * s + static_cast<double>(value.y) * c),
+    };
+}
+
+double deterministic_unit_noise(
+    ManualInputProfile profile,
+    std::uint32_t seed,
+    std::uint64_t frame_index) {
+    const double profile_offset =
+        profile == ManualInputProfile::Clean ? 11.0 :
+        profile == ManualInputProfile::Slow ? 29.0 :
+        47.0;
+    return std::sin(
+        (static_cast<double>(frame_index) * 12.9898)
+        + (static_cast<double>(seed) * 78.233)
+        + profile_offset);
+}
+
+bool crossed_axis(float previous, float current) {
+    return (previous * current) < 0.0f
+        && std::fabs(previous) > 2.0f
+        && std::fabs(current) > 2.0f;
+}
+
+}  // namespace
+
+ManualInputModel::ManualInputModel(ManualInputProfile profile, std::uint32_t seed)
+    : profile_(profile), seed_(seed) {}
+
+ManualInputSample ManualInputModel::update(const ManualInputFrame& frame) {
+    ManualInputSample sample;
+    sample.intent.intent_id = frame.frame_index;
+    sample.intent.timestamp.value = frame.timestamp_seconds;
+    sample.intent.aiming = frame.aiming;
+
+    const common_native::Vec2f error = {
+        frame.target_px.x - frame.reticle_px.x,
+        frame.target_px.y - frame.reticle_px.y,
+    };
+    const bool reverse_correction =
+        has_previous_error_
+        && (crossed_axis(previous_error_px_.x, error.x)
+            || crossed_axis(previous_error_px_.y, error.y));
+    sample.reverse_correction = reverse_correction
+        && profile_ == ManualInputProfile::NoisyRecover;
+
+    previous_error_px_ = error;
+    has_previous_error_ = true;
+
+    const ManualProfileParams params = manual_profile_params(profile_);
+    sample.reaction_ready = frame.aiming && frame.timestamp_seconds >= params.reaction_delay_seconds;
+    if (!sample.reaction_ready) {
+        return sample;
+    }
+
+    const double error_length = vector_length(error);
+    if (error_length <= 0.001) {
+        return sample;
+    }
+
+    common_native::Vec2f direction = normalized_or_zero(error);
+    const double noise_radians =
+        deterministic_unit_noise(profile_, seed_, frame.frame_index)
+        * params.noise_degrees
+        * (kPi / 180.0);
+    direction = normalized_or_zero(rotate(direction, noise_radians));
+
+    const double ramp = clamp01(
+        (frame.timestamp_seconds - params.reaction_delay_seconds)
+        / std::max(0.001, params.ramp_seconds));
+    const double distance_strength = clamp01(error_length / 140.0);
+    double strength = params.max_strength * ramp * (0.35 + (0.65 * distance_strength));
+    if (sample.reverse_correction) {
+        strength = std::max(strength, params.reverse_min_strength);
+    }
+    strength = clamp01(strength);
+    sample.manual_stick = scale(direction, strength);
+
+    if (vector_length(sample.manual_stick) > 0.001) {
+        recent_manual_.push_back(sample.manual_stick);
+        while (recent_manual_.size() > params.smoothing_frames) {
+            recent_manual_.erase(recent_manual_.begin());
+        }
+    }
+
+    common_native::Vec2f smoothed;
+    for (const auto& value : recent_manual_) {
+        smoothed = add(smoothed, value);
+    }
+    if (!recent_manual_.empty()) {
+        smoothed = scale(smoothed, 1.0 / static_cast<double>(recent_manual_.size()));
+    }
+
+    const double smoothed_length = vector_length(smoothed);
+    sample.intent.strength = static_cast<float>(std::min(1.0, smoothed_length));
+    if (frame.aiming && smoothed_length > 0.05) {
+        sample.intent.valid = true;
+        sample.intent.has_direction = true;
+        sample.intent.direction = normalized_or_zero(smoothed);
+    }
+    return sample;
+}
+
 void ScoreAggregator::add_frame(const FrameScoreInput& frame) {
     ++report_.frames;
     const bool selected_intended =

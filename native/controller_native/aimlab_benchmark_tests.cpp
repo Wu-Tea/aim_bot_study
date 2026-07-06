@@ -107,6 +107,82 @@ void test_unknown_scenario_fails_closed() {
     expect_near(report.final_score, 0.0, 0.001, "unknown scenario should fail closed");
 }
 
+void test_manual_input_model_slow_profile_has_delay_and_ramp() {
+    controller_native::aimlab::ManualInputModel model(
+        controller_native::aimlab::ManualInputProfile::Slow,
+        12345);
+
+    controller_native::aimlab::ManualInputFrame frame;
+    frame.frame_index = 1;
+    frame.timestamp_seconds = 0.05;
+    frame.reticle_px = {320.0f, 256.0f};
+    frame.target_px = {250.0f, 310.0f};
+    const auto early = model.update(frame);
+
+    expect_true(!early.reaction_ready, "slow profile should wait before reacting");
+    expect_true(!early.intent.valid, "slow profile should not expose intent before reaction delay");
+    expect_near(controller_native::aimlab::vector_length(early.manual_stick), 0.0, 0.001, "early stick should be idle");
+
+    frame.frame_index = 24;
+    frame.timestamp_seconds = 0.20;
+    const auto ramping = model.update(frame);
+
+    expect_true(ramping.reaction_ready, "slow profile should eventually react");
+    expect_true(ramping.intent.valid, "slow profile should expose intent after reaction delay");
+    expect_true(
+        controller_native::aimlab::vector_length(ramping.manual_stick) > 0.05,
+        "slow profile should start moving after delay");
+    expect_true(
+        controller_native::aimlab::vector_length(ramping.manual_stick) < 0.40,
+        "slow profile should ramp in rather than jump to full input");
+}
+
+void test_manual_input_model_noisy_profile_detects_reverse_correction() {
+    controller_native::aimlab::ManualInputModel model(
+        controller_native::aimlab::ManualInputProfile::NoisyRecover,
+        7);
+
+    controller_native::aimlab::ManualInputFrame frame;
+    frame.frame_index = 12;
+    frame.timestamp_seconds = 0.12;
+    frame.reticle_px = {280.0f, 310.0f};
+    frame.target_px = {250.0f, 310.0f};
+    const auto first = model.update(frame);
+    expect_true(first.manual_stick.x < -0.05f, "first correction should pull left toward target");
+
+    frame.frame_index = 24;
+    frame.timestamp_seconds = 0.24;
+    frame.reticle_px = {245.0f, 310.0f};
+    const auto recovered = model.update(frame);
+
+    expect_true(recovered.reverse_correction, "noisy profile should flag overshoot reverse correction");
+    expect_true(recovered.manual_stick.x > 0.05f, "reverse correction should pull back right");
+}
+
+void test_manual_input_model_is_deterministic_for_seed() {
+    controller_native::aimlab::ManualInputModel lhs(
+        controller_native::aimlab::ManualInputProfile::Clean,
+        99);
+    controller_native::aimlab::ManualInputModel rhs(
+        controller_native::aimlab::ManualInputProfile::Clean,
+        99);
+
+    for (int index = 0; index < 8; ++index) {
+        controller_native::aimlab::ManualInputFrame frame;
+        frame.frame_index = static_cast<std::uint64_t>(index + 1);
+        frame.timestamp_seconds = 0.02 * static_cast<double>(index + 1);
+        frame.reticle_px = {320.0f + static_cast<float>(index), 256.0f};
+        frame.target_px = {250.0f, 310.0f};
+
+        const auto left = lhs.update(frame);
+        const auto right = rhs.update(frame);
+        expect_near(left.manual_stick.x, right.manual_stick.x, 0.0001, "manual x should be deterministic");
+        expect_near(left.manual_stick.y, right.manual_stick.y, 0.0001, "manual y should be deterministic");
+        expect_true(left.intent.valid == right.intent.valid, "intent validity should be deterministic");
+        expect_near(left.intent.strength, right.intent.strength, 0.0001, "intent strength should be deterministic");
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -115,6 +191,9 @@ int main() {
     test_near_side_vs_far_front_penalizes_far_wrong_target();
     test_real_selector_intent_improves_near_side_vs_far_front();
     test_unknown_scenario_fails_closed();
+    test_manual_input_model_slow_profile_has_delay_and_ramp();
+    test_manual_input_model_noisy_profile_detects_reverse_correction();
+    test_manual_input_model_is_deterministic_for_seed();
     std::cout << "cod_native_aimlab_benchmark_tests PASS\n";
     return 0;
 }
