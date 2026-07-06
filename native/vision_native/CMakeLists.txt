@@ -552,6 +552,22 @@ target_compile_definitions(cod_native_aimlab_benchmark_tests
         WIN32_LEAN_AND_MEAN
 )
 
+add_executable(cod_native_aimlab_benchmark
+    ../controller_native/cod_native_aimlab_benchmark.cpp
+    ../controller_native/aimlab_benchmark.cpp
+)
+
+target_include_directories(cod_native_aimlab_benchmark PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
+target_compile_definitions(cod_native_aimlab_benchmark
+    PRIVATE
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
+)
+
 # Fusion visual overlay canvas (separate process, D3D11 + D2D1 + DirectComposition)
 add_executable(fusion_canvas
     ../overlay_canvas/fusion_canvas.cpp
