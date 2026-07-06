@@ -66,11 +66,20 @@ void test_helpful_output_increases_cooperation_score() {
     expect_true(report.cooperation_score > 90.0, "helpful output should score high");
 }
 
+void test_near_side_vs_far_front_penalizes_far_wrong_target() {
+    const auto report = controller_native::aimlab::run_scenario("near_side_vs_far_front", 12345);
+
+    expect_true(report.frames > 30, "scenario should run multiple frames");
+    expect_true(report.wrong_target_ads_snap_count > 0, "baseline scenario should expose wrong strong snap");
+    expect_true(report.selection_score < 80.0, "wrong far target should reduce selection score");
+}
+
 }  // namespace
 
 int main() {
     test_wrong_strong_lock_reduces_selection_score();
     test_helpful_output_increases_cooperation_score();
+    test_near_side_vs_far_front_penalizes_far_wrong_target();
     std::cout << "cod_native_aimlab_benchmark_tests PASS\n";
     return 0;
 }

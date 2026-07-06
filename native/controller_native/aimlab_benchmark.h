@@ -2,6 +2,10 @@
 
 #include "common_native/screen_geometry.h"
 
+#include <cstdint>
+#include <string>
+#include <vector>
+
 namespace controller_native::aimlab {
 
 struct FrameScoreInput {
@@ -51,5 +55,16 @@ private:
 double vector_length(common_native::Vec2f value);
 double dot(common_native::Vec2f lhs, common_native::Vec2f rhs);
 double clamp_score(double value);
+
+struct SyntheticTarget {
+    int id = -1;
+    common_native::Vec2f position_px;
+    common_native::Vec2f velocity_px_per_sec;
+    bool alive = true;
+    bool friendly_or_unknown = false;
+};
+
+ScoreReport run_scenario(const std::string& name, std::uint32_t seed);
+std::vector<std::string> default_scenarios();
 
 }  // namespace controller_native::aimlab

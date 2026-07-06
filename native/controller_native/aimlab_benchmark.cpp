@@ -76,4 +76,61 @@ ScoreReport ScoreAggregator::report() const {
     return out;
 }
 
+namespace {
+
+ScoreReport run_near_side_vs_far_front() {
+    controller_native::aimlab::ScoreAggregator scorer;
+    for (int frame_index = 0; frame_index < 120; ++frame_index) {
+        (void)frame_index;
+        controller_native::aimlab::FrameScoreInput frame;
+        frame.intended_target_id = 1;
+        frame.selected_target_id = 2;
+        frame.has_selected_target = true;
+        frame.strong_snap_active = true;
+        frame.aim_error_before_px = {-70.0f, 48.0f};
+        frame.aim_error_after_px = {-82.0f, 55.0f};
+        frame.controller_output = {0.7f, -0.2f};
+        frame.user_input = {-0.6f, 0.4f};
+        frame.dt_seconds = 1.0 / 120.0;
+        scorer.add_frame(frame);
+    }
+    return scorer.report();
+}
+
+}  // namespace
+
+std::vector<std::string> default_scenarios() {
+    return {
+        "multi_target_flick",
+        "near_side_vs_far_front",
+        "ads_diagonal_pull",
+        "moving_track",
+        "slide_occlusion_delay",
+        "corpse_cue_loss",
+        "err_target_recovery",
+    };
+}
+
+ScoreReport run_scenario(const std::string& name, std::uint32_t /*seed*/) {
+    if (name == "near_side_vs_far_front") {
+        return run_near_side_vs_far_front();
+    }
+    controller_native::aimlab::ScoreAggregator scorer;
+    for (int frame_index = 0; frame_index < 60; ++frame_index) {
+        (void)frame_index;
+        controller_native::aimlab::FrameScoreInput frame;
+        frame.intended_target_id = 1;
+        frame.selected_target_id = 1;
+        frame.has_selected_target = true;
+        frame.strong_snap_active = true;
+        frame.aim_error_before_px = {80.0f, 0.0f};
+        frame.aim_error_after_px = {40.0f, 0.0f};
+        frame.controller_output = {-0.5f, 0.0f};
+        frame.user_input = {-0.4f, 0.0f};
+        frame.dt_seconds = 1.0 / 120.0;
+        scorer.add_frame(frame);
+    }
+    return scorer.report();
+}
+
 }  // namespace controller_native::aimlab
