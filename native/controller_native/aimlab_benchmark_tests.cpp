@@ -98,6 +98,15 @@ void test_real_selector_intent_improves_near_side_vs_far_front() {
         "intent-aware selector scenario should score materially better than baseline");
 }
 
+void test_unknown_scenario_fails_closed() {
+    const auto report = controller_native::aimlab::run_scenario(
+        "not_a_real_scenario",
+        12345);
+
+    expect_true(report.frames == 0, "unknown scenario should not synthesize passing frames");
+    expect_near(report.final_score, 0.0, 0.001, "unknown scenario should fail closed");
+}
+
 }  // namespace
 
 int main() {
@@ -105,6 +114,7 @@ int main() {
     test_helpful_output_increases_cooperation_score();
     test_near_side_vs_far_front_penalizes_far_wrong_target();
     test_real_selector_intent_improves_near_side_vs_far_front();
+    test_unknown_scenario_fails_closed();
     std::cout << "cod_native_aimlab_benchmark_tests PASS\n";
     return 0;
 }

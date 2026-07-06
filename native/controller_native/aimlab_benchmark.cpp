@@ -160,6 +160,36 @@ ScoreReport run_selector_near_side_vs_far_front(bool use_intent) {
     return scorer.report();
 }
 
+ScoreReport unknown_scenario_report() {
+    ScoreReport report;
+    report.final_score = 0.0;
+    report.selection_score = 0.0;
+    report.control_score = 0.0;
+    report.cooperation_score = 0.0;
+    report.smoothness_score = 0.0;
+    report.authority_safety_score = 0.0;
+    return report;
+}
+
+ScoreReport scaffold_perfect_report() {
+    ScoreAggregator scorer;
+    for (int frame_index = 0; frame_index < 60; ++frame_index) {
+        (void)frame_index;
+        FrameScoreInput frame;
+        frame.intended_target_id = 1;
+        frame.selected_target_id = 1;
+        frame.has_selected_target = true;
+        frame.strong_snap_active = true;
+        frame.aim_error_before_px = {80.0f, 0.0f};
+        frame.aim_error_after_px = {40.0f, 0.0f};
+        frame.controller_output = {-0.5f, 0.0f};
+        frame.user_input = {-0.4f, 0.0f};
+        frame.dt_seconds = 1.0 / 120.0;
+        scorer.add_frame(frame);
+    }
+    return scorer.report();
+}
+
 }  // namespace
 
 std::vector<std::string> default_scenarios() {
@@ -185,22 +215,12 @@ ScoreReport run_scenario(const std::string& name, std::uint32_t /*seed*/) {
     if (name == "near_side_vs_far_front_intent") {
         return run_selector_near_side_vs_far_front(true);
     }
-    controller_native::aimlab::ScoreAggregator scorer;
-    for (int frame_index = 0; frame_index < 60; ++frame_index) {
-        (void)frame_index;
-        controller_native::aimlab::FrameScoreInput frame;
-        frame.intended_target_id = 1;
-        frame.selected_target_id = 1;
-        frame.has_selected_target = true;
-        frame.strong_snap_active = true;
-        frame.aim_error_before_px = {80.0f, 0.0f};
-        frame.aim_error_after_px = {40.0f, 0.0f};
-        frame.controller_output = {-0.5f, 0.0f};
-        frame.user_input = {-0.4f, 0.0f};
-        frame.dt_seconds = 1.0 / 120.0;
-        scorer.add_frame(frame);
+    for (const auto& scenario : default_scenarios()) {
+        if (name == scenario) {
+            return scaffold_perfect_report();
+        }
     }
-    return scorer.report();
+    return unknown_scenario_report();
 }
 
 }  // namespace controller_native::aimlab
