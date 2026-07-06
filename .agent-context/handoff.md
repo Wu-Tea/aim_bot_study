@@ -1,142 +1,90 @@
 # Agent Handoff
 
-Last updated: 2026-06-25T01:23:41+08:00
+Last updated: 2026-07-06T15:35:00+08:00
 Updated by: Codex
-Active scope: COD/FPS full native C++ gamepad runtime, native vision performance, native controller feel, recoil playback, and performance-first audio/visual fusion canvas execution.
-Staleness: stale after another runtime-entry change, a new detector/model baseline, major native controller behavior changes, or live evidence that C++ runtime feel/perf regressed versus the Python fallback.
+Active scope: Native C++ COD/FPS gamepad runtime, target selection, ADS/bodylock authority, tracker/controller feel, recoil isolation, native vision performance.
+Staleness: stale after a runtime-entry change, detector/model baseline change, major native controller/selector behavior change, or live evidence that current native feel/perf regressed.
 
 ## Current Objective
 
-Build a usable performance-first visual fusion skeleton without polluting the native runtime hot path. The first usable slice should be able to show native vision targets or all vision detections on a full-screen canvas while keeping fusion disabled by default, preserving game/vision performance boundaries, and leaving audio as visual-only later work.
+Fix live wrong-target lock and ADS authority issues in the native C++ runtime while preserving the current controller feel baseline.
 
-Treat the default gamepad runtime as full native C++ and keep documentation, debugging, and future optimization work aligned with that reality. Python remains useful for fallback, tools, tests, training/export, recoil app workflows, and comparison, but it should not be assumed to be part of the normal live gamepad hot path.
+The main live issue is multi-target selection: the user may intend a close side-running target, but selector/ADS can prefer a farther or more front-facing target. Current direction is to make user input inform target selection and ADS strong-snap eligibility before considering vision image cropping.
 
 ## Current State
 
-- Branch/workspace: `D:\work\AI\yolo-study-001`.
-- Fusion execution decision recorded on 2026-06-25:
-  - `decisions/DEC-2026-06-25-001-performance-first-fusion-canvas.md`
-  - Do not build complete audio+visual fusion first and optimize later.
-  - Start with a usable vision-target canvas/publisher skeleton plus performance/kill-switch boundaries.
-  - Full audio capture/DSP/ONNX remains later and visual-only by default.
-- Default gamepad launch path:
+- Workspace: `D:\work\AI\yolo-study-001`
+- Branch: `dev`, ahead of `origin/dev` by 5 at last check.
+- Recent baseline commits:
+  - `94742c2 Add target validity scoring for vision selection`
+  - `328a670 Baseline target validity and pose benchmarks`
+  - `579446c Improve ADS bodylock slide tracking`
+- Default live gamepad runtime is full native C++:
   - `scripts\launch\gamepad_start.bat`
-  - defaults to `GAMEPAD_RUNTIME=native`
-  - calls `scripts\launch\gamepad_native_cpp_start.bat`
-  - starts `native\vision_native\build\Release\cod_native_runtime.exe --config config.toml --perf-log`
-- Set `GAMEPAD_RUNTIME=python` only when explicitly using the older Python gamepad fallback.
-- Default live gamepad runtime is now C++ end to end:
-  - config loading
-  - physical gamepad input
-  - native ROI capture
-  - CUDA preprocess
-  - TensorRT inference
-  - native target selector and authority fields
-  - native `ai_aim`
-  - native auto-fire gate
-  - native aim-assist dynamics
-  - native recoil profile selection/despike/playback
-  - native ViGEm output
-- Python gamepad host and `vision/native_runner.py` are fallback/debug/reference paths, not the default gamepad runtime.
-- Mouse and `kbm_to_gamepad` still use Python-side hosts.
-- User-provided C++ runtime logs on 2026-06-07 showed `[Vision][CPP]` lines with typical native GPU timing around `6-10ms` and vision `age` around `8-12ms`. Interpretation from that evidence: Python/native communication is no longer the likely live-gamepad bottleneck; remaining performance work should be measured in native C++ runtime/GPU timing first.
+  - `GAMEPAD_RUNTIME=native`
+  - `native\vision_native\build\Release\cod_native_runtime.exe --config config.toml --perf-log`
+- Python gamepad/vision paths are fallback, debug, tools, training/export, or comparison paths, not the default live hot path.
+- Mouse and `kbm_to_gamepad` still use Python-side hosts unless explicitly changed.
+- Historical native timing evidence from 2026-06-07 showed typical `[Vision][CPP]` GPU timing around `6-10ms` and vision age around `8-12ms`; investigate native timing before assuming Python/native handoff bottlenecks.
+- Recent video/live review conclusion: obvious assist systems that treat every detection as strong authority look too visible and can overshoot or hold wrong targets. This project should keep ADS/bodylock authority separated and evidence-gated.
 
-## Implemented In This Version
+## Current Design Direction
 
-- Full native C++ runtime implementation exists under:
-  - `native/runtime_app/`
-  - `native/controller_native/`
-- Native runtime launcher exists:
-  - `scripts\launch\gamepad_native_cpp_start.bat`
-- Default launcher chooses native runtime:
-  - `scripts\launch\gamepad_start.bat`
-  - supports `GAMEPAD_RUNTIME=python` fallback.
-- Native gamepad behavior modules include:
-  - `ai_aim.cpp`
-  - `aim_assist_dynamics.cpp`
-  - `recoil_compensation.cpp`
-  - `target_tracker.cpp`
-  - `virtual_gamepad.cpp`
-  - `xinput_reader.cpp`
-  - `sdl_gamepad_reader.cpp`
-  - `weapon_recognizer.cpp`
-- Native recoil path includes profile loading, calibration lookup, profile despike, profile/fallback playback, and selection-log gating.
-- Recoil playback feel contract:
-  - uncalibrated profile Y output uses the old dev-style per-sample delta scaled by `profile_velocity_reference_ms`, not cumulative Y from fire start
-  - fallback feedback is a constant feed-forward down-pull; live config currently uses `feedback_amount = 0.30`
-  - do not add timed/pulsed feedback shaping unless a native unit test proves the old linear fallback remains available
-- Native tracker/controller/recoil boundary contract:
-  - vision/tracker state feeds controller assistance before recoil
-  - recoil remains the final feed-forward playback stage
-  - recoil must not consume target dx/dy, tracker state, target freshness, or controller correction errors
-  - tracker receives component-aware final camera motion for ego projection while manual/assist/dynamics/recoil/final output components remain separately attributed
-  - run `scripts\verify\native_pipeline_contract.bat` before live acceptance after native tracker/controller/recoil changes
-- Native perf/logging path now emits `[Vision][CPP]` and `[Perf][CPP]` style diagnostics.
-- Documentation was updated on 2026-06-11 to mark full native C++ as the default:
-  - `README.md`
-  - `docs/project/README.md`
-  - `docs/project/WORKLOG.md`
-  - `docs/project/PROJECT_OVERVIEW.md`
-  - `docs/project/GAMEPAD_OVERVIEW.md`
-  - `docs/project/CONTROLLER_OVERVIEW.md`
-  - `docs/project/NATIVE_VISION.md`
-  - `docs/project/VISION_OVERVIEW.md`
-  - `docs/project/NATIVE_CPP_RUNTIME.md`
+- Pass live user right-stick intent into native vision selection.
+- Split broad vision detection from narrower ADS strong-snap eligibility.
+- Use cue/live/validity evidence as authority gating, not only score bonus, especially for corpse-lock avoidance.
+- Keep base vision crop broad for now; do not hard-crop vision from user input as the first fix.
+- Consider user-input-guided soft ROI later as a performance/selection optimization with fallback full ROI.
+- Preserve bodylock and ADS as different policies:
+  - ADS should avoid large overshoot and wrong strong snaps.
+  - Bodylock can tolerate some overshoot for moving close targets and should avoid sticky stalls.
 
-## Current Debugging Posture
+## Known Live Problems
 
-- For live gamepad runtime questions, read `docs/project/NATIVE_CPP_RUNTIME.md` first.
-- For native gamepad behavior, inspect `native/controller_native/` before Python `controllers/gamepad/`.
-- For native runtime scheduling/logs, inspect `native/runtime_app/runtime_loop.cpp` and `native/runtime_app/perf_logger.cpp`.
-- For C++ controller/runtime behavior changes, add or update focused native unit tests in the same change; do not treat live tuning alone as sufficient verification.
-- For tracker/controller/recoil boundary changes, run `scripts\verify\native_pipeline_contract.bat`; the broader `tools\check_native_cpp_gamepad_runtime.ps1` now calls the core pipeline contract by default.
-- For vision timing, inspect C++ runtime logs first:
-  - `pre`
-  - `infer`
-  - `gpu`
-  - `wait`
-  - `age`
-  - controller/output timing when available
-- Python fallback remains useful to compare behavior and bisect regressions, but should not drive default-path assumptions.
+- Live `VisionEngine` has selector overloads that can accept `UserAimIntent`, but the native live path has not been confirmed to pass user intent into selector.
+- ADS snap consumes the selected strong target; it does not independently correct a wrong target choice.
+- Multi-target cases can prefer a target that is more selector-friendly instead of matching user intent.
+- Corpse/dead-target locking still needs stronger cue/validity authority handling.
+- Tracker short memory is necessary for sliding, jumping, arc movement, and brief occlusion, but can become harmful if it overpowers live evidence or user correction.
 
-## Known Follow-Ups
+## Verification Rules
 
-0. Fusion canvas target-marker correction from 2026-06-25:
-   - Default overlay behavior is now target-dot only, not all detection boxes.
-   - The dot maps `VisionResult.dx/dy` as a center-relative screen offset, avoiding the previous normalized-capture-to-fullscreen stretch.
-   - `FUSION_SHOW_ALL_DETECTIONS=1` remains available only for explicit debug mode.
-   - Canvas now clears stale target data after 250ms; default idle mode is transparent hide, with optional `FUSION_IDLE_MODE=crosshair`.
-   - Canvas now calls `SetWindowDisplayAffinity(..., WDA_EXCLUDEFROMCAPTURE)` so the overlay is less likely to feed back into Windows capture / DXGI duplication.
-   - Process-specific vision capture should proceed as window/output-aware DXGI ROI alignment first, not swapchain injection.
-   - Build/test status: `fusion_canvas` Release, `cod_native_runtime` Release, and `cod_native_controller_tests.exe` passed after this correction.
-1. Verify `[Perf][CPP]` reports actual measured runtime/window FPS rather than hard-coded loop assumptions.
-2. Add or verify native output-age style fields comparable to old Python `out_age` so C++ logs can be compared cleanly.
-3. Check target freshness on ADS transitions:
-   - if `VisionResult.frame_updated=false`, native controller currently ignores the result
-   - ensure stale `latest_vision_state_` cannot create a first-frame old-target pull when ADS resumes
-4. Continue A/B tests with smaller TensorRT engines if GPU timing remains the main bottleneck.
-5. Live-validate that recoil feel remains correct after the target-direction yield removal and component-aware tracker/controller boundary changes.
+- For native controller/runtime behavior edits, add or update focused native unit tests in the same change.
+- For tracker/controller/recoil boundary changes, run:
+  - `scripts\verify\native_pipeline_contract.bat`
+- For selector changes, run focused native selector tests and benchmark/self-test where relevant.
+- Recoil remains final feed-forward playback and must not consume target dx/dy, tracker state, target freshness, or controller correction errors.
+- Recoil feel contract:
+  - uncalibrated profile Y output uses per-sample profile delta scaled by `profile_velocity_reference_ms`, not cumulative Y from fire start.
+  - fallback feedback is the old constant feed-forward down-pull; live config was last recorded at `feedback_amount = 0.30`.
+  - do not add timed/pulsed fallback shaping unless a focused native test proves the old linear fallback remains available.
+
+## Open Background Follow-Ups
+
+- Verify `[Perf][CPP]` reports actual measured runtime/window FPS rather than hard-coded loop assumptions.
+- Add or verify native output-age fields comparable to old Python `out_age`.
+- Check ADS resume freshness: stale `latest_vision_state_` must not create first-frame old-target pull when ADS resumes.
+- Continue TensorRT/smaller-engine A/B tests only if GPU timing is again the limiting factor.
+- Live-validate recoil feel after tracker/controller/recoil boundary changes.
 
 ## Do Not Do Without New Evidence
 
-- Do not assume Python/native handoff is the live gamepad bottleneck; default runtime no longer uses that handoff.
-- Do not make Python `controllers/gamepad/` changes expecting them to affect the default gamepad runtime.
-- Do not remove the Python fallback; it is still useful for comparison, tools, tests, and recovery.
+- Do not assume Python/native handoff is the live-gamepad bottleneck.
+- Do not make Python gamepad changes expecting default native runtime behavior to change.
+- Do not remove the Python fallback; it remains useful for comparison, tools, tests, and recovery.
 - Do not give cue-only, weak-only, or predicted-only targets fire authority.
-- Do not smooth final gamepad output after recoil unless live evidence shows that tuned recoil/manual feel can tolerate it.
-- Do not reintroduce recoil target-direction yield, pre/post recoil tracker toggles, or controller-to-recoil target feedback without new evidence and native contract tests.
+- Do not hard-crop vision by user input before intent-aware selection and ADS authority gating are benchmarked.
+- Do not smooth final gamepad output after recoil unless live evidence shows tuned recoil/manual feel can tolerate it.
+- Do not reintroduce controller-to-recoil target feedback without focused native contract tests.
 - Do not revert unrelated user or generated worktree changes.
-- For training/data jobs, avoid heavy writes to `C:` and avoid RAM-backed modes unless the user explicitly approves.
+- For training/data jobs, avoid heavy writes to `C:` and avoid RAM-backed modes unless explicitly approved.
 
-## Related Decisions And Docs
+## Related Context
 
-- `docs/project/NATIVE_CPP_RUNTIME.md`
-- `docs/project/PROJECT_OVERVIEW.md`
-- `docs/project/GAMEPAD_OVERVIEW.md`
-- `docs/project/CONTROLLER_OVERVIEW.md`
-- `docs/project/WORKLOG.md`
-- `docs/superpowers/plans/2026-06-06-native-cpp-runtime-migration.md`
-- `decisions/DEC-2026-05-01-005-use-yellow-cue-as-short-continuation-hold.md`
-- `decisions/DEC-2026-05-05-001-add-external-yellow-cue-input-and-sidecar-fallback.md`
-- `decisions/DEC-2026-05-29-001-single-target-weak-association-authority-gating.md`
-- `decisions/DEC-2026-06-04-001-recoil-despike-and-assist-dynamics.md`
+- Session index: `.agent-context/session-log.md`
+- Full historical archive: `.agent-context/session-log-full.md`
+- Recent fusion/canvas detail archive: `.agent-context/archive/2026-06-25-fusion-canvas.md`
+- Current proposed decision: `.agent-context/decisions/DEC-2026-07-06-001-intent-aware-selection-before-vision-cropping.md`
+- Current benchmark spec: `docs/superpowers/specs/2026-07-06-native-aimlab-userinput-vision-benchmark-design.md`
+- Native runtime docs: `docs/project/NATIVE_CPP_RUNTIME.md`
+- Controller docs: `docs/project/GAMEPAD_OVERVIEW.md`, `docs/project/CONTROLLER_OVERVIEW.md`
