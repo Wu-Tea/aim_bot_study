@@ -4,6 +4,13 @@
 
 namespace runtime_app {
 
+double loop_fps_from_elapsed_ms(double elapsed_ms) {
+    if (elapsed_ms <= 0.0) {
+        return 0.0;
+    }
+    return 1000.0 / elapsed_ms;
+}
+
 PerfLogger::PerfLogger(bool enabled)
     : enabled_(enabled) {}
 

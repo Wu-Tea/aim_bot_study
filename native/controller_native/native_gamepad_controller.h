@@ -119,6 +119,7 @@ private:
     NativeControllerOutputComponents last_output_components_;
     NativeControllerVisionState last_frame_vision_state_;
     std::function<double()> clock_;
+    double last_ads_stopped_at_seconds_ = 0.0;
 };
 
 }  // namespace controller_native

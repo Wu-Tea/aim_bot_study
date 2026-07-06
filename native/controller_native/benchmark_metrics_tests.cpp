@@ -4,6 +4,7 @@
 #include "../replay_native/replay_metrics.h"
 #include "../replay_native/replay_schema.h"
 #include "../runtime_app/aim_perf_file_logger.h"
+#include "../runtime_app/perf_logger.h"
 #include "vision_native/types.h"
 
 #include <chrono>
@@ -149,6 +150,7 @@ void test_aim_perf_file_logger_writes_controller_components() {
         controller_vision.tracker_dx = 10.0f;
         controller_vision.tracker_dy = -6.0f;
         runtime_app::PerfSnapshot snapshot;
+        snapshot.out_age_ms = 12.5;
         logger.record_aim_sample(
             1,
             true,
@@ -185,6 +187,25 @@ void test_aim_perf_file_logger_writes_controller_components() {
     require_true(
         log.find("\"controller_tracker_dx\":10") != std::string::npos,
         "aim perf log should include controller tracker dx");
+    require_true(
+        log.find("\"vision_age_ms\":") != std::string::npos,
+        "aim perf log should include explicit vision age");
+    require_true(
+        log.find("\"output_age_ms\":12.5") != std::string::npos,
+        "aim perf log should include output age comparable to Python out_age");
+}
+
+void test_perf_loop_fps_uses_measured_elapsed_time() {
+    require_near(
+        static_cast<float>(runtime_app::loop_fps_from_elapsed_ms(2.0)),
+        500.0f,
+        0.001f,
+        "loop fps should be derived from measured loop time");
+    require_near(
+        static_cast<float>(runtime_app::loop_fps_from_elapsed_ms(0.0)),
+        0.0f,
+        0.001f,
+        "zero elapsed loop time should not synthesize 1000 fps");
 }
 
 }  // namespace
@@ -194,6 +215,7 @@ int main() {
         test_replay_schema_captures_controller_components();
         test_replay_metrics_summarizes_error_and_fire_violations();
         test_aim_perf_file_logger_writes_controller_components();
+        test_perf_loop_fps_uses_measured_elapsed_time();
     } catch (const std::exception& exc) {
         std::cerr << "[NativeBenchmarkMetricsTests] FAIL " << exc.what() << "\n";
         return 1;

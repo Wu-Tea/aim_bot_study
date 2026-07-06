@@ -498,12 +498,13 @@ void RuntimeLoop::run_once() {
         const auto elapsed = std::chrono::steady_clock::now() - tick_started;
         const auto controller_pipeline_elapsed = vigem_update_started - controller_pipeline_started;
         const auto vigem_update_elapsed = vigem_update_finished - vigem_update_started;
+        const double ctrl_loop_ms = std::chrono::duration<double, std::milli>(elapsed).count();
         const std::uint64_t output_sent_at_ns = steady_time_point_ns(vigem_update_finished);
         const controller_native::NativeAutoFireCounters fire = controller_.auto_fire_counters();
         const vision_native::VisionResult* result =
             has_latest_vision_result_ ? &latest_vision_result_ : nullptr;
         PerfSnapshot snapshot;
-        snapshot.loop_fps = 1000.0;
+        snapshot.loop_fps = loop_fps_from_elapsed_ms(ctrl_loop_ms);
         snapshot.native_ms = result != nullptr ? result->post_ms : 0.0;
         snapshot.consume_ms = result != nullptr
             ? elapsed_ms_between_ns(latest_result_timestamp_ns_, latest_controller_consume_started_ns_)
@@ -513,7 +514,7 @@ void RuntimeLoop::run_once() {
             : 0.0;
         snapshot.gpu_total_ms = result != nullptr ? result->gpu_total_ms : 0.0;
         snapshot.sync_wait_ms = result != nullptr ? result->output_wait_ms : 0.0;
-        snapshot.ctrl_loop_ms = std::chrono::duration<double, std::milli>(elapsed).count();
+        snapshot.ctrl_loop_ms = ctrl_loop_ms;
         snapshot.ctrl_pipeline_ms =
             std::chrono::duration<double, std::milli>(controller_pipeline_elapsed).count();
         snapshot.vigem_update_ms =

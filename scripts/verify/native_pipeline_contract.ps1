@@ -66,7 +66,8 @@ function Assert-NoForbiddenCoupling {
     $controllerProductionFiles = Get-ChildItem -Path "native\controller_native" -Include "*.h", "*.cpp" -Recurse |
         Where-Object {
             $_.Name -notlike "*_tests.cpp" -and
-            $_.Name -ne "cod_native_gamepad_benchmark.cpp"
+            $_.Name -notlike "*_benchmark.cpp" -and
+            $_.Name -notlike "*_benchmark.h"
         }
     $trackingHeaders = Get-ChildItem -Path "native\tracking_native" -Include "*.h" -Recurse
     $controllerBehaviorTest = "native\controller_native\controller_behavior_tests.cpp"

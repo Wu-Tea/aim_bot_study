@@ -5,6 +5,8 @@
 
 namespace runtime_app {
 
+double loop_fps_from_elapsed_ms(double elapsed_ms);
+
 struct PerfSnapshot {
     double loop_fps = 0.0;
     double native_ms = 0.0;

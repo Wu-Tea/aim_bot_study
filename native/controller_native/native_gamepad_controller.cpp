@@ -119,6 +119,7 @@ void NativeGamepadController::reset() {
     body_lock_short_plan_policy_.reset();
     output_validation_policy_.reset();
     ads_state_tracker_.reset();
+    last_ads_stopped_at_seconds_ = 0.0;
 }
 
 void NativeGamepadController::submit_vision_state(const NativeControllerVisionState& state) {
@@ -293,10 +294,12 @@ bool NativeGamepadController::has_fresh_aim_target(
 void NativeGamepadController::update_ads_state(bool aiming, double now_seconds) {
     const AdsStateTransition transition = ads_state_tracker_.update(aiming, now_seconds);
     if (transition.started) {
+        target_snapshot_provider_.clear_target_state_observed_before(last_ads_stopped_at_seconds_);
         auto_fire_gate_.reset_readiness();
         return;
     }
     if (transition.stopped) {
+        last_ads_stopped_at_seconds_ = now_seconds;
         target_snapshot_provider_.clear_ads_transient_state();
         auto_fire_gate_.reset_readiness();
     }

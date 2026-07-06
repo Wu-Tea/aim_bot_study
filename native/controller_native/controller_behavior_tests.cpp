@@ -746,6 +746,58 @@ void test_no_update_vision_result_preserves_latest_target() {
     require_near(output.right_x, 0.0f, 0.001f, "processed no-target frame should clear assist");
 }
 
+void test_controller_ads_resume_waits_for_fresh_vision() {
+    controller_native::GamepadRuntimeConfig config;
+    config.ai_aim.target_max_age_ms = 500.0f;
+    config.ai_aim.ads_snap_window_ms = 120;
+    config.ai_aim.max_pixels = 100.0f;
+    config.ai_aim.deadzone_inner = 0.0f;
+    config.ai_aim.deadzone_outer = 0.0f;
+    config.ai_aim.x_deadzone_outer = 0.0f;
+    config.ai_aim.ads_snap_max_ai_force = 1.0f;
+    config.ai_aim.ads_snap_max_ai_force_y = 1.0f;
+    config.aim_assist_dynamics.enabled = false;
+    config.recoil.enabled = false;
+
+    double now = 80.0;
+    controller_native::NativeGamepadController controller(
+        config,
+        [&now]() { return now; });
+
+    controller_native::NativeControllerVisionState target;
+    target.has_target = true;
+    target.aim_authority = true;
+    target.fire_authority = true;
+    target.target_tier = "strong";
+    target.dx = 50.0f;
+    target.dy = 0.0f;
+    target.observed_at_seconds = now;
+    controller.submit_vision_state(target);
+
+    controller_native::GamepadOutputState output =
+        controller.build_output(aiming_physical_state());
+    require_true(output.right_x > 0.10f, "fresh ADS target should assist before ADS is released");
+
+    now = 80.020;
+    controller_native::PhysicalGamepadState released;
+    released.connected = true;
+    output = controller.build_output(released);
+    require_near(output.right_x, 0.0f, 0.001f, "released ADS should pass idle right stick");
+
+    now = 80.040;
+    output = controller.build_output(aiming_physical_state());
+    require_near(
+        output.right_x,
+        0.0f,
+        0.001f,
+        "ADS resume should wait for fresh vision instead of pulling the previous target on the first frame");
+
+    target.observed_at_seconds = now;
+    controller.submit_vision_state(target);
+    output = controller.build_output(aiming_physical_state());
+    require_true(output.right_x > 0.10f, "fresh vision after ADS resume should restore assist");
+}
+
 void test_controller_accepts_controller_vision_snapshot_without_vision_result() {
     controller_native::GamepadRuntimeConfig config;
     config.ai_aim.max_pixels = 100.0f;
@@ -4681,6 +4733,7 @@ int main() {
         test_auto_fire_ready_allows_manual_right_stick_when_fire_zone_is_hit();
         test_controller_left_thumb_counts_as_aiming();
         test_no_update_vision_result_preserves_latest_target();
+        test_controller_ads_resume_waits_for_fresh_vision();
         test_controller_accepts_controller_vision_snapshot_without_vision_result();
         test_target_tracker_projects_camera_motion_between_vision_frames();
         test_legacy_projection_tracker_matches_native_project_output();

@@ -472,6 +472,7 @@ target_link_libraries(cod_native_weapon_recognizer_tests PRIVATE
 add_executable(cod_native_benchmark_metrics_tests
     ../controller_native/benchmark_metrics_tests.cpp
     ../runtime_app/aim_perf_file_logger.cpp
+    ../runtime_app/perf_logger.cpp
     ../replay_native/replay_metrics.cpp
 )
 

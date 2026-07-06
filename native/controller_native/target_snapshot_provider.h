@@ -34,6 +34,7 @@ public:
         const NativeControllerOutputComponents& components,
         double now_seconds);
     void clear_ads_transient_state();
+    void clear_target_state_observed_before(double cutoff_seconds);
     bool candidate_reacquire_snap_active(double now_seconds) const;
     bool candidate_output_hold_active(double now_seconds);
 

@@ -1,6 +1,6 @@
 # Agent Handoff
 
-Last updated: 2026-07-06T18:08:00+08:00
+Last updated: 2026-07-06T18:19:00+08:00
 Updated by: Codex
 Active scope: Native C++ COD/FPS gamepad runtime, target selection, ADS/bodylock authority, tracker/controller feel, recoil isolation, native vision performance.
 Staleness: stale after a runtime-entry change, detector/model baseline change, major native controller/selector behavior change, or live evidence that current native feel/perf regressed.
@@ -36,6 +36,9 @@ The main live issue is multi-target selection: the user may intend a close side-
   - established manual clean/slow/noisy intent: `final=100`, `wrong_ads=0`, `fight=0`
   - late slow manual intent: `final=0`, `wrong_ads=67`, `fight=59`
 - Live native runtime now builds `UserAimIntent` from physical right stick and passes it through `VisionEngine` into `VisionTargetSelector`; L3 also counts as aiming.
+- Native runtime perf logging now reports measured loop FPS from actual tick elapsed time instead of a hard-coded `1000`.
+- Native aim perf JSON now includes explicit `vision_age_ms` and `output_age_ms` fields alongside legacy `age_ms`/`out_age_ms`.
+- ADS resume now clears target/tracker state observed before the last ADS release, so the first resumed ADS frame waits for fresh vision instead of pulling an old target still inside TTL.
 
 ## Current Design Direction
 
@@ -77,9 +80,6 @@ The main live issue is multi-target selection: the user may intend a close side-
 
 ## Open Background Follow-Ups
 
-- Verify `[Perf][CPP]` reports actual measured runtime/window FPS rather than hard-coded loop assumptions.
-- Add or verify native output-age fields comparable to old Python `out_age`.
-- Check ADS resume freshness: stale `latest_vision_state_` must not create first-frame old-target pull when ADS resumes.
 - Continue TensorRT/smaller-engine A/B tests only if GPU timing is again the limiting factor.
 - Live-validate recoil feel after tracker/controller/recoil boundary changes.
 

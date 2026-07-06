@@ -250,6 +250,7 @@ void AimPerfFileLogger::record_aim_sample(
             << ",\"enhance_ms\":0"
             << ",\"post_ms\":0"
             << ",\"age_ms\":0"
+            << ",\"vision_age_ms\":0"
             << ",\"boxes_seen\":0";
     } else {
         output_
@@ -279,12 +280,14 @@ void AimPerfFileLogger::record_aim_sample(
             << ",\"enhance_ms\":" << result->enhance_ms
             << ",\"post_ms\":" << result->post_ms
             << ",\"age_ms\":" << result->age_ms
+            << ",\"vision_age_ms\":" << result->age_ms
             << ",\"boxes_seen\":" << result->boxes_seen;
     }
 
     output_
         << ",\"consume_ms\":" << snapshot.consume_ms
         << ",\"out_age_ms\":" << snapshot.out_age_ms
+        << ",\"output_age_ms\":" << snapshot.out_age_ms
         << ",\"ctrl_loop_ms\":" << snapshot.ctrl_loop_ms
         << ",\"ctrl_pipeline_ms\":" << snapshot.ctrl_pipeline_ms
         << ",\"vigem_update_ms\":" << snapshot.vigem_update_ms

@@ -565,6 +565,37 @@ void TargetSnapshotProvider::clear_ads_transient_state() {
     candidate_output_hold_until_seconds_ = 0.0;
 }
 
+void TargetSnapshotProvider::clear_target_state_observed_before(double cutoff_seconds) {
+    if (cutoff_seconds <= 0.0) {
+        return;
+    }
+    if (!latest_vision_state_.has_target) {
+        clear_ads_transient_state();
+        return;
+    }
+    if (latest_vision_state_.observed_at_seconds > cutoff_seconds) {
+        clear_ads_transient_state();
+        return;
+    }
+
+    latest_vision_state_ = cleared_target_state(latest_vision_state_);
+    target_tracker_->reset();
+    ++latest_vision_sequence_;
+    raw_vision_sequence_consumed_ = latest_vision_sequence_;
+    has_committed_target_ = false;
+    committed_target_dx_ = 0.0f;
+    committed_target_dy_ = 0.0f;
+    has_candidate_target_ = false;
+    candidate_target_dx_ = 0.0f;
+    candidate_target_dy_ = 0.0f;
+    candidate_first_observed_at_seconds_ = 0.0;
+    candidate_last_observed_at_seconds_ = 0.0;
+    candidate_fresh_samples_ = 0;
+    candidate_projection_hold_until_seconds_ = 0.0;
+    candidate_reacquire_snap_until_seconds_ = 0.0;
+    candidate_output_hold_until_seconds_ = 0.0;
+}
+
 bool TargetSnapshotProvider::candidate_reacquire_snap_active(double now_seconds) const {
     return candidate_reacquire_snap_until_seconds_ > 0.0 &&
         now_seconds <= candidate_reacquire_snap_until_seconds_;
