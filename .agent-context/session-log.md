@@ -13,6 +13,32 @@ Purpose: quick navigation for project continuity. Full older history is preserve
 
 ## Current Active Thread
 
+- 2026-07-06 - Native AimLab benchmark and live intent wiring landed.
+  - Added native data-only benchmark/scorer/executable across commits:
+    - `252edda Add native aimlab benchmark scorer`
+    - `3e0f35e Add synthetic aimlab benchmark scenarios`
+    - `acf99ab Add native aimlab benchmark executable`
+  - Added live user intent wiring in `d725a7f Wire user aim intent into native vision selection`:
+    - `RuntimeLoop` builds `UserAimIntent` from physical right stick every tick.
+    - `VisionEngine` stores and passes the latest intent to `VisionTargetSelector`.
+    - Intent metadata is copied back into `VisionResult`.
+    - L3/left-thumb now counts as aiming.
+  - Added selector-backed AimLab scenario in `5c5cb3d Score real selector intent in aimlab benchmark`.
+  - Added fail-closed behavior for unknown AimLab scenario names after this milestone, so typos no longer synthesize perfect passing reports.
+  - Current benchmark contrast:
+    - `near_side_vs_far_front_no_intent final=0 wrong_ads=119 fight=119 helpful=0`
+    - `near_side_vs_far_front_intent final=100 wrong_ads=0 fight=0 helpful=1`
+  - Verification run during implementation:
+    - `cod_native_aimlab_benchmark_tests` build PASS
+    - `cod_native_aimlab_benchmark_tests.exe` PASS
+    - `cod_native_aimlab_benchmark` build PASS
+    - `cod_native_aimlab_benchmark.exe` PASS
+    - `cod_native_target_selector_tests` PASS
+    - `cod_native_runtime` build PASS
+    - `scripts\verify\native_pipeline_contract.bat` PASS
+    - `git diff --check` PASS
+  - Remaining benchmark limitation: most default scenarios still use fallback perfect scoring. Expand `multi_target_flick`, `corpse_cue_loss`, and `err_target_recovery` into selector/controller-backed scenarios before trusting aggregate score.
+
 - 2026-07-06 - Intent-aware target selection and ADS authority direction.
   - User reported live multi-target mislock: intended target was a close side-running enemy at lower-left, but ADS snapped to a farther/smaller front-facing target on the right/up.
   - Investigation found the native selector has `UserAimIntent` overloads, but the live `VisionEngine` path has not been confirmed to pass user input into selector.

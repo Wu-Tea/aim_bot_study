@@ -1,6 +1,6 @@
 # Agent Handoff
 
-Last updated: 2026-07-06T15:35:00+08:00
+Last updated: 2026-07-06T17:35:00+08:00
 Updated by: Codex
 Active scope: Native C++ COD/FPS gamepad runtime, target selection, ADS/bodylock authority, tracker/controller feel, recoil isolation, native vision performance.
 Staleness: stale after a runtime-entry change, detector/model baseline change, major native controller/selector behavior change, or live evidence that current native feel/perf regressed.
@@ -14,8 +14,11 @@ The main live issue is multi-target selection: the user may intend a close side-
 ## Current State
 
 - Workspace: `D:\work\AI\yolo-study-001`
-- Branch: `dev`, ahead of `origin/dev` by 5 at last check.
+- Branch: `dev`, with multiple unpushed local commits at last check.
 - Recent baseline commits:
+  - `5c5cb3d Score real selector intent in aimlab benchmark`
+  - `d725a7f Wire user aim intent into native vision selection`
+  - `acf99ab Add native aimlab benchmark executable`
   - `94742c2 Add target validity scoring for vision selection`
   - `328a670 Baseline target validity and pose benchmarks`
   - `579446c Improve ADS bodylock slide tracking`
@@ -27,6 +30,10 @@ The main live issue is multi-target selection: the user may intend a close side-
 - Mouse and `kbm_to_gamepad` still use Python-side hosts unless explicitly changed.
 - Historical native timing evidence from 2026-06-07 showed typical `[Vision][CPP]` GPU timing around `6-10ms` and vision age around `8-12ms`; investigate native timing before assuming Python/native handoff bottlenecks.
 - Recent video/live review conclusion: obvious assist systems that treat every detection as strong authority look too visible and can overshoot or hold wrong targets. This project should keep ADS/bodylock authority separated and evidence-gated.
+- Native AimLab benchmark now has `cod_native_aimlab_benchmark` plus real selector-backed near-side-vs-far-front scenarios:
+  - no intent: `final=0`, `wrong_ads=119`, `fight=119`
+  - lower-left intent: `final=100`, `wrong_ads=0`, `fight=0`
+- Live native runtime now builds `UserAimIntent` from physical right stick and passes it through `VisionEngine` into `VisionTargetSelector`; L3 also counts as aiming.
 
 ## Current Design Direction
 
@@ -41,11 +48,11 @@ The main live issue is multi-target selection: the user may intend a close side-
 
 ## Known Live Problems
 
-- Live `VisionEngine` has selector overloads that can accept `UserAimIntent`, but the native live path has not been confirmed to pass user intent into selector.
 - ADS snap consumes the selected strong target; it does not independently correct a wrong target choice.
 - Multi-target cases can prefer a target that is more selector-friendly instead of matching user intent.
 - Corpse/dead-target locking still needs stronger cue/validity authority handling.
 - Tracker short memory is necessary for sliding, jumping, arc movement, and brief occlusion, but can become harmful if it overpowers live evidence or user correction.
+- Most AimLab default scenarios still use fallback perfect scoring; expand them one by one before treating aggregate score as representative.
 
 ## Verification Rules
 
