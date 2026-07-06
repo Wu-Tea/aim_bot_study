@@ -2,10 +2,6 @@
 
 #include "common_native/screen_geometry.h"
 
-#include <cstdint>
-#include <string>
-#include <vector>
-
 namespace controller_native::aimlab {
 
 struct FrameScoreInput {
