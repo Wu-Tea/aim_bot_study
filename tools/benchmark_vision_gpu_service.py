@@ -4,6 +4,7 @@ import argparse
 from dataclasses import asdict, dataclass
 import json
 from pathlib import Path
+import math
 from typing import Any, Iterable, Sequence
 
 
@@ -246,7 +247,148 @@ def _activation_rows(rows: list[dict[str, Any]], active_windows: Sequence[Window
     return activations
 
 
-def summarize_rows(rows: list[dict[str, Any]], active_windows: Sequence[Window]) -> dict[str, Any]:
+def _gpu_work_ms(row: dict[str, Any]) -> float:
+    if row.get("freshness") == "reused" or row.get("source_state") == "repeat_last":
+        return 0.0
+    return float(row.get("gpu_total_ms", 0.0) or 0.0)
+
+
+def _overlap_ms(a_start: float, a_end: float, b_start: float, b_end: float) -> float:
+    return max(0.0, min(a_end, b_end) - max(a_start, b_start))
+
+
+def _sum_gpu_work_ms(rows: list[dict[str, Any]], windows: Sequence[Window]) -> float:
+    total = 0.0
+    for row in _updated_rows(rows):
+        start_ms = float(row["relative_ms"])
+        work_ms = _gpu_work_ms(row)
+        if work_ms <= 0.0:
+            continue
+        end_ms = start_ms + work_ms
+        for window_start, window_end in windows:
+            total += _overlap_ms(start_ms, end_ms, window_start, window_end)
+    return total
+
+
+def _bucket_windows(windows: Sequence[Window], bucket_ms: float) -> list[Window]:
+    buckets: list[Window] = []
+    for start_ms, end_ms in windows:
+        cursor = start_ms
+        while cursor < end_ms - 1e-6:
+            bucket_end = min(end_ms, cursor + bucket_ms)
+            buckets.append((cursor, bucket_end))
+            cursor = bucket_end
+    return buckets
+
+
+def _population_stdev(values: Sequence[float]) -> float:
+    if not values:
+        return 0.0
+    mean = sum(values) / len(values)
+    return math.sqrt(sum((value - mean) ** 2 for value in values) / len(values))
+
+
+def _occupancy_stability(
+    rows: list[dict[str, Any]],
+    windows: Sequence[Window],
+    *,
+    bucket_ms: float,
+) -> dict[str, Any]:
+    bucket_values: list[float] = []
+    for start_ms, end_ms in _bucket_windows(windows, bucket_ms):
+        duration_ms = max(0.0, end_ms - start_ms)
+        if duration_ms <= 0.0:
+            continue
+        work_ms = _sum_gpu_work_ms(rows, ((start_ms, end_ms),))
+        bucket_values.append(work_ms * 100.0 / duration_ms)
+
+    mean = sum(bucket_values) / len(bucket_values) if bucket_values else 0.0
+    stdev = _population_stdev(bucket_values)
+    return {
+        "bucket_ms": bucket_ms,
+        "bucket_count": len(bucket_values),
+        "mean_pct": mean,
+        "min_pct": min(bucket_values) if bucket_values else 0.0,
+        "max_pct": max(bucket_values) if bucket_values else 0.0,
+        "p05_pct": _percentile(bucket_values, 5),
+        "p50_pct": _percentile(bucket_values, 50),
+        "p95_pct": _percentile(bucket_values, 95),
+        "stdev_pct_points": stdev,
+        "cv": (stdev / mean) if mean > 1e-6 else 0.0,
+        "zero_or_near_zero_buckets": sum(1 for value in bucket_values if value < 1.0),
+    }
+
+
+def _occupancy_summary(
+    rows: list[dict[str, Any]],
+    *,
+    duration_ms: float,
+    active_windows: Sequence[Window],
+    bucket_ms: float = 500.0,
+) -> dict[str, Any]:
+    active_duration_ms = _window_duration_ms(active_windows)
+    idle_duration_ms = max(0.0, duration_ms - active_duration_ms)
+    all_windows = ((0.0, duration_ms),)
+    idle_windows = _idle_windows(duration_ms, active_windows)
+    total_work_ms = _sum_gpu_work_ms(rows, all_windows)
+    active_work_ms = _sum_gpu_work_ms(rows, active_windows)
+    idle_work_ms = _sum_gpu_work_ms(rows, idle_windows)
+    return {
+        "estimated_gpu_work_ms": {
+            "total": total_work_ms,
+            "active": active_work_ms,
+            "idle": idle_work_ms,
+        },
+        "estimated_gpu_occupancy_pct": {
+            "overall": (total_work_ms * 100.0 / duration_ms) if duration_ms else 0.0,
+            "active": (active_work_ms * 100.0 / active_duration_ms) if active_duration_ms else 0.0,
+            "idle": (idle_work_ms * 100.0 / idle_duration_ms) if idle_duration_ms else 0.0,
+        },
+        "gpu_occupancy_stability": {
+            "overall": _occupancy_stability(rows, all_windows, bucket_ms=bucket_ms),
+            "active": _occupancy_stability(rows, active_windows, bucket_ms=bucket_ms),
+            "idle": _occupancy_stability(rows, idle_windows, bucket_ms=bucket_ms),
+        },
+    }
+
+
+def _efficiency_summary(summary: dict[str, Any]) -> dict[str, float]:
+    occupancy = summary["estimated_gpu_occupancy_pct"]
+    overall = float(occupancy["overall"])
+    active = float(occupancy["active"])
+    snapshot_fps = float(summary["active_snapshot_fps"])
+    fresh_fps = float(summary["active_fresh_source_fps"])
+    return {
+        "active_snapshot_fps_per_overall_gpu_pct": snapshot_fps / overall if overall > 1e-6 else 0.0,
+        "active_fresh_fps_per_overall_gpu_pct": fresh_fps / overall if overall > 1e-6 else 0.0,
+        "active_snapshot_fps_per_active_gpu_pct": snapshot_fps / active if active > 1e-6 else 0.0,
+        "active_fresh_fps_per_active_gpu_pct": fresh_fps / active if active > 1e-6 else 0.0,
+    }
+
+
+def _idle_windows(duration_ms: float, active_windows: Sequence[Window]) -> list[Window]:
+    merged = sorted((max(0.0, start), min(duration_ms, end)) for start, end in active_windows)
+    idle: list[Window] = []
+    cursor = 0.0
+    for start_ms, end_ms in merged:
+        if end_ms <= cursor:
+            continue
+        if start_ms > cursor:
+            idle.append((cursor, start_ms))
+        cursor = max(cursor, end_ms)
+    if cursor < duration_ms:
+        idle.append((cursor, duration_ms))
+    return idle
+
+
+def summarize_rows(
+    rows: list[dict[str, Any]],
+    active_windows: Sequence[Window],
+    *,
+    duration_ms: float | None = None,
+) -> dict[str, Any]:
+    if duration_ms is None:
+        duration_ms = max((float(row["relative_ms"]) for row in rows), default=0.0)
     updated = _updated_rows(rows)
     active_updated = [row for row in updated if _in_windows(float(row["relative_ms"]), active_windows)]
     active_fresh_source = [row for row in active_updated if row.get("freshness") == "fresh"]
@@ -258,7 +400,7 @@ def summarize_rows(rows: list[dict[str, Any]], active_windows: Sequence[Window])
     activation_gpu = [float(row["gpu_total_ms"]) for row in activation_rows]
     gpu_values = [float(row["gpu_total_ms"]) for row in updated]
     age_values = [float(row["vision_age_ms"]) for row in updated]
-    return {
+    summary = {
         "rows": len(rows),
         "updated_rows": len(updated),
         "active_updated_rows": len(active_updated),
@@ -287,6 +429,15 @@ def summarize_rows(rows: list[dict[str, Any]], active_windows: Sequence[Window])
         },
         "reused_source_rows": sum(1 for row in updated if row.get("freshness") == "reused"),
     }
+    summary.update(
+        _occupancy_summary(
+            rows,
+            duration_ms=duration_ms,
+            active_windows=active_windows,
+        )
+    )
+    summary["gpu_efficiency"] = _efficiency_summary(summary)
+    return summary
 
 
 def run_benchmark(
@@ -315,7 +466,7 @@ def run_benchmark(
         )
         output["strategies"][strategy_name] = {
             "config": asdict(config),
-            "summary": summarize_rows(rows, active_windows),
+            "summary": summarize_rows(rows, active_windows, duration_ms=duration_ms),
             "rows": rows,
         }
     return output
@@ -363,6 +514,20 @@ def print_summary(result: dict[str, Any]) -> None:
                 gpu_p95=summary["gpu_total_ms"]["p95"],
                 age_p95=summary["vision_age_ms"]["p95"],
                 reused=summary["reused_source_rows"],
+            )
+        )
+        occupancy = summary["estimated_gpu_occupancy_pct"]
+        stability = summary["gpu_occupancy_stability"]["active"]
+        print(
+            "  estimated_gpu_occupancy: overall={overall:.1f}% active={active:.1f}% idle={idle:.1f}% "
+            "active_bucket_stdev={stdev:.1f}pp active_bucket_cv={cv:.2f} "
+            "snapshot_fps_per_gpu_pct={eff:.2f}".format(
+                overall=occupancy["overall"],
+                active=occupancy["active"],
+                idle=occupancy["idle"],
+                stdev=stability["stdev_pct_points"],
+                cv=stability["cv"],
+                eff=summary["gpu_efficiency"]["active_snapshot_fps_per_overall_gpu_pct"],
             )
         )
 
