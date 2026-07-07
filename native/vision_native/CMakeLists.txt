@@ -176,6 +176,7 @@ set(FPS_TRACKER_PACKAGE_SOURCES
 add_executable(cod_native_runtime
     ../runtime_app/main.cpp
     ../runtime_app/runtime_loop.cpp
+    ../runtime_app/runtime_timing.cpp
     ../runtime_app/vision_service.cpp
     ../runtime_app/fusion_channel_publisher.cpp
     ../runtime_app/perf_logger.cpp
@@ -244,6 +245,7 @@ target_link_libraries(cod_native_runtime PRIVATE
     dxgi
     xinput
     gdi32
+    winmm
     windowsapp
 )
 
@@ -339,6 +341,7 @@ target_compile_definitions(cod_native_controller_protocol_tests
 add_executable(cod_native_vision_service_tests
     ../runtime_app/vision_service_tests.cpp
     ../runtime_app/vision_service.cpp
+    ../runtime_app/runtime_timing.cpp
 )
 
 target_include_directories(cod_native_vision_service_tests PRIVATE
@@ -350,6 +353,30 @@ target_compile_definitions(cod_native_vision_service_tests
     PRIVATE
         NOMINMAX
         WIN32_LEAN_AND_MEAN
+)
+
+target_link_libraries(cod_native_vision_service_tests PRIVATE
+    winmm
+)
+
+add_executable(cod_native_runtime_timing_tests
+    ../runtime_app/runtime_timing_tests.cpp
+    ../runtime_app/runtime_timing.cpp
+)
+
+target_include_directories(cod_native_runtime_timing_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
+target_compile_definitions(cod_native_runtime_timing_tests
+    PRIVATE
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
+)
+
+target_link_libraries(cod_native_runtime_timing_tests PRIVATE
+    winmm
 )
 
 add_executable(cod_native_runtime_config_tests

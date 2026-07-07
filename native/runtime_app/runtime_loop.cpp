@@ -1,5 +1,6 @@
 #include "runtime_loop.h"
 
+#include "runtime_timing.h"
 #include "vision_controller_adapter.h"
 
 #include <Windows.h>
@@ -462,10 +463,7 @@ int RuntimeLoop::run() {
             break;
         }
 
-        const auto elapsed = std::chrono::steady_clock::now() - tick_started;
-        if (elapsed < tick_interval) {
-            std::this_thread::sleep_for(tick_interval - elapsed);
-        }
+        sleep_until_precise(tick_started + tick_interval);
     }
     if (vision_service_ != nullptr) {
         vision_service_->stop();

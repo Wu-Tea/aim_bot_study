@@ -42,6 +42,25 @@ python tools\benchmark_vision_gpu_service.py --duration-ms 5000 --controller-hz 
 python tools\benchmark_vision_gpu_service.py --duration-ms 5000 --controller-hz 1000 --active-window 1000:2200 --active-window 3200:4400 --no-update-window 1700:2000 --strategy worker_keepwarm --strategy worker_keepwarm_120 --strategy worker_keepwarm_140 --steady-gpu-total-ms 2 --cold-gpu-total-ms 2 --output-wait-ms 1 --preprocess-ms 0.08 --output-dir runs\native_perf\vision_gpu_service_synthetic_20260707_120_140_fast_2ms
 ```
 
+Timer-resolution fix reruns:
+
+```powershell
+python tools\benchmark_vision_gpu_service.py --duration-ms 5000 --controller-hz 1000 --active-window 1000:2200 --active-window 3200:4400 --no-update-window 1700:2000 --strategy worker_keepwarm --strategy worker_keepwarm_120 --strategy worker_keepwarm_140 --output-dir runs\native_perf\vision_gpu_service_synthetic_20260707_timer_fix_default
+python tools\benchmark_vision_gpu_service.py --duration-ms 5000 --controller-hz 1000 --active-window 1000:2200 --active-window 3200:4400 --no-update-window 1700:2000 --strategy worker_keepwarm --strategy worker_keepwarm_120 --strategy worker_keepwarm_140 --steady-gpu-total-ms 2 --cold-gpu-total-ms 2 --output-wait-ms 1 --preprocess-ms 0.08 --output-dir runs\native_perf\vision_gpu_service_synthetic_20260707_timer_fix_fast_2ms
+```
+
+Runtime smoke after the timer-resolution fix:
+
+```powershell
+.\native\vision_native\build\Release\cod_native_runtime.exe --config config.toml --perf-log --max-ticks 1200
+```
+
+Observed startup line:
+
+```text
+[NativeRuntime] timer_resolution_ms=1 active=1
+```
+
 Scenario shape:
 
 - Synthetic consumer sampling: 1000 Hz to approximate the native runtime's 1 ms controller loop. Older runs used 100 Hz and should not be read as the live controller frequency.
@@ -113,6 +132,19 @@ These runs use 1000 Hz synthetic consumer sampling so the benchmark is not cappe
 | 4.0 ms | `worker_keepwarm_140` | 139.58 | 122.08 | 27.8% | 48.8% | 8.3% | 5.9 ms | 0.0 ms |
 
 If live `gpu_total_ms` is around 2 ms, both 120 Hz and 140 Hz fit under a 30% active-GPU headroom budget. If it is around 3 ms, 120 Hz is just over 30% active GPU and 140 Hz is aggressive. If it is closer to 4 ms, 100 Hz is already above 30% active GPU.
+
+2026-07-07 timer-resolution fix rerun:
+
+| GPU Assumption | Strategy | Active Snapshot FPS | Active Fresh FPS | Overall GPU | Active GPU | Idle GPU | Age p95 | Active Bucket Stdev | Active Bucket CV | Max Long Gap |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 6.5 ms default | `worker_keepwarm` | 100.00 | 87.50 | 34.4% | 57.2% | 13.3% | 7.5 ms | 14.9 pp | 0.25 | 0.0 ms |
+| 6.5 ms default | `worker_keepwarm_120` | 119.58 | 104.58 | 39.9% | 68.3% | 13.8% | 8.2 ms | 16.9 pp | 0.24 | 0.0 ms |
+| 6.5 ms default | `worker_keepwarm_140` | 139.58 | 122.08 | 45.4% | 79.7% | 13.8% | 8.4 ms | 19.8 pp | 0.24 | 0.0 ms |
+| 2.0 ms fast | `worker_keepwarm` | 100.00 | 87.50 | 10.5% | 17.5% | 4.0% | 3.0 ms | 4.5 pp | 0.25 | 0.0 ms |
+| 2.0 ms fast | `worker_keepwarm_120` | 119.58 | 104.58 | 12.2% | 20.9% | 4.2% | 3.7 ms | 5.1 pp | 0.24 | 0.0 ms |
+| 2.0 ms fast | `worker_keepwarm_140` | 139.58 | 122.08 | 13.9% | 24.4% | 4.2% | 3.9 ms | 6.0 pp | 0.24 | 0.0 ms |
+
+The timer fix changes the runtime scheduling contract rather than the synthetic GPU math: native runtime now requests a 1 ms Windows timer period at startup and the vision worker waits on explicit poll deadlines instead of repeatedly sleeping for 1 ms. This directly targets the live symptom where Windows timer granularity turned intended 120 Hz work into roughly 60-65 Hz service cadence.
 
 ## 30 Percent Headroom Budget
 

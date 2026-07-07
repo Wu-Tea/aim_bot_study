@@ -1,5 +1,7 @@
 #include "vision_service.h"
 
+#include "runtime_timing.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -108,6 +110,11 @@ bool VisionService::step_for_test(std::chrono::steady_clock::time_point now) {
     return step(now);
 }
 
+std::chrono::steady_clock::time_point VisionService::next_poll_due_for_test(
+    std::chrono::steady_clock::time_point now) const {
+    return next_poll_due(now);
+}
+
 bool VisionService::step(std::chrono::steady_clock::time_point now) {
     bool controller_aiming = false;
     bool engine_aiming = false;
@@ -163,10 +170,28 @@ bool VisionService::step(std::chrono::steady_clock::time_point now) {
     return true;
 }
 
+std::chrono::steady_clock::time_point VisionService::next_poll_due(
+    std::chrono::steady_clock::time_point now) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const bool engine_aiming = controller_aiming_ || options_.keepwarm_when_idle;
+    const double fps = controller_aiming_ ? options_.active_fps : options_.idle_fps;
+    const auto interval = interval_for_fps(fps);
+    if (!engine_aiming || interval == std::chrono::steady_clock::duration::max()) {
+        return now + std::chrono::milliseconds(5);
+    }
+    if (!has_last_poll_) {
+        return now;
+    }
+    return std::max(now, last_poll_at_ + interval);
+}
+
 void VisionService::run_loop() {
     while (running_.load()) {
-        step(std::chrono::steady_clock::now());
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        const auto now = std::chrono::steady_clock::now();
+        if (step(now)) {
+            continue;
+        }
+        sleep_until_precise(next_poll_due(now));
     }
 }
 

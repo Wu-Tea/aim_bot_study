@@ -1,4 +1,5 @@
 #include "runtime_loop.h"
+#include "runtime_timing.h"
 
 #include "controller_native/runtime_config.h"
 
@@ -123,6 +124,11 @@ int main(int argc, char** argv) {
         apply_cli_overrides(options, config);
         const bool perf_log = options.perf_log || config.vision.perf_log;
         print_startup_summary(options, config);
+
+        runtime_app::HighResolutionTimerPeriod timer_period(1u);
+        std::cout << "[NativeRuntime] timer_resolution_ms=1"
+                  << " active=" << (timer_period.active() ? 1 : 0)
+                  << '\n';
 
         runtime_app::RuntimeLoop loop(config, perf_log, max_ticks_from_options(options));
         active_runtime_loop.store(&loop);

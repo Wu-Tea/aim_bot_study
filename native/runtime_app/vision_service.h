@@ -66,9 +66,13 @@ public:
 
     VisionServiceSnapshot latest_snapshot() const;
     bool step_for_test(std::chrono::steady_clock::time_point now);
+    std::chrono::steady_clock::time_point next_poll_due_for_test(
+        std::chrono::steady_clock::time_point now) const;
 
 private:
     bool step(std::chrono::steady_clock::time_point now);
+    std::chrono::steady_clock::time_point next_poll_due(
+        std::chrono::steady_clock::time_point now) const;
     void run_loop();
 
     std::unique_ptr<IVisionServicePoller> poller_;
