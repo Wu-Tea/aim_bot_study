@@ -313,10 +313,105 @@ struct ScenarioMetrics {
     double ads_manual_stress_turn_smoothness_score = 0.0;
     int ads_manual_stress_body_lock_frames = 0;
     double ads_manual_stress_body_lock_ratio = 0.0;
+    int ads_manual_stress_body_lock_tracking_samples = 0;
+    double ads_manual_stress_body_lock_mean_error_px = 0.0;
+    double ads_manual_stress_body_lock_p95_error_px = 0.0;
+    double ads_manual_stress_body_lock_direction_score = 0.0;
+    int ads_manual_stress_body_lock_chatter_events = 0;
+    int ads_manual_stress_body_lock_output_spikes = 0;
+    int ads_manual_stress_body_lock_turn_samples = 0;
+    int ads_manual_stress_body_lock_close_assist_samples = 0;
+    int ads_manual_stress_body_lock_low_output_close_frames = 0;
+    int ads_manual_stress_body_lock_dropout_frames = 0;
+    int ads_manual_stress_body_lock_centered_samples = 0;
+    int ads_manual_stress_body_lock_centered_jitter_frames = 0;
+    double ads_manual_stress_body_lock_p95_output_delta = 0.0;
+    double ads_manual_stress_body_lock_p95_turn_degrees = 0.0;
+    double ads_manual_stress_body_lock_turn_smoothness_score = 0.0;
+    double ads_manual_stress_body_lock_close_assist_mean_ai_output = 0.0;
+    double ads_manual_stress_body_lock_centered_p95_output_delta = 0.0;
+    int ads_manual_stress_body_lock_sustain_cases = 0;
+    int ads_manual_stress_body_lock_sustain_passes = 0;
+    int ads_manual_stress_body_lock_sustain_good_frames = 0;
+    double ads_manual_stress_body_lock_sustain_required_ms = 0.0;
+    double ads_manual_stress_body_lock_sustain_error_px = 0.0;
+    double ads_manual_stress_body_lock_sustain_longest_ms = 0.0;
+    double ads_manual_stress_body_lock_sustain_pass_rate = 0.0;
+    double ads_manual_stress_body_lock_sustain_score = 0.0;
     double ads_manual_stress_occlusion_peak_error_px = 0.0;
     double ads_manual_stress_slide_down_lag_p95_px = 0.0;
     double ads_manual_stress_slide_recover_ms = 0.0;
+    int ads_manual_stress_unreliable_high_output_frames = 0;
+    int ads_manual_stress_unreliable_same_direction_frames = 0;
+    int ads_manual_stress_unreliable_fight_frames = 0;
+    int ads_manual_stress_unreliable_no_fresh_target_high_output_frames = 0;
+    int ads_manual_stress_unreliable_err_target_high_output_frames = 0;
+    double ads_manual_stress_unreliable_max_final_output = 0.0;
+    double ads_manual_stress_unreliable_mean_final_output = 0.0;
     std::vector<RandomFovOvershootEvent> ads_manual_stress_overshoot_details;
+    bool has_ads_bodylock_near_high = false;
+    int ads_bodylock_near_high_ticks = 0;
+    int ads_bodylock_near_high_vision_samples = 0;
+    int ads_bodylock_near_high_ads_snap_frames = 0;
+    int ads_bodylock_near_high_body_lock_frames = 0;
+    int ads_bodylock_near_high_manual_frames = 0;
+    int ads_bodylock_near_high_near_target_frames = 0;
+    int ads_bodylock_near_high_output_frames = 0;
+    int ads_bodylock_near_high_brake_active_frames = 0;
+    int ads_bodylock_near_high_brake_inactive_frames = 0;
+    int ads_bodylock_near_high_acquisition_expired_high_frames = 0;
+    int ads_bodylock_near_high_chatter_events = 0;
+    int ads_bodylock_near_high_output_spikes = 0;
+    int ads_bodylock_near_high_close_assist_frames = 0;
+    int ads_bodylock_near_high_low_output_close_frames = 0;
+    int ads_bodylock_near_high_centered_frames = 0;
+    int ads_bodylock_near_high_centered_jitter_frames = 0;
+    double ads_bodylock_near_high_initial_dx = 0.0;
+    double ads_bodylock_near_high_snap_window_ms = 0.0;
+    double ads_bodylock_near_high_mean_error_px = 0.0;
+    double ads_bodylock_near_high_p95_error_px = 0.0;
+    double ads_bodylock_near_high_final_error_px = 0.0;
+    double ads_bodylock_near_high_max_final_output = 0.0;
+    double ads_bodylock_near_high_p95_output_delta = 0.0;
+    double ads_bodylock_near_high_p95_turn_degrees = 0.0;
+    double ads_bodylock_near_high_turn_smoothness_score = 0.0;
+    double ads_bodylock_near_high_close_assist_mean_output = 0.0;
+    double ads_bodylock_near_high_centered_p95_output_delta = 0.0;
+    bool has_ads_carry_through = false;
+    int ads_carry_through_ticks = 0;
+    int ads_carry_through_vision_samples = 0;
+    int ads_carry_through_ads_snap_frames = 0;
+    int ads_carry_through_body_lock_frames = 0;
+    int ads_carry_through_manual_frames = 0;
+    int ads_carry_through_same_direction_accel_frames = 0;
+    int ads_carry_through_near_target_frames = 0;
+    int ads_carry_through_near_high_output_frames = 0;
+    int ads_carry_through_brake_active_frames = 0;
+    int ads_carry_through_brake_inactive_near_high_frames = 0;
+    int ads_carry_through_sign_flip_events = 0;
+    double ads_carry_through_initial_dx = 0.0;
+    double ads_carry_through_snap_window_ms = 0.0;
+    double ads_carry_through_mean_error_px = 0.0;
+    double ads_carry_through_p95_error_px = 0.0;
+    double ads_carry_through_final_error_px = 0.0;
+    double ads_carry_through_max_overshoot_px = 0.0;
+    double ads_carry_through_max_near_final_x = 0.0;
+    double ads_carry_through_max_brake_error_px = 0.0;
+    bool has_adversarial_controller = false;
+    int adversarial_controller_ticks = 0;
+    int adversarial_controller_vision_samples = 0;
+    int adversarial_controller_wrong_target_frames = 0;
+    int adversarial_controller_user_fight_frames = 0;
+    int adversarial_controller_invalid_strong_frames = 0;
+    int adversarial_controller_stale_high_output_frames = 0;
+    int adversarial_controller_err_target_frames = 0;
+    int adversarial_controller_recovery_frames = 0;
+    int adversarial_controller_near_high_output_frames = 0;
+    int adversarial_controller_projected_frames = 0;
+    double adversarial_controller_max_final_output = 0.0;
+    double adversarial_controller_p95_error_px = 0.0;
+    double adversarial_controller_max_stale_age_ms = 0.0;
+    double adversarial_controller_mean_manual_ai_alignment = 0.0;
     bool has_selector_intent = false;
     int selector_intent_seed = 0;
     int selector_intent_ticks = 0;
@@ -1086,6 +1181,15 @@ ScenarioMetrics run_tracker_random_fov_100hz(
     bool enable_dynamics,
     bool enable_short_plan,
     bool pure_ads);
+ScenarioMetrics run_ads_diagonal_manual_stress_100hz(
+    controller_native::GamepadRuntimeConfig config,
+    const std::string& name = "ads_diagonal_manual_stress_100hz",
+    bool enable_dynamics = false,
+    bool fire_active = false,
+    bool simulate_late_fov_occlusion = false,
+    bool fresh_timestamp_for_late_position = false,
+    bool simulate_err_targets = false,
+    unsigned int err_target_seed = 1337);
 ScenarioMetrics run_ads_bodylock_moving_chase_100hz(
     controller_native::GamepadRuntimeConfig config,
     unsigned int seed,
@@ -1094,6 +1198,15 @@ ScenarioMetrics run_ads_bodylock_moving_chase_100hz(
     bool fire_active,
     BodylockChaseMotionProfile motion_profile,
     bool occlusion_gap);
+ScenarioMetrics run_ads_manual_carry_through_100hz(
+    controller_native::GamepadRuntimeConfig config,
+    const std::string& name = "ads_manual_carry_through_100hz");
+ScenarioMetrics run_ads_bodylock_near_high_output_100hz(
+    controller_native::GamepadRuntimeConfig config,
+    const std::string& name = "ads_bodylock_near_high_output_100hz");
+ScenarioMetrics run_adversarial_controller_authority_100hz(
+    controller_native::GamepadRuntimeConfig config,
+    const std::string& name = "adversarial_controller_authority_100hz");
 
 void run_self_test() {
     const char* selector_suite_argv[] = {
@@ -1208,6 +1321,31 @@ void run_self_test() {
         moving_chase.ads_manual_stress_vision_samples > 0 &&
             moving_chase.ads_manual_stress_measured_ticks > 0,
         "moving chase benchmark should produce vision and measured ticks");
+    require_benchmark_check(
+        moving_chase.ads_manual_stress_body_lock_tracking_samples > 0 &&
+            moving_chase.ads_manual_stress_body_lock_mean_error_px > 0.0 &&
+            moving_chase.ads_manual_stress_body_lock_p95_error_px > 0.0,
+        "moving chase benchmark should report body-lock-only tracking error metrics");
+    require_benchmark_check(
+        moving_chase.ads_manual_stress_body_lock_direction_score >= 50.0,
+        "moving chase benchmark should report body-lock output direction quality");
+    require_benchmark_check(
+        moving_chase.ads_manual_stress_body_lock_turn_samples > 0 &&
+            moving_chase.ads_manual_stress_body_lock_turn_smoothness_score > 0.0,
+        "moving chase benchmark should report body-lock-only smoothness metrics");
+    require_benchmark_check(
+        moving_chase.ads_manual_stress_body_lock_sustain_cases > 0 &&
+            moving_chase.ads_manual_stress_body_lock_sustain_required_ms > 0.0 &&
+            moving_chase.ads_manual_stress_body_lock_sustain_longest_ms > 0.0,
+        "moving chase benchmark should report sustained body-lock tracking metrics");
+    require_benchmark_check(
+        moving_chase.ads_manual_stress_body_lock_close_assist_samples > 0 &&
+            moving_chase.ads_manual_stress_body_lock_close_assist_mean_ai_output > 0.0,
+        "moving chase benchmark should report body-lock close-assist strength");
+    require_benchmark_check(
+        moving_chase.ads_manual_stress_body_lock_dropout_frames >= 0 &&
+            moving_chase.ads_manual_stress_body_lock_centered_samples >= 0,
+        "moving chase benchmark should report body-lock dropout and centered jitter counters");
 
     const ScenarioMetrics slide_occluded = run_ads_bodylock_moving_chase_100hz(
         moving_config,
@@ -1240,6 +1378,93 @@ void run_self_test() {
             arc_jump.ads_manual_stress_body_lock_frames > 0 &&
             arc_jump.ads_manual_stress_measured_ticks > 0,
         "arc jump benchmark should exercise body-lock movement samples");
+
+    const ScenarioMetrics near_high = run_ads_bodylock_near_high_output_100hz(
+        moving_config,
+        "ads_bodylock_near_high_output_100hz_self_test");
+    require_benchmark_check(
+        near_high.has_ads_bodylock_near_high &&
+            near_high.ads_bodylock_near_high_near_target_frames > 0 &&
+            near_high.ads_bodylock_near_high_body_lock_frames > 0,
+        "near-high output benchmark should exercise body-lock near-target frames");
+    require_benchmark_check(
+        near_high.ads_bodylock_near_high_output_frames > 0 &&
+            near_high.ads_bodylock_near_high_brake_inactive_frames > 0,
+        "near-high output benchmark should reproduce high output while brake is inactive");
+    require_benchmark_check(
+        near_high.ads_bodylock_near_high_max_final_output >= 0.45 &&
+            near_high.ads_bodylock_near_high_p95_output_delta >= 0.0,
+        "near-high output benchmark should report high-output and smoothness metrics");
+    require_benchmark_check(
+        near_high.ads_bodylock_near_high_close_assist_frames > 0 &&
+            near_high.ads_bodylock_near_high_close_assist_mean_output > 0.0,
+        "near-high output benchmark should report close-assist strength instead of treating all near-high output as bad");
+    require_benchmark_check(
+        near_high.ads_bodylock_near_high_centered_frames >= 0 &&
+            near_high.ads_bodylock_near_high_centered_jitter_frames >= 0 &&
+            near_high.ads_bodylock_near_high_low_output_close_frames >= 0,
+        "near-high output benchmark should report centered jitter and close-range dropout counters");
+
+    const ScenarioMetrics carry_through = run_ads_manual_carry_through_100hz(
+        moving_config,
+        "ads_manual_carry_through_100hz_self_test");
+    require_benchmark_check(
+        carry_through.has_ads_carry_through &&
+            carry_through.ads_carry_through_same_direction_accel_frames > 0,
+        "ADS carry-through benchmark should reproduce AI and manual same-direction acceleration");
+    require_benchmark_check(
+        carry_through.ads_carry_through_sign_flip_events > 0 &&
+            carry_through.ads_carry_through_max_overshoot_px <= 25.0,
+        "ADS carry-through benchmark should keep overshoot bounded after crossing");
+    require_benchmark_check(
+        carry_through.ads_carry_through_near_high_output_frames > 0 &&
+            carry_through.ads_carry_through_brake_active_frames > 0 &&
+            carry_through.ads_carry_through_brake_inactive_near_high_frames <
+                carry_through.ads_carry_through_near_high_output_frames,
+        "ADS carry-through benchmark should apply carry brake before high-output near-target frames dominate");
+    require_benchmark_check(
+        carry_through.ads_carry_through_body_lock_frames +
+                carry_through.ads_carry_through_manual_frames >
+            0,
+        "ADS carry-through benchmark should exercise post-ads-snap authority modes");
+
+    const ScenarioMetrics adversarial = run_adversarial_controller_authority_100hz(
+        moving_config,
+        "adversarial_controller_authority_100hz_self_test");
+    require_benchmark_check(
+        adversarial.has_adversarial_controller &&
+            adversarial.adversarial_controller_ticks > 0,
+        "adversarial controller benchmark should report controller stress metrics");
+    require_benchmark_check(
+        adversarial.adversarial_controller_wrong_target_frames > 0 &&
+            adversarial.adversarial_controller_user_fight_frames > 0,
+        "adversarial controller benchmark should expose wrong-target user fight");
+    require_benchmark_check(
+        adversarial.adversarial_controller_invalid_strong_frames > 0 &&
+            adversarial.adversarial_controller_stale_high_output_frames > 0,
+        "adversarial controller benchmark should expose invalid/stale high authority");
+    require_benchmark_check(
+        adversarial.adversarial_controller_err_target_frames > 0 &&
+            adversarial.adversarial_controller_recovery_frames > 0,
+        "adversarial controller benchmark should expose err target and recovery windows");
+
+    const ScenarioMetrics err_late_ads = run_ads_diagonal_manual_stress_100hz(
+        moving_config,
+        "ads_diagonal_err_target_late_position_fov_occlusion_50hz_dynamic_fire_self_test",
+        true,
+        true,
+        true,
+        true,
+        true,
+        20260704);
+    require_benchmark_check(
+        err_late_ads.ads_manual_stress_unreliable_high_output_frames > 0 &&
+            err_late_ads.ads_manual_stress_unreliable_max_final_output > 0.0,
+        "ADS stress benchmark should report high output under unreliable acquisition evidence");
+    require_benchmark_check(
+        err_late_ads.ads_manual_stress_unreliable_same_direction_frames > 0 &&
+            err_late_ads.ads_manual_stress_unreliable_fight_frames >= 0,
+        "ADS stress benchmark should report manual/AI stacking and fight during unreliable acquisition");
 
     const std::vector<double> crossed_then_deepened = {6.0, 2.5, -1.0, -4.0};
     require_benchmark_check(
@@ -3042,13 +3267,13 @@ ScenarioMetrics run_ads_fov_settle_130ms(
 
 ScenarioMetrics run_ads_diagonal_manual_stress_100hz(
     controller_native::GamepadRuntimeConfig config,
-    const std::string& name = "ads_diagonal_manual_stress_100hz",
-    bool enable_dynamics = false,
-    bool fire_active = false,
-    bool simulate_late_fov_occlusion = false,
-    bool fresh_timestamp_for_late_position = false,
-    bool simulate_err_targets = false,
-    unsigned int err_target_seed = 1337) {
+    const std::string& name,
+    bool enable_dynamics,
+    bool fire_active,
+    bool simulate_late_fov_occlusion,
+    bool fresh_timestamp_for_late_position,
+    bool simulate_err_targets,
+    unsigned int err_target_seed) {
     ScenarioMetrics metrics;
     metrics.name = name;
     metrics.has_ads_manual_stress = true;
@@ -3116,6 +3341,19 @@ ScenarioMetrics run_ads_diagonal_manual_stress_100hz(
         0.0,
         6.28318530717958647692);
     std::vector<double> err_recovery_ms;
+    constexpr double kUnreliableHighOutputThreshold = 0.45;
+    constexpr double kManualAiIntentThreshold = 0.10;
+    constexpr double kUnreliableSameDirectionAlignment = 0.35;
+    constexpr double kUnreliableFightAlignment = -0.35;
+    constexpr double kFreshTargetAgeMs = 45.0;
+    const int acquisition_guard_ticks =
+        static_cast<int>(
+            std::ceil(
+                (static_cast<double>(config.ai_aim.ads_snap_window_ms) + 120.0) /
+                1000.0 *
+                kControllerHz));
+    double unreliable_final_output_sum = 0.0;
+    int unreliable_final_output_samples = 0;
 
     for (std::size_t case_index = 0; case_index < cases.size(); ++case_index) {
         const StressCase& stress = cases[case_index];
@@ -3292,6 +3530,68 @@ ScenarioMetrics run_ads_diagonal_manual_stress_100hz(
             const double output_move_y = -components.final_stick.y;
             const double manual_move_x = manual_x;
             const double manual_move_y = -manual_y;
+            const double ai_move_x = components.ai_aim_stick.x;
+            const double ai_move_y = -components.ai_aim_stick.y;
+            const double final_output_magnitude =
+                vector_magnitude(output_move_x, output_move_y);
+            const double manual_magnitude =
+                vector_magnitude(manual_move_x, manual_move_y);
+            const double ai_magnitude = vector_magnitude(ai_move_x, ai_move_y);
+            bool err_target_active = false;
+            for (const AdsErrTargetWindow& window : err_windows) {
+                if (ads_err_target_window_active(window, tick)) {
+                    err_target_active = true;
+                    break;
+                }
+            }
+            const controller_native::NativeControllerVisionState& frame_vision =
+                controller.last_frame_vision_state();
+            const double frame_vision_age_ms =
+                frame_vision.has_target
+                    ? std::max(
+                          0.0,
+                          (simulated_now - frame_vision.observed_at_seconds) * 1000.0)
+                    : 0.0;
+            const bool no_fresh_target =
+                !frame_vision.has_target || frame_vision_age_ms >= kFreshTargetAgeMs;
+            const bool unreliable_acquisition =
+                (tick < acquisition_guard_ticks &&
+                 (simulate_late_fov_occlusion || no_fresh_target)) ||
+                err_target_active;
+            if (unreliable_acquisition) {
+                unreliable_final_output_sum += final_output_magnitude;
+                ++unreliable_final_output_samples;
+                metrics.ads_manual_stress_unreliable_max_final_output = std::max(
+                    metrics.ads_manual_stress_unreliable_max_final_output,
+                    final_output_magnitude);
+                const bool high_output =
+                    final_output_magnitude >= kUnreliableHighOutputThreshold;
+                if (high_output) {
+                    ++metrics.ads_manual_stress_unreliable_high_output_frames;
+                    if (no_fresh_target) {
+                        ++metrics
+                              .ads_manual_stress_unreliable_no_fresh_target_high_output_frames;
+                    }
+                    if (err_target_active) {
+                        ++metrics
+                              .ads_manual_stress_unreliable_err_target_high_output_frames;
+                    }
+                }
+                if (manual_magnitude >= kManualAiIntentThreshold &&
+                    ai_magnitude >= kManualAiIntentThreshold) {
+                    const double manual_ai_alignment = vector_alignment(
+                        manual_move_x,
+                        manual_move_y,
+                        ai_move_x,
+                        ai_move_y,
+                        kVectorDeadzone);
+                    if (manual_ai_alignment >= kUnreliableSameDirectionAlignment) {
+                        ++metrics.ads_manual_stress_unreliable_same_direction_frames;
+                    } else if (manual_ai_alignment <= kUnreliableFightAlignment) {
+                        ++metrics.ads_manual_stress_unreliable_fight_frames;
+                    }
+                }
+            }
             for (AdsErrTargetWindow& window : err_windows) {
                 const bool err_active = ads_err_target_window_active(window, tick);
                 if (err_active) {
@@ -3464,6 +3764,11 @@ ScenarioMetrics run_ads_diagonal_manual_stress_100hz(
         manual_alignment_samples <= 0
             ? 0.0
             : manual_alignment_sum / static_cast<double>(manual_alignment_samples);
+    metrics.ads_manual_stress_unreliable_mean_final_output =
+        unreliable_final_output_samples <= 0
+            ? 0.0
+            : unreliable_final_output_sum /
+                static_cast<double>(unreliable_final_output_samples);
     metrics.ads_manual_stress_direction_score =
         alignment_score(metrics.ads_manual_stress_mean_target_alignment);
     metrics.ads_manual_stress_manual_direction_score =
@@ -3472,6 +3777,579 @@ ScenarioMetrics run_ads_diagonal_manual_stress_100hz(
         nearest_rank_percentile(turn_degrees, 0.95);
     metrics.ads_manual_stress_turn_smoothness_score =
         turn_smoothness_score(metrics.ads_manual_stress_p95_turn_degrees);
+    return metrics;
+}
+
+ScenarioMetrics run_ads_manual_carry_through_100hz(
+    controller_native::GamepadRuntimeConfig config,
+    const std::string& name) {
+    ScenarioMetrics metrics;
+    metrics.name = name;
+    metrics.has_ads_carry_through = true;
+
+    constexpr double kControllerHz = 1000.0;
+    constexpr double kVisionHz = 100.0;
+    constexpr double kDtSeconds = 1.0 / kControllerHz;
+    constexpr int kVisionIntervalTicks = 10;
+    constexpr int kTicks = 360;
+    constexpr double kInitialDx = 96.0;
+    constexpr double kNearTargetPx = 36.0;
+    constexpr double kHighOutputThreshold = 0.40;
+    constexpr double kAccelDeadzone = 0.05;
+    constexpr double kOvershootThresholdPx = 2.0;
+
+    config.recoil.enabled = false;
+    config.aim_assist_dynamics.enabled = false;
+    config.ai_aim.target_max_age_ms = std::max(config.ai_aim.target_max_age_ms, 100.0f);
+    config.ai_aim.target_projection_max_age_ms =
+        std::max(config.ai_aim.target_projection_max_age_ms, 80.0f);
+    config.ai_aim.ads_snap_window_ms =
+        std::max(config.ai_aim.ads_snap_window_ms, 180);
+    config.ai_aim.body_lock_activation_box_px =
+        std::max(config.ai_aim.body_lock_activation_box_px, 190.0f);
+    config.ai_aim.body_lock_box_tolerance_px =
+        std::max(config.ai_aim.body_lock_box_tolerance_px, 28.0f);
+    config.ai_aim.body_lock_confidence_frames =
+        std::max(config.ai_aim.body_lock_confidence_frames, 1);
+    config.ai_aim.body_lock_smoothing =
+        std::min(config.ai_aim.body_lock_smoothing, 0.10f);
+    config.ai_aim.body_lock_max_ai_force =
+        std::max(config.ai_aim.body_lock_max_ai_force, 0.72f);
+    config.ai_aim.body_lock_opposing_boost_max_ai_force =
+        std::max(config.ai_aim.body_lock_opposing_boost_max_ai_force, 0.78f);
+    config.ai_aim.body_lock_max_ai_force_y =
+        std::max(config.ai_aim.body_lock_max_ai_force_y, 0.76f);
+
+    const double reticle_speed = std::max(
+        1.0f,
+        config.ai_aim.target_projection_reticle_speed_px_per_sec);
+    metrics.ads_carry_through_initial_dx = kInitialDx;
+    metrics.ads_carry_through_snap_window_ms =
+        static_cast<double>(config.ai_aim.ads_snap_window_ms);
+
+    double simulated_now = 1.0;
+    controller_native::NativeGamepadController controller(
+        config,
+        [&simulated_now]() { return simulated_now; });
+
+    double reticle_x_position = 0.0;
+    std::vector<double> residual_errors;
+    std::vector<double> x_errors;
+    std::vector<std::string> modes;
+    residual_errors.reserve(kTicks);
+    x_errors.reserve(kTicks);
+    modes.reserve(kTicks);
+
+    int previous_error_sign = 0;
+    bool has_previous_error_sign = false;
+    bool after_first_crossing = false;
+
+    for (int tick = 0; tick < kTicks; ++tick) {
+        simulated_now = 1.0 + (static_cast<double>(tick) * kDtSeconds);
+        const double expected_dx = kInitialDx - reticle_x_position;
+        if (tick % kVisionIntervalTicks == 0) {
+            controller.submit_vision_state(benchmark_target_state(
+                static_cast<float>(expected_dx),
+                0.0f,
+                simulated_now));
+            ++metrics.ads_carry_through_vision_samples;
+        }
+
+        float manual_x = 0.0f;
+        if (tick < 170) {
+            manual_x = 0.92f;
+        } else if (tick < 260) {
+            manual_x = 0.62f;
+        } else if (tick < 320) {
+            manual_x = -0.34f;
+        }
+
+        controller.build_output(aiming_state(manual_x, 0.0f, false));
+        const controller_native::NativeControllerOutputComponents& components =
+            controller.last_output_components();
+        add_frame_sample(metrics, components);
+
+        const std::string mode = controller.last_ai_aim_mode();
+        if (mode == "ads_snap") {
+            ++metrics.ads_carry_through_ads_snap_frames;
+        } else if (mode == "body_lock") {
+            ++metrics.ads_carry_through_body_lock_frames;
+        } else {
+            ++metrics.ads_carry_through_manual_frames;
+        }
+
+        const int manual_sign =
+            direction(static_cast<double>(components.manual_stick.x), kAccelDeadzone);
+        const int ai_sign =
+            direction(static_cast<double>(components.ai_aim_stick.x), kAccelDeadzone);
+        if (manual_sign != 0 && manual_sign == ai_sign) {
+            ++metrics.ads_carry_through_same_direction_accel_frames;
+        }
+        if (components.ads_brake_active) {
+            ++metrics.ads_carry_through_brake_active_frames;
+        }
+        metrics.ads_carry_through_max_brake_error_px = std::max(
+            metrics.ads_carry_through_max_brake_error_px,
+            std::hypot(
+                static_cast<double>(components.ads_brake_error_px.x),
+                static_cast<double>(components.ads_brake_error_px.y)));
+
+        const double reticle_delta_x =
+            static_cast<double>(components.final_stick.x) *
+            reticle_speed *
+            kDtSeconds;
+        reticle_x_position += reticle_delta_x;
+        metrics.ads_manual_stress_max_single_frame_camera_delta_px = std::max(
+            metrics.ads_manual_stress_max_single_frame_camera_delta_px,
+            std::fabs(reticle_delta_x));
+
+        const double residual_dx = kInitialDx - reticle_x_position;
+        const double abs_residual_dx = std::fabs(residual_dx);
+        residual_errors.push_back(abs_residual_dx);
+        x_errors.push_back(residual_dx);
+        modes.push_back(mode);
+
+        if (abs_residual_dx <= kNearTargetPx) {
+            ++metrics.ads_carry_through_near_target_frames;
+            metrics.ads_carry_through_max_near_final_x = std::max(
+                metrics.ads_carry_through_max_near_final_x,
+                std::fabs(static_cast<double>(components.final_stick.x)));
+            if (std::fabs(static_cast<double>(components.final_stick.x)) >=
+                kHighOutputThreshold) {
+                ++metrics.ads_carry_through_near_high_output_frames;
+                if (!components.ads_brake_active) {
+                    ++metrics.ads_carry_through_brake_inactive_near_high_frames;
+                }
+            }
+        }
+
+        const int current_error_sign = signum(residual_dx);
+        if (has_previous_error_sign &&
+            previous_error_sign != 0 &&
+            current_error_sign != 0 &&
+            current_error_sign != previous_error_sign) {
+            ++metrics.ads_carry_through_sign_flip_events;
+            after_first_crossing = true;
+        }
+        if (after_first_crossing) {
+            metrics.ads_carry_through_max_overshoot_px = std::max(
+                metrics.ads_carry_through_max_overshoot_px,
+                abs_residual_dx);
+        }
+        previous_error_sign = current_error_sign;
+        has_previous_error_sign = current_error_sign != 0;
+    }
+
+    const ModeOvershootStats x_overshoot =
+        axis_mode_overshoot_stats(x_errors, modes, kOvershootThresholdPx);
+    metrics.ads_carry_through_max_overshoot_px = std::max(
+        metrics.ads_carry_through_max_overshoot_px,
+        x_overshoot.max_px);
+    metrics.ads_carry_through_ticks = kTicks;
+    metrics.ads_carry_through_mean_error_px = mean_value(residual_errors);
+    metrics.ads_carry_through_p95_error_px =
+        nearest_rank_percentile(residual_errors, 0.95);
+    metrics.ads_carry_through_final_error_px =
+        residual_errors.empty() ? 0.0 : residual_errors.back();
+    return metrics;
+}
+
+ScenarioMetrics run_ads_bodylock_near_high_output_100hz(
+    controller_native::GamepadRuntimeConfig config,
+    const std::string& name) {
+    ScenarioMetrics metrics;
+    metrics.name = name;
+    metrics.has_ads_bodylock_near_high = true;
+
+    constexpr double kControllerHz = 1000.0;
+    constexpr double kDtSeconds = 1.0 / kControllerHz;
+    constexpr int kVisionIntervalTicks = 10;
+    constexpr int kTicks = 720;
+    constexpr double kNearTargetPx = 80.0;
+    constexpr double kHighOutputThreshold = 0.45;
+    constexpr double kOutputSpikeDelta = 0.30;
+    constexpr double kVectorDeadzone = 0.015;
+    constexpr double kCloseAssistMinPx = 18.0;
+    constexpr double kCloseAssistMaxPx = 80.0;
+    constexpr double kCloseAssistLowOutputThreshold = 0.08;
+    constexpr double kCenteredPx = 16.0;
+    constexpr double kCenteredJitterDelta = 0.12;
+
+    config.recoil.enabled = false;
+    config.aim_assist_dynamics.enabled = true;
+    config.ai_aim.target_max_age_ms = std::max(config.ai_aim.target_max_age_ms, 160.0f);
+    config.ai_aim.target_projection_max_age_ms =
+        std::max(config.ai_aim.target_projection_max_age_ms, 180.0f);
+    config.ai_aim.ads_snap_window_ms = std::max(config.ai_aim.ads_snap_window_ms, 180);
+    config.ai_aim.body_lock_box_tolerance_px =
+        std::max(config.ai_aim.body_lock_box_tolerance_px, 28.0f);
+    config.ai_aim.body_lock_activation_box_px =
+        std::max(config.ai_aim.body_lock_activation_box_px, 190.0f);
+    config.ai_aim.body_lock_confidence_frames =
+        std::max(config.ai_aim.body_lock_confidence_frames, 1);
+
+    metrics.ads_bodylock_near_high_initial_dx = 76.0;
+    metrics.ads_bodylock_near_high_snap_window_ms =
+        static_cast<double>(config.ai_aim.ads_snap_window_ms);
+
+    double simulated_now = 1.0;
+    controller_native::NativeGamepadController controller(
+        config,
+        [&simulated_now]() { return simulated_now; });
+
+    std::vector<double> errors;
+    std::vector<double> output_deltas;
+    std::vector<double> turn_degrees;
+    std::vector<double> centered_output_deltas;
+    errors.reserve(kTicks);
+    output_deltas.reserve(kTicks);
+    turn_degrees.reserve(kTicks);
+    centered_output_deltas.reserve(kTicks);
+    double close_assist_output_sum = 0.0;
+
+    double previous_output_x = 0.0;
+    double previous_output_y = 0.0;
+    bool has_previous_output = false;
+    int previous_x_sign = 0;
+    int previous_y_sign = 0;
+    const int acquisition_expired_tick =
+        static_cast<int>(
+            std::ceil(
+                (static_cast<double>(config.ai_aim.ads_snap_window_ms) + 120.0) /
+                1000.0 *
+                kControllerHz));
+
+    for (int tick = 0; tick < kTicks; ++tick) {
+        simulated_now = 1.0 + (static_cast<double>(tick) * kDtSeconds);
+        const double seconds = static_cast<double>(tick) * kDtSeconds;
+        const double wave = std::sin(seconds * 19.0);
+        const double fast_wave = std::sin(seconds * 47.0);
+        const double reported_dx =
+            tick < 160 ? 76.0 - (0.10 * static_cast<double>(tick))
+                       : 64.0 + (12.0 * wave);
+        const double reported_dy =
+            tick < 160 ? -24.0 + (0.05 * static_cast<double>(tick))
+                       : -18.0 + (10.0 * fast_wave);
+
+        if (tick % kVisionIntervalTicks == 0) {
+            controller.submit_vision_state(benchmark_target_state(
+                static_cast<float>(reported_dx),
+                static_cast<float>(reported_dy),
+                simulated_now));
+            ++metrics.ads_bodylock_near_high_vision_samples;
+        }
+
+        const float manual_x = tick >= 360 && tick < 520
+            ? static_cast<float>(clamp_double(0.18 * std::sin(seconds * 9.0), -0.24, 0.24))
+            : 0.0f;
+        const float manual_y = tick >= 360 && tick < 520
+            ? static_cast<float>(clamp_double(-0.14 * std::cos(seconds * 11.0), -0.20, 0.20))
+            : 0.0f;
+        controller.build_output(aiming_state(manual_x, manual_y, false));
+        const controller_native::NativeControllerOutputComponents& components =
+            controller.last_output_components();
+        add_frame_sample(metrics, components);
+
+        const std::string mode = controller.last_ai_aim_mode();
+        if (mode == "ads_snap") {
+            ++metrics.ads_bodylock_near_high_ads_snap_frames;
+        } else if (mode == "body_lock") {
+            ++metrics.ads_bodylock_near_high_body_lock_frames;
+        } else if (mode == "manual") {
+            ++metrics.ads_bodylock_near_high_manual_frames;
+        }
+
+        const double error_radius = std::hypot(reported_dx, reported_dy);
+        errors.push_back(error_radius);
+        const double output_x = components.final_stick.x;
+        const double output_y = -components.final_stick.y;
+        const double output_magnitude = vector_magnitude(output_x, output_y);
+        metrics.ads_bodylock_near_high_max_final_output = std::max(
+            metrics.ads_bodylock_near_high_max_final_output,
+            output_magnitude);
+
+        if (error_radius <= kNearTargetPx) {
+            ++metrics.ads_bodylock_near_high_near_target_frames;
+            if (output_magnitude >= kHighOutputThreshold) {
+                ++metrics.ads_bodylock_near_high_output_frames;
+                if (components.ads_brake_active) {
+                    ++metrics.ads_bodylock_near_high_brake_active_frames;
+                } else {
+                    ++metrics.ads_bodylock_near_high_brake_inactive_frames;
+                }
+                if (tick >= acquisition_expired_tick &&
+                    mode == "body_lock" &&
+                    !components.ads_brake_active) {
+                    ++metrics.ads_bodylock_near_high_acquisition_expired_high_frames;
+                }
+            }
+        }
+        const bool close_assist_band =
+            error_radius > kCloseAssistMinPx && error_radius <= kCloseAssistMaxPx;
+        if (close_assist_band && mode == "body_lock") {
+            ++metrics.ads_bodylock_near_high_close_assist_frames;
+            close_assist_output_sum += output_magnitude;
+        }
+        if (close_assist_band &&
+            (mode != "body_lock" ||
+             output_magnitude < kCloseAssistLowOutputThreshold)) {
+            ++metrics.ads_bodylock_near_high_low_output_close_frames;
+        }
+        if (error_radius <= kCenteredPx) {
+            ++metrics.ads_bodylock_near_high_centered_frames;
+        }
+
+        if (has_previous_output) {
+            const double previous_magnitude =
+                vector_magnitude(previous_output_x, previous_output_y);
+            if (previous_magnitude >= kVectorDeadzone &&
+                output_magnitude >= kVectorDeadzone) {
+                const double output_delta = vector_magnitude(
+                    output_x - previous_output_x,
+                    output_y - previous_output_y);
+                output_deltas.push_back(output_delta);
+                if (error_radius <= kCenteredPx) {
+                    centered_output_deltas.push_back(output_delta);
+                    if (output_delta >= kCenteredJitterDelta) {
+                        ++metrics.ads_bodylock_near_high_centered_jitter_frames;
+                    }
+                }
+                if (output_delta > kOutputSpikeDelta) {
+                    ++metrics.ads_bodylock_near_high_output_spikes;
+                }
+                turn_degrees.push_back(vector_turn_degrees(
+                    previous_output_x,
+                    previous_output_y,
+                    output_x,
+                    output_y,
+                    kVectorDeadzone));
+                const int current_x_sign = signum(output_x);
+                const int current_y_sign = signum(output_y);
+                if ((previous_x_sign != 0 && current_x_sign != 0 &&
+                     previous_x_sign != current_x_sign) ||
+                    (previous_y_sign != 0 && current_y_sign != 0 &&
+                     previous_y_sign != current_y_sign)) {
+                    ++metrics.ads_bodylock_near_high_chatter_events;
+                }
+                previous_x_sign = current_x_sign;
+                previous_y_sign = current_y_sign;
+            }
+        } else {
+            previous_x_sign = signum(output_x);
+            previous_y_sign = signum(output_y);
+        }
+        previous_output_x = output_x;
+        previous_output_y = output_y;
+        has_previous_output = true;
+    }
+
+    metrics.ads_bodylock_near_high_ticks = kTicks;
+    metrics.ads_bodylock_near_high_mean_error_px = mean_value(errors);
+    metrics.ads_bodylock_near_high_p95_error_px =
+        nearest_rank_percentile(errors, 0.95);
+    metrics.ads_bodylock_near_high_final_error_px =
+        errors.empty() ? 0.0 : errors.back();
+    metrics.ads_bodylock_near_high_p95_output_delta =
+        nearest_rank_percentile(output_deltas, 0.95);
+    metrics.ads_bodylock_near_high_centered_p95_output_delta =
+        nearest_rank_percentile(centered_output_deltas, 0.95);
+    metrics.ads_bodylock_near_high_p95_turn_degrees =
+        nearest_rank_percentile(turn_degrees, 0.95);
+    metrics.ads_bodylock_near_high_turn_smoothness_score =
+        turn_smoothness_score(metrics.ads_bodylock_near_high_p95_turn_degrees);
+    metrics.ads_bodylock_near_high_close_assist_mean_output =
+        metrics.ads_bodylock_near_high_close_assist_frames <= 0
+            ? 0.0
+            : close_assist_output_sum /
+                static_cast<double>(metrics.ads_bodylock_near_high_close_assist_frames);
+    return metrics;
+}
+
+ScenarioMetrics run_adversarial_controller_authority_100hz(
+    controller_native::GamepadRuntimeConfig config,
+    const std::string& name) {
+    ScenarioMetrics metrics;
+    metrics.name = name;
+    metrics.has_adversarial_controller = true;
+
+    constexpr double kControllerHz = 1000.0;
+    constexpr double kDtSeconds = 1.0 / kControllerHz;
+    constexpr int kVisionIntervalTicks = 10;
+    constexpr int kTicks = 720;
+    constexpr double kHighOutputThreshold = 0.45;
+    constexpr double kFightAlignment = -0.25;
+    constexpr double kStaleMs = 80.0;
+    constexpr double kVectorDeadzone = 0.015;
+
+    config.recoil.enabled = false;
+    config.aim_assist_dynamics.enabled = true;
+    config.ai_aim.target_max_age_ms = std::max(config.ai_aim.target_max_age_ms, 220.0f);
+    config.ai_aim.target_projection_max_age_ms =
+        std::max(config.ai_aim.target_projection_max_age_ms, 260.0f);
+    config.ai_aim.ads_snap_window_ms = std::max(config.ai_aim.ads_snap_window_ms, 180);
+    config.ai_aim.body_lock_confidence_frames =
+        std::max(config.ai_aim.body_lock_confidence_frames, 1);
+
+    double simulated_now = 1.0;
+    controller_native::NativeGamepadController controller(
+        config,
+        [&simulated_now]() { return simulated_now; });
+
+    std::vector<double> intended_errors;
+    std::vector<double> manual_ai_alignments;
+    intended_errors.reserve(kTicks);
+    manual_ai_alignments.reserve(kTicks);
+
+    int last_submit_tick = -1;
+    for (int tick = 0; tick < kTicks; ++tick) {
+        simulated_now = 1.0 + (static_cast<double>(tick) * kDtSeconds);
+
+        double intended_dx = -42.0;
+        double intended_dy = 18.0;
+        double submitted_dx = intended_dx;
+        double submitted_dy = intended_dy;
+        float manual_x = -0.32f;
+        float manual_y = 0.14f;
+        bool submit_vision = (tick % kVisionIntervalTicks) == 0;
+        bool wrong_target_phase = false;
+        bool invalid_strong_phase = false;
+        bool err_target_phase = false;
+        bool recovery_phase = false;
+        const char* tier = "observed_strong";
+
+        if (tick < 120) {
+            intended_dx = -78.0 + (0.24 * static_cast<double>(tick));
+            intended_dy = 30.0 - (0.06 * static_cast<double>(tick));
+            submitted_dx = intended_dx;
+            submitted_dy = intended_dy;
+            manual_x = -0.30f;
+            manual_y = 0.12f;
+        } else if (tick < 260) {
+            intended_dx = -38.0;
+            intended_dy = 20.0;
+            submitted_dx = 68.0;
+            submitted_dy = -28.0;
+            manual_x = -0.58f;
+            manual_y = 0.22f;
+            wrong_target_phase = true;
+        } else if (tick < 400) {
+            intended_dx = 34.0 + (0.12 * static_cast<double>(tick - 260));
+            intended_dy = 10.0;
+            submitted_dx = 34.0;
+            submitted_dy = 10.0;
+            manual_x = 0.48f;
+            manual_y = 0.08f;
+            submit_vision = tick == 260;
+        } else if (tick < 520) {
+            intended_dx = 64.0;
+            intended_dy = 16.0;
+            submitted_dx = -26.0;
+            submitted_dy = -10.0;
+            manual_x = 0.58f;
+            manual_y = 0.14f;
+            invalid_strong_phase = true;
+            tier = "suspected_corpse";
+        } else if (tick < 620) {
+            intended_dx = -32.0;
+            intended_dy = 18.0;
+            submitted_dx = 82.0;
+            submitted_dy = -52.0;
+            manual_x = -0.54f;
+            manual_y = 0.24f;
+            err_target_phase = true;
+        } else {
+            intended_dx = -28.0;
+            intended_dy = 14.0;
+            submitted_dx = intended_dx;
+            submitted_dy = intended_dy;
+            manual_x = -0.34f;
+            manual_y = 0.12f;
+            recovery_phase = true;
+        }
+
+        if (submit_vision) {
+            controller_native::NativeControllerVisionState state =
+                benchmark_target_state(
+                    static_cast<float>(submitted_dx),
+                    static_cast<float>(submitted_dy),
+                    simulated_now);
+            state.target_tier = tier;
+            state.aim_authority = true;
+            state.fire_authority = !invalid_strong_phase;
+            controller.submit_vision_state(state);
+            last_submit_tick = tick;
+            ++metrics.adversarial_controller_vision_samples;
+        }
+
+        controller.build_output(aiming_state(manual_x, manual_y, false));
+        const controller_native::NativeControllerOutputComponents& components =
+            controller.last_output_components();
+        const controller_native::NativeControllerVisionState& frame_state =
+            controller.last_frame_vision_state();
+        add_frame_sample(metrics, components);
+
+        const double final_output = vector_magnitude(
+            components.final_stick.x,
+            components.final_stick.y);
+        metrics.adversarial_controller_max_final_output = std::max(
+            metrics.adversarial_controller_max_final_output,
+            final_output);
+
+        const double intended_error = std::hypot(intended_dx, intended_dy);
+        intended_errors.push_back(intended_error);
+        if (intended_error <= 60.0 && final_output >= kHighOutputThreshold) {
+            ++metrics.adversarial_controller_near_high_output_frames;
+        }
+        if (frame_state.has_tracker_projection) {
+            ++metrics.adversarial_controller_projected_frames;
+        }
+
+        const double manual_ai_alignment = vector_alignment(
+            components.manual_stick.x,
+            components.manual_stick.y,
+            components.ai_aim_stick.x,
+            components.ai_aim_stick.y,
+            kVectorDeadzone);
+        manual_ai_alignments.push_back(manual_ai_alignment);
+        const double manual_final_alignment = vector_alignment(
+            components.manual_stick.x,
+            components.manual_stick.y,
+            components.final_stick.x,
+            components.final_stick.y,
+            kVectorDeadzone);
+        if (manual_ai_alignment <= kFightAlignment ||
+            manual_final_alignment <= kFightAlignment) {
+            ++metrics.adversarial_controller_user_fight_frames;
+        }
+
+        if (wrong_target_phase) {
+            ++metrics.adversarial_controller_wrong_target_frames;
+        }
+        if (invalid_strong_phase && final_output >= 0.25) {
+            ++metrics.adversarial_controller_invalid_strong_frames;
+        }
+        const double stale_age_ms = last_submit_tick >= 0
+            ? static_cast<double>(tick - last_submit_tick) * kDtSeconds * 1000.0
+            : 0.0;
+        metrics.adversarial_controller_max_stale_age_ms = std::max(
+            metrics.adversarial_controller_max_stale_age_ms,
+            stale_age_ms);
+        if (stale_age_ms >= kStaleMs && final_output >= 0.25) {
+            ++metrics.adversarial_controller_stale_high_output_frames;
+        }
+        if (err_target_phase && final_output >= 0.25) {
+            ++metrics.adversarial_controller_err_target_frames;
+        }
+        if (recovery_phase) {
+            ++metrics.adversarial_controller_recovery_frames;
+        }
+    }
+
+    metrics.adversarial_controller_ticks = kTicks;
+    metrics.adversarial_controller_p95_error_px =
+        nearest_rank_percentile(intended_errors, 0.95);
+    metrics.adversarial_controller_mean_manual_ai_alignment =
+        mean_value(manual_ai_alignments);
     return metrics;
 }
 
@@ -3496,11 +4374,19 @@ ScenarioMetrics run_ads_bodylock_moving_chase_100hz(
     constexpr double kOvershootThresholdPx = 2.0;
     constexpr double kLargeOvershootThresholdPx = 50.0;
     constexpr double kVectorDeadzone = 0.015;
+    constexpr double kBodyLockSpikeDelta = 0.30;
+    constexpr double kBodyLockSustainErrorPx = 45.0;
+    constexpr int kBodyLockSustainRequiredTicks = 180;
     constexpr int kSlideStartTick = 210;
     constexpr int kSlideEndTick = 410;
     constexpr int kOcclusionStartTick = 285;
     constexpr int kOcclusionEndTick = 405;
     constexpr double kRecoverThresholdPx = 22.0;
+    constexpr double kBodyLockCloseAssistMinPx = 18.0;
+    constexpr double kBodyLockCloseAssistMaxPx = 72.0;
+    constexpr double kBodyLockCloseAssistLowOutput = 0.06;
+    constexpr double kBodyLockCenteredPx = 14.0;
+    constexpr double kBodyLockCenteredJitterDelta = 0.10;
     constexpr double kPi = 3.14159265358979323846;
 
     struct MovingCase {
@@ -3568,19 +4454,31 @@ ScenarioMetrics run_ads_bodylock_moving_chase_100hz(
     std::vector<double> residual_errors;
     std::vector<double> final_errors;
     std::vector<double> turn_degrees;
+    std::vector<double> body_lock_turn_degrees;
+    std::vector<double> body_lock_output_deltas;
+    std::vector<double> body_lock_centered_output_deltas;
     std::vector<double> slide_down_lags;
     std::vector<double> slide_recovery_ms;
+    std::vector<double> body_lock_tracking_errors;
     residual_errors.reserve(cases.size() * kTicksPerCase);
     final_errors.reserve(cases.size());
     turn_degrees.reserve(cases.size() * kTicksPerCase);
+    body_lock_turn_degrees.reserve(cases.size() * kTicksPerCase);
+    body_lock_output_deltas.reserve(cases.size() * kTicksPerCase);
+    body_lock_centered_output_deltas.reserve(cases.size() * kTicksPerCase);
     slide_down_lags.reserve(cases.size() * (kSlideEndTick - kSlideStartTick));
+    body_lock_tracking_errors.reserve(cases.size() * kTicksPerCase);
 
     double target_alignment_sum = 0.0;
     double manual_alignment_sum = 0.0;
+    double body_lock_target_alignment_sum = 0.0;
     int target_alignment_samples = 0;
     int manual_alignment_samples = 0;
+    int body_lock_target_alignment_samples = 0;
     int global_tick = 0;
     double fov_scale_sum = 0.0;
+    double body_lock_close_assist_ai_output_sum = 0.0;
+    int longest_body_lock_sustain_ticks = 0;
 
     for (std::size_t case_index = 0; case_index < cases.size(); ++case_index) {
         const MovingCase& moving = cases[case_index];
@@ -3593,11 +4491,18 @@ ScenarioMetrics run_ads_bodylock_moving_chase_100hz(
         double previous_output_x = 0.0;
         double previous_output_y = 0.0;
         bool has_previous_output = false;
+        double previous_body_lock_output_x = 0.0;
+        double previous_body_lock_output_y = 0.0;
+        bool has_previous_body_lock_output = false;
         double previous_reported_dx = 0.0;
         double previous_reported_dy = 0.0;
         bool has_previous_report = false;
         bool recover_pending = false;
         int recover_start_tick = -1;
+        int current_body_lock_sustain_ticks = 0;
+        int case_longest_body_lock_sustain_ticks = 0;
+        bool case_has_body_lock = false;
+        bool case_sustain_passed = false;
 
         std::vector<double> x_errors;
         std::vector<double> y_errors;
@@ -3779,6 +4684,108 @@ ScenarioMetrics run_ads_bodylock_moving_chase_100hz(
                     kVectorDeadzone);
                 ++manual_alignment_samples;
             }
+            if (mode == "body_lock") {
+                body_lock_tracking_errors.push_back(residual_radius);
+                case_has_body_lock = true;
+                body_lock_target_alignment_sum += vector_alignment(
+                    output_move_x,
+                    output_move_y,
+                    residual_dx,
+                    residual_dy,
+                    kVectorDeadzone);
+                ++body_lock_target_alignment_samples;
+                bool body_lock_output_spiked = false;
+                bool has_body_lock_output_delta = false;
+                double body_lock_output_delta = 0.0;
+                if (has_previous_body_lock_output) {
+                    const double previous_body_lock_mag = vector_magnitude(
+                        previous_body_lock_output_x,
+                        previous_body_lock_output_y);
+                    const double current_body_lock_mag =
+                        vector_magnitude(output_move_x, output_move_y);
+                    if (previous_body_lock_mag >= kVectorDeadzone &&
+                        current_body_lock_mag >= kVectorDeadzone) {
+                        body_lock_turn_degrees.push_back(vector_turn_degrees(
+                            previous_body_lock_output_x,
+                            previous_body_lock_output_y,
+                            output_move_x,
+                            output_move_y,
+                            kVectorDeadzone));
+                        const double output_delta = vector_magnitude(
+                            output_move_x - previous_body_lock_output_x,
+                            output_move_y - previous_body_lock_output_y);
+                        body_lock_output_delta = output_delta;
+                        has_body_lock_output_delta = true;
+                        body_lock_output_deltas.push_back(output_delta);
+                        if (output_delta > kBodyLockSpikeDelta) {
+                            ++metrics.ads_manual_stress_body_lock_output_spikes;
+                            body_lock_output_spiked = true;
+                        }
+                        const int previous_x_sign =
+                            signum(previous_body_lock_output_x);
+                        const int current_x_sign = signum(output_move_x);
+                        const int previous_y_sign =
+                            signum(previous_body_lock_output_y);
+                        const int current_y_sign = signum(output_move_y);
+                        if ((previous_x_sign != 0 && current_x_sign != 0 &&
+                             previous_x_sign != current_x_sign) ||
+                            (previous_y_sign != 0 && current_y_sign != 0 &&
+                             previous_y_sign != current_y_sign)) {
+                            ++metrics.ads_manual_stress_body_lock_chatter_events;
+                        }
+                    }
+                }
+                const double body_lock_ai_output = vector_magnitude(
+                    components.ai_aim_stick.x,
+                    components.ai_aim_stick.y);
+                const bool close_assist_band =
+                    residual_radius > kBodyLockCloseAssistMinPx &&
+                    residual_radius <= kBodyLockCloseAssistMaxPx;
+                if (close_assist_band) {
+                    ++metrics.ads_manual_stress_body_lock_close_assist_samples;
+                    body_lock_close_assist_ai_output_sum += body_lock_ai_output;
+                    if (body_lock_ai_output < kBodyLockCloseAssistLowOutput) {
+                        ++metrics.ads_manual_stress_body_lock_low_output_close_frames;
+                    }
+                }
+                if (residual_radius <= kBodyLockCenteredPx) {
+                    ++metrics.ads_manual_stress_body_lock_centered_samples;
+                    if (has_body_lock_output_delta) {
+                        body_lock_centered_output_deltas.push_back(body_lock_output_delta);
+                        if (body_lock_output_delta >= kBodyLockCenteredJitterDelta) {
+                            ++metrics
+                                  .ads_manual_stress_body_lock_centered_jitter_frames;
+                        }
+                    }
+                }
+                if (residual_radius <= kBodyLockSustainErrorPx &&
+                    !body_lock_output_spiked) {
+                    ++current_body_lock_sustain_ticks;
+                    ++metrics.ads_manual_stress_body_lock_sustain_good_frames;
+                    case_longest_body_lock_sustain_ticks = std::max(
+                        case_longest_body_lock_sustain_ticks,
+                        current_body_lock_sustain_ticks);
+                    if (current_body_lock_sustain_ticks >=
+                        kBodyLockSustainRequiredTicks) {
+                        case_sustain_passed = true;
+                    }
+                } else {
+                    current_body_lock_sustain_ticks = 0;
+                }
+                previous_body_lock_output_x = output_move_x;
+                previous_body_lock_output_y = output_move_y;
+                has_previous_body_lock_output = true;
+            } else {
+                const bool close_assist_band =
+                    residual_radius > kBodyLockCloseAssistMinPx &&
+                    residual_radius <= kBodyLockCloseAssistMaxPx;
+                if (close_assist_band && tick >= 70) {
+                    ++metrics.ads_manual_stress_body_lock_dropout_frames;
+                    ++metrics.ads_manual_stress_body_lock_low_output_close_frames;
+                }
+                current_body_lock_sustain_ticks = 0;
+                has_previous_body_lock_output = false;
+            }
             if (has_previous_output) {
                 const double previous_mag =
                     vector_magnitude(previous_output_x, previous_output_y);
@@ -3879,6 +4886,15 @@ ScenarioMetrics run_ads_bodylock_moving_chase_100hz(
             metrics.ads_manual_stress_overshoot_details.end(),
             y_details.begin(),
             y_details.end());
+        if (case_has_body_lock) {
+            ++metrics.ads_manual_stress_body_lock_sustain_cases;
+            if (case_sustain_passed) {
+                ++metrics.ads_manual_stress_body_lock_sustain_passes;
+            }
+            longest_body_lock_sustain_ticks = std::max(
+                longest_body_lock_sustain_ticks,
+                case_longest_body_lock_sustain_ticks);
+        }
     }
 
     metrics.ads_manual_stress_cases = static_cast<int>(cases.size());
@@ -3895,6 +4911,46 @@ ScenarioMetrics run_ads_bodylock_moving_chase_100hz(
     metrics.ads_manual_stress_mean_fov_scale = fov_scale_sum / total_ticks;
     metrics.ads_manual_stress_body_lock_ratio =
         static_cast<double>(metrics.ads_manual_stress_body_lock_frames) / total_ticks;
+    metrics.ads_manual_stress_body_lock_tracking_samples =
+        static_cast<int>(body_lock_tracking_errors.size());
+    metrics.ads_manual_stress_body_lock_mean_error_px =
+        mean_value(body_lock_tracking_errors);
+    metrics.ads_manual_stress_body_lock_p95_error_px =
+        nearest_rank_percentile(body_lock_tracking_errors, 0.95);
+    metrics.ads_manual_stress_body_lock_direction_score =
+        body_lock_target_alignment_samples <= 0
+            ? 0.0
+            : alignment_score(
+                body_lock_target_alignment_sum /
+                static_cast<double>(body_lock_target_alignment_samples));
+    metrics.ads_manual_stress_body_lock_turn_samples =
+        static_cast<int>(body_lock_turn_degrees.size());
+    metrics.ads_manual_stress_body_lock_p95_turn_degrees =
+        nearest_rank_percentile(body_lock_turn_degrees, 0.95);
+    metrics.ads_manual_stress_body_lock_turn_smoothness_score =
+        turn_smoothness_score(
+            metrics.ads_manual_stress_body_lock_p95_turn_degrees);
+    metrics.ads_manual_stress_body_lock_p95_output_delta =
+        nearest_rank_percentile(body_lock_output_deltas, 0.95);
+    metrics.ads_manual_stress_body_lock_close_assist_mean_ai_output =
+        metrics.ads_manual_stress_body_lock_close_assist_samples <= 0
+            ? 0.0
+            : body_lock_close_assist_ai_output_sum /
+                static_cast<double>(
+                    metrics.ads_manual_stress_body_lock_close_assist_samples);
+    metrics.ads_manual_stress_body_lock_centered_p95_output_delta =
+        nearest_rank_percentile(body_lock_centered_output_deltas, 0.95);
+    metrics.ads_manual_stress_body_lock_sustain_required_ms =
+        static_cast<double>(kBodyLockSustainRequiredTicks) * kDtSeconds * 1000.0;
+    metrics.ads_manual_stress_body_lock_sustain_error_px =
+        kBodyLockSustainErrorPx;
+    metrics.ads_manual_stress_body_lock_sustain_longest_ms =
+        static_cast<double>(longest_body_lock_sustain_ticks) * kDtSeconds * 1000.0;
+    metrics.ads_manual_stress_body_lock_sustain_pass_rate = rate(
+        metrics.ads_manual_stress_body_lock_sustain_passes,
+        metrics.ads_manual_stress_body_lock_sustain_cases);
+    metrics.ads_manual_stress_body_lock_sustain_score =
+        metrics.ads_manual_stress_body_lock_sustain_pass_rate * 100.0;
     metrics.ads_manual_stress_slide_down_lag_p95_px =
         nearest_rank_percentile(slide_down_lags, 0.95);
     metrics.ads_manual_stress_slide_recover_ms =
@@ -4350,12 +5406,79 @@ void write_json(
                 << scenario.ads_manual_stress_body_lock_frames << ",\n"
                 << "        \"body_lock_ratio\": "
                 << scenario.ads_manual_stress_body_lock_ratio << ",\n"
+                << "        \"body_lock_tracking_samples\": "
+                << scenario.ads_manual_stress_body_lock_tracking_samples << ",\n"
+                << "        \"body_lock_mean_error_px\": "
+                << scenario.ads_manual_stress_body_lock_mean_error_px << ",\n"
+                << "        \"body_lock_p95_error_px\": "
+                << scenario.ads_manual_stress_body_lock_p95_error_px << ",\n"
+                << "        \"body_lock_direction_score\": "
+                << scenario.ads_manual_stress_body_lock_direction_score << ",\n"
+                << "        \"body_lock_chatter_events\": "
+                << scenario.ads_manual_stress_body_lock_chatter_events << ",\n"
+                << "        \"body_lock_output_spikes\": "
+                << scenario.ads_manual_stress_body_lock_output_spikes << ",\n"
+                << "        \"body_lock_turn_samples\": "
+                << scenario.ads_manual_stress_body_lock_turn_samples << ",\n"
+                << "        \"body_lock_close_assist_samples\": "
+                << scenario.ads_manual_stress_body_lock_close_assist_samples << ",\n"
+                << "        \"body_lock_low_output_close_frames\": "
+                << scenario.ads_manual_stress_body_lock_low_output_close_frames << ",\n"
+                << "        \"body_lock_dropout_frames\": "
+                << scenario.ads_manual_stress_body_lock_dropout_frames << ",\n"
+                << "        \"body_lock_centered_samples\": "
+                << scenario.ads_manual_stress_body_lock_centered_samples << ",\n"
+                << "        \"body_lock_centered_jitter_frames\": "
+                << scenario.ads_manual_stress_body_lock_centered_jitter_frames << ",\n"
+                << "        \"body_lock_p95_output_delta\": "
+                << scenario.ads_manual_stress_body_lock_p95_output_delta << ",\n"
+                << "        \"body_lock_p95_turn_degrees\": "
+                << scenario.ads_manual_stress_body_lock_p95_turn_degrees << ",\n"
+                << "        \"body_lock_turn_smoothness_score\": "
+                << scenario.ads_manual_stress_body_lock_turn_smoothness_score << ",\n"
+                << "        \"body_lock_close_assist_mean_ai_output\": "
+                << scenario.ads_manual_stress_body_lock_close_assist_mean_ai_output << ",\n"
+                << "        \"body_lock_centered_p95_output_delta\": "
+                << scenario.ads_manual_stress_body_lock_centered_p95_output_delta << ",\n"
+                << "        \"body_lock_sustain_cases\": "
+                << scenario.ads_manual_stress_body_lock_sustain_cases << ",\n"
+                << "        \"body_lock_sustain_passes\": "
+                << scenario.ads_manual_stress_body_lock_sustain_passes << ",\n"
+                << "        \"body_lock_sustain_good_frames\": "
+                << scenario.ads_manual_stress_body_lock_sustain_good_frames << ",\n"
+                << "        \"body_lock_sustain_required_ms\": "
+                << scenario.ads_manual_stress_body_lock_sustain_required_ms << ",\n"
+                << "        \"body_lock_sustain_error_px\": "
+                << scenario.ads_manual_stress_body_lock_sustain_error_px << ",\n"
+                << "        \"body_lock_sustain_longest_ms\": "
+                << scenario.ads_manual_stress_body_lock_sustain_longest_ms << ",\n"
+                << "        \"body_lock_sustain_pass_rate\": "
+                << scenario.ads_manual_stress_body_lock_sustain_pass_rate << ",\n"
+                << "        \"body_lock_sustain_score\": "
+                << scenario.ads_manual_stress_body_lock_sustain_score << ",\n"
                 << "        \"occlusion_peak_error_px\": "
                 << scenario.ads_manual_stress_occlusion_peak_error_px << ",\n"
                 << "        \"slide_down_lag_p95_px\": "
                 << scenario.ads_manual_stress_slide_down_lag_p95_px << ",\n"
                 << "        \"slide_recover_ms\": "
                 << scenario.ads_manual_stress_slide_recover_ms << ",\n"
+                << "        \"unreliable_high_output_frames\": "
+                << scenario.ads_manual_stress_unreliable_high_output_frames << ",\n"
+                << "        \"unreliable_same_direction_frames\": "
+                << scenario.ads_manual_stress_unreliable_same_direction_frames << ",\n"
+                << "        \"unreliable_fight_frames\": "
+                << scenario.ads_manual_stress_unreliable_fight_frames << ",\n"
+                << "        \"unreliable_no_fresh_target_high_output_frames\": "
+                << scenario
+                       .ads_manual_stress_unreliable_no_fresh_target_high_output_frames
+                << ",\n"
+                << "        \"unreliable_err_target_high_output_frames\": "
+                << scenario.ads_manual_stress_unreliable_err_target_high_output_frames
+                << ",\n"
+                << "        \"unreliable_max_final_output\": "
+                << scenario.ads_manual_stress_unreliable_max_final_output << ",\n"
+                << "        \"unreliable_mean_final_output\": "
+                << scenario.ads_manual_stress_unreliable_mean_final_output << ",\n"
                 << "        \"overshoot_details\": ";
             write_random_fov_overshoot_details_json(
                 out,
@@ -4363,6 +5486,150 @@ void write_json(
                 "        ");
             out
                 << "\n"
+                << "      }";
+        }
+        if (scenario.has_ads_bodylock_near_high) {
+            out
+                << ",\n"
+                << "      \"ads_bodylock_near_high\": {\n"
+                << "        \"controller_hz\": 1000.000000,\n"
+                << "        \"vision_hz\": 100.000000,\n"
+                << "        \"initial_dx\": "
+                << scenario.ads_bodylock_near_high_initial_dx << ",\n"
+                << "        \"snap_window_ms\": "
+                << scenario.ads_bodylock_near_high_snap_window_ms << ",\n"
+                << "        \"ticks\": "
+                << scenario.ads_bodylock_near_high_ticks << ",\n"
+                << "        \"vision_samples\": "
+                << scenario.ads_bodylock_near_high_vision_samples << ",\n"
+                << "        \"ads_snap_frames\": "
+                << scenario.ads_bodylock_near_high_ads_snap_frames << ",\n"
+                << "        \"body_lock_frames\": "
+                << scenario.ads_bodylock_near_high_body_lock_frames << ",\n"
+                << "        \"manual_frames\": "
+                << scenario.ads_bodylock_near_high_manual_frames << ",\n"
+                << "        \"near_target_frames\": "
+                << scenario.ads_bodylock_near_high_near_target_frames << ",\n"
+                << "        \"near_high_output_frames\": "
+                << scenario.ads_bodylock_near_high_output_frames << ",\n"
+                << "        \"brake_active_frames\": "
+                << scenario.ads_bodylock_near_high_brake_active_frames << ",\n"
+                << "        \"brake_inactive_frames\": "
+                << scenario.ads_bodylock_near_high_brake_inactive_frames << ",\n"
+                << "        \"acquisition_expired_high_frames\": "
+                << scenario.ads_bodylock_near_high_acquisition_expired_high_frames << ",\n"
+                << "        \"chatter_events\": "
+                << scenario.ads_bodylock_near_high_chatter_events << ",\n"
+                << "        \"output_spikes\": "
+                << scenario.ads_bodylock_near_high_output_spikes << ",\n"
+                << "        \"close_assist_frames\": "
+                << scenario.ads_bodylock_near_high_close_assist_frames << ",\n"
+                << "        \"low_output_close_frames\": "
+                << scenario.ads_bodylock_near_high_low_output_close_frames << ",\n"
+                << "        \"centered_frames\": "
+                << scenario.ads_bodylock_near_high_centered_frames << ",\n"
+                << "        \"centered_jitter_frames\": "
+                << scenario.ads_bodylock_near_high_centered_jitter_frames << ",\n"
+                << "        \"mean_error_px\": "
+                << scenario.ads_bodylock_near_high_mean_error_px << ",\n"
+                << "        \"p95_error_px\": "
+                << scenario.ads_bodylock_near_high_p95_error_px << ",\n"
+                << "        \"final_error_px\": "
+                << scenario.ads_bodylock_near_high_final_error_px << ",\n"
+                << "        \"max_final_output\": "
+                << scenario.ads_bodylock_near_high_max_final_output << ",\n"
+                << "        \"p95_output_delta\": "
+                << scenario.ads_bodylock_near_high_p95_output_delta << ",\n"
+                << "        \"p95_turn_degrees\": "
+                << scenario.ads_bodylock_near_high_p95_turn_degrees << ",\n"
+                << "        \"turn_smoothness_score\": "
+                << scenario.ads_bodylock_near_high_turn_smoothness_score << ",\n"
+                << "        \"close_assist_mean_output\": "
+                << scenario.ads_bodylock_near_high_close_assist_mean_output << ",\n"
+                << "        \"centered_p95_output_delta\": "
+                << scenario.ads_bodylock_near_high_centered_p95_output_delta << "\n"
+                << "      }";
+        }
+        if (scenario.has_ads_carry_through) {
+            out
+                << ",\n"
+                << "      \"ads_carry_through\": {\n"
+                << "        \"controller_hz\": 1000.000000,\n"
+                << "        \"vision_hz\": 100.000000,\n"
+                << "        \"initial_dx\": "
+                << scenario.ads_carry_through_initial_dx << ",\n"
+                << "        \"snap_window_ms\": "
+                << scenario.ads_carry_through_snap_window_ms << ",\n"
+                << "        \"ticks\": "
+                << scenario.ads_carry_through_ticks << ",\n"
+                << "        \"vision_samples\": "
+                << scenario.ads_carry_through_vision_samples << ",\n"
+                << "        \"ads_snap_frames\": "
+                << scenario.ads_carry_through_ads_snap_frames << ",\n"
+                << "        \"body_lock_frames\": "
+                << scenario.ads_carry_through_body_lock_frames << ",\n"
+                << "        \"manual_frames\": "
+                << scenario.ads_carry_through_manual_frames << ",\n"
+                << "        \"same_direction_accel_frames\": "
+                << scenario.ads_carry_through_same_direction_accel_frames << ",\n"
+                << "        \"near_target_frames\": "
+                << scenario.ads_carry_through_near_target_frames << ",\n"
+                << "        \"near_high_output_frames\": "
+                << scenario.ads_carry_through_near_high_output_frames << ",\n"
+                << "        \"brake_active_frames\": "
+                << scenario.ads_carry_through_brake_active_frames << ",\n"
+                << "        \"brake_inactive_near_high_frames\": "
+                << scenario.ads_carry_through_brake_inactive_near_high_frames << ",\n"
+                << "        \"sign_flip_events\": "
+                << scenario.ads_carry_through_sign_flip_events << ",\n"
+                << "        \"mean_error_px\": "
+                << scenario.ads_carry_through_mean_error_px << ",\n"
+                << "        \"p95_error_px\": "
+                << scenario.ads_carry_through_p95_error_px << ",\n"
+                << "        \"final_error_px\": "
+                << scenario.ads_carry_through_final_error_px << ",\n"
+                << "        \"max_overshoot_px\": "
+                << scenario.ads_carry_through_max_overshoot_px << ",\n"
+                << "        \"max_near_final_x\": "
+                << scenario.ads_carry_through_max_near_final_x << ",\n"
+                << "        \"max_brake_error_px\": "
+                << scenario.ads_carry_through_max_brake_error_px << "\n"
+                << "      }";
+        }
+        if (scenario.has_adversarial_controller) {
+            out
+                << ",\n"
+                << "      \"adversarial_controller\": {\n"
+                << "        \"controller_hz\": 1000.000000,\n"
+                << "        \"vision_hz\": 100.000000,\n"
+                << "        \"ticks\": "
+                << scenario.adversarial_controller_ticks << ",\n"
+                << "        \"vision_samples\": "
+                << scenario.adversarial_controller_vision_samples << ",\n"
+                << "        \"wrong_target_frames\": "
+                << scenario.adversarial_controller_wrong_target_frames << ",\n"
+                << "        \"user_fight_frames\": "
+                << scenario.adversarial_controller_user_fight_frames << ",\n"
+                << "        \"invalid_strong_frames\": "
+                << scenario.adversarial_controller_invalid_strong_frames << ",\n"
+                << "        \"stale_high_output_frames\": "
+                << scenario.adversarial_controller_stale_high_output_frames << ",\n"
+                << "        \"err_target_frames\": "
+                << scenario.adversarial_controller_err_target_frames << ",\n"
+                << "        \"recovery_frames\": "
+                << scenario.adversarial_controller_recovery_frames << ",\n"
+                << "        \"near_high_output_frames\": "
+                << scenario.adversarial_controller_near_high_output_frames << ",\n"
+                << "        \"projected_frames\": "
+                << scenario.adversarial_controller_projected_frames << ",\n"
+                << "        \"max_final_output\": "
+                << scenario.adversarial_controller_max_final_output << ",\n"
+                << "        \"p95_error_px\": "
+                << scenario.adversarial_controller_p95_error_px << ",\n"
+                << "        \"max_stale_age_ms\": "
+                << scenario.adversarial_controller_max_stale_age_ms << ",\n"
+                << "        \"mean_manual_ai_alignment\": "
+                << scenario.adversarial_controller_mean_manual_ai_alignment << "\n"
                 << "      }";
         }
         if (scenario.has_selector_intent) {
@@ -4584,12 +5851,151 @@ void print_summary(
                 << scenario.ads_manual_stress_body_lock_frames
                 << " body_lock_ratio="
                 << scenario.ads_manual_stress_body_lock_ratio
+                << " body_lock_samples="
+                << scenario.ads_manual_stress_body_lock_tracking_samples
+                << " body_lock_mean_err="
+                << scenario.ads_manual_stress_body_lock_mean_error_px
+                << " body_lock_p95_err="
+                << scenario.ads_manual_stress_body_lock_p95_error_px
+                << " body_lock_dir_score="
+                << scenario.ads_manual_stress_body_lock_direction_score
+                << " body_lock_chatter="
+                << scenario.ads_manual_stress_body_lock_chatter_events
+                << " body_lock_spikes="
+                << scenario.ads_manual_stress_body_lock_output_spikes
+                << " body_lock_close_samples="
+                << scenario.ads_manual_stress_body_lock_close_assist_samples
+                << " body_lock_close_ai="
+                << scenario.ads_manual_stress_body_lock_close_assist_mean_ai_output
+                << " body_lock_low_close="
+                << scenario.ads_manual_stress_body_lock_low_output_close_frames
+                << " body_lock_dropout="
+                << scenario.ads_manual_stress_body_lock_dropout_frames
+                << " body_lock_centered="
+                << scenario.ads_manual_stress_body_lock_centered_samples
+                << " body_lock_centered_jitter="
+                << scenario.ads_manual_stress_body_lock_centered_jitter_frames
+                << " body_lock_p95_delta="
+                << scenario.ads_manual_stress_body_lock_p95_output_delta
+                << " body_lock_centered_p95_delta="
+                << scenario.ads_manual_stress_body_lock_centered_p95_output_delta
+                << " body_lock_p95_turn="
+                << scenario.ads_manual_stress_body_lock_p95_turn_degrees
+                << " body_lock_smooth="
+                << scenario.ads_manual_stress_body_lock_turn_smoothness_score
+                << " body_lock_sustain="
+                << scenario.ads_manual_stress_body_lock_sustain_passes
+                << "/" << scenario.ads_manual_stress_body_lock_sustain_cases
+                << " body_lock_sustain_score="
+                << scenario.ads_manual_stress_body_lock_sustain_score
+                << " body_lock_longest_ms="
+                << scenario.ads_manual_stress_body_lock_sustain_longest_ms
                 << " occlusion_peak="
                 << scenario.ads_manual_stress_occlusion_peak_error_px
                 << " slide_down_lag_p95="
                 << scenario.ads_manual_stress_slide_down_lag_p95_px
                 << " slide_recover_ms="
-                << scenario.ads_manual_stress_slide_recover_ms;
+                << scenario.ads_manual_stress_slide_recover_ms
+                << " unreliable_high="
+                << scenario.ads_manual_stress_unreliable_high_output_frames
+                << " unreliable_same_dir="
+                << scenario.ads_manual_stress_unreliable_same_direction_frames
+                << " unreliable_fight="
+                << scenario.ads_manual_stress_unreliable_fight_frames
+                << " unreliable_no_fresh_high="
+                << scenario
+                       .ads_manual_stress_unreliable_no_fresh_target_high_output_frames
+                << " unreliable_err_high="
+                << scenario.ads_manual_stress_unreliable_err_target_high_output_frames
+                << " unreliable_max_final="
+                << scenario.ads_manual_stress_unreliable_max_final_output
+                << " unreliable_mean_final="
+                << scenario.ads_manual_stress_unreliable_mean_final_output;
+        }
+        if (scenario.has_ads_bodylock_near_high) {
+            std::cout
+                << " near_ticks=" << scenario.ads_bodylock_near_high_ticks
+                << " near_modes=[ads:"
+                << scenario.ads_bodylock_near_high_ads_snap_frames
+                << ",body:" << scenario.ads_bodylock_near_high_body_lock_frames
+                << ",manual:" << scenario.ads_bodylock_near_high_manual_frames
+                << "]"
+                << " near_frames="
+                << scenario.ads_bodylock_near_high_near_target_frames
+                << " near_high="
+                << scenario.ads_bodylock_near_high_output_frames
+                << " brake_active="
+                << scenario.ads_bodylock_near_high_brake_active_frames
+                << " brake_gap="
+                << scenario.ads_bodylock_near_high_brake_inactive_frames
+                << " expired_high="
+                << scenario.ads_bodylock_near_high_acquisition_expired_high_frames
+                << " chatter="
+                << scenario.ads_bodylock_near_high_chatter_events
+                << " spikes="
+                << scenario.ads_bodylock_near_high_output_spikes
+                << " close_assist="
+                << scenario.ads_bodylock_near_high_close_assist_frames
+                << " close_mean="
+                << scenario.ads_bodylock_near_high_close_assist_mean_output
+                << " low_close="
+                << scenario.ads_bodylock_near_high_low_output_close_frames
+                << " centered="
+                << scenario.ads_bodylock_near_high_centered_frames
+                << " centered_jitter="
+                << scenario.ads_bodylock_near_high_centered_jitter_frames
+                << " p95_delta="
+                << scenario.ads_bodylock_near_high_p95_output_delta
+                << " centered_p95_delta="
+                << scenario.ads_bodylock_near_high_centered_p95_output_delta
+                << " p95_turn="
+                << scenario.ads_bodylock_near_high_p95_turn_degrees
+                << " smooth="
+                << scenario.ads_bodylock_near_high_turn_smoothness_score
+                << " max_final="
+                << scenario.ads_bodylock_near_high_max_final_output;
+        }
+        if (scenario.has_ads_carry_through) {
+            std::cout
+                << " carry_ticks=" << scenario.ads_carry_through_ticks
+                << " carry_modes=[ads:" << scenario.ads_carry_through_ads_snap_frames
+                << ",body:" << scenario.ads_carry_through_body_lock_frames
+                << ",manual:" << scenario.ads_carry_through_manual_frames
+                << "]"
+                << " same_dir_accel="
+                << scenario.ads_carry_through_same_direction_accel_frames
+                << " near_high="
+                << scenario.ads_carry_through_near_high_output_frames
+                << " brake_active="
+                << scenario.ads_carry_through_brake_active_frames
+                << " brake_gap="
+                << scenario.ads_carry_through_brake_inactive_near_high_frames
+                << " flips=" << scenario.ads_carry_through_sign_flip_events
+                << " max_over="
+                << scenario.ads_carry_through_max_overshoot_px
+                << " final_err="
+                << scenario.ads_carry_through_final_error_px;
+        }
+        if (scenario.has_adversarial_controller) {
+            std::cout
+                << " adv_ticks=" << scenario.adversarial_controller_ticks
+                << " adv_wrong=" << scenario.adversarial_controller_wrong_target_frames
+                << " adv_fight=" << scenario.adversarial_controller_user_fight_frames
+                << " adv_invalid=" << scenario.adversarial_controller_invalid_strong_frames
+                << " adv_stale_high="
+                << scenario.adversarial_controller_stale_high_output_frames
+                << " adv_err=" << scenario.adversarial_controller_err_target_frames
+                << " adv_recovery=" << scenario.adversarial_controller_recovery_frames
+                << " adv_near_high="
+                << scenario.adversarial_controller_near_high_output_frames
+                << " adv_projected="
+                << scenario.adversarial_controller_projected_frames
+                << " adv_max_final="
+                << scenario.adversarial_controller_max_final_output
+                << " adv_p95_err="
+                << scenario.adversarial_controller_p95_error_px
+                << " adv_align="
+                << scenario.adversarial_controller_mean_manual_ai_alignment;
         }
         if (scenario.has_selector_intent) {
             std::cout
@@ -4724,6 +6130,12 @@ int main(int argc, char** argv) {
                 true,
                 true,
                 options.random_fov_seed));
+            scenarios.push_back(
+                run_ads_manual_carry_through_100hz(runtime_config.gamepad));
+            scenarios.push_back(
+                run_ads_bodylock_near_high_output_100hz(runtime_config.gamepad));
+            scenarios.push_back(
+                run_adversarial_controller_authority_100hz(runtime_config.gamepad));
             scenarios.push_back(run_ads_bodylock_moving_chase_100hz(
                 runtime_config.gamepad,
                 options.random_fov_seed,

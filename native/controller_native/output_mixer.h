@@ -4,14 +4,28 @@
 
 #include "virtual_gamepad.h"
 
+#include <string>
+
 namespace controller_native {
 
 struct NativeControllerOutputComponents {
+    common_native::Vec2f physical_stick;
     common_native::Vec2f manual_stick;
     common_native::Vec2f ai_aim_stick;
     common_native::Vec2f dynamic_adjustment_stick;
+    common_native::Vec2f post_ai_stick;
+    common_native::Vec2f post_dynamic_stick;
+    common_native::Vec2f ads_brake_stick;
+    common_native::Vec2f post_ads_brake_stick;
+    common_native::Vec2f ads_brake_error_px;
+    common_native::Vec2f ads_carry_brake_stick;
+    common_native::Vec2f post_ads_carry_brake_stick;
+    bool ads_carry_brake_active = false;
+    common_native::Vec2f before_recoil_stick;
     common_native::Vec2f recoil_stick;
     common_native::Vec2f final_stick;
+    std::string aim_mode = "none";
+    bool ads_brake_active = false;
     bool fire_button = false;
 };
 

@@ -1745,6 +1745,7 @@ VisionResult VisionTargetSelector::select(
     const DetectionBatch& batch,
     const pipeline_contract::UserAimIntent& intent) {
     VisionResult result = select_impl(batch, nullptr, &intent);
+    result.user_aim_intent = intent;
     if (intent.valid) {
         result.intent_id = intent.intent_id;
     }
@@ -1769,6 +1770,7 @@ VisionResult VisionTargetSelector::select_with_frame(
     const pipeline_contract::UserAimIntent& intent) {
     DetectionBatch annotated = annotate_colors(batch, frame);
     VisionResult result = select_impl(annotated, &frame, &intent);
+    result.user_aim_intent = intent;
     if (intent.valid) {
         result.intent_id = intent.intent_id;
     }

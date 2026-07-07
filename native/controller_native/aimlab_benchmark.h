@@ -16,6 +16,11 @@ struct FrameScoreInput {
     bool strong_snap_active = false;
     bool selected_is_corpse = false;
     bool selected_is_friendly_or_unknown = false;
+    bool is_sticky_wrong = false;
+    bool is_invalid_strong = false;
+    bool is_err_snap = false;
+    bool is_recovery = false;
+    bool is_stale_high_output = false;
     common_native::Vec2f aim_error_before_px;
     common_native::Vec2f aim_error_after_px;
     common_native::Vec2f controller_output;
@@ -30,6 +35,11 @@ struct ScoreReport {
     int wrong_target_ads_snap_count = 0;
     int corpse_lock_frames = 0;
     int friendly_or_unknown_lock_frames = 0;
+    int sticky_wrong_frames = 0;
+    int invalid_strong_frames = 0;
+    int err_snap_frames = 0;
+    int recovery_frames = 0;
+    int stale_high_output_frames = 0;
     int overshoot_over_50px_count = 0;
     int helpful_output_frames = 0;
     int harmful_output_frames = 0;

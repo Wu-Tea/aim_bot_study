@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ads_state_tracker.h"
+#include "ads_carry_brake_policy.h"
 #include "aim_activation.h"
 #include "aim_assist_dynamics.h"
 #include "ai_aim.h"
@@ -90,6 +91,15 @@ private:
         float manual_right_y,
         const NativeControllerVisionState& vision_state,
         double now_seconds) const;
+    void apply_ads_carry_brake(
+        GamepadOutputState& output,
+        float manual_right_x,
+        float manual_right_y,
+        const NativeControllerVisionState& vision_state,
+        float target_error_x,
+        float target_error_y,
+        double now_seconds,
+        bool candidate_output_hold_active) const;
     void apply_recoil(
         GamepadOutputState& output,
         const PhysicalGamepadState& physical,
@@ -114,6 +124,7 @@ private:
     AimActivationTracker aim_activation_tracker_;
     AutoFireGate auto_fire_gate_;
     BodyLockShortPlanPolicy body_lock_short_plan_policy_;
+    AdsCarryBrakePolicy ads_carry_brake_policy_;
     OutputValidationPolicy output_validation_policy_;
     TargetSnapshotProvider target_snapshot_provider_;
     std::vector<NativeControllerStageTrace> last_pipeline_traces_;

@@ -210,6 +210,21 @@ void ScoreAggregator::add_frame(const FrameScoreInput& frame) {
     if (frame.strong_snap_active && frame.selected_is_friendly_or_unknown) {
         ++report_.friendly_or_unknown_lock_frames;
     }
+    if (frame.is_sticky_wrong) {
+        ++report_.sticky_wrong_frames;
+    }
+    if (frame.is_invalid_strong) {
+        ++report_.invalid_strong_frames;
+    }
+    if (frame.is_err_snap) {
+        ++report_.err_snap_frames;
+    }
+    if (frame.is_recovery) {
+        ++report_.recovery_frames;
+    }
+    if (frame.is_stale_high_output) {
+        ++report_.stale_high_output_frames;
+    }
 
     const double before = vector_length(frame.aim_error_before_px);
     const double after = vector_length(frame.aim_error_after_px);
@@ -234,12 +249,17 @@ ScoreReport ScoreAggregator::report() const {
     out.helpful_output_ratio =
         out.helpful_output_frames / static_cast<double>(std::max(1, out.helpful_output_frames + out.harmful_output_frames));
 
-    out.selection_score = clamp_score(100.0 - out.wrong_strong_lock_frames * 60.0);
-    out.control_score = clamp_score(100.0 - out.overshoot_over_50px_count * 20.0);
-    out.cooperation_score = clamp_score(100.0 * out.helpful_output_ratio - out.user_fight_frames * 10.0);
+    out.selection_score = clamp_score(
+        100.0 - out.wrong_strong_lock_frames * 60.0 - out.err_snap_frames * 20.0);
+    out.control_score = clamp_score(
+        100.0 - out.overshoot_over_50px_count * 20.0 - out.stale_high_output_frames * 10.0);
+    out.cooperation_score = clamp_score(
+        100.0 * out.helpful_output_ratio - out.user_fight_frames * 10.0 -
+        out.sticky_wrong_frames * 5.0);
     out.smoothness_score = 100.0;
     out.authority_safety_score = clamp_score(
-        100.0 - out.corpse_lock_frames * 50.0 - out.friendly_or_unknown_lock_frames * 50.0);
+        100.0 - out.corpse_lock_frames * 50.0 - out.friendly_or_unknown_lock_frames * 50.0 -
+        out.invalid_strong_frames * 20.0);
     out.final_score = clamp_score(
         0.30 * out.selection_score +
         0.30 * out.control_score +
@@ -406,6 +426,229 @@ ScoreReport run_selector_near_side_vs_far_front(NearSideIntentMode mode, std::ui
     return scorer.report();
 }
 
+ScoreReport run_multi_target_flick_adversarial(std::uint32_t seed) {
+    (void)seed;
+    ScoreAggregator scorer;
+    for (int frame_index = 0; frame_index < 96; ++frame_index) {
+        FrameScoreInput frame;
+        frame.intended_target_id = 1;
+        frame.has_selected_target = true;
+        frame.strong_snap_active = true;
+        frame.user_input = {-0.65f, 0.42f};
+        frame.dt_seconds = 1.0 / 120.0;
+
+        if (frame_index < 18) {
+            frame.selected_target_id = 1;
+            frame.aim_error_before_px = {-82.0f, 54.0f};
+            frame.aim_error_after_px = {-40.0f, 26.0f};
+            frame.controller_output = {-0.60f, 0.38f};
+        } else if (frame_index < 70) {
+            frame.selected_target_id = 2;
+            frame.aim_error_before_px = {-68.0f, 48.0f};
+            frame.aim_error_after_px = {-92.0f, 64.0f};
+            frame.controller_output = {0.62f, -0.36f};
+            frame.is_sticky_wrong = frame_index >= 30;
+        } else {
+            frame.selected_target_id = 1;
+            frame.aim_error_before_px = {-58.0f, 40.0f};
+            frame.aim_error_after_px = {-30.0f, 20.0f};
+            frame.controller_output = {-0.44f, 0.30f};
+            frame.is_recovery = true;
+        }
+
+        scorer.add_frame(frame);
+    }
+    return scorer.report();
+}
+
+ScoreReport run_ads_diagonal_pull_adversarial(std::uint32_t seed) {
+    (void)seed;
+    ScoreAggregator scorer;
+    for (int frame_index = 0; frame_index < 90; ++frame_index) {
+        FrameScoreInput frame;
+        frame.intended_target_id = 1;
+        frame.selected_target_id = 1;
+        frame.has_selected_target = true;
+        frame.strong_snap_active = true;
+        frame.user_input = {-0.45f, 0.35f};
+        frame.dt_seconds = 1.0 / 120.0;
+
+        if (frame_index < 24) {
+            frame.aim_error_before_px = {-80.0f, 62.0f};
+            frame.aim_error_after_px = {-36.0f, 28.0f};
+            frame.controller_output = {-0.70f, 0.55f};
+        } else if (frame_index < 68) {
+            frame.aim_error_before_px = {-34.0f, 28.0f};
+            frame.aim_error_after_px = {58.0f, -52.0f};
+            frame.controller_output = {-0.95f, 0.88f};
+        } else {
+            frame.aim_error_before_px = {58.0f, -52.0f};
+            frame.aim_error_after_px = {28.0f, -24.0f};
+            frame.controller_output = {0.45f, -0.36f};
+            frame.is_recovery = true;
+        }
+
+        scorer.add_frame(frame);
+    }
+    return scorer.report();
+}
+
+ScoreReport run_moving_track_stale_adversarial(std::uint32_t seed) {
+    (void)seed;
+    ScoreAggregator scorer;
+    for (int frame_index = 0; frame_index < 120; ++frame_index) {
+        FrameScoreInput frame;
+        frame.intended_target_id = 1;
+        frame.selected_target_id = 1;
+        frame.has_selected_target = true;
+        frame.strong_snap_active = true;
+        frame.user_input = {0.50f, 0.10f};
+        frame.dt_seconds = 1.0 / 120.0;
+
+        if (frame_index < 30) {
+            frame.aim_error_before_px = {88.0f, 18.0f};
+            frame.aim_error_after_px = {42.0f, 10.0f};
+            frame.controller_output = {0.62f, 0.14f};
+        } else if (frame_index < 86) {
+            frame.aim_error_before_px = {34.0f, 12.0f};
+            frame.aim_error_after_px = {-66.0f, -22.0f};
+            frame.controller_output = {0.78f, 0.24f};
+            frame.is_stale_high_output = true;
+        } else {
+            frame.aim_error_before_px = {-66.0f, -22.0f};
+            frame.aim_error_after_px = {-30.0f, -10.0f};
+            frame.controller_output = {-0.42f, -0.12f};
+            frame.is_recovery = true;
+        }
+
+        scorer.add_frame(frame);
+    }
+    return scorer.report();
+}
+
+ScoreReport run_slide_occlusion_delay_adversarial(std::uint32_t seed) {
+    (void)seed;
+    ScoreAggregator scorer;
+    for (int frame_index = 0; frame_index < 120; ++frame_index) {
+        FrameScoreInput frame;
+        frame.intended_target_id = 1;
+        frame.has_selected_target = true;
+        frame.strong_snap_active = true;
+        frame.user_input = {0.05f, 0.72f};
+        frame.dt_seconds = 1.0 / 120.0;
+
+        if (frame_index < 28) {
+            frame.selected_target_id = 1;
+            frame.aim_error_before_px = {18.0f, 92.0f};
+            frame.aim_error_after_px = {8.0f, 44.0f};
+            frame.controller_output = {0.08f, 0.74f};
+        } else if (frame_index < 82) {
+            frame.selected_target_id = 1;
+            frame.aim_error_before_px = {8.0f, 42.0f};
+            frame.aim_error_after_px = {-20.0f, -74.0f};
+            frame.controller_output = {0.10f, 0.88f};
+            frame.is_stale_high_output = true;
+        } else if (frame_index < 98) {
+            frame.selected_target_id = 7;
+            frame.aim_error_before_px = {-20.0f, -74.0f};
+            frame.aim_error_after_px = {44.0f, -90.0f};
+            frame.controller_output = {0.56f, -0.24f};
+            frame.is_err_snap = true;
+        } else {
+            frame.selected_target_id = 1;
+            frame.aim_error_before_px = {44.0f, -90.0f};
+            frame.aim_error_after_px = {18.0f, -40.0f};
+            frame.controller_output = {-0.22f, 0.50f};
+            frame.is_recovery = true;
+        }
+
+        scorer.add_frame(frame);
+    }
+    return scorer.report();
+}
+
+ScoreReport run_corpse_cue_loss_adversarial(std::uint32_t seed) {
+    (void)seed;
+    ScoreAggregator scorer;
+    for (int frame_index = 0; frame_index < 96; ++frame_index) {
+        FrameScoreInput frame;
+        frame.has_selected_target = true;
+        frame.strong_snap_active = true;
+        frame.dt_seconds = 1.0 / 120.0;
+
+        if (frame_index < 24) {
+            frame.intended_target_id = 1;
+            frame.selected_target_id = 1;
+            frame.user_input = {-0.50f, 0.08f};
+            frame.aim_error_before_px = {-70.0f, 12.0f};
+            frame.aim_error_after_px = {-28.0f, 6.0f};
+            frame.controller_output = {-0.52f, 0.08f};
+        } else if (frame_index < 72) {
+            frame.intended_target_id = 2;
+            frame.selected_target_id = 1;
+            frame.selected_is_corpse = true;
+            frame.user_input = {0.58f, 0.16f};
+            frame.aim_error_before_px = {36.0f, 14.0f};
+            frame.aim_error_after_px = {76.0f, 24.0f};
+            frame.controller_output = {-0.46f, -0.08f};
+            frame.is_sticky_wrong = frame_index >= 36;
+            frame.is_invalid_strong = true;
+        } else {
+            frame.intended_target_id = 2;
+            frame.selected_target_id = 2;
+            frame.user_input = {0.48f, 0.12f};
+            frame.aim_error_before_px = {76.0f, 24.0f};
+            frame.aim_error_after_px = {32.0f, 10.0f};
+            frame.controller_output = {0.44f, 0.10f};
+            frame.is_recovery = true;
+        }
+
+        scorer.add_frame(frame);
+    }
+    return scorer.report();
+}
+
+ScoreReport run_err_target_recovery_adversarial(std::uint32_t seed) {
+    (void)seed;
+    ScoreAggregator scorer;
+    for (int frame_index = 0; frame_index < 108; ++frame_index) {
+        FrameScoreInput frame;
+        frame.intended_target_id = 1;
+        frame.has_selected_target = true;
+        frame.strong_snap_active = true;
+        frame.user_input = {-0.54f, 0.26f};
+        frame.dt_seconds = 1.0 / 120.0;
+
+        if (frame_index < 26) {
+            frame.selected_target_id = 1;
+            frame.aim_error_before_px = {-86.0f, 38.0f};
+            frame.aim_error_after_px = {-38.0f, 18.0f};
+            frame.controller_output = {-0.60f, 0.28f};
+        } else if (frame_index < 58) {
+            frame.selected_target_id = 9;
+            frame.aim_error_before_px = {-38.0f, 18.0f};
+            frame.aim_error_after_px = {64.0f, -40.0f};
+            frame.controller_output = {0.70f, -0.52f};
+            frame.is_err_snap = true;
+        } else if (frame_index < 82) {
+            frame.selected_target_id = 9;
+            frame.aim_error_before_px = {64.0f, -40.0f};
+            frame.aim_error_after_px = {82.0f, -58.0f};
+            frame.controller_output = {0.42f, -0.34f};
+            frame.is_sticky_wrong = true;
+        } else {
+            frame.selected_target_id = 1;
+            frame.aim_error_before_px = {82.0f, -58.0f};
+            frame.aim_error_after_px = {34.0f, -24.0f};
+            frame.controller_output = {-0.48f, 0.30f};
+            frame.is_recovery = true;
+        }
+
+        scorer.add_frame(frame);
+    }
+    return scorer.report();
+}
+
 ScoreReport unknown_scenario_report() {
     ScoreReport report;
     report.final_score = 0.0;
@@ -478,6 +721,24 @@ ScoreReport run_scenario(const std::string& name, std::uint32_t seed) {
     }
     if (name == "near_side_vs_far_front_manual_slow_late") {
         return run_selector_near_side_vs_far_front(NearSideIntentMode::ManualSlowLate, seed);
+    }
+    if (name == "multi_target_flick") {
+        return run_multi_target_flick_adversarial(seed);
+    }
+    if (name == "ads_diagonal_pull") {
+        return run_ads_diagonal_pull_adversarial(seed);
+    }
+    if (name == "moving_track") {
+        return run_moving_track_stale_adversarial(seed);
+    }
+    if (name == "slide_occlusion_delay") {
+        return run_slide_occlusion_delay_adversarial(seed);
+    }
+    if (name == "corpse_cue_loss") {
+        return run_corpse_cue_loss_adversarial(seed);
+    }
+    if (name == "err_target_recovery") {
+        return run_err_target_recovery_adversarial(seed);
     }
     for (const auto& scenario : default_scenarios()) {
         if (name == scenario) {

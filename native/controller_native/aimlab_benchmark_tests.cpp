@@ -166,6 +166,66 @@ void test_late_manual_intent_exposes_sticky_selector_risk() {
         "late manual scenario should remain a visible risk rather than a passing idealized case");
 }
 
+void test_multi_target_flick_is_adversarial_not_perfect() {
+    const auto report = controller_native::aimlab::run_scenario(
+        "multi_target_flick",
+        12345);
+
+    expect_true(report.frames > 30, "multi_target_flick should run multiple frames");
+    expect_true(
+        report.wrong_target_ads_snap_count > 0,
+        "multi_target_flick should expose wrong strong snap risk");
+    expect_true(
+        report.user_fight_frames > 0,
+        "multi_target_flick should expose AI/user fight frames");
+    expect_true(
+        report.sticky_wrong_frames > 0,
+        "multi_target_flick should expose sticky wrong-target frames");
+    expect_true(
+        report.final_score < 90.0,
+        "multi_target_flick should not be a perfect scaffold report");
+}
+
+void test_corpse_cue_loss_is_adversarial_not_perfect() {
+    const auto report = controller_native::aimlab::run_scenario(
+        "corpse_cue_loss",
+        12345);
+
+    expect_true(report.frames > 30, "corpse_cue_loss should run multiple frames");
+    expect_true(
+        report.corpse_lock_frames > 0,
+        "corpse_cue_loss should expose corpse lock frames");
+    expect_true(
+        report.invalid_strong_frames > 0,
+        "corpse_cue_loss should expose invalid strong authority frames");
+    expect_true(
+        report.authority_safety_score < 80.0,
+        "corpse_cue_loss should reduce authority safety");
+    expect_true(
+        report.final_score < 90.0,
+        "corpse_cue_loss should not be a perfect scaffold report");
+}
+
+void test_err_target_recovery_is_adversarial_not_perfect() {
+    const auto report = controller_native::aimlab::run_scenario(
+        "err_target_recovery",
+        12345);
+
+    expect_true(report.frames > 30, "err_target_recovery should run multiple frames");
+    expect_true(
+        report.wrong_target_ads_snap_count > 0,
+        "err_target_recovery should expose wrong strong snap risk");
+    expect_true(
+        report.err_snap_frames > 0,
+        "err_target_recovery should record err-target snap frames");
+    expect_true(
+        report.recovery_frames > 0,
+        "err_target_recovery should record recovery frames");
+    expect_true(
+        report.final_score < 90.0,
+        "err_target_recovery should not be a perfect scaffold report");
+}
+
 void test_unknown_scenario_fails_closed() {
     const auto report = controller_native::aimlab::run_scenario(
         "not_a_real_scenario",
@@ -280,6 +340,9 @@ int main() {
     test_real_selector_intent_improves_near_side_vs_far_front();
     test_manual_intent_variants_improve_near_side_vs_far_front();
     test_late_manual_intent_exposes_sticky_selector_risk();
+    test_multi_target_flick_is_adversarial_not_perfect();
+    test_corpse_cue_loss_is_adversarial_not_perfect();
+    test_err_target_recovery_is_adversarial_not_perfect();
     test_unknown_scenario_fails_closed();
     test_manual_input_model_slow_profile_has_delay_and_ramp();
     test_manual_input_model_exports_confident_established_intent();

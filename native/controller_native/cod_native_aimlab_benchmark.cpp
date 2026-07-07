@@ -15,6 +15,11 @@ void print_report(const std::string& name, const controller_native::aimlab::Scor
         << " cooperation=" << report.cooperation_score
         << " safety=" << report.authority_safety_score
         << " wrong_ads=" << report.wrong_target_ads_snap_count
+        << " sticky_wrong=" << report.sticky_wrong_frames
+        << " invalid_strong=" << report.invalid_strong_frames
+        << " err_snap=" << report.err_snap_frames
+        << " recovery=" << report.recovery_frames
+        << " stale_high=" << report.stale_high_output_frames
         << " overshoot50=" << report.overshoot_over_50px_count
         << " fight=" << report.user_fight_frames
         << " helpful=" << report.helpful_output_ratio

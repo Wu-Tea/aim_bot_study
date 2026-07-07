@@ -1,15 +1,15 @@
 # Agent Handoff
 
-Last updated: 2026-07-06T20:02:52+08:00
+Last updated: 2026-07-07T09:28:24+08:00
 Updated by: Codex
 Active scope: Native C++ COD/FPS gamepad runtime, target selection, ADS/bodylock authority, tracker/controller feel, recoil isolation, native vision performance.
 Staleness: stale after a runtime-entry change, detector/model baseline change, major native controller/selector behavior change, or live evidence that current native feel/perf regressed.
 
 ## Current Objective
 
-Fix live wrong-target lock and ADS authority issues in the native C++ runtime while preserving the current controller feel baseline.
+Fix live wrong-target lock, ADS overshoot, bodylock jitter, and over-assist authority issues in the native C++ runtime while preserving the current usable controller feel baseline.
 
-The main live issue is multi-target selection: the user may intend a close side-running target, but selector/ADS can prefer a farther or more front-facing target. Current direction is to make user input inform target selection and ADS strong-snap eligibility before considering vision image cropping.
+The main architecture direction is now authority management: make vision provide candidates/evidence, make user input inform target selection and assist permission, keep tracker memory as continuity rather than truth, and separate ADS/bodylock control policies before further strength tuning.
 
 ## Current State
 
@@ -30,6 +30,16 @@ The main live issue is multi-target selection: the user may intend a close side-
 - Mouse and `kbm_to_gamepad` still use Python-side hosts unless explicitly changed.
 - Historical native timing evidence from 2026-06-07 showed typical `[Vision][CPP]` GPU timing around `6-10ms` and vision age around `8-12ms`; investigate native timing before assuming Python/native handoff bottlenecks.
 - Recent video/live review conclusion: obvious assist systems that treat every detection as strong authority look too visible and can overshoot or hold wrong targets. This project should keep ADS/bodylock authority separated and evidence-gated.
+- Native gamepad benchmark now includes adversarial controller diagnostics:
+  - `ads_manual_carry_through_100hz`
+  - `ads_bodylock_near_high_output_100hz`
+  - `adversarial_controller_authority_100hz`
+  - latest run: `runs\native_perf\native_gamepad_benchmark_adversarial_controller_20260707.json`
+  - key defects from that run: wrong target `140`, user fight `433`, invalid strong `84`, stale high output `27`, err target `99`, recovery `100`, p95 error `74.7px`.
+- Native gamepad benchmark now also reports ADS/bodylock split health metrics in `ads_manual_stress` and `ads_bodylock_near_high` JSON:
+  - ADS unreliable acquisition: high output, same-direction manual/AI stacking, manual/AI fight, no-fresh-target high output, err-target high output, and mean/max final output while evidence is unreliable.
+  - Bodylock close/centered tracking: close-assist samples and mean AI output, low-output close frames, dropout frames, centered samples, centered jitter frames, centered p95 output delta, and body-lock-only tracking/sustain metrics.
+  - quick verification artifact: `runs\native_perf\native_gamepad_benchmark_metrics_expanded_20260707.json`.
 - Native AimLab benchmark now has `cod_native_aimlab_benchmark` plus real selector-backed near-side-vs-far-front scenarios:
   - no intent: `final=0`, `wrong_ads=119`, `fight=119`
   - perfect lower-left intent: `final=100`, `wrong_ads=0`, `fight=0`
@@ -38,7 +48,33 @@ The main live issue is multi-target selection: the user may intend a close side-
 - Live native runtime now builds `UserAimIntent` from physical right stick and passes it through `VisionEngine` into `VisionTargetSelector`; L3 no longer counts as aiming. LT now starts aim on a light press and exits aim as soon as the trigger shows a release drop, before it fully returns to zero.
 - Native runtime perf logging now reports measured loop FPS from actual tick elapsed time instead of a hard-coded `1000`.
 - Native aim perf JSON now includes explicit `vision_age_ms` and `output_age_ms` fields alongside legacy `age_ms`/`out_age_ms`.
+- Native aim perf JSON now also writes controller bridge diagnostics while aiming:
+  - manual/AI/final magnitudes
+  - target error
+  - manual-vs-AI fight and manual-vs-final fight
+  - near-target high output
+  - stale target
+  - tracker projection and projected high output
+  - aim authority without fire authority
+  - component snapshots use `before_recoil_x/y` for the final controller stick before recoil feed-forward; avoid `pre_recoil` naming because pipeline contract treats that as a forbidden coupling pattern.
+- Offline log bridge script: `tools\analyze_native_aim_diagnostics.py`.
+  - Reads benchmark JSON plus one or more `native_aim_perf_*.jsonl` files.
+  - Handles old logs by deriving counters from raw fields when `diagnostic_*` fields are absent.
+  - Skips malformed JSONL rows and reports `invalid_rows`, because interrupted live logs may have partial rows.
 - ADS resume now clears target/tracker state observed before the last ADS release, so the first resumed ADS frame waits for fresh vision instead of pulling an old target still inside TTL.
+- ADS acquisition now applies a bounded output cap when the controller is in ADS acquisition without fresh target evidence:
+  - kept artifact: `runs\native_perf\native_gamepad_benchmark_ads_authority_final_20260707.json`.
+  - scorecard: `docs/project/NATIVE_CONTROLLER_BENCHMARKS.md`.
+  - comparison against `runs\native_perf\native_gamepad_benchmark_metrics_expanded_20260707.json`:
+    - `ads_diagonal_late_vision_fov_occlusion_50hz`: `final_error_px 27.120 -> 9.345`, `max_overshoot_px 66.928 -> 43.680`, `large50 2 -> 0`, `unreliable_no_fresh_target_high_output_frames 78 -> 0`.
+    - `ads_diagonal_late_vision_fov_occlusion_50hz_dynamic_fire`: `final_error_px 17.196 -> 11.438`, `unreliable_no_fresh_target_high_output_frames 78 -> 0`; `max_overshoot_px 49.261 -> 52.375`, so this still needs a better fresh/wrong-target authority layer.
+  - bodylock moving/slide/jump scenario metrics match the vector-cap artifact and baseline, so this slice did not change bodylock behavior.
+  - verification on 2026-07-07: controller tests PASS, benchmark metrics tests PASS, gamepad benchmark self-test PASS, output validation tests exit 0, native pipeline contract PASS, and `git diff --check` has only CRLF warnings.
+- Rejected trial: disabling `aim_authority` for projected suspicious ADS candidate states using crude body-box evidence improved some wrong-target numbers but regressed bodylock:
+  - rejected artifact: `runs\native_perf\native_gamepad_benchmark_fresh_wrong_body_evidence_gate_20260707.json`.
+  - `ads_bodylock_slide_visible_chase_100hz_dynamic`: `body_lock_frames 2406 -> 2226`, `body_lock_low_output_close_frames 251 -> 346`, `body_lock_dropout_frames 191 -> 286`, `max_overshoot_px 88.546 -> 99.824`.
+  - Do not reintroduce this target-provider gate without a cleaner signal that separates ADS point-target authority from bodylock continuity.
+- Durable decision accepted on 2026-07-07: future work should treat this as `candidate targets -> user intent selector -> target authority -> tracker memory decay -> separate ADS/bodylock policies -> manual/AI arbitration -> decision logging -> benchmark scoring`.
 
 ## Current Design Direction
 
@@ -56,6 +92,12 @@ The main live issue is multi-target selection: the user may intend a close side-
 - Preserve bodylock and ADS as different policies:
   - ADS should avoid large overshoot and wrong strong snaps.
   - Bodylock can tolerate some overshoot for moving close targets and should avoid sticky stalls.
+- Add an explicit authority/anti-intervention model before further controller tuning:
+  - Do not let target selection collapse candidates too early.
+  - User input should be a first-class intent signal, not only a stick value to mix with AI.
+  - Tracker memory may smooth movement and short occlusion, but should decay when live evidence or user correction disagrees.
+  - Strong ADS/bodylock authority should be evidence-gated by intent, cue/live/validity, target freshness, and corpse/stale-target risk.
+  - Benchmarks and logs must measure both "helps well" and "does not help when it should not".
 
 ## Known Live Problems
 
@@ -65,6 +107,12 @@ The main live issue is multi-target selection: the user may intend a close side-
 - Tracker short memory is necessary for sliding, jumping, arc movement, and brief occlusion, but can become harmful if it overpowers live evidence or user correction.
 - Most AimLab default scenarios still use fallback perfect scoring; expand them one by one before treating aggregate score as representative.
 - Current near-side selector benchmark has both established manual profiles and a late slow profile. Treat the established profiles as proof that userInput can steer selector pickup; treat `near_side_vs_far_front_manual_slow_late` as evidence that late intent still leaves a sticky wrong-target risk.
+- Current benchmark gap: it must score anti-intervention cases, including user correction, release intent, target switch intent, corpse/cue loss, stale tracker memory, near-target high output, and wrong-target fight.
+- Current controller gap after the ADS no-fresh cap: err-target/fresh-but-wrong scenarios still show high output (`ads_diagonal_err_target_recovery_100hz_dynamic_fire` unchanged at `unreliable_err_target_high_output_frames=286`, `unreliable_no_fresh_target_high_output_frames=372`). Next fix should add explicit target-authority state instead of toggling raw `aim_authority` in `TargetSnapshotProvider`.
+- Current benchmark/log bridge evidence from `native_aim_perf_20260707_010345_633.jsonl`:
+  - rows `10491`, invalid rows `1`, target rows `2387`.
+  - manual/AI fight `232`, manual/final fight `60`, near-high `436`, projected-high `215`, authority-without-fire `99`.
+  - This was an older runtime log missing `diagnostic_*`, so the analyzer derived metrics from raw stick/target fields.
 
 ## Verification Rules
 
@@ -72,6 +120,11 @@ The main live issue is multi-target selection: the user may intend a close side-
 - For tracker/controller/recoil boundary changes, run:
   - `scripts\verify\native_pipeline_contract.bat`
 - For selector changes, run focused native selector tests and benchmark/self-test where relevant.
+- For benchmark/log bridge changes, run:
+  - `cod_native_benchmark_metrics_tests.exe`
+  - `cod_native_gamepad_benchmark.exe --self-test`
+  - `cod_native_gamepad_benchmark.exe --random-fov-ticks 0 --output runs\native_perf\native_gamepad_benchmark_adversarial_controller_20260707.json`
+  - `python tools\analyze_native_aim_diagnostics.py --benchmark <benchmark.json> <native_aim_perf.jsonl>`
 - Recoil remains final feed-forward playback and must not consume target dx/dy, tracker state, target freshness, or controller correction errors.
 - Recoil feel contract:
   - uncalibrated profile Y output uses per-sample profile delta scaled by `profile_velocity_reference_ms`, not cumulative Y from fire start.
@@ -101,6 +154,8 @@ The main live issue is multi-target selection: the user may intend a close side-
 - Full historical archive: `.agent-context/session-log-full.md`
 - Recent fusion/canvas detail archive: `.agent-context/archive/2026-06-25-fusion-canvas.md`
 - Current proposed decision: `.agent-context/decisions/DEC-2026-07-06-001-intent-aware-selection-before-vision-cropping.md`
+- Current accepted decision: `.agent-context/decisions/DEC-2026-07-07-001-ai-assist-authority-boundaries.md`
 - Current benchmark spec: `docs/superpowers/specs/2026-07-06-native-aimlab-userinput-vision-benchmark-design.md`
 - Native runtime docs: `docs/project/NATIVE_CPP_RUNTIME.md`
 - Controller docs: `docs/project/GAMEPAD_OVERVIEW.md`, `docs/project/CONTROLLER_OVERVIEW.md`
+- Native controller benchmark scorecard: `docs/project/NATIVE_CONTROLLER_BENCHMARKS.md`

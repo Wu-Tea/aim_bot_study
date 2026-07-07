@@ -57,6 +57,7 @@ void test_adapter_ignores_unupdated_frame() {
 
     require_true(!snapshot.frame_updated, "adapter should preserve frame_updated=false");
     require_true(!snapshot.state.has_target, "adapter should not expose stale target state");
+    require_true(snapshot.candidates.empty(), "adapter should not forward stale candidate list");
     require_true(snapshot.tracker_detections.empty(), "adapter should not forward stale detections");
 }
 
@@ -120,12 +121,28 @@ void test_adapter_forwards_valid_detections_for_tracker() {
     vision_native::VisionResult result;
     result.frame_updated = true;
     result.frame_id = 7;
+    result.user_aim_intent.valid = true;
+    result.user_aim_intent.intent_id = 99;
+    result.user_aim_intent.strength = 0.75f;
+    result.user_aim_intent.has_direction = true;
+    result.user_aim_intent.direction.x = -1.0f;
+    result.user_aim_intent.aiming = true;
     result.detections.push_back(detection(10.0f, 20.0f, 50.0f, 120.0f, 0.30f, 0.20f, 1));
     result.detections.push_back(detection(80.0f, 90.0f, 80.5f, 100.0f, 0.90f, 0.0f, 1));
     result.detections.push_back(detection(100.0f, 110.0f, 140.0f, 210.0f, 0.20f, 0.0f, 2, true));
 
     const controller_native::ControllerVisionSnapshot snapshot =
         runtime_app::adapt_vision_result(result);
+
+    require_true(snapshot.user_intent.valid, "adapter should forward user intent to middle layer");
+    require_true(
+        snapshot.user_intent.intent_id == 99,
+        "adapter should preserve user intent id");
+    require_near(
+        snapshot.user_intent.strength,
+        0.75f,
+        0.001f,
+        "adapter should preserve user intent strength");
 
     require_true(
         snapshot.tracker_detections.size() == 2,
@@ -142,6 +159,30 @@ void test_adapter_forwards_valid_detections_for_tracker() {
     const tracking_native::TrackerDetection& weak = snapshot.tracker_detections[1];
     require_true(weak.is_friendly, "adapter should preserve friendly flag for downstream rejection");
     require_true(weak.target_tier == "associated_weak", "adapter should map low confidence no-color tier");
+
+    require_true(
+        snapshot.candidates.size() == 2,
+        "adapter should expose valid detections as neutral candidate snapshots");
+    const pipeline_contract::VisionCandidateSnapshot& first_candidate = snapshot.candidates[0];
+    require_true(
+        first_candidate.id == first.id,
+        "candidate and tracker ids should match for the same detection");
+    require_true(
+        first_candidate.suggested_authority_state ==
+            common_native::TargetAuthorityState::StrongAssist,
+        "candidate should expose strong suggested authority for confident enemy evidence");
+    require_near(
+        first_candidate.aim_point_px.y,
+        60.0f,
+        0.001f,
+        "candidate should expose same aim point as tracker detection");
+
+    const pipeline_contract::VisionCandidateSnapshot& rejected_candidate = snapshot.candidates[1];
+    require_true(rejected_candidate.is_friendly, "candidate should preserve friendly evidence");
+    require_true(
+        rejected_candidate.suggested_authority_state ==
+            common_native::TargetAuthorityState::Reject,
+        "friendly candidate should be visible to middle layer as rejectable evidence");
 }
 
 }  // namespace

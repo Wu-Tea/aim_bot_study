@@ -55,6 +55,43 @@ std::string tracker_tier_for_detection(const vision_native::Detection& detection
     return "observed_strong";
 }
 
+common_native::TargetAuthorityState suggested_candidate_authority_state(
+    const vision_native::Detection& detection) {
+    if (detection.is_friendly) {
+        return common_native::TargetAuthorityState::Reject;
+    }
+    if (tracker_tier_for_detection(detection) == "observed_strong") {
+        return common_native::TargetAuthorityState::StrongAssist;
+    }
+    return common_native::TargetAuthorityState::WeakAssist;
+}
+
+pipeline_contract::VisionCandidateSnapshot candidate_snapshot_from_detection(
+    const vision_native::Detection& detection,
+    std::uint64_t candidate_id,
+    float width,
+    float height) {
+    pipeline_contract::VisionCandidateSnapshot candidate;
+    candidate.id = candidate_id;
+    candidate.valid = true;
+    candidate.body_box_px = {detection.x1, detection.y1, width, height};
+    candidate.aim_point_px = {
+        (detection.x1 + detection.x2) * 0.5f,
+        detection.y1 + (height * 0.40f)};
+    candidate.has_aim_point = true;
+    candidate.confidence =
+        std::max(0.0f, std::min(1.0f, detection.conf + detection.color_bonus));
+    candidate.class_id = detection.class_id;
+    candidate.is_friendly = detection.is_friendly;
+    candidate.color_classified = detection.color_classified;
+    candidate.color_bonus = detection.color_bonus;
+    candidate.has_cue_point = detection.has_cue_point;
+    candidate.cue_point_px = {detection.cue_x, detection.cue_y};
+    candidate.cue_score = detection.cue_score;
+    candidate.suggested_authority_state = suggested_candidate_authority_state(detection);
+    return candidate;
+}
+
 }  // namespace
 
 controller_native::ControllerVisionSnapshot adapt_vision_result(
@@ -66,11 +103,13 @@ controller_native::ControllerVisionSnapshot adapt_vision_result(
     }
 
     snapshot.frame_id = result.frame_id;
+    snapshot.user_intent = result.user_aim_intent;
     snapshot.capture_time_seconds = ns_to_seconds(
         result.captured_at_ns != 0 ? result.captured_at_ns : result.result_at_ns);
     snapshot.ready_time_seconds = ns_to_seconds(
         result.result_at_ns != 0 ? result.result_at_ns : result.captured_at_ns);
 
+    snapshot.candidates.reserve(result.detections.size());
     snapshot.tracker_detections.reserve(result.detections.size());
     for (std::size_t index = 0; index < result.detections.size(); ++index) {
         const vision_native::Detection& detection = result.detections[index];
@@ -80,8 +119,15 @@ controller_native::ControllerVisionSnapshot adapt_vision_result(
             continue;
         }
 
+        const std::uint64_t candidate_id = tracker_detection_id(result.frame_id, index);
+        snapshot.candidates.push_back(candidate_snapshot_from_detection(
+            detection,
+            candidate_id,
+            width,
+            height));
+
         tracking_native::TrackerDetection tracker_detection;
-        tracker_detection.id = tracker_detection_id(result.frame_id, index);
+        tracker_detection.id = candidate_id;
         tracker_detection.body_box_px = {detection.x1, detection.y1, width, height};
         tracker_detection.aim_point_px = {
             (detection.x1 + detection.x2) * 0.5f,

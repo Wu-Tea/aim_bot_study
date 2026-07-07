@@ -20,6 +20,8 @@ struct TargetAuthorityDecision {
     bool is_weak_continuity = false;
     bool is_projected = false;
     bool is_terminal = true;
+    common_native::TargetAuthorityState target_authority_state =
+        common_native::TargetAuthorityState::Reject;
     common_native::AssistAuthority assist_authority = common_native::AssistAuthority::None;
     common_native::FireAuthority fire_authority = common_native::FireAuthority::None;
 };

@@ -2,6 +2,7 @@
 
 #include "../common_native/screen_geometry.h"
 #include "../common_native/time_types.h"
+#include "../common_native/authority_types.h"
 
 #include <cstdint>
 
@@ -17,6 +18,24 @@ struct UserAimIntent {
     bool has_direction = false;
     common_native::Vec2f direction;
     bool aiming = false;
+};
+
+struct VisionCandidateSnapshot {
+    std::uint64_t id = 0;
+    bool valid = false;
+    common_native::Box2f body_box_px;
+    common_native::Vec2f aim_point_px;
+    bool has_aim_point = false;
+    float confidence = 0.0f;
+    int class_id = 0;
+    bool is_friendly = false;
+    bool color_classified = false;
+    float color_bonus = 0.0f;
+    bool has_cue_point = false;
+    common_native::Vec2f cue_point_px;
+    float cue_score = 0.0f;
+    common_native::TargetAuthorityState suggested_authority_state =
+        common_native::TargetAuthorityState::Reject;
 };
 
 struct ControllerTargetSnapshot {

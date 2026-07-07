@@ -96,6 +96,7 @@ NativeGamepadController::NativeGamepadController(
       recoil_(config_.recoil),
       auto_fire_gate_(config_.auto_fire, config_.ai_aim),
       body_lock_short_plan_policy_(config_.ai_aim),
+      ads_carry_brake_policy_(config_.ai_aim),
       output_validation_policy_(config_.ai_aim),
       target_snapshot_provider_(config_.ai_aim, config_.tracker_backend),
       clock_(std::move(clock)) {
@@ -117,6 +118,7 @@ void NativeGamepadController::reset() {
     last_frame_vision_state_ = NativeControllerVisionState{};
     auto_fire_gate_.reset();
     body_lock_short_plan_policy_.reset();
+    ads_carry_brake_policy_.reset();
     output_validation_policy_.reset();
     ads_state_tracker_.reset();
     aim_activation_tracker_.reset();
@@ -143,6 +145,7 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
     GamepadOutputState output = output_from_physical_input(physical);
     NativeControllerOutputComponents output_components =
         output_components_from_manual_output(output);
+    output_components.physical_stick = {physical.right_x, physical.right_y};
 
     const double now = now_seconds();
     const bool aiming = is_aiming(physical);
@@ -162,6 +165,8 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
         stage_before_output,
         output,
         &output_components.ai_aim_stick);
+    output_components.post_ai_stick = {output.right_x, output.right_y};
+    output_components.aim_mode = ai_aim_.last_mode();
     record_stage_trace("ai_aim", stage_before_right_y, output, false, false);
 
     float settle_dx = frame_vision_state.dx;
@@ -202,6 +207,7 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
         stage_before_output,
         output,
         &output_components.dynamic_adjustment_stick);
+    output_components.post_dynamic_stick = {output.right_x, output.right_y};
     record_stage_trace(
         "aim_assist_dynamics",
         stage_before_right_y,
@@ -221,15 +227,50 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
         false,
         auto_fire_decision.should_fire);
 
+    stage_before_output = output;
     apply_ads_near_target_brake(
         output,
         manual_right_x,
         manual_right_y,
         frame_vision_state,
         now);
+    capture_output_component_delta(
+        stage_before_output,
+        output,
+        &output_components.ads_brake_stick);
+    output_components.post_ads_brake_stick = {output.right_x, output.right_y};
+    output_components.ads_brake_error_px = {frame_vision_state.dx, frame_vision_state.dy};
+    output_components.ads_brake_active =
+        std::fabs(output_components.ads_brake_stick.x) > 0.0001f ||
+        std::fabs(output_components.ads_brake_stick.y) > 0.0001f;
+
+    const bool candidate_output_hold_active =
+        target_snapshot_provider_.candidate_output_hold_active(now);
+    stage_before_output = output;
+    apply_ads_carry_brake(
+        output,
+        manual_right_x,
+        manual_right_y,
+        frame_vision_state,
+        settle_dx,
+        settle_dy,
+        now,
+        candidate_output_hold_active);
+    capture_output_component_delta(
+        stage_before_output,
+        output,
+        &output_components.ads_carry_brake_stick);
+    output_components.post_ads_carry_brake_stick = {output.right_x, output.right_y};
+    output_components.ads_carry_brake_active =
+        std::fabs(output_components.ads_carry_brake_stick.x) > 0.0001f ||
+        std::fabs(output_components.ads_carry_brake_stick.y) > 0.0001f;
+    output_components.ads_brake_active =
+        output_components.ads_brake_active ||
+        output_components.ads_carry_brake_active;
 
     stage_before_output = output;
     stage_before_right_y = output.right_y;
+    output_components.before_recoil_stick = {output.right_x, output.right_y};
     apply_recoil(output, physical, auto_fire_decision.should_fire, now);
     capture_output_component_delta(
         stage_before_output,
@@ -522,6 +563,38 @@ void NativeGamepadController::apply_ads_near_target_brake(
         manual_move_y,
         reticle_speed);
     output.right_y = clamp_unit(-shaped_move_y);
+}
+
+void NativeGamepadController::apply_ads_carry_brake(
+    GamepadOutputState& output,
+    float manual_right_x,
+    float manual_right_y,
+    const NativeControllerVisionState& vision_state,
+    float target_error_x,
+    float target_error_y,
+    double now_seconds,
+    bool candidate_output_hold_active) const {
+    AdsCarryBrakeInput input;
+    input.output = output;
+    input.manual_right_x = manual_right_x;
+    input.manual_right_y = manual_right_y;
+    input.target_error_x = target_error_x;
+    input.target_error_y = target_error_y;
+    input.ads_active = ads_state_tracker_.active();
+    const double ads_elapsed_seconds = ads_state_tracker_.active()
+        ? std::max(0.0, now_seconds - ads_state_tracker_.started_at_seconds())
+        : 0.0;
+    const double carry_window_seconds =
+        (static_cast<double>(std::max(1, config_.ai_aim.ads_snap_window_ms)) + 120.0) /
+        1000.0;
+    input.ads_acquisition_active =
+        ads_state_tracker_.active() && ads_elapsed_seconds <= carry_window_seconds;
+    input.body_lock_active = ai_aim_.last_mode() == "body_lock";
+    input.has_fresh_target = has_fresh_aim_target(vision_state, now_seconds);
+    input.candidate_output_hold_active = candidate_output_hold_active;
+    input.reticle_speed_px_per_sec =
+        std::max(1.0f, config_.ai_aim.target_projection_reticle_speed_px_per_sec);
+    output = ads_carry_brake_policy_.apply(input);
 }
 
 void NativeGamepadController::apply_recoil(

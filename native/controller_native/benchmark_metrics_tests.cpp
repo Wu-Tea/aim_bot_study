@@ -126,11 +126,22 @@ void test_aim_perf_file_logger_writes_controller_components() {
     {
         runtime_app::AimPerfFileLogger logger(true, root, 1);
         controller_native::NativeControllerOutputComponents components;
+        components.physical_stick = {0.70f, -0.80f};
         components.manual_stick = {0.10f, 0.20f};
-        components.ai_aim_stick = {0.30f, 0.00f};
+        components.ai_aim_stick = {-0.40f, -0.20f};
         components.dynamic_adjustment_stick = {0.00f, -0.10f};
+        components.post_ai_stick = {0.40f, 0.20f};
+        components.post_dynamic_stick = {0.40f, 0.10f};
+        components.ads_brake_stick = {-0.05f, 0.02f};
+        components.post_ads_brake_stick = {0.35f, 0.12f};
+        components.ads_carry_brake_stick = {-0.03f, 0.01f};
+        components.post_ads_carry_brake_stick = {0.32f, 0.13f};
+        components.ads_carry_brake_active = true;
+        components.before_recoil_stick = {0.32f, 0.13f};
         components.recoil_stick = {-0.40f, 0.00f};
-        components.final_stick = {0.00f, 0.10f};
+        components.final_stick = {0.50f, 0.10f};
+        components.ads_brake_active = true;
+        components.aim_mode = "ads_snap";
         components.fire_button = true;
         controller_native::GamepadOutputState tracker_output;
         tracker_output.right_x = 0.10f;
@@ -138,6 +149,7 @@ void test_aim_perf_file_logger_writes_controller_components() {
         vision_native::VisionResult vision;
         vision.frame_updated = true;
         vision.frame_id = 7;
+        vision.age_ms = 96.0f;
         vision.preprocess_mode = vision_native::PreprocessMode::OldBgraCopy;
         controller_native::NativeControllerVisionState controller_vision;
         controller_vision.has_target = true;
@@ -167,6 +179,42 @@ void test_aim_perf_file_logger_writes_controller_components() {
         log.find("\"recoil_x\":-0.4") != std::string::npos,
         "aim perf log should include recoil component x");
     require_true(
+        log.find("\"physical_right_x\":0.7") != std::string::npos,
+        "aim perf log should include physical right stick x");
+    require_true(
+        log.find("\"manual_pre_ai_x\":0.1") != std::string::npos,
+        "aim perf log should include manual pre-ai stick x");
+    require_true(
+        log.find("\"post_ai_x\":0.4") != std::string::npos,
+        "aim perf log should include post-ai stick x");
+    require_true(
+        log.find("\"post_dynamic_y\":0.1") != std::string::npos,
+        "aim perf log should include post-dynamic stick y");
+    require_true(
+        log.find("\"ads_brake_x\":-0.05") != std::string::npos,
+        "aim perf log should include ads brake x");
+    require_true(
+        log.find("\"post_ads_brake_y\":0.12") != std::string::npos,
+        "aim perf log should include post ads brake y");
+    require_true(
+        log.find("\"ads_carry_brake_x\":-0.03") != std::string::npos,
+        "aim perf log should include ads carry brake x");
+    require_true(
+        log.find("\"post_ads_carry_brake_y\":0.13") != std::string::npos,
+        "aim perf log should include post ads carry brake y");
+    require_true(
+        log.find("\"ads_carry_brake_active\":true") != std::string::npos,
+        "aim perf log should include ads carry brake active flag");
+    require_true(
+        log.find("\"before_recoil_x\":0.32") != std::string::npos,
+        "aim perf log should include before-recoil stick x");
+    require_true(
+        log.find("\"ads_brake_active\":true") != std::string::npos,
+        "aim perf log should include ads brake active flag");
+    require_true(
+        log.find("\"aim_mode\":\"ads_snap\"") != std::string::npos,
+        "aim perf log should include aim mode");
+    require_true(
         log.find("\"final_y\":0.1") != std::string::npos,
         "aim perf log should include final stick y");
     require_true(
@@ -185,6 +233,9 @@ void test_aim_perf_file_logger_writes_controller_components() {
         log.find("\"controller_tier\":\"projected\"") != std::string::npos,
         "aim perf log should include controller target tier");
     require_true(
+        log.find("\"controller_authority_state\":\"track_only\"") != std::string::npos,
+        "aim perf log should include controller authority state");
+    require_true(
         log.find("\"controller_tracker_dx\":10") != std::string::npos,
         "aim perf log should include controller tracker dx");
     require_true(
@@ -193,6 +244,33 @@ void test_aim_perf_file_logger_writes_controller_components() {
     require_true(
         log.find("\"output_age_ms\":12.5") != std::string::npos,
         "aim perf log should include output age comparable to Python out_age");
+    require_true(
+        log.find("\"diagnostic_manual_magnitude\":") != std::string::npos,
+        "aim perf log should include manual magnitude diagnostic");
+    require_true(
+        log.find("\"diagnostic_ai_magnitude\":") != std::string::npos,
+        "aim perf log should include AI magnitude diagnostic");
+    require_true(
+        log.find("\"diagnostic_final_magnitude\":") != std::string::npos,
+        "aim perf log should include final output magnitude diagnostic");
+    require_true(
+        log.find("\"diagnostic_target_error_px\":") != std::string::npos,
+        "aim perf log should include target error diagnostic");
+    require_true(
+        log.find("\"diagnostic_manual_ai_fight\":true") != std::string::npos,
+        "aim perf log should flag manual and AI fighting");
+    require_true(
+        log.find("\"diagnostic_near_target\":true") != std::string::npos,
+        "aim perf log should flag near-target frames");
+    require_true(
+        log.find("\"diagnostic_near_high_output\":true") != std::string::npos,
+        "aim perf log should flag high output near target");
+    require_true(
+        log.find("\"diagnostic_stale_target\":true") != std::string::npos,
+        "aim perf log should flag stale target data");
+    require_true(
+        log.find("\"diagnostic_tracker_projection\":true") != std::string::npos,
+        "aim perf log should mirror tracker projection as a diagnostic flag");
 }
 
 void test_perf_loop_fps_uses_measured_elapsed_time() {

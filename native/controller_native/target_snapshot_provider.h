@@ -46,6 +46,8 @@ private:
         double capture_time_seconds,
         double ready_time_seconds,
         double fallback_now_seconds);
+    NativeControllerVisionState select_middle_layer_target(
+        const ControllerVisionSnapshot& snapshot) const;
     NativeControllerVisionState credibility_gated_vision_state(
         const NativeControllerVisionState& state,
         double query_time_seconds,

@@ -162,6 +162,7 @@ void VisionEngine::reset() {
 
 VisionResult VisionEngine::poll_once() {
     VisionResult result;
+    result.user_aim_intent = user_aim_intent_;
     result.screen_center_x = static_cast<float>(width_) * 0.5f;
     result.screen_center_y = static_cast<float>(height_) * 0.5f;
     result.has_external_cue = external_cue_found_;
@@ -314,6 +315,7 @@ VisionResult VisionEngine::poll_once() {
         result.intent_applied = targeting.intent_applied;
         result.intent_decision = targeting.intent_decision;
         result.intent_score = targeting.intent_score;
+        result.user_aim_intent = user_aim_intent;
         result.boxes_seen = targeting.boxes_seen;
         result.detections = std::move(targeting.detections);
 

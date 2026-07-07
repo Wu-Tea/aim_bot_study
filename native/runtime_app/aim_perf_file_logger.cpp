@@ -1,7 +1,10 @@
 #include "aim_perf_file_logger.h"
 
+#include "../tracking_native/tracker_authority.h"
+
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <ctime>
 #include <filesystem>
 #include <iomanip>
@@ -124,6 +127,33 @@ double capture_transfer_ms(const vision_native::VisionResult& result) {
     return std::max(0.0f, result.wait_ms - result.capture_acquire_ms);
 }
 
+double stick_magnitude(common_native::Vec2f value) {
+    return std::hypot(
+        static_cast<double>(value.x),
+        static_cast<double>(value.y));
+}
+
+double stick_dot(common_native::Vec2f lhs, common_native::Vec2f rhs) {
+    return (static_cast<double>(lhs.x) * static_cast<double>(rhs.x)) +
+        (static_cast<double>(lhs.y) * static_cast<double>(rhs.y));
+}
+
+const char* target_authority_state_name(common_native::TargetAuthorityState state) {
+    switch (state) {
+    case common_native::TargetAuthorityState::StrongAssist:
+        return "strong_assist";
+    case common_native::TargetAuthorityState::WeakAssist:
+        return "weak_assist";
+    case common_native::TargetAuthorityState::TrackOnly:
+        return "track_only";
+    case common_native::TargetAuthorityState::Yield:
+        return "yield";
+    case common_native::TargetAuthorityState::Reject:
+    default:
+        return "reject";
+    }
+}
+
 void write_controller_components(
     std::ofstream& output,
     const controller_native::NativeControllerOutputComponents* components,
@@ -136,16 +166,40 @@ void write_controller_components(
         tracker_motion_output != nullptr ? *tracker_motion_output : zero_tracker_output;
 
     output
+        << ",\"physical_right_x\":" << value.physical_stick.x
+        << ",\"physical_right_y\":" << value.physical_stick.y
+        << ",\"manual_pre_ai_x\":" << value.manual_stick.x
+        << ",\"manual_pre_ai_y\":" << value.manual_stick.y
         << ",\"manual_x\":" << value.manual_stick.x
         << ",\"manual_y\":" << value.manual_stick.y
         << ",\"ai_aim_x\":" << value.ai_aim_stick.x
         << ",\"ai_aim_y\":" << value.ai_aim_stick.y
+        << ",\"post_ai_x\":" << value.post_ai_stick.x
+        << ",\"post_ai_y\":" << value.post_ai_stick.y
         << ",\"dynamic_x\":" << value.dynamic_adjustment_stick.x
         << ",\"dynamic_y\":" << value.dynamic_adjustment_stick.y
+        << ",\"post_dynamic_x\":" << value.post_dynamic_stick.x
+        << ",\"post_dynamic_y\":" << value.post_dynamic_stick.y
+        << ",\"ads_brake_x\":" << value.ads_brake_stick.x
+        << ",\"ads_brake_y\":" << value.ads_brake_stick.y
+        << ",\"post_ads_brake_x\":" << value.post_ads_brake_stick.x
+        << ",\"post_ads_brake_y\":" << value.post_ads_brake_stick.y
+        << ",\"ads_brake_error_x\":" << value.ads_brake_error_px.x
+        << ",\"ads_brake_error_y\":" << value.ads_brake_error_px.y
+        << ",\"ads_carry_brake_x\":" << value.ads_carry_brake_stick.x
+        << ",\"ads_carry_brake_y\":" << value.ads_carry_brake_stick.y
+        << ",\"post_ads_carry_brake_x\":" << value.post_ads_carry_brake_stick.x
+        << ",\"post_ads_carry_brake_y\":" << value.post_ads_carry_brake_stick.y
+        << ",\"ads_carry_brake_active\":"
+        << (value.ads_carry_brake_active ? "true" : "false")
+        << ",\"ads_brake_active\":" << (value.ads_brake_active ? "true" : "false")
+        << ",\"before_recoil_x\":" << value.before_recoil_stick.x
+        << ",\"before_recoil_y\":" << value.before_recoil_stick.y
         << ",\"recoil_x\":" << value.recoil_stick.x
         << ",\"recoil_y\":" << value.recoil_stick.y
         << ",\"final_x\":" << value.final_stick.x
         << ",\"final_y\":" << value.final_stick.y
+        << ",\"aim_mode\":" << json_string(value.aim_mode)
         << ",\"tracker_sample_x\":" << tracker.right_x
         << ",\"tracker_sample_y\":" << tracker.right_y
         << ",\"fire_button\":" << (value.fire_button ? "true" : "false");
@@ -157,16 +211,92 @@ void write_controller_vision_state(
     controller_native::NativeControllerVisionState empty_state;
     const controller_native::NativeControllerVisionState& value =
         state != nullptr ? *state : empty_state;
+    const tracking_native::TargetAuthorityDecision authority =
+        tracking_native::classify_target_authority(
+            value.has_target,
+            value.aim_authority,
+            value.fire_authority,
+            value.target_tier);
     output
         << ",\"controller_target\":" << (value.has_target ? "true" : "false")
         << ",\"controller_aim_authority\":" << (value.aim_authority ? "true" : "false")
         << ",\"controller_fire_authority\":" << (value.fire_authority ? "true" : "false")
+        << ",\"controller_authority_state\":"
+        << json_string(target_authority_state_name(authority.target_authority_state))
         << ",\"controller_tier\":" << json_string(value.target_tier)
         << ",\"controller_dx\":" << value.dx
         << ",\"controller_dy\":" << value.dy
         << ",\"controller_projection\":" << (value.has_tracker_projection ? "true" : "false")
         << ",\"controller_tracker_dx\":" << value.tracker_dx
         << ",\"controller_tracker_dy\":" << value.tracker_dy;
+}
+
+void write_diagnostics(
+    std::ofstream& output,
+    const vision_native::VisionResult* result,
+    const controller_native::NativeControllerVisionState* state,
+    const controller_native::NativeControllerOutputComponents* components) {
+    controller_native::NativeControllerVisionState empty_state;
+    const controller_native::NativeControllerVisionState& vision_state =
+        state != nullptr ? *state : empty_state;
+    controller_native::NativeControllerOutputComponents empty_components;
+    const controller_native::NativeControllerOutputComponents& sticks =
+        components != nullptr ? *components : empty_components;
+
+    const double manual_magnitude = stick_magnitude(sticks.manual_stick);
+    const double ai_magnitude = stick_magnitude(sticks.ai_aim_stick);
+    const double final_magnitude = stick_magnitude(sticks.final_stick);
+    const double target_error_px = vision_state.has_target
+        ? std::hypot(
+              static_cast<double>(vision_state.dx),
+              static_cast<double>(vision_state.dy))
+        : (result != nullptr && result->has_target
+              ? std::hypot(static_cast<double>(result->dx), static_cast<double>(result->dy))
+              : 0.0);
+    const double vision_age_ms = result != nullptr ? result->age_ms : 0.0;
+    constexpr double kManualFightThreshold = 0.22;
+    constexpr double kAiFightThreshold = 0.22;
+    constexpr double kFightDotThreshold = -0.05;
+    constexpr double kNearTargetPx = 60.0;
+    constexpr double kHighOutputThreshold = 0.45;
+    constexpr double kStaleTargetMs = 80.0;
+    const bool manual_ai_fight =
+        manual_magnitude >= kManualFightThreshold &&
+        ai_magnitude >= kAiFightThreshold &&
+        stick_dot(sticks.manual_stick, sticks.ai_aim_stick) <= kFightDotThreshold;
+    const bool manual_final_fight =
+        manual_magnitude >= kManualFightThreshold &&
+        final_magnitude >= kAiFightThreshold &&
+        stick_dot(sticks.manual_stick, sticks.final_stick) <= kFightDotThreshold;
+    const bool near_target =
+        vision_state.has_target && target_error_px > 0.0 && target_error_px <= kNearTargetPx;
+    const bool high_output = final_magnitude >= kHighOutputThreshold;
+    const bool stale_target = vision_state.has_target && vision_age_ms >= kStaleTargetMs;
+    const bool projected_high_output =
+        vision_state.has_tracker_projection && high_output;
+    const bool authority_without_fire =
+        vision_state.has_target && vision_state.aim_authority && !vision_state.fire_authority;
+
+    output
+        << ",\"diagnostic_manual_magnitude\":" << manual_magnitude
+        << ",\"diagnostic_ai_magnitude\":" << ai_magnitude
+        << ",\"diagnostic_final_magnitude\":" << final_magnitude
+        << ",\"diagnostic_target_error_px\":" << target_error_px
+        << ",\"diagnostic_manual_ai_fight\":"
+        << (manual_ai_fight ? "true" : "false")
+        << ",\"diagnostic_manual_final_fight\":"
+        << (manual_final_fight ? "true" : "false")
+        << ",\"diagnostic_near_target\":" << (near_target ? "true" : "false")
+        << ",\"diagnostic_near_high_output\":"
+        << (near_target && high_output ? "true" : "false")
+        << ",\"diagnostic_stale_target\":"
+        << (stale_target ? "true" : "false")
+        << ",\"diagnostic_tracker_projection\":"
+        << (vision_state.has_tracker_projection ? "true" : "false")
+        << ",\"diagnostic_projected_high_output\":"
+        << (projected_high_output ? "true" : "false")
+        << ",\"diagnostic_authority_without_fire\":"
+        << (authority_without_fire ? "true" : "false");
 }
 
 }  // namespace
@@ -297,6 +427,7 @@ void AimPerfFileLogger::record_aim_sample(
         << ",\"box_samples\":" << snapshot.box_samples;
     write_controller_components(output_, output_components, tracker_motion_output);
     write_controller_vision_state(output_, controller_vision_state);
+    write_diagnostics(output_, result, controller_vision_state, output_components);
     output_ << "}\n";
 }
 

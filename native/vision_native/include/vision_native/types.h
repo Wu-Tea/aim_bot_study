@@ -1,5 +1,7 @@
 #pragma once
 
+#include "pipeline_contract/target_snapshot.h"
+
 #include <cstdint>
 #include <vector>
 
@@ -114,6 +116,7 @@ struct VisionResult {
     bool intent_applied = false;
     const char* intent_decision = "none";
     float intent_score = 0.0f;
+    pipeline_contract::UserAimIntent user_aim_intent;
     bool has_external_cue = false;
     float external_cue_x = 0.0f;
     float external_cue_y = 0.0f;

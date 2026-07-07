@@ -1,4 +1,5 @@
 #include "aim_assist_dynamics.h"
+#include "ads_carry_brake_policy.h"
 #include "ai_aim.h"
 #include "bodylock_policy.h"
 #include "controller_tick_context.h"
@@ -161,12 +162,16 @@ void test_common_native_types_compile() {
 
     const auto assist = common_native::AssistAuthority::AimObserved;
     const auto fire = common_native::FireAuthority::ObservedOnly;
+    const auto target_authority = common_native::TargetAuthorityState::StrongAssist;
     require_true(
         assist == common_native::AssistAuthority::AimObserved,
         "assist authority enum should compare");
     require_true(
         fire == common_native::FireAuthority::ObservedOnly,
         "fire authority enum should compare");
+    require_true(
+        target_authority == common_native::TargetAuthorityState::StrongAssist,
+        "target authority state enum should compare");
 }
 
 controller_native::BodyLockMotionObservation body_lock_motion_box(
@@ -326,6 +331,9 @@ void test_tracker_authority_classifies_target_tiers() {
         strong.assist_authority == common_native::AssistAuthority::AimObserved,
         "strong target should get observed assist authority");
     require_true(
+        strong.target_authority_state == common_native::TargetAuthorityState::StrongAssist,
+        "strong target should map to strong assist state");
+    require_true(
         strong.fire_authority == common_native::FireAuthority::ObservedOnly,
         "strong target with fire flag should get observed fire authority");
 
@@ -339,6 +347,9 @@ void test_tracker_authority_classifies_target_tiers() {
         weak.assist_authority == common_native::AssistAuthority::AimCoast,
         "weak target should get coast assist authority");
     require_true(
+        weak.target_authority_state == common_native::TargetAuthorityState::WeakAssist,
+        "weak target should map to weak assist state");
+    require_true(
         weak.fire_authority == common_native::FireAuthority::None,
         "weak target should not get fire authority");
 
@@ -348,14 +359,35 @@ void test_tracker_authority_classifies_target_tiers() {
         projected.tier_class == tracking_native::TargetTierClass::Projected,
         "projected target should classify as projected");
     require_true(
+        projected.target_authority_state == common_native::TargetAuthorityState::TrackOnly,
+        "projected target should map to track-only state");
+    require_true(
         projected.fire_authority == common_native::FireAuthority::None,
         "projected target should not get fire authority");
+
+    const tracking_native::TargetAuthorityDecision observed_without_aim =
+        tracking_native::classify_target_authority(true, false, true, "strong");
+    require_true(
+        observed_without_aim.target_authority_state == common_native::TargetAuthorityState::TrackOnly,
+        "observed target without aim authority should map to track-only state");
+    require_true(
+        observed_without_aim.assist_authority == common_native::AssistAuthority::None,
+        "track-only target should not grant assist authority");
 
     const tracking_native::TargetAuthorityDecision unknown =
         tracking_native::classify_target_authority(true, true, true, "new_detector_tier");
     require_true(
         unknown.tier_class == tracking_native::TargetTierClass::StrongObserved,
         "unknown non-empty target tier should preserve legacy strong behavior");
+    require_true(
+        unknown.target_authority_state == common_native::TargetAuthorityState::StrongAssist,
+        "unknown non-empty target tier should preserve legacy strong assist behavior");
+
+    const tracking_native::TargetAuthorityDecision lost =
+        tracking_native::classify_target_authority(false, true, true, "none");
+    require_true(
+        lost.target_authority_state == common_native::TargetAuthorityState::Reject,
+        "lost target should map to reject state");
 }
 
 void test_adapter_downgrades_color_checked_wide_low_detection_without_enemy_evidence() {
@@ -3130,7 +3162,6 @@ void test_controller_suspicious_target_jump_holds_ai_aim_until_verified() {
     submit_target(160.0f);
     controller.build_output(aiming_physical_state());
     const auto held = controller.last_output_components().final_stick;
-
     if (!(held.x > 0.05f && held.x < 0.50f)) {
         std::ostringstream out;
         out << "single suspicious target jump should coast on tracker projection instead of aiming at raw jump actual="
@@ -4771,6 +4802,123 @@ void test_controller_recoil_uses_fallback_when_no_recognizer_state_is_configured
 
 
 
+void test_ads_carry_brake_policy_ignores_inactive_contexts() {
+    controller_native::AdsCarryBrakePolicy policy;
+    controller_native::AdsCarryBrakeInput input;
+    input.output.right_x = 0.82f;
+    input.manual_right_x = 0.62f;
+    input.target_error_x = -8.0f;
+    input.ads_active = true;
+    input.ads_acquisition_active = true;
+    input.body_lock_active = false;
+    input.has_fresh_target = true;
+    input.reticle_speed_px_per_sec = 1500.0f;
+
+    const controller_native::GamepadOutputState output = policy.apply(input);
+    require_near(
+        output.right_x,
+        0.82f,
+        0.001f,
+        "ADS carry brake should ignore non-body-lock contexts");
+}
+
+void test_ads_carry_brake_policy_corrects_wrong_way_bodylock_ads_output() {
+    controller_native::AdsCarryBrakePolicy policy;
+    controller_native::AdsCarryBrakeInput input;
+    input.output.right_x = 0.82f;
+    input.manual_right_x = 0.62f;
+    input.target_error_x = -8.0f;
+    input.ads_active = true;
+    input.ads_acquisition_active = true;
+    input.body_lock_active = true;
+    input.has_fresh_target = true;
+    input.reticle_speed_px_per_sec = 1500.0f;
+
+    const controller_native::GamepadOutputState output = policy.apply(input);
+    require_true(
+        output.right_x < 0.0f && std::fabs(output.right_x) <= 0.22f,
+        "ADS carry brake should turn wrong-way body-lock carry-through into bounded correction");
+}
+
+void test_ads_carry_brake_policy_caps_fast_near_target_bodylock_ads_output() {
+    controller_native::AdsCarryBrakePolicy policy;
+    controller_native::AdsCarryBrakeInput input;
+    input.output.right_x = 0.92f;
+    input.manual_right_x = 0.62f;
+    input.target_error_x = 10.0f;
+    input.ads_active = true;
+    input.ads_acquisition_active = true;
+    input.body_lock_active = true;
+    input.has_fresh_target = true;
+    input.reticle_speed_px_per_sec = 1500.0f;
+
+    const controller_native::GamepadOutputState output = policy.apply(input);
+    require_true(
+        output.right_x > 0.0f && output.right_x < 0.42f,
+        "ADS carry brake should cap fast same-direction body-lock output near target");
+}
+
+void test_ads_carry_brake_policy_limits_unfresh_ads_acquisition_stack() {
+    controller_native::AdsCarryBrakePolicy policy;
+    controller_native::AdsCarryBrakeInput input;
+    input.output.right_x = 0.92f;
+    input.manual_right_x = 0.62f;
+    input.target_error_x = 10.0f;
+    input.ads_active = true;
+    input.ads_acquisition_active = true;
+    input.body_lock_active = false;
+    input.has_fresh_target = false;
+    input.reticle_speed_px_per_sec = 1500.0f;
+
+    const controller_native::GamepadOutputState output = policy.apply(input);
+    require_true(
+        output.right_x > 0.0f && output.right_x <= 0.45f,
+        "ADS acquisition should not keep high same-direction output without fresh target evidence");
+}
+
+void test_ads_carry_brake_policy_vector_caps_unfresh_diagonal_stack() {
+    controller_native::AdsCarryBrakePolicy policy;
+    controller_native::AdsCarryBrakeInput input;
+    input.output.right_x = 0.92f;
+    input.output.right_y = -0.92f;
+    input.manual_right_x = 0.62f;
+    input.manual_right_y = -0.62f;
+    input.target_error_x = 10.0f;
+    input.target_error_y = 10.0f;
+    input.ads_active = true;
+    input.ads_acquisition_active = true;
+    input.has_fresh_target = false;
+    input.reticle_speed_px_per_sec = 1500.0f;
+
+    const controller_native::GamepadOutputState output = policy.apply(input);
+    require_true(
+        std::hypot(output.right_x, output.right_y) <= 0.45f,
+        "ADS acquisition should vector-cap diagonal output without fresh target evidence");
+    require_true(
+        output.right_x > 0.0f && output.right_y < 0.0f,
+        "unfresh ADS vector cap should preserve stick direction");
+}
+
+void test_ads_carry_brake_policy_does_not_cross_axis_cap_same_direction_output() {
+    controller_native::AdsCarryBrakePolicy policy;
+    controller_native::AdsCarryBrakeInput input;
+    input.output.right_x = 0.92f;
+    input.manual_right_y = 0.72f;
+    input.target_error_x = 10.0f;
+    input.ads_active = true;
+    input.ads_acquisition_active = true;
+    input.body_lock_active = true;
+    input.has_fresh_target = true;
+    input.reticle_speed_px_per_sec = 1500.0f;
+
+    const controller_native::GamepadOutputState output = policy.apply(input);
+    require_near(
+        output.right_x,
+        0.92f,
+        0.001f,
+        "ADS carry brake should not cap X output from strong Y-axis manual input");
+}
+
 }  // namespace
 
 int main() {
@@ -4876,6 +5024,12 @@ int main() {
         test_ai_aim_fire_active_caps_downward_ads_snap_vertical_stack();
         test_fire_active_projected_target_suppresses_vertical_aim_assist();
         test_body_lock_fire_active_caps_downward_vertical_stack_without_x_force_cap();
+        test_ads_carry_brake_policy_ignores_inactive_contexts();
+        test_ads_carry_brake_policy_corrects_wrong_way_bodylock_ads_output();
+        test_ads_carry_brake_policy_caps_fast_near_target_bodylock_ads_output();
+        test_ads_carry_brake_policy_limits_unfresh_ads_acquisition_stack();
+        test_ads_carry_brake_policy_vector_caps_unfresh_diagonal_stack();
+        test_ads_carry_brake_policy_does_not_cross_axis_cap_same_direction_output();
         test_ads_snap_smoothing_interpolates_first_assist_frame();
         test_ai_aim_deadzone_suppresses_tiny_target_error();
         test_aim_assist_dynamics_guards_small_recoil_sign_flip();

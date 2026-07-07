@@ -1,6 +1,6 @@
 # Agent Session Log Index
 
-Last updated: 2026-07-06T15:35:00+08:00
+Last updated: 2026-07-07T09:28:24+08:00
 Updated by: Codex
 Purpose: quick navigation for project continuity. Full older history is preserved in `session-log-full.md`; detailed recent fusion/canvas notes are archived under `archive/`.
 
@@ -12,6 +12,39 @@ Purpose: quick navigation for project continuity. Full older history is preserve
 4. Open archive files only when deeper detail is needed.
 
 ## Current Active Thread
+
+- 2026-07-07 - ADS no-fresh acquisition cap accepted; crude suspicious-target gate rejected.
+  - Implemented an ADS acquisition cap for cases where the controller is still acquiring in ADS but does not have fresh target evidence.
+  - Kept benchmark artifact: `runs\native_perf\native_gamepad_benchmark_ads_authority_final_20260707.json`.
+  - Recorded the tracker/controller refactor comparison scorecard in `docs/project/NATIVE_CONTROLLER_BENCHMARKS.md`.
+  - Main improvement vs `runs\native_perf\native_gamepad_benchmark_metrics_expanded_20260707.json`:
+    - `ads_diagonal_late_vision_fov_occlusion_50hz`: `final_error_px 27.120 -> 9.345`, `max_overshoot_px 66.928 -> 43.680`, `large50 2 -> 0`, `unreliable_no_fresh_target_high_output_frames 78 -> 0`.
+    - `ads_diagonal_late_vision_fov_occlusion_50hz_dynamic_fire`: `final_error_px 17.196 -> 11.438`, `unreliable_no_fresh_target_high_output_frames 78 -> 0`, but `max_overshoot_px 49.261 -> 52.375`.
+  - Bodylock moving/slide/jump metrics stayed identical to the vector-cap baseline, so this is currently the safe slice to keep.
+  - Rejected a target-provider experiment that disabled projected candidate aim authority based on missing body-box evidence. It made some wrong-target metrics look better but regressed bodylock slide/jump continuity; do not revive it without an explicit target-authority state.
+  - Verification:
+    - `cod_native_controller_tests.exe` PASS.
+    - `cod_native_gamepad_benchmark.exe --self-test` PASS.
+    - `cod_native_benchmark_metrics_tests.exe` PASS.
+    - `cod_native_output_validation_tests.exe` exit code 0.
+    - `scripts\verify\native_pipeline_contract.bat` PASS after renaming the diagnostic snapshot fields from `pre_recoil_x/y` to `before_recoil_x/y`.
+    - `git diff --check` passed for touched files with only CRLF warnings.
+
+- 2026-07-07 - Accepted AI assist authority-boundary direction.
+  - User confirmed the current direction should be recorded as a durable decision and remain fully reportable in later sessions.
+  - Accepted decision: `decisions/DEC-2026-07-07-001-ai-assist-authority-boundaries.md`.
+  - Core framing: the problem is no longer only ADS/bodylock strength tuning; it is deciding when AI may strongly help, weakly track, observe, yield, or release.
+  - Pipeline direction:
+    - vision candidate targets and evidence
+    - userInput/UserIntent-aware selector
+    - target authority and assist-permission decision
+    - tracker memory with evidence/user-intent decay
+    - separate ADS/bodylock control policies
+    - manual/AI arbitration
+    - component plus decision logging
+    - benchmark scoring for hit, overshoot, smoothness, and anti-intervention
+  - Implementation should start with benchmark and decision logging coverage, then selector/authority changes, then ADS near-target policy, then bodylock tracking policy.
+  - Important boundary: do not solve this by adding more controller-only special cases, a universal ADS/bodylock brake, or hard userInput vision crop before selection/authority behavior is measurable.
 
 - 2026-07-06 - Native AimLab benchmark and live intent wiring landed.
   - Added native data-only benchmark/scorer/executable across commits:
@@ -85,6 +118,29 @@ Purpose: quick navigation for project continuity. Full older history is preserve
     - native perf/output-age/ADS-resume/TensorRT/recoil live-validation follow-ups
     - Python fallback preservation and training/data write-location caution
   - Fusion/canvas details remain archived at `archive/2026-06-25-fusion-canvas.md`.
+
+- 2026-07-07 - Adversarial controller benchmark and runtime log bridge.
+  - Added controller-backed adversarial benchmark coverage for:
+    - ADS manual carry-through / same-direction acceleration into overshoot risk.
+    - Bodylock near-target high output without brake coverage.
+    - Wrong target, user-vs-AI fight, invalid strong authority, stale high output, err target, and recovery windows.
+  - Latest benchmark artifact: `runs\native_perf\native_gamepad_benchmark_adversarial_controller_20260707.json`.
+  - Key run output:
+    - `ads_manual_carry_through_100hz`: same-direction accel `38`, near-high `47`, brake-active `205`, max overshoot `2.1px`.
+    - `ads_bodylock_near_high_output_100hz`: near-high `720`, brake gap `720`, chatter `4`, p95 turn `1.9deg`.
+    - `adversarial_controller_authority_100hz`: wrong `140`, fight `433`, invalid strong `84`, stale-high `27`, err `99`, recovery `100`, p95 error `74.7px`.
+  - Native aim perf JSON now includes bridge diagnostics while aiming:
+    - manual/AI/final magnitude, target error, manual-AI fight, manual-final fight, near-high output, stale target, tracker projection, projected high output, authority without fire.
+  - Added `tools\analyze_native_aim_diagnostics.py` to summarize benchmark JSON and one or more `native_aim_perf_*.jsonl` logs using the same diagnostic vocabulary.
+  - Analyzer can derive counters from old logs without `diagnostic_*` fields, skips partial malformed JSONL rows, and ignores 0-byte logs when selecting `--latest`.
+  - Verification:
+    - `cod_native_benchmark_metrics_tests.exe` PASS
+    - `cod_native_gamepad_benchmark.exe --self-test` PASS
+    - `cod_native_gamepad_benchmark.exe --random-fov-ticks 0 --output runs\native_perf\native_gamepad_benchmark_adversarial_controller_20260707.json` PASS
+    - `cod_native_runtime` build PASS
+    - `python -m py_compile tools\analyze_native_aim_diagnostics.py` PASS
+    - `git diff --check` PASS
+  - Runtime short-run note: `cod_native_runtime.exe --perf-log --max-ticks 30` created an empty aim JSONL because aim perf JSONL writes only while `aiming=true`; live LT aiming sessions will populate the new fields.
 
 ## Recent Milestones
 

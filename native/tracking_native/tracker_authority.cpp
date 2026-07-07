@@ -61,6 +61,19 @@ TargetAuthorityDecision classify_target_authority(
         decision.assist_authority = decision.is_strong_aim_target
             ? common_native::AssistAuthority::AimObserved
             : common_native::AssistAuthority::AimCoast;
+        if (decision.is_strong_aim_target) {
+            decision.target_authority_state =
+                common_native::TargetAuthorityState::StrongAssist;
+        } else if (decision.is_weak_continuity) {
+            decision.target_authority_state =
+                common_native::TargetAuthorityState::WeakAssist;
+        } else {
+            decision.target_authority_state =
+                common_native::TargetAuthorityState::TrackOnly;
+        }
+    } else {
+        decision.target_authority_state =
+            common_native::TargetAuthorityState::TrackOnly;
     }
     if (fire_authority && decision.is_strong_aim_target) {
         decision.fire_authority = common_native::FireAuthority::ObservedOnly;

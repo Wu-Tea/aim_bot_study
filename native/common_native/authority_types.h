@@ -15,4 +15,12 @@ enum class FireAuthority : std::uint8_t {
     ObservedOnly = 1,
 };
 
+enum class TargetAuthorityState : std::uint8_t {
+    Reject = 0,
+    StrongAssist = 1,
+    WeakAssist = 2,
+    TrackOnly = 3,
+    Yield = 4,
+};
+
 }  // namespace common_native

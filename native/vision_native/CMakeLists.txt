@@ -197,6 +197,7 @@ add_executable(cod_native_runtime
     ../controller_native/ads_state_tracker.cpp
     ../controller_native/auto_fire_gate.cpp
     ../controller_native/target_tracker.cpp
+    ../controller_native/ads_carry_brake_policy.cpp
     ../controller_native/ai_aim.cpp
     ../controller_native/body_lock_short_plan_policy.cpp
     ../controller_native/bodylock_policy.cpp
@@ -282,6 +283,7 @@ add_executable(cod_native_controller_tests
     ../controller_native/ads_state_tracker.cpp
     ../controller_native/auto_fire_gate.cpp
     ../controller_native/target_tracker.cpp
+    ../controller_native/ads_carry_brake_policy.cpp
     ../controller_native/ai_aim.cpp
     ../controller_native/body_lock_short_plan_policy.cpp
     ../controller_native/bodylock_policy.cpp
@@ -471,6 +473,7 @@ target_link_libraries(cod_native_weapon_recognizer_tests PRIVATE
 
 add_executable(cod_native_benchmark_metrics_tests
     ../controller_native/benchmark_metrics_tests.cpp
+    ../tracking_native/tracker_authority.cpp
     ../runtime_app/aim_perf_file_logger.cpp
     ../runtime_app/perf_logger.cpp
     ../replay_native/replay_metrics.cpp
@@ -502,6 +505,7 @@ add_executable(cod_native_gamepad_benchmark
     ../controller_native/ads_state_tracker.cpp
     ../controller_native/auto_fire_gate.cpp
     ../controller_native/target_tracker.cpp
+    ../controller_native/ads_carry_brake_policy.cpp
     ../controller_native/ai_aim.cpp
     ../controller_native/body_lock_short_plan_policy.cpp
     ../controller_native/bodylock_policy.cpp
