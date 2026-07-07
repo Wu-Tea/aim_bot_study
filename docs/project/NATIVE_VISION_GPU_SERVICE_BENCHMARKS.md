@@ -24,6 +24,12 @@ Efficiency rerun:
 python tools\benchmark_vision_gpu_service.py --duration-ms 5000 --active-window 1000:2200 --active-window 3200:4400 --no-update-window 1700:2000 --output-dir runs\native_perf\vision_gpu_service_synthetic_20260707_gpu_occupancy_v2
 ```
 
+Independent service-cadence rerun:
+
+```powershell
+python tools\benchmark_vision_gpu_service.py --duration-ms 5000 --active-window 1000:2200 --active-window 3200:4400 --no-update-window 1700:2000 --output-dir runs\native_perf\vision_gpu_service_synthetic_20260707_fps_budget_v2
+```
+
 Scenario shape:
 
 - Controller loop: 100 Hz.
@@ -36,8 +42,8 @@ Scenario shape:
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | current_sync_poll | 43.75 | 43.75 | 1020.0 ms | 55.0 ms | 6.5 ms | 13.5 ms | 0 |
 | warmup_only | 43.75 | 43.75 | 1020.0 ms | 25.0 ms | 6.5 ms | 12.5 ms | 0 |
-| idle_low_rate_keepwarm | 43.75 | 43.75 | 320.0 ms | 6.5 ms | 6.5 ms | 10.5 ms | 0 |
-| repeat_last_keepwarm | 50.00 | 43.75 | 0.0 ms | 6.5 ms | 6.5 ms | 10.0 ms | 15 |
+| idle_low_rate_keepwarm | 60.83 | 60.83 | 320.0 ms | 6.5 ms | 6.5 ms | 19.5 ms | 0 |
+| repeat_last_keepwarm | 80.00 | 70.00 | 0.0 ms | 6.5 ms | 6.5 ms | 20.0 ms | 24 |
 | independent_worker | 87.50 | 87.50 | 1010.0 ms | 45.0 ms | 6.5 ms | 7.7 ms | 0 |
 | worker_keepwarm | 100.00 | 87.50 | 0.0 ms | 6.5 ms | 6.5 ms | 7.5 ms | 30 |
 | always_full_rate | 100.00 | 87.50 | 0.0 ms | 6.5 ms | 6.5 ms | 7.5 ms | 30 |
@@ -50,15 +56,15 @@ This table compares the old baseline, candidate strategies, and the current defa
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | current_sync_poll | 16.6% | 34.5% | 0.0% | 13.3 pp | 0.36 | 2.64 |
 | warmup_only | 14.4% | 30.0% | 0.0% | 8.9 pp | 0.28 | 3.04 |
-| idle_low_rate_keepwarm | 18.9% | 28.9% | 9.7% | 8.0 pp | 0.26 | 2.31 |
-| repeat_last_keepwarm | 18.6% | 28.4% | 9.5% | 7.3 pp | 0.25 | 2.69 |
+| idle_low_rate_keepwarm | 24.8% | 40.0% | 10.7% | 9.8 pp | 0.24 | 2.46 |
+| repeat_last_keepwarm | 27.2% | 45.8% | 10.0% | 12.0 pp | 0.25 | 2.94 |
 | independent_worker | 29.6% | 61.7% | 0.0% | 18.3 pp | 0.28 | 2.96 |
-| worker_keepwarm | 34.2% | 56.9% | 13.3% | 14.5 pp | 0.25 | 2.92 |
-| always_full_rate | 61.2% | 56.9% | 65.1% | 14.5 pp | 0.25 | 1.63 |
+| worker_keepwarm | 34.4% | 57.2% | 13.3% | 14.9 pp | 0.25 | 2.91 |
+| always_full_rate | 61.2% | 57.0% | 65.1% | 14.7 pp | 0.25 | 1.63 |
 
 Cost/stability interpretation:
 
-- Compared with `current_sync_poll`, `worker_keepwarm` roughly doubles overall expected GPU work (`16.6% -> 34.2%`) because it keeps the model warm and supplies 100 Hz controller-facing snapshots.
+- Compared with `current_sync_poll`, `worker_keepwarm` roughly doubles overall expected GPU work (`16.6% -> 34.4%`) because it keeps the model warm and supplies 100 Hz controller-facing snapshots.
 - That extra cost buys three things in this scenario: no long controller-facing vision gap, no activation GPU spike, and lower active occupancy CV (`0.36 -> 0.25`).
 - `always_full_rate` does not improve active snapshot FPS, fresh source FPS, activation spike, long-gap behavior, or active bucket stability over `worker_keepwarm`; it mainly raises idle expected GPU occupancy from `13.3%` to `65.1%`.
 - `idle_low_rate_keepwarm` and `repeat_last_keepwarm` are much cheaper, but they do not reach the current default's 100 Hz controller-facing active snapshot stream.
@@ -68,10 +74,35 @@ Input/output comparison:
 
 | Comparison | Extra Overall GPU Occupancy | Snapshot FPS Change | Fresh FPS Change | Long Gap Change | Activation GPU Max Change |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `current_sync_poll -> worker_keepwarm` | +17.6 pp | +56.25 FPS | +43.75 FPS | -1020.0 ms | -48.5 ms |
-| `worker_keepwarm -> always_full_rate` | +27.0 pp | +0.00 FPS | +0.00 FPS | +0.0 ms | +0.0 ms |
+| `current_sync_poll -> worker_keepwarm` | +17.8 pp | +56.25 FPS | +43.75 FPS | -1020.0 ms | -48.5 ms |
+| `worker_keepwarm -> always_full_rate` | +26.8 pp | +0.00 FPS | +0.00 FPS | +0.0 ms | +0.0 ms |
 
 This makes the cost boundary explicit: moving from the old baseline to `worker_keepwarm` buys stability and 100 Hz controller-facing snapshots; moving from `worker_keepwarm` to `always_full_rate` only spends more idle GPU in this benchmark.
+
+## 30 Percent Headroom Budget
+
+If the game already uses roughly 70% of the GPU, there are two useful budget readings:
+
+- Strict active headroom: vision should stay at or below about 30% during aim-active windows.
+- Average headroom: vision may average below 30% over the whole run, but can burst above 30% during aim-active windows.
+
+Strict active-headroom candidates:
+
+| Candidate | Active Snapshot FPS | Active Fresh FPS | Overall GPU | Active GPU | Idle GPU | Max Long Gap | Activation GPU Max |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `active=50 idle=20 repeat=true` | 50.00 | 43.75 | 20.7% | 28.8% | 13.3% | 0.0 ms | 6.5 ms |
+| `active=45 idle=20 repeat=true` | 44.58 | 38.75 | 19.4% | 25.5% | 13.8% | 0.0 ms | 6.5 ms |
+| `active=40 idle=20 repeat=true` | 40.00 | 35.00 | 18.0% | 23.1% | 13.3% | 0.0 ms | 6.5 ms |
+
+Average-headroom candidates:
+
+| Candidate | Active Snapshot FPS | Active Fresh FPS | Overall GPU | Active GPU | Idle GPU | Max Long Gap | Activation GPU Max |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `active=80 idle=20 repeat=true` | 80.00 | 70.00 | 28.9% | 45.8% | 13.3% | 0.0 ms | 6.5 ms |
+| `active=70 idle=20 repeat=true` | 69.58 | 60.83 | 26.3% | 39.9% | 13.8% | 0.0 ms | 6.5 ms |
+| `active=60 idle=20 repeat=true` | 60.00 | 52.50 | 23.4% | 34.4% | 13.3% | 0.0 ms | 6.5 ms |
+
+For a game workload with only about 30% free GPU, the strict reading points to `active=50 idle=20 repeat=true` as the safer cap. The average reading can justify `active=70-80`, but those settings can still collide with game render spikes because active GPU work exceeds the spare 30% budget.
 
 Interpretation:
 

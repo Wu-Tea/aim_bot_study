@@ -131,45 +131,92 @@ def simulate_strategy(
     tick = 0
     now_ms = 0.0
     frame_id = 0
-    last_infer_ms: float | None = None
+    last_gpu_infer_ms: float | None = None
+    next_service_ms: float | None = None
+    latest_snapshot: dict[str, Any] | None = None
+    consumed_sequence = 0
+    sequence = 0
 
     while now_ms <= duration_ms + 1e-6:
         active = _in_windows(now_ms, active_windows)
-        source_available = not _in_windows(now_ms, no_update_windows)
-        target_period_ms = _period_ms(config.active_hz if active else config.idle_hz)
-        can_repeat = config.repeat_on_no_update and last_infer_ms is not None
-        can_infer_from_source = source_available or can_repeat
-        should_infer = can_infer_from_source and _should_infer(now_ms, last_infer_ms, target_period_ms)
-
-        row = _empty_row(tick=tick, now_ms=now_ms, active=active)
-        if should_infer:
-            reused_source = not source_available
-            gpu_total_ms = _gpu_total_ms(config, now_ms, last_infer_ms)
-            frame_id += 1
-            last_infer_ms = now_ms
-            row.update(
-                {
+        next_service_ms = _next_service_due_ms(
+            now_ms=now_ms,
+            next_service_ms=next_service_ms,
+            active_windows=active_windows,
+            duration_ms=duration_ms,
+            config=config,
+        )
+        while next_service_ms is not None and next_service_ms <= now_ms + 1e-6:
+            service_active = _in_windows(next_service_ms, active_windows)
+            source_available = not _in_windows(next_service_ms, no_update_windows)
+            service_hz = config.active_hz if service_active else config.idle_hz
+            service_period_ms = _period_ms(service_hz)
+            can_repeat = config.repeat_on_no_update and latest_snapshot is not None
+            if service_hz > 0.0 and (source_available or can_repeat):
+                reused_source = not source_available
+                gpu_total_ms = (
+                    0.0
+                    if reused_source
+                    else _gpu_total_ms(config, next_service_ms, last_gpu_infer_ms)
+                )
+                if not reused_source:
+                    last_gpu_infer_ms = next_service_ms
+                frame_id += 1
+                sequence += 1
+                latest_snapshot = {
                     "frame_updated": True,
                     "frame_id": frame_id,
+                    "service_sequence": sequence,
                     "source": "synthetic_repeat" if reused_source else "synthetic",
                     "source_state": "repeat_last" if reused_source else "fresh",
                     "freshness": "reused" if reused_source else "fresh",
-                    "preprocess_mode": "old_bgra_copy",
-                    "preprocess_ms": config.preprocess_ms,
+                    "preprocess_mode": "old_bgra_copy" if not reused_source else "none",
+                    "preprocess_ms": 0.0 if reused_source else config.preprocess_ms,
                     "infer_ms": max(0.0, gpu_total_ms - config.preprocess_ms),
                     "gpu_total_ms": gpu_total_ms,
+                    "gpu_work_start_ms": next_service_ms,
                     "output_wait_ms": config.output_wait_ms,
-                    "age_ms": gpu_total_ms + config.output_wait_ms,
-                    "vision_age_ms": gpu_total_ms + config.output_wait_ms,
+                    "age_ms": gpu_total_ms + config.output_wait_ms + max(0.0, now_ms - next_service_ms),
+                    "vision_age_ms": gpu_total_ms + config.output_wait_ms + max(0.0, now_ms - next_service_ms),
                     "consume_ms": gpu_total_ms + config.output_wait_ms,
-                    "output_age_ms": gpu_total_ms + config.output_wait_ms,
-                    "ctrl_loop_ms": tick_ms + min(gpu_total_ms, 50.0) * 0.05,
+                    "output_age_ms": gpu_total_ms + config.output_wait_ms + max(0.0, now_ms - next_service_ms),
+                    "ctrl_loop_ms": tick_ms + min(gpu_total_ms, 50.0) * 0.01,
                 }
-            )
+            if service_period_ms == float("inf"):
+                next_service_ms = None
+            else:
+                next_service_ms = round(next_service_ms + service_period_ms, 6)
+
+        row = _empty_row(tick=tick, now_ms=now_ms, active=active)
+        if latest_snapshot is not None and latest_snapshot["service_sequence"] != consumed_sequence:
+            consumed_sequence = int(latest_snapshot["service_sequence"])
+            row.update(latest_snapshot)
         rows.append(row)
         tick += 1
         now_ms = round(tick * tick_ms, 6)
     return rows
+
+
+def _next_service_due_ms(
+    *,
+    now_ms: float,
+    next_service_ms: float | None,
+    active_windows: Sequence[Window],
+    duration_ms: float,
+    config: StrategyConfig,
+) -> float | None:
+    if next_service_ms is not None:
+        return next_service_ms
+    if _in_windows(now_ms, active_windows):
+        return now_ms
+    if config.idle_hz > 0.0:
+        return now_ms
+    future_active_starts = [start_ms for start_ms, _ in active_windows if start_ms >= now_ms - 1e-6]
+    if future_active_starts:
+        return min(future_active_starts)
+    if duration_ms >= now_ms and _in_windows(duration_ms, active_windows):
+        return duration_ms
+    return None
 
 
 def _empty_row(*, tick: int, now_ms: float, active: bool) -> dict[str, Any]:
@@ -260,7 +307,7 @@ def _overlap_ms(a_start: float, a_end: float, b_start: float, b_end: float) -> f
 def _sum_gpu_work_ms(rows: list[dict[str, Any]], windows: Sequence[Window]) -> float:
     total = 0.0
     for row in _updated_rows(rows):
-        start_ms = float(row["relative_ms"])
+        start_ms = float(row.get("gpu_work_start_ms", row["relative_ms"]))
         work_ms = _gpu_work_ms(row)
         if work_ms <= 0.0:
             continue
