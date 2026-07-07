@@ -19,6 +19,11 @@ struct VisionRuntimeConfig {
     bool aim_perf_file_log = true;
     std::string aim_perf_log_dir = "runs/native_perf";
     unsigned int aim_perf_log_interval_ticks = 1;
+    bool gpu_service_enabled = true;
+    int gpu_service_active_fps = 100;
+    int gpu_service_idle_fps = 20;
+    bool gpu_service_keepwarm_when_idle = true;
+    bool gpu_service_repeat_last_on_no_update = true;
 
     // fusion visual overlay channel (disabled by default)
     bool fusion_enabled = false;

@@ -10,6 +10,7 @@
 #include "downward_diagnostics.h"
 #include "fusion_channel_publisher.h"
 #include "perf_logger.h"
+#include "vision_service.h"
 #include "vision_native/vision_engine.h"
 
 #include <atomic>
@@ -51,9 +52,11 @@ private:
     std::unique_ptr<controller_native::NativeRecoilWeaponRuntimeRecognizer> recoil_weapon_recognizer_;
     controller_native::RecoilWeaponSwitchCaptureScheduler recoil_switch_scheduler_;
     std::unique_ptr<vision_native::VisionEngine> vision_engine_;
+    std::unique_ptr<VisionService> vision_service_;
     vision_native::VisionResult latest_vision_result_;
     bool has_latest_vision_result_ = false;
     bool latest_vision_aiming_ = false;
+    std::uint64_t latest_vision_service_sequence_ = 0;
     std::uint64_t latest_result_timestamp_ns_ = 0;
     std::uint64_t latest_controller_consume_started_ns_ = 0;
     unsigned int selected_xinput_user_index_ = 0;

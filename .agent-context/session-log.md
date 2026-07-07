@@ -1,6 +1,6 @@
 # Agent Session Log Index
 
-Last updated: 2026-07-07T09:28:24+08:00
+Last updated: 2026-07-07T20:45:00+08:00
 Updated by: Codex
 Purpose: quick navigation for project continuity. Full older history is preserved in `session-log-full.md`; detailed recent fusion/canvas notes are archived under `archive/`.
 
@@ -12,6 +12,12 @@ Purpose: quick navigation for project continuity. Full older history is preserve
 4. Open archive files only when deeper detail is needed.
 
 ## Current Active Thread
+
+- 2026-07-07 - Proposed vision red-team stability decision before optimization.
+  - User reframed native vision work as a vulnerability-finding effort: first prove where the vision module fails to provide stable compute or timely results, then optimize based on evidence.
+  - Proposed decision: `decisions/DEC-2026-07-07-002-vision-red-team-stability-before-optimization.md`.
+  - Next low-participation work should start with reusable log/stability analysis using existing `native_aim_perf_*.jsonl` files, then synthetic/replay benchmarks for active/inactive switching, DXGI no-update gaps, cold activation spikes, GPU wait, and contention behavior.
+  - Do not treat model retraining, higher capture frequency, keep-warm, always-on inference, or runtime threading changes as accepted solutions until the stability failure profile is measurable.
 
 - 2026-07-07 - ADS no-fresh acquisition cap accepted; crude suspicious-target gate rejected.
   - Implemented an ADS acquisition cap for cases where the controller is still acquiring in ADS but does not have fresh target evidence.

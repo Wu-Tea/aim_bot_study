@@ -108,6 +108,20 @@ void apply_runtime_vision_value(
     } else if (key == "aim_perf_log_interval_ticks") {
         config.aim_perf_log_interval_ticks =
             parse_uint_value(value, config.aim_perf_log_interval_ticks);
+    } else if (key == "gpu_service_enabled") {
+        config.gpu_service_enabled = parse_bool_value(value, config.gpu_service_enabled);
+    } else if (key == "gpu_service_active_fps") {
+        config.gpu_service_active_fps =
+            parse_int_value(value, config.gpu_service_active_fps);
+    } else if (key == "gpu_service_idle_fps") {
+        config.gpu_service_idle_fps =
+            parse_int_value(value, config.gpu_service_idle_fps);
+    } else if (key == "gpu_service_keepwarm_when_idle") {
+        config.gpu_service_keepwarm_when_idle =
+            parse_bool_value(value, config.gpu_service_keepwarm_when_idle);
+    } else if (key == "gpu_service_repeat_last_on_no_update") {
+        config.gpu_service_repeat_last_on_no_update =
+            parse_bool_value(value, config.gpu_service_repeat_last_on_no_update);
     } else if (key == "fusion_enabled") {
         config.fusion_enabled = parse_bool_value(value, config.fusion_enabled);
     } else if (key == "fusion_session") {
@@ -521,6 +535,36 @@ void apply_vision_environment_overrides(VisionRuntimeConfig& config) {
         if (interval[0] != '\0') {
             config.aim_perf_log_interval_ticks =
                 parse_uint_value(interval, config.aim_perf_log_interval_ticks);
+        }
+    }
+    if (const char* enabled = std::getenv("VISION_GPU_SERVICE_ENABLED")) {
+        if (enabled[0] != '\0') {
+            config.gpu_service_enabled =
+                parse_bool_value(enabled, config.gpu_service_enabled);
+        }
+    }
+    if (const char* active_fps = std::getenv("VISION_GPU_SERVICE_ACTIVE_FPS")) {
+        if (active_fps[0] != '\0') {
+            config.gpu_service_active_fps =
+                parse_int_value(active_fps, config.gpu_service_active_fps);
+        }
+    }
+    if (const char* idle_fps = std::getenv("VISION_GPU_SERVICE_IDLE_FPS")) {
+        if (idle_fps[0] != '\0') {
+            config.gpu_service_idle_fps =
+                parse_int_value(idle_fps, config.gpu_service_idle_fps);
+        }
+    }
+    if (const char* keepwarm = std::getenv("VISION_GPU_SERVICE_KEEPWARM_WHEN_IDLE")) {
+        if (keepwarm[0] != '\0') {
+            config.gpu_service_keepwarm_when_idle =
+                parse_bool_value(keepwarm, config.gpu_service_keepwarm_when_idle);
+        }
+    }
+    if (const char* repeat = std::getenv("VISION_GPU_SERVICE_REPEAT_LAST_ON_NO_UPDATE")) {
+        if (repeat[0] != '\0') {
+            config.gpu_service_repeat_last_on_no_update =
+                parse_bool_value(repeat, config.gpu_service_repeat_last_on_no_update);
         }
     }
     // fusion channel env overrides

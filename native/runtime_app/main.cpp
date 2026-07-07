@@ -79,6 +79,9 @@ void print_startup_summary(
         << " aim_perf_file_log=" << (config.vision.aim_perf_file_log ? "true" : "false")
         << " aim_perf_log_dir=" << config.vision.aim_perf_log_dir
         << " aim_perf_log_interval_ticks=" << config.vision.aim_perf_log_interval_ticks
+        << " gpu_service=" << (config.vision.gpu_service_enabled ? "on" : "off")
+        << " gpu_service_active_fps=" << config.vision.gpu_service_active_fps
+        << " gpu_service_idle_fps=" << config.vision.gpu_service_idle_fps
         << " tracker_backend="
         << tracking_native::tracker_backend_kind_name(config.gamepad.tracker_backend)
         << " tracker_motion=component_aware_final"

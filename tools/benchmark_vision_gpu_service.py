@@ -1,0 +1,420 @@
+from __future__ import annotations
+
+import argparse
+from dataclasses import asdict, dataclass
+import json
+from pathlib import Path
+from typing import Any, Iterable, Sequence
+
+
+Window = tuple[float, float]
+
+
+@dataclass(frozen=True, slots=True)
+class StrategyConfig:
+    name: str
+    active_hz: float
+    idle_hz: float = 0.0
+    repeat_on_no_update: bool = False
+    prewarm: bool = False
+    steady_gpu_total_ms: float = 6.5
+    cold_gpu_total_ms: float = 55.0
+    cold_after_ms: float = 300.0
+    output_wait_ms: float = 2.0
+    preprocess_ms: float = 0.08
+
+
+DEFAULT_STRATEGIES: dict[str, StrategyConfig] = {
+    "current_sync_poll": StrategyConfig(
+        name="current_sync_poll",
+        active_hz=50.0,
+        cold_gpu_total_ms=55.0,
+        output_wait_ms=7.0,
+        preprocess_ms=0.45,
+    ),
+    "warmup_only": StrategyConfig(
+        name="warmup_only",
+        active_hz=50.0,
+        prewarm=True,
+        cold_gpu_total_ms=25.0,
+        output_wait_ms=6.0,
+        preprocess_ms=0.35,
+    ),
+    "idle_low_rate_keepwarm": StrategyConfig(
+        name="idle_low_rate_keepwarm",
+        active_hz=70.0,
+        idle_hz=15.0,
+        cold_gpu_total_ms=18.0,
+        output_wait_ms=4.0,
+        preprocess_ms=0.18,
+    ),
+    "repeat_last_keepwarm": StrategyConfig(
+        name="repeat_last_keepwarm",
+        active_hz=80.0,
+        idle_hz=15.0,
+        repeat_on_no_update=True,
+        cold_gpu_total_ms=14.0,
+        output_wait_ms=3.5,
+        preprocess_ms=0.16,
+    ),
+    "independent_worker": StrategyConfig(
+        name="independent_worker",
+        active_hz=100.0,
+        cold_gpu_total_ms=45.0,
+        output_wait_ms=1.2,
+        preprocess_ms=0.10,
+    ),
+    "worker_keepwarm": StrategyConfig(
+        name="worker_keepwarm",
+        active_hz=100.0,
+        idle_hz=20.0,
+        repeat_on_no_update=True,
+        cold_gpu_total_ms=14.0,
+        output_wait_ms=1.0,
+        preprocess_ms=0.08,
+    ),
+    "always_full_rate": StrategyConfig(
+        name="always_full_rate",
+        active_hz=100.0,
+        idle_hz=100.0,
+        repeat_on_no_update=True,
+        cold_gpu_total_ms=10.0,
+        output_wait_ms=1.0,
+        preprocess_ms=0.08,
+    ),
+}
+
+
+def _in_windows(value_ms: float, windows: Sequence[Window]) -> bool:
+    return any(start_ms <= value_ms < end_ms for start_ms, end_ms in windows)
+
+
+def _window_duration_ms(windows: Sequence[Window]) -> float:
+    return sum(max(0.0, end_ms - start_ms) for start_ms, end_ms in windows)
+
+
+def _period_ms(hz: float) -> float:
+    return 1000.0 / hz if hz > 0.0 else float("inf")
+
+
+def _should_infer(
+    now_ms: float,
+    last_infer_ms: float | None,
+    period_ms: float,
+) -> bool:
+    if period_ms == float("inf"):
+        return False
+    if last_infer_ms is None:
+        return True
+    return now_ms - last_infer_ms >= period_ms - 1e-6
+
+
+def _gpu_total_ms(config: StrategyConfig, now_ms: float, last_infer_ms: float | None) -> float:
+    if config.prewarm and last_infer_ms is None:
+        return config.steady_gpu_total_ms
+    if last_infer_ms is None or now_ms - last_infer_ms >= config.cold_after_ms:
+        return config.cold_gpu_total_ms
+    return config.steady_gpu_total_ms
+
+
+def simulate_strategy(
+    config: StrategyConfig,
+    *,
+    duration_ms: float,
+    controller_hz: float,
+    active_windows: Sequence[Window],
+    no_update_windows: Sequence[Window],
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    tick_ms = _period_ms(controller_hz)
+    tick = 0
+    now_ms = 0.0
+    frame_id = 0
+    last_infer_ms: float | None = None
+
+    while now_ms <= duration_ms + 1e-6:
+        active = _in_windows(now_ms, active_windows)
+        source_available = not _in_windows(now_ms, no_update_windows)
+        target_period_ms = _period_ms(config.active_hz if active else config.idle_hz)
+        can_repeat = config.repeat_on_no_update and last_infer_ms is not None
+        can_infer_from_source = source_available or can_repeat
+        should_infer = can_infer_from_source and _should_infer(now_ms, last_infer_ms, target_period_ms)
+
+        row = _empty_row(tick=tick, now_ms=now_ms, active=active)
+        if should_infer:
+            reused_source = not source_available
+            gpu_total_ms = _gpu_total_ms(config, now_ms, last_infer_ms)
+            frame_id += 1
+            last_infer_ms = now_ms
+            row.update(
+                {
+                    "frame_updated": True,
+                    "frame_id": frame_id,
+                    "source": "synthetic_repeat" if reused_source else "synthetic",
+                    "source_state": "repeat_last" if reused_source else "fresh",
+                    "freshness": "reused" if reused_source else "fresh",
+                    "preprocess_mode": "old_bgra_copy",
+                    "preprocess_ms": config.preprocess_ms,
+                    "infer_ms": max(0.0, gpu_total_ms - config.preprocess_ms),
+                    "gpu_total_ms": gpu_total_ms,
+                    "output_wait_ms": config.output_wait_ms,
+                    "age_ms": gpu_total_ms + config.output_wait_ms,
+                    "vision_age_ms": gpu_total_ms + config.output_wait_ms,
+                    "consume_ms": gpu_total_ms + config.output_wait_ms,
+                    "output_age_ms": gpu_total_ms + config.output_wait_ms,
+                    "ctrl_loop_ms": tick_ms + min(gpu_total_ms, 50.0) * 0.05,
+                }
+            )
+        rows.append(row)
+        tick += 1
+        now_ms = round(tick * tick_ms, 6)
+    return rows
+
+
+def _empty_row(*, tick: int, now_ms: float, active: bool) -> dict[str, Any]:
+    return {
+        "tick": tick,
+        "relative_ms": now_ms,
+        "aiming": active,
+        "frame_updated": False,
+        "frame_id": 0,
+        "target": False,
+        "tier": "none",
+        "source": "none",
+        "stage": "none",
+        "aim_authority": False,
+        "fire_authority": False,
+        "confidence": 0.0,
+        "dx": 0.0,
+        "dy": 0.0,
+        "capture_ms": 0.0,
+        "copy_ms": 0.0,
+        "capture_transfer_ms": 0.0,
+        "cuda_map_ms": 0.0,
+        "preprocess_mode": "none",
+        "preprocess_ms": 0.0,
+        "infer_ms": 0.0,
+        "gpu_total_ms": 0.0,
+        "output_wait_ms": 0.0,
+        "decode_ms": 0.0,
+        "selector_ms": 0.0,
+        "enhance_ms": 0.0,
+        "post_ms": 0.0,
+        "age_ms": 0.0,
+        "vision_age_ms": 0.0,
+        "boxes_seen": 0,
+        "consume_ms": 0.0,
+        "out_age_ms": 0.0,
+        "output_age_ms": 0.0,
+        "ctrl_loop_ms": 0.0,
+        "ctrl_pipeline_ms": 0.0,
+        "vigem_update_ms": 0.0,
+    }
+
+
+def _percentile(values: list[float], percentile: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    index = min(len(ordered) - 1, max(0, round((len(ordered) - 1) * percentile / 100.0)))
+    return ordered[index]
+
+
+def _updated_rows(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [row for row in rows if row.get("frame_updated") and row.get("frame_id", 0) > 0]
+
+
+def _intervals_ms(rows: list[dict[str, Any]]) -> list[float]:
+    intervals: list[float] = []
+    previous_ms: float | None = None
+    for row in rows:
+        now_ms = float(row["relative_ms"])
+        if previous_ms is not None:
+            intervals.append(now_ms - previous_ms)
+        previous_ms = now_ms
+    return intervals
+
+
+def _activation_rows(rows: list[dict[str, Any]], active_windows: Sequence[Window]) -> list[dict[str, Any]]:
+    activations: list[dict[str, Any]] = []
+    for start_ms, end_ms in active_windows:
+        for row in rows:
+            now_ms = float(row["relative_ms"])
+            if start_ms <= now_ms < end_ms and row.get("frame_updated"):
+                activations.append(row)
+                break
+    return activations
+
+
+def summarize_rows(rows: list[dict[str, Any]], active_windows: Sequence[Window]) -> dict[str, Any]:
+    updated = _updated_rows(rows)
+    active_updated = [row for row in updated if _in_windows(float(row["relative_ms"]), active_windows)]
+    active_fresh_source = [row for row in active_updated if row.get("freshness") == "fresh"]
+    active_reused_source = [row for row in active_updated if row.get("freshness") == "reused"]
+    intervals = _intervals_ms(updated)
+    active_duration_ms = _window_duration_ms(active_windows)
+    gaps = [value for value in intervals if value >= 100.0]
+    activation_rows = _activation_rows(rows, active_windows)
+    activation_gpu = [float(row["gpu_total_ms"]) for row in activation_rows]
+    gpu_values = [float(row["gpu_total_ms"]) for row in updated]
+    age_values = [float(row["vision_age_ms"]) for row in updated]
+    return {
+        "rows": len(rows),
+        "updated_rows": len(updated),
+        "active_updated_rows": len(active_updated),
+        "active_snapshot_fps": (len(active_updated) * 1000.0 / active_duration_ms) if active_duration_ms else 0.0,
+        "active_fresh_source_fps": (len(active_fresh_source) * 1000.0 / active_duration_ms) if active_duration_ms else 0.0,
+        "active_reused_source_rows": len(active_reused_source),
+        "long_gap_ms": {
+            "count": len(gaps),
+            "max": max(gaps) if gaps else 0.0,
+            "p95": _percentile(gaps, 95),
+        },
+        "activation_gpu_total_ms": {
+            "count": len(activation_gpu),
+            "max": max(activation_gpu) if activation_gpu else 0.0,
+            "p95": _percentile(activation_gpu, 95),
+        },
+        "gpu_total_ms": {
+            "p50": _percentile(gpu_values, 50),
+            "p95": _percentile(gpu_values, 95),
+            "max": max(gpu_values) if gpu_values else 0.0,
+        },
+        "vision_age_ms": {
+            "p50": _percentile(age_values, 50),
+            "p95": _percentile(age_values, 95),
+            "max": max(age_values) if age_values else 0.0,
+        },
+        "reused_source_rows": sum(1 for row in updated if row.get("freshness") == "reused"),
+    }
+
+
+def run_benchmark(
+    *,
+    duration_ms: float = 8000.0,
+    controller_hz: float = 100.0,
+    active_windows: Sequence[Window] = ((1500.0, 3500.0), (5000.0, 7000.0)),
+    no_update_windows: Sequence[Window] = ((2500.0, 2900.0),),
+    strategies: Sequence[str] = tuple(DEFAULT_STRATEGIES.keys()),
+) -> dict[str, Any]:
+    output: dict[str, Any] = {
+        "duration_ms": duration_ms,
+        "controller_hz": controller_hz,
+        "active_windows": [list(window) for window in active_windows],
+        "no_update_windows": [list(window) for window in no_update_windows],
+        "strategies": {},
+    }
+    for strategy_name in strategies:
+        config = DEFAULT_STRATEGIES[strategy_name]
+        rows = simulate_strategy(
+            config,
+            duration_ms=duration_ms,
+            controller_hz=controller_hz,
+            active_windows=active_windows,
+            no_update_windows=no_update_windows,
+        )
+        output["strategies"][strategy_name] = {
+            "config": asdict(config),
+            "summary": summarize_rows(rows, active_windows),
+            "rows": rows,
+        }
+    return output
+
+
+def write_strategy_jsonl(rows: Iterable[dict[str, Any]], path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as handle:
+        for row in rows:
+            handle.write(json.dumps(row, sort_keys=True, separators=(",", ":")))
+            handle.write("\n")
+
+
+def write_benchmark_outputs(result: dict[str, Any], output_dir: Path) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    summary = {
+        key: value
+        for key, value in result.items()
+        if key != "strategies"
+    }
+    summary["strategies"] = {
+        name: {"config": data["config"], "summary": data["summary"]}
+        for name, data in result["strategies"].items()
+    }
+    (output_dir / "summary.json").write_text(
+        json.dumps(summary, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    for name, data in result["strategies"].items():
+        write_strategy_jsonl(data["rows"], output_dir / f"{name}.jsonl")
+
+
+def print_summary(result: dict[str, Any]) -> None:
+    for name, data in result["strategies"].items():
+        summary = data["summary"]
+        print(
+            "{name}: active_snapshot_fps={snapshot_fps:.2f} active_fresh_source_fps={fresh_fps:.2f} "
+            "long_gap_max_ms={gap:.1f} activation_gpu_max_ms={activation:.1f} "
+            "gpu_p95_ms={gpu_p95:.1f} age_p95_ms={age_p95:.1f} reused_rows={reused}".format(
+                name=name,
+                snapshot_fps=summary["active_snapshot_fps"],
+                fresh_fps=summary["active_fresh_source_fps"],
+                gap=summary["long_gap_ms"]["max"],
+                activation=summary["activation_gpu_total_ms"]["max"],
+                gpu_p95=summary["gpu_total_ms"]["p95"],
+                age_p95=summary["vision_age_ms"]["p95"],
+                reused=summary["reused_source_rows"],
+            )
+        )
+
+
+def _parse_windows(values: list[str]) -> list[Window]:
+    windows: list[Window] = []
+    for value in values:
+        start, end = value.split(":", 1)
+        windows.append((float(start), float(end)))
+    return windows
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Run a synthetic GPU-service stability benchmark for native vision strategies."
+    )
+    parser.add_argument("--duration-ms", type=float, default=8000.0)
+    parser.add_argument("--controller-hz", type=float, default=100.0)
+    parser.add_argument(
+        "--active-window",
+        action="append",
+        default=[],
+        help="Active interval as start_ms:end_ms. Can be passed multiple times.",
+    )
+    parser.add_argument(
+        "--no-update-window",
+        action="append",
+        default=[],
+        help="No-source-update interval as start_ms:end_ms. Can be passed multiple times.",
+    )
+    parser.add_argument(
+        "--strategy",
+        action="append",
+        choices=sorted(DEFAULT_STRATEGIES),
+        default=[],
+        help="Strategy to include. Defaults to every strategy.",
+    )
+    parser.add_argument("--output-dir", type=Path)
+    args = parser.parse_args()
+
+    result = run_benchmark(
+        duration_ms=args.duration_ms,
+        controller_hz=args.controller_hz,
+        active_windows=_parse_windows(args.active_window) or ((1500.0, 3500.0), (5000.0, 7000.0)),
+        no_update_windows=_parse_windows(args.no_update_window) or ((2500.0, 2900.0),),
+        strategies=tuple(args.strategy) or tuple(DEFAULT_STRATEGIES.keys()),
+    )
+    print_summary(result)
+    if args.output_dir:
+        write_benchmark_outputs(result, args.output_dir)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

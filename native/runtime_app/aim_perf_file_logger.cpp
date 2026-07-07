@@ -363,6 +363,11 @@ void AimPerfFileLogger::record_aim_sample(
             << ",\"stage\":\"none\""
             << ",\"aim_authority\":false"
             << ",\"fire_authority\":false"
+            << ",\"service_freshness\":\"none\""
+            << ",\"service_source_state\":\"unknown\""
+            << ",\"service_sequence\":0"
+            << ",\"service_controller_aiming\":false"
+            << ",\"service_engine_aiming\":false"
             << ",\"confidence\":0"
             << ",\"dx\":0"
             << ",\"dy\":0"
@@ -392,6 +397,15 @@ void AimPerfFileLogger::record_aim_sample(
             << ",\"stage\":" << json_string(safe_c_string(result->association_stage, "none"))
             << ",\"aim_authority\":" << (result->aim_authority ? "true" : "false")
             << ",\"fire_authority\":" << (result->fire_authority ? "true" : "false")
+            << ",\"service_freshness\":"
+            << json_string(safe_c_string(result->service_freshness, "none"))
+            << ",\"service_source_state\":"
+            << json_string(safe_c_string(result->service_source_state, "unknown"))
+            << ",\"service_sequence\":" << result->service_sequence
+            << ",\"service_controller_aiming\":"
+            << (result->service_controller_aiming ? "true" : "false")
+            << ",\"service_engine_aiming\":"
+            << (result->service_engine_aiming ? "true" : "false")
             << ",\"confidence\":" << result->target_confidence
             << ",\"dx\":" << result->dx
             << ",\"dy\":" << result->dy

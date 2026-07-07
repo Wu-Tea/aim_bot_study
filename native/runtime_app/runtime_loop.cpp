@@ -104,6 +104,27 @@ bool environment_flag_enabled(const char* name) {
     return text != "0" && text != "false" && text != "False" && text != "off" && text != "OFF";
 }
 
+class VisionEngineServicePoller final : public IVisionServicePoller {
+public:
+    explicit VisionEngineServicePoller(std::unique_ptr<vision_native::VisionEngine> engine)
+        : engine_(std::move(engine)) {}
+
+    void set_aiming(bool aiming) override {
+        engine_->set_aiming(aiming);
+    }
+
+    void set_user_aim_intent(const pipeline_contract::UserAimIntent& intent) override {
+        engine_->set_user_aim_intent(intent);
+    }
+
+    vision_native::VisionResult poll_once() override {
+        return engine_->poll_once();
+    }
+
+private:
+    std::unique_ptr<vision_native::VisionEngine> engine_;
+};
+
 unsigned int environment_uint_or(const char* name, unsigned int fallback) {
     const char* value = std::getenv(name);
     if (value == nullptr || value[0] == '\0') {
@@ -241,6 +262,7 @@ void log_vision_result(
     if (result == nullptr) {
         std::cout << " updated=0 frame=0 boxes=0 target=0 source=none stage=none"
                   << " conf=0 dx=0 dy=0 aim_auth=0 fire_auth=0"
+                  << " service=none service_state=unknown service_seq=0"
                   << " mode=none"
                   << " cap=0ms copy=0ms pre=0ms infer=0ms decode=0ms"
                   << " selector=0ms enhance=0ms age=0ms\n";
@@ -260,6 +282,9 @@ void log_vision_result(
         << " dy=" << result->dy
         << " aim_auth=" << (result->aim_authority ? 1 : 0)
         << " fire_auth=" << (result->fire_authority ? 1 : 0)
+        << " service=" << safe_c_string(result->service_freshness, "none")
+        << " service_state=" << safe_c_string(result->service_source_state, "unknown")
+        << " service_seq=" << result->service_sequence
         << " mode=" << vision_native::preprocess_mode_name(result->preprocess_mode)
         << " cap=" << result->capture_acquire_ms
         << "ms copy=" << capture_transfer_ms(*result)
@@ -381,13 +406,33 @@ RuntimeLoop::RuntimeLoop(
                       << " state=\"" << config_.gamepad.recoil.recognizer_state_path << "\"\n";
         }
     }
-    vision_engine_ = std::make_unique<vision_native::VisionEngine>(
+    auto vision_engine = std::make_unique<vision_native::VisionEngine>(
         config_.vision.capture_width,
         config_.vision.capture_height,
         0,
         -1,
         0,
         config_.vision.model_path);
+    if (config_.vision.gpu_service_enabled) {
+        VisionServiceOptions service_options;
+        service_options.active_fps = static_cast<double>(config_.vision.gpu_service_active_fps);
+        service_options.idle_fps = static_cast<double>(config_.vision.gpu_service_idle_fps);
+        service_options.keepwarm_when_idle = config_.vision.gpu_service_keepwarm_when_idle;
+        service_options.repeat_last_on_no_update =
+            config_.vision.gpu_service_repeat_last_on_no_update;
+        vision_service_ = std::make_unique<VisionService>(
+            std::make_unique<VisionEngineServicePoller>(std::move(vision_engine)),
+            service_options);
+        vision_service_->start();
+        std::cout << "[VisionService][CPP] enabled"
+                  << " active_fps=" << config_.vision.gpu_service_active_fps
+                  << " idle_fps=" << config_.vision.gpu_service_idle_fps
+                  << " keepwarm=" << (config_.vision.gpu_service_keepwarm_when_idle ? 1 : 0)
+                  << " repeat_last=" << (config_.vision.gpu_service_repeat_last_on_no_update ? 1 : 0)
+                  << '\n';
+    } else {
+        vision_engine_ = std::move(vision_engine);
+    }
 
     // --- fusion visual overlay channel (disabled by default) ---
     if (config_.vision.fusion_enabled) {
@@ -422,6 +467,9 @@ int RuntimeLoop::run() {
             std::this_thread::sleep_for(tick_interval - elapsed);
         }
     }
+    if (vision_service_ != nullptr) {
+        vision_service_->stop();
+    }
     virtual_gamepad_.update(GamepadOutputState{});
     return 0;
 }
@@ -436,25 +484,13 @@ void RuntimeLoop::run_once() {
     update_recoil_recognizer_schedule(physical, tick_started);
     const bool aiming = is_aiming(physical);
     latest_vision_aiming_ = aiming;
-    vision_engine_->set_aiming(aiming);
-    vision_engine_->set_user_aim_intent(build_user_aim_intent(
+    const pipeline_contract::UserAimIntent user_aim_intent = build_user_aim_intent(
         physical,
         aiming,
         static_cast<std::uint64_t>(tick_count_) + 1u,
-        tick_started));
-    if (should_poll_vision(tick_started)) {
-        last_vision_poll_at_ = tick_started;
-        vision_native::VisionResult result = vision_engine_->poll_once();
-        const auto controller_consume_started = std::chrono::steady_clock::now();
-        controller_.submit_vision_snapshot(
-            adapt_vision_result(result));
-        latest_vision_result_ = result;
-        has_latest_vision_result_ = true;
-        latest_result_timestamp_ns_ =
-            result.captured_at_ns != 0 ? result.captured_at_ns : result.result_at_ns;
-        latest_controller_consume_started_ns_ =
-            steady_time_point_ns(controller_consume_started);
+        tick_started);
 
+    auto publish_fusion_if_updated = [&](const vision_native::VisionResult& result) {
         // --- fusion visual overlay publish (best-effort, no hot-path wait) ---
         if (fusion_enabled_ && result.frame_updated) {
             const int fw = config_.vision.capture_width;
@@ -474,6 +510,49 @@ void RuntimeLoop::run_once() {
                 fusion_enabled_ = false;
                 std::cout << "[Fusion][CPP] self-disabled after repeated publish failures\n";
             }
+        }
+    };
+
+    if (vision_service_ != nullptr) {
+        vision_service_->set_aiming(aiming);
+        vision_service_->set_user_aim_intent(user_aim_intent);
+        const VisionServiceSnapshot service_snapshot = vision_service_->latest_snapshot();
+        if (
+            service_snapshot.sequence != 0 &&
+            service_snapshot.sequence != latest_vision_service_sequence_ &&
+            service_snapshot.controller_aiming == aiming) {
+            latest_vision_service_sequence_ = service_snapshot.sequence;
+            vision_native::VisionResult result = service_snapshot.result;
+            const auto controller_consume_started = std::chrono::steady_clock::now();
+            controller_.submit_vision_snapshot(
+                adapt_vision_result(result));
+            latest_vision_result_ = result;
+            has_latest_vision_result_ = true;
+            latest_result_timestamp_ns_ =
+                result.captured_at_ns != 0 ? result.captured_at_ns : result.result_at_ns;
+            latest_controller_consume_started_ns_ =
+                steady_time_point_ns(controller_consume_started);
+            if (service_snapshot.freshness == VisionSnapshotFreshness::Fresh) {
+                publish_fusion_if_updated(result);
+            }
+        }
+    } else {
+        vision_engine_->set_aiming(aiming);
+        vision_engine_->set_user_aim_intent(user_aim_intent);
+        if (should_poll_vision(tick_started)) {
+            last_vision_poll_at_ = tick_started;
+            vision_native::VisionResult result = vision_engine_->poll_once();
+            const auto controller_consume_started = std::chrono::steady_clock::now();
+            controller_.submit_vision_snapshot(
+                adapt_vision_result(result));
+            latest_vision_result_ = result;
+            has_latest_vision_result_ = true;
+            latest_result_timestamp_ns_ =
+                result.captured_at_ns != 0 ? result.captured_at_ns : result.result_at_ns;
+            latest_controller_consume_started_ns_ =
+                steady_time_point_ns(controller_consume_started);
+
+            publish_fusion_if_updated(result);
         }
     }
     poll_due_recoil_recognizer(std::chrono::steady_clock::now());

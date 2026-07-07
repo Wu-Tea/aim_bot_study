@@ -89,6 +89,11 @@ struct VisionResult {
     uint64_t inferred_at_ns = 0;
     uint64_t result_at_ns = 0;
     bool frame_updated = false;
+    const char* service_freshness = "none";
+    const char* service_source_state = "unknown";
+    uint64_t service_sequence = 0;
+    bool service_controller_aiming = false;
+    bool service_engine_aiming = false;
 
     bool has_target = false;
     bool auto_fire = false;
