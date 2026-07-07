@@ -186,12 +186,13 @@ std::chrono::steady_clock::time_point VisionService::next_poll_due(
 }
 
 void VisionService::run_loop() {
+    (void)set_current_thread_priority(RuntimeThreadPriority::AboveNormal);
     while (running_.load()) {
         const auto now = std::chrono::steady_clock::now();
         if (step(now)) {
             continue;
         }
-        sleep_until_precise(next_poll_due(now));
+        sleep_until_precise(next_poll_due(now), vision_service_wait_precision_margin());
     }
 }
 

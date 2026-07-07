@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <iostream>
+#include <string>
 
 namespace {
 
@@ -34,6 +35,31 @@ void test_long_deadline_sleeps_only_until_precision_margin() {
     REQUIRE(sleep_duration < std::chrono::milliseconds(10));
 }
 
+void test_precise_sleep_accepts_custom_precision_margin() {
+    runtime_app::sleep_until_precise(
+        std::chrono::steady_clock::now(),
+        std::chrono::milliseconds(3));
+}
+
+void test_vision_service_wait_margin_is_larger_than_controller_tick() {
+    const auto margin = runtime_app::vision_service_wait_precision_margin();
+
+    REQUIRE(margin >= std::chrono::milliseconds(3));
+    REQUIRE(margin <= std::chrono::milliseconds(4));
+}
+
+void test_runtime_thread_priority_names_are_stable() {
+    REQUIRE(runtime_app::runtime_thread_priority_name(
+                runtime_app::RuntimeThreadPriority::Normal) == std::string("normal"));
+    REQUIRE(runtime_app::runtime_thread_priority_name(
+                runtime_app::RuntimeThreadPriority::AboveNormal) == std::string("above_normal"));
+}
+
+void test_can_restore_current_thread_to_normal_priority() {
+    REQUIRE(runtime_app::set_current_thread_priority(
+        runtime_app::RuntimeThreadPriority::Normal));
+}
+
 void test_timer_period_scope_records_requested_period() {
     runtime_app::HighResolutionTimerPeriod period(1u);
 
@@ -45,6 +71,10 @@ void test_timer_period_scope_records_requested_period() {
 int main() {
     test_short_deadline_uses_yield_margin_instead_of_one_ms_sleep();
     test_long_deadline_sleeps_only_until_precision_margin();
+    test_precise_sleep_accepts_custom_precision_margin();
+    test_vision_service_wait_margin_is_larger_than_controller_tick();
+    test_runtime_thread_priority_names_are_stable();
+    test_can_restore_current_thread_to_normal_priority();
     test_timer_period_scope_records_requested_period();
     return 0;
 }
