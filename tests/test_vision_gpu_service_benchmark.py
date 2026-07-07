@@ -91,6 +91,27 @@ class VisionGpuServiceBenchmarkTests(unittest.TestCase):
         self.assertGreater(summary["activation"]["count"], 0)
         self.assertIn("old_bgra_copy", summary["preprocess_modes"])
 
+    def test_120_and_140_hz_targets_fit_fast_gpu_budget(self):
+        result = bench.run_benchmark(
+            duration_ms=5000.0,
+            controller_hz=1000.0,
+            active_windows=((1000.0, 2200.0), (3200.0, 4400.0)),
+            no_update_windows=((1700.0, 2000.0),),
+            strategies=("worker_keepwarm_120", "worker_keepwarm_140"),
+            steady_gpu_total_ms=2.0,
+            cold_gpu_total_ms=2.0,
+            output_wait_ms=1.0,
+            preprocess_ms=0.08,
+        )
+
+        worker_120 = result["strategies"]["worker_keepwarm_120"]["summary"]
+        worker_140 = result["strategies"]["worker_keepwarm_140"]["summary"]
+
+        self.assertGreater(worker_120["active_snapshot_fps"], 115.0)
+        self.assertGreater(worker_140["active_snapshot_fps"], 135.0)
+        self.assertLess(worker_120["estimated_gpu_occupancy_pct"]["active"], 30.0)
+        self.assertLess(worker_140["estimated_gpu_occupancy_pct"]["active"], 30.0)
+
 
 if __name__ == "__main__":
     unittest.main()

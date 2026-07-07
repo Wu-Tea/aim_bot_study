@@ -16,7 +16,7 @@ void test_vision_gpu_service_defaults_are_enabled() {
     const controller_native::RuntimeConfig config =
         controller_native::load_runtime_config(std::filesystem::path{});
     require(config.vision.gpu_service_enabled);
-    require(config.vision.gpu_service_active_fps == 100);
+    require(config.vision.gpu_service_active_fps == 120);
     require(config.vision.gpu_service_idle_fps == 20);
     require(config.vision.gpu_service_keepwarm_when_idle);
     require(config.vision.gpu_service_repeat_last_on_no_update);

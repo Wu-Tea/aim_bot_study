@@ -74,6 +74,24 @@ DEFAULT_STRATEGIES: dict[str, StrategyConfig] = {
         output_wait_ms=1.0,
         preprocess_ms=0.08,
     ),
+    "worker_keepwarm_120": StrategyConfig(
+        name="worker_keepwarm_120",
+        active_hz=120.0,
+        idle_hz=20.0,
+        repeat_on_no_update=True,
+        cold_gpu_total_ms=14.0,
+        output_wait_ms=1.0,
+        preprocess_ms=0.08,
+    ),
+    "worker_keepwarm_140": StrategyConfig(
+        name="worker_keepwarm_140",
+        active_hz=140.0,
+        idle_hz=20.0,
+        repeat_on_no_update=True,
+        cold_gpu_total_ms=14.0,
+        output_wait_ms=1.0,
+        preprocess_ms=0.08,
+    ),
     "always_full_rate": StrategyConfig(
         name="always_full_rate",
         active_hz=100.0,
@@ -490,10 +508,14 @@ def summarize_rows(
 def run_benchmark(
     *,
     duration_ms: float = 8000.0,
-    controller_hz: float = 100.0,
+    controller_hz: float = 1000.0,
     active_windows: Sequence[Window] = ((1500.0, 3500.0), (5000.0, 7000.0)),
     no_update_windows: Sequence[Window] = ((2500.0, 2900.0),),
     strategies: Sequence[str] = tuple(DEFAULT_STRATEGIES.keys()),
+    steady_gpu_total_ms: float | None = None,
+    cold_gpu_total_ms: float | None = None,
+    output_wait_ms: float | None = None,
+    preprocess_ms: float | None = None,
 ) -> dict[str, Any]:
     output: dict[str, Any] = {
         "duration_ms": duration_ms,
@@ -503,7 +525,13 @@ def run_benchmark(
         "strategies": {},
     }
     for strategy_name in strategies:
-        config = DEFAULT_STRATEGIES[strategy_name]
+        config = _strategy_with_overrides(
+            DEFAULT_STRATEGIES[strategy_name],
+            steady_gpu_total_ms=steady_gpu_total_ms,
+            cold_gpu_total_ms=cold_gpu_total_ms,
+            output_wait_ms=output_wait_ms,
+            preprocess_ms=preprocess_ms,
+        )
         rows = simulate_strategy(
             config,
             duration_ms=duration_ms,
@@ -517,6 +545,32 @@ def run_benchmark(
             "rows": rows,
         }
     return output
+
+
+def _strategy_with_overrides(
+    config: StrategyConfig,
+    *,
+    steady_gpu_total_ms: float | None,
+    cold_gpu_total_ms: float | None,
+    output_wait_ms: float | None,
+    preprocess_ms: float | None,
+) -> StrategyConfig:
+    return StrategyConfig(
+        name=config.name,
+        active_hz=config.active_hz,
+        idle_hz=config.idle_hz,
+        repeat_on_no_update=config.repeat_on_no_update,
+        prewarm=config.prewarm,
+        steady_gpu_total_ms=config.steady_gpu_total_ms
+        if steady_gpu_total_ms is None
+        else steady_gpu_total_ms,
+        cold_gpu_total_ms=config.cold_gpu_total_ms
+        if cold_gpu_total_ms is None
+        else cold_gpu_total_ms,
+        cold_after_ms=config.cold_after_ms,
+        output_wait_ms=config.output_wait_ms if output_wait_ms is None else output_wait_ms,
+        preprocess_ms=config.preprocess_ms if preprocess_ms is None else preprocess_ms,
+    )
 
 
 def write_strategy_jsonl(rows: Iterable[dict[str, Any]], path: Path) -> None:
@@ -592,7 +646,27 @@ def main() -> int:
         description="Run a synthetic GPU-service stability benchmark for native vision strategies."
     )
     parser.add_argument("--duration-ms", type=float, default=8000.0)
-    parser.add_argument("--controller-hz", type=float, default=100.0)
+    parser.add_argument("--controller-hz", type=float, default=1000.0)
+    parser.add_argument(
+        "--steady-gpu-total-ms",
+        type=float,
+        help="Override steady-state GPU total time for every strategy.",
+    )
+    parser.add_argument(
+        "--cold-gpu-total-ms",
+        type=float,
+        help="Override cold-start GPU total time for every strategy.",
+    )
+    parser.add_argument(
+        "--output-wait-ms",
+        type=float,
+        help="Override output wait time for every strategy.",
+    )
+    parser.add_argument(
+        "--preprocess-ms",
+        type=float,
+        help="Override preprocess time for every strategy.",
+    )
     parser.add_argument(
         "--active-window",
         action="append",
@@ -621,6 +695,10 @@ def main() -> int:
         active_windows=_parse_windows(args.active_window) or ((1500.0, 3500.0), (5000.0, 7000.0)),
         no_update_windows=_parse_windows(args.no_update_window) or ((2500.0, 2900.0),),
         strategies=tuple(args.strategy) or tuple(DEFAULT_STRATEGIES.keys()),
+        steady_gpu_total_ms=args.steady_gpu_total_ms,
+        cold_gpu_total_ms=args.cold_gpu_total_ms,
+        output_wait_ms=args.output_wait_ms,
+        preprocess_ms=args.preprocess_ms,
     )
     print_summary(result)
     if args.output_dir:
