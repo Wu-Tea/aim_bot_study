@@ -15,8 +15,11 @@ void require(bool condition) {
 }
 
 void test_vision_gpu_service_defaults_are_enabled() {
+    const auto missing = std::filesystem::temp_directory_path() /
+        "cod_native_runtime_config_defaults_missing.toml";
+    std::filesystem::remove(missing);
     const controller_native::RuntimeConfig config =
-        controller_native::load_runtime_config(std::filesystem::path{});
+        controller_native::load_runtime_config(missing);
     require(config.vision.gpu_service_enabled);
     require(config.vision.gpu_service_active_fps == 120);
     require(config.vision.gpu_service_idle_fps == 20);
