@@ -75,6 +75,7 @@ void apply_cli_overrides(
         }
         config.gamepad.auto_fire_output = *options.auto_fire_output;
         config.gamepad.auto_fire.fire_output = *options.auto_fire_output;
+        config.effective_sources["gamepad.auto_fire.fire_output"] = "cli";
     }
     if (options.capture_fps.has_value()) {
         if (*options.capture_fps < 1 || *options.capture_fps > 1000) {

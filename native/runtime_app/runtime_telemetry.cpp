@@ -23,6 +23,7 @@ RuntimeTelemetry::RuntimeTelemetry(RuntimeTelemetryOptions options)
     : options_(std::move(options)) {
     options_.queue_capacity = std::max<std::size_t>(1, options_.queue_capacity);
     options_.max_files = std::max<std::size_t>(1, options_.max_files);
+    if (options_.enabled) queue_.resize(options_.queue_capacity);
 }
 
 RuntimeTelemetry::~RuntimeTelemetry() {
@@ -51,19 +52,22 @@ bool RuntimeTelemetry::enqueue(const TelemetryRecord& record) noexcept {
         record.critical ? ++dropped_critical_ : ++dropped_normal_;
         return false;
     }
-    if (queue_.size() >= options_.queue_capacity) {
+    if (queue_count_ >= options_.queue_capacity) {
         record.critical ? ++dropped_critical_ : ++dropped_normal_;
         return false;
     }
     if (record.kind == TelemetryRecordKind::VisionFrame && record.frame_id != 0) {
-        if (!accepted_vision_frames_.insert(record.frame_id).second) {
+        if (record.frame_id <= last_vision_frame_id_) {
             ++duplicate_vision_;
             return false;
         }
+        last_vision_frame_id_ = record.frame_id;
     }
-    queue_.push_back(record);
+    queue_[queue_tail_] = record;
+    queue_tail_ = (queue_tail_ + 1) % queue_.size();
+    ++queue_count_;
     ++accepted_;
-    const auto size = static_cast<std::uint64_t>(queue_.size());
+    const auto size = static_cast<std::uint64_t>(queue_count_);
     auto previous = high_watermark_.load();
     while (size > previous && !high_watermark_.compare_exchange_weak(previous, size)) {}
     lock.unlock();
@@ -133,13 +137,14 @@ void RuntimeTelemetry::writer_loop() {
         TelemetryRecord record;
         {
             std::unique_lock<std::mutex> lock(mutex_);
-            condition_.wait(lock, [this] { return !running_.load() || !queue_.empty(); });
-            if (queue_.empty()) {
+            condition_.wait(lock, [this] { return !running_.load() || queue_count_ > 0; });
+            if (queue_count_ == 0) {
                 if (!running_.load()) break;
                 continue;
             }
-            record = queue_.front();
-            queue_.pop_front();
+            record = queue_[queue_head_];
+            queue_head_ = (queue_head_ + 1) % queue_.size();
+            --queue_count_;
         }
         serialize(record);
     }

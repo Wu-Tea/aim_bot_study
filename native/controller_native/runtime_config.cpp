@@ -659,6 +659,12 @@ void apply_gamepad_environment_overrides(GamepadRuntimeConfig& config) {
 }
 
 void apply_vision_environment_overrides(VisionRuntimeConfig& config) {
+    if (const char* capture_fps = std::getenv("VISION_CAPTURE_FPS")) {
+        if (capture_fps[0] != '\0') {
+            config.capture_fps = parse_int_value(capture_fps, config.capture_fps);
+            config.gpu_service_active_fps = config.capture_fps;
+        }
+    }
     if (const char* aim_perf_file_log = std::getenv("VISION_AIM_PERF_FILE_LOG")) {
         if (aim_perf_file_log[0] != '\0') {
             config.aim_perf_file_log =
@@ -864,6 +870,36 @@ void apply_value(
     }
 }
 
+void mark_environment_sources(RuntimeConfig& config) {
+    auto mark = [&config](const char* environment, const char* key) {
+        const char* value = std::getenv(environment);
+        if (value != nullptr && value[0] != '\0') config.effective_sources[key] = "environment";
+    };
+    mark("VISION_CAPTURE_FPS", "runtime.vision.capture_fps");
+    mark("VISION_CAPTURE_FPS", "runtime.vision.gpu_service_active_fps");
+    mark("VISION_AIM_PERF_FILE_LOG", "runtime.vision.aim_perf_file_log");
+    mark("VISION_AIM_PERF_LOG_DIR", "runtime.vision.aim_perf_log_dir");
+    mark("VISION_AIM_PERF_LOG_INTERVAL_TICKS", "runtime.vision.aim_perf_log_interval_ticks");
+    mark("VISION_GPU_SERVICE_ENABLED", "runtime.vision.gpu_service_enabled");
+    mark("VISION_GPU_SERVICE_ACTIVE_FPS", "runtime.vision.gpu_service_active_fps");
+    mark("VISION_GPU_SERVICE_IDLE_FPS", "runtime.vision.gpu_service_idle_fps");
+    mark("VISION_GPU_SERVICE_KEEPWARM_WHEN_IDLE", "runtime.vision.gpu_service_keepwarm_when_idle");
+    mark("VISION_GPU_SERVICE_REPEAT_LAST_ON_NO_UPDATE", "runtime.vision.gpu_service_repeat_last_on_no_update");
+    mark("GAMEPAD_XINPUT_AUTO_DETECT", "runtime.gamepad.xinput_auto_detect");
+    mark("GAMEPAD_XINPUT_USER_INDEX", "runtime.gamepad.xinput_user_index");
+    mark("ENABLE_RECOIL_RUNTIME", "gamepad.recoil.enabled");
+    mark("RECOIL_ENABLED", "gamepad.recoil.enabled");
+    mark("RECOIL_GAME", "gamepad.recoil.recognizer_game");
+    mark("RECOIL_NATIVE_RECOGNIZER", "gamepad.recoil.native_recognizer_enabled");
+    mark("RECOIL_RECOGNIZER_LOG", "gamepad.recoil.recognizer_log_enabled");
+    mark("RECOIL_RECOGNIZER_FPS", "gamepad.recoil.recognizer_fps");
+    mark("RECOIL_PROFILE_DIR", "gamepad.recoil.profile_directory");
+    mark("RECOIL_CALIBRATION_DIR", "gamepad.recoil.calibration_directory");
+    mark("RECOIL_WEAPON_DIR", "gamepad.recoil.weapon_directory");
+    mark("RECOIL_SIGNATURE_DIR", "gamepad.recoil.weapon_directory");
+    mark("RECOIL_RECOGNIZER_STATE_PATH", "gamepad.recoil.recognizer_state_path");
+}
+
 void validate_runtime_config(const RuntimeConfig& config) {
     auto invalid = [](const std::string& key, const std::string& range) {
         throw std::runtime_error(
@@ -916,6 +952,7 @@ RuntimeConfig load_runtime_config(
         apply_vision_environment_overrides(config.vision);
         apply_recoil_environment_overrides(config.gamepad.recoil);
         apply_gamepad_environment_overrides(config.gamepad);
+        mark_environment_sources(config);
         validate_runtime_config(config);
         return config;
     }
@@ -981,6 +1018,7 @@ RuntimeConfig load_runtime_config(
     apply_vision_environment_overrides(config.vision);
     apply_recoil_environment_overrides(config.gamepad.recoil);
     apply_gamepad_environment_overrides(config.gamepad);
+    mark_environment_sources(config);
     validate_runtime_config(config);
     return config;
 }

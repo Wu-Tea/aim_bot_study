@@ -3,12 +3,11 @@
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
-#include <deque>
 #include <filesystem>
 #include <fstream>
 #include <mutex>
 #include <thread>
-#include <unordered_set>
+#include <vector>
 
 namespace runtime_app {
 
@@ -79,8 +78,11 @@ private:
     RuntimeTelemetryOptions options_;
     mutable std::mutex mutex_;
     std::condition_variable condition_;
-    std::deque<TelemetryRecord> queue_;
-    std::unordered_set<std::uint64_t> accepted_vision_frames_;
+    std::vector<TelemetryRecord> queue_;
+    std::size_t queue_head_ = 0;
+    std::size_t queue_tail_ = 0;
+    std::size_t queue_count_ = 0;
+    std::uint64_t last_vision_frame_id_ = 0;
     std::thread writer_;
     std::atomic<bool> running_{false};
     std::atomic<std::uint64_t> accepted_{0};

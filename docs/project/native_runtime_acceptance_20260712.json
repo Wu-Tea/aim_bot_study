@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "baseline_commit": "3f6ad8c",
+  "candidate_branch": "codex/native-runtime-performance-config",
+  "runtime_binary_sha256": "FD7914C71B25EB0B0DAB25D926696DB6E6E0D51F1CD36A07C2DBC0D27330069E",
+  "engine_sha256": "1DF853A9622CF94C08C8A5943271D3DBE288322DFC55C4103B60372F030A2E05",
+  "reference_machine": {
+    "os": "Windows 11 Pro 10.0.26100",
+    "system_ram_bytes": 68498669568,
+    "gpu": "NVIDIA GeForce RTX 4070 SUPER",
+    "gpu_memory_mib": 12282,
+    "compute_capability": "8.9",
+    "driver": "591.59",
+    "cuda": "13.1",
+    "tensorrt": "10.15.1.29"
+  },
+  "sections": {
+    "A": {"status": "PASS", "reason": "compact module, legacy fixture, precedence, unknown-key, range, and source tests pass"},
+    "B": {"status": "UNVERIFIED", "reason": "live 60-second cadence and 100-transition hot-inference evidence missing"},
+    "C": {"status": "UNVERIFIED", "reason": "latency gate passes; compiled-out comparison and 30-minute soak missing"},
+    "D": {"status": "FAIL", "reason": "precision scheduler misses promotion cadence and p99 non-regression gates; legacy retained"},
+    "E": {"status": "UNVERIFIED", "reason": "synthetic copy gate passes; recorded-gameplay authority and mapped lifetime evidence missing"},
+    "F": {"status": "PASS", "reason": "focused tests, pipeline contract, and same-config baseline/candidate benchmark pass"},
+    "G": {"status": "UNVERIFIED", "reason": "real SM 6.1 hardware and Pascal dependency stack unavailable"}
+  },
+  "release_decision": "FAIL",
+  "gtx1060_support": "UNVERIFIED",
+  "telemetry_enqueue": {
+    "records": 1000000,
+    "p95_ms": 0.0001,
+    "p99_ms": 0.0001,
+    "max_ms": 0.056,
+    "dropped": 0
+  },
+  "color_readback": {
+    "iterations": 10000,
+    "bytes": 327680,
+    "pageable_p95_ms": 0.064,
+    "pinned_p95_ms": 0.0305,
+    "p95_improvement_percent": 52.3438,
+    "default": "pageable"
+  }
+}

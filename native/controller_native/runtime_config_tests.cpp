@@ -216,6 +216,48 @@ void test_normal_template_preserves_controller_baseline() {
     require(aim.body_lock_max_ai_force_y == 0.42f);
 }
 
+void test_committed_legacy_full_fixture_resolves_every_assignment() {
+    const std::filesystem::path path =
+        "native/controller_native/testdata/legacy_full_config.toml";
+    const auto config = controller_native::load_runtime_config(path);
+    std::ifstream input(path);
+    std::size_t assignments = 0;
+    std::string line;
+    while (std::getline(input, line)) {
+        const auto first = line.find_first_not_of(" \t");
+        if (first != std::string::npos && line[first] != '#' && line.find('=') != std::string::npos)
+            ++assignments;
+    }
+    require(config.effective_sources.size() == assignments);
+    for (const auto& diagnostic : config.diagnostics)
+        require(diagnostic.find("unknown config key") == std::string::npos);
+    require(config.vision.capture_fps == 140);
+    require(config.vision.gpu_service_active_fps == 120);
+    require(config.gamepad.ai_aim.ads_snap_max_ai_force == 1.0f);
+    require(config.gamepad.ai_aim.body_lock_max_ai_force == 0.30f);
+    require(config.gamepad.recoil.feedback_amount == 0.20f);
+}
+
+void test_environment_overrides_user_and_reports_source() {
+    const auto path = std::filesystem::temp_directory_path() / "cod_native_env_precedence.toml";
+    { std::ofstream output(path); output << "[runtime.vision]\ncapture_fps = 144\n"; }
+#if defined(_WIN32)
+    _putenv_s("VISION_CAPTURE_FPS", "160");
+#else
+    setenv("VISION_CAPTURE_FPS", "160", 1);
+#endif
+    const auto config = controller_native::load_runtime_config(path);
+#if defined(_WIN32)
+    _putenv_s("VISION_CAPTURE_FPS", "");
+#else
+    unsetenv("VISION_CAPTURE_FPS");
+#endif
+    std::filesystem::remove(path);
+    require(config.vision.capture_fps == 160);
+    require(config.vision.gpu_service_active_fps == 160);
+    require(config.effective_source("runtime.vision.capture_fps") == "environment");
+}
+
 } // namespace
 
 int main() {
@@ -230,5 +272,7 @@ int main() {
     test_compact_ads_and_bodylock_modules_resolve_detailed_controls();
     test_invalid_user_override_reports_key_and_range();
     test_normal_template_preserves_controller_baseline();
+    test_committed_legacy_full_fixture_resolves_every_assignment();
+    test_environment_overrides_user_and_reports_source();
     return 0;
 }
