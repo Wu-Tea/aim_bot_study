@@ -41,6 +41,10 @@ struct VisionServiceSnapshot {
     std::uint64_t aim_transition_sequence = 0;
     bool controller_aiming = false;
     bool engine_aiming = false;
+    float aim_wakeup_to_dispatch_ms = 0.0f;
+    float aim_wakeup_to_capture_ms = 0.0f;
+    float aim_wakeup_to_result_ms = 0.0f;
+    float requested_vision_fps = 0.0f;
 };
 
 class IVisionServicePoller {
@@ -93,6 +97,7 @@ private:
     std::uint64_t sequence_ = 0;
     std::uint64_t aim_transition_sequence_ = 0;
     bool immediate_poll_requested_ = false;
+    std::chrono::steady_clock::time_point aim_transition_requested_at_{};
 };
 
 } // namespace runtime_app

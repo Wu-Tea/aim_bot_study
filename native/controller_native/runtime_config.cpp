@@ -166,12 +166,60 @@ bool is_known_key(const std::string& section, const std::string& key) {
         "backend", "projection_age_ms", "responsiveness", "max_velocity_px_per_sec",
         "weak_memory_decay", "lead_seconds", "lead_max_px"};
     static const std::unordered_set<std::string> ads_keys{
-        "strength", "vertical_strength", "smoothing", "range_px",
+        "strength_scale", "vertical_strength_scale", "sustain_smoothing", "acquisition_smoothing", "range_px",
         "snap_duration_ms", "fov_scale", "manual_opposition_suppression"};
     static const std::unordered_set<std::string> bodylock_keys{
         "strength", "vertical_strength", "smoothing", "activation_range_px",
         "tolerance_px", "lead_strength", "manual_escape_threshold",
         "manual_escape_preservation"};
+    static const std::unordered_set<std::string> gamepad_keys{
+        "auto_fire_output", "rb_counts_as_aiming", "xinput_auto_detect",
+        "xinput_user_index", "tracker_backend"};
+    static const std::unordered_set<std::string> auto_fire_keys{
+        "fire_output", "aim_only", "max_source_age_ms", "require_aim_ready",
+        "manual_takeover_release_seconds", "manual_takeover_resume_delay_seconds"};
+    static const std::unordered_set<std::string> dynamics_keys{
+        "enabled", "recoil_jitter_guard_enabled", "recoil_jitter_assist_threshold",
+        "recoil_jitter_flip_scale", "recoil_jitter_memory_seconds",
+        "manual_curve_straighten_enabled", "manual_curve_straighten_strength",
+        "manual_curve_straighten_min_manual", "manual_curve_straighten_min_assist"};
+    static const std::unordered_set<std::string> recoil_keys{
+        "enabled", "selection_log_enabled", "profile_despike_enabled",
+        "native_recognizer_enabled", "recognizer_log_enabled", "recognizer_game",
+        "profile_directory", "calibration_directory", "weapon_directory",
+        "recognizer_state_path", "recognizer_fps", "profile_amount", "profile_x_amount",
+        "feedback_amount", "profile_lead_ms", "profile_velocity_reference_ms",
+        "profile_despike_threshold_px", "profile_despike_ratio", "piecewise_mid_pixels_y",
+        "piecewise_max_pixels_y", "piecewise_mid_ratio_y"};
+    static const std::unordered_set<std::string> ai_aim_keys{
+        "smoothing", "max_pixels", "max_ai_force", "max_ai_force_y", "ai_delta_gain",
+        "piecewise_mid_pixels", "piecewise_max_pixels", "piecewise_mid_ratio",
+        "piecewise_mid_pixels_y", "piecewise_max_pixels_y", "piecewise_mid_ratio_y",
+        "deadzone_inner", "deadzone_outer", "x_deadzone_outer", "target_max_age_ms",
+        "target_projection_max_age_ms", "target_projection_reticle_speed_px_per_sec",
+        "target_projection_velocity_lowpass_alpha", "target_projection_max_velocity_px_per_sec",
+        "target_projection_weak_velocity_decay", "ads_snap_window_ms", "ads_snap_smoothing",
+        "ads_snap_max_ai_force", "ads_snap_max_ai_force_y", "ads_snap_fov_scale",
+        "ads_snap_fov_transition_ms", "ads_snap_max_target_dy_px",
+        "ads_snap_reticle_speed_px_per_sec", "ads_snap_time_to_go_gain",
+        "ads_snap_time_to_go_min_remaining_ms", "ads_snap_opposing_manual_suppression_max",
+        "auto_fire_ready_error_px", "auto_fire_ready_frames", "auto_fire_ready_min_ads_ms",
+        "auto_fire_ready_max_ai_stick", "weak_target_body_lock_force_scale",
+        "cue_hold_body_lock_force_scale", "body_lock_smoothing", "body_lock_max_ai_force",
+        "body_lock_opposing_boost_max_ai_force", "body_lock_max_ai_force_y",
+        "body_lock_box_tolerance_px", "body_lock_activation_box_px",
+        "body_lock_confidence_frames", "body_lock_confidence_min_strong",
+        "body_lock_opposing_suppression_max", "body_lock_orthogonal_suppression_max",
+        "body_lock_helpful_preservation_floor", "body_lock_manual_overlap_scale",
+        "body_lock_manual_escape_input_threshold", "body_lock_manual_escape_preservation",
+        "body_lock_near_lock_error_px", "body_lock_vertical_orthogonal_bias",
+        "body_lock_vertical_deadzone_px", "body_lock_vertical_tail_inner_px",
+        "body_lock_vertical_tail_speed_threshold_px_per_sec", "body_lock_release_tail_scale",
+        "body_lock_lateral_motion_min_speed_px_per_sec", "body_lock_lateral_motion_lead_seconds",
+        "body_lock_lateral_motion_lead_window_px", "body_lock_lateral_motion_lead_max_px",
+        "body_lock_lateral_motion_tail_scale", "body_lock_lead_frames", "body_lock_lead_seconds",
+        "body_lock_vertical_lead_scale", "body_lock_lead_max_px", "body_lock_target_match_iou",
+        "body_lock_target_match_center_px", "body_lock_upper_body_ratio"};
     if (section == "runtime") return runtime_keys.count(key) != 0;
     if (section == "runtime.vision") return vision_keys.count(key) != 0;
     if (section == "runtime.telemetry") return telemetry_keys.count(key) != 0;
@@ -181,12 +229,11 @@ bool is_known_key(const std::string& section, const std::string& key) {
     if (section == "gamepad.tracker") return tracker_keys.count(key) != 0;
     if (section == "gamepad.ads") return ads_keys.count(key) != 0;
     if (section == "gamepad.bodylock") return bodylock_keys.count(key) != 0;
-    // Existing controller/recoil sections deliberately retain their full legacy surface.
-    if (section == "runtime.gamepad" || section == "gamepad.auto_fire" ||
-        section == "gamepad.ai_aim" || section == "gamepad.aim_assist_dynamics" ||
-        section == "gamepad.recoil") {
-        return true;
-    }
+    if (section == "runtime.gamepad") return gamepad_keys.count(key) != 0;
+    if (section == "gamepad.auto_fire") return auto_fire_keys.count(key) != 0;
+    if (section == "gamepad.ai_aim") return ai_aim_keys.count(key) != 0;
+    if (section == "gamepad.aim_assist_dynamics") return dynamics_keys.count(key) != 0;
+    if (section == "gamepad.recoil") return recoil_keys.count(key) != 0;
     return false;
 }
 
@@ -759,15 +806,22 @@ void apply_value(
         apply_runtime_gamepad_value(config.gamepad, key, value);
     } else if (section == "gamepad.ads") {
         auto& ads = config.gamepad.ai_aim;
-        if (key == "strength") {
-            ads.max_ai_force = parse_float_value(value, ads.max_ai_force);
-            ads.ads_snap_max_ai_force = ads.max_ai_force;
-        } else if (key == "vertical_strength") {
-            ads.max_ai_force_y = parse_float_value(value, ads.max_ai_force_y);
-            ads.ads_snap_max_ai_force_y = ads.max_ai_force_y;
-        } else if (key == "smoothing") {
+        if (key == "strength_scale") {
+            const float scale = parse_float_value(value, 1.0f);
+            config.ads.strength_scale = scale;
+            ads.max_ai_force *= scale;
+            ads.ads_snap_max_ai_force *= scale;
+        } else if (key == "vertical_strength_scale") {
+            const float scale = parse_float_value(value, 1.0f);
+            config.ads.vertical_strength_scale = scale;
+            ads.max_ai_force_y *= scale;
+            ads.ads_snap_max_ai_force_y *= scale;
+        } else if (key == "sustain_smoothing") {
             ads.smoothing = parse_float_value(value, ads.smoothing);
-            ads.ads_snap_smoothing = ads.smoothing;
+            config.ads.sustain_smoothing = ads.smoothing;
+        } else if (key == "acquisition_smoothing") {
+            ads.ads_snap_smoothing = parse_float_value(value, ads.ads_snap_smoothing);
+            config.ads.acquisition_smoothing = ads.ads_snap_smoothing;
         } else if (key == "range_px") {
             ads.max_pixels = parse_float_value(value, ads.max_pixels);
         } else if (key == "snap_duration_ms") {
@@ -833,6 +887,14 @@ void validate_runtime_config(const RuntimeConfig& config) {
         invalid("runtime.scheduler.spin_tail_us", "0..1000");
     if (config.output.validation_mode != "strict")
         invalid("runtime.output.validation_mode", "strict");
+    if (config.ads.strength_scale < 0.0f || config.ads.strength_scale > 3.0f)
+        invalid("gamepad.ads.strength_scale", "0..3");
+    if (config.ads.vertical_strength_scale < 0.0f || config.ads.vertical_strength_scale > 3.0f)
+        invalid("gamepad.ads.vertical_strength_scale", "0..3");
+    if (config.ads.sustain_smoothing < 0.0f || config.ads.sustain_smoothing > 1.0f)
+        invalid("gamepad.ads.sustain_smoothing", "0..1");
+    if (config.ads.acquisition_smoothing < 0.0f || config.ads.acquisition_smoothing > 1.0f)
+        invalid("gamepad.ads.acquisition_smoothing", "0..1");
 }
 
 }  // namespace

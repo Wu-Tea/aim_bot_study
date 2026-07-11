@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
+#include <fstream>
 
 namespace {
 
@@ -77,11 +78,53 @@ void test_writer_serializes_records_and_deduplicates_vision_frames() {
     std::filesystem::remove_all(directory);
 }
 
+void test_rotation_caps_retained_file_count() {
+    const auto directory = std::filesystem::temp_directory_path() /
+        "cod_native_runtime_telemetry_rotation";
+    std::filesystem::remove_all(directory);
+    runtime_app::RuntimeTelemetryOptions options;
+    options.enabled = true;
+    options.directory = directory;
+    options.queue_capacity = 64;
+    options.rotate_size_bytes = 160;
+    options.max_files = 2;
+    runtime_app::RuntimeTelemetry telemetry(options);
+    telemetry.start();
+    for (std::uint64_t tick = 1; tick <= 20; ++tick) REQUIRE(telemetry.enqueue(record(tick, tick)));
+    telemetry.stop();
+    std::size_t files = 0;
+    for (const auto& entry : std::filesystem::directory_iterator(directory)) {
+        if (entry.path().extension() == ".jsonl") ++files;
+    }
+    REQUIRE(files <= 2);
+    REQUIRE(telemetry.counters().serialized_records == 20);
+    std::filesystem::remove_all(directory);
+}
+
+void test_writer_failure_disables_file_telemetry_without_throwing() {
+    const auto parent = std::filesystem::temp_directory_path() /
+        "cod_native_runtime_telemetry_failure";
+    std::filesystem::remove_all(parent);
+    { std::ofstream file(parent); file << "not a directory"; }
+    runtime_app::RuntimeTelemetryOptions options;
+    options.enabled = true;
+    options.directory = parent / "child";
+    runtime_app::RuntimeTelemetry telemetry(options);
+    telemetry.start();
+    REQUIRE(telemetry.enqueue(record(1, 1)));
+    telemetry.stop();
+    REQUIRE(telemetry.counters().writer_failures == 1);
+    REQUIRE(telemetry.counters().serialized_records == 0);
+    std::filesystem::remove(parent);
+}
+
 } // namespace
 
 int main() {
     test_disabled_mode_has_zero_side_effects();
     test_bounded_queue_drops_exact_overflow_without_writer();
     test_writer_serializes_records_and_deduplicates_vision_frames();
+    test_rotation_caps_retained_file_count();
+    test_writer_failure_disables_file_telemetry_without_throwing();
     return 0;
 }

@@ -45,7 +45,7 @@ void RuntimeTelemetry::stop() {
 }
 
 bool RuntimeTelemetry::enqueue(const TelemetryRecord& record) noexcept {
-    if (!options_.enabled) return false;
+    if (!options_.enabled || writer_failed_.load()) return false;
     std::unique_lock<std::mutex> lock(mutex_, std::try_to_lock);
     if (!lock.owns_lock()) {
         record.critical ? ++dropped_critical_ : ++dropped_normal_;
@@ -75,7 +75,7 @@ RuntimeTelemetryCounters RuntimeTelemetry::counters() const noexcept {
     return RuntimeTelemetryCounters{
         accepted_.load(), dropped_normal_.load(), dropped_critical_.load(),
         duplicate_vision_.load(), serialized_.load(), writers_started_.load(),
-        high_watermark_.load()};
+        writer_failures_.load(), high_watermark_.load()};
 }
 
 const std::filesystem::path& RuntimeTelemetry::log_path() const noexcept {
@@ -91,8 +91,13 @@ bool RuntimeTelemetry::open_next_file() {
             ("native_runtime_telemetry_" + std::to_string(slot) + ".jsonl");
         output_.open(log_path_, std::ios::out | std::ios::trunc);
         current_size_ = 0;
-        return output_.is_open();
+        if (!output_.is_open()) {
+            if (!writer_failed_.exchange(true)) ++writer_failures_;
+            return false;
+        }
+        return true;
     } catch (...) {
+        if (!writer_failed_.exchange(true)) ++writer_failures_;
         return false;
     }
 }

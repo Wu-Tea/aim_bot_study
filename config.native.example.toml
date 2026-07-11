@@ -15,6 +15,11 @@ gpu_service_enabled = true
 [runtime.telemetry]
 enabled = false
 mode = "profile"
+manual_controller_hz = 100
+candidate_details = "on_event"
+queue_capacity = 8192
+rotate_size_mb = 256
+max_files = 10
 
 [runtime.scheduler]
 controller_tick_hz = 1000
@@ -48,9 +53,10 @@ manual_takeover_release_seconds = 0.035
 manual_takeover_resume_delay_seconds = 0.085
 
 [gamepad.ads]
-strength = 0.64
-vertical_strength = 0.80
-smoothing = 0.62
+strength_scale = 1.0
+vertical_strength_scale = 1.0
+sustain_smoothing = 0.62
+acquisition_smoothing = 0.0
 range_px = 130
 snap_duration_ms = 100
 fov_scale = 1.0

@@ -202,6 +202,9 @@ void test_aim_transition_bypasses_idle_deadline() {
     REQUIRE(snapshot.controller_aiming);
     REQUIRE(snapshot.aim_transition_sequence == 1);
     REQUIRE(snapshot.result.service_sequence == 2);
+    REQUIRE(snapshot.result.requested_vision_fps == 160.0f);
+    REQUIRE(snapshot.aim_wakeup_to_capture_ms >= snapshot.aim_wakeup_to_dispatch_ms);
+    REQUIRE(snapshot.aim_wakeup_to_result_ms >= snapshot.aim_wakeup_to_capture_ms);
 }
 
 } // namespace

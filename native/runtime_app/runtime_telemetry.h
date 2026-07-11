@@ -53,6 +53,7 @@ struct RuntimeTelemetryCounters {
     std::uint64_t duplicate_vision_frames = 0;
     std::uint64_t serialized_records = 0;
     std::uint64_t writer_threads_started = 0;
+    std::uint64_t writer_failures = 0;
     std::uint64_t queue_high_watermark = 0;
 };
 
@@ -88,7 +89,9 @@ private:
     std::atomic<std::uint64_t> duplicate_vision_{0};
     std::atomic<std::uint64_t> serialized_{0};
     std::atomic<std::uint64_t> writers_started_{0};
+    std::atomic<std::uint64_t> writer_failures_{0};
     std::atomic<std::uint64_t> high_watermark_{0};
+    std::atomic<bool> writer_failed_{false};
     std::filesystem::path log_path_;
     std::ofstream output_;
     std::size_t current_size_ = 0;

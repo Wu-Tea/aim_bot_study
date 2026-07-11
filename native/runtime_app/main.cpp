@@ -125,9 +125,10 @@ void dump_effective_config(const controller_native::RuntimeConfig& config) {
     line("gamepad.tracker.weak_memory_decay", aim.target_projection_weak_velocity_decay);
     line("gamepad.tracker.lead_seconds", aim.body_lock_lead_seconds);
     line("gamepad.tracker.lead_max_px", aim.body_lock_lead_max_px);
-    line("gamepad.ads.strength", aim.ads_snap_max_ai_force);
-    line("gamepad.ads.vertical_strength", aim.ads_snap_max_ai_force_y);
-    line("gamepad.ads.smoothing", aim.ads_snap_smoothing);
+    line("gamepad.ads.strength_scale", config.ads.strength_scale);
+    line("gamepad.ads.vertical_strength_scale", config.ads.vertical_strength_scale);
+    line("gamepad.ads.sustain_smoothing", config.ads.sustain_smoothing);
+    line("gamepad.ads.acquisition_smoothing", config.ads.acquisition_smoothing);
     line("gamepad.ads.range_px", aim.max_pixels);
     line("gamepad.ads.snap_duration_ms", aim.ads_snap_window_ms);
     line("gamepad.ads.fov_scale", aim.ads_snap_fov_scale);

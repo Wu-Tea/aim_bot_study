@@ -411,10 +411,30 @@ target_include_directories(vision_native_color_readback_tests PRIVATE
 )
 target_link_libraries(vision_native_color_readback_tests PRIVATE CUDA::cudart)
 
+add_executable(vision_native_color_readback_benchmark
+    src/color_readback_benchmark.cpp
+    src/color_readback.cpp
+)
+target_include_directories(vision_native_color_readback_benchmark PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+target_link_libraries(vision_native_color_readback_benchmark PRIVATE CUDA::cudart)
+
 add_executable(cod_native_runtime_telemetry_tests
     ../runtime_app/runtime_telemetry_tests.cpp
     ../runtime_app/runtime_telemetry.cpp
 )
+
+add_executable(cod_native_telemetry_benchmark
+    ../runtime_app/telemetry_benchmark.cpp
+    ../runtime_app/runtime_telemetry.cpp
+)
+target_include_directories(cod_native_telemetry_benchmark PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+target_compile_definitions(cod_native_telemetry_benchmark PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
 
 target_include_directories(cod_native_runtime_telemetry_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include

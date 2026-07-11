@@ -94,6 +94,10 @@ struct VisionResult {
     uint64_t service_sequence = 0;
     bool service_controller_aiming = false;
     bool service_engine_aiming = false;
+    float aim_wakeup_to_dispatch_ms = 0.0f;
+    float aim_wakeup_to_capture_ms = 0.0f;
+    float aim_wakeup_to_result_ms = 0.0f;
+    float requested_vision_fps = 0.0f;
 
     bool has_target = false;
     bool auto_fire = false;

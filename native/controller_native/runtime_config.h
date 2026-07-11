@@ -190,12 +190,20 @@ struct RuntimeOutputConfig {
     std::string validation_mode = "strict";
 };
 
+struct CompactAdsConfig {
+    float strength_scale = 1.0f;
+    float vertical_strength_scale = 1.0f;
+    float sustain_smoothing = 0.62f;
+    float acquisition_smoothing = 0.0f;
+};
+
 struct RuntimeConfig {
     std::string profile = "legacy";
     VisionRuntimeConfig vision;
     RuntimeTelemetryConfig telemetry;
     RuntimeSchedulerConfig scheduler;
     RuntimeOutputConfig output;
+    CompactAdsConfig ads;
     GamepadRuntimeConfig gamepad;
     std::map<std::string, std::string> effective_sources;
     std::vector<std::string> diagnostics;

@@ -59,6 +59,10 @@ void stamp_service_metadata(VisionServiceSnapshot& snapshot) {
     snapshot.result.service_sequence = snapshot.sequence;
     snapshot.result.service_controller_aiming = snapshot.controller_aiming;
     snapshot.result.service_engine_aiming = snapshot.engine_aiming;
+    snapshot.result.aim_wakeup_to_dispatch_ms = snapshot.aim_wakeup_to_dispatch_ms;
+    snapshot.result.aim_wakeup_to_capture_ms = snapshot.aim_wakeup_to_capture_ms;
+    snapshot.result.aim_wakeup_to_result_ms = snapshot.aim_wakeup_to_result_ms;
+    snapshot.result.requested_vision_fps = snapshot.requested_vision_fps;
 }
 
 } // namespace
@@ -101,6 +105,7 @@ void VisionService::set_aiming(bool aiming) {
         if (wake) {
             ++aim_transition_sequence_;
             immediate_poll_requested_ = true;
+            aim_transition_requested_at_ = std::chrono::steady_clock::now();
             has_last_fresh_result_ = false;
         }
     }
@@ -131,11 +136,14 @@ bool VisionService::step(std::chrono::steady_clock::time_point now) {
     bool engine_aiming = false;
     pipeline_contract::UserAimIntent intent;
     std::uint64_t aim_transition_sequence = 0;
+    std::chrono::steady_clock::time_point aim_transition_requested_at{};
+    double requested_fps = 0.0;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         controller_aiming = controller_aiming_;
         engine_aiming = controller_aiming_ || options_.keepwarm_when_idle;
         const double fps = controller_aiming_ ? options_.active_fps : options_.idle_fps;
+        requested_fps = fps;
         if (!engine_aiming || interval_for_fps(fps) == std::chrono::steady_clock::duration::max()) {
             return false;
         }
@@ -148,16 +156,30 @@ bool VisionService::step(std::chrono::steady_clock::time_point now) {
         has_last_poll_ = true;
         intent = user_aim_intent_;
         aim_transition_sequence = aim_transition_sequence_;
+        aim_transition_requested_at = aim_transition_requested_at_;
     }
 
+    const auto dispatch_at = std::chrono::steady_clock::now();
     poller_->set_aiming(engine_aiming);
     poller_->set_user_aim_intent(intent);
+    const auto capture_at = std::chrono::steady_clock::now();
     vision_native::VisionResult result = poller_->poll_once();
+    const auto result_at = std::chrono::steady_clock::now();
 
     VisionServiceSnapshot snapshot;
     snapshot.controller_aiming = controller_aiming;
     snapshot.engine_aiming = engine_aiming;
     snapshot.aim_transition_sequence = aim_transition_sequence;
+    if (controller_aiming && aim_transition_requested_at != std::chrono::steady_clock::time_point{}) {
+        auto elapsed = [aim_transition_requested_at](auto end) {
+            return static_cast<float>(std::max(0.0, std::chrono::duration<double, std::milli>(
+                end - aim_transition_requested_at).count()));
+        };
+        snapshot.aim_wakeup_to_dispatch_ms = elapsed(dispatch_at);
+        snapshot.aim_wakeup_to_capture_ms = elapsed(capture_at);
+        snapshot.aim_wakeup_to_result_ms = elapsed(result_at);
+    }
+    snapshot.requested_vision_fps = static_cast<float>(requested_fps);
     snapshot.result = result;
 
     std::lock_guard<std::mutex> lock(mutex_);
