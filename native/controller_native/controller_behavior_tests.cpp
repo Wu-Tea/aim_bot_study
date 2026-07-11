@@ -1834,7 +1834,7 @@ void test_ai_aim_scales_weak_and_cue_targets() {
     require_near(ai_aim.compute(input).assist_x, 0.125f, 0.001f, "cue assist scale");
 }
 
-void test_ai_aim_body_lock_uses_upper_body_point_from_body_box() {
+void test_ai_aim_body_lock_preserves_selected_target_y() {
     controller_native::GamepadAiAimConfig config;
     config.max_pixels = 100.0f;
     config.max_ai_force = 1.0f;
@@ -1854,15 +1854,16 @@ void test_ai_aim_body_lock_uses_upper_body_point_from_body_box() {
     input.aim_authority = true;
     input.dx = 90.0f;
     input.dy = 0.0f;
+    input.target_y = 280.0f;
     input.target_tier = "strong";
     input.observed_at_seconds = 10.0;
     input.now_seconds = 10.01;
     input.screen_center_x = 320.0f;
     input.screen_center_y = 256.0f;
     input.has_body_box = true;
-    input.body_x1 = 300.0f;
+    input.body_x1 = 120.0f;
     input.body_y1 = 120.0f;
-    input.body_x2 = 340.0f;
+    input.body_x2 = 520.0f;
     input.body_y2 = 320.0f;
 
     const controller_native::NativeAiAimOutput output = ai_aim.compute(input);
@@ -1874,9 +1875,9 @@ void test_ai_aim_body_lock_uses_upper_body_point_from_body_box() {
         "body-lock should use upper-body x, not the generic target dx");
     require_near(
         output.assist_y,
-        0.56f,
+        -0.18f,
         0.001f,
-        "body-lock should use upper-body y from the body box");
+        "body-lock should preserve selector target y instead of recomputing from box height");
 }
 
 void test_body_lock_suppresses_harmful_manual_input_after_confidence_builds() {
@@ -4969,7 +4970,7 @@ int main() {
         test_controller_output_components_capture_recoil_after_tracker_sample();
         test_controller_projects_body_box_during_no_update_ticks();
         test_ai_aim_scales_weak_and_cue_targets();
-        test_ai_aim_body_lock_uses_upper_body_point_from_body_box();
+        test_ai_aim_body_lock_preserves_selected_target_y();
         test_body_lock_suppresses_harmful_manual_input_after_confidence_builds();
         test_body_lock_preserves_strong_manual_escape_input();
         test_body_lock_counts_aligned_manual_input_as_planned_correction_near_lock();

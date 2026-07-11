@@ -11,7 +11,7 @@ namespace {
 
 constexpr float kChestTargetRatio = 0.40f;
 constexpr float kCrouchedTargetRatio = 0.40f;
-constexpr float kWideLowTargetRatio = 0.50f;
+constexpr float kWideLowTargetRatio = 0.65f;
 constexpr float kTorsoBoxShrinkX = 0.22f;
 constexpr float kTorsoBoxShrinkTop = 0.18f;
 constexpr float kTorsoBoxShrinkBottom = 0.20f;

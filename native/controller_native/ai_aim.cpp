@@ -237,6 +237,13 @@ NativeAiAimOutput NativeAiAim::compute(const NativeAiAimInput& input) {
             apply_body_lock_manual_escape_floor(output.assist_x, input.manual_right_x, lock_confidence);
         output.assist_y =
             apply_body_lock_manual_escape_floor(output.assist_y, input.manual_right_y, lock_confidence);
+        const float manual_escape_threshold = std::max(
+            0.0f,
+            config_.body_lock_manual_escape_input_threshold);
+        if (std::fabs(input.manual_right_y) >= manual_escape_threshold &&
+            input.manual_right_y * output.assist_y < 0.0f) {
+            output.assist_y = 0.0f;
+        }
     }
     output.assist_y = apply_fire_active_vertical_guard(output.assist_y, input);
     output.has_assist = output.assist_x != 0.0f || output.assist_y != 0.0f;
@@ -271,13 +278,20 @@ bool NativeAiAim::should_body_lock(const NativeAiAimInput& input) const {
 }
 
 std::pair<float, float> NativeAiAim::body_lock_target_delta(const NativeAiAimInput& input) const {
+    const auto [lead_x, lead_y] = body_lock_motion_lead_delta(input);
+    const float lock_x = ((input.body_x1 + input.body_x2) * 0.5f) + lead_x;
+    const float body_width = input.body_x2 - input.body_x1;
+    const float body_height = input.body_y2 - input.body_y1;
+    const bool wide_low_body = body_width > 0.0f && (body_height / body_width) < 0.65f;
+    const bool selected_y_inside_box = wide_low_body &&
+        input.target_y >= input.body_y1 && input.target_y <= input.body_y2;
     const float upper_body_ratio = std::max(
         0.0f,
         std::min(1.0f, config_.body_lock_upper_body_ratio));
-    const auto [lead_x, lead_y] = body_lock_motion_lead_delta(input);
-    const float lock_x = ((input.body_x1 + input.body_x2) * 0.5f) + lead_x;
-    const float lock_y =
-        input.body_y1 + ((input.body_y2 - input.body_y1) * upper_body_ratio) + lead_y;
+    const float selected_or_fallback_y = selected_y_inside_box
+        ? input.target_y
+        : input.body_y1 + ((input.body_y2 - input.body_y1) * upper_body_ratio);
+    const float lock_y = selected_or_fallback_y + lead_y;
     return {lock_x - input.screen_center_x, lock_y - input.screen_center_y};
 }
 
