@@ -19,6 +19,25 @@ mode = "profile"
 tracker_backend = "fps_reference"
 auto_fire_output = "RB"
 
+[gamepad.ads]
+strength = 0.64
+vertical_strength = 0.80
+smoothing = 0.62
+range_px = 130
+snap_duration_ms = 100
+fov_scale = 1.0
+manual_opposition_suppression = 0.35
+
+[gamepad.bodylock]
+strength = 0.30
+vertical_strength = 0.42
+smoothing = 0.14
+activation_range_px = 150
+tolerance_px = 18
+lead_strength = 0.95
+manual_escape_threshold = 0.45
+manual_escape_preservation = 0.55
+
 # All documented recoil overrides remain available.
 [gamepad.recoil]
 enabled = true

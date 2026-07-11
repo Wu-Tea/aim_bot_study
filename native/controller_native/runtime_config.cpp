@@ -155,9 +155,18 @@ bool is_known_key(const std::string& section, const std::string& key) {
         "enabled", "mode", "manual_controller_hz", "vision_on_new_frame",
         "candidate_details", "queue_capacity", "rotate_size_mb", "max_files",
         "event_pre_ms", "event_post_ms"};
+    static const std::unordered_set<std::string> ads_keys{
+        "strength", "vertical_strength", "smoothing", "range_px",
+        "snap_duration_ms", "fov_scale", "manual_opposition_suppression"};
+    static const std::unordered_set<std::string> bodylock_keys{
+        "strength", "vertical_strength", "smoothing", "activation_range_px",
+        "tolerance_px", "lead_strength", "manual_escape_threshold",
+        "manual_escape_preservation"};
     if (section == "runtime") return runtime_keys.count(key) != 0;
     if (section == "runtime.vision") return vision_keys.count(key) != 0;
     if (section == "runtime.telemetry") return telemetry_keys.count(key) != 0;
+    if (section == "gamepad.ads") return ads_keys.count(key) != 0;
+    if (section == "gamepad.bodylock") return bodylock_keys.count(key) != 0;
     // Existing controller/recoil sections deliberately retain their full legacy surface.
     if (section == "runtime.gamepad" || section == "gamepad.auto_fire" ||
         section == "gamepad.ai_aim" || section == "gamepad.aim_assist_dynamics" ||
@@ -693,6 +702,48 @@ void apply_value(
         }
     } else if (section == "runtime.gamepad") {
         apply_runtime_gamepad_value(config.gamepad, key, value);
+    } else if (section == "gamepad.ads") {
+        auto& ads = config.gamepad.ai_aim;
+        if (key == "strength") {
+            ads.max_ai_force = parse_float_value(value, ads.max_ai_force);
+            ads.ads_snap_max_ai_force = ads.max_ai_force;
+        } else if (key == "vertical_strength") {
+            ads.max_ai_force_y = parse_float_value(value, ads.max_ai_force_y);
+            ads.ads_snap_max_ai_force_y = ads.max_ai_force_y;
+        } else if (key == "smoothing") {
+            ads.smoothing = parse_float_value(value, ads.smoothing);
+            ads.ads_snap_smoothing = ads.smoothing;
+        } else if (key == "range_px") {
+            ads.max_pixels = parse_float_value(value, ads.max_pixels);
+        } else if (key == "snap_duration_ms") {
+            ads.ads_snap_window_ms = parse_int_value(value, ads.ads_snap_window_ms);
+        } else if (key == "fov_scale") {
+            ads.ads_snap_fov_scale = parse_float_value(value, ads.ads_snap_fov_scale);
+        } else if (key == "manual_opposition_suppression") {
+            ads.ads_snap_opposing_manual_suppression_max =
+                parse_float_value(value, ads.ads_snap_opposing_manual_suppression_max);
+        }
+    } else if (section == "gamepad.bodylock") {
+        auto& body = config.gamepad.ai_aim;
+        if (key == "strength") {
+            body.body_lock_max_ai_force = parse_float_value(value, body.body_lock_max_ai_force);
+        } else if (key == "vertical_strength") {
+            body.body_lock_max_ai_force_y = parse_float_value(value, body.body_lock_max_ai_force_y);
+        } else if (key == "smoothing") {
+            body.body_lock_smoothing = parse_float_value(value, body.body_lock_smoothing);
+        } else if (key == "activation_range_px") {
+            body.body_lock_activation_box_px = parse_float_value(value, body.body_lock_activation_box_px);
+        } else if (key == "tolerance_px") {
+            body.body_lock_box_tolerance_px = parse_float_value(value, body.body_lock_box_tolerance_px);
+        } else if (key == "lead_strength") {
+            body.body_lock_vertical_lead_scale = parse_float_value(value, body.body_lock_vertical_lead_scale);
+        } else if (key == "manual_escape_threshold") {
+            body.body_lock_manual_escape_input_threshold =
+                parse_float_value(value, body.body_lock_manual_escape_input_threshold);
+        } else if (key == "manual_escape_preservation") {
+            body.body_lock_manual_escape_preservation =
+                parse_float_value(value, body.body_lock_manual_escape_preservation);
+        }
     } else if (section == "gamepad.auto_fire") {
         apply_gamepad_auto_fire_value(config.gamepad.auto_fire, key, value);
     } else if (section == "gamepad.ai_aim") {

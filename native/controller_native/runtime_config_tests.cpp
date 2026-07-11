@@ -135,6 +135,41 @@ void test_invalid_profile_fails_with_available_names() {
     require(failed);
 }
 
+void test_compact_ads_and_bodylock_modules_resolve_detailed_controls() {
+    const std::filesystem::path path =
+        std::filesystem::temp_directory_path() / "cod_native_runtime_modules_test.toml";
+    {
+        std::ofstream output(path);
+        output << "[runtime]\nprofile = \"balanced\"\n"
+               << "[gamepad.ads]\nstrength = 0.72\nvertical_strength = 0.81\n"
+               << "smoothing = 0.25\nrange_px = 150\nsnap_duration_ms = 90\n"
+               << "fov_scale = 0.85\nmanual_opposition_suppression = 0.40\n"
+               << "[gamepad.bodylock]\nstrength = 0.33\nvertical_strength = 0.44\n"
+               << "smoothing = 0.18\nactivation_range_px = 140\ntolerance_px = 20\n"
+               << "lead_strength = 1.20\nmanual_escape_threshold = 0.50\n"
+               << "manual_escape_preservation = 0.60\n";
+    }
+    const controller_native::RuntimeConfig config = controller_native::load_runtime_config(path);
+    std::filesystem::remove(path);
+    require(config.gamepad.ai_aim.max_ai_force == 0.72f);
+    require(config.gamepad.ai_aim.ads_snap_max_ai_force == 0.72f);
+    require(config.gamepad.ai_aim.ads_snap_max_ai_force_y == 0.81f);
+    require(config.gamepad.ai_aim.ads_snap_smoothing == 0.25f);
+    require(config.gamepad.ai_aim.max_pixels == 150.0f);
+    require(config.gamepad.ai_aim.ads_snap_window_ms == 90);
+    require(config.gamepad.ai_aim.ads_snap_fov_scale == 0.85f);
+    require(config.gamepad.ai_aim.ads_snap_opposing_manual_suppression_max == 0.40f);
+    require(config.gamepad.ai_aim.body_lock_max_ai_force == 0.33f);
+    require(config.gamepad.ai_aim.body_lock_max_ai_force_y == 0.44f);
+    require(config.gamepad.ai_aim.body_lock_smoothing == 0.18f);
+    require(config.gamepad.ai_aim.body_lock_activation_box_px == 140.0f);
+    require(config.gamepad.ai_aim.body_lock_box_tolerance_px == 20.0f);
+    require(config.gamepad.ai_aim.body_lock_vertical_lead_scale == 1.20f);
+    require(config.gamepad.ai_aim.body_lock_manual_escape_input_threshold == 0.50f);
+    require(config.gamepad.ai_aim.body_lock_manual_escape_preservation == 0.60f);
+    require(config.effective_source("gamepad.ads.strength") == "user");
+}
+
 } // namespace
 
 int main() {
@@ -145,5 +180,6 @@ int main() {
     test_user_values_override_profile_and_legacy_rate_is_explicit();
     test_unknown_keys_are_reported();
     test_invalid_profile_fails_with_available_names();
+    test_compact_ads_and_bodylock_modules_resolve_detailed_controls();
     return 0;
 }
