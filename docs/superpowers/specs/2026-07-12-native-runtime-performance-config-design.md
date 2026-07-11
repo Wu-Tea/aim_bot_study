@@ -1,7 +1,7 @@
 # Native Runtime Performance and Simplified Configuration Design
 
-**Date:** 2026-07-12  
-**Status:** Approved design  
+**Date:** 2026-07-12
+**Status:** Approved design
 **Owner:** Codex / user discussion
 
 ## Goal
