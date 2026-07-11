@@ -295,6 +295,7 @@ VisionResult VisionEngine::poll_once() {
         const pipeline_contract::UserAimIntent user_aim_intent = user_aim_intent_;
         const uint64_t selector_start = now_ns();
         if (has_color_frame) {
+            result.color_candidate_count = static_cast<std::uint32_t>(batch.detections.size());
             targeting = selector_.select_with_frame(
                 batch,
                 VisionTargetSelector::ColorFrameView{
@@ -313,6 +314,7 @@ VisionResult VisionEngine::poll_once() {
             targeting = selector_.select(batch, user_aim_intent);
         }
         result.selector_ms = ns_to_ms(now_ns() - selector_start);
+        result.color_classify_ms = has_color_frame ? result.selector_ms : 0.0f;
         result.has_target = targeting.has_target;
         result.auto_fire = targeting.auto_fire;
         result.dx = targeting.dx;

@@ -421,6 +421,12 @@ void AimPerfFileLogger::record_aim_sample(
             << ",\"output_wait_ms\":" << result->output_wait_ms
             << ",\"decode_ms\":" << result->decode_ms
             << ",\"selector_ms\":" << result->selector_ms
+            << ",\"color_copy_required\":" << (result->color_copy_required ? "true" : "false")
+            << ",\"color_copy_bytes\":" << result->color_copy_bytes
+            << ",\"color_copy_region_ratio\":" << result->color_copy_region_ratio
+            << ",\"color_readback_mode\":" << json_string(result->color_readback_mode)
+            << ",\"color_classify_ms\":" << result->color_classify_ms
+            << ",\"color_candidate_count\":" << result->color_candidate_count
             << ",\"enhance_ms\":" << result->enhance_ms
             << ",\"post_ms\":" << result->post_ms
             << ",\"age_ms\":" << result->age_ms

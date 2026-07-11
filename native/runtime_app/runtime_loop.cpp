@@ -654,6 +654,22 @@ void RuntimeLoop::run_once() {
             record.controller_pipeline_ms = static_cast<float>(snapshot.ctrl_pipeline_ms);
             record.vigem_update_ms = static_cast<float>(snapshot.vigem_update_ms);
             telemetry_.enqueue(record);
+            const float manual_magnitude = std::hypot(record.manual_x, record.manual_y);
+            const float ai_magnitude = std::hypot(record.ai_x, record.ai_y);
+            const float manual_ai_dot = record.manual_x * record.ai_x + record.manual_y * record.ai_y;
+            std::uint32_t event_flags = 0;
+            if (manual_magnitude >= 0.22f && ai_magnitude >= 0.22f && manual_ai_dot < -0.05f)
+                event_flags |= 1u; // opposition
+            if (result != nullptr && result->age_ms >= 80.0f && result->aim_authority)
+                event_flags |= 2u; // stale/projected authority
+            if (event_flags != 0) {
+                TelemetryRecord event = record;
+                event.kind = TelemetryRecordKind::RuntimeEvent;
+                event.critical = true;
+                event.event_id = tick_count_;
+                event.event_reason_flags = event_flags;
+                telemetry_.enqueue(event);
+            }
             if (result != nullptr && result->frame_id != 0 &&
                 result->frame_id != telemetry_last_vision_frame_id_) {
                 telemetry_last_vision_frame_id_ = result->frame_id;

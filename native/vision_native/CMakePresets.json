@@ -16,11 +16,11 @@
       "name": "pascal-release",
       "generator": "Visual Studio 17 2022",
       "architecture": "x64",
-      "binaryDir": "${sourceDir}/build-pascal",
+      "toolset": "cuda=C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v11.8",
+      "binaryDir": "${sourceDir}/build-pascal-11.8",
       "cacheVariables": {
         "VISION_BUILD_FAMILY": "pascal",
         "CMAKE_CUDA_ARCHITECTURES": "61",
-        "CMAKE_CUDA_COMPILER": "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v11.8/bin/nvcc.exe",
         "TensorRT_ROOT": "D:/env/TensorRT-8.6.1.6"
       }
     }

@@ -70,10 +70,17 @@ find_package(CUDAToolkit REQUIRED)
 find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
 find_package(pybind11 CONFIG REQUIRED)
 
-set(TensorRT_LIBS
-    "${TensorRT_LIB_DIR}/nvinfer_10.lib"
-    "${TensorRT_LIB_DIR}/nvinfer_plugin_10.lib"
-)
+if(VISION_BUILD_FAMILY STREQUAL "pascal")
+    set(TensorRT_LIBS
+        "${TensorRT_LIB_DIR}/nvinfer.lib"
+        "${TensorRT_LIB_DIR}/nvinfer_plugin.lib"
+    )
+else()
+    set(TensorRT_LIBS
+        "${TensorRT_LIB_DIR}/nvinfer_10.lib"
+        "${TensorRT_LIB_DIR}/nvinfer_plugin_10.lib"
+    )
+endif()
 
 foreach(_lib IN LISTS TensorRT_LIBS)
     if(NOT EXISTS "${_lib}")

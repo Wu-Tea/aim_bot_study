@@ -33,6 +33,7 @@ struct TelemetryRecord {
     float final_y = 0.0f;
     float controller_pipeline_ms = 0.0f;
     float vigem_update_ms = 0.0f;
+    std::uint32_t event_reason_flags = 0;
 };
 
 struct RuntimeTelemetryOptions {

@@ -141,6 +141,8 @@ struct VisionResult {
     std::uint64_t color_copy_bytes = 0;
     float color_copy_region_ratio = 0.0f;
     const char* color_readback_mode = "none";
+    float color_classify_ms = 0.0f;
+    std::uint32_t color_candidate_count = 0;
     float infer_ms = 0.0f;
     float output_copy_sync_ms = 0.0f;
     float gpu_total_ms = 0.0f;

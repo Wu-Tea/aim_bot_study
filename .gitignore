@@ -36,3 +36,4 @@ artifacts/benchmarks/native_gamepad/*-20*.json
 Ultralytics/
 .worktrees/
 native/vision_native/build/
+native/vision_native/build-*/

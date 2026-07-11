@@ -123,6 +123,7 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
         << ",\"final_y\":" << record.final_y
         << ",\"controller_pipeline_ms\":" << record.controller_pipeline_ms
         << ",\"vigem_update_ms\":" << record.vigem_update_ms
+        << ",\"event_reason_flags\":" << record.event_reason_flags
         << "}\n";
     output_.flush();
     ++serialized_;
