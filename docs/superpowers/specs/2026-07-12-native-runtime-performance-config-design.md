@@ -496,18 +496,167 @@ For each hardware profile, capture:
 
 ## Acceptance Criteria
 
-- Normal `config.toml` is small and recoil remains directly editable.
-- Existing full config files continue to work during migration.
-- `capture_fps` controls the active service cadence and remains freely
-  configurable, including 160 Hz.
-- Non-aim 20 Hz keepwarm remains enabled in the balanced profile.
-- Aim rising edge no longer waits for the next idle 20 Hz deadline.
-- Telemetry disabled mode has no file/JSON work in the control loop.
-- Telemetry enabled mode cannot block the controller thread.
-- Controller cadence remains 1 ms with no behavioral regression.
-- Color classification and authority outputs remain equivalent.
-- Unsupported Pascal/modern runtime combinations fail clearly.
-- No performance optimization weakens fire-authority or recoil isolation rules.
+Acceptance is decided from recorded commands and machine-readable artifacts, not
+from perceived smoothness alone.
+
+### Measurement Protocol
+
+- Record hardware, GPU driver, operating system, game resolution/refresh/preset,
+  runtime binary hash, engine hash, profile, and effective-config hash.
+- Compare baseline and candidate with the same scene/workload and no unrelated
+  background-process changes.
+- Run each performance comparison at least three times after warmup.
+- Use the median run for the pass/fail value and retain all individual runs.
+- Report p50, p95, p99, maximum, sample count, and invalid/dropped sample count
+  where the metric supports percentiles.
+- A failed hard-safety or behavior-equivalence criterion cannot be offset by a
+  performance improvement.
+
+### A. Configuration Simplification
+
+- The normal template contains at most 15 non-recoil user-editable keys.
+- The complete normal template contains at most 80 nonblank, noncomment
+  assignments, including the documented recoil section.
+- Recoil keeps 100% of the currently supported documented user overrides.
+- A committed legacy full-config fixture resolves every previously supported key
+  to exactly the same effective value as the pre-migration loader.
+- Config precedence tests pass for 100% of covered keys:
+  defaults -> profile -> user config -> environment/CLI.
+- Unknown-key tests report 100% of injected unknown keys; no injected unknown key
+  is silently accepted.
+- `--dump-effective-config` output includes the value and source layer for 100%
+  of effective user-overridable keys.
+
+### B. Vision Cadence and Aim Wakeup
+
+- A configured `capture_fps = 160` resolves to a requested active cadence of
+  160 Hz in both GPU-service and direct-path config tests; no hidden 120 Hz cap
+  remains.
+- Achieved vision FPS never exceeds requested FPS by more than 1% over a
+  60-second cadence test.
+- Inference backlog depth is never greater than one in instrumentation, and
+  queued historical frames processed after a newer frame is available equal
+  zero.
+- With idle 20 Hz keepwarm enabled, run at least 100 false->true aim transitions:
+  - wake-to-worker-dispatch p95 <= 2 ms and p99 <= 5 ms;
+  - wake-to-capture-start p95 <= 3 ms and p99 <= 6 ms;
+  - wake-to-result p95 <= measured hot inference p95 + 6 ms;
+  - authority-bearing pre-aim results equal zero.
+- The balanced profile resolves `idle_capture_fps = 20` and
+  `keepwarm_when_idle = true` in 100% of config tests.
+
+### C. Telemetry
+
+- With telemetry disabled:
+  - created telemetry files equal zero;
+  - encoded/serialized telemetry records equal zero;
+  - writer thread count equals zero;
+  - controller pipeline p99 regression versus a build with telemetry compiled
+    out is <= 1% or <= 0.005 ms, whichever allowance is larger.
+- Producer enqueue cost in enabled modes is p95 <= 0.010 ms,
+  p99 <= 0.025 ms, and maximum <= 0.100 ms in a 10-minute stress test.
+- Profile mode at 100 Hz runs for 30 minutes with:
+  - dropped normal samples equal zero;
+  - dropped critical events equal zero;
+  - queue high-watermark <= 75% of capacity;
+  - malformed non-final records equal zero.
+- In an intentional queue-overflow test, controller blocking time attributable to
+  telemetry remains zero, dropped counters equal the known number of rejected
+  records, and the runtime remains responsive.
+- A vision frame/candidate record is serialized at most once per `frame_id` in
+  profile mode; duplicate full candidate lists per controller tick equal zero.
+- File rotation stays within configured `max_files` and exceeds configured
+  `rotate_size_mb` by no more than one maximum record.
+
+### D. One-Millisecond Controller Scheduler
+
+- Run the scheduler for at least five minutes (at least 300,000 ticks) per
+  condition.
+- Average achieved tick rate is 1000 Hz +/- 2 Hz.
+- Under the isolated scheduler test:
+  - tick lateness p95 <= 0.100 ms;
+  - tick lateness p99 <= 0.250 ms;
+  - missed-deadline rate <= 0.10%;
+  - maximum consecutive missed deadlines <= 3.
+- Under the representative game-load test:
+  - tick lateness p99 <= 0.500 ms;
+  - missed-deadline rate <= 0.50%;
+  - maximum consecutive missed deadlines <= 5.
+- Compared with the current `yield()` scheduler, the new scheduler becomes the
+  default only if CPU time or context switches improve by at least 15%, while
+  p99 tick lateness does not regress by more than 5%.
+- Deterministic controller, ADS, bodylock, auto-fire, ViGEm protocol, tracker,
+  and recoil tests produce exactly the same expected outputs.
+
+### E. Color Readback
+
+- Pageable and pinned paths produce identical color classification, friendly
+  state, cue state, color bonus, selected target, aim authority, and fire
+  authority for 100% of deterministic fixtures.
+- Recorded-gameplay parity contains zero authority mismatches across at least
+  10,000 candidate evaluations.
+- Pinned allocation failure and transfer-setup failure both fall back to the
+  pageable path with zero process crashes and zero false-authority grants.
+- The pinned path becomes default only if one of these is true:
+  - color-copy p95 improves by at least 10%; or
+  - total vision-stage p95 improves by at least 3%.
+- In either case, capture/map/unmap/inference p99 may not regress by more than 5%,
+  and mapped-resource lifetime p99 may not regress by more than 5%.
+- If the improvement gate is not met, retain the old path as default and record
+  the A/B result; do not claim the optimization succeeded.
+
+### F. Controller and Authority Non-Regression
+
+- `native_pipeline_contract.bat` exits 0.
+- All focused native tests exit 0 with zero failed cases.
+- In deterministic gamepad/AimLab benchmark comparisons:
+  - wrong-target, user-fight, invalid-strong, stale-high-output, and
+    authority-without-fire counters do not increase;
+  - overshoot and target-error p95 do not regress by more than 1%;
+  - bodylock dropout rate does not increase by more than 1 percentage point;
+  - bodylock sustain rate does not decrease by more than 1 percentage point;
+  - cue-only, weak-only, predicted-only, stale, and tracker-only fire-authority
+    violations remain exactly zero.
+- Recoil remains the final feed-forward stage and native pipeline contract checks
+  detect zero target/tracker/controller-to-recoil feedback paths.
+
+### G. GTX 1060 / Pascal Target Gate
+
+The primary target gate is a GTX 1060 6 GB, 16 GB system RAM, 1080p game at a
+60 Hz game target, using the Pascal balanced profile at requested 60 Hz vision.
+The 3 GB card is a separate low-resource qualification and is not implied by the
+6 GB result.
+
+- The Pascal binary and Pascal engine load and complete 100 consecutive warm
+  inference calls with zero CUDA/TensorRT errors.
+- A 30-minute runtime soak completes with zero crashes, device resets, engine
+  reloads, or telemetry-critical errors.
+- Runtime process working set p95 <= 1.0 GB.
+- Runtime incremental dedicated GPU memory p95 <= 1.0 GB above the same game-only
+  baseline.
+- Vision age while aiming:
+  - p95 <= 35 ms;
+  - p99 <= 50 ms;
+  - stale-authority frames caused by missed service deadlines equal zero.
+- If hot inference p95 <= 16.67 ms, achieved active vision FPS is at least 55 Hz
+  for a requested 60 Hz over the median five-minute run.
+- Compared with game-only baseline in the same scene:
+  - game frame-time p99 regression <= 5%;
+  - game 1% low FPS regression <= 5%;
+  - no VRAM paging/stutter event attributable to crossing the card's dedicated
+    memory limit is observed.
+- FP32, FP16, and calibrated INT8 are all measured on the target. The selected
+  engine must satisfy the controller/authority non-regression gate and have the
+  lowest median vision-age p95 among the passing candidates.
+- Modern and Pascal artifact mismatch tests fail before inference with a clear
+  message in 100% of tested incompatible combinations.
+
+### Release Decision
+
+The feature set is accepted only when sections A-F pass on the modern reference
+machine. GTX 1060 support is advertised only after section G also passes on real
+SM 6.1 hardware. Missing target hardware is reported as `unverified`, not
+`passed`.
 
 ## Implementation Sequence
 
