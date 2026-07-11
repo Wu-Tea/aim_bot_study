@@ -86,14 +86,25 @@ void VisionService::stop() {
     if (!running_.exchange(false)) {
         return;
     }
+    wake_condition_.notify_all();
     if (worker_.joinable()) {
         worker_.join();
     }
 }
 
 void VisionService::set_aiming(bool aiming) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    controller_aiming_ = aiming;
+    bool wake = false;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        wake = aiming && !controller_aiming_;
+        controller_aiming_ = aiming;
+        if (wake) {
+            ++aim_transition_sequence_;
+            immediate_poll_requested_ = true;
+            has_last_fresh_result_ = false;
+        }
+    }
+    if (wake) wake_condition_.notify_one();
 }
 
 void VisionService::set_user_aim_intent(const pipeline_contract::UserAimIntent& intent) {
@@ -119,6 +130,7 @@ bool VisionService::step(std::chrono::steady_clock::time_point now) {
     bool controller_aiming = false;
     bool engine_aiming = false;
     pipeline_contract::UserAimIntent intent;
+    std::uint64_t aim_transition_sequence = 0;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         controller_aiming = controller_aiming_;
@@ -127,12 +139,15 @@ bool VisionService::step(std::chrono::steady_clock::time_point now) {
         if (!engine_aiming || interval_for_fps(fps) == std::chrono::steady_clock::duration::max()) {
             return false;
         }
-        if (has_last_poll_ && now - last_poll_at_ < interval_for_fps(fps)) {
+        if (!immediate_poll_requested_ && has_last_poll_ &&
+            now - last_poll_at_ < interval_for_fps(fps)) {
             return false;
         }
+        immediate_poll_requested_ = false;
         last_poll_at_ = now;
         has_last_poll_ = true;
         intent = user_aim_intent_;
+        aim_transition_sequence = aim_transition_sequence_;
     }
 
     poller_->set_aiming(engine_aiming);
@@ -142,9 +157,13 @@ bool VisionService::step(std::chrono::steady_clock::time_point now) {
     VisionServiceSnapshot snapshot;
     snapshot.controller_aiming = controller_aiming;
     snapshot.engine_aiming = engine_aiming;
+    snapshot.aim_transition_sequence = aim_transition_sequence;
     snapshot.result = result;
 
     std::lock_guard<std::mutex> lock(mutex_);
+    if (controller_aiming && aim_transition_sequence != aim_transition_sequence_) {
+        clear_reused_authority(snapshot.result);
+    }
     snapshot.sequence = ++sequence_;
     if (result.frame_updated) {
         snapshot.freshness = VisionSnapshotFreshness::Fresh;
@@ -192,7 +211,11 @@ void VisionService::run_loop() {
         if (step(now)) {
             continue;
         }
-        sleep_until_precise(next_poll_due(now), vision_service_wait_precision_margin());
+        const auto due = next_poll_due(now);
+        std::unique_lock<std::mutex> lock(mutex_);
+        wake_condition_.wait_until(lock, due, [this] {
+            return !running_.load() || immediate_poll_requested_;
+        });
     }
 }
 

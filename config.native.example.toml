@@ -1,0 +1,44 @@
+# Native runtime normal template. Safety and controller policy remain profile-controlled.
+[runtime]
+profile = "balanced" # performance | balanced | low_latency | pascal_balanced
+
+[runtime.vision]
+capture_width = 640
+capture_height = 512
+capture_fps = 160
+idle_capture_fps = 20
+keepwarm_when_idle = true
+model_path = "models/candidates/body_union_manual_core_x2_neg_e6_640x512.engine"
+gpu_service_enabled = true
+
+[runtime.telemetry]
+enabled = false
+mode = "profile"
+
+[runtime.gamepad]
+tracker_backend = "fps_reference"
+auto_fire_output = "RB"
+
+# All documented recoil overrides remain available.
+[gamepad.recoil]
+enabled = true
+selection_log_enabled = true
+profile_despike_enabled = true
+native_recognizer_enabled = true
+recognizer_log_enabled = false
+recognizer_game = "cod22"
+profile_directory = "artifacts/recoil_profiles"
+calibration_directory = "artifacts/recoil_calibration"
+weapon_directory = "artifacts/recoil_app/weapons"
+recognizer_state_path = "artifacts/recoil_app/current_weapon.json"
+recognizer_fps = 5
+profile_amount = 1.0
+profile_x_amount = 1.0
+feedback_amount = 0.20
+profile_lead_ms = 0.0
+profile_velocity_reference_ms = 10.0
+profile_despike_threshold_px = 2.0
+profile_despike_ratio = 3.0
+piecewise_mid_pixels_y = 45.0
+piecewise_max_pixels_y = 180.0
+piecewise_mid_ratio_y = 0.65

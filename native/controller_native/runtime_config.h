@@ -3,7 +3,9 @@
 #include "../tracking_native/tracker_backend.h"
 
 #include <filesystem>
+#include <map>
 #include <string>
+#include <vector>
 
 namespace controller_native {
 
@@ -11,6 +13,8 @@ struct VisionRuntimeConfig {
     int capture_width = 640;
     int capture_height = 512;
     int capture_fps = 140;
+    int idle_capture_fps = 20;
+    bool keepwarm_when_idle = true;
     std::string model_path = "models/candidates/body_union_manual_core_x2_neg_e6_640x512.engine";
     std::string fallback_model_path = "models/best.pt";
     std::string quit_key = "0";
@@ -161,11 +165,36 @@ struct GamepadRuntimeConfig {
     GamepadRecoilConfig recoil;
 };
 
+struct RuntimeTelemetryConfig {
+    bool enabled = false;
+    std::string mode = "profile";
+    int manual_controller_hz = 100;
+    bool vision_on_new_frame = true;
+    std::string candidate_details = "on_event";
+    unsigned int queue_capacity = 8192;
+    unsigned int rotate_size_mb = 256;
+    unsigned int max_files = 10;
+    unsigned int event_pre_ms = 500;
+    unsigned int event_post_ms = 1000;
+};
+
 struct RuntimeConfig {
+    std::string profile = "legacy";
     VisionRuntimeConfig vision;
+    RuntimeTelemetryConfig telemetry;
     GamepadRuntimeConfig gamepad;
+    std::map<std::string, std::string> effective_sources;
+    std::vector<std::string> diagnostics;
+
+    std::string effective_source(const std::string& key) const {
+        const auto found = effective_sources.find(key);
+        return found == effective_sources.end() ? "default" : found->second;
+    }
 };
 
 RuntimeConfig load_runtime_config(const std::filesystem::path& path);
+RuntimeConfig load_runtime_config(
+    const std::filesystem::path& path,
+    const std::string& profile_override);
 
 }  // namespace controller_native

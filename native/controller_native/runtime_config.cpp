@@ -6,6 +6,9 @@
 #include <fstream>
 #include <stdexcept>
 #include <string>
+#include <tuple>
+#include <unordered_set>
+#include <vector>
 
 namespace controller_native {
 
@@ -91,6 +94,12 @@ void apply_runtime_vision_value(
         config.capture_height = parse_int_value(value, config.capture_height);
     } else if (key == "capture_fps") {
         config.capture_fps = parse_int_value(value, config.capture_fps);
+    } else if (key == "idle_capture_fps") {
+        config.idle_capture_fps = parse_int_value(value, config.idle_capture_fps);
+        config.gpu_service_idle_fps = config.idle_capture_fps;
+    } else if (key == "keepwarm_when_idle") {
+        config.keepwarm_when_idle = parse_bool_value(value, config.keepwarm_when_idle);
+        config.gpu_service_keepwarm_when_idle = config.keepwarm_when_idle;
     } else if (key == "model_path") {
         config.model_path = parse_string_value(value);
     } else if (key == "fallback_model_path") {
@@ -130,6 +139,64 @@ void apply_runtime_vision_value(
         config.fusion_show_all_detections =
             parse_bool_value(value, config.fusion_show_all_detections);
     }
+}
+
+bool is_known_key(const std::string& section, const std::string& key) {
+    static const std::unordered_set<std::string> runtime_keys{"profile"};
+    static const std::unordered_set<std::string> vision_keys{
+        "crop_width", "capture_width", "crop_height", "capture_height", "capture_fps",
+        "idle_capture_fps", "keepwarm_when_idle", "model_path", "fallback_model_path",
+        "quit_key", "native_cue_sidecar", "perf_log", "aim_perf_file_log",
+        "aim_perf_log_dir", "aim_perf_log_interval_ticks", "gpu_service_enabled",
+        "gpu_service_active_fps", "gpu_service_idle_fps",
+        "gpu_service_keepwarm_when_idle", "gpu_service_repeat_last_on_no_update",
+        "fusion_enabled", "fusion_session", "fusion_show_all_detections"};
+    static const std::unordered_set<std::string> telemetry_keys{
+        "enabled", "mode", "manual_controller_hz", "vision_on_new_frame",
+        "candidate_details", "queue_capacity", "rotate_size_mb", "max_files",
+        "event_pre_ms", "event_post_ms"};
+    if (section == "runtime") return runtime_keys.count(key) != 0;
+    if (section == "runtime.vision") return vision_keys.count(key) != 0;
+    if (section == "runtime.telemetry") return telemetry_keys.count(key) != 0;
+    // Existing controller/recoil sections deliberately retain their full legacy surface.
+    if (section == "runtime.gamepad" || section == "gamepad.auto_fire" ||
+        section == "gamepad.ai_aim" || section == "gamepad.aim_assist_dynamics" ||
+        section == "gamepad.recoil") {
+        return true;
+    }
+    return false;
+}
+
+void apply_profile(RuntimeConfig& config, const std::string& profile) {
+    if (profile == "performance") {
+        config.vision.capture_fps = 240;
+        config.vision.idle_capture_fps = 20;
+    } else if (profile == "balanced") {
+        config.vision.capture_fps = 160;
+        config.vision.idle_capture_fps = 20;
+    } else if (profile == "low_latency") {
+        config.vision.capture_fps = 200;
+        config.vision.idle_capture_fps = 20;
+    } else if (profile == "pascal_balanced") {
+        config.vision.capture_fps = 60;
+        config.vision.idle_capture_fps = 20;
+    } else if (profile == "legacy") {
+        return;
+    } else {
+        throw std::runtime_error(
+            "invalid runtime profile '" + profile +
+            "'; available profiles: performance, balanced, low_latency, pascal_balanced");
+    }
+    config.profile = profile;
+    config.vision.keepwarm_when_idle = true;
+    config.vision.gpu_service_active_fps = config.vision.capture_fps;
+    config.vision.gpu_service_idle_fps = config.vision.idle_capture_fps;
+    config.vision.gpu_service_keepwarm_when_idle = config.vision.keepwarm_when_idle;
+    config.vision.aim_perf_file_log = false;
+    config.effective_sources["runtime.profile"] = "user";
+    config.effective_sources["runtime.vision.capture_fps"] = "profile";
+    config.effective_sources["runtime.vision.idle_capture_fps"] = "profile";
+    config.effective_sources["runtime.vision.keepwarm_when_idle"] = "profile";
 }
 
 void apply_runtime_gamepad_value(
@@ -601,6 +668,29 @@ void apply_value(
     const std::string& value) {
     if (section == "runtime.vision") {
         apply_runtime_vision_value(config.vision, key, value);
+    } else if (section == "runtime.telemetry") {
+        if (key == "enabled") {
+            config.telemetry.enabled = parse_bool_value(value, config.telemetry.enabled);
+            config.vision.aim_perf_file_log = config.telemetry.enabled;
+        } else if (key == "mode") {
+            config.telemetry.mode = parse_string_value(value);
+        } else if (key == "manual_controller_hz") {
+            config.telemetry.manual_controller_hz = parse_int_value(value, config.telemetry.manual_controller_hz);
+        } else if (key == "vision_on_new_frame") {
+            config.telemetry.vision_on_new_frame = parse_bool_value(value, config.telemetry.vision_on_new_frame);
+        } else if (key == "candidate_details") {
+            config.telemetry.candidate_details = parse_string_value(value);
+        } else if (key == "queue_capacity") {
+            config.telemetry.queue_capacity = parse_uint_value(value, config.telemetry.queue_capacity);
+        } else if (key == "rotate_size_mb") {
+            config.telemetry.rotate_size_mb = parse_uint_value(value, config.telemetry.rotate_size_mb);
+        } else if (key == "max_files") {
+            config.telemetry.max_files = parse_uint_value(value, config.telemetry.max_files);
+        } else if (key == "event_pre_ms") {
+            config.telemetry.event_pre_ms = parse_uint_value(value, config.telemetry.event_pre_ms);
+        } else if (key == "event_post_ms") {
+            config.telemetry.event_post_ms = parse_uint_value(value, config.telemetry.event_post_ms);
+        }
     } else if (section == "runtime.gamepad") {
         apply_runtime_gamepad_value(config.gamepad, key, value);
     } else if (section == "gamepad.auto_fire") {
@@ -616,13 +706,19 @@ void apply_value(
 
 }  // namespace
 
-RuntimeConfig load_runtime_config(const std::filesystem::path& path) {
+RuntimeConfig load_runtime_config(
+    const std::filesystem::path& path,
+    const std::string& profile_override) {
     RuntimeConfig config;
     const std::filesystem::path config_path = path.empty()
         ? std::filesystem::path("config.toml")
         : path;
     std::ifstream input(config_path);
     if (!input) {
+        if (!profile_override.empty()) {
+            apply_profile(config, profile_override);
+            config.effective_sources["runtime.profile"] = "cli";
+        }
         apply_recoil_runtime_defaults(config.gamepad.recoil);
         apply_vision_environment_overrides(config.vision);
         apply_recoil_environment_overrides(config.gamepad.recoil);
@@ -630,6 +726,8 @@ RuntimeConfig load_runtime_config(const std::filesystem::path& path) {
         return config;
     }
 
+    struct Entry { std::string section; std::string key; std::string value; };
+    std::vector<Entry> entries;
     std::string section;
     std::string line;
     while (std::getline(input, line)) {
@@ -648,7 +746,41 @@ RuntimeConfig load_runtime_config(const std::filesystem::path& path) {
         }
         const std::string key = trim(line.substr(0, equals));
         const std::string value = trim(line.substr(equals + 1));
-        apply_value(config, section, key, value);
+        entries.push_back(Entry{section, key, value});
+    }
+
+    if (!profile_override.empty()) {
+        apply_profile(config, profile_override);
+        config.effective_sources["runtime.profile"] = "cli";
+    } else {
+        for (const Entry& entry : entries) {
+            if (entry.section == "runtime" && entry.key == "profile") {
+                apply_profile(config, parse_string_value(entry.value));
+            }
+        }
+    }
+    for (const Entry& entry : entries) {
+        if (entry.section == "runtime" && entry.key == "profile") continue;
+        if (!is_known_key(entry.section, entry.key)) {
+            config.diagnostics.push_back(
+                "unknown config key: " + entry.section + "." + entry.key);
+            continue;
+        }
+        apply_value(config, entry.section, entry.key, entry.value);
+        const std::string full_key = entry.section + "." + entry.key;
+        const bool legacy = entry.key == "gpu_service_active_fps" ||
+            entry.key == "gpu_service_idle_fps" ||
+            entry.key == "gpu_service_keepwarm_when_idle" ||
+            entry.key == "aim_perf_file_log" ||
+            entry.key == "aim_perf_log_interval_ticks";
+        config.effective_sources[full_key] = legacy ? "legacy_user" : "user";
+        if (legacy) config.diagnostics.push_back("deprecated config key: " + full_key);
+    }
+
+    if (config.effective_source("runtime.vision.gpu_service_active_fps") != "legacy_user") {
+        config.vision.gpu_service_active_fps = config.vision.capture_fps;
+        config.effective_sources["runtime.vision.gpu_service_active_fps"] =
+            config.effective_source("runtime.vision.capture_fps");
     }
 
     apply_recoil_runtime_defaults(config.gamepad.recoil);
@@ -656,6 +788,10 @@ RuntimeConfig load_runtime_config(const std::filesystem::path& path) {
     apply_recoil_environment_overrides(config.gamepad.recoil);
     apply_gamepad_environment_overrides(config.gamepad);
     return config;
+}
+
+RuntimeConfig load_runtime_config(const std::filesystem::path& path) {
+    return load_runtime_config(path, std::string{});
 }
 
 }  // namespace controller_native

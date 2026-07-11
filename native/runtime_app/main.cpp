@@ -23,6 +23,9 @@ struct CliOptions {
     unsigned int max_ticks = 0;
     bool perf_log = false;
     bool run_once = false;
+    bool dump_effective_config = false;
+    std::optional<std::string> profile;
+    std::optional<int> capture_fps;
 };
 
 CliOptions parse_args(int argc, char** argv) {
@@ -37,6 +40,12 @@ CliOptions parse_args(int argc, char** argv) {
             options.perf_log = true;
         } else if (arg == "--once") {
             options.run_once = true;
+        } else if (arg == "--dump-effective-config") {
+            options.dump_effective_config = true;
+        } else if (arg == "--profile" && index + 1 < argc) {
+            options.profile = argv[++index];
+        } else if (arg == "--capture-fps" && index + 1 < argc) {
+            options.capture_fps = std::stoi(argv[++index]);
         } else if (arg == "--max-ticks" && index + 1 < argc) {
             const unsigned long parsed = std::stoul(argv[++index]);
             if (parsed == 0ul) {
@@ -59,13 +68,41 @@ void apply_cli_overrides(
     const CliOptions& options,
     controller_native::RuntimeConfig& config) {
     if (!options.auto_fire_output.has_value()) {
-        return;
+        // Continue with independent runtime overrides.
+    } else {
+        if (*options.auto_fire_output != "RB" && *options.auto_fire_output != "RT") {
+            throw std::runtime_error("--auto-fire-output must be RB or RT");
+        }
+        config.gamepad.auto_fire_output = *options.auto_fire_output;
+        config.gamepad.auto_fire.fire_output = *options.auto_fire_output;
     }
-    if (*options.auto_fire_output != "RB" && *options.auto_fire_output != "RT") {
-        throw std::runtime_error("--auto-fire-output must be RB or RT");
+    if (options.capture_fps.has_value()) {
+        if (*options.capture_fps < 1 || *options.capture_fps > 1000) {
+            throw std::runtime_error("--capture-fps accepted range is 1..1000");
+        }
+        config.vision.capture_fps = *options.capture_fps;
+        config.vision.gpu_service_active_fps = *options.capture_fps;
+        config.effective_sources["runtime.vision.capture_fps"] = "cli";
+        config.effective_sources["runtime.vision.gpu_service_active_fps"] = "cli";
     }
-    config.gamepad.auto_fire_output = *options.auto_fire_output;
-    config.gamepad.auto_fire.fire_output = *options.auto_fire_output;
+}
+
+void dump_effective_config(const controller_native::RuntimeConfig& config) {
+    auto line = [&config](const char* key, const auto& value) {
+        std::cout << key << '=' << value << " source=" << config.effective_source(key) << '\n';
+    };
+    line("runtime.profile", config.profile);
+    line("runtime.vision.capture_width", config.vision.capture_width);
+    line("runtime.vision.capture_height", config.vision.capture_height);
+    line("runtime.vision.capture_fps", config.vision.capture_fps);
+    line("runtime.vision.idle_capture_fps", config.vision.idle_capture_fps);
+    line("runtime.vision.keepwarm_when_idle", config.vision.keepwarm_when_idle);
+    line("runtime.vision.model_path", config.vision.model_path);
+    line("runtime.vision.gpu_service_enabled", config.vision.gpu_service_enabled);
+    line("runtime.vision.gpu_service_active_fps", config.vision.gpu_service_active_fps);
+    for (const std::string& diagnostic : config.diagnostics) {
+        std::cerr << "[NativeRuntime][Config] " << diagnostic << '\n';
+    }
 }
 
 void print_startup_summary(
@@ -120,8 +157,14 @@ int main(int argc, char** argv) {
         SetConsoleCtrlHandler(handle_console_signal, TRUE);
         const CliOptions options = parse_args(argc, argv);
         controller_native::RuntimeConfig config =
-            controller_native::load_runtime_config(options.config_path);
+            controller_native::load_runtime_config(
+                options.config_path,
+                options.profile.value_or(std::string{}));
         apply_cli_overrides(options, config);
+        if (options.dump_effective_config) {
+            dump_effective_config(config);
+            return 0;
+        }
         const bool perf_log = options.perf_log || config.vision.perf_log;
         print_startup_summary(options, config);
 

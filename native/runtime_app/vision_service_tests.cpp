@@ -187,6 +187,23 @@ void test_next_poll_due_uses_active_fps_interval() {
     REQUIRE(due < at_ms(9));
 }
 
+void test_aim_transition_bypasses_idle_deadline() {
+    auto poller = std::make_unique<FakeVisionPoller>(std::vector<bool>{true, true});
+    runtime_app::VisionServiceOptions options;
+    options.active_fps = 160.0;
+    options.idle_fps = 20.0;
+    options.keepwarm_when_idle = true;
+    runtime_app::VisionService service(std::move(poller), options);
+    service.set_aiming(false);
+    REQUIRE(service.step_for_test(at_ms(0)));
+    service.set_aiming(true);
+    REQUIRE(service.step_for_test(at_ms(1)));
+    const auto snapshot = service.latest_snapshot();
+    REQUIRE(snapshot.controller_aiming);
+    REQUIRE(snapshot.aim_transition_sequence == 1);
+    REQUIRE(snapshot.result.service_sequence == 2);
+}
+
 } // namespace
 
 int main() {
@@ -196,5 +213,6 @@ int main() {
     test_idle_keepwarm_does_not_publish_control_authority();
     test_idle_keepwarm_frame_does_not_seed_active_repeat_last();
     test_next_poll_due_uses_active_fps_interval();
+    test_aim_transition_bypasses_idle_deadline();
     return 0;
 }

@@ -5,6 +5,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -37,6 +38,7 @@ struct VisionServiceSnapshot {
     VisionSnapshotFreshness freshness = VisionSnapshotFreshness::None;
     VisionSourceState source_state = VisionSourceState::Unknown;
     std::uint64_t sequence = 0;
+    std::uint64_t aim_transition_sequence = 0;
     bool controller_aiming = false;
     bool engine_aiming = false;
 };
@@ -78,6 +80,7 @@ private:
     std::unique_ptr<IVisionServicePoller> poller_;
     VisionServiceOptions options_;
     mutable std::mutex mutex_;
+    std::condition_variable wake_condition_;
     std::thread worker_;
     std::atomic<bool> running_{false};
     bool controller_aiming_ = false;
@@ -88,6 +91,8 @@ private:
     vision_native::VisionResult last_fresh_result_;
     bool has_last_fresh_result_ = false;
     std::uint64_t sequence_ = 0;
+    std::uint64_t aim_transition_sequence_ = 0;
+    bool immediate_poll_requested_ = false;
 };
 
 } // namespace runtime_app
