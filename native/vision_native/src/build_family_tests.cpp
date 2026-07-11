@@ -21,8 +21,8 @@ int main() {
     const auto pascal = directory / "also-renamed.engine";
     { std::ofstream out(modern); out << "modern-plan"; }
     { std::ofstream out(pascal); out << "pascal-plan"; }
-    { std::ofstream out(modern.string() + ".runtime.json"); out << R"({"build_family":"modern","engine_size_bytes":11})"; }
-    { std::ofstream out(pascal.string() + ".runtime.json"); out << R"({"build_family":"pascal","engine_size_bytes":11})"; }
+    { std::ofstream out(modern.string() + ".runtime.json"); out << R"({"build_family":"modern","engine_size_bytes":11,"engine_fnv1a64":"12137132893273426546","target_sm":"75_plus"})"; }
+    { std::ofstream out(pascal.string() + ".runtime.json"); out << R"({"build_family":"pascal","engine_size_bytes":11,"engine_fnv1a64":"2340462126481040971","target_sm":"61"})"; }
     vision_native::validate_runtime_artifact_family(
         vision_native::BuildFamily::Modern, modern.string(), 7, 5);
     require(fails(vision_native::BuildFamily::Modern, pascal.string().c_str(), 8, 9));
