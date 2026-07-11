@@ -469,6 +469,7 @@ RuntimeLoop::RuntimeLoop(
 
 int RuntimeLoop::run() {
     using controller_native::GamepadOutputState;
+    (void)set_current_thread_priority(RuntimeThreadPriority::AboveNormal);
 
     const int tick_hz = std::max(1, config_.scheduler.controller_tick_hz);
     const auto tick_interval = std::chrono::nanoseconds(1'000'000'000ll / tick_hz);

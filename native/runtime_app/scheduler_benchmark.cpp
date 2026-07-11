@@ -28,6 +28,7 @@ double percentile(std::vector<double> values, double q) {
 }
 
 int main(int argc, char** argv) {
+    (void)runtime_app::set_current_thread_priority(runtime_app::RuntimeThreadPriority::AboveNormal);
     int seconds = 60;
     std::string mode = "precision";
     std::string output = "scheduler_benchmark.json";

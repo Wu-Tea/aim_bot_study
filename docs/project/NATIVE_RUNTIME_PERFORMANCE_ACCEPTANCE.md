@@ -40,10 +40,15 @@ is not advertised.
 | Precision, 700 µs tail | 996.40 | 22.8906 | 0.0589 ms | 216 | 17 |
 | Precision, 800 µs tail | 997.40 | 28.9844 | 0.0417 ms | 156 | 14 |
 | Precision, 850 µs tail | 996.617 | 27.6094 | 0.0470 ms | 203 | 15 |
+| Legacy, AboveNormal | 999.467 | 58.4062 | 0.0541 ms | 32 | 6 |
+| Precision 800 µs, AboveNormal | 999.183 | 29.0312 | 0.0629 ms | 49 | 6 |
 
 The precision candidate saves more than 15% CPU, but 800 µs still regresses
 p99 lateness by about 7.5%, falls outside 1000 ± 2 Hz, and exceeds the missed
 deadline/consecutive limits. The rollback rule therefore keeps legacy default.
+Repeating both modes at `AboveNormal` brought precision cadence and missed rate
+inside their individual limits, but its p99 remained about 16.3% worse than the
+same-priority legacy run and both modes exceeded the maximum-consecutive limit.
 
 ## Configuration Surface
 
@@ -92,4 +97,3 @@ The following are validation work, not hidden implementation claims:
 3. Run 100 aim transitions against hot live inference and capture wake percentiles.
 4. Run pinned/pageable recorded-gameplay authority parity and mapped-resource lifetime A/B.
 5. Build and soak the Pascal family on a GTX 1060 6 GB with FP32/FP16/INT8 engines.
-
