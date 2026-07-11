@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Implement the native runtime configuration, cadence/wakeup, asynchronous telemetry, precision scheduler, pinned color readback, and Pascal build boundaries defined by the July 12 design while preserving controller, authority, and recoil behavior.
+**Goal:** Implement compact but complete per-module native runtime configuration, cadence/wakeup, asynchronous telemetry, precision scheduler, pinned color readback, and Pascal build boundaries defined by the July 12 design while preserving controller, authority, and recoil behavior.
 
 **Architecture:** Keep control behavior and safety constants compiled/profile-controlled, and layer user configuration through defaults, profile, file, then CLI/environment. Move timing and telemetry mechanics behind independently testable runtime services, retain explicit fallbacks, and expose machine-readable evidence for every performance gate. Modern and Pascal builds remain distinct artifacts.
 
@@ -26,7 +26,7 @@
 - [ ] Run `cod_native_runtime_config_tests.exe` and verify the new assertions fail because profiles/source metadata do not exist.
 - [ ] Add profile/config/source types and a table-driven schema without changing controller or recoil defaults.
 - [ ] Implement precedence `defaults -> profile -> user config -> environment/CLI`, strict validation, legacy aliases, concise startup summary, and `--dump-effective-config`.
-- [ ] Replace the normal native template with at most 15 non-recoil user keys while retaining every documented recoil override and commit a legacy full-config fixture.
+- [ ] Expose at most 8 coherent controls for each major module and at most 60 non-recoil keys in the normal template, resolving composite ADS/bodylock/tracker controls deterministically into existing detailed constants.
 - [ ] Build and run the focused config tests; count template assignments and verify the effective dump covers every overridable schema key.
 
 ### Task 2: Canonical vision cadence
@@ -178,4 +178,3 @@
 - [ ] Verify incompatible artifact combinations fail before inference.
 - [ ] Mark G passed only from retained real-SM61 artifacts; otherwise record `unverified` and do not advertise GTX 1060 support.
 - [ ] Make the final release decision: A-F must pass on the modern reference machine; any unavailable long-running live/game measurement remains explicitly unverified rather than inferred.
-

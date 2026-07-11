@@ -514,7 +514,12 @@ from perceived smoothness alone.
 
 ### A. Configuration Simplification
 
-- The normal template contains at most 15 non-recoil user-editable keys.
+- The normal template exposes every major runtime module through a compact,
+  complete set of additive/subtractive controls. Each module contains at most
+  8 ordinary user-editable keys; modules may contain fewer.
+- The normal template contains at most 60 non-recoil user-editable keys across
+  vision, telemetry, scheduler, input, tracker, ADS, bodylock, auto-fire, and
+  output modules.
 - The complete normal template contains at most 80 nonblank, noncomment
   assignments, including the documented recoil section.
 - Recoil keeps 100% of the currently supported documented user overrides.
@@ -526,6 +531,36 @@ from perceived smoothness alone.
   is silently accepted.
 - `--dump-effective-config` output includes the value and source layer for 100%
   of effective user-overridable keys.
+
+#### Module Configuration Boundary
+
+The compact module surface replaces the earlier interpretation that the entire
+runtime should expose no more than 15 non-recoil keys. The user explicitly
+requires every major module to remain fully configurable without exposing every
+internal tuning constant.
+
+- `vision`: resolution, active/idle cadence, keepwarm, model, service enable,
+  and color-readback mode.
+- `telemetry`: enable, mode, controller sampling rate, candidate detail policy,
+  queue capacity, rotation size/count, and event window preset.
+- `scheduler`: tick rate, scheduler mode, and spin-tail budget.
+- `input`: source selection, auto-detect, controller index, and aim-button policy.
+- `tracker`: backend, memory/lead strength, maximum projection age, and motion
+  responsiveness.
+- `ads`: enable, strength, vertical strength, smoothing, snap duration, FOV
+  scale, and manual-opposition suppression.
+- `bodylock`: enable, strength, vertical strength, smoothing, activation range,
+  tolerance, lead strength, and manual-escape strength.
+- `auto_fire`: enable/output, aim-only, readiness strictness, source age, and
+  manual takeover timing.
+- `output`: ViGEm enable and output validation mode; protocol safety remains
+  compiled and cannot be relaxed from configuration.
+- `recoil`: retains 100% of the already documented overrides.
+
+Composite controls resolve into the existing detailed controller values after
+profile and user precedence is applied. Resolution is deterministic and is
+included in the effective-config dump. Existing full legacy configs continue to
+set detailed values directly during migration, with deprecation/source metadata.
 
 ### B. Vision Cadence and Aim Wakeup
 
