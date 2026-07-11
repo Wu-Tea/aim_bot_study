@@ -1,0 +1,32 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "modern-release",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build-modern",
+      "cacheVariables": {
+        "VISION_BUILD_FAMILY": "modern",
+        "CMAKE_CUDA_ARCHITECTURES": "75",
+        "TensorRT_ROOT": "D:/env/TensorRT-10.15.1.29"
+      }
+    },
+    {
+      "name": "pascal-release",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build-pascal",
+      "cacheVariables": {
+        "VISION_BUILD_FAMILY": "pascal",
+        "CMAKE_CUDA_ARCHITECTURES": "61",
+        "CMAKE_CUDA_COMPILER": "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v11.8/bin/nvcc.exe",
+        "TensorRT_ROOT": "D:/env/TensorRT-8.6.1.6"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "modern-release", "configurePreset": "modern-release", "configuration": "Release" },
+    { "name": "pascal-release", "configurePreset": "pascal-release", "configuration": "Release" }
+  ]
+}

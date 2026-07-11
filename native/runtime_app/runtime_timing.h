@@ -1,8 +1,42 @@
 #pragma once
 
 #include <chrono>
+#include <cstdint>
+#include <string>
 
 namespace runtime_app {
+
+class AbsoluteDeadlineState {
+public:
+    AbsoluteDeadlineState(
+        std::chrono::steady_clock::time_point start,
+        std::chrono::steady_clock::duration interval);
+    std::chrono::steady_clock::time_point next_deadline() const;
+    std::uint64_t advance_after_tick(std::chrono::steady_clock::time_point now);
+
+private:
+    std::chrono::steady_clock::time_point next_deadline_;
+    std::chrono::steady_clock::duration interval_;
+};
+
+enum class PrecisionSchedulerMode { WaitableTimer, LegacyFallback };
+
+class PrecisionTickScheduler {
+public:
+    explicit PrecisionTickScheduler(unsigned int spin_tail_us = 50);
+    ~PrecisionTickScheduler();
+    PrecisionTickScheduler(const PrecisionTickScheduler&) = delete;
+    PrecisionTickScheduler& operator=(const PrecisionTickScheduler&) = delete;
+
+    void wait_until(std::chrono::steady_clock::time_point deadline);
+    PrecisionSchedulerMode mode() const;
+    const char* mode_name() const;
+
+private:
+    void* timer_ = nullptr;
+    unsigned int spin_tail_us_ = 50;
+    PrecisionSchedulerMode mode_ = PrecisionSchedulerMode::LegacyFallback;
+};
 
 enum class RuntimeThreadPriority {
     Normal,

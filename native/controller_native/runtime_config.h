@@ -15,6 +15,7 @@ struct VisionRuntimeConfig {
     int capture_fps = 140;
     int idle_capture_fps = 20;
     bool keepwarm_when_idle = true;
+    std::string color_readback_mode = "pageable";
     std::string model_path = "models/candidates/body_union_manual_core_x2_neg_e6_640x512.engine";
     std::string fallback_model_path = "models/best.pt";
     std::string quit_key = "0";
@@ -178,10 +179,23 @@ struct RuntimeTelemetryConfig {
     unsigned int event_post_ms = 1000;
 };
 
+struct RuntimeSchedulerConfig {
+    int controller_tick_hz = 1000;
+    std::string mode = "legacy";
+    unsigned int spin_tail_us = 50;
+};
+
+struct RuntimeOutputConfig {
+    bool enabled = true;
+    std::string validation_mode = "strict";
+};
+
 struct RuntimeConfig {
     std::string profile = "legacy";
     VisionRuntimeConfig vision;
     RuntimeTelemetryConfig telemetry;
+    RuntimeSchedulerConfig scheduler;
+    RuntimeOutputConfig output;
     GamepadRuntimeConfig gamepad;
     std::map<std::string, std::string> effective_sources;
     std::vector<std::string> diagnostics;

@@ -217,3 +217,23 @@ Use this checklist when accepting the C++ launcher as the normal live-play path:
 
 Keep the Python fallback path in place for comparison and debugging. Set
 `GAMEPAD_RUNTIME=python` to use the old Python gamepad runtime.
+# Build families
+
+The native vision runtime has separate artifact families. `modern-release`
+targets CUDA 13.x, TensorRT 10.x, and SM 7.5 or newer. `pascal-release` targets
+CUDA 11.8, TensorRT 8.6.1, and SM 6.1. Engines are not interchangeable:
+Pascal engine filenames must contain `pascal` or `sm61`, while the modern loader
+rejects those tags. The runtime validates the selected GPU before constructing
+TensorRT, so incompatible pairs fail before engine deserialization/inference.
+
+```powershell
+cmake --preset modern-release
+cmake --build --preset modern-release
+
+# Requires the separately installed CUDA 11.8 and TensorRT 8.6.1 roots.
+cmake --preset pascal-release
+cmake --build --preset pascal-release
+```
+
+Compilation on modern hardware does not validate Pascal support. GTX 1060
+support remains `unverified` until the SM 6.1 soak and performance gate passes.

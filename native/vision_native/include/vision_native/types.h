@@ -133,6 +133,10 @@ struct VisionResult {
     float cuda_map_ms = 0.0f;
     float preprocess_ms = 0.0f;
     float color_copy_ms = 0.0f;
+    bool color_copy_required = false;
+    std::uint64_t color_copy_bytes = 0;
+    float color_copy_region_ratio = 0.0f;
+    const char* color_readback_mode = "none";
     float infer_ms = 0.0f;
     float output_copy_sync_ms = 0.0f;
     float gpu_total_ms = 0.0f;

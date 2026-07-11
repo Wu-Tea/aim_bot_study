@@ -10,9 +10,11 @@
 #include <atomic>
 #include <cstdint>
 #include <string>
-#include <vector>
+#include <memory>
 
 namespace vision_native {
+
+class ColorReadbackBuffer;
 
 class VisionEngine {
 public:
@@ -22,7 +24,8 @@ public:
         int adapter_index = 0,
         int output_index = -1,
         int timeout_ms = 0,
-        std::string engine_path = {});
+        std::string engine_path = {},
+        std::string color_readback_mode = "pageable");
     ~VisionEngine();
 
     VisionEngine(const VisionEngine&) = delete;
@@ -41,7 +44,7 @@ private:
     DxgiRoiCapture capture_;
     VisionTargetSelector selector_;
     AimEnhancementPipeline enhancer_;
-    TensorRTEngine engine_;
+    std::unique_ptr<TensorRTEngine> engine_;
     std::atomic<bool> aiming_{false};
     pipeline_contract::UserAimIntent user_aim_intent_;
     bool external_cue_found_ = false;
@@ -49,7 +52,7 @@ private:
     float external_cue_y_ = 0.0f;
     float external_cue_score_ = 0.0f;
     void* graphics_resource_ = nullptr;
-    std::vector<uint8_t> host_color_frame_;
+    std::unique_ptr<ColorReadbackBuffer> host_color_frame_;
     int width_ = 0;
     int height_ = 0;
 };

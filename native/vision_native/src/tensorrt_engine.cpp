@@ -399,4 +399,8 @@ DetectionBatch TensorRTEngine::infer_bgra_array(
     return batch;
 }
 
+cudaStream_t TensorRTEngine::cuda_stream() const noexcept {
+    return static_cast<cudaStream_t>(stream_);
+}
+
 } // namespace vision_native

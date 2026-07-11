@@ -37,6 +37,7 @@ public:
         int width,
         int height,
         float conf_threshold = 0.4f);
+    cudaStream_t cuda_stream() const noexcept;
 
     int input_width() const { return input_width_; }
     int input_height() const { return input_height_; }

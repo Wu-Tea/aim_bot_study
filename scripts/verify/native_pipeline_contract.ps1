@@ -187,11 +187,36 @@ $runtimeConfigPath = if ([System.IO.Path]::IsPathRooted($RuntimeConfig)) {
 } else {
     Join-Path $repoRoot $RuntimeConfig
 }
+$artifactDir = Join-Path $repoRoot "runs\native_pipeline_contract"
+if (-not (Test-Path -LiteralPath $runtimeConfigPath)) {
+    $worktreeRoots = @(
+        & git worktree list --porcelain |
+            Where-Object { $_ -like "worktree *" } |
+            ForEach-Object { $_.Substring(9) }
+    )
+    $modelPath = $worktreeRoots |
+        ForEach-Object { Join-Path $_ "models\candidates\body_union_manual_core_x2_neg_e6_640x512.engine" } |
+        Where-Object { Test-Path -LiteralPath $_ } |
+        Select-Object -First 1
+    if (-not $modelPath) {
+        throw "Runtime config is missing and no verification engine was found in any Git worktree."
+    }
+    New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
+    $runtimeConfigPath = Join-Path $artifactDir "runtime_config.toml"
+    @(
+        "[runtime]",
+        'profile = "balanced"',
+        "[runtime.vision]",
+        ('model_path = "' + ($modelPath -replace '\\', '/') + '"'),
+        "aim_perf_file_log = false",
+        "[runtime.output]",
+        "enabled = false"
+    ) | Set-Content -Encoding ASCII -LiteralPath $runtimeConfigPath
+}
 $runtimeWorkingDir = Split-Path -Parent $runtimeConfigPath
 $runtimeExe = Join-Path $buildPath "$Configuration\cod_native_runtime.exe"
 $testsExe = Join-Path $buildPath "$Configuration\cod_native_controller_tests.exe"
 $benchmarkExe = Join-Path $buildPath "$Configuration\cod_native_gamepad_benchmark.exe"
-$artifactDir = Join-Path $repoRoot "runs\native_pipeline_contract"
 $benchmarkOutput = Join-Path $artifactDir "pipeline_contract_smoke.json"
 
 Assert-NoForbiddenCoupling

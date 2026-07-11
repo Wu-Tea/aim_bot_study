@@ -79,6 +79,8 @@ void test_balanced_profile_uses_canonical_vision_defaults() {
     require(config.vision.idle_capture_fps == 20);
     require(config.vision.keepwarm_when_idle);
     require(config.vision.gpu_service_active_fps == 160);
+    require(!config.telemetry.enabled);
+    require(!config.vision.aim_perf_file_log);
     require(config.effective_source("runtime.vision.capture_fps") == "profile");
 }
 
@@ -170,6 +172,20 @@ void test_compact_ads_and_bodylock_modules_resolve_detailed_controls() {
     require(config.effective_source("gamepad.ads.strength") == "user");
 }
 
+void test_invalid_user_override_reports_key_and_range() {
+    const auto path = std::filesystem::temp_directory_path() / "cod_native_invalid_range.toml";
+    { std::ofstream output(path); output << "[runtime.vision]\ncapture_fps = 0\n"; }
+    bool failed = false;
+    try { (void)controller_native::load_runtime_config(path); }
+    catch (const std::runtime_error& error) {
+        const std::string message = error.what();
+        failed = message.find("runtime.vision.capture_fps") != std::string::npos &&
+            message.find("1..1000") != std::string::npos;
+    }
+    std::filesystem::remove(path);
+    require(failed);
+}
+
 } // namespace
 
 int main() {
@@ -181,5 +197,6 @@ int main() {
     test_unknown_keys_are_reported();
     test_invalid_profile_fails_with_available_names();
     test_compact_ads_and_bodylock_modules_resolve_detailed_controls();
+    test_invalid_user_override_reports_key_and_range();
     return 0;
 }

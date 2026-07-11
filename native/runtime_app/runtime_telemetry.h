@@ -1,0 +1,98 @@
+#pragma once
+
+#include <atomic>
+#include <condition_variable>
+#include <cstdint>
+#include <deque>
+#include <filesystem>
+#include <fstream>
+#include <mutex>
+#include <thread>
+#include <unordered_set>
+
+namespace runtime_app {
+
+enum class TelemetryRecordKind : std::uint8_t {
+    ManualControllerTick,
+    VisionFrame,
+    RuntimeEvent,
+};
+
+struct TelemetryRecord {
+    TelemetryRecordKind kind = TelemetryRecordKind::ManualControllerTick;
+    bool critical = false;
+    std::uint64_t event_id = 0;
+    std::uint64_t tick_id = 0;
+    std::uint64_t frame_id = 0;
+    std::uint64_t intent_id = 0;
+    std::uint64_t timestamp_ns = 0;
+    float manual_x = 0.0f;
+    float manual_y = 0.0f;
+    float ai_x = 0.0f;
+    float ai_y = 0.0f;
+    float final_x = 0.0f;
+    float final_y = 0.0f;
+    float controller_pipeline_ms = 0.0f;
+    float vigem_update_ms = 0.0f;
+};
+
+struct RuntimeTelemetryOptions {
+    bool enabled = false;
+    bool start_writer = true;
+    std::filesystem::path directory = "runs/native_perf";
+    std::size_t queue_capacity = 8192;
+    std::size_t rotate_size_bytes = 256ull * 1024ull * 1024ull;
+    std::size_t max_files = 10;
+    unsigned int shutdown_timeout_ms = 1000;
+};
+
+struct RuntimeTelemetryCounters {
+    std::uint64_t accepted_records = 0;
+    std::uint64_t dropped_normal_records = 0;
+    std::uint64_t dropped_critical_records = 0;
+    std::uint64_t duplicate_vision_frames = 0;
+    std::uint64_t serialized_records = 0;
+    std::uint64_t writer_threads_started = 0;
+    std::uint64_t queue_high_watermark = 0;
+};
+
+class RuntimeTelemetry {
+public:
+    explicit RuntimeTelemetry(RuntimeTelemetryOptions options);
+    ~RuntimeTelemetry();
+
+    RuntimeTelemetry(const RuntimeTelemetry&) = delete;
+    RuntimeTelemetry& operator=(const RuntimeTelemetry&) = delete;
+
+    void start();
+    void stop();
+    bool enqueue(const TelemetryRecord& record) noexcept;
+    RuntimeTelemetryCounters counters() const noexcept;
+    const std::filesystem::path& log_path() const noexcept;
+
+private:
+    void writer_loop();
+    bool open_next_file();
+    void serialize(const TelemetryRecord& record);
+
+    RuntimeTelemetryOptions options_;
+    mutable std::mutex mutex_;
+    std::condition_variable condition_;
+    std::deque<TelemetryRecord> queue_;
+    std::unordered_set<std::uint64_t> accepted_vision_frames_;
+    std::thread writer_;
+    std::atomic<bool> running_{false};
+    std::atomic<std::uint64_t> accepted_{0};
+    std::atomic<std::uint64_t> dropped_normal_{0};
+    std::atomic<std::uint64_t> dropped_critical_{0};
+    std::atomic<std::uint64_t> duplicate_vision_{0};
+    std::atomic<std::uint64_t> serialized_{0};
+    std::atomic<std::uint64_t> writers_started_{0};
+    std::atomic<std::uint64_t> high_watermark_{0};
+    std::filesystem::path log_path_;
+    std::ofstream output_;
+    std::size_t current_size_ = 0;
+    std::size_t file_index_ = 0;
+};
+
+} // namespace runtime_app

@@ -66,6 +66,30 @@ void test_timer_period_scope_records_requested_period() {
     REQUIRE(period.requested_period_ms() == 1u);
 }
 
+void test_deadline_state_realigns_without_replaying_missed_ticks() {
+    runtime_app::AbsoluteDeadlineState state(
+        std::chrono::steady_clock::time_point{}, std::chrono::milliseconds(1));
+    REQUIRE(state.next_deadline() ==
+        std::chrono::steady_clock::time_point{} + std::chrono::milliseconds(1));
+    const auto skipped = state.advance_after_tick(
+        std::chrono::steady_clock::time_point{} + std::chrono::microseconds(3400));
+    REQUIRE(skipped == 2);
+    REQUIRE(state.next_deadline() ==
+        std::chrono::steady_clock::time_point{} + std::chrono::milliseconds(4));
+}
+
+void test_deadline_state_has_no_accumulated_drift() {
+    runtime_app::AbsoluteDeadlineState state(
+        std::chrono::steady_clock::time_point{}, std::chrono::milliseconds(1));
+    for (int tick = 1; tick <= 1000; ++tick) {
+        const auto now = std::chrono::steady_clock::time_point{} +
+            std::chrono::microseconds(tick * 1000 + 100);
+        state.advance_after_tick(now);
+    }
+    REQUIRE(state.next_deadline() ==
+        std::chrono::steady_clock::time_point{} + std::chrono::milliseconds(1001));
+}
+
 } // namespace
 
 int main() {
@@ -76,5 +100,7 @@ int main() {
     test_runtime_thread_priority_names_are_stable();
     test_can_restore_current_thread_to_normal_priority();
     test_timer_period_scope_records_requested_period();
+    test_deadline_state_realigns_without_replaying_missed_ticks();
+    test_deadline_state_has_no_accumulated_drift();
     return 0;
 }

@@ -13,6 +13,13 @@ if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
 endif()
 
 option(NATIVE_ENABLE_VIGEM "Enable ViGEmClient output for cod_native_runtime" OFF)
+set(VISION_BUILD_FAMILY "modern" CACHE STRING "Runtime artifact family: modern or pascal")
+set_property(CACHE VISION_BUILD_FAMILY PROPERTY STRINGS modern pascal)
+if(VISION_BUILD_FAMILY STREQUAL "pascal")
+    set(CMAKE_CUDA_ARCHITECTURES 61 CACHE STRING "Pascal CUDA architecture" FORCE)
+elseif(NOT VISION_BUILD_FAMILY STREQUAL "modern")
+    message(FATAL_ERROR "VISION_BUILD_FAMILY must be modern or pascal")
+endif()
 set(ViGEmClient_DLL "" CACHE FILEPATH "Path to ViGEmClient.dll copied beside cod_native_runtime")
 set(SDL2_DLL "" CACHE FILEPATH "Path to SDL2.dll copied beside cod_native_runtime")
 
@@ -76,6 +83,8 @@ endforeach()
 
 add_library(vision_native_core STATIC
     src/aim_enhancement.cpp
+    src/build_family.cpp
+    src/color_readback.cpp
     src/dxgi_capture.cpp
     src/engine_io.cpp
     src/preprocess.cu
@@ -116,8 +125,24 @@ target_compile_definitions(vision_native_core
 
 set_target_properties(vision_native_core PROPERTIES
     CUDA_SEPARABLE_COMPILATION OFF
-    CUDA_ARCHITECTURES 89
+    CUDA_ARCHITECTURES "${CMAKE_CUDA_ARCHITECTURES}"
 )
+if(VISION_BUILD_FAMILY STREQUAL "pascal")
+    target_compile_definitions(vision_native_core PUBLIC VISION_BUILD_FAMILY_PASCAL=1)
+else()
+    target_compile_definitions(vision_native_core PUBLIC VISION_BUILD_FAMILY_MODERN=1)
+endif()
+
+add_executable(vision_native_build_family_tests
+    src/build_family_tests.cpp
+    src/build_family.cpp
+)
+target_include_directories(vision_native_build_family_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+if(VISION_BUILD_FAMILY STREQUAL "pascal")
+    target_compile_definitions(vision_native_build_family_tests PRIVATE VISION_BUILD_FAMILY_PASCAL=1)
+endif()
 
 target_link_libraries(vision_native_core
     PUBLIC
@@ -181,6 +206,7 @@ add_executable(cod_native_runtime
     ../runtime_app/fusion_channel_publisher.cpp
     ../runtime_app/perf_logger.cpp
     ../runtime_app/aim_perf_file_logger.cpp
+    ../runtime_app/runtime_telemetry.cpp
     ../runtime_app/downward_diagnostics.cpp
     ../runtime_app/native_replay_writer.cpp
     ../runtime_app/native_replay_runner.cpp
@@ -362,6 +388,42 @@ target_link_libraries(cod_native_vision_service_tests PRIVATE
 add_executable(cod_native_runtime_timing_tests
     ../runtime_app/runtime_timing_tests.cpp
     ../runtime_app/runtime_timing.cpp
+)
+
+add_executable(cod_native_scheduler_benchmark
+    ../runtime_app/scheduler_benchmark.cpp
+    ../runtime_app/runtime_timing.cpp
+)
+target_include_directories(cod_native_scheduler_benchmark PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+target_compile_definitions(cod_native_scheduler_benchmark PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+target_link_libraries(cod_native_scheduler_benchmark PRIVATE winmm)
+
+add_executable(vision_native_color_readback_tests
+    src/color_readback_tests.cpp
+    src/color_readback.cpp
+)
+target_include_directories(vision_native_color_readback_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+target_link_libraries(vision_native_color_readback_tests PRIVATE CUDA::cudart)
+
+add_executable(cod_native_runtime_telemetry_tests
+    ../runtime_app/runtime_telemetry_tests.cpp
+    ../runtime_app/runtime_telemetry.cpp
+)
+
+target_include_directories(cod_native_runtime_telemetry_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
+target_compile_definitions(cod_native_runtime_telemetry_tests PRIVATE
+    NOMINMAX
+    WIN32_LEAN_AND_MEAN
 )
 
 target_include_directories(cod_native_runtime_timing_tests PRIVATE

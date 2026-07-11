@@ -8,6 +8,7 @@ capture_height = 512
 capture_fps = 160
 idle_capture_fps = 20
 keepwarm_when_idle = true
+color_readback_mode = "pageable" # pinned remains opt-in until the A/B gate passes
 model_path = "models/candidates/body_union_manual_core_x2_neg_e6_640x512.engine"
 gpu_service_enabled = true
 
@@ -15,9 +16,36 @@ gpu_service_enabled = true
 enabled = false
 mode = "profile"
 
-[runtime.gamepad]
-tracker_backend = "fps_reference"
-auto_fire_output = "RB"
+[runtime.scheduler]
+controller_tick_hz = 1000
+mode = "legacy" # precision becomes default only after its measured gate passes
+spin_tail_us = 50
+
+[runtime.input]
+auto_detect = true
+controller_index = 0
+rb_counts_as_aiming = false
+
+[runtime.output]
+enabled = true
+validation_mode = "strict"
+
+[gamepad.tracker]
+backend = "fps_reference"
+projection_age_ms = 96
+responsiveness = 0.35
+max_velocity_px_per_sec = 1200
+weak_memory_decay = 0.70
+lead_seconds = 0.026
+lead_max_px = 18
+
+[gamepad.auto_fire]
+fire_output = "RB"
+aim_only = true
+max_source_age_ms = 50
+require_aim_ready = true
+manual_takeover_release_seconds = 0.035
+manual_takeover_resume_delay_seconds = 0.085
 
 [gamepad.ads]
 strength = 0.64

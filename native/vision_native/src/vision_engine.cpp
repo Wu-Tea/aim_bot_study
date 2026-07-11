@@ -1,4 +1,6 @@
 #include "vision_native/vision_engine.h"
+#include "color_readback.h"
+#include "vision_native/build_family.h"
 
 #include <d3d11.h>
 #include <cuda_d3d11_interop.h>
@@ -76,10 +78,11 @@ VisionEngine::VisionEngine(
     int adapter_index,
     int output_index,
     int timeout_ms,
-    std::string engine_path)
+    std::string engine_path,
+    std::string color_readback_mode)
     : capture_(width, height, adapter_index, output_index, timeout_ms),
       selector_(width, height),
-      engine_(engine_path.empty() ? default_engine_path() : std::move(engine_path)),
+      host_color_frame_(std::make_unique<ColorReadbackBuffer>(color_readback_mode == "pinned")),
       width_(width),
       height_(height) {
     auto* d3d_device = static_cast<ID3D11Device*>(capture_.d3d11_device());
@@ -102,6 +105,13 @@ VisionEngine::VisionEngine(
     }
 
     check_cuda(cudaSetDevice(cuda_device), "cudaSetDevice");
+    cudaDeviceProp properties{};
+    check_cuda(cudaGetDeviceProperties(&properties, cuda_device), "cudaGetDeviceProperties");
+    const std::string resolved_engine_path =
+        engine_path.empty() ? default_engine_path() : std::move(engine_path);
+    validate_runtime_artifact_family(
+        compiled_build_family(), resolved_engine_path, properties.major, properties.minor);
+    engine_ = std::make_unique<TensorRTEngine>(resolved_engine_path);
 
     auto* resource = static_cast<ID3D11Resource*>(capture_.texture());
     if (resource == nullptr) {
@@ -211,7 +221,7 @@ VisionResult VisionEngine::poll_once() {
             "cudaGraphicsSubResourceGetMappedArray");
         result.cuda_map_ms = ns_to_ms(now_ns() - map_start);
 
-        DetectionBatch batch = engine_.infer_bgra_array(
+        DetectionBatch batch = engine_->infer_bgra_array(
             frame_array,
             width_,
             height_,
@@ -230,22 +240,31 @@ VisionResult VisionEngine::poll_once() {
             const int region_height = color_region->bottom - color_region->top;
             const size_t host_bytes =
                 static_cast<size_t>(region_width) * static_cast<size_t>(region_height) * 4;
-            if (host_color_frame_.size() < host_bytes) {
-                host_color_frame_.resize(host_bytes);
+            if (!host_color_frame_->ensure(host_bytes)) {
+                throw std::runtime_error("failed to allocate color readback buffer");
             }
             const uint64_t color_copy_start = now_ns();
+            const cudaStream_t stream = engine_->cuda_stream();
             check_cuda(
-                cudaMemcpy2DFromArray(
-                    host_color_frame_.data(),
+                cudaMemcpy2DFromArrayAsync(
+                    host_color_frame_->data(),
                     static_cast<size_t>(region_width) * 4,
                     frame_array,
                     color_region->left * 4,
                     color_region->top,
                     static_cast<size_t>(region_width) * 4,
                     static_cast<size_t>(region_height),
-                    cudaMemcpyDeviceToHost),
+                    cudaMemcpyDeviceToHost,
+                    stream),
                 "cudaMemcpy2DFromArray host_color_frame");
+            check_cuda(cudaStreamSynchronize(stream), "cudaStreamSynchronize color readback");
             result.color_copy_ms = ns_to_ms(now_ns() - color_copy_start);
+            result.color_copy_required = true;
+            result.color_copy_bytes = host_bytes;
+            result.color_copy_region_ratio = static_cast<float>(
+                static_cast<double>(region_width) * static_cast<double>(region_height) /
+                static_cast<double>(width_ * height_));
+            result.color_readback_mode = color_readback_mode_name(host_color_frame_->mode());
             has_color_frame = true;
         }
 
@@ -279,7 +298,7 @@ VisionResult VisionEngine::poll_once() {
             targeting = selector_.select_with_frame(
                 batch,
                 VisionTargetSelector::ColorFrameView{
-                    host_color_frame_.data(),
+                    host_color_frame_->data(),
                     color_region->right - color_region->left,
                     color_region->bottom - color_region->top,
                     (color_region->right - color_region->left) * 4,
