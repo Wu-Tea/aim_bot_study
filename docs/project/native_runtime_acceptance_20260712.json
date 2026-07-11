@@ -2,7 +2,7 @@
   "schema_version": 1,
   "baseline_commit": "3f6ad8c",
   "candidate_branch": "codex/native-runtime-performance-config",
-  "runtime_binary_sha256": "B6275DD231BB52927E79510E577E0A629748D041C9C8FAC13ECE0E0D4B09ADD0",
+  "runtime_binary_sha256": "711A5BA493F7A25D76951280FF240B8743C6CAF78343ED4FCEFCB202B61584D3",
   "engine_sha256": "1DF853A9622CF94C08C8A5943271D3DBE288322DFC55C4103B60372F030A2E05",
   "reference_machine": {
     "os": "Windows 11 Pro 10.0.26100",
@@ -21,10 +21,10 @@
     "D": {"status": "FAIL", "reason": "precision scheduler misses promotion cadence and p99 non-regression gates; legacy retained"},
     "E": {"status": "UNVERIFIED", "reason": "synthetic copy gate passes; recorded-gameplay authority and mapped lifetime evidence missing"},
     "F": {"status": "UNVERIFIED", "reason": "focused tests and pipeline contract pass, but the committed baseline summary does not yet contain every required authority/fire/overshoot aggregate"},
-    "G": {"status": "UNVERIFIED", "reason": "real SM 6.1 hardware and Pascal dependency stack unavailable"}
+    "G": {"status": "EXCLUDED", "reason": "Pascal and GTX 1060 deployment removed from product scope"}
   },
   "release_decision": "FAIL",
-  "gtx1060_support": "UNVERIFIED",
+  "gtx1060_support": "OUT_OF_SCOPE",
   "telemetry_enqueue": {
     "records": 1000000,
     "p95_ms": 0.0001,

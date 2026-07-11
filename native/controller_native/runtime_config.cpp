@@ -247,15 +247,12 @@ void apply_profile(RuntimeConfig& config, const std::string& profile) {
     } else if (profile == "low_latency") {
         config.vision.capture_fps = 200;
         config.vision.idle_capture_fps = 20;
-    } else if (profile == "pascal_balanced") {
-        config.vision.capture_fps = 60;
-        config.vision.idle_capture_fps = 20;
     } else if (profile == "legacy") {
         return;
     } else {
         throw std::runtime_error(
             "invalid runtime profile '" + profile +
-            "'; available profiles: performance, balanced, low_latency, pascal_balanced");
+            "'; available profiles: performance, balanced, low_latency");
     }
     config.profile = profile;
     config.vision.keepwarm_when_idle = true;

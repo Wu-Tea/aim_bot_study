@@ -245,12 +245,9 @@ if ($testExit -ne 0 -or (($testOutput -join "`n") -notmatch "\[NativeControllerT
 
 Push-Location $runtimeWorkingDir
 try {
-    $previousLegacyEngine = $env:NATIVE_ALLOW_LEGACY_ENGINE
-    $env:NATIVE_ALLOW_LEGACY_ENGINE = "1"
     $runtimeOutput = & $runtimeExe --config $runtimeConfigPath --once 2>&1
     $runtimeExit = $LASTEXITCODE
 } finally {
-    $env:NATIVE_ALLOW_LEGACY_ENGINE = $previousLegacyEngine
     Pop-Location
 }
 $runtimeOutput | ForEach-Object { Write-Output $_ }

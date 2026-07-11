@@ -1,5 +1,11 @@
 # Native Runtime Performance and Simplified Configuration Design
 
+> Scope amendment (2026-07-12): Pascal/GTX 1060 deployment and engine
+> `.runtime.json` manifests are excluded by product decision. Historical
+> Pascal-specific sections below are superseded and are not implementation or
+> acceptance requirements. The supported native target is SM 7.5+, and
+> existing `.engine` files load directly.
+
 **Date:** 2026-07-12
 **Status:** Approved design
 **Owner:** Codex / user discussion

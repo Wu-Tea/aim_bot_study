@@ -7,8 +7,8 @@ Overall release decision: **FAIL**.
 The implementation is buildable and preserves the controller/authority/recoil
 baseline, but the experimental precision scheduler did not meet its promotion
 gate. It remains opt-in and the legacy scheduler remains the default. Several
-long-running/live-hardware gates are explicitly `UNVERIFIED`; GTX 1060 support
-is not advertised.
+long-running/live-hardware gates are explicitly `UNVERIFIED`. Pascal/GTX 1060
+deployment is outside the supported scope.
 
 ## Reference Machine
 
@@ -30,7 +30,7 @@ is not advertised.
 | D. Scheduler | FAIL | 60-second A/B shows the precision candidate reduces CPU time but misses cadence and p99 non-regression gates. It was not promoted; `mode = "legacy"` remains default. |
 | E. Color readback | UNVERIFIED | Buffer/fallback and selector fixture tests pass. Synthetic 10,000-copy A/B improved p95 from 0.0640 ms pageable to 0.0305 ms pinned (52.34%). Recorded-gameplay 10,000-candidate authority parity and mapped-resource lifetime gates were not available, so pageable remains default. |
 | F. Controller/authority | UNVERIFIED | Focused controller, ADS, bodylock, auto-fire, output-validation, protocol, selector, benchmark-metrics, and recoil tests pass, and `native_pipeline_contract.ps1 -SkipBuild` passes. The committed comparison summary proves its listed metrics, but does not yet contain every required wrong-target, authority/fire, overshoot, target-error, and bodylock aggregate; full Section F PASS is therefore not claimed. |
-| G. GTX 1060/Pascal | UNVERIFIED | Separate modern/Pascal presets and mismatch checks exist. CUDA 11.8, TensorRT 8.6.1, Pascal engine, and real SM 6.1 hardware were unavailable; no GTX 1060 support claim is made. |
+| G. GTX 1060/Pascal | EXCLUDED | Removed from product scope. The runtime targets SM 7.5+ and loads existing `.engine` files without a companion manifest. |
 
 ## Scheduler Evidence
 
@@ -101,4 +101,3 @@ The following are validation work, not hidden implementation claims:
 2. Run telemetry compiled-out comparison, 10-minute enqueue stress, and 30-minute profile soak.
 3. Run 100 aim transitions against hot live inference and capture wake percentiles.
 4. Run pinned/pageable recorded-gameplay authority parity and mapped-resource lifetime A/B.
-5. Build and soak the Pascal family on a GTX 1060 6 GB with FP32/FP16/INT8 engines.

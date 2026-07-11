@@ -13,13 +13,6 @@ if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
 endif()
 
 option(NATIVE_ENABLE_VIGEM "Enable ViGEmClient output for cod_native_runtime" OFF)
-set(VISION_BUILD_FAMILY "modern" CACHE STRING "Runtime artifact family: modern or pascal")
-set_property(CACHE VISION_BUILD_FAMILY PROPERTY STRINGS modern pascal)
-if(VISION_BUILD_FAMILY STREQUAL "pascal")
-    set(CMAKE_CUDA_ARCHITECTURES 61 CACHE STRING "Pascal CUDA architecture" FORCE)
-elseif(NOT VISION_BUILD_FAMILY STREQUAL "modern")
-    message(FATAL_ERROR "VISION_BUILD_FAMILY must be modern or pascal")
-endif()
 set(ViGEmClient_DLL "" CACHE FILEPATH "Path to ViGEmClient.dll copied beside cod_native_runtime")
 set(SDL2_DLL "" CACHE FILEPATH "Path to SDL2.dll copied beside cod_native_runtime")
 
@@ -70,17 +63,10 @@ find_package(CUDAToolkit REQUIRED)
 find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
 find_package(pybind11 CONFIG REQUIRED)
 
-if(VISION_BUILD_FAMILY STREQUAL "pascal")
-    set(TensorRT_LIBS
-        "${TensorRT_LIB_DIR}/nvinfer.lib"
-        "${TensorRT_LIB_DIR}/nvinfer_plugin.lib"
-    )
-else()
-    set(TensorRT_LIBS
-        "${TensorRT_LIB_DIR}/nvinfer_10.lib"
-        "${TensorRT_LIB_DIR}/nvinfer_plugin_10.lib"
-    )
-endif()
+set(TensorRT_LIBS
+    "${TensorRT_LIB_DIR}/nvinfer_10.lib"
+    "${TensorRT_LIB_DIR}/nvinfer_plugin_10.lib"
+)
 
 foreach(_lib IN LISTS TensorRT_LIBS)
     if(NOT EXISTS "${_lib}")
@@ -134,11 +120,7 @@ set_target_properties(vision_native_core PROPERTIES
     CUDA_SEPARABLE_COMPILATION OFF
     CUDA_ARCHITECTURES "${CMAKE_CUDA_ARCHITECTURES}"
 )
-if(VISION_BUILD_FAMILY STREQUAL "pascal")
-    target_compile_definitions(vision_native_core PUBLIC VISION_BUILD_FAMILY_PASCAL=1)
-else()
-    target_compile_definitions(vision_native_core PUBLIC VISION_BUILD_FAMILY_MODERN=1)
-endif()
+target_compile_definitions(vision_native_core PUBLIC VISION_BUILD_FAMILY_MODERN=1)
 
 add_executable(vision_native_build_family_tests
     src/build_family_tests.cpp
@@ -147,9 +129,6 @@ add_executable(vision_native_build_family_tests
 target_include_directories(vision_native_build_family_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
-if(VISION_BUILD_FAMILY STREQUAL "pascal")
-    target_compile_definitions(vision_native_build_family_tests PRIVATE VISION_BUILD_FAMILY_PASCAL=1)
-endif()
 
 target_link_libraries(vision_native_core
     PUBLIC

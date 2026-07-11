@@ -149,7 +149,8 @@ void test_invalid_profile_fails_with_available_names() {
     } catch (const std::runtime_error& error) {
         const std::string message = error.what();
         failed = message.find("performance") != std::string::npos &&
-            message.find("pascal_balanced") != std::string::npos;
+            message.find("low_latency") != std::string::npos &&
+            message.find("pascal_balanced") == std::string::npos;
     }
     std::filesystem::remove(path);
     require(failed);

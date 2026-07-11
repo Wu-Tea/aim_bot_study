@@ -4,7 +4,7 @@
 
 namespace vision_native {
 
-enum class BuildFamily { Modern, Pascal };
+enum class BuildFamily { Modern };
 
 BuildFamily compiled_build_family();
 const char* build_family_name(BuildFamily family);
