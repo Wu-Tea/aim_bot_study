@@ -26,7 +26,10 @@ namespace {
 RuntimeTelemetryOptions telemetry_options_from(
     const controller_native::RuntimeConfig& config) {
     RuntimeTelemetryOptions options;
-    options.enabled = config.telemetry.enabled;
+    // The legacy aim performance switch is a compatibility alias for the
+    // asynchronous telemetry pipeline.  It must never resurrect the old
+    // synchronous file writer on the 1 ms controller thread.
+    options.enabled = config.telemetry.enabled || config.vision.aim_perf_file_log;
     options.directory = config.vision.aim_perf_log_dir;
     options.queue_capacity = config.telemetry.queue_capacity;
     options.rotate_size_bytes =
@@ -385,7 +388,7 @@ RuntimeLoop::RuntimeLoop(
       perf_logger_(gamepad_perf_log_enabled(perf_log)),
       telemetry_(telemetry_options_from(config_)),
       aim_perf_file_logger_(
-          config_.vision.aim_perf_file_log && !config_.telemetry.enabled,
+          false,
           config_.vision.aim_perf_log_dir,
           config_.vision.aim_perf_log_interval_ticks),
       downward_diagnostics_(DownwardPullDiagnostics::from_environment()),
@@ -598,12 +601,17 @@ void RuntimeLoop::run_once() {
 
     const bool log_vision = perf_log_ && should_log_vision_tick(tick_count_);
     const bool log_gamepad_perf = gamepad_perf_log_ && should_log_vision_tick(tick_count_);
-    const bool log_aim_perf_file = config_.vision.aim_perf_file_log && aiming;
+    const bool legacy_aim_telemetry = config_.vision.aim_perf_file_log && aiming;
     const unsigned int telemetry_divisor = config_.telemetry.manual_controller_hz > 0
-        ? std::max(1u, 1000u / static_cast<unsigned int>(config_.telemetry.manual_controller_hz))
+        ? std::max(1u, static_cast<unsigned int>(std::max(1, config_.scheduler.controller_tick_hz)) /
+            static_cast<unsigned int>(config_.telemetry.manual_controller_hz))
         : 10u;
-    const bool log_telemetry = config_.telemetry.enabled && tick_count_ % telemetry_divisor == 0u;
-    if (log_vision || log_gamepad_perf || log_aim_perf_file || log_telemetry) {
+    const unsigned int legacy_divisor =
+        std::max(1u, config_.vision.aim_perf_log_interval_ticks);
+    const bool log_telemetry =
+        (config_.telemetry.enabled && tick_count_ % telemetry_divisor == 0u) ||
+        (legacy_aim_telemetry && tick_count_ % legacy_divisor == 0u);
+    if (log_vision || log_gamepad_perf || log_telemetry) {
         const auto elapsed = std::chrono::steady_clock::now() - tick_started;
         const auto controller_pipeline_elapsed = vigem_update_started - controller_pipeline_started;
         const auto vigem_update_elapsed = vigem_update_finished - vigem_update_started;
@@ -677,22 +685,6 @@ void RuntimeLoop::run_once() {
                 vision.kind = TelemetryRecordKind::VisionFrame;
                 telemetry_.enqueue(vision);
             }
-        }
-        if (log_aim_perf_file) {
-            const controller_native::NativeControllerOutputComponents& output_components =
-                controller_.last_output_components();
-            const controller_native::NativeControllerVisionState& controller_vision_state =
-                controller_.last_frame_vision_state();
-            const controller_native::GamepadOutputState tracker_motion_output =
-                controller_.last_tracker_motion_output();
-            aim_perf_file_logger_.record_aim_sample(
-                tick_count_,
-                aiming,
-                snapshot,
-                result,
-                &controller_vision_state,
-                &output_components,
-                &tracker_motion_output);
         }
         if (log_vision) {
             log_vision_result(

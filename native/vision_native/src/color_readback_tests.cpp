@@ -28,10 +28,20 @@ void test_pinned_failure_falls_back_to_pageable() {
     REQUIRE(buffer.mode() == vision_native::ColorReadbackMode::PageableFallback);
     REQUIRE(buffer.pinned_failures() == 1);
 }
+
+void test_transfer_failure_can_force_pageable_fallback() {
+    vision_native::ColorReadbackBuffer buffer(false);
+    REQUIRE(buffer.ensure(512));
+    REQUIRE(buffer.fallback_to_pageable(2048));
+    REQUIRE(buffer.data() != nullptr);
+    REQUIRE(buffer.capacity() >= 2048);
+    REQUIRE(buffer.mode() == vision_native::ColorReadbackMode::PageableFallback);
+}
 }
 
 int main() {
     test_pageable_buffer_reuses_high_watermark();
     test_pinned_failure_falls_back_to_pageable();
+    test_transfer_failure_can_force_pageable_fallback();
     return 0;
 }

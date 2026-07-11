@@ -55,6 +55,21 @@ bool ColorReadbackBuffer::ensure(std::size_t bytes) noexcept {
     }
 }
 
+bool ColorReadbackBuffer::fallback_to_pageable(std::size_t bytes) noexcept {
+    release_pinned();
+    prefer_pinned_ = false;
+    mode_ = ColorReadbackMode::PageableFallback;
+    capacity_ = 0;
+    try {
+        pageable_.resize(bytes);
+        capacity_ = pageable_.size();
+        return true;
+    } catch (...) {
+        pageable_.clear();
+        return false;
+    }
+}
+
 std::uint8_t* ColorReadbackBuffer::data() noexcept {
     return pinned_ != nullptr ? static_cast<std::uint8_t*>(pinned_) :
         (pageable_.empty() ? nullptr : pageable_.data());

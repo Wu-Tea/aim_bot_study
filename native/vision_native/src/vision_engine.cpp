@@ -245,8 +245,7 @@ VisionResult VisionEngine::poll_once() {
             }
             const uint64_t color_copy_start = now_ns();
             const cudaStream_t stream = engine_->cuda_stream();
-            check_cuda(
-                cudaMemcpy2DFromArrayAsync(
+            cudaError_t copy_status = cudaMemcpy2DFromArrayAsync(
                     host_color_frame_->data(),
                     static_cast<size_t>(region_width) * 4,
                     frame_array,
@@ -255,9 +254,27 @@ VisionResult VisionEngine::poll_once() {
                     static_cast<size_t>(region_width) * 4,
                     static_cast<size_t>(region_height),
                     cudaMemcpyDeviceToHost,
-                    stream),
-                "cudaMemcpy2DFromArray host_color_frame");
-            check_cuda(cudaStreamSynchronize(stream), "cudaStreamSynchronize color readback");
+                    stream);
+            if (copy_status == cudaSuccess) copy_status = cudaStreamSynchronize(stream);
+            if (copy_status != cudaSuccess) {
+                // Pinned/async setup is an optimization.  Clear its error and
+                // retry this frame through the legacy pageable synchronous path.
+                (void)cudaGetLastError();
+                if (!host_color_frame_->fallback_to_pageable(host_bytes)) {
+                    throw std::runtime_error("failed to allocate pageable color readback fallback");
+                }
+                check_cuda(
+                    cudaMemcpy2DFromArray(
+                        host_color_frame_->data(),
+                        static_cast<size_t>(region_width) * 4,
+                        frame_array,
+                        color_region->left * 4,
+                        color_region->top,
+                        static_cast<size_t>(region_width) * 4,
+                        static_cast<size_t>(region_height),
+                        cudaMemcpyDeviceToHost),
+                    "cudaMemcpy2DFromArray pageable color fallback");
+            }
             result.color_copy_ms = ns_to_ms(now_ns() - color_copy_start);
             result.color_copy_required = true;
             result.color_copy_bytes = host_bytes;

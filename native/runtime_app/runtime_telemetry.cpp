@@ -39,9 +39,14 @@ void RuntimeTelemetry::start() {
 }
 
 void RuntimeTelemetry::stop() {
+    if (!writer_.joinable()) return;
+    const auto deadline = std::chrono::steady_clock::now() +
+        std::chrono::milliseconds(options_.shutdown_timeout_ms);
+    shutdown_deadline_ns_.store(static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(deadline.time_since_epoch()).count()));
     running_.store(false);
     condition_.notify_all();
-    if (writer_.joinable()) writer_.join();
+    writer_.join();
     if (output_.is_open()) output_.close();
 }
 
@@ -125,7 +130,6 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
         << ",\"vigem_update_ms\":" << record.vigem_update_ms
         << ",\"event_reason_flags\":" << record.event_reason_flags
         << "}\n";
-    output_.flush();
     ++serialized_;
     current_size_ = static_cast<std::size_t>(output_.tellp());
     if (options_.rotate_size_bytes > 0 && current_size_ >= options_.rotate_size_bytes) {
@@ -142,6 +146,16 @@ void RuntimeTelemetry::writer_loop() {
             if (queue_count_ == 0) {
                 if (!running_.load()) break;
                 continue;
+            }
+            const auto deadline_ns = shutdown_deadline_ns_.load();
+            const auto now_ns = static_cast<std::uint64_t>(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    std::chrono::steady_clock::now().time_since_epoch()).count());
+            if (!running_.load() && deadline_ns != 0 && now_ns >= deadline_ns) {
+                dropped_normal_.fetch_add(queue_count_);
+                queue_count_ = 0;
+                queue_head_ = queue_tail_;
+                break;
             }
             record = queue_[queue_head_];
             queue_head_ = (queue_head_ + 1) % queue_.size();

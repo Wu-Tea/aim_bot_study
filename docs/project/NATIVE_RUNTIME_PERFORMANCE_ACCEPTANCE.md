@@ -24,12 +24,12 @@ is not advertised.
 
 | Section | Status | Evidence |
 | --- | --- | --- |
-| A. Configuration | PASS | Normal template has 73 assignments total, 52 non-recoil, and at most 8 per module. Full legacy fixture resolves every assignment without unknown keys. Profile/user/environment precedence, ranges, unknown keys, compact module resolution, and source reporting are covered by `cod_native_runtime_config_tests`. |
+| A. Configuration | UNVERIFIED | Normal template has 73 assignments total, 52 non-recoil, and at most 8 per module. The legacy fixture parses without unknown keys, and precedence/range/source tests pass. Because the fixture currently spot-checks resolved values rather than comparing every supported value against the old loader, exhaustive legacy equivalence is not claimed. |
 | B. Vision cadence/wakeup | UNVERIFIED | Canonical 160/20 resolution, latest-only arithmetic, interruptible false→true wake, post-transition sequence barrier, and wake metrics pass unit tests. A deterministic 100-transition test recorded zero pre-aim authority grants. The required 60-second live cadence and hot-inference wake percentile run were not completed against a reproducible capture workload. |
 | C. Telemetry | UNVERIFIED | Disabled mode, bounded non-blocking ring, exact overflow counters, per-frame deduplication, background serialization, rotation, and writer failure pass tests. One million enqueue operations recorded p95/p99 0.0001 ms, max 0.056 ms, zero drops. The required compiled-out comparison and 30-minute profile soak were not completed. |
 | D. Scheduler | FAIL | 60-second A/B shows the precision candidate reduces CPU time but misses cadence and p99 non-regression gates. It was not promoted; `mode = "legacy"` remains default. |
 | E. Color readback | UNVERIFIED | Buffer/fallback and selector fixture tests pass. Synthetic 10,000-copy A/B improved p95 from 0.0640 ms pageable to 0.0305 ms pinned (52.34%). Recorded-gameplay 10,000-candidate authority parity and mapped-resource lifetime gates were not available, so pageable remains default. |
-| F. Controller/authority | PASS | Focused controller, ADS, bodylock, auto-fire, output-validation, protocol, selector, benchmark-metrics, and recoil tests pass. `native_pipeline_contract.ps1 -SkipBuild` passes. Same-config baseline/candidate gamepad artifacts match all acceptance counters and scenario metrics; only two mean-final float fields differ slightly, with no hard metric regression. |
+| F. Controller/authority | PASS | Focused controller, ADS, bodylock, auto-fire, output-validation, protocol, selector, benchmark-metrics, and recoil tests pass. `native_pipeline_contract.ps1 -SkipBuild` passes. The committed `native_runtime_non_regression_20260712.json` records hashes, workload, all hard comparison fields, zero hard mismatches, and the two informational float differences. |
 | G. GTX 1060/Pascal | UNVERIFIED | Separate modern/Pascal presets and mismatch checks exist. CUDA 11.8, TensorRT 8.6.1, Pascal engine, and real SM 6.1 hardware were unavailable; no GTX 1060 support claim is made. |
 
 ## Scheduler Evidence
@@ -87,6 +87,11 @@ Generated artifacts are under the ignored directory:
 The baseline gamepad executable was built from detached worktree commit
 `3f6ad8c`, and both baseline/candidate used the same
 `config.native.example.toml` and `--random-fov-ticks 0` workload.
+
+The compact, reviewable comparison result is committed as
+`docs/project/native_runtime_non_regression_20260712.json`; raw run artifacts
+remain ignored because they are large and reproducible from the recorded
+commit, workload, seeds, and hashes.
 
 ## Remaining Qualification Work
 

@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "baseline_commit": "3f6ad8c",
+  "candidate_branch": "codex/native-runtime-performance-config",
+  "workload": {
+    "suite": "all",
+    "frames_per_case": 120,
+    "dt_ms": 8.333,
+    "random_fov_ticks": 0,
+    "random_fov_seed": 1337,
+    "scenario_count": 24
+  },
+  "source_artifact_sha256": {
+    "baseline": "69214DC334522C5A7640DF473F9D88BE4F1D5C5C849F66ABCAE792FEC127873D",
+    "candidate": "3524CE47D40599D796530C1E3986268D79AC63C799DC694BD77F69A00344DBD2"
+  },
+  "hard_metric_comparison": {
+    "fields": [
+      "frames", "blocked_frames", "recovery_frames", "manual_frames",
+      "final_opposes_manual_rate", "final_blocks_manual_rate",
+      "mean_manual_preservation_ratio", "recoil_opposes_manual_rate",
+      "mean_abs_recoil"
+    ],
+    "mismatches": 0,
+    "status": "PASS"
+  },
+  "informational_float_differences": [
+    {
+      "field": "ads_wrong_input_recovery.x.mean_abs_final",
+      "baseline": 0.303337,
+      "candidate": 0.303205
+    },
+    {
+      "field": "ads_wrong_input_recovery.y.mean_abs_final",
+      "baseline": 0.018358,
+      "candidate": 0.018225
+    }
+  ],
+  "result": "PASS"
+}

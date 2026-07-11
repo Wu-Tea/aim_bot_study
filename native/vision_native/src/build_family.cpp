@@ -1,7 +1,8 @@
 #include "vision_native/build_family.h"
 
-#include <algorithm>
-#include <cctype>
+#include <filesystem>
+#include <fstream>
+#include <regex>
 #include <stdexcept>
 
 namespace vision_native {
@@ -23,27 +24,48 @@ void validate_runtime_artifact_family(
     const std::string& engine_path,
     int compute_major,
     int compute_minor) {
-    std::string lower = engine_path;
-    std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char ch) {
-        return static_cast<char>(std::tolower(ch));
-    });
-    const bool tagged_pascal = lower.find("pascal") != std::string::npos ||
-        lower.find("sm61") != std::string::npos;
+    const std::filesystem::path manifest_path = engine_path + ".runtime.json";
+    std::string artifact_family;
+    std::uintmax_t declared_size = 0;
+    if (std::filesystem::exists(manifest_path)) {
+        std::ifstream input(manifest_path);
+        const std::string text(
+            (std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+        std::smatch match;
+        if (!std::regex_search(
+                text, match,
+                std::regex("\\\"build_family\\\"\\s*:\\s*\\\"(modern|pascal)\\\""))) {
+            throw std::runtime_error("engine runtime manifest has no valid build_family");
+        }
+        artifact_family = match[1].str();
+        if (!std::regex_search(
+                text, match, std::regex("\\\"engine_size_bytes\\\"\\s*:\\s*([0-9]+)"))) {
+            throw std::runtime_error("engine runtime manifest has no engine_size_bytes signature");
+        }
+        declared_size = static_cast<std::uintmax_t>(std::stoull(match[1].str()));
+        if (!std::filesystem::exists(engine_path) ||
+            std::filesystem::file_size(engine_path) != declared_size) {
+            throw std::runtime_error("engine artifact does not match its runtime manifest signature");
+        }
+    }
     if (family == BuildFamily::Pascal) {
         if (compute_major != 6 || compute_minor != 1) {
             throw std::runtime_error(
                 "pascal build requires an SM 6.1 GPU and a separately built Pascal engine");
         }
-        if (!tagged_pascal) {
+        if (artifact_family.empty()) {
             throw std::runtime_error(
-                "pascal build requires an engine path tagged 'pascal' or 'sm61'");
+                "pascal build requires <engine>.runtime.json build metadata");
+        }
+        if (artifact_family != "pascal") {
+            throw std::runtime_error("pascal build refuses a non-Pascal engine artifact");
         }
     } else {
         if (compute_major < 7 || (compute_major == 7 && compute_minor < 5)) {
             throw std::runtime_error(
                 "modern build requires Turing/SM 7.5 or newer; use the Pascal build for SM 6.1");
         }
-        if (tagged_pascal) {
+        if (!artifact_family.empty() && artifact_family != "modern") {
             throw std::runtime_error("modern build refuses a Pascal/SM61 engine artifact");
         }
     }

@@ -18,6 +18,7 @@ public:
     ColorReadbackBuffer& operator=(const ColorReadbackBuffer&) = delete;
 
     bool ensure(std::size_t bytes) noexcept;
+    bool fallback_to_pageable(std::size_t bytes) noexcept;
     std::uint8_t* data() noexcept;
     std::size_t capacity() const noexcept;
     ColorReadbackMode mode() const noexcept;

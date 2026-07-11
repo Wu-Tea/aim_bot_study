@@ -95,6 +95,7 @@ private:
     std::atomic<std::uint64_t> writer_failures_{0};
     std::atomic<std::uint64_t> high_watermark_{0};
     std::atomic<bool> writer_failed_{false};
+    std::atomic<std::uint64_t> shutdown_deadline_ns_{0};
     std::filesystem::path log_path_;
     std::ofstream output_;
     std::size_t current_size_ = 0;

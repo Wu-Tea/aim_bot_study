@@ -2,7 +2,7 @@
   "schema_version": 1,
   "baseline_commit": "3f6ad8c",
   "candidate_branch": "codex/native-runtime-performance-config",
-  "runtime_binary_sha256": "0BA3F86069B37C42E74A46767F9B631E76013E77A594DF4B3C33F2DEE4A83398",
+  "runtime_binary_sha256": "97A6E669E4D31ADBCB766587C5730FA6A3830A3632E8BE9600A813FB024BE8D9",
   "engine_sha256": "1DF853A9622CF94C08C8A5943271D3DBE288322DFC55C4103B60372F030A2E05",
   "reference_machine": {
     "os": "Windows 11 Pro 10.0.26100",
@@ -15,12 +15,12 @@
     "tensorrt": "10.15.1.29"
   },
   "sections": {
-    "A": {"status": "PASS", "reason": "compact module, legacy fixture, precedence, unknown-key, range, and source tests pass"},
+    "A": {"status": "UNVERIFIED", "reason": "compact module, parsing, precedence, unknown-key, range, and source tests pass; exhaustive old-loader value equivalence is not yet machine-proven"},
     "B": {"status": "UNVERIFIED", "reason": "100 deterministic transitions pass with zero pre-aim authority; live cadence/hot-inference percentile evidence missing"},
     "C": {"status": "UNVERIFIED", "reason": "latency gate passes; compiled-out comparison and 30-minute soak missing"},
     "D": {"status": "FAIL", "reason": "precision scheduler misses promotion cadence and p99 non-regression gates; legacy retained"},
     "E": {"status": "UNVERIFIED", "reason": "synthetic copy gate passes; recorded-gameplay authority and mapped lifetime evidence missing"},
-    "F": {"status": "PASS", "reason": "focused tests, pipeline contract, and same-config baseline/candidate benchmark pass"},
+    "F": {"status": "PASS", "reason": "focused tests, pipeline contract, and committed same-config baseline/candidate comparison summary pass"},
     "G": {"status": "UNVERIFIED", "reason": "real SM 6.1 hardware and Pascal dependency stack unavailable"}
   },
   "release_decision": "FAIL",
