@@ -7,6 +7,7 @@ __pycache__/
 .tmp*/
 .venv/
 .idea/
+.playwright-cli/
 .claude/settings.local.json
 .agent-context/claude-runs/
 config.toml
