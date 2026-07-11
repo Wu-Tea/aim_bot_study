@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <fstream>
 #include <cstdint>
+#include <cstdlib>
 #include <regex>
 #include <stdexcept>
 
@@ -98,6 +99,14 @@ void validate_runtime_artifact_family(
         if (compute_major < 7 || (compute_major == 7 && compute_minor < 5)) {
             throw std::runtime_error(
                 "modern build requires Turing/SM 7.5 or newer; use the Pascal build for SM 6.1");
+        }
+        if (artifact_family.empty()) {
+            const char* legacy_opt_in = std::getenv("NATIVE_ALLOW_LEGACY_ENGINE");
+            if (legacy_opt_in == nullptr || std::string(legacy_opt_in) != "1") {
+                throw std::runtime_error(
+                    "modern build requires <engine>.runtime.json; set "
+                    "NATIVE_ALLOW_LEGACY_ENGINE=1 only for an explicit legacy migration run");
+            }
         }
         if (!artifact_family.empty() && artifact_family != "modern") {
             throw std::runtime_error("modern build refuses a Pascal/SM61 engine artifact");

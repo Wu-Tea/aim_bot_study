@@ -27,6 +27,7 @@ int main() {
         vision_native::BuildFamily::Modern, modern.string(), 7, 5);
     require(fails(vision_native::BuildFamily::Modern, pascal.string().c_str(), 8, 9));
     require(fails(vision_native::BuildFamily::Modern, "model.engine", 6, 1));
+    require(fails(vision_native::BuildFamily::Modern, "model.engine", 7, 5));
     vision_native::validate_runtime_artifact_family(
         vision_native::BuildFamily::Pascal, pascal.string(), 6, 1);
     require(fails(vision_native::BuildFamily::Pascal, "model.engine", 6, 1));
