@@ -14,6 +14,19 @@ This phase only collects evidence. It does not generate a user profile, change
 configuration, tune the controller, or feed learned values back into runtime
 control.
 
+The collected evidence must support three explicitly different readiness
+levels:
+
+- `diagnostic`: sufficient to reconstruct what the runtime observed and did;
+- `profile_eligible`: sufficient to describe a user's input habits without
+  claiming a causal controller adjustment; and
+- `model_eligible`: time-aligned, identity-safe, complete evidence suitable for
+  future offline controller-response or ADS-transition model fitting.
+
+A record being useful for diagnostics does not make it eligible for a profile
+or model. Readiness is assigned by explicit quality gates, never inferred from
+the mere presence of fields.
+
 ## Scope and Safety Boundary
 
 - The default remains `runtime.telemetry.enabled = false`.
@@ -41,8 +54,15 @@ Physical input + controller components
 Vision selector + tracker association
   -> TelemetryTargetIdentity -------> target_event / target_track_id
 
-ADS state + identified target + samples
+ADS state + identified target + new vision frames
+  -> AdsVisualTransitionEstimator --> visual ADS progress / settle evidence
   -> AdsTransitionCollector --------> ads_transition_sample / ads_transition
+
+Vision frame N + controller command window + vision frame N+1
+  -> ControlResponseWindowAssembler -> control_response_window
+
+Record sequences + quality evidence
+  -> TelemetryCompletenessGate -----> readiness / invalid reason
 
 All fixed-size records
   -> existing bounded telemetry queue
@@ -51,8 +71,10 @@ All fixed-size records
 
 Collectors exist only when telemetry is enabled. The controller thread may
 populate fixed-size records and attempt a non-blocking enqueue. Target
-association summaries, event aggregation, and JSON serialization must not
-block the 1 ms controller loop.
+association summaries, visual transition estimation, response-window pairing,
+event aggregation, quality gating, and JSON serialization must not block the
+1 ms controller loop. Work that is not a constant-time field copy or bounded
+state update runs on the telemetry consumer side.
 
 ## Record Envelope
 
@@ -74,7 +96,13 @@ Record types are:
 - `input_event`;
 - `target_event`;
 - `ads_transition_sample`;
-- `ads_transition`.
+- `ads_transition`;
+- `control_response_window`.
+
+Every sampled stream also has a monotonic `sample_seq`. Aggregate records
+contain the relevant first and last sequence, expected count, written count,
+dropped count, and `complete` flag so offline readers can reject events with
+hidden gaps.
 
 Unknown fields must be ignored by offline readers. A schema-version change is
 required before removing or changing the meaning of an existing field.
@@ -92,6 +120,9 @@ first file. It contains:
 - active and idle capture rates;
 - controller and telemetry sampling rates;
 - tracker backend;
+- effective input deadzone/response configuration;
+- in-game sensitivity, aim-response curve, optic/zoom identity, and base FOV
+  when available, otherwise `unknown` with a source-quality label;
 - recognized weapon/profile identifier when available, otherwise `unknown`;
 - monotonic session start timestamp.
 
@@ -120,6 +151,21 @@ The observational identity layer must not create a second target selector or
 alter the production association decision. It only assigns identifiers and
 quality labels to decisions the runtime already made.
 
+Every identity-bearing sample includes `target_identity_quality`:
+
+- `production_associated`: a stable identity exposed by the production
+  association/tracker path;
+- `strong_geometric_match`: strict box, center, motion, and evidence agreement;
+- `weak_geometric_match`: plausible continuity that is useful for diagnostics
+  but not model fitting;
+- `projected_continuity`: tracker-only continuity without a live detection;
+- `ambiguous`: crossing candidates or incompatible evidence prevent a safe
+  identity decision.
+
+ADS model eligibility accepts only `production_associated` or
+`strong_geometric_match`. `weak_geometric_match`, `projected_continuity`, and
+`ambiguous` remain diagnostic and cannot silently enter calibration data.
+
 Emit `target_event` records for `created`, `switched`, `lost`, `reacquired`,
 and `released`, including the previous and current identifiers and a compact
 reason code.
@@ -141,11 +187,16 @@ At the configured normal sampling rate, record:
 - target `dx`, `dy`, Euclidean error, body box, and frame dimensions;
 - manual/AI dot product and direction relationship;
 - output limiting reason flags;
-- active `target_track_id` and `ads_event_id`.
+- active `target_track_id`, identity quality, and `ads_event_id`;
+- physical-input-read, vision-capture, inference-ready, controller-consume,
+  output-sent, and sample timestamps when applicable;
+- monotonically increasing per-stream `sample_seq`.
 
-The normal default sampling rate is 100 Hz. A 250 Hz event window is permitted
-from 100 ms before through 300 ms after these events, using an in-memory
-pre-event ring:
+The normal persisted sampling rate is 100 Hz. While telemetry is enabled, a
+fixed-size POD ring retains the latest 150 ms at 250 Hz in memory. Normal
+operation enqueues a 100 Hz subset. When an event occurs, the collector flushes
+the retained 100 ms pre-event evidence and continues enqueueing at 250 Hz for
+300 ms after the event:
 
 - ADS press or release;
 - target create, switch, loss, or reacquisition;
@@ -153,6 +204,11 @@ pre-event ring:
 - target-axis crossing or measured overshoot;
 - bodylock enter or exit;
 - aim or fire authority change.
+
+Flushed records retain their original timestamp and sequence. Deduplication by
+`sample_seq` prevents the 100 Hz subset from being written twice. This design
+is required because data sampled at only 100 Hz cannot be reconstructed as a
+250 Hz pre-event window after an event occurs.
 
 Do not log every controller tick by default. A separate debug mode may request
 up to 1000 Hz while retaining the same non-blocking overflow behavior.
@@ -175,6 +231,41 @@ Future offline analysis must be able to derive stick noise, effective deadzone,
 initial strength, ramp rate, peak magnitude, braking distance, overshoot,
 reverse-correction delay, correction count, and manual/AI conflict rate. No
 such aggregate changes runtime behavior in this phase.
+
+Episode statistics alone are descriptive and therefore at most
+`profile_eligible`. A future controller compensation recommendation must also
+use complete `control_response_window` evidence; it must not interpret an
+input habit or correlation as a causal gain adjustment.
+
+## Control-to-Image Response Pairing
+
+`ControlResponseWindowAssembler` pairs an observed target error on vision frame
+N with the controller commands sent after that observation and the target error
+on the next compatible new vision frame N+1.
+
+Each `control_response_window` contains:
+
+- frame N and N+1 identifiers and target identity qualities;
+- capture, inference-ready, controller-consume, output-sent, and next-capture
+  timestamps;
+- target `dx/dy`, box center/size, and evidence state before and after;
+- time-integrated physical manual, processed manual, AI, pre-recoil, recoil,
+  and final output over the command window;
+- duration and sample count for every integral;
+- tracker-predicted target motion over the same interval;
+- observed `delta_error_x/y` and residual after predicted target motion;
+- controller mode, ADS progress, weapon/profile context, and readiness;
+- sequence ranges and completeness counters.
+
+The window is `model_eligible` only when it uses compatible consecutive new
+vision frames for the same high-quality identity, has complete controller
+samples, and has a bounded observation-to-output timing relationship. Repeated
+controller ticks that reuse the same vision frame do not create additional
+response windows.
+
+This pairing is necessary for future compensation. Without it, latency-driven
+sustained input could be misclassified as a user preference and produce an
+incorrect controller gain recommendation.
 
 ## ADS Transition Collection
 
@@ -199,8 +290,8 @@ Any active state
   `ads_event_id`.
 - `AdsTransition`: collect new vision samples and controller context while ADS
   FOV/state is changing.
-- `AdsSettled`: the runtime ADS state is stable and a qualifying live sample
-  for the same target is available.
+- `AdsSettled`: visual transition evidence is stable and a qualifying live
+  sample for the same target is available.
 - `Completed`: emit one aggregate `ads_transition` record.
 - `Invalid`: emit the event with an explicit reason; never silently discard it.
 
@@ -215,7 +306,12 @@ ADS anchor, record:
 - target confidence/tier and aim/fire authority;
 - tracker projected position, velocity, age, and continuity state;
 - physical manual, AI, and final pre-recoil stick;
-- elapsed milliseconds from ADS press.
+- elapsed milliseconds from ADS press;
+- vision capture, result-ready, controller-consume, and output-sent timestamps;
+- visual zoom scale, center offset, transition progress, settle confidence, and
+  target-motion residual;
+- cumulative manual, AI, pre-recoil, recoil, and final output since ADS press;
+- sample sequence and completeness state.
 
 The completed event contains:
 
@@ -225,7 +321,37 @@ The completed event contains:
 - Euclidean displacement and normalized displacement;
 - press-to-first-ADS-frame and press-to-settled durations;
 - target and tracker quality summaries;
-- `valid` and `invalid_reason`.
+- visual transform estimates `scale_x/y` and `offset_x/y` with confidence;
+- cumulative command and predicted-target-motion summaries;
+- `readiness`, `ads_calibration_class`, `valid`, and `invalid_reason`.
+
+The raw before/after displacement is observational. It is not labeled as pure
+ADS displacement until target motion and camera-command contribution are small
+enough for the clean calibration gate.
+
+### Visual ADS Transition Estimator
+
+LT activation and configured snap duration indicate that an ADS attempt began,
+but they do not prove that the game's visual ADS animation has settled.
+`AdsVisualTransitionEstimator` therefore consumes only distinct new vision
+frames from the same high-quality target identity and estimates:
+
+- `visual_scale_x/y` from compatible body-box dimensions;
+- `visual_center_offset_x/y` from the target/box transform;
+- normalized `visual_progress` from the transition sequence;
+- first derivative of scale and offset;
+- residual after tracker-predicted target motion and accumulated command
+  context;
+- `settle_confidence`.
+
+Visual ADS is settled only after a configured number of consecutive new frames
+have scale/offset derivatives and motion residuals below compiled profile
+thresholds. Configured ADS duration is a timeout/fallback bound, not visual
+ground truth. Moving, occluded, clipped, or rapidly changing boxes reduce
+confidence and may make the event diagnostic-only.
+
+The estimator observes target geometry; it does not modify production vision,
+tracker, or controller behavior.
 
 ### Validity Rules
 
@@ -234,12 +360,28 @@ An ADS calibration event is valid only when:
 - the hipfire anchor and settled ADS anchor have the same nonzero
   `target_track_id`;
 - both anchors use live target evidence;
+- both anchors have `production_associated` or `strong_geometric_match`
+  identity quality;
 - there is no target switch during the event;
 - frame dimensions and coordinate mapping remain compatible;
-- the transition reaches ADS settled before its timeout;
+- the visual transition reaches settled confidence before its timeout;
 - target age at both anchors is within the configured live-evidence limit;
 - user input does not exceed the large-turn invalidation threshold; and
-- the event contains the minimum number of new vision frames.
+- the event contains the minimum number of new vision frames;
+- sequence and required-sample completeness checks pass; and
+- tracker/visual motion residual remains below the eligibility limit.
+
+Valid ADS events receive an `ads_calibration_class` independent of the common
+record `readiness`:
+
+- `calibration_clean`: same high-quality live target, complete event, visual
+  settle proven, and cumulative manual/AI/recoil plus target-motion residual
+  are all below strict thresholds. This is `model_eligible` and may estimate
+  the pure ADS visual transform directly.
+- `conditional_model`: complete and identity-safe, but contains measurable
+  command or target motion. This is `model_eligible` only with the recorded
+  command and motion covariates.
+- `diagnostic_only`: useful for debugging but excluded from model fitting.
 
 Invalid reasons are an enum with at least:
 
@@ -251,6 +393,10 @@ Invalid reasons are an enum with at least:
 - `large_manual_turn`;
 - `geometry_changed`;
 - `insufficient_frames`;
+- `identity_ambiguous`;
+- `visual_settle_unproven`;
+- `motion_residual_high`;
+- `sample_gap`;
 - `runtime_shutdown`;
 - `queue_overflow`.
 
@@ -287,6 +433,8 @@ file writer.
   pressure, drop normal controller samples before critical lifecycle records.
 - Record drop counters by record type and mark an active ADS event invalid with
   `queue_overflow` if required samples were lost.
+- Include sequence ranges, expected/written/dropped counts, and completeness in
+  every aggregate so an offline reader can independently detect a hidden gap.
 - A later offline compaction tool may convert JSONL to Parquet or a structured
   user-profile input dataset. That tool is outside this phase.
 
@@ -301,6 +449,9 @@ file writer.
 - Corrupt or truncated JSONL lines are skipped by offline readers and reported
   as invalid rows.
 - Missing hashes or weapon metadata use `unknown`; they do not prevent logging.
+- Unknown sensitivity/FOV/optic context keeps records diagnostic but prevents
+  cross-session model fitting unless an offline analysis explicitly groups a
+  proven-compatible context.
 
 ## Quantitative Acceptance
 
@@ -312,6 +463,8 @@ Over a five-minute runtime test with telemetry disabled:
 - telemetry records constructed or serialized: `0`;
 - writer threads started: `0`;
 - target identity, input episode, and ADS collector state transitions: `0`;
+- visual ADS estimator, response-window assembler, and completeness-gate state
+  transitions: `0`;
 - controller output matches the telemetry-compiled-out reference exactly for a
   deterministic replay;
 - controller pipeline p99 regression is at most 1% versus compiled-out.
@@ -339,6 +492,7 @@ reacquisition, target switching, crossing targets, and geometry changes:
 - stable same-target ID retention: 100%;
 - explicit target switches issuing a new ID: 100%;
 - incompatible reacquisitions incorrectly retaining an ID: 0;
+- ambiguous crossing-target fixtures marked `ambiguous`: 100%;
 - the observational layer changes production selector/controller outputs: 0
   frames.
 
@@ -353,7 +507,14 @@ For at least 100 deterministic ADS transitions:
 - hipfire and settled anchors use distinct new vision frames: 100%;
 - `delta_dx`, `delta_dy`, Euclidean distance, and normalized coordinates match
   fixture ground truth within 0.01 pixel or 1e-5 normalized units;
+- clean synthetic zoom sequences recover `scale_x/y` and `offset_x/y` within
+  1% or 0.25 pixel, whichever bound is larger;
+- visual settle is not declared from LT/configured duration alone: 100%;
+- moving-target and accumulated-command fixtures are never labeled
+  `calibration_clean` unless their residuals satisfy the clean thresholds;
 - duplicate completed records per `ads_event_id`: 0;
+- missing sequence fixtures are marked incomplete and excluded from model
+  eligibility: 100%;
 - controller/authority/fire outputs differ from logging-disabled replay: 0
   frames.
 
@@ -369,6 +530,19 @@ assistance, and target switching:
   evidence unless the session starts or ends inside the window;
 - every sample needed to distinguish manual, AI, recoil, and final output
   contains all four components and the active controller mode.
+
+### Control Response Windows
+
+Deterministic fixtures cover zero command, manual-only, AI-only, recoil-only,
+combined command, target motion, reused vision frames, delayed inference, and
+missing controller samples:
+
+- frame N to N+1 command integrals match fixture ground truth within 1e-5;
+- reused vision frames create zero duplicate response windows;
+- capture/consume/output/next-capture ordering is preserved exactly;
+- target-motion residual matches fixture ground truth within 0.01 pixel;
+- missing or ambiguous input is excluded from `model_eligible`: 100%;
+- telemetry-enabled and disabled controller outputs differ on 0 frames.
 
 ## Non-Goals for This Phase
 
