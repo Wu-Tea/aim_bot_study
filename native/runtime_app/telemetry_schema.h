@@ -46,6 +46,26 @@ enum class TargetEventKind : std::uint8_t {
     Released,
 };
 
+enum class InputEventKind : std::uint8_t {
+    None,
+    AdsPressed,
+    AdsReleased,
+    TargetCreated,
+    TargetSwitched,
+    TargetLost,
+    TargetReacquired,
+    ManualAiConflict,
+    TargetCrossed,
+    BodylockEntered,
+    BodylockExited,
+    AuthorityChanged,
+    InputStarted,
+    InputPeak,
+    DirectionReversed,
+    InputSettled,
+    InputEnded,
+};
+
 struct TelemetryCompleteness {
     std::uint64_t first_seq = 0;
     std::uint64_t last_seq = 0;
