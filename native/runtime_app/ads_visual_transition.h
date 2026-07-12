@@ -8,12 +8,14 @@ namespace runtime_app {
 
 struct AdsVisualFrame {
     std::uint64_t frame_id = 0;
+    std::uint64_t sample_seq = 0;
     std::uint64_t captured_at_ns = 0;
     std::uint64_t target_track_id = 0;
     TargetIdentityQuality identity_quality = TargetIdentityQuality::None;
     bool live = false;
     float x1 = 0.0f, y1 = 0.0f, x2 = 0.0f, y2 = 0.0f;
     float target_x = 0.0f, target_y = 0.0f;
+    float screen_center_x = 0.0f, screen_center_y = 0.0f;
     float motion_residual_px = 0.0f;
 };
 

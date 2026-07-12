@@ -448,6 +448,16 @@ target_include_directories(cod_native_ads_visual_transition_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/..
 )
 
+add_executable(cod_native_ads_transition_collector_tests
+    ../runtime_app/ads_transition_collector_tests.cpp
+    ../runtime_app/ads_transition_collector.cpp
+    ../runtime_app/ads_visual_transition.cpp
+)
+target_include_directories(cod_native_ads_transition_collector_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
 add_executable(cod_native_telemetry_benchmark
     ../runtime_app/telemetry_benchmark.cpp
     ../runtime_app/runtime_telemetry.cpp
