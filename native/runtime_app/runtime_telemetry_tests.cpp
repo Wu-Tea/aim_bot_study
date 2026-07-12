@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <iostream>
 #include <fstream>
+#include <sstream>
 
 namespace {
 
@@ -118,6 +119,42 @@ void test_writer_failure_disables_file_telemetry_without_throwing() {
     std::filesystem::remove(parent);
 }
 
+void test_versioned_schema_serializes_readiness_and_completeness() {
+    const auto directory = std::filesystem::temp_directory_path() /
+        "cod_native_runtime_telemetry_schema";
+    std::filesystem::remove_all(directory);
+    runtime_app::RuntimeTelemetryOptions options;
+    options.enabled = true;
+    options.directory = directory;
+    options.queue_capacity = 8;
+    runtime_app::RuntimeTelemetry telemetry(options);
+    telemetry.start();
+
+    runtime_app::TelemetryRecord value;
+    value.type = runtime_app::TelemetryRecordType::ControllerSample;
+    value.schema_version = 2;
+    value.sample_seq = 17;
+    value.readiness = runtime_app::TelemetryReadiness::ProfileEligible;
+    value.controller.manual_x = 0.25f;
+    value.completeness = {10, 17, 8, 8, 0, true};
+    REQUIRE(telemetry.enqueue(value));
+    telemetry.stop();
+
+    std::ifstream input(telemetry.log_path());
+    std::ostringstream contents;
+    contents << input.rdbuf();
+    const std::string json = contents.str();
+    REQUIRE(json.find("\"schema_version\":2") != std::string::npos);
+    REQUIRE(json.find("\"type\":\"controller_sample\"") != std::string::npos);
+    REQUIRE(json.find("\"sample_seq\":17") != std::string::npos);
+    REQUIRE(json.find("\"readiness\":\"profile_eligible\"") != std::string::npos);
+    REQUIRE(json.find("\"first_seq\":10") != std::string::npos);
+    REQUIRE(json.find("\"complete\":true") != std::string::npos);
+    REQUIRE(json.find("\"manual_x\":0.25") != std::string::npos);
+    input.close();
+    std::filesystem::remove_all(directory);
+}
+
 } // namespace
 
 int main() {
@@ -126,5 +163,6 @@ int main() {
     test_writer_serializes_records_and_deduplicates_vision_frames();
     test_rotation_caps_retained_file_count();
     test_writer_failure_disables_file_telemetry_without_throwing();
+    test_versioned_schema_serializes_readiness_and_completeness();
     return 0;
 }

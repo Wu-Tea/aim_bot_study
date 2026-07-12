@@ -17,6 +17,28 @@ const char* kind_name(TelemetryRecordKind kind) {
     }
 }
 
+const char* record_type_name(TelemetryRecordType type) {
+    switch (type) {
+    case TelemetryRecordType::SessionMetadata: return "session_metadata";
+    case TelemetryRecordType::InputEvent: return "input_event";
+    case TelemetryRecordType::TargetEvent: return "target_event";
+    case TelemetryRecordType::AdsTransitionSample: return "ads_transition_sample";
+    case TelemetryRecordType::AdsTransition: return "ads_transition";
+    case TelemetryRecordType::ControlResponseWindow: return "control_response_window";
+    case TelemetryRecordType::ControllerSample:
+    default: return "controller_sample";
+    }
+}
+
+const char* readiness_name(TelemetryReadiness readiness) {
+    switch (readiness) {
+    case TelemetryReadiness::ProfileEligible: return "profile_eligible";
+    case TelemetryReadiness::ModelEligible: return "model_eligible";
+    case TelemetryReadiness::Diagnostic:
+    default: return "diagnostic";
+    }
+}
+
 } // namespace
 
 RuntimeTelemetry::RuntimeTelemetry(RuntimeTelemetryOptions options)
@@ -113,22 +135,52 @@ bool RuntimeTelemetry::open_next_file() {
 
 void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
     if (!output_.is_open() && !open_next_file()) return;
+    const bool has_versioned_controller =
+        record.controller.physical_x != 0.0f || record.controller.physical_y != 0.0f ||
+        record.controller.manual_x != 0.0f || record.controller.manual_y != 0.0f ||
+        record.controller.ai_x != 0.0f || record.controller.ai_y != 0.0f ||
+        record.controller.pre_recoil_x != 0.0f || record.controller.pre_recoil_y != 0.0f ||
+        record.controller.recoil_x != 0.0f || record.controller.recoil_y != 0.0f ||
+        record.controller.final_x != 0.0f || record.controller.final_y != 0.0f;
+    const float serialized_manual_x = has_versioned_controller
+        ? record.controller.manual_x : record.manual_x;
+    const float serialized_manual_y = has_versioned_controller
+        ? record.controller.manual_y : record.manual_y;
+    const float serialized_ai_x = has_versioned_controller
+        ? record.controller.ai_x : record.ai_x;
+    const float serialized_ai_y = has_versioned_controller
+        ? record.controller.ai_y : record.ai_y;
+    const float serialized_final_x = has_versioned_controller
+        ? record.controller.final_x : record.final_x;
+    const float serialized_final_y = has_versioned_controller
+        ? record.controller.final_y : record.final_y;
     output_ << '{'
-        << "\"type\":\"" << kind_name(record.kind) << '\"'
+        << "\"schema_version\":" << record.schema_version
+        << ",\"type\":\"" << record_type_name(record.type) << '\"'
+        << ",\"legacy_kind\":\"" << kind_name(record.kind) << '\"'
+        << ",\"readiness\":\"" << readiness_name(record.readiness) << '\"'
         << ",\"event_id\":" << record.event_id
         << ",\"tick_id\":" << record.tick_id
         << ",\"frame_id\":" << record.frame_id
         << ",\"intent_id\":" << record.intent_id
         << ",\"timestamp_ns\":" << record.timestamp_ns
-        << ",\"manual_x\":" << record.manual_x
-        << ",\"manual_y\":" << record.manual_y
-        << ",\"ai_x\":" << record.ai_x
-        << ",\"ai_y\":" << record.ai_y
-        << ",\"final_x\":" << record.final_x
-        << ",\"final_y\":" << record.final_y
+        << ",\"sample_seq\":" << record.sample_seq
+        << ",\"target_track_id\":" << record.target_track_id
+        << ",\"manual_x\":" << serialized_manual_x
+        << ",\"manual_y\":" << serialized_manual_y
+        << ",\"ai_x\":" << serialized_ai_x
+        << ",\"ai_y\":" << serialized_ai_y
+        << ",\"final_x\":" << serialized_final_x
+        << ",\"final_y\":" << serialized_final_y
         << ",\"controller_pipeline_ms\":" << record.controller_pipeline_ms
         << ",\"vigem_update_ms\":" << record.vigem_update_ms
         << ",\"event_reason_flags\":" << record.event_reason_flags
+        << ",\"first_seq\":" << record.completeness.first_seq
+        << ",\"last_seq\":" << record.completeness.last_seq
+        << ",\"expected\":" << record.completeness.expected
+        << ",\"written\":" << record.completeness.written
+        << ",\"dropped\":" << record.completeness.dropped
+        << ",\"complete\":" << (record.completeness.complete ? "true" : "false")
         << "}\n";
     ++serialized_;
     current_size_ = static_cast<std::size_t>(output_.tellp());

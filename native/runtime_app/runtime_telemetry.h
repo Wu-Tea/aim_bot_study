@@ -1,5 +1,7 @@
 #pragma once
 
+#include "telemetry_schema.h"
+
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
@@ -10,31 +12,6 @@
 #include <vector>
 
 namespace runtime_app {
-
-enum class TelemetryRecordKind : std::uint8_t {
-    ManualControllerTick,
-    VisionFrame,
-    RuntimeEvent,
-};
-
-struct TelemetryRecord {
-    TelemetryRecordKind kind = TelemetryRecordKind::ManualControllerTick;
-    bool critical = false;
-    std::uint64_t event_id = 0;
-    std::uint64_t tick_id = 0;
-    std::uint64_t frame_id = 0;
-    std::uint64_t intent_id = 0;
-    std::uint64_t timestamp_ns = 0;
-    float manual_x = 0.0f;
-    float manual_y = 0.0f;
-    float ai_x = 0.0f;
-    float ai_y = 0.0f;
-    float final_x = 0.0f;
-    float final_y = 0.0f;
-    float controller_pipeline_ms = 0.0f;
-    float vigem_update_ms = 0.0f;
-    std::uint32_t event_reason_flags = 0;
-};
 
 struct RuntimeTelemetryOptions {
     bool enabled = false;
