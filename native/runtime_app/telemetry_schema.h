@@ -28,6 +28,24 @@ enum class TelemetryReadiness : std::uint8_t {
     ModelEligible,
 };
 
+enum class TargetIdentityQuality : std::uint8_t {
+    None,
+    ProductionAssociated,
+    StrongGeometricMatch,
+    WeakGeometricMatch,
+    ProjectedContinuity,
+    Ambiguous,
+};
+
+enum class TargetEventKind : std::uint8_t {
+    None,
+    Created,
+    Switched,
+    Lost,
+    Reacquired,
+    Released,
+};
+
 struct TelemetryCompleteness {
     std::uint64_t first_seq = 0;
     std::uint64_t last_seq = 0;

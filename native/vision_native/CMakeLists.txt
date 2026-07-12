@@ -412,6 +412,15 @@ add_executable(cod_native_runtime_telemetry_tests
     ../runtime_app/runtime_telemetry.cpp
 )
 
+add_executable(cod_native_telemetry_target_identity_tests
+    ../runtime_app/telemetry_target_identity_tests.cpp
+    ../runtime_app/telemetry_target_identity.cpp
+)
+target_include_directories(cod_native_telemetry_target_identity_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
 add_executable(cod_native_telemetry_benchmark
     ../runtime_app/telemetry_benchmark.cpp
     ../runtime_app/runtime_telemetry.cpp
