@@ -101,3 +101,22 @@ The following are validation work, not hidden implementation claims:
 2. Run telemetry compiled-out comparison, 10-minute enqueue stress, and 30-minute profile soak.
 3. Run 100 aim transitions against hot live inference and capture wake percentiles.
 4. Run pinned/pageable recorded-gameplay authority parity and mapped-resource lifetime A/B.
+
+## User/ADS Telemetry Extension
+
+Focused deterministic tests now cover versioned schema and per-file rotation
+metadata, conservative anonymous target identity, 250 Hz event windows, input
+episodes, control-to-image response pairing, visual ADS settle, ADS
+lifecycle/completeness, and enabled-only runtime integration. These tests prove
+implementation behavior; they do not upgrade Section C to PASS.
+
+Before profile/model use, a 30-minute representative soak must still prove:
+
+- critical event drops equal zero;
+- every model-eligible record has complete sequence ranges;
+- ambiguous target crossings remain diagnostic;
+- visual settle is never granted from LT/timer evidence alone;
+- telemetry-enabled controller outputs exactly match a disabled deterministic
+  replay;
+- enough `calibration_clean` ADS events exist per compatible
+  weapon/optic/FOV context.

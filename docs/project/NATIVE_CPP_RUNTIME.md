@@ -217,6 +217,42 @@ Use this checklist when accepting the C++ launcher as the normal live-play path:
 
 Keep the Python fallback path in place for comparison and debugging. Set
 `GAMEPAD_RUNTIME=python` to use the old Python gamepad runtime.
+
+## User Input and ADS Telemetry
+
+Native telemetry remains disabled by default. Enable it only for a bounded
+local profiling session:
+
+```toml
+[runtime.telemetry]
+enabled = true
+mode = "profile"
+manual_controller_hz = 100
+```
+
+When disabled, the runtime does not construct the collector façade, create a
+session identifier, start a writer, encode records, or maintain target/input/ADS
+state. The legacy aim-performance switch is only an alias for this asynchronous
+pipeline and does not reactivate the synchronous aim logger.
+
+Enabled logs are rotated JSONL files under the configured native performance
+directory. Every rotated file begins with `session_metadata`. Schema version 2
+records include controller samples, input events, anonymous target lifecycle,
+control-to-image response windows, and quality-gated ADS transitions.
+
+Data readiness is explicit:
+
+- `diagnostic` reconstructs runtime behavior but must not train a model;
+- `profile_eligible` describes user input habits but cannot by itself justify a
+  controller gain change;
+- `model_eligible` has compatible identity, time alignment, and complete sample
+  sequences.
+
+ADS events additionally use `calibration_clean`, `conditional_model`, or
+`diagnostic_only`. Only clean events estimate an unconditional ADS visual
+transform. Conditional events retain manual/AI/recoil and target-motion
+covariates. This phase collects evidence only; it does not generate a user
+profile or modify controller behavior.
 # Native vision build target
 
 The native vision runtime targets CUDA 13.x, TensorRT 10.x, and SM 7.5 or

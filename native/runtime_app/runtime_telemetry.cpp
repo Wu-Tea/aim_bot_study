@@ -159,6 +159,26 @@ bool RuntimeTelemetry::open_next_file() {
             if (!writer_failed_.exchange(true)) ++writer_failures_;
             return false;
         }
+        if (has_session_metadata_) {
+            const auto& metadata = session_metadata_.session_metadata;
+            output_ << '{'
+                << "\"schema_version\":" << session_metadata_.schema_version
+                << ",\"type\":\"session_metadata\""
+                << ",\"session_id\":\"" << metadata.session_id.data() << '\"'
+                << ",\"build_commit\":\"" << metadata.build_commit.data() << '\"'
+                << ",\"config_hash\":\"" << metadata.config_hash.data() << '\"'
+                << ",\"engine_hash\":\"" << metadata.engine_hash.data() << '\"'
+                << ",\"tracker_backend\":\"" << metadata.tracker_backend.data() << '\"'
+                << ",\"capture_width\":" << metadata.capture_width
+                << ",\"capture_height\":" << metadata.capture_height
+                << ",\"active_capture_fps\":" << metadata.active_capture_fps
+                << ",\"idle_capture_fps\":" << metadata.idle_capture_fps
+                << ",\"controller_tick_hz\":" << metadata.controller_tick_hz
+                << ",\"telemetry_hz\":" << metadata.telemetry_hz
+                << "}\n";
+            ++serialized_;
+            current_size_ = static_cast<std::size_t>(output_.tellp());
+        }
         return true;
     } catch (...) {
         if (!writer_failed_.exchange(true)) ++writer_failures_;
@@ -167,6 +187,14 @@ bool RuntimeTelemetry::open_next_file() {
 }
 
 void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
+    if (record.type == TelemetryRecordType::SessionMetadata) {
+        session_metadata_ = record;
+        has_session_metadata_ = true;
+        if (!output_.is_open()) {
+            open_next_file();
+            return;
+        }
+    }
     if (!output_.is_open() && !open_next_file()) return;
     const bool has_versioned_controller =
         record.controller.physical_x != 0.0f || record.controller.physical_y != 0.0f ||

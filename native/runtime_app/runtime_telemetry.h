@@ -75,6 +75,8 @@ private:
     std::atomic<std::uint64_t> shutdown_deadline_ns_{0};
     std::filesystem::path log_path_;
     std::ofstream output_;
+    TelemetryRecord session_metadata_;
+    bool has_session_metadata_ = false;
     std::size_t current_size_ = 0;
     std::size_t file_index_ = 0;
 };

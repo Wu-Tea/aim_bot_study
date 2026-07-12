@@ -1,6 +1,7 @@
 #include "runtime_telemetry.h"
 
 #include <cstdlib>
+#include <cstdio>
 #include <filesystem>
 #include <iostream>
 #include <fstream>
@@ -155,6 +156,39 @@ void test_versioned_schema_serializes_readiness_and_completeness() {
     std::filesystem::remove_all(directory);
 }
 
+void test_every_rotated_file_starts_with_session_metadata() {
+    const auto directory = std::filesystem::temp_directory_path() /
+        "cod_native_runtime_telemetry_metadata_rotation";
+    std::filesystem::remove_all(directory);
+    runtime_app::RuntimeTelemetryOptions options;
+    options.enabled = true;
+    options.directory = directory;
+    options.queue_capacity = 32;
+    options.rotate_size_bytes = 1200;
+    options.max_files = 3;
+    runtime_app::RuntimeTelemetry telemetry(options);
+    telemetry.start();
+    runtime_app::TelemetryRecord metadata;
+    metadata.type = runtime_app::TelemetryRecordType::SessionMetadata;
+    std::snprintf(metadata.session_metadata.session_id.data(),
+        metadata.session_metadata.session_id.size(), "%s", "rotation-session");
+    REQUIRE(telemetry.enqueue(metadata));
+    for (std::uint64_t tick = 1; tick <= 8; ++tick) REQUIRE(telemetry.enqueue(record(tick, tick)));
+    telemetry.stop();
+    std::size_t files = 0;
+    for (const auto& entry : std::filesystem::directory_iterator(directory)) {
+        if (entry.path().extension() != ".jsonl") continue;
+        ++files;
+        std::ifstream input(entry.path());
+        std::string first_line;
+        std::getline(input, first_line);
+        REQUIRE(first_line.find("\"type\":\"session_metadata\"") != std::string::npos);
+        REQUIRE(first_line.find("rotation-session") != std::string::npos);
+    }
+    REQUIRE(files > 1);
+    std::filesystem::remove_all(directory);
+}
+
 } // namespace
 
 int main() {
@@ -164,5 +198,6 @@ int main() {
     test_rotation_caps_retained_file_count();
     test_writer_failure_disables_file_telemetry_without_throwing();
     test_versioned_schema_serializes_readiness_and_completeness();
+    test_every_rotated_file_starts_with_session_metadata();
     return 0;
 }
