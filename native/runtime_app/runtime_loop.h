@@ -11,6 +11,7 @@
 #include "fusion_channel_publisher.h"
 #include "perf_logger.h"
 #include "runtime_telemetry.h"
+#include "telemetry_collectors.h"
 #include "vision_service.h"
 #include "vision_native/vision_engine.h"
 
@@ -42,11 +43,11 @@ private:
     controller_native::RuntimeConfig config_;
     PerfLogger perf_logger_;
     RuntimeTelemetry telemetry_;
+    TelemetryCollectors telemetry_collectors_;
     AimPerfFileLogger aim_perf_file_logger_;
     DownwardPullDiagnostics downward_diagnostics_;
     bool perf_log_ = false;
     bool gamepad_perf_log_ = false;
-    std::uint64_t telemetry_last_vision_frame_id_ = 0;
     std::unique_ptr<controller_native::SdlGamepadReader> sdl_input_reader_;
     controller_native::XInputReader input_reader_;
     controller_native::NativeGamepadController controller_;

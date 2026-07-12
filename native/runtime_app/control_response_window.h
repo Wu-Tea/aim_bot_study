@@ -9,15 +9,6 @@
 
 namespace runtime_app {
 
-enum class ResponseWindowReason : std::uint8_t {
-    None,
-    TargetChanged,
-    IdentityWeak,
-    GeometryChanged,
-    SampleGap,
-    TimingInvalid,
-};
-
 struct ResponseVisionFrame {
     std::uint64_t frame_id = 0;
     std::uint64_t captured_at_ns = 0;

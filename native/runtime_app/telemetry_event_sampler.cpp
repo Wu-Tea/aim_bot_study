@@ -68,7 +68,8 @@ std::vector<InputEventMarker> UserInputEpisodeCollector::observe(const EventSamp
     std::vector<InputEventMarker> events;
     events.reserve(2);
     const float magnitude = std::sqrt(
-        sample.manual_x * sample.manual_x + sample.manual_y * sample.manual_y);
+        sample.controller.manual_x * sample.controller.manual_x +
+        sample.controller.manual_y * sample.controller.manual_y);
     auto emit = [&](InputEventKind kind) {
         events.push_back({kind, active_episode_id_, sample.sample_seq,
             sample.timestamp_ns, magnitude});
@@ -79,7 +80,7 @@ std::vector<InputEventMarker> UserInputEpisodeCollector::observe(const EventSamp
         active_ = true;
         active_episode_id_ = next_episode_id_++;
         peak_magnitude_ = magnitude;
-        last_nonzero_x_ = sample.manual_x;
+        last_nonzero_x_ = sample.controller.manual_x;
         below_since_ns_ = 0;
         emit(InputEventKind::InputStarted);
         emit(InputEventKind::InputPeak);
@@ -90,13 +91,13 @@ std::vector<InputEventMarker> UserInputEpisodeCollector::observe(const EventSamp
         peak_magnitude_ = magnitude;
         emit(InputEventKind::InputPeak);
     }
-    if (std::fabs(sample.manual_x) >= options_.active_threshold &&
+    if (std::fabs(sample.controller.manual_x) >= options_.active_threshold &&
         std::fabs(last_nonzero_x_) >= options_.active_threshold &&
-        sample.manual_x * last_nonzero_x_ < 0.0f) {
+        sample.controller.manual_x * last_nonzero_x_ < 0.0f) {
         emit(InputEventKind::DirectionReversed);
     }
-    if (std::fabs(sample.manual_x) >= options_.active_threshold)
-        last_nonzero_x_ = sample.manual_x;
+    if (std::fabs(sample.controller.manual_x) >= options_.active_threshold)
+        last_nonzero_x_ = sample.controller.manual_x;
 
     if (magnitude <= options_.release_threshold) {
         if (below_since_ns_ == 0) below_since_ns_ = sample.timestamp_ns;

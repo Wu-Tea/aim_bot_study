@@ -14,7 +14,7 @@ runtime_app::EventSample sample(std::uint64_t seq, std::uint64_t timestamp_ns, f
     runtime_app::EventSample value;
     value.sample_seq = seq;
     value.timestamp_ns = timestamp_ns;
-    value.manual_x = x;
+    value.controller.manual_x = x;
     return value;
 }
 

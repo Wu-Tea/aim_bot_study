@@ -193,6 +193,12 @@ add_executable(cod_native_runtime
     ../runtime_app/perf_logger.cpp
     ../runtime_app/aim_perf_file_logger.cpp
     ../runtime_app/runtime_telemetry.cpp
+    ../runtime_app/telemetry_collectors.cpp
+    ../runtime_app/telemetry_target_identity.cpp
+    ../runtime_app/telemetry_event_sampler.cpp
+    ../runtime_app/control_response_window.cpp
+    ../runtime_app/ads_visual_transition.cpp
+    ../runtime_app/ads_transition_collector.cpp
     ../runtime_app/downward_diagnostics.cpp
     ../runtime_app/native_replay_writer.cpp
     ../runtime_app/native_replay_runner.cpp
@@ -454,6 +460,21 @@ add_executable(cod_native_ads_transition_collector_tests
     ../runtime_app/ads_visual_transition.cpp
 )
 target_include_directories(cod_native_ads_transition_collector_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
+add_executable(cod_native_telemetry_collectors_tests
+    ../runtime_app/telemetry_collectors_tests.cpp
+    ../runtime_app/telemetry_collectors.cpp
+    ../runtime_app/runtime_telemetry.cpp
+    ../runtime_app/telemetry_target_identity.cpp
+    ../runtime_app/telemetry_event_sampler.cpp
+    ../runtime_app/control_response_window.cpp
+    ../runtime_app/ads_visual_transition.cpp
+    ../runtime_app/ads_transition_collector.cpp
+)
+target_include_directories(cod_native_telemetry_collectors_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/..
 )

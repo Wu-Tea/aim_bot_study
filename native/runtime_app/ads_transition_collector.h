@@ -7,34 +7,10 @@
 
 namespace runtime_app {
 
-enum class AdsCalibrationClass : std::uint8_t {
-    DiagnosticOnly,
-    CalibrationClean,
-    ConditionalModel,
-};
-
-enum class AdsInvalidReason : std::uint8_t {
-    None,
-    NoHipfireTarget,
-    TargetSwitched,
-    TargetLost,
-    ProjectedOnlyAnchor,
-    AdsNotSettled,
-    LargeManualTurn,
-    GeometryChanged,
-    InsufficientFrames,
-    IdentityAmbiguous,
-    VisualSettleUnproven,
-    MotionResidualHigh,
-    SampleGap,
-    RuntimeShutdown,
-    QueueOverflow,
-};
-
 struct AdsTransitionCollectorOptions {
     std::uint64_t timeout_ns = 500'000'000;
     unsigned int minimum_new_frames = 4;
-    float clean_command_integral = 0.02f;
+    float clean_command_integral = 0.002f;
     AdsVisualTransitionOptions visual{3, 0.011f, 0.25f, 0.5f};
 };
 

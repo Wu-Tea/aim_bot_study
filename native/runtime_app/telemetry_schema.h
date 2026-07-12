@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <array>
 
 namespace runtime_app {
 
@@ -66,6 +67,39 @@ enum class InputEventKind : std::uint8_t {
     InputEnded,
 };
 
+enum class AdsCalibrationClass : std::uint8_t {
+    DiagnosticOnly,
+    CalibrationClean,
+    ConditionalModel,
+};
+
+enum class AdsInvalidReason : std::uint8_t {
+    None,
+    NoHipfireTarget,
+    TargetSwitched,
+    TargetLost,
+    ProjectedOnlyAnchor,
+    AdsNotSettled,
+    LargeManualTurn,
+    GeometryChanged,
+    InsufficientFrames,
+    IdentityAmbiguous,
+    VisualSettleUnproven,
+    MotionResidualHigh,
+    SampleGap,
+    RuntimeShutdown,
+    QueueOverflow,
+};
+
+enum class ResponseWindowReason : std::uint8_t {
+    None,
+    TargetChanged,
+    IdentityWeak,
+    GeometryChanged,
+    SampleGap,
+    TimingInvalid,
+};
+
 struct TelemetryCompleteness {
     std::uint64_t first_seq = 0;
     std::uint64_t last_seq = 0;
@@ -101,6 +135,62 @@ struct ControllerSamplePayload {
     float right_trigger = 0.0f;
 };
 
+struct SessionMetadataPayload {
+    std::array<char, 33> session_id{};
+    std::array<char, 41> build_commit{};
+    std::array<char, 65> config_hash{};
+    std::array<char, 65> engine_hash{};
+    std::array<char, 32> tracker_backend{};
+    int capture_width = 0;
+    int capture_height = 0;
+    int active_capture_fps = 0;
+    int idle_capture_fps = 0;
+    int controller_tick_hz = 0;
+    int telemetry_hz = 0;
+};
+
+struct InputEventPayload {
+    InputEventKind kind = InputEventKind::None;
+    std::uint64_t input_episode_id = 0;
+    float magnitude = 0.0f;
+};
+
+struct TargetEventPayload {
+    TargetEventKind event = TargetEventKind::None;
+    TargetIdentityQuality quality = TargetIdentityQuality::None;
+    std::uint64_t previous_track_id = 0;
+};
+
+struct AdsTransitionPayload {
+    AdsCalibrationClass calibration_class = AdsCalibrationClass::DiagnosticOnly;
+    AdsInvalidReason invalid_reason = AdsInvalidReason::None;
+    bool valid = false;
+    std::uint64_t hipfire_frame_id = 0;
+    std::uint64_t settled_frame_id = 0;
+    float hipfire_dx = 0.0f, hipfire_dy = 0.0f;
+    float ads_dx = 0.0f, ads_dy = 0.0f;
+    float delta_dx = 0.0f, delta_dy = 0.0f;
+    float scale_x = 1.0f, scale_y = 1.0f;
+    float offset_x = 0.0f, offset_y = 0.0f;
+    float settle_confidence = 0.0f;
+    float cumulative_manual = 0.0f;
+    float cumulative_ai = 0.0f;
+    float cumulative_recoil = 0.0f;
+};
+
+struct ControlResponsePayload {
+    ResponseWindowReason reason = ResponseWindowReason::None;
+    std::uint64_t frame_id_before = 0;
+    std::uint64_t frame_id_after = 0;
+    float delta_error_x = 0.0f, delta_error_y = 0.0f;
+    float residual_x = 0.0f, residual_y = 0.0f;
+    float manual_x_integral = 0.0f, manual_y_integral = 0.0f;
+    float ai_x_integral = 0.0f, ai_y_integral = 0.0f;
+    float pre_recoil_x_integral = 0.0f, pre_recoil_y_integral = 0.0f;
+    float recoil_x_integral = 0.0f, recoil_y_integral = 0.0f;
+    float final_x_integral = 0.0f, final_y_integral = 0.0f;
+};
+
 struct TelemetryRecord {
     std::uint16_t schema_version = kTelemetrySchemaVersion;
     TelemetryRecordType type = TelemetryRecordType::ControllerSample;
@@ -114,7 +204,12 @@ struct TelemetryRecord {
     std::uint64_t target_track_id = 0;
     TelemetryTimestamps timestamps;
     TelemetryCompleteness completeness;
+    SessionMetadataPayload session_metadata;
     ControllerSamplePayload controller;
+    InputEventPayload input_event;
+    TargetEventPayload target_event;
+    AdsTransitionPayload ads_transition;
+    ControlResponsePayload control_response;
 
     // Compatibility fields used by the current runtime producer until the
     // enabled-only collectors are integrated.

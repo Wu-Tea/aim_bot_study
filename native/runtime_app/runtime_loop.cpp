@@ -387,6 +387,20 @@ RuntimeLoop::RuntimeLoop(
     : config_(std::move(config)),
       perf_logger_(gamepad_perf_log_enabled(perf_log)),
       telemetry_(telemetry_options_from(config_)),
+      telemetry_collectors_(
+          config_.telemetry.enabled || config_.vision.aim_perf_file_log,
+          &telemetry_,
+          TelemetrySessionContext{
+              "unknown",
+              "unknown",
+              "unknown",
+              tracking_native::tracker_backend_kind_name(config_.gamepad.tracker_backend).data(),
+              config_.vision.capture_width,
+              config_.vision.capture_height,
+              config_.vision.gpu_service_active_fps,
+              config_.vision.gpu_service_idle_fps,
+              config_.scheduler.controller_tick_hz,
+              config_.telemetry.manual_controller_hz}),
       aim_perf_file_logger_(
           false,
           config_.vision.aim_perf_log_dir,
@@ -498,6 +512,7 @@ int RuntimeLoop::run() {
     if (vision_service_ != nullptr) {
         vision_service_->stop();
     }
+    telemetry_collectors_.shutdown(steady_time_point_ns(std::chrono::steady_clock::now()));
     telemetry_.stop();
     if (config_.output.enabled) virtual_gamepad_.update(GamepadOutputState{});
     return 0;
@@ -510,6 +525,7 @@ void RuntimeLoop::request_stop() {
 void RuntimeLoop::run_once() {
     const auto tick_started = std::chrono::steady_clock::now();
     const controller_native::PhysicalGamepadState physical = read_physical_gamepad();
+    const std::uint64_t physical_read_at_ns = steady_time_point_ns(std::chrono::steady_clock::now());
     update_recoil_recognizer_schedule(physical, tick_started);
     const bool aiming = is_aiming(physical);
     latest_vision_aiming_ = aiming;
@@ -542,6 +558,7 @@ void RuntimeLoop::run_once() {
         }
     };
 
+    bool telemetry_new_vision = false;
     if (vision_service_ != nullptr) {
         vision_service_->set_aiming(aiming);
         vision_service_->set_user_aim_intent(user_aim_intent);
@@ -561,6 +578,7 @@ void RuntimeLoop::run_once() {
                 result.captured_at_ns != 0 ? result.captured_at_ns : result.result_at_ns;
             latest_controller_consume_started_ns_ =
                 steady_time_point_ns(controller_consume_started);
+            telemetry_new_vision = true;
             if (service_snapshot.freshness == VisionSnapshotFreshness::Fresh) {
                 publish_fusion_if_updated(result);
             }
@@ -580,9 +598,34 @@ void RuntimeLoop::run_once() {
                 result.captured_at_ns != 0 ? result.captured_at_ns : result.result_at_ns;
             latest_controller_consume_started_ns_ =
                 steady_time_point_ns(controller_consume_started);
+            telemetry_new_vision = true;
 
             publish_fusion_if_updated(result);
         }
+    }
+    if (telemetry_new_vision) {
+        TelemetryVisionInput vision;
+        vision.frame_id = latest_vision_result_.frame_id;
+        vision.captured_at_ns = latest_vision_result_.captured_at_ns;
+        vision.inferred_at_ns = latest_vision_result_.inferred_at_ns;
+        vision.result_at_ns = latest_vision_result_.result_at_ns;
+        vision.controller_consume_ns = latest_controller_consume_started_ns_;
+        vision.frame_width = config_.vision.capture_width;
+        vision.frame_height = config_.vision.capture_height;
+        vision.has_target = latest_vision_result_.has_target;
+        vision.live = latest_vision_result_.has_target && latest_vision_result_.has_body_box &&
+            latest_vision_result_.frame_updated;
+        vision.projected = latest_vision_result_.has_target && !latest_vision_result_.frame_updated;
+        vision.aiming = aiming;
+        vision.x1 = latest_vision_result_.body_x1;
+        vision.y1 = latest_vision_result_.body_y1;
+        vision.x2 = latest_vision_result_.body_x2;
+        vision.y2 = latest_vision_result_.body_y2;
+        vision.target_x = latest_vision_result_.target_x;
+        vision.target_y = latest_vision_result_.target_y;
+        vision.screen_center_x = latest_vision_result_.screen_center_x;
+        vision.screen_center_y = latest_vision_result_.screen_center_y;
+        telemetry_collectors_.observe_new_vision(vision);
     }
     poll_due_recoil_recognizer(std::chrono::steady_clock::now());
 
@@ -598,20 +641,33 @@ void RuntimeLoop::run_once() {
     if (config_.output.enabled) virtual_gamepad_.update(output);
     const auto vigem_update_finished = std::chrono::steady_clock::now();
     ++tick_count_;
+    const auto& telemetry_components = controller_.last_output_components();
+    TelemetryTickInput telemetry_tick;
+    telemetry_tick.tick_id = tick_count_;
+    telemetry_tick.physical_read_ns = physical_read_at_ns;
+    telemetry_tick.controller_consume_ns = latest_controller_consume_started_ns_;
+    telemetry_tick.output_sent_ns = steady_time_point_ns(vigem_update_finished);
+    telemetry_tick.sample_ns = telemetry_tick.output_sent_ns;
+    telemetry_tick.aiming = aiming;
+    telemetry_tick.left_trigger = physical.left_trigger;
+    telemetry_tick.right_trigger = physical.right_trigger;
+    telemetry_tick.physical_x = physical.right_x;
+    telemetry_tick.physical_y = physical.right_y;
+    telemetry_tick.manual_x = telemetry_components.manual_stick.x;
+    telemetry_tick.manual_y = telemetry_components.manual_stick.y;
+    telemetry_tick.ai_x = telemetry_components.ai_aim_stick.x;
+    telemetry_tick.ai_y = telemetry_components.ai_aim_stick.y;
+    telemetry_tick.pre_recoil_x = telemetry_components.before_recoil_stick.x;
+    telemetry_tick.pre_recoil_y = telemetry_components.before_recoil_stick.y;
+    telemetry_tick.recoil_x = telemetry_components.recoil_stick.x;
+    telemetry_tick.recoil_y = telemetry_components.recoil_stick.y;
+    telemetry_tick.final_x = telemetry_components.final_stick.x;
+    telemetry_tick.final_y = telemetry_components.final_stick.y;
+    telemetry_collectors_.observe_tick(telemetry_tick);
 
     const bool log_vision = perf_log_ && should_log_vision_tick(tick_count_);
     const bool log_gamepad_perf = gamepad_perf_log_ && should_log_vision_tick(tick_count_);
-    const bool legacy_aim_telemetry = config_.vision.aim_perf_file_log && aiming;
-    const unsigned int telemetry_divisor = config_.telemetry.manual_controller_hz > 0
-        ? std::max(1u, static_cast<unsigned int>(std::max(1, config_.scheduler.controller_tick_hz)) /
-            static_cast<unsigned int>(config_.telemetry.manual_controller_hz))
-        : 10u;
-    const unsigned int legacy_divisor =
-        std::max(1u, config_.vision.aim_perf_log_interval_ticks);
-    const bool log_telemetry =
-        (config_.telemetry.enabled && tick_count_ % telemetry_divisor == 0u) ||
-        (legacy_aim_telemetry && tick_count_ % legacy_divisor == 0u);
-    if (log_vision || log_gamepad_perf || log_telemetry) {
+    if (log_vision || log_gamepad_perf) {
         const auto elapsed = std::chrono::steady_clock::now() - tick_started;
         const auto controller_pipeline_elapsed = vigem_update_started - controller_pipeline_started;
         const auto vigem_update_elapsed = vigem_update_finished - vigem_update_started;
@@ -644,47 +700,6 @@ void RuntimeLoop::run_once() {
         snapshot.box_samples = result != nullptr ? result->boxes_seen : 0.0;
         if (log_gamepad_perf) {
             perf_logger_.record_sample(snapshot);
-        }
-        if (log_telemetry) {
-            const auto& components = controller_.last_output_components();
-            TelemetryRecord record;
-            record.kind = TelemetryRecordKind::ManualControllerTick;
-            record.tick_id = tick_count_;
-            record.frame_id = result != nullptr ? result->frame_id : 0;
-            record.intent_id = tick_count_;
-            record.timestamp_ns = output_sent_at_ns;
-            record.manual_x = components.manual_stick.x;
-            record.manual_y = components.manual_stick.y;
-            record.ai_x = components.ai_aim_stick.x;
-            record.ai_y = components.ai_aim_stick.y;
-            record.final_x = components.final_stick.x;
-            record.final_y = components.final_stick.y;
-            record.controller_pipeline_ms = static_cast<float>(snapshot.ctrl_pipeline_ms);
-            record.vigem_update_ms = static_cast<float>(snapshot.vigem_update_ms);
-            telemetry_.enqueue(record);
-            const float manual_magnitude = std::hypot(record.manual_x, record.manual_y);
-            const float ai_magnitude = std::hypot(record.ai_x, record.ai_y);
-            const float manual_ai_dot = record.manual_x * record.ai_x + record.manual_y * record.ai_y;
-            std::uint32_t event_flags = 0;
-            if (manual_magnitude >= 0.22f && ai_magnitude >= 0.22f && manual_ai_dot < -0.05f)
-                event_flags |= 1u; // opposition
-            if (result != nullptr && result->age_ms >= 80.0f && result->aim_authority)
-                event_flags |= 2u; // stale/projected authority
-            if (event_flags != 0) {
-                TelemetryRecord event = record;
-                event.kind = TelemetryRecordKind::RuntimeEvent;
-                event.critical = true;
-                event.event_id = tick_count_;
-                event.event_reason_flags = event_flags;
-                telemetry_.enqueue(event);
-            }
-            if (result != nullptr && result->frame_id != 0 &&
-                result->frame_id != telemetry_last_vision_frame_id_) {
-                telemetry_last_vision_frame_id_ = result->frame_id;
-                TelemetryRecord vision = record;
-                vision.kind = TelemetryRecordKind::VisionFrame;
-                telemetry_.enqueue(vision);
-            }
         }
         if (log_vision) {
             log_vision_result(

@@ -12,8 +12,7 @@ namespace runtime_app {
 struct EventSample {
     std::uint64_t sample_seq = 0;
     std::uint64_t timestamp_ns = 0;
-    float manual_x = 0.0f;
-    float manual_y = 0.0f;
+    ControllerSamplePayload controller;
 };
 
 struct InputEventMarker {

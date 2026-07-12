@@ -39,6 +39,39 @@ const char* readiness_name(TelemetryReadiness readiness) {
     }
 }
 
+const char* target_event_name(TargetEventKind event) {
+    switch (event) {
+    case TargetEventKind::Created: return "created";
+    case TargetEventKind::Switched: return "switched";
+    case TargetEventKind::Lost: return "lost";
+    case TargetEventKind::Reacquired: return "reacquired";
+    case TargetEventKind::Released: return "released";
+    case TargetEventKind::None:
+    default: return "none";
+    }
+}
+
+const char* identity_quality_name(TargetIdentityQuality quality) {
+    switch (quality) {
+    case TargetIdentityQuality::ProductionAssociated: return "production_associated";
+    case TargetIdentityQuality::StrongGeometricMatch: return "strong_geometric_match";
+    case TargetIdentityQuality::WeakGeometricMatch: return "weak_geometric_match";
+    case TargetIdentityQuality::ProjectedContinuity: return "projected_continuity";
+    case TargetIdentityQuality::Ambiguous: return "ambiguous";
+    case TargetIdentityQuality::None:
+    default: return "none";
+    }
+}
+
+const char* calibration_class_name(AdsCalibrationClass value) {
+    switch (value) {
+    case AdsCalibrationClass::CalibrationClean: return "calibration_clean";
+    case AdsCalibrationClass::ConditionalModel: return "conditional_model";
+    case AdsCalibrationClass::DiagnosticOnly:
+    default: return "diagnostic_only";
+    }
+}
+
 } // namespace
 
 RuntimeTelemetry::RuntimeTelemetry(RuntimeTelemetryOptions options)
@@ -166,6 +199,19 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
         << ",\"timestamp_ns\":" << record.timestamp_ns
         << ",\"sample_seq\":" << record.sample_seq
         << ",\"target_track_id\":" << record.target_track_id
+        << ",\"session_id\":\"" << record.session_metadata.session_id.data() << '\"'
+        << ",\"build_commit\":\"" << record.session_metadata.build_commit.data() << '\"'
+        << ",\"config_hash\":\"" << record.session_metadata.config_hash.data() << '\"'
+        << ",\"engine_hash\":\"" << record.session_metadata.engine_hash.data() << '\"'
+        << ",\"tracker_backend\":\"" << record.session_metadata.tracker_backend.data() << '\"'
+        << ",\"capture_width\":" << record.session_metadata.capture_width
+        << ",\"capture_height\":" << record.session_metadata.capture_height
+        << ",\"active_capture_fps\":" << record.session_metadata.active_capture_fps
+        << ",\"idle_capture_fps\":" << record.session_metadata.idle_capture_fps
+        << ",\"controller_tick_hz\":" << record.session_metadata.controller_tick_hz
+        << ",\"telemetry_hz\":" << record.session_metadata.telemetry_hz
+        << ",\"physical_x\":" << record.controller.physical_x
+        << ",\"physical_y\":" << record.controller.physical_y
         << ",\"manual_x\":" << serialized_manual_x
         << ",\"manual_y\":" << serialized_manual_y
         << ",\"ai_x\":" << serialized_ai_x
@@ -175,6 +221,42 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
         << ",\"controller_pipeline_ms\":" << record.controller_pipeline_ms
         << ",\"vigem_update_ms\":" << record.vigem_update_ms
         << ",\"event_reason_flags\":" << record.event_reason_flags
+        << ",\"target_event\":\"" << target_event_name(record.target_event.event) << '\"'
+        << ",\"target_identity_quality\":\""
+        << identity_quality_name(record.target_event.quality) << '\"'
+        << ",\"previous_track_id\":" << record.target_event.previous_track_id
+        << ",\"valid\":" << (record.ads_transition.valid ? "true" : "false")
+        << ",\"calibration_class\":\""
+        << calibration_class_name(record.ads_transition.calibration_class) << '\"'
+        << ",\"hipfire_frame_id\":" << record.ads_transition.hipfire_frame_id
+        << ",\"settled_frame_id\":" << record.ads_transition.settled_frame_id
+        << ",\"hipfire_dx\":" << record.ads_transition.hipfire_dx
+        << ",\"hipfire_dy\":" << record.ads_transition.hipfire_dy
+        << ",\"ads_dx\":" << record.ads_transition.ads_dx
+        << ",\"ads_dy\":" << record.ads_transition.ads_dy
+        << ",\"delta_dx\":" << record.ads_transition.delta_dx
+        << ",\"delta_dy\":" << record.ads_transition.delta_dy
+        << ",\"scale_x\":" << record.ads_transition.scale_x
+        << ",\"scale_y\":" << record.ads_transition.scale_y
+        << ",\"offset_x\":" << record.ads_transition.offset_x
+        << ",\"offset_y\":" << record.ads_transition.offset_y
+        << ",\"settle_confidence\":" << record.ads_transition.settle_confidence
+        << ",\"response_frame_before\":" << record.control_response.frame_id_before
+        << ",\"response_frame_after\":" << record.control_response.frame_id_after
+        << ",\"delta_error_x\":" << record.control_response.delta_error_x
+        << ",\"delta_error_y\":" << record.control_response.delta_error_y
+        << ",\"residual_x\":" << record.control_response.residual_x
+        << ",\"residual_y\":" << record.control_response.residual_y
+        << ",\"manual_x_integral\":" << record.control_response.manual_x_integral
+        << ",\"manual_y_integral\":" << record.control_response.manual_y_integral
+        << ",\"ai_x_integral\":" << record.control_response.ai_x_integral
+        << ",\"ai_y_integral\":" << record.control_response.ai_y_integral
+        << ",\"pre_recoil_x_integral\":" << record.control_response.pre_recoil_x_integral
+        << ",\"pre_recoil_y_integral\":" << record.control_response.pre_recoil_y_integral
+        << ",\"recoil_x_integral\":" << record.control_response.recoil_x_integral
+        << ",\"recoil_y_integral\":" << record.control_response.recoil_y_integral
+        << ",\"final_x_integral\":" << record.control_response.final_x_integral
+        << ",\"final_y_integral\":" << record.control_response.final_y_integral
         << ",\"first_seq\":" << record.completeness.first_seq
         << ",\"last_seq\":" << record.completeness.last_seq
         << ",\"expected\":" << record.completeness.expected
