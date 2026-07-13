@@ -194,7 +194,7 @@ PhysicalGamepadState horizontal_aiming(float manual_x) {
     return state;
 }
 
-enum class HorizontalScenario { Takeover, Cooperative, ShortNoise };
+enum class HorizontalScenario { Takeover, Cooperative, ShortNoise, CrossingContinuity };
 
 ManualTakeoverMetrics run_horizontal_scenario(
     HorizontalScenario scenario,
@@ -204,7 +204,9 @@ ManualTakeoverMetrics run_horizontal_scenario(
         ? "single_visible_target_identity_churn_manual_takeover"
         : scenario == HorizontalScenario::Cooperative
             ? "single_visible_target_cooperative_tracking"
-            : "single_visible_target_short_manual_noise";
+            : scenario == HorizontalScenario::ShortNoise
+                ? "single_visible_target_short_manual_noise"
+                : "bodylock_repeated_error_crossing_continuity";
     double now = 4.0;
     GamepadRuntimeConfig config;
     config.recoil.enabled = false;
@@ -233,8 +235,11 @@ ManualTakeoverMetrics run_horizontal_scenario(
                 if (frame >= 210) controller_target_x = -36.0;
             } else if (scenario == HorizontalScenario::Cooperative) {
                 manual_x = 0.35f;
-            } else {
+            } else if (scenario == HorizontalScenario::ShortNoise) {
                 manual_x = frame < 60 ? -0.35f : 0.0f;
+            } else {
+                manual_x = 0.92f;
+                controller_target_x = ((frame / 24) % 2 == 0) ? 8.0 : -8.0;
             }
         }
         controller.submit_vision_state(horizontal_vision_state(
@@ -266,6 +271,14 @@ ManualTakeoverMetrics run_horizontal_scenario(
                 requested >= 0.25f && projected >= requested * 0.50f) {
                 metrics.manual_takeover_latency_ms = static_cast<double>(frame - 40);
             }
+        }
+        if (scenario == HorizontalScenario::CrossingContinuity &&
+            frame >= 170 && mode == "body_lock") {
+            metrics.min_committed_output = std::min(
+                metrics.min_committed_output,
+                static_cast<double>(pre_recoil_x));
+            if (pre_recoil_x < 0.80f) ++metrics.downstream_brake_frames;
+            if (components.ads_carry_brake_active) ++metrics.ads_carry_brake_frames;
         }
         reticle_x += static_cast<double>(pre_recoil_x) * kReticleSpeed * kDt;
     }
@@ -361,6 +374,10 @@ ManualTakeoverMetrics run_single_target_cooperative_tracking() {
 
 ManualTakeoverMetrics run_single_target_short_noise() {
     return run_horizontal_scenario(HorizontalScenario::ShortNoise);
+}
+
+ManualTakeoverMetrics run_bodylock_crossing_continuity() {
+    return run_horizontal_scenario(HorizontalScenario::CrossingContinuity);
 }
 
 } // namespace controller_native::vertical_defect

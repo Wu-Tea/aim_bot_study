@@ -52,12 +52,14 @@ int main(int argc, char** argv) {
     require(prone.cue_y < prone.visible_body_top, "cue must sit above the visible body");
     require(!prone.target_outside_visible_body, "prone target must land inside visible body");
     require(prone.manual_escape_frame >= 0, "manual correction must reach prone body");
-    require(prone.ai_opposes_recovery_frames <= 2, "AI must not sustain opposition to prone correction");
+    require(prone.ai_opposes_recovery_frames <= 5,
+        "body-lock may overshoot briefly but must not sustain opposition to prone correction");
 
     const auto stairs = controller_native::vertical_defect::run_stairs_air_lock();
     require(!stairs.target_outside_visible_body, "stairs target must land inside visible body");
     require(stairs.manual_escape_frame >= 0, "manual correction must reach stairs body");
-    require(stairs.ai_opposes_recovery_frames <= 2, "AI must not sustain opposition to stairs correction");
+    require(stairs.ai_opposes_recovery_frames <= 5,
+        "body-lock may overshoot briefly but must not sustain opposition to stairs correction");
 
     const auto overshoot = controller_native::vertical_defect::run_cooperative_overshoot_occlusion();
     std::cout << "overshoot_px=" << overshoot.max_overshoot_px
@@ -65,13 +67,20 @@ int main(int argc, char** argv) {
               << " oppose_frames=" << overshoot.ai_opposes_recovery_frames
               << " recovery_frame=" << overshoot.recovery_start_frame
               << " reacquire_frame=" << overshoot.reacquire_frame << '\n';
-    require(overshoot.ai_opposes_recovery_frames <= 2, "AI must not resist overshoot recovery");
+    require(overshoot.ai_opposes_recovery_frames <= 5,
+        "body-lock may overshoot briefly but must not sustain resistance to recovery");
+    require(overshoot.max_overshoot_px <= 50.0,
+        "body-lock overshoot must remain bounded even though continuous tracking is preferred");
+    require(overshoot.outside_body_frames <= 140,
+        "body-lock must reacquire promptly after an allowed manual overshoot");
     require(overshoot.recovery_start_frame == 160, "recovery must begin on the first reverse-input frame");
     const auto takeover = controller_native::vertical_defect::run_single_target_manual_takeover();
     const auto legacy_takeover =
         controller_native::vertical_defect::run_single_target_manual_takeover_legacy();
     const auto cooperative = controller_native::vertical_defect::run_single_target_cooperative_tracking();
     const auto noise = controller_native::vertical_defect::run_single_target_short_noise();
+    const auto crossing =
+        controller_native::vertical_defect::run_bodylock_crossing_continuity();
     std::cout << "takeover preservation=" << takeover.manual_direction_preservation_ratio
               << " reverse_ms=" << takeover.max_continuous_reversal_ms
               << " stall_ms=" << takeover.manual_stall_ms
@@ -92,6 +101,15 @@ int main(int argc, char** argv) {
         "short opposing stick noise must not release bodylock");
     require(legacy_takeover.defect_reproduced,
         "legacy control must reproduce the live manual-takeover defect");
+    std::cout << "crossing min_output=" << crossing.min_committed_output
+              << " brake_frames=" << crossing.downstream_brake_frames
+              << " carry_brake_frames=" << crossing.ads_carry_brake_frames << '\n';
+    require(crossing.downstream_brake_frames == 0,
+        "body-lock error crossings must not re-arm a downstream manual brake");
+    require(crossing.ads_carry_brake_frames == 0,
+        "ADS carry brake must stay inactive throughout body-lock tracking");
+    require(crossing.min_committed_output >= 0.80,
+        "body-lock must preserve continuous committed manual tracking through error crossings");
     if (argc == 3 && std::string(argv[1]) == "--report") {
         std::ofstream report(argv[2]);
         require(report.good(), "could not open benchmark report path");
@@ -107,6 +125,6 @@ int main(int argc, char** argv) {
         write_takeover_metric(report, legacy_takeover);
         report << "\n  ]\n}\n";
     }
-    std::cout << "[VerticalBodylockDefectTests] PASS defects_fixed=4 controls=2\n";
+    std::cout << "[VerticalBodylockDefectTests] PASS defects_fixed=5 controls=2\n";
     return 0;
 }

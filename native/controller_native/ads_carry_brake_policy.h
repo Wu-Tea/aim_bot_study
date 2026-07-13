@@ -27,12 +27,6 @@ public:
     GamepadOutputState apply(const AdsCarryBrakeInput& input) const;
 
 private:
-    float apply_axis(
-        float target_error_px,
-        float output_axis,
-        float manual_axis,
-        float reticle_speed_px_per_sec,
-        bool y_axis) const;
     float apply_unfresh_axis_limit(float output_axis, float manual_axis) const;
 
     GamepadAiAimConfig ai_config_;

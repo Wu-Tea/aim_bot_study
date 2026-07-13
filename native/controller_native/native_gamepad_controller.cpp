@@ -491,7 +491,14 @@ void NativeGamepadController::apply_ai_aim(
     validation_input.candidate_output_hold_active =
         target_snapshot_provider_.candidate_output_hold_active(now_seconds);
     validation_input.now_seconds = now_seconds;
-    output = output_validation_policy_.apply(validation_input);
+    if (ai_aim_.last_mode() == "body_lock") {
+        // Validation owns ADS/candidate braking state.  Do not let state armed
+        // before body-lock survive the user-owned tracking interval and fire
+        // when the mode later changes again.
+        output_validation_policy_.reset();
+    } else {
+        output = output_validation_policy_.apply(validation_input);
+    }
 }
 
 void NativeGamepadController::apply_body_lock_short_plan(
@@ -501,6 +508,12 @@ void NativeGamepadController::apply_body_lock_short_plan(
     bool vertical_plan_allowed,
     const NativeControllerVisionState& vision_state,
     double now_seconds) {
+    if (ai_aim_.last_mode() == "body_lock") {
+        // Short-plan holds are an ADS brake.  Clear their timers at the mode
+        // boundary so body-lock cannot inherit or defer a stale brake.
+        body_lock_short_plan_policy_.reset();
+        return;
+    }
     float lock_dx = 0.0f;
     float lock_dy = 0.0f;
     const bool body_lock_available =

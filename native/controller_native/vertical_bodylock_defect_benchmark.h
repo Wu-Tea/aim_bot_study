@@ -49,6 +49,9 @@ struct ManualTakeoverMetrics {
     int manual_reversal_frames = 0;
     int mode_transitions = 0;
     int body_lock_frames = 0;
+    int downstream_brake_frames = 0;
+    int ads_carry_brake_frames = 0;
+    double min_committed_output = 1.0;
     bool cooperative_assist_preserved = false;
     bool short_noise_kept_body_lock = false;
     bool defect_reproduced = false;
@@ -61,5 +64,6 @@ ManualTakeoverMetrics run_single_target_manual_takeover();
 ManualTakeoverMetrics run_single_target_manual_takeover_legacy();
 ManualTakeoverMetrics run_single_target_cooperative_tracking();
 ManualTakeoverMetrics run_single_target_short_noise();
+ManualTakeoverMetrics run_bodylock_crossing_continuity();
 
 } // namespace controller_native::vertical_defect

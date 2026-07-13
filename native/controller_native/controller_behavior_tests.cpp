@@ -2513,7 +2513,7 @@ void test_controller_body_lock_short_plan_damps_small_vector_turn_near_lock() {
         "body-lock short plan should damp, not zero, the current small vector turn for moving targets");
 }
 
-void test_controller_body_lock_brakes_large_manual_after_target_crossing() {
+void test_controller_body_lock_preserves_manual_after_target_crossing() {
     controller_native::GamepadRuntimeConfig config;
     config.ai_aim.target_max_age_ms = 0.0f;
     config.ai_aim.piecewise_mid_pixels = 0.0f;
@@ -2572,21 +2572,21 @@ void test_controller_body_lock_brakes_large_manual_after_target_crossing() {
     controller.build_output(strong_right_pull());
     const auto crossed = controller.last_output_components().final_stick;
 
-    require_true(
-        crossed.x <= 0.26f,
-        "body-lock should tightly brake strong manual input that keeps pushing away after target crossing");
-
     now = 20.021;
     submit_body_lock_target(-8.0f);
     controller.build_output(strong_right_pull());
-    const auto sustained = controller.last_output_components().final_stick;
+    const auto& components = controller.last_output_components();
+    const auto sustained = components.final_stick;
 
-    if (!(sustained.x <= 0.26f)) {
+    if (!(sustained.x >= 0.80f)) {
         std::ostringstream out;
-        out << "body-lock should keep sustained wrong-way manual brake bounded actual="
-            << sustained.x;
+        out << "body-lock should preserve user-owned direction after takeover actual="
+            << sustained.x << " crossed=" << crossed.x;
         throw std::runtime_error(out.str());
     }
+    require_true(
+        !components.ads_carry_brake_active,
+        "ADS carry brake must not gain authority while body-lock owns tracking");
 }
 
 void test_controller_body_lock_preserves_helpful_manual_near_lock_edge() {
@@ -4823,7 +4823,7 @@ void test_ads_carry_brake_policy_ignores_inactive_contexts() {
         "ADS carry brake should ignore non-body-lock contexts");
 }
 
-void test_ads_carry_brake_policy_corrects_wrong_way_bodylock_ads_output() {
+void test_ads_carry_brake_policy_does_not_correct_bodylock_output() {
     controller_native::AdsCarryBrakePolicy policy;
     controller_native::AdsCarryBrakeInput input;
     input.output.right_x = 0.82f;
@@ -4836,12 +4836,14 @@ void test_ads_carry_brake_policy_corrects_wrong_way_bodylock_ads_output() {
     input.reticle_speed_px_per_sec = 1500.0f;
 
     const controller_native::GamepadOutputState output = policy.apply(input);
-    require_true(
-        output.right_x < 0.0f && std::fabs(output.right_x) <= 0.22f,
-        "ADS carry brake should turn wrong-way body-lock carry-through into bounded correction");
+    require_near(
+        output.right_x,
+        0.82f,
+        0.001f,
+        "ADS carry brake must not reverse user-owned body-lock output");
 }
 
-void test_ads_carry_brake_policy_caps_fast_near_target_bodylock_ads_output() {
+void test_ads_carry_brake_policy_does_not_cap_near_target_bodylock_output() {
     controller_native::AdsCarryBrakePolicy policy;
     controller_native::AdsCarryBrakeInput input;
     input.output.right_x = 0.92f;
@@ -4854,9 +4856,11 @@ void test_ads_carry_brake_policy_caps_fast_near_target_bodylock_ads_output() {
     input.reticle_speed_px_per_sec = 1500.0f;
 
     const controller_native::GamepadOutputState output = policy.apply(input);
-    require_true(
-        output.right_x > 0.0f && output.right_x < 0.42f,
-        "ADS carry brake should cap fast same-direction body-lock output near target");
+    require_near(
+        output.right_x,
+        0.92f,
+        0.001f,
+        "ADS carry brake must allow bounded body-lock overshoot for moving-target continuity");
 }
 
 void test_ads_carry_brake_policy_limits_unfresh_ads_acquisition_stack() {
@@ -4984,7 +4988,7 @@ int main() {
         test_body_lock_preserves_more_horizontal_tail_for_moving_target_inside_release_window();
         test_body_lock_clears_release_tail_carry_on_near_zero_x_sign_flip();
         test_controller_body_lock_short_plan_damps_small_vector_turn_near_lock();
-        test_controller_body_lock_brakes_large_manual_after_target_crossing();
+        test_controller_body_lock_preserves_manual_after_target_crossing();
         test_controller_body_lock_preserves_helpful_manual_near_lock_edge();
         test_controller_ads_brakes_large_manual_after_target_crossing_without_body_lock();
         test_controller_ads_corrects_small_manual_after_target_crossing_without_body_lock();
@@ -5026,8 +5030,8 @@ int main() {
         test_fire_active_projected_target_suppresses_vertical_aim_assist();
         test_body_lock_fire_active_caps_downward_vertical_stack_without_x_force_cap();
         test_ads_carry_brake_policy_ignores_inactive_contexts();
-        test_ads_carry_brake_policy_corrects_wrong_way_bodylock_ads_output();
-        test_ads_carry_brake_policy_caps_fast_near_target_bodylock_ads_output();
+        test_ads_carry_brake_policy_does_not_correct_bodylock_output();
+        test_ads_carry_brake_policy_does_not_cap_near_target_bodylock_output();
         test_ads_carry_brake_policy_limits_unfresh_ads_acquisition_stack();
         test_ads_carry_brake_policy_vector_caps_unfresh_diagonal_stack();
         test_ads_carry_brake_policy_does_not_cross_axis_cap_same_direction_output();

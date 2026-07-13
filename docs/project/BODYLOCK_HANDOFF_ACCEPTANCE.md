@@ -11,14 +11,38 @@ The benchmark runs the same 1 ms controller sequence with the handoff disabled
 
 | Metric | Legacy | Fixed | Gate |
 |---|---:|---:|---:|
-| Manual direction preservation | 0.143 | 0.934 | >= 0.90 |
-| Longest continuous reversed output | 70 ms | 20 ms | <= 20 ms |
-| Manual stall | 236 ms | 30 ms | <= 40 ms |
+| Manual direction preservation | 0.143 | 0.922 | >= 0.90 |
+| Longest continuous reversed output | 70 ms | 10 ms | <= 20 ms |
+| Manual stall | 236 ms | 10 ms | <= 40 ms |
 | Manual takeover latency | 240 ms | 38 ms | <= 60 ms |
-| Old-target resistance integral | 0.0985 | 0.0206 | lower than legacy |
+| Old-target resistance integral | 0.0985 | 0.0096 | lower than legacy |
 
 The benchmark also requires cooperative same-direction tracking to retain AI
 assist and a short manual-noise case to remain in bodylock.
+
+## ADS/bodylock brake authority
+
+Bodylock no longer passes through the 130ms short-plan cross brake, observed
+target output validation, or ADS carry brake. ADS snap retains its near-target,
+crossing, stale/candidate, and acquisition brakes. This is a mode contract, not
+a threshold tune.
+
+The repeated-error-crossing benchmark holds a `0.92` manual direction while the
+bodylock error crosses every 24ms. After bodylock takeover is established:
+
+- minimum committed output: `0.92`;
+- downstream brake frames: `0`;
+- ADS carry-brake frames: `0`.
+
+The cooperative overshoot/occlusion case now deliberately allows manual
+overshoot rather than hiding it with a brake: maximum overshoot is `45.11px`,
+the user reverse correction takes effect on its first frame, and AI opposition
+lasts `0` frames. The acceptance cap is `50px`; bodylock is judged on continuity
+and prompt reacquisition, not zero overshoot.
+
+Entering bodylock also resets pending short-plan and output-validation timers.
+That prevents an ADS brake armed before bodylock from being deferred and firing
+after the controller later leaves bodylock.
 
 Run it with:
 
