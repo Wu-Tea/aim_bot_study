@@ -101,6 +101,8 @@ struct VisionResult {
 
     bool has_target = false;
     bool auto_fire = false;
+    bool has_selected_detection = false;
+    std::uint32_t selected_detection_index = 0;
 
     float dx = 0.0f;
     float dy = 0.0f;

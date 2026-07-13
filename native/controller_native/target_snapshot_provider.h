@@ -46,8 +46,14 @@ private:
         double capture_time_seconds,
         double ready_time_seconds,
         double fallback_now_seconds);
-    NativeControllerVisionState select_middle_layer_target(
-        const ControllerVisionSnapshot& snapshot) const;
+    void ingest_tracker_candidates(
+        const ControllerVisionSnapshot& snapshot,
+        double fallback_now_seconds);
+    void bind_selector_observation(
+        std::uint64_t observation_id,
+        double query_time_seconds);
+    tracking_native::TrackerSnapshot selected_tracker_snapshot(
+        double query_time_seconds) const;
     NativeControllerVisionState credibility_gated_vision_state(
         const NativeControllerVisionState& state,
         double query_time_seconds,
@@ -60,6 +66,8 @@ private:
 
     GamepadAiAimConfig ai_config_;
     std::unique_ptr<tracking_native::TrackerBackend> target_tracker_;
+    pipeline_contract::SelectedTrackRef selected_track_;
+    bool selector_ownership_active_ = false;
     NativeControllerVisionState latest_vision_state_;
     double last_output_at_seconds_ = 0.0;
     std::uint64_t latest_vision_sequence_ = 0;

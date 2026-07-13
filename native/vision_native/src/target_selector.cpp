@@ -716,6 +716,8 @@ VisionResult VisionTargetSelector::empty_result(float boxes_seen) const {
 VisionResult VisionTargetSelector::result_from_target(const TargetState& target, float boxes_seen) const {
     VisionResult result = empty_result(boxes_seen);
     result.has_target = true;
+    result.has_selected_detection = target.candidate.has_source_detection;
+    result.selected_detection_index = target.candidate.source_detection_index;
     result.has_body_box = true;
     result.target_x = target.candidate.target_x;
     result.target_y = target.candidate.target_y;
@@ -870,6 +872,7 @@ bool VisionTargetSelector::passes_confidence_gate(
 
 std::optional<VisionTargetSelector::Candidate> VisionTargetSelector::build_candidate(
     const Detection& detection,
+    std::uint32_t source_detection_index,
     const std::optional<std::pair<float, float>>& last_target_center,
     const pipeline_contract::UserAimIntent* intent) const {
     const Rect box = to_rect(detection);
@@ -884,6 +887,8 @@ std::optional<VisionTargetSelector::Candidate> VisionTargetSelector::build_candi
 
     const auto point = target_point(box);
     Candidate observed;
+    observed.has_source_detection = true;
+    observed.source_detection_index = source_detection_index;
     observed.target_x = point.first;
     observed.target_y = point.second;
     observed.conf = detection.conf;
@@ -945,7 +950,8 @@ std::optional<VisionTargetSelector::Candidate> VisionTargetSelector::build_candi
 }
 
 std::optional<VisionTargetSelector::Candidate> VisionTargetSelector::build_weak_association_candidate(
-    const Detection& detection) const {
+    const Detection& detection,
+    std::uint32_t source_detection_index) const {
     if (!active_target_.has_value() || !last_target_center_.has_value()) {
         return std::nullopt;
     }
@@ -964,6 +970,8 @@ std::optional<VisionTargetSelector::Candidate> VisionTargetSelector::build_weak_
 
     const auto point = target_point(box);
     Candidate weak;
+    weak.has_source_detection = true;
+    weak.source_detection_index = source_detection_index;
     weak.target_x = point.first;
     weak.target_y = point.second;
     weak.conf = detection.conf;
@@ -1010,8 +1018,12 @@ void VisionTargetSelector::build_candidates(
     const pipeline_contract::UserAimIntent* intent) {
     candidate_scratch_.clear();
     candidate_scratch_.reserve(batch.detections.size());
-    for (const auto& detection : batch.detections) {
-        const auto candidate = build_candidate(detection, last_target_center, intent);
+    for (std::size_t index = 0; index < batch.detections.size(); ++index) {
+        const auto candidate = build_candidate(
+            batch.detections[index],
+            static_cast<std::uint32_t>(index),
+            last_target_center,
+            intent);
         if (candidate.has_value()) {
             candidate_scratch_.push_back(*candidate);
         }
@@ -1025,8 +1037,10 @@ std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::select_we
     }
 
     std::optional<std::pair<float, Candidate>> best;
-    for (const auto& detection : batch.detections) {
-        const auto candidate = build_weak_association_candidate(detection);
+    for (std::size_t index = 0; index < batch.detections.size(); ++index) {
+        const auto candidate = build_weak_association_candidate(
+            batch.detections[index],
+            static_cast<std::uint32_t>(index));
         if (!candidate.has_value()) {
             continue;
         }
@@ -1576,6 +1590,7 @@ std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::try_exter
     held.cue_y = batch.external_cue_y;
     held.cue_score = batch.external_cue_score;
     held.source = "cue_hold";
+    held.has_source_detection = false;
 
     last_cue_point_ = std::make_pair(batch.external_cue_x, batch.external_cue_y);
     cue_hold_frames_ += 1;
@@ -1614,6 +1629,7 @@ std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::try_cue_h
     held.cue_y = cue.cue_y;
     held.cue_score = cue.score;
     held.source = "cue_hold";
+    held.has_source_detection = false;
 
     last_cue_point_ = std::make_pair(cue.cue_x, cue.cue_y);
     cue_hold_frames_ += 1;
@@ -1687,6 +1703,7 @@ VisionResult VisionTargetSelector::hold_or_reset(float boxes_seen) {
     if (hold_frames_ < kTargetHoldFrames) {
         hold_frames_ += 1;
         VisionResult result = result_from_target(*active_target_, boxes_seen);
+        result.has_selected_detection = false;
         result.auto_fire = update_auto_fire(&*active_target_);
         return result;
     }

@@ -13,6 +13,8 @@ namespace controller_native {
 
 struct NativeControllerVisionState {
     std::uint64_t vision_sequence = 0;
+    std::uint64_t selected_observation_id = 0;
+    std::uint64_t selected_track_id = 0;
     bool fresh_observation = false;
     bool has_target = false;
     bool auto_fire_requested = false;

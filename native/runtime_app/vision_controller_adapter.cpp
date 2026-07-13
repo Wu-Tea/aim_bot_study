@@ -108,6 +108,12 @@ controller_native::ControllerVisionSnapshot adapt_vision_result(
         result.captured_at_ns != 0 ? result.captured_at_ns : result.result_at_ns);
     snapshot.ready_time_seconds = ns_to_seconds(
         result.result_at_ns != 0 ? result.result_at_ns : result.captured_at_ns);
+    if (result.has_selected_detection &&
+        result.selected_detection_index < result.detections.size()) {
+        snapshot.selected_observation_id = tracker_detection_id(
+            result.frame_id,
+            result.selected_detection_index);
+    }
 
     snapshot.candidates.reserve(result.detections.size());
     snapshot.tracker_detections.reserve(result.detections.size());

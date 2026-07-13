@@ -554,6 +554,7 @@ target_compile_definitions(cod_native_runtime_config_tests
 add_executable(cod_native_target_snapshot_tests
     ../controller_native/target_snapshot_provider_tests.cpp
     ../controller_native/target_snapshot_provider.cpp
+    ../runtime_app/vision_controller_adapter.cpp
     ../tracking_native/association.cpp
     ../tracking_native/ego_motion_buffer.cpp
     ../tracking_native/projection_model.cpp

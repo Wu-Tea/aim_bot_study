@@ -154,6 +154,9 @@ void test_intent_direction_ranks_plausible_multi_target_candidates() {
     const vision_native::VisionResult result = selector.select(batch, intent);
 
     require_true(result.has_target, "intent-ranked second pickup should acquire a target");
+    require_true(
+        result.has_selected_detection && result.selected_detection_index == 1,
+        "selector result must name the exact detection that owns the target");
     require_near(
         result.target_x,
         380.0f,
@@ -309,6 +312,9 @@ void test_intent_metadata_does_not_leak_into_later_hold_frame() {
     const vision_native::VisionResult held = selector.select(jump);
 
     require_true(held.has_target, "large tracking jump should hold previous target briefly");
+    require_true(
+        !held.has_selected_detection,
+        "a held target must not claim backing from an unrelated current detection");
     require_true(
         !held.intent_applied,
         "hold frame without current intent must not inherit old intent_applied");
