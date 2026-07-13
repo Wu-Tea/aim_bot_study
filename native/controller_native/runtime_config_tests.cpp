@@ -230,6 +230,17 @@ void test_normal_template_preserves_controller_baseline() {
     require(aim.body_lock_max_ai_force_y == 0.42f);
 }
 
+void test_normal_template_does_not_advertise_inactive_fps_legacy_knobs() {
+    std::ifstream input("config.native.example.toml");
+    const std::string text{
+        std::istreambuf_iterator<char>(input),
+        std::istreambuf_iterator<char>()};
+    require(text.find("responsiveness") == std::string::npos);
+    require(text.find("weak_memory_decay") == std::string::npos);
+    require(text.find("recoil_jitter_") == std::string::npos);
+    require(text.find("manual_curve_straighten_") == std::string::npos);
+}
+
 void test_committed_legacy_full_fixture_resolves_every_assignment() {
     const std::filesystem::path path =
         "native/controller_native/testdata/legacy_full_config.toml";
@@ -286,6 +297,7 @@ int main() {
     test_compact_ads_and_bodylock_modules_resolve_detailed_controls();
     test_invalid_user_override_reports_key_and_range();
     test_normal_template_preserves_controller_baseline();
+    test_normal_template_does_not_advertise_inactive_fps_legacy_knobs();
     test_committed_legacy_full_fixture_resolves_every_assignment();
     test_environment_overrides_user_and_reports_source();
     return 0;

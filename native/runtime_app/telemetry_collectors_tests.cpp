@@ -48,6 +48,8 @@ runtime_app::TelemetryTickInput tick(std::uint64_t seq, bool aiming) {
     value.physical_x = 0.2f;
     value.manual_x = 0.18f;
     value.ai_x = 0.05f;
+    value.requested_assist_x = 0.05f;
+    value.shaped_assist_x = 0.04f;
     value.post_ai_x = 0.23f;
     value.dynamic_adjustment_x = 0.01f;
     value.post_dynamic_x = 0.24f;
@@ -64,6 +66,17 @@ runtime_app::TelemetryTickInput tick(std::uint64_t seq, bool aiming) {
     value.manual_takeover_active = true;
     value.pre_recoil_x = 0.23f;
     value.final_x = 0.23f;
+    value.selected_track_id = 41;
+    value.selected_observation_id = 73;
+    value.backing_frame_id = 19;
+    value.track_observation_age_ms = 6.25f;
+    value.track_position_sigma = 2.5f;
+    value.track_ambiguity = 0.125f;
+    value.assist_authority = "observed_strong";
+    value.assist_authority_reason = "strong_observed";
+    value.bodylock_lifecycle = "tracking";
+    value.bodylock_transition_reason = "observed";
+    value.assist_limit_reason = "step_cap";
     return value;
 }
 
@@ -138,7 +151,20 @@ void test_controller_samples_include_current_target_context() {
     std::ostringstream contents;
     contents << input.rdbuf();
     const std::string json = contents.str();
-    REQUIRE(json.find("\"controller_target_track_id\":1") != std::string::npos);
+    REQUIRE(json.find("\"controller_target_track_id\":41") != std::string::npos);
+    REQUIRE(json.find("\"selected_track_id\":41") != std::string::npos);
+    REQUIRE(json.find("\"selected_observation_id\":73") != std::string::npos);
+    REQUIRE(json.find("\"track_backing_frame_id\":19") != std::string::npos);
+    REQUIRE(json.find("\"track_observation_age_ms\":6.25") != std::string::npos);
+    REQUIRE(json.find("\"track_position_sigma\":2.5") != std::string::npos);
+    REQUIRE(json.find("\"track_ambiguity\":0.125") != std::string::npos);
+    REQUIRE(json.find("\"assist_authority\":\"observed_strong\"") != std::string::npos);
+    REQUIRE(json.find("\"assist_authority_reason\":\"strong_observed\"") != std::string::npos);
+    REQUIRE(json.find("\"bodylock_lifecycle\":\"tracking\"") != std::string::npos);
+    REQUIRE(json.find("\"bodylock_transition_reason\":\"observed\"") != std::string::npos);
+    REQUIRE(json.find("\"requested_assist_x\":0.05") != std::string::npos);
+    REQUIRE(json.find("\"shaped_assist_x\":0.04") != std::string::npos);
+    REQUIRE(json.find("\"assist_limit_reason\":\"step_cap\"") != std::string::npos);
     REQUIRE(json.find("\"target_dx\":30") != std::string::npos);
     REQUIRE(json.find("\"aim_mode\":") != std::string::npos);
     REQUIRE(json.find("\"post_ai_x\":0.23") != std::string::npos);

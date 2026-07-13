@@ -121,9 +121,7 @@ void dump_effective_config(const controller_native::RuntimeConfig& config) {
     const auto& aim = config.gamepad.ai_aim;
     line("gamepad.tracker.backend", tracking_native::tracker_backend_kind_name(config.gamepad.tracker_backend));
     line("gamepad.tracker.projection_age_ms", aim.target_projection_max_age_ms);
-    line("gamepad.tracker.responsiveness", aim.target_projection_velocity_lowpass_alpha);
     line("gamepad.tracker.max_velocity_px_per_sec", aim.target_projection_max_velocity_px_per_sec);
-    line("gamepad.tracker.weak_memory_decay", aim.target_projection_weak_velocity_decay);
     line("gamepad.tracker.lead_seconds", aim.body_lock_lead_seconds);
     line("gamepad.tracker.lead_max_px", aim.body_lock_lead_max_px);
     line("gamepad.ads.strength_scale", config.ads.strength_scale);

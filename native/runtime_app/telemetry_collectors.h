@@ -21,6 +21,8 @@ struct TelemetryTickInput {
     float physical_x = 0.0f, physical_y = 0.0f;
     float manual_x = 0.0f, manual_y = 0.0f;
     float ai_x = 0.0f, ai_y = 0.0f;
+    float requested_assist_x = 0.0f, requested_assist_y = 0.0f;
+    float shaped_assist_x = 0.0f, shaped_assist_y = 0.0f;
     float post_ai_x = 0.0f, post_ai_y = 0.0f;
     float dynamic_adjustment_x = 0.0f, dynamic_adjustment_y = 0.0f;
     float post_dynamic_x = 0.0f, post_dynamic_y = 0.0f;
@@ -40,6 +42,17 @@ struct TelemetryTickInput {
     float pre_recoil_x = 0.0f, pre_recoil_y = 0.0f;
     float recoil_x = 0.0f, recoil_y = 0.0f;
     float final_x = 0.0f, final_y = 0.0f;
+    std::uint64_t selected_track_id = 0;
+    std::uint64_t selected_observation_id = 0;
+    std::uint64_t backing_frame_id = 0;
+    float track_observation_age_ms = 0.0f;
+    float track_position_sigma = 0.0f;
+    float track_ambiguity = 0.0f;
+    const char* assist_authority = "reject";
+    const char* assist_authority_reason = "none";
+    const char* bodylock_lifecycle = "inactive";
+    const char* bodylock_transition_reason = "none";
+    const char* assist_limit_reason = "none";
 };
 
 struct TelemetryVisionInput {

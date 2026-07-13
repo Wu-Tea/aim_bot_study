@@ -103,6 +103,7 @@ controller_native::ControllerVisionSnapshot adapt_vision_result(
     }
 
     snapshot.frame_id = result.frame_id;
+    snapshot.selector_identity_protocol = result.selector_identity_protocol;
     snapshot.user_intent = result.user_aim_intent;
     snapshot.capture_time_seconds = ns_to_seconds(
         result.captured_at_ns != 0 ? result.captured_at_ns : result.result_at_ns);

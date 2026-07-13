@@ -122,12 +122,17 @@ void NativeGamepadController::reset() {
     last_frame_vision_state_ = NativeControllerVisionState{};
     auto_fire_gate_.reset();
     body_lock_short_plan_policy_.reset();
+    bodylock_lifecycle_.reset();
     ads_carry_brake_policy_.reset();
     output_validation_policy_.reset();
     ads_state_tracker_.reset();
     ads_completion_gate_.reset();
     aim_activation_tracker_.reset();
     last_ads_stopped_at_seconds_ = 0.0;
+    last_dynamics_at_seconds_ = 0.0;
+    last_bodylock_lifecycle_decision_ = BodylockLifecycleDecision{};
+    last_effective_assist_authority_ = pipeline_contract::AssistAuthorityState::Reject;
+    last_assist_limit_reason_ = "none";
 }
 
 void NativeGamepadController::submit_vision_state(const NativeControllerVisionState& state) {
@@ -171,6 +176,9 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
         output,
         &output_components.ai_aim_stick);
     output_components.post_ai_stick = {output.right_x, output.right_y};
+    output_components.requested_assist_stick = {
+        output.right_x - manual_right_x,
+        output.right_y - manual_right_y};
     output_components.aim_mode = ai_aim_.last_mode();
     record_stage_trace("ai_aim", stage_before_right_y, output, false, false);
 
@@ -206,13 +214,28 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
         output,
         manual_right_x,
         manual_right_y,
-        physical,
-        auto_fire_decision.pre_takeover_should_fire);
+        frame_vision_state,
+        now);
     capture_output_component_delta(
         stage_before_output,
         output,
         &output_components.dynamic_adjustment_stick);
     output_components.post_dynamic_stick = {output.right_x, output.right_y};
+    output_components.shaped_assist_stick = {
+        output.right_x - manual_right_x,
+        output.right_y - manual_right_y};
+    output_components.assist_authority =
+        pipeline_contract::assist_authority_state_name(
+            frame_vision_state.assist_authority_state);
+    output_components.assist_authority_reason =
+        pipeline_contract::assist_authority_reason_name(
+            frame_vision_state.assist_authority_reason);
+    output_components.bodylock_lifecycle =
+        pipeline_contract::bodylock_lifecycle_state_name(
+            last_bodylock_lifecycle_decision_.state);
+    output_components.bodylock_transition_reason =
+        bodylock_transition_reason_name(last_bodylock_lifecycle_decision_.reason);
+    output_components.assist_limit_reason = last_assist_limit_reason_;
     record_stage_trace(
         "aim_assist_dynamics",
         stage_before_right_y,
@@ -482,6 +505,36 @@ void NativeGamepadController::apply_ai_aim(
     input.manual_right_x = output.right_x;
     input.manual_right_y = output.right_y;
 
+    float lifecycle_lock_dx = 0.0f;
+    float lifecycle_lock_dy = 0.0f;
+    BodylockLifecycleInput lifecycle_input;
+    lifecycle_input.aiming = input.aiming;
+    lifecycle_input.bodylock_available =
+        !input.ads_snap_active &&
+        body_lock_error_for_state(vision_state, &lifecycle_lock_dx, &lifecycle_lock_dy);
+    lifecycle_input.selected_track_id = vision_state.selected_track_id != 0
+        ? vision_state.selected_track_id
+        : (vision_state.has_target ? 1u : 0u);
+    lifecycle_input.authority = vision_state.authority_decision_valid
+        ? vision_state.assist_authority_state
+        : (vision_state.aim_authority
+            ? pipeline_contract::AssistAuthorityState::ObservedStrong
+            : pipeline_contract::AssistAuthorityState::Reject);
+    lifecycle_input.authority_reason = vision_state.authority_decision_valid
+        ? vision_state.assist_authority_reason
+        : pipeline_contract::AssistAuthorityReason::None;
+    lifecycle_input.manual_x = input.manual_right_x;
+    lifecycle_input.manual_y = input.manual_right_y;
+    lifecycle_input.now_seconds = now_seconds;
+    last_bodylock_lifecycle_decision_ = bodylock_lifecycle_.update(lifecycle_input);
+    last_effective_assist_authority_ = lifecycle_input.authority;
+    if (last_bodylock_lifecycle_decision_.reset_assist_history) {
+        ai_aim_.reset();
+        aim_assist_dynamics_.reset();
+    }
+    input.bodylock_lifecycle_valid = true;
+    input.bodylock_lifecycle = last_bodylock_lifecycle_decision_.state;
+
     const NativeAiAimOutput assist = ai_aim_.compute(input);
     if (assist.has_assist) {
         output.right_x = clamp_unit(output.right_x + assist.assist_x);
@@ -503,7 +556,8 @@ void NativeGamepadController::apply_ai_aim(
     validation_input.candidate_output_hold_active =
         target_snapshot_provider_.candidate_output_hold_active(now_seconds);
     validation_input.now_seconds = now_seconds;
-    if (ai_aim_.last_mode() == "body_lock") {
+    if (ai_aim_.last_mode() == "body_lock" &&
+        !validation_input.candidate_output_hold_active) {
         // Validation owns ADS/candidate braking state.  Do not let state armed
         // before body-lock survive the user-owned tracking interval and fire
         // when the mode later changes again.
@@ -548,21 +602,26 @@ void NativeGamepadController::apply_aim_assist_dynamics(
     GamepadOutputState& output,
     float manual_right_x,
     float manual_right_y,
-    const PhysicalGamepadState& physical,
-    bool auto_fire_active) {
+    const NativeControllerVisionState& vision_state,
+    double now_seconds) {
     NativeAimAssistDynamicsInput input;
-    input.manual_right_x = manual_right_x;
-    input.manual_right_y = manual_right_y;
-    input.assisted_right_x = output.right_x;
-    input.assisted_right_y = output.right_y;
-    input.recoil_active = false;
-    input.manual_fire_active = physical.rb || physical.right_trigger > 0.04f;
-    input.auto_fire_active = auto_fire_active;
-    input.now_seconds = now_seconds();
+    input.manual = {manual_right_x, manual_right_y};
+    input.requested_assist = {
+        output.right_x - manual_right_x,
+        output.right_y - manual_right_y};
+    input.authority = last_effective_assist_authority_;
+    input.lifecycle = last_bodylock_lifecycle_decision_.state;
+    input.target_error_px = {vision_state.dx, vision_state.dy};
+    input.dt_seconds = last_dynamics_at_seconds_ > 0.0
+        ? now_seconds - last_dynamics_at_seconds_
+        : 0.001;
+    input.now_seconds = now_seconds;
 
     const NativeAimAssistDynamicsOutput shaped = aim_assist_dynamics_.apply(input);
-    output.right_x = shaped.right_x;
-    output.right_y = shaped.right_y;
+    output.right_x = clamp_unit(manual_right_x + shaped.assist.x);
+    output.right_y = clamp_unit(manual_right_y + shaped.assist.y);
+    last_assist_limit_reason_ = shaped.limit_reason;
+    last_dynamics_at_seconds_ = now_seconds;
 }
 
 void NativeGamepadController::apply_ads_near_target_brake(
@@ -603,6 +662,18 @@ void NativeGamepadController::apply_ads_carry_brake(
     float target_error_y,
     double now_seconds,
     bool candidate_output_hold_active) const {
+    const bool explicit_track_only_or_reject =
+        vision_state.authority_decision_valid &&
+        (vision_state.assist_authority_state ==
+             pipeline_contract::AssistAuthorityState::Reject ||
+         vision_state.assist_authority_state ==
+             pipeline_contract::AssistAuthorityState::TrackOnly);
+    if (!vision_state.aim_authority || explicit_track_only_or_reject) {
+        output.right_x = manual_right_x;
+        output.right_y = manual_right_y;
+        return;
+    }
+
     AdsCarryBrakeInput input;
     input.output = output;
     input.manual_right_x = manual_right_x;

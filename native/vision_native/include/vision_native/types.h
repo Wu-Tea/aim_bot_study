@@ -84,6 +84,7 @@ struct DetectionBatch {
 };
 
 struct VisionResult {
+    bool selector_identity_protocol = false;
     uint64_t frame_id = 0;
     uint64_t captured_at_ns = 0;
     uint64_t inferred_at_ns = 0;

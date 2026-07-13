@@ -21,6 +21,13 @@ NativeAiAim::NativeAiAim(GamepadAiAimConfig config)
       body_lock_motion_(config_) {}
 
 void NativeAiAim::reset() {
+    reset_body_lock_history();
+    ads_snap_ai_stick_x_ = 0.0f;
+    ads_snap_ai_stick_y_ = 0.0f;
+    last_mode_ = "manual";
+}
+
+void NativeAiAim::reset_body_lock_history() {
     body_lock_frames_ = 0;
     has_body_lock_reference_ = false;
     body_lock_reference_x_ = 0.0f;
@@ -29,8 +36,6 @@ void NativeAiAim::reset() {
     body_lock_reference_top_ = 0.0f;
     body_lock_reference_right_ = 0.0f;
     body_lock_reference_bottom_ = 0.0f;
-    ads_snap_ai_stick_x_ = 0.0f;
-    ads_snap_ai_stick_y_ = 0.0f;
     body_lock_ai_stick_x_ = 0.0f;
     body_lock_ai_stick_y_ = 0.0f;
     has_last_body_lock_error_x_ = false;
@@ -40,14 +45,24 @@ void NativeAiAim::reset() {
     body_lock_zero_cross_hold_x_ = 0;
     body_lock_zero_cross_hold_y_ = 0;
     reset_body_lock_manual_takeover();
-    last_mode_ = "manual";
     reset_motion_tracking();
 }
 
 NativeAiAimOutput NativeAiAim::compute(const NativeAiAimInput& input) {
     NativeAiAimOutput output;
+    const bool lifecycle_owns_bodylock =
+        !input.bodylock_lifecycle_valid ||
+        input.bodylock_lifecycle == pipeline_contract::BodylockLifecycleState::Warm ||
+        input.bodylock_lifecycle == pipeline_contract::BodylockLifecycleState::Tracking ||
+        input.bodylock_lifecycle == pipeline_contract::BodylockLifecycleState::Coast;
     if (!input.aiming || !input.has_target || !input.aim_authority) {
-        reset();
+        if (!input.bodylock_lifecycle_valid ||
+            input.bodylock_lifecycle == pipeline_contract::BodylockLifecycleState::Inactive ||
+            input.bodylock_lifecycle == pipeline_contract::BodylockLifecycleState::Yield) {
+            reset();
+        } else {
+            last_mode_ = "manual";
+        }
         return output;
     }
     if (config_.target_max_age_ms > 0.0f && input.observed_at_seconds > 0.0 &&
@@ -66,9 +81,14 @@ NativeAiAimOutput NativeAiAim::compute(const NativeAiAimInput& input) {
     }
 
     const bool ads_snap_mode = input.ads_snap_active;
-    const bool body_lock_active = !ads_snap_mode && should_body_lock(input);
+    const bool body_lock_active =
+        !ads_snap_mode && lifecycle_owns_bodylock && should_body_lock(input);
     if (!body_lock_active && !input.ads_snap_active) {
-        reset();
+        if (!input.bodylock_lifecycle_valid || !lifecycle_owns_bodylock) {
+            reset();
+        } else {
+            last_mode_ = "manual";
+        }
         return output;
     }
     if (!body_lock_active) {
@@ -117,7 +137,9 @@ NativeAiAimOutput NativeAiAim::compute(const NativeAiAimInput& input) {
     if (body_lock_active) {
         if (tracking_native::is_strong_observation(input.target_tier)) {
             observe_body_lock_motion(input);
-        } else {
+        } else if (!input.bodylock_lifecycle_valid ||
+                   input.bodylock_lifecycle !=
+                       pipeline_contract::BodylockLifecycleState::Coast) {
             reset_motion_tracking();
         }
         const auto [lock_dx, lock_dy] = body_lock_target_delta(input);

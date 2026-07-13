@@ -12,6 +12,8 @@ struct NativeControllerOutputComponents {
     common_native::Vec2f physical_stick;
     common_native::Vec2f manual_stick;
     common_native::Vec2f ai_aim_stick;
+    common_native::Vec2f requested_assist_stick;
+    common_native::Vec2f shaped_assist_stick;
     common_native::Vec2f dynamic_adjustment_stick;
     common_native::Vec2f post_ai_stick;
     common_native::Vec2f post_dynamic_stick;
@@ -31,6 +33,11 @@ struct NativeControllerOutputComponents {
     common_native::Vec2f recoil_stick;
     common_native::Vec2f final_stick;
     std::string aim_mode = "none";
+    std::string assist_authority = "reject";
+    std::string assist_authority_reason = "none";
+    std::string bodylock_lifecycle = "inactive";
+    std::string bodylock_transition_reason = "none";
+    std::string assist_limit_reason = "none";
     bool ads_brake_active = false;
     bool fire_button = false;
 };

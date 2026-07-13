@@ -2,6 +2,7 @@
 
 #include "bodylock_policy.h"
 #include "runtime_config.h"
+#include "../pipeline_contract/assist_authority.h"
 
 #include <string>
 #include <utility>
@@ -35,6 +36,9 @@ struct NativeAiAimInput {
     double now_seconds = 0.0;
     float manual_right_x = 0.0f;
     float manual_right_y = 0.0f;
+    bool bodylock_lifecycle_valid = false;
+    pipeline_contract::BodylockLifecycleState bodylock_lifecycle =
+        pipeline_contract::BodylockLifecycleState::Inactive;
 };
 
 struct NativeAiAimOutput {
@@ -59,6 +63,7 @@ private:
     std::pair<float, float> body_lock_motion_lead_delta(const NativeAiAimInput& input) const;
     void observe_body_lock_motion(const NativeAiAimInput& input);
     void reset_motion_tracking();
+    void reset_body_lock_history();
     float body_lock_lateral_motion_delta(float dx) const;
     float body_lock_axis_release_threshold(bool y_axis) const;
     float body_lock_axis_release_tail_scale(bool y_axis) const;

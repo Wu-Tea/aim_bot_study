@@ -840,9 +840,12 @@ void test_controller_accepts_controller_vision_snapshot_without_vision_result() 
 
     controller_native::ControllerVisionSnapshot snapshot;
     snapshot.frame_updated = true;
+    snapshot.selector_identity_protocol = true;
     snapshot.frame_id = 101;
-    snapshot.capture_time_seconds = 10.0;
-    snapshot.ready_time_seconds = 10.010;
+    const double snapshot_time = now_seconds();
+    snapshot.capture_time_seconds = snapshot_time;
+    snapshot.ready_time_seconds = snapshot_time;
+    snapshot.selected_observation_id = 77;
     snapshot.state.has_target = true;
     snapshot.state.aim_authority = true;
     snapshot.state.fire_authority = true;
@@ -854,13 +857,19 @@ void test_controller_accepts_controller_vision_snapshot_without_vision_result() 
 
     tracking_native::TrackerDetection detection;
     detection.id = 77;
-    detection.body_box_px = {280.0f, 200.0f, 80.0f, 140.0f};
-    detection.aim_point_px = {320.0f, 256.0f};
+    detection.body_box_px = {330.0f, 200.0f, 80.0f, 140.0f};
+    detection.aim_point_px = {370.0f, 256.0f};
     detection.has_aim_point = true;
     detection.confidence = 0.90f;
     detection.target_tier = "observed_strong";
     snapshot.tracker_detections.push_back(detection);
 
+    controller.submit_vision_snapshot(snapshot);
+    snapshot.frame_id = 102;
+    snapshot.capture_time_seconds = snapshot_time + 0.010;
+    snapshot.ready_time_seconds = snapshot_time + 0.010;
+    snapshot.selected_observation_id = 78;
+    snapshot.tracker_detections.front().id = 78;
     controller.submit_vision_snapshot(snapshot);
     controller_native::GamepadOutputState output =
         controller.build_output(aiming_physical_state());
@@ -1323,7 +1332,15 @@ void test_fps_reference_controller_clears_no_update_after_projection_ttl() {
     submit_adapted_vision_result(controller, make_result(2, 5'000'000ull));
     const controller_native::GamepadOutputState fresh =
         controller.build_output(aiming_physical_state());
-    require_true(fresh.right_x > 0.30f, "fresh fps_reference target should produce assist");
+    const auto fresh_state = controller.last_frame_vision_state();
+    std::ostringstream fresh_message;
+    fresh_message << "fresh fps_reference target should produce assist"
+                  << " output=" << fresh.right_x
+                  << " target=" << fresh_state.has_target
+                  << " aim=" << fresh_state.aim_authority
+                  << " tier=" << fresh_state.target_tier
+                  << " projection=" << fresh_state.has_tracker_projection;
+    require_true(fresh.right_x > 0.30f, fresh_message.str());
 
     vision_native::VisionResult no_update;
     no_update.frame_updated = false;
@@ -1516,7 +1533,10 @@ void test_controller_tracker_records_component_aware_final_motion() {
     controller.build_output(firing);
     std::this_thread::sleep_for(std::chrono::milliseconds(12));
     const controller_native::GamepadOutputState firing_output = controller.build_output(firing);
-    require_true(firing_output.right_x < -0.10f, "test setup should produce opposing recoil compensation");
+    require_true(
+        firing_output.right_x < -0.10f,
+        "test setup should produce opposing recoil compensation actual=" +
+            std::to_string(firing_output.right_x));
     require_near(
         controller.last_tracker_motion_output().right_x,
         firing_output.right_x,
@@ -3078,7 +3098,7 @@ void test_controller_output_validation_yields_to_manual_correction_with_tracker_
         "manual correction backed by tracker reference should not be opposed by stale AI aim");
 }
 
-void test_controller_output_validation_corrects_stale_observed_wrong_way_ads_manual() {
+void test_controller_output_validation_does_not_turn_manual_into_assist() {
     controller_native::GamepadRuntimeConfig config;
     config.ai_aim.target_max_age_ms = 80.0f;
     config.ai_aim.ads_snap_window_ms = 0;
@@ -3111,9 +3131,11 @@ void test_controller_output_validation_corrects_stale_observed_wrong_way_ads_man
     controller.build_output(physical);
     const auto output = controller.last_output_components().final_stick;
 
-    require_true(
-        output.x > 0.03f && output.x <= 0.14f,
-        "stale observed ADS target should apply a bounded correction before TTL expiry");
+    require_near(
+        output.x,
+        physical.right_x,
+        0.0001f,
+        "validation must not reinterpret manual-only output as stale-target assist");
 }
 
 void test_controller_suspicious_target_jump_holds_ai_aim_until_verified() {
@@ -3166,12 +3188,11 @@ void test_controller_suspicious_target_jump_holds_ai_aim_until_verified() {
     submit_target(160.0f);
     controller.build_output(aiming_physical_state());
     const auto held = controller.last_output_components().final_stick;
-    if (!(held.x > 0.04f && held.x < 0.50f)) {
-        std::ostringstream out;
-        out << "single suspicious target jump should coast on tracker projection instead of aiming at raw jump actual="
-            << held.x;
-        throw std::runtime_error(out.str());
-    }
+    require_near(
+        held.x,
+        0.0f,
+        0.0001f,
+        "single suspicious jump without verified continuity must withhold assist");
 }
 
 void test_controller_moderate_stale_jump_coasts_on_tracker_projection() {
@@ -3225,9 +3246,11 @@ void test_controller_moderate_stale_jump_coasts_on_tracker_projection() {
     controller.build_output(aiming_physical_state());
     const auto held = controller.last_output_components().final_stick;
 
-    require_true(
-        held.x > 0.04f && held.x < 0.50f,
-        "moderate stale-position jump should coast on tracker projection instead of raw target");
+    require_near(
+        held.x,
+        0.0f,
+        0.0001f,
+        "moderate unverified jump must withhold assist instead of using raw target");
 }
 
 void test_controller_fresh_stale_jump_inside_candidate_threshold_uses_tracker_projection() {
@@ -3403,7 +3426,7 @@ void test_controller_accepts_sustained_candidate_after_fresh_samples() {
         "sustained candidate with consecutive fresh samples should become the aim target");
 }
 
-void test_controller_candidate_hold_corrects_manual_away_from_candidate() {
+void test_controller_candidate_hold_does_not_reverse_opposing_manual() {
     controller_native::GamepadRuntimeConfig config;
     config.tracker_backend = tracking_native::TrackerBackendKind::LegacyProjection;
     config.ai_aim.target_max_age_ms = 500.0f;
@@ -3448,13 +3471,13 @@ void test_controller_candidate_hold_corrects_manual_away_from_candidate() {
     physical.right_x = -0.92f;
     controller.build_output(physical);
     const auto held = controller.last_output_components().final_stick;
-
     require_true(
-        held.x > 0.20f && held.x < 0.26f,
-        "candidate hold should apply bounded correction instead of hard-zeroing manual output");
+        held.x < -0.55f,
+        "candidate hold may damp authorized assist but must not reverse strong opposing manual input actual=" +
+            std::to_string(held.x));
 }
 
-void test_controller_ads_candidate_projection_hold_survives_short_occlusion_gap() {
+void test_controller_ads_candidate_projection_hold_preserves_manual_during_gap() {
     controller_native::GamepadRuntimeConfig config;
     config.tracker_backend = tracking_native::TrackerBackendKind::LegacyProjection;
     config.ai_aim.target_max_age_ms = 80.0f;
@@ -3505,9 +3528,11 @@ void test_controller_ads_candidate_projection_hold_survives_short_occlusion_gap(
     controller.build_output(physical);
     const auto held = controller.last_output_components().final_stick;
 
-    require_true(
-        held.x > 0.20f && held.x < 0.26f,
-        "ADS candidate projection hold should correct away-from-candidate manual without hard zero");
+    require_near(
+        held.x,
+        physical.right_x,
+        0.0001f,
+        "ADS candidate projection hold must not reinterpret manual input as correction");
 }
 
 void test_controller_candidate_projection_hold_uses_projection_time_for_freshness() {
@@ -3561,9 +3586,11 @@ void test_controller_candidate_projection_hold_uses_projection_time_for_freshnes
     controller.build_output(physical);
     const auto held = controller.last_output_components().final_stick;
 
-    require_true(
-        held.x > 0.20f && held.x < 0.26f,
-        "active candidate projection hold should stay fresh and bounded-correct wrong-way manual");
+    require_near(
+        held.x,
+        physical.right_x,
+        0.0001f,
+        "active candidate projection hold must preserve manual even while projection is fresh");
 }
 
 void test_controller_suspicious_candidate_without_projection_holds_output_until_verified() {
@@ -3617,12 +3644,16 @@ void test_controller_suspicious_candidate_without_projection_holds_output_until_
     require_true(
         !frame.has_target && !frame.fire_authority,
         "suspicious no-projection candidate should not become an aim target while unverified");
-    require_true(
-        output.x > 0.20f && output.x < 0.26f,
-        "suspicious no-projection candidate should bounded-correct x while waiting for verification");
-    require_true(
-        output.y > 0.60f && output.y < 0.68f,
-        "suspicious no-projection candidate should preserve y output that already moves toward the candidate");
+    require_near(
+        output.x,
+        physical.right_x,
+        0.0001f,
+        "suspicious no-projection candidate must preserve manual x while unverified");
+    require_near(
+        output.y,
+        physical.right_y,
+        0.0001f,
+        "suspicious no-projection candidate must preserve manual y while unverified");
 }
 
 void test_controller_accepts_moving_candidate_after_fresh_samples() {
@@ -3730,7 +3761,7 @@ void test_controller_verified_candidate_reopens_ads_snap_after_initial_window() 
         "verified candidate should reopen ADS snap briefly after the initial ADS window");
 }
 
-void test_controller_candidate_returning_to_projection_envelope_reopens_ads_snap() {
+void test_controller_projection_envelope_without_authority_stays_manual() {
     controller_native::GamepadRuntimeConfig config;
     config.tracker_backend = tracking_native::TrackerBackendKind::LegacyProjection;
     config.ai_aim.target_max_age_ms = 500.0f;
@@ -3780,18 +3811,14 @@ void test_controller_candidate_returning_to_projection_envelope_reopens_ads_snap
     controller.build_output(aiming_physical_state());
     const auto reacquired = controller.last_output_components().final_stick;
 
-    if (!(std::fabs(reacquired.x) > 0.10f && std::fabs(reacquired.x) < 0.60f &&
-          controller.last_ai_aim_mode() == "ads_snap")) {
-        std::ostringstream out;
-        out << "projected candidate continuity should keep bounded ADS acquisition active actual="
-            << reacquired.x << " mode=" << controller.last_ai_aim_mode()
-            << " tier=" << controller.last_frame_vision_state().target_tier
-            << " fresh=" << controller.last_frame_vision_state().fresh_observation
-            << " has_target=" << controller.last_frame_vision_state().has_target
-            << " authority=" << controller.last_frame_vision_state().aim_authority
-            << " dx=" << controller.last_frame_vision_state().dx;
-        throw std::runtime_error(out.str());
-    }
+    require_near(
+        reacquired.x,
+        0.0f,
+        0.0001f,
+        "projected candidate without explicit continuity authority must stay manual");
+    require_true(
+        controller.last_ai_aim_mode() == "manual",
+        "projected candidate without authority must not reopen ADS snap");
 }
 
 void test_body_lock_clears_vertical_axis_on_near_zero_sign_flip() {
@@ -4624,57 +4651,45 @@ void test_ai_aim_deadzone_suppresses_tiny_target_error() {
     require_true(!output.has_assist, "AI aim should suppress target error inside the inner deadzone");
 }
 
-void test_aim_assist_dynamics_guards_small_recoil_sign_flip() {
+void test_aim_assist_dynamics_bounds_authorized_steps_and_reversals() {
     controller_native::GamepadAimAssistDynamicsConfig config;
     config.enabled = true;
-    config.recoil_jitter_guard_enabled = true;
-    config.recoil_jitter_assist_threshold = 32767.0f;
-    config.recoil_jitter_flip_scale = 0.20f;
-    config.recoil_jitter_memory_seconds = 0.050f;
     controller_native::NativeAimAssistDynamics dynamics(config);
 
     controller_native::NativeAimAssistDynamicsInput input;
-    input.recoil_active = true;
+    input.authority = pipeline_contract::AssistAuthorityState::ObservedStrong;
+    input.lifecycle = pipeline_contract::BodylockLifecycleState::Tracking;
+    input.target_error_px = {12.0f, 8.0f};
+    input.dt_seconds = 0.001;
     input.now_seconds = 20.0;
-    input.assisted_right_x = 0.20f;
+    input.requested_assist = {0.80f, 0.0f};
     controller_native::NativeAimAssistDynamicsOutput output = dynamics.apply(input);
-    require_near(output.right_x, 0.20f, 0.001f, "first assist sample should pass through");
+    require_near(output.assist.x, 0.10f, 0.0001f,
+                 "near-target assist attack must be bounded per nominal tick");
 
-    input.now_seconds = 20.02;
-    input.assisted_right_x = -0.20f;
+    input.now_seconds += 0.001;
+    input.requested_assist.x = -0.80f;
     output = dynamics.apply(input);
-    require_near(output.right_x, -0.04f, 0.001f, "small recoil sign flip should be scaled");
+    require_true(output.assist.x >= 0.0f,
+                 "assist must decelerate through zero before changing sign");
 }
 
-void test_aim_assist_dynamics_straightens_manual_curve_without_recoil_active() {
+void test_aim_assist_dynamics_preserves_manual_contract_at_authority_boundary() {
     controller_native::GamepadAimAssistDynamicsConfig config;
     config.enabled = true;
-    config.manual_curve_straighten_enabled = true;
-    config.manual_curve_straighten_strength = 0.50f;
-    config.manual_curve_straighten_min_manual = 0.0f;
-    config.manual_curve_straighten_min_assist = 0.0f;
     controller_native::NativeAimAssistDynamics dynamics(config);
 
     controller_native::NativeAimAssistDynamicsInput input;
-    input.manual_right_x = 0.0f;
-    input.manual_right_y = 0.40f;
-    input.assisted_right_x = 0.30f;
-    input.assisted_right_y = 0.40f;
+    input.manual = {0.80f, 0.66f};
+    input.requested_assist = {-0.70f, -0.65f};
+    input.authority = pipeline_contract::AssistAuthorityState::TrackOnly;
+    input.lifecycle = pipeline_contract::BodylockLifecycleState::Yield;
     input.now_seconds = 20.0;
-
-    controller_native::NativeAimAssistDynamicsOutput output = dynamics.apply(input);
-    require_near(output.right_x, 0.30f, 0.001f, "low-alignment straightening should preserve planned assist x");
-    require_near(output.right_y, 0.40f, 0.001f, "low-alignment straightening should preserve manual curve");
-
-    input.manual_right_x = 0.30f;
-    input.manual_right_y = 0.05f;
-    input.assisted_right_x = 0.60f;
-    input.assisted_right_y = 0.05f;
-    input.now_seconds = 20.02;
-
-    output = dynamics.apply(input);
-    require_near(output.right_x, 0.60f, 0.001f, "high-alignment straightening should preserve planned assist x");
-    require_near(output.right_y, 0.025f, 0.001f, "high-alignment straightening should damp the curved manual axis");
+    const controller_native::NativeAimAssistDynamicsOutput output = dynamics.apply(input);
+    require_near(output.assist.x, 0.0f, 0.0f,
+                 "track-only must emit no residual X assist");
+    require_near(output.assist.y, 0.0f, 0.0f,
+                 "track-only must emit no residual Y assist");
 }
 
 
@@ -5016,18 +5031,18 @@ int main() {
         test_controller_output_validation_corrects_wrong_way_after_x_crossing();
         test_controller_output_validation_caps_only_crossed_axis_on_diagonal();
         test_controller_output_validation_yields_to_manual_correction_with_tracker_reference();
-        test_controller_output_validation_corrects_stale_observed_wrong_way_ads_manual();
+        test_controller_output_validation_does_not_turn_manual_into_assist();
         test_controller_suspicious_target_jump_holds_ai_aim_until_verified();
         test_controller_moderate_stale_jump_coasts_on_tracker_projection();
         test_controller_fresh_stale_jump_inside_candidate_threshold_uses_tracker_projection();
         test_controller_accepts_sustained_candidate_after_fresh_samples();
-        test_controller_candidate_hold_corrects_manual_away_from_candidate();
-        test_controller_ads_candidate_projection_hold_survives_short_occlusion_gap();
+        test_controller_candidate_hold_does_not_reverse_opposing_manual();
+        test_controller_ads_candidate_projection_hold_preserves_manual_during_gap();
         test_controller_candidate_projection_hold_uses_projection_time_for_freshness();
         test_controller_suspicious_candidate_without_projection_holds_output_until_verified();
         test_controller_accepts_moving_candidate_after_fresh_samples();
         test_controller_verified_candidate_reopens_ads_snap_after_initial_window();
-        test_controller_candidate_returning_to_projection_envelope_reopens_ads_snap();
+        test_controller_projection_envelope_without_authority_stays_manual();
         test_controller_ads_holds_recent_strong_target_when_projection_ages_out();
         test_body_lock_clears_vertical_axis_on_near_zero_sign_flip();
         test_body_lock_applies_motion_lead_after_configured_history_frames();
@@ -5055,8 +5070,8 @@ int main() {
         test_ads_carry_brake_policy_does_not_cross_axis_cap_same_direction_output();
         test_ads_snap_smoothing_interpolates_first_assist_frame();
         test_ai_aim_deadzone_suppresses_tiny_target_error();
-        test_aim_assist_dynamics_guards_small_recoil_sign_flip();
-        test_aim_assist_dynamics_straightens_manual_curve_without_recoil_active();
+        test_aim_assist_dynamics_bounds_authorized_steps_and_reversals();
+        test_aim_assist_dynamics_preserves_manual_contract_at_authority_boundary();
         test_controller_recoil_uses_runtime_ads_or_hipfire_profile_selection();
         test_controller_recoil_profile_is_not_suppressed_by_target_direction_state();
         test_controller_recoil_uses_fallback_when_no_recognizer_state_is_configured();

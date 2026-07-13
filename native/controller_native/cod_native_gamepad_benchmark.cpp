@@ -4354,6 +4354,8 @@ ScenarioMetrics run_bodylock_mode_chatter_defect_100hz(
         std::max(config.ai_aim.body_lock_activation_box_px, 190.0f);
     config.ai_aim.body_lock_confidence_frames = 1;
     controller_native::NativeAiAim ai_aim(config.ai_aim);
+    controller_native::BodylockLifecycle lifecycle;
+    controller_native::NativeAimAssistDynamics dynamics(config.aim_assist_dynamics);
     controller_native::OutputValidationPolicy validation(config.ai_aim);
     std::vector<replay_native::NativeReplayFrame> replay_frames;
     replay_frames.reserve(kTicks);
@@ -4390,6 +4392,31 @@ ScenarioMetrics run_bodylock_mode_chatter_defect_100hz(
             state.has_body_box = false;
             ads_snap_active = true;
         }
+        state.selected_track_id = 1;
+        state.authority_decision_valid = true;
+        if (!state.aim_authority || state.target_tier == "cue_hold") {
+            state.assist_authority_state = pipeline_contract::AssistAuthorityState::TrackOnly;
+            state.assist_authority_reason = state.target_tier == "cue_hold"
+                ? pipeline_contract::AssistAuthorityReason::CueOnly
+                : pipeline_contract::AssistAuthorityReason::ProjectedOnly;
+        } else {
+            state.assist_authority_state =
+                pipeline_contract::AssistAuthorityState::ObservedStrong;
+            state.assist_authority_reason =
+                pipeline_contract::AssistAuthorityReason::StrongObserved;
+        }
+
+        controller_native::BodylockLifecycleInput lifecycle_input;
+        lifecycle_input.aiming = true;
+        lifecycle_input.bodylock_available = state.has_body_box && !ads_snap_active;
+        lifecycle_input.selected_track_id = state.selected_track_id;
+        lifecycle_input.authority = state.assist_authority_state;
+        lifecycle_input.authority_reason = state.assist_authority_reason;
+        lifecycle_input.manual_x = kManualX;
+        lifecycle_input.manual_y = kManualY;
+        lifecycle_input.now_seconds = now;
+        const controller_native::BodylockLifecycleDecision lifecycle_decision =
+            lifecycle.update(lifecycle_input);
 
         controller_native::NativeAiAimInput input;
         input.aiming = true;
@@ -4417,6 +4444,8 @@ ScenarioMetrics run_bodylock_mode_chatter_defect_100hz(
         input.now_seconds = now;
         input.manual_right_x = kManualX;
         input.manual_right_y = kManualY;
+        input.bodylock_lifecycle_valid = true;
+        input.bodylock_lifecycle = lifecycle_decision.state;
 
         controller_native::GamepadOutputState output;
         output.right_x = kManualX;
@@ -4436,6 +4465,21 @@ ScenarioMetrics run_bodylock_mode_chatter_defect_100hz(
             validation_input.now_seconds = now;
             output = validation.apply(validation_input);
         }
+
+        controller_native::NativeAimAssistDynamicsInput dynamics_input;
+        dynamics_input.manual = {kManualX, kManualY};
+        dynamics_input.requested_assist = {
+            output.right_x - kManualX,
+            output.right_y - kManualY};
+        dynamics_input.authority = state.assist_authority_state;
+        dynamics_input.lifecycle = lifecycle_decision.state;
+        dynamics_input.target_error_px = {state.dx, state.dy};
+        dynamics_input.dt_seconds = kDtSeconds;
+        dynamics_input.now_seconds = now;
+        const controller_native::NativeAimAssistDynamicsOutput shaped =
+            dynamics.apply(dynamics_input);
+        output.right_x = clamp_unit(kManualX + shaped.assist.x);
+        output.right_y = clamp_unit(kManualY + shaped.assist.y);
 
         const std::string& mode = ai_aim.last_mode();
         if (mode == "body_lock") {
@@ -4807,6 +4851,34 @@ ScenarioMetrics run_ads_bodylock_moving_chase_100hz(
         state.body_y2 = state.body_y1 + body_height;
         return state;
     };
+    const auto modern_body_snapshot = [](
+        const controller_native::NativeControllerVisionState& state,
+        std::uint64_t frame_id,
+        double now) {
+        controller_native::ControllerVisionSnapshot snapshot;
+        snapshot.frame_updated = true;
+        snapshot.selector_identity_protocol = true;
+        snapshot.state = state;
+        snapshot.frame_id = frame_id;
+        snapshot.capture_time_seconds = now;
+        snapshot.ready_time_seconds = now;
+        const std::uint64_t observation_id = (frame_id << 32u) | 1u;
+        snapshot.selected_observation_id = observation_id;
+        tracking_native::TrackerDetection detection;
+        detection.id = observation_id;
+        detection.body_box_px = {
+            state.body_x1,
+            state.body_y1,
+            state.body_x2 - state.body_x1,
+            state.body_y2 - state.body_y1};
+        detection.aim_point_px = {state.target_x, state.target_y};
+        detection.has_aim_point = true;
+        detection.confidence = 0.95f;
+        detection.class_id = 0;
+        detection.target_tier = state.target_tier;
+        snapshot.tracker_detections.push_back(detection);
+        return snapshot;
+    };
 
     std::vector<double> residual_errors;
     std::vector<double> final_errors;
@@ -4938,13 +5010,17 @@ ScenarioMetrics run_ads_bodylock_moving_chase_100hz(
                 ++metrics.ads_manual_stress_vision_dropped_ticks;
             }
             if (tick % kVisionIntervalTicks == 0 && !in_occlusion) {
-                controller.submit_vision_state(
+                const controller_native::NativeControllerVisionState observed_state =
                     moving_body_state(
                         static_cast<float>(expected_dx),
                         static_cast<float>(expected_dy),
                         simulated_now,
                         static_cast<float>(body_width),
-                        static_cast<float>(body_height)));
+                        static_cast<float>(body_height));
+                controller.submit_vision_snapshot(modern_body_snapshot(
+                    observed_state,
+                    static_cast<std::uint64_t>(global_tick + 1),
+                    simulated_now));
                 ++metrics.ads_manual_stress_vision_samples;
                 if (has_previous_report &&
                     std::hypot(

@@ -8,6 +8,7 @@
 #include "ai_aim.h"
 #include "auto_fire_gate.h"
 #include "body_lock_short_plan_policy.h"
+#include "bodylock_lifecycle.h"
 #include "controller_tick_context.h"
 #include "controller_vision_snapshot.h"
 #include "output_validation_policy.h"
@@ -85,8 +86,8 @@ private:
         GamepadOutputState& output,
         float manual_right_x,
         float manual_right_y,
-        const PhysicalGamepadState& physical,
-        bool auto_fire_active);
+        const NativeControllerVisionState& vision_state,
+        double now_seconds);
     void apply_ads_near_target_brake(
         GamepadOutputState& output,
         float manual_right_x,
@@ -127,6 +128,7 @@ private:
     AimActivationTracker aim_activation_tracker_;
     AutoFireGate auto_fire_gate_;
     BodyLockShortPlanPolicy body_lock_short_plan_policy_;
+    BodylockLifecycle bodylock_lifecycle_;
     AdsCarryBrakePolicy ads_carry_brake_policy_;
     OutputValidationPolicy output_validation_policy_;
     TargetSnapshotProvider target_snapshot_provider_;
@@ -136,6 +138,11 @@ private:
     NativeControllerVisionState last_frame_vision_state_;
     std::function<double()> clock_;
     double last_ads_stopped_at_seconds_ = 0.0;
+    double last_dynamics_at_seconds_ = 0.0;
+    BodylockLifecycleDecision last_bodylock_lifecycle_decision_;
+    std::string last_assist_limit_reason_ = "none";
+    pipeline_contract::AssistAuthorityState last_effective_assist_authority_ =
+        pipeline_contract::AssistAuthorityState::Reject;
 };
 
 }  // namespace controller_native

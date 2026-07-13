@@ -38,9 +38,7 @@ validation_mode = "strict"
 [gamepad.tracker]
 backend = "fps_reference"
 projection_age_ms = 96
-responsiveness = 0.35
 max_velocity_px_per_sec = 1200
-weak_memory_decay = 0.70
 lead_seconds = 0.026
 lead_max_px = 18
 

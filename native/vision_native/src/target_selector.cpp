@@ -705,6 +705,7 @@ std::optional<VisionTargetSelector::FrameRegion> VisionTargetSelector::required_
 
 VisionResult VisionTargetSelector::empty_result(float boxes_seen) const {
     VisionResult result;
+    result.selector_identity_protocol = true;
     result.screen_center_x = screen_center_x_;
     result.screen_center_y = screen_center_y_;
     result.target_x = screen_center_x_;

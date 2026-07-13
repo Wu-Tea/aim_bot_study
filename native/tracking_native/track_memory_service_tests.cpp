@@ -148,6 +148,37 @@ void test_track_memory_ingests_all_candidates_without_assist_authority() {
     }
 }
 
+std::vector<pipeline_contract::TrackEstimate> run_fps_memory_with_legacy_knobs(
+    float velocity_alpha,
+    float weak_decay) {
+    pipeline_contract::TargetTrackerConfig config;
+    config.velocity_lowpass_alpha = velocity_alpha;
+    config.weak_observation_velocity_decay = weak_decay;
+    tracking_native::TrackMemoryService memory(config);
+    memory.ingest(make_batch(20, 20.000, {make_detection(301, 200.0f)}));
+    memory.ingest(make_batch(21, 20.010, {make_detection(302, 208.0f)}));
+    auto weak = make_detection(303, 216.0f, 0.30f);
+    weak.evidence_tier = "associated_weak";
+    memory.ingest(make_batch(22, 20.020, {weak}));
+    return memory.estimates({20.030});
+}
+
+void test_fps_memory_legacy_velocity_knobs_are_explicitly_inactive() {
+    const auto zero = run_fps_memory_with_legacy_knobs(0.0f, 0.0f);
+    const auto one = run_fps_memory_with_legacy_knobs(1.0f, 1.0f);
+    require(zero.size() == one.size() && !zero.empty(),
+            "characterization requires the same live FPS tracks");
+    for (std::size_t index = 0; index < zero.size(); ++index) {
+        require_near(zero[index].aim_error_px.x, one[index].aim_error_px.x, 1e-6,
+                     "legacy velocity alpha must not pretend to tune FPS memory");
+        require_near(zero[index].aim_error_px.y, one[index].aim_error_px.y, 1e-6,
+                     "legacy weak decay must not pretend to tune FPS memory");
+        require_near(zero[index].velocity_model_units_per_sec.x,
+                     one[index].velocity_model_units_per_sec.x, 1e-6,
+                     "FPS velocity must be independent of legacy backend knobs");
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -155,6 +186,7 @@ int main() {
         test_estimate_keeps_identity_geometry_and_real_observation_time();
         test_selection_and_authority_are_separate_value_types();
         test_track_memory_ingests_all_candidates_without_assist_authority();
+        test_fps_memory_legacy_velocity_knobs_are_explicitly_inactive();
         std::cout << "[TrackMemoryServiceTests] PASS\n";
         return 0;
     } catch (const std::exception& error) {

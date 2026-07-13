@@ -1,25 +1,28 @@
 #pragma once
 
-#include "runtime_config.h"
+#include "../common_native/screen_geometry.h"
+#include "../pipeline_contract/assist_authority.h"
 
-#include <utility>
+#include "runtime_config.h"
 
 namespace controller_native {
 
 struct NativeAimAssistDynamicsInput {
-    float manual_right_x = 0.0f;
-    float manual_right_y = 0.0f;
-    float assisted_right_x = 0.0f;
-    float assisted_right_y = 0.0f;
-    bool recoil_active = false;
-    bool manual_fire_active = false;
-    bool auto_fire_active = false;
+    common_native::Vec2f manual;
+    common_native::Vec2f requested_assist;
+    pipeline_contract::AssistAuthorityState authority =
+        pipeline_contract::AssistAuthorityState::Reject;
+    pipeline_contract::BodylockLifecycleState lifecycle =
+        pipeline_contract::BodylockLifecycleState::Inactive;
+    common_native::Vec2f target_error_px;
+    double position_sigma = 0.0;
+    double dt_seconds = 0.001;
     double now_seconds = 0.0;
 };
 
 struct NativeAimAssistDynamicsOutput {
-    float right_x = 0.0f;
-    float right_y = 0.0f;
+    common_native::Vec2f assist;
+    const char* limit_reason = "none";
 };
 
 class NativeAimAssistDynamics {
@@ -27,22 +30,24 @@ public:
     explicit NativeAimAssistDynamics(GamepadAimAssistDynamicsConfig config = {});
 
     void reset();
-    NativeAimAssistDynamicsOutput apply(const NativeAimAssistDynamicsInput& input);
+    [[nodiscard]] NativeAimAssistDynamicsOutput apply(
+        const NativeAimAssistDynamicsInput& input);
 
 private:
-    std::pair<float, float> straighten_manual_curve(
-        float manual_x,
-        float manual_y,
-        float assist_x,
-        float assist_y) const;
-    float guard_recoil_axis_jitter(float raw_assist, float previous_assist, double now_seconds) const;
-    bool within_memory_window(double now_seconds) const;
+    [[nodiscard]] float shape_axis(
+        float requested,
+        float previous,
+        float previous_delta,
+        float step_cap,
+        float jerk_cap,
+        float* out_delta) const;
+    [[nodiscard]] bool strong_opposing_manual(
+        const NativeAimAssistDynamicsInput& input) const;
 
     GamepadAimAssistDynamicsConfig config_;
-    bool has_last_raw_assist_ = false;
-    float last_raw_assist_x_ = 0.0f;
-    float last_raw_assist_y_ = 0.0f;
-    double last_timestamp_seconds_ = 0.0;
+    common_native::Vec2f previous_assist_;
+    common_native::Vec2f previous_delta_;
+    bool has_history_ = false;
 };
 
 }  // namespace controller_native

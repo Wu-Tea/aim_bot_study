@@ -12,6 +12,7 @@ namespace controller_native {
 
 struct ControllerVisionSnapshot {
     bool frame_updated = false;
+    bool selector_identity_protocol = false;
     NativeControllerVisionState state;
     pipeline_contract::UserAimIntent user_intent;
     std::vector<pipeline_contract::VisionCandidateSnapshot> candidates;

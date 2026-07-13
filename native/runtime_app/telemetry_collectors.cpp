@@ -122,7 +122,7 @@ void TelemetryCollectors::observe_tick(const TelemetryTickInput& input) noexcept
         EventSample sample;
         sample.sample_seq = state.next_sample_seq++;
         sample.timestamp_ns = input.sample_ns;
-        sample.target_track_id = state.target_track_id;
+        sample.target_track_id = input.selected_track_id;
         sample.timestamps.physical_read_ns = input.physical_read_ns;
         sample.timestamps.controller_consume_ns = input.controller_consume_ns;
         sample.timestamps.output_sent_ns = input.output_sent_ns;
@@ -133,6 +133,10 @@ void TelemetryCollectors::observe_tick(const TelemetryTickInput& input) noexcept
         sample.controller.manual_y = input.manual_y;
         sample.controller.ai_x = input.ai_x;
         sample.controller.ai_y = input.ai_y;
+        sample.controller.requested_assist_x = input.requested_assist_x;
+        sample.controller.requested_assist_y = input.requested_assist_y;
+        sample.controller.shaped_assist_x = input.shaped_assist_x;
+        sample.controller.shaped_assist_y = input.shaped_assist_y;
         sample.controller.post_ai_x = input.post_ai_x;
         sample.controller.post_ai_y = input.post_ai_y;
         sample.controller.dynamic_adjustment_x = input.dynamic_adjustment_x;
@@ -153,6 +157,12 @@ void TelemetryCollectors::observe_tick(const TelemetryTickInput& input) noexcept
         sample.controller.recoil_y = input.recoil_y;
         sample.controller.final_x = input.final_x;
         sample.controller.final_y = input.final_y;
+        sample.controller.selected_track_id = input.selected_track_id;
+        sample.controller.selected_observation_id = input.selected_observation_id;
+        sample.controller.backing_frame_id = input.backing_frame_id;
+        sample.controller.track_observation_age_ms = input.track_observation_age_ms;
+        sample.controller.track_position_sigma = input.track_position_sigma;
+        sample.controller.track_ambiguity = input.track_ambiguity;
         sample.controller.left_trigger = input.left_trigger;
         sample.controller.right_trigger = input.right_trigger;
         sample.controller.has_target = state.has_target;
@@ -166,6 +176,13 @@ void TelemetryCollectors::observe_tick(const TelemetryTickInput& input) noexcept
         sample.controller.ads_completion_required_frames = input.ads_completion_required_frames;
         sample.controller.ads_completion_max_ms = input.ads_completion_max_ms;
         copy_text(sample.controller.ads_completion_reason, input.ads_completion_reason);
+        copy_text(sample.controller.assist_authority, input.assist_authority);
+        copy_text(sample.controller.assist_authority_reason, input.assist_authority_reason);
+        copy_text(sample.controller.bodylock_lifecycle, input.bodylock_lifecycle);
+        copy_text(
+            sample.controller.bodylock_transition_reason,
+            input.bodylock_transition_reason);
+        copy_text(sample.controller.assist_limit_reason, input.assist_limit_reason);
         sample.controller.manual_takeover_active = input.manual_takeover_active;
         sample.controller.detector_box_count = state.detector_box_count;
         sample.controller.production_target_confidence = state.target_confidence;
