@@ -20,10 +20,16 @@ struct TelemetryCollectors::State {
     ControlResponseWindowAssembler responses;
     AdsTransitionCollector ads;
     std::uint64_t next_sample_seq = 1;
+    std::uint64_t next_ads_vision_seq = 1;
     std::uint64_t last_ring_sample_ns = 0;
     std::uint64_t last_tick_ns = 0;
     bool last_aiming = false;
     bool has_last_aiming = false;
+    bool has_target = false;
+    std::uint64_t target_track_id = 0;
+    TargetIdentityQuality target_identity_quality = TargetIdentityQuality::None;
+    float target_dx = 0.0f;
+    float target_dy = 0.0f;
 };
 
 namespace {
@@ -112,6 +118,11 @@ void TelemetryCollectors::observe_tick(const TelemetryTickInput& input) noexcept
         EventSample sample;
         sample.sample_seq = state.next_sample_seq++;
         sample.timestamp_ns = input.sample_ns;
+        sample.target_track_id = state.target_track_id;
+        sample.timestamps.physical_read_ns = input.physical_read_ns;
+        sample.timestamps.controller_consume_ns = input.controller_consume_ns;
+        sample.timestamps.output_sent_ns = input.output_sent_ns;
+        sample.timestamps.sample_ns = input.sample_ns;
         sample.controller.physical_x = input.physical_x;
         sample.controller.physical_y = input.physical_y;
         sample.controller.manual_x = input.manual_x;
@@ -126,6 +137,14 @@ void TelemetryCollectors::observe_tick(const TelemetryTickInput& input) noexcept
         sample.controller.final_y = input.final_y;
         sample.controller.left_trigger = input.left_trigger;
         sample.controller.right_trigger = input.right_trigger;
+        sample.controller.has_target = state.has_target;
+        sample.controller.aim_authority = input.aim_authority;
+        sample.controller.fire_authority = input.fire_authority;
+        sample.controller.target_dx = state.target_dx;
+        sample.controller.target_dy = state.target_dy;
+        sample.controller.target_error_px = std::hypot(state.target_dx, state.target_dy);
+        sample.controller.target_identity_quality = state.target_identity_quality;
+        copy_text(sample.controller.aim_mode, input.aim_mode);
         state.sampler.observe(sample);
         for (const auto& event : state.episodes.observe(sample)) {
             TelemetryRecord record;
@@ -144,10 +163,8 @@ void TelemetryCollectors::observe_tick(const TelemetryTickInput& input) noexcept
         record.type = TelemetryRecordType::ControllerSample;
         record.tick_id = input.tick_id;
         record.sample_seq = sample.sample_seq;
-        record.timestamps.physical_read_ns = input.physical_read_ns;
-        record.timestamps.controller_consume_ns = input.controller_consume_ns;
-        record.timestamps.output_sent_ns = input.output_sent_ns;
-        record.timestamps.sample_ns = sample.timestamp_ns;
+        record.target_track_id = sample.target_track_id;
+        record.timestamps = sample.timestamps;
         record.controller = sample.controller;
         record.readiness = TelemetryReadiness::ProfileEligible;
         enqueue(record);
@@ -170,6 +187,11 @@ void TelemetryCollectors::observe_new_vision(const TelemetryVisionInput& input) 
     observation.x2 = input.x2; observation.y2 = input.y2;
     observation.target_x = input.target_x; observation.target_y = input.target_y;
     const TargetIdentityResult identity = state.identity.observe(observation);
+    state.has_target = input.has_target;
+    state.target_track_id = identity.track_id;
+    state.target_identity_quality = identity.quality;
+    state.target_dx = input.has_target ? input.target_x - input.screen_center_x : 0.0f;
+    state.target_dy = input.has_target ? input.target_y - input.screen_center_y : 0.0f;
     if (identity.event != TargetEventKind::None) {
         TelemetryRecord record;
         record.type = TelemetryRecordType::TargetEvent;
@@ -224,7 +246,7 @@ void TelemetryCollectors::observe_new_vision(const TelemetryVisionInput& input) 
 
     AdsVisualFrame ads_frame;
     ads_frame.frame_id = input.frame_id;
-    ads_frame.sample_seq = input.frame_id;
+    ads_frame.sample_seq = state.next_ads_vision_seq++;
     ads_frame.captured_at_ns = input.captured_at_ns;
     ads_frame.target_track_id = identity.track_id;
     ads_frame.identity_quality = identity.quality;

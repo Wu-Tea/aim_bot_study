@@ -12,6 +12,8 @@ namespace runtime_app {
 struct EventSample {
     std::uint64_t sample_seq = 0;
     std::uint64_t timestamp_ns = 0;
+    std::uint64_t target_track_id = 0;
+    TelemetryTimestamps timestamps;
     ControllerSamplePayload controller;
 };
 

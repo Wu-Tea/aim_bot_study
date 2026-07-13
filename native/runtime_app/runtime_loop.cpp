@@ -649,6 +649,10 @@ void RuntimeLoop::run_once() {
     telemetry_tick.output_sent_ns = steady_time_point_ns(vigem_update_finished);
     telemetry_tick.sample_ns = telemetry_tick.output_sent_ns;
     telemetry_tick.aiming = aiming;
+    const auto& telemetry_vision_state = controller_.last_frame_vision_state();
+    telemetry_tick.aim_authority = telemetry_vision_state.aim_authority;
+    telemetry_tick.fire_authority = telemetry_vision_state.fire_authority;
+    telemetry_tick.aim_mode = controller_.last_ai_aim_mode().c_str();
     telemetry_tick.left_trigger = physical.left_trigger;
     telemetry_tick.right_trigger = physical.right_trigger;
     telemetry_tick.physical_x = physical.right_x;

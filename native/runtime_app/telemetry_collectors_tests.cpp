@@ -101,10 +101,70 @@ void test_enabled_collectors_write_profile_and_ads_evidence() {
     input.close();
     std::filesystem::remove_all(directory);
 }
+
+void test_controller_samples_include_current_target_context() {
+    const auto directory = std::filesystem::temp_directory_path() /
+        "cod_native_telemetry_target_context";
+    std::filesystem::remove_all(directory);
+    runtime_app::RuntimeTelemetryOptions options;
+    options.enabled = true;
+    options.directory = directory;
+    runtime_app::RuntimeTelemetry telemetry(options);
+    telemetry.start();
+    runtime_app::TelemetryCollectors collectors(true, &telemetry);
+    collectors.observe_new_vision(vision(1, 1.0f, false));
+    for (std::uint64_t seq = 1; seq <= 8; ++seq) collectors.observe_tick(tick(seq, false));
+    collectors.shutdown(40'000'000);
+    telemetry.stop();
+    std::ifstream input(telemetry.log_path());
+    std::ostringstream contents;
+    contents << input.rdbuf();
+    const std::string json = contents.str();
+    REQUIRE(json.find("\"controller_target_track_id\":1") != std::string::npos);
+    REQUIRE(json.find("\"target_dx\":30") != std::string::npos);
+    REQUIRE(json.find("\"aim_mode\":") != std::string::npos);
+    input.close();
+    std::filesystem::remove_all(directory);
+}
+
+void test_ads_completeness_uses_observed_sequence_not_capture_frame_id() {
+    const auto directory = std::filesystem::temp_directory_path() /
+        "cod_native_telemetry_ads_frame_gaps";
+    std::filesystem::remove_all(directory);
+    runtime_app::RuntimeTelemetryOptions options;
+    options.enabled = true;
+    options.directory = directory;
+    runtime_app::RuntimeTelemetry telemetry(options);
+    telemetry.start();
+    runtime_app::TelemetryCollectors collectors(true, &telemetry);
+    collectors.observe_new_vision(vision(10, 1.0f, false));
+    collectors.observe_tick(tick(1, false));
+    collectors.observe_tick(tick(2, true));
+    std::uint64_t tick_id = 3;
+    std::uint64_t frame_id = 20;
+    for (float scale : {1.10f, 1.25f, 1.39f, 1.41f, 1.40f, 1.41f, 1.40f}) {
+        collectors.observe_tick(tick(tick_id++, true));
+        collectors.observe_new_vision(vision(frame_id, scale, true));
+        frame_id += 10;
+    }
+    collectors.shutdown(80'000'000);
+    telemetry.stop();
+    std::ifstream input(telemetry.log_path());
+    std::ostringstream contents;
+    contents << input.rdbuf();
+    const std::string json = contents.str();
+    REQUIRE(json.find("\"type\":\"ads_transition\"") != std::string::npos);
+    REQUIRE(json.find("\"valid\":true") != std::string::npos);
+    REQUIRE(json.find("\"complete\":true") != std::string::npos);
+    input.close();
+    std::filesystem::remove_all(directory);
+}
 }
 
 int main() {
     test_disabled_collectors_have_zero_transitions();
     test_enabled_collectors_write_profile_and_ads_evidence();
+    test_controller_samples_include_current_target_context();
+    test_ads_completeness_uses_observed_sequence_not_capture_frame_id();
     return 0;
 }

@@ -189,6 +189,55 @@ void test_every_rotated_file_starts_with_session_metadata() {
     std::filesystem::remove_all(directory);
 }
 
+void test_type_specific_fields_and_timestamps_are_serialized() {
+    const auto directory = std::filesystem::temp_directory_path() /
+        "cod_native_runtime_telemetry_specific_fields";
+    std::filesystem::remove_all(directory);
+    runtime_app::RuntimeTelemetryOptions options;
+    options.enabled = true;
+    options.directory = directory;
+    runtime_app::RuntimeTelemetry telemetry(options);
+    telemetry.start();
+
+    runtime_app::TelemetryRecord metadata;
+    metadata.type = runtime_app::TelemetryRecordType::SessionMetadata;
+    std::snprintf(metadata.session_metadata.session_id.data(),
+        metadata.session_metadata.session_id.size(), "%s", "specific-session");
+    REQUIRE(telemetry.enqueue(metadata));
+
+    runtime_app::TelemetryRecord input_event;
+    input_event.type = runtime_app::TelemetryRecordType::InputEvent;
+    input_event.timestamps.sample_ns = 123456;
+    input_event.input_event.kind = runtime_app::InputEventKind::DirectionReversed;
+    input_event.input_event.input_episode_id = 9;
+    input_event.input_event.magnitude = 0.42f;
+    REQUIRE(telemetry.enqueue(input_event));
+
+    runtime_app::TelemetryRecord ads;
+    ads.type = runtime_app::TelemetryRecordType::AdsTransition;
+    ads.ads_transition.invalid_reason = runtime_app::AdsInvalidReason::VisualSettleUnproven;
+    REQUIRE(telemetry.enqueue(ads));
+
+    runtime_app::TelemetryRecord response;
+    response.type = runtime_app::TelemetryRecordType::ControlResponseWindow;
+    response.control_response.reason = runtime_app::ResponseWindowReason::SampleGap;
+    REQUIRE(telemetry.enqueue(response));
+    telemetry.stop();
+
+    REQUIRE(telemetry.log_path().filename().string().find("specific-session") != std::string::npos);
+    std::ifstream input(telemetry.log_path());
+    std::ostringstream contents;
+    contents << input.rdbuf();
+    const std::string json = contents.str();
+    REQUIRE(json.find("\"input_event_kind\":\"direction_reversed\"") != std::string::npos);
+    REQUIRE(json.find("\"input_episode_id\":9") != std::string::npos);
+    REQUIRE(json.find("\"sample_ns\":123456") != std::string::npos);
+    REQUIRE(json.find("\"invalid_reason\":\"visual_settle_unproven\"") != std::string::npos);
+    REQUIRE(json.find("\"response_reason\":\"sample_gap\"") != std::string::npos);
+    input.close();
+    std::filesystem::remove_all(directory);
+}
+
 } // namespace
 
 int main() {
@@ -199,5 +248,6 @@ int main() {
     test_writer_failure_disables_file_telemetry_without_throwing();
     test_versioned_schema_serializes_readiness_and_completeness();
     test_every_rotated_file_starts_with_session_metadata();
+    test_type_specific_fields_and_timestamps_are_serialized();
     return 0;
 }

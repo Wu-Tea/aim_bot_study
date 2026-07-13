@@ -14,6 +14,9 @@ struct TelemetryTickInput {
     std::uint64_t output_sent_ns = 0;
     std::uint64_t sample_ns = 0;
     bool aiming = false;
+    bool aim_authority = false;
+    bool fire_authority = false;
+    const char* aim_mode = "none";
     float left_trigger = 0.0f, right_trigger = 0.0f;
     float physical_x = 0.0f, physical_y = 0.0f;
     float manual_x = 0.0f, manual_y = 0.0f;

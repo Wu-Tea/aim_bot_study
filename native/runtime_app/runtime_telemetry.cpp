@@ -72,6 +72,59 @@ const char* calibration_class_name(AdsCalibrationClass value) {
     }
 }
 
+const char* input_event_name(InputEventKind value) {
+    switch (value) {
+    case InputEventKind::AdsPressed: return "ads_pressed";
+    case InputEventKind::AdsReleased: return "ads_released";
+    case InputEventKind::TargetCreated: return "target_created";
+    case InputEventKind::TargetSwitched: return "target_switched";
+    case InputEventKind::TargetLost: return "target_lost";
+    case InputEventKind::TargetReacquired: return "target_reacquired";
+    case InputEventKind::ManualAiConflict: return "manual_ai_conflict";
+    case InputEventKind::TargetCrossed: return "target_crossed";
+    case InputEventKind::BodylockEntered: return "bodylock_entered";
+    case InputEventKind::BodylockExited: return "bodylock_exited";
+    case InputEventKind::AuthorityChanged: return "authority_changed";
+    case InputEventKind::InputStarted: return "input_started";
+    case InputEventKind::InputPeak: return "input_peak";
+    case InputEventKind::DirectionReversed: return "direction_reversed";
+    case InputEventKind::InputSettled: return "input_settled";
+    case InputEventKind::InputEnded: return "input_ended";
+    default: return "none";
+    }
+}
+
+const char* ads_invalid_reason_name(AdsInvalidReason value) {
+    switch (value) {
+    case AdsInvalidReason::NoHipfireTarget: return "no_hipfire_target";
+    case AdsInvalidReason::TargetSwitched: return "target_switched";
+    case AdsInvalidReason::TargetLost: return "target_lost";
+    case AdsInvalidReason::ProjectedOnlyAnchor: return "projected_only_anchor";
+    case AdsInvalidReason::AdsNotSettled: return "ads_not_settled";
+    case AdsInvalidReason::LargeManualTurn: return "large_manual_turn";
+    case AdsInvalidReason::GeometryChanged: return "geometry_changed";
+    case AdsInvalidReason::InsufficientFrames: return "insufficient_frames";
+    case AdsInvalidReason::IdentityAmbiguous: return "identity_ambiguous";
+    case AdsInvalidReason::VisualSettleUnproven: return "visual_settle_unproven";
+    case AdsInvalidReason::MotionResidualHigh: return "motion_residual_high";
+    case AdsInvalidReason::SampleGap: return "sample_gap";
+    case AdsInvalidReason::RuntimeShutdown: return "runtime_shutdown";
+    case AdsInvalidReason::QueueOverflow: return "queue_overflow";
+    default: return "none";
+    }
+}
+
+const char* response_reason_name(ResponseWindowReason value) {
+    switch (value) {
+    case ResponseWindowReason::TargetChanged: return "target_changed";
+    case ResponseWindowReason::IdentityWeak: return "identity_weak";
+    case ResponseWindowReason::GeometryChanged: return "geometry_changed";
+    case ResponseWindowReason::SampleGap: return "sample_gap";
+    case ResponseWindowReason::TimingInvalid: return "timing_invalid";
+    default: return "none";
+    }
+}
+
 } // namespace
 
 RuntimeTelemetry::RuntimeTelemetry(RuntimeTelemetryOptions options)
@@ -151,8 +204,10 @@ bool RuntimeTelemetry::open_next_file() {
         std::filesystem::create_directories(options_.directory);
         if (output_.is_open()) output_.close();
         const std::size_t slot = file_index_++ % options_.max_files;
-        log_path_ = options_.directory /
-            ("native_runtime_telemetry_" + std::to_string(slot) + ".jsonl");
+        const char* session_id = has_session_metadata_
+            ? session_metadata_.session_metadata.session_id.data() : "unknown-session";
+        log_path_ = options_.directory / ("native_runtime_telemetry_" +
+            std::string(session_id) + "_" + std::to_string(slot) + ".jsonl");
         output_.open(log_path_, std::ios::out | std::ios::trunc);
         current_size_ = 0;
         if (!output_.is_open()) {
@@ -225,67 +280,92 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
         << ",\"frame_id\":" << record.frame_id
         << ",\"intent_id\":" << record.intent_id
         << ",\"timestamp_ns\":" << record.timestamp_ns
+        << ",\"physical_read_ns\":" << record.timestamps.physical_read_ns
+        << ",\"vision_capture_ns\":" << record.timestamps.vision_capture_ns
+        << ",\"inference_ready_ns\":" << record.timestamps.inference_ready_ns
+        << ",\"controller_consume_ns\":" << record.timestamps.controller_consume_ns
+        << ",\"output_sent_ns\":" << record.timestamps.output_sent_ns
+        << ",\"sample_ns\":" << record.timestamps.sample_ns
         << ",\"sample_seq\":" << record.sample_seq
-        << ",\"target_track_id\":" << record.target_track_id
-        << ",\"session_id\":\"" << record.session_metadata.session_id.data() << '\"'
-        << ",\"build_commit\":\"" << record.session_metadata.build_commit.data() << '\"'
-        << ",\"config_hash\":\"" << record.session_metadata.config_hash.data() << '\"'
-        << ",\"engine_hash\":\"" << record.session_metadata.engine_hash.data() << '\"'
-        << ",\"tracker_backend\":\"" << record.session_metadata.tracker_backend.data() << '\"'
-        << ",\"capture_width\":" << record.session_metadata.capture_width
-        << ",\"capture_height\":" << record.session_metadata.capture_height
-        << ",\"active_capture_fps\":" << record.session_metadata.active_capture_fps
-        << ",\"idle_capture_fps\":" << record.session_metadata.idle_capture_fps
-        << ",\"controller_tick_hz\":" << record.session_metadata.controller_tick_hz
-        << ",\"telemetry_hz\":" << record.session_metadata.telemetry_hz
-        << ",\"physical_x\":" << record.controller.physical_x
-        << ",\"physical_y\":" << record.controller.physical_y
-        << ",\"manual_x\":" << serialized_manual_x
-        << ",\"manual_y\":" << serialized_manual_y
-        << ",\"ai_x\":" << serialized_ai_x
-        << ",\"ai_y\":" << serialized_ai_y
-        << ",\"final_x\":" << serialized_final_x
-        << ",\"final_y\":" << serialized_final_y
-        << ",\"controller_pipeline_ms\":" << record.controller_pipeline_ms
-        << ",\"vigem_update_ms\":" << record.vigem_update_ms
-        << ",\"event_reason_flags\":" << record.event_reason_flags
-        << ",\"target_event\":\"" << target_event_name(record.target_event.event) << '\"'
-        << ",\"target_identity_quality\":\""
-        << identity_quality_name(record.target_event.quality) << '\"'
-        << ",\"previous_track_id\":" << record.target_event.previous_track_id
-        << ",\"valid\":" << (record.ads_transition.valid ? "true" : "false")
-        << ",\"calibration_class\":\""
-        << calibration_class_name(record.ads_transition.calibration_class) << '\"'
-        << ",\"hipfire_frame_id\":" << record.ads_transition.hipfire_frame_id
-        << ",\"settled_frame_id\":" << record.ads_transition.settled_frame_id
-        << ",\"hipfire_dx\":" << record.ads_transition.hipfire_dx
-        << ",\"hipfire_dy\":" << record.ads_transition.hipfire_dy
-        << ",\"ads_dx\":" << record.ads_transition.ads_dx
-        << ",\"ads_dy\":" << record.ads_transition.ads_dy
-        << ",\"delta_dx\":" << record.ads_transition.delta_dx
-        << ",\"delta_dy\":" << record.ads_transition.delta_dy
-        << ",\"scale_x\":" << record.ads_transition.scale_x
-        << ",\"scale_y\":" << record.ads_transition.scale_y
-        << ",\"offset_x\":" << record.ads_transition.offset_x
-        << ",\"offset_y\":" << record.ads_transition.offset_y
-        << ",\"settle_confidence\":" << record.ads_transition.settle_confidence
-        << ",\"response_frame_before\":" << record.control_response.frame_id_before
-        << ",\"response_frame_after\":" << record.control_response.frame_id_after
-        << ",\"delta_error_x\":" << record.control_response.delta_error_x
-        << ",\"delta_error_y\":" << record.control_response.delta_error_y
-        << ",\"residual_x\":" << record.control_response.residual_x
-        << ",\"residual_y\":" << record.control_response.residual_y
-        << ",\"manual_x_integral\":" << record.control_response.manual_x_integral
-        << ",\"manual_y_integral\":" << record.control_response.manual_y_integral
-        << ",\"ai_x_integral\":" << record.control_response.ai_x_integral
-        << ",\"ai_y_integral\":" << record.control_response.ai_y_integral
-        << ",\"pre_recoil_x_integral\":" << record.control_response.pre_recoil_x_integral
-        << ",\"pre_recoil_y_integral\":" << record.control_response.pre_recoil_y_integral
-        << ",\"recoil_x_integral\":" << record.control_response.recoil_x_integral
-        << ",\"recoil_y_integral\":" << record.control_response.recoil_y_integral
-        << ",\"final_x_integral\":" << record.control_response.final_x_integral
-        << ",\"final_y_integral\":" << record.control_response.final_y_integral
-        << ",\"first_seq\":" << record.completeness.first_seq
+        << ",\"target_track_id\":" << record.target_track_id;
+    switch (record.type) {
+    case TelemetryRecordType::SessionMetadata:
+        output_ << ",\"session_id\":\"" << record.session_metadata.session_id.data() << '\"'
+            << ",\"build_commit\":\"" << record.session_metadata.build_commit.data() << '\"'
+            << ",\"config_hash\":\"" << record.session_metadata.config_hash.data() << '\"'
+            << ",\"engine_hash\":\"" << record.session_metadata.engine_hash.data() << '\"'
+            << ",\"tracker_backend\":\"" << record.session_metadata.tracker_backend.data() << '\"';
+        break;
+    case TelemetryRecordType::ControllerSample:
+        output_ << ",\"physical_x\":" << record.controller.physical_x
+            << ",\"physical_y\":" << record.controller.physical_y
+            << ",\"manual_x\":" << serialized_manual_x << ",\"manual_y\":" << serialized_manual_y
+            << ",\"ai_x\":" << serialized_ai_x << ",\"ai_y\":" << serialized_ai_y
+            << ",\"pre_recoil_x\":" << record.controller.pre_recoil_x
+            << ",\"pre_recoil_y\":" << record.controller.pre_recoil_y
+            << ",\"recoil_x\":" << record.controller.recoil_x
+            << ",\"recoil_y\":" << record.controller.recoil_y
+            << ",\"final_x\":" << serialized_final_x << ",\"final_y\":" << serialized_final_y
+            << ",\"left_trigger\":" << record.controller.left_trigger
+            << ",\"right_trigger\":" << record.controller.right_trigger
+            << ",\"controller_target_track_id\":" << record.target_track_id
+            << ",\"has_target\":" << (record.controller.has_target ? "true" : "false")
+            << ",\"aim_authority\":" << (record.controller.aim_authority ? "true" : "false")
+            << ",\"fire_authority\":" << (record.controller.fire_authority ? "true" : "false")
+            << ",\"target_dx\":" << record.controller.target_dx
+            << ",\"target_dy\":" << record.controller.target_dy
+            << ",\"target_error_px\":" << record.controller.target_error_px
+            << ",\"target_identity_quality\":\"" << identity_quality_name(record.controller.target_identity_quality) << '\"'
+            << ",\"aim_mode\":\"" << record.controller.aim_mode.data() << '\"';
+        break;
+    case TelemetryRecordType::InputEvent:
+        output_ << ",\"input_event_kind\":\"" << input_event_name(record.input_event.kind) << '\"'
+            << ",\"input_episode_id\":" << record.input_event.input_episode_id
+            << ",\"magnitude\":" << record.input_event.magnitude;
+        break;
+    case TelemetryRecordType::TargetEvent:
+        output_ << ",\"target_event\":\"" << target_event_name(record.target_event.event) << '\"'
+            << ",\"target_identity_quality\":\"" << identity_quality_name(record.target_event.quality) << '\"'
+            << ",\"previous_track_id\":" << record.target_event.previous_track_id;
+        break;
+    case TelemetryRecordType::AdsTransition:
+        output_ << ",\"valid\":" << (record.ads_transition.valid ? "true" : "false")
+            << ",\"calibration_class\":\"" << calibration_class_name(record.ads_transition.calibration_class) << '\"'
+            << ",\"invalid_reason\":\"" << ads_invalid_reason_name(record.ads_transition.invalid_reason) << '\"'
+            << ",\"hipfire_frame_id\":" << record.ads_transition.hipfire_frame_id
+            << ",\"settled_frame_id\":" << record.ads_transition.settled_frame_id
+            << ",\"hipfire_dx\":" << record.ads_transition.hipfire_dx << ",\"hipfire_dy\":" << record.ads_transition.hipfire_dy
+            << ",\"ads_dx\":" << record.ads_transition.ads_dx << ",\"ads_dy\":" << record.ads_transition.ads_dy
+            << ",\"delta_dx\":" << record.ads_transition.delta_dx << ",\"delta_dy\":" << record.ads_transition.delta_dy
+            << ",\"scale_x\":" << record.ads_transition.scale_x << ",\"scale_y\":" << record.ads_transition.scale_y
+            << ",\"offset_x\":" << record.ads_transition.offset_x << ",\"offset_y\":" << record.ads_transition.offset_y
+            << ",\"settle_confidence\":" << record.ads_transition.settle_confidence
+            << ",\"cumulative_manual\":" << record.ads_transition.cumulative_manual
+            << ",\"cumulative_ai\":" << record.ads_transition.cumulative_ai
+            << ",\"cumulative_recoil\":" << record.ads_transition.cumulative_recoil;
+        break;
+    case TelemetryRecordType::ControlResponseWindow:
+        output_ << ",\"response_reason\":\"" << response_reason_name(record.control_response.reason) << '\"'
+            << ",\"response_frame_before\":" << record.control_response.frame_id_before
+            << ",\"response_frame_after\":" << record.control_response.frame_id_after
+            << ",\"delta_error_x\":" << record.control_response.delta_error_x
+            << ",\"delta_error_y\":" << record.control_response.delta_error_y
+            << ",\"residual_x\":" << record.control_response.residual_x
+            << ",\"residual_y\":" << record.control_response.residual_y
+            << ",\"manual_x_integral\":" << record.control_response.manual_x_integral
+            << ",\"manual_y_integral\":" << record.control_response.manual_y_integral
+            << ",\"ai_x_integral\":" << record.control_response.ai_x_integral
+            << ",\"ai_y_integral\":" << record.control_response.ai_y_integral
+            << ",\"pre_recoil_x_integral\":" << record.control_response.pre_recoil_x_integral
+            << ",\"pre_recoil_y_integral\":" << record.control_response.pre_recoil_y_integral
+            << ",\"recoil_x_integral\":" << record.control_response.recoil_x_integral
+            << ",\"recoil_y_integral\":" << record.control_response.recoil_y_integral
+            << ",\"final_x_integral\":" << record.control_response.final_x_integral
+            << ",\"final_y_integral\":" << record.control_response.final_y_integral;
+        break;
+    default: break;
+    }
+    output_ << ",\"first_seq\":" << record.completeness.first_seq
         << ",\"last_seq\":" << record.completeness.last_seq
         << ",\"expected\":" << record.completeness.expected
         << ",\"written\":" << record.completeness.written

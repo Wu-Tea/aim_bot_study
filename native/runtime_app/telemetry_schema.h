@@ -133,6 +133,14 @@ struct ControllerSamplePayload {
     float final_y = 0.0f;
     float left_trigger = 0.0f;
     float right_trigger = 0.0f;
+    bool has_target = false;
+    bool aim_authority = false;
+    bool fire_authority = false;
+    float target_dx = 0.0f;
+    float target_dy = 0.0f;
+    float target_error_px = 0.0f;
+    TargetIdentityQuality target_identity_quality = TargetIdentityQuality::None;
+    std::array<char, 24> aim_mode{};
 };
 
 struct SessionMetadataPayload {
