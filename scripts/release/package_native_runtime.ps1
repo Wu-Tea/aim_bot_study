@@ -8,7 +8,16 @@ param(
 
     [Parameter(Mandatory = $true)]
     [ValidatePattern('^[0-9a-fA-F]{40}$')]
-    [string]$SourceCommit
+    [string]$SourceCommit,
+
+    [string]$ReleaseTitle = 'Native Runtime Pre-Tracker-Refactor Release',
+
+    [string]$ReleasePurpose = @'
+The package is frozen as the fallback while tracker/authority/bodylock refactoring
+continues. Do not replace its executable or DLLs with later worktree builds.
+'@,
+
+    [string]$FallbackRollbackTag = 'pre-tracker-authority-refactor-20260713'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -201,12 +210,18 @@ Copy-JsonDirectory -RelativeDirectory $calibrationRelative -Required $false -Rec
 Copy-JsonDirectory -RelativeDirectory $weaponRelative -Required $true -Recurse $true
 Copy-RelativeFile -RelativePath $stateRelative
 
+$titleUnderline = '=' * $ReleaseTitle.Length
+$rollbackLine = if ([string]::IsNullOrWhiteSpace($FallbackRollbackTag)) {
+    ''
+} else {
+    "Fallback rollback tag: $FallbackRollbackTag`r`n"
+}
 $readme = @"
-Native Runtime Pre-Tracker-Refactor Release
-===========================================
+$ReleaseTitle
+$titleUnderline
 
 Source commit: $SourceCommit
-Rollback tag: pre-tracker-authority-refactor-20260713
+$rollbackLine
 
 Start:
   scripts\launch\gamepad_start.bat
@@ -223,8 +238,7 @@ Machine-level requirements that are not copied into this folder:
   - NVIDIA driver compatible with CUDA 13.1 and TensorRT 10.15
   - ViGEmBus driver for virtual gamepad output
 
-The package is frozen as the fallback while tracker/authority/bodylock refactoring
-continues. Do not replace its executable or DLLs with later worktree builds.
+$($ReleasePurpose.Trim())
 "@
 Set-Content -LiteralPath (Join-Path $resolvedOutput 'README.txt') -Value $readme -Encoding UTF8
 

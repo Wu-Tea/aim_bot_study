@@ -36,7 +36,10 @@ if (Test-Path -LiteralPath $resolvedScratch) {
 & $packageScript `
     -SourceRoot $SourceRoot `
     -OutputRoot $resolvedScratch `
-    -SourceCommit $SourceCommit
+    -SourceCommit $SourceCommit `
+    -ReleaseTitle 'Native Runtime Packaging Test Release' `
+    -ReleasePurpose 'Packaging metadata test purpose.' `
+    -FallbackRollbackTag 'packaging-test-rollback-tag'
 if ($LASTEXITCODE -ne 0) {
     throw "Package script exited with $LASTEXITCODE"
 }
@@ -51,6 +54,17 @@ if ($manifest.source_commit -ne $SourceCommit) {
 }
 if ($manifest.model_path -ne 'models/candidates/body_union_manual_core_x2_neg_e6_640x512.engine') {
     throw "Unexpected packaged model path: $($manifest.model_path)"
+}
+
+$readmeText = Get-Content -LiteralPath (Join-Path $resolvedScratch 'README.txt') -Raw
+foreach ($expectedText in @(
+    'Native Runtime Packaging Test Release',
+    'Packaging metadata test purpose.',
+    'Fallback rollback tag: packaging-test-rollback-tag'
+)) {
+    if (-not $readmeText.Contains($expectedText)) {
+        throw "README is missing release metadata: $expectedText"
+    }
 }
 
 $required = @(
