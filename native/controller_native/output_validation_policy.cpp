@@ -72,25 +72,60 @@ void OutputValidationPolicy::reset() {
 
 GamepadOutputState OutputValidationPolicy::apply(
     const OutputValidationPolicyInput& input) {
-    GamepadOutputState output = input.output;
-    apply_tracker_projection_guard(input, output);
-    apply_observed_target_guard(input, output);
+    const bool explicit_track_only_or_reject =
+        input.vision_state.authority_decision_valid &&
+        (input.vision_state.assist_authority_state ==
+             pipeline_contract::AssistAuthorityState::Reject ||
+         input.vision_state.assist_authority_state ==
+             pipeline_contract::AssistAuthorityState::TrackOnly);
+    if (!input.vision_state.aim_authority || explicit_track_only_or_reject) {
+        reset();
+        GamepadOutputState manual = input.output;
+        manual.right_x = input.manual_right_x;
+        manual.right_y = input.manual_right_y;
+        return manual;
+    }
+
+    // Validation owns only the AI delta. Manual input is removed before any
+    // correction and restored byte-for-byte after the assist is constrained.
+    GamepadOutputState assist = input.output;
+    assist.right_x -= input.manual_right_x;
+    assist.right_y -= input.manual_right_y;
+    apply_tracker_projection_guard(input, assist);
+    apply_observed_target_guard(input, assist);
     if (input.candidate_output_hold_active) {
-        if (output_pushes_away(output.right_x, input.vision_state.dx, false)) {
-            output.right_x = bounded_wrong_way_correction(
-                output.right_x,
+        if (output_pushes_away(assist.right_x, input.vision_state.dx, false)) {
+            assist.right_x = bounded_wrong_way_correction(
+                assist.right_x,
                 input.vision_state.dx,
                 false,
                 kCrossErrorDeadzonePx);
         }
-        if (output_pushes_away(output.right_y, input.vision_state.dy, true)) {
-            output.right_y = bounded_wrong_way_correction(
-                output.right_y,
+        if (output_pushes_away(assist.right_y, input.vision_state.dy, true)) {
+            assist.right_y = bounded_wrong_way_correction(
+                assist.right_y,
                 input.vision_state.dy,
                 true,
                 kCrossErrorDeadzonePx);
         }
+        const auto preserve_manual_during_candidate_hold = [](
+            float manual_axis,
+            float& assist_axis) {
+            if (std::fabs(manual_axis) <= kManualCorrectionDeadzone) {
+                return;
+            }
+            const float final_axis = manual_axis + assist_axis;
+            if (final_axis * manual_axis <= 0.0f ||
+                std::fabs(final_axis) < std::fabs(manual_axis)) {
+                assist_axis = 0.0f;
+            }
+        };
+        preserve_manual_during_candidate_hold(input.manual_right_x, assist.right_x);
+        preserve_manual_during_candidate_hold(input.manual_right_y, assist.right_y);
     }
+    GamepadOutputState output = input.output;
+    output.right_x = input.manual_right_x + assist.right_x;
+    output.right_y = input.manual_right_y + assist.right_y;
     return output;
 }
 
@@ -102,46 +137,44 @@ void OutputValidationPolicy::apply_tracker_projection_guard(
         return;
     }
 
-    const auto manual_corrects_tracker_axis = [](
+    const auto constrain_assist_to_preserve_manual_correction = [](
         float manual_axis,
         float tracker_error,
+        float& assist_axis,
         bool y_axis) {
         if (std::fabs(manual_axis) <= kManualCorrectionDeadzone ||
-            std::fabs(tracker_error) <= 1.0f) {
-            return false;
-        }
-        return y_axis
-            ? (manual_axis * tracker_error < 0.0f)
-            : (manual_axis * tracker_error > 0.0f);
-    };
-    const auto preserve_manual_correction = [&](
-        float tracker_error,
-        float manual_axis,
-        float& output_axis,
-        bool y_axis) {
-        if (!manual_corrects_tracker_axis(manual_axis, tracker_error, y_axis)) {
+            std::fabs(tracker_error) <= kCrossErrorDeadzonePx) {
             return;
         }
-        const bool output_opposes_manual = output_axis * manual_axis < 0.0f;
-        const bool output_erases_manual =
-            std::fabs(output_axis) < (std::fabs(manual_axis) * 0.75f);
-        if (output_opposes_manual || output_erases_manual) {
-            output_axis = manual_axis;
+        const bool manual_corrects = y_axis
+            ? (manual_axis * tracker_error < 0.0f)
+            : (manual_axis * tracker_error > 0.0f);
+        if (!manual_corrects) {
+            return;
+        }
+        const float final_axis = manual_axis + assist_axis;
+        const bool final_opposes_manual = final_axis * manual_axis < 0.0f;
+        const bool final_erases_manual =
+            std::fabs(final_axis) < std::fabs(manual_axis) * 0.75f;
+        if (final_opposes_manual || final_erases_manual) {
+            assist_axis = 0.0f;
         }
     };
-    preserve_manual_correction(
-        vision_state.tracker_dx,
+    constrain_assist_to_preserve_manual_correction(
         input.manual_right_x,
+        vision_state.tracker_dx,
         output.right_x,
         false);
-    preserve_manual_correction(
-        vision_state.tracker_dy,
+    constrain_assist_to_preserve_manual_correction(
         input.manual_right_y,
+        vision_state.tracker_dy,
         output.right_y,
         true);
 
-    if (!vision_state.aim_authority ||
-        tracking_native::is_projected_observation(vision_state.target_tier)) {
+    if (tracking_native::is_projected_observation(vision_state.target_tier) ||
+        (vision_state.authority_decision_valid &&
+         vision_state.assist_authority_state ==
+             pipeline_contract::AssistAuthorityState::Continuity)) {
         if (output_pushes_away(output.right_x, vision_state.tracker_dx, false)) {
             output.right_x = bounded_wrong_way_correction(
                 output.right_x,

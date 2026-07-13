@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../common_native/time_types.h"
+#include "../pipeline_contract/assist_authority.h"
 #include "../tracking_native/tracker_contract.h"
 
 #include "output_mixer.h"
@@ -13,6 +14,17 @@ namespace controller_native {
 
 struct NativeControllerVisionState {
     std::uint64_t vision_sequence = 0;
+    std::uint64_t selected_observation_id = 0;
+    std::uint64_t selected_track_id = 0;
+    std::uint64_t selected_backing_frame_id = 0;
+    float track_observation_age_ms = 0.0f;
+    float track_position_sigma = 0.0f;
+    float track_ambiguity = 0.0f;
+    pipeline_contract::AssistAuthorityState assist_authority_state =
+        pipeline_contract::AssistAuthorityState::Reject;
+    pipeline_contract::AssistAuthorityReason assist_authority_reason =
+        pipeline_contract::AssistAuthorityReason::None;
+    bool authority_decision_valid = false;
     bool fresh_observation = false;
     bool has_target = false;
     bool auto_fire_requested = false;

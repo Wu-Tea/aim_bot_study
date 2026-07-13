@@ -261,10 +261,28 @@ void test_controller_pipeline_and_target_provenance_are_serialized() {
     value.controller.manual_takeover_active = true;
     value.controller.detector_box_count = 1;
     value.controller.production_target_confidence = 0.91f;
+    value.controller.selected_track_id = 73;
+    value.controller.selected_observation_id = 901;
+    value.controller.backing_frame_id = 55;
+    value.controller.track_observation_age_ms = 8.5f;
+    value.controller.track_position_sigma = 0.025f;
+    value.controller.track_ambiguity = 0.12f;
+    value.controller.requested_assist_x = 0.34f;
+    value.controller.shaped_assist_x = 0.10f;
     std::snprintf(value.controller.production_target_source.data(),
         value.controller.production_target_source.size(), "%s", "yolo_body");
     std::snprintf(value.controller.production_target_tier.data(),
         value.controller.production_target_tier.size(), "%s", "primary");
+    std::snprintf(value.controller.assist_authority.data(),
+        value.controller.assist_authority.size(), "%s", "continuity");
+    std::snprintf(value.controller.assist_authority_reason.data(),
+        value.controller.assist_authority_reason.size(), "%s", "short_evidence_gap");
+    std::snprintf(value.controller.bodylock_lifecycle.data(),
+        value.controller.bodylock_lifecycle.size(), "%s", "coast");
+    std::snprintf(value.controller.bodylock_transition_reason.data(),
+        value.controller.bodylock_transition_reason.size(), "%s", "continuity");
+    std::snprintf(value.controller.assist_limit_reason.data(),
+        value.controller.assist_limit_reason.size(), "%s", "assist_envelope");
     REQUIRE(telemetry.enqueue(value));
     telemetry.stop();
 
@@ -285,6 +303,19 @@ void test_controller_pipeline_and_target_provenance_are_serialized() {
     REQUIRE(json.find("\"production_target_source\":\"yolo_body\"") != std::string::npos);
     REQUIRE(json.find("\"production_target_tier\":\"primary\"") != std::string::npos);
     REQUIRE(json.find("\"production_target_confidence\":0.91") != std::string::npos);
+    REQUIRE(json.find("\"selected_track_id\":73") != std::string::npos);
+    REQUIRE(json.find("\"selected_observation_id\":901") != std::string::npos);
+    REQUIRE(json.find("\"track_backing_frame_id\":55") != std::string::npos);
+    REQUIRE(json.find("\"track_observation_age_ms\":8.5") != std::string::npos);
+    REQUIRE(json.find("\"track_position_sigma\":0.025") != std::string::npos);
+    REQUIRE(json.find("\"track_ambiguity\":0.12") != std::string::npos);
+    REQUIRE(json.find("\"assist_authority\":\"continuity\"") != std::string::npos);
+    REQUIRE(json.find("\"assist_authority_reason\":\"short_evidence_gap\"") != std::string::npos);
+    REQUIRE(json.find("\"bodylock_lifecycle\":\"coast\"") != std::string::npos);
+    REQUIRE(json.find("\"bodylock_transition_reason\":\"continuity\"") != std::string::npos);
+    REQUIRE(json.find("\"requested_assist_x\":0.34") != std::string::npos);
+    REQUIRE(json.find("\"shaped_assist_x\":0.1") != std::string::npos);
+    REQUIRE(json.find("\"assist_limit_reason\":\"assist_envelope\"") != std::string::npos);
     input.close();
     std::filesystem::remove_all(directory);
 }

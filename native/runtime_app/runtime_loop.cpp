@@ -665,6 +665,10 @@ void RuntimeLoop::run_once() {
     telemetry_tick.manual_y = telemetry_components.manual_stick.y;
     telemetry_tick.ai_x = telemetry_components.ai_aim_stick.x;
     telemetry_tick.ai_y = telemetry_components.ai_aim_stick.y;
+    telemetry_tick.requested_assist_x = telemetry_components.requested_assist_stick.x;
+    telemetry_tick.requested_assist_y = telemetry_components.requested_assist_stick.y;
+    telemetry_tick.shaped_assist_x = telemetry_components.shaped_assist_stick.x;
+    telemetry_tick.shaped_assist_y = telemetry_components.shaped_assist_stick.y;
     telemetry_tick.post_ai_x = telemetry_components.post_ai_stick.x;
     telemetry_tick.post_ai_y = telemetry_components.post_ai_stick.y;
     telemetry_tick.dynamic_adjustment_x = telemetry_components.dynamic_adjustment_stick.x;
@@ -694,6 +698,25 @@ void RuntimeLoop::run_once() {
     telemetry_tick.recoil_y = telemetry_components.recoil_stick.y;
     telemetry_tick.final_x = telemetry_components.final_stick.x;
     telemetry_tick.final_y = telemetry_components.final_stick.y;
+    telemetry_tick.selected_track_id = telemetry_vision_state.selected_track_id;
+    telemetry_tick.selected_observation_id =
+        telemetry_vision_state.selected_observation_id;
+    telemetry_tick.backing_frame_id =
+        telemetry_vision_state.selected_backing_frame_id;
+    telemetry_tick.track_observation_age_ms =
+        telemetry_vision_state.track_observation_age_ms;
+    telemetry_tick.track_position_sigma =
+        telemetry_vision_state.track_position_sigma;
+    telemetry_tick.track_ambiguity = telemetry_vision_state.track_ambiguity;
+    telemetry_tick.assist_authority = telemetry_components.assist_authority.c_str();
+    telemetry_tick.assist_authority_reason =
+        telemetry_components.assist_authority_reason.c_str();
+    telemetry_tick.bodylock_lifecycle =
+        telemetry_components.bodylock_lifecycle.c_str();
+    telemetry_tick.bodylock_transition_reason =
+        telemetry_components.bodylock_transition_reason.c_str();
+    telemetry_tick.assist_limit_reason =
+        telemetry_components.assist_limit_reason.c_str();
     telemetry_collectors_.observe_tick(telemetry_tick);
 
     const bool log_vision = perf_log_ && should_log_vision_tick(tick_count_);

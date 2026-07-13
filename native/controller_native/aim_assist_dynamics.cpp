@@ -8,18 +8,14 @@ namespace controller_native {
 
 namespace {
 
-float clamp_unit(float value) {
-    return std::max(-1.0f, std::min(1.0f, value));
+float clamp(float value, float low, float high) {
+    return std::max(low, std::min(high, value));
 }
 
-int sign(float value) {
-    if (value > 0.0f) {
-        return 1;
-    }
-    if (value < 0.0f) {
-        return -1;
-    }
-    return 0;
+bool bodylock_owned(pipeline_contract::BodylockLifecycleState state) {
+    return state == pipeline_contract::BodylockLifecycleState::Warm ||
+        state == pipeline_contract::BodylockLifecycleState::Tracking ||
+        state == pipeline_contract::BodylockLifecycleState::Coast;
 }
 
 }  // namespace
@@ -28,120 +24,119 @@ NativeAimAssistDynamics::NativeAimAssistDynamics(GamepadAimAssistDynamicsConfig 
     : config_(std::move(config)) {}
 
 void NativeAimAssistDynamics::reset() {
-    has_last_raw_assist_ = false;
-    last_raw_assist_x_ = 0.0f;
-    last_raw_assist_y_ = 0.0f;
-    last_timestamp_seconds_ = 0.0;
+    previous_assist_ = {};
+    previous_delta_ = {};
+    has_history_ = false;
 }
 
 NativeAimAssistDynamicsOutput NativeAimAssistDynamics::apply(
     const NativeAimAssistDynamicsInput& input) {
-    NativeAimAssistDynamicsOutput output{input.assisted_right_x, input.assisted_right_y};
     if (!config_.enabled) {
-        return output;
+        return {input.requested_assist, "disabled"};
     }
 
-    const float raw_assist_x = input.assisted_right_x - input.manual_right_x;
-    const float raw_assist_y = input.assisted_right_y - input.manual_right_y;
-    const auto [manual_x, manual_y] = straighten_manual_curve(
-        input.manual_right_x,
-        input.manual_right_y,
-        raw_assist_x,
-        raw_assist_y);
-
-    const bool recoil_guard_active =
-        input.recoil_active || input.manual_fire_active || input.auto_fire_active;
-    float guarded_assist_x = raw_assist_x;
-    float guarded_assist_y = raw_assist_y;
-    if (recoil_guard_active) {
-        guarded_assist_x = has_last_raw_assist_
-            ? guard_recoil_axis_jitter(raw_assist_x, last_raw_assist_x_, input.now_seconds)
-            : raw_assist_x;
-        guarded_assist_y = has_last_raw_assist_
-            ? guard_recoil_axis_jitter(raw_assist_y, last_raw_assist_y_, input.now_seconds)
-            : raw_assist_y;
-
-        last_raw_assist_x_ = raw_assist_x;
-        last_raw_assist_y_ = raw_assist_y;
-        last_timestamp_seconds_ = input.now_seconds;
-        has_last_raw_assist_ = true;
-    } else {
+    const bool authority_absent =
+        input.authority == pipeline_contract::AssistAuthorityState::Reject ||
+        input.authority == pipeline_contract::AssistAuthorityState::TrackOnly;
+    if (authority_absent ||
+        input.lifecycle == pipeline_contract::BodylockLifecycleState::Yield) {
         reset();
+        return {{}, authority_absent ? "no_authority" : "yield"};
     }
 
-    output.right_x = clamp_unit(manual_x + guarded_assist_x);
-    output.right_y = clamp_unit(manual_y + guarded_assist_y);
+    if (strong_opposing_manual(input)) {
+        reset();
+        return {{}, "manual_yield"};
+    }
+
+    // ADS and other modes retain their existing force curve after the global
+    // current-tick user-yield invariant. The stateful envelope itself owns
+    // bodylock assist only; it never shapes manual or recoil.
+    if (!bodylock_owned(input.lifecycle)) {
+        reset();
+        return {input.requested_assist, "non_bodylock_passthrough"};
+    }
+
+    const double dt = std::max(0.0005, std::min(0.004, input.dt_seconds));
+    const float tick_scale = static_cast<float>(dt / 0.001);
+    const float error_radius = std::hypot(input.target_error_px.x, input.target_error_px.y);
+    const bool boundary_limited =
+        input.lifecycle == pipeline_contract::BodylockLifecycleState::Warm ||
+        input.lifecycle == pipeline_contract::BodylockLifecycleState::Coast;
+    const float nominal_step = (!boundary_limited && error_radius > 48.0f) ? 0.18f : 0.10f;
+    const float step_cap = nominal_step * tick_scale;
+    const float jerk_cap = 0.10f * tick_scale;
+
+    const common_native::Vec2f previous = has_history_ ? previous_assist_ : common_native::Vec2f{};
+    const common_native::Vec2f previous_delta =
+        has_history_ ? previous_delta_ : common_native::Vec2f{};
+    common_native::Vec2f delta;
+    NativeAimAssistDynamicsOutput output;
+    output.assist.x = shape_axis(
+        input.requested_assist.x,
+        previous.x,
+        previous_delta.x,
+        step_cap,
+        jerk_cap,
+        &delta.x);
+    output.assist.y = shape_axis(
+        input.requested_assist.y,
+        previous.y,
+        previous_delta.y,
+        step_cap,
+        jerk_cap,
+        &delta.y);
+    output.limit_reason =
+        std::fabs(output.assist.x - input.requested_assist.x) > 0.000001f ||
+            std::fabs(output.assist.y - input.requested_assist.y) > 0.000001f
+        ? "assist_envelope"
+        : "none";
+    previous_assist_ = output.assist;
+    previous_delta_ = delta;
+    has_history_ = true;
     return output;
 }
 
-std::pair<float, float> NativeAimAssistDynamics::straighten_manual_curve(
-    float manual_x,
-    float manual_y,
-    float assist_x,
-    float assist_y) const {
-    if (!config_.manual_curve_straighten_enabled) {
-        return {manual_x, manual_y};
+float NativeAimAssistDynamics::shape_axis(
+    float requested,
+    float previous,
+    float previous_delta,
+    float step_cap,
+    float jerk_cap,
+    float* out_delta) const {
+    float target = requested;
+    if (previous * requested < 0.0f) {
+        target = 0.0f;
     }
-
-    const float assist_mag = std::sqrt((assist_x * assist_x) + (assist_y * assist_y));
-    const float manual_mag = std::sqrt((manual_x * manual_x) + (manual_y * manual_y));
-    const float min_assist = std::max(0.0f, config_.manual_curve_straighten_min_assist) / 32767.0f;
-    const float min_manual = std::max(0.0f, config_.manual_curve_straighten_min_manual) / 32767.0f;
-    if (assist_mag < min_assist || manual_mag < min_manual || assist_mag <= 0.000001f) {
-        return {manual_x, manual_y};
+    const float requested_delta = clamp(target - previous, -step_cap, step_cap);
+    const float delta = clamp(
+        requested_delta,
+        previous_delta - jerk_cap,
+        previous_delta + jerk_cap);
+    float shaped = previous + delta;
+    if ((target - previous) * (target - shaped) < 0.0f) {
+        shaped = target;
     }
-
-    const float strength = std::max(0.0f, std::min(0.85f, config_.manual_curve_straighten_strength));
-    if (strength <= 0.0f) {
-        return {manual_x, manual_y};
+    if (out_delta != nullptr) {
+        *out_delta = shaped - previous;
     }
-
-    const float ux = assist_x / assist_mag;
-    const float uy = assist_y / assist_mag;
-    const float parallel = (manual_x * ux) + (manual_y * uy);
-    const float alignment = parallel / manual_mag;
-    constexpr float kMinStraightenAlignment = 0.95f;
-    if (alignment < kMinStraightenAlignment) {
-        return {manual_x, manual_y};
-    }
-    const float parallel_x = ux * parallel;
-    const float parallel_y = uy * parallel;
-    const float orthogonal_x = manual_x - parallel_x;
-    const float orthogonal_y = manual_y - parallel_y;
-    const float keep_orthogonal = 1.0f - strength;
-    return {
-        parallel_x + (orthogonal_x * keep_orthogonal),
-        parallel_y + (orthogonal_y * keep_orthogonal)};
+    return shaped;
 }
 
-float NativeAimAssistDynamics::guard_recoil_axis_jitter(
-    float raw_assist,
-    float previous_assist,
-    double now_seconds) const {
-    if (!config_.recoil_jitter_guard_enabled || !within_memory_window(now_seconds)) {
-        return raw_assist;
-    }
-    const float threshold = std::max(0.0f, config_.recoil_jitter_assist_threshold) / 32767.0f;
-    if (std::fabs(raw_assist) > threshold || std::fabs(previous_assist) > threshold) {
-        return raw_assist;
-    }
-    if (sign(raw_assist) == 0 || sign(previous_assist) == 0) {
-        return raw_assist;
-    }
-    if (sign(raw_assist) == sign(previous_assist)) {
-        return raw_assist;
-    }
-    const float scale = std::max(0.0f, std::min(1.0f, config_.recoil_jitter_flip_scale));
-    return raw_assist * scale;
-}
-
-bool NativeAimAssistDynamics::within_memory_window(double now_seconds) const {
-    if (!has_last_raw_assist_ || last_timestamp_seconds_ <= 0.0 || now_seconds <= 0.0) {
+bool NativeAimAssistDynamics::strong_opposing_manual(
+    const NativeAimAssistDynamicsInput& input) const {
+    const float manual_magnitude = std::hypot(input.manual.x, input.manual.y);
+    const float assist_magnitude = std::hypot(
+        input.requested_assist.x,
+        input.requested_assist.y);
+    if (manual_magnitude < 0.55f || assist_magnitude < 0.02f) {
         return false;
     }
-    const double elapsed = now_seconds - last_timestamp_seconds_;
-    return elapsed >= 0.0 &&
-        elapsed <= static_cast<double>(std::max(0.0f, config_.recoil_jitter_memory_seconds));
+    const float alignment =
+        ((input.manual.x * input.requested_assist.x) +
+         (input.manual.y * input.requested_assist.y)) /
+        (manual_magnitude * assist_magnitude);
+    return alignment <= -0.35f;
 }
 
 }  // namespace controller_native

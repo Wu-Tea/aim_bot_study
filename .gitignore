@@ -39,3 +39,6 @@ Ultralytics/
 .worktrees/
 native/vision_native/build/
 native/vision_native/build-*/
+color_readback_benchmark.json
+scheduler_benchmark.json
+telemetry_benchmark.json

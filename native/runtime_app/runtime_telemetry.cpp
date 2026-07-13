@@ -317,13 +317,28 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
             << ",\"pre_recoil_x\":" << record.controller.pre_recoil_x
             << ",\"pre_recoil_y\":" << record.controller.pre_recoil_y
             << ",\"recoil_x\":" << record.controller.recoil_x
-            << ",\"recoil_y\":" << record.controller.recoil_y
-            << ",\"final_x\":" << serialized_final_x << ",\"final_y\":" << serialized_final_y
-            << ",\"left_trigger\":" << record.controller.left_trigger
-            << ",\"right_trigger\":" << record.controller.right_trigger
-            << ",\"controller_target_track_id\":" << record.target_track_id
-            << ",\"telemetry_identity_track_id\":" << record.target_track_id
-            << ",\"has_target\":" << (record.controller.has_target ? "true" : "false")
+             << ",\"recoil_y\":" << record.controller.recoil_y
+             << ",\"final_x\":" << serialized_final_x << ",\"final_y\":" << serialized_final_y
+             << ",\"requested_assist_x\":" << record.controller.requested_assist_x
+             << ",\"requested_assist_y\":" << record.controller.requested_assist_y
+             << ",\"shaped_assist_x\":" << record.controller.shaped_assist_x
+             << ",\"shaped_assist_y\":" << record.controller.shaped_assist_y
+             << ",\"left_trigger\":" << record.controller.left_trigger
+             << ",\"right_trigger\":" << record.controller.right_trigger
+             << ",\"controller_target_track_id\":" << record.target_track_id
+             << ",\"telemetry_identity_track_id\":" << record.target_track_id
+             << ",\"selected_track_id\":" << record.controller.selected_track_id
+             << ",\"selected_observation_id\":" << record.controller.selected_observation_id
+             << ",\"track_backing_frame_id\":" << record.controller.backing_frame_id
+             << ",\"track_observation_age_ms\":" << record.controller.track_observation_age_ms
+             << ",\"track_position_sigma\":" << record.controller.track_position_sigma
+             << ",\"track_ambiguity\":" << record.controller.track_ambiguity
+             << ",\"assist_authority\":\"" << record.controller.assist_authority.data() << '"'
+             << ",\"assist_authority_reason\":\"" << record.controller.assist_authority_reason.data() << '"'
+             << ",\"bodylock_lifecycle\":\"" << record.controller.bodylock_lifecycle.data() << '"'
+             << ",\"bodylock_transition_reason\":\"" << record.controller.bodylock_transition_reason.data() << '"'
+             << ",\"assist_limit_reason\":\"" << record.controller.assist_limit_reason.data() << '"'
+             << ",\"has_target\":" << (record.controller.has_target ? "true" : "false")
             << ",\"aim_authority\":" << (record.controller.aim_authority ? "true" : "false")
             << ",\"fire_authority\":" << (record.controller.fire_authority ? "true" : "false")
             << ",\"ads_brake_active\":" << (record.controller.ads_brake_active ? "true" : "false")

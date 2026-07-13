@@ -1,12 +1,14 @@
 #pragma once
 
 #include "controller_vision_snapshot.h"
+#include "assist_authority_policy.h"
 #include "output_mixer.h"
 #include "runtime_config.h"
 
 #include "../tracking_native/tracker_backend.h"
 
 #include <memory>
+#include <optional>
 #include <vector>
 
 namespace controller_native {
@@ -46,8 +48,20 @@ private:
         double capture_time_seconds,
         double ready_time_seconds,
         double fallback_now_seconds);
-    NativeControllerVisionState select_middle_layer_target(
-        const ControllerVisionSnapshot& snapshot) const;
+    void ingest_tracker_candidates(
+        const ControllerVisionSnapshot& snapshot,
+        double fallback_now_seconds);
+    void bind_selector_observation(
+        std::uint64_t observation_id,
+        double query_time_seconds);
+    std::optional<pipeline_contract::TrackEstimate> selected_track_estimate(
+        double query_time_seconds) const;
+    tracking_native::TrackerSnapshot selected_tracker_snapshot(
+        double query_time_seconds) const;
+    NativeControllerVisionState apply_assist_authority(
+        NativeControllerVisionState state,
+        double query_time_seconds,
+        bool consume_current_observation);
     NativeControllerVisionState credibility_gated_vision_state(
         const NativeControllerVisionState& state,
         double query_time_seconds,
@@ -60,6 +74,13 @@ private:
 
     GamepadAiAimConfig ai_config_;
     std::unique_ptr<tracking_native::TrackerBackend> target_tracker_;
+    pipeline_contract::SelectedTrackRef selected_track_;
+    bool selector_ownership_active_ = false;
+    pipeline_contract::AssistAuthorityDecision latest_authority_decision_;
+    pipeline_contract::UserAimIntent latest_user_intent_;
+    std::uint64_t prior_observed_track_id_ = 0;
+    std::uint64_t consumed_authority_observation_id_ = 0;
+    double prior_observed_at_seconds_ = 0.0;
     NativeControllerVisionState latest_vision_state_;
     double last_output_at_seconds_ = 0.0;
     std::uint64_t latest_vision_sequence_ = 0;

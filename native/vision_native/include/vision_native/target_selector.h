@@ -54,6 +54,8 @@ public:
     };
 
     struct Candidate {
+        bool has_source_detection = false;
+        std::uint32_t source_detection_index = 0;
         float target_x = 0.0f;
         float target_y = 0.0f;
         float conf = 0.0f;
@@ -112,9 +114,12 @@ private:
 
     std::optional<Candidate> build_candidate(
         const Detection& detection,
+        std::uint32_t source_detection_index,
         const std::optional<std::pair<float, float>>& last_target_center,
         const pipeline_contract::UserAimIntent* intent) const;
-    std::optional<Candidate> build_weak_association_candidate(const Detection& detection) const;
+    std::optional<Candidate> build_weak_association_candidate(
+        const Detection& detection,
+        std::uint32_t source_detection_index) const;
     void build_candidates(
         const DetectionBatch& batch,
         const std::optional<std::pair<float, float>>& last_target_center,

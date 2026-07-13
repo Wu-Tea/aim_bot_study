@@ -84,6 +84,7 @@ struct DetectionBatch {
 };
 
 struct VisionResult {
+    bool selector_identity_protocol = false;
     uint64_t frame_id = 0;
     uint64_t captured_at_ns = 0;
     uint64_t inferred_at_ns = 0;
@@ -101,6 +102,8 @@ struct VisionResult {
 
     bool has_target = false;
     bool auto_fire = false;
+    bool has_selected_detection = false;
+    std::uint32_t selected_detection_index = 0;
 
     float dx = 0.0f;
     float dy = 0.0f;

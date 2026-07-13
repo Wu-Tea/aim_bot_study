@@ -5,7 +5,7 @@
 
 namespace runtime_app {
 
-inline constexpr std::uint16_t kTelemetrySchemaVersion = 2;
+inline constexpr std::uint16_t kTelemetrySchemaVersion = 3;
 
 enum class TelemetryRecordKind : std::uint8_t {
     ManualControllerTick,
@@ -145,6 +145,10 @@ struct ControllerSamplePayload {
     float recoil_y = 0.0f;
     float final_x = 0.0f;
     float final_y = 0.0f;
+    float requested_assist_x = 0.0f;
+    float requested_assist_y = 0.0f;
+    float shaped_assist_x = 0.0f;
+    float shaped_assist_y = 0.0f;
     float left_trigger = 0.0f;
     float right_trigger = 0.0f;
     bool has_target = false;
@@ -164,10 +168,21 @@ struct ControllerSamplePayload {
     float target_dx = 0.0f;
     float target_dy = 0.0f;
     float target_error_px = 0.0f;
+    std::uint64_t selected_track_id = 0;
+    std::uint64_t selected_observation_id = 0;
+    std::uint64_t backing_frame_id = 0;
+    float track_observation_age_ms = 0.0f;
+    float track_position_sigma = 0.0f;
+    float track_ambiguity = 0.0f;
     TargetIdentityQuality target_identity_quality = TargetIdentityQuality::None;
     std::array<char, 24> aim_mode{};
     std::array<char, 32> production_target_source{};
     std::array<char, 24> production_target_tier{};
+    std::array<char, 20> assist_authority{};
+    std::array<char, 24> assist_authority_reason{};
+    std::array<char, 16> bodylock_lifecycle{};
+    std::array<char, 24> bodylock_transition_reason{};
+    std::array<char, 24> assist_limit_reason{};
 };
 
 struct SessionMetadataPayload {
