@@ -65,7 +65,8 @@ NativeAiAimOutput NativeAiAim::compute(const NativeAiAimInput& input) {
         return output;
     }
 
-    const bool body_lock_active = should_body_lock(input);
+    const bool ads_snap_mode = input.ads_snap_active;
+    const bool body_lock_active = !ads_snap_mode && should_body_lock(input);
     if (!body_lock_active && !input.ads_snap_active) {
         reset();
         return output;
@@ -75,7 +76,6 @@ NativeAiAimOutput NativeAiAim::compute(const NativeAiAimInput& input) {
         body_lock_ai_stick_y_ = 0.0f;
     }
 
-    const bool ads_snap_mode = !body_lock_active && input.ads_snap_active;
     last_mode_ = ads_snap_mode ? "ads_snap" : "body_lock";
     if (!ads_snap_mode) {
         ads_snap_ai_stick_x_ = 0.0f;

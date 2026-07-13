@@ -192,6 +192,12 @@ void write_controller_components(
         << ",\"post_ads_carry_brake_y\":" << value.post_ads_carry_brake_stick.y
         << ",\"ads_carry_brake_active\":"
         << (value.ads_carry_brake_active ? "true" : "false")
+        << ",\"ads_completion_active\":" << (value.ads_completion_active ? "true" : "false")
+        << ",\"ads_completion_stable_frames\":" << value.ads_completion_stable_frames
+        << ",\"ads_completion_radius_px\":" << value.ads_completion_radius_px
+        << ",\"ads_completion_required_frames\":" << value.ads_completion_required_frames
+        << ",\"ads_completion_max_ms\":" << value.ads_completion_max_ms
+        << ",\"ads_completion_reason\":" << json_string(value.ads_completion_reason)
         << ",\"ads_brake_active\":" << (value.ads_brake_active ? "true" : "false")
         << ",\"before_recoil_x\":" << value.before_recoil_stick.x
         << ",\"before_recoil_y\":" << value.before_recoil_stick.y

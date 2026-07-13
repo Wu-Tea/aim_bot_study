@@ -30,6 +30,12 @@ struct TelemetryTickInput {
     float post_ads_carry_brake_x = 0.0f, post_ads_carry_brake_y = 0.0f;
     bool ads_brake_active = false;
     bool ads_carry_brake_active = false;
+    bool ads_completion_active = false;
+    int ads_completion_stable_frames = 0;
+    float ads_completion_radius_px = 0.0f;
+    int ads_completion_required_frames = 0;
+    float ads_completion_max_ms = 0.0f;
+    const char* ads_completion_reason = "none";
     bool manual_takeover_active = false;
     float pre_recoil_x = 0.0f, pre_recoil_y = 0.0f;
     float recoil_x = 0.0f, recoil_y = 0.0f;

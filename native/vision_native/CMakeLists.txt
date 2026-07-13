@@ -215,6 +215,7 @@ add_executable(cod_native_runtime
     ${FPS_TRACKER_PACKAGE_SOURCES}
     ../controller_native/runtime_config.cpp
     ../controller_native/ads_state_tracker.cpp
+    ../controller_native/ads_completion_gate.cpp
     ../controller_native/auto_fire_gate.cpp
     ../controller_native/target_tracker.cpp
     ../controller_native/ads_carry_brake_policy.cpp
@@ -302,6 +303,7 @@ add_executable(cod_native_controller_tests
     ${FPS_TRACKER_PACKAGE_SOURCES}
     ../controller_native/runtime_config.cpp
     ../controller_native/ads_state_tracker.cpp
+    ../controller_native/ads_completion_gate.cpp
     ../controller_native/auto_fire_gate.cpp
     ../controller_native/target_tracker.cpp
     ../controller_native/ads_carry_brake_policy.cpp
@@ -528,6 +530,15 @@ add_executable(cod_native_runtime_config_tests
     ${FPS_TRACKER_PACKAGE_SOURCES}
 )
 
+add_executable(cod_native_ads_completion_gate_tests
+    ../controller_native/ads_completion_gate_tests.cpp
+    ../controller_native/ads_completion_gate.cpp
+)
+
+target_include_directories(cod_native_ads_completion_gate_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
 target_include_directories(cod_native_runtime_config_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/..
@@ -708,6 +719,7 @@ add_executable(cod_native_gamepad_benchmark
     ${FPS_TRACKER_PACKAGE_SOURCES}
     ../controller_native/runtime_config.cpp
     ../controller_native/ads_state_tracker.cpp
+    ../controller_native/ads_completion_gate.cpp
     ../controller_native/auto_fire_gate.cpp
     ../controller_native/target_tracker.cpp
     ../controller_native/ads_carry_brake_policy.cpp
@@ -760,6 +772,7 @@ add_executable(cod_native_vlock_defect_tests
     ${FPS_TRACKER_PACKAGE_SOURCES}
     ../controller_native/runtime_config.cpp
     ../controller_native/ads_state_tracker.cpp
+    ../controller_native/ads_completion_gate.cpp
     ../controller_native/auto_fire_gate.cpp
     ../controller_native/target_tracker.cpp
     ../controller_native/ads_carry_brake_policy.cpp

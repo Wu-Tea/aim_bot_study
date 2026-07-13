@@ -328,6 +328,12 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
             << ",\"fire_authority\":" << (record.controller.fire_authority ? "true" : "false")
             << ",\"ads_brake_active\":" << (record.controller.ads_brake_active ? "true" : "false")
             << ",\"ads_carry_brake_active\":" << (record.controller.ads_carry_brake_active ? "true" : "false")
+            << ",\"ads_completion_active\":" << (record.controller.ads_completion_active ? "true" : "false")
+            << ",\"ads_completion_stable_frames\":" << record.controller.ads_completion_stable_frames
+            << ",\"ads_completion_radius_px\":" << record.controller.ads_completion_radius_px
+            << ",\"ads_completion_required_frames\":" << record.controller.ads_completion_required_frames
+            << ",\"ads_completion_max_ms\":" << record.controller.ads_completion_max_ms
+            << ",\"ads_completion_reason\":\"" << record.controller.ads_completion_reason.data() << '"'
             << ",\"manual_takeover_active\":" << (record.controller.manual_takeover_active ? "true" : "false")
             << ",\"detector_box_count\":" << record.controller.detector_box_count
             << ",\"production_target_source\":\"" << record.controller.production_target_source.data() << '"'

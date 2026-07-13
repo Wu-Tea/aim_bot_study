@@ -165,6 +165,7 @@ void test_compact_ads_and_bodylock_modules_resolve_detailed_controls() {
                << "[gamepad.ads]\nstrength_scale = 0.5\nvertical_strength_scale = 0.5\n"
                << "sustain_smoothing = 0.25\nacquisition_smoothing = 0.10\nrange_px = 150\nsnap_duration_ms = 90\n"
                << "fov_scale = 0.85\nmanual_opposition_suppression = 0.40\n"
+               << "completion_radius_px = 7\ncompletion_fresh_frames = 4\nmax_acquisition_ms = 240\n"
                << "[gamepad.bodylock]\nstrength = 0.33\nvertical_strength = 0.44\n"
                << "smoothing = 0.18\nactivation_range_px = 140\ntolerance_px = 20\n"
                << "lead_strength = 1.20\nmanual_escape_threshold = 0.50\n"
@@ -184,6 +185,9 @@ void test_compact_ads_and_bodylock_modules_resolve_detailed_controls() {
     require(config.gamepad.ai_aim.ads_snap_window_ms == 90);
     require(config.gamepad.ai_aim.ads_snap_fov_scale == 0.85f);
     require(config.gamepad.ai_aim.ads_snap_opposing_manual_suppression_max == 0.40f);
+    require(config.gamepad.ai_aim.ads_completion_radius_px == 7.0f);
+    require(config.gamepad.ai_aim.ads_completion_fresh_frames == 4);
+    require(config.gamepad.ai_aim.ads_max_acquisition_ms == 240.0f);
     require(config.gamepad.ai_aim.body_lock_max_ai_force == 0.33f);
     require(config.gamepad.ai_aim.body_lock_max_ai_force_y == 0.44f);
     require(config.gamepad.ai_aim.body_lock_smoothing == 0.18f);

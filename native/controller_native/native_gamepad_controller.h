@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ads_state_tracker.h"
+#include "ads_completion_gate.h"
 #include "ads_carry_brake_policy.h"
 #include "aim_activation.h"
 #include "aim_assist_dynamics.h"
@@ -60,7 +61,7 @@ private:
     bool ads_snap_active_for_frame(
         const NativeControllerVisionState& vision_state,
         bool aiming,
-        double now_seconds) const;
+        double now_seconds);
     float ads_snap_progress_ratio(double now_seconds) const;
     float ads_snap_remaining_seconds(double now_seconds) const;
     bool body_lock_error_for_state(
@@ -122,6 +123,7 @@ private:
     NativeAimAssistDynamics aim_assist_dynamics_;
     recoil_native::RecoilCompensationPolicy recoil_;
     AdsStateTracker ads_state_tracker_;
+    AdsCompletionGate ads_completion_gate_;
     AimActivationTracker aim_activation_tracker_;
     AutoFireGate auto_fire_gate_;
     BodyLockShortPlanPolicy body_lock_short_plan_policy_;

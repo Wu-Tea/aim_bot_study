@@ -64,6 +64,7 @@ private:
     double last_output_at_seconds_ = 0.0;
     std::uint64_t latest_vision_sequence_ = 0;
     std::uint64_t raw_vision_sequence_consumed_ = 0;
+    std::uint64_t ads_gate_sequence_consumed_ = 0;
     bool has_committed_target_ = false;
     float committed_target_dx_ = 0.0f;
     float committed_target_dy_ = 0.0f;

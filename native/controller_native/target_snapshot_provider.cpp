@@ -190,6 +190,7 @@ void TargetSnapshotProvider::reset() {
     target_tracker_->reset();
     latest_vision_sequence_ = 0;
     raw_vision_sequence_consumed_ = 0;
+    ads_gate_sequence_consumed_ = 0;
     last_output_at_seconds_ = 0.0;
     has_committed_target_ = false;
     committed_target_dx_ = 0.0f;
@@ -552,6 +553,11 @@ NativeControllerVisionState TargetSnapshotProvider::vision_state_for_frame(
     double now_seconds,
     bool ads_active) {
     NativeControllerVisionState state = latest_vision_state_;
+    state.vision_sequence = latest_vision_sequence_;
+    state.fresh_observation = latest_vision_sequence_ != ads_gate_sequence_consumed_;
+    if (state.fresh_observation) {
+        ads_gate_sequence_consumed_ = latest_vision_sequence_;
+    }
     const bool state_expired_for_projection = state_age_exceeds_ms(
         state,
         now_seconds,
@@ -641,6 +647,7 @@ NativeControllerVisionState TargetSnapshotProvider::vision_state_for_frame(
         held.fire_authority = false;
         held.auto_fire_requested = false;
         held.target_tier = "projected";
+        held.fresh_observation = false;
         held.observed_at_seconds = now_seconds;
         held.has_tracker_projection = true;
         held.tracker_dx = projection.aim_error_px.x;
@@ -708,6 +715,7 @@ NativeControllerVisionState TargetSnapshotProvider::vision_state_for_frame(
         state.body_y2 += projection_delta_y;
     }
     state.observed_at_seconds = now_seconds;
+    state.fresh_observation = false;
     if (!had_selector_target && projection.source != tracking_native::TrackerSnapshotSource::Observed) {
         state.fire_authority = false;
         state.auto_fire_requested = false;

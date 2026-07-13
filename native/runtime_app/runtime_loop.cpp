@@ -681,6 +681,12 @@ void RuntimeLoop::run_once() {
     telemetry_tick.post_ads_carry_brake_y = telemetry_components.post_ads_carry_brake_stick.y;
     telemetry_tick.ads_brake_active = telemetry_components.ads_brake_active;
     telemetry_tick.ads_carry_brake_active = telemetry_components.ads_carry_brake_active;
+    telemetry_tick.ads_completion_active = telemetry_components.ads_completion_active;
+    telemetry_tick.ads_completion_stable_frames = telemetry_components.ads_completion_stable_frames;
+    telemetry_tick.ads_completion_radius_px = telemetry_components.ads_completion_radius_px;
+    telemetry_tick.ads_completion_required_frames = telemetry_components.ads_completion_required_frames;
+    telemetry_tick.ads_completion_max_ms = telemetry_components.ads_completion_max_ms;
+    telemetry_tick.ads_completion_reason = telemetry_components.ads_completion_reason.c_str();
     telemetry_tick.manual_takeover_active = controller_.body_lock_manual_takeover_active();
     telemetry_tick.pre_recoil_x = telemetry_components.before_recoil_stick.x;
     telemetry_tick.pre_recoil_y = telemetry_components.before_recoil_stick.y;

@@ -152,6 +152,12 @@ struct ControllerSamplePayload {
     bool fire_authority = false;
     bool ads_brake_active = false;
     bool ads_carry_brake_active = false;
+    bool ads_completion_active = false;
+    int ads_completion_stable_frames = 0;
+    float ads_completion_radius_px = 0.0f;
+    int ads_completion_required_frames = 0;
+    float ads_completion_max_ms = 0.0f;
+    std::array<char, 20> ads_completion_reason{};
     bool manual_takeover_active = false;
     std::uint32_t detector_box_count = 0;
     float production_target_confidence = 0.0f;

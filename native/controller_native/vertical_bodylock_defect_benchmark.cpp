@@ -127,6 +127,7 @@ Metrics run_air_lock(bool moving_stairs) {
 
     double now = 1.0;
     GamepadRuntimeConfig config;
+    config.ai_aim.ads_snap_window_ms = 0;
     config.recoil.enabled = false;
     config.auto_fire.require_aim_ready = false;
     config.aim_assist_dynamics.enabled = false;
@@ -209,6 +210,7 @@ ManualTakeoverMetrics run_horizontal_scenario(
                 : "bodylock_repeated_error_crossing_continuity";
     double now = 4.0;
     GamepadRuntimeConfig config;
+    config.ai_aim.ads_snap_window_ms = 0;
     config.recoil.enabled = false;
     config.auto_fire.require_aim_ready = false;
     config.aim_assist_dynamics.enabled = false;
@@ -315,6 +317,7 @@ Metrics run_cooperative_overshoot_occlusion() {
 
     double now = 2.0;
     GamepadRuntimeConfig config;
+    config.ai_aim.ads_snap_window_ms = 0;
     config.recoil.enabled = false;
     config.auto_fire.require_aim_ready = false;
     config.aim_assist_dynamics.enabled = false;

@@ -160,6 +160,12 @@ void TelemetryCollectors::observe_tick(const TelemetryTickInput& input) noexcept
         sample.controller.fire_authority = input.fire_authority;
         sample.controller.ads_brake_active = input.ads_brake_active;
         sample.controller.ads_carry_brake_active = input.ads_carry_brake_active;
+        sample.controller.ads_completion_active = input.ads_completion_active;
+        sample.controller.ads_completion_stable_frames = input.ads_completion_stable_frames;
+        sample.controller.ads_completion_radius_px = input.ads_completion_radius_px;
+        sample.controller.ads_completion_required_frames = input.ads_completion_required_frames;
+        sample.controller.ads_completion_max_ms = input.ads_completion_max_ms;
+        copy_text(sample.controller.ads_completion_reason, input.ads_completion_reason);
         sample.controller.manual_takeover_active = input.manual_takeover_active;
         sample.controller.detector_box_count = state.detector_box_count;
         sample.controller.production_target_confidence = state.target_confidence;
