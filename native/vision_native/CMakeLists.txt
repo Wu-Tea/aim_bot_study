@@ -579,6 +579,16 @@ target_compile_definitions(cod_native_target_snapshot_tests
 
 add_executable(cod_native_track_memory_tests
     ../tracking_native/track_memory_service_tests.cpp
+    ../tracking_native/track_memory_service.cpp
+    ../tracking_native/association.cpp
+    ../tracking_native/ego_motion_buffer.cpp
+    ../tracking_native/projection_model.cpp
+    ../tracking_native/tracker_authority.cpp
+    ../tracking_native/kalman_tracker.cpp
+    ../tracking_native/fps_reference_tracker.cpp
+    ../tracking_native/tracker_backend.cpp
+    ../tracking_native/legacy_projection_tracker.cpp
+    ${FPS_TRACKER_PACKAGE_SOURCES}
 )
 
 target_include_directories(cod_native_track_memory_tests PRIVATE

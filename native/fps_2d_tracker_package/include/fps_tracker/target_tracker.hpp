@@ -70,6 +70,10 @@ public:
     [[nodiscard]] TrackerOutput query(TimeSec queryTime,
                                        const SelectionRequest& request = {}) const;
 
+    // Estimator-only view: every live track, without selector or assist-authority
+    // filtering. Downstream ownership and permission decisions happen elsewhere.
+    [[nodiscard]] std::vector<TrackSnapshot> snapshots(TimeSec queryTime) const;
+
     [[nodiscard]] std::vector<TrackDebugInfo> debugTracks() const;
     [[nodiscard]] const TrackerConfig& config() const { return cfg_; }
 

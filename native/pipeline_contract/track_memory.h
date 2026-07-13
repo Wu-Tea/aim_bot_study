@@ -50,6 +50,7 @@ struct TrackEstimate {
     common_native::Box2f body_box_px;
     bool has_body_box = false;
     common_native::Vec2f velocity_model_units_per_sec;
+    float confidence = 0.0f;
     float position_sigma = 0.0f;
     float ambiguity = 0.0f;
     float association_quality = 0.0f;

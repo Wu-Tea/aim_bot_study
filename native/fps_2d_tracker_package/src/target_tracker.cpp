@@ -295,9 +295,11 @@ TrackSnapshot TargetTracker::makeSnapshot(const Track& tr, TimeSec queryTime) co
     s.velocityTrackUnits = pred.velocity();
     s.confidence = computeConfidence(tr, queryTime);
     s.positionSigma = pred.positionSigma();
+    s.lastObservedCaptureTime = tr.lastObsCaptureTime;
     s.obsAgeMs = tr.lastObsCaptureTime >= 0.0 ? std::max(0.0, queryTime - tr.lastObsCaptureTime) * 1000.0
                                                : std::numeric_limits<double>::infinity();
     s.ambiguity = tr.ambiguity;
+    s.associationQuality = tr.assocQualityEwma;
     s.lastDetectorConfidence = tr.detConfEwma;
     s.observedRecent = tr.hasDirectObservationToken && tr.lastObsFrameSeq == latestUsableFrameSeq_;
     s.predictedOnly = isPredictedOnly(tr, queryTime);
@@ -308,14 +310,20 @@ TrackSnapshot TargetTracker::makeSnapshot(const Track& tr, TimeSec queryTime) co
     return s;
 }
 
+std::vector<TrackSnapshot> TargetTracker::snapshots(TimeSec queryTime) const {
+    std::vector<TrackSnapshot> result;
+    result.reserve(tracks_.size());
+    for (const Track& tr : tracks_) {
+        if (tr.life != TrackLife::Lost) {
+            result.push_back(makeSnapshot(tr, queryTime));
+        }
+    }
+    return result;
+}
+
 TrackerOutput TargetTracker::query(TimeSec queryTime, const SelectionRequest& request) const {
     TrackerOutput out;
-    out.candidates.reserve(tracks_.size());
-    for (const Track& tr : tracks_) {
-        if (tr.life == TrackLife::Lost) {
-            continue;
-        }
-        TrackSnapshot s = makeSnapshot(tr, queryTime);
+    for (const TrackSnapshot& s : snapshots(queryTime)) {
         if (s.assistAuthority == AssistAuthority::None && s.confidence < cfg_.minAssistConfidence * 0.5) {
             continue;
         }

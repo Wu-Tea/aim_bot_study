@@ -1,11 +1,14 @@
 #include "../pipeline_contract/assist_authority.h"
 #include "../pipeline_contract/track_memory.h"
+#include "track_memory_service.h"
 
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
+#include <utility>
+#include <vector>
 
 namespace {
 
@@ -75,12 +78,83 @@ void test_selection_and_authority_are_separate_value_types() {
             "track-only state must not implicitly grant fire");
 }
 
+pipeline_contract::TrackObservationDetection make_detection(
+    std::uint64_t observation_id,
+    float x,
+    float confidence = 0.90f) {
+    pipeline_contract::TrackObservationDetection detection;
+    detection.observation_id = observation_id;
+    detection.body_box_px = {x, 160.0f, 60.0f, 140.0f};
+    detection.aim_point_px = {x + 30.0f, 216.0f};
+    detection.has_aim_point = true;
+    detection.confidence = confidence;
+    detection.class_id = 0;
+    detection.evidence_tier = "observed_strong";
+    return detection;
+}
+
+pipeline_contract::TrackObservationBatch make_batch(
+    std::uint64_t frame_id,
+    double captured_at,
+    std::vector<pipeline_contract::TrackObservationDetection> detections) {
+    pipeline_contract::TrackObservationBatch batch;
+    batch.frame_id = frame_id;
+    batch.captured_at = {captured_at};
+    batch.ready_at = {captured_at + 0.002};
+    batch.screen_center_px = {320.0f, 256.0f};
+    batch.detections = std::move(detections);
+    return batch;
+}
+
+void test_track_memory_ingests_all_candidates_without_assist_authority() {
+    tracking_native::TrackMemoryService memory;
+    memory.ingest(make_batch(10, 12.000, {
+        make_detection(101, 80.0f),
+        make_detection(102, 480.0f),
+    }));
+    memory.ingest(make_batch(11, 12.010, {
+        make_detection(201, 84.0f),
+        make_detection(202, 476.0f),
+    }));
+
+    const std::vector<pipeline_contract::TrackEstimate> estimates =
+        memory.estimates({12.015});
+    require(estimates.size() == 2,
+            "track memory must expose every live candidate, not only a preferred target");
+
+    const pipeline_contract::SelectedTrackRef left =
+        memory.resolve_selected_observation(201, {12.015});
+    const pipeline_contract::SelectedTrackRef right =
+        memory.resolve_selected_observation(202, {12.015});
+    require(left.has_selection && right.has_selection,
+            "each current observation must resolve to its exact track");
+    require(left.track_id != right.track_id,
+            "different candidates must retain different track identities");
+    require(left.selected_observation_id == 201 && right.selected_observation_id == 202,
+            "selection resolution must preserve the selector-owned observation id");
+    require(left.backing_frame_id == 11 && right.backing_frame_id == 11,
+            "resolved tracks must be backed by the selected frame");
+
+    const pipeline_contract::SelectedTrackRef missing =
+        memory.resolve_selected_observation(9999, {12.015});
+    require(!missing.has_selection,
+            "track memory must not substitute a center-nearest track for an unknown observation");
+
+    for (const pipeline_contract::TrackEstimate& estimate : estimates) {
+        require_near(estimate.last_observed_at.value, 12.010, 1e-9,
+                     "track estimate must keep the real capture timestamp");
+        require_near(estimate.observation_age_ms, 5.0, 1e-6,
+                     "observation age must be derived from capture time, not query time rewriting");
+    }
+}
+
 }  // namespace
 
 int main() {
     try {
         test_estimate_keeps_identity_geometry_and_real_observation_time();
         test_selection_and_authority_are_separate_value_types();
+        test_track_memory_ingests_all_candidates_without_assist_authority();
         std::cout << "[TrackMemoryServiceTests] PASS\n";
         return 0;
     } catch (const std::exception& error) {

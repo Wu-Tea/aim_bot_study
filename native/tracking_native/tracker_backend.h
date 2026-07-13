@@ -2,6 +2,7 @@
 
 #include "tracker_contract.h"
 
+#include "../pipeline_contract/track_memory.h"
 #include "../pipeline_contract/tracker_config.h"
 
 #include <memory>
@@ -28,8 +29,11 @@ public:
 
     virtual void reset() = 0;
     virtual void ingest(const TrackerObservation& observation) = 0;
+    virtual void ingest_batch(const pipeline_contract::TrackObservationBatch& batch);
     virtual void push_control_sample(const TrackerControlSample& sample) = 0;
     virtual TrackerSnapshot query(const TrackerQuery& query) const = 0;
+    virtual std::vector<pipeline_contract::TrackEstimate> estimates(
+        common_native::TimeSeconds query_time) const;
     virtual std::vector<TrackerDebugTrack> debug_tracks() const = 0;
 };
 

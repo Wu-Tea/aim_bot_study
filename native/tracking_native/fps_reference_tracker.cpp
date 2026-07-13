@@ -100,6 +100,20 @@ TrackerSnapshotSource snapshot_source(fps::TrackLife life, bool predicted_only) 
     return TrackerSnapshotSource::Projected;
 }
 
+pipeline_contract::TrackLifecycle track_lifecycle(fps::TrackLife life) {
+    switch (life) {
+    case fps::TrackLife::Tentative:
+        return pipeline_contract::TrackLifecycle::Tentative;
+    case fps::TrackLife::Confirmed:
+        return pipeline_contract::TrackLifecycle::Confirmed;
+    case fps::TrackLife::Coasting:
+        return pipeline_contract::TrackLifecycle::Coasting;
+    case fps::TrackLife::Lost:
+    default:
+        return pipeline_contract::TrackLifecycle::Lost;
+    }
+}
+
 fps::TrackerConfig make_fps_config(
     const pipeline_contract::TargetTrackerConfig& config,
     float screen_width,
@@ -157,11 +171,16 @@ void FpsReferenceTracker::rebuild_tracker(float screen_width, float screen_heigh
 
 void FpsReferenceTracker::ensure_tracker_for_observation(
     const TrackerObservation& observation) {
-    if (observation.screen_center_px.x <= 0.0f || observation.screen_center_px.y <= 0.0f) {
+    ensure_tracker_for_screen_center(observation.screen_center_px);
+}
+
+void FpsReferenceTracker::ensure_tracker_for_screen_center(
+    common_native::Vec2f screen_center_px) {
+    if (screen_center_px.x <= 0.0f || screen_center_px.y <= 0.0f) {
         return;
     }
-    const float observed_width = observation.screen_center_px.x * 2.0f;
-    const float observed_height = observation.screen_center_px.y * 2.0f;
+    const float observed_width = screen_center_px.x * 2.0f;
+    const float observed_height = screen_center_px.y * 2.0f;
     if (!tracker_ ||
         !nearly_equal(observed_width, screen_width_) ||
         !nearly_equal(observed_height, screen_height_)) {
@@ -176,6 +195,14 @@ void FpsReferenceTracker::ingest(const TrackerObservation& observation) {
         return;
     }
     tracker_->ingestVisionFrame(make_vision_frame(observation));
+}
+
+void FpsReferenceTracker::ingest_batch(
+    const pipeline_contract::TrackObservationBatch& batch) {
+    ensure_tracker_for_screen_center(batch.screen_center_px);
+    if (tracker_) {
+        tracker_->ingestVisionFrame(make_vision_frame(batch));
+    }
 }
 
 void FpsReferenceTracker::push_control_sample(const TrackerControlSample& sample) {
@@ -238,6 +265,36 @@ fps::VisionFrame FpsReferenceTracker::make_vision_frame(
     return frame;
 }
 
+fps::VisionFrame FpsReferenceTracker::make_vision_frame(
+    const pipeline_contract::TrackObservationBatch& batch) {
+    fps::VisionFrame frame;
+    frame.frameSeq = batch.frame_id != 0 ? batch.frame_id : synthetic_frame_id_++;
+    frame.captureTime = batch.captured_at.value;
+    frame.readyTime = batch.ready_at.value > 0.0
+        ? batch.ready_at.value
+        : batch.captured_at.value;
+    frame.roi.originPx = {0.0, 0.0};
+    frame.roi.sizePx = {screen_width_, screen_height_};
+    frame.mode.ads = true;
+    frame.mode.zoom = 1.0;
+    frame.mode.sensitivity = 1.0;
+
+    frame.detections.reserve(batch.detections.size());
+    const std::uint64_t fallback_id_base = frame.frameSeq << 32u;
+    for (std::size_t index = 0; index < batch.detections.size(); ++index) {
+        const pipeline_contract::TrackObservationDetection& detection =
+            batch.detections[index];
+        if (detection.is_friendly || detection.body_box_px.w <= 1.0f ||
+            detection.body_box_px.h <= 1.0f || detection.confidence <= 0.0f) {
+            continue;
+        }
+        frame.detections.push_back(make_detection(
+            detection,
+            fallback_id_base | static_cast<std::uint64_t>(index + 1u)));
+    }
+    return frame;
+}
+
 fps::Detection FpsReferenceTracker::make_detection(
     const TrackerDetection& detection,
     std::uint64_t fallback_id) const {
@@ -264,6 +321,21 @@ fps::Detection FpsReferenceTracker::make_detection(
     }
     converted.validAimPoint = true;
     return converted;
+}
+
+fps::Detection FpsReferenceTracker::make_detection(
+    const pipeline_contract::TrackObservationDetection& detection,
+    std::uint64_t fallback_id) const {
+    TrackerDetection converted;
+    converted.id = detection.observation_id;
+    converted.body_box_px = detection.body_box_px;
+    converted.aim_point_px = detection.aim_point_px;
+    converted.has_aim_point = detection.has_aim_point;
+    converted.confidence = detection.confidence;
+    converted.class_id = detection.class_id;
+    converted.target_tier = detection.evidence_tier;
+    converted.is_friendly = detection.is_friendly;
+    return make_detection(converted, fallback_id);
 }
 
 fps::Detection FpsReferenceTracker::make_selected_target_detection(
@@ -333,6 +405,49 @@ TrackerSnapshot FpsReferenceTracker::query(const TrackerQuery& query) const {
     snapshot.assist_authority = assist;
     snapshot.fire_authority = common_fire(selected.fireAuthority);
     return snapshot;
+}
+
+std::vector<pipeline_contract::TrackEstimate> FpsReferenceTracker::estimates(
+    common_native::TimeSeconds query_time) const {
+    if (!tracker_ || query_time.value <= 0.0) {
+        return {};
+    }
+
+    const std::vector<fps::TrackSnapshot> snapshots = tracker_->snapshots(query_time.value);
+    std::vector<pipeline_contract::TrackEstimate> result;
+    result.reserve(snapshots.size());
+    for (const fps::TrackSnapshot& source : snapshots) {
+        pipeline_contract::TrackEstimate estimate;
+        estimate.track_id = source.id;
+        estimate.backing_observation_id = source.backingDetectionId;
+        estimate.backing_frame_id = source.backingFrameSeq;
+        estimate.source = source.predictedOnly
+            ? pipeline_contract::TrackEstimateSource::Projected
+            : pipeline_contract::TrackEstimateSource::Observed;
+        estimate.lifecycle = track_lifecycle(source.life);
+        estimate.aim_error_px = {
+            static_cast<float>(source.aimErrorPx.x),
+            static_cast<float>(source.aimErrorPx.y)};
+        estimate.body_box_px = {
+            static_cast<float>(source.predictedBoxPx.x0),
+            static_cast<float>(source.predictedBoxPx.y0),
+            static_cast<float>(source.predictedBoxPx.width()),
+            static_cast<float>(source.predictedBoxPx.height())};
+        estimate.has_body_box =
+            estimate.body_box_px.w > 1.0f && estimate.body_box_px.h > 1.0f;
+        estimate.velocity_model_units_per_sec = {
+            static_cast<float>(source.velocityTrackUnits.x),
+            static_cast<float>(source.velocityTrackUnits.y)};
+        estimate.confidence = static_cast<float>(source.confidence);
+        estimate.position_sigma = static_cast<float>(source.positionSigma);
+        estimate.ambiguity = static_cast<float>(source.ambiguity);
+        estimate.association_quality = static_cast<float>(source.associationQuality);
+        estimate.last_observed_at = {source.lastObservedCaptureTime};
+        estimate.query_time = query_time;
+        estimate.observation_age_ms = source.obsAgeMs;
+        result.push_back(estimate);
+    }
+    return result;
 }
 
 std::vector<TrackerDebugTrack> FpsReferenceTracker::debug_tracks() const {

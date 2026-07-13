@@ -115,8 +115,10 @@ struct TrackSnapshot {
 
     double confidence = 0.0;
     double positionSigma = 0.0;
+    TimeSec lastObservedCaptureTime = -1.0;
     double obsAgeMs = std::numeric_limits<double>::infinity();
     double ambiguity = 1.0;
+    double associationQuality = 0.0;
     double lastDetectorConfidence = 0.0;
 
     bool observedRecent = false;
