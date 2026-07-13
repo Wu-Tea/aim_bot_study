@@ -160,8 +160,14 @@ void RuntimeTelemetry::stop() {
 
 bool RuntimeTelemetry::enqueue(const TelemetryRecord& record) noexcept {
     if (!options_.enabled || writer_failed_.load()) return false;
-    std::unique_lock<std::mutex> lock(mutex_, std::try_to_lock);
-    if (!lock.owns_lock()) {
+    std::unique_lock<std::mutex> lock(mutex_, std::defer_lock);
+    if (record.critical) {
+        // Critical transition records are rare. The writer only holds this
+        // mutex while moving an item out of the queue, never during file I/O,
+        // so waiting here is bounded and prevents target/ADS evidence from
+        // disappearing because of a transient queue-pop collision.
+        lock.lock();
+    } else if (!lock.try_lock()) {
         record.critical ? ++dropped_critical_ : ++dropped_normal_;
         return false;
     }
