@@ -30,6 +30,10 @@ struct TelemetryCollectors::State {
     TargetIdentityQuality target_identity_quality = TargetIdentityQuality::None;
     float target_dx = 0.0f;
     float target_dy = 0.0f;
+    std::uint32_t detector_box_count = 0;
+    float target_confidence = 0.0f;
+    std::array<char, 32> target_source{};
+    std::array<char, 24> target_tier{};
 };
 
 namespace {
@@ -129,6 +133,20 @@ void TelemetryCollectors::observe_tick(const TelemetryTickInput& input) noexcept
         sample.controller.manual_y = input.manual_y;
         sample.controller.ai_x = input.ai_x;
         sample.controller.ai_y = input.ai_y;
+        sample.controller.post_ai_x = input.post_ai_x;
+        sample.controller.post_ai_y = input.post_ai_y;
+        sample.controller.dynamic_adjustment_x = input.dynamic_adjustment_x;
+        sample.controller.dynamic_adjustment_y = input.dynamic_adjustment_y;
+        sample.controller.post_dynamic_x = input.post_dynamic_x;
+        sample.controller.post_dynamic_y = input.post_dynamic_y;
+        sample.controller.ads_brake_x = input.ads_brake_x;
+        sample.controller.ads_brake_y = input.ads_brake_y;
+        sample.controller.post_ads_brake_x = input.post_ads_brake_x;
+        sample.controller.post_ads_brake_y = input.post_ads_brake_y;
+        sample.controller.ads_carry_brake_x = input.ads_carry_brake_x;
+        sample.controller.ads_carry_brake_y = input.ads_carry_brake_y;
+        sample.controller.post_ads_carry_brake_x = input.post_ads_carry_brake_x;
+        sample.controller.post_ads_carry_brake_y = input.post_ads_carry_brake_y;
         sample.controller.pre_recoil_x = input.pre_recoil_x;
         sample.controller.pre_recoil_y = input.pre_recoil_y;
         sample.controller.recoil_x = input.recoil_x;
@@ -140,11 +158,18 @@ void TelemetryCollectors::observe_tick(const TelemetryTickInput& input) noexcept
         sample.controller.has_target = state.has_target;
         sample.controller.aim_authority = input.aim_authority;
         sample.controller.fire_authority = input.fire_authority;
+        sample.controller.ads_brake_active = input.ads_brake_active;
+        sample.controller.ads_carry_brake_active = input.ads_carry_brake_active;
+        sample.controller.manual_takeover_active = input.manual_takeover_active;
+        sample.controller.detector_box_count = state.detector_box_count;
+        sample.controller.production_target_confidence = state.target_confidence;
         sample.controller.target_dx = state.target_dx;
         sample.controller.target_dy = state.target_dy;
         sample.controller.target_error_px = std::hypot(state.target_dx, state.target_dy);
         sample.controller.target_identity_quality = state.target_identity_quality;
         copy_text(sample.controller.aim_mode, input.aim_mode);
+        copy_text(sample.controller.production_target_source, state.target_source.data());
+        copy_text(sample.controller.production_target_tier, state.target_tier.data());
         state.sampler.observe(sample);
         for (const auto& event : state.episodes.observe(sample)) {
             TelemetryRecord record;
@@ -192,6 +217,10 @@ void TelemetryCollectors::observe_new_vision(const TelemetryVisionInput& input) 
     state.target_identity_quality = identity.quality;
     state.target_dx = input.has_target ? input.target_x - input.screen_center_x : 0.0f;
     state.target_dy = input.has_target ? input.target_y - input.screen_center_y : 0.0f;
+    state.detector_box_count = input.detector_box_count;
+    state.target_confidence = input.target_confidence;
+    copy_text(state.target_source, input.target_source);
+    copy_text(state.target_tier, input.target_tier);
     if (identity.event != TargetEventKind::None) {
         TelemetryRecord record;
         record.type = TelemetryRecordType::TargetEvent;

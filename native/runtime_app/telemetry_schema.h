@@ -125,6 +125,20 @@ struct ControllerSamplePayload {
     float manual_y = 0.0f;
     float ai_x = 0.0f;
     float ai_y = 0.0f;
+    float post_ai_x = 0.0f;
+    float post_ai_y = 0.0f;
+    float dynamic_adjustment_x = 0.0f;
+    float dynamic_adjustment_y = 0.0f;
+    float post_dynamic_x = 0.0f;
+    float post_dynamic_y = 0.0f;
+    float ads_brake_x = 0.0f;
+    float ads_brake_y = 0.0f;
+    float post_ads_brake_x = 0.0f;
+    float post_ads_brake_y = 0.0f;
+    float ads_carry_brake_x = 0.0f;
+    float ads_carry_brake_y = 0.0f;
+    float post_ads_carry_brake_x = 0.0f;
+    float post_ads_carry_brake_y = 0.0f;
     float pre_recoil_x = 0.0f;
     float pre_recoil_y = 0.0f;
     float recoil_x = 0.0f;
@@ -136,11 +150,18 @@ struct ControllerSamplePayload {
     bool has_target = false;
     bool aim_authority = false;
     bool fire_authority = false;
+    bool ads_brake_active = false;
+    bool ads_carry_brake_active = false;
+    bool manual_takeover_active = false;
+    std::uint32_t detector_box_count = 0;
+    float production_target_confidence = 0.0f;
     float target_dx = 0.0f;
     float target_dy = 0.0f;
     float target_error_px = 0.0f;
     TargetIdentityQuality target_identity_quality = TargetIdentityQuality::None;
     std::array<char, 24> aim_mode{};
+    std::array<char, 32> production_target_source{};
+    std::array<char, 24> production_target_tier{};
 };
 
 struct SessionMetadataPayload {

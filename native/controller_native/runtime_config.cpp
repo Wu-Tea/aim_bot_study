@@ -171,7 +171,9 @@ bool is_known_key(const std::string& section, const std::string& key) {
     static const std::unordered_set<std::string> bodylock_keys{
         "strength", "vertical_strength", "smoothing", "activation_range_px",
         "tolerance_px", "lead_strength", "manual_escape_threshold",
-        "manual_escape_preservation"};
+        "manual_escape_preservation", "manual_takeover_enabled",
+        "manual_takeover_threshold", "manual_takeover_commit_ms",
+        "manual_takeover_release_ms"};
     static const std::unordered_set<std::string> gamepad_keys{
         "auto_fire_output", "rb_counts_as_aiming", "xinput_auto_detect",
         "xinput_user_index", "tracker_backend"};
@@ -212,6 +214,8 @@ bool is_known_key(const std::string& section, const std::string& key) {
         "body_lock_opposing_suppression_max", "body_lock_orthogonal_suppression_max",
         "body_lock_helpful_preservation_floor", "body_lock_manual_overlap_scale",
         "body_lock_manual_escape_input_threshold", "body_lock_manual_escape_preservation",
+        "body_lock_manual_takeover_enabled", "body_lock_manual_takeover_input_threshold",
+        "body_lock_manual_takeover_commit_ms", "body_lock_manual_takeover_release_ms",
         "body_lock_near_lock_error_px", "body_lock_vertical_orthogonal_bias",
         "body_lock_vertical_deadzone_px", "body_lock_vertical_tail_inner_px",
         "body_lock_vertical_tail_speed_threshold_px_per_sec", "body_lock_release_tail_scale",
@@ -439,6 +443,18 @@ void apply_gamepad_ai_aim_value(
     } else if (key == "body_lock_manual_escape_preservation") {
         config.body_lock_manual_escape_preservation =
             parse_float_value(value, config.body_lock_manual_escape_preservation);
+    } else if (key == "body_lock_manual_takeover_enabled") {
+        config.body_lock_manual_takeover_enabled =
+            parse_bool_value(value, config.body_lock_manual_takeover_enabled);
+    } else if (key == "body_lock_manual_takeover_input_threshold") {
+        config.body_lock_manual_takeover_input_threshold =
+            parse_float_value(value, config.body_lock_manual_takeover_input_threshold);
+    } else if (key == "body_lock_manual_takeover_commit_ms") {
+        config.body_lock_manual_takeover_commit_ms =
+            parse_float_value(value, config.body_lock_manual_takeover_commit_ms);
+    } else if (key == "body_lock_manual_takeover_release_ms") {
+        config.body_lock_manual_takeover_release_ms =
+            parse_float_value(value, config.body_lock_manual_takeover_release_ms);
     } else if (key == "body_lock_near_lock_error_px") {
         config.body_lock_near_lock_error_px =
             parse_float_value(value, config.body_lock_near_lock_error_px);
@@ -855,6 +871,18 @@ void apply_value(
         } else if (key == "manual_escape_preservation") {
             body.body_lock_manual_escape_preservation =
                 parse_float_value(value, body.body_lock_manual_escape_preservation);
+        } else if (key == "manual_takeover_enabled") {
+            body.body_lock_manual_takeover_enabled =
+                parse_bool_value(value, body.body_lock_manual_takeover_enabled);
+        } else if (key == "manual_takeover_threshold") {
+            body.body_lock_manual_takeover_input_threshold =
+                parse_float_value(value, body.body_lock_manual_takeover_input_threshold);
+        } else if (key == "manual_takeover_commit_ms") {
+            body.body_lock_manual_takeover_commit_ms =
+                parse_float_value(value, body.body_lock_manual_takeover_commit_ms);
+        } else if (key == "manual_takeover_release_ms") {
+            body.body_lock_manual_takeover_release_ms =
+                parse_float_value(value, body.body_lock_manual_takeover_release_ms);
         }
     } else if (section == "gamepad.auto_fire") {
         apply_gamepad_auto_fire_value(config.gamepad.auto_fire, key, value);

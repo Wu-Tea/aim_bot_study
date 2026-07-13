@@ -21,6 +21,16 @@ struct TelemetryTickInput {
     float physical_x = 0.0f, physical_y = 0.0f;
     float manual_x = 0.0f, manual_y = 0.0f;
     float ai_x = 0.0f, ai_y = 0.0f;
+    float post_ai_x = 0.0f, post_ai_y = 0.0f;
+    float dynamic_adjustment_x = 0.0f, dynamic_adjustment_y = 0.0f;
+    float post_dynamic_x = 0.0f, post_dynamic_y = 0.0f;
+    float ads_brake_x = 0.0f, ads_brake_y = 0.0f;
+    float post_ads_brake_x = 0.0f, post_ads_brake_y = 0.0f;
+    float ads_carry_brake_x = 0.0f, ads_carry_brake_y = 0.0f;
+    float post_ads_carry_brake_x = 0.0f, post_ads_carry_brake_y = 0.0f;
+    bool ads_brake_active = false;
+    bool ads_carry_brake_active = false;
+    bool manual_takeover_active = false;
     float pre_recoil_x = 0.0f, pre_recoil_y = 0.0f;
     float recoil_x = 0.0f, recoil_y = 0.0f;
     float final_x = 0.0f, final_y = 0.0f;
@@ -44,6 +54,10 @@ struct TelemetryVisionInput {
     float screen_center_x = 0.0f, screen_center_y = 0.0f;
     float predicted_motion_x = 0.0f, predicted_motion_y = 0.0f;
     float motion_residual_px = 0.0f;
+    std::uint32_t detector_box_count = 0;
+    const char* target_source = "unknown";
+    const char* target_tier = "none";
+    float target_confidence = 0.0f;
 };
 
 struct TelemetryCollectorsCounters {

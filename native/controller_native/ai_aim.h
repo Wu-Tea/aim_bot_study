@@ -50,6 +50,7 @@ public:
     void reset();
     NativeAiAimOutput compute(const NativeAiAimInput& input);
     const std::string& last_mode() const;
+    bool manual_takeover_active() const;
 
 private:
     float target_authority_scale(const std::string& target_tier) const;
@@ -95,6 +96,11 @@ private:
         float manual_input,
         float lock_confidence) const;
     float apply_fire_active_vertical_guard(float assist_y, const NativeAiAimInput& input) const;
+    bool update_body_lock_manual_takeover(
+        const NativeAiAimInput& input,
+        float planned_x,
+        float planned_y);
+    void reset_body_lock_manual_takeover();
     std::pair<float, float> resolve_ads_snap_manual(
         float manual_x,
         float manual_y,
@@ -139,6 +145,11 @@ private:
     float last_body_lock_error_y_ = 0.0f;
     int body_lock_zero_cross_hold_x_ = 0;
     int body_lock_zero_cross_hold_y_ = 0;
+    bool manual_takeover_active_ = false;
+    double manual_takeover_candidate_since_ = 0.0;
+    double manual_takeover_last_manual_at_ = 0.0;
+    float manual_takeover_direction_x_ = 0.0f;
+    float manual_takeover_direction_y_ = 0.0f;
     BodyLockMotionPolicy body_lock_motion_;
     std::string last_mode_ = "manual";
 };

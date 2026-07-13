@@ -168,7 +168,9 @@ void test_compact_ads_and_bodylock_modules_resolve_detailed_controls() {
                << "[gamepad.bodylock]\nstrength = 0.33\nvertical_strength = 0.44\n"
                << "smoothing = 0.18\nactivation_range_px = 140\ntolerance_px = 20\n"
                << "lead_strength = 1.20\nmanual_escape_threshold = 0.50\n"
-               << "manual_escape_preservation = 0.60\n";
+               << "manual_escape_preservation = 0.60\n"
+               << "manual_takeover_enabled = false\nmanual_takeover_threshold = 0.42\n"
+               << "manual_takeover_commit_ms = 24\nmanual_takeover_release_ms = 96\n";
     }
     const controller_native::RuntimeConfig config = controller_native::load_runtime_config(path);
     std::filesystem::remove(path);
@@ -190,6 +192,10 @@ void test_compact_ads_and_bodylock_modules_resolve_detailed_controls() {
     require(config.gamepad.ai_aim.body_lock_vertical_lead_scale == 1.20f);
     require(config.gamepad.ai_aim.body_lock_manual_escape_input_threshold == 0.50f);
     require(config.gamepad.ai_aim.body_lock_manual_escape_preservation == 0.60f);
+    require(!config.gamepad.ai_aim.body_lock_manual_takeover_enabled);
+    require(config.gamepad.ai_aim.body_lock_manual_takeover_input_threshold == 0.42f);
+    require(config.gamepad.ai_aim.body_lock_manual_takeover_commit_ms == 24.0f);
+    require(config.gamepad.ai_aim.body_lock_manual_takeover_release_ms == 96.0f);
     require(config.effective_source("gamepad.ads.strength_scale") == "user");
 }
 

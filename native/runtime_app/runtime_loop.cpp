@@ -625,6 +625,10 @@ void RuntimeLoop::run_once() {
         vision.target_y = latest_vision_result_.target_y;
         vision.screen_center_x = latest_vision_result_.screen_center_x;
         vision.screen_center_y = latest_vision_result_.screen_center_y;
+        vision.detector_box_count = static_cast<std::uint32_t>(latest_vision_result_.boxes_seen);
+        vision.target_source = latest_vision_result_.target_source;
+        vision.target_tier = latest_vision_result_.target_tier;
+        vision.target_confidence = latest_vision_result_.target_confidence;
         telemetry_collectors_.observe_new_vision(vision);
     }
     poll_due_recoil_recognizer(std::chrono::steady_clock::now());
@@ -661,6 +665,23 @@ void RuntimeLoop::run_once() {
     telemetry_tick.manual_y = telemetry_components.manual_stick.y;
     telemetry_tick.ai_x = telemetry_components.ai_aim_stick.x;
     telemetry_tick.ai_y = telemetry_components.ai_aim_stick.y;
+    telemetry_tick.post_ai_x = telemetry_components.post_ai_stick.x;
+    telemetry_tick.post_ai_y = telemetry_components.post_ai_stick.y;
+    telemetry_tick.dynamic_adjustment_x = telemetry_components.dynamic_adjustment_stick.x;
+    telemetry_tick.dynamic_adjustment_y = telemetry_components.dynamic_adjustment_stick.y;
+    telemetry_tick.post_dynamic_x = telemetry_components.post_dynamic_stick.x;
+    telemetry_tick.post_dynamic_y = telemetry_components.post_dynamic_stick.y;
+    telemetry_tick.ads_brake_x = telemetry_components.ads_brake_stick.x;
+    telemetry_tick.ads_brake_y = telemetry_components.ads_brake_stick.y;
+    telemetry_tick.post_ads_brake_x = telemetry_components.post_ads_brake_stick.x;
+    telemetry_tick.post_ads_brake_y = telemetry_components.post_ads_brake_stick.y;
+    telemetry_tick.ads_carry_brake_x = telemetry_components.ads_carry_brake_stick.x;
+    telemetry_tick.ads_carry_brake_y = telemetry_components.ads_carry_brake_stick.y;
+    telemetry_tick.post_ads_carry_brake_x = telemetry_components.post_ads_carry_brake_stick.x;
+    telemetry_tick.post_ads_carry_brake_y = telemetry_components.post_ads_carry_brake_stick.y;
+    telemetry_tick.ads_brake_active = telemetry_components.ads_brake_active;
+    telemetry_tick.ads_carry_brake_active = telemetry_components.ads_carry_brake_active;
+    telemetry_tick.manual_takeover_active = controller_.body_lock_manual_takeover_active();
     telemetry_tick.pre_recoil_x = telemetry_components.before_recoil_stick.x;
     telemetry_tick.pre_recoil_y = telemetry_components.before_recoil_stick.y;
     telemetry_tick.recoil_x = telemetry_components.recoil_stick.x;

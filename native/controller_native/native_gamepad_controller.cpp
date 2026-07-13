@@ -314,6 +314,10 @@ const std::string& NativeGamepadController::last_ai_aim_mode() const {
     return ai_aim_.last_mode();
 }
 
+bool NativeGamepadController::body_lock_manual_takeover_active() const {
+    return ai_aim_.manual_takeover_active();
+}
+
 bool NativeGamepadController::is_aiming(const PhysicalGamepadState& physical) {
     return aim_activation_tracker_.update(physical, config_.rb_counts_as_aiming);
 }

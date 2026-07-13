@@ -162,6 +162,128 @@ Metrics run_air_lock(bool moving_stairs) {
     return metrics;
 }
 
+NativeControllerVisionState horizontal_vision_state(
+    double now,
+    double,
+    double controller_target_x) {
+    NativeControllerVisionState state;
+    state.has_target = true;
+    state.aim_authority = true;
+    state.fire_authority = false;
+    state.target_tier = "observed_strong";
+    state.screen_center_x = 320.0f;
+    state.screen_center_y = 256.0f;
+    state.target_x = static_cast<float>(320.0 + controller_target_x);
+    state.target_y = 256.0f;
+    state.dx = state.target_x - state.screen_center_x;
+    state.dy = 0.0f;
+    state.has_body_box = true;
+    state.body_x1 = state.target_x - 55.0f;
+    state.body_x2 = state.target_x + 55.0f;
+    state.body_y1 = 176.0f;
+    state.body_y2 = 336.0f;
+    state.observed_at_seconds = now;
+    return state;
+}
+
+PhysicalGamepadState horizontal_aiming(float manual_x) {
+    PhysicalGamepadState state;
+    state.connected = true;
+    state.left_trigger = 1.0f;
+    state.right_x = manual_x;
+    return state;
+}
+
+enum class HorizontalScenario { Takeover, Cooperative, ShortNoise };
+
+ManualTakeoverMetrics run_horizontal_scenario(
+    HorizontalScenario scenario,
+    bool takeover_enabled = true) {
+    ManualTakeoverMetrics metrics;
+    metrics.name = scenario == HorizontalScenario::Takeover
+        ? "single_visible_target_identity_churn_manual_takeover"
+        : scenario == HorizontalScenario::Cooperative
+            ? "single_visible_target_cooperative_tracking"
+            : "single_visible_target_short_manual_noise";
+    double now = 4.0;
+    GamepadRuntimeConfig config;
+    config.recoil.enabled = false;
+    config.auto_fire.require_aim_ready = false;
+    config.aim_assist_dynamics.enabled = false;
+    config.ai_aim.body_lock_manual_takeover_enabled = takeover_enabled;
+    NativeGamepadController controller(config, [&now] { return now; });
+    double reticle_x = 0.0;
+    double requested_integral = 0.0;
+    double preserved_integral = 0.0;
+    int continuous_reversal = 0;
+    int max_continuous_reversal = 0;
+    int stall_frames = 0;
+    std::string previous_mode;
+
+    for (int frame = 0; frame < 360; ++frame) {
+        now += kDt;
+        float manual_x = 0.0f;
+        double controller_target_x = 28.0;
+        if (frame >= 40) {
+            if (scenario == HorizontalScenario::Takeover) {
+                const float ramp = std::min(1.0f, static_cast<float>(frame - 40) / 60.0f);
+                manual_x = -0.14f + ((-0.38f + 0.14f) * ramp);
+                // The only visible target is to the left, but association briefly
+                // carries the previous +X bodylock correction before reacquiring it.
+                if (frame >= 210) controller_target_x = -36.0;
+            } else if (scenario == HorizontalScenario::Cooperative) {
+                manual_x = 0.35f;
+            } else {
+                manual_x = frame < 60 ? -0.35f : 0.0f;
+            }
+        }
+        controller.submit_vision_state(horizontal_vision_state(
+            now, reticle_x, controller_target_x));
+        controller.build_output(horizontal_aiming(manual_x));
+        const auto& components = controller.last_output_components();
+        const float pre_recoil_x = components.before_recoil_stick.x;
+        const std::string mode = controller.last_ai_aim_mode();
+        if (!previous_mode.empty() && mode != previous_mode) ++metrics.mode_transitions;
+        previous_mode = mode;
+        if (mode == "body_lock") ++metrics.body_lock_frames;
+
+        if (scenario == HorizontalScenario::Takeover && frame >= 40) {
+            const float requested = std::fabs(manual_x);
+            const float projected = -pre_recoil_x;
+            requested_integral += requested * kDt;
+            preserved_integral += projected * kDt;
+            metrics.old_target_resistance_integral +=
+                std::max(0.0f, components.ai_aim_stick.x) * kDt;
+            if (requested >= 0.25f && manual_x * pre_recoil_x < 0.0f) {
+                ++metrics.manual_reversal_frames;
+                ++continuous_reversal;
+                max_continuous_reversal = std::max(max_continuous_reversal, continuous_reversal);
+            } else {
+                continuous_reversal = 0;
+            }
+            if (requested >= 0.25f && projected <= 0.05f) ++stall_frames;
+            if (metrics.manual_takeover_latency_ms < 0.0 &&
+                requested >= 0.25f && projected >= requested * 0.50f) {
+                metrics.manual_takeover_latency_ms = static_cast<double>(frame - 40);
+            }
+        }
+        reticle_x += static_cast<double>(pre_recoil_x) * kReticleSpeed * kDt;
+    }
+    metrics.manual_direction_preservation_ratio = requested_integral > 0.0
+        ? preserved_integral / requested_integral : 0.0;
+    metrics.max_continuous_reversal_ms = static_cast<double>(max_continuous_reversal);
+    metrics.manual_stall_ms = static_cast<double>(stall_frames);
+    metrics.cooperative_assist_preserved = scenario == HorizontalScenario::Cooperative &&
+        reticle_x > 30.0 && metrics.body_lock_frames > 0;
+    metrics.short_noise_kept_body_lock = scenario == HorizontalScenario::ShortNoise &&
+        metrics.body_lock_frames >= 300;
+    metrics.defect_reproduced = scenario == HorizontalScenario::Takeover &&
+        (metrics.manual_direction_preservation_ratio < 0.75 ||
+         metrics.max_continuous_reversal_ms > 20.0 || metrics.manual_stall_ms > 40.0 ||
+         metrics.manual_takeover_latency_ms < 0.0 || metrics.manual_takeover_latency_ms > 60.0);
+    return metrics;
+}
+
 } // namespace
 
 Metrics run_prone_air_lock() { return run_air_lock(false); }
@@ -221,6 +343,24 @@ Metrics run_cooperative_overshoot_occlusion() {
         (metrics.ai_opposes_recovery_frames > 0 || metrics.recovery_start_frame < 0 ||
          metrics.recovery_start_frame > 180);
     return metrics;
+}
+
+ManualTakeoverMetrics run_single_target_manual_takeover() {
+    return run_horizontal_scenario(HorizontalScenario::Takeover);
+}
+
+ManualTakeoverMetrics run_single_target_manual_takeover_legacy() {
+    auto metrics = run_horizontal_scenario(HorizontalScenario::Takeover, false);
+    metrics.name = "single_visible_target_identity_churn_manual_takeover_legacy";
+    return metrics;
+}
+
+ManualTakeoverMetrics run_single_target_cooperative_tracking() {
+    return run_horizontal_scenario(HorizontalScenario::Cooperative);
+}
+
+ManualTakeoverMetrics run_single_target_short_noise() {
+    return run_horizontal_scenario(HorizontalScenario::ShortNoise);
 }
 
 } // namespace controller_native::vertical_defect

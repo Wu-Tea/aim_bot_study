@@ -39,6 +39,7 @@ void NativeAiAim::reset() {
     last_body_lock_error_y_ = 0.0f;
     body_lock_zero_cross_hold_x_ = 0;
     body_lock_zero_cross_hold_y_ = 0;
+    reset_body_lock_manual_takeover();
     last_mode_ = "manual";
     reset_motion_tracking();
 }
@@ -219,24 +220,29 @@ NativeAiAimOutput NativeAiAim::compute(const NativeAiAimInput& input) {
     } else if (body_lock_active) {
         const float planned_x = output.assist_x;
         const float planned_y = output.assist_y;
-        const auto [manual_x, manual_y] = resolve_body_lock_manual(
-            input.manual_right_x,
-            input.manual_right_y,
-            planned_x,
-            planned_y,
-            target_error_x,
-            -target_error_y,
-            lock_confidence);
-        const float error_radius =
-            std::sqrt((target_error_x * target_error_x) + (target_error_y * target_error_y));
-        output.assist_x = (manual_x - input.manual_right_x) +
-            resolve_body_lock_manual_overlap(planned_x, manual_x, error_radius);
-        output.assist_y = (manual_y - input.manual_right_y) +
-            resolve_body_lock_manual_overlap(planned_y, manual_y, error_radius);
-        output.assist_x =
-            apply_body_lock_manual_escape_floor(output.assist_x, input.manual_right_x, lock_confidence);
-        output.assist_y =
-            apply_body_lock_manual_escape_floor(output.assist_y, input.manual_right_y, lock_confidence);
+        if (update_body_lock_manual_takeover(input, planned_x, planned_y)) {
+            output.assist_x = planned_x * input.manual_right_x < 0.0f ? 0.0f : planned_x;
+            output.assist_y = planned_y * input.manual_right_y < 0.0f ? 0.0f : planned_y;
+        } else {
+            const auto [manual_x, manual_y] = resolve_body_lock_manual(
+                input.manual_right_x,
+                input.manual_right_y,
+                planned_x,
+                planned_y,
+                target_error_x,
+                -target_error_y,
+                lock_confidence);
+            const float error_radius =
+                std::sqrt((target_error_x * target_error_x) + (target_error_y * target_error_y));
+            output.assist_x = (manual_x - input.manual_right_x) +
+                resolve_body_lock_manual_overlap(planned_x, manual_x, error_radius);
+            output.assist_y = (manual_y - input.manual_right_y) +
+                resolve_body_lock_manual_overlap(planned_y, manual_y, error_radius);
+            output.assist_x = apply_body_lock_manual_escape_floor(
+                output.assist_x, input.manual_right_x, lock_confidence);
+            output.assist_y = apply_body_lock_manual_escape_floor(
+                output.assist_y, input.manual_right_y, lock_confidence);
+        }
         const float manual_escape_threshold = std::max(
             0.0f,
             config_.body_lock_manual_escape_input_threshold);
@@ -248,6 +254,69 @@ NativeAiAimOutput NativeAiAim::compute(const NativeAiAimInput& input) {
     output.assist_y = apply_fire_active_vertical_guard(output.assist_y, input);
     output.has_assist = output.assist_x != 0.0f || output.assist_y != 0.0f;
     return output;
+}
+
+bool NativeAiAim::update_body_lock_manual_takeover(
+    const NativeAiAimInput& input,
+    float planned_x,
+    float planned_y) {
+    if (!config_.body_lock_manual_takeover_enabled) {
+        reset_body_lock_manual_takeover();
+        return false;
+    }
+    const float manual_magnitude = std::hypot(input.manual_right_x, input.manual_right_y);
+    const float planned_magnitude = std::hypot(planned_x, planned_y);
+    const float threshold = std::max(0.0f, config_.body_lock_manual_takeover_input_threshold);
+    const double now = input.now_seconds;
+    if (manual_magnitude >= threshold && now > 0.0) {
+        manual_takeover_last_manual_at_ = now;
+    }
+    const bool has_directional_evidence = manual_magnitude >= threshold &&
+        planned_magnitude > 0.02f;
+    const float alignment = has_directional_evidence
+        ? ((input.manual_right_x * planned_x) + (input.manual_right_y * planned_y)) /
+            (manual_magnitude * planned_magnitude)
+        : 1.0f;
+    const bool opposing = has_directional_evidence && alignment <= -0.45f;
+    if (opposing) {
+        const float ux = input.manual_right_x / manual_magnitude;
+        const float uy = input.manual_right_y / manual_magnitude;
+        const float previous_alignment =
+            (ux * manual_takeover_direction_x_) + (uy * manual_takeover_direction_y_);
+        if (manual_takeover_candidate_since_ <= 0.0 || previous_alignment < 0.70f) {
+            manual_takeover_candidate_since_ = now;
+            manual_takeover_direction_x_ = ux;
+            manual_takeover_direction_y_ = uy;
+        }
+        const double commit_seconds =
+            static_cast<double>(std::max(0.0f, config_.body_lock_manual_takeover_commit_ms)) / 1000.0;
+        if (now > 0.0 && now - manual_takeover_candidate_since_ >= commit_seconds) {
+            manual_takeover_active_ = true;
+        }
+    } else if (!manual_takeover_active_) {
+        manual_takeover_candidate_since_ = 0.0;
+        manual_takeover_direction_x_ = 0.0f;
+        manual_takeover_direction_y_ = 0.0f;
+    }
+
+    if (manual_takeover_active_) {
+        const double release_seconds =
+            static_cast<double>(std::max(0.0f, config_.body_lock_manual_takeover_release_ms)) / 1000.0;
+        const bool manual_released = manual_magnitude < threshold * 0.65f;
+        if (manual_released && now > 0.0 && manual_takeover_last_manual_at_ > 0.0 &&
+            now - manual_takeover_last_manual_at_ >= release_seconds) {
+            reset_body_lock_manual_takeover();
+        }
+    }
+    return manual_takeover_active_;
+}
+
+void NativeAiAim::reset_body_lock_manual_takeover() {
+    manual_takeover_active_ = false;
+    manual_takeover_candidate_since_ = 0.0;
+    manual_takeover_last_manual_at_ = 0.0;
+    manual_takeover_direction_x_ = 0.0f;
+    manual_takeover_direction_y_ = 0.0f;
 }
 
 float NativeAiAim::target_authority_scale(const std::string& target_tier) const {
@@ -852,6 +921,10 @@ float NativeAiAim::prefer_larger_magnitude(float current, float candidate) const
 
 const std::string& NativeAiAim::last_mode() const {
     return last_mode_;
+}
+
+bool NativeAiAim::manual_takeover_active() const {
+    return manual_takeover_active_;
 }
 
 }  // namespace controller_native

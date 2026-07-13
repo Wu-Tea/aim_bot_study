@@ -301,6 +301,13 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
             << ",\"physical_y\":" << record.controller.physical_y
             << ",\"manual_x\":" << serialized_manual_x << ",\"manual_y\":" << serialized_manual_y
             << ",\"ai_x\":" << serialized_ai_x << ",\"ai_y\":" << serialized_ai_y
+            << ",\"post_ai_x\":" << record.controller.post_ai_x << ",\"post_ai_y\":" << record.controller.post_ai_y
+            << ",\"dynamic_adjustment_x\":" << record.controller.dynamic_adjustment_x << ",\"dynamic_adjustment_y\":" << record.controller.dynamic_adjustment_y
+            << ",\"post_dynamic_x\":" << record.controller.post_dynamic_x << ",\"post_dynamic_y\":" << record.controller.post_dynamic_y
+            << ",\"ads_brake_x\":" << record.controller.ads_brake_x << ",\"ads_brake_y\":" << record.controller.ads_brake_y
+            << ",\"post_ads_brake_x\":" << record.controller.post_ads_brake_x << ",\"post_ads_brake_y\":" << record.controller.post_ads_brake_y
+            << ",\"ads_carry_brake_x\":" << record.controller.ads_carry_brake_x << ",\"ads_carry_brake_y\":" << record.controller.ads_carry_brake_y
+            << ",\"post_ads_carry_brake_x\":" << record.controller.post_ads_carry_brake_x << ",\"post_ads_carry_brake_y\":" << record.controller.post_ads_carry_brake_y
             << ",\"pre_recoil_x\":" << record.controller.pre_recoil_x
             << ",\"pre_recoil_y\":" << record.controller.pre_recoil_y
             << ",\"recoil_x\":" << record.controller.recoil_x
@@ -309,9 +316,17 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
             << ",\"left_trigger\":" << record.controller.left_trigger
             << ",\"right_trigger\":" << record.controller.right_trigger
             << ",\"controller_target_track_id\":" << record.target_track_id
+            << ",\"telemetry_identity_track_id\":" << record.target_track_id
             << ",\"has_target\":" << (record.controller.has_target ? "true" : "false")
             << ",\"aim_authority\":" << (record.controller.aim_authority ? "true" : "false")
             << ",\"fire_authority\":" << (record.controller.fire_authority ? "true" : "false")
+            << ",\"ads_brake_active\":" << (record.controller.ads_brake_active ? "true" : "false")
+            << ",\"ads_carry_brake_active\":" << (record.controller.ads_carry_brake_active ? "true" : "false")
+            << ",\"manual_takeover_active\":" << (record.controller.manual_takeover_active ? "true" : "false")
+            << ",\"detector_box_count\":" << record.controller.detector_box_count
+            << ",\"production_target_source\":\"" << record.controller.production_target_source.data() << '"'
+            << ",\"production_target_tier\":\"" << record.controller.production_target_tier.data() << '"'
+            << ",\"production_target_confidence\":" << record.controller.production_target_confidence
             << ",\"target_dx\":" << record.controller.target_dx
             << ",\"target_dy\":" << record.controller.target_dy
             << ",\"target_error_px\":" << record.controller.target_error_px

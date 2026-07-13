@@ -238,6 +238,57 @@ void test_type_specific_fields_and_timestamps_are_serialized() {
     std::filesystem::remove_all(directory);
 }
 
+void test_controller_pipeline_and_target_provenance_are_serialized() {
+    const auto directory = std::filesystem::temp_directory_path() /
+        "cod_native_runtime_telemetry_pipeline";
+    std::filesystem::remove_all(directory);
+    runtime_app::RuntimeTelemetryOptions options;
+    options.enabled = true;
+    options.directory = directory;
+    runtime_app::RuntimeTelemetry telemetry(options);
+    telemetry.start();
+
+    runtime_app::TelemetryRecord value;
+    value.type = runtime_app::TelemetryRecordType::ControllerSample;
+    value.target_track_id = 42;
+    value.controller.post_ai_x = 0.11f;
+    value.controller.dynamic_adjustment_x = 0.02f;
+    value.controller.post_dynamic_x = 0.13f;
+    value.controller.ads_brake_x = -0.01f;
+    value.controller.post_ads_brake_x = 0.12f;
+    value.controller.ads_carry_brake_x = -0.02f;
+    value.controller.post_ads_carry_brake_x = 0.10f;
+    value.controller.manual_takeover_active = true;
+    value.controller.detector_box_count = 1;
+    value.controller.production_target_confidence = 0.91f;
+    std::snprintf(value.controller.production_target_source.data(),
+        value.controller.production_target_source.size(), "%s", "yolo_body");
+    std::snprintf(value.controller.production_target_tier.data(),
+        value.controller.production_target_tier.size(), "%s", "primary");
+    REQUIRE(telemetry.enqueue(value));
+    telemetry.stop();
+
+    std::ifstream input(telemetry.log_path());
+    std::ostringstream contents;
+    contents << input.rdbuf();
+    const std::string json = contents.str();
+    REQUIRE(json.find("\"telemetry_identity_track_id\":42") != std::string::npos);
+    REQUIRE(json.find("\"post_ai_x\":0.11") != std::string::npos);
+    REQUIRE(json.find("\"dynamic_adjustment_x\":0.02") != std::string::npos);
+    REQUIRE(json.find("\"post_dynamic_x\":0.13") != std::string::npos);
+    REQUIRE(json.find("\"ads_brake_x\":-0.01") != std::string::npos);
+    REQUIRE(json.find("\"post_ads_brake_x\":0.12") != std::string::npos);
+    REQUIRE(json.find("\"ads_carry_brake_x\":-0.02") != std::string::npos);
+    REQUIRE(json.find("\"post_ads_carry_brake_x\":0.1") != std::string::npos);
+    REQUIRE(json.find("\"manual_takeover_active\":true") != std::string::npos);
+    REQUIRE(json.find("\"detector_box_count\":1") != std::string::npos);
+    REQUIRE(json.find("\"production_target_source\":\"yolo_body\"") != std::string::npos);
+    REQUIRE(json.find("\"production_target_tier\":\"primary\"") != std::string::npos);
+    REQUIRE(json.find("\"production_target_confidence\":0.91") != std::string::npos);
+    input.close();
+    std::filesystem::remove_all(directory);
+}
+
 } // namespace
 
 int main() {
@@ -249,5 +300,6 @@ int main() {
     test_versioned_schema_serializes_readiness_and_completeness();
     test_every_rotated_file_starts_with_session_metadata();
     test_type_specific_fields_and_timestamps_are_serialized();
+    test_controller_pipeline_and_target_provenance_are_serialized();
     return 0;
 }

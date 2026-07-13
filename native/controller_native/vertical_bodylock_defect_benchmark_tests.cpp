@@ -27,6 +27,22 @@ void write_metric(std::ostream& out, const controller_native::vertical_defect::M
         << "    }";
 }
 
+void write_takeover_metric(
+    std::ostream& out,
+    const controller_native::vertical_defect::ManualTakeoverMetrics& metric) {
+    out << "    {\n"
+        << "      \"name\": \"" << metric.name << "\",\n"
+        << "      \"defect_reproduced\": " << (metric.defect_reproduced ? "true" : "false") << ",\n"
+        << "      \"manual_direction_preservation_ratio\": " << metric.manual_direction_preservation_ratio << ",\n"
+        << "      \"manual_reversal_frames\": " << metric.manual_reversal_frames << ",\n"
+        << "      \"max_continuous_reversal_ms\": " << metric.max_continuous_reversal_ms << ",\n"
+        << "      \"manual_stall_ms\": " << metric.manual_stall_ms << ",\n"
+        << "      \"manual_takeover_latency_ms\": " << metric.manual_takeover_latency_ms << ",\n"
+        << "      \"old_target_resistance_integral\": " << metric.old_target_resistance_integral << ",\n"
+        << "      \"mode_transitions\": " << metric.mode_transitions << "\n"
+        << "    }";
+}
+
 int main(int argc, char** argv) {
     const auto prone = controller_native::vertical_defect::run_prone_air_lock();
     std::cout << "prone target=" << prone.selector_target_y
@@ -51,6 +67,31 @@ int main(int argc, char** argv) {
               << " reacquire_frame=" << overshoot.reacquire_frame << '\n';
     require(overshoot.ai_opposes_recovery_frames <= 2, "AI must not resist overshoot recovery");
     require(overshoot.recovery_start_frame == 160, "recovery must begin on the first reverse-input frame");
+    const auto takeover = controller_native::vertical_defect::run_single_target_manual_takeover();
+    const auto legacy_takeover =
+        controller_native::vertical_defect::run_single_target_manual_takeover_legacy();
+    const auto cooperative = controller_native::vertical_defect::run_single_target_cooperative_tracking();
+    const auto noise = controller_native::vertical_defect::run_single_target_short_noise();
+    std::cout << "takeover preservation=" << takeover.manual_direction_preservation_ratio
+              << " reverse_ms=" << takeover.max_continuous_reversal_ms
+              << " stall_ms=" << takeover.manual_stall_ms
+              << " latency_ms=" << takeover.manual_takeover_latency_ms
+              << " resistance=" << takeover.old_target_resistance_integral << '\n';
+    require(takeover.manual_direction_preservation_ratio >= 0.75,
+        "manual takeover must preserve at least 75% of committed user direction");
+    require(takeover.max_continuous_reversal_ms <= 20.0,
+        "bodylock must not reverse committed manual input for more than 20ms");
+    require(takeover.manual_stall_ms <= 40.0,
+        "bodylock must not stall committed manual input for more than 40ms");
+    require(takeover.manual_takeover_latency_ms >= 0.0 &&
+        takeover.manual_takeover_latency_ms <= 60.0,
+        "manual takeover must become effective within 60ms");
+    require(cooperative.cooperative_assist_preserved,
+        "cooperative tracking must retain bodylock assistance");
+    require(noise.short_noise_kept_body_lock,
+        "short opposing stick noise must not release bodylock");
+    require(legacy_takeover.defect_reproduced,
+        "legacy control must reproduce the live manual-takeover defect");
     if (argc == 3 && std::string(argv[1]) == "--report") {
         std::ofstream report(argv[2]);
         require(report.good(), "could not open benchmark report path");
@@ -60,8 +101,12 @@ int main(int argc, char** argv) {
         write_metric(report, stairs);
         report << ",\n";
         write_metric(report, overshoot);
+        report << ",\n";
+        write_takeover_metric(report, takeover);
+        report << ",\n";
+        write_takeover_metric(report, legacy_takeover);
         report << "\n  ]\n}\n";
     }
-    std::cout << "[VerticalBodylockDefectTests] PASS defects_fixed=3\n";
+    std::cout << "[VerticalBodylockDefectTests] PASS defects_fixed=4 controls=2\n";
     return 0;
 }

@@ -48,6 +48,7 @@ public:
     const NativeControllerOutputComponents& last_output_components() const;
     const NativeControllerVisionState& last_frame_vision_state() const;
     const std::string& last_ai_aim_mode() const;
+    bool body_lock_manual_takeover_active() const;
 
 private:
     bool is_aiming(const PhysicalGamepadState& physical);

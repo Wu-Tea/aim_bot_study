@@ -39,8 +39,27 @@ struct Metrics {
     std::vector<FrameEvent> events;
 };
 
+struct ManualTakeoverMetrics {
+    std::string name;
+    double manual_direction_preservation_ratio = 0.0;
+    double old_target_resistance_integral = 0.0;
+    double max_continuous_reversal_ms = 0.0;
+    double manual_stall_ms = 0.0;
+    double manual_takeover_latency_ms = -1.0;
+    int manual_reversal_frames = 0;
+    int mode_transitions = 0;
+    int body_lock_frames = 0;
+    bool cooperative_assist_preserved = false;
+    bool short_noise_kept_body_lock = false;
+    bool defect_reproduced = false;
+};
+
 Metrics run_prone_air_lock();
 Metrics run_stairs_air_lock();
 Metrics run_cooperative_overshoot_occlusion();
+ManualTakeoverMetrics run_single_target_manual_takeover();
+ManualTakeoverMetrics run_single_target_manual_takeover_legacy();
+ManualTakeoverMetrics run_single_target_cooperative_tracking();
+ManualTakeoverMetrics run_single_target_short_noise();
 
 } // namespace controller_native::vertical_defect

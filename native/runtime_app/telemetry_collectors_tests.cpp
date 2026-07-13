@@ -31,6 +31,10 @@ runtime_app::TelemetryVisionInput vision(std::uint64_t id, float scale, bool aim
     value.target_y = 230;
     value.screen_center_x = 320;
     value.screen_center_y = 256;
+    value.detector_box_count = 1;
+    value.target_source = "yolo_body";
+    value.target_tier = "primary";
+    value.target_confidence = 0.91f;
     return value;
 }
 
@@ -44,6 +48,14 @@ runtime_app::TelemetryTickInput tick(std::uint64_t seq, bool aiming) {
     value.physical_x = 0.2f;
     value.manual_x = 0.18f;
     value.ai_x = 0.05f;
+    value.post_ai_x = 0.23f;
+    value.dynamic_adjustment_x = 0.01f;
+    value.post_dynamic_x = 0.24f;
+    value.ads_brake_x = -0.02f;
+    value.post_ads_brake_x = 0.22f;
+    value.ads_carry_brake_x = -0.01f;
+    value.post_ads_carry_brake_x = 0.21f;
+    value.manual_takeover_active = true;
     value.pre_recoil_x = 0.23f;
     value.final_x = 0.23f;
     return value;
@@ -123,6 +135,13 @@ void test_controller_samples_include_current_target_context() {
     REQUIRE(json.find("\"controller_target_track_id\":1") != std::string::npos);
     REQUIRE(json.find("\"target_dx\":30") != std::string::npos);
     REQUIRE(json.find("\"aim_mode\":") != std::string::npos);
+    REQUIRE(json.find("\"post_ai_x\":0.23") != std::string::npos);
+    REQUIRE(json.find("\"post_dynamic_x\":0.24") != std::string::npos);
+    REQUIRE(json.find("\"post_ads_brake_x\":0.22") != std::string::npos);
+    REQUIRE(json.find("\"post_ads_carry_brake_x\":0.21") != std::string::npos);
+    REQUIRE(json.find("\"manual_takeover_active\":true") != std::string::npos);
+    REQUIRE(json.find("\"detector_box_count\":1") != std::string::npos);
+    REQUIRE(json.find("\"production_target_source\":\"yolo_body\"") != std::string::npos);
     input.close();
     std::filesystem::remove_all(directory);
 }
