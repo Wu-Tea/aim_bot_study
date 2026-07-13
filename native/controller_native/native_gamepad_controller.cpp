@@ -94,6 +94,10 @@ NativeGamepadController::NativeGamepadController(
       ai_aim_(config_.ai_aim),
       aim_assist_dynamics_(config_.aim_assist_dynamics),
       recoil_(config_.recoil),
+      ads_completion_gate_(
+          config_.ai_aim.ads_completion_radius_px,
+          config_.ai_aim.ads_completion_fresh_frames,
+          config_.ai_aim.ads_max_acquisition_ms),
       auto_fire_gate_(config_.auto_fire, config_.ai_aim),
       body_lock_short_plan_policy_(config_.ai_aim),
       ads_carry_brake_policy_(config_.ai_aim),
@@ -121,6 +125,7 @@ void NativeGamepadController::reset() {
     ads_carry_brake_policy_.reset();
     output_validation_policy_.reset();
     ads_state_tracker_.reset();
+    ads_completion_gate_.reset();
     aim_activation_tracker_.reset();
     last_ads_stopped_at_seconds_ = 0.0;
 }
@@ -286,6 +291,13 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
     // Tracker receives final camera motion for ego projection, while the
     // component split preserves manual/assist/dynamics/recoil attribution.
     record_target_tracker_output(output_components, now);
+    const AdsCompletionGateState& ads_gate = ads_completion_gate_.state();
+    output_components.ads_completion_active = ads_gate.active;
+    output_components.ads_completion_stable_frames = ads_gate.centered_fresh_frames;
+    output_components.ads_completion_radius_px = config_.ai_aim.ads_completion_radius_px;
+    output_components.ads_completion_required_frames = config_.ai_aim.ads_completion_fresh_frames;
+    output_components.ads_completion_max_ms = config_.ai_aim.ads_max_acquisition_ms;
+    output_components.ads_completion_reason = ads_completion_reason_name(ads_gate.reason);
     last_output_components_ = output_components;
     return output;
 }
@@ -364,17 +376,17 @@ bool NativeGamepadController::is_strong_aim_target(
 bool NativeGamepadController::ads_snap_active_for_frame(
     const NativeControllerVisionState& vision_state,
     bool aiming,
-    double now_seconds) const {
-    if (!aiming || !has_fresh_aim_target(vision_state, now_seconds) ||
-        !is_strong_aim_target(vision_state)) {
-        return false;
-    }
-    if (target_snapshot_provider_.candidate_reacquire_snap_active(now_seconds)) {
-        return true;
-    }
-    return ads_state_tracker_.snap_window_active(
-        config_.ai_aim.ads_snap_window_ms,
-        now_seconds);
+    double now_seconds) {
+    AdsCompletionGateInput input;
+    input.aiming = aiming && config_.ai_aim.ads_snap_window_ms > 0;
+    input.has_target_authority = has_fresh_aim_target(vision_state, now_seconds);
+    input.has_strong_target = input.has_target_authority && is_strong_aim_target(vision_state);
+    input.fresh_observation = vision_state.fresh_observation;
+    input.vision_sequence = vision_state.vision_sequence;
+    input.dx = vision_state.dx;
+    input.dy = vision_state.dy;
+    input.now_seconds = now_seconds;
+    return ads_completion_gate_.update(input).active;
 }
 
 float NativeGamepadController::ads_snap_progress_ratio(double now_seconds) const {

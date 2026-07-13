@@ -55,6 +55,12 @@ runtime_app::TelemetryTickInput tick(std::uint64_t seq, bool aiming) {
     value.post_ads_brake_x = 0.22f;
     value.ads_carry_brake_x = -0.01f;
     value.post_ads_carry_brake_x = 0.21f;
+    value.ads_completion_active = true;
+    value.ads_completion_stable_frames = 2;
+    value.ads_completion_radius_px = 8.0f;
+    value.ads_completion_required_frames = 3;
+    value.ads_completion_max_ms = 220.0f;
+    value.ads_completion_reason = "none";
     value.manual_takeover_active = true;
     value.pre_recoil_x = 0.23f;
     value.final_x = 0.23f;
@@ -140,6 +146,10 @@ void test_controller_samples_include_current_target_context() {
     REQUIRE(json.find("\"post_ads_brake_x\":0.22") != std::string::npos);
     REQUIRE(json.find("\"post_ads_carry_brake_x\":0.21") != std::string::npos);
     REQUIRE(json.find("\"manual_takeover_active\":true") != std::string::npos);
+    REQUIRE(json.find("\"ads_completion_active\":true") != std::string::npos);
+    REQUIRE(json.find("\"ads_completion_stable_frames\":2") != std::string::npos);
+    REQUIRE(json.find("\"ads_completion_required_frames\":3") != std::string::npos);
+    REQUIRE(json.find("\"ads_completion_max_ms\":220") != std::string::npos);
     REQUIRE(json.find("\"detector_box_count\":1") != std::string::npos);
     REQUIRE(json.find("\"production_target_source\":\"yolo_body\"") != std::string::npos);
     input.close();

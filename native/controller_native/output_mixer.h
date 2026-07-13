@@ -21,6 +21,12 @@ struct NativeControllerOutputComponents {
     common_native::Vec2f ads_carry_brake_stick;
     common_native::Vec2f post_ads_carry_brake_stick;
     bool ads_carry_brake_active = false;
+    bool ads_completion_active = false;
+    int ads_completion_stable_frames = 0;
+    float ads_completion_radius_px = 0.0f;
+    int ads_completion_required_frames = 0;
+    float ads_completion_max_ms = 0.0f;
+    std::string ads_completion_reason = "none";
     common_native::Vec2f before_recoil_stick;
     common_native::Vec2f recoil_stick;
     common_native::Vec2f final_stick;

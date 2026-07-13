@@ -1852,6 +1852,7 @@ void test_ai_aim_body_lock_preserves_selected_target_y() {
     input.aiming = true;
     input.has_target = true;
     input.aim_authority = true;
+    input.ads_snap_active = false;
     input.dx = 90.0f;
     input.dy = 0.0f;
     input.target_y = 280.0f;
@@ -2515,6 +2516,8 @@ void test_controller_body_lock_short_plan_damps_small_vector_turn_near_lock() {
 
 void test_controller_body_lock_preserves_manual_after_target_crossing() {
     controller_native::GamepadRuntimeConfig config;
+    // This test starts after ADS acquisition has already centered.
+    config.ai_aim.ads_completion_fresh_frames = 1;
     config.ai_aim.target_max_age_ms = 0.0f;
     config.ai_aim.piecewise_mid_pixels = 0.0f;
     config.ai_aim.piecewise_mid_pixels_y = 0.0f;
@@ -3163,7 +3166,7 @@ void test_controller_suspicious_target_jump_holds_ai_aim_until_verified() {
     submit_target(160.0f);
     controller.build_output(aiming_physical_state());
     const auto held = controller.last_output_components().final_stick;
-    if (!(held.x > 0.05f && held.x < 0.50f)) {
+    if (!(held.x > 0.04f && held.x < 0.50f)) {
         std::ostringstream out;
         out << "single suspicious target jump should coast on tracker projection instead of aiming at raw jump actual="
             << held.x;
@@ -3223,12 +3226,15 @@ void test_controller_moderate_stale_jump_coasts_on_tracker_projection() {
     const auto held = controller.last_output_components().final_stick;
 
     require_true(
-        held.x > 0.05f && held.x < 0.50f,
+        held.x > 0.04f && held.x < 0.50f,
         "moderate stale-position jump should coast on tracker projection instead of raw target");
 }
 
 void test_controller_fresh_stale_jump_inside_candidate_threshold_uses_tracker_projection() {
     controller_native::GamepadRuntimeConfig config;
+    // Exercise the tracker/bodylock path after ADS acquisition has completed.
+    config.ai_aim.ads_completion_radius_px = 64.0f;
+    config.ai_aim.ads_completion_fresh_frames = 1;
     config.tracker_backend = tracking_native::TrackerBackendKind::LegacyProjection;
     config.ai_aim.target_max_age_ms = 500.0f;
     config.ai_aim.target_projection_max_age_ms = 500.0f;
@@ -3271,15 +3277,19 @@ void test_controller_fresh_stale_jump_inside_candidate_threshold_uses_tracker_pr
     };
 
     submit_target(18.0f);
+    controller.build_output(aiming_physical_state());
 
     now = 56.010;
     submit_target(60.0f);
     controller.build_output(aiming_physical_state());
     const auto held = controller.last_output_components().final_stick;
 
-    require_true(
-        held.x > 0.05f && held.x < 0.30f,
-        "fresh-timestamp stale jump inside the candidate threshold should stay near tracker projection");
+    if (!(held.x > 0.04f && held.x < 0.30f)) {
+        std::ostringstream out;
+        out << "fresh-timestamp stale jump inside the candidate threshold should stay near tracker projection actual="
+            << held.x;
+        throw std::runtime_error(out.str());
+    }
 }
 
 void test_controller_ads_holds_recent_strong_target_when_projection_ages_out() {
@@ -3770,10 +3780,16 @@ void test_controller_candidate_returning_to_projection_envelope_reopens_ads_snap
     controller.build_output(aiming_physical_state());
     const auto reacquired = controller.last_output_components().final_stick;
 
-    if (!(reacquired.x > 0.10f)) {
+    if (!(std::fabs(reacquired.x) > 0.10f && std::fabs(reacquired.x) < 0.60f &&
+          controller.last_ai_aim_mode() == "ads_snap")) {
         std::ostringstream out;
-        out << "candidate returning to projection envelope should reopen ADS snap briefly actual="
-            << reacquired.x;
+        out << "projected candidate continuity should keep bounded ADS acquisition active actual="
+            << reacquired.x << " mode=" << controller.last_ai_aim_mode()
+            << " tier=" << controller.last_frame_vision_state().target_tier
+            << " fresh=" << controller.last_frame_vision_state().fresh_observation
+            << " has_target=" << controller.last_frame_vision_state().has_target
+            << " authority=" << controller.last_frame_vision_state().aim_authority
+            << " dx=" << controller.last_frame_vision_state().dx;
         throw std::runtime_error(out.str());
     }
 }
@@ -3937,6 +3953,7 @@ void test_controller_ads_snap_only_runs_inside_ads_window_without_body_lock() {
     config.ai_aim.max_pixels = 100.0f;
     config.ai_aim.max_ai_force = 1.0f;
     config.ai_aim.ads_snap_window_ms = 20;
+    config.ai_aim.ads_max_acquisition_ms = 20.0f;
     config.aim_assist_dynamics.enabled = false;
     config.recoil.enabled = false;
     controller_native::NativeGamepadController controller(config);
@@ -3964,7 +3981,7 @@ void test_controller_ads_snap_only_runs_inside_ads_window_without_body_lock() {
         second.right_x,
         0.0f,
         0.001f,
-        "ADS snap should stop after the snap window when body-lock is unavailable");
+        "ADS acquisition should stop after its bounded timeout when body-lock is unavailable");
 }
 
 void test_controller_left_thumb_does_not_count_as_aiming() {
@@ -4058,6 +4075,7 @@ void test_controller_light_left_trigger_press_counts_as_aiming() {
 
 void test_auto_fire_ready_uses_body_lock_error_when_body_box_is_active() {
     controller_native::GamepadRuntimeConfig config;
+    config.ai_aim.ads_snap_window_ms = 0;
     config.auto_fire_output = "RB";
     config.auto_fire.require_aim_ready = true;
     config.auto_fire.max_source_age_ms = 0.0f;

@@ -167,7 +167,8 @@ bool is_known_key(const std::string& section, const std::string& key) {
         "weak_memory_decay", "lead_seconds", "lead_max_px"};
     static const std::unordered_set<std::string> ads_keys{
         "strength_scale", "vertical_strength_scale", "sustain_smoothing", "acquisition_smoothing", "range_px",
-        "snap_duration_ms", "fov_scale", "manual_opposition_suppression"};
+        "snap_duration_ms", "fov_scale", "manual_opposition_suppression",
+        "completion_radius_px", "completion_fresh_frames", "max_acquisition_ms"};
     static const std::unordered_set<std::string> bodylock_keys{
         "strength", "vertical_strength", "smoothing", "activation_range_px",
         "tolerance_px", "lead_strength", "manual_escape_threshold",
@@ -850,6 +851,15 @@ void apply_value(
         } else if (key == "manual_opposition_suppression") {
             ads.ads_snap_opposing_manual_suppression_max =
                 parse_float_value(value, ads.ads_snap_opposing_manual_suppression_max);
+        } else if (key == "completion_radius_px") {
+            ads.ads_completion_radius_px = parse_float_value(value, ads.ads_completion_radius_px);
+            config.ads.completion_radius_px = ads.ads_completion_radius_px;
+        } else if (key == "completion_fresh_frames") {
+            ads.ads_completion_fresh_frames = parse_int_value(value, ads.ads_completion_fresh_frames);
+            config.ads.completion_fresh_frames = ads.ads_completion_fresh_frames;
+        } else if (key == "max_acquisition_ms") {
+            ads.ads_max_acquisition_ms = parse_float_value(value, ads.ads_max_acquisition_ms);
+            config.ads.max_acquisition_ms = ads.ads_max_acquisition_ms;
         }
     } else if (section == "gamepad.bodylock") {
         auto& body = config.gamepad.ai_aim;
@@ -956,6 +966,12 @@ void validate_runtime_config(const RuntimeConfig& config) {
         invalid("gamepad.ads.sustain_smoothing", "0..1");
     if (config.ads.acquisition_smoothing < 0.0f || config.ads.acquisition_smoothing > 1.0f)
         invalid("gamepad.ads.acquisition_smoothing", "0..1");
+    if (config.ads.completion_radius_px < 1.0f || config.ads.completion_radius_px > 64.0f)
+        invalid("gamepad.ads.completion_radius_px", "1..64");
+    if (config.ads.completion_fresh_frames < 1 || config.ads.completion_fresh_frames > 20)
+        invalid("gamepad.ads.completion_fresh_frames", "1..20");
+    if (config.ads.max_acquisition_ms < 50.0f || config.ads.max_acquisition_ms > 1000.0f)
+        invalid("gamepad.ads.max_acquisition_ms", "50..1000");
 }
 
 }  // namespace
