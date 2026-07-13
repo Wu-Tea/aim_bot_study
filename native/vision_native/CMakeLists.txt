@@ -577,6 +577,22 @@ target_compile_definitions(cod_native_target_snapshot_tests
         WIN32_LEAN_AND_MEAN
 )
 
+add_executable(cod_native_track_memory_tests
+    ../tracking_native/track_memory_service_tests.cpp
+)
+
+target_include_directories(cod_native_track_memory_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fps_2d_tracker_package/include
+)
+
+target_compile_definitions(cod_native_track_memory_tests
+    PRIVATE
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
+)
+
 add_executable(cod_native_ads_state_tests
     ../controller_native/ads_state_tracker_tests.cpp
     ../controller_native/ads_state_tracker.cpp
