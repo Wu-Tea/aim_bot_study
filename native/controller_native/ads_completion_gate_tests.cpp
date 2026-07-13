@@ -60,6 +60,30 @@ void test_projected_samples_hold_active_without_advancing() {
     require(gate.state().centered_fresh_frames == 0);
 }
 
+void test_crossing_brake_blocks_centered_completion_until_released() {
+    controller_native::AdsCompletionGate gate(8.0f, 3, 220.0f);
+    auto carrying = sample(1, 4.0f, 1.000);
+    carrying.crossing_brake_active = true;
+    require(gate.update(carrying).active);
+    carrying.vision_sequence = 2;
+    carrying.now_seconds = 1.010;
+    require(gate.update(carrying).active);
+    carrying.vision_sequence = 3;
+    carrying.now_seconds = 1.020;
+    require(gate.update(carrying).active);
+    require(gate.state().centered_fresh_frames == 0);
+
+    auto released = sample(4, 4.0f, 1.030);
+    require(gate.update(released).active);
+    released.vision_sequence = 5;
+    released.now_seconds = 1.040;
+    require(gate.update(released).active);
+    released.vision_sequence = 6;
+    released.now_seconds = 1.050;
+    require(!gate.update(released).active);
+    require(gate.state().reason == controller_native::AdsCompletionReason::Centered);
+}
+
 void test_release_and_target_loss_reset() {
     controller_native::AdsCompletionGate gate(8.0f, 3, 220.0f);
     gate.update(sample(1, 4.0f, 1.000));
@@ -83,6 +107,7 @@ int main() {
     test_outside_radius_resets_streak();
     test_timeout_releases_acquisition();
     test_projected_samples_hold_active_without_advancing();
+    test_crossing_brake_blocks_centered_completion_until_released();
     test_release_and_target_loss_reset();
     return 0;
 }

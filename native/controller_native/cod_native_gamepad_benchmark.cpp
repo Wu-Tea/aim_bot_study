@@ -1447,8 +1447,10 @@ void run_self_test() {
         bodylock_continuity.bodylock_continuity_body_lock_ticks > 0,
         "bodylock continuity scenario should reach body lock mode");
     require_benchmark_check(
-        bodylock_continuity.bodylock_continuity_defect,
-        "current bodylock should reveal the captured continuity defect");
+        !bodylock_continuity.bodylock_continuity_defect &&
+            bodylock_continuity.bodylock_continuity_opposing_assist_axis_samples == 0 &&
+            bodylock_continuity.bodylock_continuity_final_jerk_events == 0,
+        "bodylock continuity regression should remain fixed");
 
     const ScenarioMetrics mode_chatter = run_bodylock_mode_chatter_defect_100hz(
         moving_config,
@@ -1457,11 +1459,12 @@ void run_self_test() {
         mode_chatter.bodylock_continuity_mode_transition_events >= 12,
         "bodylock mode-chatter scenario should reproduce rapid mode transitions");
     require_benchmark_check(
-        mode_chatter.bodylock_continuity_short_body_lock_runs > 0,
-        "bodylock mode-chatter scenario should reproduce short body-lock runs");
+        mode_chatter.bodylock_continuity_short_body_lock_runs == 0,
+        "bodylock mode-chatter scenario should not produce short body-lock runs");
     require_benchmark_check(
-        mode_chatter.bodylock_continuity_authority_loss_override_events > 0,
-        "bodylock mode-chatter scenario should reproduce authority-loss manual override");
+        mode_chatter.bodylock_continuity_authority_loss_override_events == 0 &&
+            !mode_chatter.bodylock_continuity_defect,
+        "bodylock mode-chatter scenario should not override lifecycle authority");
 
     const ScenarioMetrics carry_through = run_ads_manual_carry_through_100hz(
         moving_config,

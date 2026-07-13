@@ -20,6 +20,7 @@ struct AdsCompletionGateInput {
     std::uint64_t vision_sequence = 0;
     float dx = 0.0f;
     float dy = 0.0f;
+    bool crossing_brake_active = false;
     double now_seconds = 0.0;
 };
 

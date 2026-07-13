@@ -40,8 +40,12 @@ AdsCompletionGateState AdsCompletionGate::update(const AdsCompletionGateInput& i
         input.vision_sequence != last_vision_sequence_;
     if (!distinct_fresh) return state_;
     last_vision_sequence_ = input.vision_sequence;
-    if (std::hypot(input.dx, input.dy) <= radius_px_) ++state_.centered_fresh_frames;
-    else state_.centered_fresh_frames = 0;
+    const bool settled_input = !input.crossing_brake_active;
+    if (std::hypot(input.dx, input.dy) <= radius_px_ && settled_input) {
+        ++state_.centered_fresh_frames;
+    } else {
+        state_.centered_fresh_frames = 0;
+    }
     if (state_.centered_fresh_frames >= fresh_frames_) {
         state_.active = false;
         state_.reason = AdsCompletionReason::Centered;

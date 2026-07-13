@@ -36,7 +36,8 @@ float apply_near_target_axis_brake(
     float target_error_px,
     float output_axis,
     float manual_axis,
-    float reticle_speed_px_per_sec) {
+    float reticle_speed_px_per_sec,
+    bool cap_total_output) {
     constexpr float kAxisDeadzone = 0.015f;
     constexpr float kNearErrorPx = 18.0f;
     constexpr float kFarErrorPx = 36.0f;
@@ -71,9 +72,12 @@ float apply_near_target_axis_brake(
     }
 
     const float desired_axis = target_direction * allowed_abs_axis;
+    if (cap_total_output) {
+        return clamp_unit(desired_axis);
+    }
+
     const float raw_assist_axis = output_axis - manual_axis;
     float planned_assist_axis = desired_axis - manual_axis;
-
     if (std::fabs(raw_assist_axis) <= kAxisDeadzone) {
         return output_axis;
     }
@@ -399,6 +403,8 @@ bool NativeGamepadController::is_strong_aim_target(
 bool NativeGamepadController::ads_snap_active_for_frame(
     const NativeControllerVisionState& vision_state,
     bool aiming,
+    float manual_right_x,
+    float manual_right_y,
     double now_seconds) {
     AdsCompletionGateInput input;
     input.aiming = aiming && config_.ai_aim.ads_snap_window_ms > 0;
@@ -408,6 +414,18 @@ bool NativeGamepadController::ads_snap_active_for_frame(
     input.vision_sequence = vision_state.vision_sequence;
     input.dx = vision_state.dx;
     input.dy = vision_state.dy;
+    if (input.aiming && input.has_strong_target) {
+        NativeAimAssistDynamicsInput crossing_input;
+        crossing_input.manual = {manual_right_x, manual_right_y};
+        crossing_input.target_error_px = {vision_state.dx, -vision_state.dy};
+        crossing_input.fresh_observation = vision_state.fresh_observation;
+        crossing_input.vision_sequence = vision_state.vision_sequence;
+        crossing_input.selected_track_id = vision_state.selected_track_id;
+        crossing_input.now_seconds = now_seconds;
+        aim_assist_dynamics_.observe_ads_snap_crossing(crossing_input);
+    }
+    input.crossing_brake_active =
+        aim_assist_dynamics_.ads_crossing_brake_pending(now_seconds);
     input.now_seconds = now_seconds;
     return ads_completion_gate_.update(input).active;
 }
@@ -479,7 +497,12 @@ void NativeGamepadController::apply_ai_aim(
     input.aiming = is_aiming(physical);
     input.has_target = vision_state.has_target;
     input.aim_authority = vision_state.aim_authority;
-    input.ads_snap_active = ads_snap_active_for_frame(vision_state, input.aiming, now_seconds);
+    input.ads_snap_active = ads_snap_active_for_frame(
+        vision_state,
+        input.aiming,
+        output.right_x,
+        output.right_y,
+        now_seconds);
     input.fire_active =
         physical.rb || physical.right_trigger > 0.04f ||
         vision_state.auto_fire_requested || auto_fire_gate_.active();
@@ -611,7 +634,11 @@ void NativeGamepadController::apply_aim_assist_dynamics(
         output.right_y - manual_right_y};
     input.authority = last_effective_assist_authority_;
     input.lifecycle = last_bodylock_lifecycle_decision_.state;
-    input.target_error_px = {vision_state.dx, vision_state.dy};
+    input.target_error_px = {vision_state.dx, -vision_state.dy};
+    input.ads_snap_active = ai_aim_.last_mode() == "ads_snap";
+    input.fresh_observation = vision_state.fresh_observation;
+    input.vision_sequence = vision_state.vision_sequence;
+    input.selected_track_id = vision_state.selected_track_id;
     input.dt_seconds = last_dynamics_at_seconds_ > 0.0
         ? now_seconds - last_dynamics_at_seconds_
         : 0.001;
@@ -641,7 +668,8 @@ void NativeGamepadController::apply_ads_near_target_brake(
         vision_state.dx,
         output.right_x,
         manual_right_x,
-        reticle_speed);
+        reticle_speed,
+        config_.aim_assist_dynamics.enabled);
 
     const float output_move_y = -output.right_y;
     const float manual_move_y = -manual_right_y;
@@ -649,7 +677,8 @@ void NativeGamepadController::apply_ads_near_target_brake(
         vision_state.dy,
         output_move_y,
         manual_move_y,
-        reticle_speed);
+        reticle_speed,
+        config_.aim_assist_dynamics.enabled);
     output.right_y = clamp_unit(-shaped_move_y);
 }
 

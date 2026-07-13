@@ -62,6 +62,8 @@ private:
     bool ads_snap_active_for_frame(
         const NativeControllerVisionState& vision_state,
         bool aiming,
+        float manual_right_x,
+        float manual_right_y,
         double now_seconds);
     float ads_snap_progress_ratio(double now_seconds) const;
     float ads_snap_remaining_seconds(double now_seconds) const;

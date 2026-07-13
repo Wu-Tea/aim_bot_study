@@ -1,8 +1,10 @@
 #include "../runtime_app/vision_controller_adapter.h"
+#include "../vision_native/include/vision_native/vision_result_copy.h"
 
 #include <cmath>
 #include <stdexcept>
 #include <string>
+#include <utility>
 
 namespace {
 
@@ -185,11 +187,39 @@ void test_adapter_forwards_valid_detections_for_tracker() {
         "friendly candidate should be visible to middle layer as rejectable evidence");
 }
 
+void test_selector_identity_survives_engine_result_copy_and_adapter() {
+    vision_native::VisionResult result;
+    result.frame_updated = true;
+    result.frame_id = 19;
+
+    vision_native::VisionResult targeting;
+    targeting.selector_identity_protocol = true;
+    targeting.has_selected_detection = true;
+    targeting.selected_detection_index = 1;
+    targeting.detections.push_back(
+        detection(10.0f, 20.0f, 50.0f, 120.0f, 0.80f, 0.0f, 1));
+    targeting.detections.push_back(
+        detection(70.0f, 30.0f, 120.0f, 150.0f, 0.90f, 0.2f, 1));
+
+    vision_native::copy_selector_identity_fields(result, targeting);
+    result.detections = std::move(targeting.detections);
+    const controller_native::ControllerVisionSnapshot snapshot =
+        runtime_app::adapt_vision_result(result);
+
+    require_true(
+        snapshot.selector_identity_protocol,
+        "VisionEngine result copy should preserve selector-owned identity protocol");
+    require_true(
+        snapshot.selected_observation_id == ((19ull << 32ull) | 2ull),
+        "adapter should derive the selected observation from the copied detection index");
+}
+
 }  // namespace
 
 int main() {
     test_adapter_ignores_unupdated_frame();
     test_adapter_maps_target_fields_and_timestamps();
     test_adapter_forwards_valid_detections_for_tracker();
+    test_selector_identity_survives_engine_result_copy_and_adapter();
     return 0;
 }

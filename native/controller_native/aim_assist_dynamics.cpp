@@ -24,9 +24,21 @@ NativeAimAssistDynamics::NativeAimAssistDynamics(GamepadAimAssistDynamicsConfig 
     : config_(std::move(config)) {}
 
 void NativeAimAssistDynamics::reset() {
+    reset_envelope();
+    reset_ads_crossing();
+}
+
+void NativeAimAssistDynamics::reset_envelope() {
     previous_assist_ = {};
     previous_delta_ = {};
     has_history_ = false;
+}
+
+void NativeAimAssistDynamics::reset_ads_crossing() {
+    ads_crossing_x_ = {};
+    ads_crossing_y_ = {};
+    ads_target_key_ = 0;
+    ads_vision_sequence_ = 0;
 }
 
 NativeAimAssistDynamicsOutput NativeAimAssistDynamics::apply(
@@ -43,6 +55,42 @@ NativeAimAssistDynamicsOutput NativeAimAssistDynamics::apply(
         reset();
         return {{}, authority_absent ? "no_authority" : "yield"};
     }
+
+    if (input.ads_snap_active) {
+        observe_ads_snap_crossing(input);
+        reset_envelope();
+        if (!strong_opposing_manual(input)) {
+            return {input.requested_assist, "ads_passthrough"};
+        }
+
+        NativeAimAssistDynamicsOutput output;
+        const bool x_brake = ads_axis_brake_active(
+            ads_crossing_x_,
+            input.manual.x,
+            input.requested_assist.x,
+            input.target_error_px.x,
+            input.now_seconds);
+        const bool y_brake = ads_axis_brake_active(
+            ads_crossing_y_,
+            input.manual.y,
+            input.requested_assist.y,
+            input.target_error_px.y,
+            input.now_seconds);
+        if (!x_brake && !y_brake) {
+            return {{}, "manual_yield"};
+        }
+        output.assist = input.requested_assist;
+        if (input.manual.x * input.requested_assist.x < 0.0f && !x_brake) {
+            output.assist.x = 0.0f;
+        }
+        if (input.manual.y * input.requested_assist.y < 0.0f && !y_brake) {
+            output.assist.y = 0.0f;
+        }
+        output.limit_reason = "ads_crossing_brake";
+        return output;
+    }
+
+    reset_ads_crossing();
 
     if (strong_opposing_manual(input)) {
         reset();
@@ -95,6 +143,75 @@ NativeAimAssistDynamicsOutput NativeAimAssistDynamics::apply(
     previous_delta_ = delta;
     has_history_ = true;
     return output;
+}
+
+void NativeAimAssistDynamics::observe_ads_snap_crossing(
+    const NativeAimAssistDynamicsInput& input) {
+    const std::uint64_t target_key = input.selected_track_id != 0
+        ? input.selected_track_id
+        : 1u;
+    if (ads_target_key_ != 0 && ads_target_key_ != target_key) {
+        reset_ads_crossing();
+    }
+    ads_target_key_ = target_key;
+
+    if (!input.fresh_observation ||
+        (input.vision_sequence != 0 && input.vision_sequence == ads_vision_sequence_)) {
+        return;
+    }
+    ads_vision_sequence_ = input.vision_sequence;
+
+    constexpr float kErrorDeadzonePx = 0.25f;
+    constexpr float kCrossingEvidenceLimitPx = 48.0f;
+    constexpr float kManualEvidence = 0.18f;
+    constexpr double kBrakeWindowSeconds = 0.050;
+    const auto observe_axis = [&](AdsAxisCrossingState& state, float error, float manual) {
+        const bool previous_valid = state.has_previous_error &&
+            std::fabs(state.previous_error) > kErrorDeadzonePx;
+        const bool current_valid = std::fabs(error) > kErrorDeadzonePx;
+        const bool crossed = previous_valid && current_valid &&
+            state.previous_error * error < 0.0f &&
+            std::max(std::fabs(state.previous_error), std::fabs(error)) <=
+                kCrossingEvidenceLimitPx;
+        const bool manual_carried_through = crossed &&
+            state.has_previous_manual &&
+            std::fabs(state.previous_manual) >= kManualEvidence &&
+            std::fabs(manual) >= kManualEvidence &&
+            state.previous_manual * manual > 0.0f &&
+            state.previous_manual * state.previous_error > 0.0f &&
+            manual * state.previous_error > 0.0f &&
+            manual * error < 0.0f;
+        if (manual_carried_through) {
+            state.brake_until_seconds = input.now_seconds + kBrakeWindowSeconds;
+        }
+        if (current_valid) {
+            state.previous_error = error;
+            state.has_previous_error = true;
+        }
+        state.previous_manual = manual;
+        state.has_previous_manual = true;
+    };
+
+    observe_axis(ads_crossing_x_, input.target_error_px.x, input.manual.x);
+    observe_axis(ads_crossing_y_, input.target_error_px.y, input.manual.y);
+}
+
+bool NativeAimAssistDynamics::ads_crossing_brake_pending(double now_seconds) const {
+    return (ads_crossing_x_.brake_until_seconds > now_seconds) ||
+        (ads_crossing_y_.brake_until_seconds > now_seconds);
+}
+
+bool NativeAimAssistDynamics::ads_axis_brake_active(
+    const AdsAxisCrossingState& state,
+    float manual,
+    float requested_assist,
+    float target_error,
+    double now_seconds) const {
+    if (state.brake_until_seconds <= 0.0 || now_seconds > state.brake_until_seconds) {
+        return false;
+    }
+    return manual * requested_assist < 0.0f &&
+        requested_assist * target_error > 0.0f;
 }
 
 float NativeAimAssistDynamics::shape_axis(

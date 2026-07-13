@@ -1,4 +1,5 @@
 #include "vision_native/vision_engine.h"
+#include "vision_native/vision_result_copy.h"
 #include "color_readback.h"
 #include "vision_native/build_family.h"
 
@@ -355,6 +356,7 @@ VisionResult VisionEngine::poll_once() {
         result.intent_score = targeting.intent_score;
         result.user_aim_intent = user_aim_intent;
         result.boxes_seen = targeting.boxes_seen;
+        copy_selector_identity_fields(result, targeting);
         result.detections = std::move(targeting.detections);
 
         if (result.has_target) {

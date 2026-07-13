@@ -2950,6 +2950,319 @@ void test_controller_ads_near_target_brake_preserves_manual_input() {
         "ADS near-target brake should preserve helpful manual input while limiting excess assist");
 }
 
+void test_controller_ads_near_target_brake_caps_manual_dominated_carry() {
+    controller_native::GamepadRuntimeConfig config;
+    config.ai_aim.target_max_age_ms = 0.0f;
+    config.ai_aim.max_pixels = 100.0f;
+    config.ai_aim.deadzone_inner = 0.0f;
+    config.ai_aim.deadzone_outer = 0.0f;
+    config.ai_aim.x_deadzone_outer = 0.0f;
+    config.ai_aim.piecewise_mid_pixels = 0.0f;
+    config.ai_aim.piecewise_mid_pixels_y = 0.0f;
+    config.ai_aim.ads_snap_window_ms = 120;
+    config.ai_aim.ads_snap_max_ai_force = 1.0f;
+    config.ai_aim.ads_snap_max_ai_force_y = 1.0f;
+    config.ai_aim.ads_snap_reticle_speed_px_per_sec = 1500.0f;
+    config.ai_aim.target_projection_reticle_speed_px_per_sec = 1500.0f;
+    config.ai_aim.ads_snap_time_to_go_min_remaining_ms = 1.0f;
+    config.aim_assist_dynamics.enabled = true;
+    config.recoil.enabled = false;
+
+    double now = 34.5;
+    controller_native::NativeGamepadController controller(
+        config,
+        [&now]() { return now; });
+    controller.build_output(aiming_physical_state());
+
+    now += 0.010;
+    controller_native::NativeControllerVisionState target;
+    target.has_target = true;
+    target.aim_authority = true;
+    target.fire_authority = true;
+    target.target_tier = "strong";
+    target.dx = 6.0f;
+    target.dy = 0.0f;
+    target.screen_center_x = 320.0f;
+    target.screen_center_y = 256.0f;
+    target.observed_at_seconds = now;
+    controller.submit_vision_state(target);
+
+    controller_native::PhysicalGamepadState physical = aiming_physical_state();
+    physical.right_x = 0.92f;
+    const controller_native::GamepadOutputState output = controller.build_output(physical);
+    require_true(
+        output.right_x >= 0.30f && output.right_x <= 0.65f,
+        "fresh ADS near-target budget should cap manual-dominated carry without reversing it");
+}
+
+void test_controller_ads_snap_brake_survives_manual_yield_after_confirmed_crossing() {
+    controller_native::GamepadRuntimeConfig config;
+    config.ai_aim.target_max_age_ms = 0.0f;
+    config.ai_aim.max_pixels = 100.0f;
+    config.ai_aim.deadzone_inner = 0.0f;
+    config.ai_aim.deadzone_outer = 0.0f;
+    config.ai_aim.x_deadzone_outer = 0.0f;
+    config.ai_aim.piecewise_mid_pixels = 0.0f;
+    config.ai_aim.piecewise_mid_pixels_y = 0.0f;
+    config.ai_aim.ads_snap_window_ms = 220;
+    config.ai_aim.ads_max_acquisition_ms = 220.0f;
+    config.ai_aim.ads_snap_max_ai_force = 1.0f;
+    config.ai_aim.ads_snap_max_ai_force_y = 1.0f;
+    config.ai_aim.ads_snap_time_to_go_gain = 0.0f;
+    config.aim_assist_dynamics.enabled = true;
+    config.recoil.enabled = false;
+
+    double now = 35.0;
+    controller_native::NativeGamepadController controller(
+        config,
+        [&now]() { return now; });
+
+    const auto submit_target = [&](float dx) {
+        controller_native::NativeControllerVisionState target;
+        target.has_target = true;
+        target.aim_authority = true;
+        target.fire_authority = true;
+        target.target_tier = "strong";
+        target.dx = dx;
+        target.dy = 0.0f;
+        target.screen_center_x = 320.0f;
+        target.screen_center_y = 256.0f;
+        target.observed_at_seconds = now;
+        controller.submit_vision_state(target);
+    };
+    auto strong_right_pull = []() {
+        controller_native::PhysicalGamepadState physical = aiming_physical_state();
+        physical.right_x = 0.92f;
+        return physical;
+    };
+
+    controller.build_output(aiming_physical_state());
+    now += 0.010;
+    submit_target(4.0f);
+    controller.build_output(strong_right_pull());
+
+    now += 0.010;
+    submit_target(2.0f);
+    controller.build_output(strong_right_pull());
+
+    now += 0.010;
+    submit_target(-4.0f);
+    const controller_native::GamepadOutputState crossed =
+        controller.build_output(strong_right_pull());
+    const controller_native::NativeControllerOutputComponents& components =
+        controller.last_output_components();
+
+    require_true(
+        components.ai_aim_stick.x < -0.30f,
+        "ADS crossing setup should request a material counter-steering brake");
+    require_true(
+        components.dynamic_adjustment_stick.x < 0.30f,
+        "ADS crossing brake must not be completely deleted by the global manual-yield stage");
+    require_true(
+        crossed.right_x < 0.50f,
+        "confirmed ADS crossing should reduce strong manual carry before it becomes overshoot");
+}
+
+void test_controller_ads_snap_yields_to_opposing_manual_without_crossing_evidence() {
+    controller_native::GamepadRuntimeConfig config;
+    config.ai_aim.target_max_age_ms = 0.0f;
+    config.ai_aim.max_pixels = 100.0f;
+    config.ai_aim.deadzone_inner = 0.0f;
+    config.ai_aim.deadzone_outer = 0.0f;
+    config.ai_aim.x_deadzone_outer = 0.0f;
+    config.ai_aim.piecewise_mid_pixels = 0.0f;
+    config.ai_aim.ads_snap_window_ms = 220;
+    config.ai_aim.ads_snap_max_ai_force = 1.0f;
+    config.ai_aim.ads_snap_time_to_go_gain = 0.0f;
+    config.aim_assist_dynamics.enabled = true;
+    config.recoil.enabled = false;
+
+    double now = 36.0;
+    controller_native::NativeGamepadController controller(
+        config,
+        [&now]() { return now; });
+    controller.build_output(aiming_physical_state());
+
+    now += 0.010;
+    controller_native::NativeControllerVisionState target;
+    target.has_target = true;
+    target.aim_authority = true;
+    target.fire_authority = true;
+    target.target_tier = "strong";
+    target.dx = -40.0f;
+    target.dy = 0.0f;
+    target.screen_center_x = 320.0f;
+    target.screen_center_y = 256.0f;
+    target.observed_at_seconds = now;
+    controller.submit_vision_state(target);
+
+    controller_native::PhysicalGamepadState physical = aiming_physical_state();
+    physical.right_x = 0.92f;
+    const controller_native::GamepadOutputState output = controller.build_output(physical);
+    require_true(
+        output.right_x >= 0.90f,
+        "strong manual target-switch intent without crossing evidence must retain control");
+}
+
+void test_controller_ads_snap_yields_when_manual_starts_only_after_crossing() {
+    controller_native::GamepadRuntimeConfig config;
+    config.ai_aim.target_max_age_ms = 0.0f;
+    config.ai_aim.max_pixels = 100.0f;
+    config.ai_aim.deadzone_inner = 0.0f;
+    config.ai_aim.deadzone_outer = 0.0f;
+    config.ai_aim.x_deadzone_outer = 0.0f;
+    config.ai_aim.piecewise_mid_pixels = 0.0f;
+    config.ai_aim.piecewise_mid_pixels_y = 0.0f;
+    config.ai_aim.ads_snap_window_ms = 220;
+    config.ai_aim.ads_snap_max_ai_force = 1.0f;
+    config.ai_aim.ads_snap_time_to_go_gain = 0.0f;
+    config.aim_assist_dynamics.enabled = true;
+    config.recoil.enabled = false;
+
+    double now = 36.5;
+    controller_native::NativeGamepadController controller(
+        config,
+        [&now]() { return now; });
+
+    const auto submit_target = [&](float dx) {
+        controller_native::NativeControllerVisionState target;
+        target.has_target = true;
+        target.aim_authority = true;
+        target.fire_authority = true;
+        target.target_tier = "strong";
+        target.dx = dx;
+        target.dy = 0.0f;
+        target.screen_center_x = 320.0f;
+        target.screen_center_y = 256.0f;
+        target.observed_at_seconds = now;
+        controller.submit_vision_state(target);
+    };
+
+    controller.build_output(aiming_physical_state());
+    now += 0.010;
+    submit_target(4.0f);
+    controller.build_output(aiming_physical_state());
+
+    now += 0.010;
+    submit_target(-4.0f);
+    controller_native::PhysicalGamepadState escape = aiming_physical_state();
+    escape.right_x = 0.92f;
+    const controller_native::GamepadOutputState output = controller.build_output(escape);
+    require_true(
+        output.right_x >= 0.90f,
+        "manual input that begins after a target crossing must be treated as escape intent");
+}
+
+void test_controller_ads_snap_crossing_brake_expires_to_manual_control() {
+    controller_native::GamepadRuntimeConfig config;
+    config.ai_aim.target_max_age_ms = 0.0f;
+    config.ai_aim.max_pixels = 100.0f;
+    config.ai_aim.deadzone_inner = 0.0f;
+    config.ai_aim.deadzone_outer = 0.0f;
+    config.ai_aim.x_deadzone_outer = 0.0f;
+    config.ai_aim.piecewise_mid_pixels = 0.0f;
+    config.ai_aim.piecewise_mid_pixels_y = 0.0f;
+    config.ai_aim.ads_snap_window_ms = 220;
+    config.ai_aim.ads_max_acquisition_ms = 220.0f;
+    config.ai_aim.ads_snap_max_ai_force = 1.0f;
+    config.ai_aim.ads_snap_time_to_go_gain = 0.0f;
+    config.aim_assist_dynamics.enabled = true;
+    config.recoil.enabled = false;
+
+    double now = 37.0;
+    controller_native::NativeGamepadController controller(
+        config,
+        [&now]() { return now; });
+    const auto submit_target = [&](float dx) {
+        controller_native::NativeControllerVisionState target;
+        target.has_target = true;
+        target.aim_authority = true;
+        target.fire_authority = true;
+        target.target_tier = "strong";
+        target.dx = dx;
+        target.dy = 0.0f;
+        target.screen_center_x = 320.0f;
+        target.screen_center_y = 256.0f;
+        target.observed_at_seconds = now;
+        controller.submit_vision_state(target);
+    };
+    auto pull_right = []() {
+        controller_native::PhysicalGamepadState physical = aiming_physical_state();
+        physical.right_x = 0.92f;
+        return physical;
+    };
+
+    controller.build_output(aiming_physical_state());
+    now += 0.010;
+    submit_target(4.0f);
+    controller.build_output(pull_right());
+    now += 0.010;
+    submit_target(-4.0f);
+    controller.build_output(pull_right());
+
+    now += 0.060;
+    submit_target(-8.0f);
+    const controller_native::GamepadOutputState expired = controller.build_output(pull_right());
+    require_true(
+        expired.right_x >= 0.90f,
+        "ADS crossing brake must expire into full manual control");
+}
+
+void test_controller_ads_snap_crossing_brake_is_axis_local() {
+    controller_native::GamepadRuntimeConfig config;
+    config.ai_aim.target_max_age_ms = 0.0f;
+    config.ai_aim.max_pixels = 100.0f;
+    config.ai_aim.deadzone_inner = 0.0f;
+    config.ai_aim.deadzone_outer = 0.0f;
+    config.ai_aim.x_deadzone_outer = 0.0f;
+    config.ai_aim.piecewise_mid_pixels = 0.0f;
+    config.ai_aim.piecewise_mid_pixels_y = 0.0f;
+    config.ai_aim.ads_snap_window_ms = 220;
+    config.ai_aim.ads_snap_max_ai_force = 1.0f;
+    config.ai_aim.ads_snap_max_ai_force_y = 1.0f;
+    config.ai_aim.ads_snap_time_to_go_gain = 0.0f;
+    config.aim_assist_dynamics.enabled = true;
+    config.recoil.enabled = false;
+
+    double now = 38.0;
+    controller_native::NativeGamepadController controller(
+        config,
+        [&now]() { return now; });
+    const auto submit_target = [&](float dx) {
+        controller_native::NativeControllerVisionState target;
+        target.has_target = true;
+        target.aim_authority = true;
+        target.fire_authority = true;
+        target.target_tier = "strong";
+        target.dx = dx;
+        target.dy = 40.0f;
+        target.screen_center_x = 320.0f;
+        target.screen_center_y = 256.0f;
+        target.observed_at_seconds = now;
+        controller.submit_vision_state(target);
+    };
+    auto diagonal_pull = []() {
+        controller_native::PhysicalGamepadState physical = aiming_physical_state();
+        physical.right_x = 0.92f;
+        physical.right_y = 0.92f;
+        return physical;
+    };
+
+    controller.build_output(aiming_physical_state());
+    now += 0.010;
+    submit_target(4.0f);
+    controller.build_output(diagonal_pull());
+    now += 0.010;
+    submit_target(-4.0f);
+    const controller_native::GamepadOutputState crossed = controller.build_output(diagonal_pull());
+    require_true(
+        crossed.right_x < 0.50f,
+        "confirmed x crossing should brake the x carry");
+    require_true(
+        crossed.right_y >= 0.90f,
+        "x crossing brake must not suppress uncrossed y escape intent");
+}
+
 void test_controller_output_validation_corrects_wrong_way_after_x_crossing() {
     controller_native::GamepadRuntimeConfig config;
     config.ai_aim.target_max_age_ms = 0.0f;
@@ -5028,6 +5341,12 @@ int main() {
         test_controller_ads_cross_brake_survives_fresh_stale_sign_flip();
         test_controller_ads_near_target_brake_allows_bounded_chase_before_crossing();
         test_controller_ads_near_target_brake_preserves_manual_input();
+        test_controller_ads_near_target_brake_caps_manual_dominated_carry();
+        test_controller_ads_snap_brake_survives_manual_yield_after_confirmed_crossing();
+        test_controller_ads_snap_yields_to_opposing_manual_without_crossing_evidence();
+        test_controller_ads_snap_yields_when_manual_starts_only_after_crossing();
+        test_controller_ads_snap_crossing_brake_expires_to_manual_control();
+        test_controller_ads_snap_crossing_brake_is_axis_local();
         test_controller_output_validation_corrects_wrong_way_after_x_crossing();
         test_controller_output_validation_caps_only_crossed_axis_on_diagonal();
         test_controller_output_validation_yields_to_manual_correction_with_tracker_reference();
