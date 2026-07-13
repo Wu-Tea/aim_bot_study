@@ -1,9 +1,9 @@
 # Native Tracker / Authority / Bodylock Refactor Design
 
-Date: 2026-07-13  
-Status: approved direction, pending written-spec review  
-Branch at design time: `dev`  
-Primary runtime: `native/vision_native/build/Release/cod_native_runtime.exe`
+- Date: 2026-07-13
+- Status: approved direction, pending written-spec review
+- Branch at design time: `dev`
+- Primary runtime: `native/vision_native/build/Release/cod_native_runtime.exe`
 
 ## 1. Objective
 
