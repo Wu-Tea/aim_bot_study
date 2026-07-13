@@ -1,6 +1,9 @@
 #include "native_gamepad_controller.h"
+#include "ai_aim.h"
+#include "output_validation_policy.h"
 #include "runtime_config.h"
 #include "../runtime_app/vision_controller_adapter.h"
+#include "../replay_native/replay_metrics.h"
 
 #include "pipeline_contract/target_snapshot.h"
 #include "vision_native/target_selector.h"
@@ -377,6 +380,25 @@ struct ScenarioMetrics {
     double ads_bodylock_near_high_turn_smoothness_score = 0.0;
     double ads_bodylock_near_high_close_assist_mean_output = 0.0;
     double ads_bodylock_near_high_centered_p95_output_delta = 0.0;
+    bool has_bodylock_continuity = false;
+    int bodylock_continuity_ticks = 0;
+    int bodylock_continuity_body_lock_ticks = 0;
+    int bodylock_continuity_strong_manual_axis_samples = 0;
+    int bodylock_continuity_opposing_assist_axis_samples = 0;
+    int bodylock_continuity_manual_gain_plateau_axis_samples = 0;
+    int bodylock_continuity_assist_step_events = 0;
+    int bodylock_continuity_final_jerk_events = 0;
+    double bodylock_continuity_longest_opposing_assist_ms = 0.0;
+    double bodylock_continuity_longest_gain_plateau_ms = 0.0;
+    double bodylock_continuity_assist_delta_p95 = 0.0;
+    double bodylock_continuity_assist_delta_p99 = 0.0;
+    double bodylock_continuity_final_jerk_p95 = 0.0;
+    double bodylock_continuity_final_jerk_p99 = 0.0;
+    int bodylock_continuity_mode_transition_events = 0;
+    int bodylock_continuity_short_body_lock_runs = 0;
+    int bodylock_continuity_authority_loss_override_events = 0;
+    double bodylock_continuity_max_excess_final_delta = 0.0;
+    bool bodylock_continuity_defect = false;
     bool has_ads_carry_through = false;
     int ads_carry_through_ticks = 0;
     int ads_carry_through_vision_samples = 0;
@@ -467,7 +489,7 @@ std::string default_run_key() {
 
 void print_usage() {
     std::cout
-        << "Usage: cod_native_gamepad_benchmark [--suite all|selector_intent|roi_fallback] "
+        << "Usage: cod_native_gamepad_benchmark [--suite all|selector_intent|roi_fallback|bodylock_continuity] "
         << "[--config config.toml] "
         << "[--run-key key] [--output path] [--frames n] [--dt-ms ms] "
         << "[--recoil-state path] [--random-fov-ticks n] "
@@ -526,7 +548,8 @@ CliOptions parse_args(int argc, char** argv) {
     }
     if (options.suite != "all"
         && options.suite != "selector_intent"
-        && options.suite != "roi_fallback") {
+        && options.suite != "roi_fallback"
+        && options.suite != "bodylock_continuity") {
         throw std::runtime_error("unknown suite: " + options.suite);
     }
     options.random_fov_min_scale =
@@ -1204,6 +1227,12 @@ ScenarioMetrics run_ads_manual_carry_through_100hz(
 ScenarioMetrics run_ads_bodylock_near_high_output_100hz(
     controller_native::GamepadRuntimeConfig config,
     const std::string& name = "ads_bodylock_near_high_output_100hz");
+ScenarioMetrics run_bodylock_continuity_defect_100hz(
+    controller_native::GamepadRuntimeConfig config,
+    const std::string& name = "bodylock_continuity_defect_100hz");
+ScenarioMetrics run_bodylock_mode_chatter_defect_100hz(
+    controller_native::GamepadRuntimeConfig config,
+    const std::string& name = "bodylock_mode_chatter_defect_100hz");
 ScenarioMetrics run_adversarial_controller_authority_100hz(
     controller_native::GamepadRuntimeConfig config,
     const std::string& name = "adversarial_controller_authority_100hz");
@@ -1404,6 +1433,32 @@ void run_self_test() {
             near_high.ads_bodylock_near_high_centered_jitter_frames >= 0 &&
             near_high.ads_bodylock_near_high_low_output_close_frames >= 0,
         "near-high output benchmark should report centered jitter and close-range dropout counters");
+
+    const ScenarioMetrics bodylock_continuity = run_bodylock_continuity_defect_100hz(
+        moving_config,
+        "bodylock_continuity_defect_100hz_self_test");
+    require_benchmark_check(
+        bodylock_continuity.has_bodylock_continuity,
+        "bodylock continuity scenario should expose continuity metrics");
+    require_benchmark_check(
+        bodylock_continuity.bodylock_continuity_body_lock_ticks > 0,
+        "bodylock continuity scenario should reach body lock mode");
+    require_benchmark_check(
+        bodylock_continuity.bodylock_continuity_defect,
+        "current bodylock should reveal the captured continuity defect");
+
+    const ScenarioMetrics mode_chatter = run_bodylock_mode_chatter_defect_100hz(
+        moving_config,
+        "bodylock_mode_chatter_defect_100hz_self_test");
+    require_benchmark_check(
+        mode_chatter.bodylock_continuity_mode_transition_events >= 12,
+        "bodylock mode-chatter scenario should reproduce rapid mode transitions");
+    require_benchmark_check(
+        mode_chatter.bodylock_continuity_short_body_lock_runs > 0,
+        "bodylock mode-chatter scenario should reproduce short body-lock runs");
+    require_benchmark_check(
+        mode_chatter.bodylock_continuity_authority_loss_override_events > 0,
+        "bodylock mode-chatter scenario should reproduce authority-loss manual override");
 
     const ScenarioMetrics carry_through = run_ads_manual_carry_through_100hz(
         moving_config,
@@ -4165,6 +4220,305 @@ ScenarioMetrics run_ads_bodylock_near_high_output_100hz(
     return metrics;
 }
 
+ScenarioMetrics run_bodylock_continuity_defect_100hz(
+    controller_native::GamepadRuntimeConfig config,
+    const std::string& name) {
+    ScenarioMetrics metrics;
+    metrics.name = name;
+    metrics.has_bodylock_continuity = true;
+
+    constexpr double kControllerHz = 1000.0;
+    constexpr double kDtSeconds = 1.0 / kControllerHz;
+    constexpr int kVisionIntervalTicks = 10;
+    constexpr int kWarmupTicks = 260;
+    constexpr int kMeasuredTicks = 120;
+    constexpr int kTicks = kWarmupTicks + kMeasuredTicks;
+    metrics.frames = kTicks;
+
+    config.recoil.enabled = false;
+    config.aim_assist_dynamics.enabled = true;
+    config.ai_aim.ads_snap_window_ms = 40;
+    config.ai_aim.target_max_age_ms = std::max(config.ai_aim.target_max_age_ms, 160.0f);
+    config.ai_aim.target_projection_max_age_ms =
+        std::max(config.ai_aim.target_projection_max_age_ms, 180.0f);
+    config.ai_aim.body_lock_activation_box_px =
+        std::max(config.ai_aim.body_lock_activation_box_px, 190.0f);
+    config.ai_aim.body_lock_confidence_frames = 1;
+
+    double simulated_now = 1.0;
+    controller_native::NativeGamepadController controller(
+        config,
+        [&simulated_now]() { return simulated_now; });
+    std::vector<replay_native::NativeReplayFrame> replay_frames;
+    replay_frames.reserve(kMeasuredTicks);
+
+    for (int tick = 0; tick < kTicks; ++tick) {
+        simulated_now = 1.0 + (static_cast<double>(tick) * kDtSeconds);
+        const double measured_seconds =
+            static_cast<double>(std::max(0, tick - kWarmupTicks)) * kDtSeconds;
+        const float reported_dx = static_cast<float>(
+            -30.0 - (4.0 * std::sin(measured_seconds * 18.0)));
+        const float reported_dy = static_cast<float>(
+            10.0 + (2.0 * std::sin(measured_seconds * 11.0)));
+        if (tick % kVisionIntervalTicks == 0) {
+            controller.submit_vision_state(
+                benchmark_target_state(reported_dx, reported_dy, simulated_now));
+        }
+
+        const float manual_x = tick >= kWarmupTicks ? 0.82f : 0.0f;
+        controller.build_output(aiming_state(manual_x, 0.0f, false));
+        const controller_native::NativeControllerOutputComponents& components =
+            controller.last_output_components();
+        const bool body_lock = controller.last_ai_aim_mode() == "body_lock";
+        if (body_lock) {
+            ++metrics.bodylock_continuity_body_lock_ticks;
+        }
+        if (tick < kWarmupTicks || !body_lock) {
+            continue;
+        }
+
+        replay_native::NativeReplayFrame frame;
+        frame.frame_id = static_cast<std::uint64_t>(tick);
+        frame.timing.controller_tick_ms = 1.0;
+        frame.controller.aiming = true;
+        frame.controller.sticks.manual = {
+            components.manual_stick.x,
+            components.manual_stick.y};
+        frame.controller.sticks.assist = {
+            components.final_stick.x - components.manual_stick.x,
+            components.final_stick.y - components.manual_stick.y};
+        frame.controller.sticks.dynamics = {
+            components.dynamic_adjustment_stick.x,
+            components.dynamic_adjustment_stick.y};
+        frame.controller.sticks.recoil = {
+            components.recoil_stick.x,
+            components.recoil_stick.y};
+        frame.controller.sticks.final_output = {
+            components.final_stick.x,
+            components.final_stick.y};
+        replay_frames.push_back(frame);
+    }
+
+    replay_native::ReplayMetricOptions options;
+    options.strong_manual_threshold = 0.45;
+    options.stable_manual_delta_threshold = 0.02;
+    options.manual_gain_plateau_ratio = 0.55;
+    options.manual_gain_plateau_tolerance = 0.015;
+    options.opposing_assist_defect_ms = 16.0;
+    options.manual_gain_plateau_defect_ms = 8.0;
+    options.assist_step_threshold = 0.10;
+    options.final_jerk_threshold = 0.15;
+    const replay_native::ReplayMetricSummary summary =
+        replay_native::summarize_replay_metrics(replay_frames, options);
+
+    metrics.bodylock_continuity_ticks = static_cast<int>(replay_frames.size());
+    metrics.bodylock_continuity_strong_manual_axis_samples =
+        static_cast<int>(summary.strong_manual_axis_samples);
+    metrics.bodylock_continuity_opposing_assist_axis_samples =
+        static_cast<int>(summary.opposing_assist_axis_samples);
+    metrics.bodylock_continuity_manual_gain_plateau_axis_samples =
+        static_cast<int>(summary.manual_gain_plateau_axis_samples);
+    metrics.bodylock_continuity_assist_step_events =
+        static_cast<int>(summary.assist_step_events);
+    metrics.bodylock_continuity_final_jerk_events =
+        static_cast<int>(summary.final_jerk_events);
+    metrics.bodylock_continuity_longest_opposing_assist_ms =
+        summary.longest_opposing_assist_run_ms;
+    metrics.bodylock_continuity_longest_gain_plateau_ms =
+        summary.longest_manual_gain_plateau_run_ms;
+    metrics.bodylock_continuity_assist_delta_p95 = summary.assist_delta_p95;
+    metrics.bodylock_continuity_assist_delta_p99 = summary.assist_delta_p99;
+    metrics.bodylock_continuity_final_jerk_p95 = summary.final_jerk_p95;
+    metrics.bodylock_continuity_final_jerk_p99 = summary.final_jerk_p99;
+    metrics.bodylock_continuity_defect = summary.bodylock_continuity_defect;
+    return metrics;
+}
+
+ScenarioMetrics run_bodylock_mode_chatter_defect_100hz(
+    controller_native::GamepadRuntimeConfig config,
+    const std::string& name) {
+    ScenarioMetrics metrics;
+    metrics.name = name;
+    metrics.has_bodylock_continuity = true;
+
+    constexpr int kTicks = 120;
+    constexpr double kDtSeconds = 0.001;
+    constexpr float kManualX = 0.80f;
+    constexpr float kManualY = 0.66f;
+    metrics.frames = kTicks;
+    config.recoil.enabled = false;
+    config.ai_aim.body_lock_activation_box_px =
+        std::max(config.ai_aim.body_lock_activation_box_px, 190.0f);
+    config.ai_aim.body_lock_confidence_frames = 1;
+    controller_native::NativeAiAim ai_aim(config.ai_aim);
+    controller_native::OutputValidationPolicy validation(config.ai_aim);
+    std::vector<replay_native::NativeReplayFrame> replay_frames;
+    replay_frames.reserve(kTicks);
+
+    std::string previous_mode;
+    common_native::Vec2f previous_manual;
+    common_native::Vec2f previous_final;
+    bool has_previous_output = false;
+    int active_body_lock_run = 0;
+
+    const auto clamp_unit = [](float value) {
+        return std::max(-1.0f, std::min(1.0f, value));
+    };
+    for (int tick = 0; tick < kTicks; ++tick) {
+        const double now = 1.0 + (static_cast<double>(tick) * kDtSeconds);
+        const int phase = tick % 20;
+        controller_native::NativeControllerVisionState state;
+        bool ads_snap_active = false;
+        if (phase < 8) {
+            state = benchmark_target_state(12.5f, 8.9f, now);
+        } else if (phase < 11 || (phase >= 14 && phase < 17)) {
+            state = benchmark_target_state(-3.7f, 7.8f, now);
+            state.aim_authority = false;
+            state.fire_authority = false;
+            state.has_tracker_projection = true;
+            state.tracker_dx = -3.7f;
+            state.tracker_dy = 7.8f;
+        } else if (phase < 14) {
+            state = benchmark_target_state(-10.0f, 11.1f, now);
+            state.target_tier = "cue_hold";
+            state.fire_authority = false;
+        } else {
+            state = benchmark_target_state(-40.6f, -6.2f, now);
+            state.has_body_box = false;
+            ads_snap_active = true;
+        }
+
+        controller_native::NativeAiAimInput input;
+        input.aiming = true;
+        input.has_target = state.has_target;
+        input.aim_authority = state.aim_authority;
+        input.ads_snap_active = ads_snap_active;
+        input.ads_snap_progress_ratio = 0.45f;
+        input.ads_snap_remaining_seconds = 0.05f;
+        input.dx = state.dx;
+        input.dy = state.dy;
+        input.has_mixing_reference = state.has_tracker_projection;
+        input.mixing_reference_dx = state.tracker_dx;
+        input.mixing_reference_dy = state.tracker_dy;
+        input.target_tier = state.target_tier;
+        input.target_x = state.target_x;
+        input.target_y = state.target_y;
+        input.screen_center_x = state.screen_center_x;
+        input.screen_center_y = state.screen_center_y;
+        input.has_body_box = state.has_body_box;
+        input.body_x1 = state.body_x1;
+        input.body_y1 = state.body_y1;
+        input.body_x2 = state.body_x2;
+        input.body_y2 = state.body_y2;
+        input.observed_at_seconds = now;
+        input.now_seconds = now;
+        input.manual_right_x = kManualX;
+        input.manual_right_y = kManualY;
+
+        controller_native::GamepadOutputState output;
+        output.right_x = kManualX;
+        output.right_y = kManualY;
+        const controller_native::NativeAiAimOutput assist = ai_aim.compute(input);
+        output.right_x = clamp_unit(output.right_x + assist.assist_x);
+        output.right_y = clamp_unit(output.right_y + assist.assist_y);
+        if (ai_aim.last_mode() == "body_lock") {
+            validation.reset();
+        } else {
+            controller_native::OutputValidationPolicyInput validation_input;
+            validation_input.vision_state = state;
+            validation_input.output = output;
+            validation_input.manual_right_x = kManualX;
+            validation_input.manual_right_y = kManualY;
+            validation_input.ads_active = true;
+            validation_input.now_seconds = now;
+            output = validation.apply(validation_input);
+        }
+
+        const std::string& mode = ai_aim.last_mode();
+        if (mode == "body_lock") {
+            ++metrics.bodylock_continuity_body_lock_ticks;
+            ++active_body_lock_run;
+        } else if (active_body_lock_run > 0) {
+            if (active_body_lock_run <= 3) {
+                ++metrics.bodylock_continuity_short_body_lock_runs;
+            }
+            active_body_lock_run = 0;
+        }
+        if (!previous_mode.empty() && mode != previous_mode) {
+            ++metrics.bodylock_continuity_mode_transition_events;
+        }
+        previous_mode = mode;
+        const bool manual_overridden =
+            (kManualX * output.right_x <= 0.0f) ||
+            (kManualY * output.right_y <= 0.0f);
+        if (!state.aim_authority && manual_overridden) {
+            ++metrics.bodylock_continuity_authority_loss_override_events;
+        }
+        if (has_previous_output) {
+            const double manual_delta = std::hypot(
+                static_cast<double>(kManualX - previous_manual.x),
+                static_cast<double>(kManualY - previous_manual.y));
+            const double final_delta = std::hypot(
+                static_cast<double>(output.right_x - previous_final.x),
+                static_cast<double>(output.right_y - previous_final.y));
+            metrics.bodylock_continuity_max_excess_final_delta = std::max(
+                metrics.bodylock_continuity_max_excess_final_delta,
+                std::max(0.0, final_delta - manual_delta));
+        }
+        previous_manual = {kManualX, kManualY};
+        previous_final = {output.right_x, output.right_y};
+        has_previous_output = true;
+
+        replay_native::NativeReplayFrame frame;
+        frame.frame_id = static_cast<std::uint64_t>(tick);
+        frame.timing.controller_tick_ms = 1.0;
+        frame.controller.aiming = true;
+        frame.controller.sticks.manual = {kManualX, kManualY};
+        frame.controller.sticks.assist = {
+            output.right_x - kManualX,
+            output.right_y - kManualY};
+        frame.controller.sticks.final_output = {output.right_x, output.right_y};
+        replay_frames.push_back(frame);
+    }
+    if (active_body_lock_run > 0 && active_body_lock_run <= 3) {
+        ++metrics.bodylock_continuity_short_body_lock_runs;
+    }
+
+    replay_native::ReplayMetricOptions options;
+    options.strong_manual_threshold = 0.45;
+    options.stable_manual_delta_threshold = 0.02;
+    options.opposing_assist_defect_ms = 16.0;
+    options.manual_gain_plateau_defect_ms = 8.0;
+    options.assist_step_threshold = 0.10;
+    options.final_jerk_threshold = 0.15;
+    const replay_native::ReplayMetricSummary summary =
+        replay_native::summarize_replay_metrics(replay_frames, options);
+    metrics.bodylock_continuity_ticks = static_cast<int>(replay_frames.size());
+    metrics.bodylock_continuity_strong_manual_axis_samples =
+        static_cast<int>(summary.strong_manual_axis_samples);
+    metrics.bodylock_continuity_opposing_assist_axis_samples =
+        static_cast<int>(summary.opposing_assist_axis_samples);
+    metrics.bodylock_continuity_manual_gain_plateau_axis_samples =
+        static_cast<int>(summary.manual_gain_plateau_axis_samples);
+    metrics.bodylock_continuity_assist_step_events =
+        static_cast<int>(summary.assist_step_events);
+    metrics.bodylock_continuity_final_jerk_events =
+        static_cast<int>(summary.final_jerk_events);
+    metrics.bodylock_continuity_longest_opposing_assist_ms =
+        summary.longest_opposing_assist_run_ms;
+    metrics.bodylock_continuity_longest_gain_plateau_ms =
+        summary.longest_manual_gain_plateau_run_ms;
+    metrics.bodylock_continuity_assist_delta_p95 = summary.assist_delta_p95;
+    metrics.bodylock_continuity_assist_delta_p99 = summary.assist_delta_p99;
+    metrics.bodylock_continuity_final_jerk_p95 = summary.final_jerk_p95;
+    metrics.bodylock_continuity_final_jerk_p99 = summary.final_jerk_p99;
+    metrics.bodylock_continuity_defect =
+        summary.bodylock_continuity_defect ||
+        metrics.bodylock_continuity_authority_loss_override_events > 0 ||
+        metrics.bodylock_continuity_max_excess_final_delta >= 0.15;
+    return metrics;
+}
+
 ScenarioMetrics run_adversarial_controller_authority_100hz(
     controller_native::GamepadRuntimeConfig config,
     const std::string& name) {
@@ -5550,6 +5904,60 @@ void write_json(
                 << scenario.ads_bodylock_near_high_centered_p95_output_delta << "\n"
                 << "      }";
         }
+        if (scenario.has_bodylock_continuity) {
+            out
+                << ",\n"
+                << "      \"bodylock_continuity\": {\n"
+                << "        \"controller_hz\": 1000.000000,\n"
+                << "        \"vision_hz\": 100.000000,\n"
+                << "        \"ticks\": "
+                << scenario.bodylock_continuity_ticks << ",\n"
+                << "        \"body_lock_ticks\": "
+                << scenario.bodylock_continuity_body_lock_ticks << ",\n"
+                << "        \"strong_manual_axis_samples\": "
+                << scenario.bodylock_continuity_strong_manual_axis_samples << ",\n"
+                << "        \"opposing_assist_axis_samples\": "
+                << scenario.bodylock_continuity_opposing_assist_axis_samples << ",\n"
+                << "        \"manual_gain_plateau_axis_samples\": "
+                << scenario.bodylock_continuity_manual_gain_plateau_axis_samples << ",\n"
+                << "        \"longest_opposing_assist_ms\": "
+                << scenario.bodylock_continuity_longest_opposing_assist_ms << ",\n"
+                << "        \"longest_manual_gain_plateau_ms\": "
+                << scenario.bodylock_continuity_longest_gain_plateau_ms << ",\n"
+                << "        \"assist_step_events\": "
+                << scenario.bodylock_continuity_assist_step_events << ",\n"
+                << "        \"assist_delta_p95\": "
+                << scenario.bodylock_continuity_assist_delta_p95 << ",\n"
+                << "        \"assist_delta_p99\": "
+                << scenario.bodylock_continuity_assist_delta_p99 << ",\n"
+                << "        \"final_jerk_events\": "
+                << scenario.bodylock_continuity_final_jerk_events << ",\n"
+                << "        \"final_jerk_p95\": "
+                << scenario.bodylock_continuity_final_jerk_p95 << ",\n"
+                << "        \"final_jerk_p99\": "
+                << scenario.bodylock_continuity_final_jerk_p99 << ",\n"
+                << "        \"mode_transition_events\": "
+                << scenario.bodylock_continuity_mode_transition_events << ",\n"
+                << "        \"short_body_lock_runs\": "
+                << scenario.bodylock_continuity_short_body_lock_runs << ",\n"
+                << "        \"authority_loss_override_events\": "
+                << scenario.bodylock_continuity_authority_loss_override_events << ",\n"
+                << "        \"max_excess_final_delta\": "
+                << scenario.bodylock_continuity_max_excess_final_delta << ",\n"
+                << "        \"thresholds\": {\n"
+                << "          \"strong_manual\": 0.450000,\n"
+                << "          \"manual_gain_plateau\": 0.550000,\n"
+                << "          \"opposing_assist_ms\": 16.000000,\n"
+                << "          \"manual_gain_plateau_ms\": 8.000000,\n"
+                << "          \"assist_step\": 0.100000,\n"
+                << "          \"final_jerk\": 0.150000\n"
+                << "        },\n"
+                << "        \"defect_detected\": "
+                << (scenario.bodylock_continuity_defect ? "true" : "false") << ",\n"
+                << "        \"benchmark_status\": \""
+                << (scenario.bodylock_continuity_defect ? "FAIL" : "PASS") << "\"\n"
+                << "      }";
+        }
         if (scenario.has_ads_carry_through) {
             out
                 << ",\n"
@@ -5955,6 +6363,39 @@ void print_summary(
                 << " max_final="
                 << scenario.ads_bodylock_near_high_max_final_output;
         }
+        if (scenario.has_bodylock_continuity) {
+            std::cout
+                << " continuity_ticks=" << scenario.bodylock_continuity_ticks
+                << " body_ticks=" << scenario.bodylock_continuity_body_lock_ticks
+                << " strong_manual="
+                << scenario.bodylock_continuity_strong_manual_axis_samples
+                << " opposing="
+                << scenario.bodylock_continuity_opposing_assist_axis_samples
+                << " plateau55="
+                << scenario.bodylock_continuity_manual_gain_plateau_axis_samples
+                << " opposing_ms="
+                << scenario.bodylock_continuity_longest_opposing_assist_ms
+                << " plateau_ms="
+                << scenario.bodylock_continuity_longest_gain_plateau_ms
+                << " assist_steps="
+                << scenario.bodylock_continuity_assist_step_events
+                << " assist_p95="
+                << scenario.bodylock_continuity_assist_delta_p95
+                << " jerk_events="
+                << scenario.bodylock_continuity_final_jerk_events
+                << " jerk_p95="
+                << scenario.bodylock_continuity_final_jerk_p95
+                << " mode_transitions="
+                << scenario.bodylock_continuity_mode_transition_events
+                << " short_body_runs="
+                << scenario.bodylock_continuity_short_body_lock_runs
+                << " authority_overrides="
+                << scenario.bodylock_continuity_authority_loss_override_events
+                << " max_excess_delta="
+                << scenario.bodylock_continuity_max_excess_final_delta
+                << " status="
+                << (scenario.bodylock_continuity_defect ? "FAIL" : "PASS");
+        }
         if (scenario.has_ads_carry_through) {
             std::cout
                 << " carry_ticks=" << scenario.ads_carry_through_ticks
@@ -6050,6 +6491,12 @@ int main(int argc, char** argv) {
             scenarios = run_selector_intent_suite(options.selector_intent_seed);
         } else if (options.suite == "roi_fallback") {
             scenarios = run_roi_fallback_suite(options.roi_fallback_seed);
+        } else if (options.suite == "bodylock_continuity") {
+            runtime_config = controller_native::load_runtime_config(options.config_path);
+            scenarios.push_back(
+                run_bodylock_continuity_defect_100hz(runtime_config.gamepad));
+            scenarios.push_back(
+                run_bodylock_mode_chatter_defect_100hz(runtime_config.gamepad));
         } else {
             runtime_config = controller_native::load_runtime_config(options.config_path);
             if (!options.recoil_state_path.empty()) {
@@ -6134,6 +6581,10 @@ int main(int argc, char** argv) {
                 run_ads_manual_carry_through_100hz(runtime_config.gamepad));
             scenarios.push_back(
                 run_ads_bodylock_near_high_output_100hz(runtime_config.gamepad));
+            scenarios.push_back(
+                run_bodylock_continuity_defect_100hz(runtime_config.gamepad));
+            scenarios.push_back(
+                run_bodylock_mode_chatter_defect_100hz(runtime_config.gamepad));
             scenarios.push_back(
                 run_adversarial_controller_authority_100hz(runtime_config.gamepad));
             scenarios.push_back(run_ads_bodylock_moving_chase_100hz(

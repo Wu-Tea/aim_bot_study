@@ -708,6 +708,7 @@ target_compile_definitions(cod_native_benchmark_metrics_tests
 
 add_executable(cod_native_gamepad_benchmark
     ../controller_native/cod_native_gamepad_benchmark.cpp
+    ../replay_native/replay_metrics.cpp
     ../tracking_native/association.cpp
     ../tracking_native/ego_motion_buffer.cpp
     ../tracking_native/projection_model.cpp

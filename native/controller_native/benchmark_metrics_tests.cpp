@@ -273,6 +273,86 @@ void test_aim_perf_file_logger_writes_controller_components() {
         "aim perf log should mirror tracker projection as a diagnostic flag");
 }
 
+void test_replay_metrics_exposes_bodylock_continuity_defect() {
+    std::vector<replay_native::NativeReplayFrame> frames(24);
+    for (std::size_t index = 0; index < frames.size(); ++index) {
+        replay_native::NativeReplayFrame& frame = frames[index];
+        frame.timing.controller_tick_ms = 1.0;
+        frame.controller.aiming = true;
+        frame.controller.sticks.manual = {0.80f, 0.0f};
+        frame.controller.sticks.assist = {-0.36f, 0.0f};
+        frame.controller.sticks.final_output = {0.44f, 0.0f};
+    }
+
+    replay_native::ReplayMetricOptions options;
+    options.strong_manual_threshold = 0.45;
+    options.manual_gain_plateau_ratio = 0.55;
+    options.manual_gain_plateau_tolerance = 0.01;
+    options.opposing_assist_defect_ms = 16.0;
+    options.manual_gain_plateau_defect_ms = 8.0;
+    const replay_native::ReplayMetricSummary summary =
+        replay_native::summarize_replay_metrics(frames, options);
+
+    require_true(
+        summary.strong_manual_axis_samples == 24,
+        "continuity metrics should count strong manual axis samples");
+    require_true(
+        summary.opposing_assist_axis_samples == 24,
+        "continuity metrics should count assist opposing stable manual input");
+    require_near(
+        static_cast<float>(summary.longest_opposing_assist_run_ms),
+        24.0f,
+        0.001f,
+        "continuity metrics should expose the sustained opposing run");
+    require_true(
+        summary.manual_gain_plateau_axis_samples == 24,
+        "continuity metrics should count the observed 55 percent output plateau");
+    require_near(
+        static_cast<float>(summary.longest_manual_gain_plateau_run_ms),
+        24.0f,
+        0.001f,
+        "continuity metrics should expose the sustained gain plateau");
+    require_true(
+        summary.bodylock_continuity_defect,
+        "the captured bodylock signature should fail the continuity gate");
+}
+
+void test_replay_metrics_exposes_stepwise_assist_as_stutter() {
+    std::vector<replay_native::NativeReplayFrame> frames(20);
+    for (std::size_t index = 0; index < frames.size(); ++index) {
+        replay_native::NativeReplayFrame& frame = frames[index];
+        const float assist = index % 2 == 0 ? 0.0f : -0.36f;
+        frame.timing.controller_tick_ms = 1.0;
+        frame.controller.aiming = true;
+        frame.controller.sticks.manual = {0.80f, 0.0f};
+        frame.controller.sticks.assist = {assist, 0.0f};
+        frame.controller.sticks.final_output = {0.80f + assist, 0.0f};
+    }
+
+    replay_native::ReplayMetricOptions options;
+    options.strong_manual_threshold = 0.45;
+    options.assist_step_threshold = 0.10;
+    options.final_jerk_threshold = 0.15;
+    const replay_native::ReplayMetricSummary summary =
+        replay_native::summarize_replay_metrics(frames, options);
+
+    require_true(
+        summary.assist_step_events == 19,
+        "continuity metrics should count every step in pulsed assist");
+    require_true(
+        summary.final_jerk_events == 18,
+        "continuity metrics should count slope discontinuities in final output");
+    require_true(
+        summary.assist_delta_p95 >= 0.35,
+        "continuity metrics should expose p95 assist steps");
+    require_true(
+        summary.final_jerk_p95 >= 0.70,
+        "continuity metrics should expose p95 final-output jerk");
+    require_true(
+        summary.bodylock_continuity_defect,
+        "stepwise assist over continuous manual input should fail the continuity gate");
+}
+
 void test_perf_loop_fps_uses_measured_elapsed_time() {
     require_near(
         static_cast<float>(runtime_app::loop_fps_from_elapsed_ms(2.0)),
@@ -292,6 +372,8 @@ int main() {
     try {
         test_replay_schema_captures_controller_components();
         test_replay_metrics_summarizes_error_and_fire_violations();
+        test_replay_metrics_exposes_bodylock_continuity_defect();
+        test_replay_metrics_exposes_stepwise_assist_as_stutter();
         test_aim_perf_file_logger_writes_controller_components();
         test_perf_loop_fps_uses_measured_elapsed_time();
     } catch (const std::exception& exc) {
