@@ -1,6 +1,6 @@
 # Agent Session Log Index
 
-Last updated: 2026-07-14T16:52:00+08:00
+Last updated: 2026-07-14T22:20:00+08:00
 Updated by: Codex
 Purpose: quick navigation for project continuity. Full older history is preserved in `session-log-full.md`; detailed recent fusion/canvas notes are archived under `archive/`.
 
@@ -12,6 +12,18 @@ Purpose: quick navigation for project continuity. Full older history is preserve
 4. Open archive files only when deeper detail is needed.
 
 ## Current Active Thread
+
+- 2026-07-14 - I/O/ADS repair completed; user-profile strong-AI trial; small/far-target jitter handed off.
+  - Completed on local dev: d22400b adds SDL reconnect, checked ViGEm recovery, telemetry v4 I/O health, and an ADS current-observed-evidence boundary while preserving bodylock continuity.
+  - Verification: 30/30 native tests passed; pipeline and live-failure benchmark passed; selector, ROI, and bodylock-continuity matched baseline; same-condition Vision p95 was +0.8% and scheduler lateness p99 +2.2%.
+  - Profile: 416999 controller samples, 264696 active-manual samples, magnitude p50/p90/p99 0.306/0.790/1.034, direction preservation 97.53%, and 11339 bodylock samples.
+  - Capability split: above 60px ADS error, manual/AI helpful rates were 63.7%/95.3%; AI was stronger-helpful in 77.8%. At 18-60px the rates were 56.1%/87.0%.
+  - User selected aggressive trial: telemetry disabled; ADS horizontal/vertical 1.10/1.05; opposing-manual suppression 0.40; tracker/bodylock unchanged. Backup: runs/config_backups/config.before-strong-ai-profile-20260714-220245.toml.
+  - Results: standard ADS final error 12.14 -> 8.70px and max overshoot 55.89 -> 44.74px. Tradeoffs: delayed-vision final error 6.95 -> 11.96px, adversarial fight 130 -> 138, near-high 380 -> 421, max final 0.809 -> 1.122.
+  - New user-confirmed problem: over-far/visually small targets still generate AI input; with recoil feedback already stabilizing a low-recoil weapon and a small manual correction, AI can add lateral/upward jitter.
+  - AI-inferred hypothesis: apparent target size/distance/evidence is insufficiently represented in authority. This is not benchmark-proven.
+  - Follow-up: reproduce with a small/far-target plus recoil/manual benchmark; solve at authority while keeping recoil final and independent.
+  - Context updated: handoff.md, session-log.md, and proposed decision DEC-2026-07-14-002-small-far-target-assist-authority.md.
 
 - 2026-07-14 - Live SDL input freeze and tracker-only ADS vertical jump reproduced.
   - Goal: explain repeated complete loss of control until process restart and ADS vertical jumps when the user sees no target.

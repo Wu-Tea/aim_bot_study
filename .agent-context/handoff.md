@@ -1,9 +1,20 @@
 # Agent Handoff
 
-Last updated: 2026-07-14T16:52:00+08:00
+Last updated: 2026-07-14T22:20:00+08:00
 Updated by: Codex
 Active scope: Native C++ COD/FPS gamepad runtime, target selection, ADS/bodylock authority, tracker/controller feel, recoil isolation, native vision performance.
 Staleness: stale after a runtime-entry change, detector/model baseline change, major native controller/selector behavior change, or live evidence that current native feel/perf regressed.
+
+## Next Session Handoff (2026-07-14)
+
+- Start here. The SDL freeze and tracker-only ADS jump are fixed on local dev at d22400b; do not reopen them without new evidence.
+- New user-confirmed live problem: over-far or visually small targets still produce AI stick input. On weapons whose recoil is already mostly cancelled by recoil feedback and a small manual correction, the added AI contribution can cause lateral or upward jitter.
+- Current hypothesis is AI-inferred, not proven: small/far detections receive more ADS authority than their visual evidence supports, and the assist becomes visible when combined with manual input plus final recoil feed-forward.
+- Next action: add a deterministic small/far-target benchmark before changing controller code. Sweep apparent size, error, evidence, ADS state, manual input, and recoil feedback; score AI output, jitter, conflict, stability, and reacquisition.
+- Preserve the boundary: recoil remains final feed-forward and must not consume vision/tracker state. Fix target/assist authority rather than feeding recoil state back into target control.
+- Current aggressive config trial: telemetry disabled; ADS strength_scale=1.10, vertical_strength_scale=1.05, manual_opposition_suppression=0.40. Backup: runs/config_backups/config.before-strong-ai-profile-20260714-220245.toml.
+- Tradeoff: standard ADS final error improved 12.14 -> 8.70px, but adversarial fight rose 130 -> 138, near-high output 380 -> 421, and max final output 0.809 -> 1.122. This is a live A/B trial, not an accepted baseline.
+- Read next: decisions/DEC-2026-07-14-002-small-far-target-assist-authority.md, then the newest 2026-07-14 entry in session-log.md.
 
 ## Current Objective
 
