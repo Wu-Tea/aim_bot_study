@@ -13,6 +13,7 @@ namespace {
 NativeControllerVisionState cleared_target_state(NativeControllerVisionState state) {
     state.selected_observation_id = 0;
     state.selected_track_id = 0;
+    state.current_observed_target_present = false;
     state.has_target = false;
     state.auto_fire_requested = false;
     state.aim_authority = false;
@@ -109,6 +110,7 @@ void TargetSnapshotProvider::submit_vision_state(
     bool suppress_tracker_ingest = false;
     latest_vision_state_ =
         credibility_gated_vision_state(state, ready_time, ads_active, &suppress_tracker_ingest);
+    latest_vision_state_.current_observed_target_present = state.has_target;
     ++latest_vision_sequence_;
     if (!suppress_tracker_ingest) {
         ingest_tracker_observation(state, {}, 0, capture_time, ready_time, now_seconds);
@@ -149,6 +151,7 @@ void TargetSnapshotProvider::submit_vision_snapshot(
         query_time,
         ads_active,
         &suppress_tracker_ingest);
+    latest_vision_state_.current_observed_target_present = snapshot.state.has_target;
     ++latest_vision_sequence_;
 }
 

@@ -884,6 +884,80 @@ void test_controller_accepts_controller_vision_snapshot_without_vision_result() 
     require_true(output.right_x > 0.40f, "no-update controller snapshot must not clear latest target");
 }
 
+void test_controller_ads_drops_tracker_only_vertical_snap_after_processed_miss() {
+    double now = 60.000;
+    controller_native::GamepadRuntimeConfig config;
+    config.ai_aim.max_pixels = 100.0f;
+    config.ai_aim.max_ai_force = 1.0f;
+    config.ai_aim.max_ai_force_y = 1.0f;
+    config.ai_aim.target_max_age_ms = 96.0f;
+    config.ai_aim.target_projection_max_age_ms = 96.0f;
+    config.aim_assist_dynamics.enabled = false;
+    controller_native::NativeGamepadController controller(config, [&now]() { return now; });
+
+    auto observed = [](std::uint64_t frame, std::uint64_t observation, double at) {
+        controller_native::ControllerVisionSnapshot snapshot;
+        snapshot.frame_updated = true;
+        snapshot.selector_identity_protocol = true;
+        snapshot.frame_id = frame;
+        snapshot.capture_time_seconds = at;
+        snapshot.ready_time_seconds = at;
+        snapshot.selected_observation_id = observation;
+        snapshot.state.has_target = true;
+        snapshot.state.aim_authority = true;
+        snapshot.state.fire_authority = true;
+        snapshot.state.dx = 0.0f;
+        snapshot.state.dy = -100.0f;
+        snapshot.state.screen_center_x = 320.0f;
+        snapshot.state.screen_center_y = 256.0f;
+        snapshot.state.target_x = 320.0f;
+        snapshot.state.target_y = 156.0f;
+        snapshot.state.target_tier = "observed_strong";
+        snapshot.state.observed_at_seconds = at;
+        tracking_native::TrackerDetection detection;
+        detection.id = observation;
+        detection.body_box_px = {285.0f, 110.0f, 70.0f, 180.0f};
+        detection.aim_point_px = {320.0f, 156.0f};
+        detection.has_aim_point = true;
+        detection.confidence = 0.95f;
+        detection.target_tier = "observed_strong";
+        snapshot.tracker_detections.push_back(detection);
+        return snapshot;
+    };
+
+    controller.submit_vision_snapshot(observed(600, 6001, now));
+    now += 0.010;
+    controller.submit_vision_snapshot(observed(601, 6011, now));
+    controller.build_output(aiming_physical_state());
+
+    now += 0.010;
+    controller_native::ControllerVisionSnapshot miss;
+    miss.frame_updated = true;
+    miss.selector_identity_protocol = true;
+    miss.frame_id = 602;
+    miss.capture_time_seconds = now;
+    miss.ready_time_seconds = now;
+    miss.state.screen_center_x = 320.0f;
+    miss.state.screen_center_y = 256.0f;
+    controller.submit_vision_snapshot(miss);
+
+    controller_native::PhysicalGamepadState physical = aiming_physical_state();
+    physical.right_y = 0.22f;
+    const controller_native::GamepadOutputState output = controller.build_output(physical);
+    const auto& frame = controller.last_frame_vision_state();
+    require_true(frame.has_target && frame.aim_authority,
+                 "fixture must preserve tracker continuity after the processed miss");
+    require_true(
+        frame.assist_authority_state == pipeline_contract::AssistAuthorityState::Continuity,
+        "fixture must reproduce short_evidence_gap continuity");
+    require_true(!frame.current_observed_target_present,
+                 "processed miss must revoke current observed target presence");
+    require_near(controller.last_output_components().ai_aim_stick.y, 0.0f, 0.001f,
+                 "ADS must not emit vertical AI snap from tracker-only continuity");
+    require_near(output.right_y, physical.right_y, 0.001f,
+                 "tracker-only ADS miss must preserve manual vertical input");
+}
+
 void test_target_tracker_projects_camera_motion_between_vision_frames() {
     controller_native::NativeTargetTrackerConfig config;
     config.reticle_speed_px_per_sec = 1000.0f;
@@ -5298,6 +5372,7 @@ int main() {
         test_no_update_vision_result_preserves_latest_target();
         test_controller_ads_resume_waits_for_fresh_vision();
         test_controller_accepts_controller_vision_snapshot_without_vision_result();
+        test_controller_ads_drops_tracker_only_vertical_snap_after_processed_miss();
         test_target_tracker_projects_camera_motion_between_vision_frames();
         test_legacy_projection_tracker_matches_native_project_output();
         test_legacy_projection_tracker_expires_after_max_age();

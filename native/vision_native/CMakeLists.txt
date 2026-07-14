@@ -238,6 +238,7 @@ add_executable(cod_native_runtime
     ../controller_native/bodylock_lifecycle.cpp
     ../controller_native/native_gamepad_controller.cpp
     ../controller_native/virtual_gamepad.cpp
+    ../controller_native/io_recovery_policy.cpp
     ../controller_native/xinput_reader.cpp
     ../controller_native/sdl_gamepad_reader.cpp
 )
@@ -327,6 +328,76 @@ add_executable(cod_native_controller_tests
     ../controller_native/assist_authority_policy.cpp
     ../controller_native/bodylock_lifecycle.cpp
     ../controller_native/native_gamepad_controller.cpp
+)
+
+add_executable(cod_native_io_recovery_policy_tests
+    ../controller_native/io_recovery_policy_tests.cpp
+    ../controller_native/io_recovery_policy.cpp
+)
+
+add_executable(cod_native_live_failure_benchmark
+    ../controller_native/native_live_failure_benchmark.cpp
+    ../tracking_native/association.cpp
+    ../tracking_native/ego_motion_buffer.cpp
+    ../tracking_native/projection_model.cpp
+    ../tracking_native/tracker_authority.cpp
+    ../tracking_native/kalman_tracker.cpp
+    ../tracking_native/fps_reference_tracker.cpp
+    ../tracking_native/tracker_backend.cpp
+    ../tracking_native/legacy_projection_tracker.cpp
+    ${FPS_TRACKER_PACKAGE_SOURCES}
+    ../controller_native/runtime_config.cpp
+    ../controller_native/ads_state_tracker.cpp
+    ../controller_native/ads_completion_gate.cpp
+    ../controller_native/auto_fire_gate.cpp
+    ../controller_native/target_tracker.cpp
+    ../controller_native/ads_carry_brake_policy.cpp
+    ../controller_native/ai_aim.cpp
+    ../controller_native/body_lock_short_plan_policy.cpp
+    ../controller_native/bodylock_policy.cpp
+    ../controller_native/aim_assist_dynamics.cpp
+    ../controller_native/recoil_profile.cpp
+    ../controller_native/recoil_calibration.cpp
+    ../controller_native/recoil_compensation.cpp
+    ../recoil_native/recoil_compensation.cpp
+    ../recoil_native/recoil_visual_model.cpp
+    ../controller_native/weapon_recognizer.cpp
+    ../controller_native/output_mixer.cpp
+    ../controller_native/output_validation_policy.cpp
+    ../controller_native/controller_pipeline.cpp
+    ../runtime_app/vision_controller_adapter.cpp
+    ../controller_native/target_snapshot_provider.cpp
+    ../controller_native/assist_authority_policy.cpp
+    ../controller_native/bodylock_lifecycle.cpp
+    ../controller_native/native_gamepad_controller.cpp
+    ../controller_native/io_recovery_policy.cpp
+)
+
+target_include_directories(cod_native_live_failure_benchmark PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fps_2d_tracker_package/include
+)
+
+target_compile_definitions(cod_native_live_failure_benchmark
+    PRIVATE
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
+)
+
+target_link_libraries(cod_native_live_failure_benchmark PRIVATE
+    gdi32
+    windowsapp
+)
+
+target_include_directories(cod_native_io_recovery_policy_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
+target_compile_definitions(cod_native_io_recovery_policy_tests
+    PRIVATE
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
 )
 
 target_include_directories(cod_native_controller_tests PRIVATE

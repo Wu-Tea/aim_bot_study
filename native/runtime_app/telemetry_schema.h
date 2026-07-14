@@ -5,7 +5,7 @@
 
 namespace runtime_app {
 
-inline constexpr std::uint16_t kTelemetrySchemaVersion = 3;
+inline constexpr std::uint16_t kTelemetrySchemaVersion = 4;
 
 enum class TelemetryRecordKind : std::uint8_t {
     ManualControllerTick,
@@ -119,6 +119,13 @@ struct TelemetryTimestamps {
 };
 
 struct ControllerSamplePayload {
+    bool physical_connected = false;
+    bool current_observed_target_present = false;
+    bool output_delivered = false;
+    bool output_backend_connected = false;
+    std::uint32_t output_error_code = 0;
+    unsigned int input_reconnect_count = 0;
+    unsigned int output_reconnect_count = 0;
     float physical_x = 0.0f;
     float physical_y = 0.0f;
     float manual_x = 0.0f;

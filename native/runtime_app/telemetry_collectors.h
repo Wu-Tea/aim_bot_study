@@ -14,6 +14,13 @@ struct TelemetryTickInput {
     std::uint64_t output_sent_ns = 0;
     std::uint64_t sample_ns = 0;
     bool aiming = false;
+    bool physical_connected = false;
+    bool current_observed_target_present = false;
+    bool output_delivered = false;
+    bool output_backend_connected = false;
+    std::uint32_t output_error_code = 0;
+    unsigned int input_reconnect_count = 0;
+    unsigned int output_reconnect_count = 0;
     bool aim_authority = false;
     bool fire_authority = false;
     const char* aim_mode = "none";

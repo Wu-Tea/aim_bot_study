@@ -1,6 +1,6 @@
 # Agent Session Log Index
 
-Last updated: 2026-07-14T13:45:00+08:00
+Last updated: 2026-07-14T16:52:00+08:00
 Updated by: Codex
 Purpose: quick navigation for project continuity. Full older history is preserved in `session-log-full.md`; detailed recent fusion/canvas notes are archived under `archive/`.
 
@@ -25,7 +25,13 @@ Purpose: quick navigation for project continuity. Full older history is preserve
   - User-confirmed action: record the findings and begin the repair.
   - AI-inferred item: the external detach trigger is probably USB/Bluetooth/SDL device loss, but the current logs do not record transport events or attachment state.
   - Context files updated: `handoff.md`, this session log, and proposed decision `DEC-2026-07-14-001-live-io-recovery-and-ads-continuity-boundary.md`.
-  - Follow-up: add failing native tests, implement SDL and ViGEm health/recovery, split ADS continuity authority from bodylock continuity, then run full native benchmarks against the accepted baseline.
+  - Implemented: SDL attachment detection and bounded original-device reconnect; ViGEm checked delivery and bounded reconnect/retry; telemetry schema v4 I/O health; ADS current-production-evidence gate with bodylock continuity preserved.
+  - Added benchmark: `cod_native_live_failure_benchmark` and artifact `runs/native_perf/native_live_failure_benchmark_20260714.json`; observed ADS assist remains active on evidence (`0.546667`) and becomes exactly zero for 50 tracker-only continuity frames while manual error remains zero.
+  - Verification: 30 native test executables pass, native pipeline contract passes, gamepad/AimLab/selector/ROI/bodylock/telemetry/color/vision/scheduler benchmarks completed, and five-tick live runtime smoke passes with actual ViGEm initialization.
+  - Baseline comparison: full gamepad key metrics unchanged; selector/ROI/bodylock scenario payloads identical; three-run same-condition vision and scheduler A/B stay within relative non-regression limits.
+  - Known unrelated test debt: `tests/test_native_cpp_runtime_scaffold.py` has the same 8 stale source-text failures on clean `dev`; no regression was introduced.
+  - Execution note: use the verified absolute tools `C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe` and `D:\env\python\python.exe`; bare `cmake` and `D:\env\python.exe` are invalid in the current PowerShell environment.
+  - Follow-up: integrate the verified branch into local `dev`, rebuild the dev Release runtime, and retain live telemetry for a real physical SDL detach/reconnect confirmation when a controller is available.
 
 - 2026-07-07 - Proposed vision red-team stability decision before optimization.
   - User reframed native vision work as a vulnerability-finding effort: first prove where the vision module fails to provide stable compute or timely results, then optimize based on evidence.

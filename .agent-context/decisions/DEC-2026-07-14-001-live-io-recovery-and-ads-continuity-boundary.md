@@ -1,8 +1,8 @@
 # DEC-2026-07-14-001: Live I/O Recovery and ADS Continuity Boundary
 
-Status: proposed
+Status: accepted
 Date: 2026-07-14
-Confirmed by: user requested that the reproduced findings be recorded and repaired
+Confirmed by: user approved the recorded design and requested implementation
 Related sessions: 2026-07-14 live native runtime telemetry investigation
 Related files:
 - `.agent-context/handoff.md`

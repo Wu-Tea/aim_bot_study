@@ -28,6 +28,8 @@ public:
     SdlGamepadReader& operator=(const SdlGamepadReader&) = delete;
 
     bool available() const;
+    bool attached() const;
+    bool reconnect();
     int device_index() const;
     const std::string& device_name() const;
     PhysicalGamepadState read();
@@ -40,6 +42,8 @@ private:
     std::unique_ptr<Backend> backend_;
     int device_index_ = -1;
     std::string device_name_;
+    int expected_axes_ = 0;
+    int expected_buttons_ = 0;
     bool trigger_initialized_ = false;
 };
 

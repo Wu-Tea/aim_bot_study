@@ -223,10 +223,14 @@ void test_provider_continuity_keeps_real_observation_time_and_no_fire() {
         true);
 
     const auto observed_frame = provider.vision_state_for_frame(40.010, true);
+    require_true(observed_frame.current_observed_target_present,
+                 "observed controller frame must retain production target presence");
     require_true(observed_frame.fire_authority,
                  "the current consumed controller frame may retain observed-only fire");
 
     const auto between_frames = provider.vision_state_for_frame(40.011, true);
+    require_true(between_frames.current_observed_target_present,
+                 "repeated controller ticks may reuse the current production target frame");
     require_true(between_frames.aim_authority,
                  "same-track time between vision frames should retain continuity aim");
     require_true(!between_frames.fire_authority,
@@ -248,6 +252,8 @@ void test_provider_continuity_keeps_real_observation_time_and_no_fire() {
 
     const auto state = provider.vision_state_for_frame(40.020, true);
     require_true(state.has_target, "short same-track gap should retain a continuity target");
+    require_true(!state.current_observed_target_present,
+                 "a processed no-target frame must distinguish tracker-only continuity");
     require_true(state.aim_authority, "short same-track gap should receive coast authority");
     require_true(!state.fire_authority, "continuity must revoke fire authority");
     require_near(

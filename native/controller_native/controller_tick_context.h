@@ -26,6 +26,7 @@ struct NativeControllerVisionState {
         pipeline_contract::AssistAuthorityReason::None;
     bool authority_decision_valid = false;
     bool fresh_observation = false;
+    bool current_observed_target_present = false;
     bool has_target = false;
     bool auto_fire_requested = false;
     float dx = 0.0f;

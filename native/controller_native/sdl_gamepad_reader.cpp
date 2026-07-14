@@ -1,4 +1,5 @@
 #include "sdl_gamepad_reader.h"
+#include "io_recovery_policy.h"
 
 #include <Windows.h>
 
@@ -99,6 +100,7 @@ struct SdlApi {
     using SdlJoystickOpen = void* (*)(int);
     using SdlJoystickClose = void (*)(void*);
     using SdlJoystickUpdate = void (*)();
+    using SdlJoystickGetAttached = int (*)(void*);
     using SdlJoystickNumAxes = int (*)(void*);
     using SdlJoystickGetAxis = std::int16_t (*)(void*, int);
     using SdlJoystickNumButtons = int (*)(void*);
@@ -116,6 +118,7 @@ struct SdlApi {
     SdlJoystickOpen joystick_open = nullptr;
     SdlJoystickClose joystick_close = nullptr;
     SdlJoystickUpdate joystick_update = nullptr;
+    SdlJoystickGetAttached joystick_get_attached = nullptr;
     SdlJoystickNumAxes joystick_num_axes = nullptr;
     SdlJoystickGetAxis joystick_get_axis = nullptr;
     SdlJoystickNumButtons joystick_num_buttons = nullptr;
@@ -149,6 +152,7 @@ struct SdlApi {
         ok = load_proc(library, "SDL_JoystickOpen", joystick_open) && ok;
         ok = load_proc(library, "SDL_JoystickClose", joystick_close) && ok;
         ok = load_proc(library, "SDL_JoystickUpdate", joystick_update) && ok;
+        ok = load_proc(library, "SDL_JoystickGetAttached", joystick_get_attached) && ok;
         ok = load_proc(library, "SDL_JoystickNumAxes", joystick_num_axes) && ok;
         ok = load_proc(library, "SDL_JoystickGetAxis", joystick_get_axis) && ok;
         ok = load_proc(library, "SDL_JoystickNumButtons", joystick_num_buttons) && ok;
@@ -207,6 +211,7 @@ struct SdlGamepadReader::Backend {
     }
 
     bool open(int device_index) {
+        close();
         joystick = api.joystick_open(device_index);
         if (joystick == nullptr) {
             return false;
@@ -215,6 +220,21 @@ struct SdlGamepadReader::Backend {
         buttons = std::max(0, api.joystick_num_buttons(joystick));
         hats = std::max(0, api.joystick_num_hats(joystick));
         return true;
+    }
+
+    void close() {
+        if (joystick != nullptr && api.joystick_close != nullptr) {
+            api.joystick_close(joystick);
+        }
+        joystick = nullptr;
+        axes = 0;
+        buttons = 0;
+        hats = 0;
+    }
+
+    bool attached() const {
+        return joystick != nullptr && api.joystick_get_attached != nullptr &&
+            api.joystick_get_attached(joystick) != 0;
     }
 
     float axis_or(int index, float fallback) const {
@@ -265,12 +285,50 @@ SdlGamepadReader::SdlGamepadReader(int device_index)
     }
     device_index_ = device_index;
     device_name_ = safe_name(backend_->api.joystick_name_for_index(device_index));
+    expected_axes_ = backend_->axes;
+    expected_buttons_ = backend_->buttons;
 }
 
 SdlGamepadReader::~SdlGamepadReader() = default;
 
 bool SdlGamepadReader::available() const {
     return backend_ != nullptr && backend_->joystick != nullptr;
+}
+
+bool SdlGamepadReader::attached() const {
+    return available() && backend_->attached();
+}
+
+bool SdlGamepadReader::reconnect() {
+    if (backend_ == nullptr) {
+        return false;
+    }
+    backend_->api.joystick_update();
+    backend_->close();
+    std::vector<SdlJoystickDevice> devices;
+    const int count = std::max(0, backend_->api.num_joysticks());
+    devices.reserve(static_cast<std::size_t>(count));
+    for (int index = 0; index < count; ++index) {
+        SdlJoystickDevice device;
+        device.device_index = index;
+        device.name = safe_name(backend_->api.joystick_name_for_index(index));
+        if (void* candidate = backend_->api.joystick_open(index)) {
+            device.opened = true;
+            device.axes = std::max(0, backend_->api.joystick_num_axes(candidate));
+            device.buttons = std::max(0, backend_->api.joystick_num_buttons(candidate));
+            device.hats = std::max(0, backend_->api.joystick_num_hats(candidate));
+            backend_->api.joystick_close(candidate);
+        }
+        devices.push_back(std::move(device));
+    }
+    const int selected = select_sdl_reconnect_device(
+        devices, device_name_, expected_axes_, expected_buttons_);
+    if (selected < 0 || !backend_->open(selected)) {
+        return false;
+    }
+    device_index_ = selected;
+    trigger_initialized_ = false;
+    return true;
 }
 
 int SdlGamepadReader::device_index() const {
@@ -288,6 +346,9 @@ PhysicalGamepadState SdlGamepadReader::read() {
     }
 
     backend_->api.joystick_update();
+    if (!backend_->attached()) {
+        return state;
+    }
     state.connected = true;
     state.left_x = backend_->axis_or(0, 0.0f);
     state.left_y = -backend_->axis_or(1, 0.0f);

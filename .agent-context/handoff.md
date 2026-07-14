@@ -1,6 +1,6 @@
 # Agent Handoff
 
-Last updated: 2026-07-14T13:45:00+08:00
+Last updated: 2026-07-14T16:52:00+08:00
 Updated by: Codex
 Active scope: Native C++ COD/FPS gamepad runtime, target selection, ADS/bodylock authority, tracker/controller feel, recoil isolation, native vision performance.
 Staleness: stale after a runtime-entry change, detector/model baseline change, major native controller/selector behavior change, or live evidence that current native feel/perf regressed.
@@ -22,7 +22,21 @@ The main architecture direction is now authority management: make vision provide
 - Four same-day telemetry sessions contain tracker-only ADS vertical output with no production vision target. Every material case is `assist_authority=continuity`, `assist_authority_reason=short_evidence_gap`; the largest observed `ai_y` is `-1.06677` / `+1.03637` with track age up to about `95.6ms`.
 - Root policy issue: ADS and bodylock currently share the same full-scale `AimCoast` continuity decision. ADS must fail closed or stay tightly bounded without current observed evidence, while bodylock retains its separately benchmarked short-occlusion continuity.
 - AI-inferred external trigger: a USB/Bluetooth/SDL detach likely causes the stale SDL handle. The logs prove the frozen handle behavior but do not identify the underlying transport event.
-- Proposed decision: `.agent-context/decisions/DEC-2026-07-14-001-live-io-recovery-and-ads-continuity-boundary.md`.
+- Accepted decision: `.agent-context/decisions/DEC-2026-07-14-001-live-io-recovery-and-ads-continuity-boundary.md`.
+
+## Immediate Live Blockers Resolution (2026-07-14)
+
+- SDL now loads `SDL_JoystickGetAttached`; a detached handle returns a neutral disconnected state instead of replaying frozen axes. The runtime retries the original device name/control shape every 500 ms and never falls back to an arbitrary SDL device while recovering.
+- ViGEm report return codes are checked. Failed delivery clears `output_sent_ns`, performs bounded backend recovery, retries the current report, and exposes delivery/error/reconnect health.
+- Telemetry schema v4 records `physical_connected`, `current_observed_target_present`, `output_delivered`, output backend/error state, and input/output reconnect counts.
+- ADS strong control now additionally requires the latest processed production frame to contain a target. A processed no-target frame keeps tracker identity/position continuity but emits no ADS AI output; bodylock/tracker projection ages are unchanged.
+- New deterministic artifact: `runs/native_perf/native_live_failure_benchmark_20260714.json` (`observed_ai_y=0.546667`, 50 tracker-continuity frames, tracker-only AI Y peak `0`, manual Y error peak `0`, reconnect selection pass).
+- Full gamepad artifact: `runs/native_perf/native_gamepad_benchmark_live_io_ads_continuity_recovery_20260714.json`. All compared key metrics equal the accepted ADS predictive-brake postedge baseline.
+- Selector intent, ROI fallback, and bodylock continuity scenario payloads are byte-equivalent after JSON normalization to their postedge baseline payloads.
+- Native verification: 30/30 `*tests.exe` passed; pipeline contract exited 0; runtime five-tick live smoke initialized current model, ViGEm output, vision service, and shutdown successfully.
+- Vision same-condition three-run A/B: candidate GPU p95 median `15.480 ms`, old binary `15.356 ms` (+0.8%); current machine was much slower than the historical 2.16 ms run for both binaries, so historical-vs-current timing is not a valid code comparison.
+- Scheduler same-condition three-run medians: candidate `999.214 Hz`, old binary `999.378 Hz`; p99 candidate `762.9 us`, old `746.4 us` (+2.2%). Both current runs show more OS jitter than the historical artifact, while the candidate stays within the relative 5% non-regression boundary.
+- Python native scaffold has 8 pre-existing stale text-assertion failures on both clean `dev` and this branch; the other selected Python tests pass. Do not restore removed synchronous hot-loop behavior to satisfy those stale assertions.
 
 ## Current State
 

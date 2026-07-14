@@ -1,6 +1,7 @@
 #pragma once
 
 #include "controller_native/native_gamepad_controller.h"
+#include "controller_native/io_recovery_policy.h"
 #include "controller_native/runtime_config.h"
 #include "controller_native/sdl_gamepad_reader.h"
 #include "controller_native/virtual_gamepad.h"
@@ -49,6 +50,9 @@ private:
     bool perf_log_ = false;
     bool gamepad_perf_log_ = false;
     std::unique_ptr<controller_native::SdlGamepadReader> sdl_input_reader_;
+    controller_native::IoReconnectThrottle sdl_reconnect_throttle_{
+        std::chrono::milliseconds(500)};
+    unsigned int sdl_reconnect_count_ = 0;
     controller_native::XInputReader input_reader_;
     controller_native::NativeGamepadController controller_;
     controller_native::AimActivationTracker aim_activation_tracker_;

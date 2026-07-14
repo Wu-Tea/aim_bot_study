@@ -408,7 +408,9 @@ bool NativeGamepadController::ads_snap_active_for_frame(
     double now_seconds) {
     AdsCompletionGateInput input;
     input.aiming = aiming && config_.ai_aim.ads_snap_window_ms > 0;
-    input.has_target_authority = has_fresh_aim_target(vision_state, now_seconds);
+    input.has_target_authority =
+        vision_state.current_observed_target_present &&
+        has_fresh_aim_target(vision_state, now_seconds);
     input.has_strong_target = input.has_target_authority && is_strong_aim_target(vision_state);
     input.fresh_observation = vision_state.fresh_observation;
     input.vision_sequence = vision_state.vision_sequence;
@@ -496,7 +498,8 @@ void NativeGamepadController::apply_ai_aim(
     NativeAiAimInput input;
     input.aiming = is_aiming(physical);
     input.has_target = vision_state.has_target;
-    input.aim_authority = vision_state.aim_authority;
+    input.aim_authority = vision_state.aim_authority &&
+        (!input.aiming || vision_state.current_observed_target_present);
     input.ads_snap_active = ads_snap_active_for_frame(
         vision_state,
         input.aiming,

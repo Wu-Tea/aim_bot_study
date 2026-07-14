@@ -127,6 +127,14 @@ void TelemetryCollectors::observe_tick(const TelemetryTickInput& input) noexcept
         sample.timestamps.controller_consume_ns = input.controller_consume_ns;
         sample.timestamps.output_sent_ns = input.output_sent_ns;
         sample.timestamps.sample_ns = input.sample_ns;
+        sample.controller.physical_connected = input.physical_connected;
+        sample.controller.current_observed_target_present =
+            input.current_observed_target_present;
+        sample.controller.output_delivered = input.output_delivered;
+        sample.controller.output_backend_connected = input.output_backend_connected;
+        sample.controller.output_error_code = input.output_error_code;
+        sample.controller.input_reconnect_count = input.input_reconnect_count;
+        sample.controller.output_reconnect_count = input.output_reconnect_count;
         sample.controller.physical_x = input.physical_x;
         sample.controller.physical_y = input.physical_y;
         sample.controller.manual_x = input.manual_x;

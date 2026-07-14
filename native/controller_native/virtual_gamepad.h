@@ -1,5 +1,9 @@
 #pragma once
 
+#include "io_recovery_policy.h"
+
+#include <chrono>
+#include <cstdint>
 #include <memory>
 
 namespace controller_native {
@@ -28,6 +32,14 @@ struct GamepadOutputState {
     bool dpad_right = false;
 };
 
+struct VirtualGamepadUpdateResult {
+    bool delivered = false;
+    bool backend_connected = false;
+    bool reconnect_attempted = false;
+    std::uint32_t error_code = 0;
+    unsigned int reconnect_count = 0;
+};
+
 class VirtualGamepad {
 public:
     struct ViGEmBackend;
@@ -39,12 +51,15 @@ public:
     VirtualGamepad& operator=(const VirtualGamepad&) = delete;
 
     bool is_connected() const;
-    void update(const GamepadOutputState& state);
+    VirtualGamepadUpdateResult update(const GamepadOutputState& state);
 
 private:
     bool connected_ = false;
     bool logging_backend_ = false;
     std::unique_ptr<ViGEmBackend> vigem_;
+    IoReconnectThrottle reconnect_throttle_{std::chrono::milliseconds(500)};
+    unsigned int reconnect_count_ = 0;
+    std::uint32_t last_error_code_ = 0;
 };
 
 }  // namespace controller_native

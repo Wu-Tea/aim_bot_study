@@ -303,7 +303,18 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
             << ",\"tracker_backend\":\"" << record.session_metadata.tracker_backend.data() << '\"';
         break;
     case TelemetryRecordType::ControllerSample:
-        output_ << ",\"physical_x\":" << record.controller.physical_x
+        output_ << ",\"physical_connected\":"
+            << (record.controller.physical_connected ? "true" : "false")
+            << ",\"current_observed_target_present\":"
+            << (record.controller.current_observed_target_present ? "true" : "false")
+            << ",\"output_delivered\":"
+            << (record.controller.output_delivered ? "true" : "false")
+            << ",\"output_backend_connected\":"
+            << (record.controller.output_backend_connected ? "true" : "false")
+            << ",\"output_error_code\":" << record.controller.output_error_code
+            << ",\"input_reconnect_count\":" << record.controller.input_reconnect_count
+            << ",\"output_reconnect_count\":" << record.controller.output_reconnect_count
+            << ",\"physical_x\":" << record.controller.physical_x
             << ",\"physical_y\":" << record.controller.physical_y
             << ",\"manual_x\":" << serialized_manual_x << ",\"manual_y\":" << serialized_manual_y
             << ",\"ai_x\":" << serialized_ai_x << ",\"ai_y\":" << serialized_ai_y

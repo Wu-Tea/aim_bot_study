@@ -514,7 +514,9 @@ int RuntimeLoop::run() {
     }
     telemetry_collectors_.shutdown(steady_time_point_ns(std::chrono::steady_clock::now()));
     telemetry_.stop();
-    if (config_.output.enabled) virtual_gamepad_.update(GamepadOutputState{});
+    if (config_.output.enabled) {
+        virtual_gamepad_.update(GamepadOutputState{});
+    }
     return 0;
 }
 
@@ -642,7 +644,17 @@ void RuntimeLoop::run_once() {
         has_latest_vision_result_ ? &latest_vision_result_ : nullptr,
         is_aiming(physical));
     const auto vigem_update_started = std::chrono::steady_clock::now();
-    if (config_.output.enabled) virtual_gamepad_.update(output);
+    controller_native::VirtualGamepadUpdateResult output_result;
+    if (config_.output.enabled) {
+        output_result = virtual_gamepad_.update(output);
+        if (output_result.reconnect_attempted && output_result.delivered) {
+            std::cout << "[NativeRuntime][Output] ViGEm recovered"
+                      << " reconnect_count=" << output_result.reconnect_count << '\n';
+        } else if (output_result.reconnect_attempted && !output_result.delivered) {
+            std::cerr << "[NativeRuntime][Output] ViGEm recovery pending"
+                      << " error=0x" << std::hex << output_result.error_code << std::dec << '\n';
+        }
+    }
     const auto vigem_update_finished = std::chrono::steady_clock::now();
     ++tick_count_;
     const auto& telemetry_components = controller_.last_output_components();
@@ -650,10 +662,22 @@ void RuntimeLoop::run_once() {
     telemetry_tick.tick_id = tick_count_;
     telemetry_tick.physical_read_ns = physical_read_at_ns;
     telemetry_tick.controller_consume_ns = latest_controller_consume_started_ns_;
-    telemetry_tick.output_sent_ns = steady_time_point_ns(vigem_update_finished);
-    telemetry_tick.sample_ns = telemetry_tick.output_sent_ns;
+    telemetry_tick.output_sent_ns =
+        !config_.output.enabled || output_result.delivered
+            ? steady_time_point_ns(vigem_update_finished)
+            : 0;
+    telemetry_tick.sample_ns = steady_time_point_ns(vigem_update_finished);
     telemetry_tick.aiming = aiming;
     const auto& telemetry_vision_state = controller_.last_frame_vision_state();
+    telemetry_tick.physical_connected = physical.connected;
+    telemetry_tick.current_observed_target_present =
+        telemetry_vision_state.current_observed_target_present;
+    telemetry_tick.output_delivered = !config_.output.enabled || output_result.delivered;
+    telemetry_tick.output_backend_connected =
+        !config_.output.enabled || output_result.backend_connected;
+    telemetry_tick.output_error_code = output_result.error_code;
+    telemetry_tick.input_reconnect_count = sdl_reconnect_count_;
+    telemetry_tick.output_reconnect_count = output_result.reconnect_count;
     telemetry_tick.aim_authority = telemetry_vision_state.aim_authority;
     telemetry_tick.fire_authority = telemetry_vision_state.fire_authority;
     telemetry_tick.aim_mode = controller_.last_ai_aim_mode().c_str();
@@ -765,8 +789,34 @@ void RuntimeLoop::run_once() {
 }
 
 controller_native::PhysicalGamepadState RuntimeLoop::read_physical_gamepad() {
-    if (sdl_input_reader_ != nullptr && sdl_input_reader_->available()) {
-        return sdl_input_reader_->read();
+    if (sdl_input_reader_ != nullptr) {
+        controller_native::PhysicalGamepadState state = sdl_input_reader_->read();
+        if (state.connected) {
+            sdl_reconnect_throttle_.record_success();
+            return state;
+        }
+
+        const auto now = std::chrono::steady_clock::now();
+        if (sdl_reconnect_throttle_.should_attempt(now)) {
+            if (sdl_input_reader_->reconnect()) {
+                ++sdl_reconnect_count_;
+                sdl_reconnect_throttle_.record_success();
+                std::cout << "[NativeRuntime][Input] SDL physical gamepad recovered"
+                          << " index=" << sdl_input_reader_->device_index()
+                          << " name=\"" << sdl_input_reader_->device_name() << "\""
+                          << " reconnect_count=" << sdl_reconnect_count_ << '\n';
+                return sdl_input_reader_->read();
+            }
+            sdl_reconnect_throttle_.record_failure(now);
+            const unsigned int failures = sdl_reconnect_throttle_.failure_count();
+            if (failures == 1 || failures % 10 == 0) {
+                std::cerr << "[NativeRuntime][Input] SDL physical gamepad detached;"
+                          << " waiting for the original device"
+                          << " name=\"" << sdl_input_reader_->device_name() << "\""
+                          << " attempts=" << failures << '\n';
+            }
+        }
+        return state;
     }
     return input_reader_.read();
 }

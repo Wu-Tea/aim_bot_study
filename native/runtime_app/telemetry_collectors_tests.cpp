@@ -44,6 +44,12 @@ runtime_app::TelemetryTickInput tick(std::uint64_t seq, bool aiming) {
     value.sample_ns = seq * 4'000'000;
     value.output_sent_ns = value.sample_ns;
     value.aiming = aiming;
+    value.physical_connected = true;
+    value.current_observed_target_present = true;
+    value.output_delivered = true;
+    value.output_backend_connected = true;
+    value.input_reconnect_count = 2;
+    value.output_reconnect_count = 1;
     value.left_trigger = aiming ? 1.0f : 0.0f;
     value.physical_x = 0.2f;
     value.manual_x = 0.18f;
@@ -124,6 +130,10 @@ void test_enabled_collectors_write_profile_and_ads_evidence() {
     REQUIRE(json.find("\"session_id\":\"") != std::string::npos);
     REQUIRE(json.find("\"type\":\"controller_sample\"") != std::string::npos);
     REQUIRE(json.find("\"physical_x\":0.2") != std::string::npos);
+    REQUIRE(json.find("\"physical_connected\":true") != std::string::npos);
+    REQUIRE(json.find("\"current_observed_target_present\":true") != std::string::npos);
+    REQUIRE(json.find("\"output_delivered\":true") != std::string::npos);
+    REQUIRE(json.find("\"input_reconnect_count\":2") != std::string::npos);
     REQUIRE(json.find("\"type\":\"target_event\"") != std::string::npos);
     REQUIRE(json.find("\"target_track_id\":1") != std::string::npos);
     REQUIRE(json.find("\"type\":\"ads_transition\"") != std::string::npos);
