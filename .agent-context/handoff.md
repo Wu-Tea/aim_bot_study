@@ -1,15 +1,28 @@
 # Agent Handoff
 
-Last updated: 2026-07-07T09:28:24+08:00
+Last updated: 2026-07-14T13:45:00+08:00
 Updated by: Codex
 Active scope: Native C++ COD/FPS gamepad runtime, target selection, ADS/bodylock authority, tracker/controller feel, recoil isolation, native vision performance.
 Staleness: stale after a runtime-entry change, detector/model baseline change, major native controller/selector behavior change, or live evidence that current native feel/perf regressed.
 
 ## Current Objective
 
-Fix live wrong-target lock, ADS overshoot, bodylock jitter, and over-assist authority issues in the native C++ runtime while preserving the current usable controller feel baseline.
+Fix two reproduced live blockers in the native C++ runtime while preserving the accepted tracker/bodylock and ADS predictive-brake benchmark baseline:
+
+1. SDL physical input freezes after a 0.53-0.77 second runtime stall and never recovers until restart.
+2. ADS continues full-strength vertical snap during tracker-only `short_evidence_gap` continuity after production vision has lost the target.
 
 The main architecture direction is now authority management: make vision provide candidates/evidence, make user input inform target selection and assist permission, keep tracker memory as continuity rather than truth, and separate ADS/bodylock control policies before further strength tuning.
+
+## Immediate Live Blockers (2026-07-14)
+
+- Four same-day telemetry sessions reproduce the input failure: after a `531-775ms` controller-sample gap, physical inputs never change again for the remaining `6.5s`, `50.8s`, `15.2s`, and `17.3s` of each session.
+- The runtime prefers SDL input. `SdlGamepadReader::available()` only checks for a non-null handle, `read()` unconditionally reports `connected=true`, and the reader never checks `SDL_JoystickGetAttached` or reopens a detached device.
+- ViGEm output health is also unobservable: `vigem_target_x360_update()` return codes are ignored and `output_sent_ns` means only that the call returned, not that the virtual device accepted the report.
+- Four same-day telemetry sessions contain tracker-only ADS vertical output with no production vision target. Every material case is `assist_authority=continuity`, `assist_authority_reason=short_evidence_gap`; the largest observed `ai_y` is `-1.06677` / `+1.03637` with track age up to about `95.6ms`.
+- Root policy issue: ADS and bodylock currently share the same full-scale `AimCoast` continuity decision. ADS must fail closed or stay tightly bounded without current observed evidence, while bodylock retains its separately benchmarked short-occlusion continuity.
+- AI-inferred external trigger: a USB/Bluetooth/SDL detach likely causes the stale SDL handle. The logs prove the frozen handle behavior but do not identify the underlying transport event.
+- Proposed decision: `.agent-context/decisions/DEC-2026-07-14-001-live-io-recovery-and-ads-continuity-boundary.md`.
 
 ## Current State
 

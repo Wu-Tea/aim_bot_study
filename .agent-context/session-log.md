@@ -1,6 +1,6 @@
 # Agent Session Log Index
 
-Last updated: 2026-07-07T20:45:00+08:00
+Last updated: 2026-07-14T13:45:00+08:00
 Updated by: Codex
 Purpose: quick navigation for project continuity. Full older history is preserved in `session-log-full.md`; detailed recent fusion/canvas notes are archived under `archive/`.
 
@@ -12,6 +12,20 @@ Purpose: quick navigation for project continuity. Full older history is preserve
 4. Open archive files only when deeper detail is needed.
 
 ## Current Active Thread
+
+- 2026-07-14 - Live SDL input freeze and tracker-only ADS vertical jump reproduced.
+  - Goal: explain repeated complete loss of control until process restart and ADS vertical jumps when the user sees no target.
+  - Evidence: inspected all four same-day live telemetry files produced between 11:34 and 12:03.
+  - Input failure pattern: each session contains a `531-775ms` sampling/runtime stall followed by zero physical-input changes until termination; frozen tails last `6.5s`, `50.8s`, `15.2s`, and `17.3s`.
+  - Code trace: native runtime prefers SDL; `SdlGamepadReader` does not load/check `SDL_JoystickGetAttached`, unconditionally reports connected after `SDL_JoystickUpdate`, and has no reopen path. Restart works because it creates a new SDL handle.
+  - Output-health gap: `VirtualGamepad::update` ignores `vigem_target_x360_update` return codes, so telemetry cannot distinguish successful output from a rejected ViGEm update.
+  - ADS vertical-jump evidence: material no-production-target ADS Y episodes number `50`, `83`, `10`, and `3` across the four sessions; every frame is tracker `continuity` with reason `short_evidence_gap`.
+  - Peak tracker-only ADS Y output: `-1.06677` and `+1.03637`; observation age reaches about `95.6ms`, matching the configured/default `96ms` projection window.
+  - Component attribution: peak frames have zero dynamic adjustment, ADS brake, carry brake, and recoil. The source is full-scale ADS assist retained by tracker continuity.
+  - User-confirmed action: record the findings and begin the repair.
+  - AI-inferred item: the external detach trigger is probably USB/Bluetooth/SDL device loss, but the current logs do not record transport events or attachment state.
+  - Context files updated: `handoff.md`, this session log, and proposed decision `DEC-2026-07-14-001-live-io-recovery-and-ads-continuity-boundary.md`.
+  - Follow-up: add failing native tests, implement SDL and ViGEm health/recovery, split ADS continuity authority from bodylock continuity, then run full native benchmarks against the accepted baseline.
 
 - 2026-07-07 - Proposed vision red-team stability decision before optimization.
   - User reframed native vision work as a vulnerability-finding effort: first prove where the vision module fails to provide stable compute or timely results, then optimize based on evidence.
