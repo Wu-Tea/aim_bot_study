@@ -33,6 +33,44 @@ struct IntentInvarianceMetrics {
     bool desired_gate_pass = true;
 };
 
+struct FrequencyRunMetrics {
+    int vision_hz = 0;
+    int delivered_vision_sequences = 0;
+    int fresh_sequences_consumed = 0;
+    double baseline_fast_mean_error_px = 0.0;
+    double fast_mean_error_px = 0.0;
+    double baseline_fast_p95_error_px = 0.0;
+    double fast_p95_error_px = 0.0;
+    double fast_mean_improvement_ratio = 0.0;
+    double fast_p95_improvement_ratio = 0.0;
+    double same_direction_regression_ratio = 0.0;
+    double max_lifecycle_ai_delta = 0.0;
+    double max_relative_lead_px = 0.0;
+    double max_strafe_gain = 0.0;
+    int warm_relative_motion_frames = 0;
+    int rejected_relative_motion_frames = 0;
+    int large_sign_flip_count = 0;
+    bool primary_rate = false;
+    bool desired_gate_pass = false;
+};
+
+struct PrimaryFrequencyMetrics {
+    double fast_mean_improvement_ratio = 0.0;
+    double fast_p95_improvement_ratio = 0.0;
+    double same_direction_regression_ratio = 0.0;
+    double max_lifecycle_ai_delta = 0.0;
+    int large_sign_flip_count = 0;
+    bool desired_gate_pass = false;
+};
+
+struct AdsHandoffMetrics {
+    double stationary_transition_overshoot_px = 0.0;
+    double moving_transition_overshoot_px = 0.0;
+    double max_transition_overshoot_px = 0.0;
+    double max_transition_ai_delta = 0.0;
+    bool desired_gate_pass = false;
+};
+
 struct ScenarioMetrics {
     std::string name;
     std::string mobility;
@@ -95,9 +133,15 @@ struct ProductionChainMetrics {
     double max_abs_manual_right = 0.0;
     double max_continuous_drift_only_ms = 0.0;
     double reacquire_latency_ms = -1.0;
+    double reacquire_useful_latency_ms = -1.0;
+    double reacquire_max_output_delta = 0.0;
     double pre_loss_error_px = 0.0;
     double post_reacquire_error_px = 0.0;
     bool behavior_populated = false;
+    bool short_gap_coast_pass = false;
+    bool long_loss_release_pass = false;
+    bool reacquire_bumpless_pass = false;
+    bool no_blind_candidate_follow_pass = false;
     bool defect_reproduced = false;
     bool desired_gate_pass = true;
     std::vector<std::string> defect_reasons;
@@ -105,15 +149,18 @@ struct ProductionChainMetrics {
 };
 
 struct BenchmarkReport {
-    int schema_version = 2;
-    int controller_hz = 100;
-    int vision_hz = 50;
+    int schema_version = 3;
+    int controller_hz = 1000;
+    int vision_hz = 100;
     int vision_delay_ms = 30;
-    int ticks_per_scenario = 360;
-    int evaluation_start_tick = 70;
+    int ticks_per_scenario = 3600;
+    int evaluation_start_tick = 700;
     IntentInvarianceMetrics intent_invariance;
+    std::vector<FrequencyRunMetrics> frequency_runs;
+    PrimaryFrequencyMetrics primary;
     std::vector<ScenarioMetrics> scenarios;
     ProductionChainMetrics production_chain;
+    AdsHandoffMetrics ads_handoff;
     int defect_count = 0;
     bool desired_gate_pass = true;
 };

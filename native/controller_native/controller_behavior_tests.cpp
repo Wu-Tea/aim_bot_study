@@ -2529,6 +2529,41 @@ void test_body_lock_gain_uses_camera_attributed_tracker_velocity() {
         "projected lead must use the camera-attributed relative velocity");
 }
 
+void test_body_lock_lead_projects_fresh_observation_latency() {
+    controller_native::GamepadAiAimConfig config;
+    config.body_lock_activation_box_px = 180.0f;
+    config.body_lock_lead_seconds = 0.026f;
+    config.body_lock_lead_max_px = 40.0f;
+    controller_native::BodyLockMotionPolicy motion(config);
+
+    controller_native::BodyLockMotionObservation observation;
+    observation.strong_observation = true;
+    observation.has_body_box = true;
+    observation.body_x1 = 280.0f;
+    observation.body_x2 = 360.0f;
+    observation.body_y1 = 180.0f;
+    observation.body_y2 = 340.0f;
+    observation.selected_track_id = 77;
+    observation.fresh_observation = true;
+    observation.has_camera_attributed_velocity = true;
+    observation.camera_attributed_velocity_x_px_per_sec = -160.0f;
+
+    observation.vision_sequence = 1;
+    observation.observed_at_seconds = 30.000;
+    observation.now_seconds = 30.030;
+    motion.observe(observation);
+    observation.vision_sequence = 2;
+    observation.observed_at_seconds = 30.010;
+    observation.now_seconds = 30.040;
+    motion.observe(observation);
+
+    require_near(
+        motion.relative_motion_estimate().lead_x_px,
+        -8.96f,
+        0.10f,
+        "relative-motion lead must project the 30 ms observation latency plus its configured horizon");
+}
+
 void test_body_lock_cold_relative_motion_responds_within_eighty_ms() {
     controller_native::GamepadAiAimConfig config;
     config.body_lock_activation_box_px = 180.0f;
@@ -2566,6 +2601,55 @@ void test_body_lock_cold_relative_motion_responds_within_eighty_ms() {
     require_true(
         (20.020 - onset_at) * 1000.0 <= 80.0,
         "cold relative-motion response must begin within 80 ms");
+}
+
+void test_body_lock_learns_from_delayed_strafe_acceleration_inside_event_window() {
+    controller_native::GamepadAiAimConfig config;
+    config.body_lock_activation_box_px = 180.0f;
+    controller_native::BodyLockMotionPolicy motion(config);
+
+    controller_native::BodyLockMotionObservation observation;
+    observation.strong_observation = true;
+    observation.has_body_box = true;
+    observation.body_y1 = 180.0f;
+    observation.body_y2 = 340.0f;
+    observation.selected_track_id = 55;
+    observation.fresh_observation = true;
+    observation.has_camera_attributed_velocity = true;
+    const auto observe = [&](std::uint64_t sequence,
+                             double time,
+                             float left_x,
+                             float relative_velocity_x) {
+        observation.vision_sequence = sequence;
+        observation.observed_at_seconds = time;
+        observation.now_seconds = time;
+        observation.left_x = left_x;
+        observation.camera_attributed_velocity_x_px_per_sec =
+            relative_velocity_x;
+        observation.body_x1 = 280.0f;
+        observation.body_x2 = 360.0f;
+        motion.observe(observation);
+    };
+
+    observe(1, 20.000, 0.0f, 0.0f);
+    observe(2, 20.010, 0.0f, 0.0f);
+    observe(3, 20.020, 0.8f, -3.0f);
+    require_true(
+        motion.relative_motion_estimate().state ==
+            controller_native::RelativeMotionState::Cold,
+        "the first low-information acceleration sample should remain cold");
+    observe(4, 20.030, 0.8f, -35.0f);
+    observe(5, 20.040, 0.8f, -75.0f);
+    observe(6, 20.050, 0.8f, -120.0f);
+
+    const controller_native::RelativeMotionEstimate estimate =
+        motion.relative_motion_estimate();
+    require_true(
+        estimate.state == controller_native::RelativeMotionState::Warm,
+        "delayed velocity response must warm from the same left-input event within 80 ms");
+    require_true(
+        estimate.strafe_gain > 0.5f,
+        "the delayed acceleration event must produce a useful in-memory mobility gain");
 }
 
 void test_body_lock_relative_motion_distinguishes_synchronized_and_opposite_motion() {
@@ -5537,6 +5621,46 @@ void test_aim_assist_dynamics_preserves_manual_contract_at_authority_boundary() 
                  "track-only must emit no residual Y assist");
 }
 
+void test_ads_reacquire_uses_existing_delivery_envelope() {
+    controller_native::GamepadAimAssistDynamicsConfig config;
+    config.enabled = true;
+    controller_native::NativeAimAssistDynamics dynamics(config);
+
+    controller_native::NativeAimAssistDynamicsInput input;
+    input.authority = pipeline_contract::AssistAuthorityState::TrackOnly;
+    input.lifecycle = pipeline_contract::BodylockLifecycleState::Inactive;
+    input.dt_seconds = 0.001;
+    input.now_seconds = 30.000;
+    require_near(
+        dynamics.apply(input).assist.x,
+        0.0f,
+        0.0f,
+        "authority loss must release assist before reacquisition");
+
+    input.authority = pipeline_contract::AssistAuthorityState::ObservedStrong;
+    input.ads_snap_active = true;
+    input.requested_assist = {0.60f, 0.0f};
+    input.target_error_px = {50.0f, 0.0f};
+    input.selected_track_id = 91;
+    input.fresh_observation = true;
+    input.vision_sequence = 10;
+    input.now_seconds += 0.001;
+    const controller_native::NativeAimAssistDynamicsOutput first = dynamics.apply(input);
+    require_near(
+        first.assist.x,
+        0.018f,
+        0.0001f,
+        "ADS reacquisition must attack through the existing jerk-limited envelope");
+
+    input.fresh_observation = false;
+    input.now_seconds += 0.001;
+    const controller_native::NativeAimAssistDynamicsOutput second = dynamics.apply(input);
+    require_true(
+        second.assist.x > first.assist.x &&
+            second.assist.x - first.assist.x <= 0.0351f,
+        "ADS reacquisition must become useful without a hard output step");
+}
+
 void test_body_lock_smoothing_is_owned_by_delivery_envelope() {
     controller_native::GamepadAimAssistDynamicsConfig config;
     config.enabled = true;
@@ -6335,7 +6459,9 @@ int main() {
         test_body_lock_motion_updates_once_per_fresh_sequence();
         test_body_lock_warm_left_reversal_predicts_between_vision_frames();
         test_body_lock_gain_uses_camera_attributed_tracker_velocity();
+        test_body_lock_lead_projects_fresh_observation_latency();
         test_body_lock_cold_relative_motion_responds_within_eighty_ms();
+        test_body_lock_learns_from_delayed_strafe_acceleration_inside_event_window();
         test_body_lock_relative_motion_distinguishes_synchronized_and_opposite_motion();
         test_body_lock_rejects_changed_mobility_on_left_reversal_and_reset_clears_prior();
         test_body_lock_uses_lateral_motion_when_current_error_is_inside_deadzone();
@@ -6405,6 +6531,7 @@ int main() {
         test_aim_assist_dynamics_bounds_authorized_steps_and_reversals();
         test_body_lock_smoothing_is_owned_by_delivery_envelope();
         test_aim_assist_dynamics_preserves_manual_contract_at_authority_boundary();
+        test_ads_reacquire_uses_existing_delivery_envelope();
         test_aim_assist_dynamics_seeds_bodylock_from_post_brake_ads_ai();
         test_aim_assist_dynamics_releases_bodylock_monotonically_without_hard_reset();
         test_bodylock_geometry_grace_and_reacquire_are_bumpless();

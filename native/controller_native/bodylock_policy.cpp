@@ -29,9 +29,15 @@ void BodyLockMotionPolicy::reset_target_motion(bool retain_mobility_prior) {
     motion_velocity_y_ = 0.0f;
     body_height_px_ = 0.0f;
     motion_timestamp_seconds_ = 0.0;
+    observation_latency_seconds_ = 0.0f;
     left_at_last_observation_ = current_left_x_;
     measured_rate_body_per_sec_ = 0.0f;
     has_measured_rate_ = false;
+    left_event_active_ = false;
+    left_event_from_ = current_left_x_;
+    left_event_to_ = current_left_x_;
+    left_event_base_rate_ = 0.0f;
+    left_event_started_seconds_ = 0.0;
     last_consumed_vision_sequence_ = 0;
     selected_track_id_ = 0;
     reset_consistency();
@@ -81,6 +87,18 @@ void BodyLockMotionPolicy::observe(const BodyLockMotionObservation& observation)
         : (observation.now_seconds > 0.0
             ? observation.now_seconds
             : observation.observed_at_seconds);
+    constexpr double kMaximumObservationLatencySeconds = 0.050;
+    if (sequenced_observation &&
+        observation.now_seconds > 0.0 &&
+        observation.observed_at_seconds > 0.0) {
+        observation_latency_seconds_ = static_cast<float>(std::max(
+            0.0,
+            std::min(
+                kMaximumObservationLatencySeconds,
+                observation.now_seconds - observation.observed_at_seconds)));
+    } else {
+        observation_latency_seconds_ = 0.0f;
+    }
     const float match_limit = std::max(1.0f, config_.body_lock_activation_box_px * 0.5f);
     if (!has_motion_reference_ ||
         std::fabs(center_x - motion_box_center_x_) > match_limit ||
@@ -124,7 +142,11 @@ void BodyLockMotionPolicy::observe(const BodyLockMotionObservation& observation)
                 std::isfinite(observation.camera_attributed_velocity_x_px_per_sec)
             ? observation.camera_attributed_velocity_x_px_per_sec
             : motion_velocity_x_;
-        update_relative_motion(body_height_px, current_left_x_, relative_velocity_x);
+        update_relative_motion(
+            body_height_px,
+            current_left_x_,
+            relative_velocity_x,
+            timestamp);
         update_consistency(relative_velocity_x, motion_velocity_y_);
     }
     motion_box_center_x_ = center_x;
@@ -163,7 +185,11 @@ RelativeMotionEstimate BodyLockMotionPolicy::relative_motion_estimate() const {
             mobility_confidence_;
     }
 
-    const float lead_seconds = std::max(0.0f, config_.body_lock_lead_seconds);
+    const float configured_lead_seconds =
+        std::max(0.0f, config_.body_lock_lead_seconds);
+    const float lead_seconds = configured_lead_seconds > 0.0f
+        ? configured_lead_seconds + observation_latency_seconds_
+        : 0.0f;
     const float lead_max = std::max(0.0f, config_.body_lock_lead_max_px);
     const float raw_lead =
         estimate.predicted_rate_body_per_sec * body_height_px_ * lead_seconds;
@@ -182,16 +208,22 @@ common_native::Vec2f BodyLockMotionPolicy::lead_delta() const {
     if (motion_frames_ < std::max(1, config_.body_lock_lead_frames)) {
         return {};
     }
-    const float lead_seconds = std::max(0.0f, config_.body_lock_lead_seconds);
+    const float configured_lead_seconds =
+        std::max(0.0f, config_.body_lock_lead_seconds);
+    const float horizontal_lead_seconds = configured_lead_seconds > 0.0f
+        ? configured_lead_seconds + observation_latency_seconds_
+        : 0.0f;
     const float lead_max = std::max(0.0f, config_.body_lock_lead_max_px);
-    if (lead_seconds <= 0.0f || lead_max <= 0.0f) {
+    if (horizontal_lead_seconds <= 0.0f || lead_max <= 0.0f) {
         return {};
     }
     const float lead_x = relative_motion_estimate().lead_x_px;
     const float vertical_scale = std::max(0.0f, config_.body_lock_vertical_lead_scale);
     const float lead_y = std::max(
         -lead_max,
-        std::min(lead_max, motion_velocity_y_ * lead_seconds * vertical_scale));
+        std::min(
+            lead_max,
+            motion_velocity_y_ * configured_lead_seconds * vertical_scale));
     return {lead_x, lead_y};
 }
 
@@ -320,13 +352,17 @@ void BodyLockMotionPolicy::update_consistency(float velocity_x, float velocity_y
 void BodyLockMotionPolicy::update_relative_motion(
     float body_height_px,
     float shaped_left_x,
-    float relative_velocity_x_px_per_sec) {
+    float relative_velocity_x_px_per_sec,
+    double timestamp_seconds) {
     constexpr float kMinimumBodyHeightPx = 12.0f;
     if (!std::isfinite(relative_velocity_x_px_per_sec) ||
         !std::isfinite(body_height_px) ||
-        body_height_px < kMinimumBodyHeightPx) {
+        body_height_px < kMinimumBodyHeightPx ||
+        !std::isfinite(timestamp_seconds) ||
+        timestamp_seconds <= 0.0) {
         measured_rate_body_per_sec_ = 0.0f;
         has_measured_rate_ = false;
+        left_event_active_ = false;
         return;
     }
 
@@ -340,40 +376,62 @@ void BodyLockMotionPolicy::update_relative_motion(
         const float left_delta = shaped_left_x - left_at_last_observation_;
         constexpr float kInformativeLeftDelta = 0.20f;
         if (std::fabs(left_delta) >= kInformativeLeftDelta) {
-            constexpr float kMaximumStrafeGain = 8.0f;
-            const float raw_gain_sample =
-                -(measured_rate - measured_rate_body_per_sec_) / left_delta;
-            if (std::isfinite(raw_gain_sample) && raw_gain_sample > 0.05f) {
-                const float gain_sample = std::min(kMaximumStrafeGain, raw_gain_sample);
-                if (!has_strafe_gain_ ||
-                    relative_motion_state_ == RelativeMotionState::Rejected) {
-                    strafe_gain_ = gain_sample;
-                    has_strafe_gain_ = true;
-                    mobility_confidence_ = 0.75f;
-                    relative_motion_state_ = RelativeMotionState::Warm;
-                } else {
-                    const float compatibility_limit =
-                        std::max(0.60f, strafe_gain_ * 0.30f);
-                    if (std::fabs(gain_sample - strafe_gain_) <= compatibility_limit) {
-                        constexpr float kGainAlpha = 0.35f;
-                        strafe_gain_ += kGainAlpha * (gain_sample - strafe_gain_);
-                        strafe_gain_ = std::max(
-                            0.0f,
-                            std::min(kMaximumStrafeGain, strafe_gain_));
-                        mobility_confidence_ = std::min(1.0f, mobility_confidence_ + 0.20f);
-                        relative_motion_state_ = RelativeMotionState::Warm;
-                    } else {
-                        strafe_gain_ = 0.0f;
-                        has_strafe_gain_ = false;
-                        mobility_confidence_ = 0.0f;
-                        relative_motion_state_ = RelativeMotionState::Rejected;
-                    }
-                }
+            left_event_active_ = true;
+            left_event_from_ = left_at_last_observation_;
+            left_event_to_ = shaped_left_x;
+            left_event_base_rate_ = measured_rate_body_per_sec_;
+            left_event_started_seconds_ = timestamp_seconds;
+        }
+
+        constexpr double kLeftEventWindowSeconds = 0.080;
+        const double event_age_seconds =
+            timestamp_seconds - left_event_started_seconds_;
+        if (left_event_active_ &&
+            event_age_seconds >= 0.0 &&
+            event_age_seconds <= kLeftEventWindowSeconds) {
+            const float event_left_delta = left_event_to_ - left_event_from_;
+            if (std::fabs(event_left_delta) >= kInformativeLeftDelta) {
+                apply_strafe_gain_sample(
+                    -(measured_rate - left_event_base_rate_) / event_left_delta);
             }
+        } else if (left_event_active_) {
+            left_event_active_ = false;
         }
     }
     measured_rate_body_per_sec_ = measured_rate;
     has_measured_rate_ = true;
+}
+
+void BodyLockMotionPolicy::apply_strafe_gain_sample(float raw_gain_sample) {
+    if (!std::isfinite(raw_gain_sample) || raw_gain_sample <= 0.05f) {
+        return;
+    }
+
+    constexpr float kMaximumStrafeGain = 8.0f;
+    const float gain_sample = std::min(kMaximumStrafeGain, raw_gain_sample);
+    if (!has_strafe_gain_ ||
+        relative_motion_state_ == RelativeMotionState::Rejected) {
+        strafe_gain_ = gain_sample;
+        has_strafe_gain_ = true;
+        mobility_confidence_ = 0.75f;
+        relative_motion_state_ = RelativeMotionState::Warm;
+        return;
+    }
+
+    const float compatibility_limit = std::max(0.60f, strafe_gain_ * 0.30f);
+    if (std::fabs(gain_sample - strafe_gain_) <= compatibility_limit) {
+        constexpr float kGainAlpha = 0.35f;
+        strafe_gain_ += kGainAlpha * (gain_sample - strafe_gain_);
+        strafe_gain_ = std::max(0.0f, std::min(kMaximumStrafeGain, strafe_gain_));
+        mobility_confidence_ = std::min(1.0f, mobility_confidence_ + 0.20f);
+        relative_motion_state_ = RelativeMotionState::Warm;
+        return;
+    }
+
+    strafe_gain_ = 0.0f;
+    has_strafe_gain_ = false;
+    mobility_confidence_ = 0.0f;
+    relative_motion_state_ = RelativeMotionState::Rejected;
 }
 
 float BodyLockMotionPolicy::shaped_left(float left_x) const {

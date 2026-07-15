@@ -76,6 +76,8 @@ private:
         float step_cap,
         float jerk_cap,
         float* out_delta) const;
+    [[nodiscard]] NativeAimAssistDynamicsOutput shape_ads_reacquire(
+        const NativeAimAssistDynamicsInput& input);
     [[nodiscard]] bool strong_opposing_manual(
         const NativeAimAssistDynamicsInput& input) const;
 
@@ -85,6 +87,8 @@ private:
     common_native::Vec2f previous_delta_;
     bool has_history_ = false;
     bool bodylock_history_active_ = false;
+    bool assist_authority_was_absent_ = false;
+    bool ads_reacquire_envelope_active_ = false;
     AdsAxisCrossingState ads_crossing_x_;
     AdsAxisCrossingState ads_crossing_y_;
     std::uint64_t ads_target_key_ = 0;

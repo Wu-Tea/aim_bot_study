@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <sstream>
+#include <set>
 #include <string>
 
 namespace {
@@ -15,10 +16,65 @@ void require_true(bool condition, const char* message) {
     std::exit(1);
 }
 
+const controller_native::left_stick_defect::BenchmarkReport& benchmark_report() {
+    static const auto report = controller_native::left_stick_defect::run_benchmark();
+    return report;
+}
+
+void test_live_frequency_matrix_contract() {
+    const auto& report = benchmark_report();
+    require_true(report.schema_version == 3, "live-rate JSON contract must use schema 3");
+    require_true(report.controller_hz == 1000, "controller fixture must run at 1000 Hz");
+    std::set<int> primary_rates;
+    std::set<int> stress_rates;
+    for (const auto& run : report.frequency_runs) {
+        require_true(
+            run.delivered_vision_sequences > 0 &&
+                run.fresh_sequences_consumed == run.delivered_vision_sequences,
+            "every delivered vision sequence must be consumed exactly once");
+        (run.primary_rate ? primary_rates : stress_rates).insert(run.vision_hz);
+    }
+    require_true(
+        primary_rates == std::set<int>({80, 100}),
+        "primary matrix must cover 80 Hz and 100 Hz vision");
+    require_true(
+        stress_rates == std::set<int>({50, 160}),
+        "stress matrix must cover 50 Hz and 160 Hz vision");
+}
+
+void test_desired_acceptance_gates_are_closed() {
+    const auto& report = benchmark_report();
+    require_true(report.intent_invariance.desired_gate_pass, "left intent must affect AI planning");
+    require_true(
+        report.primary.fast_mean_improvement_ratio >= 0.20,
+        "primary fast-strafe mean error must improve by at least 20%");
+    require_true(
+        report.primary.fast_p95_improvement_ratio >= 0.20,
+        "primary fast-strafe p95 error must improve by at least 20%");
+    require_true(
+        report.primary.same_direction_regression_ratio <= 0.05,
+        "same-direction tracking may regress by at most 5%");
+    require_true(
+        report.primary.max_lifecycle_ai_delta <= 0.07,
+        "BodyLock lifecycle AI delta must remain inside the envelope");
+    require_true(
+        report.primary.large_sign_flip_count == 0,
+        "BodyLock must not produce large direct sign flips");
+    require_true(report.production_chain.short_gap_coast_pass, "short same-track gap must Coast");
+    require_true(report.production_chain.long_loss_release_pass, "long identity loss must release");
+    require_true(report.production_chain.reacquire_bumpless_pass, "reacquire must be bumpless");
+    require_true(
+        report.production_chain.no_blind_candidate_follow_pass,
+        "candidate-only gaps must not create blind assist");
+    require_true(
+        report.ads_handoff.max_transition_overshoot_px <= 2.0,
+        "ADS handoff overshoot must remain within 2 px");
+    require_true(report.desired_gate_pass, "the fixed benchmark gate must close");
+}
+
 void test_production_chain_behavior_is_populated() {
-    const auto report = controller_native::left_stick_defect::run_benchmark();
+    const auto& report = benchmark_report();
     const auto& chain = report.production_chain;
-    require_true(report.schema_version == 2, "extended JSON contract must use schema 2");
     require_true(chain.behavior_populated, "production-chain behavior must run");
     require_true(
         chain.drift_manual_correction_frames == 0,
@@ -30,11 +86,15 @@ void test_production_chain_behavior_is_populated() {
         chain.production_target_missing_frames > 0,
         "production target must become unavailable during the gap");
     require_true(
-        chain.max_continuous_drift_only_ms >= 650.0,
-        "evidence-matched drift-only output gap must be reproduced");
-    require_true(
         chain.reacquire_latency_ms >= 0.0,
         "reacquisition latency must be populated");
+    require_true(
+        chain.reacquire_useful_latency_ms >= 0.0 &&
+            chain.reacquire_useful_latency_ms <= 60.0,
+        "reacquisition must restore useful assist within 60 ms");
+    require_true(
+        chain.reacquire_max_output_delta <= 0.07,
+        "reacquisition must remain inside the sole delivery envelope");
     require_true(
         chain.body_lock_frames > 0 && chain.ads_snap_frames > 0 &&
             chain.manual_frames > 0,
@@ -45,7 +105,7 @@ void test_production_chain_behavior_is_populated() {
 }
 
 void test_warm_left_intent_changes_ai_trace() {
-    const auto report = controller_native::left_stick_defect::run_benchmark();
+    const auto& report = benchmark_report();
     if (report.intent_invariance.max_ai_trace_delta <= 1.0e-4) {
         std::cerr << "[NativeLeftStickMotionBenchmarkTests] intent delta="
                   << report.intent_invariance.max_ai_trace_delta
@@ -60,23 +120,26 @@ void test_warm_left_intent_changes_ai_trace() {
         "the intent probe must no longer classify physical left intent as ignored");
 }
 
-void test_production_chain_defect_is_folded_into_report_gate() {
-    const auto report = controller_native::left_stick_defect::run_benchmark();
+void test_fixed_production_chain_closes_report_gate() {
+    const auto& report = benchmark_report();
     const auto& chain = report.production_chain;
-    require_true(chain.defect_reproduced, "production-chain defect must be recorded");
-    require_true(!chain.desired_gate_pass, "production-chain desired gate must remain RED");
+    require_true(!chain.defect_reproduced, "fixed production chain must contain no defect");
+    require_true(chain.desired_gate_pass, "production-chain desired gate must close");
     require_true(
-        report.defect_count == 6,
-        "production-chain defect must increment the remaining five-defect baseline");
+        report.defect_count == 0,
+        "all live-rate acceptance defects must be closed");
+    require_true(report.desired_gate_pass, "report summary must close the fixed gate");
 }
 
 void require_invalid(
     const controller_native::left_stick_defect::BenchmarkReport& report,
     const char* expected_reason_fragment) {
     std::string reason;
-    require_true(
-        !controller_native::left_stick_defect::validate_report(report, &reason),
-        "invalid production-chain report must be rejected");
+    if (controller_native::left_stick_defect::validate_report(report, &reason)) {
+        std::cerr << "[NativeLeftStickMotionBenchmarkTests] FAIL: mutation expecting '"
+                  << expected_reason_fragment << "' was accepted\n";
+        std::exit(1);
+    }
     require_true(
         reason.find(expected_reason_fragment) != std::string::npos,
         "validation reason must identify the rejected production-chain contract");
@@ -100,6 +163,14 @@ void test_production_chain_validation_rejects_missing_contract_fields() {
     auto missing_track_rebind = report;
     missing_track_rebind.production_chain.selected_track_changes = 0;
     require_invalid(missing_track_rebind, "selected-track rebind");
+
+    auto sequence_mismatch = report;
+    ++sequence_mismatch.frequency_runs.front().fresh_sequences_consumed;
+    require_invalid(sequence_mismatch, "sequence consumption mismatch");
+
+    auto invalid_reacquire = report;
+    invalid_reacquire.production_chain.reacquire_max_output_delta = 0.08;
+    require_invalid(invalid_reacquire, "reacquisition envelope");
 }
 
 void require_contains(
@@ -115,6 +186,11 @@ void test_production_chain_json_contract() {
     controller_native::left_stick_defect::write_json(output, report);
     const std::string json = output.str();
     require_contains(json, "\"production_chain\"", "JSON must include production chain");
+    require_contains(json, "\"schema_version\": 3", "JSON must include schema 3");
+    require_contains(json, "\"controller_hz\": 1000", "JSON must include 1000 Hz control");
+    require_contains(json, "\"frequency_runs\"", "JSON must include frequency matrix");
+    require_contains(json, "\"primary\"", "JSON must include primary acceptance summary");
+    require_contains(json, "\"ads_handoff\"", "JSON must include ADS handoff metrics");
     require_contains(
         json,
         "\"max_continuous_drift_only_ms\"",
@@ -129,6 +205,10 @@ void test_production_chain_json_contract() {
         "JSON must include selected-track changes");
     require_contains(
         json,
+        "\"reacquire_max_output_delta\"",
+        "JSON must include measured reacquisition smoothness");
+    require_contains(
+        json,
         "\"detector_candidates_present\"",
         "JSON events must include detector-candidate state");
     require_contains(
@@ -140,9 +220,11 @@ void test_production_chain_json_contract() {
 }  // namespace
 
 int main() {
+    test_live_frequency_matrix_contract();
+    test_desired_acceptance_gates_are_closed();
     test_production_chain_behavior_is_populated();
     test_warm_left_intent_changes_ai_trace();
-    test_production_chain_defect_is_folded_into_report_gate();
+    test_fixed_production_chain_closes_report_gate();
     test_production_chain_validation_rejects_missing_contract_fields();
     test_production_chain_json_contract();
     std::cout << "[NativeLeftStickMotionBenchmarkTests] PASS\n";

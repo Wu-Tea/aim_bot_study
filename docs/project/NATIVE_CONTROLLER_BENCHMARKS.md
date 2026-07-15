@@ -263,3 +263,59 @@ Interpretation:
 - The next optimization should beat these event-latency and opposition metrics
   plus the production-chain dropout metrics while preserving the existing
   controller benchmark and bodylock guards.
+
+## Left-Stick Relative-Motion Live-Rate Acceptance (2026-07-15)
+
+The fixed benchmark keeps the historical RED section above for comparison and
+advances the artifact contract to schema 3. The controller now runs at 1000 Hz,
+the primary vision matrix runs at 80 and 100 Hz, and 50/160 Hz are retained as
+stress rates. Every delivered vision sequence must be consumed exactly once;
+repeating a fresh flag at controller rate is an acceptance failure.
+
+The implementation remains weapon-independent and vision-neutral. It uses the
+existing tracker velocity plus two short-lived controller-side facts:
+
+- an 80 ms left-input event window, so delayed character acceleration can update
+  the in-memory strafe gain after the stick-change frame;
+- the age of a sequenced observation, capped at 50 ms and applied only to the
+  horizontal relative-motion horizon, so a delayed observation is projected to
+  the present without increasing vertical lead.
+
+The learned gain is process memory only. It is not keyed by weapon, written to
+disk, or backed by an additional detector/optical-flow pass. Long target loss
+still releases assist; subsequent ADS acquisition reuses the existing
+jerk/step-limited delivery envelope instead of jumping directly to full output.
+
+Run the fixed gate with:
+
+```powershell
+native\vision_native\build-modern\Release\cod_native_left_stick_motion_benchmark.exe `
+  --output artifacts\benchmarks\native_gamepad\left-stick-relative-motion-fixed-20260715.json
+
+native\vision_native\build-modern\Release\cod_native_left_stick_motion_benchmark.exe `
+  --require-fixed
+```
+
+Accepted artifact:
+`artifacts/benchmarks/native_gamepad/left-stick-relative-motion-fixed-20260715.json`.
+SHA-256:
+`04C0B8DB2A3BDB5CDFC3FAD3B00D1E80ED3895DF4E95F67C8502A5E38B9CDE59`.
+
+| Vision rate | Delivered / consumed | Fast mean error, baseline -> fixed | Mean improvement | Fast P95 error, baseline -> fixed | P95 improvement | Same-direction regression | Max AI tick delta | Large sign flips |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 80 Hz (primary) | 286 / 286 | 21.489 -> 16.272 px | 24.27% | 35.950 -> 26.812 px | 25.42% | 0.00% | 0.035 | 0 |
+| 100 Hz (primary) | 357 / 357 | 21.564 -> 16.375 px | 24.06% | 36.000 -> 26.839 px | 25.45% | 0.00% | 0.035 | 0 |
+| 50 Hz (stress) | 179 / 179 | 21.550 -> 16.225 px | 24.71% | 35.873 -> 26.784 px | 25.34% | 0.00% | 0.035 | 0 |
+| 160 Hz (stress) | 572 / 572 | 21.673 -> 16.351 px | 24.56% | 36.275 -> 27.103 px | 25.28% | 0.00% | 0.035 | 0 |
+
+Additional acceptance results:
+
+- left intent changes the AI trace by `0.0176284`, while left-axis passthrough
+  error remains `0`;
+- short same-track loss coasts, long identity loss releases, and candidate-only
+  gaps do not produce blind assist;
+- reacquisition is observed immediately, becomes useful after `1 ms`, and its
+  maximum final-output delta is `0.0509829`, below the `0.07` envelope limit;
+- stationary and moving ADS-to-BodyLock handoff overshoot are both `0 px`; the
+  maximum handoff AI delta is `0.0104769`;
+- the schema-3 fixed gate reports `defect_count = 0`.

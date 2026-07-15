@@ -29,6 +29,8 @@ NativeAimAssistDynamics::NativeAimAssistDynamics(
 void NativeAimAssistDynamics::reset() {
     reset_envelope();
     reset_ads_crossing();
+    assist_authority_was_absent_ = false;
+    ads_reacquire_envelope_active_ = false;
     ads_handoff_assist_ = {};
     ads_handoff_track_id_ = 0;
     has_ads_handoff_assist_ = false;
@@ -138,13 +140,22 @@ NativeAimAssistDynamicsOutput NativeAimAssistDynamics::apply(
     if (authority_absent ||
         input.lifecycle == pipeline_contract::BodylockLifecycleState::Yield) {
         reset();
+        assist_authority_was_absent_ = authority_absent;
         return {{}, authority_absent ? "no_authority" : "yield"};
     }
 
     if (input.ads_snap_active) {
         observe_ads_snap_crossing(input);
-        reset_envelope();
+        if (assist_authority_was_absent_) {
+            reset_envelope();
+            assist_authority_was_absent_ = false;
+            ads_reacquire_envelope_active_ = true;
+        }
         if (!strong_opposing_manual(input)) {
+            if (ads_reacquire_envelope_active_) {
+                return shape_ads_reacquire(input);
+            }
+            reset_envelope();
             return {input.requested_assist, "ads_passthrough"};
         }
 
@@ -175,6 +186,8 @@ NativeAimAssistDynamicsOutput NativeAimAssistDynamics::apply(
         return output;
     }
 
+    assist_authority_was_absent_ = false;
+    ads_reacquire_envelope_active_ = false;
     reset_ads_crossing();
 
     if (strong_opposing_manual(input)) {
@@ -264,6 +277,47 @@ NativeAimAssistDynamicsOutput NativeAimAssistDynamics::apply(
     previous_delta_ = delta;
     has_history_ = true;
     bodylock_history_active_ = true;
+    return output;
+}
+
+NativeAimAssistDynamicsOutput NativeAimAssistDynamics::shape_ads_reacquire(
+    const NativeAimAssistDynamicsInput& input) {
+    const double dt = std::max(0.0005, std::min(0.004, input.dt_seconds));
+    const float tick_scale = static_cast<float>(dt / 0.001);
+    constexpr float kStepCapPerMs = 0.035f;
+    constexpr float kJerkCapPerMs = 0.018f;
+    const float step_cap = kStepCapPerMs * tick_scale;
+    const float jerk_cap = kJerkCapPerMs * tick_scale;
+    const common_native::Vec2f previous =
+        has_history_ ? previous_assist_ : common_native::Vec2f{};
+    const common_native::Vec2f previous_delta =
+        has_history_ ? previous_delta_ : common_native::Vec2f{};
+
+    common_native::Vec2f delta;
+    NativeAimAssistDynamicsOutput output;
+    output.assist.x = shape_axis(
+        input.requested_assist.x,
+        previous.x,
+        previous_delta.x,
+        step_cap,
+        jerk_cap,
+        &delta.x);
+    output.assist.y = shape_axis(
+        input.requested_assist.y,
+        previous.y,
+        previous_delta.y,
+        step_cap,
+        jerk_cap,
+        &delta.y);
+    output.limit_reason = "assist_reacquire_envelope";
+    previous_assist_ = output.assist;
+    previous_delta_ = delta;
+    has_history_ = true;
+    bodylock_history_active_ = false;
+    if (std::fabs(output.assist.x - input.requested_assist.x) <= 0.000001f &&
+        std::fabs(output.assist.y - input.requested_assist.y) <= 0.000001f) {
+        ads_reacquire_envelope_active_ = false;
+    }
     return output;
 }
 

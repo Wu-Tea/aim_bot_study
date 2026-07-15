@@ -63,7 +63,9 @@ private:
     void update_relative_motion(
         float body_height_px,
         float shaped_left_x,
-        float relative_velocity_x_px_per_sec);
+        float relative_velocity_x_px_per_sec,
+        double timestamp_seconds);
+    void apply_strafe_gain_sample(float raw_gain_sample);
     float shaped_left(float left_x) const;
     float soft_ramp_strength(float magnitude, float inner, float outer) const;
 
@@ -78,6 +80,7 @@ private:
     float motion_velocity_y_ = 0.0f;
     float body_height_px_ = 0.0f;
     double motion_timestamp_seconds_ = 0.0;
+    float observation_latency_seconds_ = 0.0f;
     int motion_consistent_frames_ = 0;
     bool has_motion_direction_ = false;
     float motion_direction_x_ = 0.0f;
@@ -86,6 +89,11 @@ private:
     float left_at_last_observation_ = 0.0f;
     float measured_rate_body_per_sec_ = 0.0f;
     bool has_measured_rate_ = false;
+    bool left_event_active_ = false;
+    float left_event_from_ = 0.0f;
+    float left_event_to_ = 0.0f;
+    float left_event_base_rate_ = 0.0f;
+    double left_event_started_seconds_ = 0.0;
     float strafe_gain_ = 0.0f;
     bool has_strafe_gain_ = false;
     float mobility_confidence_ = 0.0f;
