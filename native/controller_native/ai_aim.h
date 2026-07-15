@@ -52,6 +52,10 @@ struct NativeAiAimOutput {
     bool has_assist = false;
     float assist_x = 0.0f;
     float assist_y = 0.0f;
+    float position_assist_x = 0.0f;
+    float position_assist_y = 0.0f;
+    float motion_feedforward_x = 0.0f;
+    float motion_feedforward_y = 0.0f;
 };
 
 class NativeAiAim {
@@ -67,6 +71,7 @@ public:
 private:
     float target_authority_scale(const std::string& target_tier) const;
     bool should_body_lock(const NativeAiAimInput& input) const;
+    std::pair<float, float> body_lock_position_delta(const NativeAiAimInput& input) const;
     std::pair<float, float> body_lock_target_delta(const NativeAiAimInput& input) const;
     std::pair<float, float> body_lock_motion_lead_delta(const NativeAiAimInput& input) const;
     void observe_body_lock_motion(const NativeAiAimInput& input);
@@ -81,11 +86,10 @@ private:
     float body_lock_reference_iou(const NativeAiAimInput& input) const;
     int body_lock_axis_hold_remaining(bool y_axis) const;
     void set_body_lock_axis_hold(bool y_axis, int value);
-    void clear_body_lock_axis_carry(bool y_axis);
     float apply_body_lock_axis_guard(float desired_ai, float desired_error, bool y_axis);
     void remember_body_lock_errors(float error_x, float error_y);
     void apply_ads_snap_smoothing(NativeAiAimOutput& output);
-    void apply_body_lock_smoothing(NativeAiAimOutput& output, float stabilize_ratio);
+    float cap_body_lock_terminal_position(float position_assist, float lock_error_px) const;
     float observe_body_lock_confidence(const NativeAiAimInput& input, float lock_dx, float lock_dy);
     std::pair<float, float> resolve_body_lock_manual(
         float manual_x,
@@ -152,8 +156,6 @@ private:
     float body_lock_reference_bottom_ = 0.0f;
     float ads_snap_ai_stick_x_ = 0.0f;
     float ads_snap_ai_stick_y_ = 0.0f;
-    float body_lock_ai_stick_x_ = 0.0f;
-    float body_lock_ai_stick_y_ = 0.0f;
     bool has_last_body_lock_error_x_ = false;
     bool has_last_body_lock_error_y_ = false;
     float last_body_lock_error_x_ = 0.0f;

@@ -292,7 +292,7 @@ git -C $repo commit -m "feat: learn bodylock relative strafe motion in memory"
 - Modify: `native/controller_native/ads_completion_gate_tests.cpp`
 - Modify: `native/controller_native/controller_behavior_tests.cpp`
 
-- [ ] **Step 1: Write a failing integrated ADS-to-BodyLock handoff test**
+- [x] **Step 1: Write a failing integrated ADS-to-BodyLock handoff test**
 
 Add a closed-loop controller test with zero manual/recoil that feeds fresh errors
 `20, 11, 7, 5, 3` px, records `before_recoil_stick.x`, crosses into BodyLock,
@@ -307,7 +307,7 @@ require_true(position_feedback_is_non_increasing,
     "closing position feedback must decay until terminal approach is safe");
 ```
 
-- [ ] **Step 2: Run the controller test and verify RED at the mode boundary**
+- [x] **Step 2: Run the controller test and verify RED at the mode boundary**
 
 ```powershell
 & $cmake --build --preset modern-release --target cod_native_controller_tests -- /m
@@ -317,7 +317,7 @@ require_true(position_feedback_is_non_increasing,
 Expected: failure reports a handoff delta/overshoot because ADS dynamics history
 is reset and the actual post-brake ADS output is not transferred.
 
-- [ ] **Step 3: Add a delivered ADS seed contract to the envelope**
+- [x] **Step 3: Add a delivered ADS seed contract to the envelope**
 
 Add:
 
@@ -331,7 +331,7 @@ void observe_pre_recoil_output(
 
 Store `pre_recoil - manual` only for ADS snap and the current selected track. Call it after ADS near/carry brakes and before recoil. Never include manual or recoil in the seed.
 
-- [ ] **Step 4: Separate BodyLock position feedback from motion feed-forward**
+- [x] **Step 4: Separate BodyLock position feedback from motion feed-forward**
 
 Inside `NativeAiAim::compute`, calculate:
 
@@ -359,7 +359,7 @@ const common_native::Vec2f desired_assist{
 
 `terminal_cap` is continuous, uses the existing reticle-speed/projection horizon, and may only reduce the position component. The combined result still passes the existing BodyLock max-force cap.
 
-- [ ] **Step 5: Make `NativeAimAssistDynamics` the sole delivered BodyLock owner**
+- [x] **Step 5: Make `NativeAimAssistDynamics` the sole delivered BodyLock owner**
 
 Remove `apply_body_lock_smoothing` calls and BodyLock stick-history writes from `NativeAiAim`. On the first BodyLock tick for the same ADS-selected track, seed `previous_assist_` from the actual post-brake ADS AI. Apply per-1 ms BodyLock limits:
 
@@ -370,11 +370,11 @@ constexpr float kJerkCapPerMs = 0.018f;
 
 Sign reversals target zero first. ADS mode itself remains passthrough; manual and recoil are not shaped.
 
-- [ ] **Step 6: Replace the old overshoot-permission test with ownership plus handoff tests**
+- [x] **Step 6: Replace the old overshoot-permission test with ownership plus handoff tests**
 
 Keep the assertion that `AdsCarryBrakePolicy` cannot mutate a BodyLock tick. Replace the expectation that it must allow overshoot with two tests: moving-target feed-forward survives terminal proximity, and stationary-target position feedback cannot create more than 2 px handoff overshoot.
 
-- [ ] **Step 7: Run GREEN verification and commit**
+- [x] **Step 7: Run GREEN verification and commit**
 
 ```powershell
 & $cmake --build --preset modern-release --target cod_native_ads_completion_gate_tests cod_native_controller_tests -- /m

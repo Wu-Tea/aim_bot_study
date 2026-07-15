@@ -26,6 +26,38 @@ NativeAimAssistDynamics::NativeAimAssistDynamics(GamepadAimAssistDynamicsConfig 
 void NativeAimAssistDynamics::reset() {
     reset_envelope();
     reset_ads_crossing();
+    ads_handoff_assist_ = {};
+    ads_handoff_track_id_ = 0;
+    has_ads_handoff_assist_ = false;
+}
+
+void NativeAimAssistDynamics::observe_pre_recoil_output(
+    common_native::Vec2f manual,
+    common_native::Vec2f pre_recoil,
+    bool ads_snap_active,
+    std::uint64_t selected_track_id) {
+    if (!ads_snap_active || !std::isfinite(pre_recoil.x) || !std::isfinite(pre_recoil.y) ||
+        !std::isfinite(manual.x) || !std::isfinite(manual.y)) {
+        return;
+    }
+    ads_handoff_assist_ = {
+        clamp(pre_recoil.x - manual.x, -1.0f, 1.0f),
+        clamp(pre_recoil.y - manual.y, -1.0f, 1.0f)};
+    ads_handoff_track_id_ = selected_track_id != 0 ? selected_track_id : 1u;
+    has_ads_handoff_assist_ = true;
+}
+
+bool NativeAimAssistDynamics::ads_handoff_assist(
+    std::uint64_t selected_track_id,
+    common_native::Vec2f* out_assist) const {
+    const std::uint64_t target_key = selected_track_id != 0 ? selected_track_id : 1u;
+    if (!has_ads_handoff_assist_ || ads_handoff_track_id_ != target_key) {
+        return false;
+    }
+    if (out_assist != nullptr) {
+        *out_assist = ads_handoff_assist_;
+    }
+    return true;
 }
 
 void NativeAimAssistDynamics::reset_envelope() {
@@ -105,15 +137,28 @@ NativeAimAssistDynamicsOutput NativeAimAssistDynamics::apply(
         return {input.requested_assist, "non_bodylock_passthrough"};
     }
 
+    const std::uint64_t target_key = input.selected_track_id != 0
+        ? input.selected_track_id
+        : 1u;
+    bool seeded_from_ads = false;
+    if (!has_history_ && has_ads_handoff_assist_) {
+        if (ads_handoff_track_id_ == target_key) {
+            previous_assist_ = ads_handoff_assist_;
+            previous_delta_ = {};
+            has_history_ = true;
+            seeded_from_ads = true;
+        }
+        has_ads_handoff_assist_ = false;
+    }
+
     const double dt = std::max(0.0005, std::min(0.004, input.dt_seconds));
-    const float tick_scale = static_cast<float>(dt / 0.001);
-    const float error_radius = std::hypot(input.target_error_px.x, input.target_error_px.y);
-    const bool boundary_limited =
-        input.lifecycle == pipeline_contract::BodylockLifecycleState::Warm ||
-        input.lifecycle == pipeline_contract::BodylockLifecycleState::Coast;
-    const float nominal_step = (!boundary_limited && error_radius > 48.0f) ? 0.18f : 0.10f;
-    const float step_cap = nominal_step * tick_scale;
-    const float jerk_cap = 0.10f * tick_scale;
+    const float tick_scale = seeded_from_ads
+        ? 1.0f
+        : static_cast<float>(dt / 0.001);
+    constexpr float kStepCapPerMs = 0.035f;
+    constexpr float kJerkCapPerMs = 0.018f;
+    const float step_cap = kStepCapPerMs * tick_scale;
+    const float jerk_cap = kJerkCapPerMs * tick_scale;
 
     const common_native::Vec2f previous = has_history_ ? previous_assist_ : common_native::Vec2f{};
     const common_native::Vec2f previous_delta =

@@ -142,6 +142,11 @@ private:
     std::function<double()> clock_;
     double last_ads_stopped_at_seconds_ = 0.0;
     double last_dynamics_at_seconds_ = 0.0;
+    common_native::Vec2f last_ads_terminal_error_px_;
+    double last_ads_terminal_observed_at_seconds_ = 0.0;
+    std::uint64_t last_ads_terminal_vision_sequence_ = 0;
+    std::uint64_t last_ads_terminal_track_id_ = 0;
+    bool has_last_ads_terminal_observation_ = false;
     BodylockLifecycleDecision last_bodylock_lifecycle_decision_;
     std::string last_assist_limit_reason_ = "none";
     pipeline_contract::AssistAuthorityState last_effective_assist_authority_ =

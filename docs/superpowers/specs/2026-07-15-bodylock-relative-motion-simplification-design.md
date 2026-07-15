@@ -2,8 +2,8 @@
 
 ## Status
 
-Core design approved in conversation on 2026-07-15. The ADS-to-BodyLock handoff
-contract was added after review feedback and awaits confirmation. This document
+Core design and the ADS-to-BodyLock handoff contract were approved in
+conversation on 2026-07-15. This document
 defines the production change to follow the evidence-only benchmark in
 `2026-07-15-left-stick-relative-motion-defect-benchmark-design.md`.
 

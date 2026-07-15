@@ -36,7 +36,15 @@ public:
     explicit NativeAimAssistDynamics(GamepadAimAssistDynamicsConfig config = {});
 
     void reset();
+    void observe_pre_recoil_output(
+        common_native::Vec2f manual,
+        common_native::Vec2f pre_recoil,
+        bool ads_snap_active,
+        std::uint64_t selected_track_id);
     void observe_ads_snap_crossing(const NativeAimAssistDynamicsInput& input);
+    [[nodiscard]] bool ads_handoff_assist(
+        std::uint64_t selected_track_id,
+        common_native::Vec2f* out_assist) const;
     [[nodiscard]] NativeAimAssistDynamicsOutput apply(
         const NativeAimAssistDynamicsInput& input);
     [[nodiscard]] bool ads_crossing_brake_pending(double now_seconds) const;
@@ -76,6 +84,9 @@ private:
     AdsAxisCrossingState ads_crossing_y_;
     std::uint64_t ads_target_key_ = 0;
     std::uint64_t ads_vision_sequence_ = 0;
+    common_native::Vec2f ads_handoff_assist_;
+    std::uint64_t ads_handoff_track_id_ = 0;
+    bool has_ads_handoff_assist_ = false;
 };
 
 }  // namespace controller_native

@@ -36,8 +36,6 @@ void NativeAiAim::reset_body_lock_history() {
     body_lock_reference_top_ = 0.0f;
     body_lock_reference_right_ = 0.0f;
     body_lock_reference_bottom_ = 0.0f;
-    body_lock_ai_stick_x_ = 0.0f;
-    body_lock_ai_stick_y_ = 0.0f;
     has_last_body_lock_error_x_ = false;
     has_last_body_lock_error_y_ = false;
     last_body_lock_error_x_ = 0.0f;
@@ -91,11 +89,6 @@ NativeAiAimOutput NativeAiAim::compute(const NativeAiAimInput& input) {
         }
         return output;
     }
-    if (!body_lock_active) {
-        body_lock_ai_stick_x_ = 0.0f;
-        body_lock_ai_stick_y_ = 0.0f;
-    }
-
     last_mode_ = ads_snap_mode ? "ads_snap" : "body_lock";
     if (!ads_snap_mode) {
         ads_snap_ai_stick_x_ = 0.0f;
@@ -105,6 +98,8 @@ NativeAiAimOutput NativeAiAim::compute(const NativeAiAimInput& input) {
     float target_error_y = input.dy;
     float body_lock_guard_error_x = target_error_x;
     float body_lock_guard_error_y = target_error_y;
+    float body_lock_position_error_x = target_error_x;
+    float body_lock_position_error_y = target_error_y;
     float max_force_x = input.ads_snap_active
         ? config_.ads_snap_max_ai_force
         : config_.max_ai_force;
@@ -142,12 +137,15 @@ NativeAiAimOutput NativeAiAim::compute(const NativeAiAimInput& input) {
                        pipeline_contract::BodylockLifecycleState::Coast) {
             reset_motion_tracking();
         }
-        const auto [lock_dx, lock_dy] = body_lock_target_delta(input);
-        target_error_x = body_lock_lateral_motion_delta(lock_dx);
-        target_error_y = lock_dy;
-        body_lock_guard_error_x = lock_dx;
-        body_lock_guard_error_y = lock_dy;
-        lock_confidence = observe_body_lock_confidence(input, lock_dx, lock_dy);
+        const auto [position_dx, position_dy] = body_lock_position_delta(input);
+        const auto [combined_dx, combined_dy] = body_lock_target_delta(input);
+        target_error_x = body_lock_lateral_motion_delta(combined_dx);
+        target_error_y = combined_dy;
+        body_lock_position_error_x = position_dx;
+        body_lock_position_error_y = position_dy;
+        body_lock_guard_error_x = position_dx;
+        body_lock_guard_error_y = position_dy;
+        lock_confidence = observe_body_lock_confidence(input, position_dx, position_dy);
         max_force_x = config_.body_lock_max_ai_force;
         if (input.manual_right_x * target_error_x < 0.0f) {
             max_force_x = std::max(max_force_x, config_.body_lock_opposing_boost_max_ai_force);
@@ -217,7 +215,58 @@ NativeAiAimOutput NativeAiAim::compute(const NativeAiAimInput& input) {
         } else {
             output.assist_y *= vertical_scale;
         }
-        apply_body_lock_smoothing(output, stabilize_ratio);
+
+        const auto [position_x_strength, position_y_strength] = axis_soft_strengths(
+            body_lock_position_error_x,
+            body_lock_position_error_y);
+        float position_assist_x = compute_axis(
+            body_lock_position_error_x,
+            0.0f,
+            max_force_x,
+            scale,
+            position_x_strength,
+            false);
+        float position_assist_y = compute_axis(
+            -body_lock_position_error_y,
+            0.0f,
+            max_force_y * body_lock_y_force_scale,
+            scale,
+            position_y_strength,
+            true);
+        if (stabilize_ratio > 0.0f) {
+            position_assist_x *= 1.0f + (0.85f * stabilize_ratio);
+            position_assist_y *= 1.0f + (0.35f * stabilize_ratio);
+        }
+        const float position_vertical_scale =
+            body_lock_vertical_ai_scale(body_lock_position_error_y);
+        if (position_vertical_scale < 0.0f) {
+            position_assist_y = 0.0f;
+        } else {
+            position_assist_y *= position_vertical_scale;
+        }
+
+        const float motion_feedforward_x = output.assist_x - position_assist_x;
+        const float motion_feedforward_y = output.assist_y - position_assist_y;
+        position_assist_x = cap_body_lock_terminal_position(
+            position_assist_x,
+            body_lock_position_error_x);
+        position_assist_y = cap_body_lock_terminal_position(
+            position_assist_y,
+            -body_lock_position_error_y);
+        output.position_assist_x = position_assist_x;
+        output.position_assist_y = position_assist_y;
+        output.motion_feedforward_x = motion_feedforward_x;
+        output.motion_feedforward_y = motion_feedforward_y;
+        output.assist_x = std::max(
+            -std::max(0.0f, max_force_x),
+            std::min(
+                std::max(0.0f, max_force_x),
+                position_assist_x + motion_feedforward_x));
+        output.assist_y = std::max(
+            -std::max(0.0f, max_force_y),
+            std::min(
+                std::max(0.0f, max_force_y),
+                position_assist_y + motion_feedforward_y));
     }
     if (ads_snap_mode) {
         const float planned_x = output.assist_x;
@@ -382,9 +431,9 @@ bool NativeAiAim::should_body_lock(const NativeAiAimInput& input) const {
     return std::fabs(lock_dx) <= activation_half && std::fabs(lock_dy) <= activation_half;
 }
 
-std::pair<float, float> NativeAiAim::body_lock_target_delta(const NativeAiAimInput& input) const {
-    const auto [lead_x, lead_y] = body_lock_motion_lead_delta(input);
-    const float lock_x = ((input.body_x1 + input.body_x2) * 0.5f) + lead_x;
+std::pair<float, float> NativeAiAim::body_lock_position_delta(
+    const NativeAiAimInput& input) const {
+    const float lock_x = (input.body_x1 + input.body_x2) * 0.5f;
     const float body_width = input.body_x2 - input.body_x1;
     const float body_height = input.body_y2 - input.body_y1;
     const bool wide_low_body = body_width > 0.0f && (body_height / body_width) < 0.65f;
@@ -396,8 +445,15 @@ std::pair<float, float> NativeAiAim::body_lock_target_delta(const NativeAiAimInp
     const float selected_or_fallback_y = selected_y_inside_box
         ? input.target_y
         : input.body_y1 + ((input.body_y2 - input.body_y1) * upper_body_ratio);
-    const float lock_y = selected_or_fallback_y + lead_y;
+    const float lock_y = selected_or_fallback_y;
     return {lock_x - input.screen_center_x, lock_y - input.screen_center_y};
+}
+
+std::pair<float, float> NativeAiAim::body_lock_target_delta(
+    const NativeAiAimInput& input) const {
+    const auto [position_x, position_y] = body_lock_position_delta(input);
+    const auto [lead_x, lead_y] = body_lock_motion_lead_delta(input);
+    return {position_x + lead_x, position_y + lead_y};
 }
 
 std::pair<float, float> NativeAiAim::body_lock_motion_lead_delta(
@@ -526,14 +582,6 @@ void NativeAiAim::set_body_lock_axis_hold(bool y_axis, int value) {
     body_lock_zero_cross_hold_x_ = std::max(0, value);
 }
 
-void NativeAiAim::clear_body_lock_axis_carry(bool y_axis) {
-    if (y_axis) {
-        body_lock_ai_stick_y_ = 0.0f;
-        return;
-    }
-    body_lock_ai_stick_x_ = 0.0f;
-}
-
 float NativeAiAim::apply_body_lock_axis_guard(
     float desired_ai,
     float desired_error,
@@ -541,25 +589,19 @@ float NativeAiAim::apply_body_lock_axis_guard(
     if (std::fabs(desired_error) <= body_lock_axis_release_threshold(y_axis)) {
         set_body_lock_axis_hold(y_axis, 0);
         const float tail_scale = body_lock_axis_release_tail_scale(y_axis);
-        if (is_body_lock_zero_cross(y_axis, desired_error)) {
-            clear_body_lock_axis_carry(y_axis);
-        }
         if (tail_scale > 0.0f) {
             return desired_ai * tail_scale;
         }
-        clear_body_lock_axis_carry(y_axis);
         return 0.0f;
     }
 
     if (body_lock_axis_hold_remaining(y_axis) > 0) {
         set_body_lock_axis_hold(y_axis, body_lock_axis_hold_remaining(y_axis) - 1);
-        clear_body_lock_axis_carry(y_axis);
         return 0.0f;
     }
 
     if (is_body_lock_zero_cross(y_axis, desired_error)) {
         set_body_lock_axis_hold(y_axis, 1);
-        clear_body_lock_axis_carry(y_axis);
         return 0.0f;
     }
     return desired_ai;
@@ -582,18 +624,24 @@ void NativeAiAim::apply_ads_snap_smoothing(NativeAiAimOutput& output) {
     output.assist_y = ads_snap_ai_stick_y_;
 }
 
-void NativeAiAim::apply_body_lock_smoothing(NativeAiAimOutput& output, float stabilize_ratio) {
-    float smoothing = std::max(0.0f, std::min(0.95f, config_.body_lock_smoothing));
-    const float clamped_stabilize = std::max(0.0f, std::min(1.0f, stabilize_ratio));
-    if (clamped_stabilize > 0.0f) {
-        smoothing *= std::max(0.15f, 1.0f - (0.85f * clamped_stabilize));
+float NativeAiAim::cap_body_lock_terminal_position(
+    float position_assist,
+    float lock_error_px) const {
+    if (!std::isfinite(position_assist) || !std::isfinite(lock_error_px) ||
+        position_assist * lock_error_px <= 0.0f) {
+        return position_assist;
     }
-    body_lock_ai_stick_x_ =
-        (body_lock_ai_stick_x_ * smoothing) + (output.assist_x * (1.0f - smoothing));
-    body_lock_ai_stick_y_ =
-        (body_lock_ai_stick_y_ * smoothing) + (output.assist_y * (1.0f - smoothing));
-    output.assist_x = body_lock_ai_stick_x_;
-    output.assist_y = body_lock_ai_stick_y_;
+    constexpr float kTerminalHorizonSeconds = 0.050f;
+    constexpr float kOvershootBudgetPx = 2.0f;
+    const float reticle_speed = std::max(
+        1.0f,
+        config_.target_projection_reticle_speed_px_per_sec);
+    const float allowed_assist =
+        (std::fabs(lock_error_px) + kOvershootBudgetPx) /
+        (reticle_speed * kTerminalHorizonSeconds);
+    return std::copysign(
+        std::min(std::fabs(position_assist), allowed_assist),
+        position_assist);
 }
 
 float NativeAiAim::observe_body_lock_confidence(

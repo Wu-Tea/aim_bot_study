@@ -134,6 +134,11 @@ void NativeGamepadController::reset() {
     aim_activation_tracker_.reset();
     last_ads_stopped_at_seconds_ = 0.0;
     last_dynamics_at_seconds_ = 0.0;
+    last_ads_terminal_error_px_ = {};
+    last_ads_terminal_observed_at_seconds_ = 0.0;
+    last_ads_terminal_vision_sequence_ = 0;
+    last_ads_terminal_track_id_ = 0;
+    has_last_ads_terminal_observation_ = false;
     last_bodylock_lifecycle_decision_ = BodylockLifecycleDecision{};
     last_effective_assist_authority_ = pipeline_contract::AssistAuthorityState::Reject;
     last_assist_limit_reason_ = "none";
@@ -303,6 +308,11 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
     stage_before_output = output;
     stage_before_right_y = output.right_y;
     output_components.before_recoil_stick = {output.right_x, output.right_y};
+    aim_assist_dynamics_.observe_pre_recoil_output(
+        {manual_right_x, manual_right_y},
+        output_components.before_recoil_stick,
+        ai_aim_.last_mode() == "ads_snap",
+        frame_vision_state.selected_track_id);
     apply_recoil(output, physical, auto_fire_decision.should_fire, now);
     capture_output_component_delta(
         stage_before_output,
@@ -420,6 +430,60 @@ bool NativeGamepadController::ads_snap_active_for_frame(
     input.vision_sequence = vision_state.vision_sequence;
     input.dx = vision_state.dx;
     input.dy = vision_state.dy;
+    input.terminal_approach_valid = false;
+    const std::uint64_t target_key = vision_state.selected_track_id != 0
+        ? vision_state.selected_track_id
+        : 1u;
+    const common_native::Vec2f target_error{vision_state.dx, -vision_state.dy};
+    common_native::Vec2f delivered_ads_assist;
+    if (input.fresh_observation && input.has_strong_target &&
+        aim_assist_dynamics_.ads_handoff_assist(
+            vision_state.selected_track_id,
+            &delivered_ads_assist)) {
+        const float error_radius = std::hypot(target_error.x, target_error.y);
+        if (error_radius > 0.0001f) {
+            const common_native::Vec2f error_direction{
+                target_error.x / error_radius,
+                target_error.y / error_radius};
+            input.position_closing_assist = std::max(
+                0.0f,
+                (delivered_ads_assist.x * error_direction.x) +
+                    (delivered_ads_assist.y * error_direction.y));
+            const float reticle_speed = std::max(
+                1.0f,
+                config_.ai_aim.target_projection_reticle_speed_px_per_sec);
+            const float planned_closing_speed =
+                input.position_closing_assist * reticle_speed;
+            if (vision_state.has_camera_attributed_velocity &&
+                std::isfinite(vision_state.camera_attributed_velocity_x_px_per_sec)) {
+                const float target_opening_speed =
+                    vision_state.camera_attributed_velocity_x_px_per_sec *
+                    error_direction.x;
+                input.closing_speed_px_per_sec = std::max(
+                    0.0f,
+                    planned_closing_speed - target_opening_speed);
+                input.terminal_approach_valid = true;
+            } else if (has_last_ads_terminal_observation_ &&
+                       last_ads_terminal_track_id_ == target_key &&
+                       last_ads_terminal_vision_sequence_ != input.vision_sequence) {
+                const double observation_dt =
+                    vision_state.observed_at_seconds -
+                    last_ads_terminal_observed_at_seconds_;
+                if (observation_dt >= 0.001 && observation_dt <= 0.100) {
+                    const float previous_radius = std::hypot(
+                        last_ads_terminal_error_px_.x,
+                        last_ads_terminal_error_px_.y);
+                    const float measured_closing_speed = std::max(
+                        0.0f,
+                        static_cast<float>((previous_radius - error_radius) / observation_dt));
+                    input.closing_speed_px_per_sec = std::max(
+                        measured_closing_speed,
+                        planned_closing_speed);
+                    input.terminal_approach_valid = true;
+                }
+            }
+        }
+    }
     if (input.aiming && input.has_strong_target) {
         NativeAimAssistDynamicsInput crossing_input;
         crossing_input.manual = {manual_right_x, manual_right_y};
@@ -433,7 +497,21 @@ bool NativeGamepadController::ads_snap_active_for_frame(
     input.crossing_brake_active =
         aim_assist_dynamics_.ads_crossing_brake_pending(now_seconds);
     input.now_seconds = now_seconds;
-    return ads_completion_gate_.update(input).active;
+    const bool ads_snap_active = ads_completion_gate_.update(input).active;
+    if (input.fresh_observation && input.has_strong_target &&
+        input.vision_sequence != 0 &&
+        input.vision_sequence != last_ads_terminal_vision_sequence_) {
+        if (has_last_ads_terminal_observation_ &&
+            last_ads_terminal_track_id_ != target_key) {
+            has_last_ads_terminal_observation_ = false;
+        }
+        last_ads_terminal_error_px_ = target_error;
+        last_ads_terminal_observed_at_seconds_ = vision_state.observed_at_seconds;
+        last_ads_terminal_vision_sequence_ = input.vision_sequence;
+        last_ads_terminal_track_id_ = target_key;
+        has_last_ads_terminal_observation_ = true;
+    }
+    return ads_snap_active;
 }
 
 float NativeGamepadController::ads_snap_progress_ratio(double now_seconds) const {
