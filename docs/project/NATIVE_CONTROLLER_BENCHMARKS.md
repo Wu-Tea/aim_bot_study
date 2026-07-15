@@ -162,6 +162,15 @@ Build and run it with:
 & 'C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe' `
   --build --preset modern-release --target cod_native_lstick_benchmark -- /m
 
+& 'C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe' `
+  --build --preset modern-release --target cod_native_lstick_benchmark_tests -- /m
+
+native\vision_native\build-modern\Release\cod_native_lstick_benchmark_tests.exe
+
+& 'C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\ctest.exe' `
+  --test-dir native\vision_native\build-modern -C Release `
+  -R NativeLeftStickMotionBenchmarkTests --output-on-failure
+
 native\vision_native\build-modern\Release\cod_native_left_stick_motion_benchmark.exe `
   --output artifacts\benchmarks\native_gamepad\left-stick-motion-defect-20260715.json
 
@@ -176,7 +185,7 @@ non-zero for this RED baseline.
 Accepted RED artifact:
 `artifacts/benchmarks/native_gamepad/left-stick-motion-defect-20260715.json`.
 Two consecutive runs produced the same SHA-256:
-`4794F655DAB331C90E840FBB1CAA0ABE5108409C0D1377942D0CB9009523A08C`.
+`6D408FD4CFAFD6CE53504076D109F64591196CC4AA7381A637DAC6B9522FA3BF`.
 
 The open-loop invariance probe produced:
 
@@ -186,6 +195,49 @@ The open-loop invariance probe produced:
 | Maximum final-right trace delta when only left intent changes | 0.000 |
 | Maximum left-axis passthrough error | 0.000 |
 | Left intent ignored | true |
+
+### Production-chain strafe/dropout probe
+
+This probe supplements the closed-loop kinematic fixtures with the real native
+selector/tracker/controller path. It is based on the 2026-07-15 live evidence:
+the detector can still expose candidates while the selected production target
+becomes unavailable, bodylock falls back to manual, and reacquisition can bind a
+new track. It does not replay pixels, add a vision pass, or depend on weapon ADS
+mobility data.
+
+Adding the `production_chain` object advances the artifact contract from schema
+version 1 to version 2.
+
+Right-stick input with absolute value at or below `0.02` is classified as
+deadzone-sized drift, not intentional correction. The fixture uses
+`manual_right_x = -0.00393677`; therefore the previously observed maximum
+`0.0118` would also be drift under this contract.
+
+| Metric | RED result |
+| --- | ---: |
+| Total controller frames | 430 |
+| `body_lock` / `ads_snap` / `manual` frames | 294 / 45 / 91 |
+| Detector-candidate-present selected-target gap | 70 frames / 700 ms |
+| Production target missing inside that gap | 62 frames / 620 ms |
+| Target present but bodylock unavailable | 20 frames / 200 ms |
+| Drift classified as manual correction | 0 frames |
+| Final output effectively drift-only | 113 frames |
+| Maximum continuous drift-only interval | 900 ms |
+| Selected-track changes | 7 |
+| Reacquisition latency after scheduled return | 0 ms |
+| Requested assist suppressed before final output | 0 frames |
+| Failure reason | `production_chain_drift_only_gap` |
+
+The 80 ms difference between the 700 ms selected-target gap and the 620 ms
+production-target-missing duration is tracker coast, not detector recovery. The
+probe records candidate presence, selected track id, lifecycle, requested AI,
+final right-stick output, mode, and final-output limit reason at phase/state
+events so a later fix can identify which layer improved.
+
+`requested_suppressed_frames` is part of the scorecard because the live log
+contained a final-output suppression example. This deterministic fixture does
+not force that branch today, so its RED result is `0`; the reproduced failure is
+the longer selector/tracker/bodylock dropout chain.
 
 Closed-loop results exclude ticks 0-69 so initial ADS acquisition output is not
 misclassified as a strafe defect:
@@ -209,4 +261,5 @@ Interpretation:
 - When the user also corrects with the right stick, AI opposes that correction
   for seven frames around strafe events.
 - The next optimization should beat these event-latency and opposition metrics
-  while preserving the existing controller benchmark and bodylock guards.
+  plus the production-chain dropout metrics while preserving the existing
+  controller benchmark and bodylock guards.

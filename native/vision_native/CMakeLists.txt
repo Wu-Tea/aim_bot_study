@@ -992,6 +992,59 @@ target_link_libraries(cod_native_lstick_benchmark PRIVATE
 set_target_properties(cod_native_lstick_benchmark PROPERTIES
     OUTPUT_NAME cod_native_left_stick_motion_benchmark)
 
+add_executable(cod_native_lstick_benchmark_tests
+    ../controller_native/left_stick_motion_defect_benchmark_tests.cpp
+    ../controller_native/left_stick_motion_defect_benchmark.cpp
+    ../tracking_native/association.cpp
+    ../tracking_native/ego_motion_buffer.cpp
+    ../tracking_native/projection_model.cpp
+    ../tracking_native/tracker_authority.cpp
+    ../tracking_native/kalman_tracker.cpp
+    ../tracking_native/fps_reference_tracker.cpp
+    ../tracking_native/tracker_backend.cpp
+    ../tracking_native/legacy_projection_tracker.cpp
+    ${FPS_TRACKER_PACKAGE_SOURCES}
+    ../controller_native/runtime_config.cpp
+    ../controller_native/ads_state_tracker.cpp
+    ../controller_native/ads_completion_gate.cpp
+    ../controller_native/auto_fire_gate.cpp
+    ../controller_native/target_tracker.cpp
+    ../controller_native/ads_carry_brake_policy.cpp
+    ../controller_native/ai_aim.cpp
+    ../controller_native/body_lock_short_plan_policy.cpp
+    ../controller_native/bodylock_policy.cpp
+    ../controller_native/aim_assist_dynamics.cpp
+    ../controller_native/recoil_profile.cpp
+    ../controller_native/recoil_calibration.cpp
+    ../controller_native/recoil_compensation.cpp
+    ../recoil_native/recoil_compensation.cpp
+    ../recoil_native/recoil_visual_model.cpp
+    ../controller_native/output_mixer.cpp
+    ../controller_native/output_validation_policy.cpp
+    ../controller_native/controller_pipeline.cpp
+    ../controller_native/target_snapshot_provider.cpp
+    ../controller_native/assist_authority_policy.cpp
+    ../controller_native/bodylock_lifecycle.cpp
+    ../controller_native/native_gamepad_controller.cpp
+)
+
+target_include_directories(cod_native_lstick_benchmark_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fps_2d_tracker_package/include
+)
+
+target_compile_definitions(cod_native_lstick_benchmark_tests PRIVATE
+    NOMINMAX WIN32_LEAN_AND_MEAN)
+
+target_link_libraries(cod_native_lstick_benchmark_tests PRIVATE
+    vision_native_core gdi32 windowsapp)
+
+enable_testing()
+add_test(
+    NAME NativeLeftStickMotionBenchmarkTests
+    COMMAND cod_native_lstick_benchmark_tests)
+
 add_executable(cod_native_aimlab_benchmark_tests
     ../controller_native/aimlab_benchmark_tests.cpp
     ../controller_native/aimlab_benchmark.cpp

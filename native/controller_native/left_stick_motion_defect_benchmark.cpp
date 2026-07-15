@@ -23,6 +23,15 @@ constexpr int kTicksPerScenario = 360;
 constexpr int kVisionIntervalTicks = 2;
 constexpr int kVisionDelayTicks = 3;
 constexpr int kEvaluationStartTick = 70;
+constexpr int kChainStableStartTick = 80;
+constexpr int kChainUnavailableStartTick = 200;
+constexpr int kChainSelectedGapStartTick = 220;
+constexpr int kChainReacquireTick = 290;
+constexpr int kChainRecoveryTick = 330;
+constexpr int kChainTicks = 430;
+constexpr float kDriftRightX = -0.00393677f;
+constexpr float kDriftManualThreshold = 0.02f;
+constexpr float kDriftOnlyAssistThreshold = 0.005f;
 
 enum class TargetRelation {
     Stationary,
@@ -118,6 +127,192 @@ const char* phase_name(int tick) {
         return "strafe_left";
     }
     return "release";
+}
+
+const char* production_chain_phase_name(int tick) {
+    if (tick < kChainStableStartTick) {
+        return "acquire_settle";
+    }
+    if (tick < kChainUnavailableStartTick) {
+        return "stable_bodylock_strafe";
+    }
+    if (tick < kChainSelectedGapStartTick) {
+        return "target_present_bodylock_unavailable";
+    }
+    if (tick < kChainReacquireTick) {
+        return "candidate_present_selected_target_gap";
+    }
+    if (tick < kChainRecoveryTick) {
+        return "reacquire_ads_snap";
+    }
+    return "recovered_bodylock";
+}
+
+bool is_production_chain_boundary(int tick) {
+    return tick == 0 || tick == kChainStableStartTick ||
+        tick == kChainUnavailableStartTick ||
+        tick == kChainSelectedGapStartTick ||
+        tick == kChainReacquireTick || tick == kChainRecoveryTick ||
+        tick == kChainTicks - 1;
+}
+
+double production_chain_error_px(int tick) {
+    if (tick < 40) {
+        return 44.0 - (40.0 * (static_cast<double>(tick) / 39.0));
+    }
+    if (tick < kChainStableStartTick) {
+        return 4.0;
+    }
+    if (tick < kChainUnavailableStartTick) {
+        const double progress = static_cast<double>(tick - kChainStableStartTick) / 120.0;
+        return 22.0 + (8.0 * std::sin(progress * kPi * 2.0));
+    }
+    if (tick < kChainSelectedGapStartTick) {
+        return 37.0;
+    }
+    if (tick < kChainReacquireTick) {
+        const double progress = static_cast<double>(tick - kChainSelectedGapStartTick) / 70.0;
+        return 37.0 + (14.0 * progress);
+    }
+    if (tick < kChainRecoveryTick) {
+        const double progress = static_cast<double>(tick - kChainReacquireTick) / 40.0;
+        return 51.0 - (45.0 * progress);
+    }
+    const double progress = static_cast<double>(tick - kChainRecoveryTick) / 100.0;
+    return 6.0 + (10.0 * std::sin(progress * kPi * 2.0));
+}
+
+common_native::Box2f production_chain_body_box(
+    float target_x,
+    bool bodylock_geometry_available) {
+    const float width = bodylock_geometry_available ? 84.0f : 24.0f;
+    const float height = bodylock_geometry_available ? 160.0f : 100.0f;
+    return {
+        target_x - (width * 0.5f),
+        256.0f - (height * 0.4f),
+        width,
+        height,
+    };
+}
+
+pipeline_contract::VisionCandidateSnapshot production_chain_candidate(
+    std::uint64_t observation_id,
+    float target_x,
+    float confidence,
+    bool bodylock_geometry_available) {
+    pipeline_contract::VisionCandidateSnapshot candidate;
+    candidate.id = observation_id;
+    candidate.valid = true;
+    candidate.body_box_px = production_chain_body_box(
+        target_x,
+        bodylock_geometry_available);
+    candidate.aim_point_px = {target_x, 256.0f};
+    candidate.has_aim_point = true;
+    candidate.confidence = confidence;
+    candidate.suggested_authority_state =
+        common_native::TargetAuthorityState::StrongAssist;
+    return candidate;
+}
+
+tracking_native::TrackerDetection production_chain_detection(
+    std::uint64_t observation_id,
+    float target_x,
+    float confidence,
+    bool bodylock_geometry_available) {
+    tracking_native::TrackerDetection detection;
+    detection.id = observation_id;
+    detection.body_box_px = production_chain_body_box(
+        target_x,
+        bodylock_geometry_available);
+    detection.aim_point_px = {target_x, 256.0f};
+    detection.has_aim_point = true;
+    detection.confidence = confidence;
+    detection.target_tier = "observed_strong";
+    return detection;
+}
+
+ControllerVisionSnapshot production_chain_snapshot(
+    std::uint64_t frame_id,
+    double capture_time_seconds,
+    double error_x_px,
+    bool include_selected_target,
+    bool bodylock_geometry_available) {
+    ControllerVisionSnapshot snapshot;
+    snapshot.frame_updated = true;
+    snapshot.selector_identity_protocol = true;
+    snapshot.frame_id = frame_id;
+    snapshot.capture_time_seconds = capture_time_seconds;
+    snapshot.ready_time_seconds = capture_time_seconds;
+    snapshot.state.screen_center_x = 320.0f;
+    snapshot.state.screen_center_y = 256.0f;
+    snapshot.state.observed_at_seconds = capture_time_seconds;
+    snapshot.user_intent.valid = true;
+    snapshot.user_intent.aiming = true;
+    snapshot.user_intent.timestamp = {capture_time_seconds};
+
+    const std::uint64_t primary_observation_id = (frame_id << 32u) | 1u;
+    const std::uint64_t distractor_observation_id = (frame_id << 32u) | 2u;
+    const float target_x = 320.0f + static_cast<float>(error_x_px);
+
+    if (include_selected_target) {
+        snapshot.selected_observation_id = primary_observation_id;
+        snapshot.state.has_target = true;
+        snapshot.state.aim_authority = true;
+        snapshot.state.fire_authority = false;
+        snapshot.state.target_tier = "observed_strong";
+        snapshot.state.target_x = target_x;
+        snapshot.state.target_y = 256.0f;
+        snapshot.state.dx = static_cast<float>(error_x_px);
+        snapshot.state.dy = 0.0f;
+        snapshot.state.has_body_box = true;
+        const common_native::Box2f body_box = production_chain_body_box(
+            target_x,
+            bodylock_geometry_available);
+        snapshot.state.body_x1 = body_box.x;
+        snapshot.state.body_y1 = body_box.y;
+        snapshot.state.body_x2 = body_box.x + body_box.w;
+        snapshot.state.body_y2 = body_box.y + body_box.h;
+        snapshot.candidates.push_back(production_chain_candidate(
+            primary_observation_id,
+            target_x,
+            0.82f,
+            bodylock_geometry_available));
+        snapshot.tracker_detections.push_back(production_chain_detection(
+            primary_observation_id,
+            target_x,
+            0.82f,
+            bodylock_geometry_available));
+    } else {
+        snapshot.state.has_target = false;
+        snapshot.state.aim_authority = false;
+        snapshot.state.fire_authority = false;
+        snapshot.state.target_tier = "none";
+    }
+
+    snapshot.candidates.push_back(production_chain_candidate(
+        distractor_observation_id,
+        535.0f,
+        0.68f,
+        true));
+    snapshot.tracker_detections.push_back(production_chain_detection(
+        distractor_observation_id,
+        535.0f,
+        0.68f,
+        true));
+    if (!include_selected_target) {
+        const std::uint64_t second_distractor_id = (frame_id << 32u) | 3u;
+        snapshot.candidates.push_back(production_chain_candidate(
+            second_distractor_id,
+            105.0f,
+            0.64f,
+            true));
+        snapshot.tracker_detections.push_back(production_chain_detection(
+            second_distractor_id,
+            105.0f,
+            0.64f,
+            true));
+    }
+    return snapshot;
 }
 
 double clamp_unit(double value) {
@@ -477,6 +672,167 @@ IntentInvarianceMetrics run_intent_invariance_probe() {
     return metrics;
 }
 
+ProductionChainMetrics run_production_chain_probe() {
+    GamepadRuntimeConfig config;
+    config.recoil.enabled = false;
+    config.auto_fire.require_aim_ready = false;
+    config.aim_assist_dynamics.enabled = true;
+
+    double now = 1.0;
+    NativeGamepadController controller(config, [&now] { return now; });
+    ProductionChainMetrics metrics;
+    metrics.total_frames = kChainTicks;
+
+    std::string previous_mode;
+    std::string previous_lifecycle;
+    std::string previous_limit_reason;
+    std::uint64_t previous_track_id = 0;
+    int current_drift_only_frames = 0;
+    int maximum_drift_only_frames = 0;
+    int first_reacquired_tick = -1;
+
+    for (int tick = 0; tick < kChainTicks; ++tick) {
+        now = 1.0 + (static_cast<double>(tick) * kDtSeconds);
+        const bool selected_gap =
+            tick >= kChainSelectedGapStartTick && tick < kChainReacquireTick;
+        const bool bodylock_geometry_available =
+            tick < kChainUnavailableStartTick || tick >= kChainSelectedGapStartTick;
+        const bool detector_candidates_present = true;
+        const double scheduled_error_px = production_chain_error_px(tick);
+
+        if (tick % kVisionIntervalTicks == 0) {
+            const std::uint64_t frame_id = static_cast<std::uint64_t>(tick / 2 + 1);
+            controller.submit_vision_snapshot(production_chain_snapshot(
+                frame_id,
+                now,
+                scheduled_error_px,
+                !selected_gap,
+                bodylock_geometry_available));
+        }
+
+        PhysicalGamepadState physical;
+        physical.connected = true;
+        physical.left_trigger = 1.0f;
+        physical.left_x = tick >= kChainStableStartTick ? 0.80f : 0.0f;
+        physical.right_x = kDriftRightX;
+        const GamepadOutputState output = controller.build_output(physical);
+        const NativeControllerOutputComponents& components =
+            controller.last_output_components();
+        const NativeControllerVisionState& vision_state =
+            controller.last_frame_vision_state();
+        const std::string& mode = components.aim_mode;
+
+        if (mode == "body_lock") {
+            ++metrics.body_lock_frames;
+        } else if (mode == "ads_snap") {
+            ++metrics.ads_snap_frames;
+        } else if (mode == "manual") {
+            ++metrics.manual_frames;
+        }
+        if (!previous_mode.empty() && mode != previous_mode) {
+            ++metrics.mode_transitions;
+        }
+        metrics.max_abs_manual_right = std::max(
+            metrics.max_abs_manual_right,
+            std::fabs(static_cast<double>(physical.right_x)));
+        if (std::fabs(physical.right_x) > kDriftManualThreshold) {
+            ++metrics.drift_manual_correction_frames;
+        }
+        if (selected_gap && detector_candidates_present) {
+            ++metrics.detector_candidate_gap_frames;
+            if (!vision_state.has_target) {
+                ++metrics.production_target_missing_frames;
+            }
+        }
+        if (tick >= kChainUnavailableStartTick &&
+            tick < kChainSelectedGapStartTick && vision_state.has_target &&
+            mode != "body_lock") {
+            ++metrics.target_present_bodylock_unavailable_frames;
+        }
+
+        const double delivered_assist =
+            static_cast<double>(output.right_x) - physical.right_x;
+        const bool strafe_active = tick >= kChainStableStartTick;
+        const bool drift_only =
+            strafe_active && detector_candidates_present &&
+            std::fabs(physical.right_x) <= kDriftManualThreshold &&
+            std::fabs(delivered_assist) <= kDriftOnlyAssistThreshold;
+        if (drift_only) {
+            ++metrics.drift_only_final_frames;
+            ++current_drift_only_frames;
+            maximum_drift_only_frames = std::max(
+                maximum_drift_only_frames,
+                current_drift_only_frames);
+        } else {
+            current_drift_only_frames = 0;
+        }
+        if (std::fabs(components.requested_assist_stick.x) >= 0.05f &&
+            std::fabs(delivered_assist) <= kDriftOnlyAssistThreshold) {
+            ++metrics.requested_suppressed_frames;
+        }
+
+        if (tick == kChainSelectedGapStartTick - 1) {
+            metrics.pre_loss_error_px = vision_state.dx;
+        }
+        if (tick >= kChainReacquireTick && first_reacquired_tick < 0 &&
+            vision_state.has_target) {
+            first_reacquired_tick = tick;
+            metrics.post_reacquire_error_px = vision_state.dx;
+            metrics.reacquire_latency_ms =
+                static_cast<double>(tick - kChainReacquireTick) *
+                kDtSeconds * 1000.0;
+        }
+
+        const std::uint64_t track_id = vision_state.selected_track_id;
+        if (track_id != 0 && previous_track_id != 0 && track_id != previous_track_id) {
+            ++metrics.selected_track_changes;
+        }
+        const bool state_changed =
+            mode != previous_mode ||
+            components.bodylock_lifecycle != previous_lifecycle ||
+            components.assist_limit_reason != previous_limit_reason ||
+            track_id != previous_track_id;
+        if (is_production_chain_boundary(tick) || state_changed) {
+            ProductionChainEvent event;
+            event.phase = production_chain_phase_name(tick);
+            event.tick = tick;
+            event.detector_candidates_present = detector_candidates_present;
+            event.production_target_present = vision_state.has_target;
+            event.selected_track_id = track_id;
+            event.manual_right_x = physical.right_x;
+            event.requested_ai_x = components.requested_assist_stick.x;
+            event.final_right_x = output.right_x;
+            event.target_error_px = vision_state.dx;
+            event.aim_mode = mode;
+            event.lifecycle = components.bodylock_lifecycle;
+            event.limit_reason = components.assist_limit_reason;
+            metrics.events.push_back(std::move(event));
+        }
+
+        previous_mode = mode;
+        previous_lifecycle = components.bodylock_lifecycle;
+        previous_limit_reason = components.assist_limit_reason;
+        if (track_id != 0) {
+            previous_track_id = track_id;
+        }
+    }
+
+    metrics.max_continuous_drift_only_ms =
+        static_cast<double>(maximum_drift_only_frames) * kDtSeconds * 1000.0;
+    metrics.behavior_populated =
+        metrics.total_frames == kChainTicks && !metrics.events.empty();
+    if (metrics.max_continuous_drift_only_ms >= 100.0) {
+        metrics.defect_reasons.push_back("production_chain_drift_only_gap");
+    }
+    if (metrics.requested_suppressed_frames > 0) {
+        metrics.defect_reasons.push_back(
+            "requested_assist_suppressed_before_final");
+    }
+    metrics.desired_gate_pass = metrics.defect_reasons.empty();
+    metrics.defect_reproduced = !metrics.desired_gate_pass;
+    return metrics;
+}
+
 void write_bool(std::ostream& output, bool value) {
     output << (value ? "true" : "false");
 }
@@ -490,6 +846,7 @@ BenchmarkReport run_benchmark() {
     for (const ClosedLoopFixture& fixture_config : kClosedLoopFixtures) {
         report.scenarios.push_back(run_closed_loop_fixture(fixture_config));
     }
+    report.production_chain = run_production_chain_probe();
     if (report.intent_invariance.left_intent_ignored) {
         ++report.defect_count;
     }
@@ -501,6 +858,11 @@ BenchmarkReport run_benchmark() {
         report.desired_gate_pass =
             report.desired_gate_pass && scenario.desired_gate_pass;
     }
+    if (report.production_chain.defect_reproduced) {
+        ++report.defect_count;
+    }
+    report.desired_gate_pass =
+        report.desired_gate_pass && report.production_chain.desired_gate_pass;
     return report;
 }
 
@@ -512,7 +874,7 @@ bool validate_report(const BenchmarkReport& report, std::string* reason) {
         return false;
     };
 
-    if (report.schema_version != 1) {
+    if (report.schema_version != 2) {
         return fail("unexpected schema version");
     }
     if (report.controller_hz != 100 || report.vision_hz != 50 ||
@@ -528,6 +890,50 @@ bool validate_report(const BenchmarkReport& report, std::string* reason) {
     }
     if (report.intent_invariance.max_left_passthrough_error > 1.0e-6) {
         return fail("left output passthrough did not match physical input");
+    }
+
+    const ProductionChainMetrics& chain = report.production_chain;
+    if (chain.name != "production_chain_strafe_reacquire" ||
+        chain.total_frames != kChainTicks || !chain.behavior_populated ||
+        chain.events.empty()) {
+        return fail("invalid production-chain fixture");
+    }
+    if (chain.body_lock_frames <= 0 || chain.ads_snap_frames <= 0 ||
+        chain.manual_frames <= 0 || chain.mode_transitions <= 0) {
+        return fail("missing production-chain mode coverage");
+    }
+    if (chain.detector_candidate_gap_frames <= 0 ||
+        chain.production_target_missing_frames <= 0 ||
+        chain.production_target_missing_frames >
+            chain.detector_candidate_gap_frames) {
+        return fail("missing candidate-present gap");
+    }
+    if (chain.target_present_bodylock_unavailable_frames <= 0) {
+        return fail("missing target-present bodylock-unavailable phase");
+    }
+    if (chain.drift_manual_correction_frames != 0 ||
+        chain.max_abs_manual_right > kDriftManualThreshold) {
+        return fail("invalid drift classification");
+    }
+    if (chain.drift_only_final_frames <= 0 ||
+        chain.max_continuous_drift_only_ms < 650.0) {
+        return fail("missing evidence-matched drift-only gap");
+    }
+    if (chain.selected_track_changes <= 0) {
+        return fail("missing selected-track rebind");
+    }
+    for (const double value : {
+             chain.max_abs_manual_right,
+             chain.max_continuous_drift_only_ms,
+             chain.reacquire_latency_ms,
+             chain.pre_loss_error_px,
+             chain.post_reacquire_error_px}) {
+        if (!std::isfinite(value)) {
+            return fail("production-chain contains non-finite metric");
+        }
+    }
+    if (chain.reacquire_latency_ms < 0.0) {
+        return fail("production-chain reacquisition was not observed");
     }
 
     std::set<std::string> names;
@@ -558,6 +964,10 @@ bool validate_report(const BenchmarkReport& report, std::string* reason) {
         }
         expected_gate_pass = expected_gate_pass && scenario.desired_gate_pass;
     }
+    if (chain.defect_reproduced) {
+        ++expected_defect_count;
+    }
+    expected_gate_pass = expected_gate_pass && chain.desired_gate_pass;
     if (report.defect_count != expected_defect_count ||
         report.desired_gate_pass != expected_gate_pass) {
         return fail("report summary does not match scenario gates");
@@ -594,7 +1004,72 @@ void write_json(std::ostream& output, const BenchmarkReport& report) {
     write_bool(output, report.intent_invariance.left_intent_ignored);
     output << ",\n    \"desired_gate_pass\": ";
     write_bool(output, report.intent_invariance.desired_gate_pass);
+    const ProductionChainMetrics& chain = report.production_chain;
     output << "\n  },\n"
+           << "  \"production_chain\": {\n"
+           << "    \"name\": \"" << chain.name << "\",\n"
+           << "    \"total_frames\": " << chain.total_frames << ",\n"
+           << "    \"body_lock_frames\": " << chain.body_lock_frames << ",\n"
+           << "    \"ads_snap_frames\": " << chain.ads_snap_frames << ",\n"
+           << "    \"manual_frames\": " << chain.manual_frames << ",\n"
+           << "    \"mode_transitions\": " << chain.mode_transitions << ",\n"
+           << "    \"detector_candidate_gap_frames\": "
+           << chain.detector_candidate_gap_frames << ",\n"
+           << "    \"production_target_missing_frames\": "
+           << chain.production_target_missing_frames << ",\n"
+           << "    \"target_present_bodylock_unavailable_frames\": "
+           << chain.target_present_bodylock_unavailable_frames << ",\n"
+           << "    \"drift_manual_correction_frames\": "
+           << chain.drift_manual_correction_frames << ",\n"
+           << "    \"drift_only_final_frames\": "
+           << chain.drift_only_final_frames << ",\n"
+           << "    \"requested_suppressed_frames\": "
+           << chain.requested_suppressed_frames << ",\n"
+           << "    \"selected_track_changes\": "
+           << chain.selected_track_changes << ",\n"
+           << "    \"max_abs_manual_right\": "
+           << chain.max_abs_manual_right << ",\n"
+           << "    \"max_continuous_drift_only_ms\": "
+           << chain.max_continuous_drift_only_ms << ",\n"
+           << "    \"reacquire_latency_ms\": "
+           << chain.reacquire_latency_ms << ",\n"
+           << "    \"pre_loss_error_px\": " << chain.pre_loss_error_px << ",\n"
+           << "    \"post_reacquire_error_px\": "
+           << chain.post_reacquire_error_px << ",\n"
+           << "    \"behavior_populated\": ";
+    write_bool(output, chain.behavior_populated);
+    output << ",\n    \"defect_reproduced\": ";
+    write_bool(output, chain.defect_reproduced);
+    output << ",\n    \"desired_gate_pass\": ";
+    write_bool(output, chain.desired_gate_pass);
+    output << ",\n    \"defect_reasons\": [";
+    for (std::size_t index = 0; index < chain.defect_reasons.size(); ++index) {
+        output << "\"" << chain.defect_reasons[index] << "\"";
+        if (index + 1 != chain.defect_reasons.size()) {
+            output << ", ";
+        }
+    }
+    output << "],\n    \"events\": [\n";
+    for (std::size_t index = 0; index < chain.events.size(); ++index) {
+        const ProductionChainEvent& event = chain.events[index];
+        output << "      {\"phase\": \"" << event.phase
+               << "\", \"tick\": " << event.tick
+               << ", \"detector_candidates_present\": ";
+        write_bool(output, event.detector_candidates_present);
+        output << ", \"production_target_present\": ";
+        write_bool(output, event.production_target_present);
+        output << ", \"selected_track_id\": " << event.selected_track_id
+               << ", \"manual_right_x\": " << event.manual_right_x
+               << ", \"requested_ai_x\": " << event.requested_ai_x
+               << ", \"final_right_x\": " << event.final_right_x
+               << ", \"target_error_px\": " << event.target_error_px
+               << ", \"aim_mode\": \"" << event.aim_mode
+               << "\", \"lifecycle\": \"" << event.lifecycle
+               << "\", \"limit_reason\": \"" << event.limit_reason
+               << "\"}";
+        output << (index + 1 == chain.events.size() ? "\n" : ",\n");
+    }
+    output << "    ]\n  },\n"
            << "  \"closed_loop_behavior_populated\": true,\n"
            << "  \"defect_count\": " << report.defect_count << ",\n"
            << "  \"desired_gate_pass\": ";

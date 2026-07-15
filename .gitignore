@@ -35,6 +35,7 @@ artifacts/video_debug/
 artifacts/video_review/
 artifacts/vision_benchmarks/*_failures/
 artifacts/benchmarks/native_gamepad/*-20*.json
+artifacts/benchmarks/native_gamepad/*-run*.json
 Ultralytics/
 .worktrees/
 native/vision_native/build/

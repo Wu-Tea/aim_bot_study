@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <iosfwd>
 #include <string>
 #include <vector>
@@ -62,8 +63,49 @@ struct ScenarioMetrics {
     std::vector<PhaseEvent> events;
 };
 
+struct ProductionChainEvent {
+    std::string phase;
+    int tick = 0;
+    bool detector_candidates_present = false;
+    bool production_target_present = false;
+    std::uint64_t selected_track_id = 0;
+    float manual_right_x = 0.0f;
+    float requested_ai_x = 0.0f;
+    float final_right_x = 0.0f;
+    double target_error_px = 0.0;
+    std::string aim_mode;
+    std::string lifecycle;
+    std::string limit_reason;
+};
+
+struct ProductionChainMetrics {
+    std::string name = "production_chain_strafe_reacquire";
+    int total_frames = 0;
+    int body_lock_frames = 0;
+    int ads_snap_frames = 0;
+    int manual_frames = 0;
+    int mode_transitions = 0;
+    int detector_candidate_gap_frames = 0;
+    int production_target_missing_frames = 0;
+    int target_present_bodylock_unavailable_frames = 0;
+    int drift_manual_correction_frames = 0;
+    int drift_only_final_frames = 0;
+    int requested_suppressed_frames = 0;
+    int selected_track_changes = 0;
+    double max_abs_manual_right = 0.0;
+    double max_continuous_drift_only_ms = 0.0;
+    double reacquire_latency_ms = -1.0;
+    double pre_loss_error_px = 0.0;
+    double post_reacquire_error_px = 0.0;
+    bool behavior_populated = false;
+    bool defect_reproduced = false;
+    bool desired_gate_pass = true;
+    std::vector<std::string> defect_reasons;
+    std::vector<ProductionChainEvent> events;
+};
+
 struct BenchmarkReport {
-    int schema_version = 1;
+    int schema_version = 2;
     int controller_hz = 100;
     int vision_hz = 50;
     int vision_delay_ms = 30;
@@ -71,6 +113,7 @@ struct BenchmarkReport {
     int evaluation_start_tick = 70;
     IntentInvarianceMetrics intent_invariance;
     std::vector<ScenarioMetrics> scenarios;
+    ProductionChainMetrics production_chain;
     int defect_count = 0;
     bool desired_gate_pass = true;
 };

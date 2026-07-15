@@ -17,7 +17,7 @@
 - Modify: `native/vision_native/CMakeLists.txt`
 - Modify: `native/controller_native/left_stick_motion_defect_benchmark.h`
 
-- [ ] **Step 1: Write the failing test against the desired report contract**
+- [x] **Step 1: Write the failing test against the desired report contract**
 
 Add a test executable whose first test calls the real benchmark and requires a populated production-chain result:
 
@@ -87,7 +87,7 @@ struct ProductionChainMetrics {
 
 Add `ProductionChainMetrics production_chain;` to `BenchmarkReport`.
 
-- [ ] **Step 2: Add the test target and verify RED**
+- [x] **Step 2: Add the test target and verify RED**
 
 Create `cod_native_lstick_benchmark_tests` from the test file, benchmark module,
 and the same controller/tracker sources used by `cod_native_lstick_benchmark`.
@@ -108,7 +108,7 @@ because the declared result has no implementation.
 **Files:**
 - Modify: `native/controller_native/left_stick_motion_defect_benchmark.cpp`
 
-- [ ] **Step 1: Add deterministic snapshot factories**
+- [x] **Step 1: Add deterministic snapshot factories**
 
 Create helpers that assign the same observation id to the selector candidate and
 tracker detection:
@@ -128,7 +128,7 @@ valid candidates and two tracker detections, and use `selected_observation_id=0`
 only during the selected-target gap. The non-selected candidate remains far
 enough away that it cannot silently replace the selector-owned target.
 
-- [ ] **Step 2: Implement the evidence-matched fixture timeline**
+- [x] **Step 2: Implement the evidence-matched fixture timeline**
 
 Use 10 ms controller ticks and 20 ms snapshot updates:
 
@@ -157,7 +157,7 @@ disabled, and normal aim-assist dynamics enabled. Submit frames through
 `NativeGamepadController::submit_vision_snapshot`, then call `build_output` and
 read `last_output_components()` plus `last_frame_vision_state()`.
 
-- [ ] **Step 3: Populate production-chain metrics from delivered behavior**
+- [x] **Step 3: Populate production-chain metrics from delivered behavior**
 
 Classify right-stick input as intentional only when `abs(manual_right_x)>0.02`.
 Classify a drift-only final frame when all of the following hold:
@@ -174,7 +174,7 @@ run while ADS, left strafe, and detector candidates remain active. Record events
 at every phase boundary and whenever aim mode, selected track id, lifecycle, or
 limit reason changes.
 
-- [ ] **Step 4: Run the focused test and reach GREEN**
+- [x] **Step 4: Run the focused test and reach GREEN**
 
 Run:
 
@@ -191,7 +191,7 @@ Expected: the production-chain contract test passes and reports all five phases.
 - Modify: `native/controller_native/left_stick_motion_defect_benchmark.cpp`
 - Modify: `native/controller_native/left_stick_motion_defect_benchmark_tests.cpp`
 
-- [ ] **Step 1: Write failing validation tests**
+- [x] **Step 1: Write failing validation tests**
 
 Copy a valid report, clear one required property at a time, and require
 `validate_report` to reject it:
@@ -213,13 +213,13 @@ require_invalid(missing_phase, "production-chain mode coverage");
 Run the focused test and verify it fails because `validate_report` does not yet
 check the new result.
 
-- [ ] **Step 2: Implement minimal report validation**
+- [x] **Step 2: Implement minimal report validation**
 
 Require finite timing/error values, populated events, all three aim modes,
 candidate-present gap frames, production-target-missing frames, zero drift
 manual corrections, and coherent report summary fields.
 
-- [ ] **Step 3: Classify the evidence as an intentional desired-behavior RED**
+- [x] **Step 3: Classify the evidence as an intentional desired-behavior RED**
 
 Set `defect_reproduced` when either condition is present:
 
@@ -232,7 +232,7 @@ Add `production_chain_drift_only_gap` and
 `requested_assist_suppressed_before_final` as applicable defect reasons. Fold
 the chain result into `defect_count` and the report-level `desired_gate_pass`.
 
-- [ ] **Step 4: Re-run focused tests and verify GREEN**
+- [x] **Step 4: Re-run focused tests and verify GREEN**
 
 Run the focused executable and CTest entry. Expected: both pass; the normal
 harness is green while the desired behavior remains recorded as RED.
@@ -243,7 +243,7 @@ harness is green while the desired behavior remains recorded as RED.
 - Modify: `native/controller_native/left_stick_motion_defect_benchmark.cpp`
 - Modify: `docs/project/NATIVE_CONTROLLER_BENCHMARKS.md`
 
-- [ ] **Step 1: Write a failing JSON contract test**
+- [x] **Step 1: Write a failing JSON contract test**
 
 Serialize the report and require these keys:
 
@@ -258,19 +258,19 @@ require_contains(json, "\"limit_reason\"");
 
 Run and verify failure because the JSON writer has no production-chain object.
 
-- [ ] **Step 2: Serialize the production-chain result and events**
+- [x] **Step 2: Serialize the production-chain result and events**
 
 Write the result as a top-level `production_chain` object before `scenarios`.
 Preserve schema version 1 because the change is additive and the artifact is not
 consumed as a stable external API.
 
-- [ ] **Step 3: Document interpretation and commands**
+- [x] **Step 3: Document interpretation and commands**
 
 Document that `0.0118` is treated as drift, that the new probe exercises
 candidate-present selector loss and final-output suppression, and that it does
 not replay pixels or identify a weapon.
 
-- [ ] **Step 4: Generate two artifacts and prove determinism**
+- [x] **Step 4: Generate two artifacts and prove determinism**
 
 Run the benchmark twice to separate JSON files and compare SHA-256 hashes. Then
 replace the canonical artifact with one verified copy.
@@ -280,7 +280,7 @@ replace the canonical artifact with one verified copy.
 **Files:**
 - Verify only; no new production files.
 
-- [ ] **Step 1: Run focused and existing regression suites**
+- [x] **Step 1: Run focused and existing regression suites**
 
 ```powershell
 native\vision_native\build-modern\Release\cod_native_lstick_benchmark_tests.exe
@@ -292,7 +292,7 @@ native\vision_native\build-modern\Release\cod_native_gamepad_benchmark.exe --sel
 
 Expected: all normal commands exit zero.
 
-- [ ] **Step 2: Verify the intentional fixed gate remains RED**
+- [x] **Step 2: Verify the intentional fixed gate remains RED**
 
 ```powershell
 native\vision_native\build-modern\Release\cod_native_left_stick_motion_benchmark.exe --require-fixed
@@ -300,10 +300,9 @@ native\vision_native\build-modern\Release\cod_native_left_stick_motion_benchmark
 
 Expected: exit code 2 with `RED desired behavior gate failed`.
 
-- [ ] **Step 3: Verify CTest, JSON determinism, and diff scope**
+- [x] **Step 3: Verify CTest, JSON determinism, and diff scope**
 
 Run `ctest -R NativeLeftStickMotionBenchmarkTests`, `git diff --check`, and
 `git status --short`. Confirm that only benchmark source, benchmark test, CMake,
 benchmark docs/plan, and the ignored benchmark artifact changed; no production
 controller, tracker, runtime, or vision source changed.
-
