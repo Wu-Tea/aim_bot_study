@@ -39,6 +39,8 @@ struct NativeAiAimInput {
     std::uint64_t vision_sequence = 0;
     std::uint64_t selected_track_id = 0;
     float left_x = 0.0f;
+    bool has_camera_attributed_velocity = false;
+    float camera_attributed_velocity_x_px_per_sec = 0.0f;
     float manual_right_x = 0.0f;
     float manual_right_y = 0.0f;
     bool bodylock_lifecycle_valid = false;
@@ -60,6 +62,7 @@ public:
     NativeAiAimOutput compute(const NativeAiAimInput& input);
     const std::string& last_mode() const;
     bool manual_takeover_active() const;
+    RelativeMotionEstimate relative_motion_estimate() const;
 
 private:
     float target_authority_scale(const std::string& target_tier) const;

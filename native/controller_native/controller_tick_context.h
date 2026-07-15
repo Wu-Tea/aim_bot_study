@@ -47,6 +47,8 @@ struct NativeControllerVisionState {
     bool has_tracker_projection = false;
     float tracker_dx = 0.0f;
     float tracker_dy = 0.0f;
+    bool has_camera_attributed_velocity = false;
+    float camera_attributed_velocity_x_px_per_sec = 0.0f;
 };
 
 struct NativeControllerTickContext {

@@ -421,6 +421,9 @@ void NativeAiAim::observe_body_lock_motion(const NativeAiAimInput& input) {
     observation.vision_sequence = input.vision_sequence;
     observation.selected_track_id = input.selected_track_id;
     observation.left_x = input.left_x;
+    observation.has_camera_attributed_velocity = input.has_camera_attributed_velocity;
+    observation.camera_attributed_velocity_x_px_per_sec =
+        input.camera_attributed_velocity_x_px_per_sec;
     observation.observed_at_seconds = input.observed_at_seconds;
     observation.now_seconds = input.now_seconds;
     body_lock_motion_.observe(observation);
@@ -965,6 +968,10 @@ const std::string& NativeAiAim::last_mode() const {
 
 bool NativeAiAim::manual_takeover_active() const {
     return manual_takeover_active_;
+}
+
+RelativeMotionEstimate NativeAiAim::relative_motion_estimate() const {
+    return body_lock_motion_.relative_motion_estimate();
 }
 
 }  // namespace controller_native

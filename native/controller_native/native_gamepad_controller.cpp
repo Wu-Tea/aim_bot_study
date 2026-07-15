@@ -357,6 +357,10 @@ bool NativeGamepadController::body_lock_manual_takeover_active() const {
     return ai_aim_.manual_takeover_active();
 }
 
+RelativeMotionEstimate NativeGamepadController::body_lock_relative_motion_estimate() const {
+    return ai_aim_.relative_motion_estimate();
+}
+
 bool NativeGamepadController::is_aiming(const PhysicalGamepadState& physical) {
     return aim_activation_tracker_.update(physical, config_.rb_counts_as_aiming);
 }
@@ -532,6 +536,9 @@ void NativeGamepadController::apply_ai_aim(
     input.vision_sequence = vision_state.vision_sequence;
     input.selected_track_id = vision_state.selected_track_id;
     input.left_x = physical.left_x;
+    input.has_camera_attributed_velocity = vision_state.has_camera_attributed_velocity;
+    input.camera_attributed_velocity_x_px_per_sec =
+        vision_state.camera_attributed_velocity_x_px_per_sec;
     input.manual_right_x = output.right_x;
     input.manual_right_y = output.right_y;
 

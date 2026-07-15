@@ -206,8 +206,7 @@ require_true(warm.reversal_response_ms <= 20.0);
 require_near(synchronized.motion_feedforward_x, 0.0f, 0.02f);
 require_true(std::fabs(opposite.motion_feedforward_x) >
              std::fabs(same_direction.motion_feedforward_x));
-require_true(mismatch.rejected_after_fresh_samples >= 2 &&
-             mismatch.rejected_after_fresh_samples <= 3);
+require_true(mismatch.rejected_on_next_informative_left_event);
 ```
 
 Reset the controller and assert the mobility prior returns to `Cold`; no learned
@@ -247,7 +246,7 @@ Keep all values bounded and finite. No allocation, persistence, weapon identifie
 
 - [ ] **Step 4: Implement bounded online learning**
 
-For each eligible fresh frame, compute body-height-normalized rate. Maintain a slow target-drift baseline while `|left_x| <= 0.08`. For meaningful left input, form a clipped gain sample from `(target_drift - measured_rate) / left_x`; update gain with bounded EMA only after compatible innovations. Two incompatible fresh innovations enter `Rejected`; three compatible samples enter `Warm`. ADS release decays confidence, track switch clears drift while retaining the mobility prior at low confidence.
+For each eligible fresh frame, compute body-height-normalized rate. Fit the one-scalar mobility gain only when `left_x` has a meaningful onset, release, or reversal, using the adjacent rate/input differences. Steady-left frames never fit a separate target-drift model; the tracker remains the owner of target motion. Bound compatible gain samples with an EMA and reject a materially incompatible prior immediately on the high-information input event. ADS release decays confidence, while track switch clears per-target motion history and retains the mobility prior at low confidence.
 
 - [ ] **Step 5: Predict between fresh frames without writing stick output**
 

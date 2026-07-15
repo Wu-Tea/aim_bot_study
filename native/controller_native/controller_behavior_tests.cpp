@@ -2274,6 +2274,250 @@ void test_body_lock_motion_updates_once_per_fresh_sequence() {
         "a duplicate sequence must not overwrite velocity with zero");
 }
 
+void test_body_lock_warm_left_reversal_predicts_between_vision_frames() {
+    controller_native::GamepadAiAimConfig config;
+    config.body_lock_activation_box_px = 180.0f;
+    config.body_lock_lead_frames = 2;
+    config.body_lock_lead_seconds = 0.04f;
+    config.body_lock_lead_max_px = 40.0f;
+    controller_native::BodyLockMotionPolicy motion(config);
+
+    controller_native::BodyLockMotionObservation observation;
+    observation.strong_observation = true;
+    observation.has_body_box = true;
+    observation.body_y1 = 180.0f;
+    observation.body_y2 = 360.0f;
+    observation.fresh_observation = true;
+    observation.selected_track_id = 42;
+
+    const auto observe_fresh = [&](std::uint64_t sequence, double time, float center_x, float left_x) {
+        observation.vision_sequence = sequence;
+        observation.observed_at_seconds = time;
+        observation.now_seconds = time;
+        observation.body_x1 = center_x - 40.0f;
+        observation.body_x2 = center_x + 40.0f;
+        observation.left_x = left_x;
+        motion.observe(observation);
+    };
+
+    observe_fresh(1, 10.000, 320.0f, 0.0f);
+    observe_fresh(2, 10.010, 320.0f, 0.0f);
+    observe_fresh(3, 10.020, 315.0f, 0.8f);
+    observe_fresh(4, 10.030, 310.0f, 0.8f);
+    observe_fresh(5, 10.040, 305.0f, 0.8f);
+    const float learned_lead = motion.lead_delta().x;
+    require_true(
+        learned_lead < -5.0f,
+        "fresh observations must establish right-strafe relative motion");
+    require_true(
+        motion.relative_motion_estimate().state ==
+            controller_native::RelativeMotionState::Warm,
+        "three compatible fresh strafe samples must warm the in-memory mobility prior");
+
+    observation.fresh_observation = false;
+    observation.left_x = -0.8f;
+    observation.now_seconds = 10.041;
+    motion.observe(observation);
+    const float predicted_reversal_lead = motion.lead_delta().x;
+    require_true(
+        predicted_reversal_lead > 5.0f,
+        "a warm left-stick reversal must predict relative motion before the next vision frame");
+}
+
+void test_body_lock_gain_uses_camera_attributed_tracker_velocity() {
+    controller_native::GamepadAiAimConfig config;
+    config.body_lock_activation_box_px = 180.0f;
+    config.body_lock_lead_frames = 2;
+    config.body_lock_lead_seconds = 0.04f;
+    config.body_lock_lead_max_px = 40.0f;
+    controller_native::BodyLockMotionPolicy motion(config);
+
+    controller_native::BodyLockMotionObservation observation;
+    observation.strong_observation = true;
+    observation.has_body_box = true;
+    observation.body_y1 = 180.0f;
+    observation.body_y2 = 360.0f;
+    observation.fresh_observation = true;
+    observation.selected_track_id = 42;
+    observation.has_camera_attributed_velocity = true;
+
+    const auto observe_fresh = [&](std::uint64_t sequence,
+                                   double time,
+                                   float center_x,
+                                   float left_x,
+                                   float attributed_velocity_x) {
+        observation.vision_sequence = sequence;
+        observation.observed_at_seconds = time;
+        observation.now_seconds = time;
+        observation.body_x1 = center_x - 40.0f;
+        observation.body_x2 = center_x + 40.0f;
+        observation.left_x = left_x;
+        observation.camera_attributed_velocity_x_px_per_sec = attributed_velocity_x;
+        motion.observe(observation);
+    };
+
+    observe_fresh(1, 15.000, 320.0f, 0.0f, 0.0f);
+    observe_fresh(2, 15.010, 320.0f, 0.0f, 0.0f);
+    observe_fresh(3, 15.020, 310.0f, 0.8f, -500.0f);
+    observe_fresh(4, 15.030, 300.0f, 0.8f, -500.0f);
+    observe_fresh(5, 15.040, 290.0f, 0.8f, -500.0f);
+
+    const controller_native::RelativeMotionEstimate estimate =
+        motion.relative_motion_estimate();
+    require_true(
+        estimate.state == controller_native::RelativeMotionState::Warm,
+        "camera-attributed samples must still warm the mobility prior");
+    require_true(
+        estimate.strafe_gain > 2.5f && estimate.strafe_gain < 4.5f,
+        "mobility gain must exclude AI-attributed camera displacement");
+    require_near(
+        estimate.lead_x_px,
+        -20.0f,
+        0.5f,
+        "projected lead must use the camera-attributed relative velocity");
+}
+
+void test_body_lock_cold_relative_motion_responds_within_eighty_ms() {
+    controller_native::GamepadAiAimConfig config;
+    config.body_lock_activation_box_px = 180.0f;
+    config.body_lock_lead_frames = 2;
+    config.body_lock_lead_seconds = 0.04f;
+    config.body_lock_lead_max_px = 40.0f;
+    controller_native::BodyLockMotionPolicy motion(config);
+
+    controller_native::BodyLockMotionObservation observation;
+    observation.strong_observation = true;
+    observation.has_body_box = true;
+    observation.body_y1 = 180.0f;
+    observation.body_y2 = 360.0f;
+    observation.fresh_observation = true;
+    observation.selected_track_id = 42;
+
+    const auto observe_fresh = [&](std::uint64_t sequence, double time, float center_x, float left_x) {
+        observation.vision_sequence = sequence;
+        observation.observed_at_seconds = time;
+        observation.now_seconds = time;
+        observation.body_x1 = center_x - 40.0f;
+        observation.body_x2 = center_x + 40.0f;
+        observation.left_x = left_x;
+        motion.observe(observation);
+    };
+
+    observe_fresh(1, 20.000, 320.0f, 0.0f);
+    observe_fresh(2, 20.010, 320.0f, 0.0f);
+    const double onset_at = 20.010;
+    observe_fresh(3, 20.020, 315.0f, 0.8f);
+
+    require_true(
+        std::fabs(motion.lead_delta().x) > 0.1f,
+        "cold relative motion must produce conservative measured feed-forward");
+    require_true(
+        (20.020 - onset_at) * 1000.0 <= 80.0,
+        "cold relative-motion response must begin within 80 ms");
+}
+
+void test_body_lock_relative_motion_distinguishes_synchronized_and_opposite_motion() {
+    const auto lead_after_next_motion = [](float next_center_x) {
+        controller_native::GamepadAiAimConfig config;
+        config.body_lock_activation_box_px = 180.0f;
+        config.body_lock_lead_frames = 2;
+        config.body_lock_lead_seconds = 0.04f;
+        config.body_lock_lead_max_px = 40.0f;
+        controller_native::BodyLockMotionPolicy motion(config);
+
+        controller_native::BodyLockMotionObservation observation;
+        observation.strong_observation = true;
+        observation.has_body_box = true;
+        observation.body_y1 = 180.0f;
+        observation.body_y2 = 360.0f;
+        observation.fresh_observation = true;
+        observation.selected_track_id = 42;
+
+        const auto observe_fresh = [&](std::uint64_t sequence, double time, float center_x, float left_x) {
+            observation.vision_sequence = sequence;
+            observation.observed_at_seconds = time;
+            observation.now_seconds = time;
+            observation.body_x1 = center_x - 40.0f;
+            observation.body_x2 = center_x + 40.0f;
+            observation.left_x = left_x;
+            motion.observe(observation);
+        };
+
+        observe_fresh(1, 30.000, 320.0f, 0.0f);
+        observe_fresh(2, 30.010, 320.0f, 0.0f);
+        observe_fresh(3, 30.020, 315.0f, 0.8f);
+        observe_fresh(4, 30.030, 310.0f, 0.8f);
+        observe_fresh(5, 30.040, 305.0f, 0.8f);
+        observe_fresh(6, 30.050, next_center_x, 0.8f);
+        return motion.lead_delta().x;
+    };
+
+    const float synchronized_lead = lead_after_next_motion(305.0f);
+    const float same_direction_lead = lead_after_next_motion(303.0f);
+    const float opposite_direction_lead = lead_after_next_motion(297.0f);
+
+    require_near(
+        synchronized_lead,
+        0.0f,
+        0.02f,
+        "synchronized player and target motion must not invent feed-forward");
+    require_true(
+        std::fabs(opposite_direction_lead) > std::fabs(same_direction_lead),
+        "opposite relative motion must produce more feed-forward than same-direction motion");
+}
+
+void test_body_lock_rejects_changed_mobility_on_left_reversal_and_reset_clears_prior() {
+    controller_native::GamepadAiAimConfig config;
+    config.body_lock_activation_box_px = 180.0f;
+    config.body_lock_lead_frames = 2;
+    config.body_lock_lead_seconds = 0.04f;
+    config.body_lock_lead_max_px = 40.0f;
+    controller_native::BodyLockMotionPolicy motion(config);
+
+    controller_native::BodyLockMotionObservation observation;
+    observation.strong_observation = true;
+    observation.has_body_box = true;
+    observation.body_y1 = 180.0f;
+    observation.body_y2 = 360.0f;
+    observation.fresh_observation = true;
+    observation.selected_track_id = 42;
+
+    const auto observe_fresh = [&](std::uint64_t sequence, double time, float center_x, float left_x) {
+        observation.vision_sequence = sequence;
+        observation.observed_at_seconds = time;
+        observation.now_seconds = time;
+        observation.body_x1 = center_x - 40.0f;
+        observation.body_x2 = center_x + 40.0f;
+        observation.left_x = left_x;
+        motion.observe(observation);
+    };
+
+    observe_fresh(1, 40.000, 320.0f, 0.0f);
+    observe_fresh(2, 40.010, 320.0f, 0.0f);
+    observe_fresh(3, 40.020, 315.0f, 0.8f);
+    observe_fresh(4, 40.030, 310.0f, 0.8f);
+    observe_fresh(5, 40.040, 305.0f, 0.8f);
+    require_true(
+        motion.relative_motion_estimate().state ==
+            controller_native::RelativeMotionState::Warm,
+        "test setup must establish a warm mobility prior");
+
+    observe_fresh(6, 40.050, 306.0f, -0.8f);
+    require_true(
+        motion.relative_motion_estimate().state ==
+            controller_native::RelativeMotionState::Rejected,
+        "a high-information left reversal must reject an incompatible mobility prior immediately");
+
+    motion.reset();
+    const controller_native::RelativeMotionEstimate reset_estimate =
+        motion.relative_motion_estimate();
+    require_true(
+        reset_estimate.state == controller_native::RelativeMotionState::Cold,
+        "controller reset must return the mobility prior to cold");
+    require_near(reset_estimate.strafe_gain, 0.0f, 0.0001f, "reset must clear learned gain");
+    require_near(reset_estimate.confidence, 0.0f, 0.0001f, "reset must clear gain confidence");
+}
+
 void test_body_lock_uses_lateral_motion_when_current_error_is_inside_deadzone() {
     controller_native::GamepadAiAimConfig config;
     config.max_pixels = 100.0f;
@@ -5466,6 +5710,11 @@ int main() {
         test_body_lock_damps_orthogonal_manual_input_near_lock();
         test_body_lock_restores_vertical_tail_help_after_continuous_target_history();
         test_body_lock_motion_updates_once_per_fresh_sequence();
+        test_body_lock_warm_left_reversal_predicts_between_vision_frames();
+        test_body_lock_gain_uses_camera_attributed_tracker_velocity();
+        test_body_lock_cold_relative_motion_responds_within_eighty_ms();
+        test_body_lock_relative_motion_distinguishes_synchronized_and_opposite_motion();
+        test_body_lock_rejects_changed_mobility_on_left_reversal_and_reset_clears_prior();
         test_body_lock_uses_lateral_motion_when_current_error_is_inside_deadzone();
         test_body_lock_sustained_motion_lead_increases_follow_after_consistent_strong_history();
         test_body_lock_sustained_motion_lead_clears_on_direction_reversal();

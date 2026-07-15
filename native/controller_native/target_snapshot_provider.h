@@ -73,6 +73,8 @@ private:
     bool is_strong_aim_target(const NativeControllerVisionState& vision_state) const;
 
     GamepadAiAimConfig ai_config_;
+    tracking_native::TrackerBackendKind tracker_backend_ =
+        tracking_native::TrackerBackendKind::FpsReference;
     std::unique_ptr<tracking_native::TrackerBackend> target_tracker_;
     pipeline_contract::SelectedTrackRef selected_track_;
     bool selector_ownership_active_ = false;

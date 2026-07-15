@@ -44,14 +44,30 @@ void test_production_chain_behavior_is_populated() {
         "selected target must rebind after the evidence-matched gap");
 }
 
+void test_warm_left_intent_changes_ai_trace() {
+    const auto report = controller_native::left_stick_defect::run_benchmark();
+    if (report.intent_invariance.max_ai_trace_delta <= 1.0e-4) {
+        std::cerr << "[NativeLeftStickMotionBenchmarkTests] intent delta="
+                  << report.intent_invariance.max_ai_trace_delta
+                  << " final_delta="
+                  << report.intent_invariance.max_final_right_trace_delta << '\n';
+    }
+    require_true(
+        report.intent_invariance.max_ai_trace_delta > 1.0e-4,
+        "after mobility warm-up, different left intent must change the AI trace");
+    require_true(
+        !report.intent_invariance.left_intent_ignored,
+        "the intent probe must no longer classify physical left intent as ignored");
+}
+
 void test_production_chain_defect_is_folded_into_report_gate() {
     const auto report = controller_native::left_stick_defect::run_benchmark();
     const auto& chain = report.production_chain;
     require_true(chain.defect_reproduced, "production-chain defect must be recorded");
     require_true(!chain.desired_gate_pass, "production-chain desired gate must remain RED");
     require_true(
-        report.defect_count == 7,
-        "production-chain defect must increment the existing six-defect baseline");
+        report.defect_count == 6,
+        "production-chain defect must increment the remaining five-defect baseline");
 }
 
 void require_invalid(
@@ -125,6 +141,7 @@ void test_production_chain_json_contract() {
 
 int main() {
     test_production_chain_behavior_is_populated();
+    test_warm_left_intent_changes_ai_trace();
     test_production_chain_defect_is_folded_into_report_gate();
     test_production_chain_validation_rejects_missing_contract_fields();
     test_production_chain_json_contract();

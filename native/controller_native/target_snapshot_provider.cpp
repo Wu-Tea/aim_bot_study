@@ -28,6 +28,8 @@ NativeControllerVisionState cleared_target_state(NativeControllerVisionState sta
     state.has_tracker_projection = false;
     state.tracker_dx = 0.0f;
     state.tracker_dy = 0.0f;
+    state.has_camera_attributed_velocity = false;
+    state.camera_attributed_velocity_x_px_per_sec = 0.0f;
     state.target_tier = "none";
     return state;
 }
@@ -63,6 +65,7 @@ TargetSnapshotProvider::TargetSnapshotProvider(
     GamepadAiAimConfig ai_config,
     tracking_native::TrackerBackendKind tracker_backend)
     : ai_config_(ai_config),
+      tracker_backend_(tracker_backend),
       target_tracker_(tracking_native::create_tracker_backend(
           tracker_backend,
           target_tracker_config_from_ai_aim(ai_config_))) {}
@@ -341,6 +344,8 @@ NativeControllerVisionState TargetSnapshotProvider::apply_assist_authority(
     state.track_observation_age_ms = 0.0f;
     state.track_position_sigma = 0.0f;
     state.track_ambiguity = 0.0f;
+    state.has_camera_attributed_velocity = false;
+    state.camera_attributed_velocity_x_px_per_sec = 0.0f;
     state.aim_authority =
         latest_authority_decision_.assist_authority != common_native::AssistAuthority::None;
     state.fire_authority =
@@ -366,6 +371,12 @@ NativeControllerVisionState TargetSnapshotProvider::apply_assist_authority(
         estimate->source == pipeline_contract::TrackEstimateSource::Projected;
     state.tracker_dx = estimate->aim_error_px.x;
     state.tracker_dy = estimate->aim_error_px.y;
+    if (tracker_backend_ == tracking_native::TrackerBackendKind::FpsReference &&
+        std::isfinite(estimate->velocity_model_units_per_sec.x)) {
+        state.has_camera_attributed_velocity = true;
+        state.camera_attributed_velocity_x_px_per_sec =
+            estimate->velocity_model_units_per_sec.x;
+    }
     if (!backed_by_current_observation || state.has_tracker_projection) {
         const float delta_x = estimate->aim_error_px.x - state.dx;
         const float delta_y = estimate->aim_error_px.y - state.dy;

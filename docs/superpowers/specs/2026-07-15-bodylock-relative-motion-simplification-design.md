@@ -211,7 +211,6 @@ Outputs:
 - normalized relative horizontal velocity;
 - estimated left-stick mobility gain;
 - mobility-prior confidence;
-- target-drift estimate and confidence;
 - projected horizontal lead in pixels;
 - estimator state and rejection reason for diagnostics.
 
@@ -325,14 +324,15 @@ controller ticks as target velocity.
 
 ### Low-order model
 
-The horizontal model is deliberately two-dimensional in state, not 3D:
+The horizontal relationship is deliberately low-order, not 3D:
 
 ```text
 relative_rate = target_drift - strafe_gain * shaped_left_x + noise
 ```
 
-- `target_drift` is the target's residual normalized lateral motion for the
-  currently selected track.
+- `target_drift` is a conceptual residual in the measurement equation, not a
+  separately learned production state. The tracker remains the owner of target
+  motion.
 - `strafe_gain` is the effective normalized screen-motion response per unit
   left-stick input under the current ADS/stance/scope combination.
 - `shaped_left_x` is the same physical intent signal used for output, after
@@ -352,23 +352,25 @@ This model is sufficient for the required behavior:
 
 ### Robust online update
 
-The estimator uses a bounded recursive update with clipped innovation. A full
-Kalman or EKF implementation is unnecessary; the state and covariance can be
-represented by fixed scalar values.
+The estimator uses a bounded, left-input-event update. A full Kalman or EKF
+implementation and a second target-drift tracker are unnecessary.
 
 On each eligible fresh frame:
 
 1. Form normalized measured relative rate.
-2. Predict it from `target_drift`, `strafe_gain`, and `shaped_left_x`.
-3. Clip the innovation to a geometry-normalized maximum so a box jump cannot
-   rewrite the prior.
-4. Update target drift slowly when left intent is steady or near zero.
-5. Update strafe gain mainly when left input has meaningful magnitude or a
-   meaningful onset/reversal delta, because those frames make the two effects
-   identifiable.
-6. Increase confidence only after consecutive compatible fresh frames.
-7. Collapse confidence quickly after consecutive incompatible innovations;
-   cap feed-forward while validating the replacement gain.
+2. When left input has a meaningful onset, release, or reversal, estimate the
+   gain from the adjacent rate difference:
+
+   ```text
+   gain_sample = -(relative_rate_now - relative_rate_previous)
+                 / (left_now - left_previous)
+   ```
+
+3. Ignore steady-left frames for gain fitting; their measured tracker rate is
+   still used directly as relative-motion feed-forward.
+4. Bound the gain sample and compare it with the in-memory scalar prior.
+5. Accept compatible input events with a bounded EMA. Reject a materially
+   incompatible prior immediately on the high-information input event.
 
 Learning is frozen when any of the following is true:
 
@@ -391,8 +393,8 @@ The observer exposes four states:
   conservative cap.
 - `Validating`: a prior exists but current ADS behavior has not confirmed it;
   feed-forward is confidence-capped.
-- `Warm`: consecutive fresh evidence matches the gain; normal bounded
-  feed-forward is available.
+- `Warm`: a meaningful left-input change established a bounded gain; normal
+  bounded feed-forward is available.
 - `Rejected`: current evidence conflicts with the prior; confidence collapses
   and the observer relearns without a discontinuous output reset.
 
@@ -402,9 +404,10 @@ Memory rules:
   deleting the prior;
 - a new ADS hold revalidates the prior in roughly 40-80 ms;
 - a matching response warm-starts the prior;
-- a changed weapon/stance/scope is detected only as gain mismatch, rejected in
-  2-3 fresh frames, and relearned—no identity lookup is required;
-- a selected-track change clears target drift/history but retains the mobility
+- a changed weapon/stance/scope is detected only when the next meaningful left
+  onset/release/reversal produces a gain mismatch, then relearned without any
+  identity lookup;
+- a selected-track change clears target-motion history but retains the mobility
   prior at low confidence;
 - process restart clears all learned state;
 - no learned value is written to disk or configuration.
@@ -817,7 +820,8 @@ feed-forward.
   authority.
 - Reacquisition has no large first-tick jump and returns useful assist within
   60 ms.
-- A mobility-gain mismatch rejects the warm prior in 2-3 fresh frames.
+- A mobility-gain mismatch rejects the warm prior on the next meaningful
+  left-input onset, release, or reversal sample.
 
 ### Frequency and determinism
 

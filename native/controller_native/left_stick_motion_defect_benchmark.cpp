@@ -622,10 +622,16 @@ IntentInvarianceMetrics run_intent_invariance_probe() {
 
     for (int tick = 0; tick < 360; ++tick) {
         now = 1.0 + (static_cast<double>(tick) * kDtSeconds);
-        const double seconds = static_cast<double>(tick) * kDtSeconds;
-        const double error_x =
-            38.0 + (42.0 * std::sin(seconds * kPi * 0.85));
-        if (tick % 2 == 0) {
+        constexpr int kWarmupStartTick = 60;
+        constexpr int kIntentSplitTick = 80;
+        const bool mobility_warmup =
+            tick >= kWarmupStartTick && tick < kIntentSplitTick;
+        const double error_x = tick < kWarmupStartTick
+            ? 38.0
+            : (tick < kIntentSplitTick
+                ? 38.0 - (3.0 * static_cast<double>(tick - kWarmupStartTick + 1))
+                : -22.0);
+        if (tick != kIntentSplitTick) {
             const NativeControllerVisionState vision = intent_probe_vision(now, error_x);
             active_left.submit_vision_state(vision);
             neutral_left.submit_vision_state(vision);
@@ -633,11 +639,12 @@ IntentInvarianceMetrics run_intent_invariance_probe() {
 
         const float manual_right = static_cast<float>(
             std::clamp(error_x / 420.0, -0.16, 0.16));
-        const float left_x = left_profile_for_tick(tick);
+        const float left_x = mobility_warmup ? 0.80f : left_profile_for_tick(tick);
+        const float neutral_left_x = mobility_warmup ? 0.80f : 0.0f;
         const GamepadOutputState active_output =
             active_left.build_output(intent_probe_input(left_x, manual_right));
         const GamepadOutputState neutral_output =
-            neutral_left.build_output(intent_probe_input(0.0f, manual_right));
+            neutral_left.build_output(intent_probe_input(neutral_left_x, manual_right));
         const NativeControllerOutputComponents& active_components =
             active_left.last_output_components();
         const NativeControllerOutputComponents& neutral_components =
@@ -663,7 +670,7 @@ IntentInvarianceMetrics run_intent_invariance_probe() {
         }
     }
 
-    constexpr double kIntentSensitivityEpsilon = 1.0e-6;
+    constexpr double kIntentSensitivityEpsilon = 1.0e-4;
     metrics.left_intent_ignored =
         metrics.phase_event_samples > 0 &&
         metrics.max_ai_trace_delta <= kIntentSensitivityEpsilon &&
