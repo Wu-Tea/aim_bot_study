@@ -19,10 +19,28 @@ void BodyLockMotionPolicy::reset() {
     motion_velocity_x_ = 0.0f;
     motion_velocity_y_ = 0.0f;
     motion_timestamp_seconds_ = 0.0;
+    last_consumed_vision_sequence_ = 0;
+    selected_track_id_ = 0;
     reset_consistency();
 }
 
 void BodyLockMotionPolicy::observe(const BodyLockMotionObservation& observation) {
+    const bool sequenced_observation = observation.vision_sequence != 0;
+    if (sequenced_observation &&
+        (!observation.fresh_observation ||
+         observation.vision_sequence == last_consumed_vision_sequence_)) {
+        return;
+    }
+    if (sequenced_observation && selected_track_id_ != 0 &&
+        observation.selected_track_id != 0 &&
+        observation.selected_track_id != selected_track_id_) {
+        reset();
+    }
+    if (sequenced_observation) {
+        last_consumed_vision_sequence_ = observation.vision_sequence;
+        selected_track_id_ = observation.selected_track_id;
+    }
+
     if (!observation.strong_observation ||
         !observation.has_body_box ||
         observation.body_x2 <= observation.body_x1 ||
@@ -39,9 +57,11 @@ void BodyLockMotionPolicy::observe(const BodyLockMotionObservation& observation)
     const float point_x = center_x;
     const float point_y =
         observation.body_y1 + ((observation.body_y2 - observation.body_y1) * upper_body_ratio);
-    const double timestamp = observation.now_seconds > 0.0
-        ? observation.now_seconds
-        : observation.observed_at_seconds;
+    const double timestamp = sequenced_observation
+        ? observation.observed_at_seconds
+        : (observation.now_seconds > 0.0
+            ? observation.now_seconds
+            : observation.observed_at_seconds);
     const float match_limit = std::max(1.0f, config_.body_lock_activation_box_px * 0.5f);
     if (!has_motion_reference_ ||
         std::fabs(center_x - motion_box_center_x_) > match_limit ||
@@ -61,6 +81,18 @@ void BodyLockMotionPolicy::observe(const BodyLockMotionObservation& observation)
     }
 
     const double dt = timestamp - motion_timestamp_seconds_;
+    if (sequenced_observation && (dt < 0.004 || dt > 0.040)) {
+        motion_box_center_x_ = center_x;
+        motion_box_center_y_ = center_y;
+        motion_point_x_ = point_x;
+        motion_point_y_ = point_y;
+        motion_velocity_x_ = 0.0f;
+        motion_velocity_y_ = 0.0f;
+        motion_timestamp_seconds_ = timestamp;
+        motion_frames_ = 1;
+        reset_consistency();
+        return;
+    }
     if (dt > 0.0) {
         motion_velocity_x_ = (point_x - motion_point_x_) / static_cast<float>(dt);
         motion_velocity_y_ = (point_y - motion_point_y_) / static_cast<float>(dt);

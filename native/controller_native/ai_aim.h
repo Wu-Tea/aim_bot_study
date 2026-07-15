@@ -6,6 +6,7 @@
 
 #include <string>
 #include <utility>
+#include <cstdint>
 
 namespace controller_native {
 
@@ -34,6 +35,10 @@ struct NativeAiAimInput {
     float body_y2 = 0.0f;
     double observed_at_seconds = 0.0;
     double now_seconds = 0.0;
+    bool fresh_observation = true;
+    std::uint64_t vision_sequence = 0;
+    std::uint64_t selected_track_id = 0;
+    float left_x = 0.0f;
     float manual_right_x = 0.0f;
     float manual_right_y = 0.0f;
     bool bodylock_lifecycle_valid = false;
@@ -104,7 +109,9 @@ private:
     bool update_body_lock_manual_takeover(
         const NativeAiAimInput& input,
         float planned_x,
-        float planned_y);
+        float planned_y,
+        float direction_evidence_x,
+        float direction_evidence_y);
     void reset_body_lock_manual_takeover();
     std::pair<float, float> resolve_ads_snap_manual(
         float manual_x,

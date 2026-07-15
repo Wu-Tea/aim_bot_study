@@ -242,7 +242,12 @@ NativeAiAimOutput NativeAiAim::compute(const NativeAiAimInput& input) {
     } else if (body_lock_active) {
         const float planned_x = output.assist_x;
         const float planned_y = output.assist_y;
-        if (update_body_lock_manual_takeover(input, planned_x, planned_y)) {
+        if (update_body_lock_manual_takeover(
+                input,
+                planned_x,
+                planned_y,
+                body_lock_guard_error_x,
+                -body_lock_guard_error_y)) {
             output.assist_x = planned_x * input.manual_right_x < 0.0f ? 0.0f : planned_x;
             output.assist_y = planned_y * input.manual_right_y < 0.0f ? 0.0f : planned_y;
         } else {
@@ -281,23 +286,32 @@ NativeAiAimOutput NativeAiAim::compute(const NativeAiAimInput& input) {
 bool NativeAiAim::update_body_lock_manual_takeover(
     const NativeAiAimInput& input,
     float planned_x,
-    float planned_y) {
+    float planned_y,
+    float direction_evidence_x,
+    float direction_evidence_y) {
     if (!config_.body_lock_manual_takeover_enabled) {
         reset_body_lock_manual_takeover();
         return false;
     }
     const float manual_magnitude = std::hypot(input.manual_right_x, input.manual_right_y);
-    const float planned_magnitude = std::hypot(planned_x, planned_y);
+    constexpr float kPlannedDirectionFloor = 0.02f;
+    const float intent_x = std::fabs(planned_x) > kPlannedDirectionFloor
+        ? planned_x
+        : direction_evidence_x;
+    const float intent_y = std::fabs(planned_y) > kPlannedDirectionFloor
+        ? planned_y
+        : direction_evidence_y;
+    const float intent_magnitude = std::hypot(intent_x, intent_y);
     const float threshold = std::max(0.0f, config_.body_lock_manual_takeover_input_threshold);
     const double now = input.now_seconds;
     if (manual_magnitude >= threshold && now > 0.0) {
         manual_takeover_last_manual_at_ = now;
     }
     const bool has_directional_evidence = manual_magnitude >= threshold &&
-        planned_magnitude > 0.02f;
+        intent_magnitude > kPlannedDirectionFloor;
     const float alignment = has_directional_evidence
-        ? ((input.manual_right_x * planned_x) + (input.manual_right_y * planned_y)) /
-            (manual_magnitude * planned_magnitude)
+        ? ((input.manual_right_x * intent_x) + (input.manual_right_y * intent_y)) /
+            (manual_magnitude * intent_magnitude)
         : 1.0f;
     const bool opposing = has_directional_evidence && alignment <= -0.45f;
     if (opposing) {
@@ -403,6 +417,10 @@ void NativeAiAim::observe_body_lock_motion(const NativeAiAimInput& input) {
     observation.body_y1 = input.body_y1;
     observation.body_x2 = input.body_x2;
     observation.body_y2 = input.body_y2;
+    observation.fresh_observation = input.fresh_observation;
+    observation.vision_sequence = input.vision_sequence;
+    observation.selected_track_id = input.selected_track_id;
+    observation.left_x = input.left_x;
     observation.observed_at_seconds = input.observed_at_seconds;
     observation.now_seconds = input.now_seconds;
     body_lock_motion_.observe(observation);

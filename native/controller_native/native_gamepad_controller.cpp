@@ -528,6 +528,10 @@ void NativeGamepadController::apply_ai_aim(
     input.target_tier = vision_state.target_tier;
     input.observed_at_seconds = vision_state.observed_at_seconds;
     input.now_seconds = now_seconds;
+    input.fresh_observation = vision_state.fresh_observation;
+    input.vision_sequence = vision_state.vision_sequence;
+    input.selected_track_id = vision_state.selected_track_id;
+    input.left_x = physical.left_x;
     input.manual_right_x = output.right_x;
     input.manual_right_y = output.right_y;
 

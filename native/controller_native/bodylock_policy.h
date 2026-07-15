@@ -4,6 +4,8 @@
 
 #include "runtime_config.h"
 
+#include <cstdint>
+
 namespace controller_native {
 
 struct BodyLockMotionObservation {
@@ -13,6 +15,10 @@ struct BodyLockMotionObservation {
     float body_y1 = 0.0f;
     float body_x2 = 0.0f;
     float body_y2 = 0.0f;
+    bool fresh_observation = true;
+    std::uint64_t vision_sequence = 0;
+    std::uint64_t selected_track_id = 0;
+    float left_x = 0.0f;
     double observed_at_seconds = 0.0;
     double now_seconds = 0.0;
 };
@@ -51,6 +57,8 @@ private:
     bool has_motion_direction_ = false;
     float motion_direction_x_ = 0.0f;
     float motion_direction_y_ = 0.0f;
+    std::uint64_t last_consumed_vision_sequence_ = 0;
+    std::uint64_t selected_track_id_ = 0;
 };
 
 }  // namespace controller_native

@@ -2218,6 +2218,62 @@ void test_body_lock_restores_vertical_tail_help_after_continuous_target_history(
         "body-lock should restore some vertical tail help after target history exists");
 }
 
+void test_body_lock_motion_updates_once_per_fresh_sequence() {
+    controller_native::GamepadAiAimConfig config;
+    config.body_lock_activation_box_px = 180.0f;
+    controller_native::BodyLockMotionPolicy motion(config);
+
+    controller_native::BodyLockMotionObservation observation;
+    observation.strong_observation = true;
+    observation.has_body_box = true;
+    observation.body_x1 = 280.0f;
+    observation.body_y1 = 180.0f;
+    observation.body_x2 = 360.0f;
+    observation.body_y2 = 360.0f;
+    observation.fresh_observation = true;
+    observation.vision_sequence = 1;
+    observation.selected_track_id = 42;
+    observation.observed_at_seconds = 10.000;
+    observation.now_seconds = 10.000;
+    motion.observe(observation);
+
+    for (int tick = 1; tick < 10; ++tick) {
+        observation.fresh_observation = false;
+        observation.now_seconds = 10.000 + (static_cast<double>(tick) * 0.001);
+        motion.observe(observation);
+    }
+    require_true(
+        motion.motion_frames() == 1,
+        "duplicate controller ticks must not become motion observations");
+
+    observation.fresh_observation = true;
+    observation.vision_sequence = 2;
+    observation.observed_at_seconds = 10.010;
+    observation.now_seconds = 10.010;
+    observation.body_x1 += 10.0f;
+    observation.body_x2 += 10.0f;
+    motion.observe(observation);
+    require_true(
+        motion.motion_frames() == 2,
+        "the next fresh sequence must produce exactly one motion observation");
+    require_near(
+        motion.velocity_px_per_sec().x,
+        1000.0f,
+        0.5f,
+        "motion velocity must use the 10 ms observation interval");
+
+    observation.now_seconds = 10.011;
+    motion.observe(observation);
+    require_true(
+        motion.motion_frames() == 2,
+        "repeated fresh flags with the same sequence must be deduplicated");
+    require_near(
+        motion.velocity_px_per_sec().x,
+        1000.0f,
+        0.5f,
+        "a duplicate sequence must not overwrite velocity with zero");
+}
+
 void test_body_lock_uses_lateral_motion_when_current_error_is_inside_deadzone() {
     controller_native::GamepadAiAimConfig config;
     config.max_pixels = 100.0f;
@@ -2678,7 +2734,15 @@ void test_controller_body_lock_preserves_manual_after_target_crossing() {
     if (!(sustained.x >= 0.80f)) {
         std::ostringstream out;
         out << "body-lock should preserve user-owned direction after takeover actual="
-            << sustained.x << " crossed=" << crossed.x;
+            << sustained.x << " crossed=" << crossed.x
+            << " mode=" << components.aim_mode
+            << " requested_ai=" << components.requested_assist_stick.x
+            << " shaped_ai=" << components.shaped_assist_stick.x
+            << " ads_brake=" << components.ads_brake_stick.x
+            << " carry_brake=" << components.ads_carry_brake_stick.x
+            << " lifecycle=" << components.bodylock_lifecycle
+            << " limit=" << components.assist_limit_reason
+            << " takeover=" << controller.body_lock_manual_takeover_active();
         throw std::runtime_error(out.str());
     }
     require_true(
@@ -5401,6 +5465,7 @@ int main() {
         test_body_lock_counts_aligned_manual_input_as_planned_correction_near_lock();
         test_body_lock_damps_orthogonal_manual_input_near_lock();
         test_body_lock_restores_vertical_tail_help_after_continuous_target_history();
+        test_body_lock_motion_updates_once_per_fresh_sequence();
         test_body_lock_uses_lateral_motion_when_current_error_is_inside_deadzone();
         test_body_lock_sustained_motion_lead_increases_follow_after_consistent_strong_history();
         test_body_lock_sustained_motion_lead_clears_on_direction_reversal();
