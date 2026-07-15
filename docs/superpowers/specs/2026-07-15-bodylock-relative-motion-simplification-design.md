@@ -2,8 +2,9 @@
 
 ## Status
 
-Approved in conversation on 2026-07-15. This document defines the production
-change to follow the evidence-only benchmark in
+Core design approved in conversation on 2026-07-15. The ADS-to-BodyLock handoff
+contract was added after review feedback and awaits confirmation. This document
+defines the production change to follow the evidence-only benchmark in
 `2026-07-15-left-stick-relative-motion-defect-benchmark-design.md`.
 
 ## Problem and Role in the System
@@ -73,6 +74,26 @@ assist immediately, especially when ADS snap smoothing is zero. The resulting
 release/reacquire edge is visible to the camera rather than being absorbed by a
 single output envelope.
 
+### ADS completion drops terminal-approach protection
+
+The current ADS completion gate counts distinct centered frames and waits for
+the existing crossing-brake flag. That crossing flag, however, is armed only by
+a strong manual right-stick carry through a sign change. It does not prove that
+AI-driven acquisition output or measured closing velocity has settled.
+
+Commit `1981da8` then made `AdsCarryBrakePolicy` return unchanged output whenever
+`body_lock_active` is true and changed its regression expectation to allow
+bounded BodyLock overshoot for moving-target continuity. The separation fixed
+an ownership problem, but it also created a handoff gap: ADS can declare
+completion near the target, switch to BodyLock on the next tick, and immediately
+lose terminal-approach protection while the acquisition vector is still
+carrying toward the target.
+
+The fix is not to let an ADS brake regain authority over all BodyLock output.
+The handoff must preserve the feed-forward component needed to follow real
+relative motion while decelerating only the position-closing component that
+would carry the reticle through the target.
+
 ### Output ownership is distributed
 
 Both `NativeAiAim` and `NativeAimAssistDynamics` currently smooth or constrain
@@ -94,6 +115,8 @@ zero or discontinuous output difficult to reason about.
 - Decay smoothly to zero after identity is no longer trustworthy and never
   follow an arbitrary remaining detector candidate.
 - Restore assistance without a first-tick jump after valid reacquisition.
+- Transfer ADS acquisition into BodyLock without dropping near-target
+  deceleration or suppressing legitimate moving-target feed-forward.
 - Reduce BodyLock to one desired-output owner and one delivered-output owner.
 - Preserve manual right-stick control and keep recoil as the final independent
   feed-forward stage.
@@ -109,6 +132,8 @@ zero or discontinuous output difficult to reason about.
 - No automatic transfer of assistance to an unselected detector candidate.
 - No smoothing of the player's manual stick or the recoil component.
 - No new BodyLock brake/output stage.
+- No restoration of the old post-hoc ADS carry brake over the combined manual
+  plus BodyLock output.
 
 ## Design Principles
 
@@ -208,8 +233,17 @@ conceptually one planner. It combines:
 - one continuous manual-priority rule;
 - one soft error deadband around the body-lock point.
 
-It returns one `desired_assist` vector. It does not retain a second output
-smoothing history.
+Internally the planner keeps the reason for the request explicit:
+
+```text
+desired_assist = position_feedback + trusted_motion_feedforward
+```
+
+That decomposition is not another output stage. It allows the ADS-to-BodyLock
+handoff to reduce a closing position-feedback component without deleting the
+feed-forward needed for target motion or player strafe. The planner returns one
+combined `desired_assist` vector and does not retain a second output-smoothing
+history.
 
 ### 3. AssistEnvelope
 
@@ -221,6 +255,8 @@ applies:
 - bounded coast from the last valid plan during an identity-safe short gap;
 - monotonic release to zero after safety expiry;
 - bumpless reacquisition from the currently delivered value;
+- bumpless ADS-to-BodyLock transfer seeded from the last actual post-ADS-brake,
+  pre-recoil AI component;
 - the unified manual-priority scale supplied by the arbitration contract.
 
 It returns only the AI component. The controller adds that component to the
@@ -236,10 +272,15 @@ ADS acquisition and sustained BodyLock use separate evidence policies:
 
 - ADS acquisition still requires current evidence and retains its ADS-only
   near-target/carry/output-validation behavior.
+- ADS completion also requires terminal-approach evidence: centered position
+  alone is insufficient while the AI-controlled closing component is still
+  predicted to cross the target outside the accepted budget.
 - BodyLock may use only an already-owned same track during the bounded
   continuity window.
 - ADS-only brake stages must bypass BodyLock output and must never alter its
-  requested or delivered assist.
+  requested or delivered assist after ownership changes. Their last actual
+  post-brake, pre-recoil AI value is nevertheless handed to the shared envelope
+  as the continuity seed; this is state transfer, not continued ADS authority.
 
 ## Relative-Motion Observer Algorithm
 
@@ -442,6 +483,64 @@ A valid selected target returns:
 Transitions are explicit in telemetry. No other component may independently
 invent a BodyLock coast, release, or reacquire brake.
 
+## ADS-to-BodyLock Handoff Contract
+
+ADS acquisition and BodyLock have different jobs: ADS moves toward the target,
+while BodyLock maintains relative alignment after acquisition. The mode switch
+must therefore be based on both position and approach state.
+
+### Completion eligibility
+
+`AdsCompletionGate` keeps its distinct-fresh-frame requirement, but a centered
+frame counts only when all of the following are true:
+
+- the selected target identity and current evidence are valid;
+- the target lies inside the configured completion radius;
+- the existing manual crossing-brake condition is not active;
+- camera-attributed closing rate is finite and inside the terminal budget;
+- the AI position-closing component is already decreasing, or its projected
+  time-to-cross stays inside the accepted no-overshoot envelope.
+
+The terminal check consumes fresh observations and the actual pre-recoil output
+components already available in the controller. It does not infer velocity from
+duplicate 1000 Hz ticks. A timeout may end aggressive ADS acquisition, but it
+does not waive safe handoff: the planner/envelope enters the same bounded
+terminal transfer instead of jumping directly to unrestricted BodyLock.
+
+### Transfer payload
+
+On the last ADS tick, the controller records a compact payload:
+
+- selected track id and vision sequence;
+- body-relative error and camera-attributed closing rate;
+- ADS position-closing AI component;
+- actual post-ADS-brake, pre-recoil AI component;
+- transition timestamp and completion reason.
+
+Manual input is not included in the AI seed. Recoil is excluded because it is
+added after the handoff boundary.
+
+### First BodyLock ticks
+
+The BodyLock planner separates position feedback from trusted motion
+feed-forward:
+
+- motion feed-forward may continue when it is supported by fresh target/player
+  relative motion;
+- position feedback may not increase in the old closing direction while the
+  projected error would cross the lock point outside the terminal budget;
+- after a real error sign change, stale position feedback decays through zero
+  before it can reverse;
+- the envelope begins from the last actual ADS AI seed and approaches the new
+  combined desired assist under the ordinary tick-delta/jerk bounds.
+
+The terminal rule is a continuous cap inside the existing planner, not a new
+`AdsCarryBrakePolicy` pass and not a timer that blindly zeros all BodyLock force.
+It naturally releases when fresh approach evidence is safe. For a stationary
+target with no manual input it prevents transition-attributed overshoot; for a
+moving target it retains only the feed-forward required to match measured
+relative motion.
+
 ## Simplification and Migration Map
 
 The implementation must remove or merge existing transformations as follows:
@@ -455,7 +554,7 @@ The implementation must remove or merge existing transformations as follows:
 | `NativeAiAim` BodyLock smoothing | `AssistEnvelope` | Remove planner-local output history |
 | Manual overlap/takeover/escape paths | unified manual arbitration | One continuous manual-priority rule; no multiple stateful zeroing paths |
 | Lifecycle generic history reset | lifecycle state + explicit component reset | Reset target estimator separately; envelope releases rather than jumps |
-| ADS near/carry/output validation | ADS only | Prove by test that these stages cannot mutate BodyLock output |
+| ADS near/carry/output validation | ADS only + explicit handoff payload | These stages cannot mutate BodyLock after the switch; final ADS AI and approach state seed the planner/envelope transfer |
 | Recoil | recoil boundary | Remains the final independent feed-forward component |
 
 `BodyLockShortPlanPolicy` is currently bypassed when `last_mode()` is
@@ -497,6 +596,9 @@ Smoothness applies to the AI component, not to the entire output.
 - A sign change crosses a continuous deadband; it cannot alternate between two
   nontrivial signs on successive ticks.
 - Reacquire begins from the currently delivered AI value.
+- ADS-to-BodyLock begins from the actual last post-brake ADS AI value; the mode
+  label may change, but delivered AI must not reset or regain a large closing
+  component.
 - Manual right-stick changes and recoil feed-forward are not delayed to make a
   smoothness metric look better.
 - Final-output clipping must be attributed separately so saturation is not
@@ -544,6 +646,11 @@ not duplicated. Estimator learning rates, innovation clips, valid timestamp
 bounds, and confidence frame counts are internal constants first. They may
 become configuration only after benchmark evidence shows a real need.
 
+ADS-handoff terminal eligibility reuses the existing completion radius,
+camera-attributed motion, and bounded projection horizon. Its initial
+time-to-cross and overshoot budgets are benchmarked internal constants, not a
+fourth user-facing knob.
+
 ### Hot-loop budget
 
 - at most one new estimator source/header pair, or an equivalent refactor of
@@ -564,6 +671,8 @@ Add only enough observability to prove ownership and diagnose a mismatch:
 - normalized relative rate and projected lead;
 - lifecycle state/reason (`tracking`, `geometry_grace`, `coast`, `release`,
   `reacquire`);
+- ADS handoff eligibility, closing rate, position-feedback component, and
+  completion/hold reason;
 - desired versus delivered BodyLock AI;
 - fresh sequence consumed and estimator rejection reason.
 
@@ -600,6 +709,10 @@ Scenarios cover:
 - ADS release/re-entry with matching mobility;
 - unannounced mobility-gain change representing weapon/stance/scope change;
 - firing/recoil transient while learning is frozen;
+- ADS acquisition arriving near center with high AI-driven closing velocity,
+  followed by the ADS-to-BodyLock mode switch;
+- the same handoff while trusted target or player relative motion requires a
+  non-zero feed-forward component;
 - invalid body geometry and short same-track observation loss;
 - long identity loss with other detector candidates present;
 - reacquisition of same identity and a different identity.
@@ -627,6 +740,9 @@ Focused tests instrument every controller stage and assert:
 - lifecycle changes state/reason but performs no stick arithmetic;
 - ADS near-target brake, ADS carry brake, short-plan policy, and output
   validation do not mutate BodyLock;
+- the last actual ADS AI component seeds the first BodyLock envelope tick;
+- transition terminal control reduces only position feedback and preserves
+  trusted motion feed-forward;
 - the unified manual rule is the sole BodyLock manual arbitration path;
 - recoil remains separately attributed and is added after AI/manual composition;
 - manual and recoil discontinuities are excluded from AI smoothness scoring but
@@ -638,6 +754,12 @@ All existing ADS, BodyLock, slide/jump/crouch, manual takeover, recoil,
 tracker-authority, pipeline-contract, runtime-config, controller behavior,
 metrics, and native gamepad self-tests remain green. Small/far target tests must
 show no increase in authority or force.
+
+The existing test whose expectation says ADS carry brake must allow bounded
+BodyLock overshoot is replaced by two narrower contracts: ADS policy cannot
+mutate BodyLock after ownership changes, and the planner/envelope handoff itself
+must prevent transition-attributed overshoot while preserving motion
+feed-forward.
 
 ## Acceptance Criteria
 
@@ -666,6 +788,22 @@ show no increase in authority or force.
 - No BodyLock AI spike of magnitude `0.20` or greater caused by a lifecycle or
   duplicate-frame transition.
 - Manual and recoil remain unsmoothed and independently attributed.
+
+### ADS-to-BodyLock handoff
+
+- A stationary target with zero manual right-stick input has no error crossing
+  greater than 2 px attributable to the mode transition.
+- A centered ADS sample does not complete acquisition while the AI position
+  component is still predicted to carry through the lock point outside that
+  budget.
+- The last ADS tick to first BodyLock tick obeys the `0.07` delivered-AI delta
+  bound and never resets to zero solely because the mode label changed.
+- During terminal transfer, the closing position-feedback magnitude is
+  non-increasing until approach evidence is safe.
+- A moving-target or left-strafe fixture retains the trusted feed-forward needed
+  for relative-motion continuity; it is not forced to zero by proximity alone.
+- Overshoot scoring distinguishes player-owned manual carry from AI-attributed
+  transition output. Manual input remains unchanged.
 
 ### Lifecycle safety
 
@@ -715,7 +853,9 @@ test placement:
 - current BodyLock motion policy or a focused `relative_motion_observer.*`:
   fresh-frame normalized estimator and in-memory mobility prior;
 - `native/controller_native/aim_assist_dynamics.*`: single BodyLock envelope,
-  coast/release/reacquire continuity;
+  coast/release/reacquire and ADS-handoff continuity;
+- `native/controller_native/ads_completion_gate.*`: fresh-frame
+  terminal-approach eligibility in addition to centered position;
 - `native/controller_native/bodylock_lifecycle.*`: state/reason transitions and
   targeted reset semantics;
 - `native/controller_native/native_gamepad_controller.*`: pass left intent and
