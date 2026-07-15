@@ -40,7 +40,19 @@ AdsCompletionGateState AdsCompletionGate::update(const AdsCompletionGateInput& i
         input.vision_sequence != last_vision_sequence_;
     if (!distinct_fresh) return state_;
     last_vision_sequence_ = input.vision_sequence;
-    const bool settled_input = !input.crossing_brake_active;
+    constexpr float kTerminalHorizonSeconds = 0.050f;
+    constexpr float kOvershootBudgetPx = 2.0f;
+    constexpr float kSettledPositionAssist = 0.08f;
+    const float projected_closing_px =
+        std::max(0.0f, input.closing_speed_px_per_sec) * kTerminalHorizonSeconds;
+    const bool terminal_approach_safe =
+        input.terminal_approach_valid &&
+        std::isfinite(input.closing_speed_px_per_sec) &&
+        std::isfinite(input.position_closing_assist) &&
+        projected_closing_px <= kOvershootBudgetPx &&
+        std::fabs(input.position_closing_assist) <= kSettledPositionAssist;
+    const bool settled_input =
+        !input.crossing_brake_active && terminal_approach_safe;
     if (std::hypot(input.dx, input.dy) <= radius_px_ && settled_input) {
         ++state_.centered_fresh_frames;
     } else {

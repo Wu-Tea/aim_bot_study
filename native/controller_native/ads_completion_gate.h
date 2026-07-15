@@ -21,6 +21,9 @@ struct AdsCompletionGateInput {
     float dx = 0.0f;
     float dy = 0.0f;
     bool crossing_brake_active = false;
+    bool terminal_approach_valid = true;
+    float closing_speed_px_per_sec = 0.0f;
+    float position_closing_assist = 0.0f;
     double now_seconds = 0.0;
 };
 

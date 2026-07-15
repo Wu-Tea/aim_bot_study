@@ -84,6 +84,21 @@ void test_crossing_brake_blocks_centered_completion_until_released() {
     require(gate.state().reason == controller_native::AdsCompletionReason::Centered);
 }
 
+void test_centered_frames_do_not_complete_while_ai_is_closing_fast() {
+    controller_native::AdsCompletionGate gate(8.0f, 3, 220.0f);
+    auto input = sample(1, 7.0f, 1.000);
+    input.terminal_approach_valid = true;
+    input.closing_speed_px_per_sec = 420.0f;
+    input.position_closing_assist = 0.36f;
+    require(gate.update(input).active);
+    require(gate.state().centered_fresh_frames == 0);
+
+    input.vision_sequence = 2;
+    input.now_seconds = 1.012;
+    require(gate.update(input).active);
+    require(gate.state().centered_fresh_frames == 0);
+}
+
 void test_release_and_target_loss_reset() {
     controller_native::AdsCompletionGate gate(8.0f, 3, 220.0f);
     gate.update(sample(1, 4.0f, 1.000));
@@ -108,6 +123,7 @@ int main() {
     test_timeout_releases_acquisition();
     test_projected_samples_hold_active_without_advancing();
     test_crossing_brake_blocks_centered_completion_until_released();
+    test_centered_frames_do_not_complete_while_ai_is_closing_fast();
     test_release_and_target_loss_reset();
     return 0;
 }
