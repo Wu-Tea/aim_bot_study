@@ -147,3 +147,66 @@ The next useful work is not another small ADS cap. It is a tracker/authority ref
 - separate ADS point-target authority from bodylock continuity authority;
 - candidate verification that can reject fresh-but-wrong detections without stalling moving bodylock;
 - benchmark comparison against this baseline after the structural change.
+
+## Left-Stick Relative-Motion RED Baseline (2026-07-15)
+
+The focused left-stick benchmark isolates the reported player-strafe defect
+without adding optical flow, background processing, weapon mobility data, or a
+controller fix. It drives the real native controller at 100 Hz, captures vision
+at 50 Hz, delivers observations with 30 ms delay, and starts scoring after the
+initial ADS acquisition phase.
+
+Build and run it with:
+
+```powershell
+& 'C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe' `
+  --build --preset modern-release --target cod_native_lstick_benchmark -- /m
+
+native\vision_native\build-modern\Release\cod_native_left_stick_motion_benchmark.exe `
+  --output artifacts\benchmarks\native_gamepad\left-stick-motion-defect-20260715.json
+
+native\vision_native\build-modern\Release\cod_native_left_stick_motion_benchmark.exe `
+  --require-fixed
+```
+
+Normal execution validates the harness and exits zero even when defects are
+reproduced. `--require-fixed` is the optimization gate and intentionally returns
+non-zero for this RED baseline.
+
+Accepted RED artifact:
+`artifacts/benchmarks/native_gamepad/left-stick-motion-defect-20260715.json`.
+Two consecutive runs produced the same SHA-256:
+`4794F655DAB331C90E840FBB1CAA0ABE5108409C0D1377942D0CB9009523A08C`.
+
+The open-loop invariance probe produced:
+
+| Metric | Result |
+| --- | ---: |
+| Maximum AI-right trace delta when only left intent changes | 0.000 |
+| Maximum final-right trace delta when only left intent changes | 0.000 |
+| Maximum left-axis passthrough error | 0.000 |
+| Left intent ignored | true |
+
+Closed-loop results exclude ticks 0-69 so initial ADS acquisition output is not
+misclassified as a strafe defect:
+
+| Scenario | Mean error | P95 error | Max error | Onset / reverse / release response | Manual opposition | Oracle opposition | Failure reasons |
+| --- | ---: | ---: | ---: | --- | ---: | ---: | --- |
+| `stationary_target_slow_ads` | 11.514 | 19.829 | 20.065 | 270 / n.a. / 310 ms | 0 | 0 | onset lag, release lag |
+| `stationary_target_fast_ads` | 22.267 | 37.754 | 38.301 | 170 / 90 / 310 ms | 0 | 0 | onset lag, reverse lag, release lag |
+| `same_direction_target_fast_ads` | 9.831 | 16.063 | 16.170 | 270 / 130 / n.a. ms | 0 | 0 | onset lag, reverse lag |
+| `opposite_direction_target_fast_ads` | 47.663 | 132.987 | 138.735 | 150 / 310 / 310 ms | 0 | 4 | onset/reverse/release lag, wrong-way output, excessive error |
+| `stationary_target_fast_ads_manual_correction` | 7.572 | 12.143 | 12.347 | 70 / 20 / 30 ms | 7 | 0 | onset/release lag, AI opposes manual correction |
+
+Interpretation:
+
+- The current right-stick AI path is exactly invariant to left-stick intent when
+  vision and right-stick input are held equal.
+- Faster simulated ADS strafe nearly doubles stationary-target mean error
+  (`11.514` to `22.267`) even though no weapon-specific data is used.
+- Opposite player/target motion is the worst case: P95 error reaches `132.987`
+  px and final output points against the oracle correction for four frames.
+- When the user also corrects with the right stick, AI opposes that correction
+  for seven frames around strafe events.
+- The next optimization should beat these event-latency and opposition metrics
+  while preserving the existing controller benchmark and bodylock guards.
