@@ -28,50 +28,21 @@ controller_native::NativeControllerVisionState aim_target(float dx, float dy) {
     return state;
 }
 
-controller_native::BodyLockShortPlanInput body_lock_input(double now_seconds) {
-    controller_native::BodyLockShortPlanInput input;
-    input.vision_state = aim_target(2.0f, 1.0f);
-    input.body_lock_available = true;
-    input.lock_dx = 2.0f;
-    input.lock_dy = 1.0f;
-    input.vertical_plan_allowed = true;
-    input.now_seconds = now_seconds;
-    return input;
-}
-
-void test_short_plan_zeros_x_axis_on_near_lock_sign_flip() {
+void test_policy_does_not_hold_or_zero_small_vector_turns() {
     controller_native::GamepadAiAimConfig config;
-    config.body_lock_near_lock_error_px = 32.0f;
-    config.body_lock_manual_escape_input_threshold = 0.45f;
     controller_native::BodyLockShortPlanPolicy policy(config);
 
-    controller_native::BodyLockShortPlanInput first = body_lock_input(10.000);
+    controller_native::BodyLockShortPlanInput first;
+    first.vision_state = aim_target(2.0f, 1.0f);
+    first.body_lock_available = true;
+    first.now_seconds = 11.000;
     first.output.right_x = 0.050f;
     policy.apply(first);
 
-    controller_native::BodyLockShortPlanInput flipped = body_lock_input(10.010);
-    flipped.output.right_x = -0.040f;
-    const controller_native::GamepadOutputState output = policy.apply(flipped);
-
-    require_near(
-        output.right_x,
-        0.0f,
-        0.001f,
-        "near-lock x sign flip should briefly zero the x axis");
-}
-
-void test_short_plan_respects_manual_escape_threshold() {
-    controller_native::GamepadAiAimConfig config;
-    config.body_lock_near_lock_error_px = 32.0f;
-    config.body_lock_manual_escape_input_threshold = 0.45f;
-    controller_native::BodyLockShortPlanPolicy policy(config);
-
-    controller_native::BodyLockShortPlanInput first = body_lock_input(11.000);
-    first.output.right_x = 0.050f;
-    policy.apply(first);
-
-    controller_native::BodyLockShortPlanInput flipped = body_lock_input(11.010);
-    flipped.manual_right_x = 0.60f;
+    controller_native::BodyLockShortPlanInput flipped;
+    flipped.vision_state = aim_target(2.0f, 1.0f);
+    flipped.body_lock_available = true;
+    flipped.now_seconds = 11.010;
     flipped.output.right_x = -0.040f;
     const controller_native::GamepadOutputState output = policy.apply(flipped);
 
@@ -79,7 +50,7 @@ void test_short_plan_respects_manual_escape_threshold() {
         output.right_x,
         -0.040f,
         0.001f,
-        "manual escape should prevent x short-plan zeroing");
+        "the ADS crossing policy must not own BodyLock-style short-plan holds");
 }
 
 void test_manual_cross_brake_corrects_wrong_way_manual_after_crossing() {
@@ -108,15 +79,11 @@ void test_manual_cross_brake_corrects_wrong_way_manual_after_crossing() {
         "wrong-way manual crossing should apply bounded reverse correction");
 }
 
-void test_non_body_lock_resets_short_plan_but_keeps_active_manual_brake() {
+void test_manual_cross_brake_remains_active_for_ads_crossing() {
     controller_native::GamepadAiAimConfig config;
     config.body_lock_near_lock_error_px = 32.0f;
     config.body_lock_manual_escape_input_threshold = 0.45f;
     controller_native::BodyLockShortPlanPolicy policy(config);
-
-    controller_native::BodyLockShortPlanInput first = body_lock_input(13.000);
-    first.output.right_x = 0.050f;
-    policy.apply(first);
 
     controller_native::BodyLockShortPlanInput crossed;
     crossed.vision_state = aim_target(20.0f, 0.0f);
@@ -130,23 +97,13 @@ void test_non_body_lock_resets_short_plan_but_keeps_active_manual_brake() {
     crossed.now_seconds = 13.020;
     const controller_native::GamepadOutputState braked = policy.apply(crossed);
     require_true(braked.right_x < 0.0f, "manual brake should still run without body lock");
-
-    controller_native::BodyLockShortPlanInput body_lock = body_lock_input(13.030);
-    body_lock.output.right_x = -0.040f;
-    const controller_native::GamepadOutputState output = policy.apply(body_lock);
-    require_near(
-        output.right_x,
-        -0.040f,
-        0.001f,
-        "leaving body lock should reset previous short-plan sign memory");
 }
 
 }  // namespace
 
 int main() {
-    test_short_plan_zeros_x_axis_on_near_lock_sign_flip();
-    test_short_plan_respects_manual_escape_threshold();
+    test_policy_does_not_hold_or_zero_small_vector_turns();
     test_manual_cross_brake_corrects_wrong_way_manual_after_crossing();
-    test_non_body_lock_resets_short_plan_but_keeps_active_manual_brake();
+    test_manual_cross_brake_remains_active_for_ads_crossing();
     return 0;
 }

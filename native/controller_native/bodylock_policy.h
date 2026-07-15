@@ -55,7 +55,6 @@ public:
     float lateral_motion_delta(float dx, float release_threshold_px) const;
     float axis_release_tail_scale(bool y_axis, float base_tail_scale) const;
     float vertical_ai_scale(float desired_dy) const;
-    float stabilize_ratio(float desired_dx, float desired_dy) const;
 
 private:
     void reset_target_motion(bool retain_mobility_prior);

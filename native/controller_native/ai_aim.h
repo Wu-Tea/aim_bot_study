@@ -80,45 +80,21 @@ private:
     float body_lock_lateral_motion_delta(float dx) const;
     float body_lock_axis_release_threshold(bool y_axis) const;
     float body_lock_axis_release_tail_scale(bool y_axis) const;
-    float body_lock_zero_cross_guard_px(bool y_axis) const;
-    bool is_body_lock_zero_cross(bool y_axis, float current_error) const;
     bool body_lock_reference_matches(const NativeAiAimInput& input) const;
     float body_lock_reference_iou(const NativeAiAimInput& input) const;
-    int body_lock_axis_hold_remaining(bool y_axis) const;
-    void set_body_lock_axis_hold(bool y_axis, int value);
-    float apply_body_lock_axis_guard(float desired_ai, float desired_error, bool y_axis);
-    void remember_body_lock_errors(float error_x, float error_y);
+    float body_lock_position_strength(float error_px, bool y_axis) const;
+    float body_lock_motion_scale(float error_x, float error_y, bool y_axis) const;
     void apply_ads_snap_smoothing(NativeAiAimOutput& output);
     float cap_body_lock_terminal_position(float position_assist, float lock_error_px) const;
     float observe_body_lock_confidence(const NativeAiAimInput& input, float lock_dx, float lock_dy);
-    std::pair<float, float> resolve_body_lock_manual(
-        float manual_x,
-        float manual_y,
+    std::pair<float, float> arbitrate_body_lock_assist(
+        const NativeAiAimInput& input,
         float planned_x,
         float planned_y,
         float error_x,
         float error_y,
-        float lock_confidence) const;
-    float body_lock_vertical_ai_scale(float desired_dy) const;
-    float resolve_body_lock_harmful_manual(
-        float manual_input,
-        float planned_ai,
-        float lock_confidence) const;
-    float resolve_body_lock_manual_overlap(
-        float planned_ai,
-        float manual_input,
-        float error_radius) const;
-    float apply_body_lock_manual_escape_floor(
-        float assist,
-        float manual_input,
-        float lock_confidence) const;
+        float lock_confidence);
     float apply_fire_active_vertical_guard(float assist_y, const NativeAiAimInput& input) const;
-    bool update_body_lock_manual_takeover(
-        const NativeAiAimInput& input,
-        float planned_x,
-        float planned_y,
-        float direction_evidence_x,
-        float direction_evidence_y);
     void reset_body_lock_manual_takeover();
     std::pair<float, float> resolve_ads_snap_manual(
         float manual_x,
@@ -156,17 +132,7 @@ private:
     float body_lock_reference_bottom_ = 0.0f;
     float ads_snap_ai_stick_x_ = 0.0f;
     float ads_snap_ai_stick_y_ = 0.0f;
-    bool has_last_body_lock_error_x_ = false;
-    bool has_last_body_lock_error_y_ = false;
-    float last_body_lock_error_x_ = 0.0f;
-    float last_body_lock_error_y_ = 0.0f;
-    int body_lock_zero_cross_hold_x_ = 0;
-    int body_lock_zero_cross_hold_y_ = 0;
     bool manual_takeover_active_ = false;
-    double manual_takeover_candidate_since_ = 0.0;
-    double manual_takeover_last_manual_at_ = 0.0;
-    float manual_takeover_direction_x_ = 0.0f;
-    float manual_takeover_direction_y_ = 0.0f;
     BodyLockMotionPolicy body_lock_motion_;
     std::string last_mode_ = "manual";
 };

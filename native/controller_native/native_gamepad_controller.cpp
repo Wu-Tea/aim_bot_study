@@ -96,7 +96,9 @@ NativeGamepadController::NativeGamepadController(
     std::function<double()> clock)
     : config_(std::move(config)),
       ai_aim_(config_.ai_aim),
-      aim_assist_dynamics_(config_.aim_assist_dynamics),
+      aim_assist_dynamics_(
+          config_.aim_assist_dynamics,
+          config_.ai_aim.body_lock_smoothing),
       recoil_(config_.recoil),
       ads_completion_gate_(
           config_.ai_aim.ads_completion_radius_px,
@@ -179,7 +181,7 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
     // recoil stays the final feed-forward stage and does not receive target error.
     GamepadOutputState stage_before_output = output;
     float stage_before_right_y = output.right_y;
-    apply_ai_aim(output, physical, frame_vision_state, now);
+    apply_ai_aim(output, physical, frame_vision_state, now, &output_components);
     capture_output_component_delta(
         stage_before_output,
         output,
@@ -576,7 +578,8 @@ void NativeGamepadController::apply_ai_aim(
     GamepadOutputState& output,
     const PhysicalGamepadState& physical,
     const NativeControllerVisionState& vision_state,
-    double now_seconds) {
+    double now_seconds,
+    NativeControllerOutputComponents* components) {
     NativeAiAimInput input;
     input.aiming = is_aiming(physical);
     input.has_target = vision_state.has_target;
@@ -646,18 +649,27 @@ void NativeGamepadController::apply_ai_aim(
     input.bodylock_lifecycle_valid = true;
     input.bodylock_lifecycle = last_bodylock_lifecycle_decision_.state;
 
+    GamepadOutputState stage_before = output;
     const NativeAiAimOutput assist = ai_aim_.compute(input);
     if (assist.has_assist) {
         output.right_x = clamp_unit(output.right_x + assist.assist_x);
         output.right_y = clamp_unit(output.right_y + assist.assist_y);
     }
+    capture_output_component_delta(
+        stage_before,
+        output,
+        &components->planned_assist_stick);
+    stage_before = output;
     apply_body_lock_short_plan(
         output,
         input.manual_right_x,
         input.manual_right_y,
-        !input.fire_active,
         vision_state,
         now_seconds);
+    capture_output_component_delta(
+        stage_before,
+        output,
+        &components->body_lock_short_plan_stick);
     OutputValidationPolicyInput validation_input;
     validation_input.vision_state = vision_state;
     validation_input.output = output;
@@ -667,6 +679,7 @@ void NativeGamepadController::apply_ai_aim(
     validation_input.candidate_output_hold_active =
         target_snapshot_provider_.candidate_output_hold_active(now_seconds);
     validation_input.now_seconds = now_seconds;
+    stage_before = output;
     if (ai_aim_.last_mode() == "body_lock" &&
         !validation_input.candidate_output_hold_active) {
         // Validation owns ADS/candidate braking state.  Do not let state armed
@@ -676,13 +689,16 @@ void NativeGamepadController::apply_ai_aim(
     } else {
         output = output_validation_policy_.apply(validation_input);
     }
+    capture_output_component_delta(
+        stage_before,
+        output,
+        &components->output_validation_stick);
 }
 
 void NativeGamepadController::apply_body_lock_short_plan(
     GamepadOutputState& output,
     float manual_right_x,
     float manual_right_y,
-    bool vertical_plan_allowed,
     const NativeControllerVisionState& vision_state,
     double now_seconds) {
     if (ai_aim_.last_mode() == "body_lock") {
@@ -691,20 +707,11 @@ void NativeGamepadController::apply_body_lock_short_plan(
         body_lock_short_plan_policy_.reset();
         return;
     }
-    float lock_dx = 0.0f;
-    float lock_dy = 0.0f;
-    const bool body_lock_available =
-        ai_aim_.last_mode() == "body_lock" &&
-        body_lock_error_for_state(vision_state, &lock_dx, &lock_dy);
     BodyLockShortPlanInput plan_input;
     plan_input.vision_state = vision_state;
     plan_input.output = output;
     plan_input.manual_right_x = manual_right_x;
     plan_input.manual_right_y = manual_right_y;
-    plan_input.vertical_plan_allowed = vertical_plan_allowed;
-    plan_input.body_lock_available = body_lock_available;
-    plan_input.lock_dx = lock_dx;
-    plan_input.lock_dy = lock_dy;
     plan_input.now_seconds = now_seconds;
     output = body_lock_short_plan_policy_.apply(plan_input);
 }

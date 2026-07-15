@@ -36,12 +36,6 @@ void NativeAiAim::reset_body_lock_history() {
     body_lock_reference_top_ = 0.0f;
     body_lock_reference_right_ = 0.0f;
     body_lock_reference_bottom_ = 0.0f;
-    has_last_body_lock_error_x_ = false;
-    has_last_body_lock_error_y_ = false;
-    last_body_lock_error_x_ = 0.0f;
-    last_body_lock_error_y_ = 0.0f;
-    body_lock_zero_cross_hold_x_ = 0;
-    body_lock_zero_cross_hold_y_ = 0;
     reset_body_lock_manual_takeover();
     reset_motion_tracking();
 }
@@ -159,72 +153,13 @@ NativeAiAimOutput NativeAiAim::compute(const NativeAiAimInput& input) {
         max_force_y = config_.body_lock_max_ai_force_y;
     }
 
-    const auto [x_strength, y_strength] = axis_soft_strengths(target_error_x, target_error_y);
-    if (x_strength <= 0.0f && y_strength <= 0.0f) {
-        return output;
-    }
-    float body_lock_y_force_scale = 1.0f;
     if (body_lock_active) {
-        const float near_lock_px = std::max(1.0f, config_.body_lock_near_lock_error_px);
-        const float abs_guard_y = std::fabs(body_lock_guard_error_y);
-        if (abs_guard_y < near_lock_px) {
-            body_lock_y_force_scale = std::max(0.55f, abs_guard_y / near_lock_px);
-        }
-    }
-
-    output.assist_x = compute_axis(
-        target_error_x,
-        (ads_snap_mode || body_lock_active) ? 0.0f : input.manual_right_x,
-        max_force_x,
-        scale,
-        x_strength,
-        false);
-    output.assist_y = compute_axis(
-        -target_error_y,
-        (ads_snap_mode || body_lock_active) ? 0.0f : input.manual_right_y,
-        max_force_y * body_lock_y_force_scale,
-        scale,
-        y_strength,
-        true);
-    if (ads_snap_mode) {
-        output.assist_x = prefer_larger_magnitude(
-            output.assist_x,
-            ads_snap_time_to_go_stick(
-                target_error_x * config_.ai_delta_gain,
-                x_strength,
-                input.ads_snap_remaining_seconds) *
-                std::max(0.0f, max_force_x) * scale);
-        output.assist_y = prefer_larger_magnitude(
-            output.assist_y,
-            ads_snap_time_to_go_stick(
-                -target_error_y * config_.ai_delta_gain,
-                y_strength,
-                input.ads_snap_remaining_seconds) *
-                std::max(0.0f, max_force_y) * scale);
-        apply_ads_snap_smoothing(output);
-    }
-    if (body_lock_active) {
-        output.assist_x = apply_body_lock_axis_guard(output.assist_x, body_lock_guard_error_x, false);
-        output.assist_y = apply_body_lock_axis_guard(output.assist_y, body_lock_guard_error_y, true);
-        remember_body_lock_errors(body_lock_guard_error_x, body_lock_guard_error_y);
-    }
-    if (body_lock_active) {
-        const float stabilize_ratio =
-            body_lock_motion_.stabilize_ratio(body_lock_guard_error_x, body_lock_guard_error_y);
-        if (stabilize_ratio > 0.0f) {
-            output.assist_x *= 1.0f + (0.85f * stabilize_ratio);
-            output.assist_y *= 1.0f + (0.35f * stabilize_ratio);
-        }
-        const float vertical_scale = body_lock_vertical_ai_scale(target_error_y);
-        if (vertical_scale < 0.0f) {
-            output.assist_y = 0.0f;
-        } else {
-            output.assist_y *= vertical_scale;
-        }
-
-        const auto [position_x_strength, position_y_strength] = axis_soft_strengths(
+        const float position_x_strength = body_lock_position_strength(
             body_lock_position_error_x,
-            body_lock_position_error_y);
+            false);
+        const float position_y_strength = body_lock_position_strength(
+            body_lock_position_error_y,
+            true);
         float position_assist_x = compute_axis(
             body_lock_position_error_x,
             0.0f,
@@ -235,24 +170,47 @@ NativeAiAimOutput NativeAiAim::compute(const NativeAiAimInput& input) {
         float position_assist_y = compute_axis(
             -body_lock_position_error_y,
             0.0f,
-            max_force_y * body_lock_y_force_scale,
+            max_force_y,
             scale,
             position_y_strength,
             true);
-        if (stabilize_ratio > 0.0f) {
-            position_assist_x *= 1.0f + (0.85f * stabilize_ratio);
-            position_assist_y *= 1.0f + (0.35f * stabilize_ratio);
-        }
-        const float position_vertical_scale =
-            body_lock_vertical_ai_scale(body_lock_position_error_y);
-        if (position_vertical_scale < 0.0f) {
-            position_assist_y = 0.0f;
-        } else {
-            position_assist_y *= position_vertical_scale;
-        }
+        position_assist_x *= body_lock_motion_scale(
+            body_lock_position_error_x,
+            body_lock_position_error_y,
+            false);
+        position_assist_y *= body_lock_motion_scale(
+            body_lock_position_error_x,
+            body_lock_position_error_y,
+            true);
 
-        const float motion_feedforward_x = output.assist_x - position_assist_x;
-        const float motion_feedforward_y = output.assist_y - position_assist_y;
+        const float motion_error_x = target_error_x - body_lock_position_error_x;
+        const float motion_error_y = target_error_y - body_lock_position_error_y;
+        const auto [motion_x_strength, motion_y_strength] = axis_soft_strengths(
+            motion_error_x,
+            motion_error_y);
+        float motion_feedforward_x = compute_axis(
+            motion_error_x,
+            0.0f,
+            max_force_x,
+            scale,
+            motion_x_strength,
+            false);
+        float motion_feedforward_y = compute_axis(
+            -motion_error_y,
+            0.0f,
+            max_force_y,
+            scale,
+            motion_y_strength,
+            true);
+        motion_feedforward_x *= body_lock_motion_scale(
+            target_error_x,
+            target_error_y,
+            false);
+        motion_feedforward_y *= body_lock_motion_scale(
+            target_error_x,
+            target_error_y,
+            true);
+
         position_assist_x = cap_body_lock_terminal_position(
             position_assist_x,
             body_lock_position_error_x);
@@ -273,6 +231,47 @@ NativeAiAimOutput NativeAiAim::compute(const NativeAiAimInput& input) {
             std::min(
                 std::max(0.0f, max_force_y),
                 position_assist_y + motion_feedforward_y));
+    } else {
+        const auto [x_strength, y_strength] = axis_soft_strengths(
+            target_error_x,
+            target_error_y);
+        if (x_strength <= 0.0f && y_strength <= 0.0f) {
+            return output;
+        }
+        output.assist_x = compute_axis(
+            target_error_x,
+            ads_snap_mode ? 0.0f : input.manual_right_x,
+            max_force_x,
+            scale,
+            x_strength,
+            false);
+        output.assist_y = compute_axis(
+            -target_error_y,
+            ads_snap_mode ? 0.0f : input.manual_right_y,
+            max_force_y,
+            scale,
+            y_strength,
+            true);
+    }
+    if (ads_snap_mode) {
+        const auto [x_strength, y_strength] = axis_soft_strengths(
+            target_error_x,
+            target_error_y);
+        output.assist_x = prefer_larger_magnitude(
+            output.assist_x,
+            ads_snap_time_to_go_stick(
+                target_error_x * config_.ai_delta_gain,
+                x_strength,
+                input.ads_snap_remaining_seconds) *
+                std::max(0.0f, max_force_x) * scale);
+        output.assist_y = prefer_larger_magnitude(
+            output.assist_y,
+            ads_snap_time_to_go_stick(
+                -target_error_y * config_.ai_delta_gain,
+                y_strength,
+                input.ads_snap_remaining_seconds) *
+                std::max(0.0f, max_force_y) * scale);
+        apply_ads_snap_smoothing(output);
     }
     if (ads_snap_mode) {
         const float planned_x = output.assist_x;
@@ -295,119 +294,23 @@ NativeAiAimOutput NativeAiAim::compute(const NativeAiAimInput& input) {
         output.assist_y = (manual_y - input.manual_right_y) +
             remaining_y;
     } else if (body_lock_active) {
-        const float planned_x = output.assist_x;
-        const float planned_y = output.assist_y;
-        if (update_body_lock_manual_takeover(
-                input,
-                planned_x,
-                planned_y,
-                body_lock_guard_error_x,
-                -body_lock_guard_error_y)) {
-            output.assist_x = planned_x * input.manual_right_x < 0.0f ? 0.0f : planned_x;
-            output.assist_y = planned_y * input.manual_right_y < 0.0f ? 0.0f : planned_y;
-        } else {
-            const auto [manual_x, manual_y] = resolve_body_lock_manual(
-                input.manual_right_x,
-                input.manual_right_y,
-                planned_x,
-                planned_y,
-                target_error_x,
-                -target_error_y,
-                lock_confidence);
-            const float error_radius =
-                std::sqrt((target_error_x * target_error_x) + (target_error_y * target_error_y));
-            output.assist_x = (manual_x - input.manual_right_x) +
-                resolve_body_lock_manual_overlap(planned_x, manual_x, error_radius);
-            output.assist_y = (manual_y - input.manual_right_y) +
-                resolve_body_lock_manual_overlap(planned_y, manual_y, error_radius);
-            output.assist_x = apply_body_lock_manual_escape_floor(
-                output.assist_x, input.manual_right_x, lock_confidence);
-            output.assist_y = apply_body_lock_manual_escape_floor(
-                output.assist_y, input.manual_right_y, lock_confidence);
-        }
-        const float manual_escape_threshold = std::max(
-            0.0f,
-            config_.body_lock_manual_escape_input_threshold);
-        if (std::fabs(input.manual_right_y) >= manual_escape_threshold &&
-            input.manual_right_y * output.assist_y < 0.0f) {
-            output.assist_y = 0.0f;
-        }
+        const auto [assist_x, assist_y] = arbitrate_body_lock_assist(
+            input,
+            output.assist_x,
+            output.assist_y,
+            body_lock_guard_error_x,
+            -body_lock_guard_error_y,
+            lock_confidence);
+        output.assist_x = assist_x;
+        output.assist_y = assist_y;
     }
     output.assist_y = apply_fire_active_vertical_guard(output.assist_y, input);
     output.has_assist = output.assist_x != 0.0f || output.assist_y != 0.0f;
     return output;
 }
 
-bool NativeAiAim::update_body_lock_manual_takeover(
-    const NativeAiAimInput& input,
-    float planned_x,
-    float planned_y,
-    float direction_evidence_x,
-    float direction_evidence_y) {
-    if (!config_.body_lock_manual_takeover_enabled) {
-        reset_body_lock_manual_takeover();
-        return false;
-    }
-    const float manual_magnitude = std::hypot(input.manual_right_x, input.manual_right_y);
-    constexpr float kPlannedDirectionFloor = 0.02f;
-    const float intent_x = std::fabs(planned_x) > kPlannedDirectionFloor
-        ? planned_x
-        : direction_evidence_x;
-    const float intent_y = std::fabs(planned_y) > kPlannedDirectionFloor
-        ? planned_y
-        : direction_evidence_y;
-    const float intent_magnitude = std::hypot(intent_x, intent_y);
-    const float threshold = std::max(0.0f, config_.body_lock_manual_takeover_input_threshold);
-    const double now = input.now_seconds;
-    if (manual_magnitude >= threshold && now > 0.0) {
-        manual_takeover_last_manual_at_ = now;
-    }
-    const bool has_directional_evidence = manual_magnitude >= threshold &&
-        intent_magnitude > kPlannedDirectionFloor;
-    const float alignment = has_directional_evidence
-        ? ((input.manual_right_x * intent_x) + (input.manual_right_y * intent_y)) /
-            (manual_magnitude * intent_magnitude)
-        : 1.0f;
-    const bool opposing = has_directional_evidence && alignment <= -0.45f;
-    if (opposing) {
-        const float ux = input.manual_right_x / manual_magnitude;
-        const float uy = input.manual_right_y / manual_magnitude;
-        const float previous_alignment =
-            (ux * manual_takeover_direction_x_) + (uy * manual_takeover_direction_y_);
-        if (manual_takeover_candidate_since_ <= 0.0 || previous_alignment < 0.70f) {
-            manual_takeover_candidate_since_ = now;
-            manual_takeover_direction_x_ = ux;
-            manual_takeover_direction_y_ = uy;
-        }
-        const double commit_seconds =
-            static_cast<double>(std::max(0.0f, config_.body_lock_manual_takeover_commit_ms)) / 1000.0;
-        if (now > 0.0 && now - manual_takeover_candidate_since_ >= commit_seconds) {
-            manual_takeover_active_ = true;
-        }
-    } else if (!manual_takeover_active_) {
-        manual_takeover_candidate_since_ = 0.0;
-        manual_takeover_direction_x_ = 0.0f;
-        manual_takeover_direction_y_ = 0.0f;
-    }
-
-    if (manual_takeover_active_) {
-        const double release_seconds =
-            static_cast<double>(std::max(0.0f, config_.body_lock_manual_takeover_release_ms)) / 1000.0;
-        const bool manual_released = manual_magnitude < threshold * 0.65f;
-        if (manual_released && now > 0.0 && manual_takeover_last_manual_at_ > 0.0 &&
-            now - manual_takeover_last_manual_at_ >= release_seconds) {
-            reset_body_lock_manual_takeover();
-        }
-    }
-    return manual_takeover_active_;
-}
-
 void NativeAiAim::reset_body_lock_manual_takeover() {
     manual_takeover_active_ = false;
-    manual_takeover_candidate_since_ = 0.0;
-    manual_takeover_last_manual_at_ = 0.0;
-    manual_takeover_direction_x_ = 0.0f;
-    manual_takeover_direction_y_ = 0.0f;
 }
 
 float NativeAiAim::target_authority_scale(const std::string& target_tier) const {
@@ -517,15 +420,6 @@ float NativeAiAim::body_lock_axis_release_tail_scale(bool y_axis) const {
     return body_lock_motion_.axis_release_tail_scale(y_axis, tail_scale);
 }
 
-float NativeAiAim::body_lock_zero_cross_guard_px(bool y_axis) const {
-    if (y_axis) {
-        return std::max(
-            config_.body_lock_vertical_deadzone_px,
-            body_lock_axis_release_threshold(true));
-    }
-    return std::max(config_.x_deadzone_outer, body_lock_axis_release_threshold(false));
-}
-
 bool NativeAiAim::body_lock_reference_matches(const NativeAiAimInput& input) const {
     if (!has_body_lock_reference_) {
         return false;
@@ -561,63 +455,51 @@ float NativeAiAim::body_lock_reference_iou(const NativeAiAimInput& input) const 
     return intersection / union_area;
 }
 
-bool NativeAiAim::is_body_lock_zero_cross(bool y_axis, float current_error) const {
-    const bool has_previous = y_axis ? has_last_body_lock_error_y_ : has_last_body_lock_error_x_;
-    if (!has_previous) {
-        return false;
-    }
-    const float previous_error = y_axis ? last_body_lock_error_y_ : last_body_lock_error_x_;
-    if (previous_error == 0.0f || current_error == 0.0f) {
-        return false;
-    }
-    if ((previous_error > 0.0f) == (current_error > 0.0f)) {
-        return false;
-    }
-    return std::fabs(previous_error) <= body_lock_zero_cross_guard_px(y_axis);
-}
-
-int NativeAiAim::body_lock_axis_hold_remaining(bool y_axis) const {
-    return y_axis ? body_lock_zero_cross_hold_y_ : body_lock_zero_cross_hold_x_;
-}
-
-void NativeAiAim::set_body_lock_axis_hold(bool y_axis, int value) {
+float NativeAiAim::body_lock_position_strength(float error_px, bool y_axis) const {
+    const float inner = y_axis
+        ? std::max(0.0f, config_.body_lock_vertical_tail_inner_px)
+        : std::max(0.0f, config_.deadzone_inner);
+    const float outer = y_axis
+        ? std::max(inner, config_.body_lock_vertical_deadzone_px)
+        : std::max(inner, config_.x_deadzone_outer);
+    const float linear = soft_ramp_strength(std::fabs(error_px), inner, outer);
+    const float smooth = linear * linear * (3.0f - (2.0f * linear));
     if (y_axis) {
-        body_lock_zero_cross_hold_y_ = std::max(0, value);
-        return;
+        return smooth;
     }
-    body_lock_zero_cross_hold_x_ = std::max(0, value);
+    const float tail = body_lock_axis_release_tail_scale(y_axis);
+    // Legacy tail keys now tune the shape of one continuous soft deadband.
+    // There is no per-frame zero-cross hold and therefore no hidden brake.
+    return (tail * smooth) + ((1.0f - tail) * smooth * smooth * smooth);
 }
 
-float NativeAiAim::apply_body_lock_axis_guard(
-    float desired_ai,
-    float desired_error,
-    bool y_axis) {
-    if (std::fabs(desired_error) <= body_lock_axis_release_threshold(y_axis)) {
-        set_body_lock_axis_hold(y_axis, 0);
-        const float tail_scale = body_lock_axis_release_tail_scale(y_axis);
-        if (tail_scale > 0.0f) {
-            return desired_ai * tail_scale;
-        }
+float NativeAiAim::body_lock_motion_scale(
+    float error_x,
+    float error_y,
+    bool y_axis) const {
+    if (!y_axis) {
+        return 1.0f;
+    }
+    const float vertical = body_lock_motion_.vertical_ai_scale(error_y);
+    if (vertical < 0.0f) {
         return 0.0f;
     }
-
-    if (body_lock_axis_hold_remaining(y_axis) > 0) {
-        set_body_lock_axis_hold(y_axis, body_lock_axis_hold_remaining(y_axis) - 1);
-        return 0.0f;
-    }
-
-    if (is_body_lock_zero_cross(y_axis, desired_error)) {
-        set_body_lock_axis_hold(y_axis, 1);
-        return 0.0f;
-    }
-    return desired_ai;
-}
-
-void NativeAiAim::remember_body_lock_errors(float error_x, float error_y) {
-    has_last_body_lock_error_x_ = true;
-    has_last_body_lock_error_y_ = true;
-    last_body_lock_error_x_ = error_x;
-    last_body_lock_error_y_ = error_y;
+    const float error_radius = std::hypot(error_x, error_y);
+    const float near_lock_px = std::max(1.0f, config_.body_lock_near_lock_error_px);
+    const float terminal_scale = std::fabs(error_y) < near_lock_px
+        ? std::max(0.55f, std::fabs(error_y) / near_lock_px)
+        : 1.0f;
+    const float near_ratio = std::max(
+        0.0f,
+        1.0f - std::min(
+            1.0f,
+            error_radius / near_lock_px));
+    // One bounded confidence/motion scale replaces the old stabilization
+    // boost plus a separate vertical-tail switch.
+    const float motion_confidence = std::max(
+        0.0f,
+        std::min(1.0f, vertical + ((1.0f - vertical) * near_ratio)));
+    return terminal_scale * motion_confidence;
 }
 
 void NativeAiAim::apply_ads_snap_smoothing(NativeAiAimOutput& output) {
@@ -687,45 +569,42 @@ float NativeAiAim::observe_body_lock_confidence(
     return std::max(0.0f, std::min(1.0f, (0.60f * continuity) + (0.40f * activation_ratio)));
 }
 
-std::pair<float, float> NativeAiAim::resolve_body_lock_manual(
-    float manual_x,
-    float manual_y,
+std::pair<float, float> NativeAiAim::arbitrate_body_lock_assist(
+    const NativeAiAimInput& input,
     float planned_x,
     float planned_y,
     float error_x,
     float error_y,
-    float lock_confidence) const {
+    float lock_confidence) {
+    const float manual_x = input.manual_right_x;
+    const float manual_y = input.manual_right_y;
     const float error_radius = std::sqrt((error_x * error_x) + (error_y * error_y));
     if (lock_confidence <= 0.0f) {
-        return {manual_x, manual_y};
+        manual_takeover_active_ = false;
+        return {planned_x, planned_y};
     }
 
-    float arbitration_x = planned_x;
-    float arbitration_y = planned_y;
-    float desired_norm = std::sqrt((arbitration_x * arbitration_x) + (arbitration_y * arbitration_y));
-    if (desired_norm <= 0.000001f && error_radius > 0.0f) {
-        arbitration_x = error_x;
-        arbitration_y = error_y;
-        desired_norm = error_radius;
+    float intent_x = planned_x;
+    float intent_y = planned_y;
+    float intent_norm = std::hypot(intent_x, intent_y);
+    if (intent_norm <= 0.000001f && error_radius > 0.0f) {
+        intent_x = error_x;
+        intent_y = error_y;
+        intent_norm = error_radius;
     }
-    if (desired_norm <= 0.0f) {
-        const float terminal_manual_scale = std::max(
-            0.10f,
-            std::min(
-                1.0f,
-                error_radius / std::max(1.0f, config_.body_lock_near_lock_error_px)));
-        return {manual_x * terminal_manual_scale, manual_y * terminal_manual_scale};
+    if (intent_norm <= 0.000001f) {
+        manual_takeover_active_ = false;
+        return {0.0f, 0.0f};
     }
 
-    const float ux = arbitration_x / desired_norm;
-    const float uy = arbitration_y / desired_norm;
+    const float ux = intent_x / intent_norm;
+    const float uy = intent_y / intent_norm;
     const float parallel = (manual_x * ux) + (manual_y * uy);
     const float parallel_x = ux * parallel;
     const float parallel_y = uy * parallel;
     const float orth_x = manual_x - parallel_x;
     const float orth_y = manual_y - parallel_y;
     const float helpful = std::max(0.0f, parallel);
-    const float harmful = std::max(0.0f, -parallel);
     const float near_lock_ratio = std::max(
         0.0f,
         1.0f - std::min(
@@ -739,124 +618,61 @@ std::pair<float, float> NativeAiAim::resolve_body_lock_manual(
         std::min(
             1.0f,
             (lock_confidence - confidence_floor) / std::max(0.001f, 1.0f - confidence_floor)));
-    const float helpful_floor = std::max(
+    const float escape_threshold = std::max(
+        0.01f,
+        std::min(1.0f, config_.body_lock_manual_escape_input_threshold));
+    const float escape_preservation = std::max(
         0.0f,
-        std::min(1.0f, config_.body_lock_helpful_preservation_floor));
-    const float helpful_scale = std::min(
-        1.0f,
-        helpful_floor + ((1.0f - near_lock_ratio) * (1.0f - helpful_floor)));
+        std::min(1.0f, config_.body_lock_manual_escape_preservation));
+    const float configured_onset = std::max(
+        0.0f,
+        config_.body_lock_manual_takeover_input_threshold);
+    const float priority_onset = std::min(
+        escape_threshold,
+        std::max(
+            configured_onset,
+            escape_threshold * (0.50f + (0.50f * escape_preservation))));
+    float manual_priority = 0.0f;
+    if (parallel < 0.0f) {
+        const float opposing_magnitude = -parallel;
+        const float linear_priority = soft_ramp_strength(
+            opposing_magnitude,
+            priority_onset,
+            escape_threshold);
+        manual_priority = linear_priority * linear_priority *
+            (3.0f - (2.0f * linear_priority));
+    }
+    manual_takeover_active_ = manual_priority >= 0.50f;
+    const float assist_priority = 1.0f - manual_priority;
+
     const float max_harmful_suppression = std::max(
         0.0f,
         std::min(1.0f, config_.body_lock_opposing_suppression_max));
-    const float harmful_suppression = std::min(
-        max_harmful_suppression,
-        max_harmful_suppression * confidence_ratio);
+    const float harmful_suppression =
+        max_harmful_suppression * confidence_ratio * assist_priority;
     const float max_orthogonal_suppression = std::max(
         0.0f,
         std::min(1.0f, config_.body_lock_orthogonal_suppression_max));
-    const float orthogonal_suppression = std::min(
-        max_orthogonal_suppression,
-        max_orthogonal_suppression * std::max(lock_confidence, near_lock_ratio));
+    const float orthogonal_suppression = max_orthogonal_suppression *
+        std::max(lock_confidence, near_lock_ratio) * assist_priority;
     const float vertical_orthogonal_suppression = std::min(
         1.0f,
         orthogonal_suppression * std::max(0.0f, config_.body_lock_vertical_orthogonal_bias));
 
-    const float sanitized_parallel =
-        (helpful * helpful_scale) - (harmful * (1.0f - harmful_suppression));
+    const float sanitized_parallel = parallel >= 0.0f
+        ? parallel
+        : parallel * (1.0f - harmful_suppression);
     const float sanitized_orth_x = orth_x * (1.0f - orthogonal_suppression);
     const float sanitized_orth_y = orth_y * (1.0f - vertical_orthogonal_suppression);
-    return {
-        (ux * sanitized_parallel) + sanitized_orth_x,
-        (uy * sanitized_parallel) + sanitized_orth_y};
-}
-
-float NativeAiAim::body_lock_vertical_ai_scale(float desired_dy) const {
-    return body_lock_motion_.vertical_ai_scale(desired_dy);
-}
-
-float NativeAiAim::resolve_body_lock_harmful_manual(
-    float manual_input,
-    float planned_ai,
-    float lock_confidence) const {
-    if (manual_input == 0.0f || planned_ai == 0.0f || manual_input * planned_ai >= 0.0f) {
-        return manual_input;
-    }
-    const float confidence_floor = std::max(
-        0.0f,
-        std::min(1.0f, config_.body_lock_confidence_min_strong));
-    if (lock_confidence <= confidence_floor) {
-        return manual_input;
-    }
-    const float confidence_ratio = (lock_confidence - confidence_floor) /
-        std::max(0.001f, 1.0f - confidence_floor);
-    const float suppression = std::max(
-        0.0f,
-        std::min(1.0f, config_.body_lock_opposing_suppression_max * confidence_ratio));
-    return manual_input * (1.0f - suppression);
-}
-
-float NativeAiAim::resolve_body_lock_manual_overlap(
-    float planned_ai,
-    float manual_input,
-    float error_radius) const {
-    if (planned_ai == 0.0f || manual_input == 0.0f) {
-        return planned_ai;
-    }
-    if (planned_ai * manual_input <= 0.0f) {
-        return planned_ai;
-    }
-    const float overlap_scale = std::max(
-        0.0f,
-        std::min(1.0f, config_.body_lock_manual_overlap_scale));
-    if (overlap_scale <= 0.0f) {
-        return planned_ai;
-    }
-    const float near_lock_ratio = std::max(
-        0.0f,
-        1.0f - std::min(
-            1.0f,
-            error_radius / std::max(1.0f, config_.body_lock_near_lock_error_px)));
-    const float manual_credit =
-        std::fabs(manual_input) * overlap_scale * (0.25f + (0.75f * near_lock_ratio));
-    const float remaining = std::fabs(planned_ai) - manual_credit;
-    if (remaining <= 0.0f) {
-        return 0.0f;
-    }
-    return std::copysign(remaining, planned_ai);
-}
-
-float NativeAiAim::apply_body_lock_manual_escape_floor(
-    float assist,
-    float manual_input,
-    float lock_confidence) const {
-    const float confidence_floor = std::max(
-        0.0f,
-        std::min(1.0f, config_.body_lock_confidence_min_strong));
-    if (lock_confidence < confidence_floor) {
-        return assist;
-    }
-    const float manual_abs = std::fabs(manual_input);
-    const float threshold = std::max(
-        0.0f,
-        std::min(1.0f, config_.body_lock_manual_escape_input_threshold));
-    if (manual_abs < threshold) {
-        return assist;
-    }
-    const float preservation = std::max(
-        0.0f,
-        std::min(1.0f, config_.body_lock_manual_escape_preservation));
-    if (preservation <= 0.0f) {
-        return assist;
-    }
-
-    const float final_input = manual_input + assist;
-    const float minimum_final_abs = manual_abs * preservation;
-    if (manual_input * final_input > 0.0f &&
-        std::fabs(final_input) >= minimum_final_abs) {
-        return assist;
-    }
-    const float preserved_final = std::copysign(minimum_final_abs, manual_input);
-    return preserved_final - manual_input;
+    const float planned_norm = std::hypot(planned_x, planned_y);
+    const float manual_credit = std::min(planned_norm, helpful);
+    const float remaining_plan = std::max(0.0f, planned_norm - manual_credit) *
+        assist_priority;
+    const float final_x =
+        (ux * sanitized_parallel) + sanitized_orth_x + (ux * remaining_plan);
+    const float final_y =
+        (uy * sanitized_parallel) + sanitized_orth_y + (uy * remaining_plan);
+    return {final_x - manual_x, final_y - manual_y};
 }
 
 float NativeAiAim::apply_fire_active_vertical_guard(

@@ -12,6 +12,9 @@ struct NativeControllerOutputComponents {
     common_native::Vec2f physical_stick;
     common_native::Vec2f manual_stick;
     common_native::Vec2f ai_aim_stick;
+    common_native::Vec2f planned_assist_stick;
+    common_native::Vec2f body_lock_short_plan_stick;
+    common_native::Vec2f output_validation_stick;
     common_native::Vec2f requested_assist_stick;
     common_native::Vec2f shaped_assist_stick;
     common_native::Vec2f dynamic_adjustment_stick;

@@ -77,12 +77,12 @@ private:
         GamepadOutputState& output,
         const PhysicalGamepadState& physical,
         const NativeControllerVisionState& vision_state,
-        double now_seconds);
+        double now_seconds,
+        NativeControllerOutputComponents* components);
     void apply_body_lock_short_plan(
         GamepadOutputState& output,
         float manual_right_x,
         float manual_right_y,
-        bool vertical_plan_allowed,
         const NativeControllerVisionState& vision_state,
         double now_seconds);
     void apply_aim_assist_dynamics(

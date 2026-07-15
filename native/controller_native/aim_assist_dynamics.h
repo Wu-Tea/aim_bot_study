@@ -33,7 +33,9 @@ struct NativeAimAssistDynamicsOutput {
 
 class NativeAimAssistDynamics {
 public:
-    explicit NativeAimAssistDynamics(GamepadAimAssistDynamicsConfig config = {});
+    explicit NativeAimAssistDynamics(
+        GamepadAimAssistDynamicsConfig config = {},
+        float bodylock_damping = 0.0f);
 
     void reset();
     void observe_pre_recoil_output(
@@ -78,6 +80,7 @@ private:
         const NativeAimAssistDynamicsInput& input) const;
 
     GamepadAimAssistDynamicsConfig config_;
+    float bodylock_damping_ = 0.0f;
     common_native::Vec2f previous_assist_;
     common_native::Vec2f previous_delta_;
     bool has_history_ = false;

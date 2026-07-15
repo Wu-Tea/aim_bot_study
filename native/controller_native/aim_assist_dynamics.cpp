@@ -20,8 +20,11 @@ bool bodylock_owned(pipeline_contract::BodylockLifecycleState state) {
 
 }  // namespace
 
-NativeAimAssistDynamics::NativeAimAssistDynamics(GamepadAimAssistDynamicsConfig config)
-    : config_(std::move(config)) {}
+NativeAimAssistDynamics::NativeAimAssistDynamics(
+    GamepadAimAssistDynamicsConfig config,
+    float bodylock_damping)
+    : config_(std::move(config)),
+      bodylock_damping_(clamp(bodylock_damping, 0.0f, 0.95f)) {}
 
 void NativeAimAssistDynamics::reset() {
     reset_envelope();
@@ -233,15 +236,20 @@ NativeAimAssistDynamicsOutput NativeAimAssistDynamics::apply(
         has_history_ ? previous_delta_ : common_native::Vec2f{};
     common_native::Vec2f delta;
     NativeAimAssistDynamicsOutput output;
+    const common_native::Vec2f delivery_target = {
+        (previous.x * bodylock_damping_) +
+            (input.requested_assist.x * (1.0f - bodylock_damping_)),
+        (previous.y * bodylock_damping_) +
+            (input.requested_assist.y * (1.0f - bodylock_damping_))};
     output.assist.x = shape_axis(
-        input.requested_assist.x,
+        delivery_target.x,
         previous.x,
         previous_delta.x,
         step_cap,
         jerk_cap,
         &delta.x);
     output.assist.y = shape_axis(
-        input.requested_assist.y,
+        delivery_target.y,
         previous.y,
         previous_delta.y,
         step_cap,

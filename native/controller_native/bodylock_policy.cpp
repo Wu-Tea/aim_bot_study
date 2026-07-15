@@ -271,32 +271,6 @@ float BodyLockMotionPolicy::vertical_ai_scale(float desired_dy) const {
     return scale;
 }
 
-float BodyLockMotionPolicy::stabilize_ratio(float desired_dx, float desired_dy) const {
-    if (motion_frames_ < 2) {
-        return 0.0f;
-    }
-
-    const float error_radius =
-        std::sqrt((desired_dx * desired_dx) + (desired_dy * desired_dy));
-    const float near_lock_ratio = std::max(
-        0.0f,
-        1.0f - std::min(
-            1.0f,
-            error_radius / std::max(1.0f, config_.body_lock_near_lock_error_px)));
-    if (near_lock_ratio <= 0.0f) {
-        return 0.0f;
-    }
-
-    const float motion_speed =
-        std::sqrt((motion_velocity_x_ * motion_velocity_x_) +
-            (motion_velocity_y_ * motion_velocity_y_));
-    const float speed_threshold =
-        std::max(1.0f, config_.body_lock_vertical_tail_speed_threshold_px_per_sec);
-    const float low_speed_ratio =
-        std::max(0.0f, 1.0f - std::min(1.0f, motion_speed / speed_threshold));
-    return (near_lock_ratio * near_lock_ratio) * (low_speed_ratio * low_speed_ratio);
-}
-
 void BodyLockMotionPolicy::reset_consistency() {
     motion_consistent_frames_ = 0;
     has_motion_direction_ = false;

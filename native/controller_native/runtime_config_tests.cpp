@@ -228,6 +228,9 @@ void test_normal_template_preserves_controller_baseline() {
     require(aim.ads_snap_smoothing == 0.0f);
     require(aim.body_lock_max_ai_force == 0.30f);
     require(aim.body_lock_max_ai_force_y == 0.42f);
+    require(aim.body_lock_smoothing == 0.14f);
+    require(aim.body_lock_manual_escape_input_threshold == 0.45f);
+    require(aim.body_lock_manual_escape_preservation == 0.55f);
 }
 
 void test_normal_template_does_not_advertise_inactive_fps_legacy_knobs() {
@@ -260,6 +263,10 @@ void test_committed_legacy_full_fixture_resolves_every_assignment() {
     require(config.vision.gpu_service_active_fps == 120);
     require(config.gamepad.ai_aim.ads_snap_max_ai_force == 1.0f);
     require(config.gamepad.ai_aim.body_lock_max_ai_force == 0.30f);
+    require(config.gamepad.ai_aim.body_lock_smoothing == 0.14f);
+    require(
+        config.gamepad.ai_aim.body_lock_manual_escape_input_threshold == 0.45f);
+    require(config.gamepad.ai_aim.body_lock_manual_escape_preservation == 0.55f);
     require(config.gamepad.recoil.feedback_amount == 0.20f);
 }
 
