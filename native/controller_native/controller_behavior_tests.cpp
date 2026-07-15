@@ -958,6 +958,137 @@ void test_controller_ads_drops_tracker_only_vertical_snap_after_processed_miss()
                  "tracker-only ADS miss must preserve manual vertical input");
 }
 
+void test_controller_bodylock_coasts_then_releases_at_1000hz() {
+    double now = 61.000;
+    controller_native::GamepadRuntimeConfig config;
+    config.ai_aim.ads_snap_window_ms = 0;
+    config.ai_aim.max_pixels = 100.0f;
+    config.ai_aim.deadzone_inner = 0.0f;
+    config.ai_aim.deadzone_outer = 0.0f;
+    config.ai_aim.x_deadzone_outer = 0.0f;
+    config.ai_aim.piecewise_mid_pixels = 0.0f;
+    config.ai_aim.piecewise_mid_pixels_y = 0.0f;
+    config.ai_aim.body_lock_max_ai_force = 1.0f;
+    config.ai_aim.body_lock_max_ai_force_y = 0.0f;
+    config.ai_aim.body_lock_confidence_frames = 1;
+    config.ai_aim.body_lock_upper_body_ratio = 0.50f;
+    config.ai_aim.target_max_age_ms = 96.0f;
+    config.ai_aim.target_projection_max_age_ms = 96.0f;
+    config.aim_assist_dynamics.enabled = true;
+    config.recoil.enabled = false;
+    controller_native::NativeGamepadController controller(
+        config,
+        [&now]() { return now; });
+
+    const auto observed = [](std::uint64_t frame, std::uint64_t observation, double at) {
+        controller_native::ControllerVisionSnapshot snapshot;
+        snapshot.frame_updated = true;
+        snapshot.selector_identity_protocol = true;
+        snapshot.frame_id = frame;
+        snapshot.capture_time_seconds = at;
+        snapshot.ready_time_seconds = at;
+        snapshot.selected_observation_id = observation;
+        snapshot.state.has_target = true;
+        snapshot.state.aim_authority = true;
+        snapshot.state.fire_authority = true;
+        snapshot.state.dx = 36.0f;
+        snapshot.state.dy = 0.0f;
+        snapshot.state.screen_center_x = 320.0f;
+        snapshot.state.screen_center_y = 256.0f;
+        snapshot.state.target_x = 356.0f;
+        snapshot.state.target_y = 256.0f;
+        snapshot.state.has_body_box = true;
+        snapshot.state.body_x1 = 316.0f;
+        snapshot.state.body_x2 = 396.0f;
+        snapshot.state.body_y1 = 216.0f;
+        snapshot.state.body_y2 = 296.0f;
+        snapshot.state.target_tier = "observed_strong";
+        snapshot.state.observed_at_seconds = at;
+        tracking_native::TrackerDetection detection;
+        detection.id = observation;
+        detection.body_box_px = {316.0f, 216.0f, 80.0f, 80.0f};
+        detection.aim_point_px = {356.0f, 256.0f};
+        detection.has_aim_point = true;
+        detection.confidence = 0.95f;
+        detection.target_tier = "observed_strong";
+        snapshot.tracker_detections.push_back(detection);
+        return snapshot;
+    };
+
+    controller.build_output(aiming_physical_state());
+    for (int frame = 0; frame < 4; ++frame) {
+        now += 0.010;
+        controller.submit_vision_snapshot(observed(
+            700 + static_cast<std::uint64_t>(frame),
+            7001 + static_cast<std::uint64_t>(frame),
+            now));
+        controller.build_output(aiming_physical_state());
+    }
+    const common_native::Vec2f tracked_assist =
+        controller.last_output_components().before_recoil_stick;
+    require_true(
+        std::hypot(tracked_assist.x, tracked_assist.y) > 0.10f,
+        "test setup should establish material delivered BodyLock assist");
+    require_true(
+        controller.last_ai_aim_mode() == "body_lock",
+        "test setup should enter BodyLock before the evidence gap");
+
+    now += 0.001;
+    controller_native::ControllerVisionSnapshot miss;
+    miss.frame_updated = true;
+    miss.selector_identity_protocol = true;
+    miss.frame_id = 704;
+    miss.capture_time_seconds = now;
+    miss.ready_time_seconds = now;
+    miss.state.screen_center_x = 320.0f;
+    miss.state.screen_center_y = 256.0f;
+    controller.submit_vision_snapshot(miss);
+
+    common_native::Vec2f previous = tracked_assist;
+    double coast_started_at = 0.0;
+    double release_started_at = 0.0;
+    float first_coast_magnitude = 0.0f;
+    float max_tick_delta = 0.0f;
+    for (int tick = 0; tick < 145; ++tick) {
+        controller.build_output(aiming_physical_state());
+        const auto& components = controller.last_output_components();
+        const common_native::Vec2f current = components.before_recoil_stick;
+        max_tick_delta = std::max(
+            max_tick_delta,
+            std::hypot(current.x - previous.x, current.y - previous.y));
+        previous = current;
+        const std::string lifecycle = components.bodylock_lifecycle;
+        if (lifecycle == "coast") {
+            if (coast_started_at == 0.0) {
+                coast_started_at = now;
+                first_coast_magnitude = std::hypot(current.x, current.y);
+            }
+            require_true(
+                controller.last_ai_aim_mode() == "body_lock",
+                "ADS-only stages must remain bypassed while lifecycle owns BodyLock coast");
+        } else if (coast_started_at > 0.0 && release_started_at == 0.0) {
+            release_started_at = now;
+        }
+        now += 0.001;
+    }
+
+    require_true(coast_started_at > 0.0, "processed miss should enter same-track coast");
+    require_true(
+        first_coast_magnitude > 0.05f && first_coast_magnitude <=
+            std::hypot(tracked_assist.x, tracked_assist.y),
+        "coast should preserve bounded delivered AI without inventing a new plan");
+    require_true(release_started_at > coast_started_at, "coast expiry should enter release");
+    require_true(
+        release_started_at - coast_started_at <= 0.097,
+        "same-track coast must not exceed 96 ms");
+    require_true(
+        max_tick_delta <= 0.07f,
+        "coast and release must stay inside the 1000 Hz delivered envelope bound");
+    require_true(
+        std::hypot(previous.x, previous.y) <= 0.001f,
+        "expired identity must release delivered BodyLock AI to zero within 40 ms");
+}
+
 void test_target_tracker_projects_camera_motion_between_vision_frames() {
     controller_native::NativeTargetTrackerConfig config;
     config.reticle_speed_px_per_sec = 1000.0f;
@@ -5413,6 +5544,158 @@ void test_aim_assist_dynamics_seeds_bodylock_from_post_brake_ads_ai() {
         "first same-track BodyLock tick should decelerate from actual post-brake ADS AI");
 }
 
+void test_aim_assist_dynamics_releases_bodylock_monotonically_without_hard_reset() {
+    controller_native::GamepadAimAssistDynamicsConfig config;
+    config.enabled = true;
+    controller_native::NativeAimAssistDynamics dynamics(config);
+
+    controller_native::NativeAimAssistDynamicsInput input;
+    input.requested_assist = {0.80f, -0.50f};
+    input.authority = pipeline_contract::AssistAuthorityState::ObservedStrong;
+    input.lifecycle = pipeline_contract::BodylockLifecycleState::Tracking;
+    input.target_error_px = {40.0f, 30.0f};
+    input.selected_track_id = 12;
+    input.dt_seconds = 0.001;
+    input.now_seconds = 40.0;
+
+    controller_native::NativeAimAssistDynamicsOutput output;
+    for (int i = 0; i < 32; ++i) {
+        input.now_seconds += 0.001;
+        output = dynamics.apply(input);
+    }
+    const common_native::Vec2f before_release = output.assist;
+    require_true(
+        std::hypot(before_release.x, before_release.y) > 0.50f,
+        "test setup should establish material delivered BodyLock AI");
+
+    input.requested_assist = {};
+    input.authority = pipeline_contract::AssistAuthorityState::Reject;
+    input.lifecycle = pipeline_contract::BodylockLifecycleState::Yield;
+    float previous_magnitude = std::hypot(before_release.x, before_release.y);
+    float max_tick_delta = 0.0f;
+    common_native::Vec2f previous = before_release;
+    for (int i = 0; i < 40; ++i) {
+        input.now_seconds += 0.001;
+        output = dynamics.apply(input);
+        const float magnitude = std::hypot(output.assist.x, output.assist.y);
+        require_true(
+            magnitude <= previous_magnitude + 0.0001f,
+            "BodyLock authority release must be monotonic");
+        max_tick_delta = std::max(
+            max_tick_delta,
+            std::hypot(output.assist.x - previous.x, output.assist.y - previous.y));
+        previous_magnitude = magnitude;
+        previous = output.assist;
+        input.lifecycle = pipeline_contract::BodylockLifecycleState::Inactive;
+    }
+    require_true(
+        max_tick_delta <= 0.07f,
+        "BodyLock release must stay inside the delivered envelope tick bound");
+    require_true(
+        previous_magnitude <= 0.001f,
+        "BodyLock authority release must reach zero within 40 ms");
+}
+
+void test_bodylock_geometry_grace_and_reacquire_are_bumpless() {
+    controller_native::BodylockLifecycle lifecycle;
+    controller_native::GamepadAimAssistDynamicsConfig dynamics_config;
+    dynamics_config.enabled = true;
+    controller_native::NativeAimAssistDynamics dynamics(dynamics_config);
+
+    controller_native::BodylockLifecycleInput lifecycle_input;
+    lifecycle_input.aiming = true;
+    lifecycle_input.bodylock_available = true;
+    lifecycle_input.selected_track_id = 33;
+    lifecycle_input.authority = pipeline_contract::AssistAuthorityState::ObservedStrong;
+    lifecycle_input.authority_reason = pipeline_contract::AssistAuthorityReason::StrongObserved;
+    lifecycle_input.now_seconds = 50.0;
+    auto lifecycle_decision = lifecycle.update(lifecycle_input);
+
+    controller_native::NativeAimAssistDynamicsInput dynamics_input;
+    dynamics_input.requested_assist = {0.55f, 0.0f};
+    dynamics_input.authority = lifecycle_input.authority;
+    dynamics_input.lifecycle = lifecycle_decision.state;
+    dynamics_input.selected_track_id = 33;
+    dynamics_input.target_error_px = {30.0f, 0.0f};
+    dynamics_input.dt_seconds = 0.001;
+    dynamics_input.now_seconds = lifecycle_input.now_seconds;
+    controller_native::NativeAimAssistDynamicsOutput output = dynamics.apply(dynamics_input);
+    for (int tick = 0; tick < 24; ++tick) {
+        lifecycle_input.now_seconds += 0.001;
+        lifecycle_decision = lifecycle.update(lifecycle_input);
+        dynamics_input.lifecycle = lifecycle_decision.state;
+        dynamics_input.now_seconds = lifecycle_input.now_seconds;
+        output = dynamics.apply(dynamics_input);
+    }
+    require_true(output.assist.x > 0.30f, "test setup should establish BodyLock output");
+
+    lifecycle_input.bodylock_available = false;
+    dynamics_input.requested_assist = {};
+    float previous = output.assist.x;
+    float max_delta = 0.0f;
+    for (int tick = 0; tick < 39; ++tick) {
+        lifecycle_input.now_seconds += 0.001;
+        lifecycle_decision = lifecycle.update(lifecycle_input);
+        require_true(
+            lifecycle_decision.state == pipeline_contract::BodylockLifecycleState::Coast,
+            "same-track geometry grace should remain in Coast for 40 ms");
+        dynamics_input.authority = lifecycle_input.authority;
+        dynamics_input.lifecycle = lifecycle_decision.state;
+        dynamics_input.now_seconds = lifecycle_input.now_seconds;
+        output = dynamics.apply(dynamics_input);
+        max_delta = std::max(max_delta, std::fabs(output.assist.x - previous));
+        previous = output.assist.x;
+    }
+    require_true(
+        output.assist.x > 0.05f,
+        "geometry grace should retain a bounded nonzero envelope seed");
+
+    lifecycle_input.bodylock_available = true;
+    lifecycle_input.now_seconds += 0.001;
+    lifecycle_decision = lifecycle.update(lifecycle_input);
+    require_true(
+        lifecycle_decision.state == pipeline_contract::BodylockLifecycleState::Tracking,
+        "valid same-track geometry should resume Tracking without a cold lifecycle");
+    dynamics_input.requested_assist = {0.55f, 0.0f};
+    dynamics_input.lifecycle = lifecycle_decision.state;
+    dynamics_input.now_seconds = lifecycle_input.now_seconds;
+    output = dynamics.apply(dynamics_input);
+    max_delta = std::max(max_delta, std::fabs(output.assist.x - previous));
+    require_true(output.assist.x > 0.05f, "geometry recovery must not restart from zero");
+
+    lifecycle_input.authority = pipeline_contract::AssistAuthorityState::Reject;
+    lifecycle_input.authority_reason = pipeline_contract::AssistAuthorityReason::Stale;
+    dynamics_input.requested_assist = {};
+    for (int tick = 0; tick < 10; ++tick) {
+        lifecycle_input.now_seconds += 0.001;
+        lifecycle_decision = lifecycle.update(lifecycle_input);
+        dynamics_input.authority = lifecycle_input.authority;
+        dynamics_input.lifecycle = lifecycle_decision.state;
+        dynamics_input.now_seconds = lifecycle_input.now_seconds;
+        previous = output.assist.x;
+        output = dynamics.apply(dynamics_input);
+        max_delta = std::max(max_delta, std::fabs(output.assist.x - previous));
+    }
+
+    lifecycle_input.authority = pipeline_contract::AssistAuthorityState::ObservedStrong;
+    lifecycle_input.authority_reason = pipeline_contract::AssistAuthorityReason::StrongObserved;
+    dynamics_input.requested_assist = {0.55f, 0.0f};
+    bool useful_within_60ms = false;
+    for (int tick = 0; tick < 60; ++tick) {
+        lifecycle_input.now_seconds += 0.001;
+        lifecycle_decision = lifecycle.update(lifecycle_input);
+        dynamics_input.authority = lifecycle_input.authority;
+        dynamics_input.lifecycle = lifecycle_decision.state;
+        dynamics_input.now_seconds = lifecycle_input.now_seconds;
+        previous = output.assist.x;
+        output = dynamics.apply(dynamics_input);
+        max_delta = std::max(max_delta, std::fabs(output.assist.x - previous));
+        useful_within_60ms = useful_within_60ms || output.assist.x >= 0.20f;
+    }
+    require_true(useful_within_60ms, "valid reacquisition should restore useful AI within 60 ms");
+    require_true(max_delta <= 0.07f, "geometry recovery and reacquisition must be bumpless");
+}
+
 void test_bodylock_planner_preserves_motion_feedforward_near_terminal() {
     controller_native::GamepadAiAimConfig config;
     config.max_pixels = 100.0f;
@@ -5893,6 +6176,7 @@ int main() {
         test_controller_ads_resume_waits_for_fresh_vision();
         test_controller_accepts_controller_vision_snapshot_without_vision_result();
         test_controller_ads_drops_tracker_only_vertical_snap_after_processed_miss();
+        test_controller_bodylock_coasts_then_releases_at_1000hz();
         test_target_tracker_projects_camera_motion_between_vision_frames();
         test_legacy_projection_tracker_matches_native_project_output();
         test_legacy_projection_tracker_expires_after_max_age();
@@ -5993,6 +6277,8 @@ int main() {
         test_aim_assist_dynamics_bounds_authorized_steps_and_reversals();
         test_aim_assist_dynamics_preserves_manual_contract_at_authority_boundary();
         test_aim_assist_dynamics_seeds_bodylock_from_post_brake_ads_ai();
+        test_aim_assist_dynamics_releases_bodylock_monotonically_without_hard_reset();
+        test_bodylock_geometry_grace_and_reacquire_are_bumpless();
         test_bodylock_planner_preserves_motion_feedforward_near_terminal();
         test_controller_ads_to_bodylock_handoff_preserves_delivered_envelope();
         test_controller_recoil_uses_runtime_ads_or_hipfire_profile_selection();

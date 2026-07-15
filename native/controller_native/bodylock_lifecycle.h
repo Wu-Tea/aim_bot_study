@@ -70,6 +70,10 @@ private:
     pipeline_contract::BodylockLifecycleState state_ =
         pipeline_contract::BodylockLifecycleState::Inactive;
     std::uint64_t track_id_ = 0;
+    double coast_started_at_seconds_ = 0.0;
+    double geometry_gap_started_at_seconds_ = 0.0;
+    bool coast_timer_active_ = false;
+    bool geometry_gap_timer_active_ = false;
 };
 
 }  // namespace controller_native

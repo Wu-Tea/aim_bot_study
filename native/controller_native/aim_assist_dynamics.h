@@ -48,6 +48,7 @@ public:
     [[nodiscard]] NativeAimAssistDynamicsOutput apply(
         const NativeAimAssistDynamicsInput& input);
     [[nodiscard]] bool ads_crossing_brake_pending(double now_seconds) const;
+    [[nodiscard]] bool bodylock_envelope_active() const;
 
 private:
     struct AdsAxisCrossingState {
@@ -80,6 +81,7 @@ private:
     common_native::Vec2f previous_assist_;
     common_native::Vec2f previous_delta_;
     bool has_history_ = false;
+    bool bodylock_history_active_ = false;
     AdsAxisCrossingState ads_crossing_x_;
     AdsAxisCrossingState ads_crossing_y_;
     std::uint64_t ads_target_key_ = 0;

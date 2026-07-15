@@ -64,6 +64,7 @@ void NativeAimAssistDynamics::reset_envelope() {
     previous_assist_ = {};
     previous_delta_ = {};
     has_history_ = false;
+    bodylock_history_active_ = false;
 }
 
 void NativeAimAssistDynamics::reset_ads_crossing() {
@@ -82,6 +83,55 @@ NativeAimAssistDynamicsOutput NativeAimAssistDynamics::apply(
     const bool authority_absent =
         input.authority == pipeline_contract::AssistAuthorityState::Reject ||
         input.authority == pipeline_contract::AssistAuthorityState::TrackOnly;
+    const bool release_bodylock = bodylock_history_active_ && has_history_ &&
+        (input.lifecycle == pipeline_contract::BodylockLifecycleState::Yield ||
+         input.lifecycle == pipeline_contract::BodylockLifecycleState::Inactive);
+    if (release_bodylock) {
+        reset_ads_crossing();
+        const double dt = std::max(0.0005, std::min(0.004, input.dt_seconds));
+        const float tick_scale = static_cast<float>(dt / 0.001);
+        constexpr float kStepCapPerMs = 0.035f;
+        constexpr float kJerkCapPerMs = 0.018f;
+        const float step_cap = kStepCapPerMs * tick_scale;
+        const float jerk_cap = kJerkCapPerMs * tick_scale;
+        common_native::Vec2f release_previous_delta = previous_delta_;
+        if (previous_assist_.x > 0.0f) {
+            release_previous_delta.x = std::min(0.0f, release_previous_delta.x);
+        } else if (previous_assist_.x < 0.0f) {
+            release_previous_delta.x = std::max(0.0f, release_previous_delta.x);
+        }
+        if (previous_assist_.y > 0.0f) {
+            release_previous_delta.y = std::min(0.0f, release_previous_delta.y);
+        } else if (previous_assist_.y < 0.0f) {
+            release_previous_delta.y = std::max(0.0f, release_previous_delta.y);
+        }
+        common_native::Vec2f delta;
+        NativeAimAssistDynamicsOutput output;
+        output.assist.x = shape_axis(
+            0.0f,
+            previous_assist_.x,
+            release_previous_delta.x,
+            step_cap,
+            jerk_cap,
+            &delta.x);
+        output.assist.y = shape_axis(
+            0.0f,
+            previous_assist_.y,
+            release_previous_delta.y,
+            step_cap,
+            jerk_cap,
+            &delta.y);
+        output.limit_reason = "bodylock_release";
+        if (std::fabs(output.assist.x) <= 0.000001f &&
+            std::fabs(output.assist.y) <= 0.000001f) {
+            reset_envelope();
+            output.assist = {};
+            return output;
+        }
+        previous_assist_ = output.assist;
+        previous_delta_ = delta;
+        return output;
+    }
     if (authority_absent ||
         input.lifecycle == pipeline_contract::BodylockLifecycleState::Yield) {
         reset();
@@ -137,6 +187,24 @@ NativeAimAssistDynamicsOutput NativeAimAssistDynamics::apply(
         return {input.requested_assist, "non_bodylock_passthrough"};
     }
 
+    if (input.lifecycle == pipeline_contract::BodylockLifecycleState::Coast &&
+        has_history_ && bodylock_history_active_ &&
+        std::hypot(input.requested_assist.x, input.requested_assist.y) <= 0.000001f) {
+        const double dt = std::max(0.0005, std::min(0.004, input.dt_seconds));
+        constexpr double kCoastTimeConstantSeconds = 0.080;
+        const float decay = static_cast<float>(std::exp(-dt / kCoastTimeConstantSeconds));
+        NativeAimAssistDynamicsOutput output;
+        output.assist = {
+            previous_assist_.x * decay,
+            previous_assist_.y * decay};
+        previous_delta_ = {
+            output.assist.x - previous_assist_.x,
+            output.assist.y - previous_assist_.y};
+        previous_assist_ = output.assist;
+        output.limit_reason = "bodylock_coast";
+        return output;
+    }
+
     const std::uint64_t target_key = input.selected_track_id != 0
         ? input.selected_track_id
         : 1u;
@@ -187,6 +255,7 @@ NativeAimAssistDynamicsOutput NativeAimAssistDynamics::apply(
     previous_assist_ = output.assist;
     previous_delta_ = delta;
     has_history_ = true;
+    bodylock_history_active_ = true;
     return output;
 }
 
@@ -244,6 +313,10 @@ void NativeAimAssistDynamics::observe_ads_snap_crossing(
 bool NativeAimAssistDynamics::ads_crossing_brake_pending(double now_seconds) const {
     return (ads_crossing_x_.brake_until_seconds > now_seconds) ||
         (ads_crossing_y_.brake_until_seconds > now_seconds);
+}
+
+bool NativeAimAssistDynamics::bodylock_envelope_active() const {
+    return bodylock_history_active_ && has_history_;
 }
 
 bool NativeAimAssistDynamics::ads_axis_brake_active(

@@ -59,7 +59,10 @@ NativeAiAimOutput NativeAiAim::compute(const NativeAiAimInput& input) {
             input.bodylock_lifecycle == pipeline_contract::BodylockLifecycleState::Yield) {
             reset();
         } else {
-            last_mode_ = "manual";
+            last_mode_ = input.bodylock_lifecycle ==
+                    pipeline_contract::BodylockLifecycleState::Coast
+                ? "body_lock"
+                : "manual";
         }
         return output;
     }
@@ -85,7 +88,10 @@ NativeAiAimOutput NativeAiAim::compute(const NativeAiAimInput& input) {
         if (!input.bodylock_lifecycle_valid || !lifecycle_owns_bodylock) {
             reset();
         } else {
-            last_mode_ = "manual";
+            last_mode_ = input.bodylock_lifecycle ==
+                    pipeline_contract::BodylockLifecycleState::Coast
+                ? "body_lock"
+                : "manual";
         }
         return output;
     }

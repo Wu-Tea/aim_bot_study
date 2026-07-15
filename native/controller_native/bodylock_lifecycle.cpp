@@ -5,6 +5,10 @@ namespace controller_native {
 void BodylockLifecycle::reset() {
     state_ = pipeline_contract::BodylockLifecycleState::Inactive;
     track_id_ = 0;
+    coast_started_at_seconds_ = 0.0;
+    geometry_gap_started_at_seconds_ = 0.0;
+    coast_timer_active_ = false;
+    geometry_gap_timer_active_ = false;
 }
 
 BodylockLifecycleDecision BodylockLifecycle::update(const BodylockLifecycleInput& input) {
@@ -16,16 +20,34 @@ BodylockLifecycleDecision BodylockLifecycle::update(const BodylockLifecycleInput
         state_ == BodylockLifecycleState::Warm ||
         state_ == BodylockLifecycleState::Tracking ||
         state_ == BodylockLifecycleState::Coast;
+    const auto clear_gap_timers = [&]() {
+        coast_started_at_seconds_ = 0.0;
+        geometry_gap_started_at_seconds_ = 0.0;
+        coast_timer_active_ = false;
+        geometry_gap_timer_active_ = false;
+    };
 
     if (!input.aiming) {
+        clear_gap_timers();
         return transition(
             was_active ? BodylockLifecycleState::Yield : BodylockLifecycleState::Inactive,
             BodylockTransitionReason::AimReleased,
             0,
-            was_active);
+            false);
     }
 
     if (state_ == BodylockLifecycleState::Yield) {
+        if (input.bodylock_available &&
+            input.authority == AssistAuthorityState::ObservedStrong &&
+            input.selected_track_id != 0) {
+            clear_gap_timers();
+            return transition(
+                BodylockLifecycleState::Warm,
+                BodylockTransitionReason::Observed,
+                input.selected_track_id,
+                false);
+        }
+        clear_gap_timers();
         return transition(
             BodylockLifecycleState::Inactive,
             BodylockTransitionReason::AuthorityLost,
@@ -33,23 +55,20 @@ BodylockLifecycleDecision BodylockLifecycle::update(const BodylockLifecycleInput
             false);
     }
 
-    if (!input.bodylock_available) {
+    if (was_active && input.selected_track_id != 0 && track_id_ != 0 &&
+        input.selected_track_id != track_id_) {
+        clear_gap_timers();
         return transition(
-            was_active ? BodylockLifecycleState::Yield : BodylockLifecycleState::Inactive,
-            BodylockTransitionReason::BodylockUnavailable,
-            0,
-            was_active);
+            BodylockLifecycleState::Yield,
+            BodylockTransitionReason::TargetSwitched,
+            input.selected_track_id,
+            false);
     }
 
-    if (input.authority == AssistAuthorityState::ObservedStrong &&
+    if (input.bodylock_available &&
+        input.authority == AssistAuthorityState::ObservedStrong &&
         input.selected_track_id != 0) {
-        if (was_active && track_id_ != 0 && input.selected_track_id != track_id_) {
-            return transition(
-                BodylockLifecycleState::Warm,
-                BodylockTransitionReason::TargetSwitched,
-                input.selected_track_id,
-                true);
-        }
+        clear_gap_timers();
         if (state_ == BodylockLifecycleState::Inactive) {
             return transition(
                 BodylockLifecycleState::Warm,
@@ -64,22 +83,55 @@ BodylockLifecycleDecision BodylockLifecycle::update(const BodylockLifecycleInput
             false);
     }
 
-    if (was_active && input.selected_track_id != 0 && track_id_ != 0 &&
-        input.selected_track_id != track_id_) {
-        return transition(
-            BodylockLifecycleState::Yield,
-            BodylockTransitionReason::TargetSwitched,
-            0,
-            true);
-    }
-
     if (input.authority == AssistAuthorityState::Continuity &&
         input.selected_track_id != 0 && input.selected_track_id == track_id_ &&
         was_active) {
+        constexpr double kMaxCoastSeconds = 0.096;
+        if (!coast_timer_active_) {
+            coast_started_at_seconds_ = input.now_seconds;
+            coast_timer_active_ = true;
+        }
+        geometry_gap_timer_active_ = false;
+        if (input.now_seconds - coast_started_at_seconds_ > kMaxCoastSeconds) {
+            clear_gap_timers();
+            return transition(
+                BodylockLifecycleState::Yield,
+                BodylockTransitionReason::AuthorityLost,
+                0,
+                false);
+        }
         return transition(
             BodylockLifecycleState::Coast,
             BodylockTransitionReason::Continuity,
             track_id_,
+            false);
+    }
+
+    if (!input.bodylock_available && was_active &&
+        input.authority == AssistAuthorityState::ObservedStrong &&
+        input.selected_track_id != 0 && input.selected_track_id == track_id_) {
+        constexpr double kGeometryGraceSeconds = 0.040;
+        if (!geometry_gap_timer_active_) {
+            geometry_gap_started_at_seconds_ = input.now_seconds;
+            geometry_gap_timer_active_ = true;
+        }
+        coast_timer_active_ = false;
+        if (input.now_seconds - geometry_gap_started_at_seconds_ <=
+            kGeometryGraceSeconds) {
+            return transition(
+                BodylockLifecycleState::Coast,
+                BodylockTransitionReason::BodylockUnavailable,
+                track_id_,
+                false);
+        }
+    }
+
+    if (!input.bodylock_available) {
+        clear_gap_timers();
+        return transition(
+            was_active ? BodylockLifecycleState::Yield : BodylockLifecycleState::Inactive,
+            BodylockTransitionReason::BodylockUnavailable,
+            0,
             false);
     }
 
@@ -89,11 +141,12 @@ BodylockLifecycleDecision BodylockLifecycle::update(const BodylockLifecycleInput
     } else if (input.authority_reason == AssistAuthorityReason::UserYield) {
         reason = BodylockTransitionReason::UserYield;
     }
+    clear_gap_timers();
     return transition(
         was_active ? BodylockLifecycleState::Yield : BodylockLifecycleState::Inactive,
         reason,
         0,
-        was_active);
+        false);
 }
 
 pipeline_contract::BodylockLifecycleState BodylockLifecycle::state() const {

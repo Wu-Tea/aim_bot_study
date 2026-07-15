@@ -392,6 +392,7 @@ git -C $repo commit -m "fix: hand ads acquisition smoothly to bodylock"
 ## Task 5: Make Lifecycle Coast and Release Explicit Without Generic Resets
 
 **Files:**
+- Modify: `native/controller_native/ai_aim.cpp`
 - Modify: `native/controller_native/bodylock_lifecycle.h`
 - Modify: `native/controller_native/bodylock_lifecycle.cpp`
 - Modify: `native/controller_native/bodylock_lifecycle_tests.cpp`
@@ -400,7 +401,7 @@ git -C $repo commit -m "fix: hand ads acquisition smoothly to bodylock"
 - Modify: `native/controller_native/native_gamepad_controller.cpp`
 - Modify: `native/controller_native/controller_behavior_tests.cpp`
 
-- [ ] **Step 1: Add RED lifecycle tests**
+- [x] **Step 1: Add RED lifecycle tests**
 
 Add tests proving:
 
@@ -420,7 +421,7 @@ Add a 40 ms invalid-geometry fixture that resumes the same track without a cold
 envelope reset, plus a valid reacquisition fixture that returns useful assist
 within 60 ms.
 
-- [ ] **Step 2: Verify RED against the immediate Yield/reset path**
+- [x] **Step 2: Verify RED against the immediate Yield/reset path**
 
 ```powershell
 & $cmake --build --preset modern-release --target cod_native_bodylock_lifecycle_tests cod_native_controller_tests -- /m
@@ -431,19 +432,19 @@ within 60 ms.
 Expected: continuity with missing geometry yields immediately and reject asks
 for generic reset.
 
-- [ ] **Step 3: Reorder lifecycle authority decisions**
+- [x] **Step 3: Reorder lifecycle authority decisions**
 
 Handle same-track `Continuity` before `bodylock_available == false`. On Reject/TrackOnly/track switch, emit `Yield` plus a targeted observer-reset/release reason but keep `reset_assist_history == false`; only full controller reset clears both observer and envelope immediately.
 
-- [ ] **Step 4: Separate ADS evidence from BodyLock continuity in the controller**
+- [x] **Step 4: Separate ADS evidence from BodyLock continuity in the controller**
 
 Compute ADS snap eligibility from `current_observed_target_present`. Compute BodyLock planner authority from lifecycle ownership (`Warm`, `Tracking`, `Coast`) and selected-track identity. Do not reuse the ADS current-evidence boolean as `NativeAiAim`'s BodyLock gate.
 
-- [ ] **Step 5: Implement envelope Coast and Release**
+- [x] **Step 5: Implement envelope Coast and Release**
 
 During Coast with no new desired plan, decay the last BodyLock desired/delivered AI monotonically. During Yield/Inactive after prior BodyLock ownership, shape the AI component toward zero; do not reset history until both axes reach zero. A deliberate opposing manual input may immediately remove opposing AI, but manual remains unmodified.
 
-- [ ] **Step 6: Verify GREEN and commit**
+- [x] **Step 6: Verify GREEN and commit**
 
 ```powershell
 & $cmake --build --preset modern-release --target cod_native_bodylock_lifecycle_tests cod_native_controller_tests -- /m

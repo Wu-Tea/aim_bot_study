@@ -643,10 +643,6 @@ void NativeGamepadController::apply_ai_aim(
     lifecycle_input.now_seconds = now_seconds;
     last_bodylock_lifecycle_decision_ = bodylock_lifecycle_.update(lifecycle_input);
     last_effective_assist_authority_ = lifecycle_input.authority;
-    if (last_bodylock_lifecycle_decision_.reset_assist_history) {
-        ai_aim_.reset();
-        aim_assist_dynamics_.reset();
-    }
     input.bodylock_lifecycle_valid = true;
     input.bodylock_lifecycle = last_bodylock_lifecycle_decision_.state;
 
@@ -783,6 +779,10 @@ void NativeGamepadController::apply_ads_carry_brake(
     float target_error_y,
     double now_seconds,
     bool candidate_output_hold_active) const {
+    if (ai_aim_.last_mode() != "ads_snap" &&
+        aim_assist_dynamics_.bodylock_envelope_active()) {
+        return;
+    }
     const bool explicit_track_only_or_reject =
         vision_state.authority_decision_valid &&
         (vision_state.assist_authority_state ==
