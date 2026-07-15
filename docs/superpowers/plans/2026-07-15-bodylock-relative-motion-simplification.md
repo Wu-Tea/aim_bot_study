@@ -77,7 +77,7 @@ Expected: compilation fails because terminal-approach input is not defined, or t
 Add to `AdsCompletionGateInput`:
 
 ```cpp
-bool terminal_approach_valid = false;
+bool terminal_approach_valid = true;
 float closing_speed_px_per_sec = 0.0f;
 float position_closing_assist = 0.0f;
 ```
@@ -85,7 +85,9 @@ float position_closing_assist = 0.0f;
 A distinct centered frame counts only when terminal evidence is valid and the
 50 ms projected crossing plus position-closing assist remain inside the 2 px
 budget. Update the existing test helper to mark ordinary settled samples valid
-with zero closing values.
+with zero closing values. The compatibility default remains safe/settled until
+Task 4 wires explicit controller evidence; Task 4 then assigns every field from
+the prior completed pre-recoil tick and fresh target motion.
 
 - [ ] **Step 4: Run the focused gate test GREEN**
 
