@@ -133,6 +133,7 @@ private:
     float ads_snap_ai_stick_x_ = 0.0f;
     float ads_snap_ai_stick_y_ = 0.0f;
     bool manual_takeover_active_ = false;
+    double manual_takeover_candidate_since_ = 0.0;
     BodyLockMotionPolicy body_lock_motion_;
     std::string last_mode_ = "manual";
 };

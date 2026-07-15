@@ -311,6 +311,7 @@ NativeAiAimOutput NativeAiAim::compute(const NativeAiAimInput& input) {
 
 void NativeAiAim::reset_body_lock_manual_takeover() {
     manual_takeover_active_ = false;
+    manual_takeover_candidate_since_ = 0.0;
 }
 
 float NativeAiAim::target_authority_scale(const std::string& target_tier) const {
@@ -629,20 +630,52 @@ std::pair<float, float> NativeAiAim::arbitrate_body_lock_assist(
         config_.body_lock_manual_takeover_input_threshold);
     const float priority_onset = std::min(
         escape_threshold,
-        std::max(
-            configured_onset,
-            escape_threshold * (0.50f + (0.50f * escape_preservation))));
+        configured_onset);
+    const float priority_full = std::max(
+        priority_onset,
+        escape_threshold * (0.50f + (0.50f * escape_preservation)));
     float manual_priority = 0.0f;
     if (parallel < 0.0f) {
         const float opposing_magnitude = -parallel;
         const float linear_priority = soft_ramp_strength(
             opposing_magnitude,
-            priority_onset,
+            priority_full,
             escape_threshold);
         manual_priority = linear_priority * linear_priority *
             (3.0f - (2.0f * linear_priority));
     }
-    manual_takeover_active_ = manual_priority >= 0.50f;
+    if (!config_.body_lock_manual_takeover_enabled) {
+        reset_body_lock_manual_takeover();
+    } else {
+        const float manual_magnitude = std::hypot(manual_x, manual_y);
+        const float release_threshold = std::max(0.01f, priority_onset * 0.65f);
+        if (manual_takeover_active_ && manual_magnitude <= release_threshold) {
+            reset_body_lock_manual_takeover();
+        }
+        const bool opposing_takeover_evidence =
+            parallel < 0.0f && -parallel >= priority_onset;
+        if (!manual_takeover_active_ && opposing_takeover_evidence) {
+            if (-parallel >= escape_threshold) {
+                manual_takeover_active_ = true;
+            } else {
+                if (manual_takeover_candidate_since_ <= 0.0) {
+                    manual_takeover_candidate_since_ = input.now_seconds;
+                }
+                const double commit_seconds = static_cast<double>(
+                    std::max(0.0f, config_.body_lock_manual_takeover_commit_ms)) / 1000.0;
+                if (commit_seconds <= 0.0 ||
+                    (input.now_seconds > 0.0 && manual_takeover_candidate_since_ > 0.0 &&
+                     input.now_seconds - manual_takeover_candidate_since_ >= commit_seconds)) {
+                    manual_takeover_active_ = true;
+                }
+            }
+        } else if (!manual_takeover_active_) {
+            manual_takeover_candidate_since_ = 0.0;
+        }
+        if (manual_takeover_active_) {
+            manual_priority = 1.0f;
+        }
+    }
     const float assist_priority = 1.0f - manual_priority;
 
     const float max_harmful_suppression = std::max(
