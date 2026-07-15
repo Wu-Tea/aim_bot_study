@@ -361,6 +361,12 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
             << ",\"ads_completion_max_ms\":" << record.controller.ads_completion_max_ms
             << ",\"ads_completion_reason\":\"" << record.controller.ads_completion_reason.data() << '"'
             << ",\"manual_takeover_active\":" << (record.controller.manual_takeover_active ? "true" : "false")
+            << ",\"auto_fire_requested\":" << (record.controller.auto_fire_requested ? "true" : "false")
+            << ",\"auto_fire_aim_ready\":" << (record.controller.auto_fire_aim_ready ? "true" : "false")
+            << ",\"auto_fire_allowed\":" << (record.controller.auto_fire_allowed ? "true" : "false")
+            << ",\"auto_fire_active\":" << (record.controller.auto_fire_active ? "true" : "false")
+            << ",\"final_fire_button\":" << (record.controller.final_fire_button ? "true" : "false")
+            << ",\"auto_fire_block_reason\":\"" << record.controller.auto_fire_block_reason.data() << '"'
             << ",\"detector_box_count\":" << record.controller.detector_box_count
             << ",\"production_target_source\":\"" << record.controller.production_target_source.data() << '"'
             << ",\"production_target_tier\":\"" << record.controller.production_target_tier.data() << '"'

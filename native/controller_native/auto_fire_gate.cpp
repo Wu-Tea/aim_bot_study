@@ -33,13 +33,16 @@ void AutoFireGate::reset() {
 
 void AutoFireGate::reset_readiness() {
     ready_frames_ = 0;
+    has_ready_vision_sequence_ = false;
+    ready_vision_sequence_ = 0;
 }
 
 AutoFireGateDecision AutoFireGate::evaluate(const AutoFireGateInput& input) {
     AutoFireGateDecision decision;
     decision.before_auto_fire_active = auto_fire_was_active_;
     decision.aim_ready = aim_ready_for_input(input);
-    bool should_fire = allowed_for_input(input, decision.aim_ready);
+    decision.block_reason = block_reason_for_input(input, decision.aim_ready);
+    bool should_fire = decision.block_reason == AutoFireBlockReason::None;
     decision.pre_takeover_should_fire = should_fire;
 
     const bool manual_fire_started =
@@ -62,9 +65,11 @@ AutoFireGateDecision AutoFireGate::evaluate(const AutoFireGateInput& input) {
     manual_fire_was_pressed_ = input.manual_fire_pressed;
     if (input.manual_fire_pressed) {
         should_fire = false;
+        decision.block_reason = AutoFireBlockReason::ManualFire;
         decision.release_fire_output = in_takeover_release;
     } else if (in_takeover_guard) {
         should_fire = false;
+        decision.block_reason = AutoFireBlockReason::ManualTakeoverGuard;
         decision.release_fire_output = true;
     }
 
@@ -153,11 +158,17 @@ bool AutoFireGate::aim_ready_for_input(const AutoFireGateInput& input) {
         return false;
     }
 
-    ++ready_frames_;
+    const std::uint64_t vision_sequence = input.vision_state.vision_sequence;
+    if (vision_sequence == 0 || !has_ready_vision_sequence_ ||
+        vision_sequence != ready_vision_sequence_) {
+        ++ready_frames_;
+        has_ready_vision_sequence_ = vision_sequence != 0;
+        ready_vision_sequence_ = vision_sequence;
+    }
     return ready_frames_ >= std::max(1, ai_config_.auto_fire_ready_frames);
 }
 
-bool AutoFireGate::allowed_for_input(
+AutoFireBlockReason AutoFireGate::block_reason_for_input(
     const AutoFireGateInput& input,
     bool aim_ready) const {
     const tracking_native::TargetAuthorityDecision authority =
@@ -166,14 +177,25 @@ bool AutoFireGate::allowed_for_input(
             input.vision_state.aim_authority,
             input.vision_state.fire_authority,
             input.vision_state.target_tier);
-    const bool aiming_allowed = !auto_fire_config_.aim_only || input.aiming;
-    const bool readiness_allowed = !auto_fire_config_.require_aim_ready || aim_ready;
-    return aiming_allowed &&
-        readiness_allowed &&
-        input.vision_state.auto_fire_requested &&
-        input.vision_state.has_target &&
-        authority.fire_authority == common_native::FireAuthority::ObservedOnly &&
-        has_fresh_auto_fire_source(input.vision_state, input.now_seconds);
+    if (auto_fire_config_.aim_only && !input.aiming) {
+        return AutoFireBlockReason::NotAiming;
+    }
+    if (auto_fire_config_.require_aim_ready && !aim_ready) {
+        return AutoFireBlockReason::AimNotReady;
+    }
+    if (!input.vision_state.auto_fire_requested) {
+        return AutoFireBlockReason::NotRequested;
+    }
+    if (!input.vision_state.has_target) {
+        return AutoFireBlockReason::NoTarget;
+    }
+    if (authority.fire_authority != common_native::FireAuthority::ObservedOnly) {
+        return AutoFireBlockReason::NoFireAuthority;
+    }
+    if (!has_fresh_auto_fire_source(input.vision_state, input.now_seconds)) {
+        return AutoFireBlockReason::StaleSource;
+    }
+    return AutoFireBlockReason::None;
 }
 
 bool AutoFireGate::has_fresh_auto_fire_source(
@@ -223,6 +245,20 @@ double AutoFireGate::manual_takeover_elapsed(double now_seconds) const {
 double AutoFireGate::manual_takeover_total_seconds() const {
     return std::max(0.0f, auto_fire_config_.manual_takeover_release_seconds) +
         std::max(0.0f, auto_fire_config_.manual_takeover_resume_delay_seconds);
+}
+
+const char* auto_fire_block_reason_name(AutoFireBlockReason reason) {
+    switch (reason) {
+    case AutoFireBlockReason::NotAiming: return "not_aiming";
+    case AutoFireBlockReason::AimNotReady: return "aim_not_ready";
+    case AutoFireBlockReason::NotRequested: return "not_requested";
+    case AutoFireBlockReason::NoTarget: return "no_target";
+    case AutoFireBlockReason::NoFireAuthority: return "no_fire_authority";
+    case AutoFireBlockReason::StaleSource: return "stale_source";
+    case AutoFireBlockReason::ManualFire: return "manual_fire";
+    case AutoFireBlockReason::ManualTakeoverGuard: return "manual_takeover_guard";
+    default: return "none";
+    }
 }
 
 }  // namespace controller_native

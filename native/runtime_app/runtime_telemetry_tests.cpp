@@ -259,6 +259,13 @@ void test_controller_pipeline_and_target_provenance_are_serialized() {
     value.controller.ads_carry_brake_x = -0.02f;
     value.controller.post_ads_carry_brake_x = 0.10f;
     value.controller.manual_takeover_active = true;
+    value.controller.auto_fire_requested = true;
+    value.controller.auto_fire_aim_ready = true;
+    value.controller.auto_fire_allowed = true;
+    value.controller.auto_fire_active = true;
+    value.controller.final_fire_button = true;
+    std::snprintf(value.controller.auto_fire_block_reason.data(),
+        value.controller.auto_fire_block_reason.size(), "%s", "none");
     value.controller.detector_box_count = 1;
     value.controller.production_target_confidence = 0.91f;
     value.controller.selected_track_id = 73;
@@ -299,6 +306,12 @@ void test_controller_pipeline_and_target_provenance_are_serialized() {
     REQUIRE(json.find("\"ads_carry_brake_x\":-0.02") != std::string::npos);
     REQUIRE(json.find("\"post_ads_carry_brake_x\":0.1") != std::string::npos);
     REQUIRE(json.find("\"manual_takeover_active\":true") != std::string::npos);
+    REQUIRE(json.find("\"auto_fire_requested\":true") != std::string::npos);
+    REQUIRE(json.find("\"auto_fire_aim_ready\":true") != std::string::npos);
+    REQUIRE(json.find("\"auto_fire_allowed\":true") != std::string::npos);
+    REQUIRE(json.find("\"auto_fire_active\":true") != std::string::npos);
+    REQUIRE(json.find("\"final_fire_button\":true") != std::string::npos);
+    REQUIRE(json.find("\"auto_fire_block_reason\":\"none\"") != std::string::npos);
     REQUIRE(json.find("\"detector_box_count\":1") != std::string::npos);
     REQUIRE(json.find("\"production_target_source\":\"yolo_body\"") != std::string::npos);
     REQUIRE(json.find("\"production_target_tier\":\"primary\"") != std::string::npos);

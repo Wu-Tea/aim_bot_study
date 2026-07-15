@@ -83,7 +83,11 @@ BodylockLifecycleDecision BodylockLifecycle::update(const BodylockLifecycleInput
             false);
     }
 
-    if (input.authority == AssistAuthorityState::Continuity &&
+    const bool same_track_continuity =
+        input.authority == AssistAuthorityState::Continuity ||
+        (input.authority == AssistAuthorityState::TrackOnly &&
+         input.authority_reason == AssistAuthorityReason::ShortEvidenceGap);
+    if (same_track_continuity &&
         input.selected_track_id != 0 && input.selected_track_id == track_id_ &&
         was_active) {
         constexpr double kMaxCoastSeconds = 0.096;

@@ -184,6 +184,14 @@ void TelemetryCollectors::observe_tick(const TelemetryTickInput& input) noexcept
         sample.controller.ads_completion_required_frames = input.ads_completion_required_frames;
         sample.controller.ads_completion_max_ms = input.ads_completion_max_ms;
         copy_text(sample.controller.ads_completion_reason, input.ads_completion_reason);
+        sample.controller.auto_fire_requested = input.auto_fire_requested;
+        sample.controller.auto_fire_aim_ready = input.auto_fire_aim_ready;
+        sample.controller.auto_fire_allowed = input.auto_fire_allowed;
+        sample.controller.auto_fire_active = input.auto_fire_active;
+        sample.controller.final_fire_button = input.final_fire_button;
+        copy_text(
+            sample.controller.auto_fire_block_reason,
+            input.auto_fire_block_reason);
         copy_text(sample.controller.assist_authority, input.assist_authority);
         copy_text(sample.controller.assist_authority_reason, input.assist_authority_reason);
         copy_text(sample.controller.bodylock_lifecycle, input.bodylock_lifecycle);

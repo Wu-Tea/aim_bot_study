@@ -8,6 +8,20 @@
 
 namespace controller_native {
 
+enum class AutoFireBlockReason : std::uint8_t {
+    None,
+    NotAiming,
+    AimNotReady,
+    NotRequested,
+    NoTarget,
+    NoFireAuthority,
+    StaleSource,
+    ManualFire,
+    ManualTakeoverGuard,
+};
+
+const char* auto_fire_block_reason_name(AutoFireBlockReason reason);
+
 struct NativeAutoFireCounters {
     std::uint64_t requested = 0;
     std::uint64_t allowed = 0;
@@ -35,6 +49,7 @@ struct AutoFireGateDecision {
     bool before_auto_fire_active = false;
     bool after_auto_fire_active = false;
     bool release_fire_output = false;
+    AutoFireBlockReason block_reason = AutoFireBlockReason::None;
     NativeAutoFireCounters counters;
 };
 
@@ -54,7 +69,9 @@ public:
 
 private:
     bool aim_ready_for_input(const AutoFireGateInput& input);
-    bool allowed_for_input(const AutoFireGateInput& input, bool aim_ready) const;
+    AutoFireBlockReason block_reason_for_input(
+        const AutoFireGateInput& input,
+        bool aim_ready) const;
     bool has_fresh_auto_fire_source(
         const NativeControllerVisionState& vision_state,
         double now_seconds) const;
@@ -72,6 +89,8 @@ private:
     bool auto_fire_was_active_ = false;
     double manual_takeover_started_at_seconds_ = -1.0;
     int ready_frames_ = 0;
+    bool has_ready_vision_sequence_ = false;
+    std::uint64_t ready_vision_sequence_ = 0;
 };
 
 }  // namespace controller_native

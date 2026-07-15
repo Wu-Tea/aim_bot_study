@@ -114,6 +114,13 @@ pipeline_contract::AssistAuthorityDecision decide_assist_authority(
             pipeline_contract::AssistAuthorityReason::UserYield);
     }
 
+    if (input.identity_hold_only) {
+        return decision_for(
+            input,
+            pipeline_contract::AssistAuthorityState::TrackOnly,
+            pipeline_contract::AssistAuthorityReason::ShortEvidenceGap);
+    }
+
     if (is_weak_or_cue_tier(input.evidence_tier)) {
         return decision_for(
             input,

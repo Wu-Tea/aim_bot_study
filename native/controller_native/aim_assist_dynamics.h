@@ -51,6 +51,7 @@ public:
         const NativeAimAssistDynamicsInput& input);
     [[nodiscard]] bool ads_crossing_brake_pending(double now_seconds) const;
     [[nodiscard]] bool bodylock_envelope_active() const;
+    [[nodiscard]] bool ads_identity_hold_release_active() const;
 
 private:
     struct AdsAxisCrossingState {

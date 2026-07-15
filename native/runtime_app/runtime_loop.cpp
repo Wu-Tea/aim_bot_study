@@ -716,6 +716,13 @@ void RuntimeLoop::run_once() {
     telemetry_tick.ads_completion_max_ms = telemetry_components.ads_completion_max_ms;
     telemetry_tick.ads_completion_reason = telemetry_components.ads_completion_reason.c_str();
     telemetry_tick.manual_takeover_active = controller_.body_lock_manual_takeover_active();
+    telemetry_tick.auto_fire_requested = telemetry_components.auto_fire_requested;
+    telemetry_tick.auto_fire_aim_ready = telemetry_components.auto_fire_aim_ready;
+    telemetry_tick.auto_fire_allowed = telemetry_components.auto_fire_allowed;
+    telemetry_tick.auto_fire_active = telemetry_components.auto_fire_active;
+    telemetry_tick.final_fire_button = telemetry_components.fire_button;
+    telemetry_tick.auto_fire_block_reason =
+        telemetry_components.auto_fire_block_reason.c_str();
     telemetry_tick.pre_recoil_x = telemetry_components.before_recoil_stick.x;
     telemetry_tick.pre_recoil_y = telemetry_components.before_recoil_stick.y;
     telemetry_tick.recoil_x = telemetry_components.recoil_stick.x;

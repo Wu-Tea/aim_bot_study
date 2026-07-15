@@ -42,6 +42,11 @@ struct NativeControllerOutputComponents {
     std::string bodylock_transition_reason = "none";
     std::string assist_limit_reason = "none";
     bool ads_brake_active = false;
+    bool auto_fire_requested = false;
+    bool auto_fire_aim_ready = false;
+    bool auto_fire_allowed = false;
+    bool auto_fire_active = false;
+    std::string auto_fire_block_reason = "none";
     bool fire_button = false;
 };
 

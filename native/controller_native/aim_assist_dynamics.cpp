@@ -85,9 +85,14 @@ NativeAimAssistDynamicsOutput NativeAimAssistDynamics::apply(
         return {input.requested_assist, "disabled"};
     }
 
+    const bool identity_only_bodylock_coast =
+        input.authority == pipeline_contract::AssistAuthorityState::TrackOnly &&
+        input.lifecycle == pipeline_contract::BodylockLifecycleState::Coast &&
+        bodylock_history_active_ && has_history_;
     const bool authority_absent =
         input.authority == pipeline_contract::AssistAuthorityState::Reject ||
-        input.authority == pipeline_contract::AssistAuthorityState::TrackOnly;
+        (input.authority == pipeline_contract::AssistAuthorityState::TrackOnly &&
+         !identity_only_bodylock_coast);
     const bool release_bodylock = bodylock_history_active_ && has_history_ &&
         (input.lifecycle == pipeline_contract::BodylockLifecycleState::Yield ||
          input.lifecycle == pipeline_contract::BodylockLifecycleState::Inactive);
@@ -137,6 +142,33 @@ NativeAimAssistDynamicsOutput NativeAimAssistDynamics::apply(
         previous_delta_ = delta;
         return output;
     }
+    if (input.authority == pipeline_contract::AssistAuthorityState::TrackOnly) {
+        const std::uint64_t target_key = input.selected_track_id != 0
+            ? input.selected_track_id
+            : 1u;
+        const bool begin_ads_identity_release =
+            has_ads_handoff_assist_ && ads_handoff_track_id_ == target_key;
+        const bool continue_ads_identity_release =
+            assist_authority_was_absent_ && has_history_ &&
+            !bodylock_history_active_ && ads_handoff_track_id_ == target_key;
+        if (begin_ads_identity_release || continue_ads_identity_release) {
+            if (begin_ads_identity_release) {
+                previous_assist_ = ads_handoff_assist_;
+                previous_delta_ = {};
+                has_history_ = true;
+                bodylock_history_active_ = false;
+                has_ads_handoff_assist_ = false;
+            }
+            NativeAimAssistDynamicsInput release_input = input;
+            release_input.requested_assist = {};
+            NativeAimAssistDynamicsOutput output = shape_ads_reacquire(release_input);
+            output.limit_reason = "ads_identity_hold_release";
+            assist_authority_was_absent_ = true;
+            ads_reacquire_envelope_active_ = false;
+            reset_ads_crossing();
+            return output;
+        }
+    }
     if (authority_absent ||
         input.lifecycle == pipeline_contract::BodylockLifecycleState::Yield) {
         reset();
@@ -147,7 +179,9 @@ NativeAimAssistDynamicsOutput NativeAimAssistDynamics::apply(
     if (input.ads_snap_active) {
         observe_ads_snap_crossing(input);
         if (assist_authority_was_absent_) {
-            reset_envelope();
+            if (!has_history_) {
+                reset_envelope();
+            }
             assist_authority_was_absent_ = false;
             ads_reacquire_envelope_active_ = true;
         }
@@ -379,6 +413,10 @@ bool NativeAimAssistDynamics::ads_crossing_brake_pending(double now_seconds) con
 
 bool NativeAimAssistDynamics::bodylock_envelope_active() const {
     return bodylock_history_active_ && has_history_;
+}
+
+bool NativeAimAssistDynamics::ads_identity_hold_release_active() const {
+    return assist_authority_was_absent_ && has_history_ && !bodylock_history_active_;
 }
 
 bool NativeAimAssistDynamics::ads_axis_brake_active(

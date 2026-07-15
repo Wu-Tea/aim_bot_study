@@ -46,6 +46,12 @@ struct TelemetryTickInput {
     float ads_completion_max_ms = 0.0f;
     const char* ads_completion_reason = "none";
     bool manual_takeover_active = false;
+    bool auto_fire_requested = false;
+    bool auto_fire_aim_ready = false;
+    bool auto_fire_allowed = false;
+    bool auto_fire_active = false;
+    bool final_fire_button = false;
+    const char* auto_fire_block_reason = "none";
     float pre_recoil_x = 0.0f, pre_recoil_y = 0.0f;
     float recoil_x = 0.0f, recoil_y = 0.0f;
     float final_x = 0.0f, final_y = 0.0f;

@@ -865,8 +865,13 @@ ProductionChainMetrics run_production_chain_probe() {
 
         const double delivered_assist =
             static_cast<double>(output.right_x) - physical.right_x;
-        if (short_gap && mode == "body_lock" &&
-            components.bodylock_lifecycle == "coast") {
+        const bool bounded_short_gap_release =
+            !has_previous_final ||
+            std::fabs(static_cast<double>(output.right_x) - previous_final_x) <= 0.07;
+        const bool existing_assist_release =
+            components.bodylock_lifecycle == "coast" ||
+            components.assist_limit_reason == "ads_identity_hold_release";
+        if (short_gap && existing_assist_release && bounded_short_gap_release) {
             ++short_gap_coast_frames;
         }
         if (selected_gap && vision_state.has_target &&

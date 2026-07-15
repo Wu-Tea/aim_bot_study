@@ -630,6 +630,202 @@ void test_auto_fire_requires_aim_ready_settle_frames() {
     require_true(second.rb, "auto-fire should start after required settled frames");
 }
 
+void test_auto_fire_uses_80hz_vision_frames_at_1000hz_controller_rate() {
+    double now = 90.000;
+    controller_native::GamepadRuntimeConfig config;
+    config.auto_fire_output = "RB";
+    config.auto_fire.fire_output = "RB";
+    config.auto_fire.require_aim_ready = true;
+    config.auto_fire.max_source_age_ms = 50.0f;
+    config.ai_aim.target_max_age_ms = 96.0f;
+    config.ai_aim.target_projection_max_age_ms = 96.0f;
+    config.ai_aim.auto_fire_ready_error_px = 4.0f;
+    config.ai_aim.auto_fire_ready_frames = 2;
+    config.ai_aim.auto_fire_ready_min_ads_ms = 0.0f;
+    config.ai_aim.auto_fire_ready_max_ai_stick = 6000.0f;
+    config.recoil.enabled = false;
+    controller_native::NativeGamepadController controller(config, [&now]() { return now; });
+
+    const auto observed = [](std::uint64_t frame, std::uint64_t observation, double at) {
+        controller_native::ControllerVisionSnapshot snapshot;
+        snapshot.frame_updated = true;
+        snapshot.selector_identity_protocol = true;
+        snapshot.frame_id = frame;
+        snapshot.capture_time_seconds = at;
+        snapshot.ready_time_seconds = at;
+        snapshot.selected_observation_id = observation;
+        snapshot.state.has_target = true;
+        snapshot.state.aim_authority = true;
+        snapshot.state.fire_authority = true;
+        snapshot.state.auto_fire_requested = true;
+        snapshot.state.screen_center_x = 320.0f;
+        snapshot.state.screen_center_y = 256.0f;
+        snapshot.state.target_x = 320.0f;
+        snapshot.state.target_y = 256.0f;
+        snapshot.state.dx = 0.0f;
+        snapshot.state.dy = 0.0f;
+        snapshot.state.target_tier = "observed_strong";
+        snapshot.state.observed_at_seconds = at;
+        tracking_native::TrackerDetection detection;
+        detection.id = observation;
+        detection.body_box_px = {285.0f, 196.0f, 70.0f, 140.0f};
+        detection.aim_point_px = {320.0f, 256.0f};
+        detection.has_aim_point = true;
+        detection.confidence = 0.95f;
+        detection.target_tier = "observed_strong";
+        snapshot.tracker_detections.push_back(detection);
+        return snapshot;
+    };
+
+    controller.build_output(aiming_physical_state());
+    controller.submit_vision_snapshot(observed(900, 9001, now));
+    for (int tick = 0; tick < 12; ++tick) {
+        const auto output = controller.build_output(aiming_physical_state());
+        require_true(!output.rb, "tentative first vision frame must not fire");
+        now += 0.001;
+    }
+
+    controller.submit_vision_snapshot(observed(901, 9011, now));
+    for (int tick = 0; tick < 12; ++tick) {
+        const auto output = controller.build_output(aiming_physical_state());
+        require_true(
+            !output.rb,
+            "repeated 1000Hz ticks from one fire-authoritative frame must not satisfy readiness");
+        now += 0.001;
+    }
+
+    controller.submit_vision_snapshot(observed(902, 9021, now));
+    const auto fired = controller.build_output(aiming_physical_state());
+    require_true(fired.rb, "second unique fire-authoritative vision frame should press RB");
+    require_true(controller.auto_fire_counters().allowed >= 1,
+                 "live-rate integration must record an allowed auto-fire decision");
+    require_true(controller.last_output_components().auto_fire_requested,
+                 "controller components should expose the auto-fire request");
+    require_true(controller.last_output_components().auto_fire_aim_ready,
+                 "controller components should expose settled readiness");
+    require_true(controller.last_output_components().auto_fire_allowed,
+                 "controller components should expose pre-takeover permission");
+    require_true(controller.last_output_components().auto_fire_active,
+                 "controller components should expose active synthetic fire");
+    require_true(controller.last_output_components().fire_button,
+                 "controller components should expose the final fire button");
+    require_true(controller.last_output_components().auto_fire_block_reason == "none",
+                 "allowed auto-fire should expose no block reason");
+    std::cerr << "[TrackerAutofireBenchmark] autofire vision_hz=83 controller_hz=1000"
+              << " first_active_sequence=902 allowed="
+              << controller.auto_fire_counters().allowed << '\n';
+}
+
+void test_scope_occlusion_owner_hold_releases_and_reacquires_smoothly() {
+    double now = 91.000;
+    controller_native::GamepadRuntimeConfig config;
+    config.ai_aim.max_pixels = 100.0f;
+    config.ai_aim.max_ai_force = 1.0f;
+    config.ai_aim.max_ai_force_y = 1.0f;
+    config.ai_aim.ads_snap_max_ai_force = 1.0f;
+    config.ai_aim.ads_snap_max_ai_force_y = 1.0f;
+    config.ai_aim.ads_snap_window_ms = 100;
+    config.ai_aim.deadzone_inner = 0.0f;
+    config.ai_aim.deadzone_outer = 0.0f;
+    config.ai_aim.x_deadzone_outer = 0.0f;
+    config.ai_aim.piecewise_mid_pixels = 0.0f;
+    config.ai_aim.piecewise_mid_pixels_y = 0.0f;
+    config.ai_aim.target_max_age_ms = 96.0f;
+    config.ai_aim.target_projection_max_age_ms = 96.0f;
+    config.aim_assist_dynamics.enabled = true;
+    config.recoil.enabled = false;
+    controller_native::NativeGamepadController controller(config, [&now]() { return now; });
+
+    const auto observed = [](std::uint64_t frame,
+                             std::uint64_t observation,
+                             double at,
+                             float target_x) {
+        controller_native::ControllerVisionSnapshot snapshot;
+        snapshot.frame_updated = true;
+        snapshot.selector_identity_protocol = true;
+        snapshot.frame_id = frame;
+        snapshot.capture_time_seconds = at;
+        snapshot.ready_time_seconds = at;
+        snapshot.selected_observation_id = observation;
+        snapshot.state.has_target = true;
+        snapshot.state.aim_authority = true;
+        snapshot.state.fire_authority = true;
+        snapshot.state.screen_center_x = 320.0f;
+        snapshot.state.screen_center_y = 256.0f;
+        snapshot.state.target_x = target_x;
+        snapshot.state.target_y = 256.0f;
+        snapshot.state.dx = target_x - 320.0f;
+        snapshot.state.dy = 0.0f;
+        snapshot.state.target_tier = "observed_strong";
+        snapshot.state.observed_at_seconds = at;
+        tracking_native::TrackerDetection detection;
+        detection.id = observation;
+        detection.body_box_px = {target_x - 35.0f, 196.0f, 70.0f, 140.0f};
+        detection.aim_point_px = {target_x, 256.0f};
+        detection.has_aim_point = true;
+        detection.confidence = 0.95f;
+        detection.target_tier = "observed_strong";
+        snapshot.tracker_detections.push_back(detection);
+        return snapshot;
+    };
+
+    controller.build_output(aiming_physical_state());
+    controller.submit_vision_snapshot(observed(910, 9101, now, 400.0f));
+    for (int tick = 0; tick < 12; ++tick) {
+        controller.build_output(aiming_physical_state());
+        now += 0.001;
+    }
+    controller.submit_vision_snapshot(observed(911, 9111, now, 400.0f));
+    float previous = controller.build_output(aiming_physical_state()).right_x;
+    require_true(previous > 0.08f, "test setup should establish rightward ADS assist");
+
+    for (int tick = 0; tick < 12; ++tick) {
+        now += 0.001;
+        previous = controller.build_output(aiming_physical_state()).right_x;
+    }
+    const float release_start = previous;
+    controller.submit_vision_snapshot(observed(912, 9121, now, 200.0f));
+    float held = controller.build_output(aiming_physical_state()).right_x;
+    float max_tick_delta = std::fabs(held - previous);
+    int reverse_ticks = held < -0.001f ? 1 : 0;
+    require_true(held >= -0.001f,
+                 "opposite-side competitor must never reverse owner assist during occlusion");
+    require_true(std::fabs(held - previous) <= 0.055f,
+                 "owner hold should release ADS assist through the existing bounded envelope");
+    previous = held;
+
+    for (int tick = 0; tick < 12; ++tick) {
+        now += 0.001;
+        const float current = controller.build_output(aiming_physical_state()).right_x;
+        require_true(current >= -0.001f,
+                     "identity-only hold must not emit opposite-side assist");
+        require_true(std::fabs(current - previous) <= 0.055f,
+                     "identity-only release must remain bounded per controller tick");
+        max_tick_delta = std::max(max_tick_delta, std::fabs(current - previous));
+        if (current < -0.001f) {
+            ++reverse_ticks;
+        }
+        previous = current;
+    }
+
+    controller.submit_vision_snapshot(observed(913, 9131, now, 400.0f));
+    const float reacquired = controller.build_output(aiming_physical_state()).right_x;
+    require_true(reacquired >= -0.001f,
+                 "owner reacquisition must preserve the established direction");
+    require_true(std::fabs(reacquired - previous) <= 0.055f,
+                 "owner reacquisition should use the same bounded envelope");
+    max_tick_delta = std::max(max_tick_delta, std::fabs(reacquired - previous));
+    if (reacquired < -0.001f) {
+        ++reverse_ticks;
+    }
+    std::cerr << "[TrackerAutofireBenchmark] owner_hold release_start="
+              << release_start << " gap_first=" << held
+              << " max_tick_delta=" << max_tick_delta
+              << " reverse_ticks=" << reverse_ticks
+              << " track=" << controller.last_frame_vision_state().selected_track_id
+              << '\n';
+}
+
 void test_auto_fire_aim_ready_gate_can_be_disabled() {
     controller_native::GamepadRuntimeConfig config;
     config.auto_fire_output = "RB";
@@ -911,11 +1107,11 @@ void test_controller_ads_drops_tracker_only_vertical_snap_after_processed_miss()
     physical.right_y = 0.22f;
     const controller_native::GamepadOutputState output = controller.build_output(physical);
     const auto& frame = controller.last_frame_vision_state();
-    require_true(frame.has_target && frame.aim_authority,
-                 "fixture must preserve tracker continuity after the processed miss");
+    require_true(frame.has_target && !frame.aim_authority,
+                 "processed miss should retain identity without blind aim authority");
     require_true(
-        frame.assist_authority_state == pipeline_contract::AssistAuthorityState::Continuity,
-        "fixture must reproduce short_evidence_gap continuity");
+        frame.assist_authority_state == pipeline_contract::AssistAuthorityState::TrackOnly,
+        "processed miss should expose identity-only tracker continuity");
     require_true(!frame.current_observed_target_present,
                  "processed miss must revoke current observed target presence");
     require_near(controller.last_output_components().ai_aim_stick.y, 0.0f, 0.001f,
@@ -6417,6 +6613,8 @@ int main() {
         test_controller_tick_context_carries_tracker_snapshot_and_output_components();
         test_auto_fire_manual_takeover_releases_output_briefly();
         test_auto_fire_requires_aim_ready_settle_frames();
+        test_auto_fire_uses_80hz_vision_frames_at_1000hz_controller_rate();
+        test_scope_occlusion_owner_hold_releases_and_reacquires_smoothly();
         test_auto_fire_aim_ready_gate_can_be_disabled();
         test_auto_fire_ready_allows_manual_right_stick_when_fire_zone_is_hit();
         test_controller_left_thumb_does_not_count_as_aiming();

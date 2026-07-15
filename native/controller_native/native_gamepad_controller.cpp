@@ -218,6 +218,12 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
     auto_fire_input.settle_dy = settle_dy;
     const AutoFireGateDecision auto_fire_decision =
         auto_fire_gate_.evaluate(auto_fire_input);
+    output_components.auto_fire_requested = frame_vision_state.auto_fire_requested;
+    output_components.auto_fire_aim_ready = auto_fire_decision.aim_ready;
+    output_components.auto_fire_allowed = auto_fire_decision.pre_takeover_should_fire;
+    output_components.auto_fire_active = auto_fire_decision.should_fire;
+    output_components.auto_fire_block_reason =
+        auto_fire_block_reason_name(auto_fire_decision.block_reason);
 
     stage_before_output = output;
     stage_before_right_y = output.right_y;
@@ -796,6 +802,12 @@ void NativeGamepadController::apply_ads_carry_brake(
              pipeline_contract::AssistAuthorityState::Reject ||
          vision_state.assist_authority_state ==
              pipeline_contract::AssistAuthorityState::TrackOnly);
+    if (vision_state.authority_decision_valid &&
+        vision_state.assist_authority_state ==
+            pipeline_contract::AssistAuthorityState::TrackOnly &&
+        aim_assist_dynamics_.ads_identity_hold_release_active()) {
+        return;
+    }
     if (!vision_state.aim_authority || explicit_track_only_or_reject) {
         output.right_x = manual_right_x;
         output.right_y = manual_right_y;

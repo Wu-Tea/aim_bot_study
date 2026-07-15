@@ -16,6 +16,7 @@ struct AssistAuthorityPolicyInput {
     std::string evidence_tier = "none";
     bool current_observed_aim_authority = false;
     bool current_observed_fire_authority = false;
+    bool identity_hold_only = false;
     bool fire_requested = false;
     std::uint64_t prior_observed_track_id = 0;
     common_native::TimeSeconds prior_observed_at;

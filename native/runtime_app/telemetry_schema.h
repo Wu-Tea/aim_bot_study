@@ -5,7 +5,7 @@
 
 namespace runtime_app {
 
-inline constexpr std::uint16_t kTelemetrySchemaVersion = 4;
+inline constexpr std::uint16_t kTelemetrySchemaVersion = 5;
 
 enum class TelemetryRecordKind : std::uint8_t {
     ManualControllerTick,
@@ -170,6 +170,12 @@ struct ControllerSamplePayload {
     float ads_completion_max_ms = 0.0f;
     std::array<char, 20> ads_completion_reason{};
     bool manual_takeover_active = false;
+    bool auto_fire_requested = false;
+    bool auto_fire_aim_ready = false;
+    bool auto_fire_allowed = false;
+    bool auto_fire_active = false;
+    bool final_fire_button = false;
+    std::array<char, 28> auto_fire_block_reason{};
     std::uint32_t detector_box_count = 0;
     float production_target_confidence = 0.0f;
     float target_dx = 0.0f;

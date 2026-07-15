@@ -54,14 +54,17 @@ private:
     void bind_selector_observation(
         std::uint64_t observation_id,
         double query_time_seconds);
+    void reconcile_selector_ownership(double query_time_seconds);
+    std::optional<pipeline_contract::TrackEstimate> track_estimate(
+        std::uint64_t track_id,
+        double query_time_seconds) const;
     std::optional<pipeline_contract::TrackEstimate> selected_track_estimate(
         double query_time_seconds) const;
     tracking_native::TrackerSnapshot selected_tracker_snapshot(
         double query_time_seconds) const;
     NativeControllerVisionState apply_assist_authority(
         NativeControllerVisionState state,
-        double query_time_seconds,
-        bool consume_current_observation);
+        double query_time_seconds);
     NativeControllerVisionState credibility_gated_vision_state(
         const NativeControllerVisionState& state,
         double query_time_seconds,
@@ -77,11 +80,12 @@ private:
         tracking_native::TrackerBackendKind::FpsReference;
     std::unique_ptr<tracking_native::TrackerBackend> target_tracker_;
     pipeline_contract::SelectedTrackRef selected_track_;
+    pipeline_contract::SelectedTrackRef owned_track_;
+    bool ownership_hold_active_ = false;
     bool selector_ownership_active_ = false;
     pipeline_contract::AssistAuthorityDecision latest_authority_decision_;
     pipeline_contract::UserAimIntent latest_user_intent_;
     std::uint64_t prior_observed_track_id_ = 0;
-    std::uint64_t consumed_authority_observation_id_ = 0;
     double prior_observed_at_seconds_ = 0.0;
     NativeControllerVisionState latest_vision_state_;
     double last_output_at_seconds_ = 0.0;

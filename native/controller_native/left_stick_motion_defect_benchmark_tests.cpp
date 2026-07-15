@@ -60,7 +60,9 @@ void test_desired_acceptance_gates_are_closed() {
     require_true(
         report.primary.large_sign_flip_count == 0,
         "BodyLock must not produce large direct sign flips");
-    require_true(report.production_chain.short_gap_coast_pass, "short same-track gap must Coast");
+    require_true(
+        report.production_chain.short_gap_coast_pass,
+        "short same-track gap must preserve a bounded existing-assist release");
     require_true(report.production_chain.long_loss_release_pass, "long identity loss must release");
     require_true(report.production_chain.reacquire_bumpless_pass, "reacquire must be bumpless");
     require_true(

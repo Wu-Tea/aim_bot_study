@@ -74,11 +74,12 @@ void TargetSnapshotProvider::reset() {
     latest_vision_state_ = NativeControllerVisionState{};
     target_tracker_->reset();
     selected_track_ = pipeline_contract::SelectedTrackRef{};
+    owned_track_ = pipeline_contract::SelectedTrackRef{};
+    ownership_hold_active_ = false;
     selector_ownership_active_ = false;
     latest_authority_decision_ = pipeline_contract::AssistAuthorityDecision{};
     latest_user_intent_ = pipeline_contract::UserAimIntent{};
     prior_observed_track_id_ = 0;
-    consumed_authority_observation_id_ = 0;
     prior_observed_at_seconds_ = 0.0;
     latest_vision_sequence_ = 0;
     raw_vision_sequence_consumed_ = 0;
@@ -108,6 +109,8 @@ void TargetSnapshotProvider::submit_vision_state(
     const double ready_time = now_seconds;
     selector_ownership_active_ = false;
     selected_track_ = pipeline_contract::SelectedTrackRef{};
+    owned_track_ = pipeline_contract::SelectedTrackRef{};
+    ownership_hold_active_ = false;
     latest_authority_decision_ = pipeline_contract::AssistAuthorityDecision{};
     latest_user_intent_ = pipeline_contract::UserAimIntent{};
     bool suppress_tracker_ingest = false;
@@ -140,6 +143,7 @@ void TargetSnapshotProvider::submit_vision_snapshot(
     latest_user_intent_ = snapshot.user_intent;
     ingest_tracker_candidates(snapshot, now_seconds);
     bind_selector_observation(snapshot.selected_observation_id, query_time);
+    reconcile_selector_ownership(query_time);
     NativeControllerVisionState selected_state = snapshot.state;
     selected_state.selected_observation_id = selected_track_.has_selection
         ? selected_track_.selected_observation_id
@@ -147,14 +151,15 @@ void TargetSnapshotProvider::submit_vision_snapshot(
     selected_state.selected_track_id = selected_track_.has_selection
         ? selected_track_.track_id
         : 0;
-    selected_state = apply_assist_authority(selected_state, query_time, false);
+    selected_state = apply_assist_authority(selected_state, query_time);
     bool suppress_tracker_ingest = false;
     latest_vision_state_ = credibility_gated_vision_state(
         selected_state,
         query_time,
         ads_active,
         &suppress_tracker_ingest);
-    latest_vision_state_.current_observed_target_present = snapshot.state.has_target;
+    latest_vision_state_.current_observed_target_present =
+        snapshot.state.has_target && !ownership_hold_active_;
     ++latest_vision_sequence_;
 }
 
@@ -232,10 +237,7 @@ void TargetSnapshotProvider::bind_selector_observation(
     std::uint64_t observation_id,
     double query_time_seconds) {
     if (observation_id == 0) {
-        if (selected_track_.has_selection) {
-            selected_track_.selected_observation_id = 0;
-            selected_track_.reason = pipeline_contract::SelectedTrackReason::Continuity;
-        }
+        selected_track_ = pipeline_contract::SelectedTrackRef{};
         return;
     }
 
@@ -258,18 +260,60 @@ void TargetSnapshotProvider::bind_selector_observation(
     }
 }
 
-std::optional<pipeline_contract::TrackEstimate>
-TargetSnapshotProvider::selected_track_estimate(double query_time_seconds) const {
-    if (!selected_track_.has_selection || query_time_seconds <= 0.0) {
+std::optional<pipeline_contract::TrackEstimate> TargetSnapshotProvider::track_estimate(
+    std::uint64_t track_id,
+    double query_time_seconds) const {
+    if (track_id == 0 || query_time_seconds <= 0.0) {
         return std::nullopt;
     }
     for (const pipeline_contract::TrackEstimate& estimate :
          target_tracker_->estimates({query_time_seconds})) {
-        if (estimate.track_id == selected_track_.track_id) {
+        if (estimate.track_id == track_id &&
+            estimate.lifecycle != pipeline_contract::TrackLifecycle::Lost) {
             return estimate;
         }
     }
     return std::nullopt;
+}
+
+void TargetSnapshotProvider::reconcile_selector_ownership(double query_time_seconds) {
+    ownership_hold_active_ = false;
+    const pipeline_contract::SelectedTrackRef selector_track = selected_track_;
+    if (!owned_track_.has_selection) {
+        owned_track_ = selector_track;
+        return;
+    }
+
+    if (selector_track.has_selection &&
+        selector_track.track_id == owned_track_.track_id) {
+        owned_track_ = selector_track;
+        return;
+    }
+
+    const auto owner_estimate = track_estimate(
+        owned_track_.track_id,
+        query_time_seconds);
+    if (owner_estimate.has_value()) {
+        selected_track_ = owned_track_;
+        selected_track_.selected_observation_id = 0;
+        selected_track_.backing_frame_id = owner_estimate->backing_frame_id;
+        selected_track_.confidence = owner_estimate->confidence;
+        selected_track_.reason = pipeline_contract::SelectedTrackReason::Continuity;
+        ownership_hold_active_ = true;
+        return;
+    }
+
+    owned_track_ = selector_track;
+    if (!selector_track.has_selection) {
+        selected_track_ = pipeline_contract::SelectedTrackRef{};
+    }
+}
+
+std::optional<pipeline_contract::TrackEstimate>
+TargetSnapshotProvider::selected_track_estimate(double query_time_seconds) const {
+    return selected_track_.has_selection
+        ? track_estimate(selected_track_.track_id, query_time_seconds)
+        : std::nullopt;
 }
 
 tracking_native::TrackerSnapshot TargetSnapshotProvider::selected_tracker_snapshot(
@@ -301,8 +345,7 @@ tracking_native::TrackerSnapshot TargetSnapshotProvider::selected_tracker_snapsh
 
 NativeControllerVisionState TargetSnapshotProvider::apply_assist_authority(
     NativeControllerVisionState state,
-    double query_time_seconds,
-    bool consume_current_observation) {
+    double query_time_seconds) {
     if (!selector_ownership_active_) {
         return state;
     }
@@ -316,13 +359,13 @@ NativeControllerVisionState TargetSnapshotProvider::apply_assist_authority(
     }
     const bool backed_by_current_observation =
         estimate.has_value() && selected_track_.selected_observation_id != 0 &&
-        estimate->backing_observation_id == selected_track_.selected_observation_id &&
-        selected_track_.selected_observation_id != consumed_authority_observation_id_;
+        estimate->backing_observation_id == selected_track_.selected_observation_id;
     input.evidence_tier = backed_by_current_observation ? state.target_tier : "none";
     input.current_observed_aim_authority =
         backed_by_current_observation && state.aim_authority;
     input.current_observed_fire_authority =
         backed_by_current_observation && state.fire_authority;
+    input.identity_hold_only = ownership_hold_active_;
     input.fire_requested = backed_by_current_observation && state.auto_fire_requested;
     input.prior_observed_track_id = prior_observed_track_id_;
     input.prior_observed_at = {prior_observed_at_seconds_};
@@ -332,9 +375,6 @@ NativeControllerVisionState TargetSnapshotProvider::apply_assist_authority(
         std::max(0.0f, ai_config_.target_projection_max_age_ms);
 
     latest_authority_decision_ = decide_assist_authority(input);
-    if (backed_by_current_observation && consume_current_observation) {
-        consumed_authority_observation_id_ = selected_track_.selected_observation_id;
-    }
     state.assist_authority_state = latest_authority_decision_.state;
     state.assist_authority_reason = latest_authority_decision_.reason;
     state.authority_decision_valid = true;
@@ -351,6 +391,11 @@ NativeControllerVisionState TargetSnapshotProvider::apply_assist_authority(
     state.fire_authority =
         latest_authority_decision_.fire_authority == common_native::FireAuthority::ObservedOnly;
     if (!state.fire_authority) {
+        state.auto_fire_requested = false;
+    }
+    if (ownership_hold_active_) {
+        state.target_tier = "predicted";
+        state.current_observed_target_present = false;
         state.auto_fire_requested = false;
     }
 
@@ -623,7 +668,7 @@ NativeControllerVisionState TargetSnapshotProvider::vision_state_for_frame(
     if (state.fresh_observation) {
         ads_gate_sequence_consumed_ = latest_vision_sequence_;
     }
-    state = apply_assist_authority(state, now_seconds, true);
+    state = apply_assist_authority(state, now_seconds);
     const bool state_expired_for_projection = state_age_exceeds_ms(
         state,
         now_seconds,
@@ -660,6 +705,8 @@ NativeControllerVisionState TargetSnapshotProvider::vision_state_for_frame(
         latest_vision_state_ = cleared_target_state(latest_vision_state_);
         target_tracker_->reset();
         selected_track_ = pipeline_contract::SelectedTrackRef{};
+        owned_track_ = pipeline_contract::SelectedTrackRef{};
+        ownership_hold_active_ = false;
         candidate_projection_hold_until_seconds_ = 0.0;
         return cleared_target_state(state);
     }
@@ -685,6 +732,8 @@ NativeControllerVisionState TargetSnapshotProvider::vision_state_for_frame(
             latest_vision_state_ = cleared_target_state(latest_vision_state_);
             target_tracker_->reset();
             selected_track_ = pipeline_contract::SelectedTrackRef{};
+            owned_track_ = pipeline_contract::SelectedTrackRef{};
+            ownership_hold_active_ = false;
             return cleared_target_state(state);
         }
         return state;
@@ -836,6 +885,8 @@ void TargetSnapshotProvider::clear_target_state_observed_before(double cutoff_se
     latest_vision_state_ = cleared_target_state(latest_vision_state_);
     target_tracker_->reset();
     selected_track_ = pipeline_contract::SelectedTrackRef{};
+    owned_track_ = pipeline_contract::SelectedTrackRef{};
+    ownership_hold_active_ = false;
     ++latest_vision_sequence_;
     raw_vision_sequence_consumed_ = latest_vision_sequence_;
     has_committed_target_ = false;
