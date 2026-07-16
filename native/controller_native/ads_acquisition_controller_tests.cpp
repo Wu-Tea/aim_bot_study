@@ -46,6 +46,7 @@ void test_real_opposing_correction_reduces_conflict() {
     controller_native::AdsAcquisitionController controller;
     pipeline_contract::IntentState correction{};
     correction.filtered_right.x = -0.5f;
+    correction.right_x.confidence = 1.0f;
     correction.right_confidence = 1.0f;
     const auto neutral = controller.compute(plan_with(80.0f, 0.0f), {}, 0.01f);
     const auto opposed = controller.compute(plan_with(80.0f, 0.0f), correction, 0.01f);
@@ -70,6 +71,21 @@ void test_screen_y_error_is_converted_to_stick_y_direction() {
                  "a target below center requires negative stick Y in screen coordinates");
 }
 
+void test_strong_x_confidence_does_not_promote_weak_y_input() {
+    controller_native::AdsAcquisitionController controller;
+    auto plan = plan_with(60.0f, 0.0f);
+    plan.error_px.y = 60.0f;
+    const auto neutral = controller.compute(plan, {}, 0.01f);
+    pipeline_contract::IntentState x_owned{};
+    x_owned.filtered_right = {0.8f, 0.05f};
+    x_owned.right_x.confidence = 1.0f;
+    x_owned.right_y.confidence = 0.0f;
+    x_owned.right_confidence = 1.0f;
+    const auto candidate = controller.compute(plan, x_owned, 0.01f);
+    require_true(std::fabs(candidate.y - neutral.y) < 0.0001f,
+                 "strong X confidence must not attenuate Y ADS output");
+}
+
 }  // namespace
 
 int main() {
@@ -79,6 +95,7 @@ int main() {
         test_real_opposing_correction_reduces_conflict();
         test_predicted_crossing_applies_terminal_brake();
         test_screen_y_error_is_converted_to_stick_y_direction();
+        test_strong_x_confidence_does_not_promote_weak_y_input();
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "[AdsAcquisitionControllerTests] FAIL " << error.what() << '\n';

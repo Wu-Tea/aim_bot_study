@@ -58,6 +58,7 @@ void test_manual_opposition_reduces_slew_target() {
     const auto plan = active_plan();
     pipeline_contract::IntentState correction{};
     correction.filtered_right.x = -0.5f;
+    correction.right_x.confidence = 1.0f;
     correction.right_confidence = 1.0f;
     const auto neutral = neutral_shaper.shape({1.0f, 0.0f}, {}, plan, 0.05f);
     const auto opposed = manual_shaper.shape({1.0f, 0.0f}, correction, plan, 0.05f);
@@ -71,6 +72,7 @@ void test_helpful_manual_input_reduces_but_keeps_assist() {
     const auto plan = active_plan();
     pipeline_contract::IntentState correction{};
     correction.filtered_right.x = 0.5f;
+    correction.right_x.confidence = 1.0f;
     correction.right_confidence = 1.0f;
     pipeline_contract::Vec2f neutral{};
     pipeline_contract::Vec2f cooperative{};
@@ -82,6 +84,25 @@ void test_helpful_manual_input_reduces_but_keeps_assist() {
                  "helpful manual input must avoid double-driving while retaining assist");
 }
 
+void test_strong_x_confidence_does_not_promote_weak_y_input() {
+    controller_native::AimDynamicsShaper neutral_shaper;
+    controller_native::AimDynamicsShaper candidate_shaper;
+    const auto plan = active_plan();
+    pipeline_contract::IntentState x_owned{};
+    x_owned.filtered_right = {0.8f, -0.05f};
+    x_owned.right_x.confidence = 1.0f;
+    x_owned.right_y.confidence = 0.0f;
+    x_owned.right_confidence = 1.0f;
+    pipeline_contract::Vec2f neutral{};
+    pipeline_contract::Vec2f candidate{};
+    for (int i = 0; i < 12; ++i) {
+        neutral = neutral_shaper.shape({0.0f, 1.0f}, {}, plan, 0.05f);
+        candidate = candidate_shaper.shape({0.0f, 1.0f}, x_owned, plan, 0.05f);
+    }
+    require_true(std::fabs(candidate.y - neutral.y) < 0.0001f,
+                 "strong X confidence must not attenuate Y shaper target");
+}
+
 }  // namespace
 
 int main() {
@@ -91,6 +112,7 @@ int main() {
         test_coasting_never_ramps_blind_assist();
         test_manual_opposition_reduces_slew_target();
         test_helpful_manual_input_reduces_but_keeps_assist();
+        test_strong_x_confidence_does_not_promote_weak_y_input();
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "[AimDynamicsShaperTests] FAIL " << error.what() << '\n';
