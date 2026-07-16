@@ -8,6 +8,12 @@ if not exist "%EXE%" (
   exit /b 1
 )
 
+rem TODO: Move --perf-log console output off the 1 ms controller thread before
+rem enabling it by default again. Synchronous console writes can hold the last
+rem ViGEm report for hundreds of milliseconds.
+set "PERF_LOG_ARG="
+if /I "%ENABLE_RUNTIME_PERF_LOG%"=="1" set "PERF_LOG_ARG=--perf-log"
+
 set "AUTO_FIRE_ARG="
 set "AUTO_FIRE_LABEL=config/default"
 
@@ -74,12 +80,12 @@ if /I "%ENABLE_RECOIL_RUNTIME%"=="1" (
 )
 
 if "%GAMEPAD_START_PRINT_ONLY%"=="1" (
-  echo Resolved command: "%EXE%" --config config.toml --perf-log !AUTO_FIRE_ARG!
+  echo Resolved command: "%EXE%" --config config.toml !PERF_LOG_ARG! !AUTO_FIRE_ARG!
   goto end
 )
 
 if /I "%ENABLE_RECOIL_RUNTIME%"=="1" if /I "!RECOIL_CLEAR_STATE_ON_START!"=="1" if exist "!RECOIL_RECOGNIZER_STATE_PATH!" del /f /q "!RECOIL_RECOGNIZER_STATE_PATH!" >nul 2>nul
-"%EXE%" --config config.toml --perf-log !AUTO_FIRE_ARG!
+"%EXE%" --config config.toml !PERF_LOG_ARG! !AUTO_FIRE_ARG!
 
 :end
 endlocal
