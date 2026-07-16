@@ -24,17 +24,29 @@ namespace runtime_app {
 namespace {
 
 RuntimeTelemetryOptions telemetry_options_from(
-    const controller_native::RuntimeConfig& config) {
+    const controller_native::RuntimeConfig& config,
+    const std::filesystem::path& session_directory) {
     RuntimeTelemetryOptions options;
     // The legacy aim performance switch is a compatibility alias for the
     // asynchronous telemetry pipeline.  It must never resurrect the old
     // synchronous file writer on the 1 ms controller thread.
     options.enabled = config.telemetry.enabled || config.vision.aim_perf_file_log;
-    options.directory = config.vision.aim_perf_log_dir;
+    options.directory = session_directory.empty()
+        ? std::filesystem::path(config.vision.aim_perf_log_dir)
+        : session_directory;
     options.queue_capacity = config.telemetry.queue_capacity;
     options.rotate_size_bytes =
         static_cast<std::size_t>(config.telemetry.rotate_size_mb) * 1024ull * 1024ull;
     options.max_files = config.telemetry.max_files;
+    return options;
+}
+
+LogSessionOptions log_session_options_from(const controller_native::RuntimeConfig& config) {
+    LogSessionOptions options;
+    options.enabled = config.telemetry.enabled || config.vision.aim_perf_file_log;
+    options.root = config.vision.aim_perf_log_dir;
+    options.git_commit = "unknown";
+    options.config_hash = "unknown";
     return options;
 }
 
@@ -386,7 +398,8 @@ RuntimeLoop::RuntimeLoop(
     unsigned int max_ticks)
     : config_(std::move(config)),
       perf_logger_(gamepad_perf_log_enabled(perf_log)),
-      telemetry_(telemetry_options_from(config_)),
+      log_session_manager_(log_session_options_from(config_)),
+      telemetry_(telemetry_options_from(config_, log_session_manager_.session_directory())),
       telemetry_collectors_(
           config_.telemetry.enabled || config_.vision.aim_perf_file_log,
           &telemetry_,
@@ -514,6 +527,7 @@ int RuntimeLoop::run() {
     }
     telemetry_collectors_.shutdown(steady_time_point_ns(std::chrono::steady_clock::now()));
     telemetry_.stop();
+    log_session_manager_.close();
     if (config_.output.enabled) {
         virtual_gamepad_.update(GamepadOutputState{});
     }

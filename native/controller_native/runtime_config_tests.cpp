@@ -25,6 +25,9 @@ void test_vision_gpu_service_defaults_are_enabled() {
     require(config.vision.gpu_service_idle_fps == 20);
     require(config.vision.gpu_service_keepwarm_when_idle);
     require(config.vision.gpu_service_repeat_last_on_no_update);
+    require(!config.vision.perf_log);
+    require(!config.vision.aim_perf_file_log);
+    require(!config.telemetry.enabled);
 }
 
 void test_vision_gpu_service_config_values_parse() {

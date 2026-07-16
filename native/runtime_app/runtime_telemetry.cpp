@@ -209,7 +209,7 @@ bool RuntimeTelemetry::open_next_file() {
     try {
         std::filesystem::create_directories(options_.directory);
         if (output_.is_open()) output_.close();
-        const std::size_t slot = file_index_++ % options_.max_files;
+        const std::size_t slot = file_index_++;
         const char* session_id = has_session_metadata_
             ? session_metadata_.session_metadata.session_id.data() : "unknown-session";
         log_path_ = options_.directory / ("native_runtime_telemetry_" +

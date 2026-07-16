@@ -80,7 +80,7 @@ void test_writer_serializes_records_and_deduplicates_vision_frames() {
     std::filesystem::remove_all(directory);
 }
 
-void test_rotation_caps_retained_file_count() {
+void test_rotation_never_overwrites_active_session_parts() {
     const auto directory = std::filesystem::temp_directory_path() /
         "cod_native_runtime_telemetry_rotation";
     std::filesystem::remove_all(directory);
@@ -98,7 +98,7 @@ void test_rotation_caps_retained_file_count() {
     for (const auto& entry : std::filesystem::directory_iterator(directory)) {
         if (entry.path().extension() == ".jsonl") ++files;
     }
-    REQUIRE(files <= 2);
+    REQUIRE(files > 2);
     REQUIRE(telemetry.counters().serialized_records == 20);
     std::filesystem::remove_all(directory);
 }
@@ -339,7 +339,7 @@ int main() {
     test_disabled_mode_has_zero_side_effects();
     test_bounded_queue_drops_exact_overflow_without_writer();
     test_writer_serializes_records_and_deduplicates_vision_frames();
-    test_rotation_caps_retained_file_count();
+    test_rotation_never_overwrites_active_session_parts();
     test_writer_failure_disables_file_telemetry_without_throwing();
     test_versioned_schema_serializes_readiness_and_completeness();
     test_every_rotated_file_starts_with_session_metadata();

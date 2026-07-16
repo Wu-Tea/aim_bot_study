@@ -192,6 +192,7 @@ add_executable(cod_native_runtime
     ../runtime_app/fusion_channel_publisher.cpp
     ../runtime_app/perf_logger.cpp
     ../runtime_app/aim_perf_file_logger.cpp
+    ../runtime_app/log_session_manager.cpp
     ../runtime_app/runtime_telemetry.cpp
     ../runtime_app/telemetry_collectors.cpp
     ../runtime_app/telemetry_target_identity.cpp
@@ -754,6 +755,23 @@ add_executable(cod_native_bodylock_follow_controller_tests
 add_executable(cod_native_aim_dynamics_shaper_tests
     ../controller_native/aim_dynamics_shaper_tests.cpp
     ../controller_native/aim_dynamics_shaper.cpp
+)
+
+add_executable(cod_native_log_session_manager_tests
+    ../runtime_app/log_session_manager_tests.cpp
+    ../runtime_app/log_session_manager.cpp
+)
+
+target_include_directories(cod_native_log_session_manager_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+    ${CMAKE_CURRENT_SOURCE_DIR}/../runtime_app
+)
+
+target_compile_definitions(cod_native_log_session_manager_tests
+    PRIVATE
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
 )
 
 target_include_directories(cod_native_aim_dynamics_shaper_tests PRIVATE

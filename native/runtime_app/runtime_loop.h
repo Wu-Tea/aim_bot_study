@@ -10,6 +10,7 @@
 #include "aim_perf_file_logger.h"
 #include "downward_diagnostics.h"
 #include "fusion_channel_publisher.h"
+#include "log_session_manager.h"
 #include "perf_logger.h"
 #include "runtime_telemetry.h"
 #include "telemetry_collectors.h"
@@ -43,6 +44,7 @@ private:
 
     controller_native::RuntimeConfig config_;
     PerfLogger perf_logger_;
+    LogSessionManager log_session_manager_;
     RuntimeTelemetry telemetry_;
     TelemetryCollectors telemetry_collectors_;
     AimPerfFileLogger aim_perf_file_logger_;

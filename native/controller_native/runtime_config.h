@@ -20,8 +20,8 @@ struct VisionRuntimeConfig {
     std::string fallback_model_path = "models/best.pt";
     std::string quit_key = "0";
     bool native_cue_sidecar = false;
-    bool perf_log = true;
-    bool aim_perf_file_log = true;
+    bool perf_log = false;
+    bool aim_perf_file_log = false;
     std::string aim_perf_log_dir = "runs/native_perf";
     unsigned int aim_perf_log_interval_ticks = 1;
     bool gpu_service_enabled = true;
