@@ -60,6 +60,14 @@ void test_zero_confidence_is_safe() {
                  "new estimator must not invent a weapon response");
 }
 
+void test_signed_relative_response_is_learned() {
+    controller_native::ControlResponseEstimator estimator;
+    estimator.begin_ads_epoch(1);
+    for (int i = 0; i < 60; ++i) estimator.update({0.5f, -120.0f, true, false});
+    require_near(estimator.estimate().scale_px_per_stick_second, -240.0f, 5.0f,
+                 "response direction must be learned rather than assumed");
+}
+
 }  // namespace
 
 int main() {
@@ -68,6 +76,7 @@ int main() {
         test_ambiguous_samples_freeze_learning();
         test_ads_epoch_keeps_warm_scale_but_drops_confidence();
         test_zero_confidence_is_safe();
+        test_signed_relative_response_is_learned();
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "[ControlResponseEstimatorTests] FAIL " << error.what() << '\n';

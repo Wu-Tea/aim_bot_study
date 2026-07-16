@@ -1,0 +1,142 @@
+#include "target_coordinator.h"
+
+#include <cmath>
+#include <iostream>
+#include <stdexcept>
+
+namespace {
+
+void require_true(bool condition, const char* message) {
+    if (!condition) throw std::runtime_error(message);
+}
+
+pipeline_contract::VisionObservationBatch frame(
+    std::uint64_t frame_id,
+    double time,
+    std::uint64_t source_id,
+    float x,
+    float y,
+    float reliability = 0.9f) {
+    pipeline_contract::VisionObservationBatch batch{};
+    batch.frame_id = frame_id;
+    batch.source_time_seconds = time;
+    batch.publish_time_seconds = time;
+    batch.frame_width_px = 480.0f;
+    batch.frame_height_px = 416.0f;
+    batch.capture_fresh = true;
+    batch.count = 1;
+    batch.candidates[0].source_id = source_id;
+    batch.candidates[0].aim_px = {x, y};
+    batch.candidates[0].box_size_px = {40.0f, 80.0f};
+    batch.candidates[0].confidence = reliability;
+    batch.candidates[0].reliability = reliability;
+    batch.candidates[0].normalized_size = 0.2f;
+    batch.candidates[0].body_cue = true;
+    return batch;
+}
+
+pipeline_contract::IntentState ads_intent(double time) {
+    pipeline_contract::IntentState intent{};
+    intent.ads = true;
+    intent.sample_time_seconds = time;
+    return intent;
+}
+
+void test_single_owner_coasts_and_reacquires_same_identity() {
+    controller_native::TargetCoordinator coordinator;
+    auto plan = coordinator.update(frame(1, 0.00, 10, 300.0f, 208.0f), ads_intent(0.00), 0.00);
+    require_true(plan.lifecycle == pipeline_contract::TargetLifecycle::Observed,
+                 "fresh target must be observed");
+    const auto target_id = plan.target_id;
+
+    pipeline_contract::VisionObservationBatch missing{};
+    missing.frame_id = 2;
+    missing.frame_width_px = 480.0f;
+    missing.frame_height_px = 416.0f;
+    plan = coordinator.update(missing, ads_intent(0.05), 0.05);
+    require_true(plan.lifecycle == pipeline_contract::TargetLifecycle::Coasting,
+                 "short occlusion must coast one owner");
+    require_true(plan.target_id == target_id, "coasting must retain identity");
+
+    plan = coordinator.update(frame(3, 0.08, 99, 304.0f, 208.0f), ads_intent(0.08), 0.08);
+    require_true(plan.lifecycle == pipeline_contract::TargetLifecycle::Reacquiring,
+                 "nearby new detector id must reacquire existing target");
+    require_true(plan.target_id == target_id, "detector id churn must not change plan identity");
+    require_true(std::fabs(plan.error_px.x - 64.0f) < 12.0f,
+                 "reacquisition innovation must be bounded");
+}
+
+void test_hold_expires_to_safe_manual_plan() {
+    controller_native::TargetCoordinator coordinator;
+    coordinator.update(frame(1, 0.0, 1, 300.0f, 208.0f), ads_intent(0.0), 0.0);
+    pipeline_contract::VisionObservationBatch missing{};
+    missing.frame_width_px = 480.0f;
+    missing.frame_height_px = 416.0f;
+    const auto plan = coordinator.update(missing, ads_intent(0.40), 0.40);
+    require_true(plan.lifecycle == pipeline_contract::TargetLifecycle::None,
+                 "expired hold must release the target");
+    require_true(plan.mode == pipeline_contract::ControlMode::Manual,
+                 "released plan must be manual");
+    require_true(plan.aim_authority == 0.0f, "released plan must have zero authority");
+}
+
+void test_motion_labels_jump_then_fall() {
+    controller_native::TargetCoordinator coordinator;
+    auto intent = ads_intent(0.0);
+    coordinator.update(frame(1, 0.00, 1, 240.0f, 220.0f), intent, 0.00);
+    coordinator.update(frame(2, 0.02, 1, 240.0f, 210.0f), intent, 0.02);
+    auto plan = coordinator.update(frame(3, 0.04, 1, 240.0f, 198.0f), intent, 0.04);
+    require_true(plan.motion == pipeline_contract::TargetMotion::Jump,
+                 "persistent upward image motion must classify jump");
+    coordinator.update(frame(4, 0.06, 1, 240.0f, 202.0f), intent, 0.06);
+    plan = coordinator.update(frame(5, 0.08, 1, 240.0f, 214.0f), intent, 0.08);
+    require_true(plan.motion == pipeline_contract::TargetMotion::Fall,
+                 "persistent downward image motion must classify fall");
+}
+
+void test_ads_handoff_waits_for_settle() {
+    controller_native::TargetCoordinator coordinator;
+    auto plan = coordinator.update(frame(1, 0.00, 1, 340.0f, 208.0f), ads_intent(0.00), 0.00);
+    require_true(plan.mode == pipeline_contract::ControlMode::AdsAcquire,
+                 "large initial error must use ADS acquisition");
+    for (int i = 1; i <= 8; ++i) {
+        const double time = i * 0.02;
+        plan = coordinator.update(frame(i + 1, time, 1, 243.0f, 208.0f), ads_intent(time), time);
+    }
+    require_true(plan.mode == pipeline_contract::ControlMode::BodyLockFollow,
+                 "fresh settled frames must hand off to BodyLock");
+}
+
+void test_left_intent_enters_plan_through_learned_response() {
+    controller_native::TargetCoordinator coordinator;
+    coordinator.begin_ads_epoch(1);
+    for (int i = 0; i < 80; ++i) {
+        coordinator.observe_control_response({0.5f, -100.0f, true, false});
+    }
+    auto intent = ads_intent(0.0);
+    intent.filtered_left.x = 0.5f;
+    intent.left_confidence = 1.0f;
+    const auto plan = coordinator.update(frame(1, 0.0, 1, 240.0f, 208.0f), intent, 0.0);
+    require_true(plan.response_scale < -190.0f,
+                 "plan must carry signed learned response");
+    require_true(plan.error_rate_px_per_sec.x < -90.0f,
+                 "left intent must affect planned relative motion");
+    require_true(plan.horizon[0].error_px.x < 0.0f,
+                 "short plan must include left-stick feed-forward");
+}
+
+}  // namespace
+
+int main() {
+    try {
+        test_single_owner_coasts_and_reacquires_same_identity();
+        test_hold_expires_to_safe_manual_plan();
+        test_motion_labels_jump_then_fall();
+        test_ads_handoff_waits_for_settle();
+        test_left_intent_enters_plan_through_learned_response();
+        return 0;
+    } catch (const std::exception& error) {
+        std::cerr << "[TargetCoordinatorTests] FAIL " << error.what() << '\n';
+        return 1;
+    }
+}

@@ -27,7 +27,7 @@ bool ControlResponseEstimator::update(const ControlResponseSample& sample) noexc
 
     const float measured_scale = std::clamp(
         sample.isolated_response_px_per_second / sample.left_stick_axis,
-        0.0f,
+        -config_.max_scale_px_per_stick_second,
         config_.max_scale_px_per_stick_second);
     if (estimate_.accepted_samples == 0 && estimate_.scale_px_per_stick_second == 0.0f) {
         estimate_.scale_px_per_stick_second = measured_scale;

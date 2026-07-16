@@ -93,7 +93,7 @@ inline bool valid(const TargetPlan& plan) noexcept {
            unit_interval(plan.normalized_size) && unit_interval(plan.ads_demand) &&
            unit_interval(plan.bodylock_demand) && unit_interval(plan.aim_authority) &&
            unit_interval(plan.response_confidence) &&
-           std::isfinite(plan.response_scale) && plan.response_scale >= 0.0f &&
+           std::isfinite(plan.response_scale) &&
            plan.horizon_count <= kMaxPlanHorizonSamples;
 }
 
