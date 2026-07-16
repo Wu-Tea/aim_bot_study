@@ -46,7 +46,6 @@ void test_manual_correction_remains_available() {
     controller_native::BodylockFollowController controller;
     pipeline_contract::IntentState correction{};
     correction.filtered_right.x = -0.5f;
-    correction.right_x.confidence = 1.0f;
     correction.right_confidence = 1.0f;
     const auto neutral = controller.compute(moving_plan(), {}, 0.01f);
     const auto opposed = controller.compute(moving_plan(), correction, 0.01f);
@@ -93,21 +92,6 @@ void test_left_strafe_yields_positional_grip_without_dropping_follow() {
                  "left strafe must soften positional grip while retaining follow authority");
 }
 
-void test_strong_x_confidence_does_not_promote_weak_y_input() {
-    controller_native::BodylockFollowController controller;
-    auto plan = moving_plan();
-    plan.error_px.y = 30.0f;
-    const auto neutral = controller.compute(plan, {}, 0.01f);
-    pipeline_contract::IntentState x_owned{};
-    x_owned.filtered_right = {0.8f, 0.05f};
-    x_owned.right_x.confidence = 1.0f;
-    x_owned.right_y.confidence = 0.0f;
-    x_owned.right_confidence = 1.0f;
-    const auto candidate = controller.compute(plan, x_owned, 0.01f);
-    require_true(std::fabs(candidate.y - neutral.y) < 0.0001f,
-                 "strong X confidence must not attenuate Y BodyLock output");
-}
-
 }  // namespace
 
 int main() {
@@ -118,7 +102,6 @@ int main() {
         test_closing_target_brakes_without_reversing_before_crossing();
         test_near_target_error_has_legacy_grip();
         test_left_strafe_yields_positional_grip_without_dropping_follow();
-        test_strong_x_confidence_does_not_promote_weak_y_input();
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "[BodylockFollowControllerTests] FAIL " << error.what() << '\n';

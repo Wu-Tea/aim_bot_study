@@ -44,9 +44,9 @@ pipeline_contract::Vec2f AimDynamicsShaper::shape(
         requested_ai.y = prevent_blind_rise(requested_ai.y, current_.y);
     }
     requested_ai.x = shape_axis(
-        requested_ai.x, intent.filtered_right.x, intent.right_x.confidence, dt);
+        requested_ai.x, intent.filtered_right.x, intent.right_confidence, dt);
     requested_ai.y = shape_axis(
-        requested_ai.y, intent.filtered_right.y, intent.right_y.confidence, dt);
+        requested_ai.y, intent.filtered_right.y, intent.right_confidence, dt);
 
     auto slew = [&](float current, float target) {
         const bool decaying = std::fabs(target) < std::fabs(current);
