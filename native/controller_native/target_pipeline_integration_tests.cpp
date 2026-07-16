@@ -204,27 +204,6 @@ void test_ads_and_bodylock_share_one_resolved_target_geometry() {
         "coasting applied target height ratio a second time");
 }
 
-void test_target_plan_path_reports_single_axis_arbitration() {
-    double now = 50.0;
-    NativeGamepadController controller(config(), [&now] { return now; });
-    auto physical = aiming();
-    physical.right_x = 0.40f;
-    for (std::uint64_t frame = 1; frame <= 4; ++frame) {
-        controller.submit_vision_snapshot(target(frame, now, 90.0f, 40.0f));
-        controller.build_output(physical);
-        now += 0.010;
-    }
-    const auto& components = controller.last_output_components();
-    require(components.axis_assist_scale.x < 1.0f,
-            "helpful X manual input did not enter the single arbiter");
-    require(std::fabs(components.axis_assist_scale.y - 1.0f) < 0.0001f,
-            "X arbitration changed Y scale");
-    require(components.arbitrated_assist_stick.x < components.requested_assist_stick.x,
-            "arbiter did not allocate residual X assist");
-    require(components.axis_x_reason == "helpful_residual",
-            "axis arbitration reason was not observable");
-}
-
 }  // namespace
 
 int main() {
@@ -233,7 +212,6 @@ int main() {
         test_vision_gap_uses_smooth_short_continuity();
         test_opposing_manual_intent_yields_without_braking_bodylock();
         test_ads_and_bodylock_share_one_resolved_target_geometry();
-        test_target_plan_path_reports_single_axis_arbitration();
         std::cout << "[TargetPipelineIntegrationTests] PASS\n";
         return 0;
     } catch (const std::exception& error) {

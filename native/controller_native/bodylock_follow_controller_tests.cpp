@@ -42,7 +42,7 @@ void test_coasting_authority_decays_continuously() {
                  "coasting must decay rather than drop or remain full strength");
 }
 
-void test_mode_controller_leaves_manual_arbitration_to_single_stage() {
+void test_manual_correction_remains_available() {
     controller_native::BodylockFollowController controller;
     pipeline_contract::IntentState correction{};
     correction.filtered_right.x = -0.5f;
@@ -50,8 +50,8 @@ void test_mode_controller_leaves_manual_arbitration_to_single_stage() {
     correction.right_confidence = 1.0f;
     const auto neutral = controller.compute(moving_plan(), {}, 0.01f);
     const auto opposed = controller.compute(moving_plan(), correction, 0.01f);
-    require_true(std::fabs(opposed.x - neutral.x) < 0.0001f,
-                 "BodyLock mode controller must not duplicate manual arbitration");
+    require_true(opposed.x > 0.0f && opposed.x < neutral.x,
+                 "BodyLock must yield smoothly to manual correction");
 }
 
 void test_closing_target_brakes_without_reversing_before_crossing() {
@@ -114,7 +114,7 @@ int main() {
     try {
         test_motion_feedforward_stays_active_near_center();
         test_coasting_authority_decays_continuously();
-        test_mode_controller_leaves_manual_arbitration_to_single_stage();
+        test_manual_correction_remains_available();
         test_closing_target_brakes_without_reversing_before_crossing();
         test_near_target_error_has_legacy_grip();
         test_left_strafe_yields_positional_grip_without_dropping_follow();

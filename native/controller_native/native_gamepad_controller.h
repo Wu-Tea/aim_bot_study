@@ -4,7 +4,6 @@
 #include "aim_activation.h"
 #include "aim_dynamics_shaper.h"
 #include "auto_fire_gate.h"
-#include "axis_intent_arbiter.h"
 #include "bodylock_follow_controller.h"
 #include "bodylock_policy.h"
 #include "controller_pipeline.h"
@@ -79,7 +78,6 @@ private:
     TargetCoordinator target_coordinator_{};
     AdsAcquisitionController ads_controller_{};
     BodylockFollowController bodylock_controller_{};
-    AxisIntentArbiter axis_intent_arbiter_{};
     AimDynamicsShaper dynamics_shaper_{};
     recoil_native::RecoilCompensationPolicy recoil_;
     AimActivationTracker aim_activation_tracker_{};
@@ -90,8 +88,6 @@ private:
     bool previous_aiming_ = false;
     std::uint64_t ads_epoch_ = 0;
     std::uint64_t legacy_vision_sequence_ = 0;
-    std::uint64_t last_plan_target_id_ = 0;
-    float last_plan_normalized_size_ = 0.0f;
     double last_tick_seconds_ = 0.0;
     std::vector<NativeControllerStageTrace> last_pipeline_traces_;
     GamepadOutputState last_tracker_motion_output_{};

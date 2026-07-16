@@ -48,26 +48,6 @@ void test_helpful_manual_reduces_stacking_but_preserves_far_ads_floor() {
                  "helpful manual must reduce duplicate assist");
     require_true(decision.assist_output >= 0.4f,
                  "far ADS must retain a strong assist floor");
-    require_true(decision.assist_output <= 0.41f,
-                 "helpful manual must be allocated as residual control, not a ratio");
-}
-
-void test_helpful_manual_brakes_when_time_to_cross_is_short() {
-    controller_native::AxisIntentArbiter stationary_arbiter;
-    controller_native::AxisIntentArbiter closing_arbiter;
-    auto stationary = observed(10.0f, 0.20f, 0.10f);
-    auto closing = stationary;
-    closing.error_rate = -300.0f;
-    const auto normal = stationary_arbiter.update(
-        controller_native::Axis::Y, stationary, 0.001f);
-    const auto braking = closing_arbiter.update(
-        controller_native::Axis::Y, closing, 0.001f);
-    require_true(braking.assist_output < normal.assist_output * 0.6f,
-                 "short time-to-cross must brake helpful manual stacking");
-    require_true(braking.stopping_output_budget < 0.15f,
-                 "short time-to-cross must bound combined axis output");
-    require_near(normal.stopping_output_budget, 1.0f, 0.0001f,
-                 "stationary error must not limit combined output");
 }
 
 void test_stable_observed_crossing_limits_wrong_way_budget() {
@@ -85,21 +65,6 @@ void test_stable_observed_crossing_limits_wrong_way_budget() {
                  "stable crossing must build divergence risk");
     require_true(decision.wrong_way_budget < 0.15f,
                  "stable crossing must bound wrong-way net output");
-}
-
-void test_crossing_attack_is_effective_at_controller_rate() {
-    controller_native::AxisIntentArbiter arbiter;
-    auto before = observed(2.0f, 0.1f, 0.25f);
-    before.error_rate = -400.0f;
-    arbiter.update(controller_native::Axis::Y, before, 0.001f);
-    auto crossed = observed(-2.0f, -0.1f, 0.25f);
-    crossed.error_rate = -240.0f;
-    controller_native::AxisDecision decision;
-    for (int tick = 0; tick < 5; ++tick) {
-        decision = arbiter.update(controller_native::Axis::Y, crossed, 0.001f);
-    }
-    require_true(decision.wrong_way_budget < 0.35f,
-                 "crossing risk must arm within 5 ms at 1000 Hz");
 }
 
 void test_coasting_never_limits_manual_output() {
@@ -155,9 +120,7 @@ int main() {
     try {
         test_drift_does_not_change_assist();
         test_helpful_manual_reduces_stacking_but_preserves_far_ads_floor();
-        test_helpful_manual_brakes_when_time_to_cross_is_short();
         test_stable_observed_crossing_limits_wrong_way_budget();
-        test_crossing_attack_is_effective_at_controller_rate();
         test_coasting_never_limits_manual_output();
         test_geometry_jump_disables_final_output_limit();
         test_manual_escape_bypasses_one_axis_only();

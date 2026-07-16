@@ -11,6 +11,8 @@ AdsAcquisitionController::AdsAcquisitionController(AdsAcquisitionControllerConfi
 float AdsAcquisitionController::axis(
     float error,
     float error_rate,
+    float manual,
+    float manual_confidence,
     float range,
     float max_force,
     float authority) const noexcept {
@@ -21,6 +23,10 @@ float AdsAcquisitionController::axis(
     }
     float output = std::clamp(stopping_error / std::max(1.0f, range), -1.0f, 1.0f);
     output *= max_force * authority;
+    if (output * manual < 0.0f) {
+        output *= 1.0f - config_.opposing_manual_reduction *
+            std::clamp(manual_confidence, 0.0f, 1.0f);
+    }
     return output;
 }
 
@@ -36,8 +42,10 @@ pipeline_contract::Vec2f AdsAcquisitionController::compute(
         std::min(plan.aim_authority, plan.reliability), 0.0f, 1.0f);
     return {
         axis(plan.error_px.x, plan.error_rate_px_per_sec.x,
+             intent.filtered_right.x, intent.right_x.confidence,
              config_.error_range_x_px, config_.max_force_x, authority),
         axis(-plan.error_px.y, -plan.error_rate_px_per_sec.y,
+             intent.filtered_right.y, intent.right_y.confidence,
              config_.error_range_y_px, config_.max_force_y, authority),
     };
 }

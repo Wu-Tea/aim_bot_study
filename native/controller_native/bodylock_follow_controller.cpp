@@ -11,6 +11,8 @@ BodylockFollowController::BodylockFollowController(BodylockFollowControllerConfi
 float BodylockFollowController::axis(
     float error,
     float error_rate,
+    float manual,
+    float manual_confidence,
     float feedback_range,
     float max_force,
     float authority,
@@ -29,6 +31,10 @@ float BodylockFollowController::axis(
     if (error > 0.0f) combined = std::max(0.0f, combined);
     if (error < 0.0f) combined = std::min(0.0f, combined);
     float output = combined * max_force * authority;
+    if (output * manual < 0.0f) {
+        output *= 1.0f - config_.opposing_manual_reduction *
+            std::clamp(manual_confidence, 0.0f, 1.0f);
+    }
     return output;
 }
 
@@ -50,9 +56,11 @@ pipeline_contract::Vec2f BodylockFollowController::compute(
          config_.feedback_range_x_px) * strafe_blend;
     return {
         axis(plan.error_px.x, plan.error_rate_px_per_sec.x,
+             intent.filtered_right.x, intent.right_x.confidence,
              feedback_range_x, config_.max_force_x,
              authority, plan.response_scale),
         axis(-plan.error_px.y, -plan.error_rate_px_per_sec.y,
+             intent.filtered_right.y, intent.right_y.confidence,
              config_.feedback_range_y_px, config_.max_force_y,
              authority, plan.response_scale),
     };
