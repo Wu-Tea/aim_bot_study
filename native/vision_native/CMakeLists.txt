@@ -948,6 +948,78 @@ add_executable(cod_native_benchmark_metrics_tests
     ../replay_native/replay_metrics.cpp
 )
 
+add_executable(cod_native_partial_occlusion_benchmark_tests
+    ../controller_native/partial_occlusion_benchmark_tests.cpp
+    ../controller_native/partial_occlusion_benchmark.cpp
+)
+
+add_executable(cod_native_partial_occlusion_benchmark
+    ../controller_native/cod_native_partial_occlusion_benchmark.cpp
+    ../controller_native/partial_occlusion_benchmark.cpp
+    ../tracking_native/association.cpp
+    ../tracking_native/ego_motion_buffer.cpp
+    ../tracking_native/projection_model.cpp
+    ../tracking_native/tracker_authority.cpp
+    ../tracking_native/kalman_tracker.cpp
+    ../tracking_native/fps_reference_tracker.cpp
+    ../tracking_native/tracker_backend.cpp
+    ../tracking_native/legacy_projection_tracker.cpp
+    ${FPS_TRACKER_PACKAGE_SOURCES}
+    ../controller_native/runtime_config.cpp
+    ../controller_native/ads_state_tracker.cpp
+    ../controller_native/ads_completion_gate.cpp
+    ../controller_native/auto_fire_gate.cpp
+    ../controller_native/target_tracker.cpp
+    ../controller_native/ads_carry_brake_policy.cpp
+    ../controller_native/ai_aim.cpp
+    ../controller_native/body_lock_short_plan_policy.cpp
+    ../controller_native/bodylock_policy.cpp
+    ../controller_native/aim_assist_dynamics.cpp
+    ../controller_native/recoil_profile.cpp
+    ../controller_native/recoil_calibration.cpp
+    ../controller_native/recoil_compensation.cpp
+    ../recoil_native/recoil_compensation.cpp
+    ../recoil_native/recoil_visual_model.cpp
+    ../controller_native/output_mixer.cpp
+    ../controller_native/output_validation_policy.cpp
+    ../controller_native/controller_pipeline.cpp
+    ../runtime_app/vision_controller_adapter.cpp
+    ../controller_native/target_snapshot_provider.cpp
+    ../controller_native/assist_authority_policy.cpp
+    ../controller_native/bodylock_lifecycle.cpp
+    ../controller_native/native_gamepad_controller.cpp
+)
+
+target_include_directories(cod_native_partial_occlusion_benchmark PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fps_2d_tracker_package/include
+)
+
+target_compile_definitions(cod_native_partial_occlusion_benchmark PRIVATE
+    NOMINMAX
+    WIN32_LEAN_AND_MEAN
+)
+
+target_link_libraries(cod_native_partial_occlusion_benchmark PRIVATE
+    vision_native_core
+    gdi32
+    windowsapp
+)
+
+target_include_directories(cod_native_partial_occlusion_benchmark_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
+target_compile_definitions(cod_native_partial_occlusion_benchmark_tests PRIVATE
+    NOMINMAX
+    WIN32_LEAN_AND_MEAN
+)
+
+add_test(
+    NAME NativePartialOcclusionBenchmarkTests
+    COMMAND cod_native_partial_occlusion_benchmark_tests)
+
 target_include_directories(cod_native_benchmark_metrics_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/..
@@ -1171,6 +1243,7 @@ foreach(_controller_target IN ITEMS
     cod_native_controller_tests
     cod_native_live_failure_benchmark
     cod_native_gamepad_benchmark
+    cod_native_partial_occlusion_benchmark
     cod_native_vlock_defect_tests
     cod_native_lstick_benchmark
     cod_native_lstick_benchmark_tests)
@@ -1228,6 +1301,7 @@ foreach(COD_TARGET
     cod_native_controller_tests
     cod_native_live_failure_benchmark
     cod_native_gamepad_benchmark
+    cod_native_partial_occlusion_benchmark
     cod_native_vertical_bodylock_benchmark_tests
     cod_native_lstick_benchmark
     cod_native_lstick_benchmark_tests
