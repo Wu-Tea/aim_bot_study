@@ -717,6 +717,21 @@ add_executable(cod_native_ads_state_tests
     ../controller_native/ads_state_tracker.cpp
 )
 
+add_executable(cod_native_target_plan_contract_tests
+    ../pipeline_contract/target_plan_contract_tests.cpp
+)
+
+target_include_directories(cod_native_target_plan_contract_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
+target_compile_definitions(cod_native_target_plan_contract_tests
+    PRIVATE
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
+)
+
 target_include_directories(cod_native_ads_state_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/..
