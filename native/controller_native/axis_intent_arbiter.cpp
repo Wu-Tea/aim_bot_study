@@ -10,7 +10,7 @@ constexpr float kCrossDeadzonePx = 0.5f;
 constexpr float kInnovationLimitPx = 32.0f;
 constexpr float kSizeChangeLimit = 0.18f;
 constexpr float kMinimumReliability = 0.65f;
-constexpr float kRiskAttackSeconds = 0.020f;
+constexpr float kRiskAttackSeconds = 0.004f;
 constexpr float kRiskReleaseSeconds = 0.055f;
 constexpr float kMinimumWrongWayBudget = 0.03f;
 
@@ -54,12 +54,26 @@ AxisDecision AxisIntentArbiter::update(
     const bool helpful = manual_active && input.manual * input.error > 0.0f;
     const bool wrong_way = manual_active && input.manual * input.error < 0.0f;
     if (helpful && input.requested_assist * input.manual > 0.0f) {
-        const float far_floor = input.mode == pipeline_contract::ControlMode::AdsAcquire &&
-            std::fabs(input.error) >= 48.0f ? 0.50f : 0.25f;
-        decision.assist_scale = std::max(
-            far_floor,
-            1.0f - std::min(0.70f, std::fabs(input.manual) * 0.90f) * confidence);
-        decision.assist_output *= decision.assist_scale;
+        const float request_magnitude = std::fabs(input.requested_assist);
+        const float floor_scale = input.mode == pipeline_contract::ControlMode::AdsAcquire &&
+            std::fabs(input.error) >= 48.0f ? 0.50f : 0.15f;
+        const float residual_magnitude = std::max(
+            request_magnitude * floor_scale,
+            request_magnitude - std::fabs(input.manual));
+        decision.assist_output = std::copysign(residual_magnitude, input.requested_assist);
+        decision.assist_scale = request_magnitude > 0.0001f
+            ? residual_magnitude / request_magnitude
+            : 1.0f;
+        if (input.error * input.error_rate < 0.0f &&
+            std::fabs(input.error_rate) > 1.0f) {
+            const float time_to_cross = std::fabs(input.error / input.error_rate);
+            const float horizon = input.mode == pipeline_contract::ControlMode::AdsAcquire
+                ? 0.075f
+                : 0.055f;
+            const float stopping_scale = std::clamp(time_to_cross / horizon, 0.15f, 1.0f);
+            decision.assist_output *= stopping_scale;
+            decision.assist_scale *= stopping_scale;
+        }
         decision.reason = AxisDecisionReason::HelpfulResidual;
     } else if (wrong_way && input.requested_assist * input.manual < 0.0f) {
         decision.assist_scale = 1.0f - 0.35f * confidence;
@@ -74,6 +88,20 @@ AxisDecision AxisIntentArbiter::update(
         input.normalized_size_change <= kSizeChangeLimit;
     const bool escape = manual_active &&
         std::fabs(input.manual) >= std::max(0.0f, input.manual_escape_threshold);
+    if (observed_stable && helpful && !escape &&
+        input.error * input.error_rate < 0.0f &&
+        std::fabs(input.error_rate) > 1.0f) {
+        const float time_to_cross = std::fabs(input.error / input.error_rate);
+        const float horizon = input.mode == pipeline_contract::ControlMode::AdsAcquire
+            ? 0.075f
+            : 0.055f;
+        if (time_to_cross < horizon) {
+            const float stopping_scale = std::clamp(time_to_cross / horizon, 0.15f, 1.0f);
+            decision.stopping_output_budget = std::max(
+                kMinimumWrongWayBudget,
+                std::fabs(input.manual + decision.assist_output) * stopping_scale);
+        }
+    }
     const bool crossed = sign_crossed(state.previous_error, input.error);
     const bool worsening = input.error * input.error_rate > 0.0f;
     float instantaneous_risk = 0.0f;
@@ -93,6 +121,10 @@ AxisDecision AxisIntentArbiter::update(
     decision.divergence_risk = state.risk;
 
     if (escape) {
+        if (input.requested_assist * input.manual < 0.0f) {
+            decision.assist_output = 0.0f;
+            decision.assist_scale = 0.0f;
+        }
         decision.reason = AxisDecisionReason::ManualEscape;
     } else if (!observed_stable && manual_active) {
         decision.reason = AxisDecisionReason::EvidenceAmbiguous;

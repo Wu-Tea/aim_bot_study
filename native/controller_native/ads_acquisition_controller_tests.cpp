@@ -42,7 +42,7 @@ void test_drift_does_not_weaken_ads() {
                  "raw deadzone drift must not reduce ADS output");
 }
 
-void test_real_opposing_correction_reduces_conflict() {
+void test_mode_controller_leaves_manual_arbitration_to_single_stage() {
     controller_native::AdsAcquisitionController controller;
     pipeline_contract::IntentState correction{};
     correction.filtered_right.x = -0.5f;
@@ -50,8 +50,8 @@ void test_real_opposing_correction_reduces_conflict() {
     correction.right_confidence = 1.0f;
     const auto neutral = controller.compute(plan_with(80.0f, 0.0f), {}, 0.01f);
     const auto opposed = controller.compute(plan_with(80.0f, 0.0f), correction, 0.01f);
-    require_true(opposed.x < neutral.x * 0.5f,
-                 "confident opposing correction must reduce AI conflict");
+    require_true(std::fabs(opposed.x - neutral.x) < 0.0001f,
+                 "ADS mode controller must not duplicate manual arbitration");
 }
 
 void test_predicted_crossing_applies_terminal_brake() {
@@ -92,7 +92,7 @@ int main() {
     try {
         test_large_reliable_error_gets_strong_output();
         test_drift_does_not_weaken_ads();
-        test_real_opposing_correction_reduces_conflict();
+        test_mode_controller_leaves_manual_arbitration_to_single_stage();
         test_predicted_crossing_applies_terminal_brake();
         test_screen_y_error_is_converted_to_stick_y_direction();
         test_strong_x_confidence_does_not_promote_weak_y_input();

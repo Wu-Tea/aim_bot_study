@@ -14,7 +14,6 @@ struct BodylockFollowControllerConfig {
     float feedforward_gain = 0.65f;
     float stopping_lookahead_seconds = 0.020f;
     float fallback_response_px_per_stick_second = 500.0f;
-    float opposing_manual_reduction = 0.6f;
 };
 
 class BodylockFollowController {
@@ -30,8 +29,6 @@ private:
     float axis(
         float error,
         float error_rate,
-        float manual,
-        float manual_confidence,
         float feedback_range,
         float max_force,
         float authority,

@@ -16,7 +16,14 @@ struct NativeControllerOutputComponents {
     common_native::Vec2f body_lock_short_plan_stick;
     common_native::Vec2f output_validation_stick;
     common_native::Vec2f requested_assist_stick;
+    common_native::Vec2f arbitrated_assist_stick;
     common_native::Vec2f shaped_assist_stick;
+    common_native::Vec2f axis_assist_scale{1.0f, 1.0f};
+    common_native::Vec2f axis_divergence_risk;
+    common_native::Vec2f axis_wrong_way_budget{1.0f, 1.0f};
+    common_native::Vec2f axis_stopping_output_budget{1.0f, 1.0f};
+    std::string axis_x_reason = "neutral";
+    std::string axis_y_reason = "neutral";
     common_native::Vec2f dynamic_adjustment_stick;
     common_native::Vec2f post_ai_stick;
     common_native::Vec2f post_dynamic_stick;

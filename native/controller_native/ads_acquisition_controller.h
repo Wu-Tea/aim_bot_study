@@ -11,7 +11,6 @@ struct AdsAcquisitionControllerConfig {
     float error_range_x_px = 130.0f;
     float error_range_y_px = 90.0f;
     float stopping_lookahead_seconds = 0.012f;
-    float opposing_manual_reduction = 0.8f;
 };
 
 class AdsAcquisitionController {
@@ -27,8 +26,6 @@ private:
     float axis(
         float error,
         float error_rate,
-        float manual,
-        float manual_confidence,
         float range,
         float max_force,
         float authority) const noexcept;

@@ -18,6 +18,25 @@ float clamp_unit(float value) noexcept {
     return std::clamp(value, -1.0f, 1.0f);
 }
 
+float apply_wrong_way_budget(
+    float manual,
+    float assist,
+    float command_error,
+    float wrong_way_budget,
+    float stopping_output_budget) noexcept {
+    float combined = clamp_unit(manual + assist);
+    const float stopping_budget = std::clamp(stopping_output_budget, 0.0f, 1.0f);
+    if (stopping_budget < 1.0f && std::fabs(combined) > stopping_budget) {
+        combined = std::copysign(stopping_budget, combined);
+    }
+    const float bounded_budget = std::clamp(wrong_way_budget, 0.0f, 1.0f);
+    if (bounded_budget >= 1.0f || combined * command_error >= 0.0f ||
+        std::fabs(combined) <= bounded_budget) {
+        return combined;
+    }
+    return std::copysign(bounded_budget, combined);
+}
+
 const char* mode_name(pipeline_contract::ControlMode mode) noexcept {
     switch (mode) {
     case pipeline_contract::ControlMode::AdsAcquire: return "ads_snap";
@@ -93,6 +112,7 @@ NativeGamepadController::NativeGamepadController(
 void NativeGamepadController::reset() {
     intent_filter_.reset();
     target_coordinator_.reset();
+    axis_intent_arbiter_.reset();
     dynamics_shaper_.reset();
     recoil_.reset();
     aim_activation_tracker_.reset();
@@ -103,6 +123,8 @@ void NativeGamepadController::reset() {
     previous_aiming_ = false;
     ads_epoch_ = 0;
     legacy_vision_sequence_ = 0;
+    last_plan_target_id_ = 0;
+    last_plan_normalized_size_ = 0.0f;
     last_tick_seconds_ = 0.0;
     last_pipeline_traces_.clear();
     last_tracker_motion_output_ = {};
@@ -287,6 +309,7 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
     aiming_ = aim_activation_tracker_.update(physical, config_.rb_counts_as_aiming);
     if (aiming_ && !previous_aiming_) {
         target_coordinator_.begin_ads_epoch(++ads_epoch_);
+        axis_intent_arbiter_.reset();
         auto_fire_gate_.reset_readiness();
     }
     previous_aiming_ = aiming_;
@@ -315,20 +338,79 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
     } else if (plan.mode == pipeline_contract::ControlMode::BodyLockFollow) {
         requested = bodylock_controller_.compute(plan, intent, dt);
     }
+    const bool same_plan_target = plan.target_id != 0 && plan.target_id == last_plan_target_id_;
+    const float normalized_size_change = same_plan_target && last_plan_normalized_size_ > 0.0001f
+        ? std::fabs(plan.normalized_size - last_plan_normalized_size_) /
+            last_plan_normalized_size_
+        : 0.0f;
+    const float innovation_x = std::fabs(plan.aim_px.x - plan.predicted_aim_px.x);
+    const float innovation_y = std::fabs(plan.aim_px.y - plan.predicted_aim_px.y);
+    const float escape_threshold = std::clamp(
+        config_.ai_aim.body_lock_manual_escape_input_threshold,
+        0.0f,
+        1.0f);
+    AxisIntentInput x_input;
+    x_input.error = plan.error_px.x;
+    x_input.error_rate = plan.error_rate_px_per_sec.x;
+    x_input.requested_assist = requested.x;
+    x_input.manual = intent.filtered_right.x;
+    x_input.manual_confidence = intent.right_x.confidence;
+    x_input.reliability = plan.reliability;
+    x_input.target_innovation_px = innovation_x;
+    x_input.normalized_size_change = normalized_size_change;
+    x_input.manual_escape_threshold = escape_threshold;
+    x_input.target_id = plan.target_id;
+    x_input.lifecycle = plan.lifecycle;
+    x_input.mode = plan.mode;
+    AxisIntentInput y_input = x_input;
+    y_input.error = -plan.error_px.y;
+    y_input.error_rate = -plan.error_rate_px_per_sec.y;
+    y_input.requested_assist = requested.y;
+    y_input.manual = intent.filtered_right.y;
+    y_input.manual_confidence = intent.right_y.confidence;
+    y_input.target_innovation_px = innovation_y;
+    const AxisDecision x_decision = axis_intent_arbiter_.update(Axis::X, x_input, dt);
+    const AxisDecision y_decision = axis_intent_arbiter_.update(Axis::Y, y_input, dt);
+    const pipeline_contract::Vec2f arbitrated{
+        x_decision.assist_output,
+        y_decision.assist_output,
+    };
+    last_plan_target_id_ = plan.target_id;
+    last_plan_normalized_size_ = plan.normalized_size;
     pipeline_contract::Vec2f shaped{};
     if (config_.aim_assist_dynamics.enabled ||
         plan.lifecycle == pipeline_contract::TargetLifecycle::Coasting ||
         plan.lifecycle == pipeline_contract::TargetLifecycle::None) {
-        shaped = dynamics_shaper_.shape(requested, intent, plan, dt);
+        shaped = dynamics_shaper_.shape(arbitrated, plan, dt);
     } else {
-        dynamics_shaper_.adopt(requested);
-        shaped = requested;
+        dynamics_shaper_.adopt(arbitrated);
+        shaped = arbitrated;
     }
     components.requested_assist_stick = {requested.x, requested.y};
+    components.arbitrated_assist_stick = {arbitrated.x, arbitrated.y};
     components.shaped_assist_stick = {shaped.x, shaped.y};
+    components.axis_assist_scale = {x_decision.assist_scale, y_decision.assist_scale};
+    components.axis_divergence_risk = {
+        x_decision.divergence_risk,
+        y_decision.divergence_risk,
+    };
+    components.axis_wrong_way_budget = {
+        x_decision.wrong_way_budget,
+        y_decision.wrong_way_budget,
+    };
+    components.axis_stopping_output_budget = {
+        x_decision.stopping_output_budget,
+        y_decision.stopping_output_budget,
+    };
+    components.axis_x_reason = to_string(x_decision.reason);
+    components.axis_y_reason = to_string(y_decision.reason);
     components.ai_aim_stick = components.shaped_assist_stick;
-    output.right_x = clamp_unit(physical.right_x + shaped.x);
-    output.right_y = clamp_unit(physical.right_y + shaped.y);
+    output.right_x = apply_wrong_way_budget(
+        physical.right_x, shaped.x, x_input.error,
+        x_decision.wrong_way_budget, x_decision.stopping_output_budget);
+    output.right_y = apply_wrong_way_budget(
+        physical.right_y, shaped.y, y_input.error,
+        y_decision.wrong_way_budget, y_decision.stopping_output_budget);
     components.post_ai_stick = {output.right_x, output.right_y};
     components.post_dynamic_stick = components.post_ai_stick;
     components.aim_mode = last_ai_aim_mode_;
@@ -336,7 +418,7 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
     components.assist_authority_reason = "target_plan";
     components.bodylock_lifecycle = lifecycle_name(plan.lifecycle);
     components.bodylock_transition_reason = "target_plan";
-    components.assist_limit_reason = "single_dynamics_shaper";
+    components.assist_limit_reason = "per_axis_intent_arbiter";
     record_stage_trace("target_plan_aim", physical.right_y, output, false, false);
 
     AutoFireGateInput fire_input{};

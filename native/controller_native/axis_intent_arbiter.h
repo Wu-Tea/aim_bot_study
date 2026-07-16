@@ -40,6 +40,7 @@ struct AxisDecision {
     float assist_output = 0.0f;
     float assist_scale = 1.0f;
     float wrong_way_budget = 1.0f;
+    float stopping_output_budget = 1.0f;
     float divergence_risk = 0.0f;
     AxisDecisionReason reason = AxisDecisionReason::Neutral;
 };
