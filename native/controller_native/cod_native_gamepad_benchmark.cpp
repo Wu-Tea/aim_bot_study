@@ -32,8 +32,11 @@
 
 namespace {
 
+bool g_stress_fixture_mode = false;
+
 struct CliOptions {
     std::string suite = "all";
+    std::string benchmark_mode = "profile-faithful";
     std::filesystem::path config_path = "config.toml";
     std::string run_key;
     std::filesystem::path output_path;
@@ -493,6 +496,7 @@ void print_usage() {
     std::cout
         << "Usage: cod_native_gamepad_benchmark [--suite all|selector_intent|roi_fallback|bodylock_continuity] "
         << "[--config config.toml] "
+        << "[--benchmark-mode profile-faithful|stress-fixture] "
         << "[--run-key key] [--output path] [--frames n] [--dt-ms ms] "
         << "[--recoil-state path] [--random-fov-ticks n] "
         << "[--random-fov-seed n] [--random-fov-min-scale v] "
@@ -514,6 +518,8 @@ CliOptions parse_args(int argc, char** argv) {
             options.suite = argv[++index];
         } else if (arg == "--config" && index + 1 < argc) {
             options.config_path = argv[++index];
+        } else if (arg == "--benchmark-mode" && index + 1 < argc) {
+            options.benchmark_mode = argv[++index];
         } else if (arg == "--run-key" && index + 1 < argc) {
             options.run_key = argv[++index];
         } else if (arg == "--output" && index + 1 < argc) {
@@ -553,6 +559,10 @@ CliOptions parse_args(int argc, char** argv) {
         && options.suite != "roi_fallback"
         && options.suite != "bodylock_continuity") {
         throw std::runtime_error("unknown suite: " + options.suite);
+    }
+    if (options.benchmark_mode != "profile-faithful" &&
+        options.benchmark_mode != "stress-fixture") {
+        throw std::runtime_error("unknown benchmark mode: " + options.benchmark_mode);
     }
     options.random_fov_min_scale =
         std::max(0.05, std::min(2.0, options.random_fov_min_scale));
@@ -2642,19 +2652,21 @@ ScenarioMetrics run_tracker_random_fov_100hz(
 
     config.recoil.enabled = false;
     config.aim_assist_dynamics.enabled = enable_dynamics;
-    config.ai_aim.ads_snap_window_ms =
-        std::max(config.ai_aim.ads_snap_window_ms, options.random_fov_ticks + 20);
-    config.ai_aim.target_max_age_ms = std::max(config.ai_aim.target_max_age_ms, 80.0f);
-    config.ai_aim.target_projection_max_age_ms =
-        std::max(config.ai_aim.target_projection_max_age_ms, 40.0f);
     const float force_scale = static_cast<float>(options.random_fov_ai_force_scale);
-    config.ai_aim.max_ai_force *= force_scale;
-    config.ai_aim.max_ai_force_y *= force_scale;
-    config.ai_aim.ads_snap_max_ai_force *= force_scale;
-    config.ai_aim.ads_snap_max_ai_force_y *= force_scale;
-    config.ai_aim.body_lock_max_ai_force *= force_scale;
-    config.ai_aim.body_lock_opposing_boost_max_ai_force *= force_scale;
-    config.ai_aim.body_lock_max_ai_force_y *= force_scale;
+    if (g_stress_fixture_mode) {
+        config.ai_aim.ads_snap_window_ms =
+            std::max(config.ai_aim.ads_snap_window_ms, options.random_fov_ticks + 20);
+        config.ai_aim.target_max_age_ms = std::max(config.ai_aim.target_max_age_ms, 80.0f);
+        config.ai_aim.target_projection_max_age_ms =
+            std::max(config.ai_aim.target_projection_max_age_ms, 40.0f);
+        config.ai_aim.max_ai_force *= force_scale;
+        config.ai_aim.max_ai_force_y *= force_scale;
+        config.ai_aim.ads_snap_max_ai_force *= force_scale;
+        config.ai_aim.ads_snap_max_ai_force_y *= force_scale;
+        config.ai_aim.body_lock_max_ai_force *= force_scale;
+        config.ai_aim.body_lock_opposing_boost_max_ai_force *= force_scale;
+        config.ai_aim.body_lock_max_ai_force_y *= force_scale;
+    }
 
     double simulated_now = 1.0;
     std::mt19937 rng(options.random_fov_seed);
@@ -3208,17 +3220,19 @@ ScenarioMetrics run_ads_fov_settle_130ms(
 
     config.recoil.enabled = false;
     config.aim_assist_dynamics.enabled = false;
-    config.ai_aim.target_max_age_ms = std::max(config.ai_aim.target_max_age_ms, 80.0f);
-    config.ai_aim.target_projection_max_age_ms =
-        std::max(config.ai_aim.target_projection_max_age_ms, 40.0f);
     const float force_scale = static_cast<float>(options.random_fov_ai_force_scale);
-    config.ai_aim.max_ai_force *= force_scale;
-    config.ai_aim.max_ai_force_y *= force_scale;
-    config.ai_aim.ads_snap_max_ai_force *= force_scale;
-    config.ai_aim.ads_snap_max_ai_force_y *= force_scale;
-    config.ai_aim.body_lock_max_ai_force *= force_scale;
-    config.ai_aim.body_lock_opposing_boost_max_ai_force *= force_scale;
-    config.ai_aim.body_lock_max_ai_force_y *= force_scale;
+    if (g_stress_fixture_mode) {
+        config.ai_aim.target_max_age_ms = std::max(config.ai_aim.target_max_age_ms, 80.0f);
+        config.ai_aim.target_projection_max_age_ms =
+            std::max(config.ai_aim.target_projection_max_age_ms, 40.0f);
+        config.ai_aim.max_ai_force *= force_scale;
+        config.ai_aim.max_ai_force_y *= force_scale;
+        config.ai_aim.ads_snap_max_ai_force *= force_scale;
+        config.ai_aim.ads_snap_max_ai_force_y *= force_scale;
+        config.ai_aim.body_lock_max_ai_force *= force_scale;
+        config.ai_aim.body_lock_opposing_boost_max_ai_force *= force_scale;
+        config.ai_aim.body_lock_max_ai_force_y *= force_scale;
+    }
 
     const int snap_window_ms = std::max(1, config.ai_aim.ads_snap_window_ms);
     const int total_ticks = std::max(240, snap_window_ms + 110);
@@ -3864,25 +3878,27 @@ ScenarioMetrics run_ads_manual_carry_through_100hz(
 
     config.recoil.enabled = false;
     config.aim_assist_dynamics.enabled = false;
-    config.ai_aim.target_max_age_ms = std::max(config.ai_aim.target_max_age_ms, 100.0f);
-    config.ai_aim.target_projection_max_age_ms =
-        std::max(config.ai_aim.target_projection_max_age_ms, 80.0f);
-    config.ai_aim.ads_snap_window_ms =
-        std::max(config.ai_aim.ads_snap_window_ms, 180);
-    config.ai_aim.body_lock_activation_box_px =
-        std::max(config.ai_aim.body_lock_activation_box_px, 190.0f);
-    config.ai_aim.body_lock_box_tolerance_px =
-        std::max(config.ai_aim.body_lock_box_tolerance_px, 28.0f);
-    config.ai_aim.body_lock_confidence_frames =
-        std::max(config.ai_aim.body_lock_confidence_frames, 1);
-    config.ai_aim.body_lock_smoothing =
-        std::min(config.ai_aim.body_lock_smoothing, 0.10f);
-    config.ai_aim.body_lock_max_ai_force =
-        std::max(config.ai_aim.body_lock_max_ai_force, 0.72f);
-    config.ai_aim.body_lock_opposing_boost_max_ai_force =
-        std::max(config.ai_aim.body_lock_opposing_boost_max_ai_force, 0.78f);
-    config.ai_aim.body_lock_max_ai_force_y =
-        std::max(config.ai_aim.body_lock_max_ai_force_y, 0.76f);
+    if (g_stress_fixture_mode) {
+        config.ai_aim.target_max_age_ms = std::max(config.ai_aim.target_max_age_ms, 100.0f);
+        config.ai_aim.target_projection_max_age_ms =
+            std::max(config.ai_aim.target_projection_max_age_ms, 80.0f);
+        config.ai_aim.ads_snap_window_ms =
+            std::max(config.ai_aim.ads_snap_window_ms, 180);
+        config.ai_aim.body_lock_activation_box_px =
+            std::max(config.ai_aim.body_lock_activation_box_px, 190.0f);
+        config.ai_aim.body_lock_box_tolerance_px =
+            std::max(config.ai_aim.body_lock_box_tolerance_px, 28.0f);
+        config.ai_aim.body_lock_confidence_frames =
+            std::max(config.ai_aim.body_lock_confidence_frames, 1);
+        config.ai_aim.body_lock_smoothing =
+            std::min(config.ai_aim.body_lock_smoothing, 0.10f);
+        config.ai_aim.body_lock_max_ai_force =
+            std::max(config.ai_aim.body_lock_max_ai_force, 0.72f);
+        config.ai_aim.body_lock_opposing_boost_max_ai_force =
+            std::max(config.ai_aim.body_lock_opposing_boost_max_ai_force, 0.78f);
+        config.ai_aim.body_lock_max_ai_force_y =
+            std::max(config.ai_aim.body_lock_max_ai_force_y, 0.76f);
+    }
 
     const double reticle_speed = std::max(
         1.0f,
@@ -4041,16 +4057,18 @@ ScenarioMetrics run_ads_bodylock_near_high_output_100hz(
 
     config.recoil.enabled = false;
     config.aim_assist_dynamics.enabled = true;
-    config.ai_aim.target_max_age_ms = std::max(config.ai_aim.target_max_age_ms, 160.0f);
-    config.ai_aim.target_projection_max_age_ms =
-        std::max(config.ai_aim.target_projection_max_age_ms, 180.0f);
-    config.ai_aim.ads_snap_window_ms = std::max(config.ai_aim.ads_snap_window_ms, 180);
-    config.ai_aim.body_lock_box_tolerance_px =
-        std::max(config.ai_aim.body_lock_box_tolerance_px, 28.0f);
-    config.ai_aim.body_lock_activation_box_px =
-        std::max(config.ai_aim.body_lock_activation_box_px, 190.0f);
-    config.ai_aim.body_lock_confidence_frames =
-        std::max(config.ai_aim.body_lock_confidence_frames, 1);
+    if (g_stress_fixture_mode) {
+        config.ai_aim.target_max_age_ms = std::max(config.ai_aim.target_max_age_ms, 160.0f);
+        config.ai_aim.target_projection_max_age_ms =
+            std::max(config.ai_aim.target_projection_max_age_ms, 180.0f);
+        config.ai_aim.ads_snap_window_ms = std::max(config.ai_aim.ads_snap_window_ms, 180);
+        config.ai_aim.body_lock_box_tolerance_px =
+            std::max(config.ai_aim.body_lock_box_tolerance_px, 28.0f);
+        config.ai_aim.body_lock_activation_box_px =
+            std::max(config.ai_aim.body_lock_activation_box_px, 190.0f);
+        config.ai_aim.body_lock_confidence_frames =
+            std::max(config.ai_aim.body_lock_confidence_frames, 1);
+    }
 
     metrics.ads_bodylock_near_high_initial_dx = 76.0;
     metrics.ads_bodylock_near_high_snap_window_ms =
@@ -4246,13 +4264,15 @@ ScenarioMetrics run_bodylock_continuity_defect_100hz(
 
     config.recoil.enabled = false;
     config.aim_assist_dynamics.enabled = true;
-    config.ai_aim.ads_snap_window_ms = 40;
-    config.ai_aim.target_max_age_ms = std::max(config.ai_aim.target_max_age_ms, 160.0f);
-    config.ai_aim.target_projection_max_age_ms =
-        std::max(config.ai_aim.target_projection_max_age_ms, 180.0f);
-    config.ai_aim.body_lock_activation_box_px =
-        std::max(config.ai_aim.body_lock_activation_box_px, 190.0f);
-    config.ai_aim.body_lock_confidence_frames = 1;
+    if (g_stress_fixture_mode) {
+        config.ai_aim.ads_snap_window_ms = 40;
+        config.ai_aim.target_max_age_ms = std::max(config.ai_aim.target_max_age_ms, 160.0f);
+        config.ai_aim.target_projection_max_age_ms =
+            std::max(config.ai_aim.target_projection_max_age_ms, 180.0f);
+        config.ai_aim.body_lock_activation_box_px =
+            std::max(config.ai_aim.body_lock_activation_box_px, 190.0f);
+        config.ai_aim.body_lock_confidence_frames = 1;
+    }
 
     double simulated_now = 1.0;
     controller_native::NativeGamepadController controller(
@@ -4356,9 +4376,11 @@ ScenarioMetrics run_bodylock_mode_chatter_defect_100hz(
     constexpr float kManualY = 0.66f;
     metrics.frames = kTicks;
     config.recoil.enabled = false;
-    config.ai_aim.body_lock_activation_box_px =
-        std::max(config.ai_aim.body_lock_activation_box_px, 190.0f);
-    config.ai_aim.body_lock_confidence_frames = 1;
+    if (g_stress_fixture_mode) {
+        config.ai_aim.body_lock_activation_box_px =
+            std::max(config.ai_aim.body_lock_activation_box_px, 190.0f);
+        config.ai_aim.body_lock_confidence_frames = 1;
+    }
     controller_native::NativeAiAim ai_aim(config.ai_aim);
     controller_native::BodylockLifecycle lifecycle;
     controller_native::NativeAimAssistDynamics dynamics(config.aim_assist_dynamics);
@@ -4590,12 +4612,14 @@ ScenarioMetrics run_adversarial_controller_authority_100hz(
 
     config.recoil.enabled = false;
     config.aim_assist_dynamics.enabled = true;
-    config.ai_aim.target_max_age_ms = std::max(config.ai_aim.target_max_age_ms, 220.0f);
-    config.ai_aim.target_projection_max_age_ms =
-        std::max(config.ai_aim.target_projection_max_age_ms, 260.0f);
-    config.ai_aim.ads_snap_window_ms = std::max(config.ai_aim.ads_snap_window_ms, 180);
-    config.ai_aim.body_lock_confidence_frames =
-        std::max(config.ai_aim.body_lock_confidence_frames, 1);
+    if (g_stress_fixture_mode) {
+        config.ai_aim.target_max_age_ms = std::max(config.ai_aim.target_max_age_ms, 220.0f);
+        config.ai_aim.target_projection_max_age_ms =
+            std::max(config.ai_aim.target_projection_max_age_ms, 260.0f);
+        config.ai_aim.ads_snap_window_ms = std::max(config.ai_aim.ads_snap_window_ms, 180);
+        config.ai_aim.body_lock_confidence_frames =
+            std::max(config.ai_aim.body_lock_confidence_frames, 1);
+    }
 
     double simulated_now = 1.0;
     controller_native::NativeGamepadController controller(
@@ -4827,16 +4851,18 @@ ScenarioMetrics run_ads_bodylock_moving_chase_100hz(
 
     config.recoil.enabled = false;
     config.aim_assist_dynamics.enabled = enable_dynamics;
-    config.ai_aim.target_max_age_ms = std::max(config.ai_aim.target_max_age_ms, 160.0f);
-    config.ai_aim.target_projection_max_age_ms =
-        std::max(config.ai_aim.target_projection_max_age_ms, 180.0f);
-    config.ai_aim.ads_snap_window_ms = std::max(config.ai_aim.ads_snap_window_ms, 180);
-    config.ai_aim.body_lock_box_tolerance_px =
-        std::max(config.ai_aim.body_lock_box_tolerance_px, 28.0f);
-    config.ai_aim.body_lock_activation_box_px =
-        std::max(config.ai_aim.body_lock_activation_box_px, 190.0f);
-    config.ai_aim.body_lock_confidence_frames =
-        std::max(config.ai_aim.body_lock_confidence_frames, 1);
+    if (g_stress_fixture_mode) {
+        config.ai_aim.target_max_age_ms = std::max(config.ai_aim.target_max_age_ms, 160.0f);
+        config.ai_aim.target_projection_max_age_ms =
+            std::max(config.ai_aim.target_projection_max_age_ms, 180.0f);
+        config.ai_aim.ads_snap_window_ms = std::max(config.ai_aim.ads_snap_window_ms, 180);
+        config.ai_aim.body_lock_box_tolerance_px =
+            std::max(config.ai_aim.body_lock_box_tolerance_px, 28.0f);
+        config.ai_aim.body_lock_activation_box_px =
+            std::max(config.ai_aim.body_lock_activation_box_px, 190.0f);
+        config.ai_aim.body_lock_confidence_frames =
+            std::max(config.ai_aim.body_lock_confidence_frames, 1);
+    }
 
     const auto smooth_step = [](double value) {
         const double t = std::max(0.0, std::min(1.0, value));
@@ -5563,6 +5589,23 @@ void write_json(
         << "  \"run_key\": \"" << escape_json(options.run_key) << "\",\n"
         << "  \"suite\": \"" << escape_json(options.suite) << "\",\n"
         << "  \"config_path\": \"" << escape_json(options.config_path.string()) << "\",\n"
+        << "  \"configuration\": {\n"
+        << "    \"mode\": \"" << escape_json(options.benchmark_mode) << "\",\n"
+        << "    \"effective\": {\n"
+        << "      \"gamepad.tracker.aim_height_ratio\": "
+        << config.gamepad.tracker.aim_height_ratio << ",\n"
+        << "      \"gamepad.ads.range_px\": " << config.gamepad.ai_aim.max_pixels << ",\n"
+        << "      \"gamepad.ads.snap_duration_ms\": "
+        << config.gamepad.ai_aim.ads_snap_window_ms << ",\n"
+        << "      \"gamepad.bodylock.strength\": "
+        << config.gamepad.ai_aim.body_lock_max_ai_force << ",\n"
+        << "      \"gamepad.bodylock.activation_range_px\": "
+        << config.gamepad.ai_aim.body_lock_activation_box_px << ",\n"
+        << "      \"gamepad.bodylock.tolerance_px\": "
+        << config.gamepad.ai_aim.body_lock_box_tolerance_px << "\n"
+        << "    },\n"
+        << "    \"overrides\": []\n"
+        << "  },\n"
         << "  \"recoil_state_override\": \"" << escape_json(options.recoil_state_path.string()) << "\",\n"
         << "  \"frames_per_case\": " << options.frames << ",\n"
         << "  \"dt_ms\": " << options.dt_ms << ",\n"
@@ -6186,7 +6229,8 @@ void write_json(
 void print_summary(
     const CliOptions& options,
     const std::vector<ScenarioMetrics>& scenarios) {
-    std::cout << "[NativeGamepadBenchmark] run_key=" << options.run_key << "\n";
+    std::cout << "[NativeGamepadBenchmark] run_key=" << options.run_key
+              << " mode=" << options.benchmark_mode << "\n";
     for (const ScenarioMetrics& scenario : scenarios) {
         std::cout
             << "  " << scenario.name
@@ -6565,6 +6609,12 @@ void print_summary(
 int main(int argc, char** argv) {
     try {
         const CliOptions options = parse_args(argc, argv);
+        g_stress_fixture_mode = options.benchmark_mode == "stress-fixture";
+        if (g_stress_fixture_mode) {
+            throw std::runtime_error(
+                "stress-fixture mode is disabled until every legacy scenario override "
+                "has field-level provenance; use profile-faithful");
+        }
         if (options.self_test) {
             run_self_test();
             return 0;
