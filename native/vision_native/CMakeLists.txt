@@ -726,6 +726,23 @@ add_executable(cod_native_intent_filter_tests
     ../controller_native/intent_filter.cpp
 )
 
+add_executable(cod_native_control_response_estimator_tests
+    ../controller_native/control_response_estimator_tests.cpp
+    ../controller_native/control_response_estimator.cpp
+)
+
+target_include_directories(cod_native_control_response_estimator_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+    ${CMAKE_CURRENT_SOURCE_DIR}/../controller_native
+)
+
+target_compile_definitions(cod_native_control_response_estimator_tests
+    PRIVATE
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
+)
+
 target_include_directories(cod_native_intent_filter_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/..
