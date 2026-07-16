@@ -247,14 +247,19 @@ void test_invalid_user_override_reports_key_and_range() {
 void test_normal_template_preserves_controller_baseline() {
     const auto config = controller_native::load_runtime_config("config.native.example.toml");
     const auto& aim = config.gamepad.ai_aim;
-    require(std::abs(aim.max_ai_force - 0.8448f) < 0.0001f);
+    require(std::abs(aim.max_ai_force - 0.9856f) < 0.0001f);
     require(std::abs(aim.max_ai_force_y - 1.008f) < 0.0001f);
-    require(std::abs(aim.ads_snap_max_ai_force - 1.32f) < 0.0001f);
+    require(std::abs(aim.ads_snap_max_ai_force - 1.54f) < 0.0001f);
     require(std::abs(aim.ads_snap_max_ai_force_y - 1.26f) < 0.0001f);
-    require(aim.body_lock_max_ai_force == 0.30f);
-    require(aim.body_lock_max_ai_force_y == 0.42f);
+    require(aim.max_pixels == 150.0f);
+    require(aim.ads_snap_window_ms == 160);
+    require(aim.body_lock_max_ai_force == 0.45f);
+    require(aim.body_lock_max_ai_force_y == 0.50f);
+    require(aim.body_lock_activation_box_px == 80.0f);
+    require(aim.body_lock_box_tolerance_px == 8.0f);
     require(aim.body_lock_manual_escape_input_threshold == 0.45f);
     require(aim.body_lock_manual_escape_preservation == 0.55f);
+    require(std::abs(config.gamepad.tracker.aim_height_ratio - 0.365f) < 0.0001f);
 }
 
 void test_normal_template_does_not_advertise_inactive_fps_legacy_knobs() {

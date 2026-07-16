@@ -41,6 +41,8 @@ projection_age_ms = 96
 max_velocity_px_per_sec = 1200
 lead_seconds = 0.026
 lead_max_px = 18
+# Upright/crouched body-box position measured from top (0=head, 1=feet).
+aim_height_ratio = 0.365
 
 [gamepad.auto_fire]
 fire_output = "RB"
@@ -51,16 +53,19 @@ manual_takeover_release_seconds = 0.035
 manual_takeover_resume_delay_seconds = 0.085
 
 [gamepad.ads]
-strength_scale = 1.32
+strength_scale = 1.54
 vertical_strength_scale = 1.26
-range_px = 130
-snap_duration_ms = 100
+# Error-to-output slope range; this is not an activation radius.
+range_px = 150
+snap_duration_ms = 160
 
 [gamepad.bodylock]
-strength = 0.30
-vertical_strength = 0.42
-activation_range_px = 150
-tolerance_px = 18
+strength = 0.45
+vertical_strength = 0.50
+# Maximum error for timed ADS->BodyLock fallback, not target detection range.
+activation_range_px = 80
+# Settle radius around the shared tracker target point.
+tolerance_px = 8
 manual_escape_threshold = 0.45
 manual_escape_preservation = 0.55
 
