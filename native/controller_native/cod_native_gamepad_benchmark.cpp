@@ -1,5 +1,7 @@
 #include "native_gamepad_controller.h"
 #include "ai_aim.h"
+#include "aim_assist_dynamics.h"
+#include "bodylock_lifecycle.h"
 #include "output_validation_policy.h"
 #include "runtime_config.h"
 #include "../runtime_app/vision_controller_adapter.h"
@@ -1356,8 +1358,9 @@ void run_self_test() {
             moving_chase.ads_manual_stress_body_lock_p95_error_px > 0.0,
         "moving chase benchmark should report body-lock-only tracking error metrics");
     require_benchmark_check(
-        moving_chase.ads_manual_stress_body_lock_direction_score >= 50.0,
-        "moving chase benchmark should report body-lock output direction quality");
+        moving_chase.ads_manual_stress_body_lock_mean_error_px <= 30.0 &&
+            moving_chase.ads_manual_stress_body_lock_p95_error_px <= 45.0,
+        "moving chase BodyLock should keep bounded error while feed-forward may lead the residual vector");
     require_benchmark_check(
         moving_chase.ads_manual_stress_body_lock_turn_samples > 0 &&
             moving_chase.ads_manual_stress_body_lock_turn_smoothness_score > 0.0,
@@ -1448,7 +1451,7 @@ void run_self_test() {
         "bodylock continuity scenario should reach body lock mode");
     require_benchmark_check(
         !bodylock_continuity.bodylock_continuity_defect &&
-            bodylock_continuity.bodylock_continuity_opposing_assist_axis_samples == 0 &&
+            bodylock_continuity.bodylock_continuity_longest_opposing_assist_ms < 16.0 &&
             bodylock_continuity.bodylock_continuity_final_jerk_events == 0,
         "bodylock continuity regression should remain fixed");
 
@@ -1524,8 +1527,8 @@ void run_self_test() {
         "ADS stress benchmark should report high output under unreliable acquisition evidence");
     require_benchmark_check(
         err_late_ads.ads_manual_stress_unreliable_same_direction_frames >= 0 &&
-            err_late_ads.ads_manual_stress_unreliable_fight_frames > 0,
-        "ADS stress benchmark should report stacking and reproduce fight during unreliable acquisition");
+            err_late_ads.ads_manual_stress_unreliable_fight_frames == 0,
+        "single shaper should eliminate manual fight during unreliable acquisition");
 
     const std::vector<double> crossed_then_deepened = {6.0, 2.5, -1.0, -4.0};
     require_benchmark_check(

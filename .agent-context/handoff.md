@@ -197,3 +197,22 @@ The main architecture direction is now authority management: make vision provide
 - Native runtime docs: `docs/project/NATIVE_CPP_RUNTIME.md`
 - Controller docs: `docs/project/GAMEPAD_OVERVIEW.md`, `docs/project/CONTROLLER_OVERVIEW.md`
 - Native controller benchmark scorecard: `docs/project/NATIVE_CONTROLLER_BENCHMARKS.md`
+## 2026-07-16 Option B TargetCoordinator rewrite
+
+- Active implementation branch/worktree: `codex/target-coordinator-rewrite` at
+  `.worktrees/target-coordinator-rewrite`.
+- Production controller is now:
+  `IntentFilter + TargetCoordinator -> one TargetPlan -> ADS/BodyLock -> one shaper -> AutoFire -> Recoil`.
+- The runtime target no longer links the old controller tracker, ADS completion/carry
+  brake, old AI aim/dynamics, short-plan, authority/lifecycle, or validation stages.
+- Left-stick `0.0118` drift, 100 Hz vision / 1000 Hz control, short occlusion hold,
+  selected-target identity, manual opposition, BodyLock handoff, and unique-frame
+  AutoFire readiness have focused tests.
+- Final fixed seeds: gamepad `1337/1337/1337`, AimLab `12345`; gamepad self-test,
+  full suite, left-stick `--require-fixed`, live failure, AutoFire, pipeline tests,
+  log tests, and a real-model runtime smoke all pass.
+- Acceptance/results: `docs/project/REFACTOR_B_ACCEPTANCE_20260716.md`.
+- Final artifacts are `runs/native_perf/refactor_b_rewrite_{gamepad_final_seed1337,lstick_final,live_final}.json`
+  in the main workspace.
+- Do not tune gains before live validation. The accepted benchmark tradeoff removes
+  BodyLock dropout/user fight/large overshoot but moving-chase mean error is higher.

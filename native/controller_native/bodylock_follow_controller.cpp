@@ -45,7 +45,7 @@ pipeline_contract::Vec2f BodylockFollowController::compute(
              intent.filtered_right.x, intent.right_confidence,
              config_.feedback_range_x_px, config_.max_force_x,
              authority, plan.response_scale),
-        axis(plan.error_px.y, plan.error_rate_px_per_sec.y,
+        axis(-plan.error_px.y, -plan.error_rate_px_per_sec.y,
              intent.filtered_right.y, intent.right_confidence,
              config_.feedback_range_y_px, config_.max_force_y,
              authority, plan.response_scale),

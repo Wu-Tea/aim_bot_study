@@ -27,6 +27,7 @@ struct VisionCandidate {
 
 struct VisionObservationBatch {
     std::uint64_t frame_id = 0;
+    std::uint64_t preferred_source_id = 0;
     double source_time_seconds = 0.0;
     double publish_time_seconds = 0.0;
     float frame_width_px = 0.0f;
@@ -34,6 +35,10 @@ struct VisionObservationBatch {
     std::uint32_t count = 0;
     bool capture_fresh = false;
     bool roi_fallback = false;
+    bool fire_requested = false;
+    bool observed_fire_eligible = false;
+    bool has_control_response_hint = false;
+    float control_response_x_px_per_second = 0.0f;
     std::array<VisionCandidate, kMaxVisionCandidates> candidates{};
 };
 

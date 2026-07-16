@@ -2,6 +2,7 @@
 #include "ads_carry_brake_policy.h"
 #include "ai_aim.h"
 #include "bodylock_policy.h"
+#include "bodylock_lifecycle.h"
 #include "controller_tick_context.h"
 #include "native_gamepad_controller.h"
 #include "output_mixer.h"
@@ -473,8 +474,8 @@ void test_controller_records_pipeline_stage_traces() {
     state.aim_authority = true;
     state.fire_authority = true;
     state.target_tier = "strong";
-    state.dx = 36.0f;
-    state.dy = 24.0f;
+    state.dx = 4.0f;
+    state.dy = 4.0f;
     state.observed_at_seconds = now_seconds();
     controller.submit_vision_state(state);
 
@@ -483,18 +484,17 @@ void test_controller_records_pipeline_stage_traces() {
     const std::vector<controller_native::NativeControllerStageTrace>& traces =
         controller.last_pipeline_traces();
 
-    require_true(traces.size() == 4, "controller should trace four runtime stages");
-    require_true(traces[0].stage_name == "ai_aim", "first trace should be ai_aim");
+    require_true(traces.size() == 3, "controller should trace the three slim runtime stages");
     require_true(
-        traces[1].stage_name == "aim_assist_dynamics",
-        "second trace should be aim_assist_dynamics");
-    require_true(traces[2].stage_name == "auto_fire", "third trace should be auto_fire");
-    require_true(traces[3].stage_name == "recoil", "fourth trace should be recoil");
+        traces[0].stage_name == "target_plan_aim",
+        "first trace should be the unified target-plan aim stage");
+    require_true(traces[1].stage_name == "auto_fire", "second trace should be auto_fire");
+    require_true(traces[2].stage_name == "recoil", "third trace should be recoil");
     require_true(
         std::fabs(traces[0].delta_right_y) > 0.0001f,
         "ai_aim trace should record its right-stick Y delta");
     require_true(
-        !traces[2].before_auto_fire_active && traces[2].after_auto_fire_active,
+        !traces[1].before_auto_fire_active && traces[1].after_auto_fire_active,
         "auto_fire trace should expose activation state transition");
     require_near(
         traces.back().after_right_y,
@@ -520,13 +520,13 @@ void test_controller_pipeline_records_recoil_as_final_independent_component() {
         controller.last_pipeline_traces();
     const controller_native::NativeControllerOutputComponents& components =
         controller.last_output_components();
-    require_true(traces.size() == 4, "controller should trace all runtime stages with recoil enabled");
-    require_true(traces[3].stage_name == "recoil", "recoil should remain the final output stage");
+    require_true(traces.size() == 3, "controller should trace all slim runtime stages with recoil enabled");
+    require_true(traces[2].stage_name == "recoil", "recoil should remain the final output stage");
     require_true(
         components.recoil_stick.y < -0.20f,
         "recoil component should capture fallback down-pull separately");
     require_near(
-        traces[3].delta_right_y,
+        traces[2].delta_right_y,
         components.recoil_stick.y,
         0.0001f,
         "recoil stage trace should match the captured recoil component");

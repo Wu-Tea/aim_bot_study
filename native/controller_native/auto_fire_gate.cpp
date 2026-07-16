@@ -123,6 +123,10 @@ bool AutoFireGate::aim_ready_for_input(const AutoFireGateInput& input) {
         reset_readiness();
         return true;
     }
+    if (input.vision_state.has_target &&
+        !input.vision_state.current_observed_target_present) {
+        return false;
+    }
     if (!input.aiming || !has_fresh_aim_target(input.vision_state, input.now_seconds)) {
         reset_readiness();
         return false;
@@ -159,8 +163,13 @@ bool AutoFireGate::aim_ready_for_input(const AutoFireGateInput& input) {
     }
 
     const std::uint64_t vision_sequence = input.vision_state.vision_sequence;
-    if (vision_sequence == 0 || !has_ready_vision_sequence_ ||
-        vision_sequence != ready_vision_sequence_) {
+    if (vision_sequence != 0 && !has_ready_vision_sequence_) {
+        has_ready_vision_sequence_ = true;
+        ready_vision_sequence_ = vision_sequence;
+        ready_frames_ = 1;
+        return ready_frames_ >= std::max(1, ai_config_.auto_fire_ready_frames);
+    }
+    if (vision_sequence == 0 || vision_sequence != ready_vision_sequence_) {
         ++ready_frames_;
         has_ready_vision_sequence_ = vision_sequence != 0;
         ready_vision_sequence_ = vision_sequence;

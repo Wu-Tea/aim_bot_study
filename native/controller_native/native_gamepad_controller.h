@@ -1,19 +1,17 @@
 #pragma once
 
-#include "ads_state_tracker.h"
-#include "ads_completion_gate.h"
-#include "ads_carry_brake_policy.h"
+#include "ads_acquisition_controller.h"
 #include "aim_activation.h"
-#include "aim_assist_dynamics.h"
-#include "ai_aim.h"
+#include "aim_dynamics_shaper.h"
 #include "auto_fire_gate.h"
-#include "body_lock_short_plan_policy.h"
-#include "bodylock_lifecycle.h"
-#include "controller_tick_context.h"
+#include "bodylock_follow_controller.h"
+#include "bodylock_policy.h"
+#include "controller_pipeline.h"
 #include "controller_vision_snapshot.h"
-#include "output_validation_policy.h"
+#include "intent_filter.h"
+#include "output_mixer.h"
 #include "runtime_config.h"
-#include "target_snapshot_provider.h"
+#include "target_coordinator.h"
 #include "virtual_gamepad.h"
 #include "xinput_reader.h"
 
@@ -21,6 +19,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <string>
 #include <vector>
 
 namespace controller_native {
@@ -54,65 +53,17 @@ public:
     RelativeMotionEstimate body_lock_relative_motion_estimate() const;
 
 private:
-    bool is_aiming(const PhysicalGamepadState& physical);
-    bool has_fresh_aim_target(
-        const NativeControllerVisionState& vision_state,
+    pipeline_contract::VisionObservationBatch observation_batch_from(
+        const ControllerVisionSnapshot& snapshot) const noexcept;
+    NativeControllerVisionState vision_state_from_plan(
+        const pipeline_contract::TargetPlan& plan,
         double now_seconds) const;
-    void update_ads_state(bool aiming, double now_seconds);
-    bool is_strong_aim_target(const NativeControllerVisionState& vision_state) const;
-    bool ads_snap_active_for_frame(
-        const NativeControllerVisionState& vision_state,
-        bool aiming,
-        float manual_right_x,
-        float manual_right_y,
-        double now_seconds);
-    float ads_snap_progress_ratio(double now_seconds) const;
-    float ads_snap_remaining_seconds(double now_seconds) const;
-    bool body_lock_error_for_state(
-        const NativeControllerVisionState& vision_state,
-        float* out_dx,
-        float* out_dy) const;
-    bool manual_fire_pressed(const PhysicalGamepadState& physical) const;
-    void apply_ai_aim(
-        GamepadOutputState& output,
-        const PhysicalGamepadState& physical,
-        const NativeControllerVisionState& vision_state,
-        double now_seconds,
-        NativeControllerOutputComponents* components);
-    void apply_body_lock_short_plan(
-        GamepadOutputState& output,
-        float manual_right_x,
-        float manual_right_y,
-        const NativeControllerVisionState& vision_state,
-        double now_seconds);
-    void apply_aim_assist_dynamics(
-        GamepadOutputState& output,
-        float manual_right_x,
-        float manual_right_y,
-        const NativeControllerVisionState& vision_state,
-        double now_seconds);
-    void apply_ads_near_target_brake(
-        GamepadOutputState& output,
-        float manual_right_x,
-        float manual_right_y,
-        const NativeControllerVisionState& vision_state,
-        double now_seconds) const;
-    void apply_ads_carry_brake(
-        GamepadOutputState& output,
-        float manual_right_x,
-        float manual_right_y,
-        const NativeControllerVisionState& vision_state,
-        float target_error_x,
-        float target_error_y,
-        double now_seconds,
-        bool candidate_output_hold_active) const;
+    bool manual_fire_pressed(const PhysicalGamepadState& physical) const noexcept;
     void apply_recoil(
         GamepadOutputState& output,
         const PhysicalGamepadState& physical,
+        bool aiming,
         bool auto_fire_active,
-        double now_seconds);
-    void record_target_tracker_output(
-        const NativeControllerOutputComponents& components,
         double now_seconds);
     void record_stage_trace(
         const std::string& stage_name,
@@ -122,35 +73,28 @@ private:
         bool after_auto_fire_active);
     double now_seconds() const;
 
-    GamepadRuntimeConfig config_;
-    NativeAiAim ai_aim_;
-    NativeAimAssistDynamics aim_assist_dynamics_;
+    GamepadRuntimeConfig config_{};
+    IntentFilter intent_filter_{};
+    TargetCoordinator target_coordinator_{};
+    AdsAcquisitionController ads_controller_{};
+    BodylockFollowController bodylock_controller_{};
+    AimDynamicsShaper dynamics_shaper_{};
     recoil_native::RecoilCompensationPolicy recoil_;
-    AdsStateTracker ads_state_tracker_;
-    AdsCompletionGate ads_completion_gate_;
-    AimActivationTracker aim_activation_tracker_;
+    AimActivationTracker aim_activation_tracker_{};
     AutoFireGate auto_fire_gate_;
-    BodyLockShortPlanPolicy body_lock_short_plan_policy_;
-    BodylockLifecycle bodylock_lifecycle_;
-    AdsCarryBrakePolicy ads_carry_brake_policy_;
-    OutputValidationPolicy output_validation_policy_;
-    TargetSnapshotProvider target_snapshot_provider_;
+    ControllerVisionSnapshot pending_snapshot_{};
+    bool has_pending_snapshot_ = false;
+    bool aiming_ = false;
+    bool previous_aiming_ = false;
+    std::uint64_t ads_epoch_ = 0;
+    std::uint64_t legacy_vision_sequence_ = 0;
+    double last_tick_seconds_ = 0.0;
     std::vector<NativeControllerStageTrace> last_pipeline_traces_;
-    GamepadOutputState last_tracker_motion_output_;
-    NativeControllerOutputComponents last_output_components_;
-    NativeControllerVisionState last_frame_vision_state_;
+    GamepadOutputState last_tracker_motion_output_{};
+    NativeControllerOutputComponents last_output_components_{};
+    NativeControllerVisionState last_frame_vision_state_{};
+    std::string last_ai_aim_mode_ = "manual";
     std::function<double()> clock_;
-    double last_ads_stopped_at_seconds_ = 0.0;
-    double last_dynamics_at_seconds_ = 0.0;
-    common_native::Vec2f last_ads_terminal_error_px_;
-    double last_ads_terminal_observed_at_seconds_ = 0.0;
-    std::uint64_t last_ads_terminal_vision_sequence_ = 0;
-    std::uint64_t last_ads_terminal_track_id_ = 0;
-    bool has_last_ads_terminal_observation_ = false;
-    BodylockLifecycleDecision last_bodylock_lifecycle_decision_;
-    std::string last_assist_limit_reason_ = "none";
-    pipeline_contract::AssistAuthorityState last_effective_assist_authority_ =
-        pipeline_contract::AssistAuthorityState::Reject;
 };
 
 }  // namespace controller_native

@@ -36,6 +36,11 @@ int main(int argc, char** argv) {
             &validation_error)) {
         std::cerr << "[LeftStickMotionBenchmark] invalid report: "
                   << validation_error << '\n';
+        for (const auto& run : report.frequency_runs) {
+            std::cerr << "  vision_hz=" << run.vision_hz
+                      << " delivered=" << run.delivered_vision_sequences
+                      << " consumed=" << run.fresh_sequences_consumed << '\n';
+        }
         return 1;
     }
 

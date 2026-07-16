@@ -15,6 +15,8 @@ struct TargetCoordinatorConfig {
     float max_reacquire_innovation_px = 18.0f;
     float settle_radius_px = 8.0f;
     std::uint32_t settle_frames = 5;
+    float ads_max_acquisition_ms = 180.0f;
+    float bodylock_activation_radius_px = 150.0f;
     float motion_velocity_alpha = 0.4f;
     float jump_fall_velocity_px_per_second = 100.0f;
     float max_authority = 1.0f;
@@ -50,12 +52,18 @@ private:
     std::uint64_t target_id_ = 0;
     std::uint64_t next_target_id_ = 1;
     std::uint64_t generation_ = 0;
+    std::uint64_t source_frame_id_ = 0;
     double last_observed_seconds_ = 0.0;
     double last_update_seconds_ = 0.0;
     double acquisition_started_seconds_ = 0.0;
+    float last_observed_reliability_ = 0.0f;
+    float last_observed_normalized_size_ = 0.0f;
     std::uint32_t settled_frames_ = 0;
     bool has_target_ = false;
+    bool fire_requested_ = false;
+    bool observed_fire_eligible_ = false;
     bool was_missing_ = false;
+    pipeline_contract::ControlMode control_mode_ = pipeline_contract::ControlMode::Manual;
 };
 
 }  // namespace controller_native

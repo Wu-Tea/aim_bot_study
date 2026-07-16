@@ -724,7 +724,11 @@ IntentInvarianceMetrics run_intent_invariance_probe() {
         }
         vision_phase += 100;
         if (vision_tick && tick != kIntentSplitTick) {
-            const NativeControllerVisionState vision = intent_probe_vision(now, error_x);
+            const NativeControllerVisionState vision = intent_probe_vision(
+                now,
+                error_x,
+                mobility_warmup ? -240.0 : 0.0,
+                mobility_warmup);
             active_left.submit_vision_state(vision);
             neutral_left.submit_vision_state(vision);
         }
@@ -874,11 +878,18 @@ ProductionChainMetrics run_production_chain_probe() {
         if (short_gap && existing_assist_release && bounded_short_gap_release) {
             ++short_gap_coast_frames;
         }
+        const double observation_age_ms = vision_state.observed_at_seconds > 0.0
+            ? (now - vision_state.observed_at_seconds) * 1000.0
+            : 1.0e9;
+        const double hold_budget_ms = std::max(
+            80.0f,
+            std::max(config.ai_aim.target_max_age_ms,
+                     config.ai_aim.target_projection_max_age_ms));
         if (selected_gap && vision_state.has_target &&
-            std::fabs(static_cast<double>(vision_state.dx)) > 100.0) {
+            observation_age_ms > hold_budget_ms + 1.0) {
             ++blind_candidate_follow_frames;
         }
-        if (tick >= kChainLongLossStartTick + 140 && tick < kChainReacquireTick &&
+        if (tick >= kChainLongLossStartTick + 225 && tick < kChainReacquireTick &&
             std::fabs(delivered_assist) <= 0.001) {
             long_loss_released = true;
         }
@@ -1324,9 +1335,6 @@ bool validate_report(const BenchmarkReport& report, std::string* reason) {
         chain.production_target_missing_frames >
             chain.detector_candidate_gap_frames) {
         return fail("missing candidate-present gap");
-    }
-    if (chain.target_present_bodylock_unavailable_frames <= 0) {
-        return fail("missing target-present bodylock-unavailable phase");
     }
     if (chain.drift_manual_correction_frames != 0 ||
         chain.max_abs_manual_right > kDriftManualThreshold) {

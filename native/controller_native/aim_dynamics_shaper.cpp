@@ -16,6 +16,9 @@ float AimDynamicsShaper::shape_axis(
     if (requested * manual < 0.0f) {
         const float confidence = std::clamp(manual_confidence, 0.0f, 1.0f);
         requested *= 1.0f - (1.0f - config_.opposing_manual_scale) * confidence;
+    } else if (requested * manual > 0.0f) {
+        const float confidence = std::clamp(manual_confidence, 0.0f, 1.0f);
+        requested *= 1.0f - (1.0f - config_.cooperative_manual_scale) * confidence;
     }
     return requested;
 }
@@ -30,6 +33,16 @@ pipeline_contract::Vec2f AimDynamicsShaper::shape(
         plan.mode == pipeline_contract::ControlMode::Manual) {
         requested_ai = {};
     }
+    if (plan.lifecycle == pipeline_contract::TargetLifecycle::Coasting) {
+        auto prevent_blind_rise = [](float requested, float current) {
+            if (requested * current > 0.0f && std::fabs(requested) > std::fabs(current)) {
+                return current;
+            }
+            return requested;
+        };
+        requested_ai.x = prevent_blind_rise(requested_ai.x, current_.x);
+        requested_ai.y = prevent_blind_rise(requested_ai.y, current_.y);
+    }
     requested_ai.x = shape_axis(
         requested_ai.x, intent.filtered_right.x, intent.right_confidence, dt);
     requested_ai.y = shape_axis(
@@ -38,7 +51,7 @@ pipeline_contract::Vec2f AimDynamicsShaper::shape(
     auto slew = [&](float current, float target) {
         const bool decaying = std::fabs(target) < std::fabs(current);
         const float rate = decaying ? config_.decay_slew_per_second : config_.rise_slew_per_second;
-        const float step = rate * dt;
+        const float step = std::min(rate * dt, config_.max_step_per_tick);
         return current + std::clamp(target - current, -step, step);
     };
     current_.x = slew(current_.x, requested_ai.x);
@@ -48,6 +61,10 @@ pipeline_contract::Vec2f AimDynamicsShaper::shape(
 
 pipeline_contract::Vec2f AimDynamicsShaper::current() const noexcept {
     return current_;
+}
+
+void AimDynamicsShaper::adopt(pipeline_contract::Vec2f output) noexcept {
+    current_ = output;
 }
 
 void AimDynamicsShaper::reset() noexcept {

@@ -19,6 +19,7 @@ pipeline_contract::VisionObservationBatch frame(
     float reliability = 0.9f) {
     pipeline_contract::VisionObservationBatch batch{};
     batch.frame_id = frame_id;
+    batch.preferred_source_id = source_id;
     batch.source_time_seconds = time;
     batch.publish_time_seconds = time;
     batch.frame_width_px = 480.0f;
@@ -53,6 +54,7 @@ void test_single_owner_coasts_and_reacquires_same_identity() {
     missing.frame_id = 2;
     missing.frame_width_px = 480.0f;
     missing.frame_height_px = 416.0f;
+    missing.capture_fresh = true;
     plan = coordinator.update(missing, ads_intent(0.05), 0.05);
     require_true(plan.lifecycle == pipeline_contract::TargetLifecycle::Coasting,
                  "short occlusion must coast one owner");
@@ -105,6 +107,67 @@ void test_ads_handoff_waits_for_settle() {
     }
     require_true(plan.mode == pipeline_contract::ControlMode::BodyLockFollow,
                  "fresh settled frames must hand off to BodyLock");
+    plan = coordinator.update(frame(20, 0.20, 1, 260.0f, 208.0f), ads_intent(0.20), 0.20);
+    require_true(plan.mode == pipeline_contract::ControlMode::BodyLockFollow,
+                 "BodyLock must use a wider exit band than its ADS entry band");
+}
+
+void test_control_rate_gaps_do_not_compound_reliability_decay() {
+    controller_native::TargetCoordinator coordinator;
+    coordinator.update(frame(1, 1.000, 1, 243.0f, 208.0f, 1.0f), ads_intent(1.000), 1.000);
+    pipeline_contract::VisionObservationBatch missing{};
+    missing.frame_width_px = 480.0f;
+    missing.frame_height_px = 416.0f;
+    pipeline_contract::TargetPlan plan{};
+    for (int tick = 1; tick <= 9; ++tick) {
+        const double time = 1.000 + tick * 0.001;
+        plan = coordinator.update(missing, ads_intent(time), time);
+    }
+    require_true(plan.reliability > 0.94f,
+                 "1000 Hz control ticks between vision frames must decay from the last observation once");
+}
+
+void test_control_rate_gaps_preserve_ads_settle_progress() {
+    controller_native::TargetCoordinator coordinator;
+    pipeline_contract::TargetPlan plan{};
+    for (int vision = 0; vision < 5; ++vision) {
+        const double observed_time = 1.000 + vision * 0.010;
+        plan = coordinator.update(
+            frame(vision + 1, observed_time, 1, 243.0f, 208.0f),
+            ads_intent(observed_time),
+            observed_time);
+        for (int tick = 1; tick < 10; ++tick) {
+            const double time = observed_time + tick * 0.001;
+            pipeline_contract::VisionObservationBatch missing{};
+            missing.frame_width_px = 480.0f;
+            missing.frame_height_px = 416.0f;
+            plan = coordinator.update(missing, ads_intent(time), time);
+        }
+    }
+    require_true(plan.mode == pipeline_contract::ControlMode::BodyLockFollow,
+                 "control-rate coast ticks must not erase vision-rate ADS settle progress");
+}
+
+void test_100hz_motion_stays_finite_at_1000hz_control_rate() {
+    controller_native::TargetCoordinator coordinator;
+    pipeline_contract::TargetPlan plan{};
+    for (int vision = 0; vision < 80; ++vision) {
+        const double observed_time = 1.0 + vision * 0.010;
+        plan = coordinator.update(
+            frame(vision + 1, observed_time, 7, 240.0f + vision * 2.0f, 208.0f),
+            ads_intent(observed_time), observed_time);
+        for (int tick = 1; tick < 10; ++tick) {
+            const double time = observed_time + tick * 0.001;
+            pipeline_contract::VisionObservationBatch no_new_frame{};
+            no_new_frame.frame_width_px = 480.0f;
+            no_new_frame.frame_height_px = 416.0f;
+            plan = coordinator.update(no_new_frame, ads_intent(time), time);
+        }
+    }
+    require_true(plan.source_frame_id == 80,
+                 "all stable-source 100 Hz observations must remain consumable");
+    require_true(std::isfinite(plan.aim_px.x) && std::isfinite(plan.velocity_px_per_sec.x),
+                 "1000 Hz prediction between observations must remain finite");
 }
 
 void test_left_intent_enters_plan_through_learned_response() {
@@ -133,6 +196,9 @@ int main() {
         test_hold_expires_to_safe_manual_plan();
         test_motion_labels_jump_then_fall();
         test_ads_handoff_waits_for_settle();
+        test_control_rate_gaps_do_not_compound_reliability_decay();
+        test_control_rate_gaps_preserve_ads_settle_progress();
+        test_100hz_motion_stays_finite_at_1000hz_control_rate();
         test_left_intent_enters_plan_through_learned_response();
         return 0;
     } catch (const std::exception& error) {

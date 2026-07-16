@@ -42,6 +42,16 @@ void test_plan_loss_decays_instead_of_dropping() {
                  "plan loss must produce smooth decay");
 }
 
+void test_coasting_never_ramps_blind_assist() {
+    controller_native::AimDynamicsShaper shaper;
+    auto plan = active_plan();
+    const auto observed = shaper.shape({0.8f, 0.0f}, {}, plan, 0.001f);
+    plan.lifecycle = pipeline_contract::TargetLifecycle::Coasting;
+    const auto coast = shaper.shape({0.8f, 0.0f}, {}, plan, 0.001f);
+    require_true(coast.x <= observed.x + 0.0001f,
+                 "coasting must not increase assist without a new observation");
+}
+
 void test_manual_opposition_reduces_slew_target() {
     controller_native::AimDynamicsShaper neutral_shaper;
     controller_native::AimDynamicsShaper manual_shaper;
@@ -55,13 +65,32 @@ void test_manual_opposition_reduces_slew_target() {
                  "single shaper must arbitrate confident manual opposition");
 }
 
+void test_helpful_manual_input_reduces_but_keeps_assist() {
+    controller_native::AimDynamicsShaper neutral_shaper;
+    controller_native::AimDynamicsShaper manual_shaper;
+    const auto plan = active_plan();
+    pipeline_contract::IntentState correction{};
+    correction.filtered_right.x = 0.5f;
+    correction.right_confidence = 1.0f;
+    pipeline_contract::Vec2f neutral{};
+    pipeline_contract::Vec2f cooperative{};
+    for (int i = 0; i < 12; ++i) {
+        neutral = neutral_shaper.shape({1.0f, 0.0f}, {}, plan, 0.05f);
+        cooperative = manual_shaper.shape({1.0f, 0.0f}, correction, plan, 0.05f);
+    }
+    require_true(cooperative.x > 0.0f && cooperative.x < neutral.x,
+                 "helpful manual input must avoid double-driving while retaining assist");
+}
+
 }  // namespace
 
 int main() {
     try {
         test_step_and_reversal_are_bounded();
         test_plan_loss_decays_instead_of_dropping();
+        test_coasting_never_ramps_blind_assist();
         test_manual_opposition_reduces_slew_target();
+        test_helpful_manual_input_reduces_but_keeps_assist();
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "[AimDynamicsShaperTests] FAIL " << error.what() << '\n';

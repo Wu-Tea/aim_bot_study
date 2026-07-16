@@ -51,6 +51,7 @@ struct PlanHorizonSample {
 
 struct TargetPlan {
     std::uint64_t generation = 0;
+    std::uint64_t source_frame_id = 0;
     std::uint64_t target_id = 0;
     TargetLifecycle lifecycle = TargetLifecycle::None;
     TargetMotion motion = TargetMotion::Ambiguous;
@@ -74,6 +75,7 @@ struct TargetPlan {
     std::uint32_t horizon_count = 0;
     std::array<PlanHorizonSample, kMaxPlanHorizonSamples> horizon{};
     bool fire_authority = false;
+    bool fire_requested = false;
     FireSuppressionReason fire_suppression = FireSuppressionReason::NoTarget;
 };
 

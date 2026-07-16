@@ -40,10 +40,19 @@ const pipeline_contract::VisionCandidate* TargetCoordinator::choose_candidate(
     for (std::uint32_t index = 0; index < count; ++index) {
         const auto& candidate = observations.candidates[index];
         if (candidate.reliability <= 0.0f) continue;
+        if (has_target_ && observations.preferred_source_id == 0 &&
+            candidate.source_id != source_id_) {
+            continue;
+        }
         float distance = has_target_ ? length(subtract(candidate.aim_px, predicted)) : 0.0f;
-        if (has_target_ && candidate.source_id == source_id_) distance *= 0.25f;
-        const float score = distance - candidate.reliability * 10.0f;
-        if ((!has_target_ || distance <= config_.association_radius_px) && score < best_score) {
+        const bool same_source = has_target_ && candidate.source_id != 0 &&
+            candidate.source_id == source_id_;
+        if (same_source) distance *= 0.25f;
+        const float preferred_bonus = observations.preferred_source_id != 0 &&
+            candidate.source_id == observations.preferred_source_id ? 25.0f : 0.0f;
+        const float score = distance - candidate.reliability * 10.0f - preferred_bonus;
+        if ((!has_target_ || same_source || distance <= config_.association_radius_px) &&
+            score < best_score) {
             best = &candidate;
             best_score = score;
         }
@@ -80,12 +89,21 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     const auto predicted = dt > 0.0f ? add_scaled(position_, velocity_, dt) : position_;
     const auto* candidate = choose_candidate(observations, predicted);
 
+    if (observations.has_control_response_hint) {
+        response_estimator_.update({
+            intent.filtered_left.x,
+            observations.control_response_x_px_per_second,
+            candidate != nullptr && intent.left_confidence > 0.5f,
+            candidate == nullptr,
+        });
+    }
+
     pipeline_contract::TargetLifecycle lifecycle = pipeline_contract::TargetLifecycle::None;
     float reliability = latest_.reliability;
     float normalized_size = latest_.normalized_size;
     if (candidate != nullptr) {
         const bool new_target = !has_target_;
-        const bool reacquiring = has_target_ && (was_missing_ || candidate->source_id != source_id_);
+        const bool reacquiring = has_target_ && was_missing_;
         if (new_target) {
             has_target_ = true;
             target_id_ = next_target_id_++;
@@ -106,22 +124,35 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
                 predicted.x + innovation.x,
                 predicted.y + innovation.y,
             };
+            const float observation_dt = last_observed_seconds_ > 0.0
+                ? static_cast<float>(std::clamp(
+                    now_seconds - last_observed_seconds_, 0.005, 0.1))
+                : dt;
             const auto measured_velocity = pipeline_contract::Vec2f{
-                (measured_position.x - position_.x) / dt,
-                (measured_position.y - position_.y) / dt,
+                velocity_.x + innovation.x / observation_dt,
+                velocity_.y + innovation.y / observation_dt,
             };
             const auto previous_velocity = velocity_;
             velocity_.x += config_.motion_velocity_alpha * (measured_velocity.x - velocity_.x);
             velocity_.y += config_.motion_velocity_alpha * (measured_velocity.y - velocity_.y);
+            velocity_.x = std::clamp(velocity_.x, -4000.0f, 4000.0f);
+            velocity_.y = std::clamp(velocity_.y, -4000.0f, 4000.0f);
             acceleration_ = {
-                (velocity_.x - previous_velocity.x) / dt,
-                (velocity_.y - previous_velocity.y) / dt,
+                std::clamp((velocity_.x - previous_velocity.x) / observation_dt,
+                           -20000.0f, 20000.0f),
+                std::clamp((velocity_.y - previous_velocity.y) / observation_dt,
+                           -20000.0f, 20000.0f),
             };
             position_ = measured_position;
         }
         source_id_ = candidate->source_id;
+        source_frame_id_ = observations.frame_id;
+        fire_requested_ = observations.fire_requested;
+        observed_fire_eligible_ = observations.observed_fire_eligible;
         reliability = std::clamp(candidate->reliability, 0.0f, 1.0f);
         normalized_size = std::clamp(candidate->normalized_size, 0.0f, 1.0f);
+        last_observed_reliability_ = reliability;
+        last_observed_normalized_size_ = normalized_size;
         last_observed_seconds_ = now_seconds;
         lifecycle = reacquiring
             ? pipeline_contract::TargetLifecycle::Reacquiring
@@ -132,8 +163,10 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         if (missing_ms <= config_.hold_ms) {
             position_ = predicted;
             lifecycle = pipeline_contract::TargetLifecycle::Coasting;
-            reliability *= std::clamp(1.0f - missing_ms / config_.hold_ms, 0.0f, 1.0f);
-            was_missing_ = true;
+            reliability = last_observed_reliability_ *
+                std::clamp(1.0f - missing_ms / config_.hold_ms, 0.0f, 1.0f);
+            normalized_size = last_observed_normalized_size_;
+            was_missing_ = was_missing_ || observations.capture_fresh;
         } else {
             has_target_ = false;
             source_id_ = 0;
@@ -152,6 +185,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     };
     pipeline_contract::TargetPlan plan{};
     plan.generation = ++generation_;
+    plan.source_frame_id = source_frame_id_;
     plan.target_id = target_id_;
     plan.lifecycle = lifecycle;
     plan.aim_px = position_;
@@ -165,16 +199,31 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     plan.normalized_size = normalized_size;
     plan.occlusion_budget_ms = std::max(0.0f, config_.hold_ms - plan.observation_age_ms);
     const float error_length = length(plan.error_px);
-    if (error_length <= config_.settle_radius_px && lifecycle != pipeline_contract::TargetLifecycle::Coasting) {
-        ++settled_frames_;
-    } else {
-        settled_frames_ = 0;
+    if (lifecycle != pipeline_contract::TargetLifecycle::Coasting) {
+        if (error_length <= config_.settle_radius_px) {
+            ++settled_frames_;
+        } else {
+            settled_frames_ = 0;
+        }
     }
-    plan.mode = !intent.ads
-        ? pipeline_contract::ControlMode::Manual
-        : settled_frames_ >= config_.settle_frames
-            ? pipeline_contract::ControlMode::BodyLockFollow
-            : pipeline_contract::ControlMode::AdsAcquire;
+    if (!intent.ads) {
+        control_mode_ = pipeline_contract::ControlMode::Manual;
+    } else if (control_mode_ == pipeline_contract::ControlMode::BodyLockFollow) {
+        if (lifecycle != pipeline_contract::TargetLifecycle::Coasting &&
+            error_length > config_.settle_radius_px * 3.0f) {
+            control_mode_ = pipeline_contract::ControlMode::AdsAcquire;
+            settled_frames_ = 0;
+        }
+    } else if (settled_frames_ >= config_.settle_frames ||
+               ((now_seconds - acquisition_started_seconds_) * 1000.0 >=
+                    config_.ads_max_acquisition_ms &&
+                error_length <= config_.bodylock_activation_radius_px &&
+                normalized_size > 0.25f)) {
+        control_mode_ = pipeline_contract::ControlMode::BodyLockFollow;
+    } else {
+        control_mode_ = pipeline_contract::ControlMode::AdsAcquire;
+    }
+    plan.mode = control_mode_;
     plan.ads_demand = std::clamp(error_length / 130.0f, 0.0f, 1.0f);
     plan.bodylock_demand = std::clamp(
         std::max(error_length / 40.0f, length(velocity_) / 600.0f), 0.0f, 1.0f);
@@ -196,8 +245,10 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     } else {
         plan.motion = pipeline_contract::TargetMotion::Steady;
     }
-    plan.fire_authority = lifecycle == pipeline_contract::TargetLifecycle::Observed &&
-        reliability >= 0.8f && error_length <= 6.0f && length(velocity_) <= 120.0f;
+    plan.fire_authority = observed_fire_eligible_ &&
+        lifecycle == pipeline_contract::TargetLifecycle::Observed &&
+        reliability >= 0.8f;
+    plan.fire_requested = fire_requested_;
     plan.fire_suppression = plan.fire_authority
         ? pipeline_contract::FireSuppressionReason::None
         : lifecycle == pipeline_contract::TargetLifecycle::Coasting
@@ -219,6 +270,7 @@ bool TargetCoordinator::observe_control_response(const ControlResponseSample& sa
 
 void TargetCoordinator::begin_ads_epoch(std::uint64_t epoch) noexcept {
     response_estimator_.begin_ads_epoch(epoch);
+    control_mode_ = pipeline_contract::ControlMode::AdsAcquire;
 }
 
 void TargetCoordinator::reset() noexcept {
@@ -230,12 +282,18 @@ void TargetCoordinator::reset() noexcept {
     source_id_ = 0;
     target_id_ = 0;
     generation_ = 0;
+    source_frame_id_ = 0;
     last_observed_seconds_ = 0.0;
     last_update_seconds_ = 0.0;
     acquisition_started_seconds_ = 0.0;
+    last_observed_reliability_ = 0.0f;
+    last_observed_normalized_size_ = 0.0f;
     settled_frames_ = 0;
     has_target_ = false;
+    fire_requested_ = false;
+    observed_fire_eligible_ = false;
     was_missing_ = false;
+    control_mode_ = pipeline_contract::ControlMode::Manual;
 }
 
 }  // namespace controller_native

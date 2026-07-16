@@ -1,5 +1,6 @@
 #include "auto_fire_gate.h"
 
+#include <iostream>
 #include <stdexcept>
 
 namespace {
@@ -31,6 +32,7 @@ controller_native::NativeControllerVisionState strong_target(double observed_at_
     state.auto_fire_requested = true;
     state.aim_authority = true;
     state.fire_authority = true;
+    state.current_observed_target_present = true;
     state.target_tier = "strong";
     state.dx = 1.0f;
     state.dy = 1.0f;
@@ -178,9 +180,15 @@ void test_manual_takeover_releases_output_then_guards_resume() {
 }  // namespace
 
 int main() {
-    test_ready_frames_gate_before_firing();
-    test_ready_frames_count_unique_vision_sequences();
-    test_stale_source_blocks_fire_and_resets_readiness();
-    test_manual_takeover_releases_output_then_guards_resume();
-    return 0;
+    try {
+        test_ready_frames_gate_before_firing();
+        test_ready_frames_count_unique_vision_sequences();
+        test_stale_source_blocks_fire_and_resets_readiness();
+        test_manual_takeover_releases_output_then_guards_resume();
+        std::cout << "[AutoFireGateTests] PASS\n";
+        return 0;
+    } catch (const std::exception& error) {
+        std::cerr << "[AutoFireGateTests][FAIL] " << error.what() << '\n';
+        return 1;
+    }
 }

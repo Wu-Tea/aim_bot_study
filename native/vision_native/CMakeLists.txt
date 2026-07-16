@@ -215,15 +215,7 @@ add_executable(cod_native_runtime
     ../tracking_native/legacy_projection_tracker.cpp
     ${FPS_TRACKER_PACKAGE_SOURCES}
     ../controller_native/runtime_config.cpp
-    ../controller_native/ads_state_tracker.cpp
-    ../controller_native/ads_completion_gate.cpp
     ../controller_native/auto_fire_gate.cpp
-    ../controller_native/target_tracker.cpp
-    ../controller_native/ads_carry_brake_policy.cpp
-    ../controller_native/ai_aim.cpp
-    ../controller_native/body_lock_short_plan_policy.cpp
-    ../controller_native/bodylock_policy.cpp
-    ../controller_native/aim_assist_dynamics.cpp
     ../controller_native/recoil_profile.cpp
     ../controller_native/recoil_calibration.cpp
     ../controller_native/recoil_compensation.cpp
@@ -231,12 +223,8 @@ add_executable(cod_native_runtime
     ../recoil_native/recoil_visual_model.cpp
     ../controller_native/weapon_recognizer.cpp
     ../controller_native/output_mixer.cpp
-    ../controller_native/output_validation_policy.cpp
     ../controller_native/controller_pipeline.cpp
     ../runtime_app/vision_controller_adapter.cpp
-    ../controller_native/target_snapshot_provider.cpp
-    ../controller_native/assist_authority_policy.cpp
-    ../controller_native/bodylock_lifecycle.cpp
     ../controller_native/native_gamepad_controller.cpp
     ../controller_native/virtual_gamepad.cpp
     ../controller_native/io_recovery_policy.cpp
@@ -295,26 +283,9 @@ else()
 endif()
 
 add_executable(cod_native_controller_tests
-    ../controller_native/controller_behavior_tests.cpp
-    ../tracking_native/association.cpp
-    ../tracking_native/ego_motion_buffer.cpp
-    ../tracking_native/projection_model.cpp
+    ../controller_native/target_pipeline_integration_tests.cpp
     ../tracking_native/tracker_authority.cpp
-    ../tracking_native/kalman_tracker.cpp
-    ../tracking_native/fps_reference_tracker.cpp
-    ../tracking_native/tracker_backend.cpp
-    ../tracking_native/legacy_projection_tracker.cpp
-    ${FPS_TRACKER_PACKAGE_SOURCES}
-    ../controller_native/runtime_config.cpp
-    ../controller_native/ads_state_tracker.cpp
-    ../controller_native/ads_completion_gate.cpp
     ../controller_native/auto_fire_gate.cpp
-    ../controller_native/target_tracker.cpp
-    ../controller_native/ads_carry_brake_policy.cpp
-    ../controller_native/ai_aim.cpp
-    ../controller_native/body_lock_short_plan_policy.cpp
-    ../controller_native/bodylock_policy.cpp
-    ../controller_native/aim_assist_dynamics.cpp
     ../controller_native/recoil_profile.cpp
     ../controller_native/recoil_calibration.cpp
     ../controller_native/recoil_compensation.cpp
@@ -322,12 +293,7 @@ add_executable(cod_native_controller_tests
     ../recoil_native/recoil_visual_model.cpp
     ../controller_native/weapon_recognizer.cpp
     ../controller_native/output_mixer.cpp
-    ../controller_native/output_validation_policy.cpp
     ../controller_native/controller_pipeline.cpp
-    ../runtime_app/vision_controller_adapter.cpp
-    ../controller_native/target_snapshot_provider.cpp
-    ../controller_native/assist_authority_policy.cpp
-    ../controller_native/bodylock_lifecycle.cpp
     ../controller_native/native_gamepad_controller.cpp
 )
 
@@ -1221,6 +1187,29 @@ add_executable(cod_native_aimlab_benchmark
     ../controller_native/cod_native_aimlab_benchmark.cpp
     ../controller_native/aimlab_benchmark.cpp
 )
+
+set(COD_TARGET_PLAN_RUNTIME_SOURCES
+    ../controller_native/intent_filter.cpp
+    ../controller_native/control_response_estimator.cpp
+    ../controller_native/target_coordinator.cpp
+    ../controller_native/ads_acquisition_controller.cpp
+    ../controller_native/bodylock_follow_controller.cpp
+    ../controller_native/aim_dynamics_shaper.cpp
+)
+
+foreach(COD_TARGET
+    cod_native_runtime
+    cod_native_controller_tests
+    cod_native_live_failure_benchmark
+    cod_native_gamepad_benchmark
+    cod_native_vertical_bodylock_benchmark_tests
+    cod_native_lstick_benchmark
+    cod_native_lstick_benchmark_tests
+)
+    if(TARGET ${COD_TARGET})
+        target_sources(${COD_TARGET} PRIVATE ${COD_TARGET_PLAN_RUNTIME_SOURCES})
+    endif()
+endforeach()
 
 target_include_directories(cod_native_aimlab_benchmark PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include

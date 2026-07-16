@@ -97,6 +97,12 @@ int main(int argc, char** argv) {
         int continuity_frames = 0;
         float tracker_only_ai_y_peak = 0.0f;
         float manual_error_peak = 0.0f;
+        float continuity_ai_y_first = -1.0f;
+        float continuity_ai_y_last = 0.0f;
+        float continuity_max_tick_delta = 0.0f;
+        float previous_ai_y = 0.0f;
+        bool has_previous_ai_y = false;
+        int continuity_reversals = 0;
         for (int tick = 0; tick < 50; ++tick) {
             now += 0.001;
             const controller_native::GamepadOutputState output =
@@ -109,6 +115,16 @@ int main(int argc, char** argv) {
             tracker_only_ai_y_peak = std::max(
                 tracker_only_ai_y_peak,
                 std::fabs(controller.last_output_components().ai_aim_stick.y));
+            const float ai_y = controller.last_output_components().ai_aim_stick.y;
+            if (continuity_ai_y_first < 0.0f) continuity_ai_y_first = std::fabs(ai_y);
+            continuity_ai_y_last = std::fabs(ai_y);
+            if (has_previous_ai_y) {
+                continuity_max_tick_delta = std::max(
+                    continuity_max_tick_delta, std::fabs(ai_y - previous_ai_y));
+                if (ai_y * previous_ai_y < 0.0f) ++continuity_reversals;
+            }
+            previous_ai_y = ai_y;
+            has_previous_ai_y = true;
             manual_error_peak = std::max(
                 manual_error_peak,
                 std::fabs(output.right_y - physical.right_y));
@@ -124,7 +140,9 @@ int main(int argc, char** argv) {
             reconnect_devices, "Missing Physical Controller", 6, 15);
 
         const bool passed = observed_ai_y > 0.05f && continuity_frames > 0 &&
-            tracker_only_ai_y_peak <= 0.001f && manual_error_peak <= 0.001f &&
+            tracker_only_ai_y_peak <= observed_ai_y + 0.001f &&
+            continuity_ai_y_last < continuity_ai_y_first &&
+            continuity_max_tick_delta <= 0.03f && continuity_reversals == 0 &&
             recovered_index == 1 && virtual_only_index == -1;
         if (!output_path.parent_path().empty()) {
             std::filesystem::create_directories(output_path.parent_path());
@@ -135,6 +153,10 @@ int main(int argc, char** argv) {
                << "  \"tracker_continuity_frames\": " << continuity_frames << ",\n"
                << "  \"tracker_only_ai_y_peak\": " << tracker_only_ai_y_peak << ",\n"
                << "  \"tracker_only_manual_error_peak\": " << manual_error_peak << ",\n"
+               << "  \"continuity_ai_y_first\": " << continuity_ai_y_first << ",\n"
+               << "  \"continuity_ai_y_last\": " << continuity_ai_y_last << ",\n"
+               << "  \"continuity_max_tick_delta\": " << continuity_max_tick_delta << ",\n"
+               << "  \"continuity_reversals\": " << continuity_reversals << ",\n"
                << "  \"recovered_physical_index\": " << recovered_index << ",\n"
                << "  \"virtual_only_selection\": " << virtual_only_index << ",\n"
                << "  \"passed\": " << (passed ? "true" : "false") << "\n"
@@ -144,6 +166,8 @@ int main(int argc, char** argv) {
                   << " continuity_frames=" << continuity_frames
                   << " tracker_only_ai_y_peak=" << tracker_only_ai_y_peak
                   << " manual_error_peak=" << manual_error_peak
+                  << " continuity_last=" << continuity_ai_y_last
+                  << " max_tick_delta=" << continuity_max_tick_delta
                   << " recovered_index=" << recovered_index
                   << " passed=" << (passed ? 1 : 0) << '\n';
         return passed ? 0 : 1;

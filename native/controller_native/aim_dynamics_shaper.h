@@ -6,9 +6,11 @@
 namespace controller_native {
 
 struct AimDynamicsShaperConfig {
-    float rise_slew_per_second = 8.0f;
-    float decay_slew_per_second = 5.0f;
-    float opposing_manual_scale = 0.2f;
+    float rise_slew_per_second = 64.0f;
+    float decay_slew_per_second = 24.0f;
+    float max_step_per_tick = 0.08f;
+    float opposing_manual_scale = 0.0f;
+    float cooperative_manual_scale = 0.65f;
 };
 
 class AimDynamicsShaper {
@@ -22,6 +24,7 @@ public:
         float dt_seconds) noexcept;
 
     pipeline_contract::Vec2f current() const noexcept;
+    void adopt(pipeline_contract::Vec2f output) noexcept;
     void reset() noexcept;
 
 private:

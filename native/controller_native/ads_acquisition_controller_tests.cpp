@@ -61,6 +61,15 @@ void test_predicted_crossing_applies_terminal_brake() {
                  "stopping error must brake an imminent crossing");
 }
 
+void test_screen_y_error_is_converted_to_stick_y_direction() {
+    controller_native::AdsAcquisitionController controller;
+    auto plan = plan_with(0.0f, 0.0f);
+    plan.error_px.y = 60.0f;
+    const auto output = controller.compute(plan, {}, 0.01f);
+    require_true(output.y < 0.0f,
+                 "a target below center requires negative stick Y in screen coordinates");
+}
+
 }  // namespace
 
 int main() {
@@ -69,6 +78,7 @@ int main() {
         test_drift_does_not_weaken_ads();
         test_real_opposing_correction_reduces_conflict();
         test_predicted_crossing_applies_terminal_brake();
+        test_screen_y_error_is_converted_to_stick_y_direction();
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "[AdsAcquisitionControllerTests] FAIL " << error.what() << '\n';
