@@ -737,6 +737,22 @@ add_executable(cod_native_target_coordinator_tests
     ../controller_native/control_response_estimator.cpp
 )
 
+add_executable(cod_native_target_plan_publisher_tests
+    ../controller_native/target_plan_publisher_tests.cpp
+)
+
+target_include_directories(cod_native_target_plan_publisher_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+    ${CMAKE_CURRENT_SOURCE_DIR}/../controller_native
+)
+
+target_compile_definitions(cod_native_target_plan_publisher_tests
+    PRIVATE
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
+)
+
 target_include_directories(cod_native_target_coordinator_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/..
