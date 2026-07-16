@@ -163,6 +163,47 @@ void test_opposing_manual_intent_yields_without_braking_bodylock() {
     require(conflict_ticks < 16, "assist fought strong opposing manual intent too long");
 }
 
+void test_ads_and_bodylock_share_one_resolved_target_geometry() {
+    double now = 40.0;
+    auto controller_config = config();
+    controller_config.tracker.aim_height_ratio = 0.365f;
+    controller_config.ai_aim.body_lock_confidence_frames = 2;
+    controller_config.ai_aim.body_lock_box_tolerance_px = 8.0f;
+    NativeGamepadController controller(controller_config, [&now] { return now; });
+    const auto physical = aiming();
+    bool saw_ads = false;
+    bool saw_bodylock = false;
+    constexpr float expected_y = 180.0f + 200.0f * 0.365f;
+
+    for (std::uint64_t frame = 1; frame <= 16; ++frame) {
+        auto snapshot = target(frame, now, 2.0f, -3.0f);
+        pipeline_contract::VisionCandidateSnapshot candidate;
+        candidate.id = 42;
+        candidate.valid = true;
+        candidate.has_aim_point = true;
+        candidate.aim_point_px = {322.0f, 253.0f};
+        candidate.body_box_px = {282.0f, 180.0f, 80.0f, 200.0f};
+        candidate.confidence = 0.95f;
+        snapshot.candidates.push_back(candidate);
+        controller.submit_vision_snapshot(snapshot);
+        controller.build_output(physical);
+        saw_ads = saw_ads || controller.last_ai_aim_mode() == "ads_snap";
+        saw_bodylock = saw_bodylock || controller.last_ai_aim_mode() == "body_lock";
+        require(
+            std::fabs(controller.last_frame_vision_state().target_y - expected_y) < 0.001f,
+            "ADS/BodyLock applied inconsistent or repeated target geometry");
+        now += 0.010;
+    }
+    require(saw_ads, "geometry handoff never entered ADS");
+    require(saw_bodylock, "geometry handoff never entered BodyLock");
+
+    now += 0.001;
+    controller.build_output(physical);
+    require(
+        std::fabs(controller.last_frame_vision_state().target_y - expected_y) < 0.001f,
+        "coasting applied target height ratio a second time");
+}
+
 }  // namespace
 
 int main() {
@@ -170,6 +211,7 @@ int main() {
         test_ads_is_bounded_and_drift_is_ignored();
         test_vision_gap_uses_smooth_short_continuity();
         test_opposing_manual_intent_yields_without_braking_bodylock();
+        test_ads_and_bodylock_share_one_resolved_target_geometry();
         std::cout << "[TargetPipelineIntegrationTests] PASS\n";
         return 0;
     } catch (const std::exception& error) {

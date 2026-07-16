@@ -996,6 +996,14 @@ add_executable(cod_native_gamepad_benchmark
     ../controller_native/native_gamepad_controller.cpp
 )
 
+add_executable(cod_native_target_geometry_tests
+    ../controller_native/target_geometry_tests.cpp
+    ../controller_native/target_geometry.cpp
+)
+target_include_directories(cod_native_target_geometry_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
 target_include_directories(cod_native_gamepad_benchmark PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/..
@@ -1048,6 +1056,12 @@ add_executable(cod_native_vlock_defect_tests
     ../controller_native/assist_authority_policy.cpp
     ../controller_native/bodylock_lifecycle.cpp
     ../controller_native/native_gamepad_controller.cpp
+    ../controller_native/intent_filter.cpp
+    ../controller_native/control_response_estimator.cpp
+    ../controller_native/target_coordinator.cpp
+    ../controller_native/ads_acquisition_controller.cpp
+    ../controller_native/bodylock_follow_controller.cpp
+    ../controller_native/aim_dynamics_shaper.cpp
 )
 target_include_directories(cod_native_vlock_defect_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -1151,6 +1165,18 @@ target_include_directories(cod_native_lstick_benchmark_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/..
     ${CMAKE_CURRENT_SOURCE_DIR}/../fps_2d_tracker_package/include
 )
+
+foreach(_controller_target IN ITEMS
+    cod_native_runtime
+    cod_native_controller_tests
+    cod_native_live_failure_benchmark
+    cod_native_gamepad_benchmark
+    cod_native_vlock_defect_tests
+    cod_native_lstick_benchmark
+    cod_native_lstick_benchmark_tests)
+    target_sources(${_controller_target} PRIVATE
+        ../controller_native/target_geometry.cpp)
+endforeach()
 
 target_compile_definitions(cod_native_lstick_benchmark_tests PRIVATE
     NOMINMAX WIN32_LEAN_AND_MEAN)

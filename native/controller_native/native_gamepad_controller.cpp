@@ -1,4 +1,5 @@
 #include "native_gamepad_controller.h"
+#include "target_geometry.h"
 
 #include <algorithm>
 #include <chrono>
@@ -178,9 +179,12 @@ pipeline_contract::VisionObservationBatch NativeGamepadController::observation_b
         if (!source.valid || !source.has_aim_point || source.is_friendly) continue;
         auto& destination = batch.candidates[batch.count++];
         destination.source_id = source.id;
-        destination.aim_px = {source.aim_point_px.x, source.aim_point_px.y};
         const float width = std::max(0.0f, source.body_box_px.w);
         const float height = std::max(0.0f, source.body_box_px.h);
+        const auto geometry = resolve_target_geometry(
+            {source.aim_point_px, source.body_box_px, width > 0.0f && height > 0.0f},
+            {config_.tracker.aim_height_ratio});
+        destination.aim_px = {geometry.aim_px.x, geometry.aim_px.y};
         destination.box_size_px = {width, height};
         destination.confidence = std::clamp(source.confidence, 0.0f, 1.0f);
         destination.cue_confidence = std::clamp(source.cue_score, 0.0f, 1.0f);
@@ -204,14 +208,23 @@ pipeline_contract::VisionObservationBatch NativeGamepadController::observation_b
             ? snapshot.state.screen_center_y : batch.frame_height_px * 0.5f;
         const bool has_absolute_aim =
             snapshot.state.target_x != 0.0f || snapshot.state.target_y != 0.0f;
-        destination.aim_px = has_absolute_aim
-            ? pipeline_contract::Vec2f{snapshot.state.target_x, snapshot.state.target_y}
-            : pipeline_contract::Vec2f{
+        const common_native::Vec2f vision_aim = has_absolute_aim
+            ? common_native::Vec2f{snapshot.state.target_x, snapshot.state.target_y}
+            : common_native::Vec2f{
                 center_x + snapshot.state.dx,
                 center_y + snapshot.state.dy};
         const float height = std::max(0.0f, snapshot.state.body_y2 - snapshot.state.body_y1);
+        const common_native::Box2f body_box{
+            snapshot.state.body_x1,
+            snapshot.state.body_y1,
+            std::max(0.0f, snapshot.state.body_x2 - snapshot.state.body_x1),
+            height};
+        const auto geometry = resolve_target_geometry(
+            {vision_aim, body_box, snapshot.state.has_body_box},
+            {config_.tracker.aim_height_ratio});
+        destination.aim_px = {geometry.aim_px.x, geometry.aim_px.y};
         destination.box_size_px = {
-            std::max(0.0f, snapshot.state.body_x2 - snapshot.state.body_x1), height};
+            body_box.w, height};
         destination.normalized_size = std::clamp(
             height / std::max(1.0f, batch.frame_height_px), 0.0f, 1.0f);
         destination.confidence = snapshot.state.aim_authority ? 1.0f : 0.6f;
