@@ -741,6 +741,57 @@ add_executable(cod_native_target_plan_publisher_tests
     ../controller_native/target_plan_publisher_tests.cpp
 )
 
+add_executable(cod_native_ads_acquisition_controller_tests
+    ../controller_native/ads_acquisition_controller_tests.cpp
+    ../controller_native/ads_acquisition_controller.cpp
+)
+
+add_executable(cod_native_bodylock_follow_controller_tests
+    ../controller_native/bodylock_follow_controller_tests.cpp
+    ../controller_native/bodylock_follow_controller.cpp
+)
+
+add_executable(cod_native_aim_dynamics_shaper_tests
+    ../controller_native/aim_dynamics_shaper_tests.cpp
+    ../controller_native/aim_dynamics_shaper.cpp
+)
+
+target_include_directories(cod_native_aim_dynamics_shaper_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+    ${CMAKE_CURRENT_SOURCE_DIR}/../controller_native
+)
+
+target_compile_definitions(cod_native_aim_dynamics_shaper_tests
+    PRIVATE
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
+)
+
+target_include_directories(cod_native_bodylock_follow_controller_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+    ${CMAKE_CURRENT_SOURCE_DIR}/../controller_native
+)
+
+target_compile_definitions(cod_native_bodylock_follow_controller_tests
+    PRIVATE
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
+)
+
+target_include_directories(cod_native_ads_acquisition_controller_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+    ${CMAKE_CURRENT_SOURCE_DIR}/../controller_native
+)
+
+target_compile_definitions(cod_native_ads_acquisition_controller_tests
+    PRIVATE
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
+)
+
 target_include_directories(cod_native_target_plan_publisher_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/..
