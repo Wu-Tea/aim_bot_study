@@ -203,14 +203,29 @@ The acceptance target is fewer stateful policy objects and fewer independently c
 - Plan publication uses double-buffered snapshots or an equivalent wait-free single-writer/multi-reader handoff.
 - Release benchmark budget: controller additions p95 under `0.05 ms`; no BGRA GPU p95 regression greater than 5%; telemetry drops remain zero in the 1M benchmark.
 
-## Telemetry and Complexity Budget
+## Telemetry, Fresh Session, and Complexity Budget
+
+High-rate telemetry is an explicit debug facility. It may be large because its purpose is to preserve enough evidence to reconstruct a live failure. Normal gameplay keeps the full trace disabled and emits only low-rate operational events.
+
+Every debug run owns one session directory:
+
+`runs/native_perf/sessions/<UTC timestamp>_<pid>_<nonce>/`
+
+The session contains `session.json`, rotated telemetry/aim trace files, and marker state. Startup writes the manifest first and then atomically publishes `runs/native_perf/fresh_session.json`, containing the session id and relative path. Analysis tools resolve this manifest instead of guessing the newest filename. A `.active` marker protects the current writer; clean shutdown atomically replaces it with `.closed`. A crashed session retains a stale `.active` marker, which cleanup may classify as abandoned only after verifying that its PID is gone and its age exceeds a safety threshold.
 
 Normal telemetry is event-driven plus bounded sampling:
 
 - events: target commit/switch/release/reacquire, mode transition, estimator reset/freeze, fire suppression reason change, saturation;
 - sampled metrics: plan age/confidence, error/error rate, intent state, learned response/confidence, requested/shaped/final output;
 - normal mode samples at a bounded rate (for example 20–50 Hz), full per-tick trace only in an explicit debug session;
-- rolling retention and file-size cap remain operational requirements.
+- rotation happens inside a session, so filenames never wrap over another run's evidence;
+- individual debug sessions may be large; retention is enforced between closed sessions, not by truncating the active session;
+- `fresh_session.json` and a configurable number of newest/pinned sessions are always protected;
+- cleanup supports dry-run/list and prune modes, reports bytes and session ids, and deletes whole closed sessions only;
+- automatic startup cleanup is optional and uses age, maximum closed-session count, and total-byte thresholds in that order;
+- manual cleanup can quickly remove all eligible old sessions without scanning JSONL contents because size and close time are stored in each manifest.
+
+The initial cleanup defaults are conservative: protect the fresh session, protect the newest two closed sessions, ignore sessions newer than 24 hours, and perform no deletion unless startup cleanup or an explicit prune command is enabled. Cleanup never deletes arbitrary files directly under the log root and never follows links outside the configured session root.
 
 Complexity is checked at review time:
 
@@ -269,10 +284,8 @@ No long-lived runtime flag or fallback keeps the duplicate production architectu
 - **Temporary dual-path complexity leaks into production:** development switch has a mandatory deletion task in the atomic cutover.
 - **Logs hide state contradictions:** emit one coordinator transition event with previous/new state and reason, rather than unrelated per-layer messages.
 
-## Open Review Decisions
-
-The architecture does not require weapon data or additional vision. Review should confirm only these bounded choices before the implementation plan is written:
+## Confirmed Review Decisions
 
 1. The new pipeline replaces the legacy stack atomically after benchmark gates; no permanent fallback flag.
 2. Online response memory lives only for the current process/continuous ADS context; it is not persisted by weapon identity.
-3. Normal telemetry is sampled and capped; full 1 kHz trace is opt-in debug behavior.
+3. Full high-rate telemetry is opt-in debug behavior and may be large. Fresh-session discovery is explicit, and old logs are cleaned safely at whole-session granularity.
