@@ -19,6 +19,7 @@
 namespace {
 
 using controller_native::partial_occlusion::HumanErrorKind;
+using controller_native::partial_occlusion::ManualProfileSample;
 using controller_native::partial_occlusion::PartialOcclusionMetrics;
 using controller_native::partial_occlusion::ScenarioCase;
 using controller_native::partial_occlusion::ScenarioKind;
@@ -173,39 +174,33 @@ controller_native::NativeControllerVisionState missing_state(
     return state;
 }
 
+ManualProfileSample ideal_manual_for(const ScenarioCase& value, const Vec2& error) {
+    return {
+        std::clamp(error.x / 150.0, -value.manual_magnitude_cap, value.manual_magnitude_cap),
+        std::clamp(-error.y / 150.0, -value.manual_magnitude_cap, value.manual_magnitude_cap),
+    };
+}
+
 Vec2 manual_for(
     const ScenarioCase& value,
     const Vec2& delayed_error,
+    const Vec2& historical_error,
     int elapsed_ms) {
-    Vec2 manual{
-        std::clamp(delayed_error.x / 150.0, -value.manual_magnitude_cap, value.manual_magnitude_cap),
-        std::clamp(-delayed_error.y / 150.0, -value.manual_magnitude_cap, value.manual_magnitude_cap),
-    };
+    const ManualProfileSample ideal = ideal_manual_for(value, delayed_error);
+    const ManualProfileSample historical = ideal_manual_for(value, historical_error);
+    const int error_start = value.full_observed_ms + value.partial_observed_ms;
+    const int recovery_start = error_start + value.observation_gap_ms;
+    const ManualProfileSample profiled = elapsed_ms < error_start
+        ? ideal
+        : controller_native::partial_occlusion::sample_manual_profile(
+            value,
+            historical,
+            ideal,
+            std::max(0, elapsed_ms - recovery_start));
+    Vec2 manual{profiled.x, profiled.y};
     const double drift = std::sin(elapsed_ms * 0.017) * 0.0118;
     manual.x = std::clamp(manual.x + drift, -value.manual_magnitude_cap, value.manual_magnitude_cap);
     manual.y = std::clamp(manual.y - drift, -value.manual_magnitude_cap, value.manual_magnitude_cap);
-
-    const int error_start = value.full_observed_ms + value.partial_observed_ms;
-    const int error_end = error_start + value.observation_gap_ms + value.error_hold_ms;
-    if (elapsed_ms < error_start || elapsed_ms >= error_end) return manual;
-    switch (value.error_kind) {
-        case HumanErrorKind::None:
-            break;
-        case HumanErrorKind::StaleDirection:
-            manual.x = -manual.x;
-            manual.y = -manual.y;
-            break;
-        case HumanErrorKind::WrongX:
-            manual.x = -manual.x;
-            break;
-        case HumanErrorKind::WrongY:
-            manual.y = -manual.y;
-            break;
-        case HumanErrorKind::CrossingInertia:
-            manual.x = value.direction_x * value.manual_magnitude_cap;
-            manual.y = -value.direction_y * value.manual_magnitude_cap * 0.55;
-            break;
-    }
     return manual;
 }
 
@@ -282,7 +277,12 @@ void accumulate_case(
         const Vec2 delayed_error = error_history.size() > static_cast<std::size_t>(delay_ticks)
             ? error_history[error_history.size() - delay_ticks - 1]
             : error_history.front();
-        const Vec2 manual = manual_for(value, delayed_error, tick);
+        const int error_start = value.full_observed_ms + value.partial_observed_ms;
+        const int historical_index = std::max(0, error_start - value.manual_reaction_ms - 1);
+        const Vec2 historical_error = error_history.size() > static_cast<std::size_t>(historical_index)
+            ? error_history[historical_index]
+            : error_history.front();
+        const Vec2 manual = manual_for(value, delayed_error, historical_error, tick);
         controller_native::PhysicalGamepadState physical;
         physical.connected = true;
         physical.left_trigger = 1.0f;
@@ -362,6 +362,55 @@ void accumulate_case(
     metrics.max_overshoot_y_px = std::max(metrics.max_overshoot_y_px, max_wrong_side_y);
 }
 
+void merge_metrics(PartialOcclusionMetrics& aggregate, const PartialOcclusionMetrics& value) {
+    aggregate.cases += value.cases;
+    aggregate.measured_frames += value.measured_frames;
+    aggregate.vision_samples += value.vision_samples;
+    aggregate.missing_vision_samples += value.missing_vision_samples;
+    aggregate.ads_snap_frames += value.ads_snap_frames;
+    aggregate.body_lock_frames += value.body_lock_frames;
+    aggregate.manual_frames += value.manual_frames;
+    aggregate.mode_changes += value.mode_changes;
+    aggregate.output_spikes += value.output_spikes;
+    aggregate.correct_manual_opposition_frames += value.correct_manual_opposition_frames;
+    aggregate.wrong_manual_high_force_frames += value.wrong_manual_high_force_frames;
+    aggregate.peak_error_px = std::max(aggregate.peak_error_px, value.peak_error_px);
+    aggregate.max_overshoot_x_px = std::max(
+        aggregate.max_overshoot_x_px, value.max_overshoot_x_px);
+    aggregate.max_overshoot_y_px = std::max(
+        aggregate.max_overshoot_y_px, value.max_overshoot_y_px);
+    aggregate.occlusion_peak_error_px = std::max(
+        aggregate.occlusion_peak_error_px, value.occlusion_peak_error_px);
+    aggregate.peak_geometry_bias_px = std::max(
+        aggregate.peak_geometry_bias_px, value.peak_geometry_bias_px);
+}
+
+void append_trace(CaseTrace& aggregate, const CaseTrace& value) {
+    aggregate.errors.insert(aggregate.errors.end(), value.errors.begin(), value.errors.end());
+    aggregate.output_deltas.insert(
+        aggregate.output_deltas.end(), value.output_deltas.begin(), value.output_deltas.end());
+    aggregate.recovery_ms.insert(
+        aggregate.recovery_ms.end(), value.recovery_ms.begin(), value.recovery_ms.end());
+    aggregate.final_error += value.final_error;
+}
+
+void finalize_metrics(
+    PartialOcclusionMetrics& metrics,
+    const CaseTrace& trace,
+    int case_count) {
+    if (!trace.errors.empty()) {
+        metrics.mean_error_px = std::accumulate(
+            trace.errors.begin(), trace.errors.end(), 0.0) / trace.errors.size();
+        metrics.p95_error_px = percentile(trace.errors, 0.95);
+    }
+    metrics.final_error_px = case_count <= 0 ? 0.0 : trace.final_error / case_count;
+    metrics.mean_recovery_ms = trace.recovery_ms.empty()
+        ? 0.0
+        : std::accumulate(trace.recovery_ms.begin(), trace.recovery_ms.end(), 0.0) /
+            trace.recovery_ms.size();
+    metrics.p95_output_delta = percentile(trace.output_deltas, 0.95);
+}
+
 ScenarioReport run_scenario(
     ScenarioKind kind,
     const controller_native::GamepadRuntimeConfig& config,
@@ -369,24 +418,24 @@ ScenarioReport run_scenario(
     const auto definition = controller_native::partial_occlusion::build_scenario(kind, seed);
     ScenarioReport report;
     report.name = definition.name;
-    report.metrics.cases = static_cast<int>(definition.cases.size());
     CaseTrace trace;
     for (const auto& value : definition.cases) {
-        accumulate_case(value, config, report.metrics, trace);
+        controller_native::partial_occlusion::CaseReport case_report;
+        case_report.name = controller_native::partial_occlusion::to_string(value.error_kind);
+        if (kind == ScenarioKind::Combat) {
+            case_report.name += "_" + std::to_string(value.index);
+        }
+        CaseTrace case_trace;
+        case_report.metrics.cases = 1;
+        accumulate_case(value, config, case_report.metrics, case_trace);
+        finalize_metrics(case_report.metrics, case_trace, 1);
+        case_report.score = controller_native::partial_occlusion::score_metrics(
+            case_report.metrics);
+        merge_metrics(report.metrics, case_report.metrics);
+        append_trace(trace, case_trace);
+        report.cases.push_back(case_report);
     }
-    if (!trace.errors.empty()) {
-        report.metrics.mean_error_px = std::accumulate(
-            trace.errors.begin(), trace.errors.end(), 0.0) / trace.errors.size();
-        report.metrics.p95_error_px = percentile(trace.errors, 0.95);
-    }
-    report.metrics.final_error_px = definition.cases.empty()
-        ? 0.0
-        : trace.final_error / definition.cases.size();
-    report.metrics.mean_recovery_ms = trace.recovery_ms.empty()
-        ? 0.0
-        : std::accumulate(trace.recovery_ms.begin(), trace.recovery_ms.end(), 0.0) /
-            trace.recovery_ms.size();
-    report.metrics.p95_output_delta = percentile(trace.output_deltas, 0.95);
+    finalize_metrics(report.metrics, trace, static_cast<int>(definition.cases.size()));
     report.score = controller_native::partial_occlusion::score_metrics(report.metrics);
     return report;
 }

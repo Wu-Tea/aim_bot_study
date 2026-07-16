@@ -35,6 +35,52 @@ std::string escape_json(const std::string& value) {
     return result;
 }
 
+void write_metrics_json(
+    std::ostringstream& out,
+    const PartialOcclusionMetrics& m,
+    const std::string& indent) {
+    out << indent << "{\n"
+        << indent << "  \"cases\": " << m.cases << ",\n"
+        << indent << "  \"measured_frames\": " << m.measured_frames << ",\n"
+        << indent << "  \"vision_samples\": " << m.vision_samples << ",\n"
+        << indent << "  \"missing_vision_samples\": " << m.missing_vision_samples << ",\n"
+        << indent << "  \"ads_snap_frames\": " << m.ads_snap_frames << ",\n"
+        << indent << "  \"body_lock_frames\": " << m.body_lock_frames << ",\n"
+        << indent << "  \"manual_frames\": " << m.manual_frames << ",\n"
+        << indent << "  \"mode_changes\": " << m.mode_changes << ",\n"
+        << indent << "  \"output_spikes\": " << m.output_spikes << ",\n"
+        << indent << "  \"correct_manual_opposition_frames\": "
+        << m.correct_manual_opposition_frames << ",\n"
+        << indent << "  \"wrong_manual_high_force_frames\": "
+        << m.wrong_manual_high_force_frames << ",\n"
+        << indent << "  \"mean_error_px\": " << m.mean_error_px << ",\n"
+        << indent << "  \"p95_error_px\": " << m.p95_error_px << ",\n"
+        << indent << "  \"final_error_px\": " << m.final_error_px << ",\n"
+        << indent << "  \"peak_error_px\": " << m.peak_error_px << ",\n"
+        << indent << "  \"max_overshoot_x_px\": " << m.max_overshoot_x_px << ",\n"
+        << indent << "  \"max_overshoot_y_px\": " << m.max_overshoot_y_px << ",\n"
+        << indent << "  \"occlusion_peak_error_px\": " << m.occlusion_peak_error_px << ",\n"
+        << indent << "  \"mean_recovery_ms\": " << m.mean_recovery_ms << ",\n"
+        << indent << "  \"p95_output_delta\": " << m.p95_output_delta << ",\n"
+        << indent << "  \"peak_geometry_bias_px\": " << m.peak_geometry_bias_px << "\n"
+        << indent << "}";
+}
+
+void write_score_json(
+    std::ostringstream& out,
+    const PartialOcclusionScore& s,
+    const std::string& indent) {
+    out << indent << "{\n"
+        << indent << "  \"formula_version\": " << s.formula_version << ",\n"
+        << indent << "  \"tracking\": " << s.tracking << ",\n"
+        << indent << "  \"overshoot\": " << s.overshoot << ",\n"
+        << indent << "  \"recovery\": " << s.recovery << ",\n"
+        << indent << "  \"smoothness\": " << s.smoothness << ",\n"
+        << indent << "  \"intent\": " << s.intent << ",\n"
+        << indent << "  \"overall\": " << s.overall << "\n"
+        << indent << "}";
+}
+
 }  // namespace
 
 ScenarioDefinition build_scenario(ScenarioKind kind, std::uint32_t seed) {
@@ -73,6 +119,46 @@ ScenarioDefinition build_scenario(ScenarioKind kind, std::uint32_t seed) {
         result.cases.push_back(value);
     }
     return result;
+}
+
+ManualProfileSample sample_manual_profile(
+    const ScenarioCase& value,
+    ManualProfileSample historical,
+    ManualProfileSample ideal,
+    int elapsed_in_error_ms) noexcept {
+    if (value.error_kind == HumanErrorKind::None || value.error_hold_ms <= 0) {
+        return ideal;
+    }
+    ManualProfileSample onset = ideal;
+    const auto wrong_way = [&](double axis) {
+        const double magnitude = std::min(
+            value.manual_magnitude_cap,
+            std::max(0.28, std::fabs(axis)));
+        return axis == 0.0 ? 0.0 : -std::copysign(magnitude, axis);
+    };
+    switch (value.error_kind) {
+        case HumanErrorKind::None:
+            break;
+        case HumanErrorKind::StaleDirection:
+        case HumanErrorKind::CrossingInertia:
+            onset = historical;
+            break;
+        case HumanErrorKind::WrongX:
+            onset.x = wrong_way(ideal.x);
+            break;
+        case HumanErrorKind::WrongY:
+            onset.y = wrong_way(ideal.y);
+            break;
+    }
+    const double linear = std::clamp(
+        static_cast<double>(elapsed_in_error_ms) / value.error_hold_ms,
+        0.0,
+        1.0);
+    const double blend = linear * linear * (3.0 - 2.0 * linear);
+    return {
+        onset.x + (ideal.x - onset.x) * blend,
+        onset.y + (ideal.y - onset.y) * blend,
+    };
 }
 
 double truth_chest_y_px(
@@ -146,42 +232,24 @@ std::string render_report_json(
         << "  \"scenarios\": [\n";
     for (std::size_t index = 0; index < scenarios.size(); ++index) {
         const auto& report = scenarios[index];
-        const auto& m = report.metrics;
-        const auto& s = report.score;
         out << "    {\n"
             << "      \"name\": \"" << escape_json(report.name) << "\",\n"
-            << "      \"metrics\": {\n"
-            << "        \"cases\": " << m.cases << ",\n"
-            << "        \"measured_frames\": " << m.measured_frames << ",\n"
-            << "        \"vision_samples\": " << m.vision_samples << ",\n"
-            << "        \"missing_vision_samples\": " << m.missing_vision_samples << ",\n"
-            << "        \"ads_snap_frames\": " << m.ads_snap_frames << ",\n"
-            << "        \"body_lock_frames\": " << m.body_lock_frames << ",\n"
-            << "        \"manual_frames\": " << m.manual_frames << ",\n"
-            << "        \"mode_changes\": " << m.mode_changes << ",\n"
-            << "        \"output_spikes\": " << m.output_spikes << ",\n"
-            << "        \"correct_manual_opposition_frames\": " << m.correct_manual_opposition_frames << ",\n"
-            << "        \"wrong_manual_high_force_frames\": " << m.wrong_manual_high_force_frames << ",\n"
-            << "        \"mean_error_px\": " << m.mean_error_px << ",\n"
-            << "        \"p95_error_px\": " << m.p95_error_px << ",\n"
-            << "        \"final_error_px\": " << m.final_error_px << ",\n"
-            << "        \"peak_error_px\": " << m.peak_error_px << ",\n"
-            << "        \"max_overshoot_x_px\": " << m.max_overshoot_x_px << ",\n"
-            << "        \"max_overshoot_y_px\": " << m.max_overshoot_y_px << ",\n"
-            << "        \"occlusion_peak_error_px\": " << m.occlusion_peak_error_px << ",\n"
-            << "        \"mean_recovery_ms\": " << m.mean_recovery_ms << ",\n"
-            << "        \"p95_output_delta\": " << m.p95_output_delta << ",\n"
-            << "        \"peak_geometry_bias_px\": " << m.peak_geometry_bias_px << "\n"
-            << "      },\n"
-            << "      \"score\": {\n"
-            << "        \"formula_version\": " << s.formula_version << ",\n"
-            << "        \"tracking\": " << s.tracking << ",\n"
-            << "        \"overshoot\": " << s.overshoot << ",\n"
-            << "        \"recovery\": " << s.recovery << ",\n"
-            << "        \"smoothness\": " << s.smoothness << ",\n"
-            << "        \"intent\": " << s.intent << ",\n"
-            << "        \"overall\": " << s.overall << "\n"
-            << "      }\n"
+            << "      \"metrics\": ";
+        write_metrics_json(out, report.metrics, "      ");
+        out << ",\n      \"score\": ";
+        write_score_json(out, report.score, "      ");
+        out << ",\n      \"cases\": [\n";
+        for (std::size_t case_index = 0; case_index < report.cases.size(); ++case_index) {
+            const auto& case_report = report.cases[case_index];
+            out << "        {\n"
+                << "          \"name\": \"" << escape_json(case_report.name) << "\",\n"
+                << "          \"metrics\": ";
+            write_metrics_json(out, case_report.metrics, "          ");
+            out << ",\n          \"score\": ";
+            write_score_json(out, case_report.score, "          ");
+            out << "\n        }" << (case_index + 1 < report.cases.size() ? "," : "") << "\n";
+        }
+        out << "      ]\n"
             << "    }" << (index + 1 < scenarios.size() ? "," : "") << "\n";
     }
     out << "  ]\n}\n";

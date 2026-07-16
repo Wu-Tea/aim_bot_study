@@ -56,6 +56,11 @@ struct ScenarioDefinition {
     std::vector<ScenarioCase> cases;
 };
 
+struct ManualProfileSample {
+    double x = 0.0;
+    double y = 0.0;
+};
+
 struct PartialOcclusionMetrics {
     int cases = 0;
     int measured_frames = 0;
@@ -104,13 +109,26 @@ struct BenchmarkMetadata {
     double bodylock_tolerance_px = 0.0;
 };
 
-struct ScenarioReport {
+struct CaseReport {
     std::string name;
     PartialOcclusionMetrics metrics;
     PartialOcclusionScore score;
 };
 
+struct ScenarioReport {
+    std::string name;
+    PartialOcclusionMetrics metrics;
+    PartialOcclusionScore score;
+    std::vector<CaseReport> cases;
+};
+
 ScenarioDefinition build_scenario(ScenarioKind kind, std::uint32_t seed = 1337);
+
+ManualProfileSample sample_manual_profile(
+    const ScenarioCase& value,
+    ManualProfileSample historical,
+    ManualProfileSample ideal,
+    int elapsed_in_error_ms) noexcept;
 
 double truth_chest_y_px(
     double full_body_top_y_px,

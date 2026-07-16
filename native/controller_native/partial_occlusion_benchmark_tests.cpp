@@ -9,6 +9,7 @@
 namespace {
 
 using controller_native::partial_occlusion::HumanErrorKind;
+using controller_native::partial_occlusion::ManualProfileSample;
 using controller_native::partial_occlusion::ScenarioKind;
 
 void expect_true(bool value, const char* message) {
@@ -62,6 +63,64 @@ void test_human_error_schedule_covers_all_classic_errors() {
     expect_true(errors.count(HumanErrorKind::WrongX) == 1, "wrong X case");
     expect_true(errors.count(HumanErrorKind::WrongY) == 1, "wrong Y case");
     expect_true(errors.count(HumanErrorKind::CrossingInertia) == 1, "crossing inertia case");
+}
+
+void test_stale_direction_holds_history_before_decaying_to_ideal() {
+    const auto scenario = controller_native::partial_occlusion::build_scenario(
+        ScenarioKind::HumanErrors,
+        1337);
+    const auto& value = scenario.cases[0];
+    const ManualProfileSample historical{0.42, -0.18};
+    const ManualProfileSample ideal{-0.20, 0.30};
+    const auto onset = controller_native::partial_occlusion::sample_manual_profile(
+        value, historical, ideal, 0);
+    const auto recovered = controller_native::partial_occlusion::sample_manual_profile(
+        value, historical, ideal, value.error_hold_ms);
+
+    expect_near(onset.x, historical.x, 0.0001, "stale X must hold historical input");
+    expect_near(onset.y, historical.y, 0.0001, "stale Y must hold historical input");
+    expect_near(recovered.x, ideal.x, 0.0001, "stale X must decay to ideal");
+    expect_near(recovered.y, ideal.y, 0.0001, "stale Y must decay to ideal");
+}
+
+void test_wrong_axis_profiles_preserve_the_unaffected_axis() {
+    const auto scenario = controller_native::partial_occlusion::build_scenario(
+        ScenarioKind::HumanErrors,
+        1337);
+    const ManualProfileSample historical{0.35, 0.25};
+    const ManualProfileSample ideal{0.20, -0.30};
+    const auto wrong_x = controller_native::partial_occlusion::sample_manual_profile(
+        scenario.cases[1], historical, ideal, 0);
+    const auto wrong_y = controller_native::partial_occlusion::sample_manual_profile(
+        scenario.cases[2], historical, ideal, 0);
+
+    expect_true(wrong_x.x * ideal.x < 0.0, "wrong-X must reverse only X");
+    expect_true(std::fabs(wrong_x.x) >= 0.28, "wrong-X must cover observed P25 magnitude");
+    expect_near(wrong_x.y, ideal.y, 0.0001, "wrong-X must preserve Y");
+    expect_near(wrong_y.x, ideal.x, 0.0001, "wrong-Y must preserve X");
+    expect_true(wrong_y.y * ideal.y < 0.0, "wrong-Y must reverse only Y");
+    expect_true(std::fabs(wrong_y.y) >= 0.28, "wrong-Y must cover observed P25 magnitude");
+}
+
+void test_crossing_inertia_releases_smoothly() {
+    const auto scenario = controller_native::partial_occlusion::build_scenario(
+        ScenarioKind::HumanErrors,
+        1337);
+    const auto& value = scenario.cases[3];
+    const ManualProfileSample historical{0.55, -0.25};
+    const ManualProfileSample ideal{-0.20, 0.15};
+    const auto onset = controller_native::partial_occlusion::sample_manual_profile(
+        value, historical, ideal, 0);
+    const auto middle = controller_native::partial_occlusion::sample_manual_profile(
+        value, historical, ideal, value.error_hold_ms / 2);
+    const auto recovered = controller_native::partial_occlusion::sample_manual_profile(
+        value, historical, ideal, value.error_hold_ms);
+
+    expect_near(onset.x, historical.x, 0.0001, "crossing must start from historical X");
+    expect_true(middle.x < onset.x && middle.x > recovered.x,
+                "crossing X must decay continuously");
+    expect_near(recovered.x, ideal.x, 0.0001, "crossing X must recover to ideal");
+    expect_near(recovered.y, ideal.y, 0.0001, "crossing Y must recover to ideal");
 }
 
 void test_clipped_observation_does_not_move_world_truth() {
@@ -142,6 +201,11 @@ void test_json_report_contains_provenance_metrics_and_scores() {
     report.metrics.measured_frames = 100;
     report.metrics.mean_error_px = 12.5;
     report.score = controller_native::partial_occlusion::score_metrics(report.metrics);
+    controller_native::partial_occlusion::CaseReport case_report;
+    case_report.name = "wrong_x";
+    case_report.metrics.mean_error_px = 18.0;
+    case_report.score = controller_native::partial_occlusion::score_metrics(case_report.metrics);
+    report.cases.push_back(case_report);
 
     const std::string json = controller_native::partial_occlusion::render_report_json(
         metadata,
@@ -151,6 +215,8 @@ void test_json_report_contains_provenance_metrics_and_scores() {
     expect_true(json.find("\"mean_error_px\": 12.500000") != std::string::npos, "JSON raw metric");
     expect_true(json.find("\"formula_version\": 1") != std::string::npos, "JSON score formula");
     expect_true(json.find("\"overall\"") != std::string::npos, "JSON overall score");
+    expect_true(json.find("\"cases\"") != std::string::npos, "JSON case array");
+    expect_true(json.find("\"wrong_x\"") != std::string::npos, "JSON case name");
 }
 
 }  // namespace
@@ -158,6 +224,9 @@ void test_json_report_contains_provenance_metrics_and_scores() {
 int main() {
     test_combat_schedule_uses_log_derived_occlusion_envelope();
     test_human_error_schedule_covers_all_classic_errors();
+    test_stale_direction_holds_history_before_decaying_to_ideal();
+    test_wrong_axis_profiles_preserve_the_unaffected_axis();
+    test_crossing_inertia_releases_smoothly();
     test_clipped_observation_does_not_move_world_truth();
     test_perfect_metrics_score_one_hundred();
     test_degraded_metrics_reduce_every_component();
