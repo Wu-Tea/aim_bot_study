@@ -63,6 +63,18 @@ void test_human_error_schedule_covers_all_classic_errors() {
     expect_true(errors.count(HumanErrorKind::WrongX) == 1, "wrong X case");
     expect_true(errors.count(HumanErrorKind::WrongY) == 1, "wrong Y case");
     expect_true(errors.count(HumanErrorKind::CrossingInertia) == 1, "crossing inertia case");
+    expect_true(scenario.cases[1].error_onset_ms < scenario.cases[1].full_observed_ms,
+                "wrong-X must be exercised while vision is stable");
+    expect_true(scenario.cases[2].error_onset_ms < scenario.cases[2].full_observed_ms,
+                "wrong-Y must be exercised while vision is stable");
+    expect_true(scenario.cases[0].error_onset_ms < 0 && scenario.cases[3].error_onset_ms < 0,
+                "stale/crossing errors must remain tied to occlusion");
+    expect_true(scenario.cases[1].manual_magnitude_cap < 0.45 &&
+                scenario.cases[2].manual_magnitude_cap < 0.45,
+                "wrong-axis mistakes must stay below explicit escape authority");
+    expect_true(scenario.cases[0].manual_magnitude_cap > 0.45 &&
+                scenario.cases[3].manual_magnitude_cap > 0.45,
+                "stale/crossing cases must retain strong takeover coverage");
 }
 
 void test_stale_direction_holds_history_before_decaying_to_ideal() {

@@ -14,9 +14,7 @@ enum class Axis : unsigned char {
 
 enum class AxisDecisionReason : unsigned char {
     Neutral,
-    HelpfulResidual,
-    ProbableWrongWay,
-    CrossingLimit,
+    ConfirmedWrongWay,
     EvidenceAmbiguous,
     ManualEscape,
 };
@@ -24,7 +22,6 @@ enum class AxisDecisionReason : unsigned char {
 struct AxisIntentInput {
     float error = 0.0f;
     float error_rate = 0.0f;
-    float requested_assist = 0.0f;
     float manual = 0.0f;
     float manual_confidence = 0.0f;
     float reliability = 0.0f;
@@ -37,10 +34,11 @@ struct AxisIntentInput {
 };
 
 struct AxisDecision {
-    float assist_output = 0.0f;
-    float assist_scale = 1.0f;
-    float wrong_way_budget = 1.0f;
-    float divergence_risk = 0.0f;
+    float manual_yield_confidence = 0.0f;
+    bool intervention = false;
+    bool wrong_way = false;
+    bool evidence_stable = false;
+    bool error_worsening = false;
     AxisDecisionReason reason = AxisDecisionReason::Neutral;
 };
 
@@ -52,7 +50,8 @@ public:
 private:
     struct AxisState {
         float previous_error = 0.0f;
-        float risk = 0.0f;
+        float geometry_cooldown_seconds = 0.0f;
+        float intervention_hold_seconds = 0.0f;
         std::uint64_t target_id = 0;
         bool initialized = false;
     };

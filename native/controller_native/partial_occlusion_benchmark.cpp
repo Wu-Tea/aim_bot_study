@@ -53,6 +53,10 @@ void write_metrics_json(
         << m.correct_manual_opposition_frames << ",\n"
         << indent << "  \"wrong_manual_high_force_frames\": "
         << m.wrong_manual_high_force_frames << ",\n"
+        << indent << "  \"axis_intervention_x_frames\": "
+        << m.axis_intervention_x_frames << ",\n"
+        << indent << "  \"axis_intervention_y_frames\": "
+        << m.axis_intervention_y_frames << ",\n"
         << indent << "  \"mean_error_px\": " << m.mean_error_px << ",\n"
         << indent << "  \"p95_error_px\": " << m.p95_error_px << ",\n"
         << indent << "  \"final_error_px\": " << m.final_error_px << ",\n"
@@ -112,7 +116,17 @@ ScenarioDefinition build_scenario(ScenarioKind kind, std::uint32_t seed) {
             ? HumanErrorKind::None
             : kErrors[index];
         value.error_hold_ms = kind == ScenarioKind::Combat ? 0 : kErrorHoldMs[index];
+        if (kind == ScenarioKind::HumanErrors &&
+            (value.error_kind == HumanErrorKind::WrongX ||
+             value.error_kind == HumanErrorKind::WrongY)) {
+            value.error_onset_ms = 70;
+        }
         value.manual_magnitude_cap = kind == ScenarioKind::Combat ? 0.45 : 0.60;
+        if (kind == ScenarioKind::HumanErrors &&
+            (value.error_kind == HumanErrorKind::WrongX ||
+             value.error_kind == HumanErrorKind::WrongY)) {
+            value.manual_magnitude_cap = 0.40;
+        }
         value.target_velocity_x_px_per_sec = value.direction_x * (205.0 + index * 18.0);
         value.target_velocity_y_px_per_sec = value.direction_y * (105.0 + index * 15.0);
         value.left_stick_x = value.direction_x * (index % 2 == 0 ? -0.42 : 0.42);

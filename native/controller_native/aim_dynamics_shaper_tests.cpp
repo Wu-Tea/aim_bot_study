@@ -59,6 +59,7 @@ void test_manual_opposition_reduces_slew_target() {
     pipeline_contract::IntentState correction{};
     correction.filtered_right.x = -0.5f;
     correction.right_confidence = 1.0f;
+    correction.right_x.confidence = 1.0f;
     const auto neutral = neutral_shaper.shape({1.0f, 0.0f}, {}, plan, 0.05f);
     const auto opposed = manual_shaper.shape({1.0f, 0.0f}, correction, plan, 0.05f);
     require_true(opposed.x < neutral.x * 0.6f,
@@ -72,6 +73,7 @@ void test_helpful_manual_input_reduces_but_keeps_assist() {
     pipeline_contract::IntentState correction{};
     correction.filtered_right.x = 0.5f;
     correction.right_confidence = 1.0f;
+    correction.right_x.confidence = 1.0f;
     pipeline_contract::Vec2f neutral{};
     pipeline_contract::Vec2f cooperative{};
     for (int i = 0; i < 12; ++i) {

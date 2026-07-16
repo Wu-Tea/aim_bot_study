@@ -319,3 +319,41 @@ Additional acceptance results:
 - stationary and moving ADS-to-BodyLock handoff overshoot are both `0 px`; the
   maximum handoff AI delta is `0.0104769`;
 - the schema-3 fixed gate reports `defect_count = 0`.
+
+## Per-Axis Wrong-Way Intervention (2026-07-17)
+
+The partial-occlusion benchmark now separates two kinds of human input:
+
+- `wrong_x` and `wrong_y` occur while the target is stably observed and remain
+  below the configured `0.45` explicit-escape threshold;
+- stale-direction and crossing-inertia remain coupled to observation gaps and
+  retain inputs above `0.45`, so the controller must preserve user takeover.
+
+The fixture also keeps frame sequence and selected-target identity separate.
+Previously it used the changing frame sequence as `selected_observation_id`,
+which did not represent a persistent tracked target. JSON reports now record
+per-axis intervention-frame counts.
+
+The accepted controller path is intervention-only. Normal/helpful/ambiguous
+input retains the legacy shared confidence and damping path exactly. On a
+stable Observed frame, only an axis that is both wrong-way and worsening may
+stop suppressing AI. Strong escape, target change, geometry-size change,
+Reacquiring, None, and low reliability clear the decision. A confirmed result
+bridges at most 12 ms across ordinary 100 Hz vision / 1000 Hz controller
+inter-frame Coasting; it cannot renew without another Observed confirmation.
+
+Seed `1337`, current `config.toml`:
+
+| Scenario / case | Disabled baseline | Accepted | Mean error baseline -> accepted | Intervention X / Y |
+| --- | ---: | ---: | ---: | ---: |
+| Normal combat aggregate | 71.293475 | 71.293475 | 29.108895 -> 29.108895 px | 0 / 0 |
+| Human-error aggregate | 68.860482 | 69.253609 | 32.104730 -> 30.746243 px | 38 / 46 |
+| `wrong_x` | 71.204014 | 72.557497 | 41.587511 -> 37.376675 px | 38 / 0 |
+| `wrong_y` | 65.276753 | 65.518971 | 38.861727 -> 37.471628 px | 0 / 46 |
+| stale-direction | 74.689634 | 74.689634 | 25.796849 -> 25.796849 px | 0 / 0 |
+| crossing-inertia | 77.967448 | 77.967448 | 22.879050 -> 22.879050 px | 0 / 0 |
+
+Both aggregates retain zero X/Y overshoot. The accepted artifact is
+`runs/benchmarks/axis_intervention_accepted_seed1337.json`; its strict
+same-scenario control is
+`runs/benchmarks/axis_intervention_disabled_baseline_seed1337.json`.

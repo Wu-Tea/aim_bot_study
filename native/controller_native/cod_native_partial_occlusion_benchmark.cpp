@@ -98,7 +98,7 @@ controller_native::NativeControllerVisionState observed_state(
     double& geometry_bias) {
     controller_native::NativeControllerVisionState state;
     state.vision_sequence = sequence;
-    state.selected_observation_id = sequence;
+    state.selected_observation_id = 1;
     state.selected_track_id = 1;
     state.selected_backing_frame_id = sequence;
     state.authority_decision_valid = true;
@@ -188,8 +188,11 @@ Vec2 manual_for(
     int elapsed_ms) {
     const ManualProfileSample ideal = ideal_manual_for(value, delayed_error);
     const ManualProfileSample historical = ideal_manual_for(value, historical_error);
-    const int error_start = value.full_observed_ms + value.partial_observed_ms;
-    const int recovery_start = error_start + value.observation_gap_ms;
+    const int occlusion_error_start = value.full_observed_ms + value.partial_observed_ms;
+    const int error_start = value.error_onset_ms >= 0
+        ? value.error_onset_ms : occlusion_error_start;
+    const int recovery_start = value.error_onset_ms >= 0
+        ? error_start : error_start + value.observation_gap_ms;
     const ManualProfileSample profiled = elapsed_ms < error_start
         ? ideal
         : controller_native::partial_occlusion::sample_manual_profile(
@@ -292,6 +295,12 @@ void accumulate_case(
         controller.build_output(physical);
 
         const auto& components = controller.last_output_components();
+        if (components.axis_intent_intervention.x > 0.5f) {
+            ++metrics.axis_intervention_x_frames;
+        }
+        if (components.axis_intent_intervention.y > 0.5f) {
+            ++metrics.axis_intervention_y_frames;
+        }
         const Vec2 output{components.final_stick.x, components.final_stick.y};
         const Vec2 ai{components.ai_aim_stick.x, components.ai_aim_stick.y};
         reticle.x += output.x * kReticleSpeedPxPerSecond * kDt;
@@ -374,6 +383,8 @@ void merge_metrics(PartialOcclusionMetrics& aggregate, const PartialOcclusionMet
     aggregate.output_spikes += value.output_spikes;
     aggregate.correct_manual_opposition_frames += value.correct_manual_opposition_frames;
     aggregate.wrong_manual_high_force_frames += value.wrong_manual_high_force_frames;
+    aggregate.axis_intervention_x_frames += value.axis_intervention_x_frames;
+    aggregate.axis_intervention_y_frames += value.axis_intervention_y_frames;
     aggregate.peak_error_px = std::max(aggregate.peak_error_px, value.peak_error_px);
     aggregate.max_overshoot_x_px = std::max(
         aggregate.max_overshoot_x_px, value.max_overshoot_x_px);

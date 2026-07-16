@@ -17,6 +17,10 @@ struct NativeControllerOutputComponents {
     common_native::Vec2f output_validation_stick;
     common_native::Vec2f requested_assist_stick;
     common_native::Vec2f shaped_assist_stick;
+    common_native::Vec2f axis_intent_intervention;
+    common_native::Vec2f axis_intent_wrong_way;
+    common_native::Vec2f axis_intent_evidence_stable;
+    common_native::Vec2f axis_intent_error_worsening;
     common_native::Vec2f dynamic_adjustment_stick;
     common_native::Vec2f post_ai_stick;
     common_native::Vec2f post_dynamic_stick;

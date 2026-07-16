@@ -94,6 +94,7 @@ void NativeGamepadController::reset() {
     intent_filter_.reset();
     target_coordinator_.reset();
     dynamics_shaper_.reset();
+    axis_intent_arbiter_.reset();
     recoil_.reset();
     aim_activation_tracker_.reset();
     auto_fire_gate_.reset();
@@ -104,6 +105,8 @@ void NativeGamepadController::reset() {
     ads_epoch_ = 0;
     legacy_vision_sequence_ = 0;
     last_tick_seconds_ = 0.0;
+    previous_plan_normalized_size_ = 0.0f;
+    previous_plan_target_id_ = 0;
     last_pipeline_traces_.clear();
     last_tracker_motion_output_ = {};
     last_output_components_ = {};
@@ -287,6 +290,7 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
     aiming_ = aim_activation_tracker_.update(physical, config_.rb_counts_as_aiming);
     if (aiming_ && !previous_aiming_) {
         target_coordinator_.begin_ads_epoch(++ads_epoch_);
+        axis_intent_arbiter_.reset();
         auto_fire_gate_.reset_readiness();
     }
     previous_aiming_ = aiming_;
@@ -309,23 +313,73 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
     last_frame_vision_state_ = vision_state_from_plan(plan, now);
     last_ai_aim_mode_ = mode_name(plan.mode);
 
+    auto controller_intent = intent;
+    controller_intent.right_x.confidence = intent.right_confidence;
+    controller_intent.right_y.confidence = intent.right_confidence;
+    // TargetPlan does not expose observation innovation. Predicted displacement is
+    // target motion, not innovation, so it must not be used as a stability gate.
+    const float target_innovation = 0.0f;
+    const float normalized_size_change =
+        previous_plan_target_id_ == plan.target_id && plan.target_id != 0
+        ? std::fabs(plan.normalized_size - previous_plan_normalized_size_)
+        : 0.0f;
+    auto arbitrate_axis = [&](Axis axis, float error, float error_rate,
+                              float manual, float axis_confidence) {
+        AxisIntentInput input{};
+        input.error = error;
+        input.error_rate = error_rate;
+        input.manual = manual;
+        input.manual_confidence = axis_confidence;
+        input.reliability = plan.reliability;
+        input.target_innovation_px = target_innovation;
+        input.normalized_size_change = normalized_size_change;
+        input.manual_escape_threshold =
+            config_.ai_aim.body_lock_manual_escape_input_threshold;
+        input.target_id = plan.target_id;
+        input.lifecycle = plan.lifecycle;
+        input.mode = plan.mode;
+        return axis_intent_arbiter_.update(axis, input, dt);
+    };
+    const auto x_decision = arbitrate_axis(
+        Axis::X, plan.error_px.x, plan.error_rate_px_per_sec.x,
+        intent.filtered_right.x, intent.right_x.confidence);
+    const auto y_decision = arbitrate_axis(
+        Axis::Y, -plan.error_px.y, -plan.error_rate_px_per_sec.y,
+        intent.filtered_right.y, intent.right_y.confidence);
+    if (x_decision.intervention) controller_intent.right_x.confidence = 0.0f;
+    if (y_decision.intervention) controller_intent.right_y.confidence = 0.0f;
+    previous_plan_normalized_size_ = plan.normalized_size;
+    previous_plan_target_id_ = plan.target_id;
+
     pipeline_contract::Vec2f requested{};
     if (plan.mode == pipeline_contract::ControlMode::AdsAcquire) {
-        requested = ads_controller_.compute(plan, intent, dt);
+        requested = ads_controller_.compute(plan, controller_intent, dt);
     } else if (plan.mode == pipeline_contract::ControlMode::BodyLockFollow) {
-        requested = bodylock_controller_.compute(plan, intent, dt);
+        requested = bodylock_controller_.compute(plan, controller_intent, dt);
     }
     pipeline_contract::Vec2f shaped{};
     if (config_.aim_assist_dynamics.enabled ||
         plan.lifecycle == pipeline_contract::TargetLifecycle::Coasting ||
         plan.lifecycle == pipeline_contract::TargetLifecycle::None) {
-        shaped = dynamics_shaper_.shape(requested, intent, plan, dt);
+        shaped = dynamics_shaper_.shape(requested, controller_intent, plan, dt);
     } else {
         dynamics_shaper_.adopt(requested);
         shaped = requested;
     }
     components.requested_assist_stick = {requested.x, requested.y};
     components.shaped_assist_stick = {shaped.x, shaped.y};
+    components.axis_intent_intervention = {
+        x_decision.intervention ? 1.0f : 0.0f,
+        y_decision.intervention ? 1.0f : 0.0f};
+    components.axis_intent_wrong_way = {
+        x_decision.wrong_way ? 1.0f : 0.0f,
+        y_decision.wrong_way ? 1.0f : 0.0f};
+    components.axis_intent_evidence_stable = {
+        x_decision.evidence_stable ? 1.0f : 0.0f,
+        y_decision.evidence_stable ? 1.0f : 0.0f};
+    components.axis_intent_error_worsening = {
+        x_decision.error_worsening ? 1.0f : 0.0f,
+        y_decision.error_worsening ? 1.0f : 0.0f};
     components.ai_aim_stick = components.shaped_assist_stick;
     output.right_x = clamp_unit(physical.right_x + shaped.x);
     output.right_y = clamp_unit(physical.right_y + shaped.y);

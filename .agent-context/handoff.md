@@ -252,3 +252,26 @@ The main architecture direction is now authority management: make vision provide
   chase cases still show BodyLock dropout/chatter and vertical manual opposition.
   Use the new artifact for the next tuning decision; do not compare raw scores against
   old silent-override files.
+
+## 2026-07-17 Per-axis wrong-way intervention
+
+- Implementation branch/worktree: `codex/ads-occlusion-benchmark` at
+  `.worktrees/ads-occlusion-benchmark`.
+- Normal/helpful/manual-escape behavior remains on the existing controller path.
+  A small `AxisIntentArbiter` only removes manual-yield attenuation on the one axis
+  confirmed wrong-way and worsening from stable Observed evidence.
+- Confirmed evidence bridges at most 12 ms across ordinary inter-frame Coasting.
+  Reacquiring/None, low reliability, target identity changes, size changes, and
+  manual input at or above `0.45` clear or block intervention.
+- The benchmark now separates stable-vision wrong-axis mistakes below escape from
+  strong stale/crossing takeover during occlusion, records X/Y intervention frames,
+  and no longer uses frame sequence as selected-target identity.
+- Seed 1337 strict comparison: normal combat is bit-identical at `71.293475` with
+  `0/0` intervention frames. Human-error score is `68.860482 -> 69.253609`;
+  `wrong_x` mean error is `41.587511 -> 37.376675`, and `wrong_y` is
+  `38.861727 -> 37.471628`. Stale/crossing cases are unchanged and all cases retain
+  zero X/Y overshoot.
+- Artifacts: `runs/benchmarks/axis_intervention_disabled_baseline_seed1337.json`
+  and `runs/benchmarks/axis_intervention_accepted_seed1337.json`.
+- Focused Intent/ADS/BodyLock/dynamics/arbiter/benchmark/controller tests pass;
+  Release runtime builds at `D:/codex-build/pob/Release/cod_native_runtime.exe`.

@@ -1311,6 +1311,7 @@ set(COD_TARGET_PLAN_RUNTIME_SOURCES
     ../controller_native/ads_acquisition_controller.cpp
     ../controller_native/bodylock_follow_controller.cpp
     ../controller_native/aim_dynamics_shaper.cpp
+    ../controller_native/axis_intent_arbiter.cpp
 )
 
 foreach(COD_TARGET

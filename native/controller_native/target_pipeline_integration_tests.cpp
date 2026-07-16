@@ -163,6 +163,32 @@ void test_opposing_manual_intent_yields_without_braking_bodylock() {
     require(conflict_ticks < 16, "assist fought strong opposing manual intent too long");
 }
 
+void test_only_worsening_wrong_way_axis_stops_suppressing_assist() {
+    double now = 35.0;
+    NativeGamepadController controller(config(), [&now] { return now; });
+    auto physical = aiming();
+    physical.right_x = -0.30f;
+    physical.right_y = 0.20f;
+
+    bool intervened_x = false;
+    bool intervened_y = false;
+    for (std::uint64_t frame = 1; frame <= 6; ++frame) {
+        const float growing_x_error = 10.0f + static_cast<float>(frame) * 3.0f;
+        controller.submit_vision_snapshot(
+            target(frame, now, growing_x_error, -20.0f));
+        controller.build_output(physical);
+        const auto& components = controller.last_output_components();
+        intervened_x = intervened_x || components.axis_intent_intervention.x > 0.5f;
+        intervened_y = intervened_y || components.axis_intent_intervention.y > 0.5f;
+        now += 0.010;
+    }
+
+    require(intervened_x,
+            "worsening wrong-way X input did not stop suppressing assist");
+    require(!intervened_y,
+            "helpful/non-worsening Y input was incorrectly overridden");
+}
+
 void test_ads_and_bodylock_share_one_resolved_target_geometry() {
     double now = 40.0;
     auto controller_config = config();
@@ -211,6 +237,7 @@ int main() {
         test_ads_is_bounded_and_drift_is_ignored();
         test_vision_gap_uses_smooth_short_continuity();
         test_opposing_manual_intent_yields_without_braking_bodylock();
+        test_only_worsening_wrong_way_axis_stops_suppressing_assist();
         test_ads_and_bodylock_share_one_resolved_target_geometry();
         std::cout << "[TargetPipelineIntegrationTests] PASS\n";
         return 0;

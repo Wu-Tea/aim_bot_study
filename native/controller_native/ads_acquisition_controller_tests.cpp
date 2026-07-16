@@ -47,6 +47,7 @@ void test_real_opposing_correction_reduces_conflict() {
     pipeline_contract::IntentState correction{};
     correction.filtered_right.x = -0.5f;
     correction.right_confidence = 1.0f;
+    correction.right_x.confidence = 1.0f;
     const auto neutral = controller.compute(plan_with(80.0f, 0.0f), {}, 0.01f);
     const auto opposed = controller.compute(plan_with(80.0f, 0.0f), correction, 0.01f);
     require_true(opposed.x < neutral.x * 0.5f,

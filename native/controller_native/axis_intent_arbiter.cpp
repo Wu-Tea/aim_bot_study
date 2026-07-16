@@ -6,19 +6,12 @@
 namespace controller_native {
 namespace {
 
-constexpr float kCrossDeadzonePx = 0.5f;
-constexpr float kInnovationLimitPx = 32.0f;
-constexpr float kSizeChangeLimit = 0.18f;
+constexpr float kInnovationLimitPx = 64.0f;
+constexpr float kGeometryChangeThreshold = 0.01f;
 constexpr float kMinimumReliability = 0.65f;
-constexpr float kRiskAttackSeconds = 0.020f;
-constexpr float kRiskReleaseSeconds = 0.055f;
-constexpr float kMinimumWrongWayBudget = 0.03f;
-
-bool sign_crossed(float previous, float current) noexcept {
-    return std::fabs(previous) > kCrossDeadzonePx &&
-        std::fabs(current) > kCrossDeadzonePx &&
-        previous * current < 0.0f;
-}
+constexpr float kMinimumErrorGrowthPx = 1.0f;
+constexpr float kGeometryCooldownSeconds = 0.040f;
+constexpr float kInterframeHoldSeconds = 0.012f;
 
 }  // namespace
 
@@ -28,7 +21,8 @@ AxisDecision AxisIntentArbiter::update(
     float dt_seconds) noexcept {
     AxisState& state = axes_[static_cast<std::size_t>(axis)];
     AxisDecision decision;
-    decision.assist_output = input.requested_assist;
+    decision.manual_yield_confidence =
+        std::clamp(input.manual_confidence, 0.0f, 1.0f);
 
     if (input.mode == pipeline_contract::ControlMode::Manual || input.target_id == 0) {
         state = {};
@@ -49,58 +43,57 @@ AxisDecision AxisIntentArbiter::update(
         state.initialized = true;
     }
 
-    const float confidence = std::clamp(input.manual_confidence, 0.0f, 1.0f);
-    const bool manual_active = confidence > 0.0f && std::fabs(input.manual) > 0.0f;
-    const bool helpful = manual_active && input.manual * input.error > 0.0f;
-    const bool wrong_way = manual_active && input.manual * input.error < 0.0f;
-    if (helpful && input.requested_assist * input.manual > 0.0f) {
-        const float far_floor = input.mode == pipeline_contract::ControlMode::AdsAcquire &&
-            std::fabs(input.error) >= 48.0f ? 0.50f : 0.25f;
-        decision.assist_scale = std::max(
-            far_floor,
-            1.0f - std::min(0.70f, std::fabs(input.manual) * 0.90f) * confidence);
-        decision.assist_output *= decision.assist_scale;
-        decision.reason = AxisDecisionReason::HelpfulResidual;
-    } else if (wrong_way && input.requested_assist * input.manual < 0.0f) {
-        decision.assist_scale = 1.0f - 0.35f * confidence;
-        decision.assist_output *= decision.assist_scale;
-        decision.reason = AxisDecisionReason::ProbableWrongWay;
+    const float dt = std::clamp(dt_seconds, 0.0001f, 0.05f);
+    state.geometry_cooldown_seconds = std::max(
+        0.0f, state.geometry_cooldown_seconds - dt);
+    state.intervention_hold_seconds = std::max(
+        0.0f, state.intervention_hold_seconds - dt);
+    const bool geometry_changed =
+        input.normalized_size_change > kGeometryChangeThreshold;
+    if (geometry_changed ||
+        input.lifecycle == pipeline_contract::TargetLifecycle::Reacquiring ||
+        input.lifecycle == pipeline_contract::TargetLifecycle::None ||
+        input.reliability < kMinimumReliability) {
+        state.geometry_cooldown_seconds = kGeometryCooldownSeconds;
+        state.intervention_hold_seconds = 0.0f;
     }
 
+    const bool manual_active = decision.manual_yield_confidence > 0.0f &&
+        std::fabs(input.manual) > 0.0f;
+    const bool wrong_way = manual_active && input.manual * input.error < 0.0f;
     const bool observed_stable =
         input.lifecycle == pipeline_contract::TargetLifecycle::Observed &&
         input.reliability >= kMinimumReliability &&
         input.target_innovation_px <= kInnovationLimitPx &&
-        input.normalized_size_change <= kSizeChangeLimit;
+        input.normalized_size_change <= kGeometryChangeThreshold &&
+        state.geometry_cooldown_seconds <= 0.0f;
     const bool escape = manual_active &&
         std::fabs(input.manual) >= std::max(0.0f, input.manual_escape_threshold);
-    const bool crossed = sign_crossed(state.previous_error, input.error);
-    const bool worsening = input.error * input.error_rate > 0.0f;
-    float instantaneous_risk = 0.0f;
-    if (observed_stable && wrong_way && !escape) {
-        if (crossed) instantaneous_risk = 1.0f;
-        else if (worsening) {
-            instantaneous_risk = std::fabs(input.error) <= 8.0f ? 1.0f : 0.80f;
-        }
-    }
-
-    const float dt = std::clamp(dt_seconds, 0.0001f, 0.05f);
-    const float time_constant = instantaneous_risk > state.risk
-        ? kRiskAttackSeconds
-        : kRiskReleaseSeconds;
-    const float alpha = std::clamp(dt / time_constant, 0.0f, 1.0f);
-    state.risk += alpha * (instantaneous_risk - state.risk);
-    decision.divergence_risk = state.risk;
+    const bool worsening_by_rate = input.error * input.error_rate > 0.0f;
+    const bool worsening_by_history =
+        std::fabs(input.error) >= std::fabs(state.previous_error) + kMinimumErrorGrowthPx;
+    decision.wrong_way = wrong_way;
+    decision.evidence_stable = observed_stable;
+    decision.error_worsening = worsening_by_rate || worsening_by_history;
 
     if (escape) {
+        state.intervention_hold_seconds = 0.0f;
         decision.reason = AxisDecisionReason::ManualEscape;
+    } else if (observed_stable && wrong_way &&
+               (worsening_by_rate || worsening_by_history)) {
+        decision.manual_yield_confidence = 0.0f;
+        decision.intervention = true;
+        state.intervention_hold_seconds = kInterframeHoldSeconds;
+        decision.reason = AxisDecisionReason::ConfirmedWrongWay;
+    } else if (input.lifecycle == pipeline_contract::TargetLifecycle::Coasting &&
+               state.intervention_hold_seconds > 0.0f && wrong_way) {
+        decision.manual_yield_confidence = 0.0f;
+        decision.intervention = true;
+        decision.reason = AxisDecisionReason::ConfirmedWrongWay;
     } else if (!observed_stable && manual_active) {
         decision.reason = AxisDecisionReason::EvidenceAmbiguous;
-    } else if (state.risk > 0.0f) {
-        decision.wrong_way_budget = std::max(
-            kMinimumWrongWayBudget,
-            1.0f - state.risk);
-        decision.reason = AxisDecisionReason::CrossingLimit;
+    } else if (input.lifecycle == pipeline_contract::TargetLifecycle::Observed) {
+        state.intervention_hold_seconds = 0.0f;
     }
 
     state.previous_error = input.error;
@@ -115,9 +108,7 @@ void AxisIntentArbiter::reset() noexcept {
 const char* to_string(AxisDecisionReason reason) noexcept {
     switch (reason) {
         case AxisDecisionReason::Neutral: return "neutral";
-        case AxisDecisionReason::HelpfulResidual: return "helpful_residual";
-        case AxisDecisionReason::ProbableWrongWay: return "probable_wrong_way";
-        case AxisDecisionReason::CrossingLimit: return "crossing_limit";
+        case AxisDecisionReason::ConfirmedWrongWay: return "confirmed_wrong_way";
         case AxisDecisionReason::EvidenceAmbiguous: return "evidence_ambiguous";
         case AxisDecisionReason::ManualEscape: return "manual_escape";
     }

@@ -42,10 +42,10 @@ pipeline_contract::Vec2f AdsAcquisitionController::compute(
         std::min(plan.aim_authority, plan.reliability), 0.0f, 1.0f);
     return {
         axis(plan.error_px.x, plan.error_rate_px_per_sec.x,
-             intent.filtered_right.x, intent.right_confidence,
+             intent.filtered_right.x, intent.right_x.confidence,
              config_.error_range_x_px, config_.max_force_x, authority),
         axis(-plan.error_px.y, -plan.error_rate_px_per_sec.y,
-             intent.filtered_right.y, intent.right_confidence,
+             intent.filtered_right.y, intent.right_y.confidence,
              config_.error_range_y_px, config_.max_force_y, authority),
     };
 }

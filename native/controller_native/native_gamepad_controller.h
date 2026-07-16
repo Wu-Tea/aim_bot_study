@@ -3,6 +3,7 @@
 #include "ads_acquisition_controller.h"
 #include "aim_activation.h"
 #include "aim_dynamics_shaper.h"
+#include "axis_intent_arbiter.h"
 #include "auto_fire_gate.h"
 #include "bodylock_follow_controller.h"
 #include "bodylock_policy.h"
@@ -79,6 +80,7 @@ private:
     AdsAcquisitionController ads_controller_{};
     BodylockFollowController bodylock_controller_{};
     AimDynamicsShaper dynamics_shaper_{};
+    AxisIntentArbiter axis_intent_arbiter_{};
     recoil_native::RecoilCompensationPolicy recoil_;
     AimActivationTracker aim_activation_tracker_{};
     AutoFireGate auto_fire_gate_;
@@ -89,6 +91,8 @@ private:
     std::uint64_t ads_epoch_ = 0;
     std::uint64_t legacy_vision_sequence_ = 0;
     double last_tick_seconds_ = 0.0;
+    float previous_plan_normalized_size_ = 0.0f;
+    std::uint64_t previous_plan_target_id_ = 0;
     std::vector<NativeControllerStageTrace> last_pipeline_traces_;
     GamepadOutputState last_tracker_motion_output_{};
     NativeControllerOutputComponents last_output_components_{};

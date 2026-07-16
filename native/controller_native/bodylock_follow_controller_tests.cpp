@@ -47,6 +47,7 @@ void test_manual_correction_remains_available() {
     pipeline_contract::IntentState correction{};
     correction.filtered_right.x = -0.5f;
     correction.right_confidence = 1.0f;
+    correction.right_x.confidence = 1.0f;
     const auto neutral = controller.compute(moving_plan(), {}, 0.01f);
     const auto opposed = controller.compute(moving_plan(), correction, 0.01f);
     require_true(opposed.x > 0.0f && opposed.x < neutral.x,

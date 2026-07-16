@@ -47,6 +47,7 @@ struct ScenarioCase {
     int stable_recovery_ms = 260;
     int manual_reaction_ms = 55;
     int error_hold_ms = 0;
+    int error_onset_ms = -1;
     double manual_magnitude_cap = 0.45;
 };
 
@@ -73,6 +74,8 @@ struct PartialOcclusionMetrics {
     int output_spikes = 0;
     int correct_manual_opposition_frames = 0;
     int wrong_manual_high_force_frames = 0;
+    int axis_intervention_x_frames = 0;
+    int axis_intervention_y_frames = 0;
     double mean_error_px = 0.0;
     double p95_error_px = 0.0;
     double final_error_px = 0.0;
