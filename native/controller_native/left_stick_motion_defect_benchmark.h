@@ -44,6 +44,7 @@ struct FrequencyRunMetrics {
     double fast_mean_improvement_ratio = 0.0;
     double fast_p95_improvement_ratio = 0.0;
     double same_direction_regression_ratio = 0.0;
+    double same_direction_mean_error_px = 0.0;
     double max_lifecycle_ai_delta = 0.0;
     double max_relative_lead_px = 0.0;
     double max_strafe_gain = 0.0;
@@ -58,6 +59,9 @@ struct PrimaryFrequencyMetrics {
     double fast_mean_improvement_ratio = 0.0;
     double fast_p95_improvement_ratio = 0.0;
     double same_direction_regression_ratio = 0.0;
+    double max_fast_mean_error_px = 0.0;
+    double max_fast_p95_error_px = 0.0;
+    double max_same_direction_mean_error_px = 0.0;
     double max_lifecycle_ai_delta = 0.0;
     int large_sign_flip_count = 0;
     bool desired_gate_pass = false;

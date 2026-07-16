@@ -166,12 +166,11 @@ bool is_known_key(const std::string& section, const std::string& key) {
         "backend", "projection_age_ms", "responsiveness", "max_velocity_px_per_sec",
         "weak_memory_decay", "lead_seconds", "lead_max_px"};
     static const std::unordered_set<std::string> ads_keys{
-        "strength_scale", "vertical_strength_scale", "sustain_smoothing", "acquisition_smoothing", "range_px",
-        "snap_duration_ms", "fov_scale", "manual_opposition_suppression",
+        "strength_scale", "vertical_strength_scale", "range_px", "snap_duration_ms",
         "completion_radius_px", "completion_fresh_frames", "max_acquisition_ms"};
     static const std::unordered_set<std::string> bodylock_keys{
-        "strength", "vertical_strength", "smoothing", "activation_range_px",
-        "tolerance_px", "lead_strength", "manual_escape_threshold",
+        "strength", "vertical_strength", "activation_range_px", "tolerance_px",
+        "manual_escape_threshold",
         "manual_escape_preservation", "manual_takeover_enabled",
         "manual_takeover_threshold", "manual_takeover_commit_ms",
         "manual_takeover_release_ms"};
@@ -836,21 +835,10 @@ void apply_value(
             config.ads.vertical_strength_scale = scale;
             ads.max_ai_force_y *= scale;
             ads.ads_snap_max_ai_force_y *= scale;
-        } else if (key == "sustain_smoothing") {
-            ads.smoothing = parse_float_value(value, ads.smoothing);
-            config.ads.sustain_smoothing = ads.smoothing;
-        } else if (key == "acquisition_smoothing") {
-            ads.ads_snap_smoothing = parse_float_value(value, ads.ads_snap_smoothing);
-            config.ads.acquisition_smoothing = ads.ads_snap_smoothing;
         } else if (key == "range_px") {
             ads.max_pixels = parse_float_value(value, ads.max_pixels);
         } else if (key == "snap_duration_ms") {
             ads.ads_snap_window_ms = parse_int_value(value, ads.ads_snap_window_ms);
-        } else if (key == "fov_scale") {
-            ads.ads_snap_fov_scale = parse_float_value(value, ads.ads_snap_fov_scale);
-        } else if (key == "manual_opposition_suppression") {
-            ads.ads_snap_opposing_manual_suppression_max =
-                parse_float_value(value, ads.ads_snap_opposing_manual_suppression_max);
         } else if (key == "completion_radius_px") {
             ads.ads_completion_radius_px = parse_float_value(value, ads.ads_completion_radius_px);
             config.ads.completion_radius_px = ads.ads_completion_radius_px;
@@ -867,14 +855,10 @@ void apply_value(
             body.body_lock_max_ai_force = parse_float_value(value, body.body_lock_max_ai_force);
         } else if (key == "vertical_strength") {
             body.body_lock_max_ai_force_y = parse_float_value(value, body.body_lock_max_ai_force_y);
-        } else if (key == "smoothing") {
-            body.body_lock_smoothing = parse_float_value(value, body.body_lock_smoothing);
         } else if (key == "activation_range_px") {
             body.body_lock_activation_box_px = parse_float_value(value, body.body_lock_activation_box_px);
         } else if (key == "tolerance_px") {
             body.body_lock_box_tolerance_px = parse_float_value(value, body.body_lock_box_tolerance_px);
-        } else if (key == "lead_strength") {
-            body.body_lock_vertical_lead_scale = parse_float_value(value, body.body_lock_vertical_lead_scale);
         } else if (key == "manual_escape_threshold") {
             body.body_lock_manual_escape_input_threshold =
                 parse_float_value(value, body.body_lock_manual_escape_input_threshold);
@@ -962,10 +946,6 @@ void validate_runtime_config(const RuntimeConfig& config) {
         invalid("gamepad.ads.strength_scale", "0..3");
     if (config.ads.vertical_strength_scale < 0.0f || config.ads.vertical_strength_scale > 3.0f)
         invalid("gamepad.ads.vertical_strength_scale", "0..3");
-    if (config.ads.sustain_smoothing < 0.0f || config.ads.sustain_smoothing > 1.0f)
-        invalid("gamepad.ads.sustain_smoothing", "0..1");
-    if (config.ads.acquisition_smoothing < 0.0f || config.ads.acquisition_smoothing > 1.0f)
-        invalid("gamepad.ads.acquisition_smoothing", "0..1");
     if (config.ads.completion_radius_px < 1.0f || config.ads.completion_radius_px > 64.0f)
         invalid("gamepad.ads.completion_radius_px", "1..64");
     if (config.ads.completion_fresh_frames < 1 || config.ads.completion_fresh_frames > 20)

@@ -64,7 +64,8 @@ BodylockFollowControllerConfig bodylock_config(const GamepadRuntimeConfig& confi
     BodylockFollowControllerConfig result{};
     result.max_force_x = config.ai_aim.body_lock_max_ai_force;
     result.max_force_y = config.ai_aim.body_lock_max_ai_force_y;
-    result.feedback_range_x_px = std::max(20.0f, config.ai_aim.body_lock_activation_box_px * 0.5f);
+    result.feedback_range_x_px = std::max(
+        18.0f, config.ai_aim.body_lock_box_tolerance_px * 1.5f);
     result.feedback_range_y_px = result.feedback_range_x_px;
     return result;
 }

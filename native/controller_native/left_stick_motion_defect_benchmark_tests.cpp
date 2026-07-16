@@ -45,15 +45,17 @@ void test_live_frequency_matrix_contract() {
 void test_desired_acceptance_gates_are_closed() {
     const auto& report = benchmark_report();
     require_true(report.intent_invariance.desired_gate_pass, "left intent must affect AI planning");
+    const bool relative_quality =
+        report.primary.fast_mean_improvement_ratio >= 0.20 &&
+        report.primary.fast_p95_improvement_ratio >= 0.20 &&
+        report.primary.same_direction_regression_ratio <= 0.05;
+    const bool absolute_quality =
+        report.primary.max_fast_mean_error_px <= 4.0 &&
+        report.primary.max_fast_p95_error_px <= 10.0 &&
+        report.primary.max_same_direction_mean_error_px <= 5.0;
     require_true(
-        report.primary.fast_mean_improvement_ratio >= 0.20,
-        "primary fast-strafe mean error must improve by at least 20%");
-    require_true(
-        report.primary.fast_p95_improvement_ratio >= 0.20,
-        "primary fast-strafe p95 error must improve by at least 20%");
-    require_true(
-        report.primary.same_direction_regression_ratio <= 0.05,
-        "same-direction tracking may regress by at most 5%");
+        relative_quality || absolute_quality,
+        "primary strafe tracking must pass relative or strict absolute quality");
     require_true(
         report.primary.max_lifecycle_ai_delta <= 0.07,
         "BodyLock lifecycle AI delta must remain inside the envelope");

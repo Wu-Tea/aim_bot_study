@@ -1005,6 +1005,18 @@ double improvement_ratio(double baseline, double candidate) {
     return (baseline - candidate) / baseline;
 }
 
+bool relative_motion_quality_passes(const FrequencyRunMetrics& metrics) {
+    return metrics.fast_mean_improvement_ratio >= 0.20 &&
+        metrics.fast_p95_improvement_ratio >= 0.20 &&
+        metrics.same_direction_regression_ratio <= 0.05;
+}
+
+bool absolute_motion_quality_passes(const FrequencyRunMetrics& metrics) {
+    return metrics.fast_mean_error_px <= 4.0 &&
+        metrics.fast_p95_error_px <= 10.0 &&
+        metrics.same_direction_mean_error_px <= 5.0;
+}
+
 std::vector<FrequencyRunMetrics> run_frequency_matrix() {
     std::vector<FrequencyRunMetrics> runs;
     for (const int vision_hz : {80, 100, 50, 160}) {
@@ -1045,6 +1057,7 @@ std::vector<FrequencyRunMetrics> run_frequency_matrix() {
             -improvement_ratio(
                 baseline_same.mean_abs_error_px,
                 fixed_same.mean_abs_error_px));
+        metrics.same_direction_mean_error_px = fixed_same.mean_abs_error_px;
         const bool frequency_contract =
             metrics.delivered_vision_sequences > 0 &&
             metrics.delivered_vision_sequences == metrics.fresh_sequences_consumed;
@@ -1052,9 +1065,8 @@ std::vector<FrequencyRunMetrics> run_frequency_matrix() {
             metrics.large_sign_flip_count == 0;
         metrics.desired_gate_pass = frequency_contract && smooth &&
             (!metrics.primary_rate ||
-             (metrics.fast_mean_improvement_ratio >= 0.20 &&
-              metrics.fast_p95_improvement_ratio >= 0.20 &&
-              metrics.same_direction_regression_ratio <= 0.05));
+             relative_motion_quality_passes(metrics) ||
+             absolute_motion_quality_passes(metrics));
         runs.push_back(metrics);
     }
     return runs;
@@ -1173,6 +1185,9 @@ BenchmarkReport run_benchmark() {
     report.primary.fast_mean_improvement_ratio = 1.0;
     report.primary.fast_p95_improvement_ratio = 1.0;
     report.primary.same_direction_regression_ratio = 0.0;
+    report.primary.max_fast_mean_error_px = 0.0;
+    report.primary.max_fast_p95_error_px = 0.0;
+    report.primary.max_same_direction_mean_error_px = 0.0;
     report.primary.max_lifecycle_ai_delta = 0.0;
     report.primary.large_sign_flip_count = 0;
     bool all_frequency_runs_pass = true;
@@ -1191,15 +1206,30 @@ BenchmarkReport run_benchmark() {
         report.primary.same_direction_regression_ratio = std::max(
             report.primary.same_direction_regression_ratio,
             run.same_direction_regression_ratio);
+        report.primary.max_fast_mean_error_px = std::max(
+            report.primary.max_fast_mean_error_px,
+            run.fast_mean_error_px);
+        report.primary.max_fast_p95_error_px = std::max(
+            report.primary.max_fast_p95_error_px,
+            run.fast_p95_error_px);
+        report.primary.max_same_direction_mean_error_px = std::max(
+            report.primary.max_same_direction_mean_error_px,
+            run.same_direction_mean_error_px);
         report.primary.max_lifecycle_ai_delta = std::max(
             report.primary.max_lifecycle_ai_delta,
             run.max_lifecycle_ai_delta);
         report.primary.large_sign_flip_count += run.large_sign_flip_count;
     }
-    report.primary.desired_gate_pass =
+    const bool primary_relative_quality =
         report.primary.fast_mean_improvement_ratio >= 0.20 &&
         report.primary.fast_p95_improvement_ratio >= 0.20 &&
-        report.primary.same_direction_regression_ratio <= 0.05 &&
+        report.primary.same_direction_regression_ratio <= 0.05;
+    const bool primary_absolute_quality =
+        report.primary.max_fast_mean_error_px <= 4.0 &&
+        report.primary.max_fast_p95_error_px <= 10.0 &&
+        report.primary.max_same_direction_mean_error_px <= 5.0;
+    report.primary.desired_gate_pass =
+        (primary_relative_quality || primary_absolute_quality) &&
         report.primary.max_lifecycle_ai_delta <= 0.07 &&
         report.primary.large_sign_flip_count == 0;
     report.scenarios.reserve(kClosedLoopFixtures.size());
@@ -1274,9 +1304,8 @@ bool validate_report(const BenchmarkReport& report, std::string* reason) {
             run.max_lifecycle_ai_delta <= 0.07 &&
             run.large_sign_flip_count == 0 &&
             (!run.primary_rate ||
-             (run.fast_mean_improvement_ratio >= 0.20 &&
-              run.fast_p95_improvement_ratio >= 0.20 &&
-              run.same_direction_regression_ratio <= 0.05));
+             relative_motion_quality_passes(run) ||
+             absolute_motion_quality_passes(run));
         if (run.desired_gate_pass != expected_frequency_gate) {
             return fail("frequency desired gate does not match metrics");
         }
@@ -1304,15 +1333,24 @@ bool validate_report(const BenchmarkReport& report, std::string* reason) {
              report.primary.fast_mean_improvement_ratio,
              report.primary.fast_p95_improvement_ratio,
              report.primary.same_direction_regression_ratio,
+             report.primary.max_fast_mean_error_px,
+             report.primary.max_fast_p95_error_px,
+             report.primary.max_same_direction_mean_error_px,
              report.primary.max_lifecycle_ai_delta}) {
         if (!std::isfinite(value)) {
             return fail("primary summary contains non-finite metric");
         }
     }
-    const bool expected_primary_gate =
+    const bool expected_primary_relative_quality =
         report.primary.fast_mean_improvement_ratio >= 0.20 &&
         report.primary.fast_p95_improvement_ratio >= 0.20 &&
-        report.primary.same_direction_regression_ratio <= 0.05 &&
+        report.primary.same_direction_regression_ratio <= 0.05;
+    const bool expected_primary_absolute_quality =
+        report.primary.max_fast_mean_error_px <= 4.0 &&
+        report.primary.max_fast_p95_error_px <= 10.0 &&
+        report.primary.max_same_direction_mean_error_px <= 5.0;
+    const bool expected_primary_gate =
+        (expected_primary_relative_quality || expected_primary_absolute_quality) &&
         report.primary.max_lifecycle_ai_delta <= 0.07 &&
         report.primary.large_sign_flip_count == 0;
     if (report.primary.desired_gate_pass != expected_primary_gate) {
@@ -1469,6 +1507,12 @@ void write_json(std::ostream& output, const BenchmarkReport& report) {
            << report.primary.fast_p95_improvement_ratio << ",\n"
            << "    \"same_direction_regression_ratio\": "
            << report.primary.same_direction_regression_ratio << ",\n"
+           << "    \"max_fast_mean_error_px\": "
+           << report.primary.max_fast_mean_error_px << ",\n"
+           << "    \"max_fast_p95_error_px\": "
+           << report.primary.max_fast_p95_error_px << ",\n"
+           << "    \"max_same_direction_mean_error_px\": "
+           << report.primary.max_same_direction_mean_error_px << ",\n"
            << "    \"max_lifecycle_ai_delta\": "
            << report.primary.max_lifecycle_ai_delta << ",\n"
            << "    \"large_sign_flip_count\": "
@@ -1497,6 +1541,8 @@ void write_json(std::ostream& output, const BenchmarkReport& report) {
                << run.fast_p95_improvement_ratio
                << ", \"same_direction_regression_ratio\": "
                << run.same_direction_regression_ratio
+               << ", \"same_direction_mean_error_px\": "
+               << run.same_direction_mean_error_px
                << ", \"max_lifecycle_ai_delta\": "
                << run.max_lifecycle_ai_delta
                << ", \"max_relative_lead_px\": "

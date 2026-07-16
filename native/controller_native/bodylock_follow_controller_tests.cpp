@@ -53,6 +53,45 @@ void test_manual_correction_remains_available() {
                  "BodyLock must yield smoothly to manual correction");
 }
 
+void test_closing_target_brakes_without_reversing_before_crossing() {
+    controller_native::BodylockFollowController controller;
+    auto stationary = moving_plan();
+    stationary.error_px.x = 18.0f;
+    stationary.error_rate_px_per_sec.x = 0.0f;
+    stationary.response_scale = 500.0f;
+    auto closing = stationary;
+    closing.error_rate_px_per_sec.x = -240.0f;
+
+    const auto normal = controller.compute(stationary, {}, 0.01f);
+    const auto braking = controller.compute(closing, {}, 0.01f);
+    require_true(braking.x >= 0.0f && braking.x < normal.x,
+                 "closing BodyLock must brake without reversing before the target crossing");
+}
+
+void test_near_target_error_has_legacy_grip() {
+    controller_native::BodylockFollowController controller;
+    auto plan = moving_plan();
+    plan.error_px.x = 12.0f;
+    plan.error_rate_px_per_sec.x = 0.0f;
+    const auto output = controller.compute(plan, {}, 0.01f);
+    require_true(output.x >= 0.10f,
+                 "near-target BodyLock feedback must retain a perceptible grip");
+}
+
+void test_left_strafe_yields_positional_grip_without_dropping_follow() {
+    controller_native::BodylockFollowController controller;
+    auto plan = moving_plan();
+    plan.error_px.x = 12.0f;
+    plan.error_rate_px_per_sec.x = 0.0f;
+    const auto neutral = controller.compute(plan, {}, 0.01f);
+    pipeline_contract::IntentState strafe{};
+    strafe.filtered_left.x = 0.8f;
+    strafe.left_confidence = 1.0f;
+    const auto moving = controller.compute(plan, strafe, 0.01f);
+    require_true(moving.x > 0.0f && moving.x < neutral.x * 0.6f,
+                 "left strafe must soften positional grip while retaining follow authority");
+}
+
 }  // namespace
 
 int main() {
@@ -60,6 +99,9 @@ int main() {
         test_motion_feedforward_stays_active_near_center();
         test_coasting_authority_decays_continuously();
         test_manual_correction_remains_available();
+        test_closing_target_brakes_without_reversing_before_crossing();
+        test_near_target_error_has_legacy_grip();
+        test_left_strafe_yields_positional_grip_without_dropping_follow();
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "[BodylockFollowControllerTests] FAIL " << error.what() << '\n';

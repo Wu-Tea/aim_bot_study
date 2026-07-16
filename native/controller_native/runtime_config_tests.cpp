@@ -139,6 +139,37 @@ void test_unknown_keys_are_reported_in_every_native_legacy_section() {
     require(config.diagnostics.size() == 5);
 }
 
+void test_inactive_compact_aim_knobs_are_reported_as_unknown() {
+    const auto path = std::filesystem::temp_directory_path() /
+        "cod_native_inactive_compact_aim_knobs.toml";
+    {
+        std::ofstream output(path);
+        output << "[gamepad.ads]\n"
+               << "sustain_smoothing = 0.25\n"
+               << "acquisition_smoothing = 0.10\n"
+               << "fov_scale = 0.85\n"
+               << "manual_opposition_suppression = 0.40\n"
+               << "[gamepad.bodylock]\n"
+               << "smoothing = 0.18\n"
+               << "lead_strength = 1.20\n";
+    }
+    const auto config = controller_native::load_runtime_config(path);
+    std::filesystem::remove(path);
+    require(config.diagnostics.size() == 6);
+    for (const auto& key : {
+             "sustain_smoothing",
+             "acquisition_smoothing",
+             "fov_scale",
+             "manual_opposition_suppression",
+             "smoothing",
+             "lead_strength"}) {
+        bool found = false;
+        for (const auto& diagnostic : config.diagnostics)
+            found = found || diagnostic.find(key) != std::string::npos;
+        require(found);
+    }
+}
+
 void test_invalid_profile_fails_with_available_names() {
     const std::filesystem::path path =
         std::filesystem::temp_directory_path() / "cod_native_runtime_invalid_profile_test.toml";
@@ -166,12 +197,11 @@ void test_compact_ads_and_bodylock_modules_resolve_detailed_controls() {
         std::ofstream output(path);
         output << "[runtime]\nprofile = \"balanced\"\n"
                << "[gamepad.ads]\nstrength_scale = 0.5\nvertical_strength_scale = 0.5\n"
-               << "sustain_smoothing = 0.25\nacquisition_smoothing = 0.10\nrange_px = 150\nsnap_duration_ms = 90\n"
-               << "fov_scale = 0.85\nmanual_opposition_suppression = 0.40\n"
+               << "range_px = 150\nsnap_duration_ms = 90\n"
                << "completion_radius_px = 7\ncompletion_fresh_frames = 4\nmax_acquisition_ms = 240\n"
                << "[gamepad.bodylock]\nstrength = 0.33\nvertical_strength = 0.44\n"
-               << "smoothing = 0.18\nactivation_range_px = 140\ntolerance_px = 20\n"
-               << "lead_strength = 1.20\nmanual_escape_threshold = 0.50\n"
+               << "activation_range_px = 140\ntolerance_px = 20\n"
+               << "manual_escape_threshold = 0.50\n"
                << "manual_escape_preservation = 0.60\n"
                << "manual_takeover_enabled = false\nmanual_takeover_threshold = 0.42\n"
                << "manual_takeover_commit_ms = 24\nmanual_takeover_release_ms = 96\n";
@@ -182,21 +212,15 @@ void test_compact_ads_and_bodylock_modules_resolve_detailed_controls() {
     require(config.gamepad.ai_aim.ads_snap_max_ai_force == 0.50f);
     require(config.gamepad.ai_aim.max_ai_force_y == 0.40f);
     require(config.gamepad.ai_aim.ads_snap_max_ai_force_y == 0.50f);
-    require(config.gamepad.ai_aim.smoothing == 0.25f);
-    require(config.gamepad.ai_aim.ads_snap_smoothing == 0.10f);
     require(config.gamepad.ai_aim.max_pixels == 150.0f);
     require(config.gamepad.ai_aim.ads_snap_window_ms == 90);
-    require(config.gamepad.ai_aim.ads_snap_fov_scale == 0.85f);
-    require(config.gamepad.ai_aim.ads_snap_opposing_manual_suppression_max == 0.40f);
     require(config.gamepad.ai_aim.ads_completion_radius_px == 7.0f);
     require(config.gamepad.ai_aim.ads_completion_fresh_frames == 4);
     require(config.gamepad.ai_aim.ads_max_acquisition_ms == 240.0f);
     require(config.gamepad.ai_aim.body_lock_max_ai_force == 0.33f);
     require(config.gamepad.ai_aim.body_lock_max_ai_force_y == 0.44f);
-    require(config.gamepad.ai_aim.body_lock_smoothing == 0.18f);
     require(config.gamepad.ai_aim.body_lock_activation_box_px == 140.0f);
     require(config.gamepad.ai_aim.body_lock_box_tolerance_px == 20.0f);
-    require(config.gamepad.ai_aim.body_lock_vertical_lead_scale == 1.20f);
     require(config.gamepad.ai_aim.body_lock_manual_escape_input_threshold == 0.50f);
     require(config.gamepad.ai_aim.body_lock_manual_escape_preservation == 0.60f);
     require(!config.gamepad.ai_aim.body_lock_manual_takeover_enabled);
@@ -223,15 +247,12 @@ void test_invalid_user_override_reports_key_and_range() {
 void test_normal_template_preserves_controller_baseline() {
     const auto config = controller_native::load_runtime_config("config.native.example.toml");
     const auto& aim = config.gamepad.ai_aim;
-    require(aim.max_ai_force == 0.64f);
-    require(aim.max_ai_force_y == 0.80f);
-    require(aim.ads_snap_max_ai_force == 1.0f);
-    require(aim.ads_snap_max_ai_force_y == 1.0f);
-    require(aim.smoothing == 0.62f);
-    require(aim.ads_snap_smoothing == 0.0f);
+    require(std::abs(aim.max_ai_force - 0.8448f) < 0.0001f);
+    require(std::abs(aim.max_ai_force_y - 1.008f) < 0.0001f);
+    require(std::abs(aim.ads_snap_max_ai_force - 1.32f) < 0.0001f);
+    require(std::abs(aim.ads_snap_max_ai_force_y - 1.26f) < 0.0001f);
     require(aim.body_lock_max_ai_force == 0.30f);
     require(aim.body_lock_max_ai_force_y == 0.42f);
-    require(aim.body_lock_smoothing == 0.14f);
     require(aim.body_lock_manual_escape_input_threshold == 0.45f);
     require(aim.body_lock_manual_escape_preservation == 0.55f);
 }
@@ -245,6 +266,11 @@ void test_normal_template_does_not_advertise_inactive_fps_legacy_knobs() {
     require(text.find("weak_memory_decay") == std::string::npos);
     require(text.find("recoil_jitter_") == std::string::npos);
     require(text.find("manual_curve_straighten_") == std::string::npos);
+    require(text.find("sustain_smoothing") == std::string::npos);
+    require(text.find("acquisition_smoothing") == std::string::npos);
+    require(text.find("fov_scale") == std::string::npos);
+    require(text.find("manual_opposition_suppression") == std::string::npos);
+    require(text.find("lead_strength") == std::string::npos);
 }
 
 void test_committed_legacy_full_fixture_resolves_every_assignment() {
@@ -303,6 +329,7 @@ int main() {
     test_user_values_override_profile_and_legacy_rate_is_explicit();
     test_unknown_keys_are_reported();
     test_unknown_keys_are_reported_in_every_native_legacy_section();
+    test_inactive_compact_aim_knobs_are_reported_as_unknown();
     test_invalid_profile_fails_with_available_names();
     test_compact_ads_and_bodylock_modules_resolve_detailed_controls();
     test_invalid_user_override_reports_key_and_range();

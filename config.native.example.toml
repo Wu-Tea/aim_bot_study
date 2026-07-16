@@ -51,22 +51,16 @@ manual_takeover_release_seconds = 0.035
 manual_takeover_resume_delay_seconds = 0.085
 
 [gamepad.ads]
-strength_scale = 1.0
-vertical_strength_scale = 1.0
-sustain_smoothing = 0.62
-acquisition_smoothing = 0.0
+strength_scale = 1.32
+vertical_strength_scale = 1.26
 range_px = 130
 snap_duration_ms = 100
-fov_scale = 1.0
-manual_opposition_suppression = 0.35
 
 [gamepad.bodylock]
 strength = 0.30
 vertical_strength = 0.42
-smoothing = 0.14
 activation_range_px = 150
 tolerance_px = 18
-lead_strength = 0.95
 manual_escape_threshold = 0.45
 manual_escape_preservation = 0.55
 

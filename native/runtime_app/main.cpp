@@ -126,18 +126,12 @@ void dump_effective_config(const controller_native::RuntimeConfig& config) {
     line("gamepad.tracker.lead_max_px", aim.body_lock_lead_max_px);
     line("gamepad.ads.strength_scale", config.ads.strength_scale);
     line("gamepad.ads.vertical_strength_scale", config.ads.vertical_strength_scale);
-    line("gamepad.ads.sustain_smoothing", config.ads.sustain_smoothing);
-    line("gamepad.ads.acquisition_smoothing", config.ads.acquisition_smoothing);
     line("gamepad.ads.range_px", aim.max_pixels);
     line("gamepad.ads.snap_duration_ms", aim.ads_snap_window_ms);
-    line("gamepad.ads.fov_scale", aim.ads_snap_fov_scale);
-    line("gamepad.ads.manual_opposition_suppression", aim.ads_snap_opposing_manual_suppression_max);
     line("gamepad.bodylock.strength", aim.body_lock_max_ai_force);
     line("gamepad.bodylock.vertical_strength", aim.body_lock_max_ai_force_y);
-    line("gamepad.bodylock.smoothing", aim.body_lock_smoothing);
     line("gamepad.bodylock.activation_range_px", aim.body_lock_activation_box_px);
     line("gamepad.bodylock.tolerance_px", aim.body_lock_box_tolerance_px);
-    line("gamepad.bodylock.lead_strength", aim.body_lock_vertical_lead_scale);
     line("gamepad.bodylock.manual_escape_threshold", aim.body_lock_manual_escape_input_threshold);
     line("gamepad.bodylock.manual_escape_preservation", aim.body_lock_manual_escape_preservation);
     const auto& fire = config.gamepad.auto_fire;

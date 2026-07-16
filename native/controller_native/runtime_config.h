@@ -200,8 +200,6 @@ struct RuntimeOutputConfig {
 struct CompactAdsConfig {
     float strength_scale = 1.0f;
     float vertical_strength_scale = 1.0f;
-    float sustain_smoothing = 0.62f;
-    float acquisition_smoothing = 0.0f;
     float completion_radius_px = 8.0f;
     int completion_fresh_frames = 3;
     float max_acquisition_ms = 220.0f;
