@@ -216,3 +216,39 @@ The main architecture direction is now authority management: make vision provide
   in the main workspace.
 - Do not tune gains before live validation. The accepted benchmark tradeoff removes
   BodyLock dropout/user fight/large overshoot but moving-chase mean error is higher.
+
+## 2026-07-16 Controller config contract migration
+
+- Implementation branch: `codex/controller-config-contract`, based on `dev` at
+  `ec06d49`.
+- Canonical target geometry is `[gamepad.tracker] aim_height_ratio = 0.365`.
+  Deprecated `body_lock_upper_body_ratio` spellings translate once; canonical wins
+  independent of file order and conflicts are diagnosed.
+- Geometry is resolved once on fresh observation before `TargetCoordinator`. Upright
+  and crouched boxes use the ratio; wide/low boxes preserve the Vision point clamped
+  to the box; missing boxes preserve Vision. ADS, BodyLock, and coasting share the
+  already-resolved target point.
+- Profile-faithful benchmark mode is now the default and records effective
+  Tracker/ADS/BodyLock configuration plus an empty override list. Historical artifacts
+  without configuration provenance are `configuration-unproven`.
+- Old anonymous scenario tuning is isolated behind stress-fixture mode. Stress mode
+  fails closed until every override has field-level metadata; it cannot emit a
+  misleading comparison artifact.
+- Approved candidate config synchronized to the main workspace:
+  ADS `1.54/1.26/150/160`, BodyLock `0.45/0.50/80/8`, manual escape `0.45/0.55`,
+  tracker geometry `0.365`. Pre-change backup:
+  `runs/config_backups/config.before-contract-migration-20260716.toml` (SHA-256 matched
+  the source before editing).
+- Trusted artifacts/seeds:
+  - `runs/benchmarks/profile_faithful_seed1337.json`, seeds `1337/1337/1337`.
+  - `runs/benchmarks/left_stick_fixed_seed1337.json`, five scenarios, defects `0`.
+- A stale left-stick ADS handoff fixture was caught writing the retired BodyLock ratio;
+  it produced `1e9` missing-transition sentinels. Switching the fixture to canonical
+  tracker geometry changed the fixed gate from defects `1` to `0`.
+- Focused Release tests passed for runtime config, target geometry, shared target
+  pipeline, ADS, BodyLock, AutoFire, vertical BodyLock, and left-stick fixed gate.
+- The trustworthy full suite exposes remaining behavior, not migration correctness:
+  some diagonal cases have zero BodyLock frames under activation `80`, while moving
+  chase cases still show BodyLock dropout/chatter and vertical manual opposition.
+  Use the new artifact for the next tuning decision; do not compare raw scores against
+  old silent-override files.

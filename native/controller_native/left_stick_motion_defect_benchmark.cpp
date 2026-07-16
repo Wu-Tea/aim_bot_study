@@ -1093,7 +1093,7 @@ AdsHandoffCaseMetrics run_ads_handoff_case(bool moving_relative_motion) {
     config.ai_aim.ads_snap_smoothing = 0.80f;
     config.ai_aim.ads_snap_time_to_go_gain = 0.0f;
     config.ai_aim.body_lock_confidence_frames = 1;
-    config.ai_aim.body_lock_upper_body_ratio = 0.50f;
+    config.tracker.aim_height_ratio = 0.50f;
     config.ai_aim.body_lock_activation_box_px = 180.0f;
     config.ai_aim.target_projection_reticle_speed_px_per_sec = 1500.0f;
     config.aim_assist_dynamics.enabled = true;
