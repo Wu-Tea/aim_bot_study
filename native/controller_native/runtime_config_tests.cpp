@@ -319,6 +319,74 @@ void test_environment_overrides_user_and_reports_source() {
     require(config.effective_source("runtime.vision.capture_fps") == "environment");
 }
 
+void test_tracker_aim_height_ratio_uses_canonical_key() {
+    const auto path = std::filesystem::temp_directory_path() /
+        "cod_native_tracker_aim_height_canonical.toml";
+    { std::ofstream output(path); output << "[gamepad.tracker]\naim_height_ratio = 0.365\n"; }
+    const auto config = controller_native::load_runtime_config(path);
+    std::filesystem::remove(path);
+    require(std::abs(config.gamepad.tracker.aim_height_ratio - 0.365f) < 0.0001f);
+    require(config.effective_source("gamepad.tracker.aim_height_ratio") == "user");
+}
+
+void test_tracker_aim_height_ratio_accepts_deprecated_alias() {
+    const auto path = std::filesystem::temp_directory_path() /
+        "cod_native_tracker_aim_height_alias.toml";
+    { std::ofstream output(path); output <<
+        "[runtime.gamepad]\nbody_lock_upper_body_ratio = 0.375\n"; }
+    const auto config = controller_native::load_runtime_config(path);
+    std::filesystem::remove(path);
+    require(std::abs(config.gamepad.tracker.aim_height_ratio - 0.375f) < 0.0001f);
+    require(
+        config.effective_source("gamepad.tracker.aim_height_ratio") ==
+        "deprecated_alias");
+}
+
+void test_tracker_canonical_aim_height_wins_regardless_of_file_order() {
+    for (const bool canonical_first : {false, true}) {
+        const auto path = std::filesystem::temp_directory_path() /
+            (canonical_first ? "cod_native_tracker_precedence_first.toml" :
+                               "cod_native_tracker_precedence_last.toml");
+        {
+            std::ofstream output(path);
+            if (canonical_first) {
+                output << "[gamepad.tracker]\naim_height_ratio = 0.365\n"
+                       << "[runtime.gamepad]\nbody_lock_upper_body_ratio = 0.40\n";
+            } else {
+                output << "[runtime.gamepad]\nbody_lock_upper_body_ratio = 0.40\n"
+                       << "[gamepad.tracker]\naim_height_ratio = 0.365\n";
+            }
+        }
+        const auto config = controller_native::load_runtime_config(path);
+        std::filesystem::remove(path);
+        require(std::abs(config.gamepad.tracker.aim_height_ratio - 0.365f) < 0.0001f);
+        require(config.effective_source("gamepad.tracker.aim_height_ratio") == "user");
+        bool ignored_alias_reported = false;
+        for (const auto& diagnostic : config.diagnostics) {
+            ignored_alias_reported = ignored_alias_reported ||
+                diagnostic.find("body_lock_upper_body_ratio") != std::string::npos;
+        }
+        require(ignored_alias_reported);
+    }
+}
+
+void test_tracker_aim_height_ratio_rejects_out_of_range_values() {
+    for (const char* value : {"-0.01", "1.01"}) {
+        const auto path = std::filesystem::temp_directory_path() /
+            "cod_native_tracker_aim_height_invalid.toml";
+        { std::ofstream output(path); output <<
+            "[gamepad.tracker]\naim_height_ratio = " << value << "\n"; }
+        bool failed = false;
+        try { (void)controller_native::load_runtime_config(path); }
+        catch (const std::runtime_error& error) {
+            failed = std::string(error.what()).find("gamepad.tracker.aim_height_ratio") !=
+                std::string::npos;
+        }
+        std::filesystem::remove(path);
+        require(failed);
+    }
+}
+
 } // namespace
 
 int main() {
@@ -337,5 +405,9 @@ int main() {
     test_normal_template_does_not_advertise_inactive_fps_legacy_knobs();
     test_committed_legacy_full_fixture_resolves_every_assignment();
     test_environment_overrides_user_and_reports_source();
+    test_tracker_aim_height_ratio_uses_canonical_key();
+    test_tracker_aim_height_ratio_accepts_deprecated_alias();
+    test_tracker_canonical_aim_height_wins_regardless_of_file_order();
+    test_tracker_aim_height_ratio_rejects_out_of_range_values();
     return 0;
 }

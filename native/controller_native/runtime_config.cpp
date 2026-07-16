@@ -4,6 +4,7 @@
 #include <cctype>
 #include <cstdlib>
 #include <fstream>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <tuple>
@@ -164,7 +165,7 @@ bool is_known_key(const std::string& section, const std::string& key) {
     static const std::unordered_set<std::string> output_keys{"enabled", "validation_mode"};
     static const std::unordered_set<std::string> tracker_keys{
         "backend", "projection_age_ms", "responsiveness", "max_velocity_px_per_sec",
-        "weak_memory_decay", "lead_seconds", "lead_max_px"};
+        "weak_memory_decay", "lead_seconds", "lead_max_px", "aim_height_ratio"};
     static const std::unordered_set<std::string> ads_keys{
         "strength_scale", "vertical_strength_scale", "range_px", "snap_duration_ms",
         "completion_radius_px", "completion_fresh_frames", "max_acquisition_ms"};
@@ -176,7 +177,7 @@ bool is_known_key(const std::string& section, const std::string& key) {
         "manual_takeover_release_ms"};
     static const std::unordered_set<std::string> gamepad_keys{
         "auto_fire_output", "rb_counts_as_aiming", "xinput_auto_detect",
-        "xinput_user_index", "tracker_backend"};
+        "xinput_user_index", "tracker_backend", "body_lock_upper_body_ratio"};
     static const std::unordered_set<std::string> auto_fire_keys{
         "fire_output", "aim_only", "max_source_age_ms", "require_aim_ready",
         "manual_takeover_release_seconds", "manual_takeover_resume_delay_seconds"};
@@ -952,6 +953,9 @@ void validate_runtime_config(const RuntimeConfig& config) {
         invalid("gamepad.ads.completion_fresh_frames", "1..20");
     if (config.ads.max_acquisition_ms < 50.0f || config.ads.max_acquisition_ms > 1000.0f)
         invalid("gamepad.ads.max_acquisition_ms", "50..1000");
+    if (config.gamepad.tracker.aim_height_ratio < 0.0f ||
+        config.gamepad.tracker.aim_height_ratio > 1.0f)
+        invalid("gamepad.tracker.aim_height_ratio", "0..1");
 }
 
 }  // namespace
@@ -1001,6 +1005,22 @@ RuntimeConfig load_runtime_config(
         entries.push_back(Entry{section, key, value});
     }
 
+    std::optional<float> canonical_aim_height_ratio;
+    std::optional<float> legacy_aim_height_ratio;
+    for (const Entry& entry : entries) {
+        if (entry.section == "gamepad.tracker" && entry.key == "aim_height_ratio") {
+            canonical_aim_height_ratio = parse_float_value(
+                entry.value,
+                config.gamepad.tracker.aim_height_ratio);
+        } else if (
+            (entry.section == "runtime.gamepad" || entry.section == "gamepad.ai_aim") &&
+            entry.key == "body_lock_upper_body_ratio") {
+            legacy_aim_height_ratio = parse_float_value(
+                entry.value,
+                config.gamepad.tracker.aim_height_ratio);
+        }
+    }
+
     if (!profile_override.empty()) {
         apply_profile(config, profile_override);
         config.effective_sources["runtime.profile"] = "cli";
@@ -1018,8 +1038,29 @@ RuntimeConfig load_runtime_config(
                 "unknown config key: " + entry.section + "." + entry.key);
             continue;
         }
-        apply_value(config, entry.section, entry.key, entry.value);
         const std::string full_key = entry.section + "." + entry.key;
+        const bool canonical_aim_height =
+            full_key == "gamepad.tracker.aim_height_ratio";
+        const bool legacy_aim_height =
+            entry.key == "body_lock_upper_body_ratio" &&
+            (entry.section == "runtime.gamepad" || entry.section == "gamepad.ai_aim");
+        if (!canonical_aim_height && !legacy_aim_height) {
+            apply_value(config, entry.section, entry.key, entry.value);
+        }
+        if (canonical_aim_height) {
+            config.effective_sources[full_key] = "user";
+            continue;
+        }
+        if (legacy_aim_height) {
+            config.diagnostics.push_back(
+                std::string(canonical_aim_height_ratio ? "ignored deprecated config key: " :
+                                                         "deprecated config key: ") +
+                full_key + "; use gamepad.tracker.aim_height_ratio");
+            if (canonical_aim_height_ratio) {
+                config.effective_sources[full_key] = "ignored_alias";
+            }
+            continue;
+        }
         const bool legacy = entry.key == "gpu_service_active_fps" ||
             entry.key == "gpu_service_idle_fps" ||
             entry.key == "gpu_service_keepwarm_when_idle" ||
@@ -1027,6 +1068,17 @@ RuntimeConfig load_runtime_config(
             entry.key == "aim_perf_log_interval_ticks";
         config.effective_sources[full_key] = legacy ? "legacy_user" : "user";
         if (legacy) config.diagnostics.push_back("deprecated config key: " + full_key);
+    }
+
+
+    if (canonical_aim_height_ratio) {
+        config.gamepad.tracker.aim_height_ratio = *canonical_aim_height_ratio;
+        config.gamepad.ai_aim.body_lock_upper_body_ratio = *canonical_aim_height_ratio;
+        config.effective_sources["gamepad.tracker.aim_height_ratio"] = "user";
+    } else if (legacy_aim_height_ratio) {
+        config.gamepad.tracker.aim_height_ratio = *legacy_aim_height_ratio;
+        config.gamepad.ai_aim.body_lock_upper_body_ratio = *legacy_aim_height_ratio;
+        config.effective_sources["gamepad.tracker.aim_height_ratio"] = "deprecated_alias";
     }
 
     if (config.effective_source("runtime.vision.gpu_service_active_fps") != "legacy_user") {

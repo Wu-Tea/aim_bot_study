@@ -124,6 +124,7 @@ void dump_effective_config(const controller_native::RuntimeConfig& config) {
     line("gamepad.tracker.max_velocity_px_per_sec", aim.target_projection_max_velocity_px_per_sec);
     line("gamepad.tracker.lead_seconds", aim.body_lock_lead_seconds);
     line("gamepad.tracker.lead_max_px", aim.body_lock_lead_max_px);
+    line("gamepad.tracker.aim_height_ratio", config.gamepad.tracker.aim_height_ratio);
     line("gamepad.ads.strength_scale", config.ads.strength_scale);
     line("gamepad.ads.vertical_strength_scale", config.ads.vertical_strength_scale);
     line("gamepad.ads.range_px", aim.max_pixels);

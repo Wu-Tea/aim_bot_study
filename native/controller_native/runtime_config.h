@@ -160,6 +160,10 @@ struct GamepadAutoFireConfig {
     float manual_takeover_resume_delay_seconds = 0.085f;
 };
 
+struct GamepadTrackerConfig {
+    float aim_height_ratio = 0.365f;
+};
+
 struct GamepadRuntimeConfig {
     std::string auto_fire_output = "RB";
     bool rb_counts_as_aiming = false;
@@ -167,6 +171,7 @@ struct GamepadRuntimeConfig {
     unsigned int xinput_user_index = 0;
     tracking_native::TrackerBackendKind tracker_backend =
         tracking_native::TrackerBackendKind::FpsReference;
+    GamepadTrackerConfig tracker;
     GamepadAutoFireConfig auto_fire;
     GamepadAiAimConfig ai_aim;
     GamepadAimAssistDynamicsConfig aim_assist_dynamics;
