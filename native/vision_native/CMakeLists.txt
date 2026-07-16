@@ -723,6 +723,11 @@ add_executable(cod_native_aim_dynamics_shaper_tests
     ../controller_native/aim_dynamics_shaper.cpp
 )
 
+add_executable(cod_native_axis_intent_arbiter_tests
+    ../controller_native/axis_intent_arbiter_tests.cpp
+    ../controller_native/axis_intent_arbiter.cpp
+)
+
 add_executable(cod_native_log_session_manager_tests
     ../runtime_app/log_session_manager_tests.cpp
     ../runtime_app/log_session_manager.cpp
@@ -946,6 +951,18 @@ add_executable(cod_native_benchmark_metrics_tests
     ../runtime_app/aim_perf_file_logger.cpp
     ../runtime_app/perf_logger.cpp
     ../replay_native/replay_metrics.cpp
+)
+
+target_include_directories(cod_native_axis_intent_arbiter_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+    ${CMAKE_CURRENT_SOURCE_DIR}/../controller_native
+)
+
+target_compile_definitions(cod_native_axis_intent_arbiter_tests
+    PRIVATE
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
 )
 
 add_executable(cod_native_partial_occlusion_benchmark_tests
