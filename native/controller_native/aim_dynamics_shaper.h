@@ -21,7 +21,8 @@ public:
         pipeline_contract::Vec2f requested_ai,
         const pipeline_contract::IntentState& intent,
         const pipeline_contract::TargetPlan& plan,
-        float dt_seconds) noexcept;
+        float dt_seconds,
+        pipeline_contract::Vec2f confirmed_wrong_axis = {}) noexcept;
 
     pipeline_contract::Vec2f current() const noexcept;
     void adopt(pipeline_contract::Vec2f output) noexcept;

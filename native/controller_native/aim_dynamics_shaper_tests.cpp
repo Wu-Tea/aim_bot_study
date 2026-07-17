@@ -52,6 +52,34 @@ void test_coasting_never_ramps_blind_assist() {
                  "coasting must not increase assist without a new observation");
 }
 
+void test_confirmed_wrong_axis_can_ramp_smoothly_while_coasting() {
+    controller_native::AimDynamicsShaper shaper;
+    auto plan = active_plan();
+    const auto observed = shaper.shape({0.8f, 0.0f}, {}, plan, 0.001f);
+    plan.lifecycle = pipeline_contract::TargetLifecycle::Coasting;
+    const auto coast = shaper.shape(
+        {0.8f, 0.8f}, {}, plan, 0.001f, {1.0f, 0.0f});
+    require_true(coast.x > observed.x,
+                 "confirmed wrong-way X must keep ramping between observations");
+    require_true(coast.x - observed.x <= 0.025f,
+                 "confirmed wrong-way coast ramp must use the cautious slew rate");
+    require_true(std::fabs(coast.y) <= 0.0001f,
+                 "unconfirmed Y must retain blind-rise protection");
+}
+
+void test_confirmed_wrong_axis_does_not_ramp_when_assist_is_weaker() {
+    controller_native::AimDynamicsShaper shaper;
+    auto plan = active_plan();
+    pipeline_contract::IntentState intent{};
+    intent.filtered_right.x = -0.40f;
+    const auto observed = shaper.shape({0.20f, 0.0f}, intent, plan, 0.001f);
+    plan.lifecycle = pipeline_contract::TargetLifecycle::Coasting;
+    const auto coast = shaper.shape(
+        {0.20f, 0.0f}, intent, plan, 0.001f, {1.0f, 0.0f});
+    require_true(coast.x <= observed.x + 0.0001f,
+                 "weak assist must not ramp against stronger manual input");
+}
+
 void test_manual_opposition_reduces_slew_target() {
     controller_native::AimDynamicsShaper neutral_shaper;
     controller_native::AimDynamicsShaper manual_shaper;
@@ -91,6 +119,8 @@ int main() {
         test_step_and_reversal_are_bounded();
         test_plan_loss_decays_instead_of_dropping();
         test_coasting_never_ramps_blind_assist();
+        test_confirmed_wrong_axis_can_ramp_smoothly_while_coasting();
+        test_confirmed_wrong_axis_does_not_ramp_when_assist_is_weaker();
         test_manual_opposition_reduces_slew_target();
         test_helpful_manual_input_reduces_but_keeps_assist();
         return 0;

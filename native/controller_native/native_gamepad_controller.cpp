@@ -363,7 +363,13 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
     if (config_.aim_assist_dynamics.enabled ||
         plan.lifecycle == pipeline_contract::TargetLifecycle::Coasting ||
         plan.lifecycle == pipeline_contract::TargetLifecycle::None) {
-        shaped = dynamics_shaper_.shape(requested, controller_intent, plan, dt);
+        shaped = dynamics_shaper_.shape(
+            requested,
+            controller_intent,
+            plan,
+            dt,
+            {x_decision.intervention ? 1.0f : 0.0f,
+             y_decision.intervention ? 1.0f : 0.0f});
     } else {
         dynamics_shaper_.adopt(requested);
         shaped = requested;
