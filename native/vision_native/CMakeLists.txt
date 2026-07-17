@@ -1320,7 +1320,7 @@ foreach(COD_TARGET
     cod_native_live_failure_benchmark
     cod_native_gamepad_benchmark
     cod_native_partial_occlusion_benchmark
-    cod_native_vertical_bodylock_benchmark_tests
+    cod_native_vlock_defect_tests
     cod_native_lstick_benchmark
     cod_native_lstick_benchmark_tests
 )
