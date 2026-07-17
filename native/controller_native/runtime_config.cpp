@@ -166,6 +166,8 @@ bool is_known_key(const std::string& section, const std::string& key) {
     static const std::unordered_set<std::string> tracker_keys{
         "backend", "projection_age_ms", "responsiveness", "max_velocity_px_per_sec",
         "weak_memory_decay", "lead_seconds", "lead_max_px", "aim_height_ratio"};
+    static const std::unordered_set<std::string> intent_keys{
+        "wrong_way_manual_preservation_floor"};
     static const std::unordered_set<std::string> ads_keys{
         "strength_scale", "vertical_strength_scale", "range_px", "snap_duration_ms",
         "completion_radius_px", "completion_fresh_frames", "max_acquisition_ms"};
@@ -232,6 +234,7 @@ bool is_known_key(const std::string& section, const std::string& key) {
     if (section == "runtime.input") return input_keys.count(key) != 0;
     if (section == "runtime.output") return output_keys.count(key) != 0;
     if (section == "gamepad.tracker") return tracker_keys.count(key) != 0;
+    if (section == "gamepad.intent") return intent_keys.count(key) != 0;
     if (section == "gamepad.ads") return ads_keys.count(key) != 0;
     if (section == "gamepad.bodylock") return bodylock_keys.count(key) != 0;
     if (section == "runtime.gamepad") return gamepad_keys.count(key) != 0;
@@ -821,6 +824,15 @@ void apply_value(
             tracker.body_lock_lead_seconds = parse_float_value(value, tracker.body_lock_lead_seconds);
         } else if (key == "lead_max_px") {
             tracker.body_lock_lead_max_px = parse_float_value(value, tracker.body_lock_lead_max_px);
+        }
+    } else if (section == "gamepad.intent") {
+        if (key == "wrong_way_manual_preservation_floor") {
+            config.gamepad.intent.wrong_way_manual_preservation_floor = std::clamp(
+                parse_float_value(
+                    value,
+                    config.gamepad.intent.wrong_way_manual_preservation_floor),
+                0.50f,
+                1.00f);
         }
     } else if (section == "runtime.gamepad") {
         apply_runtime_gamepad_value(config.gamepad, key, value);

@@ -164,6 +164,10 @@ struct GamepadTrackerConfig {
     float aim_height_ratio = 0.365f;
 };
 
+struct GamepadIntentConfig {
+    float wrong_way_manual_preservation_floor = 0.65f;
+};
+
 struct GamepadRuntimeConfig {
     std::string auto_fire_output = "RB";
     bool rb_counts_as_aiming = false;
@@ -172,6 +176,7 @@ struct GamepadRuntimeConfig {
     tracking_native::TrackerBackendKind tracker_backend =
         tracking_native::TrackerBackendKind::FpsReference;
     GamepadTrackerConfig tracker;
+    GamepadIntentConfig intent;
     GamepadAutoFireConfig auto_fire;
     GamepadAiAimConfig ai_aim;
     GamepadAimAssistDynamicsConfig aim_assist_dynamics;

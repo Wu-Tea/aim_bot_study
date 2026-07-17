@@ -392,6 +392,43 @@ void test_tracker_aim_height_ratio_rejects_out_of_range_values() {
     }
 }
 
+void test_gamepad_intent_retention_floor_defaults_parses_and_clamps() {
+    const auto missing = std::filesystem::temp_directory_path() /
+        "cod_native_intent_floor_defaults_missing.toml";
+    std::filesystem::remove(missing);
+    const auto defaults = controller_native::load_runtime_config(missing);
+    require(std::abs(
+        defaults.gamepad.intent.wrong_way_manual_preservation_floor - 0.65f) < 0.0001f);
+
+    for (const auto& value : {
+             std::pair{"0.72", 0.72f},
+             std::pair{"0.20", 0.50f},
+             std::pair{"1.20", 1.00f}}) {
+        const auto path = std::filesystem::temp_directory_path() /
+            "cod_native_intent_floor_value.toml";
+        { std::ofstream output(path); output <<
+            "[gamepad.intent]\nwrong_way_manual_preservation_floor = "
+            << value.first << "\n"; }
+        const auto config = controller_native::load_runtime_config(path);
+        std::filesystem::remove(path);
+        require(std::abs(
+            config.gamepad.intent.wrong_way_manual_preservation_floor - value.second) <
+            0.0001f);
+    }
+}
+
+void test_gamepad_intent_unknown_key_is_reported() {
+    const auto path = std::filesystem::temp_directory_path() /
+        "cod_native_intent_unknown.toml";
+    { std::ofstream output(path); output <<
+        "[gamepad.intent]\nwrong_way_manual_preservaton_floor = 0.65\n"; }
+    const auto config = controller_native::load_runtime_config(path);
+    std::filesystem::remove(path);
+    require(config.diagnostics.size() == 1);
+    require(config.diagnostics.front().find("wrong_way_manual_preservaton_floor") !=
+            std::string::npos);
+}
+
 } // namespace
 
 int main() {
@@ -414,5 +451,7 @@ int main() {
     test_tracker_aim_height_ratio_accepts_deprecated_alias();
     test_tracker_canonical_aim_height_wins_regardless_of_file_order();
     test_tracker_aim_height_ratio_rejects_out_of_range_values();
+    test_gamepad_intent_retention_floor_defaults_parses_and_clamps();
+    test_gamepad_intent_unknown_key_is_reported();
     return 0;
 }
