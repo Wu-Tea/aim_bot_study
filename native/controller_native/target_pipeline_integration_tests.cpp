@@ -6,6 +6,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -53,6 +54,12 @@ ControllerVisionSnapshot target(
     detection.confidence = 0.95f;
     detection.target_tier = "observed_strong";
     snapshot.tracker_detections.push_back(detection);
+    return snapshot;
+}
+
+ControllerVisionSnapshot fire_target(std::uint64_t frame_id, double now) {
+    auto snapshot = target(frame_id, now, 0.0f, 0.0f);
+    snapshot.state.auto_fire_requested = true;
     return snapshot;
 }
 
@@ -286,6 +293,86 @@ void test_physical_fire_is_never_cleared_by_autofire() {
     require(output.rb, "physical RB was cleared during cadence wait");
 }
 
+void test_100hz_vision_1000hz_control_emits_stable_fire_cadence() {
+    double now = 90.0;
+    auto controller_config = config();
+    controller_config.auto_fire.require_aim_ready = false;
+    controller_config.auto_fire.max_source_age_ms = 50.0f;
+    controller_config.auto_fire.pulse_width_ms = 30.0f;
+    controller_config.auto_fire.pulse_period_ms = 100.0f;
+    NativeGamepadController controller(controller_config, [&now] { return now; });
+    const auto physical = aiming();
+
+    bool previous = false;
+    int current_width = 0;
+    int minimum_width = 1000;
+    std::vector<int> start_ticks;
+    for (int tick = 0; tick < 1000; ++tick) {
+        now = 90.0 + tick * 0.001;
+        if (tick % 10 == 0) {
+            controller.submit_vision_snapshot(
+                fire_target(static_cast<std::uint64_t>(tick / 10 + 1), now));
+        }
+        const bool pressed = controller.build_output(physical).rb;
+        if (pressed && !previous) start_ticks.push_back(tick);
+        if (pressed) ++current_width;
+        if (!pressed && previous) {
+            minimum_width = std::min(minimum_width, current_width);
+            current_width = 0;
+        }
+        previous = pressed;
+    }
+    require(start_ticks.size() == 10,
+            "100Hz/1000Hz chain must emit exactly ten pulse starts");
+    require(minimum_width >= 30,
+            "Vision publication gaps shortened a pulse below 30ms");
+    for (std::size_t index = 1; index < start_ticks.size(); ++index) {
+        require(std::abs(start_ticks[index] - start_ticks[index - 1] - 100) <= 1,
+                "pulse period drifted beyond one controller tick");
+    }
+
+    double miss_now = 100.0;
+    NativeGamepadController miss_controller(
+        controller_config, [&miss_now] { return miss_now; });
+    bool pressed_before_miss = false;
+    for (int tick = 0; tick <= 515; ++tick) {
+        miss_now = 100.0 + tick * 0.001;
+        if (tick % 10 == 0) {
+            miss_controller.submit_vision_snapshot(
+                fire_target(static_cast<std::uint64_t>(tick / 10 + 1), miss_now));
+        }
+        if (tick == 515) {
+            ControllerVisionSnapshot miss;
+            miss.frame_updated = true;
+            miss.selector_identity_protocol = true;
+            miss.frame_id = 1000;
+            miss.capture_time_seconds = miss_now;
+            miss.ready_time_seconds = miss_now;
+            miss.state.screen_center_x = 320.0f;
+            miss.state.screen_center_y = 256.0f;
+            miss_controller.submit_vision_snapshot(miss);
+        }
+        const bool pressed = miss_controller.build_output(physical).rb;
+        if (tick == 514) pressed_before_miss = pressed;
+        if (tick == 515) {
+            require(pressed_before_miss, "precondition: miss did not interrupt an active pulse");
+            require(!pressed, "fresh processed miss must revoke fire on the same tick");
+        }
+    }
+
+    for (const auto* tier : {"cue_hold", "weak"}) {
+        double tier_now = 110.0;
+        NativeGamepadController tier_controller(
+            controller_config, [&tier_now] { return tier_now; });
+        auto snapshot = fire_target(1, tier_now);
+        snapshot.state.target_tier = tier;
+        snapshot.state.fire_authority = std::string(tier) != "weak";
+        tier_controller.submit_vision_snapshot(snapshot);
+        require(!tier_controller.build_output(physical).rb,
+                "cue/weak target must remain aim-only");
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -296,6 +383,7 @@ int main() {
         test_only_worsening_wrong_way_axis_stops_suppressing_assist();
         test_ads_and_bodylock_share_one_resolved_target_geometry();
         test_physical_fire_is_never_cleared_by_autofire();
+        test_100hz_vision_1000hz_control_emits_stable_fire_cadence();
         std::cout << "[TargetPipelineIntegrationTests] PASS\n";
         return 0;
     } catch (const std::exception& error) {
