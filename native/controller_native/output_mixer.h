@@ -21,6 +21,8 @@ struct NativeControllerOutputComponents {
     common_native::Vec2f axis_intent_wrong_way;
     common_native::Vec2f axis_intent_evidence_stable;
     common_native::Vec2f axis_intent_error_worsening;
+    common_native::Vec2f axis_manual_retention{1.0f, 1.0f};
+    common_native::Vec2f left_intent_projection_px;
     common_native::Vec2f dynamic_adjustment_stick;
     common_native::Vec2f post_ai_stick;
     common_native::Vec2f post_dynamic_stick;

@@ -172,6 +172,8 @@ void test_only_worsening_wrong_way_axis_stops_suppressing_assist() {
 
     bool intervened_x = false;
     bool intervened_y = false;
+    float minimum_retention_x = 1.0f;
+    float minimum_retention_y = 1.0f;
     for (std::uint64_t frame = 1; frame <= 6; ++frame) {
         const float growing_x_error = 10.0f + static_cast<float>(frame) * 3.0f;
         controller.submit_vision_snapshot(
@@ -180,6 +182,10 @@ void test_only_worsening_wrong_way_axis_stops_suppressing_assist() {
         const auto& components = controller.last_output_components();
         intervened_x = intervened_x || components.axis_intent_intervention.x > 0.5f;
         intervened_y = intervened_y || components.axis_intent_intervention.y > 0.5f;
+        minimum_retention_x = std::min(
+            minimum_retention_x, components.axis_manual_retention.x);
+        minimum_retention_y = std::min(
+            minimum_retention_y, components.axis_manual_retention.y);
         now += 0.010;
     }
 
@@ -187,6 +193,42 @@ void test_only_worsening_wrong_way_axis_stops_suppressing_assist() {
             "worsening wrong-way X input did not stop suppressing assist");
     require(!intervened_y,
             "helpful/non-worsening Y input was incorrectly overridden");
+    require(minimum_retention_x < 0.90f && minimum_retention_x >= 0.65f,
+            "confirmed wrong X must attenuate only to the configured floor");
+    require(std::fabs(minimum_retention_y - 1.0f) < 0.0001f,
+            "wrong X must preserve the complete Y-axis input");
+}
+
+void test_left_reversal_projects_before_the_next_vision_frame() {
+    double now = 37.0;
+    NativeGamepadController controller(config(), [&now] { return now; });
+    auto physical = aiming(0.5f);
+    for (std::uint64_t frame = 1; frame <= 80; ++frame) {
+        auto snapshot = target(frame, now, 40.0f, 0.0f);
+        snapshot.state.has_camera_attributed_velocity = true;
+        snapshot.state.camera_attributed_velocity_x_px_per_sec = -100.0f;
+        controller.submit_vision_snapshot(snapshot);
+        controller.build_output(physical);
+        now += 0.010;
+    }
+
+    auto fresh = target(81, now, 40.0f, 0.0f);
+    fresh.state.has_camera_attributed_velocity = true;
+    fresh.state.camera_attributed_velocity_x_px_per_sec = -100.0f;
+    controller.submit_vision_snapshot(fresh);
+    controller.build_output(physical);
+    require(std::fabs(
+        controller.last_output_components().left_intent_projection_px.x) < 0.0001f,
+        "fresh vision must consume previous left intent");
+
+    physical.left_x = -0.5f;
+    now += 0.005;
+    controller.build_output(physical);
+    const auto& components = controller.last_output_components();
+    require(components.left_intent_projection_px.x > 0.20f,
+            "left reversal must project a correction before the next vision frame");
+    require(std::fabs(components.left_intent_projection_px.y) < 0.0001f,
+            "left reversal projection must remain X-only");
 }
 
 void test_ads_and_bodylock_share_one_resolved_target_geometry() {
@@ -238,6 +280,7 @@ int main() {
         test_vision_gap_uses_smooth_short_continuity();
         test_opposing_manual_intent_yields_without_braking_bodylock();
         test_only_worsening_wrong_way_axis_stops_suppressing_assist();
+        test_left_reversal_projects_before_the_next_vision_frame();
         test_ads_and_bodylock_share_one_resolved_target_geometry();
         std::cout << "[TargetPipelineIntegrationTests] PASS\n";
         return 0;
