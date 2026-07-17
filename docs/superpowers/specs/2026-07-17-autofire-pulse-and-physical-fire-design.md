@@ -1,7 +1,7 @@
 # AutoFire Pulse Cadence and Physical-Fire Passthrough Design
 
-Date: 2026-07-17  
-Status: approved for implementation planning  
+Date: 2026-07-17
+Status: approved for implementation planning
 Scope: native C++ gamepad runtime
 
 ## Problem
