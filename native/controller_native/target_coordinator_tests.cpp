@@ -188,6 +188,86 @@ void test_left_intent_enters_plan_through_learned_response() {
                  "short plan must include left-stick feed-forward");
 }
 
+void test_nonfresh_empty_ticks_preserve_observed_fire_plan() {
+    controller_native::TargetCoordinator coordinator;
+    auto observed = frame(1, 10.000, 77, 240.0f, 208.0f);
+    observed.fire_requested = true;
+    observed.observed_fire_eligible = true;
+    auto plan = coordinator.update(observed, ads_intent(10.000), 10.000);
+    require_true(plan.fire_authority, "strong observed frame must authorize fire");
+
+    pipeline_contract::VisionObservationBatch no_publication{};
+    no_publication.frame_width_px = 480.0f;
+    no_publication.frame_height_px = 416.0f;
+    no_publication.capture_fresh = false;
+    for (int tick = 1; tick <= 9; ++tick) {
+        const double time = 10.000 + tick * 0.001;
+        plan = coordinator.update(no_publication, ads_intent(time), time);
+        require_true(
+            plan.lifecycle == pipeline_contract::TargetLifecycle::Observed,
+            "no-publication tick must not become a processed miss");
+        require_true(
+            plan.fire_requested && plan.fire_authority,
+            "frame gap must preserve live fire eligibility");
+    }
+}
+
+void test_fresh_processed_miss_revokes_fire_immediately() {
+    controller_native::TargetCoordinator coordinator;
+    auto observed = frame(1, 11.000, 77, 240.0f, 208.0f);
+    observed.fire_requested = true;
+    observed.observed_fire_eligible = true;
+    auto plan = coordinator.update(observed, ads_intent(11.000), 11.000);
+    require_true(plan.fire_authority, "precondition: observed target must authorize fire");
+
+    pipeline_contract::VisionObservationBatch miss{};
+    miss.frame_id = 2;
+    miss.frame_width_px = 480.0f;
+    miss.frame_height_px = 416.0f;
+    miss.capture_fresh = true;
+    plan = coordinator.update(miss, ads_intent(11.010), 11.010);
+    require_true(
+        plan.lifecycle == pipeline_contract::TargetLifecycle::Coasting,
+        "processed miss may retain aim-only coast");
+    require_true(
+        !plan.fire_requested && !plan.fire_authority,
+        "processed miss must revoke synthetic fire immediately");
+}
+
+void test_anonymous_in_radius_hold_preserves_identity_and_fire_request() {
+    controller_native::TargetCoordinator coordinator;
+    auto observed = frame(1, 12.000, 77, 240.0f, 208.0f);
+    observed.fire_requested = true;
+    observed.observed_fire_eligible = true;
+    auto plan = coordinator.update(observed, ads_intent(12.000), 12.000);
+    const auto target_id = plan.target_id;
+
+    auto anonymous = frame(2, 12.010, 0, 242.0f, 208.0f);
+    anonymous.fire_requested = true;
+    anonymous.observed_fire_eligible = true;
+    plan = coordinator.update(anonymous, ads_intent(12.010), 12.010);
+    require_true(plan.target_id == target_id, "anonymous hold must retain plan identity");
+    require_true(plan.fire_requested && plan.fire_authority,
+                 "strong anonymous in-radius hold must retain fire request");
+
+    auto named = frame(3, 12.020, 77, 244.0f, 208.0f);
+    named.fire_requested = true;
+    named.observed_fire_eligible = true;
+    plan = coordinator.update(named, ads_intent(12.020), 12.020);
+    require_true(plan.target_id == target_id,
+                 "anonymous hold must not discard the named source owner");
+}
+
+void test_vision_fire_authority_is_not_rejected_by_reliability_weight() {
+    controller_native::TargetCoordinator coordinator;
+    auto observed = frame(1, 13.000, 9, 240.0f, 208.0f, 0.65f);
+    observed.fire_requested = true;
+    observed.observed_fire_eligible = true;
+    const auto plan = coordinator.update(observed, ads_intent(13.000), 13.000);
+    require_true(plan.fire_authority,
+                 "coordinator must trust Vision's observed fire eligibility");
+}
+
 }  // namespace
 
 int main() {
@@ -200,6 +280,10 @@ int main() {
         test_control_rate_gaps_preserve_ads_settle_progress();
         test_100hz_motion_stays_finite_at_1000hz_control_rate();
         test_left_intent_enters_plan_through_learned_response();
+        test_nonfresh_empty_ticks_preserve_observed_fire_plan();
+        test_fresh_processed_miss_revokes_fire_immediately();
+        test_anonymous_in_radius_hold_preserves_identity_and_fire_request();
+        test_vision_fire_authority_is_not_rejected_by_reliability_weight();
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "[TargetCoordinatorTests] FAIL " << error.what() << '\n';

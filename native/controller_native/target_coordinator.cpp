@@ -41,7 +41,7 @@ const pipeline_contract::VisionCandidate* TargetCoordinator::choose_candidate(
         const auto& candidate = observations.candidates[index];
         if (candidate.reliability <= 0.0f) continue;
         if (has_target_ && observations.preferred_source_id == 0 &&
-            candidate.source_id != source_id_) {
+            candidate.source_id != 0 && candidate.source_id != source_id_) {
             continue;
         }
         float distance = has_target_ ? length(subtract(candidate.aim_px, predicted)) : 0.0f;
@@ -145,7 +145,9 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
             };
             position_ = measured_position;
         }
-        source_id_ = candidate->source_id;
+        if (candidate->source_id != 0) {
+            source_id_ = candidate->source_id;
+        }
         source_frame_id_ = observations.frame_id;
         fire_requested_ = observations.fire_requested;
         observed_fire_eligible_ = observations.observed_fire_eligible;
@@ -162,11 +164,21 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         const float missing_ms = static_cast<float>((now_seconds - last_observed_seconds_) * 1000.0);
         if (missing_ms <= config_.hold_ms) {
             position_ = predicted;
-            lifecycle = pipeline_contract::TargetLifecycle::Coasting;
-            reliability = last_observed_reliability_ *
-                std::clamp(1.0f - missing_ms / config_.hold_ms, 0.0f, 1.0f);
+            if (observations.capture_fresh) {
+                lifecycle = pipeline_contract::TargetLifecycle::Coasting;
+                fire_requested_ = false;
+                observed_fire_eligible_ = false;
+                was_missing_ = true;
+            } else {
+                lifecycle = was_missing_
+                    ? pipeline_contract::TargetLifecycle::Coasting
+                    : latest_.lifecycle;
+            }
+            reliability = was_missing_
+                ? last_observed_reliability_ *
+                    std::clamp(1.0f - missing_ms / config_.hold_ms, 0.0f, 1.0f)
+                : last_observed_reliability_;
             normalized_size = last_observed_normalized_size_;
-            was_missing_ = was_missing_ || observations.capture_fresh;
         } else {
             has_target_ = false;
             source_id_ = 0;
@@ -199,7 +211,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     plan.normalized_size = normalized_size;
     plan.occlusion_budget_ms = std::max(0.0f, config_.hold_ms - plan.observation_age_ms);
     const float error_length = length(plan.error_px);
-    if (lifecycle != pipeline_contract::TargetLifecycle::Coasting) {
+    if (candidate != nullptr) {
         if (error_length <= config_.settle_radius_px) {
             ++settled_frames_;
         } else {
@@ -246,8 +258,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         plan.motion = pipeline_contract::TargetMotion::Steady;
     }
     plan.fire_authority = observed_fire_eligible_ &&
-        lifecycle == pipeline_contract::TargetLifecycle::Observed &&
-        reliability >= 0.8f;
+        lifecycle != pipeline_contract::TargetLifecycle::Coasting;
     plan.fire_requested = fire_requested_;
     plan.fire_suppression = plan.fire_authority
         ? pipeline_contract::FireSuppressionReason::None
