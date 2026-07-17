@@ -74,6 +74,9 @@ runtime_app::TelemetryTickInput tick(std::uint64_t seq, bool aiming) {
     value.auto_fire_aim_ready = false;
     value.auto_fire_allowed = false;
     value.auto_fire_active = false;
+    value.auto_fire_pulse_starts = 7;
+    value.auto_fire_pulse_pressed = false;
+    value.auto_fire_cadence_wait = true;
     value.final_fire_button = false;
     value.auto_fire_block_reason = "aim_not_ready";
     value.pre_recoil_x = 0.23f;
@@ -192,6 +195,9 @@ void test_controller_samples_include_current_target_context() {
     REQUIRE(json.find("\"auto_fire_aim_ready\":false") != std::string::npos);
     REQUIRE(json.find("\"auto_fire_allowed\":false") != std::string::npos);
     REQUIRE(json.find("\"auto_fire_active\":false") != std::string::npos);
+    REQUIRE(json.find("\"auto_fire_pulse_starts\":7") != std::string::npos);
+    REQUIRE(json.find("\"auto_fire_pulse_pressed\":false") != std::string::npos);
+    REQUIRE(json.find("\"auto_fire_cadence_wait\":true") != std::string::npos);
     REQUIRE(json.find("\"final_fire_button\":false") != std::string::npos);
     REQUIRE(json.find("\"auto_fire_block_reason\":\"aim_not_ready\"") != std::string::npos);
     REQUIRE(json.find("\"ads_completion_active\":true") != std::string::npos);

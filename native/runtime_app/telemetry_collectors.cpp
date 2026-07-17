@@ -188,6 +188,9 @@ void TelemetryCollectors::observe_tick(const TelemetryTickInput& input) noexcept
         sample.controller.auto_fire_aim_ready = input.auto_fire_aim_ready;
         sample.controller.auto_fire_allowed = input.auto_fire_allowed;
         sample.controller.auto_fire_active = input.auto_fire_active;
+        sample.controller.auto_fire_pulse_starts = input.auto_fire_pulse_starts;
+        sample.controller.auto_fire_pulse_pressed = input.auto_fire_pulse_pressed;
+        sample.controller.auto_fire_cadence_wait = input.auto_fire_cadence_wait;
         sample.controller.final_fire_button = input.final_fire_button;
         copy_text(
             sample.controller.auto_fire_block_reason,
