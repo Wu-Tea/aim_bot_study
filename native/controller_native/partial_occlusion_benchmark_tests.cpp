@@ -77,6 +77,56 @@ void test_human_error_schedule_covers_all_classic_errors() {
                 "stale/crossing cases must retain strong takeover coverage");
 }
 
+void test_stress_schedules_cover_stronger_single_and_dual_axis_errors() {
+    const auto practical = controller_native::partial_occlusion::build_scenario(
+        ScenarioKind::PracticalStress,
+        1337);
+    const auto destructive = controller_native::partial_occlusion::build_scenario(
+        ScenarioKind::DestructiveStress,
+        1337);
+
+    expect_true(
+        practical.name == "partial_occlusion_practical_stress",
+        "practical stress name");
+    expect_true(
+        destructive.name == "partial_occlusion_destructive_stress",
+        "destructive stress name");
+    expect_true(
+        practical.cases.size() == 4 && destructive.cases.size() == 4,
+        "each stress tier must expose four cases");
+
+    const auto verify_errors = [](const auto& scenario) {
+        std::set<HumanErrorKind> errors;
+        for (const auto& value : scenario.cases) errors.insert(value.error_kind);
+        expect_true(errors.count(HumanErrorKind::WrongX) == 1, "stress wrong X");
+        expect_true(errors.count(HumanErrorKind::WrongY) == 1, "stress wrong Y");
+        expect_true(errors.count(HumanErrorKind::WrongBoth) == 1, "stress wrong both");
+        expect_true(errors.count(HumanErrorKind::MixedAxes) == 1, "stress mixed axes");
+    };
+    verify_errors(practical);
+    verify_errors(destructive);
+
+    for (const auto& value : practical.cases) {
+        expect_true(value.manual_magnitude_cap >= 0.70,
+                    "practical manual error strength");
+        expect_true(value.error_hold_ms == 180,
+                    "practical manual error duration");
+        expect_true(value.error_onset_ms < value.full_observed_ms,
+                    "practical error starts under observed vision");
+    }
+    for (const auto& value : destructive.cases) {
+        expect_true(value.manual_magnitude_cap >= 0.95,
+                    "destructive manual error strength");
+        expect_true(value.error_hold_ms == 320,
+                    "destructive manual error duration");
+        expect_true(value.error_onset_ms < value.full_observed_ms,
+                    "destructive error starts under observed vision");
+    }
+    expect_true(
+        destructive.cases.front().error_hold_ms > practical.cases.front().error_hold_ms,
+        "destructive error must last longer");
+}
+
 void test_stale_direction_holds_history_before_decaying_to_ideal() {
     const auto scenario = controller_native::partial_occlusion::build_scenario(
         ScenarioKind::HumanErrors,
@@ -133,6 +183,32 @@ void test_crossing_inertia_releases_smoothly() {
                 "crossing X must decay continuously");
     expect_near(recovered.x, ideal.x, 0.0001, "crossing X must recover to ideal");
     expect_near(recovered.y, ideal.y, 0.0001, "crossing Y must recover to ideal");
+}
+
+void test_mixed_axes_preserves_y_before_smooth_wrong_y_pulse() {
+    const auto scenario = controller_native::partial_occlusion::build_scenario(
+        ScenarioKind::PracticalStress,
+        1337);
+    const auto& value = scenario.cases[3];
+    const ManualProfileSample historical{0.35, -0.25};
+    const ManualProfileSample ideal{0.40, -0.40};
+    const int midpoint = value.error_hold_ms / 2;
+    const auto before = controller_native::partial_occlusion::sample_manual_profile(
+        value, historical, ideal, midpoint);
+    const auto after = controller_native::partial_occlusion::sample_manual_profile(
+        value, historical, ideal, midpoint + 1);
+    const auto peak = controller_native::partial_occlusion::sample_manual_profile(
+        value, historical, ideal, midpoint + value.error_hold_ms / 4);
+    const auto recovered = controller_native::partial_occlusion::sample_manual_profile(
+        value, historical, ideal, value.error_hold_ms);
+
+    expect_near(before.y, ideal.y, 0.0001, "mixed axes must initially preserve Y");
+    expect_true(std::fabs(after.y - before.y) < 0.01,
+                "mixed Y pulse must enter continuously");
+    expect_true(peak.y * ideal.y < 0.0,
+                "mixed axes must eventually reverse Y");
+    expect_near(recovered.y, ideal.y, 0.0001,
+                "mixed Y pulse must release to ideal");
 }
 
 void test_clipped_observation_does_not_move_world_truth() {
@@ -236,9 +312,11 @@ void test_json_report_contains_provenance_metrics_and_scores() {
 int main() {
     test_combat_schedule_uses_log_derived_occlusion_envelope();
     test_human_error_schedule_covers_all_classic_errors();
+    test_stress_schedules_cover_stronger_single_and_dual_axis_errors();
     test_stale_direction_holds_history_before_decaying_to_ideal();
     test_wrong_axis_profiles_preserve_the_unaffected_axis();
     test_crossing_inertia_releases_smoothly();
+    test_mixed_axes_preserves_y_before_smooth_wrong_y_pulse();
     test_clipped_observation_does_not_move_world_truth();
     test_perfect_metrics_score_one_hundred();
     test_degraded_metrics_reduce_every_component();

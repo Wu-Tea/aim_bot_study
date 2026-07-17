@@ -9,6 +9,8 @@ namespace controller_native::partial_occlusion {
 enum class ScenarioKind {
     Combat,
     HumanErrors,
+    PracticalStress,
+    DestructiveStress,
 };
 
 enum class HumanErrorKind {
@@ -17,6 +19,14 @@ enum class HumanErrorKind {
     WrongX,
     WrongY,
     CrossingInertia,
+    WrongBoth,
+    MixedAxes,
+};
+
+enum class StressTier {
+    None,
+    Practical,
+    Destructive,
 };
 
 enum class VisionPhase {
@@ -49,6 +59,12 @@ struct ScenarioCase {
     int error_hold_ms = 0;
     int error_onset_ms = -1;
     double manual_magnitude_cap = 0.45;
+    StressTier stress_tier = StressTier::None;
+    double truth_motion_amplitude_x_px_per_sec = 0.0;
+    double truth_motion_amplitude_y_px_per_sec = 0.0;
+    double observation_jitter_x_px = 0.0;
+    double observation_jitter_y_px = 0.0;
+    double observation_jump_px = 0.0;
 };
 
 struct ScenarioDefinition {

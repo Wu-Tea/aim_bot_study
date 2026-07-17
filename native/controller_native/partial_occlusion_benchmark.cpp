@@ -89,9 +89,20 @@ void write_score_json(
 
 ScenarioDefinition build_scenario(ScenarioKind kind, std::uint32_t seed) {
     ScenarioDefinition result;
-    result.name = kind == ScenarioKind::Combat
-        ? "partial_occlusion_combat"
-        : "partial_occlusion_human_errors";
+    switch (kind) {
+        case ScenarioKind::Combat:
+            result.name = "partial_occlusion_combat";
+            break;
+        case ScenarioKind::HumanErrors:
+            result.name = "partial_occlusion_human_errors";
+            break;
+        case ScenarioKind::PracticalStress:
+            result.name = "partial_occlusion_practical_stress";
+            break;
+        case ScenarioKind::DestructiveStress:
+            result.name = "partial_occlusion_destructive_stress";
+            break;
+    }
     result.seed = seed;
 
     constexpr std::array<int, 4> kDirectionX{1, 1, -1, -1};
@@ -104,6 +115,15 @@ ScenarioDefinition build_scenario(ScenarioKind kind, std::uint32_t seed) {
         HumanErrorKind::CrossingInertia,
     };
     constexpr std::array<int, 4> kErrorHoldMs{120, 100, 100, 160};
+    constexpr std::array<HumanErrorKind, 4> kStressErrors{
+        HumanErrorKind::WrongX,
+        HumanErrorKind::WrongY,
+        HumanErrorKind::WrongBoth,
+        HumanErrorKind::MixedAxes,
+    };
+    const bool practical = kind == ScenarioKind::PracticalStress;
+    const bool destructive = kind == ScenarioKind::DestructiveStress;
+    const bool stress = practical || destructive;
 
     result.cases.reserve(4);
     for (int index = 0; index < 4; ++index) {
@@ -114,18 +134,38 @@ ScenarioDefinition build_scenario(ScenarioKind kind, std::uint32_t seed) {
         value.observation_gap_ms = kGapMs[index];
         value.error_kind = kind == ScenarioKind::Combat
             ? HumanErrorKind::None
-            : kErrors[index];
-        value.error_hold_ms = kind == ScenarioKind::Combat ? 0 : kErrorHoldMs[index];
+            : (stress ? kStressErrors[index] : kErrors[index]);
+        value.error_hold_ms = kind == ScenarioKind::Combat
+            ? 0
+            : (practical ? 180 : (destructive ? 320 : kErrorHoldMs[index]));
         if (kind == ScenarioKind::HumanErrors &&
             (value.error_kind == HumanErrorKind::WrongX ||
              value.error_kind == HumanErrorKind::WrongY)) {
             value.error_onset_ms = 70;
         }
+        if (stress) value.error_onset_ms = 70;
         value.manual_magnitude_cap = kind == ScenarioKind::Combat ? 0.45 : 0.60;
         if (kind == ScenarioKind::HumanErrors &&
             (value.error_kind == HumanErrorKind::WrongX ||
              value.error_kind == HumanErrorKind::WrongY)) {
             value.manual_magnitude_cap = 0.40;
+        }
+        if (practical) {
+            value.manual_magnitude_cap = 0.70;
+            value.stress_tier = StressTier::Practical;
+            value.truth_motion_amplitude_x_px_per_sec = 260.0 + index * 20.0;
+            value.truth_motion_amplitude_y_px_per_sec = 150.0 + index * 15.0;
+            value.observation_jitter_x_px = 12.0;
+            value.observation_jitter_y_px = 9.0;
+            value.observation_jump_px = 20.0;
+        } else if (destructive) {
+            value.manual_magnitude_cap = 0.95;
+            value.stress_tier = StressTier::Destructive;
+            value.truth_motion_amplitude_x_px_per_sec = 520.0 + index * 30.0;
+            value.truth_motion_amplitude_y_px_per_sec = 320.0 + index * 20.0;
+            value.observation_jitter_x_px = 32.0;
+            value.observation_jitter_y_px = 26.0;
+            value.observation_jump_px = 55.0;
         }
         value.target_velocity_x_px_per_sec = value.direction_x * (205.0 + index * 18.0);
         value.target_velocity_y_px_per_sec = value.direction_y * (105.0 + index * 15.0);
@@ -163,16 +203,30 @@ ManualProfileSample sample_manual_profile(
         case HumanErrorKind::WrongY:
             onset.y = wrong_way(ideal.y);
             break;
+        case HumanErrorKind::WrongBoth:
+            onset.x = wrong_way(ideal.x);
+            onset.y = wrong_way(ideal.y);
+            break;
+        case HumanErrorKind::MixedAxes:
+            onset.x = wrong_way(ideal.x);
+            break;
     }
     const double linear = std::clamp(
         static_cast<double>(elapsed_in_error_ms) / value.error_hold_ms,
         0.0,
         1.0);
     const double blend = linear * linear * (3.0 - 2.0 * linear);
-    return {
+    ManualProfileSample result{
         onset.x + (ideal.x - onset.x) * blend,
         onset.y + (ideal.y - onset.y) * blend,
     };
+    if (value.error_kind == HumanErrorKind::MixedAxes && linear >= 0.5) {
+        const double local = (linear - 0.5) * 2.0;
+        const double pulse = std::pow(std::sin(3.14159265358979323846 * local), 2.0);
+        const double wrong_y = wrong_way(ideal.y);
+        result.y = ideal.y + (wrong_y - ideal.y) * pulse;
+    }
+    return result;
 }
 
 double truth_chest_y_px(
@@ -277,6 +331,8 @@ const char* to_string(HumanErrorKind value) noexcept {
         case HumanErrorKind::WrongX: return "wrong_x";
         case HumanErrorKind::WrongY: return "wrong_y";
         case HumanErrorKind::CrossingInertia: return "crossing_inertia";
+        case HumanErrorKind::WrongBoth: return "wrong_both";
+        case HumanErrorKind::MixedAxes: return "mixed_axes";
     }
     return "unknown";
 }
