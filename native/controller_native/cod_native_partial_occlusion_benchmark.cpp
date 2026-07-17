@@ -14,6 +14,8 @@
 #include <numeric>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -41,8 +43,30 @@ struct CaseTrace {
     std::vector<double> errors;
     std::vector<double> output_deltas;
     std::vector<double> recovery_ms;
+    std::vector<double> error_window_errors;
+    std::vector<double> error_window_recovery_ms;
     double final_error = 0.0;
 };
+
+template <typename Components, typename = void>
+struct HasAxisIntervention : std::false_type {};
+
+template <typename Components>
+struct HasAxisIntervention<Components, std::void_t<
+    decltype(std::declval<Components>().axis_intent_intervention.x),
+    decltype(std::declval<Components>().axis_intent_intervention.y)>>
+    : std::true_type {};
+
+template <typename Components>
+Vec2 axis_intervention_for(const Components& components) {
+    if constexpr (HasAxisIntervention<Components>::value) {
+        return {
+            components.axis_intent_intervention.x,
+            components.axis_intent_intervention.y,
+        };
+    }
+    return {};
+}
 
 CliOptions parse_args(int argc, char** argv) {
     CliOptions options;
@@ -210,6 +234,7 @@ Vec2 manual_for(
 void accumulate_case(
     const ScenarioCase& value,
     const controller_native::GamepadRuntimeConfig& source_config,
+    std::uint32_t seed,
     PartialOcclusionMetrics& metrics,
     CaseTrace& aggregate_trace) {
     constexpr double kDt = 0.001;
@@ -235,6 +260,12 @@ void accumulate_case(
     const Vec2 initial_error = target;
     bool recovery_recorded = false;
     int recovery_hold = 0;
+    bool error_window_recovery_recorded = false;
+    int error_window_recovery_hold = 0;
+    const int injected_error_start = value.error_onset_ms >= 0
+        ? value.error_onset_ms
+        : value.full_observed_ms + value.partial_observed_ms;
+    const int injected_error_end = injected_error_start + value.error_hold_ms;
     const int stable_start_ms =
         value.full_observed_ms + value.partial_observed_ms +
         value.observation_gap_ms + value.biased_reacquisition_ms;
@@ -248,8 +279,12 @@ void accumulate_case(
     for (int tick = 0; tick < total_ms; ++tick) {
         simulated_now += kDt;
         const double ego_velocity_x = -value.left_stick_x * 110.0;
-        target.x += (value.target_velocity_x_px_per_sec + ego_velocity_x) * kDt;
-        target.y += value.target_velocity_y_px_per_sec * kDt;
+        const auto truth_disturbance =
+            controller_native::partial_occlusion::sample_truth_velocity_disturbance(
+                value, seed, tick);
+        target.x += (value.target_velocity_x_px_per_sec + ego_velocity_x +
+                     truth_disturbance.x) * kDt;
+        target.y += (value.target_velocity_y_px_per_sec + truth_disturbance.y) * kDt;
         const Vec2 true_error{target.x - reticle.x, target.y - reticle.y};
         error_history.push_back(true_error);
 
@@ -263,9 +298,16 @@ void accumulate_case(
                 ++metrics.missing_vision_samples;
             } else {
                 double geometry_bias = 0.0;
+                const auto observation_disturbance =
+                    controller_native::partial_occlusion::sample_observation_disturbance(
+                        value, seed, tick);
+                const Vec2 measured_error{
+                    true_error.x + observation_disturbance.x,
+                    true_error.y + observation_disturbance.y,
+                };
                 controller.submit_vision_state(observed_state(
                     value,
-                    true_error,
+                    measured_error,
                     tick,
                     simulated_now,
                     sequence,
@@ -273,6 +315,9 @@ void accumulate_case(
                 metrics.peak_geometry_bias_px = std::max(
                     metrics.peak_geometry_bias_px,
                     geometry_bias);
+                metrics.max_observation_offset_px = std::max(
+                    metrics.max_observation_offset_px,
+                    std::hypot(observation_disturbance.x, observation_disturbance.y));
             }
         }
 
@@ -295,10 +340,11 @@ void accumulate_case(
         controller.build_output(physical);
 
         const auto& components = controller.last_output_components();
-        if (components.axis_intent_intervention.x > 0.5f) {
+        const Vec2 intervention = axis_intervention_for(components);
+        if (intervention.x > 0.5) {
             ++metrics.axis_intervention_x_frames;
         }
-        if (components.axis_intent_intervention.y > 0.5f) {
+        if (intervention.y > 0.5) {
             ++metrics.axis_intervention_y_frames;
         }
         const Vec2 output{components.final_stick.x, components.final_stick.y};
@@ -311,6 +357,29 @@ void accumulate_case(
         aggregate_trace.errors.push_back(radial_error);
         final_error = radial_error;
         metrics.peak_error_px = std::max(metrics.peak_error_px, radial_error);
+        const bool injected_error_active =
+            value.error_hold_ms > 0 && tick >= injected_error_start && tick < injected_error_end;
+        if (injected_error_active) {
+            aggregate_trace.error_window_errors.push_back(radial_error);
+            ++metrics.manual_error_active_frames;
+            metrics.peak_manual_error_x = std::max(
+                metrics.peak_manual_error_x, std::fabs(manual.x));
+            metrics.peak_manual_error_y = std::max(
+                metrics.peak_manual_error_y, std::fabs(manual.y));
+        } else if (value.error_hold_ms > 0 && tick >= injected_error_end &&
+                   !error_window_recovery_recorded) {
+            aggregate_trace.error_window_errors.push_back(radial_error);
+            if (radial_error <= 20.0) {
+                ++error_window_recovery_hold;
+                if (error_window_recovery_hold >= 20) {
+                    aggregate_trace.error_window_recovery_ms.push_back(
+                        tick - injected_error_end - error_window_recovery_hold + 1);
+                    error_window_recovery_recorded = true;
+                }
+            } else {
+                error_window_recovery_hold = 0;
+            }
+        }
         if (phase_is_occluded(tick, value)) {
             metrics.occlusion_peak_error_px = std::max(
                 metrics.occlusion_peak_error_px,
@@ -366,6 +435,10 @@ void accumulate_case(
     if (!recovery_recorded) {
         aggregate_trace.recovery_ms.push_back(value.stable_recovery_ms);
     }
+    if (value.error_hold_ms > 0 && !error_window_recovery_recorded) {
+        aggregate_trace.error_window_recovery_ms.push_back(
+            std::max(0, total_ms - injected_error_end));
+    }
     aggregate_trace.final_error += final_error;
     metrics.max_overshoot_x_px = std::max(metrics.max_overshoot_x_px, max_wrong_side_x);
     metrics.max_overshoot_y_px = std::max(metrics.max_overshoot_y_px, max_wrong_side_y);
@@ -394,6 +467,15 @@ void merge_metrics(PartialOcclusionMetrics& aggregate, const PartialOcclusionMet
         aggregate.occlusion_peak_error_px, value.occlusion_peak_error_px);
     aggregate.peak_geometry_bias_px = std::max(
         aggregate.peak_geometry_bias_px, value.peak_geometry_bias_px);
+    aggregate.error_window_peak_px = std::max(
+        aggregate.error_window_peak_px, value.error_window_peak_px);
+    aggregate.max_observation_offset_px = std::max(
+        aggregate.max_observation_offset_px, value.max_observation_offset_px);
+    aggregate.peak_manual_error_x = std::max(
+        aggregate.peak_manual_error_x, value.peak_manual_error_x);
+    aggregate.peak_manual_error_y = std::max(
+        aggregate.peak_manual_error_y, value.peak_manual_error_y);
+    aggregate.manual_error_active_frames += value.manual_error_active_frames;
 }
 
 void append_trace(CaseTrace& aggregate, const CaseTrace& value) {
@@ -402,6 +484,14 @@ void append_trace(CaseTrace& aggregate, const CaseTrace& value) {
         aggregate.output_deltas.end(), value.output_deltas.begin(), value.output_deltas.end());
     aggregate.recovery_ms.insert(
         aggregate.recovery_ms.end(), value.recovery_ms.begin(), value.recovery_ms.end());
+    aggregate.error_window_errors.insert(
+        aggregate.error_window_errors.end(),
+        value.error_window_errors.begin(),
+        value.error_window_errors.end());
+    aggregate.error_window_recovery_ms.insert(
+        aggregate.error_window_recovery_ms.end(),
+        value.error_window_recovery_ms.begin(),
+        value.error_window_recovery_ms.end());
     aggregate.final_error += value.final_error;
 }
 
@@ -420,6 +510,21 @@ void finalize_metrics(
         : std::accumulate(trace.recovery_ms.begin(), trace.recovery_ms.end(), 0.0) /
             trace.recovery_ms.size();
     metrics.p95_output_delta = percentile(trace.output_deltas, 0.95);
+    if (!trace.error_window_errors.empty()) {
+        metrics.error_window_mean_px = std::accumulate(
+            trace.error_window_errors.begin(), trace.error_window_errors.end(), 0.0) /
+            trace.error_window_errors.size();
+        metrics.error_window_p95_px = percentile(trace.error_window_errors, 0.95);
+        metrics.error_window_peak_px = *std::max_element(
+            trace.error_window_errors.begin(), trace.error_window_errors.end());
+    }
+    metrics.error_window_recovery_ms = trace.error_window_recovery_ms.empty()
+        ? 0.0
+        : std::accumulate(
+              trace.error_window_recovery_ms.begin(),
+              trace.error_window_recovery_ms.end(),
+              0.0) /
+              trace.error_window_recovery_ms.size();
 }
 
 ScenarioReport run_scenario(
@@ -438,7 +543,7 @@ ScenarioReport run_scenario(
         }
         CaseTrace case_trace;
         case_report.metrics.cases = 1;
-        accumulate_case(value, config, case_report.metrics, case_trace);
+        accumulate_case(value, config, seed, case_report.metrics, case_trace);
         finalize_metrics(case_report.metrics, case_trace, 1);
         case_report.score = controller_native::partial_occlusion::score_metrics(
             case_report.metrics);
@@ -479,6 +584,8 @@ int main(int argc, char** argv) {
         const std::vector<ScenarioReport> reports{
             run_scenario(ScenarioKind::Combat, config.gamepad, options.seed),
             run_scenario(ScenarioKind::HumanErrors, config.gamepad, options.seed),
+            run_scenario(ScenarioKind::PracticalStress, config.gamepad, options.seed),
+            run_scenario(ScenarioKind::DestructiveStress, config.gamepad, options.seed),
         };
         const std::string json = controller_native::partial_occlusion::render_report_json(
             metadata_from(config, options),

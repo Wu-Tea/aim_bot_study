@@ -125,6 +125,19 @@ void test_stress_schedules_cover_stronger_single_and_dual_axis_errors() {
     expect_true(
         destructive.cases.front().error_hold_ms > practical.cases.front().error_hold_ms,
         "destructive error must last longer");
+
+    const ManualProfileSample historical{0.20, -0.20};
+    const ManualProfileSample ideal{0.20, -0.20};
+    const auto practical_wrong =
+        controller_native::partial_occlusion::sample_manual_profile(
+            practical.cases[0], historical, ideal, 0);
+    const auto destructive_wrong =
+        controller_native::partial_occlusion::sample_manual_profile(
+            destructive.cases[0], historical, ideal, 0);
+    expect_near(std::fabs(practical_wrong.x), 0.70, 0.0001,
+                "practical profile must reach configured error strength");
+    expect_near(std::fabs(destructive_wrong.x), 0.95, 0.0001,
+                "destructive profile must reach configured error strength");
 }
 
 void test_stale_direction_holds_history_before_decaying_to_ideal() {
@@ -359,6 +372,14 @@ void test_json_report_contains_provenance_metrics_and_scores() {
     report.name = "partial_occlusion_combat";
     report.metrics.measured_frames = 100;
     report.metrics.mean_error_px = 12.5;
+    report.metrics.error_window_mean_px = 31.25;
+    report.metrics.error_window_p95_px = 48.50;
+    report.metrics.error_window_peak_px = 72.00;
+    report.metrics.error_window_recovery_ms = 93.00;
+    report.metrics.max_observation_offset_px = 20.00;
+    report.metrics.peak_manual_error_x = 0.70;
+    report.metrics.peak_manual_error_y = 0.65;
+    report.metrics.manual_error_active_frames = 180;
     report.score = controller_native::partial_occlusion::score_metrics(report.metrics);
     controller_native::partial_occlusion::CaseReport case_report;
     case_report.name = "wrong_x";
@@ -372,6 +393,22 @@ void test_json_report_contains_provenance_metrics_and_scores() {
     expect_true(json.find("\"seed\": 1337") != std::string::npos, "JSON seed provenance");
     expect_true(json.find("\"aim_height_ratio\": 0.365000") != std::string::npos, "JSON geometry config");
     expect_true(json.find("\"mean_error_px\": 12.500000") != std::string::npos, "JSON raw metric");
+    expect_true(json.find("\"error_window_mean_px\": 31.250000") != std::string::npos,
+                "JSON error-window mean");
+    expect_true(json.find("\"error_window_p95_px\": 48.500000") != std::string::npos,
+                "JSON error-window P95");
+    expect_true(json.find("\"error_window_peak_px\": 72.000000") != std::string::npos,
+                "JSON error-window peak");
+    expect_true(json.find("\"error_window_recovery_ms\": 93.000000") != std::string::npos,
+                "JSON error-window recovery");
+    expect_true(json.find("\"max_observation_offset_px\": 20.000000") != std::string::npos,
+                "JSON observation offset");
+    expect_true(json.find("\"peak_manual_error_x\": 0.700000") != std::string::npos,
+                "JSON manual error X peak");
+    expect_true(json.find("\"peak_manual_error_y\": 0.650000") != std::string::npos,
+                "JSON manual error Y peak");
+    expect_true(json.find("\"manual_error_active_frames\": 180") != std::string::npos,
+                "JSON manual error active frames");
     expect_true(json.find("\"formula_version\": 1") != std::string::npos, "JSON score formula");
     expect_true(json.find("\"overall\"") != std::string::npos, "JSON overall score");
     expect_true(json.find("\"cases\"") != std::string::npos, "JSON case array");

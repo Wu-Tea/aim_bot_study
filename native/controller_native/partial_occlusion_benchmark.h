@@ -107,6 +107,14 @@ struct PartialOcclusionMetrics {
     double mean_recovery_ms = 0.0;
     double p95_output_delta = 0.0;
     double peak_geometry_bias_px = 0.0;
+    double error_window_mean_px = 0.0;
+    double error_window_p95_px = 0.0;
+    double error_window_peak_px = 0.0;
+    double error_window_recovery_ms = 0.0;
+    double max_observation_offset_px = 0.0;
+    double peak_manual_error_x = 0.0;
+    double peak_manual_error_y = 0.0;
+    int manual_error_active_frames = 0;
 };
 
 struct PartialOcclusionScore {

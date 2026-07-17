@@ -68,7 +68,18 @@ void write_metrics_json(
         << indent << "  \"occlusion_peak_error_px\": " << m.occlusion_peak_error_px << ",\n"
         << indent << "  \"mean_recovery_ms\": " << m.mean_recovery_ms << ",\n"
         << indent << "  \"p95_output_delta\": " << m.p95_output_delta << ",\n"
-        << indent << "  \"peak_geometry_bias_px\": " << m.peak_geometry_bias_px << "\n"
+        << indent << "  \"peak_geometry_bias_px\": " << m.peak_geometry_bias_px << ",\n"
+        << indent << "  \"error_window_mean_px\": " << m.error_window_mean_px << ",\n"
+        << indent << "  \"error_window_p95_px\": " << m.error_window_p95_px << ",\n"
+        << indent << "  \"error_window_peak_px\": " << m.error_window_peak_px << ",\n"
+        << indent << "  \"error_window_recovery_ms\": "
+        << m.error_window_recovery_ms << ",\n"
+        << indent << "  \"max_observation_offset_px\": "
+        << m.max_observation_offset_px << ",\n"
+        << indent << "  \"peak_manual_error_x\": " << m.peak_manual_error_x << ",\n"
+        << indent << "  \"peak_manual_error_y\": " << m.peak_manual_error_y << ",\n"
+        << indent << "  \"manual_error_active_frames\": "
+        << m.manual_error_active_frames << "\n"
         << indent << "}";
 }
 
@@ -187,9 +198,9 @@ ManualProfileSample sample_manual_profile(
     }
     ManualProfileSample onset = ideal;
     const auto wrong_way = [&](double axis) {
-        const double magnitude = std::min(
-            value.manual_magnitude_cap,
-            std::max(0.28, std::fabs(axis)));
+        const double magnitude = value.stress_tier == StressTier::None
+            ? std::min(value.manual_magnitude_cap, std::max(0.28, std::fabs(axis)))
+            : value.manual_magnitude_cap;
         return axis == 0.0 ? 0.0 : -std::copysign(magnitude, axis);
     };
     switch (value.error_kind) {
