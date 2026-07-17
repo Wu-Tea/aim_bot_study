@@ -365,6 +365,9 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
             << ",\"auto_fire_aim_ready\":" << (record.controller.auto_fire_aim_ready ? "true" : "false")
             << ",\"auto_fire_allowed\":" << (record.controller.auto_fire_allowed ? "true" : "false")
             << ",\"auto_fire_active\":" << (record.controller.auto_fire_active ? "true" : "false")
+            << ",\"auto_fire_pulse_starts\":" << record.controller.auto_fire_pulse_starts
+            << ",\"auto_fire_pulse_pressed\":" << (record.controller.auto_fire_pulse_pressed ? "true" : "false")
+            << ",\"auto_fire_cadence_wait\":" << (record.controller.auto_fire_cadence_wait ? "true" : "false")
             << ",\"final_fire_button\":" << (record.controller.final_fire_button ? "true" : "false")
             << ",\"auto_fire_block_reason\":\"" << record.controller.auto_fire_block_reason.data() << '"'
             << ",\"detector_box_count\":" << record.controller.detector_box_count

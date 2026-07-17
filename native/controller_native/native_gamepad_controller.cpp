@@ -427,6 +427,9 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
     components.auto_fire_aim_ready = fire.aim_ready;
     components.auto_fire_allowed = fire.pre_takeover_should_fire;
     components.auto_fire_active = fire.should_fire;
+    components.auto_fire_pulse_starts = fire.counters.pulse_starts;
+    components.auto_fire_pulse_pressed = fire.should_fire;
+    components.auto_fire_cadence_wait = fire.pulse_waiting;
     components.auto_fire_block_reason = auto_fire_block_reason_name(fire.block_reason);
 
     components.before_recoil_stick = {output.right_x, output.right_y};

@@ -174,6 +174,9 @@ struct ControllerSamplePayload {
     bool auto_fire_aim_ready = false;
     bool auto_fire_allowed = false;
     bool auto_fire_active = false;
+    std::uint64_t auto_fire_pulse_starts = 0;
+    bool auto_fire_pulse_pressed = false;
+    bool auto_fire_cadence_wait = false;
     bool final_fire_button = false;
     std::array<char, 28> auto_fire_block_reason{};
     std::uint32_t detector_box_count = 0;

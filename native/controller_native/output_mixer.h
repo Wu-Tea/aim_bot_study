@@ -4,6 +4,7 @@
 
 #include "virtual_gamepad.h"
 
+#include <cstdint>
 #include <string>
 
 namespace controller_native {
@@ -51,6 +52,9 @@ struct NativeControllerOutputComponents {
     bool auto_fire_aim_ready = false;
     bool auto_fire_allowed = false;
     bool auto_fire_active = false;
+    std::uint64_t auto_fire_pulse_starts = 0;
+    bool auto_fire_pulse_pressed = false;
+    bool auto_fire_cadence_wait = false;
     std::string auto_fire_block_reason = "none";
     bool fire_button = false;
 };

@@ -734,6 +734,12 @@ void RuntimeLoop::run_once() {
     telemetry_tick.auto_fire_aim_ready = telemetry_components.auto_fire_aim_ready;
     telemetry_tick.auto_fire_allowed = telemetry_components.auto_fire_allowed;
     telemetry_tick.auto_fire_active = telemetry_components.auto_fire_active;
+    telemetry_tick.auto_fire_pulse_starts =
+        telemetry_components.auto_fire_pulse_starts;
+    telemetry_tick.auto_fire_pulse_pressed =
+        telemetry_components.auto_fire_pulse_pressed;
+    telemetry_tick.auto_fire_cadence_wait =
+        telemetry_components.auto_fire_cadence_wait;
     telemetry_tick.final_fire_button = telemetry_components.fire_button;
     telemetry_tick.auto_fire_block_reason =
         telemetry_components.auto_fire_block_reason.c_str();
