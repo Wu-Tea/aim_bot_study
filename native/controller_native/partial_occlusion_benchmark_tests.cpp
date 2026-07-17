@@ -233,6 +233,77 @@ void test_clipped_observation_does_not_move_world_truth() {
     expect_true(std::fabs(observed_partial - full_truth) > 10.0, "clipped observation should expose geometry bias");
 }
 
+void test_stress_disturbances_are_deterministic_bounded_and_truth_safe() {
+    const auto practical = controller_native::partial_occlusion::build_scenario(
+        ScenarioKind::PracticalStress,
+        1337);
+    const auto destructive = controller_native::partial_occlusion::build_scenario(
+        ScenarioKind::DestructiveStress,
+        1337);
+    const auto baseline = controller_native::partial_occlusion::build_scenario(
+        ScenarioKind::Combat,
+        1337);
+
+    const auto truth_a = controller_native::partial_occlusion::sample_truth_velocity_disturbance(
+        practical.cases[0], 1337, 95);
+    const auto truth_b = controller_native::partial_occlusion::sample_truth_velocity_disturbance(
+        practical.cases[0], 1337, 95);
+    const auto truth_other_seed =
+        controller_native::partial_occlusion::sample_truth_velocity_disturbance(
+            practical.cases[0], 1338, 95);
+    expect_near(truth_a.x, truth_b.x, 0.000001, "truth X determinism");
+    expect_near(truth_a.y, truth_b.y, 0.000001, "truth Y determinism");
+    expect_true(std::hypot(truth_a.x, truth_a.y) > 0.0,
+                "stress truth must contain non-linear motion");
+    expect_true(std::hypot(truth_a.x - truth_other_seed.x,
+                           truth_a.y - truth_other_seed.y) > 0.01,
+                "seed must alter truth disturbance phase");
+
+    double practical_max = 0.0;
+    double destructive_max = 0.0;
+    for (int tick = 0; tick < 700; ++tick) {
+        const auto practical_noise =
+            controller_native::partial_occlusion::sample_observation_disturbance(
+                practical.cases[0], 1337, tick);
+        const auto destructive_noise =
+            controller_native::partial_occlusion::sample_observation_disturbance(
+                destructive.cases[0], 1337, tick);
+        practical_max = std::max(
+            practical_max, std::hypot(practical_noise.x, practical_noise.y));
+        destructive_max = std::max(
+            destructive_max, std::hypot(destructive_noise.x, destructive_noise.y));
+    }
+    expect_true(practical_max > 6.0 && practical_max <= 20.0001,
+                "practical observation disturbance bounds");
+    expect_true(destructive_max >= 40.0 && destructive_max <= 55.0001,
+                "destructive observation jump bounds");
+
+    const auto baseline_truth =
+        controller_native::partial_occlusion::sample_truth_velocity_disturbance(
+            baseline.cases[0], 1337, 95);
+    const auto baseline_noise =
+        controller_native::partial_occlusion::sample_observation_disturbance(
+            baseline.cases[0], 1337, 95);
+    expect_near(std::hypot(baseline_truth.x, baseline_truth.y), 0.0, 0.000001,
+                "baseline truth disturbance must remain zero");
+    expect_near(std::hypot(baseline_noise.x, baseline_noise.y), 0.0, 0.000001,
+                "baseline observation disturbance must remain zero");
+
+    const controller_native::partial_occlusion::DisturbanceSample true_error{42.0, -18.0};
+    const auto noise = controller_native::partial_occlusion::sample_observation_disturbance(
+        practical.cases[0], 1337, 95);
+    const controller_native::partial_occlusion::DisturbanceSample observation{
+        true_error.x + noise.x,
+        true_error.y + noise.y};
+    expect_near(true_error.x, 42.0, 0.000001,
+                "observation noise must not mutate truth X");
+    expect_near(true_error.y, -18.0, 0.000001,
+                "observation noise must not mutate truth Y");
+    expect_true(std::hypot(observation.x - true_error.x,
+                           observation.y - true_error.y) > 0.0,
+                "observation must differ from truth under stress");
+}
+
 void test_perfect_metrics_score_one_hundred() {
     controller_native::partial_occlusion::PartialOcclusionMetrics metrics;
     metrics.mean_error_px = 0.0;
@@ -318,6 +389,7 @@ int main() {
     test_crossing_inertia_releases_smoothly();
     test_mixed_axes_preserves_y_before_smooth_wrong_y_pulse();
     test_clipped_observation_does_not_move_world_truth();
+    test_stress_disturbances_are_deterministic_bounded_and_truth_safe();
     test_perfect_metrics_score_one_hundred();
     test_degraded_metrics_reduce_every_component();
     test_json_report_contains_provenance_metrics_and_scores();

@@ -9,6 +9,8 @@
 namespace controller_native::partial_occlusion {
 namespace {
 
+constexpr double kPi = 3.14159265358979323846;
+
 double clamp_score(double value) noexcept {
     return std::clamp(value, 0.0, 100.0);
 }
@@ -225,6 +227,75 @@ ManualProfileSample sample_manual_profile(
         const double pulse = std::pow(std::sin(3.14159265358979323846 * local), 2.0);
         const double wrong_y = wrong_way(ideal.y);
         result.y = ideal.y + (wrong_y - ideal.y) * pulse;
+    }
+    return result;
+}
+
+DisturbanceSample sample_truth_velocity_disturbance(
+    const ScenarioCase& value,
+    std::uint32_t seed,
+    int elapsed_ms) noexcept {
+    if (value.stress_tier == StressTier::None) return {};
+    const double t = std::max(0, elapsed_ms) * 0.001;
+    const double phase = std::fmod(
+        static_cast<double>(seed) * 0.0137 + value.index * 0.731,
+        2.0 * kPi);
+    DisturbanceSample result{
+        value.truth_motion_amplitude_x_px_per_sec *
+            (0.62 * std::sin(2.0 * kPi * 2.7 * t + phase) +
+             0.38 * std::sin(2.0 * kPi * 6.1 * t + phase * 1.7)),
+        value.truth_motion_amplitude_y_px_per_sec *
+            (0.68 * std::sin(2.0 * kPi * 2.1 * t + phase * 0.8) +
+             0.32 * std::sin(2.0 * kPi * 5.3 * t + phase * 1.3)),
+    };
+
+    const int reversal_period = value.stress_tier == StressTier::Destructive ? 150 : 230;
+    const int reversal_phase = static_cast<int>((seed + value.index * 37u) % reversal_period);
+    const int local = (std::max(0, elapsed_ms) + reversal_phase) % reversal_period;
+    const int reversal_width = value.stress_tier == StressTier::Destructive ? 42 : 26;
+    if (local < reversal_width) {
+        const double envelope = std::sin(kPi * local / std::max(1, reversal_width));
+        result.x -= value.direction_x * value.truth_motion_amplitude_x_px_per_sec * envelope;
+        result.y += value.direction_y * value.truth_motion_amplitude_y_px_per_sec *
+            envelope * 0.65;
+    }
+    return result;
+}
+
+DisturbanceSample sample_observation_disturbance(
+    const ScenarioCase& value,
+    std::uint32_t seed,
+    int elapsed_ms) noexcept {
+    if (value.stress_tier == StressTier::None) return {};
+    const double t = std::max(0, elapsed_ms) * 0.001;
+    const double phase = std::fmod(
+        static_cast<double>(seed) * 0.0091 + value.index * 0.613,
+        2.0 * kPi);
+    DisturbanceSample result{
+        value.observation_jitter_x_px *
+            (0.68 * std::sin(2.0 * kPi * 11.0 * t + phase) +
+             0.32 * std::sin(2.0 * kPi * 23.0 * t + phase * 1.4)),
+        value.observation_jitter_y_px *
+            (0.70 * std::sin(2.0 * kPi * 13.0 * t + phase * 0.9) +
+             0.30 * std::sin(2.0 * kPi * 29.0 * t + phase * 1.6)),
+    };
+
+    const int jump_period = value.stress_tier == StressTier::Destructive ? 140 : 210;
+    const int offset = static_cast<int>((seed + value.index * 43u) % jump_period);
+    const int local = (std::max(0, elapsed_ms) + offset) % jump_period;
+    const int center = jump_period / 2;
+    const int half_width = value.stress_tier == StressTier::Destructive ? 10 : 7;
+    const double pulse = std::max(
+        0.0,
+        1.0 - static_cast<double>(std::abs(local - center)) / half_width);
+    result.x += value.direction_x * value.observation_jump_px * 0.8 * pulse;
+    result.y -= value.direction_y * value.observation_jump_px * 0.6 * pulse;
+
+    const double magnitude = std::hypot(result.x, result.y);
+    if (magnitude > value.observation_jump_px && magnitude > 0.0) {
+        const double scale = value.observation_jump_px / magnitude;
+        result.x *= scale;
+        result.y *= scale;
     }
     return result;
 }

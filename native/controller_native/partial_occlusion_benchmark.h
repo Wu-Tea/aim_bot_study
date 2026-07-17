@@ -78,6 +78,11 @@ struct ManualProfileSample {
     double y = 0.0;
 };
 
+struct DisturbanceSample {
+    double x = 0.0;
+    double y = 0.0;
+};
+
 struct PartialOcclusionMetrics {
     int cases = 0;
     int measured_frames = 0;
@@ -148,6 +153,16 @@ ManualProfileSample sample_manual_profile(
     ManualProfileSample historical,
     ManualProfileSample ideal,
     int elapsed_in_error_ms) noexcept;
+
+DisturbanceSample sample_truth_velocity_disturbance(
+    const ScenarioCase& value,
+    std::uint32_t seed,
+    int elapsed_ms) noexcept;
+
+DisturbanceSample sample_observation_disturbance(
+    const ScenarioCase& value,
+    std::uint32_t seed,
+    int elapsed_ms) noexcept;
 
 double truth_chest_y_px(
     double full_body_top_y_px,
