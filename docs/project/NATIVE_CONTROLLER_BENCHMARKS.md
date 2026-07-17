@@ -383,3 +383,15 @@ left response already feeds `error_rate` and the short horizon, while the
 duplicate projection worsened 100 Hz fast P95 by 1.33%. The accepted run keeps
 maximum AI tick delta at `0.064`, has no large sign flips, and the correct
 manual-prediction case records zero interventions with full retention (`1.0`).
+
+An exact binary A/B against commit `26c8760` used the same current config and
+seed. The no-manual `ads_fov_settle_130ms` case is numerically identical
+(`mean=22.149556`, `p95=58.736279`, `max_overshoot=8.877450`), and the existing
+BodyLock-continuity fixture remains the same pre-existing FAIL (`16` opposing
+samples, `assist_delta_p95=0.024`) rather than a new regression. In deliberate
+manual-stress cases, retention prioritizes takeover: manual-direction score
+improves `91.745 -> 99.997` and `86.697 -> 90.378`, while tracking mean rises
+because the fixture intentionally asks the user to fight the target-following
+controller. This tradeoff is not used as evidence of tracking improvement;
+tracking improvement is claimed only for the explicitly labelled wrong-X/Y
+cases above.
