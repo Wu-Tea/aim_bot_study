@@ -239,7 +239,8 @@ if (-not (Test-Path $runtimeExe)) {
 $testOutput = & $testsExe 2>&1
 $testExit = $LASTEXITCODE
 $testOutput | ForEach-Object { Write-Output $_ }
-if ($testExit -ne 0 -or (($testOutput -join "`n") -notmatch "\[NativeControllerTests\] PASS")) {
+if ($testExit -ne 0 -or (($testOutput -join "`n") -notmatch
+        "\[(NativeControllerTests|TargetPipelineIntegrationTests)\] PASS")) {
     throw "Native controller contract tests failed."
 }
 
