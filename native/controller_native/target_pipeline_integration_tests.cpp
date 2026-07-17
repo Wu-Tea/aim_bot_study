@@ -314,6 +314,13 @@ void test_100hz_vision_1000hz_control_emits_stable_fire_cadence() {
                 fire_target(static_cast<std::uint64_t>(tick / 10 + 1), now));
         }
         const bool pressed = controller.build_output(physical).rb;
+        if (tick % 10 != 0) {
+            require(!controller.last_frame_vision_state().fresh_observation,
+                    "no-publication tick was mislabeled as a fresh Vision frame");
+            require(
+                controller.last_frame_vision_state().current_observed_target_present,
+                "no-publication tick lost current observed target continuity");
+        }
         if (pressed && !previous) start_ticks.push_back(tick);
         if (pressed) ++current_width;
         if (!pressed && previous) {

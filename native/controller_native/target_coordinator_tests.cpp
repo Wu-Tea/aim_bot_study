@@ -204,8 +204,8 @@ void test_nonfresh_empty_ticks_preserve_observed_fire_plan() {
         const double time = 10.000 + tick * 0.001;
         plan = coordinator.update(no_publication, ads_intent(time), time);
         require_true(
-            plan.lifecycle == pipeline_contract::TargetLifecycle::Observed,
-            "no-publication tick must not become a processed miss");
+            plan.lifecycle == pipeline_contract::TargetLifecycle::Coasting,
+            "no-publication tick must preserve the established aim continuity path");
         require_true(
             plan.fire_requested && plan.fire_authority,
             "frame gap must preserve live fire eligibility");

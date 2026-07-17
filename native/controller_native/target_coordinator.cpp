@@ -165,19 +165,13 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         if (missing_ms <= config_.hold_ms) {
             position_ = predicted;
             if (observations.capture_fresh) {
-                lifecycle = pipeline_contract::TargetLifecycle::Coasting;
                 fire_requested_ = false;
                 observed_fire_eligible_ = false;
                 was_missing_ = true;
-            } else {
-                lifecycle = was_missing_
-                    ? pipeline_contract::TargetLifecycle::Coasting
-                    : latest_.lifecycle;
             }
-            reliability = was_missing_
-                ? last_observed_reliability_ *
-                    std::clamp(1.0f - missing_ms / config_.hold_ms, 0.0f, 1.0f)
-                : last_observed_reliability_;
+            lifecycle = pipeline_contract::TargetLifecycle::Coasting;
+            reliability = last_observed_reliability_ *
+                std::clamp(1.0f - missing_ms / config_.hold_ms, 0.0f, 1.0f);
             normalized_size = last_observed_normalized_size_;
         } else {
             has_target_ = false;
@@ -257,8 +251,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     } else {
         plan.motion = pipeline_contract::TargetMotion::Steady;
     }
-    plan.fire_authority = observed_fire_eligible_ &&
-        lifecycle != pipeline_contract::TargetLifecycle::Coasting;
+    plan.fire_authority = observed_fire_eligible_ && !was_missing_;
     plan.fire_requested = fire_requested_;
     plan.fire_suppression = plan.fire_authority
         ? pipeline_contract::FireSuppressionReason::None

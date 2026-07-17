@@ -241,7 +241,8 @@ pipeline_contract::VisionObservationBatch NativeGamepadController::observation_b
 
 NativeControllerVisionState NativeGamepadController::vision_state_from_plan(
     const pipeline_contract::TargetPlan& plan,
-    double now_seconds) const {
+    double now_seconds,
+    bool capture_fresh) const {
     NativeControllerVisionState state{};
     state.vision_sequence = plan.source_frame_id;
     state.selected_track_id = plan.target_id;
@@ -249,8 +250,10 @@ NativeControllerVisionState NativeGamepadController::vision_state_from_plan(
     state.has_target = plan.lifecycle != pipeline_contract::TargetLifecycle::None;
     state.current_observed_target_present =
         plan.lifecycle == pipeline_contract::TargetLifecycle::Observed ||
-        plan.lifecycle == pipeline_contract::TargetLifecycle::Reacquiring;
-    state.fresh_observation = state.current_observed_target_present;
+        plan.lifecycle == pipeline_contract::TargetLifecycle::Reacquiring ||
+        plan.fire_authority;
+    state.fresh_observation =
+        capture_fresh && state.current_observed_target_present;
     state.aim_authority = plan.aim_authority > 0.0f;
     state.fire_authority = plan.fire_authority;
     state.auto_fire_requested = plan.fire_requested;
@@ -310,7 +313,8 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
             ? last_frame_vision_state_.screen_center_y * 2.0f : 416.0f;
     }
     const auto plan = target_coordinator_.update(observations, intent, now);
-    last_frame_vision_state_ = vision_state_from_plan(plan, now);
+    last_frame_vision_state_ = vision_state_from_plan(
+        plan, now, observations.capture_fresh);
     last_ai_aim_mode_ = mode_name(plan.mode);
 
     auto controller_intent = intent;

@@ -58,7 +58,8 @@ private:
         const ControllerVisionSnapshot& snapshot) const noexcept;
     NativeControllerVisionState vision_state_from_plan(
         const pipeline_contract::TargetPlan& plan,
-        double now_seconds) const;
+        double now_seconds,
+        bool capture_fresh) const;
     bool manual_fire_pressed(const PhysicalGamepadState& physical) const noexcept;
     void apply_recoil(
         GamepadOutputState& output,
