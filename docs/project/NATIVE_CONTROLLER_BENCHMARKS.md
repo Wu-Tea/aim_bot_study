@@ -395,3 +395,56 @@ because the fixture intentionally asks the user to fight the target-following
 controller. This tradeoff is not used as evidence of tracking improvement;
 tracking improvement is claimed only for the explicitly labelled wrong-X/Y
 cases above.
+
+## AutoFire Pulse Cadence and Physical-Fire Ownership (2026-07-17)
+
+The native AutoFire path now treats a controller tick without a newly
+published Vision frame differently from a processed miss. Aim continuity keeps
+the established `Coasting` dynamics so ADS/BodyLock hand feel and the
+left-stick benchmark remain unchanged. Fire eligibility is retained only while
+there has been no fresh miss; a processed empty frame, cue/weak target, ADS
+release, or manual takeover revokes synthetic fire immediately.
+
+The deterministic timing fixture has no random input (`seed = none`). It drives
+100 Hz Vision publication and 1000 Hz controller evaluation for exactly 1000
+ticks and requires:
+
+- 10 synthetic pulse starts per second;
+- a 100 ms start-to-start period, within one controller tick;
+- at least 30 pressed ticks per uninterrupted pulse;
+- no release caused by the nine controller ticks between Vision publications;
+- same-tick release on a fresh processed miss;
+- no synthetic pulse for cue-hold or weak targets;
+- physical RB and RT passthrough during pulse press, cadence wait, manual
+  takeover release, and takeover guard.
+
+The live and example configuration contract is:
+
+```toml
+[gamepad.auto_fire]
+pulse_width_ms = 30
+pulse_period_ms = 100
+```
+
+Invalid values are rejected unless
+`0 < pulse_width_ms <= pulse_period_ms`. The scheduler uses monotonic time and
+never replays missed pulses after a delayed controller tick.
+
+Verification commands and results:
+
+```powershell
+D:\codex-build\autofire-pulse\Release\cod_native_auto_fire_tests.exe
+D:\codex-build\autofire-pulse\Release\cod_native_controller_tests.exe
+D:\codex-build\autofire-pulse\Release\cod_native_left_stick_motion_benchmark.exe --require-fixed
+D:\codex-build\autofire-pulse\Release\cod_native_partial_occlusion_benchmark_tests.exe
+```
+
+- all native test executables: `43 / 43` passed;
+- left-stick fixed gate: 5 scenarios, `defects = 0`;
+- partial-occlusion benchmark tests: PASS;
+- native pipeline contract (controller test + one-shot runtime): PASS.
+
+`cod_native_gamepad_benchmark.exe --self-test` still reports its existing
+moving-chase BodyLock bounded-error failure. The current `dev` launch-path
+binary reports the same failure, so it is recorded as a pre-existing benchmark
+baseline rather than an AutoFire regression.
