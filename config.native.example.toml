@@ -51,6 +51,8 @@ max_source_age_ms = 50
 require_aim_ready = true
 manual_takeover_release_seconds = 0.035
 manual_takeover_resume_delay_seconds = 0.085
+pulse_width_ms = 30
+pulse_period_ms = 100
 
 [gamepad.ads]
 strength_scale = 1.54

@@ -158,6 +158,8 @@ struct GamepadAutoFireConfig {
     bool require_aim_ready = true;
     float manual_takeover_release_seconds = 0.035f;
     float manual_takeover_resume_delay_seconds = 0.085f;
+    float pulse_width_ms = 30.0f;
+    float pulse_period_ms = 100.0f;
 };
 
 struct GamepadTrackerConfig {

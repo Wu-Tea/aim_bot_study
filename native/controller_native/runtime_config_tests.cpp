@@ -429,6 +429,50 @@ void test_gamepad_intent_unknown_key_is_reported() {
             std::string::npos);
 }
 
+void test_auto_fire_pulse_defaults_and_overrides() {
+    const controller_native::GamepadAutoFireConfig defaults{};
+    require(std::abs(defaults.pulse_width_ms - 30.0f) < 0.0001f);
+    require(std::abs(defaults.pulse_period_ms - 100.0f) < 0.0001f);
+
+    const auto path = std::filesystem::temp_directory_path() /
+        "cod_native_auto_fire_pulse_config.toml";
+    {
+        std::ofstream output(path);
+        output << "[gamepad.auto_fire]\n"
+               << "pulse_width_ms = 40\n"
+               << "pulse_period_ms = 120\n";
+    }
+    const auto config = controller_native::load_runtime_config(path);
+    std::filesystem::remove(path);
+    require(std::abs(config.gamepad.auto_fire.pulse_width_ms - 40.0f) < 0.0001f);
+    require(std::abs(config.gamepad.auto_fire.pulse_period_ms - 120.0f) < 0.0001f);
+}
+
+void test_auto_fire_pulse_rejects_invalid_relationships() {
+    for (const auto* body : {
+             "pulse_width_ms = 0\npulse_period_ms = 100\n",
+             "pulse_width_ms = 101\npulse_period_ms = 100\n"}) {
+        const auto path = std::filesystem::temp_directory_path() /
+            "cod_native_auto_fire_invalid_pulse.toml";
+        {
+            std::ofstream output(path);
+            output << "[gamepad.auto_fire]\n" << body;
+        }
+        bool failed = false;
+        try {
+            (void)controller_native::load_runtime_config(path);
+        } catch (const std::runtime_error& error) {
+            const std::string message = error.what();
+            failed = message.find("gamepad.auto_fire.pulse_width_ms") !=
+                    std::string::npos &&
+                message.find("pulse_width_ms <= pulse_period_ms") !=
+                    std::string::npos;
+        }
+        std::filesystem::remove(path);
+        require(failed);
+    }
+}
+
 } // namespace
 
 int main() {
@@ -453,5 +497,7 @@ int main() {
     test_tracker_aim_height_ratio_rejects_out_of_range_values();
     test_gamepad_intent_retention_floor_defaults_parses_and_clamps();
     test_gamepad_intent_unknown_key_is_reported();
+    test_auto_fire_pulse_defaults_and_overrides();
+    test_auto_fire_pulse_rejects_invalid_relationships();
     return 0;
 }

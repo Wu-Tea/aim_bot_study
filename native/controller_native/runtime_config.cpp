@@ -182,7 +182,8 @@ bool is_known_key(const std::string& section, const std::string& key) {
         "xinput_user_index", "tracker_backend", "body_lock_upper_body_ratio"};
     static const std::unordered_set<std::string> auto_fire_keys{
         "fire_output", "aim_only", "max_source_age_ms", "require_aim_ready",
-        "manual_takeover_release_seconds", "manual_takeover_resume_delay_seconds"};
+        "manual_takeover_release_seconds", "manual_takeover_resume_delay_seconds",
+        "pulse_width_ms", "pulse_period_ms"};
     static const std::unordered_set<std::string> dynamics_keys{
         "enabled", "recoil_jitter_guard_enabled", "recoil_jitter_assist_threshold",
         "recoil_jitter_flip_scale", "recoil_jitter_memory_seconds",
@@ -311,6 +312,10 @@ void apply_gamepad_auto_fire_value(
     } else if (key == "manual_takeover_resume_delay_seconds") {
         config.manual_takeover_resume_delay_seconds =
             parse_float_value(value, config.manual_takeover_resume_delay_seconds);
+    } else if (key == "pulse_width_ms") {
+        config.pulse_width_ms = parse_float_value(value, config.pulse_width_ms);
+    } else if (key == "pulse_period_ms") {
+        config.pulse_period_ms = parse_float_value(value, config.pulse_period_ms);
     }
 }
 
@@ -968,6 +973,13 @@ void validate_runtime_config(const RuntimeConfig& config) {
     if (config.gamepad.tracker.aim_height_ratio < 0.0f ||
         config.gamepad.tracker.aim_height_ratio > 1.0f)
         invalid("gamepad.tracker.aim_height_ratio", "0..1");
+    if (config.gamepad.auto_fire.pulse_width_ms <= 0.0f ||
+        config.gamepad.auto_fire.pulse_period_ms <= 0.0f ||
+        config.gamepad.auto_fire.pulse_width_ms >
+            config.gamepad.auto_fire.pulse_period_ms)
+        invalid(
+            "gamepad.auto_fire.pulse_width_ms",
+            "0 < pulse_width_ms <= pulse_period_ms");
 }
 
 }  // namespace
