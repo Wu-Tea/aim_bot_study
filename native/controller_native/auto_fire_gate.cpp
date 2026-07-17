@@ -28,6 +28,7 @@ void AutoFireGate::reset() {
     manual_fire_was_pressed_ = false;
     auto_fire_was_active_ = false;
     manual_takeover_started_at_seconds_ = -1.0;
+    reset_pulse_schedule();
     reset_readiness();
 }
 
@@ -73,6 +74,33 @@ AutoFireGateDecision AutoFireGate::evaluate(const AutoFireGateInput& input) {
         decision.release_fire_output = true;
     }
 
+    const bool authorized = should_fire;
+    if (!authorized) {
+        reset_pulse_schedule();
+        should_fire = false;
+    } else {
+        constexpr double kClockEpsilonSeconds = 1e-9;
+        const double width_seconds =
+            static_cast<double>(auto_fire_config_.pulse_width_ms) / 1000.0;
+        const double period_seconds =
+            static_cast<double>(auto_fire_config_.pulse_period_ms) / 1000.0;
+        if (pulse_cycle_active_ && input.now_seconds < pulse_started_at_seconds_) {
+            reset_pulse_schedule();
+        }
+        if (!pulse_cycle_active_ ||
+            input.now_seconds + kClockEpsilonSeconds >= next_pulse_at_seconds_) {
+            pulse_cycle_active_ = true;
+            pulse_started_at_seconds_ = input.now_seconds;
+            next_pulse_at_seconds_ = input.now_seconds + period_seconds;
+            ++counters_.pulse_starts;
+            should_fire = true;
+        } else {
+            should_fire =
+                input.now_seconds - pulse_started_at_seconds_ < width_seconds;
+        }
+    }
+    decision.pulse_waiting = authorized && !should_fire;
+
     if (input.vision_state.auto_fire_requested) {
         ++counters_.requested;
         if (should_fire) {
@@ -108,11 +136,6 @@ void AutoFireGate::apply_fire_output(
         return;
     }
     output.rb = true;
-}
-
-void AutoFireGate::release_fire_output(GamepadOutputState& output) const {
-    output.rb = false;
-    output.right_trigger = 0.0f;
 }
 
 bool AutoFireGate::aim_ready_for_input(const AutoFireGateInput& input) {
@@ -254,6 +277,12 @@ double AutoFireGate::manual_takeover_elapsed(double now_seconds) const {
 double AutoFireGate::manual_takeover_total_seconds() const {
     return std::max(0.0f, auto_fire_config_.manual_takeover_release_seconds) +
         std::max(0.0f, auto_fire_config_.manual_takeover_resume_delay_seconds);
+}
+
+void AutoFireGate::reset_pulse_schedule() {
+    pulse_cycle_active_ = false;
+    pulse_started_at_seconds_ = -1.0;
+    next_pulse_at_seconds_ = -1.0;
 }
 
 const char* auto_fire_block_reason_name(AutoFireBlockReason reason) {

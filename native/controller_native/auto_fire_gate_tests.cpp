@@ -1,7 +1,9 @@
 #include "auto_fire_gate.h"
 
+#include <algorithm>
 #include <iostream>
 #include <stdexcept>
+#include <vector>
 
 namespace {
 
@@ -177,6 +179,92 @@ void test_manual_takeover_releases_output_then_guards_resume() {
     require_true(decision.should_fire, "auto-fire should resume after takeover guard expires");
 }
 
+void test_pulse_scheduler_emits_ten_thirty_ms_presses_per_second() {
+    controller_native::GamepadAutoFireConfig auto_fire;
+    auto_fire.require_aim_ready = false;
+    auto_fire.pulse_width_ms = 30.0f;
+    auto_fire.pulse_period_ms = 100.0f;
+    controller_native::AutoFireGate gate(auto_fire, {});
+
+    std::uint64_t starts = 0;
+    bool previous = false;
+    int current_width_ticks = 0;
+    std::vector<int> widths;
+    for (int tick = 0; tick < 1000; ++tick) {
+        const auto decision = gate.evaluate(
+            ready_input(30.0 + tick * 0.001, tick + 1));
+        if (decision.should_fire && !previous) ++starts;
+        if (decision.should_fire) ++current_width_ticks;
+        if (!decision.should_fire && previous) {
+            widths.push_back(current_width_ticks);
+            current_width_ticks = 0;
+        }
+        previous = decision.should_fire;
+    }
+    require_eq_u64(starts, 10, "one second must start exactly ten pulses");
+    require_true(widths.size() == 10, "all ten pulses must finish inside the sample");
+    require_true(
+        std::all_of(widths.begin(), widths.end(),
+                    [](int width) { return width >= 30; }),
+        "every pulse must last at least 30ms");
+    require_eq_u64(gate.counters().pulse_starts, 10,
+                   "pulse-start counter must not count held ticks");
+}
+
+void test_pulse_boundaries_and_wait_state_are_explicit() {
+    controller_native::GamepadAutoFireConfig auto_fire;
+    auto_fire.require_aim_ready = false;
+    auto_fire.pulse_width_ms = 30.0f;
+    auto_fire.pulse_period_ms = 100.0f;
+    controller_native::AutoFireGate gate(auto_fire, {});
+
+    auto decision = gate.evaluate(ready_input(40.000, 1));
+    require_true(decision.should_fire, "first authorized tick must fire immediately");
+    decision = gate.evaluate(ready_input(40.029, 2));
+    require_true(decision.should_fire, "pulse must remain pressed through 29ms");
+    decision = gate.evaluate(ready_input(40.031, 3));
+    require_false(decision.should_fire, "pulse must release after 30ms");
+    require_true(decision.pulse_waiting, "cadence wait must be observable");
+    decision = gate.evaluate(ready_input(40.099, 4));
+    require_false(decision.should_fire, "cadence must stay released before 100ms");
+    decision = gate.evaluate(ready_input(40.100, 5));
+    require_true(decision.should_fire, "next pulse must start at 100ms");
+}
+
+void test_pulse_scheduler_never_catches_up_with_a_burst() {
+    controller_native::GamepadAutoFireConfig auto_fire;
+    auto_fire.require_aim_ready = false;
+    controller_native::AutoFireGate gate(auto_fire, {});
+
+    require_true(gate.evaluate(ready_input(50.000, 1)).should_fire,
+                 "first pulse must start immediately");
+    require_true(gate.evaluate(ready_input(50.250, 2)).should_fire,
+                 "late evaluation may start one current pulse");
+    require_eq_u64(gate.counters().pulse_starts, 2,
+                   "clock jump must not replay missed starts");
+    require_true(gate.evaluate(ready_input(50.251, 3)).should_fire,
+                 "late pulse must remain one continuous press");
+    require_eq_u64(gate.counters().pulse_starts, 2,
+                   "next tick must not add a catch-up start");
+}
+
+void test_authority_revocation_interrupts_and_resets_pulse() {
+    controller_native::GamepadAutoFireConfig auto_fire;
+    auto_fire.require_aim_ready = false;
+    controller_native::AutoFireGate gate(auto_fire, {});
+
+    require_true(gate.evaluate(ready_input(60.000, 1)).should_fire,
+                 "precondition: pulse must be active");
+    auto revoked = ready_input(60.010, 2);
+    revoked.vision_state.auto_fire_requested = false;
+    require_false(gate.evaluate(revoked).should_fire,
+                  "safety revocation must interrupt a pulse immediately");
+    require_true(gate.evaluate(ready_input(60.011, 3)).should_fire,
+                 "fresh authorization after revocation starts immediately");
+    require_eq_u64(gate.counters().pulse_starts, 2,
+                   "reauthorization must create one new pulse");
+}
+
 }  // namespace
 
 int main() {
@@ -185,6 +273,10 @@ int main() {
         test_ready_frames_count_unique_vision_sequences();
         test_stale_source_blocks_fire_and_resets_readiness();
         test_manual_takeover_releases_output_then_guards_resume();
+        test_pulse_scheduler_emits_ten_thirty_ms_presses_per_second();
+        test_pulse_boundaries_and_wait_state_are_explicit();
+        test_pulse_scheduler_never_catches_up_with_a_burst();
+        test_authority_revocation_interrupts_and_resets_pulse();
         std::cout << "[AutoFireGateTests] PASS\n";
         return 0;
     } catch (const std::exception& error) {

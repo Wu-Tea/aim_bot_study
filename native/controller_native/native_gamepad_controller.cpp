@@ -419,7 +419,6 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
     fire_input.settle_dx = plan.error_px.x;
     fire_input.settle_dy = plan.error_px.y;
     const auto fire = auto_fire_gate_.evaluate(fire_input);
-    if (fire.release_fire_output) auto_fire_gate_.release_fire_output(output);
     auto_fire_gate_.apply_fire_output(output, fire.should_fire);
     record_stage_trace(
         "auto_fire", output.right_y, output,

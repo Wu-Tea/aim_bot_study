@@ -240,6 +240,52 @@ void test_ads_and_bodylock_share_one_resolved_target_geometry() {
         "coasting applied target height ratio a second time");
 }
 
+void test_physical_fire_is_never_cleared_by_autofire() {
+    double now = 70.0;
+    auto controller_config = config();
+    controller_config.auto_fire.require_aim_ready = false;
+    controller_config.auto_fire.max_source_age_ms = 1000.0f;
+    controller_config.auto_fire.pulse_width_ms = 30.0f;
+    controller_config.auto_fire.pulse_period_ms = 100.0f;
+    NativeGamepadController controller(controller_config, [&now] { return now; });
+    auto physical = aiming();
+    auto snapshot = target(1, now, 0.0f, 0.0f);
+    snapshot.state.auto_fire_requested = true;
+    controller.submit_vision_snapshot(snapshot);
+    auto output = controller.build_output(physical);
+    require(output.rb, "precondition: synthetic RB pulse did not start");
+
+    now += 0.001;
+    physical.rb = true;
+    output = controller.build_output(physical);
+    require(output.rb, "physical RB was cleared during synthetic takeover");
+
+    now += 0.001;
+    physical.rb = false;
+    controller.build_output(physical);
+    now += 0.001;
+    physical.right_trigger = 1.0f;
+    output = controller.build_output(physical);
+    require(output.right_trigger >= 0.999f,
+            "physical RT was cleared during synthetic takeover guard");
+
+    double wait_now = 80.0;
+    NativeGamepadController wait_controller(
+        controller_config, [&wait_now] { return wait_now; });
+    physical = aiming();
+    snapshot = target(1, wait_now, 0.0f, 0.0f);
+    snapshot.state.auto_fire_requested = true;
+    wait_controller.submit_vision_snapshot(snapshot);
+    require(wait_controller.build_output(physical).rb,
+            "precondition: cadence-wait pulse did not start");
+    wait_now += 0.031;
+    wait_controller.build_output(physical);
+    wait_now += 0.001;
+    physical.rb = true;
+    output = wait_controller.build_output(physical);
+    require(output.rb, "physical RB was cleared during cadence wait");
+}
+
 }  // namespace
 
 int main() {
@@ -249,6 +295,7 @@ int main() {
         test_opposing_manual_intent_yields_without_braking_bodylock();
         test_only_worsening_wrong_way_axis_stops_suppressing_assist();
         test_ads_and_bodylock_share_one_resolved_target_geometry();
+        test_physical_fire_is_never_cleared_by_autofire();
         std::cout << "[TargetPipelineIntegrationTests] PASS\n";
         return 0;
     } catch (const std::exception& error) {

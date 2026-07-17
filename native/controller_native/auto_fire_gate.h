@@ -26,6 +26,7 @@ struct NativeAutoFireCounters {
     std::uint64_t requested = 0;
     std::uint64_t allowed = 0;
     std::uint64_t blocked = 0;
+    std::uint64_t pulse_starts = 0;
 };
 
 struct AutoFireGateInput {
@@ -49,6 +50,7 @@ struct AutoFireGateDecision {
     bool before_auto_fire_active = false;
     bool after_auto_fire_active = false;
     bool release_fire_output = false;
+    bool pulse_waiting = false;
     AutoFireBlockReason block_reason = AutoFireBlockReason::None;
     NativeAutoFireCounters counters;
 };
@@ -65,7 +67,6 @@ public:
     NativeAutoFireCounters counters() const;
     bool active() const;
     void apply_fire_output(GamepadOutputState& output, bool should_fire) const;
-    void release_fire_output(GamepadOutputState& output) const;
 
 private:
     bool aim_ready_for_input(const AutoFireGateInput& input);
@@ -81,6 +82,7 @@ private:
     bool is_strong_fire_target(const NativeControllerVisionState& vision_state) const;
     double manual_takeover_elapsed(double now_seconds) const;
     double manual_takeover_total_seconds() const;
+    void reset_pulse_schedule();
 
     GamepadAutoFireConfig auto_fire_config_;
     GamepadAiAimConfig ai_config_;
@@ -91,6 +93,9 @@ private:
     int ready_frames_ = 0;
     bool has_ready_vision_sequence_ = false;
     std::uint64_t ready_vision_sequence_ = 0;
+    bool pulse_cycle_active_ = false;
+    double pulse_started_at_seconds_ = -1.0;
+    double next_pulse_at_seconds_ = -1.0;
 };
 
 }  // namespace controller_native
