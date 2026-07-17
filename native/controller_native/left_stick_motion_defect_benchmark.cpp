@@ -23,9 +23,12 @@ constexpr double kReticleSpeedPxPerSecond = 1500.0;
 constexpr int kTicksPerScenario = 3600;
 constexpr int kVisionDelayTicks = 30;
 constexpr int kEvaluationStartTick = 700;
-constexpr int kOnsetTick = 800;
-constexpr int kReversalTick = 1800;
-constexpr int kReleaseTick = 2800;
+// Keep human input transitions deliberately off the 100 Hz vision cadence.
+// This exercises the controller's inter-frame intent path instead of hiding
+// every transition inside a fresh observation.
+constexpr int kOnsetTick = 806;
+constexpr int kReversalTick = 1806;
+constexpr int kReleaseTick = 2806;
 constexpr int kChainStableStartTick = 800;
 constexpr int kChainUnavailableStartTick = 2000;
 constexpr int kChainSelectedGapStartTick = 2200;
@@ -456,6 +459,7 @@ ScenarioMetrics run_closed_loop_fixture(
     bool has_previous_output = false;
     double previous_ai_output = 0.0;
     bool has_previous_ai_output = false;
+    float previous_left_x = 0.0f;
     int vision_phase = kControllerHz;
     std::uint64_t last_consumed_sequence = 0;
 
@@ -537,7 +541,21 @@ ScenarioMetrics run_closed_loop_fixture(
         const double final_output = output.right_x;
         const NativeControllerVisionState& frame_vision =
             controller.last_frame_vision_state();
+        if (components.axis_intent_intervention.x > 0.5f) {
+            ++metrics.axis_intent_intervention_frames;
+        }
+        metrics.minimum_manual_retention = std::min(
+            metrics.minimum_manual_retention,
+            static_cast<double>(components.axis_manual_retention.x));
         if (frequency_metrics != nullptr) {
+            const double left_delta = std::fabs(static_cast<double>(
+                left_x - previous_left_x));
+            if (left_delta > 1.0e-6 && !frame_vision.fresh_observation) {
+                ++frequency_metrics->interframe_left_transition_frames;
+                frequency_metrics->max_interframe_left_delta = std::max(
+                    frequency_metrics->max_interframe_left_delta,
+                    left_delta);
+            }
             const RelativeMotionEstimate estimate =
                 controller.body_lock_relative_motion_estimate();
             frequency_metrics->max_relative_lead_px = std::max(
@@ -569,6 +587,7 @@ ScenarioMetrics run_closed_loop_fixture(
         }
         previous_ai_output = ai_output;
         has_previous_ai_output = true;
+        previous_left_x = left_x;
 
         const bool evaluation_tick = tick >= kEvaluationStartTick;
         if (evaluation_tick && std::fabs(ai_output) >= 0.28) {
@@ -1063,7 +1082,11 @@ std::vector<FrequencyRunMetrics> run_frequency_matrix() {
             metrics.delivered_vision_sequences == metrics.fresh_sequences_consumed;
         const bool smooth = metrics.max_lifecycle_ai_delta <= 0.07 &&
             metrics.large_sign_flip_count == 0;
-        metrics.desired_gate_pass = frequency_contract && smooth &&
+        const bool interframe_transition_coverage = !metrics.primary_rate ||
+            (metrics.interframe_left_transition_frames > 0 &&
+             metrics.max_interframe_left_delta > 0.0);
+        metrics.desired_gate_pass = frequency_contract &&
+            interframe_transition_coverage && smooth &&
             (!metrics.primary_rate ||
              relative_motion_quality_passes(metrics) ||
              absolute_motion_quality_passes(metrics));
@@ -1295,12 +1318,16 @@ bool validate_report(const BenchmarkReport& report, std::string* reason) {
                  run.fast_p95_improvement_ratio,
                  run.same_direction_regression_ratio,
                  run.max_lifecycle_ai_delta,
-                 run.max_relative_lead_px}) {
+                 run.max_relative_lead_px,
+                 run.max_interframe_left_delta}) {
             if (!std::isfinite(value)) {
                 return fail("frequency run contains non-finite metric");
             }
         }
         const bool expected_frequency_gate =
+            (!run.primary_rate ||
+             (run.interframe_left_transition_frames > 0 &&
+              run.max_interframe_left_delta > 0.0)) &&
             run.max_lifecycle_ai_delta <= 0.07 &&
             run.large_sign_flip_count == 0 &&
             (!run.primary_rate ||
@@ -1440,10 +1467,15 @@ bool validate_report(const BenchmarkReport& report, std::string* reason) {
                  scenario.final_abs_error_px,
                  scenario.max_ai_output,
                  scenario.max_final_output,
-                 scenario.max_final_output_delta}) {
+                 scenario.max_final_output_delta,
+                 scenario.minimum_manual_retention}) {
             if (!std::isfinite(value)) {
                 return fail("scenario contains non-finite metric");
             }
+        }
+        if (scenario.minimum_manual_retention < 0.5 ||
+            scenario.minimum_manual_retention > 1.0) {
+            return fail("scenario contains invalid manual retention");
         }
         names.insert(scenario.name);
     }
@@ -1552,6 +1584,10 @@ void write_json(std::ostream& output, const BenchmarkReport& report) {
                << run.warm_relative_motion_frames
                << ", \"rejected_relative_motion_frames\": "
                << run.rejected_relative_motion_frames
+               << ", \"interframe_left_transition_frames\": "
+               << run.interframe_left_transition_frames
+               << ", \"max_interframe_left_delta\": "
+               << run.max_interframe_left_delta
                << ", \"large_sign_flip_count\": "
                << run.large_sign_flip_count
                << ", \"desired_gate_pass\": ";
@@ -1665,6 +1701,10 @@ void write_json(std::ostream& output, const BenchmarkReport& report) {
                << "      \"max_ai_output\": " << scenario.max_ai_output << ",\n"
                << "      \"max_final_output\": " << scenario.max_final_output << ",\n"
                << "      \"max_final_output_delta\": " << scenario.max_final_output_delta << ",\n"
+               << "      \"axis_intent_intervention_frames\": "
+               << scenario.axis_intent_intervention_frames << ",\n"
+               << "      \"minimum_manual_retention\": "
+               << scenario.minimum_manual_retention << ",\n"
                << "      \"onset_response_latency_ms\": " << scenario.onset_response_latency_ms << ",\n"
                << "      \"reversal_response_latency_ms\": " << scenario.reversal_response_latency_ms << ",\n"
                << "      \"release_response_latency_ms\": " << scenario.release_response_latency_ms << ",\n"

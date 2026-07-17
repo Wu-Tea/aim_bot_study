@@ -7,10 +7,6 @@
 namespace controller_native {
 namespace {
 
-constexpr float kIntentProjectionHorizonSeconds = 0.012f;
-constexpr float kIntentProjectionMinimumConfidence = 0.50f;
-constexpr float kIntentProjectionMaxPx = 8.0f;
-
 float length(pipeline_contract::Vec2f value) noexcept {
     return std::sqrt(value.x * value.x + value.y * value.y);
 }
@@ -157,7 +153,6 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         normalized_size = std::clamp(candidate->normalized_size, 0.0f, 1.0f);
         last_observed_reliability_ = reliability;
         last_observed_normalized_size_ = normalized_size;
-        last_observed_left_x_ = intent.filtered_left.x;
         last_observed_seconds_ = now_seconds;
         lifecycle = reacquiring
             ? pipeline_contract::TargetLifecycle::Reacquiring
@@ -238,20 +233,6 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     const auto response = response_estimator_.estimate();
     plan.response_scale = response.scale_px_per_stick_second;
     plan.response_confidence = response.confidence;
-    if (plan.mode != pipeline_contract::ControlMode::Manual &&
-        lifecycle == pipeline_contract::TargetLifecycle::Coasting &&
-        response.confidence >= kIntentProjectionMinimumConfidence &&
-        intent.left_confidence > 0.0f) {
-        const float age_seconds = plan.observation_age_ms / 1000.0f;
-        if (age_seconds > 0.0f && age_seconds <= kIntentProjectionHorizonSeconds) {
-            const float delta_left = intent.filtered_left.x - last_observed_left_x_;
-            plan.intent_projection_px.x = std::clamp(
-                response.scale_px_per_stick_second * delta_left * age_seconds *
-                    response.confidence * intent.left_confidence,
-                -kIntentProjectionMaxPx,
-                kIntentProjectionMaxPx);
-        }
-    }
     plan.error_rate_px_per_sec = velocity_;
     plan.error_rate_px_per_sec.x += response.scale_px_per_stick_second *
         response.confidence * intent.filtered_left.x * intent.left_confidence;
@@ -307,7 +288,6 @@ void TargetCoordinator::reset() noexcept {
     acquisition_started_seconds_ = 0.0;
     last_observed_reliability_ = 0.0f;
     last_observed_normalized_size_ = 0.0f;
-    last_observed_left_x_ = 0.0f;
     settled_frames_ = 0;
     has_target_ = false;
     fire_requested_ = false;

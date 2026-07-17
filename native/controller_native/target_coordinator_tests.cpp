@@ -188,72 +188,6 @@ void test_left_intent_enters_plan_through_learned_response() {
                  "short plan must include left-stick feed-forward");
 }
 
-void test_left_input_change_projects_only_until_next_observation() {
-    controller_native::TargetCoordinator coordinator;
-    coordinator.begin_ads_epoch(1);
-    for (int i = 0; i < 80; ++i) {
-        coordinator.observe_control_response({0.5f, -100.0f, true, false});
-    }
-    auto neutral = ads_intent(1.000);
-    auto plan = coordinator.update(
-        frame(1, 1.000, 1, 280.0f, 208.0f), neutral, 1.000);
-    require_true(std::fabs(plan.intent_projection_px.x) < 0.0001f,
-                 "fresh observation must start with zero intent projection");
-
-    pipeline_contract::VisionObservationBatch no_new_frame{};
-    no_new_frame.frame_width_px = 480.0f;
-    no_new_frame.frame_height_px = 416.0f;
-    auto moved = ads_intent(1.005);
-    moved.filtered_left.x = 0.5f;
-    moved.left_confidence = 1.0f;
-    plan = coordinator.update(no_new_frame, moved, 1.005);
-    require_true(plan.intent_projection_px.x < -0.20f,
-                 "new left input must project the learned signed screen response");
-    require_true(std::fabs(plan.intent_projection_px.y) < 0.0001f,
-                 "left strafe must never project Y");
-
-    plan = coordinator.update(
-        frame(2, 1.010, 1, 279.0f, 208.0f), moved, 1.010);
-    require_true(std::fabs(plan.intent_projection_px.x) < 0.0001f,
-                 "new observation must consume the inter-frame projection");
-    plan = coordinator.update(no_new_frame, moved, 1.015);
-    require_true(std::fabs(plan.intent_projection_px.x) < 0.0001f,
-                 "already-observed sustained input must not be double-counted");
-
-    auto reversed = moved;
-    reversed.filtered_left.x = -0.5f;
-    plan = coordinator.update(no_new_frame, reversed, 1.019);
-    require_true(plan.intent_projection_px.x > 0.20f,
-                 "inter-frame left reversal must flip projected response");
-}
-
-void test_left_projection_requires_confidence_and_expires_on_long_gap() {
-    controller_native::TargetCoordinator low_confidence;
-    low_confidence.begin_ads_epoch(1);
-    low_confidence.observe_control_response({0.5f, -100.0f, true, false});
-    auto neutral = ads_intent(2.000);
-    low_confidence.update(frame(1, 2.000, 1, 280.0f, 208.0f), neutral, 2.000);
-    pipeline_contract::VisionObservationBatch no_new_frame{};
-    no_new_frame.frame_width_px = 480.0f;
-    no_new_frame.frame_height_px = 416.0f;
-    auto moved = ads_intent(2.005);
-    moved.filtered_left.x = 0.5f;
-    moved.left_confidence = 1.0f;
-    auto plan = low_confidence.update(no_new_frame, moved, 2.005);
-    require_true(std::fabs(plan.intent_projection_px.x) < 0.0001f,
-                 "low-confidence response must not project left intent");
-
-    controller_native::TargetCoordinator learned;
-    learned.begin_ads_epoch(1);
-    for (int i = 0; i < 80; ++i) {
-        learned.observe_control_response({0.5f, -100.0f, true, false});
-    }
-    learned.update(frame(1, 3.000, 1, 280.0f, 208.0f), neutral, 3.000);
-    plan = learned.update(no_new_frame, moved, 3.020);
-    require_true(std::fabs(plan.intent_projection_px.x) < 0.0001f,
-                 "projection must expire instead of surviving a real vision gap");
-}
-
 }  // namespace
 
 int main() {
@@ -266,8 +200,6 @@ int main() {
         test_control_rate_gaps_preserve_ads_settle_progress();
         test_100hz_motion_stays_finite_at_1000hz_control_rate();
         test_left_intent_enters_plan_through_learned_response();
-        test_left_input_change_projects_only_until_next_observation();
-        test_left_projection_requires_confidence_and_expires_on_long_gap();
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "[TargetCoordinatorTests] FAIL " << error.what() << '\n';

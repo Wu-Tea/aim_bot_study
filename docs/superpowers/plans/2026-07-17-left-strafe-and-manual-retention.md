@@ -1,5 +1,13 @@
 # Left-Strafe Prediction and Manual Retention Implementation Plan
 
+> Execution outcome: Task 4's additional pixel projection was implemented and
+> benchmarked, then removed because identical-timing A/B showed -0.19%/-0.20%
+> fast-mean change at 80/100 Hz and -1.33% fast P95 at 100 Hz. Existing learned
+> left response in `error_rate + horizon` remains the sole compensation path.
+> The benchmark now offsets onset/reversal/release from vision delivery and
+> reports the three inter-frame transitions at every tested rate. Retention was
+> accepted with a 0.25 start guard plus the existing 12 ms confirmation latch.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Improve deterministic tracking and wrong-axis recovery metrics while preserving normal aim feel, zero overshoot, smooth output, and explicit user escape.

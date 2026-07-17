@@ -50,6 +50,8 @@ struct FrequencyRunMetrics {
     double max_strafe_gain = 0.0;
     int warm_relative_motion_frames = 0;
     int rejected_relative_motion_frames = 0;
+    int interframe_left_transition_frames = 0;
+    double max_interframe_left_delta = 0.0;
     int large_sign_flip_count = 0;
     bool primary_rate = false;
     bool desired_gate_pass = false;
@@ -97,6 +99,8 @@ struct ScenarioMetrics {
     int final_opposes_oracle_frames = 0;
     int high_ai_output_frames = 0;
     int output_spike_frames = 0;
+    int axis_intent_intervention_frames = 0;
+    double minimum_manual_retention = 1.0;
     int settled_frames = 0;
     bool behavior_populated = false;
     bool defect_reproduced = false;

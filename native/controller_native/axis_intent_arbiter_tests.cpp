@@ -66,6 +66,7 @@ void test_confirmed_wrong_way_retention_attacks_floor_and_releases_smoothly() {
 
     float previous = decision.manual_retention;
     for (int tick = 0; tick < 20; ++tick) {
+        worsening.error += 1.1f;
         decision = arbiter.update(controller_native::Axis::X, worsening, 0.001f);
         require_true(decision.manual_retention <= previous + 0.0001f,
                      "sustained wrong-way retention must not rise");
@@ -102,6 +103,32 @@ void test_wrong_way_without_worsening_does_not_intervene() {
                  "wrong-way sign alone must not override baseline yielding");
     require_near(decision.manual_yield_confidence, 0.8f, 0.0001f,
                  "unconfirmed wrong-way input must preserve baseline confidence");
+}
+
+void test_small_predictive_manual_input_is_never_attenuated() {
+    controller_native::AxisIntentArbiter arbiter;
+    arbiter.update(controller_native::Axis::X, observed(10.0f, -0.24f), 0.001f);
+    auto worsening = observed(13.0f, -0.24f);
+    worsening.error_rate = 220.0f;
+    require_true(
+        !arbiter.update(
+            controller_native::Axis::X, worsening, 0.001f).intervention,
+        "sub-P25 predictive manual input must remain fully owned by the user");
+}
+
+void test_confirmed_wrong_way_state_survives_natural_magnitude_decay() {
+    controller_native::AxisIntentArbiter arbiter;
+    arbiter.update(controller_native::Axis::X, observed(10.0f, -0.30f), 0.001f);
+    auto confirmed = observed(13.0f, -0.30f);
+    confirmed.error_rate = 220.0f;
+    require_true(
+        arbiter.update(controller_native::Axis::X, confirmed, 0.001f).intervention,
+        "strong wrong-way input must start confirmation");
+    auto decaying = observed(15.0f, -0.20f);
+    decaying.error_rate = 220.0f;
+    require_true(
+        arbiter.update(controller_native::Axis::X, decaying, 0.001f).intervention,
+        "confirmed state must survive natural wrong-input magnitude decay");
 }
 
 void test_confirmed_intervention_bridges_only_one_vision_interval() {
@@ -165,6 +192,8 @@ int main() {
         test_confirmed_worsening_wrong_way_input_disables_manual_yield();
         test_confirmed_wrong_way_retention_attacks_floor_and_releases_smoothly();
         test_wrong_way_without_worsening_does_not_intervene();
+        test_small_predictive_manual_input_is_never_attenuated();
+        test_confirmed_wrong_way_state_survives_natural_magnitude_decay();
         test_confirmed_intervention_bridges_only_one_vision_interval();
         test_coasting_geometry_jump_and_escape_never_intervene();
         test_target_change_resets_evidence_and_axes_are_independent();

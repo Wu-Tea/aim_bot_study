@@ -313,8 +313,6 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
     last_frame_vision_state_ = vision_state_from_plan(plan, now);
     last_ai_aim_mode_ = mode_name(plan.mode);
 
-    auto controller_plan = plan;
-    controller_plan.error_px.x += plan.intent_projection_px.x;
     auto controller_intent = intent;
     controller_intent.right_x.confidence = intent.right_confidence;
     controller_intent.right_y.confidence = intent.right_confidence;
@@ -339,16 +337,16 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
             config_.ai_aim.body_lock_manual_escape_input_threshold;
         input.manual_preservation_floor =
             config_.intent.wrong_way_manual_preservation_floor;
-        input.target_id = controller_plan.target_id;
-        input.lifecycle = controller_plan.lifecycle;
-        input.mode = controller_plan.mode;
+        input.target_id = plan.target_id;
+        input.lifecycle = plan.lifecycle;
+        input.mode = plan.mode;
         return axis_intent_arbiter_.update(axis, input, dt);
     };
     const auto x_decision = arbitrate_axis(
-        Axis::X, controller_plan.error_px.x, controller_plan.error_rate_px_per_sec.x,
+        Axis::X, plan.error_px.x, plan.error_rate_px_per_sec.x,
         intent.filtered_right.x, intent.right_x.confidence);
     const auto y_decision = arbitrate_axis(
-        Axis::Y, -controller_plan.error_px.y, -controller_plan.error_rate_px_per_sec.y,
+        Axis::Y, -plan.error_px.y, -plan.error_rate_px_per_sec.y,
         intent.filtered_right.y, intent.right_y.confidence);
     if (x_decision.intervention) controller_intent.right_x.confidence = 0.0f;
     if (y_decision.intervention) controller_intent.right_y.confidence = 0.0f;
@@ -356,16 +354,16 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
     previous_plan_target_id_ = plan.target_id;
 
     pipeline_contract::Vec2f requested{};
-    if (controller_plan.mode == pipeline_contract::ControlMode::AdsAcquire) {
-        requested = ads_controller_.compute(controller_plan, controller_intent, dt);
-    } else if (controller_plan.mode == pipeline_contract::ControlMode::BodyLockFollow) {
-        requested = bodylock_controller_.compute(controller_plan, controller_intent, dt);
+    if (plan.mode == pipeline_contract::ControlMode::AdsAcquire) {
+        requested = ads_controller_.compute(plan, controller_intent, dt);
+    } else if (plan.mode == pipeline_contract::ControlMode::BodyLockFollow) {
+        requested = bodylock_controller_.compute(plan, controller_intent, dt);
     }
     pipeline_contract::Vec2f shaped{};
     if (config_.aim_assist_dynamics.enabled ||
         plan.lifecycle == pipeline_contract::TargetLifecycle::Coasting ||
         plan.lifecycle == pipeline_contract::TargetLifecycle::None) {
-        shaped = dynamics_shaper_.shape(requested, controller_intent, controller_plan, dt);
+        shaped = dynamics_shaper_.shape(requested, controller_intent, plan, dt);
     } else {
         dynamics_shaper_.adopt(requested);
         shaped = requested;
@@ -387,9 +385,6 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
     components.axis_manual_retention = {
         x_decision.manual_retention,
         y_decision.manual_retention};
-    components.left_intent_projection_px = {
-        plan.intent_projection_px.x,
-        plan.intent_projection_px.y};
     components.ai_aim_stick = components.shaped_assist_stick;
     output.right_x = clamp_unit(
         physical.right_x * x_decision.manual_retention + shaped.x);

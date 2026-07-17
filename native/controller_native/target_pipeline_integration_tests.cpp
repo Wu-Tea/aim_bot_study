@@ -199,38 +199,6 @@ void test_only_worsening_wrong_way_axis_stops_suppressing_assist() {
             "wrong X must preserve the complete Y-axis input");
 }
 
-void test_left_reversal_projects_before_the_next_vision_frame() {
-    double now = 37.0;
-    NativeGamepadController controller(config(), [&now] { return now; });
-    auto physical = aiming(0.5f);
-    for (std::uint64_t frame = 1; frame <= 80; ++frame) {
-        auto snapshot = target(frame, now, 40.0f, 0.0f);
-        snapshot.state.has_camera_attributed_velocity = true;
-        snapshot.state.camera_attributed_velocity_x_px_per_sec = -100.0f;
-        controller.submit_vision_snapshot(snapshot);
-        controller.build_output(physical);
-        now += 0.010;
-    }
-
-    auto fresh = target(81, now, 40.0f, 0.0f);
-    fresh.state.has_camera_attributed_velocity = true;
-    fresh.state.camera_attributed_velocity_x_px_per_sec = -100.0f;
-    controller.submit_vision_snapshot(fresh);
-    controller.build_output(physical);
-    require(std::fabs(
-        controller.last_output_components().left_intent_projection_px.x) < 0.0001f,
-        "fresh vision must consume previous left intent");
-
-    physical.left_x = -0.5f;
-    now += 0.005;
-    controller.build_output(physical);
-    const auto& components = controller.last_output_components();
-    require(components.left_intent_projection_px.x > 0.20f,
-            "left reversal must project a correction before the next vision frame");
-    require(std::fabs(components.left_intent_projection_px.y) < 0.0001f,
-            "left reversal projection must remain X-only");
-}
-
 void test_ads_and_bodylock_share_one_resolved_target_geometry() {
     double now = 40.0;
     auto controller_config = config();
@@ -280,7 +248,6 @@ int main() {
         test_vision_gap_uses_smooth_short_continuity();
         test_opposing_manual_intent_yields_without_braking_bodylock();
         test_only_worsening_wrong_way_axis_stops_suppressing_assist();
-        test_left_reversal_projects_before_the_next_vision_frame();
         test_ads_and_bodylock_share_one_resolved_target_geometry();
         std::cout << "[TargetPipelineIntegrationTests] PASS\n";
         return 0;

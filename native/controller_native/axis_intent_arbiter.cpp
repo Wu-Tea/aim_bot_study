@@ -10,6 +10,9 @@ constexpr float kInnovationLimitPx = 64.0f;
 constexpr float kGeometryChangeThreshold = 0.01f;
 constexpr float kMinimumReliability = 0.65f;
 constexpr float kMinimumErrorGrowthPx = 1.0f;
+// The recorded P25 wrong-axis input is 0.28 before the observed +/-0.0118
+// drift. Keep deliberate sub-0.25 predictive corrections fully user-owned.
+constexpr float kMinimumWrongManualMagnitude = 0.25f;
 constexpr float kGeometryCooldownSeconds = 0.040f;
 constexpr float kInterframeHoldSeconds = 0.012f;
 constexpr float kInitialWrongWayRetention = 0.85f;
@@ -66,6 +69,8 @@ AxisDecision AxisIntentArbiter::update(
     const bool manual_active = decision.manual_yield_confidence > 0.0f &&
         std::fabs(input.manual) > 0.0f;
     const bool wrong_way = manual_active && input.manual * input.error < 0.0f;
+    const bool attenuation_eligible =
+        std::fabs(input.manual) >= kMinimumWrongManualMagnitude;
     const bool observed_stable =
         input.lifecycle == pipeline_contract::TargetLifecycle::Observed &&
         input.reliability >= kMinimumReliability &&
@@ -85,8 +90,14 @@ AxisDecision AxisIntentArbiter::update(
         state.intervention_hold_seconds = 0.0f;
         state.manual_retention = 1.0f;
         decision.reason = AxisDecisionReason::ManualEscape;
-    } else if (observed_stable && wrong_way &&
+    } else if (observed_stable && wrong_way && attenuation_eligible &&
                (worsening_by_rate || worsening_by_history)) {
+        decision.manual_yield_confidence = 0.0f;
+        decision.intervention = true;
+        state.intervention_hold_seconds = kInterframeHoldSeconds;
+        decision.reason = AxisDecisionReason::ConfirmedWrongWay;
+    } else if (observed_stable && state.intervention_hold_seconds > 0.0f &&
+               wrong_way && (worsening_by_rate || worsening_by_history)) {
         decision.manual_yield_confidence = 0.0f;
         decision.intervention = true;
         state.intervention_hold_seconds = kInterframeHoldSeconds;

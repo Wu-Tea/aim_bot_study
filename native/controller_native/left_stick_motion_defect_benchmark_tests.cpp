@@ -33,6 +33,14 @@ void test_live_frequency_matrix_contract() {
                 run.fresh_sequences_consumed == run.delivered_vision_sequences,
             "every delivered vision sequence must be consumed exactly once");
         (run.primary_rate ? primary_rates : stress_rates).insert(run.vision_hz);
+        if (run.primary_rate) {
+            require_true(
+                run.interframe_left_transition_frames > 0,
+                "primary rates must exercise left-input changes between vision frames");
+            require_true(
+                run.max_interframe_left_delta > 0.0,
+                "primary rates must measure a non-zero inter-frame left transition");
+        }
     }
     require_true(
         primary_rates == std::set<int>({80, 100}),
@@ -124,6 +132,23 @@ void test_warm_left_intent_changes_ai_trace() {
         "the intent probe must no longer classify physical left intent as ignored");
 }
 
+void test_manual_correction_reports_axis_arbitration() {
+    const auto& report = benchmark_report();
+    bool found = false;
+    for (const auto& scenario : report.scenarios) {
+        if (scenario.name != "stationary_target_fast_ads_manual_correction") continue;
+        found = true;
+        require_true(
+            scenario.axis_intent_intervention_frames >= 0,
+            "manual correction scenario must report axis intervention count");
+        require_true(
+            scenario.minimum_manual_retention > 0.0 &&
+                scenario.minimum_manual_retention <= 1.0,
+            "manual correction scenario must report bounded retention");
+    }
+    require_true(found, "manual correction scenario must exist");
+}
+
 void test_fixed_production_chain_closes_report_gate() {
     const auto& report = benchmark_report();
     const auto& chain = report.production_chain;
@@ -197,6 +222,14 @@ void test_production_chain_json_contract() {
     require_contains(json, "\"ads_handoff\"", "JSON must include ADS handoff metrics");
     require_contains(
         json,
+        "\"interframe_left_transition_frames\"",
+        "JSON must report inter-frame left transition coverage");
+    require_contains(
+        json,
+        "\"max_interframe_left_delta\"",
+        "JSON must report inter-frame left transition magnitude");
+    require_contains(
+        json,
         "\"max_continuous_drift_only_ms\"",
         "JSON must include drift-only duration");
     require_contains(
@@ -228,6 +261,7 @@ int main() {
     test_desired_acceptance_gates_are_closed();
     test_production_chain_behavior_is_populated();
     test_warm_left_intent_changes_ai_trace();
+    test_manual_correction_reports_axis_arbitration();
     test_fixed_production_chain_closes_report_gate();
     test_production_chain_validation_rejects_missing_contract_fields();
     test_production_chain_json_contract();

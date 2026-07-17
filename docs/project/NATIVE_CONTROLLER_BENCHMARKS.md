@@ -357,3 +357,29 @@ Both aggregates retain zero X/Y overshoot. The accepted artifact is
 `runs/benchmarks/axis_intervention_accepted_seed1337.json`; its strict
 same-scenario control is
 `runs/benchmarks/axis_intervention_disabled_baseline_seed1337.json`.
+
+## Guarded Per-Axis Manual Retention (2026-07-17)
+
+The controller now scales only a confirmed wrong-way physical axis. A new
+wrong-axis sequence may start retention only at magnitude `0.25` or above;
+after confirmation, the existing 12 ms bridge keeps the decision continuous as
+the erroneous input naturally decays. Inputs at or above the `0.45` escape
+threshold immediately restore full authority. The configurable floor defaults
+to `0.65` under `[gamepad.intent]`.
+
+Seed `1337` with the same `config.toml`:
+
+| Scenario / case | Intervention-only | Guarded retention | Mean error before -> after | P95 output delta before -> after |
+| --- | ---: | ---: | ---: | ---: |
+| Normal combat aggregate | 71.293475 | 71.293475 | 29.108895 -> 29.108895 px | 0.062601 -> 0.062601 |
+| Human-error aggregate | 69.253609 | 69.306753 | 30.746243 -> 30.592179 px | 0.061873 -> 0.061840 |
+| `wrong_x` | 72.557497 | 72.731028 | 37.376675 -> 36.836800 px | 0.035939 -> 0.035794 |
+| `wrong_y` | 65.518971 | 65.543378 | 37.471628 -> 37.371197 px | 0.066844 -> 0.066917 |
+
+The asynchronous left-stick fixture moves onset, reversal, and release away
+from the 80/100 Hz observation cadence and reports three inter-frame transitions
+per run. An extra pixel-error projection was rejected: the existing learned
+left response already feeds `error_rate` and the short horizon, while the
+duplicate projection worsened 100 Hz fast P95 by 1.33%. The accepted run keeps
+maximum AI tick delta at `0.064`, has no large sign flips, and the correct
+manual-prediction case records zero interventions with full retention (`1.0`).

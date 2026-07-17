@@ -1,5 +1,14 @@
 # Left-Strafe Prediction and Per-Axis Manual Retention Design
 
+> Implementation evidence update: the proposed extra pixel projection was
+> rejected after same-timing A/B runs. The existing learned response already
+> enters `error_rate_px_per_sec` and the plan horizon on every controller tick;
+> adding the same left transition to `error_px` double-counted it, worsening
+> 100 Hz fast P95 by 1.33%. The accepted design keeps that single existing
+> left-intent path and adds asynchronous benchmark coverage only. Manual
+> retention starts only after a wrong-axis input reaches 0.25, then reuses the
+> existing 12 ms confirmation hold while the wrong-way evidence decays.
+
 ## Goal
 
 Improve aim response in two related cases without weapon tables or additional
@@ -20,7 +29,9 @@ behavior, AutoFire, recoil, and the single TargetPlan controller pipeline.
 between left-stick excitation and isolated screen-space response when an
 existing vision/tracker hint supplies a clean sample. `TargetCoordinator`
 publishes this estimate through `TargetPlan.response_scale` and
-`response_confidence`.
+`response_confidence`. `TargetCoordinator` also already applies it to
+`error_rate_px_per_sec` and the short plan horizon, including input changes
+between vision observations.
 
 The current accepted `AxisIntentArbiter` is deliberately narrow. On stable
 Observed evidence it can stop one wrong-way right-stick axis from suppressing
