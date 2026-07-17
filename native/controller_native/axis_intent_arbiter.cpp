@@ -12,6 +12,9 @@ constexpr float kMinimumReliability = 0.65f;
 constexpr float kMinimumErrorGrowthPx = 1.0f;
 constexpr float kGeometryCooldownSeconds = 0.040f;
 constexpr float kInterframeHoldSeconds = 0.012f;
+constexpr float kInitialWrongWayRetention = 0.85f;
+constexpr float kRetentionAttackSeconds = 0.025f;
+constexpr float kRetentionReleaseSeconds = 0.050f;
 
 }  // namespace
 
@@ -50,12 +53,14 @@ AxisDecision AxisIntentArbiter::update(
         0.0f, state.intervention_hold_seconds - dt);
     const bool geometry_changed =
         input.normalized_size_change > kGeometryChangeThreshold;
-    if (geometry_changed ||
+    const bool hard_reset = geometry_changed ||
         input.lifecycle == pipeline_contract::TargetLifecycle::Reacquiring ||
         input.lifecycle == pipeline_contract::TargetLifecycle::None ||
-        input.reliability < kMinimumReliability) {
+        input.reliability < kMinimumReliability;
+    if (hard_reset) {
         state.geometry_cooldown_seconds = kGeometryCooldownSeconds;
         state.intervention_hold_seconds = 0.0f;
+        state.manual_retention = 1.0f;
     }
 
     const bool manual_active = decision.manual_yield_confidence > 0.0f &&
@@ -78,6 +83,7 @@ AxisDecision AxisIntentArbiter::update(
 
     if (escape) {
         state.intervention_hold_seconds = 0.0f;
+        state.manual_retention = 1.0f;
         decision.reason = AxisDecisionReason::ManualEscape;
     } else if (observed_stable && wrong_way &&
                (worsening_by_rate || worsening_by_history)) {
@@ -95,6 +101,22 @@ AxisDecision AxisIntentArbiter::update(
     } else if (input.lifecycle == pipeline_contract::TargetLifecycle::Observed) {
         state.intervention_hold_seconds = 0.0f;
     }
+
+    if (decision.intervention) {
+        const float floor = std::clamp(
+            input.manual_preservation_floor, 0.50f, 1.0f);
+        if (state.manual_retention >= 0.999f) {
+            state.manual_retention = std::max(floor, kInitialWrongWayRetention);
+        } else {
+            const float alpha = std::clamp(dt / kRetentionAttackSeconds, 0.0f, 1.0f);
+            state.manual_retention += alpha * (floor - state.manual_retention);
+            state.manual_retention = std::max(floor, state.manual_retention);
+        }
+    } else if (!escape && !hard_reset) {
+        const float alpha = std::clamp(dt / kRetentionReleaseSeconds, 0.0f, 1.0f);
+        state.manual_retention += alpha * (1.0f - state.manual_retention);
+    }
+    decision.manual_retention = state.manual_retention;
 
     state.previous_error = input.error;
     state.target_id = input.target_id;

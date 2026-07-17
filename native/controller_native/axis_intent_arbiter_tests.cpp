@@ -19,6 +19,7 @@ controller_native::AxisIntentInput observed(float error, float manual) {
     input.error = error;
     input.manual = manual;
     input.manual_confidence = 0.8f;
+    input.manual_preservation_floor = 0.65f;
     input.reliability = 1.0f;
     input.target_id = 7;
     input.lifecycle = pipeline_contract::TargetLifecycle::Observed;
@@ -52,6 +53,43 @@ void test_confirmed_worsening_wrong_way_input_disables_manual_yield() {
                  "confirmed wrong-way input must stop suppressing AI");
     require_true(decision.reason == controller_native::AxisDecisionReason::ConfirmedWrongWay,
                  "intervention reason must be explicit");
+}
+
+void test_confirmed_wrong_way_retention_attacks_floor_and_releases_smoothly() {
+    controller_native::AxisIntentArbiter arbiter;
+    arbiter.update(controller_native::Axis::X, observed(10.0f, -0.30f), 0.001f);
+    auto worsening = observed(13.0f, -0.30f);
+    worsening.error_rate = 220.0f;
+    auto decision = arbiter.update(controller_native::Axis::X, worsening, 0.001f);
+    require_near(decision.manual_retention, 0.85f, 0.001f,
+                 "first confirmed frame must preserve 85 percent manual input");
+
+    float previous = decision.manual_retention;
+    for (int tick = 0; tick < 20; ++tick) {
+        decision = arbiter.update(controller_native::Axis::X, worsening, 0.001f);
+        require_true(decision.manual_retention <= previous + 0.0001f,
+                     "sustained wrong-way retention must not rise");
+        require_true(decision.manual_retention >= 0.65f - 0.0001f,
+                     "retention must never fall below configured floor");
+        previous = decision.manual_retention;
+    }
+    require_true(decision.manual_retention < 0.80f,
+                 "sustained evidence must materially approach the floor");
+
+    auto helpful = observed(10.0f, 0.30f);
+    const auto releasing = arbiter.update(
+        controller_native::Axis::X, helpful, 0.010f);
+    require_true(releasing.manual_retention > decision.manual_retention &&
+                 releasing.manual_retention < 1.0f,
+                 "release must return manual authority without a step");
+
+    auto escape = worsening;
+    escape.manual = -0.60f;
+    escape.manual_escape_threshold = 0.45f;
+    require_near(
+        arbiter.update(controller_native::Axis::X, escape, 0.001f).manual_retention,
+        1.0f, 0.0001f,
+        "explicit escape must immediately restore full manual authority");
 }
 
 void test_wrong_way_without_worsening_does_not_intervene() {
@@ -115,6 +153,8 @@ void test_target_change_resets_evidence_and_axes_are_independent() {
         controller_native::Axis::Y, observed(30.0f, 0.20f), 0.001f);
     require_true(!x.intervention, "target change must reset X evidence");
     require_true(!y.intervention, "X history must not affect Y");
+    require_near(y.manual_retention, 1.0f, 0.0001f,
+                 "X intervention must not attenuate Y");
 }
 
 }  // namespace
@@ -123,6 +163,7 @@ int main() {
     try {
         test_normal_and_helpful_input_leave_baseline_confidence_unchanged();
         test_confirmed_worsening_wrong_way_input_disables_manual_yield();
+        test_confirmed_wrong_way_retention_attacks_floor_and_releases_smoothly();
         test_wrong_way_without_worsening_does_not_intervene();
         test_confirmed_intervention_bridges_only_one_vision_interval();
         test_coasting_geometry_jump_and_escape_never_intervene();
