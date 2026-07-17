@@ -58,6 +58,7 @@ private:
     double acquisition_started_seconds_ = 0.0;
     float last_observed_reliability_ = 0.0f;
     float last_observed_normalized_size_ = 0.0f;
+    float last_observed_left_x_ = 0.0f;
     std::uint32_t settled_frames_ = 0;
     bool has_target_ = false;
     bool fire_requested_ = false;

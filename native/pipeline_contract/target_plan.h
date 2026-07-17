@@ -60,6 +60,7 @@ struct TargetPlan {
     Vec2f predicted_aim_px{};
     Vec2f error_px{};
     Vec2f error_rate_px_per_sec{};
+    Vec2f intent_projection_px{};
     Vec2f velocity_px_per_sec{};
     Vec2f acceleration_px_per_sec2{};
     float observation_age_ms = 0.0f;
@@ -90,6 +91,7 @@ inline bool unit_interval(float value) noexcept {
 inline bool valid(const TargetPlan& plan) noexcept {
     return finite(plan.aim_px) && finite(plan.predicted_aim_px) &&
            finite(plan.error_px) && finite(plan.error_rate_px_per_sec) &&
+           finite(plan.intent_projection_px) &&
            finite(plan.velocity_px_per_sec) && finite(plan.acceleration_px_per_sec2) &&
            unit_interval(plan.confidence) && unit_interval(plan.reliability) &&
            unit_interval(plan.normalized_size) && unit_interval(plan.ads_demand) &&
