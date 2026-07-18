@@ -11,7 +11,7 @@ struct BodylockFollowControllerConfig {
     float feedback_range_x_px = 32.0f;
     float feedback_range_y_px = 32.0f;
     float strafing_feedback_range_x_px = 75.0f;
-    float feedforward_gain = 0.65f;
+    float feedforward_gain = 0.64f;
     float stopping_lookahead_seconds = 0.020f;
     float fallback_response_px_per_stick_second = 500.0f;
     float opposing_manual_reduction = 0.6f;
@@ -27,16 +27,6 @@ public:
         float dt_seconds) const noexcept;
 
 private:
-    float axis(
-        float error,
-        float error_rate,
-        float manual,
-        float manual_confidence,
-        float feedback_range,
-        float max_force,
-        float authority,
-        float response_scale) const noexcept;
-
     BodylockFollowControllerConfig config_{};
 };
 

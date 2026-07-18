@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ads_acquisition_controller.h"
+#include "aim_response_estimator.h"
 #include "aim_activation.h"
 #include "aim_dynamics_shaper.h"
 #include "axis_intent_arbiter.h"
@@ -78,6 +79,7 @@ private:
     GamepadRuntimeConfig config_{};
     IntentFilter intent_filter_{};
     TargetCoordinator target_coordinator_{};
+    AimResponseEstimator aim_response_estimator_{};
     AdsAcquisitionController ads_controller_{};
     BodylockFollowController bodylock_controller_{};
     AimDynamicsShaper dynamics_shaper_{};
@@ -94,6 +96,11 @@ private:
     double last_tick_seconds_ = 0.0;
     float previous_plan_normalized_size_ = 0.0f;
     std::uint64_t previous_plan_target_id_ = 0;
+    pipeline_contract::Vec2f aim_response_command_sum_{};
+    std::uint32_t aim_response_command_count_ = 0;
+    std::uint64_t last_aim_response_frame_id_ = 0;
+    double last_aim_response_observed_seconds_ = 0.0;
+    bool aim_response_manual_ambiguous_ = false;
     std::vector<NativeControllerStageTrace> last_pipeline_traces_;
     GamepadOutputState last_tracker_motion_output_{};
     NativeControllerOutputComponents last_output_components_{};

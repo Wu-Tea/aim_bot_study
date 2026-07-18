@@ -82,7 +82,8 @@ void TargetCoordinator::fill_horizon(pipeline_contract::TargetPlan& plan) const 
 pipeline_contract::TargetPlan TargetCoordinator::update(
     const pipeline_contract::VisionObservationBatch& observations,
     const pipeline_contract::IntentState& intent,
-    double now_seconds) noexcept {
+    double now_seconds,
+    const TargetControlFeedback& feedback) noexcept {
     const float dt = last_update_seconds_ > 0.0
         ? static_cast<float>(std::clamp(now_seconds - last_update_seconds_, 0.001, 0.1))
         : 0.0f;
@@ -112,6 +113,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
             velocity_ = {};
             acceleration_ = {};
             settled_frames_ = 0;
+            observed_frames_ = 1;
         } else if (dt > 0.0f) {
             auto innovation = subtract(candidate->aim_px, predicted);
             const float innovation_length = length(innovation);
@@ -144,6 +146,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
                            -20000.0f, 20000.0f),
             };
             position_ = measured_position;
+            observed_frames_ = reacquiring ? 1 : observed_frames_ + 1;
         }
         if (candidate->source_id != 0) {
             source_id_ = candidate->source_id;
@@ -177,6 +180,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
             has_target_ = false;
             source_id_ = 0;
             settled_frames_ = 0;
+            observed_frames_ = 0;
             last_update_seconds_ = now_seconds;
             return no_target_plan();
         }
@@ -205,8 +209,35 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     plan.normalized_size = normalized_size;
     plan.occlusion_budget_ms = std::max(0.0f, config_.hold_ms - plan.observation_age_ms);
     const float error_length = length(plan.error_px);
+    plan.acquisition_elapsed_ms = static_cast<float>(
+        std::max(0.0, (now_seconds - acquisition_started_seconds_) * 1000.0));
+    const float response_scale = std::max(
+        0.0f, feedback.aim_response_px_per_stick_second);
+    const pipeline_contract::Vec2f residual_error_rate = observed_frames_ >= 2
+        ? velocity_
+        : pipeline_contract::Vec2f{
+            velocity_.x - feedback.previous_delivered_stick.x * response_scale,
+            velocity_.y + feedback.previous_delivered_stick.y * response_scale,
+        };
+    plan.predicted_terminal_error_px = add_scaled(
+        plan.error_px, residual_error_rate, config_.handoff_prediction_seconds);
+    plan.radial_closing_velocity_px_per_sec = error_length > 0.001f
+        ? -(plan.error_px.x * residual_error_rate.x +
+            plan.error_px.y * residual_error_rate.y) / error_length
+        : 0.0f;
+    const float predicted_radial_error = error_length > 1.0f
+        ? (plan.predicted_terminal_error_px.x * plan.error_px.x +
+           plan.predicted_terminal_error_px.y * plan.error_px.y) / error_length
+        : 0.0f;
+    const float capture_radius = config_.settle_radius_px *
+        (1.0f + 2.0f * std::clamp(length(velocity_) / 120.0f, 0.0f, 1.0f));
+    const bool inside_capture_set =
+        error_length <= capture_radius &&
+        std::fabs(predicted_radial_error) <= capture_radius &&
+        plan.radial_closing_velocity_px_per_sec <=
+            config_.handoff_max_closing_velocity_px_per_sec;
     if (candidate != nullptr) {
-        if (error_length <= config_.settle_radius_px) {
+        if (inside_capture_set) {
             ++settled_frames_;
         } else {
             settled_frames_ = 0;
@@ -216,15 +247,11 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         control_mode_ = pipeline_contract::ControlMode::Manual;
     } else if (control_mode_ == pipeline_contract::ControlMode::BodyLockFollow) {
         if (lifecycle != pipeline_contract::TargetLifecycle::Coasting &&
-            error_length > config_.settle_radius_px * 3.0f) {
+            error_length > config_.bodylock_exit_radius_px) {
             control_mode_ = pipeline_contract::ControlMode::AdsAcquire;
             settled_frames_ = 0;
         }
-    } else if (settled_frames_ >= config_.settle_frames ||
-               ((now_seconds - acquisition_started_seconds_) * 1000.0 >=
-                    config_.ads_max_acquisition_ms &&
-                error_length <= config_.bodylock_activation_radius_px &&
-                normalized_size > 0.25f)) {
+    } else if (settled_frames_ >= config_.settle_frames) {
         control_mode_ = pipeline_contract::ControlMode::BodyLockFollow;
     } else {
         control_mode_ = pipeline_contract::ControlMode::AdsAcquire;
@@ -237,8 +264,12 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         ? 0.0f
         : std::min(config_.max_authority, reliability);
     const auto response = response_estimator_.estimate();
-    plan.response_scale = response.scale_px_per_stick_second;
-    plan.response_confidence = response.confidence;
+    plan.left_motion_response_scale = response.scale_px_per_stick_second;
+    plan.left_motion_response_confidence = response.confidence;
+    plan.response_scale = std::max(
+        50.0f, feedback.aim_response_px_per_stick_second);
+    plan.response_confidence = std::clamp(
+        feedback.aim_response_confidence, 0.0f, 1.0f);
     plan.error_rate_px_per_sec = velocity_;
     plan.error_rate_px_per_sec.x += response.scale_px_per_stick_second *
         response.confidence * intent.filtered_left.x * intent.left_confidence;
@@ -293,6 +324,7 @@ void TargetCoordinator::reset() noexcept {
     last_observed_reliability_ = 0.0f;
     last_observed_normalized_size_ = 0.0f;
     settled_frames_ = 0;
+    observed_frames_ = 0;
     has_target_ = false;
     fire_requested_ = false;
     observed_fire_eligible_ = false;

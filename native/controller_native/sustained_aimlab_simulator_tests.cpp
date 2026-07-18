@@ -207,6 +207,29 @@ void test_bodylock_cohort_fails_when_mode_never_enters() {
             "ADS warm-up frames must not leak into BodyLock tracking score");
 }
 
+void test_bodylock_warmup_is_stationary_and_manual_neutral() {
+    ScenarioScript script = stationary_script(1'200, {10.0, 0.0});
+    script.targets.front().initial_velocity_px_per_second = {300.0, 0.0};
+    std::vector<double> warmup_errors;
+    ControllerStep delayed_bodylock = [&](const ControllerObservation& input) {
+        ControllerStepResult output;
+        output.target_observed = input.target_present;
+        output.tracker_reliable = input.target_present;
+        output.bodylock_mode = input.target_present && input.now_ms >= 50;
+        if (input.target_present && input.now_ms < 50) {
+            warmup_errors.push_back(input.observed_error_px.x);
+            require(std::hypot(input.manual_stick.x, input.manual_stick.y) == 0.0,
+                    "BodyLock warm-up must not inject mixed manual errors");
+        }
+        return output;
+    };
+    (void)run_simulation(script, ManualProfile::Mixed, delayed_bodylock,
+                         BenchmarkCohort::BodyLockFollow);
+    require(!warmup_errors.empty(), "fixture must observe BodyLock warm-up");
+    require(std::fabs(warmup_errors.back() - warmup_errors.front()) < 1e-9,
+            "BodyLock target motion must begin only after confirmed mode entry");
+}
+
 }  // namespace
 
 int main() {
@@ -220,6 +243,7 @@ int main() {
         test_run_end_does_not_turn_partial_acquisition_into_a_miss();
         test_bodylock_cohort_scores_only_after_confirmed_mode_entry();
         test_bodylock_cohort_fails_when_mode_never_enters();
+        test_bodylock_warmup_is_stationary_and_manual_neutral();
         std::cout << "cod_native_sustained_aimlab_simulator_tests PASS\n";
         return EXIT_SUCCESS;
     } catch (const std::exception& error) {

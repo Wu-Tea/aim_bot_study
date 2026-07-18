@@ -101,15 +101,105 @@ void test_ads_handoff_waits_for_settle() {
     auto plan = coordinator.update(frame(1, 0.00, 1, 340.0f, 208.0f), ads_intent(0.00), 0.00);
     require_true(plan.mode == pipeline_contract::ControlMode::AdsAcquire,
                  "large initial error must use ADS acquisition");
-    for (int i = 1; i <= 8; ++i) {
+    for (int i = 1; i <= 20; ++i) {
         const double time = i * 0.02;
         plan = coordinator.update(frame(i + 1, time, 1, 243.0f, 208.0f), ads_intent(time), time);
     }
     require_true(plan.mode == pipeline_contract::ControlMode::BodyLockFollow,
                  "fresh settled frames must hand off to BodyLock");
-    plan = coordinator.update(frame(20, 0.20, 1, 260.0f, 208.0f), ads_intent(0.20), 0.20);
+    plan = coordinator.update(frame(30, 0.42, 1, 260.0f, 208.0f), ads_intent(0.42), 0.42);
     require_true(plan.mode == pipeline_contract::ControlMode::BodyLockFollow,
                  "BodyLock must use a wider exit band than its ADS entry band");
+}
+
+void test_ads_timeout_does_not_handoff_with_large_residual_error() {
+    controller_native::TargetCoordinatorConfig config{};
+    config.ads_max_acquisition_ms = 20.0f;
+    config.settle_frames = 2;
+    controller_native::TargetCoordinator coordinator(config);
+
+    pipeline_contract::TargetPlan plan{};
+    for (int i = 0; i < 8; ++i) {
+        const double time = i * 0.010;
+        auto observed = frame(i + 1, time, 1, 300.0f, 208.0f);
+        observed.candidates[0].normalized_size = 0.6f;
+        plan = coordinator.update(observed, ads_intent(time), time);
+    }
+
+    require_true(plan.mode == pipeline_contract::ControlMode::AdsAcquire,
+                 "ADS timeout must not hand off a large residual error to BodyLock");
+}
+
+void test_ads_handoff_rejects_a_predicted_high_speed_crossing() {
+    controller_native::TargetCoordinatorConfig config{};
+    config.settle_frames = 1;
+    config.settle_radius_px = 8.0f;
+    config.handoff_prediction_seconds = 0.040f;
+    controller_native::TargetCoordinator coordinator(config);
+
+    controller_native::TargetControlFeedback feedback{};
+    feedback.previous_delivered_stick = {0.80f, 0.0f};
+    feedback.aim_response_px_per_stick_second = 500.0f;
+    feedback.aim_response_confidence = 1.0f;
+    const auto plan = coordinator.update(
+        frame(1, 1.0, 1, 244.0f, 208.0f), ads_intent(1.0), 1.0, feedback);
+
+    require_true(plan.mode == pipeline_contract::ControlMode::AdsAcquire,
+                 "inside-radius ADS must not hand off while delivered input predicts crossing");
+    require_true(plan.predicted_terminal_error_px.x < -8.0f,
+                 "capture telemetry must expose the predicted opposite-side residual");
+}
+
+void test_ads_handoff_accepts_stable_in_radius_capture() {
+    controller_native::TargetCoordinatorConfig config{};
+    config.settle_frames = 1;
+    config.settle_radius_px = 8.0f;
+    controller_native::TargetCoordinator coordinator(config);
+
+    const auto plan = coordinator.update(
+        frame(1, 2.0, 1, 244.0f, 208.0f), ads_intent(2.0), 2.0);
+    require_true(plan.mode == pipeline_contract::ControlMode::BodyLockFollow,
+                 "stable fresh evidence inside the capture set must hand off to BodyLock");
+}
+
+void test_ads_handoff_allows_tangential_target_motion() {
+    controller_native::TargetCoordinatorConfig config{};
+    config.settle_frames = 2;
+    config.settle_radius_px = 8.0f;
+    controller_native::TargetCoordinator coordinator(config);
+    coordinator.update(frame(1, 3.00, 1, 244.0f, 202.0f), ads_intent(3.00), 3.00);
+    const auto plan = coordinator.update(
+        frame(2, 3.01, 1, 244.0f, 208.0f), ads_intent(3.01), 3.01);
+    require_true(plan.mode == pipeline_contract::ControlMode::BodyLockFollow,
+                 "tangential target motion must hand off to BodyLock follow");
+}
+
+void test_bodylock_exit_band_is_independent_from_ads_capture_radius() {
+    controller_native::TargetCoordinatorConfig config{};
+    config.settle_frames = 1;
+    config.settle_radius_px = 8.0f;
+    config.bodylock_exit_radius_px = 48.0f;
+    controller_native::TargetCoordinator coordinator(config);
+    auto plan = coordinator.update(
+        frame(1, 4.00, 1, 243.0f, 208.0f), ads_intent(4.00), 4.00);
+    require_true(plan.mode == pipeline_contract::ControlMode::BodyLockFollow,
+                 "test setup must enter BodyLock");
+    plan = coordinator.update(
+        frame(2, 4.01, 1, 270.0f, 208.0f), ads_intent(4.01), 4.01);
+    require_true(plan.mode == pipeline_contract::ControlMode::BodyLockFollow,
+                 "ADS capture radius must not shrink the BodyLock exit band");
+}
+
+void test_moving_target_gets_a_bounded_expanded_capture_set() {
+    controller_native::TargetCoordinatorConfig config{};
+    config.settle_frames = 2;
+    config.settle_radius_px = 8.0f;
+    controller_native::TargetCoordinator coordinator(config);
+    coordinator.update(frame(1, 5.00, 1, 248.0f, 208.0f), ads_intent(5.00), 5.00);
+    auto plan = coordinator.update(
+        frame(2, 5.01, 1, 250.0f, 208.0f), ads_intent(5.01), 5.01);
+    require_true(plan.mode == pipeline_contract::ControlMode::BodyLockFollow,
+                 "moving near target should hand off inside a bounded dynamic capture set");
 }
 
 void test_control_rate_gaps_do_not_compound_reliability_decay() {
@@ -180,12 +270,29 @@ void test_left_intent_enters_plan_through_learned_response() {
     intent.filtered_left.x = 0.5f;
     intent.left_confidence = 1.0f;
     const auto plan = coordinator.update(frame(1, 0.0, 1, 240.0f, 208.0f), intent, 0.0);
-    require_true(plan.response_scale < -190.0f,
-                 "plan must carry signed learned response");
+    require_true(plan.left_motion_response_scale < -190.0f,
+                 "plan must carry signed learned left-stick response separately");
     require_true(plan.error_rate_px_per_sec.x < -90.0f,
                  "left intent must affect planned relative motion");
     require_true(plan.horizon[0].error_px.x < 0.0f,
                  "short plan must include left-stick feed-forward");
+}
+
+void test_aim_response_feedback_is_separate_from_left_motion_response() {
+    controller_native::TargetCoordinator coordinator;
+    coordinator.begin_ads_epoch(1);
+    for (int i = 0; i < 80; ++i) {
+        coordinator.observe_control_response({0.5f, -100.0f, true, false});
+    }
+    controller_native::TargetControlFeedback feedback{};
+    feedback.aim_response_px_per_stick_second = 730.0f;
+    feedback.aim_response_confidence = 0.8f;
+    const auto plan = coordinator.update(
+        frame(1, 0.0, 1, 240.0f, 208.0f), ads_intent(0.0), 0.0, feedback);
+    require_true(std::fabs(plan.response_scale - 730.0f) < 0.01f,
+                 "aim controller must receive the learned right-stick camera response");
+    require_true(std::fabs(plan.left_motion_response_scale - plan.response_scale) > 100.0f,
+                 "left motion and right-stick camera response must not share one scale");
 }
 
 void test_nonfresh_empty_ticks_preserve_observed_fire_plan() {
@@ -276,10 +383,17 @@ int main() {
         test_hold_expires_to_safe_manual_plan();
         test_motion_labels_jump_then_fall();
         test_ads_handoff_waits_for_settle();
+        test_ads_timeout_does_not_handoff_with_large_residual_error();
+        test_ads_handoff_rejects_a_predicted_high_speed_crossing();
+        test_ads_handoff_accepts_stable_in_radius_capture();
+        test_ads_handoff_allows_tangential_target_motion();
+        test_bodylock_exit_band_is_independent_from_ads_capture_radius();
+        test_moving_target_gets_a_bounded_expanded_capture_set();
         test_control_rate_gaps_do_not_compound_reliability_decay();
         test_control_rate_gaps_preserve_ads_settle_progress();
         test_100hz_motion_stays_finite_at_1000hz_control_rate();
         test_left_intent_enters_plan_through_learned_response();
+        test_aim_response_feedback_is_separate_from_left_motion_response();
         test_nonfresh_empty_ticks_preserve_observed_fire_plan();
         test_fresh_processed_miss_revokes_fire_immediately();
         test_anonymous_in_radius_hold_preserves_identity_and_fire_request();

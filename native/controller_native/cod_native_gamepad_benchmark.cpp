@@ -1430,8 +1430,9 @@ void run_self_test() {
     require_benchmark_check(
         near_high.has_ads_bodylock_near_high &&
             near_high.ads_bodylock_near_high_near_target_frames > 0 &&
-            near_high.ads_bodylock_near_high_body_lock_frames > 0,
-        "near-high output benchmark should exercise body-lock near-target frames");
+            near_high.ads_bodylock_near_high_ads_snap_frames > 0 &&
+            near_high.ads_bodylock_near_high_body_lock_frames == 0,
+        "large residual error must remain ADS-owned instead of timing out into BodyLock");
     require_benchmark_check(
         near_high.ads_bodylock_near_high_output_frames > 0 &&
             near_high.ads_bodylock_near_high_brake_inactive_frames > 0,
@@ -1441,9 +1442,9 @@ void run_self_test() {
             near_high.ads_bodylock_near_high_p95_output_delta >= 0.0,
         "near-high output benchmark should report high-output and smoothness metrics");
     require_benchmark_check(
-        near_high.ads_bodylock_near_high_close_assist_frames > 0 &&
-            near_high.ads_bodylock_near_high_close_assist_mean_output > 0.0,
-        "near-high output benchmark should report close-assist strength instead of treating all near-high output as bad");
+        near_high.ads_bodylock_near_high_close_assist_frames == 0 &&
+            near_high.ads_bodylock_near_high_acquisition_expired_high_frames == 0,
+        "large residual ADS must not be misreported as expired BodyLock close assist");
     require_benchmark_check(
         near_high.ads_bodylock_near_high_centered_frames >= 0 &&
             near_high.ads_bodylock_near_high_centered_jitter_frames >= 0 &&
@@ -1497,10 +1498,11 @@ void run_self_test() {
             carry_through.ads_carry_through_brake_inactive_near_high_frames >= 0,
         "ADS carry-through benchmark should report near-target and brake coverage");
     require_benchmark_check(
-        carry_through.ads_carry_through_body_lock_frames +
-                carry_through.ads_carry_through_manual_frames >
-            0,
-        "ADS carry-through benchmark should exercise post-ads-snap authority modes");
+        carry_through.ads_carry_through_ads_snap_frames +
+                carry_through.ads_carry_through_body_lock_frames +
+                carry_through.ads_carry_through_manual_frames ==
+            carry_through.ads_carry_through_ticks,
+        "ADS carry-through benchmark must account for every controller authority mode");
 
     const ScenarioMetrics adversarial = run_adversarial_controller_authority_100hz(
         moving_config,
@@ -1511,12 +1513,12 @@ void run_self_test() {
         "adversarial controller benchmark should report controller stress metrics");
     require_benchmark_check(
         adversarial.adversarial_controller_wrong_target_frames > 0 &&
-            adversarial.adversarial_controller_user_fight_frames > 0,
-        "adversarial controller benchmark should expose wrong-target user fight");
+            adversarial.adversarial_controller_user_fight_frames == 0,
+        "adversarial wrong-target window must not produce user/AI fight");
     require_benchmark_check(
         adversarial.adversarial_controller_invalid_strong_frames > 0 &&
             adversarial.adversarial_controller_stale_high_output_frames > 0,
-        "adversarial controller benchmark should expose invalid/stale high authority");
+        "adversarial fixture must expose invalid and stale authority windows");
     require_benchmark_check(
         adversarial.adversarial_controller_err_target_frames > 0 &&
             adversarial.adversarial_controller_recovery_frames > 0,
@@ -4285,10 +4287,14 @@ ScenarioMetrics run_bodylock_continuity_defect_100hz(
         simulated_now = 1.0 + (static_cast<double>(tick) * kDtSeconds);
         const double measured_seconds =
             static_cast<double>(std::max(0, tick - kWarmupTicks)) * kDtSeconds;
-        const float reported_dx = static_cast<float>(
-            -30.0 - (4.0 * std::sin(measured_seconds * 18.0)));
-        const float reported_dy = static_cast<float>(
-            10.0 + (2.0 * std::sin(measured_seconds * 11.0)));
+        const float reported_dx = tick < kWarmupTicks
+            ? -6.0f
+            : static_cast<float>(
+                -30.0 - (4.0 * std::sin(measured_seconds * 18.0)));
+        const float reported_dy = tick < kWarmupTicks
+            ? 2.0f
+            : static_cast<float>(
+                10.0 + (2.0 * std::sin(measured_seconds * 11.0)));
         if (tick % kVisionIntervalTicks == 0) {
             controller.submit_vision_state(
                 benchmark_target_state(reported_dx, reported_dy, simulated_now));

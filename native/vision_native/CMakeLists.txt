@@ -711,11 +711,13 @@ add_executable(cod_native_target_plan_publisher_tests
 add_executable(cod_native_ads_acquisition_controller_tests
     ../controller_native/ads_acquisition_controller_tests.cpp
     ../controller_native/ads_acquisition_controller.cpp
+    ../controller_native/response_model_aim_solver.cpp
 )
 
 add_executable(cod_native_bodylock_follow_controller_tests
     ../controller_native/bodylock_follow_controller_tests.cpp
     ../controller_native/bodylock_follow_controller.cpp
+    ../controller_native/response_model_aim_solver.cpp
 )
 
 add_executable(cod_native_aim_dynamics_shaper_tests
@@ -1150,6 +1152,8 @@ add_executable(cod_native_vlock_defect_tests
     ../controller_native/target_coordinator.cpp
     ../controller_native/ads_acquisition_controller.cpp
     ../controller_native/bodylock_follow_controller.cpp
+    ../controller_native/response_model_aim_solver.cpp
+    ../controller_native/aim_response_estimator.cpp
     ../controller_native/aim_dynamics_shaper.cpp
 )
 target_include_directories(cod_native_vlock_defect_tests PRIVATE
@@ -1422,6 +1426,8 @@ set(COD_TARGET_PLAN_RUNTIME_SOURCES
     ../controller_native/target_coordinator.cpp
     ../controller_native/ads_acquisition_controller.cpp
     ../controller_native/bodylock_follow_controller.cpp
+    ../controller_native/response_model_aim_solver.cpp
+    ../controller_native/aim_response_estimator.cpp
     ../controller_native/aim_dynamics_shaper.cpp
     ../controller_native/axis_intent_arbiter.cpp
 )

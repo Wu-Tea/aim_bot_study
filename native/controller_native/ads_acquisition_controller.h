@@ -8,8 +8,8 @@ namespace controller_native {
 struct AdsAcquisitionControllerConfig {
     float max_force_x = 1.0f;
     float max_force_y = 1.0f;
-    float error_range_x_px = 130.0f;
-    float error_range_y_px = 90.0f;
+    float arrival_horizon_seconds = 0.160f;
+    float fallback_response_px_per_stick_second = 500.0f;
     float stopping_lookahead_seconds = 0.012f;
     float opposing_manual_reduction = 0.8f;
 };
@@ -24,15 +24,6 @@ public:
         float dt_seconds) const noexcept;
 
 private:
-    float axis(
-        float error,
-        float error_rate,
-        float manual,
-        float manual_confidence,
-        float range,
-        float max_force,
-        float authority) const noexcept;
-
     AdsAcquisitionControllerConfig config_{};
 };
 

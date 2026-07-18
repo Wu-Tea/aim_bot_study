@@ -17,9 +17,18 @@ struct TargetCoordinatorConfig {
     std::uint32_t settle_frames = 5;
     float ads_max_acquisition_ms = 180.0f;
     float bodylock_activation_radius_px = 150.0f;
+    float bodylock_exit_radius_px = 48.0f;
+    float handoff_prediction_seconds = 0.020f;
+    float handoff_max_closing_velocity_px_per_sec = 320.0f;
     float motion_velocity_alpha = 0.4f;
     float jump_fall_velocity_px_per_second = 100.0f;
     float max_authority = 1.0f;
+};
+
+struct TargetControlFeedback {
+    pipeline_contract::Vec2f previous_delivered_stick{};
+    float aim_response_px_per_stick_second = 500.0f;
+    float aim_response_confidence = 0.0f;
 };
 
 class TargetCoordinator {
@@ -29,7 +38,8 @@ public:
     pipeline_contract::TargetPlan update(
         const pipeline_contract::VisionObservationBatch& observations,
         const pipeline_contract::IntentState& intent,
-        double now_seconds) noexcept;
+        double now_seconds,
+        const TargetControlFeedback& feedback = {}) noexcept;
 
     bool observe_control_response(const ControlResponseSample& sample) noexcept;
     void begin_ads_epoch(std::uint64_t epoch) noexcept;
@@ -59,6 +69,7 @@ private:
     float last_observed_reliability_ = 0.0f;
     float last_observed_normalized_size_ = 0.0f;
     std::uint32_t settled_frames_ = 0;
+    std::uint32_t observed_frames_ = 0;
     bool has_target_ = false;
     bool fire_requested_ = false;
     bool observed_fire_eligible_ = false;

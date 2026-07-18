@@ -151,7 +151,8 @@ BenchmarkResult run_simulation(
             }
             input.frame_id = frame_id;
             input.observed_error_px = carried_observation;
-            if (manual_profile == ManualProfile::Mixed) {
+            if (manual_profile == ManualProfile::Mixed &&
+                (cohort != BenchmarkCohort::BodyLockFollow || tracking)) {
                 input.manual_stick = mixed_manual_input(
                     target, target_elapsed_ms, error);
             }
@@ -170,7 +171,12 @@ BenchmarkResult run_simulation(
 
         if (target_active) {
             const TargetScript& target = script.targets[target_index];
-            advance_target(target, target_elapsed_ms, 0.001, error, target_velocity);
+            if (cohort != BenchmarkCohort::BodyLockFollow || tracking) {
+                const int motion_elapsed_ms =
+                    cohort == BenchmarkCohort::BodyLockFollow
+                    ? tracking_ticks : target_elapsed_ms;
+                advance_target(target, motion_elapsed_ms, 0.001, error, target_velocity);
+            }
             const double response =
                 script.config.camera_response_px_per_stick_second *
                 aim_slowdown_multiplier(

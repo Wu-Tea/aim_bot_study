@@ -12,6 +12,11 @@ ResponseModelAimOutput solve_response_model_aim(
         1.0f, std::fabs(request.response_px_per_stick_second));
     const float horizon = std::clamp(
         request.arrival_horizon_seconds, 0.005f, 1.0f);
+    const float horizon_y = std::clamp(
+        request.arrival_horizon_y_seconds > 0.0f
+            ? request.arrival_horizon_y_seconds
+            : request.arrival_horizon_seconds,
+        0.005f, 1.0f);
     const float authority = std::clamp(request.authority, 0.0f, 1.0f);
     const float motion_weight = std::clamp(request.motion_weight, 0.0f, 2.0f);
     const pipeline_contract::Vec2f control_error{
@@ -21,7 +26,7 @@ ResponseModelAimOutput solve_response_model_aim(
         -request.relative_velocity_px_per_sec.y};
     output.position_stick = {
         control_error.x / (horizon * response),
-        control_error.y / (horizon * response),
+        control_error.y / (horizon_y * response),
     };
     output.motion_stick = {
         control_velocity.x / response * motion_weight,

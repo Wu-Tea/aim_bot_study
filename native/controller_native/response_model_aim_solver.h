@@ -9,6 +9,7 @@ struct ResponseModelAimRequest {
     pipeline_contract::Vec2f relative_velocity_px_per_sec{};
     float response_px_per_stick_second = 500.0f;
     float arrival_horizon_seconds = 0.050f;
+    float arrival_horizon_y_seconds = 0.0f;
     float motion_weight = 1.0f;
     pipeline_contract::Vec2f max_force{1.0f, 1.0f};
     float authority = 1.0f;

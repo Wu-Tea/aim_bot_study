@@ -72,6 +72,11 @@ struct TargetPlan {
     float aim_authority = 0.0f;
     float response_scale = 0.0f;
     float response_confidence = 0.0f;
+    float left_motion_response_scale = 0.0f;
+    float left_motion_response_confidence = 0.0f;
+    float acquisition_elapsed_ms = 0.0f;
+    Vec2f predicted_terminal_error_px{};
+    float radial_closing_velocity_px_per_sec = 0.0f;
     std::uint32_t horizon_count = 0;
     std::array<PlanHorizonSample, kMaxPlanHorizonSamples> horizon{};
     bool fire_authority = false;
@@ -95,7 +100,12 @@ inline bool valid(const TargetPlan& plan) noexcept {
            unit_interval(plan.normalized_size) && unit_interval(plan.ads_demand) &&
            unit_interval(plan.bodylock_demand) && unit_interval(plan.aim_authority) &&
            unit_interval(plan.response_confidence) &&
+           unit_interval(plan.left_motion_response_confidence) &&
            std::isfinite(plan.response_scale) &&
+           std::isfinite(plan.left_motion_response_scale) &&
+           std::isfinite(plan.acquisition_elapsed_ms) &&
+           finite(plan.predicted_terminal_error_px) &&
+           std::isfinite(plan.radial_closing_velocity_px_per_sec) &&
            plan.horizon_count <= kMaxPlanHorizonSamples;
 }
 

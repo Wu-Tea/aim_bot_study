@@ -42,13 +42,15 @@ TargetCoordinatorConfig coordinator_config(const GamepadRuntimeConfig& config) {
     result.hold_ms = std::max(
         80.0f, std::max(config.ai_aim.target_max_age_ms,
                         config.ai_aim.target_projection_max_age_ms));
-    result.settle_radius_px = std::max(6.0f, config.ai_aim.body_lock_box_tolerance_px);
+    result.settle_radius_px = std::max(1.0f, config.ai_aim.ads_completion_radius_px);
     result.settle_frames = static_cast<std::uint32_t>(
-        std::max(1, config.ai_aim.body_lock_confidence_frames));
-    result.ads_max_acquisition_ms = static_cast<float>(
-        std::max(0, config.ai_aim.ads_snap_window_ms));
+        std::max(1, config.ai_aim.ads_completion_fresh_frames));
+    result.ads_max_acquisition_ms = std::max(0.0f, config.ai_aim.ads_max_acquisition_ms);
     result.bodylock_activation_radius_px = std::max(
         result.settle_radius_px, config.ai_aim.body_lock_activation_box_px);
+    result.bodylock_exit_radius_px = std::max(
+        result.settle_radius_px * 2.0f,
+        config.ai_aim.body_lock_box_tolerance_px * 3.0f);
     return result;
 }
 
@@ -56,8 +58,9 @@ AdsAcquisitionControllerConfig ads_config(const GamepadRuntimeConfig& config) {
     AdsAcquisitionControllerConfig result{};
     result.max_force_x = config.ai_aim.ads_snap_max_ai_force;
     result.max_force_y = config.ai_aim.ads_snap_max_ai_force_y;
-    result.error_range_x_px = std::max(1.0f, config.ai_aim.max_pixels);
-    result.error_range_y_px = std::max(1.0f, config.ai_aim.piecewise_max_pixels_y);
+    result.arrival_horizon_seconds = std::clamp(
+        static_cast<float>(config.ai_aim.ads_snap_window_ms) / 1000.0f,
+        0.060f, 0.350f);
     return result;
 }
 
@@ -93,6 +96,7 @@ NativeGamepadController::NativeGamepadController(
 void NativeGamepadController::reset() {
     intent_filter_.reset();
     target_coordinator_.reset();
+    aim_response_estimator_.reset();
     dynamics_shaper_.reset();
     axis_intent_arbiter_.reset();
     recoil_.reset();
@@ -107,6 +111,11 @@ void NativeGamepadController::reset() {
     last_tick_seconds_ = 0.0;
     previous_plan_normalized_size_ = 0.0f;
     previous_plan_target_id_ = 0;
+    aim_response_command_sum_ = {};
+    aim_response_command_count_ = 0;
+    last_aim_response_frame_id_ = 0;
+    last_aim_response_observed_seconds_ = 0.0;
+    aim_response_manual_ambiguous_ = false;
     last_pipeline_traces_.clear();
     last_tracker_motion_output_ = {};
     last_output_components_ = {};
@@ -312,7 +321,49 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
         observations.frame_height_px = last_frame_vision_state_.screen_center_y > 0.0f
             ? last_frame_vision_state_.screen_center_y * 2.0f : 416.0f;
     }
-    const auto plan = target_coordinator_.update(observations, intent, now);
+    TargetControlFeedback control_feedback{};
+    control_feedback.previous_delivered_stick = {
+        last_output_components_.before_recoil_stick.x,
+        last_output_components_.before_recoil_stick.y};
+    const auto aim_response_before_update = aim_response_estimator_.estimate();
+    control_feedback.aim_response_px_per_stick_second =
+        aim_response_before_update.scale_px_per_stick_second;
+    // estimate() already blends toward its safe fallback while confidence is low.
+    control_feedback.aim_response_confidence = aim_response_before_update.confidence;
+    const auto plan = target_coordinator_.update(
+        observations, intent, now, control_feedback);
+    const bool new_observed_frame = observations.count > 0 &&
+        observations.frame_id != 0 &&
+        observations.frame_id != last_aim_response_frame_id_;
+    if (new_observed_frame) {
+        if (last_aim_response_observed_seconds_ > 0.0 &&
+            aim_response_command_count_ > 0) {
+            const float inverse_count = 1.0f /
+                static_cast<float>(aim_response_command_count_);
+            aim_response_estimator_.update({
+                {aim_response_command_sum_.x * inverse_count,
+                 aim_response_command_sum_.y * inverse_count},
+                plan.velocity_px_per_sec,
+                plan.target_id,
+                static_cast<float>(now - last_aim_response_observed_seconds_),
+                plan.reliability,
+                // TargetCoordinator acceleration is relative screen acceleration and
+                // therefore contains the very camera response this estimator needs.
+                // It is not a target-only maneuver signal, so do not mislabel it as
+                // unexplained target acceleration here.
+                0.0f,
+                plan.lifecycle == pipeline_contract::TargetLifecycle::Observed,
+                aim_response_manual_ambiguous_,
+            });
+        } else {
+            aim_response_estimator_.begin_target(plan.target_id);
+        }
+        aim_response_command_sum_ = {};
+        aim_response_command_count_ = 0;
+        aim_response_manual_ambiguous_ = false;
+        last_aim_response_frame_id_ = observations.frame_id;
+        last_aim_response_observed_seconds_ = now;
+    }
     last_frame_vision_state_ = vision_state_from_plan(
         plan, now, observations.capture_fresh);
     last_ai_aim_mode_ = mode_name(plan.mode);
@@ -437,6 +488,11 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
     components.auto_fire_block_reason = auto_fire_block_reason_name(fire.block_reason);
 
     components.before_recoil_stick = {output.right_x, output.right_y};
+    aim_response_command_sum_.x += output.right_x;
+    aim_response_command_sum_.y += output.right_y;
+    ++aim_response_command_count_;
+    aim_response_manual_ambiguous_ = aim_response_manual_ambiguous_ ||
+        std::hypot(physical.right_x, physical.right_y) >= 0.35f;
     const auto before_recoil = output;
     apply_recoil(output, physical, aiming_, fire.should_fire, now);
     record_stage_trace(

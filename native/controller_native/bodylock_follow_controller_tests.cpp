@@ -54,7 +54,7 @@ void test_manual_correction_remains_available() {
                  "BodyLock must yield smoothly to manual correction");
 }
 
-void test_closing_target_brakes_without_reversing_before_crossing() {
+void test_closing_target_brakes_before_crossing() {
     controller_native::BodylockFollowController controller;
     auto stationary = moving_plan();
     stationary.error_px.x = 18.0f;
@@ -65,8 +65,8 @@ void test_closing_target_brakes_without_reversing_before_crossing() {
 
     const auto normal = controller.compute(stationary, {}, 0.01f);
     const auto braking = controller.compute(closing, {}, 0.01f);
-    require_true(braking.x >= 0.0f && braking.x < normal.x,
-                 "closing BodyLock must brake without reversing before the target crossing");
+    require_true(std::fabs(braking.x) < std::fabs(normal.x),
+                 "closing BodyLock must reduce the positional request before crossing");
 }
 
 void test_near_target_error_has_legacy_grip() {
@@ -89,8 +89,31 @@ void test_left_strafe_yields_positional_grip_without_dropping_follow() {
     strafe.filtered_left.x = 0.8f;
     strafe.left_confidence = 1.0f;
     const auto moving = controller.compute(plan, strafe, 0.01f);
-    require_true(moving.x > 0.0f && moving.x < neutral.x * 0.6f,
-                 "left strafe must soften positional grip while retaining follow authority");
+    require_true(std::fabs(moving.x - neutral.x) < 0.0001f,
+                 "left stick must affect relative motion estimation, not silently weaken BodyLock grip");
+}
+
+void test_feedforward_is_not_scaled_by_force_twice() {
+    controller_native::BodylockFollowControllerConfig config{};
+    config.max_force_x = 0.40f;
+    controller_native::BodylockFollowController controller(config);
+    auto plan = moving_plan();
+    plan.error_px.x = 0.0f;
+    plan.error_rate_px_per_sec.x = 200.0f;
+    plan.response_scale = 400.0f;
+    const auto output = controller.compute(plan, {}, 0.01f);
+    require_true(output.x > 0.25f,
+                 "response-normalized motion feedforward must not be multiplied by max force twice");
+}
+
+void test_predictive_lead_may_cross_residual_error_direction() {
+    controller_native::BodylockFollowController controller;
+    auto plan = moving_plan();
+    plan.error_px.x = 2.0f;
+    plan.error_rate_px_per_sec.x = -180.0f;
+    const auto output = controller.compute(plan, {}, 0.01f);
+    require_true(output.x < 0.0f,
+                 "trusted predictive lead must survive even when it opposes the tiny residual error");
 }
 
 }  // namespace
@@ -100,9 +123,11 @@ int main() {
         test_motion_feedforward_stays_active_near_center();
         test_coasting_authority_decays_continuously();
         test_manual_correction_remains_available();
-        test_closing_target_brakes_without_reversing_before_crossing();
+        test_closing_target_brakes_before_crossing();
         test_near_target_error_has_legacy_grip();
         test_left_strafe_yields_positional_grip_without_dropping_follow();
+        test_feedforward_is_not_scaled_by_force_twice();
+        test_predictive_lead_may_cross_residual_error_direction();
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "[BodylockFollowControllerTests] FAIL " << error.what() << '\n';
