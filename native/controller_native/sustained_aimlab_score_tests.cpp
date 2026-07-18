@@ -298,6 +298,48 @@ void test_stall_ring_and_handoff_diagnostics_are_exported() {
             "a stalled target must remain explicitly unsettled");
 }
 
+void test_settle_ends_the_frozen_approach_axis() {
+    TargetScorer scorer(target_with_deadline(), BenchmarkConfig{});
+    scorer.mark_acquired(20);
+    ScoreFrame approach = tracking_frame(0, {6.0, 0.0});
+    approach.radial_closing_velocity_px_per_sec = 100.0;
+    scorer.add_frame(approach);
+    for (int ms = 1; ms <= 40; ++ms) {
+        ScoreFrame settled = tracking_frame(ms, {0.0, 0.0});
+        settled.radial_closing_velocity_px_per_sec = 0.0;
+        scorer.add_frame(settled);
+    }
+    ScoreFrame later_motion = tracking_frame(41, {-10.0, 0.0});
+    later_motion.radial_closing_velocity_px_per_sec = 80.0;
+    scorer.add_frame(later_motion);
+    const TargetResult result = scorer.finish();
+    require(result.settled, "fixture must settle its first brake episode");
+    require(result.center_cross_events == 0,
+            "post-settle motion must start a new axis, not cross the old one");
+    require(result.max_post_cross_error_px == 0.0,
+            "post-settle motion must not inflate the old excursion");
+}
+
+void test_manual_and_unreliable_crossings_are_geometry_not_ai_blame() {
+    for (int variant = 0; variant < 2; ++variant) {
+        TargetScorer scorer(target_with_deadline(), BenchmarkConfig{});
+        scorer.mark_acquired(20);
+        ScoreFrame before = tracking_frame(0, {6.0, 0.0});
+        before.shaped_assist_stick = {0.3, 0.0};
+        scorer.add_frame(before);
+        ScoreFrame crossed = tracking_frame(1, {-3.0, 0.0});
+        crossed.shaped_assist_stick = {0.3, 0.0};
+        crossed.manual_escape = variant == 0;
+        crossed.tracker_reliable = variant != 1;
+        scorer.add_frame(crossed);
+        const TargetResult result = scorer.finish();
+        require(result.center_cross_events == 1,
+                "crossing geometry must remain visible");
+        require(result.continued_push_after_cross_ms == 0,
+                "manual or unreliable crossing must not blame AI");
+    }
+}
+
 void test_bodylock_occupancy_distinguishes_never_entered_from_interrupted() {
     TargetScorer never_entered(target_with_deadline(), BenchmarkConfig{});
     never_entered.mark_acquired(20);
@@ -360,6 +402,8 @@ int main() {
         test_small_center_cross_is_visible_without_severe_overshoot();
         test_fast_no_cross_capture_settles_without_false_overshoot();
         test_stall_ring_and_handoff_diagnostics_are_exported();
+        test_settle_ends_the_frozen_approach_axis();
+        test_manual_and_unreliable_crossings_are_geometry_not_ai_blame();
         test_sustained_projected_lag_counts_one_undertrack();
         test_false_stop_requires_stable_demand_and_no_escape();
         test_stale_output_after_target_loss_counts_once();

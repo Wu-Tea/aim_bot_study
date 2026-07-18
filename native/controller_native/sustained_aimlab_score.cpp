@@ -95,6 +95,18 @@ void TargetScorer::mark_bodylock_entry_failed() {
     result_.bodylock_entry_failed = true;
 }
 
+void TargetScorer::end_brake_episode() noexcept {
+    brake_episode_active_ = false;
+    brake_axis_ = {};
+    positive_side_seen_ = false;
+    center_cross_latched_ = false;
+    crossed_center_ = false;
+    brake_start_tick_ = -1;
+    settle_stable_ticks_ = 0;
+    previous_ai_radial_projection_ = 0.0;
+    has_previous_ai_radial_projection_ = false;
+}
+
 void TargetScorer::add_frame(const ScoreFrame& frame) {
     if (finished_ || !frame.in_tracking_window) return;
     ++tracking_ticks_;
@@ -117,7 +129,9 @@ void TargetScorer::add_frame(const ScoreFrame& frame) {
         brake_axis_ = normalized(frame.error_px);
         if (length(brake_axis_) <= 1e-9) brake_axis_ = {1.0, 0.0};
         brake_start_tick_ = tracking_ticks_ - 1;
-        result_.brake_start_distance_px = distance;
+        if (result_.brake_start_distance_px < 0.0) {
+            result_.brake_start_distance_px = distance;
+        }
     }
     if (first_circle_tick_ < 0 && distance <= radius) {
         first_circle_tick_ = tracking_ticks_ - 1;
@@ -178,6 +192,7 @@ void TargetScorer::add_frame(const ScoreFrame& frame) {
                 result_.first_entry_to_settle_ms =
                     tracking_ticks_ - 1 - first_circle_tick_;
             }
+            end_brake_episode();
         }
     } else {
         settle_stable_ticks_ = 0;
@@ -341,6 +356,8 @@ void TargetScorer::add_frame(const ScoreFrame& frame) {
         distance >= previous_distance_ - 1e-6) {
         ++result_.stall_ring_ms;
     }
+
+    if (frame.manual_escape) end_brake_episode();
 
     has_previous_ = true;
     previous_output_ = frame.final_stick;

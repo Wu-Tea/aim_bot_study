@@ -85,6 +85,8 @@ public:
     TargetResult finish();
 
 private:
+    void end_brake_episode() noexcept;
+
     TargetScript script_;
     BenchmarkConfig config_;
     TargetResult result_;
