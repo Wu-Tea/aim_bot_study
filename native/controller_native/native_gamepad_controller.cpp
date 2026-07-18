@@ -120,6 +120,7 @@ void NativeGamepadController::reset() {
     last_tracker_motion_output_ = {};
     last_output_components_ = {};
     last_frame_vision_state_ = {};
+    last_target_plan_ = {};
     last_ai_aim_mode_ = "manual";
 }
 
@@ -332,6 +333,7 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
     control_feedback.aim_response_confidence = aim_response_before_update.confidence;
     const auto plan = target_coordinator_.update(
         observations, intent, now, control_feedback);
+    last_target_plan_ = plan;
     const bool new_observed_frame = observations.count > 0 &&
         observations.frame_id != 0 &&
         observations.frame_id != last_aim_response_frame_id_;
@@ -544,6 +546,10 @@ const NativeControllerOutputComponents& NativeGamepadController::last_output_com
 
 const NativeControllerVisionState& NativeGamepadController::last_frame_vision_state() const {
     return last_frame_vision_state_;
+}
+
+const pipeline_contract::TargetPlan& NativeGamepadController::last_target_plan() const {
+    return last_target_plan_;
 }
 
 const std::string& NativeGamepadController::last_ai_aim_mode() const {

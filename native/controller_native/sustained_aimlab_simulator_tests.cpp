@@ -230,6 +230,27 @@ void test_bodylock_warmup_is_stationary_and_manual_neutral() {
             "BodyLock target motion must begin only after confirmed mode entry");
 }
 
+void test_plan_diagnostics_and_ads_handoff_reach_the_scorer() {
+    const ScenarioScript script = stationary_script(80, {10.0, 0.0});
+    ControllerStep controller = [](const ControllerObservation& input) {
+        ControllerStepResult output;
+        output.target_observed = input.target_present;
+        output.tracker_reliable = input.target_present;
+        output.bodylock_mode = input.target_present && input.now_ms >= 5;
+        output.predicted_terminal_error_px = {-4.0, 0.0};
+        output.radial_closing_velocity_px_per_sec = 75.0;
+        return output;
+    };
+    const BenchmarkResult result = run_simulation(
+        script, ManualProfile::Pure, controller);
+    require(result.handoff_count == 1,
+            "ADS-to-BodyLock transition must be counted once");
+    require(result.max_handoff_residual_px > 0.0,
+            "handoff must retain the transition-frame residual");
+    require(std::fabs(result.max_abs_handoff_closing_speed_px_per_sec - 75.0) < 1e-9,
+            "tracker radial closing speed must reach the scorer unchanged");
+}
+
 }  // namespace
 
 int main() {
@@ -244,6 +265,7 @@ int main() {
         test_bodylock_cohort_scores_only_after_confirmed_mode_entry();
         test_bodylock_cohort_fails_when_mode_never_enters();
         test_bodylock_warmup_is_stationary_and_manual_neutral();
+        test_plan_diagnostics_and_ads_handoff_reach_the_scorer();
         std::cout << "cod_native_sustained_aimlab_simulator_tests PASS\n";
         return EXIT_SUCCESS;
     } catch (const std::exception& error) {

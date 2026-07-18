@@ -22,6 +22,8 @@ struct ControllerStepResult {
     Vec2d final_stick;
     Vec2d requested_assist_stick;
     Vec2d shaped_assist_stick;
+    Vec2d predicted_terminal_error_px;
+    double radial_closing_velocity_px_per_sec = 0.0;
     bool bodylock_mode = false;
     bool target_observed = false;
     bool tracker_reliable = false;

@@ -228,6 +228,24 @@ void write_report(
             << ", \"bodylock_entry_failures\": " << result.bodylock_entry_failures
             << ", \"bodylock_active_ms\": " << result.bodylock_active_ms
             << ", \"unexpected_mode_ms\": " << result.unexpected_mode_ms
+            << ", \"settled_targets\": " << result.settled_targets
+            << ", \"unsettled_targets\": " << result.unsettled_targets
+            << ", \"center_cross_events\": " << result.center_cross_events
+            << ", \"max_post_cross_error_px\": " << result.max_post_cross_error_px
+            << ", \"p95_post_cross_error_px\": " << result.p95_post_cross_error_px
+            << ", \"overshoot_area_px_ms\": " << result.overshoot_area_px_ms
+            << ", \"continued_push_after_cross_ms\": " << result.continued_push_after_cross_ms
+            << ", \"correction_reversal_events\": " << result.correction_reversal_events
+            << ", \"circle_exit_events\": " << result.circle_exit_events
+            << ", \"stall_ring_ms\": " << result.stall_ring_ms
+            << ", \"direction_discontinuities\": " << result.direction_discontinuities
+            << ", \"max_error_px\": " << result.max_error_px
+            << ", \"median_first_entry_to_settle_ms\": " << result.median_first_entry_to_settle_ms
+            << ", \"p95_first_entry_to_settle_ms\": " << result.p95_first_entry_to_settle_ms
+            << ", \"handoff_count\": " << result.handoff_count
+            << ", \"max_handoff_residual_px\": " << result.max_handoff_residual_px
+            << ", \"max_abs_handoff_closing_speed_px_per_sec\": "
+            << result.max_abs_handoff_closing_speed_px_per_sec
             << ", \"mean_error_px\": " << result.mean_error_px
             << ", \"p95_error_px\": " << result.p95_error_px
             << ", \"p95_output_delta\": " << result.p95_output_delta
@@ -252,7 +270,23 @@ void write_report(
                 << ",\"over_events\":" << target.over_events
                 << ",\"undertrack_events\":" << target.undertrack_events
                 << ",\"false_mode_exit_events\":" << target.false_mode_exit_events
-                << ",\"false_stop_events\":" << target.false_stop_events << '}';
+                << ",\"false_stop_events\":" << target.false_stop_events
+                << ",\"settled\":" << (target.settled ? "true" : "false")
+                << ",\"center_cross_events\":" << target.center_cross_events
+                << ",\"max_post_cross_error_px\":" << target.max_post_cross_error_px
+                << ",\"overshoot_area_px_ms\":" << target.overshoot_area_px_ms
+                << ",\"continued_push_after_cross_ms\":" << target.continued_push_after_cross_ms
+                << ",\"brake_start_distance_px\":" << target.brake_start_distance_px
+                << ",\"time_to_zero_radial_speed_ms\":" << target.time_to_zero_radial_speed_ms
+                << ",\"first_entry_to_settle_ms\":" << target.first_entry_to_settle_ms
+                << ",\"correction_reversal_events\":" << target.correction_reversal_events
+                << ",\"circle_exit_events\":" << target.circle_exit_events
+                << ",\"stall_ring_ms\":" << target.stall_ring_ms
+                << ",\"direction_discontinuities\":" << target.direction_discontinuities
+                << ",\"max_error_px\":" << target.max_error_px
+                << ",\"handoff_residual_px\":" << target.handoff_residual_px
+                << ",\"handoff_closing_speed_px_per_sec\":"
+                << target.handoff_closing_speed_px_per_sec << '}';
         }
         out << "]}" << (run_index + 1 == results.size() ? "\n" : ",\n");
     }
@@ -320,12 +354,16 @@ BenchmarkResult run_native(
             saw_assisted_mode = true;
         }
         const auto& vision = controller.last_frame_vision_state();
+        const auto& plan = controller.last_target_plan();
         return ControllerStepResult{
             {output.right_x, output.right_y},
             {components.requested_assist_stick.x,
              components.requested_assist_stick.y},
             {components.shaped_assist_stick.x,
              components.shaped_assist_stick.y},
+            {plan.predicted_terminal_error_px.x,
+             plan.predicted_terminal_error_px.y},
+            plan.radial_closing_velocity_px_per_sec,
             mode == "body_lock",
             vision.current_observed_target_present,
             vision.has_target,
@@ -374,6 +412,13 @@ void print_summary(const BenchmarkResult& result) {
         << " bodylock_entry_fail=" << result.bodylock_entry_failures
         << " bodylock_active_ms=" << result.bodylock_active_ms
         << " unexpected_mode_ms=" << result.unexpected_mode_ms
+        << " settled=" << result.settled_targets
+        << " cross=" << result.center_cross_events
+        << " post_cross_max=" << result.max_post_cross_error_px
+        << " overshoot_area=" << result.overshoot_area_px_ms
+        << " continued_push_ms=" << result.continued_push_after_cross_ms
+        << " stall_ring_ms=" << result.stall_ring_ms
+        << " handoff_residual_max=" << result.max_handoff_residual_px
         << "\n";
 }
 

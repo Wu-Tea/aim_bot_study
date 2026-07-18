@@ -83,6 +83,7 @@ BenchmarkResult run_simulation(
     Vec2d error;
     Vec2d target_velocity;
     Vec2d carried_observation;
+    bool previous_bodylock_mode = false;
     std::unique_ptr<TargetScorer> scorer;
 
     auto spawn_target = [&] {
@@ -107,6 +108,7 @@ BenchmarkResult run_simulation(
         }
         target_velocity = target.initial_velocity_px_per_second;
         carried_observation = error;
+        previous_bodylock_mode = false;
         scorer = std::make_unique<TargetScorer>(target, script.config);
         if (cohort == BenchmarkCohort::BodyLockFollow) {
             scorer->mark_acquired(0);
@@ -165,7 +167,9 @@ BenchmarkResult run_simulation(
         const ControllerStepResult output = controller_step(input);
         if (!finite(output.final_stick) ||
             !finite(output.requested_assist_stick) ||
-            !finite(output.shaped_assist_stick)) {
+            !finite(output.shaped_assist_stick) ||
+            !finite(output.predicted_terminal_error_px) ||
+            !std::isfinite(output.radial_closing_velocity_px_per_sec)) {
             throw std::runtime_error("controller produced non-finite output");
         }
 
@@ -212,6 +216,12 @@ BenchmarkResult run_simulation(
                 frame.requested_assist_stick = output.requested_assist_stick;
                 frame.shaped_assist_stick = output.shaped_assist_stick;
                 frame.final_stick = output.final_stick;
+                frame.predicted_terminal_error_px =
+                    output.predicted_terminal_error_px;
+                frame.radial_closing_velocity_px_per_sec =
+                    output.radial_closing_velocity_px_per_sec;
+                frame.ads_to_bodylock_transition =
+                    !previous_bodylock_mode && output.bodylock_mode;
                 scorer->add_frame(frame);
                 ++tracking_ticks;
                 if (tracking_ticks >= script.config.tracking_window_ms) {
@@ -231,6 +241,7 @@ BenchmarkResult run_simulation(
         } else if (gap_remaining_ms > 0) {
             --gap_remaining_ms;
         }
+        previous_bodylock_mode = target_active && output.bodylock_mode;
     }
 
     if (target_active && scorer) {

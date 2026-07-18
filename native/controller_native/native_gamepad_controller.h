@@ -50,6 +50,7 @@ public:
     GamepadOutputState last_tracker_motion_output() const;
     const NativeControllerOutputComponents& last_output_components() const;
     const NativeControllerVisionState& last_frame_vision_state() const;
+    const pipeline_contract::TargetPlan& last_target_plan() const;
     const std::string& last_ai_aim_mode() const;
     bool body_lock_manual_takeover_active() const;
     RelativeMotionEstimate body_lock_relative_motion_estimate() const;
@@ -105,6 +106,7 @@ private:
     GamepadOutputState last_tracker_motion_output_{};
     NativeControllerOutputComponents last_output_components_{};
     NativeControllerVisionState last_frame_vision_state_{};
+    pipeline_contract::TargetPlan last_target_plan_{};
     std::string last_ai_aim_mode_ = "manual";
     std::function<double()> clock_;
 };
