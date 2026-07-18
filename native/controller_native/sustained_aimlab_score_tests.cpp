@@ -1,0 +1,275 @@
+#include "sustained_aimlab_score.h"
+
+#include <cmath>
+#include <cstdlib>
+#include <iostream>
+#include <stdexcept>
+#include <string>
+#include <vector>
+
+namespace {
+
+using namespace controller_native::sustained_aimlab;
+
+void require(bool condition, const std::string& message) {
+    if (!condition) throw std::runtime_error(message);
+}
+
+void require_near(double actual, double expected, double tolerance,
+                  const std::string& message) {
+    if (std::fabs(actual - expected) > tolerance) {
+        throw std::runtime_error(
+            message + ": expected=" + std::to_string(expected) +
+            " actual=" + std::to_string(actual));
+    }
+}
+
+TargetScript target_with_deadline(int deadline_ms = 300) {
+    TargetScript target;
+    target.id = 1;
+    target.motion = MotionProfile::ConstantHorizontal;
+    target.acquire_deadline_ms = deadline_ms;
+    return target;
+}
+
+ScoreFrame tracking_frame(int ms, Vec2d error) {
+    ScoreFrame frame;
+    frame.absolute_ms = ms;
+    frame.target_elapsed_ms = ms;
+    frame.in_tracking_window = true;
+    frame.target_observed = true;
+    frame.tracker_reliable = true;
+    frame.bodylock_mode = true;
+    frame.target_id = 1;
+    frame.error_px = error;
+    return frame;
+}
+
+TargetResult score_constant_error(double error_px) {
+    TargetScorer scorer(target_with_deadline(), BenchmarkConfig{});
+    scorer.mark_acquired(50);
+    for (int ms = 0; ms < 1'000; ++ms) {
+        ScoreFrame frame = tracking_frame(ms, {error_px, 0.0});
+        frame.final_stick = {0.05, 0.0};
+        scorer.add_frame(frame);
+    }
+    return scorer.finish();
+}
+
+void test_acquisition_points_reward_earlier_entry() {
+    TargetScorer early(target_with_deadline(), BenchmarkConfig{});
+    early.mark_acquired(50);
+    TargetScorer late(target_with_deadline(), BenchmarkConfig{});
+    late.mark_acquired(250);
+    TargetScorer miss(target_with_deadline(), BenchmarkConfig{});
+
+    const TargetResult early_result = early.finish();
+    const TargetResult late_result = late.finish();
+    const TargetResult miss_result = miss.finish();
+    require(early_result.acquire_points > late_result.acquire_points,
+            "early acquisition must score higher than late acquisition");
+    require(late_result.acquire_points > miss_result.acquire_points,
+            "late acquisition must score higher than a miss");
+    require_near(early_result.acquire_points, 1000.0 * 250.0 / 300.0, 1e-9,
+                 "acquisition formula");
+    require_near(miss_result.acquire_points, 0.0, 1e-12, "miss score");
+}
+
+void test_tracking_points_reward_center_proximity() {
+    const TargetResult center = score_constant_error(0.0);
+    const TargetResult middle = score_constant_error(12.0);
+    const TargetResult edge = score_constant_error(22.0);
+    const TargetResult outside = score_constant_error(25.0);
+
+    require(center.tracking_points > middle.tracking_points,
+            "center must outscore middle");
+    require(middle.tracking_points > edge.tracking_points,
+            "middle must outscore edge");
+    require(edge.tracking_points > outside.tracking_points,
+            "inside edge must outscore outside");
+    require_near(center.tracking_points, 1000.0, 1e-9,
+                 "perfect center track points");
+    require_near(outside.tracking_points, 0.0, 1e-9,
+                 "outside target earns no tracking points");
+}
+
+void test_smooth_zero_output_cannot_beat_useful_tracking() {
+    const TargetResult useful = score_constant_error(5.0);
+    TargetScorer stopped(target_with_deadline(), BenchmarkConfig{});
+    stopped.mark_acquired(50);
+    for (int ms = 0; ms < 1'000; ++ms) {
+        ScoreFrame frame = tracking_frame(ms, {30.0, 0.0});
+        frame.target_velocity_px_per_second = {100.0, 0.0};
+        stopped.add_frame(frame);
+    }
+    const TargetResult stopped_result = stopped.finish();
+    require(useful.tracking_points > stopped_result.tracking_points,
+            "useful track must beat smooth stopped output");
+    require(useful.tracking_points + useful.smooth_bonus >
+                stopped_result.tracking_points + stopped_result.smooth_bonus,
+            "smooth bonus must not rescue stopped output");
+}
+
+void test_one_overshoot_trace_counts_once() {
+    TargetScorer scorer(target_with_deadline(), BenchmarkConfig{});
+    scorer.mark_acquired(20);
+    for (int ms = 0; ms < 10; ++ms) {
+        ScoreFrame frame = tracking_frame(ms, {6.0 - ms * 1.5, 0.0});
+        frame.final_stick = {0.4, 0.0};
+        scorer.add_frame(frame);
+    }
+    for (int ms = 10; ms < 80; ++ms) {
+        ScoreFrame frame = tracking_frame(ms, {-18.0, 0.0});
+        frame.final_stick = {0.4, 0.0};
+        scorer.add_frame(frame);
+    }
+    const TargetResult result = scorer.finish();
+    require(result.over_events == 1, "one crossing must count one overshoot");
+}
+
+void test_sustained_projected_lag_counts_one_undertrack() {
+    TargetScorer scorer(target_with_deadline(), BenchmarkConfig{});
+    scorer.mark_acquired(20);
+    for (int ms = 0; ms < 100; ++ms) {
+        ScoreFrame frame = tracking_frame(ms, {14.0, 0.0});
+        frame.target_velocity_px_per_second = {100.0, 0.0};
+        frame.final_stick = {0.01, 0.0};
+        scorer.add_frame(frame);
+    }
+    const TargetResult result = scorer.finish();
+    require(result.undertrack_events == 1,
+            "sustained projected lag must count once");
+    require(result.undertrack_total_ms >= 40,
+            "undertrack duration must be recorded");
+}
+
+void test_false_stop_requires_stable_demand_and_no_escape() {
+    TargetScorer scorer(target_with_deadline(), BenchmarkConfig{});
+    scorer.mark_acquired(20);
+    for (int ms = 0; ms < 40; ++ms) {
+        ScoreFrame frame = tracking_frame(ms, {20.0, 0.0});
+        frame.target_velocity_px_per_second = {100.0, 0.0};
+        scorer.add_frame(frame);
+    }
+    const TargetResult result = scorer.finish();
+    require(result.false_stop_events == 1,
+            "20ms demanded zero output must count one false stop");
+    require(result.false_stop_total_ms >= 20,
+            "false stop duration must be recorded");
+
+    TargetScorer escaping(target_with_deadline(), BenchmarkConfig{});
+    escaping.mark_acquired(20);
+    for (int ms = 0; ms < 40; ++ms) {
+        ScoreFrame frame = tracking_frame(ms, {20.0, 0.0});
+        frame.target_velocity_px_per_second = {100.0, 0.0};
+        frame.manual_escape = true;
+        frame.bodylock_mode = false;
+        escaping.add_frame(frame);
+    }
+    const TargetResult escaped = escaping.finish();
+    require(escaped.false_stop_events == 0,
+            "manual escape must suppress false-stop classification");
+    require(escaped.false_mode_exit_events == 0,
+            "manual escape must suppress false-mode-exit classification");
+}
+
+void test_stale_output_after_target_loss_counts_once() {
+    TargetScorer scorer(target_with_deadline(), BenchmarkConfig{});
+    scorer.mark_acquired(20);
+    for (int ms = 0; ms < 40; ++ms) {
+        ScoreFrame frame = tracking_frame(ms, {0.0, 0.0});
+        frame.target_observed = false;
+        frame.tracker_reliable = false;
+        frame.bodylock_mode = false;
+        frame.final_stick = {0.30, 0.0};
+        scorer.add_frame(frame);
+    }
+    const TargetResult result = scorer.finish();
+    require(result.stale_output_after_stop_events == 1,
+            "stale output after target loss must count once");
+}
+
+void test_assist_dropout_uses_shaped_assist_not_final_manual_mix() {
+    TargetScorer scorer(target_with_deadline(), BenchmarkConfig{});
+    scorer.mark_acquired(20);
+    ScoreFrame before = tracking_frame(0, {20.0, 0.0});
+    before.target_velocity_px_per_second = {100.0, 0.0};
+    before.shaped_assist_stick = {0.20, 0.0};
+    before.final_stick = {0.01, 0.0};
+    scorer.add_frame(before);
+
+    ScoreFrame after = tracking_frame(1, {20.0, 0.0});
+    after.target_velocity_px_per_second = {100.0, 0.0};
+    after.shaped_assist_stick = {0.0, 0.0};
+    after.final_stick = {0.01, 0.0};
+    scorer.add_frame(after);
+    scorer.add_frame(after);
+
+    const TargetResult result = scorer.finish();
+    require(result.assist_dropout_events == 1,
+            "assist dropout must compare shaped assist history");
+}
+
+void test_false_mode_exit_requires_bodylock_to_have_started() {
+    TargetScorer scorer(target_with_deadline(), BenchmarkConfig{});
+    scorer.mark_acquired(20);
+    for (int ms = 0; ms < 20; ++ms) {
+        ScoreFrame acquiring = tracking_frame(ms, {20.0, 0.0});
+        acquiring.target_velocity_px_per_second = {100.0, 0.0};
+        acquiring.bodylock_mode = false;
+        scorer.add_frame(acquiring);
+    }
+    ScoreFrame bodylock = tracking_frame(20, {10.0, 0.0});
+    bodylock.target_velocity_px_per_second = {100.0, 0.0};
+    bodylock.bodylock_mode = true;
+    scorer.add_frame(bodylock);
+    for (int ms = 21; ms < 24; ++ms) {
+        ScoreFrame interrupted = tracking_frame(ms, {14.0, 0.0});
+        interrupted.target_velocity_px_per_second = {100.0, 0.0};
+        interrupted.bodylock_mode = false;
+        scorer.add_frame(interrupted);
+    }
+    const TargetResult result = scorer.finish();
+    require(result.false_mode_exit_events == 1,
+            "only post-BodyLock exit must count as interruption");
+    require(result.interruption_total_ms == 3,
+            "pre-BodyLock ADS time must not count as interruption duration");
+}
+
+void test_aggregate_preserves_additive_totals_and_percentiles() {
+    std::vector<TargetResult> targets;
+    targets.push_back(score_constant_error(0.0));
+    targets.push_back(score_constant_error(12.0));
+    const BenchmarkResult result = aggregate(1337, 99, targets);
+    require(result.seed == 1337 && result.script_hash == 99,
+            "aggregate identity");
+    require(result.targets_spawned == 2 && result.targets_acquired == 2,
+            "aggregate counts");
+    require(result.acquire_points > 0.0 && result.tracking_points > 0.0,
+            "aggregate additive points");
+    require(result.p95_error_px >= result.mean_error_px,
+            "p95 error must not be below mean in this fixture");
+}
+
+}  // namespace
+
+int main() {
+    try {
+        test_acquisition_points_reward_earlier_entry();
+        test_tracking_points_reward_center_proximity();
+        test_smooth_zero_output_cannot_beat_useful_tracking();
+        test_one_overshoot_trace_counts_once();
+        test_sustained_projected_lag_counts_one_undertrack();
+        test_false_stop_requires_stable_demand_and_no_escape();
+        test_stale_output_after_target_loss_counts_once();
+        test_assist_dropout_uses_shaped_assist_not_final_manual_mix();
+        test_false_mode_exit_requires_bodylock_to_have_started();
+        test_aggregate_preserves_additive_totals_and_percentiles();
+        std::cout << "cod_native_sustained_aimlab_score_tests PASS\n";
+        return EXIT_SUCCESS;
+    } catch (const std::exception& error) {
+        std::cerr << "cod_native_sustained_aimlab_score_tests FAIL: "
+                  << error.what() << "\n";
+        return EXIT_FAILURE;
+    }
+}

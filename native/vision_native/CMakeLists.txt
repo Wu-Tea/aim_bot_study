@@ -1284,6 +1284,47 @@ add_executable(cod_native_aimlab_benchmark_tests
     ../controller_native/aimlab_benchmark.cpp
 )
 
+add_executable(cod_native_sustained_aimlab_scenario_tests
+    ../controller_native/sustained_aimlab_scenario_tests.cpp
+    ../controller_native/sustained_aimlab_scenario.cpp
+)
+
+add_executable(cod_native_sustained_aimlab_score_tests
+    ../controller_native/sustained_aimlab_score_tests.cpp
+    ../controller_native/sustained_aimlab_score.cpp
+)
+
+add_executable(cod_native_sustained_aimlab_simulator_tests
+    ../controller_native/sustained_aimlab_simulator_tests.cpp
+    ../controller_native/sustained_aimlab_simulator.cpp
+    ../controller_native/sustained_aimlab_score.cpp
+    ../controller_native/sustained_aimlab_scenario.cpp
+)
+
+target_include_directories(cod_native_sustained_aimlab_scenario_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
+target_include_directories(cod_native_sustained_aimlab_score_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
+target_include_directories(cod_native_sustained_aimlab_simulator_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
+add_test(
+    NAME NativeSustainedAimlabScenarioTests
+    COMMAND cod_native_sustained_aimlab_scenario_tests)
+
+add_test(
+    NAME NativeSustainedAimlabScoreTests
+    COMMAND cod_native_sustained_aimlab_score_tests)
+
+add_test(
+    NAME NativeSustainedAimlabSimulatorTests
+    COMMAND cod_native_sustained_aimlab_simulator_tests)
+
 target_include_directories(cod_native_aimlab_benchmark_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/..
@@ -1302,6 +1343,51 @@ target_link_libraries(cod_native_aimlab_benchmark_tests PRIVATE
 add_executable(cod_native_aimlab_benchmark
     ../controller_native/cod_native_aimlab_benchmark.cpp
     ../controller_native/aimlab_benchmark.cpp
+)
+
+add_executable(cod_native_sustained_aimlab_benchmark
+    ../controller_native/cod_native_sustained_aimlab_benchmark.cpp
+    ../controller_native/sustained_aimlab_simulator.cpp
+    ../controller_native/sustained_aimlab_score.cpp
+    ../controller_native/sustained_aimlab_scenario.cpp
+    ../tracking_native/tracker_authority.cpp
+    ../tracking_native/tracker_backend.cpp
+    ../tracking_native/fps_reference_tracker.cpp
+    ../tracking_native/kalman_tracker.cpp
+    ../tracking_native/legacy_projection_tracker.cpp
+    ../tracking_native/association.cpp
+    ../tracking_native/ego_motion_buffer.cpp
+    ../tracking_native/projection_model.cpp
+    ${FPS_TRACKER_PACKAGE_SOURCES}
+    ../controller_native/runtime_config.cpp
+    ../controller_native/auto_fire_gate.cpp
+    ../controller_native/recoil_profile.cpp
+    ../controller_native/recoil_calibration.cpp
+    ../controller_native/recoil_compensation.cpp
+    ../recoil_native/recoil_compensation.cpp
+    ../recoil_native/recoil_visual_model.cpp
+    ../controller_native/weapon_recognizer.cpp
+    ../controller_native/output_mixer.cpp
+    ../controller_native/controller_pipeline.cpp
+    ../controller_native/native_gamepad_controller.cpp
+    ../controller_native/target_geometry.cpp
+)
+
+target_include_directories(cod_native_sustained_aimlab_benchmark PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fps_2d_tracker_package/include
+)
+
+target_compile_definitions(cod_native_sustained_aimlab_benchmark PRIVATE
+    NOMINMAX
+    WIN32_LEAN_AND_MEAN
+)
+
+target_link_libraries(cod_native_sustained_aimlab_benchmark PRIVATE
+    vision_native_core
+    gdi32
+    windowsapp
 )
 
 set(COD_TARGET_PLAN_RUNTIME_SOURCES
@@ -1323,6 +1409,7 @@ foreach(COD_TARGET
     cod_native_vlock_defect_tests
     cod_native_lstick_benchmark
     cod_native_lstick_benchmark_tests
+    cod_native_sustained_aimlab_benchmark
 )
     if(TARGET ${COD_TARGET})
         target_sources(${COD_TARGET} PRIVATE ${COD_TARGET_PLAN_RUNTIME_SOURCES})

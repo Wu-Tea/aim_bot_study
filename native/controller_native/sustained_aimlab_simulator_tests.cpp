@@ -1,0 +1,187 @@
+#include "sustained_aimlab_simulator.h"
+
+#include <algorithm>
+#include <cmath>
+#include <cstdlib>
+#include <iostream>
+#include <stdexcept>
+#include <string>
+#include <vector>
+
+namespace {
+
+using namespace controller_native::sustained_aimlab;
+
+void require(bool condition, const std::string& message) {
+    if (!condition) throw std::runtime_error(message);
+}
+
+ScenarioScript stationary_script(int duration_ms, Vec2d error,
+                                 int deadline_ms = 300) {
+    ScenarioScript script;
+    script.seed = 7;
+    script.hash = 7007;
+    script.config.duration_ms = duration_ms;
+    TargetScript target;
+    target.id = 1;
+    target.motion = MotionProfile::ConstantHorizontal;
+    target.initial_error_px = error;
+    target.acquire_deadline_ms = deadline_ms;
+    for (int ms = 0; ms <= 1'400; ++ms) {
+        target.observation_at_ms.push_back(ms);
+        target.observation_noise_px.push_back({});
+    }
+    script.targets.push_back(target);
+    return script;
+}
+
+ControllerStep proportional_controller(int delay_ms = 0, double scale = 0.025) {
+    return [=](const ControllerObservation& input) {
+        ControllerStepResult output;
+        output.target_observed = input.target_present;
+        output.tracker_reliable = input.target_present;
+        output.bodylock_mode = input.target_present;
+        if (input.target_present && input.now_ms >= delay_ms) {
+            output.final_stick.x = std::clamp(
+                input.observed_error_px.x * scale, -1.0, 1.0);
+            output.final_stick.y = std::clamp(
+                -input.observed_error_px.y * scale, -1.0, 1.0);
+            output.requested_assist_stick = output.final_stick;
+            output.shaped_assist_stick = output.final_stick;
+        }
+        return output;
+    };
+}
+
+void test_runner_executes_exact_duration_and_preserves_identity() {
+    BenchmarkConfig config;
+    config.duration_ms = 60'000;
+    const ScenarioScript script = generate_script(1337, config);
+    int calls = 0;
+    ControllerStep zero = [&](const ControllerObservation&) {
+        ++calls;
+        return ControllerStepResult{};
+    };
+    const BenchmarkResult result =
+        run_simulation(script, ManualProfile::Pure, zero);
+    require(calls == 60'000, "runner must execute exactly 60,000 ticks");
+    require(result.ticks == 60'000, "result must record exact tick count");
+    require(result.seed == script.seed && result.script_hash == script.hash,
+            "runner must preserve scenario identity");
+}
+
+void test_miss_respects_deadline_and_tracking_is_exactly_1000ms() {
+    const ScenarioScript missed_script = stationary_script(400, {100.0, 0.0}, 250);
+    const BenchmarkResult missed = run_simulation(
+        missed_script, ManualProfile::Pure,
+        [](const ControllerObservation&) { return ControllerStepResult{}; });
+    require(missed.targets_spawned == 1 && missed.targets_missed == 1,
+            "unacquired target must miss at deadline");
+    require(missed.targets.front().first_entry_ms == -1,
+            "miss must not create an entry time");
+
+    const ScenarioScript tracked_script = stationary_script(1'300, {20.0, 0.0});
+    const BenchmarkResult tracked = run_simulation(
+        tracked_script, ManualProfile::Pure, proportional_controller());
+    require(tracked.targets_acquired == 1, "controller must acquire target");
+    require(tracked.targets.front().tracking_errors_px.size() == 1'000,
+            "tracking window must contain exactly 1000 ticks");
+}
+
+void test_virtual_camera_x_and_y_signs_close_error() {
+    const ScenarioScript script = stationary_script(30, {20.0, 20.0});
+    std::vector<Vec2d> observations;
+    ControllerStep controller = [&](const ControllerObservation& input) {
+        if (input.fresh_vision) observations.push_back(input.observed_error_px);
+        ControllerStepResult output;
+        output.final_stick = {1.0, -1.0};
+        output.target_observed = true;
+        output.tracker_reliable = true;
+        output.bodylock_mode = true;
+        return output;
+    };
+    (void)run_simulation(script, ManualProfile::Pure, controller);
+    require(observations.size() > 2, "fixture must receive observations");
+    require(observations.back().x < observations.front().x,
+            "positive X stick must close positive screen X error");
+    require(observations.back().y < observations.front().y,
+            "negative Y stick must close positive screen Y error");
+}
+
+void test_closed_loop_score_ordering() {
+    const ScenarioScript script = stationary_script(1'350, {100.0, 0.0});
+    const BenchmarkResult fast = run_simulation(
+        script, ManualProfile::Pure, proportional_controller(0, 0.035));
+    const BenchmarkResult delayed = run_simulation(
+        script, ManualProfile::Pure, proportional_controller(120, 0.035));
+    const BenchmarkResult stopped = run_simulation(
+        script, ManualProfile::Pure,
+        [](const ControllerObservation&) { return ControllerStepResult{}; });
+
+    require(fast.acquire_points > delayed.acquire_points,
+            "fast controller must earn more acquisition points");
+    require(delayed.acquire_points > stopped.acquire_points,
+            "delayed controller must beat stopped controller");
+    require(fast.tracking_points >= delayed.tracking_points,
+            "fast controller must not lose tracking score");
+}
+
+void test_same_script_is_reused_for_pure_and_mixed_runs() {
+    BenchmarkConfig config;
+    config.duration_ms = 3'000;
+    const ScenarioScript script = generate_script(424242, config);
+    const BenchmarkResult pure = run_simulation(
+        script, ManualProfile::Pure, proportional_controller());
+    const BenchmarkResult mixed = run_simulation(
+        script, ManualProfile::Mixed, proportional_controller());
+    require(pure.script_hash == mixed.script_hash &&
+                pure.script_hash == script.hash,
+            "manual profiles must consume the identical scenario script");
+    require(pure.manual_profile == ManualProfile::Pure &&
+                mixed.manual_profile == ManualProfile::Mixed,
+            "result must identify manual profile");
+}
+
+void test_despawn_publishes_a_fresh_empty_observation() {
+    const ScenarioScript script = stationary_script(400, {100.0, 0.0}, 250);
+    bool saw_fresh_miss = false;
+    ControllerStep controller = [&](const ControllerObservation& input) {
+        if (!input.target_present && input.fresh_vision) saw_fresh_miss = true;
+        return ControllerStepResult{};
+    };
+    (void)run_simulation(script, ManualProfile::Pure, controller);
+    require(saw_fresh_miss,
+            "despawn must send a fresh empty observation to clear controller hold");
+}
+
+void test_run_end_does_not_turn_partial_acquisition_into_a_miss() {
+    const ScenarioScript script = stationary_script(100, {100.0, 0.0}, 250);
+    const BenchmarkResult result = run_simulation(
+        script, ManualProfile::Pure,
+        [](const ControllerObservation&) { return ControllerStepResult{}; });
+    require(result.targets_spawned == 1, "partial target must remain recorded");
+    require(result.targets_missed == 0,
+            "run end before deadline must not count a target miss");
+    require(!result.targets.front().acquisition_timed_out,
+            "partial target must not be marked timed out");
+}
+
+}  // namespace
+
+int main() {
+    try {
+        test_runner_executes_exact_duration_and_preserves_identity();
+        test_miss_respects_deadline_and_tracking_is_exactly_1000ms();
+        test_virtual_camera_x_and_y_signs_close_error();
+        test_closed_loop_score_ordering();
+        test_same_script_is_reused_for_pure_and_mixed_runs();
+        test_despawn_publishes_a_fresh_empty_observation();
+        test_run_end_does_not_turn_partial_acquisition_into_a_miss();
+        std::cout << "cod_native_sustained_aimlab_simulator_tests PASS\n";
+        return EXIT_SUCCESS;
+    } catch (const std::exception& error) {
+        std::cerr << "cod_native_sustained_aimlab_simulator_tests FAIL: "
+                  << error.what() << "\n";
+        return EXIT_FAILURE;
+    }
+}
