@@ -165,9 +165,12 @@ A sample is eligible only when all of the following hold:
   attribution ambiguous;
 - elapsed sample time is finite and within the vision cadence envelope.
 
-The estimator projects measured error closure onto the previous final-stick
-direction, subtracts tracker-predicted target motion, rejects sign-inconsistent and
-outlier samples, and updates a bounded robust EWMA. It starts from the existing
+The estimator compares consecutive fresh-vision intervals. Differencing observed
+error rates cancels approximately smooth target velocity; projecting that rate
+change onto the corresponding change in average delivered stick identifies camera
+response without assuming tracker target velocity is pure camera motion. High target
+acceleration, sign-inconsistent, and outlier samples are rejected before a bounded
+robust EWMA update. It starts from the existing
 500 px/stick/second fallback, persists across ADS target changes, and adapts when a
 weapon or slowdown response changes. It resets only with controller/application
 reset. No weapon identity or saved weapon record is introduced.
