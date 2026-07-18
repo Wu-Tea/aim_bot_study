@@ -61,7 +61,8 @@ Vec2d mixed_manual_input(
 BenchmarkResult run_simulation(
     const ScenarioScript& script,
     ManualProfile manual_profile,
-    ControllerStep controller_step) {
+    ControllerStep controller_step,
+    BenchmarkCohort cohort) {
     if (!controller_step) {
         throw std::invalid_argument("controller callback is required");
     }
@@ -95,9 +96,21 @@ BenchmarkResult run_simulation(
         target_elapsed_ms = 0;
         observation_index = 0;
         error = target.initial_error_px;
+        if (cohort == BenchmarkCohort::BodyLockFollow) {
+            const double initial_distance = length(error);
+            const double warm_distance = std::min(
+                8.0, script.config.target_radius_px * 0.5);
+            if (initial_distance > 1e-9) {
+                error.x *= warm_distance / initial_distance;
+                error.y *= warm_distance / initial_distance;
+            }
+        }
         target_velocity = target.initial_velocity_px_per_second;
         carried_observation = error;
         scorer = std::make_unique<TargetScorer>(target, script.config);
+        if (cohort == BenchmarkCohort::BodyLockFollow) {
+            scorer->mark_acquired(0);
+        }
     };
 
     auto finish_target = [&] {
@@ -164,7 +177,19 @@ BenchmarkResult run_simulation(
             error.x -= output.final_stick.x * response * 0.001;
             error.y += output.final_stick.y * response * 0.001;
 
-            if (tracking) {
+            if (cohort == BenchmarkCohort::BodyLockFollow && !tracking) {
+                if (output.bodylock_mode) {
+                    scorer->mark_bodylock_entered(target_elapsed_ms);
+                    tracking = true;
+                    tracking_ticks = 0;
+                } else if (target_elapsed_ms + 1 >=
+                           script.config.bodylock_entry_timeout_ms) {
+                    scorer->mark_bodylock_entry_failed();
+                    finish_target();
+                }
+            }
+
+            if (target_active && tracking) {
                 ScoreFrame frame;
                 frame.absolute_ms = now_ms;
                 frame.target_elapsed_ms = target_elapsed_ms;
@@ -185,15 +210,17 @@ BenchmarkResult run_simulation(
                 if (tracking_ticks >= script.config.tracking_window_ms) {
                     finish_target();
                 }
-            } else if (length(error) < script.config.target_radius_px) {
+            } else if (target_active && cohort == BenchmarkCohort::AdsAcquire &&
+                       length(error) < script.config.target_radius_px) {
                 scorer->mark_acquired(target_elapsed_ms + 1);
                 tracking = true;
                 tracking_ticks = 0;
-            } else if (target_elapsed_ms + 1 >= target.acquire_deadline_ms) {
+            } else if (target_active && cohort == BenchmarkCohort::AdsAcquire &&
+                       target_elapsed_ms + 1 >= target.acquire_deadline_ms) {
                 scorer->mark_timed_out();
                 finish_target();
             }
-            ++target_elapsed_ms;
+            if (target_active) ++target_elapsed_ms;
         } else if (gap_remaining_ms > 0) {
             --gap_remaining_ms;
         }
@@ -206,6 +233,7 @@ BenchmarkResult run_simulation(
     BenchmarkResult result = aggregate(
         script.seed, script.hash, std::move(target_results));
     result.manual_profile = manual_profile;
+    result.cohort = cohort;
     result.ticks = script.config.duration_ms;
     return result;
 }

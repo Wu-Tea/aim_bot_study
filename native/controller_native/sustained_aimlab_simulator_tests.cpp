@@ -166,6 +166,47 @@ void test_run_end_does_not_turn_partial_acquisition_into_a_miss() {
             "partial target must not be marked timed out");
 }
 
+void test_bodylock_cohort_scores_only_after_confirmed_mode_entry() {
+    ScenarioScript script = stationary_script(1'200, {10.0, 0.0});
+    script.config.bodylock_entry_timeout_ms = 120;
+    ControllerStep delayed_bodylock = [](const ControllerObservation& input) {
+        ControllerStepResult output;
+        output.target_observed = input.target_present;
+        output.tracker_reliable = input.target_present;
+        output.bodylock_mode = input.target_present && input.now_ms >= 50;
+        return output;
+    };
+    const BenchmarkResult result = run_simulation(
+        script, ManualProfile::Pure, delayed_bodylock,
+        BenchmarkCohort::BodyLockFollow);
+    require(result.cohort == BenchmarkCohort::BodyLockFollow,
+            "result must identify isolated BodyLock cohort");
+    require(result.targets.size() == 1,
+            "fixture must score one BodyLock target");
+    require(result.targets.front().bodylock_entry_ms == 50,
+            "warm-up time must be recorded but not scored");
+    require(result.targets.front().tracking_errors_px.size() == 1'000,
+            "BodyLock must receive exactly 1000 scored milliseconds");
+}
+
+void test_bodylock_cohort_fails_when_mode_never_enters() {
+    ScenarioScript script = stationary_script(300, {10.0, 0.0});
+    script.config.bodylock_entry_timeout_ms = 100;
+    const BenchmarkResult result = run_simulation(
+        script, ManualProfile::Pure,
+        [](const ControllerObservation& input) {
+            ControllerStepResult output;
+            output.target_observed = input.target_present;
+            output.tracker_reliable = input.target_present;
+            return output;
+        },
+        BenchmarkCohort::BodyLockFollow);
+    require(result.bodylock_entry_failures == 1,
+            "never entering BodyLock must fail the cohort");
+    require(result.targets.front().tracking_errors_px.empty(),
+            "ADS warm-up frames must not leak into BodyLock tracking score");
+}
+
 }  // namespace
 
 int main() {
@@ -177,6 +218,8 @@ int main() {
         test_same_script_is_reused_for_pure_and_mixed_runs();
         test_despawn_publishes_a_fresh_empty_observation();
         test_run_end_does_not_turn_partial_acquisition_into_a_miss();
+        test_bodylock_cohort_scores_only_after_confirmed_mode_entry();
+        test_bodylock_cohort_fails_when_mode_never_enters();
         std::cout << "cod_native_sustained_aimlab_simulator_tests PASS\n";
         return EXIT_SUCCESS;
     } catch (const std::exception& error) {

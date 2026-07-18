@@ -83,6 +83,17 @@ void TargetScorer::mark_timed_out() {
     result_.acquisition_timed_out = true;
 }
 
+void TargetScorer::mark_bodylock_entered(int entry_ms) {
+    if (finished_ || bodylock_seen_) return;
+    bodylock_seen_ = true;
+    result_.bodylock_entry_ms = std::max(0, entry_ms);
+}
+
+void TargetScorer::mark_bodylock_entry_failed() {
+    if (finished_ || bodylock_seen_) return;
+    result_.bodylock_entry_failed = true;
+}
+
 void TargetScorer::add_frame(const ScoreFrame& frame) {
     if (finished_ || !frame.in_tracking_window) return;
     ++tracking_ticks_;
@@ -193,7 +204,15 @@ void TargetScorer::add_frame(const ScoreFrame& frame) {
         }
     }
 
-    if (frame.bodylock_mode) bodylock_seen_ = true;
+    if (frame.bodylock_mode) {
+        if (!bodylock_seen_) {
+            result_.bodylock_entry_ms = tracking_ticks_ - 1;
+        }
+        bodylock_seen_ = true;
+        ++result_.bodylock_active_ms;
+    } else {
+        ++result_.unexpected_mode_ms;
+    }
     const bool invalid_mode = bodylock_seen_ && demanded &&
         !frame.manual_escape && !frame.bodylock_mode;
     if (invalid_mode) {
@@ -251,6 +270,9 @@ void TargetScorer::add_frame(const ScoreFrame& frame) {
 
 TargetResult TargetScorer::finish() {
     finished_ = true;
+    if (tracking_ticks_ > 0 && !bodylock_seen_) {
+        result_.bodylock_entry_failed = true;
+    }
     return result_;
 }
 
@@ -278,6 +300,9 @@ BenchmarkResult aggregate(
         result.false_stop_events += target.false_stop_events;
         result.stale_output_after_stop_events +=
             target.stale_output_after_stop_events;
+        result.bodylock_entry_failures += target.bodylock_entry_failed ? 1 : 0;
+        result.bodylock_active_ms += target.bodylock_active_ms;
+        result.unexpected_mode_ms += target.unexpected_mode_ms;
         errors.insert(errors.end(), target.tracking_errors_px.begin(),
                       target.tracking_errors_px.end());
         output_deltas.insert(output_deltas.end(), target.output_deltas.begin(),

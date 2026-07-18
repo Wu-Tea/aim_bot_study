@@ -30,8 +30,12 @@ struct TargetResult {
     int deadline_ms = 0;
     bool acquired = false;
     bool acquisition_timed_out = false;
+    bool bodylock_entry_failed = false;
     bool first_pass_success = false;
     int first_entry_ms = -1;
+    int bodylock_entry_ms = -1;
+    int bodylock_active_ms = 0;
+    int unexpected_mode_ms = 0;
     double acquire_points = 0.0;
     double tracking_points = 0.0;
     double smooth_bonus = 0.0;
@@ -61,6 +65,8 @@ public:
     void add_frame(const ScoreFrame& frame);
     void mark_acquired(int entry_ms);
     void mark_timed_out();
+    void mark_bodylock_entered(int entry_ms);
+    void mark_bodylock_entry_failed();
     TargetResult finish();
 
 private:
@@ -95,6 +101,7 @@ struct BenchmarkResult {
     std::uint32_t seed = 0;
     std::uint64_t script_hash = 0;
     ManualProfile manual_profile = ManualProfile::Pure;
+    BenchmarkCohort cohort = BenchmarkCohort::AdsAcquire;
     int ticks = 0;
     double acquire_points = 0.0;
     double tracking_points = 0.0;
@@ -107,6 +114,9 @@ struct BenchmarkResult {
     int false_interruption_events = 0;
     int false_stop_events = 0;
     int stale_output_after_stop_events = 0;
+    int bodylock_entry_failures = 0;
+    int bodylock_active_ms = 0;
+    int unexpected_mode_ms = 0;
     double mean_error_px = 0.0;
     double p95_error_px = 0.0;
     double p95_output_delta = 0.0;

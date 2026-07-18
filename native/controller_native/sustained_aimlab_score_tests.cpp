@@ -236,6 +236,40 @@ void test_false_mode_exit_requires_bodylock_to_have_started() {
             "pre-BodyLock ADS time must not count as interruption duration");
 }
 
+void test_bodylock_occupancy_distinguishes_never_entered_from_interrupted() {
+    TargetScorer never_entered(target_with_deadline(), BenchmarkConfig{});
+    never_entered.mark_acquired(20);
+    for (int ms = 0; ms < 1'000; ++ms) {
+        ScoreFrame frame = tracking_frame(ms, {10.0, 0.0});
+        frame.bodylock_mode = false;
+        never_entered.add_frame(frame);
+    }
+    const TargetResult missing = never_entered.finish();
+    require(missing.bodylock_entry_failed,
+            "never entering BodyLock must be an entry failure");
+    require(missing.bodylock_active_ms == 0,
+            "ADS frames must not count as BodyLock-active time");
+    require(missing.unexpected_mode_ms == 1'000,
+            "all pre-entry tracking time must remain observable");
+
+    TargetScorer interrupted(target_with_deadline(), BenchmarkConfig{});
+    interrupted.mark_acquired(20);
+    for (int ms = 0; ms < 1'000; ++ms) {
+        ScoreFrame frame = tracking_frame(ms, {10.0, 0.0});
+        frame.bodylock_mode = ms < 800;
+        interrupted.add_frame(frame);
+    }
+    const TargetResult occupied = interrupted.finish();
+    require(!occupied.bodylock_entry_failed,
+            "a confirmed BodyLock interval must clear entry failure");
+    require(occupied.bodylock_entry_ms == 0,
+            "first BodyLock frame must record entry time");
+    require(occupied.bodylock_active_ms == 800,
+            "BodyLock active milliseconds must be exact");
+    require(occupied.unexpected_mode_ms == 200,
+            "post-entry fallback milliseconds must be exact");
+}
+
 void test_aggregate_preserves_additive_totals_and_percentiles() {
     std::vector<TargetResult> targets;
     targets.push_back(score_constant_error(0.0));
@@ -264,6 +298,7 @@ int main() {
         test_stale_output_after_target_loss_counts_once();
         test_assist_dropout_uses_shaped_assist_not_final_manual_mix();
         test_false_mode_exit_requires_bodylock_to_have_started();
+        test_bodylock_occupancy_distinguishes_never_entered_from_interrupted();
         test_aggregate_preserves_additive_totals_and_percentiles();
         std::cout << "cod_native_sustained_aimlab_score_tests PASS\n";
         return EXIT_SUCCESS;

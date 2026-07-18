@@ -25,11 +25,17 @@ enum class ManualProfile : std::uint8_t {
     Mixed,
 };
 
+enum class BenchmarkCohort : std::uint8_t {
+    AdsAcquire,
+    BodyLockFollow,
+};
+
 struct BenchmarkConfig {
     int duration_ms = 60'000;
     int tick_ms = 1;
     int tracking_window_ms = 1'000;
     int inter_target_gap_ms = 50;
+    int bodylock_entry_timeout_ms = 250;
     int min_acquire_deadline_ms = 250;
     int max_acquire_deadline_ms = 330;
     double target_radius_px = 24.0;

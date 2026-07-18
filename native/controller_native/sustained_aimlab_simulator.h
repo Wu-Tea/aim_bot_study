@@ -33,6 +33,7 @@ using ControllerStep = std::function<ControllerStepResult(
 BenchmarkResult run_simulation(
     const ScenarioScript& script,
     ManualProfile manual_profile,
-    ControllerStep controller_step);
+    ControllerStep controller_step,
+    BenchmarkCohort cohort = BenchmarkCohort::AdsAcquire);
 
 }  // namespace controller_native::sustained_aimlab

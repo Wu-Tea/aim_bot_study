@@ -32,6 +32,7 @@ struct CliOptions {
     std::vector<std::uint32_t> seeds;
     std::filesystem::path output_path;
     std::string profile = "both";
+    std::string cohort = "both";
     std::string revision = "unknown";
     bool dirty = false;
     int duration_ms = 60'000;
@@ -51,6 +52,8 @@ CliOptions parse_args(int argc, char** argv) {
             options.output_path = argv[++index];
         } else if (argument == "--profile" && index + 1 < argc) {
             options.profile = argv[++index];
+        } else if (argument == "--cohort" && index + 1 < argc) {
+            options.cohort = argv[++index];
         } else if (argument == "--revision" && index + 1 < argc) {
             options.revision = argv[++index];
         } else if (argument == "--dirty") {
@@ -63,6 +66,7 @@ CliOptions parse_args(int argc, char** argv) {
             std::cout
                 << "Usage: cod_native_sustained_aimlab_benchmark "
                 << "[--config PATH] [--seed N ...] [--profile pure|mixed|both] "
+                << "[--cohort ads|bodylock|both] "
                 << "[--output PATH] [--revision HASH] [--dirty] "
                 << "[--duration-ms N] [--smoke]\n";
             std::exit(EXIT_SUCCESS);
@@ -77,6 +81,10 @@ CliOptions parse_args(int argc, char** argv) {
     if (options.profile != "pure" && options.profile != "mixed" &&
         options.profile != "both") {
         throw std::runtime_error("profile must be pure, mixed, or both");
+    }
+    if (options.cohort != "ads" && options.cohort != "bodylock" &&
+        options.cohort != "both") {
+        throw std::runtime_error("cohort must be ads, bodylock, or both");
     }
     if (options.seeds.empty()) {
         options.seeds = {1337, 20260718, 424242};
@@ -121,6 +129,10 @@ std::string json_string(const std::string& value) {
 
 const char* profile_name(ManualProfile profile) {
     return profile == ManualProfile::Pure ? "pure" : "mixed";
+}
+
+const char* cohort_name(BenchmarkCohort cohort) {
+    return cohort == BenchmarkCohort::AdsAcquire ? "ads" : "bodylock";
 }
 
 const char* motion_name(MotionProfile motion) {
@@ -173,6 +185,7 @@ void write_report(
         const auto& result = results[run_index];
         out << "    {\"seed\": " << result.seed
             << ", \"profile\": " << json_string(profile_name(result.manual_profile))
+            << ", \"cohort\": " << json_string(cohort_name(result.cohort))
             << ", \"script_hash\": \"" << result.script_hash << "\""
             << ", \"ticks\": " << result.ticks
             << ", \"acquire_points\": " << result.acquire_points
@@ -186,6 +199,9 @@ void write_report(
             << ", \"false_interruption_events\": " << result.false_interruption_events
             << ", \"false_stop_events\": " << result.false_stop_events
             << ", \"stale_output_after_stop_events\": " << result.stale_output_after_stop_events
+            << ", \"bodylock_entry_failures\": " << result.bodylock_entry_failures
+            << ", \"bodylock_active_ms\": " << result.bodylock_active_ms
+            << ", \"unexpected_mode_ms\": " << result.unexpected_mode_ms
             << ", \"mean_error_px\": " << result.mean_error_px
             << ", \"p95_error_px\": " << result.p95_error_px
             << ", \"p95_output_delta\": " << result.p95_output_delta
@@ -199,6 +215,10 @@ void write_report(
                 << ",\"deadline_ms\":" << target.deadline_ms
                 << ",\"acquired\":" << (target.acquired ? "true" : "false")
                 << ",\"first_entry_ms\":" << target.first_entry_ms
+                << ",\"bodylock_entry_failed\":" << (target.bodylock_entry_failed ? "true" : "false")
+                << ",\"bodylock_entry_ms\":" << target.bodylock_entry_ms
+                << ",\"bodylock_active_ms\":" << target.bodylock_active_ms
+                << ",\"unexpected_mode_ms\":" << target.unexpected_mode_ms
                 << ",\"acquire_points\":" << target.acquire_points
                 << ",\"tracking_points\":" << target.tracking_points
                 << ",\"smooth_bonus\":" << target.smooth_bonus
@@ -249,6 +269,7 @@ BenchmarkResult run_native(
     const ScenarioScript& script,
     const GamepadRuntimeConfig& source_config,
     ManualProfile profile,
+    BenchmarkCohort cohort,
     bool& saw_assisted_mode) {
     double now_seconds = 0.0;
     GamepadRuntimeConfig config = source_config;
@@ -283,7 +304,7 @@ BenchmarkResult run_native(
             vision.has_target,
         };
     };
-    return run_simulation(script, profile, std::move(adapter));
+    return run_simulation(script, profile, std::move(adapter), cohort);
 }
 
 void validate_smoke(
@@ -312,6 +333,7 @@ void print_summary(const BenchmarkResult& result) {
     std::cout
         << "seed=" << result.seed
         << " ticks=" << result.ticks
+        << " cohort=" << cohort_name(result.cohort)
         << " script_hash=" << result.script_hash
         << " acquire_points=" << result.acquire_points
         << " tracking_points=" << result.tracking_points
@@ -322,6 +344,9 @@ void print_summary(const BenchmarkResult& result) {
         << " undertrack=" << result.undertrack_events
         << " false_interrupt=" << result.false_interruption_events
         << " false_stop=" << result.false_stop_events
+        << " bodylock_entry_fail=" << result.bodylock_entry_failures
+        << " bodylock_active_ms=" << result.bodylock_active_ms
+        << " unexpected_mode_ms=" << result.unexpected_mode_ms
         << "\n";
 }
 
@@ -337,18 +362,23 @@ int main(int argc, char** argv) {
         std::vector<ManualProfile> profiles;
         if (options.profile != "mixed") profiles.push_back(ManualProfile::Pure);
         if (options.profile != "pure") profiles.push_back(ManualProfile::Mixed);
+        std::vector<BenchmarkCohort> cohorts;
+        if (options.cohort != "bodylock") cohorts.push_back(BenchmarkCohort::AdsAcquire);
+        if (options.cohort != "ads") cohorts.push_back(BenchmarkCohort::BodyLockFollow);
         std::vector<BenchmarkResult> results;
         for (const std::uint32_t seed : options.seeds) {
             const ScenarioScript script = generate_script(seed, benchmark_config);
             for (const ManualProfile profile : profiles) {
-                bool saw_assisted_mode = false;
-                BenchmarkResult result = run_native(
-                    script, runtime.gamepad, profile, saw_assisted_mode);
-                if (options.smoke) {
-                    validate_smoke(result, options.duration_ms, saw_assisted_mode);
+                for (const BenchmarkCohort cohort : cohorts) {
+                    bool saw_assisted_mode = false;
+                    BenchmarkResult result = run_native(
+                        script, runtime.gamepad, profile, cohort, saw_assisted_mode);
+                    if (options.smoke) {
+                        validate_smoke(result, options.duration_ms, saw_assisted_mode);
+                    }
+                    print_summary(result);
+                    results.push_back(std::move(result));
                 }
-                print_summary(result);
-                results.push_back(std::move(result));
             }
         }
         write_report(
