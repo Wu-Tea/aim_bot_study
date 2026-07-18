@@ -13,6 +13,7 @@ using controller_native::sustained_aimlab::BenchmarkConfig;
 using controller_native::sustained_aimlab::MotionProfile;
 using controller_native::sustained_aimlab::ScenarioScript;
 using controller_native::sustained_aimlab::TargetScript;
+using controller_native::sustained_aimlab::TargetProfile;
 using controller_native::sustained_aimlab::Vec2d;
 
 void require(bool condition, const std::string& message) {
@@ -191,6 +192,30 @@ void test_motion_profile_names_are_stable() {
                 "stop", "stop name");
 }
 
+void test_small_target_profile_reuses_motion_and_cycles_visible_radius() {
+    BenchmarkConfig ordinary_config;
+    BenchmarkConfig small_config;
+    small_config.target_profile = TargetProfile::SmallVisible;
+    const ScenarioScript ordinary =
+        controller_native::sustained_aimlab::generate_script(1337, ordinary_config);
+    const ScenarioScript small =
+        controller_native::sustained_aimlab::generate_script(1337, small_config);
+    require(ordinary.targets.size() == small.targets.size(),
+            "target profile must not change script length");
+    for (std::size_t index = 0; index < ordinary.targets.size(); ++index) {
+        const TargetScript& large = ordinary.targets[index];
+        const TargetScript& tiny = small.targets[index];
+        require(same_target(large, tiny),
+                "small target profile must reuse identical motion and noise");
+        require_near(large.visible_radius_px, 24.0, 1e-12,
+                     "ordinary visible radius");
+        require(tiny.visible_radius_px == 8.0 ||
+                    tiny.visible_radius_px == 11.0 ||
+                    tiny.visible_radius_px == 14.0,
+                "small target radius must use the approved 8/11/14px set");
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -200,6 +225,7 @@ int main() {
         test_generated_ranges_and_observation_schedule();
         test_motion_profiles_and_boundary_reflection();
         test_motion_profile_names_are_stable();
+        test_small_target_profile_reuses_motion_and_cycles_visible_radius();
         std::cout << "cod_native_sustained_aimlab_scenario_tests PASS\n";
         return EXIT_SUCCESS;
     } catch (const std::exception& error) {

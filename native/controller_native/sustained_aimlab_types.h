@@ -30,7 +30,13 @@ enum class BenchmarkCohort : std::uint8_t {
     BodyLockFollow,
 };
 
+enum class TargetProfile : std::uint8_t {
+    Ordinary,
+    SmallVisible,
+};
+
 struct BenchmarkConfig {
+    TargetProfile target_profile = TargetProfile::Ordinary;
     int duration_ms = 60'000;
     int tick_ms = 1;
     int tracking_window_ms = 1'000;
@@ -55,6 +61,7 @@ struct TargetScript {
     Vec2d acceleration_px_per_second_squared;
     int maneuver_at_ms = -1;
     int acquire_deadline_ms = 250;
+    double visible_radius_px = 24.0;
     std::vector<int> observation_at_ms;
     std::vector<Vec2d> observation_noise_px;
 };

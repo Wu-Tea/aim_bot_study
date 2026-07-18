@@ -35,6 +35,7 @@ $args = @(
     "--seed", "20260718",
     "--seed", "424242",
     "--profile", "both",
+    "--cohort", "ads",
     "--revision", $revision,
     "--output", $Output
 )

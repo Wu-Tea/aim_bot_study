@@ -99,7 +99,7 @@ BenchmarkResult run_simulation(
         if (cohort == BenchmarkCohort::BodyLockFollow) {
             const double initial_distance = length(error);
             const double warm_distance = std::min(
-                8.0, script.config.target_radius_px * 0.5);
+                8.0, target.visible_radius_px * 0.5);
             if (initial_distance > 1e-9) {
                 error.x *= warm_distance / initial_distance;
                 error.y *= warm_distance / initial_distance;
@@ -173,7 +173,8 @@ BenchmarkResult run_simulation(
             advance_target(target, target_elapsed_ms, 0.001, error, target_velocity);
             const double response =
                 script.config.camera_response_px_per_stick_second *
-                aim_slowdown_multiplier(length(error), script.config);
+                aim_slowdown_multiplier(
+                    length(error), target.visible_radius_px, script.config);
             error.x -= output.final_stick.x * response * 0.001;
             error.y += output.final_stick.y * response * 0.001;
 
@@ -211,7 +212,7 @@ BenchmarkResult run_simulation(
                     finish_target();
                 }
             } else if (target_active && cohort == BenchmarkCohort::AdsAcquire &&
-                       length(error) < script.config.target_radius_px) {
+                       length(error) < target.visible_radius_px) {
                 scorer->mark_acquired(target_elapsed_ms + 1);
                 tracking = true;
                 tracking_ticks = 0;

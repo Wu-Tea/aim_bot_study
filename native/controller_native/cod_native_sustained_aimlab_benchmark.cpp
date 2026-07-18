@@ -32,7 +32,11 @@ struct CliOptions {
     std::vector<std::uint32_t> seeds;
     std::filesystem::path output_path;
     std::string profile = "both";
-    std::string cohort = "both";
+    std::string cohort = "ads";
+    std::string target_profile = "ordinary";
+    double camera_response = 500.0;
+    double slowdown_edge = 0.50;
+    double slowdown_center = 0.40;
     std::string revision = "unknown";
     bool dirty = false;
     int duration_ms = 60'000;
@@ -54,6 +58,14 @@ CliOptions parse_args(int argc, char** argv) {
             options.profile = argv[++index];
         } else if (argument == "--cohort" && index + 1 < argc) {
             options.cohort = argv[++index];
+        } else if (argument == "--target-profile" && index + 1 < argc) {
+            options.target_profile = argv[++index];
+        } else if (argument == "--camera-response" && index + 1 < argc) {
+            options.camera_response = std::stod(argv[++index]);
+        } else if (argument == "--slowdown-edge" && index + 1 < argc) {
+            options.slowdown_edge = std::stod(argv[++index]);
+        } else if (argument == "--slowdown-center" && index + 1 < argc) {
+            options.slowdown_center = std::stod(argv[++index]);
         } else if (argument == "--revision" && index + 1 < argc) {
             options.revision = argv[++index];
         } else if (argument == "--dirty") {
@@ -67,6 +79,8 @@ CliOptions parse_args(int argc, char** argv) {
                 << "Usage: cod_native_sustained_aimlab_benchmark "
                 << "[--config PATH] [--seed N ...] [--profile pure|mixed|both] "
                 << "[--cohort ads|bodylock|both] "
+                << "[--target-profile ordinary|small] [--camera-response PX] "
+                << "[--slowdown-edge N] [--slowdown-center N] "
                 << "[--output PATH] [--revision HASH] [--dirty] "
                 << "[--duration-ms N] [--smoke]\n";
             std::exit(EXIT_SUCCESS);
@@ -85,6 +99,15 @@ CliOptions parse_args(int argc, char** argv) {
     if (options.cohort != "ads" && options.cohort != "bodylock" &&
         options.cohort != "both") {
         throw std::runtime_error("cohort must be ads, bodylock, or both");
+    }
+    if (options.target_profile != "ordinary" &&
+        options.target_profile != "small") {
+        throw std::runtime_error("target profile must be ordinary or small");
+    }
+    if (options.camera_response <= 0.0 || options.slowdown_edge <= 0.0 ||
+        options.slowdown_edge > 1.0 || options.slowdown_center <= 0.0 ||
+        options.slowdown_center > options.slowdown_edge) {
+        throw std::runtime_error("invalid plant response or slowdown multipliers");
     }
     if (options.seeds.empty()) {
         options.seeds = {1337, 20260718, 424242};
@@ -175,9 +198,12 @@ void write_report(
         << "  \"config_path\": " << json_string(options.config_path.string()) << ",\n"
         << "  \"config_fingerprint_fnv1a64\": \"" << config_fingerprint << "\",\n"
         << "  \"simulator\": {\"duration_ms\": " << config.duration_ms
+        << ", \"target_profile\": " << json_string(options.target_profile)
         << ", \"tick_ms\": " << config.tick_ms
         << ", \"tracking_window_ms\": " << config.tracking_window_ms
         << ", \"target_radius_px\": " << config.target_radius_px
+        << ", \"camera_response_px_per_stick_second\": "
+        << config.camera_response_px_per_stick_second
         << ", \"slowdown_edge\": " << config.slowdown_edge_multiplier
         << ", \"slowdown_center\": " << config.slowdown_center_multiplier << "},\n"
         << "  \"runs\": [\n";
@@ -213,6 +239,7 @@ void write_report(
             out << "{\"id\":" << target.id
                 << ",\"motion\":" << json_string(motion_name(target.motion))
                 << ",\"deadline_ms\":" << target.deadline_ms
+                << ",\"visible_radius_px\":" << target.visible_radius_px
                 << ",\"acquired\":" << (target.acquired ? "true" : "false")
                 << ",\"first_entry_ms\":" << target.first_entry_ms
                 << ",\"bodylock_entry_failed\":" << (target.bodylock_entry_failed ? "true" : "false")
@@ -359,6 +386,13 @@ int main(int argc, char** argv) {
             controller_native::load_runtime_config(options.config_path);
         BenchmarkConfig benchmark_config;
         benchmark_config.duration_ms = options.duration_ms;
+        benchmark_config.target_profile = options.target_profile == "small"
+            ? TargetProfile::SmallVisible
+            : TargetProfile::Ordinary;
+        benchmark_config.camera_response_px_per_stick_second =
+            options.camera_response;
+        benchmark_config.slowdown_edge_multiplier = options.slowdown_edge;
+        benchmark_config.slowdown_center_multiplier = options.slowdown_center;
         std::vector<ManualProfile> profiles;
         if (options.profile != "mixed") profiles.push_back(ManualProfile::Pure);
         if (options.profile != "pure") profiles.push_back(ManualProfile::Mixed);

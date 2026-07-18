@@ -28,6 +28,7 @@ struct TargetResult {
     std::uint64_t id = 0;
     MotionProfile motion = MotionProfile::ConstantHorizontal;
     int deadline_ms = 0;
+    double visible_radius_px = 24.0;
     bool acquired = false;
     bool acquisition_timed_out = false;
     bool bodylock_entry_failed = false;

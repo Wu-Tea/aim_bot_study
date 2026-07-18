@@ -68,6 +68,7 @@ void hash_vec(std::uint64_t& hash, Vec2d value) {
 
 void hash_config(std::uint64_t& hash, const BenchmarkConfig& config) {
     hash_integral(hash, config.duration_ms);
+    hash_integral(hash, config.target_profile);
     hash_integral(hash, config.tick_ms);
     hash_integral(hash, config.tracking_window_ms);
     hash_integral(hash, config.inter_target_gap_ms);
@@ -95,6 +96,7 @@ std::uint64_t script_hash(const ScenarioScript& script) {
         hash_vec(hash, target.acceleration_px_per_second_squared);
         hash_integral(hash, target.maneuver_at_ms);
         hash_integral(hash, target.acquire_deadline_ms);
+        hash_double(hash, target.visible_radius_px);
         hash_integral(hash,
             static_cast<std::uint64_t>(target.observation_at_ms.size()));
         for (std::size_t index = 0; index < target.observation_at_ms.size(); ++index) {
@@ -216,6 +218,12 @@ ScenarioScript generate_script(
                 noise_distribution(random), noise_distribution(random)});
             observation_at_ms += observation_interval_distribution(random);
         }
+        if (config.target_profile == TargetProfile::SmallVisible) {
+            constexpr double small_radii[] = {8.0, 11.0, 14.0};
+            target.visible_radius_px = small_radii[index % 3];
+        } else {
+            target.visible_radius_px = config.target_radius_px;
+        }
         result.targets.push_back(std::move(target));
     }
 
@@ -265,9 +273,17 @@ void advance_target(
 double aim_slowdown_multiplier(
     double distance_px,
     const BenchmarkConfig& config) {
+    return aim_slowdown_multiplier(
+        distance_px, config.target_radius_px, config);
+}
+
+double aim_slowdown_multiplier(
+    double distance_px,
+    double target_radius_px,
+    const BenchmarkConfig& config) {
     const double distance = std::max(0.0, distance_px);
     const double radius = std::max(
-        std::numeric_limits<double>::epsilon(), config.target_radius_px);
+        std::numeric_limits<double>::epsilon(), target_radius_px);
     const double transition = std::max(
         std::numeric_limits<double>::epsilon(), config.slowdown_transition_px);
     if (distance >= radius + transition) return 1.0;

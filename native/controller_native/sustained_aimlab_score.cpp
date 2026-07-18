@@ -65,6 +65,7 @@ TargetScorer::TargetScorer(TargetScript script, BenchmarkConfig config)
     result_.id = script_.id;
     result_.motion = script_.motion;
     result_.deadline_ms = script_.acquire_deadline_ms;
+    result_.visible_radius_px = script_.visible_radius_px;
 }
 
 void TargetScorer::mark_acquired(int entry_ms) {
@@ -97,7 +98,7 @@ void TargetScorer::mark_bodylock_entry_failed() {
 void TargetScorer::add_frame(const ScoreFrame& frame) {
     if (finished_ || !frame.in_tracking_window) return;
     ++tracking_ticks_;
-    const double radius = std::max(1e-9, config_.target_radius_px);
+    const double radius = std::max(1e-9, script_.visible_radius_px);
     const double distance = length(frame.error_px);
     result_.max_error_px = std::max(result_.max_error_px, distance);
     result_.tracking_errors_px.push_back(distance);

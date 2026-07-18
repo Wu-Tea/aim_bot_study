@@ -19,6 +19,11 @@ double aim_slowdown_multiplier(
     double distance_px,
     const BenchmarkConfig& config = BenchmarkConfig{});
 
+double aim_slowdown_multiplier(
+    double distance_px,
+    double target_radius_px,
+    const BenchmarkConfig& config);
+
 const char* to_string(MotionProfile profile) noexcept;
 
 }  // namespace controller_native::sustained_aimlab
