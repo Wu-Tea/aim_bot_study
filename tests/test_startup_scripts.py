@@ -96,7 +96,26 @@ class StartupScriptTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stdout)
         self.assertIn("Launching Native C++ gamepad runtime.", completed.stdout)
         self.assertIn("cod_native_runtime.exe", completed.stdout)
-        self.assertIn("--config config.toml --perf-log --auto-fire-output RT", completed.stdout)
+        self.assertIn("--config config.toml  --auto-fire-output RT", completed.stdout)
+        self.assertNotIn("--perf-log", completed.stdout)
+
+    def test_native_gamepad_runtime_has_no_keyboard_termination_shortcut(self):
+        runtime_loop = (
+            PROJECT_ROOT / "native" / "runtime_app" / "runtime_loop.cpp"
+        ).read_text(encoding="utf-8")
+        runtime_main = (
+            PROJECT_ROOT / "native" / "runtime_app" / "main.cpp"
+        ).read_text(encoding="utf-8")
+        native_launcher = (
+            LAUNCH_DIR / "gamepad_native_cpp_start.bat"
+        ).read_text(encoding="utf-8")
+
+        self.assertNotIn("GetAsyncKeyState", runtime_loop)
+        self.assertNotIn("virtual_key_from_quit_key", runtime_loop)
+        self.assertNotIn("CTRL_C_EVENT", runtime_main)
+        self.assertNotIn("CTRL_BREAK_EVENT", runtime_main)
+        self.assertIn("CTRL_CLOSE_EVENT", runtime_main)
+        self.assertNotIn("VISION_QUIT_KEY", native_launcher)
 
     def test_gamepad_debug_uses_system_python_launcher_debug_flag_and_backend_prompt(self):
         content = (DEBUG_LAUNCH_DIR / "gamepad_debug.bat").read_text(encoding="utf-8")

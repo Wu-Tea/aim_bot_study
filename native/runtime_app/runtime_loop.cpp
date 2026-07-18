@@ -50,14 +50,6 @@ LogSessionOptions log_session_options_from(const controller_native::RuntimeConfi
     return options;
 }
 
-int virtual_key_from_quit_key(const std::string& quit_key) {
-    if (quit_key.empty()) {
-        return '0';
-    }
-    const unsigned char first = static_cast<unsigned char>(quit_key.front());
-    return std::toupper(first);
-}
-
 std::chrono::steady_clock::duration capture_interval_for_fps(int capture_fps) {
     if (capture_fps <= 0) {
         return std::chrono::steady_clock::duration::zero();
@@ -891,11 +883,7 @@ void RuntimeLoop::poll_due_recoil_recognizer(std::chrono::steady_clock::time_poi
 }
 
 bool RuntimeLoop::should_stop_requested() const {
-    if (stop_requested_.load()) {
-        return true;
-    }
-    const int quit_key = virtual_key_from_quit_key(config_.vision.quit_key);
-    return (GetAsyncKeyState(quit_key) & 0x8000) != 0;
+    return stop_requested_.load();
 }
 
 bool RuntimeLoop::is_aiming(const controller_native::PhysicalGamepadState& physical) {

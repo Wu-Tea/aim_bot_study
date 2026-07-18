@@ -200,8 +200,6 @@ void print_startup_summary(
 
 BOOL WINAPI handle_console_signal(DWORD control_type) {
     switch (control_type) {
-    case CTRL_C_EVENT:
-    case CTRL_BREAK_EVENT:
     case CTRL_CLOSE_EVENT:
     case CTRL_SHUTDOWN_EVENT:
         if (runtime_app::RuntimeLoop* loop = active_runtime_loop.load()) {

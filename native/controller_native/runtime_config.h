@@ -18,7 +18,8 @@ struct VisionRuntimeConfig {
     std::string color_readback_mode = "pageable";
     std::string model_path = "models/candidates/body_union_manual_core_x2_neg_e6_640x512.engine";
     std::string fallback_model_path = "models/best.pt";
-    std::string quit_key = "0";
+    // Compatibility-only config field. Native runtime termination is window-only.
+    std::string quit_key;
     bool native_cue_sidecar = false;
     bool perf_log = false;
     bool aim_perf_file_log = false;
