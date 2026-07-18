@@ -1289,6 +1289,32 @@ add_executable(cod_native_sustained_aimlab_scenario_tests
     ../controller_native/sustained_aimlab_scenario.cpp
 )
 
+add_executable(cod_native_aim_response_estimator_tests
+    ../controller_native/aim_response_estimator_tests.cpp
+    ../controller_native/aim_response_estimator.cpp
+)
+
+target_include_directories(cod_native_aim_response_estimator_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
+add_test(
+    NAME NativeAimResponseEstimatorTests
+    COMMAND cod_native_aim_response_estimator_tests)
+
+add_executable(cod_native_response_model_aim_solver_tests
+    ../controller_native/response_model_aim_solver_tests.cpp
+    ../controller_native/response_model_aim_solver.cpp
+)
+
+target_include_directories(cod_native_response_model_aim_solver_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
+add_test(
+    NAME NativeResponseModelAimSolverTests
+    COMMAND cod_native_response_model_aim_solver_tests)
+
 add_executable(cod_native_sustained_aimlab_score_tests
     ../controller_native/sustained_aimlab_score_tests.cpp
     ../controller_native/sustained_aimlab_score.cpp
