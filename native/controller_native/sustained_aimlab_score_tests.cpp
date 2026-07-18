@@ -236,6 +236,68 @@ void test_false_mode_exit_requires_bodylock_to_have_started() {
             "pre-BodyLock ADS time must not count as interruption duration");
 }
 
+void test_small_center_cross_is_visible_without_severe_overshoot() {
+    TargetScorer scorer(target_with_deadline(), BenchmarkConfig{});
+    scorer.mark_acquired(20);
+    const double errors[] = {6.0, 3.0, 1.0, -2.0, -2.5, -2.0};
+    for (int ms = 0; ms < 6; ++ms) {
+        ScoreFrame frame = tracking_frame(ms, {errors[ms], 0.0});
+        frame.radial_closing_velocity_px_per_sec = 120.0;
+        frame.shaped_assist_stick = {0.30, 0.0};
+        frame.final_stick = {0.30, 0.0};
+        scorer.add_frame(frame);
+    }
+    const TargetResult result = scorer.finish();
+    require(result.center_cross_events == 1,
+            "a noise-qualified small crossing must remain observable");
+    require(result.over_events == 0,
+            "a 2.5px crossing must not become a severe overshoot");
+    require(result.max_post_cross_error_px >= 2.5,
+            "post-cross excursion must retain amplitude");
+    require(result.overshoot_area_px_ms > 0.0,
+            "post-cross excursion must accumulate area");
+    require(result.continued_push_after_cross_ms > 0,
+            "AI continuing the approach after crossing must be attributed");
+}
+
+void test_fast_no_cross_capture_settles_without_false_overshoot() {
+    TargetScorer scorer(target_with_deadline(), BenchmarkConfig{});
+    scorer.mark_acquired(20);
+    for (int ms = 0; ms < 55; ++ms) {
+        const double error = ms < 10 ? 12.0 - ms : 2.0;
+        ScoreFrame frame = tracking_frame(ms, {error, 0.0});
+        frame.radial_closing_velocity_px_per_sec = ms < 10 ? 100.0 : 0.0;
+        frame.shaped_assist_stick = ms < 10 ? Vec2d{0.20, 0.0} : Vec2d{};
+        frame.final_stick = frame.shaped_assist_stick;
+        scorer.add_frame(frame);
+    }
+    const TargetResult result = scorer.finish();
+    require(result.center_cross_events == 0, "no-cross capture must stay no-cross");
+    require(result.settled, "40ms inside the settle band must settle");
+    require(result.first_entry_to_settle_ms >= 40,
+            "settle latency must include the stability hold");
+}
+
+void test_stall_ring_and_handoff_diagnostics_are_exported() {
+    TargetScorer scorer(target_with_deadline(), BenchmarkConfig{});
+    scorer.mark_acquired(20);
+    for (int ms = 0; ms < 50; ++ms) {
+        ScoreFrame frame = tracking_frame(ms, {15.0, 0.0});
+        frame.radial_closing_velocity_px_per_sec = 0.0;
+        frame.ads_to_bodylock_transition = ms == 5;
+        scorer.add_frame(frame);
+    }
+    const TargetResult result = scorer.finish();
+    require(result.stall_ring_ms >= 49,
+            "non-closing 10-20px residence must be exported");
+    require_near(result.handoff_residual_px, 15.0, 1e-9,
+                 "handoff residual must use transition frame");
+    require_near(result.handoff_closing_speed_px_per_sec, 0.0, 1e-9,
+                 "handoff closing speed must use transition frame");
+    require(!result.settled && result.first_entry_to_settle_ms == -1,
+            "a stalled target must remain explicitly unsettled");
+}
+
 void test_bodylock_occupancy_distinguishes_never_entered_from_interrupted() {
     TargetScorer never_entered(target_with_deadline(), BenchmarkConfig{});
     never_entered.mark_acquired(20);
@@ -283,6 +345,8 @@ void test_aggregate_preserves_additive_totals_and_percentiles() {
             "aggregate additive points");
     require(result.p95_error_px >= result.mean_error_px,
             "p95 error must not be below mean in this fixture");
+    require(result.settled_targets == 1 && result.unsettled_targets == 1,
+            "only the center-band fixture must aggregate as settled");
 }
 
 }  // namespace
@@ -293,6 +357,9 @@ int main() {
         test_tracking_points_reward_center_proximity();
         test_smooth_zero_output_cannot_beat_useful_tracking();
         test_one_overshoot_trace_counts_once();
+        test_small_center_cross_is_visible_without_severe_overshoot();
+        test_fast_no_cross_capture_settles_without_false_overshoot();
+        test_stall_ring_and_handoff_diagnostics_are_exported();
         test_sustained_projected_lag_counts_one_undertrack();
         test_false_stop_requires_stable_demand_and_no_escape();
         test_stale_output_after_target_loss_counts_once();

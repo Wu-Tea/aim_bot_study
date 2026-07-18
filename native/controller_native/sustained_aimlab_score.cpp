@@ -103,6 +103,86 @@ void TargetScorer::add_frame(const ScoreFrame& frame) {
     result_.max_error_px = std::max(result_.max_error_px, distance);
     result_.tracking_errors_px.push_back(distance);
 
+    const double noise_band = std::max(1.5, radius * 0.08);
+    const double settle_band = std::max(2.0, radius / 3.0);
+    const bool terminal_crosses_center =
+        dot(frame.error_px, frame.predicted_terminal_error_px) < 0.0;
+    const bool should_start_brake_episode = frame.target_observed &&
+        (distance <= radius ||
+         (distance <= radius * 3.0 &&
+          frame.radial_closing_velocity_px_per_sec >= 40.0) ||
+         terminal_crosses_center || frame.ads_to_bodylock_transition);
+    if (!brake_episode_active_ && should_start_brake_episode) {
+        brake_episode_active_ = true;
+        brake_axis_ = normalized(frame.error_px);
+        if (length(brake_axis_) <= 1e-9) brake_axis_ = {1.0, 0.0};
+        brake_start_tick_ = tracking_ticks_ - 1;
+        result_.brake_start_distance_px = distance;
+    }
+    if (first_circle_tick_ < 0 && distance <= radius) {
+        first_circle_tick_ = tracking_ticks_ - 1;
+    }
+    if (frame.ads_to_bodylock_transition) {
+        result_.handoff_residual_px = distance;
+        result_.handoff_closing_speed_px_per_sec =
+            frame.radial_closing_velocity_px_per_sec;
+    }
+    if (brake_episode_active_) {
+        const double signed_error = dot(frame.error_px, brake_axis_);
+        if (signed_error > noise_band) {
+            positive_side_seen_ = true;
+            center_cross_latched_ = false;
+        }
+        if (positive_side_seen_ && signed_error < -noise_band &&
+            !center_cross_latched_) {
+            ++result_.center_cross_events;
+            crossed_center_ = true;
+            center_cross_latched_ = true;
+        }
+        if (crossed_center_) {
+            const double excursion = std::max(0.0, -signed_error);
+            result_.max_post_cross_error_px =
+                std::max(result_.max_post_cross_error_px, excursion);
+            result_.overshoot_area_px_ms += excursion;
+            const Vec2d approach_stick{brake_axis_.x, -brake_axis_.y};
+            if (excursion > 0.0 && frame.target_observed &&
+                frame.tracker_reliable && !frame.manual_escape &&
+                dot(frame.shaped_assist_stick, approach_stick) > 0.02) {
+                ++result_.continued_push_after_cross_ms;
+            }
+        }
+        if (result_.time_to_zero_radial_speed_ms < 0 &&
+            frame.radial_closing_velocity_px_per_sec <= 0.0) {
+            result_.time_to_zero_radial_speed_ms =
+                tracking_ticks_ - 1 - brake_start_tick_;
+        }
+        const Vec2d approach_stick{brake_axis_.x, -brake_axis_.y};
+        const double ai_radial_projection =
+            dot(frame.shaped_assist_stick, approach_stick);
+        if (has_previous_ai_radial_projection_ &&
+            std::fabs(ai_radial_projection) >= 0.03 &&
+            std::fabs(previous_ai_radial_projection_) >= 0.03 &&
+            ai_radial_projection * previous_ai_radial_projection_ < 0.0) {
+            ++result_.correction_reversal_events;
+        }
+        previous_ai_radial_projection_ = ai_radial_projection;
+        has_previous_ai_radial_projection_ = true;
+    }
+    const bool settle_frame = distance <= settle_band &&
+        frame.radial_closing_velocity_px_per_sec <= 0.0;
+    if (settle_frame) {
+        ++settle_stable_ticks_;
+        if (!result_.settled && settle_stable_ticks_ >= 40) {
+            result_.settled = true;
+            if (first_circle_tick_ >= 0) {
+                result_.first_entry_to_settle_ms =
+                    tracking_ticks_ - 1 - first_circle_tick_;
+            }
+        }
+    } else {
+        settle_stable_ticks_ = 0;
+    }
+
     double accuracy = 0.0;
     if (distance < radius) {
         const double normalized_distance = distance / radius;
@@ -288,6 +368,8 @@ BenchmarkResult aggregate(
     std::vector<double> errors;
     std::vector<double> output_deltas;
     std::vector<double> output_jerks;
+    std::vector<double> post_cross_errors;
+    std::vector<double> settle_times;
     for (const TargetResult& target : targets) {
         result.acquire_points += target.acquire_points;
         result.tracking_points += target.tracking_points;
@@ -304,6 +386,34 @@ BenchmarkResult aggregate(
         result.bodylock_entry_failures += target.bodylock_entry_failed ? 1 : 0;
         result.bodylock_active_ms += target.bodylock_active_ms;
         result.unexpected_mode_ms += target.unexpected_mode_ms;
+        result.settled_targets += target.settled ? 1 : 0;
+        result.unsettled_targets += target.settled ? 0 : 1;
+        result.center_cross_events += target.center_cross_events;
+        result.max_post_cross_error_px = std::max(
+            result.max_post_cross_error_px, target.max_post_cross_error_px);
+        result.overshoot_area_px_ms += target.overshoot_area_px_ms;
+        result.continued_push_after_cross_ms +=
+            target.continued_push_after_cross_ms;
+        result.correction_reversal_events += target.correction_reversal_events;
+        result.circle_exit_events += target.circle_exit_events;
+        result.stall_ring_ms += target.stall_ring_ms;
+        result.direction_discontinuities += target.direction_discontinuities;
+        result.max_error_px = std::max(result.max_error_px, target.max_error_px);
+        if (target.center_cross_events > 0) {
+            post_cross_errors.push_back(target.max_post_cross_error_px);
+        }
+        if (target.first_entry_to_settle_ms >= 0) {
+            settle_times.push_back(
+                static_cast<double>(target.first_entry_to_settle_ms));
+        }
+        if (target.handoff_residual_px >= 0.0) {
+            ++result.handoff_count;
+            result.max_handoff_residual_px = std::max(
+                result.max_handoff_residual_px, target.handoff_residual_px);
+            result.max_abs_handoff_closing_speed_px_per_sec = std::max(
+                result.max_abs_handoff_closing_speed_px_per_sec,
+                std::fabs(target.handoff_closing_speed_px_per_sec));
+        }
         errors.insert(errors.end(), target.tracking_errors_px.begin(),
                       target.tracking_errors_px.end());
         output_deltas.insert(output_deltas.end(), target.output_deltas.begin(),
@@ -318,6 +428,13 @@ BenchmarkResult aggregate(
     result.p95_error_px = percentile(std::move(errors), 0.95);
     result.p95_output_delta = percentile(std::move(output_deltas), 0.95);
     result.p95_jerk = percentile(std::move(output_jerks), 0.95);
+    result.p95_post_cross_error_px =
+        percentile(std::move(post_cross_errors), 0.95);
+    if (!settle_times.empty()) {
+        result.median_first_entry_to_settle_ms = percentile(settle_times, 0.50);
+        result.p95_first_entry_to_settle_ms =
+            percentile(std::move(settle_times), 0.95);
+    }
     result.targets = std::move(targets);
     return result;
 }

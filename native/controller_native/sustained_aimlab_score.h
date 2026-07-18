@@ -22,6 +22,9 @@ struct ScoreFrame {
     Vec2d requested_assist_stick;
     Vec2d shaped_assist_stick;
     Vec2d final_stick;
+    Vec2d predicted_terminal_error_px;
+    double radial_closing_velocity_px_per_sec = 0.0;
+    bool ads_to_bodylock_transition = false;
 };
 
 struct TargetResult {
@@ -54,6 +57,17 @@ struct TargetResult {
     int zero_output_while_demanded_ms = 0;
     int direction_discontinuities = 0;
     double max_error_px = 0.0;
+    bool settled = false;
+    int center_cross_events = 0;
+    double max_post_cross_error_px = 0.0;
+    double overshoot_area_px_ms = 0.0;
+    int continued_push_after_cross_ms = 0;
+    double brake_start_distance_px = -1.0;
+    int time_to_zero_radial_speed_ms = -1;
+    int first_entry_to_settle_ms = -1;
+    int correction_reversal_events = 0;
+    double handoff_residual_px = -1.0;
+    double handoff_closing_speed_px_per_sec = 0.0;
     std::vector<double> tracking_errors_px;
     std::vector<double> output_deltas;
     std::vector<double> output_jerks;
@@ -96,6 +110,16 @@ private:
     bool assist_dropout_latched_ = false;
     int stale_output_ticks_ = 0;
     bool stale_output_latched_ = false;
+    bool brake_episode_active_ = false;
+    Vec2d brake_axis_;
+    bool positive_side_seen_ = false;
+    bool center_cross_latched_ = false;
+    bool crossed_center_ = false;
+    int brake_start_tick_ = -1;
+    int first_circle_tick_ = -1;
+    int settle_stable_ticks_ = 0;
+    double previous_ai_radial_projection_ = 0.0;
+    bool has_previous_ai_radial_projection_ = false;
 };
 
 struct BenchmarkResult {
@@ -118,6 +142,23 @@ struct BenchmarkResult {
     int bodylock_entry_failures = 0;
     int bodylock_active_ms = 0;
     int unexpected_mode_ms = 0;
+    int settled_targets = 0;
+    int unsettled_targets = 0;
+    int center_cross_events = 0;
+    double max_post_cross_error_px = 0.0;
+    double p95_post_cross_error_px = 0.0;
+    double overshoot_area_px_ms = 0.0;
+    int continued_push_after_cross_ms = 0;
+    int correction_reversal_events = 0;
+    int circle_exit_events = 0;
+    int stall_ring_ms = 0;
+    int direction_discontinuities = 0;
+    double max_error_px = 0.0;
+    double median_first_entry_to_settle_ms = -1.0;
+    double p95_first_entry_to_settle_ms = -1.0;
+    int handoff_count = 0;
+    double max_handoff_residual_px = 0.0;
+    double max_abs_handoff_closing_speed_px_per_sec = 0.0;
     double mean_error_px = 0.0;
     double p95_error_px = 0.0;
     double p95_output_delta = 0.0;
