@@ -1,6 +1,6 @@
 # Sustained AimLab Benchmark and Vector Control Design
 
-Date: 2026-07-18  
+Date: 2026-07-18
 Status: approved in conversation; awaiting written-spec review
 
 ## 1. Purpose
