@@ -160,6 +160,55 @@ ColorFrameFixture color_frame_for_region(
     return frame;
 }
 
+ColorFrameFixture full_bgra_frame() {
+    ColorFrameFixture frame;
+    frame.view.width = 640;
+    frame.view.height = 512;
+    frame.view.row_pitch = frame.view.width * 4;
+    frame.view.frame_width = frame.view.width;
+    frame.view.frame_height = frame.view.height;
+    frame.view.format = vision_native::PixelFormat::BGRA8;
+    frame.pixels.assign(
+        static_cast<std::size_t>(frame.view.row_pitch * frame.view.height),
+        12);
+    for (std::size_t offset = 3; offset < frame.pixels.size(); offset += 4) {
+        frame.pixels[offset] = 255;
+    }
+    frame.view.data = frame.pixels.data();
+    return frame;
+}
+
+void paint_sparse_bgra(
+    ColorFrameFixture& frame,
+    const vision_native::VisionTargetSelector::FrameRegion& region,
+    std::uint8_t red,
+    std::uint8_t green,
+    std::uint8_t blue) {
+    for (int y = region.top; y < region.bottom; ++y) {
+        for (int x = region.left; x < region.right; ++x) {
+            if ((x + y * 2) % 5 != 0) continue;
+            const auto offset = static_cast<std::size_t>(
+                y * frame.view.row_pitch + x * 4);
+            frame.pixels[offset + 0] = blue;
+            frame.pixels[offset + 1] = green;
+            frame.pixels[offset + 2] = red;
+            frame.pixels[offset + 3] = 255;
+        }
+    }
+}
+
+vision_native::VisionTargetSelector::FrameRegion color_region_for(
+    const vision_native::Detection& detection) {
+    vision_native::VisionTargetSelector probe(640, 512);
+    vision_native::DetectionBatch batch;
+    batch.frame_width = 640;
+    batch.frame_height = 512;
+    batch.detections.push_back(detection);
+    const auto region = probe.required_color_region(batch);
+    require_true(region.has_value(), "fixture detection must request a color ROI");
+    return *region;
+}
+
 void test_intent_direction_ranks_plausible_multi_target_candidates() {
     vision_native::VisionTargetSelector selector(640, 512);
     const auto batch = two_target_batch();
@@ -416,6 +465,108 @@ void test_partial_color_frame_origin_classifies_candidate_cue() {
         "partial color frame origin should let selector detect enemy cue pixels");
 }
 
+void test_bgra_green_friendly_is_hard_rejected() {
+    vision_native::VisionTargetSelector selector(640, 512);
+    const auto friendly = detection_for_target(320.0f, 256.0f, 0.92f);
+    vision_native::DetectionBatch batch;
+    batch.frame_width = 640;
+    batch.frame_height = 512;
+    batch.detections.push_back(friendly);
+    auto frame = full_bgra_frame();
+    paint_sparse_bgra(frame, color_region_for(friendly), 0, 255, 0);
+
+    const auto first = selector.select_with_frame(batch, frame.view);
+    const auto second = selector.select_with_frame(batch, frame.view);
+
+    require_true(!first.has_target && !second.has_target,
+                 "green friendly must never enter target selection");
+    require_true(second.detections.front().color_classified,
+                 "production BGRA path must classify friendly color");
+    require_true(second.detections.front().is_friendly,
+                 "green marker must set the friendly hard-filter flag");
+}
+
+void test_bgra_green_friendly_cannot_beat_yellow_enemy() {
+    vision_native::VisionTargetSelector selector(640, 512);
+    const auto friendly = detection_for_target(270.0f, 256.0f, 0.95f);
+    const auto enemy = detection_for_target(390.0f, 256.0f, 0.44f);
+    vision_native::DetectionBatch batch;
+    batch.frame_width = 640;
+    batch.frame_height = 512;
+    batch.detections = {friendly, enemy};
+    auto frame = full_bgra_frame();
+    paint_sparse_bgra(frame, color_region_for(friendly), 0, 255, 0);
+    paint_sparse_bgra(frame, color_region_for(enemy), 255, 255, 0);
+
+    selector.select_with_frame(batch, frame.view);
+    const auto result = selector.select_with_frame(batch, frame.view);
+
+    require_true(result.has_target, "yellow enemy must remain selectable");
+    require_true(result.has_selected_detection && result.selected_detection_index == 1,
+                 "green friendly must be removed before yellow enemy ranking");
+    require_true(result.detections[0].is_friendly,
+                 "mixed frame must preserve the friendly classification");
+    require_true(result.detections[1].color_bonus > 0.0f,
+                 "yellow marker must contribute enemy cue score");
+}
+
+void test_bgra_yellow_cue_assists_low_confidence_person_pickup() {
+    vision_native::VisionTargetSelector selector(640, 512);
+    const auto enemy = detection_for_target(320.0f, 256.0f, 0.44f);
+    vision_native::DetectionBatch batch;
+    batch.frame_width = 640;
+    batch.frame_height = 512;
+    batch.detections.push_back(enemy);
+    auto frame = full_bgra_frame();
+    paint_sparse_bgra(frame, color_region_for(enemy), 255, 255, 0);
+
+    const auto first = selector.select_with_frame(batch, frame.view);
+    const auto result = selector.select_with_frame(batch, frame.view);
+
+    require_true(!first.has_target, "cue-assisted pickup must retain switch confirmation");
+    require_true(result.has_target, "yellow cue must assist a low-confidence person pickup");
+    require_true(result.detections.front().has_cue_point,
+                 "yellow cue must expose its associated cue point");
+}
+
+void test_yellow_pixels_without_person_never_create_authority() {
+    vision_native::VisionTargetSelector selector(640, 512);
+    vision_native::DetectionBatch empty;
+    empty.frame_width = 640;
+    empty.frame_height = 512;
+    auto frame = full_bgra_frame();
+    paint_sparse_bgra(frame, {280, 100, 360, 136}, 255, 255, 0);
+
+    const auto result = selector.select_with_frame(empty, frame.view);
+
+    require_true(!result.has_target && !result.aim_authority && !result.fire_authority,
+                 "yellow UI pixels without a person detection must remain non-authoritative");
+}
+
+void test_yellow_cue_hold_is_aim_only() {
+    vision_native::VisionTargetSelector selector(640, 512);
+    const auto enemy = detection_for_target(320.0f, 256.0f, 0.82f);
+    vision_native::DetectionBatch batch;
+    batch.frame_width = 640;
+    batch.frame_height = 512;
+    batch.detections.push_back(enemy);
+    auto frame = full_bgra_frame();
+    paint_sparse_bgra(frame, color_region_for(enemy), 255, 255, 0);
+    selector.select_with_frame(batch, frame.view);
+    const auto locked = selector.select_with_frame(batch, frame.view);
+    require_true(locked.has_target, "fixture must acquire the yellow-associated person");
+
+    vision_native::DetectionBatch empty;
+    empty.frame_width = 640;
+    empty.frame_height = 512;
+    const auto held = selector.select_with_frame(empty, frame.view);
+
+    require_true(held.has_target && held.aim_authority,
+                 "short yellow cue gap should retain bounded aim continuity");
+    require_true(!held.fire_authority && !held.auto_fire,
+                 "yellow cue hold must never grant fire authority");
+}
+
 void test_roi_miss_does_not_immediately_clear_active_target() {
     vision_native::VisionTargetSelector selector(640, 512);
     const auto batch = single_target_batch(320.0f, 256.0f, 0.45f);
@@ -539,6 +690,11 @@ int main() {
         test_intent_does_not_grant_fire_authority_to_weak_association();
         test_intent_metadata_does_not_leak_into_later_hold_frame();
         test_partial_color_frame_origin_classifies_candidate_cue();
+        test_bgra_green_friendly_is_hard_rejected();
+        test_bgra_green_friendly_cannot_beat_yellow_enemy();
+        test_bgra_yellow_cue_assists_low_confidence_person_pickup();
+        test_yellow_pixels_without_person_never_create_authority();
+        test_yellow_cue_hold_is_aim_only();
         test_roi_miss_does_not_immediately_clear_active_target();
         test_required_color_region_clamps_edge_candidate_to_screen();
         test_external_cue_continuation_does_not_request_full_color_frame();
