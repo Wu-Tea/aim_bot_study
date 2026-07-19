@@ -275,7 +275,7 @@ ReplayReference record_reference(
     result.cohort = cohort;
     const BranchSchedule inactive{};
     ControllerStep controller = factory(inactive);
-    (void)run_simulation(
+    result.benchmark_result = run_simulation(
         script, manual_profile, std::move(controller), cohort,
         [&](const SimulationTraceFrame& frame) { result.trace.push_back(frame); });
     if (result.trace.size() != static_cast<std::size_t>(script.config.duration_ms)) {
@@ -299,11 +299,16 @@ BranchResult replay_branch(
     const BranchSchedule schedule{
         request.branch_at_ms, request.substitution_ms, request.policy};
     ControllerStep controller = factory(schedule);
+    ScenarioScript replay_script = reference.script;
+    replay_script.config.duration_ms = std::min(
+        reference.script.config.duration_ms,
+        request.branch_at_ms + request.horizon_ms);
     (void)run_simulation(
-        reference.script, reference.manual_profile, std::move(controller),
+        replay_script, reference.manual_profile, std::move(controller),
         reference.cohort,
         [&](const SimulationTraceFrame& frame) { result.trace.push_back(frame); });
-    if (result.trace.size() != reference.trace.size()) {
+    if (result.trace.size() !=
+        static_cast<std::size_t>(replay_script.config.duration_ms)) {
         throw std::runtime_error("branch trace duration mismatch");
     }
 

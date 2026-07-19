@@ -179,6 +179,8 @@ void test_replay_matches_reference_before_branch() {
             "actual replay must match every prebranch frame");
     require(branch.first_divergence_ms == -1,
             "actual mix must not diverge from reference");
+    require(branch.trace.size() == 140,
+            "branch replay must stop at branch plus horizon");
 }
 
 void test_manual_only_branch_can_beat_harmful_ai() {

@@ -1,5 +1,6 @@
 #include "sustained_aimlab_trace.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <iostream>
 #include <stdexcept>
@@ -73,6 +74,23 @@ void test_short_gap_is_merged_but_long_gap_is_not() {
             "second episode bounds");
 }
 
+void test_merged_episode_preserves_peak_severity_time() {
+    std::vector<SimulationTraceFrame> trace(8);
+    for (int ms = 0; ms < 8; ++ms) {
+        trace[ms].absolute_ms = ms;
+        trace[ms].target_active = true;
+        trace[ms].input.manual_stick = {0.10 + ms * 0.02, 0.0};
+        trace[ms].output.shaped_assist_stick = {-0.10 - ms * 0.02, 0.0};
+        trace[ms].output.final_stick = {0.10, 0.0};
+    }
+
+    const auto episodes = detect_conflict_episodes(trace, ConflictConfig{});
+
+    require(episodes.size() == 1, "fixture must merge into one episode");
+    require(episodes.front().peak_ms == 7,
+            "merged episode must retain maximum-severity timestamp");
+}
+
 void test_budget_selection_is_severity_stable() {
     std::vector<ConflictEpisode> episodes{
         {ConflictKind::ManualAiOpposition, 20, 25, 1.0},
@@ -90,6 +108,29 @@ void test_budget_selection_is_severity_stable() {
             "other classes retain their own budget");
 }
 
+void test_normal_vision_cadence_is_not_observation_loss() {
+    ScenarioScript script;
+    std::vector<SimulationTraceFrame> trace(20);
+    for (int ms = 0; ms < 20; ++ms) {
+        trace[ms].absolute_ms = ms;
+        trace[ms].target_elapsed_ms = ms;
+        trace[ms].target_active = true;
+        trace[ms].target_id = 1;
+        trace[ms].input.target_present = true;
+        trace[ms].input.fresh_vision = ms == 0 || ms == 10;
+        trace[ms].output.target_observed = trace[ms].input.fresh_vision;
+    }
+
+    const auto anchors = generate_fixed_anchors(script, trace);
+    const auto observation_anchors = std::count_if(
+        anchors.begin(), anchors.end(), [](const EvaluationPoint& point) {
+            return point.kind == AnchorKind::ObservationLoss ||
+                point.kind == AnchorKind::ObservationRecovery;
+        });
+    require(observation_anchors == 0,
+            "normal frame cadence must not look like observation loss");
+}
+
 }  // namespace
 
 int main() {
@@ -97,7 +138,9 @@ int main() {
         test_fixed_reverse_anchor_comes_from_script();
         test_opposition_frames_merge_into_one_episode();
         test_short_gap_is_merged_but_long_gap_is_not();
+        test_merged_episode_preserves_peak_severity_time();
         test_budget_selection_is_severity_stable();
+        test_normal_vision_cadence_is_not_observation_loss();
         std::cout << "cod_native_sustained_aimlab_trace_tests PASS\n";
         return EXIT_SUCCESS;
     } catch (const std::exception& error) {

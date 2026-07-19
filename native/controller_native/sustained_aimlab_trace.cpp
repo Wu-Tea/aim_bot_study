@@ -24,10 +24,13 @@ void add_or_merge(std::vector<ConflictEpisode>& episodes,
     if (!episodes.empty() && episodes.back().kind == kind &&
         now_ms - episodes.back().end_ms - 1 <= merge_gap_ms) {
         episodes.back().end_ms = now_ms;
-        episodes.back().severity = std::max(episodes.back().severity, severity);
+        if (severity > episodes.back().severity) {
+            episodes.back().severity = severity;
+            episodes.back().peak_ms = now_ms;
+        }
         return;
     }
-    episodes.push_back({kind, now_ms, now_ms, severity});
+    episodes.push_back({kind, now_ms, now_ms, severity, now_ms});
 }
 
 int absolute_time_for(const std::vector<SimulationTraceFrame>& trace,
@@ -72,29 +75,35 @@ std::vector<EvaluationPoint> generate_fixed_anchors(
         }
     }
 
-    bool prior_observed = false;
+    bool prior_evidence_present = false;
+    bool have_evidence = false;
     bool prior_bodylock = false;
     bool have_prior = false;
     for (const SimulationTraceFrame& frame : trace) {
         if (!frame.target_active) {
-            prior_observed = false;
+            prior_evidence_present = false;
+            have_evidence = false;
             prior_bodylock = false;
             have_prior = false;
             continue;
         }
-        const bool observed = frame.output.target_observed;
-        if (have_prior && prior_observed && !observed) {
-            result.push_back({frame.absolute_ms, frame.target_elapsed_ms,
-                              frame.target_id, AnchorKind::ObservationLoss});
-        } else if (have_prior && !prior_observed && observed) {
-            result.push_back({frame.absolute_ms, frame.target_elapsed_ms,
-                              frame.target_id, AnchorKind::ObservationRecovery});
+        if (frame.input.fresh_vision) {
+            const bool evidence_present = frame.input.target_present;
+            if (have_evidence && prior_evidence_present && !evidence_present) {
+                result.push_back({frame.absolute_ms, frame.target_elapsed_ms,
+                                  frame.target_id, AnchorKind::ObservationLoss});
+            } else if (have_evidence && !prior_evidence_present &&
+                       evidence_present) {
+                result.push_back({frame.absolute_ms, frame.target_elapsed_ms,
+                                  frame.target_id, AnchorKind::ObservationRecovery});
+            }
+            prior_evidence_present = evidence_present;
+            have_evidence = true;
         }
         if (have_prior && !prior_bodylock && frame.output.bodylock_mode) {
             result.push_back({frame.absolute_ms, frame.target_elapsed_ms,
                               frame.target_id, AnchorKind::AdsBodylockHandoff});
         }
-        prior_observed = observed;
         prior_bodylock = frame.output.bodylock_mode;
         have_prior = true;
     }

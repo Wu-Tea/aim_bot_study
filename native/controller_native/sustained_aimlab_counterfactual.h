@@ -38,6 +38,7 @@ struct ReplayReference {
     ScenarioScript script;
     ManualProfile manual_profile = ManualProfile::Pure;
     BenchmarkCohort cohort = BenchmarkCohort::AdsAcquire;
+    BenchmarkResult benchmark_result;
     std::vector<SimulationTraceFrame> trace;
 };
 

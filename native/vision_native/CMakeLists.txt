@@ -1409,6 +1409,8 @@ add_executable(cod_native_aimlab_benchmark
 
 add_executable(cod_native_sustained_aimlab_benchmark
     ../controller_native/cod_native_sustained_aimlab_benchmark.cpp
+    ../controller_native/sustained_aimlab_counterfactual.cpp
+    ../controller_native/sustained_aimlab_trace.cpp
     ../controller_native/sustained_aimlab_simulator.cpp
     ../controller_native/sustained_aimlab_score.cpp
     ../controller_native/sustained_aimlab_scenario.cpp

@@ -42,6 +42,7 @@ struct ConflictEpisode {
     int start_ms = 0;
     int end_ms = 0;
     double severity = 0.0;
+    int peak_ms = -1;
 };
 
 struct ConflictConfig {
