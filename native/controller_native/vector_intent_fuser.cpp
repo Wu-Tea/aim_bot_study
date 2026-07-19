@@ -93,6 +93,7 @@ CandidateScore score_candidate(
     result.weights = candidate_weights(candidate);
     result.output = mix(
         input.manual_stick, input.shaped_ai_stick, result.weights);
+    const auto output_delta = subtract(result.output, previous_output);
     const float response = std::max(1.0f, input.plan.response_scale) *
         std::clamp(input.plan.response_confidence, 0.0f, 1.0f);
     const auto initial = control_error(input.plan.error_px);
@@ -105,8 +106,8 @@ CandidateScore score_candidate(
         const float horizon = kHorizons[index];
         const auto base = control_error(base_error_at(input.plan, horizon));
         const pipeline_contract::Vec2f camera{
-            result.output.x * response * horizon,
-            result.output.y * response * horizon};
+            output_delta.x * response * horizon,
+            output_delta.y * response * horizon};
         const auto predicted = subtract(base, camera);
         const float error = length(predicted);
         cost += error * kHorizonWeights[index];
@@ -238,10 +239,32 @@ VectorIntentFusionDecision VectorIntentFuser::update(
         return decision;
     };
     if (fallback_reason != FusionFallbackReason::None) {
-        decision.candidate = FusionCandidate::ManualOnly;
-        previous_candidate_ = FusionCandidate::ManualOnly;
+        decision.candidate = FusionCandidate::ExistingMix;
+        previous_candidate_ = FusionCandidate::ExistingMix;
         initialized_ = false;
-        return apply_weights({1.0f, 0.0f}, fallback_reason);
+        return apply_weights({1.0f, 1.0f}, fallback_reason);
+    }
+
+    if (!initialized_) {
+        applied_manual_weight_ = 1.0f;
+        applied_ai_weight_ = 1.0f;
+    }
+
+    if (manual_magnitude <= 0.02f || input.manual_confidence <= 0.0f) {
+        decision.candidate = FusionCandidate::ExistingMix;
+        previous_candidate_ = FusionCandidate::ExistingMix;
+        initialized_ = true;
+        return apply_weights(
+            candidate_weights(FusionCandidate::ExistingMix),
+            FusionFallbackReason::None);
+    }
+    if (dot(input.manual_stick, input.shaped_ai_stick) > 0.0f) {
+        decision.candidate = FusionCandidate::ExistingMix;
+        previous_candidate_ = FusionCandidate::ExistingMix;
+        initialized_ = true;
+        return apply_weights(
+            candidate_weights(FusionCandidate::ExistingMix),
+            FusionFallbackReason::None);
     }
 
     decision.fallback = false;
@@ -253,13 +276,17 @@ VectorIntentFusionDecision VectorIntentFuser::update(
         FusionCandidate::AiOnly,
         FusionCandidate::ReducedMix,
     };
-    constexpr float kSelectionMargin = 1.0f;
+    constexpr float kSelectionMargin = 2.0f;
 
     std::array<CandidateScore, kCandidates.size()> scores{};
     std::size_t best_index = 0;
     for (std::size_t index = 0; index < kCandidates.size(); ++index) {
         scores[index] = score_candidate(
             kCandidates[index], input, previous_output_);
+        if (kCandidates[index] == FusionCandidate::AiOnly &&
+            input.manual_confidence >= 0.35f) {
+            scores[index].cost = std::numeric_limits<float>::infinity();
+        }
         decision.candidate_costs[index] = scores[index].cost;
         if (scores[index].cost < scores[best_index].cost) best_index = index;
     }
@@ -307,7 +334,7 @@ void VectorIntentFuser::reset() noexcept {
     previous_candidate_ = FusionCandidate::ManualOnly;
     previous_output_ = {};
     applied_manual_weight_ = 1.0f;
-    applied_ai_weight_ = 0.0f;
+    applied_ai_weight_ = 1.0f;
     target_id_ = 0;
     initialized_ = false;
 }

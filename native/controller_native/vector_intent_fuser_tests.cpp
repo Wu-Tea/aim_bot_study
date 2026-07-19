@@ -109,6 +109,33 @@ void test_opposing_small_manual_can_choose_ai_supported() {
                  "small opposing manual input must allow AI-supported fusion");
 }
 
+void test_deliberate_opposing_manual_is_not_fully_swallowed() {
+    VectorIntentFuser fuser;
+    auto input = input_for({-0.35f, 0.0f}, {0.30f, 0.0f});
+    input.manual_confidence = 0.9f;
+    const auto decision = fuser.update(input, 0.024f);
+    require_true(decision.target_manual_weight >= 0.5f,
+                 "deliberate manual conflict must retain at least half ownership");
+    require_true(decision.candidate != FusionCandidate::AiOnly,
+                 "AI-only is reserved for low-confidence manual noise");
+}
+
+void test_high_confidence_manual_never_selects_ai_only() {
+    for (const float manual : {-0.05f, -0.15f, -0.25f, -0.35f, -0.44f}) {
+        for (const float ai : {0.10f, 0.30f, 0.50f}) {
+            for (const float error : {5.0f, 20.0f, 40.0f}) {
+                VectorIntentFuser fuser;
+                auto input = input_for({manual, 0.0f}, {ai, 0.0f});
+                input.manual_confidence = 0.9f;
+                input.plan.error_px = {error, 0.0f};
+                const auto decision = fuser.update(input, 0.024f);
+                require_true(decision.candidate != FusionCandidate::AiOnly,
+                             "high-confidence manual grid must never select AI-only");
+            }
+        }
+    }
+}
+
 void test_orthogonal_manual_is_not_reduced_by_axis_projection() {
     VectorIntentFuser fuser;
     const auto decision = fuser.update(
@@ -119,11 +146,11 @@ void test_orthogonal_manual_is_not_reduced_by_axis_projection() {
 
 void test_short_local_gain_loses_to_lower_160ms_burden() {
     VectorIntentFuser fuser;
-    auto input = input_for({0.30f, 0.0f}, {0.10f, 0.0f});
+    auto input = input_for({0.30f, 0.0f}, {-0.10f, 0.0f});
     set_horizon(input.plan, {
-        {0.040f, {10.0f, 0.0f}},
-        {0.080f, {15.0f, 0.0f}},
-        {0.160f, {30.0f, 0.0f}},
+        {0.040f, {6.0f, 0.0f}},
+        {0.080f, {12.0f, 0.0f}},
+        {0.160f, {20.0f, 0.0f}},
     });
 
     const auto decision = fuser.update(input, 0.001f);
@@ -147,7 +174,7 @@ void test_left_motion_adjusted_error_rate_changes_winner() {
                  "the plan's left-motion-adjusted error rate must affect selection");
 }
 
-void test_center_cross_continued_push_is_penalized() {
+void test_aligned_center_cross_is_delegated_to_existing_brake() {
     VectorIntentFuser fuser;
     auto input = input_for({0.30f, 0.0f}, {0.30f, 0.0f});
     input.plan.error_px = {3.0f, 0.0f};
@@ -158,8 +185,8 @@ void test_center_cross_continued_push_is_penalized() {
     });
 
     const auto decision = fuser.update(input, 0.001f);
-    require_true(decision.candidate != FusionCandidate::ExistingMix,
-                 "a mix that keeps pushing after a crossing must be penalized");
+    require_true(decision.candidate == FusionCandidate::ExistingMix,
+                 "aligned crossing must remain owned by ADS Brake or controller dynamics");
 }
 
 void test_near_equal_cost_keeps_previous_candidate() {
@@ -169,7 +196,7 @@ void test_near_equal_cost_keeps_previous_candidate() {
     require_true(first.candidate == FusionCandidate::AiSupported,
                  "fixture must establish an AI-supported previous choice");
 
-    auto near_equal = input_for({0.01f, 0.0f}, {0.30f, 0.0f});
+    auto near_equal = input_for({-0.19f, 0.0f}, {0.30f, 0.0f});
     near_equal.plan.error_px = {40.0f, 0.0f};
     const auto second = fuser.update(near_equal, 0.001f);
     require_true(second.candidate == FusionCandidate::AiSupported,
@@ -235,9 +262,71 @@ void test_reacquiring_low_reliability_and_low_response_release_to_manual() {
                      "unreliable causal evidence must use manual fallback");
         require_near(decision.target_manual_weight, 1.0f, 0.0001f,
                      "fallback must target full manual ownership");
-        require_near(decision.target_ai_weight, 0.0f, 0.0001f,
-                     "fallback must target released AI ownership");
+        require_near(decision.target_ai_weight, 1.0f, 0.0001f,
+                     "ambiguous evidence must preserve safe shaped AI fallback");
     }
+}
+
+void test_low_response_confidence_does_not_deadlock_safe_ai_fallback() {
+    VectorIntentFuser fuser;
+    auto input = input_for({0.0f, 0.0f}, {0.30f, 0.0f});
+    input.plan.response_confidence = 0.0f;
+    const auto decision = fuser.update(input, 0.024f);
+    require_true(decision.fallback,
+                 "low response confidence must abstain from candidate ownership");
+    require_near(decision.applied_manual_weight, 1.0f, 0.0001f,
+                 "low confidence must never attenuate manual input");
+    require_near(decision.applied_ai_weight, 1.0f, 0.0001f,
+                 "safe shaped AI must remain active for response learning");
+    require_near(decision.fused_stick.x, 0.30f, 0.0001f,
+                 "safe shaped AI fallback must reach delivered output");
+}
+
+void test_neutral_manual_input_cannot_create_a_second_ai_brake() {
+    VectorIntentFuser fuser;
+    auto input = input_for({0.0f, 0.0f}, {0.30f, -0.10f});
+    input.manual_confidence = 0.0f;
+    input.plan.error_px = {3.0f, 1.0f};
+    const auto decision = fuser.update(input, 0.024f);
+    require_true(decision.candidate == FusionCandidate::ExistingMix,
+                 "without credible manual input there is no fusion conflict");
+    require_near(decision.applied_ai_weight, 1.0f, 0.0001f,
+                 "neutral manual input must not duplicate ADS or BodyLock braking");
+    require_near(decision.fused_stick.x, 0.30f, 0.0001f,
+                 "neutral manual input must preserve shaped AI X");
+    require_near(decision.fused_stick.y, -0.10f, 0.0001f,
+                 "neutral manual input must preserve shaped AI Y");
+}
+
+void test_plan_horizon_does_not_double_apply_previous_camera_output() {
+    VectorIntentFuser fuser;
+    auto input = input_for({0.10f, 0.0f}, {0.20f, 0.0f});
+    const auto first = fuser.update(input, 0.024f);
+    require_true(first.candidate == FusionCandidate::ExistingMix,
+                 "fixture must establish the existing mixed output");
+
+    set_horizon(input.plan, {
+        {0.040f, {10.0f, 0.0f}},
+        {0.080f, {5.0f, 0.0f}},
+        {0.160f, {1.0f, 0.0f}},
+    });
+    const auto second = fuser.update(input, 0.001f);
+    require_true(second.candidate == FusionCandidate::ExistingMix,
+                 "causal horizon already containing camera motion must score only output delta");
+}
+
+void test_aligned_input_near_center_is_not_split_into_another_brake() {
+    VectorIntentFuser fuser;
+    auto input = input_for({0.20f, 0.0f}, {0.20f, 0.0f});
+    input.plan.error_px = {3.0f, 0.0f};
+    set_horizon(input.plan, {
+        {0.040f, {2.0f, 0.0f}},
+        {0.080f, {1.0f, 0.0f}},
+        {0.160f, {0.5f, 0.0f}},
+    });
+    const auto decision = fuser.update(input, 0.024f);
+    require_true(decision.candidate == FusionCandidate::ExistingMix,
+                 "aligned user and AI input has no fusion conflict to arbitrate");
 }
 
 void test_nonfinite_input_returns_exact_physical_manual() {
@@ -265,21 +354,31 @@ void test_same_target_ads_to_bodylock_preserves_weight_state() {
                  "same-target mode handoff must not reset fusion weights");
 }
 
-void test_weights_approach_target_over_24ms() {
+void test_initial_existing_mix_does_not_ramp_safe_ai() {
     VectorIntentFuser fuser;
     const auto input = input_for({0.20f, 0.0f}, {0.20f, 0.0f});
     const auto first = fuser.update(input, 0.001f);
     require_near(first.target_ai_weight, 1.0f, 0.0001f,
                  "aligned fixture must target full AI weight");
-    require_true(first.applied_ai_weight > 0.0f &&
-                 first.applied_ai_weight < 0.10f,
-                 "first millisecond must begin rather than finish transition");
+    require_near(first.applied_ai_weight, 1.0f, 0.0001f,
+                 "baseline existing mix must not pay an AI cold-start ramp");
+}
+
+void test_conflict_weights_approach_target_over_24ms() {
+    VectorIntentFuser fuser;
+    const auto conflict = input_for({-0.20f, 0.0f}, {0.30f, 0.0f});
+    const auto first = fuser.update(conflict, 0.001f);
+    require_near(first.target_manual_weight, 0.5f, 0.0001f,
+                 "conflict fixture must target AI-supported manual weight");
+    require_true(first.applied_manual_weight < 1.0f &&
+                 first.applied_manual_weight > 0.90f,
+                 "first conflict millisecond must begin rather than finish transition");
     auto decision = first;
-    for (int tick = 1; tick < 24; ++tick) {
-        decision = fuser.update(input, 0.001f);
+    for (int tick = 1; tick < 12; ++tick) {
+        decision = fuser.update(conflict, 0.001f);
     }
-    require_near(decision.applied_ai_weight, 1.0f, 0.001f,
-                 "default transition must reach target in 24ms");
+    require_near(decision.applied_manual_weight, 0.5f, 0.001f,
+                 "half-weight ownership change must complete in 12ms");
 }
 
 }  // namespace
@@ -289,18 +388,25 @@ int main() {
         test_candidate_outputs_match_version_one_scales();
         test_aligned_input_keeps_existing_mix();
         test_opposing_small_manual_can_choose_ai_supported();
+        test_deliberate_opposing_manual_is_not_fully_swallowed();
+        test_high_confidence_manual_never_selects_ai_only();
         test_orthogonal_manual_is_not_reduced_by_axis_projection();
         test_short_local_gain_loses_to_lower_160ms_burden();
         test_left_motion_adjusted_error_rate_changes_winner();
-        test_center_cross_continued_push_is_penalized();
+        test_aligned_center_cross_is_delegated_to_existing_brake();
         test_near_equal_cost_keeps_previous_candidate();
         test_diagonal_manual_escape_is_preserved_exactly();
         test_missing_target_falls_back_to_physical_manual();
         test_target_change_releases_without_new_attenuation_step();
         test_reacquiring_low_reliability_and_low_response_release_to_manual();
+        test_low_response_confidence_does_not_deadlock_safe_ai_fallback();
+        test_neutral_manual_input_cannot_create_a_second_ai_brake();
+        test_plan_horizon_does_not_double_apply_previous_camera_output();
+        test_aligned_input_near_center_is_not_split_into_another_brake();
         test_nonfinite_input_returns_exact_physical_manual();
         test_same_target_ads_to_bodylock_preserves_weight_state();
-        test_weights_approach_target_over_24ms();
+        test_initial_existing_mix_does_not_ramp_safe_ai();
+        test_conflict_weights_approach_target_over_24ms();
         std::cout << "cod_native_vector_intent_fuser_tests PASS\n";
         return 0;
     } catch (const std::exception& error) {

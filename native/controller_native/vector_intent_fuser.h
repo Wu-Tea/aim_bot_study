@@ -72,7 +72,7 @@ private:
     FusionCandidate previous_candidate_ = FusionCandidate::ManualOnly;
     pipeline_contract::Vec2f previous_output_{};
     float applied_manual_weight_ = 1.0f;
-    float applied_ai_weight_ = 0.0f;
+    float applied_ai_weight_ = 1.0f;
     std::uint64_t target_id_ = 0;
     bool initialized_ = false;
 };
