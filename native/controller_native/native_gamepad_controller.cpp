@@ -379,7 +379,7 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
     const bool use_vector_fusion = benchmark_intent_fusion_mode_ ==
         BenchmarkIntentFusionMode::CausalVector;
 #else
-    constexpr bool use_vector_fusion = false;
+    constexpr bool use_vector_fusion = true;
 #endif
     auto assist_generation_intent = controller_intent;
     if (use_vector_fusion) {
