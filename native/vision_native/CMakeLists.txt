@@ -1331,6 +1331,12 @@ add_executable(cod_native_sustained_aimlab_simulator_tests
     ../controller_native/sustained_aimlab_scenario.cpp
 )
 
+add_executable(cod_native_sustained_aimlab_trace_tests
+    ../controller_native/sustained_aimlab_trace_tests.cpp
+    ../controller_native/sustained_aimlab_trace.cpp
+    ../controller_native/sustained_aimlab_scenario.cpp
+)
+
 target_include_directories(cod_native_sustained_aimlab_scenario_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/..
 )
@@ -1340,6 +1346,10 @@ target_include_directories(cod_native_sustained_aimlab_score_tests PRIVATE
 )
 
 target_include_directories(cod_native_sustained_aimlab_simulator_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
+target_include_directories(cod_native_sustained_aimlab_trace_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/..
 )
 
@@ -1354,6 +1364,10 @@ add_test(
 add_test(
     NAME NativeSustainedAimlabSimulatorTests
     COMMAND cod_native_sustained_aimlab_simulator_tests)
+
+add_test(
+    NAME NativeSustainedAimlabTraceTests
+    COMMAND cod_native_sustained_aimlab_trace_tests)
 
 target_include_directories(cod_native_aimlab_benchmark_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
