@@ -112,6 +112,25 @@ void test_ads_handoff_waits_for_settle() {
                  "BodyLock must use a wider exit band than its ADS entry band");
 }
 
+void test_bodylock_cannot_rearm_ads_within_one_held_epoch() {
+    controller_native::TargetCoordinatorConfig config{};
+    config.settle_frames = 1;
+    config.settle_radius_px = 8.0f;
+    config.bodylock_exit_radius_px = 48.0f;
+    controller_native::TargetCoordinator coordinator(config);
+
+    coordinator.begin_ads_epoch(1, 1.000);
+    auto plan = coordinator.update(
+        frame(1, 1.000, 1, 242.0f, 208.0f), ads_intent(1.000), 1.000);
+    require_true(plan.mode == pipeline_contract::ControlMode::BodyLockFollow,
+                 "opening target must settle into BodyLock");
+
+    plan = coordinator.update(
+        frame(2, 1.050, 2, 300.0f, 208.0f), ads_intent(1.050), 1.050);
+    require_true(plan.mode == pipeline_contract::ControlMode::BodyLockFollow,
+                 "held ADS epoch must not rearm snap for a new far target");
+}
+
 void test_ads_timeout_does_not_handoff_with_large_residual_error() {
     controller_native::TargetCoordinatorConfig config{};
     config.ads_max_acquisition_ms = 20.0f;
@@ -262,7 +281,7 @@ void test_100hz_motion_stays_finite_at_1000hz_control_rate() {
 
 void test_left_intent_enters_plan_through_learned_response() {
     controller_native::TargetCoordinator coordinator;
-    coordinator.begin_ads_epoch(1);
+    coordinator.begin_ads_epoch(1, 8.000);
     for (int i = 0; i < 80; ++i) {
         coordinator.observe_control_response({0.5f, -100.0f, true, false});
     }
@@ -280,7 +299,7 @@ void test_left_intent_enters_plan_through_learned_response() {
 
 void test_aim_response_feedback_is_separate_from_left_motion_response() {
     controller_native::TargetCoordinator coordinator;
-    coordinator.begin_ads_epoch(1);
+    coordinator.begin_ads_epoch(1, 9.000);
     for (int i = 0; i < 80; ++i) {
         coordinator.observe_control_response({0.5f, -100.0f, true, false});
     }
@@ -383,6 +402,7 @@ int main() {
         test_hold_expires_to_safe_manual_plan();
         test_motion_labels_jump_then_fall();
         test_ads_handoff_waits_for_settle();
+        test_bodylock_cannot_rearm_ads_within_one_held_epoch();
         test_ads_timeout_does_not_handoff_with_large_residual_error();
         test_ads_handoff_rejects_a_predicted_high_speed_crossing();
         test_ads_handoff_accepts_stable_in_radius_capture();

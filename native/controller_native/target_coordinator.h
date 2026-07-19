@@ -15,6 +15,7 @@ struct TargetCoordinatorConfig {
     float max_reacquire_innovation_px = 18.0f;
     float settle_radius_px = 8.0f;
     std::uint32_t settle_frames = 5;
+    float ads_snap_window_ms = 100.0f;
     float ads_max_acquisition_ms = 180.0f;
     float bodylock_activation_radius_px = 150.0f;
     float bodylock_exit_radius_px = 48.0f;
@@ -42,7 +43,7 @@ public:
         const TargetControlFeedback& feedback = {}) noexcept;
 
     bool observe_control_response(const ControlResponseSample& sample) noexcept;
-    void begin_ads_epoch(std::uint64_t epoch) noexcept;
+    void begin_ads_epoch(std::uint64_t epoch, double now_seconds) noexcept;
     void reset() noexcept;
 
 private:
@@ -66,6 +67,7 @@ private:
     double last_observed_seconds_ = 0.0;
     double last_update_seconds_ = 0.0;
     double acquisition_started_seconds_ = 0.0;
+    double ads_epoch_started_seconds_ = 0.0;
     float last_observed_reliability_ = 0.0f;
     float last_observed_normalized_size_ = 0.0f;
     std::uint32_t settled_frames_ = 0;
@@ -74,6 +76,8 @@ private:
     bool fire_requested_ = false;
     bool observed_fire_eligible_ = false;
     bool was_missing_ = false;
+    bool ads_epoch_active_ = false;
+    bool ads_snap_consumed_ = false;
     pipeline_contract::ControlMode control_mode_ = pipeline_contract::ControlMode::Manual;
 };
 

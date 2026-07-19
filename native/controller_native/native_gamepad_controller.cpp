@@ -45,6 +45,8 @@ TargetCoordinatorConfig coordinator_config(const GamepadRuntimeConfig& config) {
     result.settle_radius_px = std::max(1.0f, config.ai_aim.ads_completion_radius_px);
     result.settle_frames = static_cast<std::uint32_t>(
         std::max(1, config.ai_aim.ads_completion_fresh_frames));
+    result.ads_snap_window_ms = static_cast<float>(
+        std::max(0, config.ai_aim.ads_snap_window_ms));
     result.ads_max_acquisition_ms = std::max(0.0f, config.ai_aim.ads_max_acquisition_ms);
     result.bodylock_activation_radius_px = std::max(
         result.settle_radius_px, config.ai_aim.body_lock_activation_box_px);
@@ -303,7 +305,7 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
     last_tick_seconds_ = now;
     aiming_ = aim_activation_tracker_.update(physical, config_.rb_counts_as_aiming);
     if (aiming_ && !previous_aiming_) {
-        target_coordinator_.begin_ads_epoch(++ads_epoch_);
+        target_coordinator_.begin_ads_epoch(++ads_epoch_, now);
         axis_intent_arbiter_.reset();
         vector_intent_fuser_.reset();
         auto_fire_gate_.reset_readiness();

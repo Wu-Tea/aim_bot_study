@@ -23,14 +23,15 @@ ControllerVisionSnapshot target(
     std::uint64_t frame_id,
     double now,
     float dx = 80.0f,
-    float dy = -40.0f) {
+    float dy = -40.0f,
+    std::uint64_t observation_id = 42) {
     ControllerVisionSnapshot snapshot;
     snapshot.frame_updated = true;
     snapshot.selector_identity_protocol = true;
     snapshot.frame_id = frame_id;
     snapshot.capture_time_seconds = now;
     snapshot.ready_time_seconds = now;
-    snapshot.selected_observation_id = 42;
+    snapshot.selected_observation_id = observation_id;
     snapshot.state.has_target = true;
     snapshot.state.aim_authority = true;
     snapshot.state.fire_authority = true;
@@ -44,7 +45,7 @@ ControllerVisionSnapshot target(
     snapshot.state.observed_at_seconds = now;
 
     tracking_native::TrackerDetection detection;
-    detection.id = 42;
+    detection.id = observation_id;
     detection.body_box_px = {snapshot.state.target_x - 35.0f,
                              snapshot.state.target_y - 70.0f,
                              70.0f,
@@ -321,6 +322,41 @@ void test_ads_and_bodylock_share_one_resolved_target_geometry() {
         "coasting applied target height ratio a second time");
 }
 
+void test_held_ads_target_change_does_not_rearm_snap() {
+    double now = 60.0;
+    auto controller_config = config();
+    controller_config.ai_aim.ads_snap_window_ms = 40;
+    controller_config.ai_aim.ads_completion_fresh_frames = 1;
+    controller_config.ai_aim.ads_completion_radius_px = 8.0f;
+    controller_config.ai_aim.body_lock_box_tolerance_px = 8.0f;
+    NativeGamepadController controller(controller_config, [&now] { return now; });
+    auto physical = aiming();
+
+    controller.submit_vision_snapshot(target(1, now, 2.0f, 0.0f, 101));
+    controller.build_output(physical);
+    require(controller.last_ai_aim_mode() == "body_lock",
+            "close opening target must settle into BodyLock");
+
+    now += 0.060;
+    controller.submit_vision_snapshot(target(2, now, 60.0f, 0.0f, 202));
+    controller.build_output(physical);
+    require(controller.last_ai_aim_mode() == "body_lock",
+            "new target while ADS is held must not rearm ADS snap");
+
+    now += 0.010;
+    physical.left_trigger = 0.0f;
+    controller.build_output(physical);
+    require(controller.last_ai_aim_mode() == "manual",
+            "ADS release must return to manual mode");
+
+    now += 0.010;
+    physical.left_trigger = 1.0f;
+    controller.submit_vision_snapshot(target(3, now, 60.0f, 0.0f, 202));
+    controller.build_output(physical);
+    require(controller.last_ai_aim_mode() == "ads_snap",
+            "a new physical ADS press must rearm ADS snap");
+}
+
 void test_physical_fire_is_never_cleared_by_autofire() {
     double now = 70.0;
     auto controller_config = config();
@@ -466,6 +502,7 @@ int main() {
         test_vector_mode_generates_ai_before_manual_arbitration();
         test_only_worsening_wrong_way_axis_stops_suppressing_assist();
         test_ads_and_bodylock_share_one_resolved_target_geometry();
+        test_held_ads_target_change_does_not_rearm_snap();
         test_physical_fire_is_never_cleared_by_autofire();
         test_100hz_vision_1000hz_control_emits_stable_fire_cadence();
         std::cout << "[TargetPipelineIntegrationTests] PASS\n";

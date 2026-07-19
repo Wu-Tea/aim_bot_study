@@ -243,16 +243,19 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
             settled_frames_ = 0;
         }
     }
+    const bool snap_window_elapsed = ads_epoch_active_ &&
+        (now_seconds - ads_epoch_started_seconds_) * 1000.0 >=
+            static_cast<double>(std::max(0.0f, config_.ads_snap_window_ms));
     if (!intent.ads) {
         control_mode_ = pipeline_contract::ControlMode::Manual;
+        ads_epoch_active_ = false;
+        ads_snap_consumed_ = false;
     } else if (control_mode_ == pipeline_contract::ControlMode::BodyLockFollow) {
-        if (lifecycle != pipeline_contract::TargetLifecycle::Coasting &&
-            error_length > config_.bodylock_exit_radius_px) {
-            control_mode_ = pipeline_contract::ControlMode::AdsAcquire;
-            settled_frames_ = 0;
-        }
-    } else if (settled_frames_ >= config_.settle_frames) {
+        ads_snap_consumed_ = true;
+    } else if (ads_snap_consumed_ || snap_window_elapsed ||
+               settled_frames_ >= config_.settle_frames) {
         control_mode_ = pipeline_contract::ControlMode::BodyLockFollow;
+        ads_snap_consumed_ = true;
     } else {
         control_mode_ = pipeline_contract::ControlMode::AdsAcquire;
     }
@@ -303,8 +306,12 @@ bool TargetCoordinator::observe_control_response(const ControlResponseSample& sa
     return response_estimator_.update(sample);
 }
 
-void TargetCoordinator::begin_ads_epoch(std::uint64_t epoch) noexcept {
+void TargetCoordinator::begin_ads_epoch(
+    std::uint64_t epoch, double now_seconds) noexcept {
     response_estimator_.begin_ads_epoch(epoch);
+    ads_epoch_started_seconds_ = now_seconds;
+    ads_epoch_active_ = true;
+    ads_snap_consumed_ = false;
     control_mode_ = pipeline_contract::ControlMode::AdsAcquire;
 }
 
@@ -321,6 +328,7 @@ void TargetCoordinator::reset() noexcept {
     last_observed_seconds_ = 0.0;
     last_update_seconds_ = 0.0;
     acquisition_started_seconds_ = 0.0;
+    ads_epoch_started_seconds_ = 0.0;
     last_observed_reliability_ = 0.0f;
     last_observed_normalized_size_ = 0.0f;
     settled_frames_ = 0;
@@ -329,6 +337,8 @@ void TargetCoordinator::reset() noexcept {
     fire_requested_ = false;
     observed_fire_eligible_ = false;
     was_missing_ = false;
+    ads_epoch_active_ = false;
+    ads_snap_consumed_ = false;
     control_mode_ = pipeline_contract::ControlMode::Manual;
 }
 
