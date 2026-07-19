@@ -1,11 +1,27 @@
 param(
     [Parameter(Mandatory = $true)][string]$Baseline,
-    [Parameter(Mandatory = $true)][string]$Candidate
+    [Parameter(Mandatory = $true)][string]$Candidate,
+    [switch]$AllowIntentFusionDifference
 )
 
 $ErrorActionPreference = "Stop"
 $before = Get-Content (Resolve-Path $Baseline) -Raw | ConvertFrom-Json
 $after = Get-Content (Resolve-Path $Candidate) -Raw | ConvertFrom-Json
+
+$beforeFusion = $before.PSObject.Properties['intent_fusion']
+$afterFusion = $after.PSObject.Properties['intent_fusion']
+if ($null -eq $beforeFusion -or $null -eq $afterFusion) {
+    throw "Both artifacts must identify intent_fusion metadata"
+}
+foreach ($field in @('schema_version', 'candidate_set_version')) {
+    if ($before.intent_fusion.$field -ne $after.intent_fusion.$field) {
+        throw "Intent fusion metadata mismatch for ${field}"
+    }
+}
+if (-not $AllowIntentFusionDifference -and
+    $before.intent_fusion.mode -ne $after.intent_fusion.mode) {
+    throw "Intent fusion mode mismatch; pass -AllowIntentFusionDifference for an explicit experiment"
+}
 
 $beforeCf = $before.PSObject.Properties['counterfactual_conflict']
 $afterCf = $after.PSObject.Properties['counterfactual_conflict']

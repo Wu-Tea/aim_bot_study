@@ -30,7 +30,13 @@ bool same_output(const ControllerStepResult& left,
              right.radial_closing_velocity_px_per_sec) &&
         left.bodylock_mode == right.bodylock_mode &&
         left.target_observed == right.target_observed &&
-        left.tracker_reliable == right.tracker_reliable;
+        left.tracker_reliable == right.tracker_reliable &&
+        left.intent_fusion_candidate == right.intent_fusion_candidate &&
+        near(left.intent_fusion_manual_weight,
+             right.intent_fusion_manual_weight) &&
+        near(left.intent_fusion_ai_weight, right.intent_fusion_ai_weight) &&
+        left.intent_fusion_fallback == right.intent_fusion_fallback &&
+        left.intent_fusion_manual_escape == right.intent_fusion_manual_escape;
 }
 
 bool same_frame(const SimulationTraceFrame& left,

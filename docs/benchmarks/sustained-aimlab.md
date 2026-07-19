@@ -84,3 +84,19 @@ The main new diagnostics are:
 Do not optimize a single aggregate number. Reduce causal regret and future burden
 while requiring non-regression in acquisition speed, tracking, braking,
 interruption, overshoot, smoothness, and live feel.
+
+## Intent fusion experiment
+
+Use `--intent-fusion legacy|vector` to select the controller mixing path. Every
+artifact records the fusion schema, mode, candidate-set version, per-candidate
+tick counts, fallback/escape ticks, and mean applied manual/AI weights.
+
+The comparison script rejects a missing or mismatched fusion identity by
+default. Comparing legacy and vector policies is an explicit experiment:
+
+```powershell
+& scripts/verify/compare_sustained_aimlab.ps1 `
+  -Baseline runs/native_perf/fusion-legacy.json `
+  -Candidate runs/native_perf/fusion-vector.json `
+  -AllowIntentFusionDifference
+```

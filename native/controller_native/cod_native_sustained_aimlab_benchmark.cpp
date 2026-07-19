@@ -28,6 +28,7 @@ namespace {
 using controller_native::ControllerVisionSnapshot;
 using controller_native::GamepadRuntimeConfig;
 using controller_native::NativeGamepadController;
+using controller_native::BenchmarkIntentFusionMode;
 using controller_native::PhysicalGamepadState;
 using controller_native::RuntimeConfig;
 using namespace controller_native::sustained_aimlab;
@@ -47,6 +48,7 @@ struct CliOptions {
     int duration_ms = 60'000;
     bool smoke = false;
     std::string counterfactual = "off";
+    std::string intent_fusion = "legacy";
 };
 
 struct CounterfactualEpisodeSummary {
@@ -84,6 +86,15 @@ struct CounterfactualRunSummary {
     std::vector<CounterfactualEpisodeSummary> worst_episodes;
 };
 
+struct FusionRunSummary {
+    std::array<std::uint64_t, 6> candidate_ticks{};
+    std::uint64_t fallback_ticks = 0;
+    std::uint64_t manual_escape_ticks = 0;
+    double manual_weight_sum = 0.0;
+    double ai_weight_sum = 0.0;
+    std::uint64_t ticks = 0;
+};
+
 CliOptions parse_args(int argc, char** argv) {
     CliOptions options;
     for (int index = 1; index < argc; ++index) {
@@ -117,6 +128,8 @@ CliOptions parse_args(int argc, char** argv) {
             options.smoke = true;
         } else if (argument == "--counterfactual" && index + 1 < argc) {
             options.counterfactual = argv[++index];
+        } else if (argument == "--intent-fusion" && index + 1 < argc) {
+            options.intent_fusion = argv[++index];
         } else if (argument == "--help") {
             std::cout
                 << "Usage: cod_native_sustained_aimlab_benchmark "
@@ -126,7 +139,8 @@ CliOptions parse_args(int argc, char** argv) {
                 << "[--slowdown-edge N] [--slowdown-center N] "
                 << "[--output PATH] [--revision HASH] [--dirty] "
                 << "[--duration-ms N] [--smoke] "
-                << "[--counterfactual off|quick|full]\n";
+                << "[--counterfactual off|quick|full] "
+                << "[--intent-fusion legacy|vector]\n";
             std::exit(EXIT_SUCCESS);
         } else {
             throw std::runtime_error(
@@ -153,6 +167,11 @@ CliOptions parse_args(int argc, char** argv) {
         options.counterfactual != "full") {
         throw std::runtime_error(
             "counterfactual mode must be off, quick, or full");
+    }
+    if (options.intent_fusion != "legacy" &&
+        options.intent_fusion != "vector") {
+        throw std::runtime_error(
+            "intent fusion mode must be legacy or vector");
     }
     if (options.camera_response <= 0.0 || options.slowdown_edge <= 0.0 ||
         options.slowdown_edge > 1.0 || options.slowdown_center <= 0.0 ||
@@ -317,7 +336,8 @@ void write_report(
     const BenchmarkConfig& config,
     std::uint64_t config_fingerprint,
     const std::vector<BenchmarkResult>& results,
-    const std::vector<CounterfactualRunSummary>& counterfactual_results) {
+    const std::vector<CounterfactualRunSummary>& counterfactual_results,
+    const std::vector<FusionRunSummary>& fusion_results) {
     if (output_path.empty()) return;
     if (std::filesystem::exists(output_path)) {
         throw std::runtime_error("output already exists: " + output_path.string());
@@ -347,6 +367,9 @@ void write_report(
         << config.camera_response_px_per_stick_second
         << ", \"slowdown_edge\": " << config.slowdown_edge_multiplier
         << ", \"slowdown_center\": " << config.slowdown_center_multiplier << "},\n"
+        << "  \"intent_fusion\": {\"schema_version\": 1, \"mode\": "
+        << json_string(options.intent_fusion)
+        << ", \"candidate_set_version\": 1},\n"
         << "  \"counterfactual_conflict\": {\"schema_version\": 1, "
         << "\"candidate_set_version\": 1, \"mode\": "
         << json_string(options.counterfactual)
@@ -442,7 +465,20 @@ void write_report(
                 << ",\"handoff_closing_speed_px_per_sec\":"
                 << target.handoff_closing_speed_px_per_sec << '}';
         }
-        out << "],\"counterfactual\":";
+        const FusionRunSummary& fusion = fusion_results.at(run_index);
+        out << "],\"intent_fusion\":{\"candidate_ticks\":[";
+        for (std::size_t index = 0; index < fusion.candidate_ticks.size(); ++index) {
+            if (index != 0) out << ',';
+            out << fusion.candidate_ticks[index];
+        }
+        const double divisor = fusion.ticks > 0
+            ? static_cast<double>(fusion.ticks) : 1.0;
+        out << "],\"fallback_ticks\":" << fusion.fallback_ticks
+            << ",\"manual_escape_ticks\":" << fusion.manual_escape_ticks
+            << ",\"mean_manual_weight\":"
+            << fusion.manual_weight_sum / divisor
+            << ",\"mean_ai_weight\":" << fusion.ai_weight_sum / divisor
+            << "},\"counterfactual\":";
         if (run_index < counterfactual_results.size()) {
             write_counterfactual_summary(out, counterfactual_results[run_index]);
         } else {
@@ -491,6 +527,7 @@ public:
     NativeReplayAdapter(
         GamepadRuntimeConfig source_config,
         BranchSchedule schedule,
+        BenchmarkIntentFusionMode intent_fusion_mode,
         std::shared_ptr<bool> saw_assisted_mode)
         : schedule_(schedule),
           config_(std::move(source_config)),
@@ -498,6 +535,7 @@ public:
           saw_assisted_mode_(std::move(saw_assisted_mode)) {
         physical_.connected = true;
         physical_.left_trigger = 1.0f;
+        controller_.set_benchmark_intent_fusion_mode(intent_fusion_mode);
         controller_.set_benchmark_mix_transform(
             [this](float manual_x, float manual_y,
                    float mixed_x, float mixed_y,
@@ -561,6 +599,11 @@ public:
             mode == "body_lock",
             vision.current_observed_target_present,
             vision.has_target,
+            components.intent_fusion_candidate,
+            components.intent_fusion_manual_weight,
+            components.intent_fusion_ai_weight,
+            components.intent_fusion_fallback,
+            components.intent_fusion_manual_escape,
         };
     }
 
@@ -576,17 +619,34 @@ private:
 
 ReplayControllerFactory make_native_factory(
     GamepadRuntimeConfig config,
+    BenchmarkIntentFusionMode intent_fusion_mode,
     std::shared_ptr<bool> saw_assisted_mode) {
     config.recoil.enabled = false;
     return [config = std::move(config),
+            intent_fusion_mode,
             saw_assisted_mode = std::move(saw_assisted_mode)](
                const BranchSchedule& schedule) {
         auto state = std::make_shared<NativeReplayAdapter>(
-            config, schedule, saw_assisted_mode);
+            config, schedule, intent_fusion_mode, saw_assisted_mode);
         return [state](const ControllerObservation& input) {
             return state->step(input);
         };
     };
+}
+
+FusionRunSummary summarize_fusion(const ReplayReference& reference) {
+    FusionRunSummary summary;
+    for (const auto& frame : reference.trace) {
+        const auto& output = frame.output;
+        const int candidate = std::clamp(output.intent_fusion_candidate, 0, 5);
+        ++summary.candidate_ticks[static_cast<std::size_t>(candidate)];
+        if (output.intent_fusion_fallback) ++summary.fallback_ticks;
+        if (output.intent_fusion_manual_escape) ++summary.manual_escape_ticks;
+        summary.manual_weight_sum += output.intent_fusion_manual_weight;
+        summary.ai_weight_sum += output.intent_fusion_ai_weight;
+        ++summary.ticks;
+    }
+    return summary;
 }
 
 const BranchResult& actual_branch(const CounterfactualEpisode& episode) {
@@ -776,16 +836,22 @@ int main(int argc, char** argv) {
         if (options.cohort != "ads") cohorts.push_back(BenchmarkCohort::BodyLockFollow);
         std::vector<BenchmarkResult> results;
         std::vector<CounterfactualRunSummary> counterfactual_results;
+        std::vector<FusionRunSummary> fusion_results;
+        const BenchmarkIntentFusionMode intent_fusion_mode =
+            options.intent_fusion == "vector"
+            ? BenchmarkIntentFusionMode::CausalVector
+            : BenchmarkIntentFusionMode::LegacyAxis;
         for (const std::uint32_t seed : options.seeds) {
             const ScenarioScript script = generate_script(seed, benchmark_config);
             for (const ManualProfile profile : profiles) {
                 for (const BenchmarkCohort cohort : cohorts) {
                     auto saw_assisted_mode = std::make_shared<bool>(false);
                     const ReplayControllerFactory factory = make_native_factory(
-                        runtime.gamepad, saw_assisted_mode);
+                        runtime.gamepad, intent_fusion_mode, saw_assisted_mode);
                     ReplayReference reference = record_reference(
                         script, profile, cohort, factory);
                     BenchmarkResult result = reference.benchmark_result;
+                    fusion_results.push_back(summarize_fusion(reference));
                     if (options.smoke) {
                         validate_smoke(
                             result, options.duration_ms, *saw_assisted_mode);
@@ -803,7 +869,8 @@ int main(int argc, char** argv) {
             benchmark_config,
             file_fingerprint(options.config_path),
             results,
-            counterfactual_results);
+            counterfactual_results,
+            fusion_results);
         std::cout << "cod_native_sustained_aimlab_benchmark PASS\n";
         return EXIT_SUCCESS;
     } catch (const std::exception& error) {

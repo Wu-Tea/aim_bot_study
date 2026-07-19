@@ -27,6 +27,11 @@ struct ControllerStepResult {
     bool bodylock_mode = false;
     bool target_observed = false;
     bool tracker_reliable = false;
+    int intent_fusion_candidate = 0;
+    float intent_fusion_manual_weight = 1.0f;
+    float intent_fusion_ai_weight = 0.0f;
+    bool intent_fusion_fallback = false;
+    bool intent_fusion_manual_escape = false;
 };
 
 struct SimulationTraceFrame {
