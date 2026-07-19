@@ -377,6 +377,7 @@ target_compile_definitions(cod_native_controller_tests
     PRIVATE
         NOMINMAX
         WIN32_LEAN_AND_MEAN
+        COD_BENCHMARK_MIX_OVERRIDE
 )
 
 target_link_libraries(cod_native_controller_tests PRIVATE
@@ -1426,6 +1427,7 @@ target_include_directories(cod_native_sustained_aimlab_benchmark PRIVATE
 target_compile_definitions(cod_native_sustained_aimlab_benchmark PRIVATE
     NOMINMAX
     WIN32_LEAN_AND_MEAN
+    COD_BENCHMARK_MIX_OVERRIDE
 )
 
 target_link_libraries(cod_native_sustained_aimlab_benchmark PRIVATE

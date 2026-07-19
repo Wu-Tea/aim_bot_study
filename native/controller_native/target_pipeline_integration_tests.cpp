@@ -170,6 +170,35 @@ void test_opposing_manual_intent_yields_without_braking_bodylock() {
     require(conflict_ticks < 16, "assist fought strong opposing manual intent too long");
 }
 
+void test_benchmark_mix_override_updates_delivered_feedback() {
+    double now = 32.0;
+    NativeGamepadController controller(config(), [&now] { return now; });
+    controller.set_benchmark_mix_transform(
+        [](float manual_x, float manual_y, float, float,
+           const controller_native::NativeControllerOutputComponents&) {
+            return pipeline_contract::Vec2f{
+                manual_x * 0.5f, manual_y * 0.5f};
+        });
+    auto physical = aiming();
+    physical.right_x = 0.20f;
+    physical.right_y = -0.12f;
+
+    const auto output = controller.build_output(physical);
+
+    require(std::fabs(output.right_x - 0.10f) < 1e-6f,
+            "override must replace delivered X");
+    require(std::fabs(output.right_y + 0.06f) < 1e-6f,
+            "override must replace delivered Y");
+    require(std::fabs(
+                controller.last_output_components().before_recoil_stick.x -
+                output.right_x) < 1e-6f,
+            "feedback components must record overridden X");
+    require(std::fabs(
+                controller.last_tracker_motion_output().right_x -
+                output.right_x) < 1e-6f,
+            "tracker feedback must match delivered output");
+}
+
 void test_only_worsening_wrong_way_axis_stops_suppressing_assist() {
     double now = 35.0;
     NativeGamepadController controller(config(), [&now] { return now; });
@@ -387,6 +416,7 @@ int main() {
         test_ads_is_bounded_and_drift_is_ignored();
         test_vision_gap_uses_smooth_short_continuity();
         test_opposing_manual_intent_yields_without_braking_bodylock();
+        test_benchmark_mix_override_updates_delivered_feedback();
         test_only_worsening_wrong_way_axis_stops_suppressing_assist();
         test_ads_and_bodylock_share_one_resolved_target_geometry();
         test_physical_fire_is_never_cleared_by_autofire();

@@ -54,6 +54,15 @@ public:
     const std::string& last_ai_aim_mode() const;
     bool body_lock_manual_takeover_active() const;
     RelativeMotionEstimate body_lock_relative_motion_estimate() const;
+#if defined(COD_BENCHMARK_MIX_OVERRIDE)
+    using BenchmarkMixTransform = std::function<pipeline_contract::Vec2f(
+        float manual_x,
+        float manual_y,
+        float mixed_x,
+        float mixed_y,
+        const NativeControllerOutputComponents& components)>;
+    void set_benchmark_mix_transform(BenchmarkMixTransform transform);
+#endif
 
 private:
     pipeline_contract::VisionObservationBatch observation_batch_from(
@@ -109,6 +118,9 @@ private:
     pipeline_contract::TargetPlan last_target_plan_{};
     std::string last_ai_aim_mode_ = "manual";
     std::function<double()> clock_;
+#if defined(COD_BENCHMARK_MIX_OVERRIDE)
+    BenchmarkMixTransform benchmark_mix_transform_;
+#endif
 };
 
 }  // namespace controller_native

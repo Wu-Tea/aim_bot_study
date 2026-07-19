@@ -453,6 +453,18 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
         physical.right_x * x_decision.manual_retention + shaped.x);
     output.right_y = clamp_unit(
         physical.right_y * y_decision.manual_retention + shaped.y);
+#if defined(COD_BENCHMARK_MIX_OVERRIDE)
+    if (benchmark_mix_transform_) {
+        const auto replacement = benchmark_mix_transform_(
+            physical.right_x,
+            physical.right_y,
+            output.right_x,
+            output.right_y,
+            components);
+        output.right_x = clamp_unit(replacement.x);
+        output.right_y = clamp_unit(replacement.y);
+    }
+#endif
     components.post_ai_stick = {output.right_x, output.right_y};
     components.post_dynamic_stick = components.post_ai_stick;
     components.aim_mode = last_ai_aim_mode_;
@@ -555,6 +567,13 @@ const pipeline_contract::TargetPlan& NativeGamepadController::last_target_plan()
 const std::string& NativeGamepadController::last_ai_aim_mode() const {
     return last_ai_aim_mode_;
 }
+
+#if defined(COD_BENCHMARK_MIX_OVERRIDE)
+void NativeGamepadController::set_benchmark_mix_transform(
+    BenchmarkMixTransform transform) {
+    benchmark_mix_transform_ = std::move(transform);
+}
+#endif
 
 bool NativeGamepadController::body_lock_manual_takeover_active() const {
     return false;
