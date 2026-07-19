@@ -190,6 +190,85 @@ Within-target future burden belongs to the fuser. Cross-target opportunity cost 
 
 This boundary prevents input mixing and target ownership from becoming one coupled state machine.
 
+## Cross-target global-optimum learning roadmap
+
+Cross-target learning is a required follow-up workstream, not an unspecified future idea. Its objective is to minimize the total time and correction burden across a sequence of target motion, occlusion, handoff, and target-selection events. It may accept a slightly worse immediate error only when causal evidence predicts a better sequence outcome.
+
+This workstream begins only after the analytical vector fuser has an accepted baseline. It is divided into independently verifiable stages so later work can resume without reopening the architecture decision.
+
+### G0: decision and outcome journal
+
+Add a benchmark/debug-only bounded journal at the `TargetCoordinator` boundary. A decision record contains:
+
+- the visible candidate-target set and stable target identities;
+- selected target and current control mode;
+- per-target error, velocity, reliability, normalized size, motion class, and occlusion state;
+- current fusion decision and output trajectory summary;
+- current and predicted handoff cost;
+- user left/right intent relationship and confidence;
+- response-model scale and confidence.
+
+Delayed outcomes are attached at 160, 500, and 1000 ms and at target switch/end:
+
+- time to first acquisition and stable follow;
+- integrated error and centered time;
+- post-cross error, reversals, and smoothness burden;
+- target loss, false interruption, and unnecessary switch;
+- handoff residual and time to acquire the next selected target;
+- realized opportunity cost relative to replayable alternatives.
+
+The journal is disabled in normal logging and uses a bounded ring buffer in debug/shadow mode.
+
+### G1: sequential counterfactual oracle
+
+Extend the benchmark, not production, to replay target-selection and fusion decisions over a 500-1500 ms sequence horizon. The oracle evaluates a bounded beam of legal action sequences rather than every possible path. Legal actions are: keep the current target, switch to one eligible target, or release target ownership; each action uses the accepted vector fuser candidate set.
+
+The hindsight sequence oracle measures available headroom. A separate causal sequence oracle sees only observations available at each simulated decision and is the only oracle eligible to guide a runtime policy. Results report both local decision regret and sequence regret so a locally helpful but globally harmful action remains visible.
+
+### G2: shadow tail-value estimator
+
+Introduce a `TargetTailValueEstimator` that predicts the remaining 500-1000 ms sequence cost `V(state)` from coarse, bounded context. It initially runs in shadow mode and cannot select targets or alter stick output.
+
+The analytical immediate cost and learned tail value remain separate:
+
+```text
+sequence_cost(action) = immediate_causal_cost(action)
+                      + discounted_tail_value(next_state)
+```
+
+The estimator learns the residual between its causal prediction and delayed realized outcome. It uses slow updates, minimum sample counts, confidence decay, and bounded corrections. No active exploration is allowed in live play; benchmark replay supplies alternative-action coverage.
+
+### G3: bounded coordinator policy
+
+After shadow calibration passes, `TargetCoordinator` may consume the tail value as a bounded adjustment to its existing analytical target score. The learned term cannot exceed 10-15% of the analytical score and cannot override:
+
+- explicit manual target rejection or escape;
+- invalid, stale, or low-reliability targets;
+- target identity/lifecycle safety rules;
+- configured target eligibility;
+- output smoothness and handoff guardrails.
+
+A target switch requires a causal advantage margin sustained across the existing coordinator evidence window. The policy adds no independent switch timer; it supplies a score adjustment and confidence to the coordinator's single ownership decision.
+
+### G4: learning lifetime
+
+Global learning is memory-only first and resets on process restart. Material response-model changes decay affected value confidence so different ADS movement response does not inherit stale certainty. Persistence is a separate future decision requiring repeated real-session evidence, an explicit schema/version, safe invalidation, and user approval; it is not implied by this roadmap.
+
+### Global acceptance gates
+
+The global policy is rejected unless, relative to the accepted analytical fuser, it simultaneously:
+
+- reduces causal sequence regret and 500-1000 ms future burden by at least 15%;
+- reduces time to the next stable acquisition after handoff by at least 8%;
+- does not reduce total centered/tracking time;
+- does not increase unnecessary target switches, false interruption, or target loss;
+- does not worsen p95 handoff residual, post-cross error, or smoothness by more than 2%;
+- preserves manual target rejection and escape tests;
+- produces deterministic results for fixed seed, policy version, and empty learning state;
+- returns to the analytical coordinator result when confidence is insufficient or learning is disabled.
+
+The implementation plan must preserve this roadmap as a separate dependency-ordered track after vector fusion. Completion of vector fusion does not mark the global-optimum learning track complete.
+
 ## Diagnostics
 
 Normal runtime logging remains quiet. Debug mode may record sampled decisions and counters for:
@@ -239,3 +318,4 @@ Stage-two learning has a separate gate: it must outperform the accepted analytic
 4. Re-run the full native test and pipeline contract suite plus deterministic benchmark.
 5. Add the bounded in-memory learner behind an independent benchmark switch.
 6. Adopt stage two only if its separate long-run gate passes.
+7. Begin the independent global-optimum track at G0; vector-fusion completion does not skip or close G0-G4.
