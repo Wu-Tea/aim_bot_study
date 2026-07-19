@@ -23,8 +23,25 @@ Vec2d normalized_control_direction(Vec2d error) noexcept {
 Vec2d mixed_manual_input(
     const TargetScript& target,
     int target_elapsed_ms,
-    Vec2d error) noexcept {
+    Vec2d error,
+    Vec2d target_velocity) noexcept {
     const Vec2d helpful = normalized_control_direction(error);
+    Vec2d tangent{-helpful.y, helpful.x};
+    const Vec2d control_velocity{target_velocity.x, -target_velocity.y};
+    if (control_velocity.x * tangent.x + control_velocity.y * tangent.y < 0.0) {
+        tangent.x = -tangent.x;
+        tangent.y = -tangent.y;
+    }
+    if (target.id % 14 == 7) {
+        return {
+            helpful.x * -0.30 + tangent.x * 0.24,
+            helpful.y * -0.30 + tangent.y * 0.24};
+    }
+    if (target.id % 14 == 8) {
+        return {
+            helpful.x * 0.24 - tangent.x * 0.30,
+            helpful.y * 0.24 - tangent.y * 0.30};
+    }
     switch (target.id % 7) {
     case 0:
         return {0.012, -0.008};
@@ -157,7 +174,7 @@ BenchmarkResult run_simulation(
             if (manual_profile == ManualProfile::Mixed &&
                 (cohort != BenchmarkCohort::BodyLockFollow || tracking)) {
                 input.manual_stick = mixed_manual_input(
-                    target, target_elapsed_ms, error);
+                    target, target_elapsed_ms, error, target_velocity);
             }
         } else if (pending_fresh_miss) {
             input.fresh_vision = true;

@@ -219,6 +219,31 @@ void test_benchmark_vector_fusion_is_one_reported_pipeline_stage() {
             "vector fallback must apply physical manual input exactly once");
 }
 
+float vector_mode_shaped_assist_for(float manual_x) {
+    double now = 34.5;
+    NativeGamepadController controller(config(), [&now] { return now; });
+    controller.set_benchmark_intent_fusion_mode(
+        controller_native::BenchmarkIntentFusionMode::CausalVector);
+    auto physical = aiming();
+    physical.right_x = manual_x;
+    for (std::uint64_t frame = 1; frame <= 8; ++frame) {
+        controller.submit_vision_snapshot(target(frame, now, 80.0f, 0.0f));
+        controller.build_output(physical);
+        now += 0.010;
+    }
+    return std::fabs(
+        controller.last_output_components().shaped_assist_stick.x);
+}
+
+void test_vector_mode_generates_ai_before_manual_arbitration() {
+    const float neutral_ai = vector_mode_shaped_assist_for(0.0f);
+    const float opposing_ai = vector_mode_shaped_assist_for(-0.32f);
+    require(neutral_ai > 0.05f,
+            "fixture must produce material unopposed AI assistance");
+    require(opposing_ai >= neutral_ai * 0.95f,
+            "vector mode must not weaken AI before its single fusion point");
+}
+
 void test_only_worsening_wrong_way_axis_stops_suppressing_assist() {
     double now = 35.0;
     NativeGamepadController controller(config(), [&now] { return now; });
@@ -438,6 +463,7 @@ int main() {
         test_opposing_manual_intent_yields_without_braking_bodylock();
         test_benchmark_mix_override_updates_delivered_feedback();
         test_benchmark_vector_fusion_is_one_reported_pipeline_stage();
+        test_vector_mode_generates_ai_before_manual_arbitration();
         test_only_worsening_wrong_way_axis_stops_suppressing_assist();
         test_ads_and_bodylock_share_one_resolved_target_geometry();
         test_physical_fire_is_never_cleared_by_autofire();

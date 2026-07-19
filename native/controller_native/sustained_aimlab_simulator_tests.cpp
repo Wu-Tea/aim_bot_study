@@ -251,6 +251,40 @@ void test_plan_diagnostics_and_ads_handoff_reach_the_scorer() {
             "tracker radial closing speed must reach the scorer unchanged");
 }
 
+Vec2d first_mixed_manual_for_target(std::uint64_t id) {
+    ScenarioScript script = stationary_script(20, {30.0, 40.0});
+    script.targets.front().id = id;
+    Vec2d captured{};
+    bool saw_manual = false;
+    (void)run_simulation(
+        script, ManualProfile::Mixed,
+        [&](const ControllerObservation& input) {
+            if (!saw_manual && input.target_present) {
+                captured = input.manual_stick;
+                saw_manual = true;
+            }
+            return ControllerStepResult{};
+        });
+    require(saw_manual, "fixture must capture mixed manual input");
+    return captured;
+}
+
+void test_mixed_profile_contains_polar_component_errors() {
+    const Vec2d radial{0.6, -0.8};
+    const Vec2d tangent{0.8, 0.6};
+    const auto radial_wrong = first_mixed_manual_for_target(7);
+    require(radial_wrong.x * radial.x + radial_wrong.y * radial.y < -0.28,
+            "target 7 must contain wrong radial manual input");
+    require(radial_wrong.x * tangent.x + radial_wrong.y * tangent.y > 0.22,
+            "target 7 must preserve helpful tangential manual input");
+
+    const auto tangent_wrong = first_mixed_manual_for_target(8);
+    require(tangent_wrong.x * radial.x + tangent_wrong.y * radial.y > 0.22,
+            "target 8 must preserve helpful radial manual input");
+    require(tangent_wrong.x * tangent.x + tangent_wrong.y * tangent.y < -0.28,
+            "target 8 must contain wrong tangential manual input");
+}
+
 void test_trace_is_deterministic_and_observational() {
     const ScenarioScript script = stationary_script(40, {20.0, 10.0});
     const BenchmarkResult plain = run_simulation(
@@ -281,6 +315,7 @@ int main() {
         test_virtual_camera_x_and_y_signs_close_error();
         test_closed_loop_score_ordering();
         test_same_script_is_reused_for_pure_and_mixed_runs();
+        test_mixed_profile_contains_polar_component_errors();
         test_despawn_publishes_a_fresh_empty_observation();
         test_run_end_does_not_turn_partial_acquisition_into_a_miss();
         test_bodylock_cohort_scores_only_after_confirmed_mode_entry();

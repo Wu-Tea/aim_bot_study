@@ -53,6 +53,10 @@ struct CliOptions {
 
 struct CounterfactualEpisodeSummary {
     int branch_at_ms = 0;
+    std::uint64_t target_id = 0;
+    int fusion_candidate = -1;
+    double fusion_manual_weight = 1.0;
+    double fusion_ai_weight = 0.0;
     std::string source;
     std::string source_kind;
     BranchPolicy causal_policy = BranchPolicy::ActualMix;
@@ -87,7 +91,8 @@ struct CounterfactualRunSummary {
 };
 
 struct FusionRunSummary {
-    std::array<std::uint64_t, 6> candidate_ticks{};
+    std::array<std::uint64_t, controller_native::kFusionCandidateCount>
+        candidate_ticks{};
     std::uint64_t fallback_ticks = 0;
     std::uint64_t manual_escape_ticks = 0;
     double manual_weight_sum = 0.0;
@@ -306,6 +311,10 @@ void write_counterfactual_summary(
         if (index) out << ',';
         const auto& episode = summary.worst_episodes[index];
         out << "{\"branch_at_ms\":" << episode.branch_at_ms
+            << ",\"target_id\":" << episode.target_id
+            << ",\"fusion_candidate\":" << episode.fusion_candidate
+            << ",\"fusion_manual_weight\":" << episode.fusion_manual_weight
+            << ",\"fusion_ai_weight\":" << episode.fusion_ai_weight
             << ",\"source\":" << json_string(episode.source)
             << ",\"source_kind\":" << json_string(episode.source_kind)
             << ",\"causal_policy\":"
@@ -369,9 +378,9 @@ void write_report(
         << ", \"slowdown_center\": " << config.slowdown_center_multiplier << "},\n"
         << "  \"intent_fusion\": {\"schema_version\": 1, \"mode\": "
         << json_string(options.intent_fusion)
-        << ", \"candidate_set_version\": 1},\n"
+        << ", \"candidate_set_version\": 3},\n"
         << "  \"counterfactual_conflict\": {\"schema_version\": 1, "
-        << "\"candidate_set_version\": 1, \"mode\": "
+        << "\"candidate_set_version\": 3, \"mode\": "
         << json_string(options.counterfactual)
         << ", \"primary_oracle\": \"causal_oracle\", "
         << "\"headroom_oracle\": \"hindsight_oracle\", "
@@ -638,7 +647,9 @@ FusionRunSummary summarize_fusion(const ReplayReference& reference) {
     FusionRunSummary summary;
     for (const auto& frame : reference.trace) {
         const auto& output = frame.output;
-        const int candidate = std::clamp(output.intent_fusion_candidate, 0, 5);
+        const int candidate = std::clamp(
+            output.intent_fusion_candidate, 0,
+            static_cast<int>(summary.candidate_ticks.size() - 1));
         ++summary.candidate_ticks[static_cast<std::size_t>(candidate)];
         if (output.intent_fusion_fallback) ++summary.fallback_ticks;
         if (output.intent_fusion_manual_escape) ++summary.manual_escape_ticks;
@@ -663,6 +674,7 @@ const BranchResult& actual_branch(const CounterfactualEpisode& episode) {
 
 void accumulate_episode(
     CounterfactualRunSummary& summary,
+    const ReplayReference& reference,
     const CounterfactualEpisode& episode,
     std::string source,
     std::string source_kind) {
@@ -683,8 +695,14 @@ void accumulate_episode(
     summary.both_harmful_ms += episode.actual.both_harmful_ms;
     summary.destructive_stack_ms += episode.actual.destructive_stack_ms;
     summary.wrong_way_commit_ms += episode.actual.wrong_way_commit_ms;
+    const auto& branch_frame = reference.trace.at(
+        static_cast<std::size_t>(episode.branch_at_ms));
     summary.worst_episodes.push_back({
         episode.branch_at_ms,
+        branch_frame.target_id,
+        branch_frame.output.intent_fusion_candidate,
+        branch_frame.output.intent_fusion_manual_weight,
+        branch_frame.output.intent_fusion_ai_weight,
         std::move(source),
         std::move(source_kind),
         episode.causal_oracle.policy,
@@ -720,7 +738,8 @@ CounterfactualRunSummary analyze_reference(
         const auto episode = analyze_episode(
             reference, anchor.absolute_ms, factory, budget);
         accumulate_episode(
-            summary, episode, "fixed_anchor", anchor_name(anchor.kind));
+            summary, reference, episode,
+            "fixed_anchor", anchor_name(anchor.kind));
         ++summary.fixed_anchors_analyzed;
     }
     summary.fixed_anchors_skipped =
@@ -736,7 +755,8 @@ CounterfactualRunSummary analyze_reference(
         const auto episode = analyze_episode(
             reference, branch_at_ms, factory, budget);
         accumulate_episode(
-            summary, episode, "dynamic_conflict", conflict_name(conflict.kind));
+            summary, reference, episode,
+            "dynamic_conflict", conflict_name(conflict.kind));
         ++summary.dynamic_episodes_analyzed;
     }
     summary.dynamic_episodes_skipped =

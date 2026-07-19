@@ -3,6 +3,7 @@
 #include "pipeline_contract/target_plan.h"
 
 #include <array>
+#include <cstddef>
 
 namespace controller_native {
 
@@ -13,7 +14,14 @@ enum class FusionCandidate : unsigned char {
     ManualOnly,
     AiOnly,
     ReducedMix,
+    RadialCorrected,
+    RadialReplaced,
+    TangentialCorrected,
+    TangentialReplaced,
 };
+
+inline constexpr std::size_t kFusionCandidateCount =
+    static_cast<std::size_t>(FusionCandidate::TangentialReplaced) + 1;
 
 enum class FusionFallbackReason : unsigned char {
     None,
@@ -27,8 +35,12 @@ enum class FusionFallbackReason : unsigned char {
 };
 
 struct FusionWeights {
+    // `manual` is the component parallel to current target error.  The
+    // tangential component is separate so a wrong closing input can be
+    // corrected without swallowing useful target-follow input.
     float manual = 1.0f;
     float ai = 0.0f;
+    float tangential_manual = 1.0f;
 };
 
 FusionWeights candidate_weights(FusionCandidate candidate) noexcept;
@@ -50,10 +62,12 @@ struct VectorIntentFusionDecision {
     FusionCandidate candidate = FusionCandidate::ManualOnly;
     float target_manual_weight = 1.0f;
     float target_ai_weight = 0.0f;
+    float target_tangential_manual_weight = 1.0f;
     float applied_manual_weight = 1.0f;
     float applied_ai_weight = 0.0f;
+    float applied_tangential_manual_weight = 1.0f;
     float winner_margin = 0.0f;
-    std::array<float, 6> candidate_costs{};
+    std::array<float, kFusionCandidateCount> candidate_costs{};
     FusionFallbackReason reason = FusionFallbackReason::None;
     bool fallback = true;
     bool manual_escape = false;
@@ -73,6 +87,7 @@ private:
     pipeline_contract::Vec2f previous_output_{};
     float applied_manual_weight_ = 1.0f;
     float applied_ai_weight_ = 1.0f;
+    float applied_tangential_manual_weight_ = 1.0f;
     std::uint64_t target_id_ = 0;
     bool initialized_ = false;
 };

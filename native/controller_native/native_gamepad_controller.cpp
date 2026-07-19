@@ -381,6 +381,17 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
 #else
     constexpr bool use_vector_fusion = false;
 #endif
+    auto assist_generation_intent = controller_intent;
+    if (use_vector_fusion) {
+        // ADS/BodyLock and the dynamics shaper generate the complete AI proposal.
+        // Manual/AI ownership is decided exactly once by VectorIntentFuser below;
+        // applying the old opposing/cooperative attenuation here would make the
+        // fuser attenuate an already weakened proposal.
+        assist_generation_intent.filtered_right = {};
+        assist_generation_intent.right_x.confidence = 0.0f;
+        assist_generation_intent.right_y.confidence = 0.0f;
+        assist_generation_intent.right_confidence = 0.0f;
+    }
     // TargetPlan does not expose observation innovation. Predicted displacement is
     // target motion, not innovation, so it must not be used as a stability gate.
     const float target_innovation = 0.0f;
@@ -424,9 +435,9 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
 
     pipeline_contract::Vec2f requested{};
     if (plan.mode == pipeline_contract::ControlMode::AdsAcquire) {
-        requested = ads_controller_.compute(plan, controller_intent, dt);
+        requested = ads_controller_.compute(plan, assist_generation_intent, dt);
     } else if (plan.mode == pipeline_contract::ControlMode::BodyLockFollow) {
-        requested = bodylock_controller_.compute(plan, controller_intent, dt);
+        requested = bodylock_controller_.compute(plan, assist_generation_intent, dt);
     }
     pipeline_contract::Vec2f shaped{};
     if (config_.aim_assist_dynamics.enabled ||
@@ -434,7 +445,7 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
         plan.lifecycle == pipeline_contract::TargetLifecycle::None) {
         shaped = dynamics_shaper_.shape(
             requested,
-            controller_intent,
+            assist_generation_intent,
             plan,
             dt,
             {x_decision.intervention ? 1.0f : 0.0f,

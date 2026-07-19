@@ -93,6 +93,12 @@ void test_candidate_outputs_match_version_one_scales() {
                  "reduced mix must halve AI input");
 }
 
+void test_candidate_count_covers_polar_set() {
+    require_true(controller_native::kFusionCandidateCount ==
+                     static_cast<std::size_t>(FusionCandidate::TangentialReplaced) + 1,
+                 "candidate statistics must cover every version-three polar candidate");
+}
+
 void test_aligned_input_keeps_existing_mix() {
     VectorIntentFuser fuser;
     const auto decision = fuser.update(
@@ -101,12 +107,55 @@ void test_aligned_input_keeps_existing_mix() {
                  "aligned user and AI input must keep the existing mix");
 }
 
-void test_opposing_small_manual_can_choose_ai_supported() {
+void test_opposing_small_manual_uses_partial_radial_brake() {
     VectorIntentFuser fuser;
     const auto decision = fuser.update(
         input_for({-0.20f, 0.0f}, {0.30f, 0.0f}), 0.001f);
-    require_true(decision.candidate == FusionCandidate::AiSupported,
-                 "small opposing manual input must allow AI-supported fusion");
+    require_near(decision.target_manual_weight, 0.5f, 0.0001f,
+                 "current-only conflict must preserve half of deliberate radial input");
+    require_near(decision.target_ai_weight, 1.0f, 0.0001f,
+                 "current-only conflict must retain the shaped AI proposal");
+}
+
+void test_wrong_way_manual_only_is_ineligible_below_escape() {
+    VectorIntentFuser fuser;
+    auto input = input_for({-0.30f, 0.0f}, {0.30f, 0.0f});
+    input.manual_confidence = 0.9f;
+    input.plan.error_px = {40.0f, 0.0f};
+    const auto decision = fuser.update(input, 0.001f);
+    for (const auto candidate : {
+             FusionCandidate::ExistingMix,
+             FusionCandidate::ManualSupported,
+             FusionCandidate::ManualOnly,
+             FusionCandidate::ReducedMix}) {
+        require_true(std::isinf(decision.candidate_costs[
+                         static_cast<std::size_t>(candidate)]),
+                     "wrong-way sub-escape input must not retain or symmetrically weaken radial conflict");
+    }
+}
+
+void test_predicted_ads_reversal_releases_excess_radial_manual_ownership() {
+    VectorIntentFuser fuser;
+    auto input = input_for({0.30f, 0.15f}, {-0.30f, 0.0f});
+    input.manual_confidence = 0.9f;
+    input.plan.error_px = {10.0f, 0.0f};
+    set_horizon(input.plan, {
+        {0.040f, {-4.0f, 0.0f}},
+        {0.080f, {-18.0f, 0.0f}},
+        {0.160f, {-42.0f, 0.0f}},
+    });
+    const auto decision = fuser.update(input, 0.001f);
+    require_true(std::isinf(decision.candidate_costs[
+                     static_cast<std::size_t>(FusionCandidate::ManualOnly)]),
+                 "ADS plan reversal must release sticky full radial manual ownership");
+    require_true(std::isfinite(decision.candidate_costs[
+                     static_cast<std::size_t>(FusionCandidate::RadialCorrected)]),
+                 "ADS plan reversal must offer a partial radial brake that preserves tangent");
+    require_true(std::isinf(decision.candidate_costs[
+                     static_cast<std::size_t>(FusionCandidate::AiOnly)]),
+                 "radial brake must not silently become whole-vector AI ownership");
+    require_near(decision.target_manual_weight, 0.5f, 0.0001f,
+                 "predicted ADS reversal must reduce rather than swallow radial manual");
 }
 
 void test_deliberate_opposing_manual_is_not_fully_swallowed() {
@@ -142,6 +191,92 @@ void test_orthogonal_manual_is_not_reduced_by_axis_projection() {
         input_for({0.0f, 0.30f}, {0.30f, 0.0f}), 0.001f);
     require_near(decision.target_manual_weight, 1.0f, 0.0001f,
                  "orthogonal manual tracking must remain fully represented");
+}
+
+void test_radial_correction_preserves_helpful_tangential_manual() {
+    VectorIntentFuser fuser;
+    auto input = input_for({-0.20f, 0.30f}, {0.30f, 0.0f});
+    input.manual_confidence = 0.9f;
+    input.plan.error_px = {20.0f, 0.0f};
+    set_horizon(input.plan, {
+        {0.040f, {20.0f, -6.0f}},
+        {0.080f, {25.0f, -12.0f}},
+        {0.160f, {35.0f, -24.0f}},
+    });
+
+    const auto decision = fuser.update(input, 0.024f);
+    require_true(decision.candidate == FusionCandidate::RadialCorrected,
+                 "wrong radial manual must be reduced without losing helpful tangent");
+    require_near(decision.target_manual_weight, 0.5f, 0.0001f,
+                 "radial correction must halve only radial manual ownership");
+    require_near(decision.target_tangential_manual_weight, 1.0f, 0.0001f,
+                 "radial correction must preserve tangential manual ownership");
+    require_near(decision.fused_stick.y, 0.30f, 0.0001f,
+                 "helpful tangential manual output must survive radial correction");
+}
+
+void test_radial_replacement_can_remove_only_wrong_radial_manual() {
+    VectorIntentFuser fuser;
+    auto input = input_for({-0.18f, 0.25f}, {0.22f, 0.0f});
+    input.manual_confidence = 0.30f;
+    input.plan.error_px = {8.0f, 0.0f};
+    set_horizon(input.plan, {
+        {0.040f, {12.0f, -5.0f}},
+        {0.080f, {18.0f, -10.0f}},
+        {0.160f, {24.0f, -20.0f}},
+    });
+
+    const auto decision = fuser.update(input, 0.024f);
+    require_true(decision.candidate == FusionCandidate::RadialReplaced,
+                 "low-confidence wrong radial manual may be replaced independently");
+    require_near(decision.target_manual_weight, 0.0f, 0.0001f,
+                 "radial replacement must remove the wrong radial component");
+    require_near(decision.target_tangential_manual_weight, 1.0f, 0.0001f,
+                 "radial replacement must retain the tangential component");
+    require_near(decision.fused_stick.y, 0.25f, 0.0001f,
+                 "radial replacement must not swallow tangential correction");
+}
+
+void test_tangential_correction_preserves_helpful_radial_manual() {
+    VectorIntentFuser fuser;
+    auto input = input_for({0.20f, -0.35f}, {0.20f, 0.0f});
+    input.manual_confidence = 0.7f;
+    input.plan.error_px = {20.0f, 0.0f};
+    set_horizon(input.plan, {
+        {0.040f, {25.0f, 0.0f}},
+        {0.080f, {30.0f, 0.0f}},
+        {0.160f, {40.0f, 0.0f}},
+    });
+
+    const auto decision = fuser.update(input, 0.024f);
+    require_true(decision.candidate == FusionCandidate::TangentialCorrected,
+                 "wrong tangent must be reduced without weakening helpful radial input");
+    require_near(decision.target_manual_weight, 1.0f, 0.0001f,
+                 "tangential correction must preserve radial manual ownership");
+    require_near(decision.target_tangential_manual_weight, 0.5f, 0.0001f,
+                 "tangential correction must halve only tangential ownership");
+    require_near(decision.fused_stick.x, 0.40f, 0.0001f,
+                 "helpful radial manual input must survive tangential correction");
+}
+
+void test_tangential_replacement_can_remove_only_wrong_tangent() {
+    VectorIntentFuser fuser;
+    auto input = input_for({0.18f, -0.25f}, {0.22f, 0.0f});
+    input.manual_confidence = 0.30f;
+    input.plan.error_px = {12.0f, 0.0f};
+    set_horizon(input.plan, {
+        {0.040f, {16.0f, 0.0f}},
+        {0.080f, {22.0f, 0.0f}},
+        {0.160f, {34.0f, 0.0f}},
+    });
+
+    const auto decision = fuser.update(input, 0.024f);
+    require_true(decision.candidate == FusionCandidate::TangentialReplaced,
+                 "low-confidence wrong tangent may be replaced independently");
+    require_near(decision.target_manual_weight, 1.0f, 0.0001f,
+                 "tangential replacement must retain helpful radial manual input");
+    require_near(decision.target_tangential_manual_weight, 0.0f, 0.0001f,
+                 "tangential replacement must remove only the tangent");
 }
 
 void test_short_local_gain_loses_to_lower_160ms_burden() {
@@ -187,6 +322,52 @@ void test_aligned_center_cross_is_delegated_to_existing_brake() {
     const auto decision = fuser.update(input, 0.001f);
     require_true(decision.candidate == FusionCandidate::ExistingMix,
                  "aligned crossing must remain owned by ADS Brake or controller dynamics");
+}
+
+void test_bodylock_allows_crossing_while_target_keeps_inertial_direction() {
+    auto continuing = input_for({-0.10f, 0.0f}, {0.30f, 0.0f});
+    continuing.plan.mode = pipeline_contract::ControlMode::BodyLockFollow;
+    continuing.plan.error_px = {3.0f, 0.0f};
+    continuing.plan.velocity_px_per_sec = {100.0f, 0.0f};
+    continuing.plan.acceleration_px_per_sec2 = {-300.0f, 0.0f};
+    set_horizon(continuing.plan, {
+        {0.040f, {-1.0f, 0.0f}},
+        {0.080f, {-3.0f, 0.0f}},
+        {0.160f, {-6.0f, 0.0f}},
+    });
+
+    auto reversed = continuing;
+    reversed.plan.acceleration_px_per_sec2 = {-1000.0f, 0.0f};
+
+    VectorIntentFuser inertial_fuser;
+    VectorIntentFuser reversed_fuser;
+    const auto inertial = inertial_fuser.update(continuing, 0.001f);
+    const auto after_reversal = reversed_fuser.update(reversed, 0.001f);
+    require_true(inertial.candidate_costs[0] < after_reversal.candidate_costs[0],
+                 "BodyLock must allow finite crossing until target velocity reverses");
+}
+
+void test_ads_crossing_penalty_does_not_inherit_bodylock_inertia_allowance() {
+    auto continuing = input_for({-0.10f, 0.0f}, {0.30f, 0.0f});
+    continuing.plan.mode = pipeline_contract::ControlMode::AdsAcquire;
+    continuing.plan.error_px = {3.0f, 0.0f};
+    continuing.plan.velocity_px_per_sec = {100.0f, 0.0f};
+    continuing.plan.acceleration_px_per_sec2 = {-300.0f, 0.0f};
+    set_horizon(continuing.plan, {
+        {0.040f, {-1.0f, 0.0f}},
+        {0.080f, {-3.0f, 0.0f}},
+        {0.160f, {-6.0f, 0.0f}},
+    });
+    auto reversed = continuing;
+    reversed.plan.acceleration_px_per_sec2 = {-1000.0f, 0.0f};
+
+    VectorIntentFuser continuing_fuser;
+    VectorIntentFuser reversed_fuser;
+    const auto before_reversal = continuing_fuser.update(continuing, 0.001f);
+    const auto after_reversal = reversed_fuser.update(reversed, 0.001f);
+    require_near(before_reversal.candidate_costs[0],
+                 after_reversal.candidate_costs[0], 0.0001f,
+                 "ADS settle must keep its crossing brake independent of target inertia");
 }
 
 void test_near_equal_cost_keeps_previous_candidate() {
@@ -381,19 +562,39 @@ void test_conflict_weights_approach_target_over_24ms() {
                  "half-weight ownership change must complete in 12ms");
 }
 
+void test_reliable_wrong_way_ads_attenuates_radial_weight_within_6ms() {
+    VectorIntentFuser fuser;
+    const auto conflict = input_for({-0.20f, 0.0f}, {0.30f, 0.0f});
+    auto decision = fuser.update(conflict, 0.001f);
+    for (int tick = 1; tick < 6; ++tick) {
+        decision = fuser.update(conflict, 0.001f);
+    }
+    require_near(decision.applied_manual_weight, 0.5f, 0.001f,
+                 "reliable wrong-way ADS radial attenuation must finish within 6ms");
+}
+
 }  // namespace
 
 int main() {
     try {
         test_candidate_outputs_match_version_one_scales();
+        test_candidate_count_covers_polar_set();
         test_aligned_input_keeps_existing_mix();
-        test_opposing_small_manual_can_choose_ai_supported();
+        test_opposing_small_manual_uses_partial_radial_brake();
+        test_wrong_way_manual_only_is_ineligible_below_escape();
+        test_predicted_ads_reversal_releases_excess_radial_manual_ownership();
         test_deliberate_opposing_manual_is_not_fully_swallowed();
         test_high_confidence_manual_never_selects_ai_only();
         test_orthogonal_manual_is_not_reduced_by_axis_projection();
         test_short_local_gain_loses_to_lower_160ms_burden();
         test_left_motion_adjusted_error_rate_changes_winner();
         test_aligned_center_cross_is_delegated_to_existing_brake();
+        test_bodylock_allows_crossing_while_target_keeps_inertial_direction();
+        test_ads_crossing_penalty_does_not_inherit_bodylock_inertia_allowance();
+        test_radial_correction_preserves_helpful_tangential_manual();
+        test_radial_replacement_can_remove_only_wrong_radial_manual();
+        test_tangential_correction_preserves_helpful_radial_manual();
+        test_tangential_replacement_can_remove_only_wrong_tangent();
         test_near_equal_cost_keeps_previous_candidate();
         test_diagonal_manual_escape_is_preserved_exactly();
         test_missing_target_falls_back_to_physical_manual();
@@ -407,6 +608,7 @@ int main() {
         test_same_target_ads_to_bodylock_preserves_weight_state();
         test_initial_existing_mix_does_not_ramp_safe_ai();
         test_conflict_weights_approach_target_over_24ms();
+        test_reliable_wrong_way_ads_attenuates_radial_weight_within_6ms();
         std::cout << "cod_native_vector_intent_fuser_tests PASS\n";
         return 0;
     } catch (const std::exception& error) {
