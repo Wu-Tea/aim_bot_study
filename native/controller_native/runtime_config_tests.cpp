@@ -25,6 +25,10 @@ void test_vision_gpu_service_defaults_are_enabled() {
     require(config.vision.gpu_service_idle_fps == 20);
     require(config.vision.gpu_service_keepwarm_when_idle);
     require(config.vision.gpu_service_repeat_last_on_no_update);
+    require(config.vision.capture_width == 480);
+    require(config.vision.capture_height == 416);
+    require(config.vision.model_path ==
+        "models/candidates/body_union_manual_core_x2_neg_e6_480x416.engine");
     require(!config.vision.perf_log);
     require(!config.vision.aim_perf_file_log);
     require(!config.telemetry.enabled);
@@ -36,6 +40,9 @@ void test_vision_gpu_service_config_values_parse() {
     {
         std::ofstream output(path);
         output << "[runtime.vision]\n"
+               << "capture_width = 704\n"
+               << "capture_height = 576\n"
+               << "model_path = \"models/custom.engine\"\n"
                << "gpu_service_enabled = true\n"
                << "gpu_service_active_fps = 120\n"
                << "gpu_service_idle_fps = 15\n"
@@ -48,6 +55,9 @@ void test_vision_gpu_service_config_values_parse() {
     std::filesystem::remove(path);
 
     require(config.vision.gpu_service_enabled);
+    require(config.vision.capture_width == 704);
+    require(config.vision.capture_height == 576);
+    require(config.vision.model_path == "models/custom.engine");
     require(config.vision.gpu_service_active_fps == 120);
     require(config.vision.gpu_service_idle_fps == 15);
     require(!config.vision.gpu_service_keepwarm_when_idle);
@@ -247,6 +257,10 @@ void test_invalid_user_override_reports_key_and_range() {
 void test_normal_template_preserves_controller_baseline() {
     const auto config = controller_native::load_runtime_config("config.native.example.toml");
     const auto& aim = config.gamepad.ai_aim;
+    require(config.vision.capture_width == 480);
+    require(config.vision.capture_height == 416);
+    require(config.vision.model_path ==
+        "models/candidates/body_union_manual_core_x2_neg_e6_480x416.engine");
     require(std::abs(aim.max_ai_force - 0.9856f) < 0.0001f);
     require(std::abs(aim.max_ai_force_y - 1.008f) < 0.0001f);
     require(std::abs(aim.ads_snap_max_ai_force - 1.54f) < 0.0001f);

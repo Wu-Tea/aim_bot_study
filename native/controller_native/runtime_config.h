@@ -10,13 +10,13 @@
 namespace controller_native {
 
 struct VisionRuntimeConfig {
-    int capture_width = 640;
-    int capture_height = 512;
+    int capture_width = 480;
+    int capture_height = 416;
     int capture_fps = 140;
     int idle_capture_fps = 20;
     bool keepwarm_when_idle = true;
     std::string color_readback_mode = "pageable";
-    std::string model_path = "models/candidates/body_union_manual_core_x2_neg_e6_640x512.engine";
+    std::string model_path = "models/candidates/body_union_manual_core_x2_neg_e6_480x416.engine";
     std::string fallback_model_path = "models/best.pt";
     // Compatibility-only config field. Native runtime termination is window-only.
     std::string quit_key;

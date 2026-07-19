@@ -3,13 +3,13 @@
 profile = "balanced" # performance | balanced | low_latency | pascal_balanced
 
 [runtime.vision]
-capture_width = 640
-capture_height = 512
+capture_width = 480
+capture_height = 416
 capture_fps = 160
 idle_capture_fps = 20
 keepwarm_when_idle = true
 color_readback_mode = "pageable" # pinned remains opt-in until the A/B gate passes
-model_path = "models/candidates/body_union_manual_core_x2_neg_e6_640x512.engine"
+model_path = "models/candidates/body_union_manual_core_x2_neg_e6_480x416.engine"
 gpu_service_enabled = true
 
 [runtime.telemetry]

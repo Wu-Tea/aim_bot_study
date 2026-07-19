@@ -19,7 +19,7 @@ namespace vision_native {
 namespace {
 
 constexpr const char* kDefaultEnginePath =
-    "models/candidates/body_union_manual_core_x2_neg_e6_640x512.engine";
+    "models/candidates/body_union_manual_core_x2_neg_e6_480x416.engine";
 constexpr float kSelectorDecodeConfidenceFloor = 0.40f;
 constexpr float kTorsoBoxShrinkX = 0.22f;
 constexpr float kTorsoBoxShrinkTop = 0.18f;
