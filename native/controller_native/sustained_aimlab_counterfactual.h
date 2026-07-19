@@ -10,6 +10,7 @@ namespace controller_native::sustained_aimlab {
 
 enum class BranchPolicy : std::uint8_t {
     ActualMix,
+    Neutral,
     ManualOnly,
     AiOnly,
     ManualPlusAi25,
@@ -55,6 +56,45 @@ struct BranchResult {
     std::vector<SimulationTraceFrame> trace;
 };
 
+enum class OutcomeClass : std::uint8_t {
+    LocalHelpfulGlobalHelpful,
+    LocalHelpfulGlobalHarmful,
+    LocalHarmfulGlobalHelpful,
+    LocalHarmfulGlobalHarmful,
+};
+
+struct AnalysisBudget {
+    int substitution_ms = 80;
+    int stable_horizon_ms = 500;
+};
+
+struct CounterfactualMetrics {
+    double instant_progress_px = 0.0;
+    double regret_40_px_ms = 0.0;
+    double regret_80_px_ms = 0.0;
+    double regret_160_px_ms = 0.0;
+    double future_burden_px_ms = 0.0;
+    int future_settle_delay_ms = 0;
+    double extra_path_px = 0.0;
+    int correction_reversals = 0;
+    int manual_helped_but_suppressed_ms = 0;
+    int ai_helped_but_suppressed_ms = 0;
+    int both_harmful_ms = 0;
+    int destructive_stack_ms = 0;
+    int wrong_way_commit_ms = 0;
+    int false_interrupt_ms = 0;
+    int reacquire_delay_ms = 0;
+    OutcomeClass classification = OutcomeClass::LocalHarmfulGlobalHarmful;
+};
+
+struct CounterfactualEpisode {
+    int branch_at_ms = 0;
+    std::vector<BranchResult> candidates;
+    BranchResult causal_oracle;
+    BranchResult hindsight_oracle;
+    CounterfactualMetrics actual;
+};
+
 ReplayReference record_reference(
     const ScenarioScript& script,
     ManualProfile manual_profile,
@@ -66,6 +106,13 @@ BranchResult replay_branch(
     const ReplayRequest& request,
     const ReplayControllerFactory& factory);
 
+CounterfactualEpisode analyze_episode(
+    const ReplayReference& reference,
+    int branch_at_ms,
+    const ReplayControllerFactory& factory,
+    const AnalysisBudget& budget = {});
+
 const char* to_string(BranchPolicy policy) noexcept;
+const char* to_string(OutcomeClass outcome) noexcept;
 
 }  // namespace controller_native::sustained_aimlab
