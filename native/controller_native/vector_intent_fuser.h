@@ -2,6 +2,8 @@
 
 #include "pipeline_contract/target_plan.h"
 
+#include <array>
+
 namespace controller_native {
 
 enum class FusionCandidate : unsigned char {
@@ -29,6 +31,7 @@ struct VectorIntentFusionInput {
     pipeline_contract::Vec2f manual_stick{};
     pipeline_contract::Vec2f shaped_ai_stick{};
     pipeline_contract::TargetPlan plan{};
+    float manual_confidence = 1.0f;
 };
 
 struct VectorIntentFusionDecision {
@@ -39,6 +42,7 @@ struct VectorIntentFusionDecision {
     float applied_manual_weight = 1.0f;
     float applied_ai_weight = 0.0f;
     float winner_margin = 0.0f;
+    std::array<float, 6> candidate_costs{};
     bool fallback = true;
     bool manual_escape = false;
 };
@@ -53,6 +57,9 @@ public:
 
 private:
     VectorIntentFusionConfig config_{};
+    FusionCandidate previous_candidate_ = FusionCandidate::ManualOnly;
+    pipeline_contract::Vec2f previous_output_{};
+    bool initialized_ = false;
 };
 
 }  // namespace controller_native
