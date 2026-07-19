@@ -15,6 +15,17 @@ enum class FusionCandidate : unsigned char {
     ReducedMix,
 };
 
+enum class FusionFallbackReason : unsigned char {
+    None,
+    NoTarget,
+    TargetChanged,
+    Reacquiring,
+    LowReliability,
+    LowResponseConfidence,
+    NonFinite,
+    ManualEscape,
+};
+
 struct FusionWeights {
     float manual = 1.0f;
     float ai = 0.0f;
@@ -43,6 +54,7 @@ struct VectorIntentFusionDecision {
     float applied_ai_weight = 0.0f;
     float winner_margin = 0.0f;
     std::array<float, 6> candidate_costs{};
+    FusionFallbackReason reason = FusionFallbackReason::None;
     bool fallback = true;
     bool manual_escape = false;
 };
@@ -59,6 +71,9 @@ private:
     VectorIntentFusionConfig config_{};
     FusionCandidate previous_candidate_ = FusionCandidate::ManualOnly;
     pipeline_contract::Vec2f previous_output_{};
+    float applied_manual_weight_ = 1.0f;
+    float applied_ai_weight_ = 0.0f;
+    std::uint64_t target_id_ = 0;
     bool initialized_ = false;
 };
 

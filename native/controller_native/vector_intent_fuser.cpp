@@ -22,6 +22,15 @@ pipeline_contract::Vec2f mix(
     pipeline_contract::Vec2f ai,
     FusionWeights weights) noexcept;
 
+bool finite_vec(pipeline_contract::Vec2f value) noexcept {
+    return std::isfinite(value.x) && std::isfinite(value.y);
+}
+
+float approach(float current, float target, float max_delta) noexcept {
+    if (current < target) return std::min(target, current + max_delta);
+    return std::max(target, current - max_delta);
+}
+
 pipeline_contract::Vec2f subtract(
     pipeline_contract::Vec2f left,
     pipeline_contract::Vec2f right) noexcept {
@@ -143,11 +152,98 @@ FusionWeights candidate_weights(FusionCandidate candidate) noexcept {
 }
 
 VectorIntentFuser::VectorIntentFuser(VectorIntentFusionConfig config)
-    : config_(config) {}
+    : config_(config) {
+    config_.manual_escape_threshold = std::clamp(
+        config_.manual_escape_threshold, 0.0f, 1.0f);
+    if (!std::isfinite(config_.weight_transition_ms) ||
+        config_.weight_transition_ms <= 0.0f) {
+        config_.weight_transition_ms = 24.0f;
+    }
+}
 
 VectorIntentFusionDecision VectorIntentFuser::update(
-    const VectorIntentFusionInput& input, float) noexcept {
+    const VectorIntentFusionInput& input, float dt_seconds) noexcept {
     VectorIntentFusionDecision decision;
+    auto exact_manual = [&](FusionFallbackReason reason) {
+        decision.fallback = true;
+        decision.reason = reason;
+        decision.candidate = FusionCandidate::ManualOnly;
+        decision.target_manual_weight = 1.0f;
+        decision.target_ai_weight = 0.0f;
+        decision.applied_manual_weight = 1.0f;
+        decision.applied_ai_weight = 0.0f;
+        decision.fused_stick = input.manual_stick;
+        applied_manual_weight_ = 1.0f;
+        applied_ai_weight_ = 0.0f;
+        previous_candidate_ = FusionCandidate::ManualOnly;
+        previous_output_ = input.manual_stick;
+        initialized_ = false;
+        return decision;
+    };
+    const bool input_finite = finite_vec(input.manual_stick) &&
+        finite_vec(input.shaped_ai_stick) &&
+        std::isfinite(input.manual_confidence) &&
+        std::isfinite(dt_seconds) && pipeline_contract::valid(input.plan);
+    if (!input_finite) {
+        return exact_manual(FusionFallbackReason::NonFinite);
+    }
+    const float manual_magnitude = length(input.manual_stick);
+    if (manual_magnitude >= config_.manual_escape_threshold &&
+        config_.manual_escape_threshold > 0.0f) {
+        decision = exact_manual(FusionFallbackReason::ManualEscape);
+        decision.fallback = false;
+        decision.manual_escape = true;
+        target_id_ = input.plan.target_id;
+        return decision;
+    }
+    const bool no_target = input.plan.target_id == 0 ||
+        input.plan.lifecycle == pipeline_contract::TargetLifecycle::None ||
+        input.plan.mode == pipeline_contract::ControlMode::Manual;
+    if (no_target) {
+        target_id_ = 0;
+        return exact_manual(FusionFallbackReason::NoTarget);
+    }
+
+    FusionFallbackReason fallback_reason = FusionFallbackReason::None;
+    if (target_id_ != 0 && target_id_ != input.plan.target_id) {
+        fallback_reason = FusionFallbackReason::TargetChanged;
+    } else if (input.plan.lifecycle ==
+               pipeline_contract::TargetLifecycle::Reacquiring) {
+        fallback_reason = FusionFallbackReason::Reacquiring;
+    } else if (input.plan.reliability < 0.65f) {
+        fallback_reason = FusionFallbackReason::LowReliability;
+    } else if (input.plan.response_confidence < 0.35f) {
+        fallback_reason = FusionFallbackReason::LowResponseConfidence;
+    }
+    target_id_ = input.plan.target_id;
+
+    const float dt_ms = std::clamp(dt_seconds, 0.0f, 0.05f) * 1000.0f;
+    const float max_weight_delta = std::clamp(
+        dt_ms / config_.weight_transition_ms, 0.0f, 1.0f);
+    auto apply_weights = [&](FusionWeights target, FusionFallbackReason reason) {
+        decision.reason = reason;
+        decision.fallback = reason != FusionFallbackReason::None;
+        decision.target_manual_weight = target.manual;
+        decision.target_ai_weight = target.ai;
+        applied_manual_weight_ = approach(
+            applied_manual_weight_, target.manual, max_weight_delta);
+        applied_ai_weight_ = approach(
+            applied_ai_weight_, target.ai, max_weight_delta);
+        decision.applied_manual_weight = applied_manual_weight_;
+        decision.applied_ai_weight = applied_ai_weight_;
+        decision.fused_stick = mix(
+            input.manual_stick, input.shaped_ai_stick,
+            {applied_manual_weight_, applied_ai_weight_});
+        previous_output_ = decision.fused_stick;
+        return decision;
+    };
+    if (fallback_reason != FusionFallbackReason::None) {
+        decision.candidate = FusionCandidate::ManualOnly;
+        previous_candidate_ = FusionCandidate::ManualOnly;
+        initialized_ = false;
+        return apply_weights({1.0f, 0.0f}, fallback_reason);
+    }
+
     decision.fallback = false;
     constexpr std::array<FusionCandidate, 6> kCandidates{
         FusionCandidate::ExistingMix,
@@ -202,18 +298,17 @@ VectorIntentFusionDecision VectorIntentFuser::update(
     const FusionWeights weights = selected.weights;
     decision.target_manual_weight = weights.manual;
     decision.target_ai_weight = weights.ai;
-    decision.applied_manual_weight = weights.manual;
-    decision.applied_ai_weight = weights.ai;
-    decision.fused_stick = selected.output;
     previous_candidate_ = decision.candidate;
-    previous_output_ = decision.fused_stick;
     initialized_ = true;
-    return decision;
+    return apply_weights(weights, FusionFallbackReason::None);
 }
 
 void VectorIntentFuser::reset() noexcept {
     previous_candidate_ = FusionCandidate::ManualOnly;
     previous_output_ = {};
+    applied_manual_weight_ = 1.0f;
+    applied_ai_weight_ = 0.0f;
+    target_id_ = 0;
     initialized_ = false;
 }
 

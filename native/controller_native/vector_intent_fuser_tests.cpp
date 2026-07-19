@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 
 namespace {
@@ -175,6 +176,112 @@ void test_near_equal_cost_keeps_previous_candidate() {
                  "near-equal cost must keep the previous candidate");
 }
 
+void test_diagonal_manual_escape_is_preserved_exactly() {
+    VectorIntentFuser fuser;
+    auto input = input_for({-0.50f, 0.40f}, {0.40f, -0.30f});
+    const auto decision = fuser.update(input, 0.001f);
+    require_true(decision.manual_escape,
+                 "deliberate diagonal input must be classified as escape");
+    require_true(decision.candidate == FusionCandidate::ManualOnly,
+                 "manual escape must disallow AI-owned candidates");
+    require_near(decision.fused_stick.x, input.manual_stick.x, 0.0001f,
+                 "escape X must remain physical input");
+    require_near(decision.fused_stick.y, input.manual_stick.y, 0.0001f,
+                 "escape Y must remain physical input");
+}
+
+void test_missing_target_falls_back_to_physical_manual() {
+    VectorIntentFuser fuser;
+    auto input = input_for({0.20f, -0.10f}, {0.30f, 0.20f});
+    input.plan = {};
+    const auto decision = fuser.update(input, 0.001f);
+    require_true(decision.fallback, "missing target must use fallback");
+    require_near(decision.fused_stick.x, 0.20f, 0.0001f,
+                 "missing target must preserve manual X");
+    require_near(decision.fused_stick.y, -0.10f, 0.0001f,
+                 "missing target must preserve manual Y");
+}
+
+void test_target_change_releases_without_new_attenuation_step() {
+    VectorIntentFuser fuser;
+    const auto first = fuser.update(
+        input_for({-0.20f, 0.0f}, {0.30f, 0.0f}), 0.024f);
+    require_true(first.applied_manual_weight < 1.0f,
+                 "fixture must begin with attenuated manual ownership");
+
+    auto changed = input_for({-0.20f, 0.0f}, {0.30f, 0.0f});
+    changed.plan.target_id = 8;
+    const auto second = fuser.update(changed, 0.001f);
+    require_true(second.fallback, "target change must suspend active selection");
+    require_near(second.target_manual_weight, 1.0f, 0.0001f,
+                 "target change must target full manual ownership");
+    require_true(second.applied_manual_weight > first.applied_manual_weight,
+                 "target change must immediately begin releasing manual attenuation");
+}
+
+void test_reacquiring_low_reliability_and_low_response_release_to_manual() {
+    for (int kind = 0; kind < 3; ++kind) {
+        VectorIntentFuser fuser;
+        auto input = input_for({0.20f, 0.0f}, {0.30f, 0.0f});
+        if (kind == 0) {
+            input.plan.lifecycle = pipeline_contract::TargetLifecycle::Reacquiring;
+        } else if (kind == 1) {
+            input.plan.reliability = 0.40f;
+        } else {
+            input.plan.response_confidence = 0.10f;
+        }
+        const auto decision = fuser.update(input, 0.001f);
+        require_true(decision.fallback,
+                     "unreliable causal evidence must use manual fallback");
+        require_near(decision.target_manual_weight, 1.0f, 0.0001f,
+                     "fallback must target full manual ownership");
+        require_near(decision.target_ai_weight, 0.0f, 0.0001f,
+                     "fallback must target released AI ownership");
+    }
+}
+
+void test_nonfinite_input_returns_exact_physical_manual() {
+    VectorIntentFuser fuser;
+    auto input = input_for({0.20f, -0.10f}, {0.30f, 0.20f});
+    input.plan.error_px.x = std::numeric_limits<float>::quiet_NaN();
+    const auto decision = fuser.update(input, 0.001f);
+    require_true(decision.fallback, "non-finite plan must use fallback");
+    require_near(decision.fused_stick.x, 0.20f, 0.0001f,
+                 "non-finite fallback must preserve exact physical X");
+    require_near(decision.fused_stick.y, -0.10f, 0.0001f,
+                 "non-finite fallback must preserve exact physical Y");
+}
+
+void test_same_target_ads_to_bodylock_preserves_weight_state() {
+    VectorIntentFuser fuser;
+    auto input = input_for({-0.20f, 0.0f}, {0.30f, 0.0f});
+    const auto ads = fuser.update(input, 0.012f);
+    input.plan.mode = pipeline_contract::ControlMode::BodyLockFollow;
+    const auto bodylock = fuser.update(input, 0.0001f);
+    require_true(!bodylock.fallback,
+                 "same-target mode handoff must remain eligible");
+    require_true(std::fabs(bodylock.applied_manual_weight -
+                           ads.applied_manual_weight) < 0.01f,
+                 "same-target mode handoff must not reset fusion weights");
+}
+
+void test_weights_approach_target_over_24ms() {
+    VectorIntentFuser fuser;
+    const auto input = input_for({0.20f, 0.0f}, {0.20f, 0.0f});
+    const auto first = fuser.update(input, 0.001f);
+    require_near(first.target_ai_weight, 1.0f, 0.0001f,
+                 "aligned fixture must target full AI weight");
+    require_true(first.applied_ai_weight > 0.0f &&
+                 first.applied_ai_weight < 0.10f,
+                 "first millisecond must begin rather than finish transition");
+    auto decision = first;
+    for (int tick = 1; tick < 24; ++tick) {
+        decision = fuser.update(input, 0.001f);
+    }
+    require_near(decision.applied_ai_weight, 1.0f, 0.001f,
+                 "default transition must reach target in 24ms");
+}
+
 }  // namespace
 
 int main() {
@@ -187,6 +294,13 @@ int main() {
         test_left_motion_adjusted_error_rate_changes_winner();
         test_center_cross_continued_push_is_penalized();
         test_near_equal_cost_keeps_previous_candidate();
+        test_diagonal_manual_escape_is_preserved_exactly();
+        test_missing_target_falls_back_to_physical_manual();
+        test_target_change_releases_without_new_attenuation_step();
+        test_reacquiring_low_reliability_and_low_response_release_to_manual();
+        test_nonfinite_input_returns_exact_physical_manual();
+        test_same_target_ads_to_bodylock_preserves_weight_state();
+        test_weights_approach_target_over_24ms();
         std::cout << "cod_native_vector_intent_fuser_tests PASS\n";
         return 0;
     } catch (const std::exception& error) {
