@@ -227,6 +227,14 @@ Responsibilities:
 Target intent and script truth remain benchmark-only. They are never passed to
 the controller callback.
 
+Accurate native replay requires the substituted delivered stick to become the
+controller's recorded previous-delivered output; changing only the simulator
+plant would leave tracker and response-estimator feedback on the original mix.
+The implementation may therefore add one mix-transform seam guarded by
+`COD_BENCHMARK_MIX_OVERRIDE`. The macro is defined only for benchmark and focused
+test targets. The live runtime is compiled without the declaration, member state,
+or per-tick branch, so this does not expand its API or hot path.
+
 ## Performance Budget
 
 The 60-second primary simulation still runs once per cohort, manual profile,
