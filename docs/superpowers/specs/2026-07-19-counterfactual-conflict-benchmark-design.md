@@ -335,4 +335,3 @@ production controller API.
   is enabled.
 - Results remain reproducible from recorded seed, config fingerprint, script
   hash, schema version, and candidate-set version.
-
