@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import subprocess
 import unittest
 
@@ -9,6 +10,94 @@ DEBUG_LAUNCH_DIR = LAUNCH_DIR / "debug"
 
 
 class StartupScriptTests(unittest.TestCase):
+    def test_background_double_click_entries_are_zero_window_vbs_launchers(self):
+        entries = {
+            "gamepad_native_background_start.vbs":
+                "gamepad_native_background_start.ps1",
+            "gamepad_native_background_stop.vbs":
+                "gamepad_native_background_stop.ps1",
+        }
+
+        for entry_name, powershell_name in entries.items():
+            with self.subTest(entry_name=entry_name):
+                entry = LAUNCH_DIR / entry_name
+                self.assertTrue(entry.exists())
+                content = entry.read_text(encoding="utf-8")
+                self.assertIn("WScript.Shell", content)
+                self.assertIn("shell.Run", content)
+                self.assertIn(powershell_name, content)
+                self.assertIn(", 0, False", content)
+
+    def test_background_lifecycle_scripts_enforce_owned_pid_and_path(self):
+        start = (
+            LAUNCH_DIR / "gamepad_native_background_start.ps1"
+        ).read_text(encoding="utf-8")
+        stop = (
+            LAUNCH_DIR / "gamepad_native_background_stop.ps1"
+        ).read_text(encoding="utf-8")
+
+        for content in (start, stop):
+            self.assertIn("[switch]$PrintOnly", content)
+            self.assertIn("native_runtime_state.json", content)
+            self.assertIn("Win32_Process", content)
+            self.assertIn("ExecutablePath", content)
+            self.assertIn("ConvertTo-Json", content)
+
+        self.assertIn("cod_native_runtime.exe", start)
+        self.assertIn("config.toml", start)
+        self.assertIn("Start-Process", start)
+        self.assertIn("-WindowStyle Hidden", start)
+        self.assertIn("-RedirectStandardOutput", start)
+        self.assertIn("-RedirectStandardError", start)
+        self.assertIn("Stop-Process -Id", stop)
+        self.assertNotIn("Get-Process -Name", stop)
+        self.assertNotIn("taskkill /IM", stop)
+
+    def test_background_lifecycle_print_only_is_side_effect_free(self):
+        state_path = (
+            PROJECT_ROOT / "runs" / "runtime" / "background" /
+            "native_runtime_state.json"
+        )
+        state_existed_before = state_path.exists()
+        scripts = {
+            "gamepad_native_background_start.ps1": "preview_start",
+            "gamepad_native_background_stop.ps1": "preview_stop",
+        }
+
+        for script_name, expected_action in scripts.items():
+            with self.subTest(script_name=script_name):
+                completed = subprocess.run(
+                    [
+                        "powershell",
+                        "-NoProfile",
+                        "-ExecutionPolicy",
+                        "Bypass",
+                        "-File",
+                        str(LAUNCH_DIR / script_name),
+                        "-PrintOnly",
+                    ],
+                    cwd=PROJECT_ROOT,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    check=False,
+                )
+                self.assertEqual(completed.returncode, 0, completed.stdout)
+                preview = json.loads(completed.stdout)
+                self.assertEqual(preview["action"], expected_action)
+                self.assertEqual(Path(preview["state_path"]), state_path)
+                if expected_action == "preview_start":
+                    self.assertEqual(
+                        Path(preview["executable_path"]),
+                        PROJECT_ROOT / "native" / "vision_native" / "build" /
+                        "Release" / "cod_native_runtime.exe",
+                    )
+                    self.assertEqual(
+                        Path(preview["config_path"]), PROJECT_ROOT / "config.toml"
+                    )
+
+        self.assertEqual(state_path.exists(), state_existed_before)
+
     def test_root_batch_shims_are_removed_after_launcher_consolidation(self):
         expected_launchers = {
             "gamepad_start.bat": LAUNCH_DIR / "gamepad_start.bat",
