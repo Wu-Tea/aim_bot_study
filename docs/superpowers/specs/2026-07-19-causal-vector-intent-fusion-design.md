@@ -239,4 +239,3 @@ Stage-two learning has a separate gate: it must outperform the accepted analytic
 4. Re-run the full native test and pipeline contract suite plus deterministic benchmark.
 5. Add the bounded in-memory learner behind an independent benchmark switch.
 6. Adopt stage two only if its separate long-run gate passes.
-
