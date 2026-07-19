@@ -314,6 +314,12 @@ VectorIntentFusionDecision VectorIntentFuser::update(
         return decision;
     };
     if (fallback_reason != FusionFallbackReason::None) {
+        const bool credible_opposing_manual =
+            manual_magnitude > 0.02f &&
+            dot(input.manual_stick, input.shaped_ai_stick) < 0.0f;
+        if (credible_opposing_manual) {
+            return exact_manual(fallback_reason);
+        }
         decision.candidate = FusionCandidate::ExistingMix;
         previous_candidate_ = FusionCandidate::ExistingMix;
         initialized_ = false;

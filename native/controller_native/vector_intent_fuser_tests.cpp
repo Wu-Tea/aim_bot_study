@@ -448,6 +448,32 @@ void test_reacquiring_low_reliability_and_low_response_release_to_manual() {
     }
 }
 
+void test_unreliable_opposing_proposal_yields_exactly_to_manual() {
+    for (int kind = 0; kind < 3; ++kind) {
+        VectorIntentFuser fuser;
+        auto input = input_for({-0.20f, 0.0f}, {0.30f, 0.0f});
+        // Magnitude is deliberate even if the intent-confidence estimator has
+        // not caught up yet; this is the exact stale-confidence runtime case.
+        input.manual_confidence = 0.1f;
+        if (kind == 0) {
+            input.plan.lifecycle = pipeline_contract::TargetLifecycle::Reacquiring;
+        } else if (kind == 1) {
+            input.plan.reliability = 0.40f;
+        } else {
+            input.plan.response_confidence = 0.10f;
+        }
+        const auto decision = fuser.update(input, 0.001f);
+        require_true(decision.fallback,
+                     "unreliable opposing evidence must use fallback");
+        require_true(decision.candidate == FusionCandidate::ManualOnly,
+                     "unreliable opposing AI must yield controller ownership");
+        require_near(decision.fused_stick.x, input.manual_stick.x, 0.0001f,
+                     "unreliable opposing fallback must deliver exact manual X");
+        require_near(decision.applied_ai_weight, 0.0f, 0.0001f,
+                     "unreliable opposing fallback must not retain hidden AI force");
+    }
+}
+
 void test_low_response_confidence_does_not_deadlock_safe_ai_fallback() {
     VectorIntentFuser fuser;
     auto input = input_for({0.0f, 0.0f}, {0.30f, 0.0f});
@@ -600,6 +626,7 @@ int main() {
         test_missing_target_falls_back_to_physical_manual();
         test_target_change_releases_without_new_attenuation_step();
         test_reacquiring_low_reliability_and_low_response_release_to_manual();
+        test_unreliable_opposing_proposal_yields_exactly_to_manual();
         test_low_response_confidence_does_not_deadlock_safe_ai_fallback();
         test_neutral_manual_input_cannot_create_a_second_ai_brake();
         test_plan_horizon_does_not_double_apply_previous_camera_output();

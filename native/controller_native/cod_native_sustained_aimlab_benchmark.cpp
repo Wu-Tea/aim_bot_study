@@ -51,6 +51,11 @@ struct CliOptions {
     std::string intent_fusion = "legacy";
 };
 
+struct AssistedModeCoverage {
+    bool saw_assisted_mode = false;
+    std::vector<std::uint64_t> ads_target_ids;
+};
+
 struct CounterfactualEpisodeSummary {
     int branch_at_ms = 0;
     std::uint64_t target_id = 0;
@@ -536,14 +541,17 @@ public:
     NativeReplayAdapter(
         GamepadRuntimeConfig source_config,
         BranchSchedule schedule,
+        BenchmarkCohort cohort,
         BenchmarkIntentFusionMode intent_fusion_mode,
-        std::shared_ptr<bool> saw_assisted_mode)
+        std::shared_ptr<AssistedModeCoverage> coverage)
         : schedule_(schedule),
+          cohort_(cohort),
           config_(std::move(source_config)),
           controller_(config_, [this] { return now_seconds_; }),
-          saw_assisted_mode_(std::move(saw_assisted_mode)) {
+          coverage_(std::move(coverage)) {
         physical_.connected = true;
-        physical_.left_trigger = 1.0f;
+        physical_.left_trigger = cohort_ == BenchmarkCohort::BodyLockFollow
+            ? 1.0f : 0.0f;
         controller_.set_benchmark_intent_fusion_mode(intent_fusion_mode);
         controller_.set_benchmark_mix_transform(
             [this](float manual_x, float manual_y,
@@ -582,6 +590,17 @@ public:
     ControllerStepResult step(const ControllerObservation& input) {
         now_ms_ = input.now_ms;
         now_seconds_ = static_cast<double>(input.now_ms) / 1000.0;
+        if (cohort_ == BenchmarkCohort::AdsAcquire) {
+            if (!input.target_present) {
+                physical_.left_trigger = 0.0f;
+                last_ads_target_id_ = 0;
+            } else if (input.target_id != last_ads_target_id_) {
+                physical_.left_trigger = 0.0f;
+                last_ads_target_id_ = input.target_id;
+            } else {
+                physical_.left_trigger = 1.0f;
+            }
+        }
         physical_.right_x = static_cast<float>(input.manual_stick.x);
         physical_.right_y = static_cast<float>(input.manual_stick.y);
         if (input.fresh_vision) {
@@ -590,9 +609,15 @@ public:
         const auto output = controller_.build_output(physical_);
         const auto& components = controller_.last_output_components();
         const std::string& mode = controller_.last_ai_aim_mode();
-        if (saw_assisted_mode_ &&
+        if (coverage_ &&
             (mode == "ads_snap" || mode == "body_lock")) {
-            *saw_assisted_mode_ = true;
+            coverage_->saw_assisted_mode = true;
+        }
+        if (coverage_ && mode == "ads_snap" && input.target_id != 0 &&
+            std::find(coverage_->ads_target_ids.begin(),
+                      coverage_->ads_target_ids.end(),
+                      input.target_id) == coverage_->ads_target_ids.end()) {
+            coverage_->ads_target_ids.push_back(input.target_id);
         }
         const auto& vision = controller_.last_frame_vision_state();
         const auto& plan = controller_.last_target_plan();
@@ -618,25 +643,29 @@ public:
 
 private:
     BranchSchedule schedule_;
+    BenchmarkCohort cohort_ = BenchmarkCohort::AdsAcquire;
+    std::uint64_t last_ads_target_id_ = 0;
     int now_ms_ = 0;
     double now_seconds_ = 0.0;
     GamepadRuntimeConfig config_;
     NativeGamepadController controller_;
     PhysicalGamepadState physical_;
-    std::shared_ptr<bool> saw_assisted_mode_;
+    std::shared_ptr<AssistedModeCoverage> coverage_;
 };
 
 ReplayControllerFactory make_native_factory(
     GamepadRuntimeConfig config,
+    BenchmarkCohort cohort,
     BenchmarkIntentFusionMode intent_fusion_mode,
-    std::shared_ptr<bool> saw_assisted_mode) {
+    std::shared_ptr<AssistedModeCoverage> coverage) {
     config.recoil.enabled = false;
     return [config = std::move(config),
+            cohort,
             intent_fusion_mode,
-            saw_assisted_mode = std::move(saw_assisted_mode)](
+            coverage = std::move(coverage)](
                const BranchSchedule& schedule) {
         auto state = std::make_shared<NativeReplayAdapter>(
-            config, schedule, intent_fusion_mode, saw_assisted_mode);
+            config, schedule, cohort, intent_fusion_mode, coverage);
         return [state](const ControllerObservation& input) {
             return state->step(input);
         };
@@ -785,7 +814,7 @@ CounterfactualRunSummary analyze_reference(
 void validate_smoke(
     const BenchmarkResult& result,
     int expected_ticks,
-    bool saw_assisted_mode) {
+    const AssistedModeCoverage& coverage) {
     const bool finite = std::isfinite(result.acquire_points) &&
         std::isfinite(result.tracking_points) &&
         std::isfinite(result.smooth_bonus);
@@ -799,8 +828,13 @@ void validate_smoke(
     if (result.script_hash == 0) {
         throw std::runtime_error("smoke run lost scenario hash");
     }
-    if (!saw_assisted_mode) {
+    if (!coverage.saw_assisted_mode) {
         throw std::runtime_error("smoke run never entered an assisted aim mode");
+    }
+    if (result.cohort == BenchmarkCohort::AdsAcquire &&
+        result.targets_spawned > 1 && coverage.ads_target_ids.size() < 2) {
+        throw std::runtime_error(
+            "ADS smoke run did not create a fresh scope epoch for later targets");
     }
 }
 
@@ -865,16 +899,16 @@ int main(int argc, char** argv) {
             const ScenarioScript script = generate_script(seed, benchmark_config);
             for (const ManualProfile profile : profiles) {
                 for (const BenchmarkCohort cohort : cohorts) {
-                    auto saw_assisted_mode = std::make_shared<bool>(false);
+                    auto coverage = std::make_shared<AssistedModeCoverage>();
                     const ReplayControllerFactory factory = make_native_factory(
-                        runtime.gamepad, intent_fusion_mode, saw_assisted_mode);
+                        runtime.gamepad, cohort, intent_fusion_mode, coverage);
                     ReplayReference reference = record_reference(
                         script, profile, cohort, factory);
                     BenchmarkResult result = reference.benchmark_result;
                     fusion_results.push_back(summarize_fusion(reference));
                     if (options.smoke) {
                         validate_smoke(
-                            result, options.duration_ms, *saw_assisted_mode);
+                            result, options.duration_ms, *coverage);
                     }
                     print_summary(result);
                     counterfactual_results.push_back(analyze_reference(

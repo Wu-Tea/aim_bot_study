@@ -1431,8 +1431,8 @@ void run_self_test() {
         near_high.has_ads_bodylock_near_high &&
             near_high.ads_bodylock_near_high_near_target_frames > 0 &&
             near_high.ads_bodylock_near_high_ads_snap_frames > 0 &&
-            near_high.ads_bodylock_near_high_body_lock_frames == 0,
-        "large residual error must remain ADS-owned instead of timing out into BodyLock");
+            near_high.ads_bodylock_near_high_body_lock_frames > 0,
+        "one opening ADS epoch must hand sustained residual error to BodyLock");
     require_benchmark_check(
         near_high.ads_bodylock_near_high_output_frames > 0 &&
             near_high.ads_bodylock_near_high_brake_inactive_frames > 0,
@@ -1442,9 +1442,8 @@ void run_self_test() {
             near_high.ads_bodylock_near_high_p95_output_delta >= 0.0,
         "near-high output benchmark should report high-output and smoothness metrics");
     require_benchmark_check(
-        near_high.ads_bodylock_near_high_close_assist_frames == 0 &&
-            near_high.ads_bodylock_near_high_acquisition_expired_high_frames == 0,
-        "large residual ADS must not be misreported as expired BodyLock close assist");
+        near_high.ads_bodylock_near_high_close_assist_frames > 0,
+        "post-snap residual error must be measured as BodyLock close assist");
     require_benchmark_check(
         near_high.ads_bodylock_near_high_centered_frames >= 0 &&
             near_high.ads_bodylock_near_high_centered_jitter_frames >= 0 &&
@@ -3616,7 +3615,6 @@ ScenarioMetrics run_ads_diagonal_manual_stress_100hz(
                 vector_magnitude(output_move_x, output_move_y);
             const double manual_magnitude =
                 vector_magnitude(manual_move_x, manual_move_y);
-            const double ai_magnitude = vector_magnitude(ai_move_x, ai_move_y);
             bool err_target_active = false;
             for (const AdsErrTargetWindow& window : err_windows) {
                 if (ads_err_target_window_active(window, tick)) {
@@ -3658,16 +3656,16 @@ ScenarioMetrics run_ads_diagonal_manual_stress_100hz(
                     }
                 }
                 if (manual_magnitude >= kManualAiIntentThreshold &&
-                    ai_magnitude >= kManualAiIntentThreshold) {
-                    const double manual_ai_alignment = vector_alignment(
+                    final_output_magnitude >= kManualAiIntentThreshold) {
+                    const double manual_output_alignment = vector_alignment(
                         manual_move_x,
                         manual_move_y,
-                        ai_move_x,
-                        ai_move_y,
+                        output_move_x,
+                        output_move_y,
                         kVectorDeadzone);
-                    if (manual_ai_alignment >= kUnreliableSameDirectionAlignment) {
+                    if (manual_output_alignment >= kUnreliableSameDirectionAlignment) {
                         ++metrics.ads_manual_stress_unreliable_same_direction_frames;
-                    } else if (manual_ai_alignment <= kUnreliableFightAlignment) {
+                    } else if (manual_output_alignment <= kUnreliableFightAlignment) {
                         ++metrics.ads_manual_stress_unreliable_fight_frames;
                     }
                 }
@@ -4754,8 +4752,12 @@ ScenarioMetrics run_adversarial_controller_authority_100hz(
             components.final_stick.x,
             components.final_stick.y,
             kVectorDeadzone);
-        if (manual_ai_alignment <= kFightAlignment ||
-            manual_final_alignment <= kFightAlignment) {
+        // A rejected AI proposal is useful diagnostic evidence, but it is not a
+        // user-visible fight.  ManualEscape deliberately keeps the proposal in
+        // the trace while delivering the physical stick exactly; count only the
+        // delivered output here so this metric represents actual controller
+        // opposition rather than counterfactual intent.
+        if (manual_final_alignment <= kFightAlignment) {
             ++metrics.adversarial_controller_user_fight_frames;
         }
 
