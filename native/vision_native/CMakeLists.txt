@@ -731,6 +731,11 @@ add_executable(cod_native_axis_intent_arbiter_tests
     ../controller_native/axis_intent_arbiter.cpp
 )
 
+add_executable(cod_native_vector_intent_fuser_tests
+    ../controller_native/vector_intent_fuser_tests.cpp
+    ../controller_native/vector_intent_fuser.cpp
+)
+
 add_executable(cod_native_log_session_manager_tests
     ../runtime_app/log_session_manager_tests.cpp
     ../runtime_app/log_session_manager.cpp
@@ -1330,6 +1335,18 @@ add_executable(cod_native_sustained_aimlab_simulator_tests
     ../controller_native/sustained_aimlab_simulator.cpp
     ../controller_native/sustained_aimlab_score.cpp
     ../controller_native/sustained_aimlab_scenario.cpp
+)
+
+target_include_directories(cod_native_vector_intent_fuser_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+    ${CMAKE_CURRENT_SOURCE_DIR}/../controller_native
+)
+
+target_compile_definitions(cod_native_vector_intent_fuser_tests
+    PRIVATE
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
 )
 
 add_executable(cod_native_sustained_aimlab_trace_tests
