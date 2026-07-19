@@ -7,6 +7,22 @@ $ErrorActionPreference = "Stop"
 $before = Get-Content (Resolve-Path $Baseline) -Raw | ConvertFrom-Json
 $after = Get-Content (Resolve-Path $Candidate) -Raw | ConvertFrom-Json
 
+$beforeCf = $before.PSObject.Properties['counterfactual_conflict']
+$afterCf = $after.PSObject.Properties['counterfactual_conflict']
+if (($null -eq $beforeCf) -ne ($null -eq $afterCf)) {
+    throw "Counterfactual metadata exists in only one artifact"
+}
+$compareCounterfactual = $null -ne $beforeCf
+if ($compareCounterfactual) {
+    foreach ($field in @('schema_version', 'candidate_set_version', 'mode',
+                          'per_kind_replay_budget', 'stable_horizon_ms')) {
+        if ($before.counterfactual_conflict.$field -ne
+            $after.counterfactual_conflict.$field) {
+            throw "Counterfactual metadata mismatch for ${field}"
+        }
+    }
+}
+
 function Run-Key($document, $run) {
     return "$($run.seed)|$($run.profile)|$($run.cohort)|" +
         "$($document.simulator.target_profile)|" +
@@ -20,6 +36,11 @@ $rows = foreach ($run in $after.runs) {
     $key = Run-Key $after $run
     if (-not $beforeByKey.ContainsKey($key)) { throw "Missing baseline run: $key" }
     $old = $beforeByKey[$key]
+    if ($compareCounterfactual -and
+        ($null -eq $old.PSObject.Properties['counterfactual'] -or
+         $null -eq $run.PSObject.Properties['counterfactual'])) {
+        throw "Missing per-run counterfactual data: $key"
+    }
     [pscustomobject]@{
         key = $key
         acquired_delta_pct = if ($old.targets_acquired) {
@@ -54,7 +75,34 @@ $rows = foreach ($run in $after.runs) {
         false_stop_delta = $run.false_stop_events - $old.false_stop_events
         bodylock_entry_failure_delta =
             $run.bodylock_entry_failures - $old.bodylock_entry_failures
+        causal_gap_delta_px_ms = if ($compareCounterfactual) {
+            $run.counterfactual.causal_error_area_gap_px_ms -
+                $old.counterfactual.causal_error_area_gap_px_ms
+        } else { $null }
+        future_burden_delta_px_ms = if ($compareCounterfactual) {
+            $run.counterfactual.future_burden_px_ms -
+                $old.counterfactual.future_burden_px_ms
+        } else { $null }
+        future_settle_delay_delta_ms = if ($compareCounterfactual) {
+            $run.counterfactual.future_settle_delay_ms -
+                $old.counterfactual.future_settle_delay_ms
+        } else { $null }
+        analyzed_episode_delta = if ($compareCounterfactual) {
+            $run.counterfactual.analyzed_episodes -
+                $old.counterfactual.analyzed_episodes
+        } else { $null }
+        skipped_episode_delta = if ($compareCounterfactual) {
+            $run.counterfactual.skipped_episodes -
+                $old.counterfactual.skipped_episodes
+        } else { $null }
     }
 }
 
 $rows | Format-Table -AutoSize
+if ($compareCounterfactual) {
+    $rows |
+        Select-Object key, causal_gap_delta_px_ms,
+            future_burden_delta_px_ms, future_settle_delay_delta_ms,
+            analyzed_episode_delta, skipped_episode_delta |
+        Format-Table -AutoSize
+}
