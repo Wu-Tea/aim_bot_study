@@ -15,6 +15,7 @@
 #include "runtime_config.h"
 #include "target_coordinator.h"
 #include "virtual_gamepad.h"
+#include "vector_intent_fuser.h"
 #include "xinput_reader.h"
 
 #include "../recoil_native/recoil_compensation.h"
@@ -25,6 +26,13 @@
 #include <vector>
 
 namespace controller_native {
+
+#if defined(COD_BENCHMARK_MIX_OVERRIDE)
+enum class BenchmarkIntentFusionMode : unsigned char {
+    LegacyAxis,
+    CausalVector,
+};
+#endif
 
 struct NativeControllerStageTrace {
     std::string stage_name;
@@ -62,6 +70,7 @@ public:
         float mixed_y,
         const NativeControllerOutputComponents& components)>;
     void set_benchmark_mix_transform(BenchmarkMixTransform transform);
+    void set_benchmark_intent_fusion_mode(BenchmarkIntentFusionMode mode);
 #endif
 
 private:
@@ -94,6 +103,7 @@ private:
     BodylockFollowController bodylock_controller_{};
     AimDynamicsShaper dynamics_shaper_{};
     AxisIntentArbiter axis_intent_arbiter_{};
+    VectorIntentFuser vector_intent_fuser_{};
     recoil_native::RecoilCompensationPolicy recoil_;
     AimActivationTracker aim_activation_tracker_{};
     AutoFireGate auto_fire_gate_;
@@ -120,6 +130,8 @@ private:
     std::function<double()> clock_;
 #if defined(COD_BENCHMARK_MIX_OVERRIDE)
     BenchmarkMixTransform benchmark_mix_transform_;
+    BenchmarkIntentFusionMode benchmark_intent_fusion_mode_ =
+        BenchmarkIntentFusionMode::LegacyAxis;
 #endif
 };
 

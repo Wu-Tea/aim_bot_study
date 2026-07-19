@@ -99,6 +99,7 @@ void NativeGamepadController::reset() {
     aim_response_estimator_.reset();
     dynamics_shaper_.reset();
     axis_intent_arbiter_.reset();
+    vector_intent_fuser_.reset();
     recoil_.reset();
     aim_activation_tracker_.reset();
     auto_fire_gate_.reset();
@@ -304,6 +305,7 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
     if (aiming_ && !previous_aiming_) {
         target_coordinator_.begin_ads_epoch(++ads_epoch_);
         axis_intent_arbiter_.reset();
+        vector_intent_fuser_.reset();
         auto_fire_gate_.reset_readiness();
     }
     previous_aiming_ = aiming_;
@@ -373,6 +375,12 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
     auto controller_intent = intent;
     controller_intent.right_x.confidence = intent.right_confidence;
     controller_intent.right_y.confidence = intent.right_confidence;
+#if defined(COD_BENCHMARK_MIX_OVERRIDE)
+    const bool use_vector_fusion = benchmark_intent_fusion_mode_ ==
+        BenchmarkIntentFusionMode::CausalVector;
+#else
+    constexpr bool use_vector_fusion = false;
+#endif
     // TargetPlan does not expose observation innovation. Predicted displacement is
     // target motion, not innovation, so it must not be used as a stability gate.
     const float target_innovation = 0.0f;
@@ -399,14 +407,18 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
         input.mode = plan.mode;
         return axis_intent_arbiter_.update(axis, input, dt);
     };
-    const auto x_decision = arbitrate_axis(
-        Axis::X, plan.error_px.x, plan.error_rate_px_per_sec.x,
-        intent.filtered_right.x, intent.right_x.confidence);
-    const auto y_decision = arbitrate_axis(
-        Axis::Y, -plan.error_px.y, -plan.error_rate_px_per_sec.y,
-        intent.filtered_right.y, intent.right_y.confidence);
-    if (x_decision.intervention) controller_intent.right_x.confidence = 0.0f;
-    if (y_decision.intervention) controller_intent.right_y.confidence = 0.0f;
+    AxisDecision x_decision{};
+    AxisDecision y_decision{};
+    if (!use_vector_fusion) {
+        x_decision = arbitrate_axis(
+            Axis::X, plan.error_px.x, plan.error_rate_px_per_sec.x,
+            intent.filtered_right.x, intent.right_x.confidence);
+        y_decision = arbitrate_axis(
+            Axis::Y, -plan.error_px.y, -plan.error_rate_px_per_sec.y,
+            intent.filtered_right.y, intent.right_y.confidence);
+        if (x_decision.intervention) controller_intent.right_x.confidence = 0.0f;
+        if (y_decision.intervention) controller_intent.right_y.confidence = 0.0f;
+    }
     previous_plan_normalized_size_ = plan.normalized_size;
     previous_plan_target_id_ = plan.target_id;
 
@@ -449,10 +461,30 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
         x_decision.manual_retention,
         y_decision.manual_retention};
     components.ai_aim_stick = components.shaped_assist_stick;
-    output.right_x = clamp_unit(
-        physical.right_x * x_decision.manual_retention + shaped.x);
-    output.right_y = clamp_unit(
-        physical.right_y * y_decision.manual_retention + shaped.y);
+    if (use_vector_fusion) {
+        VectorIntentFusionInput fusion_input;
+        fusion_input.manual_stick = {physical.right_x, physical.right_y};
+        fusion_input.shaped_ai_stick = {shaped.x, shaped.y};
+        fusion_input.plan = plan;
+        fusion_input.manual_confidence = intent.right_confidence;
+        const auto fusion = vector_intent_fuser_.update(fusion_input, dt);
+        output.right_x = clamp_unit(fusion.fused_stick.x);
+        output.right_y = clamp_unit(fusion.fused_stick.y);
+        components.intent_fusion_mode = "causal_vector";
+        components.intent_fusion_candidate =
+            static_cast<int>(fusion.candidate);
+        components.intent_fusion_manual_weight =
+            fusion.applied_manual_weight;
+        components.intent_fusion_ai_weight = fusion.applied_ai_weight;
+        components.intent_fusion_winner_margin = fusion.winner_margin;
+        components.intent_fusion_fallback = fusion.fallback;
+        components.intent_fusion_manual_escape = fusion.manual_escape;
+    } else {
+        output.right_x = clamp_unit(
+            physical.right_x * x_decision.manual_retention + shaped.x);
+        output.right_y = clamp_unit(
+            physical.right_y * y_decision.manual_retention + shaped.y);
+    }
 #if defined(COD_BENCHMARK_MIX_OVERRIDE)
     if (benchmark_mix_transform_) {
         const auto replacement = benchmark_mix_transform_(
@@ -572,6 +604,13 @@ const std::string& NativeGamepadController::last_ai_aim_mode() const {
 void NativeGamepadController::set_benchmark_mix_transform(
     BenchmarkMixTransform transform) {
     benchmark_mix_transform_ = std::move(transform);
+}
+
+void NativeGamepadController::set_benchmark_intent_fusion_mode(
+    BenchmarkIntentFusionMode mode) {
+    benchmark_intent_fusion_mode_ = mode;
+    axis_intent_arbiter_.reset();
+    vector_intent_fuser_.reset();
 }
 #endif
 

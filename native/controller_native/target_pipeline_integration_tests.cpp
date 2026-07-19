@@ -199,6 +199,26 @@ void test_benchmark_mix_override_updates_delivered_feedback() {
             "tracker feedback must match delivered output");
 }
 
+void test_benchmark_vector_fusion_is_one_reported_pipeline_stage() {
+    double now = 34.0;
+    NativeGamepadController controller(config(), [&now] { return now; });
+    controller.set_benchmark_intent_fusion_mode(
+        controller_native::BenchmarkIntentFusionMode::CausalVector);
+    auto physical = aiming();
+    physical.right_x = 0.20f;
+    physical.right_y = -0.12f;
+
+    const auto output = controller.build_output(physical);
+    const auto& components = controller.last_output_components();
+    require(components.intent_fusion_mode == "causal_vector",
+            "benchmark vector mode must be identified in output diagnostics");
+    require(components.intent_fusion_fallback,
+            "no-target vector mode must report its manual fallback");
+    require(std::fabs(output.right_x - physical.right_x) < 1e-6f &&
+            std::fabs(output.right_y - physical.right_y) < 1e-6f,
+            "vector fallback must apply physical manual input exactly once");
+}
+
 void test_only_worsening_wrong_way_axis_stops_suppressing_assist() {
     double now = 35.0;
     NativeGamepadController controller(config(), [&now] { return now; });
@@ -417,6 +437,7 @@ int main() {
         test_vision_gap_uses_smooth_short_continuity();
         test_opposing_manual_intent_yields_without_braking_bodylock();
         test_benchmark_mix_override_updates_delivered_feedback();
+        test_benchmark_vector_fusion_is_one_reported_pipeline_stage();
         test_only_worsening_wrong_way_axis_stops_suppressing_assist();
         test_ads_and_bodylock_share_one_resolved_target_geometry();
         test_physical_fire_is_never_cleared_by_autofire();

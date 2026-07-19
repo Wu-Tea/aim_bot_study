@@ -1482,6 +1482,7 @@ set(COD_TARGET_PLAN_RUNTIME_SOURCES
     ../controller_native/aim_response_estimator.cpp
     ../controller_native/aim_dynamics_shaper.cpp
     ../controller_native/axis_intent_arbiter.cpp
+    ../controller_native/vector_intent_fuser.cpp
 )
 
 foreach(COD_TARGET

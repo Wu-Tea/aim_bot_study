@@ -23,6 +23,13 @@ struct NativeControllerOutputComponents {
     common_native::Vec2f axis_intent_evidence_stable;
     common_native::Vec2f axis_intent_error_worsening;
     common_native::Vec2f axis_manual_retention{1.0f, 1.0f};
+    std::string intent_fusion_mode = "legacy_axis";
+    int intent_fusion_candidate = 0;
+    float intent_fusion_manual_weight = 1.0f;
+    float intent_fusion_ai_weight = 0.0f;
+    float intent_fusion_winner_margin = 0.0f;
+    bool intent_fusion_fallback = false;
+    bool intent_fusion_manual_escape = false;
     common_native::Vec2f dynamic_adjustment_stick;
     common_native::Vec2f post_ai_stick;
     common_native::Vec2f post_dynamic_stick;
