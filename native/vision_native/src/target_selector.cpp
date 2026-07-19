@@ -33,14 +33,16 @@ constexpr float kTrackingSwitchMargin = 80.0f;
 constexpr float kMaxJumpXRatio = 180.0f / 640.0f;
 constexpr float kMaxJumpYRatio = 180.0f / 640.0f;
 constexpr float kDistanceScoreScale = 800.0f;
+constexpr float kTargetHeightScoreScale = 800.0f;
+constexpr float kTargetHeightDistanceCompensationPx = 160.0f;
 constexpr float kTrackingRadiusRatio = 120.0f / 640.0f;
 constexpr float kMaxSmoothingJumpRatio = 24.0f / 640.0f;
 constexpr float kPickupConfirmRadiusRatio = 32.0f / 640.0f;
-constexpr float kIdealAreaRatio = 8000.0f / (640.0f * 640.0f);
 constexpr float kMaxAreaLimitRatio = 40000.0f / (640.0f * 640.0f);
 constexpr int kPickupConfirmFrames = 2;
-constexpr int kTargetHoldFrames = 2;
 constexpr int kSwitchConfirmFrames = 2;
+constexpr int kOccludedTargetHoldFrames = 6;
+constexpr int kTargetHoldFrames = kOccludedTargetHoldFrames + kSwitchConfirmFrames;
 constexpr float kActiveTargetIouThreshold = 0.12f;
 constexpr float kActiveTargetCenterXRatio = 0.65f;
 constexpr float kActiveTargetCenterYRatio = 0.35f;
@@ -610,7 +612,6 @@ VisionTargetSelector::VisionTargetSelector(int frame_width, int frame_height)
     pickup_confirm_radius_ = avg_dim * kPickupConfirmRadiusRatio;
     switch_crosshair_margin_ = avg_dim * kSwitchCrosshairMarginRatio;
     crosshair_priority_margin_ = avg_dim * kCrosshairPriorityMarginRatio;
-    ideal_area_ = frame_area * kIdealAreaRatio;
     max_area_limit_ = frame_area * kMaxAreaLimitRatio;
 }
 
@@ -1094,18 +1095,25 @@ bool VisionTargetSelector::prefer_candidate(
     if (!current.has_value()) {
         return true;
     }
-
-    const float current_crosshair_distance = crosshair_distance(
+    const float current_height_ratio = rect_height(current->candidate.body_box) /
+        std::max(1.0f, static_cast<float>(frame_height_));
+    const float challenger_height_ratio = rect_height(challenger.candidate.body_box) /
+        std::max(1.0f, static_cast<float>(frame_height_));
+    const float current_effective_distance = crosshair_distance(
         current->candidate.target_x,
-        current->candidate.target_y);
-    const float challenger_crosshair_distance = crosshair_distance(
+        current->candidate.target_y) -
+        current_height_ratio * kTargetHeightDistanceCompensationPx;
+    const float challenger_effective_distance = crosshair_distance(
         challenger.candidate.target_x,
-        challenger.candidate.target_y);
+        challenger.candidate.target_y) -
+        challenger_height_ratio * kTargetHeightDistanceCompensationPx;
 
-    if (challenger_crosshair_distance < (current_crosshair_distance - crosshair_priority_margin_)) {
+    if (challenger_effective_distance <
+        (current_effective_distance - crosshair_priority_margin_)) {
         return true;
     }
-    if (current_crosshair_distance < (challenger_crosshair_distance - crosshair_priority_margin_)) {
+    if (current_effective_distance <
+        (challenger_effective_distance - crosshair_priority_margin_)) {
         return false;
     }
     return challenger.score > current->score;
@@ -1127,10 +1135,10 @@ VisionTargetSelector::ScoredCandidate VisionTargetSelector::score_candidate(
     const float area = rect_width(candidate.body_box) * rect_height(candidate.body_box);
     if (area > max_area_limit_) {
         score -= (area - max_area_limit_) * 0.1f;
-    } else {
-        const float area_diff = std::fabs(area - ideal_area_);
-        score += (ideal_area_ - area_diff) * 0.005f;
     }
+    const float normalized_height = rect_height(candidate.body_box) /
+        std::max(1.0f, static_cast<float>(frame_height_));
+    score += normalized_height * kTargetHeightScoreScale;
     score += candidate.live_score * kTargetValidityScoreScale;
     score -= candidate.corpse_risk * kCorpseRiskScoreScale;
     score -= candidate.uncertainty * kTargetValidityScoreScale;
@@ -1521,6 +1529,11 @@ VisionTargetSelector::resolve_active_target_transition(
 
         clear_switch_pending();
         return {*active_match_target, false};
+    }
+
+    if (hold_frames_ < kOccludedTargetHoldFrames) {
+        clear_switch_pending();
+        return {std::nullopt, false};
     }
 
     const auto confirmed_switch = confirm_switch(chosen_target);

@@ -198,7 +198,6 @@ private:
     float pickup_confirm_radius_ = 0.0f;
     float switch_crosshair_margin_ = 0.0f;
     float crosshair_priority_margin_ = 0.0f;
-    float ideal_area_ = 0.0f;
     float max_area_limit_ = 0.0f;
 
     std::optional<std::pair<float, float>> last_target_center_;

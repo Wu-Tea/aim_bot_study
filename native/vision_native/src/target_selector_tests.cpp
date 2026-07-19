@@ -45,6 +45,21 @@ vision_native::Detection detection_for_target(
     return detection;
 }
 
+vision_native::Detection sized_detection_for_target(
+    float target_x,
+    float target_y,
+    float width,
+    float height,
+    float conf) {
+    vision_native::Detection detection;
+    detection.x1 = target_x - (width * 0.5f);
+    detection.x2 = target_x + (width * 0.5f);
+    detection.y1 = target_y - (height * 0.40f);
+    detection.y2 = detection.y1 + height;
+    detection.conf = conf;
+    return detection;
+}
+
 vision_native::DetectionBatch two_target_batch() {
     vision_native::DetectionBatch batch;
     batch.frame_width = 640;
@@ -188,6 +203,63 @@ void test_user_intent_prefers_lower_left_close_target_over_far_upper_right() {
     require_true(result.target_y > 256.0f, "lower-left intent should keep selection below center");
     require_true(result.intent_applied, "lower-left intent should be applied");
     require_true(result.intent_id == 23, "lower-left intent result should carry intent id");
+}
+
+void test_near_large_target_can_beat_slightly_closer_crosshair_small_target() {
+    vision_native::VisionTargetSelector selector(640, 512);
+    vision_native::DetectionBatch batch;
+    batch.frame_width = 640;
+    batch.frame_height = 512;
+    batch.detections.push_back(sized_detection_for_target(
+        320.0f, 256.0f, 24.0f, 60.0f, 0.92f));
+    batch.detections.push_back(sized_detection_for_target(
+        350.0f, 256.0f, 80.0f, 200.0f, 0.92f));
+
+    selector.select(batch);
+    const vision_native::VisionResult result = selector.select(batch);
+
+    require_true(result.has_target, "size-weight scenario should acquire a target");
+    require_true(
+        result.has_selected_detection && result.selected_detection_index == 1,
+        "a slightly off-center near target must beat a centered far small target");
+}
+
+void test_short_occlusion_does_not_switch_locked_near_target_to_visible_far_target() {
+    vision_native::VisionTargetSelector selector(640, 512);
+    vision_native::DetectionBatch visible;
+    visible.frame_width = 640;
+    visible.frame_height = 512;
+    visible.detections.push_back(sized_detection_for_target(
+        270.0f, 256.0f, 24.0f, 60.0f, 0.92f));
+    visible.detections.push_back(sized_detection_for_target(
+        350.0f, 256.0f, 80.0f, 200.0f, 0.92f));
+
+    selector.select(visible);
+    const vision_native::VisionResult locked = selector.select(visible);
+    require_true(
+        locked.has_selected_detection && locked.selected_detection_index == 1,
+        "occlusion setup must lock the near large target");
+
+    vision_native::DetectionBatch occluded;
+    occluded.frame_width = 640;
+    occluded.frame_height = 512;
+    occluded.detections.push_back(sized_detection_for_target(
+        270.0f, 256.0f, 24.0f, 60.0f, 0.92f));
+    for (int tick = 0; tick < 6; ++tick) {
+        const vision_native::VisionResult held = selector.select(occluded);
+        require_true(held.has_target,
+                     "short occlusion window must keep a predicted target");
+        require_near(held.target_x, 350.0f, 0.001f,
+                     "short occlusion must not redirect aim to the visible far target");
+        require_true(!held.has_selected_detection,
+                     "occlusion hold must not claim backing from the far detection");
+    }
+
+    selector.select(occluded);
+    const vision_native::VisionResult released = selector.select(occluded);
+    require_true(
+        released.has_selected_detection && released.selected_detection_index == 0,
+        "persistent occlusion must eventually release to the visible target");
 }
 
 void test_intent_favored_challenger_logs_ignored_active_lock() {
@@ -460,6 +532,8 @@ int main() {
     try {
         test_intent_direction_ranks_plausible_multi_target_candidates();
         test_user_intent_prefers_lower_left_close_target_over_far_upper_right();
+        test_near_large_target_can_beat_slightly_closer_crosshair_small_target();
+        test_short_occlusion_does_not_switch_locked_near_target_to_visible_far_target();
         test_intent_favored_challenger_logs_ignored_active_lock();
         test_intent_switch_waits_for_confirmation_before_changing_active_target();
         test_intent_does_not_grant_fire_authority_to_weak_association();
