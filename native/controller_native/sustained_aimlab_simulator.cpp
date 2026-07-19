@@ -62,7 +62,8 @@ BenchmarkResult run_simulation(
     const ScenarioScript& script,
     ManualProfile manual_profile,
     ControllerStep controller_step,
-    BenchmarkCohort cohort) {
+    BenchmarkCohort cohort,
+    SimulationTraceObserver trace_observer) {
     if (!controller_step) {
         throw std::invalid_argument("controller callback is required");
     }
@@ -164,7 +165,20 @@ BenchmarkResult run_simulation(
             pending_fresh_miss = false;
         }
 
+        SimulationTraceFrame trace_frame;
+        trace_frame.absolute_ms = now_ms;
+        trace_frame.target_elapsed_ms = target_active ? target_elapsed_ms : -1;
+        trace_frame.target_active = target_active;
+        trace_frame.fresh_vision = input.fresh_vision;
+        trace_frame.target_id = input.target_id;
+        trace_frame.input = input;
+        if (target_active) {
+            trace_frame.motion = script.targets[target_index].motion;
+            trace_frame.true_error_before_px = error;
+        }
+
         const ControllerStepResult output = controller_step(input);
+        trace_frame.output = output;
         if (!finite(output.final_stick) ||
             !finite(output.requested_assist_stick) ||
             !finite(output.shaped_assist_stick) ||
@@ -187,6 +201,8 @@ BenchmarkResult run_simulation(
                     length(error), target.visible_radius_px, script.config);
             error.x -= output.final_stick.x * response * 0.001;
             error.y += output.final_stick.y * response * 0.001;
+            trace_frame.true_error_after_px = error;
+            trace_frame.target_velocity_px_per_second = target_velocity;
 
             if (cohort == BenchmarkCohort::BodyLockFollow && !tracking) {
                 if (output.bodylock_mode) {
@@ -242,6 +258,7 @@ BenchmarkResult run_simulation(
             --gap_remaining_ms;
         }
         previous_bodylock_mode = target_active && output.bodylock_mode;
+        if (trace_observer) trace_observer(trace_frame);
     }
 
     if (target_active && scorer) {

@@ -29,6 +29,23 @@ struct ControllerStepResult {
     bool tracker_reliable = false;
 };
 
+struct SimulationTraceFrame {
+    int absolute_ms = 0;
+    int target_elapsed_ms = -1;
+    bool target_active = false;
+    bool fresh_vision = false;
+    std::uint64_t target_id = 0;
+    MotionProfile motion = MotionProfile::ConstantHorizontal;
+    Vec2d true_error_before_px;
+    Vec2d true_error_after_px;
+    Vec2d target_velocity_px_per_second;
+    ControllerObservation input;
+    ControllerStepResult output;
+};
+
+using SimulationTraceObserver =
+    std::function<void(const SimulationTraceFrame&)>;
+
 using ControllerStep = std::function<ControllerStepResult(
     const ControllerObservation&)>;
 
@@ -36,6 +53,7 @@ BenchmarkResult run_simulation(
     const ScenarioScript& script,
     ManualProfile manual_profile,
     ControllerStep controller_step,
-    BenchmarkCohort cohort = BenchmarkCohort::AdsAcquire);
+    BenchmarkCohort cohort = BenchmarkCohort::AdsAcquire,
+    SimulationTraceObserver trace_observer = {});
 
 }  // namespace controller_native::sustained_aimlab

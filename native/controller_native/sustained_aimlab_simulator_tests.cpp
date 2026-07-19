@@ -251,6 +251,27 @@ void test_plan_diagnostics_and_ads_handoff_reach_the_scorer() {
             "tracker radial closing speed must reach the scorer unchanged");
 }
 
+void test_trace_is_deterministic_and_observational() {
+    const ScenarioScript script = stationary_script(40, {20.0, 10.0});
+    const BenchmarkResult plain = run_simulation(
+        script, ManualProfile::Pure, proportional_controller());
+    std::vector<SimulationTraceFrame> trace;
+    const BenchmarkResult observed = run_simulation(
+        script, ManualProfile::Pure, proportional_controller(),
+        BenchmarkCohort::AdsAcquire,
+        [&](const SimulationTraceFrame& frame) { trace.push_back(frame); });
+
+    require(plain.acquire_points == observed.acquire_points,
+            "trace observer must not change acquisition score");
+    require(plain.tracking_points == observed.tracking_points,
+            "trace observer must not change tracking score");
+    require(trace.size() == 40, "trace must contain one frame per tick");
+    require(trace.front().true_error_before_px.x == 20.0,
+            "trace must expose pre-control ground truth");
+    require(trace.front().absolute_ms == 0,
+            "trace timestamps must begin at zero");
+}
+
 }  // namespace
 
 int main() {
@@ -266,6 +287,7 @@ int main() {
         test_bodylock_cohort_fails_when_mode_never_enters();
         test_bodylock_warmup_is_stationary_and_manual_neutral();
         test_plan_diagnostics_and_ads_handoff_reach_the_scorer();
+        test_trace_is_deterministic_and_observational();
         std::cout << "cod_native_sustained_aimlab_simulator_tests PASS\n";
         return EXIT_SUCCESS;
     } catch (const std::exception& error) {
