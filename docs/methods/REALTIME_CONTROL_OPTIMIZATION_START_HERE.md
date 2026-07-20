@@ -4,6 +4,8 @@
 
 完整方法论见 [Evidence-Driven Real-Time Control Optimization](../project/EVIDENCE_DRIVEN_REALTIME_CONTROL_OPTIMIZATION.md)。本项目的完整案例见 [Aim Control Optimization History](../project/AIM_CONTROL_OPTIMIZATION_HISTORY_20260716_20260720.md)。
 
+如果要让 Codex 直接接入另一个仓库，使用可复制的 [Evidence-Driven Control Optimization 接入 Prompt](prompts/ADOPT_EVIDENCE_DRIVEN_CONTROL_OPTIMIZATION.md)。
+
 ## 什么时候从这里开始
 
 满足任意一项即可使用：
@@ -103,6 +105,8 @@ decision/outcome journal
 如果 runtime identity 不完整，仍可开始定位，但所有数字只能标记为线索，不能写成正式回归或提升。
 
 ## 给 Codex 的复制式启动提示词
+
+下面是最短版本。需要完整的上下文审计、四种工作模式、产物约束和继续执行模板时，请使用独立的 [接入 Prompt](prompts/ADOPT_EVIDENCE_DRIVEN_CONTROL_OPTIMIZATION.md)。
 
 将下面内容复制到目标项目的任务中，并附上 intake、日志或录像：
 

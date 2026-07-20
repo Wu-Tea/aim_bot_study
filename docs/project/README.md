@@ -24,6 +24,8 @@ For reuse outside this repository, start with
 project-neutral intake, workflow, verification checklist, and copyable Codex
 prompt; the full method remains in
 `EVIDENCE_DRIVEN_REALTIME_CONTROL_OPTIMIZATION.md`.
+The ready-to-paste onboarding prompt is
+`../methods/prompts/ADOPT_EVIDENCE_DRIVEN_CONTROL_OPTIMIZATION.md`.
 
 ## Runtime and architecture docs
 
