@@ -21,6 +21,7 @@ Primary scope: native C++ FPS gamepad runtime, target selection, tracker/control
 
 - Recorded the complete July 16-20 optimization sequence as a causal case study rather than a commit list.
 - Extracted the reusable loop: runtime identity -> evidence chain -> defect fixture -> metric contract -> counterfactual A/B -> minimal policy -> fixed-seed gate -> live smoke -> hand-feel validation -> durable decision.
+- Added a project-neutral adoption entry at `docs/methods/REALTIME_CONTROL_OPTIMIZATION_START_HERE.md` with an intake template, copyable Codex prompt, minimum artifacts and skill-upgrade boundary.
 - Preserved every line of the old 277-line handoff and 247-line session log in the archive before compacting either file; only line endings were normalized to LF.
 - Kept the global learning roadmap explicit: G0 decision journal, G1 sequence oracle, G2 shadow tail value, G3 bounded coordinator adjustment, G4 memory lifetime/persistence decision.
 - Inferred lesson: useful old feel may come from accidental stacking; removing duplication can improve naturalness while exposing a missing legitimate control function.

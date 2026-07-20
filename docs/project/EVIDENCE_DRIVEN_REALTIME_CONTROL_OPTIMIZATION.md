@@ -1,5 +1,7 @@
 # Evidence-Driven Real-Time Control Optimization
 
+跨项目首次使用请先读 [实时控制优化：跨项目使用入口](../methods/REALTIME_CONTROL_OPTIMIZATION_START_HERE.md)。该入口提供 intake 模板、可复制提示词、最小产物和停止条件；本文保留完整原理与设计边界。
+
 ## What This Method Solves
 
 实时控制器的难点通常不是缺少一个更复杂的公式，而是缺少可信的因果链：用户说“黏”“弱”“乱跳”，日志看到几个轴值，benchmark 又给出一个更高总分，但三者可能运行了不同 binary、配置、输入语义或状态机。

@@ -20,6 +20,7 @@ Preserve the single-owner control architecture while improving real gameplay spe
 - High-rate telemetry/perf logging is opt-in. Fresh sessions use manifests and whole-session cleanup.
 - Complete July 16-20 history: [AIM_CONTROL_OPTIMIZATION_HISTORY_20260716_20260720.md](../docs/project/AIM_CONTROL_OPTIMIZATION_HISTORY_20260716_20260720.md).
 - Reusable method: [EVIDENCE_DRIVEN_REALTIME_CONTROL_OPTIMIZATION.md](../docs/project/EVIDENCE_DRIVEN_REALTIME_CONTROL_OPTIMIZATION.md).
+- Cross-project adoption entry: [REALTIME_CONTROL_OPTIMIZATION_START_HERE.md](../docs/methods/REALTIME_CONTROL_OPTIMIZATION_START_HERE.md).
 
 ## Next Action
 
@@ -56,12 +57,13 @@ Preserve the single-owner control architecture while improving real gameplay spe
 
 1. [Compact session log](session-log.md)
 2. [July 16-20 causal history](../docs/project/AIM_CONTROL_OPTIMIZATION_HISTORY_20260716_20260720.md)
-3. [Optimization methodology](../docs/project/EVIDENCE_DRIVEN_REALTIME_CONTROL_OPTIMIZATION.md)
-4. [Response-model acceptance](../docs/project/RESPONSE_MODEL_AIM_CONTROL_ACCEPTANCE_20260718.md)
-5. [Brake episode acceptance](../docs/project/BRAKE_EPISODE_BENCHMARK_ACCEPTANCE_20260719.md)
-6. [Counterfactual acceptance](../docs/project/COUNTERFACTUAL_CONFLICT_BENCHMARK_ACCEPTANCE_20260719.md)
-7. [Causal vector fusion design](../docs/superpowers/specs/2026-07-19-causal-vector-intent-fusion-design.md)
-8. [Global policy learning plan](../docs/superpowers/plans/2026-07-19-global-aim-policy-learning.md)
+3. [Cross-project adoption entry](../docs/methods/REALTIME_CONTROL_OPTIMIZATION_START_HERE.md)
+4. [Optimization methodology](../docs/project/EVIDENCE_DRIVEN_REALTIME_CONTROL_OPTIMIZATION.md)
+5. [Response-model acceptance](../docs/project/RESPONSE_MODEL_AIM_CONTROL_ACCEPTANCE_20260718.md)
+6. [Brake episode acceptance](../docs/project/BRAKE_EPISODE_BENCHMARK_ACCEPTANCE_20260719.md)
+7. [Counterfactual acceptance](../docs/project/COUNTERFACTUAL_CONFLICT_BENCHMARK_ACCEPTANCE_20260719.md)
+8. [Causal vector fusion design](../docs/superpowers/specs/2026-07-19-causal-vector-intent-fusion-design.md)
+9. [Global policy learning plan](../docs/superpowers/plans/2026-07-19-global-aim-policy-learning.md)
 
 ## Do Not Reopen Unless Needed
 

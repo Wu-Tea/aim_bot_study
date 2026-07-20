@@ -137,6 +137,7 @@ controllers/             Controller hosts and per-mode plugin logic
 controllers/gamepad/     Gamepad plugin stack and support modules
 controllers/mouse/       Mouse plugin stack and support modules
 docs/project/            Project-facing architecture, benchmark, and status docs
+docs/methods/            Reusable cross-project engineering methods and start-here guides
 docs/superpowers/        Historical specs and implementation plans
 models/                  YOLO `.pt`, `.onnx`, and TensorRT `.engine` artifacts
 native/vision_native/    C++ / CUDA / TensorRT native vision runtime

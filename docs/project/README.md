@@ -19,6 +19,12 @@ This folder mixes current architecture notes, benchmark records, work snapshots,
 7. `VISION_OVERVIEW.md`
    - Python backend, native backend, and the shared vision-to-controller contract
 
+For reuse outside this repository, start with
+`../methods/REALTIME_CONTROL_OPTIMIZATION_START_HERE.md`. It contains the
+project-neutral intake, workflow, verification checklist, and copyable Codex
+prompt; the full method remains in
+`EVIDENCE_DRIVEN_REALTIME_CONTROL_OPTIMIZATION.md`.
+
 ## Runtime and architecture docs
 
 - `NATIVE_CPP_RUNTIME.md`
