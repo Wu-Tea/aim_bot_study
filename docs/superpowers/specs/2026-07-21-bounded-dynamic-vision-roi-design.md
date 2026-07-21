@@ -1,7 +1,7 @@
 # Bounded Dynamic Vision ROI Design
 
-Date: 2026-07-21  
-Status: accepted  
+Date: 2026-07-21
+Status: accepted
 Scope: native 480x416 DXGI capture, vision selector continuity, tracker guidance, benchmark and telemetry contracts
 
 ## 1. Objective
@@ -106,6 +106,8 @@ The benchmark must compare at least `1.25`, `1.50` and `1.75`. Production select
 
 When there is no committed target, when ADS closes, when the tracker guidance is stale, or when capture is rebuilt, the planner clears its state and the next ROI is centered.
 
+Every new physical LT/ADS epoch also performs an unconditional synchronous reset before accepting target guidance. The first capture of an ADS epoch is centered even if the previous epoch ended through an abnormal path, a dropped frame or an out-of-order reset. The planner cannot inherit offset, prediction or intent-alignment state across ADS epochs.
+
 Existing tracker/coordinator occlusion hold counts as a committed target. The ROI planner does not add its own hold timer.
 
 ### 6.2 Protected target region
@@ -189,7 +191,7 @@ This change does not add inference work, but candidate decoding, selector CPU an
 - Clamp ROI origin to the selected DXGI output before copying.
 - Record `edge_clamped` when the requested sniffing offset cannot be applied.
 - Reject stale or out-of-order tracker guidance.
-- Reset offset on DXGI access loss, duplication rebuild, output-size change or ADS epoch end.
+- Reset offset on every ADS epoch start and end, DXGI access loss, duplication rebuild or output-size change.
 - Preserve physical input passthrough regardless of ROI state.
 - Keep AutoFire's existing fresh-evidence and authority rules.
 - A coordinate-transform failure must fail centered, not retain an unverified offset.
@@ -249,6 +251,7 @@ Replay the same stable-coordinate observations through ADS and BodyLock with dyn
 ## 11. Acceptance Criteria
 
 - ROI is centered whenever no committed target exists.
+- The first captured frame of every physical LT/ADS epoch is centered and carries no planner state from the previous epoch.
 - No inference dimension, engine, or inference-count change.
 - ROI movement introduces at most 0.5 px stable-coordinate error.
 - Edge-crossing clipped and missed frames improve by at least 50% in the video-derived scenario.
@@ -270,4 +273,3 @@ intent_speed_bonus = 0.25
 ```
 
 Safety margins and protected-body ratios should remain internal constants until evidence shows that users need to tune them. This keeps the production configuration small and prevents another collection of interacting micro-gates.
-
