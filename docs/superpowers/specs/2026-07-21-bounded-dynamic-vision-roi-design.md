@@ -214,6 +214,25 @@ Logging remains opt-in and follows existing fresh-session cleanup rules.
 
 ## 10. Benchmark Plan
 
+### 10.0 Ground-truth and evidence contract
+
+Turn the two short engagements in the 2026-07-21 full-screen recording into a small, independently corrected evaluation fixture:
+
+- first engagement: approximately 0.70-1.50 seconds;
+- second engagement: approximately 3.60-4.60 seconds.
+
+Annotations use full-screen coordinates and include target identity, visible body box, protected upper-body box, canonical chest point, visibility and occlusion state. Keyframes are labeled every 3-5 video frames, intermediate frames may be propagated with optical flow or an offline tracker, and all boundary, occlusion and identity transitions are visually reviewed.
+
+The current TensorRT engine may propose initial boxes, but its output cannot be used unchanged as ground truth. Otherwise the benchmark would use the system under test to certify itself. This fixture is evaluation data, not model distillation or a production training change.
+
+Evidence is separated into three layers:
+
+1. Full-frame video replay validates capture coverage, detection continuity, coordinate transforms, selector identity and tracker input quality.
+2. A deterministic closed-loop scenario derived from the annotated target motion, scale and occlusion validates tracker, ROI planner and controller interaction.
+3. A live smoke test validates hand feel after automated gates pass.
+
+The recorded camera trajectory is exogenous and cannot prove counterfactual controller behavior. Video replay results must not be reported as closed-loop ADS or BodyLock gains.
+
 ### 10.1 Coordinate invariance
 
 Hold a world target fixed while moving the ROI through deterministic offsets. The translated stable target must move by no more than 0.5 px. Include frame/offset reordering to catch metadata mismatches.
@@ -227,6 +246,8 @@ Replay full 1920x1080 frames with:
 3. larger-region resize as a diagnostic upper bound only.
 
 Measure clipped frames, confidence below 0.40, complete misses, weak associations, tracker holds, target-point jumps and time the protected chest region spends outside the ROI.
+
+The fixed and dynamic paths consume the same source frames, annotations and engine. The diagnostic larger-region resize is never eligible as a production winner.
 
 ### 10.3 Non-edge partial target
 
@@ -246,7 +267,23 @@ Keep a committed edge target through short occlusion while a challenger appears 
 
 ### 10.7 Controller matched A/B
 
-Replay the same stable-coordinate observations through ADS and BodyLock with dynamic ROI disabled/enabled. Measure acquisition, sustained error, interruption, jerk, overshoot/brake burden, user-fight and delivered output. ROI movement must not alter controller output when stable target evidence is identical.
+Build a deterministic closed-loop trajectory from the annotated edge crossing rather than treating the recorded camera movement as counterfactual output. Preserve observed target direction, scale growth, diagonal motion, occlusion timing and reversal, then let the simulated controller output alter subsequent relative target position.
+
+Run the trajectory with aligned input, neutral input, short opposing mistakes and confirmed manual escape. Measure acquisition, sustained error, interruption, jerk, overshoot/brake burden, user-fight, ROI recentering and delivered output. ROI movement must not alter controller output when stable target evidence is identical.
+
+### 10.8 Replay artifact
+
+The retained acceptance artifact records:
+
+- source video identity and annotated time ranges;
+- annotation schema version and reviewer status;
+- runtime revision, engine identity and effective config fingerprint;
+- fixed seeds and scenario semantics;
+- baseline and dynamic ROI metrics;
+- sniff-scale matrix;
+- coordinate-invariance and ADS-epoch reset results;
+- performance timings;
+- known limitations, including the lack of counterfactual camera response in raw video replay.
 
 ## 11. Acceptance Criteria
 
@@ -255,6 +292,7 @@ Replay the same stable-coordinate observations through ADS and BodyLock with dyn
 - No inference dimension, engine, or inference-count change.
 - ROI movement introduces at most 0.5 px stable-coordinate error.
 - Edge-crossing clipped and missed frames improve by at least 50% in the video-derived scenario.
+- The non-edge first engagement keeps an exact zero offset and does not regress detection continuity.
 - Non-edge fixed-crop scenarios show no statistically meaningful ADS or BodyLock regression.
 - No increase in incorrect target switches, incorrect BodyLock interruption or AutoFire activation.
 - No additional lifecycle, hold, motion-estimation or controller owner is introduced.
