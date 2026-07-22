@@ -64,4 +64,4 @@
 - [x] Reject or revise if gains come from swallowing escape, tracker-only behavior
   changes, or worse discontinuity/false interruption.
 - [x] Build `cod_native_runtime` and run all registered CTest tests.
-- [ ] Commit the accepted implementation and evidence to `dev`; do not push.
+- [x] Commit the accepted implementation and evidence to `dev`; do not push.
