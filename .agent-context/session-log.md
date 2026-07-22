@@ -17,6 +17,31 @@ Primary scope: native C++ FPS gamepad runtime, target selection, tracker/control
 - **Repository evidence:** source, tests, commit, config-proven artifact or acceptance report.
 - **Inferred:** causal explanation not yet independently proven by matched A/B.
 
+## 2026-07-22 - Fresh-Vision BodyLock Counter-Correction
+
+- User-directed boundary: tracker-only prediction must preserve the existing
+  user/AI fusion; clear fresh Vision may constrain a demonstrably wrong manual
+  direction more strongly.
+- Repository evidence: `VectorIntentFuser` now receives a fresh single-target
+  observation pulse and owns a 16 ms evidence envelope. Only reliable
+  `BodyLockFollow` may select `FreshVisionCounterCorrected`; ADS keeps its
+  existing brake, multi-target/coasting/reacquisition/escape do not gain the
+  stronger authority.
+- The new candidate reduces only the wrong radial manual component. Tangential
+  manual and shaped AI remain at full weight. Default radial floor is `0.35`;
+  `1.0` disables the path.
+- Fixed 3-seed, 60-second evidence selected floor `0.35`: BodyLock tracking
+  +1.83%, settled targets +7.61%, overshoot area -20.21%, false interruptions
+  0.33 -> 0; BodyLock stall-ring time increased 1.46%. ADS cohort acquisition
+  improved 0.73% and acquired targets 3.16%, while post-acquisition tracking
+  decreased 1.47%; this remains a live hand-feel validation point.
+- Rejected floor `0.20`, floor `0.50`, a hard 18 px gate and a distance-ramped
+  floor. Full rationale and artifacts are linked from
+  `docs/project/FRESH_VISION_MANUAL_COUNTER_CORRECTION_ACCEPTANCE_20260722.md`.
+- Candidate telemetry schema advanced from v3 to v4. Release runtime built and
+  all 23 registered CTest tests passed before merge to `dev` (`2a37b33`,
+  evidence `926eeb5`).
+
 ## 2026-07-20 - Knowledge Capture and Context Compaction
 
 - Recorded the complete July 16-20 optimization sequence as a causal case study rather than a commit list.

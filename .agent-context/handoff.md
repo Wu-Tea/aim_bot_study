@@ -19,6 +19,11 @@ Preserve the single-owner control architecture while improving real gameplay spe
 - Background VBS start/stop launchers run without a console window and prevent duplicate instances; the process remains normally visible to Windows.
 - High-rate telemetry/perf logging is opt-in. Fresh sessions use manifests and whole-session cleanup.
 - Complete July 16-20 history: [AIM_CONTROL_OPTIMIZATION_HISTORY_20260716_20260720.md](../docs/project/AIM_CONTROL_OPTIMIZATION_HISTORY_20260716_20260720.md).
+- Fresh single-target Vision can now strengthen BodyLock correction of only a
+  wrong radial manual component for a 16 ms envelope. ADS and tracker-only
+  behavior remain on their prior policies; tangent stays fully user-owned. The
+  configurable floor defaults to `0.35` and `1.0` disables it. Acceptance:
+  [FRESH_VISION_MANUAL_COUNTER_CORRECTION_ACCEPTANCE_20260722.md](../docs/project/FRESH_VISION_MANUAL_COUNTER_CORRECTION_ACCEPTANCE_20260722.md).
 - A causal vision blind-window benchmark now separates capture, result-publication, controller and delayed-response clocks. B0-B2 retain 675-episode fixture and production-controller K1 artifacts plus 0.70/0.80/0.90 strength mutations; every production artifact fingerprints its config.
 - Reusable method: [EVIDENCE_DRIVEN_REALTIME_CONTROL_OPTIMIZATION.md](../docs/project/EVIDENCE_DRIVEN_REALTIME_CONTROL_OPTIMIZATION.md).
 - Cross-project adoption entry: [REALTIME_CONTROL_OPTIMIZATION_START_HERE.md](../docs/methods/REALTIME_CONTROL_OPTIMIZATION_START_HERE.md).
@@ -28,7 +33,7 @@ Preserve the single-owner control architecture while improving real gameplay spe
 
 1. Use the K1 production baseline to design the pending-aware candidate; it must beat all fixed-strength mutations on at least two primary metrics without losing acquisition/closing-speed guardrails.
 2. Before the next controller policy change, generate a current-revision legacy/vector full acceptance artifact with effective config fingerprint, fixed seeds and comparator identity.
-3. For remaining BodyLock 10-20 px stickiness, capture proposal, selected vector weights, delivered output, slowdown state and target response; build a radial/tangential fixture before changing policy.
+3. Live-smoke the fresh-Vision radial floor around 10-20 px. If stickiness remains, capture proposal, candidate/weights, delivered output, slowdown state and target response before changing the `0.35` floor.
 4. For small/far-target authority, use existing box size/reliability and mixed-input scenarios first; do not add another vision pass by default.
 5. If global learning resumes, start at G0 journal and G1 sequence oracle. Do not jump directly to production learning or persistence.
 
