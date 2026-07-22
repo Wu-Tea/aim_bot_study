@@ -119,6 +119,38 @@ void TelemetryCollectors::observe_tick(const TelemetryTickInput& input) noexcept
     command.saturated = input.output_saturated;
     state.responses.observe_controller(command);
 
+    TelemetryRecord delivered_record;
+    delivered_record.type = TelemetryRecordType::DeliveredControlSample;
+    delivered_record.tick_id = input.tick_id;
+    delivered_record.sample_seq = input.tick_id;
+    delivered_record.timestamps.output_sent_ns = input.output_sent_ns;
+    auto& delivered = delivered_record.delivered_control;
+    delivered.sample_seq = input.tick_id;
+    delivered.applied_at_ns = input.output_sent_ns;
+    delivered.physical_right_x = input.physical_x;
+    delivered.physical_right_y = input.physical_y;
+    delivered.physical_left_x = input.physical_left_x;
+    delivered.physical_left_y = input.physical_left_y;
+    delivered.manual_x = input.manual_x;
+    delivered.manual_y = input.manual_y;
+    delivered.ai_x = input.ai_x;
+    delivered.ai_y = input.ai_y;
+    delivered.pre_recoil_x = input.pre_recoil_x;
+    delivered.pre_recoil_y = input.pre_recoil_y;
+    delivered.recoil_x = input.recoil_x;
+    delivered.recoil_y = input.recoil_y;
+    delivered.final_right_x = input.final_x;
+    delivered.final_right_y = input.final_y;
+    delivered.final_left_x = input.final_left_x;
+    delivered.final_left_y = input.final_left_y;
+    delivered.ads_epoch = state.ads_epoch;
+    delivered.output_delivered = input.output_delivered;
+    delivered.output_disabled = input.output_disabled;
+    delivered.firing = input.final_fire_button;
+    delivered.recoil_active = command.recoil_active;
+    delivered.saturated = input.output_saturated;
+    enqueue(delivered_record);
+
     const float dt = state.last_tick_ns != 0 && input.sample_ns > state.last_tick_ns
         ? static_cast<float>(input.sample_ns - state.last_tick_ns) / 1'000'000'000.0f : 0.0f;
     state.last_tick_ns = input.sample_ns;
@@ -343,6 +375,49 @@ void TelemetryCollectors::observe_new_vision(const TelemetryVisionInput& input) 
     if (!input.aiming) state.ads.observe_hipfire(ads_frame);
     else state.ads.observe_vision(ads_frame);
     flush_ads_event();
+}
+
+void TelemetryCollectors::observe_committed_capture(
+    const pipeline_contract::CommittedCaptureObservation& observation) noexcept {
+    if (!state_ || !pipeline_contract::valid(observation)) return;
+    TelemetryRecord record;
+    record.type = TelemetryRecordType::CommittedCaptureObservation;
+    record.frame_id = observation.source_frame_id;
+    record.target_track_id = observation.persistent_target_id;
+    record.timestamps.vision_capture_ns = observation.captured_at_ns;
+    record.timestamps.inference_ready_ns = observation.result_at_ns;
+    record.vision_sample_quality = observation.strong_observation
+        ? VisionSampleQuality::Normal : VisionSampleQuality::SoftWeight;
+    record.identification_update_outcome =
+        IdentificationUpdateOutcome::NotEvaluated;
+    auto& value = record.committed_observation;
+    value.source_frame_id = observation.source_frame_id;
+    value.source_observation_id = observation.source_observation_id;
+    value.persistent_target_id = observation.persistent_target_id;
+    value.viewport_sequence = observation.viewport_sequence;
+    value.viewport_source_frame_id = observation.viewport_source_frame_id;
+    value.captured_at_ns = observation.captured_at_ns;
+    value.result_at_ns = observation.result_at_ns;
+    value.stable_error_x = observation.stable_error_px.x;
+    value.stable_error_y = observation.stable_error_px.y;
+    value.stable_body_width = observation.stable_body_size_px.x;
+    value.stable_body_height = observation.stable_body_size_px.y;
+    value.viewport_offset_x = observation.viewport_offset_px.x;
+    value.viewport_offset_y = observation.viewport_offset_px.y;
+    value.target_acceleration_x = observation.target_acceleration_px_per_sec2.x;
+    value.target_acceleration_y = observation.target_acceleration_px_per_sec2.y;
+    value.reliability = observation.reliability;
+    value.normalized_size = observation.normalized_size;
+    value.ads_epoch = observation.ads_epoch;
+    value.eligible_candidate_count = observation.eligible_candidate_count;
+    value.lifecycle = static_cast<std::uint8_t>(observation.lifecycle);
+    value.motion = static_cast<std::uint8_t>(observation.motion);
+    value.mode = static_cast<std::uint8_t>(observation.mode);
+    value.fresh_observed = observation.fresh_observed;
+    value.strong_observation = observation.strong_observation;
+    value.stable_coordinates_valid = observation.stable_coordinates_valid;
+    value.reused_or_projected = observation.reused_or_projected;
+    enqueue(record);
 }
 
 void TelemetryCollectors::shutdown(std::uint64_t now_ns) noexcept {

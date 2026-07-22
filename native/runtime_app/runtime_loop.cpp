@@ -45,8 +45,11 @@ LogSessionOptions log_session_options_from(const controller_native::RuntimeConfi
     LogSessionOptions options;
     options.enabled = config.telemetry.enabled || config.vision.aim_perf_file_log;
     options.root = config.vision.aim_perf_log_dir;
-    options.git_commit = "unknown";
-    options.config_hash = "unknown";
+    options.git_commit = config.build_commit;
+    options.config_hash = config.source_config_sha256;
+    options.engine_hash = config.engine_sha256;
+    options.capture_width = config.vision.capture_width;
+    options.capture_height = config.vision.capture_height;
     return options;
 }
 
@@ -396,9 +399,9 @@ RuntimeLoop::RuntimeLoop(
           config_.telemetry.enabled || config_.vision.aim_perf_file_log,
           &telemetry_,
           TelemetrySessionContext{
-              "unknown",
-              "unknown",
-              "unknown",
+              config_.build_commit.c_str(),
+              config_.source_config_sha256.c_str(),
+              config_.engine_sha256.c_str(),
               tracking_native::tracker_backend_kind_name(config_.gamepad.tracker_backend).data(),
               config_.vision.capture_width,
               config_.vision.capture_height,
@@ -766,6 +769,14 @@ void RuntimeLoop::run_once() {
     telemetry_tick.assist_limit_reason =
         telemetry_components.assist_limit_reason.c_str();
     telemetry_collectors_.observe_tick(telemetry_tick);
+    if (telemetry_new_vision) {
+        const auto committed = adapt_committed_capture_observation(
+            latest_vision_result_,
+            controller_.last_target_plan(),
+            config_.gamepad.tracker.aim_height_ratio,
+            controller_.ads_epoch());
+        telemetry_collectors_.observe_committed_capture(committed);
+    }
 
     const bool log_vision = perf_log_ && should_log_vision_tick(tick_count_);
     const bool log_gamepad_perf = gamepad_perf_log_ && should_log_vision_tick(tick_count_);

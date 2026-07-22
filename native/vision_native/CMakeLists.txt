@@ -184,8 +184,19 @@ set(FPS_TRACKER_PACKAGE_SOURCES
     ../fps_2d_tracker_package/src/target_tracker.cpp
 )
 
+execute_process(
+    COMMAND git rev-parse HEAD
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../..
+    OUTPUT_VARIABLE COD_BUILD_COMMIT
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET)
+if(NOT COD_BUILD_COMMIT)
+    set(COD_BUILD_COMMIT "unknown")
+endif()
+
 add_executable(cod_native_runtime
     ../runtime_app/main.cpp
+    ../runtime_app/runtime_provenance.cpp
     ../runtime_app/runtime_loop.cpp
     ../runtime_app/runtime_timing.cpp
     ../runtime_app/vision_service.cpp
@@ -242,6 +253,7 @@ target_compile_definitions(cod_native_runtime
     PRIVATE
         NOMINMAX
         WIN32_LEAN_AND_MEAN
+        COD_BUILD_COMMIT="${COD_BUILD_COMMIT}"
         $<$<BOOL:${NATIVE_ENABLE_VIGEM}>:NATIVE_ENABLE_VIGEM>
 )
 
@@ -258,6 +270,7 @@ target_link_libraries(cod_native_runtime PRIVATE
     gdi32
     winmm
     windowsapp
+    advapi32
 )
 
 if(ViGEmClient_DLL AND EXISTS "${ViGEmClient_DLL}")
@@ -486,6 +499,19 @@ add_executable(cod_native_control_response_window_tests
     ../runtime_app/control_response_window_tests.cpp
     ../runtime_app/control_response_window.cpp
 )
+
+add_executable(cod_native_runtime_provenance_tests
+    ../runtime_app/runtime_provenance_tests.cpp
+    ../runtime_app/runtime_provenance.cpp
+)
+target_include_directories(cod_native_runtime_provenance_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+target_compile_definitions(cod_native_runtime_provenance_tests PRIVATE
+    NOMINMAX
+    WIN32_LEAN_AND_MEAN
+)
+target_link_libraries(cod_native_runtime_provenance_tests PRIVATE advapi32)
 target_include_directories(cod_native_control_response_window_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/..
@@ -1376,6 +1402,10 @@ add_test(NAME ControlHistoryTests COMMAND cod_native_control_history_tests)
 add_test(
     NAME ControlResponseWindowTests
     COMMAND cod_native_control_response_window_tests)
+add_test(NAME RuntimeTelemetryTests COMMAND cod_native_runtime_telemetry_tests)
+add_test(NAME RuntimeProvenanceTests COMMAND cod_native_runtime_provenance_tests)
+add_test(NAME TelemetryCollectorsTests COMMAND cod_native_telemetry_collectors_tests)
+add_test(NAME LogSessionManagerTests COMMAND cod_native_log_session_manager_tests)
 
 add_executable(cod_native_committed_capture_observation_tests
     ../pipeline_contract/committed_capture_observation_tests.cpp

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "pipeline_contract/committed_capture_observation.h"
 #include "runtime_telemetry.h"
 
 #include <cstdint>
@@ -130,6 +131,8 @@ public:
     bool enabled() const noexcept;
     void observe_tick(const TelemetryTickInput& input) noexcept;
     void observe_new_vision(const TelemetryVisionInput& input) noexcept;
+    void observe_committed_capture(
+        const pipeline_contract::CommittedCaptureObservation& observation) noexcept;
     void shutdown(std::uint64_t now_ns) noexcept;
     TelemetryCollectorsCounters counters() const noexcept;
 

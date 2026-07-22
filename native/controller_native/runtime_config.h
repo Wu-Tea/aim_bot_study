@@ -228,6 +228,9 @@ struct RuntimeConfig {
     GamepadRuntimeConfig gamepad;
     std::map<std::string, std::string> effective_sources;
     std::vector<std::string> diagnostics;
+    std::string build_commit = "unknown";
+    std::string source_config_sha256;
+    std::string engine_sha256;
 
     std::string effective_source(const std::string& key) const {
         const auto found = effective_sources.find(key);
