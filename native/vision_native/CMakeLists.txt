@@ -1364,6 +1364,19 @@ add_executable(cod_native_sustained_aimlab_counterfactual_tests
     ../controller_native/sustained_aimlab_scenario.cpp
 )
 
+add_executable(cod_native_blind_window_benchmark_tests
+    ../controller_native/blind_window_benchmark_tests.cpp
+    ../controller_native/blind_window_metrics.cpp
+)
+
+target_include_directories(cod_native_blind_window_benchmark_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
+add_test(
+    NAME NativeBlindWindowBenchmarkTests
+    COMMAND cod_native_blind_window_benchmark_tests)
+
 target_include_directories(cod_native_sustained_aimlab_scenario_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/..
 )
