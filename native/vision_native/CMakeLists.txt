@@ -1414,6 +1414,13 @@ add_executable(cod_native_causal_online_response_learner_tests
     ../control_learning/causal_online_response_learner_tests.cpp
     ../control_learning/causal_online_response_learner.cpp
 )
+add_executable(cod_native_pending_motion_model_tests
+    ../control_learning/pending_motion_model_tests.cpp
+    ../control_learning/pending_motion_model.cpp
+)
+target_include_directories(cod_native_pending_motion_model_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
 target_include_directories(cod_native_causal_online_response_learner_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/..
 )
@@ -1438,6 +1445,7 @@ add_test(
 add_test(NAME RobustEwRlsTests COMMAND cod_native_robust_ew_rls_tests)
 add_test(NAME CausalOnlineResponseLearnerTests
     COMMAND cod_native_causal_online_response_learner_tests)
+add_test(NAME PendingMotionModelTests COMMAND cod_native_pending_motion_model_tests)
 add_test(NAME RuntimeProvenanceTests COMMAND cod_native_runtime_provenance_tests)
 add_test(NAME TelemetryCollectorsTests COMMAND cod_native_telemetry_collectors_tests)
 add_test(NAME LogSessionManagerTests COMMAND cod_native_log_session_manager_tests)
