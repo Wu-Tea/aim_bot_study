@@ -16,7 +16,10 @@ $build = if ([System.IO.Path]::IsPathRooted($BuildDir)) {
 $cmake = "C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
 $ctest = "C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\ctest.exe"
 $revision = (& git -C $repo rev-parse --short HEAD).Trim()
-$initialDirty = [bool]((& git -C $repo status --porcelain).Count)
+$sourceStatus = @(& git -C $repo status --porcelain | Where-Object {
+    $_ -notmatch 'artifacts/benchmarks/causal-response/'
+})
+$initialDirty = [bool]$sourceStatus.Count
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $output = Join-Path $repo "artifacts/benchmarks/causal-response/$timestamp-$revision"
 New-Item -ItemType Directory -Force $output | Out-Null
