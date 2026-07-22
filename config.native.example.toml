@@ -79,6 +79,7 @@ manual_escape_preservation = 0.55
 [gamepad.intent]
 # Confirmed wrong-axis input starts at 85% retention and approaches this floor.
 wrong_way_manual_preservation_floor = 0.65
+fresh_vision_wrong_way_manual_floor = 0.35
 
 # All documented recoil overrides remain available.
 [gamepad.recoil]

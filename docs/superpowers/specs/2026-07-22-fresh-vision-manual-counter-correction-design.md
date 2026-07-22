@@ -3,8 +3,9 @@
 ## Purpose
 
 Allow the existing vector intent fuser to suppress a sub-escape, clearly
-wrong-way manual component more strongly when a fresh, reliable, single-target
-vision observation establishes a trustworthy error direction. Tracker-only,
+wrong-way BodyLock manual component more strongly when a fresh, reliable,
+single-target vision observation establishes a trustworthy error direction. ADS
+retains its existing wrong-way brake. Tracker-only,
 coasting, occluded, reacquiring and multi-target states retain the current
 fusion behavior.
 
@@ -27,6 +28,7 @@ lifecycle, tracker or output stage.
 Strong counter-correction requires all of:
 
 - a fresh single-candidate observation pulse;
+- control mode `BodyLockFollow` (ADS keeps its existing policy);
 - plan lifecycle `Observed` at the pulse;
 - reliability at least `0.85`;
 - response confidence sufficient for the existing fuser (`>= 0.35`);
@@ -43,7 +45,7 @@ no target and manual escape clear it immediately.
 Add one setting under `[gamepad.intent]`:
 
 ```toml
-fresh_vision_wrong_way_manual_floor = 0.20
+fresh_vision_wrong_way_manual_floor = 0.35
 ```
 
 `1.0` disables the stronger correction. The value affects only the radial

@@ -169,7 +169,8 @@ bool is_known_key(const std::string& section, const std::string& key) {
         "backend", "projection_age_ms", "responsiveness", "max_velocity_px_per_sec",
         "weak_memory_decay", "lead_seconds", "lead_max_px", "aim_height_ratio"};
     static const std::unordered_set<std::string> intent_keys{
-        "wrong_way_manual_preservation_floor"};
+        "wrong_way_manual_preservation_floor",
+        "fresh_vision_wrong_way_manual_floor"};
     static const std::unordered_set<std::string> ads_keys{
         "strength_scale", "vertical_strength_scale", "range_px", "snap_duration_ms",
         "completion_radius_px", "completion_fresh_frames", "max_acquisition_ms"};
@@ -862,6 +863,13 @@ void apply_value(
                     value,
                     config.gamepad.intent.wrong_way_manual_preservation_floor),
                 0.50f,
+                1.00f);
+        } else if (key == "fresh_vision_wrong_way_manual_floor") {
+            config.gamepad.intent.fresh_vision_wrong_way_manual_floor = std::clamp(
+                parse_float_value(
+                    value,
+                    config.gamepad.intent.fresh_vision_wrong_way_manual_floor),
+                0.00f,
                 1.00f);
         }
     } else if (section == "runtime.gamepad") {

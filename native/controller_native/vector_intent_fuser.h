@@ -18,10 +18,11 @@ enum class FusionCandidate : unsigned char {
     RadialReplaced,
     TangentialCorrected,
     TangentialReplaced,
+    FreshVisionCounterCorrected,
 };
 
 inline constexpr std::size_t kFusionCandidateCount =
-    static_cast<std::size_t>(FusionCandidate::TangentialReplaced) + 1;
+    static_cast<std::size_t>(FusionCandidate::FreshVisionCounterCorrected) + 1;
 
 enum class FusionFallbackReason : unsigned char {
     None,
@@ -48,6 +49,7 @@ FusionWeights candidate_weights(FusionCandidate candidate) noexcept;
 struct VectorIntentFusionConfig {
     float manual_escape_threshold = 0.45f;
     float weight_transition_ms = 24.0f;
+    float fresh_vision_wrong_way_manual_floor = 0.35f;
 };
 
 struct VectorIntentFusionInput {
@@ -55,6 +57,7 @@ struct VectorIntentFusionInput {
     pipeline_contract::Vec2f shaped_ai_stick{};
     pipeline_contract::TargetPlan plan{};
     float manual_confidence = 1.0f;
+    bool fresh_single_target_observation = false;
 };
 
 struct VectorIntentFusionDecision {
@@ -89,6 +92,7 @@ private:
     float applied_ai_weight_ = 1.0f;
     float applied_tangential_manual_weight_ = 1.0f;
     std::uint64_t target_id_ = 0;
+    float fresh_evidence_remaining_ms_ = 0.0f;
     bool initialized_ = false;
 };
 

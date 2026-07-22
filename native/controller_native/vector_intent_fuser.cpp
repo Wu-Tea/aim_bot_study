@@ -198,6 +198,8 @@ FusionWeights candidate_weights(FusionCandidate candidate) noexcept {
         case FusionCandidate::RadialReplaced: return {0.0f, 1.0f, 1.0f};
         case FusionCandidate::TangentialCorrected: return {1.0f, 1.0f, 0.5f};
         case FusionCandidate::TangentialReplaced: return {1.0f, 1.0f, 0.0f};
+        case FusionCandidate::FreshVisionCounterCorrected:
+            return {0.0f, 1.0f, 1.0f};
     }
     return {1.0f, 0.0f};
 }
@@ -210,6 +212,8 @@ VectorIntentFuser::VectorIntentFuser(VectorIntentFusionConfig config)
         config_.weight_transition_ms <= 0.0f) {
         config_.weight_transition_ms = 24.0f;
     }
+    config_.fresh_vision_wrong_way_manual_floor = std::clamp(
+        config_.fresh_vision_wrong_way_manual_floor, 0.0f, 1.0f);
 }
 
 VectorIntentFusionDecision VectorIntentFuser::update(
@@ -231,6 +235,7 @@ VectorIntentFusionDecision VectorIntentFuser::update(
         applied_tangential_manual_weight_ = 1.0f;
         previous_candidate_ = FusionCandidate::ManualOnly;
         previous_output_ = input.manual_stick;
+        fresh_evidence_remaining_ms_ = 0.0f;
         initialized_ = false;
         return decision;
     };
@@ -270,6 +275,10 @@ VectorIntentFusionDecision VectorIntentFuser::update(
         fallback_reason = FusionFallbackReason::LowResponseConfidence;
     }
     target_id_ = input.plan.target_id;
+
+    if (fallback_reason != FusionFallbackReason::None) {
+        fresh_evidence_remaining_ms_ = 0.0f;
+    }
 
     const float dt_ms = std::clamp(dt_seconds, 0.0f, 0.05f) * 1000.0f;
     const float max_weight_delta = std::clamp(
@@ -326,6 +335,23 @@ VectorIntentFusionDecision VectorIntentFuser::update(
         return apply_weights({1.0f, 1.0f}, fallback_reason);
     }
 
+    constexpr float kFreshEvidenceEnvelopeMs = 16.0f;
+    constexpr float kFreshEvidenceMinReliability = 0.85f;
+    constexpr float kFreshEvidenceMinErrorPx = 6.0f;
+    const bool fresh_pulse_eligible =
+        input.fresh_single_target_observation &&
+        input.plan.mode == pipeline_contract::ControlMode::BodyLockFollow &&
+        input.plan.lifecycle == pipeline_contract::TargetLifecycle::Observed &&
+        input.plan.reliability >= kFreshEvidenceMinReliability &&
+        input.plan.response_confidence >= 0.35f &&
+        length(input.plan.error_px) >= kFreshEvidenceMinErrorPx;
+    if (fresh_pulse_eligible) {
+        fresh_evidence_remaining_ms_ = kFreshEvidenceEnvelopeMs;
+    } else {
+        fresh_evidence_remaining_ms_ = std::max(
+            0.0f, fresh_evidence_remaining_ms_ - dt_ms);
+    }
+
     if (!initialized_) {
         applied_manual_weight_ = 1.0f;
         applied_ai_weight_ = 1.0f;
@@ -369,6 +395,7 @@ VectorIntentFusionDecision VectorIntentFuser::update(
         FusionCandidate::RadialReplaced,
         FusionCandidate::TangentialCorrected,
         FusionCandidate::TangentialReplaced,
+        FusionCandidate::FreshVisionCounterCorrected,
     };
     constexpr float kSelectionMargin = 2.0f;
 
@@ -398,6 +425,22 @@ VectorIntentFusionDecision VectorIntentFuser::update(
         (wrong_now || wrong_after_reversal);
     if (ads_wrong_way_manual) {
         radial_attenuation_scale = 2.0f;
+    }
+    const bool fresh_vision_counter_correction =
+        fresh_evidence_remaining_ms_ > 0.0f && wrong_now &&
+        config_.fresh_vision_wrong_way_manual_floor < 1.0f;
+    if (fresh_vision_counter_correction) {
+        radial_attenuation_scale = 2.0f;
+        FusionWeights weights = candidate_weights(
+            FusionCandidate::FreshVisionCounterCorrected);
+        weights.manual = config_.fresh_vision_wrong_way_manual_floor;
+        decision.candidate = FusionCandidate::FreshVisionCounterCorrected;
+        decision.candidate_costs.fill(std::numeric_limits<float>::infinity());
+        decision.candidate_costs[static_cast<std::size_t>(
+            FusionCandidate::FreshVisionCounterCorrected)] = 0.0f;
+        previous_candidate_ = decision.candidate;
+        initialized_ = true;
+        return apply_weights(weights, FusionFallbackReason::None);
     }
     const bool radial_candidate_eligible =
         (manual_radial < -0.01f || wrong_after_reversal) &&
@@ -433,6 +476,10 @@ VectorIntentFusionDecision VectorIntentFuser::update(
         }
         if (kCandidates[index] == FusionCandidate::TangentialReplaced &&
             input.manual_confidence >= 0.35f) {
+            scores[index].cost = std::numeric_limits<float>::infinity();
+        }
+        if (kCandidates[index] ==
+            FusionCandidate::FreshVisionCounterCorrected) {
             scores[index].cost = std::numeric_limits<float>::infinity();
         }
         decision.candidate_costs[index] = scores[index].cost;
@@ -486,6 +533,7 @@ void VectorIntentFuser::reset() noexcept {
     applied_ai_weight_ = 1.0f;
     applied_tangential_manual_weight_ = 1.0f;
     target_id_ = 0;
+    fresh_evidence_remaining_ms_ = 0.0f;
     initialized_ = false;
 }
 

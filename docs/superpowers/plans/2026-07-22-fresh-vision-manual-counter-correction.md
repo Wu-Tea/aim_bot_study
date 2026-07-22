@@ -16,12 +16,12 @@
 - Modify: `native/controller_native/vector_intent_fuser_tests.cpp`
 - Modify: `native/controller_native/vector_intent_fuser.h`
 
-- [ ] Add tests proving fresh single-target evidence uses the configured radial
+- [x] Add tests proving fresh single-target BodyLock evidence uses the configured radial
   floor, preserves tangent and full AI, while coasting/no-pulse produces the
   existing decision.
-- [ ] Add tests proving the envelope expires after 16 ms and manual escape remains
+- [x] Add tests proving the envelope expires after 16 ms and manual escape remains
   exact physical input.
-- [ ] Build and run `cod_native_vector_intent_fuser_tests`; confirm the new tests
+- [x] Build and run `cod_native_vector_intent_fuser_tests`; confirm the new tests
   fail because the input pulse and candidate do not exist.
 
 ### Task 2: Implement the bounded fuser policy
@@ -30,11 +30,11 @@
 - Modify: `native/controller_native/vector_intent_fuser.h`
 - Modify: `native/controller_native/vector_intent_fuser.cpp`
 
-- [ ] Add `FreshVisionCounterCorrected`, the input pulse, the configurable floor
+- [x] Add `FreshVisionCounterCorrected`, the input pulse, the configurable floor
   and a 16 ms evidence-envelope state.
-- [ ] Make the new candidate eligible only under the design eligibility contract.
-- [ ] Clear the envelope on target/lifecycle fallback and manual escape.
-- [ ] Run the focused fuser tests until green; retain all old candidate tests.
+- [x] Make the new candidate eligible only under the design eligibility contract.
+- [x] Clear the envelope on target/lifecycle fallback and manual escape.
+- [x] Run the focused fuser tests until green; retain all old candidate tests.
 
 ### Task 3: Wire production evidence and configuration
 
@@ -45,11 +45,11 @@
 - Modify: `native/controller_native/runtime_config_tests.cpp`
 - Modify: `config.native.example.toml`
 
-- [ ] Add parser tests for the new floor, including clamping and unknown-key
+- [x] Add parser tests for the new floor, including clamping and unknown-key
   behavior; verify RED.
-- [ ] Construct the vector fuser from `GamepadIntentConfig` and submit a pulse only
+- [x] Construct the vector fuser from `GamepadIntentConfig` and submit a pulse only
   for one fresh candidate with observed reliable geometry.
-- [ ] Add the example setting and run config/controller focused tests.
+- [x] Add the example setting and run config/controller focused tests.
 
 ### Task 4: Benchmark A/B and retain the decision
 
@@ -57,11 +57,11 @@
 - Create: `docs/project/FRESH_VISION_MANUAL_COUNTER_CORRECTION_ACCEPTANCE_20260722.md`
 - Retain: `artifacts/benchmarks/fresh-vision-manual-constraint-20260722/`
 
-- [ ] Run the frozen `b124014` baseline and the candidate on seeds `1337`, `7331`,
+- [x] Run the frozen `b124014` baseline and the candidate on seeds `1337`, `7331`,
   `20260722`, mixed manual profile, ADS and BodyLock, 60 seconds each.
-- [ ] Compare additive score, acquisition, tracking, smoothness, undertrack,
+- [x] Compare additive score, acquisition, tracking, smoothness, undertrack,
   interruption, stall ring, crossing burden, output delta and jerk.
-- [ ] Reject or revise if gains come from swallowing escape, tracker-only behavior
+- [x] Reject or revise if gains come from swallowing escape, tracker-only behavior
   changes, or worse discontinuity/false interruption.
-- [ ] Build `cod_native_runtime` and run all registered CTest tests.
+- [x] Build `cod_native_runtime` and run all registered CTest tests.
 - [ ] Commit the accepted implementation and evidence to `dev`; do not push.

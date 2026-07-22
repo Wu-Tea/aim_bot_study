@@ -402,9 +402,9 @@ void write_report(
         << ", \"slowdown_center\": " << config.slowdown_center_multiplier << "},\n"
         << "  \"intent_fusion\": {\"schema_version\": 1, \"mode\": "
         << json_string(options.intent_fusion)
-        << ", \"candidate_set_version\": 3},\n"
+        << ", \"candidate_set_version\": 4},\n"
         << "  \"counterfactual_conflict\": {\"schema_version\": 1, "
-        << "\"candidate_set_version\": 3, \"mode\": "
+        << "\"candidate_set_version\": 4, \"mode\": "
         << json_string(options.counterfactual)
         << ", \"primary_oracle\": \"causal_oracle\", "
         << "\"headroom_oracle\": \"hindsight_oracle\", "

@@ -431,6 +431,32 @@ void test_gamepad_intent_retention_floor_defaults_parses_and_clamps() {
     }
 }
 
+void test_fresh_vision_manual_floor_defaults_parses_and_clamps() {
+    const auto missing = std::filesystem::temp_directory_path() /
+        "cod_native_fresh_vision_floor_defaults_missing.toml";
+    std::filesystem::remove(missing);
+    const auto defaults = controller_native::load_runtime_config(missing);
+    require(std::abs(
+        defaults.gamepad.intent.fresh_vision_wrong_way_manual_floor - 0.35f) <
+        0.0001f);
+
+    for (const auto& value : {
+             std::pair{"0.35", 0.35f},
+             std::pair{"-0.20", 0.00f},
+             std::pair{"1.20", 1.00f}}) {
+        const auto path = std::filesystem::temp_directory_path() /
+            "cod_native_fresh_vision_floor_value.toml";
+        { std::ofstream output(path); output <<
+            "[gamepad.intent]\nfresh_vision_wrong_way_manual_floor = "
+            << value.first << "\n"; }
+        const auto config = controller_native::load_runtime_config(path);
+        std::filesystem::remove(path);
+        require(std::abs(
+            config.gamepad.intent.fresh_vision_wrong_way_manual_floor - value.second) <
+            0.0001f);
+    }
+}
+
 void test_gamepad_intent_unknown_key_is_reported() {
     const auto path = std::filesystem::temp_directory_path() /
         "cod_native_intent_unknown.toml";
@@ -548,6 +574,7 @@ int main() {
     test_tracker_canonical_aim_height_wins_regardless_of_file_order();
     test_tracker_aim_height_ratio_rejects_out_of_range_values();
     test_gamepad_intent_retention_floor_defaults_parses_and_clamps();
+    test_fresh_vision_manual_floor_defaults_parses_and_clamps();
     test_gamepad_intent_unknown_key_is_reported();
     test_auto_fire_pulse_defaults_and_overrides();
     test_auto_fire_pulse_rejects_invalid_relationships();

@@ -95,8 +95,8 @@ void test_candidate_outputs_match_version_one_scales() {
 
 void test_candidate_count_covers_polar_set() {
     require_true(controller_native::kFusionCandidateCount ==
-                     static_cast<std::size_t>(FusionCandidate::TangentialReplaced) + 1,
-                 "candidate statistics must cover every version-three polar candidate");
+                     static_cast<std::size_t>(FusionCandidate::FreshVisionCounterCorrected) + 1,
+                 "candidate statistics must cover every fusion candidate");
 }
 
 void test_aligned_input_keeps_existing_mix() {
@@ -115,6 +115,110 @@ void test_opposing_small_manual_uses_partial_radial_brake() {
                  "current-only conflict must preserve half of deliberate radial input");
     require_near(decision.target_ai_weight, 1.0f, 0.0001f,
                  "current-only conflict must retain the shaped AI proposal");
+}
+
+void test_fresh_single_target_vision_counter_corrects_wrong_radial_manual() {
+    controller_native::VectorIntentFusionConfig config;
+    config.fresh_vision_wrong_way_manual_floor = 0.20f;
+    VectorIntentFuser fuser(config);
+    auto input = input_for({-0.20f, 0.15f}, {0.30f, 0.0f});
+    input.plan.mode = pipeline_contract::ControlMode::BodyLockFollow;
+    input.fresh_single_target_observation = true;
+    const auto decision = fuser.update(input, 0.001f);
+
+    require_true(
+        decision.candidate == FusionCandidate::FreshVisionCounterCorrected,
+        "fresh reliable single-target vision must select counter correction");
+    require_near(decision.target_manual_weight, 0.20f, 0.0001f,
+                 "fresh vision must use the configured wrong-way radial floor");
+    require_near(decision.target_tangential_manual_weight, 1.0f, 0.0001f,
+                 "fresh vision must preserve tangential manual correction");
+    require_near(decision.target_ai_weight, 1.0f, 0.0001f,
+                 "fresh vision must retain the shaped AI proposal");
+}
+
+void test_fresh_vision_counter_correction_expires_back_to_tracker_policy() {
+    controller_native::VectorIntentFusionConfig config;
+    config.fresh_vision_wrong_way_manual_floor = 0.20f;
+    VectorIntentFuser fuser(config);
+    auto input = input_for({-0.20f, 0.15f}, {0.30f, 0.0f});
+    input.plan.mode = pipeline_contract::ControlMode::BodyLockFollow;
+    input.fresh_single_target_observation = true;
+    (void)fuser.update(input, 0.001f);
+
+    input.fresh_single_target_observation = false;
+    input.plan.lifecycle = pipeline_contract::TargetLifecycle::Coasting;
+    const auto expired = fuser.update(input, 0.017f);
+    require_true(
+        expired.candidate != FusionCandidate::FreshVisionCounterCorrected,
+        "expired vision evidence must return to the existing tracker policy");
+    require_true(expired.target_manual_weight >= 0.50f,
+                 "tracker-only conflict must keep the existing manual floor");
+}
+
+void test_fresh_ads_observation_keeps_existing_ads_policy() {
+    controller_native::VectorIntentFusionConfig config;
+    config.fresh_vision_wrong_way_manual_floor = 0.20f;
+    VectorIntentFuser fuser(config);
+    auto input = input_for({-0.20f, 0.0f}, {0.30f, 0.0f});
+    input.fresh_single_target_observation = true;
+    const auto decision = fuser.update(input, 0.001f);
+    require_true(
+        decision.candidate != FusionCandidate::FreshVisionCounterCorrected,
+        "fresh vision correction must not duplicate the ADS wrong-way policy");
+    require_near(decision.target_manual_weight, 0.50f, 0.0001f,
+                 "ADS must preserve its existing partial radial brake");
+}
+
+void test_fresh_vision_only_reduces_wrong_radial_near_target_input() {
+    controller_native::VectorIntentFusionConfig config;
+    config.fresh_vision_wrong_way_manual_floor = 0.35f;
+    VectorIntentFuser fuser(config);
+    auto input = input_for({-0.20f, 0.0f}, {0.30f, 0.0f});
+    input.plan.mode = pipeline_contract::ControlMode::BodyLockFollow;
+    input.plan.error_px = {10.0f, 0.0f};
+    input.fresh_single_target_observation = true;
+    const auto decision = fuser.update(input, 0.001f);
+    require_true(
+        decision.candidate == FusionCandidate::FreshVisionCounterCorrected,
+        "fresh evidence may remain active without introducing a hard distance gate");
+    require_near(decision.target_manual_weight, 0.35f, 0.0001f,
+                 "fresh vision must only reduce the known-wrong radial component");
+    require_near(decision.target_tangential_manual_weight, 1.0f, 0.0001f,
+                 "near-target tangential micro adjustment must remain untouched");
+}
+
+void test_fresh_vision_counter_correction_respects_manual_escape() {
+    controller_native::VectorIntentFusionConfig config;
+    config.fresh_vision_wrong_way_manual_floor = 0.20f;
+    VectorIntentFuser fuser(config);
+    auto input = input_for({-0.60f, 0.0f}, {0.30f, 0.0f});
+    input.fresh_single_target_observation = true;
+    const auto decision = fuser.update(input, 0.001f);
+    require_true(decision.manual_escape,
+                 "physical manual escape must override fresh vision correction");
+    require_near(decision.fused_stick.x, input.manual_stick.x, 0.0001f,
+                 "manual escape must deliver exact physical input");
+}
+
+void test_low_reliability_clears_fresh_vision_envelope() {
+    controller_native::VectorIntentFusionConfig config;
+    config.fresh_vision_wrong_way_manual_floor = 0.20f;
+    VectorIntentFuser fuser(config);
+    auto input = input_for({-0.20f, 0.15f}, {0.30f, 0.0f});
+    input.plan.mode = pipeline_contract::ControlMode::BodyLockFollow;
+    input.fresh_single_target_observation = true;
+    (void)fuser.update(input, 0.001f);
+
+    input.fresh_single_target_observation = false;
+    input.plan.lifecycle = pipeline_contract::TargetLifecycle::Coasting;
+    input.plan.reliability = 0.50f;
+    (void)fuser.update(input, 0.001f);
+    input.plan.reliability = 1.0f;
+    const auto recovered = fuser.update(input, 0.001f);
+    require_true(
+        recovered.candidate != FusionCandidate::FreshVisionCounterCorrected,
+        "stale fresh evidence must not revive after low-reliability fallback");
 }
 
 void test_wrong_way_manual_only_is_ineligible_below_escape() {
@@ -607,6 +711,12 @@ int main() {
         test_candidate_count_covers_polar_set();
         test_aligned_input_keeps_existing_mix();
         test_opposing_small_manual_uses_partial_radial_brake();
+        test_fresh_single_target_vision_counter_corrects_wrong_radial_manual();
+        test_fresh_vision_counter_correction_expires_back_to_tracker_policy();
+        test_fresh_ads_observation_keeps_existing_ads_policy();
+        test_fresh_vision_only_reduces_wrong_radial_near_target_input();
+        test_fresh_vision_counter_correction_respects_manual_escape();
+        test_low_reliability_clears_fresh_vision_envelope();
         test_wrong_way_manual_only_is_ineligible_below_escape();
         test_predicted_ads_reversal_releases_excess_radial_manual_ownership();
         test_deliberate_opposing_manual_is_not_fully_swallowed();

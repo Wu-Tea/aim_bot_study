@@ -76,6 +76,16 @@ BodylockFollowControllerConfig bodylock_config(const GamepadRuntimeConfig& confi
     return result;
 }
 
+VectorIntentFusionConfig vector_intent_fusion_config(
+    const GamepadRuntimeConfig& config) {
+    VectorIntentFusionConfig result{};
+    result.manual_escape_threshold =
+        config.ai_aim.body_lock_manual_escape_input_threshold;
+    result.fresh_vision_wrong_way_manual_floor =
+        config.intent.fresh_vision_wrong_way_manual_floor;
+    return result;
+}
+
 }  // namespace
 
 NativeGamepadController::NativeGamepadController(
@@ -85,6 +95,7 @@ NativeGamepadController::NativeGamepadController(
       target_coordinator_(coordinator_config(config)),
       ads_controller_(ads_config(config)),
       bodylock_controller_(bodylock_config(config)),
+      vector_intent_fuser_(vector_intent_fusion_config(config)),
       recoil_(config_.recoil),
       auto_fire_gate_(config_.auto_fire, config_.ai_aim),
       clock_(std::move(clock)) {
@@ -480,6 +491,9 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
         fusion_input.shaped_ai_stick = {shaped.x, shaped.y};
         fusion_input.plan = plan;
         fusion_input.manual_confidence = intent.right_confidence;
+        fusion_input.fresh_single_target_observation =
+            observations.capture_fresh && observations.count == 1 &&
+            plan.lifecycle == pipeline_contract::TargetLifecycle::Observed;
         const auto fusion = vector_intent_fuser_.update(fusion_input, dt);
         output.right_x = clamp_unit(fusion.fused_stick.x);
         output.right_y = clamp_unit(fusion.fused_stick.y);

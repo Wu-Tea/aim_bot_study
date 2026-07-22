@@ -169,6 +169,7 @@ struct GamepadTrackerConfig {
 
 struct GamepadIntentConfig {
     float wrong_way_manual_preservation_floor = 0.65f;
+    float fresh_vision_wrong_way_manual_floor = 0.35f;
 };
 
 struct GamepadRuntimeConfig {
