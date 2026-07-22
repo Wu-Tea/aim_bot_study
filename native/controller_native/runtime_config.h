@@ -199,6 +199,18 @@ struct RuntimeTelemetryConfig {
     unsigned int event_post_ms = 1000;
 };
 
+enum class ControlLearningMode : unsigned char {
+    Disabled,
+    Shadow,
+    RolloutShadow,
+};
+
+struct ControlLearningConfig {
+    bool enabled = false;
+    ControlLearningMode mode = ControlLearningMode::Disabled;
+    bool telemetry_enabled = false;
+};
+
 struct RuntimeSchedulerConfig {
     int controller_tick_hz = 1000;
     std::string mode = "legacy";
@@ -222,12 +234,16 @@ struct RuntimeConfig {
     std::string profile = "legacy";
     VisionRuntimeConfig vision;
     RuntimeTelemetryConfig telemetry;
+    ControlLearningConfig control_learning;
     RuntimeSchedulerConfig scheduler;
     RuntimeOutputConfig output;
     CompactAdsConfig ads;
     GamepadRuntimeConfig gamepad;
     std::map<std::string, std::string> effective_sources;
     std::vector<std::string> diagnostics;
+    std::string build_commit = "unknown";
+    std::string source_config_sha256;
+    std::string engine_sha256;
 
     std::string effective_source(const std::string& key) const {
         const auto found = effective_sources.find(key);

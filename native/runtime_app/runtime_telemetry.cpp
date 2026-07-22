@@ -25,8 +25,40 @@ const char* record_type_name(TelemetryRecordType type) {
     case TelemetryRecordType::AdsTransitionSample: return "ads_transition_sample";
     case TelemetryRecordType::AdsTransition: return "ads_transition";
     case TelemetryRecordType::ControlResponseWindow: return "control_response_window";
+    case TelemetryRecordType::CommittedCaptureObservation:
+        return "committed_capture_observation";
+    case TelemetryRecordType::DeliveredControlSample: return "delivered_control_sample";
+    case TelemetryRecordType::CausalResponseShadow: return "causal_response_shadow";
     case TelemetryRecordType::ControllerSample:
     default: return "controller_sample";
+    }
+}
+
+const char* vision_sample_quality_name(VisionSampleQuality value) {
+    switch (value) {
+    case VisionSampleQuality::SoftWeight: return "soft_weight";
+    case VisionSampleQuality::HardReject: return "hard_reject";
+    case VisionSampleQuality::Normal:
+    default: return "normal";
+    }
+}
+
+const char* identification_update_outcome_name(
+    IdentificationUpdateOutcome value) {
+    switch (value) {
+    case IdentificationUpdateOutcome::AcceptedByAtLeastOneDelay:
+        return "accepted_by_at_least_one_delay";
+    case IdentificationUpdateOutcome::InsufficientExcitation:
+        return "insufficient_excitation";
+    case IdentificationUpdateOutcome::DeliveryGap: return "delivery_gap";
+    case IdentificationUpdateOutcome::FiringOrRecoil: return "firing_or_recoil";
+    case IdentificationUpdateOutcome::Saturated: return "saturated";
+    case IdentificationUpdateOutcome::TimingInvalid: return "timing_invalid";
+    case IdentificationUpdateOutcome::CoordinateInvalid: return "coordinate_invalid";
+    case IdentificationUpdateOutcome::IdentityBoundary: return "identity_boundary";
+    case IdentificationUpdateOutcome::NoUsableDelay: return "no_usable_delay";
+    case IdentificationUpdateOutcome::NotEvaluated:
+    default: return "not_evaluated";
     }
 }
 
@@ -424,6 +456,121 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
             << ",\"recoil_y_integral\":" << record.control_response.recoil_y_integral
             << ",\"final_x_integral\":" << record.control_response.final_x_integral
             << ",\"final_y_integral\":" << record.control_response.final_y_integral;
+        break;
+    case TelemetryRecordType::CommittedCaptureObservation: {
+        const auto& value = record.committed_observation;
+        const auto& provenance = has_session_metadata_
+            ? session_metadata_.session_metadata : record.session_metadata;
+        output_ << ",\"schema\":\"causal_response_journal_v1\""
+            << ",\"observation\":{"
+            << "\"source_frame_id\":" << value.source_frame_id
+            << ",\"source_observation_id\":" << value.source_observation_id
+            << ",\"persistent_target_id\":" << value.persistent_target_id
+            << ",\"viewport_sequence\":" << value.viewport_sequence
+            << ",\"viewport_source_frame_id\":" << value.viewport_source_frame_id
+            << ",\"captured_at_ns\":" << value.captured_at_ns
+            << ",\"result_at_ns\":" << value.result_at_ns
+            << ",\"stable_error\":[" << value.stable_error_x << ',' << value.stable_error_y << ']'
+            << ",\"stable_body_size\":[" << value.stable_body_width << ',' << value.stable_body_height << ']'
+            << ",\"viewport_offset\":[" << value.viewport_offset_x << ',' << value.viewport_offset_y << ']'
+            << ",\"target_acceleration\":[" << value.target_acceleration_x << ',' << value.target_acceleration_y << ']'
+            << ",\"reliability\":" << value.reliability
+            << ",\"normalized_size\":" << value.normalized_size
+            << ",\"ads_epoch\":" << value.ads_epoch
+            << ",\"eligible_candidate_count\":" << value.eligible_candidate_count
+            << ",\"lifecycle\":" << static_cast<unsigned int>(value.lifecycle)
+            << ",\"motion\":" << static_cast<unsigned int>(value.motion)
+            << ",\"mode\":" << static_cast<unsigned int>(value.mode)
+            << ",\"fresh_observed\":" << (value.fresh_observed ? "true" : "false")
+            << ",\"strong_observation\":" << (value.strong_observation ? "true" : "false")
+            << ",\"stable_coordinates_valid\":" << (value.stable_coordinates_valid ? "true" : "false")
+            << ",\"reused_or_projected\":" << (value.reused_or_projected ? "true" : "false")
+            << '}'
+            << ",\"vision_sample_quality\":\""
+            << vision_sample_quality_name(record.vision_sample_quality) << '"'
+            << ",\"identification_update_outcome\":\""
+            << identification_update_outcome_name(record.identification_update_outcome) << '"'
+            << ",\"provenance\":{"
+            << "\"build_revision\":\"" << provenance.build_commit.data() << '"'
+            << ",\"config_sha256\":\"" << provenance.config_hash.data() << '"'
+            << ",\"engine_sha256\":\"" << provenance.engine_hash.data() << '"'
+            << ",\"capture_width\":" << provenance.capture_width
+            << ",\"capture_height\":" << provenance.capture_height << '}';
+        break;
+    }
+    case TelemetryRecordType::DeliveredControlSample: {
+        const auto& value = record.delivered_control;
+        const auto& provenance = has_session_metadata_
+            ? session_metadata_.session_metadata : record.session_metadata;
+        output_ << ",\"schema\":\"causal_response_journal_v1\""
+            << ",\"control\":{"
+            << "\"sample_seq\":" << value.sample_seq
+            << ",\"applied_at_ns\":" << value.applied_at_ns
+            << ",\"physical_right\":[" << value.physical_right_x << ',' << value.physical_right_y << ']'
+            << ",\"physical_left\":[" << value.physical_left_x << ',' << value.physical_left_y << ']'
+            << ",\"manual\":[" << value.manual_x << ',' << value.manual_y << ']'
+            << ",\"ai\":[" << value.ai_x << ',' << value.ai_y << ']'
+            << ",\"pre_recoil\":[" << value.pre_recoil_x << ',' << value.pre_recoil_y << ']'
+            << ",\"recoil\":[" << value.recoil_x << ',' << value.recoil_y << ']'
+            << ",\"final_right\":[" << value.final_right_x << ',' << value.final_right_y << ']'
+            << ",\"final_left\":[" << value.final_left_x << ',' << value.final_left_y << ']'
+            << ",\"ads_epoch\":" << value.ads_epoch
+            << ",\"output_delivered\":" << (value.output_delivered ? "true" : "false")
+            << ",\"output_disabled\":" << (value.output_disabled ? "true" : "false")
+            << ",\"firing\":" << (value.firing ? "true" : "false")
+            << ",\"recoil_active\":" << (value.recoil_active ? "true" : "false")
+            << ",\"saturated\":" << (value.saturated ? "true" : "false") << '}'
+            << ",\"provenance\":{"
+            << "\"build_revision\":\"" << provenance.build_commit.data() << '"'
+            << ",\"config_sha256\":\"" << provenance.config_hash.data() << '"'
+            << ",\"engine_sha256\":\"" << provenance.engine_hash.data() << '"'
+            << ",\"capture_width\":" << provenance.capture_width
+            << ",\"capture_height\":" << provenance.capture_height << '}';
+        break;
+    }
+    case TelemetryRecordType::CausalResponseShadow:
+        output_ << ",\"schema\":\"causal_response_shadow_v1\""
+            << ",\"best_delay_ms\":" << record.causal_shadow.best_delay_ms
+            << ",\"selected_delay_ms\":" << record.causal_shadow.selected_delay_ms
+            << ",\"selected_delay_confidence\":"
+            << record.causal_shadow.selected_delay_confidence
+            << ",\"right_confidence\":" << record.causal_shadow.right_confidence
+            << ",\"left_confidence\":" << record.causal_shadow.left_confidence
+            << ",\"joint_confidence\":" << record.causal_shadow.joint_confidence
+            << ",\"excitation\":" << record.causal_shadow.excitation
+            << ",\"residual\":" << record.causal_shadow.residual
+            << ",\"pending_realized\":[" << record.causal_shadow.pending_realized_x
+            << ',' << record.causal_shadow.pending_realized_y << ']'
+            << ",\"pending_scheduled\":[" << record.causal_shadow.pending_scheduled_x
+            << ',' << record.causal_shadow.pending_scheduled_y << ']'
+            << ",\"pending_confidence\":" << record.causal_shadow.pending_confidence
+            << ",\"reason_bits\":" << record.causal_shadow.reason_bits
+            << ",\"accepted_delay_count\":"
+            << static_cast<unsigned int>(record.causal_shadow.accepted_delay_count)
+            << ",\"accepted_by_any_delay\":"
+            << (record.causal_shadow.accepted_by_any_delay ? "true" : "false")
+            << ",\"delay_switch_pending\":"
+            << (record.causal_shadow.delay_switch_pending ? "true" : "false")
+            << ",\"pending_valid\":"
+            << (record.causal_shadow.pending_valid ? "true" : "false")
+            << ",\"rollout_valid\":"
+            << (record.causal_shadow.rollout_valid ? "true" : "false")
+            << ",\"rollout_best_scale\":"
+            << record.causal_shadow.rollout_best_scale
+            << ",\"rollout_confidence\":"
+            << record.causal_shadow.rollout_confidence
+            << ",\"rollout_candidates\":[";
+        for (std::size_t i = 0;
+             i < record.causal_shadow.rollout_candidate_count && i < 5; ++i) {
+            if (i) output_ << ',';
+            output_ << "{\"scale\":" << record.causal_shadow.rollout_scales[i]
+                << ",\"cost\":" << record.causal_shadow.rollout_costs[i] << '}';
+        }
+        output_ << ']'
+            << ",\"vision_sample_quality\":\""
+            << vision_sample_quality_name(record.vision_sample_quality) << '"'
+            << ",\"identification_update_outcome\":\""
+            << identification_update_outcome_name(record.identification_update_outcome) << '"';
         break;
     default: break;
     }

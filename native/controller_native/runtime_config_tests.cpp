@@ -487,6 +487,44 @@ void test_auto_fire_pulse_rejects_invalid_relationships() {
     }
 }
 
+void test_control_learning_defaults_disabled_and_parses_shadow() {
+    const auto missing = std::filesystem::temp_directory_path() /
+        "cod_native_control_learning_missing.toml";
+    std::filesystem::remove(missing);
+    const auto defaults = controller_native::load_runtime_config(missing);
+    require(!defaults.control_learning.enabled);
+    require(defaults.control_learning.mode ==
+            controller_native::ControlLearningMode::Disabled);
+
+    const auto path = std::filesystem::temp_directory_path() /
+        "cod_native_control_learning_shadow.toml";
+    {
+        std::ofstream output(path);
+        output << "[runtime.control_learning]\n"
+               << "enabled = true\nmode = \"shadow\"\ntelemetry_enabled = true\n";
+    }
+    const auto shadow = controller_native::load_runtime_config(path);
+    std::filesystem::remove(path);
+    require(shadow.control_learning.enabled);
+    require(shadow.control_learning.mode ==
+            controller_native::ControlLearningMode::Shadow);
+    require(shadow.control_learning.telemetry_enabled);
+}
+
+void test_control_learning_disabled_overrides_requested_mode() {
+    const auto path = std::filesystem::temp_directory_path() /
+        "cod_native_control_learning_forced_disabled.toml";
+    {
+        std::ofstream output(path);
+        output << "[runtime.control_learning]\n"
+               << "enabled = false\nmode = \"rollout_shadow\"\n";
+    }
+    const auto config = controller_native::load_runtime_config(path);
+    std::filesystem::remove(path);
+    require(config.control_learning.mode ==
+            controller_native::ControlLearningMode::Disabled);
+}
+
 } // namespace
 
 int main() {
@@ -513,5 +551,7 @@ int main() {
     test_gamepad_intent_unknown_key_is_reported();
     test_auto_fire_pulse_defaults_and_overrides();
     test_auto_fire_pulse_rejects_invalid_relationships();
+    test_control_learning_defaults_disabled_and_parses_shadow();
+    test_control_learning_disabled_overrides_requested_mode();
     return 0;
 }

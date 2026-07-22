@@ -339,6 +339,74 @@ void test_controller_pipeline_and_target_provenance_are_serialized() {
     std::filesystem::remove_all(directory);
 }
 
+void test_causal_journal_serializes_capture_control_and_provenance() {
+    const auto directory = std::filesystem::temp_directory_path() /
+        "cod_native_causal_journal_schema";
+    std::filesystem::remove_all(directory);
+    runtime_app::RuntimeTelemetryOptions options;
+    options.enabled = true;
+    options.directory = directory;
+    runtime_app::RuntimeTelemetry telemetry(options);
+    telemetry.start();
+
+    runtime_app::TelemetryRecord metadata;
+    metadata.type = runtime_app::TelemetryRecordType::SessionMetadata;
+    std::snprintf(metadata.session_metadata.session_id.data(),
+        metadata.session_metadata.session_id.size(), "%s", "causal-session");
+    std::snprintf(metadata.session_metadata.build_commit.data(),
+        metadata.session_metadata.build_commit.size(), "%s", "revision-abc");
+    std::snprintf(metadata.session_metadata.config_hash.data(),
+        metadata.session_metadata.config_hash.size(), "%064d", 1);
+    std::snprintf(metadata.session_metadata.engine_hash.data(),
+        metadata.session_metadata.engine_hash.size(), "%064d", 2);
+    metadata.session_metadata.capture_width = 480;
+    metadata.session_metadata.capture_height = 416;
+    REQUIRE(telemetry.enqueue(metadata));
+
+    runtime_app::TelemetryRecord observation;
+    observation.type = runtime_app::TelemetryRecordType::CommittedCaptureObservation;
+    observation.committed_observation.source_frame_id = 91;
+    observation.committed_observation.source_observation_id = 9001;
+    observation.committed_observation.persistent_target_id = 7;
+    observation.committed_observation.viewport_source_frame_id = 91;
+    observation.committed_observation.captured_at_ns = 900;
+    observation.committed_observation.result_at_ns = 960;
+    observation.committed_observation.stable_error_x = 12.0f;
+    observation.committed_observation.stable_error_y = -4.0f;
+    observation.committed_observation.stable_coordinates_valid = true;
+    observation.committed_observation.fresh_observed = true;
+    observation.committed_observation.eligible_candidate_count = 1;
+    observation.vision_sample_quality = runtime_app::VisionSampleQuality::Normal;
+    observation.identification_update_outcome =
+        runtime_app::IdentificationUpdateOutcome::NotEvaluated;
+    REQUIRE(telemetry.enqueue(observation));
+
+    runtime_app::TelemetryRecord control;
+    control.type = runtime_app::TelemetryRecordType::DeliveredControlSample;
+    control.delivered_control.sample_seq = 12;
+    control.delivered_control.applied_at_ns = 975;
+    control.delivered_control.final_right_x = 0.5f;
+    control.delivered_control.final_left_x = 0.25f;
+    control.delivered_control.output_delivered = true;
+    REQUIRE(telemetry.enqueue(control));
+    telemetry.stop();
+
+    std::ifstream input(telemetry.log_path());
+    std::ostringstream contents;
+    contents << input.rdbuf();
+    const std::string json = contents.str();
+    REQUIRE(json.find("\"schema\":\"causal_response_journal_v1\"") != std::string::npos);
+    REQUIRE(json.find("\"captured_at_ns\":900") != std::string::npos);
+    REQUIRE(json.find("\"result_at_ns\":960") != std::string::npos);
+    REQUIRE(json.find("\"applied_at_ns\":975") != std::string::npos);
+    REQUIRE(json.find("\"final_left\":[0.25,0]") != std::string::npos);
+    REQUIRE(json.find("\"config_sha256\":\"") != std::string::npos);
+    REQUIRE(json.find("\"vision_sample_quality\":\"normal\"") != std::string::npos);
+    REQUIRE(json.find("\"identification_update_outcome\":\"not_evaluated\"") != std::string::npos);
+    input.close();
+    std::filesystem::remove_all(directory);
+}
+
 } // namespace
 
 int main() {
@@ -351,5 +419,6 @@ int main() {
     test_every_rotated_file_starts_with_session_metadata();
     test_type_specific_fields_and_timestamps_are_serialized();
     test_controller_pipeline_and_target_provenance_are_serialized();
+    test_causal_journal_serializes_capture_control_and_provenance();
     return 0;
 }

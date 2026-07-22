@@ -1,5 +1,6 @@
 #include "runtime_loop.h"
 #include "runtime_timing.h"
+#include "runtime_provenance.h"
 
 #include "controller_native/runtime_config.h"
 
@@ -10,6 +11,7 @@
 #include <filesystem>
 #include <iostream>
 #include <optional>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 
@@ -88,11 +90,41 @@ void apply_cli_overrides(
     }
 }
 
+void populate_runtime_provenance(
+    const CliOptions& options,
+    controller_native::RuntimeConfig& config) {
+#if defined(COD_BUILD_COMMIT)
+    config.build_commit = COD_BUILD_COMMIT;
+#endif
+    if (!config.telemetry.enabled && !config.vision.aim_perf_file_log) {
+        config.source_config_sha256 = "disabled";
+        config.engine_sha256 = "disabled";
+        return;
+    }
+    std::ostringstream context;
+    context << "profile=" << options.profile.value_or(std::string{})
+            << ";auto_fire=" << config.gamepad.auto_fire.fire_output
+            << ";capture_fps=" << config.vision.capture_fps;
+    config.source_config_sha256 = runtime_app::sha256_file_with_context(
+        options.config_path, context.str());
+    config.engine_sha256 = runtime_app::sha256_file_with_context(
+        config.vision.model_path);
+    if (config.source_config_sha256.empty()) {
+        config.source_config_sha256 = "unavailable";
+    }
+    if (config.engine_sha256.empty()) {
+        config.engine_sha256 = "unavailable";
+    }
+}
+
 void dump_effective_config(const controller_native::RuntimeConfig& config) {
     auto line = [&config](const char* key, const auto& value) {
         std::cout << key << '=' << value << " source=" << config.effective_source(key) << '\n';
     };
     line("runtime.profile", config.profile);
+    line("runtime.provenance.build_commit", config.build_commit);
+    line("runtime.provenance.config_sha256", config.source_config_sha256);
+    line("runtime.provenance.engine_sha256", config.engine_sha256);
     line("runtime.vision.capture_width", config.vision.capture_width);
     line("runtime.vision.capture_height", config.vision.capture_height);
     line("runtime.vision.capture_fps", config.vision.capture_fps);
@@ -223,6 +255,7 @@ int main(int argc, char** argv) {
                 options.config_path,
                 options.profile.value_or(std::string{}));
         apply_cli_overrides(options, config);
+        populate_runtime_provenance(options, config);
         if (options.dump_effective_config) {
             dump_effective_config(config);
             return 0;

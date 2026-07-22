@@ -184,8 +184,19 @@ set(FPS_TRACKER_PACKAGE_SOURCES
     ../fps_2d_tracker_package/src/target_tracker.cpp
 )
 
+execute_process(
+    COMMAND git rev-parse HEAD
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../..
+    OUTPUT_VARIABLE COD_BUILD_COMMIT
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET)
+if(NOT COD_BUILD_COMMIT)
+    set(COD_BUILD_COMMIT "unknown")
+endif()
+
 add_executable(cod_native_runtime
     ../runtime_app/main.cpp
+    ../runtime_app/runtime_provenance.cpp
     ../runtime_app/runtime_loop.cpp
     ../runtime_app/runtime_timing.cpp
     ../runtime_app/vision_service.cpp
@@ -198,6 +209,9 @@ add_executable(cod_native_runtime
     ../runtime_app/telemetry_target_identity.cpp
     ../runtime_app/telemetry_event_sampler.cpp
     ../runtime_app/control_response_window.cpp
+    ../control_learning/causal_online_response_learner.cpp
+    ../control_learning/pending_motion_model.cpp
+    ../control_learning/short_horizon_rollout.cpp
     ../runtime_app/ads_visual_transition.cpp
     ../runtime_app/ads_transition_collector.cpp
     ../runtime_app/downward_diagnostics.cpp
@@ -242,6 +256,7 @@ target_compile_definitions(cod_native_runtime
     PRIVATE
         NOMINMAX
         WIN32_LEAN_AND_MEAN
+        COD_BUILD_COMMIT="${COD_BUILD_COMMIT}"
         $<$<BOOL:${NATIVE_ENABLE_VIGEM}>:NATIVE_ENABLE_VIGEM>
 )
 
@@ -258,6 +273,7 @@ target_link_libraries(cod_native_runtime PRIVATE
     gdi32
     winmm
     windowsapp
+    advapi32
 )
 
 if(ViGEmClient_DLL AND EXISTS "${ViGEmClient_DLL}")
@@ -388,6 +404,7 @@ target_link_libraries(cod_native_controller_tests PRIVATE
 add_executable(cod_native_controller_protocol_tests
     ../controller_native/controller_protocol_tests.cpp
     ../runtime_app/vision_controller_adapter.cpp
+    ../controller_native/target_geometry.cpp
 )
 
 target_include_directories(cod_native_controller_protocol_tests PRIVATE
@@ -485,6 +502,19 @@ add_executable(cod_native_control_response_window_tests
     ../runtime_app/control_response_window_tests.cpp
     ../runtime_app/control_response_window.cpp
 )
+
+add_executable(cod_native_runtime_provenance_tests
+    ../runtime_app/runtime_provenance_tests.cpp
+    ../runtime_app/runtime_provenance.cpp
+)
+target_include_directories(cod_native_runtime_provenance_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+target_compile_definitions(cod_native_runtime_provenance_tests PRIVATE
+    NOMINMAX
+    WIN32_LEAN_AND_MEAN
+)
+target_link_libraries(cod_native_runtime_provenance_tests PRIVATE advapi32)
 target_include_directories(cod_native_control_response_window_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/..
@@ -597,6 +627,7 @@ target_compile_definitions(cod_native_runtime_config_tests
 add_executable(cod_native_target_snapshot_tests
     ../controller_native/target_snapshot_provider_tests.cpp
     ../controller_native/target_snapshot_provider.cpp
+    ../controller_native/target_geometry.cpp
     ../controller_native/assist_authority_policy.cpp
     ../runtime_app/vision_controller_adapter.cpp
     ../tracking_native/association.cpp
@@ -1364,6 +1395,162 @@ add_executable(cod_native_sustained_aimlab_counterfactual_tests
     ../controller_native/sustained_aimlab_scenario.cpp
 )
 
+add_executable(cod_native_control_history_tests
+    ../control_learning/control_history_tests.cpp
+)
+
+add_executable(cod_native_causal_response_benchmark_tests
+    ../controller_native/causal_response_synthetic_benchmark_tests.cpp
+    ../controller_native/causal_response_synthetic_benchmark.cpp
+    ../control_learning/short_horizon_rollout.cpp
+)
+target_include_directories(cod_native_causal_response_benchmark_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
+add_executable(cod_native_causal_response_benchmark
+    ../controller_native/cod_native_causal_response_benchmark.cpp
+    ../controller_native/causal_response_synthetic_benchmark.cpp
+    ../control_learning/short_horizon_rollout.cpp
+)
+add_executable(cod_native_robust_ew_rls_tests
+    ../control_learning/robust_ew_rls_tests.cpp
+)
+add_executable(cod_native_causal_online_response_learner_tests
+    ../control_learning/causal_online_response_learner_tests.cpp
+    ../control_learning/causal_online_response_learner.cpp
+)
+add_executable(cod_native_pending_motion_model_tests
+    ../control_learning/pending_motion_model_tests.cpp
+    ../control_learning/pending_motion_model.cpp
+)
+add_executable(cod_native_short_horizon_rollout_tests
+    ../control_learning/short_horizon_rollout_tests.cpp
+    ../control_learning/short_horizon_rollout.cpp
+)
+add_executable(cod_native_causal_response_microbenchmark
+    ../control_learning/causal_response_microbenchmark.cpp
+    ../control_learning/causal_online_response_learner.cpp
+)
+target_include_directories(cod_native_causal_response_microbenchmark PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+target_include_directories(cod_native_short_horizon_rollout_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+target_include_directories(cod_native_pending_motion_model_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+target_include_directories(cod_native_causal_online_response_learner_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+target_include_directories(cod_native_robust_ew_rls_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+target_include_directories(cod_native_causal_response_benchmark PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+target_include_directories(cod_native_control_history_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+add_test(NAME ControlHistoryTests COMMAND cod_native_control_history_tests)
+add_test(
+    NAME ControlResponseWindowTests
+    COMMAND cod_native_control_response_window_tests)
+add_test(NAME RuntimeTelemetryTests COMMAND cod_native_runtime_telemetry_tests)
+add_test(
+    NAME CausalResponseSyntheticBenchmarkTests
+    COMMAND cod_native_causal_response_benchmark_tests)
+add_test(NAME RobustEwRlsTests COMMAND cod_native_robust_ew_rls_tests)
+add_test(NAME CausalOnlineResponseLearnerTests
+    COMMAND cod_native_causal_online_response_learner_tests)
+add_test(NAME PendingMotionModelTests COMMAND cod_native_pending_motion_model_tests)
+add_test(NAME ShortHorizonRolloutTests COMMAND cod_native_short_horizon_rollout_tests)
+add_test(NAME RuntimeProvenanceTests COMMAND cod_native_runtime_provenance_tests)
+add_test(NAME TelemetryCollectorsTests COMMAND cod_native_telemetry_collectors_tests)
+add_test(NAME LogSessionManagerTests COMMAND cod_native_log_session_manager_tests)
+
+add_executable(cod_native_committed_capture_observation_tests
+    ../pipeline_contract/committed_capture_observation_tests.cpp
+    ../runtime_app/vision_controller_adapter.cpp
+    ../controller_native/target_geometry.cpp
+)
+
+target_include_directories(cod_native_committed_capture_observation_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
+add_test(
+    NAME CommittedCaptureObservationTests
+    COMMAND cod_native_committed_capture_observation_tests)
+
+add_executable(cod_native_blind_window_benchmark_tests
+    ../controller_native/blind_window_benchmark_tests.cpp
+    ../controller_native/blind_window_baseline.cpp
+    ../controller_native/blind_window_benchmark.cpp
+    ../controller_native/blind_window_fixtures.cpp
+    ../controller_native/blind_window_metrics.cpp
+)
+
+target_include_directories(cod_native_blind_window_benchmark_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
+add_test(
+    NAME NativeBlindWindowBenchmarkTests
+    COMMAND cod_native_blind_window_benchmark_tests)
+
+add_executable(cod_native_blind_window_benchmark
+    ../controller_native/cod_native_blind_window_benchmark.cpp
+    ../controller_native/blind_window_native_adapter.cpp
+    ../controller_native/native_benchmark_controller_adapter.cpp
+    ../controller_native/blind_window_baseline.cpp
+    ../controller_native/blind_window_benchmark.cpp
+    ../controller_native/blind_window_fixtures.cpp
+    ../controller_native/blind_window_metrics.cpp
+    ../tracking_native/tracker_authority.cpp
+    ../tracking_native/tracker_backend.cpp
+    ../tracking_native/fps_reference_tracker.cpp
+    ../tracking_native/kalman_tracker.cpp
+    ../tracking_native/legacy_projection_tracker.cpp
+    ../tracking_native/association.cpp
+    ../tracking_native/ego_motion_buffer.cpp
+    ../tracking_native/projection_model.cpp
+    ${FPS_TRACKER_PACKAGE_SOURCES}
+    ../controller_native/runtime_config.cpp
+    ../controller_native/auto_fire_gate.cpp
+    ../controller_native/recoil_profile.cpp
+    ../controller_native/recoil_calibration.cpp
+    ../controller_native/recoil_compensation.cpp
+    ../recoil_native/recoil_compensation.cpp
+    ../recoil_native/recoil_visual_model.cpp
+    ../controller_native/weapon_recognizer.cpp
+    ../controller_native/output_mixer.cpp
+    ../controller_native/controller_pipeline.cpp
+    ../controller_native/native_gamepad_controller.cpp
+    ../controller_native/target_geometry.cpp
+)
+
+target_include_directories(cod_native_blind_window_benchmark PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fps_2d_tracker_package/include
+)
+
+target_compile_definitions(cod_native_blind_window_benchmark PRIVATE
+    NOMINMAX
+    WIN32_LEAN_AND_MEAN
+    COD_BENCHMARK_MIX_OVERRIDE
+)
+
+target_link_libraries(cod_native_blind_window_benchmark PRIVATE
+    vision_native_core
+    gdi32
+    windowsapp
+)
+
 target_include_directories(cod_native_sustained_aimlab_scenario_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/..
 )
@@ -1426,6 +1613,7 @@ add_executable(cod_native_aimlab_benchmark
 
 add_executable(cod_native_sustained_aimlab_benchmark
     ../controller_native/cod_native_sustained_aimlab_benchmark.cpp
+    ../controller_native/native_benchmark_controller_adapter.cpp
     ../controller_native/sustained_aimlab_counterfactual.cpp
     ../controller_native/sustained_aimlab_trace.cpp
     ../controller_native/sustained_aimlab_simulator.cpp
@@ -1495,6 +1683,7 @@ foreach(COD_TARGET
     cod_native_lstick_benchmark
     cod_native_lstick_benchmark_tests
     cod_native_sustained_aimlab_benchmark
+    cod_native_blind_window_benchmark
 )
     if(TARGET ${COD_TARGET})
         target_sources(${COD_TARGET} PRIVATE ${COD_TARGET_PLAN_RUNTIME_SOURCES})

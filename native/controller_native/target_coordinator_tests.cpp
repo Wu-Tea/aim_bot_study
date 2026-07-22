@@ -48,6 +48,8 @@ void test_single_owner_coasts_and_reacquires_same_identity() {
     auto plan = coordinator.update(frame(1, 0.00, 10, 300.0f, 208.0f), ads_intent(0.00), 0.00);
     require_true(plan.lifecycle == pipeline_contract::TargetLifecycle::Observed,
                  "fresh target must be observed");
+    require_true(plan.source_observation_id == 10,
+                 "observed plan must export the exact selected observation identity");
     const auto target_id = plan.target_id;
 
     pipeline_contract::VisionObservationBatch missing{};
@@ -64,6 +66,8 @@ void test_single_owner_coasts_and_reacquires_same_identity() {
     require_true(plan.lifecycle == pipeline_contract::TargetLifecycle::Reacquiring,
                  "nearby new detector id must reacquire existing target");
     require_true(plan.target_id == target_id, "detector id churn must not change plan identity");
+    require_true(plan.source_observation_id == 99,
+                 "reacquired plan must export the newly committed observation identity");
     require_true(std::fabs(plan.error_px.x - 64.0f) < 12.0f,
                  "reacquisition innovation must be bounded");
 }

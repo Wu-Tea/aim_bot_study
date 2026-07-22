@@ -90,6 +90,10 @@ void LogSessionManager::write_session_manifest(const char* state) {
          << "  \"pid\": " << GetCurrentProcessId() << ",\n"
          << "  \"git_commit\": \"" << json_escape(options_.git_commit) << "\",\n"
          << "  \"config_hash\": \"" << json_escape(options_.config_hash) << "\",\n"
+         << "  \"engine_hash\": \"" << json_escape(options_.engine_hash) << "\",\n"
+         << "  \"capture_width\": " << options_.capture_width << ",\n"
+         << "  \"capture_height\": " << options_.capture_height << ",\n"
+         << "  \"causal_response_journal_schema\": \"causal_response_journal_v1\",\n"
          << "  \"updated_utc\": \"" << utc_timestamp() << "\"\n"
          << "}\n";
     write_text_atomic(session_directory_ / "session.json", json.str());

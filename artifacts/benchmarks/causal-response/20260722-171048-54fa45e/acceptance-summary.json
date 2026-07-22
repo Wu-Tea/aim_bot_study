@@ -1,0 +1,62 @@
+﻿{
+    "schema":  "causal_response_acceptance_v1",
+    "status":  "synthetic_pass_real_replay_pending",
+    "mode":  "RolloutShadow",
+    "revision":  "54fa45e",
+    "dirty":  false,
+    "config_path":  "D:\\work\\AI\\yolo-study-001\\.worktrees\\causal-response-integration-plan\\config.native.example.toml",
+    "config_sha256":  "bf190db0482194a687d459c0358621981441cc77b5173ee75bc3fc42f3a1350a",
+    "engine_sha256":  "unavailable_in_worktree",
+    "crop":  {
+                 "width":  480,
+                 "height":  416
+             },
+    "telemetry_schema":  6,
+    "seeds":  [
+                  {
+                      "seed":  1337,
+                      "decisions":  556,
+                      "top1_agreement":  0.958633,
+                      "causal_gain_px_ms":  205508.881880,
+                      "regret_px_ms":  11285.708557,
+                      "harmful_release_count":  0,
+                      "single_target_aggressive_gain_px_ms":  16276.580138,
+                      "multi_target_aggressive_regret_px_ms":  21065.828335
+                  },
+                  {
+                      "seed":  7331,
+                      "decisions":  556,
+                      "top1_agreement":  0.958633,
+                      "causal_gain_px_ms":  205516.665336,
+                      "regret_px_ms":  11292.397264,
+                      "harmful_release_count":  0,
+                      "single_target_aggressive_gain_px_ms":  16263.868015,
+                      "multi_target_aggressive_regret_px_ms":  21046.047594
+                  },
+                  {
+                      "seed":  20260722,
+                      "decisions":  556,
+                      "top1_agreement":  0.958633,
+                      "causal_gain_px_ms":  205522.594820,
+                      "regret_px_ms":  11371.033692,
+                      "harmful_release_count":  0,
+                      "single_target_aggressive_gain_px_ms":  16255.816608,
+                      "multi_target_aggressive_regret_px_ms":  21058.409834
+                  }
+              ],
+    "cpu":  {
+                "history_push_us":  {
+                                        "p50":  0.000,
+                                        "p95":  0.100,
+                                        "p99":  0.100
+                                    },
+                "vision_observe_estimate_us":  {
+                                                   "p50":  10.700,
+                                                   "p95":  18.900,
+                                                   "p99":  22.000
+                                               }
+            },
+    "real_sessions":  [
+
+                      ]
+}

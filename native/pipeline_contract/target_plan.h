@@ -52,6 +52,7 @@ struct PlanHorizonSample {
 struct TargetPlan {
     std::uint64_t generation = 0;
     std::uint64_t source_frame_id = 0;
+    std::uint64_t source_observation_id = 0;
     std::uint64_t target_id = 0;
     TargetLifecycle lifecycle = TargetLifecycle::None;
     TargetMotion motion = TargetMotion::Ambiguous;

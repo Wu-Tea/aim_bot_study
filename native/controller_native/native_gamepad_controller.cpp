@@ -609,6 +609,10 @@ const pipeline_contract::TargetPlan& NativeGamepadController::last_target_plan()
     return last_target_plan_;
 }
 
+std::uint64_t NativeGamepadController::ads_epoch() const noexcept {
+    return ads_epoch_;
+}
+
 const std::string& NativeGamepadController::last_ai_aim_mode() const {
     return last_ai_aim_mode_;
 }

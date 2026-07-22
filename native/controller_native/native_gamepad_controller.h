@@ -59,6 +59,7 @@ public:
     const NativeControllerOutputComponents& last_output_components() const;
     const NativeControllerVisionState& last_frame_vision_state() const;
     const pipeline_contract::TargetPlan& last_target_plan() const;
+    std::uint64_t ads_epoch() const noexcept;
     const std::string& last_ai_aim_mode() const;
     bool body_lock_manual_takeover_active() const;
     RelativeMotionEstimate body_lock_relative_motion_estimate() const;

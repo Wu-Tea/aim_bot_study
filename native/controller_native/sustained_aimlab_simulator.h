@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <limits>
 
 namespace controller_native::sustained_aimlab {
 
@@ -14,6 +15,8 @@ struct ControllerObservation {
     bool fresh_vision = false;
     std::uint64_t frame_id = 0;
     std::uint64_t target_id = 0;
+    double capture_time_seconds = std::numeric_limits<double>::quiet_NaN();
+    double ready_time_seconds = std::numeric_limits<double>::quiet_NaN();
     Vec2d observed_error_px;
     Vec2d manual_stick;
 };

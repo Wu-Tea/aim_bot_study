@@ -10,6 +10,9 @@ struct LogSessionOptions {
     std::filesystem::path root = "runs/native_perf";
     std::string git_commit;
     std::string config_hash;
+    std::string engine_hash;
+    int capture_width = 0;
+    int capture_height = 0;
 };
 
 class LogSessionManager {

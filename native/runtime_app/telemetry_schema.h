@@ -2,10 +2,11 @@
 
 #include <cstdint>
 #include <array>
+#include <type_traits>
 
 namespace runtime_app {
 
-inline constexpr std::uint16_t kTelemetrySchemaVersion = 5;
+inline constexpr std::uint16_t kTelemetrySchemaVersion = 6;
 
 enum class TelemetryRecordKind : std::uint8_t {
     ManualControllerTick,
@@ -21,6 +22,28 @@ enum class TelemetryRecordType : std::uint8_t {
     AdsTransitionSample,
     AdsTransition,
     ControlResponseWindow,
+    CommittedCaptureObservation,
+    DeliveredControlSample,
+    CausalResponseShadow,
+};
+
+enum class VisionSampleQuality : std::uint8_t {
+    Normal,
+    SoftWeight,
+    HardReject,
+};
+
+enum class IdentificationUpdateOutcome : std::uint8_t {
+    NotEvaluated,
+    AcceptedByAtLeastOneDelay,
+    InsufficientExcitation,
+    DeliveryGap,
+    FiringOrRecoil,
+    Saturated,
+    TimingInvalid,
+    CoordinateInvalid,
+    IdentityBoundary,
+    NoUsableDelay,
 };
 
 enum class TelemetryReadiness : std::uint8_t {
@@ -257,6 +280,77 @@ struct ControlResponsePayload {
     float final_x_integral = 0.0f, final_y_integral = 0.0f;
 };
 
+struct CommittedObservationPayload {
+    std::uint64_t source_frame_id = 0;
+    std::uint64_t source_observation_id = 0;
+    std::uint64_t persistent_target_id = 0;
+    std::uint64_t viewport_sequence = 0;
+    std::uint64_t viewport_source_frame_id = 0;
+    std::uint64_t captured_at_ns = 0;
+    std::uint64_t result_at_ns = 0;
+    float stable_error_x = 0.0f, stable_error_y = 0.0f;
+    float stable_body_width = 0.0f, stable_body_height = 0.0f;
+    float viewport_offset_x = 0.0f, viewport_offset_y = 0.0f;
+    float target_acceleration_x = 0.0f, target_acceleration_y = 0.0f;
+    float reliability = 0.0f;
+    float normalized_size = 0.0f;
+    std::uint64_t ads_epoch = 0;
+    std::uint16_t eligible_candidate_count = 0;
+    std::uint8_t lifecycle = 0;
+    std::uint8_t motion = 0;
+    std::uint8_t mode = 0;
+    bool fresh_observed = false;
+    bool strong_observation = false;
+    bool stable_coordinates_valid = false;
+    bool reused_or_projected = false;
+};
+
+struct DeliveredControlPayload {
+    std::uint64_t sample_seq = 0;
+    std::uint64_t applied_at_ns = 0;
+    float physical_right_x = 0.0f, physical_right_y = 0.0f;
+    float physical_left_x = 0.0f, physical_left_y = 0.0f;
+    float manual_x = 0.0f, manual_y = 0.0f;
+    float ai_x = 0.0f, ai_y = 0.0f;
+    float pre_recoil_x = 0.0f, pre_recoil_y = 0.0f;
+    float recoil_x = 0.0f, recoil_y = 0.0f;
+    float final_right_x = 0.0f, final_right_y = 0.0f;
+    float final_left_x = 0.0f, final_left_y = 0.0f;
+    std::uint64_t ads_epoch = 0;
+    bool output_delivered = false;
+    bool output_disabled = false;
+    bool firing = false;
+    bool recoil_active = false;
+    bool saturated = false;
+};
+
+struct CausalResponseShadowPayload {
+    float best_delay_ms = 0.0f;
+    float selected_delay_ms = 0.0f;
+    float selected_delay_confidence = 0.0f;
+    float right_confidence = 0.0f;
+    float left_confidence = 0.0f;
+    float joint_confidence = 0.0f;
+    float excitation = 0.0f;
+    float residual = 0.0f;
+    float pending_realized_x = 0.0f;
+    float pending_realized_y = 0.0f;
+    float pending_scheduled_x = 0.0f;
+    float pending_scheduled_y = 0.0f;
+    float pending_confidence = 0.0f;
+    std::uint32_t reason_bits = 0;
+    std::uint8_t accepted_delay_count = 0;
+    bool accepted_by_any_delay = false;
+    bool delay_switch_pending = false;
+    bool pending_valid = false;
+    std::array<float, 5> rollout_scales{};
+    std::array<float, 5> rollout_costs{};
+    float rollout_best_scale = 1.0f;
+    float rollout_confidence = 0.0f;
+    std::uint8_t rollout_candidate_count = 0;
+    bool rollout_valid = false;
+};
+
 struct TelemetryRecord {
     std::uint16_t schema_version = kTelemetrySchemaVersion;
     TelemetryRecordType type = TelemetryRecordType::ControllerSample;
@@ -276,6 +370,12 @@ struct TelemetryRecord {
     TargetEventPayload target_event;
     AdsTransitionPayload ads_transition;
     ControlResponsePayload control_response;
+    CommittedObservationPayload committed_observation;
+    DeliveredControlPayload delivered_control;
+    CausalResponseShadowPayload causal_shadow;
+    VisionSampleQuality vision_sample_quality = VisionSampleQuality::Normal;
+    IdentificationUpdateOutcome identification_update_outcome =
+        IdentificationUpdateOutcome::NotEvaluated;
 
     // Compatibility fields used by the current runtime producer until the
     // enabled-only collectors are integrated.
@@ -291,5 +391,9 @@ struct TelemetryRecord {
     float vigem_update_ms = 0.0f;
     std::uint32_t event_reason_flags = 0;
 };
+
+static_assert(std::is_trivially_copyable_v<TelemetryRecord>);
+static_assert(sizeof(TelemetryRecord) <= 4096,
+              "telemetry queue records must remain fixed and bounded");
 
 } // namespace runtime_app

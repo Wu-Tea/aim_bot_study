@@ -1,21 +1,26 @@
 #include "control_response_window.h"
 
-#include <algorithm>
-
 namespace runtime_app {
-namespace {
-
-float seconds_between(std::uint64_t from, std::uint64_t to) noexcept {
-    return to > from ? static_cast<float>(to - from) / 1'000'000'000.0f : 0.0f;
-}
-
-} // namespace
-
 void ControlResponseWindowAssembler::observe_controller(
     const ResponseControllerSample& sample) noexcept {
-    if (!has_anchor_ || sample.output_sent_ns <= anchor_.captured_at_ns) return;
-    if (command_count_ < commands_.size()) commands_[command_count_++] = sample;
-    else ++overflow_;
+    control_learning::DeliveredControlSample delivered;
+    delivered.sample_seq = sample.sample_seq;
+    delivered.applied_at_ns = sample.output_sent_ns;
+    delivered.physical_right = {sample.physical_x, sample.physical_y};
+    delivered.physical_left = {sample.physical_left_x, sample.physical_left_y};
+    delivered.manual_component = {sample.manual_x, sample.manual_y};
+    delivered.ai_component = {sample.ai_x, sample.ai_y};
+    delivered.pre_recoil = {sample.pre_recoil_x, sample.pre_recoil_y};
+    delivered.recoil_component = {sample.recoil_x, sample.recoil_y};
+    delivered.final_right = {sample.final_x, sample.final_y};
+    delivered.final_left = {sample.final_left_x, sample.final_left_y};
+    delivered.ads_epoch = sample.ads_epoch;
+    delivered.output_delivered = sample.output_delivered;
+    delivered.output_disabled = sample.output_disabled;
+    delivered.firing = sample.firing;
+    delivered.recoil_active = sample.recoil_active;
+    delivered.saturated = sample.saturated;
+    history_.push(delivered);
 }
 
 std::optional<ControlResponseWindow> ControlResponseWindowAssembler::observe_vision(
@@ -36,40 +41,27 @@ std::optional<ControlResponseWindow> ControlResponseWindowAssembler::observe_vis
     result.residual_x = result.delta_error_x - frame.predicted_motion_x;
     result.residual_y = result.delta_error_y - frame.predicted_motion_y;
 
-    std::uint64_t first_seq = 0;
-    std::uint64_t last_seq = 0;
-    for (std::size_t i = 0; i < command_count_; ++i) {
-        const auto& value = commands_[i];
-        if (value.output_sent_ns >= frame.captured_at_ns) break;
-        const std::uint64_t end_ns = i + 1 < command_count_
-            ? std::min(commands_[i + 1].output_sent_ns, frame.captured_at_ns)
-            : frame.captured_at_ns;
-        const float dt = seconds_between(value.output_sent_ns, end_ns);
-        result.physical_x_integral += value.physical_x * dt;
-        result.physical_y_integral += value.physical_y * dt;
-        result.manual_x_integral += value.manual_x * dt;
-        result.manual_y_integral += value.manual_y * dt;
-        result.ai_x_integral += value.ai_x * dt;
-        result.ai_y_integral += value.ai_y * dt;
-        result.pre_recoil_x_integral += value.pre_recoil_x * dt;
-        result.pre_recoil_y_integral += value.pre_recoil_y * dt;
-        result.recoil_x_integral += value.recoil_x * dt;
-        result.recoil_y_integral += value.recoil_y * dt;
-        result.final_x_integral += value.final_x * dt;
-        result.final_y_integral += value.final_y * dt;
-        if (first_seq == 0) first_seq = value.sample_seq;
-        last_seq = value.sample_seq;
-        ++result.completeness.written;
-    }
-    result.completeness.first_seq = first_seq;
-    result.completeness.last_seq = last_seq;
-    result.completeness.expected = first_seq != 0 && last_seq >= first_seq
-        ? static_cast<std::uint32_t>(last_seq - first_seq + 1) : 0;
-    result.completeness.dropped = overflow_ +
-        (result.completeness.expected > result.completeness.written
-            ? result.completeness.expected - result.completeness.written : 0);
-    result.completeness.complete = result.completeness.written > 0 &&
-        result.completeness.dropped == 0;
+    const auto interval = history_.integrate(
+        anchor_.captured_at_ns, frame.captured_at_ns);
+    result.physical_x_integral = interval.physical_right_stick_seconds.x;
+    result.physical_y_integral = interval.physical_right_stick_seconds.y;
+    result.manual_x_integral = interval.manual_stick_seconds.x;
+    result.manual_y_integral = interval.manual_stick_seconds.y;
+    result.ai_x_integral = interval.ai_stick_seconds.x;
+    result.ai_y_integral = interval.ai_stick_seconds.y;
+    result.pre_recoil_x_integral = interval.pre_recoil_stick_seconds.x;
+    result.pre_recoil_y_integral = interval.pre_recoil_stick_seconds.y;
+    result.recoil_x_integral = interval.recoil_stick_seconds.x;
+    result.recoil_y_integral = interval.recoil_stick_seconds.y;
+    result.final_x_integral = interval.final_right_stick_seconds.x;
+    result.final_y_integral = interval.final_right_stick_seconds.y;
+    result.completeness.first_seq = interval.first_seq;
+    result.completeness.last_seq = interval.last_seq;
+    result.completeness.expected = interval.expected;
+    result.completeness.written = interval.written;
+    result.completeness.dropped = interval.expected > interval.written
+        ? interval.expected - interval.written : 0;
+    result.completeness.complete = interval.complete;
 
     const bool same_target = anchor_.target_track_id != 0 &&
         anchor_.target_track_id == frame.target_track_id;
@@ -86,16 +78,13 @@ std::optional<ControlResponseWindow> ControlResponseWindowAssembler::observe_vis
     else result.readiness = TelemetryReadiness::ModelEligible;
 
     anchor_ = frame;
-    command_count_ = 0;
-    overflow_ = 0;
     return result;
 }
 
 void ControlResponseWindowAssembler::reset() noexcept {
     anchor_ = ResponseVisionFrame{};
     has_anchor_ = false;
-    command_count_ = 0;
-    overflow_ = 0;
+    history_.clear();
 }
 
 bool ControlResponseWindowAssembler::high_quality(TargetIdentityQuality quality) const noexcept {
