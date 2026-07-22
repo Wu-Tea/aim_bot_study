@@ -2,7 +2,10 @@
 
 #include "sustained_aimlab_types.h"
 
+#include <array>
 #include <cstdint>
+#include <functional>
+#include <string>
 #include <vector>
 
 namespace controller_native::blind_window {
@@ -40,6 +43,44 @@ struct BlindWindowTrace {
     std::vector<BlindTraceFrame> frames;
 };
 
+struct BlindSchedule {
+    int capture_at_us = 0;
+    int event_at_us = 0;
+    int next_capture_at_us = 0;
+    int next_result_at_us = 0;
+};
+
+struct BlindFixture {
+    std::string name;
+    BlindKnowledgeClass knowledge_class = BlindKnowledgeClass::SelfPredictable;
+    BlindTimingProfile timing{};
+    int duration_us = 250'000;
+    Vec2d initial_error_px{};
+    Vec2d target_velocity_px_per_second{};
+    Vec2d target_acceleration_px_per_sec2{};
+    std::array<double, 4> right_response_px_per_stick_second{
+        500.0, 0.0, 0.0, 500.0};
+};
+
+struct BlindControllerObservation {
+    int now_us = 0;
+    bool target_present = false;
+    bool fresh_vision = false;
+    std::int64_t captured_at_us = -1;
+    std::int64_t result_at_us = -1;
+    Vec2d observed_error_px{};
+    Vec2d manual_stick{};
+    Vec2d left_stick{};
+};
+
+struct BlindControllerOutput {
+    Vec2d ai_stick{};
+    Vec2d final_stick{};
+};
+
+using BlindControllerStep = std::function<BlindControllerOutput(
+    const BlindControllerObservation&)>;
+
 struct BlindWindowMetrics {
     double blind_duration_ms = 0.0;
     double stale_ai_impulse_stick_ms = 0.0;
@@ -60,6 +101,23 @@ struct BlindWindowMetrics {
     int future_dependency_violations = 0;
 };
 
+struct BlindWindowRun {
+    BlindSchedule schedule{};
+    BlindWindowTrace trace;
+    BlindWindowMetrics metrics{};
+
+    const BlindTraceFrame& frame_at_us(int timestamp_us) const;
+};
+
 bool finite(const BlindWindowMetrics& metrics) noexcept;
+
+BlindSchedule build_blind_schedule(
+    const BlindTimingProfile& timing,
+    int capture_at_us,
+    int duration_us) noexcept;
+
+BlindWindowRun run_blind_fixture(
+    const BlindFixture& fixture,
+    const BlindControllerStep& controller_step);
 
 }  // namespace controller_native::blind_window

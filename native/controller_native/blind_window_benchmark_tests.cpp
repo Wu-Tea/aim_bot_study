@@ -74,6 +74,65 @@ void test_metric_contract_rejects_non_finite_values() {
     require(!finite(metrics), "NaN metric must fail the report contract");
 }
 
+BlindFixture minimal_fixture() {
+    BlindFixture fixture;
+    fixture.name = "minimal";
+    fixture.duration_us = 50'000;
+    fixture.initial_error_px = {20.0, 0.0};
+    fixture.right_response_px_per_stick_second = {
+        1'000.0, 0.0, 0.0, 1'000.0};
+    return fixture;
+}
+
+BlindControllerStep zero_controller() {
+    return [](const BlindControllerObservation&) {
+        return BlindControllerOutput{};
+    };
+}
+
+BlindControllerStep constant_x_controller(double value) {
+    return [=](const BlindControllerObservation&) {
+        BlindControllerOutput output;
+        output.ai_stick = {value, 0.0};
+        output.final_stick = output.ai_stick;
+        return output;
+    };
+}
+
+void test_event_occurs_at_requested_capture_phase() {
+    BlindTimingProfile timing;
+    timing.vision_period_us = 10'000;
+    timing.event_phase_per_mille = 250;
+    timing.result_latency_us = 16'000;
+    timing.response_delay_us = 45'000;
+    const BlindSchedule schedule = build_blind_schedule(timing, 0, 50'000);
+    require(schedule.event_at_us == 2'500,
+            "event must use the requested capture phase");
+    require(schedule.next_capture_at_us == 10'000,
+            "next capture must retain the Vision period");
+    require(schedule.next_result_at_us == 26'000,
+            "result availability must be capture plus latency");
+}
+
+void test_controller_never_receives_future_capture() {
+    const BlindWindowRun run = run_blind_fixture(
+        minimal_fixture(), zero_controller());
+    for (const BlindTraceFrame& frame : run.trace.frames) {
+        require(frame.max_controller_source_time_us <= frame.now_us,
+                "controller cannot consume a future capture");
+    }
+}
+
+void test_delivered_input_changes_plant_only_after_response_delay() {
+    BlindFixture fixture = minimal_fixture();
+    fixture.timing.response_delay_us = 25'000;
+    const BlindWindowRun run = run_blind_fixture(
+        fixture, constant_x_controller(1.0));
+    require_near(run.frame_at_us(24'000).true_error_px.x, 20.0);
+    require(run.frame_at_us(26'000).true_error_px.x < 20.0,
+            "delivered input must affect the plant after its response delay");
+}
+
 }  // namespace
 
 int main() {
@@ -83,6 +142,9 @@ int main() {
         test_user_fight_ignores_neutral_drift();
         test_user_fight_integrates_opposing_vectors();
         test_metric_contract_rejects_non_finite_values();
+        test_event_occurs_at_requested_capture_phase();
+        test_controller_never_receives_future_capture();
+        test_delivered_input_changes_plant_only_after_response_delay();
         std::cout << "blind_window_benchmark_tests: PASS\n";
         return 0;
     } catch (const std::exception& error) {

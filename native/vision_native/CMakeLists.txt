@@ -1366,6 +1366,7 @@ add_executable(cod_native_sustained_aimlab_counterfactual_tests
 
 add_executable(cod_native_blind_window_benchmark_tests
     ../controller_native/blind_window_benchmark_tests.cpp
+    ../controller_native/blind_window_benchmark.cpp
     ../controller_native/blind_window_metrics.cpp
 )
 
