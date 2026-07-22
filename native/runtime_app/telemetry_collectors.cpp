@@ -420,6 +420,67 @@ void TelemetryCollectors::observe_committed_capture(
     enqueue(record);
 }
 
+const control_learning::ControlHistory<1024>*
+TelemetryCollectors::control_history() const noexcept {
+    return state_ ? &state_->responses.history() : nullptr;
+}
+
+void TelemetryCollectors::observe_causal_shadow(
+    const pipeline_contract::CommittedCaptureObservation& observation,
+    const control_learning::SampleAssessment& assessment,
+    const control_learning::CausalResponseEstimate& estimate,
+    const control_learning::PendingMotionEstimate& pending) noexcept {
+    if (!state_) return;
+    TelemetryRecord record;
+    record.type = TelemetryRecordType::CausalResponseShadow;
+    record.frame_id = observation.source_frame_id;
+    record.target_track_id = observation.persistent_target_id;
+    record.timestamps.vision_capture_ns = observation.captured_at_ns;
+    record.timestamps.inference_ready_ns = observation.result_at_ns;
+    auto& value = record.causal_shadow;
+    value.best_delay_ms = estimate.best_delay_ms;
+    value.selected_delay_ms = estimate.selected_delay_ms;
+    value.selected_delay_confidence = estimate.selected_delay_confidence;
+    value.right_confidence = estimate.right_confidence;
+    value.left_confidence = estimate.left_confidence;
+    value.joint_confidence = estimate.joint_confidence;
+    value.excitation = estimate.excitation;
+    value.residual = estimate.residual;
+    value.pending_realized_x = static_cast<float>(pending.realized_px.x);
+    value.pending_realized_y = static_cast<float>(pending.realized_px.y);
+    value.pending_scheduled_x = static_cast<float>(pending.scheduled_px.x);
+    value.pending_scheduled_y = static_cast<float>(pending.scheduled_px.y);
+    value.pending_confidence = pending.confidence;
+    value.reason_bits = assessment.reason_bits;
+    value.accepted_delay_count = assessment.accepted_delay_count;
+    value.accepted_by_any_delay = assessment.accepted_by_any_delay;
+    value.delay_switch_pending = estimate.delay_switch_pending;
+    value.pending_valid = pending.valid;
+    switch (assessment.vision_quality) {
+    case control_learning::VisionSampleQuality::Normal:
+        record.vision_sample_quality = VisionSampleQuality::Normal; break;
+    case control_learning::VisionSampleQuality::ReusedOrProjected:
+        record.vision_sample_quality = VisionSampleQuality::SoftWeight; break;
+    default:
+        record.vision_sample_quality = VisionSampleQuality::HardReject; break;
+    }
+    switch (assessment.update_outcome) {
+    case control_learning::IdentificationUpdateOutcome::Accepted:
+        record.identification_update_outcome =
+            IdentificationUpdateOutcome::AcceptedByAtLeastOneDelay; break;
+    case control_learning::IdentificationUpdateOutcome::InsufficientExcitation:
+        record.identification_update_outcome =
+            IdentificationUpdateOutcome::InsufficientExcitation; break;
+    case control_learning::IdentificationUpdateOutcome::HardRejected:
+        record.identification_update_outcome =
+            IdentificationUpdateOutcome::NoUsableDelay; break;
+    default:
+        record.identification_update_outcome =
+            IdentificationUpdateOutcome::NotEvaluated; break;
+    }
+    enqueue(record);
+}
+
 void TelemetryCollectors::shutdown(std::uint64_t now_ns) noexcept {
     if (!state_) return;
     state_->ads.shutdown(now_ns);

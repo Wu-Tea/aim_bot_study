@@ -199,6 +199,18 @@ struct RuntimeTelemetryConfig {
     unsigned int event_post_ms = 1000;
 };
 
+enum class ControlLearningMode : unsigned char {
+    Disabled,
+    Shadow,
+    RolloutShadow,
+};
+
+struct ControlLearningConfig {
+    bool enabled = false;
+    ControlLearningMode mode = ControlLearningMode::Disabled;
+    bool telemetry_enabled = false;
+};
+
 struct RuntimeSchedulerConfig {
     int controller_tick_hz = 1000;
     std::string mode = "legacy";
@@ -222,6 +234,7 @@ struct RuntimeConfig {
     std::string profile = "legacy";
     VisionRuntimeConfig vision;
     RuntimeTelemetryConfig telemetry;
+    ControlLearningConfig control_learning;
     RuntimeSchedulerConfig scheduler;
     RuntimeOutputConfig output;
     CompactAdsConfig ads;

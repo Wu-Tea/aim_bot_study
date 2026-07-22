@@ -158,6 +158,8 @@ bool is_known_key(const std::string& section, const std::string& key) {
         "enabled", "mode", "manual_controller_hz", "vision_on_new_frame",
         "candidate_details", "queue_capacity", "rotate_size_mb", "max_files",
         "event_pre_ms", "event_post_ms"};
+    static const std::unordered_set<std::string> control_learning_keys{
+        "enabled", "mode", "telemetry_enabled"};
     static const std::unordered_set<std::string> scheduler_keys{
         "controller_tick_hz", "mode", "spin_tail_us"};
     static const std::unordered_set<std::string> input_keys{
@@ -231,6 +233,8 @@ bool is_known_key(const std::string& section, const std::string& key) {
     if (section == "runtime") return runtime_keys.count(key) != 0;
     if (section == "runtime.vision") return vision_keys.count(key) != 0;
     if (section == "runtime.telemetry") return telemetry_keys.count(key) != 0;
+    if (section == "runtime.control_learning")
+        return control_learning_keys.count(key) != 0;
     if (section == "runtime.scheduler") return scheduler_keys.count(key) != 0;
     if (section == "runtime.input") return input_keys.count(key) != 0;
     if (section == "runtime.output") return output_keys.count(key) != 0;
@@ -790,6 +794,27 @@ void apply_value(
         } else if (key == "event_post_ms") {
             config.telemetry.event_post_ms = parse_uint_value(value, config.telemetry.event_post_ms);
         }
+    } else if (section == "runtime.control_learning") {
+        if (key == "enabled") {
+            config.control_learning.enabled = parse_bool_value(
+                value, config.control_learning.enabled);
+        } else if (key == "telemetry_enabled") {
+            config.control_learning.telemetry_enabled = parse_bool_value(
+                value, config.control_learning.telemetry_enabled);
+        } else if (key == "mode") {
+            const std::string mode = parse_string_value(value);
+            if (mode == "disabled") {
+                config.control_learning.mode = ControlLearningMode::Disabled;
+            } else if (mode == "shadow") {
+                config.control_learning.mode = ControlLearningMode::Shadow;
+            } else if (mode == "rollout_shadow") {
+                config.control_learning.mode = ControlLearningMode::RolloutShadow;
+            } else {
+                throw std::runtime_error(
+                    "invalid runtime.control_learning.mode '" + mode +
+                    "'; expected disabled|shadow|rollout_shadow");
+            }
+        }
     } else if (section == "runtime.scheduler") {
         if (key == "controller_tick_hz") {
             config.scheduler.controller_tick_hz =
@@ -937,7 +962,7 @@ void mark_environment_sources(RuntimeConfig& config) {
     mark("RECOIL_RECOGNIZER_STATE_PATH", "gamepad.recoil.recognizer_state_path");
 }
 
-void validate_runtime_config(const RuntimeConfig& config) {
+void validate_runtime_config(RuntimeConfig& config) {
     auto invalid = [](const std::string& key, const std::string& range) {
         throw std::runtime_error(
             "invalid user override for " + key + "; accepted range: " + range);
@@ -950,6 +975,8 @@ void validate_runtime_config(const RuntimeConfig& config) {
         invalid("runtime.vision.color_readback_mode", "pageable|pinned");
     if (config.telemetry.mode != "debug" && config.telemetry.mode != "profile")
         invalid("runtime.telemetry.mode", "debug|profile");
+    if (!config.control_learning.enabled)
+        config.control_learning.mode = ControlLearningMode::Disabled;
     if (config.telemetry.manual_controller_hz < 1 || config.telemetry.manual_controller_hz > 1000)
         invalid("runtime.telemetry.manual_controller_hz", "1..1000");
     if (config.scheduler.controller_tick_hz < 100 || config.scheduler.controller_tick_hz > 2000)

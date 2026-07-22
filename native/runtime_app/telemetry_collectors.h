@@ -1,6 +1,8 @@
 #pragma once
 
 #include "pipeline_contract/committed_capture_observation.h"
+#include "control_learning/causal_online_response_learner.h"
+#include "control_learning/pending_motion_model.h"
 #include "runtime_telemetry.h"
 
 #include <cstdint>
@@ -133,6 +135,12 @@ public:
     void observe_new_vision(const TelemetryVisionInput& input) noexcept;
     void observe_committed_capture(
         const pipeline_contract::CommittedCaptureObservation& observation) noexcept;
+    const control_learning::ControlHistory<1024>* control_history() const noexcept;
+    void observe_causal_shadow(
+        const pipeline_contract::CommittedCaptureObservation& observation,
+        const control_learning::SampleAssessment& assessment,
+        const control_learning::CausalResponseEstimate& estimate,
+        const control_learning::PendingMotionEstimate& pending) noexcept;
     void shutdown(std::uint64_t now_ns) noexcept;
     TelemetryCollectorsCounters counters() const noexcept;
 

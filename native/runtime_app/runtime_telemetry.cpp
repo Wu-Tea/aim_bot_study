@@ -530,8 +530,29 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
     }
     case TelemetryRecordType::CausalResponseShadow:
         output_ << ",\"schema\":\"causal_response_shadow_v1\""
+            << ",\"best_delay_ms\":" << record.causal_shadow.best_delay_ms
             << ",\"selected_delay_ms\":" << record.causal_shadow.selected_delay_ms
-            << ",\"confidence\":" << record.causal_shadow.confidence
+            << ",\"selected_delay_confidence\":"
+            << record.causal_shadow.selected_delay_confidence
+            << ",\"right_confidence\":" << record.causal_shadow.right_confidence
+            << ",\"left_confidence\":" << record.causal_shadow.left_confidence
+            << ",\"joint_confidence\":" << record.causal_shadow.joint_confidence
+            << ",\"excitation\":" << record.causal_shadow.excitation
+            << ",\"residual\":" << record.causal_shadow.residual
+            << ",\"pending_realized\":[" << record.causal_shadow.pending_realized_x
+            << ',' << record.causal_shadow.pending_realized_y << ']'
+            << ",\"pending_scheduled\":[" << record.causal_shadow.pending_scheduled_x
+            << ',' << record.causal_shadow.pending_scheduled_y << ']'
+            << ",\"pending_confidence\":" << record.causal_shadow.pending_confidence
+            << ",\"reason_bits\":" << record.causal_shadow.reason_bits
+            << ",\"accepted_delay_count\":"
+            << static_cast<unsigned int>(record.causal_shadow.accepted_delay_count)
+            << ",\"accepted_by_any_delay\":"
+            << (record.causal_shadow.accepted_by_any_delay ? "true" : "false")
+            << ",\"delay_switch_pending\":"
+            << (record.causal_shadow.delay_switch_pending ? "true" : "false")
+            << ",\"pending_valid\":"
+            << (record.causal_shadow.pending_valid ? "true" : "false")
             << ",\"vision_sample_quality\":\""
             << vision_sample_quality_name(record.vision_sample_quality) << '"'
             << ",\"identification_update_outcome\":\""

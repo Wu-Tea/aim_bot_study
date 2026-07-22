@@ -325,8 +325,24 @@ struct DeliveredControlPayload {
 };
 
 struct CausalResponseShadowPayload {
+    float best_delay_ms = 0.0f;
     float selected_delay_ms = 0.0f;
-    float confidence = 0.0f;
+    float selected_delay_confidence = 0.0f;
+    float right_confidence = 0.0f;
+    float left_confidence = 0.0f;
+    float joint_confidence = 0.0f;
+    float excitation = 0.0f;
+    float residual = 0.0f;
+    float pending_realized_x = 0.0f;
+    float pending_realized_y = 0.0f;
+    float pending_scheduled_x = 0.0f;
+    float pending_scheduled_y = 0.0f;
+    float pending_confidence = 0.0f;
+    std::uint32_t reason_bits = 0;
+    std::uint8_t accepted_delay_count = 0;
+    bool accepted_by_any_delay = false;
+    bool delay_switch_pending = false;
+    bool pending_valid = false;
 };
 
 struct TelemetryRecord {

@@ -209,6 +209,8 @@ add_executable(cod_native_runtime
     ../runtime_app/telemetry_target_identity.cpp
     ../runtime_app/telemetry_event_sampler.cpp
     ../runtime_app/control_response_window.cpp
+    ../control_learning/causal_online_response_learner.cpp
+    ../control_learning/pending_motion_model.cpp
     ../runtime_app/ads_visual_transition.cpp
     ../runtime_app/ads_transition_collector.cpp
     ../runtime_app/downward_diagnostics.cpp

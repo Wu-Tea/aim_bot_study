@@ -17,6 +17,11 @@ enabled = false
 mode = "profile"
 manual_controller_hz = 100
 candidate_details = "on_event"
+
+[runtime.control_learning]
+enabled = false
+mode = "disabled" # disabled | shadow | rollout_shadow
+telemetry_enabled = false
 queue_capacity = 8192
 rotate_size_mb = 256
 max_files = 10

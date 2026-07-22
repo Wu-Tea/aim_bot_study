@@ -396,7 +396,8 @@ RuntimeLoop::RuntimeLoop(
       log_session_manager_(log_session_options_from(config_)),
       telemetry_(telemetry_options_from(config_, log_session_manager_.session_directory())),
       telemetry_collectors_(
-          config_.telemetry.enabled || config_.vision.aim_perf_file_log,
+          config_.telemetry.enabled || config_.vision.aim_perf_file_log ||
+              config_.control_learning.enabled,
           &telemetry_,
           TelemetrySessionContext{
               config_.build_commit.c_str(),
@@ -421,6 +422,12 @@ RuntimeLoop::RuntimeLoop(
       controller_(config_.gamepad),
       virtual_gamepad_() {
     telemetry_.start();
+    if (config_.control_learning.enabled &&
+        config_.control_learning.mode !=
+            controller_native::ControlLearningMode::Disabled) {
+        causal_response_learner_ =
+            std::make_unique<control_learning::CausalOnlineResponseLearner>();
+    }
     max_ticks_ = max_ticks;
     selected_xinput_user_index_ = input_reader_.user_index();
     if (input_log_enabled() && sdl_input_reader_ != nullptr) {
@@ -776,6 +783,43 @@ void RuntimeLoop::run_once() {
             config_.gamepad.tracker.aim_height_ratio,
             controller_.ads_epoch());
         telemetry_collectors_.observe_committed_capture(committed);
+        if (causal_response_learner_ != nullptr &&
+            pipeline_contract::valid(committed)) {
+            const auto* history = telemetry_collectors_.control_history();
+            if (history != nullptr) {
+                const auto assessment = causal_response_learner_->observe_vision(
+                    committed, *history);
+                const auto estimate = causal_response_learner_->estimate();
+                control_learning::PendingMotionEstimate pending;
+                if (has_previous_learning_observation_) {
+                    control_learning::PendingMotionRequest request;
+                    request.previous_capture_ns =
+                        previous_learning_observation_.captured_at_ns;
+                    request.current_capture_ns = committed.captured_at_ns;
+                    request.decision_ns = telemetry_tick.output_sent_ns;
+                    request.delay_ms = estimate.selected_delay_ms;
+                    request.right_response = estimate.right_stable;
+                    request.left_response = estimate.left_stable;
+                    request.selected_delay_confidence =
+                        estimate.selected_delay_confidence;
+                    request.response_confidence = estimate.right_confidence;
+                    request.identity_continuous =
+                        committed.persistent_target_id ==
+                        previous_learning_observation_.persistent_target_id;
+                    request.ads_epoch_continuous =
+                        committed.ads_epoch == previous_learning_observation_.ads_epoch;
+                    request.stable_coordinates_valid =
+                        committed.stable_coordinates_valid;
+                    pending = control_learning::PendingMotionModel::estimate(
+                        request, *history);
+                }
+                if (config_.control_learning.telemetry_enabled)
+                    telemetry_collectors_.observe_causal_shadow(
+                        committed, assessment, estimate, pending);
+                previous_learning_observation_ = committed;
+                has_previous_learning_observation_ = true;
+            }
+        }
     }
 
     const bool log_vision = perf_log_ && should_log_vision_tick(tick_count_);

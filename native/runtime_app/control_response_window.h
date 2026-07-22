@@ -67,6 +67,9 @@ public:
     std::optional<ControlResponseWindow> observe_vision(
         const ResponseVisionFrame& frame) noexcept;
     void reset() noexcept;
+    const control_learning::ControlHistory<1024>& history() const noexcept {
+        return history_;
+    }
 
 private:
     bool high_quality(TargetIdentityQuality quality) const noexcept;
