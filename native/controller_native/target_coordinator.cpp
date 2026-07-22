@@ -196,6 +196,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     pipeline_contract::TargetPlan plan{};
     plan.generation = ++generation_;
     plan.source_frame_id = source_frame_id_;
+    plan.source_observation_id = source_id_;
     plan.target_id = target_id_;
     plan.lifecycle = lifecycle;
     plan.aim_px = position_;

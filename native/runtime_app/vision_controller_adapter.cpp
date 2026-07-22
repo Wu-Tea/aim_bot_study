@@ -1,5 +1,7 @@
 #include "vision_controller_adapter.h"
 
+#include "controller_native/target_geometry.h"
+
 #include <algorithm>
 #include <cstdint>
 #include <string>
@@ -169,6 +171,92 @@ controller_native::ControllerVisionSnapshot adapt_vision_result(
         result.result_at_ns != 0 ? result.result_at_ns : result.captured_at_ns);
     snapshot.state = std::move(state);
     return snapshot;
+}
+
+pipeline_contract::CommittedCaptureObservation
+adapt_committed_capture_observation(
+    const vision_native::VisionResult& result,
+    const pipeline_contract::TargetPlan& committed_plan,
+    float aim_height_ratio,
+    std::uint64_t ads_epoch) {
+    pipeline_contract::CommittedCaptureObservation committed;
+    if (!result.frame_updated || result.frame_id == 0 ||
+        result.frame_id != committed_plan.source_frame_id ||
+        committed_plan.source_observation_id == 0 ||
+        committed_plan.target_id == 0 || result.captured_at_ns == 0 ||
+        result.result_at_ns < result.captured_at_ns) {
+        return committed;
+    }
+
+    const vision_native::Detection* selected = nullptr;
+    std::uint16_t eligible_count = 0;
+    for (std::size_t index = 0; index < result.detections.size(); ++index) {
+        const auto& detection = result.detections[index];
+        const float width = std::max(0.0f, detection.x2 - detection.x1);
+        const float height = std::max(0.0f, detection.y2 - detection.y1);
+        if (width <= 1.0f || height <= 1.0f || detection.is_friendly) {
+            continue;
+        }
+        const float confidence = std::clamp(
+            detection.conf + detection.color_bonus, 0.0f, 1.0f);
+        if (confidence <= 0.0f) continue;
+        if (eligible_count != UINT16_MAX) ++eligible_count;
+        if (tracker_detection_id(result.frame_id, index) ==
+            committed_plan.source_observation_id) {
+            selected = &detection;
+        }
+    }
+    if (selected == nullptr || eligible_count == 0) return committed;
+
+    const float width = std::max(0.0f, selected->x2 - selected->x1);
+    const float height = std::max(0.0f, selected->y2 - selected->y1);
+    const float center_x = result.screen_center_x;
+    const float center_y = result.screen_center_y;
+    if (!std::isfinite(center_x) || !std::isfinite(center_y) ||
+        center_x <= 0.0f || center_y <= 0.0f) {
+        return committed;
+    }
+    const common_native::Box2f body_box{
+        selected->x1, selected->y1, width, height};
+    const common_native::Vec2f raw_aim{
+        (selected->x1 + selected->x2) * 0.5f,
+        selected->y1 + height * 0.40f};
+    const auto geometry = controller_native::resolve_target_geometry(
+        {raw_aim, body_box, true}, {aim_height_ratio});
+    const float frame_height = center_y * 2.0f;
+    const float normalized_size = std::clamp(
+        height / std::max(1.0f, frame_height), 0.0f, 1.0f);
+    const float confidence = std::clamp(
+        selected->conf + selected->color_bonus, 0.0f, 1.0f);
+    const float size_weight = std::clamp(
+        normalized_size / 0.12f, 0.2f, 1.0f);
+
+    committed.source_frame_id = result.frame_id;
+    committed.source_observation_id = committed_plan.source_observation_id;
+    committed.persistent_target_id = committed_plan.target_id;
+    committed.viewport_sequence = 0;
+    committed.viewport_source_frame_id = result.frame_id;
+    committed.captured_at_ns = result.captured_at_ns;
+    committed.result_at_ns = result.result_at_ns;
+    committed.stable_error_px = {
+        geometry.aim_px.x - center_x,
+        geometry.aim_px.y - center_y};
+    committed.stable_body_size_px = {width, height};
+    committed.viewport_offset_px = {};
+    committed.target_acceleration_px_per_sec2 = {};
+    committed.reliability = confidence * size_weight;
+    committed.normalized_size = normalized_size;
+    committed.lifecycle = committed_plan.lifecycle;
+    committed.motion = committed_plan.motion;
+    committed.mode = committed_plan.mode;
+    committed.ads_epoch = ads_epoch;
+    committed.eligible_candidate_count = eligible_count;
+    committed.fresh_observed = true;
+    committed.strong_observation =
+        tracker_tier_for_detection(*selected) == "observed_strong";
+    committed.stable_coordinates_valid = geometry.geometry_resolved;
+    committed.reused_or_projected = false;
+    return committed;
 }
 
 }  // namespace runtime_app

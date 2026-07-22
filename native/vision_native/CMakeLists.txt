@@ -388,6 +388,7 @@ target_link_libraries(cod_native_controller_tests PRIVATE
 add_executable(cod_native_controller_protocol_tests
     ../controller_native/controller_protocol_tests.cpp
     ../runtime_app/vision_controller_adapter.cpp
+    ../controller_native/target_geometry.cpp
 )
 
 target_include_directories(cod_native_controller_protocol_tests PRIVATE
@@ -1363,6 +1364,21 @@ add_executable(cod_native_sustained_aimlab_counterfactual_tests
     ../controller_native/sustained_aimlab_score.cpp
     ../controller_native/sustained_aimlab_scenario.cpp
 )
+
+add_executable(cod_native_committed_capture_observation_tests
+    ../pipeline_contract/committed_capture_observation_tests.cpp
+    ../runtime_app/vision_controller_adapter.cpp
+    ../controller_native/target_geometry.cpp
+)
+
+target_include_directories(cod_native_committed_capture_observation_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
+add_test(
+    NAME CommittedCaptureObservationTests
+    COMMAND cod_native_committed_capture_observation_tests)
 
 add_executable(cod_native_blind_window_benchmark_tests
     ../controller_native/blind_window_benchmark_tests.cpp
