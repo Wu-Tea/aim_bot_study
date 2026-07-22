@@ -1,6 +1,7 @@
 from pathlib import Path
 import json
 import subprocess
+import tomllib
 import unittest
 
 
@@ -95,8 +96,20 @@ class StartupScriptTests(unittest.TestCase):
                     self.assertEqual(
                         Path(preview["config_path"]), PROJECT_ROOT / "config.toml"
                     )
+                    self.assertEqual(
+                        Path(preview["model_path"]), PROJECT_ROOT / "models" / "best.engine"
+                    )
+                    self.assertTrue(preview["model_exists"])
 
         self.assertEqual(state_path.exists(), state_existed_before)
+
+    def test_native_config_resolves_an_existing_480x416_engine(self):
+        with (PROJECT_ROOT / "config.native.example.toml").open("rb") as stream:
+            config = tomllib.load(stream)
+
+        model_path = PROJECT_ROOT / config["runtime"]["vision"]["model_path"]
+        self.assertEqual(model_path, PROJECT_ROOT / "models" / "best.engine")
+        self.assertTrue(model_path.is_file())
 
     def test_root_batch_shims_are_removed_after_launcher_consolidation(self):
         expected_launchers = {

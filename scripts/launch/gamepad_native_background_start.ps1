@@ -13,11 +13,33 @@ $stdoutPath = Join-Path $stateDirectory "native_runtime.stdout.log"
 $stderrPath = Join-Path $stateDirectory "native_runtime.stderr.log"
 $launcherLogPath = Join-Path $stateDirectory "launcher.log"
 
+$configText = Get-Content -LiteralPath $configPath -Raw
+$visionSection = [regex]::Match(
+    $configText,
+    '(?ms)^\s*\[runtime\.vision\]\s*(?<body>.*?)(?=^\s*\[|\z)')
+if (-not $visionSection.Success) {
+    throw "Missing [runtime.vision] section in runtime config: $configPath"
+}
+$modelSetting = [regex]::Match(
+    $visionSection.Groups['body'].Value,
+    '(?m)^\s*model_path\s*=\s*["''](?<path>[^"'']+)["'']')
+if (-not $modelSetting.Success) {
+    throw "Missing runtime.vision.model_path in runtime config: $configPath"
+}
+$configuredModelPath = $modelSetting.Groups['path'].Value
+$modelPath = if ([System.IO.Path]::IsPathRooted($configuredModelPath)) {
+    [System.IO.Path]::GetFullPath($configuredModelPath)
+} else {
+    [System.IO.Path]::GetFullPath((Join-Path $projectRoot $configuredModelPath))
+}
+
 if ($PrintOnly) {
     [ordered]@{
         action = "preview_start"
         executable_path = $executablePath
         config_path = $configPath
+        model_path = $modelPath
+        model_exists = Test-Path -LiteralPath $modelPath -PathType Leaf
         state_path = $statePath
         stdout_path = $stdoutPath
         stderr_path = $stderrPath
@@ -71,6 +93,9 @@ try {
     }
     if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
         throw "Runtime config not found: $configPath"
+    }
+    if (-not (Test-Path -LiteralPath $modelPath -PathType Leaf)) {
+        throw "TensorRT engine not found: $modelPath"
     }
 
     $sameExecutable = Get-CimInstance -ClassName Win32_Process `
