@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <deque>
 #include <memory>
 #include <stdexcept>
 #include <utility>
@@ -103,6 +104,10 @@ BenchmarkResult run_simulation(
     Vec2d carried_observation;
     bool previous_bodylock_mode = false;
     std::unique_ptr<TargetScorer> scorer;
+    std::deque<Vec2d> delayed_controls(
+        static_cast<std::size_t>(
+            std::max(0, script.config.control_response_delay_ms)),
+        Vec2d{});
 
     auto spawn_target = [&] {
         if (target_index >= script.targets.size()) {
@@ -195,6 +200,12 @@ BenchmarkResult run_simulation(
         }
 
         const ControllerStepResult output = controller_step(input);
+        Vec2d plant_control = output.final_stick;
+        if (!delayed_controls.empty()) {
+            delayed_controls.push_back(output.final_stick);
+            plant_control = delayed_controls.front();
+            delayed_controls.pop_front();
+        }
         trace_frame.output = output;
         if (!finite(output.final_stick) ||
             !finite(output.requested_assist_stick) ||
@@ -216,8 +227,8 @@ BenchmarkResult run_simulation(
                 script.config.camera_response_px_per_stick_second *
                 aim_slowdown_multiplier(
                     length(error), target.visible_radius_px, script.config);
-            error.x -= output.final_stick.x * response * 0.001;
-            error.y += output.final_stick.y * response * 0.001;
+            error.x -= plant_control.x * response * 0.001;
+            error.y += plant_control.y * response * 0.001;
             trace_frame.true_error_after_px = error;
             trace_frame.target_velocity_px_per_second = target_velocity;
 

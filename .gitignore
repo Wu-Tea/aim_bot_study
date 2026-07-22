@@ -36,6 +36,9 @@ artifacts/video_review/
 artifacts/vision_benchmarks/*_failures/
 artifacts/benchmarks/native_gamepad/*-20*.json
 artifacts/benchmarks/native_gamepad/*-run*.json
+artifacts/benchmarks/aimlab-learning-20260722/
+artifacts/benchmarks/aimlab-learning-20260722-v2/
+artifacts/benchmarks/aimlab-learning-20260722-v3/
 Ultralytics/
 .worktrees/
 native/vision_native/build/

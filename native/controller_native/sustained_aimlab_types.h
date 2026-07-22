@@ -49,6 +49,7 @@ struct BenchmarkConfig {
     double slowdown_edge_multiplier = 0.50;
     double slowdown_center_multiplier = 0.40;
     double camera_response_px_per_stick_second = 500.0;
+    int control_response_delay_ms = 0;
     int frame_width_px = 640;
     int frame_height_px = 512;
 };

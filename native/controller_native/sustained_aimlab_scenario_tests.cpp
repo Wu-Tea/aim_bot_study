@@ -105,6 +105,18 @@ void test_seeded_generation_is_reproducible_and_complete() {
     require(profiles.size() == 7, "all motion profiles must be present");
 }
 
+void test_script_hash_includes_control_response_delay() {
+    BenchmarkConfig immediate;
+    BenchmarkConfig delayed;
+    delayed.control_response_delay_ms = 45;
+    const auto first = controller_native::sustained_aimlab::generate_script(
+        1337, immediate);
+    const auto second = controller_native::sustained_aimlab::generate_script(
+        1337, delayed);
+    require(first.hash != second.hash,
+            "script identity must include delayed plant semantics");
+}
+
 void test_generated_ranges_and_observation_schedule() {
     const BenchmarkConfig config;
     const ScenarioScript script =
@@ -222,6 +234,7 @@ int main() {
     try {
         test_defaults_and_slowdown_anchor_points();
         test_seeded_generation_is_reproducible_and_complete();
+        test_script_hash_includes_control_response_delay();
         test_generated_ranges_and_observation_schedule();
         test_motion_profiles_and_boundary_reflection();
         test_motion_profile_names_are_stable();

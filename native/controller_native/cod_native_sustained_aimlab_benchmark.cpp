@@ -3,6 +3,7 @@
 #include "runtime_config.h"
 #include "sustained_aimlab_counterfactual.h"
 #include "sustained_aimlab_simulator.h"
+#include "sustained_aimlab_learning.h"
 #include "sustained_aimlab_trace.h"
 
 #include <algorithm>
@@ -49,6 +50,9 @@ struct CliOptions {
     bool smoke = false;
     std::string counterfactual = "off";
     std::string intent_fusion = "legacy";
+    int learning_rounds = 0;
+    int learning_delay_ms = 45;
+    std::string learning_policy = "retain";
 };
 
 struct CounterfactualEpisodeSummary {
@@ -135,6 +139,12 @@ CliOptions parse_args(int argc, char** argv) {
             options.counterfactual = argv[++index];
         } else if (argument == "--intent-fusion" && index + 1 < argc) {
             options.intent_fusion = argv[++index];
+        } else if (argument == "--learning-rounds" && index + 1 < argc) {
+            options.learning_rounds = std::stoi(argv[++index]);
+        } else if (argument == "--learning-delay-ms" && index + 1 < argc) {
+            options.learning_delay_ms = std::stoi(argv[++index]);
+        } else if (argument == "--learning-policy" && index + 1 < argc) {
+            options.learning_policy = argv[++index];
         } else if (argument == "--help") {
             std::cout
                 << "Usage: cod_native_sustained_aimlab_benchmark "
@@ -145,7 +155,9 @@ CliOptions parse_args(int argc, char** argv) {
                 << "[--output PATH] [--revision HASH] [--dirty] "
                 << "[--duration-ms N] [--smoke] "
                 << "[--counterfactual off|quick|full] "
-                << "[--intent-fusion legacy|vector]\n";
+                << "[--intent-fusion legacy|vector] "
+                << "[--learning-rounds N --learning-delay-ms N "
+                << "--learning-policy baseline|reset|retain]\n";
             std::exit(EXIT_SUCCESS);
         } else {
             throw std::runtime_error(
@@ -177,6 +189,18 @@ CliOptions parse_args(int argc, char** argv) {
         options.intent_fusion != "vector") {
         throw std::runtime_error(
             "intent fusion mode must be legacy or vector");
+    }
+    if (options.learning_rounds < 0 || options.learning_delay_ms < 0 ||
+        (options.learning_policy != "baseline" &&
+         options.learning_policy != "reset" &&
+         options.learning_policy != "retain")) {
+        throw std::runtime_error("invalid learning experiment arguments");
+    }
+    if (options.learning_rounds > 0 &&
+        (options.profile == "both" || options.cohort == "both" ||
+         options.seeds.size() > 1)) {
+        throw std::runtime_error(
+            "learning mode requires one seed, one profile, and one cohort");
     }
     if (options.camera_response <= 0.0 || options.slowdown_edge <= 0.0 ||
         options.slowdown_edge > 1.0 || options.slowdown_center <= 0.0 ||
@@ -702,6 +726,56 @@ int main(int argc, char** argv) {
         const CliOptions options = parse_args(argc, argv);
         const RuntimeConfig runtime =
             controller_native::load_runtime_config(options.config_path);
+        if (options.learning_rounds > 0) {
+            LearningExperimentConfig learning;
+            learning.rounds = options.learning_rounds;
+            learning.round_duration_ms = options.duration_ms;
+            learning.control_response_delay_ms = options.learning_delay_ms;
+            learning.camera_response_px_per_stick_second =
+                options.camera_response;
+            learning.policy = options.learning_policy == "baseline"
+                ? LearningPolicy::Baseline
+                : options.learning_policy == "reset"
+                    ? LearningPolicy::ResetEachRound
+                    : LearningPolicy::RetainAcrossRounds;
+            const ManualProfile profile = options.profile == "mixed"
+                ? ManualProfile::Mixed : ManualProfile::Pure;
+            const BenchmarkCohort cohort = options.cohort == "bodylock"
+                ? BenchmarkCohort::BodyLockFollow
+                : BenchmarkCohort::AdsAcquire;
+            const BenchmarkIntentFusionMode fusion =
+                options.intent_fusion == "vector"
+                ? BenchmarkIntentFusionMode::CausalVector
+                : BenchmarkIntentFusionMode::LegacyAxis;
+            const ReplayControllerFactory native_factory = make_native_factory(
+                runtime.gamepad, cohort, fusion);
+            auto report = run_learning_experiment(
+                learning, options.seeds.front(), profile, cohort,
+                [native_factory] { return native_factory(BranchSchedule{}); });
+            report.revision = options.revision;
+            report.dirty = options.dirty;
+            report.config_path = options.config_path.string();
+            report.config_fingerprint_fnv1a64 =
+                file_fingerprint(options.config_path);
+            const std::string json = learning_experiment_to_json(report);
+            if (options.output_path.empty()) {
+                std::cout << json << '\n';
+            } else {
+                if (!options.output_path.parent_path().empty()) {
+                    std::filesystem::create_directories(
+                        options.output_path.parent_path());
+                }
+                if (std::filesystem::exists(options.output_path)) {
+                    throw std::runtime_error(
+                        "output already exists: " + options.output_path.string());
+                }
+                std::ofstream output(options.output_path, std::ios::binary);
+                if (!output) throw std::runtime_error("cannot write learning report");
+                output << json << '\n';
+            }
+            std::cout << "cod_native_sustained_aimlab_benchmark PASS\n";
+            return EXIT_SUCCESS;
+        }
         BenchmarkConfig benchmark_config;
         benchmark_config.duration_ms = options.duration_ms;
         benchmark_config.target_profile = options.target_profile == "small"

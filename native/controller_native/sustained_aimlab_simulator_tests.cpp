@@ -108,6 +108,28 @@ void test_virtual_camera_x_and_y_signs_close_error() {
             "negative Y stick must close positive screen Y error");
 }
 
+void test_virtual_camera_can_delay_delivered_control_without_delaying_controller() {
+    ScenarioScript script = stationary_script(30, {20.0, 0.0});
+    script.config.control_response_delay_ms = 10;
+    std::vector<SimulationTraceFrame> trace;
+    ControllerStep controller = [](const ControllerObservation& input) {
+        ControllerStepResult output;
+        output.final_stick = input.target_present ? Vec2d{1.0, 0.0} : Vec2d{};
+        output.target_observed = input.target_present;
+        output.tracker_reliable = input.target_present;
+        output.bodylock_mode = input.target_present;
+        return output;
+    };
+    (void)run_simulation(
+        script, ManualProfile::Pure, controller, BenchmarkCohort::AdsAcquire,
+        [&](const SimulationTraceFrame& frame) { trace.push_back(frame); });
+    require(trace.size() == 30, "delay fixture must retain every tick");
+    require(std::fabs(trace[9].true_error_after_px.x - 20.0) < 1e-9,
+            "camera must not react before the configured delivery delay");
+    require(trace[10].true_error_after_px.x < 20.0,
+            "camera must apply the queued stick at the configured delay");
+}
+
 void test_closed_loop_score_ordering() {
     const ScenarioScript script = stationary_script(1'350, {100.0, 0.0});
     const BenchmarkResult fast = run_simulation(
@@ -313,6 +335,7 @@ int main() {
         test_runner_executes_exact_duration_and_preserves_identity();
         test_miss_respects_deadline_and_tracking_is_exactly_1000ms();
         test_virtual_camera_x_and_y_signs_close_error();
+        test_virtual_camera_can_delay_delivered_control_without_delaying_controller();
         test_closed_loop_score_ordering();
         test_same_script_is_reused_for_pure_and_mixed_runs();
         test_mixed_profile_contains_polar_component_errors();

@@ -1583,6 +1583,24 @@ add_test(
     NAME NativeSustainedAimlabSimulatorTests
     COMMAND cod_native_sustained_aimlab_simulator_tests)
 
+add_executable(cod_native_sustained_aimlab_learning_tests
+    ../controller_native/sustained_aimlab_learning_tests.cpp
+    ../controller_native/sustained_aimlab_learning.cpp
+    ../controller_native/sustained_aimlab_simulator.cpp
+    ../controller_native/sustained_aimlab_score.cpp
+    ../controller_native/sustained_aimlab_scenario.cpp
+    ../control_learning/causal_online_response_learner.cpp
+    ../control_learning/pending_motion_model.cpp
+    ../control_learning/short_horizon_rollout.cpp
+)
+target_include_directories(cod_native_sustained_aimlab_learning_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+add_test(
+    NAME NativeSustainedAimlabLearningTests
+    COMMAND cod_native_sustained_aimlab_learning_tests)
+
 add_test(
     NAME NativeSustainedAimlabTraceTests
     COMMAND cod_native_sustained_aimlab_trace_tests)
@@ -1617,6 +1635,7 @@ add_executable(cod_native_sustained_aimlab_benchmark
     ../controller_native/sustained_aimlab_counterfactual.cpp
     ../controller_native/sustained_aimlab_trace.cpp
     ../controller_native/sustained_aimlab_simulator.cpp
+    ../controller_native/sustained_aimlab_learning.cpp
     ../controller_native/sustained_aimlab_score.cpp
     ../controller_native/sustained_aimlab_scenario.cpp
     ../tracking_native/tracker_authority.cpp
@@ -1640,6 +1659,9 @@ add_executable(cod_native_sustained_aimlab_benchmark
     ../controller_native/controller_pipeline.cpp
     ../controller_native/native_gamepad_controller.cpp
     ../controller_native/target_geometry.cpp
+    ../control_learning/causal_online_response_learner.cpp
+    ../control_learning/pending_motion_model.cpp
+    ../control_learning/short_horizon_rollout.cpp
 )
 
 target_include_directories(cod_native_sustained_aimlab_benchmark PRIVATE
