@@ -627,6 +627,7 @@ target_compile_definitions(cod_native_runtime_config_tests
 add_executable(cod_native_target_snapshot_tests
     ../controller_native/target_snapshot_provider_tests.cpp
     ../controller_native/target_snapshot_provider.cpp
+    ../controller_native/target_geometry.cpp
     ../controller_native/assist_authority_policy.cpp
     ../runtime_app/vision_controller_adapter.cpp
     ../tracking_native/association.cpp
