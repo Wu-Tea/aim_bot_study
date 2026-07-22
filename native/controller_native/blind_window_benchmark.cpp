@@ -10,6 +10,8 @@
 namespace controller_native::blind_window {
 namespace {
 
+constexpr int kPlantTickUs = 1'000;
+
 struct CapturedFrame {
     int captured_at_us = 0;
     int result_at_us = 0;
@@ -34,6 +36,10 @@ int result_latency_us(
     std::uint32_t& jitter_state) noexcept {
     if (timing.jitter_seed == 0) return std::max(0, timing.result_latency_us);
     return 8'000 + static_cast<int>(xorshift32(jitter_state) % 24'001u);
+}
+
+int align_to_plant_tick(int timestamp_us) noexcept {
+    return ((timestamp_us + kPlantTickUs - 1) / kPlantTickUs) * kPlantTickUs;
 }
 
 Vec2d apply_response(
@@ -67,7 +73,8 @@ BlindSchedule build_blind_schedule(
     schedule.capture_at_us = capture_at_us;
     schedule.event_at_us = capture_at_us +
         timing.vision_period_us * timing.event_phase_per_mille / 1'000;
-    schedule.next_capture_at_us = capture_at_us + timing.vision_period_us;
+    schedule.next_capture_at_us = align_to_plant_tick(
+        capture_at_us + timing.vision_period_us);
     schedule.next_result_at_us = schedule.next_capture_at_us +
         timing.result_latency_us;
     return schedule;
@@ -93,6 +100,7 @@ BlindWindowRun run_blind_fixture(
     std::deque<CapturedFrame> captured;
     std::deque<PendingControl> pending_controls;
     std::uint32_t jitter_state = fixture.timing.jitter_seed;
+    int next_capture_due_us = 0;
 
     if (fixture.warm_start_observation) {
         latest_observed_error = fixture.initial_error_px;
@@ -107,7 +115,7 @@ BlindWindowRun run_blind_fixture(
         }
     }
 
-    constexpr int kTickUs = 1'000;
+    constexpr int kTickUs = kPlantTickUs;
     constexpr double kTickSeconds = 0.001;
     run.trace.frames.reserve(
         static_cast<std::size_t>(fixture.duration_us / kTickUs + 1));
@@ -128,9 +136,12 @@ BlindWindowRun run_blind_fixture(
         target_velocity.y += fixture.target_acceleration_px_per_sec2.y *
             kTickSeconds;
 
-        if (now_us % fixture.timing.vision_period_us == 0) {
+        if (now_us >= next_capture_due_us) {
             const int latency = result_latency_us(fixture.timing, jitter_state);
             captured.push_back({now_us, now_us + latency, true_error});
+            do {
+                next_capture_due_us += fixture.timing.vision_period_us;
+            } while (next_capture_due_us <= now_us);
         }
 
         bool fresh_vision = false;

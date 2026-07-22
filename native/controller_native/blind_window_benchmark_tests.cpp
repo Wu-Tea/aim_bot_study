@@ -135,6 +135,23 @@ void test_delivered_input_changes_plant_only_after_response_delay() {
             "delivered input must affect the plant after its response delay");
 }
 
+void test_fractional_millisecond_vision_period_keeps_requested_rate() {
+    BlindFixture fixture;
+    fixture.duration_us = 101'000;
+    fixture.timing.vision_period_us = 8'333;
+    fixture.timing.result_latency_us = 0;
+    fixture.timing.response_delay_us = 0;
+    int fresh_results = 0;
+    run_blind_fixture(
+        fixture,
+        [&fresh_results](const BlindControllerObservation& observation) {
+            if (observation.fresh_vision) ++fresh_results;
+            return BlindControllerOutput{};
+        });
+    require(fresh_results >= 12 && fresh_results <= 13,
+            "120 Hz capture must publish about 12 results in 100 ms");
+}
+
 void test_k1_fixture_crosses_during_blind_window_with_stale_controller() {
     const BlindWindowRun run = run_blind_fixture(
         bodylock_pending_crossing_fixture(1337, timing_100hz_phase_5()),
@@ -221,6 +238,7 @@ int main() {
         test_event_occurs_at_requested_capture_phase();
         test_controller_never_receives_future_capture();
         test_delivered_input_changes_plant_only_after_response_delay();
+        test_fractional_millisecond_vision_period_keeps_requested_rate();
         test_k1_fixture_crosses_during_blind_window_with_stale_controller();
         test_k1_fixture_contains_no_target_surprise();
         test_k1_phase_changes_reveal_debt();
