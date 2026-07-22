@@ -668,10 +668,7 @@ void RuntimeLoop::run_once() {
     telemetry_tick.tick_id = tick_count_;
     telemetry_tick.physical_read_ns = physical_read_at_ns;
     telemetry_tick.controller_consume_ns = latest_controller_consume_started_ns_;
-    telemetry_tick.output_sent_ns =
-        !config_.output.enabled || output_result.delivered
-            ? steady_time_point_ns(vigem_update_finished)
-            : 0;
+    telemetry_tick.output_sent_ns = steady_time_point_ns(vigem_update_finished);
     telemetry_tick.sample_ns = steady_time_point_ns(vigem_update_finished);
     telemetry_tick.aiming = aiming;
     const auto& telemetry_vision_state = controller_.last_frame_vision_state();
@@ -679,6 +676,7 @@ void RuntimeLoop::run_once() {
     telemetry_tick.current_observed_target_present =
         telemetry_vision_state.current_observed_target_present;
     telemetry_tick.output_delivered = !config_.output.enabled || output_result.delivered;
+    telemetry_tick.output_disabled = !config_.output.enabled;
     telemetry_tick.output_backend_connected =
         !config_.output.enabled || output_result.backend_connected;
     telemetry_tick.output_error_code = output_result.error_code;
@@ -691,6 +689,8 @@ void RuntimeLoop::run_once() {
     telemetry_tick.right_trigger = physical.right_trigger;
     telemetry_tick.physical_x = physical.right_x;
     telemetry_tick.physical_y = physical.right_y;
+    telemetry_tick.physical_left_x = physical.left_x;
+    telemetry_tick.physical_left_y = physical.left_y;
     telemetry_tick.manual_x = telemetry_components.manual_stick.x;
     telemetry_tick.manual_y = telemetry_components.manual_stick.y;
     telemetry_tick.ai_x = telemetry_components.ai_aim_stick.x;
@@ -741,6 +741,11 @@ void RuntimeLoop::run_once() {
     telemetry_tick.recoil_y = telemetry_components.recoil_stick.y;
     telemetry_tick.final_x = telemetry_components.final_stick.x;
     telemetry_tick.final_y = telemetry_components.final_stick.y;
+    telemetry_tick.final_left_x = output.left_x;
+    telemetry_tick.final_left_y = output.left_y;
+    telemetry_tick.output_saturated =
+        std::fabs(output.right_x) >= 0.999f ||
+        std::fabs(output.right_y) >= 0.999f;
     telemetry_tick.selected_track_id = telemetry_vision_state.selected_track_id;
     telemetry_tick.selected_observation_id =
         telemetry_vision_state.selected_observation_id;

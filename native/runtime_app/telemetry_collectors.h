@@ -17,6 +17,7 @@ struct TelemetryTickInput {
     bool physical_connected = false;
     bool current_observed_target_present = false;
     bool output_delivered = false;
+    bool output_disabled = false;
     bool output_backend_connected = false;
     std::uint32_t output_error_code = 0;
     unsigned int input_reconnect_count = 0;
@@ -26,6 +27,7 @@ struct TelemetryTickInput {
     const char* aim_mode = "none";
     float left_trigger = 0.0f, right_trigger = 0.0f;
     float physical_x = 0.0f, physical_y = 0.0f;
+    float physical_left_x = 0.0f, physical_left_y = 0.0f;
     float manual_x = 0.0f, manual_y = 0.0f;
     float ai_x = 0.0f, ai_y = 0.0f;
     float requested_assist_x = 0.0f, requested_assist_y = 0.0f;
@@ -58,6 +60,8 @@ struct TelemetryTickInput {
     float pre_recoil_x = 0.0f, pre_recoil_y = 0.0f;
     float recoil_x = 0.0f, recoil_y = 0.0f;
     float final_x = 0.0f, final_y = 0.0f;
+    float final_left_x = 0.0f, final_left_y = 0.0f;
+    bool output_saturated = false;
     std::uint64_t selected_track_id = 0;
     std::uint64_t selected_observation_id = 0;
     std::uint64_t backing_frame_id = 0;

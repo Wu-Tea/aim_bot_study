@@ -23,6 +23,7 @@ struct TelemetryCollectors::State {
     std::uint64_t next_ads_vision_seq = 1;
     std::uint64_t last_ring_sample_ns = 0;
     std::uint64_t last_tick_ns = 0;
+    std::uint64_t ads_epoch = 0;
     bool last_aiming = false;
     bool has_last_aiming = false;
     bool has_target = false;
@@ -86,6 +87,7 @@ void TelemetryCollectors::observe_tick(const TelemetryTickInput& input) noexcept
     const bool aim_started = input.aiming && (!state.has_last_aiming || !state.last_aiming);
     const bool aim_stopped = !input.aiming && state.has_last_aiming && state.last_aiming;
     if (aim_started) {
+        ++state.ads_epoch;
         state.ads.on_ads_pressed(input.sample_ns);
         state.sampler.trigger(InputEventKind::AdsPressed, input.sample_ns);
         ++counters_.state_transitions;
@@ -100,11 +102,21 @@ void TelemetryCollectors::observe_tick(const TelemetryTickInput& input) noexcept
     command.sample_seq = input.tick_id;
     command.output_sent_ns = input.output_sent_ns;
     command.physical_x = input.physical_x; command.physical_y = input.physical_y;
+    command.physical_left_x = input.physical_left_x;
+    command.physical_left_y = input.physical_left_y;
     command.manual_x = input.manual_x; command.manual_y = input.manual_y;
     command.ai_x = input.ai_x; command.ai_y = input.ai_y;
     command.pre_recoil_x = input.pre_recoil_x; command.pre_recoil_y = input.pre_recoil_y;
     command.recoil_x = input.recoil_x; command.recoil_y = input.recoil_y;
     command.final_x = input.final_x; command.final_y = input.final_y;
+    command.final_left_x = input.final_left_x;
+    command.final_left_y = input.final_left_y;
+    command.ads_epoch = state.ads_epoch;
+    command.output_delivered = input.output_delivered;
+    command.output_disabled = input.output_disabled;
+    command.firing = input.final_fire_button;
+    command.recoil_active = std::hypot(input.recoil_x, input.recoil_y) > 1.0e-5f;
+    command.saturated = input.output_saturated;
     state.responses.observe_controller(command);
 
     const float dt = state.last_tick_ns != 0 && input.sample_ns > state.last_tick_ns

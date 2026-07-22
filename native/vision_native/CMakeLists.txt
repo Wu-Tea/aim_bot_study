@@ -1365,6 +1365,18 @@ add_executable(cod_native_sustained_aimlab_counterfactual_tests
     ../controller_native/sustained_aimlab_scenario.cpp
 )
 
+add_executable(cod_native_control_history_tests
+    ../control_learning/control_history_tests.cpp
+)
+target_include_directories(cod_native_control_history_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+add_test(NAME ControlHistoryTests COMMAND cod_native_control_history_tests)
+add_test(
+    NAME ControlResponseWindowTests
+    COMMAND cod_native_control_response_window_tests)
+
 add_executable(cod_native_committed_capture_observation_tests
     ../pipeline_contract/committed_capture_observation_tests.cpp
     ../runtime_app/vision_controller_adapter.cpp

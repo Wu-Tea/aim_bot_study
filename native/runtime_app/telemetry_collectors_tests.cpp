@@ -43,6 +43,7 @@ runtime_app::TelemetryTickInput tick(std::uint64_t seq, bool aiming) {
     value.tick_id = seq;
     value.sample_ns = seq * 4'000'000;
     value.output_sent_ns = value.sample_ns;
+    value.output_delivered = true;
     value.aiming = aiming;
     value.physical_connected = true;
     value.current_observed_target_present = true;

@@ -79,11 +79,26 @@ void test_sample_gap_and_target_switch_are_diagnostic() {
     REQUIRE(!result->completeness.complete);
     REQUIRE(result->reason == runtime_app::ResponseWindowReason::TargetChanged);
 }
+
+void test_failed_delivery_is_retained_but_never_model_eligible() {
+    runtime_app::ControlResponseWindowAssembler assembler;
+    assembler.observe_vision(frame(1, 1'000'000'000, 20, 0, 7));
+    auto failed = command(1, 1'100'000'000, 0.2f, 0.1f, 0.3f);
+    failed.output_delivered = false;
+    assembler.observe_controller(failed);
+    const auto result = assembler.observe_vision(
+        frame(2, 1'200'000'000, 19, 0, 7));
+    REQUIRE(result.has_value());
+    REQUIRE(!result->completeness.complete);
+    REQUIRE(result->reason == runtime_app::ResponseWindowReason::SampleGap);
+    REQUIRE(result->readiness == runtime_app::TelemetryReadiness::Diagnostic);
+}
 }
 
 int main() {
     test_pairs_commands_between_consecutive_new_frames();
     test_reused_frame_does_not_create_duplicate_window();
     test_sample_gap_and_target_switch_are_diagnostic();
+    test_failed_delivery_is_retained_but_never_model_eligible();
     return 0;
 }

@@ -1,8 +1,8 @@
 #pragma once
 
+#include "control_learning/control_history.h"
 #include "telemetry_schema.h"
 
-#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -34,6 +34,14 @@ struct ResponseControllerSample {
     float pre_recoil_x = 0.0f, pre_recoil_y = 0.0f;
     float recoil_x = 0.0f, recoil_y = 0.0f;
     float final_x = 0.0f, final_y = 0.0f;
+    float physical_left_x = 0.0f, physical_left_y = 0.0f;
+    float final_left_x = 0.0f, final_left_y = 0.0f;
+    std::uint64_t ads_epoch = 0;
+    bool output_delivered = true;
+    bool output_disabled = false;
+    bool firing = false;
+    bool recoil_active = false;
+    bool saturated = false;
 };
 
 struct ControlResponseWindow {
@@ -61,14 +69,11 @@ public:
     void reset() noexcept;
 
 private:
-    static constexpr std::size_t kMaxCommands = 512;
     bool high_quality(TargetIdentityQuality quality) const noexcept;
 
     ResponseVisionFrame anchor_;
     bool has_anchor_ = false;
-    std::array<ResponseControllerSample, kMaxCommands> commands_{};
-    std::size_t command_count_ = 0;
-    std::uint32_t overflow_ = 0;
+    control_learning::ControlHistory<1024> history_;
 };
 
 } // namespace runtime_app
