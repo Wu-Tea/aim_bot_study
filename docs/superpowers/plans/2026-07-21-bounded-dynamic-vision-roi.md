@@ -1,5 +1,7 @@
 # Bounded Dynamic Vision ROI Implementation Plan
 
+> Superseded for execution by the staged plans derived from `docs/superpowers/specs/2026-07-22-bounded-dynamic-roi-master-design.md`. Retained as historical planning evidence; do not execute this file directly.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a bounded 480x416 capture-offset planner that protects an already committed edge target, preserves stable aim coordinates, resets on every ADS epoch, and proves its value with independently corrected video replay plus a deterministic closed-loop benchmark.

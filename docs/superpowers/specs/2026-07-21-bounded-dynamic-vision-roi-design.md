@@ -1,7 +1,7 @@
 # Bounded Dynamic Vision ROI Design
 
 Date: 2026-07-21
-Status: accepted
+Status: superseded for implementation by `2026-07-22-bounded-dynamic-roi-master-design.md`; retained as accepted historical rationale
 Scope: native 480x416 DXGI capture, vision selector continuity, tracker guidance, benchmark and telemetry contracts
 
 ## 1. Objective
