@@ -38,6 +38,14 @@ int main() {
                 "multi-target ambiguity must retain a separate regret measure");
         require(fixture.multi_target_aggressive_regret_px_ms > 0.0,
                 "multi-target ambiguity must expose the cost of unconditional strong AI");
+        require(fixture.rollout_decisions > 0,
+                "causal rollout must rank retained decisions");
+        require(fixture.rollout_top1_agreement > 0.0,
+                "causal ranking must correlate with delayed oracle outcomes");
+        require(fixture.rollout_causal_gain_px_ms > 0.0,
+                "causal ranking must beat unchanged scale on retained plant");
+        require(fixture.rollout_harmful_release_count == 0,
+                "causal ranking must not increase harmful release");
         for (const auto& mutation : fixture.mutations) {
             require(mutation.detected, mutation.name.c_str());
         }

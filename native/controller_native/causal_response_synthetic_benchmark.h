@@ -31,6 +31,11 @@ struct CohortResult {
     double aggressive_regret_px_ms = 0.0;
     int wrong_way_ms = 0;
     int interruption_ms = 0;
+    int rollout_decisions = 0;
+    int rollout_top1_agreements = 0;
+    double rollout_causal_gain_px_ms = 0.0;
+    double rollout_regret_px_ms = 0.0;
+    int rollout_harmful_release_count = 0;
 };
 
 struct MutationResult {
@@ -54,6 +59,12 @@ struct FixtureReport {
     double multi_target_aggressive_regret_px_ms = 0.0;
     double maneuver_absolute_degradation_pp = 0.0;
     double maneuver_relative_degradation_percent = 0.0;
+    int rollout_decisions = 0;
+    int rollout_top1_agreements = 0;
+    double rollout_top1_agreement = 0.0;
+    double rollout_causal_gain_px_ms = 0.0;
+    double rollout_regret_px_ms = 0.0;
+    int rollout_harmful_release_count = 0;
 };
 
 FixtureReport run_feedback_fixture(const PlantConfig& config, std::uint32_t seed);

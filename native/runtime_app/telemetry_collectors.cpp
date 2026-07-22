@@ -429,7 +429,8 @@ void TelemetryCollectors::observe_causal_shadow(
     const pipeline_contract::CommittedCaptureObservation& observation,
     const control_learning::SampleAssessment& assessment,
     const control_learning::CausalResponseEstimate& estimate,
-    const control_learning::PendingMotionEstimate& pending) noexcept {
+    const control_learning::PendingMotionEstimate& pending,
+    const control_learning::RolloutResult& rollout) noexcept {
     if (!state_) return;
     TelemetryRecord record;
     record.type = TelemetryRecordType::CausalResponseShadow;
@@ -456,6 +457,14 @@ void TelemetryCollectors::observe_causal_shadow(
     value.accepted_by_any_delay = assessment.accepted_by_any_delay;
     value.delay_switch_pending = estimate.delay_switch_pending;
     value.pending_valid = pending.valid;
+    value.rollout_valid = rollout.valid;
+    value.rollout_best_scale = rollout.best_scale;
+    value.rollout_confidence = rollout.confidence;
+    value.rollout_candidate_count = static_cast<std::uint8_t>(rollout.candidate_count);
+    for (std::size_t i = 0; i < rollout.candidate_count && i < 5; ++i) {
+        value.rollout_scales[i] = rollout.candidates[i].scale;
+        value.rollout_costs[i] = static_cast<float>(rollout.candidates[i].cost);
+    }
     switch (assessment.vision_quality) {
     case control_learning::VisionSampleQuality::Normal:
         record.vision_sample_quality = VisionSampleQuality::Normal; break;

@@ -791,6 +791,7 @@ void RuntimeLoop::run_once() {
                     committed, *history);
                 const auto estimate = causal_response_learner_->estimate();
                 control_learning::PendingMotionEstimate pending;
+                control_learning::RolloutResult rollout;
                 if (has_previous_learning_observation_) {
                     control_learning::PendingMotionRequest request;
                     request.previous_capture_ns =
@@ -813,9 +814,39 @@ void RuntimeLoop::run_once() {
                     pending = control_learning::PendingMotionModel::estimate(
                         request, *history);
                 }
+                if (config_.control_learning.mode ==
+                    controller_native::ControlLearningMode::RolloutShadow) {
+                    const auto& plan = controller_.last_target_plan();
+                    control_learning::RolloutSnapshot snapshot;
+                    snapshot.decision_at_ns = telemetry_tick.output_sent_ns;
+                    snapshot.latest_evidence_at_ns = committed.result_at_ns;
+                    snapshot.target_id = plan.target_id;
+                    snapshot.mode = plan.mode;
+                    snapshot.error_px = {plan.error_px.x, plan.error_px.y};
+                    snapshot.predicted_terminal_error_px = {
+                        plan.predicted_terminal_error_px.x,
+                        plan.predicted_terminal_error_px.y};
+                    snapshot.target_velocity_px_per_sec = {
+                        plan.velocity_px_per_sec.x, plan.velocity_px_per_sec.y};
+                    snapshot.target_acceleration_px_per_sec2 = {
+                        plan.acceleration_px_per_sec2.x,
+                        plan.acceleration_px_per_sec2.y};
+                    snapshot.shaped_ai = {telemetry_components.shaped_assist_stick.x,
+                                          telemetry_components.shaped_assist_stick.y};
+                    snapshot.manual = {telemetry_components.manual_stick.x,
+                                       telemetry_components.manual_stick.y};
+                    snapshot.scheduled_pending_px = pending.scheduled_px;
+                    snapshot.right_response = estimate.right_stable;
+                    snapshot.response_confidence = estimate.right_confidence;
+                    snapshot.delay_confidence = estimate.selected_delay_confidence;
+                    snapshot.has_target = plan.target_id != 0;
+                    snapshot.single_strong_target =
+                        pipeline_contract::single_strong_target(committed);
+                    rollout = control_learning::ShortHorizonRollout::evaluate(snapshot);
+                }
                 if (config_.control_learning.telemetry_enabled)
                     telemetry_collectors_.observe_causal_shadow(
-                        committed, assessment, estimate, pending);
+                        committed, assessment, estimate, pending, rollout);
                 previous_learning_observation_ = committed;
                 has_previous_learning_observation_ = true;
             }

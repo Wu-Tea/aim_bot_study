@@ -3,6 +3,7 @@
 #include "pipeline_contract/committed_capture_observation.h"
 #include "control_learning/causal_online_response_learner.h"
 #include "control_learning/pending_motion_model.h"
+#include "control_learning/short_horizon_rollout.h"
 #include "runtime_telemetry.h"
 
 #include <cstdint>
@@ -140,7 +141,8 @@ public:
         const pipeline_contract::CommittedCaptureObservation& observation,
         const control_learning::SampleAssessment& assessment,
         const control_learning::CausalResponseEstimate& estimate,
-        const control_learning::PendingMotionEstimate& pending) noexcept;
+        const control_learning::PendingMotionEstimate& pending,
+        const control_learning::RolloutResult& rollout) noexcept;
     void shutdown(std::uint64_t now_ns) noexcept;
     TelemetryCollectorsCounters counters() const noexcept;
 

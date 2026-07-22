@@ -343,6 +343,12 @@ struct CausalResponseShadowPayload {
     bool accepted_by_any_delay = false;
     bool delay_switch_pending = false;
     bool pending_valid = false;
+    std::array<float, 5> rollout_scales{};
+    std::array<float, 5> rollout_costs{};
+    float rollout_best_scale = 1.0f;
+    float rollout_confidence = 0.0f;
+    std::uint8_t rollout_candidate_count = 0;
+    bool rollout_valid = false;
 };
 
 struct TelemetryRecord {

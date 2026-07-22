@@ -18,6 +18,7 @@
 #include "vision_native/vision_engine.h"
 #include "control_learning/causal_online_response_learner.h"
 #include "control_learning/pending_motion_model.h"
+#include "control_learning/short_horizon_rollout.h"
 
 #include <atomic>
 #include <chrono>

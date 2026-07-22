@@ -1,9 +1,11 @@
 #include "causal_response_synthetic_benchmark.h"
+#include "control_learning/short_horizon_rollout.h"
 
 #include <algorithm>
 #include <cmath>
 #include <functional>
 #include <iomanip>
+#include <limits>
 #include <sstream>
 
 namespace controller_native::causal_response {
@@ -187,6 +189,47 @@ CohortResult run_cohort(
             const double aggressive_cost = projected_cost(1.15, 160);
             result.aggressive_gain_px_ms += std::max(0.0, base_cost - aggressive_cost);
             result.aggressive_regret_px_ms += std::max(0.0, aggressive_cost - base_cost);
+            control_learning::RolloutSnapshot snapshot;
+            snapshot.decision_at_ns =
+                static_cast<std::uint64_t>(time_ms + 1) * 1'000'000;
+            snapshot.latest_evidence_at_ns =
+                static_cast<std::uint64_t>(time_ms) * 1'000'000;
+            snapshot.mode = name == "ordinary_feedback"
+                ? pipeline_contract::ControlMode::AdsAcquire
+                : pipeline_contract::ControlMode::BodyLockFollow;
+            snapshot.error_px = {error.x, error.y};
+            snapshot.predicted_terminal_error_px = {error.x, error.y};
+            snapshot.target_velocity_px_per_sec = {velocity.x, velocity.y};
+            snapshot.shaped_ai = {ai.x, ai.y};
+            snapshot.manual = {manual.x, manual.y};
+            snapshot.right_response.values = config.right_response.values;
+            snapshot.response_confidence = 1.0f;
+            snapshot.delay_confidence = 1.0f;
+            snapshot.has_target = true;
+            snapshot.single_strong_target = name != "multi_target_ambiguity" &&
+                name != "target_identity_switch";
+            const auto rollout =
+                control_learning::ShortHorizonRollout::evaluate(snapshot);
+            if (rollout.valid && !rollout.manual_escape) {
+                ++result.rollout_decisions;
+                double oracle_cost = std::numeric_limits<double>::max();
+                float oracle_scale = 1.0f;
+                for (std::size_t i = 0; i < rollout.candidate_count; ++i) {
+                    const float scale = rollout.candidates[i].scale;
+                    const double cost = projected_cost(scale, 160);
+                    if (cost < oracle_cost - 1.0e-9) {
+                        oracle_cost = cost;
+                        oracle_scale = scale;
+                    }
+                }
+                const double selected_cost = projected_cost(rollout.best_scale, 160);
+                if (std::fabs(oracle_scale - rollout.best_scale) < 1.0e-6f)
+                    ++result.rollout_top1_agreements;
+                result.rollout_causal_gain_px_ms += base_cost - selected_cost;
+                result.rollout_regret_px_ms += selected_cost - oracle_cost;
+                if (rollout.best_scale < 1.0f && selected_cost > base_cost)
+                    ++result.rollout_harmful_release_count;
+            }
         }
         previous_final = final;
         previous_error = error;
@@ -234,7 +277,17 @@ FixtureReport run_feedback_fixture(const PlantConfig& config, std::uint32_t seed
                 cohort.aggressive_regret_px_ms;
         }
         report.cohorts.push_back(std::move(cohort));
+        const auto& retained = report.cohorts.back();
+        report.rollout_decisions += retained.rollout_decisions;
+        report.rollout_top1_agreements += retained.rollout_top1_agreements;
+        report.rollout_causal_gain_px_ms += retained.rollout_causal_gain_px_ms;
+        report.rollout_regret_px_ms += retained.rollout_regret_px_ms;
+        report.rollout_harmful_release_count +=
+            retained.rollout_harmful_release_count;
     }
+    report.rollout_top1_agreement = report.rollout_decisions == 0 ? 0.0 :
+        static_cast<double>(report.rollout_top1_agreements) /
+        report.rollout_decisions;
     const double maneuver_clean = report.cohorts[3].terminal_error_px + 25.0;
     const double maneuver_mutated = maneuver_clean * 1.12 + 2.0;
     report.maneuver_absolute_degradation_pp =
@@ -311,7 +364,14 @@ std::string to_json(const FixtureReport& report) {
         << ",\"maneuver_absolute_degradation_pp\":"
         << report.maneuver_absolute_degradation_pp
         << ",\"maneuver_relative_degradation_percent\":"
-        << report.maneuver_relative_degradation_percent << ",\"cohorts\":[";
+        << report.maneuver_relative_degradation_percent
+        << ",\"rollout\":{\"decisions\":" << report.rollout_decisions
+        << ",\"top1_agreements\":" << report.rollout_top1_agreements
+        << ",\"top1_agreement\":" << report.rollout_top1_agreement
+        << ",\"causal_gain_px_ms\":" << report.rollout_causal_gain_px_ms
+        << ",\"regret_px_ms\":" << report.rollout_regret_px_ms
+        << ",\"harmful_release_count\":"
+        << report.rollout_harmful_release_count << "},\"cohorts\":[";
     for (std::size_t i = 0; i < report.cohorts.size(); ++i) {
         const auto& value = report.cohorts[i];
         if (i) out << ',';
@@ -330,7 +390,15 @@ std::string to_json(const FixtureReport& report) {
             << ",\"aggressive_regret_px_ms\":" << value.aggressive_regret_px_ms
             << ",\"wrong_way_ms\":"
             << value.wrong_way_ms << ",\"interruption_ms\":"
-            << value.interruption_ms << '}';
+            << value.interruption_ms
+            << ",\"rollout_decisions\":" << value.rollout_decisions
+            << ",\"rollout_top1_agreements\":"
+            << value.rollout_top1_agreements
+            << ",\"rollout_causal_gain_px_ms\":"
+            << value.rollout_causal_gain_px_ms
+            << ",\"rollout_regret_px_ms\":" << value.rollout_regret_px_ms
+            << ",\"rollout_harmful_release_count\":"
+            << value.rollout_harmful_release_count << '}';
     }
     out << "],\"mutations\":[";
     for (std::size_t i = 0; i < report.mutations.size(); ++i) {

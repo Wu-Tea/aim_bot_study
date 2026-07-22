@@ -553,6 +553,20 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
             << (record.causal_shadow.delay_switch_pending ? "true" : "false")
             << ",\"pending_valid\":"
             << (record.causal_shadow.pending_valid ? "true" : "false")
+            << ",\"rollout_valid\":"
+            << (record.causal_shadow.rollout_valid ? "true" : "false")
+            << ",\"rollout_best_scale\":"
+            << record.causal_shadow.rollout_best_scale
+            << ",\"rollout_confidence\":"
+            << record.causal_shadow.rollout_confidence
+            << ",\"rollout_candidates\":[";
+        for (std::size_t i = 0;
+             i < record.causal_shadow.rollout_candidate_count && i < 5; ++i) {
+            if (i) output_ << ',';
+            output_ << "{\"scale\":" << record.causal_shadow.rollout_scales[i]
+                << ",\"cost\":" << record.causal_shadow.rollout_costs[i] << '}';
+        }
+        output_ << ']'
             << ",\"vision_sample_quality\":\""
             << vision_sample_quality_name(record.vision_sample_quality) << '"'
             << ",\"identification_update_outcome\":\""

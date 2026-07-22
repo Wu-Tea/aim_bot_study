@@ -211,6 +211,7 @@ add_executable(cod_native_runtime
     ../runtime_app/control_response_window.cpp
     ../control_learning/causal_online_response_learner.cpp
     ../control_learning/pending_motion_model.cpp
+    ../control_learning/short_horizon_rollout.cpp
     ../runtime_app/ads_visual_transition.cpp
     ../runtime_app/ads_transition_collector.cpp
     ../runtime_app/downward_diagnostics.cpp
@@ -1400,6 +1401,7 @@ add_executable(cod_native_control_history_tests
 add_executable(cod_native_causal_response_benchmark_tests
     ../controller_native/causal_response_synthetic_benchmark_tests.cpp
     ../controller_native/causal_response_synthetic_benchmark.cpp
+    ../control_learning/short_horizon_rollout.cpp
 )
 target_include_directories(cod_native_causal_response_benchmark_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/..
@@ -1408,6 +1410,7 @@ target_include_directories(cod_native_causal_response_benchmark_tests PRIVATE
 add_executable(cod_native_causal_response_benchmark
     ../controller_native/cod_native_causal_response_benchmark.cpp
     ../controller_native/causal_response_synthetic_benchmark.cpp
+    ../control_learning/short_horizon_rollout.cpp
 )
 add_executable(cod_native_robust_ew_rls_tests
     ../control_learning/robust_ew_rls_tests.cpp
@@ -1419,6 +1422,13 @@ add_executable(cod_native_causal_online_response_learner_tests
 add_executable(cod_native_pending_motion_model_tests
     ../control_learning/pending_motion_model_tests.cpp
     ../control_learning/pending_motion_model.cpp
+)
+add_executable(cod_native_short_horizon_rollout_tests
+    ../control_learning/short_horizon_rollout_tests.cpp
+    ../control_learning/short_horizon_rollout.cpp
+)
+target_include_directories(cod_native_short_horizon_rollout_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
 )
 target_include_directories(cod_native_pending_motion_model_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/..
@@ -1448,6 +1458,7 @@ add_test(NAME RobustEwRlsTests COMMAND cod_native_robust_ew_rls_tests)
 add_test(NAME CausalOnlineResponseLearnerTests
     COMMAND cod_native_causal_online_response_learner_tests)
 add_test(NAME PendingMotionModelTests COMMAND cod_native_pending_motion_model_tests)
+add_test(NAME ShortHorizonRolloutTests COMMAND cod_native_short_horizon_rollout_tests)
 add_test(NAME RuntimeProvenanceTests COMMAND cod_native_runtime_provenance_tests)
 add_test(NAME TelemetryCollectorsTests COMMAND cod_native_telemetry_collectors_tests)
 add_test(NAME LogSessionManagerTests COMMAND cod_native_log_session_manager_tests)
