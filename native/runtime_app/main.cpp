@@ -142,6 +142,16 @@ void dump_effective_config(const controller_native::RuntimeConfig& config) {
     line("runtime.telemetry.queue_capacity", config.telemetry.queue_capacity);
     line("runtime.telemetry.rotate_size_mb", config.telemetry.rotate_size_mb);
     line("runtime.telemetry.max_files", config.telemetry.max_files);
+    line("runtime.control_learning.enabled", config.control_learning.enabled);
+    const char* control_learning_mode = "disabled";
+    if (config.control_learning.mode == controller_native::ControlLearningMode::Shadow)
+        control_learning_mode = "shadow";
+    else if (config.control_learning.mode ==
+             controller_native::ControlLearningMode::RolloutShadow)
+        control_learning_mode = "rollout_shadow";
+    line("runtime.control_learning.mode", control_learning_mode);
+    line("runtime.control_learning.telemetry_enabled",
+         config.control_learning.telemetry_enabled);
     line("runtime.scheduler.controller_tick_hz", config.scheduler.controller_tick_hz);
     line("runtime.scheduler.mode", config.scheduler.mode);
     line("runtime.scheduler.spin_tail_us", config.scheduler.spin_tail_us);
@@ -227,6 +237,13 @@ void print_startup_summary(
         << " auto_fire=" << config.gamepad.auto_fire.fire_output
         << " fusion=" << (config.vision.fusion_enabled ? "on" : "off")
         << " fusion_session=" << config.vision.fusion_session
+        << " control_learning=" << (
+            config.control_learning.mode ==
+                    controller_native::ControlLearningMode::RolloutShadow
+                ? "rollout_shadow"
+                : config.control_learning.mode ==
+                          controller_native::ControlLearningMode::Shadow
+                    ? "shadow" : "disabled")
         << '\n';
 }
 
