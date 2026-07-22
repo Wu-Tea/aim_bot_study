@@ -1427,6 +1427,13 @@ add_executable(cod_native_short_horizon_rollout_tests
     ../control_learning/short_horizon_rollout_tests.cpp
     ../control_learning/short_horizon_rollout.cpp
 )
+add_executable(cod_native_causal_response_microbenchmark
+    ../control_learning/causal_response_microbenchmark.cpp
+    ../control_learning/causal_online_response_learner.cpp
+)
+target_include_directories(cod_native_causal_response_microbenchmark PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
 target_include_directories(cod_native_short_horizon_rollout_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/..
 )
