@@ -5,11 +5,11 @@ an older vision result while newer reticle motion is already queued for later
 delivery. Its first retained fixture (K1) is deliberately self-predictable: the
 target does not reverse, accelerate, switch identity, or receive manual input.
 
-The B2 checkpoint uses `stale_proportional_fixture_baseline`, a deliberately
+The fixture baseline uses `stale_proportional_fixture_baseline`, a deliberately
 simple stale controller that proves the fixture can expose pending-motion debt.
-It is **not** a score for `NativeGamepadController`; JSON reports therefore set
-`production_controller` to `false`. A production result must not be claimed
-until the reusable native controller adapter is connected.
+The production baseline reuses the same native adapter as the sustained AimLab
+benchmark and sets `production_controller` to `true`. Production artifacts also
+retain the config path and FNV-1a config fingerprint.
 
 ## Build and run
 
@@ -21,6 +21,11 @@ ctest --test-dir native/vision_native/build -C Release `
 & native/vision_native/build/Release/cod_native_blind_window_benchmark.exe `
   --output artifacts/benchmarks/blind-window/k1-fixture-baseline.json `
   --revision (git rev-parse HEAD)
+& native/vision_native/build/Release/cod_native_blind_window_benchmark.exe `
+  --policy production --assist-scale 1.0 `
+  --config config.native.example.toml `
+  --output artifacts/benchmarks/blind-window/k1-production-scale-1.00.json `
+  --revision (git rev-parse HEAD)
 ```
 
 The matrix contains 675 episodes: three retained seeds, three vision rates,
@@ -28,6 +33,10 @@ five capture phases, three fixed result latencies, and five response delays.
 Raw episode metrics are retained alongside phase summaries and the ten worst
 pending-debt episodes. Identical revision and CLI arguments must produce a
 byte-identical JSON file.
+
+The retained `0.70`, `0.80`, and `0.90` production mutations scale only the
+benchmark-delivered assist. They test whether a proposed causal policy actually
+improves timing or merely recreates a weaker global AI setting.
 
 ## Interpretation
 

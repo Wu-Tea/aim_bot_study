@@ -105,7 +105,7 @@ TargetPlan.fire_authority -> AutoFireGate
 
 ## Open Work
 
-- 2026-07-22: implemented the B0-B2 causal blind-window benchmark checkpoint on `codex/causal-response-integration-plan`. The 1 kHz plant separates capture, publication and response queues; K1 has no target surprise and exposes queued-motion debt across 675 fixed combinations. Retained artifact `k1-fixture-baseline.json` is deterministic and marked `production_controller=false`; extract/reuse the sustained native adapter before claiming an application baseline.
+- 2026-07-22: implemented the B0-B2 causal blind-window benchmark checkpoint on `codex/causal-response-integration-plan`. The 1 kHz plant separates capture, publication and response queues; K1 has no target surprise and exposes queued-motion debt across 675 fixed combinations. The sustained native adapter is now shared without output drift; retained production artifacts cover scale 1.00/0.90/0.80/0.70 and fingerprint `config.native.example.toml`. K2-K4 and acquisition guardrails remain required before changing production policy.
 - Recreate and retain a current revision legacy/vector full acceptance artifact with config fingerprint and fixed seeds.
 - Keep the global learning G0-G4 roadmap pending; no production tail-value policy exists yet.
 - Build a small/far-target authority matrix using existing size/reliability before considering more vision work.

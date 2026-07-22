@@ -19,14 +19,14 @@ Preserve the single-owner control architecture while improving real gameplay spe
 - Background VBS start/stop launchers run without a console window and prevent duplicate instances; the process remains normally visible to Windows.
 - High-rate telemetry/perf logging is opt-in. Fresh sessions use manifests and whole-session cleanup.
 - Complete July 16-20 history: [AIM_CONTROL_OPTIMIZATION_HISTORY_20260716_20260720.md](../docs/project/AIM_CONTROL_OPTIMIZATION_HISTORY_20260716_20260720.md).
-- A causal vision blind-window benchmark now separates capture, result-publication, controller and delayed-response clocks. B0-B2 retain a 675-episode K1 fixture-discrimination artifact; it is explicitly not a production-controller score.
+- A causal vision blind-window benchmark now separates capture, result-publication, controller and delayed-response clocks. B0-B2 retain 675-episode fixture and production-controller K1 artifacts plus 0.70/0.80/0.90 strength mutations; every production artifact fingerprints its config.
 - Reusable method: [EVIDENCE_DRIVEN_REALTIME_CONTROL_OPTIMIZATION.md](../docs/project/EVIDENCE_DRIVEN_REALTIME_CONTROL_OPTIMIZATION.md).
 - Cross-project adoption entry: [REALTIME_CONTROL_OPTIMIZATION_START_HERE.md](../docs/methods/REALTIME_CONTROL_OPTIMIZATION_START_HERE.md).
 - Ready-to-paste onboarding prompt: [ADOPT_EVIDENCE_DRIVEN_CONTROL_OPTIMIZATION.md](../docs/methods/prompts/ADOPT_EVIDENCE_DRIVEN_CONTROL_OPTIMIZATION.md).
 
 ## Next Action
 
-1. Extract the existing sustained-benchmark native controller adapter into one reusable owner, then connect it to the K1 blind-window plant. Do not duplicate a second controller/config/snapshot pipeline.
+1. Use the K1 production baseline to design the pending-aware candidate; it must beat all fixed-strength mutations on at least two primary metrics without losing acquisition/closing-speed guardrails.
 2. Before the next controller policy change, generate a current-revision legacy/vector full acceptance artifact with effective config fingerprint, fixed seeds and comparator identity.
 3. For remaining BodyLock 10-20 px stickiness, capture proposal, selected vector weights, delivered output, slowdown state and target response; build a radial/tangential fixture before changing policy.
 4. For small/far-target authority, use existing box size/reliability and mixed-input scenarios first; do not add another vision pass by default.
@@ -37,7 +37,7 @@ Preserve the single-owner control architecture while improving real gameplay spe
 - No current checked-in final legacy/vector A/B artifact exists; conversation-only vector-fusion percentages are not independently auditable.
 - Real gameplay `config.toml` is local/untracked and must be fingerprinted per session before it can support numeric comparison.
 - Cross-target global optimum learning is planned but not implemented.
-- The K1 blind-window fixture is discriminating, but its retained `stale_proportional_fixture_baseline` has `production_controller=false`; current runtime improvement is unmeasured until the shared native adapter is connected.
+- K2-K4 fixtures and ADS/far-closing guardrails are not yet connected to the blind-window executable, so K1 alone cannot authorize a production policy change.
 
 ## Active Questions
 
