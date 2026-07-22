@@ -1394,6 +1394,22 @@ add_executable(cod_native_sustained_aimlab_counterfactual_tests
 add_executable(cod_native_control_history_tests
     ../control_learning/control_history_tests.cpp
 )
+
+add_executable(cod_native_causal_response_benchmark_tests
+    ../controller_native/causal_response_synthetic_benchmark_tests.cpp
+    ../controller_native/causal_response_synthetic_benchmark.cpp
+)
+target_include_directories(cod_native_causal_response_benchmark_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
+add_executable(cod_native_causal_response_benchmark
+    ../controller_native/cod_native_causal_response_benchmark.cpp
+    ../controller_native/causal_response_synthetic_benchmark.cpp
+)
+target_include_directories(cod_native_causal_response_benchmark PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
 target_include_directories(cod_native_control_history_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/..
@@ -1403,6 +1419,9 @@ add_test(
     NAME ControlResponseWindowTests
     COMMAND cod_native_control_response_window_tests)
 add_test(NAME RuntimeTelemetryTests COMMAND cod_native_runtime_telemetry_tests)
+add_test(
+    NAME CausalResponseSyntheticBenchmarkTests
+    COMMAND cod_native_causal_response_benchmark_tests)
 add_test(NAME RuntimeProvenanceTests COMMAND cod_native_runtime_provenance_tests)
 add_test(NAME TelemetryCollectorsTests COMMAND cod_native_telemetry_collectors_tests)
 add_test(NAME LogSessionManagerTests COMMAND cod_native_log_session_manager_tests)
