@@ -10,6 +10,13 @@
 namespace controller_native::blind_window {
 
 BlindBaselineSummary run_k1_baseline_matrix() {
+    return run_k1_baseline_matrix([] {
+        return stale_proportional_controller();
+    });
+}
+
+BlindBaselineSummary run_k1_baseline_matrix(
+    const BlindControllerFactory& controller_factory) {
     constexpr std::array<std::uint32_t, 3> kSeeds{
         1337u, 7331u, 20260722u};
     constexpr std::array<int, 3> kVisionHz{80, 100, 120};
@@ -34,7 +41,7 @@ BlindBaselineSummary run_k1_baseline_matrix() {
                         const BlindFixture fixture =
                             bodylock_pending_crossing_fixture(seed, timing);
                         const BlindWindowRun run = run_blind_fixture(
-                            fixture, stale_proportional_controller());
+                            fixture, controller_factory());
                         BlindEpisodeSummary episode;
                         episode.seed = seed;
                         episode.vision_hz = vision_hz;
@@ -128,7 +135,11 @@ void write_episode(std::ostream& output, const BlindEpisodeSummary& episode) {
 std::string serialize_k1_baseline_json(
     const BlindBaselineSummary& summary,
     const std::string& revision,
-    bool dirty) {
+    bool dirty,
+    const std::string& policy_identity,
+    bool production_controller,
+    const std::string& config_path,
+    std::uint64_t config_fingerprint) {
     std::ostringstream output;
     output << std::setprecision(17);
     std::vector<double> harmful_pending;
@@ -159,8 +170,11 @@ std::string serialize_k1_baseline_json(
         << kBlindWindowFixtureSemanticsVersion
         << ",\"revision\":\"" << escape_json(revision) << "\""
         << ",\"dirty\":" << (dirty ? "true" : "false")
-        << ",\"policy_identity\":\"stale_proportional_fixture_baseline\""
-        << ",\"production_controller\":false"
+        << ",\"policy_identity\":\"" << escape_json(policy_identity) << "\""
+        << ",\"production_controller\":"
+        << (production_controller ? "true" : "false")
+        << ",\"config_path\":\"" << escape_json(config_path) << "\""
+        << ",\"config_fingerprint\":" << config_fingerprint
         << ",\"baseline_discriminating\":"
         << (summary.baseline_discriminating ? "true" : "false")
         << ",\"episode_count\":" << summary.episodes.size()

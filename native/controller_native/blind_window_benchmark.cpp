@@ -97,6 +97,8 @@ BlindWindowRun run_blind_fixture(
     Vec2d latest_observed_error{};
     std::int64_t latest_capture_us = -1;
     std::int64_t latest_result_us = -1;
+    bool has_published_observation = false;
+    bool warm_start_pending = false;
     std::deque<CapturedFrame> captured;
     std::deque<PendingControl> pending_controls;
     std::uint32_t jitter_state = fixture.timing.jitter_seed;
@@ -106,6 +108,8 @@ BlindWindowRun run_blind_fixture(
         latest_observed_error = fixture.initial_error_px;
         latest_capture_us = -fixture.timing.vision_period_us;
         latest_result_us = 0;
+        has_published_observation = true;
+        warm_start_pending = true;
         applied_stick = fixture.preloaded_final_stick;
         for (int applies_at_us = 0;
              applies_at_us < fixture.timing.response_delay_us;
@@ -151,16 +155,18 @@ BlindWindowRun run_blind_fixture(
             latest_observed_error = captured.front().error_px;
             captured.pop_front();
             fresh_vision = true;
+            has_published_observation = true;
         }
 
         BlindControllerObservation observation;
         observation.now_us = now_us;
-        observation.target_present = latest_capture_us >= 0;
-        observation.fresh_vision = fresh_vision;
+        observation.target_present = has_published_observation;
+        observation.fresh_vision = fresh_vision || warm_start_pending;
         observation.captured_at_us = latest_capture_us;
         observation.result_at_us = latest_result_us;
         observation.observed_error_px = latest_observed_error;
         const BlindControllerOutput output = controller_step(observation);
+        warm_start_pending = false;
         pending_controls.push_back({
             now_us + std::max(0, fixture.timing.response_delay_us),
             output.final_stick});

@@ -152,6 +152,26 @@ void test_fractional_millisecond_vision_period_keeps_requested_rate() {
             "120 Hz capture must publish about 12 results in 100 ms");
 }
 
+void test_warm_start_publishes_the_prior_observation_at_tick_zero() {
+    BlindFixture fixture;
+    fixture.duration_us = 2'000;
+    fixture.warm_start_observation = true;
+    fixture.initial_error_px = {12.0, -3.0};
+    bool saw_prior = false;
+    run_blind_fixture(
+        fixture,
+        [&saw_prior](const BlindControllerObservation& observation) {
+            if (observation.now_us == 0 && observation.target_present &&
+                observation.fresh_vision && observation.captured_at_us < 0 &&
+                observation.observed_error_px.x == 12.0) {
+                saw_prior = true;
+            }
+            return BlindControllerOutput{};
+        });
+    require(saw_prior,
+            "warm start must publish its prior observation at tick zero");
+}
+
 void test_k1_fixture_crosses_during_blind_window_with_stale_controller() {
     const BlindWindowRun run = run_blind_fixture(
         bodylock_pending_crossing_fixture(1337, timing_100hz_phase_5()),
@@ -204,6 +224,19 @@ void test_k1_baseline_matrix_is_complete_and_discriminating() {
     }
 }
 
+void test_k1_matrix_constructs_an_isolated_controller_per_episode() {
+    int constructed = 0;
+    const BlindBaselineSummary summary = run_k1_baseline_matrix(
+        [&constructed] {
+            ++constructed;
+            return stale_proportional_controller();
+        });
+    require(summary.episodes.size() == 675,
+            "isolated K1 matrix must retain every combination");
+    require(constructed == 675,
+            "K1 matrix must construct one controller per episode");
+}
+
 void test_k1_baseline_json_retains_provenance_and_metrics() {
     BlindBaselineSummary summary;
     summary.baseline_discriminating = true;
@@ -226,6 +259,21 @@ void test_k1_baseline_json_retains_provenance_and_metrics() {
             "JSON must retain raw primary metrics");
 }
 
+void test_production_json_retains_config_identity() {
+    BlindBaselineSummary summary;
+    const std::string json = serialize_k1_baseline_json(
+        summary, "abc123", false, "native", true,
+        "config.native.example.toml", 123456u);
+    require(json.find("\"production_controller\":true") != std::string::npos,
+            "production JSON must declare its controller identity");
+    require(json.find("\"config_path\":\"config.native.example.toml\"") !=
+                std::string::npos,
+            "production JSON must retain config path");
+    require(json.find("\"config_fingerprint\":123456") !=
+                std::string::npos,
+            "production JSON must retain config fingerprint");
+}
+
 }  // namespace
 
 int main() {
@@ -239,11 +287,14 @@ int main() {
         test_controller_never_receives_future_capture();
         test_delivered_input_changes_plant_only_after_response_delay();
         test_fractional_millisecond_vision_period_keeps_requested_rate();
+        test_warm_start_publishes_the_prior_observation_at_tick_zero();
         test_k1_fixture_crosses_during_blind_window_with_stale_controller();
         test_k1_fixture_contains_no_target_surprise();
         test_k1_phase_changes_reveal_debt();
         test_k1_baseline_matrix_is_complete_and_discriminating();
+        test_k1_matrix_constructs_an_isolated_controller_per_episode();
         test_k1_baseline_json_retains_provenance_and_metrics();
+        test_production_json_retains_config_identity();
         std::cout << "blind_window_benchmark_tests: PASS\n";
         return 0;
     } catch (const std::exception& error) {

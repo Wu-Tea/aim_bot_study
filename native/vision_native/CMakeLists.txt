@@ -1382,14 +1382,51 @@ add_test(
 
 add_executable(cod_native_blind_window_benchmark
     ../controller_native/cod_native_blind_window_benchmark.cpp
+    ../controller_native/blind_window_native_adapter.cpp
+    ../controller_native/native_benchmark_controller_adapter.cpp
     ../controller_native/blind_window_baseline.cpp
     ../controller_native/blind_window_benchmark.cpp
     ../controller_native/blind_window_fixtures.cpp
     ../controller_native/blind_window_metrics.cpp
+    ../tracking_native/tracker_authority.cpp
+    ../tracking_native/tracker_backend.cpp
+    ../tracking_native/fps_reference_tracker.cpp
+    ../tracking_native/kalman_tracker.cpp
+    ../tracking_native/legacy_projection_tracker.cpp
+    ../tracking_native/association.cpp
+    ../tracking_native/ego_motion_buffer.cpp
+    ../tracking_native/projection_model.cpp
+    ${FPS_TRACKER_PACKAGE_SOURCES}
+    ../controller_native/runtime_config.cpp
+    ../controller_native/auto_fire_gate.cpp
+    ../controller_native/recoil_profile.cpp
+    ../controller_native/recoil_calibration.cpp
+    ../controller_native/recoil_compensation.cpp
+    ../recoil_native/recoil_compensation.cpp
+    ../recoil_native/recoil_visual_model.cpp
+    ../controller_native/weapon_recognizer.cpp
+    ../controller_native/output_mixer.cpp
+    ../controller_native/controller_pipeline.cpp
+    ../controller_native/native_gamepad_controller.cpp
+    ../controller_native/target_geometry.cpp
 )
 
 target_include_directories(cod_native_blind_window_benchmark PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/..
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fps_2d_tracker_package/include
+)
+
+target_compile_definitions(cod_native_blind_window_benchmark PRIVATE
+    NOMINMAX
+    WIN32_LEAN_AND_MEAN
+    COD_BENCHMARK_MIX_OVERRIDE
+)
+
+target_link_libraries(cod_native_blind_window_benchmark PRIVATE
+    vision_native_core
+    gdi32
+    windowsapp
 )
 
 target_include_directories(cod_native_sustained_aimlab_scenario_tests PRIVATE
@@ -1454,6 +1491,7 @@ add_executable(cod_native_aimlab_benchmark
 
 add_executable(cod_native_sustained_aimlab_benchmark
     ../controller_native/cod_native_sustained_aimlab_benchmark.cpp
+    ../controller_native/native_benchmark_controller_adapter.cpp
     ../controller_native/sustained_aimlab_counterfactual.cpp
     ../controller_native/sustained_aimlab_trace.cpp
     ../controller_native/sustained_aimlab_simulator.cpp
@@ -1523,6 +1561,7 @@ foreach(COD_TARGET
     cod_native_lstick_benchmark
     cod_native_lstick_benchmark_tests
     cod_native_sustained_aimlab_benchmark
+    cod_native_blind_window_benchmark
 )
     if(TARGET ${COD_TARGET})
         target_sources(${COD_TARGET} PRIVATE ${COD_TARGET_PLAN_RUNTIME_SOURCES})
