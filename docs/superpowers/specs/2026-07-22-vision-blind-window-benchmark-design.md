@@ -1,7 +1,9 @@
 # Vision Blind-Window Control Benchmark Design
 
-Date: 2026-07-22  
-Status: proposed for implementation  
+Date: 2026-07-22
+
+Status: proposed for implementation
+
 Scope: deterministic benchmark and evidence contract only; no production control change
 
 ## 1. Purpose
@@ -499,4 +501,3 @@ B7 retained fixed-seed baseline artifact
 ```
 
 After B7, review baseline discrimination before writing or integrating the causal learner.
-
