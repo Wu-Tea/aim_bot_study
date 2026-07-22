@@ -1,4 +1,6 @@
 #include "blind_window_benchmark.h"
+#include "blind_window_baseline.h"
+#include "blind_window_fixtures.h"
 #include "blind_window_metrics.h"
 
 #include <cmath>
@@ -133,6 +135,80 @@ void test_delivered_input_changes_plant_only_after_response_delay() {
             "delivered input must affect the plant after its response delay");
 }
 
+void test_k1_fixture_crosses_during_blind_window_with_stale_controller() {
+    const BlindWindowRun run = run_blind_fixture(
+        bodylock_pending_crossing_fixture(1337, timing_100hz_phase_5()),
+        stale_proportional_controller());
+    require(run.metrics.harmful_pending_at_reveal_px > 0.5,
+            "K1 must expose excess or opposing pending at reveal");
+    require(run.metrics.reverse_correction_80_stick_ms > 0.0,
+            "K1 must require a post-reveal reverse correction");
+    require(run.metrics.future_burden_80_px_ms > 0.0,
+            "K1 must retain measurable future error burden");
+}
+
+void test_k1_fixture_contains_no_target_surprise() {
+    const BlindFixture fixture = bodylock_pending_crossing_fixture(
+        1337, timing_100hz_phase_5());
+    require(fixture.knowledge_class == BlindKnowledgeClass::SelfPredictable,
+            "K1 fixture must be self-predictable");
+    require_near(fixture.target_acceleration_px_per_sec2.x, 0.0);
+    require_near(fixture.target_acceleration_px_per_sec2.y, 0.0);
+    require_near(fixture.target_velocity_px_per_second.x, 0.0);
+    require_near(fixture.target_velocity_px_per_second.y, 0.0);
+}
+
+void test_k1_phase_changes_reveal_debt() {
+    BlindTimingProfile early = timing_100hz_phase_5();
+    BlindTimingProfile late = early;
+    late.event_phase_per_mille = 950;
+    const BlindWindowRun early_run = run_blind_fixture(
+        bodylock_pending_crossing_fixture(1337, early),
+        stale_proportional_controller());
+    const BlindWindowRun late_run = run_blind_fixture(
+        bodylock_pending_crossing_fixture(1337, late),
+        stale_proportional_controller());
+    require(early_run.metrics.harmful_pending_at_reveal_px >
+                late_run.metrics.harmful_pending_at_reveal_px + 0.25,
+            "capture phase must materially change reveal debt");
+}
+
+void test_k1_baseline_matrix_is_complete_and_discriminating() {
+    const BlindBaselineSummary summary = run_k1_baseline_matrix();
+    require(summary.episodes.size() == 675,
+            "K1 baseline must cover 3x3x5x3x5 combinations");
+    require(summary.baseline_discriminating,
+            "K1 baseline must expose harmful pending in the required matrix");
+    for (const BlindEpisodeSummary& episode : summary.episodes) {
+        require(finite(episode.metrics),
+                "every K1 episode must contain finite metrics");
+        require(episode.metrics.future_dependency_violations == 0,
+                "K1 matrix must remain causal");
+    }
+}
+
+void test_k1_baseline_json_retains_provenance_and_metrics() {
+    BlindBaselineSummary summary;
+    summary.baseline_discriminating = true;
+    BlindEpisodeSummary episode;
+    episode.seed = 1337;
+    episode.vision_hz = 100;
+    episode.phase_percent = 5;
+    episode.result_latency_ms = 16;
+    episode.response_delay_ms = 45;
+    episode.metrics.harmful_pending_at_reveal_px = 2.5;
+    summary.episodes.push_back(episode);
+    const std::string json = serialize_k1_baseline_json(
+        summary, "abc123", false);
+    require(json.find("\"fixture_semantics_version\":1") != std::string::npos,
+            "JSON must retain fixture semantics");
+    require(json.find("\"revision\":\"abc123\"") != std::string::npos,
+            "JSON must retain revision provenance");
+    require(json.find("\"harmful_pending_at_reveal_px\":2.5") !=
+                std::string::npos,
+            "JSON must retain raw primary metrics");
+}
+
 }  // namespace
 
 int main() {
@@ -145,6 +221,11 @@ int main() {
         test_event_occurs_at_requested_capture_phase();
         test_controller_never_receives_future_capture();
         test_delivered_input_changes_plant_only_after_response_delay();
+        test_k1_fixture_crosses_during_blind_window_with_stale_controller();
+        test_k1_fixture_contains_no_target_surprise();
+        test_k1_phase_changes_reveal_debt();
+        test_k1_baseline_matrix_is_complete_and_discriminating();
+        test_k1_baseline_json_retains_provenance_and_metrics();
         std::cout << "blind_window_benchmark_tests: PASS\n";
         return 0;
     } catch (const std::exception& error) {

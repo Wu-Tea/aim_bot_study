@@ -17,4 +17,9 @@ double user_fight_area(
     const BlindWindowTrace& trace,
     double drift_floor) noexcept;
 
+BlindWindowMetrics evaluate_blind_window(
+    const BlindFixture& fixture,
+    const BlindWindowTrace& trace,
+    const BlindSchedule& schedule) noexcept;
+
 }  // namespace controller_native::blind_window

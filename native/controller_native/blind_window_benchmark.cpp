@@ -1,4 +1,5 @@
 #include "blind_window_benchmark.h"
+#include "blind_window_metrics.h"
 
 #include <algorithm>
 #include <cmath>
@@ -93,6 +94,19 @@ BlindWindowRun run_blind_fixture(
     std::deque<PendingControl> pending_controls;
     std::uint32_t jitter_state = fixture.timing.jitter_seed;
 
+    if (fixture.warm_start_observation) {
+        latest_observed_error = fixture.initial_error_px;
+        latest_capture_us = -fixture.timing.vision_period_us;
+        latest_result_us = 0;
+        applied_stick = fixture.preloaded_final_stick;
+        for (int applies_at_us = 0;
+             applies_at_us < fixture.timing.response_delay_us;
+             applies_at_us += 1'000) {
+            pending_controls.push_back({
+                applies_at_us, fixture.preloaded_final_stick});
+        }
+    }
+
     constexpr int kTickUs = 1'000;
     constexpr double kTickSeconds = 0.001;
     run.trace.frames.reserve(
@@ -140,15 +154,27 @@ BlindWindowRun run_blind_fixture(
             now_us + std::max(0, fixture.timing.response_delay_us),
             output.final_stick});
 
+        Vec2d scheduled_pending{};
+        for (const PendingControl& pending : pending_controls) {
+            const Vec2d velocity = apply_response(
+                fixture.right_response_px_per_stick_second,
+                pending.final_stick);
+            scheduled_pending.x += velocity.x * kTickSeconds;
+            scheduled_pending.y += velocity.y * kTickSeconds;
+        }
+
         BlindTraceFrame frame;
         frame.now_us = now_us;
         frame.true_error_px = true_error;
         frame.ai_stick = output.ai_stick;
         frame.final_stick = output.final_stick;
         frame.response_applied_reticle_px_per_sec = reticle_velocity;
+        frame.scheduled_pending_reticle_motion_px = scheduled_pending;
         frame.max_controller_source_time_us = latest_capture_us;
         run.trace.frames.push_back(frame);
     }
+    run.metrics = evaluate_blind_window(
+        fixture, run.trace, run.schedule);
     return run;
 }
 

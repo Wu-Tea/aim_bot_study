@@ -36,6 +36,7 @@ struct BlindTraceFrame {
     Vec2d ai_stick{};
     Vec2d final_stick{};
     Vec2d response_applied_reticle_px_per_sec{};
+    Vec2d scheduled_pending_reticle_motion_px{};
     std::int64_t max_controller_source_time_us = 0;
 };
 
@@ -60,6 +61,8 @@ struct BlindFixture {
     Vec2d target_acceleration_px_per_sec2{};
     std::array<double, 4> right_response_px_per_stick_second{
         500.0, 0.0, 0.0, 500.0};
+    bool warm_start_observation = false;
+    Vec2d preloaded_final_stick{};
 };
 
 struct BlindControllerObservation {
