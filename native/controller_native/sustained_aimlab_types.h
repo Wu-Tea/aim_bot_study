@@ -46,13 +46,18 @@ enum class PlayerStrafeMode : std::uint8_t {
     FullReversal,
 };
 
+inline constexpr double kPlayerStrafeMinTopSpeedPxPerSecond = 125.0;
+inline constexpr double kPlayerStrafeMaxTopSpeedPxPerSecond = 232.0;
+inline constexpr double kPlayerStrafeMinTimeConstantMs = 100.0;
+inline constexpr double kPlayerStrafeMaxTimeConstantMs = 180.0;
+
 struct PlayerStrafeScript {
     int initial_direction = 1;
     int onset_ms = 0;
     int reverse_ms = 1;
     int release_ms = 2;
-    double top_speed_px_per_second = 125.0;
-    double time_constant_ms = 100.0;
+    double top_speed_px_per_second = kPlayerStrafeMinTopSpeedPxPerSecond;
+    double time_constant_ms = kPlayerStrafeMinTimeConstantMs;
 
     bool operator==(const PlayerStrafeScript& other) const noexcept {
         return initial_direction == other.initial_direction &&

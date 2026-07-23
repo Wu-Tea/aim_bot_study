@@ -1734,6 +1734,30 @@ target_link_libraries(cod_native_sustained_aimlab_benchmark PRIVATE
     windowsapp
 )
 
+add_test(
+    NAME NativeSustainedAimlabLeftStrafeOff
+    COMMAND cod_native_sustained_aimlab_benchmark
+        --config ${CMAKE_CURRENT_SOURCE_DIR}/../../config.native.example.toml
+        --duration-ms 1500 --seed 2026072301
+        --profile pure --cohort ads --smoke --left-strafe off)
+
+add_test(
+    NAME NativeSustainedAimlabLeftStrafeBoth
+    COMMAND cod_native_sustained_aimlab_benchmark
+        --config ${CMAKE_CURRENT_SOURCE_DIR}/../../config.native.example.toml
+        --duration-ms 1500 --seed 2026072301
+        --profile pure --cohort ads --smoke --left-strafe both)
+
+add_test(
+    NAME NativeSustainedAimlabLeftStrafeRejectsInvalid
+    COMMAND cod_native_sustained_aimlab_benchmark
+        --config ${CMAKE_CURRENT_SOURCE_DIR}/../../config.native.example.toml
+        --duration-ms 100 --seed 2026072301
+        --profile pure --cohort ads --left-strafe invalid)
+set_tests_properties(
+    NativeSustainedAimlabLeftStrafeRejectsInvalid
+    PROPERTIES WILL_FAIL TRUE)
+
 set(COD_TARGET_PLAN_RUNTIME_SOURCES
     ../controller_native/intent_filter.cpp
     ../controller_native/control_response_estimator.cpp

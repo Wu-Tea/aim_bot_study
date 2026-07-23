@@ -52,6 +52,7 @@ struct CliOptions {
     std::string counterfactual = "off";
     std::string intent_fusion = "legacy";
     double tracker_velocity_alpha = -1.0;
+    std::string left_strafe = "off";
     int learning_rounds = 0;
     int learning_delay_ms = 45;
     std::string learning_policy = "retain";
@@ -146,6 +147,8 @@ CliOptions parse_args(int argc, char** argv) {
         } else if (argument == "--tracker-velocity-alpha" &&
                    index + 1 < argc) {
             options.tracker_velocity_alpha = std::stod(argv[++index]);
+        } else if (argument == "--left-strafe" && index + 1 < argc) {
+            options.left_strafe = argv[++index];
         } else if (argument == "--learning-rounds" && index + 1 < argc) {
             options.learning_rounds = std::stoi(argv[++index]);
         } else if (argument == "--learning-delay-ms" && index + 1 < argc) {
@@ -165,6 +168,7 @@ CliOptions parse_args(int argc, char** argv) {
                 << "[--counterfactual off|quick|full] "
                 << "[--intent-fusion legacy|vector] "
                 << "[--tracker-velocity-alpha 0..1] "
+                << "[--left-strafe off|full-reversal|both] "
                 << "[--learning-rounds N --learning-delay-ms N "
                 << "--learning-policy baseline|reset|retain]\n";
             std::exit(EXIT_SUCCESS);
@@ -210,6 +214,12 @@ CliOptions parse_args(int argc, char** argv) {
         throw std::runtime_error(
             "tracker velocity alpha must be in [0,1]");
     }
+    if (options.left_strafe != "off" &&
+        options.left_strafe != "full-reversal" &&
+        options.left_strafe != "both") {
+        throw std::runtime_error(
+            "left strafe mode must be off, full-reversal, or both");
+    }
     if (options.learning_rounds < 0 || options.learning_delay_ms < 0 ||
         (options.learning_policy != "baseline" &&
          options.learning_policy != "reset" &&
@@ -218,9 +228,10 @@ CliOptions parse_args(int argc, char** argv) {
     }
     if (options.learning_rounds > 0 &&
         (options.profile == "both" || options.cohort == "both" ||
-         options.seeds.size() > 1)) {
+         options.seeds.size() > 1 || options.left_strafe != "off")) {
         throw std::runtime_error(
-            "learning mode requires one seed, one profile, and one cohort");
+            "learning mode requires one seed, one profile, one cohort, "
+            "and left strafe off");
     }
     if (options.camera_response <= 0.0 || options.slowdown_edge <= 0.0 ||
         options.slowdown_edge > 1.0 || options.slowdown_center <= 0.0 ||
@@ -274,6 +285,11 @@ const char* profile_name(ManualProfile profile) {
 
 const char* cohort_name(BenchmarkCohort cohort) {
     return cohort == BenchmarkCohort::AdsAcquire ? "ads" : "bodylock";
+}
+
+const char* player_strafe_name(PlayerStrafeMode mode) {
+    return mode == PlayerStrafeMode::FullReversal
+        ? "full_reversal" : "off";
 }
 
 const char* motion_name(MotionProfile motion) {
@@ -397,7 +413,7 @@ void write_report(
     std::ofstream out(partial, std::ios::binary);
     if (!out) throw std::runtime_error("cannot open output: " + partial.string());
     out << std::setprecision(10);
-    out << "{\n  \"schema\": \"sustained-aimlab-v1\",\n"
+    out << "{\n  \"schema\": \"sustained-aimlab-v2\",\n"
         << "  \"revision\": " << json_string(options.revision) << ",\n"
         << "  \"dirty\": " << (options.dirty ? "true" : "false") << ",\n"
         << "  \"config_path\": " << json_string(options.config_path.string()) << ",\n"
@@ -411,7 +427,15 @@ void write_report(
         << ", \"camera_response_px_per_stick_second\": "
         << config.camera_response_px_per_stick_second
         << ", \"slowdown_edge\": " << config.slowdown_edge_multiplier
-        << ", \"slowdown_center\": " << config.slowdown_center_multiplier << "},\n"
+        << ", \"slowdown_center\": " << config.slowdown_center_multiplier
+        << ", \"left_strafe_request\": "
+        << json_string(options.left_strafe)
+        << ", \"player_top_speed_px_per_second\": ["
+        << kPlayerStrafeMinTopSpeedPxPerSecond << ','
+        << kPlayerStrafeMaxTopSpeedPxPerSecond
+        << "], \"player_time_constant_ms\": ["
+        << kPlayerStrafeMinTimeConstantMs << ','
+        << kPlayerStrafeMaxTimeConstantMs << "]},\n"
         << "  \"intent_fusion\": {\"schema_version\": 1, \"mode\": "
         << json_string(options.intent_fusion)
         << ", \"candidate_set_version\": 4},\n"
@@ -441,8 +465,21 @@ void write_report(
         out << "    {\"seed\": " << result.seed
             << ", \"profile\": " << json_string(profile_name(result.manual_profile))
             << ", \"cohort\": " << json_string(cohort_name(result.cohort))
+            << ", \"left_strafe\": "
+            << json_string(player_strafe_name(result.player_strafe_mode))
             << ", \"script_hash\": \"" << result.script_hash << "\""
             << ", \"ticks\": " << result.ticks
+            << ", \"left_strafe_active_ms\": "
+            << result.left_strafe_active_ms
+            << ", \"left_strafe_reversals\": "
+            << result.left_strafe_reversals
+            << ", \"max_abs_left_x\": " << result.max_abs_left_x
+            << ", \"min_sampled_player_top_speed_px_per_second\": "
+            << result.min_sampled_player_top_speed_px_per_second
+            << ", \"max_sampled_player_top_speed_px_per_second\": "
+            << result.max_sampled_player_top_speed_px_per_second
+            << ", \"max_abs_player_speed_px_per_second\": "
+            << result.max_abs_player_speed_px_per_second
             << ", \"acquire_points\": " << result.acquire_points
             << ", \"tracking_points\": " << result.tracking_points
             << ", \"smooth_bonus\": " << result.smooth_bonus
@@ -714,7 +751,9 @@ void print_summary(const BenchmarkResult& result) {
     std::cout
         << "seed=" << result.seed
         << " ticks=" << result.ticks
+        << " profile=" << profile_name(result.manual_profile)
         << " cohort=" << cohort_name(result.cohort)
+        << " left_strafe=" << player_strafe_name(result.player_strafe_mode)
         << " script_hash=" << result.script_hash
         << " acquire_points=" << result.acquire_points
         << " tracking_points=" << result.tracking_points
@@ -814,6 +853,13 @@ int main(int argc, char** argv) {
         std::vector<BenchmarkCohort> cohorts;
         if (options.cohort != "bodylock") cohorts.push_back(BenchmarkCohort::AdsAcquire);
         if (options.cohort != "ads") cohorts.push_back(BenchmarkCohort::BodyLockFollow);
+        std::vector<PlayerStrafeMode> player_strafe_modes;
+        if (options.left_strafe != "full-reversal") {
+            player_strafe_modes.push_back(PlayerStrafeMode::Off);
+        }
+        if (options.left_strafe != "off") {
+            player_strafe_modes.push_back(PlayerStrafeMode::FullReversal);
+        }
         std::vector<BenchmarkResult> results;
         std::vector<CounterfactualRunSummary> counterfactual_results;
         std::vector<FusionRunSummary> fusion_results;
@@ -825,22 +871,25 @@ int main(int argc, char** argv) {
             const ScenarioScript script = generate_script(seed, benchmark_config);
             for (const ManualProfile profile : profiles) {
                 for (const BenchmarkCohort cohort : cohorts) {
-                    auto coverage = std::make_shared<AssistedModeCoverage>();
-                    const ReplayControllerFactory factory = make_native_factory(
-                        runtime.gamepad, cohort, intent_fusion_mode, coverage,
-                        1.0, options.tracker_velocity_alpha);
-                    ReplayReference reference = record_reference(
-                        script, profile, cohort, factory);
-                    BenchmarkResult result = reference.benchmark_result;
-                    fusion_results.push_back(summarize_fusion(reference));
-                    if (options.smoke) {
-                        validate_smoke(
-                            result, options.duration_ms, *coverage);
+                    for (const PlayerStrafeMode player_strafe_mode :
+                         player_strafe_modes) {
+                        auto coverage = std::make_shared<AssistedModeCoverage>();
+                        const ReplayControllerFactory factory = make_native_factory(
+                            runtime.gamepad, cohort, intent_fusion_mode, coverage,
+                            1.0, options.tracker_velocity_alpha);
+                        ReplayReference reference = record_reference(
+                            script, profile, cohort, factory, player_strafe_mode);
+                        BenchmarkResult result = reference.benchmark_result;
+                        fusion_results.push_back(summarize_fusion(reference));
+                        if (options.smoke) {
+                            validate_smoke(
+                                result, options.duration_ms, *coverage);
+                        }
+                        print_summary(result);
+                        counterfactual_results.push_back(analyze_reference(
+                            reference, factory, options.counterfactual));
+                        results.push_back(std::move(result));
                     }
-                    print_summary(result);
-                    counterfactual_results.push_back(analyze_reference(
-                        reference, factory, options.counterfactual));
-                    results.push_back(std::move(result));
                 }
             }
         }

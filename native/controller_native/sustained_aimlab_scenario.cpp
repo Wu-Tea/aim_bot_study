@@ -173,9 +173,12 @@ ScenarioScript generate_script(
     std::mt19937 strafe_random(seed ^ 0xA17E57AFu);
     std::uniform_int_distribution<int> strafe_onset_distribution(40, 180);
     std::uniform_int_distribution<int> strafe_leg_distribution(180, 420);
-    std::uniform_real_distribution<double> strafe_speed_distribution(125.0, 232.0);
+    std::uniform_real_distribution<double> strafe_speed_distribution(
+        kPlayerStrafeMinTopSpeedPxPerSecond,
+        kPlayerStrafeMaxTopSpeedPxPerSecond);
     std::uniform_real_distribution<double> strafe_time_constant_distribution(
-        100.0, 180.0);
+        kPlayerStrafeMinTimeConstantMs,
+        kPlayerStrafeMaxTimeConstantMs);
 
     const int shortest_cycle_ms = config.min_acquire_deadline_ms +
         config.inter_target_gap_ms;
