@@ -41,6 +41,33 @@ enum class TargetProfile : std::uint8_t {
     SmallVisible,
 };
 
+enum class PlayerStrafeMode : std::uint8_t {
+    Off,
+    FullReversal,
+};
+
+struct PlayerStrafeScript {
+    int initial_direction = 1;
+    int onset_ms = 0;
+    int reverse_ms = 1;
+    int release_ms = 2;
+    double top_speed_px_per_second = 125.0;
+    double time_constant_ms = 100.0;
+
+    bool operator==(const PlayerStrafeScript& other) const noexcept {
+        return initial_direction == other.initial_direction &&
+            onset_ms == other.onset_ms &&
+            reverse_ms == other.reverse_ms &&
+            release_ms == other.release_ms &&
+            top_speed_px_per_second == other.top_speed_px_per_second &&
+            time_constant_ms == other.time_constant_ms;
+    }
+
+    bool operator!=(const PlayerStrafeScript& other) const noexcept {
+        return !(*this == other);
+    }
+};
+
 struct BenchmarkConfig {
     ScenarioProfile scenario_profile = ScenarioProfile::Baseline;
     TargetProfile target_profile = TargetProfile::Ordinary;
@@ -76,6 +103,7 @@ struct TargetScript {
     std::vector<VelocityManeuver> velocity_maneuvers;
     int acquire_deadline_ms = 250;
     double visible_radius_px = 24.0;
+    PlayerStrafeScript player_strafe;
     std::vector<int> observation_at_ms;
     std::vector<Vec2d> observation_noise_px;
 };

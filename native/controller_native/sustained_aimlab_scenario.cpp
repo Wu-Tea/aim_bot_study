@@ -111,6 +111,12 @@ std::uint64_t script_hash(const ScenarioScript& script) {
         }
         hash_integral(hash, target.acquire_deadline_ms);
         hash_double(hash, target.visible_radius_px);
+        hash_integral(hash, target.player_strafe.initial_direction);
+        hash_integral(hash, target.player_strafe.onset_ms);
+        hash_integral(hash, target.player_strafe.reverse_ms);
+        hash_integral(hash, target.player_strafe.release_ms);
+        hash_double(hash, target.player_strafe.top_speed_px_per_second);
+        hash_double(hash, target.player_strafe.time_constant_ms);
         hash_integral(hash,
             static_cast<std::uint64_t>(target.observation_at_ms.size()));
         for (std::size_t index = 0; index < target.observation_at_ms.size(); ++index) {
@@ -164,6 +170,12 @@ ScenarioScript generate_script(
         70.0 * kPi / 180.0, 150.0 * kPi / 180.0);
     std::uniform_int_distribution<int> observation_interval_distribution(10, 12);
     std::uniform_int_distribution<int> profile_offset_distribution(0, 6);
+    std::mt19937 strafe_random(seed ^ 0xA17E57AFu);
+    std::uniform_int_distribution<int> strafe_onset_distribution(40, 180);
+    std::uniform_int_distribution<int> strafe_leg_distribution(180, 420);
+    std::uniform_real_distribution<double> strafe_speed_distribution(125.0, 232.0);
+    std::uniform_real_distribution<double> strafe_time_constant_distribution(
+        100.0, 180.0);
 
     const int shortest_cycle_ms = config.min_acquire_deadline_ms +
         config.inter_target_gap_ms;
@@ -176,6 +188,20 @@ ScenarioScript generate_script(
     for (std::size_t index = 0; index < target_count; ++index) {
         TargetScript target;
         target.id = static_cast<std::uint64_t>(index + 1);
+        target.player_strafe.initial_direction =
+            sampled_sign(strafe_random) < 0.0 ? -1 : 1;
+        target.player_strafe.onset_ms =
+            strafe_onset_distribution(strafe_random);
+        target.player_strafe.reverse_ms =
+            target.player_strafe.onset_ms +
+            strafe_leg_distribution(strafe_random);
+        target.player_strafe.release_ms =
+            target.player_strafe.reverse_ms +
+            strafe_leg_distribution(strafe_random);
+        target.player_strafe.top_speed_px_per_second =
+            strafe_speed_distribution(strafe_random);
+        target.player_strafe.time_constant_ms =
+            strafe_time_constant_distribution(strafe_random);
         target.motion =
             config.scenario_profile == ScenarioProfile::CompoundDirectional
             ? MotionProfile::CompoundDirectional

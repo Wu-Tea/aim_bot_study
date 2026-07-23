@@ -45,6 +45,7 @@ bool same_target(const TargetScript& left, const TargetScript& right) {
         left.maneuver_at_ms != right.maneuver_at_ms ||
         left.velocity_maneuvers.size() != right.velocity_maneuvers.size() ||
         left.acquire_deadline_ms != right.acquire_deadline_ms ||
+        left.player_strafe != right.player_strafe ||
         left.observation_at_ms != right.observation_at_ms ||
         left.observation_noise_px.size() != right.observation_noise_px.size()) {
         return false;
@@ -126,6 +127,35 @@ void test_script_hash_includes_control_response_delay() {
         1337, delayed);
     require(first.hash != second.hash,
             "script identity must include delayed plant semantics");
+}
+
+void test_full_speed_strafe_schedule_is_seeded_and_bounded() {
+    BenchmarkConfig config;
+    config.duration_ms = 3'000;
+    const ScenarioScript first =
+        controller_native::sustained_aimlab::generate_script(2026072301u, config);
+    const ScenarioScript second =
+        controller_native::sustained_aimlab::generate_script(2026072301u, config);
+    require(first.targets.size() == second.targets.size(),
+            "same seed must preserve player strafe count");
+    for (std::size_t index = 0; index < first.targets.size(); ++index) {
+        const auto& strafe = first.targets[index].player_strafe;
+        require(strafe == second.targets[index].player_strafe,
+                "same seed must reproduce player strafe");
+        require(strafe.initial_direction == -1 ||
+                    strafe.initial_direction == 1,
+                "active strafe direction must be full scale");
+        require(0 <= strafe.onset_ms &&
+                    strafe.onset_ms < strafe.reverse_ms &&
+                    strafe.reverse_ms < strafe.release_ms,
+                "strafe phases must be ordered");
+        require(strafe.top_speed_px_per_second >= 125.0 &&
+                    strafe.top_speed_px_per_second <= 232.0,
+                "player speed must cover approved weapon mobility range");
+        require(strafe.time_constant_ms >= 100.0 &&
+                    strafe.time_constant_ms <= 180.0,
+                "player inertia must remain in approved range");
+    }
 }
 
 void test_generated_ranges_and_observation_schedule() {
@@ -326,6 +356,7 @@ int main() {
         test_defaults_and_slowdown_anchor_points();
         test_seeded_generation_is_reproducible_and_complete();
         test_script_hash_includes_control_response_delay();
+        test_full_speed_strafe_schedule_is_seeded_and_bounded();
         test_generated_ranges_and_observation_schedule();
         test_motion_profiles_and_boundary_reflection();
         test_motion_profile_names_are_stable();
