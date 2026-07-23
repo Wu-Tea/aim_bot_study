@@ -1408,6 +1408,18 @@ add_executable(cod_native_sustained_aimlab_simulator_tests
     ../controller_native/sustained_aimlab_scenario.cpp
 )
 
+add_executable(cod_native_benchmark_physical_input_tests
+    ../controller_native/native_benchmark_physical_input_tests.cpp
+)
+
+target_include_directories(cod_native_benchmark_physical_input_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
+add_test(
+    NAME NativeBenchmarkPhysicalInputTests
+    COMMAND cod_native_benchmark_physical_input_tests)
+
 target_include_directories(cod_native_vector_intent_fuser_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/..

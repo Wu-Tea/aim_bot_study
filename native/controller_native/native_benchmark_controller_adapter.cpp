@@ -1,6 +1,7 @@
 #include "native_benchmark_controller_adapter.h"
 
 #include "common_native/authority_types.h"
+#include "native_benchmark_physical_input.h"
 #include "pipeline_contract/target_snapshot.h"
 
 #include <algorithm>
@@ -122,8 +123,7 @@ ControllerStepResult NativeReplayAdapter::step(
             physical_.left_trigger = 1.0f;
         }
     }
-    physical_.right_x = static_cast<float>(input.manual_stick.x);
-    physical_.right_y = static_cast<float>(input.manual_stick.y);
+    apply_benchmark_physical_input(input, physical_);
     if (input.fresh_vision) {
         controller_.submit_vision_snapshot(snapshot_from(input, now_seconds_));
     }
