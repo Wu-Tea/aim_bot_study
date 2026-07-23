@@ -38,6 +38,7 @@ struct ReplayReference {
     ScenarioScript script;
     ManualProfile manual_profile = ManualProfile::Pure;
     BenchmarkCohort cohort = BenchmarkCohort::AdsAcquire;
+    PlayerStrafeMode player_strafe_mode = PlayerStrafeMode::Off;
     BenchmarkResult benchmark_result;
     std::vector<SimulationTraceFrame> trace;
 };
@@ -100,7 +101,8 @@ ReplayReference record_reference(
     const ScenarioScript& script,
     ManualProfile manual_profile,
     BenchmarkCohort cohort,
-    const ReplayControllerFactory& factory);
+    const ReplayControllerFactory& factory,
+    PlayerStrafeMode player_strafe_mode = PlayerStrafeMode::Off);
 
 BranchResult replay_branch(
     const ReplayReference& reference,

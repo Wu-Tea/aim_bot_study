@@ -183,6 +183,32 @@ void test_replay_matches_reference_before_branch() {
             "branch replay must stop at branch plus horizon");
 }
 
+void test_replay_preserves_full_speed_left_strafe_before_branch() {
+    ScenarioScript script = replay_fixture();
+    auto& strafe = script.targets.front().player_strafe;
+    strafe.initial_direction = 1;
+    strafe.onset_ms = 0;
+    strafe.reverse_ms = 100;
+    strafe.release_ms = 200;
+    strafe.top_speed_px_per_second = 180.0;
+    strafe.time_constant_ms = 120.0;
+    const ReplayReference reference = record_reference(
+        script, ManualProfile::Pure, BenchmarkCohort::AdsAcquire,
+        constant_ai_factory({0.0, 0.0}), PlayerStrafeMode::FullReversal);
+    ReplayRequest request = request_for(BranchPolicy::ActualMix);
+    request.branch_at_ms = 150;
+    const BranchResult branch = replay_branch(
+        reference, request, constant_ai_factory({0.0, 0.0}));
+
+    require(reference.player_strafe_mode == PlayerStrafeMode::FullReversal,
+            "reference must retain player strafe mode");
+    require(reference.trace[20].input.left_x == 1.0 &&
+                reference.trace[120].input.left_x == -1.0,
+            "reference trace must contain full-speed reversal");
+    require(branch.prebranch_verified,
+            "replay must preserve left input and player plant before branch");
+}
+
 void test_manual_only_branch_can_beat_harmful_ai() {
     const ReplayReference reference = record_reference(
         replay_fixture(), ManualProfile::Mixed,
@@ -314,6 +340,7 @@ void test_same_direction_stack_can_be_destructive() {
 int main() {
     try {
         test_replay_matches_reference_before_branch();
+        test_replay_preserves_full_speed_left_strafe_before_branch();
         test_manual_only_branch_can_beat_harmful_ai();
         test_invalid_replay_window_is_rejected();
         test_analyzer_selects_manual_and_reports_regret();

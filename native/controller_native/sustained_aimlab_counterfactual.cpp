@@ -49,6 +49,9 @@ bool same_frame(const SimulationTraceFrame& left,
         same(left.true_error_after_px, right.true_error_after_px) &&
         same(left.target_velocity_px_per_second,
              right.target_velocity_px_per_second) &&
+        left.input.left_x == right.input.left_x &&
+        left.player_velocity_x_px_per_second ==
+            right.player_velocity_x_px_per_second &&
         same_output(left.output, right.output);
 }
 
@@ -273,17 +276,20 @@ ReplayReference record_reference(
     const ScenarioScript& script,
     ManualProfile manual_profile,
     BenchmarkCohort cohort,
-    const ReplayControllerFactory& factory) {
+    const ReplayControllerFactory& factory,
+    PlayerStrafeMode player_strafe_mode) {
     if (!factory) throw std::invalid_argument("replay factory is required");
     ReplayReference result;
     result.script = script;
     result.manual_profile = manual_profile;
     result.cohort = cohort;
+    result.player_strafe_mode = player_strafe_mode;
     const BranchSchedule inactive{};
     ControllerStep controller = factory(inactive);
     result.benchmark_result = run_simulation(
         script, manual_profile, std::move(controller), cohort,
-        [&](const SimulationTraceFrame& frame) { result.trace.push_back(frame); });
+        [&](const SimulationTraceFrame& frame) { result.trace.push_back(frame); },
+        player_strafe_mode);
     if (result.trace.size() != static_cast<std::size_t>(script.config.duration_ms)) {
         throw std::runtime_error("reference trace duration mismatch");
     }
@@ -312,7 +318,8 @@ BranchResult replay_branch(
     (void)run_simulation(
         replay_script, reference.manual_profile, std::move(controller),
         reference.cohort,
-        [&](const SimulationTraceFrame& frame) { result.trace.push_back(frame); });
+        [&](const SimulationTraceFrame& frame) { result.trace.push_back(frame); },
+        reference.player_strafe_mode);
     if (result.trace.size() !=
         static_cast<std::size_t>(replay_script.config.duration_ms)) {
         throw std::runtime_error("branch trace duration mismatch");
