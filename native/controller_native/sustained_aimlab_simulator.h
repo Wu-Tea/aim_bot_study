@@ -19,6 +19,7 @@ struct ControllerObservation {
     double ready_time_seconds = std::numeric_limits<double>::quiet_NaN();
     Vec2d observed_error_px;
     Vec2d manual_stick;
+    double left_x = 0.0;
 };
 
 struct ControllerStepResult {
@@ -47,6 +48,7 @@ struct SimulationTraceFrame {
     Vec2d true_error_before_px;
     Vec2d true_error_after_px;
     Vec2d target_velocity_px_per_second;
+    double player_velocity_x_px_per_second = 0.0;
     ControllerObservation input;
     ControllerStepResult output;
 };
@@ -62,6 +64,7 @@ BenchmarkResult run_simulation(
     ManualProfile manual_profile,
     ControllerStep controller_step,
     BenchmarkCohort cohort = BenchmarkCohort::AdsAcquire,
-    SimulationTraceObserver trace_observer = {});
+    SimulationTraceObserver trace_observer = {},
+    PlayerStrafeMode player_strafe_mode = PlayerStrafeMode::Off);
 
 }  // namespace controller_native::sustained_aimlab

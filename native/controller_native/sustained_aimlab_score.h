@@ -133,7 +133,14 @@ struct BenchmarkResult {
     std::uint64_t script_hash = 0;
     ManualProfile manual_profile = ManualProfile::Pure;
     BenchmarkCohort cohort = BenchmarkCohort::AdsAcquire;
+    PlayerStrafeMode player_strafe_mode = PlayerStrafeMode::Off;
     int ticks = 0;
+    int left_strafe_active_ms = 0;
+    int left_strafe_reversals = 0;
+    double max_abs_left_x = 0.0;
+    double min_sampled_player_top_speed_px_per_second = 0.0;
+    double max_sampled_player_top_speed_px_per_second = 0.0;
+    double max_abs_player_speed_px_per_second = 0.0;
     double acquire_points = 0.0;
     double tracking_points = 0.0;
     double smooth_bonus = 0.0;

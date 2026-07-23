@@ -74,6 +74,19 @@ Vec2d mixed_manual_input(
     return {};
 }
 
+double left_strafe_input(
+    const PlayerStrafeScript& strafe,
+    int elapsed_ms,
+    PlayerStrafeMode mode) noexcept {
+    if (mode != PlayerStrafeMode::FullReversal ||
+        elapsed_ms < strafe.onset_ms ||
+        elapsed_ms >= strafe.release_ms) {
+        return 0.0;
+    }
+    const double direction = static_cast<double>(strafe.initial_direction);
+    return elapsed_ms < strafe.reverse_ms ? direction : -direction;
+}
+
 }  // namespace
 
 BenchmarkResult run_simulation(
@@ -81,7 +94,8 @@ BenchmarkResult run_simulation(
     ManualProfile manual_profile,
     ControllerStep controller_step,
     BenchmarkCohort cohort,
-    SimulationTraceObserver trace_observer) {
+    SimulationTraceObserver trace_observer,
+    PlayerStrafeMode player_strafe_mode) {
     if (!controller_step) {
         throw std::invalid_argument("controller callback is required");
     }
@@ -102,6 +116,14 @@ BenchmarkResult run_simulation(
     Vec2d error;
     Vec2d target_velocity;
     Vec2d carried_observation;
+    double player_velocity_x_px_per_second = 0.0;
+    int left_strafe_active_ms = 0;
+    int left_strafe_reversals = 0;
+    double max_abs_left_x = 0.0;
+    double min_sampled_player_top_speed_px_per_second =
+        std::numeric_limits<double>::infinity();
+    double max_sampled_player_top_speed_px_per_second = 0.0;
+    double max_abs_player_speed_px_per_second = 0.0;
     bool previous_bodylock_mode = false;
     bool pending_ads_to_bodylock_transition = false;
     std::unique_ptr<TargetScorer> scorer;
@@ -130,6 +152,15 @@ BenchmarkResult run_simulation(
             }
         }
         target_velocity = target.initial_velocity_px_per_second;
+        player_velocity_x_px_per_second = 0.0;
+        if (player_strafe_mode == PlayerStrafeMode::FullReversal) {
+            min_sampled_player_top_speed_px_per_second = std::min(
+                min_sampled_player_top_speed_px_per_second,
+                target.player_strafe.top_speed_px_per_second);
+            max_sampled_player_top_speed_px_per_second = std::max(
+                max_sampled_player_top_speed_px_per_second,
+                target.player_strafe.top_speed_px_per_second);
+        }
         carried_observation = error;
         previous_bodylock_mode = false;
         pending_ads_to_bodylock_transition = false;
@@ -177,6 +208,24 @@ BenchmarkResult run_simulation(
             }
             input.frame_id = frame_id;
             input.observed_error_px = carried_observation;
+            const int strafe_elapsed_ms =
+                cohort == BenchmarkCohort::BodyLockFollow
+                ? (tracking ? tracking_ticks : -1)
+                : target_elapsed_ms;
+            if (strafe_elapsed_ms >= 0) {
+                input.left_x = left_strafe_input(
+                    target.player_strafe, strafe_elapsed_ms,
+                    player_strafe_mode);
+                if (input.left_x != 0.0) {
+                    ++left_strafe_active_ms;
+                    max_abs_left_x = std::max(
+                        max_abs_left_x, std::fabs(input.left_x));
+                }
+                if (player_strafe_mode == PlayerStrafeMode::FullReversal &&
+                    strafe_elapsed_ms == target.player_strafe.reverse_ms) {
+                    ++left_strafe_reversals;
+                }
+            }
             if (manual_profile == ManualProfile::Mixed &&
                 (cohort != BenchmarkCohort::BodyLockFollow || tracking)) {
                 input.manual_stick = mixed_manual_input(
@@ -232,6 +281,19 @@ BenchmarkResult run_simulation(
                     ? tracking_ticks : target_elapsed_ms;
                 advance_target(target, motion_elapsed_ms, 0.001, error, target_velocity);
             }
+            const double time_constant_seconds =
+                target.player_strafe.time_constant_ms / 1000.0;
+            const double desired_player_velocity =
+                input.left_x * target.player_strafe.top_speed_px_per_second;
+            const double player_alpha = time_constant_seconds > 0.0
+                ? 1.0 - std::exp(-0.001 / time_constant_seconds)
+                : 1.0;
+            player_velocity_x_px_per_second += player_alpha *
+                (desired_player_velocity - player_velocity_x_px_per_second);
+            error.x -= player_velocity_x_px_per_second * 0.001;
+            max_abs_player_speed_px_per_second = std::max(
+                max_abs_player_speed_px_per_second,
+                std::fabs(player_velocity_x_px_per_second));
             const double response =
                 script.config.camera_response_px_per_stick_second *
                 aim_slowdown_multiplier(
@@ -240,6 +302,8 @@ BenchmarkResult run_simulation(
             error.y += plant_control.y * response * 0.001;
             trace_frame.true_error_after_px = error;
             trace_frame.target_velocity_px_per_second = target_velocity;
+            trace_frame.player_velocity_x_px_per_second =
+                player_velocity_x_px_per_second;
 
             if (cohort == BenchmarkCohort::BodyLockFollow && !tracking) {
                 if (output.bodylock_mode) {
@@ -308,7 +372,18 @@ BenchmarkResult run_simulation(
         script.seed, script.hash, std::move(target_results));
     result.manual_profile = manual_profile;
     result.cohort = cohort;
+    result.player_strafe_mode = player_strafe_mode;
     result.ticks = script.config.duration_ms;
+    result.left_strafe_active_ms = left_strafe_active_ms;
+    result.left_strafe_reversals = left_strafe_reversals;
+    result.max_abs_left_x = max_abs_left_x;
+    result.min_sampled_player_top_speed_px_per_second =
+        std::isfinite(min_sampled_player_top_speed_px_per_second)
+        ? min_sampled_player_top_speed_px_per_second : 0.0;
+    result.max_sampled_player_top_speed_px_per_second =
+        max_sampled_player_top_speed_px_per_second;
+    result.max_abs_player_speed_px_per_second =
+        max_abs_player_speed_px_per_second;
     return result;
 }
 

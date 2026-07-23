@@ -130,6 +130,71 @@ void test_virtual_camera_can_delay_delivered_control_without_delaying_controller
             "camera must apply the queued stick at the configured delay");
 }
 
+void test_full_speed_left_strafe_moves_relative_error_with_inertia() {
+    ScenarioScript script = stationary_script(320, {100.0, 0.0}, 320);
+    auto& strafe = script.targets.front().player_strafe;
+    strafe.initial_direction = 1;
+    strafe.onset_ms = 10;
+    strafe.reverse_ms = 120;
+    strafe.release_ms = 240;
+    strafe.top_speed_px_per_second = 200.0;
+    strafe.time_constant_ms = 100.0;
+
+    std::vector<SimulationTraceFrame> off_trace;
+    const BenchmarkResult off = run_simulation(
+        script, ManualProfile::Pure,
+        [](const ControllerObservation&) { return ControllerStepResult{}; },
+        BenchmarkCohort::AdsAcquire,
+        [&](const SimulationTraceFrame& frame) { off_trace.push_back(frame); },
+        PlayerStrafeMode::Off);
+    std::vector<SimulationTraceFrame> on_trace;
+    const BenchmarkResult on = run_simulation(
+        script, ManualProfile::Pure,
+        [](const ControllerObservation&) { return ControllerStepResult{}; },
+        BenchmarkCohort::AdsAcquire,
+        [&](const SimulationTraceFrame& frame) { on_trace.push_back(frame); },
+        PlayerStrafeMode::FullReversal);
+
+    require(off.script_hash == on.script_hash,
+            "paired strafe variants must share target identity");
+    require(on_trace[10].input.left_x == 1.0 &&
+                on_trace[120].input.left_x == -1.0 &&
+                on_trace[240].input.left_x == 0.0,
+            "strafe schedule must deliver full-scale onset, reversal, release");
+    require(on_trace[60].true_error_after_px.x <
+                off_trace[60].true_error_after_px.x,
+            "positive player motion must shift target left");
+    require(on_trace[10].player_velocity_x_px_per_second > 0.0 &&
+                on_trace[10].player_velocity_x_px_per_second < 200.0,
+            "player velocity must ramp instead of jumping");
+    require(std::fabs(on_trace[241].player_velocity_x_px_per_second) <
+                std::fabs(on_trace[239].player_velocity_x_px_per_second),
+            "release must decay velocity instead of stopping instantly");
+    require(std::fabs(on_trace[241].player_velocity_x_px_per_second) > 0.0,
+            "release must retain bounded inertia");
+    require(off.left_strafe_active_ms == 0 &&
+                off.max_abs_player_speed_px_per_second == 0.0,
+            "off mode must leave player plant neutral");
+    require(on.left_strafe_active_ms == 230 &&
+                on.left_strafe_reversals == 1 &&
+                on.max_abs_left_x == 1.0 &&
+                on.max_abs_player_speed_px_per_second > 0.0,
+            "strafe run must retain audit metrics");
+}
+
+void test_default_simulation_mode_is_explicit_off() {
+    const ScenarioScript script = stationary_script(80, {20.0, 0.0});
+    const BenchmarkResult implicit = run_simulation(
+        script, ManualProfile::Pure, proportional_controller());
+    const BenchmarkResult explicit_off = run_simulation(
+        script, ManualProfile::Pure, proportional_controller(),
+        BenchmarkCohort::AdsAcquire, {}, PlayerStrafeMode::Off);
+    require(implicit.acquire_points == explicit_off.acquire_points &&
+                implicit.tracking_points == explicit_off.tracking_points &&
+                implicit.mean_error_px == explicit_off.mean_error_px,
+            "default simulation must preserve pre-feature no-strafe result");
+}
+
 void test_closed_loop_score_ordering() {
     const ScenarioScript script = stationary_script(1'350, {100.0, 0.0});
     const BenchmarkResult fast = run_simulation(
@@ -398,6 +463,8 @@ int main() {
         test_miss_respects_deadline_and_tracking_is_exactly_1000ms();
         test_virtual_camera_x_and_y_signs_close_error();
         test_virtual_camera_can_delay_delivered_control_without_delaying_controller();
+        test_full_speed_left_strafe_moves_relative_error_with_inertia();
+        test_default_simulation_mode_is_explicit_off();
         test_closed_loop_score_ordering();
         test_same_script_is_reused_for_pure_and_mixed_runs();
         test_mixed_profile_contains_polar_component_errors();
