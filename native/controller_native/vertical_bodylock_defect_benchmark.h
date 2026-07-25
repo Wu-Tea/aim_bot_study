@@ -62,6 +62,7 @@ Metrics run_stairs_air_lock();
 Metrics run_cooperative_overshoot_occlusion();
 Metrics run_large_vertical_cooperative_acquisition();
 Metrics run_slide_recoil_dropout();
+Metrics run_player_pov_jump();
 ManualTakeoverMetrics run_single_target_manual_takeover();
 ManualTakeoverMetrics run_single_target_manual_takeover_legacy();
 ManualTakeoverMetrics run_single_target_cooperative_tracking();

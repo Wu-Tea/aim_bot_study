@@ -429,6 +429,7 @@ Metrics run_slide_recoil_dropout() {
     metrics.name = "slide_down_forward_recoil_dropout";
     double now = 7.0;
     double target_y = 230.0;
+    double last_observed_target_y = target_y;
     double reticle_y = target_y;
     metrics.selector_target_y = target_y;
 
@@ -450,8 +451,11 @@ Metrics run_slide_recoil_dropout() {
         const double visible_bottom = target_y + half_height;
         const bool dropout = frame >= 60 && frame < 140;
         if (dropout) ++metrics.outside_body_frames;
-        controller.submit_vision_state(vision_state(
-            now, reticle_y, target_y, visible_top, visible_bottom, !dropout));
+        if (!dropout) {
+            controller.submit_vision_state(vision_state(
+                now, reticle_y, target_y, visible_top, visible_bottom, true));
+            last_observed_target_y = target_y;
+        }
         constexpr float manual_y = 0.0f;
         controller.build_output(aiming(manual_y));
         const auto& components = controller.last_output_components();
@@ -463,8 +467,7 @@ Metrics run_slide_recoil_dropout() {
         const double relative_error = std::fabs(target_y - reticle_y);
         metrics.max_overshoot_px = std::max(
             metrics.max_overshoot_px, relative_error);
-        if (frame >= 40 && target_y > reticle_y &&
-            components.final_stick.y > 0.02f) {
+        if (dropout && target_y - last_observed_target_y > 5.0) {
             ++metrics.ai_opposes_recovery_frames;
         }
         if (frame >= 140 && metrics.reacquire_frame < 0 &&
@@ -478,7 +481,81 @@ Metrics run_slide_recoil_dropout() {
         }
     }
     metrics.defect_reproduced = metrics.outside_body_frames == 80 &&
+        metrics.ai_opposes_recovery_frames >= 40 &&
         metrics.reacquire_frame >= 140 && metrics.max_overshoot_px > 35.0;
+    return metrics;
+}
+
+Metrics run_player_pov_jump() {
+    Metrics metrics;
+    metrics.name = "player_pov_jump_vertical_reversal";
+    constexpr double base_target_y = 230.0;
+    constexpr double jump_amplitude_px = 80.0;
+    constexpr int jump_start_frame = 40;
+    constexpr int jump_duration_frames = 480;
+    constexpr int jump_apex_frame =
+        jump_start_frame + jump_duration_frames / 2;
+    metrics.target_distance_to_body_px = jump_amplitude_px;
+
+    double now = 8.0;
+    double reticle_y = base_target_y;
+    double apparent_target_y = base_target_y;
+    GamepadRuntimeConfig config;
+    config.ai_aim.ads_snap_window_ms = 0;
+    config.recoil.enabled = false;
+    config.auto_fire.require_aim_ready = false;
+    config.aim_assist_dynamics.enabled = false;
+    NativeGamepadController controller(config, [&now] { return now; });
+
+    for (int frame = 0; frame < 640; ++frame) {
+        now += kDt;
+        const int jump_elapsed = frame - jump_start_frame;
+        double jump_offset = 0.0;
+        if (jump_elapsed >= 0 && jump_elapsed <= jump_duration_frames) {
+            const double phase = static_cast<double>(jump_elapsed) /
+                static_cast<double>(jump_duration_frames);
+            jump_offset = jump_amplitude_px *
+                std::sin(3.14159265358979323846 * phase);
+        }
+        apparent_target_y = base_target_y + jump_offset;
+        const double visible_top = apparent_target_y - 70.0;
+        const double visible_bottom = apparent_target_y + 70.0;
+        if (frame % 10 == 0) {
+            controller.submit_vision_state(vision_state(
+                now, reticle_y, apparent_target_y,
+                visible_top, visible_bottom, true));
+        }
+        constexpr float manual_y = 0.0f;
+        controller.build_output(aiming(manual_y));
+        const auto& components = controller.last_output_components();
+        reticle_y += -static_cast<double>(components.final_stick.y) *
+            kReticleSpeed * kDt;
+
+        const double relative_error = std::fabs(apparent_target_y - reticle_y);
+        metrics.max_overshoot_px = std::max(
+            metrics.max_overshoot_px, relative_error);
+        if (relative_error > 24.0) ++metrics.outside_body_frames;
+        if (frame > jump_apex_frame &&
+            apparent_target_y < reticle_y &&
+            components.final_stick.y < -0.02f) {
+            ++metrics.ai_opposes_recovery_frames;
+        }
+        if (frame > jump_apex_frame && metrics.recovery_start_frame < 0 &&
+            components.final_stick.y > 0.02f) {
+            metrics.recovery_start_frame = frame;
+        }
+        if (frame < 5 || frame == jump_start_frame ||
+            frame == jump_apex_frame || frame == jump_start_frame + jump_duration_frames ||
+            frame % 80 == 0) {
+            record_event(metrics, frame, reticle_y, apparent_target_y,
+                visible_top, visible_bottom, manual_y, controller);
+        }
+    }
+    metrics.selector_target_y = apparent_target_y;
+    metrics.reacquire_frame = jump_start_frame + jump_duration_frames;
+    metrics.defect_reproduced = metrics.max_overshoot_px > 20.0 ||
+        metrics.ai_opposes_recovery_frames > 10 ||
+        metrics.outside_body_frames > 40;
     return metrics;
 }
 

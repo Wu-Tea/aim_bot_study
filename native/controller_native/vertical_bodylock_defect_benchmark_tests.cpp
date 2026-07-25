@@ -63,15 +63,33 @@ int main(int argc, char** argv) {
     std::cout << "slide_recoil peak_error_px="
               << slide_recoil.max_overshoot_px
               << " dropout_frames=" << slide_recoil.outside_body_frames
-              << " obsolete_up_frames="
+              << " stale_hold_frames="
               << slide_recoil.ai_opposes_recovery_frames
               << " reacquire_frame=" << slide_recoil.reacquire_frame << '\n';
+    require(slide_recoil.ai_opposes_recovery_frames >= 40,
+        "slide/dropout fixture must retain the stale target point instead of predicting down");
     require(slide_recoil.reacquire_frame >= 0,
         "slide/recoil fixture must publish a same-target reacquisition");
     require(slide_recoil.defect_reproduced,
         "slide plus upward recoil and dropout must expose current tracking debt");
+
+    const auto pov_jump =
+        controller_native::vertical_defect::run_player_pov_jump();
+    std::cout << "pov_jump amplitude_px="
+              << pov_jump.target_distance_to_body_px
+              << " peak_error_px=" << pov_jump.max_overshoot_px
+              << " outside_frames=" << pov_jump.outside_body_frames
+              << " obsolete_after_apex_frames="
+              << pov_jump.ai_opposes_recovery_frames
+              << " reversal_frame=" << pov_jump.recovery_start_frame << '\n';
+    require(pov_jump.target_distance_to_body_px >= 60.0 &&
+                pov_jump.target_distance_to_body_px <= 100.0,
+        "POV jump fixture must use a bounded visible jump amplitude");
+    require(pov_jump.defect_reproduced,
+        "POV jump must expose vertical prediction and reversal debt");
+
     if (argc == 2 && std::string(argv[1]) == "--new-stress-only") {
-        std::cout << "[VerticalStressDiagnosticTests] PASS defects_reproduced=2\n";
+        std::cout << "[VerticalStressDiagnosticTests] PASS defects_reproduced=3\n";
         return 0;
     }
 
