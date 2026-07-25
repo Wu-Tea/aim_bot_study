@@ -44,6 +44,37 @@ void write_takeover_metric(
 }
 
 int main(int argc, char** argv) {
+    const auto large_vertical =
+        controller_native::vertical_defect::run_large_vertical_cooperative_acquisition();
+    std::cout << "large_vertical initial_px="
+              << large_vertical.target_distance_to_body_px
+              << " overshoot_px=" << large_vertical.max_overshoot_px
+              << " obsolete_up_frames="
+              << large_vertical.ai_opposes_recovery_frames
+              << " recovery_frame=" << large_vertical.recovery_start_frame << '\n';
+    require(large_vertical.target_distance_to_body_px >= 200.0 &&
+                large_vertical.target_distance_to_body_px <= 300.0,
+        "large vertical fixture must start 200-300px above the reticle");
+    require(large_vertical.defect_reproduced,
+        "large vertical cooperative acquisition must expose current overshoot debt");
+
+    const auto slide_recoil =
+        controller_native::vertical_defect::run_slide_recoil_dropout();
+    std::cout << "slide_recoil peak_error_px="
+              << slide_recoil.max_overshoot_px
+              << " dropout_frames=" << slide_recoil.outside_body_frames
+              << " obsolete_up_frames="
+              << slide_recoil.ai_opposes_recovery_frames
+              << " reacquire_frame=" << slide_recoil.reacquire_frame << '\n';
+    require(slide_recoil.reacquire_frame >= 0,
+        "slide/recoil fixture must publish a same-target reacquisition");
+    require(slide_recoil.defect_reproduced,
+        "slide plus upward recoil and dropout must expose current tracking debt");
+    if (argc == 2 && std::string(argv[1]) == "--new-stress-only") {
+        std::cout << "[VerticalStressDiagnosticTests] PASS defects_reproduced=2\n";
+        return 0;
+    }
+
     const auto prone = controller_native::vertical_defect::run_prone_air_lock();
     std::cout << "prone target=" << prone.selector_target_y
               << " escape=" << prone.manual_escape_frame

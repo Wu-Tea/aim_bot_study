@@ -361,6 +361,127 @@ Metrics run_cooperative_overshoot_occlusion() {
     return metrics;
 }
 
+Metrics run_large_vertical_cooperative_acquisition() {
+    Metrics metrics;
+    metrics.name = "large_vertical_cooperative_acquisition";
+    constexpr double target_y = 20.0;
+    constexpr double visible_top = target_y - 24.0;
+    constexpr double visible_bottom = target_y + 36.0;
+    double reticle_y = 260.0;
+    metrics.target_distance_to_body_px = std::fabs(reticle_y - target_y);
+    metrics.visible_body_top = visible_top;
+    metrics.visible_body_bottom = visible_bottom;
+    metrics.selector_target_y = target_y;
+
+    double now = 6.0;
+    GamepadRuntimeConfig config;
+    config.ai_aim.ads_snap_window_ms = 120;
+    config.recoil.enabled = false;
+    config.auto_fire.require_aim_ready = false;
+    config.aim_assist_dynamics.enabled = false;
+    NativeGamepadController controller(config, [&now] { return now; });
+    int crossing_frame = -1;
+
+    for (int frame = 0; frame < 520; ++frame) {
+        now += kDt;
+        controller.submit_vision_state(vision_state(
+            now, reticle_y, target_y, visible_top, visible_bottom, true));
+        const bool late_upward_commit =
+            crossing_frame < 0 || frame < crossing_frame + 30;
+        const float manual_y = late_upward_commit ? 0.62f : -0.38f;
+        controller.build_output(aiming(manual_y));
+        const auto& components = controller.last_output_components();
+        const double previous = reticle_y;
+        reticle_y += -static_cast<double>(components.final_stick.y) *
+            kReticleSpeed * kDt;
+        if (crossing_frame < 0 && previous > target_y && reticle_y <= target_y) {
+            crossing_frame = frame;
+        }
+        if (crossing_frame >= 0) {
+            metrics.max_overshoot_px = std::max(
+                metrics.max_overshoot_px, std::max(0.0, target_y - reticle_y));
+            if (reticle_y < visible_top || reticle_y > visible_bottom) {
+                ++metrics.outside_body_frames;
+            }
+            if (components.final_stick.y > 0.02f) {
+                ++metrics.ai_opposes_recovery_frames;
+            }
+            if (!late_upward_commit && metrics.recovery_start_frame < 0 &&
+                reticle_y > previous) {
+                metrics.recovery_start_frame = frame;
+            }
+        }
+        if (frame < 5 || frame % 40 == 0 || frame == crossing_frame ||
+            frame == crossing_frame + 30) {
+            record_event(metrics, frame, reticle_y, target_y,
+                visible_top, visible_bottom, manual_y, controller);
+        }
+    }
+    metrics.reacquire_frame = crossing_frame;
+    metrics.defect_reproduced = crossing_frame >= 0 &&
+        (metrics.max_overshoot_px > 20.0 ||
+         metrics.ai_opposes_recovery_frames > 20);
+    return metrics;
+}
+
+Metrics run_slide_recoil_dropout() {
+    Metrics metrics;
+    metrics.name = "slide_down_forward_recoil_dropout";
+    double now = 7.0;
+    double target_y = 230.0;
+    double reticle_y = target_y;
+    metrics.selector_target_y = target_y;
+
+    GamepadRuntimeConfig config;
+    config.ai_aim.ads_snap_window_ms = 0;
+    config.recoil.enabled = false;
+    config.auto_fire.require_aim_ready = false;
+    config.aim_assist_dynamics.enabled = false;
+    NativeGamepadController controller(config, [&now] { return now; });
+
+    for (int frame = 0; frame < 300; ++frame) {
+        now += kDt;
+        const bool sliding = frame >= 40 && frame < 180;
+        if (sliding) target_y += 0.45;
+        const double slide_progress = std::clamp(
+            static_cast<double>(frame - 40) / 140.0, 0.0, 1.0);
+        const double half_height = 70.0 - slide_progress * 35.0;
+        const double visible_top = target_y - half_height;
+        const double visible_bottom = target_y + half_height;
+        const bool dropout = frame >= 60 && frame < 140;
+        if (dropout) ++metrics.outside_body_frames;
+        controller.submit_vision_state(vision_state(
+            now, reticle_y, target_y, visible_top, visible_bottom, !dropout));
+        constexpr float manual_y = 0.0f;
+        controller.build_output(aiming(manual_y));
+        const auto& components = controller.last_output_components();
+        reticle_y += -static_cast<double>(components.final_stick.y) *
+            kReticleSpeed * kDt;
+        if (frame >= 40 && frame < 120) {
+            reticle_y -= 0.30;
+        }
+        const double relative_error = std::fabs(target_y - reticle_y);
+        metrics.max_overshoot_px = std::max(
+            metrics.max_overshoot_px, relative_error);
+        if (frame >= 40 && target_y > reticle_y &&
+            components.final_stick.y > 0.02f) {
+            ++metrics.ai_opposes_recovery_frames;
+        }
+        if (frame >= 140 && metrics.reacquire_frame < 0 &&
+            controller.last_frame_vision_state().aim_authority) {
+            metrics.reacquire_frame = frame;
+        }
+        if (frame < 5 || frame == 39 || frame == 40 || frame == 59 ||
+            frame == 60 || frame == 139 || frame == 140 || frame % 40 == 0) {
+            record_event(metrics, frame, reticle_y, target_y,
+                visible_top, visible_bottom, manual_y, controller);
+        }
+    }
+    metrics.defect_reproduced = metrics.outside_body_frames == 80 &&
+        metrics.reacquire_frame >= 140 && metrics.max_overshoot_px > 35.0;
+    return metrics;
+}
+
 ManualTakeoverMetrics run_single_target_manual_takeover() {
     return run_horizontal_scenario(HorizontalScenario::Takeover);
 }
