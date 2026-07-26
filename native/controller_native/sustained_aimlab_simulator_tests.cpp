@@ -455,6 +455,33 @@ void test_trace_is_deterministic_and_observational() {
             "trace timestamps must begin at zero");
 }
 
+void test_obsolete_manual_profile_persists_after_center_crossing() {
+    ScenarioScript script = stationary_script(260, {0.0, -40.0});
+    script.targets.front().id = 11;
+    std::vector<Vec2d> manual;
+    const BenchmarkResult result = run_simulation(
+        script, ManualProfile::ObsoleteAfterCrossing,
+        [&](const ControllerObservation& input) {
+            if (input.target_present) manual.push_back(input.manual_stick);
+            ControllerStepResult output;
+            output.final_stick = {0.0, 1.0};
+            output.target_observed = input.target_present;
+            output.tracker_reliable = input.target_present;
+            return output;
+        });
+    require(manual.size() == 260, "fixture must expose every active tick");
+    require(manual[0].y > 0.60,
+            "obsolete profile must begin with realistic upward manual strength");
+    require(manual[90].y > 0.60,
+            "manual direction must persist after the counterfactual crossing");
+    require(std::fabs(manual[250].y) < 1e-9,
+            "manual persistence must end within the bounded 80-140ms window");
+    require(result.maximum_vertical_overshoot_px > 0.0,
+            "V1 must measure crossing without relying on brake arming");
+    require(result.post_cross_wrong_way_output_integral > 0.0,
+            "V1 must measure obsolete delivered output after crossing");
+}
+
 }  // namespace
 
 int main() {
@@ -477,6 +504,7 @@ int main() {
         test_plan_diagnostics_and_ads_handoff_reach_the_scorer();
         test_ads_handoff_on_acquisition_boundary_is_not_lost();
         test_trace_is_deterministic_and_observational();
+        test_obsolete_manual_profile_persists_after_center_crossing();
         std::cout << "cod_native_sustained_aimlab_simulator_tests PASS\n";
         return EXIT_SUCCESS;
     } catch (const std::exception& error) {

@@ -258,6 +258,28 @@ void test_small_center_cross_is_visible_without_severe_overshoot() {
             "post-cross excursion must accumulate area");
     require(result.continued_push_after_cross_ms > 0,
             "AI continuing the approach after crossing must be attributed");
+    require(result.post_cross_wrong_way_output_integral > 0.0,
+            "wrong-way delivered output must accumulate after crossing");
+    require(result.post_cross_error_area_px_ms > 0.0,
+            "V1 post-cross error area must be exported explicitly");
+}
+
+void test_vertical_cross_exports_v1_overshoot_metrics() {
+    TargetScorer scorer(target_with_deadline(), BenchmarkConfig{});
+    scorer.mark_acquired(20);
+    const double errors[] = {-6.0, -3.0, -1.0, 2.0, 3.5, 4.0};
+    for (int ms = 0; ms < 6; ++ms) {
+        ScoreFrame frame = tracking_frame(ms, {0.0, errors[ms]});
+        frame.radial_closing_velocity_px_per_sec = 120.0;
+        frame.final_stick = {0.0, 0.4};
+        frame.shaped_assist_stick = frame.final_stick;
+        scorer.add_frame(frame);
+    }
+    const TargetResult result = scorer.finish();
+    require(result.maximum_vertical_overshoot_px >= 4.0,
+            "vertical post-cross amplitude must be exported explicitly");
+    require(result.post_cross_wrong_way_output_integral > 0.0,
+            "vertical wrong-way delivered output must be accumulated");
 }
 
 void test_fast_no_cross_capture_settles_without_false_overshoot() {
@@ -400,6 +422,7 @@ int main() {
         test_smooth_zero_output_cannot_beat_useful_tracking();
         test_one_overshoot_trace_counts_once();
         test_small_center_cross_is_visible_without_severe_overshoot();
+        test_vertical_cross_exports_v1_overshoot_metrics();
         test_fast_no_cross_capture_settles_without_false_overshoot();
         test_stall_ring_and_handoff_diagnostics_are_exported();
         test_settle_ends_the_frozen_approach_axis();

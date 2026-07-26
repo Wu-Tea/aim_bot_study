@@ -791,6 +791,18 @@ add_executable(cod_native_axis_intent_arbiter_tests
 add_executable(cod_native_vector_intent_fuser_tests
     ../controller_native/vector_intent_fuser_tests.cpp
     ../controller_native/vector_intent_fuser.cpp
+    ../controller_native/causal_mix_evaluator.cpp
+)
+
+add_executable(cod_native_causal_mix_evaluator_tests
+    ../controller_native/causal_mix_evaluator_tests.cpp
+    ../controller_native/causal_mix_evaluator.cpp
+)
+
+target_include_directories(cod_native_causal_mix_evaluator_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+    ${CMAKE_CURRENT_SOURCE_DIR}/../controller_native
 )
 
 add_executable(cod_native_log_session_manager_tests
@@ -1769,6 +1781,7 @@ set(COD_TARGET_PLAN_RUNTIME_SOURCES
     ../controller_native/aim_dynamics_shaper.cpp
     ../controller_native/axis_intent_arbiter.cpp
     ../controller_native/vector_intent_fuser.cpp
+    ../controller_native/causal_mix_evaluator.cpp
 )
 
 foreach(COD_TARGET

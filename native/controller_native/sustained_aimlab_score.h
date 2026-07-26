@@ -61,6 +61,9 @@ struct TargetResult {
     int center_cross_events = 0;
     double max_post_cross_error_px = 0.0;
     double overshoot_area_px_ms = 0.0;
+    double maximum_vertical_overshoot_px = 0.0;
+    double post_cross_error_area_px_ms = 0.0;
+    double post_cross_wrong_way_output_integral = 0.0;
     int continued_push_after_cross_ms = 0;
     double brake_start_distance_px = -1.0;
     int time_to_zero_radial_speed_ms = -1;
@@ -161,6 +164,9 @@ struct BenchmarkResult {
     double max_post_cross_error_px = 0.0;
     double p95_post_cross_error_px = 0.0;
     double overshoot_area_px_ms = 0.0;
+    double maximum_vertical_overshoot_px = 0.0;
+    double post_cross_error_area_px_ms = 0.0;
+    double post_cross_wrong_way_output_integral = 0.0;
     int continued_push_after_cross_ms = 0;
     int correction_reversal_events = 0;
     int circle_exit_events = 0;

@@ -172,6 +172,12 @@ void TargetScorer::add_frame(const ScoreFrame& frame) {
                 std::max(result_.max_post_cross_error_px, excursion);
             result_.overshoot_area_px_ms += excursion;
             const Vec2d approach_stick{brake_axis_.x, -brake_axis_.y};
+            result_.maximum_vertical_overshoot_px = std::max(
+                result_.maximum_vertical_overshoot_px,
+                std::fabs(frame.error_px.y));
+            result_.post_cross_error_area_px_ms += excursion;
+            result_.post_cross_wrong_way_output_integral += std::max(
+                0.0, dot(frame.final_stick, approach_stick));
             if (excursion > 0.0 && frame.target_observed &&
                 frame.tracker_reliable && !frame.manual_escape &&
                 dot(frame.shaped_assist_stick, approach_stick) > 0.02) {
@@ -422,6 +428,13 @@ BenchmarkResult aggregate(
         result.max_post_cross_error_px = std::max(
             result.max_post_cross_error_px, target.max_post_cross_error_px);
         result.overshoot_area_px_ms += target.overshoot_area_px_ms;
+        result.maximum_vertical_overshoot_px = std::max(
+            result.maximum_vertical_overshoot_px,
+            target.maximum_vertical_overshoot_px);
+        result.post_cross_error_area_px_ms +=
+            target.post_cross_error_area_px_ms;
+        result.post_cross_wrong_way_output_integral +=
+            target.post_cross_wrong_way_output_integral;
         result.continued_push_after_cross_ms +=
             target.continued_push_after_cross_ms;
         result.correction_reversal_events += target.correction_reversal_events;

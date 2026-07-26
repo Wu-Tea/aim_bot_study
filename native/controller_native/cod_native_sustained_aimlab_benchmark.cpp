@@ -181,8 +181,10 @@ CliOptions parse_args(int argc, char** argv) {
         throw std::runtime_error("duration must be positive");
     }
     if (options.profile != "pure" && options.profile != "mixed" &&
+        options.profile != "obsolete" &&
         options.profile != "both") {
-        throw std::runtime_error("profile must be pure, mixed, or both");
+        throw std::runtime_error(
+            "profile must be pure, mixed, obsolete, or both");
     }
     if (options.cohort != "ads" && options.cohort != "bodylock" &&
         options.cohort != "both") {
@@ -280,7 +282,12 @@ std::string json_string(const std::string& value) {
 }
 
 const char* profile_name(ManualProfile profile) {
-    return profile == ManualProfile::Pure ? "pure" : "mixed";
+    switch (profile) {
+    case ManualProfile::Pure: return "pure";
+    case ManualProfile::Mixed: return "mixed";
+    case ManualProfile::ObsoleteAfterCrossing: return "obsolete";
+    }
+    return "unknown";
 }
 
 const char* cohort_name(BenchmarkCohort cohort) {
@@ -500,6 +507,12 @@ void write_report(
             << ", \"max_post_cross_error_px\": " << result.max_post_cross_error_px
             << ", \"p95_post_cross_error_px\": " << result.p95_post_cross_error_px
             << ", \"overshoot_area_px_ms\": " << result.overshoot_area_px_ms
+            << ", \"maximum_vertical_overshoot_px\": "
+            << result.maximum_vertical_overshoot_px
+            << ", \"post_cross_error_area_px_ms\": "
+            << result.post_cross_error_area_px_ms
+            << ", \"post_cross_wrong_way_output_integral\": "
+            << result.post_cross_wrong_way_output_integral
             << ", \"continued_push_after_cross_ms\": " << result.continued_push_after_cross_ms
             << ", \"correction_reversal_events\": " << result.correction_reversal_events
             << ", \"circle_exit_events\": " << result.circle_exit_events
@@ -541,6 +554,12 @@ void write_report(
                 << ",\"center_cross_events\":" << target.center_cross_events
                 << ",\"max_post_cross_error_px\":" << target.max_post_cross_error_px
                 << ",\"overshoot_area_px_ms\":" << target.overshoot_area_px_ms
+                << ",\"maximum_vertical_overshoot_px\":"
+                << target.maximum_vertical_overshoot_px
+                << ",\"post_cross_error_area_px_ms\":"
+                << target.post_cross_error_area_px_ms
+                << ",\"post_cross_wrong_way_output_integral\":"
+                << target.post_cross_wrong_way_output_integral
                 << ",\"continued_push_after_cross_ms\":" << target.continued_push_after_cross_ms
                 << ",\"brake_start_distance_px\":" << target.brake_start_distance_px
                 << ",\"time_to_zero_radial_speed_ms\":" << target.time_to_zero_radial_speed_ms
@@ -847,9 +866,15 @@ int main(int argc, char** argv) {
             options.camera_response;
         benchmark_config.slowdown_edge_multiplier = options.slowdown_edge;
         benchmark_config.slowdown_center_multiplier = options.slowdown_center;
+        benchmark_config.obsolete_vertical_fixture =
+            options.profile == "obsolete";
         std::vector<ManualProfile> profiles;
-        if (options.profile != "mixed") profiles.push_back(ManualProfile::Pure);
-        if (options.profile != "pure") profiles.push_back(ManualProfile::Mixed);
+        if (options.profile == "obsolete") {
+            profiles.push_back(ManualProfile::ObsoleteAfterCrossing);
+        } else {
+            if (options.profile != "mixed") profiles.push_back(ManualProfile::Pure);
+            if (options.profile != "pure") profiles.push_back(ManualProfile::Mixed);
+        }
         std::vector<BenchmarkCohort> cohorts;
         if (options.cohort != "bodylock") cohorts.push_back(BenchmarkCohort::AdsAcquire);
         if (options.cohort != "ads") cohorts.push_back(BenchmarkCohort::BodyLockFollow);

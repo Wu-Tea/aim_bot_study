@@ -29,6 +29,7 @@ enum class ScenarioProfile : std::uint8_t {
 enum class ManualProfile : std::uint8_t {
     Pure,
     Mixed,
+    ObsoleteAfterCrossing,
 };
 
 enum class BenchmarkCohort : std::uint8_t {
@@ -91,6 +92,7 @@ struct BenchmarkConfig {
     int control_response_delay_ms = 0;
     int frame_width_px = 640;
     int frame_height_px = 512;
+    bool obsolete_vertical_fixture = false;
 };
 
 struct VelocityManeuver {

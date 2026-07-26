@@ -1,4 +1,5 @@
 #include "vector_intent_fuser.h"
+#include "causal_mix_evaluator.h"
 
 #include <algorithm>
 #include <array>
@@ -247,19 +248,13 @@ VectorIntentFusionDecision VectorIntentFuser::update(
         return exact_manual(FusionFallbackReason::NonFinite);
     }
     const float manual_magnitude = length(input.manual_stick);
-    if (manual_magnitude >= config_.manual_escape_threshold &&
-        config_.manual_escape_threshold > 0.0f) {
-        decision = exact_manual(FusionFallbackReason::ManualEscape);
-        decision.fallback = false;
-        decision.manual_escape = true;
-        target_id_ = input.plan.target_id;
-        return decision;
-    }
     const bool no_target = input.plan.target_id == 0 ||
         input.plan.lifecycle == pipeline_contract::TargetLifecycle::None ||
         input.plan.mode == pipeline_contract::ControlMode::Manual;
     if (no_target) {
         target_id_ = 0;
+        strong_approach_target_id_ = 0;
+        obsolete_manual_window_ms_ = 0.0f;
         return exact_manual(FusionFallbackReason::NoTarget);
     }
 
@@ -278,9 +273,83 @@ VectorIntentFusionDecision VectorIntentFuser::update(
 
     if (fallback_reason != FusionFallbackReason::None) {
         fresh_evidence_remaining_ms_ = 0.0f;
+        strong_approach_target_id_ = 0;
+        obsolete_manual_window_ms_ = 0.0f;
     }
 
     const float dt_ms = std::clamp(dt_seconds, 0.0f, 0.05f) * 1000.0f;
+    obsolete_manual_window_ms_ = std::max(
+        0.0f, obsolete_manual_window_ms_ - dt_ms);
+    constexpr float kFreshEvidenceEnvelopeMs = 16.0f;
+    constexpr float kFreshEvidenceMinReliability = 0.85f;
+    constexpr float kFreshEvidenceMinErrorPx = 6.0f;
+    const bool fresh_pulse_eligible =
+        input.fresh_single_target_observation &&
+        input.plan.lifecycle == pipeline_contract::TargetLifecycle::Observed &&
+        input.plan.reliability >= kFreshEvidenceMinReliability &&
+        input.plan.response_confidence >= 0.35f &&
+        length(input.plan.error_px) >= kFreshEvidenceMinErrorPx;
+    if (fallback_reason == FusionFallbackReason::None &&
+        fresh_pulse_eligible) {
+        fresh_evidence_remaining_ms_ = kFreshEvidenceEnvelopeMs;
+    } else if (fallback_reason == FusionFallbackReason::None) {
+        fresh_evidence_remaining_ms_ = std::max(
+            0.0f, fresh_evidence_remaining_ms_ - dt_ms);
+    }
+
+    CausalMixResult causal_result;
+    bool causal_override = false;
+    const bool strong_aligned_manual =
+        manual_magnitude >= config_.manual_escape_threshold &&
+        config_.manual_escape_threshold > 0.0f &&
+        dot(input.manual_stick, input.shaped_ai_stick) > 0.0f;
+    if (fallback_reason == FusionFallbackReason::None &&
+        strong_aligned_manual && fresh_evidence_remaining_ms_ > 0.0f &&
+        manual_magnitude > 0.001f) {
+        strong_approach_target_id_ = input.plan.target_id;
+        strong_approach_direction_ = {
+            input.manual_stick.x / manual_magnitude,
+            input.manual_stick.y / manual_magnitude,
+        };
+        obsolete_manual_window_ms_ = 180.0f;
+    }
+    const bool retains_recent_approach =
+        obsolete_manual_window_ms_ > 0.0f &&
+        strong_approach_target_id_ == input.plan.target_id &&
+        manual_magnitude > 0.001f &&
+        dot(input.manual_stick, strong_approach_direction_) >=
+            manual_magnitude * 0.85f;
+    if (fallback_reason == FusionFallbackReason::None &&
+        (strong_aligned_manual || retains_recent_approach) &&
+        fresh_evidence_remaining_ms_ > 0.0f) {
+        CausalMixInput causal_input;
+        causal_input.error_px = control_error(input.plan.error_px);
+        causal_input.manual_stick = input.manual_stick;
+        causal_input.ai_stick = input.shaped_ai_stick;
+        causal_input.response_scale_px_per_stick_second =
+            input.plan.response_scale;
+        causal_input.response_confidence = input.plan.response_confidence;
+        causal_input.reliability = input.plan.reliability;
+        causal_input.fresh_single_target = true;
+        constexpr std::array<float, kCausalMixHorizonCount> kHorizons{
+            0.040f, 0.080f, 0.120f, 0.160f};
+        for (std::size_t index = 0; index < kHorizons.size(); ++index) {
+            causal_input.route[index] = control_error(
+                base_error_at(input.plan, kHorizons[index]));
+        }
+        causal_result = CausalMixEvaluator::evaluate(causal_input);
+        causal_override = causal_result.valid &&
+            causal_result.radial_manual_weight < 0.999f;
+    }
+    if (manual_magnitude >= config_.manual_escape_threshold &&
+        config_.manual_escape_threshold > 0.0f && !causal_override) {
+        decision = exact_manual(FusionFallbackReason::ManualEscape);
+        decision.fallback = false;
+        decision.manual_escape = true;
+        target_id_ = input.plan.target_id;
+        return decision;
+    }
+
     const float max_weight_delta = std::clamp(
         dt_ms / config_.weight_transition_ms, 0.0f, 1.0f);
     float radial_attenuation_scale = 1.0f;
@@ -335,27 +404,24 @@ VectorIntentFusionDecision VectorIntentFuser::update(
         return apply_weights({1.0f, 1.0f}, fallback_reason);
     }
 
-    constexpr float kFreshEvidenceEnvelopeMs = 16.0f;
-    constexpr float kFreshEvidenceMinReliability = 0.85f;
-    constexpr float kFreshEvidenceMinErrorPx = 6.0f;
-    const bool fresh_pulse_eligible =
-        input.fresh_single_target_observation &&
-        input.plan.mode == pipeline_contract::ControlMode::BodyLockFollow &&
-        input.plan.lifecycle == pipeline_contract::TargetLifecycle::Observed &&
-        input.plan.reliability >= kFreshEvidenceMinReliability &&
-        input.plan.response_confidence >= 0.35f &&
-        length(input.plan.error_px) >= kFreshEvidenceMinErrorPx;
-    if (fresh_pulse_eligible) {
-        fresh_evidence_remaining_ms_ = kFreshEvidenceEnvelopeMs;
-    } else {
-        fresh_evidence_remaining_ms_ = std::max(
-            0.0f, fresh_evidence_remaining_ms_ - dt_ms);
-    }
-
     if (!initialized_) {
         applied_manual_weight_ = 1.0f;
         applied_ai_weight_ = 1.0f;
         applied_tangential_manual_weight_ = 1.0f;
+    }
+
+    if (causal_override) {
+        radial_attenuation_scale = 4.0f;
+        decision.candidate = causal_result.radial_manual_weight <= 0.001f
+            ? FusionCandidate::RadialReplaced
+            : FusionCandidate::RadialCorrected;
+        previous_candidate_ = decision.candidate;
+        initialized_ = true;
+        return apply_weights(
+            {causal_result.radial_manual_weight,
+             causal_result.ai_weight,
+             causal_result.tangential_manual_weight},
+            FusionFallbackReason::None);
     }
 
     if (manual_magnitude <= 0.02f || input.manual_confidence <= 0.0f) {
@@ -427,6 +493,7 @@ VectorIntentFusionDecision VectorIntentFuser::update(
         radial_attenuation_scale = 2.0f;
     }
     const bool fresh_vision_counter_correction =
+        input.plan.mode == pipeline_contract::ControlMode::BodyLockFollow &&
         fresh_evidence_remaining_ms_ > 0.0f && wrong_now &&
         config_.fresh_vision_wrong_way_manual_floor < 1.0f;
     if (fresh_vision_counter_correction) {
@@ -534,6 +601,9 @@ void VectorIntentFuser::reset() noexcept {
     applied_tangential_manual_weight_ = 1.0f;
     target_id_ = 0;
     fresh_evidence_remaining_ms_ = 0.0f;
+    strong_approach_target_id_ = 0;
+    strong_approach_direction_ = {};
+    obsolete_manual_window_ms_ = 0.0f;
     initialized_ = false;
 }
 

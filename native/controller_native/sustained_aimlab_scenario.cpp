@@ -87,6 +87,7 @@ void hash_config(std::uint64_t& hash, const BenchmarkConfig& config) {
     hash_integral(hash, config.control_response_delay_ms);
     hash_integral(hash, config.frame_width_px);
     hash_integral(hash, config.frame_height_px);
+    hash_integral(hash, config.obsolete_vertical_fixture ? 1 : 0);
 }
 
 std::uint64_t script_hash(const ScenarioScript& script) {
@@ -212,6 +213,12 @@ ScenarioScript generate_script(
         const double angle = angle_distribution(random);
         const double distance = distance_distribution(random);
         target.initial_error_px = scaled(direction_from_angle(angle), distance);
+        if (config.obsolete_vertical_fixture) {
+            target.initial_error_px = {
+                std::uniform_real_distribution<double>(-6.0, 6.0)(random),
+                -std::uniform_real_distribution<double>(100.0, 160.0)(random),
+            };
+        }
         target.acquire_deadline_ms = deadline_distribution(random);
 
         const double speed = speed_distribution(random);
@@ -229,6 +236,11 @@ ScenarioScript generate_script(
                 sampled_sign(random) * speed * inverse_sqrt_two,
             };
             break;
+        }
+        if (config.obsolete_vertical_fixture) {
+            target.initial_velocity_px_per_second = {};
+            target.acceleration_px_per_second_squared = {};
+            target.maneuver_at_ms = -1;
         }
         case MotionProfile::Accelerate: {
             const Vec2d direction = direction_from_angle(angle_distribution(random));

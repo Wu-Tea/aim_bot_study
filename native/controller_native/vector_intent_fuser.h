@@ -93,6 +93,9 @@ private:
     float applied_tangential_manual_weight_ = 1.0f;
     std::uint64_t target_id_ = 0;
     float fresh_evidence_remaining_ms_ = 0.0f;
+    std::uint64_t strong_approach_target_id_ = 0;
+    pipeline_contract::Vec2f strong_approach_direction_{};
+    float obsolete_manual_window_ms_ = 0.0f;
     bool initialized_ = false;
 };
 

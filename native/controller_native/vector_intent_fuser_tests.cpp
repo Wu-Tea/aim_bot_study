@@ -201,6 +201,56 @@ void test_fresh_vision_counter_correction_respects_manual_escape() {
                  "manual escape must deliver exact physical input");
 }
 
+void test_strong_aligned_manual_enters_causal_crossing_evaluation() {
+    VectorIntentFuser fuser;
+    auto input = input_for({0.20f, 0.85f}, {0.0f, 0.55f});
+    input.plan.error_px = {0.0f, -12.0f};
+    input.plan.mode = pipeline_contract::ControlMode::AdsAcquire;
+    input.fresh_single_target_observation = true;
+    set_horizon(input.plan, {
+        {0.040f, {0.0f, -12.0f}},
+        {0.080f, {0.0f, -12.0f}},
+        {0.120f, {0.0f, -12.0f}},
+        {0.160f, {0.0f, -12.0f}},
+    });
+    const auto decision = fuser.update(input, 0.024f);
+    require_true(!decision.manual_escape,
+                 "strong aligned input with predicted crossing must be evaluated");
+    require_true(decision.target_manual_weight <= 0.35f,
+                 "obsolete radial ownership must be strongly reduced");
+    require_near(decision.target_tangential_manual_weight, 1.0f, 0.0001f,
+                 "strong crossing correction must retain tangent");
+}
+
+void test_recent_approach_direction_can_be_unloaded_after_crossing() {
+    VectorIntentFuser fuser;
+    auto approach = input_for({0.0f, 0.85f}, {0.0f, 0.55f});
+    approach.plan.error_px = {0.0f, -12.0f};
+    approach.fresh_single_target_observation = true;
+    set_horizon(approach.plan, {
+        {0.040f, {0.0f, -12.0f}},
+        {0.080f, {0.0f, -12.0f}},
+        {0.120f, {0.0f, -12.0f}},
+        {0.160f, {0.0f, -12.0f}},
+    });
+    (void)fuser.update(approach, 0.001f);
+
+    auto crossed = approach;
+    crossed.plan.error_px = {0.0f, 8.0f};
+    crossed.shaped_ai_stick = {0.0f, -0.55f};
+    set_horizon(crossed.plan, {
+        {0.040f, {0.0f, 8.0f}},
+        {0.080f, {0.0f, 8.0f}},
+        {0.120f, {0.0f, 8.0f}},
+        {0.160f, {0.0f, 8.0f}},
+    });
+    const auto decision = fuser.update(crossed, 0.001f);
+    require_true(!decision.manual_escape,
+                 "recently helpful input must not become unconditional escape");
+    require_true(decision.target_manual_weight <= 0.35f,
+                 "obsolete post-cross radial input must be unloaded");
+}
+
 void test_low_reliability_clears_fresh_vision_envelope() {
     controller_native::VectorIntentFusionConfig config;
     config.fresh_vision_wrong_way_manual_floor = 0.20f;
@@ -716,6 +766,8 @@ int main() {
         test_fresh_ads_observation_keeps_existing_ads_policy();
         test_fresh_vision_only_reduces_wrong_radial_near_target_input();
         test_fresh_vision_counter_correction_respects_manual_escape();
+        test_strong_aligned_manual_enters_causal_crossing_evaluation();
+        test_recent_approach_direction_can_be_unloaded_after_crossing();
         test_low_reliability_clears_fresh_vision_envelope();
         test_wrong_way_manual_only_is_ineligible_below_escape();
         test_predicted_ads_reversal_releases_excess_radial_manual_ownership();

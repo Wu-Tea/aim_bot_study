@@ -124,6 +124,15 @@ BenchmarkResult run_simulation(
         std::numeric_limits<double>::infinity();
     double max_sampled_player_top_speed_px_per_second = 0.0;
     double max_abs_player_speed_px_per_second = 0.0;
+    Vec2d obsolete_manual_direction;
+    Vec2d obsolete_cross_axis;
+    double obsolete_manual_magnitude = 0.0;
+    int obsolete_persistence_ms = 0;
+    int obsolete_crossed_at_ms = -1;
+    bool v1_vertical_crossed = false;
+    double v1_maximum_vertical_overshoot_px = 0.0;
+    double v1_post_cross_error_area_px_ms = 0.0;
+    double v1_post_cross_wrong_way_output_integral = 0.0;
     bool previous_bodylock_mode = false;
     bool pending_ads_to_bodylock_transition = false;
     std::unique_ptr<TargetScorer> scorer;
@@ -162,6 +171,20 @@ BenchmarkResult run_simulation(
                 target.player_strafe.top_speed_px_per_second);
         }
         carried_observation = error;
+        obsolete_manual_direction = normalized_control_direction(error);
+        const double initial_distance = length(error);
+        obsolete_cross_axis = initial_distance > 1e-9
+            ? Vec2d{error.x / initial_distance, error.y / initial_distance}
+            : Vec2d{};
+        obsolete_manual_magnitude =
+            0.60 + static_cast<double>((target.id * 37u) % 41u) / 100.0;
+        obsolete_persistence_ms =
+            80 + static_cast<int>((target.id * 17u) % 61u);
+        obsolete_crossed_at_ms = -1;
+        v1_vertical_crossed = false;
+        v1_maximum_vertical_overshoot_px = 0.0;
+        v1_post_cross_error_area_px_ms = 0.0;
+        v1_post_cross_wrong_way_output_integral = 0.0;
         previous_bodylock_mode = false;
         pending_ads_to_bodylock_transition = false;
         scorer = std::make_unique<TargetScorer>(target, script.config);
@@ -171,7 +194,16 @@ BenchmarkResult run_simulation(
     };
 
     auto finish_target = [&] {
-        target_results.push_back(scorer->finish());
+        TargetResult target_result = scorer->finish();
+        if (manual_profile == ManualProfile::ObsoleteAfterCrossing) {
+            target_result.maximum_vertical_overshoot_px =
+                v1_maximum_vertical_overshoot_px;
+            target_result.post_cross_error_area_px_ms =
+                v1_post_cross_error_area_px_ms;
+            target_result.post_cross_wrong_way_output_integral =
+                v1_post_cross_wrong_way_output_integral;
+        }
+        target_results.push_back(std::move(target_result));
         scorer.reset();
         target_active = false;
         tracking = false;
@@ -230,6 +262,20 @@ BenchmarkResult run_simulation(
                 (cohort != BenchmarkCohort::BodyLockFollow || tracking)) {
                 input.manual_stick = mixed_manual_input(
                     target, target_elapsed_ms, error, target_velocity);
+            } else if (manual_profile == ManualProfile::ObsoleteAfterCrossing &&
+                       (cohort != BenchmarkCohort::BodyLockFollow || tracking)) {
+                if (obsolete_crossed_at_ms < 0 &&
+                    dot(error, obsolete_cross_axis) <= 0.0) {
+                    obsolete_crossed_at_ms = target_elapsed_ms;
+                }
+                if (obsolete_crossed_at_ms < 0 ||
+                    target_elapsed_ms - obsolete_crossed_at_ms <
+                        obsolete_persistence_ms) {
+                    input.manual_stick = {
+                        obsolete_manual_direction.x * obsolete_manual_magnitude,
+                        obsolete_manual_direction.y * obsolete_manual_magnitude,
+                    };
+                }
             }
         } else if (pending_fresh_miss) {
             input.fresh_vision = true;
@@ -300,6 +346,19 @@ BenchmarkResult run_simulation(
                     length(error), target.visible_radius_px, script.config);
             error.x -= plant_control.x * response * 0.001;
             error.y += plant_control.y * response * 0.001;
+            if (manual_profile == ManualProfile::ObsoleteAfterCrossing) {
+                if (!v1_vertical_crossed && error.y >= 0.0) {
+                    v1_vertical_crossed = true;
+                }
+                if (v1_vertical_crossed) {
+                    const double excursion = std::max(0.0, error.y);
+                    v1_maximum_vertical_overshoot_px = std::max(
+                        v1_maximum_vertical_overshoot_px, excursion);
+                    v1_post_cross_error_area_px_ms += excursion;
+                    v1_post_cross_wrong_way_output_integral += std::max(
+                        0.0, output.final_stick.y);
+                }
+            }
             trace_frame.true_error_after_px = error;
             trace_frame.target_velocity_px_per_second = target_velocity;
             trace_frame.player_velocity_x_px_per_second =
@@ -365,7 +424,16 @@ BenchmarkResult run_simulation(
     }
 
     if (target_active && scorer) {
-        target_results.push_back(scorer->finish());
+        TargetResult target_result = scorer->finish();
+        if (manual_profile == ManualProfile::ObsoleteAfterCrossing) {
+            target_result.maximum_vertical_overshoot_px =
+                v1_maximum_vertical_overshoot_px;
+            target_result.post_cross_error_area_px_ms =
+                v1_post_cross_error_area_px_ms;
+            target_result.post_cross_wrong_way_output_integral =
+                v1_post_cross_wrong_way_output_integral;
+        }
+        target_results.push_back(std::move(target_result));
     }
 
     BenchmarkResult result = aggregate(
