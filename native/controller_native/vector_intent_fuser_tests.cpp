@@ -247,8 +247,159 @@ void test_recent_approach_direction_can_be_unloaded_after_crossing() {
     const auto decision = fuser.update(crossed, 0.001f);
     require_true(!decision.manual_escape,
                  "recently helpful input must not become unconditional escape");
-    require_true(decision.target_manual_weight <= 0.35f,
-                 "obsolete post-cross radial input must be unloaded");
+    require_true(decision.target_manual_weight > 0.35f &&
+                     decision.target_manual_weight < 0.50f,
+                 "obsolete post-cross radial input may be retained only by "
+                 "the amount needed to brake excessive AI return motion");
+}
+
+void test_strong_manual_approach_is_remembered_when_ai_is_inside_tolerance() {
+    VectorIntentFuser fuser;
+    auto approach = input_for({0.0f, 0.85f}, {0.0f, 0.0f});
+    approach.plan.mode = pipeline_contract::ControlMode::BodyLockFollow;
+    approach.plan.error_px = {0.0f, -8.0f};
+    approach.plan.response_confidence = 0.0f;
+    approach.fresh_single_target_observation = true;
+    set_horizon(approach.plan, {
+        {0.040f, {0.0f, -8.0f}},
+        {0.080f, {0.0f, -8.0f}},
+        {0.120f, {0.0f, -8.0f}},
+        {0.160f, {0.0f, -8.0f}},
+    });
+    const auto braking = fuser.update(approach, 0.001f);
+    require_true(!braking.manual_escape,
+                 "clear manual closing motion must enter causal evaluation");
+    require_true(braking.target_manual_weight < 1.0f,
+                 "imminent manual-only crossing must unload before overshoot");
+
+    auto crossed = approach;
+    crossed.plan.error_px = {0.0f, 3.0f};
+    crossed.plan.lifecycle = pipeline_contract::TargetLifecycle::Coasting;
+    crossed.fresh_single_target_observation = false;
+    set_horizon(crossed.plan, {
+        {0.040f, {0.0f, 3.0f}},
+        {0.080f, {0.0f, 3.0f}},
+        {0.120f, {0.0f, 3.0f}},
+        {0.160f, {0.0f, 3.0f}},
+    });
+    const auto inside_tolerance = fuser.update(crossed, 0.001f);
+    require_true(!inside_tolerance.manual_escape,
+                 "known obsolete manual must unload while BodyLock AI is zero");
+    require_true(inside_tolerance.target_manual_weight <= 0.35f,
+                 "target reversal is sufficient evidence inside tolerance");
+}
+
+void test_causal_approach_episode_survives_between_vision_publications() {
+    VectorIntentFuser fuser;
+    auto approach = input_for({0.0f, 0.85f}, {0.0f, 0.0f});
+    approach.plan.mode = pipeline_contract::ControlMode::BodyLockFollow;
+    approach.plan.error_px = {0.0f, -8.0f};
+    approach.plan.response_confidence = 0.0f;
+    approach.fresh_single_target_observation = true;
+    set_horizon(approach.plan, {
+        {0.040f, {0.0f, -8.0f}},
+        {0.080f, {0.0f, -8.0f}},
+        {0.120f, {0.0f, -8.0f}},
+        {0.160f, {0.0f, -8.0f}},
+    });
+    (void)fuser.update(approach, 0.001f);
+
+    auto crossed = approach;
+    crossed.plan.error_px = {0.0f, 3.0f};
+    crossed.fresh_single_target_observation = false;
+    set_horizon(crossed.plan, {
+        {0.040f, {0.0f, 3.0f}},
+        {0.080f, {0.0f, 3.0f}},
+        {0.120f, {0.0f, 3.0f}},
+        {0.160f, {0.0f, 3.0f}},
+    });
+    controller_native::VectorIntentFusionDecision between_publications;
+    for (int tick = 0; tick < 30; ++tick) {
+        between_publications = fuser.update(crossed, 0.001f);
+    }
+    require_true(!between_publications.manual_escape,
+                 "a confirmed same-direction approach must not become "
+                 "manual escape merely because no new vision frame arrived");
+    require_true(between_publications.target_manual_weight <= 0.35f,
+                 "the causal episode must keep unloading obsolete radial "
+                 "input between vision publications");
+}
+
+void test_reliable_tracker_can_start_causal_approach_between_vision_frames() {
+    VectorIntentFuser fuser;
+    auto input = input_for({0.0f, 0.85f}, {0.0f, 0.0f});
+    input.plan.mode = pipeline_contract::ControlMode::BodyLockFollow;
+    input.plan.error_px = {0.0f, -8.0f};
+    input.plan.response_scale = 50.0f;
+    input.plan.response_confidence = 0.0f;
+    input.fresh_single_target_observation = false;
+    set_horizon(input.plan, {
+        {0.040f, {0.0f, -8.0f}},
+        {0.080f, {0.0f, -8.0f}},
+        {0.120f, {0.0f, -8.0f}},
+        {0.160f, {0.0f, -8.0f}},
+    });
+
+    const auto decision = fuser.update(input, 0.001f);
+    require_true(!decision.manual_escape,
+                 "reliable tracker geometry and actual manual input must be "
+                 "enough to start causal arbitration between vision frames");
+    require_true(decision.target_manual_weight < 1.0f,
+                 "imminent crossing must unload radial input without waiting "
+                 "for another vision publication");
+}
+
+void test_observed_tracker_geometry_does_not_wait_for_high_confidence_warmup() {
+    VectorIntentFuser fuser;
+    auto input = input_for({0.0f, 0.85f}, {0.0f, 0.0f});
+    input.plan.mode = pipeline_contract::ControlMode::AdsAcquire;
+    input.plan.error_px = {0.0f, -20.0f};
+    input.plan.reliability = 0.70f;
+    input.fresh_single_target_observation = false;
+    set_horizon(input.plan, {
+        {0.040f, {0.0f, -20.0f}},
+        {0.080f, {0.0f, -20.0f}},
+        {0.120f, {0.0f, -20.0f}},
+        {0.160f, {0.0f, -20.0f}},
+    });
+    const auto decision = fuser.update(input, 0.001f);
+    require_true(!decision.manual_escape,
+                 "observed same-target geometry above the normal reliability "
+                 "fallback must not wait for 0.85 confidence warmup");
+}
+
+void test_confirmed_causal_episode_does_not_snap_back_to_exact_manual() {
+    VectorIntentFuser fuser;
+    auto crossing = input_for({0.0f, 0.85f}, {0.0f, 0.0f});
+    crossing.plan.mode = pipeline_contract::ControlMode::BodyLockFollow;
+    crossing.plan.error_px = {0.0f, -8.0f};
+    crossing.fresh_single_target_observation = true;
+    set_horizon(crossing.plan, {
+        {0.040f, {0.0f, -8.0f}},
+        {0.080f, {0.0f, -8.0f}},
+        {0.120f, {0.0f, -8.0f}},
+        {0.160f, {0.0f, -8.0f}},
+    });
+    const auto braked = fuser.update(crossing, 0.024f);
+    require_true(braked.applied_manual_weight < 1.0f,
+                 "fixture must first apply causal radial unloading");
+
+    auto temporarily_not_crossing = crossing;
+    temporarily_not_crossing.plan.error_px = {0.0f, -40.0f};
+    set_horizon(temporarily_not_crossing.plan, {
+        {0.040f, {0.0f, -40.0f}},
+        {0.080f, {0.0f, -40.0f}},
+        {0.120f, {0.0f, -40.0f}},
+        {0.160f, {0.0f, -40.0f}},
+    });
+    temporarily_not_crossing.fresh_single_target_observation = false;
+    const auto recovering = fuser.update(temporarily_not_crossing, 0.001f);
+    require_true(!recovering.manual_escape,
+                 "a same-target same-direction causal episode must not be "
+                 "reclassified as a physical escape");
+    require_true(recovering.applied_manual_weight < 1.0f,
+                 "ownership recovery must follow the transition envelope "
+                 "instead of snapping to exact manual");
 }
 
 void test_low_reliability_clears_fresh_vision_envelope() {
@@ -768,6 +919,11 @@ int main() {
         test_fresh_vision_counter_correction_respects_manual_escape();
         test_strong_aligned_manual_enters_causal_crossing_evaluation();
         test_recent_approach_direction_can_be_unloaded_after_crossing();
+        test_strong_manual_approach_is_remembered_when_ai_is_inside_tolerance();
+        test_causal_approach_episode_survives_between_vision_publications();
+        test_reliable_tracker_can_start_causal_approach_between_vision_frames();
+        test_observed_tracker_geometry_does_not_wait_for_high_confidence_warmup();
+        test_confirmed_causal_episode_does_not_snap_back_to_exact_manual();
         test_low_reliability_clears_fresh_vision_envelope();
         test_wrong_way_manual_only_is_ineligible_below_escape();
         test_predicted_ads_reversal_releases_excess_radial_manual_ownership();

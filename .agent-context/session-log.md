@@ -137,6 +137,31 @@ TargetPlan.fire_authority -> AutoFireGate
 - Map any remaining 10-20 px BodyLock stickiness to radial/tangential conflict, slowdown and delivered-output evidence before changing policy.
 - Record runtime identity for every new live log/video: executable, revision, config fingerprint, crop/engine and `--perf-log` state.
 
+## 2026-07-26 - Controller-Rate Causal Pre-Recoil Mix
+
+- Corrected the V1 stationary-obsolete fixture: a misplaced velocity override
+  had left several nominally stationary motion labels moving. New scenario
+  tests cover every label and freeze three corrected script hashes.
+- Added a fixed-size delivered-output ledger at the ViGEm delivery boundary.
+  It records pre-recoil output only after delivery and invalidates on failure,
+  disabled output, target mismatch, time disorder or incomplete history.
+- Root cause of the remaining Vision-frequency coupling: tracker plans are
+  `Observed` only on publication ticks and `Coasting` between them. Allowing
+  reliable same-target `Coasting` to use tracker route plus delivered-output
+  history moved arbitration to controller frequency without extra Vision work.
+- Replaced discrete radial weights with an 80 ms continuous net-motion solve.
+  Tangential manual ownership remains exact; target change, reacquisition, low
+  reliability and deliberate direction change retain safe exits.
+- Corrected V1 three-seed results: ADS maximum overshoot/area/wrong output
+  `-81.19/-78.20/-73.00%`; BodyLock `-84.69/-79.68/-72.45%`.
+  ADS acquisition and tracking improved; BodyLock tracking improved 15.86%.
+- Matched ordinary and mixed guardrails were unchanged. V1 direction
+  discontinuity and P95 delta/jerk remain a live-smoke risk despite smooth
+  bonus staying within 1.2%.
+- Release runtime built, focused tests passed, and registered native CTest was
+  26/26 PASS. Detailed evidence:
+  [CAUSAL_PRE_RECOIL_MIX_ACCEPTANCE_20260726.md](../docs/project/CAUSAL_PRE_RECOIL_MIX_ACCEPTANCE_20260726.md).
+
 ## Archive Map
 
 - [Pre-compaction context through 2026-07-20](archive/context-through-2026-07-20-pre-compaction.md)

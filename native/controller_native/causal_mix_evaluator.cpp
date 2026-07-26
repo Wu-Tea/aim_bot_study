@@ -113,8 +113,6 @@ CausalMixResult CausalMixEvaluator::evaluate(
 
     const pipeline_contract::Vec2f radial{
         input.error_px.x / error_length, input.error_px.y / error_length};
-    constexpr std::array<float, 4> kManualWeights{
-        1.0f, 0.65f, 0.35f, 0.0f};
     const Score full_mix = score(input, radial, 1.0f);
     const auto full_output = candidate_output(input, radial, 1.0f);
     const pipeline_contract::Vec2f first_camera{
@@ -128,25 +126,30 @@ CausalMixResult CausalMixEvaluator::evaluate(
         subtract(input.route.front(), first_pending), first_camera);
     const bool imminent_cross = dot(first_predicted, radial) < 0.0f;
     const bool currently_wrong_way =
-        dot(input.manual_stick, radial) < -0.05f &&
-        dot(input.ai_stick, radial) > 0.05f;
+        dot(input.manual_stick, radial) < -0.05f;
     if (!imminent_cross && !currently_wrong_way) {
         result.valid = true;
         result.ai_weight = 1.0f;
         result.full_mix_post_cross_debt_px = full_mix.debt;
         return result;
     }
-    Score best = currently_wrong_way
-        ? Score{}
-        : full_mix;
-    float best_weight = currently_wrong_way ? 0.35f : 1.0f;
-    for (const float weight : kManualWeights) {
-        if (currently_wrong_way && weight > 0.35f) continue;
-        const Score candidate = score(input, radial, weight);
-        if (candidate.cost + 0.01f < best.cost) {
-            best = candidate;
-            best_weight = weight;
-        }
+    constexpr std::size_t kPlanningIndex = 1;
+    constexpr float kPlanningHorizonSeconds = 0.080f;
+    const auto planning_pending = input.pending_valid
+        ? input.pending_camera_px[kPlanningIndex]
+        : pipeline_contract::Vec2f{};
+    const auto remaining = subtract(
+        input.route[kPlanningIndex], planning_pending);
+    const float required_net_radial_stick = dot(remaining, radial) /
+        (input.response_scale_px_per_stick_second *
+         kPlanningHorizonSeconds);
+    const float manual_radial = dot(input.manual_stick, radial);
+    const float ai_radial = dot(input.ai_stick, radial);
+    float best_weight = 0.0f;
+    if (std::fabs(manual_radial) > 0.05f) {
+        best_weight = std::clamp(
+            (required_net_radial_stick - ai_radial) / manual_radial,
+            0.0f, 1.0f);
     }
     result.valid = true;
     result.radial_manual_weight = best_weight;

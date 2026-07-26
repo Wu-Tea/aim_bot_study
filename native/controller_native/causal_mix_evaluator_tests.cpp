@@ -58,6 +58,17 @@ void test_tangential_manual_is_always_preserved() {
             "causal radial correction must preserve tangent exactly");
 }
 
+void test_required_net_motion_produces_continuous_manual_weight() {
+    auto input = vertical_crossing_input();
+    input.ai_stick = {0.0f, 0.10f};
+    const auto result = CausalMixEvaluator::evaluate(input);
+    require(result.valid, "reliable crossing input must be evaluated");
+    require(result.radial_manual_weight > 0.20f &&
+                result.radial_manual_weight < 0.30f,
+            "80ms required net motion must be solved as a continuous "
+            "manual weight rather than a discrete preset");
+}
+
 void test_low_confidence_returns_safe_invalid_result() {
     auto input = vertical_crossing_input();
     input.response_confidence = 0.2f;
@@ -74,6 +85,7 @@ int main() {
         test_absolute_sustained_output_is_not_treated_as_zero_motion();
         test_pending_motion_reduces_remaining_required_push();
         test_tangential_manual_is_always_preserved();
+        test_required_net_motion_produces_continuous_manual_weight();
         test_low_confidence_returns_safe_invalid_result();
         std::cout << "cod_native_causal_mix_evaluator_tests PASS\n";
         return EXIT_SUCCESS;

@@ -775,6 +775,10 @@ void RuntimeLoop::run_once() {
         }
     }
     const auto vigem_update_finished = std::chrono::steady_clock::now();
+    controller_.report_output_delivery(
+        !config_.output.enabled || output_result.delivered,
+        config_.output.enabled,
+        steady_time_seconds(vigem_update_finished).value);
     ++tick_count_;
     const auto& telemetry_components = controller_.last_output_components();
     TelemetryTickInput telemetry_tick;

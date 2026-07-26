@@ -237,11 +237,6 @@ ScenarioScript generate_script(
             };
             break;
         }
-        if (config.obsolete_vertical_fixture) {
-            target.initial_velocity_px_per_second = {};
-            target.acceleration_px_per_second_squared = {};
-            target.maneuver_at_ms = -1;
-        }
         case MotionProfile::Accelerate: {
             const Vec2d direction = direction_from_angle(angle_distribution(random));
             target.initial_velocity_px_per_second = scaled(direction, speed);
@@ -285,6 +280,11 @@ ScenarioScript generate_script(
             };
             break;
         }
+        }
+        if (config.obsolete_vertical_fixture) {
+            target.initial_velocity_px_per_second = {};
+            target.acceleration_px_per_second_squared = {};
+            target.maneuver_at_ms = -1;
         }
 
         const int observation_horizon_ms = config.max_acquire_deadline_ms +

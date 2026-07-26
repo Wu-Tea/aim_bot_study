@@ -128,6 +128,8 @@ ControllerStepResult NativeReplayAdapter::step(
         controller_.submit_vision_snapshot(snapshot_from(input, now_seconds_));
     }
     const auto output = controller_.build_output(physical_);
+    controller_.report_output_delivery(
+        true, true, now_seconds_ + 0.000001);
     const auto& components = controller_.last_output_components();
     const std::string& mode = controller_.last_ai_aim_mode();
     if (coverage_ && (mode == "ads_snap" || mode == "body_lock")) {

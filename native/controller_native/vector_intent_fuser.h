@@ -1,5 +1,6 @@
 #pragma once
 
+#include "causal_mix_evaluator.h"
 #include "pipeline_contract/target_plan.h"
 
 #include <array>
@@ -50,6 +51,7 @@ struct VectorIntentFusionConfig {
     float manual_escape_threshold = 0.45f;
     float weight_transition_ms = 24.0f;
     float fresh_vision_wrong_way_manual_floor = 0.35f;
+    float fallback_response_px_per_stick_second = 500.0f;
 };
 
 struct VectorIntentFusionInput {
@@ -58,6 +60,10 @@ struct VectorIntentFusionInput {
     pipeline_contract::TargetPlan plan{};
     float manual_confidence = 1.0f;
     bool fresh_single_target_observation = false;
+    std::array<pipeline_contract::Vec2f, kCausalMixHorizonCount>
+        pending_camera_px{};
+    bool pending_camera_valid = false;
+    bool causal_mix_enabled = true;
 };
 
 struct VectorIntentFusionDecision {

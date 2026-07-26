@@ -792,11 +792,23 @@ add_executable(cod_native_vector_intent_fuser_tests
     ../controller_native/vector_intent_fuser_tests.cpp
     ../controller_native/vector_intent_fuser.cpp
     ../controller_native/causal_mix_evaluator.cpp
+    ../controller_native/pending_control_motion.cpp
 )
 
 add_executable(cod_native_causal_mix_evaluator_tests
     ../controller_native/causal_mix_evaluator_tests.cpp
     ../controller_native/causal_mix_evaluator.cpp
+)
+
+add_executable(cod_native_pending_control_motion_tests
+    ../controller_native/pending_control_motion_tests.cpp
+    ../controller_native/pending_control_motion.cpp
+)
+
+target_include_directories(cod_native_pending_control_motion_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+    ${CMAKE_CURRENT_SOURCE_DIR}/../controller_native
 )
 
 target_include_directories(cod_native_causal_mix_evaluator_tests PRIVATE
@@ -1444,6 +1456,16 @@ target_compile_definitions(cod_native_vector_intent_fuser_tests
         WIN32_LEAN_AND_MEAN
 )
 
+add_test(
+    NAME NativeVectorIntentFuserTests
+    COMMAND cod_native_vector_intent_fuser_tests)
+add_test(
+    NAME NativeCausalMixEvaluatorTests
+    COMMAND cod_native_causal_mix_evaluator_tests)
+add_test(
+    NAME NativePendingControlMotionTests
+    COMMAND cod_native_pending_control_motion_tests)
+
 add_executable(cod_native_sustained_aimlab_trace_tests
     ../controller_native/sustained_aimlab_trace_tests.cpp
     ../controller_native/sustained_aimlab_trace.cpp
@@ -1782,6 +1804,7 @@ set(COD_TARGET_PLAN_RUNTIME_SOURCES
     ../controller_native/axis_intent_arbiter.cpp
     ../controller_native/vector_intent_fuser.cpp
     ../controller_native/causal_mix_evaluator.cpp
+    ../controller_native/pending_control_motion.cpp
 )
 
 foreach(COD_TARGET

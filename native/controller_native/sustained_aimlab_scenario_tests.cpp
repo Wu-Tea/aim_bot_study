@@ -349,6 +349,25 @@ void test_small_target_profile_reuses_motion_and_cycles_visible_radius() {
     }
 }
 
+void test_obsolete_vertical_fixture_is_stationary_for_every_motion_label() {
+    BenchmarkConfig config;
+    config.obsolete_vertical_fixture = true;
+    const ScenarioScript script =
+        controller_native::sustained_aimlab::generate_script(2026072601, config);
+    for (const TargetScript& target : script.targets) {
+        require_near(target.initial_velocity_px_per_second.x, 0.0, 1e-12,
+                     "V1 target x velocity must be zero");
+        require_near(target.initial_velocity_px_per_second.y, 0.0, 1e-12,
+                     "V1 target y velocity must be zero");
+        require_near(target.acceleration_px_per_second_squared.x, 0.0, 1e-12,
+                     "V1 target x acceleration must be zero");
+        require_near(target.acceleration_px_per_second_squared.y, 0.0, 1e-12,
+                     "V1 target y acceleration must be zero");
+        require(target.maneuver_at_ms == -1,
+                "V1 target maneuver must be disabled");
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -362,6 +381,7 @@ int main() {
         test_motion_profile_names_are_stable();
         test_bodylock_stress_profiles_are_isolated_and_deterministic();
         test_small_target_profile_reuses_motion_and_cycles_visible_radius();
+        test_obsolete_vertical_fixture_is_stationary_for_every_motion_label();
         std::cout << "cod_native_sustained_aimlab_scenario_tests PASS\n";
         return EXIT_SUCCESS;
     } catch (const std::exception& error) {

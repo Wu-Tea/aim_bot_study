@@ -12,6 +12,7 @@
 #include "controller_vision_snapshot.h"
 #include "intent_filter.h"
 #include "output_mixer.h"
+#include "pending_control_motion.h"
 #include "runtime_config.h"
 #include "target_coordinator.h"
 #include "virtual_gamepad.h"
@@ -31,6 +32,7 @@ namespace controller_native {
 enum class BenchmarkIntentFusionMode : unsigned char {
     LegacyAxis,
     CausalVector,
+    CausalVectorBaseline,
 };
 #endif
 
@@ -53,6 +55,10 @@ public:
     void submit_vision_state(const NativeControllerVisionState& state);
     void submit_vision_snapshot(const ControllerVisionSnapshot& snapshot);
     GamepadOutputState build_output(const PhysicalGamepadState& physical);
+    void report_output_delivery(
+        bool delivered,
+        bool output_enabled,
+        double delivered_at_seconds) noexcept;
     NativeAutoFireCounters auto_fire_counters() const;
     const std::vector<NativeControllerStageTrace>& last_pipeline_traces() const;
     GamepadOutputState last_tracker_motion_output() const;
@@ -106,6 +112,7 @@ private:
     AimDynamicsShaper dynamics_shaper_{};
     AxisIntentArbiter axis_intent_arbiter_{};
     VectorIntentFuser vector_intent_fuser_{};
+    PendingControlMotion pending_control_motion_{};
     recoil_native::RecoilCompensationPolicy recoil_;
     AimActivationTracker aim_activation_tracker_{};
     AutoFireGate auto_fire_gate_;

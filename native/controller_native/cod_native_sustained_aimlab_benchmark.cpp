@@ -166,7 +166,7 @@ CliOptions parse_args(int argc, char** argv) {
                 << "[--output PATH] [--revision HASH] [--dirty] "
                 << "[--duration-ms N] [--smoke] "
                 << "[--counterfactual off|quick|full] "
-                << "[--intent-fusion legacy|vector] "
+                << "[--intent-fusion legacy|vector|vector-baseline] "
                 << "[--tracker-velocity-alpha 0..1] "
                 << "[--left-strafe off|full-reversal|both] "
                 << "[--learning-rounds N --learning-delay-ms N "
@@ -206,9 +206,10 @@ CliOptions parse_args(int argc, char** argv) {
             "counterfactual mode must be off, quick, or full");
     }
     if (options.intent_fusion != "legacy" &&
-        options.intent_fusion != "vector") {
+        options.intent_fusion != "vector" &&
+        options.intent_fusion != "vector-baseline") {
         throw std::runtime_error(
-            "intent fusion mode must be legacy or vector");
+            "intent fusion mode must be legacy, vector, or vector-baseline");
     }
     if (options.tracker_velocity_alpha != -1.0 &&
         (options.tracker_velocity_alpha < 0.0 ||
@@ -822,8 +823,10 @@ int main(int argc, char** argv) {
                 : BenchmarkCohort::AdsAcquire;
             const BenchmarkIntentFusionMode fusion =
                 options.intent_fusion == "vector"
-                ? BenchmarkIntentFusionMode::CausalVector
-                : BenchmarkIntentFusionMode::LegacyAxis;
+                    ? BenchmarkIntentFusionMode::CausalVector
+                    : options.intent_fusion == "vector-baseline"
+                        ? BenchmarkIntentFusionMode::CausalVectorBaseline
+                        : BenchmarkIntentFusionMode::LegacyAxis;
             const ReplayControllerFactory native_factory = make_native_factory(
                 runtime.gamepad, cohort, fusion);
             auto report = run_learning_experiment(
@@ -890,8 +893,10 @@ int main(int argc, char** argv) {
         std::vector<FusionRunSummary> fusion_results;
         const BenchmarkIntentFusionMode intent_fusion_mode =
             options.intent_fusion == "vector"
-            ? BenchmarkIntentFusionMode::CausalVector
-            : BenchmarkIntentFusionMode::LegacyAxis;
+                ? BenchmarkIntentFusionMode::CausalVector
+                : options.intent_fusion == "vector-baseline"
+                    ? BenchmarkIntentFusionMode::CausalVectorBaseline
+                    : BenchmarkIntentFusionMode::LegacyAxis;
         for (const std::uint32_t seed : options.seeds) {
             const ScenarioScript script = generate_script(seed, benchmark_config);
             for (const ManualProfile profile : profiles) {
