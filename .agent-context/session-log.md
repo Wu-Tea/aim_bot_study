@@ -162,6 +162,24 @@ TargetPlan.fire_authority -> AutoFireGate
   26/26 PASS. Detailed evidence:
   [CAUSAL_PRE_RECOIL_MIX_ACCEPTANCE_20260726.md](../docs/project/CAUSAL_PRE_RECOIL_MIX_ACCEPTANCE_20260726.md).
 
+## 2026-07-26 - ADS→BodyLock Handoff Benchmark v2
+
+- Extended sustained AimLab scoring with per-target 0-159ms local and
+  160-999ms tail windows, rebound, wrong-way delivered output, circle exits,
+  settle latency and an auditable defect classification.
+- Fixed a benchmark observation blind spot: ADS→BodyLock often occurred just
+  before tracking score began, producing BodyLock occupancy but zero handoff
+  records. The simulator now carries only a witnessed ADS-then-BodyLock edge
+  into the first scored frame; BodyLock-from-spawn remains excluded.
+- Three fixed seeds, mixed manual input and two slowdown environments show
+  live `120/16` raises defect frequency versus `80/8`: 6.36%→11.54% under
+  default slowdown and 5.56%→8.82% under strong slowdown.
+- The dominant defect is 10-50ms of final delivered output continuing in the
+  old approach direction, not a simple center-cross count. `120/16` also
+  loses about 14% tracking points and adds 7.7-10.3% tail error burden.
+- No production controller policy changed. Detailed evidence:
+  [ADS_BODYLOCK_HANDOFF_BASELINE_20260726.md](../docs/project/ADS_BODYLOCK_HANDOFF_BASELINE_20260726.md).
+
 ## Archive Map
 
 - [Pre-compaction context through 2026-07-20](archive/context-through-2026-07-20-pre-compaction.md)

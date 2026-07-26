@@ -320,6 +320,66 @@ void test_stall_ring_and_handoff_diagnostics_are_exported() {
             "a stalled target must remain explicitly unsettled");
 }
 
+void test_ads_bodylock_handoff_windows_measure_rebound_and_wrong_way_output() {
+    TargetScorer scorer(target_with_deadline(), BenchmarkConfig{});
+    scorer.mark_acquired(20);
+
+    for (int ms = 0; ms < 10; ++ms) {
+        ScoreFrame ads = tracking_frame(ms, {20.0 - ms, 0.0});
+        ads.bodylock_mode = false;
+        ads.final_stick = {0.3, 0.0};
+        scorer.add_frame(ads);
+    }
+    for (int elapsed = 0; elapsed < 1'000; ++elapsed) {
+        const int ms = 10 + elapsed;
+        double error_px = 12.0;
+        if (elapsed <= 10) {
+            error_px = 12.0 - elapsed;
+        } else if (elapsed <= 30) {
+            error_px = 2.0 + (elapsed - 10) * 0.5;
+        }
+        ScoreFrame bodylock = tracking_frame(ms, {error_px, 0.0});
+        bodylock.ads_to_bodylock_transition = elapsed == 0;
+        bodylock.final_stick = elapsed < 20
+            ? Vec2d{-0.20, 0.0}
+            : Vec2d{0.05, 0.0};
+        scorer.add_frame(bodylock);
+    }
+
+    const TargetResult result = scorer.finish();
+    require(result.handoff_observed,
+            "ADS->BodyLock handoff must be recorded");
+    require(result.post_handoff_local_samples == 160,
+            "local handoff window must contain exactly 160 one-ms samples");
+    require(result.post_handoff_tail_samples == 840,
+            "tail window must cover ms 160 through 999");
+    require(result.post_handoff_wrong_way_ms == 20,
+            "away-directed delivered output must be counted");
+    require(result.post_handoff_rebound_px >= 10.0,
+            "error growth after a lower minimum must be measured");
+    require(result.handoff_defect,
+            "sustained wrong-way output or an 8px rebound must classify a defect");
+}
+
+void test_bodylock_from_spawn_is_not_a_handoff_episode() {
+    TargetScorer scorer(target_with_deadline(), BenchmarkConfig{});
+    scorer.mark_acquired(0);
+    for (int ms = 0; ms < 1'000; ++ms) {
+        ScoreFrame frame = tracking_frame(ms, {8.0, 0.0});
+        frame.final_stick = {0.05, 0.0};
+        scorer.add_frame(frame);
+    }
+    const TargetResult result = scorer.finish();
+    require(!result.handoff_observed,
+            "BodyLock active from spawn is not an ADS handoff");
+    require(result.post_handoff_local_samples == 0,
+            "non-handoff targets must not populate the local window");
+    require(result.post_handoff_tail_samples == 0,
+            "non-handoff targets must not populate the tail window");
+    require(!result.handoff_defect,
+            "non-handoff targets cannot be classified as handoff defects");
+}
+
 void test_settle_ends_the_frozen_approach_axis() {
     TargetScorer scorer(target_with_deadline(), BenchmarkConfig{});
     scorer.mark_acquired(20);
@@ -413,6 +473,48 @@ void test_aggregate_preserves_additive_totals_and_percentiles() {
             "only the center-band fixture must aggregate as settled");
 }
 
+void test_aggregate_counts_only_true_handoff_episodes() {
+    TargetResult clean;
+    clean.handoff_observed = true;
+    clean.post_handoff_rebound_px = 0.0;
+    clean.post_handoff_wrong_way_output_integral = 1.0;
+    clean.post_handoff_local_error_area_px_ms = 100.0;
+    clean.post_handoff_tail_error_area_px_ms = 200.0;
+
+    TargetResult defect;
+    defect.handoff_observed = true;
+    defect.handoff_defect = true;
+    defect.post_handoff_rebound_px = 8.0;
+    defect.post_handoff_wrong_way_output_integral = 3.0;
+    defect.post_handoff_local_error_area_px_ms = 300.0;
+    defect.post_handoff_tail_error_area_px_ms = 400.0;
+
+    TargetResult not_a_handoff;
+    not_a_handoff.handoff_defect = true;
+    not_a_handoff.post_handoff_rebound_px = 100.0;
+
+    const BenchmarkResult run = aggregate(
+        1337, 99, {clean, defect, not_a_handoff});
+    require(run.handoff_episodes == 2,
+            "only true transitions are eligible");
+    require(run.handoff_defect_episodes == 1,
+            "one eligible episode is defective");
+    require_near(run.handoff_defect_rate, 0.5, 1e-9,
+                 "defect rate must use eligible handoffs");
+    require_near(run.post_handoff_local_error_area_px_ms, 400.0, 1e-9,
+                 "local burden must sum eligible handoffs");
+    require_near(run.post_handoff_tail_error_area_px_ms, 600.0, 1e-9,
+                 "tail burden must sum eligible handoffs");
+    require_near(run.p50_post_handoff_rebound_px, 4.0, 1e-9,
+                 "median rebound must be retained");
+    require_near(run.p95_post_handoff_rebound_px, 7.6, 1e-9,
+                 "P95 rebound must be interpolated");
+    require_near(run.max_post_handoff_rebound_px, 8.0, 1e-9,
+                 "worst rebound must be retained");
+    require_near(run.p95_post_handoff_wrong_way_output_integral, 2.9, 1e-9,
+                 "wrong-way output P95 must be interpolated");
+}
+
 }  // namespace
 
 int main() {
@@ -425,6 +527,8 @@ int main() {
         test_vertical_cross_exports_v1_overshoot_metrics();
         test_fast_no_cross_capture_settles_without_false_overshoot();
         test_stall_ring_and_handoff_diagnostics_are_exported();
+        test_ads_bodylock_handoff_windows_measure_rebound_and_wrong_way_output();
+        test_bodylock_from_spawn_is_not_a_handoff_episode();
         test_settle_ends_the_frozen_approach_axis();
         test_manual_and_unreliable_crossings_are_geometry_not_ai_blame();
         test_sustained_projected_lag_counts_one_undertrack();
@@ -434,6 +538,7 @@ int main() {
         test_false_mode_exit_requires_bodylock_to_have_started();
         test_bodylock_occupancy_distinguishes_never_entered_from_interrupted();
         test_aggregate_preserves_additive_totals_and_percentiles();
+        test_aggregate_counts_only_true_handoff_episodes();
         std::cout << "cod_native_sustained_aimlab_score_tests PASS\n";
         return EXIT_SUCCESS;
     } catch (const std::exception& error) {

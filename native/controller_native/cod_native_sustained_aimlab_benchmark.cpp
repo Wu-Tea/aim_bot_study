@@ -526,6 +526,22 @@ void write_report(
             << ", \"max_handoff_residual_px\": " << result.max_handoff_residual_px
             << ", \"max_abs_handoff_closing_speed_px_per_sec\": "
             << result.max_abs_handoff_closing_speed_px_per_sec
+            << ", \"handoff_episodes\": " << result.handoff_episodes
+            << ", \"handoff_defect_episodes\": "
+            << result.handoff_defect_episodes
+            << ", \"handoff_defect_rate\": " << result.handoff_defect_rate
+            << ", \"post_handoff_local_error_area_px_ms\": "
+            << result.post_handoff_local_error_area_px_ms
+            << ", \"post_handoff_tail_error_area_px_ms\": "
+            << result.post_handoff_tail_error_area_px_ms
+            << ", \"p50_post_handoff_rebound_px\": "
+            << result.p50_post_handoff_rebound_px
+            << ", \"p95_post_handoff_rebound_px\": "
+            << result.p95_post_handoff_rebound_px
+            << ", \"max_post_handoff_rebound_px\": "
+            << result.max_post_handoff_rebound_px
+            << ", \"p95_post_handoff_wrong_way_output_integral\": "
+            << result.p95_post_handoff_wrong_way_output_integral
             << ", \"mean_error_px\": " << result.mean_error_px
             << ", \"p95_error_px\": " << result.p95_error_px
             << ", \"p95_output_delta\": " << result.p95_output_delta
@@ -570,9 +586,35 @@ void write_report(
                 << ",\"stall_ring_ms\":" << target.stall_ring_ms
                 << ",\"direction_discontinuities\":" << target.direction_discontinuities
                 << ",\"max_error_px\":" << target.max_error_px
+                << ",\"handoff_observed\":"
+                << (target.handoff_observed ? "true" : "false")
                 << ",\"handoff_residual_px\":" << target.handoff_residual_px
                 << ",\"handoff_closing_speed_px_per_sec\":"
-                << target.handoff_closing_speed_px_per_sec << '}';
+                << target.handoff_closing_speed_px_per_sec
+                << ",\"post_handoff_local_samples\":"
+                << target.post_handoff_local_samples
+                << ",\"post_handoff_tail_samples\":"
+                << target.post_handoff_tail_samples
+                << ",\"post_handoff_local_error_area_px_ms\":"
+                << target.post_handoff_local_error_area_px_ms
+                << ",\"post_handoff_tail_error_area_px_ms\":"
+                << target.post_handoff_tail_error_area_px_ms
+                << ",\"post_handoff_max_error_px\":"
+                << target.post_handoff_max_error_px
+                << ",\"post_handoff_min_error_px\":"
+                << target.post_handoff_min_error_px
+                << ",\"post_handoff_rebound_px\":"
+                << target.post_handoff_rebound_px
+                << ",\"post_handoff_wrong_way_output_integral\":"
+                << target.post_handoff_wrong_way_output_integral
+                << ",\"post_handoff_wrong_way_ms\":"
+                << target.post_handoff_wrong_way_ms
+                << ",\"post_handoff_circle_exit_events\":"
+                << target.post_handoff_circle_exit_events
+                << ",\"post_handoff_settle_ms\":"
+                << target.post_handoff_settle_ms
+                << ",\"handoff_defect\":"
+                << (target.handoff_defect ? "true" : "false") << '}';
         }
         const FusionRunSummary& fusion = fusion_results.at(run_index);
         out << "],\"intent_fusion\":{\"candidate_ticks\":[";
@@ -794,6 +836,12 @@ void print_summary(const BenchmarkResult& result) {
         << " continued_push_ms=" << result.continued_push_after_cross_ms
         << " stall_ring_ms=" << result.stall_ring_ms
         << " handoff_residual_max=" << result.max_handoff_residual_px
+        << " handoffs=" << result.handoff_episodes
+        << " handoff_defects=" << result.handoff_defect_episodes
+        << " defect_rate=" << result.handoff_defect_rate
+        << " handoff_rebound_p95=" << result.p95_post_handoff_rebound_px
+        << " handoff_wrong_way_p95="
+        << result.p95_post_handoff_wrong_way_output_integral
         << "\n";
 }
 

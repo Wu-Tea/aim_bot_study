@@ -69,8 +69,21 @@ struct TargetResult {
     int time_to_zero_radial_speed_ms = -1;
     int first_entry_to_settle_ms = -1;
     int correction_reversal_events = 0;
+    bool handoff_observed = false;
     double handoff_residual_px = -1.0;
     double handoff_closing_speed_px_per_sec = 0.0;
+    int post_handoff_local_samples = 0;
+    int post_handoff_tail_samples = 0;
+    double post_handoff_local_error_area_px_ms = 0.0;
+    double post_handoff_tail_error_area_px_ms = 0.0;
+    double post_handoff_max_error_px = 0.0;
+    double post_handoff_min_error_px = 0.0;
+    double post_handoff_rebound_px = 0.0;
+    double post_handoff_wrong_way_output_integral = 0.0;
+    int post_handoff_wrong_way_ms = 0;
+    int post_handoff_circle_exit_events = 0;
+    int post_handoff_settle_ms = -1;
+    bool handoff_defect = false;
     std::vector<double> tracking_errors_px;
     std::vector<double> output_deltas;
     std::vector<double> output_jerks;
@@ -129,6 +142,9 @@ private:
     int settle_stable_ticks_ = 0;
     double previous_ai_radial_projection_ = 0.0;
     bool has_previous_ai_radial_projection_ = false;
+    int handoff_tick_ = -1;
+    double handoff_min_error_px_ = 0.0;
+    bool handoff_outside_circle_ = false;
 };
 
 struct BenchmarkResult {
@@ -178,6 +194,15 @@ struct BenchmarkResult {
     int handoff_count = 0;
     double max_handoff_residual_px = 0.0;
     double max_abs_handoff_closing_speed_px_per_sec = 0.0;
+    int handoff_episodes = 0;
+    int handoff_defect_episodes = 0;
+    double handoff_defect_rate = 0.0;
+    double post_handoff_local_error_area_px_ms = 0.0;
+    double post_handoff_tail_error_area_px_ms = 0.0;
+    double p50_post_handoff_rebound_px = 0.0;
+    double p95_post_handoff_rebound_px = 0.0;
+    double max_post_handoff_rebound_px = 0.0;
+    double p95_post_handoff_wrong_way_output_integral = 0.0;
     double mean_error_px = 0.0;
     double p95_error_px = 0.0;
     double p95_output_delta = 0.0;

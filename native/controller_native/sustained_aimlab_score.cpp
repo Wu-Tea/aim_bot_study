@@ -147,11 +147,48 @@ void TargetScorer::add_frame(const ScoreFrame& frame) {
     if (first_circle_tick_ < 0 && distance <= radius) {
         first_circle_tick_ = tracking_ticks_ - 1;
     }
-    if (frame.ads_to_bodylock_transition) {
-        if (result_.handoff_residual_px < 0.0) {
-            result_.handoff_residual_px = distance;
-            result_.handoff_closing_speed_px_per_sec =
-                frame.radial_closing_velocity_px_per_sec;
+    if (frame.ads_to_bodylock_transition && !result_.handoff_observed) {
+        result_.handoff_observed = true;
+        handoff_tick_ = tracking_ticks_ - 1;
+        result_.handoff_residual_px = distance;
+        result_.handoff_closing_speed_px_per_sec =
+            frame.radial_closing_velocity_px_per_sec;
+        result_.post_handoff_max_error_px = distance;
+        result_.post_handoff_min_error_px = distance;
+        handoff_min_error_px_ = distance;
+        handoff_outside_circle_ = distance > radius;
+    }
+    if (result_.handoff_observed) {
+        const int handoff_elapsed_ms =
+            tracking_ticks_ - 1 - handoff_tick_;
+        if (handoff_elapsed_ms >= 0 && handoff_elapsed_ms < 160) {
+            ++result_.post_handoff_local_samples;
+            result_.post_handoff_local_error_area_px_ms += distance;
+            result_.post_handoff_max_error_px = std::max(
+                result_.post_handoff_max_error_px, distance);
+            handoff_min_error_px_ = std::min(handoff_min_error_px_, distance);
+            result_.post_handoff_min_error_px = handoff_min_error_px_;
+            result_.post_handoff_rebound_px = std::max(
+                result_.post_handoff_rebound_px,
+                distance - handoff_min_error_px_);
+
+            Vec2d toward_target = normalized(frame.error_px);
+            toward_target.y = -toward_target.y;
+            const double toward_output = dot(frame.final_stick, toward_target);
+            if (distance > 1e-9 && toward_output < -0.01) {
+                result_.post_handoff_wrong_way_output_integral +=
+                    -toward_output;
+                ++result_.post_handoff_wrong_way_ms;
+            }
+
+            const bool outside_circle = distance > radius;
+            if (outside_circle && !handoff_outside_circle_) {
+                ++result_.post_handoff_circle_exit_events;
+            }
+            handoff_outside_circle_ = outside_circle;
+        } else if (handoff_elapsed_ms < 1'000) {
+            ++result_.post_handoff_tail_samples;
+            result_.post_handoff_tail_error_area_px_ms += distance;
         }
     }
     if (brake_episode_active_) {
@@ -210,6 +247,11 @@ void TargetScorer::add_frame(const ScoreFrame& frame) {
             if (first_circle_tick_ >= 0) {
                 result_.first_entry_to_settle_ms =
                     tracking_ticks_ - 1 - first_circle_tick_;
+            }
+            if (result_.handoff_observed &&
+                result_.post_handoff_settle_ms < 0) {
+                result_.post_handoff_settle_ms =
+                    tracking_ticks_ - 1 - handoff_tick_;
             }
             end_brake_episode();
         }
@@ -390,6 +432,9 @@ TargetResult TargetScorer::finish() {
     if (tracking_ticks_ > 0 && !bodylock_seen_) {
         result_.bodylock_entry_failed = true;
     }
+    result_.handoff_defect = result_.handoff_observed &&
+        (result_.post_handoff_rebound_px >= 8.0 ||
+         result_.post_handoff_wrong_way_ms >= 10);
     return result_;
 }
 
@@ -406,6 +451,8 @@ BenchmarkResult aggregate(
     std::vector<double> output_jerks;
     std::vector<double> post_cross_errors;
     std::vector<double> settle_times;
+    std::vector<double> post_handoff_rebounds;
+    std::vector<double> post_handoff_wrong_way_integrals;
     for (const TargetResult& target : targets) {
         result.acquire_points += target.acquire_points;
         result.tracking_points += target.tracking_points;
@@ -457,6 +504,21 @@ BenchmarkResult aggregate(
                 result.max_abs_handoff_closing_speed_px_per_sec,
                 std::fabs(target.handoff_closing_speed_px_per_sec));
         }
+        if (target.handoff_observed) {
+            ++result.handoff_episodes;
+            result.handoff_defect_episodes += target.handoff_defect ? 1 : 0;
+            result.post_handoff_local_error_area_px_ms +=
+                target.post_handoff_local_error_area_px_ms;
+            result.post_handoff_tail_error_area_px_ms +=
+                target.post_handoff_tail_error_area_px_ms;
+            result.max_post_handoff_rebound_px = std::max(
+                result.max_post_handoff_rebound_px,
+                target.post_handoff_rebound_px);
+            post_handoff_rebounds.push_back(
+                target.post_handoff_rebound_px);
+            post_handoff_wrong_way_integrals.push_back(
+                target.post_handoff_wrong_way_output_integral);
+        }
         errors.insert(errors.end(), target.tracking_errors_px.begin(),
                       target.tracking_errors_px.end());
         output_deltas.insert(output_deltas.end(), target.output_deltas.begin(),
@@ -478,6 +540,17 @@ BenchmarkResult aggregate(
         result.p95_first_entry_to_settle_ms =
             percentile(std::move(settle_times), 0.95);
     }
+    if (result.handoff_episodes > 0) {
+        result.handoff_defect_rate =
+            static_cast<double>(result.handoff_defect_episodes) /
+            static_cast<double>(result.handoff_episodes);
+    }
+    result.p50_post_handoff_rebound_px =
+        percentile(post_handoff_rebounds, 0.50);
+    result.p95_post_handoff_rebound_px =
+        percentile(std::move(post_handoff_rebounds), 0.95);
+    result.p95_post_handoff_wrong_way_output_integral =
+        percentile(std::move(post_handoff_wrong_way_integrals), 0.95);
     result.targets = std::move(targets);
     return result;
 }

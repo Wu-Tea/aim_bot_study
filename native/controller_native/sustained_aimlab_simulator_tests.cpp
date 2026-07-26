@@ -358,12 +358,15 @@ void test_compound_bodylock_motion_turns_twice_after_clean_entry() {
 }
 
 void test_plan_diagnostics_and_ads_handoff_reach_the_scorer() {
-    const ScenarioScript script = stationary_script(80, {10.0, 0.0});
+    const ScenarioScript script = stationary_script(200, {30.0, 0.0});
     ControllerStep controller = [](const ControllerObservation& input) {
         ControllerStepResult output;
         output.target_observed = input.target_present;
         output.tracker_reliable = input.target_present;
         output.bodylock_mode = input.target_present && input.now_ms >= 5;
+        output.final_stick = input.target_present
+            ? Vec2d{0.50, 0.0}
+            : Vec2d{};
         output.predicted_terminal_error_px = {-4.0, 0.0};
         output.radial_closing_velocity_px_per_sec = 75.0;
         return output;
@@ -372,6 +375,10 @@ void test_plan_diagnostics_and_ads_handoff_reach_the_scorer() {
         script, ManualProfile::Pure, controller);
     require(result.handoff_count == 1,
             "ADS-to-BodyLock transition must be counted once");
+    require(result.handoff_episodes == 1,
+            "ADS-to-BodyLock transition must create one scored episode");
+    require(result.post_handoff_local_error_area_px_ms > 0.0,
+            "handoff local burden must be populated");
     require(result.max_handoff_residual_px > 0.0,
             "handoff must retain the transition-frame residual");
     require(std::fabs(result.max_abs_handoff_closing_speed_px_per_sec - 75.0) < 1e-9,

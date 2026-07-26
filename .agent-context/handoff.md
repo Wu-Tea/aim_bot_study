@@ -27,15 +27,16 @@ Preserve the single-owner control architecture while improving real gameplay spe
   user-owned. Acceptance:
   [CAUSAL_PRE_RECOIL_MIX_ACCEPTANCE_20260726.md](../docs/project/CAUSAL_PRE_RECOIL_MIX_ACCEPTANCE_20260726.md).
 - A causal vision blind-window benchmark now separates capture, result-publication, controller and delayed-response clocks. B0-B2 retain 675-episode fixture and production-controller K1 artifacts plus 0.70/0.80/0.90 strength mutations; every production artifact fingerprints its config.
+- The sustained AimLab v2 scorer now measures true ADS→BodyLock handoff episodes over 0-159ms and 160-999ms windows. It preserves transitions that occur just before the scoring window, while excluding BodyLock-from-spawn. The 2026-07-26 baseline found `120/16` raises handoff defect frequency from 6.36% to 11.54% under default slowdown; the dominant signature is 10-50ms of delivered output continuing in the old direction. Evidence: [ADS_BODYLOCK_HANDOFF_BASELINE_20260726.md](../docs/project/ADS_BODYLOCK_HANDOFF_BASELINE_20260726.md).
 - Reusable method: [EVIDENCE_DRIVEN_REALTIME_CONTROL_OPTIMIZATION.md](../docs/project/EVIDENCE_DRIVEN_REALTIME_CONTROL_OPTIMIZATION.md).
 - Cross-project adoption entry: [REALTIME_CONTROL_OPTIMIZATION_START_HERE.md](../docs/methods/REALTIME_CONTROL_OPTIMIZATION_START_HERE.md).
 - Ready-to-paste onboarding prompt: [ADOPT_EVIDENCE_DRIVEN_CONTROL_OPTIMIZATION.md](../docs/methods/prompts/ADOPT_EVIDENCE_DRIVEN_CONTROL_OPTIMIZATION.md).
 
 ## Next Action
 
-1. Gameplay-smoke the causal pre-recoil mix candidate before merging to `dev`; specifically inspect strong vertical approach, left-strafe release, abrupt manual direction change and near-target micro-adjustment.
-2. If live output still feels sticky or discontinuous, capture candidate/weights, delivered pre-recoil output, pending displacement and tracker lifecycle before changing the 80 ms solve.
-3. Before the next controller policy change, generate a current-revision legacy/vector full acceptance artifact with effective config fingerprint, fixed seeds and comparator identity.
+1. Implement and benchmark a one-shot, state-aware ADS→BodyLock bumpless transfer; do not restore a permanent BodyLock brake. Require `120/16` defect rate, local/tail burden and tracking guardrails to beat the retained v2 baseline.
+2. Gameplay-smoke the causal pre-recoil mix candidate before merging to `dev`; specifically inspect strong vertical approach, left-strafe release, abrupt manual direction change and near-target micro-adjustment.
+3. If live output still feels sticky or discontinuous, capture candidate/weights, delivered pre-recoil output, pending displacement and tracker lifecycle before changing the 80 ms solve.
 4. For small/far-target authority, use existing box size/reliability and mixed-input scenarios first; do not add another vision pass by default.
 5. If global learning resumes, start at G0 journal and G1 sequence oracle. Do not jump directly to production learning or persistence.
 

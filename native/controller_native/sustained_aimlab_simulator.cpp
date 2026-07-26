@@ -134,6 +134,7 @@ BenchmarkResult run_simulation(
     double v1_post_cross_error_area_px_ms = 0.0;
     double v1_post_cross_wrong_way_output_integral = 0.0;
     bool previous_bodylock_mode = false;
+    bool saw_ads_mode = false;
     bool pending_ads_to_bodylock_transition = false;
     std::unique_ptr<TargetScorer> scorer;
     std::deque<Vec2d> delayed_controls(
@@ -186,6 +187,7 @@ BenchmarkResult run_simulation(
         v1_post_cross_error_area_px_ms = 0.0;
         v1_post_cross_wrong_way_output_integral = 0.0;
         previous_bodylock_mode = false;
+        saw_ads_mode = false;
         pending_ads_to_bodylock_transition = false;
         scorer = std::make_unique<TargetScorer>(target, script.config);
         if (cohort == BenchmarkCohort::BodyLockFollow) {
@@ -296,6 +298,13 @@ BenchmarkResult run_simulation(
         }
 
         const ControllerStepResult output = controller_step(input);
+        if (target_active && cohort == BenchmarkCohort::AdsAcquire) {
+            if (!output.bodylock_mode) saw_ads_mode = true;
+            if (saw_ads_mode && !previous_bodylock_mode &&
+                output.bodylock_mode) {
+                pending_ads_to_bodylock_transition = true;
+            }
+        }
         Vec2d plant_control = output.final_stick;
         if (!delayed_controls.empty()) {
             delayed_controls.push_back(output.final_stick);
@@ -397,10 +406,11 @@ BenchmarkResult run_simulation(
                 frame.radial_closing_velocity_px_per_sec =
                     output.radial_closing_velocity_px_per_sec;
                 frame.ads_to_bodylock_transition =
-                    pending_ads_to_bodylock_transition ||
-                    (!previous_bodylock_mode && output.bodylock_mode);
-                pending_ads_to_bodylock_transition = false;
+                    pending_ads_to_bodylock_transition;
                 scorer->add_frame(frame);
+                if (frame.ads_to_bodylock_transition) {
+                    pending_ads_to_bodylock_transition = false;
+                }
                 ++tracking_ticks;
                 if (tracking_ticks >= script.config.tracking_window_ms) {
                     finish_target();
