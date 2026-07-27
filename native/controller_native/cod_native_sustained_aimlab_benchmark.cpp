@@ -45,6 +45,7 @@ struct CliOptions {
     double camera_response = 500.0;
     double slowdown_edge = 0.50;
     double slowdown_center = 0.40;
+    int short_occlusion_ms = 0;
     std::string revision = "unknown";
     bool dirty = false;
     int duration_ms = 60'000;
@@ -132,6 +133,8 @@ CliOptions parse_args(int argc, char** argv) {
             options.slowdown_edge = std::stod(argv[++index]);
         } else if (argument == "--slowdown-center" && index + 1 < argc) {
             options.slowdown_center = std::stod(argv[++index]);
+        } else if (argument == "--short-occlusion-ms" && index + 1 < argc) {
+            options.short_occlusion_ms = std::stoi(argv[++index]);
         } else if (argument == "--revision" && index + 1 < argc) {
             options.revision = argv[++index];
         } else if (argument == "--dirty") {
@@ -163,6 +166,7 @@ CliOptions parse_args(int argc, char** argv) {
                 << "[--scenario baseline|compound_directional] "
                 << "[--target-profile ordinary|small] [--camera-response PX] "
                 << "[--slowdown-edge N] [--slowdown-center N] "
+                << "[--short-occlusion-ms 0|24|36|48] "
                 << "[--output PATH] [--revision HASH] [--dirty] "
                 << "[--duration-ms N] [--smoke] "
                 << "[--counterfactual off|quick|full] "
@@ -240,6 +244,13 @@ CliOptions parse_args(int argc, char** argv) {
         options.slowdown_edge > 1.0 || options.slowdown_center <= 0.0 ||
         options.slowdown_center > options.slowdown_edge) {
         throw std::runtime_error("invalid plant response or slowdown multipliers");
+    }
+    if (options.short_occlusion_ms != 0 &&
+        options.short_occlusion_ms != 24 &&
+        options.short_occlusion_ms != 36 &&
+        options.short_occlusion_ms != 48) {
+        throw std::runtime_error(
+            "short occlusion must be 0, 24, 36, or 48 ms");
     }
     if (options.seeds.empty()) {
         options.seeds = {1337, 20260718, 424242};
@@ -421,7 +432,7 @@ void write_report(
     std::ofstream out(partial, std::ios::binary);
     if (!out) throw std::runtime_error("cannot open output: " + partial.string());
     out << std::setprecision(10);
-    out << "{\n  \"schema\": \"sustained-aimlab-v2\",\n"
+    out << "{\n  \"schema\": \"sustained-aimlab-v3\",\n"
         << "  \"revision\": " << json_string(options.revision) << ",\n"
         << "  \"dirty\": " << (options.dirty ? "true" : "false") << ",\n"
         << "  \"config_path\": " << json_string(options.config_path.string()) << ",\n"
@@ -443,7 +454,9 @@ void write_report(
         << kPlayerStrafeMaxTopSpeedPxPerSecond
         << "], \"player_time_constant_ms\": ["
         << kPlayerStrafeMinTimeConstantMs << ','
-        << kPlayerStrafeMaxTimeConstantMs << "]},\n"
+        << kPlayerStrafeMaxTimeConstantMs << ']'
+        << ", \"short_occlusion_ms\": "
+        << config.short_occlusion_duration_ms << "},\n"
         << "  \"intent_fusion\": {\"schema_version\": 1, \"mode\": "
         << json_string(options.intent_fusion)
         << ", \"candidate_set_version\": 4},\n"
@@ -542,6 +555,15 @@ void write_report(
             << result.max_post_handoff_rebound_px
             << ", \"p95_post_handoff_wrong_way_output_integral\": "
             << result.p95_post_handoff_wrong_way_output_integral
+            << ", \"occlusion_episodes\": " << result.occlusion_episodes
+            << ", \"post_occlusion_samples\": "
+            << result.post_occlusion_samples
+            << ", \"post_occlusion_error_area_px_ms\": "
+            << result.post_occlusion_error_area_px_ms
+            << ", \"max_post_occlusion_error_px\": "
+            << result.max_post_occlusion_error_px
+            << ", \"p95_reveal_to_stable_ms\": "
+            << result.p95_reveal_to_stable_ms
             << ", \"mean_error_px\": " << result.mean_error_px
             << ", \"p95_error_px\": " << result.p95_error_px
             << ", \"p95_output_delta\": " << result.p95_output_delta
@@ -614,7 +636,17 @@ void write_report(
                 << ",\"post_handoff_settle_ms\":"
                 << target.post_handoff_settle_ms
                 << ",\"handoff_defect\":"
-                << (target.handoff_defect ? "true" : "false") << '}';
+                << (target.handoff_defect ? "true" : "false")
+                << ",\"occlusion_episodes\":"
+                << target.occlusion_episodes
+                << ",\"post_occlusion_samples\":"
+                << target.post_occlusion_samples
+                << ",\"post_occlusion_error_area_px_ms\":"
+                << target.post_occlusion_error_area_px_ms
+                << ",\"max_post_occlusion_error_px\":"
+                << target.max_post_occlusion_error_px
+                << ",\"reveal_to_stable_ms\":"
+                << target.reveal_to_stable_ms << '}';
         }
         const FusionRunSummary& fusion = fusion_results.at(run_index);
         out << "],\"intent_fusion\":{\"candidate_ticks\":[";
@@ -917,6 +949,8 @@ int main(int argc, char** argv) {
             options.camera_response;
         benchmark_config.slowdown_edge_multiplier = options.slowdown_edge;
         benchmark_config.slowdown_center_multiplier = options.slowdown_center;
+        benchmark_config.short_occlusion_duration_ms =
+            options.short_occlusion_ms;
         benchmark_config.obsolete_vertical_fixture =
             options.profile == "obsolete";
         std::vector<ManualProfile> profiles;
