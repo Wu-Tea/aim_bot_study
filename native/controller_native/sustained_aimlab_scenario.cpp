@@ -88,6 +88,7 @@ void hash_config(std::uint64_t& hash, const BenchmarkConfig& config) {
     hash_integral(hash, config.frame_width_px);
     hash_integral(hash, config.frame_height_px);
     hash_integral(hash, config.obsolete_vertical_fixture ? 1 : 0);
+    hash_integral(hash, config.short_occlusion_duration_ms);
 }
 
 std::uint64_t script_hash(const ScenarioScript& script) {
@@ -123,6 +124,14 @@ std::uint64_t script_hash(const ScenarioScript& script) {
         for (std::size_t index = 0; index < target.observation_at_ms.size(); ++index) {
             hash_integral(hash, target.observation_at_ms[index]);
             hash_vec(hash, target.observation_noise_px[index]);
+        }
+        hash_integral(
+            hash,
+            static_cast<std::uint64_t>(
+                target.vision_occlusion_bursts.size()));
+        for (const auto& burst : target.vision_occlusion_bursts) {
+            hash_integral(hash, burst.tracking_offset_ms);
+            hash_integral(hash, burst.duration_ms);
         }
     }
     return hash;
@@ -180,6 +189,9 @@ ScenarioScript generate_script(
     std::uniform_real_distribution<double> strafe_time_constant_distribution(
         kPlayerStrafeMinTimeConstantMs,
         kPlayerStrafeMaxTimeConstantMs);
+    std::mt19937 occlusion_random(seed ^ 0x5a17c9e3u);
+    std::uniform_int_distribution<int> early_occlusion_distribution(80, 180);
+    std::uniform_int_distribution<int> late_occlusion_distribution(480, 620);
 
     const int shortest_cycle_ms = config.min_acquire_deadline_ms +
         config.inter_target_gap_ms;
@@ -301,6 +313,14 @@ ScenarioScript generate_script(
             target.visible_radius_px = small_radii[index % 3];
         } else {
             target.visible_radius_px = config.target_radius_px;
+        }
+        if (config.short_occlusion_duration_ms > 0) {
+            target.vision_occlusion_bursts = {
+                {early_occlusion_distribution(occlusion_random),
+                 config.short_occlusion_duration_ms},
+                {late_occlusion_distribution(occlusion_random),
+                 config.short_occlusion_duration_ms},
+            };
         }
         result.targets.push_back(std::move(target));
     }

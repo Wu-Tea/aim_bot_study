@@ -47,6 +47,8 @@ bool same_target(const TargetScript& left, const TargetScript& right) {
         left.acquire_deadline_ms != right.acquire_deadline_ms ||
         left.player_strafe != right.player_strafe ||
         left.observation_at_ms != right.observation_at_ms ||
+        left.vision_occlusion_bursts.size() !=
+            right.vision_occlusion_bursts.size() ||
         left.observation_noise_px.size() != right.observation_noise_px.size()) {
         return false;
     }
@@ -55,6 +57,15 @@ bool same_target(const TargetScript& left, const TargetScript& right) {
                 right.velocity_maneuvers[index].at_ms ||
             !same_vec(left.velocity_maneuvers[index].velocity_px_per_second,
                       right.velocity_maneuvers[index].velocity_px_per_second)) {
+            return false;
+        }
+    }
+    for (std::size_t index = 0;
+         index < left.vision_occlusion_bursts.size(); ++index) {
+        if (left.vision_occlusion_bursts[index].tracking_offset_ms !=
+                right.vision_occlusion_bursts[index].tracking_offset_ms ||
+            left.vision_occlusion_bursts[index].duration_ms !=
+                right.vision_occlusion_bursts[index].duration_ms) {
             return false;
         }
     }
@@ -368,6 +379,42 @@ void test_obsolete_vertical_fixture_is_stationary_for_every_motion_label() {
     }
 }
 
+void test_short_occlusion_bursts_are_tracking_relative_and_hashed() {
+    BenchmarkConfig config;
+    config.short_occlusion_duration_ms = 36;
+    const auto first =
+        controller_native::sustained_aimlab::generate_script(2026072701, config);
+    const auto second =
+        controller_native::sustained_aimlab::generate_script(2026072701, config);
+    require(first.hash == second.hash,
+            "occlusion script must be deterministic");
+    for (const auto& target : first.targets) {
+        require(target.vision_occlusion_bursts.size() == 2,
+                "each target must receive two short bursts");
+        for (const auto& burst : target.vision_occlusion_bursts) {
+            require(burst.tracking_offset_ms >= 60,
+                    "burst must begin after tracking starts");
+            require(burst.duration_ms == 36,
+                    "burst duration must match the selected cohort");
+        }
+        require(
+            target.vision_occlusion_bursts[0].tracking_offset_ms +
+                    target.vision_occlusion_bursts[0].duration_ms <
+                target.vision_occlusion_bursts[1].tracking_offset_ms,
+            "bursts must not overlap");
+    }
+
+    BenchmarkConfig plain;
+    const auto no_occlusion =
+        controller_native::sustained_aimlab::generate_script(2026072701, plain);
+    require(no_occlusion.hash != first.hash,
+            "occlusion semantics must change script identity");
+    for (const auto& target : no_occlusion.targets) {
+        require(target.vision_occlusion_bursts.empty(),
+                "ordinary scenarios must remain burst-free");
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -382,6 +429,7 @@ int main() {
         test_bodylock_stress_profiles_are_isolated_and_deterministic();
         test_small_target_profile_reuses_motion_and_cycles_visible_radius();
         test_obsolete_vertical_fixture_is_stationary_for_every_motion_label();
+        test_short_occlusion_bursts_are_tracking_relative_and_hashed();
         std::cout << "cod_native_sustained_aimlab_scenario_tests PASS\n";
         return EXIT_SUCCESS;
     } catch (const std::exception& error) {

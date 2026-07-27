@@ -74,6 +74,11 @@ struct PlayerStrafeScript {
     }
 };
 
+struct VisionOcclusionBurst {
+    int tracking_offset_ms = 0;
+    int duration_ms = 0;
+};
+
 struct BenchmarkConfig {
     ScenarioProfile scenario_profile = ScenarioProfile::Baseline;
     TargetProfile target_profile = TargetProfile::Ordinary;
@@ -93,6 +98,7 @@ struct BenchmarkConfig {
     int frame_width_px = 640;
     int frame_height_px = 512;
     bool obsolete_vertical_fixture = false;
+    int short_occlusion_duration_ms = 0;
 };
 
 struct VelocityManeuver {
@@ -113,6 +119,7 @@ struct TargetScript {
     PlayerStrafeScript player_strafe;
     std::vector<int> observation_at_ms;
     std::vector<Vec2d> observation_noise_px;
+    std::vector<VisionOcclusionBurst> vision_occlusion_bursts;
 };
 
 struct ScenarioScript {
