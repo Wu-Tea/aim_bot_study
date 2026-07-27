@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
+import os
 import re
 import shutil
 import subprocess
@@ -10,6 +12,7 @@ import sys
 import threading
 import time
 from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
@@ -82,6 +85,22 @@ class MatchResult:
     fp: int
     fn: int
     matched_ious: list[float] = field(default_factory=list)
+    matches: list["MatchPair"] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class MatchPair:
+    ground_truth_index: int
+    detection_index: int
+    iou: float
+
+
+@dataclass(frozen=True)
+class CroppedTarget:
+    target_index: int
+    original: Box
+    cropped: Box
+    visible_fraction: float
 
 
 @dataclass(frozen=True)
@@ -108,12 +127,18 @@ class DatasetSummary:
     fp: int = 0
     fn: int = 0
     failures: int = 0
+    skipped_undersized: int = 0
     infer_ms: list[float] = field(default_factory=list)
     gpu_total_ms: list[float] = field(default_factory=list)
     wall_ms: list[float] = field(default_factory=list)
+    process_cpu_ms: list[float] = field(default_factory=list)
+    process_rss_mb: list[float] = field(default_factory=list)
     preprocess_ms: list[float] = field(default_factory=list)
     output_wait_ms: list[float] = field(default_factory=list)
     decode_ms: list[float] = field(default_factory=list)
+    frame_budgets_ms: tuple[float, ...] = (4.167, 8.333, 16.667)
+    size_buckets: dict[str, dict[str, int]] = field(default_factory=dict)
+    visibility_buckets: dict[str, dict[str, int]] = field(default_factory=dict)
 
     def add(
         self,
@@ -122,6 +147,7 @@ class DatasetSummary:
         detection_count: int,
         match: MatchResult,
         timings: dict[str, float],
+        target_records: Sequence[dict[str, Any]] = (),
     ) -> None:
         self.images += 1
         self.labels += label_count
@@ -134,9 +160,18 @@ class DatasetSummary:
         _append_if_number(self.infer_ms, timings.get("infer_ms"))
         _append_if_number(self.gpu_total_ms, timings.get("gpu_total_ms"))
         _append_if_number(self.wall_ms, timings.get("wall_ms"))
+        _append_if_number(self.process_cpu_ms, timings.get("process_cpu_ms"))
+        _append_if_number(self.process_rss_mb, timings.get("process_rss_mb"))
         _append_if_number(self.preprocess_ms, timings.get("preprocess_ms"))
         _append_if_number(self.output_wait_ms, timings.get("output_wait_ms"))
         _append_if_number(self.decode_ms, timings.get("decode_ms"))
+        for target in target_records:
+            _add_bucket_result(self.size_buckets, str(target["size_bucket"]), bool(target["matched"]))
+            _add_bucket_result(
+                self.visibility_buckets,
+                str(target["visibility_bucket"]),
+                bool(target["matched"]),
+            )
 
     def metrics(self) -> dict[str, Any]:
         return {
@@ -153,13 +188,35 @@ class DatasetSummary:
             "recall": _safe_div(self.tp, self.tp + self.fn),
             "f1": _f1(self.tp, self.fp, self.fn),
             "failure_images": self.failures,
+            "skipped_undersized": self.skipped_undersized,
             "infer_ms": _timing_summary(self.infer_ms),
             "gpu_total_ms": _timing_summary(self.gpu_total_ms),
             "wall_ms": _timing_summary(self.wall_ms),
+            "process_cpu_ms": _timing_summary(self.process_cpu_ms),
+            "process_rss_mb": _timing_summary(self.process_rss_mb),
             "preprocess_ms": _timing_summary(self.preprocess_ms),
             "output_wait_ms": _timing_summary(self.output_wait_ms),
             "decode_ms": _timing_summary(self.decode_ms),
+            "deadline_misses": deadline_miss_summary(self.wall_ms, self.frame_budgets_ms),
+            "size_buckets": _finalize_bucket_results(self.size_buckets),
+            "visibility_buckets": _finalize_bucket_results(self.visibility_buckets),
         }
+
+
+def _add_bucket_result(buckets: dict[str, dict[str, int]], name: str, matched: bool) -> None:
+    bucket = buckets.setdefault(name, {"targets": 0, "tp": 0, "fn": 0})
+    bucket["targets"] += 1
+    bucket["tp" if matched else "fn"] += 1
+
+
+def _finalize_bucket_results(buckets: dict[str, dict[str, int]]) -> dict[str, dict[str, float | int]]:
+    return {
+        name: {
+            **counts,
+            "recall": _safe_div(counts["tp"], counts["targets"]),
+        }
+        for name, counts in sorted(buckets.items())
+    }
 
 
 def _append_if_number(values: list[float], value: Any) -> None:
@@ -213,6 +270,17 @@ def _timing_summary(values: Sequence[float]) -> dict[str, float]:
         "p99": percentile(values, 0.99),
         "max": max(values),
     }
+
+
+def deadline_miss_summary(values: Sequence[float], budgets_ms: Sequence[float]) -> dict[str, dict[str, float | int]]:
+    result: dict[str, dict[str, float | int]] = {}
+    for budget in budgets_ms:
+        misses = sum(1 for value in values if value > budget)
+        result[f"{budget:g}"] = {
+            "count": misses,
+            "rate": _safe_div(misses, len(values)),
+        }
+    return result
 
 
 def _parse_optional_float(value: str) -> float | None:
@@ -547,16 +615,31 @@ def center_crop_window(
     return CropWindow(left=left, top=top, width=width, height=height, source_width=source_width, source_height=source_height)
 
 
-def clip_boxes_to_crop(boxes: Sequence[Box], crop: CropWindow, min_area: float = 4.0) -> list[Box]:
-    clipped: list[Box] = []
+def crop_fits_source(
+    source_width: int,
+    source_height: int,
+    crop_width: int | None,
+    crop_height: int | None,
+) -> bool:
+    requested_width = source_width if not crop_width or crop_width <= 0 else crop_width
+    requested_height = source_height if not crop_height or crop_height <= 0 else crop_height
+    return requested_width <= source_width and requested_height <= source_height
+
+
+def crop_targets_to_window(
+    boxes: Sequence[Box],
+    crop: CropWindow,
+    min_area: float = 4.0,
+) -> list[CroppedTarget]:
+    targets: list[CroppedTarget] = []
     crop_right = crop.left + crop.width
     crop_bottom = crop.top + crop.height
-    for box in boxes:
+    for target_index, box in enumerate(boxes):
         x1 = max(box.x1, float(crop.left))
         y1 = max(box.y1, float(crop.top))
         x2 = min(box.x2, float(crop_right))
         y2 = min(box.y2, float(crop_bottom))
-        candidate = Box(
+        cropped = Box(
             x1=x1 - crop.left,
             y1=y1 - crop.top,
             x2=x2 - crop.left,
@@ -564,9 +647,73 @@ def clip_boxes_to_crop(boxes: Sequence[Box], crop: CropWindow, min_area: float =
             class_id=box.class_id,
             conf=box.conf,
         )
-        if candidate.area >= min_area:
-            clipped.append(candidate)
-    return clipped
+        if cropped.area < min_area:
+            continue
+        targets.append(
+            CroppedTarget(
+                target_index=target_index,
+                original=box,
+                cropped=cropped,
+                visible_fraction=_safe_div(cropped.area, box.area),
+            )
+        )
+    return targets
+
+
+def clip_boxes_to_crop(boxes: Sequence[Box], crop: CropWindow, min_area: float = 4.0) -> list[Box]:
+    return [target.cropped for target in crop_targets_to_window(boxes, crop, min_area)]
+
+
+def target_size_bucket(tensor_width: float, tensor_height: float) -> str:
+    area = max(0.0, tensor_width) * max(0.0, tensor_height)
+    if area < 16.0**2:
+        return "tiny"
+    if area < 32.0**2:
+        return "small"
+    if area < 96.0**2:
+        return "medium"
+    if area < 160.0**2:
+        return "large"
+    return "very_large"
+
+
+def visibility_bucket(visible_fraction: float) -> str:
+    if visible_fraction < 0.50:
+        return "severe_clip"
+    if visible_fraction < 0.90:
+        return "partial"
+    if visible_fraction < 0.999:
+        return "mostly_visible"
+    return "full"
+
+
+def build_target_record(
+    target: CroppedTarget,
+    *,
+    crop_width: int,
+    crop_height: int,
+    tensor_width: int,
+    tensor_height: int,
+    matched: bool,
+    matched_iou: float | None,
+) -> dict[str, Any]:
+    scale_x = _safe_div(tensor_width, crop_width)
+    scale_y = _safe_div(tensor_height, crop_height)
+    target_tensor_width = target.cropped.width * scale_x
+    target_tensor_height = target.cropped.height * scale_y
+    return {
+        "target_index": target.target_index,
+        "original": asdict(target.original),
+        "cropped": asdict(target.cropped),
+        "visible_fraction": target.visible_fraction,
+        "visibility_bucket": visibility_bucket(target.visible_fraction),
+        "tensor_width": target_tensor_width,
+        "tensor_height": target_tensor_height,
+        "tensor_area": target_tensor_width * target_tensor_height,
+        "size_bucket": target_size_bucket(target_tensor_width, target_tensor_height),
+        "matched": matched,
+        "matched_iou": matched_iou,
+    }
 
 
 def box_iou(left: Box, right: Box) -> float:
@@ -590,10 +737,12 @@ def match_detections(
 ) -> MatchResult:
     matched_gt: set[int] = set()
     matched_ious: list[float] = []
+    matches: list[MatchPair] = []
     true_positive = 0
     false_positive = 0
 
-    for detection in sorted(detections, key=lambda box: box.conf, reverse=True):
+    ordered_detections = sorted(enumerate(detections), key=lambda item: item[1].conf, reverse=True)
+    for detection_index, detection in ordered_detections:
         best_index = -1
         best_iou = 0.0
         for index, truth in enumerate(ground_truth):
@@ -608,12 +757,25 @@ def match_detections(
         if best_index >= 0 and best_iou >= iou_threshold:
             matched_gt.add(best_index)
             matched_ious.append(best_iou)
+            matches.append(
+                MatchPair(
+                    ground_truth_index=best_index,
+                    detection_index=detection_index,
+                    iou=best_iou,
+                )
+            )
             true_positive += 1
         else:
             false_positive += 1
 
     false_negative = len(ground_truth) - len(matched_gt)
-    return MatchResult(tp=true_positive, fp=false_positive, fn=false_negative, matched_ious=matched_ious)
+    return MatchResult(
+        tp=true_positive,
+        fp=false_positive,
+        fn=false_negative,
+        matched_ious=matched_ious,
+        matches=matches,
+    )
 
 
 def detection_from_native(raw: dict[str, Any]) -> Box:
@@ -657,6 +819,92 @@ def resolve_project_path(path: Path) -> Path:
     return PROJECT_ROOT / path
 
 
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def git_identity() -> dict[str, Any]:
+    git = shutil.which("git")
+    if not git:
+        return {"revision": None, "dirty": None}
+    try:
+        revision = subprocess.run(
+            [git, "rev-parse", "HEAD"],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=2.0,
+            check=False,
+        )
+        status = subprocess.run(
+            [git, "status", "--porcelain"],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=2.0,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return {"revision": None, "dirty": None}
+    return {
+        "revision": revision.stdout.strip() if revision.returncode == 0 else None,
+        "dirty": bool(status.stdout.strip()) if status.returncode == 0 else None,
+    }
+
+
+def extract_engine_input_size(engine_info: dict[str, Any]) -> tuple[int, int]:
+    for tensor in engine_info.get("tensors", []):
+        shape = tensor.get("shape", [])
+        if isinstance(shape, (list, tuple)) and len(shape) == 4:
+            height = int(shape[-2])
+            width = int(shape[-1])
+            if width > 0 and height > 0:
+                return width, height
+    raise ValueError("engine inspection did not expose a positive NCHW input shape")
+
+
+class ProcessResourceSampler:
+    def __init__(self) -> None:
+        self._process: Any | None = None
+        try:
+            import psutil
+
+            self._process = psutil.Process(os.getpid())
+        except (ImportError, OSError):
+            self._process = None
+
+    def rss_mb(self) -> float | None:
+        if self._process is None:
+            return None
+        try:
+            return float(self._process.memory_info().rss) / (1024.0 * 1024.0)
+        except (OSError, RuntimeError):
+            return None
+
+
+class FrameRecordWriter:
+    def __init__(self, path: Path, candidate_id: str) -> None:
+        self.path = path
+        self.candidate_id = candidate_id
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.handle = self.path.open("w", encoding="utf-8")
+
+    def close(self) -> None:
+        self.handle.close()
+
+    def write(self, record: dict[str, Any]) -> None:
+        output = {
+            "schema_version": 1,
+            "candidate_id": self.candidate_id,
+            **record,
+        }
+        self.handle.write(json.dumps(output, ensure_ascii=False) + "\n")
+
+
 def run_warmup(engine: Any, sample_rgb: Any, conf: float, count: int) -> None:
     for _ in range(max(0, count)):
         engine.infer_rgb(sample_rgb, conf)
@@ -674,9 +922,20 @@ def benchmark_split(
     crop_height: int | None,
     max_images: int | None,
     warmup: int,
+    tensor_width: int,
+    tensor_height: int,
+    strict_crop_size: bool,
+    frame_budgets_ms: Sequence[float],
     failure_writer: "FailureWriter | None" = None,
+    frame_writer: "FrameRecordWriter | None" = None,
+    process_sampler: "ProcessResourceSampler | None" = None,
 ) -> DatasetSummary:
-    summary = DatasetSummary(dataset=dataset.name, root=str(dataset.root), split=dataset.split)
+    summary = DatasetSummary(
+        dataset=dataset.name,
+        root=str(dataset.root),
+        split=dataset.split,
+        frame_budgets_ms=tuple(frame_budgets_ms),
+    )
     image_paths = list(iter_image_files(dataset.image_dir))
     if max_images is not None and max_images > 0:
         image_paths = image_paths[:max_images]
@@ -685,6 +944,30 @@ def benchmark_split(
     for image_path in image_paths:
         rgb = load_rgb_array(image_path)
         source_height, source_width = int(rgb.shape[0]), int(rgb.shape[1])
+        sample_key = f"{dataset.name}/{dataset.split}/{image_path.relative_to(dataset.image_dir).as_posix()}"
+        if strict_crop_size and not crop_fits_source(
+            source_width,
+            source_height,
+            crop_width,
+            crop_height,
+        ):
+            summary.skipped_undersized += 1
+            if frame_writer is not None:
+                frame_writer.write(
+                    {
+                        "sample_key": sample_key,
+                        "dataset": dataset.name,
+                        "split": dataset.split,
+                        "image": str(image_path),
+                        "status": "skipped",
+                        "skip_reason": "source_smaller_than_requested_crop",
+                        "source_width": source_width,
+                        "source_height": source_height,
+                        "requested_crop_width": crop_width,
+                        "requested_crop_height": crop_height,
+                    }
+                )
+            continue
         crop = center_crop_window(source_width, source_height, crop_width, crop_height)
         cropped_rgb = crop_rgb_array(rgb, crop)
         label_path = label_path_for_image(image_path, dataset.label_dir)
@@ -695,14 +978,17 @@ def benchmark_split(
             class_names=dataset.class_names,
             selected_classes=selected_classes,
         )
-        cropped_labels = clip_boxes_to_crop(labels, crop)
+        cropped_targets = crop_targets_to_window(labels, crop)
+        cropped_labels = [target.cropped for target in cropped_targets]
 
         if not warmed:
             run_warmup(engine, cropped_rgb, conf, warmup)
             warmed = True
 
         wall_start = time.perf_counter()
+        process_start = time.process_time()
         raw_result = engine.infer_rgb(cropped_rgb, conf)
+        process_cpu_ms = (time.process_time() - process_start) * 1000.0
         wall_ms = (time.perf_counter() - wall_start) * 1000.0
         detections = [detection_from_native(raw) for raw in raw_result.get("detections", [])]
         match = match_detections(
@@ -711,15 +997,61 @@ def benchmark_split(
             iou_threshold=iou_threshold,
             class_aware=class_aware,
         )
+        matched_by_gt = {pair.ground_truth_index: pair.iou for pair in match.matches}
+        target_records = [
+            build_target_record(
+                target,
+                crop_width=crop.width,
+                crop_height=crop.height,
+                tensor_width=tensor_width,
+                tensor_height=tensor_height,
+                matched=index in matched_by_gt,
+                matched_iou=matched_by_gt.get(index),
+            )
+            for index, target in enumerate(cropped_targets)
+        ]
         timings = {
             "wall_ms": wall_ms,
+            "process_cpu_ms": process_cpu_ms,
+            "process_rss_mb": process_sampler.rss_mb() if process_sampler is not None else None,
             "preprocess_ms": raw_result.get("preprocess_ms", 0.0),
             "infer_ms": raw_result.get("infer_ms", 0.0),
             "gpu_total_ms": raw_result.get("gpu_total_ms", 0.0),
             "output_wait_ms": raw_result.get("output_wait_ms", 0.0),
             "decode_ms": raw_result.get("decode_ms", 0.0),
         }
-        summary.add(label_count=len(cropped_labels), detection_count=len(detections), match=match, timings=timings)
+        summary.add(
+            label_count=len(cropped_labels),
+            detection_count=len(detections),
+            match=match,
+            timings=timings,
+            target_records=target_records,
+        )
+        if frame_writer is not None:
+            frame_writer.write(
+                {
+                    "sample_key": sample_key,
+                    "dataset": dataset.name,
+                    "split": dataset.split,
+                    "image": str(image_path),
+                    "status": "evaluated",
+                    "source_width": source_width,
+                    "source_height": source_height,
+                    "crop": asdict(crop),
+                    "tensor_width": tensor_width,
+                    "tensor_height": tensor_height,
+                    "original_labels": [asdict(box) for box in labels],
+                    "targets": target_records,
+                    "detections": [asdict(box) for box in detections],
+                    "match": {
+                        "tp": match.tp,
+                        "fp": match.fp,
+                        "fn": match.fn,
+                        "pairs": [asdict(pair) for pair in match.matches],
+                    },
+                    "timings": timings,
+                }
+            )
         if failure_writer is not None and (match.fp or match.fn):
             failure_writer.write(
                 dataset=dataset,
@@ -790,7 +1122,8 @@ class FailureWriter:
 
 
 def aggregate_summaries(summaries: Sequence[DatasetSummary]) -> DatasetSummary:
-    overall = DatasetSummary(dataset="OVERALL", root="", split="")
+    budgets = summaries[0].frame_budgets_ms if summaries else (4.167, 8.333, 16.667)
+    overall = DatasetSummary(dataset="OVERALL", root="", split="", frame_budgets_ms=budgets)
     for summary in summaries:
         overall.images += summary.images
         overall.labels += summary.labels
@@ -799,12 +1132,23 @@ def aggregate_summaries(summaries: Sequence[DatasetSummary]) -> DatasetSummary:
         overall.fp += summary.fp
         overall.fn += summary.fn
         overall.failures += summary.failures
+        overall.skipped_undersized += summary.skipped_undersized
         overall.infer_ms.extend(summary.infer_ms)
         overall.gpu_total_ms.extend(summary.gpu_total_ms)
         overall.wall_ms.extend(summary.wall_ms)
+        overall.process_cpu_ms.extend(summary.process_cpu_ms)
+        overall.process_rss_mb.extend(summary.process_rss_mb)
         overall.preprocess_ms.extend(summary.preprocess_ms)
         overall.output_wait_ms.extend(summary.output_wait_ms)
         overall.decode_ms.extend(summary.decode_ms)
+        for name, counts in summary.size_buckets.items():
+            target = overall.size_buckets.setdefault(name, {"targets": 0, "tp": 0, "fn": 0})
+            for key in ("targets", "tp", "fn"):
+                target[key] += counts[key]
+        for name, counts in summary.visibility_buckets.items():
+            target = overall.visibility_buckets.setdefault(name, {"targets": 0, "tp": 0, "fn": 0})
+            for key in ("targets", "tp", "fn"):
+                target[key] += counts[key]
     return overall
 
 
@@ -823,7 +1167,7 @@ def print_discovery(datasets: Sequence[DatasetSplit], max_images: int | None = N
 
 def print_summary(summaries: Sequence[DatasetSummary]) -> None:
     header = (
-        f"{'dataset':34} {'split':7} {'img':>5} {'gt':>6} {'det':>6} "
+        f"{'dataset':34} {'split':7} {'img':>5} {'skip':>5} {'gt':>6} {'det':>6} "
         f"{'P':>6} {'R':>6} {'F1':>6} {'infer p50/p95':>18} {'gpu p50/p95':>18}"
     )
     print(header)
@@ -834,7 +1178,8 @@ def print_summary(summaries: Sequence[DatasetSummary]) -> None:
         gpu = metrics["gpu_total_ms"]
         print(
             f"{summary.dataset[:34]:34} {summary.split or '-':7} "
-            f"{summary.images:5d} {summary.labels:6d} {summary.detections:6d} "
+            f"{summary.images:5d} {summary.skipped_undersized:5d} "
+            f"{summary.labels:6d} {summary.detections:6d} "
             f"{metrics['precision']:6.3f} {metrics['recall']:6.3f} {metrics['f1']:6.3f} "
             f"{infer['p50']:7.3f}/{infer['p95']:<7.3f} "
             f"{gpu['p50']:7.3f}/{gpu['p95']:<7.3f}"
@@ -846,10 +1191,24 @@ def write_json(
     summaries: Sequence[DatasetSummary],
     args: argparse.Namespace,
     *,
+    engine_info: dict[str, Any],
+    model_sha256: str,
     gpu_resource: dict[str, Any] | None = None,
 ) -> None:
     overall = aggregate_summaries(summaries).metrics()
     output = {
+        "schema_version": 2,
+        "created_utc": datetime.now(timezone.utc).isoformat(),
+        "candidate_id": args.candidate_id,
+        "provenance": {
+            "engine": {
+                "path": str(resolve_project_path(args.model)),
+                "size_bytes": resolve_project_path(args.model).stat().st_size,
+                "sha256": model_sha256,
+                "inspection": engine_info,
+            },
+            "benchmark": git_identity(),
+        },
         "parameters": {
             "model": str(resolve_project_path(args.model)),
             "datasets": [str(resolve_project_path(path)) for path in args.datasets],
@@ -861,7 +1220,10 @@ def write_json(
             "class_aware": args.class_aware,
             "crop_width": args.crop_width,
             "crop_height": args.crop_height,
+            "strict_crop_size": args.strict_crop_size,
             "warmup": args.warmup,
+            "frame_budgets_ms": args.frame_budget_ms,
+            "frame_jsonl": str(resolve_project_path(args.frame_jsonl)) if args.frame_jsonl else None,
             "gpu_monitor": args.gpu_monitor,
             "gpu_monitor_interval_ms": args.gpu_monitor_interval_ms,
             "gpu_index": args.gpu_index,
@@ -909,6 +1271,29 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--crop-width", type=int, default=None, help="Optional centered ROI crop width before inference.")
     parser.add_argument("--crop-height", type=int, default=None, help="Optional centered ROI crop height before inference.")
+    parser.add_argument(
+        "--strict-crop-size",
+        action="store_true",
+        help="Skip and record images smaller than the requested crop instead of silently clamping.",
+    )
+    parser.add_argument(
+        "--candidate-id",
+        default="default",
+        help="Stable candidate name written to artifacts, e.g. fixed480 or wide320.",
+    )
+    parser.add_argument(
+        "--frame-jsonl",
+        type=Path,
+        default=None,
+        help="Optional per-frame JSONL evidence including targets, matches, timings, and skipped images.",
+    )
+    parser.add_argument(
+        "--frame-budget-ms",
+        type=float,
+        nargs="+",
+        default=[4.167, 8.333, 16.667],
+        help="Wall-time budgets used to report deadline miss counts and rates.",
+    )
     parser.add_argument("--warmup", type=int, default=3, help="Warmup inferences on the first image of each dataset.")
     parser.add_argument("--discover-only", action="store_true", help="Only print discovered datasets; do not load TensorRT.")
     parser.add_argument("--output-json", type=Path, default=None, help="Optional summary JSON output path.")
@@ -933,6 +1318,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     except ValueError as exc:
         parser.error(str(exc))
         return 2
+    if not args.candidate_id.strip():
+        parser.error("--candidate-id must not be empty")
+        return 2
+    if any(not math.isfinite(value) or value <= 0.0 for value in args.frame_budget_ms):
+        parser.error("--frame-budget-ms values must be positive finite numbers")
+        return 2
 
     datasets = discover_yolo_splits([resolve_project_path(path) for path in args.datasets], splits)
     if args.discover_only:
@@ -950,6 +1341,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     selected_classes = parse_target_classes(args.target_classes)
     vision_native_cpp = ensure_native_module()
     engine_info = vision_native_cpp.inspect_engine(str(model_path))
+    try:
+        tensor_width, tensor_height = extract_engine_input_size(engine_info)
+    except ValueError as exc:
+        print(f"Invalid engine input contract: {exc}", file=sys.stderr)
+        return 2
+    model_sha256 = sha256_file(model_path)
     print(
         f"model={model_path} input={engine_info.get('tensors', [{}])[0].get('shape', '?')} "
         f"conf={args.conf} iou={args.iou} crop={args.crop_width or '-'}x{args.crop_height or '-'}"
@@ -959,6 +1356,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     engine = vision_native_cpp.NativeEngine(str(model_path))
 
     failure_writer = FailureWriter(resolve_project_path(args.save_failures), args.max_failures) if args.save_failures else None
+    frame_writer = (
+        FrameRecordWriter(resolve_project_path(args.frame_jsonl), args.candidate_id)
+        if args.frame_jsonl
+        else None
+    )
+    process_sampler = ProcessResourceSampler()
     gpu_monitor = (
         GpuResourceMonitor(interval_seconds=args.gpu_monitor_interval_ms / 1000.0, gpu_index=args.gpu_index)
         if args.gpu_monitor
@@ -982,7 +1385,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                     crop_height=args.crop_height,
                     max_images=args.max_images,
                     warmup=args.warmup,
+                    tensor_width=tensor_width,
+                    tensor_height=tensor_height,
+                    strict_crop_size=args.strict_crop_size,
+                    frame_budgets_ms=args.frame_budget_ms,
                     failure_writer=failure_writer,
+                    frame_writer=frame_writer,
+                    process_sampler=process_sampler,
                 )
             )
     finally:
@@ -990,6 +1399,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             gpu_resource = gpu_monitor.stop()
         if failure_writer is not None:
             failure_writer.close()
+        if frame_writer is not None:
+            frame_writer.close()
 
     print_summary(summaries)
     if gpu_resource is not None:
@@ -1007,8 +1418,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"gpu_resource warning: {gpu_resource['error']}", file=sys.stderr)
     if args.output_json is not None:
         output_json = resolve_project_path(args.output_json)
-        write_json(output_json, summaries, args, gpu_resource=gpu_resource)
+        write_json(
+            output_json,
+            summaries,
+            args,
+            engine_info=engine_info,
+            model_sha256=model_sha256,
+            gpu_resource=gpu_resource,
+        )
         print(f"wrote {output_json}")
+    if frame_writer is not None:
+        print(f"wrote frame evidence to {frame_writer.path}")
     if failure_writer is not None:
         print(f"wrote failures to {failure_writer.output_dir}")
     return 0

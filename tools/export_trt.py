@@ -2,6 +2,7 @@ from pathlib import Path
 import argparse
 import shutil
 import sys
+import tempfile
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -29,10 +30,9 @@ def _project_relative(path: Path) -> Path:
     return path if path.is_absolute() else PROJECT_ROOT / path
 
 
-def export_trt(argv=None):
-    args = _parse_args(argv)
+def _run_export(weights_path: Path, args):
     print("[Export] Rebuilding TensorRT engine...")
-    model = YOLO(str(_project_relative(args.weights)))
+    model = YOLO(str(weights_path))
 
     export_kwargs = {
         "format": "engine",
@@ -47,20 +47,33 @@ def export_trt(argv=None):
     }
 
     try:
-        exported_path = Path(model.export(**export_kwargs))
+        return Path(model.export(**export_kwargs))
     except Exception as exc:
         print(f"[Export] Built-in NMS export failed: {exc}")
         print("[Export] Falling back to engine export without nms=True...")
         fallback_kwargs = dict(export_kwargs)
         fallback_kwargs.pop("nms", None)
-        exported_path = Path(model.export(**fallback_kwargs))
+        return Path(model.export(**fallback_kwargs))
+
+
+def export_trt(argv=None):
+    args = _parse_args(argv)
+    weights_path = _project_relative(args.weights)
 
     if args.output is not None:
         output_path = _project_relative(args.output)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        if exported_path.resolve(strict=False) != output_path.resolve(strict=False):
+        # Ultralytics exports beside the source weights. Stage the weights when
+        # an explicit output is requested so a candidate export cannot replace
+        # the production engine sharing the original weights stem.
+        with tempfile.TemporaryDirectory(prefix="vision-trt-export-") as tmp:
+            staged_weights = Path(tmp) / weights_path.name
+            shutil.copy2(weights_path, staged_weights)
+            exported_path = _run_export(staged_weights, args)
             shutil.copy2(exported_path, output_path)
         exported_path = output_path
+    else:
+        exported_path = _run_export(weights_path, args)
 
     print(f"[Export] Engine export complete. artifact={exported_path}")
 

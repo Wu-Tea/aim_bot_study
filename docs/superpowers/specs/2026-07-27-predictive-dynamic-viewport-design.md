@@ -1,8 +1,12 @@
 # Predictive Dynamic Viewport Design
 
 Date: 2026-07-27
-Status: proposed; design direction approved, written-spec review pending
+Status: approved fallback; deferred while fixed 1.25x/1.3125x video evidence is pending
 Canonical candidate for: native `480x416` DXGI capture, committed-target viewport prediction, mathematical optimization, offline evidence and staged runtime integration
+Preceded by:
+
+- `2026-07-27-fixed-wide-low-resolution-vision-baseline-design.md`
+
 Intended to supersede after written-spec approval:
 
 - `2026-07-22-bounded-dynamic-roi-master-design.md`
@@ -29,10 +33,11 @@ The mathematical objective is:
 > region at the next capture time, choose the reachable offset and zoom-out
 > that preserve that region with the smallest viewport intervention.
 
-The first work product is not a DXGI or TensorRT change. It is an isolated
-mathematical benchmark, named M0, which must prove solver correctness,
-prediction value and theoretical headroom before production capture is
-modified.
+The first dynamic-viewport work product is not a DXGI or TensorRT change. It is
+an isolated mathematical benchmark, named M0, which must prove solver
+correctness, prediction value and theoretical headroom before production
+capture is modified. M0 begins only if the preceding fixed-wide `wide320` V0
+cannot satisfy its recorded accuracy, coverage and performance gates.
 
 ## 2. Problem being solved
 

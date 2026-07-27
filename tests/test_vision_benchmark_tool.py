@@ -1,7 +1,9 @@
+import json
 import tempfile
 import textwrap
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from tools import benchmark_vision_dataset as bench
 
@@ -72,6 +74,113 @@ class VisionBenchmarkToolTests(unittest.TestCase):
         self.assertEqual(len(clipped), 1)
         self.assertEqual(clipped[0], bench.Box(15, 5, 40, 20, class_id=0, conf=1.0))
 
+    def test_crop_target_records_keep_original_identity_and_visible_fraction(self):
+        crop = bench.center_crop_window(100, 80, 40, 20)
+        boxes = [
+            bench.Box(45, 35, 80, 55, class_id=0),
+            bench.Box(0, 0, 10, 10, class_id=1),
+        ]
+
+        targets = bench.crop_targets_to_window(boxes, crop)
+
+        self.assertEqual(len(targets), 1)
+        self.assertEqual(targets[0].target_index, 0)
+        self.assertEqual(targets[0].original, boxes[0])
+        self.assertEqual(targets[0].cropped, bench.Box(15, 5, 40, 20, class_id=0, conf=1.0))
+        self.assertAlmostEqual(targets[0].visible_fraction, (25 * 15) / (35 * 20))
+
+    def test_crop_fits_source_rejects_silent_clamp(self):
+        self.assertTrue(bench.crop_fits_source(640, 640, 640, 512))
+        self.assertFalse(bench.crop_fits_source(320, 320, 640, 512))
+
+    def test_target_buckets_use_tensor_space_and_visibility(self):
+        target = bench.CroppedTarget(
+            target_index=2,
+            original=bench.Box(0, 0, 40, 40),
+            cropped=bench.Box(0, 0, 20, 20),
+            visible_fraction=0.25,
+        )
+
+        record = bench.build_target_record(
+            target,
+            crop_width=40,
+            crop_height=40,
+            tensor_width=80,
+            tensor_height=80,
+            matched=False,
+            matched_iou=None,
+        )
+
+        self.assertEqual(record["size_bucket"], "medium")
+        self.assertEqual(record["visibility_bucket"], "severe_clip")
+        self.assertAlmostEqual(record["tensor_width"], 40.0)
+        self.assertAlmostEqual(record["tensor_height"], 40.0)
+
+    def test_matching_exposes_stable_ground_truth_indices(self):
+        truth = [bench.Box(0, 0, 10, 10), bench.Box(20, 20, 30, 30)]
+        detections = [
+            bench.Box(20, 20, 30, 30, conf=0.8),
+            bench.Box(0, 0, 10, 10, conf=0.9),
+        ]
+
+        result = bench.match_detections(truth, detections, iou_threshold=0.5)
+
+        self.assertEqual({pair.ground_truth_index for pair in result.matches}, {0, 1})
+
+    def test_benchmark_strict_crop_records_undersized_skip_without_inference(self):
+        class Engine:
+            def infer_rgb(self, _rgb, _conf):
+                raise AssertionError("undersized input must not run inference")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            image_dir = root / "valid" / "images"
+            label_dir = root / "valid" / "labels"
+            image_dir.mkdir(parents=True)
+            label_dir.mkdir(parents=True)
+            image_path = image_dir / "small.jpg"
+            image_path.write_bytes(b"placeholder")
+            (label_dir / "small.txt").write_text("", encoding="utf-8")
+            records_path = root / "frames.jsonl"
+            writer = bench.FrameRecordWriter(records_path, "wide320")
+            dataset = bench.DatasetSplit(
+                root=root,
+                name="demo",
+                split="valid",
+                image_dir=image_dir,
+                label_dir=label_dir,
+                class_names=(),
+            )
+            fake_rgb = type("FakeRgb", (), {"shape": (320, 320, 3)})()
+            try:
+                with mock.patch.object(bench, "load_rgb_array", return_value=fake_rgb):
+                    summary = bench.benchmark_split(
+                        Engine(),
+                        dataset,
+                        conf=0.25,
+                        iou_threshold=0.5,
+                        selected_classes=(),
+                        class_aware=False,
+                        crop_width=640,
+                        crop_height=512,
+                        max_images=None,
+                        warmup=0,
+                        tensor_width=320,
+                        tensor_height=256,
+                        strict_crop_size=True,
+                        frame_budgets_ms=(8.333,),
+                        frame_writer=writer,
+                    )
+            finally:
+                writer.close()
+
+            records = [json.loads(line) for line in records_path.read_text(encoding="utf-8").splitlines()]
+
+        self.assertEqual(summary.images, 0)
+        self.assertEqual(summary.skipped_undersized, 1)
+        self.assertEqual(records[0]["candidate_id"], "wide320")
+        self.assertEqual(records[0]["skip_reason"], "source_smaller_than_requested_crop")
+
     def test_discover_yolo_splits_finds_valid_dataset(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "sample.yolo"
@@ -108,6 +217,7 @@ class VisionBenchmarkToolTests(unittest.TestCase):
         self.assertAlmostEqual(metrics["precision"], 2 / 4)
         self.assertAlmostEqual(metrics["recall"], 2 / 3)
         self.assertAlmostEqual(metrics["infer_ms"]["p50"], 2.0)
+        self.assertEqual(metrics["deadline_misses"]["8.333"]["count"], 0)
 
     def test_parse_nvidia_smi_sample(self):
         sample = bench.parse_nvidia_smi_sample("0, 71, 12, 2048, 8192, 88.5, 63", timestamp=123.0)
