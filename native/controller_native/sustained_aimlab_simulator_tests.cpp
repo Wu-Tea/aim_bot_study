@@ -489,6 +489,35 @@ void test_obsolete_manual_profile_persists_after_center_crossing() {
             "V1 must measure obsolete delivered output after crossing");
 }
 
+void test_short_occlusion_withholds_publication_without_fresh_miss() {
+    ScenarioScript script = stationary_script(90, {8.0, 0.0});
+    script.targets.front().vision_occlusion_bursts.push_back({20, 24});
+    std::vector<SimulationTraceFrame> trace;
+    (void)run_simulation(
+        script, ManualProfile::Pure, proportional_controller(),
+        BenchmarkCohort::BodyLockFollow,
+        [&](const SimulationTraceFrame& frame) { trace.push_back(frame); });
+
+    require(trace.size() == 90, "occlusion fixture must retain every tick");
+    const std::uint64_t frame_before_burst = trace[19].input.frame_id;
+    require(trace[19].fresh_vision,
+            "fixture must publish immediately before the burst");
+    for (int tick = 20; tick < 44; ++tick) {
+        require(trace[tick].vision_occluded,
+                "burst ticks must be marked occluded");
+        require(!trace[tick].fresh_vision,
+                "occlusion must withhold scheduled publication");
+        require(trace[tick].input.target_present,
+                "occlusion must not become a confirmed target miss");
+        require(trace[tick].input.frame_id == frame_before_burst,
+                "withheld frames must not advance Vision identity");
+    }
+    require(!trace[44].vision_occluded && trace[44].fresh_vision,
+            "first tick after the burst must reveal a fresh observation");
+    require(trace[44].input.frame_id == frame_before_burst + 1,
+            "reveal must advance Vision identity exactly once");
+}
+
 }  // namespace
 
 int main() {
@@ -512,6 +541,7 @@ int main() {
         test_ads_handoff_on_acquisition_boundary_is_not_lost();
         test_trace_is_deterministic_and_observational();
         test_obsolete_manual_profile_persists_after_center_crossing();
+        test_short_occlusion_withholds_publication_without_fresh_miss();
         std::cout << "cod_native_sustained_aimlab_simulator_tests PASS\n";
         return EXIT_SUCCESS;
     } catch (const std::exception& error) {

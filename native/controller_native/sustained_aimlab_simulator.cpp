@@ -221,23 +221,38 @@ BenchmarkResult run_simulation(
         }
 
         ControllerObservation input;
+        bool vision_occluded = false;
         input.now_ms = now_ms;
         if (target_active) {
             const TargetScript& target = script.targets[target_index];
             input.target_present = true;
             input.target_id = target.id;
+            if (tracking) {
+                vision_occluded = std::any_of(
+                    target.vision_occlusion_bursts.begin(),
+                    target.vision_occlusion_bursts.end(),
+                    [&](const VisionOcclusionBurst& burst) {
+                        return tracking_ticks >= burst.tracking_offset_ms &&
+                            tracking_ticks <
+                                burst.tracking_offset_ms + burst.duration_ms;
+                    });
+            }
             while (observation_index < target.observation_at_ms.size() &&
                    target.observation_at_ms[observation_index] < target_elapsed_ms) {
                 ++observation_index;
             }
             if (observation_index < target.observation_at_ms.size() &&
                 target.observation_at_ms[observation_index] == target_elapsed_ms) {
-                input.fresh_vision = true;
-                ++frame_id;
-                carried_observation = {
-                    error.x + target.observation_noise_px[observation_index].x,
-                    error.y + target.observation_noise_px[observation_index].y,
-                };
+                if (!vision_occluded) {
+                    input.fresh_vision = true;
+                    ++frame_id;
+                    carried_observation = {
+                        error.x +
+                            target.observation_noise_px[observation_index].x,
+                        error.y +
+                            target.observation_noise_px[observation_index].y,
+                    };
+                }
                 ++observation_index;
             }
             input.frame_id = frame_id;
@@ -290,6 +305,7 @@ BenchmarkResult run_simulation(
         trace_frame.target_elapsed_ms = target_active ? target_elapsed_ms : -1;
         trace_frame.target_active = target_active;
         trace_frame.fresh_vision = input.fresh_vision;
+        trace_frame.vision_occluded = vision_occluded;
         trace_frame.target_id = input.target_id;
         trace_frame.input = input;
         if (target_active) {

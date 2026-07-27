@@ -43,6 +43,7 @@ struct SimulationTraceFrame {
     int target_elapsed_ms = -1;
     bool target_active = false;
     bool fresh_vision = false;
+    bool vision_occluded = false;
     std::uint64_t target_id = 0;
     MotionProfile motion = MotionProfile::ConstantHorizontal;
     Vec2d true_error_before_px;
