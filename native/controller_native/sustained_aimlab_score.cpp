@@ -126,6 +126,47 @@ void TargetScorer::add_frame(const ScoreFrame& frame) {
     result_.max_error_px = std::max(result_.max_error_px, distance);
     result_.tracking_errors_px.push_back(distance);
 
+    if (frame.vision_occluded && !was_vision_occluded_) {
+        ++result_.occlusion_episodes;
+        awaiting_fresh_reveal_ = true;
+        reveal_recovery_active_ = false;
+        post_occlusion_ticks_remaining_ = 0;
+        reveal_recovery_elapsed_ms_ = 0;
+        reveal_stable_ticks_ = 0;
+    }
+    if (!frame.vision_occluded && frame.fresh_vision &&
+        awaiting_fresh_reveal_) {
+        awaiting_fresh_reveal_ = false;
+        reveal_recovery_active_ = true;
+        post_occlusion_ticks_remaining_ = 80;
+        reveal_recovery_elapsed_ms_ = 0;
+        reveal_stable_ticks_ = 0;
+    }
+    was_vision_occluded_ = frame.vision_occluded;
+
+    if (post_occlusion_ticks_remaining_ > 0) {
+        ++result_.post_occlusion_samples;
+        result_.post_occlusion_error_area_px_ms += distance;
+        result_.max_post_occlusion_error_px = std::max(
+            result_.max_post_occlusion_error_px, distance);
+        --post_occlusion_ticks_remaining_;
+    }
+    if (reveal_recovery_active_) {
+        const double recovery_band = std::max(2.0, radius / 3.0);
+        if (distance <= recovery_band) {
+            ++reveal_stable_ticks_;
+            if (reveal_stable_ticks_ >= 12) {
+                result_.reveal_to_stable_ms = std::max(
+                    result_.reveal_to_stable_ms,
+                    reveal_recovery_elapsed_ms_);
+                reveal_recovery_active_ = false;
+            }
+        } else {
+            reveal_stable_ticks_ = 0;
+        }
+        ++reveal_recovery_elapsed_ms_;
+    }
+
     const double noise_band = std::max(1.5, radius * 0.08);
     const double settle_band = std::max(2.0, radius / 3.0);
     const bool terminal_crosses_center =
@@ -453,6 +494,7 @@ BenchmarkResult aggregate(
     std::vector<double> settle_times;
     std::vector<double> post_handoff_rebounds;
     std::vector<double> post_handoff_wrong_way_integrals;
+    std::vector<double> reveal_to_stable_times;
     for (const TargetResult& target : targets) {
         result.acquire_points += target.acquire_points;
         result.tracking_points += target.tracking_points;
@@ -519,6 +561,17 @@ BenchmarkResult aggregate(
             post_handoff_wrong_way_integrals.push_back(
                 target.post_handoff_wrong_way_output_integral);
         }
+        result.occlusion_episodes += target.occlusion_episodes;
+        result.post_occlusion_samples += target.post_occlusion_samples;
+        result.post_occlusion_error_area_px_ms +=
+            target.post_occlusion_error_area_px_ms;
+        result.max_post_occlusion_error_px = std::max(
+            result.max_post_occlusion_error_px,
+            target.max_post_occlusion_error_px);
+        if (target.reveal_to_stable_ms >= 0) {
+            reveal_to_stable_times.push_back(
+                static_cast<double>(target.reveal_to_stable_ms));
+        }
         errors.insert(errors.end(), target.tracking_errors_px.begin(),
                       target.tracking_errors_px.end());
         output_deltas.insert(output_deltas.end(), target.output_deltas.begin(),
@@ -551,6 +604,10 @@ BenchmarkResult aggregate(
         percentile(std::move(post_handoff_rebounds), 0.95);
     result.p95_post_handoff_wrong_way_output_integral =
         percentile(std::move(post_handoff_wrong_way_integrals), 0.95);
+    if (!reveal_to_stable_times.empty()) {
+        result.p95_reveal_to_stable_ms =
+            percentile(std::move(reveal_to_stable_times), 0.95);
+    }
     result.targets = std::move(targets);
     return result;
 }

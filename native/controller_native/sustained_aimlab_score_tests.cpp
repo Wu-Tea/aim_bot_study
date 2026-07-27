@@ -515,6 +515,71 @@ void test_aggregate_counts_only_true_handoff_episodes() {
                  "wrong-way output P95 must be interpolated");
 }
 
+void test_short_occlusion_scores_reveal_recovery_window() {
+    TargetScorer scorer(target_with_deadline(), BenchmarkConfig{});
+    scorer.mark_acquired(0);
+
+    for (int ms = 0; ms < 24; ++ms) {
+        ScoreFrame hidden = tracking_frame(ms, {18.0, 0.0});
+        hidden.vision_occluded = true;
+        hidden.fresh_vision = false;
+        scorer.add_frame(hidden);
+    }
+    for (int ms = 24; ms < 120; ++ms) {
+        const int reveal_elapsed = ms - 24;
+        ScoreFrame visible = tracking_frame(
+            ms, {std::max(2.0, 18.0 - reveal_elapsed), 0.0});
+        visible.fresh_vision = ms == 24;
+        scorer.add_frame(visible);
+    }
+
+    const TargetResult result = scorer.finish();
+    require(result.occlusion_episodes == 1,
+            "one contiguous hidden interval must count as one episode");
+    require(result.post_occlusion_samples == 80,
+            "reveal burden must use an exact 80ms window");
+    require_near(result.max_post_occlusion_error_px, 18.0, 1e-9,
+                 "reveal maximum must start at the first fresh frame");
+    require(result.post_occlusion_error_area_px_ms > 0.0,
+            "reveal error area must accumulate");
+    require(result.reveal_to_stable_ms == 21,
+            "12 stable ticks must complete 21ms after fresh reveal");
+
+    const BenchmarkResult run = aggregate(1337, 99, {result});
+    require(run.occlusion_episodes == 1 &&
+                run.post_occlusion_samples == 80,
+            "aggregate must retain occlusion episode and sample counts");
+    require_near(run.post_occlusion_error_area_px_ms,
+                 result.post_occlusion_error_area_px_ms, 1e-9,
+                 "aggregate must retain reveal error burden");
+    require_near(run.p95_reveal_to_stable_ms, 21.0, 1e-9,
+                 "aggregate must retain reveal recovery latency");
+}
+
+void test_occlusion_without_fresh_reveal_does_not_start_recovery_window() {
+    TargetScorer scorer(target_with_deadline(), BenchmarkConfig{});
+    scorer.mark_acquired(0);
+
+    for (int ms = 0; ms < 24; ++ms) {
+        ScoreFrame hidden = tracking_frame(ms, {18.0, 0.0});
+        hidden.vision_occluded = true;
+        scorer.add_frame(hidden);
+    }
+    for (int ms = 24; ms < 80; ++ms) {
+        ScoreFrame stale = tracking_frame(ms, {4.0, 0.0});
+        stale.fresh_vision = false;
+        scorer.add_frame(stale);
+    }
+
+    const TargetResult result = scorer.finish();
+    require(result.occlusion_episodes == 1,
+            "hidden interval remains observable without a reveal");
+    require(result.post_occlusion_samples == 0,
+            "stale carried observations must not start reveal scoring");
+    require(result.reveal_to_stable_ms == -1,
+            "recovery latency needs a fresh reveal");
+}
+
 }  // namespace
 
 int main() {
@@ -539,6 +604,8 @@ int main() {
         test_bodylock_occupancy_distinguishes_never_entered_from_interrupted();
         test_aggregate_preserves_additive_totals_and_percentiles();
         test_aggregate_counts_only_true_handoff_episodes();
+        test_short_occlusion_scores_reveal_recovery_window();
+        test_occlusion_without_fresh_reveal_does_not_start_recovery_window();
         std::cout << "cod_native_sustained_aimlab_score_tests PASS\n";
         return EXIT_SUCCESS;
     } catch (const std::exception& error) {

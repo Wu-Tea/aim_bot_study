@@ -407,6 +407,8 @@ BenchmarkResult run_simulation(
                 frame.target_elapsed_ms = target_elapsed_ms;
                 frame.in_tracking_window = true;
                 frame.target_observed = output.target_observed;
+                frame.vision_occluded = trace_frame.vision_occluded;
+                frame.fresh_vision = input.fresh_vision;
                 frame.tracker_reliable = output.tracker_reliable;
                 frame.manual_escape = length(input.manual_stick) >= 0.45;
                 frame.bodylock_mode = output.bodylock_mode;
