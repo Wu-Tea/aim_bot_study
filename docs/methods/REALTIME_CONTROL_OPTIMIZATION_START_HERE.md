@@ -2,7 +2,7 @@
 
 这是一份给其他项目使用的短入口。它不要求项目采用本仓库的 ADS、BodyLock、Vision 或游戏手柄结构；它只要求目标系统是一个闭环控制系统，并且存在“输出效果、用户输入、环境反馈和时间状态互相影响”的问题。
 
-完整方法论见 [Evidence-Driven Real-Time Control Optimization](../project/EVIDENCE_DRIVEN_REALTIME_CONTROL_OPTIMIZATION.md)。本项目的完整案例见 [Aim Control Optimization History](../project/AIM_CONTROL_OPTIMIZATION_HISTORY_20260716_20260720.md)。
+完整方法论见 [Evidence-Driven Real-Time Control Optimization](../project/EVIDENCE_DRIVEN_REALTIME_CONTROL_OPTIMIZATION.md)。本项目的完整案例见 [Aim Control Optimization History](../archive/control-history/AIM_CONTROL_OPTIMIZATION_HISTORY_20260716_20260720.md)。
 
 如果要让 Codex 直接接入另一个仓库，使用可复制的 [Evidence-Driven Control Optimization 接入 Prompt](prompts/ADOPT_EVIDENCE_DRIVEN_CONTROL_OPTIMIZATION.md)。
 

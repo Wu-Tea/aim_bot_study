@@ -431,4 +431,4 @@ Debug log 可以大，但必须可维护：
 
 ## Related Project Case Study
 
-本方法的项目内案例见 [Aim control optimization history](AIM_CONTROL_OPTIMIZATION_HISTORY_20260716_20260720.md)。它展示了第一次架构重构为何同时“更自然但更弱”，以及后续如何通过更真实的 benchmark 与二维 causal fusion 恢复控制能力，而没有把重复 gate 堆回生产路径。
+本方法的项目内案例见 [Aim control optimization history](../archive/control-history/AIM_CONTROL_OPTIMIZATION_HISTORY_20260716_20260720.md)。它展示了第一次架构重构为何同时“更自然但更弱”，以及后续如何通过更真实的 benchmark 与二维 causal fusion 恢复控制能力，而没有把重复 gate 堆回生产路径。

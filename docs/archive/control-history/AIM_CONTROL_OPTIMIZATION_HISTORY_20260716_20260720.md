@@ -125,7 +125,7 @@ Refactor B 后 ADS 长距离获取偏弱，BodyLock 接近目标时抓力不足�
 
 ### Per-Axis Experiment and Its Limit
 
-[仓库证据] 早期 per-axis correction 在 wrong-X 等定向 fixture 上有效：ordinary human-error mean error 约改善 4.35%，practical stress mean/P95 约改善 5.0%/9.1%；但 normal combat 几乎不变，destructive stress 甚至轻微退步。见 [Axis stress A/B](../benchmarks/axis-stress-ab-seed1337.md)。
+[仓库证据] 早期 per-axis correction 在 wrong-X 等定向 fixture 上有效：ordinary human-error mean error 约改善 4.35%，practical stress mean/P95 约改善 5.0%/9.1%；但 normal combat 几乎不变，destructive stress 甚至轻微退步。见 [Axis stress A/B](../../benchmarks/axis-stress-ab-seed1337.md)。
 
 [用户确认] 实战仍有“黏糊糊、距离目标 10-20 px 拉不过去、跟抢谨慎”的感受。用户进一步指出，X/Y 分开并不等于全向纠正：错误方向可能是斜向、切向或径向，不能先按轴判断再只抵消一个分量。
 
@@ -133,7 +133,7 @@ Refactor B 后 ADS 长距离获取偏弱，BodyLock 接近目标时抓力不足�
 
 ### AutoFire Contract
 
-[仓库证据] 同期恢复 AutoFire：100 Hz vision 与 1000 Hz controller 间不再把“没有新 frame”误当作 miss；稳定强目标可每 100 ms 启动一次 synthetic pulse，每次至少按住 30 ms；fresh processed miss、cue/weak target、ADS release 或 manual takeover 同 tick 撤销；物理 RB/RT 始终直通。见 [Native controller benchmarks](NATIVE_CONTROLLER_BENCHMARKS.md#autofire-pulse-cadence-and-physical-fire-ownership-2026-07-17)。
+[仓库证据] 同期恢复 AutoFire：100 Hz vision 与 1000 Hz controller 间不再把“没有新 frame”误当作 miss；稳定强目标可每 100 ms 启动一次 synthetic pulse，每次至少按住 30 ms；fresh processed miss、cue/weak target、ADS release 或 manual takeover 同 tick 撤销；物理 RB/RT 始终直通。见 [Native controller benchmarks](../benchmark-results/NATIVE_CONTROLLER_BENCHMARKS.md#autofire-pulse-cadence-and-physical-fire-ownership-2026-07-17)。
 
 ## Phase 4 - Sustained Tracking and Meaningful Brake Metrics
 
@@ -216,7 +216,7 @@ BodyLock cohort 必须在有效 ADS capture 后才开始计分，避免 ADS pre-
 4. G3：最多占 analytical score 10-15% 的 coordinator score adjustment；
 5. G4：先仅内存，持久化必须另行证明和批准。
 
-这条路线不能覆盖 manual reject、target validity、lifecycle 或 smoothness guardrail，也不能在 live game 中主动探索。见 [Global aim policy learning plan](../superpowers/plans/2026-07-19-global-aim-policy-learning.md)。
+这条路线不能覆盖 manual reject、target validity、lifecycle 或 smoothness guardrail，也不能在 live game 中主动探索。见 [Global aim policy learning plan](../../superpowers/plans/2026-07-19-global-aim-policy-learning.md)。
 
 ## Phase 7 - Runtime Contract Corrections
 
@@ -321,16 +321,16 @@ TargetPlan.fire_authority
 - [Response-model acceptance](RESPONSE_MODEL_AIM_CONTROL_ACCEPTANCE_20260718.md)
 - [Brake episode acceptance](BRAKE_EPISODE_BENCHMARK_ACCEPTANCE_20260719.md)
 - [Counterfactual conflict acceptance](COUNTERFACTUAL_CONFLICT_BENCHMARK_ACCEPTANCE_20260719.md)
-- [Sustained AimLab benchmark contract](../benchmarks/sustained-aimlab.md)
-- [Axis stress A/B](../benchmarks/axis-stress-ab-seed1337.md)
+- [Sustained AimLab benchmark contract](../../benchmarks/sustained-aimlab.md)
+- [Axis stress A/B](../../benchmarks/axis-stress-ab-seed1337.md)
 
 ### Architecture and roadmap
 
-- [TargetCoordinator rewrite design](../superpowers/specs/2026-07-16-target-coordinator-rewrite-design.md)
-- [Sustained AimLab design](../superpowers/specs/2026-07-18-sustained-aimlab-vector-control-design.md)
-- [Causal vector fusion design](../superpowers/specs/2026-07-19-causal-vector-intent-fusion-design.md)
-- [Global policy learning plan](../superpowers/plans/2026-07-19-global-aim-policy-learning.md)
-- [ADS epoch and color cue contract](../superpowers/plans/2026-07-19-ads-epoch-and-color-cue-contract.md)
+- [TargetCoordinator rewrite design](../../superpowers/specs/2026-07-16-target-coordinator-rewrite-design.md)
+- [Sustained AimLab design](../../superpowers/specs/2026-07-18-sustained-aimlab-vector-control-design.md)
+- [Causal vector fusion design](../../superpowers/specs/2026-07-19-causal-vector-intent-fusion-design.md)
+- [Global policy learning plan](../../superpowers/plans/2026-07-19-global-aim-policy-learning.md)
+- [ADS epoch and color cue contract](../../superpowers/plans/2026-07-19-ads-epoch-and-color-cue-contract.md)
 
 ### Key commits
 

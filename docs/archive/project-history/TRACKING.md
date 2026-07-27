@@ -6,8 +6,8 @@
 
 ## 当前实际情况
 
-- 项目当前主入口是 [main.py](/D:/work/AI/yolo-study-001/main.py)，视觉主循环在 [vision.py](/D:/work/AI/yolo-study-001/vision.py)。
-- 控制器工厂在 [controller.py](/D:/work/AI/yolo-study-001/controller.py)，支持 `gamepad`、`kbm_to_gamepad`、`mouse` 三种模式。
+- 当时的项目主入口是 [main.py](../../../main.py)；当前视觉结构见 [Vision Overview](../../project/VISION_OVERVIEW.md)。
+- 控制器兼容入口在 [controller.py](../../../controller.py)，支持 `gamepad`、`kbm_to_gamepad`、`mouse` 三种模式。
 - 主流程已经去掉过渡实现，只保留一套正式代码路径。
 - 视觉侧当前默认使用 `yolo26n-pose.engine`，失败时回退到 `yolo26n-pose.pt`。
 - 模型、ONNX、engine 文件目前直接放在仓库根目录，还没有做统一配置管理。

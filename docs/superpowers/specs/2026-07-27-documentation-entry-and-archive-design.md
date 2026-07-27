@@ -1,7 +1,7 @@
 # Documentation Entry And Archive Design
 
 **Date:** 2026-07-27  
-**Status:** Approved design, pending written-spec review  
+**Status:** Approved and implemented
 **Scope:** Repository documentation only; no production code or runtime configuration changes
 
 ## Purpose

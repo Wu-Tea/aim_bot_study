@@ -1,90 +1,52 @@
-# Project Docs Index
+# Project Documentation
 
-This folder mixes current architecture notes, benchmark records, work snapshots, and older planning context. Use this page as the navigation layer instead of guessing which file is still current.
+This directory contains maintained project references. Read historical
+baselines, completed acceptance stages and paused research through
+[the archive](../archive/README.md).
 
 ## Read first
 
-1. `NATIVE_CPP_RUNTIME.md`
-   - current default gamepad runtime, launch path, validation, fallback, and acceptance checklist
-2. `PROJECT_OVERVIEW.md`
-   - project-level map, architecture diagrams, main flows, data contracts, and review notes
-3. `README.md`
-   - top-level project entry, startup scripts, dependencies, code structure
-4. `WORKLOG.md`
-   - latest project snapshot and recent changes
-5. `NATIVE_VISION.md`
-   - native vision build, runtime, bridge, and validation notes
-6. `CONTROLLER_OVERVIEW.md`
-   - controller boundaries and supported runtime modes
-7. `VISION_OVERVIEW.md`
-   - Python backend, native backend, and the shared vision-to-controller contract
+1. [Current State](CURRENT_STATE.md) — current runtime facts, active directions,
+   open validation and non-regression boundaries.
+2. [Project Overview](PROJECT_OVERVIEW.md) — component and data-flow map.
+3. [Native C++ Runtime](NATIVE_CPP_RUNTIME.md) — default runtime build, launch
+   and fallback.
+4. [Native Vision](NATIVE_VISION.md) — TensorRT Vision implementation and
+   smoke tests.
+5. [Controller Overview](CONTROLLER_OVERVIEW.md) — controller ownership and
+   runtime modes.
 
-For reuse outside this repository, start with
-`../methods/REALTIME_CONTROL_OPTIMIZATION_START_HERE.md`. It contains the
-project-neutral intake, workflow, verification checklist, and copyable Codex
-prompt; the full method remains in
-`EVIDENCE_DRIVEN_REALTIME_CONTROL_OPTIMIZATION.md`.
-The ready-to-paste onboarding prompt is
-`../methods/prompts/ADOPT_EVIDENCE_DRIVEN_CONTROL_OPTIMIZATION.md`.
+## Runtime and architecture
 
-## Runtime and architecture docs
+- [Gamepad Overview](GAMEPAD_OVERVIEW.md) — main hand-controller path.
+- [Vision Overview](VISION_OVERVIEW.md) — shared Python/native Vision contract.
+- [Mouse Overview](MOUSE_OVERVIEW.md) — secondary mouse-output path.
+- [Mouse Telemetry Debugging](MOUSE_TELEMETRY_DEBUGGING.md) — mouse diagnostics.
+- [Native Log Sessions](NATIVE_LOG_SESSIONS.md) — structured session logs and
+  cleanup.
+- [Recoil Record/Replay Validation](RECOIL_RECORD_REPLAY_VALIDATION.md) —
+  recoil operation and acceptance.
 
-- `NATIVE_CPP_RUNTIME.md`
-  - current default full native C++ gamepad runtime launch, validation, fallback, and acceptance checklist
-- `PROJECT_OVERVIEW.md`
-  - project-level map, architecture diagrams, runtime flow, controller flow, recoil flow, and review findings
-- `CONTROLLER_OVERVIEW.md`
-  - controller factory, shared controller contract, startup paths, and recommendations
-- `VISION_OVERVIEW.md`
-  - vision entry points, Python vs native backends, timing, debug behavior
-- `GAMEPAD_OVERVIEW.md`
-  - gamepad host architecture and the default plugin chain
-- `MOUSE_OVERVIEW.md`
-  - native mouse-output host, continuity rules, and debug entry points
-- `MOUSE_TELEMETRY_DEBUGGING.md`
-  - live mouse telemetry capture, health checks, and failure interpretation
-- `NATIVE_VISION.md`
-  - detailed native migration notes, build process, smoke tests, and payload contracts
-- `ROOT_STRUCTURE_CLEANUP.md`
-  - phased root directory cleanup plan and migration order
+## Vision data and training
 
-## Validation and benchmark docs
+- [Person Detector Training](PERSON_DETECTOR_TRAINING.md)
+- [Person Detector Training Results](PERSON_DETECTOR_TRAINING_RESULTS.md)
+- [Person Detector Valid/Train Loop](PERSON_DETECTOR_VALID_TRAIN_LOOP.md)
+- [Roboflow Visible-Body Data](ROBOFLOW_VISIBLE_BODY_DATA.md)
 
-- `GAMEPAD_BENCHMARKS.md`
-  - representative gamepad benchmark results
-- `GAMEPAD_ADS_BENCHMARKS.md`
-  - ADS-focused benchmark results
-- `GAMEPAD_MANUAL_MIX_BENCHMARKS.md`
-  - manual input mixing benchmark results
-## Model and training docs
+## Engineering method
 
-- `PERSON_DETECTOR_TRAINING.md`
-  - dataset prep, training, and TensorRT export flow
-- `PERF_PLAN.md`
-  - older performance optimization plan and execution guidance
+- [Evidence-Driven Real-Time Control Optimization](EVIDENCE_DRIVEN_REALTIME_CONTROL_OPTIMIZATION.md)
+- [Cross-project adoption entry](../methods/REALTIME_CONTROL_OPTIMIZATION_START_HERE.md)
 
-## Project state and historical context
+## Other indexes
 
-- `WORKLOG.md`
-  - most useful status timeline in this folder
-- `TRACKING.md`
-  - older project tracking / roadmap context
+- [All documentation](../README.md)
+- [Benchmarks](../benchmarks/README.md)
+- [Historical archive](../archive/README.md)
+- `../superpowers/specs/` and `../superpowers/plans/` — historical design and
+  implementation records
 
-## Historical design and implementation records
-
-Outside this folder, the repository also keeps:
-
-- `docs/superpowers/specs/`
-  - design docs written before implementation
-- `docs/superpowers/plans/`
-  - implementation plans and execution breakdowns
-
-## Freshness rule
-
-If two documents disagree:
-
-1. trust the current startup scripts and code
-2. then trust `NATIVE_CPP_RUNTIME.md`
-3. then trust `WORKLOG.md`
-4. then trust the latest overview doc
-5. treat older plans, benchmarks, and tracking notes as historical context
+If documents disagree, prefer current code and effective configuration, then
+`CURRENT_STATE.md`, then the maintained domain reference. Archived records do
+not override current behavior.
