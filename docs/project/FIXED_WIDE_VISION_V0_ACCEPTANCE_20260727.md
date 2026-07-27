@@ -257,6 +257,38 @@ four-round alternating baseline/candidate run. Median GPU-total latency was
 `2.510 -> 2.641 ms` at p50 (+5.24%) and `3.946 -> 3.948 ms` at p95 (+0.07%).
 These paired numbers supersede its less stable sequential result.
 
+### Performance/value marks
+
+The marks below keep the acceptance gate separate from the ranking. A
+candidate first needs common-visible recall loss no worse than 3 percentage
+points. Candidates that fail that gate are not called good value merely
+because they run faster.
+
+For gate-passing candidates, the diagnostic value index is:
+
+```text
+quality = 50% * (F1 / baseline F1) + 50% * (total TP / baseline total TP)
+value   = 100 * quality / (GPU p50 / baseline GPU p50)
+```
+
+This is a compact comparison aid, not a replacement for the raw metrics.
+Baseline value is 100. `512x352` uses its alternating paired p50 ratio because
+its sequential timing was order-sensitive.
+
+| Mark | Candidate | Performance | Quality index | Value index | Interpretation |
+|---|---|---:|---:|---:|---|
+| `★ BALANCED` | `480x384 / 640x512` | p50 +1.1% | 101.8 | **100.6** | Best overall balance |
+| `⚡ LATENCY` | `480x352 / 630x462` | p50 -0.2% | 100.2 | **100.4** | Near-zero latency cost |
+| `◎ NEAR` | `512x352 / 640x440` | paired p50 +5.2% | **103.1** | 98.0 | Best detection/coverage result |
+| `○ COVERAGE` | `512x384 / 640x480` | p50 +5.4% | 101.2 | 96.1 | More new TP, weaker F1/p95 |
+| `BASE` | `480x416 / 480x416` | 2.446 ms | 100.0 | 100.0 | Production reference |
+| `× FAIL` | `448x384` and smaller | varies | — | — | Common recall loss exceeds gate |
+
+The ranking therefore depends on the operating goal: `480x384` is the
+price/performance choice, `480x352` is the latency-preserving choice, and
+`512x352` is the close-range coverage choice. There is no single candidate
+that wins all three axes.
+
 The updated shortlist is:
 
 1. `480x384 / 640x512`: balanced static-wide candidate, essentially baseline
