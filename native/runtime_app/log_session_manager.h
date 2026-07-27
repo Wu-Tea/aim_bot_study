@@ -13,6 +13,10 @@ struct LogSessionOptions {
     std::string engine_hash;
     int capture_width = 0;
     int capture_height = 0;
+    int tensor_width = 0;
+    int tensor_height = 0;
+    bool require_isotropic_resize = true;
+    std::string model_path;
 };
 
 class LogSessionManager {

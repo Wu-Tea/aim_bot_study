@@ -84,7 +84,7 @@ void LogSessionManager::start() {
 void LogSessionManager::write_session_manifest(const char* state) {
     std::ostringstream json;
     json << "{\n"
-         << "  \"schema_version\": 1,\n"
+         << "  \"schema_version\": 2,\n"
          << "  \"session_id\": \"" << json_escape(session_id_) << "\",\n"
          << "  \"state\": \"" << state << "\",\n"
          << "  \"pid\": " << GetCurrentProcessId() << ",\n"
@@ -93,6 +93,11 @@ void LogSessionManager::write_session_manifest(const char* state) {
          << "  \"engine_hash\": \"" << json_escape(options_.engine_hash) << "\",\n"
          << "  \"capture_width\": " << options_.capture_width << ",\n"
          << "  \"capture_height\": " << options_.capture_height << ",\n"
+         << "  \"tensor_width\": " << options_.tensor_width << ",\n"
+         << "  \"tensor_height\": " << options_.tensor_height << ",\n"
+         << "  \"require_isotropic_resize\": "
+         << (options_.require_isotropic_resize ? "true" : "false") << ",\n"
+         << "  \"model_path\": \"" << json_escape(options_.model_path) << "\",\n"
          << "  \"causal_response_journal_schema\": \"causal_response_journal_v1\",\n"
          << "  \"updated_utc\": \"" << utc_timestamp() << "\"\n"
          << "}\n";

@@ -424,14 +424,24 @@ PYBIND11_MODULE(vision_native_cpp, module) {
 
     py::class_<vision_native::VisionEngine>(module, "NativeVisionEngine")
         .def(
-            py::init<int, int, int, int, int>(),
+            py::init<int, int, int, int, int, std::string, std::string, int, int, bool>(),
             py::arg("width"),
             py::arg("height"),
             py::arg("adapter_index") = 0,
             py::arg("output_index") = -1,
-            py::arg("timeout_ms") = 0)
+            py::arg("timeout_ms") = 0,
+            py::arg("engine_path") = "",
+            py::arg("color_readback_mode") = "pageable",
+            py::arg("expected_tensor_width") = 0,
+            py::arg("expected_tensor_height") = 0,
+            py::arg("require_isotropic_resize") = true)
         .def_property_readonly("width", &vision_native::VisionEngine::width)
         .def_property_readonly("height", &vision_native::VisionEngine::height)
+        .def_property_readonly("tensor_width", &vision_native::VisionEngine::tensor_width)
+        .def_property_readonly("tensor_height", &vision_native::VisionEngine::tensor_height)
+        .def_property_readonly("resize_scale_x", &vision_native::VisionEngine::resize_scale_x)
+        .def_property_readonly("resize_scale_y", &vision_native::VisionEngine::resize_scale_y)
+        .def_property_readonly("resize_isotropic", &vision_native::VisionEngine::resize_isotropic)
         .def("set_aiming", &vision_native::VisionEngine::set_aiming, py::arg("aiming"))
         .def(
             "set_external_cue",

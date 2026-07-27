@@ -2,6 +2,7 @@
 
 #include "vision_native/aim_enhancement.h"
 #include "vision_native/dxgi_capture.h"
+#include "vision_native/resize_contract.h"
 #include "vision_native/target_selector.h"
 #include "vision_native/tensorrt_engine.h"
 #include "vision_native/types.h"
@@ -25,7 +26,10 @@ public:
         int output_index = -1,
         int timeout_ms = 0,
         std::string engine_path = {},
-        std::string color_readback_mode = "pageable");
+        std::string color_readback_mode = "pageable",
+        int expected_tensor_width = 0,
+        int expected_tensor_height = 0,
+        bool require_isotropic_resize = true);
     ~VisionEngine();
 
     VisionEngine(const VisionEngine&) = delete;
@@ -39,6 +43,11 @@ public:
 
     int width() const;
     int height() const;
+    int tensor_width() const;
+    int tensor_height() const;
+    float resize_scale_x() const;
+    float resize_scale_y() const;
+    bool resize_isotropic() const;
 
 private:
     DxgiRoiCapture capture_;
@@ -55,6 +64,7 @@ private:
     std::unique_ptr<ColorReadbackBuffer> host_color_frame_;
     int width_ = 0;
     int height_ = 0;
+    VisionResizeContract resize_contract_{};
 };
 
 } // namespace vision_native

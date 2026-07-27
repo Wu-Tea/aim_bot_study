@@ -37,8 +37,10 @@ void test_fresh_manifest_and_markers_are_atomic_session_contract() {
         require_true(session.find("causal_response_journal_v1") != std::string::npos,
                      "session manifest must identify the causal journal schema");
         require_true(session.find("engine_hash") != std::string::npos &&
-                         session.find("capture_width") != std::string::npos,
-                     "session manifest must retain engine and crop provenance");
+                         session.find("capture_width") != std::string::npos &&
+                         session.find("tensor_width") != std::string::npos &&
+                         session.find("require_isotropic_resize") != std::string::npos,
+                     "session manifest must retain engine, crop and Tensor provenance");
         const auto fresh = read_all(root / "fresh_session.json");
         require_true(fresh.find(manager.session_id()) != std::string::npos,
                      "fresh manifest must name the active session");

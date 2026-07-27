@@ -27,6 +27,9 @@ void test_vision_gpu_service_defaults_are_enabled() {
     require(config.vision.gpu_service_repeat_last_on_no_update);
     require(config.vision.capture_width == 480);
     require(config.vision.capture_height == 416);
+    require(config.vision.tensor_width == 480);
+    require(config.vision.tensor_height == 416);
+    require(config.vision.require_isotropic_resize);
     require(config.vision.model_path ==
         "models/candidates/body_union_manual_core_x2_neg_e6_480x416.engine");
     require(!config.vision.perf_log);
@@ -42,6 +45,9 @@ void test_vision_gpu_service_config_values_parse() {
         output << "[runtime.vision]\n"
                << "capture_width = 704\n"
                << "capture_height = 576\n"
+               << "tensor_width = 512\n"
+               << "tensor_height = 416\n"
+               << "require_isotropic_resize = false\n"
                << "model_path = \"models/custom.engine\"\n"
                << "gpu_service_enabled = true\n"
                << "gpu_service_active_fps = 120\n"
@@ -57,6 +63,9 @@ void test_vision_gpu_service_config_values_parse() {
     require(config.vision.gpu_service_enabled);
     require(config.vision.capture_width == 704);
     require(config.vision.capture_height == 576);
+    require(config.vision.tensor_width == 512);
+    require(config.vision.tensor_height == 416);
+    require(!config.vision.require_isotropic_resize);
     require(config.vision.model_path == "models/custom.engine");
     require(config.vision.gpu_service_active_fps == 120);
     require(config.vision.gpu_service_idle_fps == 15);
@@ -254,13 +263,30 @@ void test_invalid_user_override_reports_key_and_range() {
     require(failed);
 }
 
+void test_invalid_tensor_size_reports_key_and_range() {
+    const auto path = std::filesystem::temp_directory_path() /
+        "cod_native_invalid_tensor_size.toml";
+    { std::ofstream output(path); output << "[runtime.vision]\ntensor_width = 0\n"; }
+    bool failed = false;
+    try { (void)controller_native::load_runtime_config(path); }
+    catch (const std::runtime_error& error) {
+        const std::string message = error.what();
+        failed = message.find("runtime.vision.tensor_width") != std::string::npos &&
+            message.find("32..8192") != std::string::npos;
+    }
+    std::filesystem::remove(path);
+    require(failed);
+}
+
 void test_normal_template_preserves_controller_baseline() {
     const auto config = controller_native::load_runtime_config("config.native.example.toml");
     const auto& aim = config.gamepad.ai_aim;
     require(config.vision.capture_width == 480);
     require(config.vision.capture_height == 416);
-    require(config.vision.model_path ==
-        "models/candidates/body_union_manual_core_x2_neg_e6_480x416.engine");
+    require(config.vision.tensor_width == 480);
+    require(config.vision.tensor_height == 416);
+    require(config.vision.require_isotropic_resize);
+    require(config.vision.model_path == "models/best.engine");
     require(std::abs(aim.max_ai_force - 0.9856f) < 0.0001f);
     require(std::abs(aim.max_ai_force_y - 1.008f) < 0.0001f);
     require(std::abs(aim.ads_snap_max_ai_force - 1.54f) < 0.0001f);
@@ -565,6 +591,7 @@ int main() {
     test_invalid_profile_fails_with_available_names();
     test_compact_ads_and_bodylock_modules_resolve_detailed_controls();
     test_invalid_user_override_reports_key_and_range();
+    test_invalid_tensor_size_reports_key_and_range();
     test_normal_template_preserves_controller_baseline();
     test_normal_template_does_not_advertise_inactive_fps_legacy_knobs();
     test_committed_legacy_full_fixture_resolves_every_assignment();

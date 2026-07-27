@@ -81,6 +81,7 @@ add_library(vision_native_core STATIC
     src/dxgi_capture.cpp
     src/engine_io.cpp
     src/preprocess.cu
+    src/resize_contract.cpp
     src/target_selector.cpp
     src/tensorrt_engine.cpp
     src/tensorrt_inspector.cpp
@@ -127,6 +128,14 @@ add_executable(vision_native_build_family_tests
     src/build_family.cpp
 )
 target_include_directories(vision_native_build_family_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+add_executable(vision_native_resize_contract_tests
+    src/resize_contract_tests.cpp
+    src/resize_contract.cpp
+)
+target_include_directories(vision_native_resize_contract_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
@@ -1316,6 +1325,14 @@ target_link_libraries(cod_native_lstick_benchmark_tests PRIVATE
     vision_native_core gdi32 windowsapp)
 
 enable_testing()
+add_test(
+    NAME VisionResizeContractTests
+    COMMAND vision_native_resize_contract_tests)
+add_test(
+    NAME RuntimeConfigTests
+    COMMAND cod_native_runtime_config_tests)
+set_tests_properties(RuntimeConfigTests PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../..")
 add_test(
     NAME NativeLeftStickMotionBenchmarkTests
     COMMAND cod_native_lstick_benchmark_tests)

@@ -1,6 +1,9 @@
 [runtime.vision]
 capture_width = 640
 capture_height = 512
+tensor_width = 640
+tensor_height = 512
+require_isotropic_resize = true
 capture_fps = 140
 model_path = "models/candidates/body_union_manual_core_x2_neg_e6_640x512.engine"
 fallback_model_path = "models/best.pt"

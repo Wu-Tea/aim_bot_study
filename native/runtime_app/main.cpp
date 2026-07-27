@@ -127,6 +127,9 @@ void dump_effective_config(const controller_native::RuntimeConfig& config) {
     line("runtime.provenance.engine_sha256", config.engine_sha256);
     line("runtime.vision.capture_width", config.vision.capture_width);
     line("runtime.vision.capture_height", config.vision.capture_height);
+    line("runtime.vision.tensor_width", config.vision.tensor_width);
+    line("runtime.vision.tensor_height", config.vision.tensor_height);
+    line("runtime.vision.require_isotropic_resize", config.vision.require_isotropic_resize);
     line("runtime.vision.capture_fps", config.vision.capture_fps);
     line("runtime.vision.idle_capture_fps", config.vision.idle_capture_fps);
     line("runtime.vision.keepwarm_when_idle", config.vision.keepwarm_when_idle);
@@ -217,6 +220,7 @@ void print_startup_summary(
     std::cout
         << "[NativeRuntime] config=" << options.config_path.string()
         << " vision=" << config.vision.capture_width << "x" << config.vision.capture_height
+        << "->" << config.vision.tensor_width << "x" << config.vision.tensor_height
         << "@" << config.vision.capture_fps
         << " model=" << config.vision.model_path
         << " perf_log=" << (options.perf_log || config.vision.perf_log ? "true" : "false")

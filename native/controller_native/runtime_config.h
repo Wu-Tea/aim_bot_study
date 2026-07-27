@@ -12,6 +12,9 @@ namespace controller_native {
 struct VisionRuntimeConfig {
     int capture_width = 480;
     int capture_height = 416;
+    int tensor_width = 480;
+    int tensor_height = 416;
+    bool require_isotropic_resize = true;
     int capture_fps = 140;
     int idle_capture_fps = 20;
     bool keepwarm_when_idle = true;

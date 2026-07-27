@@ -5,12 +5,20 @@ profile = "balanced" # performance | balanced | low_latency | pascal_balanced
 [runtime.vision]
 capture_width = 480
 capture_height = 416
+tensor_width = 480 # must match the selected TensorRT engine input
+tensor_height = 416
+require_isotropic_resize = true # rejects X/Y distortion from mismatched aspect ratios
 capture_fps = 160
 idle_capture_fps = 20
 keepwarm_when_idle = true
 color_readback_mode = "pageable" # pinned remains opt-in until the A/B gate passes
 model_path = "models/best.engine"
 gpu_service_enabled = true
+
+# Validated static-wide alternatives (change all three size/path lines together):
+# balanced: capture 640x512, tensor 480x384, model models/best_480x384.engine
+# near:     capture 640x440, tensor 512x352, model models/best_512x352.engine
+# latency:  capture 630x462, tensor 480x352, model models/best_480x352.engine
 
 [runtime.telemetry]
 enabled = false

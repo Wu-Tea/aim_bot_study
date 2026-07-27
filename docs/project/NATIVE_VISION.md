@@ -226,6 +226,44 @@ The native result timing fields are not the whole controller-output latency by t
 
 The native runtime engine path is read from `model_path` in `[runtime.vision]`. Lower-level `VisionEngine` callers that do not pass an explicit engine path still fall back to `VISION_MODEL_PATH` and then the built-in default.
 
+### Capture/Tensor size contract
+
+The native runtime supports a physical capture ROI that is larger than the
+TensorRT input. CUDA preprocessing resizes capture pixels to the engine input,
+and decoded boxes are scaled back to capture coordinates before selection,
+color readback, tracking and controller use.
+
+`[runtime.vision]` now makes this relationship explicit:
+
+```toml
+capture_width = 480
+capture_height = 416
+tensor_width = 480
+tensor_height = 416
+require_isotropic_resize = true
+model_path = "models/best.engine"
+```
+
+`tensor_width` and `tensor_height` must match the actual static TensorRT engine
+input. The runtime validates the engine after loading and fails startup on a
+mismatch. With `require_isotropic_resize = true` (the default), capture and
+Tensor aspect ratios must also match, preventing different X/Y scale factors
+from silently distorting detection coordinates.
+
+Validated exploration combinations are:
+
+| Purpose | Capture | Tensor | Engine |
+|---|---:|---:|---|
+| production reference | `480x416` | `480x416` | `models/best.engine` |
+| balanced wide | `640x512` | `480x384` | `models/best_480x384.engine` |
+| near coverage | `640x440` | `512x352` | `models/best_512x352.engine` |
+| latency neutral | `630x462` | `480x352` | `models/best_480x352.engine` |
+
+Change the capture pair, Tensor pair and engine path together. Startup emits a
+`[VisionGeometry][CPP]` line with actual capture/Tensor sizes and scale. When
+telemetry or performance logging is enabled, `session.json` schema v2 records
+the same size contract, model path and isotropic-resize policy.
+
 ## Environment
 
 Expected local paths:

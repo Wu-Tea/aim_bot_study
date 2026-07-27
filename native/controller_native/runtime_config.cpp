@@ -93,6 +93,13 @@ void apply_runtime_vision_value(
         config.capture_width = parse_int_value(value, config.capture_width);
     } else if (key == "crop_height" || key == "capture_height") {
         config.capture_height = parse_int_value(value, config.capture_height);
+    } else if (key == "tensor_width") {
+        config.tensor_width = parse_int_value(value, config.tensor_width);
+    } else if (key == "tensor_height") {
+        config.tensor_height = parse_int_value(value, config.tensor_height);
+    } else if (key == "require_isotropic_resize") {
+        config.require_isotropic_resize =
+            parse_bool_value(value, config.require_isotropic_resize);
     } else if (key == "capture_fps") {
         config.capture_fps = parse_int_value(value, config.capture_fps);
     } else if (key == "idle_capture_fps") {
@@ -147,7 +154,8 @@ void apply_runtime_vision_value(
 bool is_known_key(const std::string& section, const std::string& key) {
     static const std::unordered_set<std::string> runtime_keys{"profile"};
     static const std::unordered_set<std::string> vision_keys{
-        "crop_width", "capture_width", "crop_height", "capture_height", "capture_fps",
+        "crop_width", "capture_width", "crop_height", "capture_height",
+        "tensor_width", "tensor_height", "require_isotropic_resize", "capture_fps",
         "idle_capture_fps", "keepwarm_when_idle", "color_readback_mode", "model_path", "fallback_model_path",
         "quit_key", "native_cue_sidecar", "perf_log", "aim_perf_file_log",
         "aim_perf_log_dir", "aim_perf_log_interval_ticks", "gpu_service_enabled",
@@ -977,6 +985,14 @@ void validate_runtime_config(RuntimeConfig& config) {
     };
     if (config.vision.capture_fps < 1 || config.vision.capture_fps > 1000)
         invalid("runtime.vision.capture_fps", "1..1000");
+    if (config.vision.capture_width < 32 || config.vision.capture_width > 8192)
+        invalid("runtime.vision.capture_width", "32..8192");
+    if (config.vision.capture_height < 32 || config.vision.capture_height > 8192)
+        invalid("runtime.vision.capture_height", "32..8192");
+    if (config.vision.tensor_width < 32 || config.vision.tensor_width > 8192)
+        invalid("runtime.vision.tensor_width", "32..8192");
+    if (config.vision.tensor_height < 32 || config.vision.tensor_height > 8192)
+        invalid("runtime.vision.tensor_height", "32..8192");
     if (config.vision.idle_capture_fps < 1 || config.vision.idle_capture_fps > 240)
         invalid("runtime.vision.idle_capture_fps", "1..240");
     if (config.vision.color_readback_mode != "pageable" && config.vision.color_readback_mode != "pinned")

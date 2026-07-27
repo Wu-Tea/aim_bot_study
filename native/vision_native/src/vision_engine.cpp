@@ -80,7 +80,10 @@ VisionEngine::VisionEngine(
     int output_index,
     int timeout_ms,
     std::string engine_path,
-    std::string color_readback_mode)
+    std::string color_readback_mode,
+    int expected_tensor_width,
+    int expected_tensor_height,
+    bool require_isotropic_resize)
     : capture_(width, height, adapter_index, output_index, timeout_ms),
       selector_(width, height),
       host_color_frame_(std::make_unique<ColorReadbackBuffer>(color_readback_mode == "pinned")),
@@ -113,6 +116,14 @@ VisionEngine::VisionEngine(
     validate_runtime_artifact_family(
         compiled_build_family(), resolved_engine_path, properties.major, properties.minor);
     engine_ = std::make_unique<TensorRTEngine>(resolved_engine_path);
+    resize_contract_ = validate_resize_contract(
+        width_,
+        height_,
+        engine_->input_width(),
+        engine_->input_height(),
+        expected_tensor_width,
+        expected_tensor_height,
+        require_isotropic_resize);
 
     auto* resource = static_cast<ID3D11Resource*>(capture_.texture());
     if (resource == nullptr) {
@@ -396,6 +407,26 @@ int VisionEngine::width() const {
 
 int VisionEngine::height() const {
     return height_;
+}
+
+int VisionEngine::tensor_width() const {
+    return resize_contract_.tensor_width;
+}
+
+int VisionEngine::tensor_height() const {
+    return resize_contract_.tensor_height;
+}
+
+float VisionEngine::resize_scale_x() const {
+    return resize_contract_.scale_x;
+}
+
+float VisionEngine::resize_scale_y() const {
+    return resize_contract_.scale_y;
+}
+
+bool VisionEngine::resize_isotropic() const {
+    return resize_contract_.isotropic;
 }
 
 } // namespace vision_native

@@ -50,6 +50,10 @@ LogSessionOptions log_session_options_from(const controller_native::RuntimeConfi
     options.engine_hash = config.engine_sha256;
     options.capture_width = config.vision.capture_width;
     options.capture_height = config.vision.capture_height;
+    options.tensor_width = config.vision.tensor_width;
+    options.tensor_height = config.vision.tensor_height;
+    options.require_isotropic_resize = config.vision.require_isotropic_resize;
+    options.model_path = config.vision.model_path;
     return options;
 }
 
@@ -460,7 +464,18 @@ RuntimeLoop::RuntimeLoop(
         -1,
         0,
         config_.vision.model_path,
-        config_.vision.color_readback_mode);
+        config_.vision.color_readback_mode,
+        config_.vision.tensor_width,
+        config_.vision.tensor_height,
+        config_.vision.require_isotropic_resize);
+    std::cout << "[VisionGeometry][CPP]"
+              << " capture=" << vision_engine->width() << 'x' << vision_engine->height()
+              << " tensor=" << vision_engine->tensor_width() << 'x'
+              << vision_engine->tensor_height()
+              << " scale=" << vision_engine->resize_scale_x() << 'x'
+              << vision_engine->resize_scale_y()
+              << " isotropic=" << (vision_engine->resize_isotropic() ? 1 : 0)
+              << '\n';
     if (config_.vision.gpu_service_enabled) {
         VisionServiceOptions service_options;
         service_options.active_fps = static_cast<double>(config_.vision.gpu_service_active_fps);
