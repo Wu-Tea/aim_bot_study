@@ -4,6 +4,7 @@ param(
     [string]$BuildDir = "",
     [uint32[]]$Seeds = @(2026072701, 2026072702, 2026072703),
     [int]$DurationMs = 60000,
+    [ValidateSet("pure", "mixed")][string]$Profile = "mixed",
     [switch]$SkipBuild
 )
 
@@ -45,7 +46,7 @@ foreach ($occlusion in $durations) {
     $arguments = @(
         "--config", $Config,
         "--duration-ms", [string]$DurationMs,
-        "--profile", "mixed",
+        "--profile", $Profile,
         "--cohort", "ads",
         "--target-profile", "ordinary",
         "--camera-response", "700",
@@ -85,7 +86,19 @@ $rows = foreach ($report in $reports) {
         mean_error_px = [double](($runs | Measure-Object mean_error_px -Average).Average)
         circle_exit_events = [int](($runs | Measure-Object circle_exit_events -Sum).Sum)
         direction_discontinuities = [int](($runs | Measure-Object direction_discontinuities -Sum).Sum)
+        occluded_direction_discontinuities = [int](($runs | Measure-Object occluded_direction_discontinuities -Sum).Sum)
+        fresh_vision_direction_discontinuities = [int](($runs | Measure-Object fresh_vision_direction_discontinuities -Sum).Sum)
+        manual_input_discontinuities = [int](($runs | Measure-Object manual_input_discontinuities -Sum).Sum)
+        manual_driven_final_discontinuities = [int](($runs | Measure-Object manual_driven_final_discontinuities -Sum).Sum)
+        controller_residual_discontinuities = [int](($runs | Measure-Object controller_residual_discontinuities -Sum).Sum)
+        controller_residual_kick_events = [int](($runs | Measure-Object controller_residual_kick_events -Sum).Sum)
+        requested_assist_discontinuities = [int](($runs | Measure-Object requested_assist_discontinuities -Sum).Sum)
+        shaped_assist_discontinuities = [int](($runs | Measure-Object shaped_assist_discontinuities -Sum).Sum)
         p95_jerk = [double](($runs | Measure-Object p95_jerk -Average).Average)
+        p95_controller_residual_delta = [double](($runs | Measure-Object p95_controller_residual_delta -Average).Average)
+        p95_controller_residual_jerk = [double](($runs | Measure-Object p95_controller_residual_jerk -Average).Average)
+        p99_controller_residual_delta = [double](($runs | Measure-Object p99_controller_residual_delta -Average).Average)
+        max_controller_residual_delta = [double](($runs | Measure-Object max_controller_residual_delta -Maximum).Maximum)
         occlusion_episodes = [int](($runs | Measure-Object occlusion_episodes -Sum).Sum)
         post_occlusion_error_area_px_ms = [double](($runs | Measure-Object post_occlusion_error_area_px_ms -Sum).Sum)
         max_post_occlusion_error_px = [double](($runs | Measure-Object max_post_occlusion_error_px -Maximum).Maximum)
@@ -100,6 +113,7 @@ $summary = [ordered]@{
     config_fingerprint_fnv1a64 = $fingerprints[0]
     seeds = $Seeds
     duration_ms = $DurationMs
+    profile = $Profile
     camera_response = 700
     slowdown_edge = 0.80
     slowdown_center = 0.70

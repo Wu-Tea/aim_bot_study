@@ -314,13 +314,59 @@ void TargetScorer::add_frame(const ScoreFrame& frame) {
     const double output_jerk = has_previous_
         ? std::fabs(output_delta - previous_output_delta_) : 0.0;
     result_.output_jerks.push_back(output_jerk);
+    const Vec2d controller_residual = subtract(
+        frame.final_stick, frame.manual_stick);
+    const double controller_residual_delta = has_previous_
+        ? length(subtract(
+            controller_residual, previous_controller_residual_))
+        : 0.0;
+    const double controller_residual_jerk = has_previous_
+        ? std::fabs(
+            controller_residual_delta -
+            previous_controller_residual_delta_)
+        : 0.0;
+    result_.controller_residual_deltas.push_back(
+        controller_residual_delta);
+    result_.controller_residual_jerks.push_back(
+        controller_residual_jerk);
+    if (has_previous_ && controller_residual_delta > 0.35) {
+        ++result_.controller_residual_discontinuities;
+    }
+    if (has_previous_ && controller_residual_delta > 0.10) {
+        ++result_.controller_residual_kick_events;
+    }
     if (has_previous_ && distance <= previous_distance_ + 1e-9 && distance < radius) {
         const double variation_quality = std::exp(
             -std::pow(output_delta / 0.04, 2.0));
         result_.smooth_bonus += 0.1 * accuracy * variation_quality;
     }
+    const double manual_input_delta = has_previous_
+        ? length(subtract(frame.manual_stick, previous_manual_)) : 0.0;
     if (has_previous_ && output_delta > 0.35) {
         ++result_.direction_discontinuities;
+        if (frame.vision_occluded) {
+            ++result_.occluded_direction_discontinuities;
+        }
+        if (frame.fresh_vision) {
+            ++result_.fresh_vision_direction_discontinuities;
+        }
+        if (manual_input_delta > 0.35) {
+            ++result_.manual_driven_final_discontinuities;
+        }
+    }
+    if (manual_input_delta > 0.35) {
+        ++result_.manual_input_discontinuities;
+    }
+    if (has_previous_ &&
+        length(subtract(
+            frame.requested_assist_stick, previous_requested_assist_)) >
+            0.35) {
+        ++result_.requested_assist_discontinuities;
+    }
+    if (has_previous_ &&
+        length(subtract(
+            frame.shaped_assist_stick, previous_shaped_assist_)) > 0.35) {
+        ++result_.shaped_assist_discontinuities;
     }
 
     const bool outside = distance >= radius;
@@ -463,9 +509,13 @@ void TargetScorer::add_frame(const ScoreFrame& frame) {
 
     has_previous_ = true;
     previous_output_ = frame.final_stick;
+    previous_manual_ = frame.manual_stick;
+    previous_requested_assist_ = frame.requested_assist_stick;
     previous_shaped_assist_ = frame.shaped_assist_stick;
+    previous_controller_residual_ = controller_residual;
     previous_distance_ = distance;
     previous_output_delta_ = output_delta;
+    previous_controller_residual_delta_ = controller_residual_delta;
 }
 
 TargetResult TargetScorer::finish() {
@@ -490,6 +540,8 @@ BenchmarkResult aggregate(
     std::vector<double> errors;
     std::vector<double> output_deltas;
     std::vector<double> output_jerks;
+    std::vector<double> controller_residual_deltas;
+    std::vector<double> controller_residual_jerks;
     std::vector<double> post_cross_errors;
     std::vector<double> settle_times;
     std::vector<double> post_handoff_rebounds;
@@ -530,6 +582,22 @@ BenchmarkResult aggregate(
         result.circle_exit_events += target.circle_exit_events;
         result.stall_ring_ms += target.stall_ring_ms;
         result.direction_discontinuities += target.direction_discontinuities;
+        result.occluded_direction_discontinuities +=
+            target.occluded_direction_discontinuities;
+        result.fresh_vision_direction_discontinuities +=
+            target.fresh_vision_direction_discontinuities;
+        result.manual_input_discontinuities +=
+            target.manual_input_discontinuities;
+        result.manual_driven_final_discontinuities +=
+            target.manual_driven_final_discontinuities;
+        result.controller_residual_discontinuities +=
+            target.controller_residual_discontinuities;
+        result.controller_residual_kick_events +=
+            target.controller_residual_kick_events;
+        result.requested_assist_discontinuities +=
+            target.requested_assist_discontinuities;
+        result.shaped_assist_discontinuities +=
+            target.shaped_assist_discontinuities;
         result.max_error_px = std::max(result.max_error_px, target.max_error_px);
         if (target.center_cross_events > 0) {
             post_cross_errors.push_back(target.max_post_cross_error_px);
@@ -578,6 +646,14 @@ BenchmarkResult aggregate(
                              target.output_deltas.end());
         output_jerks.insert(output_jerks.end(), target.output_jerks.begin(),
                             target.output_jerks.end());
+        controller_residual_deltas.insert(
+            controller_residual_deltas.end(),
+            target.controller_residual_deltas.begin(),
+            target.controller_residual_deltas.end());
+        controller_residual_jerks.insert(
+            controller_residual_jerks.end(),
+            target.controller_residual_jerks.begin(),
+            target.controller_residual_jerks.end());
     }
     if (!errors.empty()) {
         result.mean_error_px = std::accumulate(errors.begin(), errors.end(), 0.0) /
@@ -586,6 +662,14 @@ BenchmarkResult aggregate(
     result.p95_error_px = percentile(std::move(errors), 0.95);
     result.p95_output_delta = percentile(std::move(output_deltas), 0.95);
     result.p95_jerk = percentile(std::move(output_jerks), 0.95);
+    result.p95_controller_residual_delta =
+        percentile(controller_residual_deltas, 0.95);
+    result.p95_controller_residual_jerk =
+        percentile(std::move(controller_residual_jerks), 0.95);
+    result.p99_controller_residual_delta =
+        percentile(controller_residual_deltas, 0.99);
+    result.max_controller_residual_delta =
+        percentile(std::move(controller_residual_deltas), 1.0);
     result.p95_post_cross_error_px =
         percentile(std::move(post_cross_errors), 0.95);
     if (!settle_times.empty()) {

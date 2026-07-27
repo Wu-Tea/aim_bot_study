@@ -58,6 +58,14 @@ struct TargetResult {
     int stall_ring_ms = 0;
     int zero_output_while_demanded_ms = 0;
     int direction_discontinuities = 0;
+    int occluded_direction_discontinuities = 0;
+    int fresh_vision_direction_discontinuities = 0;
+    int manual_input_discontinuities = 0;
+    int manual_driven_final_discontinuities = 0;
+    int controller_residual_discontinuities = 0;
+    int controller_residual_kick_events = 0;
+    int requested_assist_discontinuities = 0;
+    int shaped_assist_discontinuities = 0;
     double max_error_px = 0.0;
     bool settled = false;
     int center_cross_events = 0;
@@ -94,6 +102,8 @@ struct TargetResult {
     std::vector<double> tracking_errors_px;
     std::vector<double> output_deltas;
     std::vector<double> output_jerks;
+    std::vector<double> controller_residual_deltas;
+    std::vector<double> controller_residual_jerks;
 };
 
 class TargetScorer {
@@ -120,9 +130,13 @@ private:
     bool finished_ = false;
     bool has_previous_ = false;
     Vec2d previous_output_;
+    Vec2d previous_manual_;
+    Vec2d previous_requested_assist_;
     Vec2d previous_shaped_assist_;
+    Vec2d previous_controller_residual_;
     double previous_distance_ = 0.0;
     double previous_output_delta_ = 0.0;
+    double previous_controller_residual_delta_ = 0.0;
     int tracking_ticks_ = 0;
     bool outside_latched_ = false;
     bool overshoot_armed_ = false;
@@ -201,6 +215,14 @@ struct BenchmarkResult {
     int circle_exit_events = 0;
     int stall_ring_ms = 0;
     int direction_discontinuities = 0;
+    int occluded_direction_discontinuities = 0;
+    int fresh_vision_direction_discontinuities = 0;
+    int manual_input_discontinuities = 0;
+    int manual_driven_final_discontinuities = 0;
+    int controller_residual_discontinuities = 0;
+    int controller_residual_kick_events = 0;
+    int requested_assist_discontinuities = 0;
+    int shaped_assist_discontinuities = 0;
     double max_error_px = 0.0;
     double median_first_entry_to_settle_ms = -1.0;
     double p95_first_entry_to_settle_ms = -1.0;
@@ -225,6 +247,10 @@ struct BenchmarkResult {
     double p95_error_px = 0.0;
     double p95_output_delta = 0.0;
     double p95_jerk = 0.0;
+    double p95_controller_residual_delta = 0.0;
+    double p95_controller_residual_jerk = 0.0;
+    double p99_controller_residual_delta = 0.0;
+    double max_controller_residual_delta = 0.0;
     std::vector<TargetResult> targets;
 };
 

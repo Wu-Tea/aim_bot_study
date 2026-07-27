@@ -580,6 +580,53 @@ void test_occlusion_without_fresh_reveal_does_not_start_recovery_window() {
             "recovery latency needs a fresh reveal");
 }
 
+void test_direction_discontinuity_attribution_keeps_pipeline_stage() {
+    TargetScorer scorer(target_with_deadline(), BenchmarkConfig{});
+    scorer.mark_acquired(0);
+    ScoreFrame before = tracking_frame(0, {8.0, 0.0});
+    before.manual_stick = {0.4, 0.0};
+    before.requested_assist_stick = {0.4, 0.0};
+    before.shaped_assist_stick = {0.4, 0.0};
+    before.final_stick = {0.4, 0.0};
+    scorer.add_frame(before);
+
+    ScoreFrame hidden = tracking_frame(1, {8.0, 0.0});
+    hidden.vision_occluded = true;
+    hidden.manual_stick = {-0.4, 0.0};
+    hidden.requested_assist_stick = {-0.4, 0.0};
+    hidden.shaped_assist_stick = {-0.4, 0.0};
+    hidden.final_stick = {-0.4, 0.0};
+    scorer.add_frame(hidden);
+
+    ScoreFrame reveal = tracking_frame(2, {8.0, 0.0});
+    reveal.fresh_vision = true;
+    reveal.manual_stick = {-0.4, 0.0};
+    reveal.requested_assist_stick = {-0.4, 0.0};
+    reveal.shaped_assist_stick = {-0.4, 0.0};
+    reveal.final_stick = {0.4, 0.0};
+    scorer.add_frame(reveal);
+
+    const TargetResult result = scorer.finish();
+    require(result.direction_discontinuities == 2,
+            "fixture must contain two delivered discontinuities");
+    require(result.occluded_direction_discontinuities == 1,
+            "hidden tick must retain its attribution");
+    require(result.fresh_vision_direction_discontinuities == 1,
+            "fresh reveal tick must retain its attribution");
+    require(result.manual_input_discontinuities == 1,
+            "manual stage must be measured independently");
+    require(result.manual_driven_final_discontinuities == 1,
+            "delivered jumps coincident with physical jumps need attribution");
+    require(result.controller_residual_discontinuities == 1,
+            "only controller-added residual jumps count as controller twitch");
+    require(result.controller_residual_kick_events == 1,
+            "material controller residual kick must remain observable");
+    require(result.requested_assist_discontinuities == 1,
+            "requested assist stage must be measured independently");
+    require(result.shaped_assist_discontinuities == 1,
+            "shaped assist stage must be measured independently");
+}
+
 }  // namespace
 
 int main() {
@@ -606,6 +653,7 @@ int main() {
         test_aggregate_counts_only_true_handoff_episodes();
         test_short_occlusion_scores_reveal_recovery_window();
         test_occlusion_without_fresh_reveal_does_not_start_recovery_window();
+        test_direction_discontinuity_attribution_keeps_pipeline_stage();
         std::cout << "cod_native_sustained_aimlab_score_tests PASS\n";
         return EXIT_SUCCESS;
     } catch (const std::exception& error) {

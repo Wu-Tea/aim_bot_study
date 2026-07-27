@@ -532,6 +532,22 @@ void write_report(
             << ", \"circle_exit_events\": " << result.circle_exit_events
             << ", \"stall_ring_ms\": " << result.stall_ring_ms
             << ", \"direction_discontinuities\": " << result.direction_discontinuities
+            << ", \"occluded_direction_discontinuities\": "
+            << result.occluded_direction_discontinuities
+            << ", \"fresh_vision_direction_discontinuities\": "
+            << result.fresh_vision_direction_discontinuities
+            << ", \"manual_input_discontinuities\": "
+            << result.manual_input_discontinuities
+            << ", \"manual_driven_final_discontinuities\": "
+            << result.manual_driven_final_discontinuities
+            << ", \"controller_residual_discontinuities\": "
+            << result.controller_residual_discontinuities
+            << ", \"controller_residual_kick_events\": "
+            << result.controller_residual_kick_events
+            << ", \"requested_assist_discontinuities\": "
+            << result.requested_assist_discontinuities
+            << ", \"shaped_assist_discontinuities\": "
+            << result.shaped_assist_discontinuities
             << ", \"max_error_px\": " << result.max_error_px
             << ", \"median_first_entry_to_settle_ms\": " << result.median_first_entry_to_settle_ms
             << ", \"p95_first_entry_to_settle_ms\": " << result.p95_first_entry_to_settle_ms
@@ -568,6 +584,14 @@ void write_report(
             << ", \"p95_error_px\": " << result.p95_error_px
             << ", \"p95_output_delta\": " << result.p95_output_delta
             << ", \"p95_jerk\": " << result.p95_jerk
+            << ", \"p95_controller_residual_delta\": "
+            << result.p95_controller_residual_delta
+            << ", \"p95_controller_residual_jerk\": "
+            << result.p95_controller_residual_jerk
+            << ", \"p99_controller_residual_delta\": "
+            << result.p99_controller_residual_delta
+            << ", \"max_controller_residual_delta\": "
+            << result.max_controller_residual_delta
             << ", \"targets\": [";
         for (std::size_t target_index = 0; target_index < result.targets.size(); ++target_index) {
             const auto& target = result.targets[target_index];
