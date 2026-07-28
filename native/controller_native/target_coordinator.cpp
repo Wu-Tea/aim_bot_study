@@ -26,6 +26,21 @@ pipeline_contract::Vec2f add_scaled(
 
 }  // namespace
 
+float motion_velocity_alpha_for_interval(
+    float reference_alpha,
+    float reference_interval_seconds,
+    float observation_interval_seconds) noexcept {
+    const float alpha = std::clamp(reference_alpha, 0.0f, 1.0f);
+    if (alpha <= 0.0f || alpha >= 1.0f) return alpha;
+    const float reference_dt = std::max(0.001f, reference_interval_seconds);
+    const float observation_dt = std::clamp(
+        observation_interval_seconds, 0.001f, 0.1f);
+    const float interval_ratio = observation_dt / reference_dt;
+    return std::clamp(
+        1.0f - std::pow(1.0f - alpha, interval_ratio),
+        0.0f, 1.0f);
+}
+
 TargetCoordinator::TargetCoordinator(TargetCoordinatorConfig config)
     : config_(config) {}
 
@@ -108,6 +123,14 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     float reliability = latest_.reliability;
     float normalized_size = latest_.normalized_size;
     if (candidate != nullptr) {
+        double observation_capture_seconds = now_seconds;
+        const bool source_time_available =
+            std::isfinite(observations.source_time_seconds) &&
+            (observations.source_time_seconds > 0.0 ||
+             now_seconds <= 0.001);
+        if (source_time_available) {
+            observation_capture_seconds = observations.source_time_seconds;
+        }
         const bool new_target = !has_target_;
         const bool reacquiring = has_target_ && was_missing_;
         if (new_target) {
@@ -131,17 +154,28 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
                 predicted.x + innovation.x,
                 predicted.y + innovation.y,
             };
-            const float observation_dt = last_observed_seconds_ > 0.0
+            const float observation_dt = has_observation_capture_time_ &&
+                    observation_capture_seconds >
+                        last_observation_capture_seconds_
                 ? static_cast<float>(std::clamp(
-                    now_seconds - last_observed_seconds_, 0.005, 0.1))
+                    observation_capture_seconds -
+                        last_observation_capture_seconds_,
+                    0.001, 0.1))
                 : dt;
             const auto measured_velocity = pipeline_contract::Vec2f{
                 velocity_.x + innovation.x / observation_dt,
                 velocity_.y + innovation.y / observation_dt,
             };
             const auto previous_velocity = velocity_;
-            velocity_.x += config_.motion_velocity_alpha * (measured_velocity.x - velocity_.x);
-            velocity_.y += config_.motion_velocity_alpha * (measured_velocity.y - velocity_.y);
+            const float velocity_alpha =
+                motion_velocity_alpha_for_interval(
+                    config_.motion_velocity_alpha,
+                    config_.motion_velocity_reference_interval_seconds,
+                    observation_dt);
+            velocity_.x +=
+                velocity_alpha * (measured_velocity.x - velocity_.x);
+            velocity_.y +=
+                velocity_alpha * (measured_velocity.y - velocity_.y);
             velocity_.x = std::clamp(velocity_.x, -4000.0f, 4000.0f);
             velocity_.y = std::clamp(velocity_.y, -4000.0f, 4000.0f);
             acceleration_ = {
@@ -164,6 +198,8 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         last_observed_reliability_ = reliability;
         last_observed_normalized_size_ = normalized_size;
         last_observed_seconds_ = now_seconds;
+        last_observation_capture_seconds_ = observation_capture_seconds;
+        has_observation_capture_time_ = true;
         lifecycle = reacquiring
             ? pipeline_contract::TargetLifecycle::Reacquiring
             : pipeline_contract::TargetLifecycle::Observed;
@@ -332,6 +368,7 @@ void TargetCoordinator::reset() noexcept {
     generation_ = 0;
     source_frame_id_ = 0;
     last_observed_seconds_ = 0.0;
+    last_observation_capture_seconds_ = 0.0;
     last_update_seconds_ = 0.0;
     acquisition_started_seconds_ = 0.0;
     ads_epoch_started_seconds_ = 0.0;
@@ -340,6 +377,7 @@ void TargetCoordinator::reset() noexcept {
     settled_frames_ = 0;
     observed_frames_ = 0;
     has_target_ = false;
+    has_observation_capture_time_ = false;
     fire_requested_ = false;
     observed_fire_eligible_ = false;
     was_missing_ = false;

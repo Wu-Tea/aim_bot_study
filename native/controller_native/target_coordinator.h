@@ -21,10 +21,18 @@ struct TargetCoordinatorConfig {
     float bodylock_exit_radius_px = 48.0f;
     float handoff_prediction_seconds = 0.020f;
     float handoff_max_closing_velocity_px_per_sec = 320.0f;
+    // Velocity response at the historical ~91Hz Vision cadence. The applied
+    // gain is converted from this reference to each actual capture interval.
     float motion_velocity_alpha = 0.2f;
+    float motion_velocity_reference_interval_seconds = 0.011f;
     float jump_fall_velocity_px_per_second = 100.0f;
     float max_authority = 1.0f;
 };
+
+float motion_velocity_alpha_for_interval(
+    float reference_alpha,
+    float reference_interval_seconds,
+    float observation_interval_seconds) noexcept;
 
 struct TargetControlFeedback {
     pipeline_contract::Vec2f previous_delivered_stick{};
@@ -66,6 +74,7 @@ private:
     std::uint64_t generation_ = 0;
     std::uint64_t source_frame_id_ = 0;
     double last_observed_seconds_ = 0.0;
+    double last_observation_capture_seconds_ = 0.0;
     double last_update_seconds_ = 0.0;
     double acquisition_started_seconds_ = 0.0;
     double ads_epoch_started_seconds_ = 0.0;
@@ -74,6 +83,7 @@ private:
     std::uint32_t settled_frames_ = 0;
     std::uint32_t observed_frames_ = 0;
     bool has_target_ = false;
+    bool has_observation_capture_time_ = false;
     bool fire_requested_ = false;
     bool observed_fire_eligible_ = false;
     bool was_missing_ = false;

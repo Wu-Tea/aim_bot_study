@@ -85,9 +85,46 @@ time-normalized state estimator and explicit arrival/reversal planning. Merely
 raising Vision Hz, lowering global alpha, adding brake, or retuning strength
 will trade one cohort against another.
 
+## Production tracker fix
+
+The tracker now treats `motion_velocity_alpha=0.2` as the response at the
+historical 11ms reference interval and converts it for each actual Vision
+capture interval:
+
+`alpha(dt) = 1 - (1 - 0.2)^(dt / 0.011)`
+
+The interval comes from consecutive Vision source timestamps, not the
+controller update interval. Observation age and hold expiry remain based on
+controller time.
+
+Across all 20 paired runs, the fixed tracker produced:
+
+| Comparison | Tracking | Smooth bonus | Mean error | Overshoot area | Stall-ring time |
+|---|---:|---:|---:|---:|---:|
+| Fixed 91Hz vs old 91Hz | -0.12% | +0.08% | +0.20% | -1.68% | +0.11% |
+| Fixed 200Hz vs old raw 200Hz | +24.67% | +34.65% | -14.27% | -18.43% | -41.41% |
+| Fixed 200Hz vs fixed 91Hz | +8.22% | -6.61% | -2.05% | +12.57% | -1.89% |
+
+This meets the compatibility goal: the historical cadence is effectively
+unchanged, while 200Hz no longer destabilizes the velocity filter. Higher
+cadence now yields real tracking and mean-error gains.
+
+The remaining 200Hz overshoot increase is concentrated in player-reversal
+scenarios (`+18.72%` versus fixed 91Hz). It is not a filter-time-constant
+regression: it points to the separate arrival/reversal planning problem already
+identified above.
+
+Verification:
+
+- `cod_native_target_coordinator_tests.exe`: pass
+- `cod_native_controller_tests.exe`: pass
+- `cod_native_runtime.exe`: Release build pass
+
 ## Artifacts
 
 - `current_91hz.json`
 - `vision_200hz.json`
 - `vision_200hz_alpha010.json`
-
+- `vision_200hz_alpha004.json`
+- `fixed_91hz.json`
+- `fixed_200hz.json`

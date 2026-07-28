@@ -284,6 +284,63 @@ void test_100hz_motion_stays_finite_at_1000hz_control_rate() {
                  "1000 Hz prediction between observations must remain finite");
 }
 
+void test_velocity_alpha_is_normalized_to_vision_interval() {
+    using controller_native::motion_velocity_alpha_for_interval;
+    const float reference = motion_velocity_alpha_for_interval(
+        0.2f, 0.011f, 0.011f);
+    const float high_rate = motion_velocity_alpha_for_interval(
+        0.2f, 0.011f, 0.005f);
+    const float low_rate = motion_velocity_alpha_for_interval(
+        0.2f, 0.011f, 0.020f);
+    require_true(std::fabs(reference - 0.2f) < 1e-6f,
+                 "reference cadence must preserve historical tracker gain");
+    require_true(high_rate > 0.09f && high_rate < 0.10f,
+                 "200Hz must use the equivalent smaller per-frame gain");
+    require_true(low_rate > 0.33f && low_rate < 0.34f,
+                 "slower Vision must use the equivalent larger per-frame gain");
+    const float two_high_rate_steps =
+        1.0f - (1.0f - high_rate) * (1.0f - high_rate);
+    const float one_100hz_step = motion_velocity_alpha_for_interval(
+        0.2f, 0.011f, 0.010f);
+    require_true(std::fabs(two_high_rate_steps - one_100hz_step) < 1e-5f,
+                 "equal elapsed time must produce equal cumulative response");
+}
+
+pipeline_contract::TargetPlan run_constant_motion_at_interval(
+    double interval_seconds) {
+    controller_native::TargetCoordinator coordinator;
+    pipeline_contract::TargetPlan plan{};
+    constexpr double start_seconds = 20.0;
+    constexpr double velocity_px_per_second = 120.0;
+    const int frames = static_cast<int>(
+        std::lround(1.0 / interval_seconds));
+    for (int index = 0; index <= frames; ++index) {
+        const double elapsed = index * interval_seconds;
+        const double time = start_seconds + elapsed;
+        plan = coordinator.update(
+            frame(
+                index + 1, time, 7,
+                240.0f + static_cast<float>(
+                    elapsed * velocity_px_per_second),
+                208.0f),
+            ads_intent(time), time);
+    }
+    return plan;
+}
+
+void test_constant_motion_response_is_cadence_invariant() {
+    const auto at_100hz = run_constant_motion_at_interval(0.010);
+    const auto at_200hz = run_constant_motion_at_interval(0.005);
+    require_true(
+        std::fabs(
+            at_100hz.velocity_px_per_sec.x -
+            at_200hz.velocity_px_per_sec.x) < 0.5f,
+        "100Hz and 200Hz must converge to the same physical velocity");
+    require_true(
+        std::fabs(at_100hz.velocity_px_per_sec.x - 120.0f) < 1.0f,
+        "time-normalized tracker must converge to true constant velocity");
+}
+
 void test_left_intent_enters_plan_through_learned_response() {
     controller_native::TargetCoordinator coordinator;
     coordinator.begin_ads_epoch(1, 8.000);
@@ -417,6 +474,8 @@ int main() {
         test_control_rate_gaps_do_not_compound_reliability_decay();
         test_control_rate_gaps_preserve_ads_settle_progress();
         test_100hz_motion_stays_finite_at_1000hz_control_rate();
+        test_velocity_alpha_is_normalized_to_vision_interval();
+        test_constant_motion_response_is_cadence_invariant();
         test_left_intent_enters_plan_through_learned_response();
         test_aim_response_feedback_is_separate_from_left_motion_response();
         test_nonfresh_empty_ticks_preserve_observed_fire_plan();
