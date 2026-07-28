@@ -48,7 +48,8 @@ NativeReplayAdapter::NativeReplayAdapter(
     BenchmarkCohort cohort,
     BenchmarkIntentFusionMode intent_fusion_mode,
     std::shared_ptr<AssistedModeCoverage> coverage,
-    double assist_scale)
+    double assist_scale,
+    double tracker_velocity_alpha)
     : schedule_(schedule),
       cohort_(cohort),
       config_(std::move(source_config)),
@@ -59,6 +60,10 @@ NativeReplayAdapter::NativeReplayAdapter(
     physical_.left_trigger = cohort_ == BenchmarkCohort::BodyLockFollow
         ? 1.0f : 0.0f;
     controller_.set_benchmark_intent_fusion_mode(intent_fusion_mode);
+    if (tracker_velocity_alpha >= 0.0) {
+        controller_.set_benchmark_tracker_velocity_alpha(
+            static_cast<float>(tracker_velocity_alpha));
+    }
     controller_.set_benchmark_mix_transform(
         [this](float manual_x, float manual_y,
                float mixed_x, float mixed_y,
@@ -161,12 +166,15 @@ ReplayControllerFactory make_native_factory(
     BenchmarkCohort cohort,
     BenchmarkIntentFusionMode intent_fusion_mode,
     std::shared_ptr<AssistedModeCoverage> coverage,
-    double assist_scale) {
+    double assist_scale,
+    double tracker_velocity_alpha) {
     config.recoil.enabled = false;
     return [config = std::move(config), cohort, intent_fusion_mode,
-            coverage = std::move(coverage), assist_scale](const BranchSchedule& schedule) {
+            coverage = std::move(coverage), assist_scale,
+            tracker_velocity_alpha](const BranchSchedule& schedule) {
         auto state = std::make_shared<NativeReplayAdapter>(
-            config, schedule, cohort, intent_fusion_mode, coverage, assist_scale);
+            config, schedule, cohort, intent_fusion_mode, coverage,
+            assist_scale, tracker_velocity_alpha);
         return [state](const ControllerObservation& input) {
             return state->step(input);
         };

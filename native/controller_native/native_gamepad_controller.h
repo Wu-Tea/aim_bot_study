@@ -72,6 +72,7 @@ public:
         const NativeControllerOutputComponents& components)>;
     void set_benchmark_mix_transform(BenchmarkMixTransform transform);
     void set_benchmark_intent_fusion_mode(BenchmarkIntentFusionMode mode);
+    void set_benchmark_tracker_velocity_alpha(float alpha);
 #endif
 
 private:

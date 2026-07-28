@@ -25,5 +25,6 @@ double aim_slowdown_multiplier(
     const BenchmarkConfig& config);
 
 const char* to_string(MotionProfile profile) noexcept;
+const char* to_string(ScenarioProfile profile) noexcept;
 
 }  // namespace controller_native::sustained_aimlab

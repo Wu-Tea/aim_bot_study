@@ -81,6 +81,10 @@ public:
     void mark_acquired(int entry_ms);
     void mark_timed_out();
     void mark_bodylock_entered(int entry_ms);
+    void mark_ads_to_bodylock_handoff(
+        int entry_ms,
+        Vec2d error_px,
+        double radial_closing_velocity_px_per_sec);
     void mark_bodylock_entry_failed();
     TargetResult finish();
 

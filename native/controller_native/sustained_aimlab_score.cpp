@@ -90,6 +90,17 @@ void TargetScorer::mark_bodylock_entered(int entry_ms) {
     result_.bodylock_entry_ms = std::max(0, entry_ms);
 }
 
+void TargetScorer::mark_ads_to_bodylock_handoff(
+    int entry_ms,
+    Vec2d error_px,
+    double radial_closing_velocity_px_per_sec) {
+    if (finished_ || result_.handoff_residual_px >= 0.0) return;
+    mark_bodylock_entered(entry_ms);
+    result_.handoff_residual_px = length(error_px);
+    result_.handoff_closing_speed_px_per_sec =
+        radial_closing_velocity_px_per_sec;
+}
+
 void TargetScorer::mark_bodylock_entry_failed() {
     if (finished_ || bodylock_seen_) return;
     result_.bodylock_entry_failed = true;
@@ -137,9 +148,11 @@ void TargetScorer::add_frame(const ScoreFrame& frame) {
         first_circle_tick_ = tracking_ticks_ - 1;
     }
     if (frame.ads_to_bodylock_transition) {
-        result_.handoff_residual_px = distance;
-        result_.handoff_closing_speed_px_per_sec =
-            frame.radial_closing_velocity_px_per_sec;
+        if (result_.handoff_residual_px < 0.0) {
+            result_.handoff_residual_px = distance;
+            result_.handoff_closing_speed_px_per_sec =
+                frame.radial_closing_velocity_px_per_sec;
+        }
     }
     if (brake_episode_active_) {
         const double signed_error = dot(frame.error_px, brake_axis_);

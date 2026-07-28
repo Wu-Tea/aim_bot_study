@@ -27,6 +27,46 @@ comparison artifact. Every JSON records the git revision, dirty state, config pa
 and FNV-1a config fingerprint, simulator constants, script hashes, aggregate scores,
 and per-target metrics.
 
+## ADS-to-BodyLock and directional motion stress
+
+The cohort selects the lifecycle being measured:
+
+- `--cohort ads` is the end-to-end path. Each new target creates a fresh LT
+  epoch, ADS acquires the moving target, and the production controller
+  transitions naturally into BodyLock for the remaining tracking window.
+- `--cohort bodylock` is an isolated tracking path. The target is warmed to at
+  most 8 px from center and remains stationary until BodyLock is confirmed.
+
+The default `--scenario baseline` retains the original seven motion profiles.
+The opt-in `--scenario compound_directional` starts in a deterministic random
+360-degree direction and makes two substantial 70-150 degree turns. Each
+randomized dwell interval is 80-180 ms and speed remains constant across the
+turns.
+
+Run the same directional script through both cohorts to separate acquisition
+and handoff debt from pure BodyLock prediction debt:
+
+```powershell
+& b/Release/cod_native_sustained_aimlab_benchmark.exe `
+  --config config.toml --seed 1337 --seed 20260718 --seed 424242 `
+  --profile both --cohort ads --scenario compound_directional `
+  --output runs/native_perf/ads-bodylock-compound-directional.json
+
+& b/Release/cod_native_sustained_aimlab_benchmark.exe `
+  --config config.toml --seed 1337 --seed 20260718 --seed 424242 `
+  --profile both --cohort bodylock --scenario compound_directional `
+  --output runs/native_perf/bodylock-compound-directional.json
+```
+
+Every artifact records the selected scenario under `simulator.scenario`. Do not
+compare artifacts with different scenario identities as if they were paired
+policy A/B runs.
+
+For tracker parameter sweeps, `--tracker-velocity-alpha 0..1` overrides the
+production motion-velocity smoothing coefficient in the benchmark adapter only.
+The selected value is recorded under `tracker.velocity_alpha_override`; omitted
+means the production default was exercised.
+
 ## Counterfactual conflict analysis
 
 Counterfactual analysis is an offline diagnostic. It replays selected fixed

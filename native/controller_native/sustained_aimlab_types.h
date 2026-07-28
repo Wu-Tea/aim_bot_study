@@ -18,6 +18,12 @@ enum class MotionProfile : std::uint8_t {
     Reverse,
     JumpFall,
     Stop,
+    CompoundDirectional,
+};
+
+enum class ScenarioProfile : std::uint8_t {
+    Baseline,
+    CompoundDirectional,
 };
 
 enum class ManualProfile : std::uint8_t {
@@ -36,6 +42,7 @@ enum class TargetProfile : std::uint8_t {
 };
 
 struct BenchmarkConfig {
+    ScenarioProfile scenario_profile = ScenarioProfile::Baseline;
     TargetProfile target_profile = TargetProfile::Ordinary;
     int duration_ms = 60'000;
     int tick_ms = 1;
@@ -54,6 +61,11 @@ struct BenchmarkConfig {
     int frame_height_px = 512;
 };
 
+struct VelocityManeuver {
+    int at_ms = 0;
+    Vec2d velocity_px_per_second;
+};
+
 struct TargetScript {
     std::uint64_t id = 0;
     MotionProfile motion = MotionProfile::ConstantHorizontal;
@@ -61,6 +73,7 @@ struct TargetScript {
     Vec2d initial_velocity_px_per_second;
     Vec2d acceleration_px_per_second_squared;
     int maneuver_at_ms = -1;
+    std::vector<VelocityManeuver> velocity_maneuvers;
     int acquire_deadline_ms = 250;
     double visible_radius_px = 24.0;
     std::vector<int> observation_at_ms;

@@ -67,6 +67,11 @@ void hash_vec(std::uint64_t& hash, Vec2d value) {
 }
 
 void hash_config(std::uint64_t& hash, const BenchmarkConfig& config) {
+    // Keep legacy baseline script hashes stable. Non-baseline profiles opt into
+    // additional simulation semantics and therefore extend the identity.
+    if (config.scenario_profile != ScenarioProfile::Baseline) {
+        hash_integral(hash, config.scenario_profile);
+    }
     hash_integral(hash, config.duration_ms);
     hash_integral(hash, config.target_profile);
     hash_integral(hash, config.tick_ms);
@@ -96,6 +101,14 @@ std::uint64_t script_hash(const ScenarioScript& script) {
         hash_vec(hash, target.initial_velocity_px_per_second);
         hash_vec(hash, target.acceleration_px_per_second_squared);
         hash_integral(hash, target.maneuver_at_ms);
+        if (!target.velocity_maneuvers.empty()) {
+            hash_integral(hash,
+                static_cast<std::uint64_t>(target.velocity_maneuvers.size()));
+            for (const VelocityManeuver& maneuver : target.velocity_maneuvers) {
+                hash_integral(hash, maneuver.at_ms);
+                hash_vec(hash, maneuver.velocity_px_per_second);
+            }
+        }
         hash_integral(hash, target.acquire_deadline_ms);
         hash_double(hash, target.visible_radius_px);
         hash_integral(hash,
@@ -146,6 +159,9 @@ ScenarioScript generate_script(
         config.min_acquire_deadline_ms, config.max_acquire_deadline_ms);
     std::uniform_int_distribution<int> reverse_time_distribution(80, 180);
     std::uniform_int_distribution<int> stop_time_distribution(80, 200);
+    std::uniform_int_distribution<int> compound_dwell_distribution(80, 180);
+    std::uniform_real_distribution<double> compound_turn_distribution(
+        70.0 * kPi / 180.0, 150.0 * kPi / 180.0);
     std::uniform_int_distribution<int> observation_interval_distribution(10, 12);
     std::uniform_int_distribution<int> profile_offset_distribution(0, 6);
 
@@ -160,7 +176,10 @@ ScenarioScript generate_script(
     for (std::size_t index = 0; index < target_count; ++index) {
         TargetScript target;
         target.id = static_cast<std::uint64_t>(index + 1);
-        target.motion = static_cast<MotionProfile>((profile_offset + index) % 7);
+        target.motion =
+            config.scenario_profile == ScenarioProfile::CompoundDirectional
+            ? MotionProfile::CompoundDirectional
+            : static_cast<MotionProfile>((profile_offset + index) % 7);
         const double angle = angle_distribution(random);
         const double distance = distance_distribution(random);
         target.initial_error_px = scaled(direction_from_angle(angle), distance);
@@ -206,6 +225,23 @@ ScenarioScript generate_script(
             const Vec2d direction = direction_from_angle(angle_distribution(random));
             target.initial_velocity_px_per_second = scaled(direction, speed);
             target.maneuver_at_ms = stop_time_distribution(random);
+            break;
+        }
+        case MotionProfile::CompoundDirectional: {
+            const double initial_angle = angle_distribution(random);
+            const double first_angle = initial_angle +
+                sampled_sign(random) * compound_turn_distribution(random);
+            const double second_angle = first_angle +
+                sampled_sign(random) * compound_turn_distribution(random);
+            target.initial_velocity_px_per_second =
+                scaled(direction_from_angle(initial_angle), speed);
+            const int first_at_ms = compound_dwell_distribution(random);
+            const int second_at_ms =
+                first_at_ms + compound_dwell_distribution(random);
+            target.velocity_maneuvers = {
+                {first_at_ms, scaled(direction_from_angle(first_angle), speed)},
+                {second_at_ms, scaled(direction_from_angle(second_angle), speed)},
+            };
             break;
         }
         }
@@ -259,6 +295,12 @@ void advance_target(
         target_elapsed_ms >= script.maneuver_at_ms) {
         velocity_px_per_second = {};
     }
+    for (const VelocityManeuver& maneuver : script.velocity_maneuvers) {
+        if (target_elapsed_ms == maneuver.at_ms) {
+            velocity_px_per_second = maneuver.velocity_px_per_second;
+            break;
+        }
+    }
 
     position_error_px.x += velocity_px_per_second.x * dt;
     position_error_px.y += velocity_px_per_second.y * dt;
@@ -308,6 +350,15 @@ const char* to_string(MotionProfile profile) noexcept {
     case MotionProfile::Reverse: return "reverse";
     case MotionProfile::JumpFall: return "jump_fall";
     case MotionProfile::Stop: return "stop";
+    case MotionProfile::CompoundDirectional: return "compound_directional";
+    }
+    return "unknown";
+}
+
+const char* to_string(ScenarioProfile profile) noexcept {
+    switch (profile) {
+    case ScenarioProfile::Baseline: return "baseline";
+    case ScenarioProfile::CompoundDirectional: return "compound_directional";
     }
     return "unknown";
 }

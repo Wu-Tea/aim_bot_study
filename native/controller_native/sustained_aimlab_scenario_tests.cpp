@@ -1,5 +1,6 @@
 #include "sustained_aimlab_scenario.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
@@ -11,6 +12,7 @@ namespace {
 
 using controller_native::sustained_aimlab::BenchmarkConfig;
 using controller_native::sustained_aimlab::MotionProfile;
+using controller_native::sustained_aimlab::ScenarioProfile;
 using controller_native::sustained_aimlab::ScenarioScript;
 using controller_native::sustained_aimlab::TargetScript;
 using controller_native::sustained_aimlab::TargetProfile;
@@ -41,10 +43,19 @@ bool same_target(const TargetScript& left, const TargetScript& right) {
         !same_vec(left.acceleration_px_per_second_squared,
                   right.acceleration_px_per_second_squared) ||
         left.maneuver_at_ms != right.maneuver_at_ms ||
+        left.velocity_maneuvers.size() != right.velocity_maneuvers.size() ||
         left.acquire_deadline_ms != right.acquire_deadline_ms ||
         left.observation_at_ms != right.observation_at_ms ||
         left.observation_noise_px.size() != right.observation_noise_px.size()) {
         return false;
+    }
+    for (std::size_t index = 0; index < left.velocity_maneuvers.size(); ++index) {
+        if (left.velocity_maneuvers[index].at_ms !=
+                right.velocity_maneuvers[index].at_ms ||
+            !same_vec(left.velocity_maneuvers[index].velocity_px_per_second,
+                      right.velocity_maneuvers[index].velocity_px_per_second)) {
+            return false;
+        }
     }
     for (std::size_t index = 0; index < left.observation_noise_px.size(); ++index) {
         if (!same_vec(left.observation_noise_px[index],
@@ -184,6 +195,21 @@ void test_motion_profiles_and_boundary_reflection() {
     advance_target(bounded, 1, 0.010, edge_position, edge_velocity);
     require(edge_position.x <= 296.0 && edge_velocity.x < 0.0,
             "right screen bound must reflect horizontal velocity");
+
+    TargetScript compound{};
+    compound.motion = MotionProfile::CompoundDirectional;
+    compound.velocity_maneuvers = {
+        {100, {-120.0, 0.0}},
+        {220, {120.0, 0.0}},
+    };
+    Vec2d compound_position{};
+    Vec2d compound_velocity{120.0, 0.0};
+    advance_target(compound, 100, 0.001, compound_position, compound_velocity);
+    require(compound_velocity.x == -120.0,
+            "compound motion must apply its first direction change");
+    advance_target(compound, 220, 0.001, compound_position, compound_velocity);
+    require(compound_velocity.x == 120.0,
+            "compound motion must apply its second direction change");
 }
 
 void test_motion_profile_names_are_stable() {
@@ -202,6 +228,71 @@ void test_motion_profile_names_are_stable() {
                 "jump_fall", "jump name");
     require(std::string(to_string(MotionProfile::Stop)) ==
                 "stop", "stop name");
+    require(std::string(to_string(MotionProfile::CompoundDirectional)) ==
+                "compound_directional", "compound motion name");
+    require(std::string(to_string(ScenarioProfile::Baseline)) ==
+                "baseline", "baseline scenario name");
+    require(std::string(to_string(ScenarioProfile::CompoundDirectional)) ==
+                "compound_directional", "compound scenario name");
+}
+
+void test_bodylock_stress_profiles_are_isolated_and_deterministic() {
+    BenchmarkConfig compound_config;
+    compound_config.scenario_profile = ScenarioProfile::CompoundDirectional;
+    const ScenarioScript compound =
+        controller_native::sustained_aimlab::generate_script(
+            20260728, compound_config);
+    const ScenarioScript compound_again =
+        controller_native::sustained_aimlab::generate_script(
+            20260728, compound_config);
+    BenchmarkConfig baseline_config;
+    const ScenarioScript baseline =
+        controller_native::sustained_aimlab::generate_script(
+            20260728, baseline_config);
+    require(compound.hash == compound_again.hash,
+            "compound directional script must be deterministic");
+    require(compound.hash != baseline.hash,
+            "stress profiles must have distinct script identities");
+    unsigned direction_quadrants = 0;
+    auto record_direction = [&](Vec2d velocity) {
+        const unsigned x_bit = velocity.x >= 0.0 ? 1u : 0u;
+        const unsigned y_bit = velocity.y >= 0.0 ? 1u : 0u;
+        direction_quadrants |= 1u << (x_bit + 2u * y_bit);
+    };
+    for (const TargetScript& target : compound.targets) {
+        require(target.motion == MotionProfile::CompoundDirectional,
+                "compound cohort must isolate repeated two-dimensional turns");
+        require(target.velocity_maneuvers.size() == 2,
+                "compound target must turn twice");
+        const int first_dwell = target.velocity_maneuvers[0].at_ms;
+        const int second_dwell =
+            target.velocity_maneuvers[1].at_ms - first_dwell;
+        require(first_dwell >= 80 && first_dwell <= 180 &&
+                    second_dwell >= 80 && second_dwell <= 180,
+                "compound turn dwell must stay in [80,180]ms");
+        Vec2d previous = target.initial_velocity_px_per_second;
+        record_direction(previous);
+        for (const auto& maneuver : target.velocity_maneuvers) {
+            const Vec2d next = maneuver.velocity_px_per_second;
+            const double previous_speed = std::hypot(previous.x, previous.y);
+            const double next_speed = std::hypot(next.x, next.y);
+            require_near(next_speed, previous_speed, 1e-9,
+                         "compound turn must preserve target speed");
+            const double cosine = std::clamp(
+                (previous.x * next.x + previous.y * next.y) /
+                    (previous_speed * next_speed),
+                -1.0, 1.0);
+            const double turn_degrees =
+                std::acos(cosine) * 180.0 / 3.14159265358979323846;
+            require(turn_degrees >= 70.0 - 1e-9 &&
+                        turn_degrees <= 150.0 + 1e-9,
+                    "compound motion must make a substantial 2D turn");
+            record_direction(next);
+            previous = next;
+        }
+    }
+    require(direction_quadrants == 0b1111u,
+            "compound motion set must cover all four screen quadrants");
 }
 
 void test_small_target_profile_reuses_motion_and_cycles_visible_radius() {
@@ -238,6 +329,7 @@ int main() {
         test_generated_ranges_and_observation_schedule();
         test_motion_profiles_and_boundary_reflection();
         test_motion_profile_names_are_stable();
+        test_bodylock_stress_profiles_are_isolated_and_deterministic();
         test_small_target_profile_reuses_motion_and_cycles_visible_radius();
         std::cout << "cod_native_sustained_aimlab_scenario_tests PASS\n";
         return EXIT_SUCCESS;

@@ -21,7 +21,7 @@ struct TargetCoordinatorConfig {
     float bodylock_exit_radius_px = 48.0f;
     float handoff_prediction_seconds = 0.020f;
     float handoff_max_closing_velocity_px_per_sec = 320.0f;
-    float motion_velocity_alpha = 0.4f;
+    float motion_velocity_alpha = 0.2f;
     float jump_fall_velocity_px_per_second = 100.0f;
     float max_authority = 1.0f;
 };
@@ -44,6 +44,7 @@ public:
 
     bool observe_control_response(const ControlResponseSample& sample) noexcept;
     void begin_ads_epoch(std::uint64_t epoch, double now_seconds) noexcept;
+    void set_motion_velocity_alpha_for_benchmark(float alpha) noexcept;
     void reset() noexcept;
 
 private:

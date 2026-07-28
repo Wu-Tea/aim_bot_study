@@ -27,7 +27,8 @@ public:
         sustained_aimlab::BenchmarkCohort cohort,
         BenchmarkIntentFusionMode intent_fusion_mode,
         std::shared_ptr<AssistedModeCoverage> coverage = {},
-        double assist_scale = 1.0);
+        double assist_scale = 1.0,
+        double tracker_velocity_alpha = -1.0);
 
     sustained_aimlab::ControllerStepResult step(
         const sustained_aimlab::ControllerObservation& input);
@@ -51,6 +52,7 @@ sustained_aimlab::ReplayControllerFactory make_native_factory(
     sustained_aimlab::BenchmarkCohort cohort,
     BenchmarkIntentFusionMode intent_fusion_mode,
     std::shared_ptr<AssistedModeCoverage> coverage = {},
-    double assist_scale = 1.0);
+    double assist_scale = 1.0,
+    double tracker_velocity_alpha = -1.0);
 
 }  // namespace controller_native::benchmark_adapter

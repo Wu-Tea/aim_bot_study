@@ -40,6 +40,7 @@ struct CliOptions {
     std::filesystem::path output_path;
     std::string profile = "both";
     std::string cohort = "ads";
+    std::string scenario = "baseline";
     std::string target_profile = "ordinary";
     double camera_response = 500.0;
     double slowdown_edge = 0.50;
@@ -50,6 +51,7 @@ struct CliOptions {
     bool smoke = false;
     std::string counterfactual = "off";
     std::string intent_fusion = "legacy";
+    double tracker_velocity_alpha = -1.0;
     int learning_rounds = 0;
     int learning_delay_ms = 45;
     std::string learning_policy = "retain";
@@ -119,6 +121,8 @@ CliOptions parse_args(int argc, char** argv) {
             options.profile = argv[++index];
         } else if (argument == "--cohort" && index + 1 < argc) {
             options.cohort = argv[++index];
+        } else if (argument == "--scenario" && index + 1 < argc) {
+            options.scenario = argv[++index];
         } else if (argument == "--target-profile" && index + 1 < argc) {
             options.target_profile = argv[++index];
         } else if (argument == "--camera-response" && index + 1 < argc) {
@@ -139,6 +143,9 @@ CliOptions parse_args(int argc, char** argv) {
             options.counterfactual = argv[++index];
         } else if (argument == "--intent-fusion" && index + 1 < argc) {
             options.intent_fusion = argv[++index];
+        } else if (argument == "--tracker-velocity-alpha" &&
+                   index + 1 < argc) {
+            options.tracker_velocity_alpha = std::stod(argv[++index]);
         } else if (argument == "--learning-rounds" && index + 1 < argc) {
             options.learning_rounds = std::stoi(argv[++index]);
         } else if (argument == "--learning-delay-ms" && index + 1 < argc) {
@@ -150,12 +157,14 @@ CliOptions parse_args(int argc, char** argv) {
                 << "Usage: cod_native_sustained_aimlab_benchmark "
                 << "[--config PATH] [--seed N ...] [--profile pure|mixed|both] "
                 << "[--cohort ads|bodylock|both] "
+                << "[--scenario baseline|compound_directional] "
                 << "[--target-profile ordinary|small] [--camera-response PX] "
                 << "[--slowdown-edge N] [--slowdown-center N] "
                 << "[--output PATH] [--revision HASH] [--dirty] "
                 << "[--duration-ms N] [--smoke] "
                 << "[--counterfactual off|quick|full] "
                 << "[--intent-fusion legacy|vector] "
+                << "[--tracker-velocity-alpha 0..1] "
                 << "[--learning-rounds N --learning-delay-ms N "
                 << "--learning-policy baseline|reset|retain]\n";
             std::exit(EXIT_SUCCESS);
@@ -175,6 +184,11 @@ CliOptions parse_args(int argc, char** argv) {
         options.cohort != "both") {
         throw std::runtime_error("cohort must be ads, bodylock, or both");
     }
+    if (options.scenario != "baseline" &&
+        options.scenario != "compound_directional") {
+        throw std::runtime_error(
+            "scenario must be baseline or compound_directional");
+    }
     if (options.target_profile != "ordinary" &&
         options.target_profile != "small") {
         throw std::runtime_error("target profile must be ordinary or small");
@@ -189,6 +203,12 @@ CliOptions parse_args(int argc, char** argv) {
         options.intent_fusion != "vector") {
         throw std::runtime_error(
             "intent fusion mode must be legacy or vector");
+    }
+    if (options.tracker_velocity_alpha != -1.0 &&
+        (options.tracker_velocity_alpha < 0.0 ||
+         options.tracker_velocity_alpha > 1.0)) {
+        throw std::runtime_error(
+            "tracker velocity alpha must be in [0,1]");
     }
     if (options.learning_rounds < 0 || options.learning_delay_ms < 0 ||
         (options.learning_policy != "baseline" &&
@@ -257,16 +277,7 @@ const char* cohort_name(BenchmarkCohort cohort) {
 }
 
 const char* motion_name(MotionProfile motion) {
-    switch (motion) {
-    case MotionProfile::ConstantHorizontal: return "constant_horizontal";
-    case MotionProfile::ConstantVertical: return "constant_vertical";
-    case MotionProfile::ConstantDiagonal: return "constant_diagonal";
-    case MotionProfile::Accelerate: return "accelerate";
-    case MotionProfile::Reverse: return "reverse";
-    case MotionProfile::JumpFall: return "jump_fall";
-    case MotionProfile::Stop: return "stop";
-    }
-    return "unknown";
+    return to_string(motion);
 }
 
 const char* anchor_name(AnchorKind kind) {
@@ -392,6 +403,7 @@ void write_report(
         << "  \"config_path\": " << json_string(options.config_path.string()) << ",\n"
         << "  \"config_fingerprint_fnv1a64\": \"" << config_fingerprint << "\",\n"
         << "  \"simulator\": {\"duration_ms\": " << config.duration_ms
+        << ", \"scenario\": " << json_string(to_string(config.scenario_profile))
         << ", \"target_profile\": " << json_string(options.target_profile)
         << ", \"tick_ms\": " << config.tick_ms
         << ", \"tracking_window_ms\": " << config.tracking_window_ms
@@ -403,6 +415,13 @@ void write_report(
         << "  \"intent_fusion\": {\"schema_version\": 1, \"mode\": "
         << json_string(options.intent_fusion)
         << ", \"candidate_set_version\": 4},\n"
+        << "  \"tracker\": {\"velocity_alpha_override\": ";
+    if (options.tracker_velocity_alpha >= 0.0) {
+        out << options.tracker_velocity_alpha;
+    } else {
+        out << "null";
+    }
+    out << "},\n"
         << "  \"counterfactual_conflict\": {\"schema_version\": 1, "
         << "\"candidate_set_version\": 4, \"mode\": "
         << json_string(options.counterfactual)
@@ -778,6 +797,10 @@ int main(int argc, char** argv) {
         }
         BenchmarkConfig benchmark_config;
         benchmark_config.duration_ms = options.duration_ms;
+        benchmark_config.scenario_profile =
+            options.scenario == "compound_directional"
+            ? ScenarioProfile::CompoundDirectional
+            : ScenarioProfile::Baseline;
         benchmark_config.target_profile = options.target_profile == "small"
             ? TargetProfile::SmallVisible
             : TargetProfile::Ordinary;
@@ -804,7 +827,8 @@ int main(int argc, char** argv) {
                 for (const BenchmarkCohort cohort : cohorts) {
                     auto coverage = std::make_shared<AssistedModeCoverage>();
                     const ReplayControllerFactory factory = make_native_factory(
-                        runtime.gamepad, cohort, intent_fusion_mode, coverage);
+                        runtime.gamepad, cohort, intent_fusion_mode, coverage,
+                        1.0, options.tracker_velocity_alpha);
                     ReplayReference reference = record_reference(
                         script, profile, cohort, factory);
                     BenchmarkResult result = reference.benchmark_result;

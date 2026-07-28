@@ -643,6 +643,11 @@ void NativeGamepadController::set_benchmark_intent_fusion_mode(
     axis_intent_arbiter_.reset();
     vector_intent_fuser_.reset();
 }
+
+void NativeGamepadController::set_benchmark_tracker_velocity_alpha(
+    float alpha) {
+    target_coordinator_.set_motion_velocity_alpha_for_benchmark(alpha);
+}
 #endif
 
 bool NativeGamepadController::body_lock_manual_takeover_active() const {

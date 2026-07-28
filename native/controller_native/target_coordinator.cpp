@@ -29,6 +29,11 @@ pipeline_contract::Vec2f add_scaled(
 TargetCoordinator::TargetCoordinator(TargetCoordinatorConfig config)
     : config_(config) {}
 
+void TargetCoordinator::set_motion_velocity_alpha_for_benchmark(
+    float alpha) noexcept {
+    config_.motion_velocity_alpha = std::clamp(alpha, 0.0f, 1.0f);
+}
+
 const pipeline_contract::VisionCandidate* TargetCoordinator::choose_candidate(
     const pipeline_contract::VisionObservationBatch& observations,
     pipeline_contract::Vec2f predicted) const noexcept {

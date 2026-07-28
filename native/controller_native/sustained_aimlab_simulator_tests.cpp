@@ -252,6 +252,46 @@ void test_bodylock_warmup_is_stationary_and_manual_neutral() {
             "BodyLock target motion must begin only after confirmed mode entry");
 }
 
+void test_compound_bodylock_motion_turns_twice_after_clean_entry() {
+    ScenarioScript script = stationary_script(420, {60.0, 0.0});
+    script.config.scenario_profile = ScenarioProfile::CompoundDirectional;
+    script.targets.front().motion = MotionProfile::CompoundDirectional;
+    script.targets.front().initial_velocity_px_per_second = {84.8528, 84.8528};
+    script.targets.front().velocity_maneuvers = {
+        {80, {-84.8528, 84.8528}},
+        {180, {-84.8528, -84.8528}},
+    };
+    std::vector<SimulationTraceFrame> trace;
+    ControllerStep immediate_bodylock = [](const ControllerObservation& input) {
+        ControllerStepResult output;
+        output.target_observed = input.target_present;
+        output.tracker_reliable = input.target_present;
+        output.bodylock_mode = input.target_present;
+        return output;
+    };
+    (void)run_simulation(
+        script, ManualProfile::Pure, immediate_bodylock,
+        BenchmarkCohort::BodyLockFollow,
+        [&](const SimulationTraceFrame& frame) { trace.push_back(frame); });
+    require(std::fabs(trace.front().true_error_before_px.x - 8.0) < 1e-9,
+            "compound tracking stress must retain the clean 8px entry");
+    bool saw_upper_left = false;
+    bool saw_lower_left_after_upper_left = false;
+    for (const SimulationTraceFrame& frame : trace) {
+        if (!frame.target_active) continue;
+        if (frame.target_velocity_px_per_second.x < 0.0 &&
+            frame.target_velocity_px_per_second.y > 0.0) {
+            saw_upper_left = true;
+        } else if (saw_upper_left &&
+                   frame.target_velocity_px_per_second.x < 0.0 &&
+                   frame.target_velocity_px_per_second.y < 0.0) {
+            saw_lower_left_after_upper_left = true;
+        }
+    }
+    require(saw_upper_left && saw_lower_left_after_upper_left,
+            "compound BodyLock tracking must execute two 2D direction changes");
+}
+
 void test_plan_diagnostics_and_ads_handoff_reach_the_scorer() {
     const ScenarioScript script = stationary_script(80, {10.0, 0.0});
     ControllerStep controller = [](const ControllerObservation& input) {
@@ -271,6 +311,28 @@ void test_plan_diagnostics_and_ads_handoff_reach_the_scorer() {
             "handoff must retain the transition-frame residual");
     require(std::fabs(result.max_abs_handoff_closing_speed_px_per_sec - 75.0) < 1e-9,
             "tracker radial closing speed must reach the scorer unchanged");
+}
+
+void test_ads_handoff_on_acquisition_boundary_is_not_lost() {
+    const ScenarioScript script = stationary_script(40, {10.0, 0.0});
+    ControllerStep controller = [](const ControllerObservation& input) {
+        ControllerStepResult output;
+        output.target_observed = input.target_present;
+        output.tracker_reliable = input.target_present;
+        output.bodylock_mode = input.target_present;
+        output.radial_closing_velocity_px_per_sec = 25.0;
+        return output;
+    };
+    const BenchmarkResult result = run_simulation(
+        script, ManualProfile::Pure, controller, BenchmarkCohort::AdsAcquire);
+    require(result.targets.front().acquired,
+            "boundary fixture must complete ADS acquisition");
+    require(result.targets.front().bodylock_entry_ms == 0,
+            "BodyLock entry on the acquisition tick must retain its ADS time");
+    require(result.handoff_count == 1,
+            "ADS-to-BodyLock transition on the acquisition tick must be counted");
+    require(result.max_handoff_residual_px > 0.0,
+            "boundary handoff must retain a measurable residual");
 }
 
 Vec2d first_mixed_manual_for_target(std::uint64_t id) {
@@ -344,7 +406,9 @@ int main() {
         test_bodylock_cohort_scores_only_after_confirmed_mode_entry();
         test_bodylock_cohort_fails_when_mode_never_enters();
         test_bodylock_warmup_is_stationary_and_manual_neutral();
+        test_compound_bodylock_motion_turns_twice_after_clean_entry();
         test_plan_diagnostics_and_ads_handoff_reach_the_scorer();
+        test_ads_handoff_on_acquisition_boundary_is_not_lost();
         test_trace_is_deterministic_and_observational();
         std::cout << "cod_native_sustained_aimlab_simulator_tests PASS\n";
         return EXIT_SUCCESS;

@@ -95,7 +95,8 @@ void test_motion_labels_jump_then_fall() {
     require_true(plan.motion == pipeline_contract::TargetMotion::Jump,
                  "persistent upward image motion must classify jump");
     coordinator.update(frame(4, 0.06, 1, 240.0f, 202.0f), intent, 0.06);
-    plan = coordinator.update(frame(5, 0.08, 1, 240.0f, 214.0f), intent, 0.08);
+    coordinator.update(frame(5, 0.08, 1, 240.0f, 214.0f), intent, 0.08);
+    plan = coordinator.update(frame(6, 0.10, 1, 240.0f, 228.0f), intent, 0.10);
     require_true(plan.motion == pipeline_contract::TargetMotion::Fall,
                  "persistent downward image motion must classify fall");
 }

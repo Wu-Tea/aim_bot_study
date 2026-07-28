@@ -103,12 +103,12 @@ BenchmarkResult run_simulation(
     Vec2d target_velocity;
     Vec2d carried_observation;
     bool previous_bodylock_mode = false;
+    bool pending_ads_to_bodylock_transition = false;
     std::unique_ptr<TargetScorer> scorer;
     std::deque<Vec2d> delayed_controls(
         static_cast<std::size_t>(
             std::max(0, script.config.control_response_delay_ms)),
         Vec2d{});
-
     auto spawn_target = [&] {
         if (target_index >= script.targets.size()) {
             throw std::runtime_error("scenario script exhausted before duration");
@@ -132,6 +132,7 @@ BenchmarkResult run_simulation(
         target_velocity = target.initial_velocity_px_per_second;
         carried_observation = error;
         previous_bodylock_mode = false;
+        pending_ads_to_bodylock_transition = false;
         scorer = std::make_unique<TargetScorer>(target, script.config);
         if (cohort == BenchmarkCohort::BodyLockFollow) {
             scorer->mark_acquired(0);
@@ -217,6 +218,14 @@ BenchmarkResult run_simulation(
 
         if (target_active) {
             const TargetScript& target = script.targets[target_index];
+            if (cohort == BenchmarkCohort::AdsAcquire &&
+                !previous_bodylock_mode && output.bodylock_mode) {
+                scorer->mark_ads_to_bodylock_handoff(
+                    target_elapsed_ms,
+                    error,
+                    output.radial_closing_velocity_px_per_sec);
+                pending_ads_to_bodylock_transition = true;
+            }
             if (cohort != BenchmarkCohort::BodyLockFollow || tracking) {
                 const int motion_elapsed_ms =
                     cohort == BenchmarkCohort::BodyLockFollow
@@ -265,7 +274,9 @@ BenchmarkResult run_simulation(
                 frame.radial_closing_velocity_px_per_sec =
                     output.radial_closing_velocity_px_per_sec;
                 frame.ads_to_bodylock_transition =
-                    !previous_bodylock_mode && output.bodylock_mode;
+                    pending_ads_to_bodylock_transition ||
+                    (!previous_bodylock_mode && output.bodylock_mode);
+                pending_ads_to_bodylock_transition = false;
                 scorer->add_frame(frame);
                 ++tracking_ticks;
                 if (tracking_ticks >= script.config.tracking_window_ms) {
