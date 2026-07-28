@@ -87,6 +87,7 @@ void hash_config(std::uint64_t& hash, const BenchmarkConfig& config) {
     hash_integral(hash, config.control_response_delay_ms);
     hash_integral(hash, config.frame_width_px);
     hash_integral(hash, config.frame_height_px);
+    hash_integral(hash, config.vision_interval_ms);
     hash_integral(hash, config.obsolete_vertical_fixture ? 1 : 0);
     hash_integral(hash, config.short_occlusion_duration_ms);
 }
@@ -156,7 +157,8 @@ ScenarioScript generate_script(
     if (config.duration_ms <= 0 || config.tick_ms <= 0 ||
         config.min_acquire_deadline_ms <= 0 ||
         config.max_acquire_deadline_ms < config.min_acquire_deadline_ms ||
-        config.target_radius_px <= 0.0) {
+        config.target_radius_px <= 0.0 ||
+        config.vision_interval_ms < 0) {
         throw std::invalid_argument("invalid sustained AimLab benchmark config");
     }
 
@@ -301,12 +303,21 @@ ScenarioScript generate_script(
 
         const int observation_horizon_ms = config.max_acquire_deadline_ms +
             config.tracking_window_ms;
+        // Keep target kinematics paired when only Vision cadence changes.
+        // Extra 200 Hz noise samples must not consume the scenario RNG and
+        // silently generate different later targets.
+        std::mt19937 observation_random(
+            seed ^ static_cast<std::uint32_t>(
+                0x91E10DA5u + target.id * 0x9E3779B9u));
         int observation_at_ms = 0;
         while (observation_at_ms <= observation_horizon_ms) {
             target.observation_at_ms.push_back(observation_at_ms);
             target.observation_noise_px.push_back({
-                noise_distribution(random), noise_distribution(random)});
-            observation_at_ms += observation_interval_distribution(random);
+                noise_distribution(observation_random),
+                noise_distribution(observation_random)});
+            observation_at_ms += config.vision_interval_ms > 0
+                ? config.vision_interval_ms
+                : observation_interval_distribution(observation_random);
         }
         if (config.target_profile == TargetProfile::SmallVisible) {
             constexpr double small_radii[] = {8.0, 11.0, 14.0};

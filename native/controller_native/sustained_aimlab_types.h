@@ -97,6 +97,9 @@ struct BenchmarkConfig {
     int control_response_delay_ms = 0;
     int frame_width_px = 640;
     int frame_height_px = 512;
+    // Zero preserves the historical randomized 10-12 ms cadence.
+    // Positive values request a fixed benchmark-only capture interval.
+    int vision_interval_ms = 0;
     bool obsolete_vertical_fixture = false;
     int short_occlusion_duration_ms = 0;
 };

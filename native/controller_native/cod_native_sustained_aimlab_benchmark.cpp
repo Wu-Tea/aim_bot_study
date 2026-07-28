@@ -46,6 +46,7 @@ struct CliOptions {
     double slowdown_edge = 0.50;
     double slowdown_center = 0.40;
     int short_occlusion_ms = 0;
+    int vision_hz = 0;
     std::string revision = "unknown";
     bool dirty = false;
     int duration_ms = 60'000;
@@ -135,6 +136,8 @@ CliOptions parse_args(int argc, char** argv) {
             options.slowdown_center = std::stod(argv[++index]);
         } else if (argument == "--short-occlusion-ms" && index + 1 < argc) {
             options.short_occlusion_ms = std::stoi(argv[++index]);
+        } else if (argument == "--vision-hz" && index + 1 < argc) {
+            options.vision_hz = std::stoi(argv[++index]);
         } else if (argument == "--revision" && index + 1 < argc) {
             options.revision = argv[++index];
         } else if (argument == "--dirty") {
@@ -167,6 +170,7 @@ CliOptions parse_args(int argc, char** argv) {
                 << "[--target-profile ordinary|small] [--camera-response PX] "
                 << "[--slowdown-edge N] [--slowdown-center N] "
                 << "[--short-occlusion-ms 0|24|36|48] "
+                << "[--vision-hz 0|1..1000] "
                 << "[--output PATH] [--revision HASH] [--dirty] "
                 << "[--duration-ms N] [--smoke] "
                 << "[--counterfactual off|quick|full] "
@@ -183,6 +187,9 @@ CliOptions parse_args(int argc, char** argv) {
     }
     if (options.duration_ms <= 0) {
         throw std::runtime_error("duration must be positive");
+    }
+    if (options.vision_hz < 0 || options.vision_hz > 1000) {
+        throw std::runtime_error("vision hz must be 0 or 1..1000");
     }
     if (options.profile != "pure" && options.profile != "mixed" &&
         options.profile != "obsolete" &&
@@ -441,6 +448,8 @@ void write_report(
         << ", \"scenario\": " << json_string(to_string(config.scenario_profile))
         << ", \"target_profile\": " << json_string(options.target_profile)
         << ", \"tick_ms\": " << config.tick_ms
+        << ", \"vision_interval_ms\": " << config.vision_interval_ms
+        << ", \"vision_hz_requested\": " << options.vision_hz
         << ", \"tracking_window_ms\": " << config.tracking_window_ms
         << ", \"target_radius_px\": " << config.target_radius_px
         << ", \"camera_response_px_per_stick_second\": "
@@ -975,6 +984,10 @@ int main(int argc, char** argv) {
         benchmark_config.slowdown_center_multiplier = options.slowdown_center;
         benchmark_config.short_occlusion_duration_ms =
             options.short_occlusion_ms;
+        benchmark_config.vision_interval_ms = options.vision_hz > 0
+            ? std::max(1, static_cast<int>(std::lround(
+                1000.0 / static_cast<double>(options.vision_hz))))
+            : 0;
         benchmark_config.obsolete_vertical_fixture =
             options.profile == "obsolete";
         std::vector<ManualProfile> profiles;

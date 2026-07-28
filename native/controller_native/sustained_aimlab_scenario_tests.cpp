@@ -206,6 +206,64 @@ void test_generated_ranges_and_observation_schedule() {
     }
 }
 
+void test_200hz_changes_only_observation_schedule() {
+    BenchmarkConfig baseline_config;
+    BenchmarkConfig high_rate_config;
+    high_rate_config.vision_interval_ms = 5;
+    const auto baseline =
+        controller_native::sustained_aimlab::generate_script(
+            2026072804, baseline_config);
+    const auto high_rate =
+        controller_native::sustained_aimlab::generate_script(
+            2026072804, high_rate_config);
+    require(baseline.targets.size() == high_rate.targets.size(),
+            "Vision cadence must not change target count");
+    require(baseline.hash != high_rate.hash,
+            "Vision cadence must be part of script identity");
+    for (std::size_t index = 0; index < baseline.targets.size(); ++index) {
+        const auto& slow = baseline.targets[index];
+        const auto& fast = high_rate.targets[index];
+        require(
+            slow.id == fast.id && slow.motion == fast.motion &&
+                same_vec(slow.initial_error_px, fast.initial_error_px) &&
+                same_vec(
+                    slow.initial_velocity_px_per_second,
+                    fast.initial_velocity_px_per_second) &&
+                same_vec(
+                    slow.acceleration_px_per_second_squared,
+                    fast.acceleration_px_per_second_squared) &&
+                slow.maneuver_at_ms == fast.maneuver_at_ms &&
+                slow.acquire_deadline_ms == fast.acquire_deadline_ms &&
+                slow.player_strafe == fast.player_strafe &&
+                slow.velocity_maneuvers.size() ==
+                    fast.velocity_maneuvers.size(),
+            "Vision cadence must not change target kinematics");
+        for (std::size_t maneuver = 0;
+             maneuver < slow.velocity_maneuvers.size(); ++maneuver) {
+            require(
+                slow.velocity_maneuvers[maneuver].at_ms ==
+                        fast.velocity_maneuvers[maneuver].at_ms &&
+                    same_vec(
+                        slow.velocity_maneuvers[maneuver]
+                            .velocity_px_per_second,
+                        fast.velocity_maneuvers[maneuver]
+                            .velocity_px_per_second),
+                "Vision cadence must not change target maneuvers");
+        }
+        require(fast.observation_at_ms.size() >
+                    slow.observation_at_ms.size(),
+                "200Hz must produce more observations");
+        for (std::size_t sample = 1;
+             sample < fast.observation_at_ms.size(); ++sample) {
+            require(
+                fast.observation_at_ms[sample] -
+                        fast.observation_at_ms[sample - 1] ==
+                    5,
+                "200Hz schedule must use an exact 5ms interval");
+        }
+    }
+}
+
 void test_motion_profiles_and_boundary_reflection() {
     using controller_native::sustained_aimlab::advance_target;
 
@@ -424,6 +482,7 @@ int main() {
         test_script_hash_includes_control_response_delay();
         test_full_speed_strafe_schedule_is_seeded_and_bounded();
         test_generated_ranges_and_observation_schedule();
+        test_200hz_changes_only_observation_schedule();
         test_motion_profiles_and_boundary_reflection();
         test_motion_profile_names_are_stable();
         test_bodylock_stress_profiles_are_isolated_and_deterministic();
