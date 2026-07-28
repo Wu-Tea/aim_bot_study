@@ -113,6 +113,9 @@ void test_adapter_joins_committed_identity_not_raw_challenger() {
     result.result_at_ns = 2'012'000'000ull;
     result.screen_center_x = 240.0f;
     result.screen_center_y = 208.0f;
+    result.viewport_sequence = 5;
+    result.viewport_left = 60;
+    result.viewport_top = 52;
     result.detections.push_back(detection(260, 160, 300, 260, 0.90f));
     result.detections.push_back(detection(232, 170, 260, 250, 0.99f));
     result.has_selected_detection = true;
@@ -144,6 +147,10 @@ void test_adapter_joins_committed_identity_not_raw_challenger() {
     require_near(committed.stable_error_px.y, -11.5f);
     require(committed.ads_epoch == 9,
             "adapter must bind observation to the active ADS epoch");
+    require(committed.viewport_sequence == 5,
+            "adapter must retain the viewport generation used by the frame");
+    require_near(committed.viewport_offset_px.x, 60.0f);
+    require_near(committed.viewport_offset_px.y, 52.0f);
 }
 
 void test_adapter_never_substitutes_result_time_for_capture_time() {

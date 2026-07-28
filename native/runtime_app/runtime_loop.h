@@ -60,6 +60,7 @@ private:
     unsigned int sdl_reconnect_count_ = 0;
     controller_native::XInputReader input_reader_;
     controller_native::NativeGamepadController controller_;
+    ViewportController viewport_controller_;
     controller_native::AimActivationTracker aim_activation_tracker_;
     controller_native::VirtualGamepad virtual_gamepad_;
     std::unique_ptr<controller_native::NativeRecoilWeaponRuntimeRecognizer> recoil_weapon_recognizer_;

@@ -100,6 +100,30 @@ void apply_runtime_vision_value(
     } else if (key == "require_isotropic_resize") {
         config.require_isotropic_resize =
             parse_bool_value(value, config.require_isotropic_resize);
+    } else if (key == "dynamic_viewport_enabled") {
+        config.dynamic_viewport_enabled =
+            parse_bool_value(value, config.dynamic_viewport_enabled);
+    } else if (key == "viewport_precision_width") {
+        config.viewport_precision_width =
+            parse_int_value(value, config.viewport_precision_width);
+    } else if (key == "viewport_precision_height") {
+        config.viewport_precision_height =
+            parse_int_value(value, config.viewport_precision_height);
+    } else if (key == "viewport_normal_width") {
+        config.viewport_normal_width =
+            parse_int_value(value, config.viewport_normal_width);
+    } else if (key == "viewport_normal_height") {
+        config.viewport_normal_height =
+            parse_int_value(value, config.viewport_normal_height);
+    } else if (key == "viewport_rescue_width") {
+        config.viewport_rescue_width =
+            parse_int_value(value, config.viewport_rescue_width);
+    } else if (key == "viewport_rescue_height") {
+        config.viewport_rescue_height =
+            parse_int_value(value, config.viewport_rescue_height);
+    } else if (key == "viewport_prediction_ms") {
+        config.viewport_prediction_ms =
+            parse_float_value(value, config.viewport_prediction_ms);
     } else if (key == "capture_fps") {
         config.capture_fps = parse_int_value(value, config.capture_fps);
     } else if (key == "idle_capture_fps") {
@@ -156,6 +180,10 @@ bool is_known_key(const std::string& section, const std::string& key) {
     static const std::unordered_set<std::string> vision_keys{
         "crop_width", "capture_width", "crop_height", "capture_height",
         "tensor_width", "tensor_height", "require_isotropic_resize", "capture_fps",
+        "dynamic_viewport_enabled", "viewport_precision_width",
+        "viewport_precision_height", "viewport_normal_width",
+        "viewport_normal_height", "viewport_rescue_width",
+        "viewport_rescue_height", "viewport_prediction_ms",
         "idle_capture_fps", "keepwarm_when_idle", "color_readback_mode", "model_path", "fallback_model_path",
         "quit_key", "native_cue_sidecar", "perf_log", "aim_perf_file_log",
         "aim_perf_log_dir", "aim_perf_log_interval_ticks", "gpu_service_enabled",
@@ -993,6 +1021,63 @@ void validate_runtime_config(RuntimeConfig& config) {
         invalid("runtime.vision.tensor_width", "32..8192");
     if (config.vision.tensor_height < 32 || config.vision.tensor_height > 8192)
         invalid("runtime.vision.tensor_height", "32..8192");
+    if (config.vision.dynamic_viewport_enabled) {
+        const auto valid_dimension = [](int value) {
+            return value >= 32 && value <= 8192;
+        };
+        if (!valid_dimension(config.vision.viewport_precision_width) ||
+            !valid_dimension(config.vision.viewport_precision_height) ||
+            !valid_dimension(config.vision.viewport_normal_width) ||
+            !valid_dimension(config.vision.viewport_normal_height) ||
+            !valid_dimension(config.vision.viewport_rescue_width) ||
+            !valid_dimension(config.vision.viewport_rescue_height)) {
+            invalid("runtime.vision.viewport_*", "32..8192");
+        }
+        if (config.vision.viewport_precision_width >
+                config.vision.viewport_normal_width ||
+            config.vision.viewport_precision_height >
+                config.vision.viewport_normal_height ||
+            config.vision.viewport_normal_width >
+                config.vision.viewport_rescue_width ||
+            config.vision.viewport_normal_height >
+                config.vision.viewport_rescue_height) {
+            invalid(
+                "runtime.vision.viewport_*",
+                "precision <= normal <= rescue");
+        }
+        if (config.vision.viewport_rescue_width >
+                config.vision.capture_width ||
+            config.vision.viewport_rescue_height >
+                config.vision.capture_height) {
+            invalid(
+                "runtime.vision.viewport_rescue_*",
+                "rescue viewport must fit inside capture");
+        }
+        const auto matches_tensor_aspect =
+            [&config](int width, int height) {
+                return static_cast<long long>(width) *
+                        config.vision.tensor_height ==
+                    static_cast<long long>(height) *
+                        config.vision.tensor_width;
+            };
+        if (!matches_tensor_aspect(
+                 config.vision.viewport_precision_width,
+                 config.vision.viewport_precision_height) ||
+             !matches_tensor_aspect(
+                 config.vision.viewport_normal_width,
+                 config.vision.viewport_normal_height) ||
+             !matches_tensor_aspect(
+                 config.vision.viewport_rescue_width,
+                 config.vision.viewport_rescue_height)) {
+            invalid(
+                "runtime.vision.viewport_*",
+                "each viewport must match tensor aspect ratio");
+        }
+        if (config.vision.viewport_prediction_ms < 0.0f ||
+            config.vision.viewport_prediction_ms > 500.0f) {
+            invalid("runtime.vision.viewport_prediction_ms", "0..500");
+        }
+    }
     if (config.vision.idle_capture_fps < 1 || config.vision.idle_capture_fps > 240)
         invalid("runtime.vision.idle_capture_fps", "1..240");
     if (config.vision.color_readback_mode != "pageable" && config.vision.color_readback_mode != "pinned")

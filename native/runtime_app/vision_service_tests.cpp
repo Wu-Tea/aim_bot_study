@@ -30,6 +30,11 @@ public:
         last_intent = intent;
     }
 
+    void set_viewport(const runtime_app::ViewportRequest& request) override {
+        last_viewport = request;
+        ++viewport_update_count;
+    }
+
     vision_native::VisionResult poll_once() override {
         ++poll_count;
         vision_native::VisionResult result;
@@ -50,6 +55,8 @@ public:
     bool authority_on_update = false;
     std::vector<bool> aiming_history;
     pipeline_contract::UserAimIntent last_intent;
+    runtime_app::ViewportRequest last_viewport;
+    int viewport_update_count = 0;
 
 private:
     bool next_update() {
@@ -114,6 +121,26 @@ void test_no_update_reuses_last_snapshot_without_marking_fresh() {
     REQUIRE(reused.result.frame_id == first.result.frame_id);
     REQUIRE(reused.result.aim_authority == false);
     REQUIRE(reused.result.fire_authority == false);
+}
+
+void test_viewport_request_is_forwarded_before_poll() {
+    auto poller = std::make_unique<FakeVisionPoller>(std::vector<bool>{true});
+    FakeVisionPoller* raw = poller.get();
+    runtime_app::VisionServiceOptions options;
+    runtime_app::VisionService service(std::move(poller), options);
+    runtime_app::ViewportRequest request;
+    request.level = runtime_app::ViewportLevel::Rescue;
+    request.width = 600;
+    request.height = 520;
+    request.sequence = 3;
+    request.source_frame_id = 42;
+    service.set_viewport(request);
+    service.set_aiming(true);
+    REQUIRE(service.step_for_test(at_ms(0)));
+    REQUIRE(raw->viewport_update_count == 1);
+    REQUIRE(raw->last_viewport.level == runtime_app::ViewportLevel::Rescue);
+    REQUIRE(raw->last_viewport.width == 600);
+    REQUIRE(raw->last_viewport.source_frame_id == 42);
 }
 
 void test_no_keepwarm_does_not_poll_idle() {
@@ -236,6 +263,7 @@ void test_one_hundred_aim_transitions_never_publish_pre_aim_authority() {
 int main() {
     test_keepwarm_polls_while_idle_and_active();
     test_no_update_reuses_last_snapshot_without_marking_fresh();
+    test_viewport_request_is_forwarded_before_poll();
     test_no_keepwarm_does_not_poll_idle();
     test_idle_keepwarm_does_not_publish_control_authority();
     test_idle_keepwarm_frame_does_not_seed_active_repeat_last();

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "pipeline_contract/target_snapshot.h"
+#include "viewport_controller.h"
 #include "vision_native/types.h"
 
 #include <atomic>
@@ -53,6 +54,7 @@ public:
 
     virtual void set_aiming(bool aiming) = 0;
     virtual void set_user_aim_intent(const pipeline_contract::UserAimIntent& intent) = 0;
+    virtual void set_viewport(const ViewportRequest&) {}
     virtual vision_native::VisionResult poll_once() = 0;
 };
 
@@ -69,6 +71,7 @@ public:
 
     void set_aiming(bool aiming);
     void set_user_aim_intent(const pipeline_contract::UserAimIntent& intent);
+    void set_viewport(const ViewportRequest& request);
 
     VisionServiceSnapshot latest_snapshot() const;
     bool step_for_test(std::chrono::steady_clock::time_point now);
@@ -89,6 +92,7 @@ private:
     std::atomic<bool> running_{false};
     bool controller_aiming_ = false;
     pipeline_contract::UserAimIntent user_aim_intent_;
+    ViewportRequest viewport_request_;
     std::chrono::steady_clock::time_point last_poll_at_{};
     bool has_last_poll_ = false;
     VisionServiceSnapshot latest_snapshot_;

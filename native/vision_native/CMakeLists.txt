@@ -209,6 +209,7 @@ add_executable(cod_native_runtime
     ../runtime_app/runtime_loop.cpp
     ../runtime_app/runtime_timing.cpp
     ../runtime_app/vision_service.cpp
+    ../runtime_app/viewport_controller.cpp
     ../runtime_app/fusion_channel_publisher.cpp
     ../runtime_app/perf_logger.cpp
     ../runtime_app/aim_perf_file_logger.cpp
@@ -446,6 +447,22 @@ target_compile_definitions(cod_native_vision_service_tests
 
 target_link_libraries(cod_native_vision_service_tests PRIVATE
     winmm
+)
+
+add_executable(cod_native_viewport_controller_tests
+    ../runtime_app/viewport_controller_tests.cpp
+    ../runtime_app/viewport_controller.cpp
+)
+
+target_include_directories(cod_native_viewport_controller_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
+target_compile_definitions(cod_native_viewport_controller_tests
+    PRIVATE
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
 )
 
 add_executable(cod_native_runtime_timing_tests
@@ -1331,6 +1348,12 @@ add_test(
 add_test(
     NAME RuntimeConfigTests
     COMMAND cod_native_runtime_config_tests)
+add_test(
+    NAME ViewportControllerTests
+    COMMAND cod_native_viewport_controller_tests)
+add_test(
+    NAME VisionServiceTests
+    COMMAND cod_native_vision_service_tests)
 set_tests_properties(RuntimeConfigTests PROPERTIES
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../..")
 add_test(

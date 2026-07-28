@@ -30,6 +30,13 @@ void test_vision_gpu_service_defaults_are_enabled() {
     require(config.vision.tensor_width == 480);
     require(config.vision.tensor_height == 416);
     require(config.vision.require_isotropic_resize);
+    require(!config.vision.dynamic_viewport_enabled);
+    require(config.vision.viewport_precision_width == 360);
+    require(config.vision.viewport_precision_height == 312);
+    require(config.vision.viewport_normal_width == 480);
+    require(config.vision.viewport_normal_height == 416);
+    require(config.vision.viewport_rescue_width == 600);
+    require(config.vision.viewport_rescue_height == 520);
     require(config.vision.model_path ==
         "models/candidates/body_union_manual_core_x2_neg_e6_480x416.engine");
     require(!config.vision.perf_log);
@@ -258,6 +265,52 @@ void test_invalid_user_override_reports_key_and_range() {
         const std::string message = error.what();
         failed = message.find("runtime.vision.capture_fps") != std::string::npos &&
             message.find("1..1000") != std::string::npos;
+    }
+    std::filesystem::remove(path);
+    require(failed);
+}
+
+void test_dynamic_viewport_config_values_parse() {
+    const auto path = std::filesystem::temp_directory_path() /
+        "cod_native_dynamic_viewport_config.toml";
+    {
+        std::ofstream output(path);
+        output << "[runtime.vision]\n"
+               << "capture_width = 600\ncapture_height = 520\n"
+               << "tensor_width = 480\ntensor_height = 416\n"
+               << "dynamic_viewport_enabled = true\n"
+               << "viewport_precision_width = 360\n"
+               << "viewport_precision_height = 312\n"
+               << "viewport_normal_width = 480\n"
+               << "viewport_normal_height = 416\n"
+               << "viewport_rescue_width = 600\n"
+               << "viewport_rescue_height = 520\n"
+               << "viewport_prediction_ms = 120\n";
+    }
+    const auto config = controller_native::load_runtime_config(path);
+    std::filesystem::remove(path);
+    require(config.vision.dynamic_viewport_enabled);
+    require(config.vision.viewport_rescue_width == 600);
+    require(config.vision.viewport_prediction_ms == 120.0f);
+}
+
+void test_dynamic_viewport_rejects_mismatched_aspect_ratio() {
+    const auto path = std::filesystem::temp_directory_path() /
+        "cod_native_dynamic_viewport_bad_aspect.toml";
+    {
+        std::ofstream output(path);
+        output << "[runtime.vision]\n"
+               << "capture_width = 600\ncapture_height = 520\n"
+               << "dynamic_viewport_enabled = true\n"
+               << "viewport_precision_width = 360\n"
+               << "viewport_precision_height = 300\n";
+    }
+    bool failed = false;
+    try {
+        (void)controller_native::load_runtime_config(path);
+    } catch (const std::runtime_error& error) {
+        failed = std::string(error.what()).find("aspect ratio") !=
+            std::string::npos;
     }
     std::filesystem::remove(path);
     require(failed);
@@ -583,6 +636,8 @@ int main() {
     test_vision_gpu_service_defaults_are_enabled();
     test_vision_gpu_service_config_values_parse();
     test_vision_gpu_service_can_be_disabled();
+    test_dynamic_viewport_config_values_parse();
+    test_dynamic_viewport_rejects_mismatched_aspect_ratio();
     test_balanced_profile_uses_canonical_vision_defaults();
     test_user_values_override_profile_and_legacy_rate_is_explicit();
     test_unknown_keys_are_reported();

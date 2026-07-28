@@ -117,6 +117,11 @@ void VisionService::set_user_aim_intent(const pipeline_contract::UserAimIntent& 
     user_aim_intent_ = intent;
 }
 
+void VisionService::set_viewport(const ViewportRequest& request) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    viewport_request_ = request;
+}
+
 VisionServiceSnapshot VisionService::latest_snapshot() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return latest_snapshot_;
@@ -135,6 +140,7 @@ bool VisionService::step(std::chrono::steady_clock::time_point now) {
     bool controller_aiming = false;
     bool engine_aiming = false;
     pipeline_contract::UserAimIntent intent;
+    ViewportRequest viewport;
     std::uint64_t aim_transition_sequence = 0;
     std::chrono::steady_clock::time_point aim_transition_requested_at{};
     double requested_fps = 0.0;
@@ -155,6 +161,7 @@ bool VisionService::step(std::chrono::steady_clock::time_point now) {
         last_poll_at_ = now;
         has_last_poll_ = true;
         intent = user_aim_intent_;
+        viewport = viewport_request_;
         aim_transition_sequence = aim_transition_sequence_;
         aim_transition_requested_at = aim_transition_requested_at_;
     }
@@ -162,6 +169,7 @@ bool VisionService::step(std::chrono::steady_clock::time_point now) {
     const auto dispatch_at = std::chrono::steady_clock::now();
     poller_->set_aiming(engine_aiming);
     poller_->set_user_aim_intent(intent);
+    poller_->set_viewport(viewport);
     const auto capture_at = std::chrono::steady_clock::now();
     vision_native::VisionResult result = poller_->poll_once();
     const auto result_at = std::chrono::steady_clock::now();

@@ -234,7 +234,7 @@ adapt_committed_capture_observation(
     committed.source_frame_id = result.frame_id;
     committed.source_observation_id = committed_plan.source_observation_id;
     committed.persistent_target_id = committed_plan.target_id;
-    committed.viewport_sequence = 0;
+    committed.viewport_sequence = result.viewport_sequence;
     committed.viewport_source_frame_id = result.frame_id;
     committed.captured_at_ns = result.captured_at_ns;
     committed.result_at_ns = result.result_at_ns;
@@ -242,7 +242,9 @@ adapt_committed_capture_observation(
         geometry.aim_px.x - center_x,
         geometry.aim_px.y - center_y};
     committed.stable_body_size_px = {width, height};
-    committed.viewport_offset_px = {};
+    committed.viewport_offset_px = {
+        static_cast<float>(result.viewport_left),
+        static_cast<float>(result.viewport_top)};
     committed.target_acceleration_px_per_sec2 = {};
     committed.reliability = confidence * size_weight;
     committed.normalized_size = normalized_size;

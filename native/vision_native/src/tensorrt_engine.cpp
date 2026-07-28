@@ -299,12 +299,41 @@ DetectionBatch TensorRTEngine::infer_bgra_array(
     int width,
     int height,
     float conf_threshold) {
+    return infer_bgra_array_roi(
+        frame_bgra,
+        width,
+        height,
+        0,
+        0,
+        width,
+        height,
+        conf_threshold);
+}
+
+DetectionBatch TensorRTEngine::infer_bgra_array_roi(
+    cudaArray_t frame_bgra,
+    int array_width,
+    int array_height,
+    int roi_left,
+    int roi_top,
+    int width,
+    int height,
+    float conf_threshold) {
     if (frame_bgra == nullptr) {
         throw std::runtime_error("frame_bgra must not be null");
     }
-    if (width <= 0 || height <= 0) {
+    if (array_width <= 0 || array_height <= 0 || width <= 0 || height <= 0) {
         std::ostringstream out;
-        out << "frame shape must be positive, got " << height << "x" << width;
+        out << "frame and ROI shapes must be positive, got frame "
+            << array_height << "x" << array_width << " ROI "
+            << height << "x" << width;
+        throw std::runtime_error(out.str());
+    }
+    if (roi_left < 0 || roi_top < 0 ||
+        roi_left + width > array_width || roi_top + height > array_height) {
+        std::ostringstream out;
+        out << "BGRA ROI [" << roi_left << ',' << roi_top << ',' << width << 'x'
+            << height << "] exceeds frame " << array_width << 'x' << array_height;
         throw std::runtime_error(out.str());
     }
 
@@ -326,8 +355,8 @@ DetectionBatch TensorRTEngine::infer_bgra_array(
             device_frame_,
             static_cast<size_t>(row_pitch),
             frame_bgra,
-            0,
-            0,
+            static_cast<size_t>(roi_left) * 4,
+            static_cast<size_t>(roi_top),
             static_cast<size_t>(row_pitch),
             static_cast<size_t>(height),
             cudaMemcpyDeviceToDevice,

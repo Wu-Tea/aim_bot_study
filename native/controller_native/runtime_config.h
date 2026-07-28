@@ -15,6 +15,14 @@ struct VisionRuntimeConfig {
     int tensor_width = 480;
     int tensor_height = 416;
     bool require_isotropic_resize = true;
+    bool dynamic_viewport_enabled = false;
+    int viewport_precision_width = 360;
+    int viewport_precision_height = 312;
+    int viewport_normal_width = 480;
+    int viewport_normal_height = 416;
+    int viewport_rescue_width = 600;
+    int viewport_rescue_height = 520;
+    float viewport_prediction_ms = 100.0f;
     int capture_fps = 140;
     int idle_capture_fps = 20;
     bool keepwarm_when_idle = true;

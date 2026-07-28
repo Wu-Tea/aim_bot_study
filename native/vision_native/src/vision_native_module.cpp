@@ -143,6 +143,14 @@ py::dict vision_result_to_dict(const vision_native::VisionResult& result_in) {
     result["inferred_at_ns"] = result_in.inferred_at_ns;
     result["result_at_ns"] = result_in.result_at_ns;
     result["frame_updated"] = result_in.frame_updated;
+    result["viewport_level"] = result_in.viewport_level;
+    result["viewport_sequence"] = result_in.viewport_sequence;
+    result["viewport_source_frame_id"] = result_in.viewport_source_frame_id;
+    result["viewport_width"] = result_in.viewport_width;
+    result["viewport_height"] = result_in.viewport_height;
+    result["viewport_left"] = result_in.viewport_left;
+    result["viewport_top"] = result_in.viewport_top;
+    result["viewport_changed"] = result_in.viewport_changed;
     result["has_target"] = result_in.has_target;
     result["auto_fire"] = result_in.auto_fire;
     result["dx"] = result_in.dx;
@@ -443,6 +451,14 @@ PYBIND11_MODULE(vision_native_cpp, module) {
         .def_property_readonly("resize_scale_y", &vision_native::VisionEngine::resize_scale_y)
         .def_property_readonly("resize_isotropic", &vision_native::VisionEngine::resize_isotropic)
         .def("set_aiming", &vision_native::VisionEngine::set_aiming, py::arg("aiming"))
+        .def(
+            "set_viewport",
+            &vision_native::VisionEngine::set_viewport,
+            py::arg("level"),
+            py::arg("width"),
+            py::arg("height"),
+            py::arg("sequence"),
+            py::arg("source_frame_id") = 0)
         .def(
             "set_external_cue",
             &vision_native::VisionEngine::set_external_cue,

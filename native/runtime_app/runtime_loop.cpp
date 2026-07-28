@@ -131,6 +131,34 @@ bool environment_flag_enabled(const char* name) {
     return text != "0" && text != "false" && text != "False" && text != "off" && text != "OFF";
 }
 
+ViewportControllerConfig viewport_controller_config_from(
+    const controller_native::RuntimeConfig& config) {
+    ViewportControllerConfig value;
+    value.enabled = config.vision.dynamic_viewport_enabled;
+    if (value.enabled) {
+        value.precision = {
+            config.vision.viewport_precision_width,
+            config.vision.viewport_precision_height};
+        value.normal = {
+            config.vision.viewport_normal_width,
+            config.vision.viewport_normal_height};
+        value.rescue = {
+            config.vision.viewport_rescue_width,
+            config.vision.viewport_rescue_height};
+        value.prediction_seconds =
+            config.vision.viewport_prediction_ms / 1000.0f;
+    } else {
+        const ViewportDimensions full_capture{
+            config.vision.capture_width,
+            config.vision.capture_height};
+        value.precision = full_capture;
+        value.normal = full_capture;
+        value.rescue = full_capture;
+    }
+    value.aim_height_ratio = config.gamepad.tracker.aim_height_ratio;
+    return value;
+}
+
 class VisionEngineServicePoller final : public IVisionServicePoller {
 public:
     explicit VisionEngineServicePoller(std::unique_ptr<vision_native::VisionEngine> engine)
@@ -142,6 +170,15 @@ public:
 
     void set_user_aim_intent(const pipeline_contract::UserAimIntent& intent) override {
         engine_->set_user_aim_intent(intent);
+    }
+
+    void set_viewport(const ViewportRequest& request) override {
+        engine_->set_viewport(
+            static_cast<int>(request.level),
+            request.width,
+            request.height,
+            request.sequence,
+            request.source_frame_id);
     }
 
     vision_native::VisionResult poll_once() override {
@@ -312,6 +349,10 @@ void log_vision_result(
         << " service=" << safe_c_string(result->service_freshness, "none")
         << " service_state=" << safe_c_string(result->service_source_state, "unknown")
         << " service_seq=" << result->service_sequence
+        << " viewport=" << safe_c_string(result->viewport_level, "normal")
+        << ':' << result->viewport_width << 'x' << result->viewport_height
+        << '@' << result->viewport_left << ',' << result->viewport_top
+        << " viewport_seq=" << result->viewport_sequence
         << " mode=" << vision_native::preprocess_mode_name(result->preprocess_mode)
         << " cap=" << result->capture_acquire_ms
         << "ms copy=" << capture_transfer_ms(*result)
@@ -424,6 +465,7 @@ RuntimeLoop::RuntimeLoop(
       sdl_input_reader_(open_sdl_input_reader()),
       input_reader_(select_xinput_user_index(config_.gamepad, sdl_input_reader_ == nullptr)),
       controller_(config_.gamepad),
+      viewport_controller_(viewport_controller_config_from(config_)),
       virtual_gamepad_() {
     telemetry_.start();
     if (config_.control_learning.enabled &&
@@ -476,6 +518,13 @@ RuntimeLoop::RuntimeLoop(
               << vision_engine->resize_scale_y()
               << " isotropic=" << (vision_engine->resize_isotropic() ? 1 : 0)
               << '\n';
+    const ViewportRequest initial_viewport = viewport_controller_.current();
+    vision_engine->set_viewport(
+        static_cast<int>(initial_viewport.level),
+        initial_viewport.width,
+        initial_viewport.height,
+        initial_viewport.sequence,
+        initial_viewport.source_frame_id);
     if (config_.vision.gpu_service_enabled) {
         VisionServiceOptions service_options;
         service_options.active_fps = static_cast<double>(config_.vision.gpu_service_active_fps);
@@ -486,6 +535,7 @@ RuntimeLoop::RuntimeLoop(
         vision_service_ = std::make_unique<VisionService>(
             std::make_unique<VisionEngineServicePoller>(std::move(vision_engine)),
             service_options);
+        vision_service_->set_viewport(initial_viewport);
         vision_service_->start();
         std::cout << "[VisionService][CPP] enabled"
                   << " active_fps=" << config_.vision.gpu_service_active_fps
@@ -592,6 +642,7 @@ void RuntimeLoop::run_once() {
     };
 
     bool telemetry_new_vision = false;
+    bool viewport_fresh_vision = false;
     if (vision_service_ != nullptr) {
         vision_service_->set_aiming(aiming);
         vision_service_->set_user_aim_intent(user_aim_intent);
@@ -613,6 +664,7 @@ void RuntimeLoop::run_once() {
                 steady_time_point_ns(controller_consume_started);
             telemetry_new_vision = true;
             if (service_snapshot.freshness == VisionSnapshotFreshness::Fresh) {
+                viewport_fresh_vision = true;
                 publish_fusion_if_updated(result);
             }
         }
@@ -632,6 +684,7 @@ void RuntimeLoop::run_once() {
             latest_controller_consume_started_ns_ =
                 steady_time_point_ns(controller_consume_started);
             telemetry_new_vision = true;
+            viewport_fresh_vision = result.frame_updated;
 
             publish_fusion_if_updated(result);
         }
@@ -668,6 +721,41 @@ void RuntimeLoop::run_once() {
 
     const auto controller_pipeline_started = std::chrono::steady_clock::now();
     controller_native::GamepadOutputState output = controller_.build_output(physical);
+    pipeline_contract::CommittedCaptureObservation viewport_observation;
+    const pipeline_contract::CommittedCaptureObservation* viewport_observation_ptr = nullptr;
+    if (viewport_fresh_vision) {
+        viewport_observation = adapt_committed_capture_observation(
+            latest_vision_result_,
+            controller_.last_target_plan(),
+            config_.gamepad.tracker.aim_height_ratio,
+            controller_.ads_epoch());
+        if (pipeline_contract::valid(viewport_observation)) {
+            viewport_observation_ptr = &viewport_observation;
+        }
+    }
+    const ViewportRequest viewport_request = viewport_controller_.update(
+        controller_.last_target_plan(),
+        viewport_observation_ptr,
+        steady_time_point_ns(std::chrono::steady_clock::now()));
+    if (viewport_request.changed) {
+        if (vision_service_ != nullptr) {
+            vision_service_->set_viewport(viewport_request);
+        } else {
+            vision_engine_->set_viewport(
+                static_cast<int>(viewport_request.level),
+                viewport_request.width,
+                viewport_request.height,
+                viewport_request.sequence,
+                viewport_request.source_frame_id);
+        }
+        std::cout << "[VisionViewport][CPP]"
+                  << " level=" << viewport_level_name(viewport_request.level)
+                  << " size=" << viewport_request.width << 'x'
+                  << viewport_request.height
+                  << " sequence=" << viewport_request.sequence
+                  << " source_frame=" << viewport_request.source_frame_id
+                  << '\n';
+    }
     downward_diagnostics_.record_if_triggered(
         physical,
         output,

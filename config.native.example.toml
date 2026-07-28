@@ -8,6 +8,16 @@ capture_height = 416
 tensor_width = 480 # must match the selected TensorRT engine input
 tensor_height = 416
 require_isotropic_resize = true # rejects X/Y distortion from mismatched aspect ratios
+# Predictive zoom is opt-in. When enabled, capture is the 600x520 backing
+# texture while the centered GPU viewport switches between these three sizes.
+dynamic_viewport_enabled = false
+# viewport_precision_width = 360
+# viewport_precision_height = 312
+# viewport_normal_width = 480
+# viewport_normal_height = 416
+# viewport_rescue_width = 600
+# viewport_rescue_height = 520
+# viewport_prediction_ms = 100
 capture_fps = 160
 idle_capture_fps = 20
 keepwarm_when_idle = true

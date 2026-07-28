@@ -99,6 +99,14 @@ struct VisionResult {
     float aim_wakeup_to_capture_ms = 0.0f;
     float aim_wakeup_to_result_ms = 0.0f;
     float requested_vision_fps = 0.0f;
+    const char* viewport_level = "normal";
+    std::uint64_t viewport_sequence = 0;
+    std::uint64_t viewport_source_frame_id = 0;
+    int viewport_width = 0;
+    int viewport_height = 0;
+    int viewport_left = 0;
+    int viewport_top = 0;
+    bool viewport_changed = false;
 
     bool has_target = false;
     bool auto_fire = false;

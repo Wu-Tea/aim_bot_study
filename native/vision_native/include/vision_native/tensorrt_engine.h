@@ -37,6 +37,15 @@ public:
         int width,
         int height,
         float conf_threshold = 0.4f);
+    DetectionBatch infer_bgra_array_roi(
+        cudaArray_t frame_bgra,
+        int array_width,
+        int array_height,
+        int roi_left,
+        int roi_top,
+        int roi_width,
+        int roi_height,
+        float conf_threshold = 0.4f);
     cudaStream_t cuda_stream() const noexcept;
 
     int input_width() const { return input_width_; }

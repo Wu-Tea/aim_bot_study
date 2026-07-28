@@ -36,6 +36,18 @@ float ns_to_ms(uint64_t delta_ns) {
     return static_cast<float>(delta_ns) / 1'000'000.0f;
 }
 
+const char* viewport_level_name(int level) {
+    switch (level) {
+    case 0:
+        return "precision";
+    case 2:
+        return "rescue";
+    case 1:
+    default:
+        return "normal";
+    }
+}
+
 std::string default_engine_path() {
     const char* from_env = std::getenv("VISION_MODEL_PATH");
     if (from_env != nullptr && from_env[0] != '\0') {
@@ -88,7 +100,11 @@ VisionEngine::VisionEngine(
       selector_(width, height),
       host_color_frame_(std::make_unique<ColorReadbackBuffer>(color_readback_mode == "pinned")),
       width_(width),
-      height_(height) {
+      height_(height),
+      active_viewport_width_(width),
+      active_viewport_height_(height) {
+    requested_viewport_width_.store(width, std::memory_order_relaxed);
+    requested_viewport_height_.store(height, std::memory_order_relaxed);
     auto* d3d_device = static_cast<ID3D11Device*>(capture_.d3d11_device());
     if (d3d_device == nullptr) {
         throw std::runtime_error("DxgiRoiCapture did not expose a D3D11 device");
@@ -164,6 +180,35 @@ void VisionEngine::set_user_aim_intent(const pipeline_contract::UserAimIntent& i
     user_aim_intent_ = intent;
 }
 
+void VisionEngine::set_viewport(
+    int level,
+    int width,
+    int height,
+    std::uint64_t sequence,
+    std::uint64_t source_frame_id) {
+    if (width <= 0 || height <= 0 || width > width_ || height > height_) {
+        std::ostringstream message;
+        message << "requested viewport " << width << 'x' << height
+                << " must fit capture " << width_ << 'x' << height_;
+        throw std::invalid_argument(message.str());
+    }
+    (void)validate_resize_contract(
+        width,
+        height,
+        engine_->input_width(),
+        engine_->input_height(),
+        engine_->input_width(),
+        engine_->input_height(),
+        true);
+    std::lock_guard<std::mutex> lock(viewport_mutex_);
+    requested_viewport_level_.store(level, std::memory_order_relaxed);
+    requested_viewport_width_.store(width, std::memory_order_relaxed);
+    requested_viewport_height_.store(height, std::memory_order_relaxed);
+    requested_viewport_source_frame_id_.store(
+        source_frame_id, std::memory_order_relaxed);
+    requested_viewport_sequence_.store(sequence, std::memory_order_release);
+}
+
 void VisionEngine::set_external_cue(bool found, float cue_x, float cue_y, float cue_score) {
     external_cue_found_ = found;
     external_cue_x_ = cue_x;
@@ -184,6 +229,41 @@ void VisionEngine::reset() {
 
 VisionResult VisionEngine::poll_once() {
     VisionResult result;
+    std::uint64_t requested_sequence = 0;
+    std::uint64_t viewport_source_frame_id = 0;
+    int viewport_level = 1;
+    int viewport_width = width_;
+    int viewport_height = height_;
+    {
+        std::lock_guard<std::mutex> lock(viewport_mutex_);
+        requested_sequence =
+            requested_viewport_sequence_.load(std::memory_order_relaxed);
+        viewport_level =
+            requested_viewport_level_.load(std::memory_order_relaxed);
+        viewport_width =
+            requested_viewport_width_.load(std::memory_order_relaxed);
+        viewport_height =
+            requested_viewport_height_.load(std::memory_order_relaxed);
+        viewport_source_frame_id =
+            requested_viewport_source_frame_id_.load(std::memory_order_relaxed);
+    }
+    const int viewport_left = (width_ - viewport_width) / 2;
+    const int viewport_top = (height_ - viewport_height) / 2;
+    const bool viewport_changed =
+        viewport_width != active_viewport_width_ ||
+        viewport_height != active_viewport_height_ ||
+        requested_sequence != active_viewport_sequence_;
+    active_viewport_width_ = viewport_width;
+    active_viewport_height_ = viewport_height;
+    active_viewport_sequence_ = requested_sequence;
+    result.viewport_level = viewport_level_name(viewport_level);
+    result.viewport_sequence = requested_sequence;
+    result.viewport_source_frame_id = viewport_source_frame_id;
+    result.viewport_width = viewport_width;
+    result.viewport_height = viewport_height;
+    result.viewport_left = viewport_left;
+    result.viewport_top = viewport_top;
+    result.viewport_changed = viewport_changed;
     result.user_aim_intent = user_aim_intent_;
     result.screen_center_x = static_cast<float>(width_) * 0.5f;
     result.screen_center_y = static_cast<float>(height_) * 0.5f;
@@ -233,11 +313,27 @@ VisionResult VisionEngine::poll_once() {
             "cudaGraphicsSubResourceGetMappedArray");
         result.cuda_map_ms = ns_to_ms(now_ns() - map_start);
 
-        DetectionBatch batch = engine_->infer_bgra_array(
+        DetectionBatch batch = engine_->infer_bgra_array_roi(
             frame_array,
             width_,
             height_,
+            viewport_left,
+            viewport_top,
+            viewport_width,
+            viewport_height,
             kSelectorDecodeConfidenceFloor);
+        for (Detection& detection : batch.detections) {
+            detection.x1 += static_cast<float>(viewport_left);
+            detection.x2 += static_cast<float>(viewport_left);
+            detection.y1 += static_cast<float>(viewport_top);
+            detection.y2 += static_cast<float>(viewport_top);
+            if (detection.has_cue_point) {
+                detection.cue_x += static_cast<float>(viewport_left);
+                detection.cue_y += static_cast<float>(viewport_top);
+            }
+        }
+        batch.frame_width = width_;
+        batch.frame_height = height_;
         batch.frame_id = metadata.frame.frame_id;
         batch.captured_at_ns = metadata.frame.captured_at_ns;
         batch.has_external_cue = external_cue_found_;

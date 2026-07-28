@@ -22,6 +22,8 @@ struct Options {
     std::string expect_preprocess_mode;
     int width = 480;
     int height = 416;
+    int array_width = 0;
+    int array_height = 0;
     int warmup = 20;
     int iterations = 200;
 };
@@ -36,6 +38,7 @@ void usage() {
     std::cerr
         << "usage: vision_native_bgra_benchmark.exe --model <engine> [--output-json <path>]\n"
         << "       [--width 480] [--height 416] [--warmup 20] [--iterations 200]\n"
+        << "       [--array-width 600] [--array-height 520]\n"
         << "       [--expect-preprocess-mode <mode>]\n";
 }
 
@@ -68,6 +71,12 @@ Options parse_args(int argc, char** argv) {
             options.width = parse_int(require_value("--width"), "--width");
         } else if (arg == "--height") {
             options.height = parse_int(require_value("--height"), "--height");
+        } else if (arg == "--array-width") {
+            options.array_width =
+                parse_int(require_value("--array-width"), "--array-width");
+        } else if (arg == "--array-height") {
+            options.array_height =
+                parse_int(require_value("--array-height"), "--array-height");
         } else if (arg == "--warmup") {
             options.warmup = parse_int(require_value("--warmup"), "--warmup");
         } else if (arg == "--iterations") {
@@ -84,6 +93,11 @@ Options parse_args(int argc, char** argv) {
     }
     if (options.width <= 0 || options.height <= 0 || options.warmup < 0 || options.iterations <= 0) {
         throw std::runtime_error("invalid benchmark dimensions or iteration counts");
+    }
+    if (options.array_width == 0) options.array_width = options.width;
+    if (options.array_height == 0) options.array_height = options.height;
+    if (options.array_width < options.width || options.array_height < options.height) {
+        throw std::runtime_error("array dimensions must contain the benchmark ROI");
     }
     return options;
 }
@@ -162,7 +176,8 @@ void write_metric(std::ostream& out, const char* name, const std::vector<float>&
 int main(int argc, char** argv) {
     try {
         const Options options = parse_args(argc, argv);
-        const std::vector<std::uint8_t> host_bgra = fixture_bgra(options.width, options.height);
+        const std::vector<std::uint8_t> host_bgra =
+            fixture_bgra(options.array_width, options.array_height);
 
         cudaArray_t bgra_array = nullptr;
         const cudaChannelFormatDesc desc = cudaCreateChannelDesc<uchar4>();
@@ -170,8 +185,8 @@ int main(int argc, char** argv) {
             cudaMallocArray(
                 &bgra_array,
                 &desc,
-                static_cast<size_t>(options.width),
-                static_cast<size_t>(options.height)),
+                static_cast<size_t>(options.array_width),
+                static_cast<size_t>(options.array_height)),
             "cudaMallocArray");
         check_cuda(
             cudaMemcpy2DToArray(
@@ -179,9 +194,9 @@ int main(int argc, char** argv) {
                 0,
                 0,
                 host_bgra.data(),
-                static_cast<size_t>(options.width) * 4,
-                static_cast<size_t>(options.width) * 4,
-                static_cast<size_t>(options.height),
+                static_cast<size_t>(options.array_width) * 4,
+                static_cast<size_t>(options.array_width) * 4,
+                static_cast<size_t>(options.array_height),
                 cudaMemcpyHostToDevice),
             "cudaMemcpy2DToArray");
 
@@ -193,8 +208,12 @@ int main(int argc, char** argv) {
         vision_native::DetectionBatch last_batch;
 
         for (int i = 0; i < options.warmup + options.iterations; ++i) {
-            vision_native::DetectionBatch batch = engine.infer_bgra_array(
+            vision_native::DetectionBatch batch = engine.infer_bgra_array_roi(
                 bgra_array,
+                options.array_width,
+                options.array_height,
+                (options.array_width - options.width) / 2,
+                (options.array_height - options.height) / 2,
                 options.width,
                 options.height,
                 0.20f);
@@ -231,6 +250,8 @@ int main(int argc, char** argv) {
              << "  \"model\": " << json_string(options.model_path) << ",\n"
              << "  \"width\": " << options.width << ",\n"
              << "  \"height\": " << options.height << ",\n"
+             << "  \"array_width\": " << options.array_width << ",\n"
+             << "  \"array_height\": " << options.array_height << ",\n"
              << "  \"warmup\": " << options.warmup << ",\n"
              << "  \"iterations\": " << options.iterations << ",\n"
              << "  \"preprocess_mode\": \""
