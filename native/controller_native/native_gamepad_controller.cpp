@@ -113,7 +113,9 @@ void NativeGamepadController::reset() {
     dynamics_shaper_.reset();
     axis_intent_arbiter_.reset();
     vector_intent_fuser_.reset();
+#if defined(COD_BENCHMARK_MIX_OVERRIDE)
     pending_control_motion_.reset();
+#endif
     recoil_.reset();
     aim_activation_tracker_.reset();
     auto_fire_gate_.reset();
@@ -497,18 +499,19 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
         fusion_input.fresh_single_target_observation =
             observations.capture_fresh && observations.count == 1 &&
             plan.lifecycle == pipeline_contract::TargetLifecycle::Observed;
-        const auto pending_motion = pending_control_motion_.estimate(
-            now,
-            plan.observation_age_ms,
-            plan.response_scale,
-            plan.target_id);
-        fusion_input.pending_camera_px =
-            pending_motion.camera_displacement_px;
-        fusion_input.pending_camera_valid = pending_motion.valid;
 #if defined(COD_BENCHMARK_MIX_OVERRIDE)
-        fusion_input.causal_mix_enabled =
-            benchmark_intent_fusion_mode_ !=
-                BenchmarkIntentFusionMode::CausalVectorBaseline;
+        if (benchmark_intent_fusion_mode_ ==
+            BenchmarkIntentFusionMode::CausalVector) {
+            const auto pending_motion = pending_control_motion_.estimate(
+                now,
+                plan.observation_age_ms,
+                plan.response_scale,
+                plan.target_id);
+            fusion_input.pending_camera_px =
+                pending_motion.camera_displacement_px;
+            fusion_input.pending_camera_valid = pending_motion.valid;
+            fusion_input.causal_mix_enabled = true;
+        }
 #endif
         const auto fusion = vector_intent_fuser_.update(fusion_input, dt);
         output.right_x = clamp_unit(fusion.fused_stick.x);
@@ -598,6 +601,11 @@ void NativeGamepadController::report_output_delivery(
     bool delivered,
     bool output_enabled,
     double delivered_at_seconds) noexcept {
+#if defined(COD_BENCHMARK_MIX_OVERRIDE)
+    if (benchmark_intent_fusion_mode_ !=
+        BenchmarkIntentFusionMode::CausalVector) {
+        return;
+    }
     (void)pending_control_motion_.observe({
         delivered_at_seconds,
         {last_output_components_.before_recoil_stick.x,
@@ -606,6 +614,11 @@ void NativeGamepadController::report_output_delivery(
         delivered,
         output_enabled,
     });
+#else
+    (void)delivered;
+    (void)output_enabled;
+    (void)delivered_at_seconds;
+#endif
 }
 
 bool NativeGamepadController::manual_fire_pressed(
@@ -672,6 +685,7 @@ void NativeGamepadController::set_benchmark_intent_fusion_mode(
     benchmark_intent_fusion_mode_ = mode;
     axis_intent_arbiter_.reset();
     vector_intent_fuser_.reset();
+    pending_control_motion_.reset();
 }
 
 void NativeGamepadController::set_benchmark_tracker_velocity_alpha(

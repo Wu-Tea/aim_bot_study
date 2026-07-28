@@ -112,7 +112,9 @@ private:
     AimDynamicsShaper dynamics_shaper_{};
     AxisIntentArbiter axis_intent_arbiter_{};
     VectorIntentFuser vector_intent_fuser_{};
+#if defined(COD_BENCHMARK_MIX_OVERRIDE)
     PendingControlMotion pending_control_motion_{};
+#endif
     recoil_native::RecoilCompensationPolicy recoil_;
     AimActivationTracker aim_activation_tracker_{};
     AutoFireGate auto_fire_gate_;

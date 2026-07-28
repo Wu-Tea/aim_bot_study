@@ -23,7 +23,9 @@ activation.
 - Candidate mode: `vector`
 - Matched baseline mode: `vector-baseline`
 - Controller-rate causal mix is opt-in under the benchmark build and disabled
-  by default for production callers.
+  by default for production callers. Production builds also omit the pending
+  control-motion ledger and estimator, so retaining this benchmark does not add
+  controller-rate history maintenance to the live loop.
 
 The July 26 artifacts use a different config fingerprint and older benchmark
 schema. Compare within each matched baseline/candidate pair; do not attribute
