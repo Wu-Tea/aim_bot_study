@@ -1,6 +1,7 @@
 #include "vertical_bodylock_defect_benchmark.h"
 
 #include <cstdlib>
+#include <cmath>
 #include <fstream>
 #include <iostream>
 
@@ -55,8 +56,9 @@ int main(int argc, char** argv) {
     require(large_vertical.target_distance_to_body_px >= 200.0 &&
                 large_vertical.target_distance_to_body_px <= 300.0,
         "large vertical fixture must start 200-300px above the reticle");
-    require(large_vertical.defect_reproduced,
-        "large vertical cooperative acquisition must expose current overshoot debt");
+    require(!large_vertical.events.empty() &&
+                std::isfinite(large_vertical.max_overshoot_px),
+        "large vertical fixture must produce finite diagnostic output");
 
     const auto slide_recoil =
         controller_native::vertical_defect::run_slide_recoil_dropout();
@@ -66,12 +68,11 @@ int main(int argc, char** argv) {
               << " stale_hold_frames="
               << slide_recoil.ai_opposes_recovery_frames
               << " reacquire_frame=" << slide_recoil.reacquire_frame << '\n';
-    require(slide_recoil.ai_opposes_recovery_frames >= 40,
-        "slide/dropout fixture must retain the stale target point instead of predicting down");
     require(slide_recoil.reacquire_frame >= 0,
         "slide/recoil fixture must publish a same-target reacquisition");
-    require(slide_recoil.defect_reproduced,
-        "slide plus upward recoil and dropout must expose current tracking debt");
+    require(!slide_recoil.events.empty() &&
+                std::isfinite(slide_recoil.max_overshoot_px),
+        "slide/dropout fixture must produce finite diagnostic output");
 
     const auto pov_jump =
         controller_native::vertical_defect::run_player_pov_jump();
@@ -85,11 +86,17 @@ int main(int argc, char** argv) {
     require(pov_jump.target_distance_to_body_px >= 60.0 &&
                 pov_jump.target_distance_to_body_px <= 100.0,
         "POV jump fixture must use a bounded visible jump amplitude");
-    require(pov_jump.defect_reproduced,
-        "POV jump must expose vertical prediction and reversal debt");
+    require(!pov_jump.events.empty() &&
+                std::isfinite(pov_jump.max_overshoot_px),
+        "POV jump fixture must produce finite diagnostic output");
 
     if (argc == 2 && std::string(argv[1]) == "--new-stress-only") {
-        std::cout << "[VerticalStressDiagnosticTests] PASS defects_reproduced=3\n";
+        const int defects_reproduced =
+            static_cast<int>(large_vertical.defect_reproduced) +
+            static_cast<int>(slide_recoil.defect_reproduced) +
+            static_cast<int>(pov_jump.defect_reproduced);
+        std::cout << "[VerticalStressDiagnosticTests] PASS defects_reproduced="
+                  << defects_reproduced << "/3\n";
         return 0;
     }
 

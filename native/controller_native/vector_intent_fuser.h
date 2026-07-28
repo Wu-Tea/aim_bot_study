@@ -63,7 +63,9 @@ struct VectorIntentFusionInput {
     std::array<pipeline_contract::Vec2f, kCausalMixHorizonCount>
         pending_camera_px{};
     bool pending_camera_valid = false;
-    bool causal_mix_enabled = true;
+    // Experimental controller-rate arbitration stays benchmark-only until its
+    // moving-player guardrails pass. Production callers leave this disabled.
+    bool causal_mix_enabled = false;
 };
 
 struct VectorIntentFusionDecision {

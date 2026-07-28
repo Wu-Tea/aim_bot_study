@@ -42,7 +42,14 @@ VectorIntentFusionInput input_for(
     input.manual_stick = manual;
     input.shaped_ai_stick = ai;
     input.plan = observed_plan();
+    input.causal_mix_enabled = true;
     return input;
+}
+
+void test_controller_rate_candidate_is_opt_in() {
+    const VectorIntentFusionInput input;
+    require_true(!input.causal_mix_enabled,
+                 "controller-rate causal mix must remain production-disabled");
 }
 
 void set_horizon(
@@ -908,6 +915,7 @@ void test_reliable_wrong_way_ads_attenuates_radial_weight_within_6ms() {
 
 int main() {
     try {
+        test_controller_rate_candidate_is_opt_in();
         test_candidate_outputs_match_version_one_scales();
         test_candidate_count_covers_polar_set();
         test_aligned_input_keeps_existing_mix();
