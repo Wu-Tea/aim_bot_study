@@ -67,8 +67,9 @@ void hash_vec(std::uint64_t& hash, Vec2d value) {
 }
 
 void hash_config(std::uint64_t& hash, const BenchmarkConfig& config) {
-    // Keep legacy baseline script hashes stable. Non-baseline profiles opt into
-    // additional simulation semantics and therefore extend the identity.
+    // The scenario profile is omitted only for the historical baseline value.
+    // Generated player-motion scripts below are always hashed because changing
+    // their seeded timing would invalidate paired POV-motion comparisons.
     if (config.scenario_profile != ScenarioProfile::Baseline) {
         hash_integral(hash, config.scenario_profile);
     }
