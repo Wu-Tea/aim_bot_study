@@ -277,19 +277,21 @@ ReplayReference record_reference(
     ManualProfile manual_profile,
     BenchmarkCohort cohort,
     const ReplayControllerFactory& factory,
-    PlayerStrafeMode player_strafe_mode) {
+    PlayerStrafeMode player_strafe_mode,
+    PlayerVerticalMotionMode player_vertical_motion_mode) {
     if (!factory) throw std::invalid_argument("replay factory is required");
     ReplayReference result;
     result.script = script;
     result.manual_profile = manual_profile;
     result.cohort = cohort;
     result.player_strafe_mode = player_strafe_mode;
+    result.player_vertical_motion_mode = player_vertical_motion_mode;
     const BranchSchedule inactive{};
     ControllerStep controller = factory(inactive);
     result.benchmark_result = run_simulation(
         script, manual_profile, std::move(controller), cohort,
         [&](const SimulationTraceFrame& frame) { result.trace.push_back(frame); },
-        player_strafe_mode);
+        player_strafe_mode, player_vertical_motion_mode);
     if (result.trace.size() != static_cast<std::size_t>(script.config.duration_ms)) {
         throw std::runtime_error("reference trace duration mismatch");
     }
@@ -319,7 +321,8 @@ BranchResult replay_branch(
         replay_script, reference.manual_profile, std::move(controller),
         reference.cohort,
         [&](const SimulationTraceFrame& frame) { result.trace.push_back(frame); },
-        reference.player_strafe_mode);
+        reference.player_strafe_mode,
+        reference.player_vertical_motion_mode);
     if (result.trace.size() !=
         static_cast<std::size_t>(replay_script.config.duration_ms)) {
         throw std::runtime_error("branch trace duration mismatch");

@@ -254,7 +254,7 @@ void test_user_intent_prefers_lower_left_close_target_over_far_upper_right() {
     require_true(result.intent_id == 23, "lower-left intent result should carry intent id");
 }
 
-void test_near_large_target_can_beat_slightly_closer_crosshair_small_target() {
+void test_crosshair_near_target_beats_physically_near_large_target() {
     vision_native::VisionTargetSelector selector(640, 512);
     vision_native::DetectionBatch batch;
     batch.frame_width = 640;
@@ -269,8 +269,8 @@ void test_near_large_target_can_beat_slightly_closer_crosshair_small_target() {
 
     require_true(result.has_target, "size-weight scenario should acquire a target");
     require_true(
-        result.has_selected_detection && result.selected_detection_index == 1,
-        "a slightly off-center near target must beat a centered far small target");
+        result.has_selected_detection && result.selected_detection_index == 0,
+        "crosshair distance must outrank apparent physical target size");
 }
 
 void test_short_occlusion_does_not_switch_locked_near_target_to_visible_far_target() {
@@ -683,7 +683,7 @@ int main() {
     try {
         test_intent_direction_ranks_plausible_multi_target_candidates();
         test_user_intent_prefers_lower_left_close_target_over_far_upper_right();
-        test_near_large_target_can_beat_slightly_closer_crosshair_small_target();
+        test_crosshair_near_target_beats_physically_near_large_target();
         test_short_occlusion_does_not_switch_locked_near_target_to_visible_far_target();
         test_intent_favored_challenger_logs_ignored_active_lock();
         test_intent_switch_waits_for_confirmation_before_changing_active_target();

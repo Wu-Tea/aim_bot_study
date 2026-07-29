@@ -182,6 +182,64 @@ void test_full_speed_left_strafe_moves_relative_error_with_inertia() {
             "strafe run must retain audit metrics");
 }
 
+void test_slide_and_jump_shift_vertical_error_and_emit_audit_metrics() {
+    ScenarioScript script = stationary_script(900, {0.0, 0.0}, 300);
+    auto& motion = script.targets.front().player_vertical;
+    motion.slide_onset_ms = 100;
+    motion.slide_drop_ms = 100;
+    motion.slide_hold_ms = 100;
+    motion.slide_recover_ms = 100;
+    motion.slide_depth_px = 40.0;
+    motion.slide_instant_recovery = false;
+    motion.jump_onset_ms = 100;
+    motion.jump_duration_ms = 600;
+    motion.jump_height_px = 50.0;
+
+    auto zero_controller = [](const ControllerObservation& input) {
+        ControllerStepResult output;
+        output.target_observed = input.target_present;
+        output.tracker_reliable = input.target_present;
+        output.bodylock_mode = input.target_present;
+        return output;
+    };
+    std::vector<SimulationTraceFrame> slide_trace;
+    const BenchmarkResult slide = run_simulation(
+        script, ManualProfile::Pure, zero_controller,
+        BenchmarkCohort::AdsAcquire,
+        [&](const SimulationTraceFrame& frame) {
+            slide_trace.push_back(frame);
+        },
+        PlayerStrafeMode::Off, PlayerVerticalMotionMode::Slide);
+    std::vector<SimulationTraceFrame> jump_trace;
+    const BenchmarkResult jump = run_simulation(
+        script, ManualProfile::Pure, zero_controller,
+        BenchmarkCohort::AdsAcquire,
+        [&](const SimulationTraceFrame& frame) {
+            jump_trace.push_back(frame);
+        },
+        PlayerStrafeMode::Off, PlayerVerticalMotionMode::Jump);
+
+    require(slide_trace[200].true_error_after_px.y < -39.0,
+            "slide camera drop must move the target upward on screen");
+    require(std::fabs(slide_trace[400].true_error_after_px.y) < 1e-9,
+            "linear slide recovery must return to standing height");
+    require(jump_trace[400].true_error_after_px.y > 49.0,
+            "jump apex must move the target downward on screen");
+    require(std::fabs(jump_trace[700].true_error_after_px.y) < 1e-9,
+            "jump landing must restore standing height");
+    require(slide.player_slide_events == 1 &&
+                slide.player_jump_events == 0 &&
+                slide.player_vertical_active_ms > 0 &&
+                slide.max_abs_player_vertical_offset_px >= 40.0 &&
+                slide.max_abs_player_vertical_speed_px_per_second > 0.0,
+            "slide run must retain vertical-motion audit metrics");
+    require(jump.player_slide_events == 0 &&
+                jump.player_jump_events == 1 &&
+                jump.player_vertical_active_ms > 0 &&
+                jump.max_abs_player_vertical_offset_px >= 50.0,
+            "jump run must retain vertical-motion audit metrics");
+}
+
 void test_default_simulation_mode_is_explicit_off() {
     const ScenarioScript script = stationary_script(80, {20.0, 0.0});
     const BenchmarkResult implicit = run_simulation(
@@ -527,6 +585,7 @@ int main() {
         test_virtual_camera_x_and_y_signs_close_error();
         test_virtual_camera_can_delay_delivered_control_without_delaying_controller();
         test_full_speed_left_strafe_moves_relative_error_with_inertia();
+        test_slide_and_jump_shift_vertical_error_and_emit_audit_metrics();
         test_default_simulation_mode_is_explicit_off();
         test_closed_loop_score_ordering();
         test_same_script_is_reused_for_pure_and_mixed_runs();

@@ -174,6 +174,9 @@ void dump_effective_config(const controller_native::RuntimeConfig& config) {
     line("gamepad.ads.vertical_strength_scale", config.ads.vertical_strength_scale);
     line("gamepad.ads.range_px", aim.max_pixels);
     line("gamepad.ads.snap_duration_ms", aim.ads_snap_window_ms);
+    line("gamepad.ads.max_acquisition_ms", aim.ads_max_acquisition_ms);
+    line("gamepad.ads.start_delay_ms", aim.ads_start_delay_ms);
+    line("gamepad.ads.start_ramp_ms", aim.ads_start_ramp_ms);
     line("gamepad.bodylock.strength", aim.body_lock_max_ai_force);
     line("gamepad.bodylock.vertical_strength", aim.body_lock_max_ai_force_y);
     line("gamepad.bodylock.activation_range_px", aim.body_lock_activation_box_px);

@@ -101,6 +101,145 @@ void test_motion_labels_jump_then_fall() {
                  "persistent downward image motion must classify fall");
 }
 
+void test_jump_cue_adds_causal_vertical_acceleration_projection() {
+    auto prepare = [](controller_native::TargetCoordinator& coordinator) {
+        coordinator.update(
+            frame(1, 1.00, 1, 240.0f, 220.0f),
+            ads_intent(1.00), 1.00);
+        coordinator.update(
+            frame(2, 1.01, 1, 240.0f, 210.0f),
+            ads_intent(1.01), 1.01);
+    };
+    pipeline_contract::VisionObservationBatch missing{};
+    missing.frame_width_px = 480.0f;
+    missing.frame_height_px = 416.0f;
+
+    controller_native::TargetCoordinator baseline;
+    controller_native::TargetCoordinator jump_model;
+    controller_native::TargetCoordinator manual_owned;
+    baseline.set_causal_player_motion_enabled_for_benchmark(false, false);
+    jump_model.set_causal_player_motion_enabled_for_benchmark(false, false);
+    manual_owned.set_causal_player_motion_enabled_for_benchmark(false, false);
+    prepare(baseline);
+    prepare(jump_model);
+    prepare(manual_owned);
+
+    controller_native::TargetControlFeedback jump_feedback{};
+    jump_feedback.player_jump_action_age_ms = 100.0f;
+    const auto baseline_plan = baseline.update(
+        missing, ads_intent(1.02), 1.02);
+    const auto jump_plan = jump_model.update(
+        missing, ads_intent(1.02), 1.02, jump_feedback);
+    require_true(
+        jump_plan.error_px.y < baseline_plan.error_px.y - 0.5f,
+        "jump cue must integrate measured vertical acceleration between vision frames");
+
+    auto manual_intent = ads_intent(1.02);
+    manual_intent.filtered_right.y = 0.20f;
+    manual_intent.right_y.confidence = 1.0f;
+    const auto manual_plan = manual_owned.update(
+        missing, manual_intent, 1.02, jump_feedback);
+    require_true(
+        std::fabs(manual_plan.error_px.y - baseline_plan.error_px.y) < 0.1f,
+        "manual camera ownership must suppress duplicate jump extrapolation");
+}
+
+void test_player_motion_oracle_separates_realized_camera_error() {
+    controller_native::TargetCoordinator baseline;
+    controller_native::TargetCoordinator oracle;
+    baseline.update(
+        frame(1, 1.00, 1, 240.0f, 220.0f),
+        ads_intent(1.00), 1.00);
+    oracle.update(
+        frame(1, 1.00, 1, 240.0f, 220.0f),
+        ads_intent(1.00), 1.00);
+
+    pipeline_contract::VisionObservationBatch missing{};
+    missing.frame_width_px = 480.0f;
+    missing.frame_height_px = 416.0f;
+    controller_native::TargetControlFeedback feedback{};
+    feedback.has_player_motion_oracle = true;
+    feedback.has_player_motion_rate_oracle = true;
+    feedback.player_error_delta_px = {0.0f, -4.0f};
+    feedback.player_error_rate_px_per_sec = {0.0f, -400.0f};
+
+    const auto baseline_plan = baseline.update(
+        missing, ads_intent(1.01), 1.01);
+    const auto oracle_plan = oracle.update(
+        missing, ads_intent(1.01), 1.01, feedback);
+    require_true(
+        std::fabs(
+            oracle_plan.error_px.y -
+            (baseline_plan.error_px.y - 4.0f)) < 0.01f,
+        "oracle must apply the exact realized player-motion error delta");
+    require_true(
+        std::fabs(oracle_plan.error_rate_px_per_sec.y + 400.0f) < 0.01f,
+        "oracle must expose player-motion rate to the control horizon");
+}
+
+void test_causal_slide_model_separates_state_and_forecast() {
+    controller_native::TargetCoordinator coordinator;
+    coordinator.set_causal_player_motion_enabled_for_benchmark(true, true);
+    coordinator.update(
+        frame(1, 1.00, 1, 240.0f, 220.0f),
+        ads_intent(1.00), 1.00);
+    pipeline_contract::VisionObservationBatch missing{};
+    missing.frame_width_px = 480.0f;
+    missing.frame_height_px = 416.0f;
+
+    controller_native::TargetControlFeedback onset{};
+    onset.player_slide_action_age_ms = 0.0f;
+    coordinator.update(missing, ads_intent(1.001), 1.001, onset);
+    controller_native::TargetControlFeedback falling{};
+    falling.player_slide_action_age_ms = 60.0f;
+    const auto plan = coordinator.update(
+        missing, ads_intent(1.061), 1.061, falling);
+    require_true(
+        plan.error_px.y < 12.0f,
+        "causal slide model must apply realized upward screen displacement");
+    require_true(
+        plan.player_motion_forecast_px.y < 0.0f &&
+        plan.player_motion_confidence > 0.0f,
+        "causal slide model must export a separate short forecast");
+    require_true(
+        std::fabs(plan.error_rate_px_per_sec.y) < 0.01f,
+        "causal slide forecast must not leak into raw target velocity");
+}
+
+void test_player_motion_forecast_only_bridges_between_vision_frames() {
+    controller_native::TargetCoordinator coordinator;
+    coordinator.set_causal_player_motion_enabled_for_benchmark(false, true);
+    coordinator.update(
+        frame(1, 1.000, 1, 240.0f, 220.0f),
+        ads_intent(1.000), 1.000);
+
+    controller_native::TargetControlFeedback fresh_feedback{};
+    fresh_feedback.player_slide_action_age_ms = 10.0f;
+    const auto fresh_plan = coordinator.update(
+        frame(2, 1.010, 1, 240.0f, 220.0f),
+        ads_intent(1.010), 1.010, fresh_feedback);
+    require_true(
+        fresh_plan.player_motion_confidence == 0.0f,
+        "fresh Vision must own the observed point without duplicate event forecast");
+
+    pipeline_contract::VisionObservationBatch missing{};
+    missing.frame_width_px = 480.0f;
+    missing.frame_height_px = 416.0f;
+    controller_native::TargetControlFeedback partial_feedback{};
+    partial_feedback.player_slide_action_age_ms = 16.0f;
+    const auto partial_plan = coordinator.update(
+        missing, ads_intent(1.016), 1.016, partial_feedback);
+    controller_native::TargetControlFeedback bridged_feedback{};
+    bridged_feedback.player_slide_action_age_ms = 24.0f;
+    const auto bridged_plan = coordinator.update(
+        missing, ads_intent(1.024), 1.024, bridged_feedback);
+    require_true(
+        partial_plan.player_motion_confidence > 0.0f &&
+        bridged_plan.player_motion_confidence >
+            partial_plan.player_motion_confidence,
+        "event forecast authority must ramp continuously across the Vision gap");
+}
+
 void test_ads_handoff_waits_for_settle() {
     controller_native::TargetCoordinator coordinator;
     auto plan = coordinator.update(frame(1, 0.00, 1, 340.0f, 208.0f), ads_intent(0.00), 0.00);
@@ -136,22 +275,40 @@ void test_bodylock_cannot_rearm_ads_within_one_held_epoch() {
                  "held ADS epoch must not rearm snap for a new far target");
 }
 
-void test_ads_timeout_does_not_handoff_with_large_residual_error() {
+void test_ads_ownership_ceiling_is_independent_from_arrival_horizon() {
     controller_native::TargetCoordinatorConfig config{};
-    config.ads_max_acquisition_ms = 20.0f;
+    config.ads_max_acquisition_ms = 220.0f;
+    config.bodylock_activation_radius_px = 80.0f;
     config.settle_frames = 2;
     controller_native::TargetCoordinator coordinator(config);
+    coordinator.begin_ads_epoch(1, 0.0);
 
     pipeline_contract::TargetPlan plan{};
-    for (int i = 0; i < 8; ++i) {
-        const double time = i * 0.010;
-        auto observed = frame(i + 1, time, 1, 300.0f, 208.0f);
-        observed.candidates[0].normalized_size = 0.6f;
-        plan = coordinator.update(observed, ads_intent(time), time);
-    }
-
+    plan = coordinator.update(
+        frame(1, 0.130, 1, 340.0f, 208.0f), ads_intent(0.130), 0.130);
     require_true(plan.mode == pipeline_contract::ControlMode::AdsAcquire,
-                 "ADS timeout must not hand off a large residual error to BodyLock");
+                 "arrival horizon must not terminate ADS ownership");
+    require_true(std::fabs(plan.ads_epoch_elapsed_ms - 130.0f) < 0.1f,
+                 "plan must expose physical ADS epoch elapsed time");
+    plan = coordinator.update(
+        frame(2, 0.220, 1, 300.0f, 208.0f), ads_intent(0.220), 0.220);
+    require_true(plan.mode == pipeline_contract::ControlMode::BodyLockFollow,
+                 "ADS fallback time must hand off a target inside BodyLock range");
+}
+
+void test_ads_timed_fallback_consumes_snap_without_far_bodylock_pull() {
+    controller_native::TargetCoordinatorConfig config{};
+    config.ads_max_acquisition_ms = 20.0f;
+    config.bodylock_activation_radius_px = 80.0f;
+    config.settle_frames = 2;
+    controller_native::TargetCoordinator coordinator(config);
+    coordinator.begin_ads_epoch(1, 0.0);
+    const auto plan = coordinator.update(
+        frame(1, 0.050, 1, 340.0f, 208.0f), ads_intent(0.050), 0.050);
+    require_true(plan.mode == pipeline_contract::ControlMode::BodyLockFollow,
+                 "ADS snap must be permanently consumed at its total deadline");
+    require_true(plan.aim_authority == 0.0f,
+                 "far residual must remain manual until it enters BodyLock range");
 }
 
 void test_ads_handoff_rejects_a_predicted_high_speed_crossing() {
@@ -463,9 +620,14 @@ int main() {
         test_single_owner_coasts_and_reacquires_same_identity();
         test_hold_expires_to_safe_manual_plan();
         test_motion_labels_jump_then_fall();
+        test_jump_cue_adds_causal_vertical_acceleration_projection();
+        test_player_motion_oracle_separates_realized_camera_error();
+        test_causal_slide_model_separates_state_and_forecast();
+        test_player_motion_forecast_only_bridges_between_vision_frames();
         test_ads_handoff_waits_for_settle();
         test_bodylock_cannot_rearm_ads_within_one_held_epoch();
-        test_ads_timeout_does_not_handoff_with_large_residual_error();
+        test_ads_ownership_ceiling_is_independent_from_arrival_horizon();
+        test_ads_timed_fallback_consumes_snap_without_far_bodylock_pull();
         test_ads_handoff_rejects_a_predicted_high_speed_crossing();
         test_ads_handoff_accepts_stable_in_radius_capture();
         test_ads_handoff_allows_tangential_target_motion();

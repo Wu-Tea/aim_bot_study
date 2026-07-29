@@ -79,6 +79,14 @@ public:
     void set_benchmark_mix_transform(BenchmarkMixTransform transform);
     void set_benchmark_intent_fusion_mode(BenchmarkIntentFusionMode mode);
     void set_benchmark_tracker_velocity_alpha(float alpha);
+    void set_benchmark_player_motion_oracle(
+        bool valid,
+        bool rate_valid,
+        pipeline_contract::Vec2f error_delta_px,
+        pipeline_contract::Vec2f error_rate_px_per_sec) noexcept;
+    void set_benchmark_causal_player_motion_enabled(
+        bool state_enabled,
+        bool forecast_enabled) noexcept;
 #endif
 
 private:
@@ -122,6 +130,10 @@ private:
     bool has_pending_snapshot_ = false;
     bool aiming_ = false;
     bool previous_aiming_ = false;
+    bool previous_jump_button_ = false;
+    bool previous_slide_button_ = false;
+    double last_jump_action_seconds_ = -1.0;
+    double last_slide_action_seconds_ = -1.0;
     std::uint64_t ads_epoch_ = 0;
     std::uint64_t legacy_vision_sequence_ = 0;
     double last_tick_seconds_ = 0.0;
@@ -143,6 +155,10 @@ private:
     BenchmarkMixTransform benchmark_mix_transform_;
     BenchmarkIntentFusionMode benchmark_intent_fusion_mode_ =
         BenchmarkIntentFusionMode::LegacyAxis;
+    bool benchmark_player_motion_oracle_valid_ = false;
+    bool benchmark_player_motion_rate_oracle_valid_ = false;
+    pipeline_contract::Vec2f benchmark_player_error_delta_px_{};
+    pipeline_contract::Vec2f benchmark_player_error_rate_px_per_sec_{};
 #endif
 };
 

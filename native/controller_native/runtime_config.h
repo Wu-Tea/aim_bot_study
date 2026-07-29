@@ -83,6 +83,8 @@ struct GamepadAiAimConfig {
     float ads_completion_radius_px = 8.0f;
     int ads_completion_fresh_frames = 3;
     float ads_max_acquisition_ms = 220.0f;
+    float ads_start_delay_ms = 0.0f;
+    float ads_start_ramp_ms = 0.0f;
     float auto_fire_ready_error_px = 16.0f;
     int auto_fire_ready_frames = 2;
     float auto_fire_ready_min_ads_ms = 70.0f;

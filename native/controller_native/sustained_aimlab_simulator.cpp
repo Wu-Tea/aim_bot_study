@@ -95,7 +95,8 @@ BenchmarkResult run_simulation(
     ControllerStep controller_step,
     BenchmarkCohort cohort,
     SimulationTraceObserver trace_observer,
-    PlayerStrafeMode player_strafe_mode) {
+    PlayerStrafeMode player_strafe_mode,
+    PlayerVerticalMotionMode player_vertical_motion_mode) {
     if (!controller_step) {
         throw std::invalid_argument("controller callback is required");
     }
@@ -124,6 +125,14 @@ BenchmarkResult run_simulation(
         std::numeric_limits<double>::infinity();
     double max_sampled_player_top_speed_px_per_second = 0.0;
     double max_abs_player_speed_px_per_second = 0.0;
+    double player_vertical_offset_y_px = 0.0;
+    Vec2d last_player_error_delta_px;
+    double last_player_vertical_velocity_y_px_per_second = 0.0;
+    int player_vertical_active_ms = 0;
+    int player_slide_events = 0;
+    int player_jump_events = 0;
+    double max_abs_player_vertical_offset_px = 0.0;
+    double max_abs_player_vertical_speed_px_per_second = 0.0;
     Vec2d obsolete_manual_direction;
     Vec2d obsolete_cross_axis;
     double obsolete_manual_magnitude = 0.0;
@@ -136,6 +145,7 @@ BenchmarkResult run_simulation(
     bool previous_bodylock_mode = false;
     bool saw_ads_mode = false;
     bool pending_ads_to_bodylock_transition = false;
+    int first_assist_output_ms = -1;
     std::unique_ptr<TargetScorer> scorer;
     std::deque<Vec2d> delayed_controls(
         static_cast<std::size_t>(
@@ -163,6 +173,9 @@ BenchmarkResult run_simulation(
         }
         target_velocity = target.initial_velocity_px_per_second;
         player_velocity_x_px_per_second = 0.0;
+        player_vertical_offset_y_px = 0.0;
+        last_player_error_delta_px = {};
+        last_player_vertical_velocity_y_px_per_second = 0.0;
         if (player_strafe_mode == PlayerStrafeMode::FullReversal) {
             min_sampled_player_top_speed_px_per_second = std::min(
                 min_sampled_player_top_speed_px_per_second,
@@ -189,6 +202,7 @@ BenchmarkResult run_simulation(
         previous_bodylock_mode = false;
         saw_ads_mode = false;
         pending_ads_to_bodylock_transition = false;
+        first_assist_output_ms = -1;
         scorer = std::make_unique<TargetScorer>(target, script.config);
         if (cohort == BenchmarkCohort::BodyLockFollow) {
             scorer->mark_acquired(0);
@@ -197,6 +211,7 @@ BenchmarkResult run_simulation(
 
     auto finish_target = [&] {
         TargetResult target_result = scorer->finish();
+        target_result.first_assist_output_ms = first_assist_output_ms;
         if (manual_profile == ManualProfile::ObsoleteAfterCrossing) {
             target_result.maximum_vertical_overshoot_px =
                 v1_maximum_vertical_overshoot_px;
@@ -222,6 +237,7 @@ BenchmarkResult run_simulation(
 
         ControllerObservation input;
         bool vision_occluded = false;
+        int player_motion_elapsed_ms = -1;
         input.now_ms = now_ms;
         if (target_active) {
             const TargetScript& target = script.targets[target_index];
@@ -257,13 +273,22 @@ BenchmarkResult run_simulation(
             }
             input.frame_id = frame_id;
             input.observed_error_px = carried_observation;
-            const int strafe_elapsed_ms =
+            input.player_motion_oracle =
+                script.config.player_motion_oracle_enabled;
+            input.player_motion_rate_oracle =
+                script.config.player_motion_rate_oracle_enabled;
+            input.player_error_delta_px = last_player_error_delta_px;
+            input.player_error_rate_px_per_second = {
+                -player_velocity_x_px_per_second,
+                last_player_vertical_velocity_y_px_per_second,
+            };
+            player_motion_elapsed_ms =
                 cohort == BenchmarkCohort::BodyLockFollow
                 ? (tracking ? tracking_ticks : -1)
                 : target_elapsed_ms;
-            if (strafe_elapsed_ms >= 0) {
+            if (player_motion_elapsed_ms >= 0) {
                 input.left_x = left_strafe_input(
-                    target.player_strafe, strafe_elapsed_ms,
+                    target.player_strafe, player_motion_elapsed_ms,
                     player_strafe_mode);
                 if (input.left_x != 0.0) {
                     ++left_strafe_active_ms;
@@ -271,8 +296,82 @@ BenchmarkResult run_simulation(
                         max_abs_left_x, std::fabs(input.left_x));
                 }
                 if (player_strafe_mode == PlayerStrafeMode::FullReversal &&
-                    strafe_elapsed_ms == target.player_strafe.reverse_ms) {
+                    player_motion_elapsed_ms ==
+                        target.player_strafe.reverse_ms) {
                     ++left_strafe_reversals;
+                }
+                PlayerVerticalMotionMode selected_vertical =
+                    player_vertical_motion_mode;
+                if (selected_vertical == PlayerVerticalMotionMode::Random) {
+                    selected_vertical =
+                        target.player_vertical.random_event ==
+                            PlayerVerticalEvent::Slide
+                        ? PlayerVerticalMotionMode::Slide
+                        : PlayerVerticalMotionMode::Jump;
+                }
+                if (selected_vertical == PlayerVerticalMotionMode::Slide &&
+                    player_motion_elapsed_ms ==
+                        target.player_vertical.slide_onset_ms) {
+                    ++player_slide_events;
+                } else if (
+                    selected_vertical == PlayerVerticalMotionMode::Jump &&
+                    player_motion_elapsed_ms ==
+                        target.player_vertical.jump_onset_ms) {
+                    ++player_jump_events;
+                }
+                input.jump_action =
+                    script.config.player_action_cues_enabled &&
+                    selected_vertical == PlayerVerticalMotionMode::Jump &&
+                    player_motion_elapsed_ms >=
+                        target.player_vertical.jump_onset_ms &&
+                    player_motion_elapsed_ms <
+                        target.player_vertical.jump_onset_ms + 30;
+                input.slide_action =
+                    script.config.player_action_cues_enabled &&
+                    selected_vertical == PlayerVerticalMotionMode::Slide &&
+                    player_motion_elapsed_ms >=
+                        target.player_vertical.slide_onset_ms &&
+                    player_motion_elapsed_ms <
+                        target.player_vertical.slide_onset_ms + 30;
+                if (script.config.player_motion_forecast_oracle_enabled) {
+                    constexpr int kForecastHorizonMs = 32;
+                    double forecast_velocity =
+                        player_velocity_x_px_per_second;
+                    double forecast_error_x_px = 0.0;
+                    const double time_constant_seconds =
+                        target.player_strafe.time_constant_ms / 1000.0;
+                    const double player_alpha =
+                        time_constant_seconds > 0.0
+                        ? 1.0 - std::exp(
+                            -0.001 / time_constant_seconds)
+                        : 1.0;
+                    for (int step = 0; step < kForecastHorizonMs; ++step) {
+                        const double future_left = left_strafe_input(
+                            target.player_strafe,
+                            player_motion_elapsed_ms + step,
+                            player_strafe_mode);
+                        const double desired_velocity =
+                            future_left *
+                            target.player_strafe
+                                .top_speed_px_per_second;
+                        forecast_velocity += player_alpha *
+                            (desired_velocity - forecast_velocity);
+                        forecast_error_x_px -=
+                            forecast_velocity * 0.001;
+                    }
+                    const double future_vertical_offset =
+                        player_vertical_error_offset_y_px(
+                            target.player_vertical,
+                            player_motion_elapsed_ms +
+                                kForecastHorizonMs - 1,
+                            player_vertical_motion_mode);
+                    input.player_error_rate_px_per_second = {
+                        forecast_error_x_px * 1000.0 /
+                            kForecastHorizonMs,
+                        (future_vertical_offset -
+                            player_vertical_offset_y_px) *
+                            1000.0 / kForecastHorizonMs,
+                    };
                 }
             }
             if (manual_profile == ManualProfile::Mixed &&
@@ -314,6 +413,10 @@ BenchmarkResult run_simulation(
         }
 
         const ControllerStepResult output = controller_step(input);
+        if (target_active && first_assist_output_ms < 0 &&
+            length(output.requested_assist_stick) > 0.001) {
+            first_assist_output_ms = target_elapsed_ms;
+        }
         if (target_active && cohort == BenchmarkCohort::AdsAcquire) {
             if (!output.bodylock_mode) saw_ads_mode = true;
             if (saw_ads_mode && !previous_bodylock_mode &&
@@ -365,6 +468,30 @@ BenchmarkResult run_simulation(
             max_abs_player_speed_px_per_second = std::max(
                 max_abs_player_speed_px_per_second,
                 std::fabs(player_velocity_x_px_per_second));
+            const double next_vertical_offset_y_px =
+                player_vertical_error_offset_y_px(
+                    target.player_vertical,
+                    player_motion_elapsed_ms,
+                    player_vertical_motion_mode);
+            const double vertical_delta =
+                next_vertical_offset_y_px - player_vertical_offset_y_px;
+            error.y += vertical_delta;
+            if (next_vertical_offset_y_px != 0.0) {
+                ++player_vertical_active_ms;
+            }
+            max_abs_player_vertical_offset_px = std::max(
+                max_abs_player_vertical_offset_px,
+                std::fabs(next_vertical_offset_y_px));
+            max_abs_player_vertical_speed_px_per_second = std::max(
+                max_abs_player_vertical_speed_px_per_second,
+                std::fabs(vertical_delta) * 1000.0);
+            player_vertical_offset_y_px = next_vertical_offset_y_px;
+            last_player_error_delta_px = {
+                -player_velocity_x_px_per_second * 0.001,
+                vertical_delta,
+            };
+            last_player_vertical_velocity_y_px_per_second =
+                vertical_delta * 1000.0;
             const double response =
                 script.config.camera_response_px_per_stick_second *
                 aim_slowdown_multiplier(
@@ -388,6 +515,10 @@ BenchmarkResult run_simulation(
             trace_frame.target_velocity_px_per_second = target_velocity;
             trace_frame.player_velocity_x_px_per_second =
                 player_velocity_x_px_per_second;
+            trace_frame.player_vertical_offset_y_px =
+                player_vertical_offset_y_px;
+            trace_frame.player_vertical_velocity_y_px_per_second =
+                vertical_delta * 1000.0;
 
             if (cohort == BenchmarkCohort::BodyLockFollow && !tracking) {
                 if (output.bodylock_mode) {
@@ -453,6 +584,7 @@ BenchmarkResult run_simulation(
 
     if (target_active && scorer) {
         TargetResult target_result = scorer->finish();
+        target_result.first_assist_output_ms = first_assist_output_ms;
         if (manual_profile == ManualProfile::ObsoleteAfterCrossing) {
             target_result.maximum_vertical_overshoot_px =
                 v1_maximum_vertical_overshoot_px;
@@ -469,6 +601,7 @@ BenchmarkResult run_simulation(
     result.manual_profile = manual_profile;
     result.cohort = cohort;
     result.player_strafe_mode = player_strafe_mode;
+    result.player_vertical_motion_mode = player_vertical_motion_mode;
     result.ticks = script.config.duration_ms;
     result.left_strafe_active_ms = left_strafe_active_ms;
     result.left_strafe_reversals = left_strafe_reversals;
@@ -480,6 +613,13 @@ BenchmarkResult run_simulation(
         max_sampled_player_top_speed_px_per_second;
     result.max_abs_player_speed_px_per_second =
         max_abs_player_speed_px_per_second;
+    result.player_vertical_active_ms = player_vertical_active_ms;
+    result.player_slide_events = player_slide_events;
+    result.player_jump_events = player_jump_events;
+    result.max_abs_player_vertical_offset_px =
+        max_abs_player_vertical_offset_px;
+    result.max_abs_player_vertical_speed_px_per_second =
+        max_abs_player_vertical_speed_px_per_second;
     return result;
 }
 

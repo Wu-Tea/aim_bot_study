@@ -55,6 +55,12 @@ struct CliOptions {
     std::string intent_fusion = "legacy";
     double tracker_velocity_alpha = -1.0;
     std::string left_strafe = "off";
+    std::string vertical_motion = "off";
+    std::string target_motion = "moving";
+    std::string player_action_cues = "on";
+    std::string player_motion_oracle = "off";
+    std::string player_motion_model = "causal";
+    std::string ads_timing = "config";
     int learning_rounds = 0;
     int learning_delay_ms = 45;
     std::string learning_policy = "retain";
@@ -155,6 +161,20 @@ CliOptions parse_args(int argc, char** argv) {
             options.tracker_velocity_alpha = std::stod(argv[++index]);
         } else if (argument == "--left-strafe" && index + 1 < argc) {
             options.left_strafe = argv[++index];
+        } else if (argument == "--vertical-motion" && index + 1 < argc) {
+            options.vertical_motion = argv[++index];
+        } else if (argument == "--target-motion" && index + 1 < argc) {
+            options.target_motion = argv[++index];
+        } else if (argument == "--player-action-cues" && index + 1 < argc) {
+            options.player_action_cues = argv[++index];
+        } else if (
+            argument == "--player-motion-oracle" && index + 1 < argc) {
+            options.player_motion_oracle = argv[++index];
+        } else if (
+            argument == "--player-motion-model" && index + 1 < argc) {
+            options.player_motion_model = argv[++index];
+        } else if (argument == "--ads-timing" && index + 1 < argc) {
+            options.ads_timing = argv[++index];
         } else if (argument == "--learning-rounds" && index + 1 < argc) {
             options.learning_rounds = std::stoi(argv[++index]);
         } else if (argument == "--learning-delay-ms" && index + 1 < argc) {
@@ -167,7 +187,7 @@ CliOptions parse_args(int argc, char** argv) {
                 << "[--config PATH] [--seed N ...] [--profile pure|mixed|both] "
                 << "[--cohort ads|bodylock|both] "
                 << "[--scenario baseline|compound_directional] "
-                << "[--target-profile ordinary|small] [--camera-response PX] "
+                << "[--target-profile ordinary|small|near] [--camera-response PX] "
                 << "[--slowdown-edge N] [--slowdown-center N] "
                 << "[--short-occlusion-ms 0|24|36|48] "
                 << "[--vision-hz 0|1..1000] "
@@ -177,6 +197,13 @@ CliOptions parse_args(int argc, char** argv) {
                 << "[--intent-fusion legacy|vector|vector-baseline] "
                 << "[--tracker-velocity-alpha 0..1] "
                 << "[--left-strafe off|full-reversal|both] "
+                << "[--vertical-motion off|slide|jump|random|all] "
+                << "[--target-motion stationary|moving] "
+                << "[--player-action-cues on|off] "
+                << "[--player-motion-oracle off|state|full|forecast] "
+                << "[--player-motion-model current|state|forecast|causal] "
+                << "[--ads-timing config|coupled|decoupled160|decoupled180|"
+                   "decoupled200|decoupled|hard30|ramp30|hard30-160|ramp30-160] "
                 << "[--learning-rounds N --learning-delay-ms N "
                 << "--learning-policy baseline|reset|retain]\n";
             std::exit(EXIT_SUCCESS);
@@ -207,8 +234,10 @@ CliOptions parse_args(int argc, char** argv) {
             "scenario must be baseline or compound_directional");
     }
     if (options.target_profile != "ordinary" &&
-        options.target_profile != "small") {
-        throw std::runtime_error("target profile must be ordinary or small");
+        options.target_profile != "small" &&
+        options.target_profile != "near") {
+        throw std::runtime_error(
+            "target profile must be ordinary, small, or near");
     }
     if (options.counterfactual != "off" &&
         options.counterfactual != "quick" &&
@@ -234,6 +263,51 @@ CliOptions parse_args(int argc, char** argv) {
         throw std::runtime_error(
             "left strafe mode must be off, full-reversal, or both");
     }
+    if (options.vertical_motion != "off" &&
+        options.vertical_motion != "slide" &&
+        options.vertical_motion != "jump" &&
+        options.vertical_motion != "random" &&
+        options.vertical_motion != "all") {
+        throw std::runtime_error(
+            "vertical motion must be off, slide, jump, random, or all");
+    }
+    if (options.target_motion != "stationary" &&
+        options.target_motion != "moving") {
+        throw std::runtime_error(
+            "target motion must be stationary or moving");
+    }
+    if (options.player_action_cues != "on" &&
+        options.player_action_cues != "off") {
+        throw std::runtime_error(
+            "player action cues must be on or off");
+    }
+    if (options.player_motion_oracle != "off" &&
+        options.player_motion_oracle != "state" &&
+        options.player_motion_oracle != "full" &&
+        options.player_motion_oracle != "forecast") {
+        throw std::runtime_error(
+            "player motion oracle must be off, state, full, or forecast");
+    }
+    if (options.player_motion_model != "current" &&
+        options.player_motion_model != "state" &&
+        options.player_motion_model != "forecast" &&
+        options.player_motion_model != "causal") {
+        throw std::runtime_error(
+            "player motion model must be current, state, forecast, or causal");
+    }
+    if (options.ads_timing != "config" &&
+        options.ads_timing != "coupled" &&
+        options.ads_timing != "decoupled160" &&
+        options.ads_timing != "decoupled180" &&
+        options.ads_timing != "decoupled200" &&
+        options.ads_timing != "decoupled" &&
+        options.ads_timing != "hard30" &&
+        options.ads_timing != "ramp30" &&
+        options.ads_timing != "hard30-160" &&
+        options.ads_timing != "ramp30-160") {
+        throw std::runtime_error(
+            "invalid ADS timing profile");
+    }
     if (options.learning_rounds < 0 || options.learning_delay_ms < 0 ||
         (options.learning_policy != "baseline" &&
          options.learning_policy != "reset" &&
@@ -242,7 +316,9 @@ CliOptions parse_args(int argc, char** argv) {
     }
     if (options.learning_rounds > 0 &&
         (options.profile == "both" || options.cohort == "both" ||
-         options.seeds.size() > 1 || options.left_strafe != "off")) {
+         options.seeds.size() > 1 || options.left_strafe != "off" ||
+         options.vertical_motion != "off" ||
+         options.target_motion != "moving")) {
         throw std::runtime_error(
             "learning mode requires one seed, one profile, one cohort, "
             "and left strafe off");
@@ -263,6 +339,25 @@ CliOptions parse_args(int argc, char** argv) {
         options.seeds = {1337, 20260718, 424242};
     }
     return options;
+}
+
+GamepadRuntimeConfig apply_ads_timing_profile(
+    GamepadRuntimeConfig config,
+    const std::string& profile) {
+    if (profile == "config") return config;
+    config.ai_aim.ads_snap_window_ms = 120;
+    config.ai_aim.ads_max_acquisition_ms =
+        profile == "coupled" ? 120.0f :
+        (profile == "decoupled160" ||
+         profile == "hard30-160" ||
+         profile == "ramp30-160") ? 160.0f :
+        profile == "decoupled180" ? 180.0f :
+        profile == "decoupled200" ? 200.0f : 220.0f;
+    config.ai_aim.ads_start_delay_ms =
+        (profile == "hard30" || profile == "hard30-160") ? 30.0f : 0.0f;
+    config.ai_aim.ads_start_ramp_ms =
+        (profile == "ramp30" || profile == "ramp30-160") ? 30.0f : 0.0f;
+    return config;
 }
 
 std::uint64_t file_fingerprint(const std::filesystem::path& path) {
@@ -316,6 +411,16 @@ const char* cohort_name(BenchmarkCohort cohort) {
 const char* player_strafe_name(PlayerStrafeMode mode) {
     return mode == PlayerStrafeMode::FullReversal
         ? "full_reversal" : "off";
+}
+
+const char* player_vertical_motion_name(PlayerVerticalMotionMode mode) {
+    switch (mode) {
+    case PlayerVerticalMotionMode::Off: return "off";
+    case PlayerVerticalMotionMode::Slide: return "slide";
+    case PlayerVerticalMotionMode::Jump: return "jump";
+    case PlayerVerticalMotionMode::Random: return "random";
+    }
+    return "unknown";
 }
 
 const char* motion_name(MotionProfile motion) {
@@ -420,6 +525,7 @@ void write_report(
     const std::filesystem::path& output_path,
     const CliOptions& options,
     const BenchmarkConfig& config,
+    const GamepadRuntimeConfig& gamepad_config,
     std::uint64_t config_fingerprint,
     const std::vector<BenchmarkResult>& results,
     const std::vector<CounterfactualRunSummary>& counterfactual_results,
@@ -444,6 +550,17 @@ void write_report(
         << "  \"dirty\": " << (options.dirty ? "true" : "false") << ",\n"
         << "  \"config_path\": " << json_string(options.config_path.string()) << ",\n"
         << "  \"config_fingerprint_fnv1a64\": \"" << config_fingerprint << "\",\n"
+        << "  \"ads_timing\": {\"profile\": "
+        << json_string(options.ads_timing)
+        << ", \"arrival_horizon_ms\": "
+        << gamepad_config.ai_aim.ads_snap_window_ms
+        << ", \"ownership_ceiling_ms\": "
+        << gamepad_config.ai_aim.ads_max_acquisition_ms
+        << ", \"start_delay_ms\": "
+        << gamepad_config.ai_aim.ads_start_delay_ms
+        << ", \"start_ramp_ms\": "
+        << gamepad_config.ai_aim.ads_start_ramp_ms
+        << ", \"fallback_range_gated\": true},\n"
         << "  \"simulator\": {\"duration_ms\": " << config.duration_ms
         << ", \"scenario\": " << json_string(to_string(config.scenario_profile))
         << ", \"target_profile\": " << json_string(options.target_profile)
@@ -458,6 +575,16 @@ void write_report(
         << ", \"slowdown_center\": " << config.slowdown_center_multiplier
         << ", \"left_strafe_request\": "
         << json_string(options.left_strafe)
+        << ", \"vertical_motion_request\": "
+        << json_string(options.vertical_motion)
+        << ", \"target_motion\": "
+        << json_string(options.target_motion)
+        << ", \"player_action_cues\": "
+        << json_string(options.player_action_cues)
+        << ", \"player_motion_oracle\": "
+        << json_string(options.player_motion_oracle)
+        << ", \"player_motion_model\": "
+        << json_string(options.player_motion_model)
         << ", \"player_top_speed_px_per_second\": ["
         << kPlayerStrafeMinTopSpeedPxPerSecond << ','
         << kPlayerStrafeMaxTopSpeedPxPerSecond
@@ -497,6 +624,9 @@ void write_report(
             << ", \"cohort\": " << json_string(cohort_name(result.cohort))
             << ", \"left_strafe\": "
             << json_string(player_strafe_name(result.player_strafe_mode))
+            << ", \"vertical_motion\": "
+            << json_string(player_vertical_motion_name(
+                result.player_vertical_motion_mode))
             << ", \"script_hash\": \"" << result.script_hash << "\""
             << ", \"ticks\": " << result.ticks
             << ", \"left_strafe_active_ms\": "
@@ -510,6 +640,16 @@ void write_report(
             << result.max_sampled_player_top_speed_px_per_second
             << ", \"max_abs_player_speed_px_per_second\": "
             << result.max_abs_player_speed_px_per_second
+            << ", \"player_vertical_active_ms\": "
+            << result.player_vertical_active_ms
+            << ", \"player_slide_events\": "
+            << result.player_slide_events
+            << ", \"player_jump_events\": "
+            << result.player_jump_events
+            << ", \"max_abs_player_vertical_offset_px\": "
+            << result.max_abs_player_vertical_offset_px
+            << ", \"max_abs_player_vertical_speed_px_per_second\": "
+            << result.max_abs_player_vertical_speed_px_per_second
             << ", \"acquire_points\": " << result.acquire_points
             << ", \"tracking_points\": " << result.tracking_points
             << ", \"smooth_bonus\": " << result.smooth_bonus
@@ -560,6 +700,10 @@ void write_report(
             << ", \"max_error_px\": " << result.max_error_px
             << ", \"median_first_entry_to_settle_ms\": " << result.median_first_entry_to_settle_ms
             << ", \"p95_first_entry_to_settle_ms\": " << result.p95_first_entry_to_settle_ms
+            << ", \"median_first_assist_output_ms\": "
+            << result.median_first_assist_output_ms
+            << ", \"p95_first_assist_output_ms\": "
+            << result.p95_first_assist_output_ms
             << ", \"handoff_count\": " << result.handoff_count
             << ", \"max_handoff_residual_px\": " << result.max_handoff_residual_px
             << ", \"max_abs_handoff_closing_speed_px_per_sec\": "
@@ -611,6 +755,8 @@ void write_report(
                 << ",\"visible_radius_px\":" << target.visible_radius_px
                 << ",\"acquired\":" << (target.acquired ? "true" : "false")
                 << ",\"first_entry_ms\":" << target.first_entry_ms
+                << ",\"first_assist_output_ms\":"
+                << target.first_assist_output_ms
                 << ",\"bodylock_entry_failed\":" << (target.bodylock_entry_failed ? "true" : "false")
                 << ",\"bodylock_entry_ms\":" << target.bodylock_entry_ms
                 << ",\"bodylock_active_ms\":" << target.bodylock_active_ms
@@ -881,6 +1027,8 @@ void print_summary(const BenchmarkResult& result) {
         << " profile=" << profile_name(result.manual_profile)
         << " cohort=" << cohort_name(result.cohort)
         << " left_strafe=" << player_strafe_name(result.player_strafe_mode)
+        << " vertical_motion=" << player_vertical_motion_name(
+            result.player_vertical_motion_mode)
         << " script_hash=" << result.script_hash
         << " acquire_points=" << result.acquire_points
         << " tracking_points=" << result.tracking_points
@@ -917,6 +1065,8 @@ int main(int argc, char** argv) {
         const CliOptions options = parse_args(argc, argv);
         const RuntimeConfig runtime =
             controller_native::load_runtime_config(options.config_path);
+        const GamepadRuntimeConfig gamepad_config =
+            apply_ads_timing_profile(runtime.gamepad, options.ads_timing);
         if (options.learning_rounds > 0) {
             LearningExperimentConfig learning;
             learning.rounds = options.learning_rounds;
@@ -941,7 +1091,7 @@ int main(int argc, char** argv) {
                         ? BenchmarkIntentFusionMode::CausalVectorBaseline
                         : BenchmarkIntentFusionMode::LegacyAxis;
             const ReplayControllerFactory native_factory = make_native_factory(
-                runtime.gamepad, cohort, fusion);
+                gamepad_config, cohort, fusion);
             auto report = run_learning_experiment(
                 learning, options.seeds.front(), profile, cohort,
                 [native_factory] { return native_factory(BranchSchedule{}); });
@@ -975,9 +1125,12 @@ int main(int argc, char** argv) {
             options.scenario == "compound_directional"
             ? ScenarioProfile::CompoundDirectional
             : ScenarioProfile::Baseline;
-        benchmark_config.target_profile = options.target_profile == "small"
+        benchmark_config.target_profile =
+            options.target_profile == "small"
             ? TargetProfile::SmallVisible
-            : TargetProfile::Ordinary;
+            : options.target_profile == "near"
+                ? TargetProfile::NearCrosshair
+                : TargetProfile::Ordinary;
         benchmark_config.camera_response_px_per_stick_second =
             options.camera_response;
         benchmark_config.slowdown_edge_multiplier = options.slowdown_edge;
@@ -990,6 +1143,17 @@ int main(int argc, char** argv) {
             : 0;
         benchmark_config.obsolete_vertical_fixture =
             options.profile == "obsolete";
+        benchmark_config.target_motion_enabled =
+            options.target_motion == "moving";
+        benchmark_config.player_action_cues_enabled =
+            options.player_action_cues == "on";
+        benchmark_config.player_motion_oracle_enabled =
+            options.player_motion_oracle != "off";
+        benchmark_config.player_motion_rate_oracle_enabled =
+            options.player_motion_oracle == "full" ||
+            options.player_motion_oracle == "forecast";
+        benchmark_config.player_motion_forecast_oracle_enabled =
+            options.player_motion_oracle == "forecast";
         std::vector<ManualProfile> profiles;
         if (options.profile == "obsolete") {
             profiles.push_back(ManualProfile::ObsoleteAfterCrossing);
@@ -1007,6 +1171,27 @@ int main(int argc, char** argv) {
         if (options.left_strafe != "off") {
             player_strafe_modes.push_back(PlayerStrafeMode::FullReversal);
         }
+        std::vector<PlayerVerticalMotionMode> player_vertical_motion_modes;
+        if (options.vertical_motion == "off" ||
+            options.vertical_motion == "all") {
+            player_vertical_motion_modes.push_back(
+                PlayerVerticalMotionMode::Off);
+        }
+        if (options.vertical_motion == "slide" ||
+            options.vertical_motion == "all") {
+            player_vertical_motion_modes.push_back(
+                PlayerVerticalMotionMode::Slide);
+        }
+        if (options.vertical_motion == "jump" ||
+            options.vertical_motion == "all") {
+            player_vertical_motion_modes.push_back(
+                PlayerVerticalMotionMode::Jump);
+        }
+        if (options.vertical_motion == "random" ||
+            options.vertical_motion == "all") {
+            player_vertical_motion_modes.push_back(
+                PlayerVerticalMotionMode::Random);
+        }
         std::vector<BenchmarkResult> results;
         std::vector<CounterfactualRunSummary> counterfactual_results;
         std::vector<FusionRunSummary> fusion_results;
@@ -1022,22 +1207,37 @@ int main(int argc, char** argv) {
                 for (const BenchmarkCohort cohort : cohorts) {
                     for (const PlayerStrafeMode player_strafe_mode :
                          player_strafe_modes) {
-                        auto coverage = std::make_shared<AssistedModeCoverage>();
-                        const ReplayControllerFactory factory = make_native_factory(
-                            runtime.gamepad, cohort, intent_fusion_mode, coverage,
-                            1.0, options.tracker_velocity_alpha);
-                        ReplayReference reference = record_reference(
-                            script, profile, cohort, factory, player_strafe_mode);
-                        BenchmarkResult result = reference.benchmark_result;
-                        fusion_results.push_back(summarize_fusion(reference));
-                        if (options.smoke) {
-                            validate_smoke(
-                                result, options.duration_ms, *coverage);
+                        for (const PlayerVerticalMotionMode vertical_mode :
+                             player_vertical_motion_modes) {
+                            auto coverage =
+                                std::make_shared<AssistedModeCoverage>();
+                            const ReplayControllerFactory factory =
+                                make_native_factory(
+                                    gamepad_config, cohort,
+                                    intent_fusion_mode, coverage,
+                                    1.0, options.tracker_velocity_alpha,
+                                    options.player_motion_model == "state" ||
+                                        options.player_motion_model == "causal",
+                                    options.player_motion_model == "forecast" ||
+                                        options.player_motion_model == "causal");
+                            ReplayReference reference = record_reference(
+                                script, profile, cohort, factory,
+                                player_strafe_mode, vertical_mode);
+                            BenchmarkResult result =
+                                reference.benchmark_result;
+                            fusion_results.push_back(
+                                summarize_fusion(reference));
+                            if (options.smoke) {
+                                validate_smoke(
+                                    result, options.duration_ms, *coverage);
+                            }
+                            print_summary(result);
+                            counterfactual_results.push_back(
+                                analyze_reference(
+                                    reference, factory,
+                                    options.counterfactual));
+                            results.push_back(std::move(result));
                         }
-                        print_summary(result);
-                        counterfactual_results.push_back(analyze_reference(
-                            reference, factory, options.counterfactual));
-                        results.push_back(std::move(result));
                     }
                 }
             }
@@ -1046,6 +1246,7 @@ int main(int argc, char** argv) {
             options.output_path,
             options,
             benchmark_config,
+            gamepad_config,
             file_fingerprint(options.config_path),
             results,
             counterfactual_results,

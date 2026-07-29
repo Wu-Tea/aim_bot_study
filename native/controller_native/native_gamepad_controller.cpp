@@ -45,8 +45,6 @@ TargetCoordinatorConfig coordinator_config(const GamepadRuntimeConfig& config) {
     result.settle_radius_px = std::max(1.0f, config.ai_aim.ads_completion_radius_px);
     result.settle_frames = static_cast<std::uint32_t>(
         std::max(1, config.ai_aim.ads_completion_fresh_frames));
-    result.ads_snap_window_ms = static_cast<float>(
-        std::max(0, config.ai_aim.ads_snap_window_ms));
     result.ads_max_acquisition_ms = std::max(0.0f, config.ai_aim.ads_max_acquisition_ms);
     result.bodylock_activation_radius_px = std::max(
         result.settle_radius_px, config.ai_aim.body_lock_activation_box_px);
@@ -63,6 +61,8 @@ AdsAcquisitionControllerConfig ads_config(const GamepadRuntimeConfig& config) {
     result.arrival_horizon_seconds = std::clamp(
         static_cast<float>(config.ai_aim.ads_snap_window_ms) / 1000.0f,
         0.060f, 0.350f);
+    result.start_delay_ms = std::max(0.0f, config.ai_aim.ads_start_delay_ms);
+    result.start_ramp_ms = std::max(0.0f, config.ai_aim.ads_start_ramp_ms);
     return result;
 }
 
@@ -123,6 +123,10 @@ void NativeGamepadController::reset() {
     has_pending_snapshot_ = false;
     aiming_ = false;
     previous_aiming_ = false;
+    previous_jump_button_ = false;
+    previous_slide_button_ = false;
+    last_jump_action_seconds_ = -1.0;
+    last_slide_action_seconds_ = -1.0;
     ads_epoch_ = 0;
     legacy_vision_sequence_ = 0;
     last_tick_seconds_ = 0.0;
@@ -317,6 +321,16 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
         ? static_cast<float>(std::clamp(now - last_tick_seconds_, 0.0001, 0.05))
         : 0.001f;
     last_tick_seconds_ = now;
+    const bool jump_button = physical.a;
+    if (jump_button && !previous_jump_button_) {
+        last_jump_action_seconds_ = now;
+    }
+    previous_jump_button_ = jump_button;
+    const bool slide_button = physical.b;
+    if (slide_button && !previous_slide_button_) {
+        last_slide_action_seconds_ = now;
+    }
+    previous_slide_button_ = slide_button;
     aiming_ = aim_activation_tracker_.update(physical, config_.rb_counts_as_aiming);
     if (aiming_ && !previous_aiming_) {
         target_coordinator_.begin_ads_epoch(++ads_epoch_, now);
@@ -349,6 +363,24 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
         aim_response_before_update.scale_px_per_stick_second;
     // estimate() already blends toward its safe fallback while confidence is low.
     control_feedback.aim_response_confidence = aim_response_before_update.confidence;
+    control_feedback.player_jump_action_age_ms =
+        last_jump_action_seconds_ >= 0.0
+        ? static_cast<float>((now - last_jump_action_seconds_) * 1000.0)
+        : -1.0f;
+    control_feedback.player_slide_action_age_ms =
+        last_slide_action_seconds_ >= 0.0
+        ? static_cast<float>((now - last_slide_action_seconds_) * 1000.0)
+        : -1.0f;
+#if defined(COD_BENCHMARK_MIX_OVERRIDE)
+    control_feedback.has_player_motion_oracle =
+        benchmark_player_motion_oracle_valid_;
+    control_feedback.has_player_motion_rate_oracle =
+        benchmark_player_motion_rate_oracle_valid_;
+    control_feedback.player_error_delta_px =
+        benchmark_player_error_delta_px_;
+    control_feedback.player_error_rate_px_per_sec =
+        benchmark_player_error_rate_px_per_sec_;
+#endif
     const auto plan = target_coordinator_.update(
         observations, intent, now, control_feedback);
     last_target_plan_ = plan;
@@ -691,6 +723,24 @@ void NativeGamepadController::set_benchmark_intent_fusion_mode(
 void NativeGamepadController::set_benchmark_tracker_velocity_alpha(
     float alpha) {
     target_coordinator_.set_motion_velocity_alpha_for_benchmark(alpha);
+}
+
+void NativeGamepadController::set_benchmark_player_motion_oracle(
+    bool valid,
+    bool rate_valid,
+    pipeline_contract::Vec2f error_delta_px,
+    pipeline_contract::Vec2f error_rate_px_per_sec) noexcept {
+    benchmark_player_motion_oracle_valid_ = valid;
+    benchmark_player_motion_rate_oracle_valid_ = valid && rate_valid;
+    benchmark_player_error_delta_px_ = error_delta_px;
+    benchmark_player_error_rate_px_per_sec_ = error_rate_px_per_sec;
+}
+
+void NativeGamepadController::set_benchmark_causal_player_motion_enabled(
+    bool state_enabled,
+    bool forecast_enabled) noexcept {
+    target_coordinator_.set_causal_player_motion_enabled_for_benchmark(
+        state_enabled, forecast_enabled);
 }
 #endif
 

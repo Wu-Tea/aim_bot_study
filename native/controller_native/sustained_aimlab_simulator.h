@@ -20,6 +20,12 @@ struct ControllerObservation {
     Vec2d observed_error_px;
     Vec2d manual_stick;
     double left_x = 0.0;
+    bool jump_action = false;
+    bool slide_action = false;
+    bool player_motion_oracle = false;
+    bool player_motion_rate_oracle = false;
+    Vec2d player_error_delta_px;
+    Vec2d player_error_rate_px_per_second;
 };
 
 struct ControllerStepResult {
@@ -50,6 +56,8 @@ struct SimulationTraceFrame {
     Vec2d true_error_after_px;
     Vec2d target_velocity_px_per_second;
     double player_velocity_x_px_per_second = 0.0;
+    double player_vertical_offset_y_px = 0.0;
+    double player_vertical_velocity_y_px_per_second = 0.0;
     ControllerObservation input;
     ControllerStepResult output;
 };
@@ -66,6 +74,8 @@ BenchmarkResult run_simulation(
     ControllerStep controller_step,
     BenchmarkCohort cohort = BenchmarkCohort::AdsAcquire,
     SimulationTraceObserver trace_observer = {},
-    PlayerStrafeMode player_strafe_mode = PlayerStrafeMode::Off);
+    PlayerStrafeMode player_strafe_mode = PlayerStrafeMode::Off,
+    PlayerVerticalMotionMode player_vertical_motion_mode =
+        PlayerVerticalMotionMode::Off);
 
 }  // namespace controller_native::sustained_aimlab

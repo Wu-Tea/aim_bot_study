@@ -23,6 +23,15 @@ pipeline_contract::Vec2f BodylockFollowController::compute(
         ? std::fabs(plan.response_scale) : config_.fallback_response_px_per_stick_second;
     ResponseModelAimRequest request{};
     request.error_px = plan.error_px;
+    constexpr float kPlayerMotionForecastWeight = 0.65f;
+    request.error_px.x +=
+        plan.player_motion_forecast_px.x *
+        plan.player_motion_confidence *
+        kPlayerMotionForecastWeight;
+    request.error_px.y +=
+        plan.player_motion_forecast_px.y *
+        plan.player_motion_confidence *
+        kPlayerMotionForecastWeight;
     request.relative_velocity_px_per_sec = plan.error_rate_px_per_sec;
     request.response_px_per_stick_second = response;
     request.arrival_horizon_seconds = config_.feedback_range_x_px /
