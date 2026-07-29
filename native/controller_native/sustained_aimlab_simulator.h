@@ -20,6 +20,7 @@ struct ControllerObservation {
     Vec2d observed_error_px;
     Vec2d manual_stick;
     double left_x = 0.0;
+    bool jump_action = false;
 };
 
 struct ControllerStepResult {

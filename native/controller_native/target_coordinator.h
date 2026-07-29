@@ -25,6 +25,7 @@ struct TargetCoordinatorConfig {
     float motion_velocity_alpha = 0.2f;
     float motion_velocity_reference_interval_seconds = 0.011f;
     float jump_fall_velocity_px_per_second = 100.0f;
+    float player_jump_acceleration_model_ms = 700.0f;
     float max_authority = 1.0f;
 };
 
@@ -37,6 +38,7 @@ struct TargetControlFeedback {
     pipeline_contract::Vec2f previous_delivered_stick{};
     float aim_response_px_per_stick_second = 500.0f;
     float aim_response_confidence = 0.0f;
+    float player_jump_action_age_ms = -1.0f;
 };
 
 class TargetCoordinator {

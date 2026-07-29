@@ -107,7 +107,29 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     const float dt = last_update_seconds_ > 0.0
         ? static_cast<float>(std::clamp(now_seconds - last_update_seconds_, 0.001, 0.1))
         : 0.0f;
-    const auto predicted = dt > 0.0f ? add_scaled(position_, velocity_, dt) : position_;
+    const bool jump_acceleration_model_active =
+        feedback.player_jump_action_age_ms >= 0.0f &&
+        feedback.player_jump_action_age_ms <=
+            config_.player_jump_acceleration_model_ms;
+    const float manual_right_magnitude = std::hypot(
+        intent.filtered_right.x, intent.filtered_right.y);
+    const float manual_camera_ownership = std::max(
+        std::clamp(
+            std::max(intent.right_x.confidence,
+                     intent.right_y.confidence),
+            0.0f, 1.0f),
+        std::clamp(manual_right_magnitude / 0.12f, 0.0f, 1.0f));
+    const float jump_acceleration_authority =
+        jump_acceleration_model_active
+        ? 1.0f - manual_camera_ownership
+        : 0.0f;
+    const auto predicted = dt > 0.0f
+        ? pipeline_contract::Vec2f{
+            position_.x + velocity_.x * dt,
+            position_.y + velocity_.y * dt +
+                0.5f * acceleration_.y * dt * dt *
+                    jump_acceleration_authority}
+        : position_;
     const auto* candidate = choose_candidate(observations, predicted);
 
     if (observations.has_control_response_hint) {
@@ -208,6 +230,12 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         const float missing_ms = static_cast<float>((now_seconds - last_observed_seconds_) * 1000.0);
         if (missing_ms <= config_.hold_ms) {
             position_ = predicted;
+            if (jump_acceleration_authority > 0.0f && dt > 0.0f) {
+                velocity_.y = std::clamp(
+                    velocity_.y + acceleration_.y * dt *
+                        jump_acceleration_authority,
+                    -4000.0f, 4000.0f);
+            }
             if (observations.capture_fresh) {
                 fire_requested_ = false;
                 observed_fire_eligible_ = false;

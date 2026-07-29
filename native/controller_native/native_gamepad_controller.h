@@ -122,6 +122,8 @@ private:
     bool has_pending_snapshot_ = false;
     bool aiming_ = false;
     bool previous_aiming_ = false;
+    bool previous_jump_button_ = false;
+    double last_jump_action_seconds_ = -1.0;
     std::uint64_t ads_epoch_ = 0;
     std::uint64_t legacy_vision_sequence_ = 0;
     double last_tick_seconds_ = 0.0;

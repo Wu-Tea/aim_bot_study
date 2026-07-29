@@ -306,6 +306,13 @@ BenchmarkResult run_simulation(
                         target.player_vertical.jump_onset_ms) {
                     ++player_jump_events;
                 }
+                input.jump_action =
+                    script.config.player_action_cues_enabled &&
+                    selected_vertical == PlayerVerticalMotionMode::Jump &&
+                    player_motion_elapsed_ms >=
+                        target.player_vertical.jump_onset_ms &&
+                    player_motion_elapsed_ms <
+                        target.player_vertical.jump_onset_ms + 30;
             }
             if (manual_profile == ManualProfile::Mixed &&
                 (cohort != BenchmarkCohort::BodyLockFollow || tracking)) {

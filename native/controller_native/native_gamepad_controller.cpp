@@ -123,6 +123,8 @@ void NativeGamepadController::reset() {
     has_pending_snapshot_ = false;
     aiming_ = false;
     previous_aiming_ = false;
+    previous_jump_button_ = false;
+    last_jump_action_seconds_ = -1.0;
     ads_epoch_ = 0;
     legacy_vision_sequence_ = 0;
     last_tick_seconds_ = 0.0;
@@ -317,6 +319,11 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
         ? static_cast<float>(std::clamp(now - last_tick_seconds_, 0.0001, 0.05))
         : 0.001f;
     last_tick_seconds_ = now;
+    const bool jump_button = physical.a;
+    if (jump_button && !previous_jump_button_) {
+        last_jump_action_seconds_ = now;
+    }
+    previous_jump_button_ = jump_button;
     aiming_ = aim_activation_tracker_.update(physical, config_.rb_counts_as_aiming);
     if (aiming_ && !previous_aiming_) {
         target_coordinator_.begin_ads_epoch(++ads_epoch_, now);
@@ -349,6 +356,10 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
         aim_response_before_update.scale_px_per_stick_second;
     // estimate() already blends toward its safe fallback while confidence is low.
     control_feedback.aim_response_confidence = aim_response_before_update.confidence;
+    control_feedback.player_jump_action_age_ms =
+        last_jump_action_seconds_ >= 0.0
+        ? static_cast<float>((now - last_jump_action_seconds_) * 1000.0)
+        : -1.0f;
     const auto plan = target_coordinator_.update(
         observations, intent, now, control_feedback);
     last_target_plan_ = plan;

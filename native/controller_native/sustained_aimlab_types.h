@@ -146,6 +146,7 @@ struct BenchmarkConfig {
     bool obsolete_vertical_fixture = false;
     int short_occlusion_duration_ms = 0;
     bool target_motion_enabled = true;
+    bool player_action_cues_enabled = true;
 };
 
 struct VelocityManeuver {

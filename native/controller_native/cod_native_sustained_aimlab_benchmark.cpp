@@ -57,6 +57,7 @@ struct CliOptions {
     std::string left_strafe = "off";
     std::string vertical_motion = "off";
     std::string target_motion = "moving";
+    std::string player_action_cues = "on";
     std::string ads_timing = "config";
     int learning_rounds = 0;
     int learning_delay_ms = 45;
@@ -162,6 +163,8 @@ CliOptions parse_args(int argc, char** argv) {
             options.vertical_motion = argv[++index];
         } else if (argument == "--target-motion" && index + 1 < argc) {
             options.target_motion = argv[++index];
+        } else if (argument == "--player-action-cues" && index + 1 < argc) {
+            options.player_action_cues = argv[++index];
         } else if (argument == "--ads-timing" && index + 1 < argc) {
             options.ads_timing = argv[++index];
         } else if (argument == "--learning-rounds" && index + 1 < argc) {
@@ -188,6 +191,7 @@ CliOptions parse_args(int argc, char** argv) {
                 << "[--left-strafe off|full-reversal|both] "
                 << "[--vertical-motion off|slide|jump|random|all] "
                 << "[--target-motion stationary|moving] "
+                << "[--player-action-cues on|off] "
                 << "[--ads-timing config|coupled|decoupled160|decoupled180|"
                    "decoupled200|decoupled|hard30|ramp30|hard30-160|ramp30-160] "
                 << "[--learning-rounds N --learning-delay-ms N "
@@ -261,6 +265,11 @@ CliOptions parse_args(int argc, char** argv) {
         options.target_motion != "moving") {
         throw std::runtime_error(
             "target motion must be stationary or moving");
+    }
+    if (options.player_action_cues != "on" &&
+        options.player_action_cues != "off") {
+        throw std::runtime_error(
+            "player action cues must be on or off");
     }
     if (options.ads_timing != "config" &&
         options.ads_timing != "coupled" &&
@@ -546,6 +555,8 @@ void write_report(
         << json_string(options.vertical_motion)
         << ", \"target_motion\": "
         << json_string(options.target_motion)
+        << ", \"player_action_cues\": "
+        << json_string(options.player_action_cues)
         << ", \"player_top_speed_px_per_second\": ["
         << kPlayerStrafeMinTopSpeedPxPerSecond << ','
         << kPlayerStrafeMaxTopSpeedPxPerSecond
@@ -1106,6 +1117,8 @@ int main(int argc, char** argv) {
             options.profile == "obsolete";
         benchmark_config.target_motion_enabled =
             options.target_motion == "moving";
+        benchmark_config.player_action_cues_enabled =
+            options.player_action_cues == "on";
         std::vector<ManualProfile> profiles;
         if (options.profile == "obsolete") {
             profiles.push_back(ManualProfile::ObsoleteAfterCrossing);

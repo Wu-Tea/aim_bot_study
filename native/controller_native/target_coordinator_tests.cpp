@@ -101,6 +101,46 @@ void test_motion_labels_jump_then_fall() {
                  "persistent downward image motion must classify fall");
 }
 
+void test_jump_cue_adds_causal_vertical_acceleration_projection() {
+    auto prepare = [](controller_native::TargetCoordinator& coordinator) {
+        coordinator.update(
+            frame(1, 1.00, 1, 240.0f, 220.0f),
+            ads_intent(1.00), 1.00);
+        coordinator.update(
+            frame(2, 1.01, 1, 240.0f, 210.0f),
+            ads_intent(1.01), 1.01);
+    };
+    pipeline_contract::VisionObservationBatch missing{};
+    missing.frame_width_px = 480.0f;
+    missing.frame_height_px = 416.0f;
+
+    controller_native::TargetCoordinator baseline;
+    controller_native::TargetCoordinator jump_model;
+    controller_native::TargetCoordinator manual_owned;
+    prepare(baseline);
+    prepare(jump_model);
+    prepare(manual_owned);
+
+    controller_native::TargetControlFeedback jump_feedback{};
+    jump_feedback.player_jump_action_age_ms = 100.0f;
+    const auto baseline_plan = baseline.update(
+        missing, ads_intent(1.02), 1.02);
+    const auto jump_plan = jump_model.update(
+        missing, ads_intent(1.02), 1.02, jump_feedback);
+    require_true(
+        jump_plan.error_px.y < baseline_plan.error_px.y - 0.5f,
+        "jump cue must integrate measured vertical acceleration between vision frames");
+
+    auto manual_intent = ads_intent(1.02);
+    manual_intent.filtered_right.y = 0.20f;
+    manual_intent.right_y.confidence = 1.0f;
+    const auto manual_plan = manual_owned.update(
+        missing, manual_intent, 1.02, jump_feedback);
+    require_true(
+        std::fabs(manual_plan.error_px.y - baseline_plan.error_px.y) < 0.1f,
+        "manual camera ownership must suppress duplicate jump extrapolation");
+}
+
 void test_ads_handoff_waits_for_settle() {
     controller_native::TargetCoordinator coordinator;
     auto plan = coordinator.update(frame(1, 0.00, 1, 340.0f, 208.0f), ads_intent(0.00), 0.00);
@@ -481,6 +521,7 @@ int main() {
         test_single_owner_coasts_and_reacquires_same_identity();
         test_hold_expires_to_safe_manual_plan();
         test_motion_labels_jump_then_fall();
+        test_jump_cue_adds_causal_vertical_acceleration_projection();
         test_ads_handoff_waits_for_settle();
         test_bodylock_cannot_rearm_ads_within_one_held_epoch();
         test_ads_ownership_ceiling_is_independent_from_arrival_horizon();
