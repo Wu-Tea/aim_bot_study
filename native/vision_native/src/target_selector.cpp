@@ -34,7 +34,6 @@ constexpr float kMaxJumpXRatio = 180.0f / 640.0f;
 constexpr float kMaxJumpYRatio = 180.0f / 640.0f;
 constexpr float kDistanceScoreScale = 800.0f;
 constexpr float kTargetHeightScoreScale = 800.0f;
-constexpr float kTargetHeightDistanceCompensationPx = 160.0f;
 constexpr float kTrackingRadiusRatio = 120.0f / 640.0f;
 constexpr float kMaxSmoothingJumpRatio = 24.0f / 640.0f;
 constexpr float kPickupConfirmRadiusRatio = 32.0f / 640.0f;
@@ -1095,18 +1094,12 @@ bool VisionTargetSelector::prefer_candidate(
     if (!current.has_value()) {
         return true;
     }
-    const float current_height_ratio = rect_height(current->candidate.body_box) /
-        std::max(1.0f, static_cast<float>(frame_height_));
-    const float challenger_height_ratio = rect_height(challenger.candidate.body_box) /
-        std::max(1.0f, static_cast<float>(frame_height_));
     const float current_effective_distance = crosshair_distance(
         current->candidate.target_x,
-        current->candidate.target_y) -
-        current_height_ratio * kTargetHeightDistanceCompensationPx;
+        current->candidate.target_y);
     const float challenger_effective_distance = crosshair_distance(
         challenger.candidate.target_x,
-        challenger.candidate.target_y) -
-        challenger_height_ratio * kTargetHeightDistanceCompensationPx;
+        challenger.candidate.target_y);
 
     if (challenger_effective_distance <
         (current_effective_distance - crosshair_priority_margin_)) {

@@ -171,6 +171,21 @@ void test_full_speed_strafe_schedule_is_seeded_and_bounded() {
     }
 }
 
+void test_near_crosshair_profile_bounds_initial_error() {
+    BenchmarkConfig config;
+    config.target_profile = TargetProfile::NearCrosshair;
+    const auto script =
+        controller_native::sustained_aimlab::generate_script(2026072904u, config);
+    for (const auto& target : script.targets) {
+        const double distance = std::hypot(
+            target.initial_error_px.x, target.initial_error_px.y);
+        require(distance >= 8.0 && distance <= 40.0,
+                "near-crosshair profile must isolate terminal positioning");
+        require(target.visible_radius_px == config.target_radius_px,
+                "near-crosshair profile must retain ordinary target size");
+    }
+}
+
 void test_vertical_motion_schedule_is_seeded_and_bounded() {
     BenchmarkConfig config;
     config.duration_ms = 3'000;
@@ -595,6 +610,7 @@ int main() {
         test_defaults_and_slowdown_anchor_points();
         test_seeded_generation_is_reproducible_and_complete();
         test_script_hash_includes_control_response_delay();
+        test_near_crosshair_profile_bounds_initial_error();
         test_full_speed_strafe_schedule_is_seeded_and_bounded();
         test_vertical_motion_schedule_is_seeded_and_bounded();
         test_vertical_motion_shapes_cover_slide_recovery_and_jump();

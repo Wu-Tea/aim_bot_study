@@ -157,7 +157,7 @@ void test_ads_ownership_ceiling_is_independent_from_arrival_horizon() {
                  "ADS fallback time must hand off a target inside BodyLock range");
 }
 
-void test_ads_timed_fallback_rejects_large_residual_error() {
+void test_ads_timed_fallback_consumes_snap_without_far_bodylock_pull() {
     controller_native::TargetCoordinatorConfig config{};
     config.ads_max_acquisition_ms = 20.0f;
     config.bodylock_activation_radius_px = 80.0f;
@@ -166,8 +166,10 @@ void test_ads_timed_fallback_rejects_large_residual_error() {
     coordinator.begin_ads_epoch(1, 0.0);
     const auto plan = coordinator.update(
         frame(1, 0.050, 1, 340.0f, 208.0f), ads_intent(0.050), 0.050);
-    require_true(plan.mode == pipeline_contract::ControlMode::AdsAcquire,
-                 "timed fallback must not hand a large residual to BodyLock");
+    require_true(plan.mode == pipeline_contract::ControlMode::BodyLockFollow,
+                 "ADS snap must be permanently consumed at its total deadline");
+    require_true(plan.aim_authority == 0.0f,
+                 "far residual must remain manual until it enters BodyLock range");
 }
 
 void test_ads_handoff_rejects_a_predicted_high_speed_crossing() {
@@ -482,7 +484,7 @@ int main() {
         test_ads_handoff_waits_for_settle();
         test_bodylock_cannot_rearm_ads_within_one_held_epoch();
         test_ads_ownership_ceiling_is_independent_from_arrival_horizon();
-        test_ads_timed_fallback_rejects_large_residual_error();
+        test_ads_timed_fallback_consumes_snap_without_far_bodylock_pull();
         test_ads_handoff_rejects_a_predicted_high_speed_crossing();
         test_ads_handoff_accepts_stable_in_radius_capture();
         test_ads_handoff_allows_tangential_target_motion();

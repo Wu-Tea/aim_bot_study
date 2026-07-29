@@ -176,7 +176,7 @@ CliOptions parse_args(int argc, char** argv) {
                 << "[--config PATH] [--seed N ...] [--profile pure|mixed|both] "
                 << "[--cohort ads|bodylock|both] "
                 << "[--scenario baseline|compound_directional] "
-                << "[--target-profile ordinary|small] [--camera-response PX] "
+                << "[--target-profile ordinary|small|near] [--camera-response PX] "
                 << "[--slowdown-edge N] [--slowdown-center N] "
                 << "[--short-occlusion-ms 0|24|36|48] "
                 << "[--vision-hz 0|1..1000] "
@@ -220,8 +220,10 @@ CliOptions parse_args(int argc, char** argv) {
             "scenario must be baseline or compound_directional");
     }
     if (options.target_profile != "ordinary" &&
-        options.target_profile != "small") {
-        throw std::runtime_error("target profile must be ordinary or small");
+        options.target_profile != "small" &&
+        options.target_profile != "near") {
+        throw std::runtime_error(
+            "target profile must be ordinary, small, or near");
     }
     if (options.counterfactual != "off" &&
         options.counterfactual != "quick" &&
@@ -1084,9 +1086,12 @@ int main(int argc, char** argv) {
             options.scenario == "compound_directional"
             ? ScenarioProfile::CompoundDirectional
             : ScenarioProfile::Baseline;
-        benchmark_config.target_profile = options.target_profile == "small"
+        benchmark_config.target_profile =
+            options.target_profile == "small"
             ? TargetProfile::SmallVisible
-            : TargetProfile::Ordinary;
+            : options.target_profile == "near"
+                ? TargetProfile::NearCrosshair
+                : TargetProfile::Ordinary;
         benchmark_config.camera_response_px_per_stick_second =
             options.camera_response;
         benchmark_config.slowdown_edge_multiplier = options.slowdown_edge;

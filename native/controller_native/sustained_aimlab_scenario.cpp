@@ -181,6 +181,7 @@ ScenarioScript generate_script(
     std::mt19937 random(seed);
     std::uniform_real_distribution<double> angle_distribution(0.0, 2.0 * kPi);
     std::uniform_real_distribution<double> distance_distribution(48.0, 140.0);
+    std::uniform_real_distribution<double> near_distance_distribution(8.0, 40.0);
     std::uniform_real_distribution<double> speed_distribution(80.0, 160.0);
     std::uniform_real_distribution<double> acceleration_distribution(60.0, 160.0);
     std::uniform_real_distribution<double> jump_speed_distribution(160.0, 240.0);
@@ -269,7 +270,10 @@ ScenarioScript generate_script(
             ? MotionProfile::CompoundDirectional
             : static_cast<MotionProfile>((profile_offset + index) % 7);
         const double angle = angle_distribution(random);
-        const double distance = distance_distribution(random);
+        const double distance =
+            config.target_profile == TargetProfile::NearCrosshair
+            ? near_distance_distribution(random)
+            : distance_distribution(random);
         target.initial_error_px = scaled(direction_from_angle(angle), distance);
         if (config.obsolete_vertical_fixture) {
             target.initial_error_px = {

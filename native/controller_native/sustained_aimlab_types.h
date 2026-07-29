@@ -40,6 +40,7 @@ enum class BenchmarkCohort : std::uint8_t {
 enum class TargetProfile : std::uint8_t {
     Ordinary,
     SmallVisible,
+    NearCrosshair,
 };
 
 enum class PlayerStrafeMode : std::uint8_t {

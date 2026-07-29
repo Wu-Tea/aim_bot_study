@@ -298,9 +298,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         ads_snap_consumed_ = false;
     } else if (control_mode_ == pipeline_contract::ControlMode::BodyLockFollow) {
         ads_snap_consumed_ = true;
-    } else if (ads_snap_consumed_ ||
-               (acquisition_ceiling_elapsed &&
-                error_length <= config_.bodylock_activation_radius_px) ||
+    } else if (ads_snap_consumed_ || acquisition_ceiling_elapsed ||
                settled_frames_ >= config_.settle_frames) {
         control_mode_ = pipeline_contract::ControlMode::BodyLockFollow;
         ads_snap_consumed_ = true;
@@ -311,7 +309,12 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     plan.ads_demand = std::clamp(error_length / 130.0f, 0.0f, 1.0f);
     plan.bodylock_demand = std::clamp(
         std::max(error_length / 40.0f, length(velocity_) / 600.0f), 0.0f, 1.0f);
-    plan.aim_authority = plan.mode == pipeline_contract::ControlMode::Manual
+    const bool bodylock_outside_activation_range =
+        plan.mode == pipeline_contract::ControlMode::BodyLockFollow &&
+        error_length > config_.bodylock_activation_radius_px;
+    plan.aim_authority =
+        plan.mode == pipeline_contract::ControlMode::Manual ||
+            bodylock_outside_activation_range
         ? 0.0f
         : std::min(config_.max_authority, reliability);
     const auto response = response_estimator_.estimate();
