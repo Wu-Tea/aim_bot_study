@@ -79,6 +79,11 @@ public:
     void set_benchmark_mix_transform(BenchmarkMixTransform transform);
     void set_benchmark_intent_fusion_mode(BenchmarkIntentFusionMode mode);
     void set_benchmark_tracker_velocity_alpha(float alpha);
+    void set_benchmark_player_motion_oracle(
+        bool valid,
+        bool rate_valid,
+        pipeline_contract::Vec2f error_delta_px,
+        pipeline_contract::Vec2f error_rate_px_per_sec) noexcept;
 #endif
 
 private:
@@ -145,6 +150,10 @@ private:
     BenchmarkMixTransform benchmark_mix_transform_;
     BenchmarkIntentFusionMode benchmark_intent_fusion_mode_ =
         BenchmarkIntentFusionMode::LegacyAxis;
+    bool benchmark_player_motion_oracle_valid_ = false;
+    bool benchmark_player_motion_rate_oracle_valid_ = false;
+    pipeline_contract::Vec2f benchmark_player_error_delta_px_{};
+    pipeline_contract::Vec2f benchmark_player_error_rate_px_per_sec_{};
 #endif
 };
 

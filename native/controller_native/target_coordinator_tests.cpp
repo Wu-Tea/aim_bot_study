@@ -141,6 +141,39 @@ void test_jump_cue_adds_causal_vertical_acceleration_projection() {
         "manual camera ownership must suppress duplicate jump extrapolation");
 }
 
+void test_player_motion_oracle_separates_realized_camera_error() {
+    controller_native::TargetCoordinator baseline;
+    controller_native::TargetCoordinator oracle;
+    baseline.update(
+        frame(1, 1.00, 1, 240.0f, 220.0f),
+        ads_intent(1.00), 1.00);
+    oracle.update(
+        frame(1, 1.00, 1, 240.0f, 220.0f),
+        ads_intent(1.00), 1.00);
+
+    pipeline_contract::VisionObservationBatch missing{};
+    missing.frame_width_px = 480.0f;
+    missing.frame_height_px = 416.0f;
+    controller_native::TargetControlFeedback feedback{};
+    feedback.has_player_motion_oracle = true;
+    feedback.has_player_motion_rate_oracle = true;
+    feedback.player_error_delta_px = {0.0f, -4.0f};
+    feedback.player_error_rate_px_per_sec = {0.0f, -400.0f};
+
+    const auto baseline_plan = baseline.update(
+        missing, ads_intent(1.01), 1.01);
+    const auto oracle_plan = oracle.update(
+        missing, ads_intent(1.01), 1.01, feedback);
+    require_true(
+        std::fabs(
+            oracle_plan.error_px.y -
+            (baseline_plan.error_px.y - 4.0f)) < 0.01f,
+        "oracle must apply the exact realized player-motion error delta");
+    require_true(
+        std::fabs(oracle_plan.error_rate_px_per_sec.y + 400.0f) < 0.01f,
+        "oracle must expose player-motion rate to the control horizon");
+}
+
 void test_ads_handoff_waits_for_settle() {
     controller_native::TargetCoordinator coordinator;
     auto plan = coordinator.update(frame(1, 0.00, 1, 340.0f, 208.0f), ads_intent(0.00), 0.00);
@@ -522,6 +555,7 @@ int main() {
         test_hold_expires_to_safe_manual_plan();
         test_motion_labels_jump_then_fall();
         test_jump_cue_adds_causal_vertical_acceleration_projection();
+        test_player_motion_oracle_separates_realized_camera_error();
         test_ads_handoff_waits_for_settle();
         test_bodylock_cannot_rearm_ads_within_one_held_epoch();
         test_ads_ownership_ceiling_is_independent_from_arrival_horizon();

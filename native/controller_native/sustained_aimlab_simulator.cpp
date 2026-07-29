@@ -126,6 +126,8 @@ BenchmarkResult run_simulation(
     double max_sampled_player_top_speed_px_per_second = 0.0;
     double max_abs_player_speed_px_per_second = 0.0;
     double player_vertical_offset_y_px = 0.0;
+    Vec2d last_player_error_delta_px;
+    double last_player_vertical_velocity_y_px_per_second = 0.0;
     int player_vertical_active_ms = 0;
     int player_slide_events = 0;
     int player_jump_events = 0;
@@ -172,6 +174,8 @@ BenchmarkResult run_simulation(
         target_velocity = target.initial_velocity_px_per_second;
         player_velocity_x_px_per_second = 0.0;
         player_vertical_offset_y_px = 0.0;
+        last_player_error_delta_px = {};
+        last_player_vertical_velocity_y_px_per_second = 0.0;
         if (player_strafe_mode == PlayerStrafeMode::FullReversal) {
             min_sampled_player_top_speed_px_per_second = std::min(
                 min_sampled_player_top_speed_px_per_second,
@@ -269,6 +273,15 @@ BenchmarkResult run_simulation(
             }
             input.frame_id = frame_id;
             input.observed_error_px = carried_observation;
+            input.player_motion_oracle =
+                script.config.player_motion_oracle_enabled;
+            input.player_motion_rate_oracle =
+                script.config.player_motion_rate_oracle_enabled;
+            input.player_error_delta_px = last_player_error_delta_px;
+            input.player_error_rate_px_per_second = {
+                -player_velocity_x_px_per_second,
+                last_player_vertical_velocity_y_px_per_second,
+            };
             player_motion_elapsed_ms =
                 cohort == BenchmarkCohort::BodyLockFollow
                 ? (tracking ? tracking_ticks : -1)
@@ -313,6 +326,46 @@ BenchmarkResult run_simulation(
                         target.player_vertical.jump_onset_ms &&
                     player_motion_elapsed_ms <
                         target.player_vertical.jump_onset_ms + 30;
+                if (script.config.player_motion_forecast_oracle_enabled) {
+                    constexpr int kForecastHorizonMs = 32;
+                    double forecast_velocity =
+                        player_velocity_x_px_per_second;
+                    double forecast_error_x_px = 0.0;
+                    const double time_constant_seconds =
+                        target.player_strafe.time_constant_ms / 1000.0;
+                    const double player_alpha =
+                        time_constant_seconds > 0.0
+                        ? 1.0 - std::exp(
+                            -0.001 / time_constant_seconds)
+                        : 1.0;
+                    for (int step = 0; step < kForecastHorizonMs; ++step) {
+                        const double future_left = left_strafe_input(
+                            target.player_strafe,
+                            player_motion_elapsed_ms + step,
+                            player_strafe_mode);
+                        const double desired_velocity =
+                            future_left *
+                            target.player_strafe
+                                .top_speed_px_per_second;
+                        forecast_velocity += player_alpha *
+                            (desired_velocity - forecast_velocity);
+                        forecast_error_x_px -=
+                            forecast_velocity * 0.001;
+                    }
+                    const double future_vertical_offset =
+                        player_vertical_error_offset_y_px(
+                            target.player_vertical,
+                            player_motion_elapsed_ms +
+                                kForecastHorizonMs - 1,
+                            player_vertical_motion_mode);
+                    input.player_error_rate_px_per_second = {
+                        forecast_error_x_px * 1000.0 /
+                            kForecastHorizonMs,
+                        (future_vertical_offset -
+                            player_vertical_offset_y_px) *
+                            1000.0 / kForecastHorizonMs,
+                    };
+                }
             }
             if (manual_profile == ManualProfile::Mixed &&
                 (cohort != BenchmarkCohort::BodyLockFollow || tracking)) {
@@ -426,6 +479,12 @@ BenchmarkResult run_simulation(
                 max_abs_player_vertical_speed_px_per_second,
                 std::fabs(vertical_delta) * 1000.0);
             player_vertical_offset_y_px = next_vertical_offset_y_px;
+            last_player_error_delta_px = {
+                -player_velocity_x_px_per_second * 0.001,
+                vertical_delta,
+            };
+            last_player_vertical_velocity_y_px_per_second =
+                vertical_delta * 1000.0;
             const double response =
                 script.config.camera_response_px_per_stick_second *
                 aim_slowdown_multiplier(

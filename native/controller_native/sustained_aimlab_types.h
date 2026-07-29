@@ -147,6 +147,9 @@ struct BenchmarkConfig {
     int short_occlusion_duration_ms = 0;
     bool target_motion_enabled = true;
     bool player_action_cues_enabled = true;
+    bool player_motion_oracle_enabled = false;
+    bool player_motion_rate_oracle_enabled = false;
+    bool player_motion_forecast_oracle_enabled = false;
 };
 
 struct VelocityManeuver {

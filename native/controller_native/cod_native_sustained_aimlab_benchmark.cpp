@@ -58,6 +58,7 @@ struct CliOptions {
     std::string vertical_motion = "off";
     std::string target_motion = "moving";
     std::string player_action_cues = "on";
+    std::string player_motion_oracle = "off";
     std::string ads_timing = "config";
     int learning_rounds = 0;
     int learning_delay_ms = 45;
@@ -165,6 +166,9 @@ CliOptions parse_args(int argc, char** argv) {
             options.target_motion = argv[++index];
         } else if (argument == "--player-action-cues" && index + 1 < argc) {
             options.player_action_cues = argv[++index];
+        } else if (
+            argument == "--player-motion-oracle" && index + 1 < argc) {
+            options.player_motion_oracle = argv[++index];
         } else if (argument == "--ads-timing" && index + 1 < argc) {
             options.ads_timing = argv[++index];
         } else if (argument == "--learning-rounds" && index + 1 < argc) {
@@ -192,6 +196,7 @@ CliOptions parse_args(int argc, char** argv) {
                 << "[--vertical-motion off|slide|jump|random|all] "
                 << "[--target-motion stationary|moving] "
                 << "[--player-action-cues on|off] "
+                << "[--player-motion-oracle off|state|full|forecast] "
                 << "[--ads-timing config|coupled|decoupled160|decoupled180|"
                    "decoupled200|decoupled|hard30|ramp30|hard30-160|ramp30-160] "
                 << "[--learning-rounds N --learning-delay-ms N "
@@ -270,6 +275,13 @@ CliOptions parse_args(int argc, char** argv) {
         options.player_action_cues != "off") {
         throw std::runtime_error(
             "player action cues must be on or off");
+    }
+    if (options.player_motion_oracle != "off" &&
+        options.player_motion_oracle != "state" &&
+        options.player_motion_oracle != "full" &&
+        options.player_motion_oracle != "forecast") {
+        throw std::runtime_error(
+            "player motion oracle must be off, state, full, or forecast");
     }
     if (options.ads_timing != "config" &&
         options.ads_timing != "coupled" &&
@@ -557,6 +569,8 @@ void write_report(
         << json_string(options.target_motion)
         << ", \"player_action_cues\": "
         << json_string(options.player_action_cues)
+        << ", \"player_motion_oracle\": "
+        << json_string(options.player_motion_oracle)
         << ", \"player_top_speed_px_per_second\": ["
         << kPlayerStrafeMinTopSpeedPxPerSecond << ','
         << kPlayerStrafeMaxTopSpeedPxPerSecond
@@ -1119,6 +1133,13 @@ int main(int argc, char** argv) {
             options.target_motion == "moving";
         benchmark_config.player_action_cues_enabled =
             options.player_action_cues == "on";
+        benchmark_config.player_motion_oracle_enabled =
+            options.player_motion_oracle != "off";
+        benchmark_config.player_motion_rate_oracle_enabled =
+            options.player_motion_oracle == "full" ||
+            options.player_motion_oracle == "forecast";
+        benchmark_config.player_motion_forecast_oracle_enabled =
+            options.player_motion_oracle == "forecast";
         std::vector<ManualProfile> profiles;
         if (options.profile == "obsolete") {
             profiles.push_back(ManualProfile::ObsoleteAfterCrossing);

@@ -107,7 +107,17 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     const float dt = last_update_seconds_ > 0.0
         ? static_cast<float>(std::clamp(now_seconds - last_update_seconds_, 0.001, 0.1))
         : 0.0f;
+    const bool player_motion_oracle =
+        feedback.has_player_motion_oracle &&
+        std::isfinite(feedback.player_error_delta_px.x) &&
+        std::isfinite(feedback.player_error_delta_px.y) &&
+        std::isfinite(feedback.player_error_rate_px_per_sec.x) &&
+        std::isfinite(feedback.player_error_rate_px_per_sec.y);
+    const bool player_motion_rate_oracle =
+        player_motion_oracle &&
+        feedback.has_player_motion_rate_oracle;
     const bool jump_acceleration_model_active =
+        !player_motion_oracle &&
         feedback.player_jump_action_age_ms >= 0.0f &&
         feedback.player_jump_action_age_ms <=
             config_.player_jump_acceleration_model_ms;
@@ -123,13 +133,17 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         jump_acceleration_model_active
         ? 1.0f - manual_camera_ownership
         : 0.0f;
-    const auto predicted = dt > 0.0f
+    auto predicted = dt > 0.0f
         ? pipeline_contract::Vec2f{
             position_.x + velocity_.x * dt,
             position_.y + velocity_.y * dt +
                 0.5f * acceleration_.y * dt * dt *
                     jump_acceleration_authority}
         : position_;
+    if (player_motion_oracle && dt > 0.0f) {
+        predicted.x += feedback.player_error_delta_px.x;
+        predicted.y += feedback.player_error_delta_px.y;
+    }
     const auto* candidate = choose_candidate(observations, predicted);
 
     if (observations.has_control_response_hint) {
@@ -269,9 +283,15 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     plan.target_id = target_id_;
     plan.lifecycle = lifecycle;
     plan.aim_px = position_;
-    plan.predicted_aim_px = add_scaled(position_, velocity_, 0.032f);
     plan.error_px = subtract(position_, center);
-    plan.velocity_px_per_sec = velocity_;
+    const pipeline_contract::Vec2f screen_velocity =
+        player_motion_rate_oracle
+        ? pipeline_contract::Vec2f{
+            velocity_.x + feedback.player_error_rate_px_per_sec.x,
+            velocity_.y + feedback.player_error_rate_px_per_sec.y}
+        : velocity_;
+    plan.predicted_aim_px = add_scaled(position_, screen_velocity, 0.032f);
+    plan.velocity_px_per_sec = screen_velocity;
     plan.acceleration_px_per_sec2 = acceleration_;
     plan.observation_age_ms = static_cast<float>((now_seconds - last_observed_seconds_) * 1000.0);
     plan.confidence = reliability;
@@ -288,10 +308,12 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     const float response_scale = std::max(
         0.0f, feedback.aim_response_px_per_stick_second);
     const pipeline_contract::Vec2f residual_error_rate = observed_frames_ >= 2
-        ? velocity_
+        ? screen_velocity
         : pipeline_contract::Vec2f{
-            velocity_.x - feedback.previous_delivered_stick.x * response_scale,
-            velocity_.y + feedback.previous_delivered_stick.y * response_scale,
+            screen_velocity.x -
+                feedback.previous_delivered_stick.x * response_scale,
+            screen_velocity.y +
+                feedback.previous_delivered_stick.y * response_scale,
         };
     plan.predicted_terminal_error_px = add_scaled(
         plan.error_px, residual_error_rate, config_.handoff_prediction_seconds);
@@ -304,7 +326,8 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
            plan.predicted_terminal_error_px.y * plan.error_px.y) / error_length
         : 0.0f;
     const float capture_radius = config_.settle_radius_px *
-        (1.0f + 2.0f * std::clamp(length(velocity_) / 120.0f, 0.0f, 1.0f));
+        (1.0f + 2.0f *
+            std::clamp(length(screen_velocity) / 120.0f, 0.0f, 1.0f));
     const bool inside_capture_set =
         error_length <= capture_radius &&
         std::fabs(predicted_radial_error) <= capture_radius &&
@@ -336,7 +359,10 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     plan.mode = control_mode_;
     plan.ads_demand = std::clamp(error_length / 130.0f, 0.0f, 1.0f);
     plan.bodylock_demand = std::clamp(
-        std::max(error_length / 40.0f, length(velocity_) / 600.0f), 0.0f, 1.0f);
+        std::max(
+            error_length / 40.0f,
+            length(screen_velocity) / 600.0f),
+        0.0f, 1.0f);
     const bool bodylock_outside_activation_range =
         plan.mode == pipeline_contract::ControlMode::BodyLockFollow &&
         error_length > config_.bodylock_activation_radius_px;
@@ -352,14 +378,20 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         50.0f, feedback.aim_response_px_per_stick_second);
     plan.response_confidence = std::clamp(
         feedback.aim_response_confidence, 0.0f, 1.0f);
-    plan.error_rate_px_per_sec = velocity_;
-    plan.error_rate_px_per_sec.x += response.scale_px_per_stick_second *
-        response.confidence * intent.filtered_left.x * intent.left_confidence;
-    if (velocity_.y < -config_.jump_fall_velocity_px_per_second) {
+    plan.error_rate_px_per_sec = screen_velocity;
+    if (!player_motion_rate_oracle) {
+        plan.error_rate_px_per_sec.x +=
+            response.scale_px_per_stick_second *
+            response.confidence * intent.filtered_left.x *
+            intent.left_confidence;
+    }
+    if (screen_velocity.y < -config_.jump_fall_velocity_px_per_second) {
         plan.motion = pipeline_contract::TargetMotion::Jump;
-    } else if (velocity_.y > config_.jump_fall_velocity_px_per_second) {
+    } else if (screen_velocity.y > config_.jump_fall_velocity_px_per_second) {
         plan.motion = pipeline_contract::TargetMotion::Fall;
-    } else if (std::fabs(velocity_.x) > config_.jump_fall_velocity_px_per_second) {
+    } else if (
+        std::fabs(screen_velocity.x) >
+        config_.jump_fall_velocity_px_per_second) {
         plan.motion = pipeline_contract::TargetMotion::Strafe;
     } else {
         plan.motion = pipeline_contract::TargetMotion::Steady;
@@ -372,7 +404,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
             ? pipeline_contract::FireSuppressionReason::Stale
             : error_length > 6.0f
                 ? pipeline_contract::FireSuppressionReason::LargeError
-                : length(velocity_) > 120.0f
+                : length(screen_velocity) > 120.0f
                     ? pipeline_contract::FireSuppressionReason::HighVelocity
                     : pipeline_contract::FireSuppressionReason::Ambiguous;
     fill_horizon(plan);

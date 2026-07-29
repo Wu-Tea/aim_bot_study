@@ -39,6 +39,13 @@ struct TargetControlFeedback {
     float aim_response_px_per_stick_second = 500.0f;
     float aim_response_confidence = 0.0f;
     float player_jump_action_age_ms = -1.0f;
+    // Benchmark headroom oracle: exact player-motion contribution that has
+    // already occurred since the preceding controller tick. Production never
+    // sets this; a later causal observer would have to estimate both values.
+    bool has_player_motion_oracle = false;
+    bool has_player_motion_rate_oracle = false;
+    pipeline_contract::Vec2f player_error_delta_px{};
+    pipeline_contract::Vec2f player_error_rate_px_per_sec{};
 };
 
 class TargetCoordinator {

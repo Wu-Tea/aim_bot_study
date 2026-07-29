@@ -360,6 +360,16 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
         last_jump_action_seconds_ >= 0.0
         ? static_cast<float>((now - last_jump_action_seconds_) * 1000.0)
         : -1.0f;
+#if defined(COD_BENCHMARK_MIX_OVERRIDE)
+    control_feedback.has_player_motion_oracle =
+        benchmark_player_motion_oracle_valid_;
+    control_feedback.has_player_motion_rate_oracle =
+        benchmark_player_motion_rate_oracle_valid_;
+    control_feedback.player_error_delta_px =
+        benchmark_player_error_delta_px_;
+    control_feedback.player_error_rate_px_per_sec =
+        benchmark_player_error_rate_px_per_sec_;
+#endif
     const auto plan = target_coordinator_.update(
         observations, intent, now, control_feedback);
     last_target_plan_ = plan;
@@ -702,6 +712,17 @@ void NativeGamepadController::set_benchmark_intent_fusion_mode(
 void NativeGamepadController::set_benchmark_tracker_velocity_alpha(
     float alpha) {
     target_coordinator_.set_motion_velocity_alpha_for_benchmark(alpha);
+}
+
+void NativeGamepadController::set_benchmark_player_motion_oracle(
+    bool valid,
+    bool rate_valid,
+    pipeline_contract::Vec2f error_delta_px,
+    pipeline_contract::Vec2f error_rate_px_per_sec) noexcept {
+    benchmark_player_motion_oracle_valid_ = valid;
+    benchmark_player_motion_rate_oracle_valid_ = valid && rate_valid;
+    benchmark_player_error_delta_px_ = error_delta_px;
+    benchmark_player_error_rate_px_per_sec_ = error_rate_px_per_sec;
 }
 #endif
 

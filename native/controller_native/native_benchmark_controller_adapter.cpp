@@ -124,6 +124,13 @@ ControllerStepResult NativeReplayAdapter::step(
         }
     }
     apply_benchmark_physical_input(input, physical_);
+    controller_.set_benchmark_player_motion_oracle(
+        input.player_motion_oracle,
+        input.player_motion_rate_oracle,
+        {static_cast<float>(input.player_error_delta_px.x),
+         static_cast<float>(input.player_error_delta_px.y)},
+        {static_cast<float>(input.player_error_rate_px_per_second.x),
+         static_cast<float>(input.player_error_rate_px_per_second.y)});
     if (input.fresh_vision) {
         controller_.submit_vision_snapshot(snapshot_from(input, now_seconds_));
     }
