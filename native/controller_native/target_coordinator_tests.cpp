@@ -117,6 +117,9 @@ void test_jump_cue_adds_causal_vertical_acceleration_projection() {
     controller_native::TargetCoordinator baseline;
     controller_native::TargetCoordinator jump_model;
     controller_native::TargetCoordinator manual_owned;
+    baseline.set_causal_player_motion_enabled_for_benchmark(false, false);
+    jump_model.set_causal_player_motion_enabled_for_benchmark(false, false);
+    manual_owned.set_causal_player_motion_enabled_for_benchmark(false, false);
     prepare(baseline);
     prepare(jump_model);
     prepare(manual_owned);
@@ -172,6 +175,69 @@ void test_player_motion_oracle_separates_realized_camera_error() {
     require_true(
         std::fabs(oracle_plan.error_rate_px_per_sec.y + 400.0f) < 0.01f,
         "oracle must expose player-motion rate to the control horizon");
+}
+
+void test_causal_slide_model_separates_state_and_forecast() {
+    controller_native::TargetCoordinator coordinator;
+    coordinator.set_causal_player_motion_enabled_for_benchmark(true, true);
+    coordinator.update(
+        frame(1, 1.00, 1, 240.0f, 220.0f),
+        ads_intent(1.00), 1.00);
+    pipeline_contract::VisionObservationBatch missing{};
+    missing.frame_width_px = 480.0f;
+    missing.frame_height_px = 416.0f;
+
+    controller_native::TargetControlFeedback onset{};
+    onset.player_slide_action_age_ms = 0.0f;
+    coordinator.update(missing, ads_intent(1.001), 1.001, onset);
+    controller_native::TargetControlFeedback falling{};
+    falling.player_slide_action_age_ms = 60.0f;
+    const auto plan = coordinator.update(
+        missing, ads_intent(1.061), 1.061, falling);
+    require_true(
+        plan.error_px.y < 12.0f,
+        "causal slide model must apply realized upward screen displacement");
+    require_true(
+        plan.player_motion_forecast_px.y < 0.0f &&
+        plan.player_motion_confidence > 0.0f,
+        "causal slide model must export a separate short forecast");
+    require_true(
+        std::fabs(plan.error_rate_px_per_sec.y) < 0.01f,
+        "causal slide forecast must not leak into raw target velocity");
+}
+
+void test_player_motion_forecast_only_bridges_between_vision_frames() {
+    controller_native::TargetCoordinator coordinator;
+    coordinator.set_causal_player_motion_enabled_for_benchmark(false, true);
+    coordinator.update(
+        frame(1, 1.000, 1, 240.0f, 220.0f),
+        ads_intent(1.000), 1.000);
+
+    controller_native::TargetControlFeedback fresh_feedback{};
+    fresh_feedback.player_slide_action_age_ms = 10.0f;
+    const auto fresh_plan = coordinator.update(
+        frame(2, 1.010, 1, 240.0f, 220.0f),
+        ads_intent(1.010), 1.010, fresh_feedback);
+    require_true(
+        fresh_plan.player_motion_confidence == 0.0f,
+        "fresh Vision must own the observed point without duplicate event forecast");
+
+    pipeline_contract::VisionObservationBatch missing{};
+    missing.frame_width_px = 480.0f;
+    missing.frame_height_px = 416.0f;
+    controller_native::TargetControlFeedback partial_feedback{};
+    partial_feedback.player_slide_action_age_ms = 16.0f;
+    const auto partial_plan = coordinator.update(
+        missing, ads_intent(1.016), 1.016, partial_feedback);
+    controller_native::TargetControlFeedback bridged_feedback{};
+    bridged_feedback.player_slide_action_age_ms = 24.0f;
+    const auto bridged_plan = coordinator.update(
+        missing, ads_intent(1.024), 1.024, bridged_feedback);
+    require_true(
+        partial_plan.player_motion_confidence > 0.0f &&
+        bridged_plan.player_motion_confidence >
+            partial_plan.player_motion_confidence,
+        "event forecast authority must ramp continuously across the Vision gap");
 }
 
 void test_ads_handoff_waits_for_settle() {
@@ -556,6 +622,8 @@ int main() {
         test_motion_labels_jump_then_fall();
         test_jump_cue_adds_causal_vertical_acceleration_projection();
         test_player_motion_oracle_separates_realized_camera_error();
+        test_causal_slide_model_separates_state_and_forecast();
+        test_player_motion_forecast_only_bridges_between_vision_frames();
         test_ads_handoff_waits_for_settle();
         test_bodylock_cannot_rearm_ads_within_one_held_epoch();
         test_ads_ownership_ceiling_is_independent_from_arrival_horizon();

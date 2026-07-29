@@ -21,6 +21,7 @@ struct ControllerObservation {
     Vec2d manual_stick;
     double left_x = 0.0;
     bool jump_action = false;
+    bool slide_action = false;
     bool player_motion_oracle = false;
     bool player_motion_rate_oracle = false;
     Vec2d player_error_delta_px;

@@ -326,6 +326,13 @@ BenchmarkResult run_simulation(
                         target.player_vertical.jump_onset_ms &&
                     player_motion_elapsed_ms <
                         target.player_vertical.jump_onset_ms + 30;
+                input.slide_action =
+                    script.config.player_action_cues_enabled &&
+                    selected_vertical == PlayerVerticalMotionMode::Slide &&
+                    player_motion_elapsed_ms >=
+                        target.player_vertical.slide_onset_ms &&
+                    player_motion_elapsed_ms <
+                        target.player_vertical.slide_onset_ms + 30;
                 if (script.config.player_motion_forecast_oracle_enabled) {
                     constexpr int kForecastHorizonMs = 32;
                     double forecast_velocity =

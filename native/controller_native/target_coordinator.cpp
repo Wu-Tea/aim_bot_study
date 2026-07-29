@@ -24,6 +24,11 @@ pipeline_contract::Vec2f add_scaled(
     return {value.x + velocity.x * seconds, value.y + velocity.y * seconds};
 }
 
+float smoothstep(float value) noexcept {
+    const float t = std::clamp(value, 0.0f, 1.0f);
+    return t * t * (3.0f - 2.0f * t);
+}
+
 }  // namespace
 
 float motion_velocity_alpha_for_interval(
@@ -44,9 +49,146 @@ float motion_velocity_alpha_for_interval(
 TargetCoordinator::TargetCoordinator(TargetCoordinatorConfig config)
     : config_(config) {}
 
+TargetCoordinator::PlayerMotionEstimate
+TargetCoordinator::update_player_motion_estimate(
+    const TargetControlFeedback& feedback,
+    float manual_camera_ownership) noexcept {
+    PlayerMotionEstimate estimate{};
+    const bool jump_active =
+        feedback.player_jump_action_age_ms >= 0.0f &&
+        feedback.player_jump_action_age_ms <= 700.0f;
+    const bool slide_active =
+        feedback.player_slide_action_age_ms >= 0.0f &&
+        feedback.player_slide_action_age_ms <= 620.0f;
+    if (jump_active && (!slide_active ||
+        feedback.player_jump_action_age_ms <=
+            feedback.player_slide_action_age_ms)) {
+        estimate.event = PlayerMotionEvent::Jump;
+    } else if (slide_active) {
+        estimate.event = PlayerMotionEvent::Slide;
+    }
+
+    auto unit_offset = [](PlayerMotionEvent event, float age_ms) noexcept {
+        constexpr float kPi = 3.14159265358979323846f;
+        if (event == PlayerMotionEvent::Jump) {
+            constexpr float kJumpDurationMs = 560.0f;
+            if (age_ms < 0.0f || age_ms >= kJumpDurationMs) return 0.0f;
+            return std::sin(
+                kPi * std::clamp(age_ms / kJumpDurationMs, 0.0f, 1.0f));
+        }
+        if (event != PlayerMotionEvent::Slide || age_ms < 0.0f) {
+            return 0.0f;
+        }
+        constexpr float kDropMs = 110.0f;
+        constexpr float kHoldEndMs = 320.0f;
+        constexpr float kRecoveryEndMs = 490.0f;
+        if (age_ms < kDropMs) {
+            return -smoothstep(age_ms / kDropMs);
+        }
+        if (age_ms < kHoldEndMs) return -1.0f;
+        if (age_ms >= kRecoveryEndMs) return 0.0f;
+        return -1.0f +
+            (age_ms - kHoldEndMs) /
+                (kRecoveryEndMs - kHoldEndMs);
+    };
+
+    const float age_ms = estimate.event == PlayerMotionEvent::Jump
+        ? feedback.player_jump_action_age_ms
+        : estimate.event == PlayerMotionEvent::Slide
+            ? feedback.player_slide_action_age_ms
+            : -1.0f;
+    const float amplitude = estimate.event == PlayerMotionEvent::Jump
+        ? jump_effective_amplitude_px_
+        : estimate.event == PlayerMotionEvent::Slide
+            ? slide_effective_amplitude_px_
+            : 0.0f;
+    const std::uint32_t samples =
+        estimate.event == PlayerMotionEvent::Jump
+        ? jump_motion_learning_samples_
+        : estimate.event == PlayerMotionEvent::Slide
+            ? slide_motion_learning_samples_
+            : 0;
+    const float base_confidence =
+        estimate.event == PlayerMotionEvent::Jump ? 0.45f :
+        estimate.event == PlayerMotionEvent::Slide ? 0.35f : 0.0f;
+    const float confidence_step =
+        estimate.event == PlayerMotionEvent::Jump ? 0.05f : 0.06f;
+    const float state_confidence = std::clamp(
+        base_confidence + confidence_step *
+            static_cast<float>(std::min<std::uint32_t>(samples, 8)),
+        0.0f, 0.85f);
+    estimate.unit_offset = unit_offset(estimate.event, age_ms);
+    const float modeled_offset_y_px =
+        amplitude * estimate.unit_offset * state_confidence;
+    if (estimate.event != active_player_motion_event_) {
+        active_player_motion_event_ = estimate.event;
+        previous_player_motion_offset_y_px_ = modeled_offset_y_px;
+        previous_observed_player_motion_unit_offset_ =
+            estimate.unit_offset;
+    } else {
+        estimate.realized_delta_y_px =
+            modeled_offset_y_px -
+            previous_player_motion_offset_y_px_;
+        previous_player_motion_offset_y_px_ = modeled_offset_y_px;
+    }
+    const float future_unit = unit_offset(estimate.event, age_ms + 32.0f);
+    estimate.forecast_y_px =
+        amplitude * (future_unit - estimate.unit_offset);
+    estimate.confidence = state_confidence *
+        (1.0f - 0.5f *
+            std::clamp(manual_camera_ownership, 0.0f, 1.0f));
+    return estimate;
+}
+
+void TargetCoordinator::learn_player_motion_amplitude(
+    PlayerMotionEvent event,
+    float unit_offset,
+    float innovation_y_px,
+    float reliability,
+    bool reacquiring,
+    float manual_camera_ownership) noexcept {
+    const float unit_delta =
+        unit_offset - previous_observed_player_motion_unit_offset_;
+    previous_observed_player_motion_unit_offset_ = unit_offset;
+    if (event == PlayerMotionEvent::None || reacquiring ||
+        reliability < 0.65f || manual_camera_ownership > 0.25f ||
+        std::fabs(unit_delta) < 0.025f ||
+        std::fabs(innovation_y_px) > 12.0f) {
+        return;
+    }
+    std::uint32_t& samples = event == PlayerMotionEvent::Jump
+        ? jump_motion_learning_samples_
+        : slide_motion_learning_samples_;
+    float& amplitude = event == PlayerMotionEvent::Jump
+        ? jump_effective_amplitude_px_
+        : slide_effective_amplitude_px_;
+    const float base_confidence =
+        event == PlayerMotionEvent::Jump ? 0.45f : 0.35f;
+    const float confidence_step =
+        event == PlayerMotionEvent::Jump ? 0.05f : 0.06f;
+    const float state_confidence = std::clamp(
+        base_confidence + confidence_step *
+            static_cast<float>(std::min<std::uint32_t>(samples, 8)),
+        0.25f, 0.85f);
+    const float amplitude_error = innovation_y_px /
+        (unit_delta * state_confidence);
+    amplitude += std::clamp(amplitude_error * 0.20f, -4.0f, 4.0f);
+    amplitude = event == PlayerMotionEvent::Jump
+        ? std::clamp(amplitude, 12.0f, 72.0f)
+        : std::clamp(amplitude, 16.0f, 80.0f);
+    ++samples;
+}
+
 void TargetCoordinator::set_motion_velocity_alpha_for_benchmark(
     float alpha) noexcept {
     config_.motion_velocity_alpha = std::clamp(alpha, 0.0f, 1.0f);
+}
+
+void TargetCoordinator::set_causal_player_motion_enabled_for_benchmark(
+    bool state_enabled,
+    bool forecast_enabled) noexcept {
+    causal_player_motion_state_enabled_ = state_enabled;
+    causal_player_motion_forecast_enabled_ = forecast_enabled;
 }
 
 const pipeline_contract::VisionCandidate* TargetCoordinator::choose_candidate(
@@ -118,6 +260,8 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         feedback.has_player_motion_rate_oracle;
     const bool jump_acceleration_model_active =
         !player_motion_oracle &&
+        !causal_player_motion_state_enabled_ &&
+        !causal_player_motion_forecast_enabled_ &&
         feedback.player_jump_action_age_ms >= 0.0f &&
         feedback.player_jump_action_age_ms <=
             config_.player_jump_acceleration_model_ms;
@@ -133,6 +277,13 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         jump_acceleration_model_active
         ? 1.0f - manual_camera_ownership
         : 0.0f;
+    const PlayerMotionEstimate player_motion =
+        (causal_player_motion_state_enabled_ ||
+         causal_player_motion_forecast_enabled_) &&
+            !player_motion_oracle
+        ? update_player_motion_estimate(
+            feedback, manual_camera_ownership)
+        : PlayerMotionEstimate{};
     auto predicted = dt > 0.0f
         ? pipeline_contract::Vec2f{
             position_.x + velocity_.x * dt,
@@ -143,6 +294,8 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     if (player_motion_oracle && dt > 0.0f) {
         predicted.x += feedback.player_error_delta_px.x;
         predicted.y += feedback.player_error_delta_px.y;
+    } else if (causal_player_motion_state_enabled_ && dt > 0.0f) {
+        predicted.y += player_motion.realized_delta_y_px;
     }
     const auto* candidate = choose_candidate(observations, predicted);
 
@@ -167,6 +320,15 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         if (source_time_available) {
             observation_capture_seconds = observations.source_time_seconds;
         }
+        const bool new_observation_sample =
+            !has_observation_capture_time_ ||
+            observations.frame_id != source_frame_id_ ||
+            observation_capture_seconds >
+                last_observation_capture_seconds_ + 1.0e-6;
+        if (new_observation_sample) {
+            last_unique_observation_seconds_ = now_seconds;
+            has_unique_observation_time_ = true;
+        }
         const bool new_target = !has_target_;
         const bool reacquiring = has_target_ && was_missing_;
         if (new_target) {
@@ -186,6 +348,13 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
                 innovation.x *= scale;
                 innovation.y *= scale;
             }
+            learn_player_motion_amplitude(
+                player_motion.event,
+                player_motion.unit_offset,
+                innovation.y,
+                candidate->reliability,
+                reacquiring,
+                manual_camera_ownership);
             const auto measured_position = pipeline_contract::Vec2f{
                 predicted.x + innovation.x,
                 predicted.y + innovation.y,
@@ -317,6 +486,25 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         };
     plan.predicted_terminal_error_px = add_scaled(
         plan.error_px, residual_error_rate, config_.handoff_prediction_seconds);
+    plan.player_motion_forecast_px = {
+        0.0f,
+        causal_player_motion_forecast_enabled_
+            ? player_motion.forecast_y_px : 0.0f};
+    plan.player_motion_confidence =
+        causal_player_motion_forecast_enabled_
+        ? player_motion.confidence : 0.0f;
+    // The event model bridges time that Vision has not observed. A newly
+    // captured point is authoritative, so do not add the same motion twice;
+    // hand authority to the forecast continuously over one ~80 Hz frame.
+    const float forecast_bridge_age_ms = has_unique_observation_time_
+        ? static_cast<float>(std::max(
+            0.0, (now_seconds - last_unique_observation_seconds_) * 1000.0))
+        : 0.0f;
+    plan.player_motion_confidence *= smoothstep(
+        std::clamp(forecast_bridge_age_ms / 12.5f, 0.0f, 1.0f));
+    plan.predicted_terminal_error_px.y +=
+        plan.player_motion_forecast_px.y *
+        plan.player_motion_confidence;
     plan.radial_closing_velocity_px_per_sec = error_length > 0.001f
         ? -(plan.error_px.x * residual_error_rate.x +
             plan.error_px.y * residual_error_rate.y) / error_length
@@ -438,6 +626,7 @@ void TargetCoordinator::reset() noexcept {
     source_frame_id_ = 0;
     last_observed_seconds_ = 0.0;
     last_observation_capture_seconds_ = 0.0;
+    last_unique_observation_seconds_ = 0.0;
     last_update_seconds_ = 0.0;
     acquisition_started_seconds_ = 0.0;
     ads_epoch_started_seconds_ = 0.0;
@@ -447,12 +636,20 @@ void TargetCoordinator::reset() noexcept {
     observed_frames_ = 0;
     has_target_ = false;
     has_observation_capture_time_ = false;
+    has_unique_observation_time_ = false;
     fire_requested_ = false;
     observed_fire_eligible_ = false;
     was_missing_ = false;
     ads_epoch_active_ = false;
     ads_snap_consumed_ = false;
     control_mode_ = pipeline_contract::ControlMode::Manual;
+    active_player_motion_event_ = PlayerMotionEvent::None;
+    previous_player_motion_offset_y_px_ = 0.0f;
+    previous_observed_player_motion_unit_offset_ = 0.0f;
+    jump_effective_amplitude_px_ = 28.0f;
+    slide_effective_amplitude_px_ = 36.0f;
+    jump_motion_learning_samples_ = 0;
+    slide_motion_learning_samples_ = 0;
 }
 
 }  // namespace controller_native

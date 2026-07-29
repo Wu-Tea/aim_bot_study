@@ -79,6 +79,8 @@ struct TargetPlan {
     float ads_epoch_elapsed_ms = 0.0f;
     Vec2f predicted_terminal_error_px{};
     float radial_closing_velocity_px_per_sec = 0.0f;
+    Vec2f player_motion_forecast_px{};
+    float player_motion_confidence = 0.0f;
     std::uint32_t horizon_count = 0;
     std::array<PlanHorizonSample, kMaxPlanHorizonSamples> horizon{};
     bool fire_authority = false;
@@ -109,6 +111,8 @@ inline bool valid(const TargetPlan& plan) noexcept {
            std::isfinite(plan.ads_epoch_elapsed_ms) &&
            finite(plan.predicted_terminal_error_px) &&
            std::isfinite(plan.radial_closing_velocity_px_per_sec) &&
+           finite(plan.player_motion_forecast_px) &&
+           unit_interval(plan.player_motion_confidence) &&
            plan.horizon_count <= kMaxPlanHorizonSamples;
 }
 

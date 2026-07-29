@@ -50,7 +50,9 @@ NativeReplayAdapter::NativeReplayAdapter(
     BenchmarkIntentFusionMode intent_fusion_mode,
     std::shared_ptr<AssistedModeCoverage> coverage,
     double assist_scale,
-    double tracker_velocity_alpha)
+    double tracker_velocity_alpha,
+    bool causal_player_motion_state_enabled,
+    bool causal_player_motion_forecast_enabled)
     : schedule_(schedule),
       cohort_(cohort),
       config_(std::move(source_config)),
@@ -65,6 +67,9 @@ NativeReplayAdapter::NativeReplayAdapter(
         controller_.set_benchmark_tracker_velocity_alpha(
             static_cast<float>(tracker_velocity_alpha));
     }
+    controller_.set_benchmark_causal_player_motion_enabled(
+        causal_player_motion_state_enabled,
+        causal_player_motion_forecast_enabled);
     controller_.set_benchmark_mix_transform(
         [this](float manual_x, float manual_y,
                float mixed_x, float mixed_y,
@@ -176,14 +181,21 @@ ReplayControllerFactory make_native_factory(
     BenchmarkIntentFusionMode intent_fusion_mode,
     std::shared_ptr<AssistedModeCoverage> coverage,
     double assist_scale,
-    double tracker_velocity_alpha) {
+    double tracker_velocity_alpha,
+    bool causal_player_motion_state_enabled,
+    bool causal_player_motion_forecast_enabled) {
     config.recoil.enabled = false;
     return [config = std::move(config), cohort, intent_fusion_mode,
             coverage = std::move(coverage), assist_scale,
-            tracker_velocity_alpha](const BranchSchedule& schedule) {
+            tracker_velocity_alpha,
+            causal_player_motion_state_enabled,
+            causal_player_motion_forecast_enabled](
+                const BranchSchedule& schedule) {
         auto state = std::make_shared<NativeReplayAdapter>(
             config, schedule, cohort, intent_fusion_mode, coverage,
-            assist_scale, tracker_velocity_alpha);
+            assist_scale, tracker_velocity_alpha,
+            causal_player_motion_state_enabled,
+            causal_player_motion_forecast_enabled);
         return [state](const ControllerObservation& input) {
             return state->step(input);
         };

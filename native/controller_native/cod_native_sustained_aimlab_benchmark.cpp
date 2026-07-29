@@ -59,6 +59,7 @@ struct CliOptions {
     std::string target_motion = "moving";
     std::string player_action_cues = "on";
     std::string player_motion_oracle = "off";
+    std::string player_motion_model = "causal";
     std::string ads_timing = "config";
     int learning_rounds = 0;
     int learning_delay_ms = 45;
@@ -169,6 +170,9 @@ CliOptions parse_args(int argc, char** argv) {
         } else if (
             argument == "--player-motion-oracle" && index + 1 < argc) {
             options.player_motion_oracle = argv[++index];
+        } else if (
+            argument == "--player-motion-model" && index + 1 < argc) {
+            options.player_motion_model = argv[++index];
         } else if (argument == "--ads-timing" && index + 1 < argc) {
             options.ads_timing = argv[++index];
         } else if (argument == "--learning-rounds" && index + 1 < argc) {
@@ -197,6 +201,7 @@ CliOptions parse_args(int argc, char** argv) {
                 << "[--target-motion stationary|moving] "
                 << "[--player-action-cues on|off] "
                 << "[--player-motion-oracle off|state|full|forecast] "
+                << "[--player-motion-model current|state|forecast|causal] "
                 << "[--ads-timing config|coupled|decoupled160|decoupled180|"
                    "decoupled200|decoupled|hard30|ramp30|hard30-160|ramp30-160] "
                 << "[--learning-rounds N --learning-delay-ms N "
@@ -282,6 +287,13 @@ CliOptions parse_args(int argc, char** argv) {
         options.player_motion_oracle != "forecast") {
         throw std::runtime_error(
             "player motion oracle must be off, state, full, or forecast");
+    }
+    if (options.player_motion_model != "current" &&
+        options.player_motion_model != "state" &&
+        options.player_motion_model != "forecast" &&
+        options.player_motion_model != "causal") {
+        throw std::runtime_error(
+            "player motion model must be current, state, forecast, or causal");
     }
     if (options.ads_timing != "config" &&
         options.ads_timing != "coupled" &&
@@ -571,6 +583,8 @@ void write_report(
         << json_string(options.player_action_cues)
         << ", \"player_motion_oracle\": "
         << json_string(options.player_motion_oracle)
+        << ", \"player_motion_model\": "
+        << json_string(options.player_motion_model)
         << ", \"player_top_speed_px_per_second\": ["
         << kPlayerStrafeMinTopSpeedPxPerSecond << ','
         << kPlayerStrafeMaxTopSpeedPxPerSecond
@@ -1201,7 +1215,11 @@ int main(int argc, char** argv) {
                                 make_native_factory(
                                     gamepad_config, cohort,
                                     intent_fusion_mode, coverage,
-                                    1.0, options.tracker_velocity_alpha);
+                                    1.0, options.tracker_velocity_alpha,
+                                    options.player_motion_model == "state" ||
+                                        options.player_motion_model == "causal",
+                                    options.player_motion_model == "forecast" ||
+                                        options.player_motion_model == "causal");
                             ReplayReference reference = record_reference(
                                 script, profile, cohort, factory,
                                 player_strafe_mode, vertical_mode);

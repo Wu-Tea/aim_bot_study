@@ -39,6 +39,7 @@ struct TargetControlFeedback {
     float aim_response_px_per_stick_second = 500.0f;
     float aim_response_confidence = 0.0f;
     float player_jump_action_age_ms = -1.0f;
+    float player_slide_action_age_ms = -1.0f;
     // Benchmark headroom oracle: exact player-motion contribution that has
     // already occurred since the preceding controller tick. Production never
     // sets this; a later causal observer would have to estimate both values.
@@ -61,9 +62,36 @@ public:
     bool observe_control_response(const ControlResponseSample& sample) noexcept;
     void begin_ads_epoch(std::uint64_t epoch, double now_seconds) noexcept;
     void set_motion_velocity_alpha_for_benchmark(float alpha) noexcept;
+    void set_causal_player_motion_enabled_for_benchmark(
+        bool state_enabled,
+        bool forecast_enabled) noexcept;
     void reset() noexcept;
 
 private:
+    enum class PlayerMotionEvent : unsigned char {
+        None,
+        Jump,
+        Slide,
+    };
+
+    struct PlayerMotionEstimate {
+        float realized_delta_y_px = 0.0f;
+        float forecast_y_px = 0.0f;
+        float confidence = 0.0f;
+        float unit_offset = 0.0f;
+        PlayerMotionEvent event = PlayerMotionEvent::None;
+    };
+
+    PlayerMotionEstimate update_player_motion_estimate(
+        const TargetControlFeedback& feedback,
+        float manual_camera_ownership) noexcept;
+    void learn_player_motion_amplitude(
+        PlayerMotionEvent event,
+        float unit_offset,
+        float innovation_y_px,
+        float reliability,
+        bool reacquiring,
+        float manual_camera_ownership) noexcept;
     const pipeline_contract::VisionCandidate* choose_candidate(
         const pipeline_contract::VisionObservationBatch& observations,
         pipeline_contract::Vec2f predicted) const noexcept;
@@ -83,6 +111,7 @@ private:
     std::uint64_t source_frame_id_ = 0;
     double last_observed_seconds_ = 0.0;
     double last_observation_capture_seconds_ = 0.0;
+    double last_unique_observation_seconds_ = 0.0;
     double last_update_seconds_ = 0.0;
     double acquisition_started_seconds_ = 0.0;
     double ads_epoch_started_seconds_ = 0.0;
@@ -92,12 +121,23 @@ private:
     std::uint32_t observed_frames_ = 0;
     bool has_target_ = false;
     bool has_observation_capture_time_ = false;
+    bool has_unique_observation_time_ = false;
     bool fire_requested_ = false;
     bool observed_fire_eligible_ = false;
     bool was_missing_ = false;
     bool ads_epoch_active_ = false;
     bool ads_snap_consumed_ = false;
     pipeline_contract::ControlMode control_mode_ = pipeline_contract::ControlMode::Manual;
+    PlayerMotionEvent active_player_motion_event_ =
+        PlayerMotionEvent::None;
+    float previous_player_motion_offset_y_px_ = 0.0f;
+    float previous_observed_player_motion_unit_offset_ = 0.0f;
+    float jump_effective_amplitude_px_ = 28.0f;
+    float slide_effective_amplitude_px_ = 36.0f;
+    std::uint32_t jump_motion_learning_samples_ = 0;
+    std::uint32_t slide_motion_learning_samples_ = 0;
+    bool causal_player_motion_state_enabled_ = false;
+    bool causal_player_motion_forecast_enabled_ = true;
 };
 
 }  // namespace controller_native

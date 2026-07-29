@@ -124,7 +124,9 @@ void NativeGamepadController::reset() {
     aiming_ = false;
     previous_aiming_ = false;
     previous_jump_button_ = false;
+    previous_slide_button_ = false;
     last_jump_action_seconds_ = -1.0;
+    last_slide_action_seconds_ = -1.0;
     ads_epoch_ = 0;
     legacy_vision_sequence_ = 0;
     last_tick_seconds_ = 0.0;
@@ -324,6 +326,11 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
         last_jump_action_seconds_ = now;
     }
     previous_jump_button_ = jump_button;
+    const bool slide_button = physical.b;
+    if (slide_button && !previous_slide_button_) {
+        last_slide_action_seconds_ = now;
+    }
+    previous_slide_button_ = slide_button;
     aiming_ = aim_activation_tracker_.update(physical, config_.rb_counts_as_aiming);
     if (aiming_ && !previous_aiming_) {
         target_coordinator_.begin_ads_epoch(++ads_epoch_, now);
@@ -359,6 +366,10 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
     control_feedback.player_jump_action_age_ms =
         last_jump_action_seconds_ >= 0.0
         ? static_cast<float>((now - last_jump_action_seconds_) * 1000.0)
+        : -1.0f;
+    control_feedback.player_slide_action_age_ms =
+        last_slide_action_seconds_ >= 0.0
+        ? static_cast<float>((now - last_slide_action_seconds_) * 1000.0)
         : -1.0f;
 #if defined(COD_BENCHMARK_MIX_OVERRIDE)
     control_feedback.has_player_motion_oracle =
@@ -723,6 +734,13 @@ void NativeGamepadController::set_benchmark_player_motion_oracle(
     benchmark_player_motion_rate_oracle_valid_ = valid && rate_valid;
     benchmark_player_error_delta_px_ = error_delta_px;
     benchmark_player_error_rate_px_per_sec_ = error_rate_px_per_sec;
+}
+
+void NativeGamepadController::set_benchmark_causal_player_motion_enabled(
+    bool state_enabled,
+    bool forecast_enabled) noexcept {
+    target_coordinator_.set_causal_player_motion_enabled_for_benchmark(
+        state_enabled, forecast_enabled);
 }
 #endif
 

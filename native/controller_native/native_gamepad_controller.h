@@ -84,6 +84,9 @@ public:
         bool rate_valid,
         pipeline_contract::Vec2f error_delta_px,
         pipeline_contract::Vec2f error_rate_px_per_sec) noexcept;
+    void set_benchmark_causal_player_motion_enabled(
+        bool state_enabled,
+        bool forecast_enabled) noexcept;
 #endif
 
 private:
@@ -128,7 +131,9 @@ private:
     bool aiming_ = false;
     bool previous_aiming_ = false;
     bool previous_jump_button_ = false;
+    bool previous_slide_button_ = false;
     double last_jump_action_seconds_ = -1.0;
+    double last_slide_action_seconds_ = -1.0;
     std::uint64_t ads_epoch_ = 0;
     std::uint64_t legacy_vision_sequence_ = 0;
     double last_tick_seconds_ = 0.0;
