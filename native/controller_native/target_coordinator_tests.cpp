@@ -136,22 +136,38 @@ void test_bodylock_cannot_rearm_ads_within_one_held_epoch() {
                  "held ADS epoch must not rearm snap for a new far target");
 }
 
-void test_ads_timeout_does_not_handoff_with_large_residual_error() {
+void test_ads_ownership_ceiling_is_independent_from_arrival_horizon() {
     controller_native::TargetCoordinatorConfig config{};
-    config.ads_max_acquisition_ms = 20.0f;
+    config.ads_max_acquisition_ms = 220.0f;
+    config.bodylock_activation_radius_px = 80.0f;
     config.settle_frames = 2;
     controller_native::TargetCoordinator coordinator(config);
+    coordinator.begin_ads_epoch(1, 0.0);
 
     pipeline_contract::TargetPlan plan{};
-    for (int i = 0; i < 8; ++i) {
-        const double time = i * 0.010;
-        auto observed = frame(i + 1, time, 1, 300.0f, 208.0f);
-        observed.candidates[0].normalized_size = 0.6f;
-        plan = coordinator.update(observed, ads_intent(time), time);
-    }
-
+    plan = coordinator.update(
+        frame(1, 0.130, 1, 340.0f, 208.0f), ads_intent(0.130), 0.130);
     require_true(plan.mode == pipeline_contract::ControlMode::AdsAcquire,
-                 "ADS timeout must not hand off a large residual error to BodyLock");
+                 "arrival horizon must not terminate ADS ownership");
+    require_true(std::fabs(plan.ads_epoch_elapsed_ms - 130.0f) < 0.1f,
+                 "plan must expose physical ADS epoch elapsed time");
+    plan = coordinator.update(
+        frame(2, 0.220, 1, 300.0f, 208.0f), ads_intent(0.220), 0.220);
+    require_true(plan.mode == pipeline_contract::ControlMode::BodyLockFollow,
+                 "ADS fallback time must hand off a target inside BodyLock range");
+}
+
+void test_ads_timed_fallback_rejects_large_residual_error() {
+    controller_native::TargetCoordinatorConfig config{};
+    config.ads_max_acquisition_ms = 20.0f;
+    config.bodylock_activation_radius_px = 80.0f;
+    config.settle_frames = 2;
+    controller_native::TargetCoordinator coordinator(config);
+    coordinator.begin_ads_epoch(1, 0.0);
+    const auto plan = coordinator.update(
+        frame(1, 0.050, 1, 340.0f, 208.0f), ads_intent(0.050), 0.050);
+    require_true(plan.mode == pipeline_contract::ControlMode::AdsAcquire,
+                 "timed fallback must not hand a large residual to BodyLock");
 }
 
 void test_ads_handoff_rejects_a_predicted_high_speed_crossing() {
@@ -465,7 +481,8 @@ int main() {
         test_motion_labels_jump_then_fall();
         test_ads_handoff_waits_for_settle();
         test_bodylock_cannot_rearm_ads_within_one_held_epoch();
-        test_ads_timeout_does_not_handoff_with_large_residual_error();
+        test_ads_ownership_ceiling_is_independent_from_arrival_horizon();
+        test_ads_timed_fallback_rejects_large_residual_error();
         test_ads_handoff_rejects_a_predicted_high_speed_crossing();
         test_ads_handoff_accepts_stable_in_radius_capture();
         test_ads_handoff_allows_tangential_target_motion();

@@ -143,6 +143,7 @@ BenchmarkResult run_simulation(
     bool previous_bodylock_mode = false;
     bool saw_ads_mode = false;
     bool pending_ads_to_bodylock_transition = false;
+    int first_assist_output_ms = -1;
     std::unique_ptr<TargetScorer> scorer;
     std::deque<Vec2d> delayed_controls(
         static_cast<std::size_t>(
@@ -197,6 +198,7 @@ BenchmarkResult run_simulation(
         previous_bodylock_mode = false;
         saw_ads_mode = false;
         pending_ads_to_bodylock_transition = false;
+        first_assist_output_ms = -1;
         scorer = std::make_unique<TargetScorer>(target, script.config);
         if (cohort == BenchmarkCohort::BodyLockFollow) {
             scorer->mark_acquired(0);
@@ -205,6 +207,7 @@ BenchmarkResult run_simulation(
 
     auto finish_target = [&] {
         TargetResult target_result = scorer->finish();
+        target_result.first_assist_output_ms = first_assist_output_ms;
         if (manual_profile == ManualProfile::ObsoleteAfterCrossing) {
             target_result.maximum_vertical_overshoot_px =
                 v1_maximum_vertical_overshoot_px;
@@ -343,6 +346,10 @@ BenchmarkResult run_simulation(
         }
 
         const ControllerStepResult output = controller_step(input);
+        if (target_active && first_assist_output_ms < 0 &&
+            length(output.requested_assist_stick) > 0.001) {
+            first_assist_output_ms = target_elapsed_ms;
+        }
         if (target_active && cohort == BenchmarkCohort::AdsAcquire) {
             if (!output.bodylock_mode) saw_ads_mode = true;
             if (saw_ads_mode && !previous_bodylock_mode &&
@@ -504,6 +511,7 @@ BenchmarkResult run_simulation(
 
     if (target_active && scorer) {
         TargetResult target_result = scorer->finish();
+        target_result.first_assist_output_ms = first_assist_output_ms;
         if (manual_profile == ManualProfile::ObsoleteAfterCrossing) {
             target_result.maximum_vertical_overshoot_px =
                 v1_maximum_vertical_overshoot_px;

@@ -57,6 +57,7 @@ struct CliOptions {
     std::string left_strafe = "off";
     std::string vertical_motion = "off";
     std::string target_motion = "moving";
+    std::string ads_timing = "config";
     int learning_rounds = 0;
     int learning_delay_ms = 45;
     std::string learning_policy = "retain";
@@ -161,6 +162,8 @@ CliOptions parse_args(int argc, char** argv) {
             options.vertical_motion = argv[++index];
         } else if (argument == "--target-motion" && index + 1 < argc) {
             options.target_motion = argv[++index];
+        } else if (argument == "--ads-timing" && index + 1 < argc) {
+            options.ads_timing = argv[++index];
         } else if (argument == "--learning-rounds" && index + 1 < argc) {
             options.learning_rounds = std::stoi(argv[++index]);
         } else if (argument == "--learning-delay-ms" && index + 1 < argc) {
@@ -185,6 +188,8 @@ CliOptions parse_args(int argc, char** argv) {
                 << "[--left-strafe off|full-reversal|both] "
                 << "[--vertical-motion off|slide|jump|random|all] "
                 << "[--target-motion stationary|moving] "
+                << "[--ads-timing config|coupled|decoupled160|decoupled180|"
+                   "decoupled200|decoupled|hard30|ramp30|hard30-160|ramp30-160] "
                 << "[--learning-rounds N --learning-delay-ms N "
                 << "--learning-policy baseline|reset|retain]\n";
             std::exit(EXIT_SUCCESS);
@@ -255,6 +260,19 @@ CliOptions parse_args(int argc, char** argv) {
         throw std::runtime_error(
             "target motion must be stationary or moving");
     }
+    if (options.ads_timing != "config" &&
+        options.ads_timing != "coupled" &&
+        options.ads_timing != "decoupled160" &&
+        options.ads_timing != "decoupled180" &&
+        options.ads_timing != "decoupled200" &&
+        options.ads_timing != "decoupled" &&
+        options.ads_timing != "hard30" &&
+        options.ads_timing != "ramp30" &&
+        options.ads_timing != "hard30-160" &&
+        options.ads_timing != "ramp30-160") {
+        throw std::runtime_error(
+            "invalid ADS timing profile");
+    }
     if (options.learning_rounds < 0 || options.learning_delay_ms < 0 ||
         (options.learning_policy != "baseline" &&
          options.learning_policy != "reset" &&
@@ -286,6 +304,25 @@ CliOptions parse_args(int argc, char** argv) {
         options.seeds = {1337, 20260718, 424242};
     }
     return options;
+}
+
+GamepadRuntimeConfig apply_ads_timing_profile(
+    GamepadRuntimeConfig config,
+    const std::string& profile) {
+    if (profile == "config") return config;
+    config.ai_aim.ads_snap_window_ms = 120;
+    config.ai_aim.ads_max_acquisition_ms =
+        profile == "coupled" ? 120.0f :
+        (profile == "decoupled160" ||
+         profile == "hard30-160" ||
+         profile == "ramp30-160") ? 160.0f :
+        profile == "decoupled180" ? 180.0f :
+        profile == "decoupled200" ? 200.0f : 220.0f;
+    config.ai_aim.ads_start_delay_ms =
+        (profile == "hard30" || profile == "hard30-160") ? 30.0f : 0.0f;
+    config.ai_aim.ads_start_ramp_ms =
+        (profile == "ramp30" || profile == "ramp30-160") ? 30.0f : 0.0f;
+    return config;
 }
 
 std::uint64_t file_fingerprint(const std::filesystem::path& path) {
@@ -453,6 +490,7 @@ void write_report(
     const std::filesystem::path& output_path,
     const CliOptions& options,
     const BenchmarkConfig& config,
+    const GamepadRuntimeConfig& gamepad_config,
     std::uint64_t config_fingerprint,
     const std::vector<BenchmarkResult>& results,
     const std::vector<CounterfactualRunSummary>& counterfactual_results,
@@ -477,6 +515,17 @@ void write_report(
         << "  \"dirty\": " << (options.dirty ? "true" : "false") << ",\n"
         << "  \"config_path\": " << json_string(options.config_path.string()) << ",\n"
         << "  \"config_fingerprint_fnv1a64\": \"" << config_fingerprint << "\",\n"
+        << "  \"ads_timing\": {\"profile\": "
+        << json_string(options.ads_timing)
+        << ", \"arrival_horizon_ms\": "
+        << gamepad_config.ai_aim.ads_snap_window_ms
+        << ", \"ownership_ceiling_ms\": "
+        << gamepad_config.ai_aim.ads_max_acquisition_ms
+        << ", \"start_delay_ms\": "
+        << gamepad_config.ai_aim.ads_start_delay_ms
+        << ", \"start_ramp_ms\": "
+        << gamepad_config.ai_aim.ads_start_ramp_ms
+        << ", \"fallback_range_gated\": true},\n"
         << "  \"simulator\": {\"duration_ms\": " << config.duration_ms
         << ", \"scenario\": " << json_string(to_string(config.scenario_profile))
         << ", \"target_profile\": " << json_string(options.target_profile)
@@ -610,6 +659,10 @@ void write_report(
             << ", \"max_error_px\": " << result.max_error_px
             << ", \"median_first_entry_to_settle_ms\": " << result.median_first_entry_to_settle_ms
             << ", \"p95_first_entry_to_settle_ms\": " << result.p95_first_entry_to_settle_ms
+            << ", \"median_first_assist_output_ms\": "
+            << result.median_first_assist_output_ms
+            << ", \"p95_first_assist_output_ms\": "
+            << result.p95_first_assist_output_ms
             << ", \"handoff_count\": " << result.handoff_count
             << ", \"max_handoff_residual_px\": " << result.max_handoff_residual_px
             << ", \"max_abs_handoff_closing_speed_px_per_sec\": "
@@ -661,6 +714,8 @@ void write_report(
                 << ",\"visible_radius_px\":" << target.visible_radius_px
                 << ",\"acquired\":" << (target.acquired ? "true" : "false")
                 << ",\"first_entry_ms\":" << target.first_entry_ms
+                << ",\"first_assist_output_ms\":"
+                << target.first_assist_output_ms
                 << ",\"bodylock_entry_failed\":" << (target.bodylock_entry_failed ? "true" : "false")
                 << ",\"bodylock_entry_ms\":" << target.bodylock_entry_ms
                 << ",\"bodylock_active_ms\":" << target.bodylock_active_ms
@@ -969,6 +1024,8 @@ int main(int argc, char** argv) {
         const CliOptions options = parse_args(argc, argv);
         const RuntimeConfig runtime =
             controller_native::load_runtime_config(options.config_path);
+        const GamepadRuntimeConfig gamepad_config =
+            apply_ads_timing_profile(runtime.gamepad, options.ads_timing);
         if (options.learning_rounds > 0) {
             LearningExperimentConfig learning;
             learning.rounds = options.learning_rounds;
@@ -993,7 +1050,7 @@ int main(int argc, char** argv) {
                         ? BenchmarkIntentFusionMode::CausalVectorBaseline
                         : BenchmarkIntentFusionMode::LegacyAxis;
             const ReplayControllerFactory native_factory = make_native_factory(
-                runtime.gamepad, cohort, fusion);
+                gamepad_config, cohort, fusion);
             auto report = run_learning_experiment(
                 learning, options.seeds.front(), profile, cohort,
                 [native_factory] { return native_factory(BranchSchedule{}); });
@@ -1103,7 +1160,7 @@ int main(int argc, char** argv) {
                                 std::make_shared<AssistedModeCoverage>();
                             const ReplayControllerFactory factory =
                                 make_native_factory(
-                                    runtime.gamepad, cohort,
+                                    gamepad_config, cohort,
                                     intent_fusion_mode, coverage,
                                     1.0, options.tracker_velocity_alpha);
                             ReplayReference reference = record_reference(
@@ -1132,6 +1189,7 @@ int main(int argc, char** argv) {
             options.output_path,
             options,
             benchmark_config,
+            gamepad_config,
             file_fingerprint(options.config_path),
             results,
             counterfactual_results,

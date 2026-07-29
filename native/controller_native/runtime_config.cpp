@@ -209,7 +209,8 @@ bool is_known_key(const std::string& section, const std::string& key) {
         "fresh_vision_wrong_way_manual_floor"};
     static const std::unordered_set<std::string> ads_keys{
         "strength_scale", "vertical_strength_scale", "range_px", "snap_duration_ms",
-        "completion_radius_px", "completion_fresh_frames", "max_acquisition_ms"};
+        "completion_radius_px", "completion_fresh_frames", "max_acquisition_ms",
+        "start_delay_ms", "start_ramp_ms"};
     static const std::unordered_set<std::string> bodylock_keys{
         "strength", "vertical_strength", "activation_range_px", "tolerance_px",
         "manual_escape_threshold",
@@ -935,6 +936,10 @@ void apply_value(
         } else if (key == "max_acquisition_ms") {
             ads.ads_max_acquisition_ms = parse_float_value(value, ads.ads_max_acquisition_ms);
             config.ads.max_acquisition_ms = ads.ads_max_acquisition_ms;
+        } else if (key == "start_delay_ms") {
+            ads.ads_start_delay_ms = parse_float_value(value, ads.ads_start_delay_ms);
+        } else if (key == "start_ramp_ms") {
+            ads.ads_start_ramp_ms = parse_float_value(value, ads.ads_start_ramp_ms);
         }
     } else if (section == "gamepad.bodylock") {
         auto& body = config.gamepad.ai_aim;
@@ -1106,6 +1111,12 @@ void validate_runtime_config(RuntimeConfig& config) {
         invalid("gamepad.ads.completion_fresh_frames", "1..20");
     if (config.ads.max_acquisition_ms < 50.0f || config.ads.max_acquisition_ms > 1000.0f)
         invalid("gamepad.ads.max_acquisition_ms", "50..1000");
+    if (config.gamepad.ai_aim.ads_start_delay_ms < 0.0f ||
+        config.gamepad.ai_aim.ads_start_delay_ms > 500.0f)
+        invalid("gamepad.ads.start_delay_ms", "0..500");
+    if (config.gamepad.ai_aim.ads_start_ramp_ms < 0.0f ||
+        config.gamepad.ai_aim.ads_start_ramp_ms > 500.0f)
+        invalid("gamepad.ads.start_ramp_ms", "0..500");
     if (config.gamepad.tracker.aim_height_ratio < 0.0f ||
         config.gamepad.tracker.aim_height_ratio > 1.0f)
         invalid("gamepad.tracker.aim_height_ratio", "0..1");

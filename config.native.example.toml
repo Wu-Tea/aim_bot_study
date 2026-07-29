@@ -82,7 +82,12 @@ strength_scale = 1.54
 vertical_strength_scale = 1.26
 # Error-to-output slope range; this is not an activation radius.
 range_px = 150
-snap_duration_ms = 160
+snap_duration_ms = 120
+max_acquisition_ms = 220
+# Optional ADS output onset shaping. Both default to zero; delay suppresses
+# AI output before the boundary, while ramp linearly raises AI authority.
+start_delay_ms = 0
+start_ramp_ms = 0
 
 [gamepad.bodylock]
 strength = 0.45

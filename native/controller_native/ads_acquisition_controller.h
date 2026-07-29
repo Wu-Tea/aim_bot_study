@@ -12,7 +12,14 @@ struct AdsAcquisitionControllerConfig {
     float fallback_response_px_per_stick_second = 500.0f;
     float stopping_lookahead_seconds = 0.012f;
     float opposing_manual_reduction = 0.8f;
+    float start_delay_ms = 0.0f;
+    float start_ramp_ms = 0.0f;
 };
+
+float ads_start_authority(
+    float ads_epoch_elapsed_ms,
+    float start_delay_ms,
+    float start_ramp_ms) noexcept;
 
 class AdsAcquisitionController {
 public:

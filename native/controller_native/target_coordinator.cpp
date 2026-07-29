@@ -253,6 +253,10 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     const float error_length = length(plan.error_px);
     plan.acquisition_elapsed_ms = static_cast<float>(
         std::max(0.0, (now_seconds - acquisition_started_seconds_) * 1000.0));
+    plan.ads_epoch_elapsed_ms = ads_epoch_active_
+        ? static_cast<float>(
+            std::max(0.0, (now_seconds - ads_epoch_started_seconds_) * 1000.0))
+        : 0.0f;
     const float response_scale = std::max(
         0.0f, feedback.aim_response_px_per_stick_second);
     const pipeline_contract::Vec2f residual_error_rate = observed_frames_ >= 2
@@ -285,16 +289,18 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
             settled_frames_ = 0;
         }
     }
-    const bool snap_window_elapsed = ads_epoch_active_ &&
-        (now_seconds - ads_epoch_started_seconds_) * 1000.0 >=
-            static_cast<double>(std::max(0.0f, config_.ads_snap_window_ms));
+    const bool acquisition_ceiling_elapsed = ads_epoch_active_ &&
+        plan.ads_epoch_elapsed_ms >= std::max(
+            0.0f, config_.ads_max_acquisition_ms);
     if (!intent.ads) {
         control_mode_ = pipeline_contract::ControlMode::Manual;
         ads_epoch_active_ = false;
         ads_snap_consumed_ = false;
     } else if (control_mode_ == pipeline_contract::ControlMode::BodyLockFollow) {
         ads_snap_consumed_ = true;
-    } else if (ads_snap_consumed_ || snap_window_elapsed ||
+    } else if (ads_snap_consumed_ ||
+               (acquisition_ceiling_elapsed &&
+                error_length <= config_.bodylock_activation_radius_px) ||
                settled_frames_ >= config_.settle_frames) {
         control_mode_ = pipeline_contract::ControlMode::BodyLockFollow;
         ads_snap_consumed_ = true;

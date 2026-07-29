@@ -11,6 +11,18 @@ constexpr float kVectorForceHeadroom = 1.41421356237f;
 
 }  // namespace
 
+float ads_start_authority(
+    float ads_epoch_elapsed_ms,
+    float start_delay_ms,
+    float start_ramp_ms) noexcept {
+    const float elapsed = std::max(0.0f, ads_epoch_elapsed_ms);
+    const float delay = std::max(0.0f, start_delay_ms);
+    if (elapsed < delay) return 0.0f;
+    const float ramp = std::max(0.0f, start_ramp_ms);
+    if (ramp <= 0.0f) return 1.0f;
+    return std::clamp((elapsed - delay) / ramp, 0.0f, 1.0f);
+}
+
 AdsAcquisitionController::AdsAcquisitionController(AdsAcquisitionControllerConfig config)
     : config_(config) {}
 
@@ -39,7 +51,10 @@ pipeline_contract::Vec2f AdsAcquisitionController::compute(
     request.max_force = {
         config_.max_force_x * kVectorForceHeadroom,
         config_.max_force_y * kVectorForceHeadroom};
-    request.authority = authority;
+    request.authority = authority * ads_start_authority(
+        plan.ads_epoch_elapsed_ms,
+        config_.start_delay_ms,
+        config_.start_ramp_ms);
     auto output = solve_response_model_aim(request).stick;
     const pipeline_contract::Vec2f manual{
         intent.filtered_right.x, intent.filtered_right.y};

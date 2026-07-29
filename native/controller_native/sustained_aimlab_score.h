@@ -38,6 +38,7 @@ struct TargetResult {
     bool acquisition_timed_out = false;
     bool bodylock_entry_failed = false;
     bool first_pass_success = false;
+    int first_assist_output_ms = -1;
     int first_entry_ms = -1;
     int bodylock_entry_ms = -1;
     int bodylock_active_ms = 0;
@@ -233,6 +234,8 @@ struct BenchmarkResult {
     double max_error_px = 0.0;
     double median_first_entry_to_settle_ms = -1.0;
     double p95_first_entry_to_settle_ms = -1.0;
+    double median_first_assist_output_ms = -1.0;
+    double p95_first_assist_output_ms = -1.0;
     int handoff_count = 0;
     double max_handoff_residual_px = 0.0;
     double max_abs_handoff_closing_speed_px_per_sec = 0.0;

@@ -45,8 +45,6 @@ TargetCoordinatorConfig coordinator_config(const GamepadRuntimeConfig& config) {
     result.settle_radius_px = std::max(1.0f, config.ai_aim.ads_completion_radius_px);
     result.settle_frames = static_cast<std::uint32_t>(
         std::max(1, config.ai_aim.ads_completion_fresh_frames));
-    result.ads_snap_window_ms = static_cast<float>(
-        std::max(0, config.ai_aim.ads_snap_window_ms));
     result.ads_max_acquisition_ms = std::max(0.0f, config.ai_aim.ads_max_acquisition_ms);
     result.bodylock_activation_radius_px = std::max(
         result.settle_radius_px, config.ai_aim.body_lock_activation_box_px);
@@ -63,6 +61,8 @@ AdsAcquisitionControllerConfig ads_config(const GamepadRuntimeConfig& config) {
     result.arrival_horizon_seconds = std::clamp(
         static_cast<float>(config.ai_aim.ads_snap_window_ms) / 1000.0f,
         0.060f, 0.350f);
+    result.start_delay_ms = std::max(0.0f, config.ai_aim.ads_start_delay_ms);
+    result.start_ramp_ms = std::max(0.0f, config.ai_aim.ads_start_ramp_ms);
     return result;
 }
 

@@ -544,6 +544,7 @@ BenchmarkResult aggregate(
     std::vector<double> controller_residual_jerks;
     std::vector<double> post_cross_errors;
     std::vector<double> settle_times;
+    std::vector<double> first_assist_output_times;
     std::vector<double> post_handoff_rebounds;
     std::vector<double> post_handoff_wrong_way_integrals;
     std::vector<double> reveal_to_stable_times;
@@ -605,6 +606,10 @@ BenchmarkResult aggregate(
         if (target.first_entry_to_settle_ms >= 0) {
             settle_times.push_back(
                 static_cast<double>(target.first_entry_to_settle_ms));
+        }
+        if (target.first_assist_output_ms >= 0) {
+            first_assist_output_times.push_back(
+                static_cast<double>(target.first_assist_output_ms));
         }
         if (target.handoff_residual_px >= 0.0) {
             ++result.handoff_count;
@@ -676,6 +681,12 @@ BenchmarkResult aggregate(
         result.median_first_entry_to_settle_ms = percentile(settle_times, 0.50);
         result.p95_first_entry_to_settle_ms =
             percentile(std::move(settle_times), 0.95);
+    }
+    if (!first_assist_output_times.empty()) {
+        result.median_first_assist_output_ms =
+            percentile(first_assist_output_times, 0.50);
+        result.p95_first_assist_output_ms =
+            percentile(std::move(first_assist_output_times), 0.95);
     }
     if (result.handoff_episodes > 0) {
         result.handoff_defect_rate =

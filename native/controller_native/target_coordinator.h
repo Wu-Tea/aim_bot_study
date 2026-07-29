@@ -15,7 +15,6 @@ struct TargetCoordinatorConfig {
     float max_reacquire_innovation_px = 18.0f;
     float settle_radius_px = 8.0f;
     std::uint32_t settle_frames = 5;
-    float ads_snap_window_ms = 100.0f;
     float ads_max_acquisition_ms = 180.0f;
     float bodylock_activation_radius_px = 150.0f;
     float bodylock_exit_radius_px = 48.0f;
