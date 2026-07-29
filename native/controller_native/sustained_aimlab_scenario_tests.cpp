@@ -12,6 +12,7 @@ namespace {
 
 using controller_native::sustained_aimlab::BenchmarkConfig;
 using controller_native::sustained_aimlab::MotionProfile;
+using controller_native::sustained_aimlab::PlayerVerticalMotionMode;
 using controller_native::sustained_aimlab::ScenarioProfile;
 using controller_native::sustained_aimlab::ScenarioScript;
 using controller_native::sustained_aimlab::TargetScript;
@@ -46,6 +47,7 @@ bool same_target(const TargetScript& left, const TargetScript& right) {
         left.velocity_maneuvers.size() != right.velocity_maneuvers.size() ||
         left.acquire_deadline_ms != right.acquire_deadline_ms ||
         left.player_strafe != right.player_strafe ||
+        left.player_vertical != right.player_vertical ||
         left.observation_at_ms != right.observation_at_ms ||
         left.vision_occlusion_bursts.size() !=
             right.vision_occlusion_bursts.size() ||
@@ -169,6 +171,118 @@ void test_full_speed_strafe_schedule_is_seeded_and_bounded() {
     }
 }
 
+void test_vertical_motion_schedule_is_seeded_and_bounded() {
+    BenchmarkConfig config;
+    config.duration_ms = 3'000;
+    const ScenarioScript first =
+        controller_native::sustained_aimlab::generate_script(
+            2026072901u, config);
+    const ScenarioScript second =
+        controller_native::sustained_aimlab::generate_script(
+            2026072901u, config);
+    for (std::size_t index = 0; index < first.targets.size(); ++index) {
+        const auto& motion = first.targets[index].player_vertical;
+        require(motion == second.targets[index].player_vertical,
+                "same seed must reproduce vertical player motion");
+        require(motion.slide_onset_ms >= 60 &&
+                    motion.slide_onset_ms <= 220,
+                "slide onset must stay in the combat window");
+        require(motion.slide_drop_ms >= 70 &&
+                    motion.slide_drop_ms <= 140 &&
+                    motion.slide_hold_ms >= 120 &&
+                    motion.slide_hold_ms <= 300,
+                "slide drop and hold durations must stay bounded");
+        require(motion.slide_recover_ms >= 100 &&
+                    motion.slide_recover_ms <= 220 &&
+                    motion.slide_depth_px >= 32.0 &&
+                    motion.slide_depth_px <= 72.0,
+                "slide recovery and depth must stay bounded");
+        require(motion.jump_onset_ms >= 60 &&
+                    motion.jump_onset_ms <= 240 &&
+                    motion.jump_duration_ms >= 420 &&
+                    motion.jump_duration_ms <= 700 &&
+                    motion.jump_height_px >= 28.0 &&
+                    motion.jump_height_px <= 64.0,
+                "jump timing and height must stay bounded");
+    }
+}
+
+void test_vertical_motion_shapes_cover_slide_recovery_and_jump() {
+    using controller_native::sustained_aimlab::
+        PlayerVerticalMotionScript;
+    using controller_native::sustained_aimlab::
+        player_vertical_error_offset_y_px;
+    PlayerVerticalMotionScript motion;
+    motion.slide_onset_ms = 100;
+    motion.slide_drop_ms = 100;
+    motion.slide_hold_ms = 200;
+    motion.slide_recover_ms = 100;
+    motion.slide_depth_px = 40.0;
+    motion.slide_instant_recovery = false;
+    require_near(
+        player_vertical_error_offset_y_px(
+            motion, 99, PlayerVerticalMotionMode::Slide),
+        0.0, 1e-12, "slide must wait for onset");
+    require_near(
+        player_vertical_error_offset_y_px(
+            motion, 200, PlayerVerticalMotionMode::Slide),
+        -40.0, 1e-12, "slide must reach its lowered camera height");
+    require_near(
+        player_vertical_error_offset_y_px(
+            motion, 450, PlayerVerticalMotionMode::Slide),
+        -20.0, 1e-12, "linear stand-up must recover halfway");
+    motion.slide_instant_recovery = true;
+    require_near(
+        player_vertical_error_offset_y_px(
+            motion, 400, PlayerVerticalMotionMode::Slide),
+        0.0, 1e-12, "instant stand-up must restore height in one tick");
+
+    motion.jump_onset_ms = 100;
+    motion.jump_duration_ms = 600;
+    motion.jump_height_px = 50.0;
+    require_near(
+        player_vertical_error_offset_y_px(
+            motion, 400, PlayerVerticalMotionMode::Jump),
+        50.0, 1e-9, "jump apex must reach configured screen displacement");
+    require_near(
+        player_vertical_error_offset_y_px(
+            motion, 700, PlayerVerticalMotionMode::Jump),
+        0.0, 1e-12, "jump landing must restore standing height");
+}
+
+void test_stationary_target_mode_preserves_paired_nonmotion_script() {
+    BenchmarkConfig moving_config;
+    BenchmarkConfig stationary_config;
+    stationary_config.target_motion_enabled = false;
+    const ScenarioScript moving =
+        controller_native::sustained_aimlab::generate_script(
+            2026072902u, moving_config);
+    const ScenarioScript stationary =
+        controller_native::sustained_aimlab::generate_script(
+            2026072902u, stationary_config);
+    require(moving.hash != stationary.hash,
+            "target-motion semantics must change script identity");
+    require(moving.targets.size() == stationary.targets.size(),
+            "target-motion mode must preserve target count");
+    for (std::size_t index = 0; index < moving.targets.size(); ++index) {
+        const auto& active = moving.targets[index];
+        const auto& still = stationary.targets[index];
+        require(
+            active.id == still.id &&
+                same_vec(active.initial_error_px, still.initial_error_px) &&
+                active.acquire_deadline_ms == still.acquire_deadline_ms &&
+                active.player_strafe == still.player_strafe &&
+                active.player_vertical == still.player_vertical,
+            "stationary/moving pairs must share nonmotion scenario inputs");
+        require_near(still.initial_velocity_px_per_second.x, 0.0, 1e-12,
+                     "stationary target x velocity");
+        require_near(still.initial_velocity_px_per_second.y, 0.0, 1e-12,
+                     "stationary target y velocity");
+        require(still.velocity_maneuvers.empty(),
+                "stationary targets must not retain maneuvers");
+    }
+}
+
 void test_generated_ranges_and_observation_schedule() {
     const BenchmarkConfig config;
     const ScenarioScript script =
@@ -235,6 +349,7 @@ void test_200hz_changes_only_observation_schedule() {
                 slow.maneuver_at_ms == fast.maneuver_at_ms &&
                 slow.acquire_deadline_ms == fast.acquire_deadline_ms &&
                 slow.player_strafe == fast.player_strafe &&
+                slow.player_vertical == fast.player_vertical &&
                 slow.velocity_maneuvers.size() ==
                     fast.velocity_maneuvers.size(),
             "Vision cadence must not change target kinematics");
@@ -481,6 +596,9 @@ int main() {
         test_seeded_generation_is_reproducible_and_complete();
         test_script_hash_includes_control_response_delay();
         test_full_speed_strafe_schedule_is_seeded_and_bounded();
+        test_vertical_motion_schedule_is_seeded_and_bounded();
+        test_vertical_motion_shapes_cover_slide_recovery_and_jump();
+        test_stationary_target_mode_preserves_paired_nonmotion_script();
         test_generated_ranges_and_observation_schedule();
         test_200hz_changes_only_observation_schedule();
         test_motion_profiles_and_boundary_reflection();

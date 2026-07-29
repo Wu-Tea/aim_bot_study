@@ -55,6 +55,8 @@ struct CliOptions {
     std::string intent_fusion = "legacy";
     double tracker_velocity_alpha = -1.0;
     std::string left_strafe = "off";
+    std::string vertical_motion = "off";
+    std::string target_motion = "moving";
     int learning_rounds = 0;
     int learning_delay_ms = 45;
     std::string learning_policy = "retain";
@@ -155,6 +157,10 @@ CliOptions parse_args(int argc, char** argv) {
             options.tracker_velocity_alpha = std::stod(argv[++index]);
         } else if (argument == "--left-strafe" && index + 1 < argc) {
             options.left_strafe = argv[++index];
+        } else if (argument == "--vertical-motion" && index + 1 < argc) {
+            options.vertical_motion = argv[++index];
+        } else if (argument == "--target-motion" && index + 1 < argc) {
+            options.target_motion = argv[++index];
         } else if (argument == "--learning-rounds" && index + 1 < argc) {
             options.learning_rounds = std::stoi(argv[++index]);
         } else if (argument == "--learning-delay-ms" && index + 1 < argc) {
@@ -177,6 +183,8 @@ CliOptions parse_args(int argc, char** argv) {
                 << "[--intent-fusion legacy|vector|vector-baseline] "
                 << "[--tracker-velocity-alpha 0..1] "
                 << "[--left-strafe off|full-reversal|both] "
+                << "[--vertical-motion off|slide|jump|random|all] "
+                << "[--target-motion stationary|moving] "
                 << "[--learning-rounds N --learning-delay-ms N "
                 << "--learning-policy baseline|reset|retain]\n";
             std::exit(EXIT_SUCCESS);
@@ -234,6 +242,19 @@ CliOptions parse_args(int argc, char** argv) {
         throw std::runtime_error(
             "left strafe mode must be off, full-reversal, or both");
     }
+    if (options.vertical_motion != "off" &&
+        options.vertical_motion != "slide" &&
+        options.vertical_motion != "jump" &&
+        options.vertical_motion != "random" &&
+        options.vertical_motion != "all") {
+        throw std::runtime_error(
+            "vertical motion must be off, slide, jump, random, or all");
+    }
+    if (options.target_motion != "stationary" &&
+        options.target_motion != "moving") {
+        throw std::runtime_error(
+            "target motion must be stationary or moving");
+    }
     if (options.learning_rounds < 0 || options.learning_delay_ms < 0 ||
         (options.learning_policy != "baseline" &&
          options.learning_policy != "reset" &&
@@ -242,7 +263,9 @@ CliOptions parse_args(int argc, char** argv) {
     }
     if (options.learning_rounds > 0 &&
         (options.profile == "both" || options.cohort == "both" ||
-         options.seeds.size() > 1 || options.left_strafe != "off")) {
+         options.seeds.size() > 1 || options.left_strafe != "off" ||
+         options.vertical_motion != "off" ||
+         options.target_motion != "moving")) {
         throw std::runtime_error(
             "learning mode requires one seed, one profile, one cohort, "
             "and left strafe off");
@@ -316,6 +339,16 @@ const char* cohort_name(BenchmarkCohort cohort) {
 const char* player_strafe_name(PlayerStrafeMode mode) {
     return mode == PlayerStrafeMode::FullReversal
         ? "full_reversal" : "off";
+}
+
+const char* player_vertical_motion_name(PlayerVerticalMotionMode mode) {
+    switch (mode) {
+    case PlayerVerticalMotionMode::Off: return "off";
+    case PlayerVerticalMotionMode::Slide: return "slide";
+    case PlayerVerticalMotionMode::Jump: return "jump";
+    case PlayerVerticalMotionMode::Random: return "random";
+    }
+    return "unknown";
 }
 
 const char* motion_name(MotionProfile motion) {
@@ -458,6 +491,10 @@ void write_report(
         << ", \"slowdown_center\": " << config.slowdown_center_multiplier
         << ", \"left_strafe_request\": "
         << json_string(options.left_strafe)
+        << ", \"vertical_motion_request\": "
+        << json_string(options.vertical_motion)
+        << ", \"target_motion\": "
+        << json_string(options.target_motion)
         << ", \"player_top_speed_px_per_second\": ["
         << kPlayerStrafeMinTopSpeedPxPerSecond << ','
         << kPlayerStrafeMaxTopSpeedPxPerSecond
@@ -497,6 +534,9 @@ void write_report(
             << ", \"cohort\": " << json_string(cohort_name(result.cohort))
             << ", \"left_strafe\": "
             << json_string(player_strafe_name(result.player_strafe_mode))
+            << ", \"vertical_motion\": "
+            << json_string(player_vertical_motion_name(
+                result.player_vertical_motion_mode))
             << ", \"script_hash\": \"" << result.script_hash << "\""
             << ", \"ticks\": " << result.ticks
             << ", \"left_strafe_active_ms\": "
@@ -510,6 +550,16 @@ void write_report(
             << result.max_sampled_player_top_speed_px_per_second
             << ", \"max_abs_player_speed_px_per_second\": "
             << result.max_abs_player_speed_px_per_second
+            << ", \"player_vertical_active_ms\": "
+            << result.player_vertical_active_ms
+            << ", \"player_slide_events\": "
+            << result.player_slide_events
+            << ", \"player_jump_events\": "
+            << result.player_jump_events
+            << ", \"max_abs_player_vertical_offset_px\": "
+            << result.max_abs_player_vertical_offset_px
+            << ", \"max_abs_player_vertical_speed_px_per_second\": "
+            << result.max_abs_player_vertical_speed_px_per_second
             << ", \"acquire_points\": " << result.acquire_points
             << ", \"tracking_points\": " << result.tracking_points
             << ", \"smooth_bonus\": " << result.smooth_bonus
@@ -881,6 +931,8 @@ void print_summary(const BenchmarkResult& result) {
         << " profile=" << profile_name(result.manual_profile)
         << " cohort=" << cohort_name(result.cohort)
         << " left_strafe=" << player_strafe_name(result.player_strafe_mode)
+        << " vertical_motion=" << player_vertical_motion_name(
+            result.player_vertical_motion_mode)
         << " script_hash=" << result.script_hash
         << " acquire_points=" << result.acquire_points
         << " tracking_points=" << result.tracking_points
@@ -990,6 +1042,8 @@ int main(int argc, char** argv) {
             : 0;
         benchmark_config.obsolete_vertical_fixture =
             options.profile == "obsolete";
+        benchmark_config.target_motion_enabled =
+            options.target_motion == "moving";
         std::vector<ManualProfile> profiles;
         if (options.profile == "obsolete") {
             profiles.push_back(ManualProfile::ObsoleteAfterCrossing);
@@ -1007,6 +1061,27 @@ int main(int argc, char** argv) {
         if (options.left_strafe != "off") {
             player_strafe_modes.push_back(PlayerStrafeMode::FullReversal);
         }
+        std::vector<PlayerVerticalMotionMode> player_vertical_motion_modes;
+        if (options.vertical_motion == "off" ||
+            options.vertical_motion == "all") {
+            player_vertical_motion_modes.push_back(
+                PlayerVerticalMotionMode::Off);
+        }
+        if (options.vertical_motion == "slide" ||
+            options.vertical_motion == "all") {
+            player_vertical_motion_modes.push_back(
+                PlayerVerticalMotionMode::Slide);
+        }
+        if (options.vertical_motion == "jump" ||
+            options.vertical_motion == "all") {
+            player_vertical_motion_modes.push_back(
+                PlayerVerticalMotionMode::Jump);
+        }
+        if (options.vertical_motion == "random" ||
+            options.vertical_motion == "all") {
+            player_vertical_motion_modes.push_back(
+                PlayerVerticalMotionMode::Random);
+        }
         std::vector<BenchmarkResult> results;
         std::vector<CounterfactualRunSummary> counterfactual_results;
         std::vector<FusionRunSummary> fusion_results;
@@ -1022,22 +1097,33 @@ int main(int argc, char** argv) {
                 for (const BenchmarkCohort cohort : cohorts) {
                     for (const PlayerStrafeMode player_strafe_mode :
                          player_strafe_modes) {
-                        auto coverage = std::make_shared<AssistedModeCoverage>();
-                        const ReplayControllerFactory factory = make_native_factory(
-                            runtime.gamepad, cohort, intent_fusion_mode, coverage,
-                            1.0, options.tracker_velocity_alpha);
-                        ReplayReference reference = record_reference(
-                            script, profile, cohort, factory, player_strafe_mode);
-                        BenchmarkResult result = reference.benchmark_result;
-                        fusion_results.push_back(summarize_fusion(reference));
-                        if (options.smoke) {
-                            validate_smoke(
-                                result, options.duration_ms, *coverage);
+                        for (const PlayerVerticalMotionMode vertical_mode :
+                             player_vertical_motion_modes) {
+                            auto coverage =
+                                std::make_shared<AssistedModeCoverage>();
+                            const ReplayControllerFactory factory =
+                                make_native_factory(
+                                    runtime.gamepad, cohort,
+                                    intent_fusion_mode, coverage,
+                                    1.0, options.tracker_velocity_alpha);
+                            ReplayReference reference = record_reference(
+                                script, profile, cohort, factory,
+                                player_strafe_mode, vertical_mode);
+                            BenchmarkResult result =
+                                reference.benchmark_result;
+                            fusion_results.push_back(
+                                summarize_fusion(reference));
+                            if (options.smoke) {
+                                validate_smoke(
+                                    result, options.duration_ms, *coverage);
+                            }
+                            print_summary(result);
+                            counterfactual_results.push_back(
+                                analyze_reference(
+                                    reference, factory,
+                                    options.counterfactual));
+                            results.push_back(std::move(result));
                         }
-                        print_summary(result);
-                        counterfactual_results.push_back(analyze_reference(
-                            reference, factory, options.counterfactual));
-                        results.push_back(std::move(result));
                     }
                 }
             }

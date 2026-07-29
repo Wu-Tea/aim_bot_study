@@ -47,6 +47,18 @@ enum class PlayerStrafeMode : std::uint8_t {
     FullReversal,
 };
 
+enum class PlayerVerticalMotionMode : std::uint8_t {
+    Off,
+    Slide,
+    Jump,
+    Random,
+};
+
+enum class PlayerVerticalEvent : std::uint8_t {
+    Slide,
+    Jump,
+};
+
 inline constexpr double kPlayerStrafeMinTopSpeedPxPerSecond = 125.0;
 inline constexpr double kPlayerStrafeMaxTopSpeedPxPerSecond = 232.0;
 inline constexpr double kPlayerStrafeMinTimeConstantMs = 100.0;
@@ -70,6 +82,36 @@ struct PlayerStrafeScript {
     }
 
     bool operator!=(const PlayerStrafeScript& other) const noexcept {
+        return !(*this == other);
+    }
+};
+
+struct PlayerVerticalMotionScript {
+    PlayerVerticalEvent random_event = PlayerVerticalEvent::Slide;
+    int slide_onset_ms = 80;
+    int slide_drop_ms = 100;
+    int slide_hold_ms = 180;
+    int slide_recover_ms = 140;
+    bool slide_instant_recovery = false;
+    double slide_depth_px = 40.0;
+    int jump_onset_ms = 100;
+    int jump_duration_ms = 520;
+    double jump_height_px = 44.0;
+
+    bool operator==(const PlayerVerticalMotionScript& other) const noexcept {
+        return random_event == other.random_event &&
+            slide_onset_ms == other.slide_onset_ms &&
+            slide_drop_ms == other.slide_drop_ms &&
+            slide_hold_ms == other.slide_hold_ms &&
+            slide_recover_ms == other.slide_recover_ms &&
+            slide_instant_recovery == other.slide_instant_recovery &&
+            slide_depth_px == other.slide_depth_px &&
+            jump_onset_ms == other.jump_onset_ms &&
+            jump_duration_ms == other.jump_duration_ms &&
+            jump_height_px == other.jump_height_px;
+    }
+
+    bool operator!=(const PlayerVerticalMotionScript& other) const noexcept {
         return !(*this == other);
     }
 };
@@ -102,6 +144,7 @@ struct BenchmarkConfig {
     int vision_interval_ms = 0;
     bool obsolete_vertical_fixture = false;
     int short_occlusion_duration_ms = 0;
+    bool target_motion_enabled = true;
 };
 
 struct VelocityManeuver {
@@ -120,6 +163,7 @@ struct TargetScript {
     int acquire_deadline_ms = 250;
     double visible_radius_px = 24.0;
     PlayerStrafeScript player_strafe;
+    PlayerVerticalMotionScript player_vertical;
     std::vector<int> observation_at_ms;
     std::vector<Vec2d> observation_noise_px;
     std::vector<VisionOcclusionBurst> vision_occlusion_bursts;

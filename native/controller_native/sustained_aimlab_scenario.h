@@ -24,6 +24,11 @@ double aim_slowdown_multiplier(
     double target_radius_px,
     const BenchmarkConfig& config);
 
+double player_vertical_error_offset_y_px(
+    const PlayerVerticalMotionScript& script,
+    int elapsed_ms,
+    PlayerVerticalMotionMode mode) noexcept;
+
 const char* to_string(MotionProfile profile) noexcept;
 const char* to_string(ScenarioProfile profile) noexcept;
 

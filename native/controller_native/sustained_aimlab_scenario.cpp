@@ -90,6 +90,7 @@ void hash_config(std::uint64_t& hash, const BenchmarkConfig& config) {
     hash_integral(hash, config.vision_interval_ms);
     hash_integral(hash, config.obsolete_vertical_fixture ? 1 : 0);
     hash_integral(hash, config.short_occlusion_duration_ms);
+    hash_integral(hash, config.target_motion_enabled ? 1 : 0);
 }
 
 std::uint64_t script_hash(const ScenarioScript& script) {
@@ -120,6 +121,17 @@ std::uint64_t script_hash(const ScenarioScript& script) {
         hash_integral(hash, target.player_strafe.release_ms);
         hash_double(hash, target.player_strafe.top_speed_px_per_second);
         hash_double(hash, target.player_strafe.time_constant_ms);
+        hash_integral(hash, target.player_vertical.random_event);
+        hash_integral(hash, target.player_vertical.slide_onset_ms);
+        hash_integral(hash, target.player_vertical.slide_drop_ms);
+        hash_integral(hash, target.player_vertical.slide_hold_ms);
+        hash_integral(hash, target.player_vertical.slide_recover_ms);
+        hash_integral(
+            hash, target.player_vertical.slide_instant_recovery ? 1 : 0);
+        hash_double(hash, target.player_vertical.slide_depth_px);
+        hash_integral(hash, target.player_vertical.jump_onset_ms);
+        hash_integral(hash, target.player_vertical.jump_duration_ms);
+        hash_double(hash, target.player_vertical.jump_height_px);
         hash_integral(hash,
             static_cast<std::uint64_t>(target.observation_at_ms.size()));
         for (std::size_t index = 0; index < target.observation_at_ms.size(); ++index) {
@@ -191,6 +203,16 @@ ScenarioScript generate_script(
     std::uniform_real_distribution<double> strafe_time_constant_distribution(
         kPlayerStrafeMinTimeConstantMs,
         kPlayerStrafeMaxTimeConstantMs);
+    std::mt19937 vertical_random(seed ^ 0x71E271CAu);
+    std::uniform_int_distribution<int> vertical_event_distribution(0, 1);
+    std::uniform_int_distribution<int> slide_onset_distribution(60, 220);
+    std::uniform_int_distribution<int> slide_drop_distribution(70, 140);
+    std::uniform_int_distribution<int> slide_hold_distribution(120, 300);
+    std::uniform_int_distribution<int> slide_recover_distribution(100, 220);
+    std::uniform_real_distribution<double> slide_depth_distribution(32.0, 72.0);
+    std::uniform_int_distribution<int> jump_onset_distribution(60, 240);
+    std::uniform_int_distribution<int> jump_duration_distribution(420, 700);
+    std::uniform_real_distribution<double> jump_height_distribution(28.0, 64.0);
     std::mt19937 occlusion_random(seed ^ 0x5a17c9e3u);
     std::uniform_int_distribution<int> early_occlusion_distribution(80, 180);
     std::uniform_int_distribution<int> late_occlusion_distribution(480, 620);
@@ -220,6 +242,28 @@ ScenarioScript generate_script(
             strafe_speed_distribution(strafe_random);
         target.player_strafe.time_constant_ms =
             strafe_time_constant_distribution(strafe_random);
+        target.player_vertical.random_event =
+            vertical_event_distribution(vertical_random) == 0
+            ? PlayerVerticalEvent::Slide
+            : PlayerVerticalEvent::Jump;
+        target.player_vertical.slide_onset_ms =
+            slide_onset_distribution(vertical_random);
+        target.player_vertical.slide_drop_ms =
+            slide_drop_distribution(vertical_random);
+        target.player_vertical.slide_hold_ms =
+            slide_hold_distribution(vertical_random);
+        target.player_vertical.slide_recover_ms =
+            slide_recover_distribution(vertical_random);
+        target.player_vertical.slide_instant_recovery =
+            vertical_event_distribution(vertical_random) == 0;
+        target.player_vertical.slide_depth_px =
+            slide_depth_distribution(vertical_random);
+        target.player_vertical.jump_onset_ms =
+            jump_onset_distribution(vertical_random);
+        target.player_vertical.jump_duration_ms =
+            jump_duration_distribution(vertical_random);
+        target.player_vertical.jump_height_px =
+            jump_height_distribution(vertical_random);
         target.motion =
             config.scenario_profile == ScenarioProfile::CompoundDirectional
             ? MotionProfile::CompoundDirectional
@@ -299,6 +343,12 @@ ScenarioScript generate_script(
             target.initial_velocity_px_per_second = {};
             target.acceleration_px_per_second_squared = {};
             target.maneuver_at_ms = -1;
+        }
+        if (!config.target_motion_enabled) {
+            target.initial_velocity_px_per_second = {};
+            target.acceleration_px_per_second_squared = {};
+            target.maneuver_at_ms = -1;
+            target.velocity_maneuvers.clear();
         }
 
         const int observation_horizon_ms = config.max_acquire_deadline_ms +
@@ -411,6 +461,50 @@ double aim_slowdown_multiplier(
     return config.slowdown_edge_multiplier +
         (config.slowdown_center_multiplier - config.slowdown_edge_multiplier) *
         smoothstep(penetration);
+}
+
+double player_vertical_error_offset_y_px(
+    const PlayerVerticalMotionScript& script,
+    int elapsed_ms,
+    PlayerVerticalMotionMode mode) noexcept {
+    if (elapsed_ms < 0 || mode == PlayerVerticalMotionMode::Off) return 0.0;
+    if (mode == PlayerVerticalMotionMode::Random) {
+        mode = script.random_event == PlayerVerticalEvent::Slide
+            ? PlayerVerticalMotionMode::Slide
+            : PlayerVerticalMotionMode::Jump;
+    }
+    if (mode == PlayerVerticalMotionMode::Jump) {
+        const int jump_elapsed = elapsed_ms - script.jump_onset_ms;
+        if (jump_elapsed < 0 || jump_elapsed >= script.jump_duration_ms ||
+            script.jump_duration_ms <= 0) {
+            return 0.0;
+        }
+        const double phase = static_cast<double>(jump_elapsed) /
+            static_cast<double>(script.jump_duration_ms);
+        // Rising player camera makes the target appear lower on screen.
+        return script.jump_height_px * std::sin(kPi * phase);
+    }
+    if (mode != PlayerVerticalMotionMode::Slide) return 0.0;
+
+    const int slide_elapsed = elapsed_ms - script.slide_onset_ms;
+    if (slide_elapsed < 0) return 0.0;
+    if (slide_elapsed < script.slide_drop_ms && script.slide_drop_ms > 0) {
+        const double phase = static_cast<double>(slide_elapsed) /
+            static_cast<double>(script.slide_drop_ms);
+        // Lowering the player camera makes the target appear higher.
+        return -script.slide_depth_px * smoothstep(phase);
+    }
+    const int hold_end = script.slide_drop_ms + script.slide_hold_ms;
+    if (slide_elapsed < hold_end) return -script.slide_depth_px;
+    if (script.slide_instant_recovery || script.slide_recover_ms <= 0) {
+        return 0.0;
+    }
+    const int recovery_elapsed = slide_elapsed - hold_end;
+    if (recovery_elapsed >= script.slide_recover_ms) return 0.0;
+    const double phase = static_cast<double>(recovery_elapsed) /
+        static_cast<double>(script.slide_recover_ms);
+    // Explicitly linear to cover the non-instant stand-up case.
+    return -script.slide_depth_px * (1.0 - phase);
 }
 
 const char* to_string(MotionProfile profile) noexcept {

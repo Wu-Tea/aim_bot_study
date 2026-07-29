@@ -180,6 +180,8 @@ struct BenchmarkResult {
     ManualProfile manual_profile = ManualProfile::Pure;
     BenchmarkCohort cohort = BenchmarkCohort::AdsAcquire;
     PlayerStrafeMode player_strafe_mode = PlayerStrafeMode::Off;
+    PlayerVerticalMotionMode player_vertical_motion_mode =
+        PlayerVerticalMotionMode::Off;
     int ticks = 0;
     int left_strafe_active_ms = 0;
     int left_strafe_reversals = 0;
@@ -187,6 +189,11 @@ struct BenchmarkResult {
     double min_sampled_player_top_speed_px_per_second = 0.0;
     double max_sampled_player_top_speed_px_per_second = 0.0;
     double max_abs_player_speed_px_per_second = 0.0;
+    int player_vertical_active_ms = 0;
+    int player_slide_events = 0;
+    int player_jump_events = 0;
+    double max_abs_player_vertical_offset_px = 0.0;
+    double max_abs_player_vertical_speed_px_per_second = 0.0;
     double acquire_points = 0.0;
     double tracking_points = 0.0;
     double smooth_bonus = 0.0;
