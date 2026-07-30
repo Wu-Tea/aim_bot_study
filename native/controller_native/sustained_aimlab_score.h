@@ -83,6 +83,11 @@ struct TargetResult {
     bool handoff_observed = false;
     double handoff_residual_px = -1.0;
     double handoff_closing_speed_px_per_sec = 0.0;
+    bool handoff_predicted_crossing = false;
+    double handoff_manual_radial = 0.0;
+    double handoff_requested_ai_radial = 0.0;
+    double handoff_shaped_ai_radial = 0.0;
+    double handoff_final_radial = 0.0;
     int post_handoff_local_samples = 0;
     int post_handoff_tail_samples = 0;
     double post_handoff_local_error_area_px_ms = 0.0;
@@ -92,6 +97,9 @@ struct TargetResult {
     double post_handoff_rebound_px = 0.0;
     double post_handoff_wrong_way_output_integral = 0.0;
     int post_handoff_wrong_way_ms = 0;
+    int post_handoff_manual_wrong_way_ms = 0;
+    int post_handoff_requested_ai_wrong_way_ms = 0;
+    int post_handoff_shaped_ai_wrong_way_ms = 0;
     int post_handoff_circle_exit_events = 0;
     int post_handoff_settle_ms = -1;
     bool handoff_defect = false;

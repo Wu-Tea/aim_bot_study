@@ -340,6 +340,17 @@ void test_ads_bodylock_handoff_windows_measure_rebound_and_wrong_way_output() {
         }
         ScoreFrame bodylock = tracking_frame(ms, {error_px, 0.0});
         bodylock.ads_to_bodylock_transition = elapsed == 0;
+        bodylock.predicted_terminal_error_px =
+            elapsed == 0 ? Vec2d{-2.0, 0.0} : Vec2d{error_px, 0.0};
+        bodylock.manual_stick = elapsed < 16
+            ? Vec2d{-0.25, 0.0}
+            : Vec2d{};
+        bodylock.requested_assist_stick = elapsed < 12
+            ? Vec2d{-0.15, 0.0}
+            : Vec2d{0.05, 0.0};
+        bodylock.shaped_assist_stick = elapsed < 8
+            ? Vec2d{-0.18, 0.0}
+            : Vec2d{0.05, 0.0};
         bodylock.final_stick = elapsed < 20
             ? Vec2d{-0.20, 0.0}
             : Vec2d{0.05, 0.0};
@@ -355,6 +366,22 @@ void test_ads_bodylock_handoff_windows_measure_rebound_and_wrong_way_output() {
             "tail window must cover ms 160 through 999");
     require(result.post_handoff_wrong_way_ms == 20,
             "away-directed delivered output must be counted");
+    require(result.handoff_predicted_crossing,
+            "transition frame must preserve predicted center crossing");
+    require_near(result.handoff_manual_radial, -0.25, 1e-9,
+                 "handoff must preserve manual radial contribution");
+    require_near(result.handoff_requested_ai_radial, -0.15, 1e-9,
+                 "handoff must preserve requested AI radial contribution");
+    require_near(result.handoff_shaped_ai_radial, -0.18, 1e-9,
+                 "handoff must preserve shaped AI radial contribution");
+    require_near(result.handoff_final_radial, -0.20, 1e-9,
+                 "handoff must preserve final radial contribution");
+    require(result.post_handoff_manual_wrong_way_ms == 16,
+            "manual wrong-way duration must be separated");
+    require(result.post_handoff_requested_ai_wrong_way_ms == 12,
+            "requested AI wrong-way duration must be separated");
+    require(result.post_handoff_shaped_ai_wrong_way_ms == 8,
+            "shaped AI wrong-way duration must be separated");
     require(result.post_handoff_rebound_px >= 10.0,
             "error growth after a lower minimum must be measured");
     require(result.handoff_defect,

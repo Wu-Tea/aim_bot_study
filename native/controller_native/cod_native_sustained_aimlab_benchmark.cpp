@@ -841,6 +841,16 @@ void write_report(
                 << ",\"handoff_residual_px\":" << target.handoff_residual_px
                 << ",\"handoff_closing_speed_px_per_sec\":"
                 << target.handoff_closing_speed_px_per_sec
+                << ",\"handoff_predicted_crossing\":"
+                << (target.handoff_predicted_crossing ? "true" : "false")
+                << ",\"handoff_manual_radial\":"
+                << target.handoff_manual_radial
+                << ",\"handoff_requested_ai_radial\":"
+                << target.handoff_requested_ai_radial
+                << ",\"handoff_shaped_ai_radial\":"
+                << target.handoff_shaped_ai_radial
+                << ",\"handoff_final_radial\":"
+                << target.handoff_final_radial
                 << ",\"post_handoff_local_samples\":"
                 << target.post_handoff_local_samples
                 << ",\"post_handoff_tail_samples\":"
@@ -859,6 +869,12 @@ void write_report(
                 << target.post_handoff_wrong_way_output_integral
                 << ",\"post_handoff_wrong_way_ms\":"
                 << target.post_handoff_wrong_way_ms
+                << ",\"post_handoff_manual_wrong_way_ms\":"
+                << target.post_handoff_manual_wrong_way_ms
+                << ",\"post_handoff_requested_ai_wrong_way_ms\":"
+                << target.post_handoff_requested_ai_wrong_way_ms
+                << ",\"post_handoff_shaped_ai_wrong_way_ms\":"
+                << target.post_handoff_shaped_ai_wrong_way_ms
                 << ",\"post_handoff_circle_exit_events\":"
                 << target.post_handoff_circle_exit_events
                 << ",\"post_handoff_settle_ms\":"

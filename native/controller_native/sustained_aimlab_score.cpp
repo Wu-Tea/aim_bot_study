@@ -198,6 +198,18 @@ void TargetScorer::add_frame(const ScoreFrame& frame) {
         result_.post_handoff_min_error_px = distance;
         handoff_min_error_px_ = distance;
         handoff_outside_circle_ = distance > radius;
+        Vec2d toward_target = normalized(frame.error_px);
+        toward_target.y = -toward_target.y;
+        result_.handoff_predicted_crossing =
+            dot(frame.error_px, frame.predicted_terminal_error_px) < 0.0;
+        result_.handoff_manual_radial =
+            dot(frame.manual_stick, toward_target);
+        result_.handoff_requested_ai_radial =
+            dot(frame.requested_assist_stick, toward_target);
+        result_.handoff_shaped_ai_radial =
+            dot(frame.shaped_assist_stick, toward_target);
+        result_.handoff_final_radial =
+            dot(frame.final_stick, toward_target);
     }
     if (result_.handoff_observed) {
         const int handoff_elapsed_ms =
@@ -220,6 +232,18 @@ void TargetScorer::add_frame(const ScoreFrame& frame) {
                 result_.post_handoff_wrong_way_output_integral +=
                     -toward_output;
                 ++result_.post_handoff_wrong_way_ms;
+            }
+            if (distance > 1e-9 &&
+                dot(frame.manual_stick, toward_target) < -0.01) {
+                ++result_.post_handoff_manual_wrong_way_ms;
+            }
+            if (distance > 1e-9 &&
+                dot(frame.requested_assist_stick, toward_target) < -0.01) {
+                ++result_.post_handoff_requested_ai_wrong_way_ms;
+            }
+            if (distance > 1e-9 &&
+                dot(frame.shaped_assist_stick, toward_target) < -0.01) {
+                ++result_.post_handoff_shaped_ai_wrong_way_ms;
             }
 
             const bool outside_circle = distance > radius;
