@@ -17,6 +17,36 @@ Primary scope: native C++ FPS gamepad runtime, target selection, tracker/control
 - **Repository evidence:** source, tests, commit, config-proven artifact or acceptance report.
 - **Inferred:** causal explanation not yet independently proven by matched A/B.
 
+## 2026-07-23 to 2026-07-24 - Moving Baseline and Causal Ego Motion
+
+- User-confirmed goal: treat sustained full-speed player strafe as a primary
+  real-game benchmark rather than optimizing only static target scores.
+- Repository evidence: worktree
+  `.worktrees/aimlab-left-strafe-20260723`, branch
+  `codex/aimlab-left-strafe-20260723`, retains a 24-run fixed-seed 60-second
+  no-strafe/full-reversal matrix at `2a99a80`. Full strafe reduced aggregate
+  tracking 12.17%, increased overshoot area 68.16%, circle exits 62.50%, and
+  continued push after crossing 461.90%.
+- Approved design `5eb7ebb` and implementation plan `23841a9` assign one
+  fixed-size, memory-only ego-motion estimator to `TargetCoordinator`. No
+  weapon identity, persistence, active calibration input, extra vision pass,
+  output gate, heap allocation or new thread is allowed.
+- Repository evidence: estimator RED contract and review fixes span
+  `50838e9` through `4d0040d`; the minimal estimator and hardening span
+  `a471b01` through `1892f63`. Focused Release tests pass for drift, onset,
+  steady motion, full reversal, release inertia, pre-held movement, bounded
+  gain/tau learning, coast/reacquire re-baselining, target switches, ambiguity
+  rejection, rate-invariant confidence decay and determinism.
+- Subagent result: Task 2 specification review passed at `1892f63`. The final
+  code-quality re-review was interrupted when the user paused work.
+- Inferred: the estimator cannot affect current gameplay yet because it has
+  not been connected to `TargetCoordinator`, `TargetPlan`, ADS or BodyLock.
+- Resume point: finish the interrupted Task 2 quality review, then use TDD for
+  the single coordinator integration and matched moving A/B. Do not skip
+  directly to tuning.
+- Workspace note: two generated, untracked `.obj` files remain in the feature
+  worktree and are not part of any commit.
+
 ## 2026-07-22 - Fresh-Vision BodyLock Counter-Correction
 
 - User-directed boundary: tracker-only prediction must preserve the existing
@@ -130,6 +160,7 @@ TargetPlan.fire_authority -> AutoFireGate
 
 ## Open Work
 
+- 2026-07-22: completed a static `480x416` TensorRT engine parameter matrix without replacing production. FP16 workspace 4 preserved F1 and produced the most repeatable native p50 improvement (about 8-9%); p95 remained noisy, workspace 10 was not worth its build cost, and FP32 was slower without an accuracy gain. See `docs/project/VISION_ENGINE_PARAMETER_MATRIX_20260722.md`; promotion still requires explicit A/B approval and rollback preservation.
 - 2026-07-22: implemented the B0-B2 causal blind-window benchmark checkpoint on `codex/causal-response-integration-plan`. The 1 kHz plant separates capture, publication and response queues; K1 has no target surprise and exposes queued-motion debt across 675 fixed combinations. The sustained native adapter is now shared without output drift; retained production artifacts cover scale 1.00/0.90/0.80/0.70 and fingerprint `config.native.example.toml`. K2-K4 and acquisition guardrails remain required before changing production policy.
 - Recreate and retain a current revision legacy/vector full acceptance artifact with config fingerprint and fixed seeds.
 - Keep the global learning G0-G4 roadmap pending; no production tail-value policy exists yet.
@@ -150,3 +181,145 @@ TargetPlan.fire_authority -> AutoFireGate
 - Move detail into dated project docs or archive files; do not silently discard rejected experiments.
 - Do not store secrets, credentials, personal video paths or unnecessary local directories.
 - Mark user-confirmed, repository evidence and inferred conclusions distinctly.
+
+## 2026-07-24 - Live Strong-Assist Overshoot Audit
+
+- Detailed evidence is preserved in [the July 24 overshoot audit](archive/2026-07-24-live-overshoot-audit.md).
+- The 17:45-20:46 run had perf logging disabled. The usable 10:41-13:00 session shows the defect concentrates in BodyLock: strong AI was wrong-way on 6.56% of samples, and 37.56% of BodyLock center crossings retained old-direction final output.
+- Human directional inertia was more common than stale AI; only 53 / 1,681 crossings had both AI and manual stacking in the old direction. Optimize reversal attribution/counter-correction rather than applying a blanket strength reduction.
+- Reuse these results for causal POV/ego-motion work: decompose target motion, user/camera motion and anchor jumps; compare against the recorded wrong-way/crossing-debt baselines and reject gains that increase stickiness or user-fight.
+
+## 2026-07-28 - Controller-Rate Event Posterior Stage 2
+
+- Goal: determine whether the existing online response stack can learn
+  controller-to-camera delay without weapon tables, injected calibration,
+  persistence or more Vision inference.
+- Repository evidence: `c87a7dd` on
+  `codex/controller-rate-observer-20260728` adds a physical-right-stick event
+  window, even/odd held-out delay posteriors, cross-event dwell and response
+  prediction validation. AI-only output may train response diagnostics but
+  cannot authorize delay evidence.
+- Fixed 90-round result across 25/45/70 ms, ADS/BodyLock, three seeds and five
+  retained 60-second rounds: delay MAE 1.889 ms, 85/90 within +/-5 ms, zero
+  boundary selections, zero rollout decisions and exactly unchanged aggregate
+  controller score versus the true learning-disabled baseline.
+- Corrected benchmark interpretation: the earlier “direct interval baseline”
+  still allowed sparse rollout and was not the pure controller baseline.
+- Repository evidence: `PendingMotionModel` previously ignored `decision_ns`;
+  scheduled debt now includes post-capture controller signals through the
+  actual decision time, with a focused regression test.
+- Rejected execution experiments: naive posterior publication, continuous
+  pending attenuation, direct stale-error correction, settle-only rollout and
+  bounded settle scaling. They reproduced overconfidence, undertracking,
+  duplicate tracker prediction or inherited manual-escape arbitration.
+- User-confirmed: do not overfit one metric or scenario; mysterious runtime
+  failures are likely when a large local score gain bypasses broad behavioral
+  guardrails.
+- AI-inferred next step: separate right response, left ego-motion, target
+  acceleration and Vision disturbance in a multi-scenario residual benchmark,
+  then feed pending motion into tracker/TargetCoordinator shadow planning
+  rather than adding another final-output gate.
+- Context files updated: `handoff.md`, `session-log.md`.
+
+## 2026-07-28 - Controller-Rate Generalization Audit
+
+- Repository evidence: `54aa56c` on
+  `codex/controller-rate-observer-20260728`.
+- Repaired a benchmark contract defect: sustained learning silently ignored
+  scenario, short occlusion, left-strafe and slowdown CLI settings. These now
+  reach the simulator, appear in JSON provenance and have focused coverage.
+- Expanded learning reports from total score only to a balanced controller
+  scorecard: mean/P95 error, over/under-track, false interruption/stop,
+  overshoot area, continued push, stall ring, residual discontinuity/kicks
+  and post-occlusion recovery.
+- Broad matrix: 48 baseline/observer pairs and 240 retained 60-second rounds
+  across baseline/compound motion, strafe off/full reversal, occlusion 0/36
+  ms, ADS/BodyLock and three initial seeds. Script mismatches, score drift,
+  metric drift and rollout decisions were all zero. Delay MAE was 0.188 ms,
+  239/240 were within +/-5 ms, and all 48 final rounds selected 45 ms.
+- Response-prediction confidence stayed zero for 240/240 rounds. The delay
+  observer generalizes; the response model is not control-ready.
+- Full-reversal strafe was the dominant current-controller stress. Versus
+  strafe off, ADS points -8.1%, mean error +7.0%, overshoot area +58.6% and
+  continued push +128.4%; BodyLock points -4.0%, mean error +13.8%,
+  overshoot +42.6% and continued push +69.5%. The 36 ms occlusion effect was
+  much smaller.
+- Plant matrix: camera response 350/500/700, slowdown 0.5->0.4 and 0.8->0.7,
+  strafe off/full reversal, ADS/BodyLock, compound motion and 36 ms occlusion.
+  Higher camera response generally improved ADS mean error, matching the
+  user's live sensitivity observation, but did not monotonically eliminate
+  overshoot/continued-push debt.
+- Rejected assumption: one global 2x2 RLS response matrix cannot represent
+  local response across ADS/BodyLock, slowdown strength and strafe state.
+  Closed-loop error/input correlation contaminates the estimate.
+- Retained next direction: one event-locked local response observer using
+  natural manual onset/reversal/release, robust aggregation and uncertainty.
+  Feed valid pending debt into tracker/coordinator shadow planning; do not add
+  another final-output brake or strength gate.
+- Verification: Release runtime build passed; focused causal learner,
+  pending-motion, short-rollout and sustained-learning executables passed;
+  `git diff --check` passed.
+
+## 2026-07-29 - Player POV Motion Matrix and ADS Timing Hypothesis
+
+- Repository evidence on `codex/player-motion-benchmark-20260729`: `afdeaf5`
+  adds seeded full-reversal strafe, slide with instant/linear recovery, jump,
+  combined player motion and paired stationary/moving enemy modes. Scenario,
+  simulator and counterfactual tests pass.
+- Evidence commit `58984cd` retains 120 one-minute runs using seeds
+  `2026072901..03`, pure/mixed input and ADS/BodyLock. Combined player plus
+  enemy motion reduces tracking by about 43-50%; pure AI also fails, so the
+  defect is not only wrong manual right-stick input.
+- Mixed input remains useful: in the simultaneous-motion cohort it improves
+  ADS tracking 39.6% and BodyLock tracking 18.0% versus pure AI, although ADS
+  retains more obsolete tail push. Do not solve this with blanket manual
+  suppression.
+- User-proposed hypothesis: exploit common COD sprint-to-fire latency by
+  starting ADS positioning after a small configurable delay (about 30 ms) and
+  keeping ADS acquisition ownership longer (example 220 ms), while preserving
+  a faster position-arrival plan (example 120 ms).
+- Repository finding: `snap_duration_ms` currently drives both solver arrival
+  horizon and ADS ownership window. `max_acquisition_ms` is parsed and passed
+  into `TargetCoordinatorConfig` but is not consumed by its mode transition.
+  This supports testing a minimal parameter separation before adding policy.
+- AI-inferred guardrail: a universal dead delay may harm non-sprint and
+  low-latency cases; benchmark dead-delay, authority-ramp and sprint-intent
+  conditioned variants before production rollout. Decision remains proposed.
+- Context files updated: `handoff.md`, `session-log.md`, and
+  `DEC-2026-07-29-001-decouple-ads-arrival-and-ownership-window.md`.
+
+## 2026-07-30 - Gun-Kick Reproduction, Conservative Tracker Response and ADS Range
+
+- User-confirmed current Vision baseline: dynamic ROI with a `480x384`
+  inference tensor; `480x416` is not the live baseline.
+- Repository evidence: sustained AimLab gained deterministic
+  `--vision-disturbance gun-kick`, modeling 100 ms firing cadence, up to 8 px
+  vertical kick, alternating 4 px horizontal kick and recovery. It composes
+  with short occlusion and existing target/player motion without altering the
+  physical target script.
+- Three fixed 60-second pure-BodyLock seeds with compound target motion,
+  100 Hz Vision and 36 ms occlusion reproduced the defect. Gun kick reduced
+  tracking points from 38,220 to 26,695 (-30.2%), raised undertrack from 91 to
+  205 events, and raised continued push from 86 to 237 ms (+175.6%).
+- Rejected experiment: a near-center radial no-reversal guard passed focused
+  tests but produced negligible broad improvement, so it was removed.
+- Rejected experiment: clipping one-frame velocity innovation to 4 px slightly
+  recovered tracking but increased overshoot/continued-push and broke the
+  persistent vertical-motion classification contract, so it was removed.
+- Retained production change: tracker motion velocity alpha `0.15` rather than
+  `0.20`. In pure gun-kick A/B it improved tracking 12.5%, mean error 8.1%,
+  continued push 7.6% and smooth bonus 18.4%. In ordinary pure BodyLock it
+  improved tracking 7.0% and mean error 9.0%. Complex mixed POV gains were
+  smaller; this is a conservative baseline, not a complete disturbance model.
+- Repository finding: `[gamepad.ads].range_px` was not a true initial ADS
+  selection radius in the TargetCoordinator path. It now maps to
+  `ads_activation_radius_px`; initial acquisition uses
+  `base_radius * (1 + 0.75 * normalized_target_height)`.
+- ADS range expansion is limited to the unconsumed ADS epoch before a target
+  is committed. Candidate distance from the reticle now participates in
+  initial selection. Existing one-LT-epoch snap ownership remains unchanged.
+- BodyLock's size-aware continuation remains fresh-Vision-only; stale coast
+  cannot reuse old large-target geometry to widen authority.
+- Verification: Release runtime built; TargetCoordinator, controller
+  integration, runtime config, sustained scenario/simulator/score and BodyLock
+  focused tests passed; `git diff --check` passed.

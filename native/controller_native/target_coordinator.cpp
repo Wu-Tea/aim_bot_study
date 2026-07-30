@@ -206,7 +206,22 @@ const pipeline_contract::VisionCandidate* TargetCoordinator::choose_candidate(
             candidate.source_id != 0 && candidate.source_id != source_id_) {
             continue;
         }
-        float distance = has_target_ ? length(subtract(candidate.aim_px, predicted)) : 0.0f;
+        const pipeline_contract::Vec2f screen_center{
+            observations.frame_width_px > 0.0f
+                ? observations.frame_width_px * 0.5f : 240.0f,
+            observations.frame_height_px > 0.0f
+                ? observations.frame_height_px * 0.5f : 208.0f};
+        float distance = has_target_
+            ? length(subtract(candidate.aim_px, predicted))
+            : length(subtract(candidate.aim_px, screen_center));
+        if (!has_target_ && ads_epoch_active_ && !ads_snap_consumed_) {
+            const float observed_size = std::clamp(
+                candidate.normalized_size, 0.0f, 1.0f);
+            const float ads_activation_radius =
+                config_.ads_activation_radius_px *
+                (1.0f + 0.75f * observed_size);
+            if (distance > ads_activation_radius) continue;
+        }
         const bool same_source = has_target_ && candidate.source_id != 0 &&
             candidate.source_id == source_id_;
         if (same_source) distance *= 0.25f;
@@ -599,9 +614,21 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
             error_length / 40.0f,
             length(screen_velocity) / 600.0f),
         0.0f, 1.0f);
+    // A fixed pixel radius is too small for close targets: the upper-body aim
+    // point can move far from the reticle during a climb, slide, or jump while
+    // the target still fills the capture. Let observed body geometry expand
+    // the continuation range, while small/far targets retain the conservative
+    // base radius.
+    const float observed_body_size =
+        lifecycle == pipeline_contract::TargetLifecycle::Observed
+        ? normalized_size
+        : 0.0f;
+    const float bodylock_continuation_radius =
+        config_.bodylock_activation_radius_px *
+        (1.0f + 0.75f * observed_body_size);
     const bool bodylock_outside_activation_range =
         plan.mode == pipeline_contract::ControlMode::BodyLockFollow &&
-        error_length > config_.bodylock_activation_radius_px;
+        error_length > bodylock_continuation_radius;
     plan.aim_authority =
         plan.mode == pipeline_contract::ControlMode::Manual ||
             bodylock_outside_activation_range

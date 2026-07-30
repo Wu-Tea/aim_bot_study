@@ -16,6 +16,7 @@ struct TargetCoordinatorConfig {
     float settle_radius_px = 8.0f;
     std::uint32_t settle_frames = 5;
     float ads_max_acquisition_ms = 180.0f;
+    float ads_activation_radius_px = 150.0f;
     float bodylock_activation_radius_px = 150.0f;
     float bodylock_exit_radius_px = 48.0f;
     float handoff_prediction_seconds = 0.020f;

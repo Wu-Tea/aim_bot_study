@@ -48,6 +48,7 @@ struct CliOptions {
     double slowdown_center = 0.40;
     int short_occlusion_ms = 0;
     int vision_hz = 0;
+    std::string vision_disturbance = "off";
     std::string revision = "unknown";
     bool dirty = false;
     int duration_ms = 60'000;
@@ -148,6 +149,9 @@ CliOptions parse_args(int argc, char** argv) {
             options.short_occlusion_ms = std::stoi(argv[++index]);
         } else if (argument == "--vision-hz" && index + 1 < argc) {
             options.vision_hz = std::stoi(argv[++index]);
+        } else if (
+            argument == "--vision-disturbance" && index + 1 < argc) {
+            options.vision_disturbance = argv[++index];
         } else if (argument == "--revision" && index + 1 < argc) {
             options.revision = argv[++index];
         } else if (argument == "--dirty") {
@@ -203,6 +207,7 @@ CliOptions parse_args(int argc, char** argv) {
                 << "[--slowdown-edge N] [--slowdown-center N] "
                 << "[--short-occlusion-ms 0|24|36|48] "
                 << "[--vision-hz 0|1..1000] "
+                << "[--vision-disturbance off|gun-kick] "
                 << "[--output PATH] [--revision HASH] [--dirty] "
                 << "[--duration-ms N] [--smoke] "
                 << "[--counterfactual off|quick|full] "
@@ -232,6 +237,11 @@ CliOptions parse_args(int argc, char** argv) {
     }
     if (options.vision_hz < 0 || options.vision_hz > 1000) {
         throw std::runtime_error("vision hz must be 0 or 1..1000");
+    }
+    if (options.vision_disturbance != "off" &&
+        options.vision_disturbance != "gun-kick") {
+        throw std::runtime_error(
+            "vision disturbance must be off or gun-kick");
     }
     if (options.profile != "pure" && options.profile != "mixed" &&
         options.profile != "scripted" &&
@@ -605,6 +615,8 @@ void write_report(
         << ", \"tick_ms\": " << config.tick_ms
         << ", \"vision_interval_ms\": " << config.vision_interval_ms
         << ", \"vision_hz_requested\": " << options.vision_hz
+        << ", \"vision_disturbance\": "
+        << json_string(options.vision_disturbance)
         << ", \"tracking_window_ms\": " << config.tracking_window_ms
         << ", \"target_slot_ms\": " << config.fixed_target_slot_ms
         << ", \"target_radius_px\": " << config.target_radius_px
@@ -1207,6 +1219,10 @@ int main(int argc, char** argv) {
             ? std::max(1, static_cast<int>(std::lround(
                 1000.0 / static_cast<double>(options.vision_hz))))
             : 0;
+        benchmark_config.vision_disturbance =
+            options.vision_disturbance == "gun-kick"
+            ? VisionDisturbanceProfile::GunKick
+            : VisionDisturbanceProfile::Off;
         benchmark_config.obsolete_vertical_fixture =
             options.profile == "obsolete";
         benchmark_config.target_motion_enabled =

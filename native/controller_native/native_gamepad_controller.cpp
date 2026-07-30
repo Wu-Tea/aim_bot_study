@@ -46,11 +46,17 @@ TargetCoordinatorConfig coordinator_config(const GamepadRuntimeConfig& config) {
     result.settle_frames = static_cast<std::uint32_t>(
         std::max(1, config.ai_aim.ads_completion_fresh_frames));
     result.ads_max_acquisition_ms = std::max(0.0f, config.ai_aim.ads_max_acquisition_ms);
+    result.ads_activation_radius_px = std::max(
+        result.settle_radius_px, config.ai_aim.max_pixels);
     result.bodylock_activation_radius_px = std::max(
         result.settle_radius_px, config.ai_aim.body_lock_activation_box_px);
     result.bodylock_exit_radius_px = std::max(
         result.settle_radius_px * 2.0f,
         config.ai_aim.body_lock_box_tolerance_px * 3.0f);
+    // The production 80-100 Hz stream benefits from a slower velocity update:
+    // position remains fresh, while one-frame gun/camera kick contributes less
+    // to predictive lead. Benchmarks retain an explicit override for A/B.
+    result.motion_velocity_alpha = 0.15f;
     return result;
 }
 

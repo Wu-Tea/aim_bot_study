@@ -92,6 +92,7 @@ void hash_config(std::uint64_t& hash, const BenchmarkConfig& config) {
     hash_integral(hash, config.frame_width_px);
     hash_integral(hash, config.frame_height_px);
     hash_integral(hash, config.vision_interval_ms);
+    hash_integral(hash, config.vision_disturbance);
     hash_integral(hash, config.obsolete_vertical_fixture ? 1 : 0);
     hash_integral(hash, config.short_occlusion_duration_ms);
     hash_integral(hash, config.target_motion_enabled ? 1 : 0);
@@ -371,9 +372,40 @@ ScenarioScript generate_script(
         int observation_at_ms = 0;
         while (observation_at_ms <= observation_horizon_ms) {
             target.observation_at_ms.push_back(observation_at_ms);
-            target.observation_noise_px.push_back({
+            Vec2d observation_noise{
                 noise_distribution(observation_random),
-                noise_distribution(observation_random)});
+                noise_distribution(observation_random)};
+            if (config.vision_disturbance ==
+                VisionDisturbanceProfile::GunKick) {
+                // A deterministic 100 ms firing cadence. Each pulse produces
+                // a fast upward/horizontal camera displacement followed by a
+                // slower recovery. Alternating X sign represents horizontal
+                // recoil without encoding a weapon-specific recoil table.
+                constexpr int kFirstShotMs = 80;
+                constexpr int kShotPeriodMs = 100;
+                constexpr int kRiseMs = 18;
+                constexpr int kRecoverMs = 55;
+                if (observation_at_ms >= kFirstShotMs) {
+                    const int shot_age =
+                        (observation_at_ms - kFirstShotMs) % kShotPeriodMs;
+                    const int shot_index =
+                        (observation_at_ms - kFirstShotMs) / kShotPeriodMs;
+                    double envelope = 0.0;
+                    if (shot_age < kRiseMs) {
+                        envelope = smoothstep(
+                            static_cast<double>(shot_age) / kRiseMs);
+                    } else if (shot_age < kRecoverMs) {
+                        envelope = 1.0 - smoothstep(
+                            static_cast<double>(shot_age - kRiseMs) /
+                            (kRecoverMs - kRiseMs));
+                    }
+                    const double horizontal_sign =
+                        (shot_index & 1) == 0 ? 1.0 : -1.0;
+                    observation_noise.x += horizontal_sign * 4.0 * envelope;
+                    observation_noise.y -= 8.0 * envelope;
+                }
+            }
+            target.observation_noise_px.push_back(observation_noise);
             observation_at_ms += config.vision_interval_ms > 0
                 ? config.vision_interval_ms
                 : observation_interval_distribution(observation_random);

@@ -58,6 +58,11 @@ enum class PlayerVerticalMotionMode : std::uint8_t {
     Random,
 };
 
+enum class VisionDisturbanceProfile : std::uint8_t {
+    Off,
+    GunKick,
+};
+
 enum class PlayerVerticalEvent : std::uint8_t {
     Slide,
     Jump,
@@ -149,6 +154,10 @@ struct BenchmarkConfig {
     // Zero preserves the historical randomized 10-12 ms cadence.
     // Positive values request a fixed benchmark-only capture interval.
     int vision_interval_ms = 0;
+    // Benchmark-only apparent target motion caused by firing/camera kick.
+    // This changes Vision observations, not the physical target trajectory.
+    VisionDisturbanceProfile vision_disturbance =
+        VisionDisturbanceProfile::Off;
     bool obsolete_vertical_fixture = false;
     int short_occlusion_duration_ms = 0;
     bool target_motion_enabled = true;

@@ -18,6 +18,7 @@ using controller_native::sustained_aimlab::ScenarioScript;
 using controller_native::sustained_aimlab::TargetScript;
 using controller_native::sustained_aimlab::TargetProfile;
 using controller_native::sustained_aimlab::Vec2d;
+using controller_native::sustained_aimlab::VisionDisturbanceProfile;
 
 void require(bool condition, const std::string& message) {
     if (!condition) throw std::runtime_error(message);
@@ -603,6 +604,66 @@ void test_short_occlusion_bursts_are_tracking_relative_and_hashed() {
     }
 }
 
+void test_gun_kick_disturbance_is_deterministic_and_observation_only() {
+    BenchmarkConfig plain_config;
+    plain_config.vision_interval_ms = 10;
+    BenchmarkConfig kick_config = plain_config;
+    kick_config.vision_disturbance = VisionDisturbanceProfile::GunKick;
+    const auto plain =
+        controller_native::sustained_aimlab::generate_script(
+            2026073007, plain_config);
+    const auto first =
+        controller_native::sustained_aimlab::generate_script(
+            2026073007, kick_config);
+    const auto second =
+        controller_native::sustained_aimlab::generate_script(
+            2026073007, kick_config);
+
+    require(first.hash == second.hash,
+            "gun-kick disturbance must be deterministic");
+    require(first.hash != plain.hash,
+            "gun-kick disturbance must change script identity");
+    require(first.targets.size() == plain.targets.size(),
+            "gun-kick disturbance must preserve target count");
+    bool saw_large_disturbance = false;
+    for (std::size_t target_index = 0;
+         target_index < first.targets.size(); ++target_index) {
+        const auto& base = plain.targets[target_index];
+        const auto& kicked = first.targets[target_index];
+        require(
+            base.id == kicked.id &&
+                base.motion == kicked.motion &&
+                same_vec(base.initial_error_px, kicked.initial_error_px) &&
+                same_vec(
+                    base.initial_velocity_px_per_second,
+                    kicked.initial_velocity_px_per_second) &&
+                base.observation_at_ms == kicked.observation_at_ms,
+            "gun-kick must not alter target motion or Vision cadence");
+        require(
+            kicked.observation_noise_px.size() ==
+                base.observation_noise_px.size(),
+            "gun-kick observations must remain paired");
+        for (std::size_t sample = 0;
+             sample < kicked.observation_noise_px.size(); ++sample) {
+            const Vec2d delta{
+                kicked.observation_noise_px[sample].x -
+                    base.observation_noise_px[sample].x,
+                kicked.observation_noise_px[sample].y -
+                    base.observation_noise_px[sample].y};
+            saw_large_disturbance =
+                saw_large_disturbance ||
+                std::fabs(delta.x) > 2.0 ||
+                std::fabs(delta.y) > 4.0;
+            require(
+                std::fabs(delta.x) <= 4.0 + 1e-9 &&
+                    std::fabs(delta.y) <= 8.0 + 1e-9,
+                "gun-kick disturbance must stay bounded");
+        }
+    }
+    require(saw_large_disturbance,
+            "gun-kick fixture must contain a meaningful camera pulse");
+}
+
 }  // namespace
 
 int main() {
@@ -623,6 +684,7 @@ int main() {
         test_small_target_profile_reuses_motion_and_cycles_visible_radius();
         test_obsolete_vertical_fixture_is_stationary_for_every_motion_label();
         test_short_occlusion_bursts_are_tracking_relative_and_hashed();
+        test_gun_kick_disturbance_is_deterministic_and_observation_only();
         std::cout << "cod_native_sustained_aimlab_scenario_tests PASS\n";
         return EXIT_SUCCESS;
     } catch (const std::exception& error) {

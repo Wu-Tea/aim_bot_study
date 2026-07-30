@@ -311,6 +311,92 @@ void test_ads_timed_fallback_consumes_snap_without_far_bodylock_pull() {
                  "far residual must remain manual until it enters BodyLock range");
 }
 
+void test_ads_base_range_rejects_small_far_target() {
+    controller_native::TargetCoordinatorConfig config{};
+    config.ads_activation_radius_px = 100.0f;
+    controller_native::TargetCoordinator coordinator(config);
+    coordinator.begin_ads_epoch(1, 0.0);
+
+    auto small_far = frame(1, 0.010, 1, 360.0f, 208.0f);
+    small_far.candidates[0].normalized_size = 0.0f;
+    const auto plan = coordinator.update(
+        small_far, ads_intent(0.010), 0.010);
+
+    require_true(
+        plan.lifecycle == pipeline_contract::TargetLifecycle::None,
+        "small target outside the configured ADS range must remain manual");
+}
+
+void test_close_target_geometry_expands_ads_initial_range() {
+    controller_native::TargetCoordinatorConfig config{};
+    config.ads_activation_radius_px = 100.0f;
+    controller_native::TargetCoordinator coordinator(config);
+    coordinator.begin_ads_epoch(1, 0.0);
+
+    auto close_target = frame(1, 0.010, 1, 360.0f, 208.0f);
+    close_target.candidates[0].normalized_size = 0.50f;
+    const auto plan = coordinator.update(
+        close_target, ads_intent(0.010), 0.010);
+
+    require_true(
+        plan.lifecycle == pipeline_contract::TargetLifecycle::Observed &&
+            plan.mode == pipeline_contract::ControlMode::AdsAcquire &&
+            plan.aim_authority > 0.0f,
+        "large close target must expand the initial ADS activation range");
+}
+
+void test_close_target_geometry_expands_bodylock_continuation_range() {
+    controller_native::TargetCoordinatorConfig config{};
+    config.ads_max_acquisition_ms = 20.0f;
+    config.bodylock_activation_radius_px = 120.0f;
+    config.settle_frames = 2;
+    controller_native::TargetCoordinator coordinator(config);
+    coordinator.begin_ads_epoch(1, 0.0);
+
+    auto close_target = frame(1, 0.050, 1, 240.0f, 18.0f);
+    close_target.candidates[0].box_size_px = {140.0f, 374.0f};
+    close_target.candidates[0].normalized_size = 0.90f;
+    const auto plan = coordinator.update(
+        close_target, ads_intent(0.050), 0.050);
+
+    require_true(
+        plan.mode == pipeline_contract::ControlMode::BodyLockFollow,
+        "test setup must consume ADS into BodyLock");
+    require_true(
+        std::fabs(plan.error_px.y) > config.bodylock_activation_radius_px,
+        "test target must sit outside the legacy fixed BodyLock radius");
+    require_true(
+        plan.aim_authority > 0.0f,
+        "a close target that fills the capture must retain BodyLock authority");
+}
+
+void test_close_target_geometry_does_not_expand_blind_coast_range() {
+    controller_native::TargetCoordinatorConfig config{};
+    config.ads_max_acquisition_ms = 20.0f;
+    config.bodylock_activation_radius_px = 120.0f;
+    controller_native::TargetCoordinator coordinator(config);
+    coordinator.begin_ads_epoch(1, 0.0);
+
+    auto close_target = frame(1, 0.050, 1, 240.0f, 18.0f);
+    close_target.candidates[0].box_size_px = {140.0f, 374.0f};
+    close_target.candidates[0].normalized_size = 0.90f;
+    (void)coordinator.update(
+        close_target, ads_intent(0.050), 0.050);
+
+    pipeline_contract::VisionObservationBatch missing{};
+    missing.frame_width_px = 480.0f;
+    missing.frame_height_px = 416.0f;
+    missing.capture_fresh = true;
+    const auto coast = coordinator.update(
+        missing, ads_intent(0.060), 0.060);
+    require_true(
+        coast.lifecycle == pipeline_contract::TargetLifecycle::Coasting,
+        "test setup must enter tracker-only coast");
+    require_true(
+        coast.aim_authority == 0.0f,
+        "stale close-target geometry must not widen blind BodyLock pulls");
+}
+
 void test_ads_handoff_rejects_a_predicted_high_speed_crossing() {
     controller_native::TargetCoordinatorConfig config{};
     config.settle_frames = 1;
@@ -693,6 +779,10 @@ int main() {
         test_bodylock_cannot_rearm_ads_within_one_held_epoch();
         test_ads_ownership_ceiling_is_independent_from_arrival_horizon();
         test_ads_timed_fallback_consumes_snap_without_far_bodylock_pull();
+        test_ads_base_range_rejects_small_far_target();
+        test_close_target_geometry_expands_ads_initial_range();
+        test_close_target_geometry_expands_bodylock_continuation_range();
+        test_close_target_geometry_does_not_expand_blind_coast_range();
         test_ads_handoff_rejects_a_predicted_high_speed_crossing();
         test_ads_handoff_accepts_stable_in_radius_capture();
         test_ads_handoff_allows_tangential_target_motion();

@@ -337,12 +337,12 @@ void test_invalid_tensor_size_reports_key_and_range() {
 void test_normal_template_preserves_controller_baseline() {
     const auto config = controller_native::load_runtime_config("config.native.example.toml");
     const auto& aim = config.gamepad.ai_aim;
-    require(config.vision.capture_width == 480);
-    require(config.vision.capture_height == 416);
+    require(config.vision.capture_width == 640);
+    require(config.vision.capture_height == 512);
     require(config.vision.tensor_width == 480);
-    require(config.vision.tensor_height == 416);
+    require(config.vision.tensor_height == 384);
     require(config.vision.require_isotropic_resize);
-    require(config.vision.model_path == "models/best.engine");
+    require(config.vision.model_path == "models/best_480x384.engine");
     require(std::abs(aim.max_ai_force - 0.9856f) < 0.0001f);
     require(std::abs(aim.max_ai_force_y - 1.008f) < 0.0001f);
     require(std::abs(aim.ads_snap_max_ai_force - 1.54f) < 0.0001f);
