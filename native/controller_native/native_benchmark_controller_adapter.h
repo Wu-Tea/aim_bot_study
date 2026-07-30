@@ -30,7 +30,10 @@ public:
         double assist_scale = 1.0,
         double tracker_velocity_alpha = -1.0,
         bool causal_player_motion_state_enabled = true,
-        bool causal_player_motion_forecast_enabled = true);
+        bool causal_player_motion_forecast_enabled = true,
+        BenchmarkRemainingWorkMode remaining_work_mode =
+            BenchmarkRemainingWorkMode::CurrentError,
+        double remaining_work_scale = 1.0);
 
     sustained_aimlab::ControllerStepResult step(
         const sustained_aimlab::ControllerObservation& input);
@@ -57,6 +60,9 @@ sustained_aimlab::ReplayControllerFactory make_native_factory(
     double assist_scale = 1.0,
     double tracker_velocity_alpha = -1.0,
     bool causal_player_motion_state_enabled = true,
-    bool causal_player_motion_forecast_enabled = true);
+    bool causal_player_motion_forecast_enabled = true,
+    BenchmarkRemainingWorkMode remaining_work_mode =
+        BenchmarkRemainingWorkMode::CurrentError,
+    double remaining_work_scale = 1.0);
 
 }  // namespace controller_native::benchmark_adapter

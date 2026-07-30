@@ -362,6 +362,13 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
             << ",\"recoil_x\":" << record.controller.recoil_x
              << ",\"recoil_y\":" << record.controller.recoil_y
              << ",\"final_x\":" << serialized_final_x << ",\"final_y\":" << serialized_final_y
+             << ",\"remaining_work_x\":" << record.controller.remaining_work_x
+             << ",\"remaining_work_y\":" << record.controller.remaining_work_y
+             << ",\"delivered_camera_work_x\":" << record.controller.delivered_camera_work_x
+             << ",\"delivered_camera_work_y\":" << record.controller.delivered_camera_work_y
+             << ",\"remaining_work_confidence\":" << record.controller.remaining_work_confidence
+             << ",\"remaining_work_valid\":"
+             << (record.controller.remaining_work_valid ? "true" : "false")
              << ",\"requested_assist_x\":" << record.controller.requested_assist_x
              << ",\"requested_assist_y\":" << record.controller.requested_assist_y
              << ",\"shaped_assist_x\":" << record.controller.shaped_assist_x

@@ -36,6 +36,10 @@ struct NativeControllerOutputComponents {
     common_native::Vec2f ads_brake_stick;
     common_native::Vec2f post_ads_brake_stick;
     common_native::Vec2f ads_brake_error_px;
+    common_native::Vec2f remaining_work_px;
+    common_native::Vec2f delivered_camera_work_px;
+    float remaining_work_confidence = 0.0f;
+    bool remaining_work_valid = false;
     common_native::Vec2f ads_carry_brake_stick;
     common_native::Vec2f post_ads_carry_brake_stick;
     bool ads_carry_brake_active = false;

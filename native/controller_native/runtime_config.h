@@ -178,6 +178,8 @@ struct GamepadAutoFireConfig {
 
 struct GamepadTrackerConfig {
     float aim_height_ratio = 0.365f;
+    bool remaining_work_enabled = true;
+    float remaining_work_scale = 0.60f;
 };
 
 struct GamepadIntentConfig {

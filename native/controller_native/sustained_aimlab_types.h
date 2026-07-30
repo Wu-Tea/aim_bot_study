@@ -29,7 +29,10 @@ enum class ScenarioProfile : std::uint8_t {
 enum class ManualProfile : std::uint8_t {
     Pure,
     Mixed,
+    Scripted,
     ObsoleteAfterCrossing,
+    WrongThenCorrect,
+    ArcRecovery,
 };
 
 enum class BenchmarkCohort : std::uint8_t {
@@ -132,6 +135,9 @@ struct BenchmarkConfig {
     int bodylock_entry_timeout_ms = 250;
     int min_acquire_deadline_ms = 250;
     int max_acquire_deadline_ms = 330;
+    // Zero preserves outcome-dependent target replacement. A positive value
+    // gives every target the same wall-clock slot, including timeout idle.
+    int fixed_target_slot_ms = 0;
     double target_radius_px = 24.0;
     double slowdown_transition_px = 3.0;
     double slowdown_edge_multiplier = 0.50;

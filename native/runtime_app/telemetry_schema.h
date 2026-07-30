@@ -175,6 +175,12 @@ struct ControllerSamplePayload {
     float recoil_y = 0.0f;
     float final_x = 0.0f;
     float final_y = 0.0f;
+    float remaining_work_x = 0.0f;
+    float remaining_work_y = 0.0f;
+    float delivered_camera_work_x = 0.0f;
+    float delivered_camera_work_y = 0.0f;
+    float remaining_work_confidence = 0.0f;
+    bool remaining_work_valid = false;
     float requested_assist_x = 0.0f;
     float requested_assist_y = 0.0f;
     float shaped_assist_x = 0.0f;

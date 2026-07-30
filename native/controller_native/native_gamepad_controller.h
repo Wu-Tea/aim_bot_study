@@ -34,6 +34,14 @@ enum class BenchmarkIntentFusionMode : unsigned char {
     CausalVector,
     CausalVectorBaseline,
 };
+
+enum class BenchmarkRemainingWorkMode : unsigned char {
+    UseRuntimeConfig,
+    CurrentError,
+    DeliveredAdjusted,
+    ControllerIntegrated,
+    ControllerIntegratedAssistOnly,
+};
 #endif
 
 struct NativeControllerStageTrace {
@@ -78,6 +86,8 @@ public:
         const NativeControllerOutputComponents& components)>;
     void set_benchmark_mix_transform(BenchmarkMixTransform transform);
     void set_benchmark_intent_fusion_mode(BenchmarkIntentFusionMode mode);
+    void set_benchmark_remaining_work_mode(BenchmarkRemainingWorkMode mode);
+    void set_benchmark_remaining_work_scale(float scale) noexcept;
     void set_benchmark_tracker_velocity_alpha(float alpha);
     void set_benchmark_player_motion_oracle(
         bool valid,
@@ -120,9 +130,7 @@ private:
     AimDynamicsShaper dynamics_shaper_{};
     AxisIntentArbiter axis_intent_arbiter_{};
     VectorIntentFuser vector_intent_fuser_{};
-#if defined(COD_BENCHMARK_MIX_OVERRIDE)
     PendingControlMotion pending_control_motion_{};
-#endif
     recoil_native::RecoilCompensationPolicy recoil_;
     AimActivationTracker aim_activation_tracker_{};
     AutoFireGate auto_fire_gate_;
@@ -149,12 +157,19 @@ private:
     NativeControllerOutputComponents last_output_components_{};
     NativeControllerVisionState last_frame_vision_state_{};
     pipeline_contract::TargetPlan last_target_plan_{};
+    double remaining_work_accounted_seconds_ = 0.0;
+    std::uint64_t remaining_work_delivery_target_id_ = 0;
+    std::uint64_t remaining_work_delivery_ads_epoch_ = 0;
+    bool remaining_work_reset_pending_ = false;
     std::string last_ai_aim_mode_ = "manual";
     std::function<double()> clock_;
 #if defined(COD_BENCHMARK_MIX_OVERRIDE)
     BenchmarkMixTransform benchmark_mix_transform_;
     BenchmarkIntentFusionMode benchmark_intent_fusion_mode_ =
         BenchmarkIntentFusionMode::LegacyAxis;
+    BenchmarkRemainingWorkMode benchmark_remaining_work_mode_ =
+        BenchmarkRemainingWorkMode::UseRuntimeConfig;
+    float benchmark_remaining_work_scale_ = 1.0f;
     bool benchmark_player_motion_oracle_valid_ = false;
     bool benchmark_player_motion_rate_oracle_valid_ = false;
     pipeline_contract::Vec2f benchmark_player_error_delta_px_{};

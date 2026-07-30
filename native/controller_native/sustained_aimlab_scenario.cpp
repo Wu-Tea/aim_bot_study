@@ -80,6 +80,9 @@ void hash_config(std::uint64_t& hash, const BenchmarkConfig& config) {
     hash_integral(hash, config.inter_target_gap_ms);
     hash_integral(hash, config.min_acquire_deadline_ms);
     hash_integral(hash, config.max_acquire_deadline_ms);
+    if (config.fixed_target_slot_ms > 0) {
+        hash_integral(hash, config.fixed_target_slot_ms);
+    }
     hash_double(hash, config.target_radius_px);
     hash_double(hash, config.slowdown_transition_px);
     hash_double(hash, config.slowdown_edge_multiplier);
@@ -170,6 +173,7 @@ ScenarioScript generate_script(
     if (config.duration_ms <= 0 || config.tick_ms <= 0 ||
         config.min_acquire_deadline_ms <= 0 ||
         config.max_acquire_deadline_ms < config.min_acquire_deadline_ms ||
+        config.fixed_target_slot_ms < 0 ||
         config.target_radius_px <= 0.0 ||
         config.vision_interval_ms < 0) {
         throw std::invalid_argument("invalid sustained AimLab benchmark config");

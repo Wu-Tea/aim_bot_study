@@ -858,6 +858,16 @@ void RuntimeLoop::run_once() {
     telemetry_tick.recoil_y = telemetry_components.recoil_stick.y;
     telemetry_tick.final_x = telemetry_components.final_stick.x;
     telemetry_tick.final_y = telemetry_components.final_stick.y;
+    telemetry_tick.remaining_work_x = telemetry_components.remaining_work_px.x;
+    telemetry_tick.remaining_work_y = telemetry_components.remaining_work_px.y;
+    telemetry_tick.delivered_camera_work_x =
+        telemetry_components.delivered_camera_work_px.x;
+    telemetry_tick.delivered_camera_work_y =
+        telemetry_components.delivered_camera_work_px.y;
+    telemetry_tick.remaining_work_confidence =
+        telemetry_components.remaining_work_confidence;
+    telemetry_tick.remaining_work_valid =
+        telemetry_components.remaining_work_valid;
     telemetry_tick.final_left_x = output.left_x;
     telemetry_tick.final_left_y = output.left_y;
     telemetry_tick.output_saturated =

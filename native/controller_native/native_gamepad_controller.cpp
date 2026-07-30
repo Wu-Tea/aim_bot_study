@@ -113,9 +113,7 @@ void NativeGamepadController::reset() {
     dynamics_shaper_.reset();
     axis_intent_arbiter_.reset();
     vector_intent_fuser_.reset();
-#if defined(COD_BENCHMARK_MIX_OVERRIDE)
     pending_control_motion_.reset();
-#endif
     recoil_.reset();
     aim_activation_tracker_.reset();
     auto_fire_gate_.reset();
@@ -142,6 +140,10 @@ void NativeGamepadController::reset() {
     last_output_components_ = {};
     last_frame_vision_state_ = {};
     last_target_plan_ = {};
+    remaining_work_accounted_seconds_ = 0.0;
+    remaining_work_delivery_target_id_ = 0;
+    remaining_work_delivery_ads_epoch_ = 0;
+    remaining_work_reset_pending_ = false;
     last_ai_aim_mode_ = "manual";
 }
 
@@ -363,6 +365,71 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
         aim_response_before_update.scale_px_per_stick_second;
     // estimate() already blends toward its safe fallback while confidence is low.
     control_feedback.aim_response_confidence = aim_response_before_update.confidence;
+    bool controller_integrates_delivered_work =
+        config_.tracker.remaining_work_enabled;
+    float remaining_work_scale = std::clamp(
+        config_.tracker.remaining_work_scale, 0.0f, 1.0f);
+#if defined(COD_BENCHMARK_MIX_OVERRIDE)
+    if (benchmark_remaining_work_mode_ !=
+        BenchmarkRemainingWorkMode::UseRuntimeConfig) {
+        controller_integrates_delivered_work =
+            benchmark_remaining_work_mode_ ==
+                BenchmarkRemainingWorkMode::ControllerIntegrated ||
+            benchmark_remaining_work_mode_ ==
+                BenchmarkRemainingWorkMode::ControllerIntegratedAssistOnly;
+        remaining_work_scale = benchmark_remaining_work_scale_;
+    }
+#endif
+    control_feedback.reset_remaining_work = remaining_work_reset_pending_;
+    remaining_work_reset_pending_ = false;
+    if (controller_integrates_delivered_work &&
+        remaining_work_accounted_seconds_ > 0.0 &&
+        last_target_plan_.target_id != 0) {
+        const auto increment = pending_control_motion_.estimate_between(
+            remaining_work_accounted_seconds_,
+            now,
+            control_feedback.aim_response_px_per_stick_second,
+            last_target_plan_.target_id);
+        if (increment.valid) {
+            auto delivered_work = delivered_camera_work_px(
+                increment.camera_displacement_px.front());
+            delivered_work.x *= remaining_work_scale;
+            delivered_work.y *= remaining_work_scale;
+            control_feedback.apply_delivered_camera_work = true;
+            control_feedback.delivered_camera_work_delta_px = delivered_work;
+            remaining_work_accounted_seconds_ = now;
+        }
+    }
+    if (controller_integrates_delivered_work &&
+        observations.count > 0 &&
+        last_target_plan_.target_id != 0 &&
+        std::isfinite(observations.source_time_seconds) &&
+        now > observations.source_time_seconds) {
+        const float capture_age_ms = static_cast<float>(
+            (now - observations.source_time_seconds) * 1000.0);
+        const auto since_capture = pending_control_motion_.estimate(
+            now,
+            capture_age_ms,
+            control_feedback.aim_response_px_per_stick_second,
+            last_target_plan_.target_id);
+        if (since_capture.valid) {
+            auto delivered_work = delivered_camera_work_px(
+                since_capture.camera_displacement_px.front());
+            delivered_work.x *= remaining_work_scale;
+            delivered_work.y *= remaining_work_scale;
+            control_feedback.has_delivered_camera_work_since_capture = true;
+            control_feedback.delivered_camera_work_since_capture_px =
+                delivered_work;
+        }
+    }
+    if (controller_integrates_delivered_work) {
+        control_feedback.remaining_work_confidence = std::clamp(
+            remaining_work_scale *
+                (0.50f + 0.50f *
+                    control_feedback.aim_response_confidence),
+            0.0f,
+            1.0f);
+    }
     control_feedback.player_jump_action_age_ms =
         last_jump_action_seconds_ >= 0.0
         ? static_cast<float>((now - last_jump_action_seconds_) * 1000.0)
@@ -381,8 +448,36 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
     control_feedback.player_error_rate_px_per_sec =
         benchmark_player_error_rate_px_per_sec_;
 #endif
-    const auto plan = target_coordinator_.update(
+    auto plan = target_coordinator_.update(
         observations, intent, now, control_feedback);
+#if defined(COD_BENCHMARK_MIX_OVERRIDE)
+    if (benchmark_remaining_work_mode_ ==
+            BenchmarkRemainingWorkMode::DeliveredAdjusted &&
+        plan.target_id != 0 && plan.source_capture_age_ms > 0.0f) {
+        const auto pending_motion = pending_control_motion_.estimate(
+            now,
+            plan.source_capture_age_ms,
+            plan.response_scale,
+            plan.target_id);
+        if (pending_motion.valid) {
+            const auto delivered_work = delivered_camera_work_px(
+                pending_motion.camera_displacement_px.front());
+            plan.delivered_camera_motion_since_capture_px = delivered_work;
+            plan.remaining_work_px = remaining_work_after_delivery(
+                plan.error_px, delivered_work);
+            const pipeline_contract::Vec2f work_delta{
+                plan.remaining_work_px.x - plan.error_px.x,
+                plan.remaining_work_px.y - plan.error_px.y,
+            };
+            plan.error_px = plan.remaining_work_px;
+            plan.predicted_terminal_error_px.x += work_delta.x;
+            plan.predicted_terminal_error_px.y += work_delta.y;
+            plan.remaining_work_confidence =
+                std::clamp(plan.response_confidence, 0.0f, 1.0f);
+            plan.remaining_work_valid = true;
+        }
+    }
+#endif
     last_target_plan_ = plan;
     const bool new_observed_frame = observations.count > 0 &&
         observations.frame_id != 0 &&
@@ -583,6 +678,16 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
     components.bodylock_lifecycle = lifecycle_name(plan.lifecycle);
     components.bodylock_transition_reason = "target_plan";
     components.assist_limit_reason = "single_dynamics_shaper";
+    components.remaining_work_px = {
+        plan.remaining_work_px.x,
+        plan.remaining_work_px.y,
+    };
+    components.delivered_camera_work_px = {
+        plan.delivered_camera_motion_since_capture_px.x,
+        plan.delivered_camera_motion_since_capture_px.y,
+    };
+    components.remaining_work_confidence = plan.remaining_work_confidence;
+    components.remaining_work_valid = plan.remaining_work_valid;
     record_stage_trace("target_plan_aim", physical.right_y, output, false, false);
 
     AutoFireGateInput fire_input{};
@@ -633,24 +738,55 @@ void NativeGamepadController::report_output_delivery(
     bool delivered,
     bool output_enabled,
     double delivered_at_seconds) noexcept {
+    bool ledger_required = config_.tracker.remaining_work_enabled;
 #if defined(COD_BENCHMARK_MIX_OVERRIDE)
-    if (benchmark_intent_fusion_mode_ !=
-        BenchmarkIntentFusionMode::CausalVector) {
+    if (benchmark_remaining_work_mode_ !=
+        BenchmarkRemainingWorkMode::UseRuntimeConfig) {
+        ledger_required =
+            benchmark_intent_fusion_mode_ ==
+                BenchmarkIntentFusionMode::CausalVector ||
+            benchmark_remaining_work_mode_ !=
+                BenchmarkRemainingWorkMode::CurrentError;
+    }
+#endif
+    if (!ledger_required) return;
+    const bool valid_delivery = delivered && output_enabled &&
+        std::isfinite(delivered_at_seconds) &&
+        delivered_at_seconds > 0.0 &&
+        last_target_plan_.target_id != 0;
+    if (!valid_delivery) {
+        pending_control_motion_.reset();
+        remaining_work_accounted_seconds_ = 0.0;
+        remaining_work_delivery_target_id_ = 0;
+        remaining_work_delivery_ads_epoch_ = 0;
+        remaining_work_reset_pending_ = true;
         return;
     }
+    if (remaining_work_delivery_target_id_ !=
+            last_target_plan_.target_id ||
+        remaining_work_delivery_ads_epoch_ != ads_epoch_) {
+        pending_control_motion_.reset();
+        remaining_work_accounted_seconds_ = delivered_at_seconds;
+        remaining_work_delivery_target_id_ =
+            last_target_plan_.target_id;
+        remaining_work_delivery_ads_epoch_ = ads_epoch_;
+        remaining_work_reset_pending_ = true;
+    }
+    auto delivered_stick =
+        last_output_components_.before_recoil_stick;
+#if defined(COD_BENCHMARK_MIX_OVERRIDE)
+    if (benchmark_remaining_work_mode_ ==
+        BenchmarkRemainingWorkMode::ControllerIntegratedAssistOnly) {
+        delivered_stick = last_output_components_.shaped_assist_stick;
+    }
+#endif
     (void)pending_control_motion_.observe({
         delivered_at_seconds,
-        {last_output_components_.before_recoil_stick.x,
-         last_output_components_.before_recoil_stick.y},
+        {delivered_stick.x, delivered_stick.y},
         last_target_plan_.target_id,
         delivered,
         output_enabled,
     });
-#else
-    (void)delivered;
-    (void)output_enabled;
-    (void)delivered_at_seconds;
-#endif
 }
 
 bool NativeGamepadController::manual_fire_pressed(
@@ -718,6 +854,17 @@ void NativeGamepadController::set_benchmark_intent_fusion_mode(
     axis_intent_arbiter_.reset();
     vector_intent_fuser_.reset();
     pending_control_motion_.reset();
+}
+
+void NativeGamepadController::set_benchmark_remaining_work_mode(
+    BenchmarkRemainingWorkMode mode) {
+    benchmark_remaining_work_mode_ = mode;
+    pending_control_motion_.reset();
+}
+
+void NativeGamepadController::set_benchmark_remaining_work_scale(
+    float scale) noexcept {
+    benchmark_remaining_work_scale_ = std::clamp(scale, 0.0f, 1.5f);
 }
 
 void NativeGamepadController::set_benchmark_tracker_velocity_alpha(

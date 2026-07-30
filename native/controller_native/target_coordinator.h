@@ -38,6 +38,12 @@ struct TargetControlFeedback {
     pipeline_contract::Vec2f previous_delivered_stick{};
     float aim_response_px_per_stick_second = 500.0f;
     float aim_response_confidence = 0.0f;
+    bool apply_delivered_camera_work = false;
+    pipeline_contract::Vec2f delivered_camera_work_delta_px{};
+    bool has_delivered_camera_work_since_capture = false;
+    pipeline_contract::Vec2f delivered_camera_work_since_capture_px{};
+    float remaining_work_confidence = 0.0f;
+    bool reset_remaining_work = false;
     float player_jump_action_age_ms = -1.0f;
     float player_slide_action_age_ms = -1.0f;
     // Benchmark headroom oracle: exact player-motion contribution that has
@@ -138,6 +144,9 @@ private:
     std::uint32_t slide_motion_learning_samples_ = 0;
     bool causal_player_motion_state_enabled_ = false;
     bool causal_player_motion_forecast_enabled_ = true;
+    pipeline_contract::Vec2f delivered_camera_work_since_capture_px_{};
+    float remaining_work_confidence_ = 0.0f;
+    bool remaining_work_valid_ = false;
 };
 
 }  // namespace controller_native

@@ -77,8 +77,13 @@ struct TargetPlan {
     float left_motion_response_confidence = 0.0f;
     float acquisition_elapsed_ms = 0.0f;
     float ads_epoch_elapsed_ms = 0.0f;
+    float source_capture_age_ms = 0.0f;
     Vec2f predicted_terminal_error_px{};
     float radial_closing_velocity_px_per_sec = 0.0f;
+    Vec2f delivered_camera_motion_since_capture_px{};
+    Vec2f remaining_work_px{};
+    float remaining_work_confidence = 0.0f;
+    bool remaining_work_valid = false;
     Vec2f player_motion_forecast_px{};
     float player_motion_confidence = 0.0f;
     std::uint32_t horizon_count = 0;
@@ -109,8 +114,12 @@ inline bool valid(const TargetPlan& plan) noexcept {
            std::isfinite(plan.left_motion_response_scale) &&
            std::isfinite(plan.acquisition_elapsed_ms) &&
            std::isfinite(plan.ads_epoch_elapsed_ms) &&
+           std::isfinite(plan.source_capture_age_ms) &&
            finite(plan.predicted_terminal_error_px) &&
            std::isfinite(plan.radial_closing_velocity_px_per_sec) &&
+           finite(plan.delivered_camera_motion_since_capture_px) &&
+           finite(plan.remaining_work_px) &&
+           unit_interval(plan.remaining_work_confidence) &&
            finite(plan.player_motion_forecast_px) &&
            unit_interval(plan.player_motion_confidence) &&
            plan.horizon_count <= kMaxPlanHorizonSamples;

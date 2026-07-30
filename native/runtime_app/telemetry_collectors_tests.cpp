@@ -82,6 +82,12 @@ runtime_app::TelemetryTickInput tick(std::uint64_t seq, bool aiming) {
     value.auto_fire_block_reason = "aim_not_ready";
     value.pre_recoil_x = 0.23f;
     value.final_x = 0.23f;
+    value.remaining_work_x = 12.5f;
+    value.remaining_work_y = -4.0f;
+    value.delivered_camera_work_x = 3.25f;
+    value.delivered_camera_work_y = -1.5f;
+    value.remaining_work_confidence = 0.6f;
+    value.remaining_work_valid = true;
     value.selected_track_id = 41;
     value.selected_observation_id = 73;
     value.backing_frame_id = 19;
@@ -143,6 +149,11 @@ void test_enabled_collectors_write_profile_and_ads_evidence() {
     REQUIRE(json.find("\"physical_connected\":true") != std::string::npos);
     REQUIRE(json.find("\"current_observed_target_present\":true") != std::string::npos);
     REQUIRE(json.find("\"output_delivered\":true") != std::string::npos);
+    REQUIRE(json.find("\"remaining_work_x\":12.5") != std::string::npos);
+    REQUIRE(json.find("\"remaining_work_y\":-4") != std::string::npos);
+    REQUIRE(json.find("\"delivered_camera_work_x\":3.25") != std::string::npos);
+    REQUIRE(json.find("\"remaining_work_confidence\":0.6") != std::string::npos);
+    REQUIRE(json.find("\"remaining_work_valid\":true") != std::string::npos);
     REQUIRE(json.find("\"input_reconnect_count\":2") != std::string::npos);
     REQUIRE(json.find("\"type\":\"target_event\"") != std::string::npos);
     REQUIRE(json.find("\"target_track_id\":1") != std::string::npos);

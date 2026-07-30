@@ -433,6 +433,33 @@ void test_tracker_aim_height_ratio_uses_canonical_key() {
     require(config.effective_source("gamepad.tracker.aim_height_ratio") == "user");
 }
 
+void test_tracker_remaining_work_defaults_parses_and_clamps() {
+    const auto missing = std::filesystem::temp_directory_path() /
+        "cod_native_remaining_work_missing.toml";
+    std::filesystem::remove(missing);
+    const auto defaults = controller_native::load_runtime_config(missing);
+    require(defaults.gamepad.tracker.remaining_work_enabled);
+    require(
+        std::abs(
+            defaults.gamepad.tracker.remaining_work_scale - 0.60f) <
+        0.0001f);
+
+    const auto path = std::filesystem::temp_directory_path() /
+        "cod_native_remaining_work.toml";
+    {
+        std::ofstream output(path);
+        output << "[gamepad.tracker]\n"
+               << "remaining_work_enabled = false\n"
+               << "remaining_work_scale = 1.5\n";
+    }
+    const auto parsed = controller_native::load_runtime_config(path);
+    std::filesystem::remove(path);
+    require(!parsed.gamepad.tracker.remaining_work_enabled);
+    require(
+        std::abs(parsed.gamepad.tracker.remaining_work_scale - 1.0f) <
+        0.0001f);
+}
+
 void test_tracker_aim_height_ratio_accepts_deprecated_alias() {
     const auto path = std::filesystem::temp_directory_path() /
         "cod_native_tracker_aim_height_alias.toml";
@@ -658,6 +685,7 @@ int main() {
     test_committed_legacy_full_fixture_resolves_every_assignment();
     test_environment_overrides_user_and_reports_source();
     test_tracker_aim_height_ratio_uses_canonical_key();
+    test_tracker_remaining_work_defaults_parses_and_clamps();
     test_tracker_aim_height_ratio_accepts_deprecated_alias();
     test_tracker_canonical_aim_height_wins_regardless_of_file_order();
     test_tracker_aim_height_ratio_rejects_out_of_range_values();

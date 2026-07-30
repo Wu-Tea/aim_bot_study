@@ -223,6 +223,9 @@ const pipeline_contract::VisionCandidate* TargetCoordinator::choose_candidate(
 }
 
 pipeline_contract::TargetPlan TargetCoordinator::no_target_plan() noexcept {
+    delivered_camera_work_since_capture_px_ = {};
+    remaining_work_confidence_ = 0.0f;
+    remaining_work_valid_ = false;
     pipeline_contract::TargetPlan plan{};
     plan.generation = ++generation_;
     latest_ = plan;
@@ -284,6 +287,11 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         ? update_player_motion_estimate(
             feedback, manual_camera_ownership)
         : PlayerMotionEstimate{};
+    if (feedback.reset_remaining_work) {
+        delivered_camera_work_since_capture_px_ = {};
+        remaining_work_confidence_ = 0.0f;
+        remaining_work_valid_ = false;
+    }
     auto predicted = dt > 0.0f
         ? pipeline_contract::Vec2f{
             position_.x + velocity_.x * dt,
@@ -296,6 +304,19 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         predicted.y += feedback.player_error_delta_px.y;
     } else if (causal_player_motion_state_enabled_ && dt > 0.0f) {
         predicted.y += player_motion.realized_delta_y_px;
+    }
+    if (feedback.apply_delivered_camera_work &&
+        pipeline_contract::finite(
+            feedback.delivered_camera_work_delta_px)) {
+        predicted.x -= feedback.delivered_camera_work_delta_px.x;
+        predicted.y -= feedback.delivered_camera_work_delta_px.y;
+        delivered_camera_work_since_capture_px_.x +=
+            feedback.delivered_camera_work_delta_px.x;
+        delivered_camera_work_since_capture_px_.y +=
+            feedback.delivered_camera_work_delta_px.y;
+        remaining_work_confidence_ = std::clamp(
+            feedback.remaining_work_confidence, 0.0f, 1.0f);
+        remaining_work_valid_ = remaining_work_confidence_ > 0.0f;
     }
     const auto* candidate = choose_candidate(observations, predicted);
 
@@ -312,6 +333,24 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     float reliability = latest_.reliability;
     float normalized_size = latest_.normalized_size;
     if (candidate != nullptr) {
+        pipeline_contract::Vec2f observed_aim_px = candidate->aim_px;
+        if (feedback.has_delivered_camera_work_since_capture &&
+            pipeline_contract::finite(
+                feedback.delivered_camera_work_since_capture_px)) {
+            observed_aim_px.x -=
+                feedback.delivered_camera_work_since_capture_px.x;
+            observed_aim_px.y -=
+                feedback.delivered_camera_work_since_capture_px.y;
+            delivered_camera_work_since_capture_px_ =
+                feedback.delivered_camera_work_since_capture_px;
+            remaining_work_confidence_ = std::clamp(
+                feedback.remaining_work_confidence, 0.0f, 1.0f);
+            remaining_work_valid_ = remaining_work_confidence_ > 0.0f;
+        } else {
+            delivered_camera_work_since_capture_px_ = {};
+            remaining_work_confidence_ = 0.0f;
+            remaining_work_valid_ = false;
+        }
         double observation_capture_seconds = now_seconds;
         const bool source_time_available =
             std::isfinite(observations.source_time_seconds) &&
@@ -335,13 +374,13 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
             has_target_ = true;
             target_id_ = next_target_id_++;
             acquisition_started_seconds_ = now_seconds;
-            position_ = candidate->aim_px;
+            position_ = observed_aim_px;
             velocity_ = {};
             acceleration_ = {};
             settled_frames_ = 0;
             observed_frames_ = 1;
         } else if (dt > 0.0f) {
-            auto innovation = subtract(candidate->aim_px, predicted);
+            auto innovation = subtract(observed_aim_px, predicted);
             const float innovation_length = length(innovation);
             if (reacquiring && innovation_length > config_.max_reacquire_innovation_px) {
                 const float scale = config_.max_reacquire_innovation_px / innovation_length;
@@ -474,6 +513,15 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         ? static_cast<float>(
             std::max(0.0, (now_seconds - ads_epoch_started_seconds_) * 1000.0))
         : 0.0f;
+    plan.source_capture_age_ms = has_observation_capture_time_
+        ? static_cast<float>(std::max(
+            0.0, (now_seconds - last_observation_capture_seconds_) * 1000.0))
+        : plan.observation_age_ms;
+    plan.delivered_camera_motion_since_capture_px =
+        delivered_camera_work_since_capture_px_;
+    plan.remaining_work_px = plan.error_px;
+    plan.remaining_work_confidence = remaining_work_confidence_;
+    plan.remaining_work_valid = remaining_work_valid_;
     const float response_scale = std::max(
         0.0f, feedback.aim_response_px_per_stick_second);
     const pipeline_contract::Vec2f residual_error_rate = observed_frames_ >= 2
@@ -612,6 +660,9 @@ void TargetCoordinator::begin_ads_epoch(
     ads_epoch_active_ = true;
     ads_snap_consumed_ = false;
     control_mode_ = pipeline_contract::ControlMode::AdsAcquire;
+    delivered_camera_work_since_capture_px_ = {};
+    remaining_work_confidence_ = 0.0f;
+    remaining_work_valid_ = false;
 }
 
 void TargetCoordinator::reset() noexcept {
@@ -650,6 +701,9 @@ void TargetCoordinator::reset() noexcept {
     slide_effective_amplitude_px_ = 36.0f;
     jump_motion_learning_samples_ = 0;
     slide_motion_learning_samples_ = 0;
+    delivered_camera_work_since_capture_px_ = {};
+    remaining_work_confidence_ = 0.0f;
+    remaining_work_valid_ = false;
 }
 
 }  // namespace controller_native

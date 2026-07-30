@@ -64,6 +64,10 @@ struct TelemetryTickInput {
     float pre_recoil_x = 0.0f, pre_recoil_y = 0.0f;
     float recoil_x = 0.0f, recoil_y = 0.0f;
     float final_x = 0.0f, final_y = 0.0f;
+    float remaining_work_x = 0.0f, remaining_work_y = 0.0f;
+    float delivered_camera_work_x = 0.0f, delivered_camera_work_y = 0.0f;
+    float remaining_work_confidence = 0.0f;
+    bool remaining_work_valid = false;
     float final_left_x = 0.0f, final_left_y = 0.0f;
     bool output_saturated = false;
     std::uint64_t selected_track_id = 0;

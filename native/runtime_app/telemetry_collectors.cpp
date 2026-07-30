@@ -209,6 +209,15 @@ void TelemetryCollectors::observe_tick(const TelemetryTickInput& input) noexcept
         sample.controller.recoil_y = input.recoil_y;
         sample.controller.final_x = input.final_x;
         sample.controller.final_y = input.final_y;
+        sample.controller.remaining_work_x = input.remaining_work_x;
+        sample.controller.remaining_work_y = input.remaining_work_y;
+        sample.controller.delivered_camera_work_x =
+            input.delivered_camera_work_x;
+        sample.controller.delivered_camera_work_y =
+            input.delivered_camera_work_y;
+        sample.controller.remaining_work_confidence =
+            input.remaining_work_confidence;
+        sample.controller.remaining_work_valid = input.remaining_work_valid;
         sample.controller.selected_track_id = input.selected_track_id;
         sample.controller.selected_observation_id = input.selected_observation_id;
         sample.controller.backing_frame_id = input.backing_frame_id;

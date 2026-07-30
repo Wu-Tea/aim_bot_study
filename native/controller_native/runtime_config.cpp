@@ -203,7 +203,8 @@ bool is_known_key(const std::string& section, const std::string& key) {
     static const std::unordered_set<std::string> output_keys{"enabled", "validation_mode"};
     static const std::unordered_set<std::string> tracker_keys{
         "backend", "projection_age_ms", "responsiveness", "max_velocity_px_per_sec",
-        "weak_memory_decay", "lead_seconds", "lead_max_px", "aim_height_ratio"};
+        "weak_memory_decay", "lead_seconds", "lead_max_px", "aim_height_ratio",
+        "remaining_work_enabled", "remaining_work_scale"};
     static const std::unordered_set<std::string> intent_keys{
         "wrong_way_manual_preservation_floor",
         "fresh_vision_wrong_way_manual_floor"};
@@ -892,6 +893,18 @@ void apply_value(
             tracker.body_lock_lead_seconds = parse_float_value(value, tracker.body_lock_lead_seconds);
         } else if (key == "lead_max_px") {
             tracker.body_lock_lead_max_px = parse_float_value(value, tracker.body_lock_lead_max_px);
+        } else if (key == "remaining_work_enabled") {
+            config.gamepad.tracker.remaining_work_enabled =
+                parse_bool_value(
+                    value,
+                    config.gamepad.tracker.remaining_work_enabled);
+        } else if (key == "remaining_work_scale") {
+            config.gamepad.tracker.remaining_work_scale = std::clamp(
+                parse_float_value(
+                    value,
+                    config.gamepad.tracker.remaining_work_scale),
+                0.0f,
+                1.0f);
         }
     } else if (section == "gamepad.intent") {
         if (key == "wrong_way_manual_preservation_floor") {

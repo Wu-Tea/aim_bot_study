@@ -137,6 +137,11 @@ void test_versioned_schema_serializes_readiness_and_completeness() {
     value.sample_seq = 17;
     value.readiness = runtime_app::TelemetryReadiness::ProfileEligible;
     value.controller.manual_x = 0.25f;
+    value.controller.remaining_work_x = 7.5f;
+    value.controller.remaining_work_y = -2.0f;
+    value.controller.delivered_camera_work_x = 1.25f;
+    value.controller.remaining_work_confidence = 0.6f;
+    value.controller.remaining_work_valid = true;
     value.completeness = {10, 17, 8, 8, 0, true};
     REQUIRE(telemetry.enqueue(value));
     telemetry.stop();
@@ -152,6 +157,11 @@ void test_versioned_schema_serializes_readiness_and_completeness() {
     REQUIRE(json.find("\"first_seq\":10") != std::string::npos);
     REQUIRE(json.find("\"complete\":true") != std::string::npos);
     REQUIRE(json.find("\"manual_x\":0.25") != std::string::npos);
+    REQUIRE(json.find("\"remaining_work_x\":7.5") != std::string::npos);
+    REQUIRE(json.find("\"remaining_work_y\":-2") != std::string::npos);
+    REQUIRE(json.find("\"delivered_camera_work_x\":1.25") != std::string::npos);
+    REQUIRE(json.find("\"remaining_work_confidence\":0.6") != std::string::npos);
+    REQUIRE(json.find("\"remaining_work_valid\":true") != std::string::npos);
     input.close();
     std::filesystem::remove_all(directory);
 }

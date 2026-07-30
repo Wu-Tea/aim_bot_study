@@ -52,7 +52,9 @@ NativeReplayAdapter::NativeReplayAdapter(
     double assist_scale,
     double tracker_velocity_alpha,
     bool causal_player_motion_state_enabled,
-    bool causal_player_motion_forecast_enabled)
+    bool causal_player_motion_forecast_enabled,
+    BenchmarkRemainingWorkMode remaining_work_mode,
+    double remaining_work_scale)
     : schedule_(schedule),
       cohort_(cohort),
       config_(std::move(source_config)),
@@ -63,6 +65,9 @@ NativeReplayAdapter::NativeReplayAdapter(
     physical_.left_trigger = cohort_ == BenchmarkCohort::BodyLockFollow
         ? 1.0f : 0.0f;
     controller_.set_benchmark_intent_fusion_mode(intent_fusion_mode);
+    controller_.set_benchmark_remaining_work_mode(remaining_work_mode);
+    controller_.set_benchmark_remaining_work_scale(
+        static_cast<float>(remaining_work_scale));
     if (tracker_velocity_alpha >= 0.0) {
         controller_.set_benchmark_tracker_velocity_alpha(
             static_cast<float>(tracker_velocity_alpha));
@@ -183,19 +188,25 @@ ReplayControllerFactory make_native_factory(
     double assist_scale,
     double tracker_velocity_alpha,
     bool causal_player_motion_state_enabled,
-    bool causal_player_motion_forecast_enabled) {
+    bool causal_player_motion_forecast_enabled,
+    BenchmarkRemainingWorkMode remaining_work_mode,
+    double remaining_work_scale) {
     config.recoil.enabled = false;
     return [config = std::move(config), cohort, intent_fusion_mode,
             coverage = std::move(coverage), assist_scale,
             tracker_velocity_alpha,
             causal_player_motion_state_enabled,
-            causal_player_motion_forecast_enabled](
+            causal_player_motion_forecast_enabled,
+            remaining_work_mode,
+            remaining_work_scale](
                 const BranchSchedule& schedule) {
         auto state = std::make_shared<NativeReplayAdapter>(
             config, schedule, cohort, intent_fusion_mode, coverage,
             assist_scale, tracker_velocity_alpha,
             causal_player_motion_state_enabled,
-            causal_player_motion_forecast_enabled);
+            causal_player_motion_forecast_enabled,
+            remaining_work_mode,
+            remaining_work_scale);
         return [state](const ControllerObservation& input) {
             return state->step(input);
         };

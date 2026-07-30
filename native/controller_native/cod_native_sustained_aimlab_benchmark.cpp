@@ -28,6 +28,7 @@ using controller_native::ControllerVisionSnapshot;
 using controller_native::GamepadRuntimeConfig;
 using controller_native::NativeGamepadController;
 using controller_native::BenchmarkIntentFusionMode;
+using controller_native::BenchmarkRemainingWorkMode;
 using controller_native::PhysicalGamepadState;
 using controller_native::RuntimeConfig;
 using controller_native::benchmark_adapter::AssistedModeCoverage;
@@ -53,6 +54,9 @@ struct CliOptions {
     bool smoke = false;
     std::string counterfactual = "off";
     std::string intent_fusion = "legacy";
+    std::string remaining_work = "current";
+    double remaining_work_scale = 1.0;
+    int target_slot_ms = 0;
     double tracker_velocity_alpha = -1.0;
     std::string left_strafe = "off";
     std::string vertical_motion = "off";
@@ -156,6 +160,13 @@ CliOptions parse_args(int argc, char** argv) {
             options.counterfactual = argv[++index];
         } else if (argument == "--intent-fusion" && index + 1 < argc) {
             options.intent_fusion = argv[++index];
+        } else if (argument == "--remaining-work" && index + 1 < argc) {
+            options.remaining_work = argv[++index];
+        } else if (argument == "--remaining-work-scale" &&
+                   index + 1 < argc) {
+            options.remaining_work_scale = std::stod(argv[++index]);
+        } else if (argument == "--target-slot-ms" && index + 1 < argc) {
+            options.target_slot_ms = std::stoi(argv[++index]);
         } else if (argument == "--tracker-velocity-alpha" &&
                    index + 1 < argc) {
             options.tracker_velocity_alpha = std::stod(argv[++index]);
@@ -184,7 +195,8 @@ CliOptions parse_args(int argc, char** argv) {
         } else if (argument == "--help") {
             std::cout
                 << "Usage: cod_native_sustained_aimlab_benchmark "
-                << "[--config PATH] [--seed N ...] [--profile pure|mixed|both] "
+                << "[--config PATH] [--seed N ...] "
+                   "[--profile pure|mixed|scripted|obsolete|recover|arc|both] "
                 << "[--cohort ads|bodylock|both] "
                 << "[--scenario baseline|compound_directional] "
                 << "[--target-profile ordinary|small|near] [--camera-response PX] "
@@ -195,6 +207,9 @@ CliOptions parse_args(int argc, char** argv) {
                 << "[--duration-ms N] [--smoke] "
                 << "[--counterfactual off|quick|full] "
                 << "[--intent-fusion legacy|vector|vector-baseline] "
+                << "[--remaining-work current|delivered|integrated|integrated-ai] "
+                << "[--remaining-work-scale 0..1.5] "
+                << "[--target-slot-ms 0|N] "
                 << "[--tracker-velocity-alpha 0..1] "
                 << "[--left-strafe off|full-reversal|both] "
                 << "[--vertical-motion off|slide|jump|random|all] "
@@ -219,10 +234,14 @@ CliOptions parse_args(int argc, char** argv) {
         throw std::runtime_error("vision hz must be 0 or 1..1000");
     }
     if (options.profile != "pure" && options.profile != "mixed" &&
+        options.profile != "scripted" &&
         options.profile != "obsolete" &&
+        options.profile != "recover" &&
+        options.profile != "arc" &&
         options.profile != "both") {
         throw std::runtime_error(
-            "profile must be pure, mixed, obsolete, or both");
+            "profile must be pure, mixed, scripted, obsolete, recover, arc, "
+            "or both");
     }
     if (options.cohort != "ads" && options.cohort != "bodylock" &&
         options.cohort != "both") {
@@ -250,6 +269,22 @@ CliOptions parse_args(int argc, char** argv) {
         options.intent_fusion != "vector-baseline") {
         throw std::runtime_error(
             "intent fusion mode must be legacy, vector, or vector-baseline");
+    }
+    if (options.remaining_work != "current" &&
+        options.remaining_work != "delivered" &&
+        options.remaining_work != "integrated" &&
+        options.remaining_work != "integrated-ai") {
+        throw std::runtime_error(
+            "remaining work mode must be current, delivered, integrated, "
+            "or integrated-ai");
+    }
+    if (options.remaining_work_scale < 0.0 ||
+        options.remaining_work_scale > 1.5) {
+        throw std::runtime_error(
+            "remaining work scale must be in [0,1.5]");
+    }
+    if (options.target_slot_ms < 0) {
+        throw std::runtime_error("target slot must be zero or positive");
     }
     if (options.tracker_velocity_alpha != -1.0 &&
         (options.tracker_velocity_alpha < 0.0 ||
@@ -399,7 +434,10 @@ const char* profile_name(ManualProfile profile) {
     switch (profile) {
     case ManualProfile::Pure: return "pure";
     case ManualProfile::Mixed: return "mixed";
+    case ManualProfile::Scripted: return "scripted";
     case ManualProfile::ObsoleteAfterCrossing: return "obsolete";
+    case ManualProfile::WrongThenCorrect: return "recover";
+    case ManualProfile::ArcRecovery: return "arc";
     }
     return "unknown";
 }
@@ -568,6 +606,7 @@ void write_report(
         << ", \"vision_interval_ms\": " << config.vision_interval_ms
         << ", \"vision_hz_requested\": " << options.vision_hz
         << ", \"tracking_window_ms\": " << config.tracking_window_ms
+        << ", \"target_slot_ms\": " << config.fixed_target_slot_ms
         << ", \"target_radius_px\": " << config.target_radius_px
         << ", \"camera_response_px_per_stick_second\": "
         << config.camera_response_px_per_stick_second
@@ -596,6 +635,16 @@ void write_report(
         << "  \"intent_fusion\": {\"schema_version\": 1, \"mode\": "
         << json_string(options.intent_fusion)
         << ", \"candidate_set_version\": 4},\n"
+        << "  \"remaining_work\": {\"schema_version\": 1, \"mode\": "
+        << json_string(options.remaining_work)
+        << ", \"capture_anchor\": \"vision_capture\", "
+           "\"delivery_signal\": "
+        << json_string(
+               options.remaining_work == "integrated-ai"
+               ? "shaped_assist"
+               : "final_pre_recoil")
+        << ", \"scale\": "
+        << options.remaining_work_scale << "},\n"
         << "  \"tracker\": {\"velocity_alpha_override\": ";
     if (options.tracker_velocity_alpha >= 0.0) {
         out << options.tracker_velocity_alpha;
@@ -1137,6 +1186,7 @@ int main(int argc, char** argv) {
         benchmark_config.slowdown_center_multiplier = options.slowdown_center;
         benchmark_config.short_occlusion_duration_ms =
             options.short_occlusion_ms;
+        benchmark_config.fixed_target_slot_ms = options.target_slot_ms;
         benchmark_config.vision_interval_ms = options.vision_hz > 0
             ? std::max(1, static_cast<int>(std::lround(
                 1000.0 / static_cast<double>(options.vision_hz))))
@@ -1157,6 +1207,12 @@ int main(int argc, char** argv) {
         std::vector<ManualProfile> profiles;
         if (options.profile == "obsolete") {
             profiles.push_back(ManualProfile::ObsoleteAfterCrossing);
+        } else if (options.profile == "recover") {
+            profiles.push_back(ManualProfile::WrongThenCorrect);
+        } else if (options.profile == "arc") {
+            profiles.push_back(ManualProfile::ArcRecovery);
+        } else if (options.profile == "scripted") {
+            profiles.push_back(ManualProfile::Scripted);
         } else {
             if (options.profile != "mixed") profiles.push_back(ManualProfile::Pure);
             if (options.profile != "pure") profiles.push_back(ManualProfile::Mixed);
@@ -1201,6 +1257,15 @@ int main(int argc, char** argv) {
                 : options.intent_fusion == "vector-baseline"
                     ? BenchmarkIntentFusionMode::CausalVectorBaseline
                     : BenchmarkIntentFusionMode::LegacyAxis;
+        const BenchmarkRemainingWorkMode remaining_work_mode =
+            options.remaining_work == "delivered"
+                ? BenchmarkRemainingWorkMode::DeliveredAdjusted
+                : options.remaining_work == "integrated-ai"
+                    ? BenchmarkRemainingWorkMode::
+                          ControllerIntegratedAssistOnly
+                : options.remaining_work == "integrated"
+                    ? BenchmarkRemainingWorkMode::ControllerIntegrated
+                : BenchmarkRemainingWorkMode::CurrentError;
         for (const std::uint32_t seed : options.seeds) {
             const ScenarioScript script = generate_script(seed, benchmark_config);
             for (const ManualProfile profile : profiles) {
@@ -1218,8 +1283,10 @@ int main(int argc, char** argv) {
                                     1.0, options.tracker_velocity_alpha,
                                     options.player_motion_model == "state" ||
                                         options.player_motion_model == "causal",
-                                    options.player_motion_model == "forecast" ||
-                                        options.player_motion_model == "causal");
+                                     options.player_motion_model == "forecast" ||
+                                         options.player_motion_model == "causal",
+                                     remaining_work_mode,
+                                     options.remaining_work_scale);
                             ReplayReference reference = record_reference(
                                 script, profile, cohort, factory,
                                 player_strafe_mode, vertical_mode);

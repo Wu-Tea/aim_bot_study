@@ -6,6 +6,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -285,6 +286,110 @@ void test_same_script_is_reused_for_pure_and_mixed_runs() {
     require(pure.manual_profile == ManualProfile::Pure &&
                 mixed.manual_profile == ManualProfile::Mixed,
             "result must identify manual profile");
+}
+
+void test_scripted_manual_input_is_controller_independent() {
+    const ScenarioScript script = stationary_script(200, {80.0, 40.0}, 300);
+    auto capture = [](std::vector<Vec2d>& values, ControllerStep inner) {
+        return [&values, inner = std::move(inner)](
+                   const ControllerObservation& input) mutable {
+            if (input.target_present) values.push_back(input.manual_stick);
+            return inner(input);
+        };
+    };
+    for (const ManualProfile profile : {
+             ManualProfile::Scripted,
+             ManualProfile::WrongThenCorrect,
+             ManualProfile::ArcRecovery}) {
+        std::vector<Vec2d> zero_inputs;
+        std::vector<Vec2d> active_inputs;
+        (void)run_simulation(
+            script, profile,
+            capture(zero_inputs, [](const ControllerObservation&) {
+                return ControllerStepResult{};
+            }));
+        (void)run_simulation(
+            script, profile,
+            capture(active_inputs, proportional_controller(0, 0.01)));
+
+        require(zero_inputs.size() == active_inputs.size() &&
+                    !zero_inputs.empty(),
+                "fixed replay must expose matching manual sample counts");
+        for (std::size_t index = 0; index < zero_inputs.size(); ++index) {
+            require(zero_inputs[index].x == active_inputs[index].x &&
+                        zero_inputs[index].y == active_inputs[index].y,
+                    "fixed manual samples must not depend on controller output");
+        }
+    }
+}
+
+void test_manual_recovery_profiles_expose_expected_trajectory() {
+    const ScenarioScript script = stationary_script(400, {80.0, 0.0}, 400);
+    auto samples_for = [&](ManualProfile profile) {
+        std::vector<Vec2d> values;
+        (void)run_simulation(
+            script, profile,
+            [&](const ControllerObservation& input) {
+                if (input.target_present) values.push_back(input.manual_stick);
+                return ControllerStepResult{};
+            });
+        return values;
+    };
+
+    const auto recover = samples_for(ManualProfile::WrongThenCorrect);
+    require(recover.size() == 400,
+            "recover fixture must retain the full target lifetime");
+    require(recover[20].x < -0.6 && std::fabs(recover[20].y) < 1e-9,
+            "recover profile must begin with a strong wrong-way command");
+    require(recover[120].x > 0.6 && std::fabs(recover[120].y) < 1e-9,
+            "recover profile must reverse into a strong correction");
+    require(length(recover[320]) < 1e-9,
+            "recover profile must release after its correction");
+
+    const auto arc = samples_for(ManualProfile::ArcRecovery);
+    require(arc.size() == 400,
+            "arc fixture must retain the full target lifetime");
+    require(std::fabs(arc.front().x) < 1e-9 &&
+                std::fabs(arc.front().y) > 0.6,
+            "arc profile must begin with a strong tangential error");
+    require(arc[70].x > 0.3 && std::fabs(arc[70].y) > 0.3,
+            "arc profile must pass through a strong tangential command");
+    require(arc[180].x > 0.6,
+            "arc profile must finish in the corrective direction");
+    require(length(arc[320]) < 1e-9,
+            "arc profile must release after its corrective hold");
+}
+
+void test_fixed_target_slot_preserves_wall_clock_spawn_times() {
+    BenchmarkConfig config;
+    config.duration_ms = 1'000;
+    config.fixed_target_slot_ms = 400;
+    config.inter_target_gap_ms = 50;
+    const ScenarioScript script = generate_script(919191, config);
+    auto starts_for = [&](ControllerStep inner) {
+        std::vector<std::pair<std::uint64_t, int>> starts;
+        std::uint64_t previous = 0;
+        (void)run_simulation(
+            script, ManualProfile::Pure,
+            [&](const ControllerObservation& input) {
+                if (input.target_present && input.target_id != previous) {
+                    starts.emplace_back(input.target_id, input.now_ms);
+                    previous = input.target_id;
+                } else if (!input.target_present) {
+                    previous = 0;
+                }
+                return inner(input);
+            });
+        return starts;
+    };
+    const auto stopped = starts_for([](const ControllerObservation&) {
+        return ControllerStepResult{};
+    });
+    const auto active = starts_for(proportional_controller(0, 0.04));
+    require(stopped == active && stopped.size() >= 2,
+            "fixed slots must preserve target spawn times across controllers");
+    require(stopped[0].second == 0 && stopped[1].second == 450,
+            "fixed slot plus gap must define the wall-clock schedule");
 }
 
 void test_despawn_publishes_a_fresh_empty_observation() {
@@ -589,6 +694,9 @@ int main() {
         test_default_simulation_mode_is_explicit_off();
         test_closed_loop_score_ordering();
         test_same_script_is_reused_for_pure_and_mixed_runs();
+        test_scripted_manual_input_is_controller_independent();
+        test_manual_recovery_profiles_expose_expected_trajectory();
+        test_fixed_target_slot_preserves_wall_clock_spawn_times();
         test_mixed_profile_contains_polar_component_errors();
         test_despawn_publishes_a_fresh_empty_observation();
         test_run_end_does_not_turn_partial_acquisition_into_a_miss();

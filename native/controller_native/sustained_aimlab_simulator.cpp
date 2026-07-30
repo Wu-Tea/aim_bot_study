@@ -74,6 +74,71 @@ Vec2d mixed_manual_input(
     return {};
 }
 
+Vec2d scripted_manual_input(
+    const TargetScript& target,
+    int target_elapsed_ms) noexcept {
+    // Unlike mixed_manual_input(), this direction is anchored at spawn and is
+    // therefore identical for every controller replay of the same script.
+    return mixed_manual_input(
+        target,
+        target_elapsed_ms,
+        target.initial_error_px,
+        target.initial_velocity_px_per_second);
+}
+
+Vec2d wrong_then_correct_manual_input(
+    const TargetScript& target,
+    int target_elapsed_ms) noexcept {
+    const Vec2d helpful = normalized_control_direction(
+        target.initial_error_px);
+    const double magnitude =
+        0.65 + static_cast<double>((target.id * 29u) % 31u) / 100.0;
+    const int wrong_ms =
+        70 + static_cast<int>((target.id * 17u) % 61u);
+    const int correction_ms =
+        160 + static_cast<int>((target.id * 19u) % 81u);
+    const double direction =
+        target_elapsed_ms < wrong_ms ? -1.0 :
+        target_elapsed_ms < wrong_ms + correction_ms ? 1.0 : 0.0;
+    return {
+        helpful.x * magnitude * direction,
+        helpful.y * magnitude * direction,
+    };
+}
+
+Vec2d arc_recovery_manual_input(
+    const TargetScript& target,
+    int target_elapsed_ms) noexcept {
+    constexpr double kPi = 3.14159265358979323846;
+    const Vec2d helpful = normalized_control_direction(
+        target.initial_error_px);
+    const Vec2d tangent{-helpful.y, helpful.x};
+    const double magnitude =
+        0.65 + static_cast<double>((target.id * 29u) % 31u) / 100.0;
+    const int arc_ms =
+        140 + static_cast<int>((target.id * 23u) % 81u);
+    const int hold_ms =
+        100 + static_cast<int>((target.id * 11u) % 61u);
+    if (target_elapsed_ms >= arc_ms + hold_ms) return {};
+    if (target_elapsed_ms >= arc_ms) {
+        return {helpful.x * magnitude, helpful.y * magnitude};
+    }
+    const double progress = std::clamp(
+        static_cast<double>(target_elapsed_ms) /
+            static_cast<double>(arc_ms),
+        0.0, 1.0);
+    const double angle = 0.5 * kPi * (1.0 - progress);
+    const double turn = target.id % 2u == 0u ? 1.0 : -1.0;
+    return {
+        magnitude * (
+            helpful.x * std::cos(angle) +
+            tangent.x * turn * std::sin(angle)),
+        magnitude * (
+            helpful.y * std::cos(angle) +
+            tangent.y * turn * std::sin(angle)),
+    };
+}
+
 double left_strafe_input(
     const PlayerStrafeScript& strafe,
     int elapsed_ms,
@@ -108,6 +173,8 @@ BenchmarkResult run_simulation(
     std::size_t target_index = 0;
     int gap_remaining_ms = 0;
     bool target_active = false;
+    bool waiting_for_fixed_slot_end = false;
+    int fixed_slot_elapsed_ms = 0;
     bool pending_fresh_miss = false;
     bool tracking = false;
     int tracking_ticks = 0;
@@ -157,6 +224,8 @@ BenchmarkResult run_simulation(
         }
         const TargetScript& target = script.targets[target_index];
         target_active = true;
+        waiting_for_fixed_slot_end = false;
+        fixed_slot_elapsed_ms = 0;
         tracking = false;
         tracking_ticks = 0;
         target_elapsed_ms = 0;
@@ -223,6 +292,7 @@ BenchmarkResult run_simulation(
         target_results.push_back(std::move(target_result));
         scorer.reset();
         target_active = false;
+        waiting_for_fixed_slot_end = false;
         tracking = false;
         ++target_index;
         gap_remaining_ms = script.config.inter_target_gap_ms;
@@ -230,7 +300,8 @@ BenchmarkResult run_simulation(
     };
 
     for (int now_ms = 0; now_ms < script.config.duration_ms; ++now_ms) {
-        if (!target_active && gap_remaining_ms == 0 &&
+        if (!target_active && !waiting_for_fixed_slot_end &&
+            gap_remaining_ms == 0 &&
             target_index < script.targets.size()) {
             spawn_target();
         }
@@ -378,6 +449,18 @@ BenchmarkResult run_simulation(
                 (cohort != BenchmarkCohort::BodyLockFollow || tracking)) {
                 input.manual_stick = mixed_manual_input(
                     target, target_elapsed_ms, error, target_velocity);
+            } else if (manual_profile == ManualProfile::Scripted &&
+                       (cohort != BenchmarkCohort::BodyLockFollow || tracking)) {
+                input.manual_stick = scripted_manual_input(
+                    target, target_elapsed_ms);
+            } else if (manual_profile == ManualProfile::WrongThenCorrect &&
+                       (cohort != BenchmarkCohort::BodyLockFollow || tracking)) {
+                input.manual_stick = wrong_then_correct_manual_input(
+                    target, target_elapsed_ms);
+            } else if (manual_profile == ManualProfile::ArcRecovery &&
+                       (cohort != BenchmarkCohort::BodyLockFollow || tracking)) {
+                input.manual_stick = arc_recovery_manual_input(
+                    target, target_elapsed_ms);
             } else if (manual_profile == ManualProfile::ObsoleteAfterCrossing &&
                        (cohort != BenchmarkCohort::BodyLockFollow || tracking)) {
                 if (obsolete_crossed_at_ms < 0 &&
@@ -528,7 +611,14 @@ BenchmarkResult run_simulation(
                 } else if (target_elapsed_ms + 1 >=
                            script.config.bodylock_entry_timeout_ms) {
                     scorer->mark_bodylock_entry_failed();
-                    finish_target();
+                    if (script.config.fixed_target_slot_ms > 0) {
+                        target_active = false;
+                        tracking = false;
+                        waiting_for_fixed_slot_end = true;
+                        pending_fresh_miss = true;
+                    } else {
+                        finish_target();
+                    }
                 }
             }
 
@@ -561,7 +651,8 @@ BenchmarkResult run_simulation(
                     pending_ads_to_bodylock_transition = false;
                 }
                 ++tracking_ticks;
-                if (tracking_ticks >= script.config.tracking_window_ms) {
+                if (script.config.fixed_target_slot_ms == 0 &&
+                    tracking_ticks >= script.config.tracking_window_ms) {
                     finish_target();
                 }
             } else if (target_active && cohort == BenchmarkCohort::AdsAcquire &&
@@ -572,17 +663,30 @@ BenchmarkResult run_simulation(
             } else if (target_active && cohort == BenchmarkCohort::AdsAcquire &&
                        target_elapsed_ms + 1 >= target.acquire_deadline_ms) {
                 scorer->mark_timed_out();
-                finish_target();
+                if (script.config.fixed_target_slot_ms > 0) {
+                    target_active = false;
+                    tracking = false;
+                    waiting_for_fixed_slot_end = true;
+                    pending_fresh_miss = true;
+                } else {
+                    finish_target();
+                }
             }
             if (target_active) ++target_elapsed_ms;
         } else if (gap_remaining_ms > 0) {
             --gap_remaining_ms;
         }
+        if (script.config.fixed_target_slot_ms > 0 && scorer) {
+            ++fixed_slot_elapsed_ms;
+            if (fixed_slot_elapsed_ms >= script.config.fixed_target_slot_ms) {
+                finish_target();
+            }
+        }
         previous_bodylock_mode = target_active && output.bodylock_mode;
         if (trace_observer) trace_observer(trace_frame);
     }
 
-    if (target_active && scorer) {
+    if (scorer) {
         TargetResult target_result = scorer->finish();
         target_result.first_assist_output_ms = first_assist_output_ms;
         if (manual_profile == ManualProfile::ObsoleteAfterCrossing) {

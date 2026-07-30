@@ -66,6 +66,10 @@ lead_seconds = 0.026
 lead_max_px = 18
 # Upright/crouched body-box position measured from top (0=head, 1=feet).
 aim_height_ratio = 0.365
+# Controller-rate accounting of camera work actually delivered after capture.
+# Set false for an immediate rollback to the legacy error_px path.
+remaining_work_enabled = true
+remaining_work_scale = 0.60
 
 [gamepad.auto_fire]
 fire_output = "RB"

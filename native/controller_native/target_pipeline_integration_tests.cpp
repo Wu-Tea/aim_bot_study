@@ -102,6 +102,54 @@ void test_ads_is_bounded_and_drift_is_ignored() {
             "left-stick drift incorrectly weakened ADS owner hold");
 }
 
+void test_production_remaining_work_consumes_only_confirmed_delivery() {
+    double now = 15.0;
+    auto enabled_config = config();
+    enabled_config.tracker.remaining_work_enabled = true;
+    enabled_config.tracker.remaining_work_scale = 0.60f;
+    NativeGamepadController enabled(
+        enabled_config, [&now] { return now; });
+    auto physical = aiming();
+
+    enabled.submit_vision_snapshot(target(1, now, 80.0f, -40.0f));
+    (void)enabled.build_output(physical);
+    enabled.report_output_delivery(true, true, now + 0.000001);
+    const float initial_error =
+        std::fabs(enabled.last_target_plan().error_px.x);
+
+    now += 0.010;
+    (void)enabled.build_output(physical);
+    const auto delivered_plan = enabled.last_target_plan();
+    require(
+        delivered_plan.remaining_work_valid,
+        "confirmed output delivery must activate remaining-work accounting");
+    require(
+        std::fabs(delivered_plan.remaining_work_px.x) <
+            initial_error,
+        "delivered camera motion must reduce remaining X work");
+
+    enabled.report_output_delivery(false, true, now + 0.000001);
+    now += 0.001;
+    (void)enabled.build_output(physical);
+    require(
+        !enabled.last_target_plan().remaining_work_valid,
+        "failed delivery must reset remaining-work authority");
+
+    now = 15.0;
+    auto disabled_config = enabled_config;
+    disabled_config.tracker.remaining_work_enabled = false;
+    NativeGamepadController disabled(
+        disabled_config, [&now] { return now; });
+    disabled.submit_vision_snapshot(target(1, now, 80.0f, -40.0f));
+    (void)disabled.build_output(physical);
+    disabled.report_output_delivery(true, true, now + 0.000001);
+    now += 0.010;
+    (void)disabled.build_output(physical);
+    require(
+        !disabled.last_target_plan().remaining_work_valid,
+        "rollback config must preserve the legacy error path");
+}
+
 void test_vision_gap_uses_smooth_short_continuity() {
     double now = 20.0;
     NativeGamepadController controller(config(), [&now] { return now; });
@@ -495,6 +543,7 @@ void test_100hz_vision_1000hz_control_emits_stable_fire_cadence() {
 int main() {
     try {
         test_ads_is_bounded_and_drift_is_ignored();
+        test_production_remaining_work_consumes_only_confirmed_delivery();
         test_vision_gap_uses_smooth_short_continuity();
         test_opposing_manual_intent_yields_without_braking_bodylock();
         test_benchmark_mix_override_updates_delivered_feedback();

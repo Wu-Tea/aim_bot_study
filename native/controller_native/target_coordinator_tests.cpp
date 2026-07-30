@@ -613,6 +613,71 @@ void test_vision_fire_authority_is_not_rejected_by_reliability_weight() {
                  "coordinator must trust Vision's observed fire eligibility");
 }
 
+void test_delivered_camera_work_is_consumed_during_control_rate_prediction() {
+    controller_native::TargetCoordinator coordinator;
+    auto plan = coordinator.update(
+        frame(1, 20.000, 44, 300.0f, 208.0f),
+        ads_intent(20.000),
+        20.000);
+    require_true(std::fabs(plan.error_px.x - 60.0f) < 0.001f,
+                 "fresh Vision must anchor the initial work");
+
+    pipeline_contract::VisionObservationBatch no_publication{};
+    no_publication.frame_width_px = 480.0f;
+    no_publication.frame_height_px = 416.0f;
+    controller_native::TargetControlFeedback feedback{};
+    feedback.apply_delivered_camera_work = true;
+    feedback.delivered_camera_work_delta_px = {5.0f, -3.0f};
+    plan = coordinator.update(
+        no_publication,
+        ads_intent(20.010),
+        20.010,
+        feedback);
+    require_true(std::fabs(plan.error_px.x - 55.0f) < 0.001f,
+                 "delivered rightward work must reduce positive X work once");
+    require_true(std::fabs(plan.error_px.y - 3.0f) < 0.001f,
+                 "delivered upward work must move negative screen-Y work toward zero");
+
+    plan = coordinator.update(
+        frame(2, 20.020, 44, 295.0f, 211.0f),
+        ads_intent(20.020),
+        20.020);
+    require_true(std::fabs(plan.velocity_px_per_sec.x) < 0.01f,
+                 "fresh Vision matching delivered camera work must not learn camera motion as target velocity");
+    require_true(std::fabs(plan.velocity_px_per_sec.y) < 0.01f,
+                 "camera-attributed Y motion must not leak into target velocity");
+}
+
+void test_fresh_vision_reanchors_to_work_delivered_since_capture() {
+    controller_native::TargetCoordinator coordinator;
+    (void)coordinator.update(
+        frame(1, 21.000, 44, 300.0f, 208.0f),
+        ads_intent(21.000),
+        21.000);
+
+    controller_native::TargetControlFeedback feedback{};
+    feedback.has_delivered_camera_work_since_capture = true;
+    feedback.delivered_camera_work_since_capture_px = {5.0f, -3.0f};
+    feedback.remaining_work_confidence = 0.55f;
+    const auto plan = coordinator.update(
+        frame(2, 21.010, 44, 300.0f, 208.0f),
+        ads_intent(21.010),
+        21.010,
+        feedback);
+
+    require_true(plan.remaining_work_valid,
+                 "fresh capture must publish a valid remaining-work state");
+    require_true(std::fabs(plan.error_px.x - 55.0f) < 0.001f,
+                 "work delivered after capture must be removed from fresh X error");
+    require_true(std::fabs(plan.error_px.y - 3.0f) < 0.001f,
+                 "fresh screen-Y work must use the controller sign exactly once");
+    require_true(
+        std::fabs(
+            plan.delivered_camera_motion_since_capture_px.x - 5.0f) <
+            0.001f,
+        "plan must expose delivered motion for telemetry and consumers");
+}
+
 }  // namespace
 
 int main() {
@@ -644,6 +709,8 @@ int main() {
         test_fresh_processed_miss_revokes_fire_immediately();
         test_anonymous_in_radius_hold_preserves_identity_and_fire_request();
         test_vision_fire_authority_is_not_rejected_by_reliability_weight();
+        test_delivered_camera_work_is_consumed_during_control_rate_prediction();
+        test_fresh_vision_reanchors_to_work_delivered_since_capture();
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "[TargetCoordinatorTests] FAIL " << error.what() << '\n';

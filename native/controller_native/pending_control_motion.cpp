@@ -5,6 +5,23 @@
 
 namespace controller_native {
 
+pipeline_contract::Vec2f delivered_camera_work_px(
+    pipeline_contract::Vec2f control_displacement_px) noexcept {
+    return {
+        control_displacement_px.x,
+        -control_displacement_px.y,
+    };
+}
+
+pipeline_contract::Vec2f remaining_work_after_delivery(
+    pipeline_contract::Vec2f error_px,
+    pipeline_contract::Vec2f delivered_work_px) noexcept {
+    return {
+        error_px.x - delivered_work_px.x,
+        error_px.y - delivered_work_px.y,
+    };
+}
+
 const DeliveredPreRecoilSample& PendingControlMotion::at(
     std::size_t index) const noexcept {
     return samples_[(head_ + index) % kCapacity];
@@ -50,8 +67,30 @@ PendingControlMotionEstimate PendingControlMotion::estimate(
     }
     const double begin_seconds =
         now_seconds - static_cast<double>(observation_age_ms) / 1000.0;
-    if (begin_seconds < at(0).delivered_at_seconds - 1.0e-9 ||
-        now_seconds < at(size_ - 1).delivered_at_seconds) {
+    return estimate_between(
+        begin_seconds,
+        now_seconds,
+        response_scale_px_per_stick_second,
+        target_id);
+}
+
+PendingControlMotionEstimate PendingControlMotion::estimate_between(
+    double begin_seconds,
+    double end_seconds,
+    float response_scale_px_per_stick_second,
+    std::uint64_t target_id) const noexcept {
+    PendingControlMotionEstimate result;
+    if (size_ == 0 || target_id == 0 ||
+        !std::isfinite(begin_seconds) || !std::isfinite(end_seconds) ||
+        !std::isfinite(response_scale_px_per_stick_second) ||
+        end_seconds <= begin_seconds ||
+        response_scale_px_per_stick_second <= 0.0f) {
+        return result;
+    }
+    constexpr double kMaximumInitialZeroHoldSeconds = 0.002;
+    if (begin_seconds <
+            at(0).delivered_at_seconds - kMaximumInitialZeroHoldSeconds ||
+        end_seconds < at(size_ - 1).delivered_at_seconds) {
         return result;
     }
 
@@ -61,23 +100,26 @@ PendingControlMotionEstimate PendingControlMotion::estimate(
            at(held_index + 1).delivered_at_seconds <= begin_seconds) {
         ++held_index;
     }
-    double cursor = begin_seconds;
-    while (held_index < size_ && cursor < now_seconds) {
+    // Output delivery occurs just after the controller decision. At a new
+    // capture there may be a sub-tick gap before the first delivered sample;
+    // that interval represents zero held output, not missing history.
+    double cursor = std::max(begin_seconds, at(held_index).delivered_at_seconds);
+    while (held_index < size_ && cursor < end_seconds) {
         const auto& held = at(held_index);
         if (held.target_id != target_id) return result;
         const double next_time = held_index + 1 < size_
             ? at(held_index + 1).delivered_at_seconds
-            : now_seconds;
-        const double end = std::min(now_seconds, next_time);
-        if (end > cursor) {
-            const float dt = static_cast<float>(end - cursor);
+            : end_seconds;
+        const double segment_end = std::min(end_seconds, next_time);
+        if (segment_end > cursor) {
+            const float dt = static_cast<float>(segment_end - cursor);
             integral.x += held.pre_recoil_stick.x * dt;
             integral.y += held.pre_recoil_stick.y * dt;
         }
-        cursor = end;
+        cursor = segment_end;
         ++held_index;
     }
-    if (cursor + 1.0e-9 < now_seconds) return result;
+    if (cursor + 1.0e-9 < end_seconds) return result;
 
     const pipeline_contract::Vec2f displacement{
         integral.x * response_scale_px_per_stick_second,
