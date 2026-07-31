@@ -1,5 +1,7 @@
 #pragma once
 
+#include "common_native/screen_geometry.h"
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -17,12 +19,17 @@ struct VisionCandidate {
     std::uint64_t source_id = 0;
     Vec2f aim_px{};
     Vec2f box_size_px{};
+    common_native::Box2f body_box_px{};
+    Vec2f motion_anchor_px{};
+    float motion_anchor_score = 0.0f;
     float confidence = 0.0f;
     float cue_confidence = 0.0f;
     float normalized_size = 0.0f;
     float reliability = 0.0f;
     bool body_cue = false;
     bool head_cue = false;
+    bool has_body_box = false;
+    bool has_motion_anchor = false;
 };
 
 struct VisionObservationBatch {

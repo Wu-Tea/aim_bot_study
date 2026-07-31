@@ -681,6 +681,87 @@ void test_short_occlusion_withholds_publication_without_fresh_miss() {
             "reveal must advance Vision identity exactly once");
 }
 
+void test_camera_recoil_moves_true_error_but_visual_kick_does_not() {
+    auto run_profile = [](VisionDisturbanceProfile profile) {
+        ScenarioScript script = stationary_script(320, {0.0, 0.0});
+        script.config.vision_disturbance = profile;
+        std::vector<SimulationTraceFrame> trace;
+        ControllerStep passive = [](const ControllerObservation& input) {
+            ControllerStepResult output;
+            output.bodylock_mode = input.target_present;
+            output.target_observed = input.target_present;
+            output.tracker_reliable = input.target_present;
+            return output;
+        };
+        (void)run_simulation(
+            script, ManualProfile::Pure, passive,
+            BenchmarkCohort::BodyLockFollow,
+            [&](const SimulationTraceFrame& frame) {
+                trace.push_back(frame);
+            });
+        return trace;
+    };
+    const auto visual =
+        run_profile(VisionDisturbanceProfile::GunKickAdversarial);
+    const auto physical =
+        run_profile(VisionDisturbanceProfile::CameraRecoil);
+    double visual_true_excursion = 0.0;
+    double physical_true_excursion = 0.0;
+    for (std::size_t index = 0; index < visual.size(); ++index) {
+        visual_true_excursion = std::max(
+            visual_true_excursion,
+            length(visual[index].true_error_after_px));
+        physical_true_excursion = std::max(
+            physical_true_excursion,
+            length(physical[index].true_error_after_px));
+    }
+    require(visual_true_excursion < 1e-9,
+            "observation-only gun kick must not move the true camera");
+    require(physical_true_excursion > 3.0,
+            "camera recoil fixture must move the true relative error");
+}
+
+void test_horizontal_aim_bias_is_observation_only_and_recovers() {
+    ScenarioScript script = stationary_script(360, {0.0, 0.0});
+    script.config.vision_disturbance =
+        VisionDisturbanceProfile::HorizontalAimBiasRecovery;
+    std::vector<SimulationTraceFrame> trace;
+    ControllerStep passive = [](const ControllerObservation& input) {
+        ControllerStepResult output;
+        output.bodylock_mode = input.target_present;
+        output.target_observed = input.target_present;
+        output.tracker_reliable = input.target_present;
+        return output;
+    };
+    (void)run_simulation(
+        script, ManualProfile::Pure, passive,
+        BenchmarkCohort::BodyLockFollow,
+        [&](const SimulationTraceFrame& frame) {
+            trace.push_back(frame);
+        });
+    double maximum_observed_bias = 0.0;
+    double maximum_true_error = 0.0;
+    double final_observed_error = 1000.0;
+    for (const auto& frame : trace) {
+        if (frame.fresh_vision) {
+            maximum_observed_bias = std::max(
+                maximum_observed_bias,
+                std::fabs(frame.input.observed_error_px.x));
+            final_observed_error =
+                std::fabs(frame.input.observed_error_px.x);
+        }
+        maximum_true_error = std::max(
+            maximum_true_error,
+            std::fabs(frame.true_error_after_px.x));
+    }
+    require(maximum_observed_bias > 20.0,
+            "fixture must begin with a materially wrong horizontal aim point");
+    require(maximum_true_error < 1e-9,
+            "wrong target localization must not move the physical camera");
+    require(final_observed_error < 0.5,
+            "fresh target localization must recover to the true point");
+}
+
 }  // namespace
 
 int main() {
@@ -709,6 +790,8 @@ int main() {
         test_trace_is_deterministic_and_observational();
         test_obsolete_manual_profile_persists_after_center_crossing();
         test_short_occlusion_withholds_publication_without_fresh_miss();
+        test_camera_recoil_moves_true_error_but_visual_kick_does_not();
+        test_horizontal_aim_bias_is_observation_only_and_recovers();
         std::cout << "cod_native_sustained_aimlab_simulator_tests PASS\n";
         return EXIT_SUCCESS;
     } catch (const std::exception& error) {

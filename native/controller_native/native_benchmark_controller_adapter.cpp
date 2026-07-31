@@ -32,10 +32,31 @@ ControllerVisionSnapshot snapshot_from(
     candidate.id = input.target_id;
     candidate.valid = true;
     candidate.has_aim_point = true;
-    candidate.aim_point_px = {
-        static_cast<float>(320.0 + input.observed_error_px.x),
-        static_cast<float>(256.0 + input.observed_error_px.y),
+    if (input.has_body_box) {
+        candidate.body_box_px = {
+            static_cast<float>(input.body_box_x),
+            static_cast<float>(input.body_box_y),
+            static_cast<float>(input.body_box_width),
+            static_cast<float>(input.body_box_height),
+        };
+        candidate.aim_point_px = {
+            static_cast<float>(
+                input.body_box_x + input.body_box_width * 0.5),
+            static_cast<float>(
+                input.body_box_y + input.body_box_height * 0.40),
+        };
+    } else {
+        candidate.aim_point_px = {
+            static_cast<float>(320.0 + input.observed_error_px.x),
+            static_cast<float>(256.0 + input.observed_error_px.y),
+        };
+    }
+    candidate.has_motion_anchor = input.has_motion_anchor;
+    candidate.motion_anchor_px = {
+        static_cast<float>(input.motion_anchor_px.x),
+        static_cast<float>(input.motion_anchor_px.y),
     };
+    candidate.motion_anchor_score = input.has_motion_anchor ? 1.0f : 0.0f;
     candidate.confidence = 0.95f;
     candidate.suggested_authority_state =
         common_native::TargetAuthorityState::StrongAssist;
@@ -54,7 +75,9 @@ NativeReplayAdapter::NativeReplayAdapter(
     bool causal_player_motion_state_enabled,
     bool causal_player_motion_forecast_enabled,
     BenchmarkRemainingWorkMode remaining_work_mode,
-    double remaining_work_scale)
+    double remaining_work_scale,
+    bool firing_body_geometry_stabilizer_enabled,
+    bool firing_disturbance_observer_enabled)
     : schedule_(schedule),
       cohort_(cohort),
       config_(std::move(source_config)),
@@ -68,6 +91,10 @@ NativeReplayAdapter::NativeReplayAdapter(
     controller_.set_benchmark_remaining_work_mode(remaining_work_mode);
     controller_.set_benchmark_remaining_work_scale(
         static_cast<float>(remaining_work_scale));
+    controller_.set_benchmark_firing_body_geometry_stabilizer_enabled(
+        firing_body_geometry_stabilizer_enabled);
+    controller_.set_benchmark_firing_disturbance_observer_enabled(
+        firing_disturbance_observer_enabled);
     if (tracker_velocity_alpha >= 0.0) {
         controller_.set_benchmark_tracker_velocity_alpha(
             static_cast<float>(tracker_velocity_alpha));
@@ -177,6 +204,9 @@ ControllerStepResult NativeReplayAdapter::step(
         components.intent_fusion_ai_weight,
         components.intent_fusion_fallback,
         components.intent_fusion_manual_escape,
+        {components.before_recoil_stick.x,
+         components.before_recoil_stick.y},
+        true,
     };
 }
 
@@ -190,15 +220,20 @@ ReplayControllerFactory make_native_factory(
     bool causal_player_motion_state_enabled,
     bool causal_player_motion_forecast_enabled,
     BenchmarkRemainingWorkMode remaining_work_mode,
-    double remaining_work_scale) {
-    config.recoil.enabled = false;
+    double remaining_work_scale,
+    bool recoil_enabled,
+    bool firing_body_geometry_stabilizer_enabled,
+    bool firing_disturbance_observer_enabled) {
+    config.recoil.enabled = recoil_enabled;
     return [config = std::move(config), cohort, intent_fusion_mode,
             coverage = std::move(coverage), assist_scale,
             tracker_velocity_alpha,
             causal_player_motion_state_enabled,
             causal_player_motion_forecast_enabled,
             remaining_work_mode,
-            remaining_work_scale](
+            remaining_work_scale,
+            firing_body_geometry_stabilizer_enabled,
+            firing_disturbance_observer_enabled](
                 const BranchSchedule& schedule) {
         auto state = std::make_shared<NativeReplayAdapter>(
             config, schedule, cohort, intent_fusion_mode, coverage,
@@ -206,7 +241,9 @@ ReplayControllerFactory make_native_factory(
             causal_player_motion_state_enabled,
             causal_player_motion_forecast_enabled,
             remaining_work_mode,
-            remaining_work_scale);
+            remaining_work_scale,
+            firing_body_geometry_stabilizer_enabled,
+            firing_disturbance_observer_enabled);
         return [state](const ControllerObservation& input) {
             return state->step(input);
         };

@@ -60,6 +60,10 @@ struct Detection {
     float cue_x = 0.0f;
     float cue_y = 0.0f;
     float cue_score = 0.0f;
+    bool has_motion_anchor = false;
+    float motion_anchor_x = 0.0f;
+    float motion_anchor_y = 0.0f;
+    float motion_anchor_score = 0.0f;
 };
 
 struct DetectionBatch {

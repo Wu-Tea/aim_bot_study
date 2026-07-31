@@ -103,7 +103,9 @@ private:
     float fresh_evidence_remaining_ms_ = 0.0f;
     std::uint64_t strong_approach_target_id_ = 0;
     pipeline_contract::Vec2f strong_approach_direction_{};
+    pipeline_contract::Vec2f applied_control_radial_{};
     float obsolete_manual_window_ms_ = 0.0f;
+    bool control_radial_initialized_ = false;
     bool initialized_ = false;
 };
 

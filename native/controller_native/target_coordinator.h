@@ -1,12 +1,12 @@
 #pragma once
 
 #include "control_response_estimator.h"
+#include "target_geometry.h"
 #include "pipeline_contract/intent_state.h"
 #include "pipeline_contract/target_plan.h"
 #include "pipeline_contract/vision_observation.h"
 
 #include <cstdint>
-
 namespace controller_native {
 
 struct TargetCoordinatorConfig {
@@ -25,6 +25,14 @@ struct TargetCoordinatorConfig {
     // gain is converted from this reference to each actual capture interval.
     float motion_velocity_alpha = 0.2f;
     float motion_velocity_reference_interval_seconds = 0.011f;
+    // During fire, cap the influence of unmodelled camera motion. The rejected
+    // tail is never accumulated or released into a later controller tick.
+    float bodylock_max_target_acceleration_px_per_second2 = 3000.0f;
+    float fire_innovation_limit_px = 3.5f;
+    bool firing_body_geometry_stabilizer_enabled = true;
+    // A fast mean-reverting observation state absorbs camera/gun-kick
+    // transients so they cannot become persistent target velocity.
+    bool firing_disturbance_observer_enabled = true;
     float jump_fall_velocity_px_per_second = 100.0f;
     float player_jump_acceleration_model_ms = 700.0f;
     float max_authority = 1.0f;
@@ -45,6 +53,7 @@ struct TargetControlFeedback {
     pipeline_contract::Vec2f delivered_camera_work_since_capture_px{};
     float remaining_work_confidence = 0.0f;
     bool reset_remaining_work = false;
+    bool firing_recently = false;
     float player_jump_action_age_ms = -1.0f;
     float player_slide_action_age_ms = -1.0f;
     // Benchmark headroom oracle: exact player-motion contribution that has
@@ -69,6 +78,10 @@ public:
     bool observe_control_response(const ControlResponseSample& sample) noexcept;
     void begin_ads_epoch(std::uint64_t epoch, double now_seconds) noexcept;
     void set_motion_velocity_alpha_for_benchmark(float alpha) noexcept;
+    void set_firing_body_geometry_stabilizer_enabled_for_benchmark(
+        bool enabled) noexcept;
+    void set_firing_disturbance_observer_enabled_for_benchmark(
+        bool enabled) noexcept;
     void set_causal_player_motion_enabled_for_benchmark(
         bool state_enabled,
         bool forecast_enabled) noexcept;
@@ -107,6 +120,10 @@ private:
 
     TargetCoordinatorConfig config_{};
     ControlResponseEstimator response_estimator_{};
+    StableBodyAimTracker stable_body_aim_tracker_{};
+    pipeline_contract::Vec2f
+        previous_firing_velocity_innovation_{};
+    bool firing_velocity_observer_active_ = false;
     pipeline_contract::TargetPlan latest_{};
     pipeline_contract::Vec2f position_{};
     pipeline_contract::Vec2f velocity_{};

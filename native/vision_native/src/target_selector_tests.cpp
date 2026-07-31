@@ -178,6 +178,32 @@ ColorFrameFixture full_bgra_frame() {
     return frame;
 }
 
+void draw_motion_pattern(
+    ColorFrameFixture& frame,
+    int center_x,
+    int center_y) {
+    for (int y = center_y - 20; y <= center_y + 20; ++y) {
+        for (int x = center_x - 20; x <= center_x + 20; ++x) {
+            if (x < 0 || y < 0 ||
+                x >= frame.view.width || y >= frame.view.height) {
+                continue;
+            }
+            const std::size_t offset = static_cast<std::size_t>(
+                y * frame.view.row_pitch + x * 4);
+            const int local_x = x - center_x;
+            const int local_y = y - center_y;
+            const std::uint8_t value = static_cast<std::uint8_t>(
+                35 + ((local_x * 17 + local_y * 29 +
+                       (local_x * local_y)) & 0x9f));
+            frame.pixels[offset + 0] = value;
+            frame.pixels[offset + 1] =
+                static_cast<std::uint8_t>(value / 2);
+            frame.pixels[offset + 2] =
+                static_cast<std::uint8_t>(220 - value / 3);
+        }
+    }
+}
+
 void paint_sparse_bgra(
     ColorFrameFixture& frame,
     const vision_native::VisionTargetSelector::FrameRegion& region,
@@ -677,6 +703,107 @@ void test_wide_low_no_cue_candidate_does_not_keep_dead_active_target_locked() {
         "wide-low candidate without head cue evidence should not keep a just-dead target locked");
 }
 
+void test_motion_anchor_ignores_box_edge_reconstruction_and_tracks_person() {
+    vision_native::VisionTargetSelector selector(640, 512);
+    auto frame = full_bgra_frame();
+    draw_motion_pattern(frame, 320, 242);
+    auto stable = single_target_batch(320.0f, 256.0f, 0.92f);
+
+    selector.select_with_frame(stable, frame.view);
+    const auto locked = selector.select_with_frame(stable, frame.view);
+    require_true(
+        locked.has_selected_detection,
+        "setup should select the textured person");
+    const auto initial = locked.detections[
+        locked.selected_detection_index];
+    require_true(
+        initial.has_motion_anchor,
+        "selected textured person should expose a motion anchor");
+
+    auto deformed = stable;
+    deformed.detections[0].x2 += 16.0f;
+    deformed.detections[0].y2 -= 40.0f;
+    const auto reconstructed =
+        selector.select_with_frame(deformed, frame.view);
+    const auto reconstructed_detection = reconstructed.detections[
+        reconstructed.selected_detection_index];
+    require_true(
+        reconstructed_detection.has_motion_anchor,
+        "box reconstruction should retain the visual motion anchor");
+    require_near(
+        reconstructed_detection.motion_anchor_x,
+        initial.motion_anchor_x,
+        1.0f,
+        "single horizontal edge motion must not move person anchor");
+    require_near(
+        reconstructed_detection.motion_anchor_y,
+        initial.motion_anchor_y,
+        1.0f,
+        "single vertical edge motion must not move person anchor");
+
+    auto severely_deformed = stable;
+    severely_deformed.detections[0].x2 += 28.0f;
+    severely_deformed.detections[0].y2 -= 54.0f;
+    const auto required_after_severe_deformation =
+        selector.required_color_region(severely_deformed);
+    require_true(
+        required_after_severe_deformation.has_value() &&
+            required_after_severe_deformation->left <=
+                static_cast<int>(initial.motion_anchor_x) - 12 &&
+            required_after_severe_deformation->right >=
+                static_cast<int>(initial.motion_anchor_x) + 12 &&
+            required_after_severe_deformation->top <=
+                static_cast<int>(initial.motion_anchor_y) - 12 &&
+            required_after_severe_deformation->bottom >=
+                static_cast<int>(initial.motion_anchor_y) + 12,
+        "color readback should retain the confirmed anchor search neighborhood");
+    const auto severely_reconstructed =
+        selector.select_with_frame(severely_deformed, frame.view);
+    const auto severely_reconstructed_detection =
+        severely_reconstructed.detections[
+            severely_reconstructed.selected_detection_index];
+    require_true(
+        severely_reconstructed_detection.has_motion_anchor,
+        "large body-box reconstruction should retain the visual motion anchor");
+    require_near(
+        severely_reconstructed_detection.motion_anchor_x,
+        initial.motion_anchor_x,
+        1.0f,
+        "large horizontal edge motion must not move person anchor");
+    require_near(
+        severely_reconstructed_detection.motion_anchor_y,
+        initial.motion_anchor_y,
+        1.0f,
+        "large vertical edge motion must not move person anchor");
+
+    auto moved_frame = full_bgra_frame();
+    draw_motion_pattern(moved_frame, 325, 238);
+    auto moved = stable;
+    moved.detections[0].x1 += 5.0f;
+    moved.detections[0].x2 += 5.0f;
+    moved.detections[0].y1 -= 4.0f;
+    moved.detections[0].y2 -= 4.0f;
+    const auto translated =
+        selector.select_with_frame(moved, moved_frame.view);
+    const auto translated_detection =
+        translated.detections[translated.selected_detection_index];
+    require_true(
+        translated_detection.has_motion_anchor,
+        "rigidly translated person should retain the visual anchor");
+    require_near(
+        translated_detection.motion_anchor_x -
+            severely_reconstructed_detection.motion_anchor_x,
+        5.0f,
+        1.0f,
+        "motion anchor should preserve horizontal person translation");
+    require_near(
+        translated_detection.motion_anchor_y -
+            severely_reconstructed_detection.motion_anchor_y,
+        -4.0f,
+        1.0f,
+        "motion anchor should preserve vertical person translation");
+}
+
 }  // namespace
 
 int main() {
@@ -700,6 +827,7 @@ int main() {
         test_external_cue_continuation_does_not_request_full_color_frame();
         test_wide_low_no_cue_candidate_degrades_to_weak_without_death_transition();
         test_wide_low_no_cue_candidate_does_not_keep_dead_active_target_locked();
+        test_motion_anchor_ignores_box_edge_reconstruction_and_tracks_person();
         return 0;
     } catch (const std::exception& exc) {
         std::cerr << "[TargetSelectorTests] FAIL " << exc.what() << "\n";

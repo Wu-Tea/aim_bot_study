@@ -664,6 +664,43 @@ void test_gun_kick_disturbance_is_deterministic_and_observation_only() {
             "gun-kick fixture must contain a meaningful camera pulse");
 }
 
+void test_adversarial_gun_kick_is_log_scale_and_phase_swept() {
+    BenchmarkConfig plain_config;
+    plain_config.vision_interval_ms = 10;
+    BenchmarkConfig attack_config = plain_config;
+    attack_config.vision_disturbance =
+        VisionDisturbanceProfile::GunKickAdversarial;
+    const auto plain = generate_script(2026073101, plain_config);
+    const auto first = generate_script(2026073101, attack_config);
+    const auto second = generate_script(2026073101, attack_config);
+    require(first.hash == second.hash,
+            "adversarial gun-kick must remain deterministic");
+    bool saw_log_scale_vertical_pulse = false;
+    for (std::size_t target_index = 0;
+         target_index < first.targets.size(); ++target_index) {
+        const auto& base = plain.targets[target_index];
+        const auto& attacked = first.targets[target_index];
+        require(base.observation_at_ms == attacked.observation_at_ms,
+                "phase sweep must preserve Vision cadence");
+        for (std::size_t sample = 0;
+             sample < attacked.observation_noise_px.size(); ++sample) {
+            const Vec2d delta{
+                attacked.observation_noise_px[sample].x -
+                    base.observation_noise_px[sample].x,
+                attacked.observation_noise_px[sample].y -
+                    base.observation_noise_px[sample].y};
+            saw_log_scale_vertical_pulse =
+                saw_log_scale_vertical_pulse ||
+                std::fabs(delta.y) > 8.0;
+            require(std::fabs(delta.x) <= 8.0 + 1e-9 &&
+                        std::fabs(delta.y) <= 17.0 + 1e-9,
+                    "adversarial disturbance must stay bounded");
+        }
+    }
+    require(saw_log_scale_vertical_pulse,
+            "adversarial fixture must exceed the old 8px vertical pulse");
+}
+
 }  // namespace
 
 int main() {
@@ -685,6 +722,7 @@ int main() {
         test_obsolete_vertical_fixture_is_stationary_for_every_motion_label();
         test_short_occlusion_bursts_are_tracking_relative_and_hashed();
         test_gun_kick_disturbance_is_deterministic_and_observation_only();
+        test_adversarial_gun_kick_is_log_scale_and_phase_swept();
         std::cout << "cod_native_sustained_aimlab_scenario_tests PASS\n";
         return EXIT_SUCCESS;
     } catch (const std::exception& error) {

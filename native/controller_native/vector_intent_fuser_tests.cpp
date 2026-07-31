@@ -737,6 +737,12 @@ void test_target_change_releases_without_new_attenuation_step() {
                  "target change must target full manual ownership");
     require_true(second.applied_manual_weight > first.applied_manual_weight,
                  "target change must immediately begin releasing manual attenuation");
+
+    const auto third = fuser.update(changed, 0.004f);
+    require_true(third.applied_ai_weight > 0.0f &&
+                     third.applied_ai_weight < 1.0f,
+                 "new target AI must rearm through the ownership envelope "
+                 "instead of cold-starting at full weight");
 }
 
 void test_reacquiring_low_reliability_and_low_response_release_to_manual() {
@@ -760,13 +766,14 @@ void test_reacquiring_low_reliability_and_low_response_release_to_manual() {
     }
 }
 
-void test_unreliable_opposing_proposal_yields_exactly_to_manual() {
+void test_unreliable_opposing_proposal_yields_continuously_to_manual() {
     for (int kind = 0; kind < 3; ++kind) {
         VectorIntentFuser fuser;
         auto input = input_for({-0.20f, 0.0f}, {0.30f, 0.0f});
         // Magnitude is deliberate even if the intent-confidence estimator has
         // not caught up yet; this is the exact stale-confidence runtime case.
         input.manual_confidence = 0.1f;
+        (void)fuser.update(input, 0.004f);
         if (kind == 0) {
             input.plan.lifecycle = pipeline_contract::TargetLifecycle::Reacquiring;
         } else if (kind == 1) {
@@ -779,11 +786,85 @@ void test_unreliable_opposing_proposal_yields_exactly_to_manual() {
                      "unreliable opposing evidence must use fallback");
         require_true(decision.candidate == FusionCandidate::ManualOnly,
                      "unreliable opposing AI must yield controller ownership");
-        require_near(decision.fused_stick.x, input.manual_stick.x, 0.0001f,
-                     "unreliable opposing fallback must deliver exact manual X");
-        require_near(decision.applied_ai_weight, 0.0f, 0.0001f,
-                     "unreliable opposing fallback must not retain hidden AI force");
+        require_true(decision.applied_ai_weight > 0.0f &&
+                         decision.applied_ai_weight < 1.0f,
+                     "transient unreliable evidence must begin a bounded AI "
+                     "release instead of toggling AI off in one tick");
     }
+}
+
+void test_one_tick_reliability_gap_does_not_create_ai_off_on_impulse() {
+    VectorIntentFuser fuser;
+    auto input = input_for({0.012f, 0.122f}, {0.515f, -0.062f});
+    input.plan.mode = pipeline_contract::ControlMode::BodyLockFollow;
+    input.plan.error_px = {52.0f, -96.0f};
+    input.manual_confidence = 1.0f;
+
+    const auto before = fuser.update(input, 0.004f);
+    input.plan.reliability = 0.50f;
+    const auto gap = fuser.update(input, 0.004f);
+    input.plan.reliability = 1.0f;
+    const auto recovered = fuser.update(input, 0.004f);
+
+    require_true(gap.fallback,
+                 "fixture must exercise the transient reliability fallback");
+    require_true(gap.applied_ai_weight > 0.0f,
+                 "one unreliable tick must not hard-disable a continuous AI proposal");
+    require_true(recovered.applied_ai_weight >= gap.applied_ai_weight,
+                 "credible recovery must restore rather than further drop AI ownership");
+    const auto output_delta = [](pipeline_contract::Vec2f lhs,
+                                 pipeline_contract::Vec2f rhs) {
+        const float dx = lhs.x - rhs.x;
+        const float dy = lhs.y - rhs.y;
+        return std::sqrt(dx * dx + dy * dy);
+    };
+    require_true(output_delta(before.fused_stick, gap.fused_stick) < 0.15f,
+                 "fallback edge must stay inside the 24ms ownership envelope");
+    require_true(output_delta(gap.fused_stick, recovered.fused_stick) < 0.15f,
+                 "recovery edge must not restore full AI as a single-tick impulse");
+}
+
+void test_remaining_work_rotation_does_not_reproject_stable_manual_input() {
+    controller_native::VectorIntentFusionConfig config;
+    config.fresh_vision_wrong_way_manual_floor = 0.35f;
+    VectorIntentFuser fuser(config);
+    auto input = input_for({-0.38f, 0.02f}, {0.24f, 0.0f});
+    input.plan.mode = pipeline_contract::ControlMode::BodyLockFollow;
+    input.plan.error_px = {30.0f, 2.0f};
+    input.plan.remaining_work_px = input.plan.error_px;
+    input.plan.remaining_work_confidence = 1.0f;
+    input.plan.remaining_work_valid = true;
+    input.fresh_single_target_observation = true;
+
+    const auto before = fuser.update(input, 0.024f);
+    input.plan.error_px = {2.0f, -30.0f};
+    input.plan.remaining_work_px = input.plan.error_px;
+    input.plan.delivered_camera_motion_since_capture_px = {28.0f, 32.0f};
+    const auto after = fuser.update(input, 0.001f);
+    const float dx = after.fused_stick.x - before.fused_stick.x;
+    const float dy = after.fused_stick.y - before.fused_stick.y;
+
+    require_true(std::hypot(dx, dy) < 0.05f,
+                 "rotating Remaining error must not rotate the manual "
+                 "projection basis while the delivered AI proposal is stable");
+}
+
+void test_visual_reference_rotation_is_slewed_for_manual_projection() {
+    VectorIntentFuser fuser;
+    auto input = input_for({-0.38f, 0.02f}, {0.24f, 0.0f});
+    input.plan.mode = pipeline_contract::ControlMode::BodyLockFollow;
+    input.plan.error_px = {30.0f, 2.0f};
+    input.fresh_single_target_observation = true;
+
+    const auto before = fuser.update(input, 0.024f);
+    input.plan.error_px = {2.0f, -30.0f};
+    const auto after = fuser.update(input, 0.001f);
+    const float dx = after.fused_stick.x - before.fused_stick.x;
+    const float dy = after.fused_stick.y - before.fused_stick.y;
+
+    require_true(std::hypot(dx, dy) < 0.10f,
+                 "a one-frame visual direction change must not rotate the "
+                 "manual projection basis in one controller tick");
 }
 
 void test_low_response_confidence_does_not_deadlock_safe_ai_fallback() {
@@ -952,7 +1033,10 @@ int main() {
         test_missing_target_falls_back_to_physical_manual();
         test_target_change_releases_without_new_attenuation_step();
         test_reacquiring_low_reliability_and_low_response_release_to_manual();
-        test_unreliable_opposing_proposal_yields_exactly_to_manual();
+        test_unreliable_opposing_proposal_yields_continuously_to_manual();
+        test_one_tick_reliability_gap_does_not_create_ai_off_on_impulse();
+        test_remaining_work_rotation_does_not_reproject_stable_manual_input();
+        test_visual_reference_rotation_is_slewed_for_manual_projection();
         test_low_response_confidence_does_not_deadlock_safe_ai_fallback();
         test_neutral_manual_input_cannot_create_a_second_ai_brake();
         test_plan_horizon_does_not_double_apply_previous_camera_output();

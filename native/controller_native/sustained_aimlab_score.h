@@ -24,6 +24,8 @@ struct ScoreFrame {
     Vec2d requested_assist_stick;
     Vec2d shaped_assist_stick;
     Vec2d final_stick;
+    Vec2d pre_recoil_stick;
+    bool has_pre_recoil_stick = false;
     Vec2d predicted_terminal_error_px;
     double radial_closing_velocity_px_per_sec = 0.0;
     bool ads_to_bodylock_transition = false;
@@ -67,6 +69,12 @@ struct TargetResult {
     int controller_residual_kick_events = 0;
     int requested_assist_discontinuities = 0;
     int shaped_assist_discontinuities = 0;
+    int near_center_requested_reversal_events = 0;
+    int near_center_shaped_reversal_events = 0;
+    int near_center_shaped_wrong_way_ms = 0;
+    int oscillation_episodes = 0;
+    int oscillation_active_ms = 0;
+    double oscillation_output_area = 0.0;
     double max_error_px = 0.0;
     bool settled = false;
     int center_cross_events = 0;
@@ -143,6 +151,7 @@ private:
     Vec2d previous_requested_assist_;
     Vec2d previous_shaped_assist_;
     Vec2d previous_controller_residual_;
+    bool previous_manual_escape_ = false;
     double previous_distance_ = 0.0;
     double previous_output_delta_ = 0.0;
     double previous_controller_residual_delta_ = 0.0;
@@ -181,6 +190,11 @@ private:
     int post_occlusion_ticks_remaining_ = 0;
     int reveal_recovery_elapsed_ms_ = 0;
     int reveal_stable_ticks_ = 0;
+    int shaped_axis_sign_[2] = {0, 0};
+    int last_axis_reversal_ms_[2] = {-10000, -10000};
+    bool axis_oscillation_active_[2] = {false, false};
+    bool axis_oscillation_counted_[2] = {false, false};
+    int axis_oscillation_candidate_ms_[2] = {0, 0};
 };
 
 struct BenchmarkResult {
@@ -239,6 +253,12 @@ struct BenchmarkResult {
     int controller_residual_kick_events = 0;
     int requested_assist_discontinuities = 0;
     int shaped_assist_discontinuities = 0;
+    int near_center_requested_reversal_events = 0;
+    int near_center_shaped_reversal_events = 0;
+    int near_center_shaped_wrong_way_ms = 0;
+    int oscillation_episodes = 0;
+    int oscillation_active_ms = 0;
+    double oscillation_output_area = 0.0;
     double max_error_px = 0.0;
     double median_first_entry_to_settle_ms = -1.0;
     double p95_first_entry_to_settle_ms = -1.0;

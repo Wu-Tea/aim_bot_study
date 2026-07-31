@@ -49,6 +49,9 @@ struct CliOptions {
     int short_occlusion_ms = 0;
     int vision_hz = 0;
     std::string vision_disturbance = "off";
+    std::string benchmark_recoil = "off";
+    std::string firing_body_geometry_stabilizer = "on";
+    std::string firing_disturbance_observer = "on";
     std::string revision = "unknown";
     bool dirty = false;
     int duration_ms = 60'000;
@@ -152,6 +155,15 @@ CliOptions parse_args(int argc, char** argv) {
         } else if (
             argument == "--vision-disturbance" && index + 1 < argc) {
             options.vision_disturbance = argv[++index];
+        } else if (argument == "--benchmark-recoil" &&
+                   index + 1 < argc) {
+            options.benchmark_recoil = argv[++index];
+        } else if (argument == "--firing-body-geometry" &&
+                   index + 1 < argc) {
+            options.firing_body_geometry_stabilizer = argv[++index];
+        } else if (argument == "--firing-disturbance-observer" &&
+                   index + 1 < argc) {
+            options.firing_disturbance_observer = argv[++index];
         } else if (argument == "--revision" && index + 1 < argc) {
             options.revision = argv[++index];
         } else if (argument == "--dirty") {
@@ -207,7 +219,13 @@ CliOptions parse_args(int argc, char** argv) {
                 << "[--slowdown-edge N] [--slowdown-center N] "
                 << "[--short-occlusion-ms 0|24|36|48] "
                 << "[--vision-hz 0|1..1000] "
-                << "[--vision-disturbance off|gun-kick] "
+                << "[--vision-disturbance off|gun-kick|gun-kick-adversarial|"
+                   "camera-recoil|gun-kick-plus-recoil|"
+                   "body-box-deformation|body-box-plus-recoil|"
+                   "horizontal-aim-bias] "
+                << "[--benchmark-recoil off|on] "
+                << "[--firing-body-geometry off|on] "
+                << "[--firing-disturbance-observer off|on] "
                 << "[--output PATH] [--revision HASH] [--dirty] "
                 << "[--duration-ms N] [--smoke] "
                 << "[--counterfactual off|quick|full] "
@@ -239,9 +257,33 @@ CliOptions parse_args(int argc, char** argv) {
         throw std::runtime_error("vision hz must be 0 or 1..1000");
     }
     if (options.vision_disturbance != "off" &&
-        options.vision_disturbance != "gun-kick") {
+        options.vision_disturbance != "gun-kick" &&
+        options.vision_disturbance != "gun-kick-adversarial" &&
+        options.vision_disturbance != "camera-recoil" &&
+        options.vision_disturbance != "gun-kick-plus-recoil" &&
+        options.vision_disturbance != "body-box-deformation" &&
+        options.vision_disturbance != "body-box-plus-recoil" &&
+        options.vision_disturbance != "horizontal-aim-bias") {
         throw std::runtime_error(
-            "vision disturbance must be off or gun-kick");
+            "vision disturbance must be off, gun-kick, "
+            "gun-kick-adversarial, camera-recoil, or "
+            "gun-kick-plus-recoil, body-box-deformation, or "
+            "body-box-plus-recoil, or horizontal-aim-bias");
+    }
+    if (options.benchmark_recoil != "off" &&
+        options.benchmark_recoil != "on") {
+        throw std::runtime_error(
+            "benchmark recoil must be off or on");
+    }
+    if (options.firing_body_geometry_stabilizer != "off" &&
+        options.firing_body_geometry_stabilizer != "on") {
+        throw std::runtime_error(
+            "firing body geometry stabilizer must be off or on");
+    }
+    if (options.firing_disturbance_observer != "off" &&
+        options.firing_disturbance_observer != "on") {
+        throw std::runtime_error(
+            "firing disturbance observer must be off or on");
     }
     if (options.profile != "pure" && options.profile != "mixed" &&
         options.profile != "scripted" &&
@@ -617,6 +659,12 @@ void write_report(
         << ", \"vision_hz_requested\": " << options.vision_hz
         << ", \"vision_disturbance\": "
         << json_string(options.vision_disturbance)
+        << ", \"benchmark_recoil\": "
+        << json_string(options.benchmark_recoil)
+        << ", \"firing_body_geometry_stabilizer\": "
+        << json_string(options.firing_body_geometry_stabilizer)
+        << ", \"firing_disturbance_observer\": "
+        << json_string(options.firing_disturbance_observer)
         << ", \"tracking_window_ms\": " << config.tracking_window_ms
         << ", \"target_slot_ms\": " << config.fixed_target_slot_ms
         << ", \"target_radius_px\": " << config.target_radius_px
@@ -758,6 +806,18 @@ void write_report(
             << result.requested_assist_discontinuities
             << ", \"shaped_assist_discontinuities\": "
             << result.shaped_assist_discontinuities
+            << ", \"near_center_requested_reversal_events\": "
+            << result.near_center_requested_reversal_events
+            << ", \"near_center_shaped_reversal_events\": "
+            << result.near_center_shaped_reversal_events
+            << ", \"near_center_shaped_wrong_way_ms\": "
+            << result.near_center_shaped_wrong_way_ms
+            << ", \"oscillation_episodes\": "
+            << result.oscillation_episodes
+            << ", \"oscillation_active_ms\": "
+            << result.oscillation_active_ms
+            << ", \"oscillation_output_area\": "
+            << result.oscillation_output_area
             << ", \"max_error_px\": " << result.max_error_px
             << ", \"median_first_entry_to_settle_ms\": " << result.median_first_entry_to_settle_ms
             << ", \"p95_first_entry_to_settle_ms\": " << result.p95_first_entry_to_settle_ms
@@ -847,6 +907,18 @@ void write_report(
                 << ",\"circle_exit_events\":" << target.circle_exit_events
                 << ",\"stall_ring_ms\":" << target.stall_ring_ms
                 << ",\"direction_discontinuities\":" << target.direction_discontinuities
+                << ",\"near_center_requested_reversal_events\":"
+                << target.near_center_requested_reversal_events
+                << ",\"near_center_shaped_reversal_events\":"
+                << target.near_center_shaped_reversal_events
+                << ",\"near_center_shaped_wrong_way_ms\":"
+                << target.near_center_shaped_wrong_way_ms
+                << ",\"oscillation_episodes\":"
+                << target.oscillation_episodes
+                << ",\"oscillation_active_ms\":"
+                << target.oscillation_active_ms
+                << ",\"oscillation_output_area\":"
+                << target.oscillation_output_area
                 << ",\"max_error_px\":" << target.max_error_px
                 << ",\"handoff_observed\":"
                 << (target.handoff_observed ? "true" : "false")
@@ -1220,9 +1292,22 @@ int main(int argc, char** argv) {
                 1000.0 / static_cast<double>(options.vision_hz))))
             : 0;
         benchmark_config.vision_disturbance =
-            options.vision_disturbance == "gun-kick"
-            ? VisionDisturbanceProfile::GunKick
-            : VisionDisturbanceProfile::Off;
+            options.vision_disturbance == "horizontal-aim-bias"
+            ? VisionDisturbanceProfile::HorizontalAimBiasRecovery
+            : options.vision_disturbance == "body-box-plus-recoil"
+            ? VisionDisturbanceProfile::
+                  BodyBoxDeformationAndCameraRecoil
+            : options.vision_disturbance == "body-box-deformation"
+                ? VisionDisturbanceProfile::BodyBoxDeformation
+            : options.vision_disturbance == "gun-kick-plus-recoil"
+            ? VisionDisturbanceProfile::GunKickAndCameraRecoil
+            : options.vision_disturbance == "camera-recoil"
+                ? VisionDisturbanceProfile::CameraRecoil
+                : options.vision_disturbance == "gun-kick-adversarial"
+                    ? VisionDisturbanceProfile::GunKickAdversarial
+            : options.vision_disturbance == "gun-kick"
+                ? VisionDisturbanceProfile::GunKick
+                : VisionDisturbanceProfile::Off;
         benchmark_config.obsolete_vertical_fixture =
             options.profile == "obsolete";
         benchmark_config.target_motion_enabled =
@@ -1318,7 +1403,12 @@ int main(int argc, char** argv) {
                                      options.player_motion_model == "forecast" ||
                                          options.player_motion_model == "causal",
                                      remaining_work_mode,
-                                     options.remaining_work_scale);
+                                     options.remaining_work_scale,
+                                     options.benchmark_recoil == "on",
+                                     options.firing_body_geometry_stabilizer ==
+                                         "on",
+                                     options.firing_disturbance_observer ==
+                                         "on");
                             ReplayReference reference = record_reference(
                                 script, profile, cohort, factory,
                                 player_strafe_mode, vertical_mode);

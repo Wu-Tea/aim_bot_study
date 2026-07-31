@@ -118,6 +118,10 @@ void test_adapter_joins_committed_identity_not_raw_challenger() {
     result.viewport_top = 52;
     result.detections.push_back(detection(260, 160, 300, 260, 0.90f));
     result.detections.push_back(detection(232, 170, 260, 250, 0.99f));
+    result.detections[0].has_motion_anchor = true;
+    result.detections[0].motion_anchor_x = 279.0f;
+    result.detections[0].motion_anchor_y = 191.0f;
+    result.detections[0].motion_anchor_score = 0.82f;
     result.has_selected_detection = true;
     result.selected_detection_index = 1;
 
@@ -145,6 +149,11 @@ void test_adapter_joins_committed_identity_not_raw_challenger() {
             "adapter must retain multi-target audit context");
     require_near(committed.stable_error_px.x, 40.0f);
     require_near(committed.stable_error_px.y, -11.5f);
+    require(committed.has_motion_anchor,
+            "adapter must retain the selected person's visual motion anchor");
+    require_near(committed.motion_anchor_px.x, 279.0f);
+    require_near(committed.motion_anchor_px.y, 191.0f);
+    require_near(committed.motion_anchor_score, 0.82f);
     require(committed.ads_epoch == 9,
             "adapter must bind observation to the active ADS epoch");
     require(committed.viewport_sequence == 5,

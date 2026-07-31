@@ -18,10 +18,18 @@ struct ControllerObservation {
     double capture_time_seconds = std::numeric_limits<double>::quiet_NaN();
     double ready_time_seconds = std::numeric_limits<double>::quiet_NaN();
     Vec2d observed_error_px;
+    bool has_body_box = false;
+    double body_box_x = 0.0;
+    double body_box_y = 0.0;
+    double body_box_width = 0.0;
+    double body_box_height = 0.0;
+    bool has_motion_anchor = false;
+    Vec2d motion_anchor_px;
     Vec2d manual_stick;
     double left_x = 0.0;
     bool jump_action = false;
     bool slide_action = false;
+    bool fire_action = false;
     bool player_motion_oracle = false;
     bool player_motion_rate_oracle = false;
     Vec2d player_error_delta_px;
@@ -42,6 +50,8 @@ struct ControllerStepResult {
     float intent_fusion_ai_weight = 0.0f;
     bool intent_fusion_fallback = false;
     bool intent_fusion_manual_escape = false;
+    Vec2d pre_recoil_stick;
+    bool has_pre_recoil_stick = false;
 };
 
 struct SimulationTraceFrame {

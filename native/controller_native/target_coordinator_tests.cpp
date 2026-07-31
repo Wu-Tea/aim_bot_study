@@ -43,6 +43,12 @@ pipeline_contract::IntentState ads_intent(double time) {
     return intent;
 }
 
+pipeline_contract::IntentState firing_ads_intent(double time) {
+    auto intent = ads_intent(time);
+    intent.fire = true;
+    return intent;
+}
+
 void test_single_owner_coasts_and_reacquires_same_identity() {
     controller_native::TargetCoordinator coordinator;
     auto plan = coordinator.update(frame(1, 0.00, 10, 300.0f, 208.0f), ads_intent(0.00), 0.00);
@@ -527,6 +533,34 @@ void test_100hz_motion_stays_finite_at_1000hz_control_rate() {
                  "1000 Hz prediction between observations must remain finite");
 }
 
+void test_replayed_vision_frame_is_consumed_once() {
+    controller_native::TargetCoordinator coordinator;
+    coordinator.update(
+        frame(1, 2.000, 7, 240.0f, 208.0f),
+        ads_intent(2.000), 2.000);
+    auto repeated = frame(2, 2.010, 7, 242.0f, 208.0f);
+    auto plan = coordinator.update(
+        repeated, ads_intent(2.010), 2.010);
+    const float velocity_after_fresh_frame =
+        plan.velocity_px_per_sec.x;
+    const float position_after_fresh_frame = plan.aim_px.x;
+
+    for (int tick = 1; tick <= 9; ++tick) {
+        const double now = 2.010 + tick * 0.001;
+        plan = coordinator.update(
+            repeated, ads_intent(now), now);
+    }
+
+    require_true(
+        std::fabs(
+            plan.velocity_px_per_sec.x -
+            velocity_after_fresh_frame) < 0.01f,
+        "one Vision frame must update target velocity only once");
+    require_true(
+        plan.aim_px.x > position_after_fresh_frame,
+        "controller-rate replay must propagate, not pull back to a stale point");
+}
+
 void test_velocity_alpha_is_normalized_to_vision_interval() {
     using controller_native::motion_velocity_alpha_for_interval;
     const float reference = motion_velocity_alpha_for_interval(
@@ -764,6 +798,165 @@ void test_fresh_vision_reanchors_to_work_delivered_since_capture() {
         "plan must expose delivered motion for telemetry and consumers");
 }
 
+void test_bodylock_velocity_obeys_target_acceleration_limit() {
+    controller_native::TargetCoordinator coordinator;
+    coordinator.begin_ads_epoch(1, 1.0);
+    auto plan = coordinator.update(
+        frame(1, 1.00, 1, 244.0f, 208.0f),
+        firing_ads_intent(1.00), 1.00);
+    for (std::uint64_t id = 2; id <= 8; ++id) {
+        const double time = 1.0 + static_cast<double>(id - 1) * 0.01;
+        plan = coordinator.update(
+            frame(id, time, 1, 244.0f, 208.0f),
+            firing_ads_intent(time), time);
+    }
+    require_true(
+        plan.mode == pipeline_contract::ControlMode::BodyLockFollow,
+        "fixture must enter BodyLock before acceleration stress");
+    const auto before = plan.velocity_px_per_sec;
+    plan = coordinator.update(
+        frame(9, 1.08, 1, 262.0f, 190.0f),
+        ads_intent(1.08), 1.08);
+    const float velocity_delta = std::hypot(
+        plan.velocity_px_per_sec.x - before.x,
+        plan.velocity_px_per_sec.y - before.y);
+    require_true(
+        velocity_delta <= 30.1f,
+        "BodyLock target velocity must respect the 3000 px/s^2 vector limit");
+}
+
+void test_bodylock_bounds_impulse_without_delayed_release() {
+    controller_native::TargetCoordinator coordinator;
+    coordinator.begin_ads_epoch(1, 1.0);
+    auto plan = coordinator.update(
+        frame(1, 1.00, 1, 244.0f, 208.0f),
+        ads_intent(1.00), 1.00);
+    for (std::uint64_t id = 2; id <= 8; ++id) {
+        const double time = 1.0 + static_cast<double>(id - 1) * 0.01;
+        plan = coordinator.update(
+            frame(id, time, 1, 244.0f, 208.0f),
+            ads_intent(time), time);
+    }
+    require_true(
+        plan.mode == pipeline_contract::ControlMode::BodyLockFollow,
+        "fixture must enter BodyLock before robust observation update");
+
+    const auto stable = plan.aim_px;
+    plan = coordinator.update(
+        frame(9, 1.08, 1, 252.0f, 200.0f),
+        firing_ads_intent(1.08), 1.08);
+    const float impulse_step = std::hypot(
+        plan.aim_px.x - stable.x,
+        plan.aim_px.y - stable.y);
+    require_true(
+        impulse_step <= 3.51f,
+        "a first gun-kick innovation must have bounded target influence");
+    plan = coordinator.update(
+        frame(10, 1.09, 1, 244.0f, 208.0f),
+        firing_ads_intent(1.09), 1.09);
+    require_true(
+        std::fabs(plan.aim_px.x - 244.0f) < 0.5f &&
+            std::fabs(plan.aim_px.y - 208.0f) < 0.5f,
+        "a recovering impulse must return without delayed residual release");
+
+    float previous_x = plan.aim_px.x;
+    plan = coordinator.update(
+        frame(11, 1.10, 1, 250.0f, 208.0f),
+        firing_ads_intent(1.10), 1.10);
+    require_true(
+        plan.aim_px.x > previous_x &&
+            plan.aim_px.x - previous_x <= 3.51f,
+        "persistent motion must be accepted continuously");
+    previous_x = plan.aim_px.x;
+    plan = coordinator.update(
+        frame(12, 1.11, 1, 256.0f, 208.0f),
+        firing_ads_intent(1.11), 1.11);
+    require_true(
+        plan.aim_px.x > previous_x &&
+            plan.aim_px.x - previous_x <= 4.6f,
+        "second persistent sample must remain bounded");
+    previous_x = plan.aim_px.x;
+    plan = coordinator.update(
+        frame(13, 1.12, 1, 262.0f, 208.0f),
+        firing_ads_intent(1.12), 1.12);
+    require_true(
+        plan.aim_px.x > previous_x &&
+            plan.aim_px.x - previous_x <= 4.6f,
+        "persistent motion must remain bounded without releasing old error");
+}
+
+void test_bodylock_reacquire_rejects_gun_kick_impulse() {
+    controller_native::TargetCoordinator coordinator;
+    coordinator.begin_ads_epoch(1, 1.0);
+    auto plan = coordinator.update(
+        frame(1, 1.00, 1, 244.0f, 208.0f),
+        firing_ads_intent(1.00), 1.00);
+    for (std::uint64_t id = 2; id <= 8; ++id) {
+        const double time = 1.0 + static_cast<double>(id - 1) * 0.01;
+        plan = coordinator.update(
+            frame(id, time, 1, 244.0f, 208.0f),
+            firing_ads_intent(time), time);
+    }
+    require_true(
+        plan.mode == pipeline_contract::ControlMode::BodyLockFollow,
+        "fixture must enter BodyLock before the occlusion");
+
+    pipeline_contract::VisionObservationBatch missing{};
+    missing.frame_id = 9;
+    missing.frame_width_px = 480.0f;
+    missing.frame_height_px = 416.0f;
+    missing.capture_fresh = true;
+    plan = coordinator.update(
+        missing, firing_ads_intent(1.08), 1.08);
+    require_true(
+        plan.lifecycle == pipeline_contract::TargetLifecycle::Coasting,
+        "fresh miss must enter the short BodyLock coast");
+
+    plan = coordinator.update(
+        frame(10, 1.09, 1, 244.0f, 191.0f),
+        firing_ads_intent(1.09), 1.09);
+    require_true(
+        plan.lifecycle == pipeline_contract::TargetLifecycle::Reacquiring,
+        "same target must retain the reacquiring lifecycle");
+    require_true(
+        std::fabs(plan.aim_px.x - 244.0f) < 0.5f &&
+            plan.aim_px.y >= 204.49f,
+        "a first gun-kick-shaped reacquire must have bounded influence");
+
+    plan = coordinator.update(
+        frame(11, 1.10, 1, 244.0f, 208.0f),
+        firing_ads_intent(1.10), 1.10);
+    require_true(
+        std::fabs(plan.aim_px.x - 244.0f) < 0.5f &&
+            std::fabs(plan.aim_px.y - 208.0f) < 0.5f,
+        "reacquire recovery must not emit a counter-pulse");
+}
+
+void test_ads_fire_impulse_uses_same_robust_observation_update() {
+    controller_native::TargetCoordinator coordinator;
+    coordinator.begin_ads_epoch(1, 1.0);
+    auto plan = coordinator.update(
+        frame(1, 1.00, 1, 320.0f, 208.0f),
+        ads_intent(1.00), 1.00);
+    plan = coordinator.update(
+        frame(2, 1.01, 1, 320.0f, 208.0f),
+        ads_intent(1.01), 1.01);
+    require_true(
+        plan.mode == pipeline_contract::ControlMode::AdsAcquire,
+        "fixture must remain in ADS acquisition");
+    const auto stable = plan.aim_px;
+    controller_native::TargetControlFeedback feedback{};
+    feedback.firing_recently = true;
+    plan = coordinator.update(
+        frame(3, 1.02, 1, 340.0f, 188.0f),
+        ads_intent(1.02), 1.02, feedback);
+    require_true(
+        std::hypot(
+            plan.aim_px.x - stable.x,
+            plan.aim_px.y - stable.y) <= 3.51f,
+        "ADS must not chase a full gun-kick innovation while firing");
+}
+
 }  // namespace
 
 int main() {
@@ -791,7 +984,12 @@ int main() {
         test_control_rate_gaps_do_not_compound_reliability_decay();
         test_control_rate_gaps_preserve_ads_settle_progress();
         test_100hz_motion_stays_finite_at_1000hz_control_rate();
+        test_replayed_vision_frame_is_consumed_once();
         test_velocity_alpha_is_normalized_to_vision_interval();
+        test_bodylock_velocity_obeys_target_acceleration_limit();
+        test_bodylock_bounds_impulse_without_delayed_release();
+        test_bodylock_reacquire_rejects_gun_kick_impulse();
+        test_ads_fire_impulse_uses_same_robust_observation_update();
         test_constant_motion_response_is_cadence_invariant();
         test_left_intent_enters_plan_through_learned_response();
         test_aim_response_feedback_is_separate_from_left_motion_response();

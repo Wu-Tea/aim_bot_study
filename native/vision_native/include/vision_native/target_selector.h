@@ -4,6 +4,7 @@
 #include "vision_native/types.h"
 
 #include <cstdint>
+#include <array>
 #include <optional>
 #include <utility>
 #include <vector>
@@ -104,6 +105,10 @@ private:
     Rect fallback_slow_zone(const Rect& box) const;
     Rect fire_zone(const Rect& box) const;
     DetectionBatch annotate_colors(const DetectionBatch& batch, const ColorFrameView& frame) const;
+    void update_selected_motion_anchor(
+        Detection& detection,
+        const ColorFrameView& frame);
+    void reset_motion_anchor();
     void clear_tracking_state();
     void clear_auto_fire_state();
     bool is_crosshair_inside_zone(const Rect& zone) const;
@@ -213,6 +218,17 @@ private:
     bool auto_fire_holding_ = false;
     int auto_fire_miss_frames_ = 0;
     std::vector<Candidate> candidate_scratch_;
+    static constexpr int kMotionTemplateWidth = 10;
+    static constexpr int kMotionTemplateHeight = 10;
+    static constexpr int kMotionTemplateSamples =
+        kMotionTemplateWidth * kMotionTemplateHeight;
+    std::array<float, kMotionTemplateSamples> motion_template_{};
+    Rect motion_template_box_{};
+    float motion_anchor_x_ = 0.0f;
+    float motion_anchor_y_ = 0.0f;
+    int motion_template_spacing_ = 1;
+    int motion_anchor_misses_ = 0;
+    bool has_motion_template_ = false;
 };
 
 } // namespace vision_native

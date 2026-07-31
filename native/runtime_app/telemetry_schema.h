@@ -6,7 +6,7 @@
 
 namespace runtime_app {
 
-inline constexpr std::uint16_t kTelemetrySchemaVersion = 6;
+inline constexpr std::uint16_t kTelemetrySchemaVersion = 7;
 
 enum class TelemetryRecordKind : std::uint8_t {
     ManualControllerTick,
@@ -296,6 +296,10 @@ struct CommittedObservationPayload {
     std::uint64_t result_at_ns = 0;
     float stable_error_x = 0.0f, stable_error_y = 0.0f;
     float stable_body_width = 0.0f, stable_body_height = 0.0f;
+    float raw_body_x = 0.0f, raw_body_y = 0.0f;
+    float raw_body_width = 0.0f, raw_body_height = 0.0f;
+    float motion_anchor_x = 0.0f, motion_anchor_y = 0.0f;
+    float motion_anchor_score = 0.0f;
     float viewport_offset_x = 0.0f, viewport_offset_y = 0.0f;
     float target_acceleration_x = 0.0f, target_acceleration_y = 0.0f;
     float reliability = 0.0f;
@@ -308,6 +312,7 @@ struct CommittedObservationPayload {
     bool fresh_observed = false;
     bool strong_observation = false;
     bool stable_coordinates_valid = false;
+    bool has_motion_anchor = false;
     bool reused_or_projected = false;
 };
 

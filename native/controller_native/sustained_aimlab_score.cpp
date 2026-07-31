@@ -338,8 +338,13 @@ void TargetScorer::add_frame(const ScoreFrame& frame) {
     const double output_jerk = has_previous_
         ? std::fabs(output_delta - previous_output_delta_) : 0.0;
     result_.output_jerks.push_back(output_jerk);
+    const double manual_input_delta = has_previous_
+        ? length(subtract(frame.manual_stick, previous_manual_)) : 0.0;
+    const Vec2d controller_output = frame.has_pre_recoil_stick
+        ? frame.pre_recoil_stick
+        : frame.final_stick;
     const Vec2d controller_residual = subtract(
-        frame.final_stick, frame.manual_stick);
+        controller_output, frame.manual_stick);
     const double controller_residual_delta = has_previous_
         ? length(subtract(
             controller_residual, previous_controller_residual_))
@@ -349,14 +354,19 @@ void TargetScorer::add_frame(const ScoreFrame& frame) {
             controller_residual_delta -
             previous_controller_residual_delta_)
         : 0.0;
-    result_.controller_residual_deltas.push_back(
-        controller_residual_delta);
-    result_.controller_residual_jerks.push_back(
-        controller_residual_jerk);
-    if (has_previous_ && controller_residual_delta > 0.35) {
+    const bool uncommanded_residual =
+        has_previous_ && !frame.manual_escape && !previous_manual_escape_ &&
+        manual_input_delta <= 0.10;
+    if (uncommanded_residual) {
+        result_.controller_residual_deltas.push_back(
+            controller_residual_delta);
+        result_.controller_residual_jerks.push_back(
+            controller_residual_jerk);
+    }
+    if (uncommanded_residual && controller_residual_delta > 0.35) {
         ++result_.controller_residual_discontinuities;
     }
-    if (has_previous_ && controller_residual_delta > 0.10) {
+    if (uncommanded_residual && controller_residual_delta > 0.10) {
         ++result_.controller_residual_kick_events;
     }
     if (has_previous_ && distance <= previous_distance_ + 1e-9 && distance < radius) {
@@ -364,8 +374,6 @@ void TargetScorer::add_frame(const ScoreFrame& frame) {
             -std::pow(output_delta / 0.04, 2.0));
         result_.smooth_bonus += 0.1 * accuracy * variation_quality;
     }
-    const double manual_input_delta = has_previous_
-        ? length(subtract(frame.manual_stick, previous_manual_)) : 0.0;
     if (has_previous_ && output_delta > 0.35) {
         ++result_.direction_discontinuities;
         if (frame.vision_occluded) {
@@ -391,6 +399,85 @@ void TargetScorer::add_frame(const ScoreFrame& frame) {
         length(subtract(
             frame.shaped_assist_stick, previous_shaped_assist_)) > 0.35) {
         ++result_.shaped_assist_discontinuities;
+    }
+    const bool near_center_control =
+        frame.target_observed && frame.tracker_reliable && distance <= radius;
+    if (near_center_control) {
+        constexpr double kMeaningfulAssist = 0.03;
+        if (has_previous_ &&
+            length(frame.requested_assist_stick) >= kMeaningfulAssist &&
+            length(previous_requested_assist_) >= kMeaningfulAssist &&
+            dot(frame.requested_assist_stick, previous_requested_assist_) <
+                0.0) {
+            ++result_.near_center_requested_reversal_events;
+        }
+        if (has_previous_ &&
+            length(frame.shaped_assist_stick) >= kMeaningfulAssist &&
+            length(previous_shaped_assist_) >= kMeaningfulAssist &&
+            dot(frame.shaped_assist_stick, previous_shaped_assist_) < 0.0) {
+            ++result_.near_center_shaped_reversal_events;
+        }
+        const Vec2d desired = desired_stick_direction(frame);
+        if (length(desired) > 0.0 &&
+            dot(frame.shaped_assist_stick, desired) < -0.02) {
+            ++result_.near_center_shaped_wrong_way_ms;
+        }
+    }
+
+    // Count a stable-target oscillation only after the same shaped output
+    // axis reverses twice inside a short window. This catches both visible
+    // jitter and jitter stretched into a slower left-right swing.
+    constexpr double kOscillationAmplitude = 0.06;
+    constexpr int kOscillationWindowMs = 250;
+    constexpr int kOscillationConfirmMs = 40;
+    const double shaped_axes[2] = {
+        frame.shaped_assist_stick.x,
+        frame.shaped_assist_stick.y,
+    };
+    const bool stable_control =
+        frame.target_observed && frame.tracker_reliable &&
+        !frame.manual_escape;
+    for (int axis = 0; axis < 2; ++axis) {
+        if (!stable_control ||
+            std::fabs(shaped_axes[axis]) < kOscillationAmplitude) {
+            if (frame.absolute_ms - last_axis_reversal_ms_[axis] >
+                kOscillationWindowMs) {
+                axis_oscillation_active_[axis] = false;
+                axis_oscillation_counted_[axis] = false;
+                axis_oscillation_candidate_ms_[axis] = 0;
+            }
+            continue;
+        }
+        const int sign = shaped_axes[axis] > 0.0 ? 1 : -1;
+        if (shaped_axis_sign_[axis] != 0 &&
+            sign != shaped_axis_sign_[axis]) {
+            if (frame.absolute_ms - last_axis_reversal_ms_[axis] <=
+                kOscillationWindowMs) {
+                if (!axis_oscillation_active_[axis]) {
+                    axis_oscillation_active_[axis] = true;
+                    axis_oscillation_counted_[axis] = false;
+                    axis_oscillation_candidate_ms_[axis] = 0;
+                }
+            } else {
+                axis_oscillation_active_[axis] = false;
+                axis_oscillation_counted_[axis] = false;
+                axis_oscillation_candidate_ms_[axis] = 0;
+            }
+            last_axis_reversal_ms_[axis] = frame.absolute_ms;
+        }
+        shaped_axis_sign_[axis] = sign;
+        if (axis_oscillation_active_[axis]) {
+            ++axis_oscillation_candidate_ms_[axis];
+            if (!axis_oscillation_counted_[axis] &&
+                axis_oscillation_candidate_ms_[axis] >=
+                    kOscillationConfirmMs) {
+                ++result_.oscillation_episodes;
+                axis_oscillation_counted_[axis] = true;
+            }
+            ++result_.oscillation_active_ms;
+            result_.oscillation_output_area +=
+                std::fabs(shaped_axes[axis]);
+        }
     }
 
     const bool outside = distance >= radius;
@@ -537,6 +624,7 @@ void TargetScorer::add_frame(const ScoreFrame& frame) {
     previous_requested_assist_ = frame.requested_assist_stick;
     previous_shaped_assist_ = frame.shaped_assist_stick;
     previous_controller_residual_ = controller_residual;
+    previous_manual_escape_ = frame.manual_escape;
     previous_distance_ = distance;
     previous_output_delta_ = output_delta;
     previous_controller_residual_delta_ = controller_residual_delta;
@@ -623,6 +711,15 @@ BenchmarkResult aggregate(
             target.requested_assist_discontinuities;
         result.shaped_assist_discontinuities +=
             target.shaped_assist_discontinuities;
+        result.near_center_requested_reversal_events +=
+            target.near_center_requested_reversal_events;
+        result.near_center_shaped_reversal_events +=
+            target.near_center_shaped_reversal_events;
+        result.near_center_shaped_wrong_way_ms +=
+            target.near_center_shaped_wrong_way_ms;
+        result.oscillation_episodes += target.oscillation_episodes;
+        result.oscillation_active_ms += target.oscillation_active_ms;
+        result.oscillation_output_area += target.oscillation_output_area;
         result.max_error_px = std::max(result.max_error_px, target.max_error_px);
         if (target.center_cross_events > 0) {
             post_cross_errors.push_back(target.max_post_cross_error_px);

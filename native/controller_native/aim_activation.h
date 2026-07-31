@@ -8,16 +8,17 @@ namespace controller_native {
 
 constexpr float kAimLeftTriggerPressThreshold = 0.05f;
 constexpr float kAimLeftTriggerIdleThreshold = 0.03f;
-constexpr float kAimLeftTriggerReleaseDropThreshold = 0.08f;
-constexpr float kAimLeftTriggerRepressRiseThreshold = 0.08f;
+// The native controller normally samples near 1 kHz. A short USB/input read
+// dropout must not terminate an ADS epoch and immediately re-arm snap while
+// the player is physically holding LT. Press remains immediate; release needs
+// roughly 24 ms of continuous idle evidence.
+constexpr unsigned int kAimLeftTriggerIdleDebounceSamples = 24;
 
 class AimActivationTracker {
 public:
     void reset() {
         active_ = false;
-        has_last_left_trigger_ = false;
-        last_left_trigger_ = 0.0f;
-        left_trigger_release_latched_ = false;
+        idle_samples_ = 0;
     }
 
     bool update(const PhysicalGamepadState& physical, bool rb_counts_as_aiming) {
@@ -25,43 +26,21 @@ public:
             std::max(0.0f, std::min(1.0f, physical.left_trigger));
         const bool rb_aiming = rb_counts_as_aiming && physical.rb;
         if (rb_aiming) {
-            remember_left_trigger(left_trigger);
             active_ = true;
-            left_trigger_release_latched_ = false;
+            idle_samples_ = 0;
             return true;
         }
 
-        if (!has_last_left_trigger_) {
-            remember_left_trigger(left_trigger);
-            active_ = left_trigger > kAimLeftTriggerPressThreshold;
-            left_trigger_release_latched_ = false;
-            return active_;
-        }
-
-        const float previous_left_trigger = last_left_trigger_;
-        const float trigger_delta = left_trigger - previous_left_trigger;
-        remember_left_trigger(left_trigger);
-
         if (left_trigger <= kAimLeftTriggerIdleThreshold) {
-            active_ = false;
-            left_trigger_release_latched_ = false;
-            return false;
-        }
-
-        if (active_ &&
-            previous_left_trigger - left_trigger >= kAimLeftTriggerReleaseDropThreshold) {
-            active_ = false;
-            left_trigger_release_latched_ = true;
-            return false;
-        }
-
-        if (left_trigger_release_latched_) {
-            if (trigger_delta >= kAimLeftTriggerRepressRiseThreshold) {
-                active_ = true;
-                left_trigger_release_latched_ = false;
+            if (!active_) return false;
+            ++idle_samples_;
+            if (idle_samples_ >= kAimLeftTriggerIdleDebounceSamples) {
+                active_ = false;
+                idle_samples_ = 0;
             }
             return active_;
         }
+        idle_samples_ = 0;
 
         if (!active_ && left_trigger > kAimLeftTriggerPressThreshold) {
             active_ = true;
@@ -70,15 +49,8 @@ public:
     }
 
 private:
-    void remember_left_trigger(float left_trigger) {
-        last_left_trigger_ = left_trigger;
-        has_last_left_trigger_ = true;
-    }
-
     bool active_ = false;
-    bool has_last_left_trigger_ = false;
-    float last_left_trigger_ = 0.0f;
-    bool left_trigger_release_latched_ = false;
+    unsigned int idle_samples_ = 0;
 };
 
 }  // namespace controller_native

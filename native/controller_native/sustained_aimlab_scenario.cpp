@@ -376,15 +376,26 @@ ScenarioScript generate_script(
                 noise_distribution(observation_random),
                 noise_distribution(observation_random)};
             if (config.vision_disturbance ==
-                VisionDisturbanceProfile::GunKick) {
+                    VisionDisturbanceProfile::GunKick ||
+                config.vision_disturbance ==
+                    VisionDisturbanceProfile::GunKickAdversarial ||
+                config.vision_disturbance ==
+                    VisionDisturbanceProfile::GunKickAndCameraRecoil) {
                 // A deterministic 100 ms firing cadence. Each pulse produces
                 // a fast upward/horizontal camera displacement followed by a
                 // slower recovery. Alternating X sign represents horizontal
                 // recoil without encoding a weapon-specific recoil table.
-                constexpr int kFirstShotMs = 80;
+                const bool adversarial =
+                    config.vision_disturbance ==
+                        VisionDisturbanceProfile::GunKickAdversarial ||
+                    config.vision_disturbance ==
+                        VisionDisturbanceProfile::GunKickAndCameraRecoil;
+                const int kFirstShotMs = adversarial
+                    ? 55 + static_cast<int>((target.id * 17u) % 73u)
+                    : 80;
                 constexpr int kShotPeriodMs = 100;
-                constexpr int kRiseMs = 18;
-                constexpr int kRecoverMs = 55;
+                const int kRiseMs = adversarial ? 11 : 18;
+                const int kRecoverMs = adversarial ? 72 : 55;
                 if (observation_at_ms >= kFirstShotMs) {
                     const int shot_age =
                         (observation_at_ms - kFirstShotMs) % kShotPeriodMs;
@@ -401,8 +412,10 @@ ScenarioScript generate_script(
                     }
                     const double horizontal_sign =
                         (shot_index & 1) == 0 ? 1.0 : -1.0;
-                    observation_noise.x += horizontal_sign * 4.0 * envelope;
-                    observation_noise.y -= 8.0 * envelope;
+                    observation_noise.x += horizontal_sign *
+                        (adversarial ? 8.0 : 4.0) * envelope;
+                    observation_noise.y -=
+                        (adversarial ? 17.0 : 8.0) * envelope;
                 }
             }
             target.observation_noise_px.push_back(observation_noise);

@@ -31,6 +31,23 @@ void test_step_and_reversal_are_bounded() {
                  "reversal must not jump across the axis");
 }
 
+void test_reversal_uses_normal_rise_rate_without_extra_phase_lag() {
+    controller_native::AimDynamicsShaper shaper;
+    const auto plan = active_plan();
+    pipeline_contract::Vec2f output{};
+    for (int index = 0; index < 8; ++index) {
+        output = shaper.shape({1.0f, 0.0f}, {}, plan, 0.001f);
+    }
+    const float before = output.x;
+    output = shaper.shape({-1.0f, 0.0f}, {}, plan, 0.001f);
+    require_true(
+        output.x > 0.0f,
+        "a one-tick reversal must not flip the delivered AI direction");
+    require_true(
+        before - output.x > 0.060f && before - output.x <= 0.065f,
+        "reversal must use normal slew instead of adding a slow decay phase");
+}
+
 void test_plan_loss_decays_instead_of_dropping() {
     controller_native::AimDynamicsShaper shaper;
     const auto plan = active_plan();
@@ -117,6 +134,7 @@ void test_helpful_manual_input_reduces_but_keeps_assist() {
 int main() {
     try {
         test_step_and_reversal_are_bounded();
+        test_reversal_uses_normal_rise_rate_without_extra_phase_lag();
         test_plan_loss_decays_instead_of_dropping();
         test_coasting_never_ramps_blind_assist();
         test_confirmed_wrong_axis_can_ramp_smoothly_while_coasting();

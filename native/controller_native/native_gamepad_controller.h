@@ -89,6 +89,10 @@ public:
     void set_benchmark_remaining_work_mode(BenchmarkRemainingWorkMode mode);
     void set_benchmark_remaining_work_scale(float scale) noexcept;
     void set_benchmark_tracker_velocity_alpha(float alpha);
+    void set_benchmark_firing_body_geometry_stabilizer_enabled(
+        bool enabled) noexcept;
+    void set_benchmark_firing_disturbance_observer_enabled(
+        bool enabled) noexcept;
     void set_benchmark_player_motion_oracle(
         bool valid,
         bool rate_valid,
@@ -142,6 +146,7 @@ private:
     bool previous_slide_button_ = false;
     double last_jump_action_seconds_ = -1.0;
     double last_slide_action_seconds_ = -1.0;
+    double last_firing_activity_seconds_ = -1.0;
     std::uint64_t ads_epoch_ = 0;
     std::uint64_t legacy_vision_sequence_ = 0;
     double last_tick_seconds_ = 0.0;

@@ -152,6 +152,85 @@ double left_strafe_input(
     return elapsed_ms < strafe.reverse_ms ? direction : -direction;
 }
 
+bool has_physical_camera_recoil(VisionDisturbanceProfile profile) noexcept {
+    return profile == VisionDisturbanceProfile::CameraRecoil ||
+        profile == VisionDisturbanceProfile::GunKickAndCameraRecoil ||
+        profile ==
+            VisionDisturbanceProfile::BodyBoxDeformationAndCameraRecoil;
+}
+
+bool has_body_box_deformation(VisionDisturbanceProfile profile) noexcept {
+    return profile == VisionDisturbanceProfile::BodyBoxDeformation ||
+        profile ==
+            VisionDisturbanceProfile::BodyBoxDeformationAndCameraRecoil;
+}
+
+Vec2d firing_body_box_edge_deformation(int tracking_ms) noexcept {
+    constexpr int kFirstShotMs = 80;
+    constexpr int kShotPeriodMs = 100;
+    if (tracking_ms < kFirstShotMs) return {};
+    const int shot_age = (tracking_ms - kFirstShotMs) % kShotPeriodMs;
+    const int shot_index = (tracking_ms - kFirstShotMs) / kShotPeriodMs;
+    constexpr int kRiseMs = 11;
+    constexpr int kRecoverMs = 72;
+    double envelope = 0.0;
+    if (shot_age < kRiseMs) {
+        envelope = static_cast<double>(shot_age) / kRiseMs;
+    } else if (shot_age < kRiseMs + kRecoverMs) {
+        envelope = 1.0 -
+            static_cast<double>(shot_age - kRiseMs) / kRecoverMs;
+    }
+    const double horizontal_sign = (shot_index & 1) == 0 ? 1.0 : -1.0;
+    // One horizontal edge and the lower vertical edge are reconstructed by
+    // the detector as the weapon/optic crosses the person silhouette.
+    return {horizontal_sign * 16.0 * envelope, -46.0 * envelope};
+}
+
+Vec2d physical_camera_recoil_offset(int tracking_ms) noexcept {
+    constexpr int kFirstShotMs = 80;
+    constexpr int kShotPeriodMs = 100;
+    if (tracking_ms < kFirstShotMs) return {};
+    Vec2d result;
+    const int latest_shot = (tracking_ms - kFirstShotMs) / kShotPeriodMs;
+    for (int shot = std::max(0, latest_shot - 3);
+         shot <= latest_shot; ++shot) {
+        const int age =
+            tracking_ms - (kFirstShotMs + shot * kShotPeriodMs);
+        if (age < 0 || age > 360) continue;
+        const double rise = std::clamp(age / 12.0, 0.0, 1.0);
+        const double vertical_envelope =
+            rise * std::exp(-static_cast<double>(age) / 165.0);
+        const double horizontal_envelope = age < 75
+            ? rise * (1.0 - static_cast<double>(age) / 75.0)
+            : 0.0;
+        const double horizontal_sign = (shot & 1) == 0 ? 1.0 : -1.0;
+        result.x += horizontal_sign * 3.0 * horizontal_envelope;
+        result.y -= 4.5 * vertical_envelope;
+    }
+    return result;
+}
+
+double horizontal_aim_bias_px(
+    VisionDisturbanceProfile profile,
+    int tracking_ms) noexcept {
+    if (profile != VisionDisturbanceProfile::HorizontalAimBiasRecovery ||
+        tracking_ms < 0) {
+        return 0.0;
+    }
+    // Reproduce an initially wrong target/BodyLock point. The selector holds
+    // the point to one side, then fresh observations correct it over several
+    // vision frames. A healthy controller should correct once, not turn the
+    // obsolete offset into a left-right remaining-work oscillation.
+    constexpr int kHoldMs = 150;
+    constexpr int kRecoveryMs = 90;
+    constexpr double kBiasPx = 22.0;
+    if (tracking_ms < kHoldMs) return kBiasPx;
+    if (tracking_ms >= kHoldMs + kRecoveryMs) return 0.0;
+    const double recovery =
+        static_cast<double>(tracking_ms - kHoldMs) / kRecoveryMs;
+    return kBiasPx * (1.0 - recovery);
+}
+
 }  // namespace
 
 BenchmarkResult run_simulation(
@@ -184,6 +263,12 @@ BenchmarkResult run_simulation(
     Vec2d error;
     Vec2d target_velocity;
     Vec2d carried_observation;
+    bool carried_body_box_available = false;
+    double carried_body_box_x = 0.0;
+    double carried_body_box_y = 0.0;
+    double carried_body_box_width = 0.0;
+    double carried_body_box_height = 0.0;
+    Vec2d previous_camera_recoil_offset;
     double player_velocity_x_px_per_second = 0.0;
     int left_strafe_active_ms = 0;
     int left_strafe_reversals = 0;
@@ -254,6 +339,12 @@ BenchmarkResult run_simulation(
                 target.player_strafe.top_speed_px_per_second);
         }
         carried_observation = error;
+        carried_body_box_available = false;
+        carried_body_box_x = 0.0;
+        carried_body_box_y = 0.0;
+        carried_body_box_width = 0.0;
+        carried_body_box_height = 0.0;
+        previous_camera_recoil_offset = {};
         obsolete_manual_direction = normalized_control_direction(error);
         const double initial_distance = length(error);
         obsolete_cross_axis = initial_distance > 1e-9
@@ -312,8 +403,22 @@ BenchmarkResult run_simulation(
         input.now_ms = now_ms;
         if (target_active) {
             const TargetScript& target = script.targets[target_index];
+            const Vec2d camera_recoil_offset =
+                has_physical_camera_recoil(
+                    script.config.vision_disturbance) && tracking
+                ? physical_camera_recoil_offset(tracking_ticks)
+                : Vec2d{};
+            error.x +=
+                camera_recoil_offset.x - previous_camera_recoil_offset.x;
+            error.y +=
+                camera_recoil_offset.y - previous_camera_recoil_offset.y;
+            previous_camera_recoil_offset = camera_recoil_offset;
             input.target_present = true;
             input.target_id = target.id;
+            input.fire_action =
+                script.config.vision_disturbance !=
+                    VisionDisturbanceProfile::Off &&
+                tracking && tracking_ticks >= 80;
             if (tracking) {
                 vision_occluded = std::any_of(
                     target.vision_occlusion_bursts.begin(),
@@ -335,15 +440,65 @@ BenchmarkResult run_simulation(
                     ++frame_id;
                     carried_observation = {
                         error.x +
-                            target.observation_noise_px[observation_index].x,
+                            target.observation_noise_px[observation_index].x +
+                            horizontal_aim_bias_px(
+                                script.config.vision_disturbance,
+                                tracking_ticks),
                         error.y +
                             target.observation_noise_px[observation_index].y,
                     };
+                    constexpr double kBodyWidthPx = 48.0;
+                    constexpr double kBodyHeightPx = 112.0;
+                    constexpr double kAimHeightRatio = 0.365;
+                    carried_body_box_available = true;
+                    carried_body_box_x =
+                        320.0 + carried_observation.x -
+                        kBodyWidthPx * 0.5;
+                    carried_body_box_y =
+                        256.0 + carried_observation.y -
+                        kBodyHeightPx * kAimHeightRatio;
+                    carried_body_box_width = kBodyWidthPx;
+                    carried_body_box_height = kBodyHeightPx;
+                    if (has_body_box_deformation(
+                            script.config.vision_disturbance) &&
+                        tracking) {
+                        const Vec2d edge_deformation =
+                            firing_body_box_edge_deformation(tracking_ticks);
+                        carried_body_box_width += edge_deformation.x;
+                        carried_body_box_height += edge_deformation.y;
+                    }
                 }
                 ++observation_index;
             }
             input.frame_id = frame_id;
             input.observed_error_px = carried_observation;
+            input.has_body_box = carried_body_box_available;
+            input.body_box_x = carried_body_box_x;
+            input.body_box_y = carried_body_box_y;
+            input.body_box_width = carried_body_box_width;
+            input.body_box_height = carried_body_box_height;
+            input.has_motion_anchor =
+                (has_body_box_deformation(
+                     script.config.vision_disturbance)) &&
+                (frame_id % 13u) != 0u;
+            const double anchor_phase =
+                static_cast<double>(frame_id % 97u) * 0.37;
+            input.motion_anchor_px = {
+                320.0 +
+                    (script.config.vision_disturbance ==
+                         VisionDisturbanceProfile::
+                             HorizontalAimBiasRecovery
+                     ? carried_observation.x
+                     : error.x) +
+                    std::sin(anchor_phase) * 0.35,
+                256.0 +
+                    (script.config.vision_disturbance ==
+                         VisionDisturbanceProfile::
+                             HorizontalAimBiasRecovery
+                     ? carried_observation.y
+                     : error.y) +
+                    std::cos(anchor_phase) * 0.35,
+            };
             input.player_motion_oracle =
                 script.config.player_motion_oracle_enabled;
             input.player_motion_rate_oracle =
@@ -640,6 +795,8 @@ BenchmarkResult run_simulation(
                 frame.requested_assist_stick = output.requested_assist_stick;
                 frame.shaped_assist_stick = output.shaped_assist_stick;
                 frame.final_stick = output.final_stick;
+                frame.pre_recoil_stick = output.pre_recoil_stick;
+                frame.has_pre_recoil_stick = output.has_pre_recoil_stick;
                 frame.predicted_terminal_error_px =
                     output.predicted_terminal_error_px;
                 frame.radial_closing_velocity_px_per_sec =

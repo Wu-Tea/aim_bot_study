@@ -759,6 +759,7 @@ add_executable(cod_native_control_response_estimator_tests
 add_executable(cod_native_target_coordinator_tests
     ../controller_native/target_coordinator_tests.cpp
     ../controller_native/target_coordinator.cpp
+    ../controller_native/target_geometry.cpp
     ../controller_native/control_response_estimator.cpp
 )
 

@@ -90,6 +90,10 @@ pipeline_contract::VisionCandidateSnapshot candidate_snapshot_from_detection(
     candidate.has_cue_point = detection.has_cue_point;
     candidate.cue_point_px = {detection.cue_x, detection.cue_y};
     candidate.cue_score = detection.cue_score;
+    candidate.has_motion_anchor = detection.has_motion_anchor;
+    candidate.motion_anchor_px = {
+        detection.motion_anchor_x, detection.motion_anchor_y};
+    candidate.motion_anchor_score = detection.motion_anchor_score;
     candidate.suggested_authority_state = suggested_candidate_authority_state(detection);
     return candidate;
 }
@@ -242,6 +246,12 @@ adapt_committed_capture_observation(
         geometry.aim_px.x - center_x,
         geometry.aim_px.y - center_y};
     committed.stable_body_size_px = {width, height};
+    committed.raw_body_box_px = body_box;
+    committed.motion_anchor_px = {
+        selected->motion_anchor_x, selected->motion_anchor_y};
+    committed.motion_anchor_score = std::clamp(
+        selected->motion_anchor_score, 0.0f, 1.0f);
+    committed.has_motion_anchor = selected->has_motion_anchor;
     committed.viewport_offset_px = {
         static_cast<float>(result.viewport_left),
         static_cast<float>(result.viewport_top)};

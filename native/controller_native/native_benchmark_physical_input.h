@@ -19,6 +19,7 @@ inline void apply_benchmark_physical_input(
         std::clamp(input.manual_stick.y, -1.0, 1.0));
     physical.a = input.jump_action;
     physical.b = input.slide_action;
+    physical.right_trigger = input.fire_action ? 1.0f : 0.0f;
 }
 
 }  // namespace controller_native::benchmark_adapter

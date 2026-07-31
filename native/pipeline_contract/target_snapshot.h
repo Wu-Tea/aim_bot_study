@@ -34,6 +34,9 @@ struct VisionCandidateSnapshot {
     bool has_cue_point = false;
     common_native::Vec2f cue_point_px;
     float cue_score = 0.0f;
+    bool has_motion_anchor = false;
+    common_native::Vec2f motion_anchor_px;
+    float motion_anchor_score = 0.0f;
     common_native::TargetAuthorityState suggested_authority_state =
         common_native::TargetAuthorityState::Reject;
 };

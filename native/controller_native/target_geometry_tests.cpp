@@ -47,11 +47,82 @@ void test_missing_or_invalid_box_preserves_vision_point() {
     }
 }
 
+void test_stable_body_aim_rejects_single_edge_weapon_occlusion_without_debt() {
+    controller_native::StableBodyAimTracker tracker;
+    const common_native::Box2f base{100.0f, 100.0f, 40.0f, 100.0f};
+    const auto initial = tracker.update(
+        {120.0f, 136.5f}, base, false, true, {118.0f, 125.0f});
+
+    const common_native::Box2f occluded{
+        100.0f, 100.0f, 56.0f, 120.0f};
+    const auto disturbed = tracker.update(
+        {128.0f, 143.8f}, occluded, true, true, {118.0f, 125.0f});
+    require_near(disturbed.aim_px.x, initial.aim_px.x);
+    require_near(disturbed.aim_px.y, initial.aim_px.y);
+    if (!disturbed.rejected_shape_motion) std::abort();
+
+    const auto restored = tracker.update(
+        {120.0f, 136.5f}, base, true, true, {118.0f, 125.0f});
+    require_near(restored.aim_px.x, initial.aim_px.x);
+    require_near(restored.aim_px.y, initial.aim_px.y);
+}
+
+void test_stable_body_aim_preserves_rigid_target_translation() {
+    controller_native::StableBodyAimTracker tracker;
+    tracker.update(
+        {120.0f, 136.5f},
+        {100.0f, 100.0f, 40.0f, 100.0f},
+        false,
+        true,
+        {118.0f, 125.0f});
+    const auto translated = tracker.update(
+        {125.0f, 132.5f},
+        {105.0f, 96.0f, 40.0f, 100.0f},
+        true,
+        true,
+        {123.0f, 121.0f});
+    require_near(translated.aim_px.x, 125.0f);
+    require_near(translated.aim_px.y, 132.5f);
+    if (translated.rejected_shape_motion) std::abort();
+}
+
+void test_stable_body_aim_bridges_one_anchor_dropout_without_box_debt() {
+    controller_native::StableBodyAimTracker tracker;
+    const common_native::Box2f box{100.0f, 100.0f, 40.0f, 100.0f};
+    tracker.update(
+        {120.0f, 136.5f}, box, false, true, {118.0f, 125.0f});
+    tracker.update(
+        {122.0f, 136.5f},
+        {102.0f, 100.0f, 40.0f, 100.0f},
+        true,
+        true,
+        {120.0f, 125.0f});
+    const auto missing = tracker.update(
+        {134.0f, 143.8f},
+        {104.0f, 100.0f, 56.0f, 120.0f},
+        true,
+        false);
+    require_near(missing.aim_px.x, 124.0f);
+    require_near(missing.aim_px.y, 136.5f);
+
+    const auto recovered = tracker.update(
+        {126.0f, 136.5f},
+        {106.0f, 100.0f, 40.0f, 100.0f},
+        true,
+        true,
+        {124.0f, 125.0f});
+    require_near(recovered.aim_px.x, 126.0f);
+    require_near(recovered.aim_px.y, 136.5f);
+}
+
 }  // namespace
 
 int main() {
     test_upright_and_crouched_boxes_use_relative_height();
     test_wide_low_box_preserves_and_clamps_vision_point();
     test_missing_or_invalid_box_preserves_vision_point();
+    test_stable_body_aim_rejects_single_edge_weapon_occlusion_without_debt();
+    test_stable_body_aim_preserves_rigid_target_translation();
+    test_stable_body_aim_bridges_one_anchor_dropout_without_box_debt();
     return 0;
 }

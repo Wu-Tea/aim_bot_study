@@ -391,18 +391,34 @@ void test_held_ads_target_change_does_not_rearm_snap() {
     require(controller.last_ai_aim_mode() == "body_lock",
             "new target while ADS is held must not rearm ADS snap");
 
-    now += 0.010;
+    now += 0.005;
+    physical.left_trigger = 0.72f;
+    controller.build_output(physical);
+    require(controller.last_ai_aim_mode() == "body_lock",
+            "a partial LT axis drop must not create a false release");
+
+    now += 0.001;
     physical.left_trigger = 0.0f;
     controller.build_output(physical);
-    require(controller.last_ai_aim_mode() == "manual",
-            "ADS release must return to manual mode");
+    require(controller.last_ai_aim_mode() == "body_lock",
+            "a one-tick LT zero must be treated as input dropout");
 
-    now += 0.010;
+    for (unsigned int sample = 1;
+         sample <
+             controller_native::kAimLeftTriggerIdleDebounceSamples;
+         ++sample) {
+        now += 0.001;
+        controller.build_output(physical);
+    }
+    require(controller.last_ai_aim_mode() == "manual",
+            "a sustained LT release must return to manual mode");
+
+    now += 0.001;
     physical.left_trigger = 1.0f;
     controller.submit_vision_snapshot(target(3, now, 60.0f, 0.0f, 202));
     controller.build_output(physical);
     require(controller.last_ai_aim_mode() == "ads_snap",
-            "a new physical ADS press must rearm ADS snap");
+            "a deliberate debounced release must rearm snap immediately");
 }
 
 void test_physical_fire_is_never_cleared_by_autofire() {

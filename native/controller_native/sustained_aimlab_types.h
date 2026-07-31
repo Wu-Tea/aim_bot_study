@@ -61,6 +61,12 @@ enum class PlayerVerticalMotionMode : std::uint8_t {
 enum class VisionDisturbanceProfile : std::uint8_t {
     Off,
     GunKick,
+    GunKickAdversarial,
+    CameraRecoil,
+    GunKickAndCameraRecoil,
+    BodyBoxDeformation,
+    BodyBoxDeformationAndCameraRecoil,
+    HorizontalAimBiasRecovery,
 };
 
 enum class PlayerVerticalEvent : std::uint8_t {

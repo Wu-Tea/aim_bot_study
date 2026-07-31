@@ -44,6 +44,19 @@ pipeline_contract::Vec2f control_error(
     return {screen_error.x, -screen_error.y};
 }
 
+pipeline_contract::Vec2f fusion_reference_error(
+    const pipeline_contract::TargetPlan& plan) noexcept {
+    if (plan.remaining_work_valid) {
+        return {
+            plan.error_px.x +
+                plan.delivered_camera_motion_since_capture_px.x,
+            plan.error_px.y +
+                plan.delivered_camera_motion_since_capture_px.y,
+        };
+    }
+    return plan.error_px;
+}
+
 pipeline_contract::Vec2f base_error_at(
     const pipeline_contract::TargetPlan& plan, float time_seconds) noexcept {
     pipeline_contract::Vec2f previous = plan.error_px;
@@ -94,7 +107,7 @@ CandidateScore score_candidate(
     CandidateScore result;
     result.candidate = candidate;
     result.weights = candidate_weights(candidate);
-    const auto initial = control_error(input.plan.error_px);
+    const auto initial = control_error(fusion_reference_error(input.plan));
     const float initial_length = std::max(0.001f, length(initial));
     const pipeline_contract::Vec2f radial{
         initial.x / initial_length, initial.y / initial_length};
@@ -259,6 +272,7 @@ VectorIntentFusionDecision VectorIntentFuser::update(
         target_id_ = 0;
         strong_approach_target_id_ = 0;
         obsolete_manual_window_ms_ = 0.0f;
+        control_radial_initialized_ = false;
         return exact_manual(FusionFallbackReason::NoTarget);
     }
     const auto early_control_error = control_error(input.plan.error_px);
@@ -395,13 +409,44 @@ VectorIntentFusionDecision VectorIntentFuser::update(
     const float max_weight_delta = std::clamp(
         dt_ms / config_.weight_transition_ms, 0.0f, 1.0f);
     float radial_attenuation_scale = 1.0f;
-    const auto control_radial = [&]() {
-        const auto error = control_error(input.plan.error_px);
+    const auto target_control_radial = [&]() {
+        const auto error = control_error(
+            fusion_reference_error(input.plan));
         const float magnitude = length(error);
         return magnitude > 0.001f
             ? pipeline_contract::Vec2f{error.x / magnitude, error.y / magnitude}
             : pipeline_contract::Vec2f{};
     }();
+    if (!control_radial_initialized_) {
+        applied_control_radial_ = target_control_radial;
+        control_radial_initialized_ =
+            length(applied_control_radial_) > 0.001f;
+    } else if (length(target_control_radial) > 0.001f) {
+        const float cosine = std::clamp(
+            dot(applied_control_radial_, target_control_radial),
+            -1.0f, 1.0f);
+        const float angle = std::acos(cosine);
+        constexpr float kPi = 3.14159265358979323846f;
+        const float maximum_angle = kPi * max_weight_delta;
+        if (angle <= maximum_angle || angle <= 0.0001f) {
+            applied_control_radial_ = target_control_radial;
+        } else {
+            const float cross =
+                applied_control_radial_.x * target_control_radial.y -
+                applied_control_radial_.y * target_control_radial.x;
+            const float signed_step =
+                cross >= 0.0f ? maximum_angle : -maximum_angle;
+            const float cosine_step = std::cos(signed_step);
+            const float sine_step = std::sin(signed_step);
+            applied_control_radial_ = {
+                applied_control_radial_.x * cosine_step -
+                    applied_control_radial_.y * sine_step,
+                applied_control_radial_.x * sine_step +
+                    applied_control_radial_.y * cosine_step,
+            };
+        }
+    }
+    const auto control_radial = applied_control_radial_;
     auto apply_weights = [&](FusionWeights target, FusionFallbackReason reason) {
         decision.reason = reason;
         decision.fallback = reason != FusionFallbackReason::None;
@@ -434,15 +479,32 @@ VectorIntentFusionDecision VectorIntentFuser::update(
         return decision;
     };
     if (fallback_reason != FusionFallbackReason::None) {
+        if (fallback_reason == FusionFallbackReason::TargetChanged) {
+            auto released = exact_manual(fallback_reason);
+            // The new target must not inherit AI ownership from the old one,
+            // but the next tick must also not cold-start at full AI weight.
+            control_radial_initialized_ = false;
+            initialized_ = true;
+            return released;
+        }
         const bool credible_opposing_manual =
             manual_magnitude > 0.02f &&
             dot(input.manual_stick, input.shaped_ai_stick) < 0.0f;
         if (credible_opposing_manual) {
-            return exact_manual(fallback_reason);
+            // Brief reliability/reacquisition gaps must not bypass the
+            // ownership envelope. Hard-disabling AI here and reinitializing
+            // it at full weight on the next credible tick creates an output
+            // impulse even when both proposals remain continuous.
+            decision.candidate = FusionCandidate::ManualOnly;
+            previous_candidate_ = FusionCandidate::ManualOnly;
+            initialized_ = true;
+            return apply_weights(
+                candidate_weights(FusionCandidate::ManualOnly),
+                fallback_reason);
         }
         decision.candidate = FusionCandidate::ExistingMix;
         previous_candidate_ = FusionCandidate::ExistingMix;
-        initialized_ = false;
+        initialized_ = true;
         return apply_weights({1.0f, 1.0f}, fallback_reason);
     }
 
@@ -645,7 +707,9 @@ void VectorIntentFuser::reset() noexcept {
     fresh_evidence_remaining_ms_ = 0.0f;
     strong_approach_target_id_ = 0;
     strong_approach_direction_ = {};
+    applied_control_radial_ = {};
     obsolete_manual_window_ms_ = 0.0f;
+    control_radial_initialized_ = false;
     initialized_ = false;
 }
 

@@ -131,6 +131,7 @@ void NativeGamepadController::reset() {
     previous_slide_button_ = false;
     last_jump_action_seconds_ = -1.0;
     last_slide_action_seconds_ = -1.0;
+    last_firing_activity_seconds_ = -1.0;
     ads_epoch_ = 0;
     legacy_vision_sequence_ = 0;
     last_tick_seconds_ = 0.0;
@@ -228,6 +229,15 @@ pipeline_contract::VisionObservationBatch NativeGamepadController::observation_b
             {config_.tracker.aim_height_ratio});
         destination.aim_px = {geometry.aim_px.x, geometry.aim_px.y};
         destination.box_size_px = {width, height};
+        destination.body_box_px = source.body_box_px;
+        destination.has_body_box = width > 0.0f && height > 0.0f;
+        destination.motion_anchor_px = {
+            source.motion_anchor_px.x, source.motion_anchor_px.y};
+        destination.motion_anchor_score =
+            std::clamp(source.motion_anchor_score, 0.0f, 1.0f);
+        destination.has_motion_anchor =
+            source.has_motion_anchor &&
+            source.motion_anchor_score >= 0.20f;
         destination.confidence = std::clamp(source.confidence, 0.0f, 1.0f);
         destination.cue_confidence = std::clamp(source.cue_score, 0.0f, 1.0f);
         destination.normalized_size = std::clamp(
@@ -267,6 +277,8 @@ pipeline_contract::VisionObservationBatch NativeGamepadController::observation_b
         destination.aim_px = {geometry.aim_px.x, geometry.aim_px.y};
         destination.box_size_px = {
             body_box.w, height};
+        destination.body_box_px = body_box;
+        destination.has_body_box = snapshot.state.has_body_box;
         destination.normalized_size = std::clamp(
             height / std::max(1.0f, batch.frame_height_px), 0.0f, 1.0f);
         destination.confidence = snapshot.state.aim_authority ? 1.0f : 0.6f;
@@ -388,6 +400,12 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
 #endif
     control_feedback.reset_remaining_work = remaining_work_reset_pending_;
     remaining_work_reset_pending_ = false;
+    constexpr double kFiringDisturbanceWindowSeconds = 0.075;
+    control_feedback.firing_recently =
+        manual_fire_pressed(physical) ||
+        (last_firing_activity_seconds_ >= 0.0 &&
+         now - last_firing_activity_seconds_ <=
+             kFiringDisturbanceWindowSeconds);
     if (controller_integrates_delivered_work &&
         remaining_work_accounted_seconds_ > 0.0 &&
         last_target_plan_.target_id != 0) {
@@ -710,6 +728,9 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
     fire_input.settle_dy = plan.error_px.y;
     const auto fire = auto_fire_gate_.evaluate(fire_input);
     auto_fire_gate_.apply_fire_output(output, fire.should_fire);
+    if (fire.should_fire || manual_fire_pressed(physical)) {
+        last_firing_activity_seconds_ = now;
+    }
     record_stage_trace(
         "auto_fire", output.right_y, output,
         fire.before_auto_fire_active, fire.after_auto_fire_active);
@@ -727,7 +748,11 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
     aim_response_command_sum_.y += output.right_y;
     ++aim_response_command_count_;
     aim_response_manual_ambiguous_ = aim_response_manual_ambiguous_ ||
-        std::hypot(physical.right_x, physical.right_y) >= 0.35f;
+        std::hypot(physical.right_x, physical.right_y) >= 0.35f ||
+        fire.should_fire || manual_fire_pressed(physical) ||
+        (last_firing_activity_seconds_ >= 0.0 &&
+         now - last_firing_activity_seconds_ <=
+             kFiringDisturbanceWindowSeconds);
     const auto before_recoil = output;
     apply_recoil(output, physical, aiming_, fire.should_fire, now);
     record_stage_trace(
@@ -876,6 +901,20 @@ void NativeGamepadController::set_benchmark_remaining_work_scale(
 void NativeGamepadController::set_benchmark_tracker_velocity_alpha(
     float alpha) {
     target_coordinator_.set_motion_velocity_alpha_for_benchmark(alpha);
+}
+
+void NativeGamepadController::
+set_benchmark_firing_body_geometry_stabilizer_enabled(
+    bool enabled) noexcept {
+    target_coordinator_.
+        set_firing_body_geometry_stabilizer_enabled_for_benchmark(enabled);
+}
+
+void NativeGamepadController::
+set_benchmark_firing_disturbance_observer_enabled(
+    bool enabled) noexcept {
+    target_coordinator_.
+        set_firing_disturbance_observer_enabled_for_benchmark(enabled);
 }
 
 void NativeGamepadController::set_benchmark_player_motion_oracle(

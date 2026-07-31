@@ -259,6 +259,21 @@ void TargetCoordinator::fill_horizon(pipeline_contract::TargetPlan& plan) const 
     }
 }
 
+void TargetCoordinator::
+set_firing_body_geometry_stabilizer_enabled_for_benchmark(
+    bool enabled) noexcept {
+    config_.firing_body_geometry_stabilizer_enabled = enabled;
+    stable_body_aim_tracker_.reset();
+}
+
+void TargetCoordinator::
+set_firing_disturbance_observer_enabled_for_benchmark(
+    bool enabled) noexcept {
+    config_.firing_disturbance_observer_enabled = enabled;
+    previous_firing_velocity_innovation_ = {};
+    firing_velocity_observer_active_ = false;
+}
+
 pipeline_contract::TargetPlan TargetCoordinator::update(
     const pipeline_contract::VisionObservationBatch& observations,
     const pipeline_contract::IntentState& intent,
@@ -333,6 +348,12 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
             feedback.remaining_work_confidence, 0.0f, 1.0f);
         remaining_work_valid_ = remaining_work_confidence_ > 0.0f;
     }
+    const pipeline_contract::Vec2f center{
+        observations.frame_width_px > 0.0f
+            ? observations.frame_width_px * 0.5f : 240.0f,
+        observations.frame_height_px > 0.0f
+            ? observations.frame_height_px * 0.5f : 208.0f,
+    };
     const auto* candidate = choose_candidate(observations, predicted);
 
     if (observations.has_control_response_hint) {
@@ -349,6 +370,48 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     float normalized_size = latest_.normalized_size;
     if (candidate != nullptr) {
         pipeline_contract::Vec2f observed_aim_px = candidate->aim_px;
+        double observation_capture_seconds = now_seconds;
+        const bool source_time_available =
+            std::isfinite(observations.source_time_seconds) &&
+            (observations.source_time_seconds > 0.0 ||
+             now_seconds <= 0.001);
+        if (source_time_available) {
+            observation_capture_seconds = observations.source_time_seconds;
+        }
+        const bool new_observation_sample =
+            !has_observation_capture_time_ ||
+            observations.frame_id != source_frame_id_ ||
+            observation_capture_seconds >
+                last_observation_capture_seconds_ + 1.0e-6;
+        const bool new_target = !has_target_;
+        if (new_target) {
+            stable_body_aim_tracker_.reset();
+        }
+        const bool assisted_motion_model =
+            control_mode_ ==
+                pipeline_contract::ControlMode::BodyLockFollow ||
+            control_mode_ ==
+                pipeline_contract::ControlMode::AdsAcquire;
+        const bool firing_context =
+            intent.fire || feedback.firing_recently;
+        const bool stabilize_body_geometry =
+            config_.firing_body_geometry_stabilizer_enabled &&
+            assisted_motion_model && firing_context &&
+            observed_frames_ >= 2 &&
+            length(subtract(predicted, center)) <=
+                std::max(18.0f, config_.settle_radius_px * 2.5f);
+        if (new_observation_sample && candidate->has_body_box) {
+            const auto stable = stable_body_aim_tracker_.update(
+                {observed_aim_px.x, observed_aim_px.y},
+                candidate->body_box_px,
+                stabilize_body_geometry,
+                candidate->has_motion_anchor,
+                {candidate->motion_anchor_px.x,
+                 candidate->motion_anchor_px.y});
+            observed_aim_px = {stable.aim_px.x, stable.aim_px.y};
+        } else if (new_observation_sample) {
+            stable_body_aim_tracker_.reset();
+        }
         if (feedback.has_delivered_camera_work_since_capture &&
             pipeline_contract::finite(
                 feedback.delivered_camera_work_since_capture_px)) {
@@ -366,24 +429,10 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
             remaining_work_confidence_ = 0.0f;
             remaining_work_valid_ = false;
         }
-        double observation_capture_seconds = now_seconds;
-        const bool source_time_available =
-            std::isfinite(observations.source_time_seconds) &&
-            (observations.source_time_seconds > 0.0 ||
-             now_seconds <= 0.001);
-        if (source_time_available) {
-            observation_capture_seconds = observations.source_time_seconds;
-        }
-        const bool new_observation_sample =
-            !has_observation_capture_time_ ||
-            observations.frame_id != source_frame_id_ ||
-            observation_capture_seconds >
-                last_observation_capture_seconds_ + 1.0e-6;
         if (new_observation_sample) {
             last_unique_observation_seconds_ = now_seconds;
             has_unique_observation_time_ = true;
         }
-        const bool new_target = !has_target_;
         const bool reacquiring = has_target_ && was_missing_;
         if (new_target) {
             has_target_ = true;
@@ -392,15 +441,93 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
             position_ = observed_aim_px;
             velocity_ = {};
             acceleration_ = {};
+            previous_firing_velocity_innovation_ = {};
+            firing_velocity_observer_active_ = false;
             settled_frames_ = 0;
             observed_frames_ = 1;
-        } else if (dt > 0.0f) {
+        } else if (dt > 0.0f && new_observation_sample) {
+            const float observation_dt = has_observation_capture_time_ &&
+                    observation_capture_seconds >
+                        last_observation_capture_seconds_
+                ? static_cast<float>(std::clamp(
+                    observation_capture_seconds -
+                        last_observation_capture_seconds_,
+                    0.001, 0.1))
+                : dt;
             auto innovation = subtract(observed_aim_px, predicted);
-            const float innovation_length = length(innovation);
+            float innovation_length = length(innovation);
             if (reacquiring && innovation_length > config_.max_reacquire_innovation_px) {
                 const float scale = config_.max_reacquire_innovation_px / innovation_length;
                 innovation.x *= scale;
                 innovation.y *= scale;
+                innovation_length = config_.max_reacquire_innovation_px;
+            }
+            auto velocity_innovation = innovation;
+            const bool bodylock_motion_model =
+                control_mode_ ==
+                    pipeline_contract::ControlMode::BodyLockFollow;
+            const bool low_anchor_bodylock_frame =
+                bodylock_motion_model && firing_context &&
+                (!candidate->has_motion_anchor ||
+                 candidate->motion_anchor_score < 0.45f);
+            const bool observe_firing_velocity =
+                config_.firing_disturbance_observer_enabled &&
+                firing_context &&
+                (control_mode_ ==
+                     pipeline_contract::ControlMode::AdsAcquire ||
+                  (bodylock_motion_model &&
+                  low_anchor_bodylock_frame &&
+                  length(velocity_) <= 80.0f)) &&
+                observed_frames_ >= 2 && !reacquiring;
+            bool persistent_firing_innovation = true;
+            if (observe_firing_velocity) {
+                if (!firing_velocity_observer_active_) {
+                    persistent_firing_innovation = false;
+                } else {
+                    const float previous_length =
+                        length(previous_firing_velocity_innovation_);
+                    const float current_length =
+                        length(velocity_innovation);
+                    const float agreement =
+                        previous_firing_velocity_innovation_.x *
+                            velocity_innovation.x +
+                        previous_firing_velocity_innovation_.y *
+                            velocity_innovation.y;
+                    persistent_firing_innovation =
+                        previous_length <= 0.25f ||
+                        current_length <= 0.25f ||
+                        agreement >=
+                            0.35f * previous_length * current_length;
+                }
+            }
+            // Robust alpha-beta observation update. Gun kick, recoil recovery,
+            // and detector reconstruction all appear as innovation, just like
+            // target motion. A hard confirmation gate adds phase delay and
+            // eventually releases the whole residual, which turns jitter into
+            // a low-frequency control oscillation. A bounded influence
+            // function instead accepts a continuous, physically useful share
+            // on every frame and discards the transient tail permanently.
+            if (assisted_motion_model && new_observation_sample &&
+                firing_context && observed_frames_ >= 2) {
+                const float influence_limit = std::max(
+                    0.0f, config_.fire_innovation_limit_px);
+                if (influence_limit > 0.0f &&
+                    innovation_length > influence_limit) {
+                    const float scale =
+                        influence_limit / innovation_length;
+                    innovation.x *= scale;
+                    innovation.y *= scale;
+                    innovation_length = influence_limit;
+                }
+                const float velocity_innovation_length =
+                    length(velocity_innovation);
+                if (influence_limit > 0.0f &&
+                    velocity_innovation_length > influence_limit) {
+                    const float scale =
+                        influence_limit / velocity_innovation_length;
+                    velocity_innovation.x *= scale;
+                    velocity_innovation.y *= scale;
+                }
             }
             learn_player_motion_amplitude(
                 player_motion.event,
@@ -413,38 +540,80 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
                 predicted.x + innovation.x,
                 predicted.y + innovation.y,
             };
-            const float observation_dt = has_observation_capture_time_ &&
-                    observation_capture_seconds >
-                        last_observation_capture_seconds_
-                ? static_cast<float>(std::clamp(
-                    observation_capture_seconds -
-                        last_observation_capture_seconds_,
-                    0.001, 0.1))
-                : dt;
-            const auto measured_velocity = pipeline_contract::Vec2f{
-                velocity_.x + innovation.x / observation_dt,
-                velocity_.y + innovation.y / observation_dt,
+            auto measured_velocity = pipeline_contract::Vec2f{
+                velocity_.x +
+                    velocity_innovation.x / observation_dt,
+                velocity_.y +
+                    velocity_innovation.y / observation_dt,
             };
+            if (observe_firing_velocity) {
+                if (!firing_velocity_observer_active_) {
+                    firing_velocity_observer_active_ = true;
+                    measured_velocity = velocity_;
+                } else if (!persistent_firing_innovation) {
+                    // An unconfirmed reversal is a firing transient until a
+                    // second observation supports it. Neutralize the old
+                    // velocity instead of holding it, so uncertainty cannot
+                    // become an overshoot tail.
+                    measured_velocity = {};
+                }
+                previous_firing_velocity_innovation_ =
+                    velocity_innovation;
+            } else {
+                previous_firing_velocity_innovation_ = {};
+                firing_velocity_observer_active_ = false;
+            }
             const auto previous_velocity = velocity_;
             const float velocity_alpha =
                 motion_velocity_alpha_for_interval(
                     config_.motion_velocity_alpha,
                     config_.motion_velocity_reference_interval_seconds,
                     observation_dt);
-            velocity_.x +=
-                velocity_alpha * (measured_velocity.x - velocity_.x);
-            velocity_.y +=
-                velocity_alpha * (measured_velocity.y - velocity_.y);
+            pipeline_contract::Vec2f velocity_delta{
+                velocity_alpha * (measured_velocity.x - velocity_.x),
+                velocity_alpha * (measured_velocity.y - velocity_.y),
+            };
+            if (bodylock_motion_model ||
+                (firing_context &&
+                 control_mode_ ==
+                     pipeline_contract::ControlMode::AdsAcquire)) {
+                const float maximum_velocity_delta =
+                    std::max(
+                        0.0f,
+                        config_.
+                            bodylock_max_target_acceleration_px_per_second2) *
+                    observation_dt;
+                const float velocity_delta_length = length(velocity_delta);
+                if (maximum_velocity_delta > 0.0f &&
+                    velocity_delta_length > maximum_velocity_delta) {
+                    const float scale =
+                        maximum_velocity_delta / velocity_delta_length;
+                    velocity_delta.x *= scale;
+                    velocity_delta.y *= scale;
+                }
+            }
+            velocity_.x += velocity_delta.x;
+            velocity_.y += velocity_delta.y;
             velocity_.x = std::clamp(velocity_.x, -4000.0f, 4000.0f);
             velocity_.y = std::clamp(velocity_.y, -4000.0f, 4000.0f);
             acceleration_ = {
-                std::clamp((velocity_.x - previous_velocity.x) / observation_dt,
-                           -20000.0f, 20000.0f),
-                std::clamp((velocity_.y - previous_velocity.y) / observation_dt,
-                           -20000.0f, 20000.0f),
+                std::clamp(
+                    (velocity_.x - previous_velocity.x) /
+                        observation_dt,
+                    -20000.0f, 20000.0f),
+                std::clamp(
+                    (velocity_.y - previous_velocity.y) /
+                        observation_dt,
+                    -20000.0f, 20000.0f),
             };
             position_ = measured_position;
             observed_frames_ = reacquiring ? 1 : observed_frames_ + 1;
+        } else if (dt > 0.0f) {
+            // The controller runs much faster than Vision and replays the
+            // latest candidate between publications. Propagate the target
+            // state and delivered camera work, but never admit the same
+            // measurement into position/velocity twice.
+            position_ = predicted;
         }
         if (candidate->source_id != 0) {
             source_id_ = candidate->source_id;
@@ -456,9 +625,12 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         normalized_size = std::clamp(candidate->normalized_size, 0.0f, 1.0f);
         last_observed_reliability_ = reliability;
         last_observed_normalized_size_ = normalized_size;
-        last_observed_seconds_ = now_seconds;
-        last_observation_capture_seconds_ = observation_capture_seconds;
-        has_observation_capture_time_ = true;
+        if (new_observation_sample) {
+            last_observed_seconds_ = now_seconds;
+            last_observation_capture_seconds_ =
+                observation_capture_seconds;
+            has_observation_capture_time_ = true;
+        }
         lifecycle = reacquiring
             ? pipeline_contract::TargetLifecycle::Reacquiring
             : pipeline_contract::TargetLifecycle::Observed;
@@ -495,10 +667,6 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         return no_target_plan();
     }
 
-    const pipeline_contract::Vec2f center{
-        observations.frame_width_px > 0.0f ? observations.frame_width_px * 0.5f : 240.0f,
-        observations.frame_height_px > 0.0f ? observations.frame_height_px * 0.5f : 208.0f,
-    };
     pipeline_contract::TargetPlan plan{};
     plan.generation = ++generation_;
     plan.source_frame_id = source_frame_id_;
@@ -698,6 +866,9 @@ void TargetCoordinator::reset() noexcept {
     position_ = {};
     velocity_ = {};
     acceleration_ = {};
+    stable_body_aim_tracker_.reset();
+    previous_firing_velocity_innovation_ = {};
+    firing_velocity_observer_active_ = false;
     source_id_ = 0;
     target_id_ = 0;
     generation_ = 0;

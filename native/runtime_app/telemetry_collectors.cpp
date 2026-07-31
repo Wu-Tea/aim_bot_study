@@ -411,6 +411,13 @@ void TelemetryCollectors::observe_committed_capture(
     value.stable_error_y = observation.stable_error_px.y;
     value.stable_body_width = observation.stable_body_size_px.x;
     value.stable_body_height = observation.stable_body_size_px.y;
+    value.raw_body_x = observation.raw_body_box_px.x;
+    value.raw_body_y = observation.raw_body_box_px.y;
+    value.raw_body_width = observation.raw_body_box_px.w;
+    value.raw_body_height = observation.raw_body_box_px.h;
+    value.motion_anchor_x = observation.motion_anchor_px.x;
+    value.motion_anchor_y = observation.motion_anchor_px.y;
+    value.motion_anchor_score = observation.motion_anchor_score;
     value.viewport_offset_x = observation.viewport_offset_px.x;
     value.viewport_offset_y = observation.viewport_offset_px.y;
     value.target_acceleration_x = observation.target_acceleration_px_per_sec2.x;
@@ -425,6 +432,7 @@ void TelemetryCollectors::observe_committed_capture(
     value.fresh_observed = observation.fresh_observed;
     value.strong_observation = observation.strong_observation;
     value.stable_coordinates_valid = observation.stable_coordinates_valid;
+    value.has_motion_anchor = observation.has_motion_anchor;
     value.reused_or_projected = observation.reused_or_projected;
     enqueue(record);
 }

@@ -654,6 +654,38 @@ void test_direction_discontinuity_attribution_keeps_pipeline_stage() {
             "shaped assist stage must be measured independently");
 }
 
+void test_oscillation_requires_two_reversals_in_short_window() {
+    TargetScorer scorer(target_with_deadline(), BenchmarkConfig{});
+    scorer.mark_acquired(0);
+    for (int ms = 0; ms <= 140; ++ms) {
+        ScoreFrame frame = tracking_frame(ms, {4.0, 0.0});
+        frame.shaped_assist_stick = {
+            ms < 50 ? 0.12 : ms < 100 ? -0.12 : 0.12,
+            0.0,
+        };
+        frame.final_stick = frame.shaped_assist_stick;
+        scorer.add_frame(frame);
+    }
+    const TargetResult result = scorer.finish();
+    require(result.oscillation_episodes == 1,
+            "two close reversals on one axis must form one episode");
+    require(result.oscillation_active_ms > 0,
+            "oscillation episode must record occupied time");
+    require(result.oscillation_output_area > 0.0,
+            "oscillation episode must record output exposure");
+
+    TargetScorer one_reversal(target_with_deadline(), BenchmarkConfig{});
+    one_reversal.mark_acquired(0);
+    for (int ms = 0; ms <= 140; ++ms) {
+        ScoreFrame frame = tracking_frame(ms, {4.0, 0.0});
+        frame.shaped_assist_stick = {ms < 70 ? 0.12 : -0.12, 0.0};
+        frame.final_stick = frame.shaped_assist_stick;
+        one_reversal.add_frame(frame);
+    }
+    require(one_reversal.finish().oscillation_episodes == 0,
+            "one legitimate correction reversal is not oscillation");
+}
+
 }  // namespace
 
 int main() {
@@ -681,6 +713,7 @@ int main() {
         test_short_occlusion_scores_reveal_recovery_window();
         test_occlusion_without_fresh_reveal_does_not_start_recovery_window();
         test_direction_discontinuity_attribution_keeps_pipeline_stage();
+        test_oscillation_requires_two_reversals_in_short_window();
         std::cout << "cod_native_sustained_aimlab_score_tests PASS\n";
         return EXIT_SUCCESS;
     } catch (const std::exception& error) {

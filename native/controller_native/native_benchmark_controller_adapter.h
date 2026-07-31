@@ -33,7 +33,9 @@ public:
         bool causal_player_motion_forecast_enabled = true,
         BenchmarkRemainingWorkMode remaining_work_mode =
             BenchmarkRemainingWorkMode::CurrentError,
-        double remaining_work_scale = 1.0);
+        double remaining_work_scale = 1.0,
+        bool firing_body_geometry_stabilizer_enabled = true,
+        bool firing_disturbance_observer_enabled = true);
 
     sustained_aimlab::ControllerStepResult step(
         const sustained_aimlab::ControllerObservation& input);
@@ -63,6 +65,9 @@ sustained_aimlab::ReplayControllerFactory make_native_factory(
     bool causal_player_motion_forecast_enabled = true,
     BenchmarkRemainingWorkMode remaining_work_mode =
         BenchmarkRemainingWorkMode::CurrentError,
-    double remaining_work_scale = 1.0);
+    double remaining_work_scale = 1.0,
+    bool recoil_enabled = false,
+    bool firing_body_geometry_stabilizer_enabled = true,
+    bool firing_disturbance_observer_enabled = true);
 
 }  // namespace controller_native::benchmark_adapter

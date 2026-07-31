@@ -479,6 +479,11 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
             << ",\"result_at_ns\":" << value.result_at_ns
             << ",\"stable_error\":[" << value.stable_error_x << ',' << value.stable_error_y << ']'
             << ",\"stable_body_size\":[" << value.stable_body_width << ',' << value.stable_body_height << ']'
+            << ",\"raw_body_box\":[" << value.raw_body_x << ',' << value.raw_body_y
+            << ',' << value.raw_body_width << ',' << value.raw_body_height << ']'
+            << ",\"motion_anchor\":[" << value.motion_anchor_x << ','
+            << value.motion_anchor_y << ']'
+            << ",\"motion_anchor_score\":" << value.motion_anchor_score
             << ",\"viewport_offset\":[" << value.viewport_offset_x << ',' << value.viewport_offset_y << ']'
             << ",\"target_acceleration\":[" << value.target_acceleration_x << ',' << value.target_acceleration_y << ']'
             << ",\"reliability\":" << value.reliability
@@ -491,6 +496,7 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
             << ",\"fresh_observed\":" << (value.fresh_observed ? "true" : "false")
             << ",\"strong_observation\":" << (value.strong_observation ? "true" : "false")
             << ",\"stable_coordinates_valid\":" << (value.stable_coordinates_valid ? "true" : "false")
+            << ",\"has_motion_anchor\":" << (value.has_motion_anchor ? "true" : "false")
             << ",\"reused_or_projected\":" << (value.reused_or_projected ? "true" : "false")
             << '}'
             << ",\"vision_sample_quality\":\""

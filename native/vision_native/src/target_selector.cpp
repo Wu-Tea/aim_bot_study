@@ -322,6 +322,41 @@ std::optional<IntRect> color_roi_bounds(
     return IntRect{roi_left, clamped_roi_top, roi_right, roi_bottom};
 }
 
+std::optional<IntRect> motion_anchor_roi_bounds(
+    const VisionTargetSelector::Rect& box,
+    int frame_width,
+    int frame_height) {
+    const float box_w = rect_width(box);
+    const float box_h = rect_height(box);
+    if (box_w < 8.0f || box_h < 12.0f) {
+        return std::nullopt;
+    }
+    const bool wide_low = is_wide_low_pose(box_w, box_h);
+    const float left_ratio = wide_low ? 0.10f : 0.14f;
+    const float right_ratio = wide_low ? 0.90f : 0.86f;
+    const float top_ratio = wide_low ? 0.08f : 0.05f;
+    const float bottom_ratio = wide_low ? 0.72f : 0.55f;
+    const IntRect bounds{
+        std::clamp(
+            static_cast<int>(std::floor(box.left + box_w * left_ratio)),
+            0, frame_width),
+        std::clamp(
+            static_cast<int>(std::floor(box.top + box_h * top_ratio)),
+            0, frame_height),
+        std::clamp(
+            static_cast<int>(std::ceil(box.left + box_w * right_ratio)),
+            0, frame_width),
+        std::clamp(
+            static_cast<int>(std::ceil(box.top + box_h * bottom_ratio)),
+            0, frame_height),
+    };
+    if (bounds.right - bounds.left < 6 ||
+        bounds.bottom - bounds.top < 6) {
+        return std::nullopt;
+    }
+    return bounds;
+}
+
 int effective_frame_width(const VisionTargetSelector::ColorFrameView& frame) {
     return frame.frame_width > 0 ? frame.frame_width : frame.width;
 }
@@ -376,6 +411,78 @@ void read_rgb(
     r = pixel[0];
     g = pixel[1];
     b = pixel[2];
+}
+
+constexpr int kMotionPatchWidth = 10;
+constexpr int kMotionPatchHeight = 10;
+constexpr int kMotionPatchSamples =
+    kMotionPatchWidth * kMotionPatchHeight;
+
+bool sample_motion_patch(
+    const VisionTargetSelector::ColorFrameView& frame,
+    float center_x,
+    float center_y,
+    int spacing,
+    std::array<float, kMotionPatchSamples>& patch) {
+    const int origin_x = static_cast<int>(std::lround(center_x)) -
+        ((kMotionPatchWidth - 1) * spacing) / 2;
+    const int origin_y = static_cast<int>(std::lround(center_y)) -
+        ((kMotionPatchHeight - 1) * spacing) / 2;
+    const IntRect bounds{
+        origin_x,
+        origin_y,
+        origin_x + (kMotionPatchWidth - 1) * spacing + 1,
+        origin_y + (kMotionPatchHeight - 1) * spacing + 1,
+    };
+    if (!frame_covers(bounds, frame)) {
+        return false;
+    }
+    std::size_t index = 0;
+    for (int row = 0; row < kMotionPatchHeight; ++row) {
+        for (int column = 0; column < kMotionPatchWidth; ++column) {
+            int r = 0;
+            int g = 0;
+            int b = 0;
+            read_rgb(
+                frame,
+                origin_x + column * spacing,
+                origin_y + row * spacing,
+                r, g, b);
+            patch[index++] =
+                0.299f * static_cast<float>(r) +
+                0.587f * static_cast<float>(g) +
+                0.114f * static_cast<float>(b);
+        }
+    }
+    return true;
+}
+
+float normalized_patch_correlation(
+    const std::array<float, kMotionPatchSamples>& lhs,
+    const std::array<float, kMotionPatchSamples>& rhs) {
+    float lhs_mean = 0.0f;
+    float rhs_mean = 0.0f;
+    for (std::size_t index = 0; index < lhs.size(); ++index) {
+        lhs_mean += lhs[index];
+        rhs_mean += rhs[index];
+    }
+    lhs_mean /= static_cast<float>(lhs.size());
+    rhs_mean /= static_cast<float>(rhs.size());
+    double numerator = 0.0;
+    double lhs_energy = 0.0;
+    double rhs_energy = 0.0;
+    for (std::size_t index = 0; index < lhs.size(); ++index) {
+        const double a = lhs[index] - lhs_mean;
+        const double b = rhs[index] - rhs_mean;
+        numerator += a * b;
+        lhs_energy += a * a;
+        rhs_energy += b * b;
+    }
+    if (lhs_energy < 1.0 || rhs_energy < 1.0) {
+        return -1.0f;
+    }
+    return static_cast<float>(
+        numerator / std::sqrt(lhs_energy * rhs_energy));
 }
 
 void rgb_to_opencv_hsv(int r, int g, int b, float& h, float& s, float& v) {
@@ -535,12 +642,13 @@ ColorClassification classify_color(
         return {};
     }
 
+    ColorClassification classification;
     const auto bounds = color_roi_bounds(box, effective_frame_width(frame), effective_frame_height(frame));
     if (!bounds.has_value()) {
-        return {};
+        return classification;
     }
     if (!frame_covers(*bounds, frame)) {
-        return {};
+        return classification;
     }
 
     int friendly_count = 0;
@@ -572,15 +680,15 @@ ColorClassification classify_color(
     }
 
     if (area <= 0) {
-        return {};
+        return classification;
     }
 
     const float friendly_ratio = static_cast<float>(friendly_count) / static_cast<float>(area);
     if (kFriendlyMaskMinRatio <= friendly_ratio && friendly_ratio <= kFriendlyMaskMaxRatio) {
-        return ColorClassification{0.0f, true};
+        classification.is_friendly = true;
+        return classification;
     }
 
-    ColorClassification classification;
     classification.has_cue = cue_pixels >= kCueMinPixels;
     if (cue_pixels > 0) {
         classification.cue_x = cue_sum_x / static_cast<float>(cue_pixels);
@@ -628,6 +736,7 @@ void VisionTargetSelector::clear_tracking_state() {
     pending_frames_ = 0;
     pending_switch_frames_ = 0;
     hold_frames_ = 0;
+    reset_motion_anchor();
 }
 
 void VisionTargetSelector::clear_cue_tracking() {
@@ -652,6 +761,18 @@ std::optional<VisionTargetSelector::FrameRegion> VisionTargetSelector::required_
     const int frame_width = static_cast<int>(frame_width_);
     const int frame_height = static_cast<int>(frame_height_);
     const auto last_target_center = last_target_center_;
+    const auto merge_bounds = [&](const std::optional<IntRect>& bounds) {
+        if (!bounds.has_value()) return;
+        if (!has_merged) {
+            merged = *bounds;
+            has_merged = true;
+            return;
+        }
+        merged.left = std::min(merged.left, bounds->left);
+        merged.top = std::min(merged.top, bounds->top);
+        merged.right = std::max(merged.right, bounds->right);
+        merged.bottom = std::max(merged.bottom, bounds->bottom);
+    };
 
     for (const auto& detection : batch.detections) {
         if (detection.color_classified) {
@@ -677,21 +798,33 @@ std::optional<VisionTargetSelector::FrameRegion> VisionTargetSelector::required_
             continue;
         }
 
-        const auto bounds = color_roi_bounds(box, frame_width, frame_height);
-        if (!bounds.has_value()) {
-            continue;
-        }
+        merge_bounds(color_roi_bounds(box, frame_width, frame_height));
+        merge_bounds(motion_anchor_roi_bounds(
+            box, frame_width, frame_height));
+    }
 
-        if (!has_merged) {
-            merged = *bounds;
-            has_merged = true;
-            continue;
-        }
-
-        merged.left = std::min(merged.left, bounds->left);
-        merged.top = std::min(merged.top, bounds->top);
-        merged.right = std::max(merged.right, bounds->right);
-        merged.bottom = std::max(merged.bottom, bounds->bottom);
+    // Keep the previously confirmed appearance anchor readable even when the
+    // detector reconstructs one body-box edge around a weapon or optic.  The
+    // matcher searches from this anchor, not from the reconstructed box.
+    if (has_motion_template_ && has_merged) {
+        constexpr int kMaximumSearchRadius = 12;
+        const int patch_radius =
+            ((kMotionPatchWidth - 1) * motion_template_spacing_) / 2 + 1;
+        const int margin = kMaximumSearchRadius + patch_radius;
+        merge_bounds(IntRect{
+            std::clamp(
+                static_cast<int>(std::floor(motion_anchor_x_)) - margin,
+                0, frame_width),
+            std::clamp(
+                static_cast<int>(std::floor(motion_anchor_y_)) - margin,
+                0, frame_height),
+            std::clamp(
+                static_cast<int>(std::ceil(motion_anchor_x_)) + margin + 1,
+                0, frame_width),
+            std::clamp(
+                static_cast<int>(std::ceil(motion_anchor_y_)) + margin + 1,
+                0, frame_height),
+        });
     }
 
     if (has_merged) {
@@ -817,6 +950,135 @@ DetectionBatch VisionTargetSelector::annotate_colors(
         }
     }
     return annotated;
+}
+
+void VisionTargetSelector::reset_motion_anchor() {
+    motion_template_.fill(0.0f);
+    motion_template_box_ = {};
+    motion_anchor_x_ = 0.0f;
+    motion_anchor_y_ = 0.0f;
+    motion_template_spacing_ = 1;
+    motion_anchor_misses_ = 0;
+    has_motion_template_ = false;
+}
+
+void VisionTargetSelector::update_selected_motion_anchor(
+    Detection& detection,
+    const ColorFrameView& frame) {
+    detection.has_motion_anchor = false;
+    detection.motion_anchor_score = 0.0f;
+    const Rect box = to_rect(detection);
+    const float width = rect_width(box);
+    const float height = rect_height(box);
+    if (width < 8.0f || height < 12.0f) {
+        reset_motion_anchor();
+        return;
+    }
+
+    const float expected_x = (box.left + box.right) * 0.5f;
+    const float expected_y = box.top + height * 0.30f;
+    const int detected_spacing = std::clamp(
+        static_cast<int>(std::lround(
+            std::min(width / 18.0f, height / 36.0f))),
+        1, 3);
+    const float previous_width = rect_width(motion_template_box_);
+    const float previous_height = rect_height(motion_template_box_);
+    const float previous_center_x =
+        (motion_template_box_.left + motion_template_box_.right) * 0.5f;
+    const float previous_center_y =
+        (motion_template_box_.top + motion_template_box_.bottom) * 0.5f;
+    const float center_distance = std::hypot(
+        expected_x - previous_center_x,
+        (box.top + height * 0.5f) - previous_center_y);
+    const float continuity_radius = std::max(
+        24.0f, std::max(previous_width, previous_height) * 0.85f);
+    const bool continuous_target =
+        has_motion_template_ &&
+        (rect_iou(box, motion_template_box_) > 0.02f ||
+         center_distance <= continuity_radius);
+    // Detector width/height may change when a weapon cuts into one box edge.
+    // Keep the already confirmed appearance scale for a continuous target;
+    // correlation failure, rather than box geometry alone, decides when to
+    // reacquire a new template scale.
+    const int spacing =
+        continuous_target ? motion_template_spacing_ : detected_spacing;
+
+    std::array<float, kMotionPatchSamples> patch{};
+    if (!continuous_target) {
+        reset_motion_anchor();
+        if (!sample_motion_patch(
+                frame, expected_x, expected_y, spacing, patch)) {
+            return;
+        }
+        std::copy(patch.begin(), patch.end(), motion_template_.begin());
+        motion_template_box_ = box;
+        motion_anchor_x_ = expected_x;
+        motion_anchor_y_ = expected_y;
+        motion_template_spacing_ = spacing;
+        has_motion_template_ = true;
+        detection.has_motion_anchor = true;
+        detection.motion_anchor_x = expected_x;
+        detection.motion_anchor_y = expected_y;
+        detection.motion_anchor_score = 0.35f;
+        return;
+    }
+
+    const int search_radius = std::clamp(
+        static_cast<int>(std::lround(std::min(width, height) * 0.20f)),
+        4, 12);
+    const float search_center_x = motion_anchor_x_;
+    const float search_center_y = motion_anchor_y_;
+    float best_score = -1.0f;
+    int best_dx = 0;
+    int best_dy = 0;
+    std::array<float, kMotionPatchSamples> best_patch{};
+    for (int dy = -search_radius; dy <= search_radius; ++dy) {
+        for (int dx = -search_radius; dx <= search_radius; ++dx) {
+            if (!sample_motion_patch(
+                    frame,
+                    search_center_x + static_cast<float>(dx),
+                    search_center_y + static_cast<float>(dy),
+                    spacing,
+                    patch)) {
+                continue;
+            }
+            const float score = normalized_patch_correlation(
+                motion_template_, patch);
+            if (score <= best_score) continue;
+            best_score = score;
+            best_dx = dx;
+            best_dy = dy;
+            best_patch = patch;
+        }
+    }
+    if (best_score < 0.50f) {
+        ++motion_anchor_misses_;
+        if (motion_anchor_misses_ >= 2) {
+            reset_motion_anchor();
+        }
+        return;
+    }
+
+    motion_anchor_misses_ = 0;
+    motion_anchor_x_ = search_center_x + static_cast<float>(best_dx);
+    motion_anchor_y_ = search_center_y + static_cast<float>(best_dy);
+    motion_template_box_ = box;
+    detection.has_motion_anchor = true;
+    detection.motion_anchor_x = motion_anchor_x_;
+    detection.motion_anchor_y = motion_anchor_y_;
+    detection.motion_anchor_score = std::clamp(
+        (best_score - 0.40f) / 0.50f, 0.0f, 1.0f);
+
+    if (best_score >= 0.65f) {
+        constexpr float kTemplateUpdateAlpha = 0.12f;
+        for (std::size_t index = 0;
+             index < motion_template_.size(); ++index) {
+            motion_template_[index] =
+                motion_template_[index] *
+                    (1.0f - kTemplateUpdateAlpha) +
+                best_patch[index] * kTemplateUpdateAlpha;
+        }
+    }
 }
 
 bool VisionTargetSelector::is_crosshair_inside_zone(const Rect& zone) const {
@@ -1783,6 +2045,13 @@ VisionResult VisionTargetSelector::select_with_frame(
     const ColorFrameView& frame) {
     DetectionBatch annotated = annotate_colors(batch, frame);
     VisionResult result = select_impl(annotated, &frame, nullptr);
+    if (result.has_selected_detection &&
+        result.selected_detection_index < annotated.detections.size()) {
+        update_selected_motion_anchor(
+            annotated.detections[result.selected_detection_index], frame);
+    } else if (!result.has_target) {
+        reset_motion_anchor();
+    }
     result.preprocess_mode = batch.preprocess_mode;
     result.detections = std::move(annotated.detections);
     return result;
@@ -1794,6 +2063,13 @@ VisionResult VisionTargetSelector::select_with_frame(
     const pipeline_contract::UserAimIntent& intent) {
     DetectionBatch annotated = annotate_colors(batch, frame);
     VisionResult result = select_impl(annotated, &frame, &intent);
+    if (result.has_selected_detection &&
+        result.selected_detection_index < annotated.detections.size()) {
+        update_selected_motion_anchor(
+            annotated.detections[result.selected_detection_index], frame);
+    } else if (!result.has_target) {
+        reset_motion_anchor();
+    }
     result.user_aim_intent = intent;
     if (intent.valid) {
         result.intent_id = intent.intent_id;
