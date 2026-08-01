@@ -5,6 +5,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 
 namespace controller_native {
 
@@ -49,9 +50,7 @@ FusionWeights candidate_weights(FusionCandidate candidate) noexcept;
 
 struct VectorIntentFusionConfig {
     float manual_escape_threshold = 0.45f;
-    float weight_transition_ms = 24.0f;
-    float fresh_vision_wrong_way_manual_floor = 0.35f;
-    float fallback_response_px_per_stick_second = 500.0f;
+    float manual_preservation_floor = 0.55f;
 };
 
 struct VectorIntentFusionInput {
@@ -94,19 +93,10 @@ public:
 
 private:
     VectorIntentFusionConfig config_{};
-    FusionCandidate previous_candidate_ = FusionCandidate::ManualOnly;
-    pipeline_contract::Vec2f previous_output_{};
-    float applied_manual_weight_ = 1.0f;
-    float applied_ai_weight_ = 1.0f;
-    float applied_tangential_manual_weight_ = 1.0f;
     std::uint64_t target_id_ = 0;
-    float fresh_evidence_remaining_ms_ = 0.0f;
-    std::uint64_t strong_approach_target_id_ = 0;
-    pipeline_contract::Vec2f strong_approach_direction_{};
-    pipeline_contract::Vec2f applied_control_radial_{};
-    float obsolete_manual_window_ms_ = 0.0f;
-    bool control_radial_initialized_ = false;
-    bool initialized_ = false;
+    pipeline_contract::Vec2f previous_output_{};
+    bool output_initialized_ = false;
+    bool reentry_pending_ = false;
 };
 
 }  // namespace controller_native

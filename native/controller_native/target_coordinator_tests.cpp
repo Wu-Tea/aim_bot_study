@@ -92,6 +92,28 @@ void test_hold_expires_to_safe_manual_plan() {
     require_true(plan.aim_authority == 0.0f, "released plan must have zero authority");
 }
 
+void test_selector_owned_batch_does_not_acquire_unselected_candidate() {
+    controller_native::TargetCoordinator coordinator;
+    auto candidate_only = frame(1, 0.0, 77, 300.0f, 208.0f);
+    candidate_only.selector_identity_protocol = true;
+    candidate_only.preferred_source_id = 0;
+
+    auto plan = coordinator.update(
+        candidate_only, ads_intent(0.0), 0.0);
+    require_true(plan.lifecycle == pipeline_contract::TargetLifecycle::None,
+                 "selector-owned candidate without a selection must stay manual");
+    require_true(plan.aim_authority == 0.0f,
+                 "unselected detector candidate must not gain blind aim authority");
+
+    candidate_only.frame_id = 2;
+    candidate_only.source_time_seconds = 0.01;
+    candidate_only.publish_time_seconds = 0.01;
+    candidate_only.preferred_source_id = 77;
+    plan = coordinator.update(candidate_only, ads_intent(0.01), 0.01);
+    require_true(plan.lifecycle == pipeline_contract::TargetLifecycle::Observed,
+                 "an explicit selector choice must remain eligible for acquisition");
+}
+
 void test_motion_labels_jump_then_fall() {
     controller_native::TargetCoordinator coordinator;
     auto intent = ads_intent(0.0);
@@ -963,6 +985,7 @@ int main() {
     try {
         test_single_owner_coasts_and_reacquires_same_identity();
         test_hold_expires_to_safe_manual_plan();
+        test_selector_owned_batch_does_not_acquire_unselected_candidate();
         test_motion_labels_jump_then_fall();
         test_jump_cue_adds_causal_vertical_acceleration_projection();
         test_player_motion_oracle_separates_realized_camera_error();

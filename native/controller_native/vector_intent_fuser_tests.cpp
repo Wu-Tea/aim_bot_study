@@ -1,5 +1,6 @@
 #include "vector_intent_fuser.h"
 
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <limits>
@@ -8,6 +9,7 @@
 namespace {
 
 using controller_native::FusionCandidate;
+using controller_native::FusionFallbackReason;
 using controller_native::VectorIntentFuser;
 using controller_native::VectorIntentFusionInput;
 
@@ -22,814 +24,220 @@ void require_near(float actual, float expected, float tolerance,
     }
 }
 
-pipeline_contract::TargetPlan observed_plan() {
-    pipeline_contract::TargetPlan plan;
-    plan.target_id = 7;
-    plan.lifecycle = pipeline_contract::TargetLifecycle::Observed;
-    plan.mode = pipeline_contract::ControlMode::AdsAcquire;
-    plan.error_px = {40.0f, 0.0f};
-    plan.error_rate_px_per_sec = {0.0f, 0.0f};
-    plan.reliability = 1.0f;
-    plan.response_scale = 500.0f;
-    plan.response_confidence = 1.0f;
-    return plan;
-}
-
 VectorIntentFusionInput input_for(
     pipeline_contract::Vec2f manual,
     pipeline_contract::Vec2f ai) {
-    VectorIntentFusionInput input;
+    VectorIntentFusionInput input{};
     input.manual_stick = manual;
     input.shaped_ai_stick = ai;
-    input.plan = observed_plan();
-    input.causal_mix_enabled = true;
+    input.manual_confidence = 1.0f;
+    input.plan.target_id = 7;
+    input.plan.lifecycle = pipeline_contract::TargetLifecycle::Observed;
+    input.plan.mode = pipeline_contract::ControlMode::BodyLockFollow;
+    input.plan.reliability = 1.0f;
+    input.plan.confidence = 1.0f;
+    input.plan.aim_authority = 1.0f;
+    input.plan.error_px = {24.0f, 0.0f};
     return input;
 }
 
-void test_controller_rate_candidate_is_opt_in() {
-    const VectorIntentFusionInput input;
-    require_true(!input.causal_mix_enabled,
-                 "controller-rate causal mix must remain production-disabled");
-}
-
-void set_horizon(
-    pipeline_contract::TargetPlan& plan,
-    std::initializer_list<std::pair<float, pipeline_contract::Vec2f>> samples) {
-    plan.horizon_count = static_cast<std::uint32_t>(samples.size());
-    std::size_t index = 0;
-    for (const auto& sample : samples) {
-        plan.horizon[index].time_seconds = sample.first;
-        plan.horizon[index].error_px = sample.second;
-        ++index;
-    }
-}
-
-void test_candidate_outputs_match_version_one_scales() {
-    using controller_native::candidate_weights;
-    const auto existing = candidate_weights(FusionCandidate::ExistingMix);
-    const auto manual_supported = candidate_weights(
-        FusionCandidate::ManualSupported);
-    const auto ai_supported = candidate_weights(FusionCandidate::AiSupported);
-    const auto manual = candidate_weights(FusionCandidate::ManualOnly);
-    const auto ai = candidate_weights(FusionCandidate::AiOnly);
-    const auto reduced = candidate_weights(FusionCandidate::ReducedMix);
-
-    require_near(existing.manual, 1.0f, 0.0001f,
-                 "existing mix must retain full manual input");
-    require_near(existing.ai, 1.0f, 0.0001f,
-                 "existing mix must retain full AI input");
-    require_near(manual_supported.manual, 1.0f, 0.0001f,
-                 "manual-supported candidate must retain manual input");
-    require_near(manual_supported.ai, 0.5f, 0.0001f,
-                 "manual-supported candidate must halve AI input");
-    require_near(ai_supported.manual, 0.5f, 0.0001f,
-                 "AI-supported candidate must halve manual input");
-    require_near(ai_supported.ai, 1.0f, 0.0001f,
-                 "AI-supported candidate must retain AI input");
-    require_near(manual.manual, 1.0f, 0.0001f,
-                 "manual-only candidate must retain manual input");
-    require_near(manual.ai, 0.0f, 0.0001f,
-                 "manual-only candidate must remove AI input");
-    require_near(ai.manual, 0.0f, 0.0001f,
-                 "AI-only candidate must remove manual input");
-    require_near(ai.ai, 1.0f, 0.0001f,
-                 "AI-only candidate must retain AI input");
-    require_near(reduced.manual, 0.5f, 0.0001f,
-                 "reduced mix must halve manual input");
-    require_near(reduced.ai, 0.5f, 0.0001f,
-                 "reduced mix must halve AI input");
-}
-
-void test_candidate_count_covers_polar_set() {
-    require_true(controller_native::kFusionCandidateCount ==
-                     static_cast<std::size_t>(FusionCandidate::FreshVisionCounterCorrected) + 1,
-                 "candidate statistics must cover every fusion candidate");
-}
-
-void test_aligned_input_keeps_existing_mix() {
+void test_aligned_input_keeps_full_mix() {
     VectorIntentFuser fuser;
     const auto decision = fuser.update(
-        input_for({0.20f, 0.0f}, {0.20f, 0.0f}), 0.001f);
+        input_for({0.20f, 0.0f}, {0.30f, 0.0f}), 0.001f);
     require_true(decision.candidate == FusionCandidate::ExistingMix,
-                 "aligned user and AI input must keep the existing mix");
+                 "aligned input must retain the complete AI proposal");
+    require_near(decision.fused_stick.x, 0.50f, 0.0001f,
+                 "aligned manual and AI input must add normally");
 }
 
-void test_opposing_small_manual_uses_partial_radial_brake() {
+void test_opposing_input_preserves_manual_and_continuously_retires_ai() {
     VectorIntentFuser fuser;
-    const auto decision = fuser.update(
-        input_for({-0.20f, 0.0f}, {0.30f, 0.0f}), 0.001f);
-    require_near(decision.target_manual_weight, 0.5f, 0.0001f,
-                 "current-only conflict must preserve half of deliberate radial input");
-    require_near(decision.target_ai_weight, 1.0f, 0.0001f,
-                 "current-only conflict must retain the shaped AI proposal");
-}
-
-void test_fresh_single_target_vision_counter_corrects_wrong_radial_manual() {
-    controller_native::VectorIntentFusionConfig config;
-    config.fresh_vision_wrong_way_manual_floor = 0.20f;
-    VectorIntentFuser fuser(config);
-    auto input = input_for({-0.20f, 0.15f}, {0.30f, 0.0f});
-    input.plan.mode = pipeline_contract::ControlMode::BodyLockFollow;
-    input.fresh_single_target_observation = true;
-    const auto decision = fuser.update(input, 0.001f);
-
-    require_true(
-        decision.candidate == FusionCandidate::FreshVisionCounterCorrected,
-        "fresh reliable single-target vision must select counter correction");
-    require_near(decision.target_manual_weight, 0.20f, 0.0001f,
-                 "fresh vision must use the configured wrong-way radial floor");
-    require_near(decision.target_tangential_manual_weight, 1.0f, 0.0001f,
-                 "fresh vision must preserve tangential manual correction");
-    require_near(decision.target_ai_weight, 1.0f, 0.0001f,
-                 "fresh vision must retain the shaped AI proposal");
-}
-
-void test_fresh_vision_counter_correction_expires_back_to_tracker_policy() {
-    controller_native::VectorIntentFusionConfig config;
-    config.fresh_vision_wrong_way_manual_floor = 0.20f;
-    VectorIntentFuser fuser(config);
-    auto input = input_for({-0.20f, 0.15f}, {0.30f, 0.0f});
-    input.plan.mode = pipeline_contract::ControlMode::BodyLockFollow;
-    input.fresh_single_target_observation = true;
-    (void)fuser.update(input, 0.001f);
-
-    input.fresh_single_target_observation = false;
-    input.plan.lifecycle = pipeline_contract::TargetLifecycle::Coasting;
-    const auto expired = fuser.update(input, 0.017f);
-    require_true(
-        expired.candidate != FusionCandidate::FreshVisionCounterCorrected,
-        "expired vision evidence must return to the existing tracker policy");
-    require_true(expired.target_manual_weight >= 0.50f,
-                 "tracker-only conflict must keep the existing manual floor");
-}
-
-void test_fresh_ads_observation_keeps_existing_ads_policy() {
-    controller_native::VectorIntentFusionConfig config;
-    config.fresh_vision_wrong_way_manual_floor = 0.20f;
-    VectorIntentFuser fuser(config);
-    auto input = input_for({-0.20f, 0.0f}, {0.30f, 0.0f});
-    input.fresh_single_target_observation = true;
-    const auto decision = fuser.update(input, 0.001f);
-    require_true(
-        decision.candidate != FusionCandidate::FreshVisionCounterCorrected,
-        "fresh vision correction must not duplicate the ADS wrong-way policy");
-    require_near(decision.target_manual_weight, 0.50f, 0.0001f,
-                 "ADS must preserve its existing partial radial brake");
-}
-
-void test_fresh_vision_only_reduces_wrong_radial_near_target_input() {
-    controller_native::VectorIntentFusionConfig config;
-    config.fresh_vision_wrong_way_manual_floor = 0.35f;
-    VectorIntentFuser fuser(config);
-    auto input = input_for({-0.20f, 0.0f}, {0.30f, 0.0f});
-    input.plan.mode = pipeline_contract::ControlMode::BodyLockFollow;
-    input.plan.error_px = {10.0f, 0.0f};
-    input.fresh_single_target_observation = true;
-    const auto decision = fuser.update(input, 0.001f);
-    require_true(
-        decision.candidate == FusionCandidate::FreshVisionCounterCorrected,
-        "fresh evidence may remain active without introducing a hard distance gate");
-    require_near(decision.target_manual_weight, 0.35f, 0.0001f,
-                 "fresh vision must only reduce the known-wrong radial component");
-    require_near(decision.target_tangential_manual_weight, 1.0f, 0.0001f,
-                 "near-target tangential micro adjustment must remain untouched");
-}
-
-void test_fresh_vision_counter_correction_respects_manual_escape() {
-    controller_native::VectorIntentFusionConfig config;
-    config.fresh_vision_wrong_way_manual_floor = 0.20f;
-    VectorIntentFuser fuser(config);
-    auto input = input_for({-0.60f, 0.0f}, {0.30f, 0.0f});
-    input.fresh_single_target_observation = true;
-    const auto decision = fuser.update(input, 0.001f);
-    require_true(decision.manual_escape,
-                 "physical manual escape must override fresh vision correction");
-    require_near(decision.fused_stick.x, input.manual_stick.x, 0.0001f,
-                 "manual escape must deliver exact physical input");
-}
-
-void test_strong_aligned_manual_enters_causal_crossing_evaluation() {
-    VectorIntentFuser fuser;
-    auto input = input_for({0.20f, 0.85f}, {0.0f, 0.55f});
-    input.plan.error_px = {0.0f, -12.0f};
-    input.plan.mode = pipeline_contract::ControlMode::AdsAcquire;
-    input.fresh_single_target_observation = true;
-    set_horizon(input.plan, {
-        {0.040f, {0.0f, -12.0f}},
-        {0.080f, {0.0f, -12.0f}},
-        {0.120f, {0.0f, -12.0f}},
-        {0.160f, {0.0f, -12.0f}},
-    });
-    const auto decision = fuser.update(input, 0.024f);
-    require_true(!decision.manual_escape,
-                 "strong aligned input with predicted crossing must be evaluated");
-    require_true(decision.target_manual_weight <= 0.35f,
-                 "obsolete radial ownership must be strongly reduced");
-    require_near(decision.target_tangential_manual_weight, 1.0f, 0.0001f,
-                 "strong crossing correction must retain tangent");
-}
-
-void test_recent_approach_direction_can_be_unloaded_after_crossing() {
-    VectorIntentFuser fuser;
-    auto approach = input_for({0.0f, 0.85f}, {0.0f, 0.55f});
-    approach.plan.error_px = {0.0f, -12.0f};
-    approach.fresh_single_target_observation = true;
-    set_horizon(approach.plan, {
-        {0.040f, {0.0f, -12.0f}},
-        {0.080f, {0.0f, -12.0f}},
-        {0.120f, {0.0f, -12.0f}},
-        {0.160f, {0.0f, -12.0f}},
-    });
-    (void)fuser.update(approach, 0.001f);
-
-    auto crossed = approach;
-    crossed.plan.error_px = {0.0f, 8.0f};
-    crossed.shaped_ai_stick = {0.0f, -0.55f};
-    set_horizon(crossed.plan, {
-        {0.040f, {0.0f, 8.0f}},
-        {0.080f, {0.0f, 8.0f}},
-        {0.120f, {0.0f, 8.0f}},
-        {0.160f, {0.0f, 8.0f}},
-    });
-    const auto decision = fuser.update(crossed, 0.001f);
-    require_true(!decision.manual_escape,
-                 "recently helpful input must not become unconditional escape");
-    require_true(decision.target_manual_weight > 0.35f &&
-                     decision.target_manual_weight < 0.50f,
-                 "obsolete post-cross radial input may be retained only by "
-                 "the amount needed to brake excessive AI return motion");
-}
-
-void test_strong_manual_approach_is_remembered_when_ai_is_inside_tolerance() {
-    VectorIntentFuser fuser;
-    auto approach = input_for({0.0f, 0.85f}, {0.0f, 0.0f});
-    approach.plan.mode = pipeline_contract::ControlMode::BodyLockFollow;
-    approach.plan.error_px = {0.0f, -8.0f};
-    approach.plan.response_confidence = 0.0f;
-    approach.fresh_single_target_observation = true;
-    set_horizon(approach.plan, {
-        {0.040f, {0.0f, -8.0f}},
-        {0.080f, {0.0f, -8.0f}},
-        {0.120f, {0.0f, -8.0f}},
-        {0.160f, {0.0f, -8.0f}},
-    });
-    const auto braking = fuser.update(approach, 0.001f);
-    require_true(!braking.manual_escape,
-                 "clear manual closing motion must enter causal evaluation");
-    require_true(braking.target_manual_weight < 1.0f,
-                 "imminent manual-only crossing must unload before overshoot");
-
-    auto crossed = approach;
-    crossed.plan.error_px = {0.0f, 3.0f};
-    crossed.plan.lifecycle = pipeline_contract::TargetLifecycle::Coasting;
-    crossed.fresh_single_target_observation = false;
-    set_horizon(crossed.plan, {
-        {0.040f, {0.0f, 3.0f}},
-        {0.080f, {0.0f, 3.0f}},
-        {0.120f, {0.0f, 3.0f}},
-        {0.160f, {0.0f, 3.0f}},
-    });
-    const auto inside_tolerance = fuser.update(crossed, 0.001f);
-    require_true(!inside_tolerance.manual_escape,
-                 "known obsolete manual must unload while BodyLock AI is zero");
-    require_true(inside_tolerance.target_manual_weight <= 0.35f,
-                 "target reversal is sufficient evidence inside tolerance");
-}
-
-void test_causal_approach_episode_survives_between_vision_publications() {
-    VectorIntentFuser fuser;
-    auto approach = input_for({0.0f, 0.85f}, {0.0f, 0.0f});
-    approach.plan.mode = pipeline_contract::ControlMode::BodyLockFollow;
-    approach.plan.error_px = {0.0f, -8.0f};
-    approach.plan.response_confidence = 0.0f;
-    approach.fresh_single_target_observation = true;
-    set_horizon(approach.plan, {
-        {0.040f, {0.0f, -8.0f}},
-        {0.080f, {0.0f, -8.0f}},
-        {0.120f, {0.0f, -8.0f}},
-        {0.160f, {0.0f, -8.0f}},
-    });
-    (void)fuser.update(approach, 0.001f);
-
-    auto crossed = approach;
-    crossed.plan.error_px = {0.0f, 3.0f};
-    crossed.fresh_single_target_observation = false;
-    set_horizon(crossed.plan, {
-        {0.040f, {0.0f, 3.0f}},
-        {0.080f, {0.0f, 3.0f}},
-        {0.120f, {0.0f, 3.0f}},
-        {0.160f, {0.0f, 3.0f}},
-    });
-    controller_native::VectorIntentFusionDecision between_publications;
-    for (int tick = 0; tick < 30; ++tick) {
-        between_publications = fuser.update(crossed, 0.001f);
-    }
-    require_true(!between_publications.manual_escape,
-                 "a confirmed same-direction approach must not become "
-                 "manual escape merely because no new vision frame arrived");
-    require_true(between_publications.target_manual_weight <= 0.35f,
-                 "the causal episode must keep unloading obsolete radial "
-                 "input between vision publications");
-}
-
-void test_reliable_tracker_can_start_causal_approach_between_vision_frames() {
-    VectorIntentFuser fuser;
-    auto input = input_for({0.0f, 0.85f}, {0.0f, 0.0f});
-    input.plan.mode = pipeline_contract::ControlMode::BodyLockFollow;
-    input.plan.error_px = {0.0f, -8.0f};
-    input.plan.response_scale = 50.0f;
-    input.plan.response_confidence = 0.0f;
-    input.fresh_single_target_observation = false;
-    set_horizon(input.plan, {
-        {0.040f, {0.0f, -8.0f}},
-        {0.080f, {0.0f, -8.0f}},
-        {0.120f, {0.0f, -8.0f}},
-        {0.160f, {0.0f, -8.0f}},
-    });
-
-    const auto decision = fuser.update(input, 0.001f);
-    require_true(!decision.manual_escape,
-                 "reliable tracker geometry and actual manual input must be "
-                 "enough to start causal arbitration between vision frames");
-    require_true(decision.target_manual_weight < 1.0f,
-                 "imminent crossing must unload radial input without waiting "
-                 "for another vision publication");
-}
-
-void test_observed_tracker_geometry_does_not_wait_for_high_confidence_warmup() {
-    VectorIntentFuser fuser;
-    auto input = input_for({0.0f, 0.85f}, {0.0f, 0.0f});
-    input.plan.mode = pipeline_contract::ControlMode::AdsAcquire;
-    input.plan.error_px = {0.0f, -20.0f};
-    input.plan.reliability = 0.70f;
-    input.fresh_single_target_observation = false;
-    set_horizon(input.plan, {
-        {0.040f, {0.0f, -20.0f}},
-        {0.080f, {0.0f, -20.0f}},
-        {0.120f, {0.0f, -20.0f}},
-        {0.160f, {0.0f, -20.0f}},
-    });
-    const auto decision = fuser.update(input, 0.001f);
-    require_true(!decision.manual_escape,
-                 "observed same-target geometry above the normal reliability "
-                 "fallback must not wait for 0.85 confidence warmup");
-}
-
-void test_confirmed_causal_episode_does_not_snap_back_to_exact_manual() {
-    VectorIntentFuser fuser;
-    auto crossing = input_for({0.0f, 0.85f}, {0.0f, 0.0f});
-    crossing.plan.mode = pipeline_contract::ControlMode::BodyLockFollow;
-    crossing.plan.error_px = {0.0f, -8.0f};
-    crossing.fresh_single_target_observation = true;
-    set_horizon(crossing.plan, {
-        {0.040f, {0.0f, -8.0f}},
-        {0.080f, {0.0f, -8.0f}},
-        {0.120f, {0.0f, -8.0f}},
-        {0.160f, {0.0f, -8.0f}},
-    });
-    const auto braked = fuser.update(crossing, 0.024f);
-    require_true(braked.applied_manual_weight < 1.0f,
-                 "fixture must first apply causal radial unloading");
-
-    auto temporarily_not_crossing = crossing;
-    temporarily_not_crossing.plan.error_px = {0.0f, -40.0f};
-    set_horizon(temporarily_not_crossing.plan, {
-        {0.040f, {0.0f, -40.0f}},
-        {0.080f, {0.0f, -40.0f}},
-        {0.120f, {0.0f, -40.0f}},
-        {0.160f, {0.0f, -40.0f}},
-    });
-    temporarily_not_crossing.fresh_single_target_observation = false;
-    const auto recovering = fuser.update(temporarily_not_crossing, 0.001f);
-    require_true(!recovering.manual_escape,
-                 "a same-target same-direction causal episode must not be "
-                 "reclassified as a physical escape");
-    require_true(recovering.applied_manual_weight < 1.0f,
-                 "ownership recovery must follow the transition envelope "
-                 "instead of snapping to exact manual");
-}
-
-void test_low_reliability_clears_fresh_vision_envelope() {
-    controller_native::VectorIntentFusionConfig config;
-    config.fresh_vision_wrong_way_manual_floor = 0.20f;
-    VectorIntentFuser fuser(config);
-    auto input = input_for({-0.20f, 0.15f}, {0.30f, 0.0f});
-    input.plan.mode = pipeline_contract::ControlMode::BodyLockFollow;
-    input.fresh_single_target_observation = true;
-    (void)fuser.update(input, 0.001f);
-
-    input.fresh_single_target_observation = false;
-    input.plan.lifecycle = pipeline_contract::TargetLifecycle::Coasting;
-    input.plan.reliability = 0.50f;
-    (void)fuser.update(input, 0.001f);
-    input.plan.reliability = 1.0f;
-    const auto recovered = fuser.update(input, 0.001f);
-    require_true(
-        recovered.candidate != FusionCandidate::FreshVisionCounterCorrected,
-        "stale fresh evidence must not revive after low-reliability fallback");
-}
-
-void test_wrong_way_manual_only_is_ineligible_below_escape() {
-    VectorIntentFuser fuser;
-    auto input = input_for({-0.30f, 0.0f}, {0.30f, 0.0f});
-    input.manual_confidence = 0.9f;
-    input.plan.error_px = {40.0f, 0.0f};
-    const auto decision = fuser.update(input, 0.001f);
-    for (const auto candidate : {
-             FusionCandidate::ExistingMix,
-             FusionCandidate::ManualSupported,
-             FusionCandidate::ManualOnly,
-             FusionCandidate::ReducedMix}) {
-        require_true(std::isinf(decision.candidate_costs[
-                         static_cast<std::size_t>(candidate)]),
-                     "wrong-way sub-escape input must not retain or symmetrically weaken radial conflict");
-    }
-}
-
-void test_predicted_ads_reversal_releases_excess_radial_manual_ownership() {
-    VectorIntentFuser fuser;
-    auto input = input_for({0.30f, 0.15f}, {-0.30f, 0.0f});
-    input.manual_confidence = 0.9f;
-    input.plan.error_px = {10.0f, 0.0f};
-    set_horizon(input.plan, {
-        {0.040f, {-4.0f, 0.0f}},
-        {0.080f, {-18.0f, 0.0f}},
-        {0.160f, {-42.0f, 0.0f}},
-    });
-    const auto decision = fuser.update(input, 0.001f);
-    require_true(std::isinf(decision.candidate_costs[
-                     static_cast<std::size_t>(FusionCandidate::ManualOnly)]),
-                 "ADS plan reversal must release sticky full radial manual ownership");
-    require_true(std::isfinite(decision.candidate_costs[
-                     static_cast<std::size_t>(FusionCandidate::RadialCorrected)]),
-                 "ADS plan reversal must offer a partial radial brake that preserves tangent");
-    require_true(std::isinf(decision.candidate_costs[
-                     static_cast<std::size_t>(FusionCandidate::AiOnly)]),
-                 "radial brake must not silently become whole-vector AI ownership");
-    require_near(decision.target_manual_weight, 0.5f, 0.0001f,
-                 "predicted ADS reversal must reduce rather than swallow radial manual");
-}
-
-void test_deliberate_opposing_manual_is_not_fully_swallowed() {
-    VectorIntentFuser fuser;
-    auto input = input_for({-0.35f, 0.0f}, {0.30f, 0.0f});
-    input.manual_confidence = 0.9f;
-    const auto decision = fuser.update(input, 0.024f);
-    require_true(decision.target_manual_weight >= 0.5f,
-                 "deliberate manual conflict must retain at least half ownership");
-    require_true(decision.candidate != FusionCandidate::AiOnly,
-                 "AI-only is reserved for low-confidence manual noise");
-}
-
-void test_high_confidence_manual_never_selects_ai_only() {
-    for (const float manual : {-0.05f, -0.15f, -0.25f, -0.35f, -0.44f}) {
-        for (const float ai : {0.10f, 0.30f, 0.50f}) {
-            for (const float error : {5.0f, 20.0f, 40.0f}) {
-                VectorIntentFuser fuser;
-                auto input = input_for({manual, 0.0f}, {ai, 0.0f});
-                input.manual_confidence = 0.9f;
-                input.plan.error_px = {error, 0.0f};
-                const auto decision = fuser.update(input, 0.024f);
-                require_true(decision.candidate != FusionCandidate::AiOnly,
-                             "high-confidence manual grid must never select AI-only");
-            }
+    float previous_ai = 2.0f;
+    for (float manual : {-0.10f, -0.20f, -0.30f, -0.40f, -0.46f}) {
+        controller_native::VectorIntentFusionDecision decision{};
+        for (int tick = 0; tick < 8; ++tick) {
+            decision = fuser.update(
+                input_for({manual, 0.0f}, {0.50f, 0.0f}), 0.001f);
         }
+        const float effective_ai = decision.fused_stick.x - manual;
+        require_true(effective_ai <= previous_ai + 0.025f,
+                     "AI brake reasserted discontinuously as counter-steer increased");
+        require_near(decision.applied_manual_weight, 1.0f, 0.0001f,
+                     "fusion must never rewrite physical manual input");
+        previous_ai = effective_ai;
+    }
+    require_true(previous_ai <= 0.208f,
+                 "opposing AI must preserve the configured share of manual input");
+}
+
+void test_escape_threshold_is_not_a_control_switch() {
+    VectorIntentFuser fuser;
+    float previous = 0.0f;
+    float maximum_threshold_jump = 0.0f;
+    bool first = true;
+    for (float manual : {-0.30f, -0.36f, -0.42f, -0.46f,
+                         -0.42f, -0.36f, -0.30f}) {
+        const auto decision = fuser.update(
+            input_for({manual, 0.0f}, {0.50f, 0.0f}), 0.001f);
+        if (!first && std::fabs(manual) >= 0.42f) {
+            maximum_threshold_jump = std::max(
+                maximum_threshold_jump,
+                std::fabs(decision.fused_stick.x - previous));
+        }
+        previous = decision.fused_stick.x;
+        first = false;
+    }
+    require_true(maximum_threshold_jump <= 0.12f,
+                 "manual threshold crossing created an output impulse");
+}
+
+void test_fresh_vision_does_not_override_countersteer() {
+    VectorIntentFuser normal;
+    VectorIntentFuser fresh;
+    auto normal_input = input_for({-0.30f, 0.0f}, {0.50f, 0.20f});
+    auto fresh_input = normal_input;
+    fresh_input.fresh_single_target_observation = true;
+    const auto a = normal.update(normal_input, 0.001f);
+    const auto b = fresh.update(fresh_input, 0.001f);
+    require_near(a.fused_stick.x, b.fused_stick.x, 0.0001f,
+                 "fresh Vision must not create a second ownership pulse");
+    require_near(a.fused_stick.y, 0.20f, 0.0001f,
+                 "AI motion orthogonal to the conflict must remain complete");
+}
+
+void test_reacquire_and_target_change_fail_safe_to_manual() {
+    VectorIntentFuser fuser;
+    (void)fuser.update(input_for({}, {0.50f, 0.0f}), 0.001f);
+
+    auto changed = input_for({-0.20f, 0.10f}, {0.50f, 0.0f});
+    changed.plan.target_id = 8;
+    const auto target_change = fuser.update(changed, 0.001f);
+    require_true(target_change.reason == FusionFallbackReason::TargetChanged,
+                 "target identity transition must be explicit");
+    require_near(target_change.fused_stick.x, -0.20f, 0.0001f,
+                 "new target must not inherit old AI ownership");
+
+    changed.plan.lifecycle = pipeline_contract::TargetLifecycle::Reacquiring;
+    const auto reacquire = fuser.update(changed, 0.001f);
+    require_true(reacquire.reason == FusionFallbackReason::Reacquiring,
+                 "reacquisition must fail safe to manual ownership");
+    require_near(reacquire.fused_stick.y, 0.10f, 0.0001f,
+                 "reacquisition must preserve physical input exactly");
+}
+
+void test_reliability_boundary_does_not_drop_and_reassert_ai() {
+    VectorIntentFuser fuser;
+    auto input = input_for({0.0f, 0.0f}, {0.55f, 0.0f});
+    input.plan.reliability = 0.70f;
+    auto previous = fuser.update(input, 0.001f).fused_stick;
+
+    for (const float reliability : {0.64f, 0.68f, 0.63f, 0.72f}) {
+        input.plan.reliability = reliability;
+        const auto decision = fuser.update(input, 0.001f);
+        require_true(
+            std::fabs(decision.fused_stick.x - previous.x) <= 0.081f,
+            "reliability boundary created a full AI off/on output impulse");
+        previous = decision.fused_stick;
     }
 }
 
-void test_orthogonal_manual_is_not_reduced_by_axis_projection() {
+void test_reacquire_to_observed_reenters_through_existing_slew() {
     VectorIntentFuser fuser;
-    const auto decision = fuser.update(
-        input_for({0.0f, 0.30f}, {0.30f, 0.0f}), 0.001f);
-    require_near(decision.target_manual_weight, 1.0f, 0.0001f,
-                 "orthogonal manual tracking must remain fully represented");
+    auto input = input_for({0.0f, 0.0f}, {0.60f, 0.0f});
+    auto previous = fuser.update(input, 0.001f).fused_stick;
+
+    input.manual_stick = {0.05f, -0.02f};
+    input.plan.lifecycle = pipeline_contract::TargetLifecycle::Reacquiring;
+    const auto reacquiring = fuser.update(input, 0.001f);
+    require_true(
+        std::hypot(reacquiring.fused_stick.x - previous.x,
+                   reacquiring.fused_stick.y - previous.y) <= 0.201f,
+        "entering reacquiring hard-cut the existing AI output");
+    previous = reacquiring.fused_stick;
+
+    input.plan.lifecycle = pipeline_contract::TargetLifecycle::Observed;
+    const auto observed = fuser.update(input, 0.001f);
+    require_true(
+        std::hypot(observed.fused_stick.x - previous.x,
+                   observed.fused_stick.y - previous.y) <= 0.081f,
+        "reacquire to observed cold-started full AI instead of reasserting by slew");
 }
 
-void test_radial_correction_preserves_helpful_tangential_manual() {
+void test_reacquiring_release_edge_is_bounded() {
     VectorIntentFuser fuser;
-    auto input = input_for({-0.20f, 0.30f}, {0.30f, 0.0f});
-    input.manual_confidence = 0.9f;
-    input.plan.error_px = {20.0f, 0.0f};
-    set_horizon(input.plan, {
-        {0.040f, {20.0f, -6.0f}},
-        {0.080f, {25.0f, -12.0f}},
-        {0.160f, {35.0f, -24.0f}},
-    });
-
-    const auto decision = fuser.update(input, 0.024f);
-    require_true(decision.candidate == FusionCandidate::RadialCorrected,
-                 "wrong radial manual must be reduced without losing helpful tangent");
-    require_near(decision.target_manual_weight, 0.5f, 0.0001f,
-                 "radial correction must halve only radial manual ownership");
-    require_near(decision.target_tangential_manual_weight, 1.0f, 0.0001f,
-                 "radial correction must preserve tangential manual ownership");
-    require_near(decision.fused_stick.y, 0.30f, 0.0001f,
-                 "helpful tangential manual output must survive radial correction");
+    auto input = input_for({0.0f, 0.0f}, {0.60f, 0.0f});
+    const auto active = fuser.update(input, 0.001f);
+    input.manual_stick = {0.05f, 0.0f};
+    input.plan.lifecycle = pipeline_contract::TargetLifecycle::Reacquiring;
+    const auto released = fuser.update(input, 0.001f);
+    require_true(
+        std::fabs(released.fused_stick.x - active.fused_stick.x) <= 0.201f,
+        "reacquiring release exceeded the deliberate manual release envelope");
+    require_true(released.applied_ai_weight > 0.0f,
+                 "reacquiring release discarded all output continuity state");
 }
 
-void test_radial_replacement_can_remove_only_wrong_radial_manual() {
+void test_full_manual_escape_preempts_reacquiring_release_slew() {
     VectorIntentFuser fuser;
-    auto input = input_for({-0.18f, 0.25f}, {0.22f, 0.0f});
-    input.manual_confidence = 0.30f;
-    input.plan.error_px = {8.0f, 0.0f};
-    set_horizon(input.plan, {
-        {0.040f, {12.0f, -5.0f}},
-        {0.080f, {18.0f, -10.0f}},
-        {0.160f, {24.0f, -20.0f}},
-    });
+    auto input = input_for({0.0f, 0.0f}, {0.60f, 0.0f});
+    (void)fuser.update(input, 0.001f);
 
-    const auto decision = fuser.update(input, 0.024f);
-    require_true(decision.candidate == FusionCandidate::RadialReplaced,
-                 "low-confidence wrong radial manual may be replaced independently");
-    require_near(decision.target_manual_weight, 0.0f, 0.0001f,
-                 "radial replacement must remove the wrong radial component");
-    require_near(decision.target_tangential_manual_weight, 1.0f, 0.0001f,
-                 "radial replacement must retain the tangential component");
-    require_near(decision.fused_stick.y, 0.25f, 0.0001f,
-                 "radial replacement must not swallow tangential correction");
+    input.manual_stick = {-1.0f, 0.0f};
+    input.plan.lifecycle = pipeline_contract::TargetLifecycle::Reacquiring;
+    const auto escaped = fuser.update(input, 0.001f);
+    require_true(escaped.manual_escape,
+                 "full manual escape must preempt reacquiring release slew");
+    require_true(escaped.reason == FusionFallbackReason::ManualEscape,
+                 "reacquiring full escape must report manual ownership");
+    require_true(escaped.candidate == FusionCandidate::ManualOnly,
+                 "reacquiring full escape must disallow AI ownership");
+    require_near(escaped.fused_stick.x, -1.0f, 0.0001f,
+                 "reacquiring must not delay full physical counter-steer");
 }
 
-void test_tangential_correction_preserves_helpful_radial_manual() {
+void test_full_manual_escape_cannot_be_blocked_by_saturated_ai() {
     VectorIntentFuser fuser;
-    auto input = input_for({0.20f, -0.35f}, {0.20f, 0.0f});
-    input.manual_confidence = 0.7f;
-    input.plan.error_px = {20.0f, 0.0f};
-    set_horizon(input.plan, {
-        {0.040f, {25.0f, 0.0f}},
-        {0.080f, {30.0f, 0.0f}},
-        {0.160f, {40.0f, 0.0f}},
-    });
-
-    const auto decision = fuser.update(input, 0.024f);
-    require_true(decision.candidate == FusionCandidate::TangentialCorrected,
-                 "wrong tangent must be reduced without weakening helpful radial input");
-    require_near(decision.target_manual_weight, 1.0f, 0.0001f,
-                 "tangential correction must preserve radial manual ownership");
-    require_near(decision.target_tangential_manual_weight, 0.5f, 0.0001f,
-                 "tangential correction must halve only tangential ownership");
-    require_near(decision.fused_stick.x, 0.40f, 0.0001f,
-                 "helpful radial manual input must survive tangential correction");
-}
-
-void test_tangential_replacement_can_remove_only_wrong_tangent() {
-    VectorIntentFuser fuser;
-    auto input = input_for({0.18f, -0.25f}, {0.22f, 0.0f});
-    input.manual_confidence = 0.30f;
-    input.plan.error_px = {12.0f, 0.0f};
-    set_horizon(input.plan, {
-        {0.040f, {16.0f, 0.0f}},
-        {0.080f, {22.0f, 0.0f}},
-        {0.160f, {34.0f, 0.0f}},
-    });
-
-    const auto decision = fuser.update(input, 0.024f);
-    require_true(decision.candidate == FusionCandidate::TangentialReplaced,
-                 "low-confidence wrong tangent may be replaced independently");
-    require_near(decision.target_manual_weight, 1.0f, 0.0001f,
-                 "tangential replacement must retain helpful radial manual input");
-    require_near(decision.target_tangential_manual_weight, 0.0f, 0.0001f,
-                 "tangential replacement must remove only the tangent");
-}
-
-void test_short_local_gain_loses_to_lower_160ms_burden() {
-    VectorIntentFuser fuser;
-    auto input = input_for({0.30f, 0.0f}, {-0.10f, 0.0f});
-    set_horizon(input.plan, {
-        {0.040f, {6.0f, 0.0f}},
-        {0.080f, {12.0f, 0.0f}},
-        {0.160f, {20.0f, 0.0f}},
-    });
-
-    const auto decision = fuser.update(input, 0.001f);
-    require_true(decision.candidate == FusionCandidate::ManualSupported,
-                 "40ms winner must yield to the lower multi-horizon burden");
-}
-
-void test_left_motion_adjusted_error_rate_changes_winner() {
-    VectorIntentFuser moving_away;
-    auto away = input_for({0.25f, 0.0f}, {-0.25f, 0.0f});
-    away.plan.error_px = {10.0f, 0.0f};
-    away.plan.error_rate_px_per_sec = {200.0f, 0.0f};
-
-    VectorIntentFuser closing;
-    auto toward = away;
-    toward.plan.error_rate_px_per_sec = {-200.0f, 0.0f};
-
-    const auto away_decision = moving_away.update(away, 0.001f);
-    const auto toward_decision = closing.update(toward, 0.001f);
-    require_true(away_decision.candidate != toward_decision.candidate,
-                 "the plan's left-motion-adjusted error rate must affect selection");
-}
-
-void test_aligned_center_cross_is_delegated_to_existing_brake() {
-    VectorIntentFuser fuser;
-    auto input = input_for({0.30f, 0.0f}, {0.30f, 0.0f});
-    input.plan.error_px = {3.0f, 0.0f};
-    set_horizon(input.plan, {
-        {0.040f, {3.0f, 0.0f}},
-        {0.080f, {2.0f, 0.0f}},
-        {0.160f, {1.0f, 0.0f}},
-    });
-
-    const auto decision = fuser.update(input, 0.001f);
-    require_true(decision.candidate == FusionCandidate::ExistingMix,
-                 "aligned crossing must remain owned by ADS Brake or controller dynamics");
-}
-
-void test_bodylock_allows_crossing_while_target_keeps_inertial_direction() {
-    auto continuing = input_for({-0.10f, 0.0f}, {0.30f, 0.0f});
-    continuing.plan.mode = pipeline_contract::ControlMode::BodyLockFollow;
-    continuing.plan.error_px = {3.0f, 0.0f};
-    continuing.plan.velocity_px_per_sec = {100.0f, 0.0f};
-    continuing.plan.acceleration_px_per_sec2 = {-300.0f, 0.0f};
-    set_horizon(continuing.plan, {
-        {0.040f, {-1.0f, 0.0f}},
-        {0.080f, {-3.0f, 0.0f}},
-        {0.160f, {-6.0f, 0.0f}},
-    });
-
-    auto reversed = continuing;
-    reversed.plan.acceleration_px_per_sec2 = {-1000.0f, 0.0f};
-
-    VectorIntentFuser inertial_fuser;
-    VectorIntentFuser reversed_fuser;
-    const auto inertial = inertial_fuser.update(continuing, 0.001f);
-    const auto after_reversal = reversed_fuser.update(reversed, 0.001f);
-    require_true(inertial.candidate_costs[0] < after_reversal.candidate_costs[0],
-                 "BodyLock must allow finite crossing until target velocity reverses");
-}
-
-void test_ads_crossing_penalty_does_not_inherit_bodylock_inertia_allowance() {
-    auto continuing = input_for({-0.10f, 0.0f}, {0.30f, 0.0f});
-    continuing.plan.mode = pipeline_contract::ControlMode::AdsAcquire;
-    continuing.plan.error_px = {3.0f, 0.0f};
-    continuing.plan.velocity_px_per_sec = {100.0f, 0.0f};
-    continuing.plan.acceleration_px_per_sec2 = {-300.0f, 0.0f};
-    set_horizon(continuing.plan, {
-        {0.040f, {-1.0f, 0.0f}},
-        {0.080f, {-3.0f, 0.0f}},
-        {0.160f, {-6.0f, 0.0f}},
-    });
-    auto reversed = continuing;
-    reversed.plan.acceleration_px_per_sec2 = {-1000.0f, 0.0f};
-
-    VectorIntentFuser continuing_fuser;
-    VectorIntentFuser reversed_fuser;
-    const auto before_reversal = continuing_fuser.update(continuing, 0.001f);
-    const auto after_reversal = reversed_fuser.update(reversed, 0.001f);
-    require_near(before_reversal.candidate_costs[0],
-                 after_reversal.candidate_costs[0], 0.0001f,
-                 "ADS settle must keep its crossing brake independent of target inertia");
-}
-
-void test_near_equal_cost_keeps_previous_candidate() {
-    VectorIntentFuser fuser;
-    const auto first = fuser.update(
-        input_for({-0.20f, 0.0f}, {0.30f, 0.0f}), 0.001f);
-    require_true(first.candidate == FusionCandidate::AiSupported,
-                 "fixture must establish an AI-supported previous choice");
-
-    auto near_equal = input_for({-0.19f, 0.0f}, {0.30f, 0.0f});
-    near_equal.plan.error_px = {40.0f, 0.0f};
-    const auto second = fuser.update(near_equal, 0.001f);
-    require_true(second.candidate == FusionCandidate::AiSupported,
-                 "near-equal cost must keep the previous candidate");
+    const auto input = input_for({-1.0f, 0.0f}, {1.34f, 0.0f});
+    const auto escaped = fuser.update(input, 0.001f);
+    require_true(escaped.manual_escape,
+                 "saturated shaped AI must not block full manual escape");
+    require_true(escaped.candidate == FusionCandidate::ManualOnly,
+                 "saturated AI escape must transfer ownership to manual");
+    require_near(escaped.fused_stick.x, -1.0f, 0.0001f,
+                 "saturated AI escape must preserve exact physical input");
 }
 
 void test_diagonal_manual_escape_is_preserved_exactly() {
     VectorIntentFuser fuser;
-    auto input = input_for({-0.50f, 0.40f}, {0.40f, -0.30f});
+    const auto input = input_for({-0.50f, 0.40f}, {0.40f, -0.30f});
     const auto decision = fuser.update(input, 0.001f);
     require_true(decision.manual_escape,
                  "deliberate diagonal input must be classified as escape");
     require_true(decision.candidate == FusionCandidate::ManualOnly,
                  "manual escape must disallow AI-owned candidates");
     require_near(decision.fused_stick.x, input.manual_stick.x, 0.0001f,
-                 "escape X must remain physical input");
+                 "manual escape X must remain exact physical input");
     require_near(decision.fused_stick.y, input.manual_stick.y, 0.0001f,
-                 "escape Y must remain physical input");
+                 "manual escape Y must remain exact physical input");
 }
 
-void test_missing_target_falls_back_to_physical_manual() {
+void test_nonfinite_input_returns_exact_physical_manual() {
     VectorIntentFuser fuser;
     auto input = input_for({0.20f, -0.10f}, {0.30f, 0.20f});
-    input.plan = {};
+    input.plan.error_px.x = std::numeric_limits<float>::quiet_NaN();
     const auto decision = fuser.update(input, 0.001f);
-    require_true(decision.fallback, "missing target must use fallback");
+    require_true(decision.fallback,
+                 "non-finite plan must use the finite manual fallback");
     require_near(decision.fused_stick.x, 0.20f, 0.0001f,
-                 "missing target must preserve manual X");
+                 "non-finite fallback X must preserve physical input");
     require_near(decision.fused_stick.y, -0.10f, 0.0001f,
-                 "missing target must preserve manual Y");
-}
-
-void test_target_change_releases_without_new_attenuation_step() {
-    VectorIntentFuser fuser;
-    const auto first = fuser.update(
-        input_for({-0.20f, 0.0f}, {0.30f, 0.0f}), 0.024f);
-    require_true(first.applied_manual_weight < 1.0f,
-                 "fixture must begin with attenuated manual ownership");
-
-    auto changed = input_for({-0.20f, 0.0f}, {0.30f, 0.0f});
-    changed.plan.target_id = 8;
-    const auto second = fuser.update(changed, 0.001f);
-    require_true(second.fallback, "target change must suspend active selection");
-    require_near(second.target_manual_weight, 1.0f, 0.0001f,
-                 "target change must target full manual ownership");
-    require_true(second.applied_manual_weight > first.applied_manual_weight,
-                 "target change must immediately begin releasing manual attenuation");
-
-    const auto third = fuser.update(changed, 0.004f);
-    require_true(third.applied_ai_weight > 0.0f &&
-                     third.applied_ai_weight < 1.0f,
-                 "new target AI must rearm through the ownership envelope "
-                 "instead of cold-starting at full weight");
-}
-
-void test_reacquiring_low_reliability_and_low_response_release_to_manual() {
-    for (int kind = 0; kind < 3; ++kind) {
-        VectorIntentFuser fuser;
-        auto input = input_for({0.20f, 0.0f}, {0.30f, 0.0f});
-        if (kind == 0) {
-            input.plan.lifecycle = pipeline_contract::TargetLifecycle::Reacquiring;
-        } else if (kind == 1) {
-            input.plan.reliability = 0.40f;
-        } else {
-            input.plan.response_confidence = 0.10f;
-        }
-        const auto decision = fuser.update(input, 0.001f);
-        require_true(decision.fallback,
-                     "unreliable causal evidence must use manual fallback");
-        require_near(decision.target_manual_weight, 1.0f, 0.0001f,
-                     "fallback must target full manual ownership");
-        require_near(decision.target_ai_weight, 1.0f, 0.0001f,
-                     "ambiguous evidence must preserve safe shaped AI fallback");
-    }
-}
-
-void test_unreliable_opposing_proposal_yields_continuously_to_manual() {
-    for (int kind = 0; kind < 3; ++kind) {
-        VectorIntentFuser fuser;
-        auto input = input_for({-0.20f, 0.0f}, {0.30f, 0.0f});
-        // Magnitude is deliberate even if the intent-confidence estimator has
-        // not caught up yet; this is the exact stale-confidence runtime case.
-        input.manual_confidence = 0.1f;
-        (void)fuser.update(input, 0.004f);
-        if (kind == 0) {
-            input.plan.lifecycle = pipeline_contract::TargetLifecycle::Reacquiring;
-        } else if (kind == 1) {
-            input.plan.reliability = 0.40f;
-        } else {
-            input.plan.response_confidence = 0.10f;
-        }
-        const auto decision = fuser.update(input, 0.001f);
-        require_true(decision.fallback,
-                     "unreliable opposing evidence must use fallback");
-        require_true(decision.candidate == FusionCandidate::ManualOnly,
-                     "unreliable opposing AI must yield controller ownership");
-        require_true(decision.applied_ai_weight > 0.0f &&
-                         decision.applied_ai_weight < 1.0f,
-                     "transient unreliable evidence must begin a bounded AI "
-                     "release instead of toggling AI off in one tick");
-    }
-}
-
-void test_one_tick_reliability_gap_does_not_create_ai_off_on_impulse() {
-    VectorIntentFuser fuser;
-    auto input = input_for({0.012f, 0.122f}, {0.515f, -0.062f});
-    input.plan.mode = pipeline_contract::ControlMode::BodyLockFollow;
-    input.plan.error_px = {52.0f, -96.0f};
-    input.manual_confidence = 1.0f;
-
-    const auto before = fuser.update(input, 0.004f);
-    input.plan.reliability = 0.50f;
-    const auto gap = fuser.update(input, 0.004f);
-    input.plan.reliability = 1.0f;
-    const auto recovered = fuser.update(input, 0.004f);
-
-    require_true(gap.fallback,
-                 "fixture must exercise the transient reliability fallback");
-    require_true(gap.applied_ai_weight > 0.0f,
-                 "one unreliable tick must not hard-disable a continuous AI proposal");
-    require_true(recovered.applied_ai_weight >= gap.applied_ai_weight,
-                 "credible recovery must restore rather than further drop AI ownership");
-    const auto output_delta = [](pipeline_contract::Vec2f lhs,
-                                 pipeline_contract::Vec2f rhs) {
-        const float dx = lhs.x - rhs.x;
-        const float dy = lhs.y - rhs.y;
-        return std::sqrt(dx * dx + dy * dy);
-    };
-    require_true(output_delta(before.fused_stick, gap.fused_stick) < 0.15f,
-                 "fallback edge must stay inside the 24ms ownership envelope");
-    require_true(output_delta(gap.fused_stick, recovered.fused_stick) < 0.15f,
-                 "recovery edge must not restore full AI as a single-tick impulse");
+                 "non-finite fallback Y must preserve physical input");
 }
 
 void test_remaining_work_rotation_does_not_reproject_stable_manual_input() {
-    controller_native::VectorIntentFusionConfig config;
-    config.fresh_vision_wrong_way_manual_floor = 0.35f;
-    VectorIntentFuser fuser(config);
+    VectorIntentFuser fuser;
     auto input = input_for({-0.38f, 0.02f}, {0.24f, 0.0f});
-    input.plan.mode = pipeline_contract::ControlMode::BodyLockFollow;
     input.plan.error_px = {30.0f, 2.0f};
     input.plan.remaining_work_px = input.plan.error_px;
     input.plan.remaining_work_confidence = 1.0f;
@@ -841,216 +249,110 @@ void test_remaining_work_rotation_does_not_reproject_stable_manual_input() {
     input.plan.remaining_work_px = input.plan.error_px;
     input.plan.delivered_camera_motion_since_capture_px = {28.0f, 32.0f};
     const auto after = fuser.update(input, 0.001f);
-    const float dx = after.fused_stick.x - before.fused_stick.x;
-    const float dy = after.fused_stick.y - before.fused_stick.y;
-
-    require_true(std::hypot(dx, dy) < 0.05f,
-                 "rotating Remaining error must not rotate the manual "
-                 "projection basis while the delivered AI proposal is stable");
+    require_true(
+        std::hypot(after.fused_stick.x - before.fused_stick.x,
+                   after.fused_stick.y - before.fused_stick.y) < 0.05f,
+        "rotating Remaining error must not rotate the manual projection basis");
 }
 
-void test_visual_reference_rotation_is_slewed_for_manual_projection() {
+void test_visual_reference_rotation_is_not_a_one_tick_output_rotation() {
     VectorIntentFuser fuser;
     auto input = input_for({-0.38f, 0.02f}, {0.24f, 0.0f});
-    input.plan.mode = pipeline_contract::ControlMode::BodyLockFollow;
     input.plan.error_px = {30.0f, 2.0f};
     input.fresh_single_target_observation = true;
 
     const auto before = fuser.update(input, 0.024f);
     input.plan.error_px = {2.0f, -30.0f};
     const auto after = fuser.update(input, 0.001f);
-    const float dx = after.fused_stick.x - before.fused_stick.x;
-    const float dy = after.fused_stick.y - before.fused_stick.y;
-
-    require_true(std::hypot(dx, dy) < 0.10f,
-                 "a one-frame visual direction change must not rotate the "
-                 "manual projection basis in one controller tick");
+    require_true(
+        std::hypot(after.fused_stick.x - before.fused_stick.x,
+                   after.fused_stick.y - before.fused_stick.y) < 0.10f,
+        "a one-frame visual direction change must not rotate output instantly");
 }
 
-void test_low_response_confidence_does_not_deadlock_safe_ai_fallback() {
+void test_target_change_reenters_from_manual_baseline() {
     VectorIntentFuser fuser;
-    auto input = input_for({0.0f, 0.0f}, {0.30f, 0.0f});
-    input.plan.response_confidence = 0.0f;
-    const auto decision = fuser.update(input, 0.024f);
-    require_true(decision.fallback,
-                 "low response confidence must abstain from candidate ownership");
-    require_near(decision.applied_manual_weight, 1.0f, 0.0001f,
-                 "low confidence must never attenuate manual input");
-    require_near(decision.applied_ai_weight, 1.0f, 0.0001f,
-                 "safe shaped AI must remain active for response learning");
-    require_near(decision.fused_stick.x, 0.30f, 0.0001f,
-                 "safe shaped AI fallback must reach delivered output");
+    auto input = input_for({0.0f, 0.0f}, {0.60f, 0.0f});
+    (void)fuser.update(input, 0.001f);
+
+    input.plan.target_id = 8;
+    input.manual_stick = {0.05f, 0.0f};
+    const auto changed = fuser.update(input, 0.001f);
+    require_true(changed.reason == FusionFallbackReason::TargetChanged,
+                 "target change must still be explicit");
+
+    const auto reentered = fuser.update(input, 0.001f);
+    require_true(
+        std::fabs(reentered.fused_stick.x - changed.fused_stick.x) <= 0.081f,
+        "new target re-entry inherited a full old/new AI impulse");
 }
 
-void test_neutral_manual_input_cannot_create_a_second_ai_brake() {
+void test_no_target_replacement_uses_manual_admission_tick() {
     VectorIntentFuser fuser;
-    auto input = input_for({0.0f, 0.0f}, {0.30f, -0.10f});
-    input.manual_confidence = 0.0f;
-    input.plan.error_px = {3.0f, 1.0f};
-    const auto decision = fuser.update(input, 0.024f);
-    require_true(decision.candidate == FusionCandidate::ExistingMix,
-                 "without credible manual input there is no fusion conflict");
-    require_near(decision.applied_ai_weight, 1.0f, 0.0001f,
-                 "neutral manual input must not duplicate ADS or BodyLock braking");
-    require_near(decision.fused_stick.x, 0.30f, 0.0001f,
-                 "neutral manual input must preserve shaped AI X");
-    require_near(decision.fused_stick.y, -0.10f, 0.0001f,
-                 "neutral manual input must preserve shaped AI Y");
+    auto input = input_for({0.0f, 0.0f}, {0.60f, 0.0f});
+    (void)fuser.update(input, 0.001f);
+
+    input.plan.target_id = 0;
+    input.plan.lifecycle = pipeline_contract::TargetLifecycle::None;
+    input.manual_stick = {-0.04f, 0.03f};
+    const auto no_target = fuser.update(input, 0.001f);
+    require_near(no_target.fused_stick.x, -0.04f, 0.0001f,
+                 "no-target re-entry baseline must preserve manual X");
+
+    input.plan.target_id = 9;
+    input.plan.lifecycle = pipeline_contract::TargetLifecycle::Observed;
+    const auto admitted = fuser.update(input, 0.001f);
+    require_true(admitted.reason == FusionFallbackReason::TargetChanged,
+                 "replacement after a no-target gap must remain an explicit target change");
+    require_near(admitted.fused_stick.x, input.manual_stick.x, 0.0001f,
+                 "replacement admission tick must preserve exact manual X");
+    require_near(admitted.fused_stick.y, input.manual_stick.y, 0.0001f,
+                 "replacement admission tick must preserve exact manual Y");
+
+    const auto reentered = fuser.update(input, 0.001f);
+    require_true(
+        std::hypot(reentered.fused_stick.x - admitted.fused_stick.x,
+                   reentered.fused_stick.y - admitted.fused_stick.y) <= 0.081f,
+        "replacement target re-entry bypassed the post-admission slew");
 }
 
-void test_plan_horizon_does_not_double_apply_previous_camera_output() {
+void test_no_target_is_exact_manual() {
     VectorIntentFuser fuser;
-    auto input = input_for({0.10f, 0.0f}, {0.20f, 0.0f});
-    const auto first = fuser.update(input, 0.024f);
-    require_true(first.candidate == FusionCandidate::ExistingMix,
-                 "fixture must establish the existing mixed output");
-
-    set_horizon(input.plan, {
-        {0.040f, {10.0f, 0.0f}},
-        {0.080f, {5.0f, 0.0f}},
-        {0.160f, {1.0f, 0.0f}},
-    });
-    const auto second = fuser.update(input, 0.001f);
-    require_true(second.candidate == FusionCandidate::ExistingMix,
-                 "causal horizon already containing camera motion must score only output delta");
-}
-
-void test_aligned_input_near_center_is_not_split_into_another_brake() {
-    VectorIntentFuser fuser;
-    auto input = input_for({0.20f, 0.0f}, {0.20f, 0.0f});
-    input.plan.error_px = {3.0f, 0.0f};
-    set_horizon(input.plan, {
-        {0.040f, {2.0f, 0.0f}},
-        {0.080f, {1.0f, 0.0f}},
-        {0.160f, {0.5f, 0.0f}},
-    });
-    const auto decision = fuser.update(input, 0.024f);
-    require_true(decision.candidate == FusionCandidate::ExistingMix,
-                 "aligned user and AI input has no fusion conflict to arbitrate");
-}
-
-void test_nonfinite_input_returns_exact_physical_manual() {
-    VectorIntentFuser fuser;
-    auto input = input_for({0.20f, -0.10f}, {0.30f, 0.20f});
-    input.plan.error_px.x = std::numeric_limits<float>::quiet_NaN();
+    auto input = input_for({0.17f, -0.23f}, {0.60f, 0.60f});
+    input.plan.target_id = 0;
+    input.plan.lifecycle = pipeline_contract::TargetLifecycle::None;
     const auto decision = fuser.update(input, 0.001f);
-    require_true(decision.fallback, "non-finite plan must use fallback");
-    require_near(decision.fused_stick.x, 0.20f, 0.0001f,
-                 "non-finite fallback must preserve exact physical X");
-    require_near(decision.fused_stick.y, -0.10f, 0.0001f,
-                 "non-finite fallback must preserve exact physical Y");
-}
-
-void test_same_target_ads_to_bodylock_preserves_weight_state() {
-    VectorIntentFuser fuser;
-    auto input = input_for({-0.20f, 0.0f}, {0.30f, 0.0f});
-    const auto ads = fuser.update(input, 0.012f);
-    input.plan.mode = pipeline_contract::ControlMode::BodyLockFollow;
-    const auto bodylock = fuser.update(input, 0.0001f);
-    require_true(!bodylock.fallback,
-                 "same-target mode handoff must remain eligible");
-    require_true(std::fabs(bodylock.applied_manual_weight -
-                           ads.applied_manual_weight) < 0.01f,
-                 "same-target mode handoff must not reset fusion weights");
-}
-
-void test_initial_existing_mix_does_not_ramp_safe_ai() {
-    VectorIntentFuser fuser;
-    const auto input = input_for({0.20f, 0.0f}, {0.20f, 0.0f});
-    const auto first = fuser.update(input, 0.001f);
-    require_near(first.target_ai_weight, 1.0f, 0.0001f,
-                 "aligned fixture must target full AI weight");
-    require_near(first.applied_ai_weight, 1.0f, 0.0001f,
-                 "baseline existing mix must not pay an AI cold-start ramp");
-}
-
-void test_conflict_weights_approach_target_over_24ms() {
-    VectorIntentFuser fuser;
-    const auto conflict = input_for({-0.20f, 0.0f}, {0.30f, 0.0f});
-    const auto first = fuser.update(conflict, 0.001f);
-    require_near(first.target_manual_weight, 0.5f, 0.0001f,
-                 "conflict fixture must target AI-supported manual weight");
-    require_true(first.applied_manual_weight < 1.0f &&
-                 first.applied_manual_weight > 0.90f,
-                 "first conflict millisecond must begin rather than finish transition");
-    auto decision = first;
-    for (int tick = 1; tick < 12; ++tick) {
-        decision = fuser.update(conflict, 0.001f);
-    }
-    require_near(decision.applied_manual_weight, 0.5f, 0.001f,
-                 "half-weight ownership change must complete in 12ms");
-}
-
-void test_reliable_wrong_way_ads_attenuates_radial_weight_within_6ms() {
-    VectorIntentFuser fuser;
-    const auto conflict = input_for({-0.20f, 0.0f}, {0.30f, 0.0f});
-    auto decision = fuser.update(conflict, 0.001f);
-    for (int tick = 1; tick < 6; ++tick) {
-        decision = fuser.update(conflict, 0.001f);
-    }
-    require_near(decision.applied_manual_weight, 0.5f, 0.001f,
-                 "reliable wrong-way ADS radial attenuation must finish within 6ms");
+    require_near(decision.fused_stick.x, 0.17f, 0.0001f,
+                 "no-target X must be exact manual");
+    require_near(decision.fused_stick.y, -0.23f, 0.0001f,
+                 "no-target Y must be exact manual");
 }
 
 }  // namespace
 
 int main() {
     try {
-        test_controller_rate_candidate_is_opt_in();
-        test_candidate_outputs_match_version_one_scales();
-        test_candidate_count_covers_polar_set();
-        test_aligned_input_keeps_existing_mix();
-        test_opposing_small_manual_uses_partial_radial_brake();
-        test_fresh_single_target_vision_counter_corrects_wrong_radial_manual();
-        test_fresh_vision_counter_correction_expires_back_to_tracker_policy();
-        test_fresh_ads_observation_keeps_existing_ads_policy();
-        test_fresh_vision_only_reduces_wrong_radial_near_target_input();
-        test_fresh_vision_counter_correction_respects_manual_escape();
-        test_strong_aligned_manual_enters_causal_crossing_evaluation();
-        test_recent_approach_direction_can_be_unloaded_after_crossing();
-        test_strong_manual_approach_is_remembered_when_ai_is_inside_tolerance();
-        test_causal_approach_episode_survives_between_vision_publications();
-        test_reliable_tracker_can_start_causal_approach_between_vision_frames();
-        test_observed_tracker_geometry_does_not_wait_for_high_confidence_warmup();
-        test_confirmed_causal_episode_does_not_snap_back_to_exact_manual();
-        test_low_reliability_clears_fresh_vision_envelope();
-        test_wrong_way_manual_only_is_ineligible_below_escape();
-        test_predicted_ads_reversal_releases_excess_radial_manual_ownership();
-        test_deliberate_opposing_manual_is_not_fully_swallowed();
-        test_high_confidence_manual_never_selects_ai_only();
-        test_orthogonal_manual_is_not_reduced_by_axis_projection();
-        test_short_local_gain_loses_to_lower_160ms_burden();
-        test_left_motion_adjusted_error_rate_changes_winner();
-        test_aligned_center_cross_is_delegated_to_existing_brake();
-        test_bodylock_allows_crossing_while_target_keeps_inertial_direction();
-        test_ads_crossing_penalty_does_not_inherit_bodylock_inertia_allowance();
-        test_radial_correction_preserves_helpful_tangential_manual();
-        test_radial_replacement_can_remove_only_wrong_radial_manual();
-        test_tangential_correction_preserves_helpful_radial_manual();
-        test_tangential_replacement_can_remove_only_wrong_tangent();
-        test_near_equal_cost_keeps_previous_candidate();
+        test_aligned_input_keeps_full_mix();
+        test_opposing_input_preserves_manual_and_continuously_retires_ai();
+        test_escape_threshold_is_not_a_control_switch();
+        test_fresh_vision_does_not_override_countersteer();
+        test_reacquire_and_target_change_fail_safe_to_manual();
+        test_reliability_boundary_does_not_drop_and_reassert_ai();
+        test_reacquire_to_observed_reenters_through_existing_slew();
+        test_reacquiring_release_edge_is_bounded();
+        test_full_manual_escape_preempts_reacquiring_release_slew();
+        test_full_manual_escape_cannot_be_blocked_by_saturated_ai();
         test_diagonal_manual_escape_is_preserved_exactly();
-        test_missing_target_falls_back_to_physical_manual();
-        test_target_change_releases_without_new_attenuation_step();
-        test_reacquiring_low_reliability_and_low_response_release_to_manual();
-        test_unreliable_opposing_proposal_yields_continuously_to_manual();
-        test_one_tick_reliability_gap_does_not_create_ai_off_on_impulse();
-        test_remaining_work_rotation_does_not_reproject_stable_manual_input();
-        test_visual_reference_rotation_is_slewed_for_manual_projection();
-        test_low_response_confidence_does_not_deadlock_safe_ai_fallback();
-        test_neutral_manual_input_cannot_create_a_second_ai_brake();
-        test_plan_horizon_does_not_double_apply_previous_camera_output();
-        test_aligned_input_near_center_is_not_split_into_another_brake();
         test_nonfinite_input_returns_exact_physical_manual();
-        test_same_target_ads_to_bodylock_preserves_weight_state();
-        test_initial_existing_mix_does_not_ramp_safe_ai();
-        test_conflict_weights_approach_target_over_24ms();
-        test_reliable_wrong_way_ads_attenuates_radial_weight_within_6ms();
-        std::cout << "cod_native_vector_intent_fuser_tests PASS\n";
+        test_remaining_work_rotation_does_not_reproject_stable_manual_input();
+        test_visual_reference_rotation_is_not_a_one_tick_output_rotation();
+        test_target_change_reenters_from_manual_baseline();
+        test_no_target_replacement_uses_manual_admission_tick();
+        test_no_target_is_exact_manual();
+        std::cout << "[VectorIntentFuserTests] PASS\n";
         return 0;
     } catch (const std::exception& error) {
-        std::cerr << "cod_native_vector_intent_fuser_tests FAIL "
-                  << error.what() << '\n';
+        std::cerr << "[VectorIntentFuserTests][FAIL] " << error.what() << '\n';
         return 1;
     }
 }

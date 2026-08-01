@@ -48,6 +48,7 @@ struct CliOptions {
     double slowdown_center = 0.40;
     int short_occlusion_ms = 0;
     int vision_hz = 0;
+    int vision_result_delay_ms = 0;
     std::string vision_disturbance = "off";
     std::string benchmark_recoil = "off";
     std::string firing_body_geometry_stabilizer = "on";
@@ -123,6 +124,23 @@ struct FusionRunSummary {
     std::uint64_t ticks = 0;
 };
 
+struct PulseAmplificationSummary {
+    std::uint64_t micro_input_ticks = 0;
+    std::uint64_t same_direction_stack_ticks = 0;
+    std::uint64_t wrong_near_center_stack_ticks = 0;
+    std::uint64_t fresh_vision_output_jump_events = 0;
+    std::uint64_t remaining_valid_ticks = 0;
+    std::uint64_t remaining_valid_transitions = 0;
+    std::uint64_t controller_target_switches = 0;
+    std::uint64_t decoy_vision_frames = 0;
+    double max_final_to_manual_ratio = 0.0;
+    double max_wrong_stack_ratio = 0.0;
+    double wrong_stack_output_area = 0.0;
+    double max_abs_final_x = 0.0;
+    double max_fresh_vision_output_jump = 0.0;
+    double max_remaining_work_step_px = 0.0;
+};
+
 CliOptions parse_args(int argc, char** argv) {
     CliOptions options;
     for (int index = 1; index < argc; ++index) {
@@ -152,6 +170,9 @@ CliOptions parse_args(int argc, char** argv) {
             options.short_occlusion_ms = std::stoi(argv[++index]);
         } else if (argument == "--vision-hz" && index + 1 < argc) {
             options.vision_hz = std::stoi(argv[++index]);
+        } else if (argument == "--vision-result-delay-ms" &&
+                   index + 1 < argc) {
+            options.vision_result_delay_ms = std::stoi(argv[++index]);
         } else if (
             argument == "--vision-disturbance" && index + 1 < argc) {
             options.vision_disturbance = argv[++index];
@@ -256,6 +277,10 @@ CliOptions parse_args(int argc, char** argv) {
     if (options.vision_hz < 0 || options.vision_hz > 1000) {
         throw std::runtime_error("vision hz must be 0 or 1..1000");
     }
+    if (options.vision_result_delay_ms < 0 ||
+        options.vision_result_delay_ms > 100) {
+        throw std::runtime_error("vision result delay must be 0..100 ms");
+    }
     if (options.vision_disturbance != "off" &&
         options.vision_disturbance != "gun-kick" &&
         options.vision_disturbance != "gun-kick-adversarial" &&
@@ -263,12 +288,13 @@ CliOptions parse_args(int argc, char** argv) {
         options.vision_disturbance != "gun-kick-plus-recoil" &&
         options.vision_disturbance != "body-box-deformation" &&
         options.vision_disturbance != "body-box-plus-recoil" &&
+        options.vision_disturbance != "dropout-decoy" &&
         options.vision_disturbance != "horizontal-aim-bias") {
         throw std::runtime_error(
             "vision disturbance must be off, gun-kick, "
             "gun-kick-adversarial, camera-recoil, or "
             "gun-kick-plus-recoil, body-box-deformation, or "
-            "body-box-plus-recoil, or horizontal-aim-bias");
+            "body-box-plus-recoil, dropout-decoy, or horizontal-aim-bias");
     }
     if (options.benchmark_recoil != "off" &&
         options.benchmark_recoil != "on") {
@@ -290,10 +316,11 @@ CliOptions parse_args(int argc, char** argv) {
         options.profile != "obsolete" &&
         options.profile != "recover" &&
         options.profile != "arc" &&
+        options.profile != "micro" &&
         options.profile != "both") {
         throw std::runtime_error(
             "profile must be pure, mixed, scripted, obsolete, recover, arc, "
-            "or both");
+            "micro, or both");
     }
     if (options.cohort != "ads" && options.cohort != "bodylock" &&
         options.cohort != "both") {
@@ -490,6 +517,7 @@ const char* profile_name(ManualProfile profile) {
     case ManualProfile::ObsoleteAfterCrossing: return "obsolete";
     case ManualProfile::WrongThenCorrect: return "recover";
     case ManualProfile::ArcRecovery: return "arc";
+    case ManualProfile::MicroCorrection: return "micro";
     }
     return "unknown";
 }
@@ -619,7 +647,8 @@ void write_report(
     std::uint64_t config_fingerprint,
     const std::vector<BenchmarkResult>& results,
     const std::vector<CounterfactualRunSummary>& counterfactual_results,
-    const std::vector<FusionRunSummary>& fusion_results) {
+    const std::vector<FusionRunSummary>& fusion_results,
+    const std::vector<PulseAmplificationSummary>& pulse_results) {
     if (output_path.empty()) return;
     if (std::filesystem::exists(output_path)) {
         throw std::runtime_error("output already exists: " + output_path.string());
@@ -635,7 +664,7 @@ void write_report(
     std::ofstream out(partial, std::ios::binary);
     if (!out) throw std::runtime_error("cannot open output: " + partial.string());
     out << std::setprecision(10);
-    out << "{\n  \"schema\": \"sustained-aimlab-v3\",\n"
+    out << "{\n  \"schema\": \"sustained-aimlab-v4\",\n"
         << "  \"revision\": " << json_string(options.revision) << ",\n"
         << "  \"dirty\": " << (options.dirty ? "true" : "false") << ",\n"
         << "  \"config_path\": " << json_string(options.config_path.string()) << ",\n"
@@ -657,6 +686,8 @@ void write_report(
         << ", \"tick_ms\": " << config.tick_ms
         << ", \"vision_interval_ms\": " << config.vision_interval_ms
         << ", \"vision_hz_requested\": " << options.vision_hz
+        << ", \"vision_result_delay_ms\": "
+        << config.vision_result_delay_ms
         << ", \"vision_disturbance\": "
         << json_string(options.vision_disturbance)
         << ", \"benchmark_recoil\": "
@@ -989,6 +1020,32 @@ void write_report(
             << ",\"mean_manual_weight\":"
             << fusion.manual_weight_sum / divisor
             << ",\"mean_ai_weight\":" << fusion.ai_weight_sum / divisor
+            << "},\"pulse_amplification\":";
+        const PulseAmplificationSummary& pulse = pulse_results.at(run_index);
+        out << "{\"micro_input_ticks\":" << pulse.micro_input_ticks
+            << ",\"same_direction_stack_ticks\":"
+            << pulse.same_direction_stack_ticks
+            << ",\"wrong_near_center_stack_ticks\":"
+            << pulse.wrong_near_center_stack_ticks
+            << ",\"fresh_vision_output_jump_events\":"
+            << pulse.fresh_vision_output_jump_events
+            << ",\"remaining_valid_ticks\":" << pulse.remaining_valid_ticks
+            << ",\"remaining_valid_transitions\":"
+            << pulse.remaining_valid_transitions
+            << ",\"controller_target_switches\":"
+            << pulse.controller_target_switches
+            << ",\"decoy_vision_frames\":" << pulse.decoy_vision_frames
+            << ",\"max_final_to_manual_ratio\":"
+            << pulse.max_final_to_manual_ratio
+            << ",\"max_wrong_stack_ratio\":"
+            << pulse.max_wrong_stack_ratio
+            << ",\"wrong_stack_output_area\":"
+            << pulse.wrong_stack_output_area
+            << ",\"max_abs_final_x\":" << pulse.max_abs_final_x
+            << ",\"max_fresh_vision_output_jump\":"
+            << pulse.max_fresh_vision_output_jump
+            << ",\"max_remaining_work_step_px\":"
+            << pulse.max_remaining_work_step_px
             << "},\"counterfactual\":";
         if (run_index < counterfactual_results.size()) {
             write_counterfactual_summary(out, counterfactual_results[run_index]);
@@ -1016,6 +1073,87 @@ FusionRunSummary summarize_fusion(const ReplayReference& reference) {
         summary.manual_weight_sum += output.intent_fusion_manual_weight;
         summary.ai_weight_sum += output.intent_fusion_ai_weight;
         ++summary.ticks;
+    }
+    return summary;
+}
+
+PulseAmplificationSummary summarize_pulse_amplification(
+    const ReplayReference& reference) {
+    PulseAmplificationSummary summary;
+    bool have_previous = false;
+    bool previous_remaining_valid = false;
+    double previous_final_x = 0.0;
+    Vec2d previous_remaining_work;
+    std::uint64_t previous_controller_target_id = 0;
+    std::uint64_t previous_script_target_id = 0;
+    for (const auto& frame : reference.trace) {
+        if (!frame.target_active) {
+            have_previous = false;
+            previous_controller_target_id = 0;
+            previous_script_target_id = 0;
+            continue;
+        }
+        const double manual_x = frame.input.manual_stick.x;
+        const double ai_x = frame.output.shaped_assist_stick.x;
+        const double final_x = frame.output.final_stick.x;
+        if (std::fabs(manual_x) >= 0.015 && std::fabs(manual_x) <= 0.05) {
+            ++summary.micro_input_ticks;
+            summary.max_final_to_manual_ratio = std::max(
+                summary.max_final_to_manual_ratio,
+                std::fabs(final_x) / std::max(0.001, std::fabs(manual_x)));
+            if (manual_x * ai_x > 0.0 && std::fabs(ai_x) >= 0.05) {
+                ++summary.same_direction_stack_ticks;
+                if (manual_x * frame.true_error_before_px.x < 0.0 &&
+                    std::hypot(frame.true_error_before_px.x,
+                               frame.true_error_before_px.y) <= 40.0) {
+                    ++summary.wrong_near_center_stack_ticks;
+                    summary.max_wrong_stack_ratio = std::max(
+                        summary.max_wrong_stack_ratio,
+                        std::fabs(final_x) /
+                            std::max(0.001, std::fabs(manual_x)));
+                    summary.wrong_stack_output_area += std::fabs(final_x);
+                }
+            }
+        }
+        summary.max_abs_final_x = std::max(
+            summary.max_abs_final_x, std::fabs(final_x));
+        if (frame.input.decoy_candidate_present && frame.fresh_vision) {
+            ++summary.decoy_vision_frames;
+        }
+        if (frame.output.remaining_work_valid) {
+            ++summary.remaining_valid_ticks;
+        }
+        if (have_previous) {
+            if (frame.output.remaining_work_valid != previous_remaining_valid) {
+                ++summary.remaining_valid_transitions;
+            }
+            const double remaining_step = std::hypot(
+                frame.output.remaining_work_px.x - previous_remaining_work.x,
+                frame.output.remaining_work_px.y - previous_remaining_work.y);
+            summary.max_remaining_work_step_px = std::max(
+                summary.max_remaining_work_step_px, remaining_step);
+            if (frame.fresh_vision) {
+                const double jump = std::fabs(final_x - previous_final_x);
+                summary.max_fresh_vision_output_jump = std::max(
+                    summary.max_fresh_vision_output_jump, jump);
+                if (jump >= 0.05) {
+                    ++summary.fresh_vision_output_jump_events;
+                }
+            }
+        }
+        if (previous_script_target_id == frame.target_id &&
+            previous_controller_target_id != 0 &&
+            frame.output.controller_target_id != 0 &&
+            frame.output.controller_target_id !=
+                previous_controller_target_id) {
+            ++summary.controller_target_switches;
+        }
+        have_previous = true;
+        previous_remaining_valid = frame.output.remaining_work_valid;
+        previous_remaining_work = frame.output.remaining_work_px;
+        previous_final_x = final_x;
+        previous_controller_target_id = frame.output.controller_target_id;
+        previous_script_target_id = frame.target_id;
     }
     return summary;
 }
@@ -1291,8 +1429,12 @@ int main(int argc, char** argv) {
             ? std::max(1, static_cast<int>(std::lround(
                 1000.0 / static_cast<double>(options.vision_hz))))
             : 0;
+        benchmark_config.vision_result_delay_ms =
+            options.vision_result_delay_ms;
         benchmark_config.vision_disturbance =
-            options.vision_disturbance == "horizontal-aim-bias"
+            options.vision_disturbance == "dropout-decoy"
+            ? VisionDisturbanceProfile::TargetDropoutDecoy
+            : options.vision_disturbance == "horizontal-aim-bias"
             ? VisionDisturbanceProfile::HorizontalAimBiasRecovery
             : options.vision_disturbance == "body-box-plus-recoil"
             ? VisionDisturbanceProfile::
@@ -1330,6 +1472,8 @@ int main(int argc, char** argv) {
             profiles.push_back(ManualProfile::ArcRecovery);
         } else if (options.profile == "scripted") {
             profiles.push_back(ManualProfile::Scripted);
+        } else if (options.profile == "micro") {
+            profiles.push_back(ManualProfile::MicroCorrection);
         } else {
             if (options.profile != "mixed") profiles.push_back(ManualProfile::Pure);
             if (options.profile != "pure") profiles.push_back(ManualProfile::Mixed);
@@ -1368,6 +1512,7 @@ int main(int argc, char** argv) {
         std::vector<BenchmarkResult> results;
         std::vector<CounterfactualRunSummary> counterfactual_results;
         std::vector<FusionRunSummary> fusion_results;
+        std::vector<PulseAmplificationSummary> pulse_results;
         const BenchmarkIntentFusionMode intent_fusion_mode =
             options.intent_fusion == "vector"
                 ? BenchmarkIntentFusionMode::CausalVector
@@ -1416,6 +1561,8 @@ int main(int argc, char** argv) {
                                 reference.benchmark_result;
                             fusion_results.push_back(
                                 summarize_fusion(reference));
+                            pulse_results.push_back(
+                                summarize_pulse_amplification(reference));
                             if (options.smoke) {
                                 validate_smoke(
                                     result, options.duration_ms, *coverage);
@@ -1439,7 +1586,8 @@ int main(int argc, char** argv) {
             file_fingerprint(options.config_path),
             results,
             counterfactual_results,
-            fusion_results);
+            fusion_results,
+            pulse_results);
         std::cout << "cod_native_sustained_aimlab_benchmark PASS\n";
         return EXIT_SUCCESS;
     } catch (const std::exception& error) {

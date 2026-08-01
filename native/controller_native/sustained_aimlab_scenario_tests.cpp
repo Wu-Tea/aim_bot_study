@@ -701,6 +701,32 @@ void test_adversarial_gun_kick_is_log_scale_and_phase_swept() {
             "adversarial fixture must exceed the old 8px vertical pulse");
 }
 
+void test_dropout_decoy_fixture_is_stationary_and_deterministic() {
+    BenchmarkConfig config;
+    config.duration_ms = 2'000;
+    config.vision_interval_ms = 6;
+    config.vision_disturbance =
+        VisionDisturbanceProfile::TargetDropoutDecoy;
+    const auto first = generate_script(2026080101, config);
+    const auto second = generate_script(2026080101, config);
+    require(first.hash == second.hash,
+            "dropout-decoy fixture must be deterministic");
+    require(!first.targets.empty(), "dropout-decoy fixture generated no target");
+    for (const auto& target : first.targets) {
+        require(target.initial_velocity_px_per_second.x == 0.0 &&
+                    target.initial_velocity_px_per_second.y == 0.0 &&
+                    target.velocity_maneuvers.empty(),
+                "dropout-decoy fixture must isolate controller-induced motion");
+        require(target.vision_occlusion_bursts.size() == 2,
+                "dropout-decoy fixture must contain two occlusion windows");
+        require(target.vision_occlusion_bursts[0].tracking_offset_ms == 110 &&
+                    target.vision_occlusion_bursts[0].duration_ms == 70 &&
+                    target.vision_occlusion_bursts[1].tracking_offset_ms == 360 &&
+                    target.vision_occlusion_bursts[1].duration_ms == 50,
+                "dropout-decoy windows changed without updating evidence contract");
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -723,6 +749,7 @@ int main() {
         test_short_occlusion_bursts_are_tracking_relative_and_hashed();
         test_gun_kick_disturbance_is_deterministic_and_observation_only();
         test_adversarial_gun_kick_is_log_scale_and_phase_swept();
+        test_dropout_decoy_fixture_is_stationary_and_deterministic();
         std::cout << "cod_native_sustained_aimlab_scenario_tests PASS\n";
         return EXIT_SUCCESS;
     } catch (const std::exception& error) {

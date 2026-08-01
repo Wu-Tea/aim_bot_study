@@ -52,6 +52,7 @@ struct TargetControlFeedback {
     bool has_delivered_camera_work_since_capture = false;
     pipeline_contract::Vec2f delivered_camera_work_since_capture_px{};
     float remaining_work_confidence = 0.0f;
+    bool capture_alignment_only = false;
     bool reset_remaining_work = false;
     bool firing_recently = false;
     float player_jump_action_age_ms = -1.0f;

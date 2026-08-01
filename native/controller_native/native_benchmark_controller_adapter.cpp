@@ -18,7 +18,10 @@ ControllerVisionSnapshot snapshot_from(
     snapshot.frame_updated = true;
     snapshot.selector_identity_protocol = true;
     snapshot.frame_id = input.frame_id;
-    snapshot.selected_observation_id = input.target_present ? input.target_id : 0;
+    snapshot.selected_observation_id = input.target_present &&
+            input.primary_candidate_visible
+        ? input.target_id
+        : input.decoy_candidate_present ? input.decoy_target_id : 0;
     snapshot.capture_time_seconds = std::isfinite(input.capture_time_seconds)
         ? input.capture_time_seconds : now_seconds;
     snapshot.ready_time_seconds = std::isfinite(input.ready_time_seconds)
@@ -26,11 +29,11 @@ ControllerVisionSnapshot snapshot_from(
     snapshot.state.screen_center_x = 320.0f;
     snapshot.state.screen_center_y = 256.0f;
     snapshot.state.fresh_observation = true;
-    if (!input.target_present) return snapshot;
+    if (!input.target_present && !input.decoy_candidate_present) return snapshot;
 
     pipeline_contract::VisionCandidateSnapshot candidate;
     candidate.id = input.target_id;
-    candidate.valid = true;
+    candidate.valid = input.target_present && input.primary_candidate_visible;
     candidate.has_aim_point = true;
     if (input.has_body_box) {
         candidate.body_box_px = {
@@ -60,7 +63,27 @@ ControllerVisionSnapshot snapshot_from(
     candidate.confidence = 0.95f;
     candidate.suggested_authority_state =
         common_native::TargetAuthorityState::StrongAssist;
-    snapshot.candidates.push_back(candidate);
+    if (candidate.valid) snapshot.candidates.push_back(candidate);
+    if (input.decoy_candidate_present) {
+        pipeline_contract::VisionCandidateSnapshot decoy;
+        decoy.id = input.decoy_target_id;
+        decoy.valid = true;
+        decoy.has_aim_point = true;
+        decoy.aim_point_px = {
+            static_cast<float>(320.0 + input.decoy_observed_error_px.x),
+            static_cast<float>(256.0 + input.decoy_observed_error_px.y),
+        };
+        decoy.body_box_px = {
+            decoy.aim_point_px.x - 24.0f,
+            decoy.aim_point_px.y - 44.8f,
+            48.0f,
+            112.0f,
+        };
+        decoy.confidence = 0.93f;
+        decoy.suggested_authority_state =
+            common_native::TargetAuthorityState::StrongAssist;
+        snapshot.candidates.push_back(decoy);
+    }
     return snapshot;
 }
 
@@ -204,6 +227,9 @@ ControllerStepResult NativeReplayAdapter::step(
         components.intent_fusion_ai_weight,
         components.intent_fusion_fallback,
         components.intent_fusion_manual_escape,
+        plan.target_id,
+        plan.remaining_work_valid,
+        {plan.remaining_work_px.x, plan.remaining_work_px.y},
         {components.before_recoil_stick.x,
          components.before_recoil_stick.y},
         true,

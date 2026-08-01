@@ -44,6 +44,21 @@ pipeline_contract::Vec2f BodylockFollowController::compute(
     request.max_force = {config_.max_force_x, config_.max_force_y};
     request.authority = authority;
     auto output = solve_response_model_aim(request).stick;
+    if (plan.lifecycle != pipeline_contract::TargetLifecycle::Observed) {
+        // A scope/FOV transition can hide the target for a few Vision frames.
+        // The retained velocity is still useful for continuing toward the last
+        // known target, but it is not fresh enough to command a reversal across
+        // the residual position error.  Such reversals produced the visible
+        // "almost arrived, then pulled back" oscillation during ADS occlusion.
+        const pipeline_contract::Vec2f control_error{
+            request.error_px.x, -request.error_px.y};
+        if (output.x * control_error.x < 0.0f) {
+            output.x = 0.0f;
+        }
+        if (output.y * control_error.y < 0.0f) {
+            output.y = 0.0f;
+        }
+    }
     const pipeline_contract::Vec2f manual{
         intent.filtered_right.x, intent.filtered_right.y};
     if (output.x * manual.x + output.y * manual.y < 0.0f) {

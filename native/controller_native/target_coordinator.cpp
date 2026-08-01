@@ -194,6 +194,14 @@ void TargetCoordinator::set_causal_player_motion_enabled_for_benchmark(
 const pipeline_contract::VisionCandidate* TargetCoordinator::choose_candidate(
     const pipeline_contract::VisionObservationBatch& observations,
     pipeline_contract::Vec2f predicted) const noexcept {
+    // Under the selector-owned protocol, a zero preferred id is an explicit
+    // "no selected target" result, not permission to acquire an arbitrary
+    // detector candidate. Candidates still enter the batch for diagnostics
+    // and memory, but only the selector may grant fresh control ownership.
+    if (observations.selector_identity_protocol &&
+        observations.preferred_source_id == 0) {
+        return nullptr;
+    }
     const pipeline_contract::VisionCandidate* best = nullptr;
     float best_score = std::numeric_limits<float>::max();
     const auto count = std::min<std::uint32_t>(
@@ -419,11 +427,20 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
                 feedback.delivered_camera_work_since_capture_px.x;
             observed_aim_px.y -=
                 feedback.delivered_camera_work_since_capture_px.y;
-            delivered_camera_work_since_capture_px_ =
-                feedback.delivered_camera_work_since_capture_px;
-            remaining_work_confidence_ = std::clamp(
-                feedback.remaining_work_confidence, 0.0f, 1.0f);
-            remaining_work_valid_ = remaining_work_confidence_ > 0.0f;
+            if (feedback.capture_alignment_only) {
+                // BodyLock needs capture-time coordinate alignment, but it
+                // already owns the sustained position/velocity loop. Do not
+                // convert alignment data back into Remaining authority.
+                delivered_camera_work_since_capture_px_ = {};
+                remaining_work_confidence_ = 0.0f;
+                remaining_work_valid_ = false;
+            } else {
+                delivered_camera_work_since_capture_px_ =
+                    feedback.delivered_camera_work_since_capture_px;
+                remaining_work_confidence_ = std::clamp(
+                    feedback.remaining_work_confidence, 0.0f, 1.0f);
+                remaining_work_valid_ = remaining_work_confidence_ > 0.0f;
+            }
         } else {
             delivered_camera_work_since_capture_px_ = {};
             remaining_work_confidence_ = 0.0f;
@@ -776,6 +793,18 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         control_mode_ = pipeline_contract::ControlMode::AdsAcquire;
     }
     plan.mode = control_mode_;
+    if (plan.mode == pipeline_contract::ControlMode::BodyLockFollow) {
+        // ADS may carry a Remaining estimate into the handoff tick. BodyLock
+        // must start from the tracker's current state instead of inheriting a
+        // second, response-model-based position loop.
+        delivered_camera_work_since_capture_px_ = {};
+        remaining_work_confidence_ = 0.0f;
+        remaining_work_valid_ = false;
+        plan.delivered_camera_motion_since_capture_px = {};
+        plan.remaining_work_px = plan.error_px;
+        plan.remaining_work_confidence = 0.0f;
+        plan.remaining_work_valid = false;
+    }
     plan.ads_demand = std::clamp(error_length / 130.0f, 0.0f, 1.0f);
     plan.bodylock_demand = std::clamp(
         std::max(

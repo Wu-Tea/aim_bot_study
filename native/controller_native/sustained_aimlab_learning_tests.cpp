@@ -33,7 +33,7 @@ RoundControllerFactory proportional_factory() {
     };
 }
 
-void test_retained_learning_is_causal_and_becomes_actionable() {
+void test_retained_learning_is_causal_and_stays_guarded_when_not_control_ready() {
     LearningExperimentConfig config;
     config.rounds = 3;
     config.round_duration_ms = 8'000;
@@ -52,8 +52,16 @@ void test_retained_learning_is_causal_and_becomes_actionable() {
             "warm round must keep accepting causal response evidence");
     require(result.rounds[1].first_accepted_update_ms >= 10,
             "warm round must not accept evidence before the delay bank begins");
-    require(result.rounds[1].valid_rollout_decisions > 0,
-            "warm learner must become actionable instead of staying fallback-only");
+    require(result.rounds[1].ended_with_response_confidence >= 0.20,
+            "warm round must retain its accepted response estimate");
+    require(result.rounds[1].ended_with_delay_confidence < 0.05,
+            "fixture must remain below the rollout delay-confidence gate");
+    require(result.rounds[1].valid_rollout_decisions == 0,
+            "incomplete joint confidence must remain fallback-only");
+    require(result.rounds[1].changed_scale_decisions == 0,
+            "guarded learning must not alter controller scale");
+    require(result.rounds[1].mean_selected_scale == 1.0,
+            "fallback-only learning must retain the neutral controller scale");
     auto report = result;
     report.config_path = "C:\\bench\\config.toml";
     const std::string json = learning_experiment_to_json(report);
@@ -92,7 +100,7 @@ void test_reset_control_does_not_inherit_previous_round_state() {
 
 int main() {
     try {
-        test_retained_learning_is_causal_and_becomes_actionable();
+        test_retained_learning_is_causal_and_stays_guarded_when_not_control_ready();
         test_reset_control_does_not_inherit_previous_round_state();
         std::cout << "cod_native_sustained_aimlab_learning_tests PASS\n";
         return 0;

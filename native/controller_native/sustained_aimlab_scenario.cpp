@@ -92,6 +92,7 @@ void hash_config(std::uint64_t& hash, const BenchmarkConfig& config) {
     hash_integral(hash, config.frame_width_px);
     hash_integral(hash, config.frame_height_px);
     hash_integral(hash, config.vision_interval_ms);
+    hash_integral(hash, config.vision_result_delay_ms);
     hash_integral(hash, config.vision_disturbance);
     hash_integral(hash, config.obsolete_vertical_fixture ? 1 : 0);
     hash_integral(hash, config.short_occlusion_duration_ms);
@@ -176,7 +177,7 @@ ScenarioScript generate_script(
         config.max_acquire_deadline_ms < config.min_acquire_deadline_ms ||
         config.fixed_target_slot_ms < 0 ||
         config.target_radius_px <= 0.0 ||
-        config.vision_interval_ms < 0) {
+        config.vision_interval_ms < 0 || config.vision_result_delay_ms < 0) {
         throw std::invalid_argument("invalid sustained AimLab benchmark config");
     }
 
@@ -354,7 +355,9 @@ ScenarioScript generate_script(
             target.acceleration_px_per_second_squared = {};
             target.maneuver_at_ms = -1;
         }
-        if (!config.target_motion_enabled) {
+        if (!config.target_motion_enabled ||
+            config.vision_disturbance ==
+                VisionDisturbanceProfile::TargetDropoutDecoy) {
             target.initial_velocity_px_per_second = {};
             target.acceleration_px_per_second_squared = {};
             target.maneuver_at_ms = -1;
@@ -429,7 +432,12 @@ ScenarioScript generate_script(
         } else {
             target.visible_radius_px = config.target_radius_px;
         }
-        if (config.short_occlusion_duration_ms > 0) {
+        if (config.vision_disturbance ==
+                VisionDisturbanceProfile::TargetDropoutDecoy) {
+            // Reproduces the live held-LT failure: the committed target is
+            // hidden briefly while one strong candidate remains ~200 px away.
+            target.vision_occlusion_bursts = {{110, 70}, {360, 50}};
+        } else if (config.short_occlusion_duration_ms > 0) {
             target.vision_occlusion_bursts = {
                 {early_occlusion_distribution(occlusion_random),
                  config.short_occlusion_duration_ms},

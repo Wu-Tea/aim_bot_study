@@ -104,7 +104,7 @@ struct GamepadAiAimConfig {
     float body_lock_helpful_preservation_floor = 1.0f;
     float body_lock_manual_overlap_scale = 0.0f;
     float body_lock_manual_escape_input_threshold = 0.45f;
-    float body_lock_manual_escape_preservation = 0.55f;
+    float body_lock_manual_escape_preservation = 0.75f;
     float body_lock_manual_takeover_input_threshold = 0.22f;
     float body_lock_manual_takeover_commit_ms = 18.0f;
     float body_lock_manual_takeover_release_ms = 80.0f;

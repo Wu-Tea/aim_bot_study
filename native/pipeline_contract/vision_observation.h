@@ -41,6 +41,7 @@ struct VisionObservationBatch {
     float frame_height_px = 0.0f;
     std::uint32_t count = 0;
     bool capture_fresh = false;
+    bool selector_identity_protocol = false;
     bool roi_fallback = false;
     bool fire_requested = false;
     bool observed_fire_eligible = false;

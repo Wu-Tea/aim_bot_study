@@ -12,6 +12,10 @@ namespace controller_native::sustained_aimlab {
 struct ControllerObservation {
     int now_ms = 0;
     bool target_present = false;
+    bool primary_candidate_visible = true;
+    bool decoy_candidate_present = false;
+    std::uint64_t decoy_target_id = 0;
+    Vec2d decoy_observed_error_px;
     bool fresh_vision = false;
     std::uint64_t frame_id = 0;
     std::uint64_t target_id = 0;
@@ -50,6 +54,9 @@ struct ControllerStepResult {
     float intent_fusion_ai_weight = 0.0f;
     bool intent_fusion_fallback = false;
     bool intent_fusion_manual_escape = false;
+    std::uint64_t controller_target_id = 0;
+    bool remaining_work_valid = false;
+    Vec2d remaining_work_px;
     Vec2d pre_recoil_stick;
     bool has_pre_recoil_stick = false;
 };

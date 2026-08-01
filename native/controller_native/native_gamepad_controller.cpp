@@ -79,16 +79,19 @@ BodylockFollowControllerConfig bodylock_config(const GamepadRuntimeConfig& confi
     result.feedback_range_x_px = std::max(
         18.0f, config.ai_aim.body_lock_box_tolerance_px * 1.5f);
     result.feedback_range_y_px = result.feedback_range_x_px;
+    result.feedforward_gain = 0.72f;
     return result;
 }
 
 VectorIntentFusionConfig vector_intent_fusion_config(
     const GamepadRuntimeConfig& config) {
     VectorIntentFusionConfig result{};
-    result.manual_escape_threshold =
-        config.ai_aim.body_lock_manual_escape_input_threshold;
-    result.fresh_vision_wrong_way_manual_floor =
-        config.intent.fresh_vision_wrong_way_manual_floor;
+    result.manual_escape_threshold = std::min(
+        config.ai_aim.body_lock_manual_escape_input_threshold,
+        config.ai_aim.body_lock_manual_takeover_input_threshold);
+    result.manual_preservation_floor = std::clamp(
+        config.ai_aim.body_lock_manual_escape_preservation,
+        0.0f, 1.0f);
     return result;
 }
 
@@ -208,6 +211,7 @@ pipeline_contract::VisionObservationBatch NativeGamepadController::observation_b
     batch.frame_height_px = snapshot.state.screen_center_y > 0.0f
         ? snapshot.state.screen_center_y * 2.0f : 416.0f;
     batch.capture_fresh = snapshot.frame_updated || snapshot.state.fresh_observation;
+    batch.selector_identity_protocol = snapshot.selector_identity_protocol;
     batch.fire_requested = snapshot.state.auto_fire_requested;
     batch.observed_fire_eligible = snapshot.state.fire_authority &&
         (snapshot.state.target_tier == "strong" ||
@@ -398,7 +402,23 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
         remaining_work_scale = benchmark_remaining_work_scale_;
     }
 #endif
+    // Remaining-work feedback is essential for one-shot ADS arrival, but in
+    // sustained BodyLock it closes a second position loop around the tracker.
+    // Capture-time alignment is part of that same model: applying it only on
+    // fresh Vision frames still creates a sampled feedback loop. BodyLock owns
+    // one continuous position/velocity loop and receives no Remaining data.
+    controller_integrates_delivered_work =
+        controller_integrates_delivered_work &&
+        last_target_plan_.mode !=
+            pipeline_contract::ControlMode::BodyLockFollow;
+    const bool controller_estimates_capture_work =
+        controller_integrates_delivered_work;
     control_feedback.reset_remaining_work = remaining_work_reset_pending_;
+    if (!controller_integrates_delivered_work &&
+        last_target_plan_.remaining_work_valid) {
+        control_feedback.reset_remaining_work = true;
+    }
+    control_feedback.capture_alignment_only = false;
     remaining_work_reset_pending_ = false;
     constexpr double kFiringDisturbanceWindowSeconds = 0.075;
     control_feedback.firing_recently =
@@ -424,7 +444,7 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
             remaining_work_accounted_seconds_ = now;
         }
     }
-    if (controller_integrates_delivered_work &&
+    if (controller_estimates_capture_work &&
         observations.count > 0 &&
         last_target_plan_.target_id != 0 &&
         std::isfinite(observations.source_time_seconds) &&
@@ -446,7 +466,7 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
                 delivered_work;
         }
     }
-    if (controller_integrates_delivered_work) {
+    if (controller_estimates_capture_work) {
         control_feedback.remaining_work_confidence = std::clamp(
             remaining_work_scale *
                 (0.50f + 0.50f *
@@ -667,7 +687,7 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
         const auto fusion = vector_intent_fuser_.update(fusion_input, dt);
         output.right_x = clamp_unit(fusion.fused_stick.x);
         output.right_y = clamp_unit(fusion.fused_stick.y);
-        components.intent_fusion_mode = "causal_vector";
+        components.intent_fusion_mode = "continuous_vector";
         components.intent_fusion_candidate =
             static_cast<int>(fusion.candidate);
         components.intent_fusion_manual_weight =

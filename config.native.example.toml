@@ -93,7 +93,7 @@ activation_range_px = 80
 # Settle radius around the shared tracker target point.
 tolerance_px = 8
 manual_escape_threshold = 0.45
-manual_escape_preservation = 0.55
+manual_escape_preservation = 0.75
 
 [gamepad.intent]
 # Confirmed wrong-axis input starts at 85% retention and approaches this floor.

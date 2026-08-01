@@ -116,6 +116,17 @@ void test_predictive_lead_may_cross_residual_error_direction() {
                  "trusted predictive lead must survive even when it opposes the tiny residual error");
 }
 
+void test_coasting_prediction_cannot_reverse_across_residual_error() {
+    controller_native::BodylockFollowController controller;
+    auto plan = moving_plan();
+    plan.lifecycle = pipeline_contract::TargetLifecycle::Coasting;
+    plan.error_px.x = 8.0f;
+    plan.error_rate_px_per_sec.x = -240.0f;
+    const auto output = controller.compute(plan, {}, 0.01f);
+    require_true(output.x >= 0.0f,
+                 "stale coasting velocity must not pull away from the remaining target error");
+}
+
 }  // namespace
 
 int main() {
@@ -128,6 +139,7 @@ int main() {
         test_left_strafe_yields_positional_grip_without_dropping_follow();
         test_feedforward_is_not_scaled_by_force_twice();
         test_predictive_lead_may_cross_residual_error_direction();
+        test_coasting_prediction_cannot_reverse_across_residual_error();
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "[BodylockFollowControllerTests] FAIL " << error.what() << '\n';

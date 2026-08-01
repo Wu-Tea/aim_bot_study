@@ -211,8 +211,8 @@ void test_opposing_manual_intent_yields_without_braking_bodylock() {
     int conflict_ticks = 0;
     for (int tick = 0; tick < 20; ++tick) {
         now += 0.001;
-        controller.build_output(physical);
-        if (controller.last_output_components().ai_aim_stick.x > 0.02f) {
+        const auto delivered = controller.build_output(physical);
+        if (delivered.right_x > 0.02f) {
             ++conflict_ticks;
         }
     }
@@ -259,7 +259,7 @@ void test_benchmark_vector_fusion_is_one_reported_pipeline_stage() {
 
     const auto output = controller.build_output(physical);
     const auto& components = controller.last_output_components();
-    require(components.intent_fusion_mode == "causal_vector",
+    require(components.intent_fusion_mode == "continuous_vector",
             "benchmark vector mode must be identified in output diagnostics");
     require(components.intent_fusion_fallback,
             "no-target vector mode must report its manual fallback");
@@ -421,6 +421,248 @@ void test_held_ads_target_change_does_not_rearm_snap() {
             "a deliberate debounced release must rearm snap immediately");
 }
 
+void test_same_track_geometry_shift_keeps_final_output_bounded() {
+    double now = 62.0;
+    auto controller_config = config();
+    controller_config.ai_aim.ads_snap_window_ms = 40;
+    controller_config.ai_aim.ads_completion_fresh_frames = 1;
+    controller_config.ai_aim.ads_completion_radius_px = 8.0f;
+    controller_config.ai_aim.body_lock_box_tolerance_px = 8.0f;
+    NativeGamepadController controller(controller_config, [&now] { return now; });
+    controller.set_benchmark_intent_fusion_mode(
+        controller_native::BenchmarkIntentFusionMode::CausalVector);
+    const auto physical = aiming();
+
+    controller.submit_vision_snapshot(target(1, now, 2.0f, 0.0f, 301));
+    auto output = controller.build_output(physical);
+    require(controller.last_ai_aim_mode() == "body_lock",
+            "same-track jump fixture must first settle into BodyLock");
+    const auto target_id = controller.last_target_plan().target_id;
+
+    for (std::uint64_t frame = 2; frame <= 3; ++frame) {
+        now += 0.010;
+        const float dx = frame == 2 ? 12.0f : 24.0f;
+        controller.submit_vision_snapshot(target(frame, now, dx, 0.0f, 301));
+        output = controller.build_output(physical);
+    }
+    require(std::fabs(output.right_x) > 0.03f,
+            "same-track jump fixture must establish material BodyLock output");
+    const auto before_plan = controller.last_target_plan();
+    const auto before_output = output;
+
+    now += 0.010;
+    controller.submit_vision_snapshot(target(4, now, 94.0f, 0.0f, 301));
+    output = controller.build_output(physical);
+    const auto after_plan = controller.last_target_plan();
+    const float output_delta = std::hypot(
+        output.right_x - before_output.right_x,
+        output.right_y - before_output.right_y);
+
+    require(after_plan.target_id == target_id,
+            "a body-geometry shift must not invent a new canonical target");
+    require(after_plan.error_px.x - before_plan.error_px.x >= 60.0f,
+            "fixture must deliver the approximately 70px fresh Vision shift");
+    require(controller.last_ai_aim_mode() == "body_lock",
+            "same-track geometry must remain a BodyLock observation");
+    require(output_delta <= 0.0805f,
+            "same-track geometry shift bypassed the final vector slew envelope");
+}
+
+void test_held_ads_new_track_after_gap_starts_from_zero_ai() {
+    double now = 64.0;
+    auto controller_config = config();
+    controller_config.ai_aim.ads_snap_window_ms = 40;
+    controller_config.ai_aim.ads_completion_fresh_frames = 1;
+    controller_config.ai_aim.ads_completion_radius_px = 8.0f;
+    controller_config.ai_aim.body_lock_box_tolerance_px = 8.0f;
+    NativeGamepadController controller(controller_config, [&now] { return now; });
+    controller.set_benchmark_intent_fusion_mode(
+        controller_native::BenchmarkIntentFusionMode::CausalVector);
+    const auto physical = aiming();
+
+    controller.submit_vision_snapshot(target(1, now, -2.0f, 0.0f, 401));
+    auto output = controller.build_output(physical);
+    for (std::uint64_t frame = 2; frame <= 5; ++frame) {
+        now += 0.010;
+        controller.submit_vision_snapshot(target(frame, now, -45.0f, 0.0f, 401));
+        output = controller.build_output(physical);
+    }
+    require(output.right_x < -0.05f,
+            "new-track fixture must establish old-target BodyLock ownership");
+    const auto old_target_id = controller.last_target_plan().target_id;
+
+    now += 0.010;
+    ControllerVisionSnapshot miss;
+    miss.frame_updated = true;
+    miss.selector_identity_protocol = true;
+    miss.frame_id = 6;
+    miss.capture_time_seconds = now;
+    miss.ready_time_seconds = now;
+    miss.state.screen_center_x = 320.0f;
+    miss.state.screen_center_y = 256.0f;
+    controller.submit_vision_snapshot(miss);
+    (void)controller.build_output(physical);
+
+    // Expire the bounded identity hold without releasing LT. The next selected
+    // person is 95px from the last observed point (-45 -> +50).
+    now += 0.190;
+    output = controller.build_output(physical);
+    require(controller.last_target_plan().target_id == 0,
+            "identity hold must expire before the replacement target arrives");
+    require(std::hypot(output.right_x, output.right_y) <= 0.001f,
+            "expired target must release to the manual/zero-AI baseline");
+
+    now += 0.001;
+    controller.submit_vision_snapshot(target(7, now, 50.0f, 0.0f, 402));
+    output = controller.build_output(physical);
+    const auto replacement_plan = controller.last_target_plan();
+    const auto first_components = controller.last_output_components();
+    require(replacement_plan.target_id != 0 &&
+                replacement_plan.target_id != old_target_id,
+            "replacement observation must receive a new canonical target id");
+    require(controller.last_ai_aim_mode() == "body_lock",
+            "held LT must not rearm ADS snap for the replacement target");
+    require(std::fabs(first_components.requested_assist_stick.x) > 0.05f,
+            "fixture must generate a material fresh-target BodyLock request");
+    require(std::hypot(output.right_x, output.right_y) <= 0.001f,
+            "replacement target must spend its first tick at manual/zero AI; output=" +
+                std::to_string(output.right_x) + "," +
+                std::to_string(output.right_y) +
+                " fallback=" +
+                std::to_string(first_components.intent_fusion_fallback));
+    require(first_components.intent_fusion_fallback &&
+                first_components.intent_fusion_ai_weight <= 0.001f,
+            "replacement target must pass through the target-change admission gate");
+
+    now += 0.001;
+    output = controller.build_output(physical);
+    require(output.right_x > 0.001f && output.right_x <= 0.0805f,
+            "replacement BodyLock must re-enter gradually after the zero-AI tick");
+}
+
+void test_close_lateral_runner_keeps_fresh_bodylock_authority() {
+    double now = 66.0;
+    auto controller_config = config();
+    controller_config.ai_aim.ads_snap_window_ms = 40;
+    controller_config.ai_aim.ads_completion_fresh_frames = 1;
+    controller_config.ai_aim.ads_completion_radius_px = 8.0f;
+    controller_config.ai_aim.body_lock_box_tolerance_px = 8.0f;
+    NativeGamepadController controller(controller_config, [&now] { return now; });
+    controller.set_benchmark_intent_fusion_mode(
+        controller_native::BenchmarkIntentFusionMode::CausalVector);
+    const auto physical = aiming();
+
+    controller.submit_vision_snapshot(target(1, now, 2.0f, 0.0f, 501));
+    auto output = controller.build_output(physical);
+    const auto target_id = controller.last_target_plan().target_id;
+    float previous_output_x = output.right_x;
+
+    for (std::uint64_t frame = 2; frame <= 6; ++frame) {
+        now += 0.010;
+        const float dx = 2.0f + 16.0f * static_cast<float>(frame - 1);
+        controller.submit_vision_snapshot(target(frame, now, dx, 0.0f, 501));
+        output = controller.build_output(physical);
+        const auto plan = controller.last_target_plan();
+        const auto components = controller.last_output_components();
+        require(plan.target_id == target_id,
+                "legitimate lateral runner must retain canonical ownership");
+        require(controller.last_ai_aim_mode() == "body_lock",
+                "legitimate lateral runner must remain in BodyLock");
+        require(plan.error_px.x >= dx - 1.0f,
+                "fresh runner position must remain authoritative");
+        require(!components.intent_fusion_fallback,
+                "ordinary same-track motion must not trip target admission");
+        require(output.right_x + 0.001f >= previous_output_x,
+                "ordinary lateral tracking must not become lazy or reverse");
+        previous_output_x = output.right_x;
+    }
+    require(output.right_x >= 0.20f,
+            "ordinary close lateral motion must retain material follow authority");
+}
+
+void test_bodylock_countersteer_has_no_escape_threshold_impulse() {
+    double now = 31.0;
+    auto controller_config = config();
+    controller_config.ai_aim.ads_completion_fresh_frames = 1;
+    controller_config.ai_aim.ads_completion_radius_px = 40.0f;
+    controller_config.ai_aim.body_lock_confidence_frames = 1;
+    NativeGamepadController controller(
+        controller_config, [&now] { return now; });
+    auto physical = aiming();
+
+    for (std::uint64_t frame = 1; frame <= 4; ++frame) {
+        controller.submit_vision_snapshot(
+            target(frame, now, 24.0f, 0.0f));
+        (void)controller.build_output(physical);
+        now += 0.010;
+    }
+    require(controller.last_ai_aim_mode() == "body_lock",
+            "precondition: countersteer fixture did not enter BodyLock");
+
+    const float manual_sequence[] = {
+        -0.30f, -0.36f, -0.42f, -0.46f, -0.42f, -0.36f, -0.30f};
+    float previous_output = controller.build_output(physical).right_x;
+    float maximum_threshold_jump = 0.0f;
+    float previous_effective_ai = 2.0f;
+    for (std::size_t index = 0;
+         index < sizeof(manual_sequence) / sizeof(manual_sequence[0]);
+         ++index) {
+        now += 0.001;
+        physical.right_x = manual_sequence[index];
+        controller.submit_vision_snapshot(target(
+            5 + static_cast<std::uint64_t>(index), now, 24.0f, 0.0f));
+        const float output = controller.build_output(physical).right_x;
+        if (index >= 3) {
+            maximum_threshold_jump = std::max(
+                maximum_threshold_jump,
+                std::fabs(output - previous_output));
+        }
+        const float effective_ai = output - physical.right_x;
+        if (index <= 3) {
+            require(
+                effective_ai <= previous_effective_ai + 0.025f,
+                "AI authority reasserted while opposing manual commitment increased");
+            previous_effective_ai = effective_ai;
+        }
+        previous_output = output;
+    }
+    require(maximum_threshold_jump <= 0.12f,
+            "crossing the manual-escape threshold created a BodyLock output impulse");
+}
+
+void test_bodylock_capture_alignment_has_no_remaining_authority() {
+    double now = 17.0;
+    auto controller_config = config();
+    controller_config.tracker.remaining_work_enabled = true;
+    controller_config.tracker.remaining_work_scale = 0.60f;
+    controller_config.ai_aim.ads_completion_fresh_frames = 1;
+    controller_config.ai_aim.ads_completion_radius_px = 8.0f;
+    controller_config.ai_aim.body_lock_confidence_frames = 1;
+    NativeGamepadController controller(
+        controller_config, [&now] { return now; });
+    const auto physical = aiming();
+
+    controller.submit_vision_snapshot(target(1, now, 2.0f, 0.0f));
+    (void)controller.build_output(physical);
+    require(
+        controller.last_ai_aim_mode() == "body_lock",
+        "precondition: close target did not settle into BodyLock");
+
+    controller.report_output_delivery(true, true, now + 0.000001);
+    now += 0.010;
+    controller.submit_vision_snapshot(target(2, now - 0.006, 2.0f, 0.0f));
+    (void)controller.build_output(physical);
+    require(
+        !controller.last_target_plan().remaining_work_valid,
+        "fresh delayed Vision may align coordinates but must not re-arm Remaining");
+
+    now += 0.001;
+    (void)controller.build_output(physical);
+    require(
+        !controller.last_target_plan().remaining_work_valid,
+        "BodyLock Remaining authority must stay off between Vision frames");
+}
+
 void test_physical_fire_is_never_cleared_by_autofire() {
     double now = 70.0;
     auto controller_config = config();
@@ -560,14 +802,19 @@ int main() {
     try {
         test_ads_is_bounded_and_drift_is_ignored();
         test_production_remaining_work_consumes_only_confirmed_delivery();
+        test_bodylock_capture_alignment_has_no_remaining_authority();
         test_vision_gap_uses_smooth_short_continuity();
         test_opposing_manual_intent_yields_without_braking_bodylock();
+        test_bodylock_countersteer_has_no_escape_threshold_impulse();
         test_benchmark_mix_override_updates_delivered_feedback();
         test_benchmark_vector_fusion_is_one_reported_pipeline_stage();
         test_vector_mode_generates_ai_before_manual_arbitration();
         test_only_worsening_wrong_way_axis_stops_suppressing_assist();
         test_ads_and_bodylock_share_one_resolved_target_geometry();
         test_held_ads_target_change_does_not_rearm_snap();
+        test_same_track_geometry_shift_keeps_final_output_bounded();
+        test_held_ads_new_track_after_gap_starts_from_zero_ai();
+        test_close_lateral_runner_keeps_fresh_bodylock_authority();
         test_physical_fire_is_never_cleared_by_autofire();
         test_100hz_vision_1000hz_control_emits_stable_fire_cadence();
         std::cout << "[TargetPipelineIntegrationTests] PASS\n";

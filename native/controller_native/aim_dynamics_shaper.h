@@ -3,14 +3,14 @@
 #include "pipeline_contract/intent_state.h"
 #include "pipeline_contract/target_plan.h"
 
+#include <cstdint>
+
 namespace controller_native {
 
 struct AimDynamicsShaperConfig {
     float rise_slew_per_second = 64.0f;
-    float decay_slew_per_second = 24.0f;
+    float decay_slew_per_second = 48.0f;
     float max_step_per_tick = 0.08f;
-    float opposing_manual_scale = 0.0f;
-    float cooperative_manual_scale = 0.65f;
 };
 
 class AimDynamicsShaper {
@@ -29,10 +29,12 @@ public:
     void reset() noexcept;
 
 private:
-    float shape_axis(float requested, float manual, float manual_confidence, float dt) noexcept;
-
     AimDynamicsShaperConfig config_{};
     pipeline_contract::Vec2f current_{};
+    std::uint64_t previous_target_id_ = 0;
+    pipeline_contract::ControlMode previous_mode_ =
+        pipeline_contract::ControlMode::Manual;
+    bool context_initialized_ = false;
 };
 
 }  // namespace controller_native

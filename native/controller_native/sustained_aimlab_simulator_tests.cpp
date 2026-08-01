@@ -762,6 +762,41 @@ void test_horizontal_aim_bias_is_observation_only_and_recovers() {
             "fresh target localization must recover to the true point");
 }
 
+void test_micro_input_dropout_decoy_keeps_ads_held_and_publishes_decoy() {
+    ScenarioScript script = stationary_script(700, {4.0, 0.0});
+    script.config.vision_disturbance =
+        VisionDisturbanceProfile::TargetDropoutDecoy;
+    script.targets[0].vision_occlusion_bursts = {{110, 70}, {360, 50}};
+    int decoy_frames = 0;
+    int micro_ticks = 0;
+    bool primary_leaked_into_dropout = false;
+    ControllerStep passive = [](const ControllerObservation& input) {
+        ControllerStepResult output;
+        output.bodylock_mode = input.target_present;
+        output.target_observed = input.target_present;
+        output.tracker_reliable = input.target_present;
+        return output;
+    };
+    (void)run_simulation(
+        script, ManualProfile::MicroCorrection, passive,
+        BenchmarkCohort::BodyLockFollow,
+        [&](const SimulationTraceFrame& frame) {
+            if (std::fabs(frame.input.manual_stick.x) == 0.03) ++micro_ticks;
+            if (frame.input.decoy_candidate_present) {
+                ++decoy_frames;
+                primary_leaked_into_dropout = primary_leaked_into_dropout ||
+                    frame.input.primary_candidate_visible ||
+                    !frame.input.target_present;
+            }
+        });
+    require(decoy_frames == 120,
+            "dropout-decoy fixture must publish every scheduled hidden frame");
+    require(!primary_leaked_into_dropout,
+            "dropout must hide only the primary candidate while LT stays held");
+    require(micro_ticks >= 639 && micro_ticks <= 640,
+            "micro profile must emit one bounded 3% nudge and correction");
+}
+
 }  // namespace
 
 int main() {
@@ -792,6 +827,7 @@ int main() {
         test_short_occlusion_withholds_publication_without_fresh_miss();
         test_camera_recoil_moves_true_error_but_visual_kick_does_not();
         test_horizontal_aim_bias_is_observation_only_and_recovers();
+        test_micro_input_dropout_decoy_keeps_ads_held_and_publishes_decoy();
         std::cout << "cod_native_sustained_aimlab_simulator_tests PASS\n";
         return EXIT_SUCCESS;
     } catch (const std::exception& error) {

@@ -139,6 +139,18 @@ Vec2d arc_recovery_manual_input(
     };
 }
 
+Vec2d micro_correction_manual_input(
+    const TargetScript& target,
+    int target_elapsed_ms) noexcept {
+    // Live reproduction: a 3% horizontal nudge followed by one correction.
+    // It stays below the manual-escape threshold by construction.
+    constexpr double kMagnitude = 0.03;
+    const double initial_sign = target.id % 2u == 0u ? -1.0 : 1.0;
+    if (target_elapsed_ms < 320) return {initial_sign * kMagnitude, 0.0};
+    if (target_elapsed_ms < 640) return {-initial_sign * kMagnitude, 0.0};
+    return {};
+}
+
 double left_strafe_input(
     const PlayerStrafeScript& strafe,
     int elapsed_ms,
@@ -262,6 +274,7 @@ BenchmarkResult run_simulation(
     std::uint64_t frame_id = 0;
     Vec2d error;
     Vec2d target_velocity;
+    std::vector<Vec2d> target_error_history;
     Vec2d carried_observation;
     bool carried_body_box_available = false;
     double carried_body_box_x = 0.0;
@@ -326,6 +339,7 @@ BenchmarkResult run_simulation(
             }
         }
         target_velocity = target.initial_velocity_px_per_second;
+        target_error_history.clear();
         player_velocity_x_px_per_second = 0.0;
         player_vertical_offset_y_px = 0.0;
         last_player_error_delta_px = {};
@@ -413,38 +427,77 @@ BenchmarkResult run_simulation(
             error.y +=
                 camera_recoil_offset.y - previous_camera_recoil_offset.y;
             previous_camera_recoil_offset = camera_recoil_offset;
+            if (target_error_history.size() <=
+                static_cast<std::size_t>(target_elapsed_ms)) {
+                target_error_history.push_back(error);
+            }
             input.target_present = true;
             input.target_id = target.id;
             input.fire_action =
                 script.config.vision_disturbance !=
                     VisionDisturbanceProfile::Off &&
                 tracking && tracking_ticks >= 80;
-            if (tracking) {
+            const bool dropout_decoy_scenario =
+                script.config.vision_disturbance ==
+                    VisionDisturbanceProfile::TargetDropoutDecoy;
+            if (tracking || dropout_decoy_scenario) {
+                const int occlusion_clock_ms = std::max(
+                    0,
+                    (dropout_decoy_scenario ? target_elapsed_ms : tracking_ticks) -
+                        script.config.vision_result_delay_ms);
                 vision_occluded = std::any_of(
                     target.vision_occlusion_bursts.begin(),
                     target.vision_occlusion_bursts.end(),
                     [&](const VisionOcclusionBurst& burst) {
-                        return tracking_ticks >= burst.tracking_offset_ms &&
-                            tracking_ticks <
+                        return occlusion_clock_ms >= burst.tracking_offset_ms &&
+                            occlusion_clock_ms <
                                 burst.tracking_offset_ms + burst.duration_ms;
                     });
             }
             while (observation_index < target.observation_at_ms.size() &&
-                   target.observation_at_ms[observation_index] < target_elapsed_ms) {
+                   target.observation_at_ms[observation_index] +
+                           script.config.vision_result_delay_ms <
+                       target_elapsed_ms) {
                 ++observation_index;
             }
             if (observation_index < target.observation_at_ms.size() &&
-                target.observation_at_ms[observation_index] == target_elapsed_ms) {
-                if (!vision_occluded) {
+                target.observation_at_ms[observation_index] +
+                        script.config.vision_result_delay_ms ==
+                    target_elapsed_ms) {
+                const int capture_elapsed_ms =
+                    target.observation_at_ms[observation_index];
+                const Vec2d captured_error =
+                    capture_elapsed_ms >= 0 &&
+                    static_cast<std::size_t>(capture_elapsed_ms) <
+                        target_error_history.size()
+                    ? target_error_history[static_cast<std::size_t>(
+                          capture_elapsed_ms)]
+                    : error;
+                const bool dropout_decoy = vision_occluded &&
+                    script.config.vision_disturbance ==
+                        VisionDisturbanceProfile::TargetDropoutDecoy;
+                if (!vision_occluded || dropout_decoy) {
                     input.fresh_vision = true;
                     ++frame_id;
+                }
+                if (dropout_decoy) {
+                    input.primary_candidate_visible = false;
+                    input.decoy_candidate_present = true;
+                    input.decoy_target_id = target.id + 1'000'000u;
+                    const double separation = target.id % 2u == 0u
+                        ? 200.0 : -200.0;
+                    input.decoy_observed_error_px = {
+                        captured_error.x + separation,
+                        captured_error.y,
+                    };
+                } else if (!vision_occluded) {
                     carried_observation = {
-                        error.x +
+                        captured_error.x +
                             target.observation_noise_px[observation_index].x +
                             horizontal_aim_bias_px(
                                 script.config.vision_disturbance,
                                 tracking_ticks),
-                        error.y +
+                        captured_error.y +
                             target.observation_noise_px[observation_index].y,
                     };
                     constexpr double kBodyWidthPx = 48.0;
@@ -469,6 +522,14 @@ BenchmarkResult run_simulation(
                     }
                 }
                 ++observation_index;
+            }
+            if (input.fresh_vision) {
+                input.capture_time_seconds =
+                    static_cast<double>(
+                        now_ms - script.config.vision_result_delay_ms) /
+                    1000.0;
+                input.ready_time_seconds =
+                    static_cast<double>(now_ms) / 1000.0;
             }
             input.frame_id = frame_id;
             input.observed_error_px = carried_observation;
@@ -615,6 +676,10 @@ BenchmarkResult run_simulation(
             } else if (manual_profile == ManualProfile::ArcRecovery &&
                        (cohort != BenchmarkCohort::BodyLockFollow || tracking)) {
                 input.manual_stick = arc_recovery_manual_input(
+                    target, target_elapsed_ms);
+            } else if (manual_profile == ManualProfile::MicroCorrection &&
+                       (cohort != BenchmarkCohort::BodyLockFollow || tracking)) {
+                input.manual_stick = micro_correction_manual_input(
                     target, target_elapsed_ms);
             } else if (manual_profile == ManualProfile::ObsoleteAfterCrossing &&
                        (cohort != BenchmarkCohort::BodyLockFollow || tracking)) {

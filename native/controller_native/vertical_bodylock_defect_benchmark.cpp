@@ -128,6 +128,7 @@ Metrics run_air_lock(bool moving_stairs) {
     double now = 1.0;
     GamepadRuntimeConfig config;
     config.ai_aim.ads_snap_window_ms = 0;
+    config.ai_aim.ads_max_acquisition_ms = 0.0f;
     config.recoil.enabled = false;
     config.auto_fire.require_aim_ready = false;
     config.aim_assist_dynamics.enabled = false;
@@ -148,7 +149,7 @@ Metrics run_air_lock(bool moving_stairs) {
         controller.build_output(aiming(manual_y));
         const auto& components = controller.last_output_components();
         if (metrics.manual_escape_frame < 0 &&
-            components.ai_aim_stick.y > 0.02f && manual_y < 0.0f)
+            components.final_stick.y > 0.02f && manual_y < 0.0f)
             ++metrics.ai_opposes_recovery_frames;
         reticle_y += -static_cast<double>(components.final_stick.y) * kReticleSpeed * kDt;
         if (reticle_y < visible_top || reticle_y > visible_bottom)
@@ -215,6 +216,7 @@ ManualTakeoverMetrics run_horizontal_scenario(
     config.auto_fire.require_aim_ready = false;
     config.aim_assist_dynamics.enabled = false;
     config.ai_aim.body_lock_manual_takeover_enabled = takeover_enabled;
+    config.ai_aim.ads_max_acquisition_ms = 0.0f;
     NativeGamepadController controller(config, [&now] { return now; });
     double reticle_x = 0.0;
     double requested_integral = 0.0;
@@ -343,7 +345,7 @@ Metrics run_cooperative_overshoot_occlusion() {
             if (reticle_y < metrics.visible_body_top || reticle_y > metrics.visible_body_bottom)
                 ++metrics.outside_body_frames;
         }
-        if (frame >= 160 && components.ai_aim_stick.y > 0.02f)
+        if (frame >= 160 && components.final_stick.y > 0.02f)
             ++metrics.ai_opposes_recovery_frames;
         if (frame >= 160 && metrics.recovery_start_frame < 0 && reticle_y > previous)
             metrics.recovery_start_frame = frame;

@@ -1,6 +1,7 @@
 #include "runtime_config.h"
 
 #include <cstdlib>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <stdexcept>
@@ -8,11 +9,14 @@
 
 namespace {
 
-void require(bool condition) {
-    if (!condition) {
-        std::abort();
-    }
-}
+#define require(condition)                                                     \
+    do {                                                                       \
+        if (!(condition)) {                                                    \
+            std::fprintf(stderr, "runtime_config_tests failure at line %d\n", \
+                         __LINE__);                                            \
+            std::abort();                                                      \
+        }                                                                      \
+    } while (false)
 
 void test_vision_gpu_service_defaults_are_enabled() {
     const auto missing = std::filesystem::temp_directory_path() /
@@ -357,7 +361,7 @@ void test_normal_template_preserves_controller_baseline() {
     require(aim.body_lock_activation_box_px == 80.0f);
     require(aim.body_lock_box_tolerance_px == 8.0f);
     require(aim.body_lock_manual_escape_input_threshold == 0.45f);
-    require(aim.body_lock_manual_escape_preservation == 0.55f);
+    require(aim.body_lock_manual_escape_preservation == 0.75f);
     require(std::abs(config.gamepad.tracker.aim_height_ratio - 0.365f) < 0.0001f);
 }
 

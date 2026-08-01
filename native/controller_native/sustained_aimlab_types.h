@@ -33,6 +33,7 @@ enum class ManualProfile : std::uint8_t {
     ObsoleteAfterCrossing,
     WrongThenCorrect,
     ArcRecovery,
+    MicroCorrection,
 };
 
 enum class BenchmarkCohort : std::uint8_t {
@@ -67,6 +68,7 @@ enum class VisionDisturbanceProfile : std::uint8_t {
     BodyBoxDeformation,
     BodyBoxDeformationAndCameraRecoil,
     HorizontalAimBiasRecovery,
+    TargetDropoutDecoy,
 };
 
 enum class PlayerVerticalEvent : std::uint8_t {
@@ -160,6 +162,9 @@ struct BenchmarkConfig {
     // Zero preserves the historical randomized 10-12 ms cadence.
     // Positive values request a fixed benchmark-only capture interval.
     int vision_interval_ms = 0;
+    // Capture-to-publication latency. Captured geometry is retained at the
+    // old camera pose and becomes visible to the controller after this delay.
+    int vision_result_delay_ms = 0;
     // Benchmark-only apparent target motion caused by firing/camera kick.
     // This changes Vision observations, not the physical target trajectory.
     VisionDisturbanceProfile vision_disturbance =

@@ -31,7 +31,7 @@ void test_step_and_reversal_are_bounded() {
                  "reversal must not jump across the axis");
 }
 
-void test_reversal_uses_normal_rise_rate_without_extra_phase_lag() {
+void test_reversal_discharges_before_opposite_rise() {
     controller_native::AimDynamicsShaper shaper;
     const auto plan = active_plan();
     pipeline_contract::Vec2f output{};
@@ -40,23 +40,19 @@ void test_reversal_uses_normal_rise_rate_without_extra_phase_lag() {
     }
     const float before = output.x;
     output = shaper.shape({-1.0f, 0.0f}, {}, plan, 0.001f);
-    require_true(
-        output.x > 0.0f,
-        "a one-tick reversal must not flip the delivered AI direction");
-    require_true(
-        before - output.x > 0.060f && before - output.x <= 0.065f,
-        "reversal must use normal slew instead of adding a slow decay phase");
+    require_true(before > 0.0f && output.x >= 0.0f && output.x < before,
+                 "a reversal must discharge stale AI work without crossing zero");
 }
 
-void test_plan_loss_decays_instead_of_dropping() {
+void test_plan_loss_decays_stale_force_without_reversal() {
     controller_native::AimDynamicsShaper shaper;
     const auto plan = active_plan();
     for (int i = 0; i < 20; ++i) shaper.shape({0.6f, 0.0f}, {}, plan, 0.01f);
     const auto before = shaper.current();
     pipeline_contract::TargetPlan missing{};
     const auto after = shaper.shape({}, {}, missing, 0.01f);
-    require_true(after.x > 0.0f && after.x < before.x,
-                 "plan loss must produce smooth decay");
+    require_true(before.x > 0.0f && after.x >= 0.0f && after.x < before.x,
+                 "plan loss must monotonically discharge stale AI force");
 }
 
 void test_coasting_never_ramps_blind_assist() {
@@ -69,17 +65,15 @@ void test_coasting_never_ramps_blind_assist() {
                  "coasting must not increase assist without a new observation");
 }
 
-void test_confirmed_wrong_axis_can_ramp_smoothly_while_coasting() {
+void test_coasting_cannot_reacquire_force_from_downstream_hint() {
     controller_native::AimDynamicsShaper shaper;
     auto plan = active_plan();
     const auto observed = shaper.shape({0.8f, 0.0f}, {}, plan, 0.001f);
     plan.lifecycle = pipeline_contract::TargetLifecycle::Coasting;
     const auto coast = shaper.shape(
         {0.8f, 0.8f}, {}, plan, 0.001f, {1.0f, 0.0f});
-    require_true(coast.x > observed.x,
-                 "confirmed wrong-way X must keep ramping between observations");
-    require_true(coast.x - observed.x <= 0.025f,
-                 "confirmed wrong-way coast ramp must use the cautious slew rate");
+    require_true(coast.x <= observed.x + 0.0001f,
+                 "coasting must not reacquire force through a downstream hint");
     require_true(std::fabs(coast.y) <= 0.0001f,
                  "unconfirmed Y must retain blind-rise protection");
 }
@@ -97,7 +91,7 @@ void test_confirmed_wrong_axis_does_not_ramp_when_assist_is_weaker() {
                  "weak assist must not ramp against stronger manual input");
 }
 
-void test_manual_opposition_reduces_slew_target() {
+void test_manual_ownership_is_not_duplicated_in_shaper() {
     controller_native::AimDynamicsShaper neutral_shaper;
     controller_native::AimDynamicsShaper manual_shaper;
     const auto plan = active_plan();
@@ -107,26 +101,118 @@ void test_manual_opposition_reduces_slew_target() {
     correction.right_x.confidence = 1.0f;
     const auto neutral = neutral_shaper.shape({1.0f, 0.0f}, {}, plan, 0.05f);
     const auto opposed = manual_shaper.shape({1.0f, 0.0f}, correction, plan, 0.05f);
-    require_true(opposed.x < neutral.x * 0.6f,
-                 "single shaper must arbitrate confident manual opposition");
+    require_true(std::fabs(opposed.x - neutral.x) <= 0.0001f,
+                 "manual ownership must be resolved only by the fusion stage");
 }
 
-void test_helpful_manual_input_reduces_but_keeps_assist() {
-    controller_native::AimDynamicsShaper neutral_shaper;
-    controller_native::AimDynamicsShaper manual_shaper;
+void test_shaper_never_amplifies_work_after_controller_reduces_request() {
+    controller_native::AimDynamicsShaper shaper;
     const auto plan = active_plan();
-    pipeline_contract::IntentState correction{};
-    correction.filtered_right.x = 0.5f;
-    correction.right_confidence = 1.0f;
-    correction.right_x.confidence = 1.0f;
-    pipeline_contract::Vec2f neutral{};
-    pipeline_contract::Vec2f cooperative{};
     for (int i = 0; i < 12; ++i) {
-        neutral = neutral_shaper.shape({1.0f, 0.0f}, {}, plan, 0.05f);
-        cooperative = manual_shaper.shape({1.0f, 0.0f}, correction, plan, 0.05f);
+        (void)shaper.shape({0.60f, 0.0f}, {}, plan, 0.01f);
     }
-    require_true(cooperative.x > 0.0f && cooperative.x < neutral.x,
-                 "helpful manual input must avoid double-driving while retaining assist");
+    const auto reduced = shaper.shape({0.10f, 0.0f}, {}, plan, 0.001f);
+    require_true(reduced.x >= 0.10f && reduced.x < 0.60f,
+                 "a reduced request must produce monotonic bounded discharge");
+}
+
+void test_shaper_reversal_must_discharge_old_direction_first() {
+    controller_native::AimDynamicsShaper shaper;
+    const auto plan = active_plan();
+    for (int i = 0; i < 12; ++i) {
+        (void)shaper.shape({0.60f, 0.0f}, {}, plan, 0.01f);
+    }
+    const auto discharge = shaper.shape({-0.60f, 0.0f}, {}, plan, 0.01f);
+    require_true(discharge.x >= 0.0f && discharge.x < 0.60f,
+                 "a requested reversal must discharge before driving the opposite direction");
+}
+
+void test_ads_to_bodylock_same_direction_does_not_carry_ads_force() {
+    controller_native::AimDynamicsShaper shaper;
+    auto ads = active_plan();
+    ads.target_id = 42;
+    ads.mode = pipeline_contract::ControlMode::AdsAcquire;
+    for (int index = 0; index < 24; ++index) {
+        (void)shaper.shape({1.34f, 0.0f}, {}, ads, 0.01f);
+    }
+    auto bodylock = ads;
+    bodylock.mode = pipeline_contract::ControlMode::BodyLockFollow;
+    const auto output = shaper.shape({0.50f, 0.0f}, {}, bodylock, 0.01f);
+    require_true(output.x <= 0.581f,
+                 "BodyLock handoff carried stale same-direction ADS force");
+}
+
+void test_ads_to_bodylock_opposite_direction_does_not_carry_ads_force() {
+    controller_native::AimDynamicsShaper shaper;
+    auto ads = active_plan();
+    ads.target_id = 43;
+    ads.mode = pipeline_contract::ControlMode::AdsAcquire;
+    for (int index = 0; index < 24; ++index) {
+        (void)shaper.shape({-1.34f, 0.0f}, {}, ads, 0.01f);
+    }
+    auto bodylock = ads;
+    bodylock.mode = pipeline_contract::ControlMode::BodyLockFollow;
+    const auto output = shaper.shape({0.50f, 0.0f}, {}, bodylock, 0.01f);
+    require_true(output.x >= -0.081f,
+                 "BodyLock handoff carried stale opposite-direction ADS force");
+}
+
+void test_ads_to_bodylock_vector_handoff_respects_both_components() {
+    controller_native::AimDynamicsShaper shaper;
+    auto ads = active_plan();
+    ads.target_id = 44;
+    ads.mode = pipeline_contract::ControlMode::AdsAcquire;
+    for (int index = 0; index < 24; ++index) {
+        (void)shaper.shape({1.34f, -1.0f}, {}, ads, 0.01f);
+    }
+    auto bodylock = ads;
+    bodylock.mode = pipeline_contract::ControlMode::BodyLockFollow;
+    const auto output = shaper.shape({0.50f, 0.20f}, {}, bodylock, 0.01f);
+    require_true(output.x <= 0.581f && output.y <= 0.281f,
+                 "BodyLock handoff retained stale force on a vector component");
+    const float output_length = std::hypot(output.x, output.y);
+    const float request_length = std::hypot(0.50f, 0.20f);
+    require_true(output_length <= request_length * 1.15f + 0.001f,
+                 "BodyLock handoff exceeded the new vector request envelope");
+}
+
+void test_target_change_does_not_smooth_old_target_force_into_new_target() {
+    controller_native::AimDynamicsShaper shaper;
+    auto old_target = active_plan();
+    old_target.target_id = 100;
+    for (int index = 0; index < 20; ++index) {
+        (void)shaper.shape({0.90f, 0.0f}, {}, old_target, 0.01f);
+    }
+    auto new_target = old_target;
+    new_target.target_id = 200;
+    const auto output = shaper.shape({-0.20f, 0.0f}, {}, new_target, 0.01f);
+    require_true(output.x >= -0.201f && output.x <= 0.201f,
+                 "new target inherited stale shaper force from the old target");
+}
+
+void test_initial_target_acquisition_uses_normal_slew() {
+    controller_native::AimDynamicsShaper shaper;
+    auto plan = active_plan();
+    const auto idle = shaper.shape({}, {}, plan, 0.01f);
+    require_true(std::fabs(idle.x) <= 0.0001f,
+                 "idle shaper must start at a neutral AI baseline");
+    plan.target_id = 300;
+    const auto acquired = shaper.shape({0.90f, 0.0f}, {}, plan, 0.01f);
+    require_true(acquired.x > 0.0f && acquired.x <= 0.081f,
+                 "initial target acquisition bypassed the normal slew envelope");
+}
+
+void test_non_handoff_mode_change_keeps_normal_slew() {
+    controller_native::AimDynamicsShaper shaper;
+    auto plan = active_plan();
+    plan.target_id = 301;
+    for (int index = 0; index < 20; ++index) {
+        (void)shaper.shape({0.60f, 0.0f}, {}, plan, 0.01f);
+    }
+    plan.mode = pipeline_contract::ControlMode::AdsAcquire;
+    const auto output = shaper.shape({0.10f, 0.0f}, {}, plan, 0.01f);
+    require_true(output.x < 0.60f && output.x > 0.50f,
+                 "a non-handoff mode change bypassed normal decay slew");
 }
 
 }  // namespace
@@ -134,13 +220,20 @@ void test_helpful_manual_input_reduces_but_keeps_assist() {
 int main() {
     try {
         test_step_and_reversal_are_bounded();
-        test_reversal_uses_normal_rise_rate_without_extra_phase_lag();
-        test_plan_loss_decays_instead_of_dropping();
+        test_reversal_discharges_before_opposite_rise();
+        test_plan_loss_decays_stale_force_without_reversal();
         test_coasting_never_ramps_blind_assist();
-        test_confirmed_wrong_axis_can_ramp_smoothly_while_coasting();
+        test_coasting_cannot_reacquire_force_from_downstream_hint();
         test_confirmed_wrong_axis_does_not_ramp_when_assist_is_weaker();
-        test_manual_opposition_reduces_slew_target();
-        test_helpful_manual_input_reduces_but_keeps_assist();
+        test_manual_ownership_is_not_duplicated_in_shaper();
+        test_shaper_never_amplifies_work_after_controller_reduces_request();
+        test_shaper_reversal_must_discharge_old_direction_first();
+        test_ads_to_bodylock_same_direction_does_not_carry_ads_force();
+        test_ads_to_bodylock_opposite_direction_does_not_carry_ads_force();
+        test_ads_to_bodylock_vector_handoff_respects_both_components();
+        test_target_change_does_not_smooth_old_target_force_into_new_target();
+        test_initial_target_acquisition_uses_normal_slew();
+        test_non_handoff_mode_change_keeps_normal_slew();
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "[AimDynamicsShaperTests] FAIL " << error.what() << '\n';
