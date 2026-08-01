@@ -11,6 +11,10 @@ namespace controller_native {
 
 struct TargetCoordinatorConfig {
     float hold_ms = 180.0f;
+    // Identity/association stays on hold_ms. These parameters only retire
+    // stale Coasting actuation authority after a brief Vision gap.
+    float coast_full_authority_grace_ms = 12.5f;
+    float coast_actuation_release_ms = 65.0f;
     float association_radius_px = 80.0f;
     float max_reacquire_innovation_px = 18.0f;
     float settle_radius_px = 8.0f;

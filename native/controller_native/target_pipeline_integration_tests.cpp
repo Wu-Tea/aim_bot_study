@@ -6,6 +6,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -61,6 +62,46 @@ ControllerVisionSnapshot target(
 ControllerVisionSnapshot fire_target(std::uint64_t frame_id, double now) {
     auto snapshot = target(frame_id, now, 0.0f, 0.0f);
     snapshot.state.auto_fire_requested = true;
+    return snapshot;
+}
+
+ControllerVisionSnapshot sized_target(
+    std::uint64_t frame_id,
+    double now,
+    float dx,
+    float dy,
+    float body_height_px,
+    std::uint64_t observation_id) {
+    auto snapshot = target(frame_id, now, dx, dy, observation_id);
+    pipeline_contract::VisionCandidateSnapshot candidate;
+    candidate.id = observation_id;
+    candidate.valid = true;
+    candidate.has_aim_point = true;
+    candidate.aim_point_px = {
+        snapshot.state.target_x, snapshot.state.target_y};
+    constexpr float kAimHeightRatio = 0.365f;
+    const float body_width_px = body_height_px * 0.40f;
+    candidate.body_box_px = {
+        snapshot.state.target_x - body_width_px * 0.5f,
+        snapshot.state.target_y - body_height_px * kAimHeightRatio,
+        body_width_px,
+        body_height_px};
+    candidate.confidence = 0.95f;
+    snapshot.candidates.push_back(candidate);
+    return snapshot;
+}
+
+ControllerVisionSnapshot empty_fresh_snapshot(
+    std::uint64_t frame_id,
+    double now) {
+    ControllerVisionSnapshot snapshot;
+    snapshot.frame_updated = true;
+    snapshot.selector_identity_protocol = true;
+    snapshot.frame_id = frame_id;
+    snapshot.capture_time_seconds = now;
+    snapshot.ready_time_seconds = now;
+    snapshot.state.screen_center_x = 320.0f;
+    snapshot.state.screen_center_y = 256.0f;
     return snapshot;
 }
 
@@ -291,6 +332,101 @@ void test_vector_mode_generates_ai_before_manual_arbitration() {
             "fixture must produce material unopposed AI assistance");
     require(opposing_ai >= neutral_ai * 0.95f,
             "vector mode must not weaken AI before its single fusion point");
+}
+
+void test_ads_strong_cooperative_mix_uses_ai_as_the_radial_proposal() {
+    double now = 34.7;
+    auto controller_config = config();
+    controller_config.ai_aim.ads_snap_window_ms = 300;
+    controller_config.ai_aim.ads_completion_fresh_frames = 1000;
+    NativeGamepadController controller(
+        controller_config, [&now] { return now; });
+    controller.set_benchmark_intent_fusion_mode(
+        controller_native::BenchmarkIntentFusionMode::CausalVector);
+    auto physical = aiming();
+    physical.right_x = 0.80f;
+
+    controller_native::GamepadOutputState output{};
+    for (std::uint64_t frame = 1; frame <= 20; ++frame) {
+        controller.submit_vision_snapshot(
+            sized_target(frame, now, 35.0f, 0.0f, 70.0f, 710));
+        output = controller.build_output(physical);
+        now += 0.010;
+    }
+
+    const auto& components = controller.last_output_components();
+    require(controller.last_ai_aim_mode() == "ads_snap",
+            "strong-mix ADS fixture left acquisition mode");
+    require(components.shaped_assist_stick.x > 0.05f,
+            "strong-mix ADS fixture did not generate material AI");
+    require(components.intent_fusion_candidate == static_cast<int>(
+                controller_native::FusionCandidate::RadialCorrected),
+            "ADS strong mix did not enter assisted proposal ownership");
+    require(components.intent_fusion_manual_weight >= 0.15f &&
+                components.intent_fusion_manual_weight <= 0.20f,
+            "ADS strong mix did not retain bounded participation from both proposals");
+    require(output.right_x < physical.right_x - 0.10f,
+            "ADS strong mix still behaved like additive manual + AI force");
+}
+
+void test_near_bodylock_strong_mix_prefers_ai_but_far_stays_legacy() {
+    auto run_fixture = [](float body_height_px,
+                          std::uint64_t observation_id) {
+        double now = 34.9;
+        auto controller_config = config();
+        controller_config.ai_aim.ads_completion_fresh_frames = 1;
+        controller_config.ai_aim.ads_completion_radius_px = 8.0f;
+        controller_config.ai_aim.body_lock_confidence_frames = 1;
+        NativeGamepadController controller(
+            controller_config, [&now] { return now; });
+        controller.set_benchmark_intent_fusion_mode(
+            controller_native::BenchmarkIntentFusionMode::CausalVector);
+        auto physical = aiming();
+        physical.right_x = 0.80f;
+
+        controller.submit_vision_snapshot(sized_target(
+            1, now, 2.0f, 0.0f, body_height_px, observation_id));
+        (void)controller.build_output(physical);
+        for (std::uint64_t frame = 2; frame <= 20; ++frame) {
+            now += 0.010;
+            controller.submit_vision_snapshot(sized_target(
+                frame, now, 35.0f, 0.0f,
+                body_height_px, observation_id));
+            (void)controller.build_output(physical);
+        }
+        return std::pair{
+            controller.last_target_plan(),
+            controller.last_output_components()};
+    };
+
+    const auto [near_plan, near_components] = run_fixture(180.0f, 711);
+    require(near_plan.mode == pipeline_contract::ControlMode::BodyLockFollow,
+            "near strong-mix fixture did not enter BodyLock");
+    require(near_plan.normalized_size >= 0.24f,
+            "near strong-mix fixture did not enter the size policy scope");
+    require(near_components.shaped_assist_stick.x > 0.05f,
+            "near strong-mix fixture did not generate material AI");
+    require(near_components.intent_fusion_candidate == static_cast<int>(
+                controller_native::FusionCandidate::RadialCorrected),
+            "near BodyLock did not enter assisted proposal ownership");
+    require(near_components.intent_fusion_manual_weight >= 0.10f &&
+                near_components.intent_fusion_manual_weight <= 0.50f,
+            "near BodyLock did not retain bounded participation from both proposals");
+    require(near_components.intent_fusion_ai_weight >= 0.50f,
+            "near BodyLock attenuated AI instead of arbitrating both proposals");
+
+    const auto [far_plan, far_components] = run_fixture(60.0f, 712);
+    require(far_plan.mode == pipeline_contract::ControlMode::BodyLockFollow,
+            "far comparison fixture did not enter BodyLock");
+    require(far_plan.normalized_size <= 0.13f,
+            "far comparison fixture accidentally entered near-target scope");
+    require(far_components.shaped_assist_stick.x > 0.05f,
+            "far comparison fixture did not generate material AI");
+    require(far_components.intent_fusion_manual_weight >= 0.999f,
+            "far BodyLock was changed by the near-target ownership policy");
+    require(far_components.intent_fusion_candidate != static_cast<int>(
+                controller_native::FusionCandidate::RadialCorrected),
+            "far BodyLock incorrectly entered near-target proposal ownership");
 }
 
 void test_only_worsening_wrong_way_axis_stops_suppressing_assist() {
@@ -580,6 +716,248 @@ void test_close_lateral_runner_keeps_fresh_bodylock_authority() {
             "ordinary close lateral motion must retain material follow authority");
 }
 
+void test_same_target_reacquire_preserves_pipeline_continuity() {
+    double now = 67.0;
+    auto controller_config = config();
+    controller_config.ai_aim.ads_completion_fresh_frames = 1;
+    controller_config.ai_aim.ads_completion_radius_px = 8.0f;
+    NativeGamepadController controller(controller_config, [&now] { return now; });
+    controller.set_benchmark_intent_fusion_mode(
+        controller_native::BenchmarkIntentFusionMode::CausalVector);
+    const auto physical = aiming();
+
+    for (std::uint64_t frame_id = 1; frame_id <= 8; ++frame_id) {
+        controller.submit_vision_snapshot(
+            target(frame_id, now, 80.0f, 0.0f, 601));
+        (void)controller.build_output(physical);
+        now += 0.010;
+    }
+    require(
+        std::fabs(controller.last_output_components().shaped_assist_stick.x) >
+            0.20f,
+        "reacquire fixture must establish material shaped AI");
+
+    ControllerVisionSnapshot miss;
+    miss.frame_updated = true;
+    miss.selector_identity_protocol = true;
+    miss.frame_id = 9;
+    miss.capture_time_seconds = now;
+    miss.ready_time_seconds = now;
+    miss.state.screen_center_x = 320.0f;
+    miss.state.screen_center_y = 256.0f;
+    controller.submit_vision_snapshot(miss);
+    (void)controller.build_output(physical);
+    require(
+        controller.last_target_plan().lifecycle ==
+            pipeline_contract::TargetLifecycle::Coasting,
+        "empty fresh snapshot must enter the real Coasting lifecycle");
+
+    now += 0.001;
+    controller.submit_vision_snapshot(
+        target(10, now, 80.0f, 0.0f, 601));
+    const auto output = controller.build_output(physical);
+    const auto& components = controller.last_output_components();
+    require(
+        controller.last_target_plan().lifecycle ==
+            pipeline_contract::TargetLifecycle::Reacquiring,
+        "same source after an empty miss must enter Reacquiring");
+    require(
+        std::fabs(components.requested_assist_stick.x) > 0.20f &&
+            std::fabs(components.shaped_assist_stick.x) > 0.20f,
+        "reacquire pipeline must retain requested and shaped AI evidence");
+    require(
+        !components.intent_fusion_fallback,
+        "same-target Reacquiring must not take the fuser manual fallback");
+    require(
+        components.intent_fusion_ai_weight > 0.99f,
+        "same-target Reacquiring must retain the fused AI proposal");
+    require(
+        std::fabs(components.post_ai_stick.x) >=
+            std::fabs(components.shaped_assist_stick.x) - 0.081f,
+        "same-target Reacquiring must not unload then reassert hidden AI");
+    require(
+        std::fabs(components.post_ai_stick.x - output.right_x) < 0.001f &&
+            std::fabs(components.before_recoil_stick.x - output.right_x) <
+                0.001f,
+        "pipeline fixture must expose fused/post-output before recoil");
+}
+
+void test_cover_retreat_retires_pipeline_actuation_without_identity_loss() {
+    double now = 69.0;
+    auto controller_config = config();
+    controller_config.ai_aim.ads_completion_fresh_frames = 1;
+    controller_config.ai_aim.ads_completion_radius_px = 8.0f;
+    controller_config.ai_aim.target_max_age_ms = 180.0f;
+    controller_config.ai_aim.target_projection_max_age_ms = 180.0f;
+    NativeGamepadController controller(controller_config, [&now] { return now; });
+    controller.set_benchmark_intent_fusion_mode(
+        controller_native::BenchmarkIntentFusionMode::CausalVector);
+    const auto physical = aiming();
+
+    for (std::uint64_t frame_id = 1; frame_id <= 8; ++frame_id) {
+        controller.submit_vision_snapshot(
+            target(frame_id, now, 80.0f, 0.0f, 701));
+        (void)controller.build_output(physical);
+        now += 0.010;
+    }
+    const auto target_id = controller.last_target_plan().target_id;
+    const auto initial_plan = controller.last_target_plan();
+    const auto initial_components = controller.last_output_components();
+    require(
+        controller.last_target_plan().aim_authority > 0.70f &&
+            std::fabs(initial_components.requested_assist_stick.x) > 0.20f &&
+            std::fabs(initial_components.shaped_assist_stick.x) > 0.20f,
+        "cover-retreat pipeline must establish material AI before the miss");
+
+    now += 0.0025;
+    controller.submit_vision_snapshot(empty_fresh_snapshot(9, now));
+    (void)controller.build_output(physical);
+    const auto grace_plan = controller.last_target_plan();
+    const auto grace_components = controller.last_output_components();
+    require(
+        grace_plan.lifecycle == pipeline_contract::TargetLifecycle::Coasting,
+        "fresh empty frame must enter the real Coasting pipeline");
+    require(
+        grace_plan.target_id == target_id && grace_plan.aim_authority > 0.70f,
+        "12.5ms miss must preserve identity and near-full actuation");
+    require(
+        std::fabs(grace_components.shaped_assist_stick.x) <=
+            std::fabs(initial_components.shaped_assist_stick.x) + 0.001f,
+        "Coasting shaper must not blind-rise during the grace frame");
+
+    now += 0.0125;
+    controller.submit_vision_snapshot(empty_fresh_snapshot(10, now));
+    (void)controller.build_output(physical);
+    now += 0.0250;
+    controller.submit_vision_snapshot(empty_fresh_snapshot(11, now));
+    (void)controller.build_output(physical);
+    now += 0.0160;
+    controller.submit_vision_snapshot(empty_fresh_snapshot(12, now));
+    const auto output = controller.build_output(physical);
+    const auto release_plan = controller.last_target_plan();
+    const auto release_components = controller.last_output_components();
+    require(
+        release_plan.lifecycle == pipeline_contract::TargetLifecycle::Coasting,
+        "actuation release must not retire the identity before hold_ms");
+    require(
+        release_plan.target_id == target_id,
+        "actuation release must preserve canonical identity");
+    const float expected_reliability = initial_plan.reliability *
+        std::clamp(1.0f - release_plan.observation_age_ms / 180.0f,
+                   0.0f, 1.0f);
+    require(
+        std::fabs(release_plan.reliability - expected_reliability) < 0.02f,
+        "actuation release must preserve the independent 180ms reliability lease: initial=" +
+            std::to_string(initial_plan.reliability) +
+            " final=" + std::to_string(release_plan.reliability) +
+            " age=" + std::to_string(release_plan.observation_age_ms) +
+            " expected=" + std::to_string(expected_reliability));
+    require(
+        release_plan.aim_authority < 0.05f,
+        "Coasting actuation must be retired by the 65ms candidate release");
+    require(
+        std::fabs(release_components.requested_assist_stick.x) <=
+            std::fabs(grace_components.requested_assist_stick.x) + 0.001f &&
+            std::fabs(release_components.shaped_assist_stick.x) <=
+            std::fabs(grace_components.shaped_assist_stick.x) + 0.001f,
+        "retiring Coasting authority must not leave a growing AI request");
+    require(
+        release_components.intent_fusion_ai_weight <=
+            grace_components.intent_fusion_ai_weight + 0.001f &&
+            std::fabs(release_components.post_ai_stick.x) <=
+            std::fabs(grace_components.post_ai_stick.x) + 0.081f,
+        "fused/post-output must follow the retiring Coasting proposal");
+    require(
+        std::fabs(output.right_x) <=
+            std::fabs(grace_components.post_ai_stick.x) + 0.081f,
+        "final output must not preserve a material old-direction pull after release");
+}
+
+void test_36ms_moving_occlusion_preserves_pipeline_tracking() {
+    double now = 70.0;
+    auto controller_config = config();
+    controller_config.ai_aim.ads_completion_fresh_frames = 1;
+    controller_config.ai_aim.ads_completion_radius_px = 8.0f;
+    NativeGamepadController controller(controller_config, [&now] { return now; });
+    controller.set_benchmark_intent_fusion_mode(
+        controller_native::BenchmarkIntentFusionMode::CausalVector);
+    const auto physical = aiming();
+
+    for (std::uint64_t frame_id = 1; frame_id <= 6; ++frame_id) {
+        controller.submit_vision_snapshot(
+            target(frame_id, now, 20.0f + 4.0f * static_cast<float>(frame_id - 1),
+                   0.0f, 702));
+        (void)controller.build_output(physical);
+        now += 0.010;
+    }
+    const auto target_id = controller.last_target_plan().target_id;
+
+    // The sixth observation is at 70.050. Submit a fresh empty frame at
+    // 70.086 so the occlusion itself is 36ms and frame ids advance.
+    now -= 0.004;
+    controller.submit_vision_snapshot(empty_fresh_snapshot(7, now));
+    const auto occlusion_output = controller.build_output(physical);
+    const auto occlusion_plan = controller.last_target_plan();
+    require(
+        occlusion_plan.lifecycle == pipeline_contract::TargetLifecycle::Coasting &&
+            occlusion_plan.target_id == target_id,
+        "36ms moving occlusion must remain on the same Coasting owner");
+    require(
+        occlusion_plan.mode != pipeline_contract::ControlMode::Manual,
+        "36ms moving occlusion must not false-stop the assisted mode");
+
+    now += 0.001;
+    controller.submit_vision_snapshot(target(8, now, 44.0f, 0.0f, 702));
+    const auto output = controller.build_output(physical);
+    const auto reacquired_plan = controller.last_target_plan();
+    const auto components = controller.last_output_components();
+    require(
+        reacquired_plan.lifecycle == pipeline_contract::TargetLifecycle::Reacquiring &&
+            reacquired_plan.target_id == target_id,
+        "36ms moving occlusion must reacquire the same canonical target");
+    require(
+        std::fabs(reacquired_plan.error_px.x - 44.0f) < 1.0f,
+        "fresh moving-target position must remain authoritative after occlusion");
+    require(
+        !components.intent_fusion_fallback &&
+            std::fabs(components.requested_assist_stick.x) > 0.01f &&
+            std::fabs(components.shaped_assist_stick.x) > 0.01f &&
+            std::fabs(components.post_ai_stick.x) > 0.01f &&
+            std::fabs(output.right_x) > 0.01f,
+        "36ms same-target reacquire must not false-stop or unload the pipeline");
+    require(
+        output.right_x * occlusion_output.right_x >= -0.001f,
+        "36ms moving occlusion must not create a material direction reversal");
+}
+
+void test_firing_fresh_cross_center_reverses_bodylock_request() {
+    double now = 68.0;
+    auto controller_config = config();
+    controller_config.ai_aim.ads_completion_fresh_frames = 1;
+    controller_config.ai_aim.ads_completion_radius_px = 8.0f;
+    controller_config.ai_aim.body_lock_confidence_frames = 1;
+    NativeGamepadController controller(controller_config, [&now] { return now; });
+    controller.set_benchmark_intent_fusion_mode(
+        controller_native::BenchmarkIntentFusionMode::CausalVector);
+    auto physical = aiming();
+    physical.right_trigger = 1.0f;
+
+    const float observations[] = {2.0f, 11.0f, -8.0f, -16.0f, -28.0f};
+    for (std::uint64_t index = 0; index < 5; ++index) {
+        controller.submit_vision_snapshot(
+            target(index + 1, now, observations[index], 0.0f, 602));
+        (void)controller.build_output(physical);
+        now += 0.010;
+    }
+
+    require(
+        controller.last_target_plan().error_px.x < 0.0f,
+        "fresh firing observation must cross the coordinator error center");
+    require(
+        controller.last_output_components().requested_assist_stick.x < 0.0f,
+        "BodyLock request must follow the fresh firing position across center");
+}
+
 void test_bodylock_countersteer_has_no_escape_threshold_impulse() {
     double now = 31.0;
     auto controller_config = config();
@@ -809,12 +1187,18 @@ int main() {
         test_benchmark_mix_override_updates_delivered_feedback();
         test_benchmark_vector_fusion_is_one_reported_pipeline_stage();
         test_vector_mode_generates_ai_before_manual_arbitration();
+        test_ads_strong_cooperative_mix_uses_ai_as_the_radial_proposal();
+        test_near_bodylock_strong_mix_prefers_ai_but_far_stays_legacy();
         test_only_worsening_wrong_way_axis_stops_suppressing_assist();
         test_ads_and_bodylock_share_one_resolved_target_geometry();
         test_held_ads_target_change_does_not_rearm_snap();
         test_same_track_geometry_shift_keeps_final_output_bounded();
         test_held_ads_new_track_after_gap_starts_from_zero_ai();
         test_close_lateral_runner_keeps_fresh_bodylock_authority();
+        test_firing_fresh_cross_center_reverses_bodylock_request();
+        test_same_target_reacquire_preserves_pipeline_continuity();
+        test_cover_retreat_retires_pipeline_actuation_without_identity_loss();
+        test_36ms_moving_occlusion_preserves_pipeline_tracking();
         test_physical_fire_is_never_cleared_by_autofire();
         test_100hz_vision_1000hz_control_emits_stable_fire_cadence();
         std::cout << "[TargetPipelineIntegrationTests] PASS\n";

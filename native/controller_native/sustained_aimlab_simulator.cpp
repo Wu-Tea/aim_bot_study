@@ -696,6 +696,8 @@ BenchmarkResult run_simulation(
                     };
                 }
             }
+            input.manual_stick.x *= script.config.manual_input_scale;
+            input.manual_stick.y *= script.config.manual_input_scale;
         } else if (pending_fresh_miss) {
             input.fresh_vision = true;
             input.frame_id = ++frame_id;

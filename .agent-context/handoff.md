@@ -6,37 +6,45 @@ Staleness trigger: refresh after runtime/config/engine or a control owner change
 
 ## Current Objective
 
-Preserve the live-accepted Task 1–4 runtime as the stable baseline. Do not tune strength or reopen old experiments without a fingerprinted, reproducible live defect.
+Preserve `DE31...` as the current validation baseline while isolating slight ADS
+over/under. Separate handoff timing from movement before tuning or blaming learning.
 
 ## Current State
 
-- Chain: Vision/selector -> TargetCoordinator -> TargetPlan -> ADS or BodyLock -> AimDynamicsShaper -> VectorIntentFuser -> ADS-only brake -> recoil/output.
-- Task 1 removed the fuser's duplicate reliability hard gate while retaining exact strong manual escape and bounded 2-D re-entry.
-- Task 2 made shaper state target/mode-aware; ADS saturation no longer enters the first BodyLock tick and new targets do not inherit old AI state.
-- Task 3 enforced selector-owned no-selection admission; Release `34/34`, focused tests, matched A/B and `git diff --check` pass.
-- Task 4 gives a different replacement target in the same LT epoch one exact manual/zero-AI tick, then the existing `0.08` slew. Fresh Vision and valid same-track movement remain authoritative.
-- User live-accepted the result: severe ADS pulls are gone, BodyLock follows a stationary target during main-view movement, moving follow no longer jitters frequently, and later acquisitions were nearly direct.
-- Stable runtime: `native/vision_native/build/Release/cod_native_runtime.exe`, SHA-256 `B7F9F28B6A39E1AE58DB75C5F3A3A18DDF3D9692886245ABF2C5493FDC84140C`.
-- Candidate archive: `artifacts/runtime-candidates/20260801-task4-ownership-admission/cod_native_runtime-task4-B7F9F28B.exe`; previous runtime backup: `artifacts/runtime-backups/20260801-task4-before-overwrite/cod_native_runtime-pre-task4-3D9ED74C.exe`.
-- `rollout_shadow` remains observation-only. The live memory-only `AimResponseEstimator` influences coordinator feedback; its contribution to early-session warm-up is inferred, not independently proven.
+- Chain: Vision/selector -> TargetCoordinator -> TargetPlan -> ADS/BodyLock -> AimDynamicsShaper -> VectorIntentFuser -> ADS brake -> recoil/output.
+- Task 1–4 removed duplicate gating/state carry, enforced selector no-selection and bounded held-LT replacement admission. User live-accepted removal of severe jumps and frequent moving-follow jitter.
+- Follow-up keeps fresh firing position authoritative, separates Coasting actuation from identity hold, and removes same-target `Reacquiring` manual-only cuts.
+- Manual and shaped AI are absolute fuser proposals. Strong same-direction ADS/near BodyLock uses complete AI, contextual manual normalization and 20% headroom; tangent/opposing input, full escape and far BodyLock retain ownership.
+- Runtime: `native/vision_native/build/Release/cod_native_runtime.exe`, SHA-256 `DE31FF53B4C0CFBAB091F589CB194296A01DC9C0C8B5E74513F90AB94ED30590`.
+- Candidate: `artifacts/runtime-candidates/20260801-contextual-dual-proposal-headroom20-DE31FF53/cod_native_runtime.exe`; rollback: `artifacts/runtime-backups/20260801-pre-contextual-dual-proposal-0E5E9A3B/cod_native_runtime.exe`.
+- Latest session `20260801T131000Z_6544_1`: 25.51 min, 355 ADS runs, 246 normal handoffs >=20 ms.
+- **User-confirmed:** longer play still sometimes ends slightly past or short.
+- **Repository evidence:** end error/time `rho=0.070` and response proxy/time `rho=-0.054`; late incidents cluster at the physical-epoch `220 ms` ceiling under movement or late acquisition.
+- `rollout_shadow` is observation-only. Production `AimResponseEstimator` can change magnitude, but unlogged scale/confidence and direction-flip evidence do not support it as primary cause.
 
 ## Next Action
 
-Leave control and parameters unchanged. For a new defect, fingerprint runtime/config/engine/source, isolate one short live window, and compare with the August 1 baseline before editing code.
+No new fix is accepted. If requested, first add epoch/segment timing, handoff
+reason, contribution and response telemetry plus late-target/center-cross/control
+fixtures; then evaluate a bounded guard without held-LT ADS rearm.
 
 ## Blockers
 
-- None for the accepted runtime.
+- No blocker for the current documentation/commit.
 - The intentionally dirty worktree means commit identity alone is insufficient; preserve unrelated user changes.
 - Session manifests omit executable SHA-256, so retain installation-chain evidence for future live tests.
+- The latest manifest remains `state=active` and carries stale `git_commit`
+  provenance; production response estimator scale/confidence is also absent.
 
 ## Active Questions
 
-- Only if requested: estimator confidence versus tracker/body-geometry state in the first few acquisitions.
-- Whether any new weapon/mode reproduces a jump on the accepted identity.
+- Should bounded continuation depend on target-segment age, closing error or both?
+- Should old-direction feed-forward be suppressed after fresh error crosses center?
+- How large is any secondary estimator-magnitude effect once telemetry exists?
 
 ## Relevant Decisions
 
+- [Contextual dual-proposal arbitration](decisions/DEC-2026-08-01-002-contextual-manual-ai-dual-proposal-arbitration.md)
 - [Accept Task 1–4 runtime](decisions/DEC-2026-08-01-001-accept-control-chain-jump-stability-runtime.md)
 - [Separate target motion from firing disturbance](decisions/DEC-2026-07-31-001-separate-target-motion-and-firing-disturbance.md)
 - [Tracker publishes remaining work](decisions/DEC-2026-07-29-002-tracker-remaining-work-contract.md)
@@ -44,15 +52,17 @@ Leave control and parameters unchanged. For a new defect, fingerprint runtime/co
 
 ## Files To Read First
 
-1. [Live acceptance](../docs/project/CONTROL_CHAIN_JUMP_STABILITY_ACCEPTANCE_20260801.md)
-2. [Compact session log](session-log.md)
-3. [Task 4 verification](../artifacts/benchmarks/control-chain-jump-fix-20260801/task4-ownership-admission/VERIFICATION.md)
-4. [Task 1–3 verification](../artifacts/benchmarks/control-chain-jump-fix-20260801/codex-final-ab/VERIFICATION.md)
-5. [Implementation plan](../docs/superpowers/plans/2026-08-01-ads-bodylock-jump-stability-repair.md)
+1. [Latest ADS long-session diagnosis](../docs/project/ADS_LONG_SESSION_DIAGNOSIS_20260801.md)
+2. [Current acceptance and runtime identity](../docs/project/CONTROL_CHAIN_JUMP_STABILITY_ACCEPTANCE_20260801.md)
+3. [Dual-proposal verification](../artifacts/benchmarks/sensitivity-manual-mix-20260801/CONTEXTUAL_DUAL_PROPOSAL_VERIFICATION.md)
+4. [Compact session log](session-log.md)
+5. [Four-situation plan and execution record](../docs/superpowers/plans/2026-08-01-four-situation-control-chain-reproduction-and-repair.md)
 
 ## Do Not Reopen Unless Needed
 
 - Do not lower ADS/BodyLock strength, restore duplicate gates/brakes or rearm ADS to hide discontinuity.
+- Do not globally scale all manual input; contextual normalization belongs only
+  to the strong same-direction arbitration path.
 - Do not clamp all fresh Vision innovation or add a second target-position state.
 - Do not give `rollout_shadow` actuation or add persistent learning without evidence and approval.
 - Do not reset, checkout over or bulk-clean the dirty worktree.

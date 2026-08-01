@@ -10,6 +10,19 @@ Scope: native C++ FPS gamepad runtime, selector/tracker/controller, ADS, BodyLoc
 - Earlier history: [pre-July-20 context](archive/context-through-2026-07-20-pre-compaction.md) and `session-log-full.md`.
 - Labels: **User-confirmed** = live/explicit statement; **Repository evidence** = source/test/artifact; **Inferred** = explanation not isolated by A/B.
 
+## 2026-08-01 - Dual-Proposal Runtime and Long-Session ADS Audit
+
+- Goal: make manual and AI both enter one calculation at 2.4 sensitivity, then distinguish the remaining late-session ADS over/under from learning drift.
+- Repository evidence: strong same-direction ADS/near BodyLock now uses complete AI plus context-normalized manual and 20% parallel headroom; tangent/opposing input, full escape, pure AI and far BodyLock retain their contracts.
+- Verification: Release build, focused tests, left-stick 5/0 harness, CTest `34/34` and `git diff --check` pass; authoritative matrix is `sensitivity-manual-mix-20260801/contextual-headroom-0.20-final-exact/`.
+- Installed runtime SHA-256: `DE31FF53B4C0CFBAB091F589CB194296A01DC9C0C8B5E74513F90AB94ED30590`; pre-overwrite `0E5E9A3B...` backup retained.
+- **User-confirmed:** after longer bot play, ADS can occasionally pull slightly past or stop slightly short.
+- Repository evidence: latest `20260801T131000Z_6544_1` session is 25.51 min; 355 ADS runs, 246 normal handoffs >=20 ms; ending error vs elapsed `rho=0.070` and response proxy vs elapsed `rho=-0.054`.
+- Late examples end at the physical-LT `220 ms` acquisition ceiling: a target entering at 182 ms gets only 36 ms; a near-ceiling center crossing retains old-direction velocity/feed-forward before handoff.
+- **Inferred:** movement plus physical-epoch handoff timing is primary; cumulative learning drift is not supported. Production response scale/confidence is unlogged, so a secondary magnitude effect remains open.
+- No new control fix was made. Next gate is telemetry plus late-target/center-cross/stationary fixtures; held-LT strong ADS must not rearm.
+- Decision: [DEC-2026-08-01-002](decisions/DEC-2026-08-01-002-contextual-manual-ai-dual-proposal-arbitration.md). Diagnosis: [ADS long-session audit](../docs/project/ADS_LONG_SESSION_DIAGNOSIS_20260801.md).
+
 ## 2026-08-01 - Task 1–4 Repair and Live Acceptance
 
 - Goal: remove ADS pull-away, ADS→BodyLock force carry, held-LT replacement jumps and moving-follow jitter without reducing strength or adding another owner.

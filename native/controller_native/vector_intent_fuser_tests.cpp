@@ -41,14 +41,281 @@ VectorIntentFusionInput input_for(
     return input;
 }
 
-void test_aligned_input_keeps_full_mix() {
-    VectorIntentFuser fuser;
-    const auto decision = fuser.update(
-        input_for({0.20f, 0.0f}, {0.30f, 0.0f}), 0.001f);
-    require_true(decision.candidate == FusionCandidate::ExistingMix,
-                 "aligned input must retain the complete AI proposal");
+void test_far_observed_aligned_input_keeps_full_mix() {
+    controller_native::VectorIntentFusionConfig config{};
+    config.manual_escape_threshold = 0.22f;
+    config.manual_preservation_floor = 0.75f;
+    config.assisted_ai_priority_enabled = false;
+    VectorIntentFuser fuser(config);
+    auto input = input_for({0.20f, 0.0f}, {0.30f, 0.0f});
+    input.plan.normalized_size = 0.12f;
+    const auto decision = fuser.update(input, 0.001f);
     require_near(decision.fused_stick.x, 0.50f, 0.0001f,
-                 "aligned manual and AI input must add normally");
+                 "fresh observed tracking must keep normal cooperative authority");
+    require_near(decision.fused_stick.y, 0.0f, 0.0001f,
+                 "cooperative limiting must not manufacture an orthogonal axis");
+}
+
+void test_cooperative_limit_preserves_orthogonal_ai() {
+    controller_native::VectorIntentFusionConfig config{};
+    config.manual_escape_threshold = 0.22f;
+    config.manual_preservation_floor = 0.75f;
+    config.assisted_ai_priority_enabled = false;
+    VectorIntentFuser fuser(config);
+    auto input = input_for({0.30f, 0.0f}, {0.25f, 0.20f});
+    input.plan.lifecycle = pipeline_contract::TargetLifecycle::Coasting;
+    input.plan.normalized_size = 0.24f;
+    const auto decision = fuser.update(input, 0.001f);
+    require_near(decision.fused_stick.x, 0.3625f, 0.0001f,
+                 "cooperative AI parallel to strong manual input exceeded its headroom");
+    require_near(decision.fused_stick.y, 0.20f, 0.0001f,
+                 "cooperative limiting must preserve orthogonal target-follow AI");
+}
+
+void test_cooperative_limit_is_rotation_invariant() {
+    controller_native::VectorIntentFusionConfig config{};
+    config.manual_escape_threshold = 0.22f;
+    config.manual_preservation_floor = 0.75f;
+    config.assisted_ai_priority_enabled = false;
+    VectorIntentFuser fuser(config);
+    auto input = input_for({0.30f, 0.40f}, {0.18f, 0.24f});
+    input.plan.lifecycle = pipeline_contract::TargetLifecycle::Coasting;
+    input.plan.normalized_size = 0.24f;
+    const auto decision = fuser.update(input, 0.001f);
+    require_near(std::hypot(decision.fused_stick.x,
+                            decision.fused_stick.y),
+                 0.575f, 0.0001f,
+                 "diagonal cooperative input must use the same scalar headroom");
+    require_near(decision.fused_stick.x * 0.80f -
+                     decision.fused_stick.y * 0.60f,
+                 0.0f, 0.0001f,
+                 "cooperative limiting rotated a diagonal control vector");
+}
+
+void test_coasting_cooperative_push_cannot_recreate_spring_force() {
+    controller_native::VectorIntentFusionConfig config{};
+    config.manual_escape_threshold = 0.22f;
+    config.manual_preservation_floor = 0.75f;
+    config.assisted_ai_priority_enabled = false;
+    VectorIntentFuser fuser(config);
+    auto input = input_for({0.15f, 0.0f}, {0.324f, 0.0f});
+    input.plan.lifecycle = pipeline_contract::TargetLifecycle::Coasting;
+    input.plan.normalized_size = 0.24f;
+    const auto decision = fuser.update(input, 0.001f);
+    require_near(decision.fused_stick.x, 0.39317f, 0.0001f,
+                 "coasting manual and AI proposals recreated additive spring force");
+}
+
+void test_coasting_micro_input_retains_normal_cooperation() {
+    controller_native::VectorIntentFusionConfig config{};
+    config.manual_escape_threshold = 0.22f;
+    config.manual_preservation_floor = 0.75f;
+    config.assisted_ai_priority_enabled = false;
+    VectorIntentFuser fuser(config);
+    auto input = input_for({0.05f, 0.0f}, {0.30f, 0.0f});
+    input.plan.lifecycle = pipeline_contract::TargetLifecycle::Coasting;
+    input.plan.normalized_size = 0.24f;
+    const auto decision = fuser.update(input, 0.001f);
+    require_true(decision.fused_stick.x >= 0.347f,
+                 "micro manual input must not materially weaken target coast");
+}
+
+void test_far_coast_keeps_full_cooperative_authority() {
+    controller_native::VectorIntentFusionConfig config{};
+    config.manual_escape_threshold = 0.22f;
+    config.manual_preservation_floor = 0.75f;
+    config.assisted_ai_priority_enabled = false;
+    VectorIntentFuser fuser(config);
+    auto input = input_for({0.15f, 0.0f}, {0.324f, 0.0f});
+    input.plan.lifecycle = pipeline_contract::TargetLifecycle::Coasting;
+    input.plan.normalized_size = 0.12f;
+    const auto decision = fuser.update(input, 0.001f);
+    require_near(decision.fused_stick.x, 0.474f, 0.0001f,
+                 "far target coast must preserve normal cooperative tracking");
+}
+
+void test_live_close_stack_fingerprint_is_reduced_without_axis_gate() {
+    controller_native::VectorIntentFusionConfig config{};
+    config.manual_escape_threshold = 0.22f;
+    config.manual_preservation_floor = 0.75f;
+    config.assisted_ai_priority_enabled = false;
+    VectorIntentFuser fuser(config);
+    auto input = input_for(
+        {0.145085f, -0.0352794f}, {0.323827f, 0.26265f});
+    input.plan.lifecycle = pipeline_contract::TargetLifecycle::Coasting;
+    input.plan.normalized_size = 0.237f;
+    const auto decision = fuser.update(input, 0.001f);
+    require_near(decision.fused_stick.x, 0.395985f, 0.0001f,
+                 "live close-target stack retained its spring-like X launch");
+    require_near(decision.fused_stick.y, 0.245104f, 0.0001f,
+                 "live close-target stack was bounded with an axis-specific gate");
+}
+
+controller_native::VectorIntentFusionConfig production_priority_config() {
+    controller_native::VectorIntentFusionConfig config{};
+    config.manual_escape_threshold = 0.22f;
+    config.manual_preservation_floor = 0.75f;
+    return config;
+}
+
+void test_ads_strong_cooperative_manual_uses_ai_as_primary_proposal() {
+    VectorIntentFuser fuser(production_priority_config());
+    auto input = input_for({0.80f, 0.0f}, {0.30f, 0.0f});
+    input.plan.mode = pipeline_contract::ControlMode::AdsAcquire;
+    input.plan.normalized_size = 0.12f;
+    const auto decision = fuser.update(input, 0.001f);
+    require_near(decision.fused_stick.x, 0.426667f, 0.0001f,
+                 "ADS strong manual and AI proposals were still added as forces");
+}
+
+void test_near_bodylock_strong_cooperative_manual_uses_ai_as_primary_proposal() {
+    VectorIntentFuser fuser(production_priority_config());
+    auto input = input_for({0.80f, 0.0f}, {0.30f, 0.0f});
+    input.plan.normalized_size = 0.24f;
+    const auto decision = fuser.update(input, 0.001f);
+    require_near(decision.fused_stick.x, 0.433333f, 0.0001f,
+                 "near BodyLock retained high-sensitivity cooperative stacking");
+}
+
+void test_near_bodylock_subfull_countersteer_retains_ai_authority() {
+    VectorIntentFuser fuser(production_priority_config());
+    auto input = input_for({-0.80f, 0.0f}, {0.30f, 0.0f});
+    input.plan.normalized_size = 0.24f;
+    const auto decision = fuser.update(input, 0.001f);
+    require_true(!decision.manual_escape,
+                 "sub-full high-sensitivity countersteer hard-dropped AI");
+    require_true(decision.fused_stick.x > -0.70f,
+                 "sub-full countersteer did not retain material AI authority");
+}
+
+void test_near_ai_priority_preserves_orthogonal_manual_intent() {
+    VectorIntentFuser fuser(production_priority_config());
+    auto input = input_for({0.80f, 0.20f}, {0.30f, 0.0f});
+    input.plan.normalized_size = 0.24f;
+    const auto decision = fuser.update(input, 0.001f);
+    require_near(decision.fused_stick.x, 0.433333f, 0.0001f,
+                 "AI-priority radial control did not use bounded manual headroom");
+    require_near(decision.fused_stick.y, 0.20f, 0.0001f,
+                 "AI-priority radial control swallowed orthogonal manual intent");
+}
+
+void test_far_bodylock_full_cooperative_input_remains_manual_escape() {
+    VectorIntentFuser fuser(production_priority_config());
+    auto input = input_for({1.0f, 0.0f}, {0.30f, 0.0f});
+    input.plan.normalized_size = 0.12f;
+    const auto decision = fuser.update(input, 0.001f);
+    require_true(decision.manual_escape,
+                 "far BodyLock must keep the accepted full-manual escape boundary");
+    require_near(decision.fused_stick.x, 1.0f, 0.0001f,
+                 "far BodyLock full input must remain exact physical input");
+}
+
+void test_ads_full_cooperative_input_remains_on_ai_priority_path() {
+    VectorIntentFuser fuser(production_priority_config());
+    auto input = input_for({1.0f, 0.0f}, {0.30f, 0.0f});
+    input.plan.mode = pipeline_contract::ControlMode::AdsAcquire;
+    input.plan.normalized_size = 0.12f;
+    const auto decision = fuser.update(input, 0.001f);
+    require_true(!decision.manual_escape,
+                 "cooperative ADS input was misclassified as an escape request");
+    require_near(decision.fused_stick.x, 0.458333f, 0.0001f,
+                 "full cooperative ADS input recreated additive launch force");
+}
+
+void test_near_bodylock_full_opposing_input_remains_exact_escape() {
+    VectorIntentFuser fuser(production_priority_config());
+    auto input = input_for({-1.0f, 0.0f}, {0.30f, 0.0f});
+    input.plan.normalized_size = 0.24f;
+    const auto decision = fuser.update(input, 0.001f);
+    require_true(decision.manual_escape,
+                 "near BodyLock swallowed a full opposing escape request");
+    require_near(decision.fused_stick.x, -1.0f, 0.0001f,
+                 "near BodyLock full escape must remain exact physical input");
+}
+
+void test_ads_moderate_manual_input_keeps_ordinary_cooperation() {
+    VectorIntentFuser fuser(production_priority_config());
+    auto input = input_for({0.30f, 0.0f}, {0.30f, 0.0f});
+    input.plan.mode = pipeline_contract::ControlMode::AdsAcquire;
+    const auto decision = fuser.update(input, 0.001f);
+    require_near(decision.fused_stick.x, 0.60f, 0.0001f,
+                 "AI priority activated below the strong-manual boundary");
+}
+
+void test_ads_log_normalization_uses_effective_1p9_parallel_proposal() {
+    VectorIntentFuser fuser(production_priority_config());
+    auto input = input_for({0.70f, 0.0f}, {0.30f, 0.0f});
+    input.plan.mode = pipeline_contract::ControlMode::AdsAcquire;
+    input.plan.normalized_size = 0.12f;
+    const auto decision = fuser.update(input, 0.001f);
+    require_true(decision.candidate == FusionCandidate::RadialCorrected,
+                 "ADS normalization left assisted proposal ownership");
+    require_near(decision.fused_stick.x, 0.410833f, 0.0001f,
+                 "ADS cooperative parallel proposal did not use 1.9/2.4 scaling");
+}
+
+void test_ads_normalized_manual_participates_when_ai_proposal_is_larger() {
+    VectorIntentFuser fuser(production_priority_config());
+    auto input = input_for({0.70f, 0.0f}, {0.80f, 0.0f});
+    input.plan.mode = pipeline_contract::ControlMode::AdsAcquire;
+    const auto decision = fuser.update(input, 0.001f);
+    require_near(decision.fused_stick.x, 0.910833f, 0.0001f,
+                 "cooperative manual proposal was ignored below the AI proposal");
+    require_true(decision.applied_manual_weight > 0.15f,
+                 "fusion telemetry did not retain bounded manual participation");
+}
+
+void test_near_bodylock_log_normalization_uses_effective_2p0_only_near() {
+    auto near_input = input_for({0.70f, 0.0f}, {0.30f, 0.0f});
+    near_input.plan.normalized_size = 0.24f;
+    VectorIntentFuser near_fuser(production_priority_config());
+    const auto near = near_fuser.update(near_input, 0.001f);
+    require_near(near.fused_stick.x, 0.416667f, 0.0001f,
+                 "near BodyLock cooperative proposal did not use 2.0/2.4 scaling");
+
+    auto far_input = near_input;
+    far_input.plan.normalized_size = 0.12f;
+    VectorIntentFuser far_fuser(production_priority_config());
+    const auto far = far_fuser.update(far_input, 0.001f);
+    require_near(far.fused_stick.x, 1.0f, 0.0001f,
+                 "far BodyLock was changed by near-only manual normalization");
+    require_true(far.candidate != FusionCandidate::RadialCorrected,
+                 "far BodyLock entered near assisted proposal ownership");
+}
+
+void test_log_normalization_preserves_tangent_and_opposing_manual() {
+    VectorIntentFuser tangent_fuser(production_priority_config());
+    auto tangent_input = input_for({0.70f, 0.20f}, {0.30f, 0.0f});
+    tangent_input.plan.mode = pipeline_contract::ControlMode::AdsAcquire;
+    const auto tangent = tangent_fuser.update(tangent_input, 0.001f);
+    require_near(tangent.fused_stick.y, 0.20f, 0.0001f,
+                 "ADS normalization scaled orthogonal manual intent");
+
+    auto enabled_config = production_priority_config();
+    auto disabled_config = enabled_config;
+    disabled_config.contextual_manual_normalization_enabled = false;
+    auto opposing_input = input_for({-0.80f, 0.0f}, {0.30f, 0.0f});
+    opposing_input.plan.mode = pipeline_contract::ControlMode::AdsAcquire;
+    VectorIntentFuser enabled(enabled_config);
+    VectorIntentFuser disabled(disabled_config);
+    const auto normalized = enabled.update(opposing_input, 0.001f);
+    const auto stage_one = disabled.update(opposing_input, 0.001f);
+    require_near(normalized.fused_stick.x, stage_one.fused_stick.x, 0.0001f,
+                 "same-direction normalization weakened opposing counter-steer");
+    require_near(normalized.applied_manual_weight,
+                 stage_one.applied_manual_weight, 0.0001f,
+                 "opposing counter-steer telemetry reported false normalization");
+}
+
+void test_log_normalization_classifies_strength_from_raw_physical_input() {
+    auto config = production_priority_config();
+    config.ads_same_direction_manual_scale = 0.10f;
+    VectorIntentFuser fuser(config);
+    auto input = input_for({0.55f, 0.0f}, {0.30f, 0.0f});
+    input.plan.mode = pipeline_contract::ControlMode::AdsAcquire;
+    const auto decision = fuser.update(input, 0.001f);
+    require_true(decision.candidate == FusionCandidate::RadialCorrected,
+                 "scaled proposal incorrectly disabled raw strong-input admission");
 }
 
 void test_opposing_input_preserves_manual_and_continuously_retires_ai() {
@@ -120,10 +387,12 @@ void test_reacquire_and_target_change_fail_safe_to_manual() {
 
     changed.plan.lifecycle = pipeline_contract::TargetLifecycle::Reacquiring;
     const auto reacquire = fuser.update(changed, 0.001f);
-    require_true(reacquire.reason == FusionFallbackReason::Reacquiring,
-                 "reacquisition must fail safe to manual ownership");
-    require_near(reacquire.fused_stick.y, 0.10f, 0.0001f,
-                 "reacquisition must preserve physical input exactly");
+    require_true(reacquire.reason == FusionFallbackReason::None,
+                 "same-target reacquisition must remain on the normal fusion path");
+    require_true(!reacquire.fallback,
+                 "same-target reacquisition must not use manual fallback");
+    require_true(reacquire.fused_stick.x > -0.20f,
+                 "same-target reacquisition must retain the fresh AI proposal");
 }
 
 void test_reliability_boundary_does_not_drop_and_reassert_ai() {
@@ -328,11 +597,52 @@ void test_no_target_is_exact_manual() {
                  "no-target Y must be exact manual");
 }
 
+void test_same_target_reacquiring_preserves_shaped_ai_continuity() {
+    VectorIntentFuser fuser;
+    auto input = input_for({0.0f, 0.0f}, {0.60f, 0.0f});
+    (void)fuser.update(input, 0.001f);
+
+    input.manual_stick = {0.05f, -0.02f};
+    input.plan.lifecycle = pipeline_contract::TargetLifecycle::Reacquiring;
+    const auto reacquiring = fuser.update(input, 0.001f);
+    require_true(
+        !reacquiring.fallback,
+        "same-target Reacquiring must not take the manual-only fallback");
+    require_true(
+        std::fabs(reacquiring.fused_stick.x - input.manual_stick.x) > 0.02f,
+        "same-target Reacquiring must not unload shaped AI to manual-only");
+
+    input.plan.lifecycle = pipeline_contract::TargetLifecycle::Coasting;
+    const auto coasting = fuser.update(input, 0.001f);
+    require_true(
+        std::fabs(coasting.fused_stick.x - reacquiring.fused_stick.x) <= 0.081f,
+        "same-target reacquire must not reassert a hidden AI backlog");
+}
+
 }  // namespace
 
 int main() {
     try {
-        test_aligned_input_keeps_full_mix();
+        test_far_observed_aligned_input_keeps_full_mix();
+        test_cooperative_limit_preserves_orthogonal_ai();
+        test_cooperative_limit_is_rotation_invariant();
+        test_coasting_cooperative_push_cannot_recreate_spring_force();
+        test_coasting_micro_input_retains_normal_cooperation();
+        test_far_coast_keeps_full_cooperative_authority();
+        test_live_close_stack_fingerprint_is_reduced_without_axis_gate();
+        test_ads_strong_cooperative_manual_uses_ai_as_primary_proposal();
+        test_near_bodylock_strong_cooperative_manual_uses_ai_as_primary_proposal();
+        test_near_bodylock_subfull_countersteer_retains_ai_authority();
+        test_near_ai_priority_preserves_orthogonal_manual_intent();
+        test_far_bodylock_full_cooperative_input_remains_manual_escape();
+        test_ads_full_cooperative_input_remains_on_ai_priority_path();
+        test_near_bodylock_full_opposing_input_remains_exact_escape();
+        test_ads_moderate_manual_input_keeps_ordinary_cooperation();
+        test_ads_log_normalization_uses_effective_1p9_parallel_proposal();
+        test_ads_normalized_manual_participates_when_ai_proposal_is_larger();
+        test_near_bodylock_log_normalization_uses_effective_2p0_only_near();
+        test_log_normalization_preserves_tangent_and_opposing_manual();
+        test_log_normalization_classifies_strength_from_raw_physical_input();
         test_opposing_input_preserves_manual_and_continuously_retires_ai();
         test_escape_threshold_is_not_a_control_switch();
         test_fresh_vision_does_not_override_countersteer();
@@ -349,6 +659,7 @@ int main() {
         test_target_change_reenters_from_manual_baseline();
         test_no_target_replacement_uses_manual_admission_tick();
         test_no_target_is_exact_manual();
+        test_same_target_reacquiring_preserves_shaped_ai_continuity();
         std::cout << "[VectorIntentFuserTests] PASS\n";
         return 0;
     } catch (const std::exception& error) {

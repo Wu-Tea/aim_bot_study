@@ -49,6 +49,149 @@ pipeline_contract::IntentState firing_ads_intent(double time) {
     return intent;
 }
 
+pipeline_contract::VisionObservationBatch empty_fresh_frame(
+    std::uint64_t frame_id,
+    double time) {
+    pipeline_contract::VisionObservationBatch batch{};
+    batch.frame_id = frame_id;
+    batch.source_time_seconds = time;
+    batch.publish_time_seconds = time;
+    batch.frame_width_px = 480.0f;
+    batch.frame_height_px = 416.0f;
+    batch.capture_fresh = true;
+    return batch;
+}
+
+void test_coasting_actuation_lease_retires_before_identity_hold() {
+    controller_native::TargetCoordinator coordinator;
+    auto plan = coordinator.update(
+        frame(1, 1.000, 10, 300.0f, 208.0f),
+        ads_intent(1.000),
+        1.000);
+    const auto target_id = plan.target_id;
+    require_true(plan.lifecycle == pipeline_contract::TargetLifecycle::Observed,
+                 "cover-retreat fixture must establish a fresh target");
+    require_true(plan.aim_authority > 0.70f,
+                 "cover-retreat fixture must establish material AI authority");
+
+    // A 12.5ms single-frame miss is the continuity grace window. Then keep
+    // publishing fresh empty frames so this fixture exercises the real
+    // no-target/Coasting path rather than a stale control tick.
+    plan = coordinator.update(
+        empty_fresh_frame(2, 1.0125),
+        ads_intent(1.0125),
+        1.0125);
+    require_true(plan.lifecycle == pipeline_contract::TargetLifecycle::Coasting,
+                 "single fresh miss must enter Coasting");
+    require_true(plan.target_id == target_id,
+                 "short miss must preserve identity during the grace window");
+    require_true(plan.aim_authority > 0.70f,
+                 "12.5ms single miss must retain near-full actuation authority");
+
+    plan = coordinator.update(
+        empty_fresh_frame(3, 1.0250),
+        ads_intent(1.0250),
+        1.0250);
+    plan = coordinator.update(
+        empty_fresh_frame(4, 1.0400),
+        ads_intent(1.0400),
+        1.0400);
+    plan = coordinator.update(
+        empty_fresh_frame(5, 1.0550),
+        ads_intent(1.0550),
+        1.0550);
+    plan = coordinator.update(
+        empty_fresh_frame(6, 1.0660),
+        ads_intent(1.0660),
+        1.0660);
+
+    require_true(plan.lifecycle == pipeline_contract::TargetLifecycle::Coasting,
+                 "identity must still coast before the 180ms hold expires");
+    require_true(plan.target_id == target_id,
+                 "actuation retirement must not retire identity association");
+    require_true(plan.reliability > 0.45f,
+                 "cover-retreat must preserve the independent reliability lease");
+    require_true(
+        plan.aim_authority < 0.05f,
+        "Coasting actuation must retire by roughly 65ms instead of following hold_ms");
+}
+
+void test_36ms_moving_occlusion_reacquires_without_false_stop() {
+    controller_native::TargetCoordinator coordinator;
+    auto plan = coordinator.update(
+        frame(1, 2.000, 20, 280.0f, 208.0f),
+        ads_intent(2.000),
+        2.000);
+    const auto target_id = plan.target_id;
+    plan = coordinator.update(
+        frame(2, 2.010, 20, 286.0f, 208.0f),
+        ads_intent(2.010),
+        2.010);
+    plan = coordinator.update(
+        frame(3, 2.020, 20, 292.0f, 208.0f),
+        ads_intent(2.020),
+        2.020);
+
+    plan = coordinator.update(
+        empty_fresh_frame(4, 2.056),
+        ads_intent(2.056),
+        2.056);
+    require_true(plan.lifecycle == pipeline_contract::TargetLifecycle::Coasting,
+                 "36ms moving-target occlusion must remain in continuity hold");
+    require_true(plan.target_id == target_id,
+                 "36ms occlusion must not drop the canonical target");
+    require_true(plan.reliability > 0.70f,
+                 "36ms occlusion must retain enough evidence for reacquisition");
+
+    plan = coordinator.update(
+        frame(5, 2.057, 20, 307.0f, 208.0f),
+        ads_intent(2.057),
+        2.057);
+    require_true(plan.lifecycle == pipeline_contract::TargetLifecycle::Reacquiring,
+                 "moving target after 36ms must use same-owner Reacquiring");
+    require_true(plan.target_id == target_id,
+                 "same target after 36ms must retain canonical identity");
+    require_true(std::fabs(plan.aim_px.x - 307.0f) < 0.01f,
+                 "fresh moving-target position must remain authoritative");
+    require_true(plan.mode != pipeline_contract::ControlMode::Manual,
+                 "36ms moving occlusion must not false-stop the assisted mode");
+    require_true(plan.aim_authority > 0.70f,
+                 "same-target reacquire must restore fresh actuation authority");
+}
+
+void test_different_target_after_expired_hold_uses_new_admission() {
+    controller_native::TargetCoordinator coordinator;
+    auto plan = coordinator.update(
+        frame(1, 3.000, 30, 300.0f, 208.0f),
+        ads_intent(3.000),
+        3.000);
+    const auto old_target_id = plan.target_id;
+    (void)coordinator.update(
+        empty_fresh_frame(2, 3.010),
+        ads_intent(3.010),
+        3.010);
+
+    plan = coordinator.update(
+        empty_fresh_frame(3, 3.200),
+        ads_intent(3.200),
+        3.200);
+    require_true(plan.lifecycle == pipeline_contract::TargetLifecycle::None,
+                 "expired identity hold must release to None");
+    require_true(plan.target_id == 0,
+                 "expired identity hold must clear the old target id");
+
+    plan = coordinator.update(
+        frame(4, 3.201, 31, 350.0f, 208.0f),
+        ads_intent(3.201),
+        3.201);
+    require_true(plan.lifecycle == pipeline_contract::TargetLifecycle::Observed,
+                 "different target must be admitted as a fresh observation");
+    require_true(plan.target_id != 0 && plan.target_id != old_target_id,
+                 "different target must receive a new canonical identity");
+    require_true(plan.source_observation_id == 31,
+                 "different-target admission must export the new source id");
+}
+
 void test_single_owner_coasts_and_reacquires_same_identity() {
     controller_native::TargetCoordinator coordinator;
     auto plan = coordinator.update(frame(1, 0.00, 10, 300.0f, 208.0f), ads_intent(0.00), 0.00);
@@ -863,16 +1006,17 @@ void test_bodylock_bounds_impulse_without_delayed_release() {
         plan.mode == pipeline_contract::ControlMode::BodyLockFollow,
         "fixture must enter BodyLock before robust observation update");
 
-    const auto stable = plan.aim_px;
     plan = coordinator.update(
         frame(9, 1.08, 1, 252.0f, 200.0f),
         firing_ads_intent(1.08), 1.08);
-    const float impulse_step = std::hypot(
-        plan.aim_px.x - stable.x,
-        plan.aim_px.y - stable.y);
     require_true(
-        impulse_step <= 3.51f,
-        "a first gun-kick innovation must have bounded target influence");
+        std::fabs(plan.aim_px.x - 252.0f) < 0.5f &&
+            std::fabs(plan.aim_px.y - 200.0f) < 0.5f,
+        "a fresh firing position must remain authoritative");
+    require_true(
+        std::hypot(plan.velocity_px_per_sec.x, plan.velocity_px_per_sec.y) <=
+            80.0f,
+        "a first gun-kick residual must have bounded velocity influence");
     plan = coordinator.update(
         frame(10, 1.09, 1, 244.0f, 208.0f),
         firing_ads_intent(1.09), 1.09);
@@ -881,33 +1025,27 @@ void test_bodylock_bounds_impulse_without_delayed_release() {
             std::fabs(plan.aim_px.y - 208.0f) < 0.5f,
         "a recovering impulse must return without delayed residual release");
 
-    float previous_x = plan.aim_px.x;
     plan = coordinator.update(
         frame(11, 1.10, 1, 250.0f, 208.0f),
         firing_ads_intent(1.10), 1.10);
     require_true(
-        plan.aim_px.x > previous_x &&
-            plan.aim_px.x - previous_x <= 3.51f,
-        "persistent motion must be accepted continuously");
-    previous_x = plan.aim_px.x;
+        std::fabs(plan.aim_px.x - 250.0f) < 0.5f,
+        "persistent fresh position must be accepted continuously");
     plan = coordinator.update(
         frame(12, 1.11, 1, 256.0f, 208.0f),
         firing_ads_intent(1.11), 1.11);
     require_true(
-        plan.aim_px.x > previous_x &&
-            plan.aim_px.x - previous_x <= 4.6f,
-        "second persistent sample must remain bounded");
-    previous_x = plan.aim_px.x;
+        std::fabs(plan.aim_px.x - 256.0f) < 0.5f,
+        "second persistent fresh position must remain authoritative");
     plan = coordinator.update(
         frame(13, 1.12, 1, 262.0f, 208.0f),
         firing_ads_intent(1.12), 1.12);
     require_true(
-        plan.aim_px.x > previous_x &&
-            plan.aim_px.x - previous_x <= 4.6f,
-        "persistent motion must remain bounded without releasing old error");
+        std::fabs(plan.aim_px.x - 262.0f) < 0.5f,
+        "persistent motion must not be held at the old predicted position");
 }
 
-void test_bodylock_reacquire_rejects_gun_kick_impulse() {
+void test_bodylock_reacquire_preserves_fresh_position_without_velocity_impulse() {
     controller_native::TargetCoordinator coordinator;
     coordinator.begin_ads_epoch(1, 1.0);
     auto plan = coordinator.update(
@@ -942,8 +1080,8 @@ void test_bodylock_reacquire_rejects_gun_kick_impulse() {
         "same target must retain the reacquiring lifecycle");
     require_true(
         std::fabs(plan.aim_px.x - 244.0f) < 0.5f &&
-            plan.aim_px.y >= 204.49f,
-        "a first gun-kick-shaped reacquire must have bounded influence");
+            std::fabs(plan.aim_px.y - 191.0f) < 0.5f,
+        "same-target reacquire must preserve its fresh position");
 
     plan = coordinator.update(
         frame(11, 1.10, 1, 244.0f, 208.0f),
@@ -966,17 +1104,49 @@ void test_ads_fire_impulse_uses_same_robust_observation_update() {
     require_true(
         plan.mode == pipeline_contract::ControlMode::AdsAcquire,
         "fixture must remain in ADS acquisition");
-    const auto stable = plan.aim_px;
     controller_native::TargetControlFeedback feedback{};
     feedback.firing_recently = true;
     plan = coordinator.update(
         frame(3, 1.02, 1, 340.0f, 188.0f),
         ads_intent(1.02), 1.02, feedback);
     require_true(
-        std::hypot(
-            plan.aim_px.x - stable.x,
-            plan.aim_px.y - stable.y) <= 3.51f,
-        "ADS must not chase a full gun-kick innovation while firing");
+        std::fabs(plan.aim_px.x - 340.0f) < 0.5f &&
+            std::fabs(plan.aim_px.y - 188.0f) < 0.5f,
+        "ADS must preserve a fresh position while firing");
+    require_true(
+        std::hypot(plan.velocity_px_per_sec.x, plan.velocity_px_per_sec.y) <=
+            80.0f,
+        "ADS firing velocity admission must remain bounded");
+}
+
+void test_firing_fresh_position_remains_authoritative_across_center() {
+    controller_native::TargetCoordinator coordinator;
+    coordinator.begin_ads_epoch(1, 2.0);
+
+    (void)coordinator.update(
+        frame(1, 2.000, 104, 251.0f, 208.0f),
+        firing_ads_intent(2.000),
+        2.000);
+
+    pipeline_contract::TargetPlan plan{};
+    const float observations[] = {232.0f, 224.0f, 212.0f};
+    for (std::uint64_t index = 0; index < 3; ++index) {
+        const double time = 2.010 + static_cast<double>(index) * 0.010;
+        plan = coordinator.update(
+            frame(index + 2, time, 104, observations[index], 208.0f),
+            firing_ads_intent(time),
+            time);
+        require_true(
+            plan.error_px.x < 0.0f,
+            "fresh firing position must cross the center immediately");
+        require_true(
+            std::fabs(plan.aim_px.x - observations[index]) < 0.01f,
+            "fresh firing position must remain authoritative");
+    }
+
+    require_true(
+        std::fabs(plan.velocity_px_per_sec.x) <= 80.0f,
+        "firing velocity admission must remain bounded independently of position");
 }
 
 }  // namespace
@@ -984,6 +1154,9 @@ void test_ads_fire_impulse_uses_same_robust_observation_update() {
 int main() {
     try {
         test_single_owner_coasts_and_reacquires_same_identity();
+        test_coasting_actuation_lease_retires_before_identity_hold();
+        test_36ms_moving_occlusion_reacquires_without_false_stop();
+        test_different_target_after_expired_hold_uses_new_admission();
         test_hold_expires_to_safe_manual_plan();
         test_selector_owned_batch_does_not_acquire_unselected_candidate();
         test_motion_labels_jump_then_fall();
@@ -1011,7 +1184,7 @@ int main() {
         test_velocity_alpha_is_normalized_to_vision_interval();
         test_bodylock_velocity_obeys_target_acceleration_limit();
         test_bodylock_bounds_impulse_without_delayed_release();
-        test_bodylock_reacquire_rejects_gun_kick_impulse();
+        test_bodylock_reacquire_preserves_fresh_position_without_velocity_impulse();
         test_ads_fire_impulse_uses_same_robust_observation_update();
         test_constant_motion_response_is_cadence_invariant();
         test_left_intent_enters_plan_through_learned_response();
@@ -1022,6 +1195,7 @@ int main() {
         test_vision_fire_authority_is_not_rejected_by_reliability_weight();
         test_delivered_camera_work_is_consumed_during_control_rate_prediction();
         test_fresh_vision_reanchors_to_work_delivered_since_capture();
+        test_firing_fresh_position_remains_authoritative_across_center();
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "[TargetCoordinatorTests] FAIL " << error.what() << '\n';

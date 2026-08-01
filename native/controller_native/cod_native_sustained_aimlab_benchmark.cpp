@@ -44,6 +44,7 @@ struct CliOptions {
     std::string scenario = "baseline";
     std::string target_profile = "ordinary";
     double camera_response = 500.0;
+    double manual_input_scale = 1.0;
     double slowdown_edge = 0.50;
     double slowdown_center = 0.40;
     int short_occlusion_ms = 0;
@@ -162,6 +163,9 @@ CliOptions parse_args(int argc, char** argv) {
             options.target_profile = argv[++index];
         } else if (argument == "--camera-response" && index + 1 < argc) {
             options.camera_response = std::stod(argv[++index]);
+        } else if (argument == "--manual-input-scale" &&
+                   index + 1 < argc) {
+            options.manual_input_scale = std::stod(argv[++index]);
         } else if (argument == "--slowdown-edge" && index + 1 < argc) {
             options.slowdown_edge = std::stod(argv[++index]);
         } else if (argument == "--slowdown-center" && index + 1 < argc) {
@@ -237,6 +241,7 @@ CliOptions parse_args(int argc, char** argv) {
                 << "[--cohort ads|bodylock|both] "
                 << "[--scenario baseline|compound_directional] "
                 << "[--target-profile ordinary|small|near] [--camera-response PX] "
+                << "[--manual-input-scale 0..2] "
                 << "[--slowdown-edge N] [--slowdown-center N] "
                 << "[--short-occlusion-ms 0|24|36|48] "
                 << "[--vision-hz 0|1..1000] "
@@ -441,6 +446,16 @@ CliOptions parse_args(int argc, char** argv) {
         options.slowdown_edge > 1.0 || options.slowdown_center <= 0.0 ||
         options.slowdown_center > options.slowdown_edge) {
         throw std::runtime_error("invalid plant response or slowdown multipliers");
+    }
+    if (!std::isfinite(options.manual_input_scale) ||
+        options.manual_input_scale < 0.0 ||
+        options.manual_input_scale > 2.0) {
+        throw std::runtime_error("manual input scale must be in [0,2]");
+    }
+    if (options.learning_rounds > 0 &&
+        std::fabs(options.manual_input_scale - 1.0) > 1.0e-12) {
+        throw std::runtime_error(
+            "manual input scale is not supported by learning mode");
     }
     if (options.short_occlusion_ms != 0 &&
         options.short_occlusion_ms != 24 &&
@@ -701,6 +716,7 @@ void write_report(
         << ", \"target_radius_px\": " << config.target_radius_px
         << ", \"camera_response_px_per_stick_second\": "
         << config.camera_response_px_per_stick_second
+        << ", \"manual_input_scale\": " << config.manual_input_scale
         << ", \"slowdown_edge\": " << config.slowdown_edge_multiplier
         << ", \"slowdown_center\": " << config.slowdown_center_multiplier
         << ", \"left_strafe_request\": "
@@ -1420,6 +1436,7 @@ int main(int argc, char** argv) {
                 : TargetProfile::Ordinary;
         benchmark_config.camera_response_px_per_stick_second =
             options.camera_response;
+        benchmark_config.manual_input_scale = options.manual_input_scale;
         benchmark_config.slowdown_edge_multiplier = options.slowdown_edge;
         benchmark_config.slowdown_center_multiplier = options.slowdown_center;
         benchmark_config.short_occlusion_duration_ms =

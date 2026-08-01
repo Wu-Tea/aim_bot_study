@@ -15,7 +15,10 @@ Related files:
 - `native/controller_native/target_coordinator.cpp`
 
 Supersedes: none
-Superseded by: none
+Superseded by:
+`DEC-2026-08-01-002-contextual-manual-ai-dual-proposal-arbitration.md` for
+current runtime identity and manual/AI arbitration only; the Task 1–4 lifecycle,
+identity and continuity contracts in this decision remain accepted
 
 ## Context
 
@@ -33,7 +36,9 @@ unusable.
 
 Accept runtime SHA-256
 `B7F9F28B6A39E1AE58DB75C5F3A3A18DDF3D9692886245ABF2C5493FDC84140C`
-as the current stable control-chain baseline.
+as the Task 1–4 live-accepted control-chain baseline. It was the current
+installed runtime at this decision's acceptance time; the installed identity
+has since advanced under DEC-2026-08-01-002.
 
 Freeze its control parameters and ownership contracts until new reproducible
 live evidence justifies a change. Treat Task 1–4 as complete and live accepted.

@@ -1,7 +1,9 @@
 # Current State
 
-**Last reviewed:** 2026-07-27
-**Reviewed baseline:** `dev` at `9791a55` before this documentation-only branch
+**Last reviewed:** 2026-08-01
+**Reviewed baseline:** current `dev` source plus the accepted contextual
+manual/AI arbitration recorded in
+[DEC-2026-08-01-002](../../.agent-context/decisions/DEC-2026-08-01-002-contextual-manual-ai-dual-proposal-arbitration.md)
 **Scope:** production runtime facts present in the reviewed repository, plus explicitly marked active directions
 
 ## Production path
@@ -15,9 +17,16 @@ scripts/launch/gamepad_start.bat
 ```
 
 Python remains available for fallback, training/export, recoil tooling and
-debug utilities. The production capture/model contract is `480x416` with the
-matching `models/best.engine`. The background VBS launchers run the same native
+debug utilities. The current production contract is `640x512` capture,
+isotropic resize to `480x384` and
+`models/best_480x384.engine`. The background VBS launchers run the same native
 runtime without a console window and enforce owned-process start/stop behavior.
+
+The installed validation runtime is
+`native/vision_native/build/Release/cod_native_runtime.exe`, SHA-256
+`DE31FF53B4C0CFBAB091F589CB194296A01DC9C0C8B5E74513F90AB94ED30590`.
+It includes the four-situation lifecycle fixes and contextual dual-proposal
+manual/AI arbitration.
 
 ## Current control ownership
 
@@ -38,13 +47,23 @@ Current boundaries:
 
 - ADS snap is consumed once per physical ADS epoch. A new target while LT
   remains held must not restart strong snap.
+- The ADS ownership ceiling is currently `220 ms` from the physical LT epoch.
+  A target that appears late in the epoch receives only the remaining
+  acquisition time before BodyLock handoff.
 - BodyLock follows tracker-owned target motion and may preserve bounded target
   inertia. It must not acquire a permanent brake path.
 - The selector keeps a near committed target through short occlusion, rejects
   green friendly cues, and uses yellow enemy cues only as auxiliary evidence.
-- Fresh, reliable single-target Vision may constrain a clearly wrong radial
-  manual component for a short envelope. Tangential manual input remains
-  user-owned; ADS and tracker-only states do not inherit that stronger rule.
+- Fresh firing position remains authoritative; firing innovation limits apply
+  to velocity admission, not to the current observed position.
+- Identity hold and coasting actuation have separate lifetimes. A short
+  no-observation gap receives a 12.5 ms grace, then AI authority retires by
+  65 ms while target association may remain alive longer.
+- Manual and shaped AI enter `VectorIntentFuser` as absolute proposals. Strong
+  same-direction ADS and near-BodyLock input use contextual AI-priority
+  arbitration with 20% normalized manual headroom. Opposing/tangential input,
+  full manual escape and far BodyLock retain their explicit ownership
+  boundaries.
 - AutoFire uses a 100 ms pulse-start period with at least 30 ms pressed,
   releases on a fresh miss, and preserves physical RB/RT passthrough.
 - Recoil remains the final feed-forward stage and does not consume
@@ -66,11 +85,19 @@ It writes asynchronous JSONL and a session manifest under
 `runs/native_perf/<session>/`. `--perf-log` enables console-oriented timing and
 Vision diagnostics; it is not the structured evidence switch.
 
+The latest long bot session is
+`runs/native_perf/sessions/20260801T131000Z_6544_1/`. It covers 25.51 minutes,
+uses config hash `db80e13a...df79df8` and engine hash `45fc5627...deB21`, and
+is analyzed in
+[ADS Long-Session Diagnosis](ADS_LONG_SESSION_DIAGNOSIS_20260801.md).
+Its manifest does not contain the executable hash and retains a stale
+`git_commit` value, so installation-chain evidence is still required.
+
 Every comparable runtime artifact should identify:
 
 - build revision;
 - effective config or config hash;
-- engine identity and `480x416` capture contract;
+- engine identity and `640x512 -> 480x384` capture/tensor contract;
 - telemetry schema;
 - seeds/duration/scenario semantics for synthetic runs.
 
@@ -91,6 +118,23 @@ See [Native Log Sessions](NATIVE_LOG_SESSIONS.md) and
 Start at [Benchmark index](../benchmarks/README.md).
 
 ## Active directions
+
+### Late-target ADS handoff
+
+The current residual is occasional slight ADS overshoot or undertracking after
+extended moving play. Read-only telemetry does not support monotonic learning
+drift as the primary cause. The stronger explanation is a target arriving or
+crossing center near the physical-epoch `220 ms` ceiling.
+
+No production policy change is accepted yet. The next safe stage is:
+
+- log physical ADS epoch time, current target-segment time and handoff reason;
+- log position versus motion/feed-forward contribution and production response
+  scale/confidence;
+- reproduce late target arrival, near-ceiling center crossing and a stationary
+  control in deterministic fixtures;
+- evaluate only a bounded continuation or motion-aware handoff rule that does
+  not rearm strong ADS within a held LT epoch.
 
 ### Dynamic ROI
 
@@ -122,8 +166,10 @@ intermittent publication cadence before adding another controller gate.
 
 - Record synchronized video and telemetry for fixed-ROI misses, partial scope
   obstruction and weak-aim-assist twitch.
-- Establish a current-revision, fingerprinted full intent-fusion acceptance
-  artifact before quoting old percentage improvements as current.
+- Validate late-target and center-cross handoffs before attributing the current
+  residual to response learning.
+- Add executable SHA-256 and production response estimator scale/confidence to
+  future session identity/telemetry.
 - Keep small/far-target authority work on existing size/reliability evidence
   before considering another production Vision pass.
 - Treat live hand feel as a required smoke test after synthetic gates pass.
@@ -134,6 +180,9 @@ intermittent publication cadence before adding another controller gate.
   just to recover strength.
 - Do not return to `left_x * constant`, independent X/Y arbitration or a weapon
   database.
+- Do not globally shrink manual input to improve benchmark scores; contextual
+  normalization belongs inside the single fuser owner.
+- Do not reset ADS acquisition for a late target while LT remains held.
 - Do not let cue-only, weak-only or predicted-only targets gain fire authority.
 - Do not compare artifacts across incompatible revision, config, schema or
   scenario identity.

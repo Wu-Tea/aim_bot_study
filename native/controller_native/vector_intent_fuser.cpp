@@ -51,6 +51,19 @@ VectorIntentFuser::VectorIntentFuser(VectorIntentFusionConfig config)
         config_.manual_escape_threshold, 0.05f, 1.0f);
     config_.manual_preservation_floor = std::clamp(
         config_.manual_preservation_floor, 0.0f, 1.0f);
+    config_.ai_priority_parallel_headroom = std::clamp(
+        config_.ai_priority_parallel_headroom, 0.0f, 1.0f);
+    config_.ai_priority_opposing_manual_retention = std::clamp(
+        config_.ai_priority_opposing_manual_retention, 0.0f, 1.0f);
+    config_.ads_same_direction_manual_scale = std::clamp(
+        config_.ads_same_direction_manual_scale, 0.0f, 1.0f);
+    config_.near_bodylock_same_direction_manual_scale = std::clamp(
+        config_.near_bodylock_same_direction_manual_scale, 0.0f, 1.0f);
+    config_.ai_priority_manual_start = std::clamp(
+        config_.ai_priority_manual_start, 0.02f, 0.94f);
+    config_.ai_priority_manual_full = std::clamp(
+        config_.ai_priority_manual_full,
+        config_.ai_priority_manual_start + 0.001f, 0.95f);
 }
 
 VectorIntentFusionDecision VectorIntentFuser::update(
@@ -154,18 +167,50 @@ VectorIntentFusionDecision VectorIntentFuser::update(
         opposing_projection = std::max(
             0.0f, -dot(input.shaped_ai_stick, manual_direction));
     }
+    const float authority = std::clamp(
+        std::min(input.plan.aim_authority, input.plan.reliability),
+        0.0f, 1.0f);
+    const float bodylock_priority_scope =
+        input.plan.mode == pipeline_contract::ControlMode::BodyLockFollow
+        ? smoothstep((input.plan.normalized_size - 0.18f) / 0.06f)
+        : 0.0f;
+    const float assisted_priority_scope =
+        config_.assisted_ai_priority_enabled ? authority *
+        (input.plan.mode == pipeline_contract::ControlMode::AdsAcquire
+            ? 1.0f : bodylock_priority_scope) : 0.0f;
+    const float strong_manual_commitment =
+        ai_magnitude > kIntentDeadzone &&
+            manual_magnitude > kIntentDeadzone
+        ? smoothstep(
+            (manual_magnitude - config_.ai_priority_manual_start) /
+            (config_.ai_priority_manual_full -
+             config_.ai_priority_manual_start))
+        : 0.0f;
+    pipeline_contract::Vec2f ai_direction{};
+    if (ai_magnitude > kIntentDeadzone) {
+        ai_direction = {
+            input.shaped_ai_stick.x / ai_magnitude,
+            input.shaped_ai_stick.y / ai_magnitude};
+    }
+    const float manual_ai_alignment =
+        dot(input.manual_stick, input.shaped_ai_stick);
+    const bool cooperative_manual =
+        ai_magnitude > kIntentDeadzone && manual_ai_alignment > 0.0f;
     // A near-full physical deflection is an unconditional ownership request.
-    // In particular, neither lifecycle release smoothing nor an over-range
-    // shaped AI vector may keep the camera moving against that request.
+    // Same-direction input is cooperative rather than an escape request: it
+    // stays on the AI-priority proposal path so high camera sensitivity cannot
+    // turn manual + AI into two additive forces.
     const bool full_manual_escape =
         input.manual_confidence > 0.0f &&
         manual_magnitude >= std::max(
-            0.95f, config_.manual_escape_threshold);
+            0.95f, config_.manual_escape_threshold) &&
+        !(cooperative_manual && assisted_priority_scope > 0.001f);
     const bool directional_manual_escape =
         manual_magnitude >= config_.manual_escape_threshold &&
         opposing_projection > 0.001f &&
         manual_magnitude >= ai_magnitude &&
-        opposing_projection >= ai_magnitude * 0.995f;
+        opposing_projection >= ai_magnitude * 0.995f &&
+        assisted_priority_scope <= 0.001f;
     const bool deliberate_manual_escape =
         full_manual_escape || directional_manual_escape;
     if (deliberate_manual_escape) {
@@ -187,14 +232,42 @@ VectorIntentFusionDecision VectorIntentFuser::update(
         reentry_pending_ = true;
         return decision;
     }
-    if (input.plan.lifecycle ==
-        pipeline_contract::TargetLifecycle::Reacquiring) {
-        return manual_only(FusionFallbackReason::Reacquiring, true);
+    // Classify intent and escape from the raw physical stick above, then
+    // normalize only the proposal that is actually allowed to cooperate with
+    // AI. This keeps the 0.45..0.70 ownership transition stable instead of
+    // accidentally disabling it by scaling the evidence first.
+    float desired_same_direction_scale = 1.0f;
+    if (input.plan.mode == pipeline_contract::ControlMode::AdsAcquire) {
+        desired_same_direction_scale =
+            config_.ads_same_direction_manual_scale;
+    } else if (input.plan.mode ==
+               pipeline_contract::ControlMode::BodyLockFollow) {
+        desired_same_direction_scale =
+            config_.near_bodylock_same_direction_manual_scale;
     }
-    // Manual input is never rewritten.  Only AI authority retreats, and it
-    // does so continuously as deliberate counter-steer grows.  Fresh Vision,
-    // target prediction, and response horizons are intentionally absent here:
-    // TargetCoordinator is their sole owner.
+    const float manual_normalization_commitment =
+        config_.contextual_manual_normalization_enabled
+        ? assisted_priority_scope * strong_manual_commitment : 0.0f;
+    const float same_direction_manual_scale = manual_ai_alignment > 0.0f
+        ? 1.0f - manual_normalization_commitment *
+            (1.0f - desired_same_direction_scale)
+        : 1.0f;
+    pipeline_contract::Vec2f fusion_manual_stick = input.manual_stick;
+    if (manual_ai_alignment > 0.0f && ai_magnitude > kIntentDeadzone) {
+        const float raw_manual_parallel =
+            dot(input.manual_stick, ai_direction);
+        const float removed_parallel = std::max(
+            0.0f,
+            raw_manual_parallel * (1.0f - same_direction_manual_scale));
+        fusion_manual_stick.x -= ai_direction.x * removed_parallel;
+        fusion_manual_stick.y -= ai_direction.y * removed_parallel;
+    }
+    // Same-target Reacquiring means that the coordinator has fresh evidence
+    // for the existing owner. The shaper may continue its normal request
+    // slew; only TargetChanged/None/Manual owns a hard admission boundary.
+    // Outside assisted AI-priority scope the accepted legacy ownership curve
+    // remains intact. Inside it, physical input is an alternative proposal;
+    // full escape and hard identity boundaries still preserve it exactly.
     if (opposing_projection > 0.001f) {
         // AI may brake a wrong manual push, but its opposing component may
         // never consume more than the configured share of physical intent.
@@ -216,17 +289,114 @@ VectorIntentFusionDecision VectorIntentFuser::update(
         fused_ai.x += opposing_component.x * (opposing_retention - 1.0f);
         fused_ai.y += opposing_component.y * (opposing_retention - 1.0f);
     }
+    if (manual_magnitude > kIntentDeadzone) {
+        const float cooperative_projection = std::max(
+            0.0f, dot(fused_ai, manual_direction));
+        const float combined_parallel =
+            manual_magnitude + cooperative_projection;
+        // Live close-target failures appeared in the largest-size quartile,
+        // starting around normalized size 0.22, and only after same-direction
+        // parallel demand exceeded ~0.32.
+        // Smooth both boundaries so ordinary/far cooperation remains exactly
+        // unchanged and no new threshold impulse is introduced.
+        const float proximity_commitment = smoothstep(
+            (input.plan.normalized_size - 0.22f) / 0.02f);
+        const float stack_commitment = smoothstep(
+            (combined_parallel - 0.32f) / 0.08f);
+        const float cooperative_commitment =
+            manual_commitment * proximity_commitment * stack_commitment;
+        if (cooperative_projection > 0.001f &&
+            cooperative_commitment > 0.0f) {
+            // Manual and AI are control proposals, not additive forces. Keep
+            // the stronger parallel proposal and bounded headroom from the
+            // weaker one; preserve the complete orthogonal follow vector.
+            const float cooperative_overlap =
+                1.0f - config_.manual_preservation_floor;
+            const float dominant_parallel = std::max(
+                manual_magnitude, cooperative_projection);
+            const float weaker_parallel = std::min(
+                manual_magnitude, cooperative_projection);
+            const float bounded_combined_parallel =
+                dominant_parallel +
+                weaker_parallel * cooperative_overlap;
+            const float retained_cooperative_ai = std::max(
+                0.0f,
+                bounded_combined_parallel - manual_magnitude);
+            const float cooperative_reduction =
+                (retained_cooperative_ai - cooperative_projection) *
+                cooperative_commitment;
+            fused_ai.x += manual_direction.x * cooperative_reduction;
+            fused_ai.y += manual_direction.y * cooperative_reduction;
+        }
+    }
     const float fused_ai_magnitude = length(fused_ai);
-    const float ai_weight = ai_magnitude > 0.001f
+    const float legacy_ai_weight = ai_magnitude > 0.001f
         ? std::clamp(fused_ai_magnitude / ai_magnitude, 0.0f, 1.0f)
         : 0.0f;
+    pipeline_contract::Vec2f fused_target{
+        fusion_manual_stick.x + fused_ai.x,
+        fusion_manual_stick.y + fused_ai.y};
+    float applied_manual_weight = same_direction_manual_scale;
+    float applied_ai_weight = legacy_ai_weight;
+    float ai_priority_commitment = 0.0f;
+    if (ai_magnitude > kIntentDeadzone &&
+        manual_magnitude > kIntentDeadzone &&
+        assisted_priority_scope > 0.0f) {
+        ai_priority_commitment =
+            assisted_priority_scope * strong_manual_commitment;
+        if (ai_priority_commitment > 0.0f) {
+            const float manual_parallel =
+                dot(fusion_manual_stick, ai_direction);
+            const pipeline_contract::Vec2f manual_tangent{
+                fusion_manual_stick.x - ai_direction.x * manual_parallel,
+                fusion_manual_stick.y - ai_direction.y * manual_parallel};
+            float priority_parallel = ai_magnitude;
+            float priority_manual_weight =
+                config_.ai_priority_opposing_manual_retention;
+            if (manual_parallel >= 0.0f) {
+                // AI remains the primary absolute proposal. A bounded share
+                // of the normalized manual proposal always participates, so
+                // the old asymmetry (manual kept, AI decayed) is not replaced
+                // by the opposite asymmetry (manual ignored below AI).
+                priority_parallel += manual_parallel *
+                    config_.ai_priority_parallel_headroom;
+                priority_manual_weight =
+                    config_.ai_priority_parallel_headroom *
+                    same_direction_manual_scale;
+            } else {
+                priority_parallel += manual_parallel *
+                    config_.ai_priority_opposing_manual_retention;
+            }
+            pipeline_contract::Vec2f priority_target{
+                ai_direction.x * priority_parallel + manual_tangent.x,
+                ai_direction.y * priority_parallel + manual_tangent.y};
+            // Approach exact manual continuously before a non-cooperative
+            // near-full escape. Same-direction full input remains cooperative.
+            const float escape_commitment = manual_parallel <= 0.0f
+                ? smoothstep((manual_magnitude - 0.85f) / 0.10f)
+                : 0.0f;
+            priority_target = {
+                priority_target.x * (1.0f - escape_commitment) +
+                    input.manual_stick.x * escape_commitment,
+                priority_target.y * (1.0f - escape_commitment) +
+                    input.manual_stick.y * escape_commitment};
+            priority_manual_weight +=
+                (1.0f - priority_manual_weight) * escape_commitment;
+            fused_target = {
+                fused_target.x * (1.0f - ai_priority_commitment) +
+                    priority_target.x * ai_priority_commitment,
+                fused_target.y * (1.0f - ai_priority_commitment) +
+                    priority_target.y * ai_priority_commitment};
+            applied_manual_weight =
+                applied_manual_weight * (1.0f - ai_priority_commitment) +
+                priority_manual_weight * ai_priority_commitment;
+            applied_ai_weight = legacy_ai_weight +
+                ai_priority_commitment * (1.0f - legacy_ai_weight);
+        }
+    }
     decision.fused_stick = {
-        std::clamp(
-            input.manual_stick.x + fused_ai.x,
-            -1.0f, 1.0f),
-        std::clamp(
-            input.manual_stick.y + fused_ai.y,
-            -1.0f, 1.0f),
+        std::clamp(fused_target.x, -1.0f, 1.0f),
+        std::clamp(fused_target.y, -1.0f, 1.0f),
     };
     // This is the only final-output memory in the aim chain. It limits the
     // vector result itself (manual + bounded AI), so neither manual mistakes
@@ -259,18 +429,20 @@ VectorIntentFusionDecision VectorIntentFuser::update(
     }
     previous_output_ = decision.fused_stick;
     reentry_pending_ = false;
-    decision.target_manual_weight = 1.0f;
-    decision.target_ai_weight = ai_weight;
+    decision.target_manual_weight = applied_manual_weight;
+    decision.target_ai_weight = applied_ai_weight;
     decision.target_tangential_manual_weight = 1.0f;
-    decision.applied_manual_weight = 1.0f;
-    decision.applied_ai_weight = ai_weight;
+    decision.applied_manual_weight = applied_manual_weight;
+    decision.applied_ai_weight = applied_ai_weight;
     decision.applied_tangential_manual_weight = 1.0f;
     decision.manual_escape = deliberate_manual_escape;
     decision.fallback = false;
     decision.reason = FusionFallbackReason::None;
-    if (ai_weight <= 0.001f) {
+    if (applied_ai_weight <= 0.001f) {
         decision.candidate = FusionCandidate::ManualOnly;
-    } else if (ai_weight >= 0.999f) {
+    } else if (ai_priority_commitment > 0.001f) {
+        decision.candidate = FusionCandidate::RadialCorrected;
+    } else if (applied_ai_weight >= 0.999f) {
         decision.candidate = FusionCandidate::ExistingMix;
     } else {
         decision.candidate = FusionCandidate::ManualSupported;

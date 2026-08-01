@@ -360,6 +360,34 @@ void test_manual_recovery_profiles_expose_expected_trajectory() {
             "arc profile must release after its corrective hold");
 }
 
+void test_manual_input_scale_changes_only_scripted_right_stick() {
+    const ScenarioScript reference =
+        stationary_script(400, {80.0, 0.0}, 400);
+    ScenarioScript scaled = reference;
+    scaled.config.manual_input_scale = 0.6875;
+
+    auto samples_for = [](const ScenarioScript& script) {
+        std::vector<Vec2d> values;
+        (void)run_simulation(
+            script, ManualProfile::WrongThenCorrect,
+            [&](const ControllerObservation& input) {
+                if (input.target_present) values.push_back(input.manual_stick);
+                return ControllerStepResult{};
+            });
+        return values;
+    };
+    const auto full = samples_for(reference);
+    const auto reduced = samples_for(scaled);
+    require(full.size() == reduced.size() && full.size() == 400,
+            "manual scale must not change target lifetime or tick count");
+    for (std::size_t index = 0; index < full.size(); ++index) {
+        require(
+            std::fabs(reduced[index].x - full[index].x * 0.6875) < 1e-12 &&
+                std::fabs(reduced[index].y - full[index].y * 0.6875) < 1e-12,
+            "manual scale must affect only the scripted right-stick vector");
+    }
+}
+
 void test_fixed_target_slot_preserves_wall_clock_spawn_times() {
     BenchmarkConfig config;
     config.duration_ms = 1'000;
@@ -812,6 +840,7 @@ int main() {
         test_same_script_is_reused_for_pure_and_mixed_runs();
         test_scripted_manual_input_is_controller_independent();
         test_manual_recovery_profiles_expose_expected_trajectory();
+        test_manual_input_scale_changes_only_scripted_right_stick();
         test_fixed_target_slot_preserves_wall_clock_spawn_times();
         test_mixed_profile_contains_polar_component_errors();
         test_despawn_publishes_a_fresh_empty_observation();

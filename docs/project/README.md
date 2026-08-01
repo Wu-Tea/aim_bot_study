@@ -8,12 +8,18 @@ baselines, completed acceptance stages and paused research through
 
 1. [Current State](CURRENT_STATE.md) — current runtime facts, active directions,
    open validation and non-regression boundaries.
-2. [Project Overview](PROJECT_OVERVIEW.md) — component and data-flow map.
-3. [Native C++ Runtime](NATIVE_CPP_RUNTIME.md) — default runtime build, launch
+2. [Control-Chain Jump Stability Acceptance](CONTROL_CHAIN_JUMP_STABILITY_ACCEPTANCE_20260801.md)
+   — accepted Task 1–4 contracts, contextual manual/AI arbitration, runtime
+   identity and rollback evidence.
+3. [ADS Long-Session Diagnosis](ADS_LONG_SESSION_DIAGNOSIS_20260801.md) —
+   latest 25.5-minute bot-log analysis separating motion/handoff timing from
+   learning drift.
+4. [Project Overview](PROJECT_OVERVIEW.md) — component and data-flow map.
+5. [Native C++ Runtime](NATIVE_CPP_RUNTIME.md) — default runtime build, launch
    and fallback.
-4. [Native Vision](NATIVE_VISION.md) — TensorRT Vision implementation and
+6. [Native Vision](NATIVE_VISION.md) — TensorRT Vision implementation and
    smoke tests.
-5. [Controller Overview](CONTROLLER_OVERVIEW.md) — controller ownership and
+7. [Controller Overview](CONTROLLER_OVERVIEW.md) — controller ownership and
    runtime modes.
 
 ## Runtime and architecture

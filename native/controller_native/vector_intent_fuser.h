@@ -50,7 +50,29 @@ FusionWeights candidate_weights(FusionCandidate candidate) noexcept;
 
 struct VectorIntentFusionConfig {
     float manual_escape_threshold = 0.45f;
+    // Preserves manual authority against opposing AI. Its complement also
+    // bounds dangerous close-target same-direction proposal overlap.
     float manual_preservation_floor = 0.55f;
+    // While ADS owns acquisition, or a near BodyLock target has strong
+    // authority, manual and AI are alternative absolute stick proposals.
+    // This fraction of the normalized cooperative manual proposal may add
+    // parallel headroom. Both proposals therefore enter arbitration even when
+    // AI is larger, without recreating raw manual + AI force addition.
+    float ai_priority_parallel_headroom = 0.20f;
+    float ai_priority_opposing_manual_retention = 0.50f;
+    // The game camera stays calibrated for sensitivity 2.4.  During assisted
+    // proposal ownership, normalize only the cooperative manual component to
+    // the operator's measured effective sensitivities. Raw physical input
+    // still owns admission, counter-steer, tangent intent, and escape.
+    float ads_same_direction_manual_scale = 1.90f / 2.40f;
+    float near_bodylock_same_direction_manual_scale = 2.00f / 2.40f;
+    // Keep assisted proposal ownership independent from the older takeover
+    // threshold.  The latter is deliberately low for escape detection, while
+    // proposal replacement is reserved for a genuinely strong stick push.
+    float ai_priority_manual_start = 0.45f;
+    float ai_priority_manual_full = 0.70f;
+    bool assisted_ai_priority_enabled = true;
+    bool contextual_manual_normalization_enabled = true;
 };
 
 struct VectorIntentFusionInput {

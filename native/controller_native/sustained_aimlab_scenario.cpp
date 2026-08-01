@@ -88,6 +88,11 @@ void hash_config(std::uint64_t& hash, const BenchmarkConfig& config) {
     hash_double(hash, config.slowdown_edge_multiplier);
     hash_double(hash, config.slowdown_center_multiplier);
     hash_double(hash, config.camera_response_px_per_stick_second);
+    // Preserve historical hashes for the default while fingerprinting any
+    // benchmark-only manual sensitivity transform.
+    if (std::fabs(config.manual_input_scale - 1.0) > 1.0e-12) {
+        hash_double(hash, config.manual_input_scale);
+    }
     hash_integral(hash, config.control_response_delay_ms);
     hash_integral(hash, config.frame_width_px);
     hash_integral(hash, config.frame_height_px);

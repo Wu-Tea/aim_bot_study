@@ -374,6 +374,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     }
 
     pipeline_contract::TargetLifecycle lifecycle = pipeline_contract::TargetLifecycle::None;
+    float coasting_actuation_scale = 1.0f;
     float reliability = latest_.reliability;
     float normalized_size = latest_.normalized_size;
     if (candidate != nullptr) {
@@ -471,15 +472,17 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
                         last_observation_capture_seconds_,
                     0.001, 0.1))
                 : dt;
-            auto innovation = subtract(observed_aim_px, predicted);
-            float innovation_length = length(innovation);
-            if (reacquiring && innovation_length > config_.max_reacquire_innovation_px) {
-                const float scale = config_.max_reacquire_innovation_px / innovation_length;
-                innovation.x *= scale;
-                innovation.y *= scale;
-                innovation_length = config_.max_reacquire_innovation_px;
+            auto position_innovation = subtract(observed_aim_px, predicted);
+            const float position_innovation_length = length(position_innovation);
+            if (reacquiring &&
+                position_innovation_length > config_.max_reacquire_innovation_px) {
+                const float scale =
+                    config_.max_reacquire_innovation_px /
+                    position_innovation_length;
+                position_innovation.x *= scale;
+                position_innovation.y *= scale;
             }
-            auto velocity_innovation = innovation;
+            auto velocity_innovation = position_innovation;
             const bool bodylock_motion_model =
                 control_mode_ ==
                     pipeline_contract::ControlMode::BodyLockFollow;
@@ -517,25 +520,14 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
                             0.35f * previous_length * current_length;
                 }
             }
-            // Robust alpha-beta observation update. Gun kick, recoil recovery,
-            // and detector reconstruction all appear as innovation, just like
-            // target motion. A hard confirmation gate adds phase delay and
-            // eventually releases the whole residual, which turns jitter into
-            // a low-frequency control oscillation. A bounded influence
-            // function instead accepts a continuous, physically useful share
-            // on every frame and discards the transient tail permanently.
+            // Fresh Vision owns the observed position. Firing disturbance
+            // control is only allowed to limit admission into target velocity;
+            // otherwise a legitimate center crossing would be held at the old
+            // prediction and BodyLock would follow stale position authority.
             if (assisted_motion_model && new_observation_sample &&
                 firing_context && observed_frames_ >= 2) {
                 const float influence_limit = std::max(
                     0.0f, config_.fire_innovation_limit_px);
-                if (influence_limit > 0.0f &&
-                    innovation_length > influence_limit) {
-                    const float scale =
-                        influence_limit / innovation_length;
-                    innovation.x *= scale;
-                    innovation.y *= scale;
-                    innovation_length = influence_limit;
-                }
                 const float velocity_innovation_length =
                     length(velocity_innovation);
                 if (influence_limit > 0.0f &&
@@ -546,16 +538,20 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
                     velocity_innovation.y *= scale;
                 }
             }
+            const float learning_innovation_y =
+                observe_firing_velocity && !persistent_firing_innovation
+                ? 0.0f
+                : velocity_innovation.y;
             learn_player_motion_amplitude(
                 player_motion.event,
                 player_motion.unit_offset,
-                innovation.y,
+                learning_innovation_y,
                 candidate->reliability,
                 reacquiring,
                 manual_camera_ownership);
             const auto measured_position = pipeline_contract::Vec2f{
-                predicted.x + innovation.x,
-                predicted.y + innovation.y,
+                predicted.x + position_innovation.x,
+                predicted.y + position_innovation.y,
             };
             auto measured_velocity = pipeline_contract::Vec2f{
                 velocity_.x +
@@ -671,6 +667,18 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
             reliability = last_observed_reliability_ *
                 std::clamp(1.0f - missing_ms / config_.hold_ms, 0.0f, 1.0f);
             normalized_size = last_observed_normalized_size_;
+            const float grace_ms = std::max(
+                0.0f, config_.coast_full_authority_grace_ms);
+            const float release_ms = std::max(
+                grace_ms, config_.coast_actuation_release_ms);
+            if (missing_ms > grace_ms) {
+                coasting_actuation_scale = release_ms > grace_ms
+                    ? std::clamp(
+                        (release_ms - missing_ms) /
+                            (release_ms - grace_ms),
+                        0.0f, 1.0f)
+                    : 0.0f;
+            }
         } else {
             has_target_ = false;
             source_id_ = 0;
@@ -830,7 +838,9 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         plan.mode == pipeline_contract::ControlMode::Manual ||
             bodylock_outside_activation_range
         ? 0.0f
-        : std::min(config_.max_authority, reliability);
+        : std::min(
+            config_.max_authority,
+            std::max(0.0f, reliability) * coasting_actuation_scale);
     const auto response = response_estimator_.estimate();
     plan.left_motion_response_scale = response.scale_px_per_stick_second;
     plan.left_motion_response_confidence = response.confidence;
