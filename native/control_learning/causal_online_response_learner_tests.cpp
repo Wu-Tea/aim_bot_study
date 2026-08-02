@@ -20,6 +20,7 @@ pipeline_contract::CommittedCaptureObservation observation(
     value.viewport_source_frame_id = id;
     value.captured_at_ns = time_ns;
     value.result_at_ns = time_ns + 2'000'000;
+    value.controller_consume_ns = time_ns + 3'000'000;
     value.stable_error_px = error;
     value.stable_body_size_px = {35.0f, 100.0f};
     value.reliability = 0.9f;

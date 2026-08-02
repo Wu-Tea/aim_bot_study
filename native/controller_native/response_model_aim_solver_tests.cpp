@@ -82,6 +82,24 @@ void test_trusted_motion_can_lead_opposite_small_residual() {
             "trusted motion must lead before visible lag changes error sign");
 }
 
+void test_fresh_position_bounds_only_opposing_radial_motion() {
+    auto request = base_request();
+    request.error_px = {-10.0f, 0.0f};
+    request.relative_velocity_px_per_sec = {260.0f, 120.0f};
+    request.fresh_position_authoritative = true;
+    const auto output = solve_response_model_aim(request);
+    require(output.radial_motion_bound_applied,
+            "fresh position fixture must exercise the radial motion bound");
+    require(output.bounded_motion_stick.x <= 0.0f,
+            "fresh position must not keep an opposing radial motion sign");
+    require_near(output.bounded_motion_stick.y, output.motion_stick.y,
+                 1e-5f,
+                 "fresh radial bound must preserve tangent motion");
+    require(output.radial_motion_bound_reason ==
+                ResponseModelConstraintReason::FreshPositionRadialMotionBound,
+            "fresh radial bound must expose its causal reason");
+}
+
 void test_elliptical_force_envelope_scales_one_vector() {
     auto request = base_request();
     request.error_px = {100.0f, 100.0f};
@@ -103,6 +121,7 @@ int main() {
         test_horizon_and_response_have_physical_units();
         test_motion_feedforward_is_not_multiplied_by_force_cap();
         test_trusted_motion_can_lead_opposite_small_residual();
+        test_fresh_position_bounds_only_opposing_radial_motion();
         test_elliptical_force_envelope_scales_one_vector();
         std::cout << "cod_native_response_model_aim_solver_tests PASS\n";
         return EXIT_SUCCESS;

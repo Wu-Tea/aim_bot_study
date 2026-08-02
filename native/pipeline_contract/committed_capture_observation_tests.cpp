@@ -26,6 +26,7 @@ pipeline_contract::CommittedCaptureObservation valid_observation() {
     value.viewport_source_frame_id = 91;
     value.captured_at_ns = 1'000;
     value.result_at_ns = 1'100;
+    value.controller_consume_ns = 1'200;
     value.stable_error_px = {12.0f, -4.0f};
     value.stable_body_size_px = {40.0f, 100.0f};
     value.reliability = 0.8f;
@@ -136,7 +137,7 @@ void test_adapter_joins_committed_identity_not_raw_challenger() {
     plan.normalized_size = 0.24f;
 
     const auto committed = runtime_app::adapt_committed_capture_observation(
-        result, plan, 0.365f, 9);
+        result, plan, 0.365f, 9, 2'020'000'000ull);
     require(pipeline_contract::valid(committed),
             "committed candidate A must produce valid capture evidence");
     require(committed.persistent_target_id == 77,

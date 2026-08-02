@@ -5,7 +5,6 @@
 #include "controller_native/runtime_config.h"
 #include "controller_native/sdl_gamepad_reader.h"
 #include "controller_native/virtual_gamepad.h"
-#include "controller_native/weapon_recognizer.h"
 #include "controller_native/xinput_reader.h"
 #include "aim_perf_file_logger.h"
 #include "downward_diagnostics.h"
@@ -38,10 +37,6 @@ private:
     void run_once();
     controller_native::PhysicalGamepadState read_physical_gamepad();
     bool should_poll_vision(std::chrono::steady_clock::time_point now) const;
-    void update_recoil_recognizer_schedule(
-        const controller_native::PhysicalGamepadState& physical,
-        std::chrono::steady_clock::time_point now);
-    void poll_due_recoil_recognizer(std::chrono::steady_clock::time_point now);
     bool should_stop_requested() const;
     bool is_aiming(const controller_native::PhysicalGamepadState& physical);
 
@@ -63,10 +58,9 @@ private:
     ViewportController viewport_controller_;
     controller_native::AimActivationTracker aim_activation_tracker_;
     controller_native::VirtualGamepad virtual_gamepad_;
-    std::unique_ptr<controller_native::NativeRecoilWeaponRuntimeRecognizer> recoil_weapon_recognizer_;
-    controller_native::RecoilWeaponSwitchCaptureScheduler recoil_switch_scheduler_;
     std::unique_ptr<vision_native::VisionEngine> vision_engine_;
     std::unique_ptr<VisionService> vision_service_;
+    VisionDeliveryGate vision_delivery_gate_;
     std::unique_ptr<control_learning::CausalOnlineResponseLearner>
         causal_response_learner_;
     pipeline_contract::CommittedCaptureObservation previous_learning_observation_{};
@@ -76,6 +70,9 @@ private:
     bool latest_vision_aiming_ = false;
     std::uint64_t latest_vision_service_sequence_ = 0;
     std::uint64_t latest_result_timestamp_ns_ = 0;
+    std::uint64_t latest_vision_publish_ns_ = 0;
+    bool latest_vision_publish_available_ = false;
+    std::uint64_t latest_controller_submit_complete_ns_ = 0;
     std::uint64_t latest_controller_consume_started_ns_ = 0;
     unsigned int selected_xinput_user_index_ = 0;
     std::chrono::steady_clock::time_point last_vision_poll_at_{};

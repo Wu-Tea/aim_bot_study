@@ -23,8 +23,9 @@ struct PendingMotionRequest {
 
 struct PendingMotionEstimate {
     Vec2d realized_px{};
+    Vec2d in_flight_px{};
     Vec2d scheduled_px{};
-    Vec2d total_px{};
+    Vec2d pending_total_px{};
     float confidence = 0.0f;
     bool history_complete = false;
     bool valid = false;

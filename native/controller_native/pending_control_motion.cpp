@@ -80,10 +80,12 @@ PendingControlMotionEstimate PendingControlMotion::estimate_between(
     float response_scale_px_per_stick_second,
     std::uint64_t target_id) const noexcept {
     PendingControlMotionEstimate result;
+    constexpr double kMaximumAccountingWindowSeconds = 0.100;
     if (size_ == 0 || target_id == 0 ||
         !std::isfinite(begin_seconds) || !std::isfinite(end_seconds) ||
         !std::isfinite(response_scale_px_per_stick_second) ||
         end_seconds <= begin_seconds ||
+        end_seconds - begin_seconds > kMaximumAccountingWindowSeconds ||
         response_scale_px_per_stick_second <= 0.0f) {
         return result;
     }

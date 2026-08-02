@@ -15,6 +15,9 @@ struct CommittedCaptureObservation {
     std::uint64_t viewport_source_frame_id = 0;
     std::uint64_t captured_at_ns = 0;
     std::uint64_t result_at_ns = 0;
+    // The controller consume timestamp belongs to this exact source frame;
+    // zero is unavailable and therefore cannot be treated as a commit.
+    std::uint64_t controller_consume_ns = 0;
     Vec2f stable_error_px{};
     Vec2f stable_body_size_px{};
     common_native::Box2f raw_body_box_px{};
@@ -47,6 +50,8 @@ inline bool valid(const CommittedCaptureObservation& value) noexcept {
         value.source_observation_id != 0 &&
         value.persistent_target_id != 0;
     return identity_valid && value.captured_at_ns != 0 &&
+        value.controller_consume_ns != 0 &&
+        value.controller_consume_ns >= value.result_at_ns &&
         value.result_at_ns >= value.captured_at_ns &&
         value.viewport_source_frame_id == value.source_frame_id &&
         finite(value.stable_error_px) && body_size_valid &&

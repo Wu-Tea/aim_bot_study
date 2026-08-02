@@ -62,6 +62,7 @@ struct DxgiRoiCapture::Impl {
     int roi_left = 0;
     int roi_top = 0;
     uint64_t next_frame_id = 1;
+    uint64_t qpc_frequency = 0;
 
     ComPtr<IDXGIAdapter1> adapter;
     ComPtr<IDXGIOutput> output;
@@ -79,6 +80,12 @@ struct DxgiRoiCapture::Impl {
           timeout_ms(timeout) {
         if (requested_width <= 0 || requested_height <= 0) {
             throw std::runtime_error("DxgiRoiCapture width and height must be positive");
+        }
+        LARGE_INTEGER qpc_frequency_value{};
+        if (QueryPerformanceFrequency(&qpc_frequency_value) &&
+            qpc_frequency_value.QuadPart > 0) {
+            qpc_frequency = static_cast<uint64_t>(
+                qpc_frequency_value.QuadPart);
         }
         initialize();
     }
@@ -207,7 +214,10 @@ struct DxgiRoiCapture::Impl {
         create_duplication();
     }
 
-    DxgiCaptureMetadata empty_metadata(float acquire_ms = 0.0f) const {
+    DxgiCaptureMetadata empty_metadata(
+        float acquire_ms = 0.0f,
+        uint64_t acquire_begin_ns = 0,
+        uint64_t acquire_complete_ns = 0) const {
         DxgiCaptureMetadata metadata;
         metadata.updated = false;
         metadata.frame.width = requested_width;
@@ -221,6 +231,10 @@ struct DxgiRoiCapture::Impl {
         metadata.adapter_index = selected_adapter_index;
         metadata.output_index = selected_output_index;
         metadata.acquire_ms = acquire_ms;
+        metadata.capture_acquire_begin_ns = acquire_begin_ns;
+        metadata.capture_acquire_complete_ns = acquire_complete_ns;
+        metadata.frame.capture_acquire_begin_ns = acquire_begin_ns;
+        metadata.frame.capture_acquire_complete_ns = acquire_complete_ns;
         return metadata;
     }
 
@@ -228,17 +242,21 @@ struct DxgiRoiCapture::Impl {
         DXGI_OUTDUPL_FRAME_INFO frame_info{};
         ComPtr<IDXGIResource> desktop_resource;
 
+        const uint64_t acquire_begin_ns = now_ns();
         const double acquire_start = now_ms();
         HRESULT hr = duplication->AcquireNextFrame(static_cast<UINT>(timeout_ms), &frame_info, &desktop_resource);
         const double acquire_end = now_ms();
+        const uint64_t acquire_complete_ns = now_ns();
         const float acquire_elapsed = static_cast<float>(acquire_end - acquire_start);
 
         if (hr == DXGI_ERROR_WAIT_TIMEOUT) {
-            return empty_metadata(acquire_elapsed);
+            return empty_metadata(
+                acquire_elapsed, acquire_begin_ns, acquire_complete_ns);
         }
         if (hr == DXGI_ERROR_ACCESS_LOST || hr == DXGI_ERROR_INVALID_CALL) {
             rebuild_duplication();
-            return empty_metadata(acquire_elapsed);
+            return empty_metadata(
+                acquire_elapsed, acquire_begin_ns, acquire_complete_ns);
         }
         check_hresult(hr, "IDXGIOutputDuplication::AcquireNextFrame");
 
@@ -270,11 +288,27 @@ struct DxgiRoiCapture::Impl {
 
             duplication->ReleaseFrame();
             frame_acquired = false;
+            const uint64_t copy_complete_ns = now_ns();
 
-            DxgiCaptureMetadata metadata = empty_metadata(acquire_elapsed);
+            DxgiCaptureMetadata metadata = empty_metadata(
+                acquire_elapsed, acquire_begin_ns, acquire_complete_ns);
             metadata.updated = true;
             metadata.frame.frame_id = next_frame_id++;
-            metadata.frame.captured_at_ns = now_ns();
+            metadata.capture_copy_complete_ns = copy_complete_ns;
+            metadata.frame.capture_copy_complete_ns = copy_complete_ns;
+            metadata.frame.captured_at_ns = copy_complete_ns;
+            metadata.accumulated_frames = frame_info.AccumulatedFrames;
+            metadata.frame.accumulated_frames = frame_info.AccumulatedFrames;
+            if (frame_info.LastPresentTime.QuadPart > 0 &&
+                qpc_frequency != 0) {
+                metadata.source_present_qpc = static_cast<uint64_t>(
+                    frame_info.LastPresentTime.QuadPart);
+                metadata.source_present_qpc_frequency = qpc_frequency;
+                metadata.source_present_available = true;
+                metadata.frame.source_present_qpc = metadata.source_present_qpc;
+                metadata.frame.source_present_qpc_frequency = qpc_frequency;
+                metadata.frame.source_present_available = true;
+            }
             metadata.frame.width = requested_width;
             metadata.frame.height = requested_height;
             metadata.frame.format = PixelFormat::BGRA8;

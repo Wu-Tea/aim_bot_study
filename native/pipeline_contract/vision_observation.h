@@ -42,9 +42,18 @@ struct VisionObservationBatch {
     std::uint32_t count = 0;
     bool capture_fresh = false;
     bool selector_identity_protocol = false;
+    // Stable identity is optional because older/direct callers do not have a
+    // selector-owned generation. Zero means unavailable.
+    std::uint64_t selector_target_generation = 0;
+    bool selector_target_changed = false;
     bool roi_fallback = false;
     bool fire_requested = false;
     bool observed_fire_eligible = false;
+    // Adapter-side diagnostics for candidates filtered before the fixed
+    // candidate array reaches the coordinator.  These are counts only; the
+    // control path never depends on them.
+    std::uint32_t rejected_friendly_count = 0;
+    std::uint32_t rejected_low_reliability_count = 0;
     bool has_control_response_hint = false;
     float control_response_x_px_per_second = 0.0f;
     std::array<VisionCandidate, kMaxVisionCandidates> candidates{};

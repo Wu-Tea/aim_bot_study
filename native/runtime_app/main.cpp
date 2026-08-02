@@ -6,6 +6,7 @@
 
 #include <Windows.h>
 
+#include <array>
 #include <atomic>
 #include <exception>
 #include <filesystem>
@@ -96,6 +97,16 @@ void populate_runtime_provenance(
 #if defined(COD_BUILD_COMMIT)
     config.build_commit = COD_BUILD_COMMIT;
 #endif
+    std::array<wchar_t, 32768> module_path{};
+    const DWORD module_length = GetModuleFileNameW(
+        nullptr, module_path.data(), static_cast<DWORD>(module_path.size()));
+    if (module_length != 0 && module_length < module_path.size()) {
+        config.executable_sha256 = runtime_app::sha256_file_with_context(
+            std::filesystem::path(module_path.data()));
+    }
+    if (config.executable_sha256.empty()) {
+        config.executable_sha256 = "unavailable";
+    }
     if (!config.telemetry.enabled && !config.vision.aim_perf_file_log) {
         config.source_config_sha256 = "disabled";
         config.engine_sha256 = "disabled";
@@ -125,6 +136,7 @@ void dump_effective_config(const controller_native::RuntimeConfig& config) {
     line("runtime.provenance.build_commit", config.build_commit);
     line("runtime.provenance.config_sha256", config.source_config_sha256);
     line("runtime.provenance.engine_sha256", config.engine_sha256);
+    line("runtime.provenance.executable_sha256", config.executable_sha256);
     line("runtime.vision.capture_width", config.vision.capture_width);
     line("runtime.vision.capture_height", config.vision.capture_height);
     line("runtime.vision.tensor_width", config.vision.tensor_width);
@@ -136,6 +148,9 @@ void dump_effective_config(const controller_native::RuntimeConfig& config) {
     line("runtime.vision.model_path", config.vision.model_path);
     line("runtime.vision.gpu_service_enabled", config.vision.gpu_service_enabled);
     line("runtime.vision.gpu_service_active_fps", config.vision.gpu_service_active_fps);
+    line(
+        "runtime.vision.gpu_service_repeat_last_on_no_update",
+        config.vision.gpu_service_repeat_last_on_no_update);
     line("runtime.vision.color_readback_mode", config.vision.color_readback_mode);
     line("runtime.telemetry.enabled", config.telemetry.enabled);
     line("runtime.telemetry.mode", config.telemetry.mode);
@@ -170,6 +185,9 @@ void dump_effective_config(const controller_native::RuntimeConfig& config) {
     line("gamepad.tracker.lead_seconds", aim.body_lock_lead_seconds);
     line("gamepad.tracker.lead_max_px", aim.body_lock_lead_max_px);
     line("gamepad.tracker.aim_height_ratio", config.gamepad.tracker.aim_height_ratio);
+    line(
+        "gamepad.tracker.max_observation_age_ms",
+        config.gamepad.tracker.max_observation_age_ms);
     line("gamepad.ads.strength_scale", config.ads.strength_scale);
     line("gamepad.ads.vertical_strength_scale", config.ads.vertical_strength_scale);
     line("gamepad.ads.range_px", aim.max_pixels);
@@ -194,6 +212,7 @@ void dump_effective_config(const controller_native::RuntimeConfig& config) {
     line("gamepad.recoil.enabled", recoil.enabled);
     line("gamepad.recoil.selection_log_enabled", recoil.selection_log_enabled);
     line("gamepad.recoil.profile_despike_enabled", recoil.profile_despike_enabled);
+    line("gamepad.recoil.profile_playback_enabled", recoil.profile_playback_enabled);
     line("gamepad.recoil.native_recognizer_enabled", recoil.native_recognizer_enabled);
     line("gamepad.recoil.recognizer_log_enabled", recoil.recognizer_log_enabled);
     line("gamepad.recoil.recognizer_game", recoil.recognizer_game);
@@ -235,10 +254,17 @@ void print_startup_summary(
         << " gpu_service_idle_fps=" << config.vision.gpu_service_idle_fps
         << " tracker_backend="
         << tracking_native::tracker_backend_kind_name(config.gamepad.tracker_backend)
+        << " tracker_max_observation_age_ms="
+        << config.gamepad.tracker.max_observation_age_ms
         << " tracker_motion=component_aware_final"
         << " recoil=" << (config.gamepad.recoil.enabled ? "on" : "off")
+        << " recoil_profile="
+        << (config.gamepad.recoil.profile_playback_enabled ? "on" : "off")
         << " recoil_state=" << (
-            config.gamepad.recoil.recognizer_state_path.empty()
+            !config.gamepad.recoil.profile_playback_enabled &&
+                !config.gamepad.recoil.native_recognizer_enabled
+                ? "disabled"
+                : config.gamepad.recoil.recognizer_state_path.empty()
                 ? "none"
                 : config.gamepad.recoil.recognizer_state_path)
         << " auto_fire=" << config.gamepad.auto_fire.fire_output

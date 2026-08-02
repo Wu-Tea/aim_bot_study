@@ -804,6 +804,89 @@ void test_motion_anchor_ignores_box_edge_reconstruction_and_tracks_person() {
         "motion anchor should preserve vertical person translation");
 }
 
+void test_selector_generation_survives_frame_local_observation_changes() {
+    vision_native::VisionTargetSelector selector(640, 512);
+    auto same_target = single_target_batch(260.0f, 256.0f, 0.92f);
+    same_target.frame_id = 101;
+    const auto pending_pick = selector.select(same_target);
+    same_target.frame_id = 102;
+    const auto first = selector.select(same_target);
+    same_target.frame_id = 103;
+    const auto second = selector.select(same_target);
+    require_true(first.selector_identity_protocol,
+                 "selector must publish its identity protocol");
+    require_true(first.selector_target_generation != 0,
+                 "initial selector commit must create a generation");
+    require_true(second.selector_target_generation == first.selector_target_generation,
+                 "frame-local source ids must not create a new selector generation");
+    require_true(second.selector_target_generation == first.selector_target_generation,
+                 "same target across a third fresh frame must retain generation");
+    require_true(!second.selector_target_changed,
+                 "same-target continuation must not report replacement");
+
+    vision_native::DetectionBatch replacement = same_target;
+    replacement.frame_id = 104;
+    replacement.detections[0] = detection_for_target(260.0f, 256.0f, 0.40f);
+    replacement.detections.push_back(detection_for_target(336.0f, 256.0f, 0.92f));
+    const auto pending = selector.select(replacement, rightward_intent(81));
+    require_true(pending.selector_target_generation == first.selector_target_generation,
+                 "replacement must wait for selector confirmation");
+    replacement.frame_id = 105;
+    const auto switched = selector.select(replacement, rightward_intent(81));
+    require_true(switched.selector_target_generation > first.selector_target_generation,
+                 "confirmed selector replacement must increment generation");
+    require_true(switched.selector_target_changed,
+                  "confirmed selector replacement must publish changed=true");
+}
+
+void test_confirmed_frame_replacement_bootstraps_a_new_motion_anchor() {
+    vision_native::VisionTargetSelector selector(640, 512);
+    auto old_target = single_target_batch(260.0f, 256.0f, 0.92f);
+    auto old_frame = full_bgra_frame();
+    draw_motion_pattern(old_frame, 260, 242);
+
+    selector.select_with_frame(old_target, old_frame.view);
+    const auto old_locked =
+        selector.select_with_frame(old_target, old_frame.view);
+    require_true(old_locked.has_selected_detection,
+                 "replacement fixture must first lock the original person");
+    const auto old_detection = old_locked.detections[
+        old_locked.selected_detection_index];
+    require_true(old_detection.has_motion_anchor,
+                 "replacement fixture must establish the old appearance anchor");
+
+    auto replacement = old_target;
+    replacement.frame_id = 104;
+    replacement.detections[0] = detection_for_target(260.0f, 256.0f, 0.40f);
+    replacement.detections.push_back(
+        detection_for_target(340.0f, 256.0f, 0.92f));
+    auto replacement_frame = full_bgra_frame();
+    draw_motion_pattern(replacement_frame, 340, 242);
+
+    const auto pending = selector.select_with_frame(
+        replacement, replacement_frame.view);
+    require_true(
+        pending.selector_target_generation == old_locked.selector_target_generation,
+        "an unconfirmed replacement must retain the old selector generation");
+    replacement.frame_id = 105;
+    const auto switched = selector.select_with_frame(
+        replacement, replacement_frame.view);
+    require_true(switched.selector_target_changed,
+                 "replacement fixture must reach the selector confirmation boundary");
+    require_true(switched.has_selected_detection,
+                 "confirmed replacement must publish the new detection");
+    const auto new_detection = switched.detections[
+        switched.selected_detection_index];
+    require_true(
+        new_detection.has_motion_anchor &&
+            std::fabs(new_detection.motion_anchor_x - 340.0f) <= 2.0f &&
+            std::fabs(new_detection.motion_anchor_y - 242.0f) <= 2.0f,
+        "confirmed replacement must bootstrap its anchor from the new person, not the old patch");
+    require_true(
+        std::fabs(new_detection.motion_anchor_x - old_detection.motion_anchor_x) > 20.0f,
+        "replacement anchor must not inherit the previous person's location");
+}
+
 }  // namespace
 
 int main() {
@@ -828,6 +911,8 @@ int main() {
         test_wide_low_no_cue_candidate_degrades_to_weak_without_death_transition();
         test_wide_low_no_cue_candidate_does_not_keep_dead_active_target_locked();
         test_motion_anchor_ignores_box_edge_reconstruction_and_tracks_person();
+        test_selector_generation_survives_frame_local_observation_changes();
+        test_confirmed_frame_replacement_bootstraps_a_new_motion_anchor();
         return 0;
     } catch (const std::exception& exc) {
         std::cerr << "[TargetSelectorTests] FAIL " << exc.what() << "\n";

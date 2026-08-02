@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <iostream>
+#include <memory>
 #include <stdexcept>
 
 namespace {
@@ -44,11 +45,29 @@ int main() {
         require(pending.valid, "complete history must produce pending motion");
         near(pending.realized_px.x, 25.5, 1.0e-4, "realized x mismatch");
         near(pending.realized_px.y, -9.5, 1.0e-4, "realized y mismatch");
-        near(pending.scheduled_px.x, 20.4, 1.0e-4, "scheduled x mismatch");
-        near(pending.scheduled_px.y, -7.6, 1.0e-4, "scheduled y mismatch");
-        near(pending.total_px.x,
-             pending.realized_px.x + pending.scheduled_px.x,
-             1.0e-6, "total must be an exact decomposition");
+        // RED contract: the old implementation labels the in-flight interval
+        // [current-delay,current] as scheduled.  Scheduled is the distinct
+        // post-capture interval [current,decision].
+        near(pending.scheduled_px.x, 2.04, 1.0e-4,
+             "scheduled must cover only post-capture work");
+        near(pending.scheduled_px.y, -0.76, 1.0e-4,
+             "scheduled y must cover only post-capture work");
+        near(pending.in_flight_px.x, 20.4, 1.0e-4,
+             "in-flight x must cover the delay window");
+        near(pending.in_flight_px.y, -7.6, 1.0e-4,
+             "in-flight y must cover the delay window");
+        near(pending.pending_total_px.x,
+             22.44,
+             1.0e-6, "pending total must exclude realized observation work");
+        near(pending.pending_total_px.x,
+             pending.in_flight_px.x + pending.scheduled_px.x,
+             1.0e-12, "pending total x decomposition mismatch");
+        near(pending.pending_total_px.y,
+             pending.in_flight_px.y + pending.scheduled_px.y,
+             1.0e-12, "pending total y decomposition mismatch");
+        require(std::fabs(pending.pending_total_px.x - pending.realized_px.x) >
+                    1.0e-3,
+                "realized work must not enter pending total");
         near(pending.confidence, 0.7, 1.0e-6, "confidence must use weakest bound");
 
         auto fractional_request = request;
@@ -60,15 +79,50 @@ int main() {
              "fractional realized interpolation mismatch");
 
         const auto repeated = PendingMotionModel::estimate(request, history);
-        near(repeated.total_px.x, pending.total_px.x, 1.0e-12,
+        near(repeated.pending_total_px.x, pending.pending_total_px.x, 1.0e-12,
              "reconstruction must not accumulate drift");
         auto switched_delay = request;
         switched_delay.delay_ms = 55.0f;
         const auto switched = PendingMotionModel::estimate(switched_delay, history);
         require(switched.valid, "delay switch must reconstruct from immutable history");
         const auto restored = PendingMotionModel::estimate(request, history);
-        near(restored.total_px.x, pending.total_px.x, 1.0e-12,
+        near(restored.pending_total_px.x, pending.pending_total_px.x, 1.0e-12,
              "delay switching must not mutate pending state");
+
+        auto decision_at_capture = request;
+        decision_at_capture.decision_ns = decision_at_capture.current_capture_ns;
+        const auto boundary = PendingMotionModel::estimate(
+            decision_at_capture, history);
+        require(boundary.valid,
+                "zero-duration post-capture interval must remain valid");
+        near(boundary.scheduled_px.x, 0.0, 1.0e-12,
+             "decision-time sample must not create scheduled motion");
+        near(boundary.pending_total_px.x, 20.4, 1.0e-4,
+             "pending total at capture must contain only in-flight work");
+
+        auto endpoint_history = std::make_unique<ControlHistory<1024>>();
+        for (std::uint64_t i = 1; i <= 15; ++i)
+            require(endpoint_history->push(sample(i, i * 10'000'000)),
+                    "endpoint history push failed");
+        auto endpoint_sample = sample(16, 160'000'000);
+        endpoint_sample.final_right = {1.0f, 1.0f};
+        require(endpoint_history->push(endpoint_sample),
+                "endpoint output sample push failed");
+        auto endpoint_request = request;
+        endpoint_request.previous_capture_ns = 110'000'000;
+        endpoint_request.current_capture_ns = 150'000'000;
+        endpoint_request.decision_ns = 160'000'000;
+        const auto endpoint = PendingMotionModel::estimate(
+            endpoint_request, *endpoint_history);
+        require(endpoint.valid, "endpoint sample fixture must remain valid");
+        near(endpoint.scheduled_px.x, 5.1, 1.0e-4,
+             "scheduled must use held output before decision endpoint");
+        near(endpoint.scheduled_px.y, -1.9, 1.0e-4,
+             "scheduled y must use held output before decision endpoint");
+        near(endpoint.pending_total_px.x, 25.5, 1.0e-4,
+             "decision endpoint sample must not add phantom x area");
+        near(endpoint.pending_total_px.y, -9.5, 1.0e-4,
+             "decision endpoint sample must not add phantom y area");
 
         auto invalid = request;
         invalid.identity_continuous = false;

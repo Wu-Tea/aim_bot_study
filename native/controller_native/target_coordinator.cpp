@@ -29,6 +29,11 @@ float smoothstep(float value) noexcept {
     return t * t * (3.0f - 2.0f * t);
 }
 
+std::uint64_t seconds_to_ns(double seconds) noexcept {
+    if (!std::isfinite(seconds) || seconds <= 0.0) return 0;
+    return static_cast<std::uint64_t>(seconds * 1'000'000'000.0);
+}
+
 }  // namespace
 
 float motion_velocity_alpha_for_interval(
@@ -179,6 +184,35 @@ void TargetCoordinator::learn_player_motion_amplitude(
     ++samples;
 }
 
+void TargetCoordinator::reset_target_owned_state_for_replacement() noexcept {
+    // A selector-confirmed replacement is a new person, not a new physical
+    // ADS epoch. Clear only state whose coordinate/identity belongs to the
+    // previous target. The jump/slide amplitude learner is global user-motion
+    // knowledge and must survive this boundary.
+    stable_body_aim_tracker_.reset();
+    position_ = {};
+    velocity_ = {};
+    acceleration_ = {};
+    source_id_ = 0;
+    previous_firing_velocity_innovation_ = {};
+    firing_velocity_observer_active_ = false;
+    last_observed_seconds_ = 0.0;
+    last_observation_capture_seconds_ = 0.0;
+    last_unique_observation_seconds_ = 0.0;
+    last_observed_reliability_ = 0.0f;
+    last_observed_normalized_size_ = 0.0f;
+    settled_frames_ = 0;
+    observed_frames_ = 0;
+    has_observation_capture_time_ = false;
+    has_unique_observation_time_ = false;
+    fire_requested_ = false;
+    observed_fire_eligible_ = false;
+    was_missing_ = false;
+    delivered_camera_work_since_capture_px_ = {};
+    remaining_work_confidence_ = 0.0f;
+    remaining_work_valid_ = false;
+}
+
 void TargetCoordinator::set_motion_velocity_alpha_for_benchmark(
     float alpha) noexcept {
     config_.motion_velocity_alpha = std::clamp(alpha, 0.0f, 1.0f);
@@ -202,6 +236,54 @@ const pipeline_contract::VisionCandidate* TargetCoordinator::choose_candidate(
         observations.preferred_source_id == 0) {
         return nullptr;
     }
+    const pipeline_contract::Vec2f screen_center{
+        observations.frame_width_px > 0.0f
+            ? observations.frame_width_px * 0.5f : 240.0f,
+        observations.frame_height_px > 0.0f
+            ? observations.frame_height_px * 0.5f : 208.0f};
+    const bool needs_ads_admission = ads_epoch_active_ &&
+        !ads_snap_consumed_ && !ads_target_admitted_;
+    if (observations.selector_identity_protocol) {
+        // The selector protocol carries one authoritative frame-local
+        // preferred id. Coordinator scoring must never elect another
+        // detection in its place, including when that detection is closer to
+        // the previous prediction. A missing/unreliable preferred detection
+        // is a no-candidate result, not permission to fall back.
+        const pipeline_contract::VisionCandidate* preferred = nullptr;
+        const auto protocol_count = std::min<std::uint32_t>(
+            observations.count,
+            static_cast<std::uint32_t>(pipeline_contract::kMaxVisionCandidates));
+        for (std::uint32_t index = 0; index < protocol_count; ++index) {
+            const auto& candidate = observations.candidates[index];
+            if (candidate.source_id == observations.preferred_source_id &&
+                candidate.reliability > 0.0f) {
+                preferred = &candidate;
+                break;
+            }
+        }
+        if (preferred == nullptr) return nullptr;
+
+        const float distance = needs_ads_admission
+            ? length(subtract(preferred->aim_px, screen_center))
+            : has_target_
+                ? length(subtract(preferred->aim_px, predicted))
+                : length(subtract(preferred->aim_px, screen_center));
+        if (needs_ads_admission) {
+            const float observed_size = std::clamp(
+                preferred->normalized_size, 0.0f, 1.0f);
+            const float ads_activation_radius =
+                config_.ads_activation_radius_px *
+                (1.0f + 0.75f * observed_size);
+            if (distance > ads_activation_radius) return nullptr;
+        }
+        const bool effective_replacement =
+            is_effective_selector_replacement(observations, *preferred);
+        if (!has_target_ || needs_ads_admission || effective_replacement ||
+            distance <= config_.association_radius_px) {
+            return preferred;
+        }
+        return nullptr;
+    }
     const pipeline_contract::VisionCandidate* best = nullptr;
     float best_score = std::numeric_limits<float>::max();
     const auto count = std::min<std::uint32_t>(
@@ -210,19 +292,16 @@ const pipeline_contract::VisionCandidate* TargetCoordinator::choose_candidate(
     for (std::uint32_t index = 0; index < count; ++index) {
         const auto& candidate = observations.candidates[index];
         if (candidate.reliability <= 0.0f) continue;
-        if (has_target_ && observations.preferred_source_id == 0 &&
-            candidate.source_id != 0 && candidate.source_id != source_id_) {
-            continue;
-        }
-        const pipeline_contract::Vec2f screen_center{
-            observations.frame_width_px > 0.0f
-                ? observations.frame_width_px * 0.5f : 240.0f,
-            observations.frame_height_px > 0.0f
-                ? observations.frame_height_px * 0.5f : 208.0f};
-        float distance = has_target_
-            ? length(subtract(candidate.aim_px, predicted))
-            : length(subtract(candidate.aim_px, screen_center));
-        if (!has_target_ && ads_epoch_active_ && !ads_snap_consumed_) {
+        // A fresh physical ADS epoch always admits by candidate-to-screen
+        // center distance. Association distance is continuity evidence only
+        // after that epoch has a target; it must not let a stale/far track
+        // bypass the spatial admission radius.
+        float distance = needs_ads_admission
+            ? length(subtract(candidate.aim_px, screen_center))
+            : has_target_
+                ? length(subtract(candidate.aim_px, predicted))
+                : length(subtract(candidate.aim_px, screen_center));
+        if (needs_ads_admission) {
             const float observed_size = std::clamp(
                 candidate.normalized_size, 0.0f, 1.0f);
             const float ads_activation_radius =
@@ -232,11 +311,15 @@ const pipeline_contract::VisionCandidate* TargetCoordinator::choose_candidate(
         }
         const bool same_source = has_target_ && candidate.source_id != 0 &&
             candidate.source_id == source_id_;
+        const bool effective_selector_replacement =
+            is_effective_selector_replacement(observations, candidate);
         if (same_source) distance *= 0.25f;
         const float preferred_bonus = observations.preferred_source_id != 0 &&
             candidate.source_id == observations.preferred_source_id ? 25.0f : 0.0f;
         const float score = distance - candidate.reliability * 10.0f - preferred_bonus;
-        if ((!has_target_ || same_source || distance <= config_.association_radius_px) &&
+        if ((needs_ads_admission || !has_target_ || same_source ||
+             effective_selector_replacement ||
+             distance <= config_.association_radius_px) &&
             score < best_score) {
             best = &candidate;
             best_score = score;
@@ -245,12 +328,58 @@ const pipeline_contract::VisionCandidate* TargetCoordinator::choose_candidate(
     return best;
 }
 
-pipeline_contract::TargetPlan TargetCoordinator::no_target_plan() noexcept {
+bool TargetCoordinator::is_effective_selector_replacement(
+    const pipeline_contract::VisionObservationBatch& observations,
+    const pipeline_contract::VisionCandidate& candidate) const noexcept {
+    // selector_target_changed is an edge notification and may be skipped by
+    // the latest-only mailbox. The consumed generation is the durable
+    // identity boundary; only the selector's preferred, reliable candidate
+    // may use it to bypass the old target association radius.
+    return has_target_ && observations.selector_identity_protocol &&
+        observations.selector_target_generation != 0 &&
+        selector_target_generation_ != 0 &&
+        observations.selector_target_generation !=
+            selector_target_generation_ &&
+        observations.preferred_source_id != 0 &&
+        candidate.reliability > 0.0f &&
+        candidate.source_id == observations.preferred_source_id;
+}
+
+pipeline_contract::TargetPlan TargetCoordinator::no_target_plan(
+    double now_seconds,
+    std::uint64_t source_frame_id,
+    std::uint32_t candidate_count,
+    std::uint64_t preferred_source_id) noexcept {
     delivered_camera_work_since_capture_px_ = {};
     remaining_work_confidence_ = 0.0f;
     remaining_work_valid_ = false;
     pipeline_contract::TargetPlan plan{};
     plan.generation = ++generation_;
+    plan.source_frame_id = source_frame_id;
+    plan.mode = pipeline_contract::ControlMode::Manual;
+    plan.ads_acquisition_state = ads_acquisition_state_;
+    plan.source_decision_available = source_decision_available_;
+    plan.source_decision_outcome = source_decision_outcome_;
+    plan.source_decision_reason = source_decision_reason_;
+    plan.acquisition_terminal_reason = acquisition_terminal_reason_;
+    plan.ads_decision_reason = ads_decision_reason_;
+    plan.physical_ads_epoch = physical_ads_epoch_;
+    plan.target_acquisition_id = target_acquisition_id_;
+    plan.ads_acquisition_active = ads_target_admitted_ && !ads_snap_consumed_;
+    plan.ads_acquisition_exists = target_acquisition_id_ != 0;
+    plan.ads_acquisition_begin_ns = ads_acquisition_begin_ns_;
+    plan.ads_acquisition_complete_ns = ads_acquisition_complete_ns_;
+    plan.ads_activation_radius_px = config_.ads_activation_radius_px;
+    plan.ads_candidate_count = candidate_count;
+    plan.ads_preferred_source_id = preferred_source_id;
+    plan.ads_epoch_elapsed_ms = ads_epoch_active_
+        ? static_cast<float>(std::max(
+            0.0, (now_seconds - ads_epoch_started_seconds_) * 1000.0))
+        : 0.0f;
+    plan.acquisition_elapsed_ms = ads_target_admitted_
+        ? static_cast<float>(std::max(
+            0.0, (now_seconds - acquisition_started_seconds_) * 1000.0))
+        : 0.0f;
     latest_ = plan;
     return plan;
 }
@@ -290,6 +419,10 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     const float dt = last_update_seconds_ > 0.0
         ? static_cast<float>(std::clamp(now_seconds - last_update_seconds_, 0.001, 0.1))
         : 0.0f;
+    source_decision_available_ = false;
+    source_decision_outcome_ =
+        pipeline_contract::SourceDecisionOutcome::NoDecision;
+    source_decision_reason_ = pipeline_contract::AdsDecisionReason::None;
     const bool player_motion_oracle =
         feedback.has_player_motion_oracle &&
         std::isfinite(feedback.player_error_delta_px.x) &&
@@ -314,6 +447,49 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
                      intent.right_y.confidence),
             0.0f, 1.0f),
         std::clamp(manual_right_magnitude / 0.12f, 0.0f, 1.0f));
+    // NativeController normally calls begin_ads_epoch() on the physical
+    // rising edge. Keep the coordinator deterministic for direct callers and
+    // fixtures too, while never rearming a consumed held epoch.
+    if (!intent.ads) {
+        ads_epoch_active_ = false;
+        ads_snap_consumed_ = false;
+        ads_target_admitted_ = false;
+        target_acquisition_id_ = 0;
+        acquisition_started_seconds_ = 0.0;
+        acquisition_completed_seconds_ = 0.0;
+        ads_acquisition_begin_ns_ = 0;
+        ads_acquisition_complete_ns_ = 0;
+        ads_center_cross_seen_ = false;
+        ads_moving_away_seen_ = false;
+        ads_target_switch_seen_ = false;
+        acquisition_terminal_reason_ = pipeline_contract::AdsDecisionReason::None;
+        ads_acquisition_state_ =
+            pipeline_contract::AdsAcquisitionState::Idle;
+        ads_decision_reason_ = pipeline_contract::AdsDecisionReason::None;
+        control_mode_ = pipeline_contract::ControlMode::Manual;
+    } else if (!ads_epoch_active_ && !ads_snap_consumed_) {
+        ads_epoch_active_ = true;
+        ads_epoch_started_seconds_ = now_seconds;
+        physical_ads_epoch_ = physical_ads_epoch_ == 0
+            ? 1 : physical_ads_epoch_ + 1;
+        ads_target_admitted_ = false;
+        target_acquisition_id_ = 0;
+        acquisition_started_seconds_ = 0.0;
+        acquisition_completed_seconds_ = 0.0;
+        ads_acquisition_begin_ns_ = 0;
+        ads_acquisition_complete_ns_ = 0;
+        ads_center_cross_seen_ = false;
+        ads_moving_away_seen_ = false;
+        ads_target_switch_seen_ = false;
+        acquisition_terminal_reason_ = pipeline_contract::AdsDecisionReason::None;
+        ads_acquisition_state_ =
+            pipeline_contract::AdsAcquisitionState::ArmedWaitingForTarget;
+        ads_decision_reason_ = pipeline_contract::AdsDecisionReason::None;
+        control_mode_ = pipeline_contract::ControlMode::AdsAcquire;
+    }
+    if (intent.ads && ads_snap_consumed_) {
+        ads_acquisition_state_ = pipeline_contract::AdsAcquisitionState::Consumed;
+    }
     const float jump_acceleration_authority =
         jump_acceleration_model_active
         ? 1.0f - manual_camera_ownership
@@ -356,15 +532,146 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
             feedback.remaining_work_confidence, 0.0f, 1.0f);
         remaining_work_valid_ = remaining_work_confidence_ > 0.0f;
     }
+    double observation_capture_seconds = now_seconds;
+    const bool source_time_available =
+        std::isfinite(observations.source_time_seconds) &&
+        (observations.source_time_seconds > 0.0 || now_seconds <= 0.001);
+    if (source_time_available) {
+        observation_capture_seconds = observations.source_time_seconds;
+    }
+    bool accepted_fresh_capture = observations.capture_fresh;
+    bool stale_capture = false;
+    bool duplicate_frame = false;
+    if (accepted_fresh_capture && source_time_available) {
+        const double source_age_ms =
+            (now_seconds - observation_capture_seconds) * 1000.0;
+        accepted_fresh_capture =
+            source_age_ms >= -0.001 &&
+            source_age_ms <=
+                static_cast<double>(std::max(0.0f, config_.max_observation_age_ms));
+        stale_capture = !accepted_fresh_capture;
+    }
+    if (accepted_fresh_capture && has_processed_capture_) {
+        if (source_time_available && has_processed_capture_time_ &&
+            observation_capture_seconds <=
+                last_processed_capture_seconds_ + 1.0e-6) {
+            accepted_fresh_capture = false;
+            duplicate_frame = true;
+        }
+        if (observations.frame_id != 0 && last_processed_frame_id_ != 0 &&
+            observations.frame_id <= last_processed_frame_id_) {
+            accepted_fresh_capture = false;
+            duplicate_frame = true;
+        }
+        if (!source_time_available && observations.frame_id == 0) {
+            accepted_fresh_capture = false;
+            stale_capture = true;
+        }
+    }
+    if (observations.capture_fresh && !source_time_available &&
+        observations.frame_id == 0) {
+        stale_capture = true;
+    }
+    if (accepted_fresh_capture) {
+        has_processed_capture_ = true;
+        if (source_time_available) {
+            last_processed_capture_seconds_ = observation_capture_seconds;
+            has_processed_capture_time_ = true;
+        }
+        if (observations.frame_id != 0) {
+            last_processed_frame_id_ = observations.frame_id;
+        }
+        if (observations.frame_width_px > 0.0f) {
+            frame_width_px_ = observations.frame_width_px;
+        }
+        if (observations.frame_height_px > 0.0f) {
+            frame_height_px_ = observations.frame_height_px;
+        }
+        if (observations.frame_id != 0) {
+            // A fresh empty miss is still a source frame. It must be visible
+            // in the trace even though it has no source observation id.
+            source_frame_id_ = observations.frame_id;
+        }
+    }
+    if (accepted_fresh_capture && !observations.selector_identity_protocol) {
+        // Once a source frame explicitly lacks the selector identity
+        // protocol, the last generation is no longer trustworthy. This is
+        // the only non-reset path that clears it; manual/ADS lifecycle
+        // transitions themselves must not erase identity continuity.
+        selector_target_generation_ = 0;
+    }
     const pipeline_contract::Vec2f center{
-        observations.frame_width_px > 0.0f
-            ? observations.frame_width_px * 0.5f : 240.0f,
-        observations.frame_height_px > 0.0f
-            ? observations.frame_height_px * 0.5f : 208.0f,
+        frame_width_px_ * 0.5f,
+        frame_height_px_ * 0.5f,
     };
-    const auto* candidate = choose_candidate(observations, predicted);
+    const auto* candidate = accepted_fresh_capture
+        ? choose_candidate(observations, predicted)
+        : nullptr;
+    bool current_plan_admitted = false;
+    const bool selector_replacement = candidate != nullptr &&
+        accepted_fresh_capture &&
+        is_effective_selector_replacement(observations, *candidate);
 
-    if (observations.has_control_response_hint) {
+    if (candidate == nullptr) {
+        if (!intent.ads) {
+            ads_decision_reason_ = pipeline_contract::AdsDecisionReason::None;
+        } else if (observations.capture_fresh) {
+            source_decision_available_ = true;
+            source_decision_outcome_ =
+                pipeline_contract::SourceDecisionOutcome::Rejected;
+            // Reject reasons describe a source-frame decision. A controller
+            // replay has no new candidate set, so it must preserve the last
+            // source reason instead of fabricating a radius/association
+            // rejection from an intentionally empty replay batch.
+            if (ads_snap_consumed_) {
+                ads_decision_reason_ =
+                    pipeline_contract::AdsDecisionReason::AdsAlreadyConsumed;
+            } else if (!accepted_fresh_capture) {
+                ads_decision_reason_ = duplicate_frame
+                    ? pipeline_contract::AdsDecisionReason::DuplicateFrame
+                    : stale_capture
+                        ? pipeline_contract::AdsDecisionReason::StaleCapture
+                        : pipeline_contract::AdsDecisionReason::OldControlEpoch;
+            } else if (observations.selector_identity_protocol &&
+                       observations.preferred_source_id == 0) {
+                ads_decision_reason_ =
+                    pipeline_contract::AdsDecisionReason::SelectorNoSelection;
+            } else if (observations.rejected_friendly_count > 0) {
+                ads_decision_reason_ =
+                    pipeline_contract::AdsDecisionReason::FriendlyOrCueReject;
+            } else if (observations.rejected_low_reliability_count > 0 ||
+                       (observations.count > 0 &&
+                        std::all_of(
+                            observations.candidates.begin(),
+                            observations.candidates.begin() +
+                                std::min<std::uint32_t>(
+                                    observations.count,
+                                    static_cast<std::uint32_t>(
+                                        pipeline_contract::kMaxVisionCandidates)),
+                            [](const auto& value) {
+                                return value.reliability <= 0.0f;
+                            }))) {
+                ads_decision_reason_ =
+                    pipeline_contract::AdsDecisionReason::LowReliability;
+            } else if (observations.count == 0) {
+                ads_decision_reason_ =
+                    pipeline_contract::AdsDecisionReason::NoTarget;
+            } else if (ads_epoch_active_ && !ads_snap_consumed_ &&
+                       !ads_target_admitted_) {
+                ads_decision_reason_ =
+                    pipeline_contract::AdsDecisionReason::OutsideAdsActivationRadius;
+            } else if (!has_target_) {
+                ads_decision_reason_ =
+                    pipeline_contract::AdsDecisionReason::OutsideAdsActivationRadius;
+            } else {
+                ads_decision_reason_ =
+                    pipeline_contract::AdsDecisionReason::OutsideAssociationRadius;
+            }
+            source_decision_reason_ = ads_decision_reason_;
+        }
+    }
+
+    if (accepted_fresh_capture && observations.has_control_response_hint) {
         response_estimator_.update({
             intent.filtered_left.x,
             observations.control_response_x_px_per_second,
@@ -373,26 +680,63 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         });
     }
 
+    // source_id is frame-local. Only a selector-owned generation may signal a
+    // replacement; when that signal is unavailable we deliberately do not
+    // infer a switch from an observation id.
+    if (accepted_fresh_capture && observations.selector_identity_protocol &&
+        observations.selector_target_generation != 0 && candidate != nullptr &&
+        observations.preferred_source_id != 0 &&
+        candidate->source_id == observations.preferred_source_id &&
+        candidate->reliability > 0.0f) {
+        if (selector_replacement && ads_target_admitted_ && !ads_snap_consumed_) {
+            ads_target_switch_seen_ = true;
+        }
+        selector_target_generation_ = observations.selector_target_generation;
+    }
+    if (candidate != nullptr && intent.ads && ads_snap_consumed_) {
+        ads_decision_reason_ =
+            pipeline_contract::AdsDecisionReason::AdsAlreadyConsumed;
+        source_decision_available_ = true;
+        source_decision_outcome_ =
+            pipeline_contract::SourceDecisionOutcome::Rejected;
+        source_decision_reason_ =
+            pipeline_contract::AdsDecisionReason::AdsAlreadyConsumed;
+    }
     pipeline_contract::TargetLifecycle lifecycle = pipeline_contract::TargetLifecycle::None;
     float coasting_actuation_scale = 1.0f;
     float reliability = latest_.reliability;
     float normalized_size = latest_.normalized_size;
     if (candidate != nullptr) {
         pipeline_contract::Vec2f observed_aim_px = candidate->aim_px;
-        double observation_capture_seconds = now_seconds;
-        const bool source_time_available =
-            std::isfinite(observations.source_time_seconds) &&
-            (observations.source_time_seconds > 0.0 ||
-             now_seconds <= 0.001);
-        if (source_time_available) {
-            observation_capture_seconds = observations.source_time_seconds;
+        const bool new_observation_sample = accepted_fresh_capture;
+        const bool new_target = !has_target_ || selector_replacement;
+        const bool new_ads_acquisition = intent.ads && ads_epoch_active_ &&
+            !ads_snap_consumed_ && !ads_target_admitted_;
+        if (selector_replacement) {
+            reset_target_owned_state_for_replacement();
         }
-        const bool new_observation_sample =
-            !has_observation_capture_time_ ||
-            observations.frame_id != source_frame_id_ ||
-            observation_capture_seconds >
-                last_observation_capture_seconds_ + 1.0e-6;
-        const bool new_target = !has_target_;
+        if (new_ads_acquisition) {
+            current_plan_admitted = true;
+            source_decision_available_ = true;
+            source_decision_outcome_ =
+                pipeline_contract::SourceDecisionOutcome::Admitted;
+            source_decision_reason_ = pipeline_contract::AdsDecisionReason::Admitted;
+            ads_target_admitted_ = true;
+            target_acquisition_id_ = next_target_acquisition_id_++;
+            acquisition_started_seconds_ = now_seconds;
+            acquisition_completed_seconds_ = 0.0;
+            ads_acquisition_begin_ns_ = seconds_to_ns(now_seconds);
+            ads_acquisition_complete_ns_ = 0;
+            ads_acquisition_state_ =
+                pipeline_contract::AdsAcquisitionState::AcquiringNominal;
+            ads_decision_reason_ = pipeline_contract::AdsDecisionReason::Admitted;
+        } else if (accepted_fresh_capture &&
+                   !(intent.ads && ads_snap_consumed_)) {
+            source_decision_available_ = true;
+            source_decision_outcome_ =
+                pipeline_contract::SourceDecisionOutcome::AcceptedContinuation;
+            source_decision_reason_ = pipeline_contract::AdsDecisionReason::None;
+        }
         if (new_target) {
             stable_body_aim_tracker_.reset();
         }
@@ -421,7 +765,8 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         } else if (new_observation_sample) {
             stable_body_aim_tracker_.reset();
         }
-        if (feedback.has_delivered_camera_work_since_capture &&
+        if (!selector_replacement &&
+            feedback.has_delivered_camera_work_since_capture &&
             pipeline_contract::finite(
                 feedback.delivered_camera_work_since_capture_px)) {
             observed_aim_px.x -=
@@ -448,14 +793,17 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
             remaining_work_valid_ = false;
         }
         if (new_observation_sample) {
-            last_unique_observation_seconds_ = now_seconds;
+            last_unique_observation_seconds_ = observation_capture_seconds;
             has_unique_observation_time_ = true;
         }
-        const bool reacquiring = has_target_ && was_missing_;
+        const bool reacquiring = !selector_replacement && has_target_ && was_missing_;
         if (new_target) {
             has_target_ = true;
             target_id_ = next_target_id_++;
-            acquisition_started_seconds_ = now_seconds;
+            if (!ads_target_admitted_) {
+                acquisition_started_seconds_ = 0.0;
+                target_acquisition_id_ = 0;
+            }
             position_ = observed_aim_px;
             velocity_ = {};
             acceleration_ = {};
@@ -498,7 +846,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
                   (bodylock_motion_model &&
                   low_anchor_bodylock_frame &&
                   length(velocity_) <= 80.0f)) &&
-                observed_frames_ >= 2 && !reacquiring;
+                observed_frames_ >= 2 && !reacquiring && !selector_replacement;
             bool persistent_firing_innovation = true;
             if (observe_firing_velocity) {
                 if (!firing_velocity_observer_active_) {
@@ -547,7 +895,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
                 player_motion.unit_offset,
                 learning_innovation_y,
                 candidate->reliability,
-                reacquiring,
+                reacquiring || selector_replacement,
                 manual_camera_ownership);
             const auto measured_position = pipeline_contract::Vec2f{
                 predicted.x + position_innovation.x,
@@ -639,7 +987,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         last_observed_reliability_ = reliability;
         last_observed_normalized_size_ = normalized_size;
         if (new_observation_sample) {
-            last_observed_seconds_ = now_seconds;
+            last_observed_seconds_ = observation_capture_seconds;
             last_observation_capture_seconds_ =
                 observation_capture_seconds;
             has_observation_capture_time_ = true;
@@ -658,7 +1006,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
                         jump_acceleration_authority,
                     -4000.0f, 4000.0f);
             }
-            if (observations.capture_fresh) {
+            if (accepted_fresh_capture) {
                 fire_requested_ = false;
                 observed_fire_eligible_ = false;
                 was_missing_ = true;
@@ -667,6 +1015,17 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
             reliability = last_observed_reliability_ *
                 std::clamp(1.0f - missing_ms / config_.hold_ms, 0.0f, 1.0f);
             normalized_size = last_observed_normalized_size_;
+            if (intent.ads && ads_target_admitted_ && !ads_snap_consumed_ &&
+                accepted_fresh_capture &&
+                ads_acquisition_state_ ==
+                    pipeline_contract::AdsAcquisitionState::AcquiringExtended) {
+                // A short same-target occlusion keeps the admission clock,
+                // but a missing fresh candidate cannot justify Extended.
+                ads_acquisition_state_ =
+                    pipeline_contract::AdsAcquisitionState::AcquiringNominal;
+                ads_decision_reason_ =
+                    pipeline_contract::AdsDecisionReason::TargetLost;
+            }
             const float grace_ms = std::max(
                 0.0f, config_.coast_full_authority_grace_ms);
             const float release_ms = std::max(
@@ -684,18 +1043,47 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
             source_id_ = 0;
             settled_frames_ = 0;
             observed_frames_ = 0;
+            if (intent.ads && ads_target_admitted_ && !ads_snap_consumed_) {
+                ads_acquisition_state_ =
+                    pipeline_contract::AdsAcquisitionState::Completed;
+                ads_snap_consumed_ = true;
+                acquisition_completed_seconds_ = now_seconds;
+                ads_acquisition_complete_ns_ = seconds_to_ns(now_seconds);
+                ads_decision_reason_ =
+                    pipeline_contract::AdsDecisionReason::TargetLost;
+                acquisition_terminal_reason_ =
+                    pipeline_contract::AdsDecisionReason::TargetLost;
+                control_mode_ = pipeline_contract::ControlMode::BodyLockFollow;
+            } else if (intent.ads && !ads_snap_consumed_) {
+                ads_acquisition_state_ =
+                    pipeline_contract::AdsAcquisitionState::ArmedWaitingForTarget;
+            }
             last_update_seconds_ = now_seconds;
-            return no_target_plan();
+            return no_target_plan(
+                now_seconds,
+                observations.frame_id,
+                observations.count + observations.rejected_friendly_count +
+                    observations.rejected_low_reliability_count,
+                observations.preferred_source_id);
         }
     } else {
+        if (intent.ads && !ads_snap_consumed_) {
+            ads_acquisition_state_ =
+                pipeline_contract::AdsAcquisitionState::ArmedWaitingForTarget;
+        }
         last_update_seconds_ = now_seconds;
-        return no_target_plan();
+        return no_target_plan(
+            now_seconds,
+            observations.frame_id,
+            observations.count + observations.rejected_friendly_count +
+                observations.rejected_low_reliability_count,
+            observations.preferred_source_id);
     }
 
     pipeline_contract::TargetPlan plan{};
     plan.generation = ++generation_;
     plan.source_frame_id = source_frame_id_;
-    plan.source_observation_id = source_id_;
+    plan.source_observation_id = candidate != nullptr ? source_id_ : 0;
     plan.target_id = target_id_;
     plan.lifecycle = lifecycle;
     plan.aim_px = position_;
@@ -715,12 +1103,41 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     plan.normalized_size = normalized_size;
     plan.occlusion_budget_ms = std::max(0.0f, config_.hold_ms - plan.observation_age_ms);
     const float error_length = length(plan.error_px);
-    plan.acquisition_elapsed_ms = static_cast<float>(
-        std::max(0.0, (now_seconds - acquisition_started_seconds_) * 1000.0));
+    plan.acquisition_elapsed_ms = ads_target_admitted_
+        ? static_cast<float>(std::max(
+            0.0, (now_seconds - acquisition_started_seconds_) * 1000.0))
+        : 0.0f;
     plan.ads_epoch_elapsed_ms = ads_epoch_active_
         ? static_cast<float>(
             std::max(0.0, (now_seconds - ads_epoch_started_seconds_) * 1000.0))
         : 0.0f;
+    plan.ads_acquisition_state = ads_acquisition_state_;
+    plan.ads_decision_reason = ads_decision_reason_;
+    plan.physical_ads_epoch = physical_ads_epoch_;
+    plan.target_acquisition_id = target_acquisition_id_;
+    plan.ads_plan_admitted = current_plan_admitted;
+    plan.ads_acquisition_active = ads_target_admitted_ && !ads_snap_consumed_;
+    plan.ads_acquisition_exists = target_acquisition_id_ != 0;
+    plan.ads_acquisition_begin_ns = ads_acquisition_begin_ns_;
+    plan.ads_acquisition_complete_ns = ads_acquisition_complete_ns_;
+    plan.ads_activation_radius_px = config_.ads_activation_radius_px;
+    plan.ads_raw_error_px = plan.error_px;
+    plan.ads_candidate_count = std::min<std::uint32_t>(
+        observations.count,
+        static_cast<std::uint32_t>(pipeline_contract::kMaxVisionCandidates));
+    plan.ads_preferred_source_id = observations.preferred_source_id;
+    plan.ads_selected_source_id = candidate != nullptr
+        ? candidate->source_id : 0;
+    plan.selector_target_generation = observations.selector_target_generation;
+    // Expose the consumed/effective identity boundary. The raw selector
+    // changed pulse is intentionally not authoritative because latest-only
+    // delivery may skip it or deliver a spurious pulse for the same gen.
+    plan.selector_target_changed = selector_replacement;
+    if (candidate != nullptr) {
+        plan.ads_target_size_px = candidate->box_size_px;
+        plan.ads_activation_radius_px = config_.ads_activation_radius_px *
+            (1.0f + 0.75f * std::clamp(candidate->normalized_size, 0.0f, 1.0f));
+    }
     plan.source_capture_age_ms = has_observation_capture_time_
         ? static_cast<float>(std::max(
             0.0, (now_seconds - last_observation_capture_seconds_) * 1000.0))
@@ -784,23 +1201,162 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
             settled_frames_ = 0;
         }
     }
-    const bool acquisition_ceiling_elapsed = ads_epoch_active_ &&
-        plan.ads_epoch_elapsed_ms >= std::max(
-            0.0f, config_.ads_max_acquisition_ms);
+    const bool previous_target_same = latest_.target_id != 0 &&
+        latest_.target_id == target_id_;
+    const float previous_error_length = length(latest_.error_px);
+    const float current_error_length = length(plan.error_px);
+    const float radial_error_dot = latest_.error_px.x * plan.error_px.x +
+        latest_.error_px.y * plan.error_px.y;
+    // A sign flip on one noisy axis is not a center crossing. Require a
+    // meaningful radial reversal with both samples away from the deadzone.
+    const bool center_cross = previous_target_same && candidate != nullptr &&
+        accepted_fresh_capture && previous_error_length >= 6.0f &&
+        current_error_length >= 2.0f && radial_error_dot < -std::max(
+            4.0f, previous_error_length * current_error_length * 0.25f);
+    const bool moving_away = candidate != nullptr && accepted_fresh_capture &&
+        ads_target_admitted_ &&
+        plan.acquisition_elapsed_ms >=
+            std::max(0.0f, config_.ads_nominal_acquisition_ms) &&
+        plan.radial_closing_velocity_px_per_sec < -40.0f;
+    if (center_cross) ads_center_cross_seen_ = true;
+    if (moving_away) ads_moving_away_seen_ = true;
+
+    const bool settled = settled_frames_ >= config_.settle_frames;
+    const bool manual_escape = feedback.fusion_manual_escape;
+    const bool fresh_eligible = candidate != nullptr && accepted_fresh_capture &&
+        reliability > 0.0f &&
+        (lifecycle == pipeline_contract::TargetLifecycle::Observed ||
+         lifecycle == pipeline_contract::TargetLifecycle::Reacquiring);
+    const bool acquisition_ceiling_elapsed = ads_target_admitted_ &&
+        config_.ads_max_acquisition_ms > 0.0f &&
+        plan.acquisition_elapsed_ms >= config_.ads_max_acquisition_ms;
+    const bool nominal_elapsed = ads_target_admitted_ &&
+        plan.acquisition_elapsed_ms >=
+            std::max(0.0f, config_.ads_nominal_acquisition_ms);
+    const bool continued_force_helpful = fresh_eligible &&
+        !settled &&
+        !ads_center_cross_seen_ &&
+        !ads_target_switch_seen_ && !manual_escape &&
+        coasting_actuation_scale > 0.0f;
+
     if (!intent.ads) {
         control_mode_ = pipeline_contract::ControlMode::Manual;
-        ads_epoch_active_ = false;
-        ads_snap_consumed_ = false;
-    } else if (control_mode_ == pipeline_contract::ControlMode::BodyLockFollow) {
-        ads_snap_consumed_ = true;
-    } else if (ads_snap_consumed_ || acquisition_ceiling_elapsed ||
-               settled_frames_ >= config_.settle_frames) {
+    } else if (ads_snap_consumed_) {
+        ads_acquisition_state_ = pipeline_contract::AdsAcquisitionState::Consumed;
         control_mode_ = pipeline_contract::ControlMode::BodyLockFollow;
-        ads_snap_consumed_ = true;
+    } else if (ads_target_admitted_) {
+        if (manual_escape &&
+            (ads_acquisition_state_ ==
+                 pipeline_contract::AdsAcquisitionState::AcquiringNominal ||
+             ads_acquisition_state_ ==
+                 pipeline_contract::AdsAcquisitionState::AcquiringExtended)) {
+            // VectorIntentFuser is the sole manual escape classifier. A
+            // deliberate, non-cooperative escape is an immediate ownership
+            // decision and must not wait for the nominal boundary.
+            ads_acquisition_state_ = pipeline_contract::AdsAcquisitionState::Completed;
+            ads_decision_reason_ = pipeline_contract::AdsDecisionReason::ManualEscape;
+            acquisition_completed_seconds_ = now_seconds;
+            ads_acquisition_complete_ns_ = seconds_to_ns(now_seconds);
+            ads_snap_consumed_ = true;
+            control_mode_ = pipeline_contract::ControlMode::BodyLockFollow;
+        } else if (settled) {
+            ads_acquisition_state_ = pipeline_contract::AdsAcquisitionState::Completed;
+            ads_decision_reason_ = pipeline_contract::AdsDecisionReason::Settled;
+            acquisition_completed_seconds_ = now_seconds;
+            ads_acquisition_complete_ns_ = seconds_to_ns(now_seconds);
+            ads_snap_consumed_ = true;
+            control_mode_ = pipeline_contract::ControlMode::BodyLockFollow;
+        } else if (acquisition_ceiling_elapsed) {
+            ads_acquisition_state_ = pipeline_contract::AdsAcquisitionState::Completed;
+            ads_decision_reason_ = pipeline_contract::AdsDecisionReason::AcquisitionCeiling;
+            acquisition_completed_seconds_ = now_seconds;
+            ads_acquisition_complete_ns_ = seconds_to_ns(now_seconds);
+            ads_snap_consumed_ = true;
+            control_mode_ = pipeline_contract::ControlMode::BodyLockFollow;
+        } else if (nominal_elapsed &&
+                   ads_acquisition_state_ ==
+                       pipeline_contract::AdsAcquisitionState::AcquiringNominal) {
+            if (!accepted_fresh_capture) {
+                // The controller commonly crosses 135ms while replaying the
+                // latest Vision result. A replay is not evidence of any of
+                // the fresh-source early-exit conditions. Keep the nominal
+                // acquisition pending until a fresh authoritative frame
+                // decides whether to extend or complete.
+                ads_acquisition_state_ =
+                    pipeline_contract::AdsAcquisitionState::AcquiringNominal;
+                control_mode_ = pipeline_contract::ControlMode::AdsAcquire;
+            } else if (continued_force_helpful) {
+                ads_acquisition_state_ =
+                    pipeline_contract::AdsAcquisitionState::AcquiringExtended;
+                ads_decision_reason_ = pipeline_contract::AdsDecisionReason::None;
+                control_mode_ = pipeline_contract::ControlMode::AdsAcquire;
+            } else {
+                ads_acquisition_state_ = pipeline_contract::AdsAcquisitionState::Completed;
+                ads_decision_reason_ = center_cross || ads_center_cross_seen_
+                    ? pipeline_contract::AdsDecisionReason::CenterCross
+                    : manual_escape
+                                ? pipeline_contract::AdsDecisionReason::ManualEscape
+                            : ads_target_switch_seen_
+                                ? pipeline_contract::AdsDecisionReason::TargetSwitch
+                            : !fresh_eligible
+                            ? pipeline_contract::AdsDecisionReason::TargetLost
+                            : pipeline_contract::AdsDecisionReason::NonHelpfulOutput;
+                acquisition_completed_seconds_ = now_seconds;
+                ads_acquisition_complete_ns_ = seconds_to_ns(now_seconds);
+                ads_snap_consumed_ = true;
+                control_mode_ = pipeline_contract::ControlMode::BodyLockFollow;
+            }
+        } else if (ads_acquisition_state_ ==
+                   pipeline_contract::AdsAcquisitionState::AcquiringExtended) {
+            // A controller replay tick has no new source decision. Preserve
+            // Extended until a fresh frame proves target loss, settle,
+            // manual escape, confirmed center crossing, or identity switch;
+            // never oscillate through Nominal merely because Vision did not
+            // publish this tick. The moving-away sample is diagnostic only.
+            if (accepted_fresh_capture && !continued_force_helpful) {
+                ads_acquisition_state_ = pipeline_contract::AdsAcquisitionState::Completed;
+                ads_decision_reason_ = manual_escape
+                    ? pipeline_contract::AdsDecisionReason::ManualEscape
+                    : center_cross || ads_center_cross_seen_
+                    ? pipeline_contract::AdsDecisionReason::CenterCross
+                    : ads_target_switch_seen_
+                            ? pipeline_contract::AdsDecisionReason::TargetSwitch
+                        : !fresh_eligible
+                            ? pipeline_contract::AdsDecisionReason::TargetLost
+                            : pipeline_contract::AdsDecisionReason::NonHelpfulOutput;
+                acquisition_completed_seconds_ = now_seconds;
+                ads_acquisition_complete_ns_ = seconds_to_ns(now_seconds);
+                ads_snap_consumed_ = true;
+                control_mode_ = pipeline_contract::ControlMode::BodyLockFollow;
+            } else {
+                ads_acquisition_state_ =
+                    pipeline_contract::AdsAcquisitionState::AcquiringExtended;
+                control_mode_ = pipeline_contract::ControlMode::AdsAcquire;
+            }
+        } else {
+            ads_acquisition_state_ =
+                pipeline_contract::AdsAcquisitionState::AcquiringNominal;
+            control_mode_ = pipeline_contract::ControlMode::AdsAcquire;
+        }
+    } else if (intent.ads) {
+        ads_acquisition_state_ =
+            pipeline_contract::AdsAcquisitionState::ArmedWaitingForTarget;
+        control_mode_ = pipeline_contract::ControlMode::Manual;
     } else {
-        control_mode_ = pipeline_contract::ControlMode::AdsAcquire;
+        control_mode_ = pipeline_contract::ControlMode::Manual;
+    }
+    if (ads_acquisition_state_ ==
+        pipeline_contract::AdsAcquisitionState::Completed) {
+        acquisition_terminal_reason_ = ads_decision_reason_;
     }
     plan.mode = control_mode_;
+    plan.ads_acquisition_state = ads_acquisition_state_;
+    plan.source_decision_available = source_decision_available_;
+    plan.source_decision_outcome = source_decision_outcome_;
+    plan.source_decision_reason = source_decision_reason_;
+    plan.acquisition_terminal_reason = acquisition_terminal_reason_;
+    plan.ads_decision_reason = ads_decision_reason_;
+    plan.ads_acquisition_complete_ns = ads_acquisition_complete_ns_;
     if (plan.mode == pipeline_contract::ControlMode::BodyLockFollow) {
         // ADS may carry a Remaining estimate into the handoff tick. BodyLock
         // must start from the tracker's current state instead of inheriting a
@@ -813,7 +1369,9 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         plan.remaining_work_confidence = 0.0f;
         plan.remaining_work_valid = false;
     }
-    plan.ads_demand = std::clamp(error_length / 130.0f, 0.0f, 1.0f);
+    plan.ads_demand = std::clamp(
+        error_length / std::max(1.0f, config_.ads_activation_radius_px),
+        0.0f, 1.0f);
     plan.bodylock_demand = std::clamp(
         std::max(
             error_length / 40.0f,
@@ -834,6 +1392,12 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     const bool bodylock_outside_activation_range =
         plan.mode == pipeline_contract::ControlMode::BodyLockFollow &&
         error_length > bodylock_continuation_radius;
+    if (bodylock_outside_activation_range &&
+        plan.ads_decision_reason == pipeline_contract::AdsDecisionReason::None) {
+        plan.ads_decision_reason =
+            pipeline_contract::AdsDecisionReason::BodylockOutsideContinuation;
+        ads_decision_reason_ = plan.ads_decision_reason;
+    }
     plan.aim_authority =
         plan.mode == pipeline_contract::ControlMode::Manual ||
             bodylock_outside_activation_range
@@ -890,9 +1454,27 @@ bool TargetCoordinator::observe_control_response(const ControlResponseSample& sa
 void TargetCoordinator::begin_ads_epoch(
     std::uint64_t epoch, double now_seconds) noexcept {
     response_estimator_.begin_ads_epoch(epoch);
+    physical_ads_epoch_ = epoch;
     ads_epoch_started_seconds_ = now_seconds;
     ads_epoch_active_ = true;
     ads_snap_consumed_ = false;
+    ads_target_admitted_ = false;
+    target_acquisition_id_ = 0;
+    acquisition_started_seconds_ = 0.0;
+    acquisition_completed_seconds_ = 0.0;
+    ads_acquisition_begin_ns_ = 0;
+    ads_acquisition_complete_ns_ = 0;
+    ads_center_cross_seen_ = false;
+    ads_moving_away_seen_ = false;
+    ads_target_switch_seen_ = false;
+    source_decision_available_ = false;
+    source_decision_outcome_ =
+        pipeline_contract::SourceDecisionOutcome::NoDecision;
+    source_decision_reason_ = pipeline_contract::AdsDecisionReason::None;
+    acquisition_terminal_reason_ = pipeline_contract::AdsDecisionReason::None;
+    ads_acquisition_state_ =
+        pipeline_contract::AdsAcquisitionState::ArmedWaitingForTarget;
+    ads_decision_reason_ = pipeline_contract::AdsDecisionReason::None;
     control_mode_ = pipeline_contract::ControlMode::AdsAcquire;
     delivered_camera_work_since_capture_px_ = {};
     remaining_work_confidence_ = 0.0f;
@@ -912,11 +1494,14 @@ void TargetCoordinator::reset() noexcept {
     target_id_ = 0;
     generation_ = 0;
     source_frame_id_ = 0;
+    last_processed_frame_id_ = 0;
     last_observed_seconds_ = 0.0;
     last_observation_capture_seconds_ = 0.0;
+    last_processed_capture_seconds_ = 0.0;
     last_unique_observation_seconds_ = 0.0;
     last_update_seconds_ = 0.0;
     acquisition_started_seconds_ = 0.0;
+    acquisition_completed_seconds_ = 0.0;
     ads_epoch_started_seconds_ = 0.0;
     last_observed_reliability_ = 0.0f;
     last_observed_normalized_size_ = 0.0f;
@@ -924,12 +1509,31 @@ void TargetCoordinator::reset() noexcept {
     observed_frames_ = 0;
     has_target_ = false;
     has_observation_capture_time_ = false;
+    has_processed_capture_ = false;
+    has_processed_capture_time_ = false;
     has_unique_observation_time_ = false;
     fire_requested_ = false;
     observed_fire_eligible_ = false;
     was_missing_ = false;
     ads_epoch_active_ = false;
     ads_snap_consumed_ = false;
+    ads_target_admitted_ = false;
+    physical_ads_epoch_ = 0;
+    target_acquisition_id_ = 0;
+    next_target_acquisition_id_ = 1;
+    ads_acquisition_state_ = pipeline_contract::AdsAcquisitionState::Idle;
+    ads_decision_reason_ = pipeline_contract::AdsDecisionReason::None;
+    ads_acquisition_begin_ns_ = 0;
+    ads_acquisition_complete_ns_ = 0;
+    ads_center_cross_seen_ = false;
+    ads_moving_away_seen_ = false;
+    ads_target_switch_seen_ = false;
+    selector_target_generation_ = 0;
+    source_decision_available_ = false;
+    source_decision_outcome_ =
+        pipeline_contract::SourceDecisionOutcome::NoDecision;
+    source_decision_reason_ = pipeline_contract::AdsDecisionReason::None;
+    acquisition_terminal_reason_ = pipeline_contract::AdsDecisionReason::None;
     control_mode_ = pipeline_contract::ControlMode::Manual;
     active_player_motion_event_ = PlayerMotionEvent::None;
     previous_player_motion_offset_y_px_ = 0.0f;
@@ -941,6 +1545,8 @@ void TargetCoordinator::reset() noexcept {
     delivered_camera_work_since_capture_px_ = {};
     remaining_work_confidence_ = 0.0f;
     remaining_work_valid_ = false;
+    frame_width_px_ = 480.0f;
+    frame_height_px_ = 416.0f;
 }
 
 }  // namespace controller_native

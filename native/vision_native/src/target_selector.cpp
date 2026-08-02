@@ -725,6 +725,8 @@ VisionTargetSelector::VisionTargetSelector(int frame_width, int frame_height)
 void VisionTargetSelector::reset() {
     clear_tracking_state();
     clear_auto_fire_state();
+    selector_target_generation_ = 0;
+    selector_target_changed_ = false;
 }
 
 void VisionTargetSelector::clear_tracking_state() {
@@ -839,6 +841,8 @@ std::optional<VisionTargetSelector::FrameRegion> VisionTargetSelector::required_
 VisionResult VisionTargetSelector::empty_result(float boxes_seen) const {
     VisionResult result;
     result.selector_identity_protocol = true;
+    result.selector_target_generation = selector_target_generation_;
+    result.selector_target_changed = selector_target_changed_;
     result.screen_center_x = screen_center_x_;
     result.screen_center_y = screen_center_y_;
     result.target_x = screen_center_x_;
@@ -1635,6 +1639,15 @@ std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::commit_ta
         clear_switch_pending();
     }
 
+    const bool is_replacement = active_target_.has_value() &&
+        !targets_match(*active_target_, *committed);
+    if (!active_target_.has_value() || is_replacement) {
+        ++selector_target_generation_;
+        selector_target_changed_ = true;
+    } else {
+        selector_target_changed_ = false;
+    }
+
     TargetState stored_target = *committed;
     stored_target.intent_applied = false;
     stored_target.intent_decision = "none";
@@ -2045,6 +2058,13 @@ VisionResult VisionTargetSelector::select_with_frame(
     const ColorFrameView& frame) {
     DetectionBatch annotated = annotate_colors(batch, frame);
     VisionResult result = select_impl(annotated, &frame, nullptr);
+    if (result.selector_target_changed) {
+        // A selector-confirmed generation change is the identity boundary for
+        // the appearance anchor.  Do not correlate the replacement against the
+        // previous person's patch; ordinary reconstruction and frame-local
+        // source-id churn keep the existing template.
+        reset_motion_anchor();
+    }
     if (result.has_selected_detection &&
         result.selected_detection_index < annotated.detections.size()) {
         update_selected_motion_anchor(
@@ -2063,6 +2083,11 @@ VisionResult VisionTargetSelector::select_with_frame(
     const pipeline_contract::UserAimIntent& intent) {
     DetectionBatch annotated = annotate_colors(batch, frame);
     VisionResult result = select_impl(annotated, &frame, &intent);
+    if (result.selector_target_changed) {
+        // See the frame-only overload: only a confirmed selector generation
+        // change may retire the prior person's appearance anchor.
+        reset_motion_anchor();
+    }
     if (result.has_selected_detection &&
         result.selected_detection_index < annotated.detections.size()) {
         update_selected_motion_anchor(
@@ -2083,6 +2108,7 @@ VisionResult VisionTargetSelector::select_impl(
     const DetectionBatch& batch,
     const ColorFrameView* frame,
     const pipeline_contract::UserAimIntent* intent) {
+    selector_target_changed_ = false;
     const float boxes_seen = static_cast<float>(batch.detections.size());
     const auto last_target_center = last_target_center_;
     build_candidates(batch, last_target_center, intent);

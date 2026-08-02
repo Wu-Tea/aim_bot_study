@@ -79,6 +79,7 @@ add_library(vision_native_core STATIC
     src/build_family.cpp
     src/color_readback.cpp
     src/dxgi_capture.cpp
+    src/ego_motion_observer.cpp
     src/engine_io.cpp
     src/preprocess.cu
     src/resize_contract.cpp
@@ -169,6 +170,14 @@ add_executable(cod_native_target_selector_tests
     src/target_selector_tests.cpp
 )
 
+add_executable(cod_native_ego_motion_observer_tests
+    src/ego_motion_observer_tests.cpp
+    src/ego_motion_observer.cpp
+)
+target_include_directories(cod_native_ego_motion_observer_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
 target_include_directories(cod_native_target_selector_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/..
@@ -245,7 +254,6 @@ add_executable(cod_native_runtime
     ../controller_native/recoil_compensation.cpp
     ../recoil_native/recoil_compensation.cpp
     ../recoil_native/recoil_visual_model.cpp
-    ../controller_native/weapon_recognizer.cpp
     ../controller_native/output_mixer.cpp
     ../controller_native/controller_pipeline.cpp
     ../runtime_app/vision_controller_adapter.cpp
@@ -310,6 +318,7 @@ endif()
 
 add_executable(cod_native_controller_tests
     ../controller_native/target_pipeline_integration_tests.cpp
+    ../runtime_app/vision_controller_adapter.cpp
     ../tracking_native/tracker_authority.cpp
     ../controller_native/auto_fire_gate.cpp
     ../controller_native/recoil_profile.cpp
@@ -1368,6 +1377,9 @@ target_link_libraries(cod_native_lstick_benchmark_tests PRIVATE
 
 enable_testing()
 add_test(
+    NAME EgoMotionObserverTests
+    COMMAND cod_native_ego_motion_observer_tests)
+add_test(
     NAME VisionResizeContractTests
     COMMAND vision_native_resize_contract_tests)
 add_test(
@@ -1460,6 +1472,9 @@ target_compile_definitions(cod_native_vector_intent_fuser_tests
 add_test(
     NAME NativeVectorIntentFuserTests
     COMMAND cod_native_vector_intent_fuser_tests)
+add_test(
+    NAME NativeTargetCoordinatorTests
+    COMMAND cod_native_target_coordinator_tests)
 add_test(
     NAME NativeCausalMixEvaluatorTests
     COMMAND cod_native_causal_mix_evaluator_tests)

@@ -1,5 +1,6 @@
 #include "vision_native/vision_engine.h"
 #include "vision_native/vision_result_copy.h"
+#include "vision_native/preprocess.h"
 #include "color_readback.h"
 #include "vision_native/build_family.h"
 
@@ -8,6 +9,7 @@
 #include <cuda_runtime_api.h>
 
 #include <chrono>
+#include <algorithm>
 #include <cstdlib>
 #include <optional>
 #include <sstream>
@@ -154,9 +156,22 @@ VisionEngine::VisionEngine(
             cudaGraphicsRegisterFlagsNone),
         "cudaGraphicsD3D11RegisterResource");
     graphics_resource_ = graphics_resource;
+    const cudaError_t ego_alloc_status = cudaMalloc(
+        reinterpret_cast<void**>(&device_ego_gray_), kEgoMotionPixelCount);
+    if (ego_alloc_status == cudaSuccess) {
+        ego_motion_staging_available_ = true;
+    } else {
+        (void)cudaGetLastError();
+        device_ego_gray_ = nullptr;
+    }
 }
 
 VisionEngine::~VisionEngine() {
+    ego_motion_observer_.reset();
+    if (device_ego_gray_ != nullptr) {
+        (void)cudaFree(device_ego_gray_);
+        device_ego_gray_ = nullptr;
+    }
     if (graphics_resource_ != nullptr) {
         cudaGraphicsUnregisterResource(static_cast<cudaGraphicsResource_t>(graphics_resource_));
         graphics_resource_ = nullptr;
@@ -168,6 +183,7 @@ void VisionEngine::set_aiming(bool aiming) {
     if (!aiming) {
         selector_.reset();
         enhancer_.reset();
+        ego_motion_observer_.reset();
         user_aim_intent_ = pipeline_contract::UserAimIntent{};
         external_cue_found_ = false;
         external_cue_x_ = 0.0f;
@@ -220,6 +236,7 @@ void VisionEngine::reset() {
     aiming_.store(false, std::memory_order_relaxed);
     selector_.reset();
     enhancer_.reset();
+    ego_motion_observer_.reset();
     user_aim_intent_ = pipeline_contract::UserAimIntent{};
     external_cue_found_ = false;
     external_cue_x_ = 0.0f;
@@ -280,12 +297,23 @@ VisionResult VisionEngine::poll_once() {
 
     const DxgiCaptureMetadata metadata = capture_.grab();
     result.frame_id = metadata.frame.frame_id;
+    result.capture_acquire_begin_ns = metadata.capture_acquire_begin_ns;
+    result.capture_acquire_complete_ns = metadata.capture_acquire_complete_ns;
+    result.capture_copy_complete_ns = metadata.capture_copy_complete_ns;
+    result.source_present_qpc = metadata.source_present_qpc;
+    result.source_present_qpc_frequency = metadata.source_present_qpc_frequency;
+    result.source_present_available = metadata.source_present_available;
+    result.accumulated_frames = metadata.accumulated_frames;
     result.captured_at_ns = metadata.frame.captured_at_ns;
     result.wait_ms = metadata.acquire_ms + metadata.copy_ms;
     result.capture_acquire_ms = metadata.acquire_ms;
     result.capture_copy_ms = metadata.copy_ms;
     result.target_x = result.screen_center_x;
     result.target_y = result.screen_center_y;
+    EgoMotionShadowResult completed_shadow;
+    if (ego_motion_observer_.take_latest_result(&completed_shadow)) {
+        result.ego_motion_shadow = completed_shadow;
+    }
 
     if (!metadata.updated || metadata.frame.data == nullptr) {
         result.result_at_ns = now_ns();
@@ -335,11 +363,83 @@ VisionResult VisionEngine::poll_once() {
         batch.frame_width = width_;
         batch.frame_height = height_;
         batch.frame_id = metadata.frame.frame_id;
+        batch.capture_acquire_begin_ns = metadata.capture_acquire_begin_ns;
+        batch.capture_acquire_complete_ns = metadata.capture_acquire_complete_ns;
+        batch.capture_copy_complete_ns = metadata.capture_copy_complete_ns;
+        batch.source_present_qpc = metadata.source_present_qpc;
+        batch.source_present_qpc_frequency = metadata.source_present_qpc_frequency;
+        batch.source_present_available = metadata.source_present_available;
+        batch.accumulated_frames = metadata.accumulated_frames;
         batch.captured_at_ns = metadata.frame.captured_at_ns;
         batch.has_external_cue = external_cue_found_;
         batch.external_cue_x = external_cue_x_;
         batch.external_cue_y = external_cue_y_;
         batch.external_cue_score = external_cue_score_;
+
+        // Stage only a small grayscale image while the D3D resource is
+        // mapped. This is shadow input; no controller/tracker code consumes
+        // it and a staging failure simply disables this frame's shadow pair.
+        if (ego_motion_staging_available_ && device_ego_gray_ != nullptr) {
+            const auto ego_stage_start = now_ns();
+            const cudaTextureObject_t ego_texture = launch_bgra_array_to_gray_u8(
+                frame_array,
+                width_,
+                height_,
+                kEgoMotionFrameWidth,
+                kEgoMotionFrameHeight,
+                device_ego_gray_,
+                engine_->cuda_stream());
+            cudaError_t ego_status = ego_texture != 0
+                ? cudaGetLastError() : cudaErrorUnknown;
+            if (ego_status == cudaSuccess) {
+                ego_status = cudaMemcpyAsync(
+                    host_ego_gray_.data(),
+                    device_ego_gray_,
+                    host_ego_gray_.size(),
+                    cudaMemcpyDeviceToHost,
+                    engine_->cuda_stream());
+            }
+            if (ego_status == cudaSuccess) {
+                ego_status = cudaStreamSynchronize(engine_->cuda_stream());
+            }
+            if (ego_texture != 0) {
+                (void)cudaDestroyTextureObject(ego_texture);
+            }
+            if (ego_status == cudaSuccess) {
+                result.ego_motion_stage_ms = ns_to_ms(now_ns() - ego_stage_start);
+                std::array<EgoMotionMaskRect, kEgoMotionMaxMaskRects> masks{};
+                std::size_t mask_count = 0;
+                for (const Detection& detection : batch.detections) {
+                    if (mask_count >= masks.size()) break;
+                    const float sx = static_cast<float>(kEgoMotionFrameWidth) /
+                        static_cast<float>(width_);
+                    const float sy = static_cast<float>(kEgoMotionFrameHeight) /
+                        static_cast<float>(height_);
+                    masks[mask_count++] = EgoMotionMaskRect{
+                        std::max(0, static_cast<int>(detection.x1 * sx) - 4),
+                        std::max(0, static_cast<int>(detection.y1 * sy) - 4),
+                        std::min(kEgoMotionFrameWidth,
+                            static_cast<int>(detection.x2 * sx) + 5),
+                        std::min(kEgoMotionFrameHeight,
+                            static_cast<int>(detection.y2 * sy) + 5)};
+                }
+                const EgoMotionFrameView ego_frame{
+                    metadata.frame.frame_id,
+                    metadata.source_present_qpc,
+                    metadata.source_present_qpc_frequency,
+                    metadata.frame.captured_at_ns,
+                    now_ns(),
+                    kEgoMotionFrameWidth,
+                    kEgoMotionFrameHeight,
+                    kEgoMotionFrameWidth,
+                    host_ego_gray_.data(),
+                    masks.data(),
+                    mask_count};
+                (void)ego_motion_observer_.submit_frame(ego_frame);
+            } else {
+                (void)cudaGetLastError();
+            }
+        }
 
         const auto color_region = selector_.required_color_region(batch);
         bool has_color_frame = false;
@@ -400,6 +500,13 @@ VisionResult VisionEngine::poll_once() {
 
         const uint64_t post_start = now_ns();
         result.frame_id = batch.frame_id;
+        result.capture_acquire_begin_ns = batch.capture_acquire_begin_ns;
+        result.capture_acquire_complete_ns = batch.capture_acquire_complete_ns;
+        result.capture_copy_complete_ns = batch.capture_copy_complete_ns;
+        result.source_present_qpc = batch.source_present_qpc;
+        result.source_present_qpc_frequency = batch.source_present_qpc_frequency;
+        result.source_present_available = batch.source_present_available;
+        result.accumulated_frames = batch.accumulated_frames;
         result.captured_at_ns = batch.captured_at_ns;
         result.inferred_at_ns = batch.inferred_at_ns;
         result.has_external_cue = batch.has_external_cue;
@@ -484,6 +591,9 @@ VisionResult VisionEngine::poll_once() {
         }
 
         result.result_at_ns = now_ns();
+        if (ego_motion_observer_.take_latest_result(&completed_shadow)) {
+            result.ego_motion_shadow = completed_shadow;
+        }
         result.post_ms = batch.decode_ms + ns_to_ms(result.result_at_ns - post_start);
         if (result.captured_at_ns != 0) {
             result.age_ms = ns_to_ms(result.result_at_ns - result.captured_at_ns);

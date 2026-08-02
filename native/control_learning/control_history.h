@@ -188,7 +188,30 @@ public:
 
         const std::size_t first = lower_bound_index(begin_ns);
         const std::size_t last = floor_index_strict(end_ns);
-        if (first >= size_ || last >= size_ || last < first) return result;
+        if (first >= size_ || last >= size_ || last < first) {
+            // A short interval may contain no sample boundary at all (for
+            // example, [151.5 ms,154 ms] between 150 ms and 160 ms ticks).
+            // The cumulative area above is still exact because the held
+            // output is piecewise constant.  Accept only an interval fully
+            // covered by the retained history and inherit the one held
+            // sample's invalidation flags; never extrapolate past newest().
+            if (begin_ns < oldest().applied_at_ns ||
+                end_ns > newest().applied_at_ns) return result;
+            const Entry& held = entry(floor_index(begin_ns));
+            result.first_seq = held.sample.sample_seq;
+            result.last_seq = held.sample.sample_seq;
+            result.expected = 1;
+            result.written = 1;
+            result.failed_delivery = !held.sample.output_delivered;
+            result.output_disabled = held.sample.output_disabled;
+            result.firing = held.sample.firing;
+            result.recoil_active = held.sample.recoil_active;
+            result.saturated = held.sample.saturated;
+            result.complete = held.sample.output_delivered &&
+                !result.output_disabled && !result.firing &&
+                !result.recoil_active && !result.saturated;
+            return result;
+        }
 
         const Entry& first_entry = entry(first);
         const Entry& last_entry = entry(last);

@@ -53,6 +53,58 @@ struct NativeControllerStageTrace {
     bool after_auto_fire_active = false;
 };
 
+// Fixed-size controller-side aggregate for one accepted source frame.  It is
+// copied into telemetry only when telemetry is enabled; the control path does
+// not perform serialization or file I/O here.
+struct NativeControllerAcquisitionTrace {
+    bool valid = false;
+    std::uint64_t source_frame_id = 0;
+    std::uint64_t source_observation_id = 0;
+    std::uint64_t persistent_target_id = 0;
+    std::uint64_t physical_ads_epoch = 0;
+    std::uint64_t target_acquisition_id = 0;
+    bool plan_admitted = false;
+    bool acquisition_active = false;
+    bool acquisition_exists = false;
+    std::uint64_t controller_tick_ns = 0;
+    std::uint64_t plan_decision_ns = 0;
+    std::uint64_t final_output_ready_ns = 0;
+    pipeline_contract::AdsAcquisitionState acquisition_state =
+        pipeline_contract::AdsAcquisitionState::Idle;
+    bool source_decision_available = false;
+    pipeline_contract::SourceDecisionOutcome source_decision_outcome =
+        pipeline_contract::SourceDecisionOutcome::NoDecision;
+    pipeline_contract::AdsDecisionReason source_decision_reason =
+        pipeline_contract::AdsDecisionReason::None;
+    pipeline_contract::AdsDecisionReason acquisition_terminal_reason =
+        pipeline_contract::AdsDecisionReason::None;
+    pipeline_contract::AdsDecisionReason decision_reason =
+        pipeline_contract::AdsDecisionReason::None;
+    std::uint32_t candidate_count = 0;
+    std::uint64_t preferred_source_id = 0;
+    std::uint64_t selected_source_id = 0;
+    float effective_activation_radius_px = 0.0f;
+    pipeline_contract::Vec2f raw_error_px{};
+    pipeline_contract::Vec2f target_size_px{};
+    std::uint64_t ads_acquisition_begin_ns = 0;
+    std::uint64_t ads_acquisition_complete_ns = 0;
+    std::uint64_t selector_target_generation = 0;
+    bool selector_target_changed = false;
+    pipeline_contract::Vec2f requested_ai{};
+    pipeline_contract::Vec2f shaped_ai{};
+    pipeline_contract::Vec2f fused_output{};
+    pipeline_contract::Vec2f post_output{};
+    bool has_first_requested_ai = false;
+    bool has_first_shaped_ai = false;
+    bool has_first_fused_output = false;
+    std::uint64_t first_requested_ai_ns = 0;
+    std::uint64_t first_shaped_ai_ns = 0;
+    std::uint64_t first_fused_output_ns = 0;
+    pipeline_contract::Vec2f first_requested_ai{};
+    pipeline_contract::Vec2f first_shaped_ai{};
+    pipeline_contract::Vec2f first_fused_output{};
+};
+
 class NativeGamepadController {
 public:
     explicit NativeGamepadController(
@@ -69,6 +121,7 @@ public:
         double delivered_at_seconds) noexcept;
     NativeAutoFireCounters auto_fire_counters() const;
     const std::vector<NativeControllerStageTrace>& last_pipeline_traces() const;
+    const NativeControllerAcquisitionTrace& last_acquisition_trace() const noexcept;
     GamepadOutputState last_tracker_motion_output() const;
     const NativeControllerOutputComponents& last_output_components() const;
     const NativeControllerVisionState& last_frame_vision_state() const;
@@ -158,6 +211,8 @@ private:
     double last_aim_response_observed_seconds_ = 0.0;
     bool aim_response_manual_ambiguous_ = false;
     std::vector<NativeControllerStageTrace> last_pipeline_traces_;
+    NativeControllerAcquisitionTrace last_acquisition_trace_{};
+    std::uint64_t acquisition_trace_target_id_ = 0;
     GamepadOutputState last_tracker_motion_output_{};
     NativeControllerOutputComponents last_output_components_{};
     NativeControllerVisionState last_frame_vision_state_{};
@@ -166,6 +221,7 @@ private:
     std::uint64_t remaining_work_delivery_target_id_ = 0;
     std::uint64_t remaining_work_delivery_ads_epoch_ = 0;
     bool remaining_work_reset_pending_ = false;
+    bool previous_fusion_manual_escape_ = false;
     std::string last_ai_aim_mode_ = "manual";
     std::function<double()> clock_;
 #if defined(COD_BENCHMARK_MIX_OVERRIDE)

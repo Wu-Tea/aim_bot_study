@@ -21,7 +21,7 @@ constexpr std::uint32_t kSdlInitGameController = 0x00002000u;
 constexpr std::uint32_t kSdlInitEvents = 0x00004000u;
 constexpr std::uint32_t kSdlInitFlags =
     kSdlInitJoystick | kSdlInitGameController | kSdlInitEvents;
-constexpr int kSdlEnable = 1;
+constexpr int kSdlIgnore = 0;
 constexpr int LEFT_TRIGGER_AXIS_INDEX = 4;
 constexpr int RIGHT_TRIGGER_AXIS_INDEX = 5;
 constexpr int kButtonA = 0;
@@ -95,6 +95,7 @@ struct SdlApi {
     using SdlQuitSubSystem = void (*)(std::uint32_t);
     using SdlSetHint = int (*)(const char*, const char*);
     using SdlJoystickEventState = int (*)(int);
+    using SdlPumpEvents = void (*)();
     using SdlNumJoysticks = int (*)();
     using SdlJoystickNameForIndex = const char* (*)(int);
     using SdlJoystickOpen = void* (*)(int);
@@ -113,6 +114,7 @@ struct SdlApi {
     SdlQuitSubSystem quit_subsystem = nullptr;
     SdlSetHint set_hint = nullptr;
     SdlJoystickEventState joystick_event_state = nullptr;
+    SdlPumpEvents pump_events = nullptr;
     SdlNumJoysticks num_joysticks = nullptr;
     SdlJoystickNameForIndex joystick_name_for_index = nullptr;
     SdlJoystickOpen joystick_open = nullptr;
@@ -147,6 +149,7 @@ struct SdlApi {
         ok = load_proc(library, "SDL_Init", init) && ok;
         ok = load_proc(library, "SDL_QuitSubSystem", quit_subsystem) && ok;
         ok = load_proc(library, "SDL_JoystickEventState", joystick_event_state) && ok;
+        ok = load_proc(library, "SDL_PumpEvents", pump_events) && ok;
         ok = load_proc(library, "SDL_NumJoysticks", num_joysticks) && ok;
         ok = load_proc(library, "SDL_JoystickNameForIndex", joystick_name_for_index) && ok;
         ok = load_proc(library, "SDL_JoystickOpen", joystick_open) && ok;
@@ -173,6 +176,11 @@ void apply_sdl_joystick_hints(SdlApi& api) {
         return;
     }
     api.set_hint("SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", "1");
+    // RuntimeLoop owns a fixed-rate input poll and never consumes SDL_Event.
+    // Disable SDL's implicit event-driven joystick updates so there is one
+    // state-update owner instead of an unconsumed event queue plus manual
+    // SDL_JoystickUpdate calls.
+    api.set_hint("SDL_AUTO_UPDATE_JOYSTICKS", "0");
     api.set_hint("SDL_JOYSTICK_HIDAPI", "1");
     api.set_hint("SDL_JOYSTICK_HIDAPI_PS4", "1");
     api.set_hint("SDL_JOYSTICK_HIDAPI_PS5", "1");
@@ -206,7 +214,7 @@ struct SdlGamepadReader::Backend {
             return false;
         }
         initialized = true;
-        api.joystick_event_state(kSdlEnable);
+        api.joystick_event_state(kSdlIgnore);
         return true;
     }
 
@@ -303,6 +311,10 @@ bool SdlGamepadReader::reconnect() {
     if (backend_ == nullptr) {
         return false;
     }
+    // This runtime does not poll SDL_Event. SDL requires an explicit event
+    // pump in that case so HID-backed devices can publish their latest axis
+    // state before SDL_JoystickUpdate/GetAxis reads it.
+    backend_->api.pump_events();
     backend_->api.joystick_update();
     backend_->close();
     std::vector<SdlJoystickDevice> devices;
@@ -345,6 +357,11 @@ PhysicalGamepadState SdlGamepadReader::read() {
         return state;
     }
 
+    // Keep this on the runtime thread that initialized SDL. Calling only
+    // SDL_JoystickUpdate is insufficient for some HIDAPI controllers when no
+    // SDL event loop is running: their stick axes can otherwise remain at the
+    // report captured when the device was opened.
+    backend_->api.pump_events();
     backend_->api.joystick_update();
     if (!backend_->attached()) {
         return state;

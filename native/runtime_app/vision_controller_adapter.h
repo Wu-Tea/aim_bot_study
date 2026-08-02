@@ -15,6 +15,7 @@ adapt_committed_capture_observation(
     const vision_native::VisionResult& result,
     const pipeline_contract::TargetPlan& committed_plan,
     float aim_height_ratio,
-    std::uint64_t ads_epoch);
+    std::uint64_t ads_epoch,
+    std::uint64_t controller_consume_ns = 0);
 
 }  // namespace runtime_app

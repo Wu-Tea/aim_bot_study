@@ -71,8 +71,13 @@ pipeline_contract::Vec2f AdsAcquisitionController::compute(
     request.max_force = {
         config_.max_force_x * kVectorForceHeadroom,
         config_.max_force_y * kVectorForceHeadroom};
+    // Start shaping is acquisition-relative.  A target that appears late in
+    // the physical ADS epoch still receives the same nominal window.
+    const float acquisition_elapsed = plan.target_acquisition_id != 0
+        ? plan.acquisition_elapsed_ms
+        : plan.ads_epoch_elapsed_ms;
     request.authority = authority * ads_start_authority(
-        plan.ads_epoch_elapsed_ms,
+        acquisition_elapsed,
         config_.start_delay_ms,
         config_.start_ramp_ms);
     auto output = solve_response_model_aim(request).stick;

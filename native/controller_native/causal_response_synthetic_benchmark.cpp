@@ -118,6 +118,9 @@ CohortResult run_cohort(
         double ai_scale = name == "low_excitation" ? 0.08 : 0.78;
         if (name == "target_identity_switch" && time_ms >= 1800 && time_ms < 1950) ai_scale = 0.35;
         Vec2 ai{observed.x / 125.0 * ai_scale, observed.y / 105.0 * ai_scale};
+        // The synthetic plant supplies one precomputed final proposal.  The
+        // shadow rollout only scales that proposal; it does not reconstruct
+        // manual plus AI forces for each candidate.
         Vec2 final = clamp_stick({manual.x + ai.x, manual.y + ai.y});
         Vec2 left{manual.x * 0.42, manual.y * 0.42};
         bool delivered = !(name == "firing_recoil_saturation_delivery_gap" && step % 97 == 40);
@@ -166,8 +169,11 @@ CohortResult run_cohort(
                 Vec2 projected = error;
                 double cost = 0.0;
                 for (int horizon = 0; horizon < horizon_ms; horizon += config.tick_ms) {
+                    const Vec2 scaled_final{
+                        std::clamp(final.x * scale, -1.0, 1.0),
+                        std::clamp(final.y * scale, -1.0, 1.0)};
                     const Vec2 candidate_response = mul(config.right_response,
-                        clamp_stick({ai.x * scale + manual.x, ai.y * scale + manual.y}));
+                        scaled_final);
                     projected.x += (velocity_now.x - candidate_response.x) * dt;
                     projected.y += (velocity_now.y - candidate_response.y) * dt;
                     cost += magnitude(projected) * config.tick_ms;
@@ -200,8 +206,13 @@ CohortResult run_cohort(
             snapshot.error_px = {error.x, error.y};
             snapshot.predicted_terminal_error_px = {error.x, error.y};
             snapshot.target_velocity_px_per_sec = {velocity.x, velocity.y};
-            snapshot.shaped_ai = {ai.x, ai.y};
-            snapshot.manual = {manual.x, manual.y};
+            // The synthetic fixture precomputes one candidate output.  The
+            // rollout itself only sees that final proposal and never rebuilds
+            // a manual/AI force combination.
+            const auto final_output = clamp_stick({
+                ai.x + manual.x, ai.y + manual.y});
+            snapshot.final_output = {final_output.x, final_output.y};
+            snapshot.pending_motion_valid = true;
             snapshot.right_response.values = config.right_response.values;
             snapshot.response_confidence = 1.0f;
             snapshot.delay_confidence = 1.0f;

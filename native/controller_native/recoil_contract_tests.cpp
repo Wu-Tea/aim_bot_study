@@ -285,6 +285,38 @@ void test_recoil_fallback_feedback_is_constant_linear_down_pull() {
     }
 }
 
+void test_disabled_profile_playback_forces_default_down_pull() {
+    controller_native::GamepadRecoilConfig config;
+    config.profile_playback_enabled = false;
+    config.feedback_amount = 0.24f;
+
+    controller_native::RecoilProfile profile;
+    profile.profile_id = "must-not-play";
+    profile.sample_interval_ms = 10;
+    profile.samples_x = {0.0f, 20.0f};
+    profile.samples_y = {0.0f, 20.0f};
+
+    controller_native::NativeRecoilCompensation recoil(config);
+    recoil.set_profile(profile);
+    controller_native::NativeRecoilInput input;
+    input.fire_active = true;
+    input.aiming = true;
+    input.now_seconds = 10.0;
+    const auto output = recoil.compute(input);
+
+    require_true(output.recoil_active, "fallback recoil must remain active while firing");
+    require_near(
+        output.right_x_delta,
+        0.0f,
+        0.0001f,
+        "disabled profile playback must never add horizontal recoil");
+    require_near(
+        output.right_y_delta,
+        -0.24f,
+        0.0001f,
+        "disabled profile playback must use only the configured default down-pull");
+}
+
 void test_recoil_timeline_outputs_delta_while_fire_active() {
     controller_native::RecoilProfile profile;
     profile.profile_id = "timeline";
@@ -477,6 +509,7 @@ int main() {
         test_recoil_input_contract_excludes_target_feedback_fields();
         test_recoil_profile_playback_is_deterministic_without_controller_state();
         test_recoil_fallback_feedback_is_constant_linear_down_pull();
+        test_disabled_profile_playback_forces_default_down_pull();
         test_recoil_timeline_outputs_delta_while_fire_active();
         test_recoil_uncalibrated_y_uses_velocity_scaled_sample_delta();
         test_recoil_profile_playback_uses_matching_calibration_when_available();

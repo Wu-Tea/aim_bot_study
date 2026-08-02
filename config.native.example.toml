@@ -17,6 +17,7 @@ keepwarm_when_idle = true
 color_readback_mode = "pageable" # pinned remains opt-in until the A/B gate passes
 model_path = "models/best_480x384.engine"
 gpu_service_enabled = true
+gpu_service_repeat_last_on_no_update = false # continuity belongs to Tracker, not replayed detections
 
 # Historical static alternatives (change all size/path lines together):
 # near:     capture 640x440, tensor 512x352, model models/best_512x352.engine
@@ -53,6 +54,7 @@ validation_mode = "strict"
 [gamepad.tracker]
 backend = "fps_reference"
 projection_age_ms = 96
+max_observation_age_ms = 50 # reject late detector results before they can steer
 max_velocity_px_per_sec = 1200
 lead_seconds = 0.026
 lead_max_px = 18
@@ -78,7 +80,9 @@ strength_scale = 1.54
 vertical_strength_scale = 1.26
 # Error-to-output slope range; this is not an activation radius.
 range_px = 150
-snap_duration_ms = 120
+# Spatial ADS admission radius; independent from snap duration and output range.
+activation_radius_px = 135
+snap_duration_ms = 135
 max_acquisition_ms = 220
 # Optional ADS output onset shaping. Both default to zero; delay suppresses
 # AI output before the boundary, while ramp linearly raises AI authority.
@@ -103,9 +107,10 @@ fresh_vision_wrong_way_manual_floor = 0.35
 # All documented recoil overrides remain available.
 [gamepad.recoil]
 enabled = true
-selection_log_enabled = true
+selection_log_enabled = false
 profile_despike_enabled = true
-native_recognizer_enabled = true
+profile_playback_enabled = false # fixed feedback_amount down-pull only
+native_recognizer_enabled = false # OCR is intentionally absent from runtime hot path
 recognizer_log_enabled = false
 recognizer_game = "cod22"
 profile_directory = "artifacts/recoil_profiles"

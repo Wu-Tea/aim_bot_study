@@ -27,4 +27,15 @@ void launch_bgra_hwc_to_chw_float(
     float* dst_chw,
     cudaStream_t stream);
 
+// Copies only a bounded low-resolution grayscale staging image from a mapped
+// BGRA CUDA array. The caller never performs a full-resolution host readback.
+cudaTextureObject_t launch_bgra_array_to_gray_u8(
+    cudaArray_t source,
+    int src_width,
+    int src_height,
+    int dst_width,
+    int dst_height,
+    std::uint8_t* dst_gray,
+    cudaStream_t stream);
+
 } // namespace vision_native

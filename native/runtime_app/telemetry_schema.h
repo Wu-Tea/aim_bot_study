@@ -6,7 +6,7 @@
 
 namespace runtime_app {
 
-inline constexpr std::uint16_t kTelemetrySchemaVersion = 7;
+inline constexpr std::uint16_t kTelemetrySchemaVersion = 12;
 
 enum class TelemetryRecordKind : std::uint8_t {
     ManualControllerTick,
@@ -25,6 +25,8 @@ enum class TelemetryRecordType : std::uint8_t {
     CommittedCaptureObservation,
     DeliveredControlSample,
     CausalResponseShadow,
+    AdsAcquisitionTrace,
+    EgoMotionShadow,
 };
 
 enum class VisionSampleQuality : std::uint8_t {
@@ -153,8 +155,51 @@ struct ControllerSamplePayload {
     float physical_y = 0.0f;
     float manual_x = 0.0f;
     float manual_y = 0.0f;
+    float filtered_manual_x = 0.0f;
+    float filtered_manual_y = 0.0f;
+    float manual_confidence = 0.0f;
     float ai_x = 0.0f;
     float ai_y = 0.0f;
+    // Validated proposals only; neither field is an output contribution.
+    float fresh_vision_validated_manual_proposal_x = 0.0f;
+    float fresh_vision_validated_manual_proposal_y = 0.0f;
+    float fresh_vision_validated_ai_proposal_x = 0.0f;
+    float fresh_vision_validated_ai_proposal_y = 0.0f;
+    float fresh_vision_manual_radial_scale = 1.0f;
+    bool fresh_vision_wrong_way_policy_applied = false;
+    bool fresh_vision_ai_radial_bound_applied = false;
+    float fresh_vision_ai_radial_scale = 1.0f;
+    bool fresh_vision_predictive_envelope_applied = false;
+    bool fresh_vision_escape_latched = false;
+    float fresh_vision_authoritative_error_x = 0.0f;
+    float fresh_vision_authoritative_error_y = 0.0f;
+    float fresh_vision_predicted_error_x = 0.0f;
+    float fresh_vision_predicted_error_y = 0.0f;
+    float fresh_vision_raw_manual_radial = 0.0f;
+    float fresh_vision_raw_ai_radial = 0.0f;
+    float fresh_vision_strongest_valid_radial = 0.0f;
+    float fresh_vision_stopping_radial = 0.0f;
+    float fresh_vision_permitted_radial = 0.0f;
+    float fresh_vision_pre_slew_radial = 0.0f;
+    float fresh_vision_final_radial = 0.0f;
+    float fresh_vision_horizon_seconds = 0.0f;
+    float fresh_vision_horizon_y_seconds = 0.0f;
+    float fresh_vision_max_force_x = 0.0f;
+    float fresh_vision_max_force_y = 0.0f;
+    float fresh_vision_envelope_target_x = 0.0f;
+    float fresh_vision_envelope_target_y = 0.0f;
+    std::array<char, 48> fresh_vision_envelope_reason{};
+    std::array<char, 48> fresh_vision_envelope_source{};
+    float bodylock_error_rate_x = 0.0f;
+    float bodylock_error_rate_y = 0.0f;
+    float bodylock_position_stick_x = 0.0f;
+    float bodylock_position_stick_y = 0.0f;
+    float bodylock_motion_stick_x = 0.0f;
+    float bodylock_motion_stick_y = 0.0f;
+    float bodylock_effective_motion_stick_x = 0.0f;
+    float bodylock_effective_motion_stick_y = 0.0f;
+    bool bodylock_radial_motion_bound = false;
+    std::array<char, 48> bodylock_constraint_reason{};
     float post_ai_x = 0.0f;
     float post_ai_y = 0.0f;
     float dynamic_adjustment_x = 0.0f;
@@ -235,6 +280,7 @@ struct SessionMetadataPayload {
     std::array<char, 41> build_commit{};
     std::array<char, 65> config_hash{};
     std::array<char, 65> engine_hash{};
+    std::array<char, 65> executable_sha256{};
     std::array<char, 32> tracker_backend{};
     int capture_width = 0;
     int capture_height = 0;
@@ -294,6 +340,7 @@ struct CommittedObservationPayload {
     std::uint64_t viewport_source_frame_id = 0;
     std::uint64_t captured_at_ns = 0;
     std::uint64_t result_at_ns = 0;
+    std::uint64_t controller_consume_ns = 0;
     float stable_error_x = 0.0f, stable_error_y = 0.0f;
     float stable_body_width = 0.0f, stable_body_height = 0.0f;
     float raw_body_x = 0.0f, raw_body_y = 0.0f;
@@ -314,6 +361,96 @@ struct CommittedObservationPayload {
     bool stable_coordinates_valid = false;
     bool has_motion_anchor = false;
     bool reused_or_projected = false;
+};
+
+struct AdsAcquisitionTracePayload {
+    std::uint64_t source_frame_id = 0;
+    std::uint64_t source_observation_id = 0;
+    std::uint64_t persistent_target_id = 0;
+    std::uint64_t physical_ads_epoch = 0;
+    std::uint64_t target_acquisition_id = 0;
+    std::uint64_t controller_tick_id = 0;
+    std::uint64_t capture_acquire_begin_ns = 0;
+    std::uint64_t capture_acquire_complete_ns = 0;
+    std::uint64_t capture_copy_complete_ns = 0;
+    std::uint32_t accumulated_frames = 0;
+    std::uint64_t ads_acquisition_begin_ns = 0;
+    std::uint64_t ads_acquisition_complete_ns = 0;
+    std::uint64_t result_ready_ns = 0;
+    std::uint64_t vision_publish_ns = 0;
+    std::uint64_t controller_submit_complete_ns = 0;
+    std::uint64_t controller_consume_ns = 0;
+    std::uint64_t plan_decision_ns = 0;
+    std::uint64_t final_output_ready_ns = 0;
+    std::uint64_t first_requested_ai_ns = 0;
+    std::uint64_t first_shaped_ai_ns = 0;
+    std::uint64_t first_fused_output_ns = 0;
+    std::uint64_t vigem_submit_complete_ns = 0;
+    std::uint64_t first_effect_observed_ns = 0;
+    std::uint64_t preferred_source_id = 0;
+    std::uint64_t selected_source_id = 0;
+    std::uint32_t candidate_count = 0;
+    std::uint8_t acquisition_state = 0;
+    std::uint8_t decision_reason = 0;
+    bool source_decision_available = false;
+    std::uint8_t source_decision_outcome = 0;
+    std::uint8_t source_decision_reason = 0;
+    std::uint8_t acquisition_terminal_reason = 0;
+    std::uint64_t selector_target_generation = 0;
+    bool selector_target_changed = false;
+    std::uint64_t source_present_qpc = 0;
+    std::uint64_t source_present_qpc_frequency = 0;
+    bool source_present_available = false;
+    bool plan_admitted = false;
+    bool acquisition_active = false;
+    bool acquisition_exists = false;
+    bool vision_publish_available = false;
+    bool has_first_requested_ai = false;
+    bool has_first_shaped_ai = false;
+    bool has_first_fused_output = false;
+    float effective_activation_radius_px = 0.0f;
+    float raw_error_x = 0.0f;
+    float raw_error_y = 0.0f;
+    float target_size_x = 0.0f;
+    float target_size_y = 0.0f;
+    float requested_ai_x = 0.0f;
+    float requested_ai_y = 0.0f;
+    float shaped_ai_x = 0.0f;
+    float shaped_ai_y = 0.0f;
+    float fused_output_x = 0.0f;
+    float fused_output_y = 0.0f;
+    float post_output_x = 0.0f;
+    float post_output_y = 0.0f;
+    float first_requested_ai_x = 0.0f;
+    float first_requested_ai_y = 0.0f;
+    float first_shaped_ai_x = 0.0f;
+    float first_shaped_ai_y = 0.0f;
+    float first_fused_output_x = 0.0f;
+    float first_fused_output_y = 0.0f;
+};
+
+struct EgoMotionShadowPayload {
+    bool available = false;
+    bool valid = false;
+    std::uint8_t invalid_reason = 0;
+    std::uint64_t result_sequence = 0;
+    std::uint64_t previous_frame_id = 0;
+    std::uint64_t current_frame_id = 0;
+    std::uint64_t previous_present_qpc = 0;
+    std::uint64_t current_present_qpc = 0;
+    std::uint64_t present_qpc_frequency = 0;
+    std::uint64_t previous_result_ns = 0;
+    std::uint64_t current_result_ns = 0;
+    float background_dx = 0.0f;
+    float background_dy = 0.0f;
+    float camera_dx = 0.0f;
+    float camera_dy = 0.0f;
+    float confidence = 0.0f;
+    float valid_background_ratio = 0.0f;
+    float residual_px = 0.0f;
+    float compute_ms = 0.0f;
+    std::uint32_t inlier_count = 0;
+    std::uint32_t sample_count = 0;
 };
 
 struct DeliveredControlPayload {
@@ -346,8 +483,12 @@ struct CausalResponseShadowPayload {
     float residual = 0.0f;
     float pending_realized_x = 0.0f;
     float pending_realized_y = 0.0f;
+    float pending_in_flight_x = 0.0f;
+    float pending_in_flight_y = 0.0f;
     float pending_scheduled_x = 0.0f;
     float pending_scheduled_y = 0.0f;
+    float pending_total_x = 0.0f;
+    float pending_total_y = 0.0f;
     float pending_confidence = 0.0f;
     std::uint32_t reason_bits = 0;
     std::uint8_t accepted_delay_count = 0;
@@ -360,7 +501,12 @@ struct CausalResponseShadowPayload {
     float rollout_confidence = 0.0f;
     std::uint8_t rollout_candidate_count = 0;
     bool rollout_valid = false;
-};
+    // The candidate lattice scales this one final pre-recoil aim proposal;
+    // it is not a manual/AI contribution allocation.
+    bool rollout_uses_final_output = false;
+    float rollout_final_output_x = 0.0f;
+    float rollout_final_output_y = 0.0f;
+  };
 
 struct TelemetryRecord {
     std::uint16_t schema_version = kTelemetrySchemaVersion;
@@ -384,6 +530,8 @@ struct TelemetryRecord {
     CommittedObservationPayload committed_observation;
     DeliveredControlPayload delivered_control;
     CausalResponseShadowPayload causal_shadow;
+    AdsAcquisitionTracePayload ads_acquisition_trace;
+    EgoMotionShadowPayload ego_motion_shadow;
     VisionSampleQuality vision_sample_quality = VisionSampleQuality::Normal;
     IdentificationUpdateOutcome identification_update_outcome =
         IdentificationUpdateOutcome::NotEvaluated;

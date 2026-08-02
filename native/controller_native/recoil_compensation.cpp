@@ -69,8 +69,13 @@ NativeRecoilOutput NativeRecoilCompensation::compute(const NativeRecoilInput& in
         return output;
     }
 
-    select_runtime_profile_for_context(input.aiming);
     output.recoil_active = true;
+    if (!config_.profile_playback_enabled) {
+        output.right_y_delta = -std::max(0.0f, config_.feedback_amount);
+        return output;
+    }
+
+    select_runtime_profile_for_context(input.aiming);
     if (!playback_profile_.has_value() || playback_profile_->empty()) {
         output.right_y_delta = -std::max(0.0f, config_.feedback_amount);
         return output;

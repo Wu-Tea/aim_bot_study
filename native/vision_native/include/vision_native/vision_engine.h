@@ -2,6 +2,7 @@
 
 #include "vision_native/aim_enhancement.h"
 #include "vision_native/dxgi_capture.h"
+#include "vision_native/ego_motion_observer.h"
 #include "vision_native/resize_contract.h"
 #include "vision_native/target_selector.h"
 #include "vision_native/tensorrt_engine.h"
@@ -9,6 +10,7 @@
 #include "pipeline_contract/target_snapshot.h"
 
 #include <atomic>
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -58,6 +60,7 @@ public:
 
 private:
     DxgiRoiCapture capture_;
+    EgoMotionObserver ego_motion_observer_{};
     VisionTargetSelector selector_;
     AimEnhancementPipeline enhancer_;
     std::unique_ptr<TensorRTEngine> engine_;
@@ -81,6 +84,9 @@ private:
     int active_viewport_height_ = 0;
     std::uint64_t active_viewport_sequence_ = 0;
     VisionResizeContract resize_contract_{};
+    std::array<std::uint8_t, kEgoMotionPixelCount> host_ego_gray_{};
+    std::uint8_t* device_ego_gray_ = nullptr;
+    bool ego_motion_staging_available_ = false;
 };
 
 } // namespace vision_native

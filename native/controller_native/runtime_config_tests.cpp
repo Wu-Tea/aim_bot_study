@@ -100,6 +100,26 @@ void test_vision_gpu_service_can_be_disabled() {
     require(!config.vision.gpu_service_enabled);
 }
 
+void test_realtime_tracker_and_fallback_recoil_flags_parse() {
+    const std::filesystem::path path =
+        std::filesystem::temp_directory_path() /
+        "cod_native_realtime_control_config.toml";
+    {
+        std::ofstream output(path);
+        output << "[gamepad.tracker]\n"
+               << "max_observation_age_ms = 42\n"
+               << "[gamepad.recoil]\n"
+               << "profile_playback_enabled = false\n"
+               << "native_recognizer_enabled = false\n";
+    }
+
+    const auto config = controller_native::load_runtime_config(path);
+    std::filesystem::remove(path);
+    require(std::abs(config.gamepad.tracker.max_observation_age_ms - 42.0f) < 0.0001f);
+    require(!config.gamepad.recoil.profile_playback_enabled);
+    require(!config.gamepad.recoil.native_recognizer_enabled);
+}
+
 void test_balanced_profile_uses_canonical_vision_defaults() {
     const std::filesystem::path path =
         std::filesystem::temp_directory_path() / "cod_native_runtime_profile_test.toml";
@@ -228,6 +248,7 @@ void test_compact_ads_and_bodylock_modules_resolve_detailed_controls() {
         output << "[runtime]\nprofile = \"balanced\"\n"
                << "[gamepad.ads]\nstrength_scale = 0.5\nvertical_strength_scale = 0.5\n"
                << "range_px = 150\nsnap_duration_ms = 90\n"
+               << "activation_radius_px = 135\n"
                << "completion_radius_px = 7\ncompletion_fresh_frames = 4\nmax_acquisition_ms = 240\n"
                << "start_delay_ms = 12\nstart_ramp_ms = 30\n"
                << "[gamepad.bodylock]\nstrength = 0.33\nvertical_strength = 0.44\n"
@@ -244,6 +265,7 @@ void test_compact_ads_and_bodylock_modules_resolve_detailed_controls() {
     require(config.gamepad.ai_aim.max_ai_force_y == 0.40f);
     require(config.gamepad.ai_aim.ads_snap_max_ai_force_y == 0.50f);
     require(config.gamepad.ai_aim.max_pixels == 150.0f);
+    require(config.gamepad.ai_aim.ads_activation_radius_px == 135.0f);
     require(config.gamepad.ai_aim.ads_snap_window_ms == 90);
     require(config.gamepad.ai_aim.ads_completion_radius_px == 7.0f);
     require(config.gamepad.ai_aim.ads_completion_fresh_frames == 4);
@@ -352,7 +374,8 @@ void test_normal_template_preserves_controller_baseline() {
     require(std::abs(aim.ads_snap_max_ai_force - 1.54f) < 0.0001f);
     require(std::abs(aim.ads_snap_max_ai_force_y - 1.26f) < 0.0001f);
     require(aim.max_pixels == 150.0f);
-    require(aim.ads_snap_window_ms == 120);
+    require(aim.ads_activation_radius_px == 135.0f);
+    require(aim.ads_snap_window_ms == 135);
     require(aim.ads_max_acquisition_ms == 220.0f);
     require(aim.ads_start_delay_ms == 0.0f);
     require(aim.ads_start_ramp_ms == 0.0f);
@@ -673,6 +696,7 @@ int main() {
     test_vision_gpu_service_defaults_are_enabled();
     test_vision_gpu_service_config_values_parse();
     test_vision_gpu_service_can_be_disabled();
+    test_realtime_tracker_and_fallback_recoil_flags_parse();
     test_dynamic_viewport_config_values_parse();
     test_dynamic_viewport_rejects_mismatched_aspect_ratio();
     test_balanced_profile_uses_canonical_vision_defaults();

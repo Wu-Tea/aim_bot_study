@@ -204,12 +204,12 @@ bool is_known_key(const std::string& section, const std::string& key) {
     static const std::unordered_set<std::string> tracker_keys{
         "backend", "projection_age_ms", "responsiveness", "max_velocity_px_per_sec",
         "weak_memory_decay", "lead_seconds", "lead_max_px", "aim_height_ratio",
-        "remaining_work_enabled", "remaining_work_scale"};
+        "max_observation_age_ms", "remaining_work_enabled", "remaining_work_scale"};
     static const std::unordered_set<std::string> intent_keys{
         "wrong_way_manual_preservation_floor",
         "fresh_vision_wrong_way_manual_floor"};
     static const std::unordered_set<std::string> ads_keys{
-        "strength_scale", "vertical_strength_scale", "range_px", "snap_duration_ms",
+        "strength_scale", "vertical_strength_scale", "range_px", "activation_radius_px", "snap_duration_ms",
         "completion_radius_px", "completion_fresh_frames", "max_acquisition_ms",
         "start_delay_ms", "start_ramp_ms"};
     static const std::unordered_set<std::string> bodylock_keys{
@@ -232,7 +232,8 @@ bool is_known_key(const std::string& section, const std::string& key) {
         "manual_curve_straighten_min_manual", "manual_curve_straighten_min_assist"};
     static const std::unordered_set<std::string> recoil_keys{
         "enabled", "selection_log_enabled", "profile_despike_enabled",
-        "native_recognizer_enabled", "recognizer_log_enabled", "recognizer_game",
+        "profile_playback_enabled", "native_recognizer_enabled",
+        "recognizer_log_enabled", "recognizer_game",
         "profile_directory", "calibration_directory", "weapon_directory",
         "recognizer_state_path", "recognizer_fps", "profile_amount", "profile_x_amount",
         "feedback_amount", "profile_lead_ms", "profile_velocity_reference_ms",
@@ -603,6 +604,9 @@ void apply_gamepad_recoil_value(
         config.selection_log_enabled = parse_bool_value(value, config.selection_log_enabled);
     } else if (key == "profile_despike_enabled") {
         config.profile_despike_enabled = parse_bool_value(value, config.profile_despike_enabled);
+    } else if (key == "profile_playback_enabled") {
+        config.profile_playback_enabled =
+            parse_bool_value(value, config.profile_playback_enabled);
     } else if (key == "native_recognizer_enabled") {
         config.native_recognizer_enabled = parse_bool_value(value, config.native_recognizer_enabled);
     } else if (key == "recognizer_log_enabled") {
@@ -704,7 +708,8 @@ void apply_recoil_environment_overrides(GamepadRecoilConfig& config) {
 }
 
 void apply_recoil_runtime_defaults(GamepadRecoilConfig& config) {
-    if (config.recognizer_state_path.empty()) {
+    if ((config.profile_playback_enabled || config.native_recognizer_enabled) &&
+        config.recognizer_state_path.empty()) {
         config.recognizer_state_path = "artifacts/recoil_app/current_weapon.json";
     }
 }
@@ -893,6 +898,13 @@ void apply_value(
             tracker.body_lock_lead_seconds = parse_float_value(value, tracker.body_lock_lead_seconds);
         } else if (key == "lead_max_px") {
             tracker.body_lock_lead_max_px = parse_float_value(value, tracker.body_lock_lead_max_px);
+        } else if (key == "max_observation_age_ms") {
+            config.gamepad.tracker.max_observation_age_ms = std::clamp(
+                parse_float_value(
+                    value,
+                    config.gamepad.tracker.max_observation_age_ms),
+                1.0f,
+                250.0f);
         } else if (key == "remaining_work_enabled") {
             config.gamepad.tracker.remaining_work_enabled =
                 parse_bool_value(
@@ -938,6 +950,9 @@ void apply_value(
             ads.ads_snap_max_ai_force_y *= scale;
         } else if (key == "range_px") {
             ads.max_pixels = parse_float_value(value, ads.max_pixels);
+        } else if (key == "activation_radius_px") {
+            ads.ads_activation_radius_px =
+                parse_float_value(value, ads.ads_activation_radius_px);
         } else if (key == "snap_duration_ms") {
             ads.ads_snap_window_ms = parse_int_value(value, ads.ads_snap_window_ms);
         } else if (key == "completion_radius_px") {
@@ -1124,6 +1139,9 @@ void validate_runtime_config(RuntimeConfig& config) {
         invalid("gamepad.ads.completion_fresh_frames", "1..20");
     if (config.ads.max_acquisition_ms < 50.0f || config.ads.max_acquisition_ms > 1000.0f)
         invalid("gamepad.ads.max_acquisition_ms", "50..1000");
+    if (config.gamepad.ai_aim.ads_activation_radius_px <= 0.0f ||
+        config.gamepad.ai_aim.ads_activation_radius_px > 2000.0f)
+        invalid("gamepad.ads.activation_radius_px", "0..2000");
     if (config.gamepad.ai_aim.ads_start_delay_ms < 0.0f ||
         config.gamepad.ai_aim.ads_start_delay_ms > 500.0f)
         invalid("gamepad.ads.start_delay_ms", "0..500");

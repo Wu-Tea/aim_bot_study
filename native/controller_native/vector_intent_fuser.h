@@ -33,6 +33,7 @@ enum class FusionFallbackReason : unsigned char {
     Reacquiring,
     LowReliability,
     LowResponseConfidence,
+    NoAuthority,
     NonFinite,
     ManualEscape,
 };
@@ -53,6 +54,10 @@ struct VectorIntentFusionConfig {
     // Preserves manual authority against opposing AI. Its complement also
     // bounds dangerous close-target same-direction proposal overlap.
     float manual_preservation_floor = 0.55f;
+    // Fresh, reliable positional evidence may reduce only the manual radial
+    // component that points away from the current target error.  The value is
+    // the retained fraction of that wrong-way radial manual proposal.
+    float fresh_vision_wrong_way_manual_floor = 0.35f;
     // While ADS owns acquisition, or a near BodyLock target has strong
     // authority, manual and AI are alternative absolute stick proposals.
     // This fraction of the normalized cooperative manual proposal may add
@@ -81,6 +86,13 @@ struct VectorIntentFusionInput {
     pipeline_contract::TargetPlan plan{};
     float manual_confidence = 1.0f;
     bool fresh_single_target_observation = false;
+    // Filled by the active ADS/BodyLock controller. These are the same
+    // anisotropic response envelope used before fusion, not a global gain.
+    float response_horizon_seconds = 0.0f;
+    float response_horizon_y_seconds = 0.0f;
+    pipeline_contract::Vec2f response_max_force{};
+    bool response_envelope_valid = false;
+    const char* response_envelope_source = "unavailable";
     std::array<pipeline_contract::Vec2f, kCausalMixHorizonCount>
         pending_camera_px{};
     bool pending_camera_valid = false;
@@ -103,6 +115,36 @@ struct VectorIntentFusionDecision {
     FusionFallbackReason reason = FusionFallbackReason::None;
     bool fallback = true;
     bool manual_escape = false;
+    bool fresh_vision_wrong_way_policy_applied = false;
+    float fresh_vision_manual_radial_scale = 1.0f;
+    // Validated proposal only; this is not a contribution allocated from
+    // the final actuator output.
+    pipeline_contract::Vec2f fresh_vision_validated_manual_proposal{};
+    bool fresh_vision_ai_radial_bound_applied = false;
+    float fresh_vision_ai_radial_scale = 1.0f;
+    bool fresh_vision_predictive_envelope_applied = false;
+    bool manual_escape_latched = false;
+    float fresh_vision_manual_radial = 0.0f;
+    // Radial demand from the strongest validated proposal, not an allocation
+    // of manual and AI contributions into the final output.
+    float fresh_vision_proposed_radial = 0.0f;
+    float fresh_vision_raw_ai_radial = 0.0f;
+    float fresh_vision_strongest_valid_radial = 0.0f;
+    float fresh_vision_strongest_valid_demand = 0.0f;
+    // Validated proposal only; this is not a final-output contribution.
+    pipeline_contract::Vec2f fresh_vision_validated_ai_proposal{};
+    float fresh_vision_permitted_radial = 0.0f;
+    float fresh_vision_stopping_radial = 0.0f;
+    float fresh_vision_pre_slew_radial = 0.0f;
+    float fresh_vision_final_radial = 0.0f;
+    float fresh_vision_envelope_horizon_seconds = 0.0f;
+    float fresh_vision_envelope_horizon_y_seconds = 0.0f;
+    pipeline_contract::Vec2f fresh_vision_envelope_max_force{};
+    pipeline_contract::Vec2f fresh_vision_envelope_target_stick{};
+    pipeline_contract::Vec2f fresh_vision_authoritative_error_px{};
+    pipeline_contract::Vec2f fresh_vision_predicted_error_px{};
+    const char* fresh_vision_envelope_reason = "none";
+    const char* fresh_vision_envelope_source = "unavailable";
 };
 
 class VectorIntentFuser {
@@ -119,6 +161,10 @@ private:
     pipeline_contract::Vec2f previous_output_{};
     bool output_initialized_ = false;
     bool reentry_pending_ = false;
+    bool manual_escape_pending_ = false;
+    std::uint64_t manual_escape_pending_target_id_ = 0;
+    bool manual_escape_latched_ = false;
+    std::uint64_t manual_escape_latched_target_id_ = 0;
 };
 
 }  // namespace controller_native

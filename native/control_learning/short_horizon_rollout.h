@@ -18,12 +18,15 @@ struct RolloutSnapshot {
     Vec2d predicted_terminal_error_px{};
     Vec2d target_velocity_px_per_sec{};
     Vec2d target_acceleration_px_per_sec2{};
-    Vec2d shaped_ai{};
-    Vec2d manual{};
-    Vec2d scheduled_pending_px{};
+    // One final pre-recoil aim proposal produced by the production fuser.
+    // Rollout candidates are bounded scales of this vector; manual and
+    // shaped-AI decomposition is intentionally not an input.
+    Vec2d final_output{};
+    Vec2d pending_total_px{};
     ResponseMatrix2d right_response{};
     float response_confidence = 0.0f;
     float delay_confidence = 0.0f;
+    bool pending_motion_valid = false;
     bool has_target = false;
     bool single_strong_target = false;
 

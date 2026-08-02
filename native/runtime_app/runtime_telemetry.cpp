@@ -1,5 +1,7 @@
 #include "runtime_telemetry.h"
 
+#include "../pipeline_contract/target_plan.h"
+
 #include <algorithm>
 #include <chrono>
 #include <iomanip>
@@ -29,8 +31,62 @@ const char* record_type_name(TelemetryRecordType type) {
         return "committed_capture_observation";
     case TelemetryRecordType::DeliveredControlSample: return "delivered_control_sample";
     case TelemetryRecordType::CausalResponseShadow: return "causal_response_shadow";
+    case TelemetryRecordType::AdsAcquisitionTrace: return "ads_acquisition_trace";
+    case TelemetryRecordType::EgoMotionShadow: return "ego_motion_shadow";
     case TelemetryRecordType::ControllerSample:
     default: return "controller_sample";
+    }
+}
+
+const char* ads_acquisition_state_name(std::uint8_t value) {
+    using State = pipeline_contract::AdsAcquisitionState;
+    switch (static_cast<State>(value)) {
+    case State::ArmedWaitingForTarget: return "armed_waiting_for_target";
+    case State::AcquiringNominal: return "acquiring_nominal";
+    case State::AcquiringExtended: return "acquiring_extended";
+    case State::Completed: return "completed";
+    case State::Consumed: return "consumed";
+    case State::Idle:
+    default: return "idle";
+    }
+}
+
+const char* ads_decision_reason_name(std::uint8_t value) {
+    using Reason = pipeline_contract::AdsDecisionReason;
+    switch (static_cast<Reason>(value)) {
+    case Reason::Admitted: return "admitted";
+    case Reason::SelectorNoSelection: return "selector_no_selection";
+    case Reason::OutsideAdsActivationRadius: return "outside_ads_activation_radius";
+    case Reason::OutsideAssociationRadius: return "outside_association_radius";
+    case Reason::StaleCapture: return "stale_capture";
+    case Reason::DuplicateFrame: return "duplicate_frame";
+    case Reason::OldControlEpoch: return "old_control_epoch";
+    case Reason::LowReliability: return "low_reliability";
+    case Reason::FriendlyOrCueReject: return "friendly_or_cue_reject";
+    case Reason::BodylockOutsideContinuation: return "bodylock_outside_continuation";
+    case Reason::AdsAlreadyConsumed: return "ads_already_consumed";
+    case Reason::AcquisitionCeiling: return "acquisition_ceiling";
+    case Reason::Settled: return "settled";
+    case Reason::CenterCross: return "center_cross";
+    case Reason::MovingAway: return "moving_away";
+    case Reason::NonHelpfulOutput: return "non_helpful_output";
+    case Reason::ManualEscape: return "manual_escape";
+    case Reason::TargetLost: return "target_lost";
+    case Reason::TargetSwitch: return "target_switch";
+    case Reason::NoTarget: return "no_target";
+    case Reason::None:
+    default: return "none";
+    }
+}
+
+const char* source_decision_outcome_name(std::uint8_t value) {
+    using Outcome = pipeline_contract::SourceDecisionOutcome;
+    switch (static_cast<Outcome>(value)) {
+    case Outcome::Admitted: return "admitted";
+    case Outcome::AcceptedContinuation: return "accepted_continuation";
+    case Outcome::Rejected: return "rejected";
+    case Outcome::NoDecision:
+    default: return "no_decision";
     }
 }
 
@@ -261,6 +317,7 @@ bool RuntimeTelemetry::open_next_file() {
                 << ",\"build_commit\":\"" << metadata.build_commit.data() << '\"'
                 << ",\"config_hash\":\"" << metadata.config_hash.data() << '\"'
                 << ",\"engine_hash\":\"" << metadata.engine_hash.data() << '\"'
+                << ",\"executable_sha256\":\"" << metadata.executable_sha256.data() << '\"'
                 << ",\"tracker_backend\":\"" << metadata.tracker_backend.data() << '\"'
                 << ",\"capture_width\":" << metadata.capture_width
                 << ",\"capture_height\":" << metadata.capture_height
@@ -332,6 +389,7 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
             << ",\"build_commit\":\"" << record.session_metadata.build_commit.data() << '\"'
             << ",\"config_hash\":\"" << record.session_metadata.config_hash.data() << '\"'
             << ",\"engine_hash\":\"" << record.session_metadata.engine_hash.data() << '\"'
+            << ",\"executable_sha256\":\"" << record.session_metadata.executable_sha256.data() << '\"'
             << ",\"tracker_backend\":\"" << record.session_metadata.tracker_backend.data() << '\"';
         break;
     case TelemetryRecordType::ControllerSample:
@@ -349,7 +407,99 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
             << ",\"physical_x\":" << record.controller.physical_x
             << ",\"physical_y\":" << record.controller.physical_y
             << ",\"manual_x\":" << serialized_manual_x << ",\"manual_y\":" << serialized_manual_y
+            << ",\"filtered_manual_x\":" << record.controller.filtered_manual_x
+            << ",\"filtered_manual_y\":" << record.controller.filtered_manual_y
+            << ",\"manual_confidence\":" << record.controller.manual_confidence
             << ",\"ai_x\":" << serialized_ai_x << ",\"ai_y\":" << serialized_ai_y
+            << ",\"fresh_vision_validated_manual_proposal_x\":"
+            << record.controller.fresh_vision_validated_manual_proposal_x
+            << ",\"fresh_vision_validated_manual_proposal_y\":"
+            << record.controller.fresh_vision_validated_manual_proposal_y
+            << ",\"fresh_vision_validated_ai_proposal_x\":"
+            << record.controller.fresh_vision_validated_ai_proposal_x
+            << ",\"fresh_vision_validated_ai_proposal_y\":"
+            << record.controller.fresh_vision_validated_ai_proposal_y
+            // Compatibility aliases: these retain the historical keys but
+            // carry validated manual proposal semantics, never output shares.
+            << ",\"fresh_vision_effective_manual_x\":"
+            << record.controller.fresh_vision_validated_manual_proposal_x
+            << ",\"fresh_vision_effective_manual_y\":"
+            << record.controller.fresh_vision_validated_manual_proposal_y
+            << ",\"fresh_vision_manual_radial_scale\":"
+            << record.controller.fresh_vision_manual_radial_scale
+            << ",\"fresh_vision_wrong_way_policy_applied\":"
+            << (record.controller.fresh_vision_wrong_way_policy_applied
+                    ? "true" : "false")
+            << ",\"fresh_vision_ai_radial_bound_applied\":"
+            << (record.controller.fresh_vision_ai_radial_bound_applied
+                    ? "true" : "false")
+            << ",\"fresh_vision_ai_radial_scale\":"
+            << record.controller.fresh_vision_ai_radial_scale
+            << ",\"fresh_vision_predictive_envelope_applied\":"
+            << (record.controller.fresh_vision_predictive_envelope_applied
+                    ? "true" : "false")
+            << ",\"fresh_vision_escape_latched\":"
+            << (record.controller.fresh_vision_escape_latched
+                    ? "true" : "false")
+            << ",\"fresh_vision_authoritative_error_x\":"
+            << record.controller.fresh_vision_authoritative_error_x
+            << ",\"fresh_vision_authoritative_error_y\":"
+            << record.controller.fresh_vision_authoritative_error_y
+            << ",\"fresh_vision_predicted_error_x\":"
+            << record.controller.fresh_vision_predicted_error_x
+            << ",\"fresh_vision_predicted_error_y\":"
+            << record.controller.fresh_vision_predicted_error_y
+            << ",\"fresh_vision_raw_manual_radial\":"
+            << record.controller.fresh_vision_raw_manual_radial
+            << ",\"fresh_vision_raw_ai_radial\":"
+            << record.controller.fresh_vision_raw_ai_radial
+            << ",\"fresh_vision_strongest_valid_radial\":"
+            << record.controller.fresh_vision_strongest_valid_radial
+            << ",\"fresh_vision_stopping_radial\":"
+            << record.controller.fresh_vision_stopping_radial
+            << ",\"fresh_vision_permitted_radial\":"
+            << record.controller.fresh_vision_permitted_radial
+            << ",\"fresh_vision_pre_slew_radial\":"
+            << record.controller.fresh_vision_pre_slew_radial
+            << ",\"fresh_vision_final_radial\":"
+            << record.controller.fresh_vision_final_radial
+            << ",\"fresh_vision_horizon_seconds\":"
+            << record.controller.fresh_vision_horizon_seconds
+            << ",\"fresh_vision_horizon_y_seconds\":"
+            << record.controller.fresh_vision_horizon_y_seconds
+            << ",\"fresh_vision_max_force_x\":"
+            << record.controller.fresh_vision_max_force_x
+            << ",\"fresh_vision_max_force_y\":"
+            << record.controller.fresh_vision_max_force_y
+            << ",\"fresh_vision_envelope_target_x\":"
+            << record.controller.fresh_vision_envelope_target_x
+            << ",\"fresh_vision_envelope_target_y\":"
+            << record.controller.fresh_vision_envelope_target_y
+            << ",\"fresh_vision_envelope_reason\":\""
+            << record.controller.fresh_vision_envelope_reason.data() << '"'
+            << ",\"fresh_vision_envelope_source\":\""
+            << record.controller.fresh_vision_envelope_source.data() << '"'
+            << ",\"bodylock_error_rate_x\":"
+            << record.controller.bodylock_error_rate_x
+            << ",\"bodylock_error_rate_y\":"
+            << record.controller.bodylock_error_rate_y
+            << ",\"bodylock_position_stick_x\":"
+            << record.controller.bodylock_position_stick_x
+            << ",\"bodylock_position_stick_y\":"
+            << record.controller.bodylock_position_stick_y
+            << ",\"bodylock_motion_stick_x\":"
+            << record.controller.bodylock_motion_stick_x
+            << ",\"bodylock_motion_stick_y\":"
+            << record.controller.bodylock_motion_stick_y
+            << ",\"bodylock_effective_motion_stick_x\":"
+            << record.controller.bodylock_effective_motion_stick_x
+            << ",\"bodylock_effective_motion_stick_y\":"
+            << record.controller.bodylock_effective_motion_stick_y
+            << ",\"bodylock_radial_motion_bound\":"
+            << (record.controller.bodylock_radial_motion_bound
+                    ? "true" : "false")
+            << ",\"bodylock_constraint_reason\":\""
+            << record.controller.bodylock_constraint_reason.data() << '"'
             << ",\"post_ai_x\":" << record.controller.post_ai_x << ",\"post_ai_y\":" << record.controller.post_ai_y
             << ",\"dynamic_adjustment_x\":" << record.controller.dynamic_adjustment_x << ",\"dynamic_adjustment_y\":" << record.controller.dynamic_adjustment_y
             << ",\"post_dynamic_x\":" << record.controller.post_dynamic_x << ",\"post_dynamic_y\":" << record.controller.post_dynamic_y
@@ -477,6 +627,7 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
             << ",\"viewport_source_frame_id\":" << value.viewport_source_frame_id
             << ",\"captured_at_ns\":" << value.captured_at_ns
             << ",\"result_at_ns\":" << value.result_at_ns
+            << ",\"controller_consume_ns\":" << value.controller_consume_ns
             << ",\"stable_error\":[" << value.stable_error_x << ',' << value.stable_error_y << ']'
             << ",\"stable_body_size\":[" << value.stable_body_width << ',' << value.stable_body_height << ']'
             << ",\"raw_body_box\":[" << value.raw_body_x << ',' << value.raw_body_y
@@ -507,8 +658,122 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
             << "\"build_revision\":\"" << provenance.build_commit.data() << '"'
             << ",\"config_sha256\":\"" << provenance.config_hash.data() << '"'
             << ",\"engine_sha256\":\"" << provenance.engine_hash.data() << '"'
+            << ",\"executable_sha256\":\"" << provenance.executable_sha256.data() << '"'
             << ",\"capture_width\":" << provenance.capture_width
             << ",\"capture_height\":" << provenance.capture_height << '}';
+        break;
+    }
+    case TelemetryRecordType::AdsAcquisitionTrace: {
+        const auto& value = record.ads_acquisition_trace;
+        output_ << ",\"schema\":\"ads_acquisition_trace_v2\""
+            << ",\"source_frame_id\":" << value.source_frame_id
+            << ",\"source_observation_id\":" << value.source_observation_id
+            << ",\"persistent_target_id\":" << value.persistent_target_id
+            << ",\"physical_ads_epoch\":" << value.physical_ads_epoch
+            << ",\"target_acquisition_id\":" << value.target_acquisition_id
+            << ",\"controller_tick_id\":" << value.controller_tick_id
+            << ",\"capture_acquire_begin_ns\":" << value.capture_acquire_begin_ns
+            << ",\"capture_acquire_complete_ns\":" << value.capture_acquire_complete_ns
+            << ",\"capture_copy_complete_ns\":" << value.capture_copy_complete_ns
+            << ",\"accumulated_frames\":" << value.accumulated_frames
+            << ",\"ads_acquisition_begin_ns\":" << value.ads_acquisition_begin_ns
+            << ",\"ads_acquisition_complete_ns\":" << value.ads_acquisition_complete_ns
+            << ",\"result_ready_ns\":" << value.result_ready_ns
+            << ",\"vision_publish_ns\":" << value.vision_publish_ns
+            << ",\"vision_publish_available\":"
+            << (value.vision_publish_available ? "true" : "false")
+            << ",\"controller_submit_complete_ns\":"
+            << value.controller_submit_complete_ns
+            << ",\"controller_consume_ns\":" << value.controller_consume_ns
+            << ",\"plan_decision_ns\":" << value.plan_decision_ns
+            << ",\"plan_decision_available\":"
+            << (value.plan_decision_ns != 0 ? "true" : "false")
+            << ",\"final_output_ready_ns\":" << value.final_output_ready_ns
+            << ",\"final_output_ready_available\":"
+            << (value.final_output_ready_ns != 0 ? "true" : "false")
+            << ",\"first_requested_ai_ns\":" << value.first_requested_ai_ns
+            << ",\"first_shaped_ai_ns\":" << value.first_shaped_ai_ns
+            << ",\"first_fused_output_ns\":" << value.first_fused_output_ns
+            << ",\"vigem_submit_complete_ns\":" << value.vigem_submit_complete_ns
+            << ",\"first_effect_observed_ns\":" << value.first_effect_observed_ns
+            << ",\"source_present_available\":"
+            << (value.source_present_available ? "true" : "false")
+            << ",\"source_present_qpc\":" << value.source_present_qpc
+            << ",\"source_present_qpc_frequency\":"
+            << value.source_present_qpc_frequency
+            << ",\"source_present_clock_domain\":\"qpc\""
+            << ",\"plan_admitted\":"
+            << (value.plan_admitted ? "true" : "false")
+            << ",\"acquisition_active\":"
+            << (value.acquisition_active ? "true" : "false")
+            << ",\"acquisition_exists\":"
+            << (value.acquisition_exists ? "true" : "false")
+            << ",\"acquisition_state\":\""
+            << ads_acquisition_state_name(value.acquisition_state) << '"'
+            << ",\"decision_reason\":\""
+            << ads_decision_reason_name(value.decision_reason) << '"'
+            << ",\"source_decision_available\":"
+            << (value.source_decision_available ? "true" : "false")
+            << ",\"source_decision_outcome\":\""
+            << source_decision_outcome_name(value.source_decision_outcome) << '"'
+            << ",\"source_decision_reason\":\""
+            << ads_decision_reason_name(value.source_decision_reason) << '"'
+            << ",\"acquisition_terminal_reason\":\""
+            << ads_decision_reason_name(value.acquisition_terminal_reason) << '"'
+            << ",\"selector_target_generation\":"
+            << value.selector_target_generation
+            << ",\"selector_target_changed\":"
+            << (value.selector_target_changed ? "true" : "false")
+            << ",\"candidate_count\":" << value.candidate_count
+            << ",\"preferred_source_id\":" << value.preferred_source_id
+            << ",\"selected_source_id\":" << value.selected_source_id
+            << ",\"effective_activation_radius_px\":"
+            << value.effective_activation_radius_px
+            << ",\"raw_error\":[" << value.raw_error_x << ',' << value.raw_error_y << ']'
+            << ",\"target_size\":[" << value.target_size_x << ',' << value.target_size_y << ']'
+            << ",\"requested_ai\":[" << value.requested_ai_x << ',' << value.requested_ai_y << ']'
+            << ",\"shaped_ai\":[" << value.shaped_ai_x << ',' << value.shaped_ai_y << ']'
+            << ",\"fused_output\":[" << value.fused_output_x << ',' << value.fused_output_y << ']'
+            << ",\"post_output\":[" << value.post_output_x << ',' << value.post_output_y << ']'
+            << ",\"has_first_requested_ai\":"
+            << (value.has_first_requested_ai ? "true" : "false")
+            << ",\"has_first_shaped_ai\":"
+            << (value.has_first_shaped_ai ? "true" : "false")
+            << ",\"has_first_fused_output\":"
+            << (value.has_first_fused_output ? "true" : "false")
+            << ",\"first_requested_ai\":["
+            << value.first_requested_ai_x << ',' << value.first_requested_ai_y << ']'
+            << ",\"first_shaped_ai\":["
+            << value.first_shaped_ai_x << ',' << value.first_shaped_ai_y << ']'
+            << ",\"first_fused_output\":["
+            << value.first_fused_output_x << ',' << value.first_fused_output_y << ']';
+        break;
+    }
+    case TelemetryRecordType::EgoMotionShadow: {
+        const auto& value = record.ego_motion_shadow;
+        output_ << ",\"schema\":\"ego_motion_shadow_v1\""
+            << ",\"available\":" << (value.available ? "true" : "false")
+            << ",\"valid\":" << (value.valid ? "true" : "false")
+            << ",\"invalid_reason_code\":"
+            << static_cast<unsigned int>(value.invalid_reason)
+            << ",\"result_sequence\":" << value.result_sequence
+            << ",\"previous_frame_id\":" << value.previous_frame_id
+            << ",\"current_frame_id\":" << value.current_frame_id
+            << ",\"previous_present_qpc\":" << value.previous_present_qpc
+            << ",\"current_present_qpc\":" << value.current_present_qpc
+            << ",\"present_qpc_frequency\":" << value.present_qpc_frequency
+            << ",\"previous_result_ns\":" << value.previous_result_ns
+            << ",\"current_result_ns\":" << value.current_result_ns
+            << ",\"background_displacement\":["
+            << value.background_dx << ',' << value.background_dy << ']'
+            << ",\"camera_displacement\":["
+            << value.camera_dx << ',' << value.camera_dy << ']'
+            << ",\"confidence\":" << value.confidence
+            << ",\"valid_background_ratio\":" << value.valid_background_ratio
+            << ",\"residual_px\":" << value.residual_px
+            << ",\"compute_ms\":" << value.compute_ms
+            << ",\"inlier_count\":" << value.inlier_count
+            << ",\"sample_count\":" << value.sample_count;
         break;
     }
     case TelemetryRecordType::DeliveredControlSample: {
@@ -537,12 +802,13 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
             << "\"build_revision\":\"" << provenance.build_commit.data() << '"'
             << ",\"config_sha256\":\"" << provenance.config_hash.data() << '"'
             << ",\"engine_sha256\":\"" << provenance.engine_hash.data() << '"'
+            << ",\"executable_sha256\":\"" << provenance.executable_sha256.data() << '"'
             << ",\"capture_width\":" << provenance.capture_width
             << ",\"capture_height\":" << provenance.capture_height << '}';
         break;
     }
     case TelemetryRecordType::CausalResponseShadow:
-        output_ << ",\"schema\":\"causal_response_shadow_v1\""
+        output_ << ",\"schema\":\"causal_response_shadow_v3\""
             << ",\"best_delay_ms\":" << record.causal_shadow.best_delay_ms
             << ",\"selected_delay_ms\":" << record.causal_shadow.selected_delay_ms
             << ",\"selected_delay_confidence\":"
@@ -554,8 +820,12 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
             << ",\"residual\":" << record.causal_shadow.residual
             << ",\"pending_realized\":[" << record.causal_shadow.pending_realized_x
             << ',' << record.causal_shadow.pending_realized_y << ']'
+            << ",\"pending_in_flight\":[" << record.causal_shadow.pending_in_flight_x
+            << ',' << record.causal_shadow.pending_in_flight_y << ']'
             << ",\"pending_scheduled\":[" << record.causal_shadow.pending_scheduled_x
             << ',' << record.causal_shadow.pending_scheduled_y << ']'
+            << ",\"pending_total\":[" << record.causal_shadow.pending_total_x
+            << ',' << record.causal_shadow.pending_total_y << ']'
             << ",\"pending_confidence\":" << record.causal_shadow.pending_confidence
             << ",\"reason_bits\":" << record.causal_shadow.reason_bits
             << ",\"accepted_delay_count\":"
@@ -572,6 +842,11 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
             << record.causal_shadow.rollout_best_scale
             << ",\"rollout_confidence\":"
             << record.causal_shadow.rollout_confidence
+            << ",\"rollout_uses_final_output\":"
+            << (record.causal_shadow.rollout_uses_final_output ? "true" : "false")
+            << ",\"rollout_final_output\":["
+            << record.causal_shadow.rollout_final_output_x << ','
+            << record.causal_shadow.rollout_final_output_y << ']'
             << ",\"rollout_candidates\":[";
         for (std::size_t i = 0;
              i < record.causal_shadow.rollout_candidate_count && i < 5; ++i) {

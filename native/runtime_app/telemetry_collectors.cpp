@@ -5,6 +5,7 @@
 #include "telemetry_event_sampler.h"
 #include "telemetry_target_identity.h"
 
+#include <algorithm>
 #include <cmath>
 #include <chrono>
 #include <cstdio>
@@ -23,6 +24,11 @@ struct TelemetryCollectors::State {
     std::uint64_t next_ads_vision_seq = 1;
     std::uint64_t last_ring_sample_ns = 0;
     std::uint64_t last_tick_ns = 0;
+    std::uint64_t last_delivered_record_ns = 0;
+    std::uint64_t delivered_record_interval_ns = 4'000'000;
+    unsigned int last_input_reconnect_count = 0;
+    unsigned int last_output_reconnect_count = 0;
+    bool has_reconnect_counts = false;
     std::uint64_t ads_epoch = 0;
     bool last_aiming = false;
     bool has_last_aiming = false;
@@ -52,6 +58,11 @@ TelemetryCollectors::TelemetryCollectors(
     : sink_(sink) {
     if (enabled && sink_ != nullptr) {
         state_ = std::make_unique<State>();
+        const int requested_hz = context.telemetry_hz > 0
+            ? context.telemetry_hz : 250;
+        const int persisted_hz = std::clamp(requested_hz, 1, 250);
+        state_->delivered_record_interval_ns = static_cast<std::uint64_t>(
+            1'000'000'000ull / static_cast<unsigned int>(persisted_hz));
         TelemetryRecord metadata;
         metadata.type = TelemetryRecordType::SessionMetadata;
         metadata.critical = true;
@@ -66,6 +77,7 @@ TelemetryCollectors::TelemetryCollectors(
         copy_text(metadata.session_metadata.build_commit, context.build_commit);
         copy_text(metadata.session_metadata.config_hash, context.config_hash);
         copy_text(metadata.session_metadata.engine_hash, context.engine_hash);
+        copy_text(metadata.session_metadata.executable_sha256, context.executable_sha256);
         copy_text(metadata.session_metadata.tracker_backend, context.tracker_backend);
         metadata.session_metadata.capture_width = context.capture_width;
         metadata.session_metadata.capture_height = context.capture_height;
@@ -119,37 +131,55 @@ void TelemetryCollectors::observe_tick(const TelemetryTickInput& input) noexcept
     command.saturated = input.output_saturated;
     state.responses.observe_controller(command);
 
-    TelemetryRecord delivered_record;
-    delivered_record.type = TelemetryRecordType::DeliveredControlSample;
-    delivered_record.tick_id = input.tick_id;
-    delivered_record.sample_seq = input.tick_id;
-    delivered_record.timestamps.output_sent_ns = input.output_sent_ns;
-    auto& delivered = delivered_record.delivered_control;
-    delivered.sample_seq = input.tick_id;
-    delivered.applied_at_ns = input.output_sent_ns;
-    delivered.physical_right_x = input.physical_x;
-    delivered.physical_right_y = input.physical_y;
-    delivered.physical_left_x = input.physical_left_x;
-    delivered.physical_left_y = input.physical_left_y;
-    delivered.manual_x = input.manual_x;
-    delivered.manual_y = input.manual_y;
-    delivered.ai_x = input.ai_x;
-    delivered.ai_y = input.ai_y;
-    delivered.pre_recoil_x = input.pre_recoil_x;
-    delivered.pre_recoil_y = input.pre_recoil_y;
-    delivered.recoil_x = input.recoil_x;
-    delivered.recoil_y = input.recoil_y;
-    delivered.final_right_x = input.final_x;
-    delivered.final_right_y = input.final_y;
-    delivered.final_left_x = input.final_left_x;
-    delivered.final_left_y = input.final_left_y;
-    delivered.ads_epoch = state.ads_epoch;
-    delivered.output_delivered = input.output_delivered;
-    delivered.output_disabled = input.output_disabled;
-    delivered.firing = input.final_fire_button;
-    delivered.recoil_active = command.recoil_active;
-    delivered.saturated = input.output_saturated;
-    enqueue(delivered_record);
+    const bool reconnect_changed = state.has_reconnect_counts &&
+        (input.input_reconnect_count != state.last_input_reconnect_count ||
+         input.output_reconnect_count != state.last_output_reconnect_count);
+    const bool delivered_interval_elapsed =
+        state.last_delivered_record_ns == 0 ||
+        input.sample_ns < state.last_delivered_record_ns ||
+        input.sample_ns - state.last_delivered_record_ns >=
+            state.delivered_record_interval_ns;
+    const bool persist_delivered = delivered_interval_elapsed || aim_started ||
+        aim_stopped || !input.output_delivered || input.output_error_code != 0 ||
+        reconnect_changed;
+    if (persist_delivered) {
+        TelemetryRecord delivered_record;
+        delivered_record.type = TelemetryRecordType::DeliveredControlSample;
+        delivered_record.tick_id = input.tick_id;
+        delivered_record.sample_seq = input.tick_id;
+        delivered_record.timestamps.output_sent_ns = input.output_sent_ns;
+        auto& delivered = delivered_record.delivered_control;
+        delivered.sample_seq = input.tick_id;
+        delivered.applied_at_ns = input.output_sent_ns;
+        delivered.physical_right_x = input.physical_x;
+        delivered.physical_right_y = input.physical_y;
+        delivered.physical_left_x = input.physical_left_x;
+        delivered.physical_left_y = input.physical_left_y;
+        delivered.manual_x = input.manual_x;
+        delivered.manual_y = input.manual_y;
+        delivered.ai_x = input.ai_x;
+        delivered.ai_y = input.ai_y;
+        delivered.pre_recoil_x = input.pre_recoil_x;
+        delivered.pre_recoil_y = input.pre_recoil_y;
+        delivered.recoil_x = input.recoil_x;
+        delivered.recoil_y = input.recoil_y;
+        delivered.final_right_x = input.final_x;
+        delivered.final_right_y = input.final_y;
+        delivered.final_left_x = input.final_left_x;
+        delivered.final_left_y = input.final_left_y;
+        delivered.ads_epoch = state.ads_epoch;
+        delivered.output_delivered = input.output_delivered;
+        delivered.output_disabled = input.output_disabled;
+        delivered.firing = input.final_fire_button;
+        delivered.recoil_active = command.recoil_active;
+        delivered.saturated = input.output_saturated;
+        enqueue(delivered_record);
+        state.last_delivered_record_ns = input.sample_ns;
+        ++counters_.delivered_control_records;
+    }
+    state.last_input_reconnect_count = input.input_reconnect_count;
+    state.last_output_reconnect_count = input.output_reconnect_count;
+    state.has_reconnect_counts = true;
 
     const float dt = state.last_tick_ns != 0 && input.sample_ns > state.last_tick_ns
         ? static_cast<float>(input.sample_ns - state.last_tick_ns) / 1'000'000'000.0f : 0.0f;
@@ -183,8 +213,90 @@ void TelemetryCollectors::observe_tick(const TelemetryTickInput& input) noexcept
         sample.controller.physical_y = input.physical_y;
         sample.controller.manual_x = input.manual_x;
         sample.controller.manual_y = input.manual_y;
+        sample.controller.filtered_manual_x = input.filtered_manual_x;
+        sample.controller.filtered_manual_y = input.filtered_manual_y;
+        sample.controller.manual_confidence = input.manual_confidence;
         sample.controller.ai_x = input.ai_x;
         sample.controller.ai_y = input.ai_y;
+        sample.controller.fresh_vision_validated_manual_proposal_x =
+            input.fresh_vision_validated_manual_proposal_x;
+        sample.controller.fresh_vision_validated_manual_proposal_y =
+            input.fresh_vision_validated_manual_proposal_y;
+        sample.controller.fresh_vision_validated_ai_proposal_x =
+            input.fresh_vision_validated_ai_proposal_x;
+        sample.controller.fresh_vision_validated_ai_proposal_y =
+            input.fresh_vision_validated_ai_proposal_y;
+        sample.controller.fresh_vision_manual_radial_scale =
+            input.fresh_vision_manual_radial_scale;
+        sample.controller.fresh_vision_wrong_way_policy_applied =
+            input.fresh_vision_wrong_way_policy_applied;
+        sample.controller.fresh_vision_ai_radial_bound_applied =
+            input.fresh_vision_ai_radial_bound_applied;
+        sample.controller.fresh_vision_ai_radial_scale =
+            input.fresh_vision_ai_radial_scale;
+        sample.controller.fresh_vision_predictive_envelope_applied =
+            input.fresh_vision_predictive_envelope_applied;
+        sample.controller.fresh_vision_escape_latched =
+            input.fresh_vision_escape_latched;
+        sample.controller.fresh_vision_authoritative_error_x =
+            input.fresh_vision_authoritative_error_x;
+        sample.controller.fresh_vision_authoritative_error_y =
+            input.fresh_vision_authoritative_error_y;
+        sample.controller.fresh_vision_predicted_error_x =
+            input.fresh_vision_predicted_error_x;
+        sample.controller.fresh_vision_predicted_error_y =
+            input.fresh_vision_predicted_error_y;
+        sample.controller.fresh_vision_raw_manual_radial =
+            input.fresh_vision_raw_manual_radial;
+        sample.controller.fresh_vision_raw_ai_radial =
+            input.fresh_vision_raw_ai_radial;
+        sample.controller.fresh_vision_strongest_valid_radial =
+            input.fresh_vision_strongest_valid_radial;
+        sample.controller.fresh_vision_stopping_radial =
+            input.fresh_vision_stopping_radial;
+        sample.controller.fresh_vision_permitted_radial =
+            input.fresh_vision_permitted_radial;
+        sample.controller.fresh_vision_pre_slew_radial =
+            input.fresh_vision_pre_slew_radial;
+        sample.controller.fresh_vision_final_radial =
+            input.fresh_vision_final_radial;
+        sample.controller.fresh_vision_horizon_seconds =
+            input.fresh_vision_horizon_seconds;
+        sample.controller.fresh_vision_horizon_y_seconds =
+            input.fresh_vision_horizon_y_seconds;
+        sample.controller.fresh_vision_max_force_x =
+            input.fresh_vision_max_force_x;
+        sample.controller.fresh_vision_max_force_y =
+            input.fresh_vision_max_force_y;
+        sample.controller.fresh_vision_envelope_target_x =
+            input.fresh_vision_envelope_target_x;
+        sample.controller.fresh_vision_envelope_target_y =
+            input.fresh_vision_envelope_target_y;
+        copy_text(
+            sample.controller.fresh_vision_envelope_reason,
+            input.fresh_vision_envelope_reason);
+        copy_text(
+            sample.controller.fresh_vision_envelope_source,
+            input.fresh_vision_envelope_source);
+        sample.controller.bodylock_error_rate_x = input.bodylock_error_rate_x;
+        sample.controller.bodylock_error_rate_y = input.bodylock_error_rate_y;
+        sample.controller.bodylock_position_stick_x =
+            input.bodylock_position_stick_x;
+        sample.controller.bodylock_position_stick_y =
+            input.bodylock_position_stick_y;
+        sample.controller.bodylock_motion_stick_x =
+            input.bodylock_motion_stick_x;
+        sample.controller.bodylock_motion_stick_y =
+            input.bodylock_motion_stick_y;
+        sample.controller.bodylock_effective_motion_stick_x =
+            input.bodylock_effective_motion_stick_x;
+        sample.controller.bodylock_effective_motion_stick_y =
+            input.bodylock_effective_motion_stick_y;
+        sample.controller.bodylock_radial_motion_bound =
+            input.bodylock_radial_motion_bound;
+        copy_text(
+            sample.controller.bodylock_constraint_reason,
+            input.bodylock_constraint_reason);
         sample.controller.requested_assist_x = input.requested_assist_x;
         sample.controller.requested_assist_y = input.requested_assist_y;
         sample.controller.shaped_assist_x = input.shaped_assist_x;
@@ -407,6 +519,7 @@ void TelemetryCollectors::observe_committed_capture(
     value.viewport_source_frame_id = observation.viewport_source_frame_id;
     value.captured_at_ns = observation.captured_at_ns;
     value.result_at_ns = observation.result_at_ns;
+    value.controller_consume_ns = observation.controller_consume_ns;
     value.stable_error_x = observation.stable_error_px.x;
     value.stable_error_y = observation.stable_error_px.y;
     value.stable_body_width = observation.stable_body_size_px.x;
@@ -437,6 +550,123 @@ void TelemetryCollectors::observe_committed_capture(
     enqueue(record);
 }
 
+void TelemetryCollectors::observe_acquisition_trace(
+    const TelemetryAcquisitionTraceInput& input) noexcept {
+    if (!state_ || input.source_frame_id == 0) return;
+    TelemetryRecord record;
+    record.type = TelemetryRecordType::AdsAcquisitionTrace;
+    record.frame_id = input.source_frame_id;
+    record.tick_id = input.controller_tick_id;
+    record.target_track_id = input.persistent_target_id;
+    record.timestamps.vision_capture_ns = input.capture_acquire_begin_ns;
+    record.timestamps.inference_ready_ns = input.result_ready_ns;
+    record.timestamps.controller_consume_ns = input.controller_consume_ns;
+    record.timestamps.output_sent_ns = input.vigem_submit_complete_ns;
+    auto& value = record.ads_acquisition_trace;
+    value.source_frame_id = input.source_frame_id;
+    value.source_observation_id = input.source_observation_id;
+    value.persistent_target_id = input.persistent_target_id;
+    value.physical_ads_epoch = input.physical_ads_epoch;
+    value.target_acquisition_id = input.target_acquisition_id;
+    value.controller_tick_id = input.controller_tick_id;
+    value.capture_acquire_begin_ns = input.capture_acquire_begin_ns;
+    value.capture_acquire_complete_ns = input.capture_acquire_complete_ns;
+    value.capture_copy_complete_ns = input.capture_copy_complete_ns;
+    value.accumulated_frames = input.accumulated_frames;
+    value.ads_acquisition_begin_ns = input.ads_acquisition_begin_ns;
+    value.ads_acquisition_complete_ns = input.ads_acquisition_complete_ns;
+    value.result_ready_ns = input.result_ready_ns;
+    value.vision_publish_ns = input.vision_publish_ns;
+    value.controller_submit_complete_ns = input.controller_submit_complete_ns;
+    value.controller_consume_ns = input.controller_consume_ns;
+    value.plan_decision_ns = input.plan_decision_ns;
+    value.final_output_ready_ns = input.final_output_ready_ns;
+    value.first_requested_ai_ns = input.first_requested_ai_ns;
+    value.first_shaped_ai_ns = input.first_shaped_ai_ns;
+    value.first_fused_output_ns = input.first_fused_output_ns;
+    value.vigem_submit_complete_ns = input.vigem_submit_complete_ns;
+    value.first_effect_observed_ns = input.first_effect_observed_ns;
+    value.preferred_source_id = input.preferred_source_id;
+    value.selected_source_id = input.selected_source_id;
+    value.candidate_count = input.candidate_count;
+    value.acquisition_state = input.acquisition_state;
+    value.decision_reason = input.decision_reason;
+    value.source_decision_available = input.source_decision_available;
+    value.source_decision_outcome = input.source_decision_outcome;
+    value.source_decision_reason = input.source_decision_reason;
+    value.acquisition_terminal_reason = input.acquisition_terminal_reason;
+    value.selector_target_generation = input.selector_target_generation;
+    value.selector_target_changed = input.selector_target_changed;
+    value.source_present_qpc = input.source_present_qpc;
+    value.source_present_qpc_frequency = input.source_present_qpc_frequency;
+    value.source_present_available = input.source_present_available;
+    value.plan_admitted = input.plan_admitted;
+    value.acquisition_active = input.acquisition_active;
+    value.acquisition_exists = input.acquisition_exists;
+    value.vision_publish_available = input.vision_publish_available;
+    value.has_first_requested_ai = input.has_first_requested_ai;
+    value.has_first_shaped_ai = input.has_first_shaped_ai;
+    value.has_first_fused_output = input.has_first_fused_output;
+    value.effective_activation_radius_px = input.effective_activation_radius_px;
+    value.raw_error_x = input.raw_error_x;
+    value.raw_error_y = input.raw_error_y;
+    value.target_size_x = input.target_size_x;
+    value.target_size_y = input.target_size_y;
+    value.requested_ai_x = input.requested_ai_x;
+    value.requested_ai_y = input.requested_ai_y;
+    value.shaped_ai_x = input.shaped_ai_x;
+    value.shaped_ai_y = input.shaped_ai_y;
+    value.fused_output_x = input.fused_output_x;
+    value.fused_output_y = input.fused_output_y;
+    value.post_output_x = input.post_output_x;
+    value.post_output_y = input.post_output_y;
+    value.first_requested_ai_x = input.first_requested_ai_x;
+    value.first_requested_ai_y = input.first_requested_ai_y;
+    value.first_shaped_ai_x = input.first_shaped_ai_x;
+    value.first_shaped_ai_y = input.first_shaped_ai_y;
+    value.first_fused_output_x = input.first_fused_output_x;
+    value.first_fused_output_y = input.first_fused_output_y;
+    enqueue(record);
+    ++counters_.acquisition_traces;
+}
+
+void TelemetryCollectors::observe_ego_motion_shadow(
+    std::uint64_t source_frame_id,
+    std::uint64_t controller_tick_id,
+    const TelemetryEgoMotionShadowInput& input) noexcept {
+    if (!state_ || !input.available) return;
+    TelemetryRecord record;
+    record.type = TelemetryRecordType::EgoMotionShadow;
+    record.frame_id = source_frame_id != 0 ? source_frame_id : input.current_frame_id;
+    record.tick_id = controller_tick_id;
+    record.timestamps.inference_ready_ns = input.current_result_ns;
+    record.timestamps.vision_capture_ns = input.previous_result_ns;
+    auto& value = record.ego_motion_shadow;
+    value.available = input.available;
+    value.valid = input.valid;
+    value.invalid_reason = input.invalid_reason;
+    value.result_sequence = input.result_sequence;
+    value.previous_frame_id = input.previous_frame_id;
+    value.current_frame_id = input.current_frame_id;
+    value.previous_present_qpc = input.previous_present_qpc;
+    value.current_present_qpc = input.current_present_qpc;
+    value.present_qpc_frequency = input.present_qpc_frequency;
+    value.previous_result_ns = input.previous_result_ns;
+    value.current_result_ns = input.current_result_ns;
+    value.background_dx = input.background_dx;
+    value.background_dy = input.background_dy;
+    value.camera_dx = input.camera_dx;
+    value.camera_dy = input.camera_dy;
+    value.confidence = input.confidence;
+    value.valid_background_ratio = input.valid_background_ratio;
+    value.residual_px = input.residual_px;
+    value.compute_ms = input.compute_ms;
+    value.inlier_count = input.inlier_count;
+    value.sample_count = input.sample_count;
+    enqueue(record);
+    ++counters_.ego_motion_records;
+}
+
 const control_learning::ControlHistory<1024>*
 TelemetryCollectors::control_history() const noexcept {
     return state_ ? &state_->responses.history() : nullptr;
@@ -447,7 +677,8 @@ void TelemetryCollectors::observe_causal_shadow(
     const control_learning::SampleAssessment& assessment,
     const control_learning::CausalResponseEstimate& estimate,
     const control_learning::PendingMotionEstimate& pending,
-    const control_learning::RolloutResult& rollout) noexcept {
+    const control_learning::RolloutResult& rollout,
+    const control_learning::Vec2d& final_output) noexcept {
     if (!state_) return;
     TelemetryRecord record;
     record.type = TelemetryRecordType::CausalResponseShadow;
@@ -466,8 +697,12 @@ void TelemetryCollectors::observe_causal_shadow(
     value.residual = estimate.residual;
     value.pending_realized_x = static_cast<float>(pending.realized_px.x);
     value.pending_realized_y = static_cast<float>(pending.realized_px.y);
+    value.pending_in_flight_x = static_cast<float>(pending.in_flight_px.x);
+    value.pending_in_flight_y = static_cast<float>(pending.in_flight_px.y);
     value.pending_scheduled_x = static_cast<float>(pending.scheduled_px.x);
     value.pending_scheduled_y = static_cast<float>(pending.scheduled_px.y);
+    value.pending_total_x = static_cast<float>(pending.pending_total_px.x);
+    value.pending_total_y = static_cast<float>(pending.pending_total_px.y);
     value.pending_confidence = pending.confidence;
     value.reason_bits = assessment.reason_bits;
     value.accepted_delay_count = assessment.accepted_delay_count;
@@ -478,6 +713,9 @@ void TelemetryCollectors::observe_causal_shadow(
     value.rollout_best_scale = rollout.best_scale;
     value.rollout_confidence = rollout.confidence;
     value.rollout_candidate_count = static_cast<std::uint8_t>(rollout.candidate_count);
+    value.rollout_uses_final_output = true;
+    value.rollout_final_output_x = static_cast<float>(final_output.x);
+    value.rollout_final_output_y = static_cast<float>(final_output.y);
     for (std::size_t i = 0; i < rollout.candidate_count && i < 5; ++i) {
         value.rollout_scales[i] = rollout.candidates[i].scale;
         value.rollout_costs[i] = static_cast<float>(rollout.candidates[i].cost);

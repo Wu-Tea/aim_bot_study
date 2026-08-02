@@ -48,6 +48,7 @@ LogSessionOptions log_session_options_from(const controller_native::RuntimeConfi
     options.git_commit = config.build_commit;
     options.config_hash = config.source_config_sha256;
     options.engine_hash = config.engine_sha256;
+    options.executable_sha256 = config.executable_sha256;
     options.capture_width = config.vision.capture_width;
     options.capture_height = config.vision.capture_height;
     options.tensor_width = config.vision.tensor_width;
@@ -448,6 +449,7 @@ RuntimeLoop::RuntimeLoop(
               config_.build_commit.c_str(),
               config_.source_config_sha256.c_str(),
               config_.engine_sha256.c_str(),
+              config_.executable_sha256.c_str(),
               tracking_native::tracker_backend_kind_name(config_.gamepad.tracker_backend).data(),
               config_.vision.capture_width,
               config_.vision.capture_height,
@@ -466,7 +468,8 @@ RuntimeLoop::RuntimeLoop(
       input_reader_(select_xinput_user_index(config_.gamepad, sdl_input_reader_ == nullptr)),
       controller_(config_.gamepad),
       viewport_controller_(viewport_controller_config_from(config_)),
-      virtual_gamepad_() {
+      virtual_gamepad_(),
+      vision_delivery_gate_(config_.gamepad.tracker.max_observation_age_ms) {
     telemetry_.start();
     if (config_.control_learning.enabled &&
         config_.control_learning.mode !=
@@ -484,20 +487,6 @@ RuntimeLoop::RuntimeLoop(
         std::cout << "[NativeRuntime] XInput input index=" << selected_xinput_user_index_
                   << (config_.gamepad.xinput_auto_detect ? " auto" : " fixed")
                   << '\n';
-    }
-    if (
-        config_.gamepad.recoil.enabled &&
-        config_.gamepad.recoil.native_recognizer_enabled &&
-        !config_.gamepad.recoil.recognizer_state_path.empty()) {
-        recoil_weapon_recognizer_ =
-            std::make_unique<controller_native::NativeRecoilWeaponRuntimeRecognizer>(
-                config_.gamepad.recoil);
-        if (config_.gamepad.recoil.recognizer_log_enabled) {
-            std::cout << "[RecoilOCR][CPP] native_recognizer="
-                      << (recoil_weapon_recognizer_->available() ? "ready" : "unavailable")
-                      << " game=" << config_.gamepad.recoil.recognizer_game
-                      << " state=\"" << config_.gamepad.recoil.recognizer_state_path << "\"\n";
-        }
     }
     auto vision_engine = std::make_unique<vision_native::VisionEngine>(
         config_.vision.capture_width,
@@ -609,7 +598,6 @@ void RuntimeLoop::run_once() {
     const auto tick_started = std::chrono::steady_clock::now();
     const controller_native::PhysicalGamepadState physical = read_physical_gamepad();
     const std::uint64_t physical_read_at_ns = steady_time_point_ns(std::chrono::steady_clock::now());
-    update_recoil_recognizer_schedule(physical, tick_started);
     const bool aiming = is_aiming(physical);
     latest_vision_aiming_ = aiming;
     const pipeline_contract::UserAimIntent user_aim_intent = build_user_aim_intent(
@@ -644,26 +632,37 @@ void RuntimeLoop::run_once() {
     bool telemetry_new_vision = false;
     bool viewport_fresh_vision = false;
     if (vision_service_ != nullptr) {
-        vision_service_->set_aiming(aiming);
+        const std::uint64_t expected_aim_transition_sequence =
+            vision_service_->set_aiming(aiming);
         vision_service_->set_user_aim_intent(user_aim_intent);
         const VisionServiceSnapshot service_snapshot = vision_service_->latest_snapshot();
         if (
             service_snapshot.sequence != 0 &&
-            service_snapshot.sequence != latest_vision_service_sequence_ &&
-            service_snapshot.controller_aiming == aiming) {
+            service_snapshot.sequence != latest_vision_service_sequence_) {
             latest_vision_service_sequence_ = service_snapshot.sequence;
             vision_native::VisionResult result = service_snapshot.result;
             const auto controller_consume_started = std::chrono::steady_clock::now();
-            controller_.submit_vision_snapshot(
-                adapt_vision_result(result));
-            latest_vision_result_ = result;
-            has_latest_vision_result_ = true;
-            latest_result_timestamp_ns_ =
-                result.captured_at_ns != 0 ? result.captured_at_ns : result.result_at_ns;
-            latest_controller_consume_started_ns_ =
+            const std::uint64_t controller_consume_ns =
                 steady_time_point_ns(controller_consume_started);
-            telemetry_new_vision = true;
-            if (service_snapshot.freshness == VisionSnapshotFreshness::Fresh) {
+            const bool current_control_epoch =
+                service_snapshot.controller_aiming == aiming &&
+                service_snapshot.aim_transition_sequence ==
+                    expected_aim_transition_sequence;
+            if (service_snapshot.freshness == VisionSnapshotFreshness::Fresh &&
+                current_control_epoch &&
+                vision_delivery_gate_.accept(result, controller_consume_ns)) {
+                controller_.submit_vision_snapshot(adapt_vision_result(result));
+                latest_vision_publish_ns_ = service_snapshot.published_at_ns;
+                latest_vision_publish_available_ =
+                    service_snapshot.published_at_ns != 0;
+                latest_controller_submit_complete_ns_ =
+                    steady_time_point_ns(std::chrono::steady_clock::now());
+                latest_vision_result_ = result;
+                has_latest_vision_result_ = true;
+                latest_result_timestamp_ns_ =
+                    result.captured_at_ns != 0 ? result.captured_at_ns : result.result_at_ns;
+                latest_controller_consume_started_ns_ = controller_consume_ns;
+                telemetry_new_vision = true;
                 viewport_fresh_vision = true;
                 publish_fusion_if_updated(result);
             }
@@ -675,18 +674,26 @@ void RuntimeLoop::run_once() {
             last_vision_poll_at_ = tick_started;
             vision_native::VisionResult result = vision_engine_->poll_once();
             const auto controller_consume_started = std::chrono::steady_clock::now();
-            controller_.submit_vision_snapshot(
-                adapt_vision_result(result));
-            latest_vision_result_ = result;
-            has_latest_vision_result_ = true;
-            latest_result_timestamp_ns_ =
-                result.captured_at_ns != 0 ? result.captured_at_ns : result.result_at_ns;
-            latest_controller_consume_started_ns_ =
+            const std::uint64_t controller_consume_ns =
                 steady_time_point_ns(controller_consume_started);
-            telemetry_new_vision = true;
-            viewport_fresh_vision = result.frame_updated;
-
-            publish_fusion_if_updated(result);
+            if (vision_delivery_gate_.accept(result, controller_consume_ns)) {
+                controller_.submit_vision_snapshot(adapt_vision_result(result));
+                // Direct polling has no VisionService mailbox publish stage.
+                // Keep that stage explicitly unavailable and expose the
+                // controller submit completion separately.
+                latest_vision_publish_ns_ = 0;
+                latest_vision_publish_available_ = false;
+                latest_controller_submit_complete_ns_ =
+                    steady_time_point_ns(std::chrono::steady_clock::now());
+                latest_vision_result_ = result;
+                has_latest_vision_result_ = true;
+                latest_result_timestamp_ns_ =
+                    result.captured_at_ns != 0 ? result.captured_at_ns : result.result_at_ns;
+                latest_controller_consume_started_ns_ = controller_consume_ns;
+                telemetry_new_vision = true;
+                viewport_fresh_vision = true;
+                publish_fusion_if_updated(result);
+            }
         }
     }
     if (telemetry_new_vision) {
@@ -717,8 +724,6 @@ void RuntimeLoop::run_once() {
         vision.target_confidence = latest_vision_result_.target_confidence;
         telemetry_collectors_.observe_new_vision(vision);
     }
-    poll_due_recoil_recognizer(std::chrono::steady_clock::now());
-
     const auto controller_pipeline_started = std::chrono::steady_clock::now();
     controller_native::GamepadOutputState output = controller_.build_output(physical);
     pipeline_contract::CommittedCaptureObservation viewport_observation;
@@ -728,7 +733,8 @@ void RuntimeLoop::run_once() {
             latest_vision_result_,
             controller_.last_target_plan(),
             config_.gamepad.tracker.aim_height_ratio,
-            controller_.ads_epoch());
+            controller_.ads_epoch(),
+            latest_controller_consume_started_ns_);
         if (pipeline_contract::valid(viewport_observation)) {
             viewport_observation_ptr = &viewport_observation;
         }
@@ -780,6 +786,130 @@ void RuntimeLoop::run_once() {
         config_.output.enabled,
         steady_time_seconds(vigem_update_finished).value);
     ++tick_count_;
+    if (telemetry_new_vision) {
+        const auto& trace = controller_.last_acquisition_trace();
+        TelemetryAcquisitionTraceInput acquisition_trace;
+        acquisition_trace.source_frame_id = trace.source_frame_id;
+        acquisition_trace.source_observation_id = trace.source_observation_id;
+        acquisition_trace.persistent_target_id = trace.persistent_target_id;
+        acquisition_trace.physical_ads_epoch = trace.physical_ads_epoch;
+        acquisition_trace.target_acquisition_id = trace.target_acquisition_id;
+        acquisition_trace.controller_tick_id = tick_count_;
+        acquisition_trace.capture_acquire_begin_ns =
+            latest_vision_result_.capture_acquire_begin_ns;
+        acquisition_trace.capture_acquire_complete_ns =
+            latest_vision_result_.capture_acquire_complete_ns;
+        acquisition_trace.capture_copy_complete_ns =
+            latest_vision_result_.capture_copy_complete_ns != 0
+            ? latest_vision_result_.capture_copy_complete_ns
+            : latest_vision_result_.captured_at_ns;
+        acquisition_trace.accumulated_frames =
+            latest_vision_result_.accumulated_frames;
+        acquisition_trace.ads_acquisition_begin_ns =
+            trace.ads_acquisition_begin_ns;
+        acquisition_trace.ads_acquisition_complete_ns =
+            trace.ads_acquisition_complete_ns;
+        acquisition_trace.result_ready_ns = latest_vision_result_.result_at_ns;
+        acquisition_trace.vision_publish_ns = latest_vision_publish_ns_;
+        acquisition_trace.vision_publish_available =
+            latest_vision_publish_available_;
+        acquisition_trace.controller_submit_complete_ns =
+            latest_controller_submit_complete_ns_;
+        acquisition_trace.controller_consume_ns =
+            latest_controller_consume_started_ns_;
+        acquisition_trace.plan_decision_ns = trace.plan_decision_ns;
+        acquisition_trace.final_output_ready_ns = trace.final_output_ready_ns;
+        acquisition_trace.vigem_submit_complete_ns =
+            steady_time_point_ns(vigem_update_finished);
+        acquisition_trace.source_present_qpc =
+            latest_vision_result_.source_present_qpc;
+        acquisition_trace.source_present_qpc_frequency =
+            latest_vision_result_.source_present_qpc_frequency;
+        acquisition_trace.source_present_available =
+            latest_vision_result_.source_present_available;
+        acquisition_trace.plan_admitted = trace.plan_admitted;
+        acquisition_trace.acquisition_active = trace.acquisition_active;
+        acquisition_trace.acquisition_exists = trace.acquisition_exists;
+        acquisition_trace.preferred_source_id = trace.preferred_source_id;
+        acquisition_trace.selected_source_id = trace.selected_source_id;
+        acquisition_trace.candidate_count = trace.candidate_count;
+        acquisition_trace.acquisition_state =
+            static_cast<std::uint8_t>(trace.acquisition_state);
+        acquisition_trace.decision_reason =
+            static_cast<std::uint8_t>(trace.decision_reason);
+        acquisition_trace.source_decision_available =
+            trace.source_decision_available;
+        acquisition_trace.source_decision_outcome =
+            static_cast<std::uint8_t>(trace.source_decision_outcome);
+        acquisition_trace.source_decision_reason =
+            static_cast<std::uint8_t>(trace.source_decision_reason);
+        acquisition_trace.acquisition_terminal_reason =
+            static_cast<std::uint8_t>(trace.acquisition_terminal_reason);
+        acquisition_trace.selector_target_generation =
+            trace.selector_target_generation;
+        acquisition_trace.selector_target_changed =
+            trace.selector_target_changed;
+        acquisition_trace.effective_activation_radius_px =
+            trace.effective_activation_radius_px;
+        acquisition_trace.raw_error_x = trace.raw_error_px.x;
+        acquisition_trace.raw_error_y = trace.raw_error_px.y;
+        acquisition_trace.target_size_x = trace.target_size_px.x;
+        acquisition_trace.target_size_y = trace.target_size_px.y;
+        acquisition_trace.requested_ai_x = trace.requested_ai.x;
+        acquisition_trace.requested_ai_y = trace.requested_ai.y;
+        acquisition_trace.shaped_ai_x = trace.shaped_ai.x;
+        acquisition_trace.shaped_ai_y = trace.shaped_ai.y;
+        acquisition_trace.fused_output_x = trace.fused_output.x;
+        acquisition_trace.fused_output_y = trace.fused_output.y;
+        acquisition_trace.post_output_x = trace.post_output.x;
+        acquisition_trace.post_output_y = trace.post_output.y;
+        acquisition_trace.has_first_requested_ai =
+            trace.has_first_requested_ai;
+        acquisition_trace.has_first_shaped_ai = trace.has_first_shaped_ai;
+        acquisition_trace.has_first_fused_output =
+            trace.has_first_fused_output;
+        acquisition_trace.first_requested_ai_ns =
+            trace.first_requested_ai_ns;
+        acquisition_trace.first_shaped_ai_ns = trace.first_shaped_ai_ns;
+        acquisition_trace.first_fused_output_ns =
+            trace.first_fused_output_ns;
+        acquisition_trace.first_requested_ai_x =
+            trace.first_requested_ai.x;
+        acquisition_trace.first_requested_ai_y =
+            trace.first_requested_ai.y;
+        acquisition_trace.first_shaped_ai_x = trace.first_shaped_ai.x;
+        acquisition_trace.first_shaped_ai_y = trace.first_shaped_ai.y;
+        acquisition_trace.first_fused_output_x = trace.first_fused_output.x;
+        acquisition_trace.first_fused_output_y = trace.first_fused_output.y;
+        telemetry_collectors_.observe_acquisition_trace(acquisition_trace);
+        const auto& ego = latest_vision_result_.ego_motion_shadow;
+        if (ego.available) {
+            TelemetryEgoMotionShadowInput ego_input;
+            ego_input.available = ego.available;
+            ego_input.valid = ego.valid;
+            ego_input.invalid_reason = static_cast<std::uint8_t>(ego.invalid_reason);
+            ego_input.result_sequence = ego.result_sequence;
+            ego_input.previous_frame_id = ego.previous_frame_id;
+            ego_input.current_frame_id = ego.current_frame_id;
+            ego_input.previous_present_qpc = ego.previous_present_qpc;
+            ego_input.current_present_qpc = ego.current_present_qpc;
+            ego_input.present_qpc_frequency = ego.present_qpc_frequency;
+            ego_input.previous_result_ns = ego.previous_result_ns;
+            ego_input.current_result_ns = ego.current_result_ns;
+            ego_input.background_dx = ego.background_dx;
+            ego_input.background_dy = ego.background_dy;
+            ego_input.camera_dx = ego.camera_dx;
+            ego_input.camera_dy = ego.camera_dy;
+            ego_input.confidence = ego.confidence;
+            ego_input.valid_background_ratio = ego.valid_background_ratio;
+            ego_input.residual_px = ego.residual_px;
+            ego_input.compute_ms = ego.compute_ms;
+            ego_input.inlier_count = ego.inlier_count;
+            ego_input.sample_count = ego.sample_count;
+            telemetry_collectors_.observe_ego_motion_shadow(
+                latest_vision_result_.frame_id, tick_count_, ego_input);
+        }
+    }
     const auto& telemetry_components = controller_.last_output_components();
     TelemetryTickInput telemetry_tick;
     telemetry_tick.tick_id = tick_count_;
@@ -810,8 +940,91 @@ void RuntimeLoop::run_once() {
     telemetry_tick.physical_left_y = physical.left_y;
     telemetry_tick.manual_x = telemetry_components.manual_stick.x;
     telemetry_tick.manual_y = telemetry_components.manual_stick.y;
+    telemetry_tick.filtered_manual_x =
+        telemetry_components.filtered_manual_stick.x;
+    telemetry_tick.filtered_manual_y =
+        telemetry_components.filtered_manual_stick.y;
+    telemetry_tick.manual_confidence = telemetry_components.manual_confidence;
     telemetry_tick.ai_x = telemetry_components.ai_aim_stick.x;
     telemetry_tick.ai_y = telemetry_components.ai_aim_stick.y;
+    telemetry_tick.fresh_vision_validated_manual_proposal_x =
+        telemetry_components.intent_fusion_fresh_validated_manual_proposal.x;
+    telemetry_tick.fresh_vision_validated_manual_proposal_y =
+        telemetry_components.intent_fusion_fresh_validated_manual_proposal.y;
+    telemetry_tick.fresh_vision_validated_ai_proposal_x =
+        telemetry_components.intent_fusion_fresh_validated_ai_proposal.x;
+    telemetry_tick.fresh_vision_validated_ai_proposal_y =
+        telemetry_components.intent_fusion_fresh_validated_ai_proposal.y;
+    telemetry_tick.fresh_vision_manual_radial_scale =
+        telemetry_components.intent_fusion_fresh_manual_radial_scale;
+    telemetry_tick.fresh_vision_wrong_way_policy_applied =
+        telemetry_components.intent_fusion_fresh_vision_policy_applied;
+    telemetry_tick.fresh_vision_ai_radial_bound_applied =
+        telemetry_components.intent_fusion_fresh_ai_radial_bound;
+    telemetry_tick.fresh_vision_ai_radial_scale =
+        telemetry_components.intent_fusion_fresh_ai_radial_scale;
+    telemetry_tick.fresh_vision_predictive_envelope_applied =
+        telemetry_components.intent_fusion_predictive_envelope_applied;
+    telemetry_tick.fresh_vision_escape_latched =
+        telemetry_components.intent_fusion_fresh_escape_latched;
+    telemetry_tick.fresh_vision_authoritative_error_x =
+        telemetry_components.intent_fusion_fresh_authoritative_error_px.x;
+    telemetry_tick.fresh_vision_authoritative_error_y =
+        telemetry_components.intent_fusion_fresh_authoritative_error_px.y;
+    telemetry_tick.fresh_vision_predicted_error_x =
+        telemetry_components.intent_fusion_fresh_predicted_error_px.x;
+    telemetry_tick.fresh_vision_predicted_error_y =
+        telemetry_components.intent_fusion_fresh_predicted_error_px.y;
+    telemetry_tick.fresh_vision_raw_manual_radial =
+        telemetry_components.intent_fusion_fresh_raw_manual_radial;
+    telemetry_tick.fresh_vision_raw_ai_radial =
+        telemetry_components.intent_fusion_fresh_raw_ai_radial;
+    telemetry_tick.fresh_vision_strongest_valid_radial =
+        telemetry_components.intent_fusion_fresh_strongest_valid_radial;
+    telemetry_tick.fresh_vision_stopping_radial =
+        telemetry_components.intent_fusion_fresh_stopping_radial;
+    telemetry_tick.fresh_vision_permitted_radial =
+        telemetry_components.intent_fusion_fresh_permitted_radial;
+    telemetry_tick.fresh_vision_pre_slew_radial =
+        telemetry_components.intent_fusion_fresh_pre_slew_radial;
+    telemetry_tick.fresh_vision_final_radial =
+        telemetry_components.intent_fusion_fresh_final_radial;
+    telemetry_tick.fresh_vision_horizon_seconds =
+        telemetry_components.intent_fusion_fresh_horizon_seconds;
+    telemetry_tick.fresh_vision_horizon_y_seconds =
+        telemetry_components.intent_fusion_fresh_horizon_y_seconds;
+    telemetry_tick.fresh_vision_max_force_x =
+        telemetry_components.intent_fusion_fresh_max_force.x;
+    telemetry_tick.fresh_vision_max_force_y =
+        telemetry_components.intent_fusion_fresh_max_force.y;
+    telemetry_tick.fresh_vision_envelope_target_x =
+        telemetry_components.intent_fusion_fresh_envelope_target_stick.x;
+    telemetry_tick.fresh_vision_envelope_target_y =
+        telemetry_components.intent_fusion_fresh_envelope_target_stick.y;
+    telemetry_tick.fresh_vision_envelope_reason =
+        telemetry_components.intent_fusion_fresh_envelope_reason.c_str();
+    telemetry_tick.fresh_vision_envelope_source =
+        telemetry_components.intent_fusion_fresh_envelope_source.c_str();
+    telemetry_tick.bodylock_error_rate_x =
+        telemetry_components.bodylock_error_rate_px_per_sec.x;
+    telemetry_tick.bodylock_error_rate_y =
+        telemetry_components.bodylock_error_rate_px_per_sec.y;
+    telemetry_tick.bodylock_position_stick_x =
+        telemetry_components.bodylock_position_stick.x;
+    telemetry_tick.bodylock_position_stick_y =
+        telemetry_components.bodylock_position_stick.y;
+    telemetry_tick.bodylock_motion_stick_x =
+        telemetry_components.bodylock_motion_stick.x;
+    telemetry_tick.bodylock_motion_stick_y =
+        telemetry_components.bodylock_motion_stick.y;
+    telemetry_tick.bodylock_effective_motion_stick_x =
+        telemetry_components.bodylock_effective_motion_stick.x;
+    telemetry_tick.bodylock_effective_motion_stick_y =
+        telemetry_components.bodylock_effective_motion_stick.y;
+    telemetry_tick.bodylock_radial_motion_bound =
+        telemetry_components.bodylock_radial_motion_bound;
+    telemetry_tick.bodylock_constraint_reason =
+        telemetry_components.bodylock_constraint_reason.c_str();
     telemetry_tick.requested_assist_x = telemetry_components.requested_assist_stick.x;
     telemetry_tick.requested_assist_y = telemetry_components.requested_assist_stick.y;
     telemetry_tick.shaped_assist_x = telemetry_components.shaped_assist_stick.x;
@@ -898,7 +1111,8 @@ void RuntimeLoop::run_once() {
             latest_vision_result_,
             controller_.last_target_plan(),
             config_.gamepad.tracker.aim_height_ratio,
-            controller_.ads_epoch());
+            controller_.ads_epoch(),
+            latest_controller_consume_started_ns_);
         telemetry_collectors_.observe_committed_capture(committed);
         if (causal_response_learner_ != nullptr &&
             pipeline_contract::valid(committed)) {
@@ -909,12 +1123,20 @@ void RuntimeLoop::run_once() {
                 const auto estimate = causal_response_learner_->estimate();
                 control_learning::PendingMotionEstimate pending;
                 control_learning::RolloutResult rollout;
+                const auto& controller_trace = controller_.last_acquisition_trace();
+                const bool causal_decision_available = controller_trace.valid &&
+                    controller_trace.source_frame_id == committed.source_frame_id &&
+                    controller_trace.plan_decision_ns != 0;
+                const std::uint64_t causal_decision_ns =
+                    causal_decision_available
+                    ? controller_trace.plan_decision_ns
+                    : 0;
                 if (has_previous_learning_observation_) {
                     control_learning::PendingMotionRequest request;
                     request.previous_capture_ns =
                         previous_learning_observation_.captured_at_ns;
                     request.current_capture_ns = committed.captured_at_ns;
-                    request.decision_ns = telemetry_tick.output_sent_ns;
+                    request.decision_ns = causal_decision_ns;
                     request.delay_ms = estimate.selected_delay_ms;
                     request.right_response = estimate.right_stable;
                     request.left_response = estimate.left_stable;
@@ -935,7 +1157,7 @@ void RuntimeLoop::run_once() {
                     controller_native::ControlLearningMode::RolloutShadow) {
                     const auto& plan = controller_.last_target_plan();
                     control_learning::RolloutSnapshot snapshot;
-                    snapshot.decision_at_ns = telemetry_tick.output_sent_ns;
+                    snapshot.decision_at_ns = causal_decision_ns;
                     snapshot.latest_evidence_at_ns = committed.result_at_ns;
                     snapshot.target_id = plan.target_id;
                     snapshot.mode = plan.mode;
@@ -948,11 +1170,15 @@ void RuntimeLoop::run_once() {
                     snapshot.target_acceleration_px_per_sec2 = {
                         plan.acceleration_px_per_sec2.x,
                         plan.acceleration_px_per_sec2.y};
-                    snapshot.shaped_ai = {telemetry_components.shaped_assist_stick.x,
-                                          telemetry_components.shaped_assist_stick.y};
-                    snapshot.manual = {telemetry_components.manual_stick.x,
-                                       telemetry_components.manual_stick.y};
-                    snapshot.scheduled_pending_px = pending.scheduled_px;
+                    // The fuser's single pre-recoil aim output is the only
+                    // proposal the rollout may scale. Manual and shaped-AI
+                    // components remain upstream diagnostics, not forces;
+                    // recoil stays outside this shadow proposal.
+                    snapshot.final_output = {
+                        telemetry_components.before_recoil_stick.x,
+                        telemetry_components.before_recoil_stick.y};
+                    snapshot.pending_total_px = pending.pending_total_px;
+                    snapshot.pending_motion_valid = pending.valid;
                     snapshot.right_response = estimate.right_stable;
                     snapshot.response_confidence = estimate.right_confidence;
                     snapshot.delay_confidence = estimate.selected_delay_confidence;
@@ -963,7 +1189,9 @@ void RuntimeLoop::run_once() {
                 }
                 if (config_.control_learning.telemetry_enabled)
                     telemetry_collectors_.observe_causal_shadow(
-                        committed, assessment, estimate, pending, rollout);
+                        committed, assessment, estimate, pending, rollout,
+                        {telemetry_components.before_recoil_stick.x,
+                         telemetry_components.before_recoil_stick.y});
                 previous_learning_observation_ = committed;
                 has_previous_learning_observation_ = true;
             }
@@ -1055,39 +1283,6 @@ bool RuntimeLoop::should_poll_vision(std::chrono::steady_clock::time_point now) 
     const auto capture_interval = capture_interval_for_fps(config_.vision.capture_fps);
     return capture_interval <= std::chrono::steady_clock::duration::zero() ||
         now - last_vision_poll_at_ >= capture_interval;
-}
-
-void RuntimeLoop::update_recoil_recognizer_schedule(
-    const controller_native::PhysicalGamepadState& physical,
-    std::chrono::steady_clock::time_point now) {
-    if (recoil_weapon_recognizer_ == nullptr || !recoil_weapon_recognizer_->available()) {
-        return;
-    }
-    const bool scheduled = recoil_switch_scheduler_.update_y_button(physical.y, now);
-    if (scheduled && config_.gamepad.recoil.recognizer_log_enabled) {
-        std::cout << "[RecoilOCR][CPP] Y switch detected; scheduled captures at 600ms and 760ms\n";
-    }
-}
-
-void RuntimeLoop::poll_due_recoil_recognizer(std::chrono::steady_clock::time_point now) {
-    if (recoil_weapon_recognizer_ == nullptr || !recoil_weapon_recognizer_->available()) {
-        return;
-    }
-    while (recoil_switch_scheduler_.consume_due_capture(now)) {
-        const bool updated = recoil_weapon_recognizer_->poll_once();
-        if (updated) {
-            const auto& event = recoil_weapon_recognizer_->last_event();
-            if (event.has_value() && event->source != "switch_unresolved") {
-                recoil_switch_scheduler_.clear_pending();
-            }
-        }
-        if (config_.gamepad.recoil.recognizer_log_enabled) {
-            std::cout << "[RecoilOCR][CPP] switch capture"
-                      << " updated=" << (updated ? 1 : 0)
-                      << " pending=" << recoil_switch_scheduler_.pending_count()
-                      << '\n';
-        }
-    }
 }
 
 bool RuntimeLoop::should_stop_requested() const {

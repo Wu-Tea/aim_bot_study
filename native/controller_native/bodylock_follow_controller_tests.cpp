@@ -116,6 +116,28 @@ void test_predictive_lead_may_cross_residual_error_direction() {
                  "trusted predictive lead must survive even when it opposes the tiny residual error");
 }
 
+void test_learned_response_changes_output_without_changing_nominal_horizon() {
+    controller_native::BodylockFollowController controller;
+    auto nominal = moving_plan();
+    nominal.error_px = {24.0f, 0.0f};
+    nominal.error_rate_px_per_sec = {};
+    nominal.response_scale = 500.0f;
+    const auto nominal_output = controller.compute_detailed(
+        nominal, {}, 0.01f, true);
+
+    auto learned = nominal;
+    learned.response_scale = 250.0f;
+    const auto learned_output = controller.compute_detailed(
+        learned, {}, 0.01f, true);
+    require_true(learned_output.stick.x > nominal_output.stick.x + 0.01f,
+                 "learned BodyLock response must still change controller output");
+    require_true(std::fabs(learned_output.response_horizon_seconds -
+                               nominal_output.response_horizon_seconds) <= 0.0001f &&
+                     std::fabs(learned_output.response_horizon_y_seconds -
+                               nominal_output.response_horizon_y_seconds) <= 0.0001f,
+                 "learned response must not recompute the fixed nominal horizon");
+}
+
 void test_coasting_prediction_cannot_reverse_across_residual_error() {
     controller_native::BodylockFollowController controller;
     auto plan = moving_plan();
@@ -125,6 +147,128 @@ void test_coasting_prediction_cannot_reverse_across_residual_error() {
     const auto output = controller.compute(plan, {}, 0.01f);
     require_true(output.x >= 0.0f,
                  "stale coasting velocity must not pull away from the remaining target error");
+}
+
+void test_fresh_observed_position_bounds_stale_motion_tail() {
+    controller_native::BodylockFollowController controller;
+    bool saw_bound = false;
+    for (const auto& shape : {
+             std::pair<float, float>{-6.0f, 180.0f},
+             std::pair<float, float>{-10.0f, 260.0f},
+             std::pair<float, float>{-14.0f, 320.0f}}) {
+        auto plan = moving_plan();
+        plan.error_px.x = shape.first;
+        plan.error_rate_px_per_sec.x = shape.second;
+        const auto output = controller.compute(plan, {}, 0.01f, true);
+        require_true(
+            output.x <= 0.0f,
+            "fresh observed position must not be reversed by stale radial motion");
+        const auto detailed = controller.compute_detailed(plan, {}, 0.01f, true);
+        require_true(detailed.position_stick.x < 0.0f &&
+                         detailed.motion_stick.x > 0.0f,
+                     "fixture must expose opposing position and stale motion proposals");
+        require_true(detailed.effective_motion_stick.x <= 0.0f,
+                     "effective motion must not retain an opposing fresh radial sign");
+        saw_bound = saw_bound || detailed.radial_motion_bound_applied;
+        require_true(
+            detailed.constraint_reason ==
+                controller_native::ResponseModelConstraintReason::FreshPositionRadialMotionBound,
+            "fresh BodyLock diagnostic must name the radial motion constraint");
+    }
+    require_true(saw_bound, "fresh stale-motion fixture never exercised the radial bound");
+}
+
+void test_fresh_forecast_cannot_reverse_rotated_position() {
+    controller_native::BodylockFollowController controller;
+    auto plan = moving_plan();
+    plan.error_px = {-8.0f, 4.0f};
+    plan.error_rate_px_per_sec = {};
+    plan.player_motion_forecast_px = {40.0f, -30.0f};
+    plan.player_motion_confidence = 1.0f;
+
+    const auto output = controller.compute(plan, {}, 0.01f, true);
+    const pipeline_contract::Vec2f control_error{
+        plan.error_px.x, -plan.error_px.y};
+    require_true(
+        output.x * control_error.x + output.y * control_error.y >= -0.0001f,
+        "fresh forecast must not reverse the radial position correction");
+}
+
+void test_fresh_forecast_preserves_tangent_motion() {
+    controller_native::BodylockFollowController controller;
+    auto plan = moving_plan();
+    plan.error_px = {-8.0f, 4.0f};
+    plan.error_rate_px_per_sec = {};
+    plan.player_motion_forecast_px = {40.0f, 30.0f};
+    plan.player_motion_confidence = 1.0f;
+    const auto detailed = controller.compute_detailed(plan, {}, 0.01f, true);
+    const pipeline_contract::Vec2f control_error{
+        plan.error_px.x, -plan.error_px.y};
+    const float error_length = std::hypot(control_error.x, control_error.y);
+    const pipeline_contract::Vec2f radial{
+        control_error.x / error_length, control_error.y / error_length};
+    const pipeline_contract::Vec2f tangent{-radial.y, radial.x};
+    const float effective_radial =
+        detailed.effective_motion_stick.x * radial.x +
+        detailed.effective_motion_stick.y * radial.y;
+    const float raw_tangent =
+        detailed.motion_stick.x * tangent.x +
+        detailed.motion_stick.y * tangent.y;
+    const float effective_tangent =
+        detailed.effective_motion_stick.x * tangent.x +
+        detailed.effective_motion_stick.y * tangent.y;
+    require_true(effective_radial >= -0.0001f,
+                 "fresh forecast radial proposal must be bounded at the solver");
+    require_true(std::fabs(effective_tangent - raw_tangent) <= 0.0001f,
+                 "fresh radial forecast bound must preserve tangent motion");
+}
+
+void test_fresh_near_center_forecast_envelope_is_continuous() {
+    controller_native::BodylockFollowController controller;
+    float previous = 0.0f;
+    bool first = true;
+    for (const float error_x : {0.05f, 0.08f, 0.12f, 0.20f}) {
+        auto plan = moving_plan();
+        plan.error_px = {error_x, 0.0f};
+        plan.error_rate_px_per_sec = {};
+        plan.player_motion_forecast_px = {-20.0f, 0.0f};
+        plan.player_motion_confidence = 1.0f;
+        const auto output = controller.compute_detailed(plan, {}, 0.01f, true);
+        require_true(output.stick.x >= -0.0001f,
+                     "near-center fresh forecast must not reverse position");
+        if (!first) {
+            require_true(std::fabs(output.stick.x - previous) < 0.08f,
+                         "near-center fresh forecast envelope was discontinuous");
+        }
+        previous = output.stick.x;
+        first = false;
+    }
+}
+
+void test_nonfresh_forecast_path_remains_numerically_equivalent() {
+    controller_native::BodylockFollowController controller;
+    auto with_forecast = moving_plan();
+    with_forecast.error_px = {12.0f, -7.0f};
+    with_forecast.error_rate_px_per_sec = {140.0f, -90.0f};
+    with_forecast.player_motion_forecast_px = {18.0f, -11.0f};
+    with_forecast.player_motion_confidence = 0.8f;
+    const auto original = controller.compute_detailed(
+        with_forecast, {}, 0.01f, false);
+
+    auto equivalent = with_forecast;
+    equivalent.error_px.x +=
+        equivalent.player_motion_forecast_px.x *
+        equivalent.player_motion_confidence * 0.65f;
+    equivalent.error_px.y +=
+        equivalent.player_motion_forecast_px.y *
+        equivalent.player_motion_confidence * 0.65f;
+    equivalent.player_motion_forecast_px = {};
+    equivalent.player_motion_confidence = 0.0f;
+    const auto legacy_equivalent = controller.compute_detailed(
+        equivalent, {}, 0.01f, false);
+    require_true(std::fabs(original.stick.x - legacy_equivalent.stick.x) <= 0.0001f &&
+                     std::fabs(original.stick.y - legacy_equivalent.stick.y) <= 0.0001f,
+                 "non-fresh forecast path changed its prior numerical behavior");
 }
 
 }  // namespace
@@ -138,8 +282,14 @@ int main() {
         test_near_target_error_has_legacy_grip();
         test_left_strafe_yields_positional_grip_without_dropping_follow();
         test_feedforward_is_not_scaled_by_force_twice();
+        test_learned_response_changes_output_without_changing_nominal_horizon();
         test_predictive_lead_may_cross_residual_error_direction();
         test_coasting_prediction_cannot_reverse_across_residual_error();
+        test_fresh_observed_position_bounds_stale_motion_tail();
+        test_fresh_forecast_cannot_reverse_rotated_position();
+        test_fresh_forecast_preserves_tangent_motion();
+        test_fresh_near_center_forecast_envelope_is_continuous();
+        test_nonfresh_forecast_path_remains_numerically_equivalent();
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "[BodylockFollowControllerTests] FAIL " << error.what() << '\n';

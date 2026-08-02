@@ -5,6 +5,7 @@
 #include <iostream>
 #include <limits>
 #include <stdexcept>
+#include <string>
 
 namespace {
 
@@ -203,6 +204,9 @@ void test_far_bodylock_full_cooperative_input_remains_manual_escape() {
     VectorIntentFuser fuser(production_priority_config());
     auto input = input_for({1.0f, 0.0f}, {0.30f, 0.0f});
     input.plan.normalized_size = 0.12f;
+    const auto pending = fuser.update(input, 0.001f);
+    require_true(!pending.manual_escape,
+                 "near-full input must not transfer ownership on one tick");
     const auto decision = fuser.update(input, 0.001f);
     require_true(decision.manual_escape,
                  "far BodyLock must keep the accepted full-manual escape boundary");
@@ -226,6 +230,11 @@ void test_near_bodylock_full_opposing_input_remains_exact_escape() {
     VectorIntentFuser fuser(production_priority_config());
     auto input = input_for({-1.0f, 0.0f}, {0.30f, 0.0f});
     input.plan.normalized_size = 0.24f;
+    const auto pending = fuser.update(input, 0.001f);
+    require_true(!pending.manual_escape,
+                 "near-full opposing input must require a consecutive confirmation");
+    require_true(pending.fused_stick.x > -0.95f,
+                 "one near-full opposing tick must stay inside the predictive envelope");
     const auto decision = fuser.update(input, 0.001f);
     require_true(decision.manual_escape,
                  "near BodyLock swallowed a full opposing escape request");
@@ -240,6 +249,17 @@ void test_ads_moderate_manual_input_keeps_ordinary_cooperation() {
     const auto decision = fuser.update(input, 0.001f);
     require_near(decision.fused_stick.x, 0.60f, 0.0001f,
                  "AI priority activated below the strong-manual boundary");
+}
+
+void test_same_direction_subfull_manual_is_not_escape_feedback() {
+    for (const float manual_x : {0.10f, 0.50f}) {
+        VectorIntentFuser fuser(production_priority_config());
+        auto input = input_for({manual_x, 0.0f}, {0.30f, 0.0f});
+        input.plan.mode = pipeline_contract::ControlMode::AdsAcquire;
+        const auto decision = fuser.update(input, 0.001f);
+        require_true(!decision.manual_escape,
+                     "same-direction sub-full manual input became an escape");
+    }
 }
 
 void test_ads_log_normalization_uses_effective_1p9_parallel_proposal() {
@@ -359,7 +379,7 @@ void test_escape_threshold_is_not_a_control_switch() {
                  "manual threshold crossing created an output impulse");
 }
 
-void test_fresh_vision_does_not_override_countersteer() {
+void test_fresh_vision_corrects_countersteer_without_touching_tangent() {
     VectorIntentFuser normal;
     VectorIntentFuser fresh;
     auto normal_input = input_for({-0.30f, 0.0f}, {0.50f, 0.20f});
@@ -367,10 +387,442 @@ void test_fresh_vision_does_not_override_countersteer() {
     fresh_input.fresh_single_target_observation = true;
     const auto a = normal.update(normal_input, 0.001f);
     const auto b = fresh.update(fresh_input, 0.001f);
-    require_near(a.fused_stick.x, b.fused_stick.x, 0.0001f,
-                 "fresh Vision must not create a second ownership pulse");
+    require_true(b.fused_stick.x > a.fused_stick.x + 0.20f,
+                 "fresh Vision must be able to correct obsolete radial manual input");
     require_near(a.fused_stick.y, 0.20f, 0.0001f,
                  "AI motion orthogonal to the conflict must remain complete");
+    require_near(b.fused_stick.y, 0.20f, 0.0001f,
+                 "fresh radial correction must preserve tangent AI motion");
+    require_true(b.fresh_vision_wrong_way_policy_applied,
+                 "fresh radial policy activation must be visible at the fuser boundary");
+}
+
+void test_fresh_wrong_way_manual_floor_cancels_obsolete_radial_demand() {
+    // Live ADS crossing fingerprint: fresh AI has already reversed, while
+    // physical input still contributes the old direction.  This is written
+    // against the one fuser boundary so the old 0.75 preservation path cannot
+    // be hidden by a later output clamp.
+    for (const auto& axis : {
+             pipeline_contract::Vec2f{1.0f, 0.0f},
+             pipeline_contract::Vec2f{0.0f, 1.0f},
+             pipeline_contract::Vec2f{0.6f, 0.8f}}) {
+        VectorIntentFuser fuser;
+        auto input = input_for(
+            {axis.x * 0.32f, axis.y * 0.32f},
+            {-axis.x * 0.54f, -axis.y * 0.54f});
+        input.plan.mode = pipeline_contract::ControlMode::AdsAcquire;
+        input.plan.error_px = {-axis.x * 80.0f, axis.y * 80.0f};
+        input.plan.reliability = 0.95f;
+        input.plan.confidence = 0.95f;
+        input.plan.response_confidence = 0.80f;
+        input.fresh_single_target_observation = true;
+        const auto decision = fuser.update(input, 0.001f);
+        const float radial_output =
+            decision.fused_stick.x * -axis.x +
+            decision.fused_stick.y * -axis.y;
+        require_true(
+            radial_output >= 0.0f,
+            "fresh radial AI correction must cancel obsolete manual demand");
+    }
+}
+
+void test_fresh_ai_wrong_way_is_bounded_by_position_evidence() {
+    VectorIntentFuser fuser;
+    auto input = input_for({0.30f, 0.0f}, {-0.80f, 0.0f});
+    input.plan.mode = pipeline_contract::ControlMode::AdsAcquire;
+    input.plan.error_px = {80.0f, 0.0f};
+    input.plan.reliability = 0.95f;
+    input.fresh_single_target_observation = true;
+    const auto decision = fuser.update(input, 0.001f);
+    require_true(decision.fresh_vision_ai_radial_bound_applied,
+                 "fresh position must expose the AI radial bound");
+    require_true(decision.fused_stick.x >= -0.001f,
+                 "fresh position must prevent an obsolete AI sign from deepening error");
+}
+
+void test_strong_manual_and_ai_are_one_radial_proposal_envelope() {
+    for (const float manual : {0.70f, 1.00f}) {
+        VectorIntentFuser cooperative;
+        auto same = input_for({manual, 0.0f}, {0.80f, 0.0f});
+        same.plan.mode = pipeline_contract::ControlMode::AdsAcquire;
+        same.plan.error_px = {80.0f, 0.0f};
+        same.fresh_single_target_observation = true;
+        const auto same_decision = cooperative.update(same, 0.001f);
+        require_true(
+            same_decision.fused_stick.x <=
+                std::max(std::fabs(manual), 0.80f) + 0.001f,
+            "strong same-direction manual and AI became an additive radial force");
+
+        VectorIntentFuser opposing;
+        auto opposite = input_for({-manual, 0.0f}, {0.80f, 0.0f});
+        opposite.plan.mode = pipeline_contract::ControlMode::AdsAcquire;
+        opposite.plan.error_px = {80.0f, 0.0f};
+        opposite.plan.reliability = 0.95f;
+        opposite.fresh_single_target_observation = true;
+        const auto opposite_decision = opposing.update(opposite, 0.001f);
+        require_true(opposite_decision.fused_stick.x >= -0.001f,
+                     "strong opposing manual must not deepen fresh radial error");
+    }
+}
+
+void test_manual_escape_stays_latched_until_release_or_identity_change() {
+    VectorIntentFuser fuser(production_priority_config());
+    auto input = input_for({-1.0f, 0.0f}, {0.30f, 0.0f});
+    input.plan.normalized_size = 0.24f;
+
+    const auto first = fuser.update(input, 0.001f);
+    require_true(!first.manual_escape,
+                 "the first held escape candidate must remain inside the envelope");
+    for (int tick = 0; tick < 4; ++tick) {
+        const auto held = fuser.update(input, 0.001f);
+        require_true(held.manual_escape,
+                     "confirmed manual escape must stay latched while held");
+        require_near(held.fused_stick.x, -1.0f, 0.0001f,
+                     "latched manual escape must preserve the held X input");
+    }
+
+    // A shaped-AI direction change is not a physical release. The confirmed
+    // ownership must remain exact-manual while the same stick stays held.
+    auto flip_probe = input;
+    flip_probe.shaped_ai_stick = {-0.35f, 0.0f};
+    VectorIntentFuser classifier_probe(production_priority_config());
+    const auto unlatched_flip = classifier_probe.update(flip_probe, 0.001f);
+    require_true(!unlatched_flip.manual_escape,
+                 "cooperative AI flip must not independently classify as escape");
+    input.shaped_ai_stick = {-0.35f, 0.0f};
+    for (int tick = 0; tick < 3; ++tick) {
+        const auto ai_flip = fuser.update(input, 0.001f);
+        require_true(ai_flip.manual_escape,
+                     "AI direction change must not unlock a held escape latch");
+        require_near(ai_flip.fused_stick.x, -1.0f, 0.0001f,
+                     "AI direction change must not replace latched manual output");
+    }
+
+    input.manual_stick = {};
+    input.shaped_ai_stick = {0.30f, 0.0f};
+    const auto released = fuser.update(input, 0.001f);
+    require_true(!released.manual_escape,
+                 "manual release must clear the escape latch");
+
+    input.manual_stick = {-1.0f, 0.0f};
+    const auto same_target_first = fuser.update(input, 0.001f);
+    require_true(!same_target_first.manual_escape,
+                 "a re-held escape must require a fresh consecutive confirmation");
+    const auto same_target_second = fuser.update(input, 0.001f);
+    require_true(same_target_second.manual_escape,
+                 "same-target re-held escape must confirm after the pending tick");
+
+    input.plan.mode = pipeline_contract::ControlMode::AdsAcquire;
+    const auto ads_transition = fuser.update(input, 0.001f);
+    require_true(ads_transition.manual_escape,
+                 "same-target ADS transition must keep escape ownership latched");
+    input.plan.mode = pipeline_contract::ControlMode::BodyLockFollow;
+    input.plan.lifecycle = pipeline_contract::TargetLifecycle::Coasting;
+    const auto lifecycle_transition = fuser.update(input, 0.001f);
+    require_true(lifecycle_transition.manual_escape,
+                 "same-target lifecycle transition must keep escape ownership latched");
+
+    input.plan.target_id = 8;
+    const auto changed = fuser.update(input, 0.001f);
+    require_true(changed.reason == FusionFallbackReason::TargetChanged,
+                 "target change must keep its explicit manual admission boundary");
+    require_true(!changed.manual_escape,
+                 "target change must clear the previous target escape latch");
+    const auto replacement_pending = fuser.update(input, 0.001f);
+    require_true(!replacement_pending.manual_escape,
+                 "replacement target must not inherit a latched escape");
+}
+
+void test_fresh_final_continuity_is_source_agnostic() {
+    auto make_fuser = [] {
+        VectorIntentFuser fuser;
+        auto baseline = input_for({0.50f, 0.0f}, {});
+        baseline.plan.lifecycle = pipeline_contract::TargetLifecycle::Coasting;
+        (void)fuser.update(baseline, 0.001f);
+        return fuser;
+    };
+
+    VectorIntentFuser manual_fuser = make_fuser();
+    auto manual = input_for({0.80f, 0.0f}, {});
+    manual.plan.mode = pipeline_contract::ControlMode::BodyLockFollow;
+    manual.plan.error_px = {80.0f, 0.0f};
+    manual.plan.predicted_terminal_error_px = manual.plan.error_px;
+    manual.plan.response_scale = 500.0f;
+    manual.plan.response_confidence = 1.0f;
+    manual.fresh_single_target_observation = true;
+    manual.response_horizon_seconds = 0.20f;
+    manual.response_horizon_y_seconds = 0.20f;
+    manual.response_max_force = {1.0f, 1.0f};
+    manual.response_envelope_valid = true;
+    manual.response_envelope_source = "bodylock_response_model";
+
+    VectorIntentFuser ai_fuser = make_fuser();
+    auto ai = manual;
+    ai.manual_stick = {};
+    ai.shaped_ai_stick = {0.80f, 0.0f};
+
+    const auto manual_result = manual_fuser.update(manual, 0.001f);
+    const auto ai_result = ai_fuser.update(ai, 0.001f);
+    require_near(manual_result.fresh_vision_pre_slew_radial,
+                 ai_result.fresh_vision_pre_slew_radial,
+                 0.0001f,
+                 "matched fresh proposals did not produce one final demand");
+    require_near(manual_result.fused_stick.x,
+                 ai_result.fused_stick.x,
+                 0.0001f,
+                 "fresh output slew changed solely because proposal source changed");
+    require_near(manual_result.fused_stick.x, 0.58f, 0.0002f,
+                 "fresh source-agnostic continuity did not use the single output step");
+}
+
+void test_zero_authority_stays_manual_safe() {
+    VectorIntentFuser fuser;
+    auto input = input_for({0.30f, 0.0f}, {0.70f, 0.0f});
+    input.plan.mode = pipeline_contract::ControlMode::BodyLockFollow;
+    input.plan.aim_authority = 0.0f;
+    input.plan.error_px = {80.0f, 0.0f};
+    input.plan.reliability = 1.0f;
+    input.fresh_single_target_observation = true;
+    const auto decision = fuser.update(input, 0.001f);
+    require_true(!decision.fresh_vision_predictive_envelope_applied,
+                 "zero-authority BodyLock must not enter the fresh final-output owner");
+    require_true(decision.reason == FusionFallbackReason::NoAuthority,
+                 "zero authority must expose an explicit manual-safe reason");
+    require_near(decision.fused_stick.x, 0.30f, 0.0001f,
+                 "zero authority must reject stale AI and preserve exact manual input");
+}
+
+void test_fresh_shared_envelope_is_continuous_below_old_strength_gate() {
+    for (const auto strengths : {
+             std::pair<float, float>{0.10f, 0.30f},
+             std::pair<float, float>{0.30f, 0.45f},
+             std::pair<float, float>{0.45f, 0.70f},
+             std::pair<float, float>{0.70f, 1.00f}}) {
+        VectorIntentFuser fuser;
+        auto input = input_for(
+            {strengths.first, 0.0f}, {strengths.second, 0.0f});
+        input.plan.mode = pipeline_contract::ControlMode::AdsAcquire;
+        input.plan.error_px = {80.0f, 0.0f};
+        input.fresh_single_target_observation = true;
+        const auto decision = fuser.update(input, 0.001f);
+        require_true(decision.fresh_vision_predictive_envelope_applied,
+                     "fresh reliable proposals must report the shared envelope");
+        require_true(
+            decision.fused_stick.x < strengths.first + strengths.second - 0.001f,
+            "fresh manual and AI proposals must not be raw additive forces");
+        require_true(
+            decision.fresh_vision_strongest_valid_radial <=
+                std::max(strengths.first, strengths.second) + 0.0001f,
+            "fresh radial demand exceeded the strongest valid proposal");
+        require_true(
+            decision.fresh_vision_final_radial <=
+                decision.fresh_vision_permitted_radial + 0.0001f,
+            "fresh radial demand exceeded stopping permission");
+        require_true(decision.fused_stick.x >= -0.001f,
+                     "same-direction fresh proposals must not reverse target error");
+    }
+}
+
+void test_fresh_post_slew_radial_guard_survives_center_crossing() {
+    VectorIntentFuser fuser;
+    auto input = input_for({0.30f, 0.0f}, {0.30f, 0.0f});
+    input.plan.mode = pipeline_contract::ControlMode::AdsAcquire;
+    input.plan.error_px = {80.0f, 0.0f};
+    input.fresh_single_target_observation = true;
+    const auto before_cross = fuser.update(input, 0.001f);
+    require_true(before_cross.fused_stick.x > 0.0f,
+                 "center-cross fixture must initialize an old radial output");
+
+    input.manual_stick = {};
+    input.shaped_ai_stick = {-0.30f, 0.0f};
+    input.plan.error_px = {-80.0f, 0.0f};
+    const auto after_cross = fuser.update(input, 0.001f);
+    require_true(after_cross.fresh_vision_final_radial >= -0.0001f,
+                 "post-slew final radial must not deepen a fresh crossed error");
+    require_near(after_cross.fresh_vision_final_radial,
+                 after_cross.fused_stick.x * -1.0f,
+                 0.0001f,
+                 "final radial telemetry must match the returned post-slew vector");
+}
+
+void test_active_bodylock_envelope_limits_manual_and_ai() {
+    for (const auto error : {
+             pipeline_contract::Vec2f{80.0f, 0.0f},
+             pipeline_contract::Vec2f{0.0f, 80.0f},
+             pipeline_contract::Vec2f{80.0f, 80.0f},
+             pipeline_contract::Vec2f{12.0f, 0.0f}}) {
+        VectorIntentFuser fuser;
+        const pipeline_contract::Vec2f control_error{
+            error.x, -error.y};
+        const float error_length = std::hypot(
+            control_error.x, control_error.y);
+        const pipeline_contract::Vec2f radial{
+            control_error.x / error_length,
+            control_error.y / error_length};
+        auto input = input_for(radial,
+                               {radial.x * 0.80f, radial.y * 0.80f});
+        input.plan.mode = pipeline_contract::ControlMode::BodyLockFollow;
+        input.plan.error_px = error;
+        input.plan.response_scale = 500.0f;
+        input.plan.response_confidence = 1.0f;
+        input.plan.predicted_terminal_error_px = error;
+        input.fresh_single_target_observation = true;
+        input.response_horizon_seconds = 0.18f;
+        input.response_horizon_y_seconds = 0.128f;
+        input.response_max_force = {0.30f, 0.42f};
+        input.response_envelope_valid = true;
+        input.response_envelope_source = "bodylock_response_model";
+        const auto decision = fuser.update(input, 0.001f);
+        const float ellipse = std::hypot(
+            decision.fused_stick.x / 0.30f,
+            decision.fused_stick.y / 0.42f);
+        require_true(ellipse <= 1.0001f,
+                     "fresh BodyLock manual+AI exceeded its configured force ellipse");
+        const float actual_radial =
+            decision.fused_stick.x * radial.x +
+            decision.fused_stick.y * radial.y;
+        require_true(actual_radial > 0.001f,
+                     "fresh BodyLock envelope test unexpectedly produced zero output");
+        if (error_length > 50.0f) {
+            require_true(decision.fresh_vision_final_radial >=
+                             decision.fresh_vision_permitted_radial - 0.0002f,
+                         "far BodyLock case did not reach its active stopping/force bound");
+        } else {
+            require_true(decision.fresh_vision_final_radial < 0.20f,
+                         "near BodyLock case did not remain stopping-demand limited");
+        }
+        require_true(decision.fresh_vision_envelope_reason != nullptr &&
+                         std::string(decision.fresh_vision_envelope_source) ==
+                             "bodylock_response_model",
+                     "BodyLock envelope source was not observable");
+        require_near(decision.fresh_vision_envelope_horizon_seconds,
+                     0.18f, 0.0001f,
+                     "BodyLock X horizon was not carried into fusion");
+    }
+}
+
+void test_shaped_ai_authority_is_not_applied_twice() {
+    VectorIntentFuser fuser;
+    auto input = input_for({0.0f, 0.0f}, {0.40f, 0.0f});
+    input.plan.mode = pipeline_contract::ControlMode::BodyLockFollow;
+    input.plan.aim_authority = 0.50f;
+    input.plan.error_px = {80.0f, 0.0f};
+    input.plan.predicted_terminal_error_px = {80.0f, 0.0f};
+    input.plan.response_scale = 500.0f;
+    input.plan.response_confidence = 1.0f;
+    input.fresh_single_target_observation = true;
+    input.response_horizon_seconds = 0.18f;
+    input.response_horizon_y_seconds = 0.18f;
+    input.response_max_force = {0.60f, 0.60f};
+    input.response_envelope_valid = true;
+    input.response_envelope_source = "bodylock_response_model";
+    const auto decision = fuser.update(input, 0.001f);
+    // 80/(0.18*500)*0.50 = 0.4444, so the 0.40 shaped proposal is below
+    // the model demand and must pass through unchanged.
+    require_near(decision.fresh_vision_stopping_radial,
+                 80.0f / (0.18f * 500.0f) * 0.50f,
+                 0.0002f,
+                 "model stopping demand did not apply active authority once");
+    require_near(decision.fused_stick.x, 0.40f, 0.0002f,
+                 "shaped AI proposal was attenuated a second time by the fuser");
+}
+
+void test_rotated_force_ellipse_uses_both_tangent_signs() {
+    const float diagonal = std::sqrt(0.5f);
+    const pipeline_contract::Vec2f radial{diagonal, diagonal};
+    const pipeline_contract::Vec2f tangent{-diagonal, diagonal};
+    for (const float tangent_demand : {-0.30f, 0.30f}) {
+        VectorIntentFuser fuser;
+        auto input = input_for(
+            {radial.x * 0.80f + tangent.x * tangent_demand,
+             radial.y * 0.80f + tangent.y * tangent_demand},
+            {});
+        input.plan.mode = pipeline_contract::ControlMode::BodyLockFollow;
+        input.plan.error_px = {20.0f, -20.0f};
+        input.plan.predicted_terminal_error_px = input.plan.error_px;
+        input.plan.aim_authority = 0.70f;
+        input.plan.response_scale = 500.0f;
+        input.plan.response_confidence = 1.0f;
+        input.fresh_single_target_observation = true;
+        input.response_horizon_seconds = 0.20f;
+        input.response_horizon_y_seconds = 0.20f;
+        input.response_max_force = {0.30f, 0.42f};
+        input.response_envelope_valid = true;
+        input.response_envelope_source = "bodylock_response_model";
+        const auto decision = fuser.update(input, 0.001f);
+        const float ellipse = std::hypot(
+            decision.fused_stick.x / 0.30f,
+            decision.fused_stick.y / 0.42f);
+        require_true(ellipse <= 1.0001f,
+                     "rotated fresh output exceeded the anisotropic force ellipse");
+        if (tangent_demand < 0.0f) {
+            const float output_tangent =
+                decision.fused_stick.x * tangent.x +
+                decision.fused_stick.y * tangent.y;
+            require_true(output_tangent > -0.23f,
+                         "negative rotated tangent exceeded its asymmetric ellipse interval");
+        }
+    }
+}
+
+void test_ads_to_bodylock_post_slew_respects_new_ellipse() {
+    VectorIntentFuser fuser;
+    auto input = input_for({1.0f, 0.0f}, {0.80f, 0.0f});
+    input.plan.mode = pipeline_contract::ControlMode::AdsAcquire;
+    input.plan.error_px = {80.0f, 0.0f};
+    input.plan.predicted_terminal_error_px = input.plan.error_px;
+    input.plan.response_scale = 500.0f;
+    input.plan.response_confidence = 1.0f;
+    input.fresh_single_target_observation = true;
+    input.response_horizon_seconds = 0.135f;
+    input.response_horizon_y_seconds = 0.135f;
+    input.response_max_force = {1.0f, 1.0f};
+    input.response_envelope_valid = true;
+    input.response_envelope_source = "ads_acquisition_response_model";
+    const auto ads = fuser.update(input, 0.001f);
+    require_true(ads.fused_stick.x > 0.70f,
+                 "ADS setup failed to create a large previous output");
+
+    input.plan.mode = pipeline_contract::ControlMode::BodyLockFollow;
+    input.response_horizon_seconds = 0.18f;
+    input.response_horizon_y_seconds = 0.128f;
+    input.response_max_force = {0.30f, 0.42f};
+    input.response_envelope_source = "bodylock_response_model";
+    const auto bodylock = fuser.update(input, 0.001f);
+    const float ellipse = std::hypot(
+        bodylock.fused_stick.x / 0.30f,
+        bodylock.fused_stick.y / 0.42f);
+    require_true(ellipse <= 1.0001f,
+                 "ADS to BodyLock post-slew output escaped the new force ellipse");
+    require_near(bodylock.fresh_vision_final_radial,
+                 bodylock.fused_stick.x,
+                 0.0002f,
+                 "post-slew final radial was not computed from actual output");
+}
+
+void test_active_ads_envelope_uses_acquisition_window_and_force() {
+    VectorIntentFuser fuser;
+    auto input = input_for({1.0f, 0.0f}, {0.80f, 0.0f});
+    input.plan.mode = pipeline_contract::ControlMode::AdsAcquire;
+    input.plan.error_px = {80.0f, 0.0f};
+    input.plan.response_scale = 500.0f;
+    input.plan.response_confidence = 1.0f;
+    input.plan.predicted_terminal_error_px = {80.0f, 0.0f};
+    input.fresh_single_target_observation = true;
+    input.response_horizon_seconds = 0.135f;
+    input.response_horizon_y_seconds = 0.135f;
+    input.response_max_force = {0.45f, 0.55f};
+    input.response_envelope_valid = true;
+    input.response_envelope_source = "ads_acquisition_response_model";
+    const auto decision = fuser.update(input, 0.001f);
+    require_true(decision.fused_stick.x <= 0.4501f,
+                 "ADS fresh output exceeded its configured X force envelope");
+    require_near(decision.fresh_vision_envelope_horizon_seconds,
+                 0.135f, 0.0001f,
+                 "ADS acquisition horizon was not carried into fusion");
+    require_true(std::string(decision.fresh_vision_envelope_source) ==
+                     "ads_acquisition_response_model",
+                 "ADS envelope source was not observable");
 }
 
 void test_reacquire_and_target_change_fail_safe_to_manual() {
@@ -454,6 +906,9 @@ void test_full_manual_escape_preempts_reacquiring_release_slew() {
 
     input.manual_stick = {-1.0f, 0.0f};
     input.plan.lifecycle = pipeline_contract::TargetLifecycle::Reacquiring;
+    const auto pending = fuser.update(input, 0.001f);
+    require_true(!pending.manual_escape,
+                 "full manual escape must not be unconditional on one tick");
     const auto escaped = fuser.update(input, 0.001f);
     require_true(escaped.manual_escape,
                  "full manual escape must preempt reacquiring release slew");
@@ -468,6 +923,9 @@ void test_full_manual_escape_preempts_reacquiring_release_slew() {
 void test_full_manual_escape_cannot_be_blocked_by_saturated_ai() {
     VectorIntentFuser fuser;
     const auto input = input_for({-1.0f, 0.0f}, {1.34f, 0.0f});
+    const auto pending = fuser.update(input, 0.001f);
+    require_true(!pending.manual_escape,
+                 "saturated AI must not be preempted by a one-tick full input");
     const auto escaped = fuser.update(input, 0.001f);
     require_true(escaped.manual_escape,
                  "saturated shaped AI must not block full manual escape");
@@ -480,6 +938,9 @@ void test_full_manual_escape_cannot_be_blocked_by_saturated_ai() {
 void test_diagonal_manual_escape_is_preserved_exactly() {
     VectorIntentFuser fuser;
     const auto input = input_for({-0.50f, 0.40f}, {0.40f, -0.30f});
+    const auto pending = fuser.update(input, 0.001f);
+    require_true(!pending.manual_escape,
+                 "diagonal near-full input must require a consecutive confirmation");
     const auto decision = fuser.update(input, 0.001f);
     require_true(decision.manual_escape,
                  "deliberate diagonal input must be classified as escape");
@@ -511,7 +972,9 @@ void test_remaining_work_rotation_does_not_reproject_stable_manual_input() {
     input.plan.remaining_work_px = input.plan.error_px;
     input.plan.remaining_work_confidence = 1.0f;
     input.plan.remaining_work_valid = true;
-    input.fresh_single_target_observation = true;
+    // This is a Remaining/work-coordinate continuity guard, not fresh
+    // positional authority. The P1 fresh policy is covered separately.
+    input.fresh_single_target_observation = false;
 
     const auto before = fuser.update(input, 0.024f);
     input.plan.error_px = {2.0f, -30.0f};
@@ -528,7 +991,7 @@ void test_visual_reference_rotation_is_not_a_one_tick_output_rotation() {
     VectorIntentFuser fuser;
     auto input = input_for({-0.38f, 0.02f}, {0.24f, 0.0f});
     input.plan.error_px = {30.0f, 2.0f};
-    input.fresh_single_target_observation = true;
+    input.fresh_single_target_observation = false;
 
     const auto before = fuser.update(input, 0.024f);
     input.plan.error_px = {2.0f, -30.0f};
@@ -638,6 +1101,7 @@ int main() {
         test_ads_full_cooperative_input_remains_on_ai_priority_path();
         test_near_bodylock_full_opposing_input_remains_exact_escape();
         test_ads_moderate_manual_input_keeps_ordinary_cooperation();
+        test_same_direction_subfull_manual_is_not_escape_feedback();
         test_ads_log_normalization_uses_effective_1p9_parallel_proposal();
         test_ads_normalized_manual_participates_when_ai_proposal_is_larger();
         test_near_bodylock_log_normalization_uses_effective_2p0_only_near();
@@ -645,7 +1109,20 @@ int main() {
         test_log_normalization_classifies_strength_from_raw_physical_input();
         test_opposing_input_preserves_manual_and_continuously_retires_ai();
         test_escape_threshold_is_not_a_control_switch();
-        test_fresh_vision_does_not_override_countersteer();
+        test_fresh_vision_corrects_countersteer_without_touching_tangent();
+        test_fresh_wrong_way_manual_floor_cancels_obsolete_radial_demand();
+        test_fresh_ai_wrong_way_is_bounded_by_position_evidence();
+        test_strong_manual_and_ai_are_one_radial_proposal_envelope();
+        test_fresh_shared_envelope_is_continuous_below_old_strength_gate();
+        test_fresh_final_continuity_is_source_agnostic();
+        test_zero_authority_stays_manual_safe();
+        test_fresh_post_slew_radial_guard_survives_center_crossing();
+        test_active_bodylock_envelope_limits_manual_and_ai();
+        test_shaped_ai_authority_is_not_applied_twice();
+        test_rotated_force_ellipse_uses_both_tangent_signs();
+        test_ads_to_bodylock_post_slew_respects_new_ellipse();
+        test_active_ads_envelope_uses_acquisition_window_and_force();
+        test_manual_escape_stays_latched_until_release_or_identity_change();
         test_reacquire_and_target_change_fail_safe_to_manual();
         test_reliability_boundary_does_not_drop_and_reassert_ai();
         test_reacquire_to_observed_reenters_through_existing_slew();

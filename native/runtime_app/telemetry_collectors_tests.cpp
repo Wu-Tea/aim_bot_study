@@ -1,10 +1,13 @@
 #include "telemetry_collectors.h"
 
+#include "../pipeline_contract/target_plan.h"
+
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <thread>
 
 namespace {
 void require(bool value, int line) {
@@ -54,7 +57,49 @@ runtime_app::TelemetryTickInput tick(std::uint64_t seq, bool aiming) {
     value.left_trigger = aiming ? 1.0f : 0.0f;
     value.physical_x = 0.2f;
     value.manual_x = 0.18f;
+    value.filtered_manual_x = 0.16f;
+    value.filtered_manual_y = -0.015f;
+    value.manual_confidence = 0.82f;
     value.ai_x = 0.05f;
+    value.fresh_vision_validated_manual_proposal_x = -0.04f;
+    value.fresh_vision_validated_manual_proposal_y = 0.01f;
+    value.fresh_vision_validated_ai_proposal_x = 0.06f;
+    value.fresh_vision_validated_ai_proposal_y = -0.02f;
+    value.fresh_vision_manual_radial_scale = 0.35f;
+    value.fresh_vision_wrong_way_policy_applied = true;
+    value.fresh_vision_ai_radial_bound_applied = false;
+    value.fresh_vision_ai_radial_scale = 1.0f;
+    value.fresh_vision_predictive_envelope_applied = true;
+    value.fresh_vision_escape_latched = true;
+    value.fresh_vision_authoritative_error_x = 80.0f;
+    value.fresh_vision_authoritative_error_y = -12.0f;
+    value.fresh_vision_predicted_error_x = 64.0f;
+    value.fresh_vision_predicted_error_y = -8.0f;
+    value.fresh_vision_raw_manual_radial = -0.04f;
+    value.fresh_vision_raw_ai_radial = 0.31f;
+    value.fresh_vision_strongest_valid_radial = 0.31f;
+    value.fresh_vision_stopping_radial = 0.27f;
+    value.fresh_vision_permitted_radial = 0.27f;
+    value.fresh_vision_pre_slew_radial = 0.25f;
+    value.fresh_vision_final_radial = 0.21f;
+    value.fresh_vision_horizon_seconds = 0.18f;
+    value.fresh_vision_horizon_y_seconds = 0.128f;
+    value.fresh_vision_max_force_x = 0.30f;
+    value.fresh_vision_max_force_y = 0.42f;
+    value.fresh_vision_envelope_target_x = 0.21f;
+    value.fresh_vision_envelope_target_y = -0.04f;
+    value.fresh_vision_envelope_reason = "active_response_envelope";
+    value.fresh_vision_envelope_source = "bodylock_response_model";
+    value.bodylock_error_rate_x = 83.0f;
+    value.bodylock_error_rate_y = -12.0f;
+    value.bodylock_position_stick_x = -0.22f;
+    value.bodylock_position_stick_y = 0.05f;
+    value.bodylock_motion_stick_x = 0.31f;
+    value.bodylock_motion_stick_y = -0.08f;
+    value.bodylock_effective_motion_stick_x = 0.04f;
+    value.bodylock_effective_motion_stick_y = -0.08f;
+    value.bodylock_radial_motion_bound = true;
+    value.bodylock_constraint_reason = "fresh_position_radial_motion_bound";
     value.requested_assist_x = 0.05f;
     value.shaped_assist_x = 0.04f;
     value.post_ai_x = 0.23f;
@@ -102,6 +147,25 @@ runtime_app::TelemetryTickInput tick(std::uint64_t seq, bool aiming) {
     return value;
 }
 
+template <typename Emitter>
+std::uint64_t observe_until_normal_record_is_accepted(
+    runtime_app::RuntimeTelemetry& telemetry,
+    Emitter&& emitter) {
+    constexpr std::uint64_t kMaxAttempts = 64;
+    for (std::uint64_t attempt = 0; attempt < kMaxAttempts; ++attempt) {
+        const auto before = telemetry.counters();
+        emitter(attempt);
+        const auto after = telemetry.counters();
+        if (after.accepted_records > before.accepted_records &&
+            after.dropped_normal_records == before.dropped_normal_records) {
+            return attempt + 1;
+        }
+        std::this_thread::yield();
+    }
+    REQUIRE(false);
+    return 0;
+}
+
 void test_disabled_collectors_have_zero_transitions() {
     runtime_app::RuntimeTelemetryOptions options;
     options.enabled = false;
@@ -128,8 +192,12 @@ void test_enabled_collectors_write_profile_and_ads_evidence() {
 
     collectors.observe_new_vision(vision(1, 1.0f, false));
     collectors.observe_tick(tick(1, false));
-    collectors.observe_tick(tick(2, true));
-    std::uint64_t tick_id = 3;
+    const auto accepted_attempts = observe_until_normal_record_is_accepted(
+        telemetry,
+        [&](std::uint64_t attempt) {
+            collectors.observe_tick(tick(2 + attempt, true));
+        });
+    std::uint64_t tick_id = 2 + accepted_attempts;
     std::uint64_t frame_id = 2;
     for (float scale : {1.10f, 1.25f, 1.39f, 1.40f, 1.40f, 1.40f}) {
         collectors.observe_tick(tick(tick_id++, true));
@@ -148,6 +216,25 @@ void test_enabled_collectors_write_profile_and_ads_evidence() {
     REQUIRE(json.find("\"physical_x\":0.2") != std::string::npos);
     REQUIRE(json.find("\"physical_connected\":true") != std::string::npos);
     REQUIRE(json.find("\"current_observed_target_present\":true") != std::string::npos);
+    REQUIRE(json.find("\"filtered_manual_x\":0.16") != std::string::npos);
+    REQUIRE(json.find("\"manual_confidence\":0.82") != std::string::npos);
+    REQUIRE(json.find("\"fresh_vision_wrong_way_policy_applied\":true") != std::string::npos);
+    REQUIRE(json.find("\"fresh_vision_manual_radial_scale\":0.35") != std::string::npos);
+    REQUIRE(json.find("\"fresh_vision_predictive_envelope_applied\":true") != std::string::npos);
+    REQUIRE(json.find("\"fresh_vision_validated_ai_proposal_x\":0.06") != std::string::npos);
+    REQUIRE(json.find("\"fresh_vision_validated_manual_proposal_x\":-0.04") != std::string::npos);
+    REQUIRE(json.find("\"fresh_vision_effective_manual_x\":-0.04") != std::string::npos);
+    REQUIRE(json.find("\"fresh_vision_escape_latched\":true") != std::string::npos);
+    REQUIRE(json.find("\"fresh_vision_raw_ai_radial\":0.31") != std::string::npos);
+    REQUIRE(json.find("\"fresh_vision_final_radial\":0.21") != std::string::npos);
+    REQUIRE(json.find("\"fresh_vision_max_force_y\":0.42") != std::string::npos);
+    REQUIRE(json.find("\"fresh_vision_envelope_source\":\"bodylock_response_model\"") != std::string::npos);
+    REQUIRE(json.find("\"bodylock_error_rate_x\":83") != std::string::npos);
+    REQUIRE(json.find("\"bodylock_position_stick_x\":-0.22") != std::string::npos);
+    REQUIRE(json.find("\"bodylock_motion_stick_x\":0.31") != std::string::npos);
+    REQUIRE(json.find("\"bodylock_effective_motion_stick_x\":0.04") != std::string::npos);
+    REQUIRE(json.find("\"bodylock_radial_motion_bound\":true") != std::string::npos);
+    REQUIRE(json.find("\"bodylock_constraint_reason\":\"fresh_position_radial_motion_bound\"") != std::string::npos);
     REQUIRE(json.find("\"output_delivered\":true") != std::string::npos);
     REQUIRE(json.find("\"remaining_work_x\":12.5") != std::string::npos);
     REQUIRE(json.find("\"remaining_work_y\":-4") != std::string::npos);
@@ -175,7 +262,14 @@ void test_controller_samples_include_current_target_context() {
     telemetry.start();
     runtime_app::TelemetryCollectors collectors(true, &telemetry);
     collectors.observe_new_vision(vision(1, 1.0f, false));
-    for (std::uint64_t seq = 1; seq <= 8; ++seq) collectors.observe_tick(tick(seq, false));
+    const auto accepted_attempts = observe_until_normal_record_is_accepted(
+        telemetry,
+        [&](std::uint64_t attempt) {
+            collectors.observe_tick(tick(1 + attempt, false));
+        });
+    for (std::uint64_t seq = 1 + accepted_attempts; seq <= 8 + accepted_attempts; ++seq) {
+        collectors.observe_tick(tick(seq, false));
+    }
     collectors.shutdown(40'000'000);
     telemetry.stop();
     std::ifstream input(telemetry.log_path());
@@ -254,12 +348,359 @@ void test_ads_completeness_uses_observed_sequence_not_capture_frame_id() {
     input.close();
     std::filesystem::remove_all(directory);
 }
+
+void test_fresh_envelope_defaults_and_false_values_serialize() {
+    const auto directory = std::filesystem::temp_directory_path() /
+        "cod_native_telemetry_fresh_defaults";
+    std::filesystem::remove_all(directory);
+    runtime_app::RuntimeTelemetryOptions options;
+    options.enabled = true;
+    options.directory = directory;
+    runtime_app::RuntimeTelemetry telemetry(options);
+    telemetry.start();
+    runtime_app::TelemetryCollectors collectors(true, &telemetry);
+    auto value = tick(1, true);
+    value.fresh_vision_predictive_envelope_applied = false;
+    value.fresh_vision_escape_latched = false;
+    value.fresh_vision_envelope_reason = "none";
+    value.fresh_vision_envelope_source = "unavailable";
+    value.fresh_vision_final_radial = 0.0f;
+    observe_until_normal_record_is_accepted(
+        telemetry,
+        [&](std::uint64_t attempt) {
+            auto retry = value;
+            retry.tick_id += attempt;
+            retry.sample_ns += attempt * 4'000'000;
+            retry.output_sent_ns = retry.sample_ns;
+            collectors.observe_tick(retry);
+        });
+    collectors.shutdown(8'000'000);
+    telemetry.stop();
+    std::ifstream input(telemetry.log_path());
+    std::ostringstream contents;
+    contents << input.rdbuf();
+    const std::string json = contents.str();
+    REQUIRE(json.find("\"fresh_vision_predictive_envelope_applied\":false") != std::string::npos);
+    REQUIRE(json.find("\"fresh_vision_escape_latched\":false") != std::string::npos);
+    REQUIRE(json.find("\"fresh_vision_final_radial\":0") != std::string::npos);
+    REQUIRE(json.find("\"fresh_vision_envelope_source\":\"unavailable\"") != std::string::npos);
+    input.close();
+    std::filesystem::remove_all(directory);
+}
+
+runtime_app::TelemetryAcquisitionTraceInput acquisition_trace() {
+    runtime_app::TelemetryAcquisitionTraceInput value;
+    value.source_frame_id = 77;
+    value.source_observation_id = 9001;
+    value.persistent_target_id = 12;
+    value.physical_ads_epoch = 4;
+    value.target_acquisition_id = 8;
+    value.controller_tick_id = 31;
+    value.capture_acquire_begin_ns = 1'000;
+    value.capture_acquire_complete_ns = 1'100;
+    value.capture_copy_complete_ns = 1'200;
+    value.accumulated_frames = 3;
+    value.ads_acquisition_begin_ns = 1'250;
+    value.ads_acquisition_complete_ns = 0;
+    value.result_ready_ns = 2'000;
+    value.vision_publish_ns = 2'100;
+    value.vision_publish_available = true;
+    value.controller_submit_complete_ns = 2'210;
+    value.controller_consume_ns = 2'200;
+    value.plan_decision_ns = 2'250;
+    value.final_output_ready_ns = 2'300;
+    value.first_requested_ai_ns = 2'260;
+    value.first_shaped_ai_ns = 2'261;
+    value.first_fused_output_ns = 2'262;
+    value.vigem_submit_complete_ns = 2'400;
+    value.plan_admitted = true;
+    value.acquisition_state = static_cast<std::uint8_t>(
+        pipeline_contract::AdsAcquisitionState::AcquiringNominal);
+    value.decision_reason = static_cast<std::uint8_t>(
+        pipeline_contract::AdsDecisionReason::Admitted);
+    value.source_decision_available = true;
+    value.source_decision_outcome = static_cast<std::uint8_t>(
+        pipeline_contract::SourceDecisionOutcome::Admitted);
+    value.source_decision_reason = static_cast<std::uint8_t>(
+        pipeline_contract::AdsDecisionReason::Admitted);
+    value.selector_target_generation = 7;
+    value.candidate_count = 2;
+    value.preferred_source_id = 9001;
+    value.selected_source_id = 9001;
+    value.effective_activation_radius_px = 135.0f;
+    value.raw_error_x = 18.0f;
+    value.raw_error_y = -7.0f;
+    value.target_size_x = 40.0f;
+    value.target_size_y = 120.0f;
+    value.requested_ai_x = 0.25f;
+    value.shaped_ai_x = 0.20f;
+    value.fused_output_x = 0.18f;
+    value.post_output_x = 0.18f;
+    value.has_first_requested_ai = true;
+    value.has_first_shaped_ai = true;
+    value.has_first_fused_output = true;
+    value.first_requested_ai_x = 0.25f;
+    value.first_shaped_ai_x = 0.20f;
+    value.first_fused_output_x = 0.18f;
+    // Keep the raw source-present clock unavailable in this deterministic
+    // fixture; the production DXGI path supplies QPC plus frequency.
+    value.source_present_available = false;
+    return value;
+}
+
+void test_acquisition_trace_is_fixed_joinable_and_disabled_is_inert() {
+    const auto trace = acquisition_trace();
+    REQUIRE(trace.capture_acquire_begin_ns <= trace.capture_acquire_complete_ns);
+    REQUIRE(trace.capture_acquire_complete_ns <= trace.capture_copy_complete_ns);
+    REQUIRE(trace.capture_copy_complete_ns <= trace.result_ready_ns);
+    REQUIRE(trace.result_ready_ns <= trace.vision_publish_ns);
+    REQUIRE(trace.vision_publish_ns <= trace.controller_consume_ns);
+    REQUIRE(trace.controller_consume_ns <= trace.plan_decision_ns);
+    REQUIRE(trace.plan_decision_ns <= trace.final_output_ready_ns);
+    REQUIRE(trace.final_output_ready_ns <= trace.vigem_submit_complete_ns);
+    runtime_app::RuntimeTelemetryOptions disabled_options;
+    disabled_options.enabled = false;
+    runtime_app::RuntimeTelemetry disabled_telemetry(disabled_options);
+    runtime_app::TelemetryCollectors disabled(false, &disabled_telemetry);
+    disabled.observe_acquisition_trace(trace);
+    REQUIRE(disabled.counters().acquisition_traces == 0);
+    REQUIRE(disabled_telemetry.counters().accepted_records == 0);
+
+    const auto directory = std::filesystem::temp_directory_path() /
+        "cod_native_telemetry_acquisition_trace";
+    std::filesystem::remove_all(directory);
+    runtime_app::RuntimeTelemetryOptions options;
+    options.enabled = true;
+    options.directory = directory;
+    options.queue_capacity = 64;
+    runtime_app::RuntimeTelemetry telemetry(options);
+    telemetry.start();
+    runtime_app::TelemetryCollectors collectors(true, &telemetry);
+    const auto accepted_attempts = observe_until_normal_record_is_accepted(
+        telemetry,
+        [&](std::uint64_t) {
+            collectors.observe_acquisition_trace(trace);
+        });
+    REQUIRE(collectors.counters().acquisition_traces == accepted_attempts);
+    collectors.shutdown(5'000'000);
+    telemetry.stop();
+
+    std::ifstream input(telemetry.log_path());
+    std::ostringstream contents;
+    contents << input.rdbuf();
+    const std::string json = contents.str();
+    REQUIRE(json.find("\"type\":\"ads_acquisition_trace\"") != std::string::npos);
+    REQUIRE(json.find("\"schema\":\"ads_acquisition_trace_v2\"") != std::string::npos);
+    REQUIRE(json.find("\"source_frame_id\":77") != std::string::npos);
+    REQUIRE(json.find("\"source_observation_id\":9001") != std::string::npos);
+    REQUIRE(json.find("\"persistent_target_id\":12") != std::string::npos);
+    REQUIRE(json.find("\"physical_ads_epoch\":4") != std::string::npos);
+    REQUIRE(json.find("\"target_acquisition_id\":8") != std::string::npos);
+    REQUIRE(json.find("\"controller_tick_id\":31") != std::string::npos);
+    REQUIRE(json.find("\"capture_acquire_begin_ns\":1000") != std::string::npos);
+    REQUIRE(json.find("\"capture_acquire_complete_ns\":1100") != std::string::npos);
+    REQUIRE(json.find("\"capture_copy_complete_ns\":1200") != std::string::npos);
+    REQUIRE(json.find("\"accumulated_frames\":3") != std::string::npos);
+    REQUIRE(json.find("\"ads_acquisition_begin_ns\":1250") != std::string::npos);
+    REQUIRE(json.find("\"vision_publish_available\":true") != std::string::npos);
+    REQUIRE(json.find("\"controller_submit_complete_ns\":2210") != std::string::npos);
+    REQUIRE(json.find("\"plan_decision_ns\":2250") != std::string::npos);
+    REQUIRE(json.find("\"plan_decision_available\":true") != std::string::npos);
+    REQUIRE(json.find("\"final_output_ready_ns\":2300") != std::string::npos);
+    REQUIRE(json.find("\"source_decision_outcome\":\"admitted\"") != std::string::npos);
+    REQUIRE(json.find("\"selector_target_generation\":7") != std::string::npos);
+    REQUIRE(json.find("\"acquisition_state\":\"acquiring_nominal\"") != std::string::npos);
+    REQUIRE(json.find("\"decision_reason\":\"admitted\"") != std::string::npos);
+    REQUIRE(json.find("\"source_present_available\":false") != std::string::npos);
+    REQUIRE(json.find("\"effective_activation_radius_px\":135") != std::string::npos);
+    input.close();
+    std::filesystem::remove_all(directory);
+}
+
+void test_ego_motion_shadow_is_joinable_and_fixed_rate_independent() {
+    const auto directory = std::filesystem::temp_directory_path() /
+        "cod_native_telemetry_ego_motion";
+    std::filesystem::remove_all(directory);
+    runtime_app::RuntimeTelemetryOptions options;
+    options.enabled = true;
+    options.directory = directory;
+    runtime_app::RuntimeTelemetry telemetry(options);
+    telemetry.start();
+    runtime_app::TelemetryCollectors collectors(true, &telemetry);
+    runtime_app::TelemetryEgoMotionShadowInput input;
+    input.available = true;
+    input.valid = true;
+    input.result_sequence = 4;
+    input.previous_frame_id = 11;
+    input.current_frame_id = 12;
+    input.previous_present_qpc = 100;
+    input.current_present_qpc = 140;
+    input.present_qpc_frequency = 10'000'000;
+    input.previous_result_ns = 1'000;
+    input.current_result_ns = 2'000;
+    input.background_dx = 2.0f;
+    input.camera_dx = -2.0f;
+    input.confidence = 0.8f;
+    input.valid_background_ratio = 0.65f;
+    input.inlier_count = 42;
+    input.sample_count = 60;
+    const auto accepted_attempts = observe_until_normal_record_is_accepted(
+        telemetry,
+        [&](std::uint64_t) {
+            collectors.observe_ego_motion_shadow(12, 99, input);
+        });
+    REQUIRE(collectors.counters().ego_motion_records == accepted_attempts);
+    collectors.shutdown(3'000);
+    telemetry.stop();
+    std::ifstream input_file(telemetry.log_path());
+    std::ostringstream contents;
+    contents << input_file.rdbuf();
+    const std::string json = contents.str();
+    REQUIRE(json.find("\"type\":\"ego_motion_shadow\"") != std::string::npos);
+    REQUIRE(json.find("\"schema\":\"ego_motion_shadow_v1\"") != std::string::npos);
+    REQUIRE(json.find("\"previous_frame_id\":11") != std::string::npos);
+    REQUIRE(json.find("\"current_frame_id\":12") != std::string::npos);
+    REQUIRE(json.find("\"present_qpc_frequency\":10000000") != std::string::npos);
+    input_file.close();
+    std::filesystem::remove_all(directory);
+}
+
+void test_causal_shadow_serializes_motion_buckets_and_final_output() {
+    REQUIRE(runtime_app::kTelemetrySchemaVersion == 12);
+    const auto directory = std::filesystem::temp_directory_path() /
+        "cod_native_telemetry_causal_shadow_v2";
+    std::filesystem::remove_all(directory);
+    runtime_app::RuntimeTelemetryOptions options;
+    options.enabled = true;
+    options.directory = directory;
+    runtime_app::RuntimeTelemetry telemetry(options);
+    telemetry.start();
+    runtime_app::TelemetryCollectors collectors(true, &telemetry);
+
+    pipeline_contract::CommittedCaptureObservation observation;
+    observation.source_frame_id = 88;
+    observation.source_observation_id = 8801;
+    observation.persistent_target_id = 12;
+    observation.viewport_source_frame_id = 88;
+    observation.captured_at_ns = 1'000'000;
+    observation.result_at_ns = 2'000'000;
+    observation.controller_consume_ns = 3'000'000;
+    observation.stable_body_size_px = {40.0f, 120.0f};
+    observation.stable_coordinates_valid = true;
+    observation.reliability = 0.9f;
+    observation.normalized_size = 0.2f;
+    observation.lifecycle = pipeline_contract::TargetLifecycle::Observed;
+    observation.mode = pipeline_contract::ControlMode::BodyLockFollow;
+    observation.ads_epoch = 4;
+    observation.fresh_observed = true;
+    observation.strong_observation = true;
+    observation.eligible_candidate_count = 1;
+
+    control_learning::SampleAssessment assessment;
+    assessment.vision_quality = control_learning::VisionSampleQuality::Normal;
+    assessment.update_outcome =
+        control_learning::IdentificationUpdateOutcome::Accepted;
+    assessment.accepted_by_any_delay = true;
+    assessment.accepted_delay_count = 3;
+
+    control_learning::CausalResponseEstimate estimate;
+    estimate.selected_delay_ms = 40.0f;
+    estimate.selected_delay_confidence = 0.8f;
+    estimate.right_confidence = 0.75f;
+    estimate.left_confidence = 0.7f;
+
+    control_learning::PendingMotionEstimate pending;
+    pending.realized_px = {1.25, -2.5};
+    pending.in_flight_px = {3.5, 4.5};
+    pending.scheduled_px = {5.5, 6.5};
+    pending.pending_total_px = {9.0, 11.0};
+    pending.confidence = 0.7f;
+    pending.history_complete = true;
+    pending.valid = true;
+
+    control_learning::RolloutResult rollout;
+    rollout.candidate_count = 1;
+    rollout.candidates[0] = {1.0f, 2.0};
+    rollout.best_scale = 1.0f;
+    rollout.confidence = 0.7f;
+    rollout.valid = true;
+    const control_learning::Vec2d final_output{0.42, -0.17};
+
+    const auto accepted_attempts = observe_until_normal_record_is_accepted(
+        telemetry,
+        [&](std::uint64_t attempt) {
+            auto retry = observation;
+            retry.source_frame_id += attempt;
+            retry.viewport_source_frame_id = retry.source_frame_id;
+            collectors.observe_causal_shadow(
+                retry, assessment, estimate, pending, rollout, final_output);
+        });
+    REQUIRE(accepted_attempts >= 1);
+    collectors.shutdown(5'000'000);
+    telemetry.stop();
+
+    std::ifstream input(telemetry.log_path());
+    std::ostringstream contents;
+    contents << input.rdbuf();
+    const std::string json = contents.str();
+    REQUIRE(json.find("\"schema\":\"causal_response_shadow_v3\"") !=
+            std::string::npos);
+    REQUIRE(json.find("\"pending_realized\":[1.25,-2.5]") !=
+            std::string::npos);
+    REQUIRE(json.find("\"pending_in_flight\":[3.5,4.5]") !=
+            std::string::npos);
+    REQUIRE(json.find("\"pending_scheduled\":[5.5,6.5]") !=
+            std::string::npos);
+    REQUIRE(json.find("\"pending_total\":[9,11]") !=
+            std::string::npos);
+    REQUIRE(json.find("\"rollout_uses_final_output\":true") !=
+            std::string::npos);
+    REQUIRE(json.find("\"rollout_final_output\":[0.42,-0.17]") !=
+            std::string::npos);
+    input.close();
+    std::filesystem::remove_all(directory);
+}
+
+void test_delivered_control_persistence_is_sampled_below_controller_rate() {
+    const auto directory = std::filesystem::temp_directory_path() /
+        "cod_native_telemetry_delivered_sampling";
+    std::filesystem::remove_all(directory);
+    runtime_app::RuntimeTelemetryOptions options;
+    options.enabled = true;
+    options.directory = directory;
+    options.queue_capacity = 2048;
+    runtime_app::RuntimeTelemetry telemetry(options);
+    telemetry.start();
+    runtime_app::TelemetrySessionContext context;
+    context.telemetry_hz = 250;
+    runtime_app::TelemetryCollectors collectors(true, &telemetry, context);
+
+    for (std::uint64_t index = 1; index <= 1000; ++index) {
+        auto value = tick(index, false);
+        value.sample_ns = index * 1'000'000;
+        value.output_sent_ns = value.sample_ns;
+        collectors.observe_tick(value);
+    }
+    const auto counters = collectors.counters();
+    REQUIRE(counters.delivered_control_records >= 240);
+    REQUIRE(counters.delivered_control_records <= 260);
+    REQUIRE(collectors.control_history() != nullptr);
+    REQUIRE(collectors.control_history()->size() >= 990);
+    collectors.shutdown(1'100'000'000);
+    telemetry.stop();
+    std::filesystem::remove_all(directory);
+}
 }
 
 int main() {
     test_disabled_collectors_have_zero_transitions();
     test_enabled_collectors_write_profile_and_ads_evidence();
+    test_fresh_envelope_defaults_and_false_values_serialize();
     test_controller_samples_include_current_target_context();
     test_ads_completeness_uses_observed_sequence_not_capture_frame_id();
+    test_acquisition_trace_is_fixed_joinable_and_disabled_is_inert();
+    test_delivered_control_persistence_is_sampled_below_controller_rate();
+    test_ego_motion_shadow_is_joinable_and_fixed_rate_independent();
+    test_causal_shadow_serializes_motion_buckets_and_final_output();
     return 0;
 }

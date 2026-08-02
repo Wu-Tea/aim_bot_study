@@ -110,6 +110,8 @@ controller_native::ControllerVisionSnapshot adapt_vision_result(
 
     snapshot.frame_id = result.frame_id;
     snapshot.selector_identity_protocol = result.selector_identity_protocol;
+    snapshot.selector_target_generation = result.selector_target_generation;
+    snapshot.selector_target_changed = result.selector_target_changed;
     snapshot.user_intent = result.user_aim_intent;
     snapshot.capture_time_seconds = ns_to_seconds(
         result.captured_at_ns != 0 ? result.captured_at_ns : result.result_at_ns);
@@ -128,7 +130,17 @@ controller_native::ControllerVisionSnapshot adapt_vision_result(
         const vision_native::Detection& detection = result.detections[index];
         const float width = std::max(0.0f, detection.x2 - detection.x1);
         const float height = std::max(0.0f, detection.y2 - detection.y1);
-        if (width <= 1.0f || height <= 1.0f) {
+        if (detection.is_friendly) {
+            if (snapshot.rejected_friendly_count != UINT32_MAX) {
+                ++snapshot.rejected_friendly_count;
+            }
+            continue;
+        }
+        if (width <= 1.0f || height <= 1.0f ||
+            detection.conf + detection.color_bonus <= 0.0f) {
+            if (snapshot.rejected_low_reliability_count != UINT32_MAX) {
+                ++snapshot.rejected_low_reliability_count;
+            }
             continue;
         }
 
@@ -182,12 +194,15 @@ adapt_committed_capture_observation(
     const vision_native::VisionResult& result,
     const pipeline_contract::TargetPlan& committed_plan,
     float aim_height_ratio,
-    std::uint64_t ads_epoch) {
+    std::uint64_t ads_epoch,
+    std::uint64_t controller_consume_ns) {
     pipeline_contract::CommittedCaptureObservation committed;
     if (!result.frame_updated || result.frame_id == 0 ||
         result.frame_id != committed_plan.source_frame_id ||
         committed_plan.source_observation_id == 0 ||
         committed_plan.target_id == 0 || result.captured_at_ns == 0 ||
+        controller_consume_ns == 0 ||
+        controller_consume_ns < result.result_at_ns ||
         result.result_at_ns < result.captured_at_ns) {
         return committed;
     }
@@ -242,6 +257,7 @@ adapt_committed_capture_observation(
     committed.viewport_source_frame_id = result.frame_id;
     committed.captured_at_ns = result.captured_at_ns;
     committed.result_at_ns = result.result_at_ns;
+    committed.controller_consume_ns = controller_consume_ns;
     committed.stable_error_px = {
         geometry.aim_px.x - center_x,
         geometry.aim_px.y - center_y};

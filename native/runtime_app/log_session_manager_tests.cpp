@@ -6,6 +6,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <utility>
 
 namespace {
 
@@ -27,7 +28,13 @@ std::filesystem::path temp_root() {
 void test_fresh_manifest_and_markers_are_atomic_session_contract() {
     const auto root = temp_root();
     {
-        runtime_app::LogSessionManager manager({true, root, "abc123", "cfg456"});
+        runtime_app::LogSessionOptions options;
+        options.enabled = true;
+        options.root = root;
+        options.git_commit = "abc123";
+        options.config_hash = "cfg456";
+        options.executable_sha256 = "exe789";
+        runtime_app::LogSessionManager manager(std::move(options));
         require_true(manager.active(), "enabled manager must start a session");
         require_true(std::filesystem::exists(manager.session_directory() / ".active"),
                      "active session must have marker");
@@ -41,6 +48,11 @@ void test_fresh_manifest_and_markers_are_atomic_session_contract() {
                          session.find("tensor_width") != std::string::npos &&
                          session.find("require_isotropic_resize") != std::string::npos,
                      "session manifest must retain engine, crop and Tensor provenance");
+        require_true(session.find("executable_sha256") != std::string::npos &&
+                         session.find("exe789") != std::string::npos &&
+                         std::filesystem::exists(
+                             manager.session_directory() / "session_metadata.json"),
+                     "session metadata must record executable provenance without a path");
         const auto fresh = read_all(root / "fresh_session.json");
         require_true(fresh.find(manager.session_id()) != std::string::npos,
                      "fresh manifest must name the active session");
@@ -57,10 +69,20 @@ void test_fresh_manifest_and_markers_are_atomic_session_contract() {
 
 void test_sessions_are_unique_and_share_child_paths() {
     const auto root = temp_root();
-    runtime_app::LogSessionManager first({true, root, "a", "b"});
+    runtime_app::LogSessionOptions first_options;
+    first_options.enabled = true;
+    first_options.root = root;
+    first_options.git_commit = "a";
+    first_options.config_hash = "b";
+    runtime_app::LogSessionManager first(std::move(first_options));
     const auto first_id = first.session_id();
     first.close();
-    runtime_app::LogSessionManager second({true, root, "a", "b"});
+    runtime_app::LogSessionOptions second_options;
+    second_options.enabled = true;
+    second_options.root = root;
+    second_options.git_commit = "a";
+    second_options.config_hash = "b";
+    runtime_app::LogSessionManager second(std::move(second_options));
     require_true(second.session_id() != first_id, "each run must own a unique session");
     require_true(second.child_path("telemetry_0001.jsonl").parent_path() ==
                      second.session_directory(),

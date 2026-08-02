@@ -86,6 +86,7 @@ public:
             observation.viewport_source_frame_id = observation.source_frame_id;
             observation.captured_at_ns = capture_ns;
             observation.result_at_ns = capture_ns + 2 * kNsPerMs;
+            observation.controller_consume_ns = capture_ns + 3 * kNsPerMs;
             observation.stable_error_px = to_vec2f(input.observed_error_px);
             observation.stable_body_size_px = {35.0f, 100.0f};
             observation.reliability = 0.95f;
@@ -123,7 +124,8 @@ public:
                 target_velocity.y += camera.y;
             }
 
-            control_learning::Vec2d scheduled_pending{};
+            control_learning::Vec2d pending_total{};
+            bool pending_motion_valid = false;
             if (has_previous_observation_ &&
                 previous_target_id_ == observation.persistent_target_id) {
                 control_learning::PendingMotionRequest request;
@@ -138,7 +140,10 @@ public:
                 request.response_confidence = estimate.right_confidence;
                 const auto pending = control_learning::PendingMotionModel::estimate(
                     request, history_);
-                if (pending.valid) scheduled_pending = pending.scheduled_px;
+                if (pending.valid) {
+                    pending_total = pending.pending_total_px;
+                    pending_motion_valid = true;
+                }
             }
 
             control_learning::RolloutSnapshot snapshot;
@@ -152,10 +157,12 @@ public:
                 output.predicted_terminal_error_px.x,
                 output.predicted_terminal_error_px.y};
             snapshot.target_velocity_px_per_sec = target_velocity;
-            snapshot.shaped_ai = {output.shaped_assist_stick.x,
-                                  output.shaped_assist_stick.y};
-            snapshot.manual = {input.manual_stick.x, input.manual_stick.y};
-            snapshot.scheduled_pending_px = scheduled_pending;
+            const auto final_output = output.has_pre_recoil_stick
+                ? output.pre_recoil_stick
+                : output.final_stick;
+            snapshot.final_output = {final_output.x, final_output.y};
+            snapshot.pending_total_px = pending_total;
+            snapshot.pending_motion_valid = pending_motion_valid;
             snapshot.right_response = estimate.right_stable;
             snapshot.response_confidence = estimate.right_confidence;
             snapshot.delay_confidence = estimate.selected_delay_confidence;

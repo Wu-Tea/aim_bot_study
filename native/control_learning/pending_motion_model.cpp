@@ -30,6 +30,24 @@ Vec2d motion(const ControlIntegral& integral,
                multiply(left, integral.final_left_stick_seconds));
 }
 
+ControlIntegral zero_interval() noexcept {
+    ControlIntegral result;
+    result.complete = true;
+    return result;
+}
+
+ControlIntegral integrate_interval(
+    const ControlHistory<1024>& history,
+    std::uint64_t begin_ns,
+    std::uint64_t end_ns) noexcept {
+    // A decision made exactly at capture time has no time-area.  Treat that
+    // explicit zero-duration interval as complete instead of fabricating a
+    // held sample or invalidating an otherwise covered estimate.
+    return begin_ns == end_ns
+        ? zero_interval()
+        : history.integrate(begin_ns, end_ns);
+}
+
 bool clean(const ControlIntegral& integral) noexcept {
     return integral.complete && !integral.failed_delivery &&
         !integral.output_disabled && !integral.firing &&
@@ -63,22 +81,33 @@ PendingMotionEstimate PendingMotionModel::estimate(
     if (request.previous_capture_ns <= delay_ns ||
         request.current_capture_ns <= delay_ns) return result;
 
-    const ControlIntegral realized = history.integrate(
+    const ControlIntegral realized = integrate_interval(
+        history,
         request.previous_capture_ns - delay_ns,
         request.current_capture_ns - delay_ns);
-    const ControlIntegral scheduled = history.integrate(
+    const ControlIntegral in_flight = integrate_interval(
+        history,
         request.current_capture_ns - delay_ns,
         request.current_capture_ns);
-    result.history_complete = clean(realized) && clean(scheduled);
+    const ControlIntegral scheduled = integrate_interval(
+        history, request.current_capture_ns, request.decision_ns);
+    result.history_complete = clean(realized) && clean(in_flight) &&
+        clean(scheduled);
     if (!result.history_complete) return result;
 
     result.realized_px = motion(
         realized, request.right_response, request.left_response);
+    result.in_flight_px = motion(
+        in_flight, request.right_response, request.left_response);
     result.scheduled_px = motion(
         scheduled, request.right_response, request.left_response);
-    result.total_px = add(result.realized_px, result.scheduled_px);
-    if (!finite(result.realized_px) || !finite(result.scheduled_px) ||
-        !finite(result.total_px)) return PendingMotionEstimate{};
+    // Realized work explains the change between adjacent observations.  Only
+    // work not yet visible at the current capture may enter the shadow
+    // rollout, so pending_total deliberately excludes realized_px.
+    result.pending_total_px = add(result.in_flight_px, result.scheduled_px);
+    if (!finite(result.realized_px) || !finite(result.in_flight_px) ||
+        !finite(result.scheduled_px) || !finite(result.pending_total_px))
+        return PendingMotionEstimate{};
     result.confidence = std::clamp(std::min(
         request.selected_delay_confidence, request.response_confidence),
         0.0f, 1.0f);

@@ -205,6 +205,12 @@ private:
     float crosshair_priority_margin_ = 0.0f;
     float max_area_limit_ = 0.0f;
 
+    // Identity is owned by this selector's existing association and switch
+    // confirmation rules. It is deliberately independent of frame-local
+    // detection/observation ids.
+    std::uint64_t selector_target_generation_ = 0;
+    bool selector_target_changed_ = false;
+
     std::optional<std::pair<float, float>> last_target_center_;
     std::optional<TargetState> active_target_;
     std::optional<TargetState> pending_target_;

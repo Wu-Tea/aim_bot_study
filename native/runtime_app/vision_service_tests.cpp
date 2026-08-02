@@ -95,9 +95,12 @@ void test_keepwarm_polls_while_idle_and_active() {
     REQUIRE(raw->aiming_history[0]);
     REQUIRE(raw->aiming_history[1]);
     REQUIRE(raw->aiming_history[2]);
-    REQUIRE(service.latest_snapshot().freshness == runtime_app::VisionSnapshotFreshness::Fresh);
-    REQUIRE(std::string(service.latest_snapshot().result.service_freshness) == "fresh");
-    REQUIRE(std::string(service.latest_snapshot().result.service_source_state) == "fresh_frame");
+    const auto snapshot = service.latest_snapshot();
+    REQUIRE(snapshot.freshness == runtime_app::VisionSnapshotFreshness::Fresh);
+    REQUIRE(snapshot.published_at_ns != 0);
+    REQUIRE(snapshot.published_at_ns >= snapshot.result.result_at_ns);
+    REQUIRE(std::string(snapshot.result.service_freshness) == "fresh");
+    REQUIRE(std::string(snapshot.result.service_source_state) == "fresh_frame");
 }
 
 void test_no_update_reuses_last_snapshot_without_marking_fresh() {
@@ -111,6 +114,7 @@ void test_no_update_reuses_last_snapshot_without_marking_fresh() {
     REQUIRE(service.step_for_test(at_ms(0)));
     const runtime_app::VisionServiceSnapshot first = service.latest_snapshot();
     REQUIRE(first.freshness == runtime_app::VisionSnapshotFreshness::Fresh);
+    REQUIRE(first.published_at_ns != 0);
 
     REQUIRE(service.step_for_test(at_ms(10)));
     const runtime_app::VisionServiceSnapshot reused = service.latest_snapshot();
@@ -119,8 +123,66 @@ void test_no_update_reuses_last_snapshot_without_marking_fresh() {
     REQUIRE(std::string(reused.result.service_freshness) == "reused");
     REQUIRE(std::string(reused.result.service_source_state) == "repeat_last_frame");
     REQUIRE(reused.result.frame_id == first.result.frame_id);
+    REQUIRE(!reused.result.frame_updated);
     REQUIRE(reused.result.aim_authority == false);
     REQUIRE(reused.result.fire_authority == false);
+    REQUIRE(reused.published_at_ns >= first.published_at_ns);
+}
+
+void test_aim_release_clears_active_repeat_cache() {
+    auto poller = std::make_unique<FakeVisionPoller>(std::vector<bool>{true, false});
+    runtime_app::VisionServiceOptions options;
+    options.active_fps = 100.0;
+    options.idle_fps = 20.0;
+    options.keepwarm_when_idle = true;
+    options.repeat_last_on_no_update = true;
+
+    runtime_app::VisionService service(std::move(poller), options);
+    service.set_aiming(true);
+    REQUIRE(service.step_for_test(at_ms(0)));
+    service.set_aiming(false);
+    REQUIRE(service.step_for_test(at_ms(50)));
+
+    const auto snapshot = service.latest_snapshot();
+    REQUIRE(snapshot.freshness == runtime_app::VisionSnapshotFreshness::NoUpdate);
+    REQUIRE(snapshot.source_state == runtime_app::VisionSourceState::NoUpdate);
+    REQUIRE(!snapshot.result.frame_updated);
+}
+
+void test_delivery_gate_accepts_each_recent_capture_once() {
+    runtime_app::VisionDeliveryGate gate(50.0f);
+    vision_native::VisionResult result;
+    result.frame_updated = true;
+    result.frame_id = 10;
+    result.captured_at_ns = 1'000'000'000ull;
+    result.result_at_ns = 1'006'000'000ull;
+
+    REQUIRE(gate.accept(result, 1'010'000'000ull));
+    REQUIRE(!gate.accept(result, 1'011'000'000ull));
+
+    auto backward = result;
+    backward.frame_id = 9;
+    backward.captured_at_ns = 1'020'000'000ull;
+    backward.result_at_ns = 1'026'000'000ull;
+    REQUIRE(!gate.accept(backward, 1'030'000'000ull));
+
+    auto backward_time = result;
+    backward_time.frame_id = 11;
+    backward_time.captured_at_ns = 999'000'000ull;
+    backward_time.result_at_ns = 1'005'000'000ull;
+    REQUIRE(!gate.accept(backward_time, 1'010'000'000ull));
+
+    auto stale = result;
+    stale.frame_id = 11;
+    stale.captured_at_ns = 1'020'000'000ull;
+    stale.result_at_ns = 1'026'000'000ull;
+    REQUIRE(!gate.accept(stale, 1'071'000'000ull));
+
+    auto current = result;
+    current.frame_id = 11;
+    current.captured_at_ns = 1'030'000'000ull;
+    current.result_at_ns = 1'036'000'000ull;
+    REQUIRE(gate.accept(current, 1'040'000'000ull));
 }
 
 void test_viewport_request_is_forwarded_before_poll() {
@@ -263,6 +325,8 @@ void test_one_hundred_aim_transitions_never_publish_pre_aim_authority() {
 int main() {
     test_keepwarm_polls_while_idle_and_active();
     test_no_update_reuses_last_snapshot_without_marking_fresh();
+    test_aim_release_clears_active_repeat_cache();
+    test_delivery_gate_accepts_each_recent_capture_once();
     test_viewport_request_is_forwarded_before_poll();
     test_no_keepwarm_does_not_poll_idle();
     test_idle_keepwarm_does_not_publish_control_authority();

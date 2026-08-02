@@ -102,11 +102,12 @@ void test_hard_start_delay_suppresses_only_early_ads_assist() {
     config.start_delay_ms = 30.0f;
     controller_native::AdsAcquisitionController controller(config);
     auto plan = plan_with(80.0f, 0.0f);
-    plan.ads_epoch_elapsed_ms = 29.0f;
+    plan.target_acquisition_id = 1;
+    plan.acquisition_elapsed_ms = 29.0f;
     require_true(
         std::fabs(controller.compute(plan, {}, 0.01f).x) < 0.0001f,
         "hard ADS delay must suppress assist before its boundary");
-    plan.ads_epoch_elapsed_ms = 30.0f;
+    plan.acquisition_elapsed_ms = 30.0f;
     require_true(
         controller.compute(plan, {}, 0.01f).x > 0.5f,
         "hard ADS delay must release full assist at its boundary");
@@ -117,9 +118,10 @@ void test_smooth_start_ramp_reaches_half_then_full_authority() {
     config.start_ramp_ms = 30.0f;
     controller_native::AdsAcquisitionController controller(config);
     auto plan = plan_with(80.0f, 0.0f);
-    plan.ads_epoch_elapsed_ms = 15.0f;
+    plan.target_acquisition_id = 1;
+    plan.acquisition_elapsed_ms = 15.0f;
     const float half = controller.compute(plan, {}, 0.01f).x;
-    plan.ads_epoch_elapsed_ms = 30.0f;
+    plan.acquisition_elapsed_ms = 30.0f;
     const float full = controller.compute(plan, {}, 0.01f).x;
     require_true(half > full * 0.45f && half < full * 0.55f,
                  "30ms ADS ramp must expose half authority at 15ms");

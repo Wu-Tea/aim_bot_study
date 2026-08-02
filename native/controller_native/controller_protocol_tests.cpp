@@ -147,8 +147,14 @@ void test_adapter_forwards_valid_detections_for_tracker() {
         "adapter should preserve user intent strength");
 
     require_true(
-        snapshot.tracker_detections.size() == 2,
-        "adapter should skip invalid boxes and keep valid detections");
+        snapshot.tracker_detections.size() == 1,
+        "adapter should keep only eligible detections for the tracker");
+    require_true(
+        snapshot.rejected_low_reliability_count == 1,
+        "adapter should count low-reliability detections separately");
+    require_true(
+        snapshot.rejected_friendly_count == 1,
+        "adapter should count friendly detections separately");
     const tracking_native::TrackerDetection& first = snapshot.tracker_detections[0];
     require_true(first.id == ((7ull << 32ull) | 1ull), "adapter should derive stable detection id");
     require_near(first.body_box_px.x, 10.0f, 0.001f, "adapter should map box x");
@@ -158,13 +164,9 @@ void test_adapter_forwards_valid_detections_for_tracker() {
     require_near(first.confidence, 0.50f, 0.001f, "adapter should add color bonus to confidence");
     require_true(first.target_tier == "observed_strong", "adapter should map confident detection tier");
 
-    const tracking_native::TrackerDetection& weak = snapshot.tracker_detections[1];
-    require_true(weak.is_friendly, "adapter should preserve friendly flag for downstream rejection");
-    require_true(weak.target_tier == "associated_weak", "adapter should map low confidence no-color tier");
-
     require_true(
-        snapshot.candidates.size() == 2,
-        "adapter should expose valid detections as neutral candidate snapshots");
+        snapshot.candidates.size() == 1,
+        "adapter should expose eligible detections as neutral candidate snapshots");
     const pipeline_contract::VisionCandidateSnapshot& first_candidate = snapshot.candidates[0];
     require_true(
         first_candidate.id == first.id,
@@ -179,12 +181,6 @@ void test_adapter_forwards_valid_detections_for_tracker() {
         0.001f,
         "candidate should expose same aim point as tracker detection");
 
-    const pipeline_contract::VisionCandidateSnapshot& rejected_candidate = snapshot.candidates[1];
-    require_true(rejected_candidate.is_friendly, "candidate should preserve friendly evidence");
-    require_true(
-        rejected_candidate.suggested_authority_state ==
-            common_native::TargetAuthorityState::Reject,
-        "friendly candidate should be visible to middle layer as rejectable evidence");
 }
 
 void test_selector_identity_survives_engine_result_copy_and_adapter() {

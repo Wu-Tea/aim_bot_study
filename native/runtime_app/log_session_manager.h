@@ -11,6 +11,7 @@ struct LogSessionOptions {
     std::string git_commit;
     std::string config_hash;
     std::string engine_hash;
+    std::string executable_sha256;
     int capture_width = 0;
     int capture_height = 0;
     int tensor_width = 0;

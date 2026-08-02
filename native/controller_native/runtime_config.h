@@ -69,6 +69,9 @@ struct GamepadAiAimConfig {
     float target_projection_velocity_lowpass_alpha = 0.35f;
     float target_projection_max_velocity_px_per_sec = 1200.0f;
     float target_projection_weak_velocity_decay = 0.70f;
+    // Spatial ADS admission radius. This is independent from the
+    // acquisition timer and the ADS output range (max_pixels/range_px).
+    float ads_activation_radius_px = 135.0f;
     int ads_snap_window_ms = 100;
     float ads_snap_smoothing = 0.0f;
     float ads_snap_max_ai_force = 1.0f;
@@ -145,6 +148,7 @@ struct GamepadRecoilConfig {
     bool enabled = true;
     bool selection_log_enabled = true;
     bool profile_despike_enabled = true;
+    bool profile_playback_enabled = true;
     bool native_recognizer_enabled = true;
     bool recognizer_log_enabled = false;
     std::string recognizer_game = "cod22";
@@ -178,6 +182,10 @@ struct GamepadAutoFireConfig {
 
 struct GamepadTrackerConfig {
     float aim_height_ratio = 0.365f;
+    // Fresh detector measurements older than this are ignored. Identity may
+    // still coast under the separate projection/hold lease, but an old frame
+    // can never be admitted again as a new observation.
+    float max_observation_age_ms = 50.0f;
     bool remaining_work_enabled = true;
     float remaining_work_scale = 0.60f;
 };
@@ -260,6 +268,10 @@ struct RuntimeConfig {
     std::string build_commit = "unknown";
     std::string source_config_sha256;
     std::string engine_sha256;
+    // Hash of the actual module selected by the process. This is kept
+    // separate from source/config provenance so a session can prove which
+    // executable produced its telemetry without recording a filesystem path.
+    std::string executable_sha256;
 
     std::string effective_source(const std::string& key) const {
         const auto found = effective_sources.find(key);

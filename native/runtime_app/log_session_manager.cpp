@@ -91,6 +91,7 @@ void LogSessionManager::write_session_manifest(const char* state) {
          << "  \"git_commit\": \"" << json_escape(options_.git_commit) << "\",\n"
          << "  \"config_hash\": \"" << json_escape(options_.config_hash) << "\",\n"
          << "  \"engine_hash\": \"" << json_escape(options_.engine_hash) << "\",\n"
+         << "  \"executable_sha256\": \"" << json_escape(options_.executable_sha256) << "\",\n"
          << "  \"capture_width\": " << options_.capture_width << ",\n"
          << "  \"capture_height\": " << options_.capture_height << ",\n"
          << "  \"tensor_width\": " << options_.tensor_width << ",\n"
@@ -102,6 +103,19 @@ void LogSessionManager::write_session_manifest(const char* state) {
          << "  \"updated_utc\": \"" << utc_timestamp() << "\"\n"
          << "}\n";
     write_text_atomic(session_directory_ / "session.json", json.str());
+
+    std::ostringstream metadata;
+    metadata << "{\n"
+             << "  \"schema_version\": 1,\n"
+             << "  \"session_id\": \"" << json_escape(session_id_) << "\",\n"
+             << "  \"state\": \"" << state << "\",\n"
+             << "  \"git_commit\": \"" << json_escape(options_.git_commit) << "\",\n"
+             << "  \"config_hash\": \"" << json_escape(options_.config_hash) << "\",\n"
+             << "  \"engine_hash\": \"" << json_escape(options_.engine_hash) << "\",\n"
+             << "  \"executable_sha256\": \""
+             << json_escape(options_.executable_sha256) << "\"\n"
+             << "}\n";
+    write_text_atomic(session_directory_ / "session_metadata.json", metadata.str());
 }
 
 void LogSessionManager::publish_fresh_manifest() {

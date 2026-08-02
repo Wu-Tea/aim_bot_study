@@ -1,4 +1,8 @@
 #include "native_gamepad_controller.h"
+#include "vector_intent_fuser.h"
+
+#include "../runtime_app/vision_controller_adapter.h"
+#include "../vision_native/include/vision_native/types.h"
 
 #include <algorithm>
 #include <cmath>
@@ -15,6 +19,9 @@ using controller_native::ControllerVisionSnapshot;
 using controller_native::GamepadRuntimeConfig;
 using controller_native::NativeGamepadController;
 using controller_native::PhysicalGamepadState;
+
+GamepadRuntimeConfig config();
+PhysicalGamepadState aiming(float left_x);
 
 void require(bool condition, const std::string& message) {
     if (!condition) throw std::runtime_error(message);
@@ -103,6 +110,296 @@ ControllerVisionSnapshot empty_fresh_snapshot(
     snapshot.state.screen_center_x = 320.0f;
     snapshot.state.screen_center_y = 256.0f;
     return snapshot;
+}
+
+vision_native::VisionResult production_vision_frame(
+    std::uint64_t frame_id,
+    std::uint64_t captured_at_ns,
+    float target_x,
+    std::uint64_t selector_target_generation = 0,
+    bool selector_target_changed = false) {
+    vision_native::VisionResult result;
+    result.selector_identity_protocol = true;
+    result.selector_target_generation = selector_target_generation;
+    result.selector_target_changed = selector_target_changed;
+    result.frame_updated = true;
+    result.frame_id = frame_id;
+    result.captured_at_ns = captured_at_ns;
+    result.result_at_ns = captured_at_ns + 2'000'000;
+    result.has_target = true;
+    result.has_selected_detection = true;
+    result.selected_detection_index = 0;
+    result.target_x = target_x;
+    result.target_y = 256.0f;
+    result.dx = target_x - 320.0f;
+    result.dy = 0.0f;
+    result.screen_center_x = 320.0f;
+    result.screen_center_y = 256.0f;
+    result.has_body_box = true;
+    result.body_x1 = target_x - 28.0f;
+    result.body_y1 = 180.0f;
+    result.body_x2 = target_x + 28.0f;
+    result.body_y2 = 320.0f;
+    result.aim_authority = true;
+    result.fire_authority = true;
+    vision_native::Detection detection;
+    detection.x1 = target_x - 28.0f;
+    detection.y1 = 180.0f;
+    detection.x2 = target_x + 28.0f;
+    detection.y2 = 320.0f;
+    detection.conf = 0.95f;
+    result.detections.push_back(detection);
+    return result;
+}
+
+void test_production_selector_replacement_has_one_change_tick_then_recovers() {
+    double now = 70.000;
+    NativeGamepadController controller(config(), [&now] { return now; });
+    controller.set_benchmark_intent_fusion_mode(
+        controller_native::BenchmarkIntentFusionMode::CausalVector);
+    const auto physical = aiming(0.0f);
+
+    const auto submit_frame = [&](std::uint64_t frame_id,
+                                   double capture_time,
+                                   float target_x,
+                                   std::uint64_t generation,
+                                   bool changed) {
+        now = capture_time;
+        controller.submit_vision_snapshot(runtime_app::adapt_vision_result(
+            production_vision_frame(
+                frame_id,
+                static_cast<std::uint64_t>(capture_time * 1'000'000'000.0),
+                target_x,
+                generation,
+                changed)));
+        (void)controller.build_output(physical);
+    };
+
+    submit_frame(1, 70.000, 380.0f, 1, false);
+    const auto first_plan = controller.last_target_plan();
+    const auto first_trace = controller.last_acquisition_trace();
+    require(first_plan.ads_plan_admitted &&
+                first_plan.target_acquisition_id != 0 &&
+                first_plan.selector_target_generation == 1,
+            "production selector fixture must establish one admitted acquisition");
+    require(first_trace.valid && first_trace.plan_admitted &&
+                first_trace.selector_target_generation == 1 &&
+                !first_trace.selector_target_changed,
+            "initial source frame telemetry lost selector/admission identity");
+
+    submit_frame(2, 70.020, 365.0f, 1, false);
+    const auto continuity_plan = controller.last_target_plan();
+    require(continuity_plan.target_id == first_plan.target_id &&
+                continuity_plan.target_acquisition_id ==
+                    first_plan.target_acquisition_id,
+            "same selector generation must keep one target/acquisition identity");
+
+    // Simulate the latest-only mailbox skipping selector_target_changed;
+    // generation 2 remains the durable replacement signal.
+    submit_frame(3, 70.040, 250.0f, 2, false);
+    const auto replacement_plan = controller.last_target_plan();
+    const auto replacement_trace = controller.last_acquisition_trace();
+    require(replacement_plan.selector_target_changed &&
+                replacement_plan.selector_target_generation == 2 &&
+                replacement_plan.target_id != first_plan.target_id,
+            "confirmed selector replacement must be visible exactly at the new source frame");
+    require(!replacement_plan.ads_plan_admitted &&
+                replacement_plan.source_decision_available &&
+                replacement_plan.source_decision_outcome ==
+                    pipeline_contract::SourceDecisionOutcome::AcceptedContinuation,
+            "replacement must not re-admit or re-arm the physical ADS epoch");
+    require(replacement_plan.physical_ads_epoch == first_plan.physical_ads_epoch &&
+                replacement_plan.target_acquisition_id ==
+                    first_plan.target_acquisition_id &&
+                replacement_plan.ads_acquisition_begin_ns ==
+                    first_plan.ads_acquisition_begin_ns &&
+                replacement_plan.acquisition_elapsed_ms >
+                    continuity_plan.acquisition_elapsed_ms,
+            "replacement reset the physical ADS acquisition clock");
+    require(replacement_trace.valid &&
+                replacement_trace.selector_target_generation == 2 &&
+                replacement_trace.selector_target_changed &&
+                !replacement_trace.plan_admitted &&
+                replacement_trace.target_acquisition_id ==
+                    first_trace.target_acquisition_id &&
+                replacement_trace.physical_ads_epoch ==
+                    first_trace.physical_ads_epoch,
+            "replacement source telemetry did not preserve its join keys");
+
+    // Prime the fuser with the pre-replacement plan. The real production plan
+    // then proves that the replacement is one explicit TargetChanged
+    // admission tick, rather than a sticky mode or repeated fallback.
+    controller_native::VectorIntentFuser fuser;
+    controller_native::VectorIntentFusionInput fusion_input{};
+    fusion_input.manual_stick = {0.08f, 0.0f};
+    fusion_input.shaped_ai_stick = {0.18f, 0.0f};
+    fusion_input.fresh_single_target_observation = true;
+    fusion_input.plan = continuity_plan;
+    const auto continuity_fusion = fuser.update(fusion_input, 0.001f);
+    require(continuity_fusion.reason ==
+                controller_native::FusionFallbackReason::None,
+            "same-target production continuation must use the normal fuser path");
+
+    fusion_input.plan = replacement_plan;
+    const auto replacement_fusion = fuser.update(fusion_input, 0.001f);
+    require(replacement_fusion.reason ==
+                controller_native::FusionFallbackReason::TargetChanged &&
+                replacement_fusion.fallback,
+            "replacement must produce one explicit TargetChanged fuser admission tick");
+
+    submit_frame(4, 70.045, 325.0f, 2, false);
+    const auto recovered_plan = controller.last_target_plan();
+    const auto recovered_trace = controller.last_acquisition_trace();
+    require(!recovered_plan.selector_target_changed &&
+                recovered_plan.selector_target_generation == 2 &&
+                recovered_plan.target_id == replacement_plan.target_id &&
+                recovered_plan.target_acquisition_id ==
+                    replacement_plan.target_acquisition_id &&
+                recovered_plan.physical_ads_epoch ==
+                    replacement_plan.physical_ads_epoch &&
+                recovered_plan.acquisition_elapsed_ms >
+                    replacement_plan.acquisition_elapsed_ms,
+            "next same-target frame did not restore continuous acquisition state");
+    require(recovered_trace.valid &&
+                !recovered_trace.selector_target_changed &&
+                !recovered_trace.plan_admitted &&
+                recovered_trace.target_acquisition_id ==
+                    replacement_trace.target_acquisition_id &&
+                recovered_trace.physical_ads_epoch ==
+                    replacement_trace.physical_ads_epoch,
+            "next source telemetry repeated the replacement admission event");
+
+    fusion_input.plan = recovered_plan;
+    const auto recovered_fusion = fuser.update(fusion_input, 0.001f);
+    require(recovered_fusion.reason ==
+                controller_native::FusionFallbackReason::None &&
+                !recovered_fusion.fallback &&
+                std::isfinite(recovered_fusion.fused_stick.x) &&
+                std::isfinite(recovered_fusion.fused_stick.y),
+            "same-target frame after replacement did not restore one final-output path");
+}
+
+void test_production_frame_local_observation_ids_do_not_switch_one_target() {
+    double now = 40.000;
+    NativeGamepadController controller(config(), [&now] { return now; });
+    const auto physical = aiming(0.0f);
+
+    const auto first_snapshot = runtime_app::adapt_vision_result(
+        production_vision_frame(1, 40'000'000'000ull, 380.0f));
+    controller.submit_vision_snapshot(first_snapshot);
+    (void)controller.build_output(physical);
+    const auto first_target_id = controller.last_target_plan().target_id;
+    const auto acquisition_id = controller.last_target_plan().target_acquisition_id;
+    require(first_target_id != 0 && acquisition_id != 0,
+            "production-like frame must establish a target acquisition");
+
+    now = 40.135;
+    const auto second_snapshot = runtime_app::adapt_vision_result(
+        production_vision_frame(2, 40'135'000'000ull, 330.0f));
+    require(first_snapshot.selected_observation_id !=
+                second_snapshot.selected_observation_id,
+            "production adapter must expose frame-local observation ids");
+    controller.submit_vision_snapshot(second_snapshot);
+    (void)controller.build_output(physical);
+    const auto& plan = controller.last_target_plan();
+    require(plan.source_observation_id == second_snapshot.selected_observation_id,
+            "plan source observation must remain frame-matched");
+    require(plan.target_id == first_target_id,
+            "frame-local observation ids must not replace persistent coordinator identity");
+    require(plan.target_acquisition_id == acquisition_id,
+            "same spatial target must retain one acquisition clock");
+    require(plan.ads_acquisition_state ==
+                pipeline_contract::AdsAcquisitionState::AcquiringExtended,
+            "same target with continued closing must enter Extended despite a new frame id");
+
+    now = 40.150;
+    (void)controller.build_output(physical);
+    require(controller.last_target_plan().ads_acquisition_state ==
+                pipeline_contract::AdsAcquisitionState::AcquiringExtended,
+            "Extended must persist on a controller replay tick without new Vision");
+    now = 40.165;
+    (void)controller.build_output(physical);
+    require(controller.last_target_plan().ads_acquisition_state ==
+                pipeline_contract::AdsAcquisitionState::AcquiringExtended,
+            "Extended must remain stable across consecutive replay ticks");
+}
+
+void test_fuser_feedback_controls_manual_escape_without_magnitude_shortcut() {
+    double now = 41.000;
+    NativeGamepadController controller(config(), [&now] { return now; });
+    controller.set_benchmark_intent_fusion_mode(
+        controller_native::BenchmarkIntentFusionMode::CausalVector);
+    auto physical = aiming(0.0f);
+    controller.submit_vision_snapshot(target(1, now, 60.0f, 0.0f));
+    (void)controller.build_output(physical);
+    now = 41.135;
+    controller.submit_vision_snapshot(target(2, now, 35.0f, 0.0f));
+    (void)controller.build_output(physical);
+    require(controller.last_target_plan().ads_acquisition_state ==
+                pipeline_contract::AdsAcquisitionState::AcquiringExtended,
+            "end-to-end escape fixture must establish Extended first");
+
+    for (const float manual_x : {0.10f, 0.50f}) {
+        physical.right_x = manual_x;
+        now += 0.001;
+        (void)controller.build_output(physical);
+        require(controller.last_target_plan().ads_acquisition_state ==
+                    pipeline_contract::AdsAcquisitionState::AcquiringExtended,
+                "same-direction manual input must not end Extended");
+    }
+
+    physical.right_x = -1.0f;
+    now += 0.001;
+    (void)controller.build_output(physical);
+    now += 0.001;
+    (void)controller.build_output(physical);
+    require(controller.last_target_plan().ads_acquisition_state ==
+                pipeline_contract::AdsAcquisitionState::AcquiringExtended,
+            "fuser escape feedback is intentionally consumed on the next tick");
+    now += 0.001;
+    (void)controller.build_output(physical);
+    require(controller.last_target_plan().ads_acquisition_state ==
+                pipeline_contract::AdsAcquisitionState::Completed &&
+                controller.last_target_plan().ads_decision_reason ==
+                    pipeline_contract::AdsDecisionReason::ManualEscape,
+            "fuser-confirmed opposing escape must complete Extended state=" +
+                std::to_string(static_cast<int>(
+                    controller.last_target_plan().ads_acquisition_state)) +
+                " reason=" + std::to_string(static_cast<int>(
+                    controller.last_target_plan().ads_decision_reason)) +
+                " ai=" + std::to_string(
+                    controller.last_output_components().ai_aim_stick.x) +
+                " escape=" + std::to_string(
+                    controller.last_output_components().intent_fusion_manual_escape) +
+                " target=" + std::to_string(
+                    controller.last_target_plan().target_id) +
+                " mode=" + std::to_string(static_cast<int>(
+                    controller.last_target_plan().mode)) +
+                " lifecycle=" + std::to_string(static_cast<int>(
+                    controller.last_target_plan().lifecycle)) +
+                " fallback=" + std::to_string(
+                    controller.last_output_components().intent_fusion_fallback) +
+                " candidate=" + std::to_string(
+                    controller.last_output_components().intent_fusion_candidate) +
+                " manual=" + std::to_string(
+                    controller.last_output_components().manual_stick.x));
+
+    now = 42.000;
+    NativeGamepadController orthogonal(config(), [&now] { return now; });
+    orthogonal.set_benchmark_intent_fusion_mode(
+        controller_native::BenchmarkIntentFusionMode::CausalVector);
+    auto orthogonal_physical = aiming(0.0f);
+    orthogonal.submit_vision_snapshot(target(1, now, 60.0f, 0.0f));
+    (void)orthogonal.build_output(orthogonal_physical);
+    now = 42.135;
+    orthogonal.submit_vision_snapshot(target(2, now, 35.0f, 0.0f));
+    (void)orthogonal.build_output(orthogonal_physical);
+    orthogonal_physical.right_y = 0.90f;
+    now += 0.001;
+    (void)orthogonal.build_output(orthogonal_physical);
+    require(orthogonal.last_target_plan().ads_acquisition_state ==
+                pipeline_contract::AdsAcquisitionState::AcquiringExtended,
+            "orthogonal useful manual input must not be classified as escape");
 }
 
 GamepadRuntimeConfig config() {
@@ -334,7 +631,68 @@ void test_vector_mode_generates_ai_before_manual_arbitration() {
             "vector mode must not weaken AI before its single fusion point");
 }
 
-void test_ads_strong_cooperative_mix_uses_ai_as_the_radial_proposal() {
+void test_remaining_work_drops_and_rebases_after_long_control_gap() {
+    double now = 16.0;
+    auto controller_config = config();
+    controller_config.tracker.remaining_work_enabled = true;
+    controller_config.ai_aim.ads_snap_window_ms = 300;
+    controller_config.ai_aim.target_max_age_ms = 500.0f;
+    controller_config.ai_aim.target_projection_max_age_ms = 500.0f;
+    NativeGamepadController controller(
+        controller_config, [&now] { return now; });
+    const auto physical = aiming();
+
+    controller.submit_vision_snapshot(target(1, now, 80.0f, 0.0f));
+    (void)controller.build_output(physical);
+    controller.report_output_delivery(true, true, now + 0.000001);
+
+    now += 0.120;
+    (void)controller.build_output(physical);
+    require(
+        controller.last_target_plan().target_id != 0,
+        "fixture must retain target identity across the accounting-gap test");
+    require(
+        !controller.last_target_plan().remaining_work_valid,
+        "overlong control gap must discard Remaining instead of releasing stale work");
+
+    require(
+        !controller.last_target_plan().remaining_work_valid,
+        "long-gap rebase must not restore stale Remaining authority");
+}
+
+void test_acquisition_trace_joins_source_observation_across_controller_stages() {
+    double now = 18.0;
+    NativeGamepadController controller(config(), [&now] { return now; });
+    const auto physical = aiming();
+    controller.submit_vision_snapshot(
+        target(91, now, 40.0f, -12.0f, 9001));
+    (void)controller.build_output(physical);
+
+    const auto& plan = controller.last_target_plan();
+    const auto& vision_state = controller.last_frame_vision_state();
+    const auto& trace = controller.last_acquisition_trace();
+    require(plan.source_frame_id == 91,
+            "acquisition plan lost the source frame join key");
+    require(plan.source_observation_id == 9001,
+            "acquisition plan lost the selected source observation key");
+    require(plan.target_id != plan.source_observation_id &&
+                plan.target_id != 0,
+            "fixture must keep persistent target identity distinct from source observation");
+    require(vision_state.selected_observation_id ==
+                plan.source_observation_id,
+            "controller sample must report plan.source_observation_id");
+    require(trace.valid && trace.source_frame_id == 91 &&
+                trace.source_observation_id == 9001 &&
+                trace.persistent_target_id == plan.target_id &&
+                trace.target_acquisition_id != 0,
+            "acquisition trace did not preserve all source/target join keys");
+    require(trace.has_first_requested_ai &&
+                trace.has_first_shaped_ai &&
+                trace.has_first_fused_output,
+            "acquisition trace missed a controller stage");
+}
+
+void test_ads_strong_cooperative_mix_uses_non_additive_final_envelope() {
     double now = 34.7;
     auto controller_config = config();
     controller_config.ai_aim.ads_snap_window_ms = 300;
@@ -359,17 +717,19 @@ void test_ads_strong_cooperative_mix_uses_ai_as_the_radial_proposal() {
             "strong-mix ADS fixture left acquisition mode");
     require(components.shaped_assist_stick.x > 0.05f,
             "strong-mix ADS fixture did not generate material AI");
-    require(components.intent_fusion_candidate == static_cast<int>(
-                controller_native::FusionCandidate::RadialCorrected),
-            "ADS strong mix did not enter assisted proposal ownership");
-    require(components.intent_fusion_manual_weight >= 0.15f &&
-                components.intent_fusion_manual_weight <= 0.20f,
-            "ADS strong mix did not retain bounded participation from both proposals");
+    require(components.intent_fusion_predictive_envelope_applied,
+            "ADS strong mix did not enter the single final-output envelope");
+    require(components.intent_fusion_fresh_final_radial <=
+                components.intent_fusion_fresh_strongest_valid_radial + 0.0001f,
+            "ADS strong mix exceeded the strongest validated radial proposal");
+    require(components.intent_fusion_fresh_final_radial <=
+                components.intent_fusion_fresh_permitted_radial + 0.0001f,
+            "ADS strong mix exceeded its stopping permission");
     require(output.right_x < physical.right_x - 0.10f,
             "ADS strong mix still behaved like additive manual + AI force");
 }
 
-void test_near_bodylock_strong_mix_prefers_ai_but_far_stays_legacy() {
+void test_bodylock_strong_mix_uses_non_additive_final_envelope_at_both_ranges() {
     auto run_fixture = [](float body_height_px,
                           std::uint64_t observation_id) {
         double now = 34.9;
@@ -406,14 +766,14 @@ void test_near_bodylock_strong_mix_prefers_ai_but_far_stays_legacy() {
             "near strong-mix fixture did not enter the size policy scope");
     require(near_components.shaped_assist_stick.x > 0.05f,
             "near strong-mix fixture did not generate material AI");
-    require(near_components.intent_fusion_candidate == static_cast<int>(
-                controller_native::FusionCandidate::RadialCorrected),
-            "near BodyLock did not enter assisted proposal ownership");
-    require(near_components.intent_fusion_manual_weight >= 0.10f &&
-                near_components.intent_fusion_manual_weight <= 0.50f,
-            "near BodyLock did not retain bounded participation from both proposals");
-    require(near_components.intent_fusion_ai_weight >= 0.50f,
-            "near BodyLock attenuated AI instead of arbitrating both proposals");
+    require(near_components.intent_fusion_predictive_envelope_applied,
+            "near BodyLock did not enter the single final-output envelope");
+    require(near_components.intent_fusion_fresh_final_radial <=
+                near_components.intent_fusion_fresh_strongest_valid_radial + 0.0001f,
+            "near BodyLock exceeded the strongest validated radial proposal");
+    require(near_components.intent_fusion_fresh_final_radial <=
+                near_components.intent_fusion_fresh_permitted_radial + 0.0001f,
+            "near BodyLock exceeded its stopping permission");
 
     const auto [far_plan, far_components] = run_fixture(60.0f, 712);
     require(far_plan.mode == pipeline_contract::ControlMode::BodyLockFollow,
@@ -422,11 +782,14 @@ void test_near_bodylock_strong_mix_prefers_ai_but_far_stays_legacy() {
             "far comparison fixture accidentally entered near-target scope");
     require(far_components.shaped_assist_stick.x > 0.05f,
             "far comparison fixture did not generate material AI");
-    require(far_components.intent_fusion_manual_weight >= 0.999f,
-            "far BodyLock was changed by the near-target ownership policy");
-    require(far_components.intent_fusion_candidate != static_cast<int>(
-                controller_native::FusionCandidate::RadialCorrected),
-            "far BodyLock incorrectly entered near-target proposal ownership");
+    require(far_components.intent_fusion_predictive_envelope_applied,
+            "far BodyLock did not enter the single final-output envelope");
+    require(far_components.intent_fusion_fresh_final_radial <=
+                far_components.intent_fusion_fresh_strongest_valid_radial + 0.0001f,
+            "far BodyLock exceeded the strongest validated radial proposal");
+    require(far_components.intent_fusion_fresh_final_radial <=
+                far_components.intent_fusion_fresh_permitted_radial + 0.0001f,
+            "far BodyLock exceeded its stopping permission");
 }
 
 void test_only_worsening_wrong_way_axis_stops_suppressing_assist() {
@@ -1180,15 +1543,20 @@ int main() {
     try {
         test_ads_is_bounded_and_drift_is_ignored();
         test_production_remaining_work_consumes_only_confirmed_delivery();
+        test_remaining_work_drops_and_rebases_after_long_control_gap();
         test_bodylock_capture_alignment_has_no_remaining_authority();
         test_vision_gap_uses_smooth_short_continuity();
         test_opposing_manual_intent_yields_without_braking_bodylock();
         test_bodylock_countersteer_has_no_escape_threshold_impulse();
         test_benchmark_mix_override_updates_delivered_feedback();
         test_benchmark_vector_fusion_is_one_reported_pipeline_stage();
+        test_production_frame_local_observation_ids_do_not_switch_one_target();
+        test_production_selector_replacement_has_one_change_tick_then_recovers();
+        test_fuser_feedback_controls_manual_escape_without_magnitude_shortcut();
         test_vector_mode_generates_ai_before_manual_arbitration();
-        test_ads_strong_cooperative_mix_uses_ai_as_the_radial_proposal();
-        test_near_bodylock_strong_mix_prefers_ai_but_far_stays_legacy();
+        test_acquisition_trace_joins_source_observation_across_controller_stages();
+        test_ads_strong_cooperative_mix_uses_non_additive_final_envelope();
+        test_bodylock_strong_mix_uses_non_additive_final_envelope_at_both_ranges();
         test_only_worsening_wrong_way_axis_stops_suppressing_assist();
         test_ads_and_bodylock_share_one_resolved_target_geometry();
         test_held_ads_target_change_does_not_rearm_snap();

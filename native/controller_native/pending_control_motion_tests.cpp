@@ -71,6 +71,16 @@ void test_sub_tick_zero_hold_before_first_delivery_is_allowed() {
         "only delivered time after the sub-tick zero hold may be integrated");
 }
 
+void test_overlong_accounting_window_is_dropped() {
+    PendingControlMotion ledger;
+    (void)ledger.observe({1.000, {1.0f, 0.0f}, 7, true, true});
+    (void)ledger.observe({1.050, {1.0f, 0.0f}, 7, true, true});
+    const auto pending = ledger.estimate_between(1.000, 1.101, 500.0f, 7);
+    require(
+        !pending.valid,
+        "Remaining must drop an interval older than its realtime accounting budget");
+}
+
 void test_screen_space_remaining_work_uses_one_y_conversion() {
     const auto delivered = delivered_camera_work_px({10.0f, 6.0f});
     require_near(delivered.x, 10.0f, 0.0001f,
@@ -93,6 +103,7 @@ int main() {
         test_target_change_and_failed_delivery_invalidate_pending_motion();
         test_incomplete_time_coverage_is_not_guessed();
         test_sub_tick_zero_hold_before_first_delivery_is_allowed();
+        test_overlong_accounting_window_is_dropped();
         test_screen_space_remaining_work_uses_one_y_conversion();
         std::cout << "cod_native_pending_control_motion_tests PASS\n";
         return EXIT_SUCCESS;

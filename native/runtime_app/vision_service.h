@@ -46,6 +46,28 @@ struct VisionServiceSnapshot {
     float aim_wakeup_to_capture_ms = 0.0f;
     float aim_wakeup_to_result_ms = 0.0f;
     float requested_vision_fps = 0.0f;
+    // Monotonic timestamp taken when this snapshot is committed to the
+    // latest-only mailbox. It is distinct from result/capture timestamps.
+    std::uint64_t published_at_ns = 0;
+};
+
+// Final delivery fence between Vision and the controller. The service is a
+// latest-only mailbox, while this gate guarantees that a published result is
+// a unique, forward-moving, recent capture before it can become control input.
+class VisionDeliveryGate {
+public:
+    explicit VisionDeliveryGate(float max_source_age_ms = 50.0f) noexcept;
+
+    bool accept(
+        const vision_native::VisionResult& result,
+        std::uint64_t controller_consume_ns) noexcept;
+    void reset() noexcept;
+
+private:
+    float max_source_age_ms_ = 50.0f;
+    std::uint64_t last_frame_id_ = 0;
+    std::uint64_t last_capture_ns_ = 0;
+    bool has_delivery_ = false;
 };
 
 class IVisionServicePoller {
@@ -69,7 +91,7 @@ public:
     void start();
     void stop();
 
-    void set_aiming(bool aiming);
+    std::uint64_t set_aiming(bool aiming);
     void set_user_aim_intent(const pipeline_contract::UserAimIntent& intent);
     void set_viewport(const ViewportRequest& request);
 

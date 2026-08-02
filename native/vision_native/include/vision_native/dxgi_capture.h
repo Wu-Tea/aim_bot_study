@@ -10,6 +10,13 @@ namespace vision_native {
 struct DxgiCaptureMetadata {
     bool updated = false;
     FramePacket frame;
+    uint64_t capture_acquire_begin_ns = 0;
+    uint64_t capture_acquire_complete_ns = 0;
+    uint64_t capture_copy_complete_ns = 0;
+    uint64_t source_present_qpc = 0;
+    uint64_t source_present_qpc_frequency = 0;
+    bool source_present_available = false;
+    uint32_t accumulated_frames = 0;
     int roi_left = 0;
     int roi_top = 0;
     int output_width = 0;

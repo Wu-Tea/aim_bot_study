@@ -1,6 +1,7 @@
 #pragma once
 
 #include "pipeline_contract/target_snapshot.h"
+#include "vision_native/ego_motion_observer.h"
 
 #include <cstdint>
 #include <vector>
@@ -37,6 +38,19 @@ inline const char* preprocess_mode_name(PreprocessMode mode) {
 
 struct FramePacket {
     uint64_t frame_id = 0;
+    // All *_ns fields use the process steady-clock monotonic domain. The
+    // source-present value below intentionally stays in the DXGI QPC domain.
+    uint64_t capture_acquire_begin_ns = 0;
+    uint64_t capture_acquire_complete_ns = 0;
+    uint64_t capture_copy_complete_ns = 0;
+    uint64_t source_present_qpc = 0;
+    uint64_t source_present_qpc_frequency = 0;
+    bool source_present_available = false;
+    // Copied directly from DXGI_OUTDUPL_FRAME_INFO; never inferred from
+    // frame-id differences.
+    uint32_t accumulated_frames = 0;
+    // Compatibility name: this is the copy/release completion timestamp, not
+    // the beginning of AcquireNextFrame.
     uint64_t captured_at_ns = 0;
     int width = 0;
     int height = 0;
@@ -68,6 +82,13 @@ struct Detection {
 
 struct DetectionBatch {
     uint64_t frame_id = 0;
+    uint64_t capture_acquire_begin_ns = 0;
+    uint64_t capture_acquire_complete_ns = 0;
+    uint64_t capture_copy_complete_ns = 0;
+    uint64_t source_present_qpc = 0;
+    uint64_t source_present_qpc_frequency = 0;
+    bool source_present_available = false;
+    uint32_t accumulated_frames = 0;
     uint64_t captured_at_ns = 0;
     uint64_t inferred_at_ns = 0;
     int frame_width = 0;
@@ -89,7 +110,16 @@ struct DetectionBatch {
 
 struct VisionResult {
     bool selector_identity_protocol = false;
+    std::uint64_t selector_target_generation = 0;
+    bool selector_target_changed = false;
     uint64_t frame_id = 0;
+    uint64_t capture_acquire_begin_ns = 0;
+    uint64_t capture_acquire_complete_ns = 0;
+    uint64_t capture_copy_complete_ns = 0;
+    uint64_t source_present_qpc = 0;
+    uint64_t source_present_qpc_frequency = 0;
+    bool source_present_available = false;
+    uint32_t accumulated_frames = 0;
     uint64_t captured_at_ns = 0;
     uint64_t inferred_at_ns = 0;
     uint64_t result_at_ns = 0;
@@ -170,6 +200,8 @@ struct VisionResult {
     float post_ms = 0.0f;
     float age_ms = 0.0f;
     float boxes_seen = 0.0f;
+    EgoMotionShadowResult ego_motion_shadow{};
+    float ego_motion_stage_ms = 0.0f;
     PreprocessMode preprocess_mode = PreprocessMode::Unknown;
     std::vector<Detection> detections;
 };

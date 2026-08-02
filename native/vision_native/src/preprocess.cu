@@ -2,6 +2,8 @@
 
 #include <cuda_runtime.h>
 
+#include <cstdint>
+
 namespace vision_native {
 namespace {
 
@@ -128,6 +130,34 @@ __global__ void bgra_hwc_to_chw_float_kernel(
     dst_chw[(plane_size * 2) + pixel_index] = sample_hwc_channel_bilinear(src_bgra, src_width, src_height, row_pitch, 4, 0, src_x, src_y);
 }
 
+__global__ void bgra_array_to_gray_u8_kernel(
+    cudaTextureObject_t source_texture,
+    int src_width,
+    int src_height,
+    int dst_width,
+    int dst_height,
+    std::uint8_t* dst_gray) {
+    const int x = blockIdx.x * blockDim.x + threadIdx.x;
+    const int y = blockIdx.y * blockDim.y + threadIdx.y;
+    if (x >= dst_width || y >= dst_height) return;
+    const float scale_x = static_cast<float>(src_width) /
+        static_cast<float>(dst_width);
+    const float scale_y = static_cast<float>(src_height) /
+        static_cast<float>(dst_height);
+    const int src_x = min(src_width - 1,
+        max(0, static_cast<int>((static_cast<float>(x) + 0.5f) * scale_x)));
+    const int src_y = min(src_height - 1,
+        max(0, static_cast<int>((static_cast<float>(y) + 0.5f) * scale_y)));
+    const uchar4 bgra = tex2D<uchar4>(
+        source_texture, static_cast<float>(src_x) + 0.5f,
+        static_cast<float>(src_y) + 0.5f);
+    const float gray = (0.114f * static_cast<float>(bgra.x)) +
+        (0.587f * static_cast<float>(bgra.y)) +
+        (0.299f * static_cast<float>(bgra.z));
+    dst_gray[(y * dst_width) + x] = static_cast<std::uint8_t>(
+        min(255.0f, max(0.0f, gray)));
+}
+
 } // namespace
 
 void launch_rgb_hwc_to_chw_float(
@@ -190,6 +220,41 @@ void launch_bgra_hwc_to_chw_float(
         dst_width,
         dst_height,
         dst_chw);
+}
+
+cudaTextureObject_t launch_bgra_array_to_gray_u8(
+    cudaArray_t source,
+    int src_width,
+    int src_height,
+    int dst_width,
+    int dst_height,
+    std::uint8_t* dst_gray,
+    cudaStream_t stream) {
+    if (source == nullptr || dst_gray == nullptr || src_width <= 0 ||
+        src_height <= 0 || dst_width <= 0 || dst_height <= 0) {
+        return 0;
+    }
+    cudaResourceDesc resource{};
+    resource.resType = cudaResourceTypeArray;
+    resource.res.array.array = source;
+    cudaTextureDesc texture{};
+    texture.addressMode[0] = cudaAddressModeClamp;
+    texture.addressMode[1] = cudaAddressModeClamp;
+    texture.filterMode = cudaFilterModePoint;
+    texture.readMode = cudaReadModeElementType;
+    texture.normalizedCoords = 0;
+    cudaTextureObject_t texture_object = 0;
+    if (cudaCreateTextureObject(&texture_object, &resource, &texture, nullptr) !=
+        cudaSuccess) {
+        return 0;
+    }
+    const dim3 block(16, 16);
+    const dim3 grid(
+        (dst_width + block.x - 1) / block.x,
+        (dst_height + block.y - 1) / block.y);
+    bgra_array_to_gray_u8_kernel<<<grid, block, 0, stream>>>(
+        texture_object, src_width, src_height, dst_width, dst_height, dst_gray);
+    return texture_object;
 }
 
 } // namespace vision_native

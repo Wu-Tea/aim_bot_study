@@ -22,9 +22,9 @@ int main() {
         snapshot.error_px = {24.0, -8.0};
         snapshot.predicted_terminal_error_px = {18.0, -6.0};
         snapshot.target_velocity_px_per_sec = {90.0, 0.0};
-        snapshot.shaped_ai = {0.20, -0.05};
-        snapshot.manual = {0.02, 0.0};
-        snapshot.scheduled_pending_px = {3.0, -1.0};
+        snapshot.final_output = {0.22, -0.05};
+        snapshot.pending_total_px = {3.0, -1.0};
+        snapshot.pending_motion_valid = true;
         snapshot.right_response.values = {{{900.0, 40.0}, {-20.0, 760.0}}};
         snapshot.response_confidence = 0.8f;
         snapshot.delay_confidence = 0.7f;
@@ -41,6 +41,26 @@ int main() {
         require(ShortHorizonRollout::evaluate(snapshot) == result,
                 "rollout and tie breaking must be deterministic");
 
+        auto invalid_pending = snapshot;
+        invalid_pending.pending_motion_valid = false;
+        const auto no_memory = ShortHorizonRollout::evaluate(invalid_pending);
+        require(!no_memory.valid && no_memory.best_scale == 1.0f,
+                "invalid pending memory must not enter rollout ranking");
+
+        auto decomposition_a = snapshot;
+        auto decomposition_b = snapshot;
+        // Different upstream manual/AI decompositions are intentionally not
+        // represented in the rollout input anymore; the final proposal is
+        // identical in both snapshots.
+        decomposition_a.final_output = {0.50, -0.05};
+        decomposition_b.final_output = {0.50, -0.05};
+        const auto decomposition_result_a =
+            ShortHorizonRollout::evaluate(decomposition_a);
+        const auto decomposition_result_b =
+            ShortHorizonRollout::evaluate(decomposition_b);
+        require(decomposition_result_a == decomposition_result_b,
+                "same final output must be invariant to manual/AI decomposition");
+
         auto ambiguous = snapshot;
         ambiguous.single_strong_target = false;
         const auto ambiguous_result = ShortHorizonRollout::evaluate(ambiguous);
@@ -54,10 +74,10 @@ int main() {
                 "low confidence must retain actual controller scale");
 
         auto escape = snapshot;
-        escape.manual = {-0.8, 0.0};
+        escape.final_output = {-0.8, 0.0};
         const auto escaped = ShortHorizonRollout::evaluate(escape);
-        require(escaped.manual_escape && escaped.best_scale == 0.0f,
-                "deliberate manual escape must suppress AI candidates");
+        require(!escaped.manual_escape,
+                "rollout shadow must not classify manual escape");
 
         auto future = snapshot;
         future.latest_evidence_at_ns = future.decision_at_ns + 1;

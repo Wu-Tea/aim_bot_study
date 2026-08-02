@@ -67,6 +67,41 @@ void stamp_service_metadata(VisionServiceSnapshot& snapshot) {
 
 } // namespace
 
+VisionDeliveryGate::VisionDeliveryGate(float max_source_age_ms) noexcept
+    : max_source_age_ms_(std::max(0.0f, max_source_age_ms)) {}
+
+bool VisionDeliveryGate::accept(
+    const vision_native::VisionResult& result,
+    std::uint64_t controller_consume_ns) noexcept {
+    const std::uint64_t capture_ns = result.captured_at_ns != 0
+        ? result.captured_at_ns
+        : result.result_at_ns;
+    if (!result.frame_updated || result.frame_id == 0 || capture_ns == 0 ||
+        controller_consume_ns < capture_ns ||
+        (result.result_at_ns != 0 && result.result_at_ns < capture_ns)) {
+        return false;
+    }
+    const double age_ms = static_cast<double>(controller_consume_ns - capture_ns) /
+        1'000'000.0;
+    if (age_ms > static_cast<double>(max_source_age_ms_)) {
+        return false;
+    }
+    if (has_delivery_ &&
+        (result.frame_id <= last_frame_id_ || capture_ns <= last_capture_ns_)) {
+        return false;
+    }
+    has_delivery_ = true;
+    last_frame_id_ = result.frame_id;
+    last_capture_ns_ = capture_ns;
+    return true;
+}
+
+void VisionDeliveryGate::reset() noexcept {
+    last_frame_id_ = 0;
+    last_capture_ns_ = 0;
+    has_delivery_ = false;
+}
+
 VisionService::VisionService(std::unique_ptr<IVisionServicePoller> poller, VisionServiceOptions options)
     : poller_(std::move(poller)), options_(options) {
     if (poller_ == nullptr) {
@@ -96,20 +131,28 @@ void VisionService::stop() {
     }
 }
 
-void VisionService::set_aiming(bool aiming) {
-    bool wake = false;
+std::uint64_t VisionService::set_aiming(bool aiming) {
+    bool state_changed = false;
+    std::uint64_t transition_sequence = 0;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        wake = aiming && !controller_aiming_;
+        state_changed = aiming != controller_aiming_;
+        const bool wake = aiming && !controller_aiming_;
         controller_aiming_ = aiming;
+        if (state_changed) {
+            // Cached detections belong to the previous control epoch. They may
+            // remain useful for diagnostics, but never seed the new epoch.
+            has_last_fresh_result_ = false;
+        }
         if (wake) {
             ++aim_transition_sequence_;
             immediate_poll_requested_ = true;
             aim_transition_requested_at_ = std::chrono::steady_clock::now();
-            has_last_fresh_result_ = false;
         }
+        transition_sequence = aim_transition_sequence_;
     }
-    if (wake) wake_condition_.notify_one();
+    if (state_changed) wake_condition_.notify_one();
+    return transition_sequence;
 }
 
 void VisionService::set_user_aim_intent(const pipeline_contract::UserAimIntent& intent) {
@@ -191,11 +234,18 @@ bool VisionService::step(std::chrono::steady_clock::time_point now) {
     snapshot.result = result;
 
     std::lock_guard<std::mutex> lock(mutex_);
-    if (controller_aiming && aim_transition_sequence != aim_transition_sequence_) {
+    const bool control_epoch_current =
+        controller_aiming == controller_aiming_ &&
+        aim_transition_sequence == aim_transition_sequence_;
+    if (!control_epoch_current) {
+        snapshot.result.frame_updated = false;
         clear_reused_authority(snapshot.result);
     }
     snapshot.sequence = ++sequence_;
-    if (result.frame_updated) {
+    if (!control_epoch_current) {
+        snapshot.freshness = VisionSnapshotFreshness::NoUpdate;
+        snapshot.source_state = VisionSourceState::NoUpdate;
+    } else if (result.frame_updated) {
         snapshot.freshness = VisionSnapshotFreshness::Fresh;
         snapshot.source_state = VisionSourceState::FreshFrame;
         if (!controller_aiming) {
@@ -206,7 +256,9 @@ bool VisionService::step(std::chrono::steady_clock::time_point now) {
         }
     } else if (options_.repeat_last_on_no_update && has_last_fresh_result_) {
         snapshot.result = last_fresh_result_;
-        snapshot.result.frame_updated = true;
+        // This is continuity metadata only. It must not pass through the
+        // adapter as another detector measurement.
+        snapshot.result.frame_updated = false;
         clear_reused_authority(snapshot.result);
         snapshot.freshness = VisionSnapshotFreshness::Reused;
         snapshot.source_state = VisionSourceState::RepeatLastFrame;
@@ -215,6 +267,10 @@ bool VisionService::step(std::chrono::steady_clock::time_point now) {
         snapshot.source_state = VisionSourceState::NoUpdate;
     }
     stamp_service_metadata(snapshot);
+    snapshot.published_at_ns = static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now().time_since_epoch())
+            .count());
     latest_snapshot_ = snapshot;
     return true;
 }

@@ -11,6 +11,7 @@ namespace controller_native {
 
 struct TargetCoordinatorConfig {
     float hold_ms = 180.0f;
+    float max_observation_age_ms = 50.0f;
     // Identity/association stays on hold_ms. These parameters only retire
     // stale Coasting actuation authority after a brief Vision gap.
     float coast_full_authority_grace_ms = 12.5f;
@@ -19,8 +20,9 @@ struct TargetCoordinatorConfig {
     float max_reacquire_innovation_px = 18.0f;
     float settle_radius_px = 8.0f;
     std::uint32_t settle_frames = 5;
-    float ads_max_acquisition_ms = 180.0f;
-    float ads_activation_radius_px = 150.0f;
+    float ads_nominal_acquisition_ms = 135.0f;
+    float ads_max_acquisition_ms = 220.0f;
+    float ads_activation_radius_px = 135.0f;
     float bodylock_activation_radius_px = 150.0f;
     float bodylock_exit_radius_px = 48.0f;
     float handoff_prediction_seconds = 0.020f;
@@ -58,6 +60,10 @@ struct TargetControlFeedback {
     float remaining_work_confidence = 0.0f;
     bool capture_alignment_only = false;
     bool reset_remaining_work = false;
+    // VectorIntentFuser is the sole manual/AI arbitration owner. This is
+    // consumed on the next controller tick; the coordinator does not infer
+    // escape from raw stick magnitude.
+    bool fusion_manual_escape = false;
     bool firing_recently = false;
     float player_jump_action_age_ms = -1.0f;
     float player_slide_action_age_ms = -1.0f;
@@ -117,10 +123,18 @@ private:
         float reliability,
         bool reacquiring,
         float manual_camera_ownership) noexcept;
+    void reset_target_owned_state_for_replacement() noexcept;
     const pipeline_contract::VisionCandidate* choose_candidate(
         const pipeline_contract::VisionObservationBatch& observations,
         pipeline_contract::Vec2f predicted) const noexcept;
-    pipeline_contract::TargetPlan no_target_plan() noexcept;
+    bool is_effective_selector_replacement(
+        const pipeline_contract::VisionObservationBatch& observations,
+        const pipeline_contract::VisionCandidate& candidate) const noexcept;
+    pipeline_contract::TargetPlan no_target_plan(
+        double now_seconds,
+        std::uint64_t source_frame_id = 0,
+        std::uint32_t candidate_count = 0,
+        std::uint64_t preferred_source_id = 0) noexcept;
     void fill_horizon(pipeline_contract::TargetPlan& plan) const noexcept;
 
     TargetCoordinatorConfig config_{};
@@ -138,11 +152,14 @@ private:
     std::uint64_t next_target_id_ = 1;
     std::uint64_t generation_ = 0;
     std::uint64_t source_frame_id_ = 0;
+    std::uint64_t last_processed_frame_id_ = 0;
     double last_observed_seconds_ = 0.0;
     double last_observation_capture_seconds_ = 0.0;
+    double last_processed_capture_seconds_ = 0.0;
     double last_unique_observation_seconds_ = 0.0;
     double last_update_seconds_ = 0.0;
     double acquisition_started_seconds_ = 0.0;
+    double acquisition_completed_seconds_ = 0.0;
     double ads_epoch_started_seconds_ = 0.0;
     float last_observed_reliability_ = 0.0f;
     float last_observed_normalized_size_ = 0.0f;
@@ -150,12 +167,35 @@ private:
     std::uint32_t observed_frames_ = 0;
     bool has_target_ = false;
     bool has_observation_capture_time_ = false;
+    bool has_processed_capture_ = false;
+    bool has_processed_capture_time_ = false;
     bool has_unique_observation_time_ = false;
     bool fire_requested_ = false;
     bool observed_fire_eligible_ = false;
     bool was_missing_ = false;
     bool ads_epoch_active_ = false;
     bool ads_snap_consumed_ = false;
+    bool ads_target_admitted_ = false;
+    std::uint64_t physical_ads_epoch_ = 0;
+    std::uint64_t target_acquisition_id_ = 0;
+    std::uint64_t next_target_acquisition_id_ = 1;
+    pipeline_contract::AdsAcquisitionState ads_acquisition_state_ =
+        pipeline_contract::AdsAcquisitionState::Idle;
+    pipeline_contract::AdsDecisionReason ads_decision_reason_ =
+        pipeline_contract::AdsDecisionReason::None;
+    bool source_decision_available_ = false;
+    pipeline_contract::SourceDecisionOutcome source_decision_outcome_ =
+        pipeline_contract::SourceDecisionOutcome::NoDecision;
+    pipeline_contract::AdsDecisionReason source_decision_reason_ =
+        pipeline_contract::AdsDecisionReason::None;
+    pipeline_contract::AdsDecisionReason acquisition_terminal_reason_ =
+        pipeline_contract::AdsDecisionReason::None;
+    std::uint64_t ads_acquisition_begin_ns_ = 0;
+    std::uint64_t ads_acquisition_complete_ns_ = 0;
+    bool ads_center_cross_seen_ = false;
+    bool ads_moving_away_seen_ = false;
+    bool ads_target_switch_seen_ = false;
+    std::uint64_t selector_target_generation_ = 0;
     pipeline_contract::ControlMode control_mode_ = pipeline_contract::ControlMode::Manual;
     PlayerMotionEvent active_player_motion_event_ =
         PlayerMotionEvent::None;
@@ -170,6 +210,8 @@ private:
     pipeline_contract::Vec2f delivered_camera_work_since_capture_px_{};
     float remaining_work_confidence_ = 0.0f;
     bool remaining_work_valid_ = false;
+    float frame_width_px_ = 480.0f;
+    float frame_height_px_ = 416.0f;
 };
 
 }  // namespace controller_native

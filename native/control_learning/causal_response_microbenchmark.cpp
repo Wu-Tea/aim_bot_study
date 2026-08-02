@@ -25,6 +25,7 @@ pipeline_contract::CommittedCaptureObservation observation(
     value.viewport_source_frame_id = frame;
     value.captured_at_ns = capture_ns;
     value.result_at_ns = capture_ns + 2'000'000;
+    value.controller_consume_ns = capture_ns + 3'000'000;
     value.stable_error_px = {
         static_cast<float>(20.0 * std::sin(frame * 0.13)),
         static_cast<float>(8.0 * std::cos(frame * 0.17))};

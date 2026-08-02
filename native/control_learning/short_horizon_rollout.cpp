@@ -7,7 +7,6 @@
 namespace control_learning {
 namespace {
 double magnitude(Vec2d value) noexcept { return std::hypot(value.x, value.y); }
-double dot(Vec2d a, Vec2d b) noexcept { return a.x * b.x + a.y * b.y; }
 Vec2d response(const ResponseMatrix2d& matrix, Vec2d stick) noexcept {
     return {matrix.values[0][0] * stick.x + matrix.values[0][1] * stick.y,
             matrix.values[1][0] * stick.x + matrix.values[1][1] * stick.y};
@@ -15,16 +14,23 @@ Vec2d response(const ResponseMatrix2d& matrix, Vec2d stick) noexcept {
 bool finite(Vec2d value) noexcept {
     return std::isfinite(value.x) && std::isfinite(value.y);
 }
+Vec2d scaled_final_output(Vec2d value, double scale) noexcept {
+    return {
+        std::clamp(value.x * scale, -1.0, 1.0),
+        std::clamp(value.y * scale, -1.0, 1.0)};
+}
+Vec2d pending_residual(const RolloutSnapshot& snapshot) noexcept {
+    return snapshot.pending_motion_valid ? snapshot.pending_total_px : Vec2d{};
+}
 double candidate_cost(const RolloutSnapshot& snapshot, double scale) noexcept {
     constexpr double dt = 0.020;
     constexpr int steps = 8;
+    const auto pending = pending_residual(snapshot);
     Vec2d error{
-        snapshot.predicted_terminal_error_px.x - snapshot.scheduled_pending_px.x,
-        snapshot.predicted_terminal_error_px.y - snapshot.scheduled_pending_px.y};
+        snapshot.predicted_terminal_error_px.x - pending.x,
+        snapshot.predicted_terminal_error_px.y - pending.y};
     Vec2d velocity = snapshot.target_velocity_px_per_sec;
-    const Vec2d stick{
-        snapshot.manual.x + snapshot.shaped_ai.x * scale,
-        snapshot.manual.y + snapshot.shaped_ai.y * scale};
+    const Vec2d stick = scaled_final_output(snapshot.final_output, scale);
     const Vec2d camera = response(snapshot.right_response, stick);
     double cost = 0.0;
     for (int step = 0; step < steps; ++step) {
@@ -36,26 +42,19 @@ double candidate_cost(const RolloutSnapshot& snapshot, double scale) noexcept {
     }
     cost += magnitude(error) * (snapshot.mode ==
         pipeline_contract::ControlMode::AdsAcquire ? 70.0 : 45.0);
-    cost += magnitude({snapshot.shaped_ai.x * (scale - 1.0),
-        snapshot.shaped_ai.y * (scale - 1.0)}) * 10.0;
-    if (dot(snapshot.manual, snapshot.shaped_ai) < 0.0)
-        cost += magnitude(snapshot.manual) * scale * 30.0;
-    if (dot(error, snapshot.error_px) < 0.0 &&
-        dot(velocity, snapshot.error_px) <= 0.0)
-        cost += magnitude(error) * 30.0;
     return cost;
 }
 
 double tracking_area_cost(const RolloutSnapshot& snapshot, double scale) noexcept {
     constexpr double dt = 0.020;
     constexpr int steps = 8;
+    const auto pending = pending_residual(snapshot);
     Vec2d error{
-        snapshot.predicted_terminal_error_px.x - snapshot.scheduled_pending_px.x,
-        snapshot.predicted_terminal_error_px.y - snapshot.scheduled_pending_px.y};
+        snapshot.predicted_terminal_error_px.x - pending.x,
+        snapshot.predicted_terminal_error_px.y - pending.y};
     Vec2d velocity = snapshot.target_velocity_px_per_sec;
-    const Vec2d camera = response(snapshot.right_response, {
-        snapshot.manual.x + snapshot.shaped_ai.x * scale,
-        snapshot.manual.y + snapshot.shaped_ai.y * scale});
+    const Vec2d camera = response(
+        snapshot.right_response, scaled_final_output(snapshot.final_output, scale));
     double cost = 0.0;
     for (int step = 0; step < steps; ++step) {
         velocity.x += snapshot.target_acceleration_px_per_sec2.x * dt;
@@ -78,13 +77,14 @@ bool RolloutSnapshot::operator==(const RolloutSnapshot& o) const noexcept {
         target_velocity_px_per_sec.y == o.target_velocity_px_per_sec.y &&
         target_acceleration_px_per_sec2.x == o.target_acceleration_px_per_sec2.x &&
         target_acceleration_px_per_sec2.y == o.target_acceleration_px_per_sec2.y &&
-        shaped_ai.x == o.shaped_ai.x && shaped_ai.y == o.shaped_ai.y &&
-        manual.x == o.manual.x && manual.y == o.manual.y &&
-        scheduled_pending_px.x == o.scheduled_pending_px.x &&
-        scheduled_pending_px.y == o.scheduled_pending_px.y &&
+        final_output.x == o.final_output.x && final_output.y == o.final_output.y &&
+        pending_total_px.x == o.pending_total_px.x &&
+        pending_total_px.y == o.pending_total_px.y &&
         right_response.values == o.right_response.values &&
         response_confidence == o.response_confidence &&
-        delay_confidence == o.delay_confidence && has_target == o.has_target &&
+        delay_confidence == o.delay_confidence &&
+        pending_motion_valid == o.pending_motion_valid &&
+        has_target == o.has_target &&
         single_strong_target == o.single_strong_target;
 }
 
@@ -106,12 +106,16 @@ RolloutResult ShortHorizonRollout::evaluate(
     const bool confidence_ok = snapshot.response_confidence >= 0.20f &&
         snapshot.delay_confidence >= 0.05f;
     if (!causal || !snapshot.has_target || !confidence_ok ||
+        !snapshot.pending_motion_valid ||
         snapshot.mode == pipeline_contract::ControlMode::Manual ||
         !finite(snapshot.error_px) || !finite(snapshot.predicted_terminal_error_px) ||
-        !finite(snapshot.shaped_ai) || !finite(snapshot.manual)) return result;
+        !finite(snapshot.final_output) || !finite(snapshot.pending_total_px))
+        return result;
 
-    result.manual_escape = magnitude(snapshot.manual) >= 0.45 &&
-        dot(snapshot.manual, snapshot.shaped_ai) < 0.0;
+    // Escape/ownership classification belongs to the production fuser.  This
+    // shadow evaluator only compares bounded alternatives of its one final
+    // pre-recoil proposal.
+    result.manual_escape = false;
     constexpr std::array<float, 5> scales{0.0f, 0.70f, 0.85f, 1.00f, 1.15f};
     result.candidate_count = snapshot.single_strong_target ? 5 : 4;
     double best_cost = std::numeric_limits<double>::max();
@@ -127,7 +131,6 @@ RolloutResult ShortHorizonRollout::evaluate(
             tracking_area_cost(snapshot, 1.0)) {
         result.best_scale = 1.0f;
     }
-    if (result.manual_escape) result.best_scale = 0.0f;
     result.confidence = std::min(
         snapshot.response_confidence, snapshot.delay_confidence);
     result.valid = true;
