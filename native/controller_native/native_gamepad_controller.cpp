@@ -78,6 +78,7 @@ AdsAcquisitionControllerConfig ads_config(const GamepadRuntimeConfig& config) {
         0.060f, 0.350f);
     result.start_delay_ms = std::max(0.0f, config.ai_aim.ads_start_delay_ms);
     result.start_ramp_ms = std::max(0.0f, config.ai_aim.ads_start_ramp_ms);
+    result.response_curve = config.aim_response_curve;
     return result;
 }
 
@@ -89,6 +90,7 @@ BodylockFollowControllerConfig bodylock_config(const GamepadRuntimeConfig& confi
         18.0f, config.ai_aim.body_lock_box_tolerance_px * 1.5f);
     result.feedback_range_y_px = result.feedback_range_x_px;
     result.feedforward_gain = 0.72f;
+    result.response_curve = config.aim_response_curve;
     return result;
 }
 
@@ -803,6 +805,7 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
         fusion_input.manual_confidence = intent.right_confidence;
         fusion_input.fresh_single_target_observation =
             fresh_single_target_observation;
+        fusion_input.response_curve = config_.aim_response_curve;
         if (plan.mode == pipeline_contract::ControlMode::BodyLockFollow &&
             bodylock_diagnostics.response_envelope_valid) {
             fusion_input.response_horizon_seconds =

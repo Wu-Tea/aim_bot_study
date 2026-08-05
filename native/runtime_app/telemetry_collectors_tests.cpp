@@ -442,9 +442,15 @@ runtime_app::TelemetryAcquisitionTraceInput acquisition_trace() {
     value.first_requested_ai_x = 0.25f;
     value.first_shaped_ai_x = 0.20f;
     value.first_fused_output_x = 0.18f;
-    // Keep the raw source-present clock unavailable in this deterministic
-    // fixture; the production DXGI path supplies QPC plus frequency.
-    value.source_present_available = false;
+    // Keep both raw QPC and the calibrated steady projection so this fixture
+    // exercises the two distinct clock-domain fields.
+    value.source_present_available = true;
+    value.source_present_qpc = 900;
+    value.source_present_qpc_frequency = 10'000'000;
+    value.source_present_steady_ns = 1'500;
+    value.source_present_calibration_id = 41;
+    value.source_present_calibration_uncertainty_ns = 8;
+    value.source_present_steady_available = true;
     return value;
 }
 
@@ -490,7 +496,7 @@ void test_acquisition_trace_is_fixed_joinable_and_disabled_is_inert() {
     contents << input.rdbuf();
     const std::string json = contents.str();
     REQUIRE(json.find("\"type\":\"ads_acquisition_trace\"") != std::string::npos);
-    REQUIRE(json.find("\"schema\":\"ads_acquisition_trace_v2\"") != std::string::npos);
+    REQUIRE(json.find("\"schema\":\"ads_acquisition_trace_v3\"") != std::string::npos);
     REQUIRE(json.find("\"source_frame_id\":77") != std::string::npos);
     REQUIRE(json.find("\"source_observation_id\":9001") != std::string::npos);
     REQUIRE(json.find("\"persistent_target_id\":12") != std::string::npos);
@@ -511,7 +517,24 @@ void test_acquisition_trace_is_fixed_joinable_and_disabled_is_inert() {
     REQUIRE(json.find("\"selector_target_generation\":7") != std::string::npos);
     REQUIRE(json.find("\"acquisition_state\":\"acquiring_nominal\"") != std::string::npos);
     REQUIRE(json.find("\"decision_reason\":\"admitted\"") != std::string::npos);
-    REQUIRE(json.find("\"source_present_available\":false") != std::string::npos);
+    REQUIRE(json.find("\"source_present_available\":true") != std::string::npos);
+    REQUIRE(json.find("\"source_present_qpc\":900") != std::string::npos);
+    REQUIRE(json.find("\"source_present_qpc_frequency\":10000000") !=
+            std::string::npos);
+    REQUIRE(json.find("\"source_present_clock_domain\":\"qpc\"") !=
+            std::string::npos);
+    REQUIRE(json.find(
+                "\"source_present_steady_clock_domain\":\"qpc_to_steady_calibrated\"") !=
+            std::string::npos);
+    REQUIRE(json.find("\"source_present_steady_ns\":1500") !=
+            std::string::npos);
+    REQUIRE(json.find("\"source_present_calibration_id\":41") !=
+            std::string::npos);
+    REQUIRE(json.find(
+                "\"source_present_calibration_uncertainty_ns\":8") !=
+            std::string::npos);
+    REQUIRE(json.find("\"source_present_steady_available\":true") !=
+            std::string::npos);
     REQUIRE(json.find("\"effective_activation_radius_px\":135") != std::string::npos);
     input.close();
     std::filesystem::remove_all(directory);
@@ -535,9 +558,27 @@ void test_ego_motion_shadow_is_joinable_and_fixed_rate_independent() {
     input.current_frame_id = 12;
     input.previous_present_qpc = 100;
     input.current_present_qpc = 140;
+    input.previous_present_qpc_frequency = 10'000'000;
+    input.current_present_qpc_frequency = 10'000'000;
     input.present_qpc_frequency = 10'000'000;
+    input.previous_present_steady_ns = 10'000;
+    input.current_present_steady_ns = 14'000;
+    input.previous_present_calibration_id = 41;
+    input.current_present_calibration_id = 42;
+    input.previous_present_calibration_uncertainty_ns = 8;
+    input.current_present_calibration_uncertainty_ns = 9;
+    input.previous_present_steady_available = true;
+    input.current_present_steady_available = true;
+    input.present_clock_valid = true;
+    input.previous_capture_copy_complete_ns = 1'200;
+    input.current_capture_copy_complete_ns = 1'600;
     input.previous_result_ns = 1'000;
     input.current_result_ns = 2'000;
+    input.observer_completed_at_ns = 2'100;
+    input.result_age_at_take_ns = 300;
+    input.boundary_consistent_hit_count = 4;
+    input.boundary_consistent_hit_rate = 0.05f;
+    input.observer_lifecycle_generation = 2;
     input.background_dx = 2.0f;
     input.camera_dx = -2.0f;
     input.confidence = 0.8f;
@@ -557,16 +598,106 @@ void test_ego_motion_shadow_is_joinable_and_fixed_rate_independent() {
     contents << input_file.rdbuf();
     const std::string json = contents.str();
     REQUIRE(json.find("\"type\":\"ego_motion_shadow\"") != std::string::npos);
-    REQUIRE(json.find("\"schema\":\"ego_motion_shadow_v1\"") != std::string::npos);
+    REQUIRE(json.find("\"schema\":\"ego_motion_shadow_v2\"") != std::string::npos);
     REQUIRE(json.find("\"previous_frame_id\":11") != std::string::npos);
     REQUIRE(json.find("\"current_frame_id\":12") != std::string::npos);
     REQUIRE(json.find("\"present_qpc_frequency\":10000000") != std::string::npos);
+    REQUIRE(json.find("\"previous_present_qpc\":100") != std::string::npos);
+    REQUIRE(json.find("\"current_present_qpc\":140") != std::string::npos);
+    REQUIRE(json.find("\"previous_present_qpc_frequency\":10000000") !=
+            std::string::npos);
+    REQUIRE(json.find("\"current_present_qpc_frequency\":10000000") !=
+            std::string::npos);
+    REQUIRE(json.find("\"previous_present_steady_ns\":10000") !=
+            std::string::npos);
+    REQUIRE(json.find("\"current_present_steady_ns\":14000") !=
+            std::string::npos);
+    REQUIRE(json.find("\"previous_present_calibration_id\":41") !=
+            std::string::npos);
+    REQUIRE(json.find("\"current_present_calibration_id\":42") !=
+            std::string::npos);
+    REQUIRE(json.find(
+                "\"previous_present_calibration_uncertainty_ns\":8") !=
+            std::string::npos);
+    REQUIRE(json.find(
+                "\"current_present_calibration_uncertainty_ns\":9") !=
+            std::string::npos);
+    REQUIRE(json.find("\"present_clock_valid\":true") != std::string::npos);
+    REQUIRE(json.find("\"present_clock_domain\":\"qpc_to_steady_calibrated\"") !=
+            std::string::npos);
+    REQUIRE(json.find("\"previous_present_steady_available\":true") !=
+            std::string::npos);
+    REQUIRE(json.find("\"current_present_steady_available\":true") !=
+            std::string::npos);
+    REQUIRE(json.find("\"observer_completed_at_ns\":2100") != std::string::npos);
+    REQUIRE(json.find("\"observer_lifecycle_generation\":2") !=
+            std::string::npos);
+    input_file.close();
+    std::filesystem::remove_all(directory);
+}
+
+void test_ego_motion_shadow_invalid_clock_stays_unjoinable() {
+    const auto directory = std::filesystem::temp_directory_path() /
+        "cod_native_telemetry_ego_motion_invalid_clock";
+    std::filesystem::remove_all(directory);
+    runtime_app::RuntimeTelemetryOptions options;
+    options.enabled = true;
+    options.directory = directory;
+    runtime_app::RuntimeTelemetry telemetry(options);
+    telemetry.start();
+    runtime_app::TelemetryCollectors collectors(true, &telemetry);
+    runtime_app::TelemetryEgoMotionShadowInput input;
+    input.available = true;
+    input.valid = true;
+    input.result_sequence = 5;
+    input.previous_frame_id = 21;
+    input.current_frame_id = 22;
+    input.previous_present_qpc = 2'100;
+    input.current_present_qpc = 2'140;
+    input.previous_present_qpc_frequency = 10'000'000;
+    input.current_present_qpc_frequency = 10'000'000;
+    input.present_qpc_frequency = 10'000'000;
+    input.previous_present_steady_ns = 21'000;
+    input.current_present_steady_ns = 21'400;
+    // Numeric endpoint values are retained for diagnostics, but without
+    // endpoint availability and calibration ids they are not join evidence.
+    input.previous_present_calibration_id = 0;
+    input.current_present_calibration_id = 0;
+    input.previous_present_steady_available = false;
+    input.current_present_steady_available = false;
+    input.present_clock_valid = false;
+    input.observer_completed_at_ns = 22'100;
+    const auto accepted_attempts = observe_until_normal_record_is_accepted(
+        telemetry,
+        [&](std::uint64_t) {
+            collectors.observe_ego_motion_shadow(22, 100, input);
+        });
+    REQUIRE(accepted_attempts >= 1);
+    collectors.shutdown(3'000);
+    telemetry.stop();
+
+    std::ifstream input_file(telemetry.log_path());
+    std::ostringstream contents;
+    contents << input_file.rdbuf();
+    const std::string json = contents.str();
+    REQUIRE(json.find("\"present_clock_valid\":false") !=
+            std::string::npos);
+    REQUIRE(json.find("\"present_clock_domain\":\"unavailable\"") !=
+            std::string::npos);
+    REQUIRE(json.find("\"previous_present_steady_available\":false") !=
+            std::string::npos);
+    REQUIRE(json.find("\"current_present_steady_available\":false") !=
+            std::string::npos);
+    REQUIRE(json.find("\"previous_present_calibration_id\":0") !=
+            std::string::npos);
+    REQUIRE(json.find("\"current_present_calibration_id\":0") !=
+            std::string::npos);
     input_file.close();
     std::filesystem::remove_all(directory);
 }
 
 void test_causal_shadow_serializes_motion_buckets_and_final_output() {
-    REQUIRE(runtime_app::kTelemetrySchemaVersion == 12);
+    REQUIRE(runtime_app::kTelemetrySchemaVersion == 13);
     const auto directory = std::filesystem::temp_directory_path() /
         "cod_native_telemetry_causal_shadow_v2";
     std::filesystem::remove_all(directory);
@@ -701,6 +832,7 @@ int main() {
     test_acquisition_trace_is_fixed_joinable_and_disabled_is_inert();
     test_delivered_control_persistence_is_sampled_below_controller_rate();
     test_ego_motion_shadow_is_joinable_and_fixed_rate_independent();
+    test_ego_motion_shadow_invalid_clock_stays_unjoinable();
     test_causal_shadow_serializes_motion_buckets_and_final_output();
     return 0;
 }

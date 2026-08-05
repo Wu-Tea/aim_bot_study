@@ -80,6 +80,8 @@ add_library(vision_native_core STATIC
     src/color_readback.cpp
     src/dxgi_capture.cpp
     src/ego_motion_observer.cpp
+    src/qpc_steady_clock.cpp
+    src/present_interval_contract.cpp
     src/engine_io.cpp
     src/preprocess.cu
     src/resize_contract.cpp
@@ -175,6 +177,27 @@ add_executable(cod_native_ego_motion_observer_tests
     src/ego_motion_observer.cpp
 )
 target_include_directories(cod_native_ego_motion_observer_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+add_executable(cod_native_w3_clock_contract_tests
+    src/w3_clock_contract_tests.cpp
+    src/qpc_steady_clock.cpp
+    src/present_interval_contract.cpp
+)
+target_include_directories(cod_native_w3_clock_contract_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+target_compile_definitions(cod_native_w3_clock_contract_tests PRIVATE
+    NOMINMAX
+    WIN32_LEAN_AND_MEAN
+)
+
+add_executable(cod_native_ego_motion_observer_benchmark
+    src/ego_motion_observer_benchmark.cpp
+    src/ego_motion_observer.cpp
+)
+target_include_directories(cod_native_ego_motion_observer_benchmark PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
@@ -318,6 +341,7 @@ endif()
 
 add_executable(cod_native_controller_tests
     ../controller_native/target_pipeline_integration_tests.cpp
+    src/ego_motion_observer.cpp
     ../runtime_app/vision_controller_adapter.cpp
     ../tracking_native/tracker_authority.cpp
     ../controller_native/auto_fire_gate.cpp
@@ -1379,6 +1403,9 @@ enable_testing()
 add_test(
     NAME EgoMotionObserverTests
     COMMAND cod_native_ego_motion_observer_tests)
+add_test(
+    NAME W3ClockContractTests
+    COMMAND cod_native_w3_clock_contract_tests)
 add_test(
     NAME VisionResizeContractTests
     COMMAND vision_native_resize_contract_tests)

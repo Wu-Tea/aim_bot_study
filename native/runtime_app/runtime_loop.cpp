@@ -827,6 +827,14 @@ void RuntimeLoop::run_once() {
             latest_vision_result_.source_present_qpc_frequency;
         acquisition_trace.source_present_available =
             latest_vision_result_.source_present_available;
+        acquisition_trace.source_present_steady_ns =
+            latest_vision_result_.source_present_steady_ns;
+        acquisition_trace.source_present_calibration_id =
+            latest_vision_result_.source_present_calibration_id;
+        acquisition_trace.source_present_calibration_uncertainty_ns =
+            latest_vision_result_.source_present_calibration_uncertainty_ns;
+        acquisition_trace.source_present_steady_available =
+            latest_vision_result_.source_present_steady_available;
         acquisition_trace.plan_admitted = trace.plan_admitted;
         acquisition_trace.acquisition_active = trace.acquisition_active;
         acquisition_trace.acquisition_exists = trace.acquisition_exists;
@@ -893,9 +901,34 @@ void RuntimeLoop::run_once() {
             ego_input.current_frame_id = ego.current_frame_id;
             ego_input.previous_present_qpc = ego.previous_present_qpc;
             ego_input.current_present_qpc = ego.current_present_qpc;
+            ego_input.previous_present_qpc_frequency =
+                ego.previous_present_qpc_frequency;
+            ego_input.current_present_qpc_frequency =
+                ego.current_present_qpc_frequency;
             ego_input.present_qpc_frequency = ego.present_qpc_frequency;
+            ego_input.previous_present_steady_ns = ego.previous_present_steady_ns;
+            ego_input.current_present_steady_ns = ego.current_present_steady_ns;
+            ego_input.previous_present_calibration_id =
+                ego.previous_present_calibration_id;
+            ego_input.current_present_calibration_id =
+                ego.current_present_calibration_id;
+            ego_input.previous_present_calibration_uncertainty_ns =
+                ego.previous_present_calibration_uncertainty_ns;
+            ego_input.current_present_calibration_uncertainty_ns =
+                ego.current_present_calibration_uncertainty_ns;
+            ego_input.previous_present_steady_available =
+                ego.previous_present_steady_available;
+            ego_input.current_present_steady_available =
+                ego.current_present_steady_available;
+            ego_input.present_clock_valid = ego.present_clock_valid;
+            ego_input.previous_capture_copy_complete_ns =
+                ego.previous_capture_copy_complete_ns;
+            ego_input.current_capture_copy_complete_ns =
+                ego.current_capture_copy_complete_ns;
             ego_input.previous_result_ns = ego.previous_result_ns;
             ego_input.current_result_ns = ego.current_result_ns;
+            ego_input.observer_completed_at_ns = ego.observer_completed_at_ns;
+            ego_input.result_age_at_take_ns = ego.result_age_at_take_ns;
             ego_input.background_dx = ego.background_dx;
             ego_input.background_dy = ego.background_dy;
             ego_input.camera_dx = ego.camera_dx;
@@ -906,6 +939,23 @@ void RuntimeLoop::run_once() {
             ego_input.compute_ms = ego.compute_ms;
             ego_input.inlier_count = ego.inlier_count;
             ego_input.sample_count = ego.sample_count;
+            ego_input.search_radius_px = ego.search_radius_px;
+            ego_input.boundary_hit_count = ego.boundary_hit_count;
+            ego_input.boundary_hit_rate = ego.boundary_hit_rate;
+            ego_input.boundary_consistent_hit_count =
+                ego.boundary_consistent_hit_count;
+            ego_input.boundary_consistent_hit_rate =
+                ego.boundary_consistent_hit_rate;
+            ego_input.observer_lifecycle_generation =
+                ego.observer_lifecycle_generation;
+            ego_input.submitted_frame_count = ego.submitted_frame_count;
+            ego_input.pending_frame_replaced_count =
+                ego.pending_frame_replaced_count;
+            ego_input.pairs_processed_count = ego.pairs_processed_count;
+            ego_input.unread_result_replaced_count =
+                ego.unread_result_replaced_count;
+            ego_input.duplicate_or_out_of_order_rejected_count =
+                ego.duplicate_or_out_of_order_rejected_count;
             telemetry_collectors_.observe_ego_motion_shadow(
                 latest_vision_result_.frame_id, tick_count_, ego_input);
         }

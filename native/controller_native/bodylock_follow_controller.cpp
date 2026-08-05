@@ -83,6 +83,7 @@ BodylockFollowControllerOutput BodylockFollowController::compute_detailed(
     request.max_force = {config_.max_force_x, config_.max_force_y};
     request.authority = authority;
     request.fresh_position_authoritative = fresh_position_authoritative;
+    request.response_curve = config_.response_curve;
     const auto solved = solve_response_model_aim(request);
     result.position_stick = solved.position_stick;
     result.motion_stick = solved.motion_stick;

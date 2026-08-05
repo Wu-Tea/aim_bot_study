@@ -80,6 +80,7 @@ pipeline_contract::Vec2f AdsAcquisitionController::compute(
         acquisition_elapsed,
         config_.start_delay_ms,
         config_.start_ramp_ms);
+    request.response_curve = config_.response_curve;
     auto output = solve_response_model_aim(request).stick;
     const pipeline_contract::Vec2f manual{
         intent.filtered_right.x, intent.filtered_right.y};

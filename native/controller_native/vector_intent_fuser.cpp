@@ -570,12 +570,19 @@ VectorIntentFusionDecision VectorIntentFuser::update(
                 envelope_reason = "predicted_arrival_stop";
             }
         }
-        const float response_demand_radial = authority *
+        const float linear_response_demand_radial = authority *
             available_radial_px * (
             radial_direction.x * radial_direction.x /
                 (horizon_x * envelope_response) +
             radial_direction.y * radial_direction.y /
                 (horizon_y * envelope_response));
+        const pipeline_contract::Vec2f curved_response_target =
+            inverse_aim_response_curve(
+                {radial_direction.x * linear_response_demand_radial,
+                 radial_direction.y * linear_response_demand_radial},
+                input.response_curve);
+        const float response_demand_radial = std::max(
+            0.0f, dot(curved_response_target, radial_direction));
         const float force_denominator = std::sqrt(
             std::pow(radial_direction.x / max_force_x, 2.0f) +
             std::pow(radial_direction.y / max_force_y, 2.0f));

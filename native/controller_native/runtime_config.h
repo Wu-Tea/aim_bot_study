@@ -1,5 +1,6 @@
 #pragma once
 
+#include "aim_response_curve_plugin.h"
 #include "../tracking_native/tracker_backend.h"
 
 #include <filesystem>
@@ -206,6 +207,7 @@ struct GamepadRuntimeConfig {
     GamepadIntentConfig intent;
     GamepadAutoFireConfig auto_fire;
     GamepadAiAimConfig ai_aim;
+    AimResponseCurveConfig aim_response_curve;
     GamepadAimAssistDynamicsConfig aim_assist_dynamics;
     GamepadRecoilConfig recoil;
 };

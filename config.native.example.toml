@@ -65,6 +65,14 @@ aim_height_ratio = 0.365
 remaining_work_enabled = true
 remaining_work_scale = 0.60
 
+[gamepad.aim_response_curve]
+# Pluggable inverse curve: linear | cod_dynamic_legacy_lut.
+# It reshapes target T before force limiting; it does not blend manual and AI.
+algorithm = "cod_dynamic_legacy_lut"
+# At this anchor, the nonlinear plugin preserves the locally learned
+# px/(stick*s) sensitivity of the previous linear solver.
+calibration_reference_stick = 0.50
+
 [gamepad.auto_fire]
 fire_output = "RB"
 aim_only = true

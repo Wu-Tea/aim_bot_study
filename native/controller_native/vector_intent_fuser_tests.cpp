@@ -623,6 +623,35 @@ void test_fresh_shared_envelope_is_continuous_below_old_strength_gate() {
     }
 }
 
+void test_fresh_envelope_uses_configured_dynamic_target_curve() {
+    auto input = input_for({}, {0.80f, 0.0f});
+    input.plan.mode = pipeline_contract::ControlMode::AdsAcquire;
+    input.plan.error_px = {20.0f, 0.0f};
+    input.plan.predicted_terminal_error_px = input.plan.error_px;
+    input.plan.response_scale = 500.0f;
+    input.plan.response_confidence = 1.0f;
+    input.fresh_single_target_observation = true;
+    input.response_horizon_seconds = 0.20f;
+    input.response_horizon_y_seconds = 0.20f;
+    input.response_max_force = {1.0f, 1.0f};
+    input.response_envelope_valid = true;
+
+    VectorIntentFuser linear_fuser;
+    const auto linear = linear_fuser.update(input, 0.001f);
+    input.response_curve.algorithm =
+        controller_native::AimResponseCurveAlgorithm::CodDynamicLegacyLut;
+    input.response_curve.calibration_reference_stick = 0.50f;
+    VectorIntentFuser dynamic_fuser;
+    const auto dynamic = dynamic_fuser.update(input, 0.001f);
+
+    require_near(linear.fresh_vision_permitted_radial, 0.20f, 0.0001f,
+                 "linear fresh envelope fixture changed its target demand");
+    require_true(
+        dynamic.fresh_vision_permitted_radial >
+            linear.fresh_vision_permitted_radial + 0.05f,
+        "fresh fuser envelope clipped away the Dynamic target correction");
+}
+
 void test_fresh_post_slew_radial_guard_survives_center_crossing() {
     VectorIntentFuser fuser;
     auto input = input_for({0.30f, 0.0f}, {0.30f, 0.0f});
@@ -1114,6 +1143,7 @@ int main() {
         test_fresh_ai_wrong_way_is_bounded_by_position_evidence();
         test_strong_manual_and_ai_are_one_radial_proposal_envelope();
         test_fresh_shared_envelope_is_continuous_below_old_strength_gate();
+        test_fresh_envelope_uses_configured_dynamic_target_curve();
         test_fresh_final_continuity_is_source_agnostic();
         test_zero_authority_stays_manual_safe();
         test_fresh_post_slew_radial_guard_survives_center_crossing();

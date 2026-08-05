@@ -600,6 +600,11 @@ void TelemetryCollectors::observe_acquisition_trace(
     value.source_present_qpc = input.source_present_qpc;
     value.source_present_qpc_frequency = input.source_present_qpc_frequency;
     value.source_present_available = input.source_present_available;
+    value.source_present_steady_ns = input.source_present_steady_ns;
+    value.source_present_calibration_id = input.source_present_calibration_id;
+    value.source_present_calibration_uncertainty_ns =
+        input.source_present_calibration_uncertainty_ns;
+    value.source_present_steady_available = input.source_present_steady_available;
     value.plan_admitted = input.plan_admitted;
     value.acquisition_active = input.acquisition_active;
     value.acquisition_exists = input.acquisition_exists;
@@ -650,9 +655,33 @@ void TelemetryCollectors::observe_ego_motion_shadow(
     value.current_frame_id = input.current_frame_id;
     value.previous_present_qpc = input.previous_present_qpc;
     value.current_present_qpc = input.current_present_qpc;
+    value.previous_present_qpc_frequency =
+        input.previous_present_qpc_frequency;
+    value.current_present_qpc_frequency =
+        input.current_present_qpc_frequency;
     value.present_qpc_frequency = input.present_qpc_frequency;
+    value.previous_present_steady_ns = input.previous_present_steady_ns;
+    value.current_present_steady_ns = input.current_present_steady_ns;
+    value.previous_present_calibration_id =
+        input.previous_present_calibration_id;
+    value.current_present_calibration_id = input.current_present_calibration_id;
+    value.previous_present_calibration_uncertainty_ns =
+        input.previous_present_calibration_uncertainty_ns;
+    value.current_present_calibration_uncertainty_ns =
+        input.current_present_calibration_uncertainty_ns;
+    value.previous_present_steady_available =
+        input.previous_present_steady_available;
+    value.current_present_steady_available =
+        input.current_present_steady_available;
+    value.present_clock_valid = input.present_clock_valid;
+    value.previous_capture_copy_complete_ns =
+        input.previous_capture_copy_complete_ns;
+    value.current_capture_copy_complete_ns =
+        input.current_capture_copy_complete_ns;
     value.previous_result_ns = input.previous_result_ns;
     value.current_result_ns = input.current_result_ns;
+    value.observer_completed_at_ns = input.observer_completed_at_ns;
+    value.result_age_at_take_ns = input.result_age_at_take_ns;
     value.background_dx = input.background_dx;
     value.background_dy = input.background_dy;
     value.camera_dx = input.camera_dx;
@@ -663,6 +692,18 @@ void TelemetryCollectors::observe_ego_motion_shadow(
     value.compute_ms = input.compute_ms;
     value.inlier_count = input.inlier_count;
     value.sample_count = input.sample_count;
+    value.search_radius_px = input.search_radius_px;
+    value.boundary_hit_count = input.boundary_hit_count;
+    value.boundary_hit_rate = input.boundary_hit_rate;
+    value.boundary_consistent_hit_count = input.boundary_consistent_hit_count;
+    value.boundary_consistent_hit_rate = input.boundary_consistent_hit_rate;
+    value.observer_lifecycle_generation = input.observer_lifecycle_generation;
+    value.submitted_frame_count = input.submitted_frame_count;
+    value.pending_frame_replaced_count = input.pending_frame_replaced_count;
+    value.pairs_processed_count = input.pairs_processed_count;
+    value.unread_result_replaced_count = input.unread_result_replaced_count;
+    value.duplicate_or_out_of_order_rejected_count =
+        input.duplicate_or_out_of_order_rejected_count;
     enqueue(record);
     ++counters_.ego_motion_records;
 }

@@ -1,6 +1,6 @@
 # DEC-2026-08-01-002: Use Contextual Manual/AI Dual-Proposal Arbitration
 
-Status: accepted
+Status: superseded
 Date: 2026-08-01
 Confirmed by: user direction that both manual and AI must enter calculation,
 followed by explicit implementation, build, documentation-sync and commit
@@ -20,7 +20,7 @@ Related files:
 Supersedes: `DEC-2026-08-01-001` only for the current runtime identity and
 manual/AI arbitration semantics; its Task 1–4 lifecycle, identity and continuity
 contracts remain accepted
-Superseded by: none
+Superseded by: `DEC-2026-08-02-002-predictive-manual-ai-control-envelope.md`
 
 ## Context
 

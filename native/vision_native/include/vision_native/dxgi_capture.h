@@ -1,6 +1,7 @@
 #pragma once
 
 #include "vision_native/types.h"
+#include "vision_native/qpc_steady_clock.h"
 
 #include <cstdint>
 #include <memory>
@@ -16,6 +17,10 @@ struct DxgiCaptureMetadata {
     uint64_t source_present_qpc = 0;
     uint64_t source_present_qpc_frequency = 0;
     bool source_present_available = false;
+    uint64_t source_present_steady_ns = 0;
+    uint64_t source_present_calibration_id = 0;
+    uint64_t source_present_calibration_uncertainty_ns = 0;
+    bool source_present_steady_available = false;
     uint32_t accumulated_frames = 0;
     int roi_left = 0;
     int roi_top = 0;

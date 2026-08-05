@@ -16,6 +16,7 @@ struct BodylockFollowControllerConfig {
     float stopping_lookahead_seconds = 0.020f;
     float fallback_response_px_per_stick_second = 500.0f;
     float opposing_manual_reduction = 0.6f;
+    AimResponseCurveConfig response_curve{};
 };
 
 struct BodylockFollowControllerOutput {

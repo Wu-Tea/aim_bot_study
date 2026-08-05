@@ -1,5 +1,6 @@
 #pragma once
 
+#include "aim_response_curve_plugin.h"
 #include "causal_mix_evaluator.h"
 #include "pipeline_contract/target_plan.h"
 
@@ -93,6 +94,7 @@ struct VectorIntentFusionInput {
     pipeline_contract::Vec2f response_max_force{};
     bool response_envelope_valid = false;
     const char* response_envelope_source = "unavailable";
+    AimResponseCurveConfig response_curve{};
     std::array<pipeline_contract::Vec2f, kCausalMixHorizonCount>
         pending_camera_px{};
     bool pending_camera_valid = false;

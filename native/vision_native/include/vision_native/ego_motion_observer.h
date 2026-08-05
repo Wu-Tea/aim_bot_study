@@ -23,6 +23,7 @@ enum class EgoMotionInvalidReason : std::uint8_t {
     DuplicateOrOutOfOrder,
     LowBackgroundCoverage,
     LowConfidence,
+    SearchBoundaryLimited,
     WorkerStopped,
 };
 
@@ -39,6 +40,10 @@ struct EgoMotionFrameView {
     std::uint64_t frame_id = 0;
     std::uint64_t source_present_qpc = 0;
     std::uint64_t source_present_qpc_frequency = 0;
+    std::uint64_t source_present_steady_ns = 0;
+    std::uint64_t source_present_calibration_id = 0;
+    std::uint64_t source_present_calibration_uncertainty_ns = 0;
+    bool source_present_steady_available = false;
     std::uint64_t captured_at_ns = 0;
     std::uint64_t result_at_ns = 0;
     int width = 0;
@@ -58,11 +63,25 @@ struct EgoMotionShadowResult {
     std::uint64_t current_frame_id = 0;
     std::uint64_t previous_present_qpc = 0;
     std::uint64_t current_present_qpc = 0;
+    std::uint64_t previous_present_qpc_frequency = 0;
+    std::uint64_t current_present_qpc_frequency = 0;
     std::uint64_t present_qpc_frequency = 0;
+    std::uint64_t previous_present_steady_ns = 0;
+    std::uint64_t current_present_steady_ns = 0;
+    std::uint64_t previous_present_calibration_id = 0;
+    std::uint64_t current_present_calibration_id = 0;
+    std::uint64_t previous_present_calibration_uncertainty_ns = 0;
+    std::uint64_t current_present_calibration_uncertainty_ns = 0;
+    bool previous_present_steady_available = false;
+    bool current_present_steady_available = false;
+    bool present_clock_valid = false;
+    std::uint64_t previous_capture_copy_complete_ns = 0;
+    std::uint64_t current_capture_copy_complete_ns = 0;
     std::uint64_t previous_captured_at_ns = 0;
     std::uint64_t current_captured_at_ns = 0;
     std::uint64_t previous_result_ns = 0;
     std::uint64_t current_result_ns = 0;
+    std::uint64_t observer_completed_at_ns = 0;
     float background_dx = 0.0f;
     float background_dy = 0.0f;
     // Camera displacement is the inverse of observed background displacement:
@@ -75,10 +94,36 @@ struct EgoMotionShadowResult {
     float compute_ms = 0.0f;
     std::uint32_t inlier_count = 0;
     std::uint32_t sample_count = 0;
+    int search_radius_px = 0;
+    std::uint32_t boundary_hit_count = 0;
+    float boundary_hit_rate = 0.0f;
+    std::uint32_t boundary_consistent_hit_count = 0;
+    float boundary_consistent_hit_rate = 0.0f;
+    std::uint64_t result_age_at_take_ns = 0;
+    std::uint64_t observer_lifecycle_generation = 0;
+    std::uint64_t submitted_frame_count = 0;
+    std::uint64_t pending_frame_replaced_count = 0;
+    std::uint64_t pairs_processed_count = 0;
+    std::uint64_t unread_result_replaced_count = 0;
+    std::uint64_t duplicate_or_out_of_order_rejected_count = 0;
+};
+
+struct EgoMotionObserverStats {
+    std::uint64_t lifecycle_generation = 0;
+    std::uint64_t frames_submitted = 0;
+    std::uint64_t pending_frame_replaced = 0;
+    std::uint64_t pairs_processed = 0;
+    std::uint64_t unread_result_replaced = 0;
+    std::uint64_t duplicate_or_out_of_order_rejected = 0;
+    std::uint64_t results_taken = 0;
+    std::uint64_t result_age_ns_last = 0;
+    std::uint64_t result_age_ns_max = 0;
 };
 
 struct EgoMotionObserverConfig {
-    int search_radius_px = 8;
+    // Selected from the retained deterministic radius 8/12/14/16 benchmark:
+    // radius 14 identifies +/-12 without the radius-16 P95 cost regression.
+    int search_radius_px = 14;
     int patch_radius_px = 1;
     int grid_stride_px = 8;
     int edge_margin_px = 6;
@@ -106,6 +151,8 @@ public:
     // control/tracker state and are intended only for shadow telemetry.
     bool take_latest_result(EgoMotionShadowResult* result) noexcept;
 
+    EgoMotionObserverStats stats() const noexcept;
+
     // Clears pair history and pending/output mailboxes at a lifecycle boundary.
     void reset() noexcept;
 
@@ -120,6 +167,10 @@ private:
         std::uint64_t frame_id = 0;
         std::uint64_t source_present_qpc = 0;
         std::uint64_t source_present_qpc_frequency = 0;
+        std::uint64_t source_present_steady_ns = 0;
+        std::uint64_t source_present_calibration_id = 0;
+        std::uint64_t source_present_calibration_uncertainty_ns = 0;
+        bool source_present_steady_available = false;
         std::uint64_t captured_at_ns = 0;
         std::uint64_t result_at_ns = 0;
         std::array<std::uint8_t, kEgoMotionPixelCount> gray{};
@@ -133,7 +184,7 @@ private:
     void stop() noexcept;
 
     EgoMotionObserverConfig config_{};
-    std::mutex mutex_;
+    mutable std::mutex mutex_;
     std::condition_variable condition_;
     std::thread worker_;
     bool stop_requested_ = false;
@@ -144,6 +195,7 @@ private:
     StoredFrame pending_{};
     StoredFrame previous_{};
     EgoMotionShadowResult result_{};
+    EgoMotionObserverStats stats_{};
     std::uint64_t next_result_sequence_ = 1;
 };
 

@@ -81,10 +81,12 @@ ResponseModelAimOutput solve_response_model_aim(
             }
         }
     }
-    output.unclamped_stick = {
+    output.pre_curve_stick = {
         (output.position_stick.x + output.bounded_motion_stick.x) * authority,
         (output.position_stick.y + output.bounded_motion_stick.y) * authority,
     };
+    output.unclamped_stick = inverse_aim_response_curve(
+        output.pre_curve_stick, request.response_curve);
 
     const float max_x = std::max(0.0f, request.max_force.x);
     const float max_y = std::max(0.0f, request.max_force.y);

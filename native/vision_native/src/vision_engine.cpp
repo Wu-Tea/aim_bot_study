@@ -303,6 +303,12 @@ VisionResult VisionEngine::poll_once() {
     result.source_present_qpc = metadata.source_present_qpc;
     result.source_present_qpc_frequency = metadata.source_present_qpc_frequency;
     result.source_present_available = metadata.source_present_available;
+    result.source_present_steady_ns = metadata.source_present_steady_ns;
+    result.source_present_calibration_id = metadata.source_present_calibration_id;
+    result.source_present_calibration_uncertainty_ns =
+        metadata.source_present_calibration_uncertainty_ns;
+    result.source_present_steady_available =
+        metadata.source_present_steady_available;
     result.accumulated_frames = metadata.accumulated_frames;
     result.captured_at_ns = metadata.frame.captured_at_ns;
     result.wait_ms = metadata.acquire_ms + metadata.copy_ms;
@@ -369,6 +375,12 @@ VisionResult VisionEngine::poll_once() {
         batch.source_present_qpc = metadata.source_present_qpc;
         batch.source_present_qpc_frequency = metadata.source_present_qpc_frequency;
         batch.source_present_available = metadata.source_present_available;
+        batch.source_present_steady_ns = metadata.source_present_steady_ns;
+        batch.source_present_calibration_id = metadata.source_present_calibration_id;
+        batch.source_present_calibration_uncertainty_ns =
+            metadata.source_present_calibration_uncertainty_ns;
+        batch.source_present_steady_available =
+            metadata.source_present_steady_available;
         batch.accumulated_frames = metadata.accumulated_frames;
         batch.captured_at_ns = metadata.frame.captured_at_ns;
         batch.has_external_cue = external_cue_found_;
@@ -423,18 +435,27 @@ VisionResult VisionEngine::poll_once() {
                         std::min(kEgoMotionFrameHeight,
                             static_cast<int>(detection.y2 * sy) + 5)};
                 }
-                const EgoMotionFrameView ego_frame{
-                    metadata.frame.frame_id,
-                    metadata.source_present_qpc,
-                    metadata.source_present_qpc_frequency,
-                    metadata.frame.captured_at_ns,
-                    now_ns(),
-                    kEgoMotionFrameWidth,
-                    kEgoMotionFrameHeight,
-                    kEgoMotionFrameWidth,
-                    host_ego_gray_.data(),
-                    masks.data(),
-                    mask_count};
+                EgoMotionFrameView ego_frame;
+                ego_frame.frame_id = metadata.frame.frame_id;
+                ego_frame.source_present_qpc = metadata.source_present_qpc;
+                ego_frame.source_present_qpc_frequency =
+                    metadata.source_present_qpc_frequency;
+                ego_frame.source_present_steady_ns =
+                    metadata.source_present_steady_ns;
+                ego_frame.source_present_calibration_id =
+                    metadata.source_present_calibration_id;
+                ego_frame.source_present_calibration_uncertainty_ns =
+                    metadata.source_present_calibration_uncertainty_ns;
+                ego_frame.source_present_steady_available =
+                    metadata.source_present_steady_available;
+                ego_frame.captured_at_ns = metadata.frame.captured_at_ns;
+                ego_frame.result_at_ns = now_ns();
+                ego_frame.width = kEgoMotionFrameWidth;
+                ego_frame.height = kEgoMotionFrameHeight;
+                ego_frame.row_pitch = kEgoMotionFrameWidth;
+                ego_frame.gray = host_ego_gray_.data();
+                ego_frame.masks = masks.data();
+                ego_frame.mask_count = mask_count;
                 (void)ego_motion_observer_.submit_frame(ego_frame);
             } else {
                 (void)cudaGetLastError();
@@ -506,6 +527,12 @@ VisionResult VisionEngine::poll_once() {
         result.source_present_qpc = batch.source_present_qpc;
         result.source_present_qpc_frequency = batch.source_present_qpc_frequency;
         result.source_present_available = batch.source_present_available;
+        result.source_present_steady_ns = batch.source_present_steady_ns;
+        result.source_present_calibration_id = batch.source_present_calibration_id;
+        result.source_present_calibration_uncertainty_ns =
+            batch.source_present_calibration_uncertainty_ns;
+        result.source_present_steady_available =
+            batch.source_present_steady_available;
         result.accumulated_frames = batch.accumulated_frames;
         result.captured_at_ns = batch.captured_at_ns;
         result.inferred_at_ns = batch.inferred_at_ns;

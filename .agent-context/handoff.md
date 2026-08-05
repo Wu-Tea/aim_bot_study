@@ -1,73 +1,76 @@
 # Agent Handoff
 
-Last updated: 2026-08-01
-Active scope: native C++ FPS gamepad runtime, target identity, ADS, BodyLock, intent fusion and response estimation.
-Staleness trigger: refresh after runtime/config/engine or a control owner changes, or live evidence reproduces ADS pull, BodyLock jump, moving-follow jitter, sticky escape or lazy close tracking.
+Last updated: 2026-08-03
+Active scope: native C++ FPS gamepad runtime; final-output continuity, target identity, ADS lifecycle, live timing evidence, W3/W4 shadow validation and future causal short-term memory.
+Staleness trigger: refresh after the fresh/non-fresh continuity fix is reviewed or installed, a controlled no-background-load A/B is captured, or W3-W6 status changes.
 
 ## Current Objective
 
-Preserve `DE31...` as the current validation baseline while isolating slight ADS
-over/under. Separate handoff timing from movement before tuning or blaming learning.
+Repair the proven fresh-clamp/non-fresh-rebound command discontinuity without
+adding another control owner. Prove the repair with deterministic controller
+fixtures and a clean live capture before continuing W3/W4 or W5 work.
 
 ## Current State
 
-- Chain: Vision/selector -> TargetCoordinator -> TargetPlan -> ADS/BodyLock -> AimDynamicsShaper -> VectorIntentFuser -> ADS brake -> recoil/output.
-- Task 1–4 removed duplicate gating/state carry, enforced selector no-selection and bounded held-LT replacement admission. User live-accepted removal of severe jumps and frequent moving-follow jitter.
-- Follow-up keeps fresh firing position authoritative, separates Coasting actuation from identity hold, and removes same-target `Reacquiring` manual-only cuts.
-- Manual and shaped AI are absolute fuser proposals. Strong same-direction ADS/near BodyLock uses complete AI, contextual manual normalization and 20% headroom; tangent/opposing input, full escape and far BodyLock retain ownership.
-- Runtime: `native/vision_native/build/Release/cod_native_runtime.exe`, SHA-256 `DE31FF53B4C0CFBAB091F589CB194296A01DC9C0C8B5E74513F90AB94ED30590`.
-- Candidate: `artifacts/runtime-candidates/20260801-contextual-dual-proposal-headroom20-DE31FF53/cod_native_runtime.exe`; rollback: `artifacts/runtime-backups/20260801-pre-contextual-dual-proposal-0E5E9A3B/cod_native_runtime.exe`.
-- Latest session `20260801T131000Z_6544_1`: 25.51 min, 355 ADS runs, 246 normal handoffs >=20 ms.
-- **User-confirmed:** longer play still sometimes ends slightly past or short.
-- **Repository evidence:** end error/time `rho=0.070` and response proxy/time `rho=-0.054`; late incidents cluster at the physical-epoch `220 ms` ceiling under movement or late acquisition.
-- `rollout_shadow` is observation-only. Production `AimResponseEstimator` can change magnitude, but unlogged scale/confidence and direction-flip evidence do not support it as primary cause.
+- Production chain: Vision/selector -> TargetCoordinator -> TargetPlan -> ADS or BodyLock -> AimDynamicsShaper -> VectorIntentFuser -> ADS brake -> fixed recoil feed-forward -> ViGEm.
+- Protected rollback source is commit `5d2f3be`; its accepted executable/config SHA begins `872F6FFF` and is retained under `artifacts/runtime-backups/`.
+- The currently installed diagnostic runtime SHA-256 is `25CF27F9946FF58404C4AE57795870E97512337EE1A90FC47776AB2826A10155`.
+- Latest diagnostic capture is `20260803T135819Z_61220_1`: schema 13, `ads_acquisition_trace_v3`, `ego_motion_shadow_v2`. Its process ended but `session.json` and `.active` were not finalized; one last JSONL line is truncated.
+- Vision/controller transport is healthy: publish->consume `0.50/0.98 ms` P50/P95, result-ready->ViGEm `0.59/1.09 ms`, source-present->ViGEm `11.31/17.28 ms`; source frames are unique and increasing with no observer duplicate/out-of-order consumption.
+- **Proven defect:** `post_slew_fresh_target_relative_envelope` clamps fresh ticks and writes the reduced result to `previous_output_`; non-fresh ticks may immediately slew back toward a larger legacy proposal. Schema 13 has 44 qualifying clamps and 31 rebounds within 25 ms.
+- The old five-case session reproduces 109 command-level clamp transitions and 79 rebounds. Case 2 and Case 5 strongly contain this mechanism; Case 1 is confounded by multi-target identity, Case 3 is weak, and Case 4 has no matching event.
+- **User-confirmed:** the latest run felt slightly more delayed. Common-field old/new comparison shows essentially unchanged result-to-output transport but wider cadence tails: active source P95 `15.71 -> 21.03 ms`, consume P95 `18.99 -> 21.00 ms`; medians did not slow materially.
+- **Open hypothesis:** Luna/log/video analysis may have caused shared-resource contention. It is plausible but unproven because no controlled same-scenario foreground/background A/B exists.
+- W3 is shadow-only and blocked: ADS valid `64.18%`, BodyLock valid `73.40%`, compute P95 `2.08 ms`; do not lower confidence thresholds blindly.
+- W4 clock calibration is present, but provisional response peaks have broad bands and are selected through W3-valid rows. `first_effect_observed` is empty; W4 is not promotable.
+- W5 is not implemented: no ledger reconciles `scheduled -> in-flight -> realized` work, and no 150-200 ms short-term memory affects output.
+- Planned single-target AI ownership / multi-target intent-aligned handover remains a selector/coordinator policy and is not implemented.
+- OCR/profile recognition is absent from the hot path. Recoil profile playback is disabled; recoil is fixed downward `feedback_amount` feed-forward.
+- Both sticks and other gamepad signals are present after SDL event pumping ownership was repaired.
 
 ## Next Action
 
-No new fix is accepted. If requested, first add epoch/segment timing, handoff
-reason, contribution and response telemetry plus late-target/center-cross/control
-fixtures; then evaluate a bounded guard without held-LT ADS rearm.
+1. Have Luna implement a bounded continuity state: keep the last accepted target-relative final/envelope across intervening non-fresh ticks, superseded by a newer observation, identity/lifecycle boundary, deliberate escape or short expiry.
+2. Add a deterministic test proving that a fresh clamp cannot rebound toward the rejected proposal while target and physical input remain stable; retain target-loss, switch, escape and stale-expiry tests.
+3. Repair telemetry segmentation on `(acquisition, persistent target, selector generation)` and distinguish first material AI contribution from arbitrary fused/manual output.
+4. Build/review a candidate, then capture one same-map/weapon/settings run with analysis/video decoding stopped. Only afterward run a deliberate background-load A/B if the latency feeling persists.
+5. Resume W3 quality and W4 event-window work only after current actuation continuity is stable; W5 remains gated.
 
 ## Blockers
 
-- No blocker for the current documentation/commit.
-- The intentionally dirty worktree means commit identity alone is insufficient; preserve unrelated user changes.
-- Session manifests omit executable SHA-256, so retain installation-chain evidence for future live tests.
-- The latest manifest remains `state=active` and carries stale `git_commit`
-  provenance; production response estimator scale/confidence is also absent.
+- Case 4 cannot be physically attributed without a valid delivered-output/effect join.
+- Current W3 signal quality and broad W4 peaks cannot support realized-motion actuation.
+- The two latency sessions differ in runtime/schema/scenario and background load, so they establish a tail-jitter observation, not causality.
+- The worktree contains historical/untracked benchmark and context artifacts; do not reset, clean or broadly stage them.
 
 ## Active Questions
 
-- Should bounded continuation depend on target-segment age, closing error or both?
-- Should old-direction feed-forward be suppressed after fresh error crosses center?
-- How large is any secondary estimator-magnitude effect once telemetry exists?
+- Does the continuity repair remove alternating strong/lazy behavior, micro-input swallowing and close-range elastic swing without weakening legitimate AI authority?
+- Does a no-analysis live run retain the wider cadence tail, and is it visible in game frame time, inference timing or only capture scheduling?
+- What mechanism explains Case 4 once final delivered right-stick and physical camera effect can be joined?
+- Can W3 reach a validated active-mode confidence rate without accepting ambiguous background flow?
 
 ## Relevant Decisions
 
-- [Contextual dual-proposal arbitration](decisions/DEC-2026-08-01-002-contextual-manual-ai-dual-proposal-arbitration.md)
-- [Accept Task 1–4 runtime](decisions/DEC-2026-08-01-001-accept-control-chain-jump-stability-runtime.md)
-- [Separate target motion from firing disturbance](decisions/DEC-2026-07-31-001-separate-target-motion-and-firing-disturbance.md)
+- [Protect live baseline and defer W5](decisions/DEC-2026-08-03-001-protect-live-baseline-defer-w5.md)
+- [Target-count-aware manual exit authority](decisions/DEC-2026-08-03-002-target-count-aware-manual-exit-authority.md)
+- [Predictive manual/AI control envelope](decisions/DEC-2026-08-02-002-predictive-manual-ai-control-envelope.md)
+- [Fresh observation bounds radial authority (proposed)](decisions/DEC-2026-08-02-001-fresh-observation-bounds-radial-authority.md)
 - [Tracker publishes remaining work](decisions/DEC-2026-07-29-002-tracker-remaining-work-contract.md)
-- [ADS timing remains proposed](decisions/DEC-2026-07-29-001-decouple-ads-arrival-and-ownership-window.md)
 
 ## Files To Read First
 
-1. [Latest ADS long-session diagnosis](../docs/project/ADS_LONG_SESSION_DIAGNOSIS_20260801.md)
-2. [Current acceptance and runtime identity](../docs/project/CONTROL_CHAIN_JUMP_STABILITY_ACCEPTANCE_20260801.md)
-3. [Dual-proposal verification](../artifacts/benchmarks/sensitivity-manual-mix-20260801/CONTEXTUAL_DUAL_PROPOSAL_VERIFICATION.md)
+1. [Five-case and schema-13 control audit](../docs/project/FIVE_CASE_SCHEMA13_CONTROL_AUDIT_20260803.md)
+2. [Current project state](../docs/project/CURRENT_STATE.md)
+3. [August 3 protected live baseline](../docs/project/LIVE_ACCEPTED_RUNTIME_20260803.md)
 4. [Compact session log](session-log.md)
-5. [Four-situation plan and execution record](../docs/superpowers/plans/2026-08-01-four-situation-control-chain-reproduction-and-repair.md)
 
 ## Do Not Reopen Unless Needed
 
-- Do not lower ADS/BodyLock strength, restore duplicate gates/brakes or rearm ADS to hide discontinuity.
-- Do not globally scale all manual input; contextual normalization belongs only
-  to the strong same-direction arbitration path.
-- Do not clamp all fresh Vision innovation or add a second target-position state.
-- Do not give `rollout_shadow` actuation or add persistent learning without evidence and approval.
-- Do not reset, checkout over or bulk-clean the dirty worktree.
-
-## Notes
-
-- Archives: [pre-compaction handoff](archive/handoff-2026-07-31-pre-20260801-compaction.md) and [detailed July 23–31 session log](archive/session-log-2026-07-23-to-2026-07-31-pre-20260801-compaction.md).
-- Keep user-confirmed behavior separate from AI-inferred learning attribution.
+- Do not diagnose queued old vectors, duplicate Vision consumption or a slow result->controller path without new contradictory evidence.
+- Do not claim background Luna work caused latency; first run the controlled A/B.
+- Do not attribute Case 4 to the fresh-envelope defect or treat Case 1 as a selector bug without a preferred-target rule.
+- Do not restore additive manual-plus-AI forces, fixed manual preservation floors, held-LT rearming or a second Remaining/learner/controller owner.
+- Do not call W3/PendingMotion/rollout diagnostics W5 memory or scheduled output realized camera motion.
+- Do not overwrite the protected rollback without a reviewed candidate and explicit installation request.
+- Keep raw telemetry, private performance details and personal video paths out of project context.

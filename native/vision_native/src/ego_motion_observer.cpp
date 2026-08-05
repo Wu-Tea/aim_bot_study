@@ -52,6 +52,13 @@ std::uint8_t pixel(const EgoMotionFrameView& frame, int x, int y) noexcept {
     return frame.gray[(y * frame.row_pitch) + x];
 }
 
+std::uint64_t steady_now_ns() noexcept {
+    return static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now().time_since_epoch())
+            .count());
+}
+
 }  // namespace
 
 EgoMotionObserver::EgoMotionObserver(EgoMotionObserverConfig config)
@@ -69,6 +76,11 @@ bool EgoMotionObserver::store_frame(
     out->frame_id = view.frame_id;
     out->source_present_qpc = view.source_present_qpc;
     out->source_present_qpc_frequency = view.source_present_qpc_frequency;
+    out->source_present_steady_ns = view.source_present_steady_ns;
+    out->source_present_calibration_id = view.source_present_calibration_id;
+    out->source_present_calibration_uncertainty_ns =
+        view.source_present_calibration_uncertainty_ns;
+    out->source_present_steady_available = view.source_present_steady_available;
     out->captured_at_ns = view.captured_at_ns;
     out->result_at_ns = view.result_at_ns;
     out->mask_count = std::min(view.mask_count, kEgoMotionMaxMaskRects);
@@ -87,6 +99,11 @@ EgoMotionFrameView EgoMotionObserver::view_of(const StoredFrame& frame) noexcept
     view.frame_id = frame.frame_id;
     view.source_present_qpc = frame.source_present_qpc;
     view.source_present_qpc_frequency = frame.source_present_qpc_frequency;
+    view.source_present_steady_ns = frame.source_present_steady_ns;
+    view.source_present_calibration_id = frame.source_present_calibration_id;
+    view.source_present_calibration_uncertainty_ns =
+        frame.source_present_calibration_uncertainty_ns;
+    view.source_present_steady_available = frame.source_present_steady_available;
     view.captured_at_ns = frame.captured_at_ns;
     view.result_at_ns = frame.result_at_ns;
     view.width = kEgoMotionFrameWidth;
@@ -107,13 +124,44 @@ EgoMotionShadowResult EgoMotionObserver::estimate_pair(
     result.current_frame_id = current.frame_id;
     result.previous_present_qpc = previous.source_present_qpc;
     result.current_present_qpc = current.source_present_qpc;
+    result.previous_present_qpc_frequency =
+        previous.source_present_qpc_frequency;
+    result.current_present_qpc_frequency =
+        current.source_present_qpc_frequency;
     result.present_qpc_frequency = current.source_present_qpc_frequency != 0
         ? current.source_present_qpc_frequency
         : previous.source_present_qpc_frequency;
+    result.previous_present_steady_ns = previous.source_present_steady_ns;
+    result.current_present_steady_ns = current.source_present_steady_ns;
+    result.previous_present_calibration_id =
+        previous.source_present_calibration_id;
+    result.current_present_calibration_id =
+        current.source_present_calibration_id;
+    result.previous_present_calibration_uncertainty_ns =
+        previous.source_present_calibration_uncertainty_ns;
+    result.current_present_calibration_uncertainty_ns =
+        current.source_present_calibration_uncertainty_ns;
+    result.previous_present_steady_available =
+        previous.source_present_steady_available;
+    result.current_present_steady_available =
+        current.source_present_steady_available;
+    result.present_clock_valid =
+        result.previous_present_steady_available &&
+        result.current_present_steady_available &&
+        result.previous_present_qpc_frequency != 0 &&
+        result.current_present_qpc_frequency != 0 &&
+        result.previous_present_qpc_frequency ==
+            result.current_present_qpc_frequency &&
+        result.previous_present_calibration_id != 0 &&
+        result.current_present_calibration_id != 0 &&
+        result.previous_present_steady_ns < result.current_present_steady_ns;
+    result.previous_capture_copy_complete_ns = previous.captured_at_ns;
+    result.current_capture_copy_complete_ns = current.captured_at_ns;
     result.previous_captured_at_ns = previous.captured_at_ns;
     result.current_captured_at_ns = current.captured_at_ns;
     result.previous_result_ns = previous.result_at_ns;
     result.current_result_ns = current.result_at_ns;
+    result.search_radius_px = std::max(1, config.search_radius_px);
     if (!finite_frame(previous) || !finite_frame(current) ||
         previous.width != current.width || previous.height != current.height ||
         current.frame_id <= previous.frame_id) {
@@ -138,6 +186,7 @@ EgoMotionShadowResult EgoMotionObserver::estimate_pair(
     std::array<float, kMaxSamples> sample_cost{};
     std::size_t sample_count = 0;
     std::size_t grid_count = 0;
+    std::uint32_t boundary_hit_count = 0;
     const int total_patch_pixels = (patch * 2 + 1) * (patch * 2 + 1);
 
     for (int y = margin; y < current.height - margin; y += stride) {
@@ -172,9 +221,18 @@ EgoMotionShadowResult EgoMotionObserver::estimate_pair(
                     static_cast<float>(std::max(1, total_patch_pixels));
                 ++sample_count;
             }
+            if (best_dx == -search || best_dx == search ||
+                best_dy == -search || best_dy == search) {
+                ++boundary_hit_count;
+            }
         }
     }
     result.sample_count = static_cast<std::uint32_t>(sample_count);
+    result.boundary_hit_count = boundary_hit_count;
+    result.boundary_hit_rate = sample_count == 0
+        ? 0.0f
+        : static_cast<float>(boundary_hit_count) /
+            static_cast<float>(std::max<std::size_t>(1, sample_count));
     result.valid_background_ratio = grid_count == 0
         ? 0.0f
         : static_cast<float>(sample_count) / static_cast<float>(grid_count);
@@ -190,6 +248,20 @@ EgoMotionShadowResult EgoMotionObserver::estimate_pair(
     std::sort(sorted_dy.begin(), sorted_dy.begin() + sample_count);
     const int median_dx = sorted_dx[sample_count / 2];
     const int median_dy = sorted_dy[sample_count / 2];
+    std::uint32_t boundary_consistent_hit_count = 0;
+    for (std::size_t i = 0; i < sample_count; ++i) {
+        const bool x_consistent =
+            (median_dx > 0 && sample_dx[i] == search) ||
+            (median_dx < 0 && sample_dx[i] == -search);
+        const bool y_consistent =
+            (median_dy > 0 && sample_dy[i] == search) ||
+            (median_dy < 0 && sample_dy[i] == -search);
+        if (x_consistent || y_consistent) ++boundary_consistent_hit_count;
+    }
+    result.boundary_consistent_hit_count = boundary_consistent_hit_count;
+    result.boundary_consistent_hit_rate = static_cast<float>(
+        boundary_consistent_hit_count) /
+        static_cast<float>(std::max<std::size_t>(1, sample_count));
     float residual_sum = 0.0f;
     float cost_sum = 0.0f;
     std::uint32_t inlier_count = 0;
@@ -218,6 +290,25 @@ EgoMotionShadowResult EgoMotionObserver::estimate_pair(
         1.0f - (cost_sum / static_cast<float>(sample_count)) / 48.0f);
     result.confidence = clamp01(inlier_ratio * residual_quality *
         (0.65f + (0.35f * cost_quality)));
+    const bool global_boundary_limited =
+        median_dx == -search || median_dx == search ||
+        median_dy == -search || median_dy == search;
+    // A global median at the edge is definitive. If the median is interior,
+    // require a substantial fraction of the searched samples to be pinned to
+    // an edge before declaring the displacement unidentifiable; isolated
+    // ambiguous blocks remain valid and are reported diagnostically.
+    const bool boundary_dominant =
+        result.boundary_consistent_hit_count >= 8 &&
+        result.boundary_consistent_hit_rate >= 0.50f;
+    if (global_boundary_limited || boundary_dominant) {
+        result.valid = false;
+        result.invalid_reason = EgoMotionInvalidReason::SearchBoundaryLimited;
+        result.background_dx = 0.0f;
+        result.background_dy = 0.0f;
+        result.camera_dx = 0.0f;
+        result.camera_dy = 0.0f;
+        return result;
+    }
     if (result.residual_px > config.max_residual_px ||
         result.confidence < config.min_confidence) {
         result.valid = false;
@@ -238,6 +329,8 @@ bool EgoMotionObserver::submit_frame(const EgoMotionFrameView& frame) noexcept {
     if (!store_frame(frame, &stored)) return false;
     std::lock_guard<std::mutex> lock(mutex_);
     if (stop_requested_) return false;
+    ++stats_.frames_submitted;
+    if (pending_available_) ++stats_.pending_frame_replaced;
     pending_ = stored;
     pending_available_ = true;
     condition_.notify_one();
@@ -249,13 +342,27 @@ bool EgoMotionObserver::take_latest_result(EgoMotionShadowResult* result) noexce
     std::lock_guard<std::mutex> lock(mutex_);
     if (!result_available_) return false;
     *result = result_;
+    const std::uint64_t now_ns = steady_now_ns();
+    result->result_age_at_take_ns = result->observer_completed_at_ns != 0 &&
+        now_ns >= result->observer_completed_at_ns
+        ? now_ns - result->observer_completed_at_ns : 0;
+    ++stats_.results_taken;
+    stats_.result_age_ns_last = result->result_age_at_take_ns;
+    stats_.result_age_ns_max = std::max(
+        stats_.result_age_ns_max, result->result_age_at_take_ns);
     result_available_ = false;
     return true;
+}
+
+EgoMotionObserverStats EgoMotionObserver::stats() const noexcept {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return stats_;
 }
 
 void EgoMotionObserver::reset() noexcept {
     std::lock_guard<std::mutex> lock(mutex_);
     ++lifecycle_generation_;
+    stats_.lifecycle_generation = lifecycle_generation_;
     pending_available_ = false;
     previous_available_ = false;
     result_available_ = false;
@@ -286,11 +393,16 @@ void EgoMotionObserver::worker_loop() noexcept {
         // A late or duplicate frame is not a new baseline. Drop it without
         // disturbing the last accepted source frame, so the next fresh frame
         // can still form a valid pair against the same predecessor.
-        if (current.frame_id <= previous.frame_id) continue;
+        if (current.frame_id <= previous.frame_id) {
+            std::lock_guard<std::mutex> lock(mutex_);
+            ++stats_.duplicate_or_out_of_order_rejected;
+            continue;
+        }
         {
             std::lock_guard<std::mutex> lock(mutex_);
             if (stop_requested_ || lifecycle_generation != lifecycle_generation_)
                 continue;
+            ++stats_.pairs_processed;
             previous_ = current;
         }
         if (config_.worker_delay_ms_for_test != 0) {
@@ -302,11 +414,22 @@ void EgoMotionObserver::worker_loop() noexcept {
             view_of(previous), view_of(current), config_);
         estimate.result_sequence = next_result_sequence_++;
         const auto compute_end = std::chrono::steady_clock::now();
+        const std::uint64_t compute_end_ns = steady_now_ns();
         estimate.compute_ms = static_cast<float>(
             std::chrono::duration<double, std::milli>(compute_end - compute_start).count());
+        estimate.observer_completed_at_ns = compute_end_ns;
         {
             std::lock_guard<std::mutex> lock(mutex_);
             if (stop_requested_ || lifecycle_generation != lifecycle_generation_) continue;
+            if (result_available_) ++stats_.unread_result_replaced;
+            estimate.submitted_frame_count = stats_.frames_submitted;
+            estimate.pending_frame_replaced_count = stats_.pending_frame_replaced;
+            estimate.pairs_processed_count = stats_.pairs_processed;
+            estimate.unread_result_replaced_count = stats_.unread_result_replaced;
+            estimate.duplicate_or_out_of_order_rejected_count =
+                stats_.duplicate_or_out_of_order_rejected;
+            estimate.observer_lifecycle_generation =
+                stats_.lifecycle_generation;
             result_ = estimate;
             result_available_ = true;
         }

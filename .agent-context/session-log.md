@@ -1,83 +1,62 @@
 # Agent Session Log
 
-Last compacted: 2026-08-01
-Scope: native C++ FPS gamepad runtime, selector/tracker/controller, ADS, BodyLock, fusion, response estimation, benchmarks and runtime operations.
+Last compacted: 2026-08-03
+Scope: native C++ FPS gamepad runtime, selector/tracker/controller, ADS, BodyLock, final-output fusion, causal response telemetry, benchmarks and runtime operations.
 
 ## How To Use This File
 
-- Read the newest checkpoint, then its acceptance and decision links.
-- Detailed July 23–31 history: [archived session log](archive/session-log-2026-07-23-to-2026-07-31-pre-20260801-compaction.md).
+- Read the newest checkpoint, then the linked current-state and audit documents.
+- August 1-3 pre-compaction detail: [archived session log](archive/session-log-2026-08-01-to-2026-08-03-pre-20260803-compaction.md).
+- July 23-31 detail: [archived July session log](archive/session-log-2026-07-23-to-2026-07-31-pre-20260801-compaction.md).
 - Earlier history: [pre-July-20 context](archive/context-through-2026-07-20-pre-compaction.md) and `session-log-full.md`.
-- Labels: **User-confirmed** = live/explicit statement; **Repository evidence** = source/test/artifact; **Inferred** = explanation not isolated by A/B.
+- Labels: **User-confirmed** = live/explicit statement; **Repository evidence** = source/test/artifact; **Inferred/open** = explanation not isolated by controlled A/B.
 
-## 2026-08-01 - Dual-Proposal Runtime and Long-Session ADS Audit
+## 2026-08-03 - Five-Case Audit and Schema-13 Control-Continuity Diagnosis
 
-- Goal: make manual and AI both enter one calculation at 2.4 sensitivity, then distinguish the remaining late-session ADS over/under from learning drift.
-- Repository evidence: strong same-direction ADS/near BodyLock now uses complete AI plus context-normalized manual and 20% parallel headroom; tangent/opposing input, full escape, pure AI and far BodyLock retain their contracts.
-- Verification: Release build, focused tests, left-stick 5/0 harness, CTest `34/34` and `git diff --check` pass; authoritative matrix is `sensitivity-manual-mix-20260801/contextual-headroom-0.20-final-exact/`.
-- Installed runtime SHA-256: `DE31FF53B4C0CFBAB091F589CB194296A01DC9C0C8B5E74513F90AB94ED30590`; pre-overwrite `0E5E9A3B...` backup retained.
-- **User-confirmed:** after longer bot play, ADS can occasionally pull slightly past or stop slightly short.
-- Repository evidence: latest `20260801T131000Z_6544_1` session is 25.51 min; 355 ADS runs, 246 normal handoffs >=20 ms; ending error vs elapsed `rho=0.070` and response proxy vs elapsed `rho=-0.054`.
-- Late examples end at the physical-LT `220 ms` acquisition ceiling: a target entering at 182 ms gets only 36 ms; a near-ceiling center crossing retains old-direction velocity/feed-forward before handoff.
-- **Inferred:** movement plus physical-epoch handoff timing is primary; cumulative learning drift is not supported. Production response scale/confidence is unlogged, so a secondary magnitude effect remains open.
-- No new control fix was made. Next gate is telemetry plus late-target/center-cross/stationary fixtures; held-LT strong ADS must not rearm.
-- Decision: [DEC-2026-08-01-002](decisions/DEC-2026-08-01-002-contextual-manual-ai-dual-proposal-arbitration.md). Diagnosis: [ADS long-session audit](../docs/project/ADS_LONG_SESSION_DIAGNOSIS_20260801.md).
+- Current installed diagnostic runtime SHA-256 is `25CF27F9946FF58404C4AE57795870E97512337EE1A90FC47776AB2826A10155`; capture `20260803T135819Z_61220_1` is schema 13 with ADS trace v3 and ego-motion v2.
+- **User-confirmed:** the new run felt slightly more delayed. The user asked whether Luna reading logs in the background may have contributed.
+- Repository evidence: common-field comparison against old five-case session `20260803T131652Z_65236_1` shows result-ready to ViGEm at `0.58/1.05 ms` versus `0.60/1.08 ms` P50/P95, so the Vision-result-to-controller/output transport did not materially regress.
+- Repository evidence: within active acquisition, source cadence P50 stayed `7.85 -> 7.86 ms`, but P95 widened `15.71 -> 21.03 ms`; controller-consume cadence P50 improved `8.93 -> 8.04 ms`, while P95 widened `18.99 -> 21.00 ms`.
+- **Inferred/open:** the latency feeling is compatible with increased tail jitter. Shared CPU/disk/memory/video-decoding contention is plausible, but the two runs are not a controlled background-load A/B and do not prove Luna caused it.
+- Repository evidence: Vision publish to controller consume is `0.50/0.98 ms` P50/P95 in schema 13; source present to ViGEm is `11.31/17.28 ms`; 21,370 source frames are unique/increasing and observer counters show no duplicate/out-of-order consumption. A queued-vector or repeated-frame diagnosis is rejected.
+- Repository evidence: the current fuser has a command-continuity defect. A fresh post-slew envelope clamp updates `previous_output_`; an intervening non-fresh tick then slews toward the larger legacy proposal. Schema 13 contains 44 large fresh clamps, with 31 opposite rebounds within 25 ms.
+- Reviewer evidence: the old five-case session independently reproduces 109 fresh-clamp transitions and 79 rebounds. Case 2 and Case 5 strongly contain the mechanism; Case 1 is multi-target-confounded; Case 3 is weak; Case 4 has no qualifying event and remains unexplained.
+- W3 is shadow-only and blocked: ADS valid `64.18%`, BodyLock valid `73.40%`, compute P95 `2.08 ms`. W4 has a calibrated clock and provisional `5-10 ms` peaks, but broad peak bands and W3-valid selection bias prevent promotion.
+- ADS continuation obeys the intended contract: 135 ms is nominal, extension occurs only with a visible unacquired target, and the observed approximately 221 ms maximum is controller-tick reporting around the 220 ms ceiling, not runaway operation.
+- Telemetry still needs per-target assist segmentation and a true first-material-AI field; current `first_fused_output` can capture manual output and trace identity can survive a target change.
+- Full record: [Five-case and schema-13 control audit](../docs/project/FIVE_CASE_SCHEMA13_CONTROL_AUDIT_20260803.md).
 
-## 2026-08-01 - Task 1–4 Repair and Live Acceptance
+## 2026-08-03 - Live-Accepted Baseline Protected
 
-- Goal: remove ADS pull-away, ADS→BodyLock force carry, held-LT replacement jumps and moving-follow jitter without reducing strength or adding another owner.
-- Repository evidence: Task 1 removed duplicate fuser reliability gating; Task 2 made shaper state target/mode-aware; Task 3 enforced selector-owned no-selection; Task 4 added one manual/zero-AI replacement admission tick followed by the existing `0.08` slew.
-- Fresh Vision and valid same-track motion remain authoritative; no tracker clamp, second position state, selector rewrite, gain reduction, ADS re-arm or final-output brake was retained.
-- Release `34/34`, focused tests and `git diff --check` pass. Task 4 A/B: tracking `+0.0343%`, overshoot `-0.0712%`, continued push `245 ms`, discontinuities `59`, false interruptions `9`, false stops `0`.
-- Installed after explicit authorization: runtime SHA-256 `B7F9F28B6A39E1AE58DB75C5F3A3A18DDF3D9692886245ABF2C5493FDC84140C`; candidate archive and prior `3D9ED74C...` backup retained.
-- **User-confirmed:** later acquisitions were nearly direct; BodyLock held a stationary target during main-view movement; moving follow no longer jittered frequently; severe jumps are no longer the usability failure.
-- **Inferred:** improvement is consistent with in-memory `AimResponseEstimator` plus tracker/body-geometry state. Top-level `rollout_shadow` is telemetry-only.
-- Subagent result: earlier Luna Task 1–3 work was reviewed against focused tests/artifacts; final selector/Task 4 acceptance and installation were verified in the primary session.
-- Context updated: handoff, session index, `DEC-2026-08-01-001`, acceptance doc, plan status and Task 4 verification.
-- Follow-up: freeze the baseline; reopen only for a fingerprinted, reproducible live defect.
+- Source baseline commit is `5d2f3be`; protected rollback executable/config identity is `872F6FFF...50558C38` under `artifacts/runtime-backups/`.
+- **User-confirmed:** two games, using an approximately 400 ms ADS LMG, felt substantially better than the previous runtime; both sticks and all other controller inputs worked after SDL event ownership was repaired.
+- The accepted improvement covers one final-output manual/AI envelope, fresh-position/feed-forward separation, target replacement reset and admission-relative ADS lifecycle.
+- **Correction retained:** W5 CausalMotionLedger/Causal Remaining v2 is not implemented. W3, PendingMotion diagnostics and rollout telemetry are shadow-only and provide no 150-200 ms memory actuation.
+- Decision: [protect live baseline and defer W5](decisions/DEC-2026-08-03-001-protect-live-baseline-defer-w5.md).
 
-## 2026-07-31 - Firing-Disturbance Observer
+## 2026-08-02 - Final-Output and Causal-Chain Work
 
-- Live stationary firing showed five to nine requested reversals per 0.2–0.5 s burst; noise alone was insufficient.
-- Accepted bounded velocity admission: fresh position stays authoritative; only consecutive consistent 2-D residuals enter target velocity during low-anchor firing at established speed <=80 px/s.
-- Unique Vision samples update measurement once; controller ticks only propagate state and delivered work.
-- Rejected leaky disturbance, global medoid/mean, immediate velocity zeroing and final recoil in Remaining due to oscillation, delay or BodyLock regression.
-- Decision: [DEC-2026-07-31-001](decisions/DEC-2026-07-31-001-separate-target-motion-and-firing-disturbance.md).
+- Eight-clip audit found ADS over/under, selector/anchor jumps and BodyLock wrong-way swing; active present-to-ViGEm was normally 9-12 ms with unique delivery.
+- W0-W2 established acquisition/provenance telemetry. W3 latest-only ego-motion remained shadow-only. OCR/profile lookup left the hot path and recoil returned to fixed downward feed-forward.
+- P1 changed manual and AI from additive budgets into fallible proposals for one target-relative final output, separated BodyLock position from feed-forward, restored escape ownership and exposed the envelope telemetry now used to find the continuity defect.
+- User-confirmed target policy: one credible target may be AI-primary; multiple credible targets may permit an intent-aligned handover through selector/coordinator ownership. It is planned, not implemented.
+- Decisions: [predictive final-output envelope](decisions/DEC-2026-08-02-002-predictive-manual-ai-control-envelope.md) and [target-count-aware exit authority](decisions/DEC-2026-08-03-002-target-count-aware-manual-exit-authority.md).
 
-## 2026-07-29 to 2026-07-30 - Remaining Work and POV/Gun-Kick Evidence
+## 2026-08-01 - Earlier Repair and Long-Session Audit
 
-- Accepted remaining work = fresh Vision error + exogenous motion - delivered camera work; ADS/BodyLock consume one state.
-- Combined player/enemy motion cut tracking about 43–50%; mixed manual input remained useful, rejecting blanket suppression.
-- Gun-kick plus occlusion reproduced BodyLock loss; retained conservative velocity alpha `0.15` and size-aware initial ADS range without held-LT rearm.
-- ADS arrival versus ownership timing remains [proposed](decisions/DEC-2026-07-29-001-decouple-ads-arrival-and-ownership-window.md).
-
-## 2026-07-28 - Controller-Rate Learning Audit
-
-- Delay posterior generalized (239/240 within +/-5 ms), but mixed-motion response confidence remained zero and no rollout decisions were authorized.
-- `PendingMotionModel` learned decision-time debt but stayed shadow-only; one global 2x2 response matrix was rejected across mode/slowdown/strafe.
-- Full-reversal strafe remained the main synthetic stress; delay accuracy alone cannot authorize a new control owner.
-
-## 2026-07-23 to 2026-07-24 - Moving and Ego-Motion Evidence
-
-- Full-speed left strafe reduced tracking 12.17%, raised overshoot 68.16% and continued push 461.90% versus no strafe.
-- A causal ego-motion estimator was tested in a feature worktree but not connected to production.
-- Live crossing debt concentrated in BodyLock; human inertia was more common than old-direction AI/manual stacking. See [audit](archive/2026-07-24-live-overshoot-audit.md).
-
-## 2026-07-16 to 2026-07-22 - Single-Owner Baseline
-
-- Refactor B established one production path and removed duplicate lifecycle, brake, legacy tracker/AI, dynamics and output-validation owners.
-- Response-model control, near-target feedback and vector fusion recovered speed; ADS snap became one physical-LT epoch.
-- Selector retained committed targets through short occlusion; green cue is a hard reject, yellow cue auxiliary only.
-- Fresh reliable BodyLock Vision may reduce only wrong radial manual work for 16 ms; tangent and deliberate escape remain user-owned.
-- AutoFire stays 100 ms period / >=30 ms press; recoil remains final feed-forward.
+- Tasks 1-4 removed duplicate reliability gating, made shaper state target/mode-aware, enforced selector-owned no-selection and added a bounded replacement admission transition.
+- **User-confirmed:** later acquisitions were nearly direct, BodyLock held during view movement, moving follow jitter fell sharply, and severe jumps stopped being the dominant usability failure.
+- Later long-session ADS over/under did not correlate with elapsed time; movement plus acquisition/handoff timing was better supported than cumulative learner drift.
+- The later dual-proposal policy was superseded by the single final-output envelope; do not restore additive manual-plus-AI force or fixed manual preservation floors.
 
 ## Earlier Durable Milestones
 
-- 2026-07-14: SDL stale-handle recovery and tracker-only ADS continuity.
-- 2026-07-07: authority-before-strength accepted; crude body-box gate rejected.
-- 2026-07-06: physical right-stick intent entered native target selection.
-- 2026-06-25: performance-first fusion canvas and capture exclusion boundary.
-- 2026-05-29: weak-association and fire-authority gating baseline.
+- 2026-07-31: accepted a bounded firing-disturbance observer; fresh position remains authoritative and only consistent residuals may inform target velocity.
+- 2026-07-29 to 2026-07-30: Remaining work defined as fresh Vision error plus exogenous motion minus delivered camera work; one state is shared by ADS and BodyLock.
+- 2026-07-28: response delay generalized in benchmarks, but mixed-motion confidence stayed insufficient; PendingMotion remained shadow-only.
+- 2026-07-23 to 2026-07-24: live strafe increased overshoot and continued push; causal ego-motion was explored but not given production authority.
+- 2026-07-16 to 2026-07-22: one production chain/owner baseline established; selector retained same-target short occlusion and physical LT owned one ADS epoch.
+- Earlier: SDL stale-handle recovery, intent-aware target selection, green-cue hard rejection, performance-first fusion canvas and capture-exclusion boundaries.
 
 ## Current Architecture and Maintenance
 
@@ -85,9 +64,7 @@ Scope: native C++ FPS gamepad runtime, selector/tracker/controller, ADS, BodyLoc
 Vision -> selector -> TargetCoordinator -> TargetPlan
        -> ADS acquisition OR BodyLock follow
        -> AimDynamicsShaper -> VectorIntentFuser
-       -> ADS-only brake -> recoil -> virtual gamepad
+       -> ADS-only brake -> fixed recoil -> virtual gamepad
 ```
 
-One owner per lifecycle, mode transition, shaping state and manual/AI fusion decision. Fresh Vision corrects position; prediction/delivered-work accounting bridge gaps. Current acceptance: [August 1 live record](../docs/project/CONTROL_CHAIN_JUMP_STABILITY_ACCEPTANCE_20260801.md).
-
-Keep this index under 100 lines; archive detail before growth. Do not store secrets, personal video paths or raw telemetry dumps.
+One owner per lifecycle, mode transition, shaping state and final fusion decision. Fresh Vision corrects position; shadow ego-motion and future realized-work accounting may bridge gaps only after evidence gates. Keep this index under 100 lines; do not store secrets, personal video paths or raw telemetry dumps.

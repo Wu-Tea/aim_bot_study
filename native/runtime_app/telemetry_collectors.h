@@ -184,6 +184,10 @@ struct TelemetryAcquisitionTraceInput {
     std::uint64_t source_present_qpc = 0;
     std::uint64_t source_present_qpc_frequency = 0;
     bool source_present_available = false;
+    std::uint64_t source_present_steady_ns = 0;
+    std::uint64_t source_present_calibration_id = 0;
+    std::uint64_t source_present_calibration_uncertainty_ns = 0;
+    bool source_present_steady_available = false;
     bool plan_admitted = false;
     bool acquisition_active = false;
     bool acquisition_exists = false;
@@ -230,9 +234,24 @@ struct TelemetryEgoMotionShadowInput {
     std::uint64_t current_frame_id = 0;
     std::uint64_t previous_present_qpc = 0;
     std::uint64_t current_present_qpc = 0;
+    std::uint64_t previous_present_qpc_frequency = 0;
+    std::uint64_t current_present_qpc_frequency = 0;
     std::uint64_t present_qpc_frequency = 0;
+    std::uint64_t previous_present_steady_ns = 0;
+    std::uint64_t current_present_steady_ns = 0;
+    std::uint64_t previous_present_calibration_id = 0;
+    std::uint64_t current_present_calibration_id = 0;
+    std::uint64_t previous_present_calibration_uncertainty_ns = 0;
+    std::uint64_t current_present_calibration_uncertainty_ns = 0;
+    bool previous_present_steady_available = false;
+    bool current_present_steady_available = false;
+    bool present_clock_valid = false;
+    std::uint64_t previous_capture_copy_complete_ns = 0;
+    std::uint64_t current_capture_copy_complete_ns = 0;
     std::uint64_t previous_result_ns = 0;
     std::uint64_t current_result_ns = 0;
+    std::uint64_t observer_completed_at_ns = 0;
+    std::uint64_t result_age_at_take_ns = 0;
     float background_dx = 0.0f;
     float background_dy = 0.0f;
     float camera_dx = 0.0f;
@@ -243,6 +262,17 @@ struct TelemetryEgoMotionShadowInput {
     float compute_ms = 0.0f;
     std::uint32_t inlier_count = 0;
     std::uint32_t sample_count = 0;
+    int search_radius_px = 0;
+    std::uint32_t boundary_hit_count = 0;
+    float boundary_hit_rate = 0.0f;
+    std::uint32_t boundary_consistent_hit_count = 0;
+    float boundary_consistent_hit_rate = 0.0f;
+    std::uint64_t observer_lifecycle_generation = 0;
+    std::uint64_t submitted_frame_count = 0;
+    std::uint64_t pending_frame_replaced_count = 0;
+    std::uint64_t pairs_processed_count = 0;
+    std::uint64_t unread_result_replaced_count = 0;
+    std::uint64_t duplicate_or_out_of_order_rejected_count = 0;
 };
 
 struct TelemetryCollectorsCounters {

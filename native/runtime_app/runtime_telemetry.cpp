@@ -1,6 +1,7 @@
 #include "runtime_telemetry.h"
 
 #include "../pipeline_contract/target_plan.h"
+#include "vision_native/ego_motion_observer.h"
 
 #include <algorithm>
 #include <chrono>
@@ -87,6 +88,21 @@ const char* source_decision_outcome_name(std::uint8_t value) {
     case Outcome::Rejected: return "rejected";
     case Outcome::NoDecision:
     default: return "no_decision";
+    }
+}
+
+const char* ego_motion_invalid_reason_name(std::uint8_t value) {
+    using Reason = vision_native::EgoMotionInvalidReason;
+    switch (static_cast<Reason>(value)) {
+    case Reason::None: return "none";
+    case Reason::NoPreviousFrame: return "no_previous_frame";
+    case Reason::InvalidInput: return "invalid_input";
+    case Reason::DuplicateOrOutOfOrder: return "duplicate_or_out_of_order";
+    case Reason::LowBackgroundCoverage: return "low_background_coverage";
+    case Reason::LowConfidence: return "low_confidence";
+    case Reason::SearchBoundaryLimited: return "search_boundary_limited";
+    case Reason::WorkerStopped: return "worker_stopped";
+    default: return "unknown";
     }
 }
 
@@ -665,7 +681,7 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
     }
     case TelemetryRecordType::AdsAcquisitionTrace: {
         const auto& value = record.ads_acquisition_trace;
-        output_ << ",\"schema\":\"ads_acquisition_trace_v2\""
+        output_ << ",\"schema\":\"ads_acquisition_trace_v3\""
             << ",\"source_frame_id\":" << value.source_frame_id
             << ",\"source_observation_id\":" << value.source_observation_id
             << ",\"persistent_target_id\":" << value.persistent_target_id
@@ -701,7 +717,19 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
             << ",\"source_present_qpc\":" << value.source_present_qpc
             << ",\"source_present_qpc_frequency\":"
             << value.source_present_qpc_frequency
-            << ",\"source_present_clock_domain\":\"qpc\""
+            << ",\"source_present_clock_domain\":\""
+            << (value.source_present_available ? "qpc" : "unavailable") << '\"'
+            << ",\"source_present_steady_clock_domain\":\""
+            << (value.source_present_steady_available
+                ? "qpc_to_steady_calibrated" : "unavailable") << '\"'
+            << ",\"source_present_steady_ns\":"
+            << value.source_present_steady_ns
+            << ",\"source_present_calibration_id\":"
+            << value.source_present_calibration_id
+            << ",\"source_present_calibration_uncertainty_ns\":"
+            << value.source_present_calibration_uncertainty_ns
+            << ",\"source_present_steady_available\":"
+            << (value.source_present_steady_available ? "true" : "false")
             << ",\"plan_admitted\":"
             << (value.plan_admitted ? "true" : "false")
             << ",\"acquisition_active\":"
@@ -751,19 +779,54 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
     }
     case TelemetryRecordType::EgoMotionShadow: {
         const auto& value = record.ego_motion_shadow;
-        output_ << ",\"schema\":\"ego_motion_shadow_v1\""
+        output_ << ",\"schema\":\"ego_motion_shadow_v2\""
             << ",\"available\":" << (value.available ? "true" : "false")
             << ",\"valid\":" << (value.valid ? "true" : "false")
             << ",\"invalid_reason_code\":"
             << static_cast<unsigned int>(value.invalid_reason)
+            << ",\"invalid_reason\":\""
+            << ego_motion_invalid_reason_name(value.invalid_reason) << '\"'
             << ",\"result_sequence\":" << value.result_sequence
             << ",\"previous_frame_id\":" << value.previous_frame_id
             << ",\"current_frame_id\":" << value.current_frame_id
             << ",\"previous_present_qpc\":" << value.previous_present_qpc
             << ",\"current_present_qpc\":" << value.current_present_qpc
+            << ",\"previous_present_qpc_frequency\":"
+            << value.previous_present_qpc_frequency
+            << ",\"current_present_qpc_frequency\":"
+            << value.current_present_qpc_frequency
             << ",\"present_qpc_frequency\":" << value.present_qpc_frequency
+            << ",\"previous_present_steady_ns\":"
+            << value.previous_present_steady_ns
+            << ",\"current_present_steady_ns\":"
+            << value.current_present_steady_ns
+            << ",\"previous_present_calibration_id\":"
+            << value.previous_present_calibration_id
+            << ",\"current_present_calibration_id\":"
+            << value.current_present_calibration_id
+            << ",\"previous_present_calibration_uncertainty_ns\":"
+            << value.previous_present_calibration_uncertainty_ns
+            << ",\"current_present_calibration_uncertainty_ns\":"
+            << value.current_present_calibration_uncertainty_ns
+            << ",\"previous_present_steady_available\":"
+            << (value.previous_present_steady_available ? "true" : "false")
+            << ",\"current_present_steady_available\":"
+            << (value.current_present_steady_available ? "true" : "false")
+            << ",\"present_clock_domain\":\""
+            << (value.present_clock_valid
+                ? "qpc_to_steady_calibrated" : "unavailable") << '\"'
+            << ",\"present_clock_valid\":"
+            << (value.present_clock_valid ? "true" : "false")
+            << ",\"previous_capture_copy_complete_ns\":"
+            << value.previous_capture_copy_complete_ns
+            << ",\"current_capture_copy_complete_ns\":"
+            << value.current_capture_copy_complete_ns
             << ",\"previous_result_ns\":" << value.previous_result_ns
             << ",\"current_result_ns\":" << value.current_result_ns
+            << ",\"observer_completed_at_ns\":"
+            << value.observer_completed_at_ns
+            << ",\"result_age_at_take_ns\":"
+            << value.result_age_at_take_ns
             << ",\"background_displacement\":["
             << value.background_dx << ',' << value.background_dy << ']'
             << ",\"camera_displacement\":["
@@ -773,7 +836,26 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
             << ",\"residual_px\":" << value.residual_px
             << ",\"compute_ms\":" << value.compute_ms
             << ",\"inlier_count\":" << value.inlier_count
-            << ",\"sample_count\":" << value.sample_count;
+            << ",\"sample_count\":" << value.sample_count
+            << ",\"search_radius_px\":" << value.search_radius_px
+            << ",\"boundary_hit_count\":" << value.boundary_hit_count
+            << ",\"boundary_hit_rate\":" << value.boundary_hit_rate
+            << ",\"boundary_consistent_hit_count\":"
+            << value.boundary_consistent_hit_count
+            << ",\"boundary_consistent_hit_rate\":"
+            << value.boundary_consistent_hit_rate
+            << ",\"observer_lifecycle_generation\":"
+            << value.observer_lifecycle_generation
+            << ",\"submitted_frame_count\":"
+            << value.submitted_frame_count
+            << ",\"pending_frame_replaced_count\":"
+            << value.pending_frame_replaced_count
+            << ",\"pairs_processed_count\":"
+            << value.pairs_processed_count
+            << ",\"unread_result_replaced_count\":"
+            << value.unread_result_replaced_count
+            << ",\"duplicate_or_out_of_order_rejected_count\":"
+            << value.duplicate_or_out_of_order_rejected_count;
         break;
     }
     case TelemetryRecordType::DeliveredControlSample: {

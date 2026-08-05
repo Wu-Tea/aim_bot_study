@@ -1,12 +1,11 @@
 # Current State
 
-**Last reviewed:** 2026-08-01
-**Reviewed baseline:** current `dev` source plus the accepted contextual
-manual/AI arbitration recorded in
-[DEC-2026-08-01-002](../../.agent-context/decisions/DEC-2026-08-01-002-contextual-manual-ai-dual-proposal-arbitration.md)
-**Scope:** production runtime facts present in the reviewed repository, plus explicitly marked active directions
+**Last reviewed:** 2026-08-03
+**Reviewed baseline:** protected commit `5d2f3be`, its accepted rollback, and
+the currently installed schema-13 diagnostic runtime described below.
+**Scope:** production runtime facts present in the reviewed repository, explicitly marked shadow work, and the next live validation boundary
 
-## Production path
+## Production Path
 
 The default gamepad path is the full native C++ runtime:
 
@@ -16,180 +15,185 @@ scripts/launch/gamepad_start.bat
   -> native/vision_native/build/Release/cod_native_runtime.exe
 ```
 
-Python remains available for fallback, training/export, recoil tooling and
-debug utilities. The current production contract is `640x512` capture,
-isotropic resize to `480x384` and
-`models/best_480x384.engine`. The background VBS launchers run the same native
-runtime without a console window and enforce owned-process start/stop behavior.
+Python remains available for fallback, training/export, recoil tooling and debug
+utilities. The production Vision contract remains `640x512` capture, isotropic
+resize to `480x384`, and `models/best_480x384.engine`.
 
-The installed validation runtime is
-`native/vision_native/build/Release/cod_native_runtime.exe`, SHA-256
-`DE31FF53B4C0CFBAB091F589CB194296A01DC9C0C8B5E74513F90AB94ED30590`.
-It includes the four-situation lifecycle fixes and contextual dual-proposal
-manual/AI arbitration.
+The protected live-accepted rollback has SHA-256
+`872F6FFFD1598C64ABC34E0D551F4C112B40FEAC630844C6CB0B0FEE50558C38`.
+Its matching executable/config backup is under `artifacts/runtime-backups/`,
+and its Release CTest passed `36/36`. The currently installed diagnostic
+runtime is `25CF27F9946FF58404C4AE57795870E97512337EE1A90FC47776AB2826A10155`;
+it adds the schema-13 W3/W4 observability contract but is not yet a newly
+accepted control baseline.
 
-## Current control ownership
+## Current Control Ownership
 
 ```text
 Vision observation + physical intent
   -> intent-aware selector
-  -> TargetCoordinator (identity, lifecycle and ADS-epoch owner)
+  -> TargetCoordinator (identity, lifecycle and ADS-acquisition owner)
   -> immutable TargetPlan
   -> ADS acquisition OR BodyLock trajectory follow
   -> AimDynamicsShaper
-  -> VectorIntentFuser
+  -> VectorIntentFuser (one final target-relative output)
   -> ADS-only brake
-  -> recoil final feed-forward
+  -> fixed recoil feed-forward
   -> ViGEm delivery
 ```
 
 Current boundaries:
 
-- ADS snap is consumed once per physical ADS epoch. A new target while LT
-  remains held must not restart strong snap.
-- The ADS ownership ceiling is currently `220 ms` from the physical LT epoch.
-  A target that appears late in the epoch receives only the remaining
-  acquisition time before BodyLock handoff.
-- BodyLock follows tracker-owned target motion and may preserve bounded target
-  inertia. It must not acquire a permanent brake path.
-- The selector keeps a near committed target through short occlusion, rejects
-  green friendly cues, and uses yellow enemy cues only as auxiliary evidence.
-- Fresh firing position remains authoritative; firing innovation limits apply
-  to velocity admission, not to the current observed position.
-- Identity hold and coasting actuation have separate lifetimes. A short
-  no-observation gap receives a 12.5 ms grace, then AI authority retires by
-  65 ms while target association may remain alive longer.
-- Manual and shaped AI enter `VectorIntentFuser` as absolute proposals. Strong
-  same-direction ADS and near-BodyLock input use contextual AI-priority
-  arbitration with 20% normalized manual headroom. Opposing/tangential input,
-  full manual escape and far BodyLock retain their explicit ownership
-  boundaries.
-- AutoFire uses a 100 ms pulse-start period with at least 30 ms pressed,
-  releases on a fresh miss, and preserves physical RB/RT passthrough.
-- Recoil remains the final feed-forward stage and does not consume
-  selector/tracker state.
+- Manual and shaped AI are proposals, not additive forces or independently preserved output budgets. Fresh error, stopping demand and the mode force envelope determine one final vector and may reject wrong direction or excessive strength from either proposal.
+- A continuous deliberate-exit path remains available, but a single near-full manual tick does not automatically bypass target-relative safety.
+- Fresh BodyLock position is distinct from bounded motion feed-forward. Target velocity may help closing/tangential tracking but cannot freely reverse a meaningful fresh radial correction.
+- A confirmed selector replacement resets target geometry/control state. It does not rearm ADS while physical LT remains held.
+- ADS activation radius is spatial (`135 px`) and independent of timing/output range.
+- ADS nominal acquisition is `135 ms` from first eligible target admission. Empty waiting frames do not consume it. A visible, still-unacquired target may continue conditionally, with `220 ms` as a hard target-acquisition ceiling rather than a mandatory duration.
+- Settle, center crossing, moving away, target loss/switch, non-helpful output and deliberate manual escape can complete or shorten acquisition; same-target short occlusion keeps the acquisition identity/timer.
+- Vision results are latest-only at the control boundary; repeated old results do not become new controller observations.
+- SDL event pumping has one owner, restoring both sticks without disturbing the remaining button/trigger signals.
+- OCR/native weapon recognition is absent from the hot path. Recoil profile playback is disabled; recoil defaults to fixed downward `feedback_amount` feed-forward.
 
-The accepted fresh-Vision constraint evidence is archived at
-[Fresh-Vision Manual Counter-Correction](../archive/control-history/FRESH_VISION_MANUAL_COUNTER_CORRECTION_ACCEPTANCE_20260722.md).
+The governing manual/AI decision is
+[Predictive Manual/AI Control Envelope](../../.agent-context/decisions/DEC-2026-08-02-002-predictive-manual-ai-control-envelope.md).
 
-## Telemetry and runtime evidence
+### Planned Target-Count-Aware Ownership
 
-Structured local evidence is enabled by:
+The next ownership policy is user-confirmed but not implemented in the protected
+runtime:
+
+- With exactly one credible, full-authority hostile candidate, AI owns the
+  target-relative solution. Manual remains observable and may help the same
+  solution, but sustained opposing input does not by itself pull the controller
+  away from the only valid target.
+- With multiple credible candidates, stable manual intent may request a handover
+  only when it points toward an eligible alternative. Merely detecting two raw
+  boxes or seeing manual oppose the current target must not weaken AI globally.
+- Candidate eligibility, selected identity and handover belong to the
+  intent-aware selector and `TargetCoordinator`. `VectorIntentFuser` continues
+  to execute one immutable target-relative plan and must not become a second
+  multi-target selector.
+- Zero-target, weak/ambiguous evidence, friendly/corpse rejection and physical
+  ADS release retain their existing authority boundaries. "One target" means
+  one credible candidate after evidence gating, not one detector box.
+
+Implementation is sequenced after W4/W5 evidence: first publish a shadow
+ownership mode (`single_target_ai`, `multi_target_hold`,
+`multi_target_handover_candidate`) with eligible candidate count, alternative
+identity, manual-intent direction/stability and explicit transition reason.
+Then validate single-target opposing/overshoot input, two-target intent-aligned
+switching, two-target input toward no candidate, candidate-count churn and brief
+occlusion before authorizing actuation. Exact persistence and switch curves are
+parameters to be selected from those fixtures, not part of the accepted policy.
+
+See [Target-count-aware manual exit authority](../../.agent-context/decisions/DEC-2026-08-03-002-target-count-aware-manual-exit-authority.md).
+
+## Telemetry and Runtime Evidence
+
+Structured JSONL telemetry is controlled by:
 
 ```toml
 [runtime.telemetry]
 enabled = true
 ```
 
-It writes asynchronous JSONL and a session manifest under
-`runs/native_perf/<session>/`. `--perf-log` enables console-oriented timing and
-Vision diagnostics; it is not the structured evidence switch.
+The current trace can join present/capture/result/publish/controller/plan/output stages
+using source frame, source observation, persistent target, physical ADS epoch,
+target acquisition and controller tick identities. It records explicit target
+rejection reasons and the effective activation radius. Schema 13 calibrates the
+DXGI present-QPC clock into a steady-clock source-present timestamp; the latest
+capture reports that calibration valid for `99.95%` of ego rows. Older schema-12
+captures do not have this contract and must leave source-present unavailable.
 
-The latest long bot session is
-`runs/native_perf/sessions/20260801T131000Z_6544_1/`. It covers 25.51 minutes,
-uses config hash `db80e13a...df79df8` and engine hash `45fc5627...deB21`, and
-is analyzed in
-[ADS Long-Session Diagnosis](ADS_LONG_SESSION_DIAGNOSIS_20260801.md).
-Its manifest does not contain the executable hash and retains a stale
-`git_commit` value, so installation-chain evidence is still required.
+The protected-baseline live session is `20260802T181639Z_53916_1`. Its manifest
+contains executable SHA-256 `872F6FFF...50558C38` and config hash
+`da594c01...e751`; it retained `state=active` after shutdown, so it is not a
+cleanly closed-session duration record. Runtime/config identity and telemetry
+file timestamps remain usable.
 
-Every comparable runtime artifact should identify:
+The latest diagnostic session is `20260803T135819Z_61220_1`, from executable
+`25CF27F9...A10155`, schema 13. Vision publish-to-controller consume is
+`0.50/0.98 ms` P50/P95 and result-ready-to-ViGEm is `0.59/1.09 ms`; all 21,370
+acquisition source frames are unique and increasing. This rejects controller
+mailbox backlog and duplicate Vision consumption as the current explanation.
 
-- build revision;
-- effective config or config hash;
-- engine identity and `640x512 -> 480x384` capture/tensor contract;
-- telemetry schema;
-- seeds/duration/scenario semantics for synthetic runs.
+### Known Final-Output Continuity Defect
+
+The schema-13 audit proves that a fresh post-slew target-relative clamp can
+store a reduced `previous_output_`, after which an intervening non-fresh tick
+slews back toward a larger legacy proposal. There are 44 qualifying fresh
+clamps and 31 opposite rebounds within 25 ms. The old five-case session also
+reproduces 109 clamp transitions and 79 rebounds; Case 2 and Case 5 have strong
+local matches, while Case 4 has none.
+
+The repair must preserve the accepted target-relative final/envelope across
+short non-fresh gaps inside the existing single final-output owner, with newer
+Vision, identity/lifecycle changes, deliberate escape and expiry as boundaries.
+It must not add another hold, brake or additive controller.
+
+**User-confirmed:** the diagnostic run felt slightly more delayed. Shared-field
+old/new comparison finds essentially unchanged result-to-output latency, but
+active source cadence P95 widened from `15.71` to `21.03 ms`. Background log or
+video analysis is a plausible resource-contention hypothesis, not a proven
+cause; use a same-scenario run with analysis stopped before attributing it.
+
+See [Five-Case and Schema-13 Control Audit](FIVE_CASE_SCHEMA13_CONTROL_AUDIT_20260803.md).
 
 See [Native Log Sessions](NATIVE_LOG_SESSIONS.md) and
 [Native runtime telemetry](../benchmarks/native-runtime-telemetry.md).
 
-## Verified benchmark foundation
+## Live Acceptance
 
-- Sustained AimLab provides additive acquisition/tracking scoring and separate
-  ADS/BodyLock, pure/mixed and target-size cohorts.
-- The Vision blind-window benchmark separates capture, result publication,
-  controller and delayed-response clocks. K1 demonstrates that stale
-  observation windows can create queued-motion and recovery debt, but K1 alone
-  does not authorize a production policy change.
-- Historical control acceptance records remain useful evidence only when their
-  runtime/config/schema identity matches the candidate being compared.
+- **User-confirmed:** two complete games felt substantially better than the prior runtime.
+- Both games used one LMG with approximately 400 ms weapon ADS time.
+- This validates gross stability, controller input continuity and practical usefulness of the combined repair.
+- It does not isolate whether any remaining ADS timing mismatch belongs to weapon timing or controller parameters.
+- An approximately 260 ms ADS weapon remains the pending cross-weapon fit comparison, but it follows the proven final-output continuity repair rather than preceding it.
 
-Start at [Benchmark index](../benchmarks/README.md).
+The protected identity, restore set and exact acceptance boundary are in
+[August 3 Live-Accepted Native Runtime](LIVE_ACCEPTED_RUNTIME_20260803.md).
 
-## Active directions
+## W0-W6 Status
 
-### Late-target ADS handoff
+- **W0-W2 - implemented/tested:** acquisition/provenance foundation, joinable stage telemetry, explicit rejection reasons, spatial activation radius, and admission-relative ADS lifecycle.
+- **W3 - shadow only / blocked:** live compute P95 is `2.08 ms` and displacement clipping is fixed, but ADS and BodyLock valid rates are only `64.18%` and `73.40%`. It has no actuation authority; do not lower confidence thresholds blindly.
+- **W4 - provisional / not promotable:** calibrated present time covers `99.95%` of ego rows and offline peaks appear around 5-10 ms, but peak bands are broad and W3-valid selection biases the cohort. No stable response curve or first-effect observation exists.
+- **W5 - not implemented:** no CausalMotionLedger/Causal Remaining v2 reconciles `scheduled -> in-flight -> realized` work, and no 150-200 ms short-term memory affects output. PendingMotion timing repair and short-horizon rollout are diagnostic shadow work only.
+- **W6 - not entered:** activation/tuning remains gated on W4/W5 shadow evidence and a separate architecture/acceptance review. Its ownership gate must include the target-count-aware single-target/multi-target policy above before production activation.
 
-The current residual is occasional slight ADS overshoot or undertracking after
-extended moving play. Read-only telemetry does not support monotonic learning
-drift as the primary cause. The stronger explanation is a target arriving or
-crossing center near the physical-epoch `220 ms` ceiling.
+## Next Validation
 
-No production policy change is accepted yet. The next safe stage is:
+Next implementation and validation order:
 
-- log physical ADS epoch time, current target-segment time and handoff reason;
-- log position versus motion/feed-forward contribution and production response
-  scale/confidence;
-- reproduce late target arrival, near-ceiling center crossing and a stationary
-  control in deterministic fixtures;
-- evaluate only a bounded continuation or motion-aware handoff rule that does
-  not rearm strong ADS within a held LT epoch.
+1. Repair fresh/non-fresh final-output continuity and cover stable target/manual, target loss/switch, escape and expiry deterministically.
+2. Correct per-target assist segmentation and first-material-AI telemetry.
+3. Build/review a candidate, then run one same-map/weapon/settings capture with Luna, log parsing and video decoding stopped.
+4. If latency still feels higher, run a deliberate background-load A/B and compare game frame time, source cadence, inference, publish-to-consume and result-to-ViGEm.
+5. Resume W3/W4 quality work only after actuation continuity is stable; keep W5 gated.
 
-### Dynamic ROI
+## Other Active Directions
 
-Dynamic ROI is the next high-priority Vision/control integration direction,
-not current production behavior.
+Dynamic ROI remains future Vision/control integration work, not production
+behavior. Begin with bounded translation and verified ROI-local to crosshair
+coordinate conversion; do not combine translation, scaling and extra inference
+without separate coverage.
 
-The first safe stage is bounded translation:
+Far-target/head-peek micro adjustment around 3% remains a deferred product
+requirement. The continuity repair must not be widened into micro-aim tuning;
+return to that requirement only after the mainline is stable and matched
+cross-weapon validation is complete.
 
-- no target: ROI returns to the crosshair center;
-- each new physical ADS epoch: reset ROI offset;
-- manual look intent may move the ROI within a bounded sniffing range;
-- a reliable tracked target may support limited follow movement;
-- detections must be converted from ROI-local coordinates back to crosshair
-  coordinates before selector/controller use;
-- no extra production inference pass.
+## Non-Regression Boundaries
 
-Dynamic scaling is a later stage. It should not be combined with translation
-until translation, reset and coordinate conversion have independent benchmark
-coverage. Full-screen video plus synchronized runtime telemetry is needed to
-label targets that the current fixed crop never observes.
-
-### Observation degradation
-
-Short contiguous occlusion is a useful undertracking/recovery fixture. Further
-twitch investigation should isolate partial-obstruction center innovation and
-intermittent publication cadence before adding another controller gate.
-
-## Open validation
-
-- Record synchronized video and telemetry for fixed-ROI misses, partial scope
-  obstruction and weak-aim-assist twitch.
-- Validate late-target and center-cross handoffs before attributing the current
-  residual to response learning.
-- Add executable SHA-256 and production response estimator scale/confidence to
-  future session identity/telemetry.
-- Keep small/far-target authority work on existing size/reliability evidence
-  before considering another production Vision pass.
-- Treat live hand feel as a required smoke test after synthetic gates pass.
-
-## Non-regression boundaries
-
-- Do not restore duplicated hold, lifecycle, brake, authority or output gates
-  just to recover strength.
-- Do not return to `left_x * constant`, independent X/Y arbitration or a weapon
-  database.
-- Do not globally shrink manual input to improve benchmark scores; contextual
-  normalization belongs inside the single fuser owner.
-- Do not reset ADS acquisition for a late target while LT remains held.
-- Do not let cue-only, weak-only or predicted-only targets gain fire authority.
-- Do not compare artifacts across incompatible revision, config, schema or
-  scenario identity.
-- Do not add persistent learning, live exploration or extra Vision inference
-  without separate evidence and approval.
-- Benchmarks are instruments for improving runtime behavior, not product
-  features to optimize for their own sake.
+- Do not restore additive manual-plus-AI output, fixed manual preservation floors, duplicate hold/brake/authority owners, or held-LT ADS rearming.
+- Do not allow fresh-only safety to create a fresh/non-fresh sawtooth; the accepted final envelope must have an explicit continuity/expiry contract.
+- Do not globally lower AI authority or game sensitivity to hide a directional/accounting defect.
+- Do not let shadow ego-motion, Remaining, PendingMotion, rollout or a learner become a second production controller.
+- Do not describe scheduled output as realized camera motion.
+- Do not compare artifacts without executable/config/schema/scenario identity.
+- Do not overwrite or discard the protected rollback without a reviewed candidate and explicit installation request.
+- Do not attribute the current improvement to W5 memory; W5 is absent.
 
 Historical rationale is indexed in [Archive](../archive/README.md). Reusable
 methodology begins at

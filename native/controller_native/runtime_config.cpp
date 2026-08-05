@@ -208,6 +208,8 @@ bool is_known_key(const std::string& section, const std::string& key) {
     static const std::unordered_set<std::string> intent_keys{
         "wrong_way_manual_preservation_floor",
         "fresh_vision_wrong_way_manual_floor"};
+    static const std::unordered_set<std::string> aim_response_curve_keys{
+        "algorithm", "calibration_reference_stick"};
     static const std::unordered_set<std::string> ads_keys{
         "strength_scale", "vertical_strength_scale", "range_px", "activation_radius_px", "snap_duration_ms",
         "completion_radius_px", "completion_fresh_frames", "max_acquisition_ms",
@@ -280,6 +282,8 @@ bool is_known_key(const std::string& section, const std::string& key) {
     if (section == "runtime.output") return output_keys.count(key) != 0;
     if (section == "gamepad.tracker") return tracker_keys.count(key) != 0;
     if (section == "gamepad.intent") return intent_keys.count(key) != 0;
+    if (section == "gamepad.aim_response_curve")
+        return aim_response_curve_keys.count(key) != 0;
     if (section == "gamepad.ads") return ads_keys.count(key) != 0;
     if (section == "gamepad.bodylock") return bodylock_keys.count(key) != 0;
     if (section == "runtime.gamepad") return gamepad_keys.count(key) != 0;
@@ -360,6 +364,25 @@ void apply_gamepad_auto_fire_value(
         config.pulse_width_ms = parse_float_value(value, config.pulse_width_ms);
     } else if (key == "pulse_period_ms") {
         config.pulse_period_ms = parse_float_value(value, config.pulse_period_ms);
+    }
+}
+
+void apply_gamepad_aim_response_curve_value(
+    AimResponseCurveConfig& config,
+    const std::string& key,
+    const std::string& value) {
+    if (key == "algorithm") {
+        const std::string name = parse_string_value(value);
+        AimResponseCurveAlgorithm algorithm{};
+        if (!try_parse_aim_response_curve_algorithm(name, algorithm)) {
+            throw std::runtime_error(
+                "invalid gamepad.aim_response_curve.algorithm '" + name +
+                "'; expected linear|cod_dynamic_legacy_lut");
+        }
+        config.algorithm = algorithm;
+    } else if (key == "calibration_reference_stick") {
+        config.calibration_reference_stick = parse_float_value(
+            value, config.calibration_reference_stick);
     }
 }
 
@@ -934,6 +957,9 @@ void apply_value(
                 0.00f,
                 1.00f);
         }
+    } else if (section == "gamepad.aim_response_curve") {
+        apply_gamepad_aim_response_curve_value(
+            config.gamepad.aim_response_curve, key, value);
     } else if (section == "runtime.gamepad") {
         apply_runtime_gamepad_value(config.gamepad, key, value);
     } else if (section == "gamepad.ads") {
@@ -1148,6 +1174,11 @@ void validate_runtime_config(RuntimeConfig& config) {
     if (config.gamepad.ai_aim.ads_start_ramp_ms < 0.0f ||
         config.gamepad.ai_aim.ads_start_ramp_ms > 500.0f)
         invalid("gamepad.ads.start_ramp_ms", "0..500");
+    if (config.gamepad.aim_response_curve.calibration_reference_stick < 0.05f ||
+        config.gamepad.aim_response_curve.calibration_reference_stick > 1.0f)
+        invalid(
+            "gamepad.aim_response_curve.calibration_reference_stick",
+            "0.05..1");
     if (config.gamepad.tracker.aim_height_ratio < 0.0f ||
         config.gamepad.tracker.aim_height_ratio > 1.0f)
         invalid("gamepad.tracker.aim_height_ratio", "0..1");

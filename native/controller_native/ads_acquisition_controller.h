@@ -1,5 +1,6 @@
 #pragma once
 
+#include "aim_response_curve_plugin.h"
 #include "pipeline_contract/intent_state.h"
 #include "pipeline_contract/target_plan.h"
 
@@ -14,6 +15,7 @@ struct AdsAcquisitionControllerConfig {
     float opposing_manual_reduction = 0.8f;
     float start_delay_ms = 0.0f;
     float start_ramp_ms = 0.0f;
+    AimResponseCurveConfig response_curve{};
 };
 
 float ads_start_authority(

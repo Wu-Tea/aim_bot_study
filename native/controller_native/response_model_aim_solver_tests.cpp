@@ -113,6 +113,51 @@ void test_elliptical_force_envelope_scales_one_vector() {
     require(output.limited, "large request must report force limiting");
 }
 
+void test_cod_dynamic_plugin_round_trips_seed_curve() {
+    const auto& plugin = resolve_aim_response_curve_plugin(
+        AimResponseCurveAlgorithm::CodDynamicLegacyLut);
+    require(std::string(plugin.name) == "cod_dynamic_legacy_lut",
+            "configured algorithm must resolve to the COD Dynamic plugin");
+    require_near(plugin.forward_magnitude(0.59924f), 0.30000f, 1e-6f,
+                 "COD Dynamic forward LUT must preserve its seed sample");
+    require_near(plugin.inverse_magnitude(0.30000f), 0.59924f, 1e-6f,
+                 "COD Dynamic inverse LUT must recover the stick sample");
+}
+
+void test_cod_dynamic_curve_shapes_target_t_around_reference() {
+    auto request = base_request();
+    request.max_force = {2.0f, 2.0f};
+    request.response_curve.algorithm =
+        AimResponseCurveAlgorithm::CodDynamicLegacyLut;
+    request.response_curve.calibration_reference_stick = 0.50f;
+
+    request.error_px = {5.0f, 0.0f};  // linear target magnitude 0.20
+    const auto small = solve_response_model_aim(request);
+    require_near(small.pre_curve_stick.x, 0.20f, 1e-6f,
+                 "curve input must remain the response-model target");
+    require(small.unclamped_stick.x > small.pre_curve_stick.x,
+            "Dynamic inverse must compensate the low-stick slow region");
+
+    request.error_px = {12.5f, 0.0f};  // configured reference 0.50
+    const auto reference = solve_response_model_aim(request);
+    require_near(reference.unclamped_stick.x, 0.50f, 1e-5f,
+                 "Dynamic correction must be identity at its calibration reference");
+
+    request.error_px = {22.5f, 0.0f};  // linear target magnitude 0.90
+    const auto large = solve_response_model_aim(request);
+    require(large.unclamped_stick.x < large.pre_curve_stick.x,
+            "Dynamic inverse must avoid treating high-stick gain as linear");
+}
+
+void test_cod_dynamic_curve_preserves_radial_target_direction() {
+    const pipeline_contract::Vec2f input{0.30f, -0.40f};
+    AimResponseCurveConfig config{};
+    config.algorithm = AimResponseCurveAlgorithm::CodDynamicLegacyLut;
+    const auto output = inverse_aim_response_curve(input, config);
+    require_near(output.x / -output.y, 0.75f, 1e-5f,
+                 "response plugin must reshape magnitude, not target direction");
+}
+
 }  // namespace
 
 int main() {
@@ -123,6 +168,9 @@ int main() {
         test_trusted_motion_can_lead_opposite_small_residual();
         test_fresh_position_bounds_only_opposing_radial_motion();
         test_elliptical_force_envelope_scales_one_vector();
+        test_cod_dynamic_plugin_round_trips_seed_curve();
+        test_cod_dynamic_curve_shapes_target_t_around_reference();
+        test_cod_dynamic_curve_preserves_radial_target_direction();
         std::cout << "cod_native_response_model_aim_solver_tests PASS\n";
         return EXIT_SUCCESS;
     } catch (const std::exception& error) {

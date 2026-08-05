@@ -2,20 +2,27 @@
 #include "vector_intent_fuser.h"
 
 #include "../runtime_app/vision_controller_adapter.h"
+#include "../vision_native/include/vision_native/ego_motion_observer.h"
 #include "../vision_native/include/vision_native/types.h"
 
 #include <algorithm>
+#include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <iostream>
+#include <memory>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
 namespace {
 
 using controller_native::ControllerVisionSnapshot;
+using controller_native::GamepadOutputState;
 using controller_native::GamepadRuntimeConfig;
 using controller_native::NativeGamepadController;
 using controller_native::PhysicalGamepadState;
@@ -418,6 +425,176 @@ PhysicalGamepadState aiming(float left_x = 0.0f) {
     state.left_trigger = 1.0f;
     state.left_x = left_x;
     return state;
+}
+
+std::uint8_t shadow_pattern(int x, int y) {
+    const int value = (x * 17) + (y * 29) + ((x * y) % 37) * 5;
+    return static_cast<std::uint8_t>(value & 0xff);
+}
+
+std::array<std::uint8_t, vision_native::kEgoMotionPixelCount>
+make_shadow_frame(int dx, int dy) {
+    std::array<std::uint8_t, vision_native::kEgoMotionPixelCount> pixels{};
+    for (int y = 0; y < vision_native::kEgoMotionFrameHeight; ++y) {
+        for (int x = 0; x < vision_native::kEgoMotionFrameWidth; ++x) {
+            const int source_x = std::clamp(
+                x - dx, 0, vision_native::kEgoMotionFrameWidth - 1);
+            const int source_y = std::clamp(
+                y - dy, 0, vision_native::kEgoMotionFrameHeight - 1);
+            pixels[static_cast<std::size_t>(y) *
+                       vision_native::kEgoMotionFrameWidth + x] =
+                shadow_pattern(source_x, source_y);
+        }
+    }
+    return pixels;
+}
+
+vision_native::EgoMotionFrameView shadow_view(
+    std::uint64_t frame_id,
+    const std::array<std::uint8_t, vision_native::kEgoMotionPixelCount>& pixels) {
+    vision_native::EgoMotionFrameView value;
+    value.frame_id = frame_id;
+    value.source_present_qpc = frame_id * 100;
+    value.source_present_qpc_frequency = 1'000'000;
+    value.source_present_steady_ns = frame_id * 1'000'000;
+    value.source_present_calibration_id = 1;
+    value.source_present_steady_available = true;
+    value.captured_at_ns = frame_id * 1'000;
+    value.result_at_ns = frame_id * 1'100;
+    value.width = vision_native::kEgoMotionFrameWidth;
+    value.height = vision_native::kEgoMotionFrameHeight;
+    value.row_pitch = vision_native::kEgoMotionFrameWidth;
+    value.gray = pixels.data();
+    return value;
+}
+
+std::uint32_t float_bits(float value) {
+    std::uint32_t bits = 0;
+    std::memcpy(&bits, &value, sizeof(bits));
+    return bits;
+}
+
+bool same_gamepad_output_bitwise(
+    const GamepadOutputState& lhs,
+    const GamepadOutputState& rhs) {
+    return float_bits(lhs.left_x) == float_bits(rhs.left_x) &&
+        float_bits(lhs.left_y) == float_bits(rhs.left_y) &&
+        float_bits(lhs.right_x) == float_bits(rhs.right_x) &&
+        float_bits(lhs.right_y) == float_bits(rhs.right_y) &&
+        float_bits(lhs.left_trigger) == float_bits(rhs.left_trigger) &&
+        float_bits(lhs.right_trigger) == float_bits(rhs.right_trigger) &&
+        lhs.rb == rhs.rb && lhs.lb == rhs.lb && lhs.a == rhs.a &&
+        lhs.b == rhs.b && lhs.x == rhs.x && lhs.y == rhs.y &&
+        lhs.back == rhs.back && lhs.guide == rhs.guide &&
+        lhs.start == rhs.start && lhs.left_thumb == rhs.left_thumb &&
+        lhs.right_thumb == rhs.right_thumb && lhs.dpad_up == rhs.dpad_up &&
+        lhs.dpad_down == rhs.dpad_down && lhs.dpad_left == rhs.dpad_left &&
+        lhs.dpad_right == rhs.dpad_right;
+}
+
+std::vector<GamepadOutputState> run_controller_output_sequence(
+    bool with_ego_shadow,
+    std::uint64_t* submitted_shadow_frames,
+    std::uint64_t* processed_shadow_pairs,
+    std::uint64_t* taken_shadow_results) {
+    double now = 24.0;
+    NativeGamepadController controller(config(), [&now] { return now; });
+    const auto physical = aiming(0.015f);
+    std::unique_ptr<vision_native::EgoMotionObserver> observer;
+    if (with_ego_shadow) {
+        observer = std::make_unique<vision_native::EgoMotionObserver>();
+    }
+    const auto first_shadow_frame = make_shadow_frame(0, 0);
+    const auto second_shadow_frame = make_shadow_frame(4, -3);
+    const auto third_shadow_frame = make_shadow_frame(-2, 2);
+    const std::array<const std::array<
+        std::uint8_t, vision_native::kEgoMotionPixelCount>*, 3> shadow_frames{{
+        &first_shadow_frame, &second_shadow_frame, &third_shadow_frame}};
+    std::vector<GamepadOutputState> outputs;
+    outputs.reserve(8);
+    std::uint64_t taken_results = 0;
+
+    for (std::uint64_t frame = 1; frame <= 8; ++frame) {
+        now = 24.0 + static_cast<double>(frame - 1) * 0.010;
+        controller.submit_vision_snapshot(target(
+            frame, now, 80.0f - static_cast<float>(frame) * 4.0f,
+            -32.0f + static_cast<float>(frame) * 1.5f, 240 + frame));
+
+        if (with_ego_shadow) {
+            const auto& pixels = *shadow_frames[(frame - 1) % shadow_frames.size()];
+            require(observer->submit_frame(shadow_view(frame, pixels)),
+                    "shadow A/B submit must accept the source frame");
+        }
+
+        outputs.push_back(controller.build_output(physical));
+
+        if (with_ego_shadow) {
+            vision_native::EgoMotionShadowResult ignored;
+            if (observer->take_latest_result(&ignored)) {
+                ++taken_results;
+            }
+            if (frame == 1) {
+                // Give the latest-only worker a bounded opportunity to make
+                // frame 1 the predecessor before frame 2 replaces the
+                // pending slot.  This is wall-clock test synchronization;
+                // the injected controller clock above is unchanged.
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+        }
+    }
+
+    if (with_ego_shadow) {
+        // The controller clock remains the injected deterministic value.  A
+        // bounded wall-clock poll only waits for the independent observer
+        // worker/mailbox and cannot alter any controller timestamp.
+        const auto deadline = std::chrono::steady_clock::now() +
+            std::chrono::milliseconds(250);
+        while ((taken_results == 0 || observer->stats().pairs_processed == 0) &&
+               std::chrono::steady_clock::now() < deadline) {
+            vision_native::EgoMotionShadowResult result;
+            if (observer->take_latest_result(&result)) {
+                ++taken_results;
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }
+    const auto stats = with_ego_shadow
+        ? observer->stats() : vision_native::EgoMotionObserverStats{};
+    if (submitted_shadow_frames != nullptr) {
+        *submitted_shadow_frames = stats.frames_submitted;
+    }
+    if (processed_shadow_pairs != nullptr) {
+        *processed_shadow_pairs = stats.pairs_processed;
+    }
+    if (taken_shadow_results != nullptr) {
+        *taken_shadow_results = taken_results;
+    }
+    return outputs;
+}
+
+void test_ego_motion_shadow_does_not_change_final_output_sequence() {
+    std::uint64_t submitted_shadow_frames = 0;
+    std::uint64_t processed_shadow_pairs = 0;
+    std::uint64_t taken_shadow_results = 0;
+    const auto shadow_disabled = run_controller_output_sequence(
+        false, nullptr, nullptr, nullptr);
+    const auto shadow_enabled = run_controller_output_sequence(
+        true, &submitted_shadow_frames, &processed_shadow_pairs,
+        &taken_shadow_results);
+    require(shadow_disabled.size() == shadow_enabled.size(),
+            "shadow A/B output sequences have different lengths");
+    require(submitted_shadow_frames == shadow_enabled.size(),
+            "shadow A/B did not submit every source frame");
+    require(processed_shadow_pairs >= 1,
+            "shadow A/B did not process an observer pair");
+    require(taken_shadow_results >= 1,
+            "shadow A/B did not take an observer result from the mailbox");
+    for (std::size_t index = 0; index < shadow_disabled.size(); ++index) {
+        require(same_gamepad_output_bitwise(
+                    shadow_disabled[index], shadow_enabled[index]),
+                "ego shadow changed a final GamepadOutputState sample");
+    }
 }
 
 float warm_ads_force(float left_x) {
@@ -1555,6 +1732,7 @@ int main() {
         test_fuser_feedback_controls_manual_escape_without_magnitude_shortcut();
         test_vector_mode_generates_ai_before_manual_arbitration();
         test_acquisition_trace_joins_source_observation_across_controller_stages();
+        test_ego_motion_shadow_does_not_change_final_output_sequence();
         test_ads_strong_cooperative_mix_uses_non_additive_final_envelope();
         test_bodylock_strong_mix_uses_non_additive_final_envelope_at_both_ranges();
         test_only_worsening_wrong_way_axis_stops_suppressing_assist();

@@ -38,14 +38,19 @@ inline const char* preprocess_mode_name(PreprocessMode mode) {
 
 struct FramePacket {
     uint64_t frame_id = 0;
-    // All *_ns fields use the process steady-clock monotonic domain. The
-    // source-present value below intentionally stays in the DXGI QPC domain.
+    // All *_ns fields use the process steady-clock monotonic domain. Raw
+    // source-present QPC is retained alongside its explicitly calibrated
+    // steady-clock projection; neither is inferred from result-ready time.
     uint64_t capture_acquire_begin_ns = 0;
     uint64_t capture_acquire_complete_ns = 0;
     uint64_t capture_copy_complete_ns = 0;
     uint64_t source_present_qpc = 0;
     uint64_t source_present_qpc_frequency = 0;
     bool source_present_available = false;
+    uint64_t source_present_steady_ns = 0;
+    uint64_t source_present_calibration_id = 0;
+    uint64_t source_present_calibration_uncertainty_ns = 0;
+    bool source_present_steady_available = false;
     // Copied directly from DXGI_OUTDUPL_FRAME_INFO; never inferred from
     // frame-id differences.
     uint32_t accumulated_frames = 0;
@@ -88,6 +93,10 @@ struct DetectionBatch {
     uint64_t source_present_qpc = 0;
     uint64_t source_present_qpc_frequency = 0;
     bool source_present_available = false;
+    uint64_t source_present_steady_ns = 0;
+    uint64_t source_present_calibration_id = 0;
+    uint64_t source_present_calibration_uncertainty_ns = 0;
+    bool source_present_steady_available = false;
     uint32_t accumulated_frames = 0;
     uint64_t captured_at_ns = 0;
     uint64_t inferred_at_ns = 0;
@@ -119,6 +128,10 @@ struct VisionResult {
     uint64_t source_present_qpc = 0;
     uint64_t source_present_qpc_frequency = 0;
     bool source_present_available = false;
+    uint64_t source_present_steady_ns = 0;
+    uint64_t source_present_calibration_id = 0;
+    uint64_t source_present_calibration_uncertainty_ns = 0;
+    bool source_present_steady_available = false;
     uint32_t accumulated_frames = 0;
     uint64_t captured_at_ns = 0;
     uint64_t inferred_at_ns = 0;

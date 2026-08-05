@@ -63,6 +63,7 @@ struct DxgiRoiCapture::Impl {
     int roi_top = 0;
     uint64_t next_frame_id = 1;
     uint64_t qpc_frequency = 0;
+    uint64_t next_calibration_id = 1;
 
     ComPtr<IDXGIAdapter1> adapter;
     ComPtr<IDXGIOutput> output;
@@ -308,6 +309,35 @@ struct DxgiRoiCapture::Impl {
                 metadata.frame.source_present_qpc = metadata.source_present_qpc;
                 metadata.frame.source_present_qpc_frequency = qpc_frequency;
                 metadata.frame.source_present_available = true;
+
+                // LastPresentTime is a raw DXGI QPC value. Calibrate at this
+                // same capture code point; the result timestamp remains a
+                // separate inference-stage value and is never substituted.
+                const auto calibration = QpcSteadyClockCalibration::capture(
+                    qpc_frequency, next_calibration_id++);
+                metadata.source_present_calibration_id = calibration.calibration_id;
+                metadata.source_present_calibration_uncertainty_ns =
+                    calibration.uncertainty_ns;
+                uint64_t mapped_present_ns = 0;
+                uint64_t mapping_uncertainty_ns = 0;
+                if (calibration.map_qpc_to_steady(
+                        metadata.source_present_qpc,
+                        metadata.source_present_qpc_frequency,
+                        &mapped_present_ns,
+                        &mapping_uncertainty_ns)) {
+                    metadata.source_present_steady_ns = mapped_present_ns;
+                    metadata.source_present_calibration_uncertainty_ns =
+                        mapping_uncertainty_ns;
+                    metadata.source_present_steady_available = true;
+                }
+                metadata.frame.source_present_steady_ns =
+                    metadata.source_present_steady_ns;
+                metadata.frame.source_present_calibration_id =
+                    metadata.source_present_calibration_id;
+                metadata.frame.source_present_calibration_uncertainty_ns =
+                    metadata.source_present_calibration_uncertainty_ns;
+                metadata.frame.source_present_steady_available =
+                    metadata.source_present_steady_available;
             }
             metadata.frame.width = requested_width;
             metadata.frame.height = requested_height;

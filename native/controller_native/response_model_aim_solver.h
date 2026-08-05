@@ -1,5 +1,6 @@
 #pragma once
 
+#include "aim_response_curve_plugin.h"
 #include "pipeline_contract/target_plan.h"
 
 namespace controller_native {
@@ -24,12 +25,16 @@ struct ResponseModelAimRequest {
     pipeline_contract::Vec2f max_force{1.0f, 1.0f};
     float authority = 1.0f;
     bool fresh_position_authoritative = false;
+    AimResponseCurveConfig response_curve{};
 };
 
 struct ResponseModelAimOutput {
     pipeline_contract::Vec2f position_stick{};
     pipeline_contract::Vec2f motion_stick{};
     pipeline_contract::Vec2f bounded_motion_stick{};
+    // Desired camera response before the inverse curve. unclamped_stick is the
+    // resulting final target T before the force envelope.
+    pipeline_contract::Vec2f pre_curve_stick{};
     pipeline_contract::Vec2f unclamped_stick{};
     pipeline_contract::Vec2f stick{};
     bool limited = false;

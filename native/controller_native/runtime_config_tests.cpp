@@ -120,6 +120,55 @@ void test_realtime_tracker_and_fallback_recoil_flags_parse() {
     require(!config.gamepad.recoil.native_recognizer_enabled);
 }
 
+void test_aim_response_curve_defaults_and_dynamic_plugin_parse() {
+    const auto missing = std::filesystem::temp_directory_path() /
+        "cod_native_aim_response_curve_missing.toml";
+    std::filesystem::remove(missing);
+    const auto defaults = controller_native::load_runtime_config(missing);
+    require(defaults.gamepad.aim_response_curve.algorithm ==
+            controller_native::AimResponseCurveAlgorithm::Linear);
+    require(std::abs(
+        defaults.gamepad.aim_response_curve.calibration_reference_stick -
+        0.50f) < 0.0001f);
+
+    const auto path = std::filesystem::temp_directory_path() /
+        "cod_native_aim_response_curve_dynamic.toml";
+    {
+        std::ofstream output(path);
+        output << "[gamepad.aim_response_curve]\n"
+               << "algorithm = \"cod_dynamic_legacy_lut\"\n"
+               << "calibration_reference_stick = 0.42\n";
+    }
+    const auto parsed = controller_native::load_runtime_config(path);
+    std::filesystem::remove(path);
+    require(parsed.gamepad.aim_response_curve.algorithm ==
+            controller_native::AimResponseCurveAlgorithm::CodDynamicLegacyLut);
+    require(std::abs(
+        parsed.gamepad.aim_response_curve.calibration_reference_stick -
+        0.42f) < 0.0001f);
+    require(parsed.effective_source("gamepad.aim_response_curve.algorithm") ==
+            "user");
+}
+
+void test_aim_response_curve_rejects_unknown_algorithm() {
+    const auto path = std::filesystem::temp_directory_path() /
+        "cod_native_aim_response_curve_invalid.toml";
+    {
+        std::ofstream output(path);
+        output << "[gamepad.aim_response_curve]\n"
+               << "algorithm = \"dynamic_magic\"\n";
+    }
+    bool failed = false;
+    try {
+        (void)controller_native::load_runtime_config(path);
+    } catch (const std::runtime_error& error) {
+        failed = std::string(error.what()).find(
+            "gamepad.aim_response_curve.algorithm") != std::string::npos;
+    }
+    std::filesystem::remove(path);
+    require(failed);
+}
+
 void test_balanced_profile_uses_canonical_vision_defaults() {
     const std::filesystem::path path =
         std::filesystem::temp_directory_path() / "cod_native_runtime_profile_test.toml";
@@ -385,6 +434,11 @@ void test_normal_template_preserves_controller_baseline() {
     require(aim.body_lock_box_tolerance_px == 8.0f);
     require(aim.body_lock_manual_escape_input_threshold == 0.45f);
     require(aim.body_lock_manual_escape_preservation == 0.75f);
+    require(config.gamepad.aim_response_curve.algorithm ==
+            controller_native::AimResponseCurveAlgorithm::CodDynamicLegacyLut);
+    require(std::abs(
+        config.gamepad.aim_response_curve.calibration_reference_stick -
+        0.50f) < 0.0001f);
     require(std::abs(config.gamepad.tracker.aim_height_ratio - 0.365f) < 0.0001f);
 }
 
@@ -697,6 +751,8 @@ int main() {
     test_vision_gpu_service_config_values_parse();
     test_vision_gpu_service_can_be_disabled();
     test_realtime_tracker_and_fallback_recoil_flags_parse();
+    test_aim_response_curve_defaults_and_dynamic_plugin_parse();
+    test_aim_response_curve_rejects_unknown_algorithm();
     test_dynamic_viewport_config_values_parse();
     test_dynamic_viewport_rejects_mismatched_aspect_ratio();
     test_balanced_profile_uses_canonical_vision_defaults();
