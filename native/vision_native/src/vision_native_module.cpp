@@ -69,6 +69,7 @@ py::dict batch_to_dict(const vision_native::DetectionBatch& batch) {
     result["frame_height"] = batch.frame_height;
     result["preprocess_ms"] = batch.preprocess_ms;
     result["infer_ms"] = batch.infer_ms;
+    result["enqueue_cpu_ms"] = batch.enqueue_cpu_ms;
     result["output_copy_sync_ms"] = batch.output_copy_sync_ms;
     result["gpu_total_ms"] = batch.gpu_total_ms;
     result["output_copy_ms"] = batch.output_copy_ms;
@@ -181,6 +182,7 @@ py::dict vision_result_to_dict(const vision_native::VisionResult& result_in) {
     result["preprocess_ms"] = result_in.preprocess_ms;
     result["color_copy_ms"] = result_in.color_copy_ms;
     result["infer_ms"] = result_in.infer_ms;
+    result["enqueue_cpu_ms"] = result_in.enqueue_cpu_ms;
     result["output_copy_sync_ms"] = result_in.output_copy_sync_ms;
     result["gpu_total_ms"] = result_in.gpu_total_ms;
     result["output_copy_ms"] = result_in.output_copy_ms;
@@ -397,7 +399,21 @@ PYBIND11_MODULE(vision_native_cpp, module) {
         py::arg("downsample"));
 
     py::class_<vision_native::TensorRTEngine>(module, "NativeEngine")
-        .def(py::init<std::string>())
+        .def(
+            py::init([](const std::string& engine_path,
+                        bool bind_tensor_addresses_once,
+                        bool use_high_priority_stream,
+                        bool use_cuda_graph) {
+                vision_native::TensorRTEngineOptions options;
+                options.bind_tensor_addresses_once = bind_tensor_addresses_once;
+                options.use_high_priority_stream = use_high_priority_stream;
+                options.use_cuda_graph = use_cuda_graph;
+                return std::make_unique<vision_native::TensorRTEngine>(engine_path, options);
+            }),
+            py::arg("engine_path"),
+            py::arg("bind_tensor_addresses_once") = true,
+            py::arg("use_high_priority_stream") = true,
+            py::arg("use_cuda_graph") = true)
         .def_property_readonly("input_width", &vision_native::TensorRTEngine::input_width)
         .def_property_readonly("input_height", &vision_native::TensorRTEngine::input_height)
         .def_property_readonly("output_rows", &vision_native::TensorRTEngine::output_rows)

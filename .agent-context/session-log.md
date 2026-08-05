@@ -68,3 +68,24 @@ Vision -> selector -> TargetCoordinator -> TargetPlan
 ```
 
 One owner per lifecycle, mode transition, shaping state and final fusion decision. Fresh Vision corrects position; shadow ego-motion and future realized-work accounting may bridge gaps only after evidence gates. Keep this index under 100 lines; do not store secrets, personal video paths or raw telemetry dumps.
+
+## 2026-08-05 - Fixed-Shape Vision Throughput Optimization Accepted
+
+- Goal: determine why the shared 4070 Super showed high compute utilization without full board power and improve YOLO throughput before deciding whether a dedicated RTX 4060 was necessary.
+- Repository change: fixed TensorRT tensor addresses are bound once; the runtime uses a high-priority non-blocking CUDA stream; the fixed TensorRT inference segment is captured and replayed through CUDA Graph. Dynamic capture, ROI/preprocess and downstream result handling remain outside the graph.
+- Benchmark change: C++ and Python dataset benchmarks expose binding, priority and Graph A/B controls plus `enqueue_cpu_ms` and expanded wall/GPU/output timing.
+- Repository evidence: a 1,500-image A/B retained identical detections and exact 500-image float outputs. Wall P50/P95 improved `3.343/6.078 -> 1.207/2.432 ms`, enqueue CPU P50 `2.894 -> 0.083 ms`, and GPU-total P50/P95 `3.135/5.856 -> 1.015/2.213 ms`.
+- Live evidence: same-config/same-engine 160 FPS sessions `20260805T120935Z_47940_1` and `20260805T125610Z_44588_1` used executable hashes beginning `69E8624C` and `57A78F84`. Capture-to-result P50/P95 improved `8.08/13.41 -> 5.42/9.34 ms`, active result rate `99.2 -> 127.8 Hz`, and source-present-to-ViGEm P50/P95 `13.05/20.63 -> 8.57/16.68 ms`.
+- Hardware evidence: the matched stable HWiNFO window held 4070S core use and power essentially flat (`77.54%/84.94 W -> 77.26%/83.77 W`); power and thermal limiting stayed inactive. This supports an execution/launch-efficiency gain rather than a higher-power explanation.
+- Verification: the candidate passed the relevant native tests, a one-shot runtime start, a 100-frame DXGI/model smoke test and exact-output comparison. One pre-existing CMake target remains unbuildable because its tracked source file is absent; it is unrelated to this change.
+- User-confirmed: YOLO remained enabled during both game runs; logging conditions were intentionally kept the same; the user asked not to separately attribute logging-related stutter and explicitly requested recording and committing the validated optimization.
+- Context updated: handoff plus accepted decision `DEC-2026-08-05-001`.
+- Follow-up: preserve the validated executable hash and source commit; review the CUDA Graph contract after TensorRT engine, shape or driver changes.
+
+## 2026-08-05 - Marker-Assisted Head-Glitch Tracking Discussed
+
+- User-requested design direction: use the enemy yellow marker to help retain targets behind head-height cover or fences and learn, within a runtime session, a mapping from reliable target scale to marker-to-head/aim offset.
+- **Proposed/inferred, not accepted implementation:** treat the marker as an auxiliary observation source for identity and ROI continuity, not as a second aim/control owner. Learn only from unambiguous same-frame pairs with strong direct body/head evidence; never train from marker-derived pseudo positions.
+- **Proposed/inferred:** maintain a stable full-body-equivalent scale because an occlusion-truncated current box is not a valid distance label. Start with a robust proportional/monotonic model and explicit residual/coverage uncertainty before considering a short-lived low-authority pseudo-observation.
+- User explicitly limited this discussion to design thinking; no marker code, telemetry, config or data was changed.
+- Follow-up: first perform a read-only audit of the existing cue detector/association/continuation path, then propose shadow-only fields and promotion gates.

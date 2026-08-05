@@ -66,6 +66,7 @@ int main(int argc, char** argv) {
                       << " cap_copy_ms=" << result.capture_copy_ms
                       << " cuda_map_ms=" << result.cuda_map_ms
                       << " infer_ms=" << result.infer_ms
+                      << " enqueue_cpu_ms=" << result.enqueue_cpu_ms
                       << " out_sync_ms=" << result.output_copy_sync_ms
                       << " gpu_total_ms=" << result.gpu_total_ms
                       << " output_copy_ms=" << result.output_copy_ms

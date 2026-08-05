@@ -66,12 +66,21 @@ void require_float_tensor(nvinfer1::ICudaEngine* engine, const std::string& name
 
 } // namespace
 
-TensorRTEngine::TensorRTEngine(std::string engine_path) {
+TensorRTEngine::TensorRTEngine(
+    std::string engine_path,
+    TensorRTEngineOptions options)
+    : options_(options) {
     load_engine(engine_path);
     allocate_buffers();
 }
 
 TensorRTEngine::~TensorRTEngine() {
+    if (cuda_graph_exec_ != nullptr) {
+        cudaGraphExecDestroy(cuda_graph_exec_);
+    }
+    if (cuda_graph_ != nullptr) {
+        cudaGraphDestroy(cuda_graph_);
+    }
     if (output_copy_end_event_ != nullptr) {
         cudaEventDestroy(output_copy_end_event_);
     }
@@ -168,12 +177,94 @@ void TensorRTEngine::load_engine(const std::string& engine_path) {
 
 void TensorRTEngine::allocate_buffers() {
     cudaStream_t stream = nullptr;
-    check_cuda(cudaStreamCreate(&stream), "cudaStreamCreate");
+    if (options_.use_high_priority_stream) {
+        int least_priority = 0;
+        int greatest_priority = 0;
+        check_cuda(
+            cudaDeviceGetStreamPriorityRange(&least_priority, &greatest_priority),
+            "cudaDeviceGetStreamPriorityRange");
+        check_cuda(
+            cudaStreamCreateWithPriority(
+                &stream,
+                cudaStreamNonBlocking,
+                greatest_priority),
+            "cudaStreamCreateWithPriority");
+    } else {
+        check_cuda(cudaStreamCreate(&stream), "cudaStreamCreate");
+    }
     stream_ = stream;
     check_cuda(cudaMalloc(reinterpret_cast<void**>(&device_input_), input_element_count_ * sizeof(float)), "cudaMalloc input");
     check_cuda(cudaMalloc(reinterpret_cast<void**>(&device_output_), output_element_count_ * sizeof(float)), "cudaMalloc output");
     check_cuda(cudaMallocHost(reinterpret_cast<void**>(&host_output_), output_element_count_ * sizeof(float)), "cudaMallocHost output");
+    if (options_.bind_tensor_addresses_once) {
+        bind_tensor_addresses();
+    }
     allocate_timing_events();
+    if (options_.use_cuda_graph) {
+        initialize_cuda_graph();
+    }
+}
+
+void TensorRTEngine::bind_tensor_addresses() {
+    if (!context_->setTensorAddress(input_name_.c_str(), device_input_)) {
+        throw std::runtime_error("failed to set TensorRT input address");
+    }
+    if (!context_->setTensorAddress(output_name_.c_str(), device_output_)) {
+        throw std::runtime_error("failed to set TensorRT output address");
+    }
+}
+
+void TensorRTEngine::initialize_cuda_graph() {
+    if (!options_.bind_tensor_addresses_once) {
+        throw std::runtime_error("CUDA Graph requires tensor addresses to be bound once");
+    }
+
+    cudaStream_t stream = static_cast<cudaStream_t>(stream_);
+    check_cuda(
+        cudaMemsetAsync(device_input_, 0, input_element_count_ * sizeof(float), stream),
+        "cudaMemsetAsync graph warmup input");
+    if (!context_->enqueueV3(stream)) {
+        throw std::runtime_error("TensorRT enqueueV3 graph warmup failed");
+    }
+    check_cuda(cudaStreamSynchronize(stream), "cudaStreamSynchronize graph warmup");
+
+    check_cuda(
+        cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+        "cudaStreamBeginCapture TensorRT");
+    if (!context_->enqueueV3(stream)) {
+        cudaGraph_t abandoned_graph = nullptr;
+        (void)cudaStreamEndCapture(stream, &abandoned_graph);
+        if (abandoned_graph != nullptr) {
+            cudaGraphDestroy(abandoned_graph);
+        }
+        throw std::runtime_error("TensorRT enqueueV3 CUDA Graph capture failed");
+    }
+    cudaGraph_t captured_graph = nullptr;
+    check_cuda(
+        cudaStreamEndCapture(stream, &captured_graph),
+        "cudaStreamEndCapture TensorRT");
+    if (captured_graph == nullptr) {
+        throw std::runtime_error("TensorRT CUDA Graph capture returned an empty graph");
+    }
+    cudaGraphExec_t captured_graph_exec = nullptr;
+    const cudaError_t instantiate_status =
+        cudaGraphInstantiate(&captured_graph_exec, captured_graph, 0);
+    if (instantiate_status != cudaSuccess) {
+        cudaGraphDestroy(captured_graph);
+        check_cuda(instantiate_status, "cudaGraphInstantiate TensorRT");
+    }
+    cuda_graph_ = captured_graph;
+    cuda_graph_exec_ = captured_graph_exec;
+}
+
+void TensorRTEngine::enqueue_inference(cudaStream_t stream) {
+    if (cuda_graph_exec_ != nullptr) {
+        check_cuda(cudaGraphLaunch(cuda_graph_exec_, stream), "cudaGraphLaunch TensorRT");
+        return;
+    }
+    if (!context_->enqueueV3(stream)) {
+        throw std::runtime_error("TensorRT enqueueV3 failed");
+    }
 }
 
 void TensorRTEngine::allocate_timing_events() {
@@ -240,17 +331,15 @@ DetectionBatch TensorRTEngine::infer_rgb(
     check_cuda(cudaGetLastError(), "launch_rgb_hwc_to_chw_float");
     check_cuda(cudaEventRecord(preprocess_end_event_, stream), "cudaEventRecord preprocess_end");
 
-    if (!context_->setTensorAddress(input_name_.c_str(), device_input_)) {
-        throw std::runtime_error("failed to set TensorRT input address");
-    }
-    if (!context_->setTensorAddress(output_name_.c_str(), device_output_)) {
-        throw std::runtime_error("failed to set TensorRT output address");
+    if (!options_.bind_tensor_addresses_once) {
+        bind_tensor_addresses();
     }
 
     check_cuda(cudaEventRecord(infer_start_event_, stream), "cudaEventRecord infer_start");
-    if (!context_->enqueueV3(stream)) {
-        throw std::runtime_error("TensorRT enqueueV3 failed");
-    }
+    const uint64_t enqueue_start = now_ns();
+    enqueue_inference(stream);
+    const uint64_t enqueue_end = now_ns();
+    batch.enqueue_cpu_ms = static_cast<float>(enqueue_end - enqueue_start) / 1'000'000.0f;
     check_cuda(cudaEventRecord(infer_end_event_, stream), "cudaEventRecord infer_end");
     const uint64_t output_copy_start = now_ns();
     check_cuda(cudaEventRecord(output_copy_start_event_, stream), "cudaEventRecord output_copy_start");
@@ -374,17 +463,15 @@ DetectionBatch TensorRTEngine::infer_bgra_array_roi(
     check_cuda(cudaGetLastError(), "launch_bgra_hwc_to_chw_float");
     check_cuda(cudaEventRecord(preprocess_end_event_, stream), "cudaEventRecord preprocess_end");
 
-    if (!context_->setTensorAddress(input_name_.c_str(), device_input_)) {
-        throw std::runtime_error("failed to set TensorRT input address");
-    }
-    if (!context_->setTensorAddress(output_name_.c_str(), device_output_)) {
-        throw std::runtime_error("failed to set TensorRT output address");
+    if (!options_.bind_tensor_addresses_once) {
+        bind_tensor_addresses();
     }
 
     check_cuda(cudaEventRecord(infer_start_event_, stream), "cudaEventRecord infer_start");
-    if (!context_->enqueueV3(stream)) {
-        throw std::runtime_error("TensorRT enqueueV3 failed");
-    }
+    const uint64_t enqueue_start = now_ns();
+    enqueue_inference(stream);
+    const uint64_t enqueue_end = now_ns();
+    batch.enqueue_cpu_ms = static_cast<float>(enqueue_end - enqueue_start) / 1'000'000.0f;
     check_cuda(cudaEventRecord(infer_end_event_, stream), "cudaEventRecord infer_end");
     const uint64_t output_copy_start = now_ns();
     check_cuda(cudaEventRecord(output_copy_start_event_, stream), "cudaEventRecord output_copy_start");

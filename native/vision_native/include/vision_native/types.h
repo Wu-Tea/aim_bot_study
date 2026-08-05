@@ -109,6 +109,7 @@ struct DetectionBatch {
     std::vector<Detection> detections;
     float preprocess_ms = 0.0f;
     float infer_ms = 0.0f;
+    float enqueue_cpu_ms = 0.0f;
     float output_copy_sync_ms = 0.0f;
     float gpu_total_ms = 0.0f;
     float output_copy_ms = 0.0f;
@@ -202,6 +203,7 @@ struct VisionResult {
     float color_classify_ms = 0.0f;
     std::uint32_t color_candidate_count = 0;
     float infer_ms = 0.0f;
+    float enqueue_cpu_ms = 0.0f;
     float output_copy_sync_ms = 0.0f;
     float gpu_total_ms = 0.0f;
     float output_copy_ms = 0.0f;

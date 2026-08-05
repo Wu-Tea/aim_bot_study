@@ -17,9 +17,17 @@ class ILogger;
 
 namespace vision_native {
 
+struct TensorRTEngineOptions {
+    bool bind_tensor_addresses_once = true;
+    bool use_high_priority_stream = true;
+    bool use_cuda_graph = true;
+};
+
 class TensorRTEngine {
 public:
-    explicit TensorRTEngine(std::string engine_path);
+    explicit TensorRTEngine(
+        std::string engine_path,
+        TensorRTEngineOptions options = {});
     ~TensorRTEngine();
 
     TensorRTEngine(const TensorRTEngine&) = delete;
@@ -57,7 +65,12 @@ private:
     void load_engine(const std::string& engine_path);
     void allocate_buffers();
     void allocate_timing_events();
+    void bind_tensor_addresses();
+    void initialize_cuda_graph();
+    void enqueue_inference(cudaStream_t stream);
     void ensure_frame_buffer(size_t bytes);
+
+    TensorRTEngineOptions options_;
 
     std::unique_ptr<nvinfer1::ILogger> logger_;
     std::unique_ptr<nvinfer1::IRuntime> runtime_;
@@ -80,6 +93,8 @@ private:
     float* device_output_ = nullptr;
     float* host_output_ = nullptr;
     void* stream_ = nullptr;
+    cudaGraph_t cuda_graph_ = nullptr;
+    cudaGraphExec_t cuda_graph_exec_ = nullptr;
     cudaEvent_t preprocess_start_event_ = nullptr;
     cudaEvent_t preprocess_end_event_ = nullptr;
     cudaEvent_t infer_start_event_ = nullptr;

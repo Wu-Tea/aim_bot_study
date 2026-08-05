@@ -329,7 +329,7 @@ void log_vision_result(
                   << " conf=0 dx=0 dy=0 aim_auth=0 fire_auth=0"
                   << " service=none service_state=unknown service_seq=0"
                   << " mode=none"
-                  << " cap=0ms copy=0ms pre=0ms infer=0ms decode=0ms"
+                  << " cap=0ms copy=0ms pre=0ms infer=0ms enqueue=0ms decode=0ms"
                   << " selector=0ms enhance=0ms age=0ms\n";
         return;
     }
@@ -360,6 +360,7 @@ void log_vision_result(
         << "ms map=" << result->cuda_map_ms
         << "ms pre=" << result->preprocess_ms
         << "ms infer=" << result->infer_ms
+        << "ms enqueue=" << result->enqueue_cpu_ms
         << "ms gpu=" << result->gpu_total_ms
         << "ms wait=" << result->output_wait_ms
         << "ms decode=" << result->decode_ms

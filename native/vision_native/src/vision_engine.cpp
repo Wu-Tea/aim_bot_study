@@ -542,6 +542,7 @@ VisionResult VisionEngine::poll_once() {
         result.external_cue_score = batch.external_cue_score;
         result.preprocess_ms = batch.preprocess_ms;
         result.infer_ms = batch.infer_ms;
+        result.enqueue_cpu_ms = batch.enqueue_cpu_ms;
         result.output_copy_sync_ms = batch.output_copy_sync_ms;
         result.gpu_total_ms = batch.gpu_total_ms;
         result.output_copy_ms = batch.output_copy_ms;

@@ -129,6 +129,7 @@ class DatasetSummary:
     failures: int = 0
     skipped_undersized: int = 0
     infer_ms: list[float] = field(default_factory=list)
+    enqueue_cpu_ms: list[float] = field(default_factory=list)
     gpu_total_ms: list[float] = field(default_factory=list)
     wall_ms: list[float] = field(default_factory=list)
     process_cpu_ms: list[float] = field(default_factory=list)
@@ -158,6 +159,7 @@ class DatasetSummary:
         if match.fp or match.fn:
             self.failures += 1
         _append_if_number(self.infer_ms, timings.get("infer_ms"))
+        _append_if_number(self.enqueue_cpu_ms, timings.get("enqueue_cpu_ms"))
         _append_if_number(self.gpu_total_ms, timings.get("gpu_total_ms"))
         _append_if_number(self.wall_ms, timings.get("wall_ms"))
         _append_if_number(self.process_cpu_ms, timings.get("process_cpu_ms"))
@@ -190,6 +192,7 @@ class DatasetSummary:
             "failure_images": self.failures,
             "skipped_undersized": self.skipped_undersized,
             "infer_ms": _timing_summary(self.infer_ms),
+            "enqueue_cpu_ms": _timing_summary(self.enqueue_cpu_ms),
             "gpu_total_ms": _timing_summary(self.gpu_total_ms),
             "wall_ms": _timing_summary(self.wall_ms),
             "process_cpu_ms": _timing_summary(self.process_cpu_ms),
@@ -1016,6 +1019,7 @@ def benchmark_split(
             "process_rss_mb": process_sampler.rss_mb() if process_sampler is not None else None,
             "preprocess_ms": raw_result.get("preprocess_ms", 0.0),
             "infer_ms": raw_result.get("infer_ms", 0.0),
+            "enqueue_cpu_ms": raw_result.get("enqueue_cpu_ms", 0.0),
             "gpu_total_ms": raw_result.get("gpu_total_ms", 0.0),
             "output_wait_ms": raw_result.get("output_wait_ms", 0.0),
             "decode_ms": raw_result.get("decode_ms", 0.0),
@@ -1134,6 +1138,7 @@ def aggregate_summaries(summaries: Sequence[DatasetSummary]) -> DatasetSummary:
         overall.failures += summary.failures
         overall.skipped_undersized += summary.skipped_undersized
         overall.infer_ms.extend(summary.infer_ms)
+        overall.enqueue_cpu_ms.extend(summary.enqueue_cpu_ms)
         overall.gpu_total_ms.extend(summary.gpu_total_ms)
         overall.wall_ms.extend(summary.wall_ms)
         overall.process_cpu_ms.extend(summary.process_cpu_ms)
@@ -1221,6 +1226,9 @@ def write_json(
             "crop_width": args.crop_width,
             "crop_height": args.crop_height,
             "strict_crop_size": args.strict_crop_size,
+            "tensor_address_binding": args.tensor_address_binding,
+            "stream_priority": args.stream_priority,
+            "cuda_graph": args.cuda_graph,
             "warmup": args.warmup,
             "frame_budgets_ms": args.frame_budget_ms,
             "frame_jsonl": str(resolve_project_path(args.frame_jsonl)) if args.frame_jsonl else None,
@@ -1275,6 +1283,24 @@ def build_parser() -> argparse.ArgumentParser:
         "--strict-crop-size",
         action="store_true",
         help="Skip and record images smaller than the requested crop instead of silently clamping.",
+    )
+    parser.add_argument(
+        "--tensor-address-binding",
+        choices=("once", "per-inference"),
+        default="once",
+        help="Bind fixed TensorRT tensor addresses once or repeat the calls for every inference.",
+    )
+    parser.add_argument(
+        "--stream-priority",
+        choices=("high", "default"),
+        default="high",
+        help="Use the production high-priority non-blocking CUDA stream or the legacy default stream.",
+    )
+    parser.add_argument(
+        "--cuda-graph",
+        choices=("on", "off"),
+        default="on",
+        help="Enable or disable the fixed-shape TensorRT CUDA Graph replay path.",
     )
     parser.add_argument(
         "--candidate-id",
@@ -1349,11 +1375,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     model_sha256 = sha256_file(model_path)
     print(
         f"model={model_path} input={engine_info.get('tensors', [{}])[0].get('shape', '?')} "
-        f"conf={args.conf} iou={args.iou} crop={args.crop_width or '-'}x{args.crop_height or '-'}"
+        f"conf={args.conf} iou={args.iou} crop={args.crop_width or '-'}x{args.crop_height or '-'} "
+        f"binding={args.tensor_address_binding} priority={args.stream_priority} graph={args.cuda_graph}"
     )
     if selected_classes:
         print(f"target_classes={','.join(selected_classes)} class_aware={args.class_aware}")
-    engine = vision_native_cpp.NativeEngine(str(model_path))
+    engine = vision_native_cpp.NativeEngine(
+        str(model_path),
+        args.tensor_address_binding == "once",
+        args.stream_priority == "high",
+        args.cuda_graph == "on",
+    )
 
     failure_writer = FailureWriter(resolve_project_path(args.save_failures), args.max_failures) if args.save_failures else None
     frame_writer = (
