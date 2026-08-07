@@ -844,6 +844,8 @@ void RuntimeLoop::run_once() {
                 result.cuda_submit_adaptation_epoch;
             vision_sample.cuda_submit_adaptive_state =
                 result.cuda_submit_adaptive_state_code;
+            vision_sample.cuda_submit_adaptive_reason =
+                result.cuda_submit_adaptive_reason_code;
             vision_sample.cuda_submit_cadence_stable =
                 result.cuda_submit_cadence_stable;
             vision_sample.accumulated_frames = result.accumulated_frames;

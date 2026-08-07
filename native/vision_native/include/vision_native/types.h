@@ -152,6 +152,7 @@ struct VisionResult {
     std::uint8_t cuda_submit_candidate_index = 0;
     std::uint8_t cuda_submit_candidate_samples = 0;
     std::uint8_t cuda_submit_adaptive_state_code = 0;
+    std::uint8_t cuda_submit_adaptive_reason_code = 0;
     bool cuda_submit_cadence_stable = false;
     bool frame_updated = false;
     const char* service_freshness = "none";

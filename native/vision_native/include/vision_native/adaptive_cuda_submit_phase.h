@@ -35,6 +35,7 @@ public:
         NoPhaseRoom,
         Exploring,
         HeldCandidate,
+        Count,
     };
 
     enum class ResetReason : std::uint8_t {
@@ -75,7 +76,13 @@ public:
     struct FrameContext {
         std::uint64_t source_present_steady_ns = 0;
         bool source_present_steady_available = false;
+        // Direct DXGI evidence for the interval ending at this present.  A
+        // value above one means the capture skipped source presents; cadence
+        // estimation normalizes the timestamp delta by this count.
+        std::uint32_t accumulated_frames = 1;
         bool active = false;
+        // Stable source-clock identity only.  Never pass a per-frame
+        // calibration sample id here; doing so resets exploration every frame.
         std::uint64_t context_id = 0;
         bool context_id_available = false;
         std::uint64_t regime_id = 0;
@@ -196,6 +203,7 @@ private:
     bool update_observation_identity(const CompletedObservation& observation) noexcept;
     Decision fallback(DecisionReason reason) const noexcept;
     bool update_cadence(std::uint64_t source_present_ns,
+        std::uint32_t accumulated_frames,
         DecisionReason* failure_reason) noexcept;
     std::uint32_t maximum_safe_phase_us() const noexcept;
     std::uint32_t effective_candidate_phase_us(std::uint8_t index) const noexcept;

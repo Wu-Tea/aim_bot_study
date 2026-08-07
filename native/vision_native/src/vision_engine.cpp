@@ -464,11 +464,16 @@ VisionResult VisionEngine::poll_once() {
                 metadata.source_present_steady_ns;
             phase_context.source_present_steady_available =
                 metadata.source_present_steady_available;
+            phase_context.accumulated_frames = metadata.accumulated_frames;
             phase_context.active = controller_aiming;
-            phase_context.context_id = metadata.source_present_calibration_id;
+            // calibration_id identifies one per-frame QPC/steady mapping
+            // sample and therefore changes on every acquire.  The QPC
+            // frequency identifies the stable source clock domain expected by
+            // the adaptive controller's context key.
+            phase_context.context_id = metadata.source_present_qpc_frequency;
             phase_context.context_id_available =
-                metadata.source_present_steady_available &&
-                metadata.source_present_calibration_id != 0;
+                metadata.source_present_available &&
+                metadata.source_present_qpc_frequency != 0;
             phase_context.regime_id =
                 (static_cast<std::uint64_t>(
                      static_cast<std::uint32_t>(viewport_width)) << 32u) |
@@ -788,10 +793,10 @@ VisionResult VisionEngine::poll_once() {
                 result.source_present_steady_ns != 0 &&
                 result.result_at_ns >= result.source_present_steady_ns;
             observation.active = controller_aiming;
-            observation.context_id = result.source_present_calibration_id;
+            observation.context_id = result.source_present_qpc_frequency;
             observation.context_id_available =
-                result.source_present_steady_available &&
-                result.source_present_calibration_id != 0;
+                result.source_present_available &&
+                result.source_present_qpc_frequency != 0;
             observation.regime_id =
                 (static_cast<std::uint64_t>(
                      static_cast<std::uint32_t>(viewport_width)) << 32u) |
@@ -816,6 +821,8 @@ VisionResult VisionEngine::poll_once() {
                 adaptive_decision.block_sample_count;
             result.cuda_submit_adaptive_state_code =
                 static_cast<std::uint8_t>(adaptive_decision.mode);
+            result.cuda_submit_adaptive_reason_code =
+                static_cast<std::uint8_t>(adaptive_decision.reason);
             result.cuda_submit_cadence_stable =
                 adaptive_decision.cadence_stable;
         }

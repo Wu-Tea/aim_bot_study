@@ -33,10 +33,12 @@ Controller::FrameContext frame(
     std::uint64_t timestamp_ns,
     bool active = true,
     std::uint64_t context_id = 1,
-    std::uint64_t regime_id = 1) {
+    std::uint64_t regime_id = 1,
+    std::uint32_t accumulated_frames = 1) {
     Controller::FrameContext value{};
     value.source_present_steady_ns = timestamp_ns;
     value.source_present_steady_available = timestamp_ns != 0;
+    value.accumulated_frames = accumulated_frames;
     value.active = active;
     value.context_id = context_id;
     value.context_id_available = true;
@@ -55,7 +57,7 @@ Controller::CompletedObservation observation(
     bool active = true,
     std::uint64_t context_id = 1,
     std::uint64_t regime_id = 1,
-    std::uint32_t accumulated_frames = 0) {
+    std::uint32_t accumulated_frames = 1) {
     Controller::CompletedObservation value{};
     value.source_present_steady_ns = timestamp_ns;
     value.source_present_steady_available = true;
@@ -78,9 +80,11 @@ Controller::CompletedObservation observation(
 void warm_cadence(
     Controller& controller,
     std::uint64_t* timestamp_ns,
-    std::uint64_t period_ns = 5'000'000) {
+    std::uint64_t period_ns = 5'000'000,
+    std::uint32_t accumulated_frames = 1) {
     for (int i = 0; i < 5; ++i) {
-        (void)controller.recommend(frame(*timestamp_ns));
+        (void)controller.recommend(
+            frame(*timestamp_ns, true, 1, 1, accumulated_frames));
         *timestamp_ns += period_ns;
     }
 }
@@ -97,10 +101,15 @@ void complete_candidate_block(
     std::uint64_t context_id = 1,
     std::uint64_t regime_id = 1,
     std::uint64_t period_ns = 5'000'000,
-    std::uint32_t accumulated_frames = 0) {
+    std::uint32_t accumulated_frames = 1) {
     for (int i = 0; i < 3; ++i) {
         const auto decision = controller.recommend(
-            frame(*timestamp_ns, active, context_id, regime_id));
+            frame(
+                *timestamp_ns,
+                active,
+                context_id,
+                regime_id,
+                accumulated_frames));
         if (decision.phase_us != expected_phase_us) {
             std::fprintf(
                 stderr,
@@ -179,6 +188,51 @@ void test_nonzero_optimum_is_learned_and_held() {
     }
 }
 
+void test_accumulated_frames_normalize_underlying_cadence() {
+    Controller controller(test_config());
+    std::uint64_t timestamp = 3'500'000'000;
+    (void)controller.recommend(frame(timestamp));
+    constexpr std::uint32_t kAccumulatedPattern[] = {2, 1, 3, 2, 1, 3};
+    bool saw_stable = false;
+    for (const std::uint32_t accumulated : kAccumulatedPattern) {
+        timestamp += static_cast<std::uint64_t>(accumulated) * 5'000'000ull;
+        const auto decision = controller.recommend(
+            frame(timestamp, true, 1, 1, accumulated));
+        if (decision.cadence_stable) {
+            saw_stable = true;
+            REQUIRE(decision.estimated_period_us == 5000);
+            REQUIRE(decision.mode == Controller::Mode::Exploring);
+        }
+    }
+    REQUIRE(saw_stable);
+    REQUIRE(controller.snapshot().cadence_stable);
+    REQUIRE(controller.snapshot().estimated_period_us == 5000);
+}
+
+void test_accumulated_frames_can_complete_exploration_and_hold() {
+    Controller controller(test_config());
+    std::uint64_t timestamp = 3'750'000'000;
+    constexpr std::uint64_t kCapturePeriodNs = 10'000'000;
+    constexpr std::uint32_t kAccumulatedFrames = 2;
+    warm_cadence(
+        controller, &timestamp, kCapturePeriodNs, kAccumulatedFrames);
+    complete_candidate_block(
+        controller, &timestamp, 0, 0.0f, 2.0f, 0.0f, 0.0f,
+        true, 1, 1, kCapturePeriodNs, kAccumulatedFrames);
+    complete_candidate_block(
+        controller, &timestamp, 1000, 0.0f, 1.0f, 0.0f, 0.0f,
+        true, 1, 1, kCapturePeriodNs, kAccumulatedFrames);
+    complete_candidate_block(
+        controller, &timestamp, 2000, 0.0f, 0.40f, 0.0f, 0.0f,
+        true, 1, 1, kCapturePeriodNs, kAccumulatedFrames);
+
+    const auto held = controller.recommend(
+        frame(timestamp, true, 1, 1, kAccumulatedFrames));
+    REQUIRE(held.mode == Controller::Mode::Held);
+    REQUIRE(held.phase_us == 2000);
+    REQUIRE(held.estimated_period_us == 5000);
+}
+
 void test_explicit_wait_outweighs_reduced_residual_and_keeps_zero() {
     Controller controller(test_config());
     std::uint64_t timestamp = 4'000'000'000;
@@ -231,6 +285,35 @@ void test_short_idle_freezes_without_reset() {
     const auto resumed = controller.recommend(frame(timestamp, true));
     REQUIRE(resumed.mode == Controller::Mode::Held);
     REQUIRE(resumed.phase_us == 2000);
+    REQUIRE(controller.snapshot().adaptation_epoch == epoch_before);
+}
+
+void test_slow_idle_keepwarm_rebases_without_erasing_held_phase() {
+    Controller controller(test_config());
+    std::uint64_t timestamp = 6'250'000'000;
+    warm_cadence(controller, &timestamp);
+    complete_candidate_block(controller, &timestamp, 0, 0.0f, 2.0f);
+    complete_candidate_block(controller, &timestamp, 1000, 0.0f, 1.0f);
+    complete_candidate_block(controller, &timestamp, 2000, 0.0f, 0.40f);
+    REQUIRE(controller.snapshot().mode == Controller::Mode::Held);
+    const auto epoch_before = controller.snapshot().adaptation_epoch;
+
+    for (int i = 0; i < 4; ++i) {
+        const auto idle = controller.recommend(
+            frame(timestamp, false, 1, 1, 10));
+        REQUIRE(idle.phase_us == 0);
+        REQUIRE(idle.reason == Controller::DecisionReason::IdleFrozen);
+        REQUIRE(controller.snapshot().adaptation_epoch == epoch_before);
+        timestamp += 50'000'000;
+    }
+
+    // The next active acquire follows one 5 ms source period, not the full
+    // 155 ms since the last active workload sample.
+    timestamp -= 45'000'000;
+    const auto resumed = controller.recommend(frame(timestamp, true, 1, 1, 1));
+    REQUIRE(resumed.mode == Controller::Mode::Held);
+    REQUIRE(resumed.phase_us == 2000);
+    REQUIRE(resumed.estimated_period_us == 5000);
     REQUIRE(controller.snapshot().adaptation_epoch == epoch_before);
 }
 
@@ -425,9 +508,12 @@ int main() {
     test_invalid_and_unstable_cadence_fall_back();
     test_stable_200_hz_phase_is_bounded_by_next_frame_guard();
     test_nonzero_optimum_is_learned_and_held();
+    test_accumulated_frames_normalize_underlying_cadence();
+    test_accumulated_frames_can_complete_exploration_and_hold();
     test_explicit_wait_outweighs_reduced_residual_and_keeps_zero();
     test_cadence_change_resets_and_reenters_exploration();
     test_short_idle_freezes_without_reset();
+    test_slow_idle_keepwarm_rebases_without_erasing_held_phase();
     test_long_idle_resets_and_reenters_exploration();
     test_ties_prefer_natural_and_low_confidence_resets();
     test_dynamic_period_guard_clips_candidate_grid();

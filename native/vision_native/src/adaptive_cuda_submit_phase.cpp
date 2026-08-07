@@ -270,6 +270,7 @@ bool AdaptiveCudaSubmitPhaseController::update_observation_identity(
 
 bool AdaptiveCudaSubmitPhaseController::update_cadence(
     std::uint64_t source_present_ns,
+    std::uint32_t accumulated_frames,
     DecisionReason* failure_reason) noexcept {
     if (source_present_ns == 0) {
         if (failure_reason != nullptr) *failure_reason = DecisionReason::InvalidSourceTimestamp;
@@ -286,7 +287,14 @@ bool AdaptiveCudaSubmitPhaseController::update_cadence(
             return false;
         }
         const std::uint64_t delta_ns = source_present_ns - cadence_.last_source_present_ns;
-        const std::uint64_t delta_us = delta_ns / 1000ull;
+        const std::uint64_t source_frames = std::max<std::uint64_t>(
+            1, static_cast<std::uint64_t>(accumulated_frames));
+        const std::uint64_t divisor = source_frames * 1000ull;
+        // LastPresentTime advances to the newest source present while DXGI's
+        // AccumulatedFrames reports how many presents contributed to that
+        // delta.  Measure the underlying game cadence, not the slower cadence
+        // at which this consumer happened to acquire frames.
+        const std::uint64_t delta_us = (delta_ns + divisor / 2ull) / divisor;
         if (delta_us < config_.min_source_period_us ||
             delta_us > config_.max_source_period_us) {
             if (failure_reason != nullptr) *failure_reason = DecisionReason::UnstableCadence;
@@ -446,34 +454,46 @@ void AdaptiveCudaSubmitPhaseController::finish_exploration() noexcept {
 
 AdaptiveCudaSubmitPhaseController::Decision
 AdaptiveCudaSubmitPhaseController::recommend(const FrameContext& frame) noexcept {
+    (void)update_identity(frame);
+    // Inactive keep-warm capture is intentionally not a workload sample.  It
+    // may run much slower than the game, so feeding those intervals into the
+    // cadence window would erase a partially learned phase.  Rebase the last
+    // source timestamp so the first active interval is still local.
+    if (!frame.active) {
+        if (frame.source_present_steady_available &&
+            frame.source_present_steady_ns != 0) {
+            cadence_.last_source_present_ns = frame.source_present_steady_ns;
+            if (idle_since_source_present_ns_ == 0 ||
+                frame.source_present_steady_ns < idle_since_source_present_ns_) {
+                idle_since_source_present_ns_ = frame.source_present_steady_ns;
+            }
+            const std::uint64_t idle_elapsed_ns =
+                frame.source_present_steady_ns - idle_since_source_present_ns_;
+            const std::uint64_t idle_limit_ns =
+                static_cast<std::uint64_t>(config_.idle_reset_after_us) * 1000ull;
+            if (!idle_reset_applied_ && idle_elapsed_ns >= idle_limit_ns) {
+                clear_adaptation(ResetReason::RegimeChanged);
+                idle_reset_applied_ = true;
+                return fallback(DecisionReason::IdleTimeout);
+            }
+        }
+        return fallback(DecisionReason::IdleFrozen);
+    }
+    idle_since_source_present_ns_ = 0;
+    idle_reset_applied_ = false;
     if (!frame.source_present_steady_available ||
         frame.source_present_steady_ns == 0) {
         cadence_.clear();
         clear_adaptation(ResetReason::InvalidObservation);
         return fallback(DecisionReason::MissingSourceTimestamp);
     }
-    (void)update_identity(frame);
     DecisionReason failure_reason = DecisionReason::NaturalFallback;
-    if (!update_cadence(frame.source_present_steady_ns, &failure_reason)) {
+    if (!update_cadence(
+            frame.source_present_steady_ns,
+            frame.accumulated_frames,
+            &failure_reason)) {
         return fallback(failure_reason);
     }
-    if (!frame.active) {
-        if (idle_since_source_present_ns_ == 0) {
-            idle_since_source_present_ns_ = frame.source_present_steady_ns;
-        }
-        const std::uint64_t idle_elapsed_ns =
-            frame.source_present_steady_ns - idle_since_source_present_ns_;
-        const std::uint64_t idle_limit_ns =
-            static_cast<std::uint64_t>(config_.idle_reset_after_us) * 1000ull;
-        if (!idle_reset_applied_ && idle_elapsed_ns >= idle_limit_ns) {
-            clear_adaptation(ResetReason::RegimeChanged);
-            idle_reset_applied_ = true;
-            return fallback(DecisionReason::IdleTimeout);
-        }
-        return fallback(DecisionReason::IdleFrozen);
-    }
-    idle_since_source_present_ns_ = 0;
-    idle_reset_applied_ = false;
     if (maximum_safe_phase_us() == 0) return fallback(DecisionReason::NoPhaseRoom);
     start_exploration_if_ready();
     Decision decision{};

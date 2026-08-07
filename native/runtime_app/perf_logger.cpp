@@ -23,6 +23,21 @@ constexpr double kHistogramBucketWidthMs = 0.25;
 constexpr std::size_t kHistogramRegularBuckets = 512;
 constexpr std::size_t kHistogramBucketCount = kHistogramRegularBuckets + 1;
 constexpr std::size_t kSummaryQueueCapacity = 8;
+constexpr std::size_t kCudaSubmitAdaptiveReasonCount = 11;
+constexpr std::array<const char*, kCudaSubmitAdaptiveReasonCount>
+    kCudaSubmitAdaptiveReasonNames{
+        "natural_fallback",
+        "missing_source_timestamp",
+        "invalid_source_timestamp",
+        "insufficient_cadence",
+        "unstable_cadence",
+        "cadence_changed",
+        "idle_frozen",
+        "idle_timeout",
+        "no_phase_room",
+        "exploring",
+        "held_candidate",
+    };
 
 struct LatencySummary {
     std::uint64_t count = 0;
@@ -119,6 +134,9 @@ struct PerfSummaryRecord {
     std::uint64_t active_cuda_submit_exploring = 0;
     std::uint64_t active_cuda_submit_held = 0;
     std::uint64_t active_cuda_submit_cadence_stable = 0;
+    std::array<std::uint64_t, kCudaSubmitAdaptiveReasonCount>
+        active_cuda_submit_reason_counts{};
+    std::uint64_t cuda_submit_adaptation_resets_window = 0;
     std::uint32_t latest_cuda_submit_estimated_period_us = 0;
     std::uint32_t latest_cuda_submit_held_phase_us = 0;
     std::uint64_t latest_cuda_submit_adaptation_epoch = 0;
@@ -177,6 +195,11 @@ struct PerfSummaryWindow {
     std::uint64_t active_cuda_submit_exploring = 0;
     std::uint64_t active_cuda_submit_held = 0;
     std::uint64_t active_cuda_submit_cadence_stable = 0;
+    std::array<std::uint64_t, kCudaSubmitAdaptiveReasonCount>
+        active_cuda_submit_reason_counts{};
+    bool cuda_submit_adaptation_epoch_seen = false;
+    std::uint64_t last_cuda_submit_adaptation_epoch = 0;
+    std::uint64_t cuda_submit_adaptation_resets_window = 0;
     std::uint32_t latest_cuda_submit_estimated_period_us = 0;
     std::uint32_t latest_cuda_submit_held_phase_us = 0;
     std::uint64_t latest_cuda_submit_adaptation_epoch = 0;
@@ -233,6 +256,10 @@ struct PerfSummaryWindow {
         active_cuda_submit_exploring = 0;
         active_cuda_submit_held = 0;
         active_cuda_submit_cadence_stable = 0;
+        active_cuda_submit_reason_counts.fill(0);
+        cuda_submit_adaptation_epoch_seen = false;
+        last_cuda_submit_adaptation_epoch = 0;
+        cuda_submit_adaptation_resets_window = 0;
         latest_cuda_submit_estimated_period_us = 0;
         latest_cuda_submit_held_phase_us = 0;
         latest_cuda_submit_adaptation_epoch = 0;
@@ -304,6 +331,10 @@ struct PerfSummaryWindow {
         record.active_cuda_submit_held = active_cuda_submit_held;
         record.active_cuda_submit_cadence_stable =
             active_cuda_submit_cadence_stable;
+        record.active_cuda_submit_reason_counts =
+            active_cuda_submit_reason_counts;
+        record.cuda_submit_adaptation_resets_window =
+            cuda_submit_adaptation_resets_window;
         record.latest_cuda_submit_estimated_period_us =
             latest_cuda_submit_estimated_period_us;
         record.latest_cuda_submit_held_phase_us =
@@ -428,6 +459,17 @@ std::string summary_json(
            << record.latest_cuda_submit_held_phase_us
            << ",\"cuda_submit_adaptation_epoch\":"
            << record.latest_cuda_submit_adaptation_epoch
+           << ",\"cuda_submit_adaptation_resets_window\":"
+           << record.cuda_submit_adaptation_resets_window
+           << ",\"cuda_submit_adaptive_reason_active\":{";
+    for (std::size_t index = 0;
+         index < kCudaSubmitAdaptiveReasonCount;
+         ++index) {
+        if (index != 0) output << ',';
+        output << '"' << kCudaSubmitAdaptiveReasonNames[index] << "\":"
+               << record.active_cuda_submit_reason_counts[index];
+    }
+    output << '}'
            << ",\"cuda_submit_wait_applied_pct\":"
            << safe_percent(
                   record.cuda_submit_wait_applied, record.vision_frames)
@@ -530,7 +572,8 @@ std::string summary_console(
                        ? "exploring" : "fallback"))
            << " held=" << record.latest_cuda_submit_held_phase_us
            << "us period=" << record.latest_cuda_submit_estimated_period_us
-           << "us submit "
+           << "us resets=" << record.cuda_submit_adaptation_resets_window
+           << " submit "
            << record.source_present_to_cuda_submit.p50 << '/'
            << record.source_present_to_cuda_submit.p95
            << "ms present->vigem " << record.source_present_to_vigem.p50 << '/'
@@ -650,6 +693,18 @@ struct PerfSummaryLogger::Impl {
         if (sample.cuda_submit_wait_applied) {
             ++window.cuda_submit_wait_applied;
         }
+        if (window.cuda_submit_adaptation_epoch_seen) {
+            if (sample.cuda_submit_adaptation_epoch >
+                window.last_cuda_submit_adaptation_epoch) {
+                window.cuda_submit_adaptation_resets_window +=
+                    sample.cuda_submit_adaptation_epoch -
+                    window.last_cuda_submit_adaptation_epoch;
+            }
+        } else {
+            window.cuda_submit_adaptation_epoch_seen = true;
+        }
+        window.last_cuda_submit_adaptation_epoch =
+            sample.cuda_submit_adaptation_epoch;
         const std::uint64_t accumulated = std::max<std::uint64_t>(
             1, static_cast<std::uint64_t>(sample.accumulated_frames));
         window.accumulated_frames += accumulated;
@@ -678,6 +733,11 @@ struct PerfSummaryLogger::Impl {
             }
             if (sample.cuda_submit_cadence_stable) {
                 ++window.active_cuda_submit_cadence_stable;
+            }
+            if (sample.cuda_submit_adaptive_reason <
+                kCudaSubmitAdaptiveReasonCount) {
+                ++window.active_cuda_submit_reason_counts[
+                    sample.cuda_submit_adaptive_reason];
             }
             window.latest_cuda_submit_estimated_period_us =
                 sample.cuda_submit_estimated_period_us;

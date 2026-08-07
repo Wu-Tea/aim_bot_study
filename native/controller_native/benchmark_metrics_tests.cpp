@@ -397,6 +397,7 @@ void test_lightweight_perf_summary_writes_one_compact_window() {
         vision.cuda_submit_held_phase_us = 0;
         vision.cuda_submit_adaptation_epoch = 7;
         vision.cuda_submit_adaptive_state = 1;
+        vision.cuda_submit_adaptive_reason = 3;
         vision.cuda_submit_cadence_stable = true;
         vision.accumulated_frames = 2;
         vision.capture_to_result_ms = 5.4;
@@ -457,6 +458,13 @@ void test_lightweight_perf_summary_writes_one_compact_window() {
         log.find("\"cuda_submit_estimated_period_us\":5000") !=
             std::string::npos,
         "perf summary should expose the learned source cadence");
+    require_true(
+        log.find("\"cuda_submit_adaptation_resets_window\":0") !=
+            std::string::npos,
+        "perf summary should expose adaptation resets per window");
+    require_true(
+        log.find("\"insufficient_cadence\":1") != std::string::npos,
+        "perf summary should count active adaptive fallback reasons");
     require_true(
         log.find("\"cuda_submit_wait_applied_pct\":100.000") !=
             std::string::npos,

@@ -66,6 +66,7 @@ struct PerfVisionWindowSample {
     std::uint32_t cuda_submit_held_phase_us = 0;
     std::uint64_t cuda_submit_adaptation_epoch = 0;
     std::uint8_t cuda_submit_adaptive_state = 0;
+    std::uint8_t cuda_submit_adaptive_reason = 0;
     bool cuda_submit_cadence_stable = false;
     std::uint32_t accumulated_frames = 1;
     double capture_to_result_ms = -1.0;
