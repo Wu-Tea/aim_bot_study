@@ -44,6 +44,9 @@ struct VisionRuntimeConfig {
     bool gpu_service_repeat_last_on_no_update = true;
     // Experimental preprocess/TensorRT submit phase measured from the
     // calibrated source-present timestamp. Zero preserves the natural path.
+    // `fixed` uses cuda_submit_phase_us verbatim; `adaptive` learns a bounded
+    // phase online and requires the fixed value to remain zero.
+    std::string cuda_submit_phase_mode = "fixed";
     unsigned int cuda_submit_phase_us = 0;
     // Research-only background camera-motion observer. Normal runtime keeps
     // this off so no grayscale readback, CUDA synchronization, or CPU worker

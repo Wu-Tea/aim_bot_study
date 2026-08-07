@@ -170,6 +170,10 @@ public:
     explicit VisionEngineServicePoller(std::unique_ptr<vision_native::VisionEngine> engine)
         : engine_(std::move(engine)) {}
 
+    void set_controller_aiming(bool aiming) override {
+        engine_->set_controller_aiming(aiming);
+    }
+
     void set_aiming(bool aiming) override {
         engine_->set_aiming(aiming);
     }
@@ -450,7 +454,8 @@ RuntimeLoop::RuntimeLoop(
           config_.performance.interval_ms,
           std::filesystem::path(config_.performance.directory),
           config_.performance.stdout_enabled,
-          config_.vision.cuda_submit_phase_us}),
+          config_.vision.cuda_submit_phase_us,
+          config_.vision.cuda_submit_phase_mode}),
       log_session_manager_(log_session_options_from(config_)),
       telemetry_(telemetry_options_from(config_, log_session_manager_.session_directory())),
       telemetry_collectors_(
@@ -512,7 +517,8 @@ RuntimeLoop::RuntimeLoop(
         config_.vision.tensor_height,
         config_.vision.require_isotropic_resize,
         config_.vision.ego_motion_enabled,
-        config_.vision.cuda_submit_phase_us);
+        config_.vision.cuda_submit_phase_us,
+        config_.vision.cuda_submit_phase_mode == "adaptive");
     std::cout << "[VisionGeometry][CPP]"
               << " capture=" << vision_engine->width() << 'x' << vision_engine->height()
               << " tensor=" << vision_engine->tensor_width() << 'x'
@@ -521,6 +527,7 @@ RuntimeLoop::RuntimeLoop(
               << vision_engine->resize_scale_y()
               << " isotropic=" << (vision_engine->resize_isotropic() ? 1 : 0)
               << " ego_motion=" << (vision_engine->ego_motion_enabled() ? "shadow" : "off")
+              << " cuda_submit_phase_mode=" << vision_engine->cuda_submit_phase_mode()
               << " cuda_submit_phase_us=" << vision_engine->cuda_submit_phase_us()
               << '\n';
     const ViewportRequest initial_viewport = viewport_controller_.current();
@@ -685,6 +692,7 @@ void RuntimeLoop::run_once() {
             }
         }
     } else {
+        vision_engine_->set_controller_aiming(aiming);
         vision_engine_->set_aiming(aiming);
         vision_engine_->set_user_aim_intent(user_aim_intent);
         if (should_poll_vision(tick_started)) {
@@ -826,6 +834,18 @@ void RuntimeLoop::run_once() {
             vision_sample.aiming = aiming;
             vision_sample.cuda_submit_wait_applied =
                 result.cuda_submit_wait_applied;
+            vision_sample.cuda_submit_target_phase_us =
+                result.cuda_submit_phase_us;
+            vision_sample.cuda_submit_estimated_period_us =
+                result.cuda_submit_estimated_period_us;
+            vision_sample.cuda_submit_held_phase_us =
+                result.cuda_submit_held_phase_us;
+            vision_sample.cuda_submit_adaptation_epoch =
+                result.cuda_submit_adaptation_epoch;
+            vision_sample.cuda_submit_adaptive_state =
+                result.cuda_submit_adaptive_state_code;
+            vision_sample.cuda_submit_cadence_stable =
+                result.cuda_submit_cadence_stable;
             vision_sample.accumulated_frames = result.accumulated_frames;
             vision_sample.capture_to_result_ms = elapsed_ms_or_invalid(
                 result.capture_acquire_begin_ns, result.result_at_ns);

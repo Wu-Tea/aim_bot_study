@@ -143,6 +143,16 @@ struct VisionResult {
     uint64_t cuda_submit_begin_ns = 0;
     std::uint32_t cuda_submit_phase_us = 0;
     bool cuda_submit_wait_applied = false;
+    const char* cuda_submit_phase_mode = "fixed";
+    const char* cuda_submit_adaptive_state = "fallback";
+    const char* cuda_submit_adaptive_reason = "natural_fallback";
+    std::uint32_t cuda_submit_estimated_period_us = 0;
+    std::uint32_t cuda_submit_held_phase_us = 0;
+    std::uint64_t cuda_submit_adaptation_epoch = 0;
+    std::uint8_t cuda_submit_candidate_index = 0;
+    std::uint8_t cuda_submit_candidate_samples = 0;
+    std::uint8_t cuda_submit_adaptive_state_code = 0;
+    bool cuda_submit_cadence_stable = false;
     bool frame_updated = false;
     const char* service_freshness = "none";
     const char* service_source_state = "unknown";

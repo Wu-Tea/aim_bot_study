@@ -46,6 +46,7 @@ struct PerfSummaryOptions {
     std::filesystem::path directory = "runs/perf_summary";
     bool stdout_enabled = true;
     unsigned int cuda_submit_phase_us = 0;
+    std::string cuda_submit_phase_mode = "fixed";
 };
 
 struct PerfControllerWindowSample {
@@ -60,6 +61,12 @@ struct PerfControllerWindowSample {
 struct PerfVisionWindowSample {
     bool aiming = false;
     bool cuda_submit_wait_applied = false;
+    std::uint32_t cuda_submit_target_phase_us = 0;
+    std::uint32_t cuda_submit_estimated_period_us = 0;
+    std::uint32_t cuda_submit_held_phase_us = 0;
+    std::uint64_t cuda_submit_adaptation_epoch = 0;
+    std::uint8_t cuda_submit_adaptive_state = 0;
+    bool cuda_submit_cadence_stable = false;
     std::uint32_t accumulated_frames = 1;
     double capture_to_result_ms = -1.0;
     double copy_to_result_ms = -1.0;

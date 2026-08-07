@@ -376,7 +376,8 @@ void test_lightweight_perf_summary_writes_one_compact_window() {
         options.interval_ms = 1000;
         options.directory = root;
         options.stdout_enabled = false;
-        options.cuda_submit_phase_us = 750;
+        options.cuda_submit_phase_us = 0;
+        options.cuda_submit_phase_mode = "adaptive";
         runtime_app::PerfSummaryLogger logger(options);
 
         runtime_app::PerfControllerWindowSample controller;
@@ -391,6 +392,12 @@ void test_lightweight_perf_summary_writes_one_compact_window() {
         runtime_app::PerfVisionWindowSample vision;
         vision.aiming = true;
         vision.cuda_submit_wait_applied = true;
+        vision.cuda_submit_target_phase_us = 1000;
+        vision.cuda_submit_estimated_period_us = 5000;
+        vision.cuda_submit_held_phase_us = 0;
+        vision.cuda_submit_adaptation_epoch = 7;
+        vision.cuda_submit_adaptive_state = 1;
+        vision.cuda_submit_cadence_stable = true;
         vision.accumulated_frames = 2;
         vision.capture_to_result_ms = 5.4;
         vision.copy_to_result_ms = 4.8;
@@ -432,8 +439,24 @@ void test_lightweight_perf_summary_writes_one_compact_window() {
         log.find("\"histogram_bucket_ms\":0.250") != std::string::npos,
         "perf summary should publish its quantile resolution");
     require_true(
-        log.find("\"cuda_submit_phase_us\":750") != std::string::npos,
-        "perf summary should identify the requested CUDA submit phase");
+        log.find("\"cuda_submit_phase_mode\":\"adaptive\"") !=
+            std::string::npos,
+        "perf summary should identify adaptive CUDA submit mode");
+    require_true(
+        log.find("\"cuda_submit_phase_us\":0") != std::string::npos,
+        "adaptive perf summary should preserve the configured fixed phase");
+    require_true(
+        log.find("\"cuda_submit_target_phase_active_mean_us\":1000.000") !=
+            std::string::npos,
+        "perf summary should report the phase actually selected per frame");
+    require_true(
+        log.find("\"cuda_submit_adaptive_state\":\"exploring\"") !=
+            std::string::npos,
+        "perf summary should expose adaptive controller state");
+    require_true(
+        log.find("\"cuda_submit_estimated_period_us\":5000") !=
+            std::string::npos,
+        "perf summary should expose the learned source cadence");
     require_true(
         log.find("\"cuda_submit_wait_applied_pct\":100.000") !=
             std::string::npos,

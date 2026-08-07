@@ -180,7 +180,8 @@ VisionEngine::VisionEngine(
     int expected_tensor_height,
     bool require_isotropic_resize,
     bool ego_motion_enabled,
-    unsigned int cuda_submit_phase_us)
+    unsigned int cuda_submit_phase_us,
+    bool cuda_submit_phase_adaptive)
     : capture_(width, height, adapter_index, output_index, timeout_ms),
       selector_(width, height),
       host_color_frame_(std::make_unique<ColorReadbackBuffer>(color_readback_mode == "pinned")),
@@ -188,7 +189,8 @@ VisionEngine::VisionEngine(
       height_(height),
       active_viewport_width_(width),
       active_viewport_height_(height),
-      cuda_submit_phase_us_(cuda_submit_phase_us) {
+      cuda_submit_phase_us_(cuda_submit_phase_us),
+      cuda_submit_phase_adaptive_(cuda_submit_phase_adaptive) {
     requested_viewport_width_.store(width, std::memory_order_relaxed);
     requested_viewport_height_.store(height, std::memory_order_relaxed);
     auto* d3d_device = static_cast<ID3D11Device*>(capture_.d3d11_device());
@@ -275,6 +277,10 @@ VisionEngine::~VisionEngine() {
     }
 }
 
+void VisionEngine::set_controller_aiming(bool aiming) {
+    controller_aiming_.store(aiming, std::memory_order_relaxed);
+}
+
 void VisionEngine::set_aiming(bool aiming) {
     aiming_.store(aiming, std::memory_order_relaxed);
     if (!aiming) {
@@ -330,7 +336,9 @@ void VisionEngine::set_external_cue(bool found, float cue_x, float cue_y, float 
 }
 
 void VisionEngine::reset() {
+    controller_aiming_.store(false, std::memory_order_relaxed);
     aiming_.store(false, std::memory_order_relaxed);
+    adaptive_cuda_submit_phase_.reset();
     selector_.reset();
     enhancer_.reset();
     if (ego_motion_observer_ != nullptr) ego_motion_observer_->reset();
@@ -446,16 +454,40 @@ VisionResult VisionEngine::poll_once() {
         const std::uint64_t map_complete_ns = now_ns();
         result.cuda_map_ms = ns_to_ms(map_complete_ns - map_start);
 
+        AdaptiveCudaSubmitPhaseController::Decision adaptive_decision{};
+        unsigned int submit_phase_us = cuda_submit_phase_us_;
+        const bool controller_aiming =
+            controller_aiming_.load(std::memory_order_relaxed);
+        if (cuda_submit_phase_adaptive_) {
+            AdaptiveCudaSubmitPhaseController::FrameContext phase_context{};
+            phase_context.source_present_steady_ns =
+                metadata.source_present_steady_ns;
+            phase_context.source_present_steady_available =
+                metadata.source_present_steady_available;
+            phase_context.active = controller_aiming;
+            phase_context.context_id = metadata.source_present_calibration_id;
+            phase_context.context_id_available =
+                metadata.source_present_steady_available &&
+                metadata.source_present_calibration_id != 0;
+            phase_context.regime_id =
+                (static_cast<std::uint64_t>(
+                     static_cast<std::uint32_t>(viewport_width)) << 32u) |
+                static_cast<std::uint32_t>(viewport_height);
+            phase_context.regime_id_available = true;
+            adaptive_decision = adaptive_cuda_submit_phase_.recommend(phase_context);
+            submit_phase_us = adaptive_decision.phase_us;
+        }
+
         bool submit_wait_applied = false;
-        if (cuda_submit_phase_us_ > 0) {
+        if (submit_phase_us > 0) {
             submit_wait_applied = wait_for_cuda_submit_phase(
                 metadata.source_present_steady_ns,
                 metadata.source_present_steady_available,
-                cuda_submit_phase_us_);
+                submit_phase_us);
         }
         result.cuda_submit_begin_ns = submit_wait_applied
             ? now_ns() : map_complete_ns;
-        result.cuda_submit_phase_us = cuda_submit_phase_us_;
+        result.cuda_submit_phase_us = submit_phase_us;
         result.cuda_submit_wait_applied = submit_wait_applied;
         result.cuda_submit_wait_ms = submit_wait_applied
             ? ns_to_ms(result.cuda_submit_begin_ns - map_complete_ns) : 0.0f;
@@ -733,6 +765,60 @@ VisionResult VisionEngine::poll_once() {
         }
 
         result.result_at_ns = now_ns();
+        if (cuda_submit_phase_adaptive_) {
+            AdaptiveCudaSubmitPhaseController::CompletedObservation observation{};
+            observation.frame_id = result.frame_id;
+            observation.source_present_steady_ns = result.source_present_steady_ns;
+            observation.source_present_steady_available =
+                result.source_present_steady_available;
+            observation.applied_phase_us = result.cuda_submit_phase_us;
+            observation.cuda_submit_wait_ms = result.cuda_submit_wait_ms;
+            observation.output_wait_ms = result.output_wait_ms;
+            observation.sync_queue_residual_ms = std::max(
+                0.0f, result.output_wait_ms - result.gpu_total_ms);
+            observation.tail_latency_ms =
+                result.source_present_steady_available &&
+                    result.result_at_ns >= result.source_present_steady_ns
+                ? ns_to_ms(result.result_at_ns - result.source_present_steady_ns)
+                : 0.0f;
+            observation.accumulated_frames = result.accumulated_frames;
+            observation.completed = true;
+            observation.timing_confident =
+                result.source_present_steady_available &&
+                result.source_present_steady_ns != 0 &&
+                result.result_at_ns >= result.source_present_steady_ns;
+            observation.active = controller_aiming;
+            observation.context_id = result.source_present_calibration_id;
+            observation.context_id_available =
+                result.source_present_steady_available &&
+                result.source_present_calibration_id != 0;
+            observation.regime_id =
+                (static_cast<std::uint64_t>(
+                     static_cast<std::uint32_t>(viewport_width)) << 32u) |
+                static_cast<std::uint32_t>(viewport_height);
+            observation.regime_id_available = true;
+            adaptive_cuda_submit_phase_.observe(observation);
+
+            const auto phase_snapshot = adaptive_cuda_submit_phase_.snapshot();
+            result.cuda_submit_phase_mode = "adaptive";
+            result.cuda_submit_adaptive_state =
+                adaptive_phase_mode_name(adaptive_decision.mode);
+            result.cuda_submit_adaptive_reason =
+                adaptive_phase_reason_name(adaptive_decision.reason);
+            result.cuda_submit_estimated_period_us =
+                adaptive_decision.estimated_period_us;
+            result.cuda_submit_held_phase_us = phase_snapshot.held_phase_us;
+            result.cuda_submit_adaptation_epoch =
+                adaptive_decision.adaptation_epoch;
+            result.cuda_submit_candidate_index =
+                adaptive_decision.candidate_index;
+            result.cuda_submit_candidate_samples =
+                adaptive_decision.block_sample_count;
+            result.cuda_submit_adaptive_state_code =
+                static_cast<std::uint8_t>(adaptive_decision.mode);
+            result.cuda_submit_cadence_stable =
+                adaptive_decision.cadence_stable;
+        }
         if (ego_motion_observer_ != nullptr &&
             ego_motion_observer_->take_latest_result(&completed_shadow)) {
             result.ego_motion_shadow = completed_shadow;
@@ -781,6 +867,10 @@ bool VisionEngine::resize_isotropic() const {
 bool VisionEngine::ego_motion_enabled() const {
     return ego_motion_observer_ != nullptr && ego_motion_staging_available_ &&
         device_ego_gray_ != nullptr;
+}
+
+const char* VisionEngine::cuda_submit_phase_mode() const {
+    return cuda_submit_phase_adaptive_ ? "adaptive" : "fixed";
 }
 
 unsigned int VisionEngine::cuda_submit_phase_us() const {

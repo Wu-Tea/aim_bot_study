@@ -117,6 +117,15 @@ def summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
     active_weighted: list[tuple[float, float]] = []
     accumulation_weighted: list[tuple[float, float]] = []
     submit_wait_applied_weighted: list[tuple[float, float]] = []
+    target_phase_weighted: list[tuple[float, float]] = []
+    adaptive_exploring_weighted: list[tuple[float, float]] = []
+    submit_modes = sorted(
+        {
+            str(mode)
+            for record in records
+            if (mode := record.get("cuda_submit_phase_mode")) is not None
+        }
+    )
     cuda_submit_phases = sorted(
         {
             int(phase)
@@ -144,6 +153,16 @@ def summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
                 )
             if wait_applied is not None:
                 submit_wait_applied_weighted.append((wait_applied, active_frames))
+            target_phase = finite_number(
+                record.get("cuda_submit_target_phase_active_mean_us")
+            )
+            if target_phase is not None:
+                target_phase_weighted.append((target_phase, active_frames))
+            exploring = finite_number(
+                record.get("cuda_submit_adaptive_exploring_active_pct")
+            )
+            if exploring is not None:
+                adaptive_exploring_weighted.append((exploring, active_frames))
 
     latency: dict[str, Any] = {}
     for name in DEFAULT_LATENCIES:
@@ -152,6 +171,11 @@ def summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
             latency[name] = value
     return {
         "windows": len(records),
+        "cuda_submit_phase_mode": (
+            submit_modes[0]
+            if len(submit_modes) == 1
+            else (submit_modes if submit_modes else None)
+        ),
         "cuda_submit_phase_us": (
             cuda_submit_phases[0]
             if len(cuda_submit_phases) == 1
@@ -159,6 +183,12 @@ def summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
         ),
         "cuda_submit_wait_applied_pct": weighted_mean(
             submit_wait_applied_weighted
+        ),
+        "cuda_submit_target_phase_active_mean_us": weighted_mean(
+            target_phase_weighted
+        ),
+        "cuda_submit_adaptive_exploring_active_pct": weighted_mean(
+            adaptive_exploring_weighted
         ),
         "vision_active_hz": weighted_mean(active_weighted),
         "accumulated_active_gt1_pct": weighted_mean(accumulation_weighted),
@@ -178,6 +208,10 @@ def percent_change(baseline: float | None, candidate: float | None) -> float | N
 
 def comparison(baseline: dict[str, Any], candidate: dict[str, Any]) -> dict[str, Any]:
     result: dict[str, Any] = {
+        "cuda_submit_phase_mode": {
+            "baseline": baseline.get("cuda_submit_phase_mode"),
+            "candidate": candidate.get("cuda_submit_phase_mode"),
+        },
         "cuda_submit_phase_us": {
             "baseline": baseline.get("cuda_submit_phase_us"),
             "candidate": candidate.get("cuda_submit_phase_us"),
@@ -185,6 +219,14 @@ def comparison(baseline: dict[str, Any], candidate: dict[str, Any]) -> dict[str,
         "cuda_submit_wait_applied_pct": {
             "baseline": baseline.get("cuda_submit_wait_applied_pct"),
             "candidate": candidate.get("cuda_submit_wait_applied_pct"),
+        },
+        "cuda_submit_target_phase_active_mean_us": {
+            "baseline": baseline.get("cuda_submit_target_phase_active_mean_us"),
+            "candidate": candidate.get("cuda_submit_target_phase_active_mean_us"),
+        },
+        "cuda_submit_adaptive_exploring_active_pct": {
+            "baseline": baseline.get("cuda_submit_adaptive_exploring_active_pct"),
+            "candidate": candidate.get("cuda_submit_adaptive_exploring_active_pct"),
         },
         "vision_active_hz": {
             "baseline": baseline.get("vision_active_hz"),
@@ -229,6 +271,11 @@ def format_value(value: float | None, suffix: str = "") -> str:
 
 
 def print_report(result: dict[str, Any]) -> None:
+    mode = result["cuda_submit_phase_mode"]
+    print(
+        "cuda_submit_phase_mode: "
+        f"{mode['baseline']} -> {mode['candidate']}"
+    )
     phase = result["cuda_submit_phase_us"]
     print(
         "cuda_submit_phase_us: "
@@ -239,6 +286,18 @@ def print_report(result: dict[str, Any]) -> None:
         "cuda_submit_wait_applied_pct: "
         f"{format_value(applied['baseline'], '%')} -> "
         f"{format_value(applied['candidate'], '%')}"
+    )
+    target = result["cuda_submit_target_phase_active_mean_us"]
+    print(
+        "cuda_submit_target_phase_active_mean_us: "
+        f"{format_value(target['baseline'])} -> "
+        f"{format_value(target['candidate'])}"
+    )
+    exploring = result["cuda_submit_adaptive_exploring_active_pct"]
+    print(
+        "cuda_submit_adaptive_exploring_active_pct: "
+        f"{format_value(exploring['baseline'], '%')} -> "
+        f"{format_value(exploring['candidate'], '%')}"
     )
     rate = result["vision_active_hz"]
     print(

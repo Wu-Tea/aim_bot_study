@@ -29,6 +29,7 @@ void test_vision_gpu_service_defaults_are_enabled() {
     require(config.vision.gpu_service_idle_fps == 20);
     require(config.vision.gpu_service_keepwarm_when_idle);
     require(config.vision.gpu_service_repeat_last_on_no_update);
+    require(config.vision.cuda_submit_phase_mode == "fixed");
     require(config.vision.cuda_submit_phase_us == 0);
     require(!config.vision.ego_motion_enabled);
     require(config.vision.capture_width == 480);
@@ -136,6 +137,73 @@ void test_cuda_submit_phase_environment_override_reports_source() {
     require(config.vision.cuda_submit_phase_us == 750);
     require(config.effective_source("runtime.vision.cuda_submit_phase_us") ==
         "environment");
+}
+
+void test_cuda_submit_phase_adaptive_mode_parses_and_reports_environment_source() {
+    const auto path = std::filesystem::temp_directory_path() /
+        "cod_native_cuda_submit_phase_adaptive.toml";
+    {
+        std::ofstream output(path);
+        output << "[runtime.vision]\n"
+               << "cuda_submit_phase_mode = \"fixed\"\n"
+               << "cuda_submit_phase_us = 0\n";
+    }
+#if defined(_WIN32)
+    _putenv_s("VISION_CUDA_SUBMIT_PHASE_MODE", "adaptive");
+#else
+    setenv("VISION_CUDA_SUBMIT_PHASE_MODE", "adaptive", 1);
+#endif
+    const auto config = controller_native::load_runtime_config(path);
+#if defined(_WIN32)
+    _putenv_s("VISION_CUDA_SUBMIT_PHASE_MODE", "");
+#else
+    unsetenv("VISION_CUDA_SUBMIT_PHASE_MODE");
+#endif
+    std::filesystem::remove(path);
+    require(config.vision.cuda_submit_phase_mode == "adaptive");
+    require(config.vision.cuda_submit_phase_us == 0);
+    require(config.effective_source("runtime.vision.cuda_submit_phase_mode") ==
+            "environment");
+}
+
+void test_cuda_submit_phase_rejects_invalid_mode_or_fixed_phase_in_adaptive_mode() {
+    const auto path = std::filesystem::temp_directory_path() /
+        "cod_native_cuda_submit_phase_invalid_mode.toml";
+    {
+        std::ofstream output(path);
+        output << "[runtime.vision]\n"
+               << "cuda_submit_phase_mode = \"automatic_magic\"\n";
+    }
+    bool invalid_mode_failed = false;
+    try {
+        (void)controller_native::load_runtime_config(path);
+    } catch (const std::runtime_error& error) {
+        const std::string message = error.what();
+        invalid_mode_failed =
+            message.find("runtime.vision.cuda_submit_phase_mode") !=
+                std::string::npos &&
+            message.find("fixed|adaptive") != std::string::npos;
+    }
+    require(invalid_mode_failed);
+
+    {
+        std::ofstream output(path);
+        output << "[runtime.vision]\n"
+               << "cuda_submit_phase_mode = \"adaptive\"\n"
+               << "cuda_submit_phase_us = 750\n";
+    }
+    bool conflicting_phase_failed = false;
+    try {
+        (void)controller_native::load_runtime_config(path);
+    } catch (const std::runtime_error& error) {
+        const std::string message = error.what();
+        conflicting_phase_failed =
+            message.find("runtime.vision.cuda_submit_phase_us") !=
+                std::string::npos &&
+            message.find("mode=adaptive") != std::string::npos;
+    }
+    std::filesystem::remove(path);
+    require(conflicting_phase_failed);
 }
 
 void test_cuda_submit_phase_rejects_out_of_range_value() {
@@ -826,6 +894,8 @@ int main() {
     test_lightweight_performance_summary_config_parses();
     test_vision_gpu_service_config_values_parse();
     test_cuda_submit_phase_environment_override_reports_source();
+    test_cuda_submit_phase_adaptive_mode_parses_and_reports_environment_source();
+    test_cuda_submit_phase_rejects_invalid_mode_or_fixed_phase_in_adaptive_mode();
     test_cuda_submit_phase_rejects_out_of_range_value();
     test_vision_gpu_service_can_be_disabled();
     test_realtime_tracker_and_fallback_recoil_flags_parse();

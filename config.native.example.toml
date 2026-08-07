@@ -18,7 +18,8 @@ color_readback_mode = "pageable" # pinned remains opt-in until the A/B gate pass
 model_path = "models/best_480x384.engine"
 gpu_service_enabled = true
 gpu_service_repeat_last_on_no_update = false # continuity belongs to Tracker, not replayed detections
-cuda_submit_phase_us = 0 # experimental: preprocess/TensorRT submit phase after source present; 0 preserves natural timing
+cuda_submit_phase_mode = "fixed" # fixed | adaptive; adaptive learns online and falls back to natural timing when uncertain
+cuda_submit_phase_us = 0 # fixed-mode diagnostic phase after source present; adaptive mode requires 0
 ego_motion_enabled = false # research-only optical-flow shadow; never required by normal control
 
 # Historical static alternatives (change all size/path lines together):

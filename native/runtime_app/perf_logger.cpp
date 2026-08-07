@@ -112,6 +112,17 @@ struct PerfSummaryRecord {
     std::uint64_t idle_accumulated_gt_one = 0;
     std::uint64_t cuda_submit_wait_applied = 0;
     std::uint64_t active_cuda_submit_wait_applied = 0;
+    std::uint64_t active_cuda_submit_target_phase_sum_us = 0;
+    std::uint32_t active_cuda_submit_target_phase_min_us = 0;
+    std::uint32_t active_cuda_submit_target_phase_max_us = 0;
+    std::uint64_t active_cuda_submit_fallback = 0;
+    std::uint64_t active_cuda_submit_exploring = 0;
+    std::uint64_t active_cuda_submit_held = 0;
+    std::uint64_t active_cuda_submit_cadence_stable = 0;
+    std::uint32_t latest_cuda_submit_estimated_period_us = 0;
+    std::uint32_t latest_cuda_submit_held_phase_us = 0;
+    std::uint64_t latest_cuda_submit_adaptation_epoch = 0;
+    std::uint8_t latest_cuda_submit_adaptive_state = 0;
     std::uint64_t writer_queue_dropped_total = 0;
     LatencySummary controller_tick;
     LatencySummary controller_pipeline;
@@ -158,6 +169,18 @@ struct PerfSummaryWindow {
     std::uint64_t idle_accumulated_gt_one = 0;
     std::uint64_t cuda_submit_wait_applied = 0;
     std::uint64_t active_cuda_submit_wait_applied = 0;
+    std::uint64_t active_cuda_submit_target_phase_sum_us = 0;
+    std::uint32_t active_cuda_submit_target_phase_min_us =
+        std::numeric_limits<std::uint32_t>::max();
+    std::uint32_t active_cuda_submit_target_phase_max_us = 0;
+    std::uint64_t active_cuda_submit_fallback = 0;
+    std::uint64_t active_cuda_submit_exploring = 0;
+    std::uint64_t active_cuda_submit_held = 0;
+    std::uint64_t active_cuda_submit_cadence_stable = 0;
+    std::uint32_t latest_cuda_submit_estimated_period_us = 0;
+    std::uint32_t latest_cuda_submit_held_phase_us = 0;
+    std::uint64_t latest_cuda_submit_adaptation_epoch = 0;
+    std::uint8_t latest_cuda_submit_adaptive_state = 0;
     FixedLatencyHistogram controller_tick;
     FixedLatencyHistogram controller_pipeline;
     FixedLatencyHistogram vigem_update;
@@ -202,6 +225,18 @@ struct PerfSummaryWindow {
         idle_accumulated_gt_one = 0;
         cuda_submit_wait_applied = 0;
         active_cuda_submit_wait_applied = 0;
+        active_cuda_submit_target_phase_sum_us = 0;
+        active_cuda_submit_target_phase_min_us =
+            std::numeric_limits<std::uint32_t>::max();
+        active_cuda_submit_target_phase_max_us = 0;
+        active_cuda_submit_fallback = 0;
+        active_cuda_submit_exploring = 0;
+        active_cuda_submit_held = 0;
+        active_cuda_submit_cadence_stable = 0;
+        latest_cuda_submit_estimated_period_us = 0;
+        latest_cuda_submit_held_phase_us = 0;
+        latest_cuda_submit_adaptation_epoch = 0;
+        latest_cuda_submit_adaptive_state = 0;
         controller_tick.reset();
         controller_pipeline.reset();
         vigem_update.reset();
@@ -258,6 +293,25 @@ struct PerfSummaryWindow {
         record.cuda_submit_wait_applied = cuda_submit_wait_applied;
         record.active_cuda_submit_wait_applied =
             active_cuda_submit_wait_applied;
+        record.active_cuda_submit_target_phase_sum_us =
+            active_cuda_submit_target_phase_sum_us;
+        record.active_cuda_submit_target_phase_min_us =
+            active_vision_frames > 0 ? active_cuda_submit_target_phase_min_us : 0;
+        record.active_cuda_submit_target_phase_max_us =
+            active_cuda_submit_target_phase_max_us;
+        record.active_cuda_submit_fallback = active_cuda_submit_fallback;
+        record.active_cuda_submit_exploring = active_cuda_submit_exploring;
+        record.active_cuda_submit_held = active_cuda_submit_held;
+        record.active_cuda_submit_cadence_stable =
+            active_cuda_submit_cadence_stable;
+        record.latest_cuda_submit_estimated_period_us =
+            latest_cuda_submit_estimated_period_us;
+        record.latest_cuda_submit_held_phase_us =
+            latest_cuda_submit_held_phase_us;
+        record.latest_cuda_submit_adaptation_epoch =
+            latest_cuda_submit_adaptation_epoch;
+        record.latest_cuda_submit_adaptive_state =
+            latest_cuda_submit_adaptive_state;
         record.controller_tick = controller_tick.summary();
         record.controller_pipeline = controller_pipeline.summary();
         record.vigem_update = vigem_update.summary();
@@ -313,7 +367,7 @@ void write_latency_json(
 
 std::string summary_json(
     const PerfSummaryRecord& record,
-    unsigned int cuda_submit_phase_us) {
+    const PerfSummaryOptions& options) {
     const double controller_hz = safe_rate(
         record.controller_ticks, record.window_seconds);
     const double output_hz = safe_rate(
@@ -332,12 +386,48 @@ std::string summary_json(
     const double idle_accumulated_mean = record.idle_vision_frames > 0
         ? static_cast<double>(record.idle_accumulated_frames) /
             static_cast<double>(record.idle_vision_frames) : 0.0;
+    const double active_phase_mean_us = record.active_vision_frames > 0
+        ? static_cast<double>(record.active_cuda_submit_target_phase_sum_us) /
+            static_cast<double>(record.active_vision_frames) : 0.0;
 
     std::ostringstream output;
     output << std::fixed << std::setprecision(3)
            << "{\"schema_version\":1,\"type\":\"runtime_perf_summary\""
            << ",\"histogram_bucket_ms\":" << kHistogramBucketWidthMs
-           << ",\"cuda_submit_phase_us\":" << cuda_submit_phase_us
+           << ",\"cuda_submit_phase_mode\":\""
+           << options.cuda_submit_phase_mode << '"'
+           << ",\"cuda_submit_phase_us\":" << options.cuda_submit_phase_us
+           << ",\"cuda_submit_target_phase_active_mean_us\":"
+           << active_phase_mean_us
+           << ",\"cuda_submit_target_phase_active_min_us\":"
+           << record.active_cuda_submit_target_phase_min_us
+           << ",\"cuda_submit_target_phase_active_max_us\":"
+           << record.active_cuda_submit_target_phase_max_us
+           << ",\"cuda_submit_adaptive_state\":\""
+           << (record.latest_cuda_submit_adaptive_state == 2
+                   ? "held"
+                   : (record.latest_cuda_submit_adaptive_state == 1
+                       ? "exploring" : "fallback")) << '"'
+           << ",\"cuda_submit_adaptive_fallback_active_pct\":"
+           << safe_percent(
+                  record.active_cuda_submit_fallback,
+                  record.active_vision_frames)
+           << ",\"cuda_submit_adaptive_exploring_active_pct\":"
+           << safe_percent(
+                  record.active_cuda_submit_exploring,
+                  record.active_vision_frames)
+           << ",\"cuda_submit_adaptive_held_active_pct\":"
+           << safe_percent(record.active_cuda_submit_held, record.active_vision_frames)
+           << ",\"cuda_submit_cadence_stable_active_pct\":"
+           << safe_percent(
+                  record.active_cuda_submit_cadence_stable,
+                  record.active_vision_frames)
+           << ",\"cuda_submit_estimated_period_us\":"
+           << record.latest_cuda_submit_estimated_period_us
+           << ",\"cuda_submit_held_phase_us\":"
+           << record.latest_cuda_submit_held_phase_us
+           << ",\"cuda_submit_adaptation_epoch\":"
+           << record.latest_cuda_submit_adaptation_epoch
            << ",\"cuda_submit_wait_applied_pct\":"
            << safe_percent(
                   record.cuda_submit_wait_applied, record.vision_frames)
@@ -404,7 +494,10 @@ std::string summary_json(
 
 std::string summary_console(
     const PerfSummaryRecord& record,
-    unsigned int cuda_submit_phase_us) {
+    const PerfSummaryOptions& options) {
+    const double active_phase_mean_us = record.active_vision_frames > 0
+        ? static_cast<double>(record.active_cuda_submit_target_phase_sum_us) /
+            static_cast<double>(record.active_vision_frames) : 0.0;
     std::ostringstream output;
     output << std::fixed << std::setprecision(1)
            << "[PerfSummary] ctrl="
@@ -426,7 +519,18 @@ std::string summary_console(
                          record.idle_vision_frames))
            << "% | copy->result " << record.copy_to_result.p50 << '/'
            << record.copy_to_result.p95
-           << "ms cuda_phase=" << cuda_submit_phase_us << "us submit "
+           << "ms cuda_phase=" << options.cuda_submit_phase_mode << ':'
+           << active_phase_mean_us << '['
+           << record.active_cuda_submit_target_phase_min_us << '-'
+           << record.active_cuda_submit_target_phase_max_us << "]us"
+           << " state="
+           << (record.latest_cuda_submit_adaptive_state == 2
+                   ? "held"
+                   : (record.latest_cuda_submit_adaptive_state == 1
+                       ? "exploring" : "fallback"))
+           << " held=" << record.latest_cuda_submit_held_phase_us
+           << "us period=" << record.latest_cuda_submit_estimated_period_us
+           << "us submit "
            << record.source_present_to_cuda_submit.p50 << '/'
            << record.source_present_to_cuda_submit.p95
            << "ms present->vigem " << record.source_present_to_vigem.p50 << '/'
@@ -557,6 +661,32 @@ struct PerfSummaryLogger::Impl {
             }
             window.active_accumulated_frames += accumulated;
             if (accumulated > 1) ++window.active_accumulated_gt_one;
+            window.active_cuda_submit_target_phase_sum_us +=
+                sample.cuda_submit_target_phase_us;
+            window.active_cuda_submit_target_phase_min_us = std::min(
+                window.active_cuda_submit_target_phase_min_us,
+                sample.cuda_submit_target_phase_us);
+            window.active_cuda_submit_target_phase_max_us = std::max(
+                window.active_cuda_submit_target_phase_max_us,
+                sample.cuda_submit_target_phase_us);
+            if (sample.cuda_submit_adaptive_state == 2) {
+                ++window.active_cuda_submit_held;
+            } else if (sample.cuda_submit_adaptive_state == 1) {
+                ++window.active_cuda_submit_exploring;
+            } else {
+                ++window.active_cuda_submit_fallback;
+            }
+            if (sample.cuda_submit_cadence_stable) {
+                ++window.active_cuda_submit_cadence_stable;
+            }
+            window.latest_cuda_submit_estimated_period_us =
+                sample.cuda_submit_estimated_period_us;
+            window.latest_cuda_submit_held_phase_us =
+                sample.cuda_submit_held_phase_us;
+            window.latest_cuda_submit_adaptation_epoch =
+                sample.cuda_submit_adaptation_epoch;
+            window.latest_cuda_submit_adaptive_state =
+                sample.cuda_submit_adaptive_state;
         } else {
             ++window.idle_vision_frames;
             window.idle_accumulated_frames += accumulated;
@@ -638,11 +768,10 @@ struct PerfSummaryLogger::Impl {
                 record = std::move(queue.front());
                 queue.pop_front();
             }
-            output << summary_json(record, options.cuda_submit_phase_us) << '\n';
+            output << summary_json(record, options) << '\n';
             output.flush();
             if (options.stdout_enabled) {
-                std::cout << summary_console(
-                    record, options.cuda_submit_phase_us) << '\n';
+                std::cout << summary_console(record, options) << '\n';
             }
         }
     }

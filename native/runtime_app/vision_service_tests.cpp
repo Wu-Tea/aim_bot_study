@@ -22,6 +22,10 @@ public:
     explicit FakeVisionPoller(std::vector<bool> updates)
         : updates_(std::move(updates)) {}
 
+    void set_controller_aiming(bool aiming) override {
+        controller_aiming_history.push_back(aiming);
+    }
+
     void set_aiming(bool aiming) override {
         aiming_history.push_back(aiming);
     }
@@ -53,6 +57,7 @@ public:
 
     int poll_count = 0;
     bool authority_on_update = false;
+    std::vector<bool> controller_aiming_history;
     std::vector<bool> aiming_history;
     pipeline_contract::UserAimIntent last_intent;
     runtime_app::ViewportRequest last_viewport;
@@ -92,6 +97,9 @@ void test_keepwarm_polls_while_idle_and_active() {
     service.set_aiming(true);
     REQUIRE(service.step_for_test(at_ms(60)));
     REQUIRE(raw->poll_count == 3);
+    REQUIRE(!raw->controller_aiming_history[0]);
+    REQUIRE(!raw->controller_aiming_history[1]);
+    REQUIRE(raw->controller_aiming_history[2]);
     REQUIRE(raw->aiming_history[0]);
     REQUIRE(raw->aiming_history[1]);
     REQUIRE(raw->aiming_history[2]);

@@ -74,6 +74,7 @@ class IVisionServicePoller {
 public:
     virtual ~IVisionServicePoller() = default;
 
+    virtual void set_controller_aiming(bool aiming) = 0;
     virtual void set_aiming(bool aiming) = 0;
     virtual void set_user_aim_intent(const pipeline_contract::UserAimIntent& intent) = 0;
     virtual void set_viewport(const ViewportRequest&) {}

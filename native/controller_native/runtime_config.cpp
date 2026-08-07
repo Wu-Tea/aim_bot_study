@@ -165,6 +165,8 @@ void apply_runtime_vision_value(
     } else if (key == "gpu_service_repeat_last_on_no_update") {
         config.gpu_service_repeat_last_on_no_update =
             parse_bool_value(value, config.gpu_service_repeat_last_on_no_update);
+    } else if (key == "cuda_submit_phase_mode") {
+        config.cuda_submit_phase_mode = parse_string_value(value);
     } else if (key == "cuda_submit_phase_us") {
         config.cuda_submit_phase_us =
             parse_uint_value(value, config.cuda_submit_phase_us);
@@ -195,7 +197,7 @@ bool is_known_key(const std::string& section, const std::string& key) {
         "aim_perf_log_dir", "aim_perf_log_interval_ticks", "gpu_service_enabled",
         "gpu_service_active_fps", "gpu_service_idle_fps",
         "gpu_service_keepwarm_when_idle", "gpu_service_repeat_last_on_no_update",
-        "cuda_submit_phase_us",
+        "cuda_submit_phase_mode", "cuda_submit_phase_us",
         "ego_motion_enabled",
         "fusion_enabled", "fusion_session", "fusion_show_all_detections"};
     static const std::unordered_set<std::string> telemetry_keys{
@@ -822,6 +824,11 @@ void apply_vision_environment_overrides(VisionRuntimeConfig& config) {
                 parse_uint_value(phase, config.cuda_submit_phase_us);
         }
     }
+    if (const char* mode = std::getenv("VISION_CUDA_SUBMIT_PHASE_MODE")) {
+        if (mode[0] != '\0') {
+            config.cuda_submit_phase_mode = parse_string_value(mode);
+        }
+    }
     // fusion channel env overrides
     if (const char* fusion_enabled = std::getenv("FUSION_ENABLED")) {
         if (fusion_enabled[0] != '\0') {
@@ -1079,6 +1086,7 @@ void mark_environment_sources(RuntimeConfig& config) {
     mark("VISION_GPU_SERVICE_IDLE_FPS", "runtime.vision.gpu_service_idle_fps");
     mark("VISION_GPU_SERVICE_KEEPWARM_WHEN_IDLE", "runtime.vision.gpu_service_keepwarm_when_idle");
     mark("VISION_GPU_SERVICE_REPEAT_LAST_ON_NO_UPDATE", "runtime.vision.gpu_service_repeat_last_on_no_update");
+    mark("VISION_CUDA_SUBMIT_PHASE_MODE", "runtime.vision.cuda_submit_phase_mode");
     mark("VISION_CUDA_SUBMIT_PHASE_US", "runtime.vision.cuda_submit_phase_us");
     mark("GAMEPAD_XINPUT_AUTO_DETECT", "runtime.gamepad.xinput_auto_detect");
     mark("GAMEPAD_XINPUT_USER_INDEX", "runtime.gamepad.xinput_user_index");
@@ -1171,6 +1179,14 @@ void validate_runtime_config(RuntimeConfig& config) {
         invalid("runtime.vision.idle_capture_fps", "1..240");
     if (config.vision.cuda_submit_phase_us > 5000)
         invalid("runtime.vision.cuda_submit_phase_us", "0..5000");
+    if (config.vision.cuda_submit_phase_mode != "fixed" &&
+        config.vision.cuda_submit_phase_mode != "adaptive")
+        invalid("runtime.vision.cuda_submit_phase_mode", "fixed|adaptive");
+    if (config.vision.cuda_submit_phase_mode == "adaptive" &&
+        config.vision.cuda_submit_phase_us != 0)
+        invalid(
+            "runtime.vision.cuda_submit_phase_us",
+            "0 when runtime.vision.cuda_submit_phase_mode=adaptive");
     if (config.vision.color_readback_mode != "pageable" && config.vision.color_readback_mode != "pinned")
         invalid("runtime.vision.color_readback_mode", "pageable|pinned");
     if (config.telemetry.mode != "debug" && config.telemetry.mode != "profile")
