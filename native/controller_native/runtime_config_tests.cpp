@@ -29,6 +29,8 @@ void test_vision_gpu_service_defaults_are_enabled() {
     require(config.vision.gpu_service_idle_fps == 20);
     require(config.vision.gpu_service_keepwarm_when_idle);
     require(config.vision.gpu_service_repeat_last_on_no_update);
+    require(config.vision.cuda_submit_phase_us == 0);
+    require(!config.vision.ego_motion_enabled);
     require(config.vision.capture_width == 480);
     require(config.vision.capture_height == 416);
     require(config.vision.tensor_width == 480);
@@ -46,6 +48,29 @@ void test_vision_gpu_service_defaults_are_enabled() {
     require(!config.vision.perf_log);
     require(!config.vision.aim_perf_file_log);
     require(!config.telemetry.enabled);
+    require(!config.performance.enabled);
+    require(config.performance.interval_ms == 5000);
+    require(config.performance.directory == "runs/perf_summary");
+    require(config.performance.stdout_enabled);
+}
+
+void test_lightweight_performance_summary_config_parses() {
+    const auto path = std::filesystem::temp_directory_path() /
+        "cod_native_performance_summary_config.toml";
+    {
+        std::ofstream output(path);
+        output << "[runtime.performance]\n"
+               << "enabled = true\n"
+               << "interval_ms = 7500\n"
+               << "directory = \"runs/test_perf_summary\"\n"
+               << "stdout_enabled = false\n";
+    }
+    const auto config = controller_native::load_runtime_config(path);
+    std::filesystem::remove(path);
+    require(config.performance.enabled);
+    require(config.performance.interval_ms == 7500);
+    require(config.performance.directory == "runs/test_perf_summary");
+    require(!config.performance.stdout_enabled);
 }
 
 void test_vision_gpu_service_config_values_parse() {
@@ -64,7 +89,9 @@ void test_vision_gpu_service_config_values_parse() {
                << "gpu_service_active_fps = 120\n"
                << "gpu_service_idle_fps = 15\n"
                << "gpu_service_keepwarm_when_idle = false\n"
-               << "gpu_service_repeat_last_on_no_update = false\n";
+               << "gpu_service_repeat_last_on_no_update = false\n"
+               << "cuda_submit_phase_us = 1250\n"
+               << "ego_motion_enabled = true\n";
     }
 
     const controller_native::RuntimeConfig config =
@@ -82,6 +109,54 @@ void test_vision_gpu_service_config_values_parse() {
     require(config.vision.gpu_service_idle_fps == 15);
     require(!config.vision.gpu_service_keepwarm_when_idle);
     require(!config.vision.gpu_service_repeat_last_on_no_update);
+    require(config.vision.cuda_submit_phase_us == 1250);
+    require(config.vision.ego_motion_enabled);
+}
+
+void test_cuda_submit_phase_environment_override_reports_source() {
+    const auto path = std::filesystem::temp_directory_path() /
+        "cod_native_cuda_submit_phase_env.toml";
+    {
+        std::ofstream output(path);
+        output << "[runtime.vision]\n"
+               << "cuda_submit_phase_us = 250\n";
+    }
+#if defined(_WIN32)
+    _putenv_s("VISION_CUDA_SUBMIT_PHASE_US", "750");
+#else
+    setenv("VISION_CUDA_SUBMIT_PHASE_US", "750", 1);
+#endif
+    const auto config = controller_native::load_runtime_config(path);
+#if defined(_WIN32)
+    _putenv_s("VISION_CUDA_SUBMIT_PHASE_US", "");
+#else
+    unsetenv("VISION_CUDA_SUBMIT_PHASE_US");
+#endif
+    std::filesystem::remove(path);
+    require(config.vision.cuda_submit_phase_us == 750);
+    require(config.effective_source("runtime.vision.cuda_submit_phase_us") ==
+        "environment");
+}
+
+void test_cuda_submit_phase_rejects_out_of_range_value() {
+    const auto path = std::filesystem::temp_directory_path() /
+        "cod_native_cuda_submit_phase_invalid.toml";
+    {
+        std::ofstream output(path);
+        output << "[runtime.vision]\n"
+               << "cuda_submit_phase_us = 5001\n";
+    }
+    bool failed = false;
+    try {
+        (void)controller_native::load_runtime_config(path);
+    } catch (const std::runtime_error& error) {
+        const std::string message = error.what();
+        failed = message.find("runtime.vision.cuda_submit_phase_us") !=
+                std::string::npos &&
+            message.find("0..5000") != std::string::npos;
+    }
+    std::filesystem::remove(path);
+    require(failed);
 }
 
 void test_vision_gpu_service_can_be_disabled() {
@@ -748,7 +823,10 @@ void test_control_learning_disabled_overrides_requested_mode() {
 
 int main() {
     test_vision_gpu_service_defaults_are_enabled();
+    test_lightweight_performance_summary_config_parses();
     test_vision_gpu_service_config_values_parse();
+    test_cuda_submit_phase_environment_override_reports_source();
+    test_cuda_submit_phase_rejects_out_of_range_value();
     test_vision_gpu_service_can_be_disabled();
     test_realtime_tracker_and_fallback_recoil_flags_parse();
     test_aim_response_curve_defaults_and_dynamic_plugin_parse();

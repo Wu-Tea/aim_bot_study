@@ -7,6 +7,7 @@
 #include "../runtime_app/perf_logger.h"
 #include "vision_native/types.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -366,6 +367,178 @@ void test_perf_loop_fps_uses_measured_elapsed_time() {
         "zero elapsed loop time should not synthesize 1000 fps");
 }
 
+void test_lightweight_perf_summary_writes_one_compact_window() {
+    const std::filesystem::path root = make_temp_test_dir("perf_summary");
+    std::filesystem::path log_path;
+    {
+        runtime_app::PerfSummaryOptions options;
+        options.enabled = true;
+        options.interval_ms = 1000;
+        options.directory = root;
+        options.stdout_enabled = false;
+        options.cuda_submit_phase_us = 750;
+        runtime_app::PerfSummaryLogger logger(options);
+
+        runtime_app::PerfControllerWindowSample controller;
+        controller.timestamp_ns = 1'000'000'000ull;
+        controller.aiming = true;
+        controller.output_delivered = true;
+        controller.tick_ms = 0.40;
+        controller.pipeline_ms = 0.20;
+        controller.vigem_ms = 0.05;
+        logger.record_controller(controller);
+
+        runtime_app::PerfVisionWindowSample vision;
+        vision.aiming = true;
+        vision.cuda_submit_wait_applied = true;
+        vision.accumulated_frames = 2;
+        vision.capture_to_result_ms = 5.4;
+        vision.copy_to_result_ms = 4.8;
+        vision.source_present_to_result_ms = 7.9;
+        vision.result_to_controller_ms = 0.4;
+        vision.source_present_to_vigem_ms = 8.4;
+        vision.source_present_to_cuda_submit_ms = 2.8;
+        vision.copy_to_cuda_submit_ms = 0.72;
+        vision.cuda_submit_wait_ms = 0.50;
+        vision.cuda_submit_phase_late_ms = 2.05;
+        vision.cuda_map_ms = 0.15;
+        vision.preprocess_ms = 0.55;
+        vision.infer_ms = 1.40;
+        vision.gpu_total_ms = 2.1;
+        vision.output_copy_sync_ms = 3.20;
+        vision.output_copy_ms = 0.08;
+        vision.output_wait_ms = 3.12;
+        vision.sync_queue_residual_ms = 1.02;
+        vision.color_copy_ms = 0.22;
+        vision.cuda_unmap_ms = 0.04;
+        vision.ego_stage_ms = 0.35;
+        vision.ego_compute_ms = 2.05;
+        logger.record_vision(vision);
+
+        controller.timestamp_ns = 2'100'000'000ull;
+        logger.record_controller(controller);
+        log_path = logger.log_path();
+        logger.stop();
+    }
+
+    const std::string log = read_text_file(log_path);
+    require_true(
+        std::count(log.begin(), log.end(), '\n') == 1,
+        "perf summary should write one line per completed window");
+    require_true(
+        log.find("\"type\":\"runtime_perf_summary\"") != std::string::npos,
+        "perf summary should use the compact summary schema");
+    require_true(
+        log.find("\"histogram_bucket_ms\":0.250") != std::string::npos,
+        "perf summary should publish its quantile resolution");
+    require_true(
+        log.find("\"cuda_submit_phase_us\":750") != std::string::npos,
+        "perf summary should identify the requested CUDA submit phase");
+    require_true(
+        log.find("\"cuda_submit_wait_applied_pct\":100.000") !=
+            std::string::npos,
+        "perf summary should report whether the target phase changed timing");
+    require_true(
+        log.find("\"cuda_submit_wait_applied_active_pct\":100.000") !=
+            std::string::npos,
+        "perf summary should isolate target-phase application while aiming");
+    require_true(
+        log.find("\"accumulated_gt1_pct\":100.000") != std::string::npos,
+        "perf summary should report accumulated-frame pressure");
+    require_true(
+        log.find("\"accumulated_active_gt1_pct\":100.000") != std::string::npos,
+        "perf summary should separate active accumulation pressure from idle sampling");
+    require_true(
+        log.find("\"output_wait\":{\"n\":1") != std::string::npos,
+        "perf summary should expose the CPU stream wait");
+    require_true(
+        log.find("\"sync_queue_residual\":{\"n\":1") != std::string::npos,
+        "perf summary should label the approximate unexplained sync wait");
+    require_true(
+        log.find("\"source_present_to_cuda_submit\":{\"n\":1") !=
+            std::string::npos,
+        "perf summary should measure the actual CUDA submit phase");
+    require_true(
+        log.find("\"copy_to_cuda_submit\":{\"n\":1") != std::string::npos,
+        "perf summary should expose capture-copy to CUDA submit time");
+    require_true(
+        log.find("\"cuda_submit_wait\":{\"n\":1") != std::string::npos,
+        "perf summary should expose intentional phase wait time");
+    require_true(
+        log.find("\"cuda_submit_phase_late\":{\"n\":1") !=
+            std::string::npos,
+        "perf summary should expose missed target-phase time");
+    require_true(
+        log.find("\"color_copy\":{\"n\":1") != std::string::npos,
+        "perf summary should expose conditional color readback cost");
+    require_true(
+        log.find("\"ego_stage\":{\"n\":1") != std::string::npos,
+        "perf summary should separate the synchronous ego staging cost");
+    require_true(
+        log.find("\"ego_compute\":{\"n\":1") != std::string::npos,
+        "perf summary should report asynchronous ego compute separately");
+    require_true(
+        log.size() < 4096,
+        "one performance window should remain a compact record");
+    std::filesystem::remove_all(root);
+}
+
+void benchmark_lightweight_perf_summary_hot_path() {
+    const std::filesystem::path root = make_temp_test_dir("perf_summary_hot_path");
+    runtime_app::PerfSummaryOptions options;
+    options.enabled = true;
+    options.interval_ms = 60000;
+    options.directory = root;
+    options.stdout_enabled = false;
+    runtime_app::PerfSummaryLogger logger(options);
+
+    runtime_app::PerfControllerWindowSample controller;
+    controller.timestamp_ns = 1'000'000'000ull;
+    controller.aiming = true;
+    controller.output_delivered = true;
+    controller.tick_ms = 0.40;
+    controller.pipeline_ms = 0.20;
+    controller.vigem_ms = 0.05;
+    runtime_app::PerfVisionWindowSample vision;
+    vision.aiming = true;
+    vision.capture_to_result_ms = 5.4;
+    vision.copy_to_result_ms = 4.8;
+    vision.source_present_to_result_ms = 7.9;
+    vision.result_to_controller_ms = 0.4;
+    vision.source_present_to_vigem_ms = 8.4;
+    vision.source_present_to_cuda_submit_ms = 2.8;
+    vision.copy_to_cuda_submit_ms = 0.72;
+    vision.cuda_submit_wait_ms = 0.50;
+    vision.cuda_submit_phase_late_ms = 2.05;
+    vision.cuda_map_ms = 0.15;
+    vision.preprocess_ms = 0.55;
+    vision.infer_ms = 1.40;
+    vision.gpu_total_ms = 2.1;
+    vision.output_copy_sync_ms = 3.20;
+    vision.output_copy_ms = 0.08;
+    vision.output_wait_ms = 3.12;
+    vision.sync_queue_residual_ms = 1.02;
+    vision.color_copy_ms = 0.22;
+    vision.cuda_unmap_ms = 0.04;
+    vision.ego_stage_ms = 0.35;
+    vision.ego_compute_ms = 2.05;
+
+    constexpr std::uint64_t kControllerSamples = 1'000'000;
+    const auto started = std::chrono::steady_clock::now();
+    for (std::uint64_t index = 0; index < kControllerSamples; ++index) {
+        controller.timestamp_ns += 1000;
+        logger.record_controller(controller);
+        if (index % 6 == 0) logger.record_vision(vision);
+    }
+    const auto finished = std::chrono::steady_clock::now();
+    logger.stop();
+    const double ns_per_tick = std::chrono::duration<double, std::nano>(
+        finished - started).count() / static_cast<double>(kControllerSamples);
+    std::cout << "[PerfSummaryBenchmark] amortized_hot_path_ns_per_tick="
+              << ns_per_tick << '\n';
+    std::filesystem::remove_all(root);
+}
+
 }  // namespace
 
 int main() {
@@ -376,6 +549,8 @@ int main() {
         test_replay_metrics_exposes_stepwise_assist_as_stutter();
         test_aim_perf_file_logger_writes_controller_components();
         test_perf_loop_fps_uses_measured_elapsed_time();
+        test_lightweight_perf_summary_writes_one_compact_window();
+        benchmark_lightweight_perf_summary_hot_path();
     } catch (const std::exception& exc) {
         std::cerr << "[NativeBenchmarkMetricsTests] FAIL " << exc.what() << "\n";
         return 1;

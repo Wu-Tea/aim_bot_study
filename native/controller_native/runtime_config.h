@@ -42,6 +42,13 @@ struct VisionRuntimeConfig {
     int gpu_service_idle_fps = 20;
     bool gpu_service_keepwarm_when_idle = true;
     bool gpu_service_repeat_last_on_no_update = true;
+    // Experimental preprocess/TensorRT submit phase measured from the
+    // calibrated source-present timestamp. Zero preserves the natural path.
+    unsigned int cuda_submit_phase_us = 0;
+    // Research-only background camera-motion observer. Normal runtime keeps
+    // this off so no grayscale readback, CUDA synchronization, or CPU worker
+    // is added to the Vision path.
+    bool ego_motion_enabled = false;
 
     // fusion visual overlay channel (disabled by default)
     bool fusion_enabled = false;
@@ -225,6 +232,13 @@ struct RuntimeTelemetryConfig {
     unsigned int event_post_ms = 1000;
 };
 
+struct RuntimePerformanceConfig {
+    bool enabled = false;
+    unsigned int interval_ms = 5000;
+    std::string directory = "runs/perf_summary";
+    bool stdout_enabled = true;
+};
+
 enum class ControlLearningMode : unsigned char {
     Disabled,
     Shadow,
@@ -260,6 +274,7 @@ struct RuntimeConfig {
     std::string profile = "legacy";
     VisionRuntimeConfig vision;
     RuntimeTelemetryConfig telemetry;
+    RuntimePerformanceConfig performance;
     ControlLearningConfig control_learning;
     RuntimeSchedulerConfig scheduler;
     RuntimeOutputConfig output;

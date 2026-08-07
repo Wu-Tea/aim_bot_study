@@ -10,9 +10,11 @@
 #include <iomanip>
 #include <iostream>
 #include <map>
+#include <memory>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -27,6 +29,7 @@ struct Options {
     int array_height = 0;
     int warmup = 20;
     int iterations = 200;
+    int workers = 1;
     bool bind_tensor_addresses_once = true;
     bool use_high_priority_stream = true;
     bool use_cuda_graph = true;
@@ -42,6 +45,7 @@ void usage() {
     std::cerr
         << "usage: vision_native_bgra_benchmark.exe --model <engine> [--output-json <path>]\n"
         << "       [--width 480] [--height 416] [--warmup 20] [--iterations 200]\n"
+        << "       [--workers 1|2]\n"
         << "       [--array-width 600] [--array-height 520]\n"
         << "       [--tensor-address-binding once|per-inference]\n"
         << "       [--stream-priority high|default]\n"
@@ -88,6 +92,8 @@ Options parse_args(int argc, char** argv) {
             options.warmup = parse_int(require_value("--warmup"), "--warmup");
         } else if (arg == "--iterations") {
             options.iterations = parse_int(require_value("--iterations"), "--iterations");
+        } else if (arg == "--workers") {
+            options.workers = parse_int(require_value("--workers"), "--workers");
         } else if (arg == "--tensor-address-binding") {
             const std::string value = require_value("--tensor-address-binding");
             if (value == "once") {
@@ -125,7 +131,8 @@ Options parse_args(int argc, char** argv) {
     if (options.model_path.empty()) {
         throw std::runtime_error("--model is required");
     }
-    if (options.width <= 0 || options.height <= 0 || options.warmup < 0 || options.iterations <= 0) {
+    if (options.width <= 0 || options.height <= 0 || options.warmup < 0 ||
+        options.iterations <= 0 || options.workers < 1 || options.workers > 2) {
         throw std::runtime_error("invalid benchmark dimensions or iteration counts");
     }
     if (options.array_width == 0) options.array_width = options.width;
@@ -205,6 +212,24 @@ void write_metric(std::ostream& out, const char* name, const std::vector<float>&
     out << "\n";
 }
 
+struct WorkerResult {
+    std::vector<float> preprocess_ms;
+    std::vector<float> infer_ms;
+    std::vector<float> gpu_total_ms;
+    std::vector<float> enqueue_cpu_ms;
+    std::vector<float> output_copy_sync_ms;
+    std::vector<float> output_copy_ms;
+    std::vector<float> output_wait_ms;
+    std::vector<float> decode_ms;
+    std::vector<float> wall_ms;
+    std::map<size_t, int> detection_counts;
+    vision_native::DetectionBatch last_batch;
+};
+
+void append_values(std::vector<float>& target, const std::vector<float>& source) {
+    target.insert(target.end(), source.begin(), source.end());
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -238,7 +263,12 @@ int main(int argc, char** argv) {
         engine_options.bind_tensor_addresses_once = options.bind_tensor_addresses_once;
         engine_options.use_high_priority_stream = options.use_high_priority_stream;
         engine_options.use_cuda_graph = options.use_cuda_graph;
-        vision_native::TensorRTEngine engine(options.model_path, engine_options);
+        std::vector<std::unique_ptr<vision_native::TensorRTEngine>> engines;
+        engines.reserve(static_cast<std::size_t>(options.workers));
+        for (int worker = 0; worker < options.workers; ++worker) {
+            engines.push_back(std::make_unique<vision_native::TensorRTEngine>(
+                options.model_path, engine_options));
+        }
         std::vector<float> preprocess_ms;
         std::vector<float> infer_ms;
         std::vector<float> gpu_total_ms;
@@ -250,33 +280,63 @@ int main(int argc, char** argv) {
         std::vector<float> wall_ms;
         std::map<size_t, int> detection_counts;
         vision_native::DetectionBatch last_batch;
+        std::vector<WorkerResult> worker_results(
+            static_cast<std::size_t>(options.workers));
+        std::vector<std::thread> workers;
+        workers.reserve(static_cast<std::size_t>(options.workers));
+        const auto benchmark_start = std::chrono::steady_clock::now();
+        for (int worker = 0; worker < options.workers; ++worker) {
+            workers.emplace_back([&, worker] {
+                WorkerResult& result = worker_results[static_cast<std::size_t>(worker)];
+                auto& engine = *engines[static_cast<std::size_t>(worker)];
+                for (int i = 0; i < options.warmup + options.iterations; ++i) {
+                    const auto wall_start = std::chrono::steady_clock::now();
+                    vision_native::DetectionBatch batch = engine.infer_bgra_array_roi(
+                        bgra_array,
+                        options.array_width,
+                        options.array_height,
+                        (options.array_width - options.width) / 2,
+                        (options.array_height - options.height) / 2,
+                        options.width,
+                        options.height,
+                        0.20f);
+                    const auto wall_end = std::chrono::steady_clock::now();
+                    if (i < options.warmup) continue;
+                    result.preprocess_ms.push_back(batch.preprocess_ms);
+                    result.infer_ms.push_back(batch.infer_ms);
+                    result.gpu_total_ms.push_back(batch.gpu_total_ms);
+                    result.enqueue_cpu_ms.push_back(batch.enqueue_cpu_ms);
+                    result.output_copy_sync_ms.push_back(batch.output_copy_sync_ms);
+                    result.output_copy_ms.push_back(batch.output_copy_ms);
+                    result.output_wait_ms.push_back(batch.output_wait_ms);
+                    result.decode_ms.push_back(batch.decode_ms);
+                    result.wall_ms.push_back(std::chrono::duration<float, std::milli>(
+                        wall_end - wall_start).count());
+                    result.detection_counts[batch.detections.size()] += 1;
+                    result.last_batch = std::move(batch);
+                }
+            });
+        }
+        for (auto& worker : workers) worker.join();
+        const auto benchmark_end = std::chrono::steady_clock::now();
+        const double benchmark_seconds = std::chrono::duration<double>(
+            benchmark_end - benchmark_start).count();
 
-        for (int i = 0; i < options.warmup + options.iterations; ++i) {
-            const auto wall_start = std::chrono::steady_clock::now();
-            vision_native::DetectionBatch batch = engine.infer_bgra_array_roi(
-                bgra_array,
-                options.array_width,
-                options.array_height,
-                (options.array_width - options.width) / 2,
-                (options.array_height - options.height) / 2,
-                options.width,
-                options.height,
-                0.20f);
-            const auto wall_end = std::chrono::steady_clock::now();
-            if (i >= options.warmup) {
-                preprocess_ms.push_back(batch.preprocess_ms);
-                infer_ms.push_back(batch.infer_ms);
-                gpu_total_ms.push_back(batch.gpu_total_ms);
-                enqueue_cpu_ms.push_back(batch.enqueue_cpu_ms);
-                output_copy_sync_ms.push_back(batch.output_copy_sync_ms);
-                output_copy_ms.push_back(batch.output_copy_ms);
-                output_wait_ms.push_back(batch.output_wait_ms);
-                decode_ms.push_back(batch.decode_ms);
-                wall_ms.push_back(std::chrono::duration<float, std::milli>(wall_end - wall_start).count());
-                detection_counts[batch.detections.size()] += 1;
-                last_batch = std::move(batch);
+        for (const WorkerResult& result : worker_results) {
+            append_values(preprocess_ms, result.preprocess_ms);
+            append_values(infer_ms, result.infer_ms);
+            append_values(gpu_total_ms, result.gpu_total_ms);
+            append_values(enqueue_cpu_ms, result.enqueue_cpu_ms);
+            append_values(output_copy_sync_ms, result.output_copy_sync_ms);
+            append_values(output_copy_ms, result.output_copy_ms);
+            append_values(output_wait_ms, result.output_wait_ms);
+            append_values(decode_ms, result.decode_ms);
+            append_values(wall_ms, result.wall_ms);
+            for (const auto& [count, seen] : result.detection_counts) {
+                detection_counts[count] += seen;
             }
         }
+        last_batch = std::move(worker_results.front().last_batch);
 
         check_cuda(cudaFreeArray(bgra_array), "cudaFreeArray");
 
@@ -306,6 +366,14 @@ int main(int argc, char** argv) {
              << "  \"array_height\": " << options.array_height << ",\n"
              << "  \"warmup\": " << options.warmup << ",\n"
              << "  \"iterations\": " << options.iterations << ",\n"
+             << "  \"workers\": " << options.workers << ",\n"
+             << "  \"aggregate_fps\": "
+             << (benchmark_seconds > 0.0
+                     ? static_cast<double>(
+                           (options.warmup + options.iterations) * options.workers) /
+                         benchmark_seconds
+                     : 0.0)
+             << ",\n"
              << "  \"tensor_address_binding\": \""
              << (options.bind_tensor_addresses_once ? "once" : "per-inference") << "\",\n"
              << "  \"stream_priority\": \""

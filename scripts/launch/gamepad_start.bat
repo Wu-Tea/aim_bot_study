@@ -18,6 +18,10 @@ goto native_cpp
 :native_cpp
 echo Launching Native C++ gamepad runtime.
 echo Set GAMEPAD_RUNTIME=python to use the Python fallback.
+rem This foreground launcher is the explicit diagnostic entry point. The hidden
+rem gamepad_native_background_start.vbs path bypasses it and keeps --perf-log off.
+rem Set ENABLE_RUNTIME_PERF_LOG=0 before launch when a clean foreground run is needed.
+if not defined ENABLE_RUNTIME_PERF_LOG set "ENABLE_RUNTIME_PERF_LOG=1"
 if "%GAMEPAD_START_PRINT_ONLY%"=="1" (
     call "%~dp0gamepad_native_cpp_start.bat"
     set "RESULT=!ERRORLEVEL!"

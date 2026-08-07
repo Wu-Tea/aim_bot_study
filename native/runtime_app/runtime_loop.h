@@ -42,6 +42,7 @@ private:
 
     controller_native::RuntimeConfig config_;
     PerfLogger perf_logger_;
+    PerfSummaryLogger perf_summary_logger_;
     LogSessionManager log_session_manager_;
     RuntimeTelemetry telemetry_;
     TelemetryCollectors telemetry_collectors_;

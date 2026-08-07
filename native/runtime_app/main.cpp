@@ -151,6 +151,10 @@ void dump_effective_config(const controller_native::RuntimeConfig& config) {
     line(
         "runtime.vision.gpu_service_repeat_last_on_no_update",
         config.vision.gpu_service_repeat_last_on_no_update);
+    line(
+        "runtime.vision.cuda_submit_phase_us",
+        config.vision.cuda_submit_phase_us);
+    line("runtime.vision.ego_motion_enabled", config.vision.ego_motion_enabled);
     line("runtime.vision.color_readback_mode", config.vision.color_readback_mode);
     line("runtime.telemetry.enabled", config.telemetry.enabled);
     line("runtime.telemetry.mode", config.telemetry.mode);
@@ -160,6 +164,10 @@ void dump_effective_config(const controller_native::RuntimeConfig& config) {
     line("runtime.telemetry.queue_capacity", config.telemetry.queue_capacity);
     line("runtime.telemetry.rotate_size_mb", config.telemetry.rotate_size_mb);
     line("runtime.telemetry.max_files", config.telemetry.max_files);
+    line("runtime.performance.enabled", config.performance.enabled);
+    line("runtime.performance.interval_ms", config.performance.interval_ms);
+    line("runtime.performance.directory", config.performance.directory);
+    line("runtime.performance.stdout_enabled", config.performance.stdout_enabled);
     line("runtime.control_learning.enabled", config.control_learning.enabled);
     const char* control_learning_mode = "disabled";
     if (config.control_learning.mode == controller_native::ControlLearningMode::Shadow)
@@ -249,9 +257,13 @@ void print_startup_summary(
         << " aim_perf_file_log=" << (config.vision.aim_perf_file_log ? "true" : "false")
         << " aim_perf_log_dir=" << config.vision.aim_perf_log_dir
         << " aim_perf_log_interval_ticks=" << config.vision.aim_perf_log_interval_ticks
+        << " perf_summary=" << (config.performance.enabled ? "on" : "off")
+        << " perf_summary_interval_ms=" << config.performance.interval_ms
         << " gpu_service=" << (config.vision.gpu_service_enabled ? "on" : "off")
         << " gpu_service_active_fps=" << config.vision.gpu_service_active_fps
         << " gpu_service_idle_fps=" << config.vision.gpu_service_idle_fps
+        << " cuda_submit_phase_us=" << config.vision.cuda_submit_phase_us
+        << " ego_motion=" << (config.vision.ego_motion_enabled ? "shadow" : "off")
         << " tracker_backend="
         << tracking_native::tracker_backend_kind_name(config.gamepad.tracker_backend)
         << " tracker_max_observation_age_ms="

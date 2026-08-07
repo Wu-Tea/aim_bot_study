@@ -137,6 +137,12 @@ struct VisionResult {
     uint64_t captured_at_ns = 0;
     uint64_t inferred_at_ns = 0;
     uint64_t result_at_ns = 0;
+    // CPU boundary immediately before the CUDA preprocess/TensorRT call. This
+    // makes compute-submit phase measurable independently of the later stream
+    // synchronization wait.
+    uint64_t cuda_submit_begin_ns = 0;
+    std::uint32_t cuda_submit_phase_us = 0;
+    bool cuda_submit_wait_applied = false;
     bool frame_updated = false;
     const char* service_freshness = "none";
     const char* service_source_state = "unknown";
@@ -193,6 +199,7 @@ struct VisionResult {
     float wait_ms = 0.0f;
     float capture_acquire_ms = 0.0f;
     float capture_copy_ms = 0.0f;
+    float cuda_submit_wait_ms = 0.0f;
     float cuda_map_ms = 0.0f;
     float preprocess_ms = 0.0f;
     float color_copy_ms = 0.0f;

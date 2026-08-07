@@ -10,11 +10,11 @@
 #include "pipeline_contract/target_snapshot.h"
 
 #include <atomic>
-#include <array>
 #include <cstdint>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <vector>
 
 namespace vision_native {
 
@@ -32,7 +32,9 @@ public:
         std::string color_readback_mode = "pageable",
         int expected_tensor_width = 0,
         int expected_tensor_height = 0,
-        bool require_isotropic_resize = true);
+        bool require_isotropic_resize = true,
+        bool ego_motion_enabled = false,
+        unsigned int cuda_submit_phase_us = 0);
     ~VisionEngine();
 
     VisionEngine(const VisionEngine&) = delete;
@@ -57,10 +59,12 @@ public:
     float resize_scale_x() const;
     float resize_scale_y() const;
     bool resize_isotropic() const;
+    bool ego_motion_enabled() const;
+    unsigned int cuda_submit_phase_us() const;
 
 private:
     DxgiRoiCapture capture_;
-    EgoMotionObserver ego_motion_observer_{};
+    std::unique_ptr<EgoMotionObserver> ego_motion_observer_;
     VisionTargetSelector selector_;
     AimEnhancementPipeline enhancer_;
     std::unique_ptr<TensorRTEngine> engine_;
@@ -84,9 +88,10 @@ private:
     int active_viewport_height_ = 0;
     std::uint64_t active_viewport_sequence_ = 0;
     VisionResizeContract resize_contract_{};
-    std::array<std::uint8_t, kEgoMotionPixelCount> host_ego_gray_{};
+    std::vector<std::uint8_t> host_ego_gray_;
     std::uint8_t* device_ego_gray_ = nullptr;
     bool ego_motion_staging_available_ = false;
+    unsigned int cuda_submit_phase_us_ = 0;
 };
 
 } // namespace vision_native

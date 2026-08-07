@@ -18,6 +18,8 @@ color_readback_mode = "pageable" # pinned remains opt-in until the A/B gate pass
 model_path = "models/best_480x384.engine"
 gpu_service_enabled = true
 gpu_service_repeat_last_on_no_update = false # continuity belongs to Tracker, not replayed detections
+cuda_submit_phase_us = 0 # experimental: preprocess/TensorRT submit phase after source present; 0 preserves natural timing
+ego_motion_enabled = false # research-only optical-flow shadow; never required by normal control
 
 # Historical static alternatives (change all size/path lines together):
 # near:     capture 640x440, tensor 512x352, model models/best_512x352.engine
@@ -28,6 +30,13 @@ enabled = false
 mode = "profile"
 manual_controller_hz = 100
 candidate_details = "on_event"
+
+[runtime.performance]
+# Lightweight whole-runtime statistics; safe to leave on for normal play.
+enabled = false
+interval_ms = 5000
+directory = "runs/perf_summary"
+stdout_enabled = true
 
 [runtime.control_learning]
 enabled = false

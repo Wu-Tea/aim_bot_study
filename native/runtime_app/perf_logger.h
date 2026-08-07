@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cstdint>
+#include <filesystem>
+#include <memory>
 #include <string>
 
 namespace runtime_app {
@@ -33,6 +35,76 @@ public:
 
 private:
     bool enabled_ = false;
+};
+
+// Low-overhead performance observation is intentionally separate from the
+// detailed causal telemetry stream. The controller thread only updates fixed
+// counters/histograms; one compact window is serialized by a background writer.
+struct PerfSummaryOptions {
+    bool enabled = false;
+    unsigned int interval_ms = 5000;
+    std::filesystem::path directory = "runs/perf_summary";
+    bool stdout_enabled = true;
+    unsigned int cuda_submit_phase_us = 0;
+};
+
+struct PerfControllerWindowSample {
+    std::uint64_t timestamp_ns = 0;
+    bool aiming = false;
+    bool output_delivered = false;
+    double tick_ms = -1.0;
+    double pipeline_ms = -1.0;
+    double vigem_ms = -1.0;
+};
+
+struct PerfVisionWindowSample {
+    bool aiming = false;
+    bool cuda_submit_wait_applied = false;
+    std::uint32_t accumulated_frames = 1;
+    double capture_to_result_ms = -1.0;
+    double copy_to_result_ms = -1.0;
+    double source_present_to_result_ms = -1.0;
+    double result_to_controller_ms = -1.0;
+    double source_present_to_vigem_ms = -1.0;
+    double source_present_to_cuda_submit_ms = -1.0;
+    double copy_to_cuda_submit_ms = -1.0;
+    double cuda_submit_wait_ms = -1.0;
+    double cuda_submit_phase_late_ms = -1.0;
+    double cuda_map_ms = -1.0;
+    double preprocess_ms = -1.0;
+    double infer_ms = -1.0;
+    double gpu_total_ms = -1.0;
+    double output_copy_sync_ms = -1.0;
+    double output_copy_ms = -1.0;
+    double output_wait_ms = -1.0;
+    // Diagnostic proxy only: the CPU sync wait that is not explained by the
+    // measured preprocess+inference GPU interval. CPU and CUDA-event timing
+    // boundaries differ, so this must not be treated as exact queue residency.
+    double sync_queue_residual_ms = -1.0;
+    double color_copy_ms = -1.0;
+    double cuda_unmap_ms = -1.0;
+    double ego_stage_ms = -1.0;
+    double ego_compute_ms = -1.0;
+};
+
+class PerfSummaryLogger {
+public:
+    explicit PerfSummaryLogger(PerfSummaryOptions options = {});
+    ~PerfSummaryLogger();
+
+    PerfSummaryLogger(const PerfSummaryLogger&) = delete;
+    PerfSummaryLogger& operator=(const PerfSummaryLogger&) = delete;
+
+    bool enabled() const noexcept;
+    void record_controller(const PerfControllerWindowSample& sample) noexcept;
+    void record_vision(const PerfVisionWindowSample& sample) noexcept;
+    void stop() noexcept;
+
+    const std::filesystem::path& log_path() const noexcept;
+
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
 };
 
 }  // namespace runtime_app

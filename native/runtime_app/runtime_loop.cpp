@@ -112,6 +112,11 @@ double elapsed_ms_between_ns(std::uint64_t start_ns, std::uint64_t end_ns) {
     return static_cast<double>(end_ns - start_ns) / 1'000'000.0;
 }
 
+double elapsed_ms_or_invalid(std::uint64_t start_ns, std::uint64_t end_ns) {
+    if (start_ns == 0 || end_ns <= start_ns) return -1.0;
+    return static_cast<double>(end_ns - start_ns) / 1'000'000.0;
+}
+
 const char* safe_c_string(const char* value, const char* fallback) {
     if (value == nullptr || value[0] == '\0') {
         return fallback;
@@ -440,6 +445,12 @@ RuntimeLoop::RuntimeLoop(
     unsigned int max_ticks)
     : config_(std::move(config)),
       perf_logger_(gamepad_perf_log_enabled(perf_log)),
+      perf_summary_logger_(PerfSummaryOptions{
+          config_.performance.enabled,
+          config_.performance.interval_ms,
+          std::filesystem::path(config_.performance.directory),
+          config_.performance.stdout_enabled,
+          config_.vision.cuda_submit_phase_us}),
       log_session_manager_(log_session_options_from(config_)),
       telemetry_(telemetry_options_from(config_, log_session_manager_.session_directory())),
       telemetry_collectors_(
@@ -499,7 +510,9 @@ RuntimeLoop::RuntimeLoop(
         config_.vision.color_readback_mode,
         config_.vision.tensor_width,
         config_.vision.tensor_height,
-        config_.vision.require_isotropic_resize);
+        config_.vision.require_isotropic_resize,
+        config_.vision.ego_motion_enabled,
+        config_.vision.cuda_submit_phase_us);
     std::cout << "[VisionGeometry][CPP]"
               << " capture=" << vision_engine->width() << 'x' << vision_engine->height()
               << " tensor=" << vision_engine->tensor_width() << 'x'
@@ -507,6 +520,8 @@ RuntimeLoop::RuntimeLoop(
               << " scale=" << vision_engine->resize_scale_x() << 'x'
               << vision_engine->resize_scale_y()
               << " isotropic=" << (vision_engine->resize_isotropic() ? 1 : 0)
+              << " ego_motion=" << (vision_engine->ego_motion_enabled() ? "shadow" : "off")
+              << " cuda_submit_phase_us=" << vision_engine->cuda_submit_phase_us()
               << '\n';
     const ViewportRequest initial_viewport = viewport_controller_.current();
     vision_engine->set_viewport(
@@ -582,6 +597,7 @@ int RuntimeLoop::run() {
     if (vision_service_ != nullptr) {
         vision_service_->stop();
     }
+    perf_summary_logger_.stop();
     telemetry_collectors_.shutdown(steady_time_point_ns(std::chrono::steady_clock::now()));
     telemetry_.stop();
     log_session_manager_.close();
@@ -786,6 +802,85 @@ void RuntimeLoop::run_once() {
         !config_.output.enabled || output_result.delivered,
         config_.output.enabled,
         steady_time_seconds(vigem_update_finished).value);
+    if (perf_summary_logger_.enabled()) {
+        const std::uint64_t output_sent_ns = steady_time_point_ns(vigem_update_finished);
+        PerfControllerWindowSample controller_sample;
+        controller_sample.timestamp_ns = output_sent_ns;
+        controller_sample.aiming = aiming;
+        controller_sample.output_delivered =
+            !config_.output.enabled || output_result.delivered;
+        controller_sample.tick_ms = std::chrono::duration<double, std::milli>(
+            vigem_update_finished - tick_started).count();
+        controller_sample.pipeline_ms = std::chrono::duration<double, std::milli>(
+            vigem_update_started - controller_pipeline_started).count();
+        controller_sample.vigem_ms = std::chrono::duration<double, std::milli>(
+            vigem_update_finished - vigem_update_started).count();
+        perf_summary_logger_.record_controller(controller_sample);
+
+        if (telemetry_new_vision && latest_vision_result_.frame_updated) {
+            const auto& result = latest_vision_result_;
+            const std::uint64_t capture_copy_complete_ns =
+                result.capture_copy_complete_ns != 0
+                ? result.capture_copy_complete_ns : result.captured_at_ns;
+            PerfVisionWindowSample vision_sample;
+            vision_sample.aiming = aiming;
+            vision_sample.cuda_submit_wait_applied =
+                result.cuda_submit_wait_applied;
+            vision_sample.accumulated_frames = result.accumulated_frames;
+            vision_sample.capture_to_result_ms = elapsed_ms_or_invalid(
+                result.capture_acquire_begin_ns, result.result_at_ns);
+            vision_sample.copy_to_result_ms = elapsed_ms_or_invalid(
+                capture_copy_complete_ns, result.result_at_ns);
+            vision_sample.source_present_to_result_ms =
+                result.source_present_steady_available
+                ? elapsed_ms_or_invalid(
+                      result.source_present_steady_ns, result.result_at_ns)
+                : -1.0;
+            vision_sample.result_to_controller_ms = elapsed_ms_or_invalid(
+                result.result_at_ns, latest_controller_consume_started_ns_);
+            vision_sample.source_present_to_vigem_ms =
+                result.source_present_steady_available
+                ? elapsed_ms_or_invalid(result.source_present_steady_ns, output_sent_ns)
+                : -1.0;
+            vision_sample.source_present_to_cuda_submit_ms =
+                result.source_present_steady_available
+                ? elapsed_ms_or_invalid(
+                      result.source_present_steady_ns,
+                      result.cuda_submit_begin_ns)
+                : -1.0;
+            vision_sample.copy_to_cuda_submit_ms = elapsed_ms_or_invalid(
+                capture_copy_complete_ns, result.cuda_submit_begin_ns);
+            vision_sample.cuda_submit_wait_ms = result.cuda_submit_wait_ms;
+            vision_sample.cuda_submit_phase_late_ms =
+                vision_sample.source_present_to_cuda_submit_ms >= 0.0
+                ? std::max(
+                      0.0,
+                      vision_sample.source_present_to_cuda_submit_ms -
+                          static_cast<double>(result.cuda_submit_phase_us) /
+                              1000.0)
+                : -1.0;
+            vision_sample.cuda_map_ms = result.cuda_map_ms;
+            vision_sample.preprocess_ms = result.preprocess_ms;
+            vision_sample.infer_ms = result.infer_ms;
+            vision_sample.gpu_total_ms = result.gpu_total_ms;
+            vision_sample.output_copy_sync_ms = result.output_copy_sync_ms;
+            vision_sample.output_copy_ms = result.output_copy_ms;
+            vision_sample.output_wait_ms = result.output_wait_ms;
+            vision_sample.sync_queue_residual_ms = std::max(
+                0.0,
+                static_cast<double>(result.output_wait_ms) -
+                    static_cast<double>(result.gpu_total_ms));
+            vision_sample.color_copy_ms = result.color_copy_required
+                ? result.color_copy_ms : -1.0;
+            vision_sample.cuda_unmap_ms = result.cuda_unmap_ms;
+            vision_sample.ego_stage_ms = result.ego_motion_stage_ms > 0.0f
+                ? result.ego_motion_stage_ms : -1.0;
+            vision_sample.ego_compute_ms = result.ego_motion_shadow.available &&
+                    result.ego_motion_shadow.compute_ms > 0.0f
+                ? result.ego_motion_shadow.compute_ms : -1.0;
+            perf_summary_logger_.record_vision(vision_sample);
+        }
+    }
     ++tick_count_;
     if (telemetry_new_vision) {
         const auto& trace = controller_.last_acquisition_trace();

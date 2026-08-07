@@ -165,6 +165,12 @@ void apply_runtime_vision_value(
     } else if (key == "gpu_service_repeat_last_on_no_update") {
         config.gpu_service_repeat_last_on_no_update =
             parse_bool_value(value, config.gpu_service_repeat_last_on_no_update);
+    } else if (key == "cuda_submit_phase_us") {
+        config.cuda_submit_phase_us =
+            parse_uint_value(value, config.cuda_submit_phase_us);
+    } else if (key == "ego_motion_enabled") {
+        config.ego_motion_enabled =
+            parse_bool_value(value, config.ego_motion_enabled);
     } else if (key == "fusion_enabled") {
         config.fusion_enabled = parse_bool_value(value, config.fusion_enabled);
     } else if (key == "fusion_session") {
@@ -189,11 +195,15 @@ bool is_known_key(const std::string& section, const std::string& key) {
         "aim_perf_log_dir", "aim_perf_log_interval_ticks", "gpu_service_enabled",
         "gpu_service_active_fps", "gpu_service_idle_fps",
         "gpu_service_keepwarm_when_idle", "gpu_service_repeat_last_on_no_update",
+        "cuda_submit_phase_us",
+        "ego_motion_enabled",
         "fusion_enabled", "fusion_session", "fusion_show_all_detections"};
     static const std::unordered_set<std::string> telemetry_keys{
         "enabled", "mode", "manual_controller_hz", "vision_on_new_frame",
         "candidate_details", "queue_capacity", "rotate_size_mb", "max_files",
         "event_pre_ms", "event_post_ms"};
+    static const std::unordered_set<std::string> performance_keys{
+        "enabled", "interval_ms", "directory", "stdout_enabled"};
     static const std::unordered_set<std::string> control_learning_keys{
         "enabled", "mode", "telemetry_enabled"};
     static const std::unordered_set<std::string> scheduler_keys{
@@ -275,6 +285,7 @@ bool is_known_key(const std::string& section, const std::string& key) {
     if (section == "runtime") return runtime_keys.count(key) != 0;
     if (section == "runtime.vision") return vision_keys.count(key) != 0;
     if (section == "runtime.telemetry") return telemetry_keys.count(key) != 0;
+    if (section == "runtime.performance") return performance_keys.count(key) != 0;
     if (section == "runtime.control_learning")
         return control_learning_keys.count(key) != 0;
     if (section == "runtime.scheduler") return scheduler_keys.count(key) != 0;
@@ -805,6 +816,12 @@ void apply_vision_environment_overrides(VisionRuntimeConfig& config) {
                 parse_bool_value(repeat, config.gpu_service_repeat_last_on_no_update);
         }
     }
+    if (const char* phase = std::getenv("VISION_CUDA_SUBMIT_PHASE_US")) {
+        if (phase[0] != '\0') {
+            config.cuda_submit_phase_us =
+                parse_uint_value(phase, config.cuda_submit_phase_us);
+        }
+    }
     // fusion channel env overrides
     if (const char* fusion_enabled = std::getenv("FUSION_ENABLED")) {
         if (fusion_enabled[0] != '\0') {
@@ -860,6 +877,18 @@ void apply_value(
             config.telemetry.event_pre_ms = parse_uint_value(value, config.telemetry.event_pre_ms);
         } else if (key == "event_post_ms") {
             config.telemetry.event_post_ms = parse_uint_value(value, config.telemetry.event_post_ms);
+        }
+    } else if (section == "runtime.performance") {
+        if (key == "enabled") {
+            config.performance.enabled = parse_bool_value(value, config.performance.enabled);
+        } else if (key == "interval_ms") {
+            config.performance.interval_ms = parse_uint_value(
+                value, config.performance.interval_ms);
+        } else if (key == "directory") {
+            config.performance.directory = parse_string_value(value);
+        } else if (key == "stdout_enabled") {
+            config.performance.stdout_enabled = parse_bool_value(
+                value, config.performance.stdout_enabled);
         }
     } else if (section == "runtime.control_learning") {
         if (key == "enabled") {
@@ -1050,6 +1079,7 @@ void mark_environment_sources(RuntimeConfig& config) {
     mark("VISION_GPU_SERVICE_IDLE_FPS", "runtime.vision.gpu_service_idle_fps");
     mark("VISION_GPU_SERVICE_KEEPWARM_WHEN_IDLE", "runtime.vision.gpu_service_keepwarm_when_idle");
     mark("VISION_GPU_SERVICE_REPEAT_LAST_ON_NO_UPDATE", "runtime.vision.gpu_service_repeat_last_on_no_update");
+    mark("VISION_CUDA_SUBMIT_PHASE_US", "runtime.vision.cuda_submit_phase_us");
     mark("GAMEPAD_XINPUT_AUTO_DETECT", "runtime.gamepad.xinput_auto_detect");
     mark("GAMEPAD_XINPUT_USER_INDEX", "runtime.gamepad.xinput_user_index");
     mark("ENABLE_RECOIL_RUNTIME", "gamepad.recoil.enabled");
@@ -1139,6 +1169,8 @@ void validate_runtime_config(RuntimeConfig& config) {
     }
     if (config.vision.idle_capture_fps < 1 || config.vision.idle_capture_fps > 240)
         invalid("runtime.vision.idle_capture_fps", "1..240");
+    if (config.vision.cuda_submit_phase_us > 5000)
+        invalid("runtime.vision.cuda_submit_phase_us", "0..5000");
     if (config.vision.color_readback_mode != "pageable" && config.vision.color_readback_mode != "pinned")
         invalid("runtime.vision.color_readback_mode", "pageable|pinned");
     if (config.telemetry.mode != "debug" && config.telemetry.mode != "profile")
@@ -1147,6 +1179,10 @@ void validate_runtime_config(RuntimeConfig& config) {
         config.control_learning.mode = ControlLearningMode::Disabled;
     if (config.telemetry.manual_controller_hz < 1 || config.telemetry.manual_controller_hz > 1000)
         invalid("runtime.telemetry.manual_controller_hz", "1..1000");
+    if (config.performance.interval_ms < 1000 || config.performance.interval_ms > 60000)
+        invalid("runtime.performance.interval_ms", "1000..60000");
+    if (config.performance.directory.empty())
+        invalid("runtime.performance.directory", "non-empty path");
     if (config.scheduler.controller_tick_hz < 100 || config.scheduler.controller_tick_hz > 2000)
         invalid("runtime.scheduler.controller_tick_hz", "100..2000");
     if (config.scheduler.mode != "legacy" && config.scheduler.mode != "precision")

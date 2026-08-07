@@ -10,11 +10,13 @@
 
 #include <chrono>
 #include <algorithm>
+#include <array>
 #include <cstdlib>
 #include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <utility>
 
 namespace vision_native {
@@ -36,6 +38,85 @@ uint64_t now_ns() {
 
 float ns_to_ms(uint64_t delta_ns) {
     return static_cast<float>(delta_ns) / 1'000'000.0f;
+}
+
+constexpr std::uint64_t kCudaSubmitSpinTailNs = 50'000;
+constexpr std::uint64_t kMaxCudaSubmitPhaseWaitNs = 5'000'000;
+
+class PreciseCudaSubmitWaiter {
+public:
+    PreciseCudaSubmitWaiter() {
+#ifdef _WIN32
+        constexpr DWORD kCreateWaitableTimerHighResolution = 0x00000002;
+        timer_ = CreateWaitableTimerExW(
+            nullptr,
+            nullptr,
+            kCreateWaitableTimerHighResolution,
+            TIMER_MODIFY_STATE | SYNCHRONIZE);
+#endif
+    }
+
+    ~PreciseCudaSubmitWaiter() {
+#ifdef _WIN32
+        if (timer_ != nullptr) CloseHandle(timer_);
+#endif
+    }
+
+    void wait_until(std::uint64_t deadline_ns) noexcept {
+        for (;;) {
+            const std::uint64_t current_ns = now_ns();
+            if (current_ns >= deadline_ns) return;
+            const std::uint64_t remaining_ns = deadline_ns - current_ns;
+#ifdef _WIN32
+            if (timer_ != nullptr && remaining_ns > kCudaSubmitSpinTailNs) {
+                const std::uint64_t coarse_ns = remaining_ns - kCudaSubmitSpinTailNs;
+                LARGE_INTEGER due{};
+                due.QuadPart = -static_cast<LONGLONG>(
+                    std::max<std::uint64_t>(1, coarse_ns / 100));
+                if (SetWaitableTimerEx(
+                        timer_, &due, 0, nullptr, nullptr, nullptr, 0) != 0 &&
+                    WaitForSingleObject(timer_, INFINITE) == WAIT_OBJECT_0) {
+                    continue;
+                }
+                CloseHandle(timer_);
+                timer_ = nullptr;
+            }
+#endif
+            // Portable fallback. Keep at most the final millisecond active so
+            // a phase scan does not become a full-core busy wait.
+            if (remaining_ns > 1'000'000) {
+                std::this_thread::sleep_for(
+                    std::chrono::nanoseconds(remaining_ns - 1'000'000));
+            } else {
+                std::this_thread::yield();
+            }
+        }
+    }
+
+private:
+#ifdef _WIN32
+    HANDLE timer_ = nullptr;
+#endif
+};
+
+bool wait_for_cuda_submit_phase(
+    std::uint64_t source_present_steady_ns,
+    bool source_present_steady_available,
+    unsigned int target_phase_us) noexcept {
+    if (!source_present_steady_available || source_present_steady_ns == 0 ||
+        target_phase_us == 0) {
+        return false;
+    }
+    const std::uint64_t current_ns = now_ns();
+    const std::uint64_t deadline_ns = source_present_steady_ns +
+        static_cast<std::uint64_t>(target_phase_us) * 1000ull;
+    if (deadline_ns <= current_ns ||
+        deadline_ns - current_ns > kMaxCudaSubmitPhaseWaitNs) {
+        return false;
+    }
+    static thread_local PreciseCudaSubmitWaiter waiter;
+    waiter.wait_until(deadline_ns);
+    return true;
 }
 
 const char* viewport_level_name(int level) {
@@ -97,14 +178,17 @@ VisionEngine::VisionEngine(
     std::string color_readback_mode,
     int expected_tensor_width,
     int expected_tensor_height,
-    bool require_isotropic_resize)
+    bool require_isotropic_resize,
+    bool ego_motion_enabled,
+    unsigned int cuda_submit_phase_us)
     : capture_(width, height, adapter_index, output_index, timeout_ms),
       selector_(width, height),
       host_color_frame_(std::make_unique<ColorReadbackBuffer>(color_readback_mode == "pinned")),
       width_(width),
       height_(height),
       active_viewport_width_(width),
-      active_viewport_height_(height) {
+      active_viewport_height_(height),
+      cuda_submit_phase_us_(cuda_submit_phase_us) {
     requested_viewport_width_.store(width, std::memory_order_relaxed);
     requested_viewport_height_.store(height, std::memory_order_relaxed);
     auto* d3d_device = static_cast<ID3D11Device*>(capture_.d3d11_device());
@@ -156,13 +240,26 @@ VisionEngine::VisionEngine(
             cudaGraphicsRegisterFlagsNone),
         "cudaGraphicsD3D11RegisterResource");
     graphics_resource_ = graphics_resource;
-    const cudaError_t ego_alloc_status = cudaMalloc(
-        reinterpret_cast<void**>(&device_ego_gray_), kEgoMotionPixelCount);
-    if (ego_alloc_status == cudaSuccess) {
-        ego_motion_staging_available_ = true;
-    } else {
-        (void)cudaGetLastError();
-        device_ego_gray_ = nullptr;
+    if (ego_motion_enabled) {
+        std::unique_ptr<EgoMotionObserver> observer;
+        try {
+            host_ego_gray_.resize(kEgoMotionPixelCount);
+            observer = std::make_unique<EgoMotionObserver>();
+        } catch (...) {
+            cudaGraphicsUnregisterResource(graphics_resource);
+            graphics_resource_ = nullptr;
+            throw;
+        }
+        const cudaError_t ego_alloc_status = cudaMalloc(
+            reinterpret_cast<void**>(&device_ego_gray_), kEgoMotionPixelCount);
+        if (ego_alloc_status == cudaSuccess) {
+            ego_motion_observer_ = std::move(observer);
+            ego_motion_staging_available_ = true;
+        } else {
+            (void)cudaGetLastError();
+            device_ego_gray_ = nullptr;
+            host_ego_gray_.clear();
+        }
     }
 }
 
@@ -183,7 +280,7 @@ void VisionEngine::set_aiming(bool aiming) {
     if (!aiming) {
         selector_.reset();
         enhancer_.reset();
-        ego_motion_observer_.reset();
+        if (ego_motion_observer_ != nullptr) ego_motion_observer_->reset();
         user_aim_intent_ = pipeline_contract::UserAimIntent{};
         external_cue_found_ = false;
         external_cue_x_ = 0.0f;
@@ -236,7 +333,7 @@ void VisionEngine::reset() {
     aiming_.store(false, std::memory_order_relaxed);
     selector_.reset();
     enhancer_.reset();
-    ego_motion_observer_.reset();
+    if (ego_motion_observer_ != nullptr) ego_motion_observer_->reset();
     user_aim_intent_ = pipeline_contract::UserAimIntent{};
     external_cue_found_ = false;
     external_cue_x_ = 0.0f;
@@ -317,7 +414,8 @@ VisionResult VisionEngine::poll_once() {
     result.target_x = result.screen_center_x;
     result.target_y = result.screen_center_y;
     EgoMotionShadowResult completed_shadow;
-    if (ego_motion_observer_.take_latest_result(&completed_shadow)) {
+    if (ego_motion_observer_ != nullptr &&
+        ego_motion_observer_->take_latest_result(&completed_shadow)) {
         result.ego_motion_shadow = completed_shadow;
     }
 
@@ -337,7 +435,7 @@ VisionResult VisionEngine::poll_once() {
 
     bool mapped = false;
     try {
-        const uint64_t map_start = now_ns();
+        const std::uint64_t map_start = now_ns();
         check_cuda(cudaGraphicsMapResources(1, &graphics_resource, nullptr), "cudaGraphicsMapResources");
         mapped = true;
 
@@ -345,7 +443,22 @@ VisionResult VisionEngine::poll_once() {
         check_cuda(
             cudaGraphicsSubResourceGetMappedArray(&frame_array, graphics_resource, 0, 0),
             "cudaGraphicsSubResourceGetMappedArray");
-        result.cuda_map_ms = ns_to_ms(now_ns() - map_start);
+        const std::uint64_t map_complete_ns = now_ns();
+        result.cuda_map_ms = ns_to_ms(map_complete_ns - map_start);
+
+        bool submit_wait_applied = false;
+        if (cuda_submit_phase_us_ > 0) {
+            submit_wait_applied = wait_for_cuda_submit_phase(
+                metadata.source_present_steady_ns,
+                metadata.source_present_steady_available,
+                cuda_submit_phase_us_);
+        }
+        result.cuda_submit_begin_ns = submit_wait_applied
+            ? now_ns() : map_complete_ns;
+        result.cuda_submit_phase_us = cuda_submit_phase_us_;
+        result.cuda_submit_wait_applied = submit_wait_applied;
+        result.cuda_submit_wait_ms = submit_wait_applied
+            ? ns_to_ms(result.cuda_submit_begin_ns - map_complete_ns) : 0.0f;
 
         DetectionBatch batch = engine_->infer_bgra_array_roi(
             frame_array,
@@ -391,7 +504,8 @@ VisionResult VisionEngine::poll_once() {
         // Stage only a small grayscale image while the D3D resource is
         // mapped. This is shadow input; no controller/tracker code consumes
         // it and a staging failure simply disables this frame's shadow pair.
-        if (ego_motion_staging_available_ && device_ego_gray_ != nullptr) {
+        if (ego_motion_observer_ != nullptr && ego_motion_staging_available_ &&
+            device_ego_gray_ != nullptr) {
             const auto ego_stage_start = now_ns();
             const cudaTextureObject_t ego_texture = launch_bgra_array_to_gray_u8(
                 frame_array,
@@ -456,7 +570,7 @@ VisionResult VisionEngine::poll_once() {
                 ego_frame.gray = host_ego_gray_.data();
                 ego_frame.masks = masks.data();
                 ego_frame.mask_count = mask_count;
-                (void)ego_motion_observer_.submit_frame(ego_frame);
+                (void)ego_motion_observer_->submit_frame(ego_frame);
             } else {
                 (void)cudaGetLastError();
             }
@@ -619,7 +733,8 @@ VisionResult VisionEngine::poll_once() {
         }
 
         result.result_at_ns = now_ns();
-        if (ego_motion_observer_.take_latest_result(&completed_shadow)) {
+        if (ego_motion_observer_ != nullptr &&
+            ego_motion_observer_->take_latest_result(&completed_shadow)) {
             result.ego_motion_shadow = completed_shadow;
         }
         result.post_ms = batch.decode_ms + ns_to_ms(result.result_at_ns - post_start);
@@ -661,6 +776,15 @@ float VisionEngine::resize_scale_y() const {
 
 bool VisionEngine::resize_isotropic() const {
     return resize_contract_.isotropic;
+}
+
+bool VisionEngine::ego_motion_enabled() const {
+    return ego_motion_observer_ != nullptr && ego_motion_staging_available_ &&
+        device_ego_gray_ != nullptr;
+}
+
+unsigned int VisionEngine::cuda_submit_phase_us() const {
+    return cuda_submit_phase_us_;
 }
 
 } // namespace vision_native

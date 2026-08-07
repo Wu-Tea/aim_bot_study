@@ -91,7 +91,55 @@ See [Target-count-aware manual exit authority](../../.agent-context/decisions/DE
 
 ## Telemetry and Runtime Evidence
 
-Structured JSONL telemetry is controlled by:
+Normal runtime performance measurement now uses a separate lightweight window
+summary. It keeps fixed counters and 0.25 ms histograms on the controller thread;
+JSON serialization, file I/O and console output happen on a bounded background
+writer. Enable it with detailed telemetry left off:
+
+```toml
+[runtime.performance]
+enabled = true
+interval_ms = 5000
+directory = "runs/perf_summary"
+stdout_enabled = true
+
+[runtime.telemetry]
+enabled = false
+```
+
+Each five-second JSONL record reports measured controller/output/Vision rates,
+active and idle Vision rates, separately labelled active/idle accumulated-frame
+pressure, and count/mean/P50/P95/
+P99/max for controller, capture/result, present/result, result/controller and
+present/ViGEm latency. It also separates synchronous `ego_stage` from asynchronous
+`ego_compute`, so W3's Vision-thread staging cost is no longer hidden inside the
+whole pipeline. Files are written to `runs/perf_summary/runtime_perf_summary_*.jsonl`.
+The queue is capped at eight windows and reports cumulative writer drops instead
+of blocking the controller.
+
+The online W3 ego-motion observer is research-only and defaults to a resource-level
+off state:
+
+```toml
+[runtime.vision]
+ego_motion_enabled = false
+```
+
+When off, `VisionEngine` does not allocate its grayscale host/device staging
+buffers, create the CPU matcher worker, launch grayscale conversion, perform D2H
+readback, or synchronize the TensorRT CUDA stream. W5 short-term memory must use
+timestamped final-output history, an identified response model and fresh-Vision
+reconciliation; it must not depend on online optical flow. The switch may be
+enabled only for explicit calibration/shadow experiments.
+
+Release verification measured about `30 ns` amortized per controller tick while
+also recording one Vision sample per six ticks. A summary record is constrained by
+test to less than 4 KiB, so the five-second setting has a worst-case upper bound
+below 3 MiB/hour. This is the default tool for honest throughput/latency A/B runs.
+
+The structured per-event JSONL telemetry below remains the high-volume diagnostic
+tool for causal control investigations and should only be enabled for a targeted
+capture:
 
 ```toml
 [runtime.telemetry]
