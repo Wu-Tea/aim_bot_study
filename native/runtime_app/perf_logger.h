@@ -61,6 +61,8 @@ struct PerfControllerWindowSample {
 struct PerfVisionWindowSample {
     bool aiming = false;
     bool cuda_submit_wait_applied = false;
+    bool cuda_submit_cycle_wrapped = false;
+    bool cuda_submit_target_reached = true;
     std::uint32_t cuda_submit_target_phase_us = 0;
     std::uint32_t cuda_submit_estimated_period_us = 0;
     std::uint32_t cuda_submit_held_phase_us = 0;
@@ -69,12 +71,20 @@ struct PerfVisionWindowSample {
     std::uint8_t cuda_submit_adaptive_reason = 0;
     bool cuda_submit_cadence_stable = false;
     std::uint32_t accumulated_frames = 1;
+    std::uint64_t source_present_steady_ns = 0;
+    std::uint64_t gpu_complete_at_ns = 0;
+    std::uint64_t source_present_qpc = 0;
+    std::uint64_t source_present_qpc_frequency = 0;
+    std::uint64_t gpu_complete_qpc = 0;
     double capture_to_result_ms = -1.0;
     double copy_to_result_ms = -1.0;
     double source_present_to_result_ms = -1.0;
     double result_to_controller_ms = -1.0;
     double source_present_to_vigem_ms = -1.0;
+    double source_present_to_cuda_map_begin_ms = -1.0;
+    double source_present_to_cuda_map_complete_ms = -1.0;
     double source_present_to_cuda_submit_ms = -1.0;
+    double source_present_to_gpu_complete_ms = -1.0;
     double copy_to_cuda_submit_ms = -1.0;
     double cuda_submit_wait_ms = -1.0;
     double cuda_submit_phase_late_ms = -1.0;

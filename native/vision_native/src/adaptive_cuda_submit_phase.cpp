@@ -25,6 +25,7 @@ constexpr std::uint32_t kDefaultIdleResetAfterUs = 250'000;
 constexpr std::uint32_t kDefaultHeldReprobeAfterBlocks = 100;
 constexpr std::uint32_t kDefaultCadenceTolerancePercent = 10;
 constexpr std::uint32_t kDefaultCadenceChangePercent = 15;
+constexpr std::uint32_t kCadenceInlierPercent = 75;
 constexpr float kDefaultResidualWeight = 0.50f;
 constexpr float kDefaultTailWeight = 0.25f;
 // Milliseconds charged per frame accumulated beyond the first.  The cap
@@ -126,7 +127,11 @@ void AdaptiveCudaSubmitPhaseController::CadenceState::clear() noexcept {
     count = 0;
     next = 0;
     last_source_present_ns = 0;
+    last_source_present_qpc = 0;
+    source_present_qpc_frequency = 0;
     estimated_period_us = 0;
+    safe_period_us = 0;
+    stable_reference_period_us = 0;
     stable = false;
 }
 
@@ -268,10 +273,28 @@ bool AdaptiveCudaSubmitPhaseController::update_observation_identity(
     return update_identity(frame);
 }
 
+void AdaptiveCudaSubmitPhaseController::rebase_cadence(
+    const FrameContext& frame) noexcept {
+    if (frame.source_present_steady_available &&
+        frame.source_present_steady_ns != 0) {
+        cadence_.last_source_present_ns = frame.source_present_steady_ns;
+    }
+    if (frame.source_present_qpc_available &&
+        frame.source_present_qpc != 0 &&
+        frame.source_present_qpc_frequency != 0) {
+        cadence_.last_source_present_qpc = frame.source_present_qpc;
+        cadence_.source_present_qpc_frequency =
+            frame.source_present_qpc_frequency;
+    } else {
+        cadence_.last_source_present_qpc = 0;
+        cadence_.source_present_qpc_frequency = 0;
+    }
+}
+
 bool AdaptiveCudaSubmitPhaseController::update_cadence(
-    std::uint64_t source_present_ns,
-    std::uint32_t accumulated_frames,
+    const FrameContext& frame,
     DecisionReason* failure_reason) noexcept {
+    const std::uint64_t source_present_ns = frame.source_present_steady_ns;
     if (source_present_ns == 0) {
         if (failure_reason != nullptr) *failure_reason = DecisionReason::InvalidSourceTimestamp;
         cadence_.clear();
@@ -279,27 +302,62 @@ bool AdaptiveCudaSubmitPhaseController::update_cadence(
         return false;
     }
     if (cadence_.last_source_present_ns != 0) {
-        if (source_present_ns <= cadence_.last_source_present_ns) {
+        const bool qpc_interval_available =
+            frame.source_present_qpc_available &&
+            frame.source_present_qpc != 0 &&
+            frame.source_present_qpc_frequency != 0 &&
+            cadence_.last_source_present_qpc != 0 &&
+            cadence_.source_present_qpc_frequency ==
+                frame.source_present_qpc_frequency;
+        if ((!qpc_interval_available &&
+             source_present_ns <= cadence_.last_source_present_ns) ||
+            (qpc_interval_available &&
+             frame.source_present_qpc <= cadence_.last_source_present_qpc)) {
             if (failure_reason != nullptr) *failure_reason = DecisionReason::InvalidSourceTimestamp;
             cadence_.clear();
-            cadence_.last_source_present_ns = source_present_ns;
+            rebase_cadence(frame);
             clear_adaptation(ResetReason::InvalidObservation);
             return false;
         }
-        const std::uint64_t delta_ns = source_present_ns - cadence_.last_source_present_ns;
         const std::uint64_t source_frames = std::max<std::uint64_t>(
-            1, static_cast<std::uint64_t>(accumulated_frames));
-        const std::uint64_t divisor = source_frames * 1000ull;
+            1, static_cast<std::uint64_t>(frame.accumulated_frames));
+        std::uint64_t delta_us = 0;
+        if (qpc_interval_available) {
+            const std::uint64_t delta_qpc =
+                frame.source_present_qpc - cadence_.last_source_present_qpc;
+            const long double normalized_us =
+                static_cast<long double>(delta_qpc) * 1'000'000.0L /
+                (static_cast<long double>(frame.source_present_qpc_frequency) *
+                 static_cast<long double>(source_frames));
+            if (!std::isfinite(normalized_us) || normalized_us <= 0.0L ||
+                normalized_us >
+                    static_cast<long double>(
+                        std::numeric_limits<std::uint64_t>::max())) {
+                if (failure_reason != nullptr) {
+                    *failure_reason = DecisionReason::InvalidSourceTimestamp;
+                }
+                cadence_.clear();
+                rebase_cadence(frame);
+                clear_adaptation(ResetReason::InvalidObservation);
+                return false;
+            }
+            delta_us = static_cast<std::uint64_t>(
+                std::llround(normalized_us));
+        } else {
+            const std::uint64_t delta_ns =
+                source_present_ns - cadence_.last_source_present_ns;
+            const std::uint64_t divisor = source_frames * 1000ull;
+            delta_us = (delta_ns + divisor / 2ull) / divisor;
+        }
         // LastPresentTime advances to the newest source present while DXGI's
         // AccumulatedFrames reports how many presents contributed to that
         // delta.  Measure the underlying game cadence, not the slower cadence
         // at which this consumer happened to acquire frames.
-        const std::uint64_t delta_us = (delta_ns + divisor / 2ull) / divisor;
         if (delta_us < config_.min_source_period_us ||
             delta_us > config_.max_source_period_us) {
             if (failure_reason != nullptr) *failure_reason = DecisionReason::UnstableCadence;
             cadence_.clear();
-            cadence_.last_source_present_ns = source_present_ns;
+            rebase_cadence(frame);
             clear_adaptation(ResetReason::CadenceChanged);
             return false;
         }
@@ -310,54 +368,71 @@ bool AdaptiveCudaSubmitPhaseController::update_cadence(
             static_cast<std::uint8_t>(cadence_.count + 1),
             static_cast<std::uint8_t>(kCadenceWindowSize));
     }
-    cadence_.last_source_present_ns = source_present_ns;
+    rebase_cadence(frame);
     if (cadence_.count < config_.min_cadence_samples) {
         cadence_.stable = false;
         cadence_.estimated_period_us = 0;
+        cadence_.safe_period_us = 0;
         if (failure_reason != nullptr) *failure_reason = DecisionReason::InsufficientCadence;
         return false;
     }
 
-    const std::uint32_t old_period = cadence_.estimated_period_us;
     const std::uint32_t period = median_period_us(cadence_.intervals_us, cadence_.count);
     const std::uint32_t tolerance = std::max(
         kMinCadenceToleranceUs,
         period * config_.cadence_tolerance_percent / 100u);
-    std::uint32_t min_interval = std::numeric_limits<std::uint32_t>::max();
-    std::uint32_t max_interval = 0;
+    std::uint8_t inlier_count = 0;
     for (std::uint8_t i = 0; i < cadence_.count; ++i) {
-        min_interval = std::min(min_interval, cadence_.intervals_us[i]);
-        max_interval = std::max(max_interval, cadence_.intervals_us[i]);
+        const std::uint32_t interval = cadence_.intervals_us[i];
+        const std::uint32_t deviation = interval > period
+            ? interval - period : period - interval;
+        if (deviation <= tolerance) ++inlier_count;
     }
+    const std::uint8_t required_inliers = static_cast<std::uint8_t>(
+        (static_cast<std::uint32_t>(cadence_.count) *
+             kCadenceInlierPercent +
+         99u) /
+        100u);
+    cadence_.estimated_period_us = period;
+    cadence_.safe_period_us = period > tolerance
+        ? std::max(config_.min_source_period_us, period - tolerance)
+        : config_.min_source_period_us;
+    cadence_.stable = inlier_count >= required_inliers;
+    if (!cadence_.stable) {
+        // A transient miss or uneven Present interval is a reason to use the
+        // natural submit for this frame, not to erase every completed
+        // candidate block.  A new stable cadence below performs the one
+        // bounded regime reset.
+        if (failure_reason != nullptr) {
+            *failure_reason = DecisionReason::UnstableCadence;
+        }
+        return false;
+    }
+
+    const std::uint32_t old_period = cadence_.stable_reference_period_us;
     if (old_period != 0) {
         const std::uint32_t change_limit = std::max(
             kMinCadenceChangeUs,
             old_period * config_.cadence_change_percent / 100u);
         if (period > old_period + change_limit ||
             old_period > period + change_limit) {
-            cadence_.clear();
-            cadence_.last_source_present_ns = source_present_ns;
+            cadence_.stable_reference_period_us = period;
             clear_adaptation(ResetReason::CadenceChanged);
             if (failure_reason != nullptr) *failure_reason = DecisionReason::CadenceChanged;
             return false;
         }
     }
-    cadence_.estimated_period_us = period;
-    cadence_.stable = max_interval - min_interval <= tolerance;
-    if (!cadence_.stable) {
-        clear_adaptation(ResetReason::CadenceChanged);
-        if (failure_reason != nullptr) *failure_reason = DecisionReason::UnstableCadence;
-        return false;
-    }
+    cadence_.stable_reference_period_us = period;
     return true;
 }
 
 std::uint32_t AdaptiveCudaSubmitPhaseController::maximum_safe_phase_us() const noexcept {
-    if (!cadence_.stable || cadence_.estimated_period_us <= config_.next_frame_guard_us) {
+    if (!cadence_.stable ||
+        cadence_.safe_period_us <= config_.next_frame_guard_us) {
         return 0;
     }
     return std::min<std::uint32_t>(
-        5000u, cadence_.estimated_period_us - config_.next_frame_guard_us);
+        5000u, cadence_.safe_period_us - config_.next_frame_guard_us);
 }
 
 std::uint32_t AdaptiveCudaSubmitPhaseController::effective_candidate_phase_us(
@@ -462,7 +537,7 @@ AdaptiveCudaSubmitPhaseController::recommend(const FrameContext& frame) noexcept
     if (!frame.active) {
         if (frame.source_present_steady_available &&
             frame.source_present_steady_ns != 0) {
-            cadence_.last_source_present_ns = frame.source_present_steady_ns;
+            rebase_cadence(frame);
             if (idle_since_source_present_ns_ == 0 ||
                 frame.source_present_steady_ns < idle_since_source_present_ns_) {
                 idle_since_source_present_ns_ = frame.source_present_steady_ns;
@@ -488,10 +563,7 @@ AdaptiveCudaSubmitPhaseController::recommend(const FrameContext& frame) noexcept
         return fallback(DecisionReason::MissingSourceTimestamp);
     }
     DecisionReason failure_reason = DecisionReason::NaturalFallback;
-    if (!update_cadence(
-            frame.source_present_steady_ns,
-            frame.accumulated_frames,
-            &failure_reason)) {
+    if (!update_cadence(frame, &failure_reason)) {
         return fallback(failure_reason);
     }
     if (maximum_safe_phase_us() == 0) return fallback(DecisionReason::NoPhaseRoom);
@@ -560,6 +632,14 @@ void AdaptiveCudaSubmitPhaseController::observe(
     // Inactive frames intentionally do not contribute timing samples.  This
     // preserves a partially completed block across short idle pulses.
     if (!observation.active) return;
+    // A transient cadence fallback must not be charged to candidate zero or
+    // advance a held/reprobe counter.  The next stable frame resumes the
+    // preserved candidate block.
+    if (!cadence_.stable) return;
+    if (observation.applied_phase_us > 0 &&
+        !observation.phase_target_reached) {
+        return;
+    }
     const float cost = objective_cost(observation, config_);
     if (!std::isfinite(cost)) {
         clear_adaptation(ResetReason::InvalidObservation);

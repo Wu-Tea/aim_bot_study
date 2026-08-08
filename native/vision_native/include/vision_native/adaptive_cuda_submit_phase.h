@@ -76,6 +76,12 @@ public:
     struct FrameContext {
         std::uint64_t source_present_steady_ns = 0;
         bool source_present_steady_available = false;
+        // Raw DXGI QPC values share one stable clock domain and avoid the
+        // per-frame QPC/steady calibration jitter that is acceptable for
+        // latency attribution but too noisy for a 5 ms cadence gate.
+        std::uint64_t source_present_qpc = 0;
+        std::uint64_t source_present_qpc_frequency = 0;
+        bool source_present_qpc_available = false;
         // Direct DXGI evidence for the interval ending at this present.  A
         // value above one means the capture skipped source presents; cadence
         // estimation normalizes the timestamp delta by this count.
@@ -94,6 +100,7 @@ public:
         std::uint64_t source_present_steady_ns = 0;
         bool source_present_steady_available = false;
         std::uint32_t applied_phase_us = 0;
+        bool phase_target_reached = true;
         float cuda_submit_wait_ms = 0.0f;
         float output_wait_ms = 0.0f;
         float sync_queue_residual_ms = 0.0f;
@@ -172,7 +179,11 @@ private:
         std::uint8_t count = 0;
         std::uint8_t next = 0;
         std::uint64_t last_source_present_ns = 0;
+        std::uint64_t last_source_present_qpc = 0;
+        std::uint64_t source_present_qpc_frequency = 0;
         std::uint32_t estimated_period_us = 0;
+        std::uint32_t safe_period_us = 0;
+        std::uint32_t stable_reference_period_us = 0;
         bool stable = false;
 
         void clear() noexcept;
@@ -202,9 +213,9 @@ private:
     bool update_identity(const FrameContext& frame) noexcept;
     bool update_observation_identity(const CompletedObservation& observation) noexcept;
     Decision fallback(DecisionReason reason) const noexcept;
-    bool update_cadence(std::uint64_t source_present_ns,
-        std::uint32_t accumulated_frames,
+    bool update_cadence(const FrameContext& frame,
         DecisionReason* failure_reason) noexcept;
+    void rebase_cadence(const FrameContext& frame) noexcept;
     std::uint32_t maximum_safe_phase_us() const noexcept;
     std::uint32_t effective_candidate_phase_us(std::uint8_t index) const noexcept;
     int candidate_index_for_phase(std::uint32_t phase_us) const noexcept;

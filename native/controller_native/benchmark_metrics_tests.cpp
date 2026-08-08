@@ -392,6 +392,8 @@ void test_lightweight_perf_summary_writes_one_compact_window() {
         runtime_app::PerfVisionWindowSample vision;
         vision.aiming = true;
         vision.cuda_submit_wait_applied = true;
+        vision.cuda_submit_cycle_wrapped = true;
+        vision.cuda_submit_target_reached = true;
         vision.cuda_submit_target_phase_us = 1000;
         vision.cuda_submit_estimated_period_us = 5000;
         vision.cuda_submit_held_phase_us = 0;
@@ -405,7 +407,10 @@ void test_lightweight_perf_summary_writes_one_compact_window() {
         vision.source_present_to_result_ms = 7.9;
         vision.result_to_controller_ms = 0.4;
         vision.source_present_to_vigem_ms = 8.4;
+        vision.source_present_to_cuda_map_begin_ms = 2.40;
+        vision.source_present_to_cuda_map_complete_ms = 2.55;
         vision.source_present_to_cuda_submit_ms = 2.8;
+        vision.source_present_to_gpu_complete_ms = 4.90;
         vision.copy_to_cuda_submit_ms = 0.72;
         vision.cuda_submit_wait_ms = 0.50;
         vision.cuda_submit_phase_late_ms = 2.05;
@@ -474,6 +479,14 @@ void test_lightweight_perf_summary_writes_one_compact_window() {
             std::string::npos,
         "perf summary should isolate target-phase application while aiming");
     require_true(
+        log.find("\"cuda_submit_cycle_wrapped_active_pct\":100.000") !=
+            std::string::npos,
+        "perf summary should identify targets wrapped into the next source cycle");
+    require_true(
+        log.find("\"cuda_submit_nonzero_target_reached_pct\":100.000") !=
+            std::string::npos,
+        "perf summary should distinguish requested phases from reached phases");
+    require_true(
         log.find("\"accumulated_gt1_pct\":100.000") != std::string::npos,
         "perf summary should report accumulated-frame pressure");
     require_true(
@@ -489,6 +502,18 @@ void test_lightweight_perf_summary_writes_one_compact_window() {
         log.find("\"source_present_to_cuda_submit\":{\"n\":1") !=
             std::string::npos,
         "perf summary should measure the actual CUDA submit phase");
+    require_true(
+        log.find("\"source_present_to_cuda_map_begin\":{\"n\":1") !=
+            std::string::npos,
+        "perf summary should expose the start of CUDA interop contention");
+    require_true(
+        log.find("\"source_present_to_cuda_map_complete\":{\"n\":1") !=
+            std::string::npos,
+        "perf summary should expose completion of CUDA interop mapping");
+    require_true(
+        log.find("\"source_present_to_gpu_complete\":{\"n\":1") !=
+            std::string::npos,
+        "perf summary should expose the GPU completion boundary");
     require_true(
         log.find("\"copy_to_cuda_submit\":{\"n\":1") != std::string::npos,
         "perf summary should expose capture-copy to CUDA submit time");
@@ -509,8 +534,66 @@ void test_lightweight_perf_summary_writes_one_compact_window() {
         log.find("\"ego_compute\":{\"n\":1") != std::string::npos,
         "perf summary should report asynchronous ego compute separately");
     require_true(
-        log.size() < 4096,
+        log.size() < 5120,
         "one performance window should remain a compact record");
+    std::filesystem::remove_all(root);
+}
+
+void test_perf_summary_pairs_gpu_completion_with_next_present() {
+    const std::filesystem::path root =
+        make_temp_test_dir("perf_summary_cuda_present_pair");
+    std::filesystem::path log_path;
+    {
+        runtime_app::PerfSummaryOptions options;
+        options.enabled = true;
+        options.interval_ms = 1000;
+        options.directory = root;
+        options.stdout_enabled = false;
+        runtime_app::PerfSummaryLogger logger(options);
+
+        runtime_app::PerfControllerWindowSample controller;
+        controller.timestamp_ns = 1'000'000'000ull;
+        logger.record_controller(controller);
+
+        runtime_app::PerfVisionWindowSample first;
+        first.accumulated_frames = 1;
+        first.source_present_steady_ns = 1'000'000'000ull;
+        first.gpu_complete_at_ns = 1'006'000'000ull;
+        first.source_present_qpc = 10'000'000ull;
+        first.source_present_qpc_frequency = 10'000'000ull;
+        first.gpu_complete_qpc = 10'060'000ull;
+        logger.record_vision(first);
+
+        runtime_app::PerfVisionWindowSample second = first;
+        second.source_present_steady_ns = 1'005'000'000ull;
+        second.gpu_complete_at_ns = 1'009'000'000ull;
+        second.source_present_qpc = 10'050'000ull;
+        second.gpu_complete_qpc = 10'090'000ull;
+        logger.record_vision(second);
+
+        controller.timestamp_ns = 2'100'000'000ull;
+        logger.record_controller(controller);
+        log_path = logger.log_path();
+        logger.stop();
+    }
+
+    const std::string log = read_text_file(log_path);
+    require_true(
+        log.find("\"cuda_direct_next_present_pairs\":1") !=
+            std::string::npos,
+        "perf summary should pair one GPU completion with the next direct present");
+    require_true(
+        log.find("\"cuda_gpu_cross_next_present_pct\":100.000") !=
+            std::string::npos,
+        "perf summary should report when GPU work crosses the next present");
+    require_true(
+        log.find("\"source_present_period_direct\":{\"n\":1,\"mean\":5.000") !=
+            std::string::npos,
+        "perf summary should measure the direct source-present period");
+    require_true(
+        log.find("\"cuda_gpu_late_to_next_present\":{\"n\":1,\"mean\":1.000") !=
+            std::string::npos,
+        "perf summary should measure how far GPU work crossed the next present");
     std::filesystem::remove_all(root);
 }
 
@@ -581,6 +664,7 @@ int main() {
         test_aim_perf_file_logger_writes_controller_components();
         test_perf_loop_fps_uses_measured_elapsed_time();
         test_lightweight_perf_summary_writes_one_compact_window();
+        test_perf_summary_pairs_gpu_completion_with_next_present();
         benchmark_lightweight_perf_summary_hot_path();
     } catch (const std::exception& exc) {
         std::cerr << "[NativeBenchmarkMetricsTests] FAIL " << exc.what() << "\n";

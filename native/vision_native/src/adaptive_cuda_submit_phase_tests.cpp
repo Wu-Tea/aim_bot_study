@@ -1,4 +1,5 @@
 #include "vision_native/adaptive_cuda_submit_phase.h"
+#include "vision_native/cuda_submit_phase_schedule.h"
 
 #include <cmath>
 #include <cstdio>
@@ -44,6 +45,19 @@ Controller::FrameContext frame(
     value.context_id_available = true;
     value.regime_id = regime_id;
     value.regime_id_available = true;
+    return value;
+}
+
+Controller::FrameContext frame_qpc(
+    std::uint64_t steady_timestamp_ns,
+    std::uint64_t qpc_timestamp,
+    std::uint64_t qpc_frequency = 10'000'000,
+    std::uint32_t accumulated_frames = 1) {
+    auto value = frame(
+        steady_timestamp_ns, true, qpc_frequency, 1, accumulated_frames);
+    value.source_present_qpc = qpc_timestamp;
+    value.source_present_qpc_frequency = qpc_frequency;
+    value.source_present_qpc_available = true;
     return value;
 }
 
@@ -233,6 +247,153 @@ void test_accumulated_frames_can_complete_exploration_and_hold() {
     REQUIRE(held.estimated_period_us == 5000);
 }
 
+void test_raw_qpc_cadence_ignores_per_frame_steady_mapping_jitter() {
+    Controller controller(test_config());
+    std::uint64_t steady_timestamp = 3'900'000'000;
+    std::uint64_t qpc_timestamp = 39'000'000;
+    constexpr std::uint64_t kSteadyDeltasNs[] = {
+        4'100'000, 5'900'000, 4'350'000, 5'650'000,
+        4'500'000, 5'500'000, 4'250'000, 5'750'000};
+    bool saw_stable = false;
+    for (const auto steady_delta : kSteadyDeltasNs) {
+        const auto decision = controller.recommend(
+            frame_qpc(steady_timestamp, qpc_timestamp));
+        if (decision.cadence_stable) {
+            saw_stable = true;
+            REQUIRE(decision.estimated_period_us == 5000);
+        }
+        steady_timestamp += steady_delta;
+        qpc_timestamp += 50'000;
+    }
+    REQUIRE(saw_stable);
+    REQUIRE(controller.snapshot().cadence_stable);
+    REQUIRE(controller.snapshot().estimated_period_us == 5000);
+}
+
+void test_robust_cadence_accepts_one_outlier_in_live_like_window() {
+    Controller controller(test_config());
+    std::uint64_t timestamp = 4'200'000'000;
+    (void)controller.recommend(frame(timestamp));
+    constexpr std::uint64_t kIntervalsNs[] = {
+        4'900'000, 5'000'000, 5'200'000, 5'300'000,
+        5'400'000, 5'500'000, 5'800'000, 6'100'000};
+    bool saw_stable = false;
+    for (const auto interval : kIntervalsNs) {
+        timestamp += interval;
+        const auto decision = controller.recommend(frame(timestamp));
+        saw_stable = saw_stable || decision.cadence_stable;
+    }
+    REQUIRE(saw_stable);
+    REQUIRE(controller.snapshot().cadence_stable);
+    REQUIRE(controller.snapshot().estimated_period_us >= 5200);
+    REQUIRE(controller.snapshot().estimated_period_us <= 5500);
+}
+
+void test_transient_unstable_window_preserves_candidate_progress() {
+    Controller controller(test_config());
+    std::uint64_t timestamp = 4'500'000'000;
+    warm_cadence(controller, &timestamp);
+    auto first = controller.recommend(frame(timestamp));
+    REQUIRE(first.mode == Controller::Mode::Exploring);
+    controller.observe(observation(
+        timestamp, first.phase_us, 0.0f, 2.0f));
+    const auto before = controller.snapshot();
+    REQUIRE(before.active_candidate_samples == 1);
+
+    constexpr std::uint64_t kTransientIntervalsNs[] = {
+        7'000'000, 5'000'000, 7'000'000, 5'000'000, 7'000'000};
+    bool saw_unstable = false;
+    for (const auto interval : kTransientIntervalsNs) {
+        timestamp += interval;
+        const auto decision = controller.recommend(frame(timestamp));
+        saw_unstable = saw_unstable ||
+            decision.reason == Controller::DecisionReason::UnstableCadence;
+    }
+    REQUIRE(saw_unstable);
+    REQUIRE(controller.snapshot().adaptation_epoch == before.adaptation_epoch);
+    REQUIRE(controller.snapshot().active_candidate_samples == 1);
+
+    bool resumed = false;
+    for (int i = 0; i < 6; ++i) {
+        timestamp += 5'000'000;
+        const auto decision = controller.recommend(frame(timestamp));
+        resumed = resumed || decision.cadence_stable;
+    }
+    REQUIRE(resumed);
+    REQUIRE(controller.snapshot().adaptation_epoch == before.adaptation_epoch);
+    REQUIRE(controller.snapshot().active_candidate_samples == 1);
+}
+
+void test_unreached_nonzero_phase_does_not_advance_candidate() {
+    Controller controller(test_config());
+    std::uint64_t timestamp = 4'750'000'000;
+    warm_cadence(controller, &timestamp);
+    complete_candidate_block(controller, &timestamp, 0, 0.0f, 2.0f);
+    REQUIRE(controller.snapshot().active_candidate_index == 1);
+
+    for (int i = 0; i < 3; ++i) {
+        const auto decision = controller.recommend(frame(timestamp));
+        REQUIRE(decision.phase_us == 1000);
+        auto missed = observation(
+            timestamp, decision.phase_us, 0.0f, 0.25f);
+        missed.phase_target_reached = false;
+        controller.observe(missed);
+        timestamp += 5'000'000;
+    }
+    REQUIRE(controller.snapshot().active_candidate_index == 1);
+    REQUIRE(controller.snapshot().active_candidate_samples == 0);
+}
+
+void test_phase_schedule_wraps_only_adaptive_nonzero_targets() {
+    constexpr std::uint64_t kSourceNs = 1'000'000'000;
+    constexpr std::uint64_t kNowNs = kSourceNs + 3'200'000;
+    constexpr std::uint64_t kMaxWaitNs = 5'000'000;
+
+    const auto same_cycle = vision_native::schedule_cuda_submit_phase(
+        kSourceNs, kNowNs, 4000, 5000, true, kMaxWaitNs);
+    REQUIRE(same_cycle.should_wait);
+    REQUIRE(!same_cycle.cycle_wrapped);
+    REQUIRE(same_cycle.deadline_ns == kSourceNs + 4'000'000);
+    REQUIRE(same_cycle.wait_ns == 800'000);
+
+    const auto wrapped = vision_native::schedule_cuda_submit_phase(
+        kSourceNs, kNowNs, 1000, 5000, true, kMaxWaitNs);
+    REQUIRE(wrapped.should_wait);
+    REQUIRE(wrapped.cycle_wrapped);
+    REQUIRE(wrapped.deadline_ns == kSourceNs + 6'000'000);
+    REQUIRE(wrapped.wait_ns == 2'800'000);
+
+    const auto fixed_missed = vision_native::schedule_cuda_submit_phase(
+        kSourceNs, kNowNs, 1000, 5000, false, kMaxWaitNs);
+    REQUIRE(!fixed_missed.should_wait);
+    REQUIRE(!fixed_missed.cycle_wrapped);
+    REQUIRE(fixed_missed.deadline_ns == kSourceNs + 1'000'000);
+
+    const auto natural = vision_native::schedule_cuda_submit_phase(
+        kSourceNs, kNowNs, 0, 5000, true, kMaxWaitNs);
+    REQUIRE(!natural.should_wait);
+    REQUIRE(!natural.cycle_wrapped);
+    REQUIRE(natural.deadline_ns == 0);
+
+    constexpr std::uint64_t kQpcFrequency = 10'000'000;
+    constexpr std::uint64_t kSourceQpc = 10'000'000;
+    constexpr std::uint64_t kNowQpc = kSourceQpc + 32'000;
+    const auto wrapped_qpc =
+        vision_native::schedule_cuda_submit_phase_ticks(
+            kSourceQpc,
+            kNowQpc,
+            kQpcFrequency,
+            1000,
+            5000,
+            true,
+            kMaxWaitNs);
+    REQUIRE(wrapped_qpc.should_wait);
+    REQUIRE(wrapped_qpc.cycle_wrapped);
+    REQUIRE(wrapped_qpc.deadline_tick == kSourceQpc + 60'000);
+    REQUIRE(wrapped_qpc.wait_ticks == 28'000);
+    REQUIRE(wrapped_qpc.wait_ns == 2'800'000);
+}
+
 void test_explicit_wait_outweighs_reduced_residual_and_keeps_zero() {
     Controller controller(test_config());
     std::uint64_t timestamp = 4'000'000'000;
@@ -255,13 +416,16 @@ void test_cadence_change_resets_and_reenters_exploration() {
     REQUIRE(controller.snapshot().mode == Controller::Mode::Held);
 
     const std::uint64_t epoch_before = controller.snapshot().adaptation_epoch;
-    timestamp += 10'000'000;
-    const auto changed = controller.recommend(frame(timestamp));
-    REQUIRE(changed.phase_us == 0);
-    REQUIRE(changed.reason == Controller::DecisionReason::CadenceChanged ||
-        changed.reason == Controller::DecisionReason::InsufficientCadence ||
-        changed.reason == Controller::DecisionReason::UnstableCadence);
-    REQUIRE(controller.snapshot().adaptation_epoch > epoch_before);
+    bool saw_changed = false;
+    for (int i = 0; i < 10; ++i) {
+        timestamp += 8'000'000;
+        const auto changed = controller.recommend(frame(timestamp));
+        saw_changed = saw_changed ||
+            changed.reason == Controller::DecisionReason::CadenceChanged;
+    }
+    REQUIRE(saw_changed);
+    REQUIRE(controller.snapshot().adaptation_epoch == epoch_before + 1);
+    REQUIRE(controller.snapshot().estimated_period_us == 8000);
 }
 
 void test_short_idle_freezes_without_reset() {
@@ -379,7 +543,9 @@ void test_dynamic_period_guard_clips_candidate_grid() {
         kPeriodNs);
     const auto clipped = controller.recommend(frame(timestamp));
     REQUIRE(clipped.estimated_period_us == 2000);
-    REQUIRE(clipped.phase_us == 1500);
+    // The robust cadence window reserves both its 250 us minimum tolerance
+    // and the configured 500 us next-frame guard.
+    REQUIRE(clipped.phase_us == 1250);
     REQUIRE(clipped.phase_us <= 2000 - controller.config().next_frame_guard_us);
 }
 
@@ -510,6 +676,11 @@ int main() {
     test_nonzero_optimum_is_learned_and_held();
     test_accumulated_frames_normalize_underlying_cadence();
     test_accumulated_frames_can_complete_exploration_and_hold();
+    test_raw_qpc_cadence_ignores_per_frame_steady_mapping_jitter();
+    test_robust_cadence_accepts_one_outlier_in_live_like_window();
+    test_transient_unstable_window_preserves_candidate_progress();
+    test_unreached_nonzero_phase_does_not_advance_candidate();
+    test_phase_schedule_wraps_only_adaptive_nonzero_targets();
     test_explicit_wait_outweighs_reduced_residual_and_keeps_zero();
     test_cadence_change_resets_and_reenters_exploration();
     test_short_idle_freezes_without_reset();

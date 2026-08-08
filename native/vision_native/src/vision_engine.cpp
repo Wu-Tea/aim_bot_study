@@ -1,4 +1,5 @@
 #include "vision_native/vision_engine.h"
+#include "vision_native/cuda_submit_phase_schedule.h"
 #include "vision_native/vision_result_copy.h"
 #include "vision_native/preprocess.h"
 #include "color_readback.h"
@@ -36,8 +37,29 @@ uint64_t now_ns() {
             .count());
 }
 
+uint64_t now_qpc() noexcept {
+    LARGE_INTEGER value{};
+    return QueryPerformanceCounter(&value) != 0 && value.QuadPart > 0
+        ? static_cast<uint64_t>(value.QuadPart)
+        : 0;
+}
+
 float ns_to_ms(uint64_t delta_ns) {
     return static_cast<float>(delta_ns) / 1'000'000.0f;
+}
+
+float qpc_delta_to_ms(
+    std::uint64_t begin_qpc,
+    std::uint64_t end_qpc,
+    std::uint64_t qpc_frequency) noexcept {
+    if (begin_qpc == 0 || end_qpc < begin_qpc || qpc_frequency == 0) {
+        return 0.0f;
+    }
+    std::uint64_t delta_ns = 0;
+    return nanoseconds_for_ticks(
+               end_qpc - begin_qpc, qpc_frequency, &delta_ns)
+        ? ns_to_ms(delta_ns)
+        : 0.0f;
 }
 
 constexpr std::uint64_t kCudaSubmitSpinTailNs = 50'000;
@@ -62,10 +84,10 @@ public:
 #endif
     }
 
-    void wait_until(std::uint64_t deadline_ns) noexcept {
+    bool wait_until(std::uint64_t deadline_ns) noexcept {
         for (;;) {
             const std::uint64_t current_ns = now_ns();
-            if (current_ns >= deadline_ns) return;
+            if (current_ns >= deadline_ns) return true;
             const std::uint64_t remaining_ns = deadline_ns - current_ns;
 #ifdef _WIN32
             if (timer_ != nullptr && remaining_ns > kCudaSubmitSpinTailNs) {
@@ -93,30 +115,116 @@ public:
         }
     }
 
+    bool wait_until_qpc(
+        std::uint64_t deadline_qpc,
+        std::uint64_t qpc_frequency) noexcept {
+        if (deadline_qpc == 0 || qpc_frequency == 0) return false;
+        for (;;) {
+            const std::uint64_t current_qpc = now_qpc();
+            if (current_qpc == 0) return false;
+            if (current_qpc >= deadline_qpc) return true;
+            std::uint64_t remaining_ns = 0;
+            if (!nanoseconds_for_ticks(
+                    deadline_qpc - current_qpc,
+                    qpc_frequency,
+                    &remaining_ns)) {
+                return false;
+            }
+#ifdef _WIN32
+            if (timer_ != nullptr && remaining_ns > kCudaSubmitSpinTailNs) {
+                const std::uint64_t coarse_ns =
+                    remaining_ns - kCudaSubmitSpinTailNs;
+                LARGE_INTEGER due{};
+                due.QuadPart = -static_cast<LONGLONG>(
+                    std::max<std::uint64_t>(1, coarse_ns / 100));
+                if (SetWaitableTimerEx(
+                        timer_, &due, 0, nullptr, nullptr, nullptr, 0) != 0 &&
+                    WaitForSingleObject(timer_, INFINITE) == WAIT_OBJECT_0) {
+                    continue;
+                }
+                CloseHandle(timer_);
+                timer_ = nullptr;
+            }
+#endif
+            if (remaining_ns > 1'000'000) {
+                std::this_thread::sleep_for(
+                    std::chrono::nanoseconds(remaining_ns - 1'000'000));
+            } else {
+                std::this_thread::yield();
+            }
+        }
+    }
+
 private:
 #ifdef _WIN32
     HANDLE timer_ = nullptr;
 #endif
 };
 
-bool wait_for_cuda_submit_phase(
+struct CudaSubmitPhaseWaitResult {
+    std::uint64_t deadline_ns = 0;
+    std::uint64_t deadline_qpc = 0;
+    bool wait_applied = false;
+    bool cycle_wrapped = false;
+    bool target_reached = false;
+};
+
+CudaSubmitPhaseWaitResult wait_for_cuda_submit_phase(
     std::uint64_t source_present_steady_ns,
     bool source_present_steady_available,
-    unsigned int target_phase_us) noexcept {
-    if (!source_present_steady_available || source_present_steady_ns == 0 ||
-        target_phase_us == 0) {
-        return false;
-    }
-    const std::uint64_t current_ns = now_ns();
-    const std::uint64_t deadline_ns = source_present_steady_ns +
-        static_cast<std::uint64_t>(target_phase_us) * 1000ull;
-    if (deadline_ns <= current_ns ||
-        deadline_ns - current_ns > kMaxCudaSubmitPhaseWaitNs) {
-        return false;
+    std::uint64_t source_present_qpc,
+    std::uint64_t source_present_qpc_frequency,
+    bool source_present_qpc_available,
+    unsigned int target_phase_us,
+    unsigned int source_period_us,
+    bool allow_cycle_wrap) noexcept {
+    CudaSubmitPhaseWaitResult result{};
+    if (target_phase_us == 0) {
+        return {};
     }
     static thread_local PreciseCudaSubmitWaiter waiter;
-    waiter.wait_until(deadline_ns);
-    return true;
+
+    if (source_present_qpc_available && source_present_qpc != 0 &&
+        source_present_qpc_frequency != 0) {
+        const CudaSubmitPhaseTickSchedule schedule =
+            schedule_cuda_submit_phase_ticks(
+                source_present_qpc,
+                now_qpc(),
+                source_present_qpc_frequency,
+                target_phase_us,
+                source_period_us,
+                allow_cycle_wrap,
+                kMaxCudaSubmitPhaseWaitNs);
+        if (schedule.deadline_tick != 0) {
+            result.deadline_qpc = schedule.deadline_tick;
+            result.cycle_wrapped = schedule.cycle_wrapped;
+            if (schedule.should_wait) {
+                result.wait_applied = true;
+                result.target_reached = waiter.wait_until_qpc(
+                    schedule.deadline_tick,
+                    source_present_qpc_frequency);
+            }
+            return result;
+        }
+    }
+
+    if (!source_present_steady_available || source_present_steady_ns == 0) {
+        return result;
+    }
+    const CudaSubmitPhaseSchedule schedule = schedule_cuda_submit_phase(
+        source_present_steady_ns,
+        now_ns(),
+        target_phase_us,
+        source_period_us,
+        allow_cycle_wrap,
+        kMaxCudaSubmitPhaseWaitNs);
+    result.deadline_ns = schedule.deadline_ns;
+    result.cycle_wrapped = schedule.cycle_wrapped;
+    if (schedule.should_wait) {
+        result.wait_applied = true;
+        result.target_reached = waiter.wait_until(schedule.deadline_ns);
+    }
+    return result;
 }
 
 const char* viewport_level_name(int level) {
@@ -444,6 +552,9 @@ VisionResult VisionEngine::poll_once() {
     bool mapped = false;
     try {
         const std::uint64_t map_start = now_ns();
+        const std::uint64_t map_start_qpc = now_qpc();
+        result.cuda_map_begin_ns = map_start;
+        result.cuda_map_begin_qpc = map_start_qpc;
         check_cuda(cudaGraphicsMapResources(1, &graphics_resource, nullptr), "cudaGraphicsMapResources");
         mapped = true;
 
@@ -452,6 +563,9 @@ VisionResult VisionEngine::poll_once() {
             cudaGraphicsSubResourceGetMappedArray(&frame_array, graphics_resource, 0, 0),
             "cudaGraphicsSubResourceGetMappedArray");
         const std::uint64_t map_complete_ns = now_ns();
+        const std::uint64_t map_complete_qpc = now_qpc();
+        result.cuda_map_complete_ns = map_complete_ns;
+        result.cuda_map_complete_qpc = map_complete_qpc;
         result.cuda_map_ms = ns_to_ms(map_complete_ns - map_start);
 
         AdaptiveCudaSubmitPhaseController::Decision adaptive_decision{};
@@ -464,6 +578,13 @@ VisionResult VisionEngine::poll_once() {
                 metadata.source_present_steady_ns;
             phase_context.source_present_steady_available =
                 metadata.source_present_steady_available;
+            phase_context.source_present_qpc = metadata.source_present_qpc;
+            phase_context.source_present_qpc_frequency =
+                metadata.source_present_qpc_frequency;
+            phase_context.source_present_qpc_available =
+                metadata.source_present_available &&
+                metadata.source_present_qpc != 0 &&
+                metadata.source_present_qpc_frequency != 0;
             phase_context.accumulated_frames = metadata.accumulated_frames;
             phase_context.active = controller_aiming;
             // calibration_id identifies one per-frame QPC/steady mapping
@@ -483,19 +604,38 @@ VisionResult VisionEngine::poll_once() {
             submit_phase_us = adaptive_decision.phase_us;
         }
 
-        bool submit_wait_applied = false;
+        CudaSubmitPhaseWaitResult submit_schedule{};
         if (submit_phase_us > 0) {
-            submit_wait_applied = wait_for_cuda_submit_phase(
+            submit_schedule = wait_for_cuda_submit_phase(
                 metadata.source_present_steady_ns,
                 metadata.source_present_steady_available,
-                submit_phase_us);
+                metadata.source_present_qpc,
+                metadata.source_present_qpc_frequency,
+                metadata.source_present_available,
+                submit_phase_us,
+                adaptive_decision.estimated_period_us,
+                cuda_submit_phase_adaptive_);
         }
-        result.cuda_submit_begin_ns = submit_wait_applied
-            ? now_ns() : map_complete_ns;
+        result.cuda_submit_begin_qpc = now_qpc();
+        result.cuda_submit_begin_ns = now_ns();
+        result.cuda_submit_target_deadline_ns = submit_schedule.deadline_ns;
+        result.cuda_submit_target_deadline_qpc =
+            submit_schedule.deadline_qpc;
         result.cuda_submit_phase_us = submit_phase_us;
-        result.cuda_submit_wait_applied = submit_wait_applied;
-        result.cuda_submit_wait_ms = submit_wait_applied
-            ? ns_to_ms(result.cuda_submit_begin_ns - map_complete_ns) : 0.0f;
+        result.cuda_submit_wait_applied = submit_schedule.wait_applied;
+        result.cuda_submit_cycle_wrapped = submit_schedule.cycle_wrapped;
+        result.cuda_submit_target_reached =
+            submit_phase_us == 0 || submit_schedule.target_reached;
+        result.cuda_submit_wait_ms = submit_schedule.wait_applied
+            ? (map_complete_qpc != 0 && result.cuda_submit_begin_qpc != 0 &&
+                   metadata.source_present_qpc_frequency != 0
+                ? qpc_delta_to_ms(
+                      map_complete_qpc,
+                      result.cuda_submit_begin_qpc,
+                      metadata.source_present_qpc_frequency)
+                : ns_to_ms(
+                      result.cuda_submit_begin_ns - map_complete_ns))
+            : 0.0f;
 
         DetectionBatch batch = engine_->infer_bgra_array_roi(
             frame_array,
@@ -687,6 +827,8 @@ VisionResult VisionEngine::poll_once() {
         result.accumulated_frames = batch.accumulated_frames;
         result.captured_at_ns = batch.captured_at_ns;
         result.inferred_at_ns = batch.inferred_at_ns;
+        result.gpu_complete_at_ns = batch.gpu_complete_at_ns;
+        result.gpu_complete_qpc = batch.gpu_complete_qpc;
         result.has_external_cue = batch.has_external_cue;
         result.external_cue_x = batch.external_cue_x;
         result.external_cue_y = batch.external_cue_y;
@@ -777,6 +919,8 @@ VisionResult VisionEngine::poll_once() {
             observation.source_present_steady_available =
                 result.source_present_steady_available;
             observation.applied_phase_us = result.cuda_submit_phase_us;
+            observation.phase_target_reached =
+                result.cuda_submit_target_reached;
             observation.cuda_submit_wait_ms = result.cuda_submit_wait_ms;
             observation.output_wait_ms = result.output_wait_ms;
             observation.sync_queue_residual_ms = std::max(
