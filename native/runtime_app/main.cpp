@@ -151,12 +151,6 @@ void dump_effective_config(const controller_native::RuntimeConfig& config) {
     line(
         "runtime.vision.gpu_service_repeat_last_on_no_update",
         config.vision.gpu_service_repeat_last_on_no_update);
-    line(
-        "runtime.vision.cuda_submit_phase_mode",
-        config.vision.cuda_submit_phase_mode);
-    line(
-        "runtime.vision.cuda_submit_phase_us",
-        config.vision.cuda_submit_phase_us);
     line("runtime.vision.ego_motion_enabled", config.vision.ego_motion_enabled);
     line("runtime.vision.color_readback_mode", config.vision.color_readback_mode);
     line("runtime.telemetry.enabled", config.telemetry.enabled);
@@ -265,8 +259,6 @@ void print_startup_summary(
         << " gpu_service=" << (config.vision.gpu_service_enabled ? "on" : "off")
         << " gpu_service_active_fps=" << config.vision.gpu_service_active_fps
         << " gpu_service_idle_fps=" << config.vision.gpu_service_idle_fps
-        << " cuda_submit_phase_mode=" << config.vision.cuda_submit_phase_mode
-        << " cuda_submit_phase_us=" << config.vision.cuda_submit_phase_us
         << " ego_motion=" << (config.vision.ego_motion_enabled ? "shadow" : "off")
         << " tracker_backend="
         << tracking_native::tracker_backend_kind_name(config.gamepad.tracker_backend)

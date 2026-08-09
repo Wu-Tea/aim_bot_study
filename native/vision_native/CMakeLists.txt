@@ -75,7 +75,6 @@ foreach(_lib IN LISTS TensorRT_LIBS)
 endforeach()
 
 add_library(vision_native_core STATIC
-    src/adaptive_cuda_submit_phase.cpp
     src/aim_enhancement.cpp
     src/build_family.cpp
     src/color_readback.cpp
@@ -140,14 +139,6 @@ add_executable(vision_native_resize_contract_tests
     src/resize_contract.cpp
 )
 target_include_directories(vision_native_resize_contract_tests PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-)
-
-add_executable(cod_native_adaptive_cuda_submit_phase_tests
-    src/adaptive_cuda_submit_phase_tests.cpp
-    src/adaptive_cuda_submit_phase.cpp
-)
-target_include_directories(cod_native_adaptive_cuda_submit_phase_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
@@ -1418,9 +1409,6 @@ add_test(
 add_test(
     NAME VisionResizeContractTests
     COMMAND vision_native_resize_contract_tests)
-add_test(
-    NAME AdaptiveCudaSubmitPhaseTests
-    COMMAND cod_native_adaptive_cuda_submit_phase_tests)
 add_test(
     NAME RuntimeConfigTests
     COMMAND cod_native_runtime_config_tests)

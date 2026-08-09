@@ -99,11 +99,6 @@ struct DetectionBatch {
     bool source_present_steady_available = false;
     uint32_t accumulated_frames = 0;
     uint64_t captured_at_ns = 0;
-    // CPU steady-clock boundary immediately after the CUDA stream containing
-    // preprocess, inference and output copy has completed.
-    uint64_t gpu_complete_at_ns = 0;
-    // Same boundary in the raw QPC clock domain used by DXGI LastPresentTime.
-    uint64_t gpu_complete_qpc = 0;
     uint64_t inferred_at_ns = 0;
     int frame_width = 0;
     int frame_height = 0;
@@ -140,36 +135,8 @@ struct VisionResult {
     bool source_present_steady_available = false;
     uint32_t accumulated_frames = 0;
     uint64_t captured_at_ns = 0;
-    uint64_t cuda_map_begin_ns = 0;
-    uint64_t cuda_map_complete_ns = 0;
-    uint64_t cuda_map_begin_qpc = 0;
-    uint64_t cuda_map_complete_qpc = 0;
     uint64_t inferred_at_ns = 0;
     uint64_t result_at_ns = 0;
-    // CPU boundary immediately before the CUDA preprocess/TensorRT call. This
-    // makes compute-submit phase measurable independently of the later stream
-    // synchronization wait.
-    uint64_t cuda_submit_begin_ns = 0;
-    uint64_t cuda_submit_target_deadline_ns = 0;
-    uint64_t cuda_submit_begin_qpc = 0;
-    uint64_t cuda_submit_target_deadline_qpc = 0;
-    uint64_t gpu_complete_at_ns = 0;
-    uint64_t gpu_complete_qpc = 0;
-    std::uint32_t cuda_submit_phase_us = 0;
-    bool cuda_submit_wait_applied = false;
-    bool cuda_submit_cycle_wrapped = false;
-    bool cuda_submit_target_reached = true;
-    const char* cuda_submit_phase_mode = "fixed";
-    const char* cuda_submit_adaptive_state = "fallback";
-    const char* cuda_submit_adaptive_reason = "natural_fallback";
-    std::uint32_t cuda_submit_estimated_period_us = 0;
-    std::uint32_t cuda_submit_held_phase_us = 0;
-    std::uint64_t cuda_submit_adaptation_epoch = 0;
-    std::uint8_t cuda_submit_candidate_index = 0;
-    std::uint8_t cuda_submit_candidate_samples = 0;
-    std::uint8_t cuda_submit_adaptive_state_code = 0;
-    std::uint8_t cuda_submit_adaptive_reason_code = 0;
-    bool cuda_submit_cadence_stable = false;
     bool frame_updated = false;
     const char* service_freshness = "none";
     const char* service_source_state = "unknown";
@@ -226,7 +193,6 @@ struct VisionResult {
     float wait_ms = 0.0f;
     float capture_acquire_ms = 0.0f;
     float capture_copy_ms = 0.0f;
-    float cuda_submit_wait_ms = 0.0f;
     float cuda_map_ms = 0.0f;
     float preprocess_ms = 0.0f;
     float color_copy_ms = 0.0f;

@@ -117,18 +117,6 @@ double elapsed_ms_or_invalid(std::uint64_t start_ns, std::uint64_t end_ns) {
     return static_cast<double>(end_ns - start_ns) / 1'000'000.0;
 }
 
-double elapsed_qpc_ms_or_invalid(
-    std::uint64_t start_qpc,
-    std::uint64_t end_qpc,
-    std::uint64_t qpc_frequency) {
-    if (start_qpc == 0 || end_qpc <= start_qpc || qpc_frequency == 0) {
-        return -1.0;
-    }
-    return static_cast<double>(
-        static_cast<long double>(end_qpc - start_qpc) * 1000.0L /
-        static_cast<long double>(qpc_frequency));
-}
-
 const char* safe_c_string(const char* value, const char* fallback) {
     if (value == nullptr || value[0] == '\0') {
         return fallback;
@@ -181,10 +169,6 @@ class VisionEngineServicePoller final : public IVisionServicePoller {
 public:
     explicit VisionEngineServicePoller(std::unique_ptr<vision_native::VisionEngine> engine)
         : engine_(std::move(engine)) {}
-
-    void set_controller_aiming(bool aiming) override {
-        engine_->set_controller_aiming(aiming);
-    }
 
     void set_aiming(bool aiming) override {
         engine_->set_aiming(aiming);
@@ -465,9 +449,7 @@ RuntimeLoop::RuntimeLoop(
           config_.performance.enabled,
           config_.performance.interval_ms,
           std::filesystem::path(config_.performance.directory),
-          config_.performance.stdout_enabled,
-          config_.vision.cuda_submit_phase_us,
-          config_.vision.cuda_submit_phase_mode}),
+          config_.performance.stdout_enabled}),
       log_session_manager_(log_session_options_from(config_)),
       telemetry_(telemetry_options_from(config_, log_session_manager_.session_directory())),
       telemetry_collectors_(
@@ -528,9 +510,7 @@ RuntimeLoop::RuntimeLoop(
         config_.vision.tensor_width,
         config_.vision.tensor_height,
         config_.vision.require_isotropic_resize,
-        config_.vision.ego_motion_enabled,
-        config_.vision.cuda_submit_phase_us,
-        config_.vision.cuda_submit_phase_mode == "adaptive");
+        config_.vision.ego_motion_enabled);
     std::cout << "[VisionGeometry][CPP]"
               << " capture=" << vision_engine->width() << 'x' << vision_engine->height()
               << " tensor=" << vision_engine->tensor_width() << 'x'
@@ -539,8 +519,6 @@ RuntimeLoop::RuntimeLoop(
               << vision_engine->resize_scale_y()
               << " isotropic=" << (vision_engine->resize_isotropic() ? 1 : 0)
               << " ego_motion=" << (vision_engine->ego_motion_enabled() ? "shadow" : "off")
-              << " cuda_submit_phase_mode=" << vision_engine->cuda_submit_phase_mode()
-              << " cuda_submit_phase_us=" << vision_engine->cuda_submit_phase_us()
               << '\n';
     const ViewportRequest initial_viewport = viewport_controller_.current();
     vision_engine->set_viewport(
@@ -704,7 +682,6 @@ void RuntimeLoop::run_once() {
             }
         }
     } else {
-        vision_engine_->set_controller_aiming(aiming);
         vision_engine_->set_aiming(aiming);
         vision_engine_->set_user_aim_intent(user_aim_intent);
         if (should_poll_vision(tick_started)) {
@@ -844,37 +821,7 @@ void RuntimeLoop::run_once() {
                 ? result.capture_copy_complete_ns : result.captured_at_ns;
             PerfVisionWindowSample vision_sample;
             vision_sample.aiming = aiming;
-            vision_sample.cuda_submit_wait_applied =
-                result.cuda_submit_wait_applied;
-            vision_sample.cuda_submit_cycle_wrapped =
-                result.cuda_submit_cycle_wrapped;
-            vision_sample.cuda_submit_target_reached =
-                result.cuda_submit_target_reached;
-            vision_sample.cuda_submit_target_phase_us =
-                result.cuda_submit_phase_us;
-            vision_sample.cuda_submit_estimated_period_us =
-                result.cuda_submit_estimated_period_us;
-            vision_sample.cuda_submit_held_phase_us =
-                result.cuda_submit_held_phase_us;
-            vision_sample.cuda_submit_adaptation_epoch =
-                result.cuda_submit_adaptation_epoch;
-            vision_sample.cuda_submit_adaptive_state =
-                result.cuda_submit_adaptive_state_code;
-            vision_sample.cuda_submit_adaptive_reason =
-                result.cuda_submit_adaptive_reason_code;
-            vision_sample.cuda_submit_cadence_stable =
-                result.cuda_submit_cadence_stable;
             vision_sample.accumulated_frames = result.accumulated_frames;
-            vision_sample.source_present_steady_ns =
-                result.source_present_steady_available
-                ? result.source_present_steady_ns : 0;
-            vision_sample.gpu_complete_at_ns = result.gpu_complete_at_ns;
-            vision_sample.source_present_qpc = result.source_present_available
-                ? result.source_present_qpc : 0;
-            vision_sample.source_present_qpc_frequency =
-                result.source_present_available
-                ? result.source_present_qpc_frequency : 0;
-            vision_sample.gpu_complete_qpc = result.gpu_complete_qpc;
             vision_sample.capture_to_result_ms = elapsed_ms_or_invalid(
                 result.capture_acquire_begin_ns, result.result_at_ns);
             vision_sample.copy_to_result_ms = elapsed_ms_or_invalid(
@@ -890,75 +837,6 @@ void RuntimeLoop::run_once() {
                 result.source_present_steady_available
                 ? elapsed_ms_or_invalid(result.source_present_steady_ns, output_sent_ns)
                 : -1.0;
-            vision_sample.source_present_to_cuda_map_begin_ms =
-                result.source_present_available &&
-                    result.cuda_map_begin_qpc != 0
-                ? elapsed_qpc_ms_or_invalid(
-                      result.source_present_qpc,
-                      result.cuda_map_begin_qpc,
-                      result.source_present_qpc_frequency)
-                : (result.source_present_steady_available
-                ? elapsed_ms_or_invalid(
-                      result.source_present_steady_ns,
-                      result.cuda_map_begin_ns)
-                : -1.0);
-            vision_sample.source_present_to_cuda_map_complete_ms =
-                result.source_present_available &&
-                    result.cuda_map_complete_qpc != 0
-                ? elapsed_qpc_ms_or_invalid(
-                      result.source_present_qpc,
-                      result.cuda_map_complete_qpc,
-                      result.source_present_qpc_frequency)
-                : (result.source_present_steady_available
-                ? elapsed_ms_or_invalid(
-                      result.source_present_steady_ns,
-                      result.cuda_map_complete_ns)
-                : -1.0);
-            vision_sample.source_present_to_cuda_submit_ms =
-                result.source_present_available &&
-                    result.cuda_submit_begin_qpc != 0
-                ? elapsed_qpc_ms_or_invalid(
-                      result.source_present_qpc,
-                      result.cuda_submit_begin_qpc,
-                      result.source_present_qpc_frequency)
-                : (result.source_present_steady_available
-                ? elapsed_ms_or_invalid(
-                      result.source_present_steady_ns,
-                      result.cuda_submit_begin_ns)
-                : -1.0);
-            vision_sample.source_present_to_gpu_complete_ms =
-                result.source_present_available &&
-                    result.gpu_complete_qpc != 0
-                ? elapsed_qpc_ms_or_invalid(
-                      result.source_present_qpc,
-                      result.gpu_complete_qpc,
-                      result.source_present_qpc_frequency)
-                : (result.source_present_steady_available
-                ? elapsed_ms_or_invalid(
-                      result.source_present_steady_ns,
-                      result.gpu_complete_at_ns)
-                : -1.0);
-            vision_sample.copy_to_cuda_submit_ms = elapsed_ms_or_invalid(
-                capture_copy_complete_ns, result.cuda_submit_begin_ns);
-            vision_sample.cuda_submit_wait_ms = result.cuda_submit_wait_ms;
-            vision_sample.cuda_submit_phase_late_ms =
-                result.cuda_submit_target_deadline_qpc != 0 &&
-                    result.cuda_submit_begin_qpc != 0
-                ? elapsed_qpc_ms_or_invalid(
-                      result.cuda_submit_target_deadline_qpc,
-                      result.cuda_submit_begin_qpc,
-                      result.source_present_qpc_frequency)
-                : (result.cuda_submit_target_deadline_ns != 0
-                ? elapsed_ms_or_invalid(
-                      result.cuda_submit_target_deadline_ns,
-                      result.cuda_submit_begin_ns)
-                : (vision_sample.source_present_to_cuda_submit_ms >= 0.0
-                ? std::max(
-                      0.0,
-                      vision_sample.source_present_to_cuda_submit_ms -
-                          static_cast<double>(result.cuda_submit_phase_us) /
-                              1000.0)
-                : -1.0));
             vision_sample.cuda_map_ms = result.cuda_map_ms;
             vision_sample.preprocess_ms = result.preprocess_ms;
             vision_sample.infer_ms = result.infer_ms;

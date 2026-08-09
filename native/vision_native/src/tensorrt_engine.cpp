@@ -6,7 +6,6 @@
 #include <NvInfer.h>
 #include <NvInferPlugin.h>
 #include <cuda_runtime.h>
-#include <windows.h>
 
 #include <algorithm>
 #include <chrono>
@@ -42,13 +41,6 @@ uint64_t now_ns() {
         std::chrono::duration_cast<std::chrono::nanoseconds>(
             std::chrono::steady_clock::now().time_since_epoch())
             .count());
-}
-
-uint64_t now_qpc() noexcept {
-    LARGE_INTEGER value{};
-    return QueryPerformanceCounter(&value) != 0 && value.QuadPart > 0
-        ? static_cast<uint64_t>(value.QuadPart)
-        : 0;
 }
 
 size_t volume(nvinfer1::Dims const& dims) {
@@ -357,8 +349,6 @@ DetectionBatch TensorRTEngine::infer_rgb(
     check_cuda(cudaEventRecord(output_copy_end_event_, stream), "cudaEventRecord output_copy_end");
     check_cuda(cudaStreamSynchronize(stream), "cudaStreamSynchronize");
     const uint64_t output_copy_end = now_ns();
-    batch.gpu_complete_at_ns = output_copy_end;
-    batch.gpu_complete_qpc = now_qpc();
     batch.output_copy_sync_ms = static_cast<float>(output_copy_end - output_copy_start) / 1'000'000.0f;
 
     check_cuda(cudaEventElapsedTime(&batch.preprocess_ms, preprocess_start_event_, preprocess_end_event_), "cudaEventElapsedTime preprocess");
@@ -491,8 +481,6 @@ DetectionBatch TensorRTEngine::infer_bgra_array_roi(
     check_cuda(cudaEventRecord(output_copy_end_event_, stream), "cudaEventRecord output_copy_end");
     check_cuda(cudaStreamSynchronize(stream), "cudaStreamSynchronize");
     const uint64_t output_copy_end = now_ns();
-    batch.gpu_complete_at_ns = output_copy_end;
-    batch.gpu_complete_qpc = now_qpc();
     batch.output_copy_sync_ms = static_cast<float>(output_copy_end - output_copy_start) / 1'000'000.0f;
 
     check_cuda(cudaEventElapsedTime(&batch.preprocess_ms, preprocess_start_event_, preprocess_end_event_), "cudaEventElapsedTime preprocess");

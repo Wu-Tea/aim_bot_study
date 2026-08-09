@@ -210,7 +210,6 @@ bool VisionService::step(std::chrono::steady_clock::time_point now) {
     }
 
     const auto dispatch_at = std::chrono::steady_clock::now();
-    poller_->set_controller_aiming(controller_aiming);
     poller_->set_aiming(engine_aiming);
     poller_->set_user_aim_intent(intent);
     poller_->set_viewport(viewport);

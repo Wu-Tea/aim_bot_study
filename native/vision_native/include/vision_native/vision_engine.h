@@ -1,6 +1,5 @@
 #pragma once
 
-#include "vision_native/adaptive_cuda_submit_phase.h"
 #include "vision_native/aim_enhancement.h"
 #include "vision_native/dxgi_capture.h"
 #include "vision_native/ego_motion_observer.h"
@@ -34,15 +33,12 @@ public:
         int expected_tensor_width = 0,
         int expected_tensor_height = 0,
         bool require_isotropic_resize = true,
-        bool ego_motion_enabled = false,
-        unsigned int cuda_submit_phase_us = 0,
-        bool cuda_submit_phase_adaptive = false);
+        bool ego_motion_enabled = false);
     ~VisionEngine();
 
     VisionEngine(const VisionEngine&) = delete;
     VisionEngine& operator=(const VisionEngine&) = delete;
 
-    void set_controller_aiming(bool aiming);
     void set_aiming(bool aiming);
     void set_user_aim_intent(const pipeline_contract::UserAimIntent& intent);
     void set_viewport(
@@ -63,8 +59,6 @@ public:
     float resize_scale_y() const;
     bool resize_isotropic() const;
     bool ego_motion_enabled() const;
-    const char* cuda_submit_phase_mode() const;
-    unsigned int cuda_submit_phase_us() const;
 
 private:
     DxgiRoiCapture capture_;
@@ -72,7 +66,6 @@ private:
     VisionTargetSelector selector_;
     AimEnhancementPipeline enhancer_;
     std::unique_ptr<TensorRTEngine> engine_;
-    std::atomic<bool> controller_aiming_{false};
     std::atomic<bool> aiming_{false};
     std::atomic<int> requested_viewport_level_{1};
     std::atomic<int> requested_viewport_width_{0};
@@ -96,9 +89,6 @@ private:
     std::vector<std::uint8_t> host_ego_gray_;
     std::uint8_t* device_ego_gray_ = nullptr;
     bool ego_motion_staging_available_ = false;
-    unsigned int cuda_submit_phase_us_ = 0;
-    bool cuda_submit_phase_adaptive_ = false;
-    AdaptiveCudaSubmitPhaseController adaptive_cuda_submit_phase_;
 };
 
 } // namespace vision_native
