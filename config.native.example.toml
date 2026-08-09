@@ -18,7 +18,6 @@ color_readback_mode = "pageable" # pinned remains opt-in until the A/B gate pass
 model_path = "models/best_480x384.engine"
 gpu_service_enabled = true
 gpu_service_repeat_last_on_no_update = false # continuity belongs to Tracker, not replayed detections
-ego_motion_enabled = false # research-only optical-flow shadow; never required by normal control
 
 # Historical static alternatives (change all size/path lines together):
 # near:     capture 640x440, tensor 512x352, model models/best_512x352.engine
@@ -29,6 +28,9 @@ enabled = false
 mode = "profile"
 manual_controller_hz = 100
 candidate_details = "on_event"
+queue_capacity = 8192
+rotate_size_mb = 256
+max_files = 10
 
 [runtime.performance]
 # Lightweight whole-runtime statistics; safe to leave on for normal play.
@@ -36,14 +38,6 @@ enabled = false
 interval_ms = 5000
 directory = "runs/perf_summary"
 stdout_enabled = true
-
-[runtime.control_learning]
-enabled = false
-mode = "disabled" # disabled | shadow | rollout_shadow
-telemetry_enabled = false
-queue_capacity = 8192
-rotate_size_mb = 256
-max_files = 10
 
 [runtime.scheduler]
 controller_tick_hz = 1000
@@ -68,10 +62,11 @@ lead_seconds = 0.026
 lead_max_px = 18
 # Upright/crouched body-box position measured from top (0=head, 1=feet).
 aim_height_ratio = 0.365
-# Controller-rate accounting of camera work actually delivered after capture.
-# Set false for an immediate rollback to the legacy error_px path.
-remaining_work_enabled = true
-remaining_work_scale = 0.60
+# Causal ledger for the already-delivered final output T. It is the sole
+# production pending-motion source; invalid history fails open to raw error.
+causal_memory_enabled = true
+causal_memory_response_delay_ms = 20
+causal_memory_horizon_ms = 200
 
 [gamepad.aim_response_curve]
 # Pluggable inverse curve: linear | cod_dynamic_legacy_lut.
@@ -119,13 +114,15 @@ manual_escape_preservation = 0.75
 # Confirmed wrong-axis input starts at 85% retention and approaches this floor.
 wrong_way_manual_preservation_floor = 0.65
 fresh_vision_wrong_way_manual_floor = 0.35
+helpful_manual_overdrive_enabled = true
+helpful_manual_overdrive_max_scale = 1.15
 
 # All documented recoil overrides remain available.
 [gamepad.recoil]
 enabled = true
 selection_log_enabled = false
 profile_despike_enabled = true
-profile_playback_enabled = false # fixed feedback_amount down-pull only
+profile_playback_enabled = false # feedback_amount is the adaptive controller's default baseline
 native_recognizer_enabled = false # OCR is intentionally absent from runtime hot path
 recognizer_log_enabled = false
 recognizer_game = "cod22"
@@ -137,6 +134,12 @@ recognizer_fps = 5
 profile_amount = 1.0
 profile_x_amount = 1.0
 feedback_amount = 0.20
+adaptive_feedback_enabled = true # fresh single-target residual adjusts the fixed fallback
+adaptive_min_amount = 0.06
+adaptive_max_amount = 0.42
+firing_vertical_intent_enabled = true # changes target-relative D; never raw manual + AI
+firing_vertical_intent_max_offset_px = 48.0
+firing_vertical_intent_deadzone = 0.025
 profile_lead_ms = 0.0
 profile_velocity_reference_ms = 10.0
 profile_despike_threshold_px = 2.0

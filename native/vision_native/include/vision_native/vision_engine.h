@@ -2,7 +2,6 @@
 
 #include "vision_native/aim_enhancement.h"
 #include "vision_native/dxgi_capture.h"
-#include "vision_native/ego_motion_observer.h"
 #include "vision_native/resize_contract.h"
 #include "vision_native/target_selector.h"
 #include "vision_native/tensorrt_engine.h"
@@ -32,8 +31,7 @@ public:
         std::string color_readback_mode = "pageable",
         int expected_tensor_width = 0,
         int expected_tensor_height = 0,
-        bool require_isotropic_resize = true,
-        bool ego_motion_enabled = false);
+        bool require_isotropic_resize = true);
     ~VisionEngine();
 
     VisionEngine(const VisionEngine&) = delete;
@@ -58,11 +56,9 @@ public:
     float resize_scale_x() const;
     float resize_scale_y() const;
     bool resize_isotropic() const;
-    bool ego_motion_enabled() const;
 
 private:
     DxgiRoiCapture capture_;
-    std::unique_ptr<EgoMotionObserver> ego_motion_observer_;
     VisionTargetSelector selector_;
     AimEnhancementPipeline enhancer_;
     std::unique_ptr<TensorRTEngine> engine_;
@@ -86,9 +82,6 @@ private:
     int active_viewport_height_ = 0;
     std::uint64_t active_viewport_sequence_ = 0;
     VisionResizeContract resize_contract_{};
-    std::vector<std::uint8_t> host_ego_gray_;
-    std::uint8_t* device_ego_gray_ = nullptr;
-    bool ego_motion_staging_available_ = false;
 };
 
 } // namespace vision_native

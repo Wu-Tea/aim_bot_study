@@ -151,7 +151,6 @@ void dump_effective_config(const controller_native::RuntimeConfig& config) {
     line(
         "runtime.vision.gpu_service_repeat_last_on_no_update",
         config.vision.gpu_service_repeat_last_on_no_update);
-    line("runtime.vision.ego_motion_enabled", config.vision.ego_motion_enabled);
     line("runtime.vision.color_readback_mode", config.vision.color_readback_mode);
     line("runtime.telemetry.enabled", config.telemetry.enabled);
     line("runtime.telemetry.mode", config.telemetry.mode);
@@ -165,16 +164,6 @@ void dump_effective_config(const controller_native::RuntimeConfig& config) {
     line("runtime.performance.interval_ms", config.performance.interval_ms);
     line("runtime.performance.directory", config.performance.directory);
     line("runtime.performance.stdout_enabled", config.performance.stdout_enabled);
-    line("runtime.control_learning.enabled", config.control_learning.enabled);
-    const char* control_learning_mode = "disabled";
-    if (config.control_learning.mode == controller_native::ControlLearningMode::Shadow)
-        control_learning_mode = "shadow";
-    else if (config.control_learning.mode ==
-             controller_native::ControlLearningMode::RolloutShadow)
-        control_learning_mode = "rollout_shadow";
-    line("runtime.control_learning.mode", control_learning_mode);
-    line("runtime.control_learning.telemetry_enabled",
-         config.control_learning.telemetry_enabled);
     line("runtime.scheduler.controller_tick_hz", config.scheduler.controller_tick_hz);
     line("runtime.scheduler.mode", config.scheduler.mode);
     line("runtime.scheduler.spin_tail_us", config.scheduler.spin_tail_us);
@@ -193,6 +182,21 @@ void dump_effective_config(const controller_native::RuntimeConfig& config) {
     line(
         "gamepad.tracker.max_observation_age_ms",
         config.gamepad.tracker.max_observation_age_ms);
+    line(
+        "gamepad.tracker.causal_memory_enabled",
+        config.gamepad.tracker.causal_memory_enabled);
+    line(
+        "gamepad.tracker.causal_memory_response_delay_ms",
+        config.gamepad.tracker.causal_memory_response_delay_ms);
+    line(
+        "gamepad.tracker.causal_memory_horizon_ms",
+        config.gamepad.tracker.causal_memory_horizon_ms);
+    line(
+        "gamepad.intent.helpful_manual_overdrive_enabled",
+        config.gamepad.intent.helpful_manual_overdrive_enabled);
+    line(
+        "gamepad.intent.helpful_manual_overdrive_max_scale",
+        config.gamepad.intent.helpful_manual_overdrive_max_scale);
     line("gamepad.ads.strength_scale", config.ads.strength_scale);
     line("gamepad.ads.vertical_strength_scale", config.ads.vertical_strength_scale);
     line("gamepad.ads.range_px", aim.max_pixels);
@@ -229,6 +233,18 @@ void dump_effective_config(const controller_native::RuntimeConfig& config) {
     line("gamepad.recoil.profile_amount", recoil.profile_amount);
     line("gamepad.recoil.profile_x_amount", recoil.profile_x_amount);
     line("gamepad.recoil.feedback_amount", recoil.feedback_amount);
+    line("gamepad.recoil.adaptive_feedback_enabled", recoil.adaptive_feedback_enabled);
+    line("gamepad.recoil.adaptive_min_amount", recoil.adaptive_min_amount);
+    line("gamepad.recoil.adaptive_max_amount", recoil.adaptive_max_amount);
+    line(
+        "gamepad.recoil.firing_vertical_intent_enabled",
+        recoil.firing_vertical_intent_enabled);
+    line(
+        "gamepad.recoil.firing_vertical_intent_max_offset_px",
+        recoil.firing_vertical_intent_max_offset_px);
+    line(
+        "gamepad.recoil.firing_vertical_intent_deadzone",
+        recoil.firing_vertical_intent_deadzone);
     line("gamepad.recoil.profile_lead_ms", recoil.profile_lead_ms);
     line("gamepad.recoil.profile_velocity_reference_ms", recoil.profile_velocity_reference_ms);
     line("gamepad.recoil.profile_despike_threshold_px", recoil.profile_despike_threshold_px);
@@ -259,12 +275,18 @@ void print_startup_summary(
         << " gpu_service=" << (config.vision.gpu_service_enabled ? "on" : "off")
         << " gpu_service_active_fps=" << config.vision.gpu_service_active_fps
         << " gpu_service_idle_fps=" << config.vision.gpu_service_idle_fps
-        << " ego_motion=" << (config.vision.ego_motion_enabled ? "shadow" : "off")
         << " tracker_backend="
         << tracking_native::tracker_backend_kind_name(config.gamepad.tracker_backend)
         << " tracker_max_observation_age_ms="
         << config.gamepad.tracker.max_observation_age_ms
         << " tracker_motion=component_aware_final"
+        << " causal_memory="
+        << (config.gamepad.tracker.causal_memory_enabled
+                ? "enabled" : "off")
+        << " causal_memory_delay_ms="
+        << config.gamepad.tracker.causal_memory_response_delay_ms
+        << " causal_memory_horizon_ms="
+        << config.gamepad.tracker.causal_memory_horizon_ms
         << " recoil=" << (config.gamepad.recoil.enabled ? "on" : "off")
         << " recoil_profile="
         << (config.gamepad.recoil.profile_playback_enabled ? "on" : "off")
@@ -278,13 +300,6 @@ void print_startup_summary(
         << " auto_fire=" << config.gamepad.auto_fire.fire_output
         << " fusion=" << (config.vision.fusion_enabled ? "on" : "off")
         << " fusion_session=" << config.vision.fusion_session
-        << " control_learning=" << (
-            config.control_learning.mode ==
-                    controller_native::ControlLearningMode::RolloutShadow
-                ? "rollout_shadow"
-                : config.control_learning.mode ==
-                          controller_native::ControlLearningMode::Shadow
-                    ? "shadow" : "disabled")
         << '\n';
 }
 

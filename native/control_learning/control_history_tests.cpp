@@ -48,11 +48,15 @@ void test_history_integrates_piecewise_constant_delivery() {
     control_learning::ControlHistory<8> history;
     REQUIRE(history.push(sample(1, 10'000'000, {0.5f, 0.0f}, {0.2f, 0.0f})));
     REQUIRE(history.push(sample(2, 30'000'000, {1.0f, 0.0f}, {0.4f, 0.0f})));
+    // The queried end must be covered by a retained delivery timestamp; an
+    // endpoint sample at 40 ms makes the [20,40) interval explicit without
+    // changing the held state inside it.
+    REQUIRE(history.push(sample(3, 40'000'000, {1.0f, 0.0f}, {0.4f, 0.0f})));
     const auto interval = history.integrate(20'000'000, 40'000'000);
     REQUIRE_NEAR(interval.final_right_stick_seconds.x, 0.015f, 1.0e-6f);
     REQUIRE_NEAR(interval.final_left_stick_seconds.x, 0.006f, 1.0e-6f);
     REQUIRE(interval.complete);
-    REQUIRE(interval.first_seq == 2);
+    REQUIRE(interval.first_seq == 1);
     REQUIRE(interval.last_seq == 2);
 }
 
@@ -81,6 +85,7 @@ void test_failed_delivery_and_sequence_gap_make_interval_ineligible() {
     failed.output_delivered = false;
     REQUIRE(history.push(failed));
     REQUIRE(history.push(sample(7, 30'000'000, {0.6f, 0.0f})));
+    REQUIRE(history.push(sample(8, 40'000'000, {0.6f, 0.0f})));
     const auto interval = history.integrate(10'000'000, 40'000'000);
     REQUIRE(interval.failed_delivery);
     REQUIRE(interval.expected == 4);

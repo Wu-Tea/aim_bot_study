@@ -26,7 +26,8 @@ AimResponseInterval interval(
     std::uint64_t target_id,
     float stick_x,
     float response,
-    float target_rate = 75.0f) {
+    float target_rate = 75.0f,
+    float slow_zone_weight = 0.0f) {
     AimResponseInterval sample;
     sample.target_id = target_id;
     sample.average_final_stick = {stick_x, 0.0f};
@@ -34,8 +35,20 @@ AimResponseInterval interval(
         target_rate - response * stick_x, 0.0f};
     sample.dt_seconds = 0.010f;
     sample.reliability = 0.95f;
+    sample.slow_zone_weight = slow_zone_weight;
     sample.observed = true;
     return sample;
+}
+
+void train_zone(
+    AimResponseEstimator& estimator,
+    float response,
+    float slow_zone_weight,
+    int samples = 80) {
+    for (int index = 0; index < samples; ++index) {
+        const float stick = index % 2 == 0 ? 0.20f : 0.55f;
+        estimator.update(interval(7, stick, response, 75.0f, slow_zone_weight));
+    }
 }
 
 void train(AimResponseEstimator& estimator, float response, int samples = 80) {
@@ -75,6 +88,34 @@ void test_persists_across_targets_and_adapts_to_slowdown() {
     }
     require_near(estimator.estimate().scale_px_per_stick_second, 250.0f, 20.0f,
                  "online estimate adapts inside slowdown");
+}
+
+void test_keeps_free_and_slow_zone_response_separate() {
+    AimResponseEstimator estimator;
+    train_zone(estimator, 600.0f, 0.0f);
+    train_zone(estimator, 330.0f, 1.0f);
+
+    const auto free = estimator.estimate(0.0f);
+    const auto slowed = estimator.estimate(1.0f);
+    const auto boundary = estimator.estimate(0.5f);
+    require_near(free.scale_px_per_stick_second, 600.0f, 25.0f,
+                 "free-space response must survive slowdown-zone learning");
+    require_near(slowed.scale_px_per_stick_second, 330.0f, 25.0f,
+                 "slowdown zone must retain its measured angular response");
+    require(boundary.scale_px_per_stick_second < free.scale_px_per_stick_second &&
+                boundary.scale_px_per_stick_second > slowed.scale_px_per_stick_second,
+            "zone boundary must interpolate measured response continuously");
+}
+
+void test_slow_zone_weight_is_geometric_and_continuous() {
+    const pipeline_contract::Vec2f target_size{60.0f, 140.0f};
+    const float center = aim_response_slow_zone_weight({0.0f, 0.0f}, target_size);
+    const float boundary = aim_response_slow_zone_weight({30.0f, 0.0f}, target_size);
+    const float outside = aim_response_slow_zone_weight({80.0f, 0.0f}, target_size);
+    require_near(center, 1.0f, 1.0e-6f, "target center is fully inside slowdown region");
+    require(boundary > 0.0f && boundary < center,
+            "target edge must blend between slowdown and free response");
+    require_near(outside, 0.0f, 1.0e-6f, "far reticle uses free response");
 }
 
 void test_rejects_ambiguous_and_invalid_intervals() {
@@ -117,6 +158,8 @@ int main() {
     try {
         test_fallback_and_convergence_across_response_scales();
         test_persists_across_targets_and_adapts_to_slowdown();
+        test_keeps_free_and_slow_zone_response_separate();
+        test_slow_zone_weight_is_geometric_and_continuous();
         test_rejects_ambiguous_and_invalid_intervals();
         test_reset_clears_learned_response();
         std::cout << "cod_native_aim_response_estimator_tests PASS\n";

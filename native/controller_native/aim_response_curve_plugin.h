@@ -159,4 +159,39 @@ inline pipeline_contract::Vec2f inverse_aim_response_curve(
     return {linear_target.x * scale, linear_target.y * scale};
 }
 
+// Converts the delivered virtual-stick target back into the normalized
+// camera-response space used by the controller.  This is the exact inverse of
+// inverse_aim_response_curve within the plugin's unclipped range and lets the
+// causal ledger account for what the game receives instead of integrating raw
+// stick magnitude as though every configured curve were linear.
+inline pipeline_contract::Vec2f forward_aim_response_curve(
+    pipeline_contract::Vec2f delivered_stick,
+    const AimResponseCurveConfig& config) noexcept {
+    const float stick_magnitude = std::hypot(
+        delivered_stick.x, delivered_stick.y);
+    if (stick_magnitude <= 1.0e-7f ||
+        config.algorithm == AimResponseCurveAlgorithm::Linear) {
+        return delivered_stick;
+    }
+
+    const AimResponseCurvePlugin& plugin =
+        resolve_aim_response_curve_plugin(config.algorithm);
+    const float reference = std::clamp(
+        std::isfinite(config.calibration_reference_stick)
+            ? config.calibration_reference_stick
+            : 0.50f,
+        0.05f,
+        1.0f);
+    const float reference_response = plugin.forward_magnitude(reference);
+    if (!std::isfinite(reference_response) ||
+        reference_response <= 1.0e-7f) {
+        return delivered_stick;
+    }
+    const float response = plugin.forward_magnitude(
+        std::clamp(stick_magnitude, 0.0f, 1.0f));
+    const float linear_magnitude = reference * response / reference_response;
+    const float scale = linear_magnitude / stick_magnitude;
+    return {delivered_stick.x * scale, delivered_stick.y * scale};
+}
+
 }  // namespace controller_native

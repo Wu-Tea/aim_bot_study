@@ -196,7 +196,7 @@ ControllerStepResult NativeReplayAdapter::step(
     }
     const auto output = controller_.build_output(physical_);
     controller_.report_output_delivery(
-        true, true, now_seconds_ + 0.000001);
+        true, true, now_seconds_ + 0.000001, 1);
     const auto& components = controller_.last_output_components();
     const std::string& mode = controller_.last_ai_aim_mode();
     if (coverage_ && (mode == "ads_snap" || mode == "body_lock")) {
@@ -210,6 +210,7 @@ ControllerStepResult NativeReplayAdapter::step(
     }
     const auto& vision = controller_.last_frame_vision_state();
     const auto& plan = controller_.last_target_plan();
+    const auto& causal_memory = controller_.last_causal_memory_estimate();
     return ControllerStepResult{
         {output.right_x, output.right_y},
         {components.requested_assist_stick.x,
@@ -233,6 +234,19 @@ ControllerStepResult NativeReplayAdapter::step(
         {components.before_recoil_stick.x,
          components.before_recoil_stick.y},
         true,
+        causal_memory.valid,
+        causal_memory.realized_valid,
+        {causal_memory.realized_px.x, causal_memory.realized_px.y},
+        {causal_memory.in_flight_px.x, causal_memory.in_flight_px.y},
+        {causal_memory.scheduled_px.x, causal_memory.scheduled_px.y},
+        {causal_memory.pending_total_px.x,
+         causal_memory.pending_total_px.y},
+        causal_memory.status,
+        controller_.ads_epoch(),
+        causal_memory.realized_response_confidence,
+        causal_memory.pending_response_confidence,
+        causal_memory.realized_response_confidence_valid,
+        causal_memory.pending_response_confidence_valid,
     };
 }
 

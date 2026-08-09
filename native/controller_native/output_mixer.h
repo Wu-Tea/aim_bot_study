@@ -12,6 +12,12 @@ namespace controller_native {
 struct NativeControllerOutputComponents {
     common_native::Vec2f physical_stick;
     common_native::Vec2f manual_stick;
+    // Target-first diagnostics: M is the physical proposal, while T is the
+    // single pre-recoil aim output.  `ai_correction_stick` is only T-M; it is
+    // not a second actuator contribution.
+    common_native::Vec2f target_final_stick;
+    common_native::Vec2f ai_correction_stick;
+    const char* manual_authority_mode = "no_target_passthrough";
     common_native::Vec2f filtered_manual_stick;
     float manual_confidence = 0.0f;
     common_native::Vec2f ai_aim_stick;
@@ -67,10 +73,16 @@ struct NativeControllerOutputComponents {
     common_native::Vec2f ads_brake_stick;
     common_native::Vec2f post_ads_brake_stick;
     common_native::Vec2f ads_brake_error_px;
-    common_native::Vec2f remaining_work_px;
-    common_native::Vec2f delivered_camera_work_px;
-    float remaining_work_confidence = 0.0f;
-    bool remaining_work_valid = false;
+    // Causal memory diagnostics are deliberately named by their D/P/R
+    // contract.  These are observations of the single final output path,
+    // not a second output contribution or an allocation between manual/AI.
+    common_native::Vec2f observed_error_px;
+    common_native::Vec2f pending_motion_px;
+    common_native::Vec2f control_error_px;
+    float pending_motion_confidence = 0.0f;
+    bool pending_motion_valid = false;
+    bool memory_applied = false;
+    const char* memory_status = "disabled";
     common_native::Vec2f ads_carry_brake_stick;
     common_native::Vec2f post_ads_carry_brake_stick;
     bool ads_carry_brake_active = false;

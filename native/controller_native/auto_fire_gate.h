@@ -49,7 +49,6 @@ struct AutoFireGateDecision {
     bool should_fire = false;
     bool before_auto_fire_active = false;
     bool after_auto_fire_active = false;
-    bool release_fire_output = false;
     bool pulse_waiting = false;
     AutoFireBlockReason block_reason = AutoFireBlockReason::None;
     NativeAutoFireCounters counters;

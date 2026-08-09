@@ -8,23 +8,32 @@ baselines, completed acceptance stages and paused research through
 
 1. [Current State](CURRENT_STATE.md) - current runtime facts, W0-W6 boundary,
    next live validation and non-regression rules.
-2. [August 3 Live-Accepted Native Runtime](LIVE_ACCEPTED_RUNTIME_20260803.md) -
+2. [W5 Causal Short-Term Memory](W5_CAUSAL_MEMORY_20260808.md) - current W3/W4
+   stop boundary, accepted Phase B and Gate 2 evidence, the Gate2.5B
+   default-off diagnostic (`40/40` CTest), its bounded component budget,
+   source-present seam, `FAIL_FOR_ACTIVATION` boundary and the absence of live
+   COD evidence.
+3. [W5 Gate 2.5 Live-Shadow Measurement Plan](W5_GATE2_5_LIVE_SHADOW_MEASUREMENT_PLAN_20260808.md)
+   - retained low-overhead collection boundary, strict cohorts, clock joins,
+   compact shadow aggregates, deterministic tests and unfinished work after
+   the Gate2.5B implementation checkpoint.
+4. [August 3 Live-Accepted Native Runtime](LIVE_ACCEPTED_RUNTIME_20260803.md) -
    protected executable/config identity, live evidence, restore set and the
-   explicit statement that W5 memory is not implemented.
-3. [Five-Case and Schema-13 Control Audit](FIVE_CASE_SCHEMA13_CONTROL_AUDIT_20260803.md) -
+   explicit statement that W5 memory was not present in that historical binary.
+5. [Five-Case and Schema-13 Control Audit](FIVE_CASE_SCHEMA13_CONTROL_AUDIT_20260803.md) -
    current command-continuity defect, five marked cases, latency comparison,
    W3/W4 gates and next acceptance order.
-4. [Control-Chain Jump Stability Acceptance](CONTROL_CHAIN_JUMP_STABILITY_ACCEPTANCE_20260801.md) -
+6. [Control-Chain Jump Stability Acceptance](CONTROL_CHAIN_JUMP_STABILITY_ACCEPTANCE_20260801.md) -
    earlier Task 1-4 contracts and historical rollback evidence.
-5. [ADS Long-Session Diagnosis](ADS_LONG_SESSION_DIAGNOSIS_20260801.md) -
+7. [ADS Long-Session Diagnosis](ADS_LONG_SESSION_DIAGNOSIS_20260801.md) -
    25.5-minute bot-log analysis separating movement/handoff timing from
    cumulative learning drift.
-6. [Project Overview](PROJECT_OVERVIEW.md) - component and data-flow map.
-7. [Native C++ Runtime](NATIVE_CPP_RUNTIME.md) - default runtime build, launch
+8. [Project Overview](PROJECT_OVERVIEW.md) - component and data-flow map.
+9. [Native C++ Runtime](NATIVE_CPP_RUNTIME.md) - default runtime build, launch
    and fallback.
-8. [Native Vision](NATIVE_VISION.md) - TensorRT Vision implementation and
+10. [Native Vision](NATIVE_VISION.md) - TensorRT Vision implementation and
    smoke tests.
-9. [Controller Overview](CONTROLLER_OVERVIEW.md) - controller ownership and
+11. [Controller Overview](CONTROLLER_OVERVIEW.md) - controller ownership and
    runtime modes.
 
 ## Runtime and Architecture

@@ -42,11 +42,6 @@ struct VisionRuntimeConfig {
     int gpu_service_idle_fps = 20;
     bool gpu_service_keepwarm_when_idle = true;
     bool gpu_service_repeat_last_on_no_update = true;
-    // Research-only background camera-motion observer. Normal runtime keeps
-    // this off so no grayscale readback, CUDA synchronization, or CPU worker
-    // is added to the Vision path.
-    bool ego_motion_enabled = false;
-
     // fusion visual overlay channel (disabled by default)
     bool fusion_enabled = false;
     std::string fusion_session = "dev";
@@ -165,6 +160,17 @@ struct GamepadRecoilConfig {
     float profile_amount = 1.0f;
     float profile_x_amount = 1.0f;
     float feedback_amount = 0.20f;
+    // Short-window controller feedback around the fixed fallback amount.
+    // It consumes only de-duplicated fresh target residuals and is disabled
+    // automatically when weapon profile playback owns recoil magnitude.
+    bool adaptive_feedback_enabled = true;
+    float adaptive_min_amount = 0.06f;
+    float adaptive_max_amount = 0.42f;
+    // A firing vertical stick is target-internal aim intent, not a protected
+    // additive force. It changes D before the one target-first T is solved.
+    bool firing_vertical_intent_enabled = true;
+    float firing_vertical_intent_max_offset_px = 48.0f;
+    float firing_vertical_intent_deadzone = 0.025f;
     float profile_lead_ms = 0.0f;
     float profile_velocity_reference_ms = 10.0f;
     float profile_despike_threshold_px = 2.0f;
@@ -191,13 +197,19 @@ struct GamepadTrackerConfig {
     // still coast under the separate projection/hold lease, but an old frame
     // can never be admitted again as a new observation.
     float max_observation_age_ms = 50.0f;
-    bool remaining_work_enabled = true;
-    float remaining_work_scale = 0.60f;
+    // The causal ledger is the sole production source for pending final-T
+    // motion. It changes the target-plan residual only when its estimate is
+    // valid; all other paths fail open to the raw target error.
+    bool causal_memory_enabled = true;
+    float causal_memory_response_delay_ms = 20.0f;
+    float causal_memory_horizon_ms = 200.0f;
 };
 
 struct GamepadIntentConfig {
     float wrong_way_manual_preservation_floor = 0.65f;
     float fresh_vision_wrong_way_manual_floor = 0.35f;
+    bool helpful_manual_overdrive_enabled = true;
+    float helpful_manual_overdrive_max_scale = 1.15f;
 };
 
 struct GamepadRuntimeConfig {
@@ -236,18 +248,6 @@ struct RuntimePerformanceConfig {
     bool stdout_enabled = true;
 };
 
-enum class ControlLearningMode : unsigned char {
-    Disabled,
-    Shadow,
-    RolloutShadow,
-};
-
-struct ControlLearningConfig {
-    bool enabled = false;
-    ControlLearningMode mode = ControlLearningMode::Disabled;
-    bool telemetry_enabled = false;
-};
-
 struct RuntimeSchedulerConfig {
     int controller_tick_hz = 1000;
     std::string mode = "legacy";
@@ -272,7 +272,6 @@ struct RuntimeConfig {
     VisionRuntimeConfig vision;
     RuntimeTelemetryConfig telemetry;
     RuntimePerformanceConfig performance;
-    ControlLearningConfig control_learning;
     RuntimeSchedulerConfig scheduler;
     RuntimeOutputConfig output;
     CompactAdsConfig ads;

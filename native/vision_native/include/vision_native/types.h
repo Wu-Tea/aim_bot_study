@@ -1,7 +1,6 @@
 #pragma once
 
 #include "pipeline_contract/target_snapshot.h"
-#include "vision_native/ego_motion_observer.h"
 
 #include <cstdint>
 #include <vector>
@@ -215,8 +214,6 @@ struct VisionResult {
     float post_ms = 0.0f;
     float age_ms = 0.0f;
     float boxes_seen = 0.0f;
-    EgoMotionShadowResult ego_motion_shadow{};
-    float ego_motion_stage_ms = 0.0f;
     PreprocessMode preprocess_mode = PreprocessMode::Unknown;
     std::vector<Detection> detections;
 };

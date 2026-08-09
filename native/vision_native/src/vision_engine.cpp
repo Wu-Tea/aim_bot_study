@@ -98,8 +98,7 @@ VisionEngine::VisionEngine(
     std::string color_readback_mode,
     int expected_tensor_width,
     int expected_tensor_height,
-    bool require_isotropic_resize,
-    bool ego_motion_enabled)
+    bool require_isotropic_resize)
     : capture_(width, height, adapter_index, output_index, timeout_ms),
       selector_(width, height),
       host_color_frame_(std::make_unique<ColorReadbackBuffer>(color_readback_mode == "pinned")),
@@ -158,35 +157,9 @@ VisionEngine::VisionEngine(
             cudaGraphicsRegisterFlagsNone),
         "cudaGraphicsD3D11RegisterResource");
     graphics_resource_ = graphics_resource;
-    if (ego_motion_enabled) {
-        std::unique_ptr<EgoMotionObserver> observer;
-        try {
-            host_ego_gray_.resize(kEgoMotionPixelCount);
-            observer = std::make_unique<EgoMotionObserver>();
-        } catch (...) {
-            cudaGraphicsUnregisterResource(graphics_resource);
-            graphics_resource_ = nullptr;
-            throw;
-        }
-        const cudaError_t ego_alloc_status = cudaMalloc(
-            reinterpret_cast<void**>(&device_ego_gray_), kEgoMotionPixelCount);
-        if (ego_alloc_status == cudaSuccess) {
-            ego_motion_observer_ = std::move(observer);
-            ego_motion_staging_available_ = true;
-        } else {
-            (void)cudaGetLastError();
-            device_ego_gray_ = nullptr;
-            host_ego_gray_.clear();
-        }
-    }
 }
 
 VisionEngine::~VisionEngine() {
-    ego_motion_observer_.reset();
-    if (device_ego_gray_ != nullptr) {
-        (void)cudaFree(device_ego_gray_);
-        device_ego_gray_ = nullptr;
-    }
     if (graphics_resource_ != nullptr) {
         cudaGraphicsUnregisterResource(static_cast<cudaGraphicsResource_t>(graphics_resource_));
         graphics_resource_ = nullptr;
@@ -198,7 +171,6 @@ void VisionEngine::set_aiming(bool aiming) {
     if (!aiming) {
         selector_.reset();
         enhancer_.reset();
-        if (ego_motion_observer_ != nullptr) ego_motion_observer_->reset();
         user_aim_intent_ = pipeline_contract::UserAimIntent{};
         external_cue_found_ = false;
         external_cue_x_ = 0.0f;
@@ -251,7 +223,6 @@ void VisionEngine::reset() {
     aiming_.store(false, std::memory_order_relaxed);
     selector_.reset();
     enhancer_.reset();
-    if (ego_motion_observer_ != nullptr) ego_motion_observer_->reset();
     user_aim_intent_ = pipeline_contract::UserAimIntent{};
     external_cue_found_ = false;
     external_cue_x_ = 0.0f;
@@ -331,12 +302,6 @@ VisionResult VisionEngine::poll_once() {
     result.capture_copy_ms = metadata.copy_ms;
     result.target_x = result.screen_center_x;
     result.target_y = result.screen_center_y;
-    EgoMotionShadowResult completed_shadow;
-    if (ego_motion_observer_ != nullptr &&
-        ego_motion_observer_->take_latest_result(&completed_shadow)) {
-        result.ego_motion_shadow = completed_shadow;
-    }
-
     if (!metadata.updated || metadata.frame.data == nullptr) {
         result.result_at_ns = now_ns();
         if (result.captured_at_ns != 0) {
@@ -403,81 +368,6 @@ VisionResult VisionEngine::poll_once() {
         batch.external_cue_x = external_cue_x_;
         batch.external_cue_y = external_cue_y_;
         batch.external_cue_score = external_cue_score_;
-
-        // Stage only a small grayscale image while the D3D resource is
-        // mapped. This is shadow input; no controller/tracker code consumes
-        // it and a staging failure simply disables this frame's shadow pair.
-        if (ego_motion_observer_ != nullptr && ego_motion_staging_available_ &&
-            device_ego_gray_ != nullptr) {
-            const auto ego_stage_start = now_ns();
-            const cudaTextureObject_t ego_texture = launch_bgra_array_to_gray_u8(
-                frame_array,
-                width_,
-                height_,
-                kEgoMotionFrameWidth,
-                kEgoMotionFrameHeight,
-                device_ego_gray_,
-                engine_->cuda_stream());
-            cudaError_t ego_status = ego_texture != 0
-                ? cudaGetLastError() : cudaErrorUnknown;
-            if (ego_status == cudaSuccess) {
-                ego_status = cudaMemcpyAsync(
-                    host_ego_gray_.data(),
-                    device_ego_gray_,
-                    host_ego_gray_.size(),
-                    cudaMemcpyDeviceToHost,
-                    engine_->cuda_stream());
-            }
-            if (ego_status == cudaSuccess) {
-                ego_status = cudaStreamSynchronize(engine_->cuda_stream());
-            }
-            if (ego_texture != 0) {
-                (void)cudaDestroyTextureObject(ego_texture);
-            }
-            if (ego_status == cudaSuccess) {
-                result.ego_motion_stage_ms = ns_to_ms(now_ns() - ego_stage_start);
-                std::array<EgoMotionMaskRect, kEgoMotionMaxMaskRects> masks{};
-                std::size_t mask_count = 0;
-                for (const Detection& detection : batch.detections) {
-                    if (mask_count >= masks.size()) break;
-                    const float sx = static_cast<float>(kEgoMotionFrameWidth) /
-                        static_cast<float>(width_);
-                    const float sy = static_cast<float>(kEgoMotionFrameHeight) /
-                        static_cast<float>(height_);
-                    masks[mask_count++] = EgoMotionMaskRect{
-                        std::max(0, static_cast<int>(detection.x1 * sx) - 4),
-                        std::max(0, static_cast<int>(detection.y1 * sy) - 4),
-                        std::min(kEgoMotionFrameWidth,
-                            static_cast<int>(detection.x2 * sx) + 5),
-                        std::min(kEgoMotionFrameHeight,
-                            static_cast<int>(detection.y2 * sy) + 5)};
-                }
-                EgoMotionFrameView ego_frame;
-                ego_frame.frame_id = metadata.frame.frame_id;
-                ego_frame.source_present_qpc = metadata.source_present_qpc;
-                ego_frame.source_present_qpc_frequency =
-                    metadata.source_present_qpc_frequency;
-                ego_frame.source_present_steady_ns =
-                    metadata.source_present_steady_ns;
-                ego_frame.source_present_calibration_id =
-                    metadata.source_present_calibration_id;
-                ego_frame.source_present_calibration_uncertainty_ns =
-                    metadata.source_present_calibration_uncertainty_ns;
-                ego_frame.source_present_steady_available =
-                    metadata.source_present_steady_available;
-                ego_frame.captured_at_ns = metadata.frame.captured_at_ns;
-                ego_frame.result_at_ns = now_ns();
-                ego_frame.width = kEgoMotionFrameWidth;
-                ego_frame.height = kEgoMotionFrameHeight;
-                ego_frame.row_pitch = kEgoMotionFrameWidth;
-                ego_frame.gray = host_ego_gray_.data();
-                ego_frame.masks = masks.data();
-                ego_frame.mask_count = mask_count;
-                (void)ego_motion_observer_->submit_frame(ego_frame);
-            } else {
-                (void)cudaGetLastError();
-            }
-        }
 
         const auto color_region = selector_.required_color_region(batch);
         bool has_color_frame = false;
@@ -636,10 +526,6 @@ VisionResult VisionEngine::poll_once() {
         }
 
         result.result_at_ns = now_ns();
-        if (ego_motion_observer_ != nullptr &&
-            ego_motion_observer_->take_latest_result(&completed_shadow)) {
-            result.ego_motion_shadow = completed_shadow;
-        }
         result.post_ms = batch.decode_ms + ns_to_ms(result.result_at_ns - post_start);
         if (result.captured_at_ns != 0) {
             result.age_ms = ns_to_ms(result.result_at_ns - result.captured_at_ns);
@@ -679,11 +565,6 @@ float VisionEngine::resize_scale_y() const {
 
 bool VisionEngine::resize_isotropic() const {
     return resize_contract_.isotropic;
-}
-
-bool VisionEngine::ego_motion_enabled() const {
-    return ego_motion_observer_ != nullptr && ego_motion_staging_available_ &&
-        device_ego_gray_ != nullptr;
 }
 
 } // namespace vision_native

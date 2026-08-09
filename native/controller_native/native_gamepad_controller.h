@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ads_acquisition_controller.h"
+#include "adaptive_recoil_feedback.h"
 #include "aim_response_estimator.h"
 #include "aim_activation.h"
 #include "aim_dynamics_shaper.h"
@@ -118,7 +119,8 @@ public:
     void report_output_delivery(
         bool delivered,
         bool output_enabled,
-        double delivered_at_seconds) noexcept;
+        double delivered_at_seconds,
+        std::uint64_t physical_actuator_epoch) noexcept;
     NativeAutoFireCounters auto_fire_counters() const;
     const std::vector<NativeControllerStageTrace>& last_pipeline_traces() const;
     const NativeControllerAcquisitionTrace& last_acquisition_trace() const noexcept;
@@ -126,6 +128,7 @@ public:
     const NativeControllerOutputComponents& last_output_components() const;
     const NativeControllerVisionState& last_frame_vision_state() const;
     const pipeline_contract::TargetPlan& last_target_plan() const;
+    const CausalMotionPhaseEstimate& last_causal_memory_estimate() const noexcept;
     std::uint64_t ads_epoch() const noexcept;
     const std::string& last_ai_aim_mode() const;
     bool body_lock_manual_takeover_active() const;
@@ -162,11 +165,15 @@ private:
     NativeControllerVisionState vision_state_from_plan(
         const pipeline_contract::TargetPlan& plan,
         double now_seconds,
-        bool capture_fresh) const;
+        bool capture_fresh,
+        pipeline_contract::Vec2f observed_error_px) const;
     bool manual_fire_pressed(const PhysicalGamepadState& physical) const noexcept;
     void apply_recoil(
         GamepadOutputState& output,
         const PhysicalGamepadState& physical,
+        const pipeline_contract::TargetPlan& plan,
+        pipeline_contract::Vec2f observed_error_px,
+        bool capture_fresh,
         bool aiming,
         bool auto_fire_active,
         double now_seconds);
@@ -176,6 +183,10 @@ private:
         const GamepadOutputState& output,
         bool before_auto_fire_active,
         bool after_auto_fire_active);
+    void refresh_causal_memory_estimate(
+        const pipeline_contract::VisionObservationBatch& observations,
+        const pipeline_contract::TargetPlan& plan,
+        double now_seconds) noexcept;
     double now_seconds() const;
 
     GamepadRuntimeConfig config_{};
@@ -187,8 +198,12 @@ private:
     AimDynamicsShaper dynamics_shaper_{};
     AxisIntentArbiter axis_intent_arbiter_{};
     VectorIntentFuser vector_intent_fuser_{};
+#if defined(COD_BENCHMARK_MIX_OVERRIDE)
     PendingControlMotion pending_control_motion_{};
+#endif
+    CausalMotionLedger causal_motion_ledger_{};
     recoil_native::RecoilCompensationPolicy recoil_;
+    AdaptiveRecoilFeedback adaptive_recoil_feedback_;
     AimActivationTracker aim_activation_tracker_{};
     AutoFireGate auto_fire_gate_;
     ControllerVisionSnapshot pending_snapshot_{};
@@ -205,6 +220,8 @@ private:
     double last_tick_seconds_ = 0.0;
     float previous_plan_normalized_size_ = 0.0f;
     std::uint64_t previous_plan_target_id_ = 0;
+    bool previous_target_first_authoritative_ = false;
+    std::uint32_t last_observed_ads_candidate_count_ = 0;
     pipeline_contract::Vec2f aim_response_command_sum_{};
     std::uint32_t aim_response_command_count_ = 0;
     std::uint64_t last_aim_response_frame_id_ = 0;
@@ -217,20 +234,39 @@ private:
     NativeControllerOutputComponents last_output_components_{};
     NativeControllerVisionState last_frame_vision_state_{};
     pipeline_contract::TargetPlan last_target_plan_{};
-    double remaining_work_accounted_seconds_ = 0.0;
-    std::uint64_t remaining_work_delivery_target_id_ = 0;
-    std::uint64_t remaining_work_delivery_ads_epoch_ = 0;
-    bool remaining_work_reset_pending_ = false;
+    CausalMotionPhaseEstimate last_causal_memory_estimate_{};
+    double causal_memory_previous_capture_seconds_ = 0.0;
+    double causal_memory_current_capture_seconds_ = 0.0;
+    std::uint64_t causal_memory_previous_source_frame_id_ = 0;
+    std::uint64_t causal_memory_previous_source_observation_id_ = 0;
+    std::uint64_t causal_memory_previous_present_ns_ = 0;
+    std::uint64_t causal_memory_previous_present_calibration_id_ = 0;
+    std::uint64_t causal_memory_previous_present_qpc_frequency_ = 0;
+    std::uint64_t causal_memory_current_source_frame_id_ = 0;
+    std::uint64_t causal_memory_current_source_observation_id_ = 0;
+    std::uint64_t causal_memory_current_present_ns_ = 0;
+    std::uint64_t causal_memory_current_present_calibration_id_ = 0;
+    std::uint64_t causal_memory_current_present_qpc_frequency_ = 0;
+    std::uint64_t causal_memory_previous_capture_target_id_ = 0;
+    std::uint64_t causal_memory_previous_capture_ads_epoch_ = 0;
+    std::uint64_t causal_memory_capture_target_id_ = 0;
+    std::uint64_t causal_memory_capture_ads_epoch_ = 0;
+    bool causal_memory_capture_pair_compatible_ = false;
+    std::uint64_t causal_memory_physical_actuator_epoch_ = 1;
     bool previous_fusion_manual_escape_ = false;
     std::string last_ai_aim_mode_ = "manual";
     std::function<double()> clock_;
 #if defined(COD_BENCHMARK_MIX_OVERRIDE)
     BenchmarkMixTransform benchmark_mix_transform_;
     BenchmarkIntentFusionMode benchmark_intent_fusion_mode_ =
-        BenchmarkIntentFusionMode::LegacyAxis;
+        BenchmarkIntentFusionMode::CausalVectorBaseline;
     BenchmarkRemainingWorkMode benchmark_remaining_work_mode_ =
         BenchmarkRemainingWorkMode::UseRuntimeConfig;
     float benchmark_remaining_work_scale_ = 1.0f;
+    double remaining_work_accounted_seconds_ = 0.0;
+    std::uint64_t remaining_work_delivery_target_id_ = 0;
+    std::uint64_t remaining_work_delivery_ads_epoch_ = 0;
+    bool remaining_work_reset_pending_ = false;
     bool benchmark_player_motion_oracle_valid_ = false;
     bool benchmark_player_motion_rate_oracle_valid_ = false;
     pipeline_contract::Vec2f benchmark_player_error_delta_px_{};

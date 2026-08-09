@@ -1,5 +1,7 @@
 #pragma once
 
+#include "aim_response_curve_plugin.h"
+
 #include <cstdint>
 #include <vector>
 
@@ -156,10 +158,17 @@ struct BenchmarkConfig {
     double slowdown_edge_multiplier = 0.50;
     double slowdown_center_multiplier = 0.40;
     double camera_response_px_per_stick_second = 500.0;
+    // The virtual camera must apply the same forward response curve as the
+    // configured game.  Linear remains the historical/default plant.
+    AimResponseCurveConfig camera_response_curve{};
     // Benchmark-only right-stick scaling. The camera plant and AI proposal
     // remain unchanged, allowing human-equivalent sensitivity sweeps.
     double manual_input_scale = 1.0;
     int control_response_delay_ms = 0;
+    // Benchmark-only idle before the first target is spawned.  This makes
+    // pre-acquisition actuator carry explicit without changing controller
+    // or runtime semantics.
+    int initial_idle_ms = 0;
     int frame_width_px = 640;
     int frame_height_px = 512;
     // Zero preserves the historical randomized 10-12 ms cadence.

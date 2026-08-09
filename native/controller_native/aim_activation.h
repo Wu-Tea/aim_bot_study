@@ -8,11 +8,11 @@ namespace controller_native {
 
 constexpr float kAimLeftTriggerPressThreshold = 0.05f;
 constexpr float kAimLeftTriggerIdleThreshold = 0.03f;
-// The native controller normally samples near 1 kHz. A short USB/input read
-// dropout must not terminate an ADS epoch and immediately re-arm snap while
-// the player is physically holding LT. Press remains immediate; release needs
-// roughly 24 ms of continuous idle evidence.
-constexpr unsigned int kAimLeftTriggerIdleDebounceSamples = 24;
+// The native controller normally samples near 1 kHz. Preserve protection from
+// a one-sample USB/input read dropout without retaining AI ownership after a
+// real physical release. Press remains immediate; release needs three
+// consecutive idle samples (roughly 3 ms at the ordinary control cadence).
+constexpr unsigned int kAimLeftTriggerIdleDebounceSamples = 3;
 
 class AimActivationTracker {
 public:

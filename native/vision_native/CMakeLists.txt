@@ -79,7 +79,6 @@ add_library(vision_native_core STATIC
     src/build_family.cpp
     src/color_readback.cpp
     src/dxgi_capture.cpp
-    src/ego_motion_observer.cpp
     src/qpc_steady_clock.cpp
     src/present_interval_contract.cpp
     src/engine_io.cpp
@@ -250,10 +249,6 @@ add_executable(cod_native_runtime
     ../runtime_app/telemetry_collectors.cpp
     ../runtime_app/telemetry_target_identity.cpp
     ../runtime_app/telemetry_event_sampler.cpp
-    ../runtime_app/control_response_window.cpp
-    ../control_learning/causal_online_response_learner.cpp
-    ../control_learning/pending_motion_model.cpp
-    ../control_learning/short_horizon_rollout.cpp
     ../runtime_app/ads_visual_transition.cpp
     ../runtime_app/ads_transition_collector.cpp
     ../runtime_app/downward_diagnostics.cpp
@@ -281,6 +276,7 @@ add_executable(cod_native_runtime
     ../controller_native/controller_pipeline.cpp
     ../runtime_app/vision_controller_adapter.cpp
     ../controller_native/native_gamepad_controller.cpp
+    ../controller_native/pending_control_motion.cpp
     ../controller_native/virtual_gamepad.cpp
     ../controller_native/io_recovery_policy.cpp
     ../controller_native/xinput_reader.cpp
@@ -342,6 +338,7 @@ endif()
 add_executable(cod_native_controller_tests
     ../controller_native/target_pipeline_integration_tests.cpp
     src/ego_motion_observer.cpp
+    ../runtime_app/gate2_5_live_shadow.cpp
     ../runtime_app/vision_controller_adapter.cpp
     ../tracking_native/tracker_authority.cpp
     ../controller_native/auto_fire_gate.cpp
@@ -354,6 +351,7 @@ add_executable(cod_native_controller_tests
     ../controller_native/output_mixer.cpp
     ../controller_native/controller_pipeline.cpp
     ../controller_native/native_gamepad_controller.cpp
+    ../controller_native/pending_control_motion.cpp
 )
 
 add_executable(cod_native_io_recovery_policy_tests
@@ -537,6 +535,18 @@ target_link_libraries(vision_native_color_readback_benchmark PRIVATE CUDA::cudar
 add_executable(cod_native_runtime_telemetry_tests
     ../runtime_app/runtime_telemetry_tests.cpp
     ../runtime_app/runtime_telemetry.cpp
+    ../runtime_app/gate2_5_live_shadow.cpp
+)
+target_compile_definitions(cod_native_runtime_telemetry_tests PRIVATE
+    COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS)
+
+add_executable(cod_native_runtime_telemetry_production_shape_tests
+    ../runtime_app/runtime_telemetry_production_shape_tests.cpp
+    ../runtime_app/runtime_telemetry.cpp
+)
+target_include_directories(cod_native_runtime_telemetry_production_shape_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
 )
 
 add_executable(cod_native_telemetry_target_identity_tests
@@ -561,6 +571,8 @@ add_executable(cod_native_control_response_window_tests
     ../runtime_app/control_response_window_tests.cpp
     ../runtime_app/control_response_window.cpp
 )
+target_compile_definitions(cod_native_control_response_window_tests PRIVATE
+    COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS)
 
 add_executable(cod_native_runtime_provenance_tests
     ../runtime_app/runtime_provenance_tests.cpp
@@ -602,13 +614,25 @@ add_executable(cod_native_telemetry_collectors_tests
     ../runtime_app/telemetry_collectors_tests.cpp
     ../runtime_app/telemetry_collectors.cpp
     ../runtime_app/runtime_telemetry.cpp
+    ../runtime_app/gate2_5_live_shadow.cpp
     ../runtime_app/telemetry_target_identity.cpp
     ../runtime_app/telemetry_event_sampler.cpp
     ../runtime_app/control_response_window.cpp
     ../runtime_app/ads_visual_transition.cpp
     ../runtime_app/ads_transition_collector.cpp
 )
+target_compile_definitions(cod_native_telemetry_collectors_tests PRIVATE
+    COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS)
 target_include_directories(cod_native_telemetry_collectors_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
+add_executable(cod_native_gate2_5_live_shadow_tests
+    ../runtime_app/gate2_5_live_shadow_tests.cpp
+    ../runtime_app/gate2_5_live_shadow.cpp
+)
+target_include_directories(cod_native_gate2_5_live_shadow_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/..
 )
@@ -837,6 +861,17 @@ add_executable(cod_native_causal_mix_evaluator_tests
 add_executable(cod_native_pending_control_motion_tests
     ../controller_native/pending_control_motion_tests.cpp
     ../controller_native/pending_control_motion.cpp
+)
+
+add_executable(cod_native_w5_gate2_adversarial_tests
+    ../controller_native/w5_gate2_adversarial_tests.cpp
+    ../controller_native/pending_control_motion.cpp
+)
+
+target_include_directories(cod_native_w5_gate2_adversarial_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+    ${CMAKE_CURRENT_SOURCE_DIR}/../controller_native
 )
 
 target_include_directories(cod_native_pending_control_motion_tests PRIVATE
@@ -1470,6 +1505,7 @@ add_executable(cod_native_sustained_aimlab_simulator_tests
     ../controller_native/sustained_aimlab_simulator.cpp
     ../controller_native/sustained_aimlab_score.cpp
     ../controller_native/sustained_aimlab_scenario.cpp
+    ../controller_native/pending_control_motion.cpp
 )
 
 add_executable(cod_native_benchmark_physical_input_tests
@@ -1508,6 +1544,9 @@ add_test(
 add_test(
     NAME NativePendingControlMotionTests
     COMMAND cod_native_pending_control_motion_tests)
+add_test(
+    NAME NativeW5Gate2AdversarialTests
+    COMMAND cod_native_w5_gate2_adversarial_tests)
 
 add_executable(cod_native_sustained_aimlab_trace_tests
     ../controller_native/sustained_aimlab_trace_tests.cpp
@@ -1588,6 +1627,8 @@ add_test(
     NAME ControlResponseWindowTests
     COMMAND cod_native_control_response_window_tests)
 add_test(NAME RuntimeTelemetryTests COMMAND cod_native_runtime_telemetry_tests)
+add_test(NAME RuntimeTelemetryProductionShapeTests
+    COMMAND cod_native_runtime_telemetry_production_shape_tests)
 add_test(
     NAME CausalResponseSyntheticBenchmarkTests
     COMMAND cod_native_causal_response_benchmark_tests)
@@ -1598,6 +1639,7 @@ add_test(NAME PendingMotionModelTests COMMAND cod_native_pending_motion_model_te
 add_test(NAME ShortHorizonRolloutTests COMMAND cod_native_short_horizon_rollout_tests)
 add_test(NAME RuntimeProvenanceTests COMMAND cod_native_runtime_provenance_tests)
 add_test(NAME TelemetryCollectorsTests COMMAND cod_native_telemetry_collectors_tests)
+add_test(NAME Gate25LiveShadowTests COMMAND cod_native_gate2_5_live_shadow_tests)
 add_test(NAME LogSessionManagerTests COMMAND cod_native_log_session_manager_tests)
 
 add_executable(cod_native_committed_capture_observation_tests

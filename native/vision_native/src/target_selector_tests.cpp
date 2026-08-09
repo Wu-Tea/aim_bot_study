@@ -414,6 +414,100 @@ void test_intent_switch_waits_for_confirmation_before_changing_active_target() {
         "confirmed switch should preserve applied intent reason");
 }
 
+void test_unaligned_intent_does_not_confirm_right_side_challenger() {
+    vision_native::VisionTargetSelector selector(640, 512);
+    const auto active_batch = single_target_batch(260.0f, 256.0f, 0.92f);
+
+    selector.select(active_batch);
+    const vision_native::VisionResult locked = selector.select(active_batch);
+    require_true(locked.has_target, "setup should acquire active target");
+    require_near(
+        locked.target_x,
+        260.0f,
+        0.001f,
+        "setup should lock the left target before the unaligned control");
+
+    vision_native::DetectionBatch crossing;
+    crossing.frame_width = 640;
+    crossing.frame_height = 512;
+    crossing.detections.push_back(detection_for_target(260.0f, 256.0f, 0.92f));
+    crossing.detections.push_back(detection_for_target(336.0f, 256.0f, 0.92f));
+
+    // This direction supports the retained left target and is deliberately
+    // unaligned with the right-side challenger. It is the counterfactual to
+    // test_intent_switch_waits_for_confirmation_before_changing_active_target.
+    const auto intent = lower_left_intent(18);
+    const vision_native::VisionResult first = selector.select(crossing, intent);
+    const vision_native::VisionResult second = selector.select(crossing, intent);
+
+    require_true(first.has_target && second.has_target,
+                 "unaligned control must retain a target on both frames");
+    require_near(
+        first.target_x,
+        260.0f,
+        0.001f,
+        "unaligned intent must retain the current target on frame one");
+    require_near(
+        second.target_x,
+        260.0f,
+        0.001f,
+        "unaligned intent must not confirm the right challenger");
+    require_true(second.intent_id == 18,
+                 "unaligned control must retain the current intent id for diagnosis");
+    require_text(
+        second.intent_decision,
+        "ignored_unaligned_challenger",
+        "unaligned control must expose the blocked handover reason");
+}
+
+void test_dead_active_target_does_not_override_unaligned_handover_intent() {
+    vision_native::VisionTargetSelector selector(640, 512);
+    vision_native::DetectionBatch live;
+    live.frame_width = 640;
+    live.frame_height = 512;
+    auto live_enemy = detection_for_target(260.0f, 256.0f, 0.92f);
+    live_enemy.has_cue_point = true;
+    live_enemy.cue_x = 260.0f;
+    live_enemy.cue_y = 190.0f;
+    live_enemy.cue_score = 0.95f;
+    live_enemy.color_bonus = 0.30f;
+    live.detections.push_back(live_enemy);
+
+    selector.select(live);
+    const auto locked = selector.select(live);
+    require_true(locked.has_target, "setup should acquire the marked live target");
+
+    vision_native::DetectionBatch death_transition;
+    death_transition.frame_width = 640;
+    death_transition.frame_height = 512;
+    death_transition.detections.push_back(
+        wide_low_detection_for_target(260.0f, 274.0f, 0.92f));
+    auto live_challenger = detection_for_target(344.0f, 256.0f, 0.92f);
+    live_challenger.has_cue_point = true;
+    live_challenger.cue_x = 344.0f;
+    live_challenger.cue_y = 190.0f;
+    live_challenger.cue_score = 0.95f;
+    live_challenger.color_bonus = 0.30f;
+    death_transition.detections.push_back(live_challenger);
+
+    const auto intent = lower_left_intent(19);
+    const auto pending = selector.select(death_transition, intent);
+    require_true(pending.has_target, "death transition should retain a target while switch confirms");
+    require_near(
+        pending.target_x,
+        260.0f,
+        0.001f,
+        "first death-transition frame should preserve the old target until confirmation");
+
+    const auto switched = selector.select(death_transition, intent);
+    require_true(switched.has_target, "confirmed death transition should select the live challenger");
+    require_near(
+        switched.target_x,
+        344.0f,
+        0.001f,
+        "corpse invalidation must outrank an unaligned manual handover intent");
+}
+
 void test_intent_does_not_grant_fire_authority_to_weak_association() {
     vision_native::VisionTargetSelector selector(640, 512);
     vision_native::DetectionBatch initial;
@@ -593,6 +687,124 @@ void test_yellow_cue_hold_is_aim_only() {
                  "yellow cue hold must never grant fire authority");
 }
 
+void test_single_marked_enemy_pickup_does_not_wait_for_a_second_frame() {
+    vision_native::VisionTargetSelector selector(640, 512);
+    const auto enemy = detection_for_target(320.0f, 256.0f, 0.72f);
+    vision_native::DetectionBatch batch;
+    batch.frame_width = 640;
+    batch.frame_height = 512;
+    batch.detections.push_back(enemy);
+    auto frame = full_bgra_frame();
+    paint_sparse_bgra(frame, color_region_for(enemy), 255, 255, 0);
+
+    const auto first = selector.select_with_frame(batch, frame.view);
+
+    require_true(first.has_target && first.aim_authority,
+                 "one credible marked enemy must publish aim authority on its first frame");
+    require_true(first.has_selected_detection && first.selected_detection_index == 0,
+                 "fast pickup must retain the marked person's source identity");
+}
+
+void test_multiple_marked_enemies_still_require_confirmation() {
+    vision_native::VisionTargetSelector selector(640, 512);
+    auto left = detection_for_target(280.0f, 256.0f, 0.82f);
+    auto right = detection_for_target(360.0f, 256.0f, 0.82f);
+    for (auto* detection : {&left, &right}) {
+        detection->has_cue_point = true;
+        detection->cue_x = (detection->x1 + detection->x2) * 0.5f;
+        detection->cue_y = detection->y1 - 8.0f;
+        detection->cue_score = 0.95f;
+        detection->color_bonus = 0.30f;
+    }
+    vision_native::DetectionBatch batch;
+    batch.frame_width = 640;
+    batch.frame_height = 512;
+    batch.detections = {left, right};
+
+    const auto first = selector.select(batch);
+    const auto second = selector.select(batch);
+
+    require_true(!first.has_target,
+                 "multiple credible marked enemies must not take the single-target fast path");
+    require_true(second.has_target,
+                 "stable multiple-target ranking should still commit after confirmation");
+}
+
+void test_yellow_cue_continuation_tracks_visible_marker_for_bounded_ads_hold() {
+    constexpr std::uint64_t kMillisecondNs = 1'000'000ull;
+    constexpr std::uint64_t kLockTimeNs = 1'000'000'000ull;
+    vision_native::VisionTargetSelector selector(640, 512);
+    const auto enemy = detection_for_target(320.0f, 256.0f, 0.82f);
+    vision_native::DetectionBatch observed;
+    observed.frame_width = 640;
+    observed.frame_height = 512;
+    observed.detections.push_back(enemy);
+    auto frame = full_bgra_frame();
+    paint_sparse_bgra(frame, color_region_for(enemy), 255, 255, 0);
+
+    observed.captured_at_ns = kLockTimeNs - (5ull * kMillisecondNs);
+    selector.select_with_frame(observed, frame.view);
+    observed.captured_at_ns = kLockTimeNs;
+    const auto locked = selector.select_with_frame(observed, frame.view);
+    require_true(locked.has_target, "fixture must acquire a timestamped person+cue target");
+
+    vision_native::DetectionBatch occluded;
+    occluded.frame_width = 640;
+    occluded.frame_height = 512;
+    for (std::uint64_t elapsed_ms = 5ull; elapsed_ms <= 1000ull; elapsed_ms += 5ull) {
+        occluded.captured_at_ns = kLockTimeNs + (elapsed_ms * kMillisecondNs);
+        const auto held = selector.select_with_frame(occluded, frame.view);
+        require_true(held.has_target && held.aim_authority,
+                     "visible cue should bridge a bounded ADS person occlusion");
+        require_text(held.target_source, "cue_hold",
+                     "boosted occlusion continuation must remain cue_hold evidence");
+        require_true(!held.fire_authority && !held.auto_fire,
+                     "extended cue boost must never grant fire authority");
+    }
+
+    occluded.captured_at_ns = kLockTimeNs + (1001ull * kMillisecondNs);
+    require_true(!selector.required_color_region(occluded).has_value(),
+                 "expired cue boost must stop requesting continuation color ROI");
+    const auto expired = selector.select_with_frame(occluded, frame.view);
+    require_true(!expired.has_target && !expired.aim_authority && !expired.fire_authority,
+                  "cue must lose authority after the bounded ADS continuation ceiling");
+}
+
+void test_yellow_cue_continuation_releases_when_marker_evidence_stops() {
+    constexpr std::uint64_t kMillisecondNs = 1'000'000ull;
+    constexpr std::uint64_t kLockTimeNs = 1'500'000'000ull;
+    vision_native::VisionTargetSelector selector(640, 512);
+    const auto enemy = detection_for_target(320.0f, 256.0f, 0.82f);
+    vision_native::DetectionBatch observed;
+    observed.frame_width = 640;
+    observed.frame_height = 512;
+    observed.detections.push_back(enemy);
+    auto marker_frame = full_bgra_frame();
+    paint_sparse_bgra(marker_frame, color_region_for(enemy), 255, 255, 0);
+    auto dark_frame = full_bgra_frame();
+
+    observed.captured_at_ns = kLockTimeNs - (5ull * kMillisecondNs);
+    selector.select_with_frame(observed, marker_frame.view);
+    observed.captured_at_ns = kLockTimeNs;
+    require_true(
+        selector.select_with_frame(observed, marker_frame.view).has_target,
+        "fixture must acquire a timestamped person+cue target");
+
+    vision_native::DetectionBatch occluded;
+    occluded.frame_width = 640;
+    occluded.frame_height = 512;
+    occluded.captured_at_ns = kLockTimeNs + (10ull * kMillisecondNs);
+    require_true(
+        selector.select_with_frame(occluded, marker_frame.view).has_target,
+        "current marker should start cue continuation");
+
+    occluded.captured_at_ns = kLockTimeNs + (61ull * kMillisecondNs);
+    const auto expired = selector.select_with_frame(occluded, dark_frame.view);
+    require_true(
+        !expired.has_target && !expired.aim_authority,
+        "cue continuation must release after 50 ms without marker evidence");
+}
+
 void test_roi_miss_does_not_immediately_clear_active_target() {
     vision_native::VisionTargetSelector selector(640, 512);
     const auto batch = single_target_batch(320.0f, 256.0f, 0.45f);
@@ -701,6 +913,168 @@ void test_wide_low_no_cue_candidate_does_not_keep_dead_active_target_locked() {
     require_true(
         !result.has_target,
         "wide-low candidate without head cue evidence should not keep a just-dead target locked");
+}
+
+void test_enemy_marker_history_survives_one_upright_gap_and_rejects_corpse() {
+    constexpr std::uint64_t kMillisecondNs = 1'000'000ull;
+    constexpr std::uint64_t kLockTimeNs = 2'000'000'000ull;
+    vision_native::VisionTargetSelector selector(640, 512);
+    auto live = single_target_batch(320.0f, 256.0f, 0.45f);
+    const auto live_region = selector.required_color_region(live);
+    require_true(live_region.has_value(), "setup should request a live target color ROI");
+    ColorFrameFixture live_frame = color_frame_for_region(*live_region, true);
+
+    live.captured_at_ns = kLockTimeNs - (5ull * kMillisecondNs);
+    selector.select_with_frame(live, live_frame.view);
+    live.captured_at_ns = kLockTimeNs;
+    const auto locked = selector.select_with_frame(live, live_frame.view);
+    require_true(locked.has_target, "setup should acquire target with enemy marker evidence");
+
+    ColorFrameFixture dark_full_frame = color_frame_for_region({0, 0, 640, 512}, false);
+    auto upright_gap = single_target_batch(320.0f, 256.0f, 0.92f);
+    upright_gap.captured_at_ns = kLockTimeNs + (10ull * kMillisecondNs);
+    const auto continued = selector.select_with_frame(upright_gap, dark_full_frame.view);
+    require_true(
+        continued.has_target,
+        "one upright marker gap should not immediately discard a plausible live target");
+
+    vision_native::DetectionBatch corpse;
+    corpse.frame_width = 640;
+    corpse.frame_height = 512;
+    corpse.captured_at_ns = kLockTimeNs + (20ull * kMillisecondNs);
+    corpse.detections.push_back(wide_low_detection_for_target(320.0f, 280.0f, 0.92f));
+    const auto result = selector.select_with_frame(corpse, dark_full_frame.view);
+
+    require_true(
+        !result.has_target,
+        "a marker-backed active generation must remember the marker loss across an intermediate frame and reject the corpse");
+}
+
+void test_enemy_marker_loss_expires_while_person_box_remains_upright() {
+    constexpr std::uint64_t kMillisecondNs = 1'000'000ull;
+    constexpr std::uint64_t kLockTimeNs = 3'000'000'000ull;
+    vision_native::VisionTargetSelector selector(640, 512);
+    auto marked = single_target_batch(320.0f, 256.0f, 0.45f);
+    const auto marked_region = selector.required_color_region(marked);
+    require_true(marked_region.has_value(), "setup should request an enemy-marker ROI");
+    ColorFrameFixture marked_frame = color_frame_for_region(*marked_region, true);
+
+    marked.captured_at_ns = kLockTimeNs - (5ull * kMillisecondNs);
+    selector.select_with_frame(marked, marked_frame.view);
+    marked.captured_at_ns = kLockTimeNs;
+    const auto locked = selector.select_with_frame(marked, marked_frame.view);
+    require_true(locked.has_target, "setup should acquire the marked target");
+
+    ColorFrameFixture dark_full_frame = color_frame_for_region({0, 0, 640, 512}, false);
+    auto marker_gap = single_target_batch(320.0f, 256.0f, 0.92f);
+    marker_gap.captured_at_ns = kLockTimeNs + (40ull * kMillisecondNs);
+    const auto grace = selector.select_with_frame(marker_gap, dark_full_frame.view);
+    require_true(
+        grace.has_target,
+        "a brief marker gap should retain the same upright target during grace");
+
+    marker_gap.captured_at_ns = kLockTimeNs + (81ull * kMillisecondNs);
+    const auto expired = selector.select_with_frame(marker_gap, dark_full_frame.view);
+    require_true(
+        !expired.has_target,
+        "an enemy-marker-backed target must stop being selectable after the bounded marker-loss grace");
+
+    marker_gap.captured_at_ns = kLockTimeNs + (140ull * kMillisecondNs);
+    const auto still_rejected = selector.select_with_frame(marker_gap, dark_full_frame.view);
+    marker_gap.captured_at_ns = kLockTimeNs + (200ull * kMillisecondNs);
+    const auto not_reacquired = selector.select_with_frame(marker_gap, dark_full_frame.view);
+    require_true(
+        !still_rejected.has_target && !not_reacquired.has_target,
+        "an expired corpse must not be reacquired as a fresh unmarked person on following frames");
+
+    auto drifting_corpse = single_target_batch(370.0f, 270.0f, 0.92f);
+    drifting_corpse.captured_at_ns = kLockTimeNs + (210ull * kMillisecondNs);
+    const auto drift_pending = selector.select_with_frame(drifting_corpse, dark_full_frame.view);
+    drifting_corpse.captured_at_ns = kLockTimeNs + (220ull * kMillisecondNs);
+    const auto drift_rejected = selector.select_with_frame(drifting_corpse, dark_full_frame.view);
+    require_true(
+        !drift_pending.has_target && !drift_rejected.has_target,
+        "a falling corpse must not escape suppression by drifting beyond pickup-confirm distance");
+
+    marked.captured_at_ns = kLockTimeNs + (230ull * kMillisecondNs);
+    const auto marker_returned = selector.select_with_frame(marked, marked_frame.view);
+    require_true(
+        marker_returned.has_target,
+        "a direct person-plus-enemy-marker observation should revive the same spatial target");
+}
+
+void test_upright_candidate_without_prior_marker_is_not_blanket_rejected() {
+    constexpr std::uint64_t kMillisecondNs = 1'000'000ull;
+    vision_native::VisionTargetSelector selector(640, 512);
+    auto unmarked = single_target_batch(320.0f, 256.0f, 0.92f);
+    ColorFrameFixture dark_full_frame = color_frame_for_region({0, 0, 640, 512}, false);
+
+    unmarked.captured_at_ns = 4'000'000'000ull;
+    selector.select_with_frame(unmarked, dark_full_frame.view);
+    unmarked.captured_at_ns += 200ull * kMillisecondNs;
+    const auto result = selector.select_with_frame(unmarked, dark_full_frame.view);
+
+    require_true(
+        result.has_target,
+        "marker-loss expiry must not turn the enemy marker into a global pickup requirement");
+}
+
+void test_selector_does_not_duplicate_coordinator_ads_activation_gate() {
+    vision_native::VisionTargetSelector selector(640, 512);
+    // A 140 px-tall body expands the coordinator-owned 135 px activation
+    // radius beyond 150 px. The selector's old rectangular first-pickup gate
+    // rejects this otherwise admissible candidate and delays ownership until
+    // the user has already moved the reticle most of the way there.
+    vision_native::DetectionBatch candidate;
+    candidate.frame_width = 640;
+    candidate.frame_height = 512;
+    candidate.detections.push_back(
+        detection_for_target(320.0f, 406.0f, 0.92f));
+
+    const auto pending = selector.select(candidate);
+    const auto admitted = selector.select(candidate);
+    require_true(!pending.has_target,
+                 "selector pickup must retain its two-frame identity confirmation");
+    require_true(admitted.has_target,
+                 "selector must leave spatial ADS activation to TargetCoordinator");
+    require_near(admitted.target_y, 406.0f, 0.001f,
+                 "selector must publish the confirmed candidate geometry unchanged");
+}
+
+void test_marker_loss_memory_survives_one_detection_dropout() {
+    constexpr std::uint64_t kMillisecondNs = 1'000'000ull;
+    constexpr std::uint64_t kLockTimeNs = 5'000'000'000ull;
+    vision_native::VisionTargetSelector selector(640, 512);
+    auto marked = single_target_batch(320.0f, 256.0f, 0.45f);
+    const auto marked_region = selector.required_color_region(marked);
+    require_true(marked_region.has_value(), "setup should request an enemy-marker ROI");
+    ColorFrameFixture marked_frame = color_frame_for_region(*marked_region, true);
+    ColorFrameFixture dark_full_frame = color_frame_for_region({0, 0, 640, 512}, false);
+
+    marked.captured_at_ns = kLockTimeNs - (5ull * kMillisecondNs);
+    selector.select_with_frame(marked, marked_frame.view);
+    marked.captured_at_ns = kLockTimeNs;
+    require_true(
+        selector.select_with_frame(marked, marked_frame.view).has_target,
+        "setup should acquire the marked target");
+
+    vision_native::DetectionBatch dropout;
+    dropout.frame_width = 640;
+    dropout.frame_height = 512;
+    dropout.captured_at_ns = kLockTimeNs + (60ull * kMillisecondNs);
+    const auto missing = selector.select_with_frame(dropout, dark_full_frame.view);
+    require_true(
+        !missing.has_target,
+        "a frame with neither person nor marker should publish no target");
+
+    auto corpse = single_target_batch(320.0f, 256.0f, 0.92f);
+    corpse.captured_at_ns = kLockTimeNs + (90ull * kMillisecondNs);
+    const auto expired = selector.select_with_frame(corpse, dark_full_frame.view);
+    corpse.captured_at_ns = kLockTimeNs + (120ull * kMillisecondNs);
+    const auto not_reacquired = selector.select_with_frame(corpse, dark_full_frame.view);
+    require_true(
+        !expired.has_target && !not_reacquired.has_target,
+        "one detector dropout must not erase the marked target's corpse suppression memory");
 }
 
 void test_motion_anchor_ignores_box_edge_reconstruction_and_tracks_person() {
@@ -897,19 +1271,30 @@ int main() {
         test_short_occlusion_does_not_switch_locked_near_target_to_visible_far_target();
         test_intent_favored_challenger_logs_ignored_active_lock();
         test_intent_switch_waits_for_confirmation_before_changing_active_target();
+        test_unaligned_intent_does_not_confirm_right_side_challenger();
+        test_dead_active_target_does_not_override_unaligned_handover_intent();
         test_intent_does_not_grant_fire_authority_to_weak_association();
         test_intent_metadata_does_not_leak_into_later_hold_frame();
         test_partial_color_frame_origin_classifies_candidate_cue();
         test_bgra_green_friendly_is_hard_rejected();
         test_bgra_green_friendly_cannot_beat_yellow_enemy();
         test_bgra_yellow_cue_assists_low_confidence_person_pickup();
+        test_single_marked_enemy_pickup_does_not_wait_for_a_second_frame();
+        test_multiple_marked_enemies_still_require_confirmation();
         test_yellow_pixels_without_person_never_create_authority();
         test_yellow_cue_hold_is_aim_only();
+        test_yellow_cue_continuation_tracks_visible_marker_for_bounded_ads_hold();
+        test_yellow_cue_continuation_releases_when_marker_evidence_stops();
         test_roi_miss_does_not_immediately_clear_active_target();
         test_required_color_region_clamps_edge_candidate_to_screen();
         test_external_cue_continuation_does_not_request_full_color_frame();
         test_wide_low_no_cue_candidate_degrades_to_weak_without_death_transition();
         test_wide_low_no_cue_candidate_does_not_keep_dead_active_target_locked();
+        test_enemy_marker_history_survives_one_upright_gap_and_rejects_corpse();
+        test_enemy_marker_loss_expires_while_person_box_remains_upright();
+        test_upright_candidate_without_prior_marker_is_not_blanket_rejected();
+        test_selector_does_not_duplicate_coordinator_ads_activation_gate();
+        test_marker_loss_memory_survives_one_detection_dropout();
         test_motion_anchor_ignores_box_edge_reconstruction_and_tracks_person();
         test_selector_generation_survives_frame_local_observation_changes();
         test_confirmed_frame_replacement_bootstraps_a_new_motion_anchor();

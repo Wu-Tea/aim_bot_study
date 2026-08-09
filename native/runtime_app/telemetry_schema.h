@@ -1,5 +1,9 @@
 #pragma once
 
+#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
+#include "gate2_5_live_shadow.h"
+#endif
+
 #include <cstdint>
 #include <array>
 #include <type_traits>
@@ -21,12 +25,19 @@ enum class TelemetryRecordType : std::uint8_t {
     TargetEvent,
     AdsTransitionSample,
     AdsTransition,
+#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
     ControlResponseWindow,
+#endif
     CommittedCaptureObservation,
     DeliveredControlSample,
+#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
     CausalResponseShadow,
+#endif
     AdsAcquisitionTrace,
+#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
     EgoMotionShadow,
+#endif
+    Gate25LiveShadow,
 };
 
 enum class VisionSampleQuality : std::uint8_t {
@@ -160,6 +171,11 @@ struct ControllerSamplePayload {
     float manual_confidence = 0.0f;
     float ai_x = 0.0f;
     float ai_y = 0.0f;
+    float target_final_x = 0.0f;
+    float target_final_y = 0.0f;
+    float ai_correction_x = 0.0f;
+    float ai_correction_y = 0.0f;
+    std::array<char, 32> manual_authority_mode{};
     // Validated proposals only; neither field is an output contribution.
     float fresh_vision_validated_manual_proposal_x = 0.0f;
     float fresh_vision_validated_manual_proposal_y = 0.0f;
@@ -220,12 +236,16 @@ struct ControllerSamplePayload {
     float recoil_y = 0.0f;
     float final_x = 0.0f;
     float final_y = 0.0f;
-    float remaining_work_x = 0.0f;
-    float remaining_work_y = 0.0f;
-    float delivered_camera_work_x = 0.0f;
-    float delivered_camera_work_y = 0.0f;
-    float remaining_work_confidence = 0.0f;
-    bool remaining_work_valid = false;
+    float observed_error_x = 0.0f;
+    float observed_error_y = 0.0f;
+    float pending_motion_x = 0.0f;
+    float pending_motion_y = 0.0f;
+    float control_error_x = 0.0f;
+    float control_error_y = 0.0f;
+    float pending_motion_confidence = 0.0f;
+    bool pending_motion_valid = false;
+    bool memory_applied = false;
+    std::array<char, 32> memory_status{};
     float requested_assist_x = 0.0f;
     float requested_assist_y = 0.0f;
     float shaped_assist_x = 0.0f;
@@ -319,6 +339,7 @@ struct AdsTransitionPayload {
     float cumulative_recoil = 0.0f;
 };
 
+#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
 struct ControlResponsePayload {
     ResponseWindowReason reason = ResponseWindowReason::None;
     std::uint64_t frame_id_before = 0;
@@ -331,6 +352,7 @@ struct ControlResponsePayload {
     float recoil_x_integral = 0.0f, recoil_y_integral = 0.0f;
     float final_x_integral = 0.0f, final_y_integral = 0.0f;
 };
+#endif
 
 struct CommittedObservationPayload {
     std::uint64_t source_frame_id = 0;
@@ -433,6 +455,7 @@ struct AdsAcquisitionTracePayload {
     float first_fused_output_y = 0.0f;
 };
 
+#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
 struct EgoMotionShadowPayload {
     bool available = false;
     bool valid = false;
@@ -482,6 +505,7 @@ struct EgoMotionShadowPayload {
     std::uint64_t unread_result_replaced_count = 0;
     std::uint64_t duplicate_or_out_of_order_rejected_count = 0;
 };
+#endif
 
 struct DeliveredControlPayload {
     std::uint64_t sample_seq = 0;
@@ -502,6 +526,7 @@ struct DeliveredControlPayload {
     bool saturated = false;
 };
 
+#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
 struct CausalResponseShadowPayload {
     float best_delay_ms = 0.0f;
     float selected_delay_ms = 0.0f;
@@ -537,6 +562,7 @@ struct CausalResponseShadowPayload {
     float rollout_final_output_x = 0.0f;
     float rollout_final_output_y = 0.0f;
   };
+#endif
 
 struct TelemetryRecord {
     std::uint16_t schema_version = kTelemetrySchemaVersion;
@@ -556,12 +582,18 @@ struct TelemetryRecord {
     InputEventPayload input_event;
     TargetEventPayload target_event;
     AdsTransitionPayload ads_transition;
+#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
     ControlResponsePayload control_response;
+#endif
     CommittedObservationPayload committed_observation;
     DeliveredControlPayload delivered_control;
+#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
     CausalResponseShadowPayload causal_shadow;
+#endif
     AdsAcquisitionTracePayload ads_acquisition_trace;
+#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
     EgoMotionShadowPayload ego_motion_shadow;
+#endif
     VisionSampleQuality vision_sample_quality = VisionSampleQuality::Normal;
     IdentificationUpdateOutcome identification_update_outcome =
         IdentificationUpdateOutcome::NotEvaluated;
@@ -582,7 +614,7 @@ struct TelemetryRecord {
 };
 
 static_assert(std::is_trivially_copyable_v<TelemetryRecord>);
-static_assert(sizeof(TelemetryRecord) <= 4096,
-              "telemetry queue records must remain fixed and bounded");
+static_assert(sizeof(TelemetryRecord) <= 32u * 1024u,
+              "telemetry queue records must remain fixed and <=32 KiB");
 
 } // namespace runtime_app

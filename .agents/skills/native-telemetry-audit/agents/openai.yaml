@@ -1,0 +1,4 @@
+interface:
+  display_name: "Native Telemetry Audit"
+  short_description: "Audit native runtime evidence deterministically"
+  default_prompt: "Use $native-telemetry-audit to audit this native runtime evidence and return a fail-closed report."

@@ -1,7 +1,9 @@
 #include "runtime_telemetry.h"
 
 #include "../pipeline_contract/target_plan.h"
+#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
 #include "vision_native/ego_motion_observer.h"
+#endif
 
 #include <algorithm>
 #include <chrono>
@@ -27,17 +29,45 @@ const char* record_type_name(TelemetryRecordType type) {
     case TelemetryRecordType::TargetEvent: return "target_event";
     case TelemetryRecordType::AdsTransitionSample: return "ads_transition_sample";
     case TelemetryRecordType::AdsTransition: return "ads_transition";
+#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
     case TelemetryRecordType::ControlResponseWindow: return "control_response_window";
+#endif
     case TelemetryRecordType::CommittedCaptureObservation:
         return "committed_capture_observation";
     case TelemetryRecordType::DeliveredControlSample: return "delivered_control_sample";
+#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
     case TelemetryRecordType::CausalResponseShadow: return "causal_response_shadow";
+#endif
     case TelemetryRecordType::AdsAcquisitionTrace: return "ads_acquisition_trace";
+#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
     case TelemetryRecordType::EgoMotionShadow: return "ego_motion_shadow";
+#endif
+    case TelemetryRecordType::Gate25LiveShadow: return "w5_gate2_5a_live_shadow";
     case TelemetryRecordType::ControllerSample:
     default: return "controller_sample";
     }
 }
+
+#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
+const char* gate25_response_delay_source_name(
+    Gate25ResponseDelaySource source) noexcept {
+    switch (source) {
+    case Gate25ResponseDelaySource::ConfiguredHypothesis:
+        return "configured_hypothesis";
+    case Gate25ResponseDelaySource::Measured:
+        return "measured";
+    case Gate25ResponseDelaySource::Unavailable:
+    default:
+        return "unavailable";
+    }
+}
+
+const char* gate25_window_clock_domain_name(
+    Gate25WindowClockDomain domain) noexcept {
+    return domain == Gate25WindowClockDomain::CollectorMonotonicDiagnostic
+        ? "collector_monotonic_diagnostic" : "source_present_steady";
+}
+#endif
 
 const char* ads_acquisition_state_name(std::uint8_t value) {
     using State = pipeline_contract::AdsAcquisitionState;
@@ -91,6 +121,7 @@ const char* source_decision_outcome_name(std::uint8_t value) {
     }
 }
 
+#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
 const char* ego_motion_invalid_reason_name(std::uint8_t value) {
     using Reason = vision_native::EgoMotionInvalidReason;
     switch (static_cast<Reason>(value)) {
@@ -105,6 +136,7 @@ const char* ego_motion_invalid_reason_name(std::uint8_t value) {
     default: return "unknown";
     }
 }
+#endif
 
 const char* vision_sample_quality_name(VisionSampleQuality value) {
     switch (value) {
@@ -218,6 +250,7 @@ const char* ads_invalid_reason_name(AdsInvalidReason value) {
     }
 }
 
+#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
 const char* response_reason_name(ResponseWindowReason value) {
     switch (value) {
     case ResponseWindowReason::TargetChanged: return "target_changed";
@@ -229,13 +262,31 @@ const char* response_reason_name(ResponseWindowReason value) {
     }
 }
 
+#endif
+
 } // namespace
 
 RuntimeTelemetry::RuntimeTelemetry(RuntimeTelemetryOptions options)
     : options_(std::move(options)) {
+#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
+    if (options_.gate_only) {
+        options_.queue_capacity = std::min(
+            options_.queue_capacity, kGate25GateOnlyOrdinaryQueueCapacity);
+    }
+#endif
+    // Ordinary telemetry must be fully initialized in the production-shaped
+    // build too; the research seam only changes the optional Gate-only cap.
     options_.queue_capacity = std::max<std::size_t>(1, options_.queue_capacity);
     options_.max_files = std::max<std::size_t>(1, options_.max_files);
     if (options_.enabled) queue_.resize(options_.queue_capacity);
+#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
+    // Keep all Gate transport storage out of the RuntimeTelemetry object and
+    // out of ordinary/detailed sessions unless the independent Gate switch is
+    // on.  gate_only controls the ordinary collector policy only.
+    if (options_.enabled && options_.gate_enabled) {
+        gate25_transport_ = std::make_unique<Gate25TransportState>();
+    }
+#endif
 }
 
 RuntimeTelemetry::~RuntimeTelemetry() {
@@ -264,6 +315,10 @@ void RuntimeTelemetry::stop() {
 
 bool RuntimeTelemetry::enqueue(const TelemetryRecord& record) noexcept {
     if (!options_.enabled || writer_failed_.load()) return false;
+    // Gate2.5 payloads use the dedicated bounded channel below. Keeping the
+    // ordinary API unable to accept this type prevents a future caller from
+    // reintroducing the large aggregate into every queue slot.
+    if (record.type == TelemetryRecordType::Gate25LiveShadow) return false;
     std::unique_lock<std::mutex> lock(mutex_, std::defer_lock);
     if (record.critical) {
         // Critical transition records are rare. The writer only holds this
@@ -298,12 +353,109 @@ bool RuntimeTelemetry::enqueue(const TelemetryRecord& record) noexcept {
     return true;
 }
 
+#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
+Gate25AggregateTransport RuntimeTelemetry::compact_gate25_aggregate(
+    const Gate25AggregateSnapshot& summary) noexcept {
+    Gate25AggregateTransport compact;
+    compact.scalar = static_cast<const Gate25AggregateScalars&>(summary);
+    for (std::size_t index = 0; index < summary.cohort_grid.size(); ++index) {
+        const auto& cell = summary.cohort_grid[index];
+        if (cell.pair_count == 0) continue;
+        if (compact.active_cell_count >= kGate25TransportCellCapacity) {
+            compact.active_cell_overflow = true;
+            continue;
+        }
+        compact.cell_indices[compact.active_cell_count] =
+            static_cast<std::uint16_t>(index);
+        compact.cells[compact.active_cell_count] = cell;
+        ++compact.active_cell_count;
+    }
+    return compact;
+}
+
+bool RuntimeTelemetry::enqueue_gate25_aggregate(
+    const Gate25AggregateSnapshot& summary) noexcept {
+    if (!options_.enabled || !gate25_transport_ || writer_failed_.load()) return false;
+    const auto compact = compact_gate25_aggregate(summary);
+    std::unique_lock<std::mutex> lock(mutex_);
+    auto& transport = *gate25_transport_;
+    if (transport.aggregate_count >= kGate25AggregateQueueCapacity) {
+        ++gate25_dropped_;
+        return false;
+    }
+    transport.aggregate_queue[transport.aggregate_tail] = compact;
+    transport.aggregate_tail =
+        (transport.aggregate_tail + 1) % kGate25AggregateQueueCapacity;
+    ++transport.aggregate_count;
+    ++gate25_accepted_;
+    auto previous = gate25_high_watermark_.load();
+    const auto size = static_cast<std::uint64_t>(
+        transport.aggregate_count + transport.anomaly_count);
+    while (size > previous &&
+           !gate25_high_watermark_.compare_exchange_weak(previous, size)) {}
+    lock.unlock();
+    condition_.notify_one();
+    return true;
+}
+
+bool RuntimeTelemetry::enqueue_gate25_anomaly(
+    const Gate25Anomaly& anomaly) noexcept {
+    if (!options_.enabled || !gate25_transport_ || writer_failed_.load()) return false;
+    std::unique_lock<std::mutex> lock(mutex_);
+    auto& transport = *gate25_transport_;
+    if (transport.anomaly_count >= kGate25AnomalyQueueCapacity) {
+        ++gate25_dropped_;
+        return false;
+    }
+    transport.anomaly_queue[transport.anomaly_tail] = anomaly;
+    transport.anomaly_tail =
+        (transport.anomaly_tail + 1) % kGate25AnomalyQueueCapacity;
+    ++transport.anomaly_count;
+    ++gate25_accepted_;
+    auto previous = gate25_high_watermark_.load();
+    const auto size = static_cast<std::uint64_t>(
+        transport.aggregate_count + transport.anomaly_count);
+    while (size > previous &&
+           !gate25_high_watermark_.compare_exchange_weak(previous, size)) {}
+    lock.unlock();
+    condition_.notify_one();
+    return true;
+}
+#endif
+
 RuntimeTelemetryCounters RuntimeTelemetry::counters() const noexcept {
     return RuntimeTelemetryCounters{
         accepted_.load(), dropped_normal_.load(), dropped_critical_.load(),
         duplicate_vision_.load(), serialized_.load(), writers_started_.load(),
-        writer_failures_.load(), high_watermark_.load()};
+        writer_failures_.load(), high_watermark_.load()
+#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
+        ,
+        gate25_accepted_.load(), gate25_dropped_.load(),
+        gate25_serialized_.load(), gate25_high_watermark_.load()};
+#else
+        };
+#endif
 }
+
+std::size_t RuntimeTelemetry::ordinary_queue_capacity() const noexcept {
+    return queue_.capacity();
+}
+
+std::size_t RuntimeTelemetry::ordinary_queue_size() const noexcept {
+    return queue_.size();
+}
+
+std::size_t RuntimeTelemetry::ordinary_queue_bytes() const noexcept {
+    return queue_.capacity() * sizeof(TelemetryRecord);
+}
+
+#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
+std::size_t RuntimeTelemetry::gate25_transport_queue_bytes() const noexcept {
+    if (!gate25_transport_) return 0;
+    return kGate25AggregateQueueCapacity * sizeof(Gate25AggregateTransport) +
+        kGate25AnomalyQueueCapacity * sizeof(Gate25Anomaly);
+}
+#endif
 
 const std::filesystem::path& RuntimeTelemetry::log_path() const noexcept {
     return log_path_;
@@ -366,6 +518,10 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
         record.controller.physical_x != 0.0f || record.controller.physical_y != 0.0f ||
         record.controller.manual_x != 0.0f || record.controller.manual_y != 0.0f ||
         record.controller.ai_x != 0.0f || record.controller.ai_y != 0.0f ||
+        record.controller.target_final_x != 0.0f ||
+        record.controller.target_final_y != 0.0f ||
+        record.controller.ai_correction_x != 0.0f ||
+        record.controller.ai_correction_y != 0.0f ||
         record.controller.pre_recoil_x != 0.0f || record.controller.pre_recoil_y != 0.0f ||
         record.controller.recoil_x != 0.0f || record.controller.recoil_y != 0.0f ||
         record.controller.final_x != 0.0f || record.controller.final_y != 0.0f;
@@ -427,6 +583,12 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
             << ",\"filtered_manual_y\":" << record.controller.filtered_manual_y
             << ",\"manual_confidence\":" << record.controller.manual_confidence
             << ",\"ai_x\":" << serialized_ai_x << ",\"ai_y\":" << serialized_ai_y
+            << ",\"target_final\":[" << record.controller.target_final_x
+            << ',' << record.controller.target_final_y << ']'
+            << ",\"ai_correction\":[" << record.controller.ai_correction_x
+            << ',' << record.controller.ai_correction_y << ']'
+            << ",\"manual_authority_mode\":\""
+            << record.controller.manual_authority_mode.data() << '"'
             << ",\"fresh_vision_validated_manual_proposal_x\":"
             << record.controller.fresh_vision_validated_manual_proposal_x
             << ",\"fresh_vision_validated_manual_proposal_y\":"
@@ -528,13 +690,20 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
             << ",\"recoil_x\":" << record.controller.recoil_x
              << ",\"recoil_y\":" << record.controller.recoil_y
              << ",\"final_x\":" << serialized_final_x << ",\"final_y\":" << serialized_final_y
-             << ",\"remaining_work_x\":" << record.controller.remaining_work_x
-             << ",\"remaining_work_y\":" << record.controller.remaining_work_y
-             << ",\"delivered_camera_work_x\":" << record.controller.delivered_camera_work_x
-             << ",\"delivered_camera_work_y\":" << record.controller.delivered_camera_work_y
-             << ",\"remaining_work_confidence\":" << record.controller.remaining_work_confidence
-             << ",\"remaining_work_valid\":"
-             << (record.controller.remaining_work_valid ? "true" : "false")
+             << ",\"observed_error_x\":" << record.controller.observed_error_x
+             << ",\"observed_error_y\":" << record.controller.observed_error_y
+             << ",\"pending_motion_x\":" << record.controller.pending_motion_x
+             << ",\"pending_motion_y\":" << record.controller.pending_motion_y
+             << ",\"control_error_x\":" << record.controller.control_error_x
+             << ",\"control_error_y\":" << record.controller.control_error_y
+             << ",\"pending_motion_confidence\":"
+             << record.controller.pending_motion_confidence
+             << ",\"pending_motion_valid\":"
+             << (record.controller.pending_motion_valid ? "true" : "false")
+             << ",\"memory_applied\":"
+             << (record.controller.memory_applied ? "true" : "false")
+             << ",\"memory_status\":\""
+             << record.controller.memory_status.data() << '"'
              << ",\"requested_assist_x\":" << record.controller.requested_assist_x
              << ",\"requested_assist_y\":" << record.controller.requested_assist_y
              << ",\"shaped_assist_x\":" << record.controller.shaped_assist_x
@@ -611,6 +780,7 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
             << ",\"cumulative_ai\":" << record.ads_transition.cumulative_ai
             << ",\"cumulative_recoil\":" << record.ads_transition.cumulative_recoil;
         break;
+#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
     case TelemetryRecordType::ControlResponseWindow:
         output_ << ",\"response_reason\":\"" << response_reason_name(record.control_response.reason) << '\"'
             << ",\"response_frame_before\":" << record.control_response.frame_id_before
@@ -628,8 +798,9 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
             << ",\"recoil_x_integral\":" << record.control_response.recoil_x_integral
             << ",\"recoil_y_integral\":" << record.control_response.recoil_y_integral
             << ",\"final_x_integral\":" << record.control_response.final_x_integral
-            << ",\"final_y_integral\":" << record.control_response.final_y_integral;
+             << ",\"final_y_integral\":" << record.control_response.final_y_integral;
         break;
+#endif
     case TelemetryRecordType::CommittedCaptureObservation: {
         const auto& value = record.committed_observation;
         const auto& provenance = has_session_metadata_
@@ -777,6 +948,7 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
             << value.first_fused_output_x << ',' << value.first_fused_output_y << ']';
         break;
     }
+#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
     case TelemetryRecordType::EgoMotionShadow: {
         const auto& value = record.ego_motion_shadow;
         output_ << ",\"schema\":\"ego_motion_shadow_v2\""
@@ -858,6 +1030,174 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
             << value.duplicate_or_out_of_order_rejected_count;
         break;
     }
+#endif
+    // Gate2.5 records use RuntimeTelemetry's dedicated bounded channel. The
+    // old ordinary-record serializer is retained only in the source history
+    // while the new serializer below owns this type.
+#if 0
+    case TelemetryRecordType::Gate25LiveShadow: {
+        if (record.gate25_anomaly) {
+            const auto& value = record.gate25_payload.anomaly;
+            output_ << ",\"schema\":\"w5_gate2_5a_anomaly_v1\""
+                << ",\"anomaly\":true"
+                << ",\"source_frame_id\":" << value.source_frame_id
+                << ",\"source_observation_id\":" << value.source_observation_id
+                << ",\"persistent_target_id\":" << value.persistent_target_id
+                << ",\"present_steady_ns\":" << value.present_steady_ns
+                << ",\"decision_ns\":" << value.decision_ns
+                << ",\"controller_tick_id\":" << value.controller_tick_id
+                << ",\"backend_epoch\":" << value.backend_epoch
+                << ",\"delivery_first_seq\":" << value.delivery_first_seq
+                << ",\"delivery_last_seq\":" << value.delivery_last_seq
+                << ",\"reason\":\"" << gate25_reason_name(value.reason) << '\"'
+                << ",\"target_delta\":[" << value.target_delta_x << ','
+                << value.target_delta_y << ']'
+                << ",\"observed_camera_work\":["
+                << value.observed_camera_work_x << ','
+                << value.observed_camera_work_y << ']'
+                << ",\"snr\":" << value.snr
+                << ",\"reliability\":" << value.reliability
+                << ",\"target_confidence\":" << value.target_confidence;
+        } else {
+            const auto& value = record.gate25_payload.aggregate;
+            output_ << ",\"schema\":\"w5_gate2_5a_aggregate_v1\""
+                << ",\"anomaly\":false"
+                << ",\"window_begin_ns\":" << value.window_begin_ns
+                << ",\"window_end_ns\":" << value.window_end_ns
+                << ",\"last_controller_tick_id\":"
+                << value.last_controller_tick_id
+                << ",\"delivery_first_seq\":" << value.delivery_first_seq
+                << ",\"delivery_last_seq\":" << value.delivery_last_seq
+                << ",\"status\":\"" << gate25_status_name(value.status) << '\"'
+                << ",\"observations\":" << value.observations
+                << ",\"compatible_pairs\":" << value.compatible_pairs
+                << ",\"effect_valid\":" << value.effect_valid
+                << ",\"neutral_baseline_pairs\":" << value.neutral_baseline_pairs
+                << ",\"ledger_comparisons\":" << value.ledger_comparisons
+                << ",\"snr_pass\":" << value.snr_pass
+                << ",\"below_noise_floor\":" << value.below_noise_floor
+                << ",\"duplicate\":" << value.duplicate
+                << ",\"same_present_endpoint\":"
+                << value.same_present_endpoint
+                << ",\"stale\":" << value.stale
+                << ",\"backward_present\":" << value.backward_present
+                << ",\"capture_gap\":" << value.capture_gap
+                << ",\"identity_boundary\":" << value.identity_boundary
+                << ",\"selector_boundary\":" << value.selector_boundary
+                << ",\"ads_boundary\":" << value.ads_boundary
+                << ",\"viewport_boundary\":" << value.viewport_boundary
+                << ",\"backend_boundary\":" << value.backend_boundary
+                << ",\"target_acquisition_boundary\":"
+                << value.target_acquisition_boundary
+                << ",\"response_delay_boundary\":"
+                << value.response_delay_boundary
+                << ",\"present_calibration_boundary\":"
+                << value.present_calibration_boundary
+                << ",\"response_delay_source\":\""
+                << gate25_response_delay_source_name(value.response_delay_source)
+                << '"'
+                << ",\"missing_present_clock\":" << value.missing_present_clock
+                << ",\"missing_delivery_history\":" << value.missing_delivery_history
+                << ",\"incomplete_delivery_history\":" << value.incomplete_delivery_history
+                << ",\"missing_response_delay\":" << value.missing_response_delay
+                << ",\"cancellation_or_reversal\":"
+                << value.cancellation_or_reversal
+                << ",\"invalid_geometry\":" << value.invalid_geometry
+                << ",\"exogenous_rejected\":" << value.exogenous_rejected
+                << ",\"target_motion_contamination\":"
+                << value.target_motion_contamination
+                << ",\"missing_neutral_baseline\":"
+                << value.missing_neutral_baseline
+                << ",\"no_target_identity\":" << value.no_target_identity
+                << ",\"response_model_unavailable\":"
+                << value.response_model_unavailable
+                << ",\"profile_identity_unavailable\":"
+                << value.profile_identity_unavailable
+                << ",\"saturation_rows\":" << value.saturation_rows
+                << ",\"model_insufficient\":" << value.model_insufficient
+                << ",\"continuous_zoh_coverage_rows\":"
+                << value.continuous_zoh_coverage_rows
+                << ",\"fixed_180hz_coverage_rows\":"
+                << value.fixed_180hz_coverage_rows
+                << ",\"fixed_240hz_coverage_rows\":"
+                << value.fixed_240hz_coverage_rows
+                << ",\"observed_present_cadence_coverage_rows\":"
+                << value.observed_present_cadence_coverage_rows
+                << ",\"manual_only_rows\":" << value.manual_only_rows
+                << ",\"ai_only_rows\":" << value.ai_only_rows
+                << ",\"mixed_rows\":" << value.mixed_rows
+                << ",\"response_260ms_rows\":" << value.response_260ms_rows
+                << ",\"response_400ms_rows\":" << value.response_400ms_rows
+                << ",\"baseline_median\":[" << value.baseline_median_x << ','
+                << value.baseline_median_y << ']'
+                << ",\"baseline_mad\":[" << value.baseline_mad_x << ','
+                << value.baseline_mad_y << ']'
+                << ",\"observed_sum\":[" << value.observed_sum_x << ','
+                << value.observed_sum_y << ']'
+                << ",\"residual_abs_sum\":" << value.residual_abs_sum
+                << ",\"residual_abs_max\":" << value.residual_abs_max
+                << ",\"anomaly_count\":" << value.anomaly_count
+                << ",\"anomaly_dropped\":" << value.anomaly_dropped
+                << ",\"output_magnitude_bins\":[";
+            for (std::size_t i = 0; i < value.output_magnitude_bins.size(); ++i) {
+                if (i != 0) output_ << ',';
+                output_ << value.output_magnitude_bins[i];
+            }
+            output_ << "],\"output_axis_bins\":[";
+            for (std::size_t i = 0; i < value.output_axis_bins.size(); ++i) {
+                if (i != 0) output_ << ',';
+                output_ << value.output_axis_bins[i];
+            }
+            output_ << "],\"cohort_profile_incomplete\":"
+                << (value.cohort_profile_incomplete ? "true" : "false")
+                << ",\"command_bin_upper_bounds_percent\":[1.5,2.5,4.0,7.5,12.5]"
+                << ",\"cohort_grid_columns\":[\"mode\",\"axis_bin\",\"command_bin\","
+                   "\"pair_count\",\"valid_count\",\"invalid_count\","
+                   "\"snr_pass_count\",\"below_noise_count\","
+                   "\"attempted_delivered_x\",\"attempted_delivered_y\","
+                   "\"attempted_delivered_abs\",\"attempted_delivered_count\","
+                   "\"delivered_x\",\"delivered_y\","
+                   "\"observed_x\",\"observed_y\",\"observed_abs\","
+                   "\"residual_sum\",\"residual_max\",\"residual_count\"]"
+                << ",\"cohort_grid\":[";
+            bool emitted_cohort = false;
+            for (std::size_t index = 0; index < value.cohort_grid.size(); ++index) {
+                const auto& cell = value.cohort_grid[index];
+                if (cell.pair_count == 0) continue;
+                if (emitted_cohort) output_ << ',';
+                emitted_cohort = true;
+                const std::size_t mode = index /
+                    (kGate25AxisCapacity * kGate25CommandBinCapacity);
+                const std::size_t remainder = index %
+                    (kGate25AxisCapacity * kGate25CommandBinCapacity);
+                const std::size_t axis = remainder / kGate25CommandBinCapacity;
+                const std::size_t command_bin = remainder % kGate25CommandBinCapacity;
+                output_ << '[' << mode << ',' << axis << ',' << command_bin
+                    << ',' << cell.pair_count
+                    << ',' << cell.valid_count
+                    << ',' << cell.invalid_count
+                    << ',' << cell.snr_pass_count
+                    << ',' << cell.below_noise_count
+                    << ',' << cell.attempted_delivered_final_sum_x
+                    << ',' << cell.attempted_delivered_final_sum_y
+                    << ',' << cell.attempted_delivered_final_abs_sum
+                    << ',' << cell.attempted_delivered_count
+                    << ',' << cell.delivered_final_sum_x
+                    << ',' << cell.delivered_final_sum_y
+                    << ',' << cell.observed_camera_sum_x
+                    << ',' << cell.observed_camera_sum_y
+                    << ',' << cell.observed_camera_abs_sum
+                    << ',' << cell.ledger_residual_sum
+                    << ',' << cell.ledger_residual_max
+                    << ',' << cell.ledger_residual_count << ']';
+            }
+            output_ << ']';
+        }
+        break;
+    }
+#endif
+    case TelemetryRecordType::Gate25LiveShadow:
+        break;
     case TelemetryRecordType::DeliveredControlSample: {
         const auto& value = record.delivered_control;
         const auto& provenance = has_session_metadata_
@@ -889,6 +1229,7 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
             << ",\"capture_height\":" << provenance.capture_height << '}';
         break;
     }
+#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
     case TelemetryRecordType::CausalResponseShadow:
         output_ << ",\"schema\":\"causal_response_shadow_v3\""
             << ",\"best_delay_ms\":" << record.causal_shadow.best_delay_ms
@@ -942,6 +1283,7 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
             << ",\"identification_update_outcome\":\""
             << identification_update_outcome_name(record.identification_update_outcome) << '"';
         break;
+#endif
     default: break;
     }
     output_ << ",\"first_seq\":" << record.completeness.first_seq
@@ -951,6 +1293,10 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
         << ",\"dropped\":" << record.completeness.dropped
         << ",\"complete\":" << (record.completeness.complete ? "true" : "false")
         << "}\n";
+    finish_serialized_line();
+}
+
+void RuntimeTelemetry::finish_serialized_line() {
     ++serialized_;
     current_size_ = static_cast<std::size_t>(output_.tellp());
     if (options_.rotate_size_bytes > 0 && current_size_ >= options_.rotate_size_bytes) {
@@ -958,12 +1304,283 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
     }
 }
 
+#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
+void RuntimeTelemetry::serialize_gate25_anomaly(const Gate25Anomaly& value) {
+    if (!output_.is_open() && !open_next_file()) return;
+    output_ << '{'
+        << "\"schema_version\":" << kTelemetrySchemaVersion
+        << ",\"type\":\"w5_gate2_5a_live_shadow\""
+        << ",\"schema\":\"w5_gate2_5a_anomaly_v1\""
+        << ",\"anomaly\":true"
+        << ",\"source_frame_id\":" << value.source_frame_id
+        << ",\"source_observation_id\":" << value.source_observation_id
+        << ",\"persistent_target_id\":" << value.persistent_target_id
+        << ",\"present_steady_ns\":" << value.present_steady_ns
+        << ",\"decision_ns\":" << value.decision_ns
+        << ",\"controller_tick_id\":" << value.controller_tick_id
+        << ",\"backend_epoch\":" << value.backend_epoch
+        << ",\"delivery_first_seq\":" << value.delivery_first_seq
+        << ",\"delivery_last_seq\":" << value.delivery_last_seq
+        << ",\"reason\":\"" << gate25_reason_name(value.reason) << '"'
+        << ",\"target_delta\":[" << value.target_delta_x << ','
+        << value.target_delta_y << ']'
+        << ",\"observed_camera_work\":["
+        << value.observed_camera_work_x << ','
+        << value.observed_camera_work_y << ']'
+        << ",\"snr\":" << value.snr
+        << ",\"reliability\":" << value.reliability
+        << ",\"target_confidence\":" << value.target_confidence
+        << ",\"first_seq\":0,\"last_seq\":0,\"expected\":0"
+        << ",\"written\":0,\"dropped\":0,\"complete\":true}\n";
+    ++gate25_serialized_;
+    finish_serialized_line();
+}
+
+void RuntimeTelemetry::serialize_gate25_aggregate(
+    const Gate25AggregateTransport& summary) {
+    if (!output_.is_open() && !open_next_file()) return;
+    const auto& value = summary.scalar;
+    output_ << '{'
+        << "\"schema_version\":" << kTelemetrySchemaVersion
+        << ",\"type\":\"w5_gate2_5a_live_shadow\""
+        << ",\"schema\":\"w5_gate2_5a_aggregate_v1\""
+        << ",\"anomaly\":false"
+        << ",\"window_begin_ns\":" << value.window_begin_ns
+        << ",\"window_end_ns\":" << value.window_end_ns
+        << ",\"window_clock_domain\":\""
+        << gate25_window_clock_domain_name(value.window_clock_domain) << '"'
+        << ",\"last_controller_tick_id\":"
+        << value.last_controller_tick_id
+        << ",\"delivery_first_seq\":" << value.delivery_first_seq
+        << ",\"delivery_last_seq\":" << value.delivery_last_seq
+        << ",\"status\":\"" << gate25_status_name(value.status) << '"'
+        << ",\"observations\":" << value.observations
+        << ",\"compatible_pairs\":" << value.compatible_pairs
+        << ",\"effect_valid\":" << value.effect_valid
+        << ",\"neutral_baseline_pairs\":" << value.neutral_baseline_pairs
+        << ",\"ledger_comparisons\":" << value.ledger_comparisons
+        << ",\"snr_pass\":" << value.snr_pass
+        << ",\"below_noise_floor\":" << value.below_noise_floor
+        << ",\"duplicate\":" << value.duplicate
+        << ",\"same_present_endpoint\":" << value.same_present_endpoint
+        << ",\"stale\":" << value.stale
+        << ",\"backward_present\":" << value.backward_present
+        << ",\"capture_gap\":" << value.capture_gap
+        << ",\"identity_boundary\":" << value.identity_boundary
+        << ",\"selector_boundary\":" << value.selector_boundary
+        << ",\"ads_boundary\":" << value.ads_boundary
+        << ",\"mode_boundary\":" << value.mode_boundary
+        << ",\"viewport_boundary\":" << value.viewport_boundary
+        << ",\"backend_boundary\":" << value.backend_boundary
+        << ",\"target_acquisition_boundary\":"
+        << value.target_acquisition_boundary
+        << ",\"response_delay_boundary\":"
+        << value.response_delay_boundary
+        << ",\"present_calibration_boundary\":"
+        << value.present_calibration_boundary
+        << ",\"response_delay_source\":\""
+        << gate25_response_delay_source_name(value.response_delay_source)
+        << '"'
+        << ",\"missing_present_clock\":" << value.missing_present_clock
+        << ",\"missing_delivery_history\":" << value.missing_delivery_history
+        << ",\"incomplete_delivery_history\":"
+        << value.incomplete_delivery_history
+        << ",\"missing_response_delay\":" << value.missing_response_delay
+        << ",\"cancellation_or_reversal\":"
+        << value.cancellation_or_reversal
+        << ",\"invalid_geometry\":" << value.invalid_geometry
+        << ",\"exogenous_rejected\":" << value.exogenous_rejected
+        << ",\"target_motion_contamination\":"
+        << value.target_motion_contamination
+        << ",\"missing_neutral_baseline\":"
+        << value.missing_neutral_baseline
+        << ",\"no_target_identity\":" << value.no_target_identity
+        << ",\"response_model_unavailable\":"
+        << value.response_model_unavailable
+        << ",\"profile_identity_unavailable\":"
+        << value.profile_identity_unavailable
+        << ",\"saturation_rows\":" << value.saturation_rows
+        << ",\"model_insufficient\":" << value.model_insufficient
+        << ",\"continuous_zoh_coverage_rows\":"
+        << value.continuous_zoh_coverage_rows
+        << ",\"fixed_180hz_coverage_rows\":"
+        << value.fixed_180hz_coverage_rows
+        << ",\"fixed_240hz_coverage_rows\":"
+        << value.fixed_240hz_coverage_rows
+        << ",\"observed_present_cadence_coverage_rows\":"
+        << value.observed_present_cadence_coverage_rows
+        << ",\"manual_only_rows\":" << value.manual_only_rows
+        << ",\"ai_only_rows\":" << value.ai_only_rows
+        << ",\"mixed_rows\":" << value.mixed_rows
+        << ",\"response_260ms_rows\":" << value.response_260ms_rows
+        << ",\"response_400ms_rows\":" << value.response_400ms_rows
+        << ",\"baseline_median\":[" << value.baseline_median_x << ','
+        << value.baseline_median_y << ']'
+        << ",\"baseline_mad\":[" << value.baseline_mad_x << ','
+        << value.baseline_mad_y << ']'
+        << ",\"observed_sum\":[" << value.observed_sum_x << ','
+        << value.observed_sum_y << ']'
+        << ",\"residual_abs_sum\":" << value.residual_abs_sum
+        << ",\"residual_abs_max\":" << value.residual_abs_max
+        << ",\"anomaly_count\":" << value.anomaly_count
+        << ",\"anomaly_dropped\":" << value.anomaly_dropped
+        << ",\"cohort_profile_incomplete\":"
+        << (value.cohort_profile_incomplete ? "true" : "false")
+        << ",\"command_bin_upper_bounds_percent\":[1.5,2.5,4.0,7.5,12.5]"
+        << ",\"cohort_grid_columns\":[\"mode\",\"axis_bin\",\"command_bin\","
+           "\"pair_count\",\"valid_count\",\"invalid_count\","
+           "\"snr_pass_count\",\"below_noise_count\","
+           "\"attempted_delivered_x\",\"attempted_delivered_y\","
+           "\"attempted_delivered_abs\",\"attempted_delivered_count\","
+           "\"delivered_x\",\"delivered_y\","
+           "\"delivered_abs\",\"delivered_energy\","
+           "\"observed_x\",\"observed_y\",\"observed_abs\","
+           "\"observed_energy\",\"delivered_observed_dot\","
+           "\"delivered_observed_cross\",\"sign_agree\","
+           "\"sign_disagree\","
+           "\"residual_sum\",\"residual_max\",\"residual_count\"]"
+        << ",\"cohort_grid_active_count\":" << summary.active_cell_count
+        << ",\"cohort_grid_overflow\":"
+        << (summary.active_cell_overflow ? "true" : "false")
+        << ",\"cohort_grid\":[";
+    for (std::size_t position = 0; position < summary.active_cell_count; ++position) {
+        if (position != 0) output_ << ',';
+        const std::size_t index = summary.cell_indices[position];
+        const auto& cell = summary.cells[position];
+        const std::size_t mode = index /
+            (kGate25AxisCapacity * kGate25CommandBinCapacity);
+        const std::size_t remainder = index %
+            (kGate25AxisCapacity * kGate25CommandBinCapacity);
+        const std::size_t axis = remainder / kGate25CommandBinCapacity;
+        const std::size_t command_bin = remainder % kGate25CommandBinCapacity;
+        output_ << '[' << mode << ',' << axis << ',' << command_bin
+            << ',' << cell.pair_count << ',' << cell.valid_count
+            << ',' << cell.invalid_count << ',' << cell.snr_pass_count
+            << ',' << cell.below_noise_count
+            << ',' << cell.attempted_delivered_final_sum_x
+            << ',' << cell.attempted_delivered_final_sum_y
+            << ',' << cell.attempted_delivered_final_abs_sum
+            << ',' << cell.attempted_delivered_count
+             << ',' << cell.delivered_final_sum_x
+             << ',' << cell.delivered_final_sum_y
+             << ',' << cell.delivered_final_abs_sum
+             << ',' << cell.delivered_final_energy_sum
+             << ',' << cell.observed_camera_sum_x
+             << ',' << cell.observed_camera_sum_y
+             << ',' << cell.observed_camera_abs_sum
+             << ',' << cell.observed_camera_energy_sum
+             << ',' << cell.delivered_observed_dot_sum
+             << ',' << cell.delivered_observed_cross_sum
+             << ',' << cell.component_sign_agree_count
+             << ',' << cell.component_sign_disagree_count
+             << ',' << cell.ledger_residual_sum
+            << ',' << cell.ledger_residual_max
+            << ',' << cell.ledger_residual_count << ']';
+    }
+    output_ << "],\"first_seq\":0,\"last_seq\":0,\"expected\":0"
+        << ",\"written\":0,\"dropped\":0,\"complete\":true}\n";
+    ++gate25_serialized_;
+    finish_serialized_line();
+}
+#endif
+
 void RuntimeTelemetry::writer_loop() {
+#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
+    bool prefer_gate25 = true;
+    while (true) {
+        TelemetryRecord record;
+        Gate25AggregateTransport gate25_aggregate;
+        Gate25Anomaly gate25_anomaly;
+        bool take_gate25 = false;
+        bool take_gate25_anomaly = false;
+        {
+            std::unique_lock<std::mutex> lock(mutex_);
+            condition_.wait(lock, [this] {
+                const bool gate_pending = gate25_transport_ != nullptr &&
+                    (gate25_transport_->aggregate_count != 0 ||
+                     gate25_transport_->anomaly_count != 0);
+                return !running_.load() || queue_count_ > 0 ||
+                    gate_pending;
+            });
+            const bool gate_pending = gate25_transport_ != nullptr &&
+                (gate25_transport_->aggregate_count != 0 ||
+                 gate25_transport_->anomaly_count != 0);
+            if (queue_count_ == 0 && !gate_pending) {
+                if (!running_.load()) break;
+                continue;
+            }
+            const auto deadline_ns = shutdown_deadline_ns_.load();
+            const auto now_ns = static_cast<std::uint64_t>(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    std::chrono::steady_clock::now().time_since_epoch()).count());
+            if (!running_.load() && deadline_ns != 0 && now_ns >= deadline_ns) {
+                dropped_normal_.fetch_add(queue_count_);
+                if (gate25_transport_) {
+                    gate25_dropped_.fetch_add(
+                        gate25_transport_->aggregate_count +
+                        gate25_transport_->anomaly_count);
+                    gate25_transport_->aggregate_count = 0;
+                    gate25_transport_->anomaly_count = 0;
+                    gate25_transport_->aggregate_head =
+                        gate25_transport_->aggregate_tail;
+                    gate25_transport_->anomaly_head =
+                        gate25_transport_->anomaly_tail;
+                }
+                queue_count_ = 0;
+                queue_head_ = queue_tail_;
+                break;
+            }
+            const bool take_gate = gate_pending &&
+                (queue_count_ == 0 || prefer_gate25);
+            if (!take_gate && queue_count_ != 0) {
+                record = queue_[queue_head_];
+                queue_head_ = (queue_head_ + 1) % queue_.size();
+                --queue_count_;
+                prefer_gate25 = true;
+            } else {
+                take_gate25 = true;
+                auto& transport = *gate25_transport_;
+                // Aggregate snapshots are kept on their own channel.  This
+                // lets a summary plus the configured anomaly batch fit
+                // without coupling their capacities or copying a dense
+                // aggregate into every anomaly slot.
+                if (transport.aggregate_count != 0) {
+                    gate25_aggregate =
+                        transport.aggregate_queue[transport.aggregate_head];
+                    transport.aggregate_head =
+                        (transport.aggregate_head + 1) %
+                        kGate25AggregateQueueCapacity;
+                    --transport.aggregate_count;
+                } else {
+                    gate25_anomaly =
+                        transport.anomaly_queue[transport.anomaly_head];
+                    transport.anomaly_head =
+                        (transport.anomaly_head + 1) %
+                        kGate25AnomalyQueueCapacity;
+                    --transport.anomaly_count;
+                    take_gate25_anomaly = true;
+                }
+                prefer_gate25 = false;
+            }
+        }
+        if (take_gate25) {
+            if (take_gate25_anomaly) {
+                serialize_gate25_anomaly(gate25_anomaly);
+            } else {
+                serialize_gate25_aggregate(gate25_aggregate);
+            }
+        } else {
+            serialize(record);
+        }
+    }
+#else
     while (true) {
         TelemetryRecord record;
         {
             std::unique_lock<std::mutex> lock(mutex_);
-            condition_.wait(lock, [this] { return !running_.load() || queue_count_ > 0; });
+            condition_.wait(lock, [this] {
+                return !running_.load() || queue_count_ > 0;
+            });
             if (queue_count_ == 0) {
                 if (!running_.load()) break;
                 continue;
@@ -984,6 +1601,7 @@ void RuntimeTelemetry::writer_loop() {
         }
         serialize(record);
     }
+#endif
 }
 
 } // namespace runtime_app

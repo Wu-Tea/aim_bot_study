@@ -9,6 +9,15 @@
 namespace controller_native::sustained_aimlab {
 namespace {
 
+Vec2d normalized_camera_response(
+    Vec2d stick,
+    const BenchmarkConfig& config) noexcept {
+    const auto response = forward_aim_response_curve(
+        {static_cast<float>(stick.x), static_cast<float>(stick.y)},
+        config.camera_response_curve);
+    return {response.x, response.y};
+}
+
 constexpr double kReplayTolerance = 1e-6;
 
 bool near(double left, double right) noexcept {
@@ -86,9 +95,10 @@ void summarize_branch(const ReplayReference& reference,
                            frame.true_error_before_px.y),
                 reference.script.config.target_radius_px,
                 reference.script.config);
+        const Vec2d camera_response = normalized_camera_response(
+            frame.output.final_stick, reference.script.config);
         result.path_px += std::hypot(
-            frame.output.final_stick.x,
-            frame.output.final_stick.y) * response * 0.001;
+            camera_response.x, camera_response.y) * response * 0.001;
         if (previous) {
             const double previous_magnitude = std::hypot(
                 previous->output.final_stick.x,
@@ -197,6 +207,8 @@ double predicted_causal_cost(const ReplayReference& reference,
     }
     const SimulationTraceFrame& current = reference.trace[branch_at_ms];
     const SimulationTraceFrame& candidate = branch.trace[branch_at_ms];
+    const Vec2d candidate_camera_response = normalized_camera_response(
+        candidate.output.final_stick, reference.script.config);
     Vec2d predicted = current.input.observed_error_px;
     const Vec2d velocity = estimated_observation_velocity(reference, branch_at_ms);
     double cost = 0.0;
@@ -208,8 +220,8 @@ double predicted_causal_cost(const ReplayReference& reference,
             aim_slowdown_multiplier(
                 std::hypot(predicted.x, predicted.y),
                 reference.script.config);
-        predicted.x -= candidate.output.final_stick.x * response * 0.001;
-        predicted.y += candidate.output.final_stick.y * response * 0.001;
+        predicted.x -= candidate_camera_response.x * response * 0.001;
+        predicted.y += candidate_camera_response.y * response * 0.001;
         cost += std::hypot(predicted.x, predicted.y);
     }
     return cost;
@@ -263,8 +275,9 @@ double immediate_progress(const ReplayReference& reference,
     const double response =
         reference.script.config.camera_response_px_per_stick_second *
         aim_slowdown_multiplier(distance, reference.script.config);
-    const Vec2d control{
-        frame.output.final_stick.x, -frame.output.final_stick.y};
+    const Vec2d camera_response = normalized_camera_response(
+        frame.output.final_stick, reference.script.config);
+    const Vec2d control{camera_response.x, -camera_response.y};
     return response * 0.001 *
         (control.x * frame.true_error_before_px.x +
          control.y * frame.true_error_before_px.y) / distance;

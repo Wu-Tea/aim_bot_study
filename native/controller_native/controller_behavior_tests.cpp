@@ -569,7 +569,7 @@ void test_controller_tick_context_carries_tracker_snapshot_and_output_components
         "tick context should carry output components for later tracker samples");
 }
 
-void test_auto_fire_manual_takeover_releases_output_briefly() {
+void test_auto_fire_manual_takeover_preserves_physical_fire() {
     controller_native::GamepadRuntimeConfig config;
     config.auto_fire_output = "RB";
     config.auto_fire.require_aim_ready = false;
@@ -590,7 +590,7 @@ void test_auto_fire_manual_takeover_releases_output_briefly() {
 
     physical.rb = true;
     output = controller.build_output(physical);
-    require_true(!output.rb, "manual takeover should briefly release fire output");
+    require_true(output.rb, "manual takeover must preserve physical fire output");
 }
 
 void test_auto_fire_requires_aim_ready_settle_frames() {
@@ -6611,7 +6611,7 @@ int main() {
         test_controller_records_pipeline_stage_traces();
         test_controller_pipeline_records_recoil_as_final_independent_component();
         test_controller_tick_context_carries_tracker_snapshot_and_output_components();
-        test_auto_fire_manual_takeover_releases_output_briefly();
+        test_auto_fire_manual_takeover_preserves_physical_fire();
         test_auto_fire_requires_aim_ready_settle_frames();
         test_auto_fire_uses_80hz_vision_frames_at_1000hz_controller_rate();
         test_scope_occlusion_owner_hold_releases_and_reacquires_smoothly();

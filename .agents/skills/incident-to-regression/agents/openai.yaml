@@ -1,0 +1,4 @@
+interface:
+  display_name: "Incident to Regression"
+  short_description: "Turn native incidents into proven RED regressions"
+  default_prompt: "Use $incident-to-regression to turn this native runtime incident into a proven RED regression package."

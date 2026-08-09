@@ -15,9 +15,6 @@
 #include "telemetry_collectors.h"
 #include "vision_service.h"
 #include "vision_native/vision_engine.h"
-#include "control_learning/causal_online_response_learner.h"
-#include "control_learning/pending_motion_model.h"
-#include "control_learning/short_horizon_rollout.h"
 
 #include <atomic>
 #include <chrono>
@@ -62,10 +59,6 @@ private:
     std::unique_ptr<vision_native::VisionEngine> vision_engine_;
     std::unique_ptr<VisionService> vision_service_;
     VisionDeliveryGate vision_delivery_gate_;
-    std::unique_ptr<control_learning::CausalOnlineResponseLearner>
-        causal_response_learner_;
-    pipeline_contract::CommittedCaptureObservation previous_learning_observation_{};
-    bool has_previous_learning_observation_ = false;
     vision_native::VisionResult latest_vision_result_;
     bool has_latest_vision_result_ = false;
     bool latest_vision_aiming_ = false;

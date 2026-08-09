@@ -63,6 +63,25 @@ pipeline_contract::VisionObservationBatch empty_fresh_frame(
     return batch;
 }
 
+pipeline_contract::VisionObservationBatch body_frame(
+    std::uint64_t frame_id,
+    double time,
+    std::uint64_t source_id,
+    float x,
+    float y,
+    float motion_anchor_x,
+    float motion_anchor_y,
+    bool has_motion_anchor = true) {
+    auto batch = frame(frame_id, time, source_id, x, y);
+    auto& candidate = batch.candidates[0];
+    candidate.has_body_box = true;
+    candidate.body_box_px = {x - 20.0f, y - 32.0f, 40.0f, 80.0f};
+    candidate.has_motion_anchor = has_motion_anchor;
+    candidate.motion_anchor_px = {motion_anchor_x, motion_anchor_y};
+    candidate.motion_anchor_score = has_motion_anchor ? 0.9f : 0.0f;
+    return batch;
+}
+
 pipeline_contract::VisionObservationBatch replay_tick(double time) {
     pipeline_contract::VisionObservationBatch batch{};
     batch.source_time_seconds = 0.0;
@@ -1160,7 +1179,7 @@ void test_vision_fire_authority_is_not_rejected_by_reliability_weight() {
                  "coordinator must trust Vision's observed fire eligibility");
 }
 
-void test_delivered_camera_work_is_consumed_during_control_rate_prediction() {
+void test_target_coordinator_does_not_own_delivered_motion() {
     controller_native::TargetCoordinator coordinator;
     auto plan = coordinator.update(
         frame(1, 20.000, 44, 300.0f, 208.0f),
@@ -1172,57 +1191,54 @@ void test_delivered_camera_work_is_consumed_during_control_rate_prediction() {
     pipeline_contract::VisionObservationBatch no_publication{};
     no_publication.frame_width_px = 480.0f;
     no_publication.frame_height_px = 416.0f;
-    controller_native::TargetControlFeedback feedback{};
-    feedback.apply_delivered_camera_work = true;
-    feedback.delivered_camera_work_delta_px = {5.0f, -3.0f};
     plan = coordinator.update(
         no_publication,
         ads_intent(20.010),
-        20.010,
-        feedback);
-    require_true(std::fabs(plan.error_px.x - 55.0f) < 0.001f,
-                 "delivered rightward work must reduce positive X work once");
-    require_true(std::fabs(plan.error_px.y - 3.0f) < 0.001f,
-                 "delivered upward work must move negative screen-Y work toward zero");
+        20.010);
+    require_true(!plan.remaining_work_valid,
+                 "TargetCoordinator must not own delivered-motion memory");
+    require_true(std::fabs(plan.remaining_work_px.x) < 0.001f &&
+                     std::fabs(plan.delivered_camera_motion_since_capture_px.x) <
+                         0.001f,
+                 "coordinator compatibility fields must remain empty");
 
     plan = coordinator.update(
         frame(2, 20.020, 44, 295.0f, 211.0f),
         ads_intent(20.020),
         20.020);
-    require_true(std::fabs(plan.velocity_px_per_sec.x) < 0.01f,
-                 "fresh Vision matching delivered camera work must not learn camera motion as target velocity");
-    require_true(std::fabs(plan.velocity_px_per_sec.y) < 0.01f,
-                 "camera-attributed Y motion must not leak into target velocity");
+    // This coordinator receives raw D only. With no delivered-work feedback,
+    // the changed observation may legitimately update its screen-motion
+    // estimate; it cannot be attributed to the actuator here. The contract
+    // under test is that the compatibility P/R fields remain empty.
+    require_true(!plan.remaining_work_valid,
+                 "raw-D coordinator must not publish delivered-motion memory");
+    require_true(
+        std::fabs(plan.remaining_work_px.x) < 0.001f &&
+            std::fabs(plan.remaining_work_px.y) < 0.001f &&
+            std::fabs(plan.delivered_camera_motion_since_capture_px.x) <
+                0.001f &&
+            std::fabs(plan.delivered_camera_motion_since_capture_px.y) <
+                0.001f,
+        "raw-D coordinator compatibility P/R fields must stay empty after motion");
 }
 
-void test_fresh_vision_reanchors_to_work_delivered_since_capture() {
+void test_target_coordinator_fresh_plan_keeps_motion_fields_empty() {
     controller_native::TargetCoordinator coordinator;
     (void)coordinator.update(
         frame(1, 21.000, 44, 300.0f, 208.0f),
         ads_intent(21.000),
         21.000);
 
-    controller_native::TargetControlFeedback feedback{};
-    feedback.has_delivered_camera_work_since_capture = true;
-    feedback.delivered_camera_work_since_capture_px = {5.0f, -3.0f};
-    feedback.remaining_work_confidence = 0.55f;
     const auto plan = coordinator.update(
         frame(2, 21.010, 44, 300.0f, 208.0f),
         ads_intent(21.010),
-        21.010,
-        feedback);
+        21.010);
 
-    require_true(plan.remaining_work_valid,
-                 "fresh capture must publish a valid remaining-work state");
-    require_true(std::fabs(plan.error_px.x - 55.0f) < 0.001f,
-                 "work delivered after capture must be removed from fresh X error");
-    require_true(std::fabs(plan.error_px.y - 3.0f) < 0.001f,
-                 "fresh screen-Y work must use the controller sign exactly once");
-    require_true(
-        std::fabs(
-            plan.delivered_camera_motion_since_capture_px.x - 5.0f) <
-            0.001f,
-        "plan must expose delivered motion for telemetry and consumers");
+    require_true(!plan.remaining_work_valid,
+                 "fresh coordinator plan must not publish a second P owner");
+    require_true(std::fabs(plan.delivered_camera_motion_since_capture_px.x) <
+                     0.001f,
+                 "fresh coordinator compatibility motion must remain empty");
 }
 
 void test_bodylock_velocity_obeys_target_acceleration_limit() {
@@ -1335,15 +1351,15 @@ void test_bodylock_reacquire_preserves_fresh_position_without_velocity_impulse()
         "fresh miss must enter the short BodyLock coast");
 
     plan = coordinator.update(
-        frame(10, 1.09, 1, 244.0f, 191.0f),
+        frame(10, 1.09, 1, 244.0f, 168.0f),
         firing_ads_intent(1.09), 1.09);
     require_true(
         plan.lifecycle == pipeline_contract::TargetLifecycle::Reacquiring,
         "same target must retain the reacquiring lifecycle");
     require_true(
         std::fabs(plan.aim_px.x - 244.0f) < 0.5f &&
-            std::fabs(plan.aim_px.y - 191.0f) < 0.5f,
-        "same-target reacquire must preserve its fresh position");
+            std::fabs(plan.aim_px.y - 168.0f) < 0.5f,
+        "same-target reacquire must not clip a reliable fresh position");
 
     plan = coordinator.update(
         frame(11, 1.10, 1, 244.0f, 208.0f),
@@ -1352,6 +1368,81 @@ void test_bodylock_reacquire_preserves_fresh_position_without_velocity_impulse()
         std::fabs(plan.aim_px.x - 244.0f) < 0.5f &&
             std::fabs(plan.aim_px.y - 208.0f) < 0.5f,
         "reacquire recovery must not emit a counter-pulse");
+}
+
+void test_bodylock_fresh_position_overrides_stale_motion_anchor() {
+    controller_native::TargetCoordinator coordinator;
+    coordinator.begin_ads_epoch(1, 3.0);
+
+    pipeline_contract::TargetPlan plan{};
+    for (std::uint64_t id = 1; id <= 8; ++id) {
+        const double time = 3.0 + static_cast<double>(id - 1) * 0.01;
+        plan = coordinator.update(
+            body_frame(
+                id, time, 101, 244.0f, 208.0f, 244.0f, 208.0f),
+            firing_ads_intent(time),
+            time);
+    }
+    require_true(
+        plan.mode == pipeline_contract::ControlMode::BodyLockFollow,
+        "fixture must enter BodyLock before stale-anchor regression");
+
+    plan = coordinator.update(
+        body_frame(9, 3.08, 101, 194.0f, 208.0f, 244.0f, 208.0f),
+        firing_ads_intent(3.08),
+        3.08);
+    require_true(
+        std::fabs(plan.aim_px.x - 194.0f) < 0.5f &&
+            std::fabs(plan.aim_px.y - 208.0f) < 0.5f,
+        "fresh target geometry must override a stale motion anchor");
+    require_true(
+        std::fabs(plan.error_px.x + 46.0f) < 0.5f,
+        "fresh single-target D must point at the latest selected position");
+}
+
+void test_multitarget_fresh_preferred_position_does_not_stick_between_targets() {
+    controller_native::TargetCoordinator coordinator;
+    coordinator.begin_ads_epoch(1, 4.0);
+
+    pipeline_contract::TargetPlan plan{};
+    for (std::uint64_t id = 1; id <= 8; ++id) {
+        const double time = 4.0 + static_cast<double>(id - 1) * 0.01;
+        auto batch = body_frame(
+            id, time, 101, 244.0f, 208.0f, 244.0f, 208.0f);
+        batch.selector_identity_protocol = true;
+        batch.selector_target_generation = 7;
+        batch.count = 2;
+        batch.candidates[1] = batch.candidates[0];
+        batch.candidates[1].source_id = 202;
+        batch.candidates[1].aim_px = {284.0f, 208.0f};
+        batch.candidates[1].body_box_px = {264.0f, 176.0f, 40.0f, 80.0f};
+        batch.candidates[1].motion_anchor_px = {284.0f, 208.0f};
+        plan = coordinator.update(batch, firing_ads_intent(time), time);
+    }
+    require_true(
+        plan.mode == pipeline_contract::ControlMode::BodyLockFollow,
+        "fixture must enter BodyLock before multi-target regression");
+
+    auto moved = body_frame(
+        9, 4.08, 101, 200.0f, 198.0f, 244.0f, 208.0f);
+    moved.selector_identity_protocol = true;
+    moved.selector_target_generation = 7;
+    moved.count = 2;
+    moved.candidates[1] = moved.candidates[0];
+    moved.candidates[1].source_id = 202;
+    moved.candidates[1].aim_px = {284.0f, 208.0f};
+    moved.candidates[1].body_box_px = {264.0f, 176.0f, 40.0f, 80.0f};
+    moved.candidates[1].motion_anchor_px = {284.0f, 208.0f};
+    plan = coordinator.update(moved, firing_ads_intent(4.08), 4.08);
+
+    require_true(plan.ads_candidate_count == 2,
+                 "fixture must preserve the multi-target observation");
+    require_true(plan.ads_preferred_source_id == 101,
+                 "selector must retain the intended preferred candidate");
+    require_true(
+        std::fabs(plan.aim_px.x - 200.0f) < 0.5f &&
+            std::fabs(plan.aim_px.y - 198.0f) < 0.5f,
+        "fresh preferred geometry must not remain at an old inter-target point");
 }
 
 void test_ads_fire_impulse_uses_same_robust_observation_update() {
@@ -1604,12 +1695,8 @@ void test_selector_replacement_is_a_new_identity_without_rearming_ads() {
     replacement.selector_identity_protocol = true;
     replacement.selector_target_generation = 2;
     replacement.selector_target_changed = true;
-    controller_native::TargetControlFeedback old_capture_work{};
-    old_capture_work.has_delivered_camera_work_since_capture = true;
-    old_capture_work.delivered_camera_work_since_capture_px = {30.0f, 0.0f};
-    old_capture_work.remaining_work_confidence = 0.8f;
     plan = coordinator.update(
-        replacement, ads_intent(20.040), 20.040, old_capture_work);
+        replacement, ads_intent(20.040), 20.040);
 
     require_true(plan.selector_target_changed,
                  "coordinator must publish the selector replacement boundary");
@@ -2333,6 +2420,8 @@ int main() {
         test_bodylock_velocity_obeys_target_acceleration_limit();
         test_bodylock_bounds_impulse_without_delayed_release();
         test_bodylock_reacquire_preserves_fresh_position_without_velocity_impulse();
+        test_bodylock_fresh_position_overrides_stale_motion_anchor();
+        test_multitarget_fresh_preferred_position_does_not_stick_between_targets();
         test_ads_fire_impulse_uses_same_robust_observation_update();
         test_constant_motion_response_is_cadence_invariant();
         test_left_intent_enters_plan_through_learned_response();
@@ -2356,8 +2445,8 @@ int main() {
         test_fuser_manual_escape_hands_off_during_nominal();
         test_replay_does_not_overwrite_source_decision_reason();
         test_source_decision_reports_fresh_reject_and_consumed_separately();
-        test_delivered_camera_work_is_consumed_during_control_rate_prediction();
-        test_fresh_vision_reanchors_to_work_delivered_since_capture();
+        test_target_coordinator_does_not_own_delivered_motion();
+        test_target_coordinator_fresh_plan_keeps_motion_fields_empty();
         test_firing_fresh_position_remains_authoritative_across_center();
         return 0;
     } catch (const std::exception& error) {

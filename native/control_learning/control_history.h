@@ -5,6 +5,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cmath>
 #include <type_traits>
 
 namespace control_learning {
@@ -37,6 +38,9 @@ struct ControlIntegral {
     pipeline_contract::Vec2f recoil_stick_seconds{};
     pipeline_contract::Vec2f final_right_stick_seconds{};
     pipeline_contract::Vec2f final_left_stick_seconds{};
+    // Absolute exposure is independent of signed cancellation and is used
+    // only for diagnostic eligibility, never for actuation.
+    float final_right_stick_abs_seconds = 0.0f;
     std::uint64_t first_seq = 0;
     std::uint64_t last_seq = 0;
     std::uint32_t expected = 0;
@@ -46,6 +50,7 @@ struct ControlIntegral {
     bool firing = false;
     bool recoil_active = false;
     bool saturated = false;
+    bool final_right_reversal = false;
     bool complete = false;
 };
 
@@ -65,6 +70,7 @@ struct ComponentIntegral {
     Vec2d recoil{};
     Vec2d final_right{};
     Vec2d final_left{};
+    double final_right_abs = 0.0;
 };
 
 inline Vec2d add_scaled(
@@ -92,6 +98,9 @@ inline ComponentIntegral advance(
     value.recoil = add_scaled(value.recoil, held.recoil_component, seconds);
     value.final_right = add_scaled(value.final_right, held.final_right, seconds);
     value.final_left = add_scaled(value.final_left, held.final_left, seconds);
+    const double final_x = static_cast<double>(held.final_right.x);
+    const double final_y = static_cast<double>(held.final_right.y);
+    value.final_right_abs += std::sqrt(final_x * final_x + final_y * final_y) * seconds;
     return value;
 }
 
@@ -110,6 +119,8 @@ class ControlHistory {
         std::uint64_t firing_prefix = 0;
         std::uint64_t recoil_prefix = 0;
         std::uint64_t saturated_prefix = 0;
+        std::uint64_t final_reversal_prefix = 0;
+        bool final_reversal_at_sample = false;
     };
 
 public:
@@ -139,6 +150,19 @@ public:
             next.firing_prefix = previous.firing_prefix;
             next.recoil_prefix = previous.recoil_prefix;
             next.saturated_prefix = previous.saturated_prefix;
+            next.final_reversal_prefix = previous.final_reversal_prefix;
+            if (sample.output_delivered && previous.held_after.output_delivered) {
+                const float dot = previous.held_after.final_right.x * sample.final_right.x +
+                    previous.held_after.final_right.y * sample.final_right.y;
+                const float previous_magnitude = std::sqrt(
+                    previous.held_after.final_right.x * previous.held_after.final_right.x +
+                    previous.held_after.final_right.y * previous.held_after.final_right.y);
+                const float sample_magnitude = std::sqrt(
+                    sample.final_right.x * sample.final_right.x +
+                    sample.final_right.y * sample.final_right.y);
+                next.final_reversal_at_sample = dot < -1.0e-6f &&
+                    previous_magnitude > 1.0e-4f && sample_magnitude > 1.0e-4f;
+            }
         } else if (sample.output_delivered) {
             next.held_after = sample;
         }
@@ -147,6 +171,7 @@ public:
         next.firing_prefix += sample.firing ? 1u : 0u;
         next.recoil_prefix += sample.recoil_active ? 1u : 0u;
         next.saturated_prefix += sample.saturated ? 1u : 0u;
+        next.final_reversal_prefix += next.final_reversal_at_sample ? 1u : 0u;
 
         if (size_ < Capacity) {
             entries_[(head_ + size_) % Capacity] = next;
@@ -168,6 +193,21 @@ public:
             return result;
         }
 
+        // A retained ring does not establish the actuator state before its
+        // first sample.  Do not clamp an uncovered prefix to oldest() and
+        // silently score it as a known zero interval.  Only an explicit
+        // successful neutral anchor (or another future coverage contract)
+        // can make that prefix known.
+        if (begin_ns < oldest().applied_at_ns) {
+            return result;
+        }
+        // The last retained delivery does not prove that its state was held
+        // beyond that timestamp.  Keep both interval branches on the same
+        // coverage contract; an explicit later endpoint sample is required.
+        if (end_ns > newest().applied_at_ns) {
+            return result;
+        }
+
         const std::uint64_t effective_begin =
             begin_ns < oldest().applied_at_ns ? oldest().applied_at_ns : begin_ns;
         const auto begin_value = cumulative_at(effective_begin);
@@ -185,6 +225,8 @@ public:
             end_value.final_right, begin_value.final_right);
         result.final_left_stick_seconds = detail::subtract(
             end_value.final_left, begin_value.final_left);
+        result.final_right_stick_abs_seconds = static_cast<float>(
+            end_value.final_right_abs - begin_value.final_right_abs);
 
         const std::size_t first = lower_bound_index(begin_ns);
         const std::size_t last = floor_index_strict(end_ns);
@@ -195,8 +237,6 @@ public:
             // output is piecewise constant.  Accept only an interval fully
             // covered by the retained history and inherit the one held
             // sample's invalidation flags; never extrapolate past newest().
-            if (begin_ns < oldest().applied_at_ns ||
-                end_ns > newest().applied_at_ns) return result;
             const Entry& held = entry(floor_index(begin_ns));
             result.first_seq = held.sample.sample_seq;
             result.last_seq = held.sample.sample_seq;
@@ -207,35 +247,48 @@ public:
             result.firing = held.sample.firing;
             result.recoil_active = held.sample.recoil_active;
             result.saturated = held.sample.saturated;
-            result.complete = held.sample.output_delivered &&
-                !result.output_disabled && !result.firing &&
-                !result.recoil_active && !result.saturated;
+            // Firing/recoil/saturation are cohort metadata. They must not
+            // change the delivery-coverage contract merely because this
+            // interval contains no sample boundary.
+            result.complete = held.sample.output_delivered;
             return result;
         }
 
-        const Entry& first_entry = entry(first);
+        // The entry immediately before/at begin owns the held state for the
+        // half-open interval until the first in-interval boundary. Prefix
+        // counts starting at lower_bound(begin) therefore miss a flag that
+        // is set at begin and cleared shortly afterwards.
+        const std::size_t flag_first = floor_index(effective_begin);
+        if (flag_first >= size_ || last < flag_first) return result;
+        const Entry& first_entry = entry(flag_first);
         const Entry& last_entry = entry(last);
         result.first_seq = first_entry.sample.sample_seq;
         result.last_seq = last_entry.sample.sample_seq;
-        result.written = static_cast<std::uint32_t>(last - first + 1);
+        result.written = static_cast<std::uint32_t>(last - flag_first + 1);
         const std::uint64_t expected = result.last_seq - result.first_seq + 1;
         result.expected = expected > UINT32_MAX
             ? UINT32_MAX : static_cast<std::uint32_t>(expected);
         result.failed_delivery = range_count(
-            first, last, &Entry::failed_prefix,
+            flag_first, last, &Entry::failed_prefix,
             first_entry.sample.output_delivered ? 0u : 1u) != 0;
         result.output_disabled = range_count(
-            first, last, &Entry::disabled_prefix,
+            flag_first, last, &Entry::disabled_prefix,
             first_entry.sample.output_disabled ? 1u : 0u) != 0;
         result.firing = range_count(
-            first, last, &Entry::firing_prefix,
+            flag_first, last, &Entry::firing_prefix,
             first_entry.sample.firing ? 1u : 0u) != 0;
         result.recoil_active = range_count(
-            first, last, &Entry::recoil_prefix,
+            flag_first, last, &Entry::recoil_prefix,
             first_entry.sample.recoil_active ? 1u : 0u) != 0;
         result.saturated = range_count(
-            first, last, &Entry::saturated_prefix,
+            flag_first, last, &Entry::saturated_prefix,
             first_entry.sample.saturated ? 1u : 0u) != 0;
+        const std::uint64_t reversal_at_begin =
+            first_entry.sample.applied_at_ns == begin_ns &&
+            first_entry.final_reversal_at_sample ? 1u : 0u;
+        result.final_right_reversal = range_count(
+            flag_first, last, &Entry::final_reversal_prefix,
+            reversal_at_begin) != 0;
         const bool truncated = overwritten_ != 0 && begin_ns < oldest().applied_at_ns;
         result.complete = result.written != 0 && !truncated &&
             result.expected == result.written && !result.failed_delivery;

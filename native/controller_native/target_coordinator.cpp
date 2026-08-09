@@ -201,6 +201,7 @@ void TargetCoordinator::reset_target_owned_state_for_replacement() noexcept {
     last_unique_observation_seconds_ = 0.0;
     last_observed_reliability_ = 0.0f;
     last_observed_normalized_size_ = 0.0f;
+    last_observed_target_size_px_ = {};
     settled_frames_ = 0;
     observed_frames_ = 0;
     has_observation_capture_time_ = false;
@@ -208,9 +209,7 @@ void TargetCoordinator::reset_target_owned_state_for_replacement() noexcept {
     fire_requested_ = false;
     observed_fire_eligible_ = false;
     was_missing_ = false;
-    delivered_camera_work_since_capture_px_ = {};
-    remaining_work_confidence_ = 0.0f;
-    remaining_work_valid_ = false;
+    cue_continuation_active_ = false;
 }
 
 void TargetCoordinator::set_motion_velocity_alpha_for_benchmark(
@@ -234,7 +233,26 @@ const pipeline_contract::VisionCandidate* TargetCoordinator::choose_candidate(
     // and memory, but only the selector may grant fresh control ownership.
     if (observations.selector_identity_protocol &&
         observations.preferred_source_id == 0) {
-        return nullptr;
+        // Cue continuation deliberately has no frame-local person id. It may
+        // update only the already-owned target, in the same ADS epoch and the
+        // exact same selector generation. It can neither acquire nor switch.
+        if (!observations.selector_cue_continuation || !ads_epoch_active_ ||
+            !has_target_ || observations.selector_target_changed ||
+            observations.selector_target_generation == 0 ||
+            selector_target_generation_ == 0 ||
+            observations.selector_target_generation !=
+                selector_target_generation_ ||
+            observations.count != 1) {
+            return nullptr;
+        }
+        const auto& cue = observations.candidates[0];
+        if (cue.source_id != 0 || cue.reliability <= 0.0f ||
+            cue.cue_confidence <= 0.0f ||
+            length(subtract(cue.aim_px, predicted)) >
+                config_.association_radius_px) {
+            return nullptr;
+        }
+        return &cue;
     }
     const pipeline_contract::Vec2f screen_center{
         observations.frame_width_px > 0.0f
@@ -350,9 +368,6 @@ pipeline_contract::TargetPlan TargetCoordinator::no_target_plan(
     std::uint64_t source_frame_id,
     std::uint32_t candidate_count,
     std::uint64_t preferred_source_id) noexcept {
-    delivered_camera_work_since_capture_px_ = {};
-    remaining_work_confidence_ = 0.0f;
-    remaining_work_valid_ = false;
     pipeline_contract::TargetPlan plan{};
     plan.generation = ++generation_;
     plan.source_frame_id = source_frame_id;
@@ -451,6 +466,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     // rising edge. Keep the coordinator deterministic for direct callers and
     // fixtures too, while never rearming a consumed held epoch.
     if (!intent.ads) {
+        cue_continuation_active_ = false;
         ads_epoch_active_ = false;
         ads_snap_consumed_ = false;
         ads_target_admitted_ = false;
@@ -501,11 +517,6 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         ? update_player_motion_estimate(
             feedback, manual_camera_ownership)
         : PlayerMotionEstimate{};
-    if (feedback.reset_remaining_work) {
-        delivered_camera_work_since_capture_px_ = {};
-        remaining_work_confidence_ = 0.0f;
-        remaining_work_valid_ = false;
-    }
     auto predicted = dt > 0.0f
         ? pipeline_contract::Vec2f{
             position_.x + velocity_.x * dt,
@@ -518,19 +529,6 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         predicted.y += feedback.player_error_delta_px.y;
     } else if (causal_player_motion_state_enabled_ && dt > 0.0f) {
         predicted.y += player_motion.realized_delta_y_px;
-    }
-    if (feedback.apply_delivered_camera_work &&
-        pipeline_contract::finite(
-            feedback.delivered_camera_work_delta_px)) {
-        predicted.x -= feedback.delivered_camera_work_delta_px.x;
-        predicted.y -= feedback.delivered_camera_work_delta_px.y;
-        delivered_camera_work_since_capture_px_.x +=
-            feedback.delivered_camera_work_delta_px.x;
-        delivered_camera_work_since_capture_px_.y +=
-            feedback.delivered_camera_work_delta_px.y;
-        remaining_work_confidence_ = std::clamp(
-            feedback.remaining_work_confidence, 0.0f, 1.0f);
-        remaining_work_valid_ = remaining_work_confidence_ > 0.0f;
     }
     double observation_capture_seconds = now_seconds;
     const bool source_time_available =
@@ -607,6 +605,14 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     const auto* candidate = accepted_fresh_capture
         ? choose_candidate(observations, predicted)
         : nullptr;
+    const bool cue_continuation_candidate = candidate != nullptr &&
+        observations.selector_cue_continuation &&
+        candidate->source_id == 0 && has_target_ && ads_epoch_active_ &&
+        observations.selector_target_generation != 0 &&
+        observations.selector_target_generation == selector_target_generation_;
+    if (accepted_fresh_capture) {
+        cue_continuation_active_ = cue_continuation_candidate;
+    }
     bool current_plan_admitted = false;
     const bool selector_replacement = candidate != nullptr &&
         accepted_fresh_capture &&
@@ -708,10 +714,12 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     float normalized_size = latest_.normalized_size;
     if (candidate != nullptr) {
         pipeline_contract::Vec2f observed_aim_px = candidate->aim_px;
-        const bool new_observation_sample = accepted_fresh_capture;
+        const bool new_observation_sample =
+            accepted_fresh_capture && !cue_continuation_candidate;
         const bool new_target = !has_target_ || selector_replacement;
         const bool new_ads_acquisition = intent.ads && ads_epoch_active_ &&
-            !ads_snap_consumed_ && !ads_target_admitted_;
+            !ads_snap_consumed_ && !ads_target_admitted_ &&
+            !cue_continuation_candidate;
         if (selector_replacement) {
             reset_target_owned_state_for_replacement();
         }
@@ -747,57 +755,26 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
                 pipeline_contract::ControlMode::AdsAcquire;
         const bool firing_context =
             intent.fire || feedback.firing_recently;
-        const bool stabilize_body_geometry =
-            config_.firing_body_geometry_stabilizer_enabled &&
-            assisted_motion_model && firing_context &&
-            observed_frames_ >= 2 &&
-            length(subtract(predicted, center)) <=
-                std::max(18.0f, config_.settle_radius_px * 2.5f);
-        if (new_observation_sample && candidate->has_body_box) {
-            const auto stable = stable_body_aim_tracker_.update(
-                {observed_aim_px.x, observed_aim_px.y},
-                candidate->body_box_px,
-                stabilize_body_geometry,
-                candidate->has_motion_anchor,
-                {candidate->motion_anchor_px.x,
-                 candidate->motion_anchor_px.y});
-            observed_aim_px = {stable.aim_px.x, stable.aim_px.y};
-        } else if (new_observation_sample) {
-            stable_body_aim_tracker_.reset();
-        }
-        if (!selector_replacement &&
-            feedback.has_delivered_camera_work_since_capture &&
-            pipeline_contract::finite(
-                feedback.delivered_camera_work_since_capture_px)) {
-            observed_aim_px.x -=
-                feedback.delivered_camera_work_since_capture_px.x;
-            observed_aim_px.y -=
-                feedback.delivered_camera_work_since_capture_px.y;
-            if (feedback.capture_alignment_only) {
-                // BodyLock needs capture-time coordinate alignment, but it
-                // already owns the sustained position/velocity loop. Do not
-                // convert alignment data back into Remaining authority.
-                delivered_camera_work_since_capture_px_ = {};
-                remaining_work_confidence_ = 0.0f;
-                remaining_work_valid_ = false;
-            } else {
-                delivered_camera_work_since_capture_px_ =
-                    feedback.delivered_camera_work_since_capture_px;
-                remaining_work_confidence_ = std::clamp(
-                    feedback.remaining_work_confidence, 0.0f, 1.0f);
-                remaining_work_valid_ = remaining_work_confidence_ > 0.0f;
-            }
-        } else {
-            delivered_camera_work_since_capture_px_ = {};
-            remaining_work_confidence_ = 0.0f;
-            remaining_work_valid_ = false;
-        }
+        // candidate->aim_px is already the geometry-resolved result for this
+        // fresh frame. A historic body/motion anchor must not replace that
+        // absolute position; firing noise is bounded only while estimating
+        // velocity below.
         if (new_observation_sample) {
             last_unique_observation_seconds_ = observation_capture_seconds;
             has_unique_observation_time_ = true;
         }
-        const bool reacquiring = !selector_replacement && has_target_ && was_missing_;
-        if (new_target) {
+        const bool reacquiring = !cue_continuation_candidate &&
+            !selector_replacement && has_target_ && was_missing_;
+        if (cue_continuation_candidate) {
+            // The selector already reconstructed this position from the live
+            // cue plus the last observed person-to-cue offset. Consume the
+            // absolute point, but do not learn person velocity from UI motion.
+            position_ = observed_aim_px;
+            velocity_ = {};
+            acceleration_ = {};
+            previous_firing_velocity_innovation_ = {};
+            firing_velocity_observer_active_ = false;
+        } else if (new_target) {
             has_target_ = true;
             target_id_ = next_target_id_++;
             if (!ads_target_admitted_) {
@@ -820,16 +797,10 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
                         last_observation_capture_seconds_,
                     0.001, 0.1))
                 : dt;
-            auto position_innovation = subtract(observed_aim_px, predicted);
-            const float position_innovation_length = length(position_innovation);
-            if (reacquiring &&
-                position_innovation_length > config_.max_reacquire_innovation_px) {
-                const float scale =
-                    config_.max_reacquire_innovation_px /
-                    position_innovation_length;
-                position_innovation.x *= scale;
-                position_innovation.y *= scale;
-            }
+            // Association has already accepted this fresh selected candidate.
+            // Reacquisition may bound velocity inference, but it must never
+            // clip the absolute position back toward a stale prediction.
+            const auto position_innovation = subtract(observed_aim_px, predicted);
             auto velocity_innovation = position_innovation;
             const bool bodylock_motion_model =
                 control_mode_ ==
@@ -980,19 +951,29 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
             source_id_ = candidate->source_id;
         }
         source_frame_id_ = observations.frame_id;
-        fire_requested_ = observations.fire_requested;
-        observed_fire_eligible_ = observations.observed_fire_eligible;
+        fire_requested_ = cue_continuation_candidate
+            ? false : observations.fire_requested;
+        observed_fire_eligible_ = cue_continuation_candidate
+            ? false : observations.observed_fire_eligible;
         reliability = std::clamp(candidate->reliability, 0.0f, 1.0f);
         normalized_size = std::clamp(candidate->normalized_size, 0.0f, 1.0f);
         last_observed_reliability_ = reliability;
         last_observed_normalized_size_ = normalized_size;
-        if (new_observation_sample) {
+        if (!cue_continuation_candidate &&
+            pipeline_contract::finite(candidate->box_size_px) &&
+            candidate->box_size_px.x > 0.0f &&
+            candidate->box_size_px.y > 0.0f) {
+            last_observed_target_size_px_ = candidate->box_size_px;
+        }
+        if (new_observation_sample || cue_continuation_candidate) {
             last_observed_seconds_ = observation_capture_seconds;
             last_observation_capture_seconds_ =
                 observation_capture_seconds;
             has_observation_capture_time_ = true;
         }
-        lifecycle = reacquiring
+        lifecycle = cue_continuation_candidate
+            ? pipeline_contract::TargetLifecycle::Coasting
+            : reacquiring
             ? pipeline_contract::TargetLifecycle::Reacquiring
             : pipeline_contract::TargetLifecycle::Observed;
         was_missing_ = false;
@@ -1040,6 +1021,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
             }
         } else {
             has_target_ = false;
+            cue_continuation_active_ = false;
             source_id_ = 0;
             settled_frames_ = 0;
             observed_frames_ = 0;
@@ -1083,7 +1065,8 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     pipeline_contract::TargetPlan plan{};
     plan.generation = ++generation_;
     plan.source_frame_id = source_frame_id_;
-    plan.source_observation_id = candidate != nullptr ? source_id_ : 0;
+    plan.source_observation_id = cue_continuation_active_
+        ? 0 : candidate != nullptr ? source_id_ : 0;
     plan.target_id = target_id_;
     plan.lifecycle = lifecycle;
     plan.aim_px = position_;
@@ -1133,8 +1116,9 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     // changed pulse is intentionally not authoritative because latest-only
     // delivery may skip it or deliver a spurious pulse for the same gen.
     plan.selector_target_changed = selector_replacement;
-    if (candidate != nullptr) {
-        plan.ads_target_size_px = candidate->box_size_px;
+    plan.cue_continuation = cue_continuation_active_;
+    plan.ads_target_size_px = last_observed_target_size_px_;
+    if (candidate != nullptr && !cue_continuation_candidate) {
         plan.ads_activation_radius_px = config_.ads_activation_radius_px *
             (1.0f + 0.75f * std::clamp(candidate->normalized_size, 0.0f, 1.0f));
     }
@@ -1142,11 +1126,12 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         ? static_cast<float>(std::max(
             0.0, (now_seconds - last_observation_capture_seconds_) * 1000.0))
         : plan.observation_age_ms;
-    plan.delivered_camera_motion_since_capture_px =
-        delivered_camera_work_since_capture_px_;
-    plan.remaining_work_px = plan.error_px;
-    plan.remaining_work_confidence = remaining_work_confidence_;
-    plan.remaining_work_valid = remaining_work_valid_;
+    // TargetCoordinator owns D only.  CausalMotionLedger is the only producer
+    // allowed to populate the compatibility P/R fields after this decision.
+    plan.delivered_camera_motion_since_capture_px = {};
+    plan.remaining_work_px = {};
+    plan.remaining_work_confidence = 0.0f;
+    plan.remaining_work_valid = false;
     const float response_scale = std::max(
         0.0f, feedback.aim_response_px_per_stick_second);
     const pipeline_contract::Vec2f residual_error_rate = observed_frames_ >= 2
@@ -1194,7 +1179,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         std::fabs(predicted_radial_error) <= capture_radius &&
         plan.radial_closing_velocity_px_per_sec <=
             config_.handoff_max_closing_velocity_px_per_sec;
-    if (candidate != nullptr) {
+    if (candidate != nullptr && !cue_continuation_candidate) {
         if (inside_capture_set) {
             ++settled_frames_;
         } else {
@@ -1210,10 +1195,12 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     // A sign flip on one noisy axis is not a center crossing. Require a
     // meaningful radial reversal with both samples away from the deadzone.
     const bool center_cross = previous_target_same && candidate != nullptr &&
+        !cue_continuation_candidate &&
         accepted_fresh_capture && previous_error_length >= 6.0f &&
         current_error_length >= 2.0f && radial_error_dot < -std::max(
             4.0f, previous_error_length * current_error_length * 0.25f);
-    const bool moving_away = candidate != nullptr && accepted_fresh_capture &&
+    const bool moving_away = candidate != nullptr &&
+        !cue_continuation_candidate && accepted_fresh_capture &&
         ads_target_admitted_ &&
         plan.acquisition_elapsed_ms >=
             std::max(0.0f, config_.ads_nominal_acquisition_ms) &&
@@ -1223,7 +1210,8 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
 
     const bool settled = settled_frames_ >= config_.settle_frames;
     const bool manual_escape = feedback.fusion_manual_escape;
-    const bool fresh_eligible = candidate != nullptr && accepted_fresh_capture &&
+    const bool fresh_eligible = candidate != nullptr &&
+        !cue_continuation_candidate && accepted_fresh_capture &&
         reliability > 0.0f &&
         (lifecycle == pipeline_contract::TargetLifecycle::Observed ||
          lifecycle == pipeline_contract::TargetLifecycle::Reacquiring);
@@ -1361,11 +1349,8 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         // ADS may carry a Remaining estimate into the handoff tick. BodyLock
         // must start from the tracker's current state instead of inheriting a
         // second, response-model-based position loop.
-        delivered_camera_work_since_capture_px_ = {};
-        remaining_work_confidence_ = 0.0f;
-        remaining_work_valid_ = false;
         plan.delivered_camera_motion_since_capture_px = {};
-        plan.remaining_work_px = plan.error_px;
+        plan.remaining_work_px = {};
         plan.remaining_work_confidence = 0.0f;
         plan.remaining_work_valid = false;
     }
@@ -1454,6 +1439,7 @@ bool TargetCoordinator::observe_control_response(const ControlResponseSample& sa
 void TargetCoordinator::begin_ads_epoch(
     std::uint64_t epoch, double now_seconds) noexcept {
     response_estimator_.begin_ads_epoch(epoch);
+    cue_continuation_active_ = false;
     physical_ads_epoch_ = epoch;
     ads_epoch_started_seconds_ = now_seconds;
     ads_epoch_active_ = true;
@@ -1476,9 +1462,6 @@ void TargetCoordinator::begin_ads_epoch(
         pipeline_contract::AdsAcquisitionState::ArmedWaitingForTarget;
     ads_decision_reason_ = pipeline_contract::AdsDecisionReason::None;
     control_mode_ = pipeline_contract::ControlMode::AdsAcquire;
-    delivered_camera_work_since_capture_px_ = {};
-    remaining_work_confidence_ = 0.0f;
-    remaining_work_valid_ = false;
 }
 
 void TargetCoordinator::reset() noexcept {
@@ -1505,6 +1488,7 @@ void TargetCoordinator::reset() noexcept {
     ads_epoch_started_seconds_ = 0.0;
     last_observed_reliability_ = 0.0f;
     last_observed_normalized_size_ = 0.0f;
+    last_observed_target_size_px_ = {};
     settled_frames_ = 0;
     observed_frames_ = 0;
     has_target_ = false;
@@ -1515,6 +1499,7 @@ void TargetCoordinator::reset() noexcept {
     fire_requested_ = false;
     observed_fire_eligible_ = false;
     was_missing_ = false;
+    cue_continuation_active_ = false;
     ads_epoch_active_ = false;
     ads_snap_consumed_ = false;
     ads_target_admitted_ = false;
@@ -1542,9 +1527,6 @@ void TargetCoordinator::reset() noexcept {
     slide_effective_amplitude_px_ = 36.0f;
     jump_motion_learning_samples_ = 0;
     slide_motion_learning_samples_ = 0;
-    delivered_camera_work_since_capture_px_ = {};
-    remaining_work_confidence_ = 0.0f;
-    remaining_work_valid_ = false;
     frame_width_px_ = 480.0f;
     frame_height_px_ = 416.0f;
 }

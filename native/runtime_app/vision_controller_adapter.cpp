@@ -117,6 +117,27 @@ controller_native::ControllerVisionSnapshot adapt_vision_result(
         result.captured_at_ns != 0 ? result.captured_at_ns : result.result_at_ns);
     snapshot.ready_time_seconds = ns_to_seconds(
         result.result_at_ns != 0 ? result.result_at_ns : result.captured_at_ns);
+    snapshot.actuator_effect_present_qpc = result.source_present_qpc;
+    snapshot.actuator_effect_present_qpc_frequency =
+        result.source_present_qpc_frequency;
+    snapshot.actuator_effect_present_steady_ns = result.source_present_steady_ns;
+    snapshot.actuator_effect_present_calibration_id =
+        result.source_present_calibration_id;
+    snapshot.actuator_effect_present_calibration_uncertainty_ns =
+        result.source_present_calibration_uncertainty_ns;
+    snapshot.actuator_effect_present_time_seconds = ns_to_seconds(
+        result.source_present_steady_ns);
+    snapshot.actuator_effect_present_raw_available =
+        result.source_present_available &&
+        result.source_present_qpc != 0 &&
+        result.source_present_qpc_frequency != 0;
+    snapshot.actuator_effect_present_steady_available =
+        result.source_present_steady_available &&
+        result.source_present_steady_ns != 0 &&
+        result.source_present_calibration_id != 0;
+    snapshot.actuator_effect_present_time_valid =
+        snapshot.actuator_effect_present_raw_available &&
+        snapshot.actuator_effect_present_steady_available;
     if (result.has_selected_detection &&
         result.selected_detection_index < result.detections.size()) {
         snapshot.selected_observation_id = tracker_detection_id(
@@ -257,6 +278,25 @@ adapt_committed_capture_observation(
     committed.viewport_source_frame_id = result.frame_id;
     committed.captured_at_ns = result.captured_at_ns;
     committed.result_at_ns = result.result_at_ns;
+    committed.actuator_effect_present_qpc = result.source_present_qpc;
+    committed.actuator_effect_present_qpc_frequency =
+        result.source_present_qpc_frequency;
+    committed.actuator_effect_present_steady_ns = result.source_present_steady_ns;
+    committed.actuator_effect_present_calibration_id =
+        result.source_present_calibration_id;
+    committed.actuator_effect_present_calibration_uncertainty_ns =
+        result.source_present_calibration_uncertainty_ns;
+    committed.actuator_effect_present_raw_available =
+        result.source_present_available &&
+        result.source_present_qpc != 0 &&
+        result.source_present_qpc_frequency != 0;
+    committed.actuator_effect_present_steady_available =
+        result.source_present_steady_available &&
+        result.source_present_steady_ns != 0 &&
+        result.source_present_calibration_id != 0;
+    committed.actuator_effect_present_time_valid =
+        committed.actuator_effect_present_raw_available &&
+        committed.actuator_effect_present_steady_available;
     committed.controller_consume_ns = controller_consume_ns;
     committed.stable_error_px = {
         geometry.aim_px.x - center_x,

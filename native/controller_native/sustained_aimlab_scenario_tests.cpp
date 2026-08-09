@@ -141,6 +141,22 @@ void test_script_hash_includes_control_response_delay() {
         1337, delayed);
     require(first.hash != second.hash,
             "script identity must include delayed plant semantics");
+
+    BenchmarkConfig historical_default = immediate;
+    historical_default.initial_idle_ms = 0;
+    const auto default_again =
+        controller_native::sustained_aimlab::generate_script(
+            1337, historical_default);
+    require(first.hash == default_again.hash,
+            "zero initial idle must preserve historical script identity");
+
+    BenchmarkConfig pre_acquisition = immediate;
+    pre_acquisition.initial_idle_ms = 40;
+    const auto with_initial_idle =
+        controller_native::sustained_aimlab::generate_script(
+            1337, pre_acquisition);
+    require(first.hash != with_initial_idle.hash,
+            "nonzero initial idle must identify pre-acquisition fixture");
 }
 
 void test_full_speed_strafe_schedule_is_seeded_and_bounded() {

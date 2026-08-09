@@ -53,13 +53,10 @@ AutoFireGateDecision AutoFireGate::evaluate(const AutoFireGateInput& input) {
     }
 
     double takeover_elapsed = manual_takeover_elapsed(input.now_seconds);
-    bool in_takeover_release = takeover_elapsed >= 0.0 &&
-        takeover_elapsed < std::max(0.0f, auto_fire_config_.manual_takeover_release_seconds);
     bool in_takeover_guard = takeover_elapsed >= 0.0 &&
         takeover_elapsed < manual_takeover_total_seconds();
     if (takeover_elapsed >= manual_takeover_total_seconds()) {
         manual_takeover_started_at_seconds_ = -1.0;
-        in_takeover_release = false;
         in_takeover_guard = false;
     }
 
@@ -67,11 +64,9 @@ AutoFireGateDecision AutoFireGate::evaluate(const AutoFireGateInput& input) {
     if (input.manual_fire_pressed) {
         should_fire = false;
         decision.block_reason = AutoFireBlockReason::ManualFire;
-        decision.release_fire_output = in_takeover_release;
     } else if (in_takeover_guard) {
         should_fire = false;
         decision.block_reason = AutoFireBlockReason::ManualTakeoverGuard;
-        decision.release_fire_output = true;
     }
 
     const bool authorized = should_fire;
@@ -128,6 +123,8 @@ bool AutoFireGate::active() const {
 void AutoFireGate::apply_fire_output(
     GamepadOutputState& output,
     bool should_fire) const {
+    // This method may add synthetic fire but must never clear physical fire
+    // already present in the output state.
     if (!should_fire) {
         return;
     }

@@ -165,9 +165,6 @@ void apply_runtime_vision_value(
     } else if (key == "gpu_service_repeat_last_on_no_update") {
         config.gpu_service_repeat_last_on_no_update =
             parse_bool_value(value, config.gpu_service_repeat_last_on_no_update);
-    } else if (key == "ego_motion_enabled") {
-        config.ego_motion_enabled =
-            parse_bool_value(value, config.ego_motion_enabled);
     } else if (key == "fusion_enabled") {
         config.fusion_enabled = parse_bool_value(value, config.fusion_enabled);
     } else if (key == "fusion_session") {
@@ -192,7 +189,6 @@ bool is_known_key(const std::string& section, const std::string& key) {
         "aim_perf_log_dir", "aim_perf_log_interval_ticks", "gpu_service_enabled",
         "gpu_service_active_fps", "gpu_service_idle_fps",
         "gpu_service_keepwarm_when_idle", "gpu_service_repeat_last_on_no_update",
-        "ego_motion_enabled",
         "fusion_enabled", "fusion_session", "fusion_show_all_detections"};
     static const std::unordered_set<std::string> telemetry_keys{
         "enabled", "mode", "manual_controller_hz", "vision_on_new_frame",
@@ -200,8 +196,6 @@ bool is_known_key(const std::string& section, const std::string& key) {
         "event_pre_ms", "event_post_ms"};
     static const std::unordered_set<std::string> performance_keys{
         "enabled", "interval_ms", "directory", "stdout_enabled"};
-    static const std::unordered_set<std::string> control_learning_keys{
-        "enabled", "mode", "telemetry_enabled"};
     static const std::unordered_set<std::string> scheduler_keys{
         "controller_tick_hz", "mode", "spin_tail_us"};
     static const std::unordered_set<std::string> input_keys{
@@ -210,10 +204,14 @@ bool is_known_key(const std::string& section, const std::string& key) {
     static const std::unordered_set<std::string> tracker_keys{
         "backend", "projection_age_ms", "responsiveness", "max_velocity_px_per_sec",
         "weak_memory_decay", "lead_seconds", "lead_max_px", "aim_height_ratio",
-        "max_observation_age_ms", "remaining_work_enabled", "remaining_work_scale"};
+        "max_observation_age_ms", "causal_memory_enabled",
+        "causal_memory_response_delay_ms",
+        "causal_memory_horizon_ms"};
     static const std::unordered_set<std::string> intent_keys{
         "wrong_way_manual_preservation_floor",
-        "fresh_vision_wrong_way_manual_floor"};
+        "fresh_vision_wrong_way_manual_floor",
+        "helpful_manual_overdrive_enabled",
+        "helpful_manual_overdrive_max_scale"};
     static const std::unordered_set<std::string> aim_response_curve_keys{
         "algorithm", "calibration_reference_stick"};
     static const std::unordered_set<std::string> ads_keys{
@@ -244,7 +242,10 @@ bool is_known_key(const std::string& section, const std::string& key) {
         "recognizer_log_enabled", "recognizer_game",
         "profile_directory", "calibration_directory", "weapon_directory",
         "recognizer_state_path", "recognizer_fps", "profile_amount", "profile_x_amount",
-        "feedback_amount", "profile_lead_ms", "profile_velocity_reference_ms",
+        "feedback_amount", "adaptive_feedback_enabled", "adaptive_min_amount",
+        "adaptive_max_amount", "firing_vertical_intent_enabled",
+        "firing_vertical_intent_max_offset_px", "firing_vertical_intent_deadzone",
+        "profile_lead_ms", "profile_velocity_reference_ms",
         "profile_despike_threshold_px", "profile_despike_ratio", "piecewise_mid_pixels_y",
         "piecewise_max_pixels_y", "piecewise_mid_ratio_y"};
     static const std::unordered_set<std::string> ai_aim_keys{
@@ -282,8 +283,6 @@ bool is_known_key(const std::string& section, const std::string& key) {
     if (section == "runtime.vision") return vision_keys.count(key) != 0;
     if (section == "runtime.telemetry") return telemetry_keys.count(key) != 0;
     if (section == "runtime.performance") return performance_keys.count(key) != 0;
-    if (section == "runtime.control_learning")
-        return control_learning_keys.count(key) != 0;
     if (section == "runtime.scheduler") return scheduler_keys.count(key) != 0;
     if (section == "runtime.input") return input_keys.count(key) != 0;
     if (section == "runtime.output") return output_keys.count(key) != 0;
@@ -659,6 +658,24 @@ void apply_gamepad_recoil_value(
         config.profile_x_amount = parse_float_value(value, config.profile_x_amount);
     } else if (key == "feedback_amount") {
         config.feedback_amount = parse_float_value(value, config.feedback_amount);
+    } else if (key == "adaptive_feedback_enabled") {
+        config.adaptive_feedback_enabled =
+            parse_bool_value(value, config.adaptive_feedback_enabled);
+    } else if (key == "adaptive_min_amount") {
+        config.adaptive_min_amount =
+            parse_float_value(value, config.adaptive_min_amount);
+    } else if (key == "adaptive_max_amount") {
+        config.adaptive_max_amount =
+            parse_float_value(value, config.adaptive_max_amount);
+    } else if (key == "firing_vertical_intent_enabled") {
+        config.firing_vertical_intent_enabled =
+            parse_bool_value(value, config.firing_vertical_intent_enabled);
+    } else if (key == "firing_vertical_intent_max_offset_px") {
+        config.firing_vertical_intent_max_offset_px =
+            parse_float_value(value, config.firing_vertical_intent_max_offset_px);
+    } else if (key == "firing_vertical_intent_deadzone") {
+        config.firing_vertical_intent_deadzone =
+            parse_float_value(value, config.firing_vertical_intent_deadzone);
     } else if (key == "profile_lead_ms") {
         config.profile_lead_ms = parse_float_value(value, config.profile_lead_ms);
     } else if (key == "profile_velocity_reference_ms") {
@@ -880,27 +897,6 @@ void apply_value(
             config.performance.stdout_enabled = parse_bool_value(
                 value, config.performance.stdout_enabled);
         }
-    } else if (section == "runtime.control_learning") {
-        if (key == "enabled") {
-            config.control_learning.enabled = parse_bool_value(
-                value, config.control_learning.enabled);
-        } else if (key == "telemetry_enabled") {
-            config.control_learning.telemetry_enabled = parse_bool_value(
-                value, config.control_learning.telemetry_enabled);
-        } else if (key == "mode") {
-            const std::string mode = parse_string_value(value);
-            if (mode == "disabled") {
-                config.control_learning.mode = ControlLearningMode::Disabled;
-            } else if (mode == "shadow") {
-                config.control_learning.mode = ControlLearningMode::Shadow;
-            } else if (mode == "rollout_shadow") {
-                config.control_learning.mode = ControlLearningMode::RolloutShadow;
-            } else {
-                throw std::runtime_error(
-                    "invalid runtime.control_learning.mode '" + mode +
-                    "'; expected disabled|shadow|rollout_shadow");
-            }
-        }
     } else if (section == "runtime.scheduler") {
         if (key == "controller_tick_hz") {
             config.scheduler.controller_tick_hz =
@@ -947,18 +943,25 @@ void apply_value(
                     config.gamepad.tracker.max_observation_age_ms),
                 1.0f,
                 250.0f);
-        } else if (key == "remaining_work_enabled") {
-            config.gamepad.tracker.remaining_work_enabled =
+        } else if (key == "causal_memory_enabled") {
+            config.gamepad.tracker.causal_memory_enabled =
                 parse_bool_value(
                     value,
-                    config.gamepad.tracker.remaining_work_enabled);
-        } else if (key == "remaining_work_scale") {
-            config.gamepad.tracker.remaining_work_scale = std::clamp(
+                    config.gamepad.tracker.causal_memory_enabled);
+        } else if (key == "causal_memory_response_delay_ms") {
+            config.gamepad.tracker.causal_memory_response_delay_ms = std::clamp(
                 parse_float_value(
                     value,
-                    config.gamepad.tracker.remaining_work_scale),
+                    config.gamepad.tracker.causal_memory_response_delay_ms),
                 0.0f,
-                1.0f);
+                100.0f);
+        } else if (key == "causal_memory_horizon_ms") {
+            config.gamepad.tracker.causal_memory_horizon_ms = std::clamp(
+                parse_float_value(
+                    value,
+                    config.gamepad.tracker.causal_memory_horizon_ms),
+                50.0f,
+                250.0f);
         }
     } else if (section == "gamepad.intent") {
         if (key == "wrong_way_manual_preservation_floor") {
@@ -975,6 +978,18 @@ void apply_value(
                     config.gamepad.intent.fresh_vision_wrong_way_manual_floor),
                 0.00f,
                 1.00f);
+        } else if (key == "helpful_manual_overdrive_enabled") {
+            config.gamepad.intent.helpful_manual_overdrive_enabled =
+                parse_bool_value(
+                    value,
+                    config.gamepad.intent.helpful_manual_overdrive_enabled);
+        } else if (key == "helpful_manual_overdrive_max_scale") {
+            config.gamepad.intent.helpful_manual_overdrive_max_scale = std::clamp(
+                parse_float_value(
+                    value,
+                    config.gamepad.intent.helpful_manual_overdrive_max_scale),
+                1.00f,
+                1.25f);
         }
     } else if (section == "gamepad.aim_response_curve") {
         apply_gamepad_aim_response_curve_value(
@@ -1162,8 +1177,6 @@ void validate_runtime_config(RuntimeConfig& config) {
         invalid("runtime.vision.color_readback_mode", "pageable|pinned");
     if (config.telemetry.mode != "debug" && config.telemetry.mode != "profile")
         invalid("runtime.telemetry.mode", "debug|profile");
-    if (!config.control_learning.enabled)
-        config.control_learning.mode = ControlLearningMode::Disabled;
     if (config.telemetry.manual_controller_hz < 1 || config.telemetry.manual_controller_hz > 1000)
         invalid("runtime.telemetry.manual_controller_hz", "1..1000");
     if (config.performance.interval_ms < 1000 || config.performance.interval_ms > 60000)
@@ -1205,6 +1218,19 @@ void validate_runtime_config(RuntimeConfig& config) {
     if (config.gamepad.tracker.aim_height_ratio < 0.0f ||
         config.gamepad.tracker.aim_height_ratio > 1.0f)
         invalid("gamepad.tracker.aim_height_ratio", "0..1");
+    if (config.gamepad.tracker.causal_memory_response_delay_ms < 0.0f ||
+        config.gamepad.tracker.causal_memory_response_delay_ms > 100.0f)
+        invalid(
+            "gamepad.tracker.causal_memory_response_delay_ms",
+            "0..100");
+    if (config.gamepad.tracker.causal_memory_horizon_ms < 50.0f ||
+        config.gamepad.tracker.causal_memory_horizon_ms > 250.0f)
+        invalid("gamepad.tracker.causal_memory_horizon_ms", "50..250");
+    if (config.gamepad.tracker.causal_memory_response_delay_ms >=
+        config.gamepad.tracker.causal_memory_horizon_ms)
+        invalid(
+            "gamepad.tracker.causal_memory_response_delay_ms",
+            "response_delay_ms < causal_memory_horizon_ms");
     if (config.gamepad.auto_fire.pulse_width_ms <= 0.0f ||
         config.gamepad.auto_fire.pulse_period_ms <= 0.0f ||
         config.gamepad.auto_fire.pulse_width_ms >

@@ -53,13 +53,6 @@ struct TargetControlFeedback {
     pipeline_contract::Vec2f previous_delivered_stick{};
     float aim_response_px_per_stick_second = 500.0f;
     float aim_response_confidence = 0.0f;
-    bool apply_delivered_camera_work = false;
-    pipeline_contract::Vec2f delivered_camera_work_delta_px{};
-    bool has_delivered_camera_work_since_capture = false;
-    pipeline_contract::Vec2f delivered_camera_work_since_capture_px{};
-    float remaining_work_confidence = 0.0f;
-    bool capture_alignment_only = false;
-    bool reset_remaining_work = false;
     // VectorIntentFuser is the sole manual/AI arbitration owner. This is
     // consumed on the next controller tick; the coordinator does not infer
     // escape from raw stick magnitude.
@@ -163,6 +156,7 @@ private:
     double ads_epoch_started_seconds_ = 0.0;
     float last_observed_reliability_ = 0.0f;
     float last_observed_normalized_size_ = 0.0f;
+    pipeline_contract::Vec2f last_observed_target_size_px_{};
     std::uint32_t settled_frames_ = 0;
     std::uint32_t observed_frames_ = 0;
     bool has_target_ = false;
@@ -173,6 +167,7 @@ private:
     bool fire_requested_ = false;
     bool observed_fire_eligible_ = false;
     bool was_missing_ = false;
+    bool cue_continuation_active_ = false;
     bool ads_epoch_active_ = false;
     bool ads_snap_consumed_ = false;
     bool ads_target_admitted_ = false;
@@ -207,9 +202,6 @@ private:
     std::uint32_t slide_motion_learning_samples_ = 0;
     bool causal_player_motion_state_enabled_ = false;
     bool causal_player_motion_forecast_enabled_ = true;
-    pipeline_contract::Vec2f delivered_camera_work_since_capture_px_{};
-    float remaining_work_confidence_ = 0.0f;
-    bool remaining_work_valid_ = false;
     float frame_width_px_ = 480.0f;
     float frame_height_px_ = 416.0f;
 };

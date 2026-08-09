@@ -1,9 +1,12 @@
 #include "native_gamepad_controller.h"
+#include "helpful_manual_overdrive.h"
 #include "target_geometry.h"
+#include "../tracking_native/tracker_authority.h"
 
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <limits>
 #include <utility>
 
 namespace controller_native {
@@ -35,6 +38,25 @@ const char* lifecycle_name(pipeline_contract::TargetLifecycle lifecycle) noexcep
     case pipeline_contract::TargetLifecycle::None: return "inactive";
     }
     return "inactive";
+}
+
+const char* causal_memory_status_name(
+    CausalMotionLedgerStatus status) noexcept {
+    switch (status) {
+    case CausalMotionLedgerStatus::Valid: return "valid";
+    case CausalMotionLedgerStatus::Empty: return "empty";
+    case CausalMotionLedgerStatus::InvalidRequest: return "invalid_request";
+    case CausalMotionLedgerStatus::HorizonExceeded: return "horizon_exceeded";
+    case CausalMotionLedgerStatus::IncompleteHistory: return "incomplete_history";
+    case CausalMotionLedgerStatus::LifecycleMismatch: return "lifecycle_mismatch";
+    case CausalMotionLedgerStatus::InvalidSample: return "invalid_sample";
+    case CausalMotionLedgerStatus::BackendStateUnknown: return "backend_unknown";
+    case CausalMotionLedgerStatus::NonMonotonicClock: return "non_monotonic_clock";
+    case CausalMotionLedgerStatus::DeviceEpochChanged: return "device_epoch_changed";
+    case CausalMotionLedgerStatus::CapturePairIncompatible: return "capture_pair_incompatible";
+    case CausalMotionLedgerStatus::InvalidResponseModel: return "invalid_response_model";
+    }
+    return "unknown";
 }
 
 TargetCoordinatorConfig coordinator_config(const GamepadRuntimeConfig& config) {
@@ -109,6 +131,39 @@ VectorIntentFusionConfig vector_intent_fusion_config(
     return result;
 }
 
+float firing_vertical_intent_offset_px(
+    const GamepadRuntimeConfig& config,
+    const pipeline_contract::TargetPlan& plan,
+    float manual_y,
+    bool aiming,
+    bool firing) noexcept {
+    if (!config.recoil.firing_vertical_intent_enabled || !aiming || !firing ||
+        plan.target_id == 0 || plan.aim_authority <= 0.0f ||
+        plan.mode == pipeline_contract::ControlMode::Manual ||
+        plan.ads_candidate_count > 1 || !std::isfinite(manual_y)) {
+        return 0.0f;
+    }
+    const float deadzone = std::clamp(
+        config.recoil.firing_vertical_intent_deadzone, 0.0f, 0.25f);
+    const float magnitude = std::fabs(manual_y);
+    if (magnitude <= deadzone) return 0.0f;
+
+    const float normalized = std::clamp(
+        (magnitude - deadzone) / std::max(0.001f, 1.0f - deadzone),
+        0.0f, 1.0f);
+    const float configured_max = std::max(
+        0.0f, config.recoil.firing_vertical_intent_max_offset_px);
+    if (configured_max <= 0.0f) return 0.0f;
+    const float scale_bound = std::clamp(
+        plan.normalized_size * 120.0f,
+        std::min(12.0f, configured_max),
+        configured_max);
+    // Stick Y is negative for a downward camera request, while a target below
+    // the reticle is positive error Y. Convert manual intent into D, then let
+    // the existing ADS/BodyLock solver produce the sole final T.
+    return -std::copysign(normalized * scale_bound, manual_y);
+}
+
 }  // namespace
 
 NativeGamepadController::NativeGamepadController(
@@ -120,6 +175,7 @@ NativeGamepadController::NativeGamepadController(
       bodylock_controller_(bodylock_config(config)),
       vector_intent_fuser_(vector_intent_fusion_config(config)),
       recoil_(config_.recoil),
+      adaptive_recoil_feedback_(config_.recoil),
       auto_fire_gate_(config_.auto_fire, config_.ai_aim),
       clock_(std::move(clock)) {
     if (config_.recoil.profile_playback_enabled) {
@@ -136,8 +192,12 @@ void NativeGamepadController::reset() {
     dynamics_shaper_.reset();
     axis_intent_arbiter_.reset();
     vector_intent_fuser_.reset();
+#if defined(COD_BENCHMARK_MIX_OVERRIDE)
     pending_control_motion_.reset();
+#endif
+    causal_motion_ledger_.reset();
     recoil_.reset();
+    adaptive_recoil_feedback_.reset();
     aim_activation_tracker_.reset();
     auto_fire_gate_.reset();
     pending_snapshot_ = {};
@@ -154,6 +214,8 @@ void NativeGamepadController::reset() {
     last_tick_seconds_ = 0.0;
     previous_plan_normalized_size_ = 0.0f;
     previous_plan_target_id_ = 0;
+    previous_target_first_authoritative_ = false;
+    last_observed_ads_candidate_count_ = 0;
     aim_response_command_sum_ = {};
     aim_response_command_count_ = 0;
     last_aim_response_frame_id_ = 0;
@@ -166,11 +228,21 @@ void NativeGamepadController::reset() {
     last_output_components_ = {};
     last_frame_vision_state_ = {};
     last_target_plan_ = {};
+    last_causal_memory_estimate_ = {};
+    causal_memory_previous_capture_seconds_ = 0.0;
+    causal_memory_current_capture_seconds_ = 0.0;
+    causal_memory_previous_source_frame_id_ = 0;
+    causal_memory_previous_source_observation_id_ = 0;
+    causal_memory_previous_present_ns_ = 0;
+    causal_memory_previous_present_calibration_id_ = 0;
+    causal_memory_previous_present_qpc_frequency_ = 0;
+    causal_memory_previous_capture_target_id_ = 0;
+    causal_memory_previous_capture_ads_epoch_ = 0;
+    causal_memory_capture_target_id_ = 0;
+    causal_memory_capture_ads_epoch_ = 0;
+    causal_memory_capture_pair_compatible_ = false;
+    causal_memory_physical_actuator_epoch_ = 0;
     previous_fusion_manual_escape_ = false;
-    remaining_work_accounted_seconds_ = 0.0;
-    remaining_work_delivery_target_id_ = 0;
-    remaining_work_delivery_ads_epoch_ = 0;
-    remaining_work_reset_pending_ = false;
     last_ai_aim_mode_ = "manual";
 }
 
@@ -223,6 +295,24 @@ pipeline_contract::VisionObservationBatch NativeGamepadController::observation_b
     batch.preferred_source_id = snapshot.selected_observation_id;
     batch.source_time_seconds = snapshot.capture_time_seconds;
     batch.publish_time_seconds = snapshot.ready_time_seconds;
+    batch.actuator_effect_present_qpc =
+        snapshot.actuator_effect_present_qpc;
+    batch.actuator_effect_present_qpc_frequency =
+        snapshot.actuator_effect_present_qpc_frequency;
+    batch.actuator_effect_present_steady_ns =
+        snapshot.actuator_effect_present_steady_ns;
+    batch.actuator_effect_present_calibration_id =
+        snapshot.actuator_effect_present_calibration_id;
+    batch.actuator_effect_present_calibration_uncertainty_ns =
+        snapshot.actuator_effect_present_calibration_uncertainty_ns;
+    batch.actuator_effect_present_time_seconds =
+        snapshot.actuator_effect_present_time_seconds;
+    batch.actuator_effect_present_raw_available =
+        snapshot.actuator_effect_present_raw_available;
+    batch.actuator_effect_present_steady_available =
+        snapshot.actuator_effect_present_steady_available;
+    batch.actuator_effect_present_time_valid =
+        snapshot.actuator_effect_present_time_valid;
     batch.frame_width_px = snapshot.state.screen_center_x > 0.0f
         ? snapshot.state.screen_center_x * 2.0f : 480.0f;
     batch.frame_height_px = snapshot.state.screen_center_y > 0.0f
@@ -231,6 +321,14 @@ pipeline_contract::VisionObservationBatch NativeGamepadController::observation_b
     batch.selector_identity_protocol = snapshot.selector_identity_protocol;
     batch.selector_target_generation = snapshot.selector_target_generation;
     batch.selector_target_changed = snapshot.selector_target_changed;
+    batch.selector_cue_continuation =
+        snapshot.selector_identity_protocol &&
+        snapshot.selector_target_generation != 0 &&
+        !snapshot.selector_target_changed &&
+        snapshot.selected_observation_id == 0 &&
+        snapshot.state.has_target && snapshot.state.aim_authority &&
+        tracking_native::is_cue_hold_observation(
+            snapshot.state.target_tier);
     batch.fire_requested = snapshot.state.auto_fire_requested;
     batch.observed_fire_eligible = snapshot.state.fire_authority &&
         (snapshot.state.target_tier == "strong" ||
@@ -309,6 +407,8 @@ pipeline_contract::VisionObservationBatch NativeGamepadController::observation_b
         destination.normalized_size = std::clamp(
             height / std::max(1.0f, batch.frame_height_px), 0.0f, 1.0f);
         destination.confidence = snapshot.state.aim_authority ? 1.0f : 0.6f;
+        destination.cue_confidence =
+            batch.selector_cue_continuation ? 1.0f : 0.0f;
         destination.reliability = destination.confidence * (height > 0.0f
             ? std::clamp(destination.normalized_size / 0.12f, 0.35f, 1.0f)
             : 1.0f);
@@ -320,7 +420,8 @@ pipeline_contract::VisionObservationBatch NativeGamepadController::observation_b
 NativeControllerVisionState NativeGamepadController::vision_state_from_plan(
     const pipeline_contract::TargetPlan& plan,
     double now_seconds,
-    bool capture_fresh) const {
+    bool capture_fresh,
+    pipeline_contract::Vec2f observed_error_px) const {
     NativeControllerVisionState state{};
     state.vision_sequence = plan.source_frame_id;
     state.selected_track_id = plan.target_id;
@@ -329,36 +430,165 @@ NativeControllerVisionState NativeGamepadController::vision_state_from_plan(
     // plan, never the long-lived target identity.
     state.selected_observation_id = plan.source_observation_id;
     state.has_target = plan.lifecycle != pipeline_contract::TargetLifecycle::None;
-    state.current_observed_target_present =
-        plan.lifecycle == pipeline_contract::TargetLifecycle::Observed ||
-        plan.lifecycle == pipeline_contract::TargetLifecycle::Reacquiring ||
-        plan.fire_authority;
+    state.current_observed_target_present = !plan.cue_continuation &&
+        (plan.lifecycle == pipeline_contract::TargetLifecycle::Observed ||
+         plan.lifecycle == pipeline_contract::TargetLifecycle::Reacquiring ||
+         plan.fire_authority);
     state.fresh_observation =
         capture_fresh && state.current_observed_target_present;
     state.aim_authority = plan.aim_authority > 0.0f;
-    state.fire_authority = plan.fire_authority;
-    state.auto_fire_requested = plan.fire_requested;
-    state.dx = plan.error_px.x;
-    state.dy = plan.error_px.y;
+    state.fire_authority = !plan.cue_continuation && plan.fire_authority;
+    state.auto_fire_requested = !plan.cue_continuation && plan.fire_requested;
+    // D is observation geometry.  plan.error_px may now be R=D-P, which is
+    // the control request but must never be used to reconstruct the viewport
+    // center or target geometry.
+    state.dx = observed_error_px.x;
+    state.dy = observed_error_px.y;
     state.target_x = plan.aim_px.x;
     state.target_y = plan.aim_px.y;
-    state.screen_center_x = plan.aim_px.x - plan.error_px.x;
-    state.screen_center_y = plan.aim_px.y - plan.error_px.y;
+    state.screen_center_x = plan.aim_px.x - observed_error_px.x;
+    state.screen_center_y = plan.aim_px.y - observed_error_px.y;
     state.observed_at_seconds = now_seconds - plan.observation_age_ms / 1000.0;
-    state.target_tier = state.current_observed_target_present ? "observed_strong" : "predicted";
-    state.has_tracker_projection = state.has_target;
-    state.tracker_dx = plan.error_px.x;
-    state.tracker_dy = plan.error_px.y;
+    state.target_tier = plan.cue_continuation
+        ? "cue_hold"
+        : state.current_observed_target_present ? "observed_strong" : "predicted";
+    state.has_tracker_projection = state.has_target && !plan.cue_continuation;
+    state.tracker_dx = observed_error_px.x;
+    state.tracker_dy = observed_error_px.y;
     state.has_camera_attributed_velocity = plan.response_confidence > 0.0f;
     state.camera_attributed_velocity_x_px_per_sec =
         plan.response_scale * plan.response_confidence;
     state.authority_decision_valid = true;
     state.assist_authority_state = !state.aim_authority
         ? pipeline_contract::AssistAuthorityState::Reject
-        : plan.lifecycle == pipeline_contract::TargetLifecycle::Coasting
+        : plan.cue_continuation ||
+              plan.lifecycle == pipeline_contract::TargetLifecycle::Coasting
             ? pipeline_contract::AssistAuthorityState::Continuity
             : pipeline_contract::AssistAuthorityState::ObservedStrong;
+    state.assist_authority_reason = !state.aim_authority
+        ? pipeline_contract::AssistAuthorityReason::InvalidTarget
+        : plan.cue_continuation
+            ? pipeline_contract::AssistAuthorityReason::CueOnly
+            : plan.lifecycle == pipeline_contract::TargetLifecycle::Coasting
+                ? pipeline_contract::AssistAuthorityReason::ShortEvidenceGap
+                : pipeline_contract::AssistAuthorityReason::StrongObserved;
     return state;
+}
+
+void NativeGamepadController::refresh_causal_memory_estimate(
+    const pipeline_contract::VisionObservationBatch& observations,
+    const pipeline_contract::TargetPlan& plan,
+    double now) noexcept {
+    if (!config_.tracker.causal_memory_enabled) {
+        last_causal_memory_estimate_ = {};
+        return;
+    }
+
+    // The legacy source_time_seconds is copy-complete and remains the
+    // tracker/controller clock. W5 shadow capture boundaries require the
+    // independent calibrated source-present endpoint; missing provenance is
+    // an explicit unavailable result, never a fallback to copy-complete.
+    const bool source_capture_valid = observations.capture_fresh &&
+        observations.frame_id != 0 &&
+        observations.actuator_effect_present_time_valid &&
+        std::isfinite(observations.actuator_effect_present_time_seconds) &&
+        observations.actuator_effect_present_time_seconds > 0.0 &&
+        observations.actuator_effect_present_time_seconds <= now;
+    const bool new_capture = source_capture_valid &&
+        (causal_memory_current_capture_seconds_ <= 0.0 ||
+         observations.actuator_effect_present_time_seconds >
+             causal_memory_current_capture_seconds_ + 1.0e-9);
+    if (new_capture) {
+        causal_memory_previous_capture_seconds_ =
+            causal_memory_current_capture_seconds_;
+        causal_memory_previous_source_frame_id_ =
+            causal_memory_current_source_frame_id_;
+        causal_memory_previous_source_observation_id_ =
+            causal_memory_current_source_observation_id_;
+        causal_memory_previous_present_ns_ =
+            causal_memory_current_present_ns_;
+        causal_memory_previous_present_calibration_id_ =
+            causal_memory_current_present_calibration_id_;
+        causal_memory_previous_present_qpc_frequency_ =
+            causal_memory_current_present_qpc_frequency_;
+        causal_memory_previous_capture_target_id_ =
+            causal_memory_capture_target_id_;
+        causal_memory_previous_capture_ads_epoch_ =
+            causal_memory_capture_ads_epoch_;
+        causal_memory_current_capture_seconds_ =
+            observations.actuator_effect_present_time_seconds;
+        causal_memory_current_source_frame_id_ = observations.frame_id;
+        causal_memory_current_source_observation_id_ =
+            plan.source_observation_id != 0
+                ? plan.source_observation_id : observations.preferred_source_id;
+        causal_memory_current_present_ns_ =
+            observations.actuator_effect_present_steady_ns;
+        causal_memory_current_present_calibration_id_ =
+            observations.actuator_effect_present_calibration_id;
+        causal_memory_current_present_qpc_frequency_ =
+            observations.actuator_effect_present_qpc_frequency;
+        causal_memory_capture_target_id_ = plan.target_id;
+        causal_memory_capture_ads_epoch_ = ads_epoch_;
+        causal_memory_capture_pair_compatible_ =
+            causal_memory_previous_capture_seconds_ > 0.0 &&
+            causal_memory_previous_capture_target_id_ == plan.target_id &&
+            causal_memory_previous_capture_ads_epoch_ == ads_epoch_;
+    }
+
+    if (causal_memory_current_capture_seconds_ <= 0.0) {
+        last_causal_memory_estimate_ = {};
+        return;
+    }
+
+    // A target/ADS change without a fresh compatible source capture makes only
+    // the realized pair unknown.  The global actuator ring and pending work
+    // remain intact for the next decision.
+    if (plan.target_id != causal_memory_capture_target_id_ ||
+        ads_epoch_ != causal_memory_capture_ads_epoch_) {
+        causal_memory_capture_pair_compatible_ = false;
+    }
+
+    CausalMotionPhaseRequest request;
+    request.previous_capture_seconds =
+        causal_memory_previous_capture_seconds_;
+    request.current_capture_seconds =
+        causal_memory_current_capture_seconds_;
+    request.decision_seconds = now;
+    request.response_delay_ms =
+        config_.tracker.causal_memory_response_delay_ms;
+    request.memory_horizon_ms = config_.tracker.causal_memory_horizon_ms;
+    request.target_id = causal_memory_capture_target_id_;
+    request.ads_epoch = causal_memory_capture_ads_epoch_;
+    request.capture_pair_compatible =
+        causal_memory_capture_pair_compatible_;
+    request.physical_actuator_epoch =
+        causal_memory_physical_actuator_epoch_;
+    request.previous_source_frame_id =
+        causal_memory_previous_source_frame_id_;
+    request.previous_source_observation_id =
+        causal_memory_previous_source_observation_id_;
+    request.previous_present_steady_ns =
+        causal_memory_previous_present_ns_;
+    request.previous_present_calibration_id =
+        causal_memory_previous_present_calibration_id_;
+    request.previous_present_qpc_frequency =
+        causal_memory_previous_present_qpc_frequency_;
+    request.previous_target_id = causal_memory_previous_capture_target_id_;
+    request.previous_ads_epoch = causal_memory_previous_capture_ads_epoch_;
+    request.source_frame_id = causal_memory_current_source_frame_id_;
+    request.source_observation_id = causal_memory_current_source_observation_id_;
+    request.current_target_id = causal_memory_capture_target_id_;
+    request.current_ads_epoch = causal_memory_capture_ads_epoch_;
+    request.current_present_steady_ns = causal_memory_current_present_ns_;
+    request.present_calibration_id =
+        causal_memory_current_present_calibration_id_;
+    request.present_qpc_frequency =
+        causal_memory_current_present_qpc_frequency_;
+    request.present_time_valid = source_capture_valid ||
+        (causal_memory_current_present_ns_ != 0 &&
+         causal_memory_current_present_calibration_id_ != 0 &&
+         causal_memory_current_present_qpc_frequency_ != 0);
+    last_causal_memory_estimate_ = causal_motion_ledger_.estimate(request);
 }
 
 GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadState& physical) {
@@ -366,6 +596,7 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
     GamepadOutputState output = output_from_physical_input(physical);
     auto components = output_components_from_manual_output(output);
     components.physical_stick = {physical.right_x, physical.right_y};
+    components.manual_stick = {physical.right_x, physical.right_y};
     const double now = now_seconds();
     const float dt = last_tick_seconds_ > 0.0
         ? static_cast<float>(std::clamp(now - last_tick_seconds_, 0.0001, 0.05))
@@ -418,39 +649,6 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
         aim_response_before_update.scale_px_per_stick_second;
     // estimate() already blends toward its safe fallback while confidence is low.
     control_feedback.aim_response_confidence = aim_response_before_update.confidence;
-    bool controller_integrates_delivered_work =
-        config_.tracker.remaining_work_enabled;
-    float remaining_work_scale = std::clamp(
-        config_.tracker.remaining_work_scale, 0.0f, 1.0f);
-#if defined(COD_BENCHMARK_MIX_OVERRIDE)
-    if (benchmark_remaining_work_mode_ !=
-        BenchmarkRemainingWorkMode::UseRuntimeConfig) {
-        controller_integrates_delivered_work =
-            benchmark_remaining_work_mode_ ==
-                BenchmarkRemainingWorkMode::ControllerIntegrated ||
-            benchmark_remaining_work_mode_ ==
-                BenchmarkRemainingWorkMode::ControllerIntegratedAssistOnly;
-        remaining_work_scale = benchmark_remaining_work_scale_;
-    }
-#endif
-    // Remaining-work feedback is essential for one-shot ADS arrival, but in
-    // sustained BodyLock it closes a second position loop around the tracker.
-    // Capture-time alignment is part of that same model: applying it only on
-    // fresh Vision frames still creates a sampled feedback loop. BodyLock owns
-    // one continuous position/velocity loop and receives no Remaining data.
-    controller_integrates_delivered_work =
-        controller_integrates_delivered_work &&
-        last_target_plan_.mode !=
-            pipeline_contract::ControlMode::BodyLockFollow;
-    const bool controller_estimates_capture_work =
-        controller_integrates_delivered_work;
-    control_feedback.reset_remaining_work = remaining_work_reset_pending_;
-    if (!controller_integrates_delivered_work &&
-        last_target_plan_.remaining_work_valid) {
-        control_feedback.reset_remaining_work = true;
-    }
-    control_feedback.capture_alignment_only = false;
-    remaining_work_reset_pending_ = false;
     constexpr double kFiringDisturbanceWindowSeconds = 0.075;
     control_feedback.firing_recently =
         manual_fire_pressed(physical) ||
@@ -458,61 +656,6 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
          now - last_firing_activity_seconds_ <=
              kFiringDisturbanceWindowSeconds);
     control_feedback.fusion_manual_escape = previous_fusion_manual_escape_;
-    if (controller_integrates_delivered_work &&
-        remaining_work_accounted_seconds_ > 0.0 &&
-        last_target_plan_.target_id != 0) {
-        const auto increment = pending_control_motion_.estimate_between(
-            remaining_work_accounted_seconds_,
-            now,
-            control_feedback.aim_response_px_per_stick_second,
-            last_target_plan_.target_id);
-        if (increment.valid) {
-            auto delivered_work = delivered_camera_work_px(
-                increment.camera_displacement_px.front());
-            delivered_work.x *= remaining_work_scale;
-            delivered_work.y *= remaining_work_scale;
-            control_feedback.apply_delivered_camera_work = true;
-            control_feedback.delivered_camera_work_delta_px = delivered_work;
-            remaining_work_accounted_seconds_ = now;
-        } else {
-            // An uncovered or overlong interval is unknowable. Rebase at the
-            // current tick instead of retaining an old accounting cursor that
-            // could later release stale work into the controller.
-            pending_control_motion_.reset();
-            remaining_work_accounted_seconds_ = now;
-            control_feedback.reset_remaining_work = true;
-        }
-    }
-    if (controller_estimates_capture_work &&
-        observations.count > 0 &&
-        last_target_plan_.target_id != 0 &&
-        std::isfinite(observations.source_time_seconds) &&
-        now > observations.source_time_seconds) {
-        const float capture_age_ms = static_cast<float>(
-            (now - observations.source_time_seconds) * 1000.0);
-        const auto since_capture = pending_control_motion_.estimate(
-            now,
-            capture_age_ms,
-            control_feedback.aim_response_px_per_stick_second,
-            last_target_plan_.target_id);
-        if (since_capture.valid) {
-            auto delivered_work = delivered_camera_work_px(
-                since_capture.camera_displacement_px.front());
-            delivered_work.x *= remaining_work_scale;
-            delivered_work.y *= remaining_work_scale;
-            control_feedback.has_delivered_camera_work_since_capture = true;
-            control_feedback.delivered_camera_work_since_capture_px =
-                delivered_work;
-        }
-    }
-    if (controller_estimates_capture_work) {
-        control_feedback.remaining_work_confidence = std::clamp(
-            remaining_work_scale *
-                (0.50f + 0.50f *
-                    control_feedback.aim_response_confidence),
-            0.0f,
-            1.0f);
-    }
     control_feedback.player_jump_action_age_ms =
         last_jump_action_seconds_ >= 0.0
         ? static_cast<float>((now - last_jump_action_seconds_) * 1000.0)
@@ -533,6 +676,24 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
 #endif
     auto plan = target_coordinator_.update(
         observations, intent, now, control_feedback);
+    const float aim_response_zone_weight = aim_response_slow_zone_weight(
+        plan.error_px, plan.ads_target_size_px);
+    if (plan.target_id != 0) {
+        const auto localized_response = aim_response_estimator_.estimate(
+            aim_response_zone_weight);
+        plan.response_scale = std::max(
+            50.0f, localized_response.scale_px_per_stick_second);
+        plan.response_confidence = localized_response.confidence;
+    }
+    if (plan.cue_continuation) {
+        // Cue geometry is useful continuity evidence, but it is deliberately
+        // weaker than a person observation and can never inherit full force.
+        plan.aim_authority *= std::clamp(
+            config_.ai_aim.cue_hold_body_lock_force_scale, 0.0f, 1.0f);
+        plan.fire_authority = false;
+        plan.fire_requested = false;
+        plan.fire_suppression = pipeline_contract::FireSuppressionReason::AimOnly;
+    }
 #if defined(COD_BENCHMARK_MIX_OVERRIDE)
     if (benchmark_remaining_work_mode_ ==
             BenchmarkRemainingWorkMode::DeliveredAdjusted &&
@@ -561,6 +722,114 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
         }
     }
 #endif
+    const auto raw_error_px = plan.error_px;
+    const auto raw_predicted_terminal_error_px =
+        plan.predicted_terminal_error_px;
+    refresh_causal_memory_estimate(observations, plan, now);
+
+    const auto& causal_estimate = last_causal_memory_estimate_;
+    const bool causal_current_provenance_matches =
+        causal_estimate.source_frame_id != 0 &&
+        causal_estimate.source_frame_id ==
+            causal_memory_current_source_frame_id_ &&
+        causal_estimate.source_observation_id != 0 &&
+        causal_estimate.source_observation_id ==
+            causal_memory_current_source_observation_id_ &&
+        causal_estimate.current_present_steady_ns != 0 &&
+        causal_estimate.current_present_steady_ns ==
+            causal_memory_current_present_ns_ &&
+        causal_estimate.present_calibration_id ==
+            causal_memory_current_present_calibration_id_ &&
+        causal_estimate.present_qpc_frequency ==
+            causal_memory_current_present_qpc_frequency_ &&
+        causal_estimate.current_target_id == plan.target_id &&
+        causal_estimate.current_ads_epoch == ads_epoch_ &&
+        causal_estimate.present_time_valid &&
+        causal_estimate.physical_actuator_epoch != 0 &&
+        causal_estimate.physical_actuator_epoch ==
+            causal_memory_physical_actuator_epoch_ &&
+        causal_estimate.previous_source_frame_id ==
+            causal_memory_previous_source_frame_id_ &&
+        causal_estimate.previous_source_observation_id ==
+            causal_memory_previous_source_observation_id_ &&
+        causal_estimate.previous_present_steady_ns ==
+            causal_memory_previous_present_ns_ &&
+        causal_estimate.previous_present_calibration_id ==
+            causal_memory_previous_present_calibration_id_ &&
+        causal_estimate.previous_present_qpc_frequency ==
+            causal_memory_previous_present_qpc_frequency_ &&
+        causal_estimate.previous_target_id ==
+            causal_memory_previous_capture_target_id_ &&
+        causal_estimate.previous_ads_epoch ==
+            causal_memory_previous_capture_ads_epoch_;
+    const bool causal_pending_usable =
+        config_.tracker.causal_memory_enabled &&
+        plan.target_id != 0 && plan.aim_authority > 0.0f &&
+        !plan.cue_continuation &&
+        causal_estimate.status == CausalMotionLedgerStatus::Valid &&
+        causal_estimate.valid && causal_estimate.pending_valid &&
+        causal_current_provenance_matches &&
+        pipeline_contract::finite(causal_estimate.pending_total_px);
+    if (causal_pending_usable) {
+        const auto pending = causal_estimate.pending_total_px;
+        plan.error_px = remaining_work_after_delivery(raw_error_px, pending);
+        const pipeline_contract::Vec2f delta{
+            plan.error_px.x - raw_error_px.x,
+            plan.error_px.y - raw_error_px.y,
+        };
+        plan.predicted_terminal_error_px = {
+            raw_predicted_terminal_error_px.x + delta.x,
+            raw_predicted_terminal_error_px.y + delta.y,
+        };
+        plan.delivered_camera_motion_since_capture_px = pending;
+        plan.remaining_work_px = plan.error_px;
+        plan.remaining_work_confidence = causal_estimate.pending_response_confidence;
+        plan.remaining_work_valid = true;
+    } else {
+        // Missing/invalid history is fail-open. Never inherit the previous
+        // P when the current observation, epoch or response window is not
+        // proven compatible.
+        plan.error_px = raw_error_px;
+        plan.predicted_terminal_error_px = raw_predicted_terminal_error_px;
+        plan.delivered_camera_motion_since_capture_px = {};
+        plan.remaining_work_px = {};
+        plan.remaining_work_confidence = 0.0f;
+        plan.remaining_work_valid = false;
+    }
+    const bool firing_input = manual_fire_pressed(physical);
+    const float firing_vertical_offset = firing_vertical_intent_offset_px(
+        config_, plan, physical.right_y, aiming_, firing_input);
+    plan.error_px.y += firing_vertical_offset;
+    plan.predicted_terminal_error_px.y += firing_vertical_offset;
+    components.observed_error_px = {raw_error_px.x, raw_error_px.y};
+    components.pending_motion_px = causal_pending_usable
+        ? common_native::Vec2f{
+            causal_estimate.pending_total_px.x,
+            causal_estimate.pending_total_px.y}
+        : common_native::Vec2f{};
+    components.control_error_px = {plan.error_px.x, plan.error_px.y};
+    components.pending_motion_confidence = causal_pending_usable
+        ? causal_estimate.pending_response_confidence : 0.0f;
+    components.pending_motion_valid = causal_pending_usable;
+    components.memory_applied = causal_pending_usable;
+    if (!config_.tracker.causal_memory_enabled) {
+        components.memory_status = "disabled";
+    } else if (plan.target_id == 0) {
+        components.memory_status = "no_target";
+    } else if (plan.aim_authority <= 0.0f) {
+        components.memory_status = "no_authority";
+    } else if (causal_estimate.status != CausalMotionLedgerStatus::Valid) {
+        components.memory_status =
+            causal_memory_status_name(causal_estimate.status);
+    } else if (!causal_current_provenance_matches) {
+        components.memory_status = "provenance_mismatch";
+    } else if (!causal_estimate.valid || !causal_estimate.pending_valid) {
+        components.memory_status = "pending_invalid";
+    } else if (!pipeline_contract::finite(causal_estimate.pending_total_px)) {
+        components.memory_status = "nonfinite";
+    } else {
+        components.memory_status = "applied";
+    }
     const std::uint64_t plan_decision_ns = seconds_to_ns(now);
     last_target_plan_ = plan;
     if (plan.target_acquisition_id != acquisition_trace_target_id_) {
@@ -605,6 +874,7 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
     last_acquisition_trace_.selector_target_changed =
         plan.selector_target_changed;
     const bool new_observed_frame = observations.count > 0 &&
+        !plan.cue_continuation &&
         observations.frame_id != 0 &&
         observations.frame_id != last_aim_response_frame_id_;
     if (new_observed_frame) {
@@ -624,6 +894,7 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
                 // It is not a target-only maneuver signal, so do not mislabel it as
                 // unexplained target acceleration here.
                 0.0f,
+                aim_response_zone_weight,
                 plan.lifecycle == pipeline_contract::TargetLifecycle::Observed,
                 aim_response_manual_ambiguous_,
             });
@@ -637,7 +908,7 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
         last_aim_response_observed_seconds_ = now;
     }
     last_frame_vision_state_ = vision_state_from_plan(
-        plan, now, observations.capture_fresh);
+        plan, now, observations.capture_fresh, raw_error_px);
     last_ai_aim_mode_ = mode_name(plan.mode);
 
     auto controller_intent = intent;
@@ -700,11 +971,33 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
         if (x_decision.intervention) controller_intent.right_x.confidence = 0.0f;
         if (y_decision.intervention) controller_intent.right_y.confidence = 0.0f;
     }
+    // The production-equivalent vector path has one target-first output T.
+    // Benchmark CausalVector retains its historical mix semantics for old
+    // research fixtures; only the explicit baseline mode mirrors production.
+#if defined(COD_BENCHMARK_MIX_OVERRIDE)
+    const bool target_first_final_path =
+        benchmark_intent_fusion_mode_ ==
+        BenchmarkIntentFusionMode::CausalVectorBaseline;
+#else
+    constexpr bool target_first_final_path = true;
+#endif
+    const bool target_authoritative = target_first_final_path &&
+        plan.target_id != 0 && plan.aim_authority > 0.0f &&
+        plan.mode != pipeline_contract::ControlMode::Manual;
+    const bool target_first_entry = target_authoritative &&
+        (!previous_target_first_authoritative_ ||
+         previous_plan_target_id_ != plan.target_id);
+    if (observations.capture_fresh) {
+        last_observed_ads_candidate_count_ = plan.ads_candidate_count;
+    } else if (!target_authoritative) {
+        last_observed_ads_candidate_count_ = 0;
+    }
     previous_plan_normalized_size_ = plan.normalized_size;
     previous_plan_target_id_ = plan.target_id;
+    previous_target_first_authoritative_ = target_authoritative;
 
     const bool fresh_single_target_observation =
-        observations.capture_fresh && observations.count == 1 &&
+        observations.capture_fresh && plan.ads_candidate_count == 1 &&
         plan.lifecycle == pipeline_contract::TargetLifecycle::Observed;
     pipeline_contract::Vec2f requested{};
     BodylockFollowControllerOutput bodylock_diagnostics{};
@@ -798,11 +1091,23 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
         y_decision.manual_retention};
     components.ai_aim_stick = components.shaped_assist_stick;
     if (use_vector_fusion) {
+        if (target_first_entry) {
+            // A no-target/manual tick or a previous target may have left M in
+            // VectorIntentFuser's previous-output/reentry state.  A new
+            // target-authoritative decision must start from the target
+            // proposal on this same tick; this is an ownership boundary, not
+            // generic smoothing and does not reset the physical ledger.
+            vector_intent_fuser_.reset();
+            previous_fusion_manual_escape_ = false;
+        }
         VectorIntentFusionInput fusion_input;
-        fusion_input.manual_stick = {physical.right_x, physical.right_y};
+        fusion_input.manual_stick = target_authoritative
+            ? pipeline_contract::Vec2f{}
+            : pipeline_contract::Vec2f{physical.right_x, physical.right_y};
         fusion_input.shaped_ai_stick = {shaped.x, shaped.y};
         fusion_input.plan = plan;
-        fusion_input.manual_confidence = intent.right_confidence;
+        fusion_input.manual_confidence = target_authoritative
+            ? 0.0f : intent.right_confidence;
         fusion_input.fresh_single_target_observation =
             fresh_single_target_observation;
         fusion_input.response_curve = config_.aim_response_curve;
@@ -852,15 +1157,39 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
         // Coordinator consumes this decision on the next tick. Keeping the
         // feedback at the fuser boundary prevents a second manual escape
         // classifier from growing inside TargetCoordinator.
-        previous_fusion_manual_escape_ = fusion.manual_escape;
+        previous_fusion_manual_escape_ = target_authoritative
+            ? false : fusion.manual_escape;
         output.right_x = clamp_unit(fusion.fused_stick.x);
         output.right_y = clamp_unit(fusion.fused_stick.y);
-        components.intent_fusion_mode = "continuous_vector";
+        const bool current_single_target_observation =
+            target_authoritative && last_observed_ads_candidate_count_ == 1 &&
+            !plan.cue_continuation &&
+            std::isfinite(plan.observation_age_ms) &&
+            plan.observation_age_ms <=
+                config_.tracker.max_observation_age_ms;
+        if (current_single_target_observation &&
+            config_.intent.helpful_manual_overdrive_enabled) {
+            const auto overdriven = apply_helpful_manual_overdrive(
+                {output.right_x, output.right_y},
+                {physical.right_x, physical.right_y},
+                config_.intent.helpful_manual_overdrive_max_scale);
+            output.right_x = clamp_unit(overdriven.x);
+            output.right_y = clamp_unit(overdriven.y);
+        }
+        components.intent_fusion_mode = target_first_final_path
+            ? "target_first_final" : "continuous_vector";
         components.intent_fusion_candidate =
             static_cast<int>(fusion.candidate);
         components.intent_fusion_manual_weight =
             fusion.applied_manual_weight;
         components.intent_fusion_ai_weight = fusion.applied_ai_weight;
+        if (target_authoritative) {
+            // These legacy fields are retained for schema compatibility, but
+            // target-first has no manual/AI allocation to report: the fuser
+            // receives no M proposal and emits one final target proposal T.
+            components.intent_fusion_manual_weight = 0.0f;
+            components.intent_fusion_ai_weight = 1.0f;
+        }
         components.intent_fusion_winner_margin = fusion.winner_margin;
         components.intent_fusion_fallback = fusion.fallback;
         components.intent_fusion_manual_escape = fusion.manual_escape;
@@ -949,22 +1278,26 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
 #endif
     components.post_ai_stick = {output.right_x, output.right_y};
     components.post_dynamic_stick = components.post_ai_stick;
+    components.target_final_stick = components.post_ai_stick;
+    components.ai_correction_stick = {
+        components.target_final_stick.x - components.manual_stick.x,
+        components.target_final_stick.y - components.manual_stick.y};
+    if (target_first_final_path) {
+        components.manual_authority_mode = target_authoritative
+            ? (plan.ads_candidate_count > 1
+                ? "multi_target_selector_handover"
+                : "single_target_authoritative")
+            : "no_target_passthrough";
+    }
     components.aim_mode = last_ai_aim_mode_;
-    components.assist_authority = plan.aim_authority > 0.0f ? "full" : "reject";
-    components.assist_authority_reason = "target_plan";
+    components.assist_authority = plan.aim_authority > 0.0f
+        ? (plan.cue_continuation ? "continuity" : "full")
+        : "reject";
+    components.assist_authority_reason = plan.cue_continuation
+        ? "cue_only" : "target_plan";
     components.bodylock_lifecycle = lifecycle_name(plan.lifecycle);
     components.bodylock_transition_reason = "target_plan";
     components.assist_limit_reason = "single_dynamics_shaper";
-    components.remaining_work_px = {
-        plan.remaining_work_px.x,
-        plan.remaining_work_px.y,
-    };
-    components.delivered_camera_work_px = {
-        plan.delivered_camera_motion_since_capture_px.x,
-        plan.delivered_camera_motion_since_capture_px.y,
-    };
-    components.remaining_work_confidence = plan.remaining_work_confidence;
-    components.remaining_work_valid = plan.remaining_work_valid;
     record_stage_trace("target_plan_aim", physical.right_y, output, false, false);
 
     AutoFireGateInput fire_input{};
@@ -981,6 +1314,12 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
     fire_input.settle_dy = plan.error_px.y;
     const auto fire = auto_fire_gate_.evaluate(fire_input);
     auto_fire_gate_.apply_fire_output(output, fire.should_fire);
+    // AutoFire owns only the synthetic contribution. Physical fire is an
+    // unconditional passthrough invariant, including the first controller
+    // tick where LT and RB/RT rise together.
+    output.rb = output.rb || physical.rb;
+    output.right_trigger = std::max(
+        output.right_trigger, physical.right_trigger);
     if (fire.should_fire || manual_fire_pressed(physical)) {
         last_firing_activity_seconds_ = now;
     }
@@ -1007,7 +1346,15 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
          now - last_firing_activity_seconds_ <=
              kFiringDisturbanceWindowSeconds);
     const auto before_recoil = output;
-    apply_recoil(output, physical, aiming_, fire.should_fire, now);
+    apply_recoil(
+        output,
+        physical,
+        plan,
+        raw_error_px,
+        observations.capture_fresh,
+        aiming_,
+        fire.should_fire,
+        now);
     record_stage_trace(
         "recoil", before_recoil.right_y, output,
         fire.after_auto_fire_active, fire.after_auto_fire_active);
@@ -1023,24 +1370,100 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
 void NativeGamepadController::report_output_delivery(
     bool delivered,
     bool output_enabled,
-    double delivered_at_seconds) noexcept {
-    bool ledger_required = config_.tracker.remaining_work_enabled;
+    double delivered_at_seconds,
+    std::uint64_t physical_actuator_epoch) noexcept {
+    const bool causal_memory_required = config_.tracker.causal_memory_enabled;
 #if defined(COD_BENCHMARK_MIX_OVERRIDE)
-    if (benchmark_remaining_work_mode_ !=
-        BenchmarkRemainingWorkMode::UseRuntimeConfig) {
-        ledger_required =
-            benchmark_intent_fusion_mode_ ==
-                BenchmarkIntentFusionMode::CausalVector ||
-            benchmark_remaining_work_mode_ !=
-                BenchmarkRemainingWorkMode::CurrentError;
-    }
+    const bool benchmark_legacy_required =
+        benchmark_remaining_work_mode_ !=
+        BenchmarkRemainingWorkMode::UseRuntimeConfig;
+#else
+    constexpr bool benchmark_legacy_required = false;
 #endif
-    if (!ledger_required) return;
-    const bool valid_delivery = delivered && output_enabled &&
+    if (!causal_memory_required && !benchmark_legacy_required) return;
+    const bool delivery_timestamp_valid =
         std::isfinite(delivered_at_seconds) &&
-        delivered_at_seconds > 0.0 &&
-        last_target_plan_.target_id != 0;
-    if (!valid_delivery) {
+        delivered_at_seconds > 0.0;
+    const bool causal_delivery_valid = delivered && output_enabled &&
+        delivery_timestamp_valid && physical_actuator_epoch != 0;
+    if (causal_memory_required) {
+        if (!causal_delivery_valid) {
+            const auto reason = !delivered || !output_enabled ||
+                physical_actuator_epoch == 0
+                ? CausalMotionLedgerStatus::BackendStateUnknown
+                : CausalMotionLedgerStatus::NonMonotonicClock;
+            if (physical_actuator_epoch != 0 &&
+                (causal_memory_physical_actuator_epoch_ == 0 ||
+                 causal_memory_physical_actuator_epoch_ ==
+                     physical_actuator_epoch)) {
+                causal_memory_physical_actuator_epoch_ =
+                    physical_actuator_epoch;
+            }
+            causal_motion_ledger_.invalidate(
+                reason, physical_actuator_epoch);
+            last_causal_memory_estimate_ = {};
+            last_causal_memory_estimate_.status = reason;
+            last_causal_memory_estimate_.physical_actuator_epoch =
+                causal_memory_physical_actuator_epoch_;
+        } else {
+            const auto final_stick = last_output_components_.final_stick;
+            const auto normalized_camera_response =
+                forward_aim_response_curve(
+                    {final_stick.x, final_stick.y},
+                    config_.aim_response_curve);
+            const auto response_estimate = aim_response_estimator_.estimate();
+            float response_scale = 0.0f;
+            float response_confidence = 0.0f;
+            if (last_target_plan_.target_id != 0 &&
+                std::isfinite(last_target_plan_.response_scale) &&
+                last_target_plan_.response_scale >= 50.0f) {
+                response_scale = last_target_plan_.response_scale;
+                response_confidence = std::clamp(
+                    last_target_plan_.response_confidence, 0.0f, 1.0f);
+            } else {
+                response_scale = response_estimate.scale_px_per_stick_second;
+                response_confidence = response_estimate.confidence;
+            }
+            const bool response_model_valid =
+                std::isfinite(response_scale) && response_scale > 0.0f &&
+                pipeline_contract::finite(normalized_camera_response);
+            if (!response_model_valid) {
+                response_scale = 500.0f;
+                response_confidence = 0.0f;
+            }
+            DeliveredFinalCommandSample causal_sample;
+            causal_sample.delivered_at_seconds = delivered_at_seconds;
+            causal_sample.final_stick = {final_stick.x, final_stick.y};
+            causal_sample.camera_velocity_px_per_second = {
+                normalized_camera_response.x * response_scale,
+                -normalized_camera_response.y * response_scale,
+            };
+            causal_sample.target_id = last_target_plan_.target_id;
+            causal_sample.ads_epoch = ads_epoch_;
+            causal_sample.delivered = delivered;
+            causal_sample.output_enabled = output_enabled;
+            causal_sample.physical_actuator_epoch =
+                physical_actuator_epoch;
+            causal_sample.response_confidence = response_confidence;
+            causal_sample.response_model_valid = response_model_valid;
+            if (!causal_motion_ledger_.observe(causal_sample)) {
+                last_causal_memory_estimate_ = {};
+                last_causal_memory_estimate_.status =
+                    causal_motion_ledger_.last_invalidation_status();
+                last_causal_memory_estimate_.physical_actuator_epoch =
+                    physical_actuator_epoch;
+            } else {
+                causal_memory_physical_actuator_epoch_ =
+                    physical_actuator_epoch;
+            }
+        }
+    }
+#if defined(COD_BENCHMARK_MIX_OVERRIDE)
+    // The old PendingControlMotion path is retained only for benchmark
+    // fixtures.  It records the same final delivered output and has no
+    // production ownership or target/lifecycle reset semantics.
+    if (!benchmark_legacy_required) return;
+    if (!causal_delivery_valid) {
         pending_control_motion_.reset();
         remaining_work_accounted_seconds_ = 0.0;
         remaining_work_delivery_target_id_ = 0;
@@ -1060,12 +1483,10 @@ void NativeGamepadController::report_output_delivery(
     }
     auto delivered_stick =
         last_output_components_.before_recoil_stick;
-#if defined(COD_BENCHMARK_MIX_OVERRIDE)
     if (benchmark_remaining_work_mode_ ==
         BenchmarkRemainingWorkMode::ControllerIntegratedAssistOnly) {
         delivered_stick = last_output_components_.shaped_assist_stick;
     }
-#endif
     const bool recorded = pending_control_motion_.observe({
         delivered_at_seconds,
         {delivered_stick.x, delivered_stick.y},
@@ -1079,6 +1500,7 @@ void NativeGamepadController::report_output_delivery(
         remaining_work_delivery_ads_epoch_ = 0;
         remaining_work_reset_pending_ = true;
     }
+#endif
 }
 
 bool NativeGamepadController::manual_fire_pressed(
@@ -1089,6 +1511,9 @@ bool NativeGamepadController::manual_fire_pressed(
 void NativeGamepadController::apply_recoil(
     GamepadOutputState& output,
     const PhysicalGamepadState& physical,
+    const pipeline_contract::TargetPlan& plan,
+    pipeline_contract::Vec2f observed_error_px,
+    bool capture_fresh,
     bool aiming,
     bool auto_fire_active,
     double now_seconds) {
@@ -1096,8 +1521,27 @@ void NativeGamepadController::apply_recoil(
     input.fire_active = auto_fire_active || manual_fire_pressed(physical);
     input.aiming = aiming;
     input.now_seconds = now_seconds;
-    const auto recoil_output = recoil_.compute(input);
+    auto recoil_output = recoil_.compute(input);
     if (!recoil_output.recoil_active) return;
+    const auto adaptive = adaptive_recoil_feedback_.update({
+        input.fire_active,
+        aiming,
+        plan.target_id != 0 && plan.aim_authority > 0.0f,
+        plan.ads_candidate_count <= 1,
+        capture_fresh &&
+            plan.lifecycle == pipeline_contract::TargetLifecycle::Observed,
+        plan.cue_continuation,
+        plan.target_id,
+        plan.source_frame_id,
+        observed_error_px.y,
+        physical.right_y,
+        plan.motion,
+        std::max(0.0f, -recoil_output.recoil_stick.y),
+        now_seconds,
+    });
+    if (recoil_output.recoil_stick.y < 0.0f) {
+        recoil_output.recoil_stick.y = -adaptive.amount;
+    }
     output.right_x = clamp_unit(output.right_x + recoil_output.recoil_stick.x);
     output.right_y = clamp_unit(output.right_y + recoil_output.recoil_stick.y);
 }
@@ -1129,6 +1573,11 @@ const NativeControllerVisionState& NativeGamepadController::last_frame_vision_st
 
 const pipeline_contract::TargetPlan& NativeGamepadController::last_target_plan() const {
     return last_target_plan_;
+}
+
+const CausalMotionPhaseEstimate&
+NativeGamepadController::last_causal_memory_estimate() const noexcept {
+    return last_causal_memory_estimate_;
 }
 
 std::uint64_t NativeGamepadController::ads_epoch() const noexcept {

@@ -99,13 +99,31 @@ BodylockFollowControllerOutput BodylockFollowController::compute_detailed(
         // "almost arrived, then pulled back" oscillation during ADS occlusion.
         const pipeline_contract::Vec2f control_error{
             request.error_px.x, -request.error_px.y};
+        bool discard_stale_x = false;
+        bool discard_stale_y = false;
         if (output.x * control_error.x < 0.0f) {
-            output.x = 0.0f;
-            result.constraint_reason =
-                ResponseModelConstraintReason::LifecycleStaleMotionDiscarded;
+            discard_stale_x = true;
         }
         if (output.y * control_error.y < 0.0f) {
-            output.y = 0.0f;
+            discard_stale_y = true;
+        }
+        if (discard_stale_x || discard_stale_y) {
+            // Discard only the stale motion term that would reverse the
+            // retained positional residual.  Zeroing the solved axis here
+            // also erased the valid position correction, leaving target-first
+            // control with neither M nor T between fresh Vision frames.
+            auto position_preserving_request = request;
+            if (discard_stale_x) {
+                position_preserving_request.relative_velocity_px_per_sec.x = 0.0f;
+                position_preserving_request.motion_feedforward_stick.x = 0.0f;
+                result.effective_motion_stick.x = 0.0f;
+            }
+            if (discard_stale_y) {
+                position_preserving_request.relative_velocity_px_per_sec.y = 0.0f;
+                position_preserving_request.motion_feedforward_stick.y = 0.0f;
+                result.effective_motion_stick.y = 0.0f;
+            }
+            output = solve_response_model_aim(position_preserving_request).stick;
             result.constraint_reason =
                 ResponseModelConstraintReason::LifecycleStaleMotionDiscarded;
         }

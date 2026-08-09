@@ -1,8 +1,15 @@
 # Current State
 
-**Last reviewed:** 2026-08-03
+**Last reviewed:** 2026-08-08
 **Reviewed baseline:** protected commit `5d2f3be`, its accepted rollback, and
-the currently installed schema-13 diagnostic runtime described below.
+the currently installed schema-13 diagnostic runtime described below. W5 Phase B
+bookkeeping and Gate 2 are accepted as shadow/offline evidence only. Gate2.5B
+is now implemented and tested as a default-off diagnostic (`40/40` CTest) in
+the isolated candidate. W5 remains `FAIL_FOR_ACTIVATION`: the tracked Gate-only
+  sum is 121,064 B under the 128 KiB component budget, but allocator/process
+  metadata and full RuntimeLoop/FPS/ViGEm A/B coverage remain outside this
+  checkpoint; there is no live COD evidence, and nothing from the diagnostic is installed as an
+activating controller path.
 **Scope:** production runtime facts present in the reviewed repository, explicitly marked shadow work, and the next live validation boundary
 
 ## Production Path
@@ -117,8 +124,8 @@ whole pipeline. Files are written to `runs/perf_summary/runtime_perf_summary_*.j
 The queue is capped at eight windows and reports cumulative writer drops instead
 of blocking the controller.
 
-The online W3 ego-motion observer is research-only and defaults to a resource-level
-off state:
+The online W3 ego-motion observer is frozen research-only work and defaults to a
+resource-level off state:
 
 ```toml
 [runtime.vision]
@@ -131,6 +138,11 @@ readback, or synchronize the TensorRT CUDA stream. W5 short-term memory must use
 timestamped final-output history, an identified response model and fresh-Vision
 reconciliation; it must not depend on online optical flow. The switch may be
 enabled only for explicit calibration/shadow experiments.
+
+W4 online control learning is also frozen and disabled in the effective local
+runtime. Its provisional learner and response experiments remain available for
+explicit offline work, but they no longer gate W5 and must not consume normal-run
+history/CPU.
 
 Release verification measured about `30 ns` amortized per controller tick while
 also recording one Vision sample per six ticks. A summary record is constrained by
@@ -205,20 +217,50 @@ The protected identity, restore set and exact acceptance boundary are in
 ## W0-W6 Status
 
 - **W0-W2 - implemented/tested:** acquisition/provenance foundation, joinable stage telemetry, explicit rejection reasons, spatial activation radius, and admission-relative ADS lifecycle.
-- **W3 - shadow only / blocked:** live compute P95 is `2.08 ms` and displacement clipping is fixed, but ADS and BodyLock valid rates are only `64.18%` and `73.40%`. It has no actuation authority; do not lower confidence thresholds blindly.
-- **W4 - provisional / not promotable:** calibrated present time covers `99.95%` of ego rows and offline peaks appear around 5-10 ms, but peak bands are broad and W3-valid selection biases the cohort. No stable response curve or first-effect observation exists.
-- **W5 - not implemented:** no CausalMotionLedger/Causal Remaining v2 reconciles `scheduled -> in-flight -> realized` work, and no 150-200 ms short-term memory affects output. PendingMotion timing repair and short-horizon rollout are diagnostic shadow work only.
-- **W6 - not entered:** activation/tuning remains gated on W4/W5 shadow evidence and a separate architecture/acceptance review. Its ownership gate must include the target-count-aware single-target/multi-target policy above before production activation.
+- **W3 - development frozen / runtime off:** the research observer remains available for explicit calibration, but no grayscale staging, matcher, readback or synchronization is allocated in normal runs.
+- **W4 - development frozen / runtime off:** the provisional online learner has no promotable physical-response contract and no longer runs in the normal local configuration.
+- **W5 - Phase B + Gate 2 accepted as evidence; `FAIL_FOR_ACTIVATION`:** the
+  shadow ledger is global actuator history with explicit backend epochs,
+  known-history coverage, per-decision pending refresh and logical-only capture
+  compatibility. Target/ADS/loss transitions, manual carry-in, post-kill recoil
+  tail, neutral, same-capture delivery and reconnect fixtures pass. Gate 2 adds
+  the independent admission, response, deadzone/axis, exogenous-motion and
+  capture-state evidence package, but its pixel magnitudes are deterministic
+  synthetic-plant model-sensitivity evidence, not measured COD gameplay error.
+  W5 remains shadow-only and does not affect `TargetPlan`, Remaining or final
+  output. Gate2.5B is the bounded default-off follow-up: tracked state,
+  ordinary queue and dedicated Gate transport total 121,064 B, source-present
+  previous/current provenance is joined without the legacy copy-complete clock,
+  and a controller+Gate core A/B is bitwise output-invariant. The historical
+  Gate2.5A 725,520 B RED is preserved; allocator/process metadata, full
+  RuntimeLoop/FPS/ViGEm A/B and live COD evidence remain open. W3/W4 stay
+  frozen/off and motion-primitive calibration remains deferred.
+- **W6 - not entered:** production activation remains gated on W5 known-plant accuracy, live shadow evidence and a separate ownership/acceptance review. Its ownership gate must include the target-count-aware single-target/multi-target policy above.
 
 ## Next Validation
 
 Next implementation and validation order:
 
-1. Repair fresh/non-fresh final-output continuity and cover stable target/manual, target loss/switch, escape and expiry deterministically.
-2. Correct per-target assist segmentation and first-material-AI telemetry.
-3. Build/review a candidate, then run one same-map/weapon/settings capture with Luna, log parsing and video decoding stopped.
-4. If latency still feels higher, run a deliberate background-load A/B and compare game frame time, source cadence, inference, publish-to-consume and result-to-ViGEm.
-5. Resume W3/W4 quality work only after actuation continuity is stable; keep W5 gated.
+1. Keep W3/W4 off, retain Gate 1 and Phase B as regression baselines, and keep
+   W5 `FAIL_FOR_ACTIVATION`.
+2. Preserve the Gate 2 evidence classes: bookkeeping PASS, response-model RED,
+   game-admission UNRESOLVED and exogenous-motion NON-GOAL. Synthetic px values
+   remain model-sensitivity measurements until real COD data exists.
+3. Review the implemented, default-off Gate2.5B diagnostic for its measured
+   component budget, direct controller+Gate output-invariance seam and W5
+   source-present clock; then use the
+   retained [Gate 2.5 live-shadow measurement plan](W5_GATE2_5_LIVE_SHADOW_MEASUREMENT_PLAN_20260808.md)
+   for controlled collection without restoring W3 optical flow or adding a
+   controller owner.
+4. Collect only eligible, joined live cohorts and use them to choose among an
+   admission model, an applied-time response contract and a deadzone/axis plugin;
+   candidate scoring remains shadow-only.
+5. Only after live-shadow evidence is accepted, review one exclusive
+   legacy-Remaining replacement A/B. Motion-primitive calibration remains
+   deferred.
+
+See [W5 Causal Short-Term Memory](W5_CAUSAL_MEMORY_20260808.md) for the phase
+contract, activation gates and ranked simulation-data sources.
 
 ## Other Active Directions
 
@@ -241,7 +283,9 @@ cross-weapon validation is complete.
 - Do not describe scheduled output as realized camera motion.
 - Do not compare artifacts without executable/config/schema/scenario identity.
 - Do not overwrite or discard the protected rollback without a reviewed candidate and explicit installation request.
-- Do not attribute the current improvement to W5 memory; W5 is absent.
+- Do not attribute the protected August 3 baseline improvement to W5 memory; W5
+  was absent from that binary. The current development tree contains only W5
+  shadow accounting and has not changed production output.
 
 Historical rationale is indexed in [Archive](../archive/README.md). Reusable
 methodology begins at

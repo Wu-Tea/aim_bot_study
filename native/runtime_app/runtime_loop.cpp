@@ -453,8 +453,7 @@ RuntimeLoop::RuntimeLoop(
       log_session_manager_(log_session_options_from(config_)),
       telemetry_(telemetry_options_from(config_, log_session_manager_.session_directory())),
       telemetry_collectors_(
-          config_.telemetry.enabled || config_.vision.aim_perf_file_log ||
-              config_.control_learning.enabled,
+          config_.telemetry.enabled || config_.vision.aim_perf_file_log,
           &telemetry_,
           TelemetrySessionContext{
               config_.build_commit.c_str(),
@@ -467,7 +466,8 @@ RuntimeLoop::RuntimeLoop(
               config_.vision.gpu_service_active_fps,
               config_.vision.gpu_service_idle_fps,
               config_.scheduler.controller_tick_hz,
-              config_.telemetry.manual_controller_hz}),
+              config_.telemetry.manual_controller_hz,
+              config_.telemetry.enabled || config_.vision.aim_perf_file_log}),
       aim_perf_file_logger_(
           false,
           config_.vision.aim_perf_log_dir,
@@ -482,12 +482,6 @@ RuntimeLoop::RuntimeLoop(
       virtual_gamepad_(),
       vision_delivery_gate_(config_.gamepad.tracker.max_observation_age_ms) {
     telemetry_.start();
-    if (config_.control_learning.enabled &&
-        config_.control_learning.mode !=
-            controller_native::ControlLearningMode::Disabled) {
-        causal_response_learner_ =
-            std::make_unique<control_learning::CausalOnlineResponseLearner>();
-    }
     max_ticks_ = max_ticks;
     selected_xinput_user_index_ = input_reader_.user_index();
     if (input_log_enabled() && sdl_input_reader_ != nullptr) {
@@ -509,8 +503,7 @@ RuntimeLoop::RuntimeLoop(
         config_.vision.color_readback_mode,
         config_.vision.tensor_width,
         config_.vision.tensor_height,
-        config_.vision.require_isotropic_resize,
-        config_.vision.ego_motion_enabled);
+        config_.vision.require_isotropic_resize);
     std::cout << "[VisionGeometry][CPP]"
               << " capture=" << vision_engine->width() << 'x' << vision_engine->height()
               << " tensor=" << vision_engine->tensor_width() << 'x'
@@ -518,7 +511,6 @@ RuntimeLoop::RuntimeLoop(
               << " scale=" << vision_engine->resize_scale_x() << 'x'
               << vision_engine->resize_scale_y()
               << " isotropic=" << (vision_engine->resize_isotropic() ? 1 : 0)
-              << " ego_motion=" << (vision_engine->ego_motion_enabled() ? "shadow" : "off")
               << '\n';
     const ViewportRequest initial_viewport = viewport_controller_.current();
     vision_engine->set_viewport(
@@ -781,7 +773,7 @@ void RuntimeLoop::run_once() {
         output,
         controller_.last_pipeline_traces(),
         has_latest_vision_result_ ? &latest_vision_result_ : nullptr,
-        is_aiming(physical));
+        aiming);
     const auto vigem_update_started = std::chrono::steady_clock::now();
     controller_native::VirtualGamepadUpdateResult output_result;
     if (config_.output.enabled) {
@@ -798,7 +790,8 @@ void RuntimeLoop::run_once() {
     controller_.report_output_delivery(
         !config_.output.enabled || output_result.delivered,
         config_.output.enabled,
-        steady_time_seconds(vigem_update_finished).value);
+        steady_time_seconds(vigem_update_finished).value,
+        static_cast<std::uint64_t>(output_result.reconnect_count) + 1);
     if (perf_summary_logger_.enabled()) {
         const std::uint64_t output_sent_ns = steady_time_point_ns(vigem_update_finished);
         PerfControllerWindowSample controller_sample;
@@ -851,11 +844,10 @@ void RuntimeLoop::run_once() {
             vision_sample.color_copy_ms = result.color_copy_required
                 ? result.color_copy_ms : -1.0;
             vision_sample.cuda_unmap_ms = result.cuda_unmap_ms;
-            vision_sample.ego_stage_ms = result.ego_motion_stage_ms > 0.0f
-                ? result.ego_motion_stage_ms : -1.0;
-            vision_sample.ego_compute_ms = result.ego_motion_shadow.available &&
-                    result.ego_motion_shadow.compute_ms > 0.0f
-                ? result.ego_motion_shadow.compute_ms : -1.0;
+            // W3 ego-motion is test-only now; the ordinary perf schema keeps
+            // these legacy fields explicitly unavailable in production.
+            vision_sample.ego_stage_ms = -1.0;
+            vision_sample.ego_compute_ms = -1.0;
             perf_summary_logger_.record_vision(vision_sample);
         }
     }
@@ -964,75 +956,6 @@ void RuntimeLoop::run_once() {
         acquisition_trace.first_fused_output_x = trace.first_fused_output.x;
         acquisition_trace.first_fused_output_y = trace.first_fused_output.y;
         telemetry_collectors_.observe_acquisition_trace(acquisition_trace);
-        const auto& ego = latest_vision_result_.ego_motion_shadow;
-        if (ego.available) {
-            TelemetryEgoMotionShadowInput ego_input;
-            ego_input.available = ego.available;
-            ego_input.valid = ego.valid;
-            ego_input.invalid_reason = static_cast<std::uint8_t>(ego.invalid_reason);
-            ego_input.result_sequence = ego.result_sequence;
-            ego_input.previous_frame_id = ego.previous_frame_id;
-            ego_input.current_frame_id = ego.current_frame_id;
-            ego_input.previous_present_qpc = ego.previous_present_qpc;
-            ego_input.current_present_qpc = ego.current_present_qpc;
-            ego_input.previous_present_qpc_frequency =
-                ego.previous_present_qpc_frequency;
-            ego_input.current_present_qpc_frequency =
-                ego.current_present_qpc_frequency;
-            ego_input.present_qpc_frequency = ego.present_qpc_frequency;
-            ego_input.previous_present_steady_ns = ego.previous_present_steady_ns;
-            ego_input.current_present_steady_ns = ego.current_present_steady_ns;
-            ego_input.previous_present_calibration_id =
-                ego.previous_present_calibration_id;
-            ego_input.current_present_calibration_id =
-                ego.current_present_calibration_id;
-            ego_input.previous_present_calibration_uncertainty_ns =
-                ego.previous_present_calibration_uncertainty_ns;
-            ego_input.current_present_calibration_uncertainty_ns =
-                ego.current_present_calibration_uncertainty_ns;
-            ego_input.previous_present_steady_available =
-                ego.previous_present_steady_available;
-            ego_input.current_present_steady_available =
-                ego.current_present_steady_available;
-            ego_input.present_clock_valid = ego.present_clock_valid;
-            ego_input.previous_capture_copy_complete_ns =
-                ego.previous_capture_copy_complete_ns;
-            ego_input.current_capture_copy_complete_ns =
-                ego.current_capture_copy_complete_ns;
-            ego_input.previous_result_ns = ego.previous_result_ns;
-            ego_input.current_result_ns = ego.current_result_ns;
-            ego_input.observer_completed_at_ns = ego.observer_completed_at_ns;
-            ego_input.result_age_at_take_ns = ego.result_age_at_take_ns;
-            ego_input.background_dx = ego.background_dx;
-            ego_input.background_dy = ego.background_dy;
-            ego_input.camera_dx = ego.camera_dx;
-            ego_input.camera_dy = ego.camera_dy;
-            ego_input.confidence = ego.confidence;
-            ego_input.valid_background_ratio = ego.valid_background_ratio;
-            ego_input.residual_px = ego.residual_px;
-            ego_input.compute_ms = ego.compute_ms;
-            ego_input.inlier_count = ego.inlier_count;
-            ego_input.sample_count = ego.sample_count;
-            ego_input.search_radius_px = ego.search_radius_px;
-            ego_input.boundary_hit_count = ego.boundary_hit_count;
-            ego_input.boundary_hit_rate = ego.boundary_hit_rate;
-            ego_input.boundary_consistent_hit_count =
-                ego.boundary_consistent_hit_count;
-            ego_input.boundary_consistent_hit_rate =
-                ego.boundary_consistent_hit_rate;
-            ego_input.observer_lifecycle_generation =
-                ego.observer_lifecycle_generation;
-            ego_input.submitted_frame_count = ego.submitted_frame_count;
-            ego_input.pending_frame_replaced_count =
-                ego.pending_frame_replaced_count;
-            ego_input.pairs_processed_count = ego.pairs_processed_count;
-            ego_input.unread_result_replaced_count =
-                ego.unread_result_replaced_count;
-            ego_input.duplicate_or_out_of_order_rejected_count =
-                ego.duplicate_or_out_of_order_rejected_count;
-            telemetry_collectors_.observe_ego_motion_shadow(
-                latest_vision_result_.frame_id, tick_count_, ego_input);
-        }
     }
     const auto& telemetry_components = controller_.last_output_components();
     TelemetryTickInput telemetry_tick;
@@ -1071,6 +994,12 @@ void RuntimeLoop::run_once() {
     telemetry_tick.manual_confidence = telemetry_components.manual_confidence;
     telemetry_tick.ai_x = telemetry_components.ai_aim_stick.x;
     telemetry_tick.ai_y = telemetry_components.ai_aim_stick.y;
+    telemetry_tick.target_final_x = telemetry_components.target_final_stick.x;
+    telemetry_tick.target_final_y = telemetry_components.target_final_stick.y;
+    telemetry_tick.ai_correction_x = telemetry_components.ai_correction_stick.x;
+    telemetry_tick.ai_correction_y = telemetry_components.ai_correction_stick.y;
+    telemetry_tick.manual_authority_mode =
+        telemetry_components.manual_authority_mode;
     telemetry_tick.fresh_vision_validated_manual_proposal_x =
         telemetry_components.intent_fusion_fresh_validated_manual_proposal.x;
     telemetry_tick.fresh_vision_validated_manual_proposal_y =
@@ -1195,16 +1124,18 @@ void RuntimeLoop::run_once() {
     telemetry_tick.recoil_y = telemetry_components.recoil_stick.y;
     telemetry_tick.final_x = telemetry_components.final_stick.x;
     telemetry_tick.final_y = telemetry_components.final_stick.y;
-    telemetry_tick.remaining_work_x = telemetry_components.remaining_work_px.x;
-    telemetry_tick.remaining_work_y = telemetry_components.remaining_work_px.y;
-    telemetry_tick.delivered_camera_work_x =
-        telemetry_components.delivered_camera_work_px.x;
-    telemetry_tick.delivered_camera_work_y =
-        telemetry_components.delivered_camera_work_px.y;
-    telemetry_tick.remaining_work_confidence =
-        telemetry_components.remaining_work_confidence;
-    telemetry_tick.remaining_work_valid =
-        telemetry_components.remaining_work_valid;
+    telemetry_tick.observed_error_x = telemetry_components.observed_error_px.x;
+    telemetry_tick.observed_error_y = telemetry_components.observed_error_px.y;
+    telemetry_tick.pending_motion_x = telemetry_components.pending_motion_px.x;
+    telemetry_tick.pending_motion_y = telemetry_components.pending_motion_px.y;
+    telemetry_tick.control_error_x = telemetry_components.control_error_px.x;
+    telemetry_tick.control_error_y = telemetry_components.control_error_px.y;
+    telemetry_tick.pending_motion_confidence =
+        telemetry_components.pending_motion_confidence;
+    telemetry_tick.pending_motion_valid =
+        telemetry_components.pending_motion_valid;
+    telemetry_tick.memory_applied = telemetry_components.memory_applied;
+    telemetry_tick.memory_status = telemetry_components.memory_status;
     telemetry_tick.final_left_x = output.left_x;
     telemetry_tick.final_left_y = output.left_y;
     telemetry_tick.output_saturated =
@@ -1238,90 +1169,7 @@ void RuntimeLoop::run_once() {
             controller_.ads_epoch(),
             latest_controller_consume_started_ns_);
         telemetry_collectors_.observe_committed_capture(committed);
-        if (causal_response_learner_ != nullptr &&
-            pipeline_contract::valid(committed)) {
-            const auto* history = telemetry_collectors_.control_history();
-            if (history != nullptr) {
-                const auto assessment = causal_response_learner_->observe_vision(
-                    committed, *history);
-                const auto estimate = causal_response_learner_->estimate();
-                control_learning::PendingMotionEstimate pending;
-                control_learning::RolloutResult rollout;
-                const auto& controller_trace = controller_.last_acquisition_trace();
-                const bool causal_decision_available = controller_trace.valid &&
-                    controller_trace.source_frame_id == committed.source_frame_id &&
-                    controller_trace.plan_decision_ns != 0;
-                const std::uint64_t causal_decision_ns =
-                    causal_decision_available
-                    ? controller_trace.plan_decision_ns
-                    : 0;
-                if (has_previous_learning_observation_) {
-                    control_learning::PendingMotionRequest request;
-                    request.previous_capture_ns =
-                        previous_learning_observation_.captured_at_ns;
-                    request.current_capture_ns = committed.captured_at_ns;
-                    request.decision_ns = causal_decision_ns;
-                    request.delay_ms = estimate.selected_delay_ms;
-                    request.right_response = estimate.right_stable;
-                    request.left_response = estimate.left_stable;
-                    request.selected_delay_confidence =
-                        estimate.selected_delay_confidence;
-                    request.response_confidence = estimate.right_confidence;
-                    request.identity_continuous =
-                        committed.persistent_target_id ==
-                        previous_learning_observation_.persistent_target_id;
-                    request.ads_epoch_continuous =
-                        committed.ads_epoch == previous_learning_observation_.ads_epoch;
-                    request.stable_coordinates_valid =
-                        committed.stable_coordinates_valid;
-                    pending = control_learning::PendingMotionModel::estimate(
-                        request, *history);
-                }
-                if (config_.control_learning.mode ==
-                    controller_native::ControlLearningMode::RolloutShadow) {
-                    const auto& plan = controller_.last_target_plan();
-                    control_learning::RolloutSnapshot snapshot;
-                    snapshot.decision_at_ns = causal_decision_ns;
-                    snapshot.latest_evidence_at_ns = committed.result_at_ns;
-                    snapshot.target_id = plan.target_id;
-                    snapshot.mode = plan.mode;
-                    snapshot.error_px = {plan.error_px.x, plan.error_px.y};
-                    snapshot.predicted_terminal_error_px = {
-                        plan.predicted_terminal_error_px.x,
-                        plan.predicted_terminal_error_px.y};
-                    snapshot.target_velocity_px_per_sec = {
-                        plan.velocity_px_per_sec.x, plan.velocity_px_per_sec.y};
-                    snapshot.target_acceleration_px_per_sec2 = {
-                        plan.acceleration_px_per_sec2.x,
-                        plan.acceleration_px_per_sec2.y};
-                    // The fuser's single pre-recoil aim output is the only
-                    // proposal the rollout may scale. Manual and shaped-AI
-                    // components remain upstream diagnostics, not forces;
-                    // recoil stays outside this shadow proposal.
-                    snapshot.final_output = {
-                        telemetry_components.before_recoil_stick.x,
-                        telemetry_components.before_recoil_stick.y};
-                    snapshot.pending_total_px = pending.pending_total_px;
-                    snapshot.pending_motion_valid = pending.valid;
-                    snapshot.right_response = estimate.right_stable;
-                    snapshot.response_confidence = estimate.right_confidence;
-                    snapshot.delay_confidence = estimate.selected_delay_confidence;
-                    snapshot.has_target = plan.target_id != 0;
-                    snapshot.single_strong_target =
-                        pipeline_contract::single_strong_target(committed);
-                    rollout = control_learning::ShortHorizonRollout::evaluate(snapshot);
-                }
-                if (config_.control_learning.telemetry_enabled)
-                    telemetry_collectors_.observe_causal_shadow(
-                        committed, assessment, estimate, pending, rollout,
-                        {telemetry_components.before_recoil_stick.x,
-                         telemetry_components.before_recoil_stick.y});
-                previous_learning_observation_ = committed;
-                has_previous_learning_observation_ = true;
-            }
-        }
     }
-
     const bool log_vision = perf_log_ && should_log_vision_tick(tick_count_);
     const bool log_gamepad_perf = gamepad_perf_log_ && should_log_vision_tick(tick_count_);
     if (log_vision || log_gamepad_perf) {

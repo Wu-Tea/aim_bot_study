@@ -127,12 +127,16 @@ runtime_app::TelemetryTickInput tick(std::uint64_t seq, bool aiming) {
     value.auto_fire_block_reason = "aim_not_ready";
     value.pre_recoil_x = 0.23f;
     value.final_x = 0.23f;
-    value.remaining_work_x = 12.5f;
-    value.remaining_work_y = -4.0f;
-    value.delivered_camera_work_x = 3.25f;
-    value.delivered_camera_work_y = -1.5f;
-    value.remaining_work_confidence = 0.6f;
-    value.remaining_work_valid = true;
+    value.observed_error_x = 12.5f;
+    value.observed_error_y = -4.0f;
+    value.pending_motion_x = 3.25f;
+    value.pending_motion_y = -1.5f;
+    value.control_error_x = 9.25f;
+    value.control_error_y = -2.5f;
+    value.pending_motion_confidence = 0.6f;
+    value.pending_motion_valid = true;
+    value.memory_applied = true;
+    value.memory_status = "applied";
     value.selected_track_id = 41;
     value.selected_observation_id = 73;
     value.backing_frame_id = 19;
@@ -176,6 +180,358 @@ void test_disabled_collectors_have_zero_transitions() {
     REQUIRE(!collectors.enabled());
     REQUIRE(collectors.counters().state_transitions == 0);
     REQUIRE(telemetry.counters().accepted_records == 0);
+}
+
+void test_gate25_disabled_path_has_no_observer_state() {
+    runtime_app::RuntimeTelemetryOptions options;
+    options.enabled = false;
+    runtime_app::RuntimeTelemetry telemetry(options);
+    runtime_app::TelemetrySessionContext context;
+    context.gate2_5_live_shadow_enabled = true;
+    runtime_app::TelemetryCollectors collectors(false, &telemetry, context);
+    REQUIRE(!collectors.gate25_observer_enabled());
+    collectors.observe_gate25_observation(runtime_app::Gate25ObservationInput{});
+    REQUIRE(collectors.counters().gate25_state_constructions == 0);
+    REQUIRE(collectors.counters().gate25_observation_invocations == 0);
+}
+
+void test_gate25_enabled_path_reports_real_state_and_writer_invocation() {
+    const auto directory = std::filesystem::temp_directory_path() /
+        "cod_native_telemetry_collectors_gate25";
+    std::filesystem::remove_all(directory);
+    runtime_app::RuntimeTelemetryOptions options;
+    options.enabled = true;
+    options.gate_enabled = true;
+    options.directory = directory;
+    options.queue_capacity = 64;
+    runtime_app::RuntimeTelemetry telemetry(options);
+    telemetry.start();
+    runtime_app::TelemetrySessionContext context;
+    context.gate2_5_live_shadow_enabled = true;
+    runtime_app::TelemetryCollectors collectors(true, &telemetry, context);
+    REQUIRE(collectors.gate25_observer_enabled());
+    REQUIRE(collectors.counters().gate25_state_constructions == 1);
+    collectors.observe_gate25_observation(runtime_app::Gate25ObservationInput{});
+    collectors.shutdown(1'000'000);
+    telemetry.stop();
+    const auto counters = collectors.counters();
+    REQUIRE(counters.gate25_observation_invocations == 1);
+    REQUIRE(counters.gate25_anomaly_records == 1);
+    REQUIRE(counters.gate25_writer_invocations == 1);
+    std::filesystem::remove_all(directory);
+}
+
+runtime_app::Gate25ObservationInput no_target_gate25_input(
+    std::uint64_t frame,
+    std::uint64_t present_ns,
+    std::uint64_t consume_ns) {
+    runtime_app::Gate25ObservationInput value;
+    value.source_frame_id = frame;
+    value.source_observation_id = frame * 10 + 1;
+    value.viewport_sequence = 1;
+    value.viewport_source_frame_id = frame;
+    value.source_present_qpc = present_ns;
+    value.source_present_qpc_frequency = 1'000'000'000ull;
+    value.source_present_steady_ns = present_ns;
+    value.source_present_calibration_id = 1;
+    value.source_present_calibration_uncertainty_ns = 10;
+    value.source_present_available = true;
+    value.source_present_steady_available = true;
+    value.controller_consume_ns = consume_ns;
+    value.decision_ns = consume_ns;
+    value.output_enabled = true;
+    return value;
+}
+
+runtime_app::Gate25ObservationInput invalid_geometry_gate25_input(
+    std::uint64_t frame,
+    std::uint64_t present_ns,
+    std::uint64_t consume_ns) {
+    auto value = no_target_gate25_input(frame, present_ns, consume_ns);
+    value.source_observation_id = frame * 10 + 1;
+    value.persistent_target_id = 77;
+    value.target_acquisition_id = 5;
+    value.viewport_source_frame_id = frame;
+    value.stable_body_width = 50.0f;
+    value.stable_body_height = 100.0f;
+    value.reliability = 1.0f;
+    value.target_confidence = 1.0f;
+    value.fresh_observed = true;
+    value.strong_observation = true;
+    value.stable_coordinates_valid = false;
+    value.backend_known = true;
+    value.backend_epoch = 1;
+    value.output_enabled = true;
+    return value;
+}
+
+void test_gate25_no_target_five_seconds_is_aggregate_only() {
+    runtime_app::RuntimeTelemetryOptions options;
+    options.enabled = true;
+    options.gate_enabled = true;
+    options.start_writer = false;
+    runtime_app::RuntimeTelemetry telemetry(options);
+    telemetry.start();
+    runtime_app::TelemetrySessionContext context;
+    context.gate2_5_live_shadow_enabled = true;
+    runtime_app::TelemetryCollectors collectors(true, &telemetry, context);
+
+    constexpr std::uint64_t kFramePeriodNs = 5'555'556ull;
+    for (std::uint64_t frame = 1; frame <= 900; ++frame) {
+        const std::uint64_t present = frame * kFramePeriodNs;
+        collectors.observe_gate25_observation(
+            no_target_gate25_input(frame, present, present));
+    }
+    const auto before_shutdown = collectors.counters();
+    REQUIRE(before_shutdown.gate25_observation_invocations == 900);
+    REQUIRE(before_shutdown.gate25_anomaly_records == 0);
+    REQUIRE(before_shutdown.gate25_aggregate_records == 0);
+    collectors.shutdown(5'100'000'000ull);
+    telemetry.stop();
+    const auto after_shutdown = collectors.counters();
+    REQUIRE(after_shutdown.gate25_anomaly_records == 0);
+    REQUIRE(after_shutdown.gate25_aggregate_records == 1);
+}
+
+void test_gate25_missing_present_clock_uses_independent_flush_clock() {
+    runtime_app::RuntimeTelemetryOptions options;
+    options.enabled = true;
+    options.gate_enabled = true;
+    options.start_writer = false;
+    runtime_app::RuntimeTelemetry telemetry(options);
+    telemetry.start();
+    runtime_app::TelemetrySessionContext context;
+    context.gate2_5_live_shadow_enabled = true;
+    runtime_app::TelemetryCollectors collectors(true, &telemetry, context);
+
+    for (std::uint64_t frame = 1; frame <= 200; ++frame) {
+        auto value = no_target_gate25_input(
+            frame, 0, frame * 6'000'000ull);
+        value.source_present_available = false;
+        value.source_present_steady_available = false;
+        value.source_present_qpc = 0;
+        value.source_present_qpc_frequency = 0;
+        value.source_present_calibration_id = 0;
+        value.source_present_steady_ns = 0;
+        collectors.observe_gate25_observation(value);
+    }
+    collectors.shutdown(2'000'000'000ull);
+    telemetry.stop();
+    const auto counters = collectors.counters();
+    // The first anomaly may flush immediately, but subsequent invalid frames
+    // are cadence-limited; this is not one writer record per source frame.
+    REQUIRE(counters.gate25_anomaly_records < 40);
+}
+
+void test_gate25_one_observation_fans_out_without_rescoring() {
+    runtime_app::RuntimeTelemetryOptions options;
+    options.enabled = true;
+    options.gate_enabled = true;
+    options.start_writer = false;
+    runtime_app::RuntimeTelemetry telemetry(options);
+    telemetry.start();
+    runtime_app::TelemetrySessionContext context;
+    context.gate2_5_live_shadow_enabled = true;
+    runtime_app::TelemetryCollectors collectors(true, &telemetry, context);
+    const auto* history = collectors.control_history();
+    REQUIRE(history != nullptr);
+    for (std::uint64_t tick_id = 1; tick_id <= 6; ++tick_id) {
+        auto delivery = tick(tick_id, false);
+        delivery.sample_ns = tick_id * 1'000'000ull;
+        delivery.output_sent_ns = delivery.sample_ns;
+        collectors.observe_tick(delivery);
+    }
+    const auto input = no_target_gate25_input(1, 2'000'000ull, 6'000'000ull);
+    for (int i = 0; i < 6; ++i) {
+        collectors.observe_gate25_observation(input);
+    }
+    const auto counters = collectors.counters();
+    REQUIRE(counters.gate25_observation_invocations == 1);
+    REQUIRE(counters.gate25_fanout_reuses == 5);
+    REQUIRE(counters.gate25_anomaly_records == 0);
+    REQUIRE(history->size() == 6);
+    collectors.shutdown(10'000'000ull);
+    telemetry.stop();
+}
+
+void test_gate25_gate_only_keeps_history_and_suppresses_standard_collectors() {
+    runtime_app::RuntimeTelemetryOptions options;
+    options.enabled = true;
+    options.gate_enabled = true;
+    options.start_writer = false;
+    options.gate_only = true;
+    options.queue_capacity = 2048;
+    runtime_app::RuntimeTelemetry telemetry(options);
+    runtime_app::TelemetrySessionContext context;
+    context.gate2_5_live_shadow_enabled = true;
+    context.standard_collectors_enabled = false;
+    runtime_app::TelemetryCollectors collectors(true, &telemetry, context);
+
+    for (std::uint64_t tick_id = 1; tick_id <= 1000; ++tick_id) {
+        auto value = tick(tick_id, (tick_id % 37) == 0);
+        value.sample_ns = tick_id * 1'000'000ull;
+        value.output_sent_ns = value.sample_ns;
+        collectors.observe_tick(value);
+    }
+    REQUIRE(collectors.control_history() == nullptr);
+    REQUIRE(collectors.gate25_delivery_push_count() == 1000);
+    std::cout << "gate25_gate_only_state_bytes="
+              << collectors.gate25_state_bytes()
+              << " delivery_view_size="
+              << sizeof(runtime_app::Gate25DeliveryView)
+              << " ordinary_queue_size="
+              << telemetry.ordinary_queue_size()
+              << " ordinary_queue_capacity="
+              << telemetry.ordinary_queue_capacity()
+              << " ordinary_queue_bytes="
+              << telemetry.ordinary_queue_bytes()
+              << " gate_transport_bytes="
+              << telemetry.gate25_transport_queue_bytes() << '\n';
+
+    constexpr std::uint64_t kFramePeriodNs = 5'555'556ull;
+    for (std::uint64_t frame = 1; frame <= 900; ++frame) {
+        collectors.observe_gate25_observation(
+            no_target_gate25_input(
+                frame, frame * kFramePeriodNs, frame * 6'000'000ull));
+    }
+    collectors.shutdown(6'000'000'000ull);
+    const auto collector_counts = collectors.counters();
+    const auto telemetry_counts = telemetry.counters();
+    REQUIRE(collector_counts.delivered_control_records == 0);
+    REQUIRE(collector_counts.controller_sample_records == 0);
+    REQUIRE(collector_counts.input_event_records == 0);
+    REQUIRE(collector_counts.ads_transition_records == 0);
+    REQUIRE(collector_counts.target_event_records == 0);
+    REQUIRE(collector_counts.control_response_records == 0);
+    REQUIRE(collector_counts.committed_capture_records == 0);
+    REQUIRE(collector_counts.acquisition_traces == 0);
+    REQUIRE(collector_counts.ego_motion_records == 0);
+    REQUIRE(collector_counts.gate25_aggregate_records == 1);
+    REQUIRE(collector_counts.gate25_anomaly_records == 0);
+    // One session metadata record is allowed; no standard normal record is
+    // constructed by the gate-only tick/vision path.
+    REQUIRE(collector_counts.constructed_records == 1);
+    REQUIRE(telemetry_counts.accepted_records == 1);
+    REQUIRE(telemetry_counts.gate25_accepted_records == 1);
+    REQUIRE(telemetry_counts.gate25_dropped_records == 0);
+    REQUIRE(telemetry.ordinary_queue_capacity() ==
+            runtime_app::kGate25GateOnlyOrdinaryQueueCapacity);
+    REQUIRE(telemetry.ordinary_queue_bytes() ==
+            runtime_app::kGate25GateOnlyOrdinaryQueueCapacity *
+                sizeof(runtime_app::TelemetryRecord));
+    const std::size_t gate_only_full_bytes =
+        collectors.gate25_state_bytes() +
+        telemetry.ordinary_queue_bytes() +
+        telemetry.gate25_transport_queue_bytes();
+    std::cout << "gate25_gate_only_full_bytes="
+              << gate_only_full_bytes
+              << " budget_bytes=" << 128u * 1024u << '\n';
+    // This is the measured bounded Gate-only increment: State plus its
+    // observer/delivery view, ordinary queue capacity, and dedicated Gate
+    // transport. RuntimeTelemetry object/allocator metadata is reported
+    // separately by the memory fixture and is not silently folded into this
+    // accessor-based sum.
+    REQUIRE(gate_only_full_bytes <= 128u * 1024u);
+
+    runtime_app::TelemetrySessionContext detailed_context;
+    detailed_context.gate2_5_live_shadow_enabled = true;
+    detailed_context.standard_collectors_enabled = true;
+    runtime_app::TelemetryCollectors detailed(true, &telemetry, detailed_context);
+    for (std::uint64_t tick_id = 2001; tick_id <= 2008; ++tick_id) {
+        detailed.observe_tick(tick(tick_id, false));
+    }
+    const auto detailed_counts = detailed.counters();
+    REQUIRE(detailed_counts.delivered_control_records >= 1);
+    REQUIRE(detailed_counts.controller_sample_records >= 1);
+}
+
+void test_gate25_gate_only_rejects_missing_output_sent_timestamp() {
+    runtime_app::RuntimeTelemetryOptions options;
+    options.enabled = true;
+    options.gate_enabled = true;
+    options.start_writer = false;
+    options.gate_only = true;
+    runtime_app::RuntimeTelemetry telemetry(options);
+    runtime_app::TelemetrySessionContext context;
+    context.gate2_5_live_shadow_enabled = true;
+    context.standard_collectors_enabled = false;
+    runtime_app::TelemetryCollectors collectors(true, &telemetry, context);
+
+    auto missing = tick(1, false);
+    missing.sample_ns = 1'000'000;
+    missing.output_sent_ns = 0;
+    collectors.observe_tick(missing);
+    REQUIRE(collectors.gate25_delivery_push_count() == 0);
+    REQUIRE(collectors.counters().gate25_delivery_timing_rejects == 1);
+
+    auto delivered = tick(2, false);
+    delivered.sample_ns = 2'000'000;
+    delivered.output_sent_ns = 2'000'000;
+    collectors.observe_tick(delivered);
+    REQUIRE(collectors.gate25_delivery_push_count() == 1);
+    REQUIRE(collectors.counters().gate25_delivery_timing_rejects == 1);
+    collectors.shutdown(5'000'000);
+    telemetry.stop();
+}
+
+void test_gate25_shutdown_conserves_bounded_anomalies_without_writer() {
+    runtime_app::RuntimeTelemetryOptions options;
+    options.enabled = true;
+    options.gate_enabled = true;
+    options.start_writer = false;
+    runtime_app::RuntimeTelemetry telemetry(options);
+    runtime_app::TelemetrySessionContext context;
+    context.gate2_5_live_shadow_enabled = true;
+    context.standard_collectors_enabled = false;
+    runtime_app::TelemetryCollectors collectors(true, &telemetry, context);
+
+    constexpr std::size_t kAnomalyInputs = 300;
+    for (std::size_t index = 0; index < kAnomalyInputs; ++index) {
+        auto input = invalid_geometry_gate25_input(
+            1 + index, 1'000'000'000ull,
+            1'000'000'000ull);
+        if (index == 0) {
+            // Establish the compatible source endpoint first. Subsequent
+            // distinct observation keys at the same present endpoint are
+            // genuine integrity anomalies rather than ordinary geometry
+            // rejection and therefore exercise the bounded anomaly ring.
+            input.stable_coordinates_valid = true;
+            input.viewport_width = 640;
+            input.viewport_height = 512;
+        }
+        // Keep the source endpoint physically identical but publish a distinct
+        // observation key. The core must classify this as a same-present
+        // integrity anomaly; it is not an ordinary no-target rejection.
+        input.source_observation_id = 1000 + index;
+        collectors.observe_gate25_observation(input);
+    }
+    collectors.shutdown(2'000'000'000ull);
+    const auto counts = collectors.counters();
+    const auto telemetry_counts = telemetry.counters();
+    std::cout << "gate25_shutdown_anomaly_counts aggregate="
+              << counts.gate25_aggregate_records
+              << " aggregate_dropped=" << counts.gate25_aggregate_dropped_records
+              << " anomaly=" << counts.gate25_anomaly_records
+              << " anomaly_dropped=" << counts.gate25_anomaly_dropped_records
+              << " unflushed=" << counts.gate25_unflushed_anomalies << '\n';
+    REQUIRE(counts.gate25_aggregate_records == 1);
+    REQUIRE(counts.gate25_aggregate_dropped_records == 0);
+    REQUIRE(counts.gate25_anomaly_records +
+                counts.gate25_anomaly_dropped_records +
+                counts.gate25_unflushed_anomalies ==
+            runtime_app::Gate25LiveShadow::kAnomalyCapacity);
+    REQUIRE(counts.gate25_anomaly_records > 0);
+    REQUIRE(counts.gate25_anomaly_dropped_records > 0);
+    REQUIRE(counts.gate25_unflushed_anomalies == 0);
+    REQUIRE(telemetry_counts.gate25_accepted_records ==
+            counts.gate25_aggregate_records + counts.gate25_anomaly_records);
+    REQUIRE(telemetry_counts.gate25_dropped_records ==
+            counts.gate25_aggregate_dropped_records +
+                counts.gate25_anomaly_dropped_records);
+    std::cout << "gate25_shutdown_anomaly_conservation accepted="
+              << telemetry_counts.gate25_accepted_records
+              << " dropped=" << telemetry_counts.gate25_dropped_records
+              << " unflushed=" << counts.gate25_unflushed_anomalies << '\n';
 }
 
 void test_enabled_collectors_write_profile_and_ads_evidence() {
@@ -236,11 +592,16 @@ void test_enabled_collectors_write_profile_and_ads_evidence() {
     REQUIRE(json.find("\"bodylock_radial_motion_bound\":true") != std::string::npos);
     REQUIRE(json.find("\"bodylock_constraint_reason\":\"fresh_position_radial_motion_bound\"") != std::string::npos);
     REQUIRE(json.find("\"output_delivered\":true") != std::string::npos);
-    REQUIRE(json.find("\"remaining_work_x\":12.5") != std::string::npos);
-    REQUIRE(json.find("\"remaining_work_y\":-4") != std::string::npos);
-    REQUIRE(json.find("\"delivered_camera_work_x\":3.25") != std::string::npos);
-    REQUIRE(json.find("\"remaining_work_confidence\":0.6") != std::string::npos);
-    REQUIRE(json.find("\"remaining_work_valid\":true") != std::string::npos);
+    REQUIRE(json.find("\"observed_error_x\":12.5") != std::string::npos);
+    REQUIRE(json.find("\"observed_error_y\":-4") != std::string::npos);
+    REQUIRE(json.find("\"pending_motion_x\":3.25") != std::string::npos);
+    REQUIRE(json.find("\"pending_motion_y\":-1.5") != std::string::npos);
+    REQUIRE(json.find("\"control_error_x\":9.25") != std::string::npos);
+    REQUIRE(json.find("\"control_error_y\":-2.5") != std::string::npos);
+    REQUIRE(json.find("\"pending_motion_confidence\":0.6") != std::string::npos);
+    REQUIRE(json.find("\"pending_motion_valid\":true") != std::string::npos);
+    REQUIRE(json.find("\"memory_applied\":true") != std::string::npos);
+    REQUIRE(json.find("\"memory_status\":\"applied\"") != std::string::npos);
     REQUIRE(json.find("\"input_reconnect_count\":2") != std::string::npos);
     REQUIRE(json.find("\"type\":\"target_event\"") != std::string::npos);
     REQUIRE(json.find("\"target_track_id\":1") != std::string::npos);
@@ -347,6 +708,78 @@ void test_ads_completeness_uses_observed_sequence_not_capture_frame_id() {
     REQUIRE(json.find("\"complete\":true") != std::string::npos);
     input.close();
     std::filesystem::remove_all(directory);
+}
+
+void test_gate25_all_invalid_sources_still_flush_reason_aggregates() {
+    const auto geometry_directory = std::filesystem::temp_directory_path() /
+        "cod_native_telemetry_gate25_invalid_geometry";
+    std::filesystem::remove_all(geometry_directory);
+    runtime_app::RuntimeTelemetryOptions geometry_options;
+    geometry_options.enabled = true;
+    geometry_options.gate_enabled = true;
+    geometry_options.directory = geometry_directory;
+    runtime_app::RuntimeTelemetry geometry_telemetry(geometry_options);
+    geometry_telemetry.start();
+    runtime_app::TelemetrySessionContext context;
+    context.gate2_5_live_shadow_enabled = true;
+    context.standard_collectors_enabled = false;
+    runtime_app::TelemetryCollectors geometry(true, &geometry_telemetry, context);
+    for (std::uint64_t frame = 1; frame <= 899; ++frame) {
+        geometry.observe_gate25_observation(invalid_geometry_gate25_input(
+            frame, frame * 5'555'556ull, frame * 6'000'000ull));
+    }
+    geometry.shutdown(6'000'000'000ull);
+    geometry_telemetry.stop();
+    REQUIRE(geometry.counters().gate25_aggregate_records == 1);
+    REQUIRE(geometry.counters().gate25_anomaly_records == 0);
+    std::ifstream geometry_input(geometry_telemetry.log_path());
+    std::ostringstream geometry_contents;
+    geometry_contents << geometry_input.rdbuf();
+    REQUIRE(geometry_contents.str().find("\"invalid_geometry\":899") !=
+            std::string::npos);
+    REQUIRE(geometry_contents.str().find("\"effect_valid\":0") !=
+            std::string::npos);
+    REQUIRE(geometry_contents.str().find(
+                "\"window_clock_domain\":\"source_present_steady\"") !=
+            std::string::npos);
+    geometry_input.close();
+    std::filesystem::remove_all(geometry_directory);
+
+    const auto missing_directory = std::filesystem::temp_directory_path() /
+        "cod_native_telemetry_gate25_missing_clock";
+    std::filesystem::remove_all(missing_directory);
+    runtime_app::RuntimeTelemetryOptions missing_options;
+    missing_options.enabled = true;
+    missing_options.gate_enabled = true;
+    missing_options.directory = missing_directory;
+    runtime_app::RuntimeTelemetry missing_telemetry(missing_options);
+    missing_telemetry.start();
+    runtime_app::TelemetryCollectors missing(true, &missing_telemetry, context);
+    for (std::uint64_t frame = 1; frame <= 899; ++frame) {
+        auto input = no_target_gate25_input(
+            frame, 0, frame * 5'555'556ull);
+        input.source_present_available = false;
+        input.source_present_steady_available = false;
+        input.source_present_qpc = 0;
+        input.source_present_steady_ns = 0;
+        missing.observe_gate25_observation(input);
+    }
+    missing.shutdown(6'000'000'000ull);
+    missing_telemetry.stop();
+    REQUIRE(missing.counters().gate25_aggregate_records == 1);
+    REQUIRE(missing.counters().gate25_anomaly_records == 1);
+    std::ifstream missing_input(missing_telemetry.log_path());
+    std::ostringstream missing_contents;
+    missing_contents << missing_input.rdbuf();
+    REQUIRE(missing_contents.str().find("\"missing_present_clock\":899") !=
+            std::string::npos);
+    REQUIRE(missing_contents.str().find("\"effect_valid\":0") !=
+            std::string::npos);
+    REQUIRE(missing_contents.str().find(
+                "\"window_clock_domain\":\"collector_monotonic_diagnostic\"") !=
+            std::string::npos);
+    missing_input.close();
+    std::filesystem::remove_all(missing_directory);
 }
 
 void test_fresh_envelope_defaults_and_false_values_serialize() {
@@ -825,6 +1258,15 @@ void test_delivered_control_persistence_is_sampled_below_controller_rate() {
 
 int main() {
     test_disabled_collectors_have_zero_transitions();
+    test_gate25_disabled_path_has_no_observer_state();
+    test_gate25_enabled_path_reports_real_state_and_writer_invocation();
+    test_gate25_no_target_five_seconds_is_aggregate_only();
+    test_gate25_missing_present_clock_uses_independent_flush_clock();
+    test_gate25_all_invalid_sources_still_flush_reason_aggregates();
+    test_gate25_one_observation_fans_out_without_rescoring();
+    test_gate25_gate_only_keeps_history_and_suppresses_standard_collectors();
+    test_gate25_gate_only_rejects_missing_output_sent_timestamp();
+    test_gate25_shutdown_conserves_bounded_anomalies_without_writer();
     test_enabled_collectors_write_profile_and_ads_evidence();
     test_fresh_envelope_defaults_and_false_values_serialize();
     test_controller_samples_include_current_target_context();

@@ -29,7 +29,6 @@ void test_vision_gpu_service_defaults_are_enabled() {
     require(config.vision.gpu_service_idle_fps == 20);
     require(config.vision.gpu_service_keepwarm_when_idle);
     require(config.vision.gpu_service_repeat_last_on_no_update);
-    require(!config.vision.ego_motion_enabled);
     require(config.vision.capture_width == 480);
     require(config.vision.capture_height == 416);
     require(config.vision.tensor_width == 480);
@@ -88,8 +87,7 @@ void test_vision_gpu_service_config_values_parse() {
                << "gpu_service_active_fps = 120\n"
                << "gpu_service_idle_fps = 15\n"
                << "gpu_service_keepwarm_when_idle = false\n"
-               << "gpu_service_repeat_last_on_no_update = false\n"
-               << "ego_motion_enabled = true\n";
+               << "gpu_service_repeat_last_on_no_update = false\n";
     }
 
     const controller_native::RuntimeConfig config =
@@ -107,7 +105,6 @@ void test_vision_gpu_service_config_values_parse() {
     require(config.vision.gpu_service_idle_fps == 15);
     require(!config.vision.gpu_service_keepwarm_when_idle);
     require(!config.vision.gpu_service_repeat_last_on_no_update);
-    require(config.vision.ego_motion_enabled);
 }
 
 void test_vision_gpu_service_can_be_disabled() {
@@ -444,10 +441,23 @@ void test_normal_template_preserves_controller_baseline() {
     require(config.vision.tensor_height == 384);
     require(config.vision.require_isotropic_resize);
     require(config.vision.model_path == "models/best_480x384.engine");
+    require(config.telemetry.queue_capacity == 8192);
+    require(config.telemetry.rotate_size_mb == 256);
+    require(config.telemetry.max_files == 10);
+    for (const auto& diagnostic : config.diagnostics)
+        require(diagnostic.find("unknown config key") == std::string::npos);
     require(std::abs(aim.max_ai_force - 0.9856f) < 0.0001f);
     require(std::abs(aim.max_ai_force_y - 1.008f) < 0.0001f);
     require(std::abs(aim.ads_snap_max_ai_force - 1.54f) < 0.0001f);
     require(std::abs(aim.ads_snap_max_ai_force_y - 1.26f) < 0.0001f);
+    require(config.gamepad.recoil.adaptive_feedback_enabled);
+    require(std::abs(config.gamepad.recoil.adaptive_min_amount - 0.06f) < 0.0001f);
+    require(std::abs(config.gamepad.recoil.adaptive_max_amount - 0.42f) < 0.0001f);
+    require(config.gamepad.recoil.firing_vertical_intent_enabled);
+    require(std::abs(
+        config.gamepad.recoil.firing_vertical_intent_max_offset_px - 48.0f) < 0.0001f);
+    require(std::abs(
+        config.gamepad.recoil.firing_vertical_intent_deadzone - 0.025f) < 0.0001f);
     require(aim.max_pixels == 150.0f);
     require(aim.ads_activation_radius_px == 135.0f);
     require(aim.ads_snap_window_ms == 135);
@@ -540,31 +550,56 @@ void test_tracker_aim_height_ratio_uses_canonical_key() {
     require(config.effective_source("gamepad.tracker.aim_height_ratio") == "user");
 }
 
-void test_tracker_remaining_work_defaults_parses_and_clamps() {
+void test_tracker_causal_memory_defaults_parses_and_rejects_invalid_relation() {
     const auto missing = std::filesystem::temp_directory_path() /
-        "cod_native_remaining_work_missing.toml";
+        "cod_native_causal_memory_missing.toml";
     std::filesystem::remove(missing);
     const auto defaults = controller_native::load_runtime_config(missing);
-    require(defaults.gamepad.tracker.remaining_work_enabled);
-    require(
-        std::abs(
-            defaults.gamepad.tracker.remaining_work_scale - 0.60f) <
+    require(defaults.gamepad.tracker.causal_memory_enabled);
+    require(std::abs(
+        defaults.gamepad.tracker.causal_memory_response_delay_ms - 20.0f) <
+        0.0001f);
+    require(std::abs(
+        defaults.gamepad.tracker.causal_memory_horizon_ms - 200.0f) <
         0.0001f);
 
     const auto path = std::filesystem::temp_directory_path() /
-        "cod_native_remaining_work.toml";
+        "cod_native_causal_memory.toml";
     {
         std::ofstream output(path);
         output << "[gamepad.tracker]\n"
-               << "remaining_work_enabled = false\n"
-               << "remaining_work_scale = 1.5\n";
+               << "causal_memory_enabled = false\n"
+               << "causal_memory_response_delay_ms = 150\n"
+               << "causal_memory_horizon_ms = 20\n";
     }
-    const auto parsed = controller_native::load_runtime_config(path);
+    bool invalid_relation_failed = false;
+    try {
+        (void)controller_native::load_runtime_config(path);
+    } catch (const std::runtime_error& error) {
+        const std::string message = error.what();
+        invalid_relation_failed =
+            message.find(
+                "gamepad.tracker.causal_memory_response_delay_ms") !=
+                std::string::npos &&
+            message.find(
+                "response_delay_ms < causal_memory_horizon_ms") !=
+                std::string::npos;
+    }
     std::filesystem::remove(path);
-    require(!parsed.gamepad.tracker.remaining_work_enabled);
-    require(
-        std::abs(parsed.gamepad.tracker.remaining_work_scale - 1.0f) <
-        0.0001f);
+    require(invalid_relation_failed);
+
+    const auto old_key_path = std::filesystem::temp_directory_path() /
+        "cod_native_causal_memory_old_key.toml";
+    {
+        std::ofstream output(old_key_path);
+        output << "[gamepad.tracker]\n"
+               << "causal_memory_shadow_enabled = true\n";
+    }
+    const auto old_key = controller_native::load_runtime_config(old_key_path);
+    std::filesystem::remove(old_key_path);
+    require(old_key.diagnostics.size() == 1);
+    require(old_key.diagnostics.front().find(
+        "causal_memory_shadow_enabled") != std::string::npos);
 }
 
 void test_tracker_aim_height_ratio_accepts_deprecated_alias() {
@@ -676,6 +711,34 @@ void test_fresh_vision_manual_floor_defaults_parses_and_clamps() {
     }
 }
 
+void test_helpful_manual_overdrive_defaults_parses_and_clamps() {
+    const auto missing = std::filesystem::temp_directory_path() /
+        "cod_native_helpful_manual_overdrive_defaults_missing.toml";
+    std::filesystem::remove(missing);
+    const auto defaults = controller_native::load_runtime_config(missing);
+    require(defaults.gamepad.intent.helpful_manual_overdrive_enabled);
+    require(std::abs(
+        defaults.gamepad.intent.helpful_manual_overdrive_max_scale - 1.15f) <
+        0.0001f);
+
+    for (const auto& value : {
+             std::pair{"1.18", 1.18f},
+             std::pair{"0.80", 1.00f},
+             std::pair{"1.40", 1.25f}}) {
+        const auto path = std::filesystem::temp_directory_path() /
+            "cod_native_helpful_manual_overdrive_value.toml";
+        { std::ofstream output(path); output <<
+            "[gamepad.intent]\nhelpful_manual_overdrive_enabled = false\n"
+            "helpful_manual_overdrive_max_scale = " << value.first << "\n"; }
+        const auto config = controller_native::load_runtime_config(path);
+        std::filesystem::remove(path);
+        require(!config.gamepad.intent.helpful_manual_overdrive_enabled);
+        require(std::abs(
+            config.gamepad.intent.helpful_manual_overdrive_max_scale - value.second) <
+            0.0001f);
+    }
+}
+
 void test_gamepad_intent_unknown_key_is_reported() {
     const auto path = std::filesystem::temp_directory_path() /
         "cod_native_intent_unknown.toml";
@@ -732,44 +795,6 @@ void test_auto_fire_pulse_rejects_invalid_relationships() {
     }
 }
 
-void test_control_learning_defaults_disabled_and_parses_shadow() {
-    const auto missing = std::filesystem::temp_directory_path() /
-        "cod_native_control_learning_missing.toml";
-    std::filesystem::remove(missing);
-    const auto defaults = controller_native::load_runtime_config(missing);
-    require(!defaults.control_learning.enabled);
-    require(defaults.control_learning.mode ==
-            controller_native::ControlLearningMode::Disabled);
-
-    const auto path = std::filesystem::temp_directory_path() /
-        "cod_native_control_learning_shadow.toml";
-    {
-        std::ofstream output(path);
-        output << "[runtime.control_learning]\n"
-               << "enabled = true\nmode = \"shadow\"\ntelemetry_enabled = true\n";
-    }
-    const auto shadow = controller_native::load_runtime_config(path);
-    std::filesystem::remove(path);
-    require(shadow.control_learning.enabled);
-    require(shadow.control_learning.mode ==
-            controller_native::ControlLearningMode::Shadow);
-    require(shadow.control_learning.telemetry_enabled);
-}
-
-void test_control_learning_disabled_overrides_requested_mode() {
-    const auto path = std::filesystem::temp_directory_path() /
-        "cod_native_control_learning_forced_disabled.toml";
-    {
-        std::ofstream output(path);
-        output << "[runtime.control_learning]\n"
-               << "enabled = false\nmode = \"rollout_shadow\"\n";
-    }
-    const auto config = controller_native::load_runtime_config(path);
-    std::filesystem::remove(path);
-    require(config.control_learning.mode ==
-            controller_native::ControlLearningMode::Disabled);
-}
-
 } // namespace
 
 int main() {
@@ -796,16 +821,15 @@ int main() {
     test_committed_legacy_full_fixture_resolves_every_assignment();
     test_environment_overrides_user_and_reports_source();
     test_tracker_aim_height_ratio_uses_canonical_key();
-    test_tracker_remaining_work_defaults_parses_and_clamps();
+    test_tracker_causal_memory_defaults_parses_and_rejects_invalid_relation();
     test_tracker_aim_height_ratio_accepts_deprecated_alias();
     test_tracker_canonical_aim_height_wins_regardless_of_file_order();
     test_tracker_aim_height_ratio_rejects_out_of_range_values();
     test_gamepad_intent_retention_floor_defaults_parses_and_clamps();
     test_fresh_vision_manual_floor_defaults_parses_and_clamps();
+    test_helpful_manual_overdrive_defaults_parses_and_clamps();
     test_gamepad_intent_unknown_key_is_reported();
     test_auto_fire_pulse_defaults_and_overrides();
     test_auto_fire_pulse_rejects_invalid_relationships();
-    test_control_learning_defaults_disabled_and_parses_shadow();
-    test_control_learning_disabled_overrides_requested_mode();
     return 0;
 }

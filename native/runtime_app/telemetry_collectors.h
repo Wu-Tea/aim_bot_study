@@ -1,11 +1,14 @@
 #pragma once
 
 #include "pipeline_contract/committed_capture_observation.h"
+#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
 #include "control_learning/causal_online_response_learner.h"
 #include "control_learning/pending_motion_model.h"
 #include "control_learning/short_horizon_rollout.h"
+#endif
 #include "runtime_telemetry.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 
@@ -36,6 +39,9 @@ struct TelemetryTickInput {
     float filtered_manual_x = 0.0f, filtered_manual_y = 0.0f;
     float manual_confidence = 0.0f;
     float ai_x = 0.0f, ai_y = 0.0f;
+    float target_final_x = 0.0f, target_final_y = 0.0f;
+    float ai_correction_x = 0.0f, ai_correction_y = 0.0f;
+    const char* manual_authority_mode = "no_target_passthrough";
     // Validated proposals only; these are not final-output shares.
     float fresh_vision_validated_manual_proposal_x = 0.0f;
     float fresh_vision_validated_manual_proposal_y = 0.0f;
@@ -103,10 +109,13 @@ struct TelemetryTickInput {
     float pre_recoil_x = 0.0f, pre_recoil_y = 0.0f;
     float recoil_x = 0.0f, recoil_y = 0.0f;
     float final_x = 0.0f, final_y = 0.0f;
-    float remaining_work_x = 0.0f, remaining_work_y = 0.0f;
-    float delivered_camera_work_x = 0.0f, delivered_camera_work_y = 0.0f;
-    float remaining_work_confidence = 0.0f;
-    bool remaining_work_valid = false;
+    float observed_error_x = 0.0f, observed_error_y = 0.0f;
+    float pending_motion_x = 0.0f, pending_motion_y = 0.0f;
+    float control_error_x = 0.0f, control_error_y = 0.0f;
+    float pending_motion_confidence = 0.0f;
+    bool pending_motion_valid = false;
+    bool memory_applied = false;
+    const char* memory_status = "disabled";
     float final_left_x = 0.0f, final_left_y = 0.0f;
     bool output_saturated = false;
     std::uint64_t selected_track_id = 0;
@@ -278,9 +287,30 @@ struct TelemetryEgoMotionShadowInput {
 struct TelemetryCollectorsCounters {
     std::uint64_t state_transitions = 0;
     std::uint64_t constructed_records = 0;
+    // Standard collector record counters are kept separate so gate-only
+    // sessions can prove that only the control-history seam and Gate2.5
+    // payloads were active.
+    std::uint64_t controller_sample_records = 0;
+    std::uint64_t input_event_records = 0;
+    std::uint64_t ads_transition_records = 0;
+    std::uint64_t target_event_records = 0;
+    std::uint64_t control_response_records = 0;
+    std::uint64_t committed_capture_records = 0;
     std::uint64_t acquisition_traces = 0;
     std::uint64_t delivered_control_records = 0;
+#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
     std::uint64_t ego_motion_records = 0;
+    std::uint64_t gate25_aggregate_records = 0;
+    std::uint64_t gate25_anomaly_records = 0;
+    std::uint64_t gate25_aggregate_dropped_records = 0;
+    std::uint64_t gate25_anomaly_dropped_records = 0;
+    std::uint64_t gate25_unflushed_anomalies = 0;
+    std::uint64_t gate25_state_constructions = 0;
+    std::uint64_t gate25_observation_invocations = 0;
+    std::uint64_t gate25_fanout_reuses = 0;
+    std::uint64_t gate25_writer_invocations = 0;
+    std::uint64_t gate25_delivery_timing_rejects = 0;
+#endif
 };
 
 struct TelemetrySessionContext {
@@ -295,6 +325,13 @@ struct TelemetrySessionContext {
     int idle_capture_fps = 0;
     int controller_tick_hz = 0;
     int telemetry_hz = 0;
+#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
+    bool gate2_5_live_shadow_enabled = false;
+#endif
+    // Runtime sets this from standard telemetry/learning inputs. Tests and
+    // gate-only runtime use false to retain ControlHistory without running
+    // the ordinary sampler, ADS episodes, or persisted standard records.
+    bool standard_collectors_enabled = true;
 };
 
 class TelemetryCollectors {
@@ -312,12 +349,20 @@ public:
     void observe_new_vision(const TelemetryVisionInput& input) noexcept;
     void observe_acquisition_trace(
         const TelemetryAcquisitionTraceInput& input) noexcept;
+#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
     void observe_ego_motion_shadow(
         std::uint64_t source_frame_id,
         std::uint64_t controller_tick_id,
         const TelemetryEgoMotionShadowInput& input) noexcept;
+    void observe_gate25_observation(
+        const Gate25ObservationInput& input) noexcept;
+    bool gate25_observer_enabled() const noexcept;
+    std::size_t gate25_state_bytes() const noexcept;
+    std::uint64_t gate25_delivery_push_count() const noexcept;
+#endif
     void observe_committed_capture(
         const pipeline_contract::CommittedCaptureObservation& observation) noexcept;
+#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
     const control_learning::ControlHistory<1024>* control_history() const noexcept;
     void observe_causal_shadow(
         const pipeline_contract::CommittedCaptureObservation& observation,
@@ -326,6 +371,7 @@ public:
         const control_learning::PendingMotionEstimate& pending,
         const control_learning::RolloutResult& rollout,
         const control_learning::Vec2d& final_output) noexcept;
+#endif
     void shutdown(std::uint64_t now_ns) noexcept;
     TelemetryCollectorsCounters counters() const noexcept;
 
@@ -333,6 +379,11 @@ private:
     struct State;
     void enqueue(TelemetryRecord record) noexcept;
     void flush_ads_event() noexcept;
+#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
+    void flush_gate25_records(
+        bool final,
+        std::uint64_t cadence_now_ns = 0) noexcept;
+#endif
 
     RuntimeTelemetry* sink_ = nullptr;
     std::unique_ptr<State> state_;

@@ -29,6 +29,7 @@ using controller_native::GamepadRuntimeConfig;
 using controller_native::NativeGamepadController;
 using controller_native::BenchmarkIntentFusionMode;
 using controller_native::BenchmarkRemainingWorkMode;
+using controller_native::CausalMotionLedgerStatus;
 using controller_native::PhysicalGamepadState;
 using controller_native::RuntimeConfig;
 using controller_native::benchmark_adapter::AssistedModeCoverage;
@@ -74,6 +75,7 @@ struct CliOptions {
     int learning_rounds = 0;
     int learning_delay_ms = 45;
     std::string learning_policy = "retain";
+    int causal_delay_ms = -1;
 };
 
 struct CounterfactualEpisodeSummary {
@@ -140,6 +142,17 @@ struct PulseAmplificationSummary {
     double max_abs_final_x = 0.0;
     double max_fresh_vision_output_jump = 0.0;
     double max_remaining_work_step_px = 0.0;
+};
+
+struct CausalMemoryRunSummary {
+    std::uint64_t valid_ticks = 0;
+    std::uint64_t fresh_valid_ticks = 0;
+    std::uint64_t realized_valid_ticks = 0;
+    int first_valid_ms = -1;
+    double pending_magnitude_sum_px = 0.0;
+    double max_pending_magnitude_px = 0.0;
+    double max_realized_magnitude_px = 0.0;
+    CausalMemoryAccuracySummary accuracy;
 };
 
 CliOptions parse_args(int argc, char** argv) {
@@ -233,6 +246,8 @@ CliOptions parse_args(int argc, char** argv) {
             options.learning_delay_ms = std::stoi(argv[++index]);
         } else if (argument == "--learning-policy" && index + 1 < argc) {
             options.learning_policy = argv[++index];
+        } else if (argument == "--causal-delay-ms" && index + 1 < argc) {
+            options.causal_delay_ms = std::stoi(argv[++index]);
         } else if (argument == "--help") {
             std::cout
                 << "Usage: cod_native_sustained_aimlab_benchmark "
@@ -269,7 +284,8 @@ CliOptions parse_args(int argc, char** argv) {
                 << "[--ads-timing config|coupled|decoupled160|decoupled180|"
                    "decoupled200|decoupled|hard30|ramp30|hard30-160|ramp30-160] "
                 << "[--learning-rounds N --learning-delay-ms N "
-                << "--learning-policy baseline|reset|retain]\n";
+                << "--learning-policy baseline|reset|retain] "
+                << "[--causal-delay-ms N]\n";
             std::exit(EXIT_SUCCESS);
         } else {
             throw std::runtime_error(
@@ -281,6 +297,9 @@ CliOptions parse_args(int argc, char** argv) {
     }
     if (options.vision_hz < 0 || options.vision_hz > 1000) {
         throw std::runtime_error("vision hz must be 0 or 1..1000");
+    }
+    if (options.causal_delay_ms < -1 || options.causal_delay_ms > 100) {
+        throw std::runtime_error("causal delay must be -1 or 0..100 ms");
     }
     if (options.vision_result_delay_ms < 0 ||
         options.vision_result_delay_ms > 100) {
@@ -654,6 +673,124 @@ void write_counterfactual_summary(
     out << "]}";
 }
 
+std::string causal_phase_accuracy_json(
+    const CausalMotionPhaseAccuracy& accuracy) {
+    std::ostringstream out;
+    out << "{\"predicted_valid_count\":" << accuracy.predicted_valid_count
+        << ",\"truth_valid_count\":" << accuracy.truth_valid_count
+        << ",\"scored_count\":" << accuracy.scored_count
+        << ",\"residual_mean_px\":" << accuracy.residual_mean_px
+        << ",\"residual_p95_px\":" << accuracy.residual_p95_px
+        << ",\"residual_max_px\":" << accuracy.residual_max_px
+        << ",\"normalized_residual_count\":"
+        << accuracy.normalized_residual_count
+        << ",\"normalized_residual_mean\":"
+        << accuracy.normalized_residual_mean
+        << ",\"normalized_residual_p95\":"
+        << accuracy.normalized_residual_p95
+        << ",\"normalized_residual_max\":"
+        << accuracy.normalized_residual_max
+        << ",\"sign_component_count\":"
+        << accuracy.sign_component_count
+        << ",\"sign_agreement_count\":"
+        << accuracy.sign_agreement_count
+        << ",\"sign_agreement\":" << accuracy.sign_agreement
+        << ",\"cosine_count\":" << accuracy.cosine_count
+        << ",\"cosine_mean\":" << accuracy.cosine_mean
+        << ",\"cosine_min\":" << accuracy.cosine_min << "}";
+    return out.str();
+}
+
+std::string causal_accuracy_json(
+    const CausalMemoryAccuracySummary& accuracy) {
+    const CausalMemoryAccuracyGate gate;
+    std::ostringstream out;
+    out << "{\"fresh_capture_count\":" << accuracy.fresh_capture_count
+        << ",\"paired_capture_count\":"
+        << accuracy.paired_capture_count
+        << ",\"prediction_valid_count\":"
+        << accuracy.prediction_valid_count
+        << ",\"prediction_invalid_count\":"
+        << accuracy.prediction_invalid_count
+        << ",\"valid_prediction_ratio\":"
+        << accuracy.valid_prediction_ratio
+        << ",\"lifecycle_reset_count\":"
+        << accuracy.lifecycle_reset_count
+        << ",\"truth_incomplete_window_count\":"
+        << accuracy.truth_incomplete_window_count
+        << ",\"horizon_or_boundary_count\":"
+        << accuracy.horizon_or_boundary_count
+        << ",\"actuator_truth\":{\"applied_sample_count\":"
+        << accuracy.actuator_truth.applied_sample_count
+        << ",\"targetless_sample_count\":"
+        << accuracy.actuator_truth.targetless_sample_count
+        << ",\"lifecycle_boundary_count\":"
+        << accuracy.actuator_truth.lifecycle_boundary_count
+        << ",\"total_applied_displacement_px\":["
+        << accuracy.actuator_truth.total_applied_displacement_px.x << ','
+        << accuracy.actuator_truth.total_applied_displacement_px.y << ']'
+        << ",\"targetless_applied_displacement_px\":["
+        << accuracy.actuator_truth.targetless_applied_displacement_px.x << ','
+        << accuracy.actuator_truth.targetless_applied_displacement_px.y << ']'
+        << ",\"pre_acquisition_carry_sample_count\":"
+        << accuracy.actuator_truth.pre_acquisition_carry_sample_count
+        << ",\"pre_acquisition_carry_displacement_px\":["
+        << accuracy.actuator_truth.pre_acquisition_carry_displacement_px.x
+        << ','
+        << accuracy.actuator_truth.pre_acquisition_carry_displacement_px.y
+        << ']'
+        << ",\"targetless_after_acquisition_carry_sample_count\":"
+        << accuracy.actuator_truth.targetless_after_acquisition_carry_sample_count
+        << ",\"targetless_after_acquisition_carry_displacement_px\":["
+        << accuracy.actuator_truth.targetless_after_acquisition_carry_displacement_px.x
+        << ','
+        << accuracy.actuator_truth.targetless_after_acquisition_carry_displacement_px.y
+        << ']'
+        << ",\"cross_boundary_old_owner_sample_count\":"
+        << accuracy.actuator_truth.cross_boundary_old_owner_sample_count
+        << ",\"cross_boundary_old_owner_abs_displacement_px\":"
+        << accuracy.actuator_truth.cross_boundary_old_owner_abs_displacement_px
+        << ",\"cross_boundary_old_owner_displacement_px\":["
+        << accuracy.actuator_truth.cross_boundary_old_owner_displacement_px.x
+        << ','
+        << accuracy.actuator_truth.cross_boundary_old_owner_displacement_px.y
+        << "]}"
+        << ",\"status_counts\":{";
+    for (std::size_t index = 0;
+         index < kCausalMemoryLedgerStatusCount; ++index) {
+        if (index != 0) out << ',';
+        out << json_string(causal_motion_status_name(
+                   static_cast<CausalMotionLedgerStatus>(index)))
+            << ':' << accuracy.status_counts[index];
+    }
+    out << "},\"gate_thresholds\":{\"max_mean_residual_px\":"
+        << gate.max_mean_residual_px
+        << ",\"max_p95_residual_px\":" << gate.max_p95_residual_px
+        << ",\"max_max_residual_px\":" << gate.max_max_residual_px
+        << ",\"max_normalized_mean_residual\":"
+        << gate.max_normalized_mean_residual
+        << ",\"max_normalized_p95_residual\":"
+        << gate.max_normalized_p95_residual
+        << ",\"max_normalized_max_residual\":"
+        << gate.max_normalized_max_residual
+        << ",\"normalized_truth_min_px\":"
+        << gate.normalized_truth_min_px
+        << ",\"min_sign_agreement\":" << gate.min_sign_agreement
+        << ",\"min_vector_cosine\":" << gate.min_vector_cosine
+        << ",\"min_valid_prediction_ratio\":"
+        << gate.min_valid_prediction_ratio
+        << "},\"gate_pass\":" << (accuracy.gate_pass ? "true" : "false")
+        << ",\"realized\":"
+        << causal_phase_accuracy_json(accuracy.realized)
+        << ",\"in_flight\":"
+        << causal_phase_accuracy_json(accuracy.in_flight)
+        << ",\"scheduled\":"
+        << causal_phase_accuracy_json(accuracy.scheduled)
+        << ",\"pending_total\":"
+        << causal_phase_accuracy_json(accuracy.pending_total) << '}';
+    return out.str();
+}
+
 void write_report(
     const std::filesystem::path& output_path,
     const CliOptions& options,
@@ -663,7 +800,8 @@ void write_report(
     const std::vector<BenchmarkResult>& results,
     const std::vector<CounterfactualRunSummary>& counterfactual_results,
     const std::vector<FusionRunSummary>& fusion_results,
-    const std::vector<PulseAmplificationSummary>& pulse_results) {
+    const std::vector<PulseAmplificationSummary>& pulse_results,
+    const std::vector<CausalMemoryRunSummary>& causal_memory_results) {
     if (output_path.empty()) return;
     if (std::filesystem::exists(output_path)) {
         throw std::runtime_error("output already exists: " + output_path.string());
@@ -679,7 +817,7 @@ void write_report(
     std::ofstream out(partial, std::ios::binary);
     if (!out) throw std::runtime_error("cannot open output: " + partial.string());
     out << std::setprecision(10);
-    out << "{\n  \"schema\": \"sustained-aimlab-v4\",\n"
+    out << "{\n  \"schema\": \"sustained-aimlab-v5\",\n"
         << "  \"revision\": " << json_string(options.revision) << ",\n"
         << "  \"dirty\": " << (options.dirty ? "true" : "false") << ",\n"
         << "  \"config_path\": " << json_string(options.config_path.string()) << ",\n"
@@ -716,6 +854,11 @@ void write_report(
         << ", \"target_radius_px\": " << config.target_radius_px
         << ", \"camera_response_px_per_stick_second\": "
         << config.camera_response_px_per_stick_second
+        << ", \"camera_response_curve\": "
+        << json_string(aim_response_curve_algorithm_name(
+               config.camera_response_curve.algorithm))
+        << ", \"camera_response_curve_reference_stick\": "
+        << config.camera_response_curve.calibration_reference_stick
         << ", \"manual_input_scale\": " << config.manual_input_scale
         << ", \"slowdown_edge\": " << config.slowdown_edge_multiplier
         << ", \"slowdown_center\": " << config.slowdown_center_multiplier
@@ -752,6 +895,16 @@ void write_report(
                : "final_pre_recoil")
         << ", \"scale\": "
         << options.remaining_work_scale << "},\n"
+        << "  \"causal_memory\": {\"schema_version\": 1, "
+           "\"causal_memory_enabled\": "
+        << (gamepad_config.tracker.causal_memory_enabled
+                ? "true" : "false")
+        << ", \"response_delay_ms\": "
+        << gamepad_config.tracker.causal_memory_response_delay_ms
+        << ", \"horizon_ms\": "
+        << gamepad_config.tracker.causal_memory_horizon_ms
+        << ", \"known_plant_delay_ms\": "
+        << config.control_response_delay_ms << "},\n"
         << "  \"tracker\": {\"velocity_alpha_override\": ";
     if (options.tracker_velocity_alpha >= 0.0) {
         out << options.tracker_velocity_alpha;
@@ -1062,6 +1215,25 @@ void write_report(
             << pulse.max_fresh_vision_output_jump
             << ",\"max_remaining_work_step_px\":"
             << pulse.max_remaining_work_step_px
+            << "},\"causal_memory\":";
+        const CausalMemoryRunSummary& causal_memory =
+            causal_memory_results.at(run_index);
+        const double causal_divisor = causal_memory.valid_ticks > 0
+            ? static_cast<double>(causal_memory.valid_ticks) : 1.0;
+        out << "{\"valid_ticks\":" << causal_memory.valid_ticks
+            << ",\"fresh_valid_ticks\":"
+            << causal_memory.fresh_valid_ticks
+            << ",\"realized_valid_ticks\":"
+            << causal_memory.realized_valid_ticks
+            << ",\"first_valid_ms\":" << causal_memory.first_valid_ms
+            << ",\"mean_pending_magnitude_px\":"
+            << causal_memory.pending_magnitude_sum_px / causal_divisor
+            << ",\"max_pending_magnitude_px\":"
+            << causal_memory.max_pending_magnitude_px
+            << ",\"max_realized_magnitude_px\":"
+            << causal_memory.max_realized_magnitude_px
+            << ",\"accuracy\":"
+            << causal_accuracy_json(causal_memory.accuracy)
             << "},\"counterfactual\":";
         if (run_index < counterfactual_results.size()) {
             write_counterfactual_summary(out, counterfactual_results[run_index]);
@@ -1089,6 +1261,37 @@ FusionRunSummary summarize_fusion(const ReplayReference& reference) {
         summary.manual_weight_sum += output.intent_fusion_manual_weight;
         summary.ai_weight_sum += output.intent_fusion_ai_weight;
         ++summary.ticks;
+    }
+    return summary;
+}
+
+CausalMemoryRunSummary summarize_causal_memory(
+    const ReplayReference& reference,
+    double ledger_response_delay_ms) {
+    CausalMemoryRunSummary summary;
+    summary.accuracy = score_causal_memory_trace(
+        reference.trace,
+        ledger_response_delay_ms,
+        reference.script.config.control_response_delay_ms);
+    for (const auto& frame : reference.trace) {
+        const auto& output = frame.output;
+        if (!output.causal_memory_valid) continue;
+        if (summary.first_valid_ms < 0) summary.first_valid_ms = frame.absolute_ms;
+        ++summary.valid_ticks;
+        if (frame.fresh_vision) ++summary.fresh_valid_ticks;
+        if (output.causal_memory_realized_valid) {
+            ++summary.realized_valid_ticks;
+            summary.max_realized_magnitude_px = std::max(
+                summary.max_realized_magnitude_px,
+                std::hypot(output.causal_memory_realized_px.x,
+                           output.causal_memory_realized_px.y));
+        }
+        const double pending_magnitude = std::hypot(
+            output.causal_memory_pending_total_px.x,
+            output.causal_memory_pending_total_px.y);
+        summary.pending_magnitude_sum_px += pending_magnitude;
+        summary.max_pending_magnitude_px = std::max(
+            summary.max_pending_magnitude_px, pending_magnitude);
     }
     return summary;
 }
@@ -1368,8 +1571,13 @@ int main(int argc, char** argv) {
         const CliOptions options = parse_args(argc, argv);
         const RuntimeConfig runtime =
             controller_native::load_runtime_config(options.config_path);
-        const GamepadRuntimeConfig gamepad_config =
+        GamepadRuntimeConfig gamepad_config =
             apply_ads_timing_profile(runtime.gamepad, options.ads_timing);
+        if (options.causal_delay_ms >= 0) {
+            gamepad_config.tracker.causal_memory_enabled = true;
+            gamepad_config.tracker.causal_memory_response_delay_ms =
+                static_cast<float>(options.causal_delay_ms);
+        }
         if (options.learning_rounds > 0) {
             LearningExperimentConfig learning;
             learning.rounds = options.learning_rounds;
@@ -1436,6 +1644,10 @@ int main(int argc, char** argv) {
                 : TargetProfile::Ordinary;
         benchmark_config.camera_response_px_per_stick_second =
             options.camera_response;
+        benchmark_config.control_response_delay_ms =
+            options.causal_delay_ms >= 0 ? options.causal_delay_ms : 0;
+        benchmark_config.camera_response_curve =
+            gamepad_config.aim_response_curve;
         benchmark_config.manual_input_scale = options.manual_input_scale;
         benchmark_config.slowdown_edge_multiplier = options.slowdown_edge;
         benchmark_config.slowdown_center_multiplier = options.slowdown_center;
@@ -1530,6 +1742,7 @@ int main(int argc, char** argv) {
         std::vector<CounterfactualRunSummary> counterfactual_results;
         std::vector<FusionRunSummary> fusion_results;
         std::vector<PulseAmplificationSummary> pulse_results;
+        std::vector<CausalMemoryRunSummary> causal_memory_results;
         const BenchmarkIntentFusionMode intent_fusion_mode =
             options.intent_fusion == "vector"
                 ? BenchmarkIntentFusionMode::CausalVector
@@ -1580,6 +1793,11 @@ int main(int argc, char** argv) {
                                 summarize_fusion(reference));
                             pulse_results.push_back(
                                 summarize_pulse_amplification(reference));
+                            causal_memory_results.push_back(
+                                summarize_causal_memory(
+                                    reference,
+                                    gamepad_config.tracker
+                                        .causal_memory_response_delay_ms));
                             if (options.smoke) {
                                 validate_smoke(
                                     result, options.duration_ms, *coverage);
@@ -1604,7 +1822,8 @@ int main(int argc, char** argv) {
             results,
             counterfactual_results,
             fusion_results,
-            pulse_results);
+            pulse_results,
+            causal_memory_results);
         std::cout << "cod_native_sustained_aimlab_benchmark PASS\n";
         return EXIT_SUCCESS;
     } catch (const std::exception& error) {

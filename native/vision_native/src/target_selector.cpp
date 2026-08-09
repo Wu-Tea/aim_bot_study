@@ -65,9 +65,15 @@ constexpr float kEnemyMaskMinRatio = 0.03f;
 constexpr float kEnemyMaskMaxRatio = 0.45f;
 constexpr int kCueMinPixels = 8;
 constexpr int kCueHoldMinPixels = 6;
-constexpr int kMaxCueHoldFrames = 3;
+// VisionTargetSelector only receives frames while the runtime is aiming.  A
+// directly observed person+cue pair may therefore lend the cue bounded ADS
+// continuation authority, but never cue-only pickup or fire authority.
+constexpr std::uint64_t kCueHoldEvidenceGapNs = 50'000'000ull;
+constexpr std::uint64_t kCueHoldMaxDurationNs = 1'000'000'000ull;
+constexpr int kMaxCueHoldFallbackFrames = 12;
 constexpr float kCueHoldSearchRadius = 18.0f;
 constexpr float kCueHoldSearchGrowthPerFrame = 6.0f;
+constexpr float kCueHoldSearchMaxRadius = 42.0f;
 constexpr float kCueOffsetSmoothingAlpha = 0.35f;
 constexpr float kAutoFireEdgePadding = 2.0f;
 constexpr int kAutoFireReleaseGraceFrames = 4;
@@ -732,6 +738,8 @@ void VisionTargetSelector::reset() {
 void VisionTargetSelector::clear_tracking_state() {
     last_target_center_.reset();
     active_target_.reset();
+    active_generation_had_enemy_evidence_ = false;
+    active_marker_expired_ = false;
     pending_target_.reset();
     pending_switch_target_.reset();
     clear_cue_tracking();
@@ -744,6 +752,8 @@ void VisionTargetSelector::clear_tracking_state() {
 void VisionTargetSelector::clear_cue_tracking() {
     last_cue_point_.reset();
     last_target_offset_from_cue_.reset();
+    last_direct_cue_observation_ns_ = 0;
+    last_cue_observation_ns_ = 0;
     cue_hold_frames_ = 0;
 }
 
@@ -835,7 +845,7 @@ std::optional<VisionTargetSelector::FrameRegion> VisionTargetSelector::required_
     if (batch.has_external_cue) {
         return std::nullopt;
     }
-    return cue_hold_search_region();
+    return cue_hold_search_region(batch.captured_at_ns);
 }
 
 VisionResult VisionTargetSelector::empty_result(float boxes_seen) const {
@@ -1194,8 +1204,13 @@ std::optional<VisionTargetSelector::Candidate> VisionTargetSelector::build_candi
     }
 
     const bool active_match = active_target_matches_candidate(observed);
-    const bool active_had_enemy_evidence =
-        active_target_.has_value() && candidate_has_enemy_evidence(active_target_->candidate);
+    if (is_color_checked_without_enemy_cue(detection)
+        && candidate_matches_expired_marker_region(observed)) {
+        return std::nullopt;
+    }
+    const bool active_had_enemy_evidence = active_target_.has_value()
+        && (active_generation_had_enemy_evidence_
+            || candidate_has_enemy_evidence(active_target_->candidate));
     const TargetEvidence evidence = evaluate_target_evidence(
         detection,
         box_w,
@@ -1261,8 +1276,13 @@ std::optional<VisionTargetSelector::Candidate> VisionTargetSelector::build_weak_
     if (!active_target_matches_candidate(weak)) {
         return std::nullopt;
     }
-    const bool active_had_enemy_evidence =
-        active_target_.has_value() && candidate_has_enemy_evidence(active_target_->candidate);
+    if (is_color_checked_without_enemy_cue(detection)
+        && candidate_matches_expired_marker_region(weak)) {
+        return std::nullopt;
+    }
+    const bool active_had_enemy_evidence = active_target_.has_value()
+        && (active_generation_had_enemy_evidence_
+            || candidate_has_enemy_evidence(active_target_->candidate));
     const TargetEvidence evidence = evaluate_target_evidence(
         detection,
         box_w,
@@ -1283,6 +1303,9 @@ void VisionTargetSelector::build_candidates(
     const DetectionBatch& batch,
     const std::optional<std::pair<float, float>>& last_target_center,
     const pipeline_contract::UserAimIntent* intent) {
+    if (enemy_marker_loss_grace_expired(batch.captured_at_ns)) {
+        active_marker_expired_ = true;
+    }
     candidate_scratch_.clear();
     candidate_scratch_.reserve(batch.detections.size());
     for (std::size_t index = 0; index < batch.detections.size(); ++index) {
@@ -1498,6 +1521,17 @@ bool VisionTargetSelector::active_target_matches_candidate(const Candidate& cand
         {active_target_->candidate.target_x, active_target_->candidate.target_y}) <= pickup_confirm_radius_;
 }
 
+bool VisionTargetSelector::candidate_matches_expired_marker_region(
+    const Candidate& candidate) const {
+    if (!active_marker_expired_ || !active_target_.has_value()) {
+        return false;
+    }
+    return point_distance(
+        {candidate.target_x, candidate.target_y},
+        {active_target_->candidate.target_x, active_target_->candidate.target_y})
+        <= tracking_radius_;
+}
+
 bool VisionTargetSelector::candidate_is_wide_low(const Candidate& candidate) const {
     return is_wide_low_pose(rect_width(candidate.body_box), rect_height(candidate.body_box));
 }
@@ -1569,7 +1603,19 @@ bool VisionTargetSelector::should_switch_targets(
 }
 
 std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::confirm_pickup(
-    const TargetState& target) {
+    const TargetState& target,
+    bool allow_marked_single_frame_pickup) {
+    const bool safe_marked_pickup = allow_marked_single_frame_pickup &&
+        source_equals(target.candidate.source, "observed") &&
+        candidate_has_enemy_evidence(target.candidate) &&
+        target.candidate.conf >= kPickupEnemyConfidenceThreshold &&
+        target.candidate.live_score >= 0.80f &&
+        target.candidate.corpse_risk < kWeakObservedRiskThreshold &&
+        target.candidate.uncertainty <= 0.35f;
+    if (safe_marked_pickup) {
+        clear_pending();
+        return target;
+    }
     if (kPickupConfirmFrames <= 1) {
         return target;
     }
@@ -1624,10 +1670,11 @@ void VisionTargetSelector::clear_switch_pending() {
 
 std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::commit_target(
     const TargetState& target,
-    bool clear_switch_pending_flag) {
+    bool clear_switch_pending_flag,
+    bool allow_marked_single_frame_pickup) {
     std::optional<TargetState> committed = target;
     if (!active_target_.has_value()) {
-        committed = confirm_pickup(target);
+        committed = confirm_pickup(target, allow_marked_single_frame_pickup);
         if (!committed.has_value()) {
             return std::nullopt;
         }
@@ -1641,11 +1688,22 @@ std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::commit_ta
 
     const bool is_replacement = active_target_.has_value() &&
         !targets_match(*active_target_, *committed);
-    if (!active_target_.has_value() || is_replacement) {
+    const bool begins_new_generation = !active_target_.has_value() || is_replacement;
+    if (begins_new_generation) {
         ++selector_target_generation_;
         selector_target_changed_ = true;
     } else {
         selector_target_changed_ = false;
+    }
+
+    if (begins_new_generation) {
+        active_generation_had_enemy_evidence_ =
+            candidate_has_enemy_evidence(committed->candidate);
+        active_marker_expired_ = false;
+    } else {
+        active_generation_had_enemy_evidence_ =
+            active_generation_had_enemy_evidence_
+            || candidate_has_enemy_evidence(committed->candidate);
     }
 
     TargetState stored_target = *committed;
@@ -1757,7 +1815,8 @@ VisionTargetSelector::select_candidate_targets(
 std::pair<std::optional<VisionTargetSelector::TargetState>, bool>
 VisionTargetSelector::resolve_active_target_transition(
     const TargetState& chosen_target,
-    const std::optional<TargetState>& active_match_target) {
+    const std::optional<TargetState>& active_match_target,
+    const pipeline_contract::UserAimIntent* intent) {
     if (!active_target_.has_value()) {
         clear_switch_pending();
         return {chosen_target, false};
@@ -1765,12 +1824,29 @@ VisionTargetSelector::resolve_active_target_transition(
 
     if (active_match_target.has_value()) {
         if (!targets_match(chosen_target, *active_match_target)) {
+            // Liveness invalidation is safety evidence, not an ordinary
+            // target-handover preference.  A just-collapsed active target
+            // must therefore yield to a confirmed live challenger even when
+            // the user's current stick direction is not aligned with it.
             if (should_escape_stale_active_match(*active_match_target, chosen_target)) {
                 const auto confirmed_switch = confirm_switch(chosen_target);
                 if (!confirmed_switch.has_value()) {
                     return {*active_target_, true};
                 }
                 return {*confirmed_switch, false};
+            }
+            // A valid aiming intent is the user's handover authority for a
+            // multi-target frame. If the chosen challenger is not aligned
+            // with that intent, do not let ordinary score/crosshair ranking
+            // release the current target after the confirmation delay.
+            if (intent != nullptr && intent->valid && intent->aiming
+                && !chosen_target.intent_applied) {
+                clear_switch_pending();
+                TargetState retained = *active_match_target;
+                retained.intent_applied = false;
+                retained.intent_decision = "ignored_unaligned_challenger";
+                retained.intent_score = 0.0f;
+                return {retained, false};
             }
             if (should_switch_targets(*active_match_target, chosen_target)) {
                 const auto confirmed_switch = confirm_switch(chosen_target);
@@ -1820,12 +1896,6 @@ bool VisionTargetSelector::fails_tracking_jump(const std::pair<float, float>& po
     return std::fabs(dx) > max_jump_x_ || std::fabs(dy) > max_jump_y_;
 }
 
-bool VisionTargetSelector::fails_first_pickup_flick(const std::pair<float, float>& point) const {
-    const float flick_dx = point.first - screen_center_x_;
-    const float flick_dy = point.second - screen_center_y_;
-    return std::fabs(flick_dx) >= max_jump_x_ || std::fabs(flick_dy) >= max_jump_y_;
-}
-
 std::pair<float, float> VisionTargetSelector::smooth_target_point(const std::pair<float, float>& point) const {
     if (!last_target_center_.has_value()) {
         return point;
@@ -1846,14 +1916,11 @@ std::pair<float, float> VisionTargetSelector::smooth_target_point(const std::pai
 std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::try_external_cue_hold(
     const DetectionBatch& batch) {
     if (!batch.has_external_cue
-        || !active_target_.has_value()
-        || !last_cue_point_.has_value()
-        || !last_target_offset_from_cue_.has_value()
-        || cue_hold_frames_ >= kMaxCueHoldFrames) {
+        || !cue_hold_is_active(batch.captured_at_ns)) {
         return std::nullopt;
     }
 
-    const auto bounds = cue_hold_search_region();
+    const auto bounds = cue_hold_search_region(batch.captured_at_ns);
     if (!bounds.has_value()
         || !rect_contains_point(*bounds, batch.external_cue_x, batch.external_cue_y)) {
         return std::nullopt;
@@ -1875,20 +1942,21 @@ std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::try_exter
     held.has_source_detection = false;
 
     last_cue_point_ = std::make_pair(batch.external_cue_x, batch.external_cue_y);
+    if (batch.captured_at_ns != 0) {
+        last_cue_observation_ns_ = batch.captured_at_ns;
+    }
     cue_hold_frames_ += 1;
     return target_from_candidate(held, active_target_->score);
 }
 
 std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::try_cue_hold(
-    const ColorFrameView& frame) {
-    if (!active_target_.has_value()
-        || !last_cue_point_.has_value()
-        || !last_target_offset_from_cue_.has_value()
-        || cue_hold_frames_ >= kMaxCueHoldFrames) {
+    const ColorFrameView& frame,
+    std::uint64_t observation_ns) {
+    if (!cue_hold_is_active(observation_ns)) {
         return std::nullopt;
     }
 
-    const auto bounds = cue_hold_search_region();
+    const auto bounds = cue_hold_search_region(observation_ns);
     if (!bounds.has_value()) {
         return std::nullopt;
     }
@@ -1914,22 +1982,64 @@ std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::try_cue_h
     held.has_source_detection = false;
 
     last_cue_point_ = std::make_pair(cue.cue_x, cue.cue_y);
+    if (observation_ns != 0) {
+        last_cue_observation_ns_ = observation_ns;
+    }
     cue_hold_frames_ += 1;
     return target_from_candidate(held, active_target_->score);
 }
 
-std::optional<VisionTargetSelector::FrameRegion> VisionTargetSelector::cue_hold_search_region() const {
+bool VisionTargetSelector::cue_hold_is_active(std::uint64_t observation_ns) const {
     if (!active_target_.has_value()
         || !last_cue_point_.has_value()
-        || !last_target_offset_from_cue_.has_value()
-        || cue_hold_frames_ >= kMaxCueHoldFrames) {
+        || !last_target_offset_from_cue_.has_value()) {
+        return false;
+    }
+    if (last_direct_cue_observation_ns_ == 0 ||
+        last_cue_observation_ns_ == 0 || observation_ns == 0) {
+        return cue_hold_frames_ < kMaxCueHoldFallbackFrames;
+    }
+    if (observation_ns < last_direct_cue_observation_ns_ ||
+        observation_ns < last_cue_observation_ns_) {
+        return false;
+    }
+    return observation_ns - last_direct_cue_observation_ns_
+            <= kCueHoldMaxDurationNs &&
+        observation_ns - last_cue_observation_ns_
+            <= kCueHoldEvidenceGapNs;
+}
+
+bool VisionTargetSelector::enemy_marker_loss_grace_expired(
+    std::uint64_t observation_ns) const {
+    if (!active_target_.has_value() || !active_generation_had_enemy_evidence_) {
+        return false;
+    }
+    if (last_direct_cue_observation_ns_ == 0 ||
+        last_cue_observation_ns_ == 0 || observation_ns == 0) {
+        return cue_hold_frames_ >= kMaxCueHoldFallbackFrames;
+    }
+    if (observation_ns < last_direct_cue_observation_ns_ ||
+        observation_ns < last_cue_observation_ns_) {
+        return true;
+    }
+    return observation_ns - last_direct_cue_observation_ns_
+            > kCueHoldMaxDurationNs ||
+        observation_ns - last_cue_observation_ns_
+            > kCueHoldEvidenceGapNs;
+}
+
+std::optional<VisionTargetSelector::FrameRegion> VisionTargetSelector::cue_hold_search_region(
+    std::uint64_t observation_ns) const {
+    if (!cue_hold_is_active(observation_ns)) {
         return std::nullopt;
     }
 
     const int frame_width = static_cast<int>(frame_width_);
     const int frame_height = static_cast<int>(frame_height_);
-    const int search_radius = static_cast<int>(std::round(
-        kCueHoldSearchRadius + (static_cast<float>(cue_hold_frames_) * kCueHoldSearchGrowthPerFrame)));
+    const int search_radius = static_cast<int>(std::round(std::min(
+        kCueHoldSearchMaxRadius,
+        kCueHoldSearchRadius
+            + (static_cast<float>(cue_hold_frames_) * kCueHoldSearchGrowthPerFrame))));
     const int cue_x = static_cast<int>(std::round(last_cue_point_->first));
     const int cue_y = static_cast<int>(std::round(last_cue_point_->second));
     IntRect bounds{
@@ -1944,9 +2054,17 @@ std::optional<VisionTargetSelector::FrameRegion> VisionTargetSelector::cue_hold_
     return bounds;
 }
 
-void VisionTargetSelector::update_cue_tracking(const TargetState& target) {
+void VisionTargetSelector::update_cue_tracking(
+    const TargetState& target,
+    std::uint64_t observation_ns) {
     if (!target.candidate.has_cue) {
-        clear_cue_tracking();
+        if (selector_target_changed_) {
+            clear_cue_tracking();
+        } else if (active_generation_had_enemy_evidence_) {
+            cue_hold_frames_ = std::min(
+                cue_hold_frames_ + 1,
+                kMaxCueHoldFallbackFrames);
+        }
         return;
     }
 
@@ -1969,6 +2087,9 @@ void VisionTargetSelector::update_cue_tracking(const TargetState& target) {
 
     last_cue_point_ = cue_point;
     last_target_offset_from_cue_ = new_offset;
+    last_direct_cue_observation_ns_ = observation_ns;
+    last_cue_observation_ns_ = observation_ns;
+    active_marker_expired_ = false;
     cue_hold_frames_ = 0;
 }
 
@@ -1976,6 +2097,13 @@ VisionResult VisionTargetSelector::hold_or_reset(float boxes_seen) {
     clear_pending();
     if (!active_target_.has_value()) {
         clear_tracking_state();
+        VisionResult result = empty_result(boxes_seen);
+        clear_auto_fire_state();
+        result.auto_fire = false;
+        return result;
+    }
+
+    if (active_marker_expired_) {
         VisionResult result = empty_result(boxes_seen);
         clear_auto_fire_state();
         result.auto_fire = false;
@@ -2001,17 +2129,13 @@ VisionResult VisionTargetSelector::finalize_selected_target(
     const TargetState& chosen_target,
     const std::optional<std::pair<float, float>>& last_target_center,
     float boxes_seen,
-    bool preserve_switch_pending) {
+    bool preserve_switch_pending,
+    bool single_credible_candidate,
+    std::uint64_t observation_ns) {
     const std::pair<float, float> chosen_point = {
         chosen_target.candidate.target_x,
         chosen_target.candidate.target_y,
     };
-
-    if (!last_target_center.has_value() && fails_first_pickup_flick(chosen_point)) {
-        clear_pending();
-        clear_switch_pending();
-        return empty_result(boxes_seen);
-    }
 
     if (fails_tracking_jump(chosen_point)) {
         clear_switch_pending();
@@ -2023,11 +2147,14 @@ VisionResult VisionTargetSelector::finalize_selected_target(
     smoothed_target.candidate.target_x = smoothed_point.first;
     smoothed_target.candidate.target_y = smoothed_point.second;
 
-    const auto committed = commit_target(smoothed_target, !preserve_switch_pending);
+    const auto committed = commit_target(
+        smoothed_target,
+        !preserve_switch_pending,
+        single_credible_candidate);
     if (!committed.has_value()) {
         return empty_result(boxes_seen);
     }
-    update_cue_tracking(*committed);
+    update_cue_tracking(*committed, observation_ns);
     VisionResult result = result_from_target(*committed, boxes_seen);
     result.auto_fire = update_auto_fire(&*committed);
     return result;
@@ -2113,20 +2240,30 @@ VisionResult VisionTargetSelector::select_impl(
     const auto last_target_center = last_target_center_;
     build_candidates(batch, last_target_center, intent);
     const auto& candidates = candidate_scratch_;
+    if (active_marker_expired_) {
+        hold_frames_ = std::max(hold_frames_, kOccludedTargetHoldFrames);
+    }
     if (candidates.empty()) {
         clear_pending();
         clear_switch_pending();
+        if (active_marker_expired_) {
+            VisionResult result = empty_result(boxes_seen);
+            clear_auto_fire_state();
+            result.auto_fire = false;
+            return result;
+        }
         const auto weak_association = select_weak_association(batch);
         if (weak_association.has_value()) {
             active_target_ = *weak_association;
+            active_generation_had_enemy_evidence_ =
+                active_generation_had_enemy_evidence_
+                || candidate_has_enemy_evidence(active_target_->candidate);
             hold_frames_ = 0;
             last_target_center_ = {
                 active_target_->candidate.target_x,
                 active_target_->candidate.target_y,
             };
-            if (active_target_->candidate.has_cue) {
-                update_cue_tracking(*active_target_);
-            }
+            update_cue_tracking(*active_target_, batch.captured_at_ns);
             VisionResult result = result_from_target(*active_target_, boxes_seen);
             clear_auto_fire_state();
             result.auto_fire = false;
@@ -2146,11 +2283,11 @@ VisionResult VisionTargetSelector::select_impl(
             return result;
         }
         if (frame != nullptr) {
-            const auto cue_region = cue_hold_search_region();
+            const auto cue_region = cue_hold_search_region(batch.captured_at_ns);
             if (cue_region.has_value() && !frame_covers(*cue_region, *frame)) {
                 return hold_or_reset(boxes_seen);
             }
-            const auto cue_hold = try_cue_hold(*frame);
+            const auto cue_hold = try_cue_hold(*frame, batch.captured_at_ns);
             if (cue_hold.has_value()) {
                 active_target_ = *cue_hold;
                 hold_frames_ = 0;
@@ -2164,6 +2301,21 @@ VisionResult VisionTargetSelector::select_impl(
                 return result;
             }
         }
+        if (active_target_.has_value() && active_generation_had_enemy_evidence_) {
+            if (last_direct_cue_observation_ns_ == 0 || batch.captured_at_ns == 0) {
+                cue_hold_frames_ = std::min(
+                    cue_hold_frames_ + 1,
+                    kMaxCueHoldFallbackFrames);
+            }
+            if (enemy_marker_loss_grace_expired(batch.captured_at_ns)) {
+                active_marker_expired_ = true;
+                hold_frames_ = std::max(hold_frames_, kOccludedTargetHoldFrames);
+            }
+            VisionResult result = empty_result(boxes_seen);
+            clear_auto_fire_state();
+            result.auto_fire = false;
+            return result;
+        }
         clear_tracking_state();
         VisionResult result = empty_result(boxes_seen);
         clear_auto_fire_state();
@@ -2176,7 +2328,10 @@ VisionResult VisionTargetSelector::select_impl(
         return hold_or_reset(boxes_seen);
     }
 
-    const auto transition = resolve_active_target_transition(*selected.first, selected.second);
+    const auto transition = resolve_active_target_transition(
+        *selected.first,
+        selected.second,
+        intent);
     if (!transition.first.has_value()) {
         return hold_or_reset(boxes_seen);
     }
@@ -2185,7 +2340,9 @@ VisionResult VisionTargetSelector::select_impl(
         *transition.first,
         last_target_center,
         boxes_seen,
-        transition.second);
+        transition.second,
+        candidates.size() == 1,
+        batch.captured_at_ns);
 }
 
 } // namespace vision_native

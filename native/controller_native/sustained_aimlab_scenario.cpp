@@ -88,12 +88,27 @@ void hash_config(std::uint64_t& hash, const BenchmarkConfig& config) {
     hash_double(hash, config.slowdown_edge_multiplier);
     hash_double(hash, config.slowdown_center_multiplier);
     hash_double(hash, config.camera_response_px_per_stick_second);
+    // Preserve historical hashes for the default linear plant while making a
+    // nonlinear plant/configuration part of scenario identity.
+    if (config.camera_response_curve.algorithm !=
+            AimResponseCurveAlgorithm::Linear ||
+        std::fabs(config.camera_response_curve.calibration_reference_stick -
+                  0.50f) > 1.0e-7f) {
+        hash_integral(hash, config.camera_response_curve.algorithm);
+        hash_double(
+            hash,
+            static_cast<double>(
+                config.camera_response_curve.calibration_reference_stick));
+    }
     // Preserve historical hashes for the default while fingerprinting any
     // benchmark-only manual sensitivity transform.
     if (std::fabs(config.manual_input_scale - 1.0) > 1.0e-12) {
         hash_double(hash, config.manual_input_scale);
     }
     hash_integral(hash, config.control_response_delay_ms);
+    if (config.initial_idle_ms > 0) {
+        hash_integral(hash, config.initial_idle_ms);
+    }
     hash_integral(hash, config.frame_width_px);
     hash_integral(hash, config.frame_height_px);
     hash_integral(hash, config.vision_interval_ms);

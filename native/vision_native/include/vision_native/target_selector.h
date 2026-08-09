@@ -150,6 +150,7 @@ private:
     bool boxes_match(const Rect& lhs, const Rect& rhs) const;
     bool targets_match(const TargetState& lhs, const TargetState& rhs) const;
     bool active_target_matches_candidate(const Candidate& candidate) const;
+    bool candidate_matches_expired_marker_region(const Candidate& candidate) const;
     bool candidate_is_wide_low(const Candidate& candidate) const;
     bool candidate_has_enemy_evidence(const Candidate& candidate) const;
     bool should_escape_stale_active_match(
@@ -157,11 +158,16 @@ private:
         const TargetState& challenger) const;
     bool should_switch_targets(const TargetState& locked, const TargetState& challenger) const;
 
-    std::optional<TargetState> confirm_pickup(const TargetState& target);
+    std::optional<TargetState> confirm_pickup(
+        const TargetState& target,
+        bool allow_marked_single_frame_pickup);
     std::optional<TargetState> confirm_switch(const TargetState& target);
     void clear_pending();
     void clear_switch_pending();
-    std::optional<TargetState> commit_target(const TargetState& target, bool clear_switch_pending);
+    std::optional<TargetState> commit_target(
+        const TargetState& target,
+        bool clear_switch_pending,
+        bool allow_marked_single_frame_pickup);
 
     std::optional<TargetState> select_single_candidate(const Candidate& candidate) const;
     std::pair<std::optional<TargetState>, std::optional<TargetState>> select_multi_candidate(
@@ -175,22 +181,31 @@ private:
 
     std::pair<std::optional<TargetState>, bool> resolve_active_target_transition(
         const TargetState& chosen_target,
-        const std::optional<TargetState>& active_match_target);
+        const std::optional<TargetState>& active_match_target,
+        const pipeline_contract::UserAimIntent* intent);
 
     bool fails_tracking_jump(const std::pair<float, float>& point) const;
-    bool fails_first_pickup_flick(const std::pair<float, float>& point) const;
     std::pair<float, float> smooth_target_point(const std::pair<float, float>& point) const;
     std::optional<TargetState> try_external_cue_hold(const DetectionBatch& batch);
-    std::optional<TargetState> try_cue_hold(const ColorFrameView& frame);
-    std::optional<FrameRegion> cue_hold_search_region() const;
-    void update_cue_tracking(const TargetState& target);
+    std::optional<TargetState> try_cue_hold(
+        const ColorFrameView& frame,
+        std::uint64_t observation_ns);
+    bool cue_hold_is_active(std::uint64_t observation_ns) const;
+    bool enemy_marker_loss_grace_expired(std::uint64_t observation_ns) const;
+    std::optional<FrameRegion> cue_hold_search_region(
+        std::uint64_t observation_ns) const;
+    void update_cue_tracking(
+        const TargetState& target,
+        std::uint64_t observation_ns);
     void clear_cue_tracking();
     VisionResult hold_or_reset(float boxes_seen);
     VisionResult finalize_selected_target(
         const TargetState& chosen_target,
         const std::optional<std::pair<float, float>>& last_target_center,
         float boxes_seen,
-        bool preserve_switch_pending);
+        bool preserve_switch_pending,
+        bool single_credible_candidate,
+        std::uint64_t observation_ns);
 
     float frame_width_ = 0.0f;
     float frame_height_ = 0.0f;
@@ -215,8 +230,12 @@ private:
     std::optional<TargetState> active_target_;
     std::optional<TargetState> pending_target_;
     std::optional<TargetState> pending_switch_target_;
+    bool active_generation_had_enemy_evidence_ = false;
+    bool active_marker_expired_ = false;
     std::optional<std::pair<float, float>> last_cue_point_;
     std::optional<std::pair<float, float>> last_target_offset_from_cue_;
+    std::uint64_t last_direct_cue_observation_ns_ = 0;
+    std::uint64_t last_cue_observation_ns_ = 0;
     int pending_frames_ = 0;
     int pending_switch_frames_ = 0;
     int hold_frames_ = 0;

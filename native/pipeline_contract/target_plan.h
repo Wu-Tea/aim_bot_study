@@ -149,6 +149,9 @@ struct TargetPlan {
     std::uint64_t ads_selected_source_id = 0;
     std::uint64_t selector_target_generation = 0;
     bool selector_target_changed = false;
+    // Current geometry comes from a same-generation selector cue rather than
+    // a person detection. This is aim-only, bounded continuity authority.
+    bool cue_continuation = false;
     Vec2f predicted_terminal_error_px{};
     float radial_closing_velocity_px_per_sec = 0.0f;
     Vec2f delivered_camera_motion_since_capture_px{};
