@@ -23,6 +23,12 @@ namespace runtime_app {
 
 namespace {
 
+// A 200 Hz service can poll just before a 180 Hz game presents its next frame.
+// Give DXGI one bounded millisecond to receive that frame instead of returning
+// empty and waiting another full service period. Keep direct/controller-thread
+// polling non-blocking so this never stalls the 1 kHz output loop.
+constexpr int kGpuServiceCaptureWaitMs = 1;
+
 RuntimeTelemetryOptions telemetry_options_from(
     const controller_native::RuntimeConfig& config,
     const std::filesystem::path& session_directory) {
@@ -449,7 +455,10 @@ RuntimeLoop::RuntimeLoop(
           config_.performance.enabled,
           config_.performance.interval_ms,
           std::filesystem::path(config_.performance.directory),
-          config_.performance.stdout_enabled}),
+          config_.performance.stdout_enabled,
+          config_.build_commit,
+          config_.source_config_sha256,
+          config_.engine_sha256}),
       log_session_manager_(log_session_options_from(config_)),
       telemetry_(telemetry_options_from(config_, log_session_manager_.session_directory())),
       telemetry_collectors_(
@@ -498,7 +507,7 @@ RuntimeLoop::RuntimeLoop(
         config_.vision.capture_height,
         0,
         -1,
-        0,
+        config_.vision.gpu_service_enabled ? kGpuServiceCaptureWaitMs : 0,
         config_.vision.model_path,
         config_.vision.color_readback_mode,
         config_.vision.tensor_width,
@@ -670,7 +679,6 @@ void RuntimeLoop::run_once() {
                 latest_controller_consume_started_ns_ = controller_consume_ns;
                 telemetry_new_vision = true;
                 viewport_fresh_vision = true;
-                publish_fusion_if_updated(result);
             }
         }
     } else {
@@ -698,11 +706,35 @@ void RuntimeLoop::run_once() {
                 latest_controller_consume_started_ns_ = controller_consume_ns;
                 telemetry_new_vision = true;
                 viewport_fresh_vision = true;
-                publish_fusion_if_updated(result);
             }
         }
     }
+    const auto controller_pipeline_started = std::chrono::steady_clock::now();
+    controller_native::GamepadOutputState output = controller_.build_output(physical);
+    const auto vigem_update_started = std::chrono::steady_clock::now();
+    controller_native::VirtualGamepadUpdateResult output_result;
+    if (config_.output.enabled) {
+        output_result = virtual_gamepad_.update(output);
+        if (output_result.reconnect_attempted && output_result.delivered) {
+            std::cout << "[NativeRuntime][Output] ViGEm recovered"
+                      << " reconnect_count=" << output_result.reconnect_count << '\n';
+        } else if (output_result.reconnect_attempted && !output_result.delivered) {
+            std::cerr << "[NativeRuntime][Output] ViGEm recovery pending"
+                      << " error=0x" << std::hex << output_result.error_code << std::dec << '\n';
+        }
+    }
+    const auto vigem_update_finished = std::chrono::steady_clock::now();
+    controller_.report_output_delivery(
+        !config_.output.enabled || output_result.delivered,
+        config_.output.enabled,
+        steady_time_seconds(vigem_update_finished).value,
+        static_cast<std::uint64_t>(output_result.reconnect_count) + 1);
+
+    // Everything below is observation, diagnostics, or future-frame setup.
+    // It must never delay the output calculated from a newly consumed result.
     if (telemetry_new_vision) {
+        publish_fusion_if_updated(latest_vision_result_);
+
         TelemetryVisionInput vision;
         vision.frame_id = latest_vision_result_.frame_id;
         vision.captured_at_ns = latest_vision_result_.captured_at_ns;
@@ -730,8 +762,7 @@ void RuntimeLoop::run_once() {
         vision.target_confidence = latest_vision_result_.target_confidence;
         telemetry_collectors_.observe_new_vision(vision);
     }
-    const auto controller_pipeline_started = std::chrono::steady_clock::now();
-    controller_native::GamepadOutputState output = controller_.build_output(physical);
+
     pipeline_contract::CommittedCaptureObservation viewport_observation;
     const pipeline_contract::CommittedCaptureObservation* viewport_observation_ptr = nullptr;
     if (viewport_fresh_vision) {
@@ -774,24 +805,6 @@ void RuntimeLoop::run_once() {
         controller_.last_pipeline_traces(),
         has_latest_vision_result_ ? &latest_vision_result_ : nullptr,
         aiming);
-    const auto vigem_update_started = std::chrono::steady_clock::now();
-    controller_native::VirtualGamepadUpdateResult output_result;
-    if (config_.output.enabled) {
-        output_result = virtual_gamepad_.update(output);
-        if (output_result.reconnect_attempted && output_result.delivered) {
-            std::cout << "[NativeRuntime][Output] ViGEm recovered"
-                      << " reconnect_count=" << output_result.reconnect_count << '\n';
-        } else if (output_result.reconnect_attempted && !output_result.delivered) {
-            std::cerr << "[NativeRuntime][Output] ViGEm recovery pending"
-                      << " error=0x" << std::hex << output_result.error_code << std::dec << '\n';
-        }
-    }
-    const auto vigem_update_finished = std::chrono::steady_clock::now();
-    controller_.report_output_delivery(
-        !config_.output.enabled || output_result.delivered,
-        config_.output.enabled,
-        steady_time_seconds(vigem_update_finished).value,
-        static_cast<std::uint64_t>(output_result.reconnect_count) + 1);
     if (perf_summary_logger_.enabled()) {
         const std::uint64_t output_sent_ns = steady_time_point_ns(vigem_update_finished);
         PerfControllerWindowSample controller_sample;
@@ -826,6 +839,20 @@ void RuntimeLoop::run_once() {
                 : -1.0;
             vision_sample.result_to_controller_ms = elapsed_ms_or_invalid(
                 result.result_at_ns, latest_controller_consume_started_ns_);
+            vision_sample.result_to_vigem_ms = elapsed_ms_or_invalid(
+                result.result_at_ns, output_sent_ns);
+            vision_sample.vision_publish_to_vigem_ms =
+                latest_vision_publish_available_
+                ? elapsed_ms_or_invalid(latest_vision_publish_ns_, output_sent_ns)
+                : -1.0;
+            vision_sample.controller_consume_to_vigem_ms = elapsed_ms_or_invalid(
+                latest_controller_consume_started_ns_, output_sent_ns);
+            const auto& control_trace = controller_.last_acquisition_trace();
+            vision_sample.controller_submit_to_final_output_ms = elapsed_ms_or_invalid(
+                latest_controller_submit_complete_ns_,
+                control_trace.final_output_ready_ns);
+            vision_sample.final_output_to_vigem_ms = elapsed_ms_or_invalid(
+                control_trace.final_output_ready_ns, output_sent_ns);
             vision_sample.source_present_to_vigem_ms =
                 result.source_present_steady_available
                 ? elapsed_ms_or_invalid(result.source_present_steady_ns, output_sent_ns)

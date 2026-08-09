@@ -610,6 +610,10 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         candidate->source_id == 0 && has_target_ && ads_epoch_active_ &&
         observations.selector_target_generation != 0 &&
         observations.selector_target_generation == selector_target_generation_;
+    const bool fresh_selector_no_selection =
+        accepted_fresh_capture && observations.selector_identity_protocol &&
+        observations.preferred_source_id == 0 && observations.count > 0 &&
+        !observations.selector_cue_continuation;
     if (accepted_fresh_capture) {
         cue_continuation_active_ = cue_continuation_candidate;
     }
@@ -1060,6 +1064,15 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
             observations.count + observations.rejected_friendly_count +
                 observations.rejected_low_reliability_count,
             observations.preferred_source_id);
+    }
+
+    if (fresh_selector_no_selection) {
+        // A current frame containing candidates but no selector-owned target
+        // is ambiguity, not an image dropout. Keep target identity available
+        // for the next frame, but give the predicted/old point zero authority.
+        coasting_actuation_scale = 0.0f;
+        fire_requested_ = false;
+        observed_fire_eligible_ = false;
     }
 
     pipeline_contract::TargetPlan plan{};

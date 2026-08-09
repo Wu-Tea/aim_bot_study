@@ -182,10 +182,8 @@ private:
     std::pair<std::optional<TargetState>, bool> resolve_active_target_transition(
         const TargetState& chosen_target,
         const std::optional<TargetState>& active_match_target,
-        const pipeline_contract::UserAimIntent* intent);
-
-    bool fails_tracking_jump(const std::pair<float, float>& point) const;
-    std::pair<float, float> smooth_target_point(const std::pair<float, float>& point) const;
+        const pipeline_contract::UserAimIntent* intent,
+        bool single_credible_candidate);
     std::optional<TargetState> try_external_cue_hold(const DetectionBatch& batch);
     std::optional<TargetState> try_cue_hold(
         const ColorFrameView& frame,
@@ -198,10 +196,8 @@ private:
         const TargetState& target,
         std::uint64_t observation_ns);
     void clear_cue_tracking();
-    VisionResult hold_or_reset(float boxes_seen);
     VisionResult finalize_selected_target(
         const TargetState& chosen_target,
-        const std::optional<std::pair<float, float>>& last_target_center,
         float boxes_seen,
         bool preserve_switch_pending,
         bool single_credible_candidate,
@@ -211,10 +207,7 @@ private:
     float frame_height_ = 0.0f;
     float screen_center_x_ = 0.0f;
     float screen_center_y_ = 0.0f;
-    float max_jump_x_ = 0.0f;
-    float max_jump_y_ = 0.0f;
     float tracking_radius_ = 0.0f;
-    float max_smoothing_jump_ = 0.0f;
     float pickup_confirm_radius_ = 0.0f;
     float switch_crosshair_margin_ = 0.0f;
     float crosshair_priority_margin_ = 0.0f;
@@ -238,7 +231,6 @@ private:
     std::uint64_t last_cue_observation_ns_ = 0;
     int pending_frames_ = 0;
     int pending_switch_frames_ = 0;
-    int hold_frames_ = 0;
     int cue_hold_frames_ = 0;
     bool auto_fire_holding_ = false;
     int auto_fire_miss_frames_ = 0;

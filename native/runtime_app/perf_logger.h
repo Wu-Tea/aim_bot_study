@@ -45,6 +45,9 @@ struct PerfSummaryOptions {
     unsigned int interval_ms = 5000;
     std::filesystem::path directory = "runs/perf_summary";
     bool stdout_enabled = true;
+    std::string build_commit = "unknown";
+    std::string config_sha256;
+    std::string engine_sha256;
 };
 
 struct PerfControllerWindowSample {
@@ -63,6 +66,11 @@ struct PerfVisionWindowSample {
     double copy_to_result_ms = -1.0;
     double source_present_to_result_ms = -1.0;
     double result_to_controller_ms = -1.0;
+    double result_to_vigem_ms = -1.0;
+    double vision_publish_to_vigem_ms = -1.0;
+    double controller_consume_to_vigem_ms = -1.0;
+    double controller_submit_to_final_output_ms = -1.0;
+    double final_output_to_vigem_ms = -1.0;
     double source_present_to_vigem_ms = -1.0;
     double cuda_map_ms = -1.0;
     double preprocess_ms = -1.0;

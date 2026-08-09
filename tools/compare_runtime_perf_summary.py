@@ -12,6 +12,12 @@ from typing import Any, Iterable
 DEFAULT_LATENCIES = (
     "capture_to_result",
     "source_present_to_result",
+    "result_to_controller",
+    "result_to_vigem",
+    "vision_publish_to_vigem",
+    "controller_consume_to_vigem",
+    "controller_submit_to_final_output",
+    "final_output_to_vigem",
     "source_present_to_vigem",
     "gpu_total",
     "preprocess",
@@ -85,8 +91,16 @@ def summarize_latency(records: list[dict[str, Any]], name: str) -> dict[str, flo
         mean = finite_number(raw.get("mean"))
         p50 = finite_number(raw.get("p50"))
         p95 = finite_number(raw.get("p95"))
+        p99 = finite_number(raw.get("p99"))
         maximum = finite_number(raw.get("max"))
-        if count is None or count <= 0 or mean is None or p50 is None or p95 is None:
+        if (
+            count is None
+            or count <= 0
+            or mean is None
+            or p50 is None
+            or p95 is None
+            or p99 is None
+        ):
             continue
         values.append(
             {
@@ -94,6 +108,7 @@ def summarize_latency(records: list[dict[str, Any]], name: str) -> dict[str, flo
                 "mean": mean,
                 "p50": p50,
                 "p95": p95,
+                "p99": p99,
                 "max": maximum if maximum is not None else p95,
             }
         )
@@ -105,6 +120,8 @@ def summarize_latency(records: list[dict[str, Any]], name: str) -> dict[str, flo
         "window_p50_median": median(value["p50"] for value in values),
         "window_p95_median": median(value["p95"] for value in values),
         "window_p95_worst": max(value["p95"] for value in values),
+        "window_p99_median": median(value["p99"] for value in values),
+        "window_p99_worst": max(value["p99"] for value in values),
         "max": max(value["max"] for value in values),
     }
 
@@ -183,6 +200,11 @@ def comparison(baseline: dict[str, Any], candidate: dict[str, Any]) -> dict[str,
             "p95_change_pct": percent_change(
                 before["window_p95_median"], after["window_p95_median"]
             ),
+            "baseline_window_p99_median": before["window_p99_median"],
+            "candidate_window_p99_median": after["window_p99_median"],
+            "p99_change_pct": percent_change(
+                before["window_p99_median"], after["window_p99_median"]
+            ),
         }
     return result
 
@@ -205,7 +227,10 @@ def print_report(result: dict[str, Any]) -> None:
         f"{format_value(accumulated['candidate'], '%')} "
         f"({format_value(accumulated['change_pct'], '%')})"
     )
-    print("latency metric                 mean before/after      window P95 before/after")
+    print(
+        "latency metric                 mean before/after      "
+        "window P95 before/after   window P99 before/after"
+    )
     for name, value in result["latency_ms"].items():
         mean_text = (
             f"{value['baseline_mean']:.3f}/{value['candidate_mean']:.3f} "
@@ -216,7 +241,12 @@ def print_report(result: dict[str, Any]) -> None:
             f"{value['candidate_window_p95_median']:.3f} "
             f"({format_value(value['p95_change_pct'], '%')})"
         )
-        print(f"{name:<30} {mean_text:<25} {p95_text}")
+        p99_text = (
+            f"{value['baseline_window_p99_median']:.3f}/"
+            f"{value['candidate_window_p99_median']:.3f} "
+            f"({format_value(value['p99_change_pct'], '%')})"
+        )
+        print(f"{name:<30} {mean_text:<25} {p95_text:<25} {p99_text}")
 
 
 def parse_args() -> argparse.Namespace:
@@ -226,6 +256,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--baseline", nargs="+", required=True, help="Baseline files or globs")
     parser.add_argument("--candidate", nargs="+", required=True, help="Candidate files or globs")
     parser.add_argument("--min-aiming-ratio", type=float, default=0.50)
+    parser.add_argument(
+        "--gate-metric",
+        default="source_present_to_vigem",
+        help="Candidate latency metric used by --max-candidate-window-p99-ms",
+    )
+    parser.add_argument(
+        "--max-candidate-window-p99-ms",
+        type=float,
+        help="Fail when the worst accepted candidate window exceeds this P99",
+    )
     parser.add_argument("--output-json", type=Path)
     return parser.parse_args()
 
@@ -253,6 +293,21 @@ def main() -> int:
         args.output_json.parent.mkdir(parents=True, exist_ok=True)
         args.output_json.write_text(
             json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+    if args.max_candidate_window_p99_ms is not None:
+        metric = payload["candidate"]["latency_ms"].get(args.gate_metric)
+        if metric is None:
+            raise SystemExit(f"candidate metric is unavailable: {args.gate_metric}")
+        observed = metric["window_p99_worst"]
+        if observed > args.max_candidate_window_p99_ms:
+            print(
+                f"P99 GATE FAIL: {args.gate_metric} worst-window P99 "
+                f"{observed:.3f}ms > {args.max_candidate_window_p99_ms:.3f}ms"
+            )
+            return 2
+        print(
+            f"P99 GATE PASS: {args.gate_metric} worst-window P99 "
+            f"{observed:.3f}ms <= {args.max_candidate_window_p99_ms:.3f}ms"
         )
     return 0
 

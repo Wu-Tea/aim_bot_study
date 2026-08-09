@@ -28,20 +28,14 @@ constexpr float kWideLowAspectThreshold = 0.65f;
 constexpr float kCrouchedHeightRatio = 0.24f;
 constexpr float kMaxAspectRatio = 4.50f;
 constexpr float kConfidenceScoreScale = 400.0f;
-constexpr float kMinSmoothingAlpha = 0.25f;
 constexpr float kTrackingSwitchMargin = 80.0f;
-constexpr float kMaxJumpXRatio = 180.0f / 640.0f;
-constexpr float kMaxJumpYRatio = 180.0f / 640.0f;
 constexpr float kDistanceScoreScale = 800.0f;
 constexpr float kTargetHeightScoreScale = 800.0f;
 constexpr float kTrackingRadiusRatio = 120.0f / 640.0f;
-constexpr float kMaxSmoothingJumpRatio = 24.0f / 640.0f;
 constexpr float kPickupConfirmRadiusRatio = 32.0f / 640.0f;
 constexpr float kMaxAreaLimitRatio = 40000.0f / (640.0f * 640.0f);
 constexpr int kPickupConfirmFrames = 2;
 constexpr int kSwitchConfirmFrames = 2;
-constexpr int kOccludedTargetHoldFrames = 6;
-constexpr int kTargetHoldFrames = kOccludedTargetHoldFrames + kSwitchConfirmFrames;
 constexpr float kActiveTargetIouThreshold = 0.12f;
 constexpr float kActiveTargetCenterXRatio = 0.65f;
 constexpr float kActiveTargetCenterYRatio = 0.35f;
@@ -718,10 +712,7 @@ VisionTargetSelector::VisionTargetSelector(int frame_width, int frame_height)
       screen_center_y_(frame_height_ * 0.5f) {
     const float avg_dim = (frame_width_ + frame_height_) * 0.5f;
     const float frame_area = frame_width_ * frame_height_;
-    max_jump_x_ = frame_width_ * kMaxJumpXRatio;
-    max_jump_y_ = frame_height_ * kMaxJumpYRatio;
     tracking_radius_ = avg_dim * kTrackingRadiusRatio;
-    max_smoothing_jump_ = avg_dim * kMaxSmoothingJumpRatio;
     pickup_confirm_radius_ = avg_dim * kPickupConfirmRadiusRatio;
     switch_crosshair_margin_ = avg_dim * kSwitchCrosshairMarginRatio;
     crosshair_priority_margin_ = avg_dim * kCrosshairPriorityMarginRatio;
@@ -745,7 +736,6 @@ void VisionTargetSelector::clear_tracking_state() {
     clear_cue_tracking();
     pending_frames_ = 0;
     pending_switch_frames_ = 0;
-    hold_frames_ = 0;
     reset_motion_anchor();
 }
 
@@ -1711,7 +1701,6 @@ std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::commit_ta
     stored_target.intent_decision = "none";
     stored_target.intent_score = 0.0f;
     active_target_ = stored_target;
-    hold_frames_ = 0;
     last_target_center_ = {
         active_target_->candidate.target_x,
         active_target_->candidate.target_y,
@@ -1816,7 +1805,8 @@ std::pair<std::optional<VisionTargetSelector::TargetState>, bool>
 VisionTargetSelector::resolve_active_target_transition(
     const TargetState& chosen_target,
     const std::optional<TargetState>& active_match_target,
-    const pipeline_contract::UserAimIntent* intent) {
+    const pipeline_contract::UserAimIntent* intent,
+    bool single_credible_candidate) {
     if (!active_target_.has_value()) {
         clear_switch_pending();
         return {chosen_target, false};
@@ -1831,7 +1821,9 @@ VisionTargetSelector::resolve_active_target_transition(
             if (should_escape_stale_active_match(*active_match_target, chosen_target)) {
                 const auto confirmed_switch = confirm_switch(chosen_target);
                 if (!confirmed_switch.has_value()) {
-                    return {*active_target_, true};
+                    // Keep identity while the live replacement confirms, but
+                    // never actuate the just-invalidated person's old point.
+                    return {std::nullopt, true};
                 }
                 return {*confirmed_switch, false};
             }
@@ -1875,9 +1867,12 @@ VisionTargetSelector::resolve_active_target_transition(
         return {*active_match_target, false};
     }
 
-    if (hold_frames_ < kOccludedTargetHoldFrames) {
+    if (single_credible_candidate) {
+        // At high Vision rates a sole credible current observation is more
+        // authoritative than geometry copied from an older frame.  This is
+        // the single-target fast path; multi-target handoff still confirms.
         clear_switch_pending();
-        return {std::nullopt, false};
+        return {chosen_target, false};
     }
 
     const auto confirmed_switch = confirm_switch(chosen_target);
@@ -1885,32 +1880,6 @@ VisionTargetSelector::resolve_active_target_transition(
         return {std::nullopt, false};
     }
     return {*confirmed_switch, false};
-}
-
-bool VisionTargetSelector::fails_tracking_jump(const std::pair<float, float>& point) const {
-    if (!last_target_center_.has_value()) {
-        return false;
-    }
-    const float dx = point.first - last_target_center_->first;
-    const float dy = point.second - last_target_center_->second;
-    return std::fabs(dx) > max_jump_x_ || std::fabs(dy) > max_jump_y_;
-}
-
-std::pair<float, float> VisionTargetSelector::smooth_target_point(const std::pair<float, float>& point) const {
-    if (!last_target_center_.has_value()) {
-        return point;
-    }
-
-    const float jump = point_distance(point, *last_target_center_);
-    if (jump <= 0.0f || jump >= max_smoothing_jump_) {
-        return point;
-    }
-
-    const float alpha = std::max(kMinSmoothingAlpha, jump / max_smoothing_jump_);
-    return {
-        last_target_center_->first + ((point.first - last_target_center_->first) * alpha),
-        last_target_center_->second + ((point.second - last_target_center_->second) * alpha),
-    };
 }
 
 std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::try_external_cue_hold(
@@ -2093,62 +2062,17 @@ void VisionTargetSelector::update_cue_tracking(
     cue_hold_frames_ = 0;
 }
 
-VisionResult VisionTargetSelector::hold_or_reset(float boxes_seen) {
-    clear_pending();
-    if (!active_target_.has_value()) {
-        clear_tracking_state();
-        VisionResult result = empty_result(boxes_seen);
-        clear_auto_fire_state();
-        result.auto_fire = false;
-        return result;
-    }
-
-    if (active_marker_expired_) {
-        VisionResult result = empty_result(boxes_seen);
-        clear_auto_fire_state();
-        result.auto_fire = false;
-        return result;
-    }
-
-    if (hold_frames_ < kTargetHoldFrames) {
-        hold_frames_ += 1;
-        VisionResult result = result_from_target(*active_target_, boxes_seen);
-        result.has_selected_detection = false;
-        result.auto_fire = update_auto_fire(&*active_target_);
-        return result;
-    }
-
-    clear_tracking_state();
-    VisionResult result = empty_result(boxes_seen);
-    clear_auto_fire_state();
-    result.auto_fire = false;
-    return result;
-}
-
 VisionResult VisionTargetSelector::finalize_selected_target(
     const TargetState& chosen_target,
-    const std::optional<std::pair<float, float>>& last_target_center,
     float boxes_seen,
     bool preserve_switch_pending,
     bool single_credible_candidate,
     std::uint64_t observation_ns) {
-    const std::pair<float, float> chosen_point = {
-        chosen_target.candidate.target_x,
-        chosen_target.candidate.target_y,
-    };
-
-    if (fails_tracking_jump(chosen_point)) {
-        clear_switch_pending();
-        return hold_or_reset(boxes_seen);
-    }
-
-    const auto smoothed_point = smooth_target_point(chosen_point);
-    TargetState smoothed_target = chosen_target;
-    smoothed_target.candidate.target_x = smoothed_point.first;
-    smoothed_target.candidate.target_y = smoothed_point.second;
-
+    // Direct observations are already current-frame measurements. Historical
+    // jump rejection and point smoothing made the selector output a plausible
+    // but stale coordinate, which then looked like controller latency.
     const auto committed = commit_target(
-        smoothed_target,
+        chosen_target,
         !preserve_switch_pending,
         single_credible_candidate);
     if (!committed.has_value()) {
@@ -2240,9 +2164,6 @@ VisionResult VisionTargetSelector::select_impl(
     const auto last_target_center = last_target_center_;
     build_candidates(batch, last_target_center, intent);
     const auto& candidates = candidate_scratch_;
-    if (active_marker_expired_) {
-        hold_frames_ = std::max(hold_frames_, kOccludedTargetHoldFrames);
-    }
     if (candidates.empty()) {
         clear_pending();
         clear_switch_pending();
@@ -2258,7 +2179,6 @@ VisionResult VisionTargetSelector::select_impl(
             active_generation_had_enemy_evidence_ =
                 active_generation_had_enemy_evidence_
                 || candidate_has_enemy_evidence(active_target_->candidate);
-            hold_frames_ = 0;
             last_target_center_ = {
                 active_target_->candidate.target_x,
                 active_target_->candidate.target_y,
@@ -2272,7 +2192,6 @@ VisionResult VisionTargetSelector::select_impl(
         const auto external_cue_hold = try_external_cue_hold(batch);
         if (external_cue_hold.has_value()) {
             active_target_ = *external_cue_hold;
-            hold_frames_ = 0;
             last_target_center_ = {
                 active_target_->candidate.target_x,
                 active_target_->candidate.target_y,
@@ -2285,12 +2204,17 @@ VisionResult VisionTargetSelector::select_impl(
         if (frame != nullptr) {
             const auto cue_region = cue_hold_search_region(batch.captured_at_ns);
             if (cue_region.has_value() && !frame_covers(*cue_region, *frame)) {
-                return hold_or_reset(boxes_seen);
+                // The requested cue ROI was not present, so this frame cannot
+                // update the target. Preserve identity internally but expose
+                // no old-coordinate actuation authority.
+                VisionResult result = empty_result(boxes_seen);
+                clear_auto_fire_state();
+                result.auto_fire = false;
+                return result;
             }
             const auto cue_hold = try_cue_hold(*frame, batch.captured_at_ns);
             if (cue_hold.has_value()) {
                 active_target_ = *cue_hold;
-                hold_frames_ = 0;
                 last_target_center_ = {
                     active_target_->candidate.target_x,
                     active_target_->candidate.target_y,
@@ -2309,7 +2233,6 @@ VisionResult VisionTargetSelector::select_impl(
             }
             if (enemy_marker_loss_grace_expired(batch.captured_at_ns)) {
                 active_marker_expired_ = true;
-                hold_frames_ = std::max(hold_frames_, kOccludedTargetHoldFrames);
             }
             VisionResult result = empty_result(boxes_seen);
             clear_auto_fire_state();
@@ -2325,23 +2248,32 @@ VisionResult VisionTargetSelector::select_impl(
 
     const auto selected = select_candidate_targets(candidates, last_target_center, intent);
     if (!selected.first.has_value()) {
-        return hold_or_reset(boxes_seen);
+        VisionResult result = empty_result(boxes_seen);
+        clear_auto_fire_state();
+        result.auto_fire = false;
+        return result;
     }
 
+    const bool single_credible_candidate = candidates.size() == 1;
     const auto transition = resolve_active_target_transition(
         *selected.first,
         selected.second,
-        intent);
+        intent,
+        single_credible_candidate);
     if (!transition.first.has_value()) {
-        return hold_or_reset(boxes_seen);
+        // A pending multi-target switch may retain identity, never the old
+        // point. Current Vision has explicitly declined control ownership.
+        VisionResult result = empty_result(boxes_seen);
+        clear_auto_fire_state();
+        result.auto_fire = false;
+        return result;
     }
 
     return finalize_selected_target(
         *transition.first,
-        last_target_center,
         boxes_seen,
         transition.second,
-        candidates.size() == 1,
+        single_credible_candidate,
         batch.captured_at_ns);
 }
 

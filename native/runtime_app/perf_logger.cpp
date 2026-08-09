@@ -118,6 +118,11 @@ struct PerfSummaryRecord {
     LatencySummary copy_to_result;
     LatencySummary source_present_to_result;
     LatencySummary result_to_controller;
+    LatencySummary result_to_vigem;
+    LatencySummary vision_publish_to_vigem;
+    LatencySummary controller_consume_to_vigem;
+    LatencySummary controller_submit_to_final_output;
+    LatencySummary final_output_to_vigem;
     LatencySummary source_present_to_vigem;
     LatencySummary cuda_map;
     LatencySummary preprocess;
@@ -157,6 +162,11 @@ struct PerfSummaryWindow {
     FixedLatencyHistogram copy_to_result;
     FixedLatencyHistogram source_present_to_result;
     FixedLatencyHistogram result_to_controller;
+    FixedLatencyHistogram result_to_vigem;
+    FixedLatencyHistogram vision_publish_to_vigem;
+    FixedLatencyHistogram controller_consume_to_vigem;
+    FixedLatencyHistogram controller_submit_to_final_output;
+    FixedLatencyHistogram final_output_to_vigem;
     FixedLatencyHistogram source_present_to_vigem;
     FixedLatencyHistogram cuda_map;
     FixedLatencyHistogram preprocess;
@@ -195,6 +205,11 @@ struct PerfSummaryWindow {
         copy_to_result.reset();
         source_present_to_result.reset();
         result_to_controller.reset();
+        result_to_vigem.reset();
+        vision_publish_to_vigem.reset();
+        controller_consume_to_vigem.reset();
+        controller_submit_to_final_output.reset();
+        final_output_to_vigem.reset();
         source_present_to_vigem.reset();
         cuda_map.reset();
         preprocess.reset();
@@ -244,6 +259,12 @@ struct PerfSummaryWindow {
         record.copy_to_result = copy_to_result.summary();
         record.source_present_to_result = source_present_to_result.summary();
         record.result_to_controller = result_to_controller.summary();
+        record.result_to_vigem = result_to_vigem.summary();
+        record.vision_publish_to_vigem = vision_publish_to_vigem.summary();
+        record.controller_consume_to_vigem = controller_consume_to_vigem.summary();
+        record.controller_submit_to_final_output =
+            controller_submit_to_final_output.summary();
+        record.final_output_to_vigem = final_output_to_vigem.summary();
         record.source_present_to_vigem = source_present_to_vigem.summary();
         record.cuda_map = cuda_map.summary();
         record.preprocess = preprocess.summary();
@@ -285,7 +306,9 @@ void write_latency_json(
            << ",\"max\":" << value.max << '}';
 }
 
-std::string summary_json(const PerfSummaryRecord& record) {
+std::string summary_json(
+    const PerfSummaryRecord& record,
+    const PerfSummaryOptions& options) {
     const double controller_hz = safe_rate(
         record.controller_ticks, record.window_seconds);
     const double output_hz = safe_rate(
@@ -307,7 +330,10 @@ std::string summary_json(const PerfSummaryRecord& record) {
 
     std::ostringstream output;
     output << std::fixed << std::setprecision(3)
-           << "{\"schema_version\":1,\"type\":\"runtime_perf_summary\""
+           << "{\"schema_version\":2,\"type\":\"runtime_perf_summary\""
+           << ",\"build_commit\":\"" << options.build_commit << '"'
+           << ",\"config_sha256\":\"" << options.config_sha256 << '"'
+           << ",\"engine_sha256\":\"" << options.engine_sha256 << '"'
            << ",\"histogram_bucket_ms\":" << kHistogramBucketWidthMs
            << ",\"window_start_steady_ns\":" << record.window_start_ns
            << ",\"window_end_steady_ns\":" << record.window_end_ns
@@ -342,6 +368,14 @@ std::string summary_json(const PerfSummaryRecord& record) {
     write_latency_json(output, "copy_to_result", record.copy_to_result);
     write_latency_json(output, "source_present_to_result", record.source_present_to_result);
     write_latency_json(output, "result_to_controller", record.result_to_controller);
+    write_latency_json(output, "result_to_vigem", record.result_to_vigem);
+    write_latency_json(output, "vision_publish_to_vigem", record.vision_publish_to_vigem);
+    write_latency_json(output, "controller_consume_to_vigem", record.controller_consume_to_vigem);
+    write_latency_json(
+        output,
+        "controller_submit_to_final_output",
+        record.controller_submit_to_final_output);
+    write_latency_json(output, "final_output_to_vigem", record.final_output_to_vigem);
     write_latency_json(output, "source_present_to_vigem", record.source_present_to_vigem);
     write_latency_json(output, "cuda_map", record.cuda_map);
     write_latency_json(output, "preprocess", record.preprocess);
@@ -512,6 +546,12 @@ struct PerfSummaryLogger::Impl {
         window.copy_to_result.observe(sample.copy_to_result_ms);
         window.source_present_to_result.observe(sample.source_present_to_result_ms);
         window.result_to_controller.observe(sample.result_to_controller_ms);
+        window.result_to_vigem.observe(sample.result_to_vigem_ms);
+        window.vision_publish_to_vigem.observe(sample.vision_publish_to_vigem_ms);
+        window.controller_consume_to_vigem.observe(sample.controller_consume_to_vigem_ms);
+        window.controller_submit_to_final_output.observe(
+            sample.controller_submit_to_final_output_ms);
+        window.final_output_to_vigem.observe(sample.final_output_to_vigem_ms);
         window.source_present_to_vigem.observe(sample.source_present_to_vigem_ms);
         window.cuda_map.observe(sample.cuda_map_ms);
         window.preprocess.observe(sample.preprocess_ms);
@@ -579,7 +619,7 @@ struct PerfSummaryLogger::Impl {
                 record = std::move(queue.front());
                 queue.pop_front();
             }
-            output << summary_json(record) << '\n';
+            output << summary_json(record, options) << '\n';
             output.flush();
             if (options.stdout_enabled) {
                 std::cout << summary_console(record) << '\n';

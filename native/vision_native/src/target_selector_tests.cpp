@@ -299,7 +299,7 @@ void test_crosshair_near_target_beats_physically_near_large_target() {
         "crosshair distance must outrank apparent physical target size");
 }
 
-void test_short_occlusion_does_not_switch_locked_near_target_to_visible_far_target() {
+void test_single_current_candidate_replaces_missing_old_target_immediately() {
     vision_native::VisionTargetSelector selector(640, 512);
     vision_native::DetectionBatch visible;
     visible.frame_width = 640;
@@ -320,21 +320,15 @@ void test_short_occlusion_does_not_switch_locked_near_target_to_visible_far_targ
     occluded.frame_height = 512;
     occluded.detections.push_back(sized_detection_for_target(
         270.0f, 256.0f, 24.0f, 60.0f, 0.92f));
-    for (int tick = 0; tick < 6; ++tick) {
-        const vision_native::VisionResult held = selector.select(occluded);
-        require_true(held.has_target,
-                     "short occlusion window must keep a predicted target");
-        require_near(held.target_x, 350.0f, 0.001f,
-                     "short occlusion must not redirect aim to the visible far target");
-        require_true(!held.has_selected_detection,
-                     "occlusion hold must not claim backing from the far detection");
-    }
-
-    selector.select(occluded);
     const vision_native::VisionResult released = selector.select(occluded);
     require_true(
         released.has_selected_detection && released.selected_detection_index == 0,
-        "persistent occlusion must eventually release to the visible target");
+        "the sole credible current candidate must replace a missing old target immediately");
+    require_near(
+        released.target_x,
+        270.0f,
+        0.001f,
+        "single-target realtime path must publish the current coordinate, not an old hold");
 }
 
 void test_intent_favored_challenger_logs_ignored_active_lock() {
@@ -492,12 +486,9 @@ void test_dead_active_target_does_not_override_unaligned_handover_intent() {
 
     const auto intent = lower_left_intent(19);
     const auto pending = selector.select(death_transition, intent);
-    require_true(pending.has_target, "death transition should retain a target while switch confirms");
-    require_near(
-        pending.target_x,
-        260.0f,
-        0.001f,
-        "first death-transition frame should preserve the old target until confirmation");
+    require_true(
+        !pending.has_target && !pending.aim_authority && !pending.fire_authority,
+        "death-transition confirmation must retain identity without actuating the corpse point");
 
     const auto switched = selector.select(death_transition, intent);
     require_true(switched.has_target, "confirmed death transition should select the live challenger");
@@ -536,7 +527,7 @@ void test_intent_does_not_grant_fire_authority_to_weak_association() {
     require_true(!result.intent_applied, "weak association should not report intent-applied ranking");
 }
 
-void test_intent_metadata_does_not_leak_into_later_hold_frame() {
+void test_large_single_target_move_uses_current_coordinate_without_old_intent() {
     vision_native::VisionTargetSelector selector(640, 512);
     const auto intent = rightward_intent(11);
     const auto batch = two_target_batch();
@@ -550,20 +541,25 @@ void test_intent_metadata_does_not_leak_into_later_hold_frame() {
     jump.frame_height = 512;
     jump.detections.push_back(detection_for_target(610.0f, 256.0f, 0.95f));
 
-    const vision_native::VisionResult held = selector.select(jump);
+    const vision_native::VisionResult current = selector.select(jump);
 
-    require_true(held.has_target, "large tracking jump should hold previous target briefly");
+    require_true(current.has_target, "sole credible current target should remain actionable");
     require_true(
-        !held.has_selected_detection,
-        "a held target must not claim backing from an unrelated current detection");
+        current.has_selected_detection && current.selected_detection_index == 0,
+        "large current movement must use its current detection instead of an old coordinate");
+    require_near(
+        current.target_x,
+        610.0f,
+        0.001f,
+        "selector must not reject a current single-target coordinate as a tracking jump");
     require_true(
-        !held.intent_applied,
-        "hold frame without current intent must not inherit old intent_applied");
-    require_true(held.intent_id == 0, "hold frame without current intent should not carry old intent id");
+        !current.intent_applied,
+        "current frame without user intent must not inherit old intent_applied");
+    require_true(current.intent_id == 0, "current frame without intent should not carry old intent id");
     require_text(
-        held.intent_decision,
+        current.intent_decision,
         "none",
-        "hold frame without current intent should not carry old intent decision");
+        "current frame without intent should not carry old intent decision");
 }
 
 void test_partial_color_frame_origin_classifies_candidate_cue() {
@@ -805,7 +801,7 @@ void test_yellow_cue_continuation_releases_when_marker_evidence_stops() {
         "cue continuation must release after 50 ms without marker evidence");
 }
 
-void test_roi_miss_does_not_immediately_clear_active_target() {
+void test_roi_miss_preserves_identity_without_old_coordinate_authority() {
     vision_native::VisionTargetSelector selector(640, 512);
     const auto batch = single_target_batch(320.0f, 256.0f, 0.45f);
     const auto region = selector.required_color_region(batch);
@@ -824,11 +820,15 @@ void test_roi_miss_does_not_immediately_clear_active_target() {
     require_true(cue_region.has_value(), "active cue target should request cue-hold ROI");
 
     ColorFrameFixture missing_roi = color_frame_for_region({0, 0, 8, 8}, false);
+    const std::uint64_t generation = locked.selector_target_generation;
     const vision_native::VisionResult held = selector.select_with_frame(empty, missing_roi.view);
 
     require_true(
-        held.has_target,
-        "a partial color frame that misses the requested cue ROI must not immediately clear active target");
+        !held.has_target && !held.aim_authority && !held.fire_authority,
+        "missing cue pixels must not turn the previous person coordinate into actuation authority");
+    require_true(
+        held.selector_target_generation == generation,
+        "a missing requested ROI may preserve target identity for the next complete frame");
 }
 
 void test_required_color_region_clamps_edge_candidate_to_screen() {
@@ -1268,13 +1268,13 @@ int main() {
         test_intent_direction_ranks_plausible_multi_target_candidates();
         test_user_intent_prefers_lower_left_close_target_over_far_upper_right();
         test_crosshair_near_target_beats_physically_near_large_target();
-        test_short_occlusion_does_not_switch_locked_near_target_to_visible_far_target();
+        test_single_current_candidate_replaces_missing_old_target_immediately();
         test_intent_favored_challenger_logs_ignored_active_lock();
         test_intent_switch_waits_for_confirmation_before_changing_active_target();
         test_unaligned_intent_does_not_confirm_right_side_challenger();
         test_dead_active_target_does_not_override_unaligned_handover_intent();
         test_intent_does_not_grant_fire_authority_to_weak_association();
-        test_intent_metadata_does_not_leak_into_later_hold_frame();
+        test_large_single_target_move_uses_current_coordinate_without_old_intent();
         test_partial_color_frame_origin_classifies_candidate_cue();
         test_bgra_green_friendly_is_hard_rejected();
         test_bgra_green_friendly_cannot_beat_yellow_enemy();
@@ -1285,7 +1285,7 @@ int main() {
         test_yellow_cue_hold_is_aim_only();
         test_yellow_cue_continuation_tracks_visible_marker_for_bounded_ads_hold();
         test_yellow_cue_continuation_releases_when_marker_evidence_stops();
-        test_roi_miss_does_not_immediately_clear_active_target();
+        test_roi_miss_preserves_identity_without_old_coordinate_authority();
         test_required_color_region_clamps_edge_candidate_to_screen();
         test_external_cue_continuation_does_not_request_full_color_frame();
         test_wide_low_no_cue_candidate_degrades_to_weak_without_death_transition();

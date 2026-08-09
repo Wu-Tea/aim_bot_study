@@ -296,6 +296,35 @@ void test_selector_owned_batch_does_not_acquire_unselected_candidate() {
                  "an explicit selector choice must remain eligible for acquisition");
 }
 
+void test_fresh_selector_ambiguity_keeps_identity_but_revokes_old_point_authority() {
+    controller_native::TargetCoordinator coordinator;
+    auto selected = frame(1, 0.0, 77, 300.0f, 208.0f);
+    selected.selector_identity_protocol = true;
+    selected.selector_target_generation = 1;
+    auto plan = coordinator.update(selected, ads_intent(0.0), 0.0);
+    const auto target_id = plan.target_id;
+    require_true(
+        plan.lifecycle == pipeline_contract::TargetLifecycle::Observed &&
+            plan.aim_authority > 0.0f,
+        "fixture must establish selector-owned target authority");
+
+    auto ambiguous = frame(2, 0.005, 88, 360.0f, 208.0f);
+    ambiguous.selector_identity_protocol = true;
+    ambiguous.selector_target_generation = 1;
+    ambiguous.preferred_source_id = 0;
+    plan = coordinator.update(ambiguous, ads_intent(0.005), 0.005);
+
+    require_true(
+        plan.target_id == target_id,
+        "fresh selector ambiguity may preserve identity for the next frame");
+    require_true(
+        plan.source_observation_id == 0 && plan.aim_authority == 0.0f,
+        "fresh candidates without a selector choice must not coast the old target point");
+    require_true(
+        !plan.fire_authority && !plan.fire_requested,
+        "fresh selector ambiguity must immediately revoke fire authority");
+}
+
 void test_motion_labels_jump_then_fall() {
     controller_native::TargetCoordinator coordinator;
     auto intent = ads_intent(0.0);
@@ -2389,6 +2418,7 @@ int main() {
         test_different_target_after_expired_hold_uses_new_admission();
         test_hold_expires_to_safe_manual_plan();
         test_selector_owned_batch_does_not_acquire_unselected_candidate();
+        test_fresh_selector_ambiguity_keeps_identity_but_revokes_old_point_authority();
         test_motion_labels_jump_then_fall();
         test_jump_cue_adds_causal_vertical_acceleration_projection();
         test_player_motion_oracle_separates_realized_camera_error();
