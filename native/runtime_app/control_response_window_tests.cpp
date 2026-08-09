@@ -48,8 +48,13 @@ runtime_app::ResponseControllerSample command(
 void test_pairs_commands_between_consecutive_new_frames() {
     runtime_app::ControlResponseWindowAssembler assembler;
     REQUIRE(!assembler.observe_vision(frame(10, 1'000'000'000, 20, -5, 7)).has_value());
-    assembler.observe_controller(command(1, 1'100'000'000, 0.2f, 0.1f, 0.3f));
-    assembler.observe_controller(command(2, 1'200'000'000, 0.4f, 0.1f, 0.5f));
+    // ControlHistory deliberately refuses to extrapolate beyond retained
+    // deliveries. Make both response-window boundaries explicit: neutral is
+    // held until 1.1 s, and the 1.2 s command is known to remain held at 1.3 s.
+    assembler.observe_controller(command(1, 1'000'000'000, 0.0f, 0.0f, 0.0f));
+    assembler.observe_controller(command(2, 1'100'000'000, 0.2f, 0.1f, 0.3f));
+    assembler.observe_controller(command(3, 1'200'000'000, 0.4f, 0.1f, 0.5f));
+    assembler.observe_controller(command(4, 1'300'000'000, 0.4f, 0.1f, 0.5f));
     const auto result = assembler.observe_vision(frame(11, 1'300'000'000, 15, -3, 7));
     REQUIRE(result.has_value());
     REQUIRE_NEAR(result->delta_error_x, -5.0f, 0.01f);
