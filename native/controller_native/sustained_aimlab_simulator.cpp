@@ -245,459 +245,9 @@ double horizontal_aim_bias_px(
 
 struct PlantCommand {
     Vec2d final_stick;
-    double delivered_at_seconds =
-        std::numeric_limits<double>::quiet_NaN();
-    std::uint64_t target_id = 0;
-    std::uint64_t ads_epoch = 0;
-    bool valid = false;
 };
-
-struct TruthWindow {
-    Vec2d displacement;
-    std::size_t matched_samples = 0;
-    bool valid = false;
-};
-
-int causal_status_index(CausalMotionLedgerStatus status) noexcept {
-    const int index = static_cast<int>(status);
-    return index >= 0 &&
-            index < static_cast<int>(kCausalMemoryLedgerStatusCount)
-        ? index : static_cast<int>(CausalMotionLedgerStatus::InvalidSample);
-}
-
-TruthWindow integrate_known_plant_by_delivery_time(
-    const std::vector<SimulationTraceFrame>& trace,
-    double begin_seconds,
-    double end_seconds,
-    std::uint64_t target_id,
-    std::uint64_t ads_epoch) {
-    TruthWindow result;
-    if (!std::isfinite(begin_seconds) || !std::isfinite(end_seconds) ||
-        end_seconds < begin_seconds || target_id == 0 || ads_epoch == 0) {
-        return result;
-    }
-    if (end_seconds - begin_seconds <= 1.0e-9) {
-        result.valid = true;
-        return result;
-    }
-
-    constexpr double kTickSeconds = 0.001;
-    constexpr double kTimestampEpsilon = 1.0e-9;
-    const std::size_t expected_samples = std::max<std::size_t>(
-        1, static_cast<std::size_t>(std::llround(
-            (end_seconds - begin_seconds) / kTickSeconds)));
-    double previous_origin = -std::numeric_limits<double>::infinity();
-    for (const auto& frame : trace) {
-        const double origin =
-            frame.plant_applied_command_delivery_seconds;
-        if (!frame.plant_applied_valid ||
-            !std::isfinite(origin) ||
-            origin + kTimestampEpsilon < begin_seconds ||
-            origin >= end_seconds - kTimestampEpsilon ||
-            frame.plant_applied_target_id != target_id ||
-            frame.plant_applied_ads_epoch != ads_epoch) {
-            continue;
-        }
-        if (std::isfinite(previous_origin) &&
-            origin - previous_origin > kTickSeconds * 1.5) {
-            return result;
-        }
-        previous_origin = origin;
-        result.displacement.x += frame.plant_applied_displacement_px.x;
-        result.displacement.y += frame.plant_applied_displacement_px.y;
-        ++result.matched_samples;
-    }
-    result.valid = result.matched_samples >= expected_samples;
-    if (!result.valid) result.displacement = {};
-    return result;
-}
-
-void add_phase_sample(
-    CausalMotionPhaseAccuracy& accuracy,
-    std::vector<double>& residuals,
-    std::vector<double>& normalized_residuals,
-    Vec2d predicted,
-    const TruthWindow& truth,
-    bool predicted_valid,
-    double normalized_truth_min_px) {
-    if (predicted_valid) ++accuracy.predicted_valid_count;
-    if (truth.valid) ++accuracy.truth_valid_count;
-    if (!predicted_valid || !truth.valid) return;
-    const Vec2d delta{
-        predicted.x - truth.displacement.x,
-        predicted.y - truth.displacement.y};
-    const double residual = length(delta);
-    residuals.push_back(residual);
-    accuracy.residual_max_px =
-        std::max(accuracy.residual_max_px, residual);
-    ++accuracy.scored_count;
-    const double truth_length = length(truth.displacement);
-    if (truth_length >= normalized_truth_min_px) {
-        normalized_residuals.push_back(residual / truth_length);
-        ++accuracy.normalized_residual_count;
-        accuracy.normalized_residual_max = std::max(
-            accuracy.normalized_residual_max,
-            residual / truth_length);
-    }
-    constexpr double kNontrivialTruthEpsilon = 1.0e-6;
-    const std::array<std::array<double, 2>, 2> components{{
-        {predicted.x, truth.displacement.x},
-        {predicted.y, truth.displacement.y}}};
-    for (const auto& pair : components) {
-        if (std::fabs(pair[1]) <= kNontrivialTruthEpsilon) continue;
-        ++accuracy.sign_component_count;
-        if (pair[0] * pair[1] > 0.0) ++accuracy.sign_agreement_count;
-    }
-    const double predicted_length = length(predicted);
-    if (predicted_length > kNontrivialTruthEpsilon &&
-        truth_length > kNontrivialTruthEpsilon) {
-        const double cosine = std::clamp(
-            dot(predicted, truth.displacement) /
-                (predicted_length * truth_length),
-            -1.0, 1.0);
-        if (accuracy.cosine_count == 0) {
-            accuracy.cosine_min = cosine;
-        } else {
-            accuracy.cosine_min = std::min(accuracy.cosine_min, cosine);
-        }
-        accuracy.cosine_mean += cosine;
-        ++accuracy.cosine_count;
-    }
-}
-
-void finish_phase_accuracy(
-    CausalMotionPhaseAccuracy& accuracy,
-    std::vector<double>& residuals,
-    std::vector<double>& normalized_residuals) {
-    if (!residuals.empty()) {
-        double sum = 0.0;
-        for (double value : residuals) sum += value;
-        accuracy.residual_mean_px = sum /
-            static_cast<double>(residuals.size());
-        std::sort(residuals.begin(), residuals.end());
-        const std::size_t p95_index = std::min(
-            residuals.size() - 1,
-            static_cast<std::size_t>(std::ceil(
-                static_cast<double>(residuals.size()) * 0.95) - 1));
-        accuracy.residual_p95_px = residuals[p95_index];
-    }
-    if (!normalized_residuals.empty()) {
-        double sum = 0.0;
-        for (double value : normalized_residuals) sum += value;
-        accuracy.normalized_residual_mean = sum /
-            static_cast<double>(normalized_residuals.size());
-        std::sort(normalized_residuals.begin(), normalized_residuals.end());
-        const std::size_t p95_index = std::min(
-            normalized_residuals.size() - 1,
-            static_cast<std::size_t>(std::ceil(
-                static_cast<double>(normalized_residuals.size()) * 0.95) - 1));
-        accuracy.normalized_residual_p95 = normalized_residuals[p95_index];
-    }
-    if (accuracy.sign_component_count != 0) {
-        accuracy.sign_agreement =
-            static_cast<double>(accuracy.sign_agreement_count) /
-            static_cast<double>(accuracy.sign_component_count);
-    }
-    if (accuracy.cosine_count != 0) {
-        accuracy.cosine_mean /=
-            static_cast<double>(accuracy.cosine_count);
-    }
-}
-
-bool phase_passes_gate(
-    const CausalMotionPhaseAccuracy& accuracy,
-    const CausalMemoryAccuracyGate& gate) noexcept {
-    if (accuracy.scored_count == 0 ||
-        accuracy.residual_mean_px > gate.max_mean_residual_px ||
-        accuracy.residual_p95_px > gate.max_p95_residual_px ||
-        accuracy.residual_max_px > gate.max_max_residual_px) {
-        return false;
-    }
-    if (accuracy.normalized_residual_count != 0 &&
-        (accuracy.normalized_residual_mean >
-             gate.max_normalized_mean_residual ||
-         accuracy.normalized_residual_p95 >
-             gate.max_normalized_p95_residual ||
-         accuracy.normalized_residual_max >
-             gate.max_normalized_max_residual)) {
-        return false;
-    }
-    if (accuracy.sign_component_count != 0 &&
-        accuracy.sign_agreement < gate.min_sign_agreement) {
-        return false;
-    }
-    return accuracy.cosine_count == 0 ||
-        accuracy.cosine_mean >= gate.min_vector_cosine;
-}
 
 }  // namespace
-
-const char* causal_motion_status_name(
-    CausalMotionLedgerStatus status) noexcept {
-    switch (status) {
-    case CausalMotionLedgerStatus::Valid: return "valid";
-    case CausalMotionLedgerStatus::Empty: return "empty";
-    case CausalMotionLedgerStatus::InvalidRequest: return "invalid_request";
-    case CausalMotionLedgerStatus::HorizonExceeded:
-        return "horizon_exceeded";
-    case CausalMotionLedgerStatus::IncompleteHistory:
-        return "incomplete_history";
-    case CausalMotionLedgerStatus::LifecycleMismatch:
-        return "lifecycle_mismatch";
-    case CausalMotionLedgerStatus::InvalidSample:
-        return "invalid_sample";
-    case CausalMotionLedgerStatus::BackendStateUnknown:
-        return "backend_state_unknown";
-    case CausalMotionLedgerStatus::NonMonotonicClock:
-        return "non_monotonic_clock";
-    case CausalMotionLedgerStatus::DeviceEpochChanged:
-        return "device_epoch_changed";
-    case CausalMotionLedgerStatus::CapturePairIncompatible:
-        return "capture_pair_incompatible";
-    case CausalMotionLedgerStatus::InvalidResponseModel:
-        return "invalid_response_model";
-    }
-    return "unknown";
-}
-
-CausalActuatorTruthSummary summarize_causal_actuator_truth(
-    const std::vector<SimulationTraceFrame>& trace) {
-    CausalActuatorTruthSummary summary;
-    bool have_observed_state = false;
-    bool previous_state_valid = false;
-    std::uint64_t previous_target_id = 0;
-    std::uint64_t previous_ads_epoch = 0;
-    bool have_boundary_owner = false;
-    std::uint64_t boundary_owner_target_id = 0;
-    std::uint64_t boundary_owner_ads_epoch = 0;
-    bool first_owner_seen = false;
-    for (const auto& frame : trace) {
-        const std::uint64_t current_target_id =
-            frame.output.controller_target_id;
-        const std::uint64_t current_ads_epoch =
-            frame.output.controller_ads_epoch;
-        const bool current_state_valid =
-            current_target_id != 0 && current_ads_epoch != 0;
-        if (have_observed_state &&
-            (current_state_valid != previous_state_valid ||
-             (current_state_valid && previous_state_valid &&
-              (current_target_id != previous_target_id ||
-               current_ads_epoch != previous_ads_epoch)))) {
-            if (previous_state_valid) {
-                boundary_owner_target_id = previous_target_id;
-                boundary_owner_ads_epoch = previous_ads_epoch;
-                have_boundary_owner = true;
-                ++summary.lifecycle_boundary_count;
-            }
-        }
-        have_observed_state = true;
-        previous_state_valid = current_state_valid;
-        if (current_state_valid) {
-            previous_target_id = current_target_id;
-            previous_ads_epoch = current_ads_epoch;
-            first_owner_seen = true;
-        }
-
-        if (!frame.plant_applied_valid) continue;
-        summary.total_applied_displacement_px.x +=
-            frame.plant_applied_displacement_px.x;
-        summary.total_applied_displacement_px.y +=
-            frame.plant_applied_displacement_px.y;
-        ++summary.applied_sample_count;
-        const bool origin_valid =
-            frame.plant_applied_target_id != 0 &&
-            frame.plant_applied_ads_epoch != 0;
-        if (!origin_valid) {
-            summary.targetless_applied_displacement_px.x +=
-                frame.plant_applied_displacement_px.x;
-            summary.targetless_applied_displacement_px.y +=
-                frame.plant_applied_displacement_px.y;
-            ++summary.targetless_sample_count;
-            if (!first_owner_seen) {
-                summary.pre_acquisition_carry_displacement_px.x +=
-                    frame.plant_applied_displacement_px.x;
-                summary.pre_acquisition_carry_displacement_px.y +=
-                    frame.plant_applied_displacement_px.y;
-                ++summary.pre_acquisition_carry_sample_count;
-            } else {
-                summary.targetless_after_acquisition_carry_displacement_px.x +=
-                    frame.plant_applied_displacement_px.x;
-                summary.targetless_after_acquisition_carry_displacement_px.y +=
-                    frame.plant_applied_displacement_px.y;
-                ++summary.targetless_after_acquisition_carry_sample_count;
-            }
-        }
-        if (have_boundary_owner &&
-            frame.plant_applied_target_id == boundary_owner_target_id &&
-            frame.plant_applied_ads_epoch == boundary_owner_ads_epoch) {
-            summary.cross_boundary_old_owner_displacement_px.x +=
-                frame.plant_applied_displacement_px.x;
-            summary.cross_boundary_old_owner_displacement_px.y +=
-                frame.plant_applied_displacement_px.y;
-            summary.cross_boundary_old_owner_abs_displacement_px +=
-                length(frame.plant_applied_displacement_px);
-            ++summary.cross_boundary_old_owner_sample_count;
-        }
-    }
-    return summary;
-}
-
-CausalMemoryAccuracySummary score_causal_memory_trace(
-    const std::vector<SimulationTraceFrame>& trace,
-    double ledger_response_delay_ms,
-    double plant_response_delay_ms,
-    const CausalMemoryAccuracyGate& gate) {
-    CausalMemoryAccuracySummary summary;
-    summary.actuator_truth = summarize_causal_actuator_truth(trace);
-    std::vector<double> realized_residuals;
-    std::vector<double> in_flight_residuals;
-    std::vector<double> scheduled_residuals;
-    std::vector<double> pending_residuals;
-    std::vector<double> realized_normalized_residuals;
-    std::vector<double> in_flight_normalized_residuals;
-    std::vector<double> scheduled_normalized_residuals;
-    std::vector<double> pending_normalized_residuals;
-    const double ledger_delay = ledger_response_delay_ms / 1000.0;
-    const double plant_delay = plant_response_delay_ms / 1000.0;
-    if (!std::isfinite(ledger_delay) || !std::isfinite(plant_delay) ||
-        ledger_delay < 0.0 || plant_delay < 0.0) {
-        summary.horizon_or_boundary_count = 1;
-        return summary;
-    }
-
-    bool have_previous_capture = false;
-    double previous_capture_seconds = 0.0;
-    std::uint64_t previous_target_id = 0;
-    std::uint64_t previous_ads_epoch = 0;
-    for (const auto& frame : trace) {
-        if (!frame.input.fresh_vision) continue;
-        ++summary.fresh_capture_count;
-        const auto status = frame.output.causal_memory_status;
-        ++summary.status_counts[static_cast<std::size_t>(
-            causal_status_index(status))];
-        const bool prediction_valid = frame.output.causal_memory_valid;
-        if (prediction_valid) {
-            ++summary.prediction_valid_count;
-        } else {
-            ++summary.prediction_invalid_count;
-        }
-        const double current_capture = frame.input.capture_time_seconds;
-        const std::uint64_t target_id = frame.output.controller_target_id;
-        const std::uint64_t ads_epoch = frame.output.controller_ads_epoch;
-        if (!std::isfinite(current_capture) || current_capture <= 0.0 ||
-            target_id == 0 || ads_epoch == 0) {
-            ++summary.truth_incomplete_window_count;
-            continue;
-        }
-        if (!have_previous_capture) {
-            have_previous_capture = true;
-            previous_capture_seconds = current_capture;
-            previous_target_id = target_id;
-            previous_ads_epoch = ads_epoch;
-            continue;
-        }
-        if (current_capture <= previous_capture_seconds) {
-            ++summary.horizon_or_boundary_count;
-            continue;
-        }
-        if (target_id != previous_target_id || ads_epoch != previous_ads_epoch) {
-            ++summary.lifecycle_reset_count;
-            ++summary.horizon_or_boundary_count;
-            previous_capture_seconds = current_capture;
-            previous_target_id = target_id;
-            previous_ads_epoch = ads_epoch;
-            continue;
-        }
-        ++summary.paired_capture_count;
-        const double decision_seconds = frame.input.ready_time_seconds;
-        const double realized_begin = previous_capture_seconds - plant_delay;
-        const double realized_end = current_capture - plant_delay;
-        const double in_flight_begin = current_capture - plant_delay;
-        const double scheduled_begin = current_capture;
-        const double scheduled_end = std::isfinite(decision_seconds)
-            ? std::max(current_capture, decision_seconds)
-            : current_capture;
-        const TruthWindow realized_truth =
-            integrate_known_plant_by_delivery_time(
-                trace, realized_begin, realized_end, target_id, ads_epoch);
-        const TruthWindow in_flight_truth =
-            integrate_known_plant_by_delivery_time(
-                trace, in_flight_begin, current_capture,
-                target_id, ads_epoch);
-        const TruthWindow scheduled_truth =
-            integrate_known_plant_by_delivery_time(
-                trace, scheduled_begin, scheduled_end,
-                target_id, ads_epoch);
-        TruthWindow pending_truth = in_flight_truth;
-        if (scheduled_truth.valid) {
-            pending_truth.displacement.x += scheduled_truth.displacement.x;
-            pending_truth.displacement.y += scheduled_truth.displacement.y;
-        } else {
-            pending_truth.valid = false;
-        }
-        if (!realized_truth.valid || !in_flight_truth.valid ||
-            !scheduled_truth.valid || !pending_truth.valid) {
-            ++summary.truth_incomplete_window_count;
-        }
-        if (status == CausalMotionLedgerStatus::HorizonExceeded) {
-            ++summary.horizon_or_boundary_count;
-        }
-        const bool pending_predicted_valid = prediction_valid;
-        add_phase_sample(
-            summary.realized, realized_residuals,
-            realized_normalized_residuals,
-            frame.output.causal_memory_realized_px,
-            realized_truth,
-            prediction_valid && frame.output.causal_memory_realized_valid,
-            gate.normalized_truth_min_px);
-        add_phase_sample(
-            summary.in_flight, in_flight_residuals,
-            in_flight_normalized_residuals,
-            frame.output.causal_memory_in_flight_px,
-            in_flight_truth,
-            pending_predicted_valid,
-            gate.normalized_truth_min_px);
-        add_phase_sample(
-            summary.scheduled, scheduled_residuals,
-            scheduled_normalized_residuals,
-            frame.output.causal_memory_scheduled_px,
-            scheduled_truth,
-            pending_predicted_valid,
-            gate.normalized_truth_min_px);
-        add_phase_sample(
-            summary.pending_total, pending_residuals,
-            pending_normalized_residuals,
-            frame.output.causal_memory_pending_total_px,
-            pending_truth,
-            pending_predicted_valid,
-            gate.normalized_truth_min_px);
-        previous_capture_seconds = current_capture;
-    }
-
-    finish_phase_accuracy(
-        summary.realized, realized_residuals, realized_normalized_residuals);
-    finish_phase_accuracy(
-        summary.in_flight, in_flight_residuals,
-        in_flight_normalized_residuals);
-    finish_phase_accuracy(
-        summary.scheduled, scheduled_residuals,
-        scheduled_normalized_residuals);
-    finish_phase_accuracy(
-        summary.pending_total, pending_residuals,
-        pending_normalized_residuals);
-    if (summary.fresh_capture_count != 0) {
-        summary.valid_prediction_ratio =
-            static_cast<double>(summary.prediction_valid_count) /
-            static_cast<double>(summary.fresh_capture_count);
-    }
-    summary.gate_pass = summary.valid_prediction_ratio >=
-            gate.min_valid_prediction_ratio &&
-        phase_passes_gate(summary.realized, gate) &&
-        phase_passes_gate(summary.in_flight, gate) &&
-        phase_passes_gate(summary.scheduled, gate) &&
-        phase_passes_gate(summary.pending_total, gate);
-    return summary;
-}
 
 BenchmarkResult run_simulation(
     const ScenarioScript& script,
@@ -745,8 +295,6 @@ BenchmarkResult run_simulation(
     double max_sampled_player_top_speed_px_per_second = 0.0;
     double max_abs_player_speed_px_per_second = 0.0;
     double player_vertical_offset_y_px = 0.0;
-    Vec2d last_player_error_delta_px;
-    double last_player_vertical_velocity_y_px_per_second = 0.0;
     int player_vertical_active_ms = 0;
     int player_slide_events = 0;
     int player_jump_events = 0;
@@ -797,8 +345,6 @@ BenchmarkResult run_simulation(
         target_error_history.clear();
         player_velocity_x_px_per_second = 0.0;
         player_vertical_offset_y_px = 0.0;
-        last_player_error_delta_px = {};
-        last_player_vertical_velocity_y_px_per_second = 0.0;
         if (player_strafe_mode == PlayerStrafeMode::FullReversal) {
             min_sampled_player_top_speed_px_per_second = std::min(
                 min_sampled_player_top_speed_px_per_second,
@@ -1016,15 +562,6 @@ BenchmarkResult run_simulation(
                      : error.y) +
                     std::cos(anchor_phase) * 0.35,
             };
-            input.player_motion_oracle =
-                script.config.player_motion_oracle_enabled;
-            input.player_motion_rate_oracle =
-                script.config.player_motion_rate_oracle_enabled;
-            input.player_error_delta_px = last_player_error_delta_px;
-            input.player_error_rate_px_per_second = {
-                -player_velocity_x_px_per_second,
-                last_player_vertical_velocity_y_px_per_second,
-            };
             player_motion_elapsed_ms =
                 cohort == BenchmarkCohort::BodyLockFollow
                 ? (tracking ? tracking_ticks : -1)
@@ -1061,60 +598,6 @@ BenchmarkResult run_simulation(
                     player_motion_elapsed_ms ==
                         target.player_vertical.jump_onset_ms) {
                     ++player_jump_events;
-                }
-                input.jump_action =
-                    script.config.player_action_cues_enabled &&
-                    selected_vertical == PlayerVerticalMotionMode::Jump &&
-                    player_motion_elapsed_ms >=
-                        target.player_vertical.jump_onset_ms &&
-                    player_motion_elapsed_ms <
-                        target.player_vertical.jump_onset_ms + 30;
-                input.slide_action =
-                    script.config.player_action_cues_enabled &&
-                    selected_vertical == PlayerVerticalMotionMode::Slide &&
-                    player_motion_elapsed_ms >=
-                        target.player_vertical.slide_onset_ms &&
-                    player_motion_elapsed_ms <
-                        target.player_vertical.slide_onset_ms + 30;
-                if (script.config.player_motion_forecast_oracle_enabled) {
-                    constexpr int kForecastHorizonMs = 32;
-                    double forecast_velocity =
-                        player_velocity_x_px_per_second;
-                    double forecast_error_x_px = 0.0;
-                    const double time_constant_seconds =
-                        target.player_strafe.time_constant_ms / 1000.0;
-                    const double player_alpha =
-                        time_constant_seconds > 0.0
-                        ? 1.0 - std::exp(
-                            -0.001 / time_constant_seconds)
-                        : 1.0;
-                    for (int step = 0; step < kForecastHorizonMs; ++step) {
-                        const double future_left = left_strafe_input(
-                            target.player_strafe,
-                            player_motion_elapsed_ms + step,
-                            player_strafe_mode);
-                        const double desired_velocity =
-                            future_left *
-                            target.player_strafe
-                                .top_speed_px_per_second;
-                        forecast_velocity += player_alpha *
-                            (desired_velocity - forecast_velocity);
-                        forecast_error_x_px -=
-                            forecast_velocity * 0.001;
-                    }
-                    const double future_vertical_offset =
-                        player_vertical_error_offset_y_px(
-                            target.player_vertical,
-                            player_motion_elapsed_ms +
-                                kForecastHorizonMs - 1,
-                            player_vertical_motion_mode);
-                    input.player_error_rate_px_per_second = {
-                        forecast_error_x_px * 1000.0 /
-                            kForecastHorizonMs,
-                        (future_vertical_offset -
-                            player_vertical_offset_y_px) *
-                            1000.0 / kForecastHorizonMs,
-                    };
                 }
             }
             if (manual_profile == ManualProfile::Mixed &&
@@ -1185,12 +668,7 @@ BenchmarkResult run_simulation(
                 pending_ads_to_bodylock_transition = true;
             }
         }
-        const PlantCommand delivered_command{
-            output.final_stick,
-            static_cast<double>(now_ms) / 1000.0 + 1.0e-6,
-            output.controller_target_id,
-            output.controller_ads_epoch,
-            true};
+        const PlantCommand delivered_command{output.final_stick};
         PlantCommand applied_command = delivered_command;
         if (!delayed_controls.empty()) {
             delayed_controls.push_back(delivered_command);
@@ -1203,13 +681,6 @@ BenchmarkResult run_simulation(
              static_cast<float>(plant_control.y)},
             script.config.camera_response_curve);
         trace_frame.output = output;
-        trace_frame.plant_applied_command_delivery_seconds =
-            applied_command.valid
-            ? applied_command.delivered_at_seconds
-            : std::numeric_limits<double>::quiet_NaN();
-        trace_frame.plant_applied_target_id = applied_command.target_id;
-        trace_frame.plant_applied_ads_epoch = applied_command.ads_epoch;
-        trace_frame.plant_applied_valid = applied_command.valid;
         if (!finite(output.final_stick) ||
             !finite(output.requested_assist_stick) ||
             !finite(output.shaped_assist_stick) ||
@@ -1217,17 +688,6 @@ BenchmarkResult run_simulation(
             !std::isfinite(output.radial_closing_velocity_px_per_sec)) {
             throw std::runtime_error("controller produced non-finite output");
         }
-
-        const auto record_plant_truth = [&](double response) {
-            trace_frame.plant_applied_camera_velocity_px_per_second = {
-                normalized_camera_response.x * response,
-                -normalized_camera_response.y * response};
-            trace_frame.plant_applied_displacement_px = {
-                trace_frame.plant_applied_camera_velocity_px_per_second.x *
-                    0.001,
-                trace_frame.plant_applied_camera_velocity_px_per_second.y *
-                    0.001};
-        };
 
         if (target_active) {
             const TargetScript& target = script.targets[target_index];
@@ -1276,19 +736,12 @@ BenchmarkResult run_simulation(
                 max_abs_player_vertical_speed_px_per_second,
                 std::fabs(vertical_delta) * 1000.0);
             player_vertical_offset_y_px = next_vertical_offset_y_px;
-            last_player_error_delta_px = {
-                -player_velocity_x_px_per_second * 0.001,
-                vertical_delta,
-            };
-            last_player_vertical_velocity_y_px_per_second =
-                vertical_delta * 1000.0;
             const double response =
                 script.config.camera_response_px_per_stick_second *
                 (target_active
                     ? aim_slowdown_multiplier(
                         length(error), target.visible_radius_px, script.config)
                     : 1.0);
-            record_plant_truth(response);
             error.x -= normalized_camera_response.x * response * 0.001;
             error.y += normalized_camera_response.y * response * 0.001;
             if (manual_profile == ManualProfile::ObsoleteAfterCrossing) {
@@ -1386,8 +839,6 @@ BenchmarkResult run_simulation(
             }
             if (target_active) ++target_elapsed_ms;
         } else {
-            record_plant_truth(
-                script.config.camera_response_px_per_stick_second);
             if (initial_idle_remaining_ms > 0) {
                 --initial_idle_remaining_ms;
             } else if (gap_remaining_ms > 0) {

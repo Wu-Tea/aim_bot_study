@@ -155,15 +155,13 @@ flowchart LR
     subgraph NativeBackend["Native backend"]
         NCap["Native DXGI capture"] --> NPre["CUDA preprocess"]
         NPre --> NInfer["TensorRT inference"]
-        NInfer --> NSelect["Native target selector\ncolor + lock + cue-hold"]
-        NSelect --> NEnhance["Native aim enhancement"]
-        NSelect --> NFire["Native auto-fire recommendation"]
+        NInfer --> NSelect["Native target selector\nobserved + weak + cue evidence"]
+        NSelect --> NResult["Fresh VisionResult\ngeometry + authority"]
     end
 
     PyEnhance --> State["ControllerVisionState"]
     PyFire --> State
-    NEnhance --> State
-    NFire --> State
+    NResult --> State
     State --> Controllers["Controller layer"]
 ```
 
@@ -173,14 +171,16 @@ The controller layer is where user input and AI intent are arbitrated. In the de
 
 ```mermaid
 flowchart TD
-    Frame["Frame build\nphysical input + latest vision state"] --> BaseOutput["Initial output\nmirror or empty output"]
-    BaseOutput --> AIAim["AIAimPlugin\nconvert dx/dy to output delta"]
-    AIAim --> AutoFire["AutoFirePlugin\napply fire request to RB/RT or mouse click"]
-    AutoFire --> Recoil["RecoilCompensationPlugin\nfallback or profile playback"]
-    Recoil --> Diagnostics["Optional diagnostics\nplugin trace / telemetry"]
-    Diagnostics --> Actuation{"output mode"}
-    Actuation --> GamepadOut["Virtual Xbox 360 output"]
-    Actuation --> MouseOut["Mouse movement and clicks"]
+    Frame["Physical input + accepted fresh Vision snapshot"] --> Plan["TargetCoordinator\none TargetPlan"]
+    Plan --> Solver{"control mode"}
+    Solver --> ADS["ADS acquisition"]
+    Solver --> Body["BodyLock follow"]
+    ADS --> Shape["AimDynamicsShaper"]
+    Body --> Shape
+    Shape --> Authority["AssistControlStateMachine\nsole manual/AI owner"]
+    Authority --> Fire["AutoFire safety gate"]
+    Fire --> Recoil["Recoil feed-forward"]
+    Recoil --> GamepadOut["ViGEm Xbox 360 output"]
 ```
 
 ### Gamepad Mode
@@ -191,10 +191,12 @@ The default gamepad mode is `cod_native_runtime.exe`. It reads a physical gamepa
 
 Current native gamepad order:
 
-1. native AI aim
-2. native auto-fire gate
-3. native aim-assist dynamics
-4. native recoil compensation
+1. `TargetCoordinator` publishes one source-owned target plan.
+2. ADS acquisition or BodyLock computes one target-relative proposal.
+3. `AimDynamicsShaper` shapes the proposal once.
+4. `AssistControlStateMachine` owns manual/AI authority and handover.
+5. AutoFire applies only its safety-gated synthetic fire contribution.
+6. Recoil applies the final feed-forward before ViGEm.
 
 Python fallback plugin order:
 

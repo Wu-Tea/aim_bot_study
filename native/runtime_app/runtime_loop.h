@@ -6,7 +6,6 @@
 #include "controller_native/sdl_gamepad_reader.h"
 #include "controller_native/virtual_gamepad.h"
 #include "controller_native/xinput_reader.h"
-#include "aim_perf_file_logger.h"
 #include "downward_diagnostics.h"
 #include "fusion_channel_publisher.h"
 #include "log_session_manager.h"
@@ -43,7 +42,6 @@ private:
     LogSessionManager log_session_manager_;
     RuntimeTelemetry telemetry_;
     TelemetryCollectors telemetry_collectors_;
-    AimPerfFileLogger aim_perf_file_logger_;
     DownwardPullDiagnostics downward_diagnostics_;
     bool perf_log_ = false;
     bool gamepad_perf_log_ = false;

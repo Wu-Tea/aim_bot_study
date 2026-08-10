@@ -2,20 +2,15 @@
 
 #include "pipeline_contract/vision_observation.h"
 
-#include <array>
 #include <cmath>
-#include <cstddef>
 #include <cstdint>
 
 namespace pipeline_contract {
 
-inline constexpr std::size_t kMaxPlanHorizonSamples = 8;
-
 enum class TargetLifecycle : unsigned char {
     None,
     Observed,
-    Coasting,
-    Reacquiring,
+    CueContinuation,
 };
 
 enum class TargetMotion : unsigned char {
@@ -48,6 +43,7 @@ enum class AdsAcquisitionState : unsigned char {
 enum class AdsDecisionReason : unsigned char {
     None,
     Admitted,
+    InvalidSelectorProtocol,
     SelectorNoSelection,
     OutsideAdsActivationRadius,
     OutsideAssociationRadius,
@@ -61,9 +57,7 @@ enum class AdsDecisionReason : unsigned char {
     AcquisitionCeiling,
     Settled,
     CenterCross,
-    MovingAway,
     NonHelpfulOutput,
-    ManualEscape,
     TargetLost,
     TargetSwitch,
     NoTarget,
@@ -88,11 +82,6 @@ enum class FireSuppressionReason : unsigned char {
     AimOnly,
 };
 
-struct PlanHorizonSample {
-    float time_seconds = 0.0f;
-    Vec2f error_px{};
-};
-
 struct TargetPlan {
     std::uint64_t generation = 0;
     std::uint64_t source_frame_id = 0;
@@ -102,7 +91,6 @@ struct TargetPlan {
     TargetMotion motion = TargetMotion::Ambiguous;
     ControlMode mode = ControlMode::Manual;
     Vec2f aim_px{};
-    Vec2f predicted_aim_px{};
     Vec2f error_px{};
     Vec2f error_rate_px_per_sec{};
     Vec2f velocity_px_per_sec{};
@@ -111,14 +99,11 @@ struct TargetPlan {
     float confidence = 0.0f;
     float reliability = 0.0f;
     float normalized_size = 0.0f;
-    float occlusion_budget_ms = 0.0f;
     float ads_demand = 0.0f;
     float bodylock_demand = 0.0f;
     float aim_authority = 0.0f;
     float response_scale = 0.0f;
     float response_confidence = 0.0f;
-    float left_motion_response_scale = 0.0f;
-    float left_motion_response_confidence = 0.0f;
     float acquisition_elapsed_ms = 0.0f;
     float ads_epoch_elapsed_ms = 0.0f;
     float source_capture_age_ms = 0.0f;
@@ -154,14 +139,6 @@ struct TargetPlan {
     bool cue_continuation = false;
     Vec2f predicted_terminal_error_px{};
     float radial_closing_velocity_px_per_sec = 0.0f;
-    Vec2f delivered_camera_motion_since_capture_px{};
-    Vec2f remaining_work_px{};
-    float remaining_work_confidence = 0.0f;
-    bool remaining_work_valid = false;
-    Vec2f player_motion_forecast_px{};
-    float player_motion_confidence = 0.0f;
-    std::uint32_t horizon_count = 0;
-    std::array<PlanHorizonSample, kMaxPlanHorizonSamples> horizon{};
     bool fire_authority = false;
     bool fire_requested = false;
     FireSuppressionReason fire_suppression = FireSuppressionReason::NoTarget;
@@ -176,16 +153,14 @@ inline bool unit_interval(float value) noexcept {
 }
 
 inline bool valid(const TargetPlan& plan) noexcept {
-    return finite(plan.aim_px) && finite(plan.predicted_aim_px) &&
+    return finite(plan.aim_px) &&
            finite(plan.error_px) && finite(plan.error_rate_px_per_sec) &&
            finite(plan.velocity_px_per_sec) && finite(plan.acceleration_px_per_sec2) &&
            unit_interval(plan.confidence) && unit_interval(plan.reliability) &&
            unit_interval(plan.normalized_size) && unit_interval(plan.ads_demand) &&
            unit_interval(plan.bodylock_demand) && unit_interval(plan.aim_authority) &&
            unit_interval(plan.response_confidence) &&
-           unit_interval(plan.left_motion_response_confidence) &&
            std::isfinite(plan.response_scale) &&
-           std::isfinite(plan.left_motion_response_scale) &&
            std::isfinite(plan.acquisition_elapsed_ms) &&
            std::isfinite(plan.ads_epoch_elapsed_ms) &&
            std::isfinite(plan.source_capture_age_ms) &&
@@ -194,13 +169,7 @@ inline bool valid(const TargetPlan& plan) noexcept {
            finite(plan.ads_raw_error_px) &&
            finite(plan.ads_target_size_px) &&
            finite(plan.predicted_terminal_error_px) &&
-           std::isfinite(plan.radial_closing_velocity_px_per_sec) &&
-           finite(plan.delivered_camera_motion_since_capture_px) &&
-           finite(plan.remaining_work_px) &&
-           unit_interval(plan.remaining_work_confidence) &&
-           finite(plan.player_motion_forecast_px) &&
-           unit_interval(plan.player_motion_confidence) &&
-           plan.horizon_count <= kMaxPlanHorizonSamples;
+           std::isfinite(plan.radial_closing_velocity_px_per_sec);
 }
 
 }  // namespace pipeline_contract

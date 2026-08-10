@@ -88,7 +88,6 @@ foreach ($relativePath in $required) {
 
 $forbidden = Get-ChildItem -LiteralPath $resolvedScratch -File -Recurse | Where-Object {
     $_.Extension -in @('.cpp', '.h', '.lib', '.pdb') -or
-    $_.Name -like 'native_aim_perf_*.jsonl' -or
     $_.FullName -match '[\\/]runs[\\/]'
 }
 if ($forbidden) {

@@ -24,7 +24,7 @@ TargetTierClass classify_target_tier(std::string_view target_tier) {
         return TargetTierClass::LostOrNone;
     }
     if (tier == "projected" || tier == "projection" || tier == "predicted") {
-        return TargetTierClass::Projected;
+        return TargetTierClass::LostOrNone;
     }
     if (tier == "cue_hold") {
         return TargetTierClass::CueHold;
@@ -48,7 +48,6 @@ TargetAuthorityDecision classify_target_authority(
     decision.is_weak_continuity =
         decision.tier_class == TargetTierClass::WeakContinuity ||
         decision.tier_class == TargetTierClass::CueHold;
-    decision.is_projected = decision.tier_class == TargetTierClass::Projected;
     decision.is_terminal = decision.tier_class == TargetTierClass::LostOrNone;
 
     if (!has_target || decision.is_terminal) {
@@ -93,10 +92,6 @@ bool is_weak_continuity_observation(std::string_view target_tier) {
 
 bool is_cue_hold_observation(std::string_view target_tier) {
     return classify_target_tier(target_tier) == TargetTierClass::CueHold;
-}
-
-bool is_projected_observation(std::string_view target_tier) {
-    return classify_target_tier(target_tier) == TargetTierClass::Projected;
 }
 
 bool is_terminal_observation(std::string_view target_tier) {

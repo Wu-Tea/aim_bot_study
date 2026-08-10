@@ -19,12 +19,11 @@ _NATIVE_DETAIL_METRICS = (
     ("native_output_wait_ms", "sync_wait"),
     ("native_decode_ms", "decode"),
     ("native_selector_ms", "selector"),
-    ("native_enhance_ms", "enhance"),
     ("native_cuda_unmap_ms", "cuda_unmap"),
     ("external_cue_ms", "cue_ms"),
 )
 
-_TARGET_BUCKETS = ("obs", "weak", "cue", "pred", "none", "unk")
+_TARGET_BUCKETS = ("obs", "weak", "cue", "none", "unk")
 _NEAR_BOX_WIDTH_RATIO = 0.35
 _NEAR_BOX_HEIGHT_RATIO = 0.55
 _EDGE_MARGIN_PX = 32.0
@@ -90,7 +89,6 @@ class PerformanceTracker:
         native_output_wait_ms: float | None = None,
         native_decode_ms: float | None = None,
         native_selector_ms: float | None = None,
-        native_enhance_ms: float | None = None,
         native_cuda_unmap_ms: float | None = None,
         external_cue_ms: float | None = None,
         target_source: str | None = None,
@@ -126,7 +124,6 @@ class PerformanceTracker:
             "native_output_wait_ms": native_output_wait_ms,
             "native_decode_ms": native_decode_ms,
             "native_selector_ms": native_selector_ms,
-            "native_enhance_ms": native_enhance_ms,
             "native_cuda_unmap_ms": native_cuda_unmap_ms,
             "external_cue_ms": external_cue_ms,
         }
@@ -422,19 +419,13 @@ class PerformanceTracker:
             return "none"
         if source_token == "observed" or tier_token in {"observed_strong", "strong_observed", "confirmed"}:
             return "obs"
-        if source_token in {"associated_weak", "weak_observed", "low_score"} or tier_token in {
+        if source_token in {"associated_weak", "weak_observed"} or tier_token in {
             "associated_weak",
             "weak_observed",
         }:
             return "weak"
-        if source_token in {"cue_hold", "yellow_cue"} or tier_token == "cue_hold":
+        if source_token == "cue_hold" or tier_token == "cue_hold":
             return "cue"
-        if source_token in {"predicted", "projected", "projection"} or tier_token in {
-            "predicted",
-            "projected",
-            "projection",
-        }:
-            return "pred"
         return "unk"
 
     @staticmethod

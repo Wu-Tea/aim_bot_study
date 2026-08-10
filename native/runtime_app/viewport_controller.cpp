@@ -177,8 +177,7 @@ ViewportRequest ViewportController::update(
     const bool missing_after_edge_pressure =
         !fresh &&
         edge_pressure_ &&
-        (plan.lifecycle == pipeline_contract::TargetLifecycle::Coasting ||
-         plan.lifecycle == pipeline_contract::TargetLifecycle::Reacquiring) &&
+        plan.lifecycle == pipeline_contract::TargetLifecycle::CueContinuation &&
         now_ns <= last_observed_ns_ +
             milliseconds_to_ns(config_.edge_loss_rescue_hold_ms);
     if (missing_after_edge_pressure) {

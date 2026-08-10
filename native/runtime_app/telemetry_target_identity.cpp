@@ -30,7 +30,7 @@ TargetIdentityResult TelemetryTargetIdentity::observe(
     TargetIdentityResult result;
     result.previous_track_id = active_id_;
 
-    if (!observation.live && !observation.projected) {
+    if (!observation.live) {
         result.track_id = active_id_;
         result.event = active_id_ != 0 && !lost_ ? TargetEventKind::Lost : TargetEventKind::None;
         lost_ = active_id_ != 0;
@@ -40,13 +40,6 @@ TargetIdentityResult TelemetryTargetIdentity::observe(
     if (observation.association_ambiguous) {
         result.track_id = active_id_;
         result.quality = TargetIdentityQuality::Ambiguous;
-        return result;
-    }
-
-    if (observation.projected && !observation.live) {
-        result.track_id = active_id_;
-        result.quality = active_id_ != 0
-            ? TargetIdentityQuality::ProjectedContinuity : TargetIdentityQuality::None;
         return result;
     }
 

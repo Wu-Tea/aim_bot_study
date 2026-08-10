@@ -1,8 +1,10 @@
 #include "ads_acquisition_controller.h"
 
 #include <cmath>
+#include <fstream>
 #include <iostream>
 #include <stdexcept>
+#include <string>
 
 namespace {
 
@@ -68,7 +70,7 @@ void test_drift_does_not_weaken_ads() {
                  "raw deadzone drift must not reduce ADS output");
 }
 
-void test_real_opposing_correction_reduces_conflict() {
+void test_manual_input_does_not_create_a_second_authority_policy() {
     controller_native::AdsAcquisitionController controller;
     pipeline_contract::IntentState correction{};
     correction.filtered_right.x = -0.5f;
@@ -76,8 +78,8 @@ void test_real_opposing_correction_reduces_conflict() {
     correction.right_x.confidence = 1.0f;
     const auto neutral = controller.compute(plan_with(80.0f, 0.0f), {}, 0.01f);
     const auto opposed = controller.compute(plan_with(80.0f, 0.0f), correction, 0.01f);
-    require_true(opposed.x < neutral.x * 0.5f,
-                 "confident opposing correction must reduce AI conflict");
+    require_true(std::fabs(opposed.x - neutral.x) < 0.0001f,
+                 "manual authority must be owned after ADS by the state machine");
 }
 
 void test_predicted_crossing_applies_terminal_brake() {
@@ -95,6 +97,51 @@ void test_screen_y_error_is_converted_to_stick_y_direction() {
     const auto output = controller.compute(plan, {}, 0.01f);
     require_true(output.y < 0.0f,
                  "a target below center requires negative stick Y in screen coordinates");
+}
+
+struct VerticalConvergenceMetrics {
+    float target_above_output = 0.0f;
+    float target_below_output = 0.0f;
+};
+
+VerticalConvergenceMetrics measure_vertical_convergence() {
+    controller_native::AdsAcquisitionControllerConfig config{};
+    config.arrival_horizon_seconds = 0.135f;
+    controller_native::AdsAcquisitionController controller(config);
+    auto target_above = plan_with(0.0f, 0.0f);
+    target_above.error_px.y = -50.0f;
+    auto target_below = target_above;
+    target_below.error_px.y = 50.0f;
+    return {
+        std::fabs(controller.compute(target_above, {}, 0.01f).y),
+        std::fabs(controller.compute(target_below, {}, 0.01f).y),
+    };
+}
+
+void write_vertical_convergence_report(
+    const std::string& path,
+    const VerticalConvergenceMetrics& metrics) {
+    if (path.empty()) return;
+    std::ofstream output(path, std::ios::trunc);
+    output
+        << "{\n"
+        << "  \"incident_id\": \"ads-upward-convergence-20260809\",\n"
+        << "  \"target_above_output\": " << metrics.target_above_output << ",\n"
+        << "  \"target_below_counterfactual_output\": "
+        << metrics.target_below_output << ",\n"
+        << "  \"above_to_below_ratio\": "
+        << metrics.target_above_output / std::max(1.0e-6f, metrics.target_below_output)
+        << "\n}\n";
+}
+
+void test_target_above_gets_bounded_directional_urgency() {
+    const auto metrics = measure_vertical_convergence();
+    require_true(
+        metrics.target_above_output >= metrics.target_below_output * 1.12f,
+        "telemetry-proven slow upward ADS path needs at least 12% directional urgency");
+    require_true(
+        metrics.target_above_output <= metrics.target_below_output * 1.25f,
+        "upward urgency must stay bounded instead of becoming a global force increase");
 }
 
 void test_hard_start_delay_suppresses_only_early_ads_assist() {
@@ -129,13 +176,22 @@ void test_smooth_start_ramp_reaches_half_then_full_authority() {
 
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
     try {
+        std::string vertical_report_path;
+        for (int index = 1; index + 1 < argc; ++index) {
+            if (std::string(argv[index]) == "--vertical-regression-output") {
+                vertical_report_path = argv[++index];
+            }
+        }
+        const auto vertical_metrics = measure_vertical_convergence();
+        write_vertical_convergence_report(vertical_report_path, vertical_metrics);
         test_large_reliable_error_gets_strong_output();
         test_drift_does_not_weaken_ads();
-        test_real_opposing_correction_reduces_conflict();
+        test_manual_input_does_not_create_a_second_authority_policy();
         test_predicted_crossing_applies_terminal_brake();
         test_screen_y_error_is_converted_to_stick_y_direction();
+        test_target_above_gets_bounded_directional_urgency();
         test_learned_slow_camera_response_automatically_increases_ads_request();
         test_shorter_arrival_horizon_increases_ads_positioning_speed();
         test_hard_start_delay_suppresses_only_early_ads_assist();

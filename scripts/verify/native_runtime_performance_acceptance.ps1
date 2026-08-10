@@ -12,7 +12,6 @@ $tests = @(
     "cod_native_runtime_telemetry_tests.exe",
     "cod_native_telemetry_target_identity_tests.exe",
     "cod_native_telemetry_event_sampler_tests.exe",
-    "cod_native_control_response_window_tests.exe",
     "cod_native_ads_visual_transition_tests.exe",
     "cod_native_ads_transition_collector_tests.exe",
     "cod_native_telemetry_collectors_tests.exe",

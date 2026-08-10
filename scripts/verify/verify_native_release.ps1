@@ -66,18 +66,18 @@ try {
         $env:GAMEPAD_START_RECOIL_CHOICE_OVERRIDE = $oldRecoilChoice
     }
 
-    $oldTelemetryDirectory = $env:VISION_AIM_PERF_LOG_DIR
+    $oldTelemetryDirectory = $env:RUNTIME_TELEMETRY_DIRECTORY
     $smokeTelemetryDirectory = Join-Path `
         ([System.IO.Path]::GetTempPath()) `
         ("cod_native_release_smoke_" + [System.Guid]::NewGuid().ToString('N'))
     try {
-        $env:VISION_AIM_PERF_LOG_DIR = $smokeTelemetryDirectory
+        $env:RUNTIME_TELEMETRY_DIRECTORY = $smokeTelemetryDirectory
         & '.\native\vision_native\build\Release\cod_native_runtime.exe' --config config.toml --once
         if ($LASTEXITCODE -ne 0) {
             throw "Runtime smoke failed with exit code $LASTEXITCODE"
         }
     } finally {
-        $env:VISION_AIM_PERF_LOG_DIR = $oldTelemetryDirectory
+        $env:RUNTIME_TELEMETRY_DIRECTORY = $oldTelemetryDirectory
         if (Test-Path -LiteralPath $smokeTelemetryDirectory) {
             Remove-Item -LiteralPath $smokeTelemetryDirectory -Recurse -Force
         }

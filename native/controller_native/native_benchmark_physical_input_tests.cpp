@@ -19,8 +19,6 @@ void test_maps_full_scale_left_and_manual_right_sticks() {
     ControllerObservation input;
     input.left_x = -1.0;
     input.manual_stick = {0.25, -0.5};
-    input.jump_action = true;
-    input.slide_action = true;
     PhysicalGamepadState physical;
     apply_benchmark_physical_input(input, physical);
     require(physical.left_x == -1.0f,
@@ -29,8 +27,6 @@ void test_maps_full_scale_left_and_manual_right_sticks() {
             "horizontal strafe benchmark must keep left_y neutral");
     require(physical.right_x == 0.25f && physical.right_y == -0.5f,
             "benchmark input must preserve manual right stick");
-    require(physical.a && physical.b,
-            "benchmark action cues must map to physical A and B");
 }
 
 void test_clamps_out_of_range_synthetic_input() {

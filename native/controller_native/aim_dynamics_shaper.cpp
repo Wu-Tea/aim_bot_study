@@ -67,7 +67,7 @@ pipeline_contract::Vec2f AimDynamicsShaper::shape(
         // envelope acquire it on subsequent ticks.
         current_ = {};
     }
-    if (plan.lifecycle == pipeline_contract::TargetLifecycle::Coasting) {
+    if (plan.lifecycle == pipeline_contract::TargetLifecycle::CueContinuation) {
         auto prevent_blind_rise = [](float requested, float current) {
             if (requested * current >= 0.0f &&
                 std::fabs(requested) > std::fabs(current)) {

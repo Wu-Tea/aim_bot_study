@@ -1,9 +1,11 @@
 #include "vision_native/target_selector.h"
 
 #include <algorithm>
+#include <array>
 #include <cassert>
 #include <cstring>
 #include <cmath>
+#include <limits>
 #include <utility>
 
 namespace vision_native {
@@ -65,9 +67,21 @@ constexpr int kCueHoldMinPixels = 6;
 constexpr std::uint64_t kCueHoldEvidenceGapNs = 50'000'000ull;
 constexpr std::uint64_t kCueHoldMaxDurationNs = 1'000'000'000ull;
 constexpr int kMaxCueHoldFallbackFrames = 12;
-constexpr float kCueHoldSearchRadius = 18.0f;
-constexpr float kCueHoldSearchGrowthPerFrame = 6.0f;
-constexpr float kCueHoldSearchMaxRadius = 42.0f;
+// Cue continuation is a current-frame color observation, not a prediction
+// from the previous person point.  Keep one bounded window large enough for a
+// close target to move between 100-200 Hz Vision results.
+constexpr int kCueHoldSearchRadius = 42;
+constexpr int kCueHoldSearchDiameter = (kCueHoldSearchRadius * 2) + 1;
+constexpr int kCueHoldSearchCapacity =
+    kCueHoldSearchDiameter * kCueHoldSearchDiameter;
+// A cue can move with the retained person, but a reconstructed point that
+// jumps farther than this from the current same-generation point is not a
+// valid continuation.  Reject it before it can become aim authority.
+constexpr float kCueMaxReconstructedTargetResidualPx = 36.0f;
+// Yellow glyphs can have one-pixel antialiasing holes.  A two-pixel component
+// link is the local equivalent of a tiny morphology close, without adding an
+// OpenCV dependency or allocating on the Vision hot path.
+constexpr int kCueComponentLinkRadius = 2;
 constexpr float kCueOffsetSmoothingAlpha = 0.35f;
 constexpr float kAutoFireEdgePadding = 2.0f;
 constexpr int kAutoFireReleaseGraceFrames = 4;
@@ -75,6 +89,13 @@ constexpr float kIntentMinStrength = 0.05f;
 constexpr float kIntentScoreScale = 700.0f;
 constexpr float kIntentPickupConfidenceThreshold = 0.50f;
 constexpr float kIntentPickupScoreThreshold = kIntentScoreScale * 0.85f;
+constexpr float kHandoverIntentMinStrength = 0.55f;
+constexpr float kHandoverIntentMinAlignment = 0.55f;
+constexpr float kHandoverIntentScoreThreshold =
+    kIntentScoreScale * kHandoverIntentMinStrength *
+    kHandoverIntentMinAlignment;
+constexpr float kHandoverCapturedRadiusPx = 24.0f;
+constexpr float kHandoverActiveIntentRatio = 0.75f;
 constexpr float kWeakObservedScorePenalty = 1200.0f;
 constexpr float kTargetValidityScoreScale = 250.0f;
 constexpr float kCorpseRiskScoreScale = 650.0f;
@@ -110,14 +131,14 @@ const char* target_tier_for_source(const char* source) {
     if (source_equals(source, "cue_hold")) {
         return "cue_hold";
     }
-    if (source_equals(source, "predicted") || source_equals(source, "projected")) {
-        return "predicted";
-    }
     return "unknown";
 }
 
 bool aim_authority_for_source(const char* source) {
-    return !source_equals(source, "predicted") && !source_equals(source, "projected");
+    return source_equals(source, "observed") ||
+        source_equals(source, "associated_weak") ||
+        source_equals(source, "weak_observed") ||
+        source_equals(source, "cue_hold");
 }
 
 bool fire_authority_for_source(const char* source) {
@@ -595,15 +616,23 @@ bool is_enemy_hsv(float h, float s, float v) {
 
 YellowCueObservation scan_yellow_window(
     const IntRect& bounds,
-    const VisionTargetSelector::ColorFrameView& frame) {
+    const VisionTargetSelector::ColorFrameView& frame,
+    float expected_x,
+    float expected_y) {
     YellowCueObservation observation;
     if (!frame_covers(bounds, frame)) {
         return observation;
     }
 
-    float sum_x = 0.0f;
-    float sum_y = 0.0f;
-    int area = 0;
+    const int width = bounds.right - bounds.left;
+    const int height = bounds.bottom - bounds.top;
+    if (width <= 0 || height <= 0 ||
+        width > kCueHoldSearchDiameter || height > kCueHoldSearchDiameter) {
+        return observation;
+    }
+
+    // 0 = not yellow, 1 = unvisited yellow, 2 = visited yellow.
+    std::array<std::uint8_t, kCueHoldSearchCapacity> mask{};
     for (int y = bounds.top; y < bounds.bottom; ++y) {
         for (int x = bounds.left; x < bounds.right; ++x) {
             int r = 0;
@@ -616,22 +645,86 @@ YellowCueObservation scan_yellow_window(
             float v = 0.0f;
             rgb_to_opencv_hsv(r, g, b, h, s, v);
             if (is_enemy_hsv(h, s, v)) {
-                ++observation.pixels;
-                sum_x += static_cast<float>(x);
-                sum_y += static_cast<float>(y);
+                const int local_x = x - bounds.left;
+                const int local_y = y - bounds.top;
+                mask[static_cast<std::size_t>(local_y * width + local_x)] = 1;
             }
-            ++area;
         }
     }
 
-    if (area <= 0 || observation.pixels < kCueHoldMinPixels) {
-        return observation;
+    std::array<int, kCueHoldSearchCapacity> queue{};
+    float best_distance_sq = std::numeric_limits<float>::infinity();
+    int best_pixels = 0;
+    float best_x = 0.0f;
+    float best_y = 0.0f;
+    for (int start_y = 0; start_y < height; ++start_y) {
+        for (int start_x = 0; start_x < width; ++start_x) {
+            const int start_index = start_y * width + start_x;
+            if (mask[static_cast<std::size_t>(start_index)] != 1) {
+                continue;
+            }
+
+            int head = 0;
+            int tail = 0;
+            queue[static_cast<std::size_t>(tail++)] = start_index;
+            mask[static_cast<std::size_t>(start_index)] = 2;
+            int pixels = 0;
+            float sum_x = 0.0f;
+            float sum_y = 0.0f;
+            while (head < tail) {
+                const int index = queue[static_cast<std::size_t>(head++)];
+                const int local_y = index / width;
+                const int local_x = index - (local_y * width);
+                ++pixels;
+                sum_x += static_cast<float>(bounds.left + local_x);
+                sum_y += static_cast<float>(bounds.top + local_y);
+
+                for (int dy = -kCueComponentLinkRadius;
+                     dy <= kCueComponentLinkRadius; ++dy) {
+                    for (int dx = -kCueComponentLinkRadius;
+                         dx <= kCueComponentLinkRadius; ++dx) {
+                        if (dx == 0 && dy == 0) continue;
+                        const int next_x = local_x + dx;
+                        const int next_y = local_y + dy;
+                        if (next_x < 0 || next_y < 0 ||
+                            next_x >= width || next_y >= height) {
+                            continue;
+                        }
+                        const int next_index = next_y * width + next_x;
+                        if (mask[static_cast<std::size_t>(next_index)] != 1) {
+                            continue;
+                        }
+                        mask[static_cast<std::size_t>(next_index)] = 2;
+                        queue[static_cast<std::size_t>(tail++)] = next_index;
+                    }
+                }
+            }
+
+            if (pixels < kCueHoldMinPixels) {
+                continue;
+            }
+            const float cue_x = sum_x / static_cast<float>(pixels);
+            const float cue_y = sum_y / static_cast<float>(pixels);
+            const float dx = cue_x - expected_x;
+            const float dy = cue_y - expected_y;
+            const float distance_sq = dx * dx + dy * dy;
+            if (distance_sq < best_distance_sq ||
+                (distance_sq == best_distance_sq && pixels > best_pixels)) {
+                best_distance_sq = distance_sq;
+                best_pixels = pixels;
+                best_x = cue_x;
+                best_y = cue_y;
+            }
+        }
     }
 
+    if (best_pixels < kCueHoldMinPixels) return observation;
     observation.found = true;
-    observation.cue_x = sum_x / static_cast<float>(observation.pixels);
-    observation.cue_y = sum_y / static_cast<float>(observation.pixels);
-    observation.score = static_cast<float>(observation.pixels) / static_cast<float>(area);
+    observation.cue_x = best_x;
+    observation.cue_y = best_y;
+    observation.pixels = best_pixels;
+    observation.score = static_cast<float>(best_pixels) /
+        static_cast<float>(width * height);
     return observation;
 }
 
@@ -742,6 +835,7 @@ void VisionTargetSelector::clear_tracking_state() {
 void VisionTargetSelector::clear_cue_tracking() {
     last_cue_point_.reset();
     last_target_offset_from_cue_.reset();
+    cue_tracking_generation_ = 0;
     last_direct_cue_observation_ns_ = 0;
     last_cue_observation_ns_ = 0;
     cue_hold_frames_ = 0;
@@ -1680,6 +1774,11 @@ std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::commit_ta
         !targets_match(*active_target_, *committed);
     const bool begins_new_generation = !active_target_.has_value() || is_replacement;
     if (begins_new_generation) {
+        // Cue geometry belongs to the confirmed target generation.  Clear it
+        // before committing a replacement so a new target's first cue starts
+        // from its own person+cue pair rather than the previous target's
+        // smoothed offset.
+        clear_cue_tracking();
         ++selector_target_generation_;
         selector_target_changed_ = true;
     } else {
@@ -1721,6 +1820,7 @@ VisionTargetSelector::select_multi_candidate(
     std::optional<ScoredCandidate> best;
     std::optional<ScoredCandidate> tracked;
     std::optional<ScoredCandidate> best_non_active;
+    std::optional<ScoredCandidate> best_intent_non_active;
     std::optional<std::pair<float, ScoredCandidate>> active_match;
 
     for (const auto& candidate : candidates) {
@@ -1741,6 +1841,15 @@ VisionTargetSelector::select_multi_candidate(
         const bool matches_active = active_target_matches_candidate(candidate);
         if (!matches_active && prefer_candidate(best_non_active, scored)) {
             best_non_active = scored;
+        }
+        if (!matches_active && scored.intent_applied &&
+            scored.intent_score >= kHandoverIntentScoreThreshold &&
+            (!best_intent_non_active.has_value() ||
+             scored.intent_score > best_intent_non_active->intent_score ||
+             (std::fabs(scored.intent_score -
+                        best_intent_non_active->intent_score) < 0.001f &&
+              prefer_candidate(best_intent_non_active, scored)))) {
+            best_intent_non_active = scored;
         }
 
         if (matches_active) {
@@ -1773,6 +1882,34 @@ VisionTargetSelector::select_multi_candidate(
         const TargetState challenger = target_from_scored_candidate(*best_non_active);
         if (should_escape_stale_active_match(locked, challenger)) {
             best = best_non_active;
+        }
+    }
+
+    const bool decisive_directional_intent = intent != nullptr &&
+        intent->valid && intent->aiming && intent->has_direction &&
+        std::isfinite(intent->strength) &&
+        intent->strength >= kHandoverIntentMinStrength;
+    if (decisive_directional_intent && active_match.has_value() &&
+        best_intent_non_active.has_value()) {
+        const float locked_crosshair_distance = crosshair_distance(
+            active_match->second.candidate.target_x,
+            active_match->second.candidate.target_y);
+        const float active_intent_score =
+            active_match->second.intent_applied
+            ? active_match->second.intent_score
+            : 0.0f;
+        const float challenger_intent_score =
+            best_intent_non_active->intent_score;
+        const bool current_target_captured =
+            locked_crosshair_distance <= kHandoverCapturedRadiusPx;
+        const bool intent_points_away_from_current =
+            active_intent_score <=
+            challenger_intent_score * kHandoverActiveIntentRatio;
+        if (current_target_captured || intent_points_away_from_current) {
+            // Crosshair proximity owns ordinary ranking.  A decisive flick
+            // owns handover identity so the old near target cannot trap the
+            // user's motion before Controller gets a chance to seek B.
+            best = best_intent_non_active;
         }
     }
 
@@ -1840,6 +1977,18 @@ VisionTargetSelector::resolve_active_target_transition(
                 retained.intent_score = 0.0f;
                 return {retained, false};
             }
+            const bool decisive_intent_handover = intent != nullptr &&
+                intent->valid && intent->aiming && intent->has_direction &&
+                std::isfinite(intent->strength) &&
+                intent->strength >= kHandoverIntentMinStrength &&
+                chosen_target.intent_applied &&
+                chosen_target.intent_score >= kHandoverIntentScoreThreshold;
+            if (decisive_intent_handover) {
+                // Strong user direction is explicit handover authority.  It
+                // must not pay the ordinary two-frame switch-confirm delay.
+                clear_switch_pending();
+                return {chosen_target, false};
+            }
             if (should_switch_targets(*active_match_target, chosen_target)) {
                 const auto confirmed_switch = confirm_switch(chosen_target);
                 if (!confirmed_switch.has_value()) {
@@ -1900,6 +2049,10 @@ std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::try_exter
     const float cue_dy = batch.external_cue_y - last_cue_point_->second;
     held.target_x = batch.external_cue_x + last_target_offset_from_cue_->first;
     held.target_y = batch.external_cue_y + last_target_offset_from_cue_->second;
+    if (!cue_reconstructed_target_is_reasonable(held.target_x, held.target_y)) {
+        clear_cue_tracking();
+        return std::nullopt;
+    }
     held.body_box = shift_rect(active_target_->candidate.body_box, cue_dx, cue_dy);
     held.slow_zone = shift_rect(active_target_->candidate.slow_zone, cue_dx, cue_dy);
     held.fire_zone = shift_rect(active_target_->candidate.fire_zone, cue_dx, cue_dy);
@@ -1930,7 +2083,11 @@ std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::try_cue_h
         return std::nullopt;
     }
 
-    const YellowCueObservation cue = scan_yellow_window(*bounds, frame);
+    const YellowCueObservation cue = scan_yellow_window(
+        *bounds,
+        frame,
+        last_cue_point_->first,
+        last_cue_point_->second);
     if (!cue.found) {
         return std::nullopt;
     }
@@ -1940,6 +2097,10 @@ std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::try_cue_h
     const float cue_dy = cue.cue_y - last_cue_point_->second;
     held.target_x = cue.cue_x + last_target_offset_from_cue_->first;
     held.target_y = cue.cue_y + last_target_offset_from_cue_->second;
+    if (!cue_reconstructed_target_is_reasonable(held.target_x, held.target_y)) {
+        clear_cue_tracking();
+        return std::nullopt;
+    }
     held.body_box = shift_rect(active_target_->candidate.body_box, cue_dx, cue_dy);
     held.slow_zone = shift_rect(active_target_->candidate.slow_zone, cue_dx, cue_dy);
     held.fire_zone = shift_rect(active_target_->candidate.fire_zone, cue_dx, cue_dy);
@@ -1958,10 +2119,26 @@ std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::try_cue_h
     return target_from_candidate(held, active_target_->score);
 }
 
+bool VisionTargetSelector::cue_reconstructed_target_is_reasonable(
+    float target_x,
+    float target_y) const {
+    if (!active_target_.has_value() ||
+        !std::isfinite(target_x) || !std::isfinite(target_y)) {
+        return false;
+    }
+    const float residual = std::hypot(
+        target_x - active_target_->candidate.target_x,
+        target_y - active_target_->candidate.target_y);
+    return std::isfinite(residual) &&
+        residual <= kCueMaxReconstructedTargetResidualPx;
+}
+
 bool VisionTargetSelector::cue_hold_is_active(std::uint64_t observation_ns) const {
     if (!active_target_.has_value()
         || !last_cue_point_.has_value()
-        || !last_target_offset_from_cue_.has_value()) {
+        || !last_target_offset_from_cue_.has_value()
+        || cue_tracking_generation_ == 0
+        || cue_tracking_generation_ != selector_target_generation_) {
         return false;
     }
     if (last_direct_cue_observation_ns_ == 0 ||
@@ -2005,10 +2182,7 @@ std::optional<VisionTargetSelector::FrameRegion> VisionTargetSelector::cue_hold_
 
     const int frame_width = static_cast<int>(frame_width_);
     const int frame_height = static_cast<int>(frame_height_);
-    const int search_radius = static_cast<int>(std::round(std::min(
-        kCueHoldSearchMaxRadius,
-        kCueHoldSearchRadius
-            + (static_cast<float>(cue_hold_frames_) * kCueHoldSearchGrowthPerFrame))));
+    const int search_radius = kCueHoldSearchRadius;
     const int cue_x = static_cast<int>(std::round(last_cue_point_->first));
     const int cue_y = static_cast<int>(std::round(last_cue_point_->second));
     IntRect bounds{
@@ -2036,6 +2210,12 @@ void VisionTargetSelector::update_cue_tracking(
         }
         return;
     }
+    // Only an observed person+cue pair may establish or refresh geometry. A
+    // cue-held target is an output continuation and must never teach the
+    // offset that will be used to reconstruct the next point.
+    if (!target.candidate.has_source_detection) {
+        return;
+    }
 
     const std::pair<float, float> cue_point = {
         target.candidate.cue_x,
@@ -2056,6 +2236,7 @@ void VisionTargetSelector::update_cue_tracking(
 
     last_cue_point_ = cue_point;
     last_target_offset_from_cue_ = new_offset;
+    cue_tracking_generation_ = selector_target_generation_;
     last_direct_cue_observation_ns_ = observation_ns;
     last_cue_observation_ns_ = observation_ns;
     active_marker_expired_ = false;

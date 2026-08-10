@@ -38,7 +38,7 @@ private:
 };
 
 // Low-overhead performance observation is intentionally separate from the
-// detailed causal telemetry stream. The controller thread only updates fixed
+// detailed telemetry stream. The controller thread only updates fixed
 // counters/histograms; one compact window is serialized by a background writer.
 struct PerfSummaryOptions {
     bool enabled = false;
@@ -85,8 +85,6 @@ struct PerfVisionWindowSample {
     double sync_queue_residual_ms = -1.0;
     double color_copy_ms = -1.0;
     double cuda_unmap_ms = -1.0;
-    double ego_stage_ms = -1.0;
-    double ego_compute_ms = -1.0;
 };
 
 class PerfSummaryLogger {

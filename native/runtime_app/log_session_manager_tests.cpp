@@ -41,8 +41,8 @@ void test_fresh_manifest_and_markers_are_atomic_session_contract() {
         require_true(std::filesystem::exists(manager.session_directory() / "session.json"),
                      "active session must have manifest");
         const auto session = read_all(manager.session_directory() / "session.json");
-        require_true(session.find("causal_response_journal_v1") != std::string::npos,
-                     "session manifest must identify the causal journal schema");
+        require_true(session.find("causal_response_journal") == std::string::npos,
+                     "session manifest must not advertise the retired causal journal");
         require_true(session.find("engine_hash") != std::string::npos &&
                          session.find("capture_width") != std::string::npos &&
                          session.find("tensor_width") != std::string::npos &&

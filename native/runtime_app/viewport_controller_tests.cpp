@@ -26,7 +26,7 @@ pipeline_contract::TargetPlan coasting_plan(
     std::uint64_t target_id,
     std::uint64_t frame_id) {
     auto plan = observed_plan(target_id, frame_id);
-    plan.lifecycle = pipeline_contract::TargetLifecycle::Coasting;
+    plan.lifecycle = pipeline_contract::TargetLifecycle::CueContinuation;
     return plan;
 }
 

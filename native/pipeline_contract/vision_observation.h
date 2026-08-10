@@ -37,17 +37,6 @@ struct VisionObservationBatch {
     std::uint64_t preferred_source_id = 0;
     double source_time_seconds = 0.0;
     double publish_time_seconds = 0.0;
-    // W5-only source-present endpoint. source_time_seconds remains the
-    // legacy copy-complete/controller clock and is not substituted here.
-    std::uint64_t actuator_effect_present_qpc = 0;
-    std::uint64_t actuator_effect_present_qpc_frequency = 0;
-    std::uint64_t actuator_effect_present_steady_ns = 0;
-    std::uint64_t actuator_effect_present_calibration_id = 0;
-    std::uint64_t actuator_effect_present_calibration_uncertainty_ns = 0;
-    double actuator_effect_present_time_seconds = 0.0;
-    bool actuator_effect_present_raw_available = false;
-    bool actuator_effect_present_steady_available = false;
-    bool actuator_effect_present_time_valid = false;
     float frame_width_px = 0.0f;
     float frame_height_px = 0.0f;
     std::uint32_t count = 0;
@@ -69,8 +58,6 @@ struct VisionObservationBatch {
     // control path never depends on them.
     std::uint32_t rejected_friendly_count = 0;
     std::uint32_t rejected_low_reliability_count = 0;
-    bool has_control_response_hint = false;
-    float control_response_x_px_per_second = 0.0f;
     std::array<VisionCandidate, kMaxVisionCandidates> candidates{};
 };
 

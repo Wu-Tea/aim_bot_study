@@ -29,8 +29,6 @@ const char* freshness_name(VisionSnapshotFreshness freshness) {
     switch (freshness) {
     case VisionSnapshotFreshness::Fresh:
         return "fresh";
-    case VisionSnapshotFreshness::Reused:
-        return "reused";
     case VisionSnapshotFreshness::NoUpdate:
         return "no_update";
     case VisionSnapshotFreshness::None:
@@ -43,8 +41,6 @@ const char* source_state_name(VisionSourceState state) {
     switch (state) {
     case VisionSourceState::FreshFrame:
         return "fresh_frame";
-    case VisionSourceState::RepeatLastFrame:
-        return "repeat_last_frame";
     case VisionSourceState::NoUpdate:
         return "no_update";
     case VisionSourceState::Unknown:
@@ -139,11 +135,6 @@ std::uint64_t VisionService::set_aiming(bool aiming) {
         state_changed = aiming != controller_aiming_;
         const bool wake = aiming && !controller_aiming_;
         controller_aiming_ = aiming;
-        if (state_changed) {
-            // Cached detections belong to the previous control epoch. They may
-            // remain useful for diagnostics, but never seed the new epoch.
-            has_last_fresh_result_ = false;
-        }
         if (wake) {
             ++aim_transition_sequence_;
             immediate_poll_requested_ = true;
@@ -191,7 +182,7 @@ bool VisionService::step(std::chrono::steady_clock::time_point now) {
         std::lock_guard<std::mutex> lock(mutex_);
         controller_aiming = controller_aiming_;
         engine_aiming = controller_aiming_ || options_.keepwarm_when_idle;
-        const double fps = controller_aiming_ ? options_.active_fps : options_.idle_fps;
+        const double fps = controller_aiming_ ? options_.capture_fps : options_.idle_fps;
         requested_fps = fps;
         if (!engine_aiming || interval_for_fps(fps) == std::chrono::steady_clock::duration::max()) {
             return false;
@@ -250,19 +241,9 @@ bool VisionService::step(std::chrono::steady_clock::time_point now) {
         snapshot.source_state = VisionSourceState::FreshFrame;
         if (!controller_aiming) {
             clear_reused_authority(snapshot.result);
-        } else {
-            last_fresh_result_ = result;
-            has_last_fresh_result_ = true;
         }
-    } else if (options_.repeat_last_on_no_update && has_last_fresh_result_) {
-        snapshot.result = last_fresh_result_;
-        // This is continuity metadata only. It must not pass through the
-        // adapter as another detector measurement.
-        snapshot.result.frame_updated = false;
-        clear_reused_authority(snapshot.result);
-        snapshot.freshness = VisionSnapshotFreshness::Reused;
-        snapshot.source_state = VisionSourceState::RepeatLastFrame;
     } else {
+        clear_reused_authority(snapshot.result);
         snapshot.freshness = VisionSnapshotFreshness::NoUpdate;
         snapshot.source_state = VisionSourceState::NoUpdate;
     }
@@ -279,7 +260,7 @@ std::chrono::steady_clock::time_point VisionService::next_poll_due(
     std::chrono::steady_clock::time_point now) const {
     std::lock_guard<std::mutex> lock(mutex_);
     const bool engine_aiming = controller_aiming_ || options_.keepwarm_when_idle;
-    const double fps = controller_aiming_ ? options_.active_fps : options_.idle_fps;
+    const double fps = controller_aiming_ ? options_.capture_fps : options_.idle_fps;
     const auto interval = interval_for_fps(fps);
     if (!engine_aiming || interval == std::chrono::steady_clock::duration::max()) {
         return now + std::chrono::milliseconds(5);

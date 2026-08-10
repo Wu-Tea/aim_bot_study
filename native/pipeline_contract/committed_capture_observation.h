@@ -15,16 +15,6 @@ struct CommittedCaptureObservation {
     std::uint64_t viewport_source_frame_id = 0;
     std::uint64_t captured_at_ns = 0;
     std::uint64_t result_at_ns = 0;
-    // Independent source-present provenance for W5 shadow intervals. These
-    // fields do not change the legacy captured_at/result_at contract.
-    std::uint64_t actuator_effect_present_qpc = 0;
-    std::uint64_t actuator_effect_present_qpc_frequency = 0;
-    std::uint64_t actuator_effect_present_steady_ns = 0;
-    std::uint64_t actuator_effect_present_calibration_id = 0;
-    std::uint64_t actuator_effect_present_calibration_uncertainty_ns = 0;
-    bool actuator_effect_present_raw_available = false;
-    bool actuator_effect_present_steady_available = false;
-    bool actuator_effect_present_time_valid = false;
     // The controller consume timestamp belongs to this exact source frame;
     // zero is unavailable and therefore cannot be treated as a commit.
     std::uint64_t controller_consume_ns = 0;
@@ -46,7 +36,6 @@ struct CommittedCaptureObservation {
     bool strong_observation = false;
     bool stable_coordinates_valid = false;
     bool has_motion_anchor = false;
-    bool reused_or_projected = false;
 };
 
 inline bool valid(const CommittedCaptureObservation& value) noexcept {
@@ -80,7 +69,7 @@ inline bool valid(const CommittedCaptureObservation& value) noexcept {
 inline bool single_strong_target(
     const CommittedCaptureObservation& value) noexcept {
     return valid(value) && value.eligible_candidate_count == 1 &&
-        value.strong_observation && !value.reused_or_projected;
+        value.strong_observation;
 }
 
 }  // namespace pipeline_contract

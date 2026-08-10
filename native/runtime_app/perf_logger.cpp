@@ -134,8 +134,6 @@ struct PerfSummaryRecord {
     LatencySummary sync_queue_residual;
     LatencySummary color_copy;
     LatencySummary cuda_unmap;
-    LatencySummary ego_stage;
-    LatencySummary ego_compute;
 };
 
 struct PerfSummaryWindow {
@@ -178,8 +176,6 @@ struct PerfSummaryWindow {
     FixedLatencyHistogram sync_queue_residual;
     FixedLatencyHistogram color_copy;
     FixedLatencyHistogram cuda_unmap;
-    FixedLatencyHistogram ego_stage;
-    FixedLatencyHistogram ego_compute;
 
     void reset(std::uint64_t now_ns, bool aiming) noexcept {
         start_ns = now_ns;
@@ -221,8 +217,6 @@ struct PerfSummaryWindow {
         sync_queue_residual.reset();
         color_copy.reset();
         cuda_unmap.reset();
-        ego_stage.reset();
-        ego_compute.reset();
     }
 
     void advance_clock(std::uint64_t now_ns) noexcept {
@@ -276,8 +270,6 @@ struct PerfSummaryWindow {
         record.sync_queue_residual = sync_queue_residual.summary();
         record.color_copy = color_copy.summary();
         record.cuda_unmap = cuda_unmap.summary();
-        record.ego_stage = ego_stage.summary();
-        record.ego_compute = ego_compute.summary();
         return record;
     }
 };
@@ -387,8 +379,6 @@ std::string summary_json(
     write_latency_json(output, "sync_queue_residual", record.sync_queue_residual);
     write_latency_json(output, "color_copy", record.color_copy);
     write_latency_json(output, "cuda_unmap", record.cuda_unmap);
-    write_latency_json(output, "ego_stage", record.ego_stage);
-    write_latency_json(output, "ego_compute", record.ego_compute);
     output << "}}";
     return output.str();
 }
@@ -420,10 +410,7 @@ std::string summary_console(const PerfSummaryRecord& record) {
            << "ms | wait " << record.output_wait.p50 << '/'
            << record.output_wait.p95 << "ms queue~ "
            << record.sync_queue_residual.p50 << '/'
-           << record.sync_queue_residual.p95
-           << "ms | W3 stage " << record.ego_stage.p50 << '/'
-           << record.ego_stage.p95 << "ms compute " << record.ego_compute.p50
-           << '/' << record.ego_compute.p95 << "ms";
+           << record.sync_queue_residual.p95 << "ms";
     return output.str();
 }
 
@@ -563,8 +550,6 @@ struct PerfSummaryLogger::Impl {
         window.sync_queue_residual.observe(sample.sync_queue_residual_ms);
         window.color_copy.observe(sample.color_copy_ms);
         window.cuda_unmap.observe(sample.cuda_unmap_ms);
-        window.ego_stage.observe(sample.ego_stage_ms);
-        window.ego_compute.observe(sample.ego_compute_ms);
     }
 
     void enqueue(PerfSummaryRecord record) noexcept {

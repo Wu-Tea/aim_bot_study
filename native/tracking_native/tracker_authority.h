@@ -11,14 +11,12 @@ enum class TargetTierClass {
     StrongObserved,
     WeakContinuity,
     CueHold,
-    Projected,
 };
 
 struct TargetAuthorityDecision {
     TargetTierClass tier_class = TargetTierClass::LostOrNone;
     bool is_strong_aim_target = false;
     bool is_weak_continuity = false;
-    bool is_projected = false;
     bool is_terminal = true;
     common_native::TargetAuthorityState target_authority_state =
         common_native::TargetAuthorityState::Reject;
@@ -36,7 +34,6 @@ TargetAuthorityDecision classify_target_authority(
 bool is_strong_observation(std::string_view target_tier);
 bool is_weak_continuity_observation(std::string_view target_tier);
 bool is_cue_hold_observation(std::string_view target_tier);
-bool is_projected_observation(std::string_view target_tier);
 bool is_terminal_observation(std::string_view target_tier);
 
 }  // namespace tracking_native

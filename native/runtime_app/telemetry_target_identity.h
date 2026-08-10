@@ -11,7 +11,6 @@ struct TargetIdentityObservation {
     int frame_width = 0;
     int frame_height = 0;
     bool live = false;
-    bool projected = false;
     bool explicit_switch = false;
     bool production_associated = false;
     bool association_ambiguous = false;

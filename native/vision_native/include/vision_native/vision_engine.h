@@ -1,6 +1,5 @@
 #pragma once
 
-#include "vision_native/aim_enhancement.h"
 #include "vision_native/dxgi_capture.h"
 #include "vision_native/resize_contract.h"
 #include "vision_native/target_selector.h"
@@ -60,7 +59,6 @@ public:
 private:
     DxgiRoiCapture capture_;
     VisionTargetSelector selector_;
-    AimEnhancementPipeline enhancer_;
     std::unique_ptr<TensorRTEngine> engine_;
     std::atomic<bool> aiming_{false};
     std::atomic<int> requested_viewport_level_{1};

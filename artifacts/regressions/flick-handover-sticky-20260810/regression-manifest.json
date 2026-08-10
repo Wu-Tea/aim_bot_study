@@ -1,0 +1,217 @@
+{
+  "schema_version": 1,
+  "incident_id": "flick-handover-sticky-20260810",
+  "title": "Strong directional handover remains attached to the old target",
+  "symptom": "With two credible targets visible, a strong right-stick flick toward the alternative keeps the selector on the old target and settled micro input remains displaced by retained assist output.",
+  "evidence": {
+    "facts": [
+      {
+        "id": "F1",
+        "claim": "The user requires a strong directional flick to leave target A, select target B, brake at B, and then continue tracking B.",
+        "source": {
+          "kind": "user_confirmed",
+          "artifact_id": "user-statement-2026-08-10-flick-handover",
+          "locator": "2026-08-10 current task statement"
+        }
+      },
+      {
+        "id": "F2",
+        "claim": "The known-bad production selector remains on target A on the next fresh frame even though target B is visible and aligned with a 0.90-strength rightward intent.",
+        "source": {
+          "kind": "benchmark",
+          "artifact_id": "flick-handover-known-bad-report",
+          "locator": "known-bad.json selector_switches_on_next_fresh_frame=false, selected_target_x=270"
+        }
+      },
+      {
+        "id": "F3",
+        "claim": "After a forced production-shaped target replacement, settled 0.03 manual input is emitted as 0.064 instead of returning to the requested micro input.",
+        "source": {
+          "kind": "benchmark",
+          "artifact_id": "flick-handover-known-bad-report",
+          "locator": "known-bad.json settled_micro_error=0.034"
+        }
+      }
+    ],
+    "inferences": [
+      {
+        "id": "I1",
+        "claim": "Target selection priority and final-output ownership are not implementing one explicit handover lifecycle.",
+        "basis": ["F1", "F2", "F3"]
+      }
+    ],
+    "unknowns": [
+      {
+        "id": "U1",
+        "question": "The exact live stick-release timing after a flick varies by user and still requires gameplay acceptance."
+      }
+    ]
+  },
+  "known_bad": {
+    "runtime_sha256": "9ebb186010884550cf5881544735fc3368e615f53ca845bd3b57675c9b307829",
+    "source_commit": "5d22b2074f0388da1bfcc0a5b68e4d0b8ff2366c",
+    "audit_artifact_id": "flick-handover-known-bad-report",
+    "audit_artifact_sha256": "bd37a4af4da8b86b961b7e073fda8ad51d5dfb53170bc80341f90d78927525d7"
+  },
+  "fixture": {
+    "kind": "native_benchmark",
+    "source_files": [
+      "../../../native/controller_native/target_pipeline_integration_tests.cpp",
+      "../../../native/vision_native/src/target_selector.cpp",
+      "../../../native/controller_native/native_gamepad_controller.cpp"
+    ],
+    "build_target": "cod_native_controller_tests",
+    "run_command": [
+      "native/vision_native/build/Release/cod_native_controller_tests.exe",
+      "--flick-handover-regression-output",
+      "artifacts/regressions/flick-handover-sticky-20260810/known-bad.json"
+    ],
+    "trigger_assertions": [
+      "target A is selector-owned while target B is simultaneously credible and visible",
+      "physical right stick is 0.90 toward B",
+      "the active target lies left of the crosshair and the alternative lies right"
+    ],
+    "covariates": {
+      "freshness": "two fresh frames establish A; one 1 ms replay tick carries the flick; the next 6 ms fresh frame presents A and B",
+      "target_generation": "generation 1 owns A; intended handover must create generation 2 for B",
+      "target_count": 2,
+      "right_stick_manual": "0.90 right during seek/capture, then 0.03 right after settle",
+      "left_stick_manual": "zero",
+      "recoil_firing": "disabled and not firing",
+      "controller_mode": "ADS acquisition followed by BodyLock tracking",
+      "refresh_rate_hz": "Vision 166.7 Hz fixture, Controller 1000 Hz handover tick",
+      "logging_mode": "report-only, no runtime telemetry"
+    }
+  },
+  "oracles": [
+    {
+      "id": "O1",
+      "metric": "selected_target_x",
+      "operator": ">=",
+      "threshold": 390.0,
+      "unit": "px",
+      "evidence_fact_ids": ["F1", "F2"]
+    },
+    {
+      "id": "O2",
+      "metric": "settled_micro_error",
+      "operator": "<=",
+      "threshold": 0.005,
+      "unit": "normalized_stick",
+      "evidence_fact_ids": ["F1", "F3"]
+    },
+    {
+      "id": "O3",
+      "metric": "centered_capture_output_abs",
+      "operator": "<=",
+      "threshold": 0.15,
+      "unit": "normalized_stick",
+      "evidence_fact_ids": ["F1"]
+    }
+  ],
+  "counterfactuals": [
+    {
+      "id": "C1",
+      "change": "Reverse the strong stick so it points toward the current left-side target A instead of alternative B.",
+      "expected": "The current target remains selected and final output remains leftward."
+    }
+  ],
+  "red_proof": {
+    "runtime_sha256": "9ebb186010884550cf5881544735fc3368e615f53ca845bd3b57675c9b307829",
+    "command": [
+      "native/vision_native/build/Release/cod_native_controller_tests.exe",
+      "--flick-handover-regression-output",
+      "artifacts/regressions/flick-handover-sticky-20260810/known-bad.json"
+    ],
+    "exit_code": 1,
+    "report": {
+      "id": "flick-handover-known-bad-report",
+      "path": "known-bad.json",
+      "sha256": "bd37a4af4da8b86b961b7e073fda8ad51d5dfb53170bc80341f90d78927525d7"
+    },
+    "failed_oracles": [
+      {"oracle_id": "O1", "observed": 270.0},
+      {"oracle_id": "O2", "observed": 0.034}
+    ]
+  },
+  "green_proof": {
+    "runtime_sha256": "9ff001fb6d3bbc4a097dce63f7098ba8792ef01ebb912e56055a1848f4e18837",
+    "fixture_executable_sha256": "add84607ad2adaae5c73a5d4c5c011d3cac499d8aac4aff9b3b4ed17f8255802",
+    "command": [
+      "native/vision_native/build/Release/cod_native_controller_tests.exe",
+      "--flick-handover-regression-output",
+      "artifacts/regressions/flick-handover-sticky-20260810/candidate-report.json"
+    ],
+    "exit_code": 0,
+    "report": {
+      "id": "flick-handover-candidate-report",
+      "path": "candidate-report.json",
+      "sha256": "732c928a63beb8f611da1337e0a0fc9c590cad33e0e89709caa259633da641dc"
+    },
+    "passed_oracles": [
+      {"oracle_id": "O1", "observed": 400.0},
+      {"oracle_id": "O2", "observed": 0.0},
+      {"oracle_id": "O3", "observed": 0.0}
+    ]
+  },
+  "verification": {
+    "focused_tests": [
+      {
+        "command": [
+          "native/vision_native/build/Release/cod_native_controller_tests.exe",
+          "--flick-handover-regression-output",
+          "artifacts/regressions/flick-handover-sticky-20260810/candidate-report.json"
+        ],
+        "exit_code": 0
+      },
+      {
+        "command": ["native/vision_native/build/Release/cod_native_target_selector_tests.exe"],
+        "exit_code": 0
+      },
+      {
+        "command": ["native/vision_native/build/Release/cod_native_target_coordinator_tests.exe"],
+        "exit_code": 0
+      },
+      {
+        "command": ["native/vision_native/build/Release/cod_native_ads_acquisition_controller_tests.exe"],
+        "exit_code": 0
+      },
+      {
+        "command": ["native/vision_native/build/Release/cod_native_aim_dynamics_shaper_tests.exe"],
+        "exit_code": 0
+      },
+      {
+        "command": ["native/vision_native/build/Release/cod_native_auto_fire_gate_tests.exe"],
+        "exit_code": 0
+      },
+      {
+        "command": ["native/vision_native/build/Release/cod_native_runtime_config_tests.exe"],
+        "exit_code": 0
+      },
+      {
+        "command": [
+          "ctest",
+          "--test-dir",
+          "native/vision_native/build",
+          "-C",
+          "Release",
+          "--output-on-failure",
+          "-j",
+          "8"
+        ],
+        "exit_code": 0
+      }
+    ],
+    "ab_comparison": {
+      "baseline_runtime_sha256": "9ebb186010884550cf5881544735fc3368e615f53ca845bd3b57675c9b307829",
+      "candidate_runtime_sha256": "9ff001fb6d3bbc4a097dce63f7098ba8792ef01ebb912e56055a1848f4e18837",
+      "invariants_checked": true
+    },
+    "diff_reviewed": true,
+    "artifact_manifest": {
+      "id": "flick-handover-artifact-manifest",
+      "path": "artifact-manifest.json",
+      "sha256": "7b71e75ae26aa0fc608fee4eb92723e001a23afe5512e3cf648547f7caaf18f1"
+    }
+  }
+}

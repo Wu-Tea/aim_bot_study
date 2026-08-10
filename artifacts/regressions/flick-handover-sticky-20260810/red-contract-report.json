@@ -1,0 +1,55 @@
+{
+  "artifact_sha256": "660e301e32a8a908474d06a12c450d4cee4b40da7c7518db80ed09da3c5a2b71",
+  "checks": {
+    "counterfactuals": 1,
+    "evidence": {
+      "facts": 3,
+      "inferences": 1,
+      "unknowns": 1
+    },
+    "fixture": {
+      "covariates": [
+        "controller_mode",
+        "freshness",
+        "left_stick_manual",
+        "logging_mode",
+        "recoil_firing",
+        "refresh_rate_hz",
+        "right_stick_manual",
+        "target_count",
+        "target_generation"
+      ],
+      "kind": "native_benchmark",
+      "source_files": 3,
+      "trigger_assertions": 3
+    },
+    "green": {
+      "passed_oracles": [],
+      "verified": false
+    },
+    "oracles": 3,
+    "red": {
+      "failed_oracles": [
+        "O1",
+        "O2"
+      ],
+      "verified": true
+    },
+    "verification": {
+      "diff_reviewed": false,
+      "focused_tests": 0
+    }
+  },
+  "incident_id": "flick-handover-sticky-20260810",
+  "issues": [],
+  "schema_version": 1,
+  "stage": "red",
+  "status": "PASS",
+  "verified_artifacts": [
+    {
+      "id": "flick-handover-known-bad-report",
+      "sha256": "bd37a4af4da8b86b961b7e073fda8ad51d5dfb53170bc80341f90d78927525d7",
+      "size_bytes": 862
+    }
+  ]
+}

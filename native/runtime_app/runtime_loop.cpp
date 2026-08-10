@@ -33,12 +33,9 @@ RuntimeTelemetryOptions telemetry_options_from(
     const controller_native::RuntimeConfig& config,
     const std::filesystem::path& session_directory) {
     RuntimeTelemetryOptions options;
-    // The legacy aim performance switch is a compatibility alias for the
-    // asynchronous telemetry pipeline.  It must never resurrect the old
-    // synchronous file writer on the 1 ms controller thread.
-    options.enabled = config.telemetry.enabled || config.vision.aim_perf_file_log;
+    options.enabled = config.telemetry.enabled;
     options.directory = session_directory.empty()
-        ? std::filesystem::path(config.vision.aim_perf_log_dir)
+        ? std::filesystem::path(config.telemetry.directory)
         : session_directory;
     options.queue_capacity = config.telemetry.queue_capacity;
     options.rotate_size_bytes =
@@ -49,8 +46,8 @@ RuntimeTelemetryOptions telemetry_options_from(
 
 LogSessionOptions log_session_options_from(const controller_native::RuntimeConfig& config) {
     LogSessionOptions options;
-    options.enabled = config.telemetry.enabled || config.vision.aim_perf_file_log;
-    options.root = config.vision.aim_perf_log_dir;
+    options.enabled = config.telemetry.enabled;
+    options.root = config.telemetry.directory;
     options.git_commit = config.build_commit;
     options.config_hash = config.source_config_sha256;
     options.engine_hash = config.engine_sha256;
@@ -341,7 +338,7 @@ void log_vision_result(
                   << " service=none service_state=unknown service_seq=0"
                   << " mode=none"
                   << " cap=0ms copy=0ms pre=0ms infer=0ms enqueue=0ms decode=0ms"
-                  << " selector=0ms enhance=0ms age=0ms\n";
+                  << " selector=0ms age=0ms\n";
         return;
     }
 
@@ -376,7 +373,6 @@ void log_vision_result(
         << "ms wait=" << result->output_wait_ms
         << "ms decode=" << result->decode_ms
         << "ms selector=" << result->selector_ms
-        << "ms enhance=" << result->enhance_ms
         << "ms post=" << result->post_ms
         << "ms age=" << result->age_ms
         << "ms\n";
@@ -462,25 +458,19 @@ RuntimeLoop::RuntimeLoop(
       log_session_manager_(log_session_options_from(config_)),
       telemetry_(telemetry_options_from(config_, log_session_manager_.session_directory())),
       telemetry_collectors_(
-          config_.telemetry.enabled || config_.vision.aim_perf_file_log,
+          config_.telemetry.enabled,
           &telemetry_,
           TelemetrySessionContext{
               config_.build_commit.c_str(),
-              config_.source_config_sha256.c_str(),
-              config_.engine_sha256.c_str(),
-              config_.executable_sha256.c_str(),
-              tracking_native::tracker_backend_kind_name(config_.gamepad.tracker_backend).data(),
-              config_.vision.capture_width,
+               config_.source_config_sha256.c_str(),
+               config_.engine_sha256.c_str(),
+               config_.executable_sha256.c_str(),
+               config_.vision.capture_width,
               config_.vision.capture_height,
-              config_.vision.gpu_service_active_fps,
-              config_.vision.gpu_service_idle_fps,
-              config_.scheduler.controller_tick_hz,
-              config_.telemetry.manual_controller_hz,
-              config_.telemetry.enabled || config_.vision.aim_perf_file_log}),
-      aim_perf_file_logger_(
-          false,
-          config_.vision.aim_perf_log_dir,
-          config_.vision.aim_perf_log_interval_ticks),
+              config_.vision.capture_fps,
+               config_.vision.idle_capture_fps,
+               config_.scheduler.controller_tick_hz,
+               config_.telemetry.manual_controller_hz}),
       downward_diagnostics_(DownwardPullDiagnostics::from_environment()),
       perf_log_(perf_log),
       gamepad_perf_log_(gamepad_perf_log_enabled(perf_log)),
@@ -530,21 +520,18 @@ RuntimeLoop::RuntimeLoop(
         initial_viewport.source_frame_id);
     if (config_.vision.gpu_service_enabled) {
         VisionServiceOptions service_options;
-        service_options.active_fps = static_cast<double>(config_.vision.gpu_service_active_fps);
-        service_options.idle_fps = static_cast<double>(config_.vision.gpu_service_idle_fps);
-        service_options.keepwarm_when_idle = config_.vision.gpu_service_keepwarm_when_idle;
-        service_options.repeat_last_on_no_update =
-            config_.vision.gpu_service_repeat_last_on_no_update;
+        service_options.capture_fps = static_cast<double>(config_.vision.capture_fps);
+        service_options.idle_fps = static_cast<double>(config_.vision.idle_capture_fps);
+        service_options.keepwarm_when_idle = config_.vision.keepwarm_when_idle;
         vision_service_ = std::make_unique<VisionService>(
             std::make_unique<VisionEngineServicePoller>(std::move(vision_engine)),
             service_options);
         vision_service_->set_viewport(initial_viewport);
         vision_service_->start();
         std::cout << "[VisionService][CPP] enabled"
-                  << " active_fps=" << config_.vision.gpu_service_active_fps
-                  << " idle_fps=" << config_.vision.gpu_service_idle_fps
-                  << " keepwarm=" << (config_.vision.gpu_service_keepwarm_when_idle ? 1 : 0)
-                  << " repeat_last=" << (config_.vision.gpu_service_repeat_last_on_no_update ? 1 : 0)
+                  << " capture_fps=" << config_.vision.capture_fps
+                  << " idle_fps=" << config_.vision.idle_capture_fps
+                  << " keepwarm=" << (config_.vision.keepwarm_when_idle ? 1 : 0)
                   << '\n';
     } else {
         vision_engine_ = std::move(vision_engine);
@@ -724,12 +711,6 @@ void RuntimeLoop::run_once() {
         }
     }
     const auto vigem_update_finished = std::chrono::steady_clock::now();
-    controller_.report_output_delivery(
-        !config_.output.enabled || output_result.delivered,
-        config_.output.enabled,
-        steady_time_seconds(vigem_update_finished).value,
-        static_cast<std::uint64_t>(output_result.reconnect_count) + 1);
-
     // Everything below is observation, diagnostics, or future-frame setup.
     // It must never delay the output calculated from a newly consumed result.
     if (telemetry_new_vision) {
@@ -746,7 +727,6 @@ void RuntimeLoop::run_once() {
         vision.has_target = latest_vision_result_.has_target;
         vision.live = latest_vision_result_.has_target && latest_vision_result_.has_body_box &&
             latest_vision_result_.frame_updated;
-        vision.projected = latest_vision_result_.has_target && !latest_vision_result_.frame_updated;
         vision.aiming = aiming;
         vision.x1 = latest_vision_result_.body_x1;
         vision.y1 = latest_vision_result_.body_y1;
@@ -871,10 +851,6 @@ void RuntimeLoop::run_once() {
             vision_sample.color_copy_ms = result.color_copy_required
                 ? result.color_copy_ms : -1.0;
             vision_sample.cuda_unmap_ms = result.cuda_unmap_ms;
-            // W3 ego-motion is test-only now; the ordinary perf schema keeps
-            // these legacy fields explicitly unavailable in production.
-            vision_sample.ego_stage_ms = -1.0;
-            vision_sample.ego_compute_ms = -1.0;
             perf_summary_logger_.record_vision(vision_sample);
         }
     }
@@ -1027,64 +1003,15 @@ void RuntimeLoop::run_once() {
     telemetry_tick.ai_correction_y = telemetry_components.ai_correction_stick.y;
     telemetry_tick.manual_authority_mode =
         telemetry_components.manual_authority_mode;
-    telemetry_tick.fresh_vision_validated_manual_proposal_x =
-        telemetry_components.intent_fusion_fresh_validated_manual_proposal.x;
-    telemetry_tick.fresh_vision_validated_manual_proposal_y =
-        telemetry_components.intent_fusion_fresh_validated_manual_proposal.y;
-    telemetry_tick.fresh_vision_validated_ai_proposal_x =
-        telemetry_components.intent_fusion_fresh_validated_ai_proposal.x;
-    telemetry_tick.fresh_vision_validated_ai_proposal_y =
-        telemetry_components.intent_fusion_fresh_validated_ai_proposal.y;
-    telemetry_tick.fresh_vision_manual_radial_scale =
-        telemetry_components.intent_fusion_fresh_manual_radial_scale;
-    telemetry_tick.fresh_vision_wrong_way_policy_applied =
-        telemetry_components.intent_fusion_fresh_vision_policy_applied;
-    telemetry_tick.fresh_vision_ai_radial_bound_applied =
-        telemetry_components.intent_fusion_fresh_ai_radial_bound;
-    telemetry_tick.fresh_vision_ai_radial_scale =
-        telemetry_components.intent_fusion_fresh_ai_radial_scale;
-    telemetry_tick.fresh_vision_predictive_envelope_applied =
-        telemetry_components.intent_fusion_predictive_envelope_applied;
-    telemetry_tick.fresh_vision_escape_latched =
-        telemetry_components.intent_fusion_fresh_escape_latched;
-    telemetry_tick.fresh_vision_authoritative_error_x =
-        telemetry_components.intent_fusion_fresh_authoritative_error_px.x;
-    telemetry_tick.fresh_vision_authoritative_error_y =
-        telemetry_components.intent_fusion_fresh_authoritative_error_px.y;
-    telemetry_tick.fresh_vision_predicted_error_x =
-        telemetry_components.intent_fusion_fresh_predicted_error_px.x;
-    telemetry_tick.fresh_vision_predicted_error_y =
-        telemetry_components.intent_fusion_fresh_predicted_error_px.y;
-    telemetry_tick.fresh_vision_raw_manual_radial =
-        telemetry_components.intent_fusion_fresh_raw_manual_radial;
-    telemetry_tick.fresh_vision_raw_ai_radial =
-        telemetry_components.intent_fusion_fresh_raw_ai_radial;
-    telemetry_tick.fresh_vision_strongest_valid_radial =
-        telemetry_components.intent_fusion_fresh_strongest_valid_radial;
-    telemetry_tick.fresh_vision_stopping_radial =
-        telemetry_components.intent_fusion_fresh_stopping_radial;
-    telemetry_tick.fresh_vision_permitted_radial =
-        telemetry_components.intent_fusion_fresh_permitted_radial;
-    telemetry_tick.fresh_vision_pre_slew_radial =
-        telemetry_components.intent_fusion_fresh_pre_slew_radial;
-    telemetry_tick.fresh_vision_final_radial =
-        telemetry_components.intent_fusion_fresh_final_radial;
-    telemetry_tick.fresh_vision_horizon_seconds =
-        telemetry_components.intent_fusion_fresh_horizon_seconds;
-    telemetry_tick.fresh_vision_horizon_y_seconds =
-        telemetry_components.intent_fusion_fresh_horizon_y_seconds;
-    telemetry_tick.fresh_vision_max_force_x =
-        telemetry_components.intent_fusion_fresh_max_force.x;
-    telemetry_tick.fresh_vision_max_force_y =
-        telemetry_components.intent_fusion_fresh_max_force.y;
-    telemetry_tick.fresh_vision_envelope_target_x =
-        telemetry_components.intent_fusion_fresh_envelope_target_stick.x;
-    telemetry_tick.fresh_vision_envelope_target_y =
-        telemetry_components.intent_fusion_fresh_envelope_target_stick.y;
-    telemetry_tick.fresh_vision_envelope_reason =
-        telemetry_components.intent_fusion_fresh_envelope_reason.c_str();
-    telemetry_tick.fresh_vision_envelope_source =
-        telemetry_components.intent_fusion_fresh_envelope_source.c_str();
+    telemetry_tick.assist_control_phase =
+        telemetry_components.assist_control_phase.c_str();
+    telemetry_tick.manual_passthrough_x =
+        telemetry_components.manual_passthrough_x;
+    telemetry_tick.manual_passthrough_y =
+        telemetry_components.manual_passthrough_y;
+    telemetry_tick.handover_requested =
+        telemetry_components.handover_requested;
+    telemetry_tick.handover_braking = telemetry_components.handover_braking;
     telemetry_tick.bodylock_error_rate_x =
         telemetry_components.bodylock_error_rate_px_per_sec.x;
     telemetry_tick.bodylock_error_rate_y =
@@ -1109,29 +1036,6 @@ void RuntimeLoop::run_once() {
     telemetry_tick.requested_assist_y = telemetry_components.requested_assist_stick.y;
     telemetry_tick.shaped_assist_x = telemetry_components.shaped_assist_stick.x;
     telemetry_tick.shaped_assist_y = telemetry_components.shaped_assist_stick.y;
-    telemetry_tick.post_ai_x = telemetry_components.post_ai_stick.x;
-    telemetry_tick.post_ai_y = telemetry_components.post_ai_stick.y;
-    telemetry_tick.dynamic_adjustment_x = telemetry_components.dynamic_adjustment_stick.x;
-    telemetry_tick.dynamic_adjustment_y = telemetry_components.dynamic_adjustment_stick.y;
-    telemetry_tick.post_dynamic_x = telemetry_components.post_dynamic_stick.x;
-    telemetry_tick.post_dynamic_y = telemetry_components.post_dynamic_stick.y;
-    telemetry_tick.ads_brake_x = telemetry_components.ads_brake_stick.x;
-    telemetry_tick.ads_brake_y = telemetry_components.ads_brake_stick.y;
-    telemetry_tick.post_ads_brake_x = telemetry_components.post_ads_brake_stick.x;
-    telemetry_tick.post_ads_brake_y = telemetry_components.post_ads_brake_stick.y;
-    telemetry_tick.ads_carry_brake_x = telemetry_components.ads_carry_brake_stick.x;
-    telemetry_tick.ads_carry_brake_y = telemetry_components.ads_carry_brake_stick.y;
-    telemetry_tick.post_ads_carry_brake_x = telemetry_components.post_ads_carry_brake_stick.x;
-    telemetry_tick.post_ads_carry_brake_y = telemetry_components.post_ads_carry_brake_stick.y;
-    telemetry_tick.ads_brake_active = telemetry_components.ads_brake_active;
-    telemetry_tick.ads_carry_brake_active = telemetry_components.ads_carry_brake_active;
-    telemetry_tick.ads_completion_active = telemetry_components.ads_completion_active;
-    telemetry_tick.ads_completion_stable_frames = telemetry_components.ads_completion_stable_frames;
-    telemetry_tick.ads_completion_radius_px = telemetry_components.ads_completion_radius_px;
-    telemetry_tick.ads_completion_required_frames = telemetry_components.ads_completion_required_frames;
-    telemetry_tick.ads_completion_max_ms = telemetry_components.ads_completion_max_ms;
-    telemetry_tick.ads_completion_reason = telemetry_components.ads_completion_reason.c_str();
-    telemetry_tick.manual_takeover_active = controller_.body_lock_manual_takeover_active();
     telemetry_tick.auto_fire_requested = telemetry_components.auto_fire_requested;
     telemetry_tick.auto_fire_aim_ready = telemetry_components.auto_fire_aim_ready;
     telemetry_tick.auto_fire_allowed = telemetry_components.auto_fire_allowed;
@@ -1153,16 +1057,8 @@ void RuntimeLoop::run_once() {
     telemetry_tick.final_y = telemetry_components.final_stick.y;
     telemetry_tick.observed_error_x = telemetry_components.observed_error_px.x;
     telemetry_tick.observed_error_y = telemetry_components.observed_error_px.y;
-    telemetry_tick.pending_motion_x = telemetry_components.pending_motion_px.x;
-    telemetry_tick.pending_motion_y = telemetry_components.pending_motion_px.y;
     telemetry_tick.control_error_x = telemetry_components.control_error_px.x;
     telemetry_tick.control_error_y = telemetry_components.control_error_px.y;
-    telemetry_tick.pending_motion_confidence =
-        telemetry_components.pending_motion_confidence;
-    telemetry_tick.pending_motion_valid =
-        telemetry_components.pending_motion_valid;
-    telemetry_tick.memory_applied = telemetry_components.memory_applied;
-    telemetry_tick.memory_status = telemetry_components.memory_status;
     telemetry_tick.final_left_x = output.left_x;
     telemetry_tick.final_left_y = output.left_y;
     telemetry_tick.output_saturated =
@@ -1171,20 +1067,11 @@ void RuntimeLoop::run_once() {
     telemetry_tick.selected_track_id = telemetry_vision_state.selected_track_id;
     telemetry_tick.selected_observation_id =
         telemetry_vision_state.selected_observation_id;
-    telemetry_tick.backing_frame_id =
-        telemetry_vision_state.selected_backing_frame_id;
-    telemetry_tick.track_observation_age_ms =
-        telemetry_vision_state.track_observation_age_ms;
-    telemetry_tick.track_position_sigma =
-        telemetry_vision_state.track_position_sigma;
-    telemetry_tick.track_ambiguity = telemetry_vision_state.track_ambiguity;
     telemetry_tick.assist_authority = telemetry_components.assist_authority.c_str();
     telemetry_tick.assist_authority_reason =
         telemetry_components.assist_authority_reason.c_str();
     telemetry_tick.bodylock_lifecycle =
         telemetry_components.bodylock_lifecycle.c_str();
-    telemetry_tick.bodylock_transition_reason =
-        telemetry_components.bodylock_transition_reason.c_str();
     telemetry_tick.assist_limit_reason =
         telemetry_components.assist_limit_reason.c_str();
     telemetry_collectors_.observe_tick(telemetry_tick);

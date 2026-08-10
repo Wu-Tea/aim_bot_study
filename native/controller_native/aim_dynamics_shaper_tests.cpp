@@ -55,26 +55,26 @@ void test_plan_loss_decays_stale_force_without_reversal() {
                  "plan loss must monotonically discharge stale AI force");
 }
 
-void test_coasting_never_ramps_blind_assist() {
+void test_cue_continuation_never_ramps_without_observation() {
     controller_native::AimDynamicsShaper shaper;
     auto plan = active_plan();
     const auto observed = shaper.shape({0.8f, 0.0f}, {}, plan, 0.001f);
-    plan.lifecycle = pipeline_contract::TargetLifecycle::Coasting;
-    const auto coast = shaper.shape({0.8f, 0.0f}, {}, plan, 0.001f);
-    require_true(coast.x <= observed.x + 0.0001f,
-                 "coasting must not increase assist without a new observation");
+    plan.lifecycle = pipeline_contract::TargetLifecycle::CueContinuation;
+    const auto continued = shaper.shape({0.8f, 0.0f}, {}, plan, 0.001f);
+    require_true(continued.x <= observed.x + 0.0001f,
+                 "cue continuation must not increase assist without a new observation");
 }
 
-void test_coasting_cannot_reacquire_force_from_downstream_hint() {
+void test_cue_continuation_cannot_add_force_from_downstream_hint() {
     controller_native::AimDynamicsShaper shaper;
     auto plan = active_plan();
     const auto observed = shaper.shape({0.8f, 0.0f}, {}, plan, 0.001f);
-    plan.lifecycle = pipeline_contract::TargetLifecycle::Coasting;
-    const auto coast = shaper.shape(
+    plan.lifecycle = pipeline_contract::TargetLifecycle::CueContinuation;
+    const auto continued = shaper.shape(
         {0.8f, 0.8f}, {}, plan, 0.001f, {1.0f, 0.0f});
-    require_true(coast.x <= observed.x + 0.0001f,
-                 "coasting must not reacquire force through a downstream hint");
-    require_true(std::fabs(coast.y) <= 0.0001f,
+    require_true(continued.x <= observed.x + 0.0001f,
+                 "cue continuation must not add force through a downstream hint");
+    require_true(std::fabs(continued.y) <= 0.0001f,
                  "unconfirmed Y must retain blind-rise protection");
 }
 
@@ -84,10 +84,10 @@ void test_confirmed_wrong_axis_does_not_ramp_when_assist_is_weaker() {
     pipeline_contract::IntentState intent{};
     intent.filtered_right.x = -0.40f;
     const auto observed = shaper.shape({0.20f, 0.0f}, intent, plan, 0.001f);
-    plan.lifecycle = pipeline_contract::TargetLifecycle::Coasting;
-    const auto coast = shaper.shape(
+    plan.lifecycle = pipeline_contract::TargetLifecycle::CueContinuation;
+    const auto continued = shaper.shape(
         {0.20f, 0.0f}, intent, plan, 0.001f, {1.0f, 0.0f});
-    require_true(coast.x <= observed.x + 0.0001f,
+    require_true(continued.x <= observed.x + 0.0001f,
                  "weak assist must not ramp against stronger manual input");
 }
 
@@ -222,8 +222,8 @@ int main() {
         test_step_and_reversal_are_bounded();
         test_reversal_discharges_before_opposite_rise();
         test_plan_loss_decays_stale_force_without_reversal();
-        test_coasting_never_ramps_blind_assist();
-        test_coasting_cannot_reacquire_force_from_downstream_hint();
+        test_cue_continuation_never_ramps_without_observation();
+        test_cue_continuation_cannot_add_force_from_downstream_hint();
         test_confirmed_wrong_axis_does_not_ramp_when_assist_is_weaker();
         test_manual_ownership_is_not_duplicated_in_shaper();
         test_shaper_never_amplifies_work_after_controller_reduces_request();

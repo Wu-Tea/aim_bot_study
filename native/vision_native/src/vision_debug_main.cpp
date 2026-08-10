@@ -73,7 +73,6 @@ int main(int argc, char** argv) {
                       << " output_wait_ms=" << result.output_wait_ms
                       << " decode_ms=" << result.decode_ms
                       << " selector_ms=" << result.selector_ms
-                      << " enhance_ms=" << result.enhance_ms
                       << " cuda_unmap_ms=" << result.cuda_unmap_ms
                       << " post_ms=" << result.post_ms
                       << " age_ms=" << result.age_ms

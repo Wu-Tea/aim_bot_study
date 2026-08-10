@@ -1,4 +1,3 @@
-#include "vision_native/aim_enhancement.h"
 #include "vision_native/dxgi_capture.h"
 #include "vision_native/target_selector.h"
 #include "vision_native/vision_engine.h"
@@ -189,7 +188,6 @@ py::dict vision_result_to_dict(const vision_native::VisionResult& result_in) {
     result["output_wait_ms"] = result_in.output_wait_ms;
     result["decode_ms"] = result_in.decode_ms;
     result["selector_ms"] = result_in.selector_ms;
-    result["enhance_ms"] = result_in.enhance_ms;
     result["cuda_unmap_ms"] = result_in.cuda_unmap_ms;
     result["post_ms"] = result_in.post_ms;
     result["age_ms"] = result_in.age_ms;
@@ -292,15 +290,6 @@ vision_native::VisionTargetSelector::ColorFrameView rgb_frame_view(
     view.frame_height = view.height;
     view.format = vision_native::PixelFormat::RGB8;
     return view;
-}
-
-std::optional<vision_native::AimSlowZone> parse_slow_zone(const py::object& value) {
-    if (value.is_none()) {
-        return std::nullopt;
-    }
-
-    const auto zone = value.cast<std::array<float, 4>>();
-    return vision_native::AimSlowZone{zone[0], zone[1], zone[2], zone[3]};
 }
 
 py::array_t<uint8_t> gray_frame_to_numpy(const vision_native::GrayFrame& frame) {
@@ -486,46 +475,6 @@ PYBIND11_MODULE(vision_native_cpp, module) {
         .def("poll_once", [](vision_native::VisionEngine& engine) {
             return vision_result_to_dict(poll_engine_once(engine));
         });
-
-    py::class_<vision_native::AimEnhancementPipeline>(module, "NativeAimEnhancer")
-        .def(py::init<>())
-        .def("reset", &vision_native::AimEnhancementPipeline::reset)
-        .def(
-            "process",
-            [](vision_native::AimEnhancementPipeline& enhancer,
-               float target_x,
-               float target_y,
-               float screen_center_x,
-               float screen_center_y,
-               py::object slow_zone,
-               const std::string& source,
-               double timestamp) {
-                vision_native::VisionResult target;
-                target.has_target = true;
-                target.target_x = target_x;
-                target.target_y = target_y;
-                target.screen_center_x = screen_center_x;
-                target.screen_center_y = screen_center_y;
-                target.dx = target_x - screen_center_x;
-                target.dy = target_y - screen_center_y;
-                target.target_source = source == "predicted" ? "predicted" : "observed";
-                target.target_tier = source == "predicted" ? "predicted" : "observed_strong";
-                target.aim_authority = source != "predicted";
-                target.fire_authority = source != "predicted";
-                target.association_stage = target.target_source;
-                const vision_native::VisionResult enhanced = enhancer.process(
-                    target,
-                    timestamp,
-                    parse_slow_zone(slow_zone));
-                return vision_result_to_dict(enhanced);
-            },
-            py::arg("target_x"),
-            py::arg("target_y"),
-            py::arg("screen_center_x"),
-            py::arg("screen_center_y"),
-            py::arg("slow_zone"),
-            py::arg("source"),
-            py::arg("timestamp"));
 
     py::class_<vision_native::VisionTargetSelector>(module, "NativeTargetSelector")
         .def(py::init<int, int>(), py::arg("width"), py::arg("height"))

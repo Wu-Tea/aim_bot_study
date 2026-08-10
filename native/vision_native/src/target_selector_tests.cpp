@@ -6,11 +6,15 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <fstream>
 #include <iostream>
+#include <string>
 #include <stdexcept>
 #include <vector>
 
 namespace {
+
+std::string g_cue_geometry_regression_report_path;
 
 void require_true(bool condition, const char* message) {
     if (!condition) {
@@ -42,6 +46,21 @@ vision_native::Detection detection_for_target(
     detection.y1 = target_y - (height * 0.40f);
     detection.y2 = detection.y1 + height;
     detection.conf = conf;
+    return detection;
+}
+
+vision_native::Detection marked_detection_for_target(
+    float target_x,
+    float target_y,
+    float cue_x,
+    float cue_y,
+    float conf) {
+    auto detection = detection_for_target(target_x, target_y, conf);
+    detection.has_cue_point = true;
+    detection.cue_x = cue_x;
+    detection.cue_y = cue_y;
+    detection.cue_score = 0.95f;
+    detection.color_bonus = 0.30f;
     return detection;
 }
 
@@ -223,6 +242,28 @@ void paint_sparse_bgra(
     }
 }
 
+void paint_solid_yellow_bgra(
+    ColorFrameFixture& frame,
+    int center_x,
+    int center_y,
+    int radius) {
+    for (int y = center_y - radius; y <= center_y + radius; ++y) {
+        for (int x = center_x - radius; x <= center_x + radius; ++x) {
+            if (x < 0 || y < 0 ||
+                x >= frame.view.frame_width || y >= frame.view.frame_height) {
+                continue;
+            }
+            const auto offset = static_cast<std::size_t>(
+                (y - frame.view.origin_y) * frame.view.row_pitch +
+                (x - frame.view.origin_x) * 4);
+            frame.pixels[offset + 0] = 0;
+            frame.pixels[offset + 1] = 255;
+            frame.pixels[offset + 2] = 255;
+            frame.pixels[offset + 3] = 255;
+        }
+    }
+}
+
 vision_native::VisionTargetSelector::FrameRegion color_region_for(
     const vision_native::Detection& detection) {
     vision_native::VisionTargetSelector probe(640, 512);
@@ -346,7 +387,9 @@ void test_intent_favored_challenger_logs_ignored_active_lock() {
     crossing.detections.push_back(detection_for_target(296.0f, 256.0f, 0.40f));
     crossing.detections.push_back(detection_for_target(344.0f, 256.0f, 0.92f));
 
-    const vision_native::VisionResult result = selector.select(crossing, rightward_intent(13));
+    auto weak_intent = rightward_intent(13);
+    weak_intent.strength = 0.35f;
+    const vision_native::VisionResult result = selector.select(crossing, weak_intent);
 
     require_true(result.has_target, "active-lock frame should retain a target");
     require_near(
@@ -356,13 +399,12 @@ void test_intent_favored_challenger_logs_ignored_active_lock() {
         "intent-favored challenger should not switch away from active target immediately");
     require_true(result.intent_id == 13, "active-lock ignored intent should carry intent id");
     require_true(!result.intent_applied, "active-lock ignored intent should not report applied");
-    require_text(
-        result.intent_decision,
-        "ignored_active_lock",
-        "active-lock ignored intent should explain why the intent did not switch targets");
+    require_true(
+        std::strcmp(result.intent_decision, "applied_direction") != 0,
+        "weak intent must not receive decisive handover authority");
 }
 
-void test_intent_switch_waits_for_confirmation_before_changing_active_target() {
+void test_decisive_intent_switches_on_first_fresh_frame() {
     vision_native::VisionTargetSelector selector(640, 512);
     const auto active_batch = single_target_batch(260.0f, 256.0f, 0.92f);
 
@@ -380,18 +422,18 @@ void test_intent_switch_waits_for_confirmation_before_changing_active_target() {
     const auto intent = rightward_intent(17);
     const vision_native::VisionResult first = selector.select(crossing, intent);
 
-    require_true(first.has_target, "first switch-confirm frame should retain a target");
+    require_true(first.has_target, "decisive handover frame should retain a target");
     require_near(
         first.target_x,
-        260.0f,
+        336.0f,
         0.001f,
-        "first switch-confirm frame should retain active target");
-    require_true(first.intent_id == 17, "delayed switch should carry intent id");
-    require_true(!first.intent_applied, "delayed switch should not report applied yet");
+        "decisive handover must switch on the first fresh frame");
+    require_true(first.intent_id == 17, "decisive switch should carry intent id");
+    require_true(first.intent_applied, "decisive switch should report applied intent");
     require_text(
         first.intent_decision,
-        "delayed_switch_confirm",
-        "delayed switch should explain that switch confirmation is pending");
+        "applied_direction",
+        "decisive switch should preserve the applied intent reason");
 
     const vision_native::VisionResult second = selector.select(crossing, intent);
 
@@ -400,8 +442,8 @@ void test_intent_switch_waits_for_confirmation_before_changing_active_target() {
         second.target_x,
         336.0f,
         0.001f,
-        "second switch-confirm frame should switch to challenger");
-    require_true(second.intent_applied, "confirmed switch should report applied intent");
+        "following frame should remain on the handed-over challenger");
+    require_true(second.intent_applied, "continued intent should remain applied");
     require_text(
         second.intent_decision,
         "applied_direction",
@@ -429,7 +471,7 @@ void test_unaligned_intent_does_not_confirm_right_side_challenger() {
 
     // This direction supports the retained left target and is deliberately
     // unaligned with the right-side challenger. It is the counterfactual to
-    // test_intent_switch_waits_for_confirmation_before_changing_active_target.
+    // test_decisive_intent_switches_on_first_fresh_frame.
     const auto intent = lower_left_intent(18);
     const vision_native::VisionResult first = selector.select(crossing, intent);
     const vision_native::VisionResult second = selector.select(crossing, intent);
@@ -764,6 +806,75 @@ void test_yellow_cue_continuation_tracks_visible_marker_for_bounded_ads_hold() {
     const auto expired = selector.select_with_frame(occluded, frame.view);
     require_true(!expired.has_target && !expired.aim_authority && !expired.fire_authority,
                   "cue must lose authority after the bounded ADS continuation ceiling");
+}
+
+void test_yellow_cue_continuation_uses_current_marker_after_fast_motion() {
+    constexpr std::uint64_t kMillisecondNs = 1'000'000ull;
+    constexpr std::uint64_t kLockTimeNs = 2'000'000'000ull;
+    vision_native::VisionTargetSelector selector(640, 512);
+    auto enemy = detection_for_target(320.0f, 256.0f, 0.82f);
+    enemy.has_cue_point = true;
+    enemy.cue_x = 320.0f;
+    enemy.cue_y = 190.0f;
+    enemy.cue_score = 0.95f;
+    enemy.color_bonus = 0.30f;
+    vision_native::DetectionBatch observed;
+    observed.frame_width = 640;
+    observed.frame_height = 512;
+    observed.captured_at_ns = kLockTimeNs;
+    observed.detections.push_back(enemy);
+    const auto locked = selector.select(observed);
+    require_true(locked.has_target, "fixture must acquire a marked person");
+
+    auto moved_frame = full_bgra_frame();
+    paint_solid_yellow_bgra(moved_frame, 350, 190, 1);
+    vision_native::DetectionBatch occluded;
+    occluded.frame_width = 640;
+    occluded.frame_height = 512;
+    occluded.captured_at_ns = kLockTimeNs + (10ull * kMillisecondNs);
+    const auto held = selector.select_with_frame(occluded, moved_frame.view);
+
+    require_true(held.has_target && held.aim_authority,
+                 "a visible marker moving 30 px between results must remain authoritative");
+    require_text(held.target_source, "cue_hold",
+                 "fast current-marker tracking must remain cue_hold");
+    require_near(held.target_x, locked.target_x + 30.0f, 1.0f,
+                 "cue_hold target must translate from the current marker, not the old point");
+    require_near(held.target_y, locked.target_y, 1.0f,
+                 "horizontal cue motion must preserve the learned cue-to-target Y offset");
+}
+
+void test_yellow_cue_continuation_selects_nearest_component_not_color_average() {
+    constexpr std::uint64_t kMillisecondNs = 1'000'000ull;
+    constexpr std::uint64_t kLockTimeNs = 2'500'000'000ull;
+    vision_native::VisionTargetSelector selector(640, 512);
+    auto enemy = detection_for_target(320.0f, 256.0f, 0.82f);
+    enemy.has_cue_point = true;
+    enemy.cue_x = 320.0f;
+    enemy.cue_y = 190.0f;
+    enemy.cue_score = 0.95f;
+    enemy.color_bonus = 0.30f;
+    vision_native::DetectionBatch observed;
+    observed.frame_width = 640;
+    observed.frame_height = 512;
+    observed.captured_at_ns = kLockTimeNs;
+    observed.detections.push_back(enemy);
+    const auto locked = selector.select(observed);
+    require_true(locked.has_target, "fixture must acquire a marked person");
+
+    auto cluttered_frame = full_bgra_frame();
+    paint_solid_yellow_bgra(cluttered_frame, 326, 190, 1);
+    paint_solid_yellow_bgra(cluttered_frame, 334, 190, 2);
+    vision_native::DetectionBatch occluded;
+    occluded.frame_width = 640;
+    occluded.frame_height = 512;
+    occluded.captured_at_ns = kLockTimeNs + (10ull * kMillisecondNs);
+    const auto held = selector.select_with_frame(occluded, cluttered_frame.view);
+
+    require_true(held.has_target && held.aim_authority,
+                 "current marker component must survive nearby yellow clutter");
+    require_near(held.target_x, locked.target_x + 6.0f, 1.0f,
+                 "cue tracker must choose the nearest coherent component instead of averaging yellow blobs");
 }
 
 void test_yellow_cue_continuation_releases_when_marker_evidence_stops() {
@@ -1203,14 +1314,16 @@ void test_selector_generation_survives_frame_local_observation_changes() {
     replacement.detections[0] = detection_for_target(260.0f, 256.0f, 0.40f);
     replacement.detections.push_back(detection_for_target(336.0f, 256.0f, 0.92f));
     const auto pending = selector.select(replacement, rightward_intent(81));
-    require_true(pending.selector_target_generation == first.selector_target_generation,
-                 "replacement must wait for selector confirmation");
+    require_true(pending.selector_target_generation > first.selector_target_generation,
+                 "decisive replacement must increment generation immediately");
+    require_true(pending.selector_target_changed,
+                 "decisive replacement must publish changed=true immediately");
     replacement.frame_id = 105;
     const auto switched = selector.select(replacement, rightward_intent(81));
-    require_true(switched.selector_target_generation > first.selector_target_generation,
-                 "confirmed selector replacement must increment generation");
-    require_true(switched.selector_target_changed,
-                  "confirmed selector replacement must publish changed=true");
+    require_true(switched.selector_target_generation == pending.selector_target_generation,
+                 "continued replacement must retain the new selector generation");
+    require_true(!switched.selector_target_changed,
+                 "continued replacement must not publish another identity change");
 }
 
 void test_confirmed_frame_replacement_bootstraps_a_new_motion_anchor() {
@@ -1261,16 +1374,216 @@ void test_confirmed_frame_replacement_bootstraps_a_new_motion_anchor() {
         "replacement anchor must not inherit the previous person's location");
 }
 
+struct CueGeometryRegressionMetrics {
+    bool generation_changed = false;
+    bool generation_offset_reset = false;
+    bool reconstructed_residual_rejected = false;
+    bool observed_single_target_preserved = false;
+    bool multi_target_intent_handoff_preserved = false;
+    bool cue_without_person_rejected = false;
+    bool cue_hold_remained_aim_only = false;
+    float held_after_replacement_y = 0.0f;
+    float wrong_reconstructed_y = 0.0f;
+};
+
+CueGeometryRegressionMetrics measure_cue_geometry_regressions() {
+    CueGeometryRegressionMetrics metrics;
+
+    {
+        vision_native::VisionTargetSelector selector(640, 512);
+        auto old_target = single_target_batch(260.0f, 256.0f, 0.92f);
+        old_target.frame_id = 101;
+        old_target.captured_at_ns = 1'000'000'000ull;
+        old_target.detections[0] = marked_detection_for_target(
+            260.0f, 256.0f, 260.0f, 180.0f, 0.92f);
+        selector.select(old_target);
+        const auto old_locked = selector.select(old_target);
+
+        auto replacement = old_target;
+        replacement.frame_id = 102;
+        replacement.captured_at_ns = 1'010'000'000ull;
+        replacement.detections[0] = detection_for_target(260.0f, 256.0f, 0.35f);
+        replacement.detections.push_back(marked_detection_for_target(
+            340.0f, 256.0f, 340.0f, 210.0f, 0.95f));
+        const auto first_replacement =
+            selector.select(replacement, rightward_intent(81));
+        replacement.frame_id = 103;
+        replacement.captured_at_ns += 5'000'000ull;
+        const auto switched = selector.select(replacement, rightward_intent(81));
+        metrics.generation_changed = switched.has_target &&
+            switched.selector_target_generation > old_locked.selector_target_generation &&
+            (first_replacement.selector_target_changed ||
+             switched.selector_target_changed);
+
+        vision_native::DetectionBatch occluded;
+        occluded.frame_width = 640;
+        occluded.frame_height = 512;
+        occluded.frame_id = 104;
+        occluded.captured_at_ns = replacement.captured_at_ns + 5'000'000ull;
+        auto frame = full_bgra_frame();
+        paint_solid_yellow_bgra(frame, 340, 210, 3);
+        const auto held = selector.select_with_frame(occluded, frame.view);
+        metrics.held_after_replacement_y = held.target_y;
+        metrics.generation_offset_reset = metrics.generation_changed &&
+            held.has_target && held.aim_authority &&
+            std::strcmp(held.target_source, "cue_hold") == 0 &&
+            std::fabs(held.target_y - 256.0f) <= 1.0f;
+    }
+
+    {
+        vision_native::VisionTargetSelector selector(640, 512);
+        auto observed = single_target_batch(320.0f, 256.0f, 0.92f);
+        observed.captured_at_ns = 2'000'000'000ull;
+        observed.detections[0] = marked_detection_for_target(
+            320.0f, 256.0f, 320.0f, 180.0f, 0.92f);
+        selector.select(observed);
+        const auto locked = selector.select(observed);
+
+        vision_native::DetectionBatch occluded;
+        occluded.frame_width = 640;
+        occluded.frame_height = 512;
+        occluded.captured_at_ns = 2'005'000'000ull;
+        auto frame = full_bgra_frame();
+        // This marker remains inside the bounded search window but would
+        // reconstruct a target 40 px away from the observed person point.
+        paint_solid_yellow_bgra(frame, 320, 140, 3);
+        const auto wrong_hold = selector.select_with_frame(occluded, frame.view);
+        metrics.wrong_reconstructed_y = wrong_hold.target_y;
+        metrics.reconstructed_residual_rejected = locked.has_target &&
+            !wrong_hold.has_target && !wrong_hold.aim_authority &&
+            !wrong_hold.fire_authority;
+    }
+
+    {
+        vision_native::VisionTargetSelector selector(640, 512);
+        const auto observed = selector.select(single_target_batch(320.0f, 256.0f, 0.92f));
+        const auto locked = selector.select(single_target_batch(320.0f, 256.0f, 0.92f));
+        metrics.observed_single_target_preserved =
+            !observed.has_target && locked.has_target &&
+            locked.has_selected_detection &&
+            std::fabs(locked.target_x - 320.0f) <= 0.001f &&
+            std::fabs(locked.target_y - 256.0f) <= 0.001f &&
+            locked.aim_authority && locked.fire_authority;
+    }
+
+    {
+        vision_native::VisionTargetSelector selector(640, 512);
+        const auto initial = single_target_batch(260.0f, 256.0f, 0.92f);
+        selector.select(initial);
+        selector.select(initial);
+        auto crossing = initial;
+        crossing.detections[0] = detection_for_target(260.0f, 256.0f, 0.40f);
+        crossing.detections.push_back(detection_for_target(336.0f, 256.0f, 0.92f));
+        const auto first = selector.select(crossing, rightward_intent(82));
+        const auto second = selector.select(crossing, rightward_intent(82));
+        metrics.multi_target_intent_handoff_preserved =
+            first.has_target && second.has_target &&
+            std::fabs(second.target_x - 336.0f) <= 0.001f &&
+            second.intent_applied;
+    }
+
+    {
+        vision_native::VisionTargetSelector selector(640, 512);
+        vision_native::DetectionBatch empty;
+        empty.frame_width = 640;
+        empty.frame_height = 512;
+        empty.captured_at_ns = 3'000'000'000ull;
+        auto frame = full_bgra_frame();
+        paint_solid_yellow_bgra(frame, 320, 180, 3);
+        const auto cue_only = selector.select_with_frame(empty, frame.view);
+        metrics.cue_without_person_rejected =
+            !cue_only.has_target && !cue_only.aim_authority &&
+            !cue_only.fire_authority;
+    }
+
+    {
+        vision_native::VisionTargetSelector selector(640, 512);
+        auto observed = single_target_batch(320.0f, 256.0f, 0.92f);
+        observed.captured_at_ns = 4'000'000'000ull;
+        observed.detections[0] = marked_detection_for_target(
+            320.0f, 256.0f, 320.0f, 180.0f, 0.92f);
+        selector.select(observed);
+        const auto locked = selector.select(observed);
+        vision_native::DetectionBatch empty;
+        empty.frame_width = 640;
+        empty.frame_height = 512;
+        empty.captured_at_ns = 4'005'000'000ull;
+        auto frame = full_bgra_frame();
+        paint_solid_yellow_bgra(frame, 320, 180, 3);
+        const auto held = selector.select_with_frame(empty, frame.view);
+        metrics.cue_hold_remained_aim_only = locked.has_target &&
+            held.has_target && held.aim_authority &&
+            !held.fire_authority && !held.auto_fire;
+    }
+
+    return metrics;
+}
+
+void write_cue_geometry_regression_report(
+    const CueGeometryRegressionMetrics& metrics) {
+    if (g_cue_geometry_regression_report_path.empty()) return;
+    std::ofstream output(
+        g_cue_geometry_regression_report_path,
+        std::ios::out | std::ios::trunc);
+    require_true(output.good(), "could not open cue geometry regression report");
+    output << "{\n"
+           << "  \"incident_id\": \"cue-geometry-identity-20260810\",\n"
+           << "  \"generation_changed\": "
+           << (metrics.generation_changed ? "true" : "false") << ",\n"
+           << "  \"generation_offset_reset\": "
+           << (metrics.generation_offset_reset ? "true" : "false") << ",\n"
+           << "  \"reconstructed_residual_rejected\": "
+           << (metrics.reconstructed_residual_rejected ? "true" : "false") << ",\n"
+           << "  \"observed_single_target_preserved\": "
+           << (metrics.observed_single_target_preserved ? "true" : "false") << ",\n"
+           << "  \"multi_target_intent_handoff_preserved\": "
+           << (metrics.multi_target_intent_handoff_preserved ? "true" : "false") << ",\n"
+           << "  \"cue_without_person_rejected\": "
+           << (metrics.cue_without_person_rejected ? "true" : "false") << ",\n"
+           << "  \"cue_hold_remained_aim_only\": "
+           << (metrics.cue_hold_remained_aim_only ? "true" : "false") << ",\n"
+           << "  \"held_after_replacement_y\": "
+           << metrics.held_after_replacement_y << ",\n"
+           << "  \"wrong_reconstructed_y\": "
+           << metrics.wrong_reconstructed_y << "\n"
+           << "}\n";
+}
+
+void test_cue_geometry_identity_and_residual_regressions() {
+    const auto metrics = measure_cue_geometry_regressions();
+    write_cue_geometry_regression_report(metrics);
+    require_true(metrics.generation_changed,
+                 "cue geometry fixture did not reach a confirmed target generation change");
+    require_true(metrics.generation_offset_reset,
+                 "confirmed target replacement inherited the previous cue offset");
+    require_true(metrics.reconstructed_residual_rejected,
+                 "wrong cue reconstructed a target without passing a same-target residual gate");
+    require_true(metrics.observed_single_target_preserved,
+                 "reliable observed single-target geometry regressed");
+    require_true(metrics.multi_target_intent_handoff_preserved,
+                 "multi-target manual-intent handoff regressed");
+    require_true(metrics.cue_without_person_rejected,
+                 "cue-only pixels acquired independent target authority");
+    require_true(metrics.cue_hold_remained_aim_only,
+                 "same-generation cue continuation gained fire authority");
+}
+
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
+    for (int index = 1; index + 1 < argc; ++index) {
+        if (std::string(argv[index]) == "--cue-geometry-regression-output") {
+            g_cue_geometry_regression_report_path = argv[++index];
+        }
+    }
     try {
+        test_cue_geometry_identity_and_residual_regressions();
         test_intent_direction_ranks_plausible_multi_target_candidates();
         test_user_intent_prefers_lower_left_close_target_over_far_upper_right();
         test_crosshair_near_target_beats_physically_near_large_target();
         test_single_current_candidate_replaces_missing_old_target_immediately();
         test_intent_favored_challenger_logs_ignored_active_lock();
-        test_intent_switch_waits_for_confirmation_before_changing_active_target();
+        test_decisive_intent_switches_on_first_fresh_frame();
         test_unaligned_intent_does_not_confirm_right_side_challenger();
         test_dead_active_target_does_not_override_unaligned_handover_intent();
         test_intent_does_not_grant_fire_authority_to_weak_association();
@@ -1284,6 +1597,8 @@ int main() {
         test_yellow_pixels_without_person_never_create_authority();
         test_yellow_cue_hold_is_aim_only();
         test_yellow_cue_continuation_tracks_visible_marker_for_bounded_ads_hold();
+        test_yellow_cue_continuation_uses_current_marker_after_fast_motion();
+        test_yellow_cue_continuation_selects_nearest_component_not_color_average();
         test_yellow_cue_continuation_releases_when_marker_evidence_stops();
         test_roi_miss_preserves_identity_without_old_coordinate_authority();
         test_required_color_region_clamps_edge_candidate_to_screen();

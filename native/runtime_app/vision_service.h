@@ -16,22 +16,19 @@ namespace runtime_app {
 enum class VisionSnapshotFreshness {
     None,
     Fresh,
-    Reused,
     NoUpdate,
 };
 
 enum class VisionSourceState {
     Unknown,
     FreshFrame,
-    RepeatLastFrame,
     NoUpdate,
 };
 
 struct VisionServiceOptions {
-    double active_fps = 100.0;
+    double capture_fps = 160.0;
     double idle_fps = 20.0;
     bool keepwarm_when_idle = true;
-    bool repeat_last_on_no_update = true;
 };
 
 struct VisionServiceSnapshot {
@@ -118,8 +115,6 @@ private:
     std::chrono::steady_clock::time_point last_poll_at_{};
     bool has_last_poll_ = false;
     VisionServiceSnapshot latest_snapshot_;
-    vision_native::VisionResult last_fresh_result_;
-    bool has_last_fresh_result_ = false;
     std::uint64_t sequence_ = 0;
     std::uint64_t aim_transition_sequence_ = 0;
     bool immediate_poll_requested_ = false;

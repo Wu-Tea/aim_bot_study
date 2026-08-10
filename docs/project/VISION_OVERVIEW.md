@@ -106,7 +106,7 @@ The default C++ runtime and Python fallback backends follow the same practical v
 2. `VisionEngine` performs centered ROI capture natively.
 3. Native preprocessing maps the ROI into TensorRT input tensors.
 4. TensorRT inference runs in C++ against `models/best.engine`.
-5. Native target selection, authority fields, aim enhancement, and auto-fire recommendation run in C++.
+5. Native target selection, authority fields and the auto-fire recommendation run in C++; the result contains current source-owned geometry rather than a second post-selector lead/damping pass.
 6. `NativeGamepadController` consumes `VisionResult` directly.
 
 ### Python-hosted native backend pipeline
@@ -115,7 +115,7 @@ The default C++ runtime and Python fallback backends follow the same practical v
 2. `NativeVisionEngine` performs centered ROI capture natively.
 3. Native preprocessing maps the ROI into TensorRT input tensors.
 4. TensorRT inference runs in the native module against `models/best.engine`.
-5. Native target selection, occlusion compensation, aim enhancement, and auto-fire recommendation run in C++.
+5. Native target selection and the auto-fire recommendation publish observed, weak-observed, or explicit same-generation cue evidence; they do not publish blind predicted/projected targets.
 6. Python receives compact result fields such as:
    - `dx`
    - `dy`
@@ -261,32 +261,37 @@ Important behavior shared by the production design:
 - target switch confirmation requires `2` frames
 - target switching is intentionally sticky to reduce left-right flapping
 
-Current `TargetSource` values are:
+Current native `TargetSource` values are:
 
 - `observed`
-- `reconstructed`
-- `predicted`
+- `associated_weak`
+- `weak_observed`
+- `cue_hold`
+- empty/no target
 
-## Occlusion Compensation
+The Python fallback retains its own historical `reconstructed` and `predicted`
+source values. They are not accepted as native production authority.
 
-The current stack supports two short-horizon recovery paths:
+## Occlusion Continuity
 
-- `reconstructed`
-  - used when a still-visible box looks clipped or scope-occluded
-- `predicted`
-  - used when detections disappear briefly after stable recent motion
-
-The native path mirrors this controller-facing concept through its own result payload.
+The Python fallback still has reconstructed/predicted short-horizon recovery.
+The native production path does not mirror it. Native continuity requires
+current cue pixels tied to the same selector generation, remains aim-only and
+expires without that evidence. A fresh empty result otherwise clears target
+authority.
 
 ## Aim Enhancement
 
-`AimEnhancementPipeline` on the Python side currently applies:
+The Python fallback `AimEnhancementPipeline` applies:
 
 - `LeadPredictor`
 - `CatchupBoost`
 - `NearTargetDamping`
 
-The native backend mirrors the same controller-facing idea in C++ so the controller still receives shaped `dx` / `dy` instead of raw target offsets.
+The native post-selector equivalent was retired on 2026-08-10. Native Vision
+now publishes current target geometry; ADS/BodyLock, the response model and the
+single `AimDynamicsShaper` own control shaping downstream. This avoids two
+stateful layers independently modifying the same target error.
 
 ## AutoFire
 

@@ -1,9 +1,7 @@
 #pragma once
 
-#include "../common_native/authority_types.h"
 #include "../common_native/screen_geometry.h"
 #include "../common_native/stick_types.h"
-#include "../tracking_native/tracker_contract.h"
 
 #include <cstdint>
 #include <string>
@@ -35,20 +33,6 @@ struct ReplayTargetState {
     double age_ms = 0.0;
 };
 
-struct ReplayTrackerState {
-    tracking_native::TrackerSnapshotSource source =
-        tracking_native::TrackerSnapshotSource::Absent;
-    common_native::AssistAuthority assist_authority =
-        common_native::AssistAuthority::None;
-    common_native::FireAuthority fire_authority =
-        common_native::FireAuthority::None;
-    common_native::Vec2f aim_error_px;
-    common_native::Vec2f velocity_px_per_sec;
-    double projection_age_ms = 0.0;
-    double velocity_consistency = 0.0;
-    double prediction_horizon_ms = 0.0;
-};
-
 struct ReplayControllerState {
     bool aiming = false;
     bool fire_requested = false;
@@ -63,7 +47,6 @@ struct NativeReplayFrame {
     common_native::Box2f roi_px;
     std::vector<ReplayDetection> detections;
     ReplayTargetState selected_target;
-    ReplayTrackerState tracker;
     ReplayControllerState controller;
     std::string weapon_id;
 };

@@ -41,43 +41,38 @@ ResponseModelAimOutput solve_response_model_aim(
         control_error.y / (horizon_y * response),
     };
     output.motion_stick = {
-        control_velocity.x / response * motion_weight +
-            request.motion_feedforward_stick.x,
-        control_velocity.y / response * motion_weight +
-            request.motion_feedforward_stick.y,
+        control_velocity.x / response * motion_weight,
+        control_velocity.y / response * motion_weight,
     };
     output.bounded_motion_stick = output.motion_stick;
-    if (request.fresh_position_authoritative) {
-        const float position_length = length(output.position_stick);
-        if (position_length > 1.0e-5f) {
-            const pipeline_contract::Vec2f radial_direction{
-                output.position_stick.x / position_length,
-                output.position_stick.y / position_length};
-            const float radial_motion =
-                output.motion_stick.x * radial_direction.x +
-                output.motion_stick.y * radial_direction.y;
-            if (radial_motion < 0.0f) {
-                // The envelope is continuous at the center. A material fresh
-                // position keeps its radial sign, while a near-center
-                // residual may retain a small amount of opposing prediction.
-                constexpr float kNearCenterPositionStick = 0.12f;
-                const float center_envelope = smoothstep(
-                    position_length / kNearCenterPositionStick);
-                const float maximum_opposing_motion = position_length *
-                    (1.0f - center_envelope);
-                const float bounded_radial = std::max(
-                    radial_motion, -maximum_opposing_motion);
-                if (bounded_radial > radial_motion) {
-                    const pipeline_contract::Vec2f tangent{
-                        output.motion_stick.x - radial_direction.x * radial_motion,
-                        output.motion_stick.y - radial_direction.y * radial_motion};
-                    output.bounded_motion_stick = {
-                        tangent.x + radial_direction.x * bounded_radial,
-                        tangent.y + radial_direction.y * bounded_radial};
-                    output.radial_motion_bound_applied = true;
-                    output.radial_motion_bound_reason =
-                        ResponseModelConstraintReason::FreshPositionRadialMotionBound;
-                }
+    const float position_length = length(output.position_stick);
+    if (position_length > 1.0e-5f) {
+        const pipeline_contract::Vec2f radial_direction{
+            output.position_stick.x / position_length,
+            output.position_stick.y / position_length};
+        const float radial_motion =
+            output.motion_stick.x * radial_direction.x +
+            output.motion_stick.y * radial_direction.y;
+        if (radial_motion < 0.0f) {
+            // A current source-owned position keeps its radial sign, while a
+            // near-center residual may retain a small opposing motion term.
+            constexpr float kNearCenterPositionStick = 0.12f;
+            const float center_envelope = smoothstep(
+                position_length / kNearCenterPositionStick);
+            const float maximum_opposing_motion = position_length *
+                (1.0f - center_envelope);
+            const float bounded_radial = std::max(
+                radial_motion, -maximum_opposing_motion);
+            if (bounded_radial > radial_motion) {
+                const pipeline_contract::Vec2f tangent{
+                    output.motion_stick.x - radial_direction.x * radial_motion,
+                    output.motion_stick.y - radial_direction.y * radial_motion};
+                output.bounded_motion_stick = {
+                    tangent.x + radial_direction.x * bounded_radial,
+                    tangent.y + radial_direction.y * bounded_radial};
+                output.radial_motion_bound_applied = true;
+                output.radial_motion_bound_reason =
+                    ResponseModelConstraintReason::PositionRadialMotionBound;
             }
         }
     }

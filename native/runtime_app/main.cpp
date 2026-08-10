@@ -85,9 +85,7 @@ void apply_cli_overrides(
             throw std::runtime_error("--capture-fps accepted range is 1..1000");
         }
         config.vision.capture_fps = *options.capture_fps;
-        config.vision.gpu_service_active_fps = *options.capture_fps;
         config.effective_sources["runtime.vision.capture_fps"] = "cli";
-        config.effective_sources["runtime.vision.gpu_service_active_fps"] = "cli";
     }
 }
 
@@ -107,7 +105,7 @@ void populate_runtime_provenance(
     if (config.executable_sha256.empty()) {
         config.executable_sha256 = "unavailable";
     }
-    if (!config.telemetry.enabled && !config.vision.aim_perf_file_log) {
+    if (!config.telemetry.enabled) {
         config.source_config_sha256 = "disabled";
         config.engine_sha256 = "disabled";
         return;
@@ -147,16 +145,9 @@ void dump_effective_config(const controller_native::RuntimeConfig& config) {
     line("runtime.vision.keepwarm_when_idle", config.vision.keepwarm_when_idle);
     line("runtime.vision.model_path", config.vision.model_path);
     line("runtime.vision.gpu_service_enabled", config.vision.gpu_service_enabled);
-    line("runtime.vision.gpu_service_active_fps", config.vision.gpu_service_active_fps);
-    line(
-        "runtime.vision.gpu_service_repeat_last_on_no_update",
-        config.vision.gpu_service_repeat_last_on_no_update);
     line("runtime.vision.color_readback_mode", config.vision.color_readback_mode);
     line("runtime.telemetry.enabled", config.telemetry.enabled);
-    line("runtime.telemetry.mode", config.telemetry.mode);
     line("runtime.telemetry.manual_controller_hz", config.telemetry.manual_controller_hz);
-    line("runtime.telemetry.vision_on_new_frame", config.telemetry.vision_on_new_frame);
-    line("runtime.telemetry.candidate_details", config.telemetry.candidate_details);
     line("runtime.telemetry.queue_capacity", config.telemetry.queue_capacity);
     line("runtime.telemetry.rotate_size_mb", config.telemetry.rotate_size_mb);
     line("runtime.telemetry.max_files", config.telemetry.max_files);
@@ -173,33 +164,21 @@ void dump_effective_config(const controller_native::RuntimeConfig& config) {
     line("runtime.output.enabled", config.output.enabled);
     line("runtime.output.validation_mode", config.output.validation_mode);
     const auto& aim = config.gamepad.ai_aim;
-    line("gamepad.tracker.backend", tracking_native::tracker_backend_kind_name(config.gamepad.tracker_backend));
-    line("gamepad.tracker.projection_age_ms", aim.target_projection_max_age_ms);
-    line("gamepad.tracker.max_velocity_px_per_sec", aim.target_projection_max_velocity_px_per_sec);
-    line("gamepad.tracker.lead_seconds", aim.body_lock_lead_seconds);
-    line("gamepad.tracker.lead_max_px", aim.body_lock_lead_max_px);
     line("gamepad.tracker.aim_height_ratio", config.gamepad.tracker.aim_height_ratio);
     line(
         "gamepad.tracker.max_observation_age_ms",
         config.gamepad.tracker.max_observation_age_ms);
-    line(
-        "gamepad.tracker.causal_memory_enabled",
-        config.gamepad.tracker.causal_memory_enabled);
-    line(
-        "gamepad.tracker.causal_memory_response_delay_ms",
-        config.gamepad.tracker.causal_memory_response_delay_ms);
-    line(
-        "gamepad.tracker.causal_memory_horizon_ms",
-        config.gamepad.tracker.causal_memory_horizon_ms);
     line(
         "gamepad.intent.helpful_manual_overdrive_enabled",
         config.gamepad.intent.helpful_manual_overdrive_enabled);
     line(
         "gamepad.intent.helpful_manual_overdrive_max_scale",
         config.gamepad.intent.helpful_manual_overdrive_max_scale);
+    line(
+        "gamepad.intent.helpful_manual_direction_weight",
+        config.gamepad.intent.helpful_manual_direction_weight);
     line("gamepad.ads.strength_scale", config.ads.strength_scale);
     line("gamepad.ads.vertical_strength_scale", config.ads.vertical_strength_scale);
-    line("gamepad.ads.range_px", aim.max_pixels);
     line("gamepad.ads.snap_duration_ms", aim.ads_snap_window_ms);
     line("gamepad.ads.max_acquisition_ms", aim.ads_max_acquisition_ms);
     line("gamepad.ads.start_delay_ms", aim.ads_start_delay_ms);
@@ -209,7 +188,6 @@ void dump_effective_config(const controller_native::RuntimeConfig& config) {
     line("gamepad.bodylock.activation_range_px", aim.body_lock_activation_box_px);
     line("gamepad.bodylock.tolerance_px", aim.body_lock_box_tolerance_px);
     line("gamepad.bodylock.manual_escape_threshold", aim.body_lock_manual_escape_input_threshold);
-    line("gamepad.bodylock.manual_escape_preservation", aim.body_lock_manual_escape_preservation);
     const auto& fire = config.gamepad.auto_fire;
     line("gamepad.auto_fire.fire_output", fire.fire_output);
     line("gamepad.auto_fire.aim_only", fire.aim_only);
@@ -267,26 +245,15 @@ void print_startup_summary(
         << "@" << config.vision.capture_fps
         << " model=" << config.vision.model_path
         << " perf_log=" << (options.perf_log || config.vision.perf_log ? "true" : "false")
-        << " aim_perf_file_log=" << (config.vision.aim_perf_file_log ? "true" : "false")
-        << " aim_perf_log_dir=" << config.vision.aim_perf_log_dir
-        << " aim_perf_log_interval_ticks=" << config.vision.aim_perf_log_interval_ticks
+        << " telemetry=" << (config.telemetry.enabled ? "on" : "off")
+        << " telemetry_dir=" << config.telemetry.directory
         << " perf_summary=" << (config.performance.enabled ? "on" : "off")
         << " perf_summary_interval_ms=" << config.performance.interval_ms
         << " gpu_service=" << (config.vision.gpu_service_enabled ? "on" : "off")
-        << " gpu_service_active_fps=" << config.vision.gpu_service_active_fps
-        << " gpu_service_idle_fps=" << config.vision.gpu_service_idle_fps
-        << " tracker_backend="
-        << tracking_native::tracker_backend_kind_name(config.gamepad.tracker_backend)
+        << " vision_capture_fps=" << config.vision.capture_fps
+        << " vision_idle_fps=" << config.vision.idle_capture_fps
         << " tracker_max_observation_age_ms="
         << config.gamepad.tracker.max_observation_age_ms
-        << " tracker_motion=component_aware_final"
-        << " causal_memory="
-        << (config.gamepad.tracker.causal_memory_enabled
-                ? "enabled" : "off")
-        << " causal_memory_delay_ms="
-        << config.gamepad.tracker.causal_memory_response_delay_ms
-        << " causal_memory_horizon_ms="
-        << config.gamepad.tracker.causal_memory_horizon_ms
         << " recoil=" << (config.gamepad.recoil.enabled ? "on" : "off")
         << " recoil_profile="
         << (config.gamepad.recoil.profile_playback_enabled ? "on" : "off")

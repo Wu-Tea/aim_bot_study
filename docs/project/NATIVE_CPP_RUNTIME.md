@@ -1,266 +1,185 @@
 # Native C++ Runtime
 
-This document covers the gamepad live runtime that runs as a single C++
-process. It keeps the existing native vision module as the vision
-implementation and moves the gamepad controller-side runtime out of Python.
+This is the maintained reference for the default gamepad live path. The
+runtime is one C++ process: `cod_native_runtime.exe`. Python gameplay remains a
+fallback/debug path and is not loaded by the default launcher.
 
-This is the authoritative document for the current default gamepad runtime.
-When older docs mention a Python gamepad host or a hybrid C++ vision/Python
-controller path, treat that as fallback or historical context unless the task
-explicitly targets Python.
+## Launch
 
-## What It Is
-
-The native C++ runtime is `cod_native_runtime.exe`. It owns the gamepad live
-path for:
-
-- native vision polling through the existing `VisionEngine`
-- config loading from `config.toml`
-- XInput physical gamepad reads
-- native gamepad controller state
-- `ai_aim`
-- auto-fire gate behavior
-- aim assist dynamics
-- recoil profile selection, calibration, despike, and playback
-- downward-pull diagnostics
-- perf logging
-- ViGEm virtual Xbox 360 output
-
-The default gamepad launch path now starts this native C++ runtime:
+Default launcher:
 
 ```powershell
 scripts\launch\gamepad_start.bat
 ```
 
-The native launcher can also be run directly:
+Direct native launcher:
 
 ```powershell
 scripts\launch\gamepad_native_cpp_start.bat
 ```
 
-The executable can also be run directly:
+Direct executable and one-tick smoke:
 
 ```powershell
 native\vision_native\build\Release\cod_native_runtime.exe --config config.toml --perf-log
-```
-
-For a one-tick smoke test:
-
-```powershell
 native\vision_native\build\Release\cod_native_runtime.exe --config config.toml --perf-log --once
 ```
 
-For a pre-acceptance pipeline contract check:
+Set `GAMEPAD_RUNTIME=python` only when an explicit fallback comparison is
+needed. Mouse and KBM-to-gamepad modes continue to use their own Python paths.
 
-```powershell
-scripts\verify\native_pipeline_contract.bat
+## What the Process Owns
+
+- native DXGI capture, CUDA preprocessing and TensorRT inference;
+- native target selection and source authority;
+- physical SDL/XInput gamepad input;
+- one target plan and one manual/AI authority state machine;
+- ADS acquisition, BodyLock follow and one dynamics shaper;
+- AutoFire safety and physical-fire passthrough;
+- recoil feed-forward;
+- ViGEm Xbox 360 output;
+- optional lightweight performance summaries and structured telemetry.
+
+## Vision-to-Output Contract
+
+```text
+VisionEngine
+  -> VisionService latest snapshot
+  -> VisionDeliveryGate
+  -> NativeGamepadController
+       -> TargetCoordinator / TargetPlan
+       -> ADS acquisition OR BodyLock follow
+       -> AimDynamicsShaper
+       -> AssistControlStateMachine
+       -> AutoFire gate
+       -> recoil feed-forward
+  -> ViGEm
 ```
 
-This builds the native controller/runtime/benchmark targets, runs native
-controller behavior tests, rejects known recoil/controller coupling patterns,
-runs a one-tick runtime smoke, verifies
-`tracker_motion=component_aware_final`, and runs a short gamepad benchmark
-smoke. It does not replace live gameplay acceptance.
+`VisionDeliveryGate` accepts only a unique, increasing and sufficiently recent
+capture. A 1 kHz controller tick without a new capture may continue the last
+immutable source-owned plan, but it does not create a projected detector
+observation or renew target authority. A fresh no-target capture releases
+generic aim authority.
 
-## Scope
+The native selector publishes only current evidence:
 
-This runtime is gamepad-only for the current migration milestone. Mouse and
-keyboard-to-gamepad modes remain on their existing Python paths.
+- `observed`: strong direct person evidence; may grant aim and fire authority;
+- `associated_weak` / `weak_observed`: direct but reduced evidence; aim only;
+- `cue_hold`: visible same-generation cue continuation; bounded aim only;
+- no target: no authority.
 
-Python remains available as the Python fallback for gameplay comparison,
-bisecting regressions, training, export, plots, recoil tooling, and debugging.
-Use it by setting:
+Unknown and retired `predicted/projected` source labels fail closed.
 
-```powershell
-$env:GAMEPAD_RUNTIME = "python"
-scripts\launch\gamepad_start.bat
-```
+## Control Ownership
 
-or in `cmd.exe`:
+`TargetCoordinator` is the identity, lifecycle and mode owner. ADS and BodyLock
+are mutually exclusive target-relative solvers. `AimDynamicsShaper` shapes the
+chosen proposal once. `AssistControlStateMachine` then owns Track,
+HandoverSeek, Capture and Manual and emits the one pre-recoil right-stick
+command.
 
-```bat
-set GAMEPAD_RUNTIME=python
-scripts\launch\gamepad_start.bat
-```
+Manual input is intent evidence, not a separately protected additive force.
+The state machine may use helpful single-target input, request an eligible
+multi-target handover, or pass an axis through when AI is materially idle. No
+legacy axis/vector fuser, carry/brake layer or benchmark-selectable output mode
+exists in Release.
 
-## Native Vision Boundary
+AutoFire owns only its synthetic contribution. Physical RB/RT is always passed
+through. Recoil runs afterward as explicit feed-forward and must not own target
+identity, generic continuity or selector policy.
 
-The C++ runtime preserves native vision as the source of target information. It
-polls `VisionEngine`, receives `VisionResult`, and passes that result directly
-into the native gamepad controller in process.
+## Removed Compatibility
 
-Do not add Python vision work to this path. The runtime should not require
-Python packages during gameplay.
+The low-rate cleanup intentionally broke old native config/build compatibility:
 
-## Tracker And Authority
+- tracker backend/projection/coasting keys;
+- legacy manual-preservation and alternate mix keys;
+- W3/W5/pending/causal/rollout controls;
+- the synchronous AimPerf logger and `VISION_AIM_PERF_*` aliases;
+- benchmark-only legacy control binaries.
 
-The default tracker backend is `fps_reference`. The runtime records
-component-aware final camera motion so tracker ego projection can account for
-what the player actually sees while still preserving manual/assist/dynamics/
-recoil attribution separately in controller output components.
+Unknown retired keys produce diagnostics instead of silently changing current
+behavior. Historical code remains available from Git history, not from a
+second archive tree in the build.
 
-Available backend config:
-
-```toml
-[runtime.gamepad]
-tracker_backend = "fps_reference"
-# tracker_backend = "legacy_projection"
-# tracker_backend = "kalman_experimental"
-```
-
-Fire authority remains observed-only. Weak, cue-hold, projected, or coasting
-targets may help aim with reduced authority, but they must not grant fire
-authority.
+The complete rationale is in
+[Legacy Control Stack Cleanup](LEGACY_CONTROL_STACK_CLEANUP_20260810.md).
 
 ## Recoil Boundary
 
-Recoil compensation is now behind `native/recoil_native/RecoilCompensationPolicy`.
-The legacy recoil math remains the source of anti-recoil stick output; the new
-boundary exposes that output as a separate `recoil_stick` component.
+Recoil is implemented behind
+`native/recoil_native/RecoilCompensationPolicy`. Profile selection,
+calibration, despike, fixed/adaptive fallback and playback remain explicit
+recoil concerns. Any target-relative firing intent is applied to the current
+target error before the single target solve; it is not raw manual-plus-AI
+stacking.
 
-Pipeline contract:
+Do not add target projection, tracker correction or another output hold inside
+recoil. New coupling requires a reproduced incident and a native contract test.
 
-1. Vision/tracker state feeds controller assistance first.
-2. Auto-fire decides the fire output.
-3. Recoil is the final feed-forward playback stage.
-4. Tracker receives the final camera-motion sample for ego projection.
+## Telemetry
 
-Recoil must not consume target dx/dy, tracker state, target freshness, or
-controller correction errors. Do not reintroduce recoil target-direction yield,
-pre/post recoil tracker toggles, or controller-to-recoil target feedback without
-new evidence and corresponding native contract tests.
+Lightweight normal-run statistics:
 
-The recoil visual displacement model exists but is disabled by default and
-returns zero displacement. Do not depend on it for live tracker correction until
-it is calibrated with evidence.
+```toml
+[runtime.performance]
+enabled = true
+interval_ms = 5000
+directory = "runs/perf_summary"
+stdout_enabled = false
+```
 
-## Replay And Benchmark Status
+Bounded structured diagnostics:
 
-The native replay skeleton defines frame schema, benchmark metric summaries,
-and a compile-time runner/writer entry point. Aim perf JSONL logs now include
-controller stick components:
+```toml
+[runtime.telemetry]
+enabled = true
+directory = "runs/native_perf"
+manual_controller_hz = 100
+```
 
-- `manual_x`, `manual_y`
-- `ai_aim_x`, `ai_aim_y`
-- `dynamic_x`, `dynamic_y`
-- `recoil_x`, `recoil_y`
-- `final_x`, `final_y`
-- `tracker_sample_x`, `tracker_sample_y`
-- `fire_button`
+`runtime.telemetry.enabled` is the sole detailed-telemetry switch and
+`runtime.telemetry.directory` is its sole root directory. When disabled, the
+runtime does not start the structured writer/session pipeline. Do not use the
+retired AimPerf environment variables.
 
-Full deterministic backend comparison is still pending. The intended comparison
-targets are `legacy_projection`, `kalman_experimental`, and detector-only
-baseline.
+## Build and Test
 
-## Build
-
-Build the native project before launch:
+Repository helper:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\build_native_vision.ps1
 ```
 
-Expected output:
+Direct CMake workflow:
 
-```text
-native\vision_native\build\Release\cod_native_runtime.exe
+```powershell
+cmake -S native\vision_native -B native\vision_native\build
+cmake --build native\vision_native\build --config Release --parallel 8
+ctest --test-dir native\vision_native\build -C Release --output-on-failure
 ```
 
-## Runtime Choices
+Pipeline check:
 
-The C++ launcher prompts for the auto-fire output:
-
-- `RB`
-- `RT`
-- default from `config.toml`
-
-It also prepares recoil runtime environment variables for the native recoil
-profile reader:
-
-- `RECOIL_PROFILE_DIR`
-- `RECOIL_CALIBRATION_DIR`
-- `RECOIL_RECOGNIZER_STATE_PATH`
-
-The runtime only consumes recognizer state when that state file exists. It does
-not start Python weapon OCR or Python vision.
-
-## Exit Behavior
-
-The runtime exits through the configured quit key from `config.toml` and also
-handles console stop signals such as Ctrl+C. In both cases the loop requests a
-normal shutdown and sends a neutral `GamepadOutputState` to the virtual gamepad
-before the process returns.
-
-The current rollback anchor for the accepted pre-refactor feel is:
-
-```text
-f00c338 checkpoint: native controller tuning baseline
+```powershell
+scripts\verify\native_pipeline_contract.bat
 ```
 
 ## Acceptance Checklist
 
-Use this checklist when accepting the C++ launcher as the normal live-play path:
+- full Release build and all current CTest targets pass;
+- native result mapping and performance-contract Python tests pass;
+- physical input remains intact and process exit sends neutral ViGEm output;
+- no-target and unknown-source input fail closed;
+- multi-target flick handover and centered capture contracts remain green;
+- AutoFire never gains authority from weak/cue/no-target evidence;
+- live validation uses the same executable, model, config, game cadence and
+  logging conditions for both cohorts;
+- synthetic smoke PASS is not described as a live performance win.
 
-- `scripts\verify\native_pipeline_contract.bat` passes
-- manual pass-through feels correct
-- `ai_aim` acquisition and body-lock feel close enough to the Python fallback
-- recoil playback preserves the tuned weapon feel
-- `ai_aim` plus recoil overlap does not introduce severe jitter
-- auto-fire gate matches the expected authority behavior
-- perf stability is acceptable during live play
-- process exit neutralizes the virtual gamepad
+## Supported Native Vision Build
 
-## Default Launcher
-
-`scripts\launch\gamepad_start.bat` calls
-`scripts\launch\gamepad_native_cpp_start.bat` by default.
-
-Keep the Python fallback path in place for comparison and debugging. Set
-`GAMEPAD_RUNTIME=python` to use the old Python gamepad runtime.
-
-## User Input and ADS Telemetry
-
-Native telemetry remains disabled by default. Enable it only for a bounded
-local profiling session:
-
-```toml
-[runtime.telemetry]
-enabled = true
-mode = "profile"
-manual_controller_hz = 100
-```
-
-When disabled, the runtime does not construct the collector façade, create a
-session identifier, start a writer, encode records, or maintain target/input/ADS
-state. The legacy aim-performance switch is only an alias for this asynchronous
-pipeline and does not reactivate the synchronous aim logger.
-
-Enabled logs are rotated JSONL files under the configured native performance
-directory. Every rotated file begins with `session_metadata`. Schema version 2
-records include controller samples, input events, anonymous target lifecycle,
-control-to-image response windows, and quality-gated ADS transitions.
-
-Data readiness is explicit:
-
-- `diagnostic` reconstructs runtime behavior but must not train a model;
-- `profile_eligible` describes user input habits but cannot by itself justify a
-  controller gain change;
-- `model_eligible` has compatible identity, time alignment, and complete sample
-  sequences.
-
-ADS events additionally use `calibration_clean`, `conditional_model`, or
-`diagnostic_only`. Only clean events estimate an unconditional ADS visual
-transform. Conditional events retain manual/AI/recoil and target-motion
-covariates. This phase collects evidence only; it does not generate a user
-profile or modify controller behavior.
-# Native vision build target
-
-The native vision runtime targets CUDA 13.x, TensorRT 10.x, and SM 7.5 or
-newer. Existing TensorRT `.engine` files load directly; no companion
-`.runtime.json` manifest is required. Pascal/GTX 1060 deployment is outside the
-supported scope.
-
-```powershell
-cmake --preset modern-release
-cmake --build --preset modern-release
-```
+The native build targets CUDA 13.x, TensorRT 10.x and SM 7.5 or newer. Existing
+compatible TensorRT `.engine` files load directly. Pascal/GTX 1060 deployment
+is outside the supported scope.

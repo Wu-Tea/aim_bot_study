@@ -70,7 +70,6 @@ function Assert-NoForbiddenCoupling {
             $_.Name -notlike "*_benchmark.h"
         }
     $trackingHeaders = Get-ChildItem -Path "native\tracking_native" -Include "*.h" -Recurse
-    $controllerBehaviorTest = "native\controller_native\controller_behavior_tests.cpp"
     $cmakeLists = "native\vision_native\CMakeLists.txt"
     $forbiddenBoundaryPatterns = @(
         "target_direction_yield",
@@ -162,22 +161,6 @@ function Assert-NoForbiddenCoupling {
         }
     }
 
-    $controllerBehaviorMetricsPatterns = @(
-        "test_replay_schema_captures_controller_components",
-        "test_replay_metrics_summarizes_error_and_fire_violations",
-        "test_aim_perf_file_logger_writes_controller_components",
-        "AimPerfFileLogger",
-        "replay_native"
-    )
-    foreach ($pattern in $controllerBehaviorMetricsPatterns) {
-        $matches = Select-String -Path $controllerBehaviorTest -Pattern $pattern -SimpleMatch -ErrorAction SilentlyContinue
-        if ($matches) {
-            $details = ($matches | ForEach-Object {
-                "$($_.Path):$($_.LineNumber): $($_.Line.Trim())"
-            }) -join "`n"
-            throw "Benchmark metrics coverage leaked back into controller_behavior_tests.cpp: $pattern`n$details"
-        }
-    }
 }
 
 $cmake = Resolve-CMake
@@ -208,7 +191,6 @@ if (-not (Test-Path -LiteralPath $runtimeConfigPath)) {
         'profile = "balanced"',
         "[runtime.vision]",
         ('model_path = "' + ($modelPath -replace '\\', '/') + '"'),
-        "aim_perf_file_log = false",
         "[runtime.output]",
         "enabled = false"
     ) | Set-Content -Encoding ASCII -LiteralPath $runtimeConfigPath
@@ -216,7 +198,7 @@ if (-not (Test-Path -LiteralPath $runtimeConfigPath)) {
 $runtimeWorkingDir = Split-Path -Parent $runtimeConfigPath
 $runtimeExe = Join-Path $buildPath "$Configuration\cod_native_runtime.exe"
 $testsExe = Join-Path $buildPath "$Configuration\cod_native_controller_tests.exe"
-$benchmarkExe = Join-Path $buildPath "$Configuration\cod_native_gamepad_benchmark.exe"
+$benchmarkExe = Join-Path $buildPath "$Configuration\cod_native_sustained_aimlab_benchmark.exe"
 $benchmarkOutput = Join-Path $artifactDir "pipeline_contract_smoke.json"
 
 Assert-NoForbiddenCoupling
@@ -225,7 +207,7 @@ if (-not $SkipBuild) {
     Invoke-Checked $cmake @("--build", $BuildDir, "--config", $Configuration, "--target", "cod_native_controller_tests")
     Invoke-Checked $cmake @("--build", $BuildDir, "--config", $Configuration, "--target", "cod_native_runtime")
     if (-not $SkipBenchmark) {
-        Invoke-Checked $cmake @("--build", $BuildDir, "--config", $Configuration, "--target", "cod_native_gamepad_benchmark")
+        Invoke-Checked $cmake @("--build", $BuildDir, "--config", $Configuration, "--target", "cod_native_sustained_aimlab_benchmark")
     }
 }
 
@@ -255,18 +237,33 @@ $runtimeOutput | ForEach-Object { Write-Output $_ }
 if ($runtimeExit -ne 0) {
     throw "Native runtime smoke failed."
 }
-if (($runtimeOutput -join "`n") -notmatch "tracker_motion=component_aware_final") {
-    throw "Runtime summary did not report tracker_motion=component_aware_final."
+if (($runtimeOutput -join "`n") -notmatch "tracker_max_observation_age_ms=") {
+    throw "Runtime summary did not report the current source-age authority gate."
 }
 
 if (-not $SkipBenchmark) {
     if (-not (Test-Path $benchmarkExe)) {
-        throw "Native gamepad benchmark executable not found: $benchmarkExe"
+        throw "Native sustained AimLab benchmark executable not found: $benchmarkExe"
     }
     New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
-    Invoke-Checked $benchmarkExe @("--config", $runtimeConfigPath, "--frames", "8", "--output", $benchmarkOutput)
+    Invoke-Checked $benchmarkExe @(
+        "--config", $runtimeConfigPath,
+        "--duration-ms", "3000",
+        "--profile", "pure",
+        "--cohort", "both",
+        "--vision-hz", "180",
+        "--short-occlusion-ms", "36",
+        "--target-motion", "moving",
+        "--left-strafe", "both",
+        "--smoke",
+        "--output", $benchmarkOutput)
     if (-not (Test-Path $benchmarkOutput)) {
         throw "Benchmark artifact was not written: $benchmarkOutput"
+    }
+    $benchmarkReport = Get-Content -Raw -LiteralPath $benchmarkOutput |
+        ConvertFrom-Json
+    if ($benchmarkReport.control_path -ne "production-only") {
+        throw "Benchmark did not report the current production-only control path."
     }
 }
 

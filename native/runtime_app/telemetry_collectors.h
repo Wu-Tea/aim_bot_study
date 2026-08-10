@@ -1,14 +1,8 @@
 #pragma once
 
 #include "pipeline_contract/committed_capture_observation.h"
-#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
-#include "control_learning/causal_online_response_learner.h"
-#include "control_learning/pending_motion_model.h"
-#include "control_learning/short_horizon_rollout.h"
-#endif
 #include "runtime_telemetry.h"
 
-#include <cstddef>
 #include <cstdint>
 #include <memory>
 
@@ -42,36 +36,11 @@ struct TelemetryTickInput {
     float target_final_x = 0.0f, target_final_y = 0.0f;
     float ai_correction_x = 0.0f, ai_correction_y = 0.0f;
     const char* manual_authority_mode = "no_target_passthrough";
-    // Validated proposals only; these are not final-output shares.
-    float fresh_vision_validated_manual_proposal_x = 0.0f;
-    float fresh_vision_validated_manual_proposal_y = 0.0f;
-    float fresh_vision_validated_ai_proposal_x = 0.0f;
-    float fresh_vision_validated_ai_proposal_y = 0.0f;
-    float fresh_vision_manual_radial_scale = 1.0f;
-    bool fresh_vision_wrong_way_policy_applied = false;
-    bool fresh_vision_ai_radial_bound_applied = false;
-    float fresh_vision_ai_radial_scale = 1.0f;
-    bool fresh_vision_predictive_envelope_applied = false;
-    bool fresh_vision_escape_latched = false;
-    float fresh_vision_authoritative_error_x = 0.0f;
-    float fresh_vision_authoritative_error_y = 0.0f;
-    float fresh_vision_predicted_error_x = 0.0f;
-    float fresh_vision_predicted_error_y = 0.0f;
-    float fresh_vision_raw_manual_radial = 0.0f;
-    float fresh_vision_raw_ai_radial = 0.0f;
-    float fresh_vision_strongest_valid_radial = 0.0f;
-    float fresh_vision_stopping_radial = 0.0f;
-    float fresh_vision_permitted_radial = 0.0f;
-    float fresh_vision_pre_slew_radial = 0.0f;
-    float fresh_vision_final_radial = 0.0f;
-    float fresh_vision_horizon_seconds = 0.0f;
-    float fresh_vision_horizon_y_seconds = 0.0f;
-    float fresh_vision_max_force_x = 0.0f;
-    float fresh_vision_max_force_y = 0.0f;
-    float fresh_vision_envelope_target_x = 0.0f;
-    float fresh_vision_envelope_target_y = 0.0f;
-    const char* fresh_vision_envelope_reason = "none";
-    const char* fresh_vision_envelope_source = "unavailable";
+    const char* assist_control_phase = "manual";
+    bool manual_passthrough_x = true;
+    bool manual_passthrough_y = true;
+    bool handover_requested = false;
+    bool handover_braking = false;
     float bodylock_error_rate_x = 0.0f, bodylock_error_rate_y = 0.0f;
     float bodylock_position_stick_x = 0.0f, bodylock_position_stick_y = 0.0f;
     float bodylock_motion_stick_x = 0.0f, bodylock_motion_stick_y = 0.0f;
@@ -81,22 +50,6 @@ struct TelemetryTickInput {
     const char* bodylock_constraint_reason = "none";
     float requested_assist_x = 0.0f, requested_assist_y = 0.0f;
     float shaped_assist_x = 0.0f, shaped_assist_y = 0.0f;
-    float post_ai_x = 0.0f, post_ai_y = 0.0f;
-    float dynamic_adjustment_x = 0.0f, dynamic_adjustment_y = 0.0f;
-    float post_dynamic_x = 0.0f, post_dynamic_y = 0.0f;
-    float ads_brake_x = 0.0f, ads_brake_y = 0.0f;
-    float post_ads_brake_x = 0.0f, post_ads_brake_y = 0.0f;
-    float ads_carry_brake_x = 0.0f, ads_carry_brake_y = 0.0f;
-    float post_ads_carry_brake_x = 0.0f, post_ads_carry_brake_y = 0.0f;
-    bool ads_brake_active = false;
-    bool ads_carry_brake_active = false;
-    bool ads_completion_active = false;
-    int ads_completion_stable_frames = 0;
-    float ads_completion_radius_px = 0.0f;
-    int ads_completion_required_frames = 0;
-    float ads_completion_max_ms = 0.0f;
-    const char* ads_completion_reason = "none";
-    bool manual_takeover_active = false;
     bool auto_fire_requested = false;
     bool auto_fire_aim_ready = false;
     bool auto_fire_allowed = false;
@@ -110,24 +63,14 @@ struct TelemetryTickInput {
     float recoil_x = 0.0f, recoil_y = 0.0f;
     float final_x = 0.0f, final_y = 0.0f;
     float observed_error_x = 0.0f, observed_error_y = 0.0f;
-    float pending_motion_x = 0.0f, pending_motion_y = 0.0f;
     float control_error_x = 0.0f, control_error_y = 0.0f;
-    float pending_motion_confidence = 0.0f;
-    bool pending_motion_valid = false;
-    bool memory_applied = false;
-    const char* memory_status = "disabled";
     float final_left_x = 0.0f, final_left_y = 0.0f;
     bool output_saturated = false;
     std::uint64_t selected_track_id = 0;
     std::uint64_t selected_observation_id = 0;
-    std::uint64_t backing_frame_id = 0;
-    float track_observation_age_ms = 0.0f;
-    float track_position_sigma = 0.0f;
-    float track_ambiguity = 0.0f;
     const char* assist_authority = "reject";
     const char* assist_authority_reason = "none";
     const char* bodylock_lifecycle = "inactive";
-    const char* bodylock_transition_reason = "none";
     const char* assist_limit_reason = "none";
 };
 
@@ -140,14 +83,12 @@ struct TelemetryVisionInput {
     int frame_width = 0, frame_height = 0;
     bool has_target = false;
     bool live = false;
-    bool projected = false;
     bool aiming = false;
     bool explicit_switch = false;
     bool association_ambiguous = false;
     float x1 = 0.0f, y1 = 0.0f, x2 = 0.0f, y2 = 0.0f;
     float target_x = 0.0f, target_y = 0.0f;
     float screen_center_x = 0.0f, screen_center_y = 0.0f;
-    float predicted_motion_x = 0.0f, predicted_motion_y = 0.0f;
     float motion_residual_px = 0.0f;
     std::uint32_t detector_box_count = 0;
     const char* target_source = "unknown";
@@ -214,103 +155,18 @@ struct TelemetryAcquisitionTraceInput {
     float first_requested_ai_x = 0.0f, first_requested_ai_y = 0.0f;
     float first_shaped_ai_x = 0.0f, first_shaped_ai_y = 0.0f;
     float first_fused_output_x = 0.0f, first_fused_output_y = 0.0f;
-    bool ego_motion_available = false;
-    bool ego_motion_valid = false;
-    std::uint64_t ego_result_sequence = 0;
-    std::uint64_t ego_previous_frame_id = 0;
-    std::uint64_t ego_current_frame_id = 0;
-    std::uint64_t ego_previous_result_ns = 0;
-    std::uint64_t ego_current_result_ns = 0;
-    float ego_background_dx = 0.0f;
-    float ego_background_dy = 0.0f;
-    float ego_camera_dx = 0.0f;
-    float ego_camera_dy = 0.0f;
-    float ego_confidence = 0.0f;
-    float ego_valid_background_ratio = 0.0f;
-    float ego_residual_px = 0.0f;
-    float ego_compute_ms = 0.0f;
-    std::uint32_t ego_inlier_count = 0;
-    std::uint32_t ego_sample_count = 0;
-    std::uint8_t ego_invalid_reason = 0;
-};
-
-struct TelemetryEgoMotionShadowInput {
-    bool available = false;
-    bool valid = false;
-    std::uint8_t invalid_reason = 0;
-    std::uint64_t result_sequence = 0;
-    std::uint64_t previous_frame_id = 0;
-    std::uint64_t current_frame_id = 0;
-    std::uint64_t previous_present_qpc = 0;
-    std::uint64_t current_present_qpc = 0;
-    std::uint64_t previous_present_qpc_frequency = 0;
-    std::uint64_t current_present_qpc_frequency = 0;
-    std::uint64_t present_qpc_frequency = 0;
-    std::uint64_t previous_present_steady_ns = 0;
-    std::uint64_t current_present_steady_ns = 0;
-    std::uint64_t previous_present_calibration_id = 0;
-    std::uint64_t current_present_calibration_id = 0;
-    std::uint64_t previous_present_calibration_uncertainty_ns = 0;
-    std::uint64_t current_present_calibration_uncertainty_ns = 0;
-    bool previous_present_steady_available = false;
-    bool current_present_steady_available = false;
-    bool present_clock_valid = false;
-    std::uint64_t previous_capture_copy_complete_ns = 0;
-    std::uint64_t current_capture_copy_complete_ns = 0;
-    std::uint64_t previous_result_ns = 0;
-    std::uint64_t current_result_ns = 0;
-    std::uint64_t observer_completed_at_ns = 0;
-    std::uint64_t result_age_at_take_ns = 0;
-    float background_dx = 0.0f;
-    float background_dy = 0.0f;
-    float camera_dx = 0.0f;
-    float camera_dy = 0.0f;
-    float confidence = 0.0f;
-    float valid_background_ratio = 0.0f;
-    float residual_px = 0.0f;
-    float compute_ms = 0.0f;
-    std::uint32_t inlier_count = 0;
-    std::uint32_t sample_count = 0;
-    int search_radius_px = 0;
-    std::uint32_t boundary_hit_count = 0;
-    float boundary_hit_rate = 0.0f;
-    std::uint32_t boundary_consistent_hit_count = 0;
-    float boundary_consistent_hit_rate = 0.0f;
-    std::uint64_t observer_lifecycle_generation = 0;
-    std::uint64_t submitted_frame_count = 0;
-    std::uint64_t pending_frame_replaced_count = 0;
-    std::uint64_t pairs_processed_count = 0;
-    std::uint64_t unread_result_replaced_count = 0;
-    std::uint64_t duplicate_or_out_of_order_rejected_count = 0;
 };
 
 struct TelemetryCollectorsCounters {
     std::uint64_t state_transitions = 0;
     std::uint64_t constructed_records = 0;
-    // Standard collector record counters are kept separate so gate-only
-    // sessions can prove that only the control-history seam and Gate2.5
-    // payloads were active.
     std::uint64_t controller_sample_records = 0;
     std::uint64_t input_event_records = 0;
     std::uint64_t ads_transition_records = 0;
     std::uint64_t target_event_records = 0;
-    std::uint64_t control_response_records = 0;
     std::uint64_t committed_capture_records = 0;
     std::uint64_t acquisition_traces = 0;
     std::uint64_t delivered_control_records = 0;
-#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
-    std::uint64_t ego_motion_records = 0;
-    std::uint64_t gate25_aggregate_records = 0;
-    std::uint64_t gate25_anomaly_records = 0;
-    std::uint64_t gate25_aggregate_dropped_records = 0;
-    std::uint64_t gate25_anomaly_dropped_records = 0;
-    std::uint64_t gate25_unflushed_anomalies = 0;
-    std::uint64_t gate25_state_constructions = 0;
-    std::uint64_t gate25_observation_invocations = 0;
-    std::uint64_t gate25_fanout_reuses = 0;
-    std::uint64_t gate25_writer_invocations = 0;
-    std::uint64_t gate25_delivery_timing_rejects = 0;
-#endif
 };
 
 struct TelemetrySessionContext {
@@ -318,20 +174,12 @@ struct TelemetrySessionContext {
     const char* config_hash = "unknown";
     const char* engine_hash = "unknown";
     const char* executable_sha256 = "unknown";
-    const char* tracker_backend = "unknown";
     int capture_width = 0;
     int capture_height = 0;
     int active_capture_fps = 0;
     int idle_capture_fps = 0;
     int controller_tick_hz = 0;
     int telemetry_hz = 0;
-#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
-    bool gate2_5_live_shadow_enabled = false;
-#endif
-    // Runtime sets this from standard telemetry/learning inputs. Tests and
-    // gate-only runtime use false to retain ControlHistory without running
-    // the ordinary sampler, ADS episodes, or persisted standard records.
-    bool standard_collectors_enabled = true;
 };
 
 class TelemetryCollectors {
@@ -349,29 +197,8 @@ public:
     void observe_new_vision(const TelemetryVisionInput& input) noexcept;
     void observe_acquisition_trace(
         const TelemetryAcquisitionTraceInput& input) noexcept;
-#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
-    void observe_ego_motion_shadow(
-        std::uint64_t source_frame_id,
-        std::uint64_t controller_tick_id,
-        const TelemetryEgoMotionShadowInput& input) noexcept;
-    void observe_gate25_observation(
-        const Gate25ObservationInput& input) noexcept;
-    bool gate25_observer_enabled() const noexcept;
-    std::size_t gate25_state_bytes() const noexcept;
-    std::uint64_t gate25_delivery_push_count() const noexcept;
-#endif
     void observe_committed_capture(
         const pipeline_contract::CommittedCaptureObservation& observation) noexcept;
-#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
-    const control_learning::ControlHistory<1024>* control_history() const noexcept;
-    void observe_causal_shadow(
-        const pipeline_contract::CommittedCaptureObservation& observation,
-        const control_learning::SampleAssessment& assessment,
-        const control_learning::CausalResponseEstimate& estimate,
-        const control_learning::PendingMotionEstimate& pending,
-        const control_learning::RolloutResult& rollout,
-        const control_learning::Vec2d& final_output) noexcept;
-#endif
     void shutdown(std::uint64_t now_ns) noexcept;
     TelemetryCollectorsCounters counters() const noexcept;
 
@@ -379,11 +206,6 @@ private:
     struct State;
     void enqueue(TelemetryRecord record) noexcept;
     void flush_ads_event() noexcept;
-#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
-    void flush_gate25_records(
-        bool final,
-        std::uint64_t cadence_now_ns = 0) noexcept;
-#endif
 
     RuntimeTelemetry* sink_ = nullptr;
     std::unique_ptr<State> state_;

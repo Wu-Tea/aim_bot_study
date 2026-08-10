@@ -264,7 +264,6 @@ def _empty_row(*, tick: int, now_ms: float, active: bool) -> dict[str, Any]:
         "output_wait_ms": 0.0,
         "decode_ms": 0.0,
         "selector_ms": 0.0,
-        "enhance_ms": 0.0,
         "post_ms": 0.0,
         "age_ms": 0.0,
         "vision_age_ms": 0.0,

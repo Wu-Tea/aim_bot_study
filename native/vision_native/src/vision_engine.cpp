@@ -12,7 +12,6 @@
 #include <algorithm>
 #include <array>
 #include <cstdlib>
-#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -24,9 +23,6 @@ namespace {
 constexpr const char* kDefaultEnginePath =
     "models/candidates/body_union_manual_core_x2_neg_e6_480x416.engine";
 constexpr float kSelectorDecodeConfidenceFloor = 0.40f;
-constexpr float kTorsoBoxShrinkX = 0.22f;
-constexpr float kTorsoBoxShrinkTop = 0.18f;
-constexpr float kTorsoBoxShrinkBottom = 0.20f;
 
 uint64_t now_ns() {
     return static_cast<uint64_t>(
@@ -57,25 +53,6 @@ std::string default_engine_path() {
         return std::string(from_env);
     }
     return std::string(kDefaultEnginePath);
-}
-
-std::optional<AimSlowZone> slow_zone_from_body_box(const VisionResult& result) {
-    if (!result.has_body_box) {
-        return std::nullopt;
-    }
-
-    const float box_w = result.body_x2 - result.body_x1;
-    const float box_h = result.body_y2 - result.body_y1;
-    if (box_w <= 0.0f || box_h <= 0.0f) {
-        return std::nullopt;
-    }
-
-    return AimSlowZone{
-        result.body_x1 + (box_w * kTorsoBoxShrinkX),
-        result.body_y1 + (box_h * kTorsoBoxShrinkTop),
-        result.body_x2 - (box_w * kTorsoBoxShrinkX),
-        result.body_y2 - (box_h * kTorsoBoxShrinkBottom),
-    };
 }
 
 void check_cuda(cudaError_t status, const char* what) {
@@ -170,7 +147,6 @@ void VisionEngine::set_aiming(bool aiming) {
     aiming_.store(aiming, std::memory_order_relaxed);
     if (!aiming) {
         selector_.reset();
-        enhancer_.reset();
         user_aim_intent_ = pipeline_contract::UserAimIntent{};
         external_cue_found_ = false;
         external_cue_x_ = 0.0f;
@@ -222,7 +198,6 @@ void VisionEngine::set_external_cue(bool found, float cue_x, float cue_y, float 
 void VisionEngine::reset() {
     aiming_.store(false, std::memory_order_relaxed);
     selector_.reset();
-    enhancer_.reset();
     user_aim_intent_ = pipeline_contract::UserAimIntent{};
     external_cue_found_ = false;
     external_cue_x_ = 0.0f;
@@ -507,23 +482,6 @@ VisionResult VisionEngine::poll_once() {
         result.boxes_seen = targeting.boxes_seen;
         copy_selector_identity_fields(result, targeting);
         result.detections = std::move(targeting.detections);
-
-        if (result.has_target) {
-            const uint64_t enhance_start = now_ns();
-            const double enhancement_timestamp =
-                batch.inferred_at_ns != 0
-                    ? static_cast<double>(batch.inferred_at_ns) / 1'000'000'000.0
-                    : static_cast<double>(now_ns()) / 1'000'000'000.0;
-            const VisionResult enhanced = enhancer_.process(
-                result,
-                enhancement_timestamp,
-                slow_zone_from_body_box(result));
-            result.dx = enhanced.dx;
-            result.dy = enhanced.dy;
-            result.enhance_ms = ns_to_ms(now_ns() - enhance_start);
-        } else {
-            enhancer_.reset();
-        }
 
         result.result_at_ns = now_ns();
         result.post_ms = batch.decode_ms + ns_to_ms(result.result_at_ns - post_start);

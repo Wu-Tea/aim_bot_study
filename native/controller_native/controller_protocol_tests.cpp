@@ -60,7 +60,6 @@ void test_adapter_ignores_unupdated_frame() {
     require_true(!snapshot.frame_updated, "adapter should preserve frame_updated=false");
     require_true(!snapshot.state.has_target, "adapter should not expose stale target state");
     require_true(snapshot.candidates.empty(), "adapter should not forward stale candidate list");
-    require_true(snapshot.tracker_detections.empty(), "adapter should not forward stale detections");
 }
 
 void test_adapter_maps_target_fields_and_timestamps() {
@@ -119,7 +118,7 @@ void test_adapter_maps_target_fields_and_timestamps() {
         "adapter should map ready timestamp");
 }
 
-void test_adapter_forwards_valid_detections_for_tracker() {
+void test_adapter_forwards_valid_vision_candidates() {
     vision_native::VisionResult result;
     result.frame_updated = true;
     result.frame_id = 7;
@@ -147,30 +146,22 @@ void test_adapter_forwards_valid_detections_for_tracker() {
         "adapter should preserve user intent strength");
 
     require_true(
-        snapshot.tracker_detections.size() == 1,
-        "adapter should keep only eligible detections for the tracker");
-    require_true(
         snapshot.rejected_low_reliability_count == 1,
         "adapter should count low-reliability detections separately");
     require_true(
         snapshot.rejected_friendly_count == 1,
         "adapter should count friendly detections separately");
-    const tracking_native::TrackerDetection& first = snapshot.tracker_detections[0];
-    require_true(first.id == ((7ull << 32ull) | 1ull), "adapter should derive stable detection id");
-    require_near(first.body_box_px.x, 10.0f, 0.001f, "adapter should map box x");
-    require_near(first.body_box_px.w, 40.0f, 0.001f, "adapter should map box width");
-    require_near(first.aim_point_px.x, 30.0f, 0.001f, "adapter should map aim point x");
-    require_near(first.aim_point_px.y, 60.0f, 0.001f, "adapter should map aim point y");
-    require_near(first.confidence, 0.50f, 0.001f, "adapter should add color bonus to confidence");
-    require_true(first.target_tier == "observed_strong", "adapter should map confident detection tier");
-
     require_true(
         snapshot.candidates.size() == 1,
-        "adapter should expose eligible detections as neutral candidate snapshots");
+        "adapter should expose only eligible detections as candidate snapshots");
     const pipeline_contract::VisionCandidateSnapshot& first_candidate = snapshot.candidates[0];
     require_true(
-        first_candidate.id == first.id,
-        "candidate and tracker ids should match for the same detection");
+        first_candidate.id == ((7ull << 32ull) | 1ull),
+        "adapter should derive a source-generation candidate id");
+    require_near(first_candidate.body_box_px.x, 10.0f, 0.001f, "adapter should map box x");
+    require_near(first_candidate.body_box_px.w, 40.0f, 0.001f, "adapter should map box width");
+    require_near(first_candidate.aim_point_px.x, 30.0f, 0.001f, "adapter should map aim point x");
+    require_near(first_candidate.confidence, 0.50f, 0.001f, "adapter should combine confidence evidence");
     require_true(
         first_candidate.suggested_authority_state ==
             common_native::TargetAuthorityState::StrongAssist,
@@ -179,8 +170,7 @@ void test_adapter_forwards_valid_detections_for_tracker() {
         first_candidate.aim_point_px.y,
         60.0f,
         0.001f,
-        "candidate should expose same aim point as tracker detection");
-
+        "candidate should expose the current observation aim point");
 }
 
 void test_selector_identity_survives_engine_result_copy_and_adapter() {
@@ -215,7 +205,7 @@ void test_selector_identity_survives_engine_result_copy_and_adapter() {
 int main() {
     test_adapter_ignores_unupdated_frame();
     test_adapter_maps_target_fields_and_timestamps();
-    test_adapter_forwards_valid_detections_for_tracker();
+    test_adapter_forwards_valid_vision_candidates();
     test_selector_identity_survives_engine_result_copy_and_adapter();
     return 0;
 }

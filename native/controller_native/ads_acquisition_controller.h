@@ -10,9 +10,12 @@ struct AdsAcquisitionControllerConfig {
     float max_force_x = 1.0f;
     float max_force_y = 1.0f;
     float arrival_horizon_seconds = 0.160f;
+    // Live evidence shows materially slower convergence when the target is
+    // above the reticle.  Shorten only that Y horizon; the opposite direction
+    // remains the matched counterfactual and keeps its existing response.
+    float target_above_horizon_scale = 0.84f;
     float fallback_response_px_per_stick_second = 500.0f;
     float stopping_lookahead_seconds = 0.012f;
-    float opposing_manual_reduction = 0.8f;
     float start_delay_ms = 0.0f;
     float start_ramp_ms = 0.0f;
     AimResponseCurveConfig response_curve{};

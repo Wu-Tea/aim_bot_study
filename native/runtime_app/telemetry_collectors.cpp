@@ -1,9 +1,6 @@
 #include "telemetry_collectors.h"
 
 #include "ads_transition_collector.h"
-#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
-#include "control_response_window.h"
-#endif
 #include "telemetry_event_sampler.h"
 #include "telemetry_target_identity.h"
 
@@ -20,11 +17,6 @@ struct TelemetryCollectors::State {
     std::unique_ptr<TelemetryTargetIdentity> identity;
     std::unique_ptr<TelemetryEventSampler> sampler;
     std::unique_ptr<UserInputEpisodeCollector> episodes;
-#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
-    std::unique_ptr<ControlResponseWindowAssembler> responses;
-    std::unique_ptr<Gate25LiveShadow> gate25;
-    std::unique_ptr<Gate25DeliveryView> gate25_delivery;
-#endif
     std::unique_ptr<AdsTransitionCollector> ads;
     std::uint64_t next_sample_seq = 1;
     std::uint64_t next_ads_vision_seq = 1;
@@ -32,13 +24,6 @@ struct TelemetryCollectors::State {
     std::uint64_t last_tick_ns = 0;
     std::uint64_t last_delivered_record_ns = 0;
     std::uint64_t delivered_record_interval_ns = 4'000'000;
-#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
-    std::uint64_t last_gate25_source_frame_id = 0;
-    std::uint64_t last_gate25_source_observation_id = 0;
-    std::uint64_t last_gate25_present_ns = 0;
-    bool has_gate25_source_endpoint = false;
-    std::uint64_t last_gate25_anomaly_flush_ns = 0;
-#endif
     unsigned int last_input_reconnect_count = 0;
     unsigned int last_output_reconnect_count = 0;
     bool has_reconnect_counts = false;
@@ -54,7 +39,6 @@ struct TelemetryCollectors::State {
     float target_confidence = 0.0f;
     std::array<char, 32> target_source{};
     std::array<char, 24> target_tier{};
-    bool standard_collectors_enabled = true;
 };
 
 namespace {
@@ -72,28 +56,12 @@ TelemetryCollectors::TelemetryCollectors(
     : sink_(sink) {
     if (enabled && sink_ != nullptr) {
         state_ = std::make_unique<State>();
-        state_->standard_collectors_enabled = context.standard_collectors_enabled;
-        if (state_->standard_collectors_enabled) {
-            state_->identity = std::make_unique<TelemetryTargetIdentity>();
-            state_->sampler = std::make_unique<TelemetryEventSampler>(
-                TelemetryEventSamplerOptions{250, 100, 100, 300});
-            state_->episodes = std::make_unique<UserInputEpisodeCollector>(
-                UserInputEpisodeOptions{0.10f, 0.05f, 12'000'000});
-#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
-            state_->responses = std::make_unique<ControlResponseWindowAssembler>();
-#endif
-            state_->ads = std::make_unique<AdsTransitionCollector>();
-        }
-#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
-        if (context.gate2_5_live_shadow_enabled) {
-            state_->gate25 = std::make_unique<Gate25LiveShadow>();
-            counters_.gate25_state_constructions =
-                state_->gate25->construction_count();
-            if (!state_->standard_collectors_enabled) {
-                state_->gate25_delivery = std::make_unique<Gate25DeliveryView>();
-            }
-        }
-#endif
+        state_->identity = std::make_unique<TelemetryTargetIdentity>();
+        state_->sampler = std::make_unique<TelemetryEventSampler>(
+            TelemetryEventSamplerOptions{250, 100, 100, 300});
+        state_->episodes = std::make_unique<UserInputEpisodeCollector>(
+            UserInputEpisodeOptions{0.10f, 0.05f, 12'000'000});
+        state_->ads = std::make_unique<AdsTransitionCollector>();
         const int requested_hz = context.telemetry_hz > 0
             ? context.telemetry_hz : 250;
         const int persisted_hz = std::clamp(requested_hz, 1, 250);
@@ -114,7 +82,6 @@ TelemetryCollectors::TelemetryCollectors(
         copy_text(metadata.session_metadata.config_hash, context.config_hash);
         copy_text(metadata.session_metadata.engine_hash, context.engine_hash);
         copy_text(metadata.session_metadata.executable_sha256, context.executable_sha256);
-        copy_text(metadata.session_metadata.tracker_backend, context.tracker_backend);
         metadata.session_metadata.capture_width = context.capture_width;
         metadata.session_metadata.capture_height = context.capture_height;
         metadata.session_metadata.active_capture_fps = context.active_capture_fps;
@@ -136,84 +103,18 @@ void TelemetryCollectors::observe_tick(const TelemetryTickInput& input) noexcept
     const bool aim_stopped = !input.aiming && state.has_last_aiming && state.last_aiming;
     if (aim_started) {
         ++state.ads_epoch;
-        if (state.standard_collectors_enabled) {
-            state.ads->on_ads_pressed(input.sample_ns);
-            state.sampler->trigger(InputEventKind::AdsPressed, input.sample_ns);
-            ++counters_.state_transitions;
-        }
+        state.ads->on_ads_pressed(input.sample_ns);
+        state.sampler->trigger(InputEventKind::AdsPressed, input.sample_ns);
+        ++counters_.state_transitions;
     } else if (aim_stopped) {
-        if (state.standard_collectors_enabled) {
-            state.sampler->trigger(InputEventKind::AdsReleased, input.sample_ns);
-            ++counters_.state_transitions;
-        }
+        state.sampler->trigger(InputEventKind::AdsReleased, input.sample_ns);
+        ++counters_.state_transitions;
     }
     state.last_aiming = input.aiming;
     state.has_last_aiming = true;
 
     const bool recoil_active =
         std::hypot(input.recoil_x, input.recoil_y) > 1.0e-5f;
-#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
-    ResponseControllerSample command;
-    command.sample_seq = input.tick_id;
-    command.output_sent_ns = input.output_sent_ns;
-    command.physical_x = input.physical_x; command.physical_y = input.physical_y;
-    command.physical_left_x = input.physical_left_x;
-    command.physical_left_y = input.physical_left_y;
-    command.manual_x = input.manual_x; command.manual_y = input.manual_y;
-    command.ai_x = input.ai_x; command.ai_y = input.ai_y;
-    command.pre_recoil_x = input.pre_recoil_x; command.pre_recoil_y = input.pre_recoil_y;
-    command.recoil_x = input.recoil_x; command.recoil_y = input.recoil_y;
-    command.final_x = input.final_x; command.final_y = input.final_y;
-    command.final_left_x = input.final_left_x;
-    command.final_left_y = input.final_left_y;
-    command.ads_epoch = state.ads_epoch;
-    command.output_delivered = input.output_delivered;
-    command.output_disabled = input.output_disabled;
-    command.firing = input.final_fire_button;
-    command.recoil_active = recoil_active;
-    command.saturated = input.output_saturated;
-    if (state.responses) {
-        state.responses->observe_controller(command);
-    } else if (state.gate25_delivery) {
-        Gate25DeliverySample delivery;
-        delivery.sample_seq = input.tick_id;
-        delivery.applied_at_ns = input.output_sent_ns;
-        delivery.backend_epoch = input.output_reconnect_count + 1ull;
-        delivery.final_right = {input.final_x, input.final_y};
-        delivery.physical_left = {input.physical_left_x, input.physical_left_y};
-        delivery.manual = {input.manual_x, input.manual_y};
-        delivery.ai = {input.ai_x, input.ai_y};
-        delivery.output_delivered = input.output_delivered;
-        delivery.output_enabled = !input.output_disabled;
-        delivery.firing = input.final_fire_button;
-        delivery.recoil_active = std::hypot(input.recoil_x, input.recoil_y) > 1.0e-5f;
-        delivery.saturated = input.output_saturated;
-        if (delivery.applied_at_ns != 0) {
-            if (!state.gate25_delivery->push(delivery)) {
-                ++counters_.gate25_delivery_timing_rejects;
-            }
-        } else {
-            // sample_ns is the controller decision clock, not a proof that
-            // ViGEm accepted the report. Never use it as a physical delivery
-            // endpoint for Gate2.5.
-            ++counters_.gate25_delivery_timing_rejects;
-        }
-    }
-#endif
-
-    // Gate-only mode still records every successfully timestamped controller
-    // delivery in its fixed Gate25DeliveryView, but does not execute or
-    // persist the ordinary sampler/episodes/ADS collectors. Gate2.5 is
-    // observed independently by observe_gate25_observation() on fresh source
-    // endpoints.
-#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
-    if (!state.standard_collectors_enabled) {
-        state.last_input_reconnect_count = input.input_reconnect_count;
-        state.last_output_reconnect_count = input.output_reconnect_count;
-        state.has_reconnect_counts = true;
-        return;
-    }
-#endif
 
     const bool reconnect_changed = state.has_reconnect_counts &&
         (input.input_reconnect_count != state.last_input_reconnect_count ||
@@ -309,66 +210,13 @@ void TelemetryCollectors::observe_tick(const TelemetryTickInput& input) noexcept
         copy_text(
             sample.controller.manual_authority_mode,
             input.manual_authority_mode);
-        sample.controller.fresh_vision_validated_manual_proposal_x =
-            input.fresh_vision_validated_manual_proposal_x;
-        sample.controller.fresh_vision_validated_manual_proposal_y =
-            input.fresh_vision_validated_manual_proposal_y;
-        sample.controller.fresh_vision_validated_ai_proposal_x =
-            input.fresh_vision_validated_ai_proposal_x;
-        sample.controller.fresh_vision_validated_ai_proposal_y =
-            input.fresh_vision_validated_ai_proposal_y;
-        sample.controller.fresh_vision_manual_radial_scale =
-            input.fresh_vision_manual_radial_scale;
-        sample.controller.fresh_vision_wrong_way_policy_applied =
-            input.fresh_vision_wrong_way_policy_applied;
-        sample.controller.fresh_vision_ai_radial_bound_applied =
-            input.fresh_vision_ai_radial_bound_applied;
-        sample.controller.fresh_vision_ai_radial_scale =
-            input.fresh_vision_ai_radial_scale;
-        sample.controller.fresh_vision_predictive_envelope_applied =
-            input.fresh_vision_predictive_envelope_applied;
-        sample.controller.fresh_vision_escape_latched =
-            input.fresh_vision_escape_latched;
-        sample.controller.fresh_vision_authoritative_error_x =
-            input.fresh_vision_authoritative_error_x;
-        sample.controller.fresh_vision_authoritative_error_y =
-            input.fresh_vision_authoritative_error_y;
-        sample.controller.fresh_vision_predicted_error_x =
-            input.fresh_vision_predicted_error_x;
-        sample.controller.fresh_vision_predicted_error_y =
-            input.fresh_vision_predicted_error_y;
-        sample.controller.fresh_vision_raw_manual_radial =
-            input.fresh_vision_raw_manual_radial;
-        sample.controller.fresh_vision_raw_ai_radial =
-            input.fresh_vision_raw_ai_radial;
-        sample.controller.fresh_vision_strongest_valid_radial =
-            input.fresh_vision_strongest_valid_radial;
-        sample.controller.fresh_vision_stopping_radial =
-            input.fresh_vision_stopping_radial;
-        sample.controller.fresh_vision_permitted_radial =
-            input.fresh_vision_permitted_radial;
-        sample.controller.fresh_vision_pre_slew_radial =
-            input.fresh_vision_pre_slew_radial;
-        sample.controller.fresh_vision_final_radial =
-            input.fresh_vision_final_radial;
-        sample.controller.fresh_vision_horizon_seconds =
-            input.fresh_vision_horizon_seconds;
-        sample.controller.fresh_vision_horizon_y_seconds =
-            input.fresh_vision_horizon_y_seconds;
-        sample.controller.fresh_vision_max_force_x =
-            input.fresh_vision_max_force_x;
-        sample.controller.fresh_vision_max_force_y =
-            input.fresh_vision_max_force_y;
-        sample.controller.fresh_vision_envelope_target_x =
-            input.fresh_vision_envelope_target_x;
-        sample.controller.fresh_vision_envelope_target_y =
-            input.fresh_vision_envelope_target_y;
         copy_text(
-            sample.controller.fresh_vision_envelope_reason,
-            input.fresh_vision_envelope_reason);
-        copy_text(
-            sample.controller.fresh_vision_envelope_source,
-            input.fresh_vision_envelope_source);
+            sample.controller.assist_control_phase,
+            input.assist_control_phase);
+        sample.controller.manual_passthrough_x = input.manual_passthrough_x;
+        sample.controller.manual_passthrough_y = input.manual_passthrough_y;
+        sample.controller.handover_requested = input.handover_requested;
+        sample.controller.handover_braking = input.handover_braking;
         sample.controller.bodylock_error_rate_x = input.bodylock_error_rate_x;
         sample.controller.bodylock_error_rate_y = input.bodylock_error_rate_y;
         sample.controller.bodylock_position_stick_x =
@@ -392,20 +240,6 @@ void TelemetryCollectors::observe_tick(const TelemetryTickInput& input) noexcept
         sample.controller.requested_assist_y = input.requested_assist_y;
         sample.controller.shaped_assist_x = input.shaped_assist_x;
         sample.controller.shaped_assist_y = input.shaped_assist_y;
-        sample.controller.post_ai_x = input.post_ai_x;
-        sample.controller.post_ai_y = input.post_ai_y;
-        sample.controller.dynamic_adjustment_x = input.dynamic_adjustment_x;
-        sample.controller.dynamic_adjustment_y = input.dynamic_adjustment_y;
-        sample.controller.post_dynamic_x = input.post_dynamic_x;
-        sample.controller.post_dynamic_y = input.post_dynamic_y;
-        sample.controller.ads_brake_x = input.ads_brake_x;
-        sample.controller.ads_brake_y = input.ads_brake_y;
-        sample.controller.post_ads_brake_x = input.post_ads_brake_x;
-        sample.controller.post_ads_brake_y = input.post_ads_brake_y;
-        sample.controller.ads_carry_brake_x = input.ads_carry_brake_x;
-        sample.controller.ads_carry_brake_y = input.ads_carry_brake_y;
-        sample.controller.post_ads_carry_brake_x = input.post_ads_carry_brake_x;
-        sample.controller.post_ads_carry_brake_y = input.post_ads_carry_brake_y;
         sample.controller.pre_recoil_x = input.pre_recoil_x;
         sample.controller.pre_recoil_y = input.pre_recoil_y;
         sample.controller.recoil_x = input.recoil_x;
@@ -414,34 +248,15 @@ void TelemetryCollectors::observe_tick(const TelemetryTickInput& input) noexcept
         sample.controller.final_y = input.final_y;
         sample.controller.observed_error_x = input.observed_error_x;
         sample.controller.observed_error_y = input.observed_error_y;
-        sample.controller.pending_motion_x = input.pending_motion_x;
-        sample.controller.pending_motion_y = input.pending_motion_y;
         sample.controller.control_error_x = input.control_error_x;
         sample.controller.control_error_y = input.control_error_y;
-        sample.controller.pending_motion_confidence =
-            input.pending_motion_confidence;
-        sample.controller.pending_motion_valid = input.pending_motion_valid;
-        sample.controller.memory_applied = input.memory_applied;
-        copy_text(sample.controller.memory_status, input.memory_status);
         sample.controller.selected_track_id = input.selected_track_id;
         sample.controller.selected_observation_id = input.selected_observation_id;
-        sample.controller.backing_frame_id = input.backing_frame_id;
-        sample.controller.track_observation_age_ms = input.track_observation_age_ms;
-        sample.controller.track_position_sigma = input.track_position_sigma;
-        sample.controller.track_ambiguity = input.track_ambiguity;
         sample.controller.left_trigger = input.left_trigger;
         sample.controller.right_trigger = input.right_trigger;
         sample.controller.has_target = state.has_target;
         sample.controller.aim_authority = input.aim_authority;
         sample.controller.fire_authority = input.fire_authority;
-        sample.controller.ads_brake_active = input.ads_brake_active;
-        sample.controller.ads_carry_brake_active = input.ads_carry_brake_active;
-        sample.controller.ads_completion_active = input.ads_completion_active;
-        sample.controller.ads_completion_stable_frames = input.ads_completion_stable_frames;
-        sample.controller.ads_completion_radius_px = input.ads_completion_radius_px;
-        sample.controller.ads_completion_required_frames = input.ads_completion_required_frames;
-        sample.controller.ads_completion_max_ms = input.ads_completion_max_ms;
-        copy_text(sample.controller.ads_completion_reason, input.ads_completion_reason);
         sample.controller.auto_fire_requested = input.auto_fire_requested;
         sample.controller.auto_fire_aim_ready = input.auto_fire_aim_ready;
         sample.controller.auto_fire_allowed = input.auto_fire_allowed;
@@ -456,11 +271,7 @@ void TelemetryCollectors::observe_tick(const TelemetryTickInput& input) noexcept
         copy_text(sample.controller.assist_authority, input.assist_authority);
         copy_text(sample.controller.assist_authority_reason, input.assist_authority_reason);
         copy_text(sample.controller.bodylock_lifecycle, input.bodylock_lifecycle);
-        copy_text(
-            sample.controller.bodylock_transition_reason,
-            input.bodylock_transition_reason);
         copy_text(sample.controller.assist_limit_reason, input.assist_limit_reason);
-        sample.controller.manual_takeover_active = input.manual_takeover_active;
         sample.controller.detector_box_count = state.detector_box_count;
         sample.controller.production_target_confidence = state.target_confidence;
         sample.controller.target_dx = state.target_dx;
@@ -500,14 +311,13 @@ void TelemetryCollectors::observe_tick(const TelemetryTickInput& input) noexcept
 }
 
 void TelemetryCollectors::observe_new_vision(const TelemetryVisionInput& input) noexcept {
-    if (!state_ || !state_->standard_collectors_enabled || input.frame_id == 0) return;
+    if (!state_ || input.frame_id == 0) return;
     State& state = *state_;
     TargetIdentityObservation observation;
     observation.frame_id = input.frame_id;
     observation.frame_width = input.frame_width;
     observation.frame_height = input.frame_height;
     observation.live = input.has_target && input.live;
-    observation.projected = input.projected;
     observation.explicit_switch = input.explicit_switch;
     observation.association_ambiguous = input.association_ambiguous;
     observation.x1 = input.x1; observation.y1 = input.y1;
@@ -536,50 +346,6 @@ void TelemetryCollectors::observe_new_vision(const TelemetryVisionInput& input) 
         ++counters_.state_transitions;
     }
 
-#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
-    ResponseVisionFrame response_frame;
-    response_frame.frame_id = input.frame_id;
-    response_frame.captured_at_ns = input.captured_at_ns;
-    response_frame.inferred_at_ns = input.inferred_at_ns;
-    response_frame.controller_consume_ns = input.controller_consume_ns;
-    response_frame.frame_width = input.frame_width;
-    response_frame.frame_height = input.frame_height;
-    response_frame.target_track_id = identity.track_id;
-    response_frame.identity_quality = identity.quality;
-    response_frame.live = input.has_target && input.live;
-    response_frame.dx = input.target_x - input.screen_center_x;
-    response_frame.dy = input.target_y - input.screen_center_y;
-    response_frame.predicted_motion_x = input.predicted_motion_x;
-    response_frame.predicted_motion_y = input.predicted_motion_y;
-    if (state.responses) {
-        if (const auto response = state.responses->observe_vision(response_frame)) {
-        TelemetryRecord record;
-        record.type = TelemetryRecordType::ControlResponseWindow;
-        record.target_track_id = response->target_track_id;
-        record.readiness = response->readiness;
-        record.completeness = response->completeness;
-        record.control_response.reason = response->reason;
-        record.control_response.frame_id_before = response->frame_id_before;
-        record.control_response.frame_id_after = response->frame_id_after;
-        record.control_response.delta_error_x = response->delta_error_x;
-        record.control_response.delta_error_y = response->delta_error_y;
-        record.control_response.residual_x = response->residual_x;
-        record.control_response.residual_y = response->residual_y;
-        record.control_response.manual_x_integral = response->manual_x_integral;
-        record.control_response.manual_y_integral = response->manual_y_integral;
-        record.control_response.ai_x_integral = response->ai_x_integral;
-        record.control_response.ai_y_integral = response->ai_y_integral;
-        record.control_response.pre_recoil_x_integral = response->pre_recoil_x_integral;
-        record.control_response.pre_recoil_y_integral = response->pre_recoil_y_integral;
-        record.control_response.recoil_x_integral = response->recoil_x_integral;
-        record.control_response.recoil_y_integral = response->recoil_y_integral;
-        record.control_response.final_x_integral = response->final_x_integral;
-        record.control_response.final_y_integral = response->final_y_integral;
-        enqueue(record);
-        ++counters_.control_response_records;
-        }
-    }
-#endif
 
     AdsVisualFrame ads_frame;
     ads_frame.frame_id = input.frame_id;
@@ -601,8 +367,7 @@ void TelemetryCollectors::observe_new_vision(const TelemetryVisionInput& input) 
 
 void TelemetryCollectors::observe_committed_capture(
     const pipeline_contract::CommittedCaptureObservation& observation) noexcept {
-    if (!state_ || !state_->standard_collectors_enabled ||
-        !pipeline_contract::valid(observation)) return;
+    if (!state_ || !pipeline_contract::valid(observation)) return;
     TelemetryRecord record;
     record.type = TelemetryRecordType::CommittedCaptureObservation;
     record.frame_id = observation.source_frame_id;
@@ -611,8 +376,6 @@ void TelemetryCollectors::observe_committed_capture(
     record.timestamps.inference_ready_ns = observation.result_at_ns;
     record.vision_sample_quality = observation.strong_observation
         ? VisionSampleQuality::Normal : VisionSampleQuality::SoftWeight;
-    record.identification_update_outcome =
-        IdentificationUpdateOutcome::NotEvaluated;
     auto& value = record.committed_observation;
     value.source_frame_id = observation.source_frame_id;
     value.source_observation_id = observation.source_observation_id;
@@ -648,14 +411,13 @@ void TelemetryCollectors::observe_committed_capture(
     value.strong_observation = observation.strong_observation;
     value.stable_coordinates_valid = observation.stable_coordinates_valid;
     value.has_motion_anchor = observation.has_motion_anchor;
-    value.reused_or_projected = observation.reused_or_projected;
     enqueue(record);
     ++counters_.committed_capture_records;
 }
 
 void TelemetryCollectors::observe_acquisition_trace(
     const TelemetryAcquisitionTraceInput& input) noexcept {
-    if (!state_ || !state_->standard_collectors_enabled || input.source_frame_id == 0) return;
+    if (!state_ || input.source_frame_id == 0) return;
     TelemetryRecord record;
     record.type = TelemetryRecordType::AdsAcquisitionTrace;
     record.frame_id = input.source_frame_id;
@@ -738,226 +500,12 @@ void TelemetryCollectors::observe_acquisition_trace(
     ++counters_.acquisition_traces;
 }
 
-#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
-void TelemetryCollectors::observe_ego_motion_shadow(
-    std::uint64_t source_frame_id,
-    std::uint64_t controller_tick_id,
-    const TelemetryEgoMotionShadowInput& input) noexcept {
-    if (!state_ || !state_->standard_collectors_enabled || !input.available) return;
-    TelemetryRecord record;
-    record.type = TelemetryRecordType::EgoMotionShadow;
-    record.frame_id = source_frame_id != 0 ? source_frame_id : input.current_frame_id;
-    record.tick_id = controller_tick_id;
-    record.timestamps.inference_ready_ns = input.current_result_ns;
-    record.timestamps.vision_capture_ns = input.previous_result_ns;
-    auto& value = record.ego_motion_shadow;
-    value.available = input.available;
-    value.valid = input.valid;
-    value.invalid_reason = input.invalid_reason;
-    value.result_sequence = input.result_sequence;
-    value.previous_frame_id = input.previous_frame_id;
-    value.current_frame_id = input.current_frame_id;
-    value.previous_present_qpc = input.previous_present_qpc;
-    value.current_present_qpc = input.current_present_qpc;
-    value.previous_present_qpc_frequency =
-        input.previous_present_qpc_frequency;
-    value.current_present_qpc_frequency =
-        input.current_present_qpc_frequency;
-    value.present_qpc_frequency = input.present_qpc_frequency;
-    value.previous_present_steady_ns = input.previous_present_steady_ns;
-    value.current_present_steady_ns = input.current_present_steady_ns;
-    value.previous_present_calibration_id =
-        input.previous_present_calibration_id;
-    value.current_present_calibration_id = input.current_present_calibration_id;
-    value.previous_present_calibration_uncertainty_ns =
-        input.previous_present_calibration_uncertainty_ns;
-    value.current_present_calibration_uncertainty_ns =
-        input.current_present_calibration_uncertainty_ns;
-    value.previous_present_steady_available =
-        input.previous_present_steady_available;
-    value.current_present_steady_available =
-        input.current_present_steady_available;
-    value.present_clock_valid = input.present_clock_valid;
-    value.previous_capture_copy_complete_ns =
-        input.previous_capture_copy_complete_ns;
-    value.current_capture_copy_complete_ns =
-        input.current_capture_copy_complete_ns;
-    value.previous_result_ns = input.previous_result_ns;
-    value.current_result_ns = input.current_result_ns;
-    value.observer_completed_at_ns = input.observer_completed_at_ns;
-    value.result_age_at_take_ns = input.result_age_at_take_ns;
-    value.background_dx = input.background_dx;
-    value.background_dy = input.background_dy;
-    value.camera_dx = input.camera_dx;
-    value.camera_dy = input.camera_dy;
-    value.confidence = input.confidence;
-    value.valid_background_ratio = input.valid_background_ratio;
-    value.residual_px = input.residual_px;
-    value.compute_ms = input.compute_ms;
-    value.inlier_count = input.inlier_count;
-    value.sample_count = input.sample_count;
-    value.search_radius_px = input.search_radius_px;
-    value.boundary_hit_count = input.boundary_hit_count;
-    value.boundary_hit_rate = input.boundary_hit_rate;
-    value.boundary_consistent_hit_count = input.boundary_consistent_hit_count;
-    value.boundary_consistent_hit_rate = input.boundary_consistent_hit_rate;
-    value.observer_lifecycle_generation = input.observer_lifecycle_generation;
-    value.submitted_frame_count = input.submitted_frame_count;
-    value.pending_frame_replaced_count = input.pending_frame_replaced_count;
-    value.pairs_processed_count = input.pairs_processed_count;
-    value.unread_result_replaced_count = input.unread_result_replaced_count;
-    value.duplicate_or_out_of_order_rejected_count =
-        input.duplicate_or_out_of_order_rejected_count;
-    enqueue(record);
-    ++counters_.ego_motion_records;
-}
-#endif
 
-#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
-void TelemetryCollectors::observe_gate25_observation(
-    const Gate25ObservationInput& input) noexcept {
-    if (!state_ || !state_->gate25) return;
-    if (state_->has_gate25_source_endpoint &&
-        input.source_frame_id == state_->last_gate25_source_frame_id &&
-        input.source_observation_id == state_->last_gate25_source_observation_id &&
-        input.source_present_steady_ns == state_->last_gate25_present_ns) {
-        // One source observation may fan out to many controller decisions.
-        // The existing fixed ControlHistory records those deliveries; Gate25
-        // must not rescore or persist an anomaly for each replay tick.
-        ++counters_.gate25_fanout_reuses;
-        return;
-    }
-    state_->last_gate25_source_frame_id = input.source_frame_id;
-    state_->last_gate25_source_observation_id = input.source_observation_id;
-    state_->last_gate25_present_ns = input.source_present_steady_ns;
-    state_->has_gate25_source_endpoint = true;
-    ++counters_.gate25_observation_invocations;
-    if (state_->responses) {
-        state_->gate25->observe(input, &state_->responses->history());
-    } else if (state_->gate25_delivery) {
-        state_->gate25->observe(input, *state_->gate25_delivery);
-    } else {
-        state_->gate25->observe(input,
-            static_cast<const control_learning::ControlHistory<1024>*>(nullptr));
-    }
-    // Present time is evidence for the effect interval and may be missing.
-    // Anomaly throttling uses an independent valid monotonic collector clock
-    // so an unavailable present endpoint cannot reset the limiter to zero.
-    const std::uint64_t cadence_now_ns = input.controller_consume_ns != 0
-        ? input.controller_consume_ns
-        : input.decision_ns != 0
-            ? input.decision_ns
-            : static_cast<std::uint64_t>(
-                std::chrono::steady_clock::now().time_since_epoch().count());
-    flush_gate25_records(false, cadence_now_ns);
-}
-
-bool TelemetryCollectors::gate25_observer_enabled() const noexcept {
-    return state_ != nullptr && state_->gate25 != nullptr;
-}
-
-std::size_t TelemetryCollectors::gate25_state_bytes() const noexcept {
-    if (!state_) return 0;
-    std::size_t bytes = sizeof(State);
-    if (state_->gate25) bytes += sizeof(Gate25LiveShadow);
-    if (state_->gate25_delivery) bytes += sizeof(Gate25DeliveryView);
-    if (state_->responses) bytes += sizeof(ControlResponseWindowAssembler);
-    return bytes;
-}
-
-std::uint64_t TelemetryCollectors::gate25_delivery_push_count() const noexcept {
-    return state_ && state_->gate25_delivery
-        ? state_->gate25_delivery->push_count() : 0;
-}
-
-const control_learning::ControlHistory<1024>*
-TelemetryCollectors::control_history() const noexcept {
-    return state_ && state_->responses ? &state_->responses->history() : nullptr;
-}
-
-void TelemetryCollectors::observe_causal_shadow(
-    const pipeline_contract::CommittedCaptureObservation& observation,
-    const control_learning::SampleAssessment& assessment,
-    const control_learning::CausalResponseEstimate& estimate,
-    const control_learning::PendingMotionEstimate& pending,
-    const control_learning::RolloutResult& rollout,
-    const control_learning::Vec2d& final_output) noexcept {
-    if (!state_ || !state_->standard_collectors_enabled) return;
-    TelemetryRecord record;
-    record.type = TelemetryRecordType::CausalResponseShadow;
-    record.frame_id = observation.source_frame_id;
-    record.target_track_id = observation.persistent_target_id;
-    record.timestamps.vision_capture_ns = observation.captured_at_ns;
-    record.timestamps.inference_ready_ns = observation.result_at_ns;
-    auto& value = record.causal_shadow;
-    value.best_delay_ms = estimate.best_delay_ms;
-    value.selected_delay_ms = estimate.selected_delay_ms;
-    value.selected_delay_confidence = estimate.selected_delay_confidence;
-    value.right_confidence = estimate.right_confidence;
-    value.left_confidence = estimate.left_confidence;
-    value.joint_confidence = estimate.joint_confidence;
-    value.excitation = estimate.excitation;
-    value.residual = estimate.residual;
-    value.pending_realized_x = static_cast<float>(pending.realized_px.x);
-    value.pending_realized_y = static_cast<float>(pending.realized_px.y);
-    value.pending_in_flight_x = static_cast<float>(pending.in_flight_px.x);
-    value.pending_in_flight_y = static_cast<float>(pending.in_flight_px.y);
-    value.pending_scheduled_x = static_cast<float>(pending.scheduled_px.x);
-    value.pending_scheduled_y = static_cast<float>(pending.scheduled_px.y);
-    value.pending_total_x = static_cast<float>(pending.pending_total_px.x);
-    value.pending_total_y = static_cast<float>(pending.pending_total_px.y);
-    value.pending_confidence = pending.confidence;
-    value.reason_bits = assessment.reason_bits;
-    value.accepted_delay_count = assessment.accepted_delay_count;
-    value.accepted_by_any_delay = assessment.accepted_by_any_delay;
-    value.delay_switch_pending = estimate.delay_switch_pending;
-    value.pending_valid = pending.valid;
-    value.rollout_valid = rollout.valid;
-    value.rollout_best_scale = rollout.best_scale;
-    value.rollout_confidence = rollout.confidence;
-    value.rollout_candidate_count = static_cast<std::uint8_t>(rollout.candidate_count);
-    value.rollout_uses_final_output = true;
-    value.rollout_final_output_x = static_cast<float>(final_output.x);
-    value.rollout_final_output_y = static_cast<float>(final_output.y);
-    for (std::size_t i = 0; i < rollout.candidate_count && i < 5; ++i) {
-        value.rollout_scales[i] = rollout.candidates[i].scale;
-        value.rollout_costs[i] = static_cast<float>(rollout.candidates[i].cost);
-    }
-    switch (assessment.vision_quality) {
-    case control_learning::VisionSampleQuality::Normal:
-        record.vision_sample_quality = VisionSampleQuality::Normal; break;
-    case control_learning::VisionSampleQuality::ReusedOrProjected:
-        record.vision_sample_quality = VisionSampleQuality::SoftWeight; break;
-    default:
-        record.vision_sample_quality = VisionSampleQuality::HardReject; break;
-    }
-    switch (assessment.update_outcome) {
-    case control_learning::IdentificationUpdateOutcome::Accepted:
-        record.identification_update_outcome =
-            IdentificationUpdateOutcome::AcceptedByAtLeastOneDelay; break;
-    case control_learning::IdentificationUpdateOutcome::InsufficientExcitation:
-        record.identification_update_outcome =
-            IdentificationUpdateOutcome::InsufficientExcitation; break;
-    case control_learning::IdentificationUpdateOutcome::HardRejected:
-        record.identification_update_outcome =
-            IdentificationUpdateOutcome::NoUsableDelay; break;
-    default:
-        record.identification_update_outcome =
-            IdentificationUpdateOutcome::NotEvaluated; break;
-    }
-    enqueue(record);
-}
-#endif
 
 void TelemetryCollectors::shutdown(std::uint64_t now_ns) noexcept {
     if (!state_) return;
-    if (state_->standard_collectors_enabled) {
-        state_->ads->shutdown(now_ns);
-        flush_ads_event();
-    }
-#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
-    flush_gate25_records(true, now_ns);
-#endif
+    state_->ads->shutdown(now_ns);
+    flush_ads_event();
 }
 
 TelemetryCollectorsCounters TelemetryCollectors::counters() const noexcept { return counters_; }
@@ -1006,56 +554,5 @@ void TelemetryCollectors::flush_ads_event() noexcept {
     ++counters_.state_transitions;
 }
 
-#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
-void TelemetryCollectors::flush_gate25_records(
-    bool final,
-    std::uint64_t cadence_now_ns) noexcept {
-    constexpr std::size_t kGate25AnomalyBatchCapacity = 16;
-    if (!state_ || !state_->gate25) return;
-    Gate25AggregateSnapshot summary;
-    const bool have_summary = final
-        ? state_->gate25->flush_summary(summary)
-        : state_->gate25->take_due_summary(summary);
-    if (have_summary) {
-        state_->gate25->note_writer_invocation();
-        ++counters_.gate25_writer_invocations;
-        if (sink_ != nullptr && sink_->enqueue_gate25_aggregate(summary)) {
-            ++counters_.gate25_aggregate_records;
-        } else {
-            ++counters_.gate25_aggregate_dropped_records;
-        }
-    }
-    const bool anomaly_cadence_due = final ||
-        (cadence_now_ns != 0 &&
-         (state_->last_gate25_anomaly_flush_ns == 0 ||
-          (cadence_now_ns >= state_->last_gate25_anomaly_flush_ns &&
-           cadence_now_ns - state_->last_gate25_anomaly_flush_ns >=
-               250'000'000ull)));
-    if (!anomaly_cadence_due && !have_summary) return;
-    if (cadence_now_ns != 0) {
-        state_->last_gate25_anomaly_flush_ns = cadence_now_ns;
-    }
-    Gate25Anomaly anomaly;
-    std::size_t drained = 0;
-    const std::size_t drain_limit = final
-        ? Gate25LiveShadow::kAnomalyCapacity
-        : kGate25AnomalyBatchCapacity;
-    while (drained < drain_limit &&
-           state_->gate25->pop_anomaly(anomaly)) {
-        state_->gate25->note_writer_invocation();
-        ++counters_.gate25_writer_invocations;
-        if (sink_ != nullptr && sink_->enqueue_gate25_anomaly(anomaly)) {
-            ++counters_.gate25_anomaly_records;
-        } else {
-            ++counters_.gate25_anomaly_dropped_records;
-        }
-        ++drained;
-    }
-    if (final) {
-        counters_.gate25_unflushed_anomalies +=
-            state_->gate25->pending_anomaly_count();
-    }
-}
-#endif
 
 } // namespace runtime_app

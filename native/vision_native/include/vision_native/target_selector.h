@@ -192,6 +192,9 @@ private:
     bool enemy_marker_loss_grace_expired(std::uint64_t observation_ns) const;
     std::optional<FrameRegion> cue_hold_search_region(
         std::uint64_t observation_ns) const;
+    bool cue_reconstructed_target_is_reasonable(
+        float target_x,
+        float target_y) const;
     void update_cue_tracking(
         const TargetState& target,
         std::uint64_t observation_ns);
@@ -227,6 +230,7 @@ private:
     bool active_marker_expired_ = false;
     std::optional<std::pair<float, float>> last_cue_point_;
     std::optional<std::pair<float, float>> last_target_offset_from_cue_;
+    std::uint64_t cue_tracking_generation_ = 0;
     std::uint64_t last_direct_cue_observation_ns_ = 0;
     std::uint64_t last_cue_observation_ns_ = 0;
     int pending_frames_ = 0;

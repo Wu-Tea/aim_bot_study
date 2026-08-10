@@ -41,31 +41,14 @@ pipeline_contract::Vec2f AdsAcquisitionController::compute(
     const float horizon = std::clamp(
         config_.arrival_horizon_seconds, 0.060f, 0.350f);
     ResponseModelAimRequest request{};
-    request.error_px = plan.remaining_work_valid
-        ? plan.remaining_work_px
-        : plan.error_px;
-    const pipeline_contract::Vec2f player_motion_forecast{
-        plan.player_motion_forecast_px.x *
-            plan.player_motion_confidence,
-        plan.player_motion_forecast_px.y *
-            plan.player_motion_confidence,
-    };
-    // ADS owns point acquisition, not trajectory lead. Let a causal player
-    // motion forecast consume most of the current error, but never make ADS
-    // command through the observed point before a new observation/BodyLock
-    // confirms the crossing.
-    request.error_px.x += std::clamp(
-        player_motion_forecast.x,
-        -std::fabs(request.error_px.x) * 0.85f,
-        std::fabs(request.error_px.x) * 0.85f);
-    request.error_px.y += std::clamp(
-        player_motion_forecast.y,
-        -std::fabs(request.error_px.y) * 0.85f,
-        std::fabs(request.error_px.y) * 0.85f);
+    request.error_px = plan.error_px;
     request.relative_velocity_px_per_sec = plan.error_rate_px_per_sec;
     request.response_px_per_stick_second = response;
     request.arrival_horizon_seconds = horizon;
-    request.arrival_horizon_y_seconds = horizon;
+    request.arrival_horizon_y_seconds = plan.error_px.y < 0.0f
+        ? horizon * std::clamp(
+            config_.target_above_horizon_scale, 0.75f, 1.0f)
+        : horizon;
     request.motion_weight = config_.stopping_lookahead_seconds /
         horizon;
     request.max_force = {
@@ -81,17 +64,7 @@ pipeline_contract::Vec2f AdsAcquisitionController::compute(
         config_.start_delay_ms,
         config_.start_ramp_ms);
     request.response_curve = config_.response_curve;
-    auto output = solve_response_model_aim(request).stick;
-    const pipeline_contract::Vec2f manual{
-        intent.filtered_right.x, intent.filtered_right.y};
-    if (output.x * manual.x + output.y * manual.y < 0.0f) {
-        const float confidence = std::clamp(
-            std::max(intent.right_x.confidence, intent.right_y.confidence), 0.0f, 1.0f);
-        const float reduction = 1.0f - config_.opposing_manual_reduction * confidence;
-        output.x *= reduction;
-        output.y *= reduction;
-    }
-    return output;
+    return solve_response_model_aim(request).stick;
 }
 
 }  // namespace controller_native

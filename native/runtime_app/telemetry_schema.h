@@ -1,9 +1,5 @@
 #pragma once
 
-#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
-#include "gate2_5_live_shadow.h"
-#endif
-
 #include <cstdint>
 #include <array>
 #include <type_traits>
@@ -12,12 +8,6 @@ namespace runtime_app {
 
 inline constexpr std::uint16_t kTelemetrySchemaVersion = 13;
 
-enum class TelemetryRecordKind : std::uint8_t {
-    ManualControllerTick,
-    VisionFrame,
-    RuntimeEvent,
-};
-
 enum class TelemetryRecordType : std::uint8_t {
     SessionMetadata,
     ControllerSample,
@@ -25,38 +15,15 @@ enum class TelemetryRecordType : std::uint8_t {
     TargetEvent,
     AdsTransitionSample,
     AdsTransition,
-#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
-    ControlResponseWindow,
-#endif
     CommittedCaptureObservation,
     DeliveredControlSample,
-#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
-    CausalResponseShadow,
-#endif
     AdsAcquisitionTrace,
-#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
-    EgoMotionShadow,
-#endif
-    Gate25LiveShadow,
 };
 
 enum class VisionSampleQuality : std::uint8_t {
     Normal,
     SoftWeight,
     HardReject,
-};
-
-enum class IdentificationUpdateOutcome : std::uint8_t {
-    NotEvaluated,
-    AcceptedByAtLeastOneDelay,
-    InsufficientExcitation,
-    DeliveryGap,
-    FiringOrRecoil,
-    Saturated,
-    TimingInvalid,
-    CoordinateInvalid,
-    IdentityBoundary,
-    NoUsableDelay,
 };
 
 enum class TelemetryReadiness : std::uint8_t {
@@ -70,7 +37,6 @@ enum class TargetIdentityQuality : std::uint8_t {
     ProductionAssociated,
     StrongGeometricMatch,
     WeakGeometricMatch,
-    ProjectedContinuity,
     Ambiguous,
 };
 
@@ -114,7 +80,6 @@ enum class AdsInvalidReason : std::uint8_t {
     NoHipfireTarget,
     TargetSwitched,
     TargetLost,
-    ProjectedOnlyAnchor,
     AdsNotSettled,
     LargeManualTurn,
     GeometryChanged,
@@ -125,15 +90,6 @@ enum class AdsInvalidReason : std::uint8_t {
     SampleGap,
     RuntimeShutdown,
     QueueOverflow,
-};
-
-enum class ResponseWindowReason : std::uint8_t {
-    None,
-    TargetChanged,
-    IdentityWeak,
-    GeometryChanged,
-    SampleGap,
-    TimingInvalid,
 };
 
 struct TelemetryCompleteness {
@@ -176,36 +132,11 @@ struct ControllerSamplePayload {
     float ai_correction_x = 0.0f;
     float ai_correction_y = 0.0f;
     std::array<char, 32> manual_authority_mode{};
-    // Validated proposals only; neither field is an output contribution.
-    float fresh_vision_validated_manual_proposal_x = 0.0f;
-    float fresh_vision_validated_manual_proposal_y = 0.0f;
-    float fresh_vision_validated_ai_proposal_x = 0.0f;
-    float fresh_vision_validated_ai_proposal_y = 0.0f;
-    float fresh_vision_manual_radial_scale = 1.0f;
-    bool fresh_vision_wrong_way_policy_applied = false;
-    bool fresh_vision_ai_radial_bound_applied = false;
-    float fresh_vision_ai_radial_scale = 1.0f;
-    bool fresh_vision_predictive_envelope_applied = false;
-    bool fresh_vision_escape_latched = false;
-    float fresh_vision_authoritative_error_x = 0.0f;
-    float fresh_vision_authoritative_error_y = 0.0f;
-    float fresh_vision_predicted_error_x = 0.0f;
-    float fresh_vision_predicted_error_y = 0.0f;
-    float fresh_vision_raw_manual_radial = 0.0f;
-    float fresh_vision_raw_ai_radial = 0.0f;
-    float fresh_vision_strongest_valid_radial = 0.0f;
-    float fresh_vision_stopping_radial = 0.0f;
-    float fresh_vision_permitted_radial = 0.0f;
-    float fresh_vision_pre_slew_radial = 0.0f;
-    float fresh_vision_final_radial = 0.0f;
-    float fresh_vision_horizon_seconds = 0.0f;
-    float fresh_vision_horizon_y_seconds = 0.0f;
-    float fresh_vision_max_force_x = 0.0f;
-    float fresh_vision_max_force_y = 0.0f;
-    float fresh_vision_envelope_target_x = 0.0f;
-    float fresh_vision_envelope_target_y = 0.0f;
-    std::array<char, 48> fresh_vision_envelope_reason{};
-    std::array<char, 48> fresh_vision_envelope_source{};
+    std::array<char, 24> assist_control_phase{};
+    bool manual_passthrough_x = true;
+    bool manual_passthrough_y = true;
+    bool handover_requested = false;
+    bool handover_braking = false;
     float bodylock_error_rate_x = 0.0f;
     float bodylock_error_rate_y = 0.0f;
     float bodylock_position_stick_x = 0.0f;
@@ -216,20 +147,6 @@ struct ControllerSamplePayload {
     float bodylock_effective_motion_stick_y = 0.0f;
     bool bodylock_radial_motion_bound = false;
     std::array<char, 48> bodylock_constraint_reason{};
-    float post_ai_x = 0.0f;
-    float post_ai_y = 0.0f;
-    float dynamic_adjustment_x = 0.0f;
-    float dynamic_adjustment_y = 0.0f;
-    float post_dynamic_x = 0.0f;
-    float post_dynamic_y = 0.0f;
-    float ads_brake_x = 0.0f;
-    float ads_brake_y = 0.0f;
-    float post_ads_brake_x = 0.0f;
-    float post_ads_brake_y = 0.0f;
-    float ads_carry_brake_x = 0.0f;
-    float ads_carry_brake_y = 0.0f;
-    float post_ads_carry_brake_x = 0.0f;
-    float post_ads_carry_brake_y = 0.0f;
     float pre_recoil_x = 0.0f;
     float pre_recoil_y = 0.0f;
     float recoil_x = 0.0f;
@@ -238,14 +155,8 @@ struct ControllerSamplePayload {
     float final_y = 0.0f;
     float observed_error_x = 0.0f;
     float observed_error_y = 0.0f;
-    float pending_motion_x = 0.0f;
-    float pending_motion_y = 0.0f;
     float control_error_x = 0.0f;
     float control_error_y = 0.0f;
-    float pending_motion_confidence = 0.0f;
-    bool pending_motion_valid = false;
-    bool memory_applied = false;
-    std::array<char, 32> memory_status{};
     float requested_assist_x = 0.0f;
     float requested_assist_y = 0.0f;
     float shaped_assist_x = 0.0f;
@@ -255,15 +166,6 @@ struct ControllerSamplePayload {
     bool has_target = false;
     bool aim_authority = false;
     bool fire_authority = false;
-    bool ads_brake_active = false;
-    bool ads_carry_brake_active = false;
-    bool ads_completion_active = false;
-    int ads_completion_stable_frames = 0;
-    float ads_completion_radius_px = 0.0f;
-    int ads_completion_required_frames = 0;
-    float ads_completion_max_ms = 0.0f;
-    std::array<char, 20> ads_completion_reason{};
-    bool manual_takeover_active = false;
     bool auto_fire_requested = false;
     bool auto_fire_aim_ready = false;
     bool auto_fire_allowed = false;
@@ -280,10 +182,6 @@ struct ControllerSamplePayload {
     float target_error_px = 0.0f;
     std::uint64_t selected_track_id = 0;
     std::uint64_t selected_observation_id = 0;
-    std::uint64_t backing_frame_id = 0;
-    float track_observation_age_ms = 0.0f;
-    float track_position_sigma = 0.0f;
-    float track_ambiguity = 0.0f;
     TargetIdentityQuality target_identity_quality = TargetIdentityQuality::None;
     std::array<char, 24> aim_mode{};
     std::array<char, 32> production_target_source{};
@@ -291,7 +189,6 @@ struct ControllerSamplePayload {
     std::array<char, 20> assist_authority{};
     std::array<char, 24> assist_authority_reason{};
     std::array<char, 16> bodylock_lifecycle{};
-    std::array<char, 24> bodylock_transition_reason{};
     std::array<char, 24> assist_limit_reason{};
 };
 
@@ -301,7 +198,6 @@ struct SessionMetadataPayload {
     std::array<char, 65> config_hash{};
     std::array<char, 65> engine_hash{};
     std::array<char, 65> executable_sha256{};
-    std::array<char, 32> tracker_backend{};
     int capture_width = 0;
     int capture_height = 0;
     int active_capture_fps = 0;
@@ -339,21 +235,6 @@ struct AdsTransitionPayload {
     float cumulative_recoil = 0.0f;
 };
 
-#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
-struct ControlResponsePayload {
-    ResponseWindowReason reason = ResponseWindowReason::None;
-    std::uint64_t frame_id_before = 0;
-    std::uint64_t frame_id_after = 0;
-    float delta_error_x = 0.0f, delta_error_y = 0.0f;
-    float residual_x = 0.0f, residual_y = 0.0f;
-    float manual_x_integral = 0.0f, manual_y_integral = 0.0f;
-    float ai_x_integral = 0.0f, ai_y_integral = 0.0f;
-    float pre_recoil_x_integral = 0.0f, pre_recoil_y_integral = 0.0f;
-    float recoil_x_integral = 0.0f, recoil_y_integral = 0.0f;
-    float final_x_integral = 0.0f, final_y_integral = 0.0f;
-};
-#endif
-
 struct CommittedObservationPayload {
     std::uint64_t source_frame_id = 0;
     std::uint64_t source_observation_id = 0;
@@ -382,7 +263,6 @@ struct CommittedObservationPayload {
     bool strong_observation = false;
     bool stable_coordinates_valid = false;
     bool has_motion_anchor = false;
-    bool reused_or_projected = false;
 };
 
 struct AdsAcquisitionTracePayload {
@@ -455,58 +335,6 @@ struct AdsAcquisitionTracePayload {
     float first_fused_output_y = 0.0f;
 };
 
-#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
-struct EgoMotionShadowPayload {
-    bool available = false;
-    bool valid = false;
-    std::uint8_t invalid_reason = 0;
-    std::uint64_t result_sequence = 0;
-    std::uint64_t previous_frame_id = 0;
-    std::uint64_t current_frame_id = 0;
-    std::uint64_t previous_present_qpc = 0;
-    std::uint64_t current_present_qpc = 0;
-    std::uint64_t previous_present_qpc_frequency = 0;
-    std::uint64_t current_present_qpc_frequency = 0;
-    std::uint64_t present_qpc_frequency = 0;
-    std::uint64_t previous_present_steady_ns = 0;
-    std::uint64_t current_present_steady_ns = 0;
-    std::uint64_t previous_present_calibration_id = 0;
-    std::uint64_t current_present_calibration_id = 0;
-    std::uint64_t previous_present_calibration_uncertainty_ns = 0;
-    std::uint64_t current_present_calibration_uncertainty_ns = 0;
-    bool previous_present_steady_available = false;
-    bool current_present_steady_available = false;
-    bool present_clock_valid = false;
-    std::uint64_t previous_capture_copy_complete_ns = 0;
-    std::uint64_t current_capture_copy_complete_ns = 0;
-    std::uint64_t previous_result_ns = 0;
-    std::uint64_t current_result_ns = 0;
-    std::uint64_t observer_completed_at_ns = 0;
-    std::uint64_t result_age_at_take_ns = 0;
-    float background_dx = 0.0f;
-    float background_dy = 0.0f;
-    float camera_dx = 0.0f;
-    float camera_dy = 0.0f;
-    float confidence = 0.0f;
-    float valid_background_ratio = 0.0f;
-    float residual_px = 0.0f;
-    float compute_ms = 0.0f;
-    std::uint32_t inlier_count = 0;
-    std::uint32_t sample_count = 0;
-    int search_radius_px = 0;
-    std::uint32_t boundary_hit_count = 0;
-    float boundary_hit_rate = 0.0f;
-    std::uint32_t boundary_consistent_hit_count = 0;
-    float boundary_consistent_hit_rate = 0.0f;
-    std::uint64_t observer_lifecycle_generation = 0;
-    std::uint64_t submitted_frame_count = 0;
-    std::uint64_t pending_frame_replaced_count = 0;
-    std::uint64_t pairs_processed_count = 0;
-    std::uint64_t unread_result_replaced_count = 0;
-    std::uint64_t duplicate_or_out_of_order_rejected_count = 0;
-};
-#endif
-
 struct DeliveredControlPayload {
     std::uint64_t sample_seq = 0;
     std::uint64_t applied_at_ns = 0;
@@ -526,44 +354,6 @@ struct DeliveredControlPayload {
     bool saturated = false;
 };
 
-#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
-struct CausalResponseShadowPayload {
-    float best_delay_ms = 0.0f;
-    float selected_delay_ms = 0.0f;
-    float selected_delay_confidence = 0.0f;
-    float right_confidence = 0.0f;
-    float left_confidence = 0.0f;
-    float joint_confidence = 0.0f;
-    float excitation = 0.0f;
-    float residual = 0.0f;
-    float pending_realized_x = 0.0f;
-    float pending_realized_y = 0.0f;
-    float pending_in_flight_x = 0.0f;
-    float pending_in_flight_y = 0.0f;
-    float pending_scheduled_x = 0.0f;
-    float pending_scheduled_y = 0.0f;
-    float pending_total_x = 0.0f;
-    float pending_total_y = 0.0f;
-    float pending_confidence = 0.0f;
-    std::uint32_t reason_bits = 0;
-    std::uint8_t accepted_delay_count = 0;
-    bool accepted_by_any_delay = false;
-    bool delay_switch_pending = false;
-    bool pending_valid = false;
-    std::array<float, 5> rollout_scales{};
-    std::array<float, 5> rollout_costs{};
-    float rollout_best_scale = 1.0f;
-    float rollout_confidence = 0.0f;
-    std::uint8_t rollout_candidate_count = 0;
-    bool rollout_valid = false;
-    // The candidate lattice scales this one final pre-recoil aim proposal;
-    // it is not a manual/AI contribution allocation.
-    bool rollout_uses_final_output = false;
-    float rollout_final_output_x = 0.0f;
-    float rollout_final_output_y = 0.0f;
-  };
-#endif
-
 struct TelemetryRecord {
     std::uint16_t schema_version = kTelemetrySchemaVersion;
     TelemetryRecordType type = TelemetryRecordType::ControllerSample;
@@ -582,35 +372,10 @@ struct TelemetryRecord {
     InputEventPayload input_event;
     TargetEventPayload target_event;
     AdsTransitionPayload ads_transition;
-#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
-    ControlResponsePayload control_response;
-#endif
     CommittedObservationPayload committed_observation;
     DeliveredControlPayload delivered_control;
-#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
-    CausalResponseShadowPayload causal_shadow;
-#endif
     AdsAcquisitionTracePayload ads_acquisition_trace;
-#ifdef COD_NATIVE_RESEARCH_TELEMETRY_TEST_SEAMS
-    EgoMotionShadowPayload ego_motion_shadow;
-#endif
     VisionSampleQuality vision_sample_quality = VisionSampleQuality::Normal;
-    IdentificationUpdateOutcome identification_update_outcome =
-        IdentificationUpdateOutcome::NotEvaluated;
-
-    // Compatibility fields used by the current runtime producer until the
-    // enabled-only collectors are integrated.
-    TelemetryRecordKind kind = TelemetryRecordKind::ManualControllerTick;
-    std::uint64_t timestamp_ns = 0;
-    float manual_x = 0.0f;
-    float manual_y = 0.0f;
-    float ai_x = 0.0f;
-    float ai_y = 0.0f;
-    float final_x = 0.0f;
-    float final_y = 0.0f;
-    float controller_pipeline_ms = 0.0f;
-    float vigem_update_ms = 0.0f;
-    std::uint32_t event_reason_flags = 0;
 };
 
 static_assert(std::is_trivially_copyable_v<TelemetryRecord>);

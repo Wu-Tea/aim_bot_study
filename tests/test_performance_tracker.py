@@ -147,7 +147,6 @@ class PerformanceTrackerTests(unittest.TestCase):
             native_output_wait_ms=0.7,
             native_decode_ms=0.1,
             native_selector_ms=0.6,
-            native_enhance_ms=0.2,
             native_cuda_unmap_ms=0.1,
             external_cue_ms=0.7,
         )
@@ -162,7 +161,6 @@ class PerformanceTrackerTests(unittest.TestCase):
         self.assertIn("sync_wait=0.7/0.7/0.7ms", lines[0])
         self.assertIn("decode=0.1/0.1/0.1ms", lines[0])
         self.assertIn("selector=0.6/0.6/0.6ms", lines[0])
-        self.assertIn("enhance=0.2/0.2/0.2ms", lines[0])
         self.assertIn("cuda_unmap=0.1/0.1/0.1ms", lines[0])
         self.assertIn("cue_ms=0.7/0.7/0.7ms", lines[0])
         self.assertIn("detail cap_acq=0.4/0.4/0.4ms", lines[1])
@@ -249,11 +247,11 @@ class PerformanceTrackerTests(unittest.TestCase):
         )
 
         self.assertEqual(len(lines), 2)
-        self.assertIn("tier obs=1 weak=1 cue=1 pred=0 none=2 unk=0", lines[0])
+        self.assertIn("tier obs=1 weak=1 cue=1 none=2 unk=0", lines[0])
         self.assertIn("auth aim=3 fire=1", lines[0])
         self.assertIn("cue=2", lines[0])
         self.assertIn("fire req=2 ok=1 block=1", lines[0])
-        self.assertIn("tier obs=1 weak=1 cue=1 pred=0 none=0 unk=0", lines[1])
+        self.assertIn("tier obs=1 weak=1 cue=1 none=0 unk=0", lines[1])
         self.assertIn("fire req=2 ok=1 block=1", lines[1])
 
     def test_log_outputs_target_box_crop_risk_metrics(self):

@@ -72,32 +72,31 @@ void test_motion_feedforward_is_not_multiplied_by_force_cap() {
                  "force envelope must not attenuate an in-range motion term");
 }
 
-void test_trusted_motion_can_lead_opposite_small_residual() {
+void test_motion_does_not_reverse_current_residual() {
     auto request = base_request();
     request.error_px = {-1.0f, 0.0f};
     request.relative_velocity_px_per_sec = {100.0f, 0.0f};
     request.arrival_horizon_seconds = 0.10f;
     const auto output = solve_response_model_aim(request);
-    require(output.stick.x > 0.0f,
-            "trusted motion must lead before visible lag changes error sign");
+    require(output.stick.x <= 0.0f,
+            "motion metadata must not reverse the current source-owned residual");
 }
 
-void test_fresh_position_bounds_only_opposing_radial_motion() {
+void test_current_position_bounds_only_opposing_radial_motion() {
     auto request = base_request();
     request.error_px = {-10.0f, 0.0f};
     request.relative_velocity_px_per_sec = {260.0f, 120.0f};
-    request.fresh_position_authoritative = true;
     const auto output = solve_response_model_aim(request);
     require(output.radial_motion_bound_applied,
-            "fresh position fixture must exercise the radial motion bound");
+            "current position fixture must exercise the radial motion bound");
     require(output.bounded_motion_stick.x <= 0.0f,
             "fresh position must not keep an opposing radial motion sign");
     require_near(output.bounded_motion_stick.y, output.motion_stick.y,
                  1e-5f,
                  "fresh radial bound must preserve tangent motion");
     require(output.radial_motion_bound_reason ==
-                ResponseModelConstraintReason::FreshPositionRadialMotionBound,
-            "fresh radial bound must expose its causal reason");
+                ResponseModelConstraintReason::PositionRadialMotionBound,
+            "radial bound must expose its single-path reason");
 }
 
 void test_elliptical_force_envelope_scales_one_vector() {
@@ -165,8 +164,8 @@ int main() {
         test_radial_direction_and_y_sign();
         test_horizon_and_response_have_physical_units();
         test_motion_feedforward_is_not_multiplied_by_force_cap();
-        test_trusted_motion_can_lead_opposite_small_residual();
-        test_fresh_position_bounds_only_opposing_radial_motion();
+        test_motion_does_not_reverse_current_residual();
+        test_current_position_bounds_only_opposing_radial_motion();
         test_elliptical_force_envelope_scales_one_vector();
         test_cod_dynamic_plugin_round_trips_seed_curve();
         test_cod_dynamic_curve_shapes_target_t_around_reference();

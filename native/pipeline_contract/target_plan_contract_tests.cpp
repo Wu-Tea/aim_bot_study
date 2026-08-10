@@ -34,8 +34,6 @@ void test_plan_is_fixed_size_and_publishable() {
                  "target plan must be trivially copyable");
     require_true(std::is_trivially_copyable_v<pipeline_contract::VisionObservationBatch>,
                  "observation batch must be trivially copyable");
-    require_true(pipeline_contract::kMaxPlanHorizonSamples == 8,
-                 "plan horizon capacity is part of the publication contract");
     require_true(pipeline_contract::kMaxVisionCandidates == 32,
                  "candidate capacity is part of the observation contract");
 }

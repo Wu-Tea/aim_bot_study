@@ -99,7 +99,6 @@ void LogSessionManager::write_session_manifest(const char* state) {
          << "  \"require_isotropic_resize\": "
          << (options_.require_isotropic_resize ? "true" : "false") << ",\n"
          << "  \"model_path\": \"" << json_escape(options_.model_path) << "\",\n"
-         << "  \"causal_response_journal_schema\": \"causal_response_journal_v1\",\n"
          << "  \"updated_utc\": \"" << utc_timestamp() << "\"\n"
          << "}\n";
     write_text_atomic(session_directory_ / "session.json", json.str());

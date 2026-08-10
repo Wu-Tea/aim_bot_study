@@ -237,27 +237,24 @@ class NativeVisionDebugOverlay:
         token = source.strip().casefold()
         if token == "observed":
             return "observed_strong"
-        if token in {"associated_weak", "weak_observed", "low_score"}:
+        if token in {"associated_weak", "weak_observed"}:
             return "associated_weak"
-        if token in {"cue_hold", "yellow_cue"}:
+        if token == "cue_hold":
             return "cue_hold"
-        if token in {"predicted", "projected", "projection"}:
-            return "predicted"
         if token in {"", "none", "lost"}:
             return "none"
-        return source
+        return "unknown"
 
     @staticmethod
     def _default_aim_authority(source: str, tier: str) -> bool:
         source_token = source.strip().casefold()
         tier_token = tier.strip().casefold()
-        return source_token not in {"predicted", "projected", "projection"} and tier_token not in {
-            "predicted",
-            "projected",
-            "projection",
-            "none",
-            "lost",
-        }
+        return source_token in {
+            "observed",
+            "associated_weak",
+            "weak_observed",
+            "cue_hold",
+        } or tier_token in {"observed_strong", "associated_weak", "weak_observed", "cue_hold"}
 
     def _draw_status(
         self,
@@ -385,12 +382,10 @@ def _native_target_tier(result: dict) -> str | None:
     source = _native_text(result, "target_source")
     if source == "observed":
         return "observed_strong"
-    if source in {"associated_weak", "weak_observed", "low_score"}:
+    if source in {"associated_weak", "weak_observed"}:
         return "associated_weak"
     if source == "cue_hold":
         return "cue_hold"
-    if source in {"predicted", "projected", "projection"}:
-        return "predicted"
     if source:
         return "unknown"
     return None
@@ -401,9 +396,7 @@ def _native_aim_authority(result: dict) -> bool:
     if explicit is not None:
         return bool(explicit)
     tier = _native_target_tier(result)
-    if tier is None:
-        return True
-    return tier not in {None, "none", "lost", "predicted"}
+    return tier in {"observed_strong", "associated_weak", "weak_observed", "cue_hold"}
 
 
 def _native_fire_authority(result: dict) -> bool:
@@ -773,7 +766,6 @@ def process_native_vision(controller=None, cue_provider=None):
                 native_output_wait_ms=_optional_float(result, "output_wait_ms"),
                 native_decode_ms=_optional_float(result, "decode_ms"),
                 native_selector_ms=_optional_float(result, "selector_ms"),
-                native_enhance_ms=_optional_float(result, "enhance_ms"),
                 native_cuda_unmap_ms=_optional_float(result, "cuda_unmap_ms"),
                 external_cue_ms=external_cue_ms,
                 target_source=_native_text(result, "target_source"),

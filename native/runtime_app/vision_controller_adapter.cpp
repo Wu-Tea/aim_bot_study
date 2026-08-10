@@ -47,7 +47,7 @@ bool detection_is_color_checked_wide_low_without_enemy_evidence(
         && !detection_has_enemy_evidence(detection);
 }
 
-std::string tracker_tier_for_detection(const vision_native::Detection& detection) {
+std::string observation_tier_for_detection(const vision_native::Detection& detection) {
     if (detection_is_color_checked_wide_low_without_enemy_evidence(detection)) {
         return "associated_weak";
     }
@@ -62,7 +62,7 @@ common_native::TargetAuthorityState suggested_candidate_authority_state(
     if (detection.is_friendly) {
         return common_native::TargetAuthorityState::Reject;
     }
-    if (tracker_tier_for_detection(detection) == "observed_strong") {
+    if (observation_tier_for_detection(detection) == "observed_strong") {
         return common_native::TargetAuthorityState::StrongAssist;
     }
     return common_native::TargetAuthorityState::WeakAssist;
@@ -117,27 +117,6 @@ controller_native::ControllerVisionSnapshot adapt_vision_result(
         result.captured_at_ns != 0 ? result.captured_at_ns : result.result_at_ns);
     snapshot.ready_time_seconds = ns_to_seconds(
         result.result_at_ns != 0 ? result.result_at_ns : result.captured_at_ns);
-    snapshot.actuator_effect_present_qpc = result.source_present_qpc;
-    snapshot.actuator_effect_present_qpc_frequency =
-        result.source_present_qpc_frequency;
-    snapshot.actuator_effect_present_steady_ns = result.source_present_steady_ns;
-    snapshot.actuator_effect_present_calibration_id =
-        result.source_present_calibration_id;
-    snapshot.actuator_effect_present_calibration_uncertainty_ns =
-        result.source_present_calibration_uncertainty_ns;
-    snapshot.actuator_effect_present_time_seconds = ns_to_seconds(
-        result.source_present_steady_ns);
-    snapshot.actuator_effect_present_raw_available =
-        result.source_present_available &&
-        result.source_present_qpc != 0 &&
-        result.source_present_qpc_frequency != 0;
-    snapshot.actuator_effect_present_steady_available =
-        result.source_present_steady_available &&
-        result.source_present_steady_ns != 0 &&
-        result.source_present_calibration_id != 0;
-    snapshot.actuator_effect_present_time_valid =
-        snapshot.actuator_effect_present_raw_available &&
-        snapshot.actuator_effect_present_steady_available;
     if (result.has_selected_detection &&
         result.selected_detection_index < result.detections.size()) {
         snapshot.selected_observation_id = tracker_detection_id(
@@ -146,7 +125,6 @@ controller_native::ControllerVisionSnapshot adapt_vision_result(
     }
 
     snapshot.candidates.reserve(result.detections.size());
-    snapshot.tracker_detections.reserve(result.detections.size());
     for (std::size_t index = 0; index < result.detections.size(); ++index) {
         const vision_native::Detection& detection = result.detections[index];
         const float width = std::max(0.0f, detection.x2 - detection.x1);
@@ -171,20 +149,6 @@ controller_native::ControllerVisionSnapshot adapt_vision_result(
             candidate_id,
             width,
             height));
-
-        tracking_native::TrackerDetection tracker_detection;
-        tracker_detection.id = candidate_id;
-        tracker_detection.body_box_px = {detection.x1, detection.y1, width, height};
-        tracker_detection.aim_point_px = {
-            (detection.x1 + detection.x2) * 0.5f,
-            detection.y1 + (height * 0.40f)};
-        tracker_detection.has_aim_point = true;
-        tracker_detection.confidence =
-            std::max(0.0f, std::min(1.0f, detection.conf + detection.color_bonus));
-        tracker_detection.class_id = detection.class_id;
-        tracker_detection.target_tier = tracker_tier_for_detection(detection);
-        tracker_detection.is_friendly = detection.is_friendly;
-        snapshot.tracker_detections.push_back(std::move(tracker_detection));
     }
 
     controller_native::NativeControllerVisionState state;
@@ -278,25 +242,6 @@ adapt_committed_capture_observation(
     committed.viewport_source_frame_id = result.frame_id;
     committed.captured_at_ns = result.captured_at_ns;
     committed.result_at_ns = result.result_at_ns;
-    committed.actuator_effect_present_qpc = result.source_present_qpc;
-    committed.actuator_effect_present_qpc_frequency =
-        result.source_present_qpc_frequency;
-    committed.actuator_effect_present_steady_ns = result.source_present_steady_ns;
-    committed.actuator_effect_present_calibration_id =
-        result.source_present_calibration_id;
-    committed.actuator_effect_present_calibration_uncertainty_ns =
-        result.source_present_calibration_uncertainty_ns;
-    committed.actuator_effect_present_raw_available =
-        result.source_present_available &&
-        result.source_present_qpc != 0 &&
-        result.source_present_qpc_frequency != 0;
-    committed.actuator_effect_present_steady_available =
-        result.source_present_steady_available &&
-        result.source_present_steady_ns != 0 &&
-        result.source_present_calibration_id != 0;
-    committed.actuator_effect_present_time_valid =
-        committed.actuator_effect_present_raw_available &&
-        committed.actuator_effect_present_steady_available;
     committed.controller_consume_ns = controller_consume_ns;
     committed.stable_error_px = {
         geometry.aim_px.x - center_x,
@@ -321,9 +266,8 @@ adapt_committed_capture_observation(
     committed.eligible_candidate_count = eligible_count;
     committed.fresh_observed = true;
     committed.strong_observation =
-        tracker_tier_for_detection(*selected) == "observed_strong";
+        observation_tier_for_detection(*selected) == "observed_strong";
     committed.stable_coordinates_valid = geometry.geometry_resolved;
-    committed.reused_or_projected = false;
     return committed;
 }
 

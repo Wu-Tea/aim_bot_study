@@ -23,9 +23,7 @@ struct ReplayMetricSummary {
     double target_error_p50_px = 0.0;
     double target_error_p95_px = 0.0;
     double target_error_p99_px = 0.0;
-    double projection_age_p95_ms = 0.0;
     double follow_lag_mean_px = 0.0;
-    std::uint64_t predicted_only_fire_violations = 0;
     std::uint64_t stale_fire_violations = 0;
     std::uint64_t strong_manual_axis_samples = 0;
     std::uint64_t opposing_assist_axis_samples = 0;

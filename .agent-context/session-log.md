@@ -11,6 +11,29 @@ Scope: native C++ FPS gamepad runtime, selector/tracker/controller, ADS, BodyLoc
 - Earlier history: [pre-July-20 context](archive/context-through-2026-07-20-pre-compaction.md) and `session-log-full.md`.
 - Labels: **User-confirmed** = live/explicit statement; **Repository evidence** = source/test/artifact; **Inferred/open** = explanation not isolated by controlled A/B.
 
+## 2026-08-10 - Cue Geometry, Manual Correction and Runtime Acceptance
+
+- Three incident classes were isolated: cue geometry crossing selector identity,
+  cue target-first control suppressing valid manual correction, and detailed
+  telemetry contaminating active Vision throughput measurements.
+- Cue offset state now resets at confirmed selector generation changes and is
+  refreshed only by direct person-plus-cue observations. Cue-held output cannot
+  train itself. A reconstruction moving more than 36 px from the prior
+  same-generation point is rejected before aim authority.
+- Cue continuation retains a bounded 45% physical correction only from reliable
+  single-target evidence; it works at `T=0` and against a wrong cue direction.
+  Cue remains aim-only and multi-target handover remains selector-owned.
+- Repository evidence: Release full build, focused selector/controller/Vision/
+  timing tests and 40/40 CTest pass. Installed runtime SHA-256 begins
+  `C99E237C`; a local executable/config backup is under the build runtime-backups
+  directory.
+- Runtime smoke without physical LT held controller/output near 1000 Hz and
+  result-to-ViGEm P99 at 0.875-1.125 ms with no summary writer drops. Active
+  Vision remained at its expected idle ~20 Hz, so active throughput and whole
+  source-present P99 require live ADS validation.
+- Detailed event telemetry is disabled for that validation. The low-overhead
+  five-second performance summary remains enabled with stdout disabled.
+
 ## 2026-08-03 - Five-Case Audit and Schema-13 Control-Continuity Diagnosis
 
 - Current installed diagnostic runtime SHA-256 is `25CF27F9946FF58404C4AE57795870E97512337EE1A90FC47776AB2826A10155`; capture `20260803T135819Z_61220_1` is schema 13 with ADS trace v3 and ego-motion v2.
@@ -97,3 +120,59 @@ One owner per lifecycle, mode transition, shaping state and final fusion decisio
 - **Inferred/open:** the visible pulse shape is compatible with the proven fresh/non-fresh continuity defect and absent causal work accounting; video alone cannot assign a pulse to target demand, a controller branch or the game response model.
 - **Accepted architecture clarification:** targetX/Y correctness is primary. Solve one final `T`; manual may be weakened, cancelled or ignored. `T = M + AI` is diagnostic accounting, not additive implementation or a promise to preserve `M`; W5 tracks delivered final `T` through `scheduled -> in-flight -> realized`. Decision: [target-first final output](decisions/DEC-2026-08-07-001-target-first-final-output.md).
 - Post-W6 direction: survey maintained open-source mouse-to-gamepad projects. The old Python path sampled absolute cursor deltas into 5 ms windows, used a non-time-normalized curve plus EMA and additive AI, so empty/batched events could produce center/reverse chatter; reuse mature input/output plumbing, not that open-loop solver. Performance addendum: in user-split session `20260805T194515Z_35884_1`, ADS Vision measured about `135.5 Hz` while the game was 240 Hz and `160.5 Hz` after switching the game to 180 Hz; W3 CPU matching stayed latest-only at `1.98/2.21 ms` P50/P95 with no pending replacement, but the preceding grayscale CUDA/D2H stream synchronization remains serial and uninstrumented. Follow-up: repair continuity, add an event-triggered `D/P/R/M/T` trace, rerun the pure-AI regression, then instrument/remove the W3 staging wait before W3/W4/W5 promotion and later marker/M2G work.
+
+## 2026-08-10 - Low-Rate Legacy Control Stack Retired
+
+- **User-confirmed scope:** audit the current native Vision-to-controller chain,
+  record how the old approximately 80 Hz compensation path accumulated, delete
+  unused or harmful layers, synchronize project context and commit.
+- **Current chain:** fresh unique native Vision -> selector ->
+  `VisionDeliveryGate` -> `TargetCoordinator`/one `TargetPlan` -> ADS or
+  BodyLock -> `AimDynamicsShaper` -> `AssistControlStateMachine` -> AutoFire ->
+  recoil feed-forward -> ViGEm. A no-new-source controller tick retains only
+  the immutable plan; a fresh no-target result releases generic authority.
+- Removed generic projection/coast/hold and player-motion bridges; legacy AI,
+  ADS carry/brake and BodyLock short-plan/lifecycle code; axis/vector/causal
+  mix and pending-output layers; old trackers/FPS tracker package; W3/W5
+  observer/pending/rollout/online-learning surfaces; duplicate replay cadence,
+  AimPerf/config/telemetry contracts and tests/benchmarks that only kept those
+  branches alive.
+- A late source audit found and removed native `AimEnhancementPipeline`: it ran
+  after selection with its own prior-target/velocity state, applied
+  lead/catch-up/near-target damping, then fed controller layers that modeled
+  motion again. Its pybind API, `enhance_ms` contract and native parity tests
+  were retired.
+- The same audit removed `ControlResponseEstimator` and its response-hint
+  fields after proving that no production adapter or runtime caller supplied
+  observations, so the compiled estimator stayed zero-valued. It also removed
+  coordinator fallback election for frames without selector identity; those
+  frames now fail closed.
+- Root cause: local gap compensators were added without removing the prior
+  owner. Selector, tracker, AI, fusers, lifecycle, carry/brake and research code
+  used different identities, freshness clocks, previous outputs and reset
+  boundaries while modifying the same stick. This explains sticky handover,
+  elastic same-direction stacking, delayed release, fresh/non-fresh rebound and
+  manual suppression better than any single timeout.
+- Repository verification: clean CMake + full Release build PASS; `43/43`
+  CTest PASS; focused Python native-boundary/performance tests `32/32` PASS;
+  retired config keys are unknown/inert; flick-handover integration remains
+  green.
+- Sustained smoke: 12/12 production-only combinations PASS (three seeds,
+  ADS/BodyLock, strafe off/full reversal, requested Vision 180 Hz, 36 ms short
+  occlusion). Pre/post reports are not matched because the pre report used the
+  legacy harness/schema. Shared evidence is mixed: output delta/jerk and stale
+  stop carry improved, while synthetic error and oscillation counters worsened.
+  Matched live validation remains open.
+- Final provenance audit replayed the flick-handover fixture on the completed
+  C++ build, refreshed candidate runtime/executable/source hashes and passed
+  the complete regression contract with zero issues. The release contract
+  script was also moved from the deleted gamepad benchmark/runtime label to the
+  production-only sustained smoke and current source-age gate.
+- **Inferred/open:** no exact percentage is assigned to an individual retired
+  layer; source ownership conflicts are verified, but per-layer live causal
+  contribution was not isolated.
+- SyncSet: `sync-20260810-001`; sensitive raw telemetry, binaries, personal
+  paths and unrelated untracked artifacts excluded. Reviewer disposition:
+  `accept_draft`.
+- Accepted decision:
+  [retire the low-rate legacy control stack](decisions/DEC-2026-08-10-001-retire-low-rate-control-stack.md).

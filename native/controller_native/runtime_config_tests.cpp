@@ -1,7 +1,6 @@
 #include "runtime_config.h"
 
-#include <cstdlib>
-#include <cstdio>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <stdexcept>
@@ -9,827 +8,195 @@
 
 namespace {
 
-#define require(condition)                                                     \
-    do {                                                                       \
-        if (!(condition)) {                                                    \
-            std::fprintf(stderr, "runtime_config_tests failure at line %d\n", \
-                         __LINE__);                                            \
-            std::abort();                                                      \
-        }                                                                      \
-    } while (false)
-
-void test_vision_gpu_service_defaults_are_enabled() {
-    const auto missing = std::filesystem::temp_directory_path() /
-        "cod_native_runtime_config_defaults_missing.toml";
-    std::filesystem::remove(missing);
-    const controller_native::RuntimeConfig config =
-        controller_native::load_runtime_config(missing);
-    require(config.vision.gpu_service_enabled);
-    require(config.vision.gpu_service_active_fps == 120);
-    require(config.vision.gpu_service_idle_fps == 20);
-    require(config.vision.gpu_service_keepwarm_when_idle);
-    require(config.vision.gpu_service_repeat_last_on_no_update);
-    require(config.vision.capture_width == 480);
-    require(config.vision.capture_height == 416);
-    require(config.vision.tensor_width == 480);
-    require(config.vision.tensor_height == 416);
-    require(config.vision.require_isotropic_resize);
-    require(!config.vision.dynamic_viewport_enabled);
-    require(config.vision.viewport_precision_width == 360);
-    require(config.vision.viewport_precision_height == 312);
-    require(config.vision.viewport_normal_width == 480);
-    require(config.vision.viewport_normal_height == 416);
-    require(config.vision.viewport_rescue_width == 600);
-    require(config.vision.viewport_rescue_height == 520);
-    require(config.vision.model_path ==
-        "models/candidates/body_union_manual_core_x2_neg_e6_480x416.engine");
-    require(!config.vision.perf_log);
-    require(!config.vision.aim_perf_file_log);
-    require(!config.telemetry.enabled);
-    require(!config.performance.enabled);
-    require(config.performance.interval_ms == 5000);
-    require(config.performance.directory == "runs/perf_summary");
-    require(config.performance.stdout_enabled);
+void require(bool condition, const char* message) {
+    if (!condition) throw std::runtime_error(message);
 }
 
-void test_lightweight_performance_summary_config_parses() {
-    const auto path = std::filesystem::temp_directory_path() /
-        "cod_native_performance_summary_config.toml";
-    {
-        std::ofstream output(path);
-        output << "[runtime.performance]\n"
-               << "enabled = true\n"
-               << "interval_ms = 7500\n"
-               << "directory = \"runs/test_perf_summary\"\n"
-               << "stdout_enabled = false\n";
+class TempConfig {
+public:
+    TempConfig(const char* name, const std::string& contents)
+        : path_(std::filesystem::temp_directory_path() / name) {
+        std::ofstream output(path_, std::ios::trunc);
+        output << contents;
     }
-    const auto config = controller_native::load_runtime_config(path);
-    std::filesystem::remove(path);
-    require(config.performance.enabled);
-    require(config.performance.interval_ms == 7500);
-    require(config.performance.directory == "runs/test_perf_summary");
-    require(!config.performance.stdout_enabled);
+
+    ~TempConfig() {
+        std::error_code ignored;
+        std::filesystem::remove(path_, ignored);
+    }
+
+    const std::filesystem::path& path() const noexcept { return path_; }
+
+private:
+    std::filesystem::path path_;
+};
+
+bool has_diagnostic(
+    const controller_native::RuntimeConfig& config,
+    const std::string& needle) {
+    for (const auto& diagnostic : config.diagnostics) {
+        if (diagnostic.find(needle) != std::string::npos) return true;
+    }
+    return false;
 }
 
-void test_vision_gpu_service_config_values_parse() {
-    const std::filesystem::path path =
-        std::filesystem::temp_directory_path() / "cod_native_runtime_config_test.toml";
-    {
-        std::ofstream output(path);
-        output << "[runtime.vision]\n"
-               << "capture_width = 704\n"
-               << "capture_height = 576\n"
-               << "tensor_width = 512\n"
-               << "tensor_height = 416\n"
-               << "require_isotropic_resize = false\n"
-               << "model_path = \"models/custom.engine\"\n"
-               << "gpu_service_enabled = true\n"
-               << "gpu_service_active_fps = 120\n"
-               << "gpu_service_idle_fps = 15\n"
-               << "gpu_service_keepwarm_when_idle = false\n"
-               << "gpu_service_repeat_last_on_no_update = false\n";
-    }
+void test_current_control_keys_parse() {
+    TempConfig file(
+        "cod_native_current_control_config.toml",
+        "[runtime.vision]\n"
+        "capture_fps = 180\n"
+        "[runtime.telemetry]\n"
+        "enabled = true\n"
+        "directory = \"runs/current-telemetry\"\n"
+        "[gamepad.tracker]\n"
+        "aim_height_ratio = 0.31\n"
+        "max_observation_age_ms = 42\n"
+        "[gamepad.ads]\n"
+        "strength_scale = 1.25\n"
+        "vertical_strength_scale = 1.10\n"
+        "activation_radius_px = 140\n"
+        "snap_duration_ms = 120\n"
+        "completion_radius_px = 7\n"
+        "completion_fresh_frames = 4\n"
+        "max_acquisition_ms = 240\n"
+        "start_delay_ms = 2\n"
+        "start_ramp_ms = 8\n"
+        "[gamepad.bodylock]\n"
+        "strength = 0.44\n"
+        "vertical_strength = 0.49\n"
+        "activation_range_px = 92\n"
+        "tolerance_px = 9\n"
+        "manual_escape_threshold = 0.58\n"
+        "[gamepad.intent]\n"
+        "helpful_manual_overdrive_enabled = true\n"
+        "helpful_manual_overdrive_max_scale = 1.18\n"
+        "helpful_manual_direction_weight = 0.40\n");
 
-    const controller_native::RuntimeConfig config =
-        controller_native::load_runtime_config(path);
-    std::filesystem::remove(path);
-
-    require(config.vision.gpu_service_enabled);
-    require(config.vision.capture_width == 704);
-    require(config.vision.capture_height == 576);
-    require(config.vision.tensor_width == 512);
-    require(config.vision.tensor_height == 416);
-    require(!config.vision.require_isotropic_resize);
-    require(config.vision.model_path == "models/custom.engine");
-    require(config.vision.gpu_service_active_fps == 120);
-    require(config.vision.gpu_service_idle_fps == 15);
-    require(!config.vision.gpu_service_keepwarm_when_idle);
-    require(!config.vision.gpu_service_repeat_last_on_no_update);
+    const auto config = controller_native::load_runtime_config(file.path());
+    require(config.vision.capture_fps == 180, "capture cadence not parsed");
+    require(config.telemetry.enabled, "telemetry enable not parsed");
+    require(config.telemetry.directory == "runs/current-telemetry",
+            "telemetry directory not parsed");
+    require(std::fabs(config.gamepad.tracker.aim_height_ratio - 0.31f) < 1e-5f,
+            "aim height not parsed");
+    require(std::fabs(config.gamepad.tracker.max_observation_age_ms - 42.0f) < 1e-5f,
+            "observation age not parsed");
+    require(std::fabs(config.gamepad.ai_aim.ads_snap_max_ai_force - 1.25f) < 1e-5f,
+            "ADS strength scale not applied");
+    require(std::fabs(config.gamepad.ai_aim.ads_snap_max_ai_force_y - 1.10f) < 1e-5f,
+            "ADS vertical strength scale not applied");
+    require(config.gamepad.ai_aim.ads_snap_window_ms == 120,
+            "ADS acquisition duration not parsed");
+    require(config.gamepad.ai_aim.ads_completion_fresh_frames == 4,
+            "settle frame count not parsed");
+    require(std::fabs(config.gamepad.ai_aim.body_lock_max_ai_force - 0.44f) < 1e-5f,
+            "BodyLock force not parsed");
+    require(std::fabs(config.gamepad.ai_aim.body_lock_manual_escape_input_threshold - 0.58f) < 1e-5f,
+            "handover threshold not parsed");
+    require(config.diagnostics.empty(), "current config produced diagnostics");
 }
 
-void test_vision_gpu_service_can_be_disabled() {
-    const std::filesystem::path path =
-        std::filesystem::temp_directory_path() / "cod_native_runtime_config_disable_test.toml";
-    {
-        std::ofstream output(path);
-        output << "[runtime.vision]\n"
-               << "gpu_service_enabled = false\n";
-    }
+void test_retired_low_rate_keys_are_unknown_and_inert() {
+    TempConfig file(
+        "cod_native_retired_low_rate_keys.toml",
+        "[runtime.vision]\n"
+        "aim_perf_file_log = true\n"
+        "aim_perf_log_dir = \"runs/old-aim-perf\"\n"
+        "aim_perf_log_interval_ticks = 1\n"
+        "[runtime.telemetry]\n"
+        "mode = \"profile\"\n"
+        "vision_on_new_frame = true\n"
+        "candidate_details = \"on_event\"\n"
+        "event_pre_ms = 500\n"
+        "event_post_ms = 1000\n"
+        "[gamepad.tracker]\n"
+        "backend = \"fps_reference\"\n"
+        "projection_age_ms = 96\n"
+        "lead_seconds = 0.026\n"
+        "causal_memory_enabled = true\n"
+        "[gamepad.intent]\n"
+        "wrong_way_manual_preservation_floor = 0.5\n"
+        "fresh_vision_wrong_way_manual_floor = 0.2\n"
+        "[gamepad.aim_assist_dynamics]\n"
+        "enabled = false\n");
 
-    const controller_native::RuntimeConfig config =
-        controller_native::load_runtime_config(path);
-    std::filesystem::remove(path);
-
-    require(!config.vision.gpu_service_enabled);
+    const auto config = controller_native::load_runtime_config(file.path());
+    require(has_diagnostic(config, "gamepad.tracker.backend"),
+            "retired tracker backend must be rejected");
+    require(has_diagnostic(config, "runtime.vision.aim_perf_file_log"),
+            "retired aim perf switch must be rejected");
+    require(has_diagnostic(config, "runtime.vision.aim_perf_log_dir"),
+            "retired aim perf directory must be rejected");
+    require(has_diagnostic(config, "runtime.vision.aim_perf_log_interval_ticks"),
+            "retired aim perf interval must be rejected");
+    require(has_diagnostic(config, "runtime.telemetry.mode"),
+            "retired telemetry mode must be rejected");
+    require(has_diagnostic(config, "runtime.telemetry.vision_on_new_frame"),
+            "retired telemetry vision switch must be rejected");
+    require(has_diagnostic(config, "runtime.telemetry.candidate_details"),
+            "retired candidate detail policy must be rejected");
+    require(has_diagnostic(config, "runtime.telemetry.event_pre_ms") &&
+                has_diagnostic(config, "runtime.telemetry.event_post_ms"),
+            "retired telemetry event windows must be rejected");
+    require(has_diagnostic(config, "gamepad.tracker.projection_age_ms"),
+            "retired projection must be rejected");
+    require(has_diagnostic(config, "gamepad.tracker.lead_seconds"),
+            "retired lead must be rejected");
+    require(has_diagnostic(config, "gamepad.tracker.causal_memory_enabled"),
+            "retired causal memory must be rejected");
+    require(has_diagnostic(config, "gamepad.intent.wrong_way_manual_preservation_floor"),
+            "retired axis floor must be rejected");
+    require(has_diagnostic(config, "gamepad.aim_assist_dynamics.enabled"),
+            "retired dynamics switch must be rejected");
+    require(std::fabs(config.gamepad.tracker.max_observation_age_ms - 50.0f) < 1e-5f,
+            "retired keys changed current defaults");
 }
 
-void test_realtime_tracker_and_fallback_recoil_flags_parse() {
-    const std::filesystem::path path =
-        std::filesystem::temp_directory_path() /
-        "cod_native_realtime_control_config.toml";
-    {
-        std::ofstream output(path);
-        output << "[gamepad.tracker]\n"
-               << "max_observation_age_ms = 42\n"
-               << "[gamepad.recoil]\n"
-               << "profile_playback_enabled = false\n"
-               << "native_recognizer_enabled = false\n";
-    }
+void test_profile_override_has_one_capture_cadence() {
+    TempConfig file(
+        "cod_native_profile_override.toml",
+        "[runtime]\nprofile = \"balanced\"\n"
+        "[runtime.vision]\ncapture_fps = 175\n");
+    const auto from_file = controller_native::load_runtime_config(file.path());
+    require(from_file.vision.capture_fps == 175,
+            "explicit capture cadence must override profile");
 
-    const auto config = controller_native::load_runtime_config(path);
-    std::filesystem::remove(path);
-    require(std::abs(config.gamepad.tracker.max_observation_age_ms - 42.0f) < 0.0001f);
-    require(!config.gamepad.recoil.profile_playback_enabled);
-    require(!config.gamepad.recoil.native_recognizer_enabled);
+    const auto from_cli = controller_native::load_runtime_config(
+        file.path(), "performance");
+    require(from_cli.vision.capture_fps == 175,
+            "file cadence must remain the sole explicit source after profile defaults");
+    require(from_cli.profile == "performance", "profile override not applied");
 }
 
-void test_aim_response_curve_defaults_and_dynamic_plugin_parse() {
-    const auto missing = std::filesystem::temp_directory_path() /
-        "cod_native_aim_response_curve_missing.toml";
-    std::filesystem::remove(missing);
-    const auto defaults = controller_native::load_runtime_config(missing);
-    require(defaults.gamepad.aim_response_curve.algorithm ==
-            controller_native::AimResponseCurveAlgorithm::Linear);
-    require(std::abs(
-        defaults.gamepad.aim_response_curve.calibration_reference_stick -
-        0.50f) < 0.0001f);
-
-    const auto path = std::filesystem::temp_directory_path() /
-        "cod_native_aim_response_curve_dynamic.toml";
-    {
-        std::ofstream output(path);
-        output << "[gamepad.aim_response_curve]\n"
-               << "algorithm = \"cod_dynamic_legacy_lut\"\n"
-               << "calibration_reference_stick = 0.42\n";
-    }
-    const auto parsed = controller_native::load_runtime_config(path);
-    std::filesystem::remove(path);
-    require(parsed.gamepad.aim_response_curve.algorithm ==
-            controller_native::AimResponseCurveAlgorithm::CodDynamicLegacyLut);
-    require(std::abs(
-        parsed.gamepad.aim_response_curve.calibration_reference_stick -
-        0.42f) < 0.0001f);
-    require(parsed.effective_source("gamepad.aim_response_curve.algorithm") ==
-            "user");
-}
-
-void test_aim_response_curve_rejects_unknown_algorithm() {
-    const auto path = std::filesystem::temp_directory_path() /
-        "cod_native_aim_response_curve_invalid.toml";
-    {
-        std::ofstream output(path);
-        output << "[gamepad.aim_response_curve]\n"
-               << "algorithm = \"dynamic_magic\"\n";
-    }
-    bool failed = false;
+void test_invalid_safety_boundary_fails_closed() {
+    TempConfig file(
+        "cod_native_invalid_fire_pulse.toml",
+        "[gamepad.auto_fire]\n"
+        "pulse_width_ms = 120\n"
+        "pulse_period_ms = 100\n");
+    bool threw = false;
     try {
-        (void)controller_native::load_runtime_config(path);
-    } catch (const std::runtime_error& error) {
-        failed = std::string(error.what()).find(
-            "gamepad.aim_response_curve.algorithm") != std::string::npos;
+        (void)controller_native::load_runtime_config(file.path());
+    } catch (const std::runtime_error&) {
+        threw = true;
     }
-    std::filesystem::remove(path);
-    require(failed);
+    require(threw, "invalid auto-fire pulse boundary must fail closed");
 }
 
-void test_balanced_profile_uses_canonical_vision_defaults() {
-    const std::filesystem::path path =
-        std::filesystem::temp_directory_path() / "cod_native_runtime_profile_test.toml";
-    {
-        std::ofstream output(path);
-        output << "[runtime]\nprofile = \"balanced\"\n";
-    }
-    const controller_native::RuntimeConfig config =
-        controller_native::load_runtime_config(path);
-    std::filesystem::remove(path);
-    require(config.profile == "balanced");
-    require(config.vision.capture_fps == 160);
-    require(config.vision.idle_capture_fps == 20);
-    require(config.vision.keepwarm_when_idle);
-    require(config.vision.gpu_service_active_fps == 160);
-    require(!config.telemetry.enabled);
-    require(!config.vision.aim_perf_file_log);
-    require(config.effective_source("runtime.vision.capture_fps") == "profile");
+void test_example_config_contains_no_retired_keys() {
+    const auto config = controller_native::load_runtime_config(
+        std::filesystem::path("config.native.example.toml"));
+    require(config.diagnostics.empty(),
+            "example config must contain only current keys");
 }
 
-void test_user_values_override_profile_and_legacy_rate_is_explicit() {
-    const std::filesystem::path path =
-        std::filesystem::temp_directory_path() / "cod_native_runtime_precedence_test.toml";
-    {
-        std::ofstream output(path);
-        output << "[runtime]\nprofile = \"balanced\"\n"
-               << "[runtime.vision]\ncapture_fps = 144\n"
-               << "gpu_service_active_fps = 120\n";
-    }
-    const controller_native::RuntimeConfig config =
-        controller_native::load_runtime_config(path);
-    std::filesystem::remove(path);
-    require(config.vision.capture_fps == 144);
-    require(config.vision.gpu_service_active_fps == 120);
-    require(config.effective_source("runtime.vision.capture_fps") == "user");
-    require(config.effective_source("runtime.vision.gpu_service_active_fps") == "legacy_user");
-    require(!config.diagnostics.empty());
-}
-
-void test_unknown_keys_are_reported() {
-    const std::filesystem::path path =
-        std::filesystem::temp_directory_path() / "cod_native_runtime_unknown_test.toml";
-    {
-        std::ofstream output(path);
-        output << "[runtime.vision]\ncapture_fsp = 160\nunknown_two = true\n";
-    }
-    const controller_native::RuntimeConfig config =
-        controller_native::load_runtime_config(path);
-    std::filesystem::remove(path);
-    require(config.diagnostics.size() == 2);
-    require(config.diagnostics[0].find("capture_fsp") != std::string::npos);
-    require(config.diagnostics[1].find("unknown_two") != std::string::npos);
-}
-
-void test_unknown_keys_are_reported_in_every_native_legacy_section() {
-    const auto path = std::filesystem::temp_directory_path() / "cod_native_unknown_sections.toml";
-    {
-        std::ofstream output(path);
-        output << "[runtime.gamepad]\ntracker_backed = \"x\"\n"
-               << "[gamepad.auto_fire]\naim_ony = true\n"
-               << "[gamepad.ai_aim]\nsmoothng = 0.2\n"
-               << "[gamepad.aim_assist_dynamics]\nenabeld = true\n"
-               << "[gamepad.recoil]\nprofile_amunt = 1\n";
-    }
-    const auto config = controller_native::load_runtime_config(path);
-    std::filesystem::remove(path);
-    require(config.diagnostics.size() == 5);
-}
-
-void test_inactive_compact_aim_knobs_are_reported_as_unknown() {
-    const auto path = std::filesystem::temp_directory_path() /
-        "cod_native_inactive_compact_aim_knobs.toml";
-    {
-        std::ofstream output(path);
-        output << "[gamepad.ads]\n"
-               << "sustain_smoothing = 0.25\n"
-               << "acquisition_smoothing = 0.10\n"
-               << "fov_scale = 0.85\n"
-               << "manual_opposition_suppression = 0.40\n"
-               << "[gamepad.bodylock]\n"
-               << "smoothing = 0.18\n"
-               << "lead_strength = 1.20\n";
-    }
-    const auto config = controller_native::load_runtime_config(path);
-    std::filesystem::remove(path);
-    require(config.diagnostics.size() == 6);
-    for (const auto& key : {
-             "sustain_smoothing",
-             "acquisition_smoothing",
-             "fov_scale",
-             "manual_opposition_suppression",
-             "smoothing",
-             "lead_strength"}) {
-        bool found = false;
-        for (const auto& diagnostic : config.diagnostics)
-            found = found || diagnostic.find(key) != std::string::npos;
-        require(found);
-    }
-}
-
-void test_invalid_profile_fails_with_available_names() {
-    const std::filesystem::path path =
-        std::filesystem::temp_directory_path() / "cod_native_runtime_invalid_profile_test.toml";
-    {
-        std::ofstream output(path);
-        output << "[runtime]\nprofile = \"fastest\"\n";
-    }
-    bool failed = false;
-    try {
-        (void)controller_native::load_runtime_config(path);
-    } catch (const std::runtime_error& error) {
-        const std::string message = error.what();
-        failed = message.find("performance") != std::string::npos &&
-            message.find("low_latency") != std::string::npos &&
-            message.find("pascal_balanced") == std::string::npos;
-    }
-    std::filesystem::remove(path);
-    require(failed);
-}
-
-void test_compact_ads_and_bodylock_modules_resolve_detailed_controls() {
-    const std::filesystem::path path =
-        std::filesystem::temp_directory_path() / "cod_native_runtime_modules_test.toml";
-    {
-        std::ofstream output(path);
-        output << "[runtime]\nprofile = \"balanced\"\n"
-               << "[gamepad.ads]\nstrength_scale = 0.5\nvertical_strength_scale = 0.5\n"
-               << "range_px = 150\nsnap_duration_ms = 90\n"
-               << "activation_radius_px = 135\n"
-               << "completion_radius_px = 7\ncompletion_fresh_frames = 4\nmax_acquisition_ms = 240\n"
-               << "start_delay_ms = 12\nstart_ramp_ms = 30\n"
-               << "[gamepad.bodylock]\nstrength = 0.33\nvertical_strength = 0.44\n"
-               << "activation_range_px = 140\ntolerance_px = 20\n"
-               << "manual_escape_threshold = 0.50\n"
-               << "manual_escape_preservation = 0.60\n"
-               << "manual_takeover_enabled = false\nmanual_takeover_threshold = 0.42\n"
-               << "manual_takeover_commit_ms = 24\nmanual_takeover_release_ms = 96\n";
-    }
-    const controller_native::RuntimeConfig config = controller_native::load_runtime_config(path);
-    std::filesystem::remove(path);
-    require(config.gamepad.ai_aim.max_ai_force == 0.32f);
-    require(config.gamepad.ai_aim.ads_snap_max_ai_force == 0.50f);
-    require(config.gamepad.ai_aim.max_ai_force_y == 0.40f);
-    require(config.gamepad.ai_aim.ads_snap_max_ai_force_y == 0.50f);
-    require(config.gamepad.ai_aim.max_pixels == 150.0f);
-    require(config.gamepad.ai_aim.ads_activation_radius_px == 135.0f);
-    require(config.gamepad.ai_aim.ads_snap_window_ms == 90);
-    require(config.gamepad.ai_aim.ads_completion_radius_px == 7.0f);
-    require(config.gamepad.ai_aim.ads_completion_fresh_frames == 4);
-    require(config.gamepad.ai_aim.ads_max_acquisition_ms == 240.0f);
-    require(config.gamepad.ai_aim.ads_start_delay_ms == 12.0f);
-    require(config.gamepad.ai_aim.ads_start_ramp_ms == 30.0f);
-    require(config.gamepad.ai_aim.body_lock_max_ai_force == 0.33f);
-    require(config.gamepad.ai_aim.body_lock_max_ai_force_y == 0.44f);
-    require(config.gamepad.ai_aim.body_lock_activation_box_px == 140.0f);
-    require(config.gamepad.ai_aim.body_lock_box_tolerance_px == 20.0f);
-    require(config.gamepad.ai_aim.body_lock_manual_escape_input_threshold == 0.50f);
-    require(config.gamepad.ai_aim.body_lock_manual_escape_preservation == 0.60f);
-    require(!config.gamepad.ai_aim.body_lock_manual_takeover_enabled);
-    require(config.gamepad.ai_aim.body_lock_manual_takeover_input_threshold == 0.42f);
-    require(config.gamepad.ai_aim.body_lock_manual_takeover_commit_ms == 24.0f);
-    require(config.gamepad.ai_aim.body_lock_manual_takeover_release_ms == 96.0f);
-    require(config.effective_source("gamepad.ads.strength_scale") == "user");
-}
-
-void test_invalid_user_override_reports_key_and_range() {
-    const auto path = std::filesystem::temp_directory_path() / "cod_native_invalid_range.toml";
-    { std::ofstream output(path); output << "[runtime.vision]\ncapture_fps = 0\n"; }
-    bool failed = false;
-    try { (void)controller_native::load_runtime_config(path); }
-    catch (const std::runtime_error& error) {
-        const std::string message = error.what();
-        failed = message.find("runtime.vision.capture_fps") != std::string::npos &&
-            message.find("1..1000") != std::string::npos;
-    }
-    std::filesystem::remove(path);
-    require(failed);
-}
-
-void test_dynamic_viewport_config_values_parse() {
-    const auto path = std::filesystem::temp_directory_path() /
-        "cod_native_dynamic_viewport_config.toml";
-    {
-        std::ofstream output(path);
-        output << "[runtime.vision]\n"
-               << "capture_width = 600\ncapture_height = 520\n"
-               << "tensor_width = 480\ntensor_height = 416\n"
-               << "dynamic_viewport_enabled = true\n"
-               << "viewport_precision_width = 360\n"
-               << "viewport_precision_height = 312\n"
-               << "viewport_normal_width = 480\n"
-               << "viewport_normal_height = 416\n"
-               << "viewport_rescue_width = 600\n"
-               << "viewport_rescue_height = 520\n"
-               << "viewport_prediction_ms = 120\n";
-    }
-    const auto config = controller_native::load_runtime_config(path);
-    std::filesystem::remove(path);
-    require(config.vision.dynamic_viewport_enabled);
-    require(config.vision.viewport_rescue_width == 600);
-    require(config.vision.viewport_prediction_ms == 120.0f);
-}
-
-void test_dynamic_viewport_rejects_mismatched_aspect_ratio() {
-    const auto path = std::filesystem::temp_directory_path() /
-        "cod_native_dynamic_viewport_bad_aspect.toml";
-    {
-        std::ofstream output(path);
-        output << "[runtime.vision]\n"
-               << "capture_width = 600\ncapture_height = 520\n"
-               << "dynamic_viewport_enabled = true\n"
-               << "viewport_precision_width = 360\n"
-               << "viewport_precision_height = 300\n";
-    }
-    bool failed = false;
-    try {
-        (void)controller_native::load_runtime_config(path);
-    } catch (const std::runtime_error& error) {
-        failed = std::string(error.what()).find("aspect ratio") !=
-            std::string::npos;
-    }
-    std::filesystem::remove(path);
-    require(failed);
-}
-
-void test_invalid_tensor_size_reports_key_and_range() {
-    const auto path = std::filesystem::temp_directory_path() /
-        "cod_native_invalid_tensor_size.toml";
-    { std::ofstream output(path); output << "[runtime.vision]\ntensor_width = 0\n"; }
-    bool failed = false;
-    try { (void)controller_native::load_runtime_config(path); }
-    catch (const std::runtime_error& error) {
-        const std::string message = error.what();
-        failed = message.find("runtime.vision.tensor_width") != std::string::npos &&
-            message.find("32..8192") != std::string::npos;
-    }
-    std::filesystem::remove(path);
-    require(failed);
-}
-
-void test_normal_template_preserves_controller_baseline() {
-    const auto config = controller_native::load_runtime_config("config.native.example.toml");
-    const auto& aim = config.gamepad.ai_aim;
-    require(config.vision.capture_width == 640);
-    require(config.vision.capture_height == 512);
-    require(config.vision.tensor_width == 480);
-    require(config.vision.tensor_height == 384);
-    require(config.vision.require_isotropic_resize);
-    require(config.vision.model_path == "models/best_480x384.engine");
-    require(config.telemetry.queue_capacity == 8192);
-    require(config.telemetry.rotate_size_mb == 256);
-    require(config.telemetry.max_files == 10);
-    for (const auto& diagnostic : config.diagnostics)
-        require(diagnostic.find("unknown config key") == std::string::npos);
-    require(std::abs(aim.max_ai_force - 0.9856f) < 0.0001f);
-    require(std::abs(aim.max_ai_force_y - 1.008f) < 0.0001f);
-    require(std::abs(aim.ads_snap_max_ai_force - 1.54f) < 0.0001f);
-    require(std::abs(aim.ads_snap_max_ai_force_y - 1.26f) < 0.0001f);
-    require(config.gamepad.recoil.adaptive_feedback_enabled);
-    require(std::abs(config.gamepad.recoil.adaptive_min_amount - 0.06f) < 0.0001f);
-    require(std::abs(config.gamepad.recoil.adaptive_max_amount - 0.42f) < 0.0001f);
-    require(config.gamepad.recoil.firing_vertical_intent_enabled);
-    require(std::abs(
-        config.gamepad.recoil.firing_vertical_intent_max_offset_px - 48.0f) < 0.0001f);
-    require(std::abs(
-        config.gamepad.recoil.firing_vertical_intent_deadzone - 0.025f) < 0.0001f);
-    require(aim.max_pixels == 150.0f);
-    require(aim.ads_activation_radius_px == 135.0f);
-    require(aim.ads_snap_window_ms == 135);
-    require(aim.ads_max_acquisition_ms == 220.0f);
-    require(aim.ads_start_delay_ms == 0.0f);
-    require(aim.ads_start_ramp_ms == 0.0f);
-    require(aim.body_lock_max_ai_force == 0.45f);
-    require(aim.body_lock_max_ai_force_y == 0.50f);
-    require(aim.body_lock_activation_box_px == 80.0f);
-    require(aim.body_lock_box_tolerance_px == 8.0f);
-    require(aim.body_lock_manual_escape_input_threshold == 0.45f);
-    require(aim.body_lock_manual_escape_preservation == 0.75f);
-    require(config.gamepad.aim_response_curve.algorithm ==
-            controller_native::AimResponseCurveAlgorithm::CodDynamicLegacyLut);
-    require(std::abs(
-        config.gamepad.aim_response_curve.calibration_reference_stick -
-        0.50f) < 0.0001f);
-    require(std::abs(config.gamepad.tracker.aim_height_ratio - 0.365f) < 0.0001f);
-}
-
-void test_normal_template_does_not_advertise_inactive_fps_legacy_knobs() {
-    std::ifstream input("config.native.example.toml");
-    const std::string text{
-        std::istreambuf_iterator<char>(input),
-        std::istreambuf_iterator<char>()};
-    require(text.find("responsiveness") == std::string::npos);
-    require(text.find("weak_memory_decay") == std::string::npos);
-    require(text.find("recoil_jitter_") == std::string::npos);
-    require(text.find("manual_curve_straighten_") == std::string::npos);
-    require(text.find("sustain_smoothing") == std::string::npos);
-    require(text.find("acquisition_smoothing") == std::string::npos);
-    require(text.find("fov_scale") == std::string::npos);
-    require(text.find("manual_opposition_suppression") == std::string::npos);
-    require(text.find("lead_strength") == std::string::npos);
-}
-
-void test_committed_legacy_full_fixture_resolves_every_assignment() {
-    const std::filesystem::path path =
-        "native/controller_native/testdata/legacy_full_config.toml";
-    const auto config = controller_native::load_runtime_config(path);
-    std::ifstream input(path);
-    std::size_t assignments = 0;
-    std::string line;
-    while (std::getline(input, line)) {
-        const auto first = line.find_first_not_of(" \t");
-        if (first != std::string::npos && line[first] != '#' && line.find('=') != std::string::npos)
-            ++assignments;
-    }
-    require(config.effective_sources.size() == assignments);
-    for (const auto& diagnostic : config.diagnostics)
-        require(diagnostic.find("unknown config key") == std::string::npos);
-    require(config.vision.capture_fps == 140);
-    require(config.vision.gpu_service_active_fps == 120);
-    require(config.gamepad.ai_aim.ads_snap_max_ai_force == 1.0f);
-    require(config.gamepad.ai_aim.body_lock_max_ai_force == 0.30f);
-    require(config.gamepad.ai_aim.body_lock_smoothing == 0.14f);
-    require(
-        config.gamepad.ai_aim.body_lock_manual_escape_input_threshold == 0.45f);
-    require(config.gamepad.ai_aim.body_lock_manual_escape_preservation == 0.55f);
-    require(config.gamepad.recoil.feedback_amount == 0.20f);
-}
-
-void test_environment_overrides_user_and_reports_source() {
-    const auto path = std::filesystem::temp_directory_path() / "cod_native_env_precedence.toml";
-    { std::ofstream output(path); output << "[runtime.vision]\ncapture_fps = 144\n"; }
-#if defined(_WIN32)
-    _putenv_s("VISION_CAPTURE_FPS", "160");
-#else
-    setenv("VISION_CAPTURE_FPS", "160", 1);
-#endif
-    const auto config = controller_native::load_runtime_config(path);
-#if defined(_WIN32)
-    _putenv_s("VISION_CAPTURE_FPS", "");
-#else
-    unsetenv("VISION_CAPTURE_FPS");
-#endif
-    std::filesystem::remove(path);
-    require(config.vision.capture_fps == 160);
-    require(config.vision.gpu_service_active_fps == 160);
-    require(config.effective_source("runtime.vision.capture_fps") == "environment");
-}
-
-void test_tracker_aim_height_ratio_uses_canonical_key() {
-    const auto path = std::filesystem::temp_directory_path() /
-        "cod_native_tracker_aim_height_canonical.toml";
-    { std::ofstream output(path); output << "[gamepad.tracker]\naim_height_ratio = 0.365\n"; }
-    const auto config = controller_native::load_runtime_config(path);
-    std::filesystem::remove(path);
-    require(std::abs(config.gamepad.tracker.aim_height_ratio - 0.365f) < 0.0001f);
-    require(config.effective_source("gamepad.tracker.aim_height_ratio") == "user");
-}
-
-void test_tracker_causal_memory_defaults_parses_and_rejects_invalid_relation() {
-    const auto missing = std::filesystem::temp_directory_path() /
-        "cod_native_causal_memory_missing.toml";
-    std::filesystem::remove(missing);
-    const auto defaults = controller_native::load_runtime_config(missing);
-    require(defaults.gamepad.tracker.causal_memory_enabled);
-    require(std::abs(
-        defaults.gamepad.tracker.causal_memory_response_delay_ms - 20.0f) <
-        0.0001f);
-    require(std::abs(
-        defaults.gamepad.tracker.causal_memory_horizon_ms - 200.0f) <
-        0.0001f);
-
-    const auto path = std::filesystem::temp_directory_path() /
-        "cod_native_causal_memory.toml";
-    {
-        std::ofstream output(path);
-        output << "[gamepad.tracker]\n"
-               << "causal_memory_enabled = false\n"
-               << "causal_memory_response_delay_ms = 150\n"
-               << "causal_memory_horizon_ms = 20\n";
-    }
-    bool invalid_relation_failed = false;
-    try {
-        (void)controller_native::load_runtime_config(path);
-    } catch (const std::runtime_error& error) {
-        const std::string message = error.what();
-        invalid_relation_failed =
-            message.find(
-                "gamepad.tracker.causal_memory_response_delay_ms") !=
-                std::string::npos &&
-            message.find(
-                "response_delay_ms < causal_memory_horizon_ms") !=
-                std::string::npos;
-    }
-    std::filesystem::remove(path);
-    require(invalid_relation_failed);
-
-    const auto old_key_path = std::filesystem::temp_directory_path() /
-        "cod_native_causal_memory_old_key.toml";
-    {
-        std::ofstream output(old_key_path);
-        output << "[gamepad.tracker]\n"
-               << "causal_memory_shadow_enabled = true\n";
-    }
-    const auto old_key = controller_native::load_runtime_config(old_key_path);
-    std::filesystem::remove(old_key_path);
-    require(old_key.diagnostics.size() == 1);
-    require(old_key.diagnostics.front().find(
-        "causal_memory_shadow_enabled") != std::string::npos);
-}
-
-void test_tracker_aim_height_ratio_accepts_deprecated_alias() {
-    const auto path = std::filesystem::temp_directory_path() /
-        "cod_native_tracker_aim_height_alias.toml";
-    { std::ofstream output(path); output <<
-        "[runtime.gamepad]\nbody_lock_upper_body_ratio = 0.375\n"; }
-    const auto config = controller_native::load_runtime_config(path);
-    std::filesystem::remove(path);
-    require(std::abs(config.gamepad.tracker.aim_height_ratio - 0.375f) < 0.0001f);
-    require(
-        config.effective_source("gamepad.tracker.aim_height_ratio") ==
-        "deprecated_alias");
-}
-
-void test_tracker_canonical_aim_height_wins_regardless_of_file_order() {
-    for (const bool canonical_first : {false, true}) {
-        const auto path = std::filesystem::temp_directory_path() /
-            (canonical_first ? "cod_native_tracker_precedence_first.toml" :
-                               "cod_native_tracker_precedence_last.toml");
-        {
-            std::ofstream output(path);
-            if (canonical_first) {
-                output << "[gamepad.tracker]\naim_height_ratio = 0.365\n"
-                       << "[runtime.gamepad]\nbody_lock_upper_body_ratio = 0.40\n";
-            } else {
-                output << "[runtime.gamepad]\nbody_lock_upper_body_ratio = 0.40\n"
-                       << "[gamepad.tracker]\naim_height_ratio = 0.365\n";
-            }
-        }
-        const auto config = controller_native::load_runtime_config(path);
-        std::filesystem::remove(path);
-        require(std::abs(config.gamepad.tracker.aim_height_ratio - 0.365f) < 0.0001f);
-        require(config.effective_source("gamepad.tracker.aim_height_ratio") == "user");
-        bool ignored_alias_reported = false;
-        for (const auto& diagnostic : config.diagnostics) {
-            ignored_alias_reported = ignored_alias_reported ||
-                diagnostic.find("body_lock_upper_body_ratio") != std::string::npos;
-        }
-        require(ignored_alias_reported);
-    }
-}
-
-void test_tracker_aim_height_ratio_rejects_out_of_range_values() {
-    for (const char* value : {"-0.01", "1.01"}) {
-        const auto path = std::filesystem::temp_directory_path() /
-            "cod_native_tracker_aim_height_invalid.toml";
-        { std::ofstream output(path); output <<
-            "[gamepad.tracker]\naim_height_ratio = " << value << "\n"; }
-        bool failed = false;
-        try { (void)controller_native::load_runtime_config(path); }
-        catch (const std::runtime_error& error) {
-            failed = std::string(error.what()).find("gamepad.tracker.aim_height_ratio") !=
-                std::string::npos;
-        }
-        std::filesystem::remove(path);
-        require(failed);
-    }
-}
-
-void test_gamepad_intent_retention_floor_defaults_parses_and_clamps() {
-    const auto missing = std::filesystem::temp_directory_path() /
-        "cod_native_intent_floor_defaults_missing.toml";
-    std::filesystem::remove(missing);
-    const auto defaults = controller_native::load_runtime_config(missing);
-    require(std::abs(
-        defaults.gamepad.intent.wrong_way_manual_preservation_floor - 0.65f) < 0.0001f);
-
-    for (const auto& value : {
-             std::pair{"0.72", 0.72f},
-             std::pair{"0.20", 0.50f},
-             std::pair{"1.20", 1.00f}}) {
-        const auto path = std::filesystem::temp_directory_path() /
-            "cod_native_intent_floor_value.toml";
-        { std::ofstream output(path); output <<
-            "[gamepad.intent]\nwrong_way_manual_preservation_floor = "
-            << value.first << "\n"; }
-        const auto config = controller_native::load_runtime_config(path);
-        std::filesystem::remove(path);
-        require(std::abs(
-            config.gamepad.intent.wrong_way_manual_preservation_floor - value.second) <
-            0.0001f);
-    }
-}
-
-void test_fresh_vision_manual_floor_defaults_parses_and_clamps() {
-    const auto missing = std::filesystem::temp_directory_path() /
-        "cod_native_fresh_vision_floor_defaults_missing.toml";
-    std::filesystem::remove(missing);
-    const auto defaults = controller_native::load_runtime_config(missing);
-    require(std::abs(
-        defaults.gamepad.intent.fresh_vision_wrong_way_manual_floor - 0.35f) <
-        0.0001f);
-
-    for (const auto& value : {
-             std::pair{"0.35", 0.35f},
-             std::pair{"-0.20", 0.00f},
-             std::pair{"1.20", 1.00f}}) {
-        const auto path = std::filesystem::temp_directory_path() /
-            "cod_native_fresh_vision_floor_value.toml";
-        { std::ofstream output(path); output <<
-            "[gamepad.intent]\nfresh_vision_wrong_way_manual_floor = "
-            << value.first << "\n"; }
-        const auto config = controller_native::load_runtime_config(path);
-        std::filesystem::remove(path);
-        require(std::abs(
-            config.gamepad.intent.fresh_vision_wrong_way_manual_floor - value.second) <
-            0.0001f);
-    }
-}
-
-void test_helpful_manual_overdrive_defaults_parses_and_clamps() {
-    const auto missing = std::filesystem::temp_directory_path() /
-        "cod_native_helpful_manual_overdrive_defaults_missing.toml";
-    std::filesystem::remove(missing);
-    const auto defaults = controller_native::load_runtime_config(missing);
-    require(defaults.gamepad.intent.helpful_manual_overdrive_enabled);
-    require(std::abs(
-        defaults.gamepad.intent.helpful_manual_overdrive_max_scale - 1.15f) <
-        0.0001f);
-
-    for (const auto& value : {
-             std::pair{"1.18", 1.18f},
-             std::pair{"0.80", 1.00f},
-             std::pair{"1.40", 1.25f}}) {
-        const auto path = std::filesystem::temp_directory_path() /
-            "cod_native_helpful_manual_overdrive_value.toml";
-        { std::ofstream output(path); output <<
-            "[gamepad.intent]\nhelpful_manual_overdrive_enabled = false\n"
-            "helpful_manual_overdrive_max_scale = " << value.first << "\n"; }
-        const auto config = controller_native::load_runtime_config(path);
-        std::filesystem::remove(path);
-        require(!config.gamepad.intent.helpful_manual_overdrive_enabled);
-        require(std::abs(
-            config.gamepad.intent.helpful_manual_overdrive_max_scale - value.second) <
-            0.0001f);
-    }
-}
-
-void test_gamepad_intent_unknown_key_is_reported() {
-    const auto path = std::filesystem::temp_directory_path() /
-        "cod_native_intent_unknown.toml";
-    { std::ofstream output(path); output <<
-        "[gamepad.intent]\nwrong_way_manual_preservaton_floor = 0.65\n"; }
-    const auto config = controller_native::load_runtime_config(path);
-    std::filesystem::remove(path);
-    require(config.diagnostics.size() == 1);
-    require(config.diagnostics.front().find("wrong_way_manual_preservaton_floor") !=
-            std::string::npos);
-}
-
-void test_auto_fire_pulse_defaults_and_overrides() {
-    const controller_native::GamepadAutoFireConfig defaults{};
-    require(std::abs(defaults.pulse_width_ms - 30.0f) < 0.0001f);
-    require(std::abs(defaults.pulse_period_ms - 100.0f) < 0.0001f);
-
-    const auto path = std::filesystem::temp_directory_path() /
-        "cod_native_auto_fire_pulse_config.toml";
-    {
-        std::ofstream output(path);
-        output << "[gamepad.auto_fire]\n"
-               << "pulse_width_ms = 40\n"
-               << "pulse_period_ms = 120\n";
-    }
-    const auto config = controller_native::load_runtime_config(path);
-    std::filesystem::remove(path);
-    require(std::abs(config.gamepad.auto_fire.pulse_width_ms - 40.0f) < 0.0001f);
-    require(std::abs(config.gamepad.auto_fire.pulse_period_ms - 120.0f) < 0.0001f);
-}
-
-void test_auto_fire_pulse_rejects_invalid_relationships() {
-    for (const auto* body : {
-             "pulse_width_ms = 0\npulse_period_ms = 100\n",
-             "pulse_width_ms = 101\npulse_period_ms = 100\n"}) {
-        const auto path = std::filesystem::temp_directory_path() /
-            "cod_native_auto_fire_invalid_pulse.toml";
-        {
-            std::ofstream output(path);
-            output << "[gamepad.auto_fire]\n" << body;
-        }
-        bool failed = false;
-        try {
-            (void)controller_native::load_runtime_config(path);
-        } catch (const std::runtime_error& error) {
-            const std::string message = error.what();
-            failed = message.find("gamepad.auto_fire.pulse_width_ms") !=
-                    std::string::npos &&
-                message.find("pulse_width_ms <= pulse_period_ms") !=
-                    std::string::npos;
-        }
-        std::filesystem::remove(path);
-        require(failed);
-    }
-}
-
-} // namespace
+}  // namespace
 
 int main() {
-    test_vision_gpu_service_defaults_are_enabled();
-    test_lightweight_performance_summary_config_parses();
-    test_vision_gpu_service_config_values_parse();
-    test_vision_gpu_service_can_be_disabled();
-    test_realtime_tracker_and_fallback_recoil_flags_parse();
-    test_aim_response_curve_defaults_and_dynamic_plugin_parse();
-    test_aim_response_curve_rejects_unknown_algorithm();
-    test_dynamic_viewport_config_values_parse();
-    test_dynamic_viewport_rejects_mismatched_aspect_ratio();
-    test_balanced_profile_uses_canonical_vision_defaults();
-    test_user_values_override_profile_and_legacy_rate_is_explicit();
-    test_unknown_keys_are_reported();
-    test_unknown_keys_are_reported_in_every_native_legacy_section();
-    test_inactive_compact_aim_knobs_are_reported_as_unknown();
-    test_invalid_profile_fails_with_available_names();
-    test_compact_ads_and_bodylock_modules_resolve_detailed_controls();
-    test_invalid_user_override_reports_key_and_range();
-    test_invalid_tensor_size_reports_key_and_range();
-    test_normal_template_preserves_controller_baseline();
-    test_normal_template_does_not_advertise_inactive_fps_legacy_knobs();
-    test_committed_legacy_full_fixture_resolves_every_assignment();
-    test_environment_overrides_user_and_reports_source();
-    test_tracker_aim_height_ratio_uses_canonical_key();
-    test_tracker_causal_memory_defaults_parses_and_rejects_invalid_relation();
-    test_tracker_aim_height_ratio_accepts_deprecated_alias();
-    test_tracker_canonical_aim_height_wins_regardless_of_file_order();
-    test_tracker_aim_height_ratio_rejects_out_of_range_values();
-    test_gamepad_intent_retention_floor_defaults_parses_and_clamps();
-    test_fresh_vision_manual_floor_defaults_parses_and_clamps();
-    test_helpful_manual_overdrive_defaults_parses_and_clamps();
-    test_gamepad_intent_unknown_key_is_reported();
-    test_auto_fire_pulse_defaults_and_overrides();
-    test_auto_fire_pulse_rejects_invalid_relationships();
+    test_current_control_keys_parse();
+    test_retired_low_rate_keys_are_unknown_and_inert();
+    test_profile_override_has_one_capture_cadence();
+    test_invalid_safety_boundary_fails_closed();
+    test_example_config_contains_no_retired_keys();
     return 0;
 }

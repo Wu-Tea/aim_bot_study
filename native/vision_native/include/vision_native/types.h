@@ -209,7 +209,6 @@ struct VisionResult {
     float output_wait_ms = 0.0f;
     float decode_ms = 0.0f;
     float selector_ms = 0.0f;
-    float enhance_ms = 0.0f;
     float cuda_unmap_ms = 0.0f;
     float post_ms = 0.0f;
     float age_ms = 0.0f;

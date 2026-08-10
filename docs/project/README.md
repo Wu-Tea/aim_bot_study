@@ -6,23 +6,19 @@ baselines, completed acceptance stages and paused research through
 
 ## Read First
 
-1. [Current State](CURRENT_STATE.md) - current runtime facts, W0-W6 boundary,
-   next live validation and non-regression rules.
-2. [W5 Causal Short-Term Memory](W5_CAUSAL_MEMORY_20260808.md) - current W3/W4
-   stop boundary, accepted Phase B and Gate 2 evidence, the Gate2.5B
-   default-off diagnostic (`40/40` CTest), its bounded component budget,
-   source-present seam, `FAIL_FOR_ACTIVATION` boundary and the absence of live
-   COD evidence.
-3. [W5 Gate 2.5 Live-Shadow Measurement Plan](W5_GATE2_5_LIVE_SHADOW_MEASUREMENT_PLAN_20260808.md)
-   - retained low-overhead collection boundary, strict cohorts, clock joins,
-   compact shadow aggregates, deterministic tests and unfinished work after
-   the Gate2.5B implementation checkpoint.
+1. [Current State](CURRENT_STATE.md) - current native production chain,
+   verification status, next live validation and non-regression rules.
+2. [Legacy Control Stack Cleanup](LEGACY_CONTROL_STACK_CLEANUP_20260810.md) -
+   why the former 80-100 Hz compensation stack was harmful, what was removed
+   and the evidence boundary of the cleanup.
+3. [Cue Selector and Manual Acceptance](CUE_SELECTOR_MANUAL_ACCEPTANCE_20260810.md)
+   - current selector-generation, cue, handover and manual-control contracts.
 4. [August 3 Live-Accepted Native Runtime](LIVE_ACCEPTED_RUNTIME_20260803.md) -
    protected executable/config identity, live evidence, restore set and the
    explicit statement that W5 memory was not present in that historical binary.
 5. [Five-Case and Schema-13 Control Audit](FIVE_CASE_SCHEMA13_CONTROL_AUDIT_20260803.md) -
-   current command-continuity defect, five marked cases, latency comparison,
-   W3/W4 gates and next acceptance order.
+   historical evidence for the command-continuity defect and W3/W4 gates that
+   motivated later single-owner work.
 6. [Control-Chain Jump Stability Acceptance](CONTROL_CHAIN_JUMP_STABILITY_ACCEPTANCE_20260801.md) -
    earlier Task 1-4 contracts and historical rollback evidence.
 7. [ADS Long-Session Diagnosis](ADS_LONG_SESSION_DIAGNOSIS_20260801.md) -
@@ -35,6 +31,10 @@ baselines, completed acceptance stages and paused research through
    smoke tests.
 11. [Controller Overview](CONTROLLER_OVERVIEW.md) - controller ownership and
    runtime modes.
+
+The W3/W5 causal-memory and Gate 2.5 documents remain historical research
+records. Their runtime implementations were retired on 2026-08-10 and they are
+not current continuation instructions.
 
 ## Runtime and Architecture
 

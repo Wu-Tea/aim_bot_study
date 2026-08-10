@@ -44,6 +44,7 @@ class NativeVisionRunnerMappingTests(unittest.TestCase):
                 screen_center_x=320.0,
                 screen_center_y=256.0,
                 body_box=(280.0, 120.0, 360.0, 320.0),
+                aim_authority=False,
             ),
         )
 
@@ -288,7 +289,6 @@ class NativeVisionProcessTests(unittest.TestCase):
             "output_wait_ms": 0.6,
             "decode_ms": 0.1,
             "selector_ms": 0.5,
-            "enhance_ms": 0.2,
             "cuda_unmap_ms": 0.1,
             "post_ms": 0.4,
             "age_ms": 4.0,
@@ -364,7 +364,6 @@ class NativeVisionProcessTests(unittest.TestCase):
         self.assertEqual(perf_kwargs["native_output_wait_ms"], 0.6)
         self.assertEqual(perf_kwargs["native_decode_ms"], 0.1)
         self.assertEqual(perf_kwargs["native_selector_ms"], 0.5)
-        self.assertEqual(perf_kwargs["native_enhance_ms"], 0.2)
         self.assertEqual(perf_kwargs["native_cuda_unmap_ms"], 0.1)
         self.assertEqual(perf_kwargs["target_box_width_px"], 80.0)
         self.assertEqual(perf_kwargs["target_box_height_px"], 200.0)

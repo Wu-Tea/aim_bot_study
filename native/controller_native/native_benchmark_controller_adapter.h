@@ -2,7 +2,7 @@
 
 #include "native_gamepad_controller.h"
 #include "runtime_config.h"
-#include "sustained_aimlab_counterfactual.h"
+#include "sustained_aimlab_simulator.h"
 
 #include <cstdint>
 #include <memory>
@@ -23,51 +23,27 @@ class NativeReplayAdapter {
 public:
     NativeReplayAdapter(
         GamepadRuntimeConfig source_config,
-        sustained_aimlab::BranchSchedule schedule,
         sustained_aimlab::BenchmarkCohort cohort,
-        BenchmarkIntentFusionMode intent_fusion_mode,
-        std::shared_ptr<AssistedModeCoverage> coverage = {},
-        double assist_scale = 1.0,
-        double tracker_velocity_alpha = -1.0,
-        bool causal_player_motion_state_enabled = true,
-        bool causal_player_motion_forecast_enabled = true,
-        BenchmarkRemainingWorkMode remaining_work_mode =
-            BenchmarkRemainingWorkMode::CurrentError,
-        double remaining_work_scale = 1.0,
-        bool firing_body_geometry_stabilizer_enabled = true,
-        bool firing_disturbance_observer_enabled = true);
+        std::shared_ptr<AssistedModeCoverage> coverage = {});
 
     sustained_aimlab::ControllerStepResult step(
         const sustained_aimlab::ControllerObservation& input);
 
 private:
-    sustained_aimlab::BranchSchedule schedule_;
     sustained_aimlab::BenchmarkCohort cohort_ =
         sustained_aimlab::BenchmarkCohort::AdsAcquire;
     std::uint64_t last_ads_target_id_ = 0;
-    int now_ms_ = 0;
     double now_seconds_ = 0.0;
     GamepadRuntimeConfig config_;
     NativeGamepadController controller_;
     PhysicalGamepadState physical_;
     std::shared_ptr<AssistedModeCoverage> coverage_;
-    double assist_scale_ = 1.0;
 };
 
-sustained_aimlab::ReplayControllerFactory make_native_factory(
+sustained_aimlab::ControllerStep make_native_controller(
     GamepadRuntimeConfig config,
     sustained_aimlab::BenchmarkCohort cohort,
-    BenchmarkIntentFusionMode intent_fusion_mode,
     std::shared_ptr<AssistedModeCoverage> coverage = {},
-    double assist_scale = 1.0,
-    double tracker_velocity_alpha = -1.0,
-    bool causal_player_motion_state_enabled = true,
-    bool causal_player_motion_forecast_enabled = true,
-    BenchmarkRemainingWorkMode remaining_work_mode =
-        BenchmarkRemainingWorkMode::CurrentError,
-    double remaining_work_scale = 1.0,
-    bool recoil_enabled = false,
-    bool firing_body_geometry_stabilizer_enabled = true,
-    bool firing_disturbance_observer_enabled = true);
+    bool recoil_enabled = false);
 
 }  // namespace controller_native::benchmark_adapter

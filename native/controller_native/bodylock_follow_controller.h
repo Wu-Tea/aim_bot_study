@@ -15,7 +15,6 @@ struct BodylockFollowControllerConfig {
     float feedforward_gain = 0.64f;
     float stopping_lookahead_seconds = 0.020f;
     float fallback_response_px_per_stick_second = 500.0f;
-    float opposing_manual_reduction = 0.6f;
     AimResponseCurveConfig response_curve{};
 };
 
@@ -42,14 +41,12 @@ public:
     pipeline_contract::Vec2f compute(
         const pipeline_contract::TargetPlan& plan,
         const pipeline_contract::IntentState& intent,
-        float dt_seconds,
-        bool fresh_position_authoritative = false) const noexcept;
+        float dt_seconds) const noexcept;
 
     BodylockFollowControllerOutput compute_detailed(
         const pipeline_contract::TargetPlan& plan,
         const pipeline_contract::IntentState& intent,
-        float dt_seconds,
-        bool fresh_position_authoritative = false) const noexcept;
+        float dt_seconds) const noexcept;
 
 private:
     BodylockFollowControllerConfig config_{};

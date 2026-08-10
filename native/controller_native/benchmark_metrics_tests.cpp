@@ -1,11 +1,7 @@
 #include "controller_native/output_mixer.h"
-#include "controller_native/virtual_gamepad.h"
-#include "../common_native/authority_types.h"
 #include "../replay_native/replay_metrics.h"
 #include "../replay_native/replay_schema.h"
-#include "../runtime_app/aim_perf_file_logger.h"
 #include "../runtime_app/perf_logger.h"
-#include "vision_native/types.h"
 
 #include <algorithm>
 #include <chrono>
@@ -63,9 +59,6 @@ void test_replay_schema_captures_controller_components() {
     frame.selected_target.has_target = true;
     frame.selected_target.aim_error_px = {12.0f, -4.0f};
     frame.selected_target.tier = "strong";
-    frame.tracker.source = tracking_native::TrackerSnapshotSource::Projected;
-    frame.tracker.assist_authority = common_native::AssistAuthority::AimCoast;
-    frame.tracker.fire_authority = common_native::FireAuthority::None;
     frame.controller.aiming = true;
     frame.controller.sticks.manual = {0.10f, 0.20f};
     frame.controller.sticks.assist = {0.30f, 0.00f};
@@ -85,24 +78,16 @@ void test_replay_schema_captures_controller_components() {
         "replay schema should expose final stick separately");
 }
 
-void test_replay_metrics_summarizes_error_and_fire_violations() {
+void test_replay_metrics_summarizes_error_and_stale_fire_violations() {
     std::vector<replay_native::NativeReplayFrame> frames(3);
     frames[0].selected_target.has_target = true;
     frames[0].selected_target.aim_error_px = {10.0f, 0.0f};
-    frames[0].tracker.projection_age_ms = 4.0;
-
     frames[1].selected_target.has_target = true;
     frames[1].selected_target.aim_error_px = {20.0f, 0.0f};
-    frames[1].tracker.source = tracking_native::TrackerSnapshotSource::Projected;
-    frames[1].tracker.fire_authority = common_native::FireAuthority::None;
-    frames[1].tracker.projection_age_ms = 8.0;
-    frames[1].controller.fire_allowed = true;
 
     frames[2].selected_target.has_target = true;
     frames[2].selected_target.aim_error_px = {30.0f, 0.0f};
     frames[2].selected_target.age_ms = 60.0;
-    frames[2].tracker.fire_authority = common_native::FireAuthority::ObservedOnly;
-    frames[2].tracker.projection_age_ms = 16.0;
     frames[2].controller.fire_allowed = true;
 
     replay_native::ReplayMetricOptions options;
@@ -112,166 +97,9 @@ void test_replay_metrics_summarizes_error_and_fire_violations() {
 
     require_near(summary.target_error_p50_px, 20.0f, 0.001f, "replay p50 target error");
     require_near(summary.target_error_p95_px, 30.0f, 0.001f, "replay p95 target error");
-    require_near(summary.projection_age_p95_ms, 16.0f, 0.001f, "replay p95 projection age");
-    require_true(
-        summary.predicted_only_fire_violations == 1,
-        "replay metrics should count predicted-only fire violations");
     require_true(
         summary.stale_fire_violations == 1,
         "replay metrics should count stale fire violations");
-}
-
-void test_aim_perf_file_logger_writes_controller_components() {
-    const std::filesystem::path root = make_temp_test_dir("aim_perf_components");
-    std::filesystem::path log_path;
-    {
-        runtime_app::AimPerfFileLogger logger(true, root, 1);
-        controller_native::NativeControllerOutputComponents components;
-        components.physical_stick = {0.70f, -0.80f};
-        components.manual_stick = {0.10f, 0.20f};
-        components.ai_aim_stick = {-0.40f, -0.20f};
-        components.dynamic_adjustment_stick = {0.00f, -0.10f};
-        components.post_ai_stick = {0.40f, 0.20f};
-        components.post_dynamic_stick = {0.40f, 0.10f};
-        components.ads_brake_stick = {-0.05f, 0.02f};
-        components.post_ads_brake_stick = {0.35f, 0.12f};
-        components.ads_carry_brake_stick = {-0.03f, 0.01f};
-        components.post_ads_carry_brake_stick = {0.32f, 0.13f};
-        components.ads_carry_brake_active = true;
-        components.before_recoil_stick = {0.32f, 0.13f};
-        components.recoil_stick = {-0.40f, 0.00f};
-        components.final_stick = {0.50f, 0.10f};
-        components.ads_brake_active = true;
-        components.aim_mode = "ads_snap";
-        components.fire_button = true;
-        controller_native::GamepadOutputState tracker_output;
-        tracker_output.right_x = 0.10f;
-        tracker_output.right_y = 0.20f;
-        vision_native::VisionResult vision;
-        vision.frame_updated = true;
-        vision.frame_id = 7;
-        vision.age_ms = 96.0f;
-        vision.preprocess_mode = vision_native::PreprocessMode::OldBgraCopy;
-        controller_native::NativeControllerVisionState controller_vision;
-        controller_vision.has_target = true;
-        controller_vision.aim_authority = true;
-        controller_vision.fire_authority = false;
-        controller_vision.target_tier = "projected";
-        controller_vision.dx = 12.0f;
-        controller_vision.dy = -8.0f;
-        controller_vision.has_tracker_projection = true;
-        controller_vision.tracker_dx = 10.0f;
-        controller_vision.tracker_dy = -6.0f;
-        runtime_app::PerfSnapshot snapshot;
-        snapshot.out_age_ms = 12.5;
-        logger.record_aim_sample(
-            1,
-            true,
-            snapshot,
-            &vision,
-            &controller_vision,
-            &components,
-            &tracker_output);
-        log_path = logger.log_path();
-    }
-
-    const std::string log = read_text_file(log_path);
-    require_true(
-        log.find("\"recoil_x\":-0.4") != std::string::npos,
-        "aim perf log should include recoil component x");
-    require_true(
-        log.find("\"physical_right_x\":0.7") != std::string::npos,
-        "aim perf log should include physical right stick x");
-    require_true(
-        log.find("\"manual_pre_ai_x\":0.1") != std::string::npos,
-        "aim perf log should include manual pre-ai stick x");
-    require_true(
-        log.find("\"post_ai_x\":0.4") != std::string::npos,
-        "aim perf log should include post-ai stick x");
-    require_true(
-        log.find("\"post_dynamic_y\":0.1") != std::string::npos,
-        "aim perf log should include post-dynamic stick y");
-    require_true(
-        log.find("\"ads_brake_x\":-0.05") != std::string::npos,
-        "aim perf log should include ads brake x");
-    require_true(
-        log.find("\"post_ads_brake_y\":0.12") != std::string::npos,
-        "aim perf log should include post ads brake y");
-    require_true(
-        log.find("\"ads_carry_brake_x\":-0.03") != std::string::npos,
-        "aim perf log should include ads carry brake x");
-    require_true(
-        log.find("\"post_ads_carry_brake_y\":0.13") != std::string::npos,
-        "aim perf log should include post ads carry brake y");
-    require_true(
-        log.find("\"ads_carry_brake_active\":true") != std::string::npos,
-        "aim perf log should include ads carry brake active flag");
-    require_true(
-        log.find("\"before_recoil_x\":0.32") != std::string::npos,
-        "aim perf log should include before-recoil stick x");
-    require_true(
-        log.find("\"ads_brake_active\":true") != std::string::npos,
-        "aim perf log should include ads brake active flag");
-    require_true(
-        log.find("\"aim_mode\":\"ads_snap\"") != std::string::npos,
-        "aim perf log should include aim mode");
-    require_true(
-        log.find("\"final_y\":0.1") != std::string::npos,
-        "aim perf log should include final stick y");
-    require_true(
-        log.find("\"tracker_sample_x\":0.1") != std::string::npos,
-        "aim perf log should include tracker sample x");
-    require_true(
-        log.find("\"fire_button\":true") != std::string::npos,
-        "aim perf log should include fire button state");
-    require_true(
-        log.find("\"preprocess_mode\":\"old_bgra_copy\"") != std::string::npos,
-        "aim perf log should include preprocess mode");
-    require_true(
-        log.find("\"controller_target\":true") != std::string::npos,
-        "aim perf log should include controller target state");
-    require_true(
-        log.find("\"controller_tier\":\"projected\"") != std::string::npos,
-        "aim perf log should include controller target tier");
-    require_true(
-        log.find("\"controller_authority_state\":\"track_only\"") != std::string::npos,
-        "aim perf log should include controller authority state");
-    require_true(
-        log.find("\"controller_tracker_dx\":10") != std::string::npos,
-        "aim perf log should include controller tracker dx");
-    require_true(
-        log.find("\"vision_age_ms\":") != std::string::npos,
-        "aim perf log should include explicit vision age");
-    require_true(
-        log.find("\"output_age_ms\":12.5") != std::string::npos,
-        "aim perf log should include output age comparable to Python out_age");
-    require_true(
-        log.find("\"diagnostic_manual_magnitude\":") != std::string::npos,
-        "aim perf log should include manual magnitude diagnostic");
-    require_true(
-        log.find("\"diagnostic_ai_magnitude\":") != std::string::npos,
-        "aim perf log should include AI magnitude diagnostic");
-    require_true(
-        log.find("\"diagnostic_final_magnitude\":") != std::string::npos,
-        "aim perf log should include final output magnitude diagnostic");
-    require_true(
-        log.find("\"diagnostic_target_error_px\":") != std::string::npos,
-        "aim perf log should include target error diagnostic");
-    require_true(
-        log.find("\"diagnostic_manual_ai_fight\":true") != std::string::npos,
-        "aim perf log should flag manual and AI fighting");
-    require_true(
-        log.find("\"diagnostic_near_target\":true") != std::string::npos,
-        "aim perf log should flag near-target frames");
-    require_true(
-        log.find("\"diagnostic_near_high_output\":true") != std::string::npos,
-        "aim perf log should flag high output near target");
-    require_true(
-        log.find("\"diagnostic_stale_target\":true") != std::string::npos,
-        "aim perf log should flag stale target data");
-    require_true(
-        log.find("\"diagnostic_tracker_projection\":true") != std::string::npos,
-        "aim perf log should mirror tracker projection as a diagnostic flag");
 }
 
 void test_replay_metrics_exposes_bodylock_continuity_defect() {
@@ -405,8 +233,6 @@ void test_lightweight_perf_summary_writes_one_compact_window() {
         vision.sync_queue_residual_ms = 1.02;
         vision.color_copy_ms = 0.22;
         vision.cuda_unmap_ms = 0.04;
-        vision.ego_stage_ms = 0.35;
-        vision.ego_compute_ms = 2.05;
         logger.record_vision(vision);
 
         controller.timestamp_ns = 2'100'000'000ull;
@@ -440,12 +266,6 @@ void test_lightweight_perf_summary_writes_one_compact_window() {
     require_true(
         log.find("\"color_copy\":{\"n\":1") != std::string::npos,
         "perf summary should expose conditional color readback cost");
-    require_true(
-        log.find("\"ego_stage\":{\"n\":1") != std::string::npos,
-        "perf summary should separate the synchronous ego staging cost");
-    require_true(
-        log.find("\"ego_compute\":{\"n\":1") != std::string::npos,
-        "perf summary should report asynchronous ego compute separately");
     require_true(
         log.size() < 4096,
         "one performance window should remain a compact record");
@@ -485,8 +305,6 @@ void benchmark_lightweight_perf_summary_hot_path() {
     vision.sync_queue_residual_ms = 1.02;
     vision.color_copy_ms = 0.22;
     vision.cuda_unmap_ms = 0.04;
-    vision.ego_stage_ms = 0.35;
-    vision.ego_compute_ms = 2.05;
 
     constexpr std::uint64_t kControllerSamples = 1'000'000;
     const auto started = std::chrono::steady_clock::now();
@@ -509,10 +327,9 @@ void benchmark_lightweight_perf_summary_hot_path() {
 int main() {
     try {
         test_replay_schema_captures_controller_components();
-        test_replay_metrics_summarizes_error_and_fire_violations();
+        test_replay_metrics_summarizes_error_and_stale_fire_violations();
         test_replay_metrics_exposes_bodylock_continuity_defect();
         test_replay_metrics_exposes_stepwise_assist_as_stutter();
-        test_aim_perf_file_logger_writes_controller_components();
         test_perf_loop_fps_uses_measured_elapsed_time();
         test_lightweight_perf_summary_writes_one_compact_window();
         benchmark_lightweight_perf_summary_hot_path();

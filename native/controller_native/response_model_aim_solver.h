@@ -7,24 +7,18 @@ namespace controller_native {
 
 enum class ResponseModelConstraintReason : unsigned char {
     None,
-    FreshPositionRadialMotionBound,
-    LifecycleStaleMotionDiscarded,
+    PositionRadialMotionBound,
 };
 
 struct ResponseModelAimRequest {
     pipeline_contract::Vec2f error_px{};
     pipeline_contract::Vec2f relative_velocity_px_per_sec{};
-    // A displacement-derived proposal that must remain in the motion branch.
-    // It is already expressed in controller-stick units so callers can keep
-    // its source separate from authoritative position pixels.
-    pipeline_contract::Vec2f motion_feedforward_stick{};
     float response_px_per_stick_second = 500.0f;
     float arrival_horizon_seconds = 0.050f;
     float arrival_horizon_y_seconds = 0.0f;
     float motion_weight = 1.0f;
     pipeline_contract::Vec2f max_force{1.0f, 1.0f};
     float authority = 1.0f;
-    bool fresh_position_authoritative = false;
     AimResponseCurveConfig response_curve{};
 };
 
