@@ -177,10 +177,6 @@ bool is_known_key(const std::string& section, const std::string& key) {
     static const std::unordered_set<std::string> output_keys{"enabled", "validation_mode"};
     static const std::unordered_set<std::string> tracker_keys{
         "aim_height_ratio", "max_observation_age_ms"};
-    static const std::unordered_set<std::string> intent_keys{
-        "helpful_manual_overdrive_enabled",
-        "helpful_manual_overdrive_max_scale",
-        "helpful_manual_direction_weight"};
     static const std::unordered_set<std::string> aim_response_curve_keys{
         "algorithm", "calibration_reference_stick"};
     static const std::unordered_set<std::string> ads_keys{
@@ -228,7 +224,6 @@ bool is_known_key(const std::string& section, const std::string& key) {
     if (section == "runtime.input") return input_keys.count(key) != 0;
     if (section == "runtime.output") return output_keys.count(key) != 0;
     if (section == "gamepad.tracker") return tracker_keys.count(key) != 0;
-    if (section == "gamepad.intent") return intent_keys.count(key) != 0;
     if (section == "gamepad.aim_response_curve")
         return aim_response_curve_keys.count(key) != 0;
     if (section == "gamepad.ads") return ads_keys.count(key) != 0;
@@ -654,27 +649,6 @@ void apply_value(
                     config.gamepad.tracker.max_observation_age_ms),
                 1.0f,
                 250.0f);
-        }
-    } else if (section == "gamepad.intent") {
-        if (key == "helpful_manual_overdrive_enabled") {
-            config.gamepad.intent.helpful_manual_overdrive_enabled =
-                parse_bool_value(
-                    value,
-                    config.gamepad.intent.helpful_manual_overdrive_enabled);
-        } else if (key == "helpful_manual_overdrive_max_scale") {
-            config.gamepad.intent.helpful_manual_overdrive_max_scale = std::clamp(
-                parse_float_value(
-                    value,
-                    config.gamepad.intent.helpful_manual_overdrive_max_scale),
-                1.00f,
-                1.25f);
-        } else if (key == "helpful_manual_direction_weight") {
-            config.gamepad.intent.helpful_manual_direction_weight = std::clamp(
-                parse_float_value(
-                    value,
-                    config.gamepad.intent.helpful_manual_direction_weight),
-                0.00f,
-                0.75f);
         }
     } else if (section == "gamepad.aim_response_curve") {
         apply_gamepad_aim_response_curve_value(

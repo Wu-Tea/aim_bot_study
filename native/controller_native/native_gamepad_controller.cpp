@@ -1,5 +1,4 @@
 #include "native_gamepad_controller.h"
-#include "helpful_manual_overdrive.h"
 #include "target_geometry.h"
 #include "../tracking_native/tracker_authority.h"
 
@@ -588,30 +587,6 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
     {
         // Production has one explicit authority owner instead of routing the
         // same stick through separate mix, escape and per-axis patches.
-        pipeline_contract::Vec2f target_stick{shaped.x, shaped.y};
-        const bool current_single_target_direction_evidence =
-            target_authoritative && last_observed_ads_candidate_count_ <= 1 &&
-            std::isfinite(plan.observation_age_ms) &&
-            plan.observation_age_ms <=
-                config_.tracker.max_observation_age_ms;
-        if (current_single_target_direction_evidence &&
-            config_.intent.helpful_manual_overdrive_enabled) {
-            target_stick = plan.cue_continuation
-                ? apply_bounded_cue_manual_correction(
-                    target_stick,
-                    {physical.right_x, physical.right_y},
-                    config_.intent.helpful_manual_direction_weight)
-                : apply_target_guided_manual_intent(
-                    target_stick,
-                    {physical.right_x, physical.right_y},
-                    config_.intent.helpful_manual_overdrive_max_scale,
-                    {plan.error_px.x, -plan.error_px.y},
-                    {plan.error_rate_px_per_sec.x,
-                     -plan.error_rate_px_per_sec.y},
-                    firing_input,
-                    config_.intent.helpful_manual_direction_weight);
-        }
-
         AssistControlStateMachineInput control_input;
         control_input.aiming = aiming_;
         control_input.target_authoritative = target_authoritative;
@@ -628,7 +603,6 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
         control_input.manual_stick = {
             physical.right_x, physical.right_y};
         control_input.ai_stick = {shaped.x, shaped.y};
-        control_input.target_stick = target_stick;
         const auto decision = assist_control_state_machine_.update(
             control_input);
         output.right_x = clamp_unit(decision.stick.x);

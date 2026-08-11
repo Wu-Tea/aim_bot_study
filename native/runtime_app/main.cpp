@@ -168,15 +168,6 @@ void dump_effective_config(const controller_native::RuntimeConfig& config) {
     line(
         "gamepad.tracker.max_observation_age_ms",
         config.gamepad.tracker.max_observation_age_ms);
-    line(
-        "gamepad.intent.helpful_manual_overdrive_enabled",
-        config.gamepad.intent.helpful_manual_overdrive_enabled);
-    line(
-        "gamepad.intent.helpful_manual_overdrive_max_scale",
-        config.gamepad.intent.helpful_manual_overdrive_max_scale);
-    line(
-        "gamepad.intent.helpful_manual_direction_weight",
-        config.gamepad.intent.helpful_manual_direction_weight);
     line("gamepad.ads.strength_scale", config.ads.strength_scale);
     line("gamepad.ads.vertical_strength_scale", config.ads.vertical_strength_scale);
     line("gamepad.ads.snap_duration_ms", aim.ads_snap_window_ms);

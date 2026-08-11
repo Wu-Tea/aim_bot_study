@@ -66,11 +66,7 @@ void test_current_control_keys_parse() {
         "vertical_strength = 0.49\n"
         "activation_range_px = 92\n"
         "tolerance_px = 9\n"
-        "manual_escape_threshold = 0.58\n"
-        "[gamepad.intent]\n"
-        "helpful_manual_overdrive_enabled = true\n"
-        "helpful_manual_overdrive_max_scale = 1.18\n"
-        "helpful_manual_direction_weight = 0.40\n");
+        "manual_escape_threshold = 0.58\n");
 
     const auto config = controller_native::load_runtime_config(file.path());
     require(config.vision.capture_fps == 180, "capture cadence not parsed");
@@ -117,6 +113,9 @@ void test_retired_low_rate_keys_are_unknown_and_inert() {
         "[gamepad.intent]\n"
         "wrong_way_manual_preservation_floor = 0.5\n"
         "fresh_vision_wrong_way_manual_floor = 0.2\n"
+        "helpful_manual_overdrive_enabled = true\n"
+        "helpful_manual_overdrive_max_scale = 1.20\n"
+        "helpful_manual_direction_weight = 0.45\n"
         "[gamepad.aim_assist_dynamics]\n"
         "enabled = false\n");
 
@@ -146,6 +145,12 @@ void test_retired_low_rate_keys_are_unknown_and_inert() {
             "retired causal memory must be rejected");
     require(has_diagnostic(config, "gamepad.intent.wrong_way_manual_preservation_floor"),
             "retired axis floor must be rejected");
+    require(has_diagnostic(config, "gamepad.intent.helpful_manual_overdrive_enabled"),
+            "retired manual overdrive switch must be rejected");
+    require(has_diagnostic(config, "gamepad.intent.helpful_manual_overdrive_max_scale"),
+            "retired manual overdrive scale must be rejected");
+    require(has_diagnostic(config, "gamepad.intent.helpful_manual_direction_weight"),
+            "retired manual direction weight must be rejected");
     require(has_diagnostic(config, "gamepad.aim_assist_dynamics.enabled"),
             "retired dynamics switch must be rejected");
     require(std::fabs(config.gamepad.tracker.max_observation_age_ms - 50.0f) < 1e-5f,

@@ -1,0 +1,67 @@
+{
+  "artifact_sha256": "2dbf14c6813f2635fa66a1c6c928fa155e352f15c66572c3d553eb0b61a52294",
+  "checks": {
+    "counterfactuals": 1,
+    "evidence": {
+      "facts": 3,
+      "inferences": 1,
+      "unknowns": 1
+    },
+    "fixture": {
+      "covariates": [
+        "controller_mode",
+        "freshness",
+        "left_stick_manual",
+        "logging_mode",
+        "recoil_firing",
+        "refresh_rate_hz",
+        "right_stick_manual",
+        "target_count",
+        "target_generation"
+      ],
+      "kind": "unit",
+      "source_files": 1,
+      "trigger_assertions": 3
+    },
+    "green": {
+      "passed_oracles": [
+        "O1",
+        "O2"
+      ],
+      "verified": true
+    },
+    "oracles": 2,
+    "red": {
+      "failed_oracles": [
+        "O1"
+      ],
+      "verified": true
+    },
+    "verification": {
+      "diff_reviewed": true,
+      "focused_tests": 3
+    }
+  },
+  "incident_id": "centered-motion-authority-release",
+  "issues": [],
+  "schema_version": 1,
+  "stage": "complete",
+  "status": "PASS",
+  "verified_artifacts": [
+    {
+      "id": "candidate-report",
+      "sha256": "6f988755f9c1bf131088bd63df9b4c8329aba81c3666c7c71a815fd69f22369c",
+      "size_bytes": 538
+    },
+    {
+      "id": "centered-motion-artifact-manifest",
+      "sha256": "70283dd6a4ae9f45006e85510f8089e77bee79643b8b54ec80e7389006ad595c",
+      "size_bytes": 1184
+    },
+    {
+      "id": "known-bad-report",
+      "sha256": "b5f9067907fb856398aee4e24e34ffa3b7ba0168a7159efadd23cb3507ac2f7d",
+      "size_bytes": 604
+    }
+  ]
+}

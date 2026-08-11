@@ -202,6 +202,79 @@ void test_no_target_is_physical_passthrough() {
             "no-target tick did not stay in manual passthrough");
 }
 
+void test_centered_motion_demand_retains_ai_authority() {
+    controller_native::AssistControlStateMachine state_machine;
+    controller_native::AssistControlStateMachineInput input;
+    input.aiming = true;
+    input.target_authoritative = true;
+    input.fresh_observation = true;
+    input.target_id = 1001;
+    input.selector_target_generation = 61;
+    input.credible_candidate_count = 1;
+    input.now_seconds = 15.0;
+    input.target_error_px = {8.0f, -8.0f};
+    input.ai_stick = {0.15f, -0.12f};
+
+    const auto approach = state_machine.update(input);
+    const bool trigger_established =
+        !approach.manual_passthrough_x &&
+        !approach.manual_passthrough_y &&
+        std::fabs(approach.stick.x) > 1.0e-4f &&
+        std::fabs(approach.stick.y) > 1.0e-4f;
+
+    // A centered moving target still has a non-zero shaped motion proposal.
+    // This models left-stick strafing with no physical right-stick input.
+    input.now_seconds += 0.005;
+    input.target_error_px = {0.25f, -0.25f};
+    input.manual_stick = {};
+    input.ai_stick = {0.08f, -0.06f};
+    const auto centered_motion = state_machine.update(input);
+
+    const int retained_motion_axes =
+        (!centered_motion.manual_passthrough_x &&
+         std::fabs(centered_motion.stick.x - input.ai_stick.x) <= 1.0e-6f
+            ? 1 : 0) +
+        (!centered_motion.manual_passthrough_y &&
+         std::fabs(centered_motion.stick.y - input.ai_stick.y) <= 1.0e-6f
+            ? 1 : 0);
+
+    // Counterfactual: once the shaped AI proposal is genuinely idle, centered
+    // tracking must still return both axes to physical manual input.
+    input.now_seconds += 0.005;
+    input.manual_stick = {0.12f, -0.14f};
+    input.ai_stick = {};
+    const auto centered_idle = state_machine.update(input);
+    const bool idle_counterfactual =
+        centered_idle.manual_passthrough_x &&
+        centered_idle.manual_passthrough_y &&
+        std::fabs(centered_idle.stick.x - input.manual_stick.x) <= 1.0e-6f &&
+        std::fabs(centered_idle.stick.y - input.manual_stick.y) <= 1.0e-6f;
+
+    std::cout << "[CenteredMotionAuthority] trigger="
+              << (trigger_established ? 1 : 0)
+              << " retained_motion_axes=" << retained_motion_axes
+              << " centered_output=(" << centered_motion.stick.x << ","
+              << centered_motion.stick.y << ") idle_counterfactual="
+              << (idle_counterfactual ? 1 : 0) << "\n";
+
+    if (!trigger_established || retained_motion_axes != 2 ||
+        !idle_counterfactual) {
+        throw std::runtime_error(
+            "centered-motion continuity failed: trigger=" +
+            std::to_string(trigger_established ? 1 : 0) +
+            " retained_motion_axes=" +
+            std::to_string(retained_motion_axes) +
+            " centered_output=(" +
+            std::to_string(centered_motion.stick.x) + "," +
+            std::to_string(centered_motion.stick.y) + ") passthrough=(" +
+            std::to_string(centered_motion.manual_passthrough_x ? 1 : 0) +
+            "," +
+            std::to_string(centered_motion.manual_passthrough_y ? 1 : 0) +
+            ") idle_counterfactual=" +
+            std::to_string(idle_counterfactual ? 1 : 0));
+    }
+}
+
 void test_fresh_target_has_one_current_plan_and_one_output_owner() {
     double now = 20.0;
     NativeGamepadController controller(current_config(), [&now] { return now; });
@@ -449,6 +522,7 @@ void test_current_chain_outputs_remain_finite_and_bounded() {
 int main() {
     try {
         test_no_target_is_physical_passthrough();
+        test_centered_motion_demand_retains_ai_authority();
         test_fresh_target_has_one_current_plan_and_one_output_owner();
         test_controller_tick_without_source_does_not_project_observation();
         test_fresh_no_target_removes_authority_immediately();

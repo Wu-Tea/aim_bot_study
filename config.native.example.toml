@@ -95,11 +95,6 @@ activation_range_px = 80
 tolerance_px = 8
 manual_escape_threshold = 0.45
 
-[gamepad.intent]
-helpful_manual_overdrive_enabled = true
-helpful_manual_overdrive_max_scale = 1.20
-helpful_manual_direction_weight = 0.45
-
 # All documented recoil overrides remain available.
 [gamepad.recoil]
 enabled = true

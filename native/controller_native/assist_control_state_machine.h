@@ -34,7 +34,6 @@ struct AssistControlStateMachineConfig {
     // Away/orthogonal input below this alignment may leave the current target.
     float handover_current_alignment_max = 0.25f;
     float material_ai_axis_output = 1.0e-4f;
-    float material_target_error_axis_px = 1.0f;
     float capture_settle_radius_px = 10.0f;
     std::uint32_t capture_settle_fresh_frames = 2;
     float capture_timeout_ms = 135.0f;
@@ -54,8 +53,6 @@ struct AssistControlStateMachineInput {
     pipeline_contract::Vec2f manual_stick{};
     // AI-only output is used to decide whether an axis earned authority.
     pipeline_contract::Vec2f ai_stick{};
-    // Target-guided output may include a bounded helpful/manual correction.
-    pipeline_contract::Vec2f target_stick{};
 };
 
 struct AssistControlStateMachineOutput {
@@ -154,11 +151,9 @@ public:
 
         if (phase_ == AssistControlPhase::Capture) {
             const auto ai = finite_or_zero(input.ai_stick);
-            output.stick.x = ai_axis_has_work(
-                ai.x, input.target_error_px.x)
+            output.stick.x = ai_axis_has_work(ai.x)
                 ? ai.x : 0.0f;
-            output.stick.y = ai_axis_has_work(
-                ai.y, -input.target_error_px.y)
+            output.stick.y = ai_axis_has_work(ai.y)
                 ? ai.y : 0.0f;
             output.handover_braking = true;
             output.phase = phase_;
@@ -206,13 +201,13 @@ public:
 
         const auto manual = finite_or_zero(input.manual_stick);
         const auto ai = finite_or_zero(input.ai_stick);
-        const auto target = finite_or_zero(input.target_stick);
-        output.manual_passthrough_x = !ai_axis_has_work(
-            ai.x, input.target_error_px.x);
-        output.manual_passthrough_y = !ai_axis_has_work(
-            ai.y, -input.target_error_px.y);
-        output.stick.x = output.manual_passthrough_x ? manual.x : target.x;
-        output.stick.y = output.manual_passthrough_y ? manual.y : target.y;
+        // Position error may be near zero while target-relative motion still
+        // requires feed-forward. Keep that shaped proposal authoritative until
+        // it becomes materially idle instead of releasing on a 1 px crossing.
+        output.manual_passthrough_x = !ai_axis_has_work(ai.x);
+        output.manual_passthrough_y = !ai_axis_has_work(ai.y);
+        output.stick.x = output.manual_passthrough_x ? manual.x : ai.x;
+        output.stick.y = output.manual_passthrough_y ? manual.y : ai.y;
         output.phase = phase_;
         remember_target(input);
         return output;
@@ -243,12 +238,10 @@ private:
         remember_target(input);
     }
 
-    bool ai_axis_has_work(float ai, float target_error) const noexcept {
-        return std::isfinite(ai) && std::isfinite(target_error) &&
+    bool ai_axis_has_work(float ai) const noexcept {
+        return std::isfinite(ai) &&
             std::fabs(ai) > std::max(
-                0.0f, config_.material_ai_axis_output) &&
-            std::fabs(target_error) > std::max(
-                0.0f, config_.material_target_error_axis_px);
+                0.0f, config_.material_ai_axis_output);
     }
 
     bool is_handover_request(

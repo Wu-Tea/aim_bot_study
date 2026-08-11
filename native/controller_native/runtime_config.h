@@ -117,19 +117,12 @@ struct GamepadTrackerConfig {
     float max_observation_age_ms = 50.0f;
 };
 
-struct GamepadIntentConfig {
-    bool helpful_manual_overdrive_enabled = true;
-    float helpful_manual_overdrive_max_scale = 1.20f;
-    float helpful_manual_direction_weight = 0.45f;
-};
-
 struct GamepadRuntimeConfig {
     std::string auto_fire_output = "RB";
     bool rb_counts_as_aiming = false;
     bool xinput_auto_detect = true;
     unsigned int xinput_user_index = 0;
     GamepadTrackerConfig tracker;
-    GamepadIntentConfig intent;
     GamepadAutoFireConfig auto_fire;
     GamepadAiAimConfig ai_aim;
     AimResponseCurveConfig aim_response_curve;
