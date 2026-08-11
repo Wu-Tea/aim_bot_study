@@ -39,6 +39,11 @@ struct TelemetryTickInput {
     const char* assist_control_phase = "manual";
     bool manual_passthrough_x = true;
     bool manual_passthrough_y = true;
+    bool manual_correction_x = false;
+    bool manual_correction_y = false;
+    bool manual_boundary_x = false;
+    bool manual_boundary_y = false;
+    bool manual_exit_requested = false;
     bool handover_requested = false;
     bool handover_braking = false;
     float bodylock_error_rate_x = 0.0f, bodylock_error_rate_y = 0.0f;
@@ -64,6 +69,14 @@ struct TelemetryTickInput {
     float final_x = 0.0f, final_y = 0.0f;
     float observed_error_x = 0.0f, observed_error_y = 0.0f;
     float control_error_x = 0.0f, control_error_y = 0.0f;
+    float source_aim_x = 0.0f, source_aim_y = 0.0f;
+    float desired_aim_x = 0.0f, desired_aim_y = 0.0f;
+    float desired_point_u = 0.0f, desired_point_v = 0.0f;
+    float aim_region_x1 = 0.0f, aim_region_y1 = 0.0f;
+    float aim_region_x2 = 0.0f, aim_region_y2 = 0.0f;
+    bool has_aim_region = false;
+    const char* aim_region_source = "none";
+    const char* desired_point_source = "none";
     float final_left_x = 0.0f, final_left_y = 0.0f;
     bool output_saturated = false;
     std::uint64_t selected_track_id = 0;

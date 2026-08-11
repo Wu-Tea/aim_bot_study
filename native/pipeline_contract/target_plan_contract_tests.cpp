@@ -48,11 +48,27 @@ void test_plan_values_can_be_validated() {
     require_true(!pipeline_contract::valid(plan), "non-finite plan error must be rejected");
 }
 
+void test_desired_point_must_remain_inside_valid_region() {
+    pipeline_contract::TargetPlan plan{};
+    plan.has_aim_region = true;
+    plan.aim_region_px = {100.0f, 120.0f, 40.0f, 80.0f};
+    plan.source_aim_px = {120.0f, 150.0f};
+    plan.aim_px = {120.0f, 160.0f};
+    plan.desired_point_normalized = {0.5f, 0.5f};
+    require_true(pipeline_contract::valid(plan),
+                 "D inside R must validate");
+
+    plan.aim_px.y = 210.0f;
+    require_true(!pipeline_contract::valid(plan),
+                 "D outside R must fail the plan contract");
+}
+
 }  // namespace
 
 int main() {
     test_defaults_are_safe();
     test_plan_is_fixed_size_and_publishable();
     test_plan_values_can_be_validated();
+    test_desired_point_must_remain_inside_valid_region();
     return 0;
 }

@@ -174,7 +174,7 @@ def init_template(audit_id: str) -> dict[str, Any]:
                     "git_commit": "unknown",
                     "config_hash": "unknown",
                     "engine_hash": "unknown",
-                    "telemetry_schema": 13,
+                    "telemetry_schema": 15,
                     "logging_mode": "detailed",
                     "hardware_profile": "unknown",
                     "game_refresh_hz": "unknown",
@@ -190,7 +190,7 @@ def init_template(audit_id: str) -> dict[str, Any]:
                         "id": "telemetry-0",
                         "kind": "telemetry_jsonl",
                         "path": "REPLACE/native_runtime_telemetry_0.jsonl",
-                        "expected_schema_version": 13,
+                        "expected_schema_version": 15,
                     },
                 ],
             }

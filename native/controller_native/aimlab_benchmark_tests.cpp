@@ -98,7 +98,7 @@ void test_real_selector_intent_improves_near_side_vs_far_front() {
         "intent-aware selector scenario should score materially better than baseline");
 }
 
-void test_manual_intent_variants_improve_near_side_vs_far_front() {
+void test_manual_intent_variants_respect_wrong_identity_hard_gate() {
     const auto baseline = controller_native::aimlab::run_scenario(
         "near_side_vs_far_front_no_intent",
         12345);
@@ -132,12 +132,15 @@ void test_manual_intent_variants_improve_near_side_vs_far_front() {
     expect_true(
         clean.final_score > baseline.final_score + 40.0,
         "clean manual input should materially improve final score");
+    // Slow/noisy intent still reduces exposure, but both runs contain a wrong
+    // strong target lock. Product V1 makes wrong identity a hard failure, so
+    // aggregate improvement must not buy back a positive release score.
     expect_true(
-        slow.final_score > baseline.final_score + 25.0,
-        "established slow manual input should still improve final score");
+        slow.wrong_target_ads_snap_count > 0 && slow.final_score <= 0.001,
+        "slow intent incorrectly averaged away a wrong-identity hard failure");
     expect_true(
-        noisy.final_score > baseline.final_score + 25.0,
-        "noisy manual input should still improve final score despite correction noise");
+        noisy.wrong_target_ads_snap_count > 0 && noisy.final_score <= 0.001,
+        "noisy intent incorrectly averaged away a wrong-identity hard failure");
     expect_true(
         clean.final_score <= perfect.final_score + 0.001,
         "clean manual input should not exceed perfect intent baseline");
@@ -338,7 +341,7 @@ int main() {
     test_helpful_output_increases_cooperation_score();
     test_near_side_vs_far_front_penalizes_far_wrong_target();
     test_real_selector_intent_improves_near_side_vs_far_front();
-    test_manual_intent_variants_improve_near_side_vs_far_front();
+    test_manual_intent_variants_respect_wrong_identity_hard_gate();
     test_late_manual_intent_exposes_sticky_selector_risk();
     test_multi_target_flick_is_adversarial_not_perfect();
     test_corpse_cue_loss_is_adversarial_not_perfect();

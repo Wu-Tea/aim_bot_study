@@ -26,13 +26,6 @@ inline const char* assist_control_phase_name(AssistControlPhase phase) noexcept 
 }
 
 struct AssistControlStateMachineConfig {
-    // A decisive stick motion is selection intent, not a weak manual/AI mix.
-    float handover_flick_threshold = 0.55f;
-    // If the current target is already near center, a decisive flick may seek
-    // another visible candidate even when both lie in a similar direction.
-    float handover_center_radius_px = 24.0f;
-    // Away/orthogonal input below this alignment may leave the current target.
-    float handover_current_alignment_max = 0.25f;
     float material_ai_axis_output = 1.0e-4f;
     float capture_settle_radius_px = 10.0f;
     std::uint32_t capture_settle_fresh_frames = 2;
@@ -46,13 +39,20 @@ struct AssistControlStateMachineInput {
     bool cue_continuation = false;
     std::uint64_t target_id = 0;
     std::uint64_t selector_target_generation = 0;
-    std::uint32_t credible_candidate_count = 0;
     double now_seconds = 0.0;
     pipeline_contract::Vec2f target_error_px{};
-    // Physical stick uses gamepad coordinates: positive Y is down-stick.
+    // Physical stick uses XInput coordinates: positive Y is up-stick.
     pipeline_contract::Vec2f manual_stick{};
-    // AI-only output is used to decide whether an axis earned authority.
+    // Filtered manual is the one noise-owned direction signal. Physical manual
+    // remains the native output baseline.
+    pipeline_contract::Vec2f filtered_manual_stick{};
+    // AI-only output is the desired total proposal for the one 2-D solver.
     pipeline_contract::Vec2f ai_stick{};
+    // TargetCoordinator has already interpreted these axes as a correction of
+    // D inside the valid R. They are not generic raw-manual passthrough.
+    bool manual_correction_x = false;
+    bool manual_correction_y = false;
+    bool manual_exit_requested = false;
 };
 
 struct AssistControlStateMachineOutput {
@@ -63,6 +63,8 @@ struct AssistControlStateMachineOutput {
     bool handover_braking = false;
     bool manual_passthrough_x = false;
     bool manual_passthrough_y = false;
+    bool manual_correction_x = false;
+    bool manual_correction_y = false;
 };
 
 class AssistControlStateMachine {
@@ -129,8 +131,8 @@ public:
             return output;
         } else if (has_new_target) {
             // Ordinary acquisition/replacement needs no extra ownership
-            // layer: the target proposal goes straight to Track, whose
-            // per-axis rule already preserves manual wherever AI is idle.
+            // layer: the target proposal goes straight to Track, whose one
+            // 2-D solve preserves the native vector and fills cooperative work.
             phase_ = AssistControlPhase::Track;
             remember_target(input);
         }
@@ -150,11 +152,17 @@ public:
         }
 
         if (phase_ == AssistControlPhase::Capture) {
+            const auto manual = finite_or_zero(input.manual_stick);
+            const auto filtered_manual = finite_or_zero(
+                input.filtered_manual_stick);
             const auto ai = finite_or_zero(input.ai_stick);
-            output.stick.x = ai_axis_has_work(ai.x)
-                ? ai.x : 0.0f;
-            output.stick.y = ai_axis_has_work(ai.y)
-                ? ai.y : 0.0f;
+            output.manual_correction_x = input.manual_correction_x;
+            output.manual_correction_y = input.manual_correction_y;
+            output.stick = cooperative_output(manual, filtered_manual, ai);
+            output.manual_passthrough_x =
+                std::fabs(output.stick.x - manual.x) <= 1.0e-6f;
+            output.manual_passthrough_y =
+                std::fabs(output.stick.y - manual.y) <= 1.0e-6f;
             output.handover_braking = true;
             output.phase = phase_;
 
@@ -189,7 +197,7 @@ public:
         }
 
         if (phase_ == AssistControlPhase::Track &&
-            is_handover_request(input)) {
+            input.manual_exit_requested) {
             phase_ = AssistControlPhase::HandoverSeek;
             output.stick = finite_or_zero(input.manual_stick);
             output.phase = phase_;
@@ -200,14 +208,23 @@ public:
         }
 
         const auto manual = finite_or_zero(input.manual_stick);
+        const auto filtered_manual = finite_or_zero(
+            input.filtered_manual_stick);
         const auto ai = finite_or_zero(input.ai_stick);
         // Position error may be near zero while target-relative motion still
         // requires feed-forward. Keep that shaped proposal authoritative until
         // it becomes materially idle instead of releasing on a 1 px crossing.
-        output.manual_passthrough_x = !ai_axis_has_work(ai.x);
-        output.manual_passthrough_y = !ai_axis_has_work(ai.y);
-        output.stick.x = output.manual_passthrough_x ? manual.x : ai.x;
-        output.stick.y = output.manual_passthrough_y ? manual.y : ai.y;
+        output.manual_correction_x = input.manual_correction_x;
+        output.manual_correction_y = input.manual_correction_y;
+        // M is always the native baseline. A is a desired total proposal, so
+        // add only its missing, direction-compatible residual. One 2-D cosine
+        // replaces independent X/Y sign switches and introduces no takeover
+        // threshold, timer or second authority owner.
+        output.stick = cooperative_output(manual, filtered_manual, ai);
+        output.manual_passthrough_x =
+            std::fabs(output.stick.x - manual.x) <= 1.0e-6f;
+        output.manual_passthrough_y =
+            std::fabs(output.stick.y - manual.y) <= 1.0e-6f;
         output.phase = phase_;
         remember_target(input);
         return output;
@@ -238,40 +255,56 @@ private:
         remember_target(input);
     }
 
-    bool ai_axis_has_work(float ai) const noexcept {
-        return std::isfinite(ai) &&
-            std::fabs(ai) > std::max(
-                0.0f, config_.material_ai_axis_output);
-    }
-
-    bool is_handover_request(
-        const AssistControlStateMachineInput& input) const noexcept {
-        if (input.cue_continuation || input.credible_candidate_count < 2) {
-            return false;
+    pipeline_contract::Vec2f cooperative_output(
+        pipeline_contract::Vec2f manual,
+        pipeline_contract::Vec2f filtered_manual,
+        pipeline_contract::Vec2f ai) const noexcept {
+        const float ai_length = std::hypot(ai.x, ai.y);
+        if (!std::isfinite(ai_length) ||
+            ai_length <= std::max(0.0f, config_.material_ai_axis_output)) {
+            return manual;
         }
-        const float manual_magnitude = std::hypot(
-            input.manual_stick.x, input.manual_stick.y);
-        if (!std::isfinite(manual_magnitude) ||
-            manual_magnitude < config_.handover_flick_threshold) {
-            return false;
+        const float filtered_length = std::hypot(
+            filtered_manual.x, filtered_manual.y);
+        if (!std::isfinite(filtered_length) || filtered_length <= 0.0f) {
+            return ai;
         }
 
-        const float error_magnitude = std::hypot(
-            input.target_error_px.x, input.target_error_px.y);
-        if (!std::isfinite(error_magnitude)) return false;
-        if (error_magnitude <= config_.handover_center_radius_px) return true;
-        if (error_magnitude <= 0.001f || manual_magnitude <= 0.001f) {
-            return false;
-        }
+        const float alignment = std::clamp(
+            (filtered_manual.x * ai.x + filtered_manual.y * ai.y) /
+                (filtered_length * ai_length),
+            0.0f,
+            1.0f);
+        if (alignment <= 0.0f) return manual;
 
-        // Target error uses screen Y (down positive), while this runtime's
-        // physical right-stick Y is inverted when converted to screen intent.
-        const float alignment =
-            ((input.target_error_px.x / error_magnitude) *
-             (input.manual_stick.x / manual_magnitude)) +
-            ((input.target_error_px.y / error_magnitude) *
-             (-input.manual_stick.y / manual_magnitude));
-        return alignment <= config_.handover_current_alignment_max;
+        const pipeline_contract::Vec2f ai_direction{
+            ai.x / ai_length,
+            ai.y / ai_length,
+        };
+        const float manual_along_ai = std::max(
+            0.0f,
+            manual.x * ai_direction.x + manual.y * ai_direction.y);
+        float assist = alignment * std::max(
+            0.0f, ai_length - manual_along_ai);
+        if (assist <= 0.0f) return manual;
+
+        // Preserve M exactly and cap only the new residual to remaining radial
+        // headroom. This never scales down a native full-stick request.
+        const float manual_length_squared = std::min(
+            1.0f, manual.x * manual.x + manual.y * manual.y);
+        const float manual_projection =
+            manual.x * ai_direction.x + manual.y * ai_direction.y;
+        const float discriminant = std::max(
+            0.0f,
+            manual_projection * manual_projection +
+                1.0f - manual_length_squared);
+        const float radial_headroom = std::max(
+            0.0f, -manual_projection + std::sqrt(discriminant));
+        assist = std::min(assist, radial_headroom);
+        return finite_or_zero({
+            manual.x + assist * ai_direction.x,
+            manual.y + assist * ai_direction.y,
+        });
     }
 
     AssistControlStateMachineConfig config_{};

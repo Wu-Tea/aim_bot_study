@@ -15,9 +15,24 @@ struct Vec2f {
     float y = 0.0f;
 };
 
+// R is the current source-supported region in which a desired impact point is
+// considered anatomically valid and hittable. It is deliberately distinct
+// from the detector body box: the detector box is evidence, while R is the
+// smaller control contract published by the Vision target owner.
+enum class AimRegionSource : unsigned char {
+    None,
+    VisionGeometry,
+    BodyBoxFallback,
+    CueTranslated,
+};
+
 struct VisionCandidate {
     std::uint64_t source_id = 0;
+    // Source-selected anatomical point. The coordinator may preserve a
+    // user-corrected D inside aim_region_px instead of blindly replacing it.
     Vec2f aim_px{};
+    common_native::Box2f aim_region_px{};
+    AimRegionSource aim_region_source = AimRegionSource::None;
     Vec2f box_size_px{};
     common_native::Box2f body_box_px{};
     Vec2f motion_anchor_px{};
@@ -28,6 +43,8 @@ struct VisionCandidate {
     float reliability = 0.0f;
     bool body_cue = false;
     bool head_cue = false;
+    bool has_aim_point = false;
+    bool has_aim_region = false;
     bool has_body_box = false;
     bool has_motion_anchor = false;
 };

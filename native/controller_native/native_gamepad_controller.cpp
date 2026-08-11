@@ -1,5 +1,4 @@
 #include "native_gamepad_controller.h"
-#include "target_geometry.h"
 #include "../tracking_native/tracker_authority.h"
 
 #include <algorithm>
@@ -38,6 +37,36 @@ const char* lifecycle_name(pipeline_contract::TargetLifecycle lifecycle) noexcep
     return "inactive";
 }
 
+const char* aim_region_source_name(
+    pipeline_contract::AimRegionSource source) noexcept {
+    switch (source) {
+    case pipeline_contract::AimRegionSource::VisionGeometry:
+        return "vision_geometry";
+    case pipeline_contract::AimRegionSource::BodyBoxFallback:
+        return "body_box_fallback";
+    case pipeline_contract::AimRegionSource::CueTranslated:
+        return "cue_translated";
+    case pipeline_contract::AimRegionSource::None:
+        return "none";
+    }
+    return "none";
+}
+
+const char* desired_point_source_name(
+    pipeline_contract::DesiredPointSource source) noexcept {
+    switch (source) {
+    case pipeline_contract::DesiredPointSource::VisionDefault:
+        return "vision_default";
+    case pipeline_contract::DesiredPointSource::UserCorrected:
+        return "user_corrected";
+    case pipeline_contract::DesiredPointSource::CueCarried:
+        return "cue_carried";
+    case pipeline_contract::DesiredPointSource::None:
+        return "none";
+    }
+    return "none";
+}
+
 TargetCoordinatorConfig coordinator_config(const GamepadRuntimeConfig& config) {
     TargetCoordinatorConfig result{};
     result.max_observation_age_ms = std::max(
@@ -55,6 +84,10 @@ TargetCoordinatorConfig coordinator_config(const GamepadRuntimeConfig& config) {
     result.bodylock_exit_radius_px = std::max(
         result.settle_radius_px * 2.0f,
         config.ai_aim.body_lock_box_tolerance_px * 3.0f);
+    result.desired_point_traversal_ms =
+        config.ai_aim.desired_point_traversal_ms;
+    result.desired_point_boundary_exit_ms =
+        config.ai_aim.desired_point_boundary_exit_ms;
     return result;
 }
 
@@ -91,8 +124,6 @@ BodylockFollowControllerConfig bodylock_config(const GamepadRuntimeConfig& confi
 AssistControlStateMachineConfig assist_control_config(
     const GamepadRuntimeConfig& config) {
     AssistControlStateMachineConfig result{};
-    result.handover_flick_threshold = std::max(
-        0.55f, config.ai_aim.body_lock_manual_escape_input_threshold);
     result.capture_settle_radius_px = std::max(
         2.0f, config.ai_aim.ads_completion_radius_px);
     result.capture_settle_fresh_frames = 2;
@@ -101,39 +132,6 @@ AssistControlStateMachineConfig assist_control_config(
         60.0f,
         135.0f);
     return result;
-}
-
-float firing_vertical_intent_offset_px(
-    const GamepadRuntimeConfig& config,
-    const pipeline_contract::TargetPlan& plan,
-    float manual_y,
-    bool aiming,
-    bool firing) noexcept {
-    if (!config.recoil.firing_vertical_intent_enabled || !aiming || !firing ||
-        plan.target_id == 0 || plan.aim_authority <= 0.0f ||
-        plan.mode == pipeline_contract::ControlMode::Manual ||
-        plan.ads_candidate_count > 1 || !std::isfinite(manual_y)) {
-        return 0.0f;
-    }
-    const float deadzone = std::clamp(
-        config.recoil.firing_vertical_intent_deadzone, 0.0f, 0.25f);
-    const float magnitude = std::fabs(manual_y);
-    if (magnitude <= deadzone) return 0.0f;
-
-    const float normalized = std::clamp(
-        (magnitude - deadzone) / std::max(0.001f, 1.0f - deadzone),
-        0.0f, 1.0f);
-    const float configured_max = std::max(
-        0.0f, config.recoil.firing_vertical_intent_max_offset_px);
-    if (configured_max <= 0.0f) return 0.0f;
-    const float scale_bound = std::clamp(
-        plan.normalized_size * 120.0f,
-        std::min(12.0f, configured_max),
-        configured_max);
-    // Stick Y is negative for a downward camera request, while a target below
-    // the reticle is positive error Y. Convert manual intent into D, then let
-    // the existing ADS/BodyLock solver produce the sole final T.
-    return -std::copysign(normalized * scale_bound, manual_y);
 }
 
 }  // namespace
@@ -174,12 +172,16 @@ void NativeGamepadController::reset() {
     last_firing_activity_seconds_ = -1.0;
     ads_epoch_ = 0;
     last_tick_seconds_ = 0.0;
-    last_observed_ads_candidate_count_ = 0;
     aim_response_command_sum_ = {};
     aim_response_command_count_ = 0;
     last_aim_response_frame_id_ = 0;
     last_aim_response_observed_seconds_ = 0.0;
     aim_response_manual_ambiguous_ = false;
+    sampled_physical_ = {};
+    sampled_intent_ = {};
+    sampled_now_seconds_ = 0.0;
+    sampled_dt_seconds_ = 0.001f;
+    has_sampled_input_ = false;
     last_pipeline_traces_.clear();
     last_acquisition_trace_ = {};
     acquisition_trace_target_id_ = 0;
@@ -227,18 +229,32 @@ pipeline_contract::VisionObservationBatch NativeGamepadController::observation_b
         snapshot.candidates.size(), pipeline_contract::kMaxVisionCandidates);
     for (std::size_t index = 0; index < limit; ++index) {
         const auto& source = snapshot.candidates[index];
-        if (!source.valid || !source.has_aim_point || source.is_friendly) continue;
+        if (!source.valid || source.is_friendly) continue;
         auto& destination = batch.candidates[batch.count++];
         destination.source_id = source.id;
         const float width = std::max(0.0f, source.body_box_px.w);
         const float height = std::max(0.0f, source.body_box_px.h);
-        const auto geometry = resolve_target_geometry(
-            {source.aim_point_px, source.body_box_px, width > 0.0f && height > 0.0f},
-            {config_.tracker.aim_height_ratio});
-        destination.aim_px = {geometry.aim_px.x, geometry.aim_px.y};
+        destination.aim_px = {
+            source.aim_point_px.x, source.aim_point_px.y};
+        destination.has_aim_point = source.has_aim_point;
         destination.box_size_px = {width, height};
         destination.body_box_px = source.body_box_px;
         destination.has_body_box = width > 0.0f && height > 0.0f;
+        destination.aim_region_px = source.aim_region_px;
+        destination.aim_region_source = source.aim_region_source;
+        destination.has_aim_region = source.has_aim_region &&
+            source.aim_region_px.w > 1.0f &&
+            source.aim_region_px.h > 1.0f;
+        if (!destination.has_aim_region && destination.has_body_box &&
+            destination.has_aim_point) {
+            // Explicit compatibility boundary for fixtures/legacy producers:
+            // use the observed body box as conservative R, but never recompute
+            // the selector's anatomical point from a second height ratio.
+            destination.aim_region_px = source.body_box_px;
+            destination.aim_region_source =
+                pipeline_contract::AimRegionSource::BodyBoxFallback;
+            destination.has_aim_region = true;
+        }
         destination.motion_anchor_px = {
             source.motion_anchor_px.x, source.motion_anchor_px.y};
         destination.motion_anchor_score =
@@ -256,7 +272,12 @@ pipeline_contract::VisionObservationBatch NativeGamepadController::observation_b
         destination.reliability = destination.confidence * size_weight;
         destination.body_cue = height > 0.0f;
     }
-    if (batch.count == 0 && snapshot.state.has_target) {
+    // The selector owns target identity, D and R. The only target-shaped state
+    // that may arrive without a person candidate is an explicit same-generation
+    // cue continuation. Any other has_target/candidate mismatch must fail closed
+    // in TargetCoordinator instead of creating a second controller-side target
+    // protocol from the flattened legacy state.
+    if (batch.count == 0 && batch.selector_cue_continuation) {
         auto& destination = batch.candidates[0];
         batch.count = 1;
         destination.source_id = snapshot.state.selected_track_id != 0
@@ -281,19 +302,32 @@ pipeline_contract::VisionObservationBatch NativeGamepadController::observation_b
             snapshot.state.body_y1,
             std::max(0.0f, snapshot.state.body_x2 - snapshot.state.body_x1),
             height};
-        const auto geometry = resolve_target_geometry(
-            {vision_aim, body_box, snapshot.state.has_body_box},
-            {config_.tracker.aim_height_ratio});
-        destination.aim_px = {geometry.aim_px.x, geometry.aim_px.y};
+        destination.aim_px = {vision_aim.x, vision_aim.y};
+        destination.has_aim_point = true;
         destination.box_size_px = {
             body_box.w, height};
         destination.body_box_px = body_box;
         destination.has_body_box = snapshot.state.has_body_box;
+        const common_native::Box2f state_region{
+            snapshot.state.aim_region_x1,
+            snapshot.state.aim_region_y1,
+            std::max(
+                0.0f,
+                snapshot.state.aim_region_x2 - snapshot.state.aim_region_x1),
+            std::max(
+                0.0f,
+                snapshot.state.aim_region_y2 - snapshot.state.aim_region_y1)};
+        destination.aim_region_px = snapshot.state.has_aim_region
+            ? state_region : body_box;
+        destination.aim_region_source =
+            pipeline_contract::AimRegionSource::CueTranslated;
+        destination.has_aim_region =
+            destination.aim_region_px.w > 1.0f &&
+            destination.aim_region_px.h > 1.0f;
         destination.normalized_size = std::clamp(
             height / std::max(1.0f, batch.frame_height_px), 0.0f, 1.0f);
-        destination.confidence = snapshot.state.aim_authority ? 1.0f : 0.6f;
-        destination.cue_confidence =
-            batch.selector_cue_continuation ? 1.0f : 0.0f;
+        destination.confidence = 1.0f;
+        destination.cue_confidence = 1.0f;
         destination.reliability = destination.confidence * (height > 0.0f
             ? std::clamp(destination.normalized_size / 0.12f, 0.35f, 1.0f)
             : 1.0f);
@@ -323,15 +357,20 @@ NativeControllerVisionState NativeGamepadController::vision_state_from_plan(
     state.aim_authority = plan.aim_authority > 0.0f;
     state.fire_authority = !plan.cue_continuation && plan.fire_authority;
     state.auto_fire_requested = !plan.cue_continuation && plan.fire_requested;
-    // D is observation geometry.  plan.error_px may now be R=D-P, which is
-    // the control request but must never be used to reconstruct the viewport
-    // center or target geometry.
+    // D is desired geometry, while source_aim_px is observation geometry.
+    // plan.error_px is the D-to-reticle control request; it must never be
+    // mistaken for a fresh source observation.
     state.dx = observed_error_px.x;
     state.dy = observed_error_px.y;
     state.target_x = plan.aim_px.x;
     state.target_y = plan.aim_px.y;
     state.screen_center_x = plan.aim_px.x - observed_error_px.x;
     state.screen_center_y = plan.aim_px.y - observed_error_px.y;
+    state.has_aim_region = plan.has_aim_region;
+    state.aim_region_x1 = plan.aim_region_px.x;
+    state.aim_region_y1 = plan.aim_region_px.y;
+    state.aim_region_x2 = plan.aim_region_px.x + plan.aim_region_px.w;
+    state.aim_region_y2 = plan.aim_region_px.y + plan.aim_region_px.h;
     state.observed_at_seconds = now_seconds - plan.observation_age_ms / 1000.0;
     state.target_tier = plan.cue_continuation
         ? "cue_hold"
@@ -339,12 +378,8 @@ NativeControllerVisionState NativeGamepadController::vision_state_from_plan(
     return state;
 }
 
-GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadState& physical) {
-    last_pipeline_traces_.clear();
-    GamepadOutputState output = output_from_physical_input(physical);
-    auto components = output_components_from_manual_output(output);
-    components.physical_stick = {physical.right_x, physical.right_y};
-    components.manual_stick = {physical.right_x, physical.right_y};
+const pipeline_contract::IntentState& NativeGamepadController::sample_input(
+    const PhysicalGamepadState& physical) {
     const double now = now_seconds();
     const float dt = last_tick_seconds_ > 0.0
         ? static_cast<float>(std::clamp(now - last_tick_seconds_, 0.0001, 0.05))
@@ -357,10 +392,38 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
         auto_fire_gate_.reset_readiness();
     }
     previous_aiming_ = aiming_;
-    const auto intent = intent_filter_.update(
+    sampled_physical_ = physical;
+    sampled_now_seconds_ = now;
+    sampled_dt_seconds_ = dt;
+    sampled_intent_ = intent_filter_.update(
         {physical.left_x, physical.left_y},
         {physical.right_x, physical.right_y},
-        aiming_, manual_fire_pressed(physical), now);
+        aiming_, manual_fire_pressed(physical), now,
+        last_target_plan_.target_id != 0,
+        last_output_components_.handover_requested);
+    has_sampled_input_ = true;
+    return sampled_intent_;
+}
+
+GamepadOutputState NativeGamepadController::build_output(
+    const PhysicalGamepadState& physical) {
+    (void)sample_input(physical);
+    return build_output_from_sampled_input();
+}
+
+GamepadOutputState NativeGamepadController::build_output_from_sampled_input() {
+    if (!has_sampled_input_) return {};
+    const PhysicalGamepadState physical = sampled_physical_;
+    const pipeline_contract::IntentState intent = sampled_intent_;
+    const double now = sampled_now_seconds_;
+    const float dt = sampled_dt_seconds_;
+    has_sampled_input_ = false;
+
+    last_pipeline_traces_.clear();
+    GamepadOutputState output = output_from_physical_input(physical);
+    auto components = output_components_from_manual_output(output);
+    components.physical_stick = {physical.right_x, physical.right_y};
+    components.manual_stick = {physical.right_x, physical.right_y};
     components.filtered_manual_stick = {
         intent.filtered_right.x,
         intent.filtered_right.y};
@@ -411,14 +474,25 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
         plan.fire_requested = false;
         plan.fire_suppression = pipeline_contract::FireSuppressionReason::AimOnly;
     }
-    const auto raw_error_px = plan.error_px;
-    const bool firing_input = manual_fire_pressed(physical);
-    const float firing_vertical_offset = firing_vertical_intent_offset_px(
-        config_, plan, physical.right_y, aiming_, firing_input);
-    plan.error_px.y += firing_vertical_offset;
-    plan.predicted_terminal_error_px.y += firing_vertical_offset;
-    components.observed_error_px = {raw_error_px.x, raw_error_px.y};
+    const pipeline_contract::Vec2f screen_center{
+        plan.aim_px.x - plan.error_px.x,
+        plan.aim_px.y - plan.error_px.y};
+    const pipeline_contract::Vec2f source_error_px{
+        plan.source_aim_px.x - screen_center.x,
+        plan.source_aim_px.y - screen_center.y};
+    components.observed_error_px = {source_error_px.x, source_error_px.y};
     components.control_error_px = {plan.error_px.x, plan.error_px.y};
+    components.source_aim_px = {plan.source_aim_px.x, plan.source_aim_px.y};
+    components.desired_aim_px = {plan.aim_px.x, plan.aim_px.y};
+    components.desired_point_normalized = {
+        plan.desired_point_normalized.x,
+        plan.desired_point_normalized.y};
+    components.aim_region_px = plan.aim_region_px;
+    components.has_aim_region = plan.has_aim_region;
+    components.aim_region_source = aim_region_source_name(
+        plan.aim_region_source);
+    components.desired_point_source = desired_point_source_name(
+        plan.desired_point_source);
     const std::uint64_t plan_decision_ns = seconds_to_ns(now);
     last_target_plan_ = plan;
     if (plan.target_acquisition_id != acquisition_trace_target_id_) {
@@ -497,7 +571,7 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
         last_aim_response_observed_seconds_ = now;
     }
     last_frame_vision_state_ = vision_state_from_plan(
-        plan, now, observations.capture_fresh, raw_error_px);
+        plan, now, observations.capture_fresh, plan.error_px);
     last_ai_aim_mode_ = mode_name(plan.mode);
 
     // ADS/BodyLock own the complete AI proposal. Manual authority is decided
@@ -511,11 +585,6 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
     const bool target_authoritative =
         plan.target_id != 0 && plan.aim_authority > 0.0f &&
         plan.mode != pipeline_contract::ControlMode::Manual;
-    if (observations.capture_fresh && !plan.cue_continuation) {
-        last_observed_ads_candidate_count_ = plan.ads_candidate_count;
-    } else if (!target_authoritative) {
-        last_observed_ads_candidate_count_ = 0;
-    }
     pipeline_contract::Vec2f requested{};
     BodylockFollowControllerOutput bodylock_diagnostics{};
     if (plan.mode == pipeline_contract::ControlMode::AdsAcquire) {
@@ -581,6 +650,8 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
     components.ai_aim_stick = components.shaped_assist_stick;
     bool target_manual_passthrough_x = false;
     bool target_manual_passthrough_y = false;
+    bool target_manual_correction_x = false;
+    bool target_manual_correction_y = false;
     AssistControlPhase assist_control_phase = AssistControlPhase::Manual;
     bool assist_handover_requested = false;
     bool assist_handover_braking = false;
@@ -596,13 +667,15 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
         control_input.target_id = plan.target_id;
         control_input.selector_target_generation =
             plan.selector_target_generation;
-        control_input.credible_candidate_count =
-            last_observed_ads_candidate_count_;
         control_input.now_seconds = now;
         control_input.target_error_px = plan.error_px;
         control_input.manual_stick = {
             physical.right_x, physical.right_y};
+        control_input.filtered_manual_stick = intent.filtered_right;
         control_input.ai_stick = {shaped.x, shaped.y};
+        control_input.manual_correction_x = plan.manual_correction_x;
+        control_input.manual_correction_y = plan.manual_correction_y;
+        control_input.manual_exit_requested = plan.manual_exit_requested;
         const auto decision = assist_control_state_machine_.update(
             control_input);
         output.right_x = clamp_unit(decision.stick.x);
@@ -612,6 +685,8 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
         assist_handover_braking = decision.handover_braking;
         target_manual_passthrough_x = decision.manual_passthrough_x;
         target_manual_passthrough_y = decision.manual_passthrough_y;
+        target_manual_correction_x = decision.manual_correction_x;
+        target_manual_correction_y = decision.manual_correction_y;
 
     }
     last_acquisition_trace_.fused_output = {output.right_x, output.right_y};
@@ -633,6 +708,15 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
         ? "handover_seek_manual"
         : assist_handover_braking
             ? "capture_ai_brake"
+        : target_manual_correction_x || target_manual_correction_y
+            ? "target_valid_point_correction"
+        : target_authoritative &&
+                intent.right_purpose ==
+                    pipeline_contract::UserAimIntentPurpose::AcquireTarget &&
+                std::hypot(
+                    intent.filtered_right.x,
+                    intent.filtered_right.y) > 0.0f
+            ? "target_acquisition_gesture_cooperative"
         : target_authoritative
             ? (target_manual_passthrough_x && target_manual_passthrough_y
             ? "target_present_ai_idle_manual_passthrough"
@@ -646,6 +730,11 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
         assist_control_phase_name(assist_control_phase);
     components.manual_passthrough_x = target_manual_passthrough_x;
     components.manual_passthrough_y = target_manual_passthrough_y;
+    components.manual_correction_x = target_manual_correction_x;
+    components.manual_correction_y = target_manual_correction_y;
+    components.manual_boundary_x = plan.manual_boundary_x;
+    components.manual_boundary_y = plan.manual_boundary_y;
+    components.manual_exit_requested = plan.manual_exit_requested;
     components.handover_requested = assist_handover_requested;
     components.handover_braking = assist_handover_braking;
     components.aim_mode = last_ai_aim_mode_;
@@ -708,7 +797,7 @@ GamepadOutputState NativeGamepadController::build_output(const PhysicalGamepadSt
         output,
         physical,
         plan,
-        raw_error_px,
+        source_error_px,
         observations.capture_fresh,
         aiming_,
         fire.should_fire,

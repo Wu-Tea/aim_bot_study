@@ -184,8 +184,7 @@ bool is_known_key(const std::string& section, const std::string& key) {
         "completion_radius_px", "completion_fresh_frames", "max_acquisition_ms",
         "start_delay_ms", "start_ramp_ms"};
     static const std::unordered_set<std::string> bodylock_keys{
-        "strength", "vertical_strength", "activation_range_px", "tolerance_px",
-        "manual_escape_threshold"};
+        "strength", "vertical_strength", "activation_range_px", "tolerance_px"};
     static const std::unordered_set<std::string> gamepad_keys{
         "auto_fire_output", "rb_counts_as_aiming", "xinput_auto_detect",
         "xinput_user_index"};
@@ -200,8 +199,7 @@ bool is_known_key(const std::string& section, const std::string& key) {
         "profile_directory", "calibration_directory", "weapon_directory",
         "recognizer_state_path", "recognizer_fps", "profile_amount", "profile_x_amount",
         "feedback_amount", "adaptive_feedback_enabled", "adaptive_min_amount",
-        "adaptive_max_amount", "firing_vertical_intent_enabled",
-        "firing_vertical_intent_max_offset_px", "firing_vertical_intent_deadzone",
+        "adaptive_max_amount",
         "profile_lead_ms", "profile_velocity_reference_ms",
         "profile_despike_threshold_px", "profile_despike_ratio", "piecewise_mid_pixels_y",
         "piecewise_max_pixels_y", "piecewise_mid_ratio_y"};
@@ -215,7 +213,7 @@ bool is_known_key(const std::string& section, const std::string& key) {
         "auto_fire_ready_max_ai_stick", "cue_hold_body_lock_force_scale",
         "body_lock_max_ai_force", "body_lock_max_ai_force_y",
         "body_lock_box_tolerance_px", "body_lock_activation_box_px",
-        "body_lock_manual_escape_input_threshold"};
+        "desired_point_traversal_ms", "desired_point_boundary_exit_ms"};
     if (section == "runtime") return runtime_keys.count(key) != 0;
     if (section == "runtime.vision") return vision_keys.count(key) != 0;
     if (section == "runtime.telemetry") return telemetry_keys.count(key) != 0;
@@ -373,9 +371,12 @@ void apply_gamepad_ai_aim_value(
     } else if (key == "body_lock_activation_box_px") {
         config.body_lock_activation_box_px =
             parse_float_value(value, config.body_lock_activation_box_px);
-    } else if (key == "body_lock_manual_escape_input_threshold") {
-        config.body_lock_manual_escape_input_threshold =
-            parse_float_value(value, config.body_lock_manual_escape_input_threshold);
+    } else if (key == "desired_point_traversal_ms") {
+        config.desired_point_traversal_ms =
+            parse_float_value(value, config.desired_point_traversal_ms);
+    } else if (key == "desired_point_boundary_exit_ms") {
+        config.desired_point_boundary_exit_ms =
+            parse_float_value(value, config.desired_point_boundary_exit_ms);
     }
 }
 
@@ -423,15 +424,6 @@ void apply_gamepad_recoil_value(
     } else if (key == "adaptive_max_amount") {
         config.adaptive_max_amount =
             parse_float_value(value, config.adaptive_max_amount);
-    } else if (key == "firing_vertical_intent_enabled") {
-        config.firing_vertical_intent_enabled =
-            parse_bool_value(value, config.firing_vertical_intent_enabled);
-    } else if (key == "firing_vertical_intent_max_offset_px") {
-        config.firing_vertical_intent_max_offset_px =
-            parse_float_value(value, config.firing_vertical_intent_max_offset_px);
-    } else if (key == "firing_vertical_intent_deadzone") {
-        config.firing_vertical_intent_deadzone =
-            parse_float_value(value, config.firing_vertical_intent_deadzone);
     } else if (key == "profile_lead_ms") {
         config.profile_lead_ms = parse_float_value(value, config.profile_lead_ms);
     } else if (key == "profile_velocity_reference_ms") {
@@ -694,9 +686,6 @@ void apply_value(
             body.body_lock_activation_box_px = parse_float_value(value, body.body_lock_activation_box_px);
         } else if (key == "tolerance_px") {
             body.body_lock_box_tolerance_px = parse_float_value(value, body.body_lock_box_tolerance_px);
-        } else if (key == "manual_escape_threshold") {
-            body.body_lock_manual_escape_input_threshold =
-                parse_float_value(value, body.body_lock_manual_escape_input_threshold);
         }
     } else if (section == "gamepad.auto_fire") {
         apply_gamepad_auto_fire_value(config.gamepad.auto_fire, key, value);
@@ -842,6 +831,12 @@ void validate_runtime_config(RuntimeConfig& config) {
     if (config.gamepad.ai_aim.ads_start_ramp_ms < 0.0f ||
         config.gamepad.ai_aim.ads_start_ramp_ms > 500.0f)
         invalid("gamepad.ads.start_ramp_ms", "0..500");
+    if (config.gamepad.ai_aim.desired_point_traversal_ms < 40.0f ||
+        config.gamepad.ai_aim.desired_point_traversal_ms > 2000.0f)
+        invalid("gamepad.ai_aim.desired_point_traversal_ms", "40..2000");
+    if (config.gamepad.ai_aim.desired_point_boundary_exit_ms < 50.0f ||
+        config.gamepad.ai_aim.desired_point_boundary_exit_ms > 2000.0f)
+        invalid("gamepad.ai_aim.desired_point_boundary_exit_ms", "50..2000");
     if (config.gamepad.aim_response_curve.calibration_reference_stick < 0.05f ||
         config.gamepad.aim_response_curve.calibration_reference_stick > 1.0f)
         invalid(

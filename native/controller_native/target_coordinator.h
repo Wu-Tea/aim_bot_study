@@ -1,6 +1,5 @@
 #pragma once
 
-#include "target_geometry.h"
 #include "pipeline_contract/intent_state.h"
 #include "pipeline_contract/target_plan.h"
 #include "pipeline_contract/vision_observation.h"
@@ -15,6 +14,7 @@ struct TargetCoordinatorConfig {
     std::uint32_t settle_frames = 5;
     float ads_nominal_acquisition_ms = 135.0f;
     float ads_max_acquisition_ms = 220.0f;
+    // Response-demand normalization only; Vision owns target admission.
     float ads_activation_radius_px = 135.0f;
     float bodylock_activation_radius_px = 150.0f;
     float bodylock_exit_radius_px = 48.0f;
@@ -24,12 +24,13 @@ struct TargetCoordinatorConfig {
     // tail is never accumulated or released into a later controller tick.
     float bodylock_max_target_acceleration_px_per_second2 = 3000.0f;
     float fire_innovation_limit_px = 3.5f;
-    bool firing_body_geometry_stabilizer_enabled = true;
     // A fast mean-reverting observation state absorbs camera/gun-kick
     // transients so they cannot become persistent target velocity.
     bool firing_disturbance_observer_enabled = true;
     float jump_fall_velocity_px_per_second = 100.0f;
     float max_authority = 1.0f;
+    float desired_point_traversal_ms = 180.0f;
+    float desired_point_boundary_exit_ms = 250.0f;
 };
 
 struct TargetControlFeedback {
@@ -50,14 +51,19 @@ public:
         const TargetControlFeedback& feedback = {}) noexcept;
 
     void begin_ads_epoch(std::uint64_t epoch, double now_seconds) noexcept;
-    void set_firing_body_geometry_stabilizer_enabled_for_benchmark(
-        bool enabled) noexcept;
     void set_firing_disturbance_observer_enabled_for_benchmark(
         bool enabled) noexcept;
     void reset() noexcept;
 
 private:
     void reset_target_owned_state_for_replacement() noexcept;
+    void adopt_candidate_geometry(
+        const pipeline_contract::VisionCandidate& candidate,
+        bool cue_continuation,
+        bool reset_desired_point) noexcept;
+    void update_desired_point_from_manual(
+        const pipeline_contract::IntentState& intent,
+        float dt_seconds) noexcept;
     const pipeline_contract::VisionCandidate* choose_candidate(
         const pipeline_contract::VisionObservationBatch& observations,
         pipeline_contract::Vec2f association_anchor) const noexcept;
@@ -71,12 +77,18 @@ private:
         std::uint64_t preferred_source_id = 0) noexcept;
 
     TargetCoordinatorConfig config_{};
-    StableBodyAimTracker stable_body_aim_tracker_{};
     pipeline_contract::Vec2f
         previous_firing_velocity_innovation_{};
     bool firing_velocity_observer_active_ = false;
     pipeline_contract::TargetPlan latest_{};
+    pipeline_contract::Vec2f source_position_{};
     pipeline_contract::Vec2f position_{};
+    common_native::Box2f aim_region_{};
+    pipeline_contract::Vec2f desired_point_normalized_{};
+    pipeline_contract::AimRegionSource aim_region_source_ =
+        pipeline_contract::AimRegionSource::None;
+    pipeline_contract::DesiredPointSource desired_point_source_ =
+        pipeline_contract::DesiredPointSource::None;
     pipeline_contract::Vec2f velocity_{};
     pipeline_contract::Vec2f acceleration_{};
     std::uint64_t source_id_ = 0;
@@ -97,7 +109,16 @@ private:
     pipeline_contract::Vec2f last_observed_target_size_px_{};
     std::uint32_t settled_frames_ = 0;
     std::uint32_t observed_frames_ = 0;
+    float manual_boundary_seconds_x_ = 0.0f;
+    float manual_boundary_seconds_y_ = 0.0f;
     bool has_target_ = false;
+    bool has_aim_region_ = false;
+    bool user_desired_point_active_ = false;
+    bool manual_correction_x_ = false;
+    bool manual_correction_y_ = false;
+    bool manual_boundary_x_ = false;
+    bool manual_boundary_y_ = false;
+    bool manual_exit_requested_ = false;
     bool has_observation_capture_time_ = false;
     bool has_processed_capture_ = false;
     bool has_processed_capture_time_ = false;

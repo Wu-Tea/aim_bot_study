@@ -7,6 +7,9 @@ authoritative baseline.
 
 ## Maintained contracts
 
+- [Closed-loop Gameplay Acceptance V1](CLOSED_LOOP_GAMEPLAY_ACCEPTANCE_V1_20260811.md) —
+  production-chain-in-the-loop game simulation, incident fixtures, hard gates
+  and non-vacuous scoring rules.
 - [Sustained AimLab](sustained-aimlab.md) — one-minute randomized ADS and
   BodyLock acquisition/tracking benchmark.
 - [Vision blind window](vision-blind-window.md) — separates capture,

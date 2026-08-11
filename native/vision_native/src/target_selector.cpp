@@ -14,9 +14,9 @@ namespace {
 constexpr float kChestTargetRatio = 0.40f;
 constexpr float kCrouchedTargetRatio = 0.40f;
 constexpr float kWideLowTargetRatio = 0.65f;
-constexpr float kTorsoBoxShrinkX = 0.22f;
-constexpr float kTorsoBoxShrinkTop = 0.18f;
-constexpr float kTorsoBoxShrinkBottom = 0.20f;
+constexpr float kAimRegionShrinkX = 0.22f;
+constexpr float kAimRegionHalfHeightRatio = 0.18f;
+constexpr float kWideLowAimRegionHalfHeightRatio = 0.22f;
 constexpr float kFireShrinkX = 0.12f;
 constexpr float kFireShrinkTop = 0.05f;
 constexpr float kFireShrinkBottom = 0.15f;
@@ -37,12 +37,9 @@ constexpr float kTrackingRadiusRatio = 120.0f / 640.0f;
 constexpr float kPickupConfirmRadiusRatio = 32.0f / 640.0f;
 constexpr float kMaxAreaLimitRatio = 40000.0f / (640.0f * 640.0f);
 constexpr int kPickupConfirmFrames = 2;
-constexpr int kSwitchConfirmFrames = 2;
 constexpr float kActiveTargetIouThreshold = 0.12f;
 constexpr float kActiveTargetCenterXRatio = 0.65f;
 constexpr float kActiveTargetCenterYRatio = 0.35f;
-constexpr float kActiveTargetScoreSwitchMargin = 2000.0f;
-constexpr float kSwitchCrosshairMarginRatio = 16.0f / 640.0f;
 constexpr float kCrosshairPriorityMarginRatio = 10.0f / 640.0f;
 constexpr float kStaleActiveHeightRetainRatio = 0.75f;
 constexpr float kStaleActiveSwitchConfidenceSlack = 0.05f;
@@ -65,7 +62,9 @@ constexpr int kCueHoldMinPixels = 6;
 // directly observed person+cue pair may therefore lend the cue bounded ADS
 // continuation authority, but never cue-only pickup or fire authority.
 constexpr std::uint64_t kCueHoldEvidenceGapNs = 50'000'000ull;
-constexpr std::uint64_t kCueHoldMaxDurationNs = 1'000'000'000ull;
+// Product-contract safety ceiling. Continuous fresh cue evidence may bridge
+// only a short direct-person occlusion; it is not a one-second target hold.
+constexpr std::uint64_t kCueHoldMaxDurationNs = 180'000'000ull;
 constexpr int kMaxCueHoldFallbackFrames = 12;
 // Cue continuation is a current-frame color observation, not a prediction
 // from the previous person point.  Keep one bounded window large enough for a
@@ -89,11 +88,6 @@ constexpr float kIntentMinStrength = 0.05f;
 constexpr float kIntentScoreScale = 700.0f;
 constexpr float kIntentPickupConfidenceThreshold = 0.50f;
 constexpr float kIntentPickupScoreThreshold = kIntentScoreScale * 0.85f;
-constexpr float kHandoverIntentMinStrength = 0.55f;
-constexpr float kHandoverIntentMinAlignment = 0.55f;
-constexpr float kHandoverIntentScoreThreshold =
-    kIntentScoreScale * kHandoverIntentMinStrength *
-    kHandoverIntentMinAlignment;
 constexpr float kHandoverCapturedRadiusPx = 24.0f;
 constexpr float kHandoverActiveIntentRatio = 0.75f;
 constexpr float kWeakObservedScorePenalty = 1200.0f;
@@ -555,7 +549,9 @@ IntentScore score_intent(
     float frame_width,
     float frame_height,
     const pipeline_contract::UserAimIntent* intent) {
-    if (intent == nullptr || !intent->valid || !intent->aiming) {
+    if (intent == nullptr || !intent->valid || !intent->aiming ||
+        intent->purpose ==
+            pipeline_contract::UserAimIntentPurpose::CorrectCurrentTarget) {
         return {};
     }
 
@@ -807,7 +803,6 @@ VisionTargetSelector::VisionTargetSelector(int frame_width, int frame_height)
     const float frame_area = frame_width_ * frame_height_;
     tracking_radius_ = avg_dim * kTrackingRadiusRatio;
     pickup_confirm_radius_ = avg_dim * kPickupConfirmRadiusRatio;
-    switch_crosshair_margin_ = avg_dim * kSwitchCrosshairMarginRatio;
     crosshair_priority_margin_ = avg_dim * kCrosshairPriorityMarginRatio;
     max_area_limit_ = frame_area * kMaxAreaLimitRatio;
 }
@@ -825,10 +820,8 @@ void VisionTargetSelector::clear_tracking_state() {
     active_generation_had_enemy_evidence_ = false;
     active_marker_expired_ = false;
     pending_target_.reset();
-    pending_switch_target_.reset();
     clear_cue_tracking();
     pending_frames_ = 0;
-    pending_switch_frames_ = 0;
     reset_motion_anchor();
 }
 
@@ -959,6 +952,13 @@ VisionResult VisionTargetSelector::result_from_target(const TargetState& target,
     result.body_y1 = target.candidate.body_box.top;
     result.body_x2 = target.candidate.body_box.right;
     result.body_y2 = target.candidate.body_box.bottom;
+    result.has_aim_region =
+        rect_width(target.candidate.aim_region) > 1.0f &&
+        rect_height(target.candidate.aim_region) > 1.0f;
+    result.aim_region_x1 = target.candidate.aim_region.left;
+    result.aim_region_y1 = target.candidate.aim_region.top;
+    result.aim_region_x2 = target.candidate.aim_region.right;
+    result.aim_region_y2 = target.candidate.aim_region.bottom;
     result.target_source = target.candidate.source;
     result.target_tier = target_tier_for_source(target.candidate.source);
     result.aim_authority = aim_authority_for_source(target.candidate.source);
@@ -996,14 +996,23 @@ std::pair<float, float> VisionTargetSelector::target_point(const Rect& box) cons
     };
 }
 
-VisionTargetSelector::Rect VisionTargetSelector::fallback_slow_zone(const Rect& box) const {
+VisionTargetSelector::Rect VisionTargetSelector::fallback_aim_region(const Rect& box) const {
+    // Lightweight V1 geometry: keep R around the pose-aware default point,
+    // rather than relabelling most of the detector box as upper chest/head.
+    // This owner can later be replaced by a calibrated body/pose estimator
+    // without changing the downstream I/R/D/T control contract.
     const float box_w = rect_width(box);
     const float box_h = rect_height(box);
+    const auto point = target_point(box);
+    const float half_height = box_h * (
+        is_wide_low_pose(box_w, box_h)
+            ? kWideLowAimRegionHalfHeightRatio
+            : kAimRegionHalfHeightRatio);
     return {
-        box.left + (box_w * kTorsoBoxShrinkX),
-        box.top + (box_h * kTorsoBoxShrinkTop),
-        box.right - (box_w * kTorsoBoxShrinkX),
-        box.bottom - (box_h * kTorsoBoxShrinkBottom),
+        box.left + (box_w * kAimRegionShrinkX),
+        std::max(box.top, point.second - half_height),
+        box.right - (box_w * kAimRegionShrinkX),
+        std::min(box.bottom, point.second + half_height),
     };
 }
 
@@ -1259,7 +1268,7 @@ std::optional<VisionTargetSelector::Candidate> VisionTargetSelector::build_candi
     observed.cue_y = detection.cue_y;
     observed.cue_score = detection.cue_score;
     observed.body_box = box;
-    observed.slow_zone = fallback_slow_zone(box);
+    observed.aim_region = fallback_aim_region(box);
     observed.fire_zone = fire_zone(box);
     observed.source = "observed";
 
@@ -1347,7 +1356,7 @@ std::optional<VisionTargetSelector::Candidate> VisionTargetSelector::build_weak_
     weak.cue_y = detection.cue_y;
     weak.cue_score = detection.cue_score;
     weak.body_box = box;
-    weak.slow_zone = fallback_slow_zone(box);
+    weak.aim_region = fallback_aim_region(box);
     weak.fire_zone = fire_zone(box);
     weak.source = "associated_weak";
 
@@ -1670,22 +1679,6 @@ bool VisionTargetSelector::should_escape_stale_active_match(
     return challenger_distance <= (locked_distance + (tracking_radius_ * radius_scale));
 }
 
-bool VisionTargetSelector::should_switch_targets(
-    const TargetState& locked,
-    const TargetState& challenger) const {
-    if (challenger.score >= (locked.score + kActiveTargetScoreSwitchMargin)) {
-        return true;
-    }
-
-    const float locked_distance = crosshair_distance(
-        locked.candidate.target_x,
-        locked.candidate.target_y);
-    const float challenger_distance = crosshair_distance(
-        challenger.candidate.target_x,
-        challenger.candidate.target_y);
-    return challenger_distance < (locked_distance - switch_crosshair_margin_);
-}
-
 std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::confirm_pickup(
     const TargetState& target,
     bool allow_marked_single_frame_pickup) {
@@ -1720,41 +1713,13 @@ std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::confirm_p
     return target;
 }
 
-std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::confirm_switch(
-    const TargetState& target) {
-    if (kSwitchConfirmFrames <= 1) {
-        return target;
-    }
-
-    if (!pending_switch_target_.has_value() || !targets_match(*pending_switch_target_, target)) {
-        pending_switch_target_ = target;
-        pending_switch_frames_ = 1;
-        return std::nullopt;
-    }
-
-    pending_switch_target_ = target;
-    pending_switch_frames_ += 1;
-    if (pending_switch_frames_ < kSwitchConfirmFrames) {
-        return std::nullopt;
-    }
-
-    clear_switch_pending();
-    return target;
-}
-
 void VisionTargetSelector::clear_pending() {
     pending_target_.reset();
     pending_frames_ = 0;
 }
 
-void VisionTargetSelector::clear_switch_pending() {
-    pending_switch_target_.reset();
-    pending_switch_frames_ = 0;
-}
-
 std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::commit_target(
     const TargetState& target,
-    bool clear_switch_pending_flag,
     bool allow_marked_single_frame_pickup) {
     std::optional<TargetState> committed = target;
     if (!active_target_.has_value()) {
@@ -1764,10 +1729,6 @@ std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::commit_ta
         }
     } else {
         clear_pending();
-    }
-
-    if (clear_switch_pending_flag) {
-        clear_switch_pending();
     }
 
     const bool is_replacement = active_target_.has_value() &&
@@ -1808,8 +1769,23 @@ std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::commit_ta
 }
 
 std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::select_single_candidate(
-    const Candidate& candidate) const {
-    return target_from_candidate(candidate, candidate.color_bonus + (candidate.conf * kConfidenceScoreScale));
+    const Candidate& candidate,
+    const pipeline_contract::UserAimIntent* intent) const {
+    TargetState selected = target_from_candidate(
+        candidate,
+        candidate.color_bonus +
+            (candidate.conf * kConfidenceScoreScale));
+    const auto intent_score = score_intent(
+        candidate,
+        screen_center_x_,
+        screen_center_y_,
+        frame_width_,
+        frame_height_,
+        intent);
+    selected.intent_applied = intent_score.applied;
+    selected.intent_decision = intent_score.decision;
+    selected.intent_score = intent_score.bonus;
+    return selected;
 }
 
 std::pair<std::optional<VisionTargetSelector::TargetState>, std::optional<VisionTargetSelector::TargetState>>
@@ -1843,7 +1819,7 @@ VisionTargetSelector::select_multi_candidate(
             best_non_active = scored;
         }
         if (!matches_active && scored.intent_applied &&
-            scored.intent_score >= kHandoverIntentScoreThreshold &&
+            scored.intent_score > 0.0f &&
             (!best_intent_non_active.has_value() ||
              scored.intent_score > best_intent_non_active->intent_score ||
              (std::fabs(scored.intent_score -
@@ -1885,11 +1861,11 @@ VisionTargetSelector::select_multi_candidate(
         }
     }
 
-    const bool decisive_directional_intent = intent != nullptr &&
-        intent->valid && intent->aiming && intent->has_direction &&
-        std::isfinite(intent->strength) &&
-        intent->strength >= kHandoverIntentMinStrength;
-    if (decisive_directional_intent && active_match.has_value() &&
+    const bool identity_selection_intent = intent != nullptr &&
+        intent->valid && intent->aiming &&
+        intent->purpose !=
+            pipeline_contract::UserAimIntentPurpose::CorrectCurrentTarget;
+    if (identity_selection_intent && active_match.has_value() &&
         best_intent_non_active.has_value()) {
         const float locked_crosshair_distance = crosshair_distance(
             active_match->second.candidate.target_x,
@@ -1929,7 +1905,7 @@ VisionTargetSelector::select_candidate_targets(
         return {std::nullopt, std::nullopt};
     }
     if (candidates.size() == 1) {
-        const auto chosen = select_single_candidate(candidates.front());
+        const auto chosen = select_single_candidate(candidates.front(), intent);
         const auto active_match = (chosen.has_value() && active_target_matches_candidate(candidates.front()))
             ? chosen
             : std::nullopt;
@@ -1938,97 +1914,64 @@ VisionTargetSelector::select_candidate_targets(
     return select_multi_candidate(candidates, last_target_center, intent);
 }
 
-std::pair<std::optional<VisionTargetSelector::TargetState>, bool>
+std::optional<VisionTargetSelector::TargetState>
 VisionTargetSelector::resolve_active_target_transition(
     const TargetState& chosen_target,
     const std::optional<TargetState>& active_match_target,
-    const pipeline_contract::UserAimIntent* intent,
-    bool single_credible_candidate) {
+    const pipeline_contract::UserAimIntent* intent) {
     if (!active_target_.has_value()) {
-        clear_switch_pending();
-        return {chosen_target, false};
+        return chosen_target;
     }
 
     if (active_match_target.has_value()) {
         if (!targets_match(chosen_target, *active_match_target)) {
-            // Liveness invalidation is safety evidence, not an ordinary
-            // target-handover preference.  A just-collapsed active target
-            // must therefore yield to a confirmed live challenger even when
-            // the user's current stick direction is not aligned with it.
+            const bool identity_selection_allowed = intent != nullptr &&
+                intent->valid && intent->aiming &&
+                intent->purpose !=
+                    pipeline_contract::UserAimIntentPurpose::CorrectCurrentTarget;
+            // Liveness invalidation removes authority; it does not silently
+            // grant the next-highest scorer a different identity. Publish no
+            // target so Controller returns to acquisition/manual authority,
+            // unless that authority has now issued an aligned replacement.
             if (should_escape_stale_active_match(*active_match_target, chosen_target)) {
-                const auto confirmed_switch = confirm_switch(chosen_target);
-                if (!confirmed_switch.has_value()) {
-                    // Keep identity while the live replacement confirms, but
-                    // never actuate the just-invalidated person's old point.
-                    return {std::nullopt, true};
-                }
-                return {*confirmed_switch, false};
+                return identity_selection_allowed && chosen_target.intent_applied
+                    ? std::optional<TargetState>(chosen_target)
+                    : std::nullopt;
             }
-            // A valid aiming intent is the user's handover authority for a
-            // multi-target frame. If the chosen challenger is not aligned
-            // with that intent, do not let ordinary score/crosshair ranking
-            // release the current target after the confirmation delay.
-            if (intent != nullptr && intent->valid && intent->aiming
-                && !chosen_target.intent_applied) {
-                clear_switch_pending();
+            // While Controller owns I, raw direction is D correction and can
+            // never be reused as a competing selector vote. Ordinary score
+            // changes likewise cannot replace a still-valid active identity.
+            if (!identity_selection_allowed || !chosen_target.intent_applied) {
                 TargetState retained = *active_match_target;
                 retained.intent_applied = false;
-                retained.intent_decision = "ignored_unaligned_challenger";
-                retained.intent_score = 0.0f;
-                return {retained, false};
-            }
-            const bool decisive_intent_handover = intent != nullptr &&
-                intent->valid && intent->aiming && intent->has_direction &&
-                std::isfinite(intent->strength) &&
-                intent->strength >= kHandoverIntentMinStrength &&
-                chosen_target.intent_applied &&
-                chosen_target.intent_score >= kHandoverIntentScoreThreshold;
-            if (decisive_intent_handover) {
-                // Strong user direction is explicit handover authority.  It
-                // must not pay the ordinary two-frame switch-confirm delay.
-                clear_switch_pending();
-                return {chosen_target, false};
-            }
-            if (should_switch_targets(*active_match_target, chosen_target)) {
-                const auto confirmed_switch = confirm_switch(chosen_target);
-                if (!confirmed_switch.has_value()) {
-                    TargetState retained = *active_match_target;
-                    if (chosen_target.intent_applied) {
-                        retained.intent_applied = false;
-                        retained.intent_decision = "delayed_switch_confirm";
-                        retained.intent_score = chosen_target.intent_score;
-                    }
-                    return {retained, true};
-                }
-                return {*confirmed_switch, false};
-            }
-            clear_switch_pending();
-            TargetState retained = *active_match_target;
-            if (chosen_target.intent_applied) {
-                retained.intent_applied = false;
-                retained.intent_decision = "ignored_active_lock";
+                retained.intent_decision = identity_selection_allowed
+                    ? "ignored_unaligned_challenger"
+                    : "current_target_correction_only";
                 retained.intent_score = chosen_target.intent_score;
+                return retained;
             }
-            return {retained, false};
+            // Boundary-qualified handover already paid its temporal
+            // disambiguation cost in Controller. Do not add another frame
+            // queue before allowing the selector-owned identity transition.
+            return chosen_target;
         }
 
-        clear_switch_pending();
-        return {*active_match_target, false};
+        return *active_match_target;
     }
 
-    if (single_credible_candidate) {
-        // At high Vision rates a sole credible current observation is more
-        // authoritative than geometry copied from an older frame.  This is
-        // the single-target fast path; multi-target handoff still confirms.
-        clear_switch_pending();
-        return {chosen_target, false};
+    const bool identity_selection_allowed = intent != nullptr &&
+        intent->valid && intent->aiming &&
+        intent->purpose !=
+            pipeline_contract::UserAimIntentPurpose::CorrectCurrentTarget &&
+        chosen_target.intent_applied;
+    if (identity_selection_allowed) {
+        return chosen_target;
     }
 
-    const auto confirmed_switch = confirm_switch(chosen_target);
-    if (!confirmed_switch.has_value()) {
-        return {std::nullopt, false};
-    }
-    return {*confirmed_switch, false};
+    // The previous I disappeared. Release it first; a credible replacement
+    // still needs a new acquisition/handover intent rather than an automatic
+    // score-based switch.
+    return std::nullopt;
 }
 
 std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::try_external_cue_hold(
@@ -2054,7 +1997,7 @@ std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::try_exter
         return std::nullopt;
     }
     held.body_box = shift_rect(active_target_->candidate.body_box, cue_dx, cue_dy);
-    held.slow_zone = shift_rect(active_target_->candidate.slow_zone, cue_dx, cue_dy);
+    held.aim_region = shift_rect(active_target_->candidate.aim_region, cue_dx, cue_dy);
     held.fire_zone = shift_rect(active_target_->candidate.fire_zone, cue_dx, cue_dy);
     held.has_cue = true;
     held.cue_x = batch.external_cue_x;
@@ -2102,7 +2045,7 @@ std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::try_cue_h
         return std::nullopt;
     }
     held.body_box = shift_rect(active_target_->candidate.body_box, cue_dx, cue_dy);
-    held.slow_zone = shift_rect(active_target_->candidate.slow_zone, cue_dx, cue_dy);
+    held.aim_region = shift_rect(active_target_->candidate.aim_region, cue_dx, cue_dy);
     held.fire_zone = shift_rect(active_target_->candidate.fire_zone, cue_dx, cue_dy);
     held.has_cue = true;
     held.cue_x = cue.cue_x;
@@ -2246,7 +2189,6 @@ void VisionTargetSelector::update_cue_tracking(
 VisionResult VisionTargetSelector::finalize_selected_target(
     const TargetState& chosen_target,
     float boxes_seen,
-    bool preserve_switch_pending,
     bool single_credible_candidate,
     std::uint64_t observation_ns) {
     // Direct observations are already current-frame measurements. Historical
@@ -2254,7 +2196,6 @@ VisionResult VisionTargetSelector::finalize_selected_target(
     // but stale coordinate, which then looked like controller latency.
     const auto committed = commit_target(
         chosen_target,
-        !preserve_switch_pending,
         single_credible_candidate);
     if (!committed.has_value()) {
         return empty_result(boxes_seen);
@@ -2347,7 +2288,6 @@ VisionResult VisionTargetSelector::select_impl(
     const auto& candidates = candidate_scratch_;
     if (candidates.empty()) {
         clear_pending();
-        clear_switch_pending();
         if (active_marker_expired_) {
             VisionResult result = empty_result(boxes_seen);
             clear_auto_fire_state();
@@ -2439,11 +2379,10 @@ VisionResult VisionTargetSelector::select_impl(
     const auto transition = resolve_active_target_transition(
         *selected.first,
         selected.second,
-        intent,
-        single_credible_candidate);
-    if (!transition.first.has_value()) {
-        // A pending multi-target switch may retain identity, never the old
-        // point. Current Vision has explicitly declined control ownership.
+        intent);
+    if (!transition.has_value()) {
+        // Identity was invalidated or replacement was not explicitly
+        // requested. Current Vision has declined control ownership.
         VisionResult result = empty_result(boxes_seen);
         clear_auto_fire_state();
         result.auto_fire = false;
@@ -2451,9 +2390,8 @@ VisionResult VisionTargetSelector::select_impl(
     }
 
     return finalize_selected_target(
-        *transition.first,
+        *transition,
         boxes_seen,
-        transition.second,
         single_credible_candidate,
         batch.captured_at_ns);
 }

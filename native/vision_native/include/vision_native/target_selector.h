@@ -66,7 +66,7 @@ public:
         float cue_y = 0.0f;
         float cue_score = 0.0f;
         Rect body_box;
-        Rect slow_zone;
+        Rect aim_region;
         Rect fire_zone;
         float live_score = 1.0f;
         float corpse_risk = 0.0f;
@@ -102,7 +102,7 @@ private:
 
     Rect to_rect(const Detection& detection) const;
     std::pair<float, float> target_point(const Rect& box) const;
-    Rect fallback_slow_zone(const Rect& box) const;
+    Rect fallback_aim_region(const Rect& box) const;
     Rect fire_zone(const Rect& box) const;
     DetectionBatch annotate_colors(const DetectionBatch& batch, const ColorFrameView& frame) const;
     void update_selected_motion_anchor(
@@ -156,20 +156,17 @@ private:
     bool should_escape_stale_active_match(
         const TargetState& locked,
         const TargetState& challenger) const;
-    bool should_switch_targets(const TargetState& locked, const TargetState& challenger) const;
-
     std::optional<TargetState> confirm_pickup(
         const TargetState& target,
         bool allow_marked_single_frame_pickup);
-    std::optional<TargetState> confirm_switch(const TargetState& target);
     void clear_pending();
-    void clear_switch_pending();
     std::optional<TargetState> commit_target(
         const TargetState& target,
-        bool clear_switch_pending,
         bool allow_marked_single_frame_pickup);
 
-    std::optional<TargetState> select_single_candidate(const Candidate& candidate) const;
+    std::optional<TargetState> select_single_candidate(
+        const Candidate& candidate,
+        const pipeline_contract::UserAimIntent* intent) const;
     std::pair<std::optional<TargetState>, std::optional<TargetState>> select_multi_candidate(
         const std::vector<Candidate>& candidates,
         const std::optional<std::pair<float, float>>& last_target_center,
@@ -179,11 +176,10 @@ private:
         const std::optional<std::pair<float, float>>& last_target_center,
         const pipeline_contract::UserAimIntent* intent) const;
 
-    std::pair<std::optional<TargetState>, bool> resolve_active_target_transition(
+    std::optional<TargetState> resolve_active_target_transition(
         const TargetState& chosen_target,
         const std::optional<TargetState>& active_match_target,
-        const pipeline_contract::UserAimIntent* intent,
-        bool single_credible_candidate);
+        const pipeline_contract::UserAimIntent* intent);
     std::optional<TargetState> try_external_cue_hold(const DetectionBatch& batch);
     std::optional<TargetState> try_cue_hold(
         const ColorFrameView& frame,
@@ -202,7 +198,6 @@ private:
     VisionResult finalize_selected_target(
         const TargetState& chosen_target,
         float boxes_seen,
-        bool preserve_switch_pending,
         bool single_credible_candidate,
         std::uint64_t observation_ns);
 
@@ -212,7 +207,6 @@ private:
     float screen_center_y_ = 0.0f;
     float tracking_radius_ = 0.0f;
     float pickup_confirm_radius_ = 0.0f;
-    float switch_crosshair_margin_ = 0.0f;
     float crosshair_priority_margin_ = 0.0f;
     float max_area_limit_ = 0.0f;
 
@@ -225,7 +219,6 @@ private:
     std::optional<std::pair<float, float>> last_target_center_;
     std::optional<TargetState> active_target_;
     std::optional<TargetState> pending_target_;
-    std::optional<TargetState> pending_switch_target_;
     bool active_generation_had_enemy_evidence_ = false;
     bool active_marker_expired_ = false;
     std::optional<std::pair<float, float>> last_cue_point_;
@@ -234,7 +227,6 @@ private:
     std::uint64_t last_direct_cue_observation_ns_ = 0;
     std::uint64_t last_cue_observation_ns_ = 0;
     int pending_frames_ = 0;
-    int pending_switch_frames_ = 0;
     int cue_hold_frames_ = 0;
     bool auto_fire_holding_ = false;
     int auto_fire_miss_frames_ = 0;

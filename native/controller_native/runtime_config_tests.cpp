@@ -65,8 +65,7 @@ void test_current_control_keys_parse() {
         "strength = 0.44\n"
         "vertical_strength = 0.49\n"
         "activation_range_px = 92\n"
-        "tolerance_px = 9\n"
-        "manual_escape_threshold = 0.58\n");
+        "tolerance_px = 9\n");
 
     const auto config = controller_native::load_runtime_config(file.path());
     require(config.vision.capture_fps == 180, "capture cadence not parsed");
@@ -87,8 +86,6 @@ void test_current_control_keys_parse() {
             "settle frame count not parsed");
     require(std::fabs(config.gamepad.ai_aim.body_lock_max_ai_force - 0.44f) < 1e-5f,
             "BodyLock force not parsed");
-    require(std::fabs(config.gamepad.ai_aim.body_lock_manual_escape_input_threshold - 0.58f) < 1e-5f,
-            "handover threshold not parsed");
     require(config.diagnostics.empty(), "current config produced diagnostics");
 }
 

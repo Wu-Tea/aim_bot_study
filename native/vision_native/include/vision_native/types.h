@@ -173,6 +173,15 @@ struct VisionResult {
     float body_x2 = 0.0f;
     float body_y2 = 0.0f;
 
+    // Selector-owned hittable region R for the selected identity. Cue
+    // continuation translates the last direct R; it does not invent a new
+    // anatomical region from marker height.
+    bool has_aim_region = false;
+    float aim_region_x1 = 0.0f;
+    float aim_region_y1 = 0.0f;
+    float aim_region_x2 = 0.0f;
+    float aim_region_y2 = 0.0f;
+
     const char* target_source = "";
     const char* target_tier = "none";
     bool aim_authority = false;

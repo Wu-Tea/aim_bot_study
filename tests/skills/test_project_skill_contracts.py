@@ -53,7 +53,7 @@ def audit_manifest(tmp_path: Path, telemetry_runtime_sha: str) -> Path:
     )
     records = [
         {
-            "schema_version": 13,
+            "schema_version": 15,
             "type": "session_metadata",
             "executable_sha256": telemetry_runtime_sha,
             "config_hash": config_hash,
@@ -61,7 +61,7 @@ def audit_manifest(tmp_path: Path, telemetry_runtime_sha: str) -> Path:
             "build_commit": commit,
         },
         {
-            "schema_version": 13,
+            "schema_version": 15,
             "type": "controller_sample",
             "tick_id": 11,
             "sample_seq": 7,
@@ -84,7 +84,7 @@ def audit_manifest(tmp_path: Path, telemetry_runtime_sha: str) -> Path:
                     "git_commit": commit,
                     "config_hash": config_hash,
                     "engine_hash": engine_hash,
-                    "telemetry_schema": 13,
+                    "telemetry_schema": 15,
                     "logging_mode": "detailed",
                     "hardware_profile": "test-host",
                     "game_refresh_hz": 180,
@@ -101,7 +101,7 @@ def audit_manifest(tmp_path: Path, telemetry_runtime_sha: str) -> Path:
                         "id": "telemetry",
                         "kind": "telemetry_jsonl",
                         "path": "telemetry.jsonl",
-                        "expected_schema_version": 13,
+                        "expected_schema_version": 15,
                     },
                 ],
             }

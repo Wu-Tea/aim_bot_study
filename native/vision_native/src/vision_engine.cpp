@@ -468,6 +468,11 @@ VisionResult VisionEngine::poll_once() {
         result.body_y1 = targeting.body_y1;
         result.body_x2 = targeting.body_x2;
         result.body_y2 = targeting.body_y2;
+        result.has_aim_region = targeting.has_aim_region;
+        result.aim_region_x1 = targeting.aim_region_x1;
+        result.aim_region_y1 = targeting.aim_region_y1;
+        result.aim_region_x2 = targeting.aim_region_x2;
+        result.aim_region_y2 = targeting.aim_region_y2;
         result.target_source = targeting.target_source;
         result.target_tier = targeting.target_tier;
         result.aim_authority = targeting.aim_authority;

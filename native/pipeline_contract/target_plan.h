@@ -45,7 +45,6 @@ enum class AdsDecisionReason : unsigned char {
     Admitted,
     InvalidSelectorProtocol,
     SelectorNoSelection,
-    OutsideAdsActivationRadius,
     OutsideAssociationRadius,
     StaleCapture,
     DuplicateFrame,
@@ -82,6 +81,13 @@ enum class FireSuppressionReason : unsigned char {
     AimOnly,
 };
 
+enum class DesiredPointSource : unsigned char {
+    None,
+    VisionDefault,
+    UserCorrected,
+    CueCarried,
+};
+
 struct TargetPlan {
     std::uint64_t generation = 0;
     std::uint64_t source_frame_id = 0;
@@ -90,7 +96,22 @@ struct TargetPlan {
     TargetLifecycle lifecycle = TargetLifecycle::None;
     TargetMotion motion = TargetMotion::Ambiguous;
     ControlMode mode = ControlMode::Manual;
+    // I/R/D/T contract:
+    // - source_aim_px is the source-selected anatomical point;
+    // - aim_region_px is R, the currently valid/hittable region;
+    // - aim_px is D, the sole desired impact point and must remain inside R.
+    Vec2f source_aim_px{};
+    common_native::Box2f aim_region_px{};
+    AimRegionSource aim_region_source = AimRegionSource::None;
+    bool has_aim_region = false;
     Vec2f aim_px{};
+    Vec2f desired_point_normalized{};
+    DesiredPointSource desired_point_source = DesiredPointSource::None;
+    bool manual_correction_x = false;
+    bool manual_correction_y = false;
+    bool manual_boundary_x = false;
+    bool manual_boundary_y = false;
+    bool manual_exit_requested = false;
     Vec2f error_px{};
     Vec2f error_rate_px_per_sec{};
     Vec2f velocity_px_per_sec{};
@@ -153,7 +174,23 @@ inline bool unit_interval(float value) noexcept {
 }
 
 inline bool valid(const TargetPlan& plan) noexcept {
-    return finite(plan.aim_px) &&
+    const bool region_finite = std::isfinite(plan.aim_region_px.x) &&
+        std::isfinite(plan.aim_region_px.y) &&
+        std::isfinite(plan.aim_region_px.w) &&
+        std::isfinite(plan.aim_region_px.h);
+    const bool region_contract_valid = !plan.has_aim_region ||
+        (region_finite && plan.aim_region_px.w > 0.0f &&
+         plan.aim_region_px.h > 0.0f &&
+         plan.aim_px.x >= plan.aim_region_px.x - 0.001f &&
+         plan.aim_px.x <= plan.aim_region_px.x + plan.aim_region_px.w + 0.001f &&
+         plan.aim_px.y >= plan.aim_region_px.y - 0.001f &&
+         plan.aim_px.y <= plan.aim_region_px.y + plan.aim_region_px.h + 0.001f &&
+         plan.desired_point_normalized.x >= -0.001f &&
+         plan.desired_point_normalized.x <= 1.001f &&
+         plan.desired_point_normalized.y >= -0.001f &&
+         plan.desired_point_normalized.y <= 1.001f);
+    return finite(plan.source_aim_px) && finite(plan.aim_px) &&
+           finite(plan.desired_point_normalized) && region_contract_valid &&
            finite(plan.error_px) && finite(plan.error_rate_px_per_sec) &&
            finite(plan.velocity_px_per_sec) && finite(plan.acceleration_px_per_sec2) &&
            unit_interval(plan.confidence) && unit_interval(plan.reliability) &&

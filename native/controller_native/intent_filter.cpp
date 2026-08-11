@@ -38,14 +38,13 @@ pipeline_contract::AxisIntentState IntentFilter::update_axis(
 pipeline_contract::StickPhase IntentFilter::phase_for(
     StickState& state,
     pipeline_contract::Vec2f filtered) noexcept {
-    const float signed_value = std::fabs(filtered.x) >= std::fabs(filtered.y)
-        ? filtered.x
-        : filtered.y;
-    const bool active = std::fabs(signed_value) > 0.0f;
+    const bool active = std::hypot(filtered.x, filtered.y) > 0.0f;
     pipeline_contract::StickPhase phase = pipeline_contract::StickPhase::Neutral;
     if (active && !state.active) {
         phase = pipeline_contract::StickPhase::Onset;
-    } else if (active && state.active && signed_value * state.signed_value < 0.0f) {
+    } else if (
+        active && state.active &&
+        filtered.x * state.filtered.x + filtered.y * state.filtered.y < 0.0f) {
         phase = pipeline_contract::StickPhase::Reversal;
     } else if (active) {
         phase = pipeline_contract::StickPhase::Sustained;
@@ -53,7 +52,7 @@ pipeline_contract::StickPhase IntentFilter::phase_for(
         phase = pipeline_contract::StickPhase::Release;
     }
     state.active = active;
-    if (active) state.signed_value = signed_value;
+    if (active) state.filtered = filtered;
     return phase;
 }
 
@@ -62,7 +61,9 @@ pipeline_contract::IntentState IntentFilter::update(
     pipeline_contract::Vec2f raw_right,
     bool ads,
     bool fire,
-    double sample_time_seconds) noexcept {
+    double sample_time_seconds,
+    bool target_owned,
+    bool handover_requested) noexcept {
     pipeline_contract::IntentState result{};
     result.raw_left = raw_left;
     result.raw_right = raw_right;
@@ -74,6 +75,22 @@ pipeline_contract::IntentState IntentFilter::update(
     result.filtered_right = {result.right_x.filtered, result.right_y.filtered};
     result.left_phase = phase_for(left_stick_, result.filtered_left);
     result.right_phase = phase_for(right_stick_, result.filtered_right);
+    if (!ads) {
+        right_purpose_ = pipeline_contract::UserAimIntentPurpose::AcquireTarget;
+    } else if (handover_requested) {
+        right_purpose_ = pipeline_contract::UserAimIntentPurpose::HandoverTarget;
+    } else if (!target_owned) {
+        // Purpose is scoped to the owned target. A held correction cannot be
+        // carried across target loss and silently rewrite the next target's D.
+        right_purpose_ = pipeline_contract::UserAimIntentPurpose::AcquireTarget;
+    } else if (
+        result.right_phase == pipeline_contract::StickPhase::Onset ||
+        result.right_phase == pipeline_contract::StickPhase::Reversal) {
+        right_purpose_ = target_owned
+            ? pipeline_contract::UserAimIntentPurpose::CorrectCurrentTarget
+            : pipeline_contract::UserAimIntentPurpose::AcquireTarget;
+    }
+    result.right_purpose = right_purpose_;
     result.left_confidence = std::max(result.left_x.confidence, result.left_y.confidence);
     result.right_confidence = std::max(result.right_x.confidence, result.right_y.confidence);
     result.sample_time_seconds = sample_time_seconds;
@@ -89,6 +106,7 @@ void IntentFilter::reset() noexcept {
     right_y_ = {};
     left_stick_ = {};
     right_stick_ = {};
+    right_purpose_ = pipeline_contract::UserAimIntentPurpose::AcquireTarget;
 }
 
 }  // namespace controller_native

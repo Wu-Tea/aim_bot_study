@@ -340,7 +340,7 @@ void test_crosshair_near_target_beats_physically_near_large_target() {
         "crosshair distance must outrank apparent physical target size");
 }
 
-void test_single_current_candidate_replaces_missing_old_target_immediately() {
+void test_missing_old_target_releases_before_directional_reacquisition() {
     vision_native::VisionTargetSelector selector(640, 512);
     vision_native::DetectionBatch visible;
     visible.frame_width = 640;
@@ -363,16 +363,43 @@ void test_single_current_candidate_replaces_missing_old_target_immediately() {
         270.0f, 256.0f, 24.0f, 60.0f, 0.92f));
     const vision_native::VisionResult released = selector.select(occluded);
     require_true(
-        released.has_selected_detection && released.selected_detection_index == 0,
-        "the sole credible current candidate must replace a missing old target immediately");
+        !released.has_target && !released.aim_authority,
+        "a different sole candidate must not silently inherit the missing target identity");
+
+    auto reacquire = rightward_intent(12);
+    reacquire.direction.x = -1.0f;
+    const vision_native::VisionResult acquired = selector.select(occluded, reacquire);
+    require_true(
+        acquired.has_selected_detection && acquired.selected_detection_index == 0,
+        "directional reacquisition must be able to select the credible replacement");
     require_near(
-        released.target_x,
+        acquired.target_x,
         270.0f,
         0.001f,
-        "single-target realtime path must publish the current coordinate, not an old hold");
+        "reacquisition must publish the current coordinate, not an old hold");
 }
 
-void test_intent_favored_challenger_logs_ignored_active_lock() {
+void test_selector_publishes_explicit_upper_body_aim_region() {
+    vision_native::VisionTargetSelector selector(640, 512);
+    const auto batch = single_target_batch(320.0f, 256.0f, 0.92f);
+
+    selector.select(batch);
+    const auto selected = selector.select(batch);
+
+    require_true(selected.has_target && selected.has_aim_region,
+                 "selected person must publish an explicit R");
+    require_true(selected.target_x >= selected.aim_region_x1 &&
+                     selected.target_x <= selected.aim_region_x2 &&
+                     selected.target_y >= selected.aim_region_y1 &&
+                     selected.target_y <= selected.aim_region_y2,
+                 "Vision default D must be inside R");
+    require_true(
+        (selected.aim_region_y2 - selected.aim_region_y1) <
+            (selected.body_y2 - selected.body_y1) * 0.5f,
+        "R must not relabel most of the detector body box as upper body");
+}
+
+void test_current_target_correction_cannot_vote_for_challenger() {
     vision_native::VisionTargetSelector selector(640, 512);
     const auto active_batch = single_target_batch(296.0f, 256.0f, 0.92f);
 
@@ -389,6 +416,8 @@ void test_intent_favored_challenger_logs_ignored_active_lock() {
 
     auto weak_intent = rightward_intent(13);
     weak_intent.strength = 0.35f;
+    weak_intent.purpose =
+        pipeline_contract::UserAimIntentPurpose::CorrectCurrentTarget;
     const vision_native::VisionResult result = selector.select(crossing, weak_intent);
 
     require_true(result.has_target, "active-lock frame should retain a target");
@@ -396,12 +425,12 @@ void test_intent_favored_challenger_logs_ignored_active_lock() {
         result.target_x,
         296.0f,
         0.001f,
-        "intent-favored challenger should not switch away from active target immediately");
+        "current-target D correction must not switch identity");
     require_true(result.intent_id == 13, "active-lock ignored intent should carry intent id");
     require_true(!result.intent_applied, "active-lock ignored intent should not report applied");
     require_true(
         std::strcmp(result.intent_decision, "applied_direction") != 0,
-        "weak intent must not receive decisive handover authority");
+        "D correction must not receive selector handover authority");
 }
 
 void test_decisive_intent_switches_on_first_fresh_frame() {
@@ -496,7 +525,7 @@ void test_unaligned_intent_does_not_confirm_right_side_challenger() {
         "unaligned control must expose the blocked handover reason");
 }
 
-void test_dead_active_target_does_not_override_unaligned_handover_intent() {
+void test_dead_active_target_releases_before_aligned_reacquisition() {
     vision_native::VisionTargetSelector selector(640, 512);
     vision_native::DetectionBatch live;
     live.frame_width = 640;
@@ -532,13 +561,15 @@ void test_dead_active_target_does_not_override_unaligned_handover_intent() {
         !pending.has_target && !pending.aim_authority && !pending.fire_authority,
         "death-transition confirmation must retain identity without actuating the corpse point");
 
-    const auto switched = selector.select(death_transition, intent);
-    require_true(switched.has_target, "confirmed death transition should select the live challenger");
+    const auto switched = selector.select(
+        death_transition, rightward_intent(20));
+    require_true(switched.has_target,
+                 "aligned reacquisition should select the live challenger");
     require_near(
         switched.target_x,
         344.0f,
         0.001f,
-        "corpse invalidation must outrank an unaligned manual handover intent");
+        "released corpse identity must not block an aligned live target acquisition");
 }
 
 void test_intent_does_not_grant_fire_authority_to_weak_association() {
@@ -569,7 +600,7 @@ void test_intent_does_not_grant_fire_authority_to_weak_association() {
     require_true(!result.intent_applied, "weak association should not report intent-applied ranking");
 }
 
-void test_large_single_target_move_uses_current_coordinate_without_old_intent() {
+void test_large_single_target_move_requires_fresh_acquisition_intent() {
     vision_native::VisionTargetSelector selector(640, 512);
     const auto intent = rightward_intent(11);
     const auto batch = two_target_batch();
@@ -585,23 +616,23 @@ void test_large_single_target_move_uses_current_coordinate_without_old_intent() 
 
     const vision_native::VisionResult current = selector.select(jump);
 
-    require_true(current.has_target, "sole credible current target should remain actionable");
+    require_true(!current.has_target,
+                 "unassociated large move must release instead of reusing old identity");
+
+    const vision_native::VisionResult reacquired = selector.select(
+        jump, rightward_intent(12));
+    require_true(reacquired.has_target,
+                 "fresh acquisition direction should admit the moved target");
     require_true(
-        current.has_selected_detection && current.selected_detection_index == 0,
+        reacquired.has_selected_detection && reacquired.selected_detection_index == 0,
         "large current movement must use its current detection instead of an old coordinate");
     require_near(
-        current.target_x,
+        reacquired.target_x,
         610.0f,
         0.001f,
         "selector must not reject a current single-target coordinate as a tracking jump");
-    require_true(
-        !current.intent_applied,
-        "current frame without user intent must not inherit old intent_applied");
-    require_true(current.intent_id == 0, "current frame without intent should not carry old intent id");
-    require_text(
-        current.intent_decision,
-        "none",
-        "current frame without intent should not carry old intent decision");
+    require_true(reacquired.intent_applied,
+                 "reacquisition must expose the fresh selection intent");
 }
 
 void test_partial_color_frame_origin_classifies_candidate_cue() {
@@ -789,18 +820,18 @@ void test_yellow_cue_continuation_tracks_visible_marker_for_bounded_ads_hold() {
     vision_native::DetectionBatch occluded;
     occluded.frame_width = 640;
     occluded.frame_height = 512;
-    for (std::uint64_t elapsed_ms = 5ull; elapsed_ms <= 1000ull; elapsed_ms += 5ull) {
+    for (std::uint64_t elapsed_ms = 5ull; elapsed_ms <= 180ull; elapsed_ms += 5ull) {
         occluded.captured_at_ns = kLockTimeNs + (elapsed_ms * kMillisecondNs);
         const auto held = selector.select_with_frame(occluded, frame.view);
         require_true(held.has_target && held.aim_authority,
                      "visible cue should bridge a bounded ADS person occlusion");
         require_text(held.target_source, "cue_hold",
-                     "boosted occlusion continuation must remain cue_hold evidence");
+                     "bounded occlusion continuation must remain cue_hold evidence");
         require_true(!held.fire_authority && !held.auto_fire,
-                     "extended cue boost must never grant fire authority");
+                     "bounded cue continuation must never grant fire authority");
     }
 
-    occluded.captured_at_ns = kLockTimeNs + (1001ull * kMillisecondNs);
+    occluded.captured_at_ns = kLockTimeNs + (181ull * kMillisecondNs);
     require_true(!selector.required_color_region(occluded).has_value(),
                  "expired cue boost must stop requesting continuation color ROI");
     const auto expired = selector.select_with_frame(occluded, frame.view);
@@ -842,6 +873,10 @@ void test_yellow_cue_continuation_uses_current_marker_after_fast_motion() {
                  "cue_hold target must translate from the current marker, not the old point");
     require_near(held.target_y, locked.target_y, 1.0f,
                  "horizontal cue motion must preserve the learned cue-to-target Y offset");
+    require_near(held.aim_region_x1, locked.aim_region_x1 + 30.0f, 1.0f,
+                 "cue must translate the prior R instead of rebuilding it from cue height");
+    require_near(held.aim_region_y1, locked.aim_region_y1, 1.0f,
+                 "horizontal cue motion must preserve R height and vertical placement");
 }
 
 void test_yellow_cue_continuation_selects_nearest_component_not_color_average() {
@@ -1350,16 +1385,22 @@ void test_confirmed_frame_replacement_bootstraps_a_new_motion_anchor() {
     auto replacement_frame = full_bgra_frame();
     draw_motion_pattern(replacement_frame, 340, 242);
 
+    auto correction_only = rightward_intent(30);
+    correction_only.purpose =
+        pipeline_contract::UserAimIntentPurpose::CorrectCurrentTarget;
     const auto pending = selector.select_with_frame(
-        replacement, replacement_frame.view);
+        replacement, replacement_frame.view, correction_only);
     require_true(
         pending.selector_target_generation == old_locked.selector_target_generation,
-        "an unconfirmed replacement must retain the old selector generation");
+        "current-target correction must retain the old selector generation");
     replacement.frame_id = 105;
+    auto handover = rightward_intent(31);
+    handover.purpose =
+        pipeline_contract::UserAimIntentPurpose::HandoverTarget;
     const auto switched = selector.select_with_frame(
-        replacement, replacement_frame.view);
+        replacement, replacement_frame.view, handover);
     require_true(switched.selector_target_changed,
-                 "replacement fixture must reach the selector confirmation boundary");
+                 "boundary-qualified handover must reach the replacement boundary");
     require_true(switched.has_selected_detection,
                  "confirmed replacement must publish the new detection");
     const auto new_detection = switched.detections[
@@ -1581,13 +1622,14 @@ int main(int argc, char** argv) {
         test_intent_direction_ranks_plausible_multi_target_candidates();
         test_user_intent_prefers_lower_left_close_target_over_far_upper_right();
         test_crosshair_near_target_beats_physically_near_large_target();
-        test_single_current_candidate_replaces_missing_old_target_immediately();
-        test_intent_favored_challenger_logs_ignored_active_lock();
+        test_selector_publishes_explicit_upper_body_aim_region();
+        test_missing_old_target_releases_before_directional_reacquisition();
+        test_current_target_correction_cannot_vote_for_challenger();
         test_decisive_intent_switches_on_first_fresh_frame();
         test_unaligned_intent_does_not_confirm_right_side_challenger();
-        test_dead_active_target_does_not_override_unaligned_handover_intent();
+        test_dead_active_target_releases_before_aligned_reacquisition();
         test_intent_does_not_grant_fire_authority_to_weak_association();
-        test_large_single_target_move_uses_current_coordinate_without_old_intent();
+        test_large_single_target_move_requires_fresh_acquisition_intent();
         test_partial_color_frame_origin_classifies_candidate_cue();
         test_bgra_green_friendly_is_hard_rejected();
         test_bgra_green_friendly_cannot_beat_yellow_enemy();

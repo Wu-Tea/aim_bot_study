@@ -1,5 +1,6 @@
 #pragma once
 
+#include "pipeline_contract/user_aim_intent.h"
 #include "pipeline_contract/vision_observation.h"
 
 namespace pipeline_contract {
@@ -37,6 +38,8 @@ struct IntentState {
     AxisIntentState right_y{};
     StickPhase left_phase = StickPhase::Neutral;
     StickPhase right_phase = StickPhase::Neutral;
+    UserAimIntentPurpose right_purpose =
+        UserAimIntentPurpose::AcquireTarget;
     IntentRelationship relationship = IntentRelationship::Ambiguous;
     float left_confidence = 0.0f;
     float right_confidence = 0.0f;

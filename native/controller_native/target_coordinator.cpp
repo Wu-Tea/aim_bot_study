@@ -24,6 +24,47 @@ pipeline_contract::Vec2f add_scaled(
     return {value.x + velocity.x * seconds, value.y + velocity.y * seconds};
 }
 
+bool valid_region(const common_native::Box2f& region) noexcept {
+    return std::isfinite(region.x) && std::isfinite(region.y) &&
+        std::isfinite(region.w) && std::isfinite(region.h) &&
+        region.w > 1.0f && region.h > 1.0f;
+}
+
+pipeline_contract::Vec2f clamp_to_region(
+    pipeline_contract::Vec2f point,
+    const common_native::Box2f& region) noexcept {
+    return {
+        std::clamp(point.x, region.x, region.x + region.w),
+        std::clamp(point.y, region.y, region.y + region.h),
+    };
+}
+
+pipeline_contract::Vec2f normalized_in_region(
+    pipeline_contract::Vec2f point,
+    const common_native::Box2f& region) noexcept {
+    const auto clamped = clamp_to_region(point, region);
+    return {
+        std::clamp((clamped.x - region.x) / region.w, 0.0f, 1.0f),
+        std::clamp((clamped.y - region.y) / region.h, 0.0f, 1.0f),
+    };
+}
+
+pipeline_contract::Vec2f point_in_region(
+    pipeline_contract::Vec2f normalized,
+    const common_native::Box2f& region) noexcept {
+    return {
+        region.x + region.w * std::clamp(normalized.x, 0.0f, 1.0f),
+        region.y + region.h * std::clamp(normalized.y, 0.0f, 1.0f),
+    };
+}
+
+float bounded_manual_axis(float value) noexcept {
+    // IntentFilter is the single owner of stick noise/deadzone qualification.
+    // Adding another threshold here would recreate the "small pull is ignored"
+    // defect between input ownership and D ownership.
+    return std::isfinite(value) ? std::clamp(value, -1.0f, 1.0f) : 0.0f;
+}
+
 std::uint64_t seconds_to_ns(double seconds) noexcept {
     if (!std::isfinite(seconds) || seconds <= 0.0) return 0;
     return static_cast<std::uint64_t>(seconds * 1'000'000'000.0);
@@ -38,8 +79,12 @@ void TargetCoordinator::reset_target_owned_state_for_replacement() noexcept {
     // A selector-confirmed replacement is a new person, not a new physical
     // ADS epoch. Clear only state whose coordinate/identity belongs to the
     // previous target.
-    stable_body_aim_tracker_.reset();
+    source_position_ = {};
     position_ = {};
+    aim_region_ = {};
+    desired_point_normalized_ = {};
+    aim_region_source_ = pipeline_contract::AimRegionSource::None;
+    desired_point_source_ = pipeline_contract::DesiredPointSource::None;
     velocity_ = {};
     acceleration_ = {};
     source_id_ = 0;
@@ -52,10 +97,146 @@ void TargetCoordinator::reset_target_owned_state_for_replacement() noexcept {
     last_observed_target_size_px_ = {};
     settled_frames_ = 0;
     observed_frames_ = 0;
+    manual_boundary_seconds_x_ = 0.0f;
+    manual_boundary_seconds_y_ = 0.0f;
+    has_aim_region_ = false;
+    user_desired_point_active_ = false;
+    manual_correction_x_ = false;
+    manual_correction_y_ = false;
+    manual_boundary_x_ = false;
+    manual_boundary_y_ = false;
+    manual_exit_requested_ = false;
     has_observation_capture_time_ = false;
     fire_requested_ = false;
     observed_fire_eligible_ = false;
     cue_continuation_active_ = false;
+}
+
+void TargetCoordinator::adopt_candidate_geometry(
+    const pipeline_contract::VisionCandidate& candidate,
+    bool cue_continuation,
+    bool reset_desired_point) noexcept {
+    common_native::Box2f region = candidate.aim_region_px;
+    auto region_source = candidate.aim_region_source;
+    if (!candidate.has_aim_region || !valid_region(region)) {
+        region = candidate.body_box_px;
+        region_source = pipeline_contract::AimRegionSource::BodyBoxFallback;
+    }
+    if (!valid_region(region) || !pipeline_contract::finite(candidate.aim_px)) {
+        has_aim_region_ = false;
+        aim_region_ = {};
+        aim_region_source_ = pipeline_contract::AimRegionSource::None;
+        source_position_ = candidate.aim_px;
+        position_ = candidate.aim_px;
+        desired_point_normalized_ = {};
+        desired_point_source_ = pipeline_contract::DesiredPointSource::None;
+        user_desired_point_active_ = false;
+        return;
+    }
+
+    source_position_ = clamp_to_region(candidate.aim_px, region);
+    if (reset_desired_point || !has_aim_region_) {
+        desired_point_normalized_ = normalized_in_region(source_position_, region);
+        user_desired_point_active_ = false;
+    } else if (!cue_continuation && !user_desired_point_active_) {
+        // With no user correction, Vision remains the owner of the default
+        // upper-chest/head point as posture and visibility change.
+        desired_point_normalized_ = normalized_in_region(source_position_, region);
+    }
+
+    aim_region_ = region;
+    has_aim_region_ = true;
+    aim_region_source_ = cue_continuation
+        ? pipeline_contract::AimRegionSource::CueTranslated
+        : region_source == pipeline_contract::AimRegionSource::None
+            ? pipeline_contract::AimRegionSource::VisionGeometry
+            : region_source;
+    position_ = point_in_region(desired_point_normalized_, aim_region_);
+    desired_point_source_ = user_desired_point_active_
+        ? pipeline_contract::DesiredPointSource::UserCorrected
+        : cue_continuation
+            ? pipeline_contract::DesiredPointSource::CueCarried
+            : pipeline_contract::DesiredPointSource::VisionDefault;
+}
+
+void TargetCoordinator::update_desired_point_from_manual(
+    const pipeline_contract::IntentState& intent,
+    float dt_seconds) noexcept {
+    manual_correction_x_ = false;
+    manual_correction_y_ = false;
+    manual_boundary_x_ = false;
+    manual_boundary_y_ = false;
+    manual_exit_requested_ = false;
+
+    if (
+        !intent.ads || !has_target_ || !has_aim_region_ ||
+        intent.right_purpose !=
+            pipeline_contract::UserAimIntentPurpose::CorrectCurrentTarget) {
+        manual_boundary_seconds_x_ = 0.0f;
+        manual_boundary_seconds_y_ = 0.0f;
+        return;
+    }
+
+    const float manual_x = bounded_manual_axis(intent.filtered_right.x);
+    // Native gamepad Y is inverted relative to screen coordinates: negative
+    // stick Y asks the camera to move down, so D moves toward larger screen Y.
+    const float manual_y = -bounded_manual_axis(intent.filtered_right.y);
+    const float traversal_seconds = std::max(
+        0.040f, config_.desired_point_traversal_ms / 1000.0f);
+    const float step_scale = std::max(0.0f, dt_seconds) / traversal_seconds;
+
+    const auto update_axis = [step_scale](
+        float manual,
+        float& normalized,
+        float& boundary_seconds,
+        bool& correction,
+        bool& boundary,
+        float dt) {
+        if (manual == 0.0f) {
+            boundary_seconds = 0.0f;
+            return;
+        }
+        const float attempted = normalized + manual * step_scale;
+        const float clamped = std::clamp(attempted, 0.0f, 1.0f);
+        boundary = attempted < -0.0001f || attempted > 1.0001f;
+        boundary_seconds = boundary
+            ? boundary_seconds + std::max(0.0f, dt)
+            : 0.0f;
+        normalized = clamped;
+        // This is interpreted correction, not raw passthrough. It remains
+        // valid at the boundary until the explicit exit duration is reached.
+        correction = true;
+    };
+
+    update_axis(
+        manual_x,
+        desired_point_normalized_.x,
+        manual_boundary_seconds_x_,
+        manual_correction_x_,
+        manual_boundary_x_,
+        dt_seconds);
+    update_axis(
+        manual_y,
+        desired_point_normalized_.y,
+        manual_boundary_seconds_y_,
+        manual_correction_y_,
+        manual_boundary_y_,
+        dt_seconds);
+
+    const float exit_seconds = std::max(
+        0.050f, config_.desired_point_boundary_exit_ms / 1000.0f);
+    manual_exit_requested_ =
+        manual_boundary_seconds_x_ >= exit_seconds ||
+        manual_boundary_seconds_y_ >= exit_seconds;
+    if (manual_exit_requested_) {
+        manual_correction_x_ = false;
+        manual_correction_y_ = false;
+    } else if (manual_correction_x_ || manual_correction_y_) {
+        user_desired_point_active_ = true;
+        desired_point_source_ =
+            pipeline_contract::DesiredPointSource::UserCorrected;
+    }
+    position_ = point_in_region(desired_point_normalized_, aim_region_);
 }
 
 const pipeline_contract::VisionCandidate* TargetCoordinator::choose_candidate(
@@ -82,7 +263,11 @@ const pipeline_contract::VisionCandidate* TargetCoordinator::choose_candidate(
             return nullptr;
         }
         const auto& cue = observations.candidates[0];
-        if (cue.source_id != 0 || cue.reliability <= 0.0f ||
+        const bool cue_has_region =
+            (cue.has_aim_region && valid_region(cue.aim_region_px)) ||
+            (cue.has_body_box && valid_region(cue.body_box_px));
+        if (cue.source_id != 0 || !cue.has_aim_point || !cue_has_region ||
+            cue.reliability <= 0.0f ||
             cue.cue_confidence <= 0.0f ||
             length(subtract(cue.aim_px, association_anchor)) >
                 config_.association_radius_px) {
@@ -90,22 +275,22 @@ const pipeline_contract::VisionCandidate* TargetCoordinator::choose_candidate(
         }
         return &cue;
     }
-    const pipeline_contract::Vec2f screen_center{
-        observations.frame_width_px > 0.0f
-            ? observations.frame_width_px * 0.5f : 240.0f,
-        observations.frame_height_px > 0.0f
-            ? observations.frame_height_px * 0.5f : 208.0f};
-    const bool needs_ads_admission = ads_epoch_active_ &&
-        !ads_snap_consumed_ && !ads_target_admitted_;
     // The selector protocol carries one authoritative frame-local preferred
-    // id. Coordinator scoring must never elect another detection in its place.
+    // id. Coordinator scoring must never elect another detection in its place,
+    // nor reject that identity a second time because it begins far from the
+    // crosshair. ADS output remains bounded by its own response controller.
     const pipeline_contract::VisionCandidate* preferred = nullptr;
     const auto protocol_count = std::min<std::uint32_t>(
         observations.count,
         static_cast<std::uint32_t>(pipeline_contract::kMaxVisionCandidates));
     for (std::uint32_t index = 0; index < protocol_count; ++index) {
         const auto& candidate = observations.candidates[index];
+        const bool has_region =
+            (candidate.has_aim_region &&
+             valid_region(candidate.aim_region_px)) ||
+            (candidate.has_body_box && valid_region(candidate.body_box_px));
         if (candidate.source_id == observations.preferred_source_id &&
+            candidate.has_aim_point && has_region &&
             candidate.reliability > 0.0f) {
             preferred = &candidate;
             break;
@@ -113,15 +298,6 @@ const pipeline_contract::VisionCandidate* TargetCoordinator::choose_candidate(
     }
     if (preferred == nullptr) return nullptr;
 
-    if (needs_ads_admission) {
-        const float distance = length(subtract(preferred->aim_px, screen_center));
-        const float observed_size = std::clamp(
-            preferred->normalized_size, 0.0f, 1.0f);
-        const float ads_activation_radius =
-            config_.ads_activation_radius_px *
-            (1.0f + 0.75f * observed_size);
-        if (distance > ads_activation_radius) return nullptr;
-    }
     // The selected detection owns current-frame person geometry. Re-applying
     // an association radius against an older point would replace fresh
     // geometry with stale control state.
@@ -179,13 +355,6 @@ pipeline_contract::TargetPlan TargetCoordinator::no_target_plan(
         : 0.0f;
     latest_ = plan;
     return plan;
-}
-
-void TargetCoordinator::
-set_firing_body_geometry_stabilizer_enabled_for_benchmark(
-    bool enabled) noexcept {
-    config_.firing_body_geometry_stabilizer_enabled = enabled;
-    stable_body_aim_tracker_.reset();
 }
 
 void TargetCoordinator::
@@ -252,8 +421,9 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     }
     // A controller tick without a source publication must not synthesize a
     // projected detector point. Association starts from the last source-owned
-    // position and only a newly accepted capture may update geometry.
-    const auto association_anchor = position_;
+    // anatomical point; D may still move inside R from user intent between
+    // source frames without becoming detector evidence.
+    const auto association_anchor = source_position_;
     double observation_capture_seconds = now_seconds;
     const bool source_time_available =
         std::isfinite(observations.source_time_seconds) &&
@@ -388,13 +558,14 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
             } else if (observations.count == 0) {
                 ads_decision_reason_ =
                     pipeline_contract::AdsDecisionReason::NoTarget;
-            } else if (ads_epoch_active_ && !ads_snap_consumed_ &&
-                       !ads_target_admitted_) {
+            } else if (!has_target_ ||
+                       (ads_epoch_active_ && !ads_snap_consumed_ &&
+                        !ads_target_admitted_)) {
+                // A selected identity is never rejected for crosshair
+                // distance here. Reaching this branch means the preferred
+                // selector payload itself was incomplete or inconsistent.
                 ads_decision_reason_ =
-                    pipeline_contract::AdsDecisionReason::OutsideAdsActivationRadius;
-            } else if (!has_target_) {
-                ads_decision_reason_ =
-                    pipeline_contract::AdsDecisionReason::OutsideAdsActivationRadius;
+                    pipeline_contract::AdsDecisionReason::InvalidSelectorProtocol;
             } else {
                 ads_decision_reason_ =
                     pipeline_contract::AdsDecisionReason::OutsideAssociationRadius;
@@ -461,9 +632,6 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
                 pipeline_contract::SourceDecisionOutcome::AcceptedContinuation;
             source_decision_reason_ = pipeline_contract::AdsDecisionReason::None;
         }
-        if (new_target) {
-            stable_body_aim_tracker_.reset();
-        }
         const bool assisted_motion_model =
             control_mode_ ==
                 pipeline_contract::ControlMode::BodyLockFollow ||
@@ -471,15 +639,12 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
                 pipeline_contract::ControlMode::AdsAcquire;
         const bool firing_context =
             intent.fire || feedback.firing_recently;
-        // candidate->aim_px is already the geometry-resolved result for this
-        // fresh frame. A historic body/motion anchor must not replace that
-        // absolute position; firing noise is bounded only while estimating
-        // velocity below.
+        // candidate->aim_px and candidate->aim_region_px are selector-owned
+        // source geometry. D is adopted or carried inside R below; source
+        // velocity is learned only from the source point, never from a manual
+        // D correction.
         if (cue_continuation_candidate) {
-            // The selector already reconstructed this position from the live
-            // cue plus the last observed person-to-cue offset. Consume the
-            // absolute point, but do not learn person velocity from UI motion.
-            position_ = observed_aim_px;
+            adopt_candidate_geometry(*candidate, true, false);
             velocity_ = {};
             acceleration_ = {};
             previous_firing_velocity_innovation_ = {};
@@ -491,7 +656,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
                 acquisition_started_seconds_ = 0.0;
                 target_acquisition_id_ = 0;
             }
-            position_ = observed_aim_px;
+            adopt_candidate_geometry(*candidate, false, true);
             velocity_ = {};
             acceleration_ = {};
             previous_firing_velocity_innovation_ = {};
@@ -510,7 +675,8 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
             // Association has already accepted this fresh selected candidate.
             // Fresh Vision owns both the absolute point and the inter-capture
             // displacement; no controller-rate projection is folded back in.
-            const auto position_innovation = subtract(observed_aim_px, position_);
+            const auto position_innovation = subtract(
+                observed_aim_px, source_position_);
             auto velocity_innovation = position_innovation;
             const bool bodylock_motion_model =
                 control_mode_ ==
@@ -627,8 +793,11 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
                         observation_dt,
                     -20000.0f, 20000.0f),
             };
-            position_ = measured_position;
+            source_position_ = measured_position;
             ++observed_frames_;
+            adopt_candidate_geometry(*candidate, false, false);
+        } else if (new_observation_sample) {
+            adopt_candidate_geometry(*candidate, false, false);
         }
         if (candidate->source_id != 0) {
             source_id_ = candidate->source_id;
@@ -667,6 +836,21 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
             has_target_ = false;
             cue_continuation_active_ = false;
             source_id_ = 0;
+            source_position_ = {};
+            position_ = {};
+            aim_region_ = {};
+            desired_point_normalized_ = {};
+            aim_region_source_ = pipeline_contract::AimRegionSource::None;
+            desired_point_source_ = pipeline_contract::DesiredPointSource::None;
+            has_aim_region_ = false;
+            user_desired_point_active_ = false;
+            manual_correction_x_ = false;
+            manual_correction_y_ = false;
+            manual_boundary_x_ = false;
+            manual_boundary_y_ = false;
+            manual_exit_requested_ = false;
+            manual_boundary_seconds_x_ = 0.0f;
+            manual_boundary_seconds_y_ = 0.0f;
             settled_frames_ = 0;
             observed_frames_ = 0;
             if (intent.ads && ads_target_admitted_ && !ads_snap_consumed_) {
@@ -713,6 +897,11 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
             observations.preferred_source_id);
     }
 
+    // Only a gesture whose purpose was fixed as CorrectCurrentTarget may move
+    // D. A gesture that began while acquiring I keeps AcquireTarget through
+    // its release/reversal boundary and cannot rewrite first-frame geometry.
+    update_desired_point_from_manual(intent, dt);
+
     pipeline_contract::TargetPlan plan{};
     plan.generation = ++generation_;
     plan.source_frame_id = source_frame_id_;
@@ -720,7 +909,18 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         ? 0 : candidate != nullptr ? source_id_ : 0;
     plan.target_id = target_id_;
     plan.lifecycle = lifecycle;
+    plan.source_aim_px = source_position_;
+    plan.aim_region_px = aim_region_;
+    plan.aim_region_source = aim_region_source_;
+    plan.has_aim_region = has_aim_region_;
     plan.aim_px = position_;
+    plan.desired_point_normalized = desired_point_normalized_;
+    plan.desired_point_source = desired_point_source_;
+    plan.manual_correction_x = manual_correction_x_;
+    plan.manual_correction_y = manual_correction_y_;
+    plan.manual_boundary_x = manual_boundary_x_;
+    plan.manual_boundary_y = manual_boundary_y_;
+    plan.manual_exit_requested = manual_exit_requested_;
     plan.error_px = subtract(position_, center);
     const pipeline_contract::Vec2f screen_velocity = velocity_;
     plan.velocity_px_per_sec = screen_velocity;
@@ -1035,10 +1235,14 @@ void TargetCoordinator::begin_ads_epoch(
 
 void TargetCoordinator::reset() noexcept {
     latest_ = {};
+    source_position_ = {};
     position_ = {};
+    aim_region_ = {};
+    desired_point_normalized_ = {};
+    aim_region_source_ = pipeline_contract::AimRegionSource::None;
+    desired_point_source_ = pipeline_contract::DesiredPointSource::None;
     velocity_ = {};
     acceleration_ = {};
-    stable_body_aim_tracker_.reset();
     previous_firing_velocity_innovation_ = {};
     firing_velocity_observer_active_ = false;
     source_id_ = 0;
@@ -1058,7 +1262,16 @@ void TargetCoordinator::reset() noexcept {
     last_observed_target_size_px_ = {};
     settled_frames_ = 0;
     observed_frames_ = 0;
+    manual_boundary_seconds_x_ = 0.0f;
+    manual_boundary_seconds_y_ = 0.0f;
     has_target_ = false;
+    has_aim_region_ = false;
+    user_desired_point_active_ = false;
+    manual_correction_x_ = false;
+    manual_correction_y_ = false;
+    manual_boundary_x_ = false;
+    manual_boundary_y_ = false;
+    manual_exit_requested_ = false;
     has_observation_capture_time_ = false;
     has_processed_capture_ = false;
     has_processed_capture_time_ = false;

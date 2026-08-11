@@ -23,6 +23,17 @@ pipeline_contract::IntentState ads_intent() {
     return intent;
 }
 
+pipeline_contract::IntentState correcting_intent(float x, float y) {
+    auto intent = ads_intent();
+    intent.right_purpose =
+        pipeline_contract::UserAimIntentPurpose::CorrectCurrentTarget;
+    intent.raw_right = {x, y};
+    intent.filtered_right = {x, y};
+    intent.right_x.filtered = x;
+    intent.right_y.filtered = y;
+    return intent;
+}
+
 pipeline_contract::VisionObservationBatch selected_frame(
     std::uint64_t frame_id,
     double capture_seconds,
@@ -44,6 +55,13 @@ pipeline_contract::VisionObservationBatch selected_frame(
     auto& candidate = batch.candidates[0];
     candidate.source_id = source_id;
     candidate.aim_px = {aim_x, aim_y};
+    candidate.has_aim_point = true;
+    candidate.aim_region_px = {aim_x - 24.0f, aim_y - 40.0f, 48.0f, 80.0f};
+    candidate.aim_region_source =
+        pipeline_contract::AimRegionSource::VisionGeometry;
+    candidate.has_aim_region = true;
+    candidate.body_box_px = candidate.aim_region_px;
+    candidate.has_body_box = true;
     candidate.box_size_px = {48.0f, 112.0f};
     candidate.confidence = 0.95f;
     candidate.reliability = 0.90f;
@@ -88,6 +106,11 @@ pipeline_contract::VisionObservationBatch cue_frame(
     auto& cue = batch.candidates[0];
     cue.source_id = 0;
     cue.aim_px = {aim_x, 208.0f};
+    cue.has_aim_point = true;
+    cue.aim_region_px = {aim_x - 24.0f, 168.0f, 48.0f, 80.0f};
+    cue.aim_region_source =
+        pipeline_contract::AimRegionSource::CueTranslated;
+    cue.has_aim_region = true;
     cue.confidence = 0.8f;
     cue.cue_confidence = 0.9f;
     cue.reliability = 0.7f;
@@ -258,6 +281,93 @@ void test_selector_generation_replacement_resets_target_identity() {
                  "replacement must consume current source geometry directly");
 }
 
+void test_manual_correction_moves_d_only_inside_r() {
+    controller_native::TargetCoordinatorConfig config;
+    config.max_observation_age_ms = 500.0f;
+    config.desired_point_traversal_ms = 100.0f;
+    controller_native::TargetCoordinator coordinator(config);
+    const auto intent = correcting_intent(0.0f, -0.80f);
+    coordinator.begin_ads_epoch(9, 9.0);
+    const auto observed = coordinator.update(
+        selected_frame(80, 9.0, 240.0f, 208.0f), intent, 9.0);
+    const auto corrected = coordinator.update(
+        no_source_tick(), intent, 9.050);
+
+    require_true(corrected.manual_correction_y,
+                 "single-target downward intent must be interpreted as D correction");
+    require_true(near(corrected.source_aim_px.y, observed.source_aim_px.y),
+                 "manual correction must not mutate source geometry");
+    require_true(corrected.aim_px.y > observed.aim_px.y,
+                 "downward correction must move D toward larger screen Y");
+    require_true(corrected.aim_px.y >= corrected.aim_region_px.y &&
+                     corrected.aim_px.y <=
+                         corrected.aim_region_px.y + corrected.aim_region_px.h,
+                 "D must remain inside R");
+    require_true(corrected.desired_point_source ==
+                     pipeline_contract::DesiredPointSource::UserCorrected,
+                 "plan must expose user-corrected D ownership");
+}
+
+void test_cue_carries_corrected_d_instead_of_replacing_it() {
+    controller_native::TargetCoordinatorConfig config;
+    config.max_observation_age_ms = 500.0f;
+    config.desired_point_traversal_ms = 100.0f;
+    controller_native::TargetCoordinator coordinator(config);
+    const auto intent = correcting_intent(0.0f, -0.80f);
+    coordinator.begin_ads_epoch(10, 10.0);
+    (void)coordinator.update(
+        selected_frame(90, 10.0, 240.0f, 208.0f), intent, 10.0);
+    const auto corrected = coordinator.update(
+        no_source_tick(), intent, 10.050);
+
+    auto cue_batch = cue_frame(91, 10.056, 245.0f);
+    cue_batch.candidates[0].aim_px.y = 180.0f;
+    cue_batch.candidates[0].aim_region_px = {221.0f, 173.0f, 48.0f, 80.0f};
+    const auto cue = coordinator.update(cue_batch, ads_intent(), 10.056);
+
+    require_true(cue.cue_continuation,
+                 "same-generation cue must preserve target ownership");
+    require_true(near(
+                     cue.desired_point_normalized.y,
+                     corrected.desired_point_normalized.y,
+                     0.001f),
+                 "cue must carry the same target-relative D coordinate");
+    require_true(!near(cue.aim_px.y, cue.source_aim_px.y, 1.0f),
+                 "cue source point must not overwrite a corrected D");
+    require_true(cue.aim_region_source ==
+                     pipeline_contract::AimRegionSource::CueTranslated,
+                 "cue-translated R must be explicit in the plan");
+}
+
+void test_target_replacement_resets_corrected_d() {
+    controller_native::TargetCoordinatorConfig config;
+    config.max_observation_age_ms = 500.0f;
+    config.desired_point_traversal_ms = 100.0f;
+    controller_native::TargetCoordinator coordinator(config);
+    const auto intent = correcting_intent(0.0f, -0.80f);
+    coordinator.begin_ads_epoch(11, 11.0);
+    (void)coordinator.update(
+        selected_frame(100, 11.0, 240.0f, 208.0f, 41, 7),
+        intent,
+        11.0);
+    const auto corrected = coordinator.update(
+        no_source_tick(), intent, 11.050);
+    require_true(corrected.desired_point_normalized.y > 0.5f,
+                 "test trigger must establish a corrected D");
+
+    auto replacement = selected_frame(
+        101, 11.056, 280.0f, 220.0f, 52, 8);
+    replacement.selector_target_changed = true;
+    const auto replaced = coordinator.update(replacement, ads_intent(), 11.056);
+    require_true(replaced.target_id != corrected.target_id,
+                 "replacement must allocate a new I");
+    require_true(near(replaced.aim_px.y, replaced.source_aim_px.y),
+                 "new I must reset D to the new Vision default");
+    require_true(replaced.desired_point_source ==
+                     pipeline_contract::DesiredPointSource::VisionDefault,
+                 "new I must not inherit user correction state");
+}
+
 }  // namespace
 
 int main() {
@@ -269,6 +379,9 @@ int main() {
     test_duplicate_and_stale_captures_cannot_replace_geometry();
     test_same_generation_cue_is_only_continuity_path();
     test_selector_generation_replacement_resets_target_identity();
+    test_manual_correction_moves_d_only_inside_r();
+    test_cue_carries_corrected_d_instead_of_replacing_it();
+    test_target_replacement_resets_corrected_d();
     std::cout << "[TargetCoordinatorTests] PASS\n";
     return 0;
 }

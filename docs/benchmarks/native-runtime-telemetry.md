@@ -15,9 +15,10 @@ file is created.
 All records use the existing bounded asynchronous queue. G0 adds two record
 types under schema `causal_response_journal_v1`:
 
-- `delivered_control_sample`: final right/left output at the timestamp after the
-  virtual-gamepad update returned, including failed-delivery and output-disabled
-  provenance;
+- `delivered_control_sample` v2: compact final right/left output and delivery
+  status at the timestamp after the virtual-gamepad update returned. Controller
+  decomposition remains in `controller_sample`; runtime identity remains in the
+  per-file `session_metadata` record;
 - `committed_capture_observation`: the capture-time geometry for the exact
   observation selected by the production coordinator, never a newer raw
   challenger or tracker-projected future point.

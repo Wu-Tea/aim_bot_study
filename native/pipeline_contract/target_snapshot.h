@@ -3,22 +3,12 @@
 #include "../common_native/screen_geometry.h"
 #include "../common_native/time_types.h"
 #include "../common_native/authority_types.h"
+#include "pipeline_contract/user_aim_intent.h"
+#include "pipeline_contract/vision_observation.h"
 
 #include <cstdint>
 
 namespace pipeline_contract {
-
-struct UserAimIntent {
-    std::uint64_t intent_id = 0;
-    common_native::TimeSeconds timestamp;
-    bool valid = false;
-    float strength = 0.0f;
-    bool has_point = false;
-    common_native::Vec2f point_px;
-    bool has_direction = false;
-    common_native::Vec2f direction;
-    bool aiming = false;
-};
 
 struct VisionCandidateSnapshot {
     std::uint64_t id = 0;
@@ -26,6 +16,9 @@ struct VisionCandidateSnapshot {
     common_native::Box2f body_box_px;
     common_native::Vec2f aim_point_px;
     bool has_aim_point = false;
+    common_native::Box2f aim_region_px;
+    AimRegionSource aim_region_source = AimRegionSource::None;
+    bool has_aim_region = false;
     float confidence = 0.0f;
     int class_id = 0;
     bool is_friendly = false;
@@ -52,6 +45,8 @@ struct ControllerTargetSnapshot {
     common_native::Vec2f screen_center_px;
     common_native::Box2f body_box_px;
     bool has_body_box = false;
+    common_native::Box2f aim_region_px;
+    bool has_aim_region = false;
     common_native::TimeSeconds captured_at;
     common_native::TimeSeconds ready_at;
 };

@@ -26,6 +26,11 @@ struct NativeControllerVisionState {
     float body_y1 = 0.0f;
     float body_x2 = 0.0f;
     float body_y2 = 0.0f;
+    bool has_aim_region = false;
+    float aim_region_x1 = 0.0f;
+    float aim_region_y1 = 0.0f;
+    float aim_region_x2 = 0.0f;
+    float aim_region_y2 = 0.0f;
     bool aim_authority = false;
     bool fire_authority = false;
     std::string target_tier = "none";

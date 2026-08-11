@@ -6,7 +6,7 @@
 
 namespace runtime_app {
 
-inline constexpr std::uint16_t kTelemetrySchemaVersion = 13;
+inline constexpr std::uint16_t kTelemetrySchemaVersion = 15;
 
 enum class TelemetryRecordType : std::uint8_t {
     SessionMetadata,
@@ -135,6 +135,11 @@ struct ControllerSamplePayload {
     std::array<char, 24> assist_control_phase{};
     bool manual_passthrough_x = true;
     bool manual_passthrough_y = true;
+    bool manual_correction_x = false;
+    bool manual_correction_y = false;
+    bool manual_boundary_x = false;
+    bool manual_boundary_y = false;
+    bool manual_exit_requested = false;
     bool handover_requested = false;
     bool handover_braking = false;
     float bodylock_error_rate_x = 0.0f;
@@ -157,6 +162,19 @@ struct ControllerSamplePayload {
     float observed_error_y = 0.0f;
     float control_error_x = 0.0f;
     float control_error_y = 0.0f;
+    float source_aim_x = 0.0f;
+    float source_aim_y = 0.0f;
+    float desired_aim_x = 0.0f;
+    float desired_aim_y = 0.0f;
+    float desired_point_u = 0.0f;
+    float desired_point_v = 0.0f;
+    float aim_region_x1 = 0.0f;
+    float aim_region_y1 = 0.0f;
+    float aim_region_x2 = 0.0f;
+    float aim_region_y2 = 0.0f;
+    bool has_aim_region = false;
+    std::array<char, 24> aim_region_source{};
+    std::array<char, 24> desired_point_source{};
     float requested_assist_x = 0.0f;
     float requested_assist_y = 0.0f;
     float shaped_assist_x = 0.0f;
@@ -338,12 +356,6 @@ struct AdsAcquisitionTracePayload {
 struct DeliveredControlPayload {
     std::uint64_t sample_seq = 0;
     std::uint64_t applied_at_ns = 0;
-    float physical_right_x = 0.0f, physical_right_y = 0.0f;
-    float physical_left_x = 0.0f, physical_left_y = 0.0f;
-    float manual_x = 0.0f, manual_y = 0.0f;
-    float ai_x = 0.0f, ai_y = 0.0f;
-    float pre_recoil_x = 0.0f, pre_recoil_y = 0.0f;
-    float recoil_x = 0.0f, recoil_y = 0.0f;
     float final_right_x = 0.0f, final_right_y = 0.0f;
     float final_left_x = 0.0f, final_left_y = 0.0f;
     std::uint64_t ads_epoch = 0;

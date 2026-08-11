@@ -1,8 +1,7 @@
 #include "vision_controller_adapter.h"
 
-#include "controller_native/target_geometry.h"
-
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <string>
 #include <utility>
@@ -77,10 +76,10 @@ pipeline_contract::VisionCandidateSnapshot candidate_snapshot_from_detection(
     candidate.id = candidate_id;
     candidate.valid = true;
     candidate.body_box_px = {detection.x1, detection.y1, width, height};
-    candidate.aim_point_px = {
-        (detection.x1 + detection.x2) * 0.5f,
-        detection.y1 + (height * 0.40f)};
-    candidate.has_aim_point = true;
+    // Non-selected detections remain identity/handover evidence only. The
+    // selector is the sole producer of a control aim point and R; the adapter
+    // fills those fields only for its selected detection below.
+    candidate.has_aim_point = false;
     candidate.confidence =
         std::max(0.0f, std::min(1.0f, detection.conf + detection.color_bonus));
     candidate.class_id = detection.class_id;
@@ -144,11 +143,31 @@ controller_native::ControllerVisionSnapshot adapt_vision_result(
         }
 
         const std::uint64_t candidate_id = tracker_detection_id(result.frame_id, index);
-        snapshot.candidates.push_back(candidate_snapshot_from_detection(
+        auto candidate = candidate_snapshot_from_detection(
             detection,
             candidate_id,
             width,
-            height));
+            height);
+        if (result.has_selected_detection &&
+            result.selected_detection_index == index && result.has_target) {
+            candidate.aim_point_px = {result.target_x, result.target_y};
+            candidate.has_aim_point =
+                std::isfinite(result.target_x) && std::isfinite(result.target_y);
+            const float region_width =
+                std::max(0.0f, result.aim_region_x2 - result.aim_region_x1);
+            const float region_height =
+                std::max(0.0f, result.aim_region_y2 - result.aim_region_y1);
+            candidate.aim_region_px = {
+                result.aim_region_x1,
+                result.aim_region_y1,
+                region_width,
+                region_height};
+            candidate.aim_region_source =
+                pipeline_contract::AimRegionSource::VisionGeometry;
+            candidate.has_aim_region = result.has_aim_region &&
+                region_width > 1.0f && region_height > 1.0f;
+        }
+        snapshot.candidates.push_back(std::move(candidate));
     }
 
     controller_native::NativeControllerVisionState state;
@@ -165,6 +184,11 @@ controller_native::ControllerVisionSnapshot adapt_vision_result(
     state.body_y1 = result.body_y1;
     state.body_x2 = result.body_x2;
     state.body_y2 = result.body_y2;
+    state.has_aim_region = result.has_aim_region;
+    state.aim_region_x1 = result.aim_region_x1;
+    state.aim_region_y1 = result.aim_region_y1;
+    state.aim_region_x2 = result.aim_region_x2;
+    state.aim_region_y2 = result.aim_region_y2;
     state.aim_authority = result.aim_authority;
     state.fire_authority = result.fire_authority;
     state.target_tier = safe_c_string(result.target_tier, "none");
@@ -178,7 +202,6 @@ pipeline_contract::CommittedCaptureObservation
 adapt_committed_capture_observation(
     const vision_native::VisionResult& result,
     const pipeline_contract::TargetPlan& committed_plan,
-    float aim_height_ratio,
     std::uint64_t ads_epoch,
     std::uint64_t controller_consume_ns) {
     pipeline_contract::CommittedCaptureObservation committed;
@@ -222,11 +245,8 @@ adapt_committed_capture_observation(
     }
     const common_native::Box2f body_box{
         selected->x1, selected->y1, width, height};
-    const common_native::Vec2f raw_aim{
-        (selected->x1 + selected->x2) * 0.5f,
-        selected->y1 + height * 0.40f};
-    const auto geometry = controller_native::resolve_target_geometry(
-        {raw_aim, body_box, true}, {aim_height_ratio});
+    const auto source_aim = committed_plan.source_aim_px;
+    if (!pipeline_contract::finite(source_aim)) return committed;
     const float frame_height = center_y * 2.0f;
     const float normalized_size = std::clamp(
         height / std::max(1.0f, frame_height), 0.0f, 1.0f);
@@ -244,8 +264,8 @@ adapt_committed_capture_observation(
     committed.result_at_ns = result.result_at_ns;
     committed.controller_consume_ns = controller_consume_ns;
     committed.stable_error_px = {
-        geometry.aim_px.x - center_x,
-        geometry.aim_px.y - center_y};
+        source_aim.x - center_x,
+        source_aim.y - center_y};
     committed.stable_body_size_px = {width, height};
     committed.raw_body_box_px = body_box;
     committed.motion_anchor_px = {
@@ -267,7 +287,7 @@ adapt_committed_capture_observation(
     committed.fresh_observed = true;
     committed.strong_observation =
         observation_tier_for_detection(*selected) == "observed_strong";
-    committed.stable_coordinates_valid = geometry.geometry_resolved;
+    committed.stable_coordinates_valid = committed_plan.has_aim_region;
     return committed;
 }
 

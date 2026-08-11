@@ -349,6 +349,74 @@ cod_native_add_test(cod_native_controller_tests NativeControllerIntegrationTests
 target_link_libraries(cod_native_controller_tests PRIVATE
     controller_native_core vision_native_core gdi32 windowsapp)
 
+# Fixed Phase-0 incident fixture: preserve the original symptom oracles as a
+# permanent regression gate now that the production runtime is GREEN.
+add_executable(cod_native_vertical_correction_release_incident_regression
+    ../controller_native/vertical_correction_release_incident_regression.cpp)
+cod_native_defaults(cod_native_vertical_correction_release_incident_regression)
+target_link_libraries(
+    cod_native_vertical_correction_release_incident_regression PRIVATE
+    controller_native_core)
+add_test(
+    NAME NativeVerticalCorrectionReleaseIncidentRegression
+    COMMAND cod_native_vertical_correction_release_incident_regression
+        --output
+        "${CMAKE_CURRENT_BINARY_DIR}/vertical_correction_release_incident_ctest.json")
+set_tests_properties(
+    NativeVerticalCorrectionReleaseIncidentRegression
+    PROPERTIES LABELS "controller;incident-regression")
+
+# Live schema-15 incident fixture: same-direction micro input must retain
+# bounded AI fill while opposing input receives exact native authority.
+add_executable(cod_native_manual_residual_authority_incident_regression
+    ../controller_native/manual_residual_authority_incident_regression.cpp)
+cod_native_defaults(cod_native_manual_residual_authority_incident_regression)
+target_link_libraries(
+    cod_native_manual_residual_authority_incident_regression PRIVATE
+    controller_native_core)
+add_test(
+    NAME NativeManualResidualAuthorityIncidentRegression
+    COMMAND cod_native_manual_residual_authority_incident_regression
+        --output
+        "${CMAKE_CURRENT_BINARY_DIR}/manual_residual_authority_incident_ctest.json")
+set_tests_properties(
+    NativeManualResidualAuthorityIncidentRegression
+    PROPERTIES LABELS "controller;incident-regression")
+
+# Live schema-15 incident fixture: a right-stick gesture that began before
+# target ownership must not rewrite D on the first acquired target sample.
+add_executable(cod_native_acquisition_gesture_purpose_incident_regression
+    ../controller_native/acquisition_gesture_purpose_incident_regression.cpp)
+cod_native_defaults(cod_native_acquisition_gesture_purpose_incident_regression)
+target_link_libraries(
+    cod_native_acquisition_gesture_purpose_incident_regression PRIVATE
+    controller_native_core)
+add_test(
+    NAME NativeAcquisitionGesturePurposeIncidentRegression
+    COMMAND cod_native_acquisition_gesture_purpose_incident_regression
+        --output
+        "${CMAKE_CURRENT_BINARY_DIR}/acquisition_gesture_purpose_incident_ctest.json")
+set_tests_properties(
+    NativeAcquisitionGesturePurposeIncidentRegression
+    PROPERTIES LABELS "controller;incident-regression")
+
+# Incident fixture: a person already selected by Vision must not be rejected
+# a second time solely because its aim point begins far from the crosshair.
+add_executable(cod_native_far_selected_person_ads_admission_incident_regression
+    ../controller_native/far_selected_person_ads_admission_incident_regression.cpp)
+cod_native_defaults(cod_native_far_selected_person_ads_admission_incident_regression)
+target_link_libraries(
+    cod_native_far_selected_person_ads_admission_incident_regression PRIVATE
+    controller_native_core)
+add_test(
+    NAME NativeFarSelectedPersonAdsAdmissionIncidentRegression
+    COMMAND cod_native_far_selected_person_ads_admission_incident_regression
+        --output
+        "${CMAKE_CURRENT_BINARY_DIR}/far_selected_person_ads_admission_ctest.json")
+set_tests_properties(
+    NativeFarSelectedPersonAdsAdmissionIncidentRegression
+    PROPERTIES LABELS "controller;incident-regression")
+
 cod_native_add_test(cod_native_aimlab_benchmark_tests NativeAimlabBenchmarkTests
     ../controller_native/aimlab_benchmark_tests.cpp
     ../controller_native/aimlab_benchmark.cpp)

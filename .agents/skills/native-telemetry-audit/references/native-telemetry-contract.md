@@ -41,7 +41,7 @@ Use manifest schema `1`.
         "git_commit": "<commit or unknown>",
         "config_hash": "<64 lowercase hex or unknown>",
         "engine_hash": "<64 lowercase hex or unknown>",
-        "telemetry_schema": 13,
+        "telemetry_schema": 15,
         "logging_mode": "performance_summary",
         "hardware_profile": "shared-4070s",
         "game_refresh_hz": 180

@@ -136,18 +136,6 @@ void TelemetryCollectors::observe_tick(const TelemetryTickInput& input) noexcept
         auto& delivered = delivered_record.delivered_control;
         delivered.sample_seq = input.tick_id;
         delivered.applied_at_ns = input.output_sent_ns;
-        delivered.physical_right_x = input.physical_x;
-        delivered.physical_right_y = input.physical_y;
-        delivered.physical_left_x = input.physical_left_x;
-        delivered.physical_left_y = input.physical_left_y;
-        delivered.manual_x = input.manual_x;
-        delivered.manual_y = input.manual_y;
-        delivered.ai_x = input.ai_x;
-        delivered.ai_y = input.ai_y;
-        delivered.pre_recoil_x = input.pre_recoil_x;
-        delivered.pre_recoil_y = input.pre_recoil_y;
-        delivered.recoil_x = input.recoil_x;
-        delivered.recoil_y = input.recoil_y;
         delivered.final_right_x = input.final_x;
         delivered.final_right_y = input.final_y;
         delivered.final_left_x = input.final_left_x;
@@ -215,6 +203,11 @@ void TelemetryCollectors::observe_tick(const TelemetryTickInput& input) noexcept
             input.assist_control_phase);
         sample.controller.manual_passthrough_x = input.manual_passthrough_x;
         sample.controller.manual_passthrough_y = input.manual_passthrough_y;
+        sample.controller.manual_correction_x = input.manual_correction_x;
+        sample.controller.manual_correction_y = input.manual_correction_y;
+        sample.controller.manual_boundary_x = input.manual_boundary_x;
+        sample.controller.manual_boundary_y = input.manual_boundary_y;
+        sample.controller.manual_exit_requested = input.manual_exit_requested;
         sample.controller.handover_requested = input.handover_requested;
         sample.controller.handover_braking = input.handover_braking;
         sample.controller.bodylock_error_rate_x = input.bodylock_error_rate_x;
@@ -250,6 +243,21 @@ void TelemetryCollectors::observe_tick(const TelemetryTickInput& input) noexcept
         sample.controller.observed_error_y = input.observed_error_y;
         sample.controller.control_error_x = input.control_error_x;
         sample.controller.control_error_y = input.control_error_y;
+        sample.controller.source_aim_x = input.source_aim_x;
+        sample.controller.source_aim_y = input.source_aim_y;
+        sample.controller.desired_aim_x = input.desired_aim_x;
+        sample.controller.desired_aim_y = input.desired_aim_y;
+        sample.controller.desired_point_u = input.desired_point_u;
+        sample.controller.desired_point_v = input.desired_point_v;
+        sample.controller.aim_region_x1 = input.aim_region_x1;
+        sample.controller.aim_region_y1 = input.aim_region_y1;
+        sample.controller.aim_region_x2 = input.aim_region_x2;
+        sample.controller.aim_region_y2 = input.aim_region_y2;
+        sample.controller.has_aim_region = input.has_aim_region;
+        copy_text(sample.controller.aim_region_source, input.aim_region_source);
+        copy_text(
+            sample.controller.desired_point_source,
+            input.desired_point_source);
         sample.controller.selected_track_id = input.selected_track_id;
         sample.controller.selected_observation_id = input.selected_observation_id;
         sample.controller.left_trigger = input.left_trigger;

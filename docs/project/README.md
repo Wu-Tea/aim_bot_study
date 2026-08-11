@@ -6,30 +6,33 @@ baselines, completed acceptance stages and paused research through
 
 ## Read First
 
-1. [Current State](CURRENT_STATE.md) - current native production chain,
+1. [Aim Control Product Contract V1](AIM_CONTROL_PRODUCT_CONTRACT_V1_20260811.md) -
+   accepted product behavior, user rights, control ownership, safety rules and
+   COD-family adaptation boundary. Numeric thresholds remain to be measured.
+2. [Current State](CURRENT_STATE.md) - current native production chain,
    verification status, next live validation and non-regression rules.
-2. [Legacy Control Stack Cleanup](LEGACY_CONTROL_STACK_CLEANUP_20260810.md) -
+3. [Legacy Control Stack Cleanup](LEGACY_CONTROL_STACK_CLEANUP_20260810.md) -
    why the former 80-100 Hz compensation stack was harmful, what was removed
    and the evidence boundary of the cleanup.
-3. [Cue Selector and Manual Acceptance](CUE_SELECTOR_MANUAL_ACCEPTANCE_20260810.md)
+4. [Cue Selector and Manual Acceptance](CUE_SELECTOR_MANUAL_ACCEPTANCE_20260810.md)
    - current selector-generation, cue, handover and manual-control contracts.
-4. [August 3 Live-Accepted Native Runtime](LIVE_ACCEPTED_RUNTIME_20260803.md) -
+5. [August 3 Live-Accepted Native Runtime](LIVE_ACCEPTED_RUNTIME_20260803.md) -
    protected executable/config identity, live evidence, restore set and the
    explicit statement that W5 memory was not present in that historical binary.
-5. [Five-Case and Schema-13 Control Audit](FIVE_CASE_SCHEMA13_CONTROL_AUDIT_20260803.md) -
+6. [Five-Case and Schema-13 Control Audit](FIVE_CASE_SCHEMA13_CONTROL_AUDIT_20260803.md) -
    historical evidence for the command-continuity defect and W3/W4 gates that
    motivated later single-owner work.
-6. [Control-Chain Jump Stability Acceptance](CONTROL_CHAIN_JUMP_STABILITY_ACCEPTANCE_20260801.md) -
+7. [Control-Chain Jump Stability Acceptance](CONTROL_CHAIN_JUMP_STABILITY_ACCEPTANCE_20260801.md) -
    earlier Task 1-4 contracts and historical rollback evidence.
-7. [ADS Long-Session Diagnosis](ADS_LONG_SESSION_DIAGNOSIS_20260801.md) -
+8. [ADS Long-Session Diagnosis](ADS_LONG_SESSION_DIAGNOSIS_20260801.md) -
    25.5-minute bot-log analysis separating movement/handoff timing from
    cumulative learning drift.
-8. [Project Overview](PROJECT_OVERVIEW.md) - component and data-flow map.
-9. [Native C++ Runtime](NATIVE_CPP_RUNTIME.md) - default runtime build, launch
+9. [Project Overview](PROJECT_OVERVIEW.md) - component and data-flow map.
+10. [Native C++ Runtime](NATIVE_CPP_RUNTIME.md) - default runtime build, launch
    and fallback.
-10. [Native Vision](NATIVE_VISION.md) - TensorRT Vision implementation and
+11. [Native Vision](NATIVE_VISION.md) - TensorRT Vision implementation and
    smoke tests.
-11. [Controller Overview](CONTROLLER_OVERVIEW.md) - controller ownership and
+12. [Controller Overview](CONTROLLER_OVERVIEW.md) - controller ownership and
    runtime modes.
 
 The W3/W5 causal-memory and Gate 2.5 documents remain historical research
@@ -67,6 +70,9 @@ not current continuation instructions.
 - `../superpowers/specs/` and `../superpowers/plans/` - historical design and
   implementation records
 
-If documents disagree, prefer current code and effective configuration, then
-`CURRENT_STATE.md`, then the maintained domain reference. Archived records do
-not override current behavior.
+When the question is what runs today, prefer current code and effective
+configuration, then `CURRENT_STATE.md`. When the question is intended product
+behavior or acceptance, prefer the accepted product contract. A disagreement
+between the two is an implementation gap to review, not a reason to rewrite
+the requirement around the current code. Archived records do not override
+either current behavior or accepted product intent.

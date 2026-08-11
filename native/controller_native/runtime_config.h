@@ -43,7 +43,8 @@ struct VisionRuntimeConfig {
 struct GamepadAiAimConfig {
     float ai_delta_gain = 1.0f;
     float target_max_age_ms = 96.0f;
-    // Spatial ADS admission radius, independent from the acquisition timer.
+    // Legacy ADS response-normalization radius retained for configuration and
+    // telemetry compatibility. It does not gate selector-owned target pickup.
     float ads_activation_radius_px = 135.0f;
     int ads_snap_window_ms = 100;
     float ads_snap_max_ai_force = 1.0f;
@@ -61,7 +62,11 @@ struct GamepadAiAimConfig {
     float body_lock_max_ai_force_y = 0.42f;
     float body_lock_box_tolerance_px = 18.0f;
     float body_lock_activation_box_px = 150.0f;
-    float body_lock_manual_escape_input_threshold = 0.45f;
+    // Provisional V1 intent calibration. These values control how quickly a
+    // sustained right-stick request can move D across the currently valid R,
+    // and when continued pressure at R's boundary becomes an explicit exit.
+    float desired_point_traversal_ms = 180.0f;
+    float desired_point_boundary_exit_ms = 250.0f;
 };
 
 struct GamepadRecoilConfig {
@@ -86,11 +91,6 @@ struct GamepadRecoilConfig {
     bool adaptive_feedback_enabled = true;
     float adaptive_min_amount = 0.06f;
     float adaptive_max_amount = 0.42f;
-    // A firing vertical stick is target-internal aim intent, not a protected
-    // additive force. It changes D before the one target-first T is solved.
-    bool firing_vertical_intent_enabled = true;
-    float firing_vertical_intent_max_offset_px = 48.0f;
-    float firing_vertical_intent_deadzone = 0.025f;
     float profile_lead_ms = 0.0f;
     float profile_velocity_reference_ms = 10.0f;
     float profile_despike_threshold_px = 2.0f;

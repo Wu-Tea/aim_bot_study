@@ -22,7 +22,9 @@ public:
         pipeline_contract::Vec2f raw_right,
         bool ads,
         bool fire,
-        double sample_time_seconds) noexcept;
+        double sample_time_seconds,
+        bool target_owned = false,
+        bool handover_requested = false) noexcept;
 
     void reset() noexcept;
 
@@ -34,7 +36,7 @@ private:
 
     struct StickState {
         bool active = false;
-        float signed_value = 0.0f;
+        pipeline_contract::Vec2f filtered{};
     };
 
     pipeline_contract::AxisIntentState update_axis(AxisState& state, float raw) noexcept;
@@ -49,6 +51,8 @@ private:
     AxisState right_y_{};
     StickState left_stick_{};
     StickState right_stick_{};
+    pipeline_contract::UserAimIntentPurpose right_purpose_ =
+        pipeline_contract::UserAimIntentPurpose::AcquireTarget;
 };
 
 }  // namespace controller_native

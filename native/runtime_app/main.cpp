@@ -178,7 +178,10 @@ void dump_effective_config(const controller_native::RuntimeConfig& config) {
     line("gamepad.bodylock.vertical_strength", aim.body_lock_max_ai_force_y);
     line("gamepad.bodylock.activation_range_px", aim.body_lock_activation_box_px);
     line("gamepad.bodylock.tolerance_px", aim.body_lock_box_tolerance_px);
-    line("gamepad.bodylock.manual_escape_threshold", aim.body_lock_manual_escape_input_threshold);
+    line("gamepad.ai_aim.desired_point_traversal_ms", aim.desired_point_traversal_ms);
+    line(
+        "gamepad.ai_aim.desired_point_boundary_exit_ms",
+        aim.desired_point_boundary_exit_ms);
     const auto& fire = config.gamepad.auto_fire;
     line("gamepad.auto_fire.fire_output", fire.fire_output);
     line("gamepad.auto_fire.aim_only", fire.aim_only);
@@ -205,15 +208,6 @@ void dump_effective_config(const controller_native::RuntimeConfig& config) {
     line("gamepad.recoil.adaptive_feedback_enabled", recoil.adaptive_feedback_enabled);
     line("gamepad.recoil.adaptive_min_amount", recoil.adaptive_min_amount);
     line("gamepad.recoil.adaptive_max_amount", recoil.adaptive_max_amount);
-    line(
-        "gamepad.recoil.firing_vertical_intent_enabled",
-        recoil.firing_vertical_intent_enabled);
-    line(
-        "gamepad.recoil.firing_vertical_intent_max_offset_px",
-        recoil.firing_vertical_intent_max_offset_px);
-    line(
-        "gamepad.recoil.firing_vertical_intent_deadzone",
-        recoil.firing_vertical_intent_deadzone);
     line("gamepad.recoil.profile_lead_ms", recoil.profile_lead_ms);
     line("gamepad.recoil.profile_velocity_reference_ms", recoil.profile_velocity_reference_ms);
     line("gamepad.recoil.profile_despike_threshold_px", recoil.profile_despike_threshold_px);

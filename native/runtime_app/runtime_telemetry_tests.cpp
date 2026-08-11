@@ -194,8 +194,6 @@ void test_current_observation_and_delivery_include_session_provenance() {
     delivered.type = runtime_app::TelemetryRecordType::DeliveredControlSample;
     delivered.delivered_control.sample_seq = 9;
     delivered.delivered_control.applied_at_ns = 9'500'000;
-    delivered.delivered_control.physical_right_x = 0.2f;
-    delivered.delivered_control.ai_x = 0.1f;
     delivered.delivered_control.final_right_x = 0.3f;
     delivered.delivered_control.output_delivered = true;
     REQUIRE(telemetry.enqueue(delivered));
@@ -203,9 +201,10 @@ void test_current_observation_and_delivery_include_session_provenance() {
 
     const std::string text = read_files(directory);
     REQUIRE(text.find("\"type\":\"session_metadata\"") != std::string::npos);
-    REQUIRE(text.find("\"schema\":\"delivered_control_sample_v1\"") != std::string::npos);
+    REQUIRE(text.find("\"schema\":\"delivered_control_sample_v2\"") != std::string::npos);
     REQUIRE(text.find("\"build_revision\":\"cleanup-test-revision\"") != std::string::npos);
-    REQUIRE(text.find("\"physical_right\":[0.2,0]") != std::string::npos);
+    REQUIRE(text.find("\"final_right\":[0.3,0]") != std::string::npos);
+    REQUIRE(text.find("\"physical_right\"") == std::string::npos);
     REQUIRE(text.find("identification_update_outcome") == std::string::npos);
     std::filesystem::remove_all(directory);
 }

@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#eff1e8">
+  <title>瞄准控制产品定义问卷</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='22' fill='none' stroke='%23121a15' stroke-width='4'/%3E%3Cpath d='M32 2v16M32 46v16M2 32h16M46 32h16' stroke='%23121a15' stroke-width='4'/%3E%3Ccircle cx='32' cy='32' r='5' fill='%23b8f34a'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到当前问题</a>
+
+  <div id="welcome" class="welcome" hidden>
+    <div class="welcome__grid" aria-hidden="true"></div>
+    <div class="welcome__content">
+      <p class="eyebrow">Product definition / 01</p>
+      <h1>先决定产品，<br>再决定代码。</h1>
+      <p class="welcome__lead">
+        这份问卷会把目标选择、瞄准位置、人工意图、cue、开火、压枪、异常处理和验收标准一次问清。
+        答案只保存在你的浏览器里。
+      </p>
+      <div class="welcome__facts" aria-label="问卷说明">
+        <span><strong id="welcome-section-count">13</strong> 个主题</span>
+        <span><strong id="welcome-core-count">—</strong> 个核心决策</span>
+        <span>可随时导出和继续</span>
+      </div>
+      <button id="start-button" class="button button--primary button--large" type="button">
+        开始定义产品
+        <span aria-hidden="true">→</span>
+      </button>
+      <button id="resume-button" class="button button--quiet" type="button" hidden>继续上次填写</button>
+    </div>
+    <div class="welcome__mark" aria-hidden="true">
+      <span class="welcome__axis welcome__axis--x"></span>
+      <span class="welcome__axis welcome__axis--y"></span>
+      <span class="welcome__reticle"></span>
+      <span class="welcome__label">I · D · T</span>
+    </div>
+  </div>
+
+  <div id="workspace" class="workspace" hidden>
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand__mark" aria-hidden="true"></span>
+        <div>
+          <span class="brand__name">产品定义问卷</span>
+          <span class="brand__sub">Aim control · V1</span>
+        </div>
+      </div>
+      <div class="topbar__status" aria-live="polite">
+        <span id="save-status">已自动保存</span>
+        <button id="open-tools" class="icon-button" type="button" aria-haspopup="dialog" aria-label="打开导入、导出和重置工具">
+          <span aria-hidden="true">•••</span>
+        </button>
+      </div>
+    </header>
+
+    <aside class="rail" aria-label="问卷章节">
+      <div class="rail__progress">
+        <div class="rail__progress-copy">
+          <span>核心问题完成度</span>
+          <strong id="progress-label">0%</strong>
+        </div>
+        <div class="progress-track" aria-hidden="true">
+          <span id="progress-bar"></span>
+        </div>
+      </div>
+      <nav id="section-nav" class="section-nav"></nav>
+      <p class="rail__hint">选择答案或标记“需要讨论”，即可继续。深入问题不阻塞进度。</p>
+    </aside>
+
+    <main id="main" class="main" tabindex="-1">
+      <section id="section-view" class="section-view" aria-live="polite"></section>
+    </main>
+
+    <footer class="actionbar">
+      <button id="previous-button" class="button button--quiet" type="button">
+        <span aria-hidden="true">←</span>
+        上一节
+      </button>
+      <div class="actionbar__center">
+        <span id="section-position">01 / 13</span>
+        <span id="section-resolution">本节 0 / 0</span>
+      </div>
+      <button id="next-button" class="button button--primary" type="button">
+        保存并继续
+        <span aria-hidden="true">→</span>
+      </button>
+    </footer>
+  </div>
+
+  <dialog id="tools-dialog" class="dialog">
+    <form method="dialog" class="dialog__surface">
+      <div class="dialog__header">
+        <div>
+          <p class="eyebrow">Local workspace</p>
+          <h2>答案工具</h2>
+        </div>
+        <button class="icon-button" value="close" aria-label="关闭">×</button>
+      </div>
+      <p>答案只保存在当前浏览器。建议填写完成后同时导出 JSON 和 Markdown。</p>
+      <div class="dialog__actions">
+        <button id="export-json" class="button button--primary" type="button">导出 JSON（用于 review）</button>
+        <button id="export-markdown" class="button button--secondary" type="button">导出 Markdown 备份</button>
+        <button id="copy-markdown" class="button button--secondary" type="button">复制 Markdown</button>
+        <button id="import-json" class="button button--secondary" type="button">导入 JSON</button>
+        <input id="import-file" type="file" accept="application/json,.json" hidden>
+      </div>
+      <div class="dialog__danger">
+        <span>重新开始会清除浏览器里的全部答案。</span>
+        <button id="reset-button" class="button button--danger" type="button">清空答案</button>
+      </div>
+      <p id="tool-feedback" class="dialog__feedback" aria-live="polite"></p>
+    </form>
+  </dialog>
+
+  <dialog id="reset-dialog" class="dialog dialog--small">
+    <form method="dialog" class="dialog__surface">
+      <p class="eyebrow">Irreversible</p>
+      <h2>确定清空全部答案？</h2>
+      <p>如果还没有导出，当前浏览器里的填写内容将无法恢复。</p>
+      <div class="dialog__row">
+        <button class="button button--secondary" value="cancel">取消</button>
+        <button id="confirm-reset" class="button button--danger" type="button">确定清空</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <script src="questions.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

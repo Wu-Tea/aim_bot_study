@@ -83,7 +83,7 @@ common_native::TimeSeconds steady_time_seconds(const std::chrono::steady_clock::
 }
 
 pipeline_contract::UserAimIntent build_user_aim_intent(
-    const controller_native::PhysicalGamepadState& physical,
+    const pipeline_contract::IntentState& controller_intent,
     bool aiming,
     std::uint64_t intent_id,
     std::chrono::steady_clock::time_point timestamp) {
@@ -91,20 +91,23 @@ pipeline_contract::UserAimIntent build_user_aim_intent(
     intent.intent_id = intent_id;
     intent.timestamp = steady_time_seconds(timestamp);
     intent.aiming = aiming;
+    intent.purpose = controller_intent.right_purpose;
     if (!aiming) {
         return intent;
     }
 
-    const float strength = std::hypot(physical.right_x, physical.right_y);
+    const float strength = std::hypot(
+        controller_intent.filtered_right.x,
+        controller_intent.filtered_right.y);
     intent.strength = std::min(1.0f, strength);
-    if (strength <= 0.05f) {
+    if (strength <= 0.0f) {
         return intent;
     }
 
     intent.valid = true;
     intent.has_direction = true;
-    intent.direction.x = physical.right_x / strength;
-    intent.direction.y = -physical.right_y / strength;
+    intent.direction.x = controller_intent.filtered_right.x / strength;
+    intent.direction.y = -controller_intent.filtered_right.y / strength;
     return intent;
 }
 
@@ -602,8 +605,9 @@ void RuntimeLoop::run_once() {
     const std::uint64_t physical_read_at_ns = steady_time_point_ns(std::chrono::steady_clock::now());
     const bool aiming = is_aiming(physical);
     latest_vision_aiming_ = aiming;
+    const auto& controller_intent = controller_.sample_input(physical);
     const pipeline_contract::UserAimIntent user_aim_intent = build_user_aim_intent(
-        physical,
+        controller_intent,
         aiming,
         static_cast<std::uint64_t>(tick_count_) + 1u,
         tick_started);
@@ -697,7 +701,8 @@ void RuntimeLoop::run_once() {
         }
     }
     const auto controller_pipeline_started = std::chrono::steady_clock::now();
-    controller_native::GamepadOutputState output = controller_.build_output(physical);
+    controller_native::GamepadOutputState output =
+        controller_.build_output_from_sampled_input();
     const auto vigem_update_started = std::chrono::steady_clock::now();
     controller_native::VirtualGamepadUpdateResult output_result;
     if (config_.output.enabled) {
@@ -749,7 +754,6 @@ void RuntimeLoop::run_once() {
         viewport_observation = adapt_committed_capture_observation(
             latest_vision_result_,
             controller_.last_target_plan(),
-            config_.gamepad.tracker.aim_height_ratio,
             controller_.ads_epoch(),
             latest_controller_consume_started_ns_);
         if (pipeline_contract::valid(viewport_observation)) {
@@ -1009,6 +1013,14 @@ void RuntimeLoop::run_once() {
         telemetry_components.manual_passthrough_x;
     telemetry_tick.manual_passthrough_y =
         telemetry_components.manual_passthrough_y;
+    telemetry_tick.manual_correction_x =
+        telemetry_components.manual_correction_x;
+    telemetry_tick.manual_correction_y =
+        telemetry_components.manual_correction_y;
+    telemetry_tick.manual_boundary_x = telemetry_components.manual_boundary_x;
+    telemetry_tick.manual_boundary_y = telemetry_components.manual_boundary_y;
+    telemetry_tick.manual_exit_requested =
+        telemetry_components.manual_exit_requested;
     telemetry_tick.handover_requested =
         telemetry_components.handover_requested;
     telemetry_tick.handover_braking = telemetry_components.handover_braking;
@@ -1059,6 +1071,25 @@ void RuntimeLoop::run_once() {
     telemetry_tick.observed_error_y = telemetry_components.observed_error_px.y;
     telemetry_tick.control_error_x = telemetry_components.control_error_px.x;
     telemetry_tick.control_error_y = telemetry_components.control_error_px.y;
+    telemetry_tick.source_aim_x = telemetry_components.source_aim_px.x;
+    telemetry_tick.source_aim_y = telemetry_components.source_aim_px.y;
+    telemetry_tick.desired_aim_x = telemetry_components.desired_aim_px.x;
+    telemetry_tick.desired_aim_y = telemetry_components.desired_aim_px.y;
+    telemetry_tick.desired_point_u =
+        telemetry_components.desired_point_normalized.x;
+    telemetry_tick.desired_point_v =
+        telemetry_components.desired_point_normalized.y;
+    telemetry_tick.aim_region_x1 = telemetry_components.aim_region_px.x;
+    telemetry_tick.aim_region_y1 = telemetry_components.aim_region_px.y;
+    telemetry_tick.aim_region_x2 = telemetry_components.aim_region_px.x +
+        telemetry_components.aim_region_px.w;
+    telemetry_tick.aim_region_y2 = telemetry_components.aim_region_px.y +
+        telemetry_components.aim_region_px.h;
+    telemetry_tick.has_aim_region = telemetry_components.has_aim_region;
+    telemetry_tick.aim_region_source =
+        telemetry_components.aim_region_source.c_str();
+    telemetry_tick.desired_point_source =
+        telemetry_components.desired_point_source.c_str();
     telemetry_tick.final_left_x = output.left_x;
     telemetry_tick.final_left_y = output.left_y;
     telemetry_tick.output_saturated =
@@ -1079,7 +1110,6 @@ void RuntimeLoop::run_once() {
         const auto committed = adapt_committed_capture_observation(
             latest_vision_result_,
             controller_.last_target_plan(),
-            config_.gamepad.tracker.aim_height_ratio,
             controller_.ads_epoch(),
             latest_controller_consume_started_ns_);
         telemetry_collectors_.observe_committed_capture(committed);

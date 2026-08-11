@@ -95,6 +95,9 @@ public:
 
     void reset();
     void submit_vision_snapshot(const ControllerVisionSnapshot& snapshot);
+    const pipeline_contract::IntentState& sample_input(
+        const PhysicalGamepadState& physical);
+    GamepadOutputState build_output_from_sampled_input();
     GamepadOutputState build_output(const PhysicalGamepadState& physical);
     NativeAutoFireCounters auto_fire_counters() const;
     const std::vector<NativeControllerStageTrace>& last_pipeline_traces() const;
@@ -150,12 +153,16 @@ private:
     double last_firing_activity_seconds_ = -1.0;
     std::uint64_t ads_epoch_ = 0;
     double last_tick_seconds_ = 0.0;
-    std::uint32_t last_observed_ads_candidate_count_ = 0;
     pipeline_contract::Vec2f aim_response_command_sum_{};
     std::uint32_t aim_response_command_count_ = 0;
     std::uint64_t last_aim_response_frame_id_ = 0;
     double last_aim_response_observed_seconds_ = 0.0;
     bool aim_response_manual_ambiguous_ = false;
+    PhysicalGamepadState sampled_physical_{};
+    pipeline_contract::IntentState sampled_intent_{};
+    double sampled_now_seconds_ = 0.0;
+    float sampled_dt_seconds_ = 0.001f;
+    bool has_sampled_input_ = false;
     std::vector<NativeControllerStageTrace> last_pipeline_traces_;
     NativeControllerAcquisitionTrace last_acquisition_trace_{};
     std::uint64_t acquisition_trace_target_id_ = 0;

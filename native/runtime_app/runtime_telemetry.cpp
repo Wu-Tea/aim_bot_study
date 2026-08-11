@@ -45,7 +45,6 @@ const char* ads_decision_reason_name(std::uint8_t value) {
     case Reason::Admitted: return "admitted";
     case Reason::InvalidSelectorProtocol: return "invalid_selector_protocol";
     case Reason::SelectorNoSelection: return "selector_no_selection";
-    case Reason::OutsideAdsActivationRadius: return "outside_ads_activation_radius";
     case Reason::OutsideAssociationRadius: return "outside_association_radius";
     case Reason::StaleCapture: return "stale_capture";
     case Reason::DuplicateFrame: return "duplicate_frame";
@@ -371,6 +370,16 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
              << (record.controller.manual_passthrough_x ? "true" : "false")
              << ",\"manual_passthrough_y\":"
              << (record.controller.manual_passthrough_y ? "true" : "false")
+             << ",\"manual_correction_x\":"
+             << (record.controller.manual_correction_x ? "true" : "false")
+             << ",\"manual_correction_y\":"
+             << (record.controller.manual_correction_y ? "true" : "false")
+             << ",\"manual_boundary_x\":"
+             << (record.controller.manual_boundary_x ? "true" : "false")
+             << ",\"manual_boundary_y\":"
+             << (record.controller.manual_boundary_y ? "true" : "false")
+             << ",\"manual_exit_requested\":"
+             << (record.controller.manual_exit_requested ? "true" : "false")
              << ",\"handover_requested\":"
              << (record.controller.handover_requested ? "true" : "false")
              << ",\"handover_braking\":"
@@ -406,6 +415,23 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
              << ",\"observed_error_y\":" << record.controller.observed_error_y
              << ",\"control_error_x\":" << record.controller.control_error_x
              << ",\"control_error_y\":" << record.controller.control_error_y
+             << ",\"source_aim\":[" << record.controller.source_aim_x
+             << ',' << record.controller.source_aim_y << ']'
+             << ",\"desired_aim\":[" << record.controller.desired_aim_x
+             << ',' << record.controller.desired_aim_y << ']'
+             << ",\"desired_point_normalized\":["
+             << record.controller.desired_point_u << ','
+             << record.controller.desired_point_v << ']'
+             << ",\"aim_region\":[" << record.controller.aim_region_x1
+             << ',' << record.controller.aim_region_y1 << ','
+             << record.controller.aim_region_x2 << ','
+             << record.controller.aim_region_y2 << ']'
+             << ",\"has_aim_region\":"
+             << (record.controller.has_aim_region ? "true" : "false")
+             << ",\"aim_region_source\":\""
+             << record.controller.aim_region_source.data() << '"'
+             << ",\"desired_point_source\":\""
+             << record.controller.desired_point_source.data() << '"'
              << ",\"requested_assist_x\":" << record.controller.requested_assist_x
              << ",\"requested_assist_y\":" << record.controller.requested_assist_y
              << ",\"shaped_assist_x\":" << record.controller.shaped_assist_x
@@ -614,18 +640,12 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
     }
     case TelemetryRecordType::DeliveredControlSample: {
         const auto& value = record.delivered_control;
-        const auto& provenance = has_session_metadata_
-            ? session_metadata_.session_metadata : record.session_metadata;
-        output_ << ",\"schema\":\"delivered_control_sample_v1\""
+        // High-rate delivery timeline only. Controller decomposition lives in
+        // controller_sample and runtime identity lives in session_metadata.
+        output_ << ",\"schema\":\"delivered_control_sample_v2\""
             << ",\"control\":{"
             << "\"sample_seq\":" << value.sample_seq
             << ",\"applied_at_ns\":" << value.applied_at_ns
-            << ",\"physical_right\":[" << value.physical_right_x << ',' << value.physical_right_y << ']'
-            << ",\"physical_left\":[" << value.physical_left_x << ',' << value.physical_left_y << ']'
-            << ",\"manual\":[" << value.manual_x << ',' << value.manual_y << ']'
-            << ",\"ai\":[" << value.ai_x << ',' << value.ai_y << ']'
-            << ",\"pre_recoil\":[" << value.pre_recoil_x << ',' << value.pre_recoil_y << ']'
-            << ",\"recoil\":[" << value.recoil_x << ',' << value.recoil_y << ']'
             << ",\"final_right\":[" << value.final_right_x << ',' << value.final_right_y << ']'
             << ",\"final_left\":[" << value.final_left_x << ',' << value.final_left_y << ']'
             << ",\"ads_epoch\":" << value.ads_epoch
@@ -633,14 +653,7 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
             << ",\"output_disabled\":" << (value.output_disabled ? "true" : "false")
             << ",\"firing\":" << (value.firing ? "true" : "false")
             << ",\"recoil_active\":" << (value.recoil_active ? "true" : "false")
-            << ",\"saturated\":" << (value.saturated ? "true" : "false") << '}'
-            << ",\"provenance\":{"
-            << "\"build_revision\":\"" << provenance.build_commit.data() << '"'
-            << ",\"config_sha256\":\"" << provenance.config_hash.data() << '"'
-            << ",\"engine_sha256\":\"" << provenance.engine_hash.data() << '"'
-            << ",\"executable_sha256\":\"" << provenance.executable_sha256.data() << '"'
-            << ",\"capture_width\":" << provenance.capture_width
-            << ",\"capture_height\":" << provenance.capture_height << '}';
+            << ",\"saturated\":" << (value.saturated ? "true" : "false") << '}';
         break;
     }
     default: break;

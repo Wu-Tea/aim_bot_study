@@ -26,6 +26,11 @@ struct NativeControllerOutputComponents {
     std::string assist_control_phase = "manual";
     bool manual_passthrough_x = true;
     bool manual_passthrough_y = true;
+    bool manual_correction_x = false;
+    bool manual_correction_y = false;
+    bool manual_boundary_x = false;
+    bool manual_boundary_y = false;
+    bool manual_exit_requested = false;
     bool handover_requested = false;
     bool handover_braking = false;
     common_native::Vec2f bodylock_error_rate_px_per_sec;
@@ -36,6 +41,13 @@ struct NativeControllerOutputComponents {
     std::string bodylock_constraint_reason = "none";
     common_native::Vec2f observed_error_px;
     common_native::Vec2f control_error_px;
+    common_native::Vec2f source_aim_px;
+    common_native::Vec2f desired_aim_px;
+    common_native::Vec2f desired_point_normalized;
+    common_native::Box2f aim_region_px;
+    bool has_aim_region = false;
+    std::string aim_region_source = "none";
+    std::string desired_point_source = "none";
     common_native::Vec2f before_recoil_stick;
     common_native::Vec2f recoil_stick;
     common_native::Vec2f final_stick;

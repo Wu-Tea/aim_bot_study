@@ -1,4 +1,4 @@
-#include "native_gamepad_controller.h"
+#include "incident_fixture_support.h"
 
 #include <algorithm>
 #include <cmath>
@@ -20,6 +20,24 @@ constexpr float kBodyHeight = 140.0f;
 constexpr float kBodyWidth = 56.0f;
 constexpr float kAimHeightRatio = 0.365f;
 
+controller_native::incident_fixture::TargetSpec target_spec(
+    std::uint64_t observation_id,
+    std::uint64_t selector_generation,
+    bool fire_authority = true) {
+    return {
+        kCenterX,
+        kCenterY,
+        kBodyWidth,
+        kBodyHeight,
+        kAimHeightRatio,
+        observation_id,
+        selector_generation,
+        true,
+        false,
+        fire_authority,
+    };
+}
+
 void require(bool condition, const std::string& message) {
     if (!condition) throw std::runtime_error(message);
 }
@@ -32,29 +50,16 @@ void require_near(float actual, float expected, float tolerance,
 }
 
 GamepadRuntimeConfig current_config() {
-    GamepadRuntimeConfig config;
-    config.recoil.enabled = false;
-    config.recoil.adaptive_feedback_enabled = false;
-    config.recoil.profile_playback_enabled = false;
-    config.recoil.selection_log_enabled = false;
-    config.tracker.max_observation_age_ms = 50.0f;
-    config.ai_aim.ads_activation_radius_px = 180.0f;
-    config.ai_aim.ads_snap_max_ai_force = 1.0f;
-    config.ai_aim.ads_snap_max_ai_force_y = 1.0f;
-    config.ai_aim.ads_start_delay_ms = 0.0f;
-    config.ai_aim.ads_start_ramp_ms = 0.0f;
-    return config;
+    return controller_native::incident_fixture::base_config(50.0f, 180.0f);
 }
 
 PhysicalGamepadState physical_input(
     float right_x = 0.0f,
     float right_y = 0.0f,
     bool aiming = true) {
-    PhysicalGamepadState physical;
-    physical.connected = true;
+    auto physical = controller_native::incident_fixture::ads_input(
+        right_x, right_y);
     physical.left_trigger = aiming ? 1.0f : 0.0f;
-    physical.right_x = right_x;
-    physical.right_y = right_y;
     return physical;
 }
 
@@ -62,21 +67,8 @@ pipeline_contract::VisionCandidateSnapshot candidate(
     std::uint64_t id,
     float dx,
     float dy) {
-    pipeline_contract::VisionCandidateSnapshot value;
-    value.id = id;
-    value.valid = true;
-    value.has_aim_point = true;
-    value.aim_point_px = {kCenterX + dx, kCenterY + dy};
-    value.body_box_px = {
-        value.aim_point_px.x - kBodyWidth * 0.5f,
-        value.aim_point_px.y - kBodyHeight * kAimHeightRatio,
-        kBodyWidth,
-        kBodyHeight,
-    };
-    value.confidence = 0.95f;
-    value.suggested_authority_state =
-        common_native::TargetAuthorityState::StrongAssist;
-    return value;
+    return controller_native::incident_fixture::observed_candidate(
+        target_spec(id, 0), dx, dy);
 }
 
 ControllerVisionSnapshot observed_snapshot(
@@ -88,34 +80,14 @@ ControllerVisionSnapshot observed_snapshot(
     std::uint64_t selector_generation,
     bool selector_changed = false,
     bool fire_requested = false) {
-    ControllerVisionSnapshot snapshot;
-    snapshot.frame_updated = true;
-    snapshot.selector_identity_protocol = true;
-    snapshot.frame_id = frame_id;
-    snapshot.capture_time_seconds = now;
-    snapshot.ready_time_seconds = now;
-    snapshot.selected_observation_id = observation_id;
-    snapshot.selector_target_generation = selector_generation;
-    snapshot.selector_target_changed = selector_changed;
-    snapshot.state.has_target = true;
-    snapshot.state.aim_authority = true;
-    snapshot.state.fire_authority = true;
+    auto snapshot = controller_native::incident_fixture::observed_snapshot(
+        target_spec(observation_id, selector_generation),
+        frame_id,
+        now,
+        dx,
+        dy,
+        selector_changed);
     snapshot.state.auto_fire_requested = fire_requested;
-    snapshot.state.dx = dx;
-    snapshot.state.dy = dy;
-    snapshot.state.target_x = kCenterX + dx;
-    snapshot.state.target_y = kCenterY + dy;
-    snapshot.state.screen_center_x = kCenterX;
-    snapshot.state.screen_center_y = kCenterY;
-    snapshot.state.has_body_box = true;
-    snapshot.state.body_x1 = snapshot.state.target_x - kBodyWidth * 0.5f;
-    snapshot.state.body_y1 = snapshot.state.target_y -
-        kBodyHeight * kAimHeightRatio;
-    snapshot.state.body_x2 = snapshot.state.body_x1 + kBodyWidth;
-    snapshot.state.body_y2 = snapshot.state.body_y1 + kBodyHeight;
-    snapshot.state.target_tier = "observed_strong";
-    snapshot.state.observed_at_seconds = now;
-    snapshot.candidates.push_back(candidate(observation_id, dx, dy));
     return snapshot;
 }
 
@@ -128,15 +100,8 @@ void add_alternative(
 }
 
 ControllerVisionSnapshot empty_snapshot(std::uint64_t frame_id, double now) {
-    ControllerVisionSnapshot snapshot;
-    snapshot.frame_updated = true;
-    snapshot.selector_identity_protocol = true;
-    snapshot.frame_id = frame_id;
-    snapshot.capture_time_seconds = now;
-    snapshot.ready_time_seconds = now;
-    snapshot.state.screen_center_x = kCenterX;
-    snapshot.state.screen_center_y = kCenterY;
-    return snapshot;
+    return controller_native::incident_fixture::empty_snapshot(
+        target_spec(0, 0, false), frame_id, now);
 }
 
 ControllerVisionSnapshot cue_snapshot(
@@ -145,32 +110,12 @@ ControllerVisionSnapshot cue_snapshot(
     float dx,
     float dy,
     std::uint64_t selector_generation) {
-    ControllerVisionSnapshot snapshot;
-    snapshot.frame_updated = true;
-    snapshot.selector_identity_protocol = true;
-    snapshot.frame_id = frame_id;
-    snapshot.capture_time_seconds = now;
-    snapshot.ready_time_seconds = now;
-    snapshot.selector_target_generation = selector_generation;
-    snapshot.state.has_target = true;
-    snapshot.state.aim_authority = true;
-    snapshot.state.fire_authority = false;
-    snapshot.state.auto_fire_requested = false;
-    snapshot.state.dx = dx;
-    snapshot.state.dy = dy;
-    snapshot.state.target_x = kCenterX + dx;
-    snapshot.state.target_y = kCenterY + dy;
-    snapshot.state.screen_center_x = kCenterX;
-    snapshot.state.screen_center_y = kCenterY;
-    snapshot.state.has_body_box = true;
-    snapshot.state.body_x1 = snapshot.state.target_x - kBodyWidth * 0.5f;
-    snapshot.state.body_y1 = snapshot.state.target_y -
-        kBodyHeight * kAimHeightRatio;
-    snapshot.state.body_x2 = snapshot.state.body_x1 + kBodyWidth;
-    snapshot.state.body_y2 = snapshot.state.body_y1 + kBodyHeight;
-    snapshot.state.target_tier = "cue_hold";
-    snapshot.state.observed_at_seconds = now;
-    return snapshot;
+    return controller_native::incident_fixture::cue_snapshot(
+        target_spec(0, selector_generation, false),
+        frame_id,
+        now,
+        dx,
+        dy);
 }
 
 void require_finite_unit_output(
@@ -210,7 +155,6 @@ void test_centered_motion_demand_retains_ai_authority() {
     input.fresh_observation = true;
     input.target_id = 1001;
     input.selector_target_generation = 61;
-    input.credible_candidate_count = 1;
     input.now_seconds = 15.0;
     input.target_error_px = {8.0f, -8.0f};
     input.ai_stick = {0.15f, -0.12f};
@@ -273,6 +217,213 @@ void test_centered_motion_demand_retains_ai_authority() {
             ") idle_counterfactual=" +
             std::to_string(idle_counterfactual ? 1 : 0));
     }
+}
+
+void test_valid_point_correction_is_interpreted_not_passthrough() {
+    controller_native::AssistControlStateMachine state_machine;
+    controller_native::AssistControlStateMachineInput input;
+    input.aiming = true;
+    input.target_authoritative = true;
+    input.fresh_observation = true;
+    input.target_id = 1002;
+    input.selector_target_generation = 62;
+    input.now_seconds = 16.0;
+    input.target_error_px = {0.0f, 12.0f};
+    input.manual_stick = {0.0f, -0.70f};
+    input.filtered_manual_stick = input.manual_stick;
+    input.ai_stick = {0.0f, -0.20f};
+    input.manual_correction_y = true;
+
+    const auto corrected = state_machine.update(input);
+    require_near(
+        corrected.stick.y,
+        input.manual_stick.y,
+        1.0e-6f,
+        "stronger aligned D correction was reduced by the AI proposal");
+    require(corrected.manual_correction_y,
+            "valid D correction lost its semantic authority tag");
+    require(corrected.manual_passthrough_y,
+            "a stronger native correction should need no AI residual");
+}
+
+void test_track_uses_ai_as_total_fill_but_opposition_is_native() {
+    controller_native::AssistControlStateMachine state_machine;
+    controller_native::AssistControlStateMachineInput input;
+    input.aiming = true;
+    input.target_authoritative = true;
+    input.fresh_observation = true;
+    input.target_id = 1003;
+    input.selector_target_generation = 63;
+    input.now_seconds = 17.0;
+    input.target_error_px = {60.0f, 0.0f};
+    input.manual_stick = {0.05f, 0.0f};
+    input.filtered_manual_stick = input.manual_stick;
+    input.ai_stick = {0.40f, 0.0f};
+    input.manual_correction_x = true;
+
+    const auto aligned = state_machine.update(input);
+    require_near(aligned.stick.x, 0.40f, 1.0e-6f,
+                 "aligned micro input removed the AI fill");
+    require(aligned.manual_correction_x && !aligned.manual_passthrough_x,
+            "aligned micro input lost its D-correction semantics");
+
+    input.now_seconds += 0.005;
+    input.manual_stick.x = -0.05f;
+    input.filtered_manual_stick.x = -0.05f;
+    const auto opposing = state_machine.update(input);
+    require_near(opposing.stick.x, -0.05f, 1.0e-6f,
+                 "opposing micro input did not receive native authority");
+
+    input.now_seconds += 0.005;
+    input.manual_stick.x = 0.55f;
+    input.filtered_manual_stick.x = 0.55f;
+    const auto stronger_manual = state_machine.update(input);
+    require_near(stronger_manual.stick.x, 0.55f, 1.0e-6f,
+                 "stronger aligned manual input was reduced to the AI proposal");
+}
+
+void test_track_uses_one_two_dimensional_cooperation_decision() {
+    controller_native::AssistControlStateMachine state_machine;
+    controller_native::AssistControlStateMachineInput input;
+    input.aiming = true;
+    input.target_authoritative = true;
+    input.fresh_observation = true;
+    input.target_id = 1004;
+    input.selector_target_generation = 64;
+    input.now_seconds = 17.25;
+    input.target_error_px = {60.0f, 20.0f};
+    input.manual_stick = {0.20f, -0.03f};
+    input.filtered_manual_stick = input.manual_stick;
+    input.ai_stick = {0.35f, 0.10f};
+    input.manual_correction_x = true;
+    input.manual_correction_y = true;
+
+    const auto diagonal = state_machine.update(input);
+    const float full_dot =
+        input.filtered_manual_stick.x * input.ai_stick.x +
+        input.filtered_manual_stick.y * input.ai_stick.y;
+    require(full_dot > 0.0f &&
+                input.filtered_manual_stick.y * input.ai_stick.y < 0.0f,
+            "diagonal fixture did not exercise one opposite component");
+    require(diagonal.stick.x > input.manual_stick.x + 0.05f &&
+                diagonal.stick.y > input.manual_stick.y + 0.01f,
+            "one opposite component unloaded a cooperative 2-D gesture");
+
+    input.now_seconds += 0.005;
+    input.manual_stick = {-0.20f, -0.10f};
+    input.filtered_manual_stick = input.manual_stick;
+    const auto opposing = state_machine.update(input);
+    require_near(opposing.stick.x, input.manual_stick.x, 1.0e-6f,
+                 "2-D opposition did not preserve native X");
+    require_near(opposing.stick.y, input.manual_stick.y, 1.0e-6f,
+                 "2-D opposition did not preserve native Y");
+}
+
+void test_capture_brakes_alignment_but_allows_opposing_escape() {
+    controller_native::AssistControlStateMachine state_machine;
+    controller_native::AssistControlStateMachineInput input;
+    input.aiming = true;
+    input.target_authoritative = true;
+    input.fresh_observation = true;
+    input.target_id = 1101;
+    input.selector_target_generation = 70;
+    input.now_seconds = 17.5;
+    input.target_error_px = {40.0f, 0.0f};
+    input.ai_stick = {0.30f, 0.0f};
+    (void)state_machine.update(input);
+
+    input.now_seconds += 0.005;
+    input.manual_exit_requested = true;
+    input.manual_stick = {0.90f, 0.0f};
+    input.filtered_manual_stick = input.manual_stick;
+    const auto seek = state_machine.update(input);
+    require(seek.phase == controller_native::AssistControlPhase::HandoverSeek,
+            "manual exit did not enter handover seek");
+
+    input.now_seconds += 0.005;
+    input.manual_exit_requested = false;
+    input.target_id = 1102;
+    input.selector_target_generation = 71;
+    input.manual_stick = {-0.05f, 0.0f};
+    input.filtered_manual_stick = input.manual_stick;
+    input.manual_correction_x = true;
+    const auto capture_opposition = state_machine.update(input);
+    require(capture_opposition.phase ==
+                controller_native::AssistControlPhase::Capture &&
+                capture_opposition.handover_braking,
+            "replacement did not enter bounded capture");
+    require_near(capture_opposition.stick.x, -0.05f, 1.0e-6f,
+                 "capture braking blocked opposing native escape");
+}
+
+void test_small_filtered_input_moves_d_without_a_second_deadzone() {
+    double now = 18.0;
+    auto config = current_config();
+    config.tracker.max_observation_age_ms = 1000.0f;
+    NativeGamepadController controller(config, [&now] { return now; });
+    controller.submit_vision_snapshot(observed_snapshot(
+        1, now, 0.0f, 0.0f, 91, 6));
+    (void)controller.build_output(physical_input());
+    const auto before = controller.last_target_plan();
+
+    // This is above the shared IntentFilter deadzone but below the retired
+    // 0.08 D-specific deadzone that caused real micro corrections to vanish.
+    now += 0.005;
+    const auto output = controller.build_output(physical_input(0.05f, 0.0f));
+    const auto after = controller.last_target_plan();
+    const auto& components = controller.last_output_components();
+
+    require(after.target_id == before.target_id && after.target_id != 0,
+            "micro correction changed target ownership");
+    require(after.desired_point_normalized.x >
+                before.desired_point_normalized.x,
+            "shared input filter accepted micro input but D did not move");
+    require(components.manual_correction_x &&
+                components.manual_passthrough_x,
+            "micro input was not interpreted as current-target D correction");
+    require_near(output.right_x, 0.05f, 1.0e-5f,
+                 "micro D correction was swallowed before final output");
+}
+
+void test_correction_release_retains_d_without_reverse_authority() {
+    double now = 19.0;
+    auto config = current_config();
+    config.tracker.max_observation_age_ms = 1000.0f;
+    config.ai_aim.desired_point_traversal_ms = 100.0f;
+    NativeGamepadController controller(config, [&now] { return now; });
+    controller.submit_vision_snapshot(observed_snapshot(
+        1, now, 0.0f, 0.0f, 92, 7));
+    (void)controller.build_output(physical_input());
+    const auto initial = controller.last_target_plan();
+
+    for (int tick = 0; tick < 4; ++tick) {
+        now += 0.005;
+        (void)controller.build_output(physical_input(0.0f, -0.40f));
+    }
+    const auto corrected = controller.last_target_plan();
+    require(corrected.manual_correction_y &&
+                corrected.desired_point_normalized.y >
+                    initial.desired_point_normalized.y,
+            "downward correction did not establish a retained D");
+
+    now += 0.005;
+    const auto released_output = controller.build_output(physical_input());
+    const auto released = controller.last_target_plan();
+    const auto& components = controller.last_output_components();
+
+    require(released.target_id == corrected.target_id &&
+                released.target_id != 0,
+            "stick release detached the current target");
+    require_near(released.desired_point_normalized.y,
+                 corrected.desired_point_normalized.y, 1.0e-6f,
+                 "stick release reset D to Vision's default point");
+    require(released.desired_point_source ==
+                pipeline_contract::DesiredPointSource::UserCorrected,
+            "stick release lost user ownership of D");
+    require(!components.manual_correction_y,
+            "neutral stick remained tagged as a manual correction");
+    require(released_output.right_y <= 1.0e-4f,
+            "stick release produced authority opposite to retained downward D");
 }
 
 void test_fresh_target_has_one_current_plan_and_one_output_owner() {
@@ -364,6 +515,33 @@ void test_fresh_no_target_removes_authority_immediately() {
                  "fresh no-target did not restore physical Y");
 }
 
+void test_non_cue_target_without_candidates_fails_closed() {
+    double now = 45.0;
+    NativeGamepadController controller(current_config(), [&now] { return now; });
+    controller.submit_vision_snapshot(observed_snapshot(
+        1, now, 52.0f, 0.0f, 351, 18));
+    (void)controller.build_output(physical_input());
+    require(controller.last_target_plan().target_id != 0,
+            "fixture did not establish target ownership");
+
+    now += 0.005;
+    auto inconsistent = observed_snapshot(
+        2, now, 20.0f, -8.0f, 352, 18);
+    inconsistent.candidates.clear();
+    controller.submit_vision_snapshot(inconsistent);
+    const auto physical = physical_input(-0.31f, 0.19f);
+    const auto output = controller.build_output(physical);
+    const auto& plan = controller.last_target_plan();
+
+    require(plan.target_id == 0 && plan.aim_authority == 0.0f &&
+                plan.mode == pipeline_contract::ControlMode::Manual,
+            "non-cue flattened target state created a controller candidate");
+    require_near(output.right_x, physical.right_x, 1.0e-6f,
+                 "fail-closed target mismatch did not restore physical X");
+    require_near(output.right_y, physical.right_y, 1.0e-6f,
+                 "fail-closed target mismatch did not restore physical Y");
+}
+
 void test_cue_continuation_is_same_generation_aim_only_evidence() {
     double now = 50.0;
     auto config = current_config();
@@ -406,9 +584,13 @@ void test_cue_continuation_is_same_generation_aim_only_evidence() {
             "wrong-generation cue retained the prior target");
 }
 
-void test_multi_target_flick_handover_releases_then_captures() {
+void test_boundary_qualified_handover_releases_then_captures() {
     double now = 60.0;
-    NativeGamepadController controller(current_config(), [&now] { return now; });
+    auto config = current_config();
+    config.tracker.max_observation_age_ms = 1000.0f;
+    config.ai_aim.desired_point_traversal_ms = 40.0f;
+    config.ai_aim.desired_point_boundary_exit_ms = 50.0f;
+    NativeGamepadController controller(config, [&now] { return now; });
     auto first = observed_snapshot(1, now, -52.0f, 0.0f, 501, 31);
     add_alternative(first, 502, 58.0f);
     controller.submit_vision_snapshot(first);
@@ -416,15 +598,33 @@ void test_multi_target_flick_handover_releases_then_captures() {
     const auto old_target_id = controller.last_target_plan().target_id;
     require(old_target_id != 0 &&
                 controller.last_target_plan().ads_candidate_count == 2,
-            "handover fixture did not establish two-target ownership");
+            "boundary handover fixture did not establish two-target ownership");
 
-    now += 0.001;
-    const auto seek_output = controller.build_output(
-        physical_input(0.90f, 0.0f));
-    const auto seek_components = controller.last_output_components();
+    const auto initial_d = controller.last_target_plan().desired_point_normalized.x;
+    now += 0.005;
+    (void)controller.build_output(physical_input(0.90f, 0.0f));
+    require(!controller.last_output_components().handover_requested,
+            "ordinary in-region direction was misread as an immediate handover");
+    require(controller.last_target_plan().desired_point_normalized.x > initial_d,
+            "ordinary in-region direction did not move D on the current target");
+
+    controller_native::GamepadOutputState seek_output;
+    controller_native::NativeControllerOutputComponents seek_components;
+    bool reached_handover = false;
+    for (int tick = 0; tick < 80; ++tick) {
+        now += 0.005;
+        seek_output = controller.build_output(physical_input(0.90f, 0.0f));
+        seek_components = controller.last_output_components();
+        if (seek_components.handover_requested) {
+            reached_handover = true;
+            break;
+        }
+    }
+    require(reached_handover,
+            "sustained pressure beyond R did not request bounded handover");
     require(seek_components.assist_control_phase == "handover_seek" &&
                 seek_components.handover_requested,
-            "opposed two-target flick did not request handover");
+            "boundary-qualified intent did not enter handover seek");
     require_near(seek_output.right_x, 0.90f, 1.0e-5f,
                  "handover seek kept steering toward the old target");
 
@@ -444,8 +644,8 @@ void test_multi_target_flick_handover_releases_then_captures() {
     require(capture_components.assist_control_phase == "capture" &&
                 capture_components.handover_braking,
             "confirmed replacement did not enter bounded capture braking");
-    require(std::fabs(capture_output.right_x) < 0.50f,
-            "capture continued the full physical flick");
+    require_near(capture_output.right_x, 0.90f, 1.0e-5f,
+                 "capture reduced the native handover gesture");
 
     for (std::uint64_t frame = 3; frame <= 4; ++frame) {
         now += 0.005;
@@ -460,10 +660,13 @@ void test_multi_target_flick_handover_releases_then_captures() {
         physical_input(0.12f, 0.0f));
     const auto& settled = controller.last_output_components();
     require(settled.assist_control_phase == "track" &&
-                settled.manual_passthrough_x,
-            "settled replacement did not restore idle-axis manual control");
-    require_near(micro_output.right_x, 0.12f, 1.0e-4f,
-                 "settled replacement swallowed micro manual X");
+                settled.manual_correction_x,
+            "settled replacement did not interpret micro input as D correction");
+    require(micro_output.right_x >= 0.12f - 1.0e-4f,
+            "settled replacement reduced current-target micro correction");
+    require(micro_output.right_x <=
+                std::max(0.12f, settled.ai_aim_stick.x) + 1.0e-4f,
+            "settled replacement added manual and AI output together");
 }
 
 void test_autofire_requires_fresh_observed_authority_and_preserves_physical_fire() {
@@ -523,11 +726,18 @@ int main() {
     try {
         test_no_target_is_physical_passthrough();
         test_centered_motion_demand_retains_ai_authority();
+        test_valid_point_correction_is_interpreted_not_passthrough();
+        test_track_uses_ai_as_total_fill_but_opposition_is_native();
+        test_track_uses_one_two_dimensional_cooperation_decision();
+        test_capture_brakes_alignment_but_allows_opposing_escape();
+        test_small_filtered_input_moves_d_without_a_second_deadzone();
+        test_correction_release_retains_d_without_reverse_authority();
         test_fresh_target_has_one_current_plan_and_one_output_owner();
         test_controller_tick_without_source_does_not_project_observation();
         test_fresh_no_target_removes_authority_immediately();
+        test_non_cue_target_without_candidates_fails_closed();
         test_cue_continuation_is_same_generation_aim_only_evidence();
-        test_multi_target_flick_handover_releases_then_captures();
+        test_boundary_qualified_handover_releases_then_captures();
         test_autofire_requires_fresh_observed_authority_and_preserves_physical_fire();
         test_current_chain_outputs_remain_finite_and_bounded();
         std::cout << "[TargetPipelineIntegrationTests] PASS\n";

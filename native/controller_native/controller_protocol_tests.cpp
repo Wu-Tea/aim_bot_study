@@ -122,6 +122,16 @@ void test_adapter_forwards_valid_vision_candidates() {
     vision_native::VisionResult result;
     result.frame_updated = true;
     result.frame_id = 7;
+    result.has_target = true;
+    result.has_selected_detection = true;
+    result.selected_detection_index = 0;
+    result.target_x = 31.0f;
+    result.target_y = 58.0f;
+    result.has_aim_region = true;
+    result.aim_region_x1 = 18.0f;
+    result.aim_region_y1 = 38.0f;
+    result.aim_region_x2 = 42.0f;
+    result.aim_region_y2 = 92.0f;
     result.user_aim_intent.valid = true;
     result.user_aim_intent.intent_id = 99;
     result.user_aim_intent.strength = 0.75f;
@@ -160,7 +170,8 @@ void test_adapter_forwards_valid_vision_candidates() {
         "adapter should derive a source-generation candidate id");
     require_near(first_candidate.body_box_px.x, 10.0f, 0.001f, "adapter should map box x");
     require_near(first_candidate.body_box_px.w, 40.0f, 0.001f, "adapter should map box width");
-    require_near(first_candidate.aim_point_px.x, 30.0f, 0.001f, "adapter should map aim point x");
+    require_near(first_candidate.aim_point_px.x, 31.0f, 0.001f,
+                 "adapter must preserve selector-owned aim point x");
     require_near(first_candidate.confidence, 0.50f, 0.001f, "adapter should combine confidence evidence");
     require_true(
         first_candidate.suggested_authority_state ==
@@ -168,9 +179,13 @@ void test_adapter_forwards_valid_vision_candidates() {
         "candidate should expose strong suggested authority for confident enemy evidence");
     require_near(
         first_candidate.aim_point_px.y,
-        60.0f,
+        58.0f,
         0.001f,
-        "candidate should expose the current observation aim point");
+        "candidate must not recompute the selector-owned aim point");
+    require_true(first_candidate.has_aim_region,
+                 "selected candidate must carry selector-owned R");
+    require_near(first_candidate.aim_region_px.y, 38.0f, 0.001f,
+                 "adapter must preserve selector-owned R geometry");
 }
 
 void test_selector_identity_survives_engine_result_copy_and_adapter() {

@@ -135,9 +135,13 @@ void test_adapter_joins_committed_identity_not_raw_challenger() {
     plan.mode = pipeline_contract::ControlMode::BodyLockFollow;
     plan.reliability = 0.75f;
     plan.normalized_size = 0.24f;
+    plan.source_aim_px = {280.0f, 196.5f};
+    plan.aim_px = plan.source_aim_px;
+    plan.aim_region_px = {260.0f, 160.0f, 40.0f, 100.0f};
+    plan.has_aim_region = true;
 
     const auto committed = runtime_app::adapt_committed_capture_observation(
-        result, plan, 0.365f, 9, 2'020'000'000ull);
+        result, plan, 9, 2'020'000'000ull);
     require(pipeline_contract::valid(committed),
             "committed candidate A must produce valid capture evidence");
     require(committed.persistent_target_id == 77,
@@ -178,7 +182,7 @@ void test_adapter_never_substitutes_result_time_for_capture_time() {
     plan.target_id = 2;
     plan.lifecycle = pipeline_contract::TargetLifecycle::Observed;
     const auto committed = runtime_app::adapt_committed_capture_observation(
-        result, plan, 0.365f, 1);
+        result, plan, 1);
     require(!pipeline_contract::valid(committed),
             "missing capture time must remain invalid for learning");
 }
