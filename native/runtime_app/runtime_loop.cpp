@@ -606,18 +606,38 @@ void RuntimeLoop::run_once() {
     const controller_native::PhysicalGamepadState physical = read_physical_gamepad();
     const std::uint64_t physical_read_at_ns = steady_time_point_ns(std::chrono::steady_clock::now());
     const bool aiming = is_aiming(physical);
-    latest_vision_aiming_ = aiming;
-    const auto& controller_intent = controller_.sample_input(physical);
+    const bool manual_fire_pressed =
+        physical.rb || physical.right_trigger > 0.04f;
+    const bool fire_pressed_now =
+        manual_fire_pressed && !previous_manual_fire_pressed_;
+    const bool target_present = controller_.last_target_plan().target_id != 0;
+    const bool fire_aim_enabled =
+        config_.gamepad.auto_fire.manual_fire_activates_ai_aim;
+    if (!fire_aim_enabled || !manual_fire_pressed) {
+        fire_aim_scope_active_ = false;
+    } else if (fire_pressed_now && !target_present) {
+        fire_aim_scope_active_ = true;
+    }
+    previous_manual_fire_pressed_ = manual_fire_pressed;
+
+    // Physical ADS and the fire-triggered AI scope are deliberately separate:
+    // the latter wakes/owns the existing aim chain but never synthesizes LT.
+    const bool assist_aiming = aiming || fire_aim_scope_active_;
+    latest_vision_aiming_ = assist_aiming;
+    const auto& controller_intent = controller_.sample_input(
+        physical,
+        fire_aim_scope_active_,
+        fire_aim_enabled && fire_pressed_now && !target_present);
     const pipeline_contract::UserAimIntent user_aim_intent = build_user_aim_intent(
         controller_intent,
-        aiming,
+        assist_aiming,
         static_cast<std::uint64_t>(tick_count_) + 1u,
         tick_started);
 
     // L3 is a mark request, not an aim request. It may temporarily wake the
     // Vision/selector path, but controller intent and aim authority continue
     // to use the real LT/RB aiming state above.
-    bool vision_requested = aiming;
+    bool vision_requested = assist_aiming;
     if (config_.gamepad.enemy_mark.enabled) {
         person_detection_gesture_.update_activation(
             physical.left_thumb,

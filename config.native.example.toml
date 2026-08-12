@@ -75,6 +75,9 @@ l3_cooldown_ms = 1000
 
 [gamepad.auto_fire]
 fire_output = "RB"
+# When enabled, pressing the physical fire control with no current target wakes
+# Vision and grants the normal AI-aim acquisition scope until fire is released.
+manual_fire_activates_ai_aim = true
 aim_only = true
 max_source_age_ms = 50
 require_aim_ready = true
@@ -102,6 +105,9 @@ activation_range_px = 80
 tolerance_px = 8
 
 [gamepad.ai_aim]
+# Camera/output effect delay used only to pair delivered commands with fresh
+# captures for online response learning. It does not add input latency.
+aim_response_effect_delay_ms = 9
 # Provisional V1 calibration: D may move only inside selector-published R.
 # Continued pressure at R's boundary becomes an explicit exit request.
 desired_point_traversal_ms = 180

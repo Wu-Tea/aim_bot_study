@@ -148,6 +148,14 @@ NativeGamepadController::NativeGamepadController(
       adaptive_recoil_feedback_(config_.recoil),
       auto_fire_gate_(config_.auto_fire, config_.ai_aim),
       clock_(std::move(clock)) {
+    // The incident fit is strongest at 8.25-9.0 ms on both axes. Keep this a
+    // bounded configuration of plant identification, not an actuation delay.
+    aim_response_effect_delay_seconds_ =
+        static_cast<double>(std::clamp(
+            config_.ai_aim.aim_response_effect_delay_ms,
+            0.0f,
+            30.0f)) /
+        1000.0;
     if (config_.recoil.profile_playback_enabled) {
         recoil_.set_recognizer_state_path(config_.recoil.recognizer_state_path);
         recoil_.load_profile_directory(config_.recoil.profile_directory);
@@ -167,16 +175,20 @@ void NativeGamepadController::reset() {
     auto_fire_gate_.reset();
     pending_snapshot_ = {};
     has_pending_snapshot_ = false;
+    physical_aiming_ = false;
     aiming_ = false;
     previous_aiming_ = false;
     last_firing_activity_seconds_ = -1.0;
     ads_epoch_ = 0;
     last_tick_seconds_ = 0.0;
-    aim_response_command_sum_ = {};
-    aim_response_command_count_ = 0;
+    aim_response_command_history_ = {};
+    aim_response_history_begin_ = 0;
+    aim_response_history_count_ = 0;
     last_aim_response_frame_id_ = 0;
-    last_aim_response_observed_seconds_ = 0.0;
-    aim_response_manual_ambiguous_ = false;
+    last_aim_response_target_id_ = 0;
+    last_aim_response_capture_seconds_ = 0.0;
+    last_aim_response_source_error_px_ = {};
+    has_last_aim_response_observation_ = false;
     sampled_physical_ = {};
     sampled_intent_ = {};
     sampled_now_seconds_ = 0.0;
@@ -386,13 +398,22 @@ NativeControllerVisionState NativeGamepadController::vision_state_from_plan(
 
 const pipeline_contract::IntentState& NativeGamepadController::sample_input(
     const PhysicalGamepadState& physical) {
+    return sample_input(physical, false, false);
+}
+
+const pipeline_contract::IntentState& NativeGamepadController::sample_input(
+    const PhysicalGamepadState& physical,
+    bool external_aim_request,
+    bool force_acquisition_rearm) {
     const double now = now_seconds();
     const float dt = last_tick_seconds_ > 0.0
         ? static_cast<float>(std::clamp(now - last_tick_seconds_, 0.0001, 0.05))
         : 0.001f;
     last_tick_seconds_ = now;
-    aiming_ = aim_activation_tracker_.update(physical, config_.rb_counts_as_aiming);
-    if (aiming_ && !previous_aiming_) {
+    physical_aiming_ =
+        aim_activation_tracker_.update(physical, config_.rb_counts_as_aiming);
+    aiming_ = physical_aiming_ || external_aim_request;
+    if (aiming_ && (!previous_aiming_ || force_acquisition_rearm)) {
         target_coordinator_.begin_ads_epoch(++ads_epoch_, now);
         assist_control_state_machine_.reset();
         auto_fire_gate_.reset_readiness();
@@ -555,34 +576,65 @@ GamepadOutputState NativeGamepadController::build_output_from_sampled_input() {
         observations.frame_id != 0 &&
         observations.frame_id != last_aim_response_frame_id_;
     if (new_observed_frame) {
-        if (last_aim_response_observed_seconds_ > 0.0 &&
-            aim_response_command_count_ > 0) {
-            const float inverse_count = 1.0f /
-                static_cast<float>(aim_response_command_count_);
-            aim_response_estimator_.update({
-                {aim_response_command_sum_.x * inverse_count,
-                 aim_response_command_sum_.y * inverse_count},
-                plan.velocity_px_per_sec,
-                plan.target_id,
-                static_cast<float>(now - last_aim_response_observed_seconds_),
-                plan.reliability,
-                // TargetCoordinator acceleration is relative screen acceleration and
-                // therefore contains the very camera response this estimator needs.
-                // It is not a target-only maneuver signal, so do not mislabel it as
-                // unexplained target acceleration here.
-                0.0f,
-                aim_response_zone_weight,
-                plan.lifecycle == pipeline_contract::TargetLifecycle::Observed,
-                aim_response_manual_ambiguous_,
-            });
-        } else {
+        const double capture_seconds = observations.source_time_seconds;
+        const bool same_response_target =
+            has_last_aim_response_observation_ &&
+            plan.target_id != 0 &&
+            plan.target_id == last_aim_response_target_id_;
+        if (!same_response_target) {
             aim_response_estimator_.begin_target(plan.target_id);
+        } else {
+            const double interval_seconds =
+                capture_seconds - last_aim_response_capture_seconds_;
+            pipeline_contract::Vec2f average_stick{};
+            bool manual_ambiguous = false;
+            const bool command_window_available =
+                std::isfinite(interval_seconds) && interval_seconds > 0.0 &&
+                average_aim_response_command(
+                    last_aim_response_capture_seconds_ -
+                        aim_response_effect_delay_seconds_,
+                    capture_seconds - aim_response_effect_delay_seconds_,
+                    &average_stick,
+                    &manual_ambiguous);
+            if (command_window_available) {
+                // Use the unfiltered source-position delta here. The
+                // coordinator's BodyLock velocity deliberately limits target
+                // acceleration; feeding that limited value into plant
+                // identification aliases a fast camera into a slow one.
+                const pipeline_contract::Vec2f observed_error_rate{
+                    static_cast<float>(
+                        (source_error_px.x -
+                         last_aim_response_source_error_px_.x) /
+                        interval_seconds),
+                    static_cast<float>(
+                        (source_error_px.y -
+                         last_aim_response_source_error_px_.y) /
+                        interval_seconds),
+                };
+                aim_response_estimator_.update({
+                    average_stick,
+                    observed_error_rate,
+                    plan.target_id,
+                    static_cast<float>(interval_seconds),
+                    plan.reliability,
+                    // A target-only acceleration signal is not available at
+                    // this boundary. Manual/fire ambiguity is rejected by the
+                    // causally aligned command ledger instead.
+                    0.0f,
+                    aim_response_zone_weight,
+                    plan.lifecycle ==
+                        pipeline_contract::TargetLifecycle::Observed,
+                    manual_ambiguous,
+                });
+            }
         }
-        aim_response_command_sum_ = {};
-        aim_response_command_count_ = 0;
-        aim_response_manual_ambiguous_ = false;
         last_aim_response_frame_id_ = observations.frame_id;
-        last_aim_response_observed_seconds_ = now;
+        last_aim_response_target_id_ = plan.target_id;
+        last_aim_response_capture_seconds_ = capture_seconds;
+        last_aim_response_source_error_px_ = source_error_px;
+        has_last_aim_response_observation_ = plan.target_id != 0 &&
+            std::isfinite(capture_seconds) &&
+            pipeline_contract::finite(source_error_px);
     }
     last_frame_vision_state_ = vision_state_from_plan(
         plan, now, observations.capture_fresh, plan.error_px);
@@ -768,7 +820,9 @@ GamepadOutputState NativeGamepadController::build_output_from_sampled_input() {
 
     AutoFireGateInput fire_input{};
     fire_input.vision_state = last_frame_vision_state_;
-    fire_input.aiming = aiming_;
+    // A fire-triggered hip-fire search grants aim-assist ownership only. It
+    // must not turn on synthetic AutoFire as though physical LT were held.
+    fire_input.aiming = physical_aiming_;
     fire_input.ads_min_elapsed = true;
     fire_input.manual_fire_pressed = manual_fire_pressed(physical);
     fire_input.now_seconds = now;
@@ -802,15 +856,16 @@ GamepadOutputState NativeGamepadController::build_output_from_sampled_input() {
     components.auto_fire_block_reason = auto_fire_block_reason_name(fire.block_reason);
 
     components.before_recoil_stick = {output.right_x, output.right_y};
-    aim_response_command_sum_.x += output.right_x;
-    aim_response_command_sum_.y += output.right_y;
-    ++aim_response_command_count_;
-    aim_response_manual_ambiguous_ = aim_response_manual_ambiguous_ ||
+    const bool aim_response_manual_ambiguous =
         std::hypot(physical.right_x, physical.right_y) >= 0.35f ||
         fire.should_fire || manual_fire_pressed(physical) ||
         (last_firing_activity_seconds_ >= 0.0 &&
          now - last_firing_activity_seconds_ <=
              kFiringDisturbanceWindowSeconds);
+    record_aim_response_command(
+        now,
+        {output.right_x, output.right_y},
+        aim_response_manual_ambiguous);
     const auto before_recoil = output;
     apply_recoil(
         output,
@@ -818,7 +873,7 @@ GamepadOutputState NativeGamepadController::build_output_from_sampled_input() {
         plan,
         source_error_px,
         observations.capture_fresh,
-        aiming_,
+        physical_aiming_,
         fire.should_fire,
         now);
     record_stage_trace(
@@ -830,6 +885,107 @@ GamepadOutputState NativeGamepadController::build_output_from_sampled_input() {
     last_acquisition_trace_.final_output_ready_ns = seconds_to_ns(now_seconds());
     last_output_components_ = components;
     return output;
+}
+
+void NativeGamepadController::record_aim_response_command(
+    double at_seconds,
+    pipeline_contract::Vec2f stick,
+    bool manual_ambiguous) noexcept {
+    if (!std::isfinite(at_seconds) || !pipeline_contract::finite(stick)) {
+        return;
+    }
+    if (aim_response_history_count_ > 0) {
+        const std::size_t latest_index =
+            (aim_response_history_begin_ + aim_response_history_count_ - 1) %
+            kAimResponseHistoryCapacity;
+        if (at_seconds <=
+            aim_response_command_history_[latest_index].at_seconds) {
+            if (at_seconds ==
+                aim_response_command_history_[latest_index].at_seconds) {
+                aim_response_command_history_[latest_index] = {
+                    at_seconds, stick, manual_ambiguous};
+            }
+            return;
+        }
+    }
+    std::size_t write_index = 0;
+    if (aim_response_history_count_ < kAimResponseHistoryCapacity) {
+        write_index =
+            (aim_response_history_begin_ + aim_response_history_count_) %
+            kAimResponseHistoryCapacity;
+        ++aim_response_history_count_;
+    } else {
+        write_index = aim_response_history_begin_;
+        aim_response_history_begin_ =
+            (aim_response_history_begin_ + 1) %
+            kAimResponseHistoryCapacity;
+    }
+    aim_response_command_history_[write_index] = {
+        at_seconds, stick, manual_ambiguous};
+}
+
+bool NativeGamepadController::average_aim_response_command(
+    double begin_seconds,
+    double end_seconds,
+    pipeline_contract::Vec2f* average_stick,
+    bool* manual_ambiguous) const noexcept {
+    if (average_stick == nullptr || manual_ambiguous == nullptr ||
+        !std::isfinite(begin_seconds) || !std::isfinite(end_seconds) ||
+        end_seconds <= begin_seconds || aim_response_history_count_ == 0) {
+        return false;
+    }
+
+    std::size_t active_offset = aim_response_history_count_;
+    for (std::size_t offset = 0;
+         offset < aim_response_history_count_; ++offset) {
+        const std::size_t index =
+            (aim_response_history_begin_ + offset) %
+            kAimResponseHistoryCapacity;
+        if (aim_response_command_history_[index].at_seconds <= begin_seconds) {
+            active_offset = offset;
+        } else {
+            break;
+        }
+    }
+    // No command is known to have been active at the start of the causal
+    // window. Priming is safer than inventing a zero command.
+    if (active_offset == aim_response_history_count_) return false;
+
+    pipeline_contract::Vec2f integral{};
+    bool ambiguous = false;
+    double cursor = begin_seconds;
+    TimedAimResponseCommand active = aim_response_command_history_[
+        (aim_response_history_begin_ + active_offset) %
+        kAimResponseHistoryCapacity];
+    for (std::size_t offset = active_offset + 1;
+         offset < aim_response_history_count_; ++offset) {
+        const TimedAimResponseCommand& next = aim_response_command_history_[
+            (aim_response_history_begin_ + offset) %
+            kAimResponseHistoryCapacity];
+        if (next.at_seconds >= end_seconds) break;
+        const double segment_end = std::max(cursor, next.at_seconds);
+        const double duration = segment_end - cursor;
+        if (duration > 0.0) {
+            integral.x += active.stick.x * static_cast<float>(duration);
+            integral.y += active.stick.y * static_cast<float>(duration);
+            ambiguous = ambiguous || active.manual_ambiguous;
+        }
+        cursor = segment_end;
+        active = next;
+    }
+    const double tail_duration = end_seconds - cursor;
+    if (tail_duration > 0.0) {
+        integral.x += active.stick.x * static_cast<float>(tail_duration);
+        integral.y += active.stick.y * static_cast<float>(tail_duration);
+        ambiguous = ambiguous || active.manual_ambiguous;
+    }
+    const float inverse_duration = static_cast<float>(
+        1.0 / (end_seconds - begin_seconds));
+    *average_stick = {
+        integral.x * inverse_duration,
+        integral.y * inverse_duration};
+    *manual_ambiguous = ambiguous;
+    return pipeline_contract::finite(*average_stick);
 }
 
 bool NativeGamepadController::manual_fire_pressed(

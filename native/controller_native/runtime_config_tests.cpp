@@ -54,6 +54,9 @@ void test_current_control_keys_parse() {
         "[gamepad.tracker]\n"
         "aim_height_ratio = 0.31\n"
         "max_observation_age_ms = 42\n"
+        "[gamepad.auto_fire]\n"
+        "fire_output = \"RT\"\n"
+        "manual_fire_activates_ai_aim = false\n"
         "[gamepad.ads]\n"
         "strength_scale = 1.25\n"
         "vertical_strength_scale = 1.10\n"
@@ -68,6 +71,7 @@ void test_current_control_keys_parse() {
         "activation_range_px = 92\n"
         "tolerance_px = 9\n"
         "[gamepad.ai_aim]\n"
+        "aim_response_effect_delay_ms = 11\n"
         "visual_authority_enabled = false\n");
 
     const auto config = controller_native::load_runtime_config(file.path());
@@ -75,6 +79,10 @@ void test_current_control_keys_parse() {
     require(config.telemetry.enabled, "telemetry enable not parsed");
     require(config.telemetry.directory == "runs/current-telemetry",
             "telemetry directory not parsed");
+    require(config.gamepad.auto_fire.fire_output == "RT",
+            "auto-fire output not parsed");
+    require(!config.gamepad.auto_fire.manual_fire_activates_ai_aim,
+            "manual-fire AI-aim switch not parsed");
     require(!config.gamepad.enemy_mark.enabled,
             "enemy-mark switch not parsed");
     require(config.gamepad.enemy_mark.l3_cooldown_ms == 750,
@@ -93,6 +101,10 @@ void test_current_control_keys_parse() {
             "settle frame count not parsed");
     require(std::fabs(config.gamepad.ai_aim.body_lock_max_ai_force - 0.44f) < 1e-5f,
             "BodyLock force not parsed");
+    require(std::fabs(
+                config.gamepad.ai_aim.aim_response_effect_delay_ms - 11.0f) <
+            1e-5f,
+            "aim response effect delay not parsed");
     require(!config.gamepad.ai_aim.visual_authority_enabled,
             "visual-authority A/B switch not parsed");
     require(config.diagnostics.empty(), "current config produced diagnostics");

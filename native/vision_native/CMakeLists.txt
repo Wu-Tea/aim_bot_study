@@ -439,6 +439,24 @@ set_tests_properties(
     NativeControllerProductContractIncidentRegression
     PROPERTIES LABELS "controller;incident-regression")
 
+# Regression owner for the 2026-08-12 Apex stable-target 14-15 Hz BodyLock
+# incident. Its primary symptom oracles were frozen while RED; the delay
+# scenarios protect the causal fix from one-capture over-fitting.
+add_executable(cod_native_bodylock_high_frequency_incident_regression
+    ../controller_native/bodylock_high_frequency_incident_regression.cpp)
+cod_native_defaults(cod_native_bodylock_high_frequency_incident_regression)
+target_link_libraries(
+    cod_native_bodylock_high_frequency_incident_regression PRIVATE
+    controller_native_core)
+add_test(
+    NAME NativeBodylockHighFrequencyIncidentRegression
+    COMMAND cod_native_bodylock_high_frequency_incident_regression
+        --output
+        "${CMAKE_CURRENT_BINARY_DIR}/bodylock_high_frequency_incident_ctest.json")
+set_tests_properties(
+    NativeBodylockHighFrequencyIncidentRegression
+    PROPERTIES LABELS "controller;incident-regression")
+
 cod_native_add_test(cod_native_aimlab_benchmark_tests NativeAimlabBenchmarkTests
     ../controller_native/aimlab_benchmark_tests.cpp
     ../controller_native/aimlab_benchmark.cpp)

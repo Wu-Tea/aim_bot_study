@@ -34,7 +34,10 @@ float aim_response_slow_zone_weight(
 struct AimResponseEstimatorConfig {
     float fallback_scale = 500.0f;
     float minimum_scale = 80.0f;
-    float maximum_scale = 1200.0f;
+    // High-sensitivity games measured in pixels at the capture resolution can
+    // legitimately exceed 2,000 px/(stick*s). The prior 1,200 ceiling made
+    // those plants unidentifiable even with a correctly aligned sample.
+    float maximum_scale = 4000.0f;
     float minimum_reliability = 0.75f;
     float minimum_command_delta = 0.04f;
     float maximum_target_acceleration = 800.0f;

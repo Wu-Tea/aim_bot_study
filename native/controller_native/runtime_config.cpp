@@ -188,7 +188,8 @@ bool is_known_key(const std::string& section, const std::string& key) {
         "auto_fire_output", "rb_counts_as_aiming", "xinput_auto_detect",
         "xinput_user_index"};
     static const std::unordered_set<std::string> auto_fire_keys{
-        "fire_output", "aim_only", "max_source_age_ms", "require_aim_ready",
+        "fire_output", "manual_fire_activates_ai_aim", "aim_only",
+        "max_source_age_ms", "require_aim_ready",
         "manual_takeover_release_seconds", "manual_takeover_resume_delay_seconds",
         "pulse_width_ms", "pulse_period_ms"};
     static const std::unordered_set<std::string> enemy_mark_keys{
@@ -214,6 +215,7 @@ bool is_known_key(const std::string& section, const std::string& key) {
         "auto_fire_ready_max_ai_stick", "cue_hold_body_lock_force_scale",
         "body_lock_max_ai_force", "body_lock_max_ai_force_y",
         "body_lock_box_tolerance_px", "body_lock_activation_box_px",
+        "aim_response_effect_delay_ms",
         "desired_point_traversal_ms", "desired_point_boundary_exit_ms",
         "visual_authority_enabled"};
     if (section == "runtime") return runtime_keys.count(key) != 0;
@@ -283,6 +285,9 @@ void apply_gamepad_auto_fire_value(
     const std::string& value) {
     if (key == "fire_output") {
         config.fire_output = parse_string_value(value);
+    } else if (key == "manual_fire_activates_ai_aim") {
+        config.manual_fire_activates_ai_aim = parse_bool_value(
+            value, config.manual_fire_activates_ai_aim);
     } else if (key == "aim_only") {
         config.aim_only = parse_bool_value(value, config.aim_only);
     } else if (key == "max_source_age_ms") {
@@ -368,6 +373,9 @@ void apply_gamepad_ai_aim_value(
     } else if (key == "body_lock_activation_box_px") {
         config.body_lock_activation_box_px =
             parse_float_value(value, config.body_lock_activation_box_px);
+    } else if (key == "aim_response_effect_delay_ms") {
+        config.aim_response_effect_delay_ms = parse_float_value(
+            value, config.aim_response_effect_delay_ms);
     } else if (key == "desired_point_traversal_ms") {
         config.desired_point_traversal_ms =
             parse_float_value(value, config.desired_point_traversal_ms);

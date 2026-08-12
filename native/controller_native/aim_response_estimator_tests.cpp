@@ -72,6 +72,14 @@ void test_fallback_and_convergence_across_response_scales() {
     train(fast, 750.0f);
     require_near(fast.estimate().scale_px_per_stick_second, 750.0f, 25.0f,
                  "converges to fast ADS response");
+
+    AimResponseEstimator apex_fast;
+    train(apex_fast, 2375.0f, 120);
+    require_near(
+        apex_fast.estimate().scale_px_per_stick_second,
+        2375.0f,
+        80.0f,
+        "converges above the old 1200 px/(stick*s) ceiling");
 }
 
 void test_persists_across_targets_and_adapts_to_slowdown() {

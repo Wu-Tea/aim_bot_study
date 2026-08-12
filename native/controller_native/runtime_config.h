@@ -60,6 +60,9 @@ struct GamepadAiAimConfig {
     float body_lock_max_ai_force_y = 0.42f;
     float body_lock_box_tolerance_px = 18.0f;
     float body_lock_activation_box_px = 150.0f;
+    // End-to-end command-to-captured-motion delay used only by online plant
+    // identification. It does not delay actuation or change control cadence.
+    float aim_response_effect_delay_ms = 9.0f;
     // Provisional V1 intent calibration. These values control how quickly a
     // sustained right-stick request can move D across the currently valid R,
     // and when continued pressure at R's boundary becomes an explicit exit.
@@ -103,6 +106,7 @@ struct GamepadRecoilConfig {
 
 struct GamepadAutoFireConfig {
     std::string fire_output = "RB";
+    bool manual_fire_activates_ai_aim = true;
     bool aim_only = true;
     float max_source_age_ms = 50.0f;
     bool require_aim_ready = true;

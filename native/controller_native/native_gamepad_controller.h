@@ -19,6 +19,8 @@
 
 #include "../recoil_native/recoil_compensation.h"
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -97,6 +99,10 @@ public:
     void submit_vision_snapshot(const ControllerVisionSnapshot& snapshot);
     const pipeline_contract::IntentState& sample_input(
         const PhysicalGamepadState& physical);
+    const pipeline_contract::IntentState& sample_input(
+        const PhysicalGamepadState& physical,
+        bool external_aim_request,
+        bool force_acquisition_rearm);
     GamepadOutputState build_output_from_sampled_input();
     GamepadOutputState build_output(const PhysicalGamepadState& physical);
     NativeAutoFireCounters auto_fire_counters() const;
@@ -132,7 +138,27 @@ private:
         const GamepadOutputState& output,
         bool before_auto_fire_active,
         bool after_auto_fire_active);
+    void record_aim_response_command(
+        double at_seconds,
+        pipeline_contract::Vec2f stick,
+        bool manual_ambiguous) noexcept;
+    bool average_aim_response_command(
+        double begin_seconds,
+        double end_seconds,
+        pipeline_contract::Vec2f* average_stick,
+        bool* manual_ambiguous) const noexcept;
     double now_seconds() const;
+
+    struct TimedAimResponseCommand {
+        double at_seconds = 0.0;
+        pipeline_contract::Vec2f stick{};
+        bool manual_ambiguous = false;
+    };
+
+    // 128 ms at the 1 kHz controller cadence. This is long enough to cover
+    // the accepted Vision interval plus the measured game/capture response
+    // delay without allocating in the hot path.
+    static constexpr std::size_t kAimResponseHistoryCapacity = 128;
 
     GamepadRuntimeConfig config_{};
     IntentFilter intent_filter_{};
@@ -148,16 +174,22 @@ private:
     AutoFireGate auto_fire_gate_;
     ControllerVisionSnapshot pending_snapshot_{};
     bool has_pending_snapshot_ = false;
+    bool physical_aiming_ = false;
     bool aiming_ = false;
     bool previous_aiming_ = false;
     double last_firing_activity_seconds_ = -1.0;
     std::uint64_t ads_epoch_ = 0;
     double last_tick_seconds_ = 0.0;
-    pipeline_contract::Vec2f aim_response_command_sum_{};
-    std::uint32_t aim_response_command_count_ = 0;
+    double aim_response_effect_delay_seconds_ = 0.009;
+    std::array<TimedAimResponseCommand, kAimResponseHistoryCapacity>
+        aim_response_command_history_{};
+    std::size_t aim_response_history_begin_ = 0;
+    std::size_t aim_response_history_count_ = 0;
     std::uint64_t last_aim_response_frame_id_ = 0;
-    double last_aim_response_observed_seconds_ = 0.0;
-    bool aim_response_manual_ambiguous_ = false;
+    std::uint64_t last_aim_response_target_id_ = 0;
+    double last_aim_response_capture_seconds_ = 0.0;
+    pipeline_contract::Vec2f last_aim_response_source_error_px_{};
+    bool has_last_aim_response_observation_ = false;
     PhysicalGamepadState sampled_physical_{};
     pipeline_contract::IntentState sampled_intent_{};
     double sampled_now_seconds_ = 0.0;
