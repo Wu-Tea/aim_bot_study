@@ -279,6 +279,39 @@ void test_selector_generation_replacement_resets_target_identity() {
                  "plan must expose the consumed replacement boundary");
     require_true(near(second.aim_px.x, 300.0f),
                  "replacement must consume current source geometry directly");
+    require_true(second.target_acquisition_id != 0 &&
+                     second.target_acquisition_id != first.target_acquisition_id &&
+                     second.mode == pipeline_contract::ControlMode::AdsAcquire &&
+                     second.ads_acquisition_active,
+                 "replacement must receive a fresh full-authority ADS acquisition");
+}
+
+void test_replacement_rearms_ads_after_previous_target_consumed() {
+    controller_native::TargetCoordinatorConfig config;
+    config.settle_frames = 1;
+    controller_native::TargetCoordinator coordinator(config);
+    const auto intent = ads_intent();
+    coordinator.begin_ads_epoch(81, 8.1);
+    const auto first = coordinator.update(
+        selected_frame(710, 8.1, 240.0f, 208.0f, 71, 17),
+        intent,
+        8.1);
+    require_true(first.mode == pipeline_contract::ControlMode::BodyLockFollow &&
+                     !first.ads_acquisition_active,
+                 "fixture must consume the first target's settled ADS job");
+
+    auto replacement = selected_frame(
+        711, 8.106, 330.0f, 208.0f, 72, 18);
+    replacement.selector_target_changed = true;
+    const auto second = coordinator.update(replacement, intent, 8.106);
+    require_true(second.target_id != first.target_id &&
+                     second.target_acquisition_id != 0 &&
+                     second.target_acquisition_id != first.target_acquisition_id,
+                 "replacement must allocate a new identity-scoped acquisition");
+    require_true(second.mode == pipeline_contract::ControlMode::AdsAcquire &&
+                     second.ads_acquisition_active &&
+                     second.aim_authority >= 0.999f,
+                 "held-LT transfer must re-enter full ADS instead of BodyLock");
 }
 
 void test_manual_correction_moves_d_only_inside_r() {
@@ -368,6 +401,39 @@ void test_target_replacement_resets_corrected_d() {
                  "new I must not inherit user correction state");
 }
 
+void test_firing_downward_input_moves_d_without_arming_handover() {
+    controller_native::TargetCoordinatorConfig config;
+    config.max_observation_age_ms = 500.0f;
+    config.desired_point_traversal_ms = 100.0f;
+    controller_native::TargetCoordinator coordinator(config);
+    coordinator.begin_ads_epoch(12, 12.0);
+    const auto initial = coordinator.update(
+        selected_frame(110, 12.0, 240.0f, 208.0f),
+        ads_intent(),
+        12.0);
+
+    auto downward = correcting_intent(0.0f, -0.80f);
+    downward.fire = true;
+    controller_native::TargetControlFeedback firing;
+    firing.firing_recently = true;
+    auto held = coordinator.update(
+        no_source_tick(), downward, 12.050, firing);
+    require_true(held.desired_point_normalized.y >
+                     initial.desired_point_normalized.y,
+                 "firing pull-down did not move D downward inside R");
+    require_true(held.manual_correction_y,
+                 "firing pull-down lost its D-correction semantics");
+
+    for (int tick = 1; tick <= 8; ++tick) {
+        held = coordinator.update(
+            no_source_tick(), downward, 12.050 + tick * 0.050, firing);
+    }
+    require_true(near(held.desired_point_normalized.y, 1.0f),
+                 "firing pull-down did not reach the lower edge of R");
+    require_true(!held.manual_exit_requested,
+                 "firing pull-down armed a target handover at R's lower edge");
+}
+
 }  // namespace
 
 int main() {
@@ -379,9 +445,11 @@ int main() {
     test_duplicate_and_stale_captures_cannot_replace_geometry();
     test_same_generation_cue_is_only_continuity_path();
     test_selector_generation_replacement_resets_target_identity();
+    test_replacement_rearms_ads_after_previous_target_consumed();
     test_manual_correction_moves_d_only_inside_r();
     test_cue_carries_corrected_d_instead_of_replacing_it();
     test_target_replacement_resets_corrected_d();
+    test_firing_downward_input_moves_d_without_arming_handover();
     std::cout << "[TargetCoordinatorTests] PASS\n";
     return 0;
 }

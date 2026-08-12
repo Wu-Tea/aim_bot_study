@@ -42,7 +42,11 @@ void test_wrong_strong_lock_reduces_selection_score() {
     expect_true(report.user_fight_frames == 1, "controller/user fighting should be counted");
     expect_true(report.helpful_output_ratio < 0.01, "wrong output should not be helpful");
     expect_true(report.selection_score < 50.0, "wrong strong lock should reduce selection score");
-    expect_true(report.final_score < 70.0, "hard penalties should lower final score");
+    expect_near(
+        report.final_score,
+        0.0,
+        0.001,
+        "one wrong strong lock must fail the release score closed");
 }
 
 void test_helpful_output_increases_cooperation_score() {
@@ -132,14 +136,14 @@ void test_manual_intent_variants_respect_wrong_identity_hard_gate() {
     expect_true(
         clean.final_score > baseline.final_score + 40.0,
         "clean manual input should materially improve final score");
-    // Slow/noisy intent still reduces exposure, but both runs contain a wrong
-    // strong target lock. Product V1 makes wrong identity a hard failure, so
-    // aggregate improvement must not buy back a positive release score.
+    // Product V1 makes wrong identity a hard failure. Do not require a
+    // scenario to keep reproducing an already-fixed wrong lock: if it does
+    // reappear, aggregate improvement still must not buy back a release score.
     expect_true(
-        slow.wrong_target_ads_snap_count > 0 && slow.final_score <= 0.001,
+        slow.wrong_target_ads_snap_count == 0 || slow.final_score <= 0.001,
         "slow intent incorrectly averaged away a wrong-identity hard failure");
     expect_true(
-        noisy.wrong_target_ads_snap_count > 0 && noisy.final_score <= 0.001,
+        noisy.wrong_target_ads_snap_count == 0 || noisy.final_score <= 0.001,
         "noisy intent incorrectly averaged away a wrong-identity hard failure");
     expect_true(
         clean.final_score <= perfect.final_score + 0.001,

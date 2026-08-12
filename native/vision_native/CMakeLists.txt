@@ -259,6 +259,8 @@ cod_native_add_test(cod_native_runtime_timing_tests RuntimeTimingTests
     ../runtime_app/runtime_timing_tests.cpp
     ../runtime_app/runtime_timing.cpp)
 target_link_libraries(cod_native_runtime_timing_tests PRIVATE winmm)
+cod_native_add_test(cod_native_person_detection_gesture_tests PersonDetectionGestureTests
+    ../runtime_app/person_detection_gesture_tests.cpp)
 add_executable(cod_native_scheduler_benchmark
     ../runtime_app/scheduler_benchmark.cpp
     ../runtime_app/runtime_timing.cpp)
@@ -367,7 +369,8 @@ set_tests_properties(
     PROPERTIES LABELS "controller;incident-regression")
 
 # Live schema-15 incident fixture: same-direction micro input must retain
-# bounded AI fill while opposing input receives exact native authority.
+# bounded AI fill while opposing input keeps dominant, non-reversing native
+# authority. The ADS product contract permits only a small bounded correction.
 add_executable(cod_native_manual_residual_authority_incident_regression
     ../controller_native/manual_residual_authority_incident_regression.cpp)
 cod_native_defaults(cod_native_manual_residual_authority_incident_regression)
@@ -415,6 +418,25 @@ add_test(
         "${CMAKE_CURRENT_BINARY_DIR}/far_selected_person_ads_admission_ctest.json")
 set_tests_properties(
     NativeFarSelectedPersonAdsAdmissionIncidentRegression
+    PROPERTIES LABELS "controller;incident-regression")
+
+# Native incident contract derived from the 2026-08-12 gameplay/video report:
+# ADS authority is evidence-invariant after admission, downward fire input is
+# never opposed, and AI may still supply bounded correction instead of yielding
+# merely because the right stick is active.
+add_executable(cod_native_controller_product_contract_incident_regression
+    ../controller_native/controller_product_contract_incident_regression.cpp)
+cod_native_defaults(cod_native_controller_product_contract_incident_regression)
+target_link_libraries(
+    cod_native_controller_product_contract_incident_regression PRIVATE
+    controller_native_core)
+add_test(
+    NAME NativeControllerProductContractIncidentRegression
+    COMMAND cod_native_controller_product_contract_incident_regression
+        --output
+        "${CMAKE_CURRENT_BINARY_DIR}/controller_product_contract_incident_ctest.json")
+set_tests_properties(
+    NativeControllerProductContractIncidentRegression
     PROPERTIES LABELS "controller;incident-regression")
 
 cod_native_add_test(cod_native_aimlab_benchmark_tests NativeAimlabBenchmarkTests

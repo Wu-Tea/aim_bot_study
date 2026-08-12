@@ -282,7 +282,101 @@ void test_track_uses_ai_as_total_fill_but_opposition_is_native() {
                  "stronger aligned manual input was reduced to the AI proposal");
 }
 
-void test_track_uses_one_two_dimensional_cooperation_decision() {
+void test_bodylock_cancellation_is_confidence_bounded_and_never_reverses() {
+    controller_native::AssistControlStateMachine state_machine;
+    controller_native::AssistControlStateMachineInput input;
+    input.aiming = true;
+    input.target_authoritative = true;
+    input.fresh_observation = true;
+    input.target_id = 1051;
+    input.selector_target_generation = 65;
+    input.now_seconds = 17.35;
+    input.mode = pipeline_contract::ControlMode::BodyLockFollow;
+    input.visual_authority = 1.0f;
+    input.manual_stick = {-0.20f, 0.0f};
+    input.filtered_manual_stick = input.manual_stick;
+    input.ai_stick = {0.40f, 0.0f};
+
+    const auto clear_enemy = state_machine.update(input);
+    require_near(clear_enemy.stick.x, -0.13f, 1.0e-6f,
+                 "clear-enemy cancellation exceeded the 35 percent budget");
+    require(clear_enemy.stick.x < 0.0f,
+            "AI cancellation reversed the user's horizontal direction");
+
+    input.now_seconds += 0.005;
+    input.visual_authority = 0.45f;
+    const auto uncertain = state_machine.update(input);
+    require_near(uncertain.stick.x, input.manual_stick.x, 1.0e-6f,
+                 "uncertain target evidence cancelled manual input");
+
+    input.now_seconds += 0.005;
+    input.visual_authority = 1.0f;
+    input.mode = pipeline_contract::ControlMode::AdsAcquire;
+    const auto ads = state_machine.update(input);
+    require_near(ads.stick.x, -0.13f, 1.0e-6f,
+                 "ADS wrong-way correction exceeded the bounded 35 percent budget");
+    require(ads.stick.x < 0.0f,
+            "ADS wrong-way correction reversed the user's direction");
+}
+
+void test_downward_manual_has_more_authority_and_fire_is_native() {
+    controller_native::AssistControlStateMachine state_machine;
+    controller_native::AssistControlStateMachineInput input;
+    input.aiming = true;
+    input.target_authoritative = true;
+    input.fresh_observation = true;
+    input.target_id = 1052;
+    input.selector_target_generation = 66;
+    input.now_seconds = 17.40;
+    input.mode = pipeline_contract::ControlMode::BodyLockFollow;
+    input.visual_authority = 1.0f;
+    input.manual_stick = {0.0f, -0.20f};
+    input.filtered_manual_stick = input.manual_stick;
+    input.ai_stick = {0.0f, 0.40f};
+
+    const auto not_firing = state_machine.update(input);
+    require_near(not_firing.stick.y, -0.18f, 1.0e-6f,
+                 "downward input did not retain its 90 percent authority");
+    require(not_firing.stick.y < 0.0f,
+            "AI cancellation reversed downward manual input");
+
+    input.now_seconds += 0.005;
+    input.firing = true;
+    const auto firing = state_machine.update(input);
+    require_near(firing.stick.y, input.manual_stick.y, 1.0e-6f,
+                 "firing recoil pull-down did not receive native authority");
+}
+
+void test_manual_recoil_credits_automatic_recoil_instead_of_stacking() {
+    double now = 17.45;
+    auto config = current_config();
+    config.recoil.enabled = true;
+    config.recoil.selection_log_enabled = false;
+    config.recoil.profile_playback_enabled = false;
+    config.recoil.adaptive_feedback_enabled = false;
+    config.recoil.feedback_amount = 0.20f;
+    NativeGamepadController controller(config, [&now] { return now; });
+
+    auto physical = physical_input(0.0f, -0.14f);
+    physical.right_trigger = 1.0f;
+    const auto output = controller.build_output(physical);
+    const auto& components = controller.last_output_components();
+    require_near(components.recoil_stick.y, -0.06f, 1.0e-6f,
+                 "automatic recoil stacked on top of manual pull-down");
+    require_near(output.right_y, -0.20f, 1.0e-6f,
+                 "manual and automatic recoil did not form one missing remainder");
+
+    now += 0.005;
+    physical.right_y = -0.26f;
+    const auto stronger_manual = controller.build_output(physical);
+    require_near(controller.last_output_components().recoil_stick.y,
+                 0.0f, 1.0e-6f,
+                 "automatic recoil opposed a sufficient manual pull-down");
+    require_near(stronger_manual.right_y, -0.26f, 1.0e-6f,
+                 "sufficient manual pull-down was not preserved");
+}
+
+void test_track_cooperates_per_axis_without_spending_downward_authority() {
     controller_native::AssistControlStateMachine state_machine;
     controller_native::AssistControlStateMachineInput input;
     input.aiming = true;
@@ -292,6 +386,8 @@ void test_track_uses_one_two_dimensional_cooperation_decision() {
     input.selector_target_generation = 64;
     input.now_seconds = 17.25;
     input.target_error_px = {60.0f, 20.0f};
+    input.mode = pipeline_contract::ControlMode::BodyLockFollow;
+    input.visual_authority = 1.0f;
     input.manual_stick = {0.20f, -0.03f};
     input.filtered_manual_stick = input.manual_stick;
     input.ai_stick = {0.35f, 0.10f};
@@ -305,18 +401,21 @@ void test_track_uses_one_two_dimensional_cooperation_decision() {
     require(full_dot > 0.0f &&
                 input.filtered_manual_stick.y * input.ai_stick.y < 0.0f,
             "diagonal fixture did not exercise one opposite component");
-    require(diagonal.stick.x > input.manual_stick.x + 0.05f &&
-                diagonal.stick.y > input.manual_stick.y + 0.01f,
-            "one opposite component unloaded a cooperative 2-D gesture");
+    require_near(diagonal.stick.x, input.ai_stick.x, 1.0e-6f,
+                 "compatible horizontal input did not receive AI fill");
+    require_near(diagonal.stick.y, -0.027f, 1.0e-6f,
+                 "opposing vertical AI exceeded protected downward budget");
+    require(diagonal.stick.y < 0.0f,
+            "horizontal agreement reversed the user's downward axis");
 
     input.now_seconds += 0.005;
     input.manual_stick = {-0.20f, -0.10f};
     input.filtered_manual_stick = input.manual_stick;
     const auto opposing = state_machine.update(input);
-    require_near(opposing.stick.x, input.manual_stick.x, 1.0e-6f,
-                 "2-D opposition did not preserve native X");
-    require_near(opposing.stick.y, input.manual_stick.y, 1.0e-6f,
-                 "2-D opposition did not preserve native Y");
+    require_near(opposing.stick.x, -0.13f, 1.0e-6f,
+                 "horizontal cancellation exceeded bounded budget");
+    require_near(opposing.stick.y, -0.09f, 1.0e-6f,
+                 "downward cancellation exceeded protected budget");
 }
 
 void test_capture_brakes_alignment_but_allows_opposing_escape() {
@@ -560,9 +659,11 @@ void test_cue_continuation_is_same_generation_aim_only_evidence() {
 
     require(cue.target_id == observed.target_id && cue.cue_continuation,
             "same-generation cue did not continue the owned target");
-    require(cue.source_observation_id == 0 && cue.aim_authority > 0.0f &&
-                cue.aim_authority <= 0.35f + 1.0e-5f,
-            "cue continuation escaped its bounded aim-only authority");
+    require(cue.source_observation_id == 0 &&
+                cue.mode == pipeline_contract::ControlMode::AdsAcquire &&
+                cue.aim_authority >= 0.999f &&
+                std::fabs(cue.aim_authority - observed.aim_authority) <= 1.0e-5f,
+            "same-generation cue changed admitted ADS authority");
     require(!cue.fire_authority && !cue.fire_requested && !cue_output.rb,
             "cue continuation acquired synthetic fire authority");
 
@@ -669,6 +770,33 @@ void test_boundary_qualified_handover_releases_then_captures() {
             "settled replacement added manual and AI output together");
 }
 
+void test_strong_outward_transfer_releases_old_target_within_one_ads_window() {
+    double now = 65.0;
+    auto config = current_config();
+    config.tracker.max_observation_age_ms = 1000.0f;
+    NativeGamepadController controller(config, [&now] { return now; });
+    auto first = observed_snapshot(1, now, 0.0f, 0.0f, 801, 41);
+    add_alternative(first, 802, 90.0f);
+    controller.submit_vision_snapshot(first);
+    (void)controller.build_output(physical_input());
+
+    bool released = false;
+    constexpr int kTicksWithin160Ms = 32;
+    for (int tick = 0; tick < kTicksWithin160Ms; ++tick) {
+        now += 0.005;
+        const auto output = controller.build_output(
+            physical_input(0.95f, 0.0f));
+        if (controller.last_output_components().handover_requested) {
+            released = true;
+            require_near(output.right_x, 0.95f, 1.0e-5f,
+                         "handover seek did not fully release the old target");
+            break;
+        }
+    }
+    require(released,
+            "strong sustained region-exit gesture kept old-target authority beyond 160ms");
+}
+
 void test_autofire_requires_fresh_observed_authority_and_preserves_physical_fire() {
     double now = 70.0;
     auto config = current_config();
@@ -728,7 +856,10 @@ int main() {
         test_centered_motion_demand_retains_ai_authority();
         test_valid_point_correction_is_interpreted_not_passthrough();
         test_track_uses_ai_as_total_fill_but_opposition_is_native();
-        test_track_uses_one_two_dimensional_cooperation_decision();
+        test_bodylock_cancellation_is_confidence_bounded_and_never_reverses();
+        test_downward_manual_has_more_authority_and_fire_is_native();
+        test_manual_recoil_credits_automatic_recoil_instead_of_stacking();
+        test_track_cooperates_per_axis_without_spending_downward_authority();
         test_capture_brakes_alignment_but_allows_opposing_escape();
         test_small_filtered_input_moves_d_without_a_second_deadzone();
         test_correction_release_retains_d_without_reverse_authority();
@@ -738,6 +869,7 @@ int main() {
         test_non_cue_target_without_candidates_fails_closed();
         test_cue_continuation_is_same_generation_aim_only_evidence();
         test_boundary_qualified_handover_releases_then_captures();
+        test_strong_outward_transfer_releases_old_target_within_one_ads_window();
         test_autofire_requires_fresh_observed_authority_and_preserves_physical_fire();
         test_current_chain_outputs_remain_finite_and_bounded();
         std::cout << "[TargetPipelineIntegrationTests] PASS\n";

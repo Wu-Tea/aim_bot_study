@@ -221,6 +221,10 @@ private:
     std::optional<TargetState> pending_target_;
     bool active_generation_had_enemy_evidence_ = false;
     bool active_marker_expired_ = false;
+    // A short detector miss may hide I, but it must not destroy I and promote
+    // a neighbour on the following frame. This is identity-only memory: while
+    // missing, Vision still publishes no target and no actuation authority.
+    int active_identity_miss_frames_ = 0;
     std::optional<std::pair<float, float>> last_cue_point_;
     std::optional<std::pair<float, float>> last_target_offset_from_cue_;
     std::uint64_t cue_tracking_generation_ = 0;

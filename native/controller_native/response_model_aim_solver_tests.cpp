@@ -112,6 +112,29 @@ void test_elliptical_force_envelope_scales_one_vector() {
     require(output.limited, "large request must report force limiting");
 }
 
+void test_authority_caps_delivered_force_after_curve_inversion() {
+    auto request = base_request();
+    request.error_px = {1000.0f, 0.0f};
+    request.authority = 0.20f;
+    request.response_curve.algorithm =
+        AimResponseCurveAlgorithm::CodDynamicLegacyLut;
+    const auto output = solve_response_model_aim(request);
+    require(output.limited,
+            "large low-authority request must exercise its force budget");
+    require_near(output.stick.x, 0.20f, 1e-5f,
+                 "authority must cap the delivered stick after inverse curve");
+}
+
+void test_clear_authority_does_not_multiply_smaller_mode_cap() {
+    auto request = base_request();
+    request.error_px = {1000.0f, 0.0f};
+    request.max_force = {0.30f, 0.42f};
+    request.authority = 0.72f;
+    const auto output = solve_response_model_aim(request);
+    require_near(output.stick.x, 0.30f, 1e-5f,
+                 "clear evidence must preserve the smaller BodyLock cap");
+}
+
 void test_cod_dynamic_plugin_round_trips_seed_curve() {
     const auto& plugin = resolve_aim_response_curve_plugin(
         AimResponseCurveAlgorithm::CodDynamicLegacyLut);
@@ -167,6 +190,8 @@ int main() {
         test_motion_does_not_reverse_current_residual();
         test_current_position_bounds_only_opposing_radial_motion();
         test_elliptical_force_envelope_scales_one_vector();
+        test_authority_caps_delivered_force_after_curve_inversion();
+        test_clear_authority_does_not_multiply_smaller_mode_cap();
         test_cod_dynamic_plugin_round_trips_seed_curve();
         test_cod_dynamic_curve_shapes_target_t_around_reference();
         test_cod_dynamic_curve_preserves_radial_target_direction();

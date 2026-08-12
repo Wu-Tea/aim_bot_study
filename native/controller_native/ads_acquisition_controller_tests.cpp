@@ -144,34 +144,18 @@ void test_target_above_gets_bounded_directional_urgency() {
         "upward urgency must stay bounded instead of becoming a global force increase");
 }
 
-void test_hard_start_delay_suppresses_only_early_ads_assist() {
-    controller_native::AdsAcquisitionControllerConfig config{};
-    config.start_delay_ms = 30.0f;
-    controller_native::AdsAcquisitionController controller(config);
-    auto plan = plan_with(80.0f, 0.0f);
-    plan.target_acquisition_id = 1;
-    plan.acquisition_elapsed_ms = 29.0f;
-    require_true(
-        std::fabs(controller.compute(plan, {}, 0.01f).x) < 0.0001f,
-        "hard ADS delay must suppress assist before its boundary");
-    plan.acquisition_elapsed_ms = 30.0f;
-    require_true(
-        controller.compute(plan, {}, 0.01f).x > 0.5f,
-        "hard ADS delay must release full assist at its boundary");
-}
-
-void test_smooth_start_ramp_reaches_half_then_full_authority() {
-    controller_native::AdsAcquisitionControllerConfig config{};
-    config.start_ramp_ms = 30.0f;
-    controller_native::AdsAcquisitionController controller(config);
-    auto plan = plan_with(80.0f, 0.0f);
-    plan.target_acquisition_id = 1;
-    plan.acquisition_elapsed_ms = 15.0f;
-    const float half = controller.compute(plan, {}, 0.01f).x;
-    plan.acquisition_elapsed_ms = 30.0f;
-    const float full = controller.compute(plan, {}, 0.01f).x;
-    require_true(half > full * 0.45f && half < full * 0.55f,
-                 "30ms ADS ramp must expose half authority at 15ms");
+void test_reliability_does_not_create_a_second_ads_gain_policy() {
+    controller_native::AdsAcquisitionController controller;
+    const auto full_evidence = plan_with(80.0f, 0.0f, 1.0f);
+    auto admitted_low_evidence = plan_with(80.0f, 0.0f, 0.15f);
+    // Admission and authority belong to TargetCoordinator. Once it admits an
+    // ADS plan, this controller must honor that authority without multiplying
+    // it by confidence/reliability again.
+    admitted_low_evidence.aim_authority = 1.0f;
+    const float expected = controller.compute(full_evidence, {}, 0.01f).x;
+    const float actual = controller.compute(admitted_low_evidence, {}, 0.01f).x;
+    require_true(std::fabs(actual - expected) < 0.0001f,
+                 "admitted ADS must not be weakened by reliability");
 }
 
 }  // namespace
@@ -194,8 +178,7 @@ int main(int argc, char** argv) {
         test_target_above_gets_bounded_directional_urgency();
         test_learned_slow_camera_response_automatically_increases_ads_request();
         test_shorter_arrival_horizon_increases_ads_positioning_speed();
-        test_hard_start_delay_suppresses_only_early_ads_assist();
-        test_smooth_start_ramp_reaches_half_then_full_authority();
+        test_reliability_does_not_create_a_second_ads_gain_policy();
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "[AdsAcquisitionControllerTests] FAIL " << error.what() << '\n';

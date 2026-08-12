@@ -163,6 +163,10 @@ void dump_effective_config(const controller_native::RuntimeConfig& config) {
     line("runtime.input.rb_counts_as_aiming", config.gamepad.rb_counts_as_aiming);
     line("runtime.output.enabled", config.output.enabled);
     line("runtime.output.validation_mode", config.output.validation_mode);
+    line("gamepad.enemy_mark.enabled", config.gamepad.enemy_mark.enabled);
+    line(
+        "gamepad.enemy_mark.l3_cooldown_ms",
+        config.gamepad.enemy_mark.l3_cooldown_ms);
     const auto& aim = config.gamepad.ai_aim;
     line("gamepad.tracker.aim_height_ratio", config.gamepad.tracker.aim_height_ratio);
     line(
@@ -172,8 +176,6 @@ void dump_effective_config(const controller_native::RuntimeConfig& config) {
     line("gamepad.ads.vertical_strength_scale", config.ads.vertical_strength_scale);
     line("gamepad.ads.snap_duration_ms", aim.ads_snap_window_ms);
     line("gamepad.ads.max_acquisition_ms", aim.ads_max_acquisition_ms);
-    line("gamepad.ads.start_delay_ms", aim.ads_start_delay_ms);
-    line("gamepad.ads.start_ramp_ms", aim.ads_start_ramp_ms);
     line("gamepad.bodylock.strength", aim.body_lock_max_ai_force);
     line("gamepad.bodylock.vertical_strength", aim.body_lock_max_ai_force_y);
     line("gamepad.bodylock.activation_range_px", aim.body_lock_activation_box_px);
@@ -250,6 +252,7 @@ void print_startup_summary(
                 ? "none"
                 : config.gamepad.recoil.recognizer_state_path)
         << " auto_fire=" << config.gamepad.auto_fire.fire_output
+        << " enemy_mark=" << (config.gamepad.enemy_mark.enabled ? "on" : "off")
         << " fusion=" << (config.vision.fusion_enabled ? "on" : "off")
         << " fusion_session=" << config.vision.fusion_session
         << '\n';

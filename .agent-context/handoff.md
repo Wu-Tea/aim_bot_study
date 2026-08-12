@@ -1,113 +1,98 @@
 # Agent Handoff
 
-Last updated: 2026-08-10
-Active scope: default native C++ Vision-to-gamepad runtime after retirement of
-the low-rate legacy control stack.
-Staleness trigger: refresh after the first matched live validation, a new
-production-chain regression, or any proposal to restore predictive authority.
+Last updated: 2026-08-12
+Active scope: default native C++ Vision-to-gamepad runtime.
+Staleness trigger: refresh after matched live validation, a new production-chain
+regression, or any proposal to restore predictive authority.
 
 ## Current Objective
 
-Validate the simplified single-owner chain in live high-rate play. Do not
-resume the retired W3/W5, projection, alternate-fusion or output-carry work from
-older handoffs.
+Validate the completed Controller/auto-mark candidate in one matched Black Ops 7
+session. The bounded refactor and deterministic GREEN proof are complete;
+screen-space D/R geometry and live calibration acceptance remain.
 
-## Current Production Chain
+Runtime: `native/vision_native/build/Release/cod_native_runtime.exe`
+SHA-256: `51F1A3ACDD204D1BA064DFA873A64CAB9DBA2C92E76BB849252BDDB5B1071861`
+L3 mark requests use configurable `l3_cooldown_ms` (currently 1000); LT is not
+subject to this cooldown. Codex did not launch the runtime.
+
+## Production Chain And Invariants
 
 ```text
-fresh unique Vision result
-  -> native selector
-  -> VisionDeliveryGate
-  -> TargetCoordinator / one TargetPlan
-  -> ADS acquisition OR BodyLock follow
-  -> AimDynamicsShaper
-  -> AssistControlStateMachine
-  -> AutoFire safety gate
-  -> recoil feed-forward
-  -> ViGEm
+fresh unique Vision result -> selector owns I/R -> delivery gate
+-> TargetCoordinator owns D/TargetPlan -> ADS or BodyLock
+-> AimDynamicsShaper -> AssistControlStateMachine owns final T
+-> AutoFire safety -> recoil feed-forward -> ViGEm
 ```
 
-- No new Vision frame on a controller tick means retain the immutable plan; it
-  is not a new observation and does not advance projected geometry.
-- A fresh no-target result releases generic aim authority. Same-generation
-  visible cue evidence is the only bounded native continuation and is aim-only.
-- Accepted native sources are `observed`, `associated_weak`, `weak_observed`
-  and `cue_hold`; unknown and retired projected labels fail closed.
-- `AssistControlStateMachine` is the sole manual/AI authority owner. Manual is
-  intent evidence, target handover stays selector/coordinator owned, and
-  per-axis passthrough is allowed only when the current decision says AI is
-  materially idle.
-- Recoil is a later feed-forward stage, not a target or continuity owner.
-
-## Cleanup Completed
-
-Removed from the native runtime/build contract:
-
-- generic hold/coast/projection and player-motion forecast bridges;
-- native post-selector lead/catch-up/near-target `AimEnhancementPipeline`;
-- legacy AI, ADS carry/brake, BodyLock short-plan/lifecycle controllers;
-- axis/vector arbiters, benchmark mix overrides and pending-output layers;
-- old tracker backends and the standalone FPS tracker package;
-- W3 ego observer, W5 pending/causal/rollout/online-learning runtime code;
-- dead `ControlResponseEstimator` hint plumbing and no-protocol fallback
-  candidate election; selector identity now fails closed;
-- duplicate AimPerf logger/config/environment aliases and obsolete telemetry;
-- tests, benchmarks and CMake targets whose only purpose was retired behavior.
-
-Root cause: locally reasonable 80-100 Hz gap compensators accumulated without
-removing the previous owner. Different layers retained different freshness,
-identity, previous-output and reset state, then all modified the same stick.
-Observed classes included sticky handover, elastic same-direction stacking,
-fresh/non-fresh rebound, delayed release and manual suppression.
+- Repeated controller ticks are not fresh Vision observations. Fresh no-target
+  releases generic aim authority; cue continuation is bounded and aim-only.
+- Selector admits direct class-0 people, rejects green friendlies and known
+  corpse/marker patterns, retains identity through brief dropout internally but
+  never publishes stale coordinates, and performs explicit handover.
+- `AssistControlStateMachine` is the only final-output owner. Each axis uses
+  desired total `T` after native manual `M`: helpful manual fills the same work,
+  AI fills only the residual, and opposing AI may damp but never reverse manual.
+  Ordinary/down/firing-down damping ceilings are 35%/10%/0%.
+- Once a selector-owned person is admitted, ADS uses full configured authority
+  regardless of cue, visibility, reliability or distance. A confirmed new I
+  gets fresh ADS acquisition even while LT remains held. BodyLock stays
+  evidence-scaled.
+- D is the intended hittable point inside R. Firing-down moves D inside R and
+  cannot request downward handover; recoil stays a later feed-forward stage.
+- L3/LT mark is a final-plan transaction: two consecutive fresh, same-generation
+  direct-person plans with current enemy cue and crosshair inside valid R emit
+  one 50 ms D-pad Up. Request lifetime is 250 ms. L3 can wake Vision but grants
+  no aim authority; physical D-pad Up always passes through.
 
 ## Verification
 
-- CMake configure + full Release build: PASS.
-- CTest: `43/43` PASS.
-- Focused Python native boundary/perf tests: `32/32` PASS.
-- Production-only sustained AimLab smoke: 12/12 combinations PASS (three
-  seeds, ADS/BodyLock, strafe off/full reversal, requested Vision 180 Hz,
-  36 ms short occlusion).
-- The flick-handover/sticky-target native integration contract remains green.
-- The flick-handover artifact manifest was replayed and re-hashed against the
-  final C++ sources/binaries; complete-contract validation reports PASS with
-  zero issues.
-- `native_pipeline_contract.ps1` now builds the production-only sustained
-  benchmark and checks the current source-age gate instead of deleted legacy
-  benchmark/runtime labels.
+- Full candidate Release build: PASS.
+- Official Release CTest: 49/49; direct candidate replay: 49/49.
+- Product-contract known-bad is RED; candidate is GREEN on all seven oracles.
+- ADS no-cue/cue authority: `0.228/0.950 -> 1.000/1.000`.
+- Firing-down D: `256 -> 256 px` became `256 -> 312 px`; output is not opposed.
+- Telemetry schema 17 record: 1848 bytes, below the 2576-byte ceiling.
+- Source snapshot: 194 production/config files, Git-style hash
+  `6f3addd009ca38ac0d996ffbce77742bcf7ba786`.
+- Fixed publication of completed ADS as BodyLock with ADS still active.
+- Aimlab wrong-person strong ADS is now a hard failure (`final_score=0`).
+- Evidence: `artifacts/regressions/controller-v1-product-contract-20260812/`.
 
-Benchmark caution: the saved pre-cleanup artifact used the legacy benchmark
-path and schema, while the new report is `production-only`. Shared metrics are
-mixed (smoother output and much less stale stop carry, but higher synthetic
-error/oscillation counters), so this is not a matched performance A/B and does
-not replace live validation. Raw pre/post benchmark JSON remains local and is
-not part of the source commit.
+Aimlab was not expanded into a game simulator. GREEN proves owner/state defects,
+not gameplay geometry, cue visibility through cover, or COD calibration.
+
+## Evidence Behind The Refactor
+
+The 2026-08-12 18:12 replays were joined to telemetry by save time minus
+duration plus ADS/fire/candidate fingerprints; the join is event-level:
+
+- cue-less people were admitted at roughly 83 px and 109 px, but cue still
+  effectively gated delivered ADS force;
+- one incident had 27 selected-target ADS samples with zero delivered AI;
+- a two-person incident crossed selector generations 41-45 in about 711 ms;
+- firing-down reached final output but was excluded from D correction, while
+  whole-vector alignment could attenuate Y because X agreed with AI;
+- auto-mark actuated before an accepted controller target existed.
+
+They justify full-authority ADS, per-axis fusion, protected firing-down D,
+explicit identity ownership, and final-plan marking—not Body/Pose or a new owner.
 
 ## Next Action
 
-Run one matched live session with the same model, game refresh, config and
-logging conditions. Check acquisition, moving follow, multi-target flick,
-cue-expiry release, manual passthrough and stop behavior. Convert any reproducible
-failure into a RED fixture against the current chain before changing policy.
+Run one session with the exact candidate/hash. Test Controller with mark off,
+then enable mark and test L3/LT separately. Cover: small ADS correction,
+held-LT urgent transfer, firing-down recoil, close BodyLock, head-glitch D/R,
+green friendly, corpse, off-axis person, and physical D-pad passthrough.
 
-## Files To Read First
-
-1. [Current State](../docs/project/CURRENT_STATE.md)
-2. [Cleanup record](../docs/project/LEGACY_CONTROL_STACK_CLEANUP_20260810.md)
-3. [Cleanup decision](decisions/DEC-2026-08-10-001-retire-low-rate-control-stack.md)
-4. [Cue/handover acceptance](../docs/project/CUE_SELECTOR_MANUAL_ACCEPTANCE_20260810.md)
-5. [Compact session log](session-log.md)
+On failure, join schema-17 fields to the exact video event and create one RED
+fixture. Do not weaken ADS, globally raise BodyLock, add an output owner, or add
+Body/Pose until evidence isolates a selector/geometry limitation.
 
 ## Do Not Reopen Without New Evidence
 
-- Do not restore additive manual-plus-AI output, alternate final-output owners,
-  detector projection, generic coasting, output carry/brake or retired config
-  aliases.
-- Do not interpret a repeated 1 kHz controller tick as a fresh Vision sample.
-- Do not let cue-derived positions self-train or grant fire authority.
-- Do not compare benchmark or live artifacts without matching executable,
-  config, schema, scenario and logging conditions.
-- Python fallback still contains historical prediction/enhancement behavior;
-  do not infer that it is active in the default native runtime.
-- Keep secrets, personal media paths, raw telemetry and binaries out of context
-  files and ordinary source commits.
+- additive manual-plus-AI output, alternate final-output owners, projection,
+  generic coasting, output carry/brake, or retired config aliases;
+- cue-derived self-training/fire authority or repeated-tick freshness;
+- unmatched benchmark/live comparisons;
+- Python fallback behavior as evidence about the default native runtime.

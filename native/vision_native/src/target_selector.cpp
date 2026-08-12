@@ -37,6 +37,7 @@ constexpr float kTrackingRadiusRatio = 120.0f / 640.0f;
 constexpr float kPickupConfirmRadiusRatio = 32.0f / 640.0f;
 constexpr float kMaxAreaLimitRatio = 40000.0f / (640.0f * 640.0f);
 constexpr int kPickupConfirmFrames = 2;
+constexpr int kActiveIdentityMissFramesBeforeInvalidation = 2;
 constexpr float kActiveTargetIouThreshold = 0.12f;
 constexpr float kActiveTargetCenterXRatio = 0.65f;
 constexpr float kActiveTargetCenterYRatio = 0.35f;
@@ -819,6 +820,7 @@ void VisionTargetSelector::clear_tracking_state() {
     active_target_.reset();
     active_generation_had_enemy_evidence_ = false;
     active_marker_expired_ = false;
+    active_identity_miss_frames_ = 0;
     pending_target_.reset();
     clear_cue_tracking();
     pending_frames_ = 0;
@@ -963,6 +965,9 @@ VisionResult VisionTargetSelector::result_from_target(const TargetState& target,
     result.target_tier = target_tier_for_source(target.candidate.source);
     result.aim_authority = aim_authority_for_source(target.candidate.source);
     result.fire_authority = fire_authority_for_source(target.candidate.source);
+    result.enemy_cue_current = candidate_has_enemy_evidence(target.candidate);
+    result.enemy_identity_confirmed = active_generation_had_enemy_evidence_ ||
+        result.enemy_cue_current;
     result.association_stage = target.candidate.source;
     result.target_confidence = target.candidate.conf;
     result.intent_applied = target.intent_applied;
@@ -1251,7 +1256,10 @@ std::optional<VisionTargetSelector::Candidate> VisionTargetSelector::build_candi
     if (box_w <= 0.0f || box_h <= 0.0f) {
         return std::nullopt;
     }
-    if (detection.is_friendly) {
+    // The production cod_combined_single_cls model has exactly one semantic
+    // target class at index 0. Unknown/multi-class outputs must fail closed;
+    // a green friendly marker is an independent hard rejection.
+    if (detection.class_id != 0 || detection.is_friendly) {
         return std::nullopt;
     }
 
@@ -1330,7 +1338,7 @@ std::optional<VisionTargetSelector::Candidate> VisionTargetSelector::build_weak_
     if (!active_target_.has_value() || !last_target_center_.has_value()) {
         return std::nullopt;
     }
-    if (detection.is_friendly
+    if (detection.class_id != 0 || detection.is_friendly
         || detection.conf < kWeakAssociationConfidenceThreshold
         || detection.conf >= kTrackingConfidenceThreshold) {
         return std::nullopt;
@@ -1761,6 +1769,7 @@ std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::commit_ta
     stored_target.intent_decision = "none";
     stored_target.intent_score = 0.0f;
     active_target_ = stored_target;
+    active_identity_miss_frames_ = 0;
     last_target_center_ = {
         active_target_->candidate.target_x,
         active_target_->candidate.target_y,
@@ -1863,8 +1872,9 @@ VisionTargetSelector::select_multi_candidate(
 
     const bool identity_selection_intent = intent != nullptr &&
         intent->valid && intent->aiming &&
-        intent->purpose !=
-            pipeline_contract::UserAimIntentPurpose::CorrectCurrentTarget;
+        (!active_target_.has_value() ||
+         intent->purpose ==
+            pipeline_contract::UserAimIntentPurpose::HandoverTarget);
     if (identity_selection_intent && active_match.has_value() &&
         best_intent_non_active.has_value()) {
         const float locked_crosshair_distance = crosshair_distance(
@@ -1927,8 +1937,8 @@ VisionTargetSelector::resolve_active_target_transition(
         if (!targets_match(chosen_target, *active_match_target)) {
             const bool identity_selection_allowed = intent != nullptr &&
                 intent->valid && intent->aiming &&
-                intent->purpose !=
-                    pipeline_contract::UserAimIntentPurpose::CorrectCurrentTarget;
+                intent->purpose ==
+                    pipeline_contract::UserAimIntentPurpose::HandoverTarget;
             // Liveness invalidation removes authority; it does not silently
             // grant the next-highest scorer a different identity. Publish no
             // target so Controller returns to acquisition/manual authority,
@@ -1956,13 +1966,14 @@ VisionTargetSelector::resolve_active_target_transition(
             return chosen_target;
         }
 
+        active_identity_miss_frames_ = 0;
         return *active_match_target;
     }
 
     const bool identity_selection_allowed = intent != nullptr &&
         intent->valid && intent->aiming &&
-        intent->purpose !=
-            pipeline_contract::UserAimIntentPurpose::CorrectCurrentTarget &&
+        intent->purpose ==
+            pipeline_contract::UserAimIntentPurpose::HandoverTarget &&
         chosen_target.intent_applied;
     if (identity_selection_allowed) {
         return chosen_target;
@@ -2297,6 +2308,7 @@ VisionResult VisionTargetSelector::select_impl(
         const auto weak_association = select_weak_association(batch);
         if (weak_association.has_value()) {
             active_target_ = *weak_association;
+            active_identity_miss_frames_ = 0;
             active_generation_had_enemy_evidence_ =
                 active_generation_had_enemy_evidence_
                 || candidate_has_enemy_evidence(active_target_->candidate);
@@ -2313,6 +2325,7 @@ VisionResult VisionTargetSelector::select_impl(
         const auto external_cue_hold = try_external_cue_hold(batch);
         if (external_cue_hold.has_value()) {
             active_target_ = *external_cue_hold;
+            active_identity_miss_frames_ = 0;
             last_target_center_ = {
                 active_target_->candidate.target_x,
                 active_target_->candidate.target_y,
@@ -2336,6 +2349,7 @@ VisionResult VisionTargetSelector::select_impl(
             const auto cue_hold = try_cue_hold(*frame, batch.captured_at_ns);
             if (cue_hold.has_value()) {
                 active_target_ = *cue_hold;
+                active_identity_miss_frames_ = 0;
                 last_target_center_ = {
                     active_target_->candidate.target_x,
                     active_target_->candidate.target_y,
@@ -2347,6 +2361,7 @@ VisionResult VisionTargetSelector::select_impl(
             }
         }
         if (active_target_.has_value() && active_generation_had_enemy_evidence_) {
+            active_identity_miss_frames_ = 0;
             if (last_direct_cue_observation_ns_ == 0 || batch.captured_at_ns == 0) {
                 cue_hold_frames_ = std::min(
                     cue_hold_frames_ + 1,
@@ -2360,7 +2375,13 @@ VisionResult VisionTargetSelector::select_impl(
             result.auto_fire = false;
             return result;
         }
-        clear_tracking_state();
+        if (active_target_.has_value() &&
+            active_identity_miss_frames_ <
+                kActiveIdentityMissFramesBeforeInvalidation) {
+            ++active_identity_miss_frames_;
+        } else {
+            clear_tracking_state();
+        }
         VisionResult result = empty_result(boxes_seen);
         clear_auto_fire_state();
         result.auto_fire = false;
@@ -2383,6 +2404,13 @@ VisionResult VisionTargetSelector::select_impl(
     if (!transition.has_value()) {
         // Identity was invalidated or replacement was not explicitly
         // requested. Current Vision has declined control ownership.
+        if (active_target_.has_value()) {
+            ++active_identity_miss_frames_;
+            if (active_identity_miss_frames_ >=
+                kActiveIdentityMissFramesBeforeInvalidation) {
+                clear_tracking_state();
+            }
+        }
         VisionResult result = empty_result(boxes_seen);
         clear_auto_fire_state();
         result.auto_fire = false;

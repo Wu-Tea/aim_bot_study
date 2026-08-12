@@ -88,6 +88,8 @@ TargetCoordinatorConfig coordinator_config(const GamepadRuntimeConfig& config) {
         config.ai_aim.desired_point_traversal_ms;
     result.desired_point_boundary_exit_ms =
         config.ai_aim.desired_point_boundary_exit_ms;
+    result.visual_authority_enabled =
+        config.ai_aim.visual_authority_enabled;
     return result;
 }
 
@@ -103,8 +105,6 @@ AdsAcquisitionControllerConfig ads_config(const GamepadRuntimeConfig& config) {
     result.arrival_horizon_seconds = std::clamp(
         static_cast<float>(config.ai_aim.ads_snap_window_ms) / 1000.0f,
         0.060f, 0.350f);
-    result.start_delay_ms = std::max(0.0f, config.ai_aim.ads_start_delay_ms);
-    result.start_ramp_ms = std::max(0.0f, config.ai_aim.ads_start_ramp_ms);
     result.response_curve = config.aim_response_curve;
     return result;
 }
@@ -211,6 +211,8 @@ pipeline_contract::VisionObservationBatch NativeGamepadController::observation_b
     batch.selector_identity_protocol = snapshot.selector_identity_protocol;
     batch.selector_target_generation = snapshot.selector_target_generation;
     batch.selector_target_changed = snapshot.selector_target_changed;
+    batch.selector_enemy_cue_current = snapshot.enemy_cue_current;
+    batch.selector_enemy_identity_confirmed = snapshot.enemy_identity_confirmed;
     batch.selector_cue_continuation =
         snapshot.selector_identity_protocol &&
         snapshot.selector_target_generation != 0 &&
@@ -264,13 +266,17 @@ pipeline_contract::VisionObservationBatch NativeGamepadController::observation_b
             source.motion_anchor_score >= 0.20f;
         destination.confidence = std::clamp(source.confidence, 0.0f, 1.0f);
         destination.cue_confidence = std::clamp(source.cue_score, 0.0f, 1.0f);
+        if (source.id == snapshot.selected_observation_id) {
+            batch.selector_enemy_cue_checked = source.color_classified;
+        }
         destination.normalized_size = std::clamp(
             height / std::max(1.0f, batch.frame_height_px), 0.0f, 1.0f);
-        const float size_weight = height > 0.0f
-            ? std::clamp(destination.normalized_size / 0.12f, 0.2f, 1.0f)
-            : 1.0f;
-        destination.reliability = destination.confidence * size_weight;
-        destination.body_cue = height > 0.0f;
+        // Target size is not visibility: a small but crisp enemy in an optic
+        // may be more trustworthy than a large false person. Detector/geometry
+        // confidence remains the base; selector enemy evidence caps authority
+        // later in TargetCoordinator.
+        destination.reliability = destination.confidence;
+        destination.body_cue = source.has_cue_point;
     }
     // The selector owns target identity, D and R. The only target-shaped state
     // that may arrive without a person candidate is an explicit same-generation
@@ -466,10 +472,14 @@ GamepadOutputState NativeGamepadController::build_output_from_sampled_input() {
         plan.response_confidence = localized_response.confidence;
     }
     if (plan.cue_continuation) {
-        // Cue geometry is useful continuity evidence, but it is deliberately
-        // weaker than a person observation and can never inherit full force.
-        plan.aim_authority *= std::clamp(
-            config_.ai_aim.cue_hold_body_lock_force_scale, 0.0f, 1.0f);
+        // A same-generation cue may continue ADS identity, but must not create
+        // an arrival-time gain step. Only conservative BodyLock continuation
+        // is evidence-scaled after the ADS acquisition lifecycle has ended.
+        if (plan.mode == pipeline_contract::ControlMode::BodyLockFollow) {
+            plan.aim_authority *= std::clamp(
+                config_.ai_aim.cue_hold_body_lock_force_scale, 0.0f, 1.0f);
+            plan.visual_authority = plan.aim_authority;
+        }
         plan.fire_authority = false;
         plan.fire_requested = false;
         plan.fire_suppression = pipeline_contract::FireSuppressionReason::AimOnly;
@@ -489,6 +499,10 @@ GamepadOutputState NativeGamepadController::build_output_from_sampled_input() {
         plan.desired_point_normalized.y};
     components.aim_region_px = plan.aim_region_px;
     components.has_aim_region = plan.has_aim_region;
+    components.visual_authority = plan.visual_authority;
+    components.enemy_cue_current = plan.enemy_cue_current;
+    components.enemy_identity_confirmed = plan.enemy_identity_confirmed;
+    components.enemy_cue_checked = plan.enemy_cue_checked;
     components.aim_region_source = aim_region_source_name(
         plan.aim_region_source);
     components.desired_point_source = desired_point_source_name(
@@ -669,6 +683,11 @@ GamepadOutputState NativeGamepadController::build_output_from_sampled_input() {
             plan.selector_target_generation;
         control_input.now_seconds = now;
         control_input.target_error_px = plan.error_px;
+        control_input.mode = plan.mode;
+        control_input.visual_authority = plan.visual_authority;
+        // Preserve the firing/downward invariant across short fire-pulse and
+        // controller ordering gaps as well as on the physical fire tick.
+        control_input.firing = control_feedback.firing_recently;
         control_input.manual_stick = {
             physical.right_x, physical.right_y};
         control_input.filtered_manual_stick = intent.filtered_right;
@@ -850,7 +869,11 @@ void NativeGamepadController::apply_recoil(
         now_seconds,
     });
     if (recoil_output.recoil_stick.y < 0.0f) {
-        recoil_output.recoil_stick.y = -adaptive.amount;
+        // Downward manual is the user's anti-recoil contribution. Only add the
+        // missing remainder; never stack the full automatic amount on top.
+        const float manual_down = std::max(0.0f, -physical.right_y);
+        recoil_output.recoil_stick.y = -std::max(
+            0.0f, adaptive.amount - manual_down);
     }
     output.right_x = clamp_unit(output.right_x + recoil_output.recoil_stick.x);
     output.right_y = clamp_unit(output.right_y + recoil_output.recoil_stick.y);

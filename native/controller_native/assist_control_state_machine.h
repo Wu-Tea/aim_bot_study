@@ -41,12 +41,15 @@ struct AssistControlStateMachineInput {
     std::uint64_t selector_target_generation = 0;
     double now_seconds = 0.0;
     pipeline_contract::Vec2f target_error_px{};
+    pipeline_contract::ControlMode mode = pipeline_contract::ControlMode::Manual;
+    float visual_authority = 0.0f;
+    bool firing = false;
     // Physical stick uses XInput coordinates: positive Y is up-stick.
     pipeline_contract::Vec2f manual_stick{};
     // Filtered manual is the one noise-owned direction signal. Physical manual
     // remains the native output baseline.
     pipeline_contract::Vec2f filtered_manual_stick{};
-    // AI-only output is the desired total proposal for the one 2-D solver.
+    // AI-only output is the desired total proposal for the per-axis T-M solve.
     pipeline_contract::Vec2f ai_stick{};
     // TargetCoordinator has already interpreted these axes as a correction of
     // D inside the valid R. They are not generic raw-manual passthrough.
@@ -158,7 +161,8 @@ public:
             const auto ai = finite_or_zero(input.ai_stick);
             output.manual_correction_x = input.manual_correction_x;
             output.manual_correction_y = input.manual_correction_y;
-            output.stick = cooperative_output(manual, filtered_manual, ai);
+            output.stick = cooperative_output(
+                input, manual, filtered_manual, ai);
             output.manual_passthrough_x =
                 std::fabs(output.stick.x - manual.x) <= 1.0e-6f;
             output.manual_passthrough_y =
@@ -217,10 +221,10 @@ public:
         output.manual_correction_x = input.manual_correction_x;
         output.manual_correction_y = input.manual_correction_y;
         // M is always the native baseline. A is a desired total proposal, so
-        // add only its missing, direction-compatible residual. One 2-D cosine
-        // replaces independent X/Y sign switches and introduces no takeover
-        // threshold, timer or second authority owner.
-        output.stick = cooperative_output(manual, filtered_manual, ai);
+        // each axis fills only what is missing. Axis-local arbitration is
+        // intentional: a helpful horizontal correction may not spend the
+        // user's downward recoil authority on the vertical axis.
+        output.stick = cooperative_output(input, manual, filtered_manual, ai);
         output.manual_passthrough_x =
             std::fabs(output.stick.x - manual.x) <= 1.0e-6f;
         output.manual_passthrough_y =
@@ -256,54 +260,68 @@ private:
     }
 
     pipeline_contract::Vec2f cooperative_output(
+        const AssistControlStateMachineInput& input,
         pipeline_contract::Vec2f manual,
         pipeline_contract::Vec2f filtered_manual,
         pipeline_contract::Vec2f ai) const noexcept {
-        const float ai_length = std::hypot(ai.x, ai.y);
-        if (!std::isfinite(ai_length) ||
-            ai_length <= std::max(0.0f, config_.material_ai_axis_output)) {
-            return manual;
-        }
-        const float filtered_length = std::hypot(
-            filtered_manual.x, filtered_manual.y);
-        if (!std::isfinite(filtered_length) || filtered_length <= 0.0f) {
-            return ai;
-        }
+        const float material = std::max(
+            0.0f, config_.material_ai_axis_output);
+        const auto solve_axis = [&input, material](
+            float native_axis,
+            float intent_axis,
+            float desired_axis,
+            bool vertical) noexcept {
+            if (!std::isfinite(desired_axis) ||
+                std::fabs(desired_axis) <= material) {
+                return native_axis;
+            }
+            if (!std::isfinite(intent_axis) ||
+                std::fabs(intent_axis) <= material) {
+                return std::clamp(desired_axis, -1.0f, 1.0f);
+            }
 
-        const float alignment = std::clamp(
-            (filtered_manual.x * ai.x + filtered_manual.y * ai.y) /
-                (filtered_length * ai_length),
-            0.0f,
-            1.0f);
-        if (alignment <= 0.0f) return manual;
+            const bool compatible = intent_axis * desired_axis > 0.0f;
+            if (compatible) {
+                // AI is the desired total T, not another stick to add on top
+                // of M. Correct manual contribution therefore reduces the
+                // missing work; a stronger native request remains untouched.
+                if (native_axis * desired_axis > 0.0f &&
+                    std::fabs(native_axis) >= std::fabs(desired_axis)) {
+                    return native_axis;
+                }
+                return std::clamp(desired_axis, -1.0f, 1.0f);
+            }
 
-        const pipeline_contract::Vec2f ai_direction{
-            ai.x / ai_length,
-            ai.y / ai_length,
+            // Opposing AI may correct some likely user error but can never
+            // cross zero and seize that axis. ADS uses the full bounded
+            // correction budget after admission. BodyLock earns it only from
+            // clear current evidence, preserving native feel on uncertain
+            // people, decoys and corpse-shaped detections.
+            constexpr float kOrdinaryOpposingDamping = 0.35f;
+            constexpr float kDownwardOpposingDamping = 0.10f;
+            const bool downward = vertical && intent_axis < 0.0f;
+            float damping_ratio = downward
+                ? kDownwardOpposingDamping
+                : kOrdinaryOpposingDamping;
+            if (downward && input.firing) damping_ratio = 0.0f;
+            const float evidence =
+                input.mode == pipeline_contract::ControlMode::AdsAcquire
+                ? 1.0f
+                : std::clamp(
+                    (input.visual_authority - 0.65f) / 0.35f,
+                    0.0f,
+                    1.0f);
+            const float native_magnitude = std::fabs(native_axis);
+            const float damping = std::min(
+                native_magnitude * damping_ratio * evidence,
+                std::fabs(desired_axis));
+            const float retained = std::max(0.0f, native_magnitude - damping);
+            return std::copysign(retained, native_axis);
         };
-        const float manual_along_ai = std::max(
-            0.0f,
-            manual.x * ai_direction.x + manual.y * ai_direction.y);
-        float assist = alignment * std::max(
-            0.0f, ai_length - manual_along_ai);
-        if (assist <= 0.0f) return manual;
 
-        // Preserve M exactly and cap only the new residual to remaining radial
-        // headroom. This never scales down a native full-stick request.
-        const float manual_length_squared = std::min(
-            1.0f, manual.x * manual.x + manual.y * manual.y);
-        const float manual_projection =
-            manual.x * ai_direction.x + manual.y * ai_direction.y;
-        const float discriminant = std::max(
-            0.0f,
-            manual_projection * manual_projection +
-                1.0f - manual_length_squared);
-        const float radial_headroom = std::max(
-            0.0f, -manual_projection + std::sqrt(discriminant));
-        assist = std::min(assist, radial_headroom);
         return finite_or_zero({
-            manual.x + assist * ai_direction.x,
-            manual.y + assist * ai_direction.y,
+            solve_axis(manual.x, filtered_manual.x, ai.x, false),
+            solve_axis(manual.y, filtered_manual.y, ai.y, true),
         });
     }
 

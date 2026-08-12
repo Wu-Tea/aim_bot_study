@@ -52,8 +52,6 @@ struct GamepadAiAimConfig {
     float ads_completion_radius_px = 8.0f;
     int ads_completion_fresh_frames = 3;
     float ads_max_acquisition_ms = 220.0f;
-    float ads_start_delay_ms = 0.0f;
-    float ads_start_ramp_ms = 0.0f;
     float auto_fire_ready_error_px = 16.0f;
     int auto_fire_ready_frames = 2;
     float auto_fire_ready_max_ai_stick = 6000.0f;
@@ -66,7 +64,10 @@ struct GamepadAiAimConfig {
     // sustained right-stick request can move D across the currently valid R,
     // and when continued pressure at R's boundary becomes an explicit exit.
     float desired_point_traversal_ms = 180.0f;
-    float desired_point_boundary_exit_ms = 250.0f;
+    float desired_point_boundary_exit_ms = 50.0f;
+    // BodyLock-only rollout switch. ADS authority remains full after admission;
+    // selector-owned enemy evidence bounds only continuing BodyLock authority.
+    bool visual_authority_enabled = true;
 };
 
 struct GamepadRecoilConfig {
@@ -117,12 +118,18 @@ struct GamepadTrackerConfig {
     float max_observation_age_ms = 50.0f;
 };
 
+struct GamepadEnemyMarkConfig {
+    bool enabled = true;
+    unsigned int l3_cooldown_ms = 1000;
+};
+
 struct GamepadRuntimeConfig {
     std::string auto_fire_output = "RB";
     bool rb_counts_as_aiming = false;
     bool xinput_auto_detect = true;
     unsigned int xinput_user_index = 0;
     GamepadTrackerConfig tracker;
+    GamepadEnemyMarkConfig enemy_mark;
     GamepadAutoFireConfig auto_fire;
     GamepadAiAimConfig ai_aim;
     AimResponseCurveConfig aim_response_curve;

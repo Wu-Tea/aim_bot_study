@@ -111,6 +111,8 @@ controller_native::ControllerVisionSnapshot adapt_vision_result(
     snapshot.selector_identity_protocol = result.selector_identity_protocol;
     snapshot.selector_target_generation = result.selector_target_generation;
     snapshot.selector_target_changed = result.selector_target_changed;
+    snapshot.enemy_cue_current = result.enemy_cue_current;
+    snapshot.enemy_identity_confirmed = result.enemy_identity_confirmed;
     snapshot.user_intent = result.user_aim_intent;
     snapshot.capture_time_seconds = ns_to_seconds(
         result.captured_at_ns != 0 ? result.captured_at_ns : result.result_at_ns);
@@ -131,6 +133,12 @@ controller_native::ControllerVisionSnapshot adapt_vision_result(
         if (detection.is_friendly) {
             if (snapshot.rejected_friendly_count != UINT32_MAX) {
                 ++snapshot.rejected_friendly_count;
+            }
+            continue;
+        }
+        if (detection.class_id != 0) {
+            if (snapshot.rejected_low_reliability_count != UINT32_MAX) {
+                ++snapshot.rejected_low_reliability_count;
             }
             continue;
         }
@@ -191,6 +199,8 @@ controller_native::ControllerVisionSnapshot adapt_vision_result(
     state.aim_region_y2 = result.aim_region_y2;
     state.aim_authority = result.aim_authority;
     state.fire_authority = result.fire_authority;
+    state.enemy_cue_current = result.enemy_cue_current;
+    state.enemy_identity_confirmed = result.enemy_identity_confirmed;
     state.target_tier = safe_c_string(result.target_tier, "none");
     state.observed_at_seconds = ns_to_seconds(
         result.result_at_ns != 0 ? result.result_at_ns : result.captured_at_ns);
@@ -221,7 +231,8 @@ adapt_committed_capture_observation(
         const auto& detection = result.detections[index];
         const float width = std::max(0.0f, detection.x2 - detection.x1);
         const float height = std::max(0.0f, detection.y2 - detection.y1);
-        if (width <= 1.0f || height <= 1.0f || detection.is_friendly) {
+        if (width <= 1.0f || height <= 1.0f || detection.is_friendly ||
+            detection.class_id != 0) {
             continue;
         }
         const float confidence = std::clamp(

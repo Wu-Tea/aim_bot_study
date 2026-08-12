@@ -6,7 +6,7 @@
 
 namespace runtime_app {
 
-inline constexpr std::uint16_t kTelemetrySchemaVersion = 15;
+inline constexpr std::uint16_t kTelemetrySchemaVersion = 17;
 
 enum class TelemetryRecordType : std::uint8_t {
     SessionMetadata,
@@ -173,6 +173,10 @@ struct ControllerSamplePayload {
     float aim_region_x2 = 0.0f;
     float aim_region_y2 = 0.0f;
     bool has_aim_region = false;
+    float visual_authority = 0.0f;
+    bool enemy_cue_current = false;
+    bool enemy_identity_confirmed = false;
+    bool enemy_cue_checked = false;
     std::array<char, 24> aim_region_source{};
     std::array<char, 24> desired_point_source{};
     float requested_assist_x = 0.0f;
@@ -193,6 +197,16 @@ struct ControllerSamplePayload {
     bool auto_fire_cadence_wait = false;
     bool final_fire_button = false;
     std::array<char, 28> auto_fire_block_reason{};
+    bool enemy_mark_request_pending = false;
+    bool enemy_mark_synthetic_pressed = false;
+    bool enemy_mark_fired = false;
+    bool enemy_mark_canceled = false;
+    std::uint32_t enemy_mark_confirmation_frames = 0;
+    std::uint64_t enemy_mark_target_scope = 0;
+    std::uint64_t enemy_mark_target_generation = 0;
+    std::uint64_t enemy_mark_last_scope = 0;
+    std::uint64_t enemy_mark_last_generation = 0;
+    std::array<char, 32> enemy_mark_block_reason{};
     std::uint32_t detector_box_count = 0;
     float production_target_confidence = 0.0f;
     float target_dx = 0.0f;

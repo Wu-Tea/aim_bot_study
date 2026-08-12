@@ -83,8 +83,14 @@ ResponseModelAimOutput solve_response_model_aim(
     output.unclamped_stick = inverse_aim_response_curve(
         output.pre_curve_stick, request.response_curve);
 
-    const float max_x = std::max(0.0f, request.max_force.x);
-    const float max_y = std::max(0.0f, request.max_force.y);
+    // Authority is also a delivered per-axis budget, not only a gain before
+    // the nonlinear response curve. Intersect it with the mode envelope: clear
+    // evidence keeps the existing BodyLock cap, while a large no-cue error
+    // cannot inflate weak evidence back into a near-full virtual stick.
+    const float max_x = std::min(
+        std::max(0.0f, request.max_force.x), authority);
+    const float max_y = std::min(
+        std::max(0.0f, request.max_force.y), authority);
     if (max_x <= 0.0f) output.unclamped_stick.x = 0.0f;
     if (max_y <= 0.0f) output.unclamped_stick.y = 0.0f;
     const float normalized_x = max_x > 0.0f

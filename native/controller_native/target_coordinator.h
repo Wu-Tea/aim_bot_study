@@ -30,7 +30,13 @@ struct TargetCoordinatorConfig {
     float jump_fall_velocity_px_per_second = 100.0f;
     float max_authority = 1.0f;
     float desired_point_traversal_ms = 180.0f;
-    float desired_point_boundary_exit_ms = 250.0f;
+    float desired_point_boundary_exit_ms = 50.0f;
+    float enemy_cue_expected_radius_px = 70.0f;
+    float unconfirmed_enemy_search_authority_scale = 0.24f;
+    float unconfirmed_enemy_near_authority_scale = 0.08f;
+    float confirmed_enemy_cue_loss_authority_scale = 0.45f;
+    float unchecked_enemy_authority_scale = 0.35f;
+    bool visual_authority_enabled = true;
 };
 
 struct TargetControlFeedback {
@@ -63,6 +69,7 @@ private:
         bool reset_desired_point) noexcept;
     void update_desired_point_from_manual(
         const pipeline_contract::IntentState& intent,
+        bool firing_recently,
         float dt_seconds) noexcept;
     const pipeline_contract::VisionCandidate* choose_candidate(
         const pipeline_contract::VisionObservationBatch& observations,
@@ -105,6 +112,9 @@ private:
     double acquisition_completed_seconds_ = 0.0;
     double ads_epoch_started_seconds_ = 0.0;
     float last_observed_reliability_ = 0.0f;
+    bool enemy_cue_current_ = false;
+    bool enemy_identity_confirmed_ = false;
+    bool enemy_cue_checked_ = false;
     float last_observed_normalized_size_ = 0.0f;
     pipeline_contract::Vec2f last_observed_target_size_px_{};
     std::uint32_t settled_frames_ = 0;

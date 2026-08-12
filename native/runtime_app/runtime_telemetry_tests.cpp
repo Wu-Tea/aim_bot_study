@@ -42,15 +42,27 @@ runtime_app::TelemetryRecord controller_record(std::uint64_t tick) {
     value.controller.ai_correction_x = 0.05f;
     value.controller.requested_assist_x = 0.12f;
     value.controller.shaped_assist_x = 0.10f;
+    value.controller.visual_authority = 0.83f;
+    value.controller.enemy_cue_current = true;
+    value.controller.enemy_identity_confirmed = true;
+    value.controller.enemy_cue_checked = true;
     value.controller.final_x = 0.35f;
     value.controller.handover_requested = true;
     value.controller.handover_braking = true;
     value.controller.selected_track_id = 71;
     value.controller.selected_observation_id = 91;
+    value.controller.enemy_mark_request_pending = true;
+    value.controller.enemy_mark_fired = true;
+    value.controller.enemy_mark_confirmation_frames = 2;
+    value.controller.enemy_mark_target_scope = 5;
+    value.controller.enemy_mark_target_generation = 17;
+    value.controller.enemy_mark_last_scope = 5;
+    value.controller.enemy_mark_last_generation = 17;
     copy_text(value.controller.manual_authority_mode, "micro_manual");
     copy_text(value.controller.assist_control_phase, "handover_brake");
     copy_text(value.controller.assist_authority, "aim_and_fire");
     copy_text(value.controller.assist_authority_reason, "fresh_observed");
+    copy_text(value.controller.enemy_mark_block_reason, "none");
     return value;
 }
 
@@ -172,6 +184,14 @@ void test_writer_serializes_current_controller_and_deduplicates_source_frames() 
     REQUIRE(text.find("\"assist_control_phase\":\"handover_brake\"") != std::string::npos);
     REQUIRE(text.find("\"requested_assist_x\":0.12") != std::string::npos);
     REQUIRE(text.find("\"shaped_assist_x\":0.1") != std::string::npos);
+    REQUIRE(text.find("\"visual_authority\":0.83") != std::string::npos);
+    REQUIRE(text.find("\"enemy_cue_current\":true") != std::string::npos);
+    REQUIRE(text.find("\"enemy_identity_confirmed\":true") != std::string::npos);
+    REQUIRE(text.find("\"enemy_cue_checked\":true") != std::string::npos);
+    REQUIRE(text.find("\"enemy_mark_fired\":true") != std::string::npos);
+    REQUIRE(text.find("\"enemy_mark_target_scope\":5") != std::string::npos);
+    REQUIRE(text.find("\"enemy_mark_target_generation\":17") != std::string::npos);
+    REQUIRE(text.find("\"enemy_mark_block_reason\":\"none\"") != std::string::npos);
     REQUIRE(text.find("\"schema\":\"committed_capture_observation_v1\"") != std::string::npos);
     REQUIRE(text.find("\"fresh_observed\":true") != std::string::npos);
     REQUIRE(text.find("legacy_kind") == std::string::npos);

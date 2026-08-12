@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "incident_id": "controller-v1-product-contract",
+  "samples": {
+    "ads_no_cue": {"aim_authority": 1.000000, "requested_magnitude": 1.000000},
+    "ads_cue": {"aim_authority": 1.000000, "requested_magnitude": 1.000000},
+    "mixed_axis_output": {"x": 0.450000, "y": -0.120000},
+    "opposing_ads_output": {"x": 0.117000, "y": 0.000000},
+    "firing_down_d": {"manual_correction_y": true, "before_y": 256.000000, "after_y": 312.000000}
+  },
+  "oracles": {
+    "ads_full_without_cue": true,
+    "ads_full_with_cue": true,
+    "cue_does_not_change_ads_gain": true,
+    "firing_down_is_not_opposed": true,
+    "compatible_axis_still_gets_fill": true,
+    "ads_can_resist_wrong_manual": true,
+    "firing_down_updates_d": true
+  },
+  "pass": true
+}

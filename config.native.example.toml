@@ -64,6 +64,15 @@ algorithm = "cod_dynamic_legacy_lut"
 # px/(stick*s) sensitivity of the previous linear solver.
 calibration_reference_stick = 0.50
 
+[gamepad.enemy_mark]
+# An L3/LT edge opens a 250 ms request. Two fresh final plans must place
+# the crosshair inside the same current cue-confirmed person's R; then one
+# 50 ms D-pad Up press is emitted for that target generation. L3 may wake
+# Vision for the request but never grants aim authority.
+enabled = true
+# Minimum time between accepted L3 request edges. Set to 0 to disable.
+l3_cooldown_ms = 1000
+
 [gamepad.auto_fire]
 fire_output = "RB"
 aim_only = true
@@ -81,10 +90,8 @@ vertical_strength_scale = 1.26
 activation_radius_px = 135
 snap_duration_ms = 135
 max_acquisition_ms = 220
-# Optional ADS output onset shaping. Both default to zero; delay suppresses
-# AI output before the boundary, while ramp linearly raises AI authority.
-start_delay_ms = 0
-start_ramp_ms = 0
+# Once a target is admitted into ADS, configured ADS authority applies
+# immediately; cue/clarity/reliability are not additional gain stages.
 
 [gamepad.bodylock]
 strength = 0.45
@@ -98,7 +105,10 @@ tolerance_px = 8
 # Provisional V1 calibration: D may move only inside selector-published R.
 # Continued pressure at R's boundary becomes an explicit exit request.
 desired_point_traversal_ms = 180
-desired_point_boundary_exit_ms = 250
+desired_point_boundary_exit_ms = 50
+# BodyLock-only evidence policy. ADS authority is never scaled by this switch
+# after a selector-owned person has been admitted.
+visual_authority_enabled = true
 
 # All documented recoil overrides remain available.
 [gamepad.recoil]

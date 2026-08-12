@@ -48,6 +48,9 @@ void test_current_control_keys_parse() {
         "[runtime.telemetry]\n"
         "enabled = true\n"
         "directory = \"runs/current-telemetry\"\n"
+        "[gamepad.enemy_mark]\n"
+        "enabled = false\n"
+        "l3_cooldown_ms = 750\n"
         "[gamepad.tracker]\n"
         "aim_height_ratio = 0.31\n"
         "max_observation_age_ms = 42\n"
@@ -59,19 +62,23 @@ void test_current_control_keys_parse() {
         "completion_radius_px = 7\n"
         "completion_fresh_frames = 4\n"
         "max_acquisition_ms = 240\n"
-        "start_delay_ms = 2\n"
-        "start_ramp_ms = 8\n"
         "[gamepad.bodylock]\n"
         "strength = 0.44\n"
         "vertical_strength = 0.49\n"
         "activation_range_px = 92\n"
-        "tolerance_px = 9\n");
+        "tolerance_px = 9\n"
+        "[gamepad.ai_aim]\n"
+        "visual_authority_enabled = false\n");
 
     const auto config = controller_native::load_runtime_config(file.path());
     require(config.vision.capture_fps == 180, "capture cadence not parsed");
     require(config.telemetry.enabled, "telemetry enable not parsed");
     require(config.telemetry.directory == "runs/current-telemetry",
             "telemetry directory not parsed");
+    require(!config.gamepad.enemy_mark.enabled,
+            "enemy-mark switch not parsed");
+    require(config.gamepad.enemy_mark.l3_cooldown_ms == 750,
+            "enemy-mark L3 cooldown not parsed");
     require(std::fabs(config.gamepad.tracker.aim_height_ratio - 0.31f) < 1e-5f,
             "aim height not parsed");
     require(std::fabs(config.gamepad.tracker.max_observation_age_ms - 42.0f) < 1e-5f,
@@ -86,6 +93,8 @@ void test_current_control_keys_parse() {
             "settle frame count not parsed");
     require(std::fabs(config.gamepad.ai_aim.body_lock_max_ai_force - 0.44f) < 1e-5f,
             "BodyLock force not parsed");
+    require(!config.gamepad.ai_aim.visual_authority_enabled,
+            "visual-authority A/B switch not parsed");
     require(config.diagnostics.empty(), "current config produced diagnostics");
 }
 
@@ -114,7 +123,13 @@ void test_retired_low_rate_keys_are_unknown_and_inert() {
         "helpful_manual_overdrive_max_scale = 1.20\n"
         "helpful_manual_direction_weight = 0.45\n"
         "[gamepad.aim_assist_dynamics]\n"
-        "enabled = false\n");
+        "enabled = false\n"
+        "[gamepad.ads]\n"
+        "start_delay_ms = 2\n"
+        "start_ramp_ms = 8\n"
+        "[gamepad.ai_aim]\n"
+        "ads_start_delay_ms = 2\n"
+        "ads_start_ramp_ms = 8\n");
 
     const auto config = controller_native::load_runtime_config(file.path());
     require(has_diagnostic(config, "gamepad.tracker.backend"),
@@ -150,6 +165,12 @@ void test_retired_low_rate_keys_are_unknown_and_inert() {
             "retired manual direction weight must be rejected");
     require(has_diagnostic(config, "gamepad.aim_assist_dynamics.enabled"),
             "retired dynamics switch must be rejected");
+    require(has_diagnostic(config, "gamepad.ads.start_delay_ms") &&
+                has_diagnostic(config, "gamepad.ads.start_ramp_ms"),
+            "retired ADS onset shaping must be rejected");
+    require(has_diagnostic(config, "gamepad.ai_aim.ads_start_delay_ms") &&
+                has_diagnostic(config, "gamepad.ai_aim.ads_start_ramp_ms"),
+            "retired legacy ADS onset shaping must be rejected");
     require(std::fabs(config.gamepad.tracker.max_observation_age_ms - 50.0f) < 1e-5f,
             "retired keys changed current defaults");
 }

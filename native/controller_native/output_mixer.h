@@ -46,6 +46,10 @@ struct NativeControllerOutputComponents {
     common_native::Vec2f desired_point_normalized;
     common_native::Box2f aim_region_px;
     bool has_aim_region = false;
+    float visual_authority = 0.0f;
+    bool enemy_cue_current = false;
+    bool enemy_identity_confirmed = false;
+    bool enemy_cue_checked = false;
     std::string aim_region_source = "none";
     std::string desired_point_source = "none";
     common_native::Vec2f before_recoil_stick;

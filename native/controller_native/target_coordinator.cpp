@@ -93,6 +93,9 @@ void TargetCoordinator::reset_target_owned_state_for_replacement() noexcept {
     last_observed_seconds_ = 0.0;
     last_observation_capture_seconds_ = 0.0;
     last_observed_reliability_ = 0.0f;
+    enemy_cue_current_ = false;
+    enemy_identity_confirmed_ = false;
+    enemy_cue_checked_ = false;
     last_observed_normalized_size_ = 0.0f;
     last_observed_target_size_px_ = {};
     settled_frames_ = 0;
@@ -161,6 +164,7 @@ void TargetCoordinator::adopt_candidate_geometry(
 
 void TargetCoordinator::update_desired_point_from_manual(
     const pipeline_contract::IntentState& intent,
+    bool firing_recently,
     float dt_seconds) noexcept {
     manual_correction_x_ = false;
     manual_correction_y_ = false;
@@ -180,6 +184,10 @@ void TargetCoordinator::update_desired_point_from_manual(
     const float manual_x = bounded_manual_axis(intent.filtered_right.x);
     // Native gamepad Y is inverted relative to screen coordinates: negative
     // stick Y asks the camera to move down, so D moves toward larger screen Y.
+    // Firing does not change the meaning of the user's direction. Down-stick
+    // is both recoil control and evidence that the desired impact point D must
+    // move lower inside R. Treating it as recoil-only made the controller pull
+    // against the user while the reticle was already above the intended hit.
     const float manual_y = -bounded_manual_axis(intent.filtered_right.y);
     const float traversal_seconds = std::max(
         0.040f, config_.desired_point_traversal_ms / 1000.0f);
@@ -225,9 +233,17 @@ void TargetCoordinator::update_desired_point_from_manual(
 
     const float exit_seconds = std::max(
         0.050f, config_.desired_point_boundary_exit_ms / 1000.0f);
+    // Firing down-stick is both a valid downward D correction and the user's
+    // recoil contribution. It may reach the lower edge of R, but must not arm
+    // a target handover behind the user's back. Once firing/down-stick ends,
+    // any later outward request earns its own fresh boundary dwell.
+    const bool firing_downward = firing_recently && manual_y > 0.0f;
+    if (firing_downward) {
+        manual_boundary_seconds_y_ = 0.0f;
+    }
     manual_exit_requested_ =
         manual_boundary_seconds_x_ >= exit_seconds ||
-        manual_boundary_seconds_y_ >= exit_seconds;
+        (!firing_downward && manual_boundary_seconds_y_ >= exit_seconds);
     if (manual_exit_requested_) {
         manual_correction_x_ = false;
         manual_correction_y_ = false;
@@ -512,6 +528,28 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         accepted_fresh_capture &&
         is_effective_selector_replacement(observations, *candidate);
 
+    if (selector_replacement && intent.ads && ads_epoch_active_ &&
+        !cue_continuation_candidate) {
+        // A handover-confirmed person is a new ADS job even though LT never
+        // rose again. Reusing the previous person's elapsed/consumed snap made
+        // rapid transfer arrive directly in weaker BodyLock (or spend only
+        // whatever milliseconds happened to remain from target A).
+        ads_snap_consumed_ = false;
+        ads_target_admitted_ = false;
+        target_acquisition_id_ = 0;
+        acquisition_started_seconds_ = 0.0;
+        acquisition_completed_seconds_ = 0.0;
+        ads_acquisition_begin_ns_ = 0;
+        ads_acquisition_complete_ns_ = 0;
+        ads_acquisition_state_ =
+            pipeline_contract::AdsAcquisitionState::ArmedWaitingForTarget;
+        ads_decision_reason_ = pipeline_contract::AdsDecisionReason::None;
+        acquisition_terminal_reason_ =
+            pipeline_contract::AdsDecisionReason::None;
+        ads_center_cross_seen_ = false;
+        ads_target_switch_seen_ = false;
+    }
+
     if (candidate == nullptr) {
         if (!intent.ads) {
             ads_decision_reason_ = pipeline_contract::AdsDecisionReason::None;
@@ -582,9 +620,6 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         observations.preferred_source_id != 0 &&
         candidate->source_id == observations.preferred_source_id &&
         candidate->reliability > 0.0f) {
-        if (selector_replacement && ads_target_admitted_ && !ads_snap_consumed_) {
-            ads_target_switch_seen_ = true;
-        }
         selector_target_generation_ = observations.selector_target_generation;
     }
     if (candidate != nullptr && intent.ads && ads_snap_consumed_) {
@@ -808,6 +843,11 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         observed_fire_eligible_ = cue_continuation_candidate
             ? false : observations.observed_fire_eligible;
         reliability = std::clamp(candidate->reliability, 0.0f, 1.0f);
+        enemy_cue_current_ = observations.selector_enemy_cue_current;
+        enemy_identity_confirmed_ =
+            observations.selector_enemy_identity_confirmed ||
+            enemy_cue_current_;
+        enemy_cue_checked_ = observations.selector_enemy_cue_checked;
         normalized_size = std::clamp(candidate->normalized_size, 0.0f, 1.0f);
         last_observed_reliability_ = reliability;
         last_observed_normalized_size_ = normalized_size;
@@ -834,6 +874,9 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
             std::max(0.0f, config_.max_observation_age_ms);
         if (fresh_no_target || source_expired) {
             has_target_ = false;
+            enemy_cue_current_ = false;
+            enemy_identity_confirmed_ = false;
+            enemy_cue_checked_ = false;
             cue_continuation_active_ = false;
             source_id_ = 0;
             source_position_ = {};
@@ -900,7 +943,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     // Only a gesture whose purpose was fixed as CorrectCurrentTarget may move
     // D. A gesture that began while acquiring I keeps AcquireTarget through
     // its release/reversal boundary and cannot rewrite first-frame geometry.
-    update_desired_point_from_manual(intent, dt);
+    update_desired_point_from_manual(intent, feedback.firing_recently, dt);
 
     pipeline_contract::TargetPlan plan{};
     plan.generation = ++generation_;
@@ -909,6 +952,10 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         ? 0 : candidate != nullptr ? source_id_ : 0;
     plan.target_id = target_id_;
     plan.lifecycle = lifecycle;
+    plan.direct_person_observation = accepted_fresh_capture &&
+        candidate != nullptr && !cue_continuation_candidate &&
+        candidate->source_id != 0 && observations.frame_id != 0 &&
+        source_frame_id_ == observations.frame_id;
     plan.source_aim_px = source_position_;
     plan.aim_region_px = aim_region_;
     plan.aim_region_source = aim_region_source_;
@@ -928,6 +975,9 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     plan.observation_age_ms = static_cast<float>((now_seconds - last_observed_seconds_) * 1000.0);
     plan.confidence = reliability;
     plan.reliability = reliability;
+    plan.enemy_cue_current = enemy_cue_current_;
+    plan.enemy_identity_confirmed = enemy_identity_confirmed_;
+    plan.enemy_cue_checked = enemy_cue_checked_;
     plan.normalized_size = normalized_size;
     const float error_length = length(plan.error_px);
     plan.acquisition_elapsed_ms = ads_target_admitted_
@@ -1130,6 +1180,11 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     }
     plan.mode = control_mode_;
     plan.ads_acquisition_state = ads_acquisition_state_;
+    // The acquisition may have completed in the state transition above.
+    // Publish the post-transition truth; the earlier provisional value is
+    // needed while constructing the plan but must not escape to telemetry or
+    // downstream consumers as `BodyLockFollow + active ADS`.
+    plan.ads_acquisition_active = ads_target_admitted_ && !ads_snap_consumed_;
     plan.source_decision_available = source_decision_available_;
     plan.source_decision_outcome = source_decision_outcome_;
     plan.source_decision_reason = source_decision_reason_;
@@ -1168,13 +1223,43 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
             pipeline_contract::AdsDecisionReason::BodylockOutsideContinuation;
         ads_decision_reason_ = plan.ads_decision_reason;
     }
+    float enemy_authority_scale = 1.0f;
+    if (config_.visual_authority_enabled && !plan.enemy_cue_current) {
+        if (plan.enemy_identity_confirmed) {
+            enemy_authority_scale =
+                config_.confirmed_enemy_cue_loss_authority_scale;
+        } else if (!plan.enemy_cue_checked) {
+            enemy_authority_scale = config_.unchecked_enemy_authority_scale;
+        } else if (error_length <= config_.enemy_cue_expected_radius_px) {
+            enemy_authority_scale =
+                config_.unconfirmed_enemy_near_authority_scale;
+        } else {
+            enemy_authority_scale =
+                config_.unconfirmed_enemy_search_authority_scale;
+        }
+    }
+    const float configured_authority = std::clamp(
+        config_.max_authority, 0.0f, 1.0f);
+    const float bodylock_visual_authority = std::clamp(
+        reliability * std::clamp(enemy_authority_scale, 0.0f, 1.0f),
+        0.0f,
+        1.0f);
+    // Admission answers whether ADS may act. Once admitted, cue, visibility,
+    // distance and detector reliability are selector evidence only; none of
+    // them is allowed to become a second ADS gain control. BodyLock remains
+    // deliberately evidence-scaled so an uncertain/corpse-shaped person does
+    // not receive the same continuing authority.
+    plan.visual_authority =
+        plan.mode == pipeline_contract::ControlMode::AdsAcquire
+        ? configured_authority
+        : bodylock_visual_authority;
     plan.aim_authority =
         plan.mode == pipeline_contract::ControlMode::Manual ||
             bodylock_outside_activation_range
         ? 0.0f
-        : std::min(
-            config_.max_authority,
-            std::max(0.0f, reliability));
+        : plan.mode == pipeline_contract::ControlMode::AdsAcquire
+            ? configured_authority
+            : std::min(configured_authority, bodylock_visual_authority);
     plan.response_scale = std::max(
         50.0f, feedback.aim_response_px_per_stick_second);
     plan.response_confidence = std::clamp(
@@ -1258,6 +1343,9 @@ void TargetCoordinator::reset() noexcept {
     acquisition_completed_seconds_ = 0.0;
     ads_epoch_started_seconds_ = 0.0;
     last_observed_reliability_ = 0.0f;
+    enemy_cue_current_ = false;
+    enemy_identity_confirmed_ = false;
+    enemy_cue_checked_ = false;
     last_observed_normalized_size_ = 0.0f;
     last_observed_target_size_px_ = {};
     settled_frames_ = 0;

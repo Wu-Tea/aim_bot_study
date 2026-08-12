@@ -267,6 +267,12 @@ ScoreReport ScoreAggregator::report() const {
         0.10 * out.smoothness_score +
         0.10 * out.authority_safety_score -
         out.wrong_target_ads_snap_count * 10.0);
+    // Wrong-person strong ADS is a release failure, not a soft quality cost.
+    // Letting good tracking frames average it back into a positive score is
+    // exactly the benchmark/product inversion seen in live play.
+    if (out.wrong_target_ads_snap_count > 0) {
+        out.final_score = 0.0;
+    }
     return out;
 }
 

@@ -94,6 +94,11 @@ struct TargetPlan {
     std::uint64_t source_observation_id = 0;
     std::uint64_t target_id = 0;
     TargetLifecycle lifecycle = TargetLifecycle::None;
+    // True only when this exact controller update consumed a fresh,
+    // selector-selected person observation. Replay and cue continuation never
+    // inherit this bit; digital actions may therefore use it without creating
+    // a second freshness/identity owner.
+    bool direct_person_observation = false;
     TargetMotion motion = TargetMotion::Ambiguous;
     ControlMode mode = ControlMode::Manual;
     // I/R/D/T contract:
@@ -119,6 +124,13 @@ struct TargetPlan {
     float observation_age_ms = 0.0f;
     float confidence = 0.0f;
     float reliability = 0.0f;
+    // Selector-owned enemy evidence and the resulting bounded control budget.
+    // Geometry reliability answers "where can we aim?"; visual authority also
+    // answers "is this selected person sufficiently enemy-confirmed?".
+    bool enemy_cue_current = false;
+    bool enemy_identity_confirmed = false;
+    bool enemy_cue_checked = false;
+    float visual_authority = 0.0f;
     float normalized_size = 0.0f;
     float ads_demand = 0.0f;
     float bodylock_demand = 0.0f;
@@ -194,6 +206,7 @@ inline bool valid(const TargetPlan& plan) noexcept {
            finite(plan.error_px) && finite(plan.error_rate_px_per_sec) &&
            finite(plan.velocity_px_per_sec) && finite(plan.acceleration_px_per_sec2) &&
            unit_interval(plan.confidence) && unit_interval(plan.reliability) &&
+           unit_interval(plan.visual_authority) &&
            unit_interval(plan.normalized_size) && unit_interval(plan.ads_demand) &&
            unit_interval(plan.bodylock_demand) && unit_interval(plan.aim_authority) &&
            unit_interval(plan.response_confidence) &&

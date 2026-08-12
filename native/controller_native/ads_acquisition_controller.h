@@ -16,15 +16,8 @@ struct AdsAcquisitionControllerConfig {
     float target_above_horizon_scale = 0.84f;
     float fallback_response_px_per_stick_second = 500.0f;
     float stopping_lookahead_seconds = 0.012f;
-    float start_delay_ms = 0.0f;
-    float start_ramp_ms = 0.0f;
     AimResponseCurveConfig response_curve{};
 };
-
-float ads_start_authority(
-    float ads_epoch_elapsed_ms,
-    float start_delay_ms,
-    float start_ramp_ms) noexcept;
 
 class AdsAcquisitionController {
 public:

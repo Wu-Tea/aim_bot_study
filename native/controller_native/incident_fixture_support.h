@@ -22,6 +22,9 @@ struct TargetSpec {
     bool candidate_has_aim_region = true;
     bool color_classified = false;
     bool fire_authority = false;
+    bool has_enemy_cue = false;
+    bool enemy_identity_confirmed = false;
+    float confidence = 0.95f;
 };
 
 inline GamepadRuntimeConfig base_config(
@@ -36,8 +39,6 @@ inline GamepadRuntimeConfig base_config(
     config.ai_aim.ads_activation_radius_px = ads_activation_radius_px;
     config.ai_aim.ads_snap_max_ai_force = 1.0f;
     config.ai_aim.ads_snap_max_ai_force_y = 1.0f;
-    config.ai_aim.ads_start_delay_ms = 0.0f;
-    config.ai_aim.ads_start_ramp_ms = 0.0f;
     return config;
 }
 
@@ -75,8 +76,10 @@ inline pipeline_contract::VisionCandidateSnapshot observed_candidate(
             pipeline_contract::AimRegionSource::BodyBoxFallback;
         value.has_aim_region = true;
     }
-    value.confidence = 0.95f;
+    value.confidence = spec.confidence;
     value.color_classified = spec.color_classified;
+    value.has_cue_point = spec.has_enemy_cue;
+    value.cue_score = spec.has_enemy_cue ? 1.0f : 0.0f;
     value.suggested_authority_state =
         common_native::TargetAuthorityState::StrongAssist;
     return value;
@@ -99,9 +102,15 @@ inline ControllerVisionSnapshot observed_snapshot(
     snapshot.selected_observation_id = spec.observation_id;
     snapshot.selector_target_generation = spec.selector_generation;
     snapshot.selector_target_changed = selector_changed;
+    snapshot.enemy_cue_current = spec.has_enemy_cue;
+    snapshot.enemy_identity_confirmed =
+        spec.enemy_identity_confirmed || spec.has_enemy_cue;
     snapshot.state.has_target = true;
     snapshot.state.aim_authority = true;
     snapshot.state.fire_authority = spec.fire_authority;
+    snapshot.state.enemy_cue_current = snapshot.enemy_cue_current;
+    snapshot.state.enemy_identity_confirmed =
+        snapshot.enemy_identity_confirmed;
     snapshot.state.dx = dx;
     snapshot.state.dy = dy;
     snapshot.state.target_x = selected.aim_point_px.x;
@@ -133,9 +142,13 @@ inline ControllerVisionSnapshot cue_snapshot(
     snapshot.capture_time_seconds = now;
     snapshot.ready_time_seconds = now;
     snapshot.selector_target_generation = spec.selector_generation;
+    snapshot.enemy_cue_current = true;
+    snapshot.enemy_identity_confirmed = true;
     snapshot.state.has_target = true;
     snapshot.state.aim_authority = true;
     snapshot.state.fire_authority = false;
+    snapshot.state.enemy_cue_current = true;
+    snapshot.state.enemy_identity_confirmed = true;
     snapshot.state.dx = dx;
     snapshot.state.dy = dy;
     snapshot.state.target_x = spec.center_x + dx;

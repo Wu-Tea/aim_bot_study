@@ -29,7 +29,11 @@ constexpr float kMinimumAiHeadroom = 0.05f;
 constexpr float kMinimumAlignedAssistGain = 0.025f;
 constexpr float kMinimumAlignedRetentionRatio = 0.75f;
 constexpr float kMaximumDeadzoneCrossingDrop = 0.10f;
-constexpr float kMaximumOpposingNativeError = 0.001f;
+// The original incident required native input not to disappear. The accepted
+// V1 contract now permits ADS to damp at most 35% of a likely wrong axis while
+// preserving its sign. For the fixed 0.05 fixture this is 0.0175; keep a small
+// numerical margin without allowing zero-crossing or AI reversal.
+constexpr float kMaximumOpposingNativeError = 0.020f;
 constexpr std::uint64_t kObservationId = 8101;
 constexpr std::uint64_t kSelectorGeneration = 111;
 constexpr controller_native::incident_fixture::TargetSpec kTarget{

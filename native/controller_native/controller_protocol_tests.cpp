@@ -138,7 +138,7 @@ void test_adapter_forwards_valid_vision_candidates() {
     result.user_aim_intent.has_direction = true;
     result.user_aim_intent.direction.x = -1.0f;
     result.user_aim_intent.aiming = true;
-    result.detections.push_back(detection(10.0f, 20.0f, 50.0f, 120.0f, 0.30f, 0.20f, 1));
+    result.detections.push_back(detection(10.0f, 20.0f, 50.0f, 120.0f, 0.30f, 0.20f, 0));
     result.detections.push_back(detection(80.0f, 90.0f, 80.5f, 100.0f, 0.90f, 0.0f, 1));
     result.detections.push_back(detection(100.0f, 110.0f, 140.0f, 210.0f, 0.20f, 0.0f, 2, true));
 
@@ -197,10 +197,12 @@ void test_selector_identity_survives_engine_result_copy_and_adapter() {
     targeting.selector_identity_protocol = true;
     targeting.has_selected_detection = true;
     targeting.selected_detection_index = 1;
+    targeting.enemy_cue_current = true;
+    targeting.enemy_identity_confirmed = true;
     targeting.detections.push_back(
-        detection(10.0f, 20.0f, 50.0f, 120.0f, 0.80f, 0.0f, 1));
+        detection(10.0f, 20.0f, 50.0f, 120.0f, 0.80f, 0.0f, 0));
     targeting.detections.push_back(
-        detection(70.0f, 30.0f, 120.0f, 150.0f, 0.90f, 0.2f, 1));
+        detection(70.0f, 30.0f, 120.0f, 150.0f, 0.90f, 0.2f, 0));
 
     vision_native::copy_selector_identity_fields(result, targeting);
     result.detections = std::move(targeting.detections);
@@ -213,6 +215,11 @@ void test_selector_identity_survives_engine_result_copy_and_adapter() {
     require_true(
         snapshot.selected_observation_id == ((19ull << 32ull) | 2ull),
         "adapter should derive the selected observation from the copied detection index");
+    require_true(
+        snapshot.enemy_cue_current && snapshot.enemy_identity_confirmed &&
+            snapshot.state.enemy_cue_current &&
+            snapshot.state.enemy_identity_confirmed,
+        "VisionEngine result copy and adapter lost selector enemy evidence");
 }
 
 }  // namespace

@@ -186,6 +186,11 @@ struct VisionResult {
     const char* target_tier = "none";
     bool aim_authority = false;
     bool fire_authority = false;
+    // Enemy evidence is selector-owned. `enemy_cue_current` describes only
+    // this selected source frame; `enemy_identity_confirmed` is scoped to the
+    // current selector target generation and may survive a brief marker loss.
+    bool enemy_cue_current = false;
+    bool enemy_identity_confirmed = false;
     const char* association_stage = "";
     float target_confidence = 0.0f;
     uint64_t intent_id = 0;

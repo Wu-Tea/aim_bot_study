@@ -254,6 +254,11 @@ void TelemetryCollectors::observe_tick(const TelemetryTickInput& input) noexcept
         sample.controller.aim_region_x2 = input.aim_region_x2;
         sample.controller.aim_region_y2 = input.aim_region_y2;
         sample.controller.has_aim_region = input.has_aim_region;
+        sample.controller.visual_authority = input.visual_authority;
+        sample.controller.enemy_cue_current = input.enemy_cue_current;
+        sample.controller.enemy_identity_confirmed =
+            input.enemy_identity_confirmed;
+        sample.controller.enemy_cue_checked = input.enemy_cue_checked;
         copy_text(sample.controller.aim_region_source, input.aim_region_source);
         copy_text(
             sample.controller.desired_point_source,
@@ -276,6 +281,25 @@ void TelemetryCollectors::observe_tick(const TelemetryTickInput& input) noexcept
         copy_text(
             sample.controller.auto_fire_block_reason,
             input.auto_fire_block_reason);
+        sample.controller.enemy_mark_request_pending =
+            input.enemy_mark_request_pending;
+        sample.controller.enemy_mark_synthetic_pressed =
+            input.enemy_mark_synthetic_pressed;
+        sample.controller.enemy_mark_fired = input.enemy_mark_fired;
+        sample.controller.enemy_mark_canceled = input.enemy_mark_canceled;
+        sample.controller.enemy_mark_confirmation_frames =
+            input.enemy_mark_confirmation_frames;
+        sample.controller.enemy_mark_target_scope =
+            input.enemy_mark_target_scope;
+        sample.controller.enemy_mark_target_generation =
+            input.enemy_mark_target_generation;
+        sample.controller.enemy_mark_last_scope =
+            input.enemy_mark_last_scope;
+        sample.controller.enemy_mark_last_generation =
+            input.enemy_mark_last_generation;
+        copy_text(
+            sample.controller.enemy_mark_block_reason,
+            input.enemy_mark_block_reason);
         copy_text(sample.controller.assist_authority, input.assist_authority);
         copy_text(sample.controller.assist_authority_reason, input.assist_authority_reason);
         copy_text(sample.controller.bodylock_lifecycle, input.bodylock_lifecycle);

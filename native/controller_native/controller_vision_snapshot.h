@@ -18,6 +18,8 @@ struct ControllerVisionSnapshot {
     std::uint64_t selected_observation_id = 0;
     std::uint64_t selector_target_generation = 0;
     bool selector_target_changed = false;
+    bool enemy_cue_current = false;
+    bool enemy_identity_confirmed = false;
     std::uint64_t frame_id = 0;
     double capture_time_seconds = 0.0;
     double ready_time_seconds = 0.0;

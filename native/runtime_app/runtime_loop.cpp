@@ -482,6 +482,8 @@ RuntimeLoop::RuntimeLoop(
       controller_(config_.gamepad),
       viewport_controller_(viewport_controller_config_from(config_)),
       virtual_gamepad_(),
+      person_detection_gesture_(std::chrono::milliseconds(
+          config_.gamepad.enemy_mark.l3_cooldown_ms)),
       vision_delivery_gate_(config_.gamepad.tracker.max_observation_age_ms) {
     telemetry_.start();
     max_ticks_ = max_ticks;
@@ -612,6 +614,26 @@ void RuntimeLoop::run_once() {
         static_cast<std::uint64_t>(tick_count_) + 1u,
         tick_started);
 
+    // L3 is a mark request, not an aim request. It may temporarily wake the
+    // Vision/selector path, but controller intent and aim authority continue
+    // to use the real LT/RB aiming state above.
+    bool vision_requested = aiming;
+    if (config_.gamepad.enemy_mark.enabled) {
+        person_detection_gesture_.update_activation(
+            physical.left_thumb,
+            physical.left_trigger,
+            tick_started);
+        vision_requested = vision_requested ||
+            person_detection_gesture_.status(tick_started).request_pending;
+        if (vision_requested && !enemy_mark_vision_active_) {
+            ++enemy_mark_target_scope_;
+            if (enemy_mark_target_scope_ == 0) {
+                ++enemy_mark_target_scope_;
+            }
+        }
+        enemy_mark_vision_active_ = vision_requested;
+    }
+
     auto publish_fusion_if_updated = [&](const vision_native::VisionResult& result) {
         // --- fusion visual overlay publish (best-effort, no hot-path wait) ---
         if (fusion_enabled_ && result.frame_updated) {
@@ -639,7 +661,7 @@ void RuntimeLoop::run_once() {
     bool viewport_fresh_vision = false;
     if (vision_service_ != nullptr) {
         const std::uint64_t expected_aim_transition_sequence =
-            vision_service_->set_aiming(aiming);
+            vision_service_->set_aiming(vision_requested);
         vision_service_->set_user_aim_intent(user_aim_intent);
         const VisionServiceSnapshot service_snapshot = vision_service_->latest_snapshot();
         if (
@@ -651,7 +673,7 @@ void RuntimeLoop::run_once() {
             const std::uint64_t controller_consume_ns =
                 steady_time_point_ns(controller_consume_started);
             const bool current_control_epoch =
-                service_snapshot.controller_aiming == aiming &&
+                service_snapshot.controller_aiming == vision_requested &&
                 service_snapshot.aim_transition_sequence ==
                     expected_aim_transition_sequence;
             if (service_snapshot.freshness == VisionSnapshotFreshness::Fresh &&
@@ -673,7 +695,7 @@ void RuntimeLoop::run_once() {
             }
         }
     } else {
-        vision_engine_->set_aiming(aiming);
+        vision_engine_->set_aiming(vision_requested);
         vision_engine_->set_user_aim_intent(user_aim_intent);
         if (should_poll_vision(tick_started)) {
             last_vision_poll_at_ = tick_started;
@@ -703,6 +725,16 @@ void RuntimeLoop::run_once() {
     const auto controller_pipeline_started = std::chrono::steady_clock::now();
     controller_native::GamepadOutputState output =
         controller_.build_output_from_sampled_input();
+    if (config_.gamepad.enemy_mark.enabled) {
+        if (telemetry_new_vision) {
+            person_detection_gesture_.observe_fresh_plan(
+                controller_.last_target_plan(),
+                tick_started,
+                enemy_mark_target_scope_);
+        }
+        output.dpad_up = person_detection_gesture_.merge_dpad_up(
+            output.dpad_up, tick_started);
+    }
     const auto vigem_update_started = std::chrono::steady_clock::now();
     controller_native::VirtualGamepadUpdateResult output_result;
     if (config_.output.enabled) {
@@ -1061,6 +1093,34 @@ void RuntimeLoop::run_once() {
     telemetry_tick.final_fire_button = telemetry_components.fire_button;
     telemetry_tick.auto_fire_block_reason =
         telemetry_components.auto_fire_block_reason.c_str();
+    const auto enemy_mark_status =
+        person_detection_gesture_.status(tick_started);
+    telemetry_tick.enemy_mark_request_pending =
+        config_.gamepad.enemy_mark.enabled &&
+        enemy_mark_status.request_pending;
+    telemetry_tick.enemy_mark_synthetic_pressed =
+        config_.gamepad.enemy_mark.enabled &&
+        enemy_mark_status.synthetic_pressed;
+    telemetry_tick.enemy_mark_fired =
+        config_.gamepad.enemy_mark.enabled &&
+        enemy_mark_status.fired_this_tick;
+    telemetry_tick.enemy_mark_canceled =
+        config_.gamepad.enemy_mark.enabled &&
+        enemy_mark_status.canceled_this_tick;
+    telemetry_tick.enemy_mark_confirmation_frames =
+        enemy_mark_status.confirmation_frames;
+    telemetry_tick.enemy_mark_target_scope =
+        enemy_mark_status.evaluated_scope;
+    telemetry_tick.enemy_mark_target_generation =
+        enemy_mark_status.evaluated_generation;
+    telemetry_tick.enemy_mark_last_scope =
+        enemy_mark_status.last_marked_scope;
+    telemetry_tick.enemy_mark_last_generation =
+        enemy_mark_status.last_marked_generation;
+    telemetry_tick.enemy_mark_block_reason =
+        config_.gamepad.enemy_mark.enabled
+        ? person_mark_block_reason_name(enemy_mark_status.block_reason)
+        : "disabled";
     telemetry_tick.pre_recoil_x = telemetry_components.before_recoil_stick.x;
     telemetry_tick.pre_recoil_y = telemetry_components.before_recoil_stick.y;
     telemetry_tick.recoil_x = telemetry_components.recoil_stick.x;
@@ -1086,6 +1146,11 @@ void RuntimeLoop::run_once() {
     telemetry_tick.aim_region_y2 = telemetry_components.aim_region_px.y +
         telemetry_components.aim_region_px.h;
     telemetry_tick.has_aim_region = telemetry_components.has_aim_region;
+    telemetry_tick.visual_authority = telemetry_components.visual_authority;
+    telemetry_tick.enemy_cue_current = telemetry_components.enemy_cue_current;
+    telemetry_tick.enemy_identity_confirmed =
+        telemetry_components.enemy_identity_confirmed;
+    telemetry_tick.enemy_cue_checked = telemetry_components.enemy_cue_checked;
     telemetry_tick.aim_region_source =
         telemetry_components.aim_region_source.c_str();
     telemetry_tick.desired_point_source =

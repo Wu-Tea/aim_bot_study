@@ -181,8 +181,7 @@ bool is_known_key(const std::string& section, const std::string& key) {
         "algorithm", "calibration_reference_stick"};
     static const std::unordered_set<std::string> ads_keys{
         "strength_scale", "vertical_strength_scale", "activation_radius_px", "snap_duration_ms",
-        "completion_radius_px", "completion_fresh_frames", "max_acquisition_ms",
-        "start_delay_ms", "start_ramp_ms"};
+        "completion_radius_px", "completion_fresh_frames", "max_acquisition_ms"};
     static const std::unordered_set<std::string> bodylock_keys{
         "strength", "vertical_strength", "activation_range_px", "tolerance_px"};
     static const std::unordered_set<std::string> gamepad_keys{
@@ -192,6 +191,8 @@ bool is_known_key(const std::string& section, const std::string& key) {
         "fire_output", "aim_only", "max_source_age_ms", "require_aim_ready",
         "manual_takeover_release_seconds", "manual_takeover_resume_delay_seconds",
         "pulse_width_ms", "pulse_period_ms"};
+    static const std::unordered_set<std::string> enemy_mark_keys{
+        "enabled", "l3_cooldown_ms"};
     static const std::unordered_set<std::string> recoil_keys{
         "enabled", "selection_log_enabled", "profile_despike_enabled",
         "profile_playback_enabled", "native_recognizer_enabled",
@@ -208,12 +209,13 @@ bool is_known_key(const std::string& section, const std::string& key) {
         "ads_snap_window_ms",
         "ads_snap_max_ai_force", "ads_snap_max_ai_force_y",
         "ads_completion_radius_px", "ads_completion_fresh_frames",
-        "ads_max_acquisition_ms", "ads_start_delay_ms", "ads_start_ramp_ms",
+        "ads_max_acquisition_ms",
         "auto_fire_ready_error_px", "auto_fire_ready_frames",
         "auto_fire_ready_max_ai_stick", "cue_hold_body_lock_force_scale",
         "body_lock_max_ai_force", "body_lock_max_ai_force_y",
         "body_lock_box_tolerance_px", "body_lock_activation_box_px",
-        "desired_point_traversal_ms", "desired_point_boundary_exit_ms"};
+        "desired_point_traversal_ms", "desired_point_boundary_exit_ms",
+        "visual_authority_enabled"};
     if (section == "runtime") return runtime_keys.count(key) != 0;
     if (section == "runtime.vision") return vision_keys.count(key) != 0;
     if (section == "runtime.telemetry") return telemetry_keys.count(key) != 0;
@@ -227,6 +229,7 @@ bool is_known_key(const std::string& section, const std::string& key) {
     if (section == "gamepad.ads") return ads_keys.count(key) != 0;
     if (section == "gamepad.bodylock") return bodylock_keys.count(key) != 0;
     if (section == "runtime.gamepad") return gamepad_keys.count(key) != 0;
+    if (section == "gamepad.enemy_mark") return enemy_mark_keys.count(key) != 0;
     if (section == "gamepad.auto_fire") return auto_fire_keys.count(key) != 0;
     if (section == "gamepad.ai_aim") return ai_aim_keys.count(key) != 0;
     if (section == "gamepad.recoil") return recoil_keys.count(key) != 0;
@@ -344,12 +347,6 @@ void apply_gamepad_ai_aim_value(
     } else if (key == "ads_max_acquisition_ms") {
         config.ads_max_acquisition_ms =
             parse_float_value(value, config.ads_max_acquisition_ms);
-    } else if (key == "ads_start_delay_ms") {
-        config.ads_start_delay_ms =
-            parse_float_value(value, config.ads_start_delay_ms);
-    } else if (key == "ads_start_ramp_ms") {
-        config.ads_start_ramp_ms =
-            parse_float_value(value, config.ads_start_ramp_ms);
     } else if (key == "auto_fire_ready_error_px") {
         config.auto_fire_ready_error_px = parse_float_value(value, config.auto_fire_ready_error_px);
     } else if (key == "auto_fire_ready_frames") {
@@ -377,6 +374,9 @@ void apply_gamepad_ai_aim_value(
     } else if (key == "desired_point_boundary_exit_ms") {
         config.desired_point_boundary_exit_ms =
             parse_float_value(value, config.desired_point_boundary_exit_ms);
+    } else if (key == "visual_authority_enabled") {
+        config.visual_authority_enabled =
+            parse_bool_value(value, config.visual_authority_enabled);
     }
 }
 
@@ -671,10 +671,6 @@ void apply_value(
         } else if (key == "max_acquisition_ms") {
             ads.ads_max_acquisition_ms = parse_float_value(value, ads.ads_max_acquisition_ms);
             config.ads.max_acquisition_ms = ads.ads_max_acquisition_ms;
-        } else if (key == "start_delay_ms") {
-            ads.ads_start_delay_ms = parse_float_value(value, ads.ads_start_delay_ms);
-        } else if (key == "start_ramp_ms") {
-            ads.ads_start_ramp_ms = parse_float_value(value, ads.ads_start_ramp_ms);
         }
     } else if (section == "gamepad.bodylock") {
         auto& body = config.gamepad.ai_aim;
@@ -686,6 +682,14 @@ void apply_value(
             body.body_lock_activation_box_px = parse_float_value(value, body.body_lock_activation_box_px);
         } else if (key == "tolerance_px") {
             body.body_lock_box_tolerance_px = parse_float_value(value, body.body_lock_box_tolerance_px);
+        }
+    } else if (section == "gamepad.enemy_mark") {
+        if (key == "enabled") {
+            config.gamepad.enemy_mark.enabled =
+                parse_bool_value(value, config.gamepad.enemy_mark.enabled);
+        } else if (key == "l3_cooldown_ms") {
+            config.gamepad.enemy_mark.l3_cooldown_ms = parse_uint_value(
+                value, config.gamepad.enemy_mark.l3_cooldown_ms);
         }
     } else if (section == "gamepad.auto_fire") {
         apply_gamepad_auto_fire_value(config.gamepad.auto_fire, key, value);
@@ -825,12 +829,6 @@ void validate_runtime_config(RuntimeConfig& config) {
     if (config.gamepad.ai_aim.ads_activation_radius_px <= 0.0f ||
         config.gamepad.ai_aim.ads_activation_radius_px > 2000.0f)
         invalid("gamepad.ads.activation_radius_px", "0..2000");
-    if (config.gamepad.ai_aim.ads_start_delay_ms < 0.0f ||
-        config.gamepad.ai_aim.ads_start_delay_ms > 500.0f)
-        invalid("gamepad.ads.start_delay_ms", "0..500");
-    if (config.gamepad.ai_aim.ads_start_ramp_ms < 0.0f ||
-        config.gamepad.ai_aim.ads_start_ramp_ms > 500.0f)
-        invalid("gamepad.ads.start_ramp_ms", "0..500");
     if (config.gamepad.ai_aim.desired_point_traversal_ms < 40.0f ||
         config.gamepad.ai_aim.desired_point_traversal_ms > 2000.0f)
         invalid("gamepad.ai_aim.desired_point_traversal_ms", "40..2000");

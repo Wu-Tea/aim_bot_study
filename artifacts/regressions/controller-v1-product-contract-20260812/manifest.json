@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "incident_id": "controller-v1-product-contract",
+  "created_at_local": "2026-08-12T21:30:00+08:00",
+  "source_head": "6c59300c45be764df2c75983bfd3f45321218813",
+  "production_source_snapshot_git_hash": "6f3addd009ca38ac0d996ffbce77742bcf7ba786",
+  "production_source_snapshot_file_count": 194,
+  "configuration": "Release",
+  "runtime": {
+    "path": "native/vision_native/build/candidate-20260812/cod_native_runtime.exe",
+    "size_bytes": 583168,
+    "sha256": "64FCDF14DB6B4D04FCDC884BE3D863DD58B609ED946DE1EC6033E9227F8AC4A5",
+    "launched_by_codex": false
+  },
+  "fixtures": {
+    "known_bad": {
+      "path": "known_bad_metrics.json",
+      "sha256": "B474301A58DE0B2BE2E838F0A886EF18F2575D9C2C00348690398621B3B9FA1B",
+      "pass": false
+    },
+    "candidate": {
+      "path": "candidate_metrics.json",
+      "sha256": "8DDC8985C6AEA249185317D09D7E8A550F2F2E768D86532F61C9BB033648AF31",
+      "pass": true
+    }
+  },
+  "verification": {
+    "official_ctest_passed": 49,
+    "official_ctest_failed": 0,
+    "candidate_replay_passed": 49,
+    "candidate_replay_failed": 0,
+    "telemetry_schema": 17,
+    "telemetry_record_bytes": 1848,
+    "diff_check": "pass"
+  },
+  "configuration_note": "Current config.toml keeps gamepad.enemy_mark.enabled=false; example config enables it.",
+  "live_gameplay_acceptance": "pending"
+}

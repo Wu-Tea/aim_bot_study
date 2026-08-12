@@ -63,6 +63,9 @@ struct VisionObservationBatch {
     // selector-owned generation. Zero means unavailable.
     std::uint64_t selector_target_generation = 0;
     bool selector_target_changed = false;
+    bool selector_enemy_cue_current = false;
+    bool selector_enemy_identity_confirmed = false;
+    bool selector_enemy_cue_checked = false;
     // A selector-owned cue may update the geometry of an already owned target
     // without fabricating a detector observation id. The coordinator must
     // validate the existing identity/generation before consuming it.

@@ -100,6 +100,14 @@ pipeline_contract::UserAimIntent rightward_intent(std::uint64_t intent_id) {
     return intent;
 }
 
+pipeline_contract::UserAimIntent rightward_handover_intent(
+    std::uint64_t intent_id) {
+    auto intent = rightward_intent(intent_id);
+    intent.purpose =
+        pipeline_contract::UserAimIntentPurpose::HandoverTarget;
+    return intent;
+}
+
 pipeline_contract::UserAimIntent lower_left_intent(std::uint64_t intent_id) {
     pipeline_contract::UserAimIntent intent;
     intent.valid = true;
@@ -366,7 +374,7 @@ void test_missing_old_target_releases_before_directional_reacquisition() {
         !released.has_target && !released.aim_authority,
         "a different sole candidate must not silently inherit the missing target identity");
 
-    auto reacquire = rightward_intent(12);
+    auto reacquire = rightward_handover_intent(12);
     reacquire.direction.x = -1.0f;
     const vision_native::VisionResult acquired = selector.select(occluded, reacquire);
     require_true(
@@ -377,6 +385,37 @@ void test_missing_old_target_releases_before_directional_reacquisition() {
         270.0f,
         0.001f,
         "reacquisition must publish the current coordinate, not an old hold");
+}
+
+void test_unmarked_identity_survives_one_detection_dropout_without_old_actuation() {
+    vision_native::VisionTargetSelector selector(640, 512);
+    auto observed = single_target_batch(300.0f, 256.0f, 0.92f);
+    observed.frame_id = 201;
+
+    (void)selector.select(observed);
+    observed.frame_id = 202;
+    const auto locked = selector.select(observed);
+    require_true(locked.has_target,
+                 "setup must acquire the unmarked person identity");
+    const std::uint64_t locked_generation =
+        locked.selector_target_generation;
+
+    vision_native::DetectionBatch dropout;
+    dropout.frame_width = 640;
+    dropout.frame_height = 512;
+    dropout.frame_id = 203;
+    const auto missing = selector.select(dropout);
+    require_true(!missing.has_target && !missing.aim_authority,
+                 "identity memory must never replay old coordinates");
+
+    observed.frame_id = 204;
+    const auto recovered = selector.select(observed);
+    require_true(recovered.has_target,
+                 "one detector dropout must not force a second pickup");
+    require_true(
+        recovered.selector_target_generation == locked_generation &&
+            !recovered.selector_target_changed,
+        "one detector dropout must preserve the selector-owned identity");
 }
 
 void test_selector_publishes_explicit_upper_body_aim_region() {
@@ -448,7 +487,7 @@ void test_decisive_intent_switches_on_first_fresh_frame() {
     crossing.detections.push_back(detection_for_target(260.0f, 256.0f, 0.40f));
     crossing.detections.push_back(detection_for_target(336.0f, 256.0f, 0.92f));
 
-    const auto intent = rightward_intent(17);
+    const auto intent = rightward_handover_intent(17);
     const vision_native::VisionResult first = selector.select(crossing, intent);
 
     require_true(first.has_target, "decisive handover frame should retain a target");
@@ -501,7 +540,9 @@ void test_unaligned_intent_does_not_confirm_right_side_challenger() {
     // This direction supports the retained left target and is deliberately
     // unaligned with the right-side challenger. It is the counterfactual to
     // test_decisive_intent_switches_on_first_fresh_frame.
-    const auto intent = lower_left_intent(18);
+    auto intent = lower_left_intent(18);
+    intent.purpose =
+        pipeline_contract::UserAimIntentPurpose::HandoverTarget;
     const vision_native::VisionResult first = selector.select(crossing, intent);
     const vision_native::VisionResult second = selector.select(crossing, intent);
 
@@ -562,7 +603,7 @@ void test_dead_active_target_releases_before_aligned_reacquisition() {
         "death-transition confirmation must retain identity without actuating the corpse point");
 
     const auto switched = selector.select(
-        death_transition, rightward_intent(20));
+        death_transition, rightward_handover_intent(20));
     require_true(switched.has_target,
                  "aligned reacquisition should select the live challenger");
     require_near(
@@ -620,7 +661,7 @@ void test_large_single_target_move_requires_fresh_acquisition_intent() {
                  "unassociated large move must release instead of reusing old identity");
 
     const vision_native::VisionResult reacquired = selector.select(
-        jump, rightward_intent(12));
+        jump, rightward_handover_intent(12));
     require_true(reacquired.has_target,
                  "fresh acquisition direction should admit the moved target");
     require_true(
@@ -1074,15 +1115,19 @@ void test_enemy_marker_history_survives_one_upright_gap_and_rejects_corpse() {
     selector.select_with_frame(live, live_frame.view);
     live.captured_at_ns = kLockTimeNs;
     const auto locked = selector.select_with_frame(live, live_frame.view);
-    require_true(locked.has_target, "setup should acquire target with enemy marker evidence");
+    require_true(
+        locked.has_target && locked.enemy_cue_current &&
+            locked.enemy_identity_confirmed,
+        "setup should acquire and publish current enemy marker evidence");
 
     ColorFrameFixture dark_full_frame = color_frame_for_region({0, 0, 640, 512}, false);
     auto upright_gap = single_target_batch(320.0f, 256.0f, 0.92f);
     upright_gap.captured_at_ns = kLockTimeNs + (10ull * kMillisecondNs);
     const auto continued = selector.select_with_frame(upright_gap, dark_full_frame.view);
     require_true(
-        continued.has_target,
-        "one upright marker gap should not immediately discard a plausible live target");
+        continued.has_target && !continued.enemy_cue_current &&
+            continued.enemy_identity_confirmed,
+        "one upright marker gap should retain identity but publish degraded current evidence");
 
     vision_native::DetectionBatch corpse;
     corpse.frame_width = 640;
@@ -1161,7 +1206,8 @@ void test_upright_candidate_without_prior_marker_is_not_blanket_rejected() {
     const auto result = selector.select_with_frame(unmarked, dark_full_frame.view);
 
     require_true(
-        result.has_target,
+        result.has_target && !result.enemy_cue_current &&
+            !result.enemy_identity_confirmed,
         "marker-loss expiry must not turn the enemy marker into a global pickup requirement");
 }
 
@@ -1348,13 +1394,15 @@ void test_selector_generation_survives_frame_local_observation_changes() {
     replacement.frame_id = 104;
     replacement.detections[0] = detection_for_target(260.0f, 256.0f, 0.40f);
     replacement.detections.push_back(detection_for_target(336.0f, 256.0f, 0.92f));
-    const auto pending = selector.select(replacement, rightward_intent(81));
+    const auto pending = selector.select(
+        replacement, rightward_handover_intent(81));
     require_true(pending.selector_target_generation > first.selector_target_generation,
                  "decisive replacement must increment generation immediately");
     require_true(pending.selector_target_changed,
                  "decisive replacement must publish changed=true immediately");
     replacement.frame_id = 105;
-    const auto switched = selector.select(replacement, rightward_intent(81));
+    const auto switched = selector.select(
+        replacement, rightward_handover_intent(81));
     require_true(switched.selector_target_generation == pending.selector_target_generation,
                  "continued replacement must retain the new selector generation");
     require_true(!switched.selector_target_changed,
@@ -1446,11 +1494,12 @@ CueGeometryRegressionMetrics measure_cue_geometry_regressions() {
         replacement.detections[0] = detection_for_target(260.0f, 256.0f, 0.35f);
         replacement.detections.push_back(marked_detection_for_target(
             340.0f, 256.0f, 340.0f, 210.0f, 0.95f));
-        const auto first_replacement =
-            selector.select(replacement, rightward_intent(81));
+        const auto first_replacement = selector.select(
+            replacement, rightward_handover_intent(81));
         replacement.frame_id = 103;
         replacement.captured_at_ns += 5'000'000ull;
-        const auto switched = selector.select(replacement, rightward_intent(81));
+        const auto switched = selector.select(
+            replacement, rightward_handover_intent(81));
         metrics.generation_changed = switched.has_target &&
             switched.selector_target_generation > old_locked.selector_target_generation &&
             (first_replacement.selector_target_changed ||
@@ -1515,8 +1564,10 @@ CueGeometryRegressionMetrics measure_cue_geometry_regressions() {
         auto crossing = initial;
         crossing.detections[0] = detection_for_target(260.0f, 256.0f, 0.40f);
         crossing.detections.push_back(detection_for_target(336.0f, 256.0f, 0.92f));
-        const auto first = selector.select(crossing, rightward_intent(82));
-        const auto second = selector.select(crossing, rightward_intent(82));
+        const auto first = selector.select(
+            crossing, rightward_handover_intent(82));
+        const auto second = selector.select(
+            crossing, rightward_handover_intent(82));
         metrics.multi_target_intent_handoff_preserved =
             first.has_target && second.has_target &&
             std::fabs(second.target_x - 336.0f) <= 0.001f &&
@@ -1624,6 +1675,7 @@ int main(int argc, char** argv) {
         test_crosshair_near_target_beats_physically_near_large_target();
         test_selector_publishes_explicit_upper_body_aim_region();
         test_missing_old_target_releases_before_directional_reacquisition();
+        test_unmarked_identity_survives_one_detection_dropout_without_old_actuation();
         test_current_target_correction_cannot_vote_for_challenger();
         test_decisive_intent_switches_on_first_fresh_frame();
         test_unaligned_intent_does_not_confirm_right_side_challenger();

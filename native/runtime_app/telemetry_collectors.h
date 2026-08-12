@@ -64,6 +64,16 @@ struct TelemetryTickInput {
     bool auto_fire_cadence_wait = false;
     bool final_fire_button = false;
     const char* auto_fire_block_reason = "none";
+    bool enemy_mark_request_pending = false;
+    bool enemy_mark_synthetic_pressed = false;
+    bool enemy_mark_fired = false;
+    bool enemy_mark_canceled = false;
+    std::uint32_t enemy_mark_confirmation_frames = 0;
+    std::uint64_t enemy_mark_target_scope = 0;
+    std::uint64_t enemy_mark_target_generation = 0;
+    std::uint64_t enemy_mark_last_scope = 0;
+    std::uint64_t enemy_mark_last_generation = 0;
+    const char* enemy_mark_block_reason = "disabled";
     float pre_recoil_x = 0.0f, pre_recoil_y = 0.0f;
     float recoil_x = 0.0f, recoil_y = 0.0f;
     float final_x = 0.0f, final_y = 0.0f;
@@ -75,6 +85,10 @@ struct TelemetryTickInput {
     float aim_region_x1 = 0.0f, aim_region_y1 = 0.0f;
     float aim_region_x2 = 0.0f, aim_region_y2 = 0.0f;
     bool has_aim_region = false;
+    float visual_authority = 0.0f;
+    bool enemy_cue_current = false;
+    bool enemy_identity_confirmed = false;
+    bool enemy_cue_checked = false;
     const char* aim_region_source = "none";
     const char* desired_point_source = "none";
     float final_left_x = 0.0f, final_left_y = 0.0f;

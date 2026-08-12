@@ -428,6 +428,14 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
              << record.controller.aim_region_y2 << ']'
              << ",\"has_aim_region\":"
              << (record.controller.has_aim_region ? "true" : "false")
+             << ",\"visual_authority\":"
+             << record.controller.visual_authority
+             << ",\"enemy_cue_current\":"
+             << (record.controller.enemy_cue_current ? "true" : "false")
+             << ",\"enemy_identity_confirmed\":"
+             << (record.controller.enemy_identity_confirmed ? "true" : "false")
+             << ",\"enemy_cue_checked\":"
+             << (record.controller.enemy_cue_checked ? "true" : "false")
              << ",\"aim_region_source\":\""
              << record.controller.aim_region_source.data() << '"'
              << ",\"desired_point_source\":\""
@@ -458,6 +466,26 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
             << ",\"auto_fire_cadence_wait\":" << (record.controller.auto_fire_cadence_wait ? "true" : "false")
             << ",\"final_fire_button\":" << (record.controller.final_fire_button ? "true" : "false")
             << ",\"auto_fire_block_reason\":\"" << record.controller.auto_fire_block_reason.data() << '"'
+            << ",\"enemy_mark_request_pending\":"
+            << (record.controller.enemy_mark_request_pending ? "true" : "false")
+            << ",\"enemy_mark_synthetic_pressed\":"
+            << (record.controller.enemy_mark_synthetic_pressed ? "true" : "false")
+            << ",\"enemy_mark_fired\":"
+            << (record.controller.enemy_mark_fired ? "true" : "false")
+            << ",\"enemy_mark_canceled\":"
+            << (record.controller.enemy_mark_canceled ? "true" : "false")
+            << ",\"enemy_mark_confirmation_frames\":"
+            << record.controller.enemy_mark_confirmation_frames
+            << ",\"enemy_mark_target_scope\":"
+            << record.controller.enemy_mark_target_scope
+            << ",\"enemy_mark_target_generation\":"
+            << record.controller.enemy_mark_target_generation
+            << ",\"enemy_mark_last_scope\":"
+            << record.controller.enemy_mark_last_scope
+            << ",\"enemy_mark_last_generation\":"
+            << record.controller.enemy_mark_last_generation
+            << ",\"enemy_mark_block_reason\":\""
+            << record.controller.enemy_mark_block_reason.data() << '"'
             << ",\"detector_box_count\":" << record.controller.detector_box_count
             << ",\"production_target_source\":\"" << record.controller.production_target_source.data() << '"'
             << ",\"production_target_tier\":\"" << record.controller.production_target_tier.data() << '"'
