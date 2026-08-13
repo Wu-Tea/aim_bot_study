@@ -151,6 +151,39 @@ Vec2d micro_correction_manual_input(
     return {};
 }
 
+Vec2d recoil_controller_manual_input(
+    const TargetScript& target,
+    int target_elapsed_ms) noexcept {
+    // A user who fires and actively counters recoil: a sustained downward pull
+    // that begins with firing (the benchmark fires from ~80ms of tracking).
+    // Purely downward: the assist owns the horizontal channel, exactly like a
+    // real range session where the user's anti-recoil pull is along screen-down.
+    // The pull stays under the manual-escape threshold.
+    constexpr double kPull = 0.30;
+    if (target_elapsed_ms < 80) return {};
+    return {0.0, -kPull};
+}
+
+Vec2d recoil_flail_manual_input(
+    const TargetScript& target,
+    int target_elapsed_ms) noexcept {
+    // A firing user in a degraded state (low blood sugar / fatigue): input
+    // alternates directions fast enough that the intent filter lags, and the
+    // downward phases are not genuine recoil control. This is the §7 mislabel
+    // probe: the classifier's recoil_pull priority may label downward phases as
+    // RecoilPull. Operation labels are telemetry only and must never change
+    // the independent final-stage recoil output.
+    constexpr double kPhaseMs = 25.0;
+    const int phase = static_cast<int>(
+        target_elapsed_ms / kPhaseMs) % 4;
+    switch (phase) {
+    case 0: return {0.20, -0.28};   // down-right
+    case 1: return {-0.18, 0.12};   // up-left (reversal)
+    case 2: return {-0.22, -0.24};  // down-left
+    default: return {0.16, 0.10};   // up-right (reversal)
+    }
+}
+
 double left_strafe_input(
     const PlayerStrafeScript& strafe,
     int elapsed_ms,
@@ -619,6 +652,14 @@ BenchmarkResult run_simulation(
             } else if (manual_profile == ManualProfile::MicroCorrection &&
                        (cohort != BenchmarkCohort::BodyLockFollow || tracking)) {
                 input.manual_stick = micro_correction_manual_input(
+                    target, target_elapsed_ms);
+            } else if (manual_profile == ManualProfile::RecoilController &&
+                       (cohort != BenchmarkCohort::BodyLockFollow || tracking)) {
+                input.manual_stick = recoil_controller_manual_input(
+                    target, target_elapsed_ms);
+            } else if (manual_profile == ManualProfile::RecoilFlail &&
+                       (cohort != BenchmarkCohort::BodyLockFollow || tracking)) {
+                input.manual_stick = recoil_flail_manual_input(
                     target, target_elapsed_ms);
             } else if (manual_profile == ManualProfile::ObsoleteAfterCrossing &&
                        (cohort != BenchmarkCohort::BodyLockFollow || tracking)) {

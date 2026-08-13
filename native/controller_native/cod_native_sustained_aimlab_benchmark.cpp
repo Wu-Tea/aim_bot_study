@@ -134,6 +134,8 @@ ManualProfile parse_profile(const std::string& value) {
     if (value == "wrong-then-correct") return ManualProfile::WrongThenCorrect;
     if (value == "arc-recovery") return ManualProfile::ArcRecovery;
     if (value == "micro-correction") return ManualProfile::MicroCorrection;
+    if (value == "recoil-controller") return ManualProfile::RecoilController;
+    if (value == "recoil-flail") return ManualProfile::RecoilFlail;
     if (value == "obsolete-after-crossing") {
         return ManualProfile::ObsoleteAfterCrossing;
     }
@@ -215,6 +217,8 @@ const char* name(ManualProfile value) {
     case ManualProfile::WrongThenCorrect: return "wrong-then-correct";
     case ManualProfile::ArcRecovery: return "arc-recovery";
     case ManualProfile::MicroCorrection: return "micro-correction";
+    case ManualProfile::RecoilController: return "recoil-controller";
+    case ManualProfile::RecoilFlail: return "recoil-flail";
     }
     return "unknown";
 }
@@ -422,6 +426,18 @@ int main(int argc, char** argv) {
                             vertical);
                         if (options.smoke) {
                             validate_smoke(result, *coverage, options.duration_ms);
+                        }
+                        if (profile == ManualProfile::RecoilController ||
+                            profile == ManualProfile::RecoilFlail) {
+                            const auto& c = *coverage;
+                            std::cerr
+                                << "  [op-diag] profile=" << name(profile)
+                                << " frames=" << c.total_frames
+                                << " firing=" << c.firing_frames
+                                << " pull_class=" << c.recoil_pull_frames
+                                << " unreliable_class=" << c.unreliable_frames
+                                << " recoil_active=" << c.recoil_active_frames
+                                << "\n";
                         }
                         std::cout
                             << "seed=" << seed

@@ -347,7 +347,7 @@ void test_downward_manual_has_more_authority_and_fire_is_native() {
                  "firing recoil pull-down did not receive native authority");
 }
 
-void test_manual_recoil_credits_automatic_recoil_instead_of_stacking() {
+void test_recoil_is_an_independent_final_stage_output() {
     double now = 17.45;
     auto config = current_config();
     config.recoil.enabled = true;
@@ -357,23 +357,78 @@ void test_manual_recoil_credits_automatic_recoil_instead_of_stacking() {
     config.recoil.feedback_amount = 0.20f;
     NativeGamepadController controller(config, [&now] { return now; });
 
-    auto physical = physical_input(0.0f, -0.14f);
+    auto physical = physical_input();
     physical.right_trigger = 1.0f;
-    const auto output = controller.build_output(physical);
-    const auto& components = controller.last_output_components();
-    require_near(components.recoil_stick.y, -0.06f, 1.0e-6f,
-                 "automatic recoil stacked on top of manual pull-down");
-    require_near(output.right_y, -0.20f, 1.0e-6f,
-                 "manual and automatic recoil did not form one missing remainder");
+    const auto neutral = controller.build_output(physical);
+    require_near(controller.last_output_components().recoil_stick.y,
+                 -0.20f, 1.0e-6f,
+                 "neutral manual changed independent recoil output");
+    require_near(neutral.right_y, -0.20f, 1.0e-6f,
+                 "neutral manual did not receive the full recoil output");
+
+    now += 0.005;
+    physical.right_y = -0.14f;
+    const auto manual_pull = controller.build_output(physical);
+    require_near(controller.last_output_components().recoil_stick.y,
+                 -0.20f, 1.0e-6f,
+                 "manual pull spent independent recoil output");
+    require_near(manual_pull.right_y, -0.34f, 1.0e-6f,
+                 "manual pull and independent recoil did not stack");
 
     now += 0.005;
     physical.right_y = -0.26f;
     const auto stronger_manual = controller.build_output(physical);
     require_near(controller.last_output_components().recoil_stick.y,
-                 0.0f, 1.0e-6f,
-                 "automatic recoil opposed a sufficient manual pull-down");
-    require_near(stronger_manual.right_y, -0.26f, 1.0e-6f,
-                 "sufficient manual pull-down was not preserved");
+                 -0.20f, 1.0e-6f,
+                 "recoil-pull classification spent independent recoil output");
+    require(controller.last_output_components().operation_class == "recoil_pull",
+            "strong downward firing input did not exercise recoil-pull classification");
+    require_near(stronger_manual.right_y, -0.46f, 1.0e-6f,
+                 "strong manual pull and independent recoil did not stack");
+
+    double target_now = 17.45;
+    NativeGamepadController target_controller(
+        config, [&target_now] { return target_now; });
+    target_controller.submit_vision_snapshot(observed_snapshot(
+        1, target_now, 0.0f, -32.0f, 81, 5));
+    auto target_physical = physical_input(0.0f, -0.0118f);
+    target_physical.right_trigger = 1.0f;
+    const auto target_output = target_controller.build_output(target_physical);
+    const auto& target_components = target_controller.last_output_components();
+    require(target_controller.last_target_plan().target_id != 0,
+            "target fixture did not establish target authority");
+    require(std::fabs(
+                target_components.before_recoil_stick.y -
+                target_physical.right_y) > 0.01f,
+            "target fixture did not exercise target-owned vertical output");
+    require_near(target_components.recoil_stick.y, -0.20f, 1.0e-6f,
+                 "target-owned output changed independent recoil");
+    require_near(
+        target_output.right_y,
+        std::clamp(target_components.before_recoil_stick.y - 0.20f,
+                   -1.0f, 1.0f),
+        1.0e-6f,
+        "recoil was not applied after target/manual output composition");
+}
+
+void test_adaptive_recoil_defaults_are_bounded_to_product_range() {
+    controller_native::GamepadRecoilConfig config;
+    config.profile_playback_enabled = false;
+    controller_native::AdaptiveRecoilFeedback feedback(config);
+
+    controller_native::AdaptiveRecoilFeedbackInput input;
+    input.firing = true;
+    input.aiming = true;
+    input.default_amount = 0.0f;
+    const auto lower = feedback.update(input);
+    require_near(lower.amount, 0.14f, 1.0e-6f,
+                 "adaptive recoil fell below the 0.14 product floor");
+
+    feedback.reset();
+    input.default_amount = 1.0f;
+    const auto upper = feedback.update(input);
+    require_near(upper.amount, 0.34f, 1.0e-6f,
+                 "adaptive recoil exceeded the 0.34 product ceiling");
 }
 
 void test_track_cooperates_per_axis_without_spending_downward_authority() {
@@ -858,7 +913,8 @@ int main() {
         test_track_uses_ai_as_total_fill_but_opposition_is_native();
         test_bodylock_cancellation_is_confidence_bounded_and_never_reverses();
         test_downward_manual_has_more_authority_and_fire_is_native();
-        test_manual_recoil_credits_automatic_recoil_instead_of_stacking();
+        test_recoil_is_an_independent_final_stage_output();
+        test_adaptive_recoil_defaults_are_bounded_to_product_range();
         test_track_cooperates_per_axis_without_spending_downward_authority();
         test_capture_brakes_alignment_but_allows_opposing_escape();
         test_small_filtered_input_moves_d_without_a_second_deadzone();

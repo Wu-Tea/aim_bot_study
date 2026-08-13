@@ -11,6 +11,7 @@
 #include "controller_pipeline.h"
 #include "controller_vision_snapshot.h"
 #include "intent_filter.h"
+#include "operation_intent.h"
 #include "output_mixer.h"
 #include "runtime_config.h"
 #include "target_coordinator.h"
@@ -162,6 +163,8 @@ private:
 
     GamepadRuntimeConfig config_{};
     IntentFilter intent_filter_{};
+    OperationIntentClassifier operation_intent_classifier_{};
+    OperationIntentOutput last_operation_intent_{};
     TargetCoordinator target_coordinator_{};
     AimResponseEstimator aim_response_estimator_{};
     AdsAcquisitionController ads_controller_{};

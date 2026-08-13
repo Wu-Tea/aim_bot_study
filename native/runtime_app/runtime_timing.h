@@ -41,6 +41,7 @@ private:
 enum class RuntimeThreadPriority {
     Normal,
     AboveNormal,
+    Highest,
 };
 
 class HighResolutionTimerPeriod {
@@ -61,6 +62,13 @@ private:
 
 const char* runtime_thread_priority_name(RuntimeThreadPriority priority);
 bool set_current_thread_priority(RuntimeThreadPriority priority);
+
+// Binds the current process to efficiency cores (E-cores) when running on a
+// hybrid CPU (Intel 12th-gen+). Pins only the lowest `count` E-cores; every
+// remaining E-core stays available to the game. Returns true if the process was
+// pinned; false when the platform is unsupported or no distinct E-core class
+// was detected.
+bool pin_process_to_efficiency_cores(unsigned int count = 0) noexcept;
 
 std::chrono::steady_clock::duration coarse_sleep_duration_until(
     std::chrono::steady_clock::time_point due,

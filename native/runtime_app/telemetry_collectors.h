@@ -37,6 +37,10 @@ struct TelemetryTickInput {
     float ai_correction_x = 0.0f, ai_correction_y = 0.0f;
     const char* manual_authority_mode = "no_target_passthrough";
     const char* assist_control_phase = "manual";
+    const char* operation_class = "no_gesture";
+    float operation_confidence = 0.0f;
+    float direction_trust = 0.5f;
+    float recoil_pull_strength = 0.0f;
     bool manual_passthrough_x = true;
     bool manual_passthrough_y = true;
     bool manual_correction_x = false;

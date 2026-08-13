@@ -482,8 +482,11 @@ RuntimeLoop::RuntimeLoop(
       controller_(config_.gamepad),
       viewport_controller_(viewport_controller_config_from(config_)),
       virtual_gamepad_(),
-      person_detection_gesture_(std::chrono::milliseconds(
-          config_.gamepad.enemy_mark.l3_cooldown_ms)),
+      person_detection_gesture_(
+          std::chrono::milliseconds(
+              config_.gamepad.enemy_mark.l3_cooldown_ms),
+          std::chrono::milliseconds(
+              config_.gamepad.enemy_mark.lt_cooldown_ms)),
       vision_delivery_gate_(config_.gamepad.tracker.max_observation_age_ms) {
     telemetry_.start();
     max_ticks_ = max_ticks;
@@ -1061,6 +1064,13 @@ void RuntimeLoop::run_once() {
         telemetry_components.manual_authority_mode;
     telemetry_tick.assist_control_phase =
         telemetry_components.assist_control_phase.c_str();
+    telemetry_tick.operation_class =
+        telemetry_components.operation_class.c_str();
+    telemetry_tick.operation_confidence =
+        telemetry_components.operation_confidence;
+    telemetry_tick.direction_trust = telemetry_components.direction_trust;
+    telemetry_tick.recoil_pull_strength =
+        telemetry_components.recoil_pull_strength;
     telemetry_tick.manual_passthrough_x =
         telemetry_components.manual_passthrough_x;
     telemetry_tick.manual_passthrough_y =

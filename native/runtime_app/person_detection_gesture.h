@@ -76,18 +76,26 @@ public:
     // evidence can never actuate because only observe_fresh_plan advances the
     // gate.
     static constexpr auto kRequestMaxAge = std::chrono::milliseconds(250);
-    // L3 is a discrete user gesture and may not continuously reopen mark
-    // requests. LT remains independent because ADS target acquisition is a
-    // separate product use case.
+    // L3 and LT are both discrete user gestures and may not continuously
+    // reopen mark requests. Each carries its own cooldown: L3 is a thumb-click,
+    // LT is ADS trigger acquisition, and either may fire while the other is
+    // still cooling down.
     static constexpr auto kDefaultL3RequestCooldown =
+        std::chrono::milliseconds(1000);
+    static constexpr auto kDefaultLtRequestCooldown =
         std::chrono::milliseconds(1000);
     static constexpr std::uint32_t kRequiredFreshConfirmations = 2;
 
     explicit PersonDetectionGesture(
         std::chrono::milliseconds l3_request_cooldown =
-            kDefaultL3RequestCooldown) noexcept
+            kDefaultL3RequestCooldown,
+        std::chrono::milliseconds lt_request_cooldown =
+            kDefaultLtRequestCooldown) noexcept
         : l3_request_cooldown_(std::max(
               l3_request_cooldown,
+              std::chrono::milliseconds::zero())),
+          lt_request_cooldown_(std::max(
+              lt_request_cooldown,
               std::chrono::milliseconds::zero())) {}
 
     void reset() noexcept {
@@ -97,6 +105,8 @@ public:
         lt_pressed_ = false;
         has_l3_request_time_ = false;
         last_l3_request_at_ = {};
+        has_lt_request_time_ = false;
+        last_lt_request_at_ = {};
         confirmation_scope_ = 0;
         confirmation_generation_ = 0;
         confirmation_frames_ = 0;
@@ -131,13 +141,22 @@ public:
             now - last_l3_request_at_ >= l3_request_cooldown_;
         const bool accept_l3_request =
             l3_request_edge && l3_cooldown_elapsed;
+        const bool lt_cooldown_elapsed = !has_lt_request_time_ ||
+            now < last_lt_request_at_ ||
+            now - last_lt_request_at_ >= lt_request_cooldown_;
+        const bool accept_lt_request =
+            lt_request_edge && lt_cooldown_elapsed;
         if (!pending_request_ &&
-            (accept_l3_request || lt_request_edge)) {
+            (accept_l3_request || accept_lt_request)) {
             pending_request_ = true;
             request_created_at_ = now;
             if (accept_l3_request) {
                 has_l3_request_time_ = true;
                 last_l3_request_at_ = now;
+            }
+            if (accept_lt_request) {
+                has_lt_request_time_ = true;
+                last_lt_request_at_ = now;
             }
             reset_confirmation();
             block_reason_ = PersonMarkBlockReason::WaitingForFreshPlan;
@@ -303,6 +322,10 @@ private:
     Clock::time_point last_l3_request_at_{};
     std::chrono::milliseconds l3_request_cooldown_ =
         kDefaultL3RequestCooldown;
+    bool has_lt_request_time_ = false;
+    Clock::time_point last_lt_request_at_{};
+    std::chrono::milliseconds lt_request_cooldown_ =
+        kDefaultLtRequestCooldown;
     std::uint64_t confirmation_scope_ = 0;
     std::uint64_t confirmation_generation_ = 0;
     std::uint32_t confirmation_frames_ = 0;

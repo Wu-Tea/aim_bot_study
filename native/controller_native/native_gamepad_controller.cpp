@@ -165,6 +165,8 @@ NativeGamepadController::NativeGamepadController(
 
 void NativeGamepadController::reset() {
     intent_filter_.reset();
+    operation_intent_classifier_.reset();
+    last_operation_intent_ = {};
     target_coordinator_.reset();
     aim_response_estimator_.reset();
     dynamics_shaper_.reset();
@@ -760,6 +762,43 @@ GamepadOutputState NativeGamepadController::build_output_from_sampled_input() {
         target_manual_correction_y = decision.manual_correction_y;
 
     }
+    {
+        // Operation-pattern model (§4.5): classify what the user is doing this
+        // tick. The classifier is context-conditioned: the same stick push is
+        // a recoil pull while firing, a flick during onset toward a new target,
+        // a lead when the crosshair rides ahead of a fast target, and simply
+        // unreliable when it matches no known template.
+        const float target_speed = std::hypot(
+            plan.velocity_px_per_sec.x, plan.velocity_px_per_sec.y);
+        OperationIntentInput operation_input;
+        operation_input.aiming = physical_aiming_;
+        operation_input.firing = control_feedback.firing_recently;
+        operation_input.target_owned = plan.target_id != 0;
+        operation_input.manual_correction =
+            plan.manual_correction_x || plan.manual_correction_y;
+        operation_input.filtered_right_x = intent.filtered_right.x;
+        operation_input.filtered_right_y = intent.filtered_right.y;
+        operation_input.right_confidence = intent.right_confidence;
+        operation_input.right_phase = intent.right_phase;
+        operation_input.right_purpose = intent.right_purpose;
+        operation_input.error_px = std::hypot(plan.error_px.x, plan.error_px.y);
+        operation_input.target_velocity_px_per_sec = target_speed;
+        if (target_speed > 1.0f) {
+            operation_input.error_along_motion_px =
+                (plan.error_px.x * plan.velocity_px_per_sec.x +
+                 plan.error_px.y * plan.velocity_px_per_sec.y) /
+                target_speed;
+        }
+        last_operation_intent_ =
+            operation_intent_classifier_.classify(operation_input);
+    }
+    components.operation_class =
+        operation_class_name(last_operation_intent_.operation_class);
+    components.operation_confidence =
+        last_operation_intent_.class_confidence;
+    components.direction_trust = last_operation_intent_.direction_trust;
+    components.recoil_pull_strength =
+        last_operation_intent_.recoil_pull_strength;
     last_acquisition_trace_.fused_output = {output.right_x, output.right_y};
     if (plan.target_acquisition_id != 0 &&
         plan.mode != pipeline_contract::ControlMode::Manual &&
@@ -1025,11 +1064,10 @@ void NativeGamepadController::apply_recoil(
         now_seconds,
     });
     if (recoil_output.recoil_stick.y < 0.0f) {
-        // Downward manual is the user's anti-recoil contribution. Only add the
-        // missing remainder; never stack the full automatic amount on top.
-        const float manual_down = std::max(0.0f, -physical.right_y);
-        recoil_output.recoil_stick.y = -std::max(
-            0.0f, adaptive.amount - manual_down);
+        // Recoil is an independent final-stage actuator. Manual input, target
+        // control, and operation classification may shape the pre-recoil
+        // command, but none of them may spend or reduce this frame's recoil.
+        recoil_output.recoil_stick.y = -adaptive.amount;
     }
     output.right_x = clamp_unit(output.right_x + recoil_output.recoil_stick.x);
     output.right_y = clamp_unit(output.right_y + recoil_output.recoil_stick.y);

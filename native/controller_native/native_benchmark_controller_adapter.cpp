@@ -134,6 +134,19 @@ ControllerStepResult NativeReplayAdapter::step(
             input.target_id) == coverage_->ads_target_ids.end()) {
         coverage_->ads_target_ids.push_back(input.target_id);
     }
+    if (coverage_) {
+        coverage_->total_frames += 1;
+        if (physical_.right_trigger > 0.5f) coverage_->firing_frames += 1;
+        if (components.operation_class == "recoil_pull") {
+            coverage_->recoil_pull_frames += 1;
+        }
+        if (components.operation_class == "unreliable") {
+            coverage_->unreliable_frames += 1;
+        }
+        if (components.recoil_stick.y < -0.0001f) {
+            coverage_->recoil_active_frames += 1;
+        }
+    }
 
     const auto& vision = controller_.last_frame_vision_state();
     const auto& plan = controller_.last_target_plan();

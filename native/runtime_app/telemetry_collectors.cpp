@@ -201,6 +201,12 @@ void TelemetryCollectors::observe_tick(const TelemetryTickInput& input) noexcept
         copy_text(
             sample.controller.assist_control_phase,
             input.assist_control_phase);
+        copy_text(
+            sample.controller.operation_class,
+            input.operation_class);
+        sample.controller.operation_confidence = input.operation_confidence;
+        sample.controller.direction_trust = input.direction_trust;
+        sample.controller.recoil_pull_strength = input.recoil_pull_strength;
         sample.controller.manual_passthrough_x = input.manual_passthrough_x;
         sample.controller.manual_passthrough_y = input.manual_passthrough_y;
         sample.controller.manual_correction_x = input.manual_correction_x;

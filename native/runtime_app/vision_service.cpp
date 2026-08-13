@@ -272,7 +272,7 @@ std::chrono::steady_clock::time_point VisionService::next_poll_due(
 }
 
 void VisionService::run_loop() {
-    (void)set_current_thread_priority(RuntimeThreadPriority::AboveNormal);
+    (void)set_current_thread_priority(RuntimeThreadPriority::Highest);
     while (running_.load()) {
         const auto now = std::chrono::steady_clock::now();
         if (step(now)) {

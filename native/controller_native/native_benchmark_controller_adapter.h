@@ -13,6 +13,14 @@ namespace controller_native::benchmark_adapter {
 struct AssistedModeCoverage {
     bool saw_assisted_mode = false;
     std::vector<std::uint64_t> ads_target_ids;
+    // Operation-model diagnostics (§4.5): how often the synthetic user fired,
+    // how often the classifier labelled the frame recoil_pull, how often the
+    // recoil compensator actually pushed down, and the total frame count.
+    std::uint64_t firing_frames = 0;
+    std::uint64_t recoil_pull_frames = 0;
+    std::uint64_t recoil_active_frames = 0;
+    std::uint64_t unreliable_frames = 0;
+    std::uint64_t total_frames = 0;
 };
 
 ControllerVisionSnapshot snapshot_from(

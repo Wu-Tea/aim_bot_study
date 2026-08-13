@@ -171,7 +171,8 @@ bool is_known_key(const std::string& section, const std::string& key) {
     static const std::unordered_set<std::string> performance_keys{
         "enabled", "interval_ms", "directory", "stdout_enabled"};
     static const std::unordered_set<std::string> scheduler_keys{
-        "controller_tick_hz", "mode", "spin_tail_us"};
+        "controller_tick_hz", "mode", "spin_tail_us", "efficiency_core_affinity",
+        "efficiency_core_count"};
     static const std::unordered_set<std::string> input_keys{
         "auto_detect", "controller_index", "rb_counts_as_aiming"};
     static const std::unordered_set<std::string> output_keys{"enabled", "validation_mode"};
@@ -193,7 +194,7 @@ bool is_known_key(const std::string& section, const std::string& key) {
         "manual_takeover_release_seconds", "manual_takeover_resume_delay_seconds",
         "pulse_width_ms", "pulse_period_ms"};
     static const std::unordered_set<std::string> enemy_mark_keys{
-        "enabled", "l3_cooldown_ms"};
+        "enabled", "l3_cooldown_ms", "lt_cooldown_ms"};
     static const std::unordered_set<std::string> recoil_keys{
         "enabled", "selection_log_enabled", "profile_despike_enabled",
         "profile_playback_enabled", "native_recognizer_enabled",
@@ -622,6 +623,12 @@ void apply_value(
             config.scheduler.mode = parse_string_value(value);
         } else if (key == "spin_tail_us") {
             config.scheduler.spin_tail_us = parse_uint_value(value, config.scheduler.spin_tail_us);
+        } else if (key == "efficiency_core_affinity") {
+            config.scheduler.efficiency_core_affinity =
+                parse_bool_value(value, config.scheduler.efficiency_core_affinity);
+        } else if (key == "efficiency_core_count") {
+            config.scheduler.efficiency_core_count = parse_uint_value(
+                value, config.scheduler.efficiency_core_count);
         }
     } else if (section == "runtime.input") {
         if (key == "auto_detect") {
@@ -698,6 +705,9 @@ void apply_value(
         } else if (key == "l3_cooldown_ms") {
             config.gamepad.enemy_mark.l3_cooldown_ms = parse_uint_value(
                 value, config.gamepad.enemy_mark.l3_cooldown_ms);
+        } else if (key == "lt_cooldown_ms") {
+            config.gamepad.enemy_mark.lt_cooldown_ms = parse_uint_value(
+                value, config.gamepad.enemy_mark.lt_cooldown_ms);
         }
     } else if (section == "gamepad.auto_fire") {
         apply_gamepad_auto_fire_value(config.gamepad.auto_fire, key, value);

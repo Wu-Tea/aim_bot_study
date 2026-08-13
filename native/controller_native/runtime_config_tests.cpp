@@ -48,9 +48,13 @@ void test_current_control_keys_parse() {
         "[runtime.telemetry]\n"
         "enabled = true\n"
         "directory = \"runs/current-telemetry\"\n"
+        "[runtime.scheduler]\n"
+        "efficiency_core_affinity = false\n"
+        "efficiency_core_count = 3\n"
         "[gamepad.enemy_mark]\n"
         "enabled = false\n"
         "l3_cooldown_ms = 750\n"
+        "lt_cooldown_ms = 500\n"
         "[gamepad.tracker]\n"
         "aim_height_ratio = 0.31\n"
         "max_observation_age_ms = 42\n"
@@ -79,6 +83,10 @@ void test_current_control_keys_parse() {
     require(config.telemetry.enabled, "telemetry enable not parsed");
     require(config.telemetry.directory == "runs/current-telemetry",
             "telemetry directory not parsed");
+    require(!config.scheduler.efficiency_core_affinity,
+            "scheduler efficiency-core affinity not parsed");
+    require(config.scheduler.efficiency_core_count == 3,
+            "scheduler efficiency-core count not parsed");
     require(config.gamepad.auto_fire.fire_output == "RT",
             "auto-fire output not parsed");
     require(!config.gamepad.auto_fire.manual_fire_activates_ai_aim,
@@ -87,6 +95,8 @@ void test_current_control_keys_parse() {
             "enemy-mark switch not parsed");
     require(config.gamepad.enemy_mark.l3_cooldown_ms == 750,
             "enemy-mark L3 cooldown not parsed");
+    require(config.gamepad.enemy_mark.lt_cooldown_ms == 500,
+            "enemy-mark LT cooldown not parsed");
     require(std::fabs(config.gamepad.tracker.aim_height_ratio - 0.31f) < 1e-5f,
             "aim height not parsed");
     require(std::fabs(config.gamepad.tracker.max_observation_age_ms - 42.0f) < 1e-5f,
@@ -108,6 +118,23 @@ void test_current_control_keys_parse() {
     require(!config.gamepad.ai_aim.visual_authority_enabled,
             "visual-authority A/B switch not parsed");
     require(config.diagnostics.empty(), "current config produced diagnostics");
+}
+
+void test_recoil_defaults_use_product_dynamic_range() {
+    const controller_native::GamepadRecoilConfig defaults;
+    require(std::fabs(defaults.adaptive_min_amount - 0.14f) < 1e-5f,
+            "default adaptive recoil floor is not 0.14");
+    require(std::fabs(defaults.adaptive_max_amount - 0.34f) < 1e-5f,
+            "default adaptive recoil ceiling is not 0.34");
+
+    const auto example = controller_native::load_runtime_config(
+        std::filesystem::path("config.native.example.toml"));
+    require(std::fabs(example.gamepad.recoil.adaptive_min_amount - 0.14f) <
+                1e-5f,
+            "example config adaptive recoil floor is not 0.14");
+    require(std::fabs(example.gamepad.recoil.adaptive_max_amount - 0.34f) <
+                1e-5f,
+            "example config adaptive recoil ceiling is not 0.34");
 }
 
 void test_retired_low_rate_keys_are_unknown_and_inert() {
@@ -141,7 +168,9 @@ void test_retired_low_rate_keys_are_unknown_and_inert() {
         "start_ramp_ms = 8\n"
         "[gamepad.ai_aim]\n"
         "ads_start_delay_ms = 2\n"
-        "ads_start_ramp_ms = 8\n");
+        "ads_start_ramp_ms = 8\n"
+        "[gamepad.recoil]\n"
+        "operation_aware_recoil = true\n");
 
     const auto config = controller_native::load_runtime_config(file.path());
     require(has_diagnostic(config, "gamepad.tracker.backend"),
@@ -183,6 +212,8 @@ void test_retired_low_rate_keys_are_unknown_and_inert() {
     require(has_diagnostic(config, "gamepad.ai_aim.ads_start_delay_ms") &&
                 has_diagnostic(config, "gamepad.ai_aim.ads_start_ramp_ms"),
             "retired legacy ADS onset shaping must be rejected");
+    require(has_diagnostic(config, "gamepad.recoil.operation_aware_recoil"),
+            "retired operation-aware recoil switch must be rejected");
     require(std::fabs(config.gamepad.tracker.max_observation_age_ms - 50.0f) < 1e-5f,
             "retired keys changed current defaults");
 }
@@ -229,6 +260,7 @@ void test_example_config_contains_no_retired_keys() {
 
 int main() {
     test_current_control_keys_parse();
+    test_recoil_defaults_use_product_dynamic_range();
     test_retired_low_rate_keys_are_unknown_and_inert();
     test_profile_override_has_one_capture_cadence();
     test_invalid_safety_boundary_fails_closed();

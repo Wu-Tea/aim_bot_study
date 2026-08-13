@@ -20,6 +20,12 @@ struct NativeControllerOutputComponents {
     const char* manual_authority_mode = "no_target_passthrough";
     common_native::Vec2f filtered_manual_stick;
     float manual_confidence = 0.0f;
+    // Operation-pattern model (§4.5): the recognized user operation this tick
+    // and its trust signal, consumed by diagnostics and telemetry.
+    std::string operation_class = "no_gesture";
+    float operation_confidence = 0.0f;
+    float direction_trust = 0.5f;
+    float recoil_pull_strength = 0.0f;
     common_native::Vec2f ai_aim_stick;
     common_native::Vec2f requested_assist_stick;
     common_native::Vec2f shaped_assist_stick;

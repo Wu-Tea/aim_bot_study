@@ -36,6 +36,8 @@ enum class ManualProfile : std::uint8_t {
     WrongThenCorrect,
     ArcRecovery,
     MicroCorrection,
+    RecoilController,
+    RecoilFlail,
 };
 
 enum class BenchmarkCohort : std::uint8_t {

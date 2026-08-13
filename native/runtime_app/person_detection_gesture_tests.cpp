@@ -234,6 +234,26 @@ void test_lt_bypasses_l3_cooldown_for_new_generation() {
     REQUIRE(gesture.status(at_ms(77)).last_marked_generation == 31);
 }
 
+void test_lt_request_uses_configured_cooldown() {
+    Gesture gesture{
+        std::chrono::milliseconds(1000),
+        std::chrono::milliseconds(300)};
+    gesture.update_activation(false, 0.06f, at_ms(0));
+    confirm_twice(gesture, markable_plan(25), 1);
+
+    gesture.update_activation(false, 0.0f, at_ms(60));
+    gesture.update_activation(false, 0.06f, at_ms(100));
+    REQUIRE(!gesture.status(at_ms(100)).request_pending);
+
+    gesture.update_activation(false, 0.0f, at_ms(101));
+    gesture.update_activation(false, 0.06f, at_ms(299));
+    REQUIRE(!gesture.status(at_ms(299)).request_pending);
+
+    gesture.update_activation(false, 0.0f, at_ms(300));
+    gesture.update_activation(false, 0.06f, at_ms(300));
+    REQUIRE(gesture.status(at_ms(300)).request_pending);
+}
+
 void test_same_generation_can_mark_in_a_new_vision_scope() {
     Gesture gesture;
     request_l3(gesture);
@@ -295,6 +315,7 @@ int main() {
     test_l3_and_lt_share_once_per_generation_budget();
     test_l3_request_uses_configured_cooldown();
     test_lt_bypasses_l3_cooldown_for_new_generation();
+    test_lt_request_uses_configured_cooldown();
     test_same_generation_can_mark_in_a_new_vision_scope();
     test_request_expires_but_does_not_reuse_old_evidence();
     test_physical_dpad_up_always_passes_through();

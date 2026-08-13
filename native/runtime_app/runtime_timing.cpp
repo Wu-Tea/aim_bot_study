@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <thread>
+#include <vector>
 
 namespace runtime_app {
 namespace {
@@ -14,6 +15,8 @@ namespace {
 #ifdef _WIN32
 int native_thread_priority(RuntimeThreadPriority priority) {
     switch (priority) {
+    case RuntimeThreadPriority::Highest:
+        return THREAD_PRIORITY_HIGHEST;
     case RuntimeThreadPriority::AboveNormal:
         return THREAD_PRIORITY_ABOVE_NORMAL;
     case RuntimeThreadPriority::Normal:
@@ -23,6 +26,72 @@ int native_thread_priority(RuntimeThreadPriority priority) {
 }
 
 constexpr DWORD kCreateWaitableTimerHighResolution = 0x00000002;
+
+// Returns the affinity mask covering the lowest `count` efficiency cores
+// (E-cores), or 0 when the CPU is uniform (no distinct E-core class) or the
+// topology is unavailable. EfficiencyClass is a relative ranking: a higher value
+// means more performance, so E-cores carry the minimum EfficiencyClass value.
+DWORD_PTR efficiency_core_affinity_mask(unsigned int count) {
+    DWORD byte_count = 0;
+    if (!GetLogicalProcessorInformationEx(
+            RelationProcessorCore, nullptr, &byte_count) &&
+        GetLastError() != ERROR_INSUFFICIENT_BUFFER) {
+        return 0;
+    }
+    std::vector<BYTE> buffer(byte_count);
+    auto* first = reinterpret_cast<SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*>(
+        buffer.data());
+    if (!GetLogicalProcessorInformationEx(
+            RelationProcessorCore, first, &byte_count)) {
+        return 0;
+    }
+
+    std::vector<std::pair<BYTE, DWORD_PTR>> cores;
+    for (DWORD offset = 0;
+         offset + sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX) <= byte_count;) {
+        const auto* entry = reinterpret_cast<
+            const SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*>(
+                buffer.data() + offset);
+        if (entry->Relationship == RelationProcessorCore &&
+            entry->Processor.GroupCount > 0) {
+            cores.emplace_back(
+                entry->Processor.EfficiencyClass,
+                entry->Processor.GroupMask[0].Mask);
+        }
+        if (entry->Size == 0) break;
+        offset += entry->Size;
+    }
+
+    if (cores.empty()) return 0;
+    const BYTE min_class = std::min_element(
+        cores.begin(), cores.end(),
+        [](const auto& a, const auto& b) { return a.first < b.first; })
+        ->first;
+    const BYTE max_class = std::max_element(
+        cores.begin(), cores.end(),
+        [](const auto& a, const auto& b) { return a.first < b.first; })
+        ->first;
+    if (min_class == max_class) {
+        return 0;  // Uniform cores: nothing to separate.
+    }
+
+    DWORD_PTR mask = 0;
+    for (const auto& [efficiency_class, core_mask] : cores) {
+        if (efficiency_class == min_class) {
+            mask |= core_mask;
+        }
+    }
+    // Keep only the lowest `count` E-cores; the rest stay available to the game.
+    DWORD_PTR result = 0;
+    unsigned int kept = 0;
+    while (mask != 0 && kept < count) {
+        const DWORD_PTR lowest = mask & (~mask + 1);
+        result |= lowest;
+        mask &= (mask - 1);
+        ++kept;
+    }
+    return result;
+}
 #endif
 
 } // namespace
@@ -128,6 +197,8 @@ bool HighResolutionTimerPeriod::active() const {
 
 const char* runtime_thread_priority_name(RuntimeThreadPriority priority) {
     switch (priority) {
+    case RuntimeThreadPriority::Highest:
+        return "highest";
     case RuntimeThreadPriority::AboveNormal:
         return "above_normal";
     case RuntimeThreadPriority::Normal:
@@ -142,6 +213,19 @@ bool set_current_thread_priority(RuntimeThreadPriority priority) {
 #else
     (void)priority;
     return true;
+#endif
+}
+
+bool pin_process_to_efficiency_cores(unsigned int count) noexcept {
+#ifdef _WIN32
+    const DWORD_PTR mask = efficiency_core_affinity_mask(count);
+    if (mask == 0) {
+        return false;
+    }
+    return SetProcessAffinityMask(GetCurrentProcess(), mask) != 0;
+#else
+    (void)count;
+    return false;
 #endif
 }
 

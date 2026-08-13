@@ -139,6 +139,7 @@ add_library(controller_native_core STATIC
     ../controller_native/native_gamepad_controller.cpp
     ../controller_native/target_geometry.cpp
     ../controller_native/intent_filter.cpp
+    ../controller_native/operation_intent.cpp
     ../controller_native/target_coordinator.cpp
     ../controller_native/ads_acquisition_controller.cpp
     ../controller_native/bodylock_follow_controller.cpp
@@ -316,6 +317,7 @@ target_link_libraries(cod_native_committed_capture_observation_tests PRIVATE con
 
 foreach(_unit IN ITEMS
     intent_filter
+    operation_intent
     target_coordinator
     ads_acquisition_controller
     bodylock_follow_controller

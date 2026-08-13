@@ -41,6 +41,11 @@ stdout_enabled = true
 controller_tick_hz = 1000
 mode = "legacy" # precision becomes default only after its measured gate passes
 spin_tail_us = 50
+# Pin the runtime to efficiency cores (E-cores) on hybrid CPUs so the game's
+# performance cores stay clear. No-op on uniform-core systems.
+efficiency_core_affinity = true
+# How many E-cores the runtime pins. GPU-bound runtime only needs a couple.
+efficiency_core_count = 3
 
 [runtime.input]
 auto_detect = true
@@ -72,6 +77,8 @@ calibration_reference_stick = 0.50
 enabled = true
 # Minimum time between accepted L3 request edges. Set to 0 to disable.
 l3_cooldown_ms = 1000
+# Minimum time between accepted LT request edges. Set to 0 to disable.
+lt_cooldown_ms = 1000
 
 [gamepad.auto_fire]
 fire_output = "RB"
@@ -134,8 +141,8 @@ profile_amount = 1.0
 profile_x_amount = 1.0
 feedback_amount = 0.20
 adaptive_feedback_enabled = true # fresh single-target residual adjusts the fixed fallback
-adaptive_min_amount = 0.06
-adaptive_max_amount = 0.42
+adaptive_min_amount = 0.14
+adaptive_max_amount = 0.34
 profile_lead_ms = 0.0
 profile_velocity_reference_ms = 10.0
 profile_despike_threshold_px = 2.0

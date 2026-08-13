@@ -93,8 +93,8 @@ struct GamepadRecoilConfig {
     // It consumes only de-duplicated fresh target residuals and is disabled
     // automatically when weapon profile playback owns recoil magnitude.
     bool adaptive_feedback_enabled = true;
-    float adaptive_min_amount = 0.06f;
-    float adaptive_max_amount = 0.42f;
+    float adaptive_min_amount = 0.14f;
+    float adaptive_max_amount = 0.34f;
     float profile_lead_ms = 0.0f;
     float profile_velocity_reference_ms = 10.0f;
     float profile_despike_threshold_px = 2.0f;
@@ -125,6 +125,7 @@ struct GamepadTrackerConfig {
 struct GamepadEnemyMarkConfig {
     bool enabled = true;
     unsigned int l3_cooldown_ms = 1000;
+    unsigned int lt_cooldown_ms = 1000;
 };
 
 struct GamepadRuntimeConfig {
@@ -160,6 +161,15 @@ struct RuntimeSchedulerConfig {
     int controller_tick_hz = 1000;
     std::string mode = "legacy";
     unsigned int spin_tail_us = 50;
+    // Pin this process to efficiency cores (E-cores) when running on a hybrid
+    // CPU (Intel 12th-gen+). Keeps the game's performance cores clear so the
+    // vision/runtime load never competes with game threads. No-op on uniform
+    // (non-hybrid) systems where no distinct E-core class is detected.
+    bool efficiency_core_affinity = true;
+    // Number of E-cores pinned to the runtime. The runtime is GPU-bound and its
+    // CPU-side work (preprocess/schedule/poll) needs only a couple of cores;
+    // every E-core beyond this stays available to the game.
+    unsigned int efficiency_core_count = 3;
 };
 
 struct RuntimeOutputConfig {

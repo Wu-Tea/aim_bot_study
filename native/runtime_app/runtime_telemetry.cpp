@@ -366,6 +366,14 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
              << record.controller.manual_authority_mode.data() << '"'
              << ",\"assist_control_phase\":\""
              << record.controller.assist_control_phase.data() << '"'
+             << ",\"operation_class\":\""
+             << record.controller.operation_class.data() << '"'
+             << ",\"operation_confidence\":"
+             << record.controller.operation_confidence
+             << ",\"direction_trust\":"
+             << record.controller.direction_trust
+             << ",\"recoil_pull_strength\":"
+             << record.controller.recoil_pull_strength
              << ",\"manual_passthrough_x\":"
              << (record.controller.manual_passthrough_x ? "true" : "false")
              << ",\"manual_passthrough_y\":"

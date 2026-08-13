@@ -167,6 +167,9 @@ void dump_effective_config(const controller_native::RuntimeConfig& config) {
     line(
         "gamepad.enemy_mark.l3_cooldown_ms",
         config.gamepad.enemy_mark.l3_cooldown_ms);
+    line(
+        "gamepad.enemy_mark.lt_cooldown_ms",
+        config.gamepad.enemy_mark.lt_cooldown_ms);
     const auto& aim = config.gamepad.ai_aim;
     line("gamepad.tracker.aim_height_ratio", config.gamepad.tracker.aim_height_ratio);
     line(
@@ -295,6 +298,16 @@ int main(int argc, char** argv) {
         std::cout << "[NativeRuntime] timer_resolution_ms=1"
                   << " active=" << (timer_period.active() ? 1 : 0)
                   << '\n';
+
+        if (config.scheduler.efficiency_core_affinity) {
+            const bool pinned = runtime_app::pin_process_to_efficiency_cores(
+                config.scheduler.efficiency_core_count);
+            std::cout << "[NativeRuntime] efficiency_core_affinity="
+                      << (pinned ? "pinned" : "skipped")
+                      << " count="
+                      << config.scheduler.efficiency_core_count
+                      << '\n';
+        }
 
         runtime_app::RuntimeLoop loop(config, perf_log, max_ticks_from_options(options));
         active_runtime_loop.store(&loop);

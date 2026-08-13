@@ -6,7 +6,7 @@
 
 namespace runtime_app {
 
-inline constexpr std::uint16_t kTelemetrySchemaVersion = 17;
+inline constexpr std::uint16_t kTelemetrySchemaVersion = 18;
 
 enum class TelemetryRecordType : std::uint8_t {
     SessionMetadata,
@@ -133,6 +133,10 @@ struct ControllerSamplePayload {
     float ai_correction_y = 0.0f;
     std::array<char, 32> manual_authority_mode{};
     std::array<char, 24> assist_control_phase{};
+    std::array<char, 24> operation_class{};
+    float operation_confidence = 0.0f;
+    float direction_trust = 0.5f;
+    float recoil_pull_strength = 0.0f;
     bool manual_passthrough_x = true;
     bool manual_passthrough_y = true;
     bool manual_correction_x = false;
