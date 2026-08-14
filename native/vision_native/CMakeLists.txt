@@ -388,6 +388,26 @@ set_tests_properties(
     NativeManualResidualAuthorityIncidentRegression
     PROPERTIES LABELS "controller;incident-regression")
 
+# Live schema-18 incident fixture: a dominant-axis positioning gesture exposes
+# its small cross-axis bias on the first sample. Arbitration must classify that
+# conflict immediately and must not wait for filtered manual to hit zero before
+# flipping the final axis. The explicit single-axis escape counterfactual keeps
+# intentional manual handover behavior distinct from cross-axis coupling.
+add_executable(cod_native_manual_ai_arbitration_continuity_incident_regression
+    ../controller_native/manual_ai_arbitration_continuity_incident_regression.cpp)
+cod_native_defaults(cod_native_manual_ai_arbitration_continuity_incident_regression)
+target_link_libraries(
+    cod_native_manual_ai_arbitration_continuity_incident_regression PRIVATE
+    controller_native_core)
+add_test(
+    NAME NativeManualAiArbitrationContinuityIncidentRegression
+    COMMAND cod_native_manual_ai_arbitration_continuity_incident_regression
+        --output
+        "${CMAKE_CURRENT_BINARY_DIR}/manual_ai_arbitration_continuity_incident_ctest.json")
+set_tests_properties(
+    NativeManualAiArbitrationContinuityIncidentRegression
+    PROPERTIES LABELS "controller;incident-regression")
+
 # Live schema-15 incident fixture: a right-stick gesture that began before
 # target ownership must not rewrite D on the first acquired target sample.
 add_executable(cod_native_acquisition_gesture_purpose_incident_regression

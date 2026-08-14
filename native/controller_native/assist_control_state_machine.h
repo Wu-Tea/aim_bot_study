@@ -46,8 +46,10 @@ struct AssistControlStateMachineInput {
     bool firing = false;
     // Physical stick uses XInput coordinates: positive Y is up-stick.
     pipeline_contract::Vec2f manual_stick{};
-    // Filtered manual is the one noise-owned direction signal. Physical manual
-    // remains the native output baseline.
+    // Filtered manual remains the noise-owned signal used by upstream intent
+    // and desired-point interpretation. Final arbitration deliberately uses
+    // the physical 2-D gesture: a per-axis filter transition must not change
+    // authority while the raw gesture is still present.
     pipeline_contract::Vec2f filtered_manual_stick{};
     // AI-only output is the desired total proposal for the per-axis T-M solve.
     pipeline_contract::Vec2f ai_stick{};
@@ -156,13 +158,10 @@ public:
 
         if (phase_ == AssistControlPhase::Capture) {
             const auto manual = finite_or_zero(input.manual_stick);
-            const auto filtered_manual = finite_or_zero(
-                input.filtered_manual_stick);
             const auto ai = finite_or_zero(input.ai_stick);
             output.manual_correction_x = input.manual_correction_x;
             output.manual_correction_y = input.manual_correction_y;
-            output.stick = cooperative_output(
-                input, manual, filtered_manual, ai);
+            output.stick = cooperative_output(input, manual, ai);
             output.manual_passthrough_x =
                 std::fabs(output.stick.x - manual.x) <= 1.0e-6f;
             output.manual_passthrough_y =
@@ -212,8 +211,6 @@ public:
         }
 
         const auto manual = finite_or_zero(input.manual_stick);
-        const auto filtered_manual = finite_or_zero(
-            input.filtered_manual_stick);
         const auto ai = finite_or_zero(input.ai_stick);
         // Position error may be near zero while target-relative motion still
         // requires feed-forward. Keep that shaped proposal authoritative until
@@ -224,7 +221,7 @@ public:
         // each axis fills only what is missing. Axis-local arbitration is
         // intentional: a helpful horizontal correction may not spend the
         // user's downward recoil authority on the vertical axis.
-        output.stick = cooperative_output(input, manual, filtered_manual, ai);
+        output.stick = cooperative_output(input, manual, ai);
         output.manual_passthrough_x =
             std::fabs(output.stick.x - manual.x) <= 1.0e-6f;
         output.manual_passthrough_y =
@@ -262,25 +259,51 @@ private:
     pipeline_contract::Vec2f cooperative_output(
         const AssistControlStateMachineInput& input,
         pipeline_contract::Vec2f manual,
-        pipeline_contract::Vec2f filtered_manual,
         pipeline_contract::Vec2f ai) const noexcept {
         const float material = std::max(
             0.0f, config_.material_ai_axis_output);
+
+        const auto smoothstep = [](float value) noexcept {
+            const float t = std::clamp(value, 0.0f, 1.0f);
+            return t * t * (3.0f - 2.0f * t);
+        };
+
+        // A small axis inside a strongly dominant orthogonal gesture is usually
+        // stick coupling, not an independent request. The broad smooth band is
+        // intentional: geometry must not create a replacement hard threshold.
+        const auto coupling_weight = [&smoothstep](
+            float axis,
+            float orthogonal_axis) noexcept {
+            constexpr float kRatioBegin = 1.25f;
+            constexpr float kRatioFull = 3.0f;
+            constexpr float kRatioDenominatorFloor = 0.02f;
+            const float ratio = std::fabs(orthogonal_axis) /
+                std::max(std::fabs(axis), kRatioDenominatorFloor);
+            return smoothstep(
+                (ratio - kRatioBegin) / (kRatioFull - kRatioBegin));
+        };
+
+        // A deliberate single-axis pull must eventually hand back to AI when
+        // physically released, but that handback is continuous and follows raw
+        // magnitude rather than the filtered deadzone crossing.
+        const auto release_weight = [&smoothstep](float axis) noexcept {
+            constexpr float kRawReleaseBand = 0.02f;
+            return 1.0f - smoothstep(std::fabs(axis) / kRawReleaseBand);
+        };
+
         const auto solve_axis = [&input, material](
             float native_axis,
-            float intent_axis,
+            float orthogonal_native_axis,
             float desired_axis,
-            bool vertical) noexcept {
+            bool vertical,
+            const auto& coupling,
+            const auto& release) noexcept {
             if (!std::isfinite(desired_axis) ||
                 std::fabs(desired_axis) <= material) {
                 return native_axis;
             }
-            if (!std::isfinite(intent_axis) ||
-                std::fabs(intent_axis) <= material) {
-                return std::clamp(desired_axis, -1.0f, 1.0f);
-            }
 
-            const bool compatible = intent_axis * desired_axis > 0.0f;
+            const bool compatible = native_axis * desired_axis > 0.0f;
             if (compatible) {
                 // AI is the desired total T, not another stick to add on top
                 // of M. Correct manual contribution therefore reduces the
@@ -292,14 +315,14 @@ private:
                 return std::clamp(desired_axis, -1.0f, 1.0f);
             }
 
-            // Opposing AI may correct some likely user error but can never
-            // cross zero and seize that axis. ADS uses the full bounded
-            // correction budget after admission. BodyLock earns it only from
-            // clear current evidence, preserving native feel on uncertain
-            // people, decoys and corpse-shaped detections.
+            // Explicit opposing input keeps the existing bounded escape
+            // authority. A minor component of a dominant 2-D positioning
+            // gesture may instead yield continuously to the target proposal.
+            // ADS has full authority for that coupled component; BodyLock earns
+            // it only from clear current evidence.
             constexpr float kOrdinaryOpposingDamping = 0.35f;
             constexpr float kDownwardOpposingDamping = 0.10f;
-            const bool downward = vertical && intent_axis < 0.0f;
+            const bool downward = vertical && native_axis < 0.0f;
             float damping_ratio = downward
                 ? kDownwardOpposingDamping
                 : kOrdinaryOpposingDamping;
@@ -316,12 +339,32 @@ private:
                 native_magnitude * damping_ratio * evidence,
                 std::fabs(desired_axis));
             const float retained = std::max(0.0f, native_magnitude - damping);
-            return std::copysign(retained, native_axis);
+            const float retained_axis = native_magnitude > 0.0f
+                ? std::copysign(retained, native_axis)
+                : 0.0f;
+
+            // Down-stick remains a protected vertical request. It still hands
+            // back smoothly near physical release, preventing the old
+            // filtered-zero cliff without spending recoil/downward authority.
+            const float coupled = downward
+                ? 0.0f
+                : coupling(native_axis, orthogonal_native_axis) * evidence;
+            const float released = release(native_axis);
+            const float target_weight = released + (1.0f - released) * coupled;
+            return std::clamp(
+                retained_axis +
+                    (desired_axis - retained_axis) * target_weight,
+                -1.0f,
+                1.0f);
         };
 
         return finite_or_zero({
-            solve_axis(manual.x, filtered_manual.x, ai.x, false),
-            solve_axis(manual.y, filtered_manual.y, ai.y, true),
+            solve_axis(
+                manual.x, manual.y, ai.x, false,
+                coupling_weight, release_weight),
+            solve_axis(
+                manual.y, manual.x, ai.y, true,
+                coupling_weight, release_weight),
         });
     }
 
