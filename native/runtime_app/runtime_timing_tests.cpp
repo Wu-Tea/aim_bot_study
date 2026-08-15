@@ -1,7 +1,9 @@
+#include "manual_fire_aim_activation.h"
 #include "runtime_timing.h"
 
 #include <chrono>
 #include <cstdlib>
+#include <fstream>
 #include <iostream>
 #include <string>
 
@@ -90,9 +92,64 @@ void test_deadline_state_has_no_accumulated_drift() {
         std::chrono::steady_clock::time_point{} + std::chrono::milliseconds(1001));
 }
 
+struct ManualFireTargetPresentIncidentMeasurement {
+    bool fire_edge_observed = false;
+    bool target_present_scope_active = false;
+    bool target_present_scope_held = false;
+    bool target_present_scope_released = false;
+    bool no_target_scope_active = false;
+    bool disabled_scope_active = false;
+};
+
+ManualFireTargetPresentIncidentMeasurement measure_manual_fire_target_present_incident() {
+    ManualFireTargetPresentIncidentMeasurement measured;
+
+    runtime_app::ManualFireAimActivationTracker incident;
+    (void)incident.update(true, false, true);
+    const auto target_present_onset = incident.update(true, true, true);
+    measured.fire_edge_observed = target_present_onset.fire_pressed_now;
+    measured.target_present_scope_active = target_present_onset.scope_active;
+    measured.target_present_scope_held = incident.update(true, true, true).scope_active;
+    measured.target_present_scope_released = incident.update(true, false, true).scope_active;
+
+    runtime_app::ManualFireAimActivationTracker no_target;
+    measured.no_target_scope_active = no_target.update(true, true, false).scope_active;
+
+    runtime_app::ManualFireAimActivationTracker disabled;
+    measured.disabled_scope_active = disabled.update(false, true, true).scope_active;
+    return measured;
+}
+
+void write_manual_fire_target_present_report(
+    const std::string& path,
+    const ManualFireTargetPresentIncidentMeasurement& measured) {
+    if (path.empty()) return;
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    REQUIRE(output.good());
+    output
+        << "{\n"
+        << "  \"schema_version\": 1,\n"
+        << "  \"incident_id\": \"manual-fire-target-present-activation\",\n"
+        << "  \"target_present\": true,\n"
+        << "  \"fire_edge_observed\": " << (measured.fire_edge_observed ? "true" : "false") << ",\n"
+        << "  \"target_present_scope_active\": " << (measured.target_present_scope_active ? "true" : "false") << ",\n"
+        << "  \"target_present_scope_held\": " << (measured.target_present_scope_held ? "true" : "false") << ",\n"
+        << "  \"target_present_scope_released\": " << (measured.target_present_scope_released ? "true" : "false") << ",\n"
+        << "  \"no_target_scope_active\": " << (measured.no_target_scope_active ? "true" : "false") << ",\n"
+        << "  \"disabled_scope_active\": " << (measured.disabled_scope_active ? "true" : "false") << "\n"
+        << "}\n";
+}
+
+std::string report_path_from_args(int argc, char** argv) {
+    for (int i = 1; i + 1 < argc; ++i) {
+        if (std::string(argv[i]) == "--output") return argv[i + 1];
+    }
+    return {};
+}
+
 } // namespace
 
-int main() {
+int main(int argc, char** argv) {
     test_short_deadline_uses_yield_margin_instead_of_one_ms_sleep();
     test_long_deadline_sleeps_only_until_precision_margin();
     test_precise_sleep_accepts_custom_precision_margin();
@@ -102,5 +159,19 @@ int main() {
     test_timer_period_scope_records_requested_period();
     test_deadline_state_realigns_without_replaying_missed_ticks();
     test_deadline_state_has_no_accumulated_drift();
+
+    const auto measured = measure_manual_fire_target_present_incident();
+    write_manual_fire_target_present_report(report_path_from_args(argc, argv), measured);
+    const bool passed =
+        measured.fire_edge_observed &&
+        measured.target_present_scope_active &&
+        measured.target_present_scope_held &&
+        !measured.target_present_scope_released &&
+        measured.no_target_scope_active &&
+        !measured.disabled_scope_active;
+    if (!passed) {
+        std::cerr << "manual-fire target-present activation regression failed" << std::endl;
+        return 1;
+    }
     return 0;
 }

@@ -82,8 +82,9 @@ lt_cooldown_ms = 1000
 
 [gamepad.auto_fire]
 fire_output = "RB"
-# When enabled, pressing the physical fire control with no current target wakes
-# Vision and grants the normal AI-aim acquisition scope until fire is released.
+# When enabled, pressing the physical fire control wakes Vision and grants the
+# normal AI-aim acquisition scope until fire is released, including when idle
+# Vision has already selected a target.
 manual_fire_activates_ai_aim = true
 aim_only = true
 max_source_age_ms = 50

@@ -9,6 +9,7 @@
 #include "downward_diagnostics.h"
 #include "fusion_channel_publisher.h"
 #include "log_session_manager.h"
+#include "manual_fire_aim_activation.h"
 #include "person_detection_gesture.h"
 #include "perf_logger.h"
 #include "runtime_telemetry.h"
@@ -62,8 +63,7 @@ private:
     vision_native::VisionResult latest_vision_result_;
     bool has_latest_vision_result_ = false;
     bool latest_vision_aiming_ = false;
-    bool fire_aim_scope_active_ = false;
-    bool previous_manual_fire_pressed_ = false;
+    ManualFireAimActivationTracker manual_fire_aim_activation_;
     bool enemy_mark_vision_active_ = false;
     std::uint64_t enemy_mark_target_scope_ = 0;
     std::uint64_t latest_vision_service_sequence_ = 0;

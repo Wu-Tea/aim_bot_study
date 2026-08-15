@@ -611,26 +611,22 @@ void RuntimeLoop::run_once() {
     const bool aiming = is_aiming(physical);
     const bool manual_fire_pressed =
         physical.rb || physical.right_trigger > 0.04f;
-    const bool fire_pressed_now =
-        manual_fire_pressed && !previous_manual_fire_pressed_;
     const bool target_present = controller_.last_target_plan().target_id != 0;
     const bool fire_aim_enabled =
         config_.gamepad.auto_fire.manual_fire_activates_ai_aim;
-    if (!fire_aim_enabled || !manual_fire_pressed) {
-        fire_aim_scope_active_ = false;
-    } else if (fire_pressed_now && !target_present) {
-        fire_aim_scope_active_ = true;
-    }
-    previous_manual_fire_pressed_ = manual_fire_pressed;
+    const ManualFireAimActivation fire_aim = manual_fire_aim_activation_.update(
+        fire_aim_enabled,
+        manual_fire_pressed,
+        target_present);
 
     // Physical ADS and the fire-triggered AI scope are deliberately separate:
     // the latter wakes/owns the existing aim chain but never synthesizes LT.
-    const bool assist_aiming = aiming || fire_aim_scope_active_;
+    const bool assist_aiming = aiming || fire_aim.scope_active;
     latest_vision_aiming_ = assist_aiming;
     const auto& controller_intent = controller_.sample_input(
         physical,
-        fire_aim_scope_active_,
-        fire_aim_enabled && fire_pressed_now && !target_present);
+        fire_aim.scope_active,
+        fire_aim.force_acquisition_rearm);
     const pipeline_contract::UserAimIntent user_aim_intent = build_user_aim_intent(
         controller_intent,
         assist_aiming,
