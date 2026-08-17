@@ -95,6 +95,15 @@ void populate_runtime_provenance(
 #if defined(COD_BUILD_COMMIT)
     config.build_commit = COD_BUILD_COMMIT;
 #endif
+#if defined(COD_CONTROL_CONTRACT_HASH)
+    config.control_contract_sha256 = COD_CONTROL_CONTRACT_HASH;
+#endif
+#if defined(COD_CONTROL_ARCHITECTURE_VERSION)
+    config.control_architecture_version = COD_CONTROL_ARCHITECTURE_VERSION;
+#endif
+#if defined(COD_CONTROL_EVENT_SCHEMA_VERSION)
+    config.control_event_schema_version = COD_CONTROL_EVENT_SCHEMA_VERSION;
+#endif
     std::array<wchar_t, 32768> module_path{};
     const DWORD module_length = GetModuleFileNameW(
         nullptr, module_path.data(), static_cast<DWORD>(module_path.size()));
@@ -135,6 +144,9 @@ void dump_effective_config(const controller_native::RuntimeConfig& config) {
     line("runtime.provenance.config_sha256", config.source_config_sha256);
     line("runtime.provenance.engine_sha256", config.engine_sha256);
     line("runtime.provenance.executable_sha256", config.executable_sha256);
+    line("runtime.provenance.control_contract_sha256", config.control_contract_sha256);
+    line("runtime.provenance.control_architecture_version", config.control_architecture_version);
+    line("runtime.provenance.control_event_schema_version", config.control_event_schema_version);
     line("runtime.vision.capture_width", config.vision.capture_width);
     line("runtime.vision.capture_height", config.vision.capture_height);
     line("runtime.vision.tensor_width", config.vision.tensor_width);
@@ -183,6 +195,9 @@ void dump_effective_config(const controller_native::RuntimeConfig& config) {
     line("gamepad.bodylock.vertical_strength", aim.body_lock_max_ai_force_y);
     line("gamepad.bodylock.activation_range_px", aim.body_lock_activation_box_px);
     line("gamepad.bodylock.tolerance_px", aim.body_lock_box_tolerance_px);
+    line(
+        "gamepad.ai_aim.cue_hold_full_force_min_target_height_ratio",
+        aim.cue_hold_full_force_min_target_height_ratio);
     line("gamepad.ai_aim.desired_point_traversal_ms", aim.desired_point_traversal_ms);
     line(
         "gamepad.ai_aim.desired_point_boundary_exit_ms",
@@ -210,9 +225,8 @@ void dump_effective_config(const controller_native::RuntimeConfig& config) {
     line("gamepad.recoil.profile_amount", recoil.profile_amount);
     line("gamepad.recoil.profile_x_amount", recoil.profile_x_amount);
     line("gamepad.recoil.feedback_amount", recoil.feedback_amount);
-    line("gamepad.recoil.adaptive_feedback_enabled", recoil.adaptive_feedback_enabled);
-    line("gamepad.recoil.adaptive_min_amount", recoil.adaptive_min_amount);
-    line("gamepad.recoil.adaptive_max_amount", recoil.adaptive_max_amount);
+    line("gamepad.recoil.feedback_min_amount", recoil.feedback_min_amount);
+    line("gamepad.recoil.feedback_max_amount", recoil.feedback_max_amount);
     line("gamepad.recoil.profile_lead_ms", recoil.profile_lead_ms);
     line("gamepad.recoil.profile_velocity_reference_ms", recoil.profile_velocity_reference_ms);
     line("gamepad.recoil.profile_despike_threshold_px", recoil.profile_despike_threshold_px);
@@ -244,6 +258,7 @@ void print_startup_summary(
         << " vision_idle_fps=" << config.vision.idle_capture_fps
         << " tracker_max_observation_age_ms="
         << config.gamepad.tracker.max_observation_age_ms
+        << " aim_controller=production"
         << " recoil=" << (config.gamepad.recoil.enabled ? "on" : "off")
         << " recoil_profile="
         << (config.gamepad.recoil.profile_playback_enabled ? "on" : "off")

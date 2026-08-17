@@ -1,6 +1,6 @@
 #pragma once
 
-#include "controller_native/aim_activation.h"
+#include "controller_native/input_edge_reducer.h"
 #include "pipeline_contract/target_plan.h"
 
 #include <algorithm>
@@ -129,8 +129,8 @@ public:
         expire_request(now);
 
         const bool lt_pressed = lt_pressed_
-            ? left_trigger > controller_native::kAimLeftTriggerIdleThreshold
-            : left_trigger > controller_native::kAimLeftTriggerPressThreshold;
+            ? left_trigger > controller_native::kPhysicalAdsIdleThreshold
+            : left_trigger > controller_native::kPhysicalAdsPressThreshold;
         const bool l3_request_edge = l3_pressed && !l3_pressed_;
         const bool lt_request_edge = lt_pressed && !lt_pressed_;
         l3_pressed_ = l3_pressed;
@@ -219,7 +219,7 @@ public:
         return true;
     }
 
-    bool merge_dpad_up(
+    bool dpad_up_requested(
         bool physical_dpad_up,
         Clock::time_point now) const noexcept {
         return physical_dpad_up || now < press_until_;

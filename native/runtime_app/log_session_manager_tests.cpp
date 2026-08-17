@@ -34,6 +34,9 @@ void test_fresh_manifest_and_markers_are_atomic_session_contract() {
         options.git_commit = "abc123";
         options.config_hash = "cfg456";
         options.executable_sha256 = "exe789";
+        options.control_contract_sha256 = "control123";
+        options.control_architecture_version = 2;
+        options.control_event_schema_version = 1;
         runtime_app::LogSessionManager manager(std::move(options));
         require_true(manager.active(), "enabled manager must start a session");
         require_true(std::filesystem::exists(manager.session_directory() / ".active"),
@@ -50,6 +53,10 @@ void test_fresh_manifest_and_markers_are_atomic_session_contract() {
                      "session manifest must retain engine, crop and Tensor provenance");
         require_true(session.find("executable_sha256") != std::string::npos &&
                          session.find("exe789") != std::string::npos &&
+                         session.find("control_contract_sha256") != std::string::npos &&
+                         session.find("control123") != std::string::npos &&
+                         session.find("control_architecture_version\": 2") != std::string::npos &&
+                         session.find("control_event_schema_version\": 1") != std::string::npos &&
                          std::filesystem::exists(
                              manager.session_directory() / "session_metadata.json"),
                      "session metadata must record executable provenance without a path");

@@ -14,6 +14,7 @@
 #include <iostream>
 #include <limits>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <utility>
@@ -52,6 +53,9 @@ LogSessionOptions log_session_options_from(const controller_native::RuntimeConfi
     options.config_hash = config.source_config_sha256;
     options.engine_hash = config.engine_sha256;
     options.executable_sha256 = config.executable_sha256;
+    options.control_contract_sha256 = config.control_contract_sha256;
+    options.control_architecture_version = config.control_architecture_version;
+    options.control_event_schema_version = config.control_event_schema_version;
     options.capture_width = config.vision.capture_width;
     options.capture_height = config.vision.capture_height;
     options.tensor_width = config.vision.tensor_width;
@@ -563,7 +567,6 @@ RuntimeLoop::RuntimeLoop(
 }
 
 int RuntimeLoop::run() {
-    using controller_native::GamepadOutputState;
     (void)set_current_thread_priority(RuntimeThreadPriority::AboveNormal);
 
     const int tick_hz = std::max(1, config_.scheduler.controller_tick_hz);
@@ -595,7 +598,16 @@ int RuntimeLoop::run() {
     telemetry_.stop();
     log_session_manager_.close();
     if (config_.output.enabled) {
-        virtual_gamepad_.update(GamepadOutputState{});
+        controller_native::PhysicalGamepadState neutral_physical{};
+        auto neutral_frame = controller_native::ControlFrame::begin(
+            neutral_physical,
+            pipeline_contract::ControllerTickId::from(1),
+            pipeline_contract::EventSequence::from(1));
+        if (output_composer_.compose(neutral_frame) ==
+                controller_native::OutputComposeStatus::Ok &&
+            output_composer_.finalized_output() != nullptr) {
+            virtual_gamepad_.update(*output_composer_.finalized_output());
+        }
     }
     return 0;
 }
@@ -608,25 +620,15 @@ void RuntimeLoop::run_once() {
     const auto tick_started = std::chrono::steady_clock::now();
     const controller_native::PhysicalGamepadState physical = read_physical_gamepad();
     const std::uint64_t physical_read_at_ns = steady_time_point_ns(std::chrono::steady_clock::now());
-    const bool aiming = is_aiming(physical);
-    const bool manual_fire_pressed =
-        physical.rb || physical.right_trigger > 0.04f;
-    const bool target_present = controller_.last_target_plan().target_id != 0;
-    const bool fire_aim_enabled =
-        config_.gamepad.auto_fire.manual_fire_activates_ai_aim;
-    const ManualFireAimActivation fire_aim = manual_fire_aim_activation_.update(
-        fire_aim_enabled,
-        manual_fire_pressed,
-        target_present);
-
-    // Physical ADS and the fire-triggered AI scope are deliberately separate:
-    // the latter wakes/owns the existing aim chain but never synthesizes LT.
-    const bool assist_aiming = aiming || fire_aim.scope_active;
-    latest_vision_aiming_ = assist_aiming;
-    const auto& controller_intent = controller_.sample_input(
+    const auto& tick_preparation = controller_.begin_tick(
         physical,
-        fire_aim.scope_active,
-        fire_aim.force_acquisition_rearm);
+        static_cast<std::uint64_t>(tick_count_) + 1u);
+    const bool aiming = tick_preparation.scope.physical_ads_active;
+    // Physical ADS and manual-fire activation are independent input events,
+    // reduced into one scope snapshot without synthesizing LT.
+    const bool assist_aiming = tick_preparation.scope.assist_active;
+    latest_vision_aiming_ = assist_aiming;
+    const auto& controller_intent = tick_preparation.intent;
     const pipeline_contract::UserAimIntent user_aim_intent = build_user_aim_intent(
         controller_intent,
         assist_aiming,
@@ -742,8 +744,8 @@ void RuntimeLoop::run_once() {
         }
     }
     const auto controller_pipeline_started = std::chrono::steady_clock::now();
-    controller_native::GamepadOutputState output =
-        controller_.build_output_from_sampled_input();
+    controller_native::ControlFrame control_frame =
+        controller_.resolve_control_frame();
     if (config_.gamepad.enemy_mark.enabled) {
         if (telemetry_new_vision) {
             person_detection_gesture_.observe_fresh_plan(
@@ -751,9 +753,22 @@ void RuntimeLoop::run_once() {
                 tick_started,
                 enemy_mark_target_scope_);
         }
-        output.dpad_up = person_detection_gesture_.merge_dpad_up(
-            output.dpad_up, tick_started);
+        if (person_detection_gesture_.dpad_up_requested(false, tick_started)) {
+            auto& dpad = control_frame.auxiliary_dpad();
+            dpad.header.controller_tick = control_frame.controller_tick();
+            dpad.header.sequence = control_frame.sample_sequence();
+            dpad.header.cause_event = control_frame.sample_sequence();
+            dpad.up = true;
+        }
     }
+    const auto compose_status = output_composer_.compose(control_frame);
+    const auto* composed_output = output_composer_.finalized_output();
+    if (compose_status != controller_native::OutputComposeStatus::Ok ||
+        composed_output == nullptr) {
+        throw std::runtime_error("control output composition failed");
+    }
+    const controller_native::GamepadOutputState output = *composed_output;
+    controller_.observe_composed_output(output);
     const auto vigem_update_started = std::chrono::steady_clock::now();
     controller_native::VirtualGamepadUpdateResult output_result;
     if (config_.output.enabled) {
@@ -1294,10 +1309,6 @@ bool RuntimeLoop::should_poll_vision(std::chrono::steady_clock::time_point now) 
 
 bool RuntimeLoop::should_stop_requested() const {
     return stop_requested_.load();
-}
-
-bool RuntimeLoop::is_aiming(const controller_native::PhysicalGamepadState& physical) {
-    return aim_activation_tracker_.update(physical, config_.gamepad.rb_counts_as_aiming);
 }
 
 }  // namespace runtime_app

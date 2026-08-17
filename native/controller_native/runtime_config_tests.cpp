@@ -76,6 +76,7 @@ void test_current_control_keys_parse() {
         "tolerance_px = 9\n"
         "[gamepad.ai_aim]\n"
         "aim_response_effect_delay_ms = 11\n"
+        "cue_hold_full_force_min_target_height_ratio = 0.28\n"
         "visual_authority_enabled = false\n");
 
     const auto config = controller_native::load_runtime_config(file.path());
@@ -115,6 +116,11 @@ void test_current_control_keys_parse() {
                 config.gamepad.ai_aim.aim_response_effect_delay_ms - 11.0f) <
             1e-5f,
             "aim response effect delay not parsed");
+    require(std::fabs(
+                config.gamepad.ai_aim.
+                    cue_hold_full_force_min_target_height_ratio -
+                0.28f) < 1e-5f,
+            "close cue-hold full-force threshold not parsed");
     require(!config.gamepad.ai_aim.visual_authority_enabled,
             "visual-authority A/B switch not parsed");
     require(config.diagnostics.empty(), "current config produced diagnostics");
@@ -122,19 +128,19 @@ void test_current_control_keys_parse() {
 
 void test_recoil_defaults_use_product_dynamic_range() {
     const controller_native::GamepadRecoilConfig defaults;
-    require(std::fabs(defaults.adaptive_min_amount - 0.14f) < 1e-5f,
-            "default adaptive recoil floor is not 0.14");
-    require(std::fabs(defaults.adaptive_max_amount - 0.34f) < 1e-5f,
-            "default adaptive recoil ceiling is not 0.34");
+    require(std::fabs(defaults.feedback_min_amount - 0.14f) < 1e-5f,
+            "default fallback recoil floor is not 0.14");
+    require(std::fabs(defaults.feedback_max_amount - 0.34f) < 1e-5f,
+            "default fallback recoil ceiling is not 0.34");
 
     const auto example = controller_native::load_runtime_config(
         std::filesystem::path("config.native.example.toml"));
-    require(std::fabs(example.gamepad.recoil.adaptive_min_amount - 0.14f) <
+    require(std::fabs(example.gamepad.recoil.feedback_min_amount - 0.14f) <
                 1e-5f,
-            "example config adaptive recoil floor is not 0.14");
-    require(std::fabs(example.gamepad.recoil.adaptive_max_amount - 0.34f) <
+            "example config fallback recoil floor is not 0.14");
+    require(std::fabs(example.gamepad.recoil.feedback_max_amount - 0.34f) <
                 1e-5f,
-            "example config adaptive recoil ceiling is not 0.34");
+            "example config fallback recoil ceiling is not 0.34");
 }
 
 void test_retired_low_rate_keys_are_unknown_and_inert() {

@@ -72,7 +72,7 @@ ControllerVisionSnapshot selected_person_snapshot(
 CaseResult run_case(const char* name, float dx) {
     double now = 100.0;
     const auto config = incident_config();
-    NativeGamepadController controller(config, [&now] { return now; });
+    NativeGamepadController controller(config, &now);
     controller.submit_vision_snapshot(selected_person_snapshot(1, now, dx));
     const auto output = controller.build_output(neutral_ads());
     const auto& plan = controller.last_target_plan();

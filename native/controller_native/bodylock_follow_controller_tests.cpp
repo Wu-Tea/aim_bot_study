@@ -73,21 +73,42 @@ void test_manual_input_does_not_create_a_second_authority_policy() {
                  "manual authority must be owned after BodyLock by the state machine");
 }
 
-void test_radial_motion_cannot_reverse_current_position() {
+void test_motion_cannot_reverse_current_position_axis() {
     controller_native::BodylockFollowController controller;
     auto plan = active_plan(-10.0f, 0.0f);
     plan.error_rate_px_per_sec = {260.0f, 120.0f};
     const auto output = controller.compute_detailed(plan, {}, 0.001f);
     require_true(output.radial_motion_bound_applied,
-                 "opposing radial motion must exercise the current-position bound");
+                 "opposing motion must exercise the current-position bound");
     require_true(output.constraint_reason ==
                      controller_native::ResponseModelConstraintReason::
                          PositionRadialMotionBound,
-                 "radial bound must expose its single-path reason");
+                 "position-motion bound must expose its single-path reason");
     require_true(output.stick.x < 0.0f,
                  "motion metadata must not reverse a material current error");
     require_true(near(output.effective_motion_stick.y, output.motion_stick.y),
-                 "radial bound must preserve tangent motion");
+                 "axis-local bound must preserve orthogonal motion");
+}
+
+void test_orthogonal_motion_cannot_mask_bodylock_axis_reversal() {
+    controller_native::BodylockFollowController controller;
+    auto plan = active_plan(-7.5f, -18.5f);
+    plan.error_rate_px_per_sec = {190.0f, -250.0f};
+    const auto output = controller.compute_detailed(plan, {}, 0.001f);
+    const float vector_dot =
+        output.position_stick.x * output.motion_stick.x +
+        output.position_stick.y * output.motion_stick.y;
+
+    require_true(output.position_stick.x * output.motion_stick.x < 0.0f,
+                 "fixture must contain an X position-motion conflict");
+    require_true(vector_dot > 0.0f,
+                 "orthogonal motion must mask the old vector-wide conflict test");
+    require_true(output.radial_motion_bound_applied,
+                 "BodyLock must constrain the conflict on the affected axis");
+    require_true(output.stick.x * output.position_stick.x >= 0.0f,
+                 "BodyLock output must preserve the current X error direction");
+    require_true(near(output.effective_motion_stick.y, output.motion_stick.y),
+                 "BodyLock must retain compatible orthogonal feed-forward");
 }
 
 void test_force_envelope_remains_bounded() {
@@ -108,7 +129,8 @@ int main() {
     test_current_error_owns_position_proposal();
     test_cue_lifecycle_uses_same_source_owned_solve();
     test_manual_input_does_not_create_a_second_authority_policy();
-    test_radial_motion_cannot_reverse_current_position();
+    test_motion_cannot_reverse_current_position_axis();
+    test_orthogonal_motion_cannot_mask_bodylock_axis_reversal();
     test_force_envelope_remains_bounded();
     std::cout << "[BodylockFollowControllerTests] PASS\n";
     return 0;

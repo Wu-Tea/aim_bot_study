@@ -9,6 +9,11 @@ namespace {
 
 constexpr float kVectorForceHeadroom = 1.41421356237f;
 
+float smoothstep(float value) noexcept {
+    const float x = std::clamp(value, 0.0f, 1.0f);
+    return x * x * (3.0f - 2.0f * x);
+}
+
 }  // namespace
 
 AdsAcquisitionController::AdsAcquisitionController(AdsAcquisitionControllerConfig config)
@@ -28,8 +33,23 @@ pipeline_contract::Vec2f AdsAcquisitionController::compute(
     const float authority = std::clamp(plan.aim_authority, 0.0f, 1.0f);
     const float response = plan.response_confidence > 0.0f && plan.response_scale >= 50.0f
         ? plan.response_scale : config_.fallback_response_px_per_stick_second;
-    const float horizon = std::clamp(
+    const float nominal_horizon = std::clamp(
         config_.arrival_horizon_seconds, 0.060f, 0.350f);
+    const float close_horizon = std::clamp(
+        config_.close_arrival_horizon_seconds,
+        0.040f,
+        nominal_horizon);
+    const float close_begin = std::clamp(
+        config_.close_target_size_begin, 0.0f, 1.0f);
+    const float close_full = std::clamp(
+        config_.close_target_size_full,
+        close_begin + 0.01f,
+        1.0f);
+    const float close_weight = smoothstep(
+        (std::clamp(plan.normalized_size, 0.0f, 1.0f) - close_begin) /
+        (close_full - close_begin));
+    const float horizon = nominal_horizon +
+        close_weight * (close_horizon - nominal_horizon);
     ResponseModelAimRequest request{};
     request.error_px = plan.error_px;
     request.relative_velocity_px_per_sec = plan.error_rate_px_per_sec;

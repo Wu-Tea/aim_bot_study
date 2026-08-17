@@ -9,7 +9,13 @@ namespace controller_native {
 struct AdsAcquisitionControllerConfig {
     float max_force_x = 1.0f;
     float max_force_y = 1.0f;
+    // Production supplies its nominal horizon from ads_snap_window_ms (135 ms
+    // by default). Apparent body height then shortens it continuously for CQB;
+    // authority remains unchanged after target admission.
     float arrival_horizon_seconds = 0.160f;
+    float close_arrival_horizon_seconds = 0.060f;
+    float close_target_size_begin = 0.18f;
+    float close_target_size_full = 0.40f;
     // Live evidence shows materially slower convergence when the target is
     // above the reticle.  Shorten only that Y horizon; the opposite direction
     // remains the matched counterfactual and keeps its existing response.

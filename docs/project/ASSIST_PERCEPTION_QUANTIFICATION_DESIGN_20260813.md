@@ -299,5 +299,5 @@ A = 整形后的 AI 总输出提案（是"期望总输出"，不是"叠加力"�
 ## 9. 复现与验证线索
 
 - 会话：`runs/native_perf/sessions/20260812T182729Z_49124_1`（scene1≈+56s、scene2≈+204s、scene3≈+304s，视频保存时间 −15s 对齐）
-- 关键文件：`assist_control_state_machine.h`（cooperative_output）、`intent_filter.h`、`target_coordinator.{h,cpp}`、`output_mixer.h`、`telemetry_schema.h`
+- 关键文件：`assist_control_state_machine.h`（cooperative_output）、`intent_filter.h`、`target_coordinator.{h,cpp}`、`output_diagnostics.h`、`telemetry_schema.h`
 - 遥测 schema v17 字段名已在 §5.3 全部以现有 JSON 名引用

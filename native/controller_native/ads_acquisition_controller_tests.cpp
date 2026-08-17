@@ -99,6 +99,33 @@ void test_screen_y_error_is_converted_to_stick_y_direction() {
                  "a target below center requires negative stick Y in screen coordinates");
 }
 
+void test_close_visual_target_converges_faster_than_mid_far_target() {
+    controller_native::AdsAcquisitionControllerConfig config{};
+    config.arrival_horizon_seconds = 0.135f;
+    controller_native::AdsAcquisitionController controller(config);
+    auto mid_far = plan_with(20.0f, 0.0f);
+    mid_far.normalized_size = 0.12f;
+    auto close = mid_far;
+    close.normalized_size = 0.42f;
+    const auto mid_far_output = controller.compute(mid_far, {}, 0.005f);
+    const auto close_output = controller.compute(close, {}, 0.005f);
+    require_true(
+        close_output.x >= mid_far_output.x * 1.50f,
+        "close target must use a shorter ADS arrival horizon than mid/far target");
+
+    auto just_below_transition = mid_far;
+    just_below_transition.normalized_size = 0.179f;
+    auto just_above_transition = just_below_transition;
+    just_above_transition.normalized_size = 0.181f;
+    const float below = controller.compute(
+        just_below_transition, {}, 0.005f).x;
+    const float above = controller.compute(
+        just_above_transition, {}, 0.005f).x;
+    require_true(
+        std::fabs(above - below) < 0.01f,
+        "close-target ADS timing must change continuously without a range step");
+}
+
 struct VerticalConvergenceMetrics {
     float target_above_output = 0.0f;
     float target_below_output = 0.0f;
@@ -178,6 +205,7 @@ int main(int argc, char** argv) {
         test_target_above_gets_bounded_directional_urgency();
         test_learned_slow_camera_response_automatically_increases_ads_request();
         test_shorter_arrival_horizon_increases_ads_positioning_speed();
+        test_close_visual_target_converges_faster_than_mid_far_target();
         test_reliability_does_not_create_a_second_ads_gain_policy();
         return 0;
     } catch (const std::exception& error) {

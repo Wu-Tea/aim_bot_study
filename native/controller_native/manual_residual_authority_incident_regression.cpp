@@ -29,11 +29,10 @@ constexpr float kMinimumAiHeadroom = 0.05f;
 constexpr float kMinimumAlignedAssistGain = 0.025f;
 constexpr float kMinimumAlignedRetentionRatio = 0.75f;
 constexpr float kMaximumDeadzoneCrossingDrop = 0.10f;
-// The original incident required native input not to disappear. The accepted
-// V1 contract now permits ADS to damp at most 35% of a likely wrong axis while
-// preserving its sign. For the fixed 0.05 fixture this is 0.0175; keep a small
-// numerical margin without allowing zero-crossing or AI reversal.
-constexpr float kMaximumOpposingNativeError = 0.020f;
+// ADS owns the desired total after admission; BodyLock remains cooperative.
+// The same opposing-input fixture therefore has a mode-specific expected
+// output while retaining one tight numerical tolerance.
+constexpr float kMaximumOpposingContractError = 0.020f;
 constexpr std::uint64_t kObservationId = 8101;
 constexpr std::uint64_t kSelectorGeneration = 111;
 constexpr controller_native::incident_fixture::TargetSpec kTarget{
@@ -101,7 +100,7 @@ struct SustainedEscapeResult {
     bool desired_point_moved_as_requested = false;
     float manual_input = 0.0f;
     float minimum_opposing_ai_proposal = 0.0f;
-    float maximum_native_error = 0.0f;
+    float maximum_contract_error = 0.0f;
     float desired_before = 0.0f;
     float desired_after = 0.0f;
 };
@@ -119,7 +118,7 @@ struct ScenarioResult {
     float aligned_assist_gain = 0.0f;
     float aligned_retention_ratio = 0.0f;
     float deadzone_crossing_drop = 0.0f;
-    float opposing_native_error = 0.0f;
+    float opposing_contract_error = 0.0f;
 };
 
 struct IncidentReport {
@@ -129,17 +128,19 @@ struct IncidentReport {
     float minimum_aligned_assist_gain = 0.0f;
     float minimum_aligned_retention_ratio = 0.0f;
     float maximum_deadzone_crossing_drop = 0.0f;
-    float maximum_opposing_native_error = 0.0f;
+    float maximum_opposing_contract_error = 0.0f;
     bool aligned_gain_pass = false;
     bool aligned_retention_pass = false;
     bool deadzone_continuity_pass = false;
-    bool opposing_native_pass = false;
+    bool opposing_contract_pass = false;
     bool overall_pass = false;
 };
 
 GamepadRuntimeConfig incident_config(ControlMode mode) {
     auto config = controller_native::incident_fixture::base_config(
         1000.0f, 180.0f);
+    // Residual allocation is a legacy-layer rollback contract. The direct
+    // controller intentionally uses manual + independent assist instead.
     config.ai_aim.body_lock_max_ai_force = 0.60f;
     config.ai_aim.body_lock_max_ai_force_y = 0.66f;
     config.ai_aim.body_lock_activation_box_px = 150.0f;
@@ -178,7 +179,7 @@ CaseResult run_case(
     float manual_input) {
     double now = 100.0;
     NativeGamepadController controller(
-        incident_config(mode), [&now] { return now; });
+        incident_config(mode), &now);
     std::uint64_t frame_id = 1;
 
     if (mode == ControlMode::BodyLock) {
@@ -268,7 +269,7 @@ SustainedEscapeResult run_sustained_escape(
     constexpr float kEscapeInput = -kMicroInput;
     double now = 200.0;
     NativeGamepadController controller(
-        incident_config(mode), [&now] { return now; });
+        incident_config(mode), &now);
     std::uint64_t frame_id = 100;
 
     if (mode == ControlMode::BodyLock) {
@@ -323,9 +324,11 @@ SustainedEscapeResult run_sustained_escape(
 
         result.minimum_opposing_ai_proposal = std::min(
             result.minimum_opposing_ai_proposal, ai_proposal);
-        result.maximum_native_error = std::max(
-            result.maximum_native_error,
-            std::fabs(target_final - kEscapeInput));
+        const float expected_output = mode == ControlMode::AdsSnap
+            ? ai_proposal : kEscapeInput;
+        result.maximum_contract_error = std::max(
+            result.maximum_contract_error,
+            std::fabs(target_final - expected_output));
         result.every_tick_manual_correction =
             result.every_tick_manual_correction && manual_correction;
         result.every_tick_target_owned =
@@ -406,10 +409,12 @@ ScenarioResult evaluate_scenario(ControlMode mode, Axis axis) {
         0.0f,
         std::fabs(scenario.sub_deadzone.target_final) -
             std::fabs(scenario.aligned.target_final));
-    scenario.opposing_native_error = std::max(
-        std::fabs(
-            scenario.opposing.target_final - scenario.opposing.manual_input),
-        scenario.sustained_escape.maximum_native_error);
+    const float opposing_expected = mode == ControlMode::AdsSnap
+        ? scenario.opposing.ai_proposal
+        : scenario.opposing.manual_input;
+    scenario.opposing_contract_error = std::max(
+        std::fabs(scenario.opposing.target_final - opposing_expected),
+        scenario.sustained_escape.maximum_contract_error);
     return scenario;
 }
 
@@ -439,9 +444,9 @@ IncidentReport evaluate_incident() {
         report.maximum_deadzone_crossing_drop = std::max(
             report.maximum_deadzone_crossing_drop,
             scenario.deadzone_crossing_drop);
-        report.maximum_opposing_native_error = std::max(
-            report.maximum_opposing_native_error,
-            scenario.opposing_native_error);
+        report.maximum_opposing_contract_error = std::max(
+            report.maximum_opposing_contract_error,
+            scenario.opposing_contract_error);
     }
     report.aligned_gain_pass =
         report.minimum_aligned_assist_gain >= kMinimumAlignedAssistGain;
@@ -451,16 +456,16 @@ IncidentReport evaluate_incident() {
     report.deadzone_continuity_pass =
         report.maximum_deadzone_crossing_drop <=
         kMaximumDeadzoneCrossingDrop;
-    report.opposing_native_pass =
-        report.maximum_opposing_native_error <=
-        kMaximumOpposingNativeError;
+    report.opposing_contract_pass =
+        report.maximum_opposing_contract_error <=
+        kMaximumOpposingContractError;
     report.overall_pass =
         report.trigger_executed &&
         report.counterfactuals_valid &&
         report.aligned_gain_pass &&
         report.aligned_retention_pass &&
         report.deadzone_continuity_pass &&
-        report.opposing_native_pass;
+        report.opposing_contract_pass;
     return report;
 }
 
@@ -514,8 +519,8 @@ void write_scenario(
            << value.aligned_retention_ratio << ",\n"
            << inner << "\"deadzone_crossing_drop\": "
            << value.deadzone_crossing_drop << ",\n"
-           << inner << "\"opposing_native_error\": "
-           << value.opposing_native_error << ",\n"
+           << inner << "\"opposing_contract_error\": "
+           << value.opposing_contract_error << ",\n"
            << inner << "\"cases\": {\n"
            << inner << "  \"neutral\": ";
     write_case(output, value.neutral, indent + 4);
@@ -545,8 +550,8 @@ void write_scenario(
            << value.sustained_escape.manual_input << ",\n"
            << inner << "  \"minimum_opposing_ai_proposal\": "
            << value.sustained_escape.minimum_opposing_ai_proposal << ",\n"
-           << inner << "  \"maximum_native_error\": "
-           << value.sustained_escape.maximum_native_error << ",\n"
+           << inner << "  \"maximum_contract_error\": "
+           << value.sustained_escape.maximum_contract_error << ",\n"
            << inner << "  \"desired_before\": "
            << value.sustained_escape.desired_before << ",\n"
            << inner << "  \"desired_after\": "
@@ -592,8 +597,8 @@ void write_report(
            << report.minimum_aligned_retention_ratio << ",\n"
            << "    \"maximum_deadzone_crossing_drop\": "
            << report.maximum_deadzone_crossing_drop << ",\n"
-           << "    \"maximum_opposing_native_error\": "
-           << report.maximum_opposing_native_error << "\n"
+           << "    \"maximum_opposing_contract_error\": "
+           << report.maximum_opposing_contract_error << "\n"
            << "  },\n"
            << "  \"oracles\": [\n"
            << "    {\"id\": \"O1\", \"metric\": \"minimum_aligned_assist_gain\", \"operator\": \">=\", \"threshold\": "
@@ -608,10 +613,10 @@ void write_report(
            << kMaximumDeadzoneCrossingDrop << ", \"observed\": "
            << report.maximum_deadzone_crossing_drop << ", \"pass\": "
            << report.deadzone_continuity_pass << "},\n"
-           << "    {\"id\": \"O4\", \"metric\": \"maximum_opposing_native_error\", \"operator\": \"<=\", \"threshold\": "
-           << kMaximumOpposingNativeError << ", \"observed\": "
-           << report.maximum_opposing_native_error << ", \"pass\": "
-           << report.opposing_native_pass << "}\n"
+           << "    {\"id\": \"O4\", \"metric\": \"maximum_opposing_contract_error\", \"operator\": \"<=\", \"threshold\": "
+           << kMaximumOpposingContractError << ", \"observed\": "
+           << report.maximum_opposing_contract_error << ", \"pass\": "
+           << report.opposing_contract_pass << "}\n"
            << "  ],\n"
            << "  \"overall_pass\": " << report.overall_pass << "\n"
            << "}\n";
@@ -634,8 +639,8 @@ int main(int argc, char** argv) {
                   << report.minimum_aligned_retention_ratio
                   << " max_deadzone_drop="
                   << report.maximum_deadzone_crossing_drop
-                  << " opposing_error="
-                  << report.maximum_opposing_native_error
+                  << " opposing_contract_error="
+                  << report.maximum_opposing_contract_error
                   << " result=" << (report.overall_pass ? "GREEN" : "RED")
                   << '\n';
         if (!report.trigger_executed || !report.counterfactuals_valid) {

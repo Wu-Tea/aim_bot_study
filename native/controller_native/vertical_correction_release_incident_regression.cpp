@@ -32,7 +32,7 @@ constexpr controller_native::incident_fixture::TargetSpec kTarget{
 struct IncidentRun {
     bool observed_target_owned = false;
     bool cue_same_target_owned = false;
-    bool cue_aim_only = false;
+    bool cue_ads_authoritative = false;
     bool manual_blocked_during_cue = false;
     bool release_restored_manual = false;
     bool finite_outputs = false;
@@ -60,6 +60,7 @@ struct IncidentReport {
 
 GamepadRuntimeConfig incident_config() {
     auto config = controller_native::incident_fixture::base_config(50.0f, 180.0f);
+    // This fixture owns the retained layered handover/release contract.
     // Keep the short fixture in one acquisition policy. The incident is about
     // desired-point/manual authority and cue release, not ADS-to-BodyLock
     // ownership.
@@ -99,7 +100,7 @@ ControllerVisionSnapshot empty_snapshot(
 IncidentRun run_incident(float manual_y) {
     double now = 100.0;
     NativeGamepadController controller(
-        incident_config(), [&now] { return now; });
+        incident_config(), &now);
     IncidentRun result;
 
     std::uint64_t frame_id = 1;
@@ -131,9 +132,10 @@ IncidentRun run_incident(float manual_y) {
         result.target_id != 0 && cue_plan.target_id == result.target_id &&
         cue_plan.selector_target_generation == kSelectorGeneration &&
         cue_plan.cue_continuation;
-    result.cue_aim_only =
-        cue_plan.aim_authority > 0.0f &&
-        cue_plan.aim_authority <= 0.35f + 1.0e-5f &&
+    result.cue_ads_authoritative =
+        cue_plan.mode == pipeline_contract::ControlMode::AdsAcquire &&
+        cue_plan.ads_acquisition_active &&
+        cue_plan.aim_authority >= 0.999f &&
         !cue_plan.fire_authority && !cue_plan.fire_requested;
     result.manual_blocked_during_cue =
         std::fabs(manual_y) <= 1.0e-6f ||
@@ -167,12 +169,12 @@ IncidentReport evaluate_incident() {
     report.trigger_executed =
         report.neutral.observed_target_owned &&
         report.neutral.cue_same_target_owned &&
-        report.neutral.cue_aim_only &&
+        report.neutral.cue_ads_authoritative &&
         report.neutral.release_restored_manual &&
         report.neutral.finite_outputs &&
         report.manual_down.observed_target_owned &&
         report.manual_down.cue_same_target_owned &&
-        report.manual_down.cue_aim_only &&
+        report.manual_down.cue_ads_authoritative &&
         report.manual_down.release_restored_manual &&
         report.manual_down.finite_outputs;
     report.neutral_counterfactual_valid =
@@ -214,7 +216,8 @@ void write_run(std::ofstream& output, const IncidentRun& run, int indent) {
            << run.observed_target_owned << ",\n"
            << inner << "\"cue_same_target_owned\": "
            << run.cue_same_target_owned << ",\n"
-           << inner << "\"cue_aim_only\": " << run.cue_aim_only << ",\n"
+           << inner << "\"cue_ads_authoritative\": "
+           << run.cue_ads_authoritative << ",\n"
            << inner << "\"manual_blocked_during_cue\": "
            << run.manual_blocked_during_cue << ",\n"
            << inner << "\"release_restored_manual\": "

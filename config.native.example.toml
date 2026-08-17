@@ -113,6 +113,10 @@ activation_range_px = 80
 tolerance_px = 8
 
 [gamepad.ai_aim]
+# Cue-only BodyLock stays conservative for targets no taller than 12% of the
+# capture, blends continuously above that, and reaches full retained authority
+# for close targets at this height ratio.
+cue_hold_full_force_min_target_height_ratio = 0.25
 # Camera/output effect delay used only to pair delivered commands with fresh
 # captures for online response learning. It does not add input latency.
 aim_response_effect_delay_ms = 9
@@ -141,9 +145,8 @@ recognizer_fps = 5
 profile_amount = 1.0
 profile_x_amount = 1.0
 feedback_amount = 0.20
-adaptive_feedback_enabled = true # fresh single-target residual adjusts the fixed fallback
-adaptive_min_amount = 0.14
-adaptive_max_amount = 0.34
+feedback_min_amount = 0.14
+feedback_max_amount = 0.34
 profile_lead_ms = 0.0
 profile_velocity_reference_ms = 10.0
 profile_despike_threshold_px = 2.0

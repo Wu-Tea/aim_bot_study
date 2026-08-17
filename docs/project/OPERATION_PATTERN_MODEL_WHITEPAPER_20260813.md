@@ -83,7 +83,7 @@ else → no_gesture
 | `native/controller_native/operation_intent.cpp` | 判定级联 + 方向一致性 + 信任分 |
 | `native/controller_native/operation_intent_tests.cpp` | 13 个单测 |
 | `native/controller_native/native_gamepad_controller.{h,cpp}` | 集成点：`build_output_from_sampled_input` 内计算分类器，喂给 `apply_recoil` |
-| `native/controller_native/output_mixer.h` | `NativeControllerOutputComponents` 追加 4 个遥测字段 |
+| `native/controller_native/output_diagnostics.h` | `NativeControllerOutputComponents` 追加 4 个遥测字段 |
 | `native/controller_native/runtime_config.{h,cpp}` | 新配置键 `operation_aware_recoil`（默认 `true`） |
 | `native/runtime_app/telemetry_schema.h` | schema v18 + `ControllerSamplePayload` 4 字段 |
 | `native/runtime_app/telemetry_collectors.{h,cpp}` | tick 收集 |

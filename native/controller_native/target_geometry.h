@@ -53,4 +53,8 @@ TargetGeometryResult resolve_target_geometry(
     const TargetGeometryInput& input,
     const TargetGeometryConfig& config) noexcept;
 
+float target_scaled_radius(
+    float base_radius_px,
+    float normalized_target_size) noexcept;
+
 }  // namespace controller_native

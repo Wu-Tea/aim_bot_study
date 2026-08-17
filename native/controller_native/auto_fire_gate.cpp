@@ -112,27 +112,30 @@ AutoFireGateDecision AutoFireGate::evaluate(const AutoFireGateInput& input) {
     return decision;
 }
 
+AutoFireReduction AutoFireGate::reduce(
+    const AutoFireGateInput& input,
+    pipeline_contract::ControllerTickId controller_tick,
+    pipeline_contract::EventSequence command_sequence,
+    pipeline_contract::EventSequence cause_event) {
+    AutoFireReduction result{};
+    result.decision = evaluate(input);
+    if (!result.decision.should_fire) return result;
+    result.command.header.controller_tick = controller_tick;
+    result.command.header.sequence = command_sequence;
+    result.command.header.cause_event = cause_event;
+    result.command.synthetic_active = true;
+    result.command.synthetic_rb = auto_fire_config_.fire_output != "RT";
+    result.command.synthetic_right_trigger =
+        result.command.synthetic_rb ? 0.0f : 1.0f;
+    return result;
+}
+
 NativeAutoFireCounters AutoFireGate::counters() const {
     return counters_;
 }
 
 bool AutoFireGate::active() const {
     return auto_fire_was_active_;
-}
-
-void AutoFireGate::apply_fire_output(
-    GamepadOutputState& output,
-    bool should_fire) const {
-    // This method may add synthetic fire but must never clear physical fire
-    // already present in the output state.
-    if (!should_fire) {
-        return;
-    }
-    if (auto_fire_config_.fire_output == "RT") {
-        output.right_trigger = 1.0f;
-        return;
-    }
-    output.rb = true;
 }
 
 bool AutoFireGate::aim_ready_for_input(const AutoFireGateInput& input) {

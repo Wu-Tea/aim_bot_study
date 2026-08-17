@@ -46,10 +46,16 @@ struct AssistControlStateMachineInput {
     bool firing = false;
     // Physical stick uses XInput coordinates: positive Y is up-stick.
     pipeline_contract::Vec2f manual_stick{};
-    // Filtered manual remains the noise-owned signal used by upstream intent
-    // and desired-point interpretation. Final arbitration deliberately uses
-    // the physical 2-D gesture: a per-axis filter transition must not change
-    // authority while the raw gesture is still present.
+    // Bias-centered raw stick is the continuous intent proposal used by final
+    // arbitration. Unlike filtered_manual_stick it becomes visible before a
+    // deadzone crossing, but unlike the physical stick it does not grant a
+    // stable calibrated neutral offset opposing authority. Older focused
+    // fixtures may omit it and retain the physical-stick fallback.
+    pipeline_contract::Vec2f centered_manual_stick{};
+    bool centered_manual_available = false;
+    // Filtered manual remains the discrete noise-owned signal used by upstream
+    // purpose, desired-point and lifecycle interpretation. It is diagnostic
+    // here; final authority must not jump when this field crosses zero.
     pipeline_contract::Vec2f filtered_manual_stick{};
     // AI-only output is the desired total proposal for the per-axis T-M solve.
     pipeline_contract::Vec2f ai_stick{};
@@ -158,10 +164,14 @@ public:
 
         if (phase_ == AssistControlPhase::Capture) {
             const auto manual = finite_or_zero(input.manual_stick);
+            const auto intent_manual = input.centered_manual_available
+                ? finite_or_zero(input.centered_manual_stick)
+                : manual;
             const auto ai = finite_or_zero(input.ai_stick);
             output.manual_correction_x = input.manual_correction_x;
             output.manual_correction_y = input.manual_correction_y;
-            output.stick = cooperative_output(input, manual, ai);
+            output.stick = cooperative_output(
+                input, manual, intent_manual, ai);
             output.manual_passthrough_x =
                 std::fabs(output.stick.x - manual.x) <= 1.0e-6f;
             output.manual_passthrough_y =
@@ -211,17 +221,23 @@ public:
         }
 
         const auto manual = finite_or_zero(input.manual_stick);
+        const auto intent_manual = input.centered_manual_available
+            ? finite_or_zero(input.centered_manual_stick)
+            : manual;
         const auto ai = finite_or_zero(input.ai_stick);
         // Position error may be near zero while target-relative motion still
         // requires feed-forward. Keep that shaped proposal authoritative until
         // it becomes materially idle instead of releasing on a 1 px crossing.
         output.manual_correction_x = input.manual_correction_x;
         output.manual_correction_y = input.manual_correction_y;
-        // M is always the native baseline. A is a desired total proposal, so
-        // each axis fills only what is missing. Axis-local arbitration is
-        // intentional: a helpful horizontal correction may not spend the
-        // user's downward recoil authority on the vertical axis.
-        output.stick = cooperative_output(input, manual, ai);
+        // Physical M remains passthrough when there is no material target
+        // proposal. While a target proposal exists, bias-centered M is the
+        // continuous intent evidence used by the one target-first solve; the
+        // calibrated neutral offset is not a protected output contribution.
+        // Axis-local arbitration is intentional: a helpful horizontal
+        // correction may not spend downward/recoil authority on Y.
+        output.stick = cooperative_output(
+            input, manual, intent_manual, ai);
         output.manual_passthrough_x =
             std::fabs(output.stick.x - manual.x) <= 1.0e-6f;
         output.manual_passthrough_y =
@@ -259,9 +275,12 @@ private:
     pipeline_contract::Vec2f cooperative_output(
         const AssistControlStateMachineInput& input,
         pipeline_contract::Vec2f manual,
+        pipeline_contract::Vec2f intent_manual,
         pipeline_contract::Vec2f ai) const noexcept {
         const float material = std::max(
             0.0f, config_.material_ai_axis_output);
+        const float target_settle_radius = std::max(
+            1.0f, config_.capture_settle_radius_px);
 
         const auto smoothstep = [](float value) noexcept {
             const float t = std::clamp(value, 0.0f, 1.0f);
@@ -284,26 +303,57 @@ private:
         };
 
         // A deliberate single-axis pull must eventually hand back to AI when
-        // physically released, but that handback is continuous and follows raw
-        // magnitude rather than the filtered deadzone crossing.
+        // physically released. The handback follows bias-centered motion, so
+        // it is continuous across the filtered deadzone without treating a
+        // calibrated static offset as a held gesture.
         const auto release_weight = [&smoothstep](float axis) noexcept {
-            constexpr float kRawReleaseBand = 0.02f;
-            return 1.0f - smoothstep(std::fabs(axis) / kRawReleaseBand);
+            constexpr float kCenteredIntentReleaseBand = 0.02f;
+            return 1.0f - smoothstep(
+                std::fabs(axis) / kCenteredIntentReleaseBand);
         };
 
-        const auto solve_axis = [&input, material](
+        const auto solve_axis = [
+            &input, material, target_settle_radius, &smoothstep](
             float native_axis,
-            float orthogonal_native_axis,
+            float intent_axis,
+            float orthogonal_intent_axis,
             float desired_axis,
             bool vertical,
             const auto& coupling,
             const auto& release) noexcept {
+            // Down-stick while firing is a separate recoil/user authority. It
+            // must remain independent of target positioning on Y; ADS may
+            // still own X and every non-downward axis in the same tick.
+            if (input.mode == pipeline_contract::ControlMode::AdsAcquire &&
+                vertical && input.firing && intent_axis < 0.0f &&
+                input.filtered_manual_stick.y < -material) {
+                return native_axis;
+            }
+            // ADS is the positioning owner after target admission. The target
+            // controller already publishes the desired total T, so blending a
+            // gesture that predates ownership back into T can stop or reverse
+            // the snap. An explicit exit is handled before this solve; absent
+            // that event, both moving and braking axes follow the target.
+            const bool intentional_d = vertical
+                ? input.manual_correction_y
+                : input.manual_correction_x;
+            if (input.mode == pipeline_contract::ControlMode::AdsAcquire) {
+                if (std::isfinite(desired_axis) &&
+                    std::fabs(desired_axis) > material) {
+                    return std::clamp(desired_axis, -1.0f, 1.0f);
+                }
+                // An owned D correction is a semantic target edit, not stale
+                // carry-in. If the target solver has no material work on that
+                // axis yet, let the correction move the camera toward the new
+                // D; unclassified/carry-in motion is still actively braked.
+                return intentional_d ? native_axis : 0.0f;
+            }
             if (!std::isfinite(desired_axis) ||
                 std::fabs(desired_axis) <= material) {
                 return native_axis;
             }
 
-            const bool compatible = native_axis * desired_axis > 0.0f;
+            const bool compatible = intent_axis * desired_axis > 0.0f;
             if (compatible) {
                 // AI is the desired total T, not another stick to add on top
                 // of M. Correct manual contribution therefore reduces the
@@ -322,7 +372,7 @@ private:
             // it only from clear current evidence.
             constexpr float kOrdinaryOpposingDamping = 0.35f;
             constexpr float kDownwardOpposingDamping = 0.10f;
-            const bool downward = vertical && native_axis < 0.0f;
+            const bool downward = vertical && intent_axis < 0.0f;
             float damping_ratio = downward
                 ? kDownwardOpposingDamping
                 : kOrdinaryOpposingDamping;
@@ -334,13 +384,17 @@ private:
                     (input.visual_authority - 0.65f) / 0.35f,
                     0.0f,
                     1.0f);
-            const float native_magnitude = std::fabs(native_axis);
+            // Retain only calibrated user motion, never the learned neutral
+            // offset embedded in the physical XInput value. This is the
+            // distinction between an intentional opposing proposal and the
+            // schema-18 filtered-neutral drift incident.
+            const float native_magnitude = std::fabs(intent_axis);
             const float damping = std::min(
                 native_magnitude * damping_ratio * evidence,
                 std::fabs(desired_axis));
             const float retained = std::max(0.0f, native_magnitude - damping);
             const float retained_axis = native_magnitude > 0.0f
-                ? std::copysign(retained, native_axis)
+                ? std::copysign(retained, intent_axis)
                 : 0.0f;
 
             // Down-stick remains a protected vertical request. It still hands
@@ -348,22 +402,44 @@ private:
             // filtered-zero cliff without spending recoil/downward authority.
             const float coupled = downward
                 ? 0.0f
-                : coupling(native_axis, orthogonal_native_axis) * evidence;
-            const float released = release(native_axis);
+                : coupling(intent_axis, orthogonal_intent_axis) * evidence;
+            const float released = release(intent_axis);
             const float target_weight = released + (1.0f - released) * coupled;
-            return std::clamp(
+            const float cooperative = std::clamp(
                 retained_axis +
                     (desired_axis - retained_axis) * target_weight,
+                -1.0f,
+                1.0f);
+            // Once a fresh BodyLock observation says the target lies in the
+            // AI proposal's direction, retaining old opposing manual work is
+            // a response delay, not cooperation. D corrections and explicit
+            // exits have already been interpreted upstream. Use the existing
+            // settle radius as a continuous position-ownership envelope so
+            // the target takes over quickly outside center without creating a
+            // new distance/magnitude gate or strengthening cue-only control.
+            const float control_error = vertical
+                ? -input.target_error_px.y
+                : input.target_error_px.x;
+            const bool fresh_position_owner = input.fresh_observation &&
+                !input.cue_continuation && !intentional_d &&
+                std::isfinite(control_error) &&
+                desired_axis * control_error > 0.0f;
+            if (!fresh_position_owner) return cooperative;
+            const float position_weight = smoothstep(
+                std::fabs(control_error) / target_settle_radius) * evidence;
+            return std::clamp(
+                cooperative +
+                    (desired_axis - cooperative) * position_weight,
                 -1.0f,
                 1.0f);
         };
 
         return finite_or_zero({
             solve_axis(
-                manual.x, manual.y, ai.x, false,
+                manual.x, intent_manual.x, intent_manual.y, ai.x, false,
                 coupling_weight, release_weight),
             solve_axis(
-                manual.y, manual.x, ai.y, true,
+                manual.y, intent_manual.y, intent_manual.x, ai.y, true,
                 coupling_weight, release_weight),
         });
     }

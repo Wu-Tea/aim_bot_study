@@ -118,12 +118,11 @@ ScenarioResult run_scenario(
     config.ai_aim.body_lock_activation_box_px = 150.0f;
     config.ai_aim.visual_authority_enabled = true;
     config.recoil.enabled = false;
-    config.recoil.adaptive_feedback_enabled = false;
     config.recoil.profile_playback_enabled = false;
 
     double now_seconds = 0.0;
     NativeGamepadController controller(
-        config, [&now_seconds] { return now_seconds; });
+        config, &now_seconds);
     const auto physical = controller_native::incident_fixture::ads_input();
 
     TargetSpec target;

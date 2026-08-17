@@ -1,41 +1,74 @@
 #pragma once
 
 #include "ads_acquisition_controller.h"
-#include "adaptive_recoil_feedback.h"
+#include "ads_reacquisition_reducer.h"
 #include "aim_response_estimator.h"
-#include "aim_activation.h"
+#include "aim_scope_reducer.h"
 #include "aim_dynamics_shaper.h"
 #include "assist_control_state_machine.h"
 #include "auto_fire_gate.h"
 #include "bodylock_follow_controller.h"
-#include "controller_pipeline.h"
+#include "control_frame.h"
 #include "controller_vision_snapshot.h"
 #include "intent_filter.h"
 #include "operation_intent.h"
-#include "output_mixer.h"
+#include "output_diagnostics.h"
+#include "recoil_reducer.h"
 #include "runtime_config.h"
 #include "target_coordinator.h"
 #include "virtual_gamepad.h"
 #include "xinput_reader.h"
 
-#include "../recoil_native/recoil_compensation.h"
-
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <string>
-#include <vector>
+#include <string_view>
 
 namespace controller_native {
 
 struct NativeControllerStageTrace {
-    std::string stage_name;
+    std::string_view stage_name;
     float before_right_y = 0.0f;
     float after_right_y = 0.0f;
     float delta_right_y = 0.0f;
     bool before_auto_fire_active = false;
     bool after_auto_fire_active = false;
+};
+
+class NativeControllerStageTraceBuffer {
+public:
+    static constexpr std::size_t kCapacity = 4;
+
+    void clear() noexcept {
+        size_ = 0;
+        overflowed_ = false;
+    }
+    bool push_back(const NativeControllerStageTrace& trace) noexcept {
+        if (size_ >= traces_.size()) {
+            overflowed_ = true;
+            return false;
+        }
+        traces_[size_++] = trace;
+        return true;
+    }
+    const NativeControllerStageTrace* begin() const noexcept {
+        return traces_.data();
+    }
+    const NativeControllerStageTrace* end() const noexcept {
+        return traces_.data() + size_;
+    }
+    const NativeControllerStageTrace& operator[](
+        std::size_t index) const noexcept {
+        return traces_[index];
+    }
+    std::size_t size() const noexcept { return size_; }
+    bool overflowed() const noexcept { return overflowed_; }
+
+private:
+    std::array<NativeControllerStageTrace, kCapacity> traces_{};
+    std::size_t size_ = 0;
+    bool overflowed_ = false;
 };
 
 // Fixed-size controller-side aggregate for one accepted source frame.  It is
@@ -90,24 +123,35 @@ struct NativeControllerAcquisitionTrace {
     pipeline_contract::Vec2f first_fused_output{};
 };
 
+struct NativeControlTickPreparation {
+    std::uint64_t tick_id = 0;
+    double now_seconds = 0.0;
+    float dt_seconds = 0.001f;
+    AimScopeSnapshot scope{};
+    pipeline_contract::IntentState intent{};
+    pipeline_contract::EventSequence input_cause{};
+    bool acquisition_rearmed = false;
+};
+
 class NativeGamepadController {
 public:
     explicit NativeGamepadController(
         GamepadRuntimeConfig config = {},
-        std::function<double()> clock = {});
+        const double* injected_clock_seconds = nullptr);
 
     void reset();
     void submit_vision_snapshot(const ControllerVisionSnapshot& snapshot);
-    const pipeline_contract::IntentState& sample_input(
-        const PhysicalGamepadState& physical);
-    const pipeline_contract::IntentState& sample_input(
+    const NativeControlTickPreparation& begin_tick(
         const PhysicalGamepadState& physical,
-        bool external_aim_request,
-        bool force_acquisition_rearm);
+        std::uint64_t tick_id = 0);
+    ControlFrame resolve_control_frame();
+    void observe_composed_output(const GamepadOutputState& output);
+    // Compatibility facade for replay and focused controller tests. It uses
+    // the same ControlFrame -> OutputComposer path as RuntimeLoop.
     GamepadOutputState build_output_from_sampled_input();
     GamepadOutputState build_output(const PhysicalGamepadState& physical);
     NativeAutoFireCounters auto_fire_counters() const;
-    const std::vector<NativeControllerStageTrace>& last_pipeline_traces() const;
+    const NativeControllerStageTraceBuffer& last_pipeline_traces() const;
     const NativeControllerAcquisitionTrace& last_acquisition_trace() const noexcept;
     const NativeControllerOutputComponents& last_output_components() const;
     const NativeControllerVisionState& last_frame_vision_state() const;
@@ -124,19 +168,10 @@ private:
         bool capture_fresh,
         pipeline_contract::Vec2f observed_error_px) const;
     bool manual_fire_pressed(const PhysicalGamepadState& physical) const noexcept;
-    void apply_recoil(
-        GamepadOutputState& output,
-        const PhysicalGamepadState& physical,
-        const pipeline_contract::TargetPlan& plan,
-        pipeline_contract::Vec2f observed_error_px,
-        bool capture_fresh,
-        bool aiming,
-        bool auto_fire_active,
-        double now_seconds);
     void record_stage_trace(
-        const std::string& stage_name,
+        std::string_view stage_name,
         float before_right_y,
-        const GamepadOutputState& output,
+        float after_right_y,
         bool before_auto_fire_active,
         bool after_auto_fire_active);
     void record_aim_response_command(
@@ -168,18 +203,18 @@ private:
     TargetCoordinator target_coordinator_{};
     AimResponseEstimator aim_response_estimator_{};
     AdsAcquisitionController ads_controller_{};
+    AdsReacquisitionReducer ads_reacquisition_reducer_{};
     BodylockFollowController bodylock_controller_{};
     AimDynamicsShaper dynamics_shaper_{};
     AssistControlStateMachine assist_control_state_machine_{};
-    recoil_native::RecoilCompensationPolicy recoil_;
-    AdaptiveRecoilFeedback adaptive_recoil_feedback_;
-    AimActivationTracker aim_activation_tracker_{};
+    RecoilReducer recoil_;
+    InputEdgeReducer input_edge_reducer_{};
+    AimScopeReducer aim_scope_reducer_{};
     AutoFireGate auto_fire_gate_;
     ControllerVisionSnapshot pending_snapshot_{};
     bool has_pending_snapshot_ = false;
     bool physical_aiming_ = false;
     bool aiming_ = false;
-    bool previous_aiming_ = false;
     double last_firing_activity_seconds_ = -1.0;
     std::uint64_t ads_epoch_ = 0;
     double last_tick_seconds_ = 0.0;
@@ -195,17 +230,22 @@ private:
     bool has_last_aim_response_observation_ = false;
     PhysicalGamepadState sampled_physical_{};
     pipeline_contract::IntentState sampled_intent_{};
+    NativeControlTickPreparation last_tick_preparation_{};
     double sampled_now_seconds_ = 0.0;
     float sampled_dt_seconds_ = 0.001f;
     bool has_sampled_input_ = false;
-    std::vector<NativeControllerStageTrace> last_pipeline_traces_;
+    std::uint64_t next_controller_tick_id_ = 1;
+    std::uint64_t next_command_sequence_ = 1;
+    bool composed_output_pending_ = false;
+    bool pending_auto_fire_active_ = false;
+    NativeControllerStageTraceBuffer last_pipeline_traces_{};
     NativeControllerAcquisitionTrace last_acquisition_trace_{};
     std::uint64_t acquisition_trace_target_id_ = 0;
     NativeControllerOutputComponents last_output_components_{};
     NativeControllerVisionState last_frame_vision_state_{};
     pipeline_contract::TargetPlan last_target_plan_{};
     std::string last_ai_aim_mode_ = "manual";
-    std::function<double()> clock_;
+    const double* injected_clock_seconds_ = nullptr;
 };
 
 }  // namespace controller_native

@@ -6,7 +6,6 @@
 #include "vision_native/types.h"
 
 #include <filesystem>
-#include <vector>
 
 namespace runtime_app {
 
@@ -26,7 +25,7 @@ public:
     bool record_if_triggered(
         const controller_native::PhysicalGamepadState& physical,
         const controller_native::GamepadOutputState& output,
-        const std::vector<controller_native::NativeControllerStageTrace>& traces,
+        const controller_native::NativeControllerStageTraceBuffer& traces,
         const vision_native::VisionResult* latest_result,
         bool is_aiming) const;
 

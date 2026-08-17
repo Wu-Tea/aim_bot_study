@@ -134,10 +134,14 @@ add_library(controller_native_core STATIC
     ../controller_native/recoil_compensation.cpp
     ../recoil_native/recoil_compensation.cpp
     ../recoil_native/recoil_visual_model.cpp
-    ../controller_native/output_mixer.cpp
-    ../controller_native/controller_pipeline.cpp
+    ../controller_native/output_diagnostics.cpp
+    ../controller_native/output_composer.cpp
     ../controller_native/native_gamepad_controller.cpp
     ../controller_native/target_geometry.cpp
+    ../controller_native/target_state_reducers.cpp
+    ../controller_native/ads_lifecycle_reducer.cpp
+    ../controller_native/ads_reacquisition_reducer.cpp
+    ../controller_native/recoil_reducer.cpp
     ../controller_native/intent_filter.cpp
     ../controller_native/operation_intent.cpp
     ../controller_native/target_coordinator.cpp
@@ -162,6 +166,11 @@ execute_process(
 if(NOT COD_BUILD_COMMIT)
     set(COD_BUILD_COMMIT "unknown")
 endif()
+
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/../control_contract/architecture.json"
+    COD_CONTROL_ARCHITECTURE_CONTRACT)
+string(SHA256 COD_CONTROL_CONTRACT_HASH
+    "${COD_CONTROL_ARCHITECTURE_CONTRACT}")
 
 add_executable(cod_native_runtime
     ../runtime_app/main.cpp
@@ -193,6 +202,9 @@ add_executable(cod_native_runtime
 cod_native_defaults(cod_native_runtime)
 target_compile_definitions(cod_native_runtime PRIVATE
     COD_BUILD_COMMIT="${COD_BUILD_COMMIT}"
+    COD_CONTROL_CONTRACT_HASH="${COD_CONTROL_CONTRACT_HASH}"
+    COD_CONTROL_ARCHITECTURE_VERSION=3
+    COD_CONTROL_EVENT_SCHEMA_VERSION=2
     $<$<BOOL:${NATIVE_ENABLE_VIGEM}>:NATIVE_ENABLE_VIGEM>)
 target_link_libraries(cod_native_runtime PRIVATE
     vision_native_core
@@ -316,15 +328,21 @@ cod_native_add_test(cod_native_committed_capture_observation_tests CommittedCapt
 target_link_libraries(cod_native_committed_capture_observation_tests PRIVATE controller_native_core)
 
 foreach(_unit IN ITEMS
+    input_edge_reducer
+    aim_scope_reducer
     intent_filter
     operation_intent
     target_coordinator
+    ads_lifecycle_reducer
+    ads_reacquisition_reducer
     ads_acquisition_controller
     bodylock_follow_controller
     aim_dynamics_shaper
     aim_response_estimator
     response_model_aim_solver
     target_geometry
+    target_state_reducers
+    recoil_reducer
     auto_fire_gate)
     string(REPLACE "_" "" _unit_compact "${_unit}")
     set(_target "cod_native_${_unit}_tests")
@@ -333,6 +351,13 @@ foreach(_unit IN ITEMS
     target_link_libraries(${_target} PRIVATE controller_native_core)
     add_test(NAME "Native${_unit_compact}Tests" COMMAND ${_target})
 endforeach()
+
+cod_native_add_test(
+    cod_native_control_pipeline_primitives_tests
+    ControlPipelinePrimitivesTests
+    ../controller_native/control_pipeline_primitives_tests.cpp)
+target_link_libraries(
+    cod_native_control_pipeline_primitives_tests PRIVATE controller_native_core)
 
 cod_native_add_test(cod_native_recoil_contract_tests NativeRecoilContractTests
     ../controller_native/recoil_contract_tests.cpp)
@@ -371,8 +396,8 @@ set_tests_properties(
     PROPERTIES LABELS "controller;incident-regression")
 
 # Live schema-15 incident fixture: same-direction micro input must retain
-# bounded AI fill while opposing input keeps dominant, non-reversing native
-# authority. The ADS product contract permits only a small bounded correction.
+# target assistance and move D continuously. Opposing output is mode-specific:
+# target-first in ADS, cooperative manual authority in BodyLock.
 add_executable(cod_native_manual_residual_authority_incident_regression
     ../controller_native/manual_residual_authority_incident_regression.cpp)
 cod_native_defaults(cod_native_manual_residual_authority_incident_regression)
@@ -408,6 +433,44 @@ set_tests_properties(
     NativeManualAiArbitrationContinuityIncidentRegression
     PROPERTIES LABELS "controller;incident-regression")
 
+# Live schema-18 incident fixture: a stable physical right-stick offset that
+# the production IntentFilter has classified as neutral must not veto a
+# material opposing AI correction. A deliberate large movement in the same
+# direction remains a counterfactual manual-ownership gate.
+add_executable(cod_native_neutral_drift_arbitration_incident_regression
+    ../controller_native/neutral_drift_arbitration_incident_regression.cpp)
+cod_native_defaults(cod_native_neutral_drift_arbitration_incident_regression)
+target_link_libraries(
+    cod_native_neutral_drift_arbitration_incident_regression PRIVATE
+    controller_native_core)
+add_test(
+    NAME NativeNeutralDriftArbitrationIncidentRegression
+    COMMAND cod_native_neutral_drift_arbitration_incident_regression
+        --output
+        "${CMAKE_CURRENT_BINARY_DIR}/neutral_drift_arbitration_incident_ctest.json")
+set_tests_properties(
+    NativeNeutralDriftArbitrationIncidentRegression
+    PROPERTIES LABELS "controller;incident-regression")
+
+# Live schema-18 incident fixture: a brief close-target person-box dropout
+# retains the same target through current marker evidence, but the BodyLock
+# correction fell to the generic cue-hold fraction. The fixed fixture keeps
+# far/small cue continuation conservative while close X/Y authority is stable.
+add_executable(cod_native_close_cue_hold_authority_incident_regression
+    ../controller_native/close_cue_hold_authority_incident_regression.cpp)
+cod_native_defaults(cod_native_close_cue_hold_authority_incident_regression)
+target_link_libraries(
+    cod_native_close_cue_hold_authority_incident_regression PRIVATE
+    controller_native_core)
+add_test(
+    NAME NativeCloseCueHoldAuthorityIncidentRegression
+    COMMAND cod_native_close_cue_hold_authority_incident_regression
+        --output
+        "${CMAKE_CURRENT_BINARY_DIR}/close_cue_hold_authority_incident_ctest.json")
+set_tests_properties(
+    NativeCloseCueHoldAuthorityIncidentRegression
+    PROPERTIES LABELS "controller;incident-regression")
+
 # Live schema-15 incident fixture: a right-stick gesture that began before
 # target ownership must not rewrite D on the first acquired target sample.
 add_executable(cod_native_acquisition_gesture_purpose_incident_regression
@@ -423,6 +486,43 @@ add_test(
         "${CMAKE_CURRENT_BINARY_DIR}/acquisition_gesture_purpose_incident_ctest.json")
 set_tests_properties(
     NativeAcquisitionGesturePurposeIncidentRegression
+    PROPERTIES LABELS "controller;incident-regression")
+
+# Live schema-18 ADS core incident: a gesture that predates target ownership
+# must not dilute the accepted target proposal, and watchdog/crossing evidence
+# must not masquerade as a settled handoff to BodyLock. Brief same-generation
+# source gaps pause output and resume the same acquisition within the age gate.
+add_executable(cod_native_ads_snap_core_contract_incident_regression
+    ../controller_native/ads_snap_core_contract_incident_regression.cpp)
+cod_native_defaults(cod_native_ads_snap_core_contract_incident_regression)
+target_link_libraries(
+    cod_native_ads_snap_core_contract_incident_regression PRIVATE
+    controller_native_core)
+add_test(
+    NAME NativeAdsSnapCoreContractIncidentRegression
+    COMMAND cod_native_ads_snap_core_contract_incident_regression
+        --output
+        "${CMAKE_CURRENT_BINARY_DIR}/ads_snap_core_contract_incident_ctest.json")
+set_tests_properties(
+    NativeAdsSnapCoreContractIncidentRegression
+    PROPERTIES LABELS "controller;incident-regression")
+
+# Live schema-18 incident owner: an initial physical LT edge must begin ADS
+# acquisition even when Vision selected the person one frame before the edge.
+add_executable(cod_native_ads_initial_scope_existing_target_incident_regression
+    ../controller_native/ads_initial_scope_existing_target_incident_regression.cpp)
+cod_native_defaults(
+    cod_native_ads_initial_scope_existing_target_incident_regression)
+target_link_libraries(
+    cod_native_ads_initial_scope_existing_target_incident_regression PRIVATE
+    controller_native_core)
+add_test(
+    NAME NativeAdsInitialScopeExistingTargetIncidentRegression
+    COMMAND cod_native_ads_initial_scope_existing_target_incident_regression
+        --output
+        "${CMAKE_CURRENT_BINARY_DIR}/ads_initial_scope_existing_target_incident_ctest.json")
+set_tests_properties(
+    NativeAdsInitialScopeExistingTargetIncidentRegression
     PROPERTIES LABELS "controller;incident-regression")
 
 # Incident fixture: a person already selected by Vision must not be rejected
@@ -443,9 +543,8 @@ set_tests_properties(
     PROPERTIES LABELS "controller;incident-regression")
 
 # Native incident contract derived from the 2026-08-12 gameplay/video report:
-# ADS authority is evidence-invariant after admission, downward fire input is
-# never opposed, and AI may still supply bounded correction instead of yielding
-# merely because the right stick is active.
+# ADS authority is evidence-invariant and target-first after admission,
+# downward fire input stays independent, and BodyLock remains cooperative.
 add_executable(cod_native_controller_product_contract_incident_regression
     ../controller_native/controller_product_contract_incident_regression.cpp)
 cod_native_defaults(cod_native_controller_product_contract_incident_regression)
@@ -479,6 +578,77 @@ set_tests_properties(
     NativeBodylockHighFrequencyIncidentRegression
     PROPERTIES LABELS "controller;incident-regression")
 
+# Permanent owners for the user-confirmed 2026-08-17 hybrid ADS contract.
+add_executable(cod_native_ads_single_press_token_incident_regression
+    ../controller_native/ads_single_press_token_incident_regression.cpp)
+cod_native_defaults(cod_native_ads_single_press_token_incident_regression)
+target_link_libraries(
+    cod_native_ads_single_press_token_incident_regression PRIVATE
+    controller_native_core)
+add_test(
+    NAME NativeAdsSinglePressTokenIncidentRegression
+    COMMAND cod_native_ads_single_press_token_incident_regression
+        --output
+        "${CMAKE_CURRENT_BINARY_DIR}/ads_single_press_token_incident_ctest.json")
+set_tests_properties(
+    NativeAdsSinglePressTokenIncidentRegression
+    PROPERTIES LABELS "controller;incident-regression")
+
+# Permanent owner for the 2026-08-17 ADS late-exit incident. A meaningful radial
+# center crossing must consume the one-per-LT snap and hand off to BodyLock;
+# same-direction, orthogonal, and deadzone motion remain in ADS.
+add_executable(cod_native_ads_center_cross_late_exit_incident_regression
+    ../controller_native/ads_center_cross_late_exit_incident_regression.cpp)
+cod_native_defaults(
+    cod_native_ads_center_cross_late_exit_incident_regression)
+target_link_libraries(
+    cod_native_ads_center_cross_late_exit_incident_regression PRIVATE
+    controller_native_core)
+add_test(
+    NAME NativeAdsCenterCrossLateExitIncidentRegression
+    COMMAND cod_native_ads_center_cross_late_exit_incident_regression
+        --output
+        "${CMAKE_CURRENT_BINARY_DIR}/ads_center_cross_late_exit_incident_ctest.json")
+set_tests_properties(
+    NativeAdsCenterCrossLateExitIncidentRegression
+    PROPERTIES LABELS "controller;incident-regression")
+
+# Schema-18 BodyLock axis-conflict incident: an orthogonal same-direction term
+# must not hide a position/motion reversal on the affected axis.
+add_executable(cod_native_bodylock_position_motion_conflict_incident_regression
+    ../controller_native/bodylock_position_motion_conflict_incident_regression.cpp)
+cod_native_defaults(
+    cod_native_bodylock_position_motion_conflict_incident_regression)
+target_link_libraries(
+    cod_native_bodylock_position_motion_conflict_incident_regression PRIVATE
+    controller_native_core)
+add_test(
+    NAME NativeBodylockPositionMotionConflictIncidentRegression
+    COMMAND cod_native_bodylock_position_motion_conflict_incident_regression
+        --output
+        "${CMAKE_CURRENT_BINARY_DIR}/bodylock_position_motion_conflict_incident_ctest.json")
+set_tests_properties(
+    NativeBodylockPositionMotionConflictIncidentRegression
+    PROPERTIES LABELS "controller;incident-regression")
+
+# The target solver has already changed to the current BodyLock direction, but
+# final arbitration must not retain stale opposing manual work for 14-27 ms.
+add_executable(cod_native_bodylock_target_direction_latency_incident_regression
+    ../controller_native/bodylock_target_direction_latency_incident_regression.cpp)
+cod_native_defaults(
+    cod_native_bodylock_target_direction_latency_incident_regression)
+target_link_libraries(
+    cod_native_bodylock_target_direction_latency_incident_regression PRIVATE
+    controller_native_core)
+add_test(
+    NAME NativeBodylockTargetDirectionLatencyIncidentRegression
+    COMMAND cod_native_bodylock_target_direction_latency_incident_regression
+        --output
+        "${CMAKE_CURRENT_BINARY_DIR}/bodylock_target_direction_latency_incident_ctest.json")
+set_tests_properties(
+    NativeBodylockTargetDirectionLatencyIncidentRegression
+    PROPERTIES LABELS "controller;incident-regression")
+
 cod_native_add_test(cod_native_aimlab_benchmark_tests NativeAimlabBenchmarkTests
     ../controller_native/aimlab_benchmark_tests.cpp
     ../controller_native/aimlab_benchmark.cpp)
@@ -500,6 +670,8 @@ cod_native_add_test(cod_native_sustained_aimlab_trace_tests NativeSustainedAimla
     ../controller_native/sustained_aimlab_scenario.cpp)
 cod_native_add_test(cod_native_benchmark_physical_input_tests NativeBenchmarkPhysicalInputTests
     ../controller_native/native_benchmark_physical_input_tests.cpp)
+cod_native_add_test(cod_native_pid_benchmark_controller_tests NativePidBenchmarkControllerTests
+    ../controller_native/pid_benchmark_controller_tests.cpp)
 add_executable(cod_native_aimlab_benchmark
     ../controller_native/cod_native_aimlab_benchmark.cpp
     ../controller_native/aimlab_benchmark.cpp)

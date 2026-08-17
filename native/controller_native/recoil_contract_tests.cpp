@@ -285,6 +285,29 @@ void test_recoil_fallback_feedback_is_constant_linear_down_pull() {
     }
 }
 
+void test_recoil_fallback_is_clamped_to_product_range() {
+    controller_native::GamepadRecoilConfig config;
+    config.profile_playback_enabled = false;
+    controller_native::NativeRecoilInput input;
+    input.fire_active = true;
+
+    config.feedback_amount = 0.0f;
+    controller_native::NativeRecoilCompensation lower(config);
+    require_near(
+        lower.compute(input).right_y_delta,
+        -0.14f,
+        0.0001f,
+        "fallback recoil fell below the 0.14 product floor");
+
+    config.feedback_amount = 1.0f;
+    controller_native::NativeRecoilCompensation upper(config);
+    require_near(
+        upper.compute(input).right_y_delta,
+        -0.34f,
+        0.0001f,
+        "fallback recoil exceeded the 0.34 product ceiling");
+}
+
 void test_disabled_profile_playback_forces_default_down_pull() {
     controller_native::GamepadRecoilConfig config;
     config.profile_playback_enabled = false;
@@ -509,6 +532,7 @@ int main() {
         test_recoil_input_contract_excludes_target_feedback_fields();
         test_recoil_profile_playback_is_deterministic_without_controller_state();
         test_recoil_fallback_feedback_is_constant_linear_down_pull();
+        test_recoil_fallback_is_clamped_to_product_range();
         test_disabled_profile_playback_forces_default_down_pull();
         test_recoil_timeline_outputs_delta_while_fire_active();
         test_recoil_uncalibrated_y_uses_velocity_scaled_sample_delta();

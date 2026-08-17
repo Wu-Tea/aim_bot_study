@@ -1,4 +1,4 @@
-#include "controller_native/output_mixer.h"
+#include "controller_native/output_diagnostics.h"
 #include "../replay_native/replay_metrics.h"
 #include "../replay_native/replay_schema.h"
 #include "../runtime_app/perf_logger.h"

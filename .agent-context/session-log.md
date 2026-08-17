@@ -300,3 +300,165 @@ One owner per lifecycle, mode transition, shaping state and final fusion decisio
   (default/current 1000 ms); LT requests are unaffected. Focused gesture and
   config parsing tests pass. Standard Release SHA-256 is
   `51F1A3ACDD204D1BA064DFA873A64CAB9DBA2C92E76BB849252BDDB5B1071861`.
+
+## 2026-08-16 - Benchmark and Redundancy Audit Recorded
+
+- Goal: review whether the current benchmark inventory contains duplicate or
+  obsolete evidence, and identify unused code or repeated infrastructure. This
+  was a read-only audit; no production source, benchmark or build output changed.
+- Verified: `cod_native_aimlab_benchmark` mostly scores preconstructed outputs
+  instead of executing the production controller and prints PASS without a
+  quality threshold. Two named selector-intent scenarios map to the same path.
+  It should not be treated as current production-controller evidence.
+- Verified: Sustained AimLab does execute `NativeGamepadController` through the
+  production adapter, but its PASS is harness/smoke-level rather than a gameplay
+  quality oracle. Incident regressions remain the appropriate hard gates.
+- Verified: the CTest left-strafe `off` cohort is repeated inside the `both`
+  cohort. Prefer separate `off` and `full-reversal` tests for equal coverage and
+  clearer attribution.
+- Verified: maintained benchmark documentation and several PowerShell runners
+  still reference removed targets, old build directories, retired CLI options
+  or old report fields. The native production contract runner and current pulse
+  smoothing comparison remain compatible with the production schema.
+- Verified: the native replay writer/reader/runner are compiled but have no
+  production caller; the reader does not parse frames, the writer omits fields
+  required by metrics, and existing tests bypass the broken serialization path.
+- Verified: recoil visual/debug plumbing is a no-op layer; several structs and
+  an unbuilt telemetry benchmark have no consumers. Repeated offline JSON
+  parsers/escaping, ad-hoc native test assertions and inconsistent percentile
+  helpers are consolidation candidates.
+- Verified: no broad case was found where an already-linked mature C++ library
+  is fully reimplemented. The strongest library opportunity is dev-only JSON
+  Schema instance validation; custom graph, ownership and hot-path control
+  checks remain project-specific.
+- Proposed, not user-approved: clean evidence integrity first, then remove dead
+  runtime/replay and no-op layers, then consolidate offline infrastructure.
+- Follow-up requested by the user: audit the current Vision frame publication
+  chain and measure end-to-end application latency because live feel appears
+  worse after the refactor. Do not assume control arbitration is the cause until
+  frame freshness, publication loss and stage latency are measured.
+- SyncSet: `sync-20260816-001`; reviewer disposition: `accept_draft`. Secrets,
+  personal media paths, raw telemetry and unrelated untracked files excluded.
+
+## 2026-08-16 - Current Vision Chain Latency Self-Test
+
+- Re-ran the current runtime with the existing lightweight performance-summary
+  path after the user stopped the normal process. Production source and
+  `config.toml` were not changed; the bounded test used an analysis-only config
+  under `artifacts/telemetry-audits/20260816-vision-delivery-latency-audit/`.
+- The 30.865 s full-chain self-test completed normally with no residual runtime
+  process: controller/output 971.965 Hz, 891 controller-accepted Vision results
+  (28.867 Hz), and zero performance-writer drops. The desktop source was not a
+  sustained active gameplay stream (`aiming_ratio=0`), so this is a chain
+  latency self-test rather than a live gameplay A/B.
+- Current mean result-to-controller latency was 0.422 ms;
+  Vision-publish-to-ViGEm was 0.437 ms; controller-consume-to-ViGEm was
+  0.017 ms; controller-submit-to-final-output was 0.006 ms. These measurements
+  show no added frame or material queue inside the refactored controller path.
+- Source-present-to-ViGEm was 3.329 ms mean in this low-change desktop run, with
+  a median window P95 of 10.875 ms. It must not be compared as an equivalent
+  gameplay result to the historical active run (9.54 ms mean / 13.375 ms
+  median-window P95), because scene cadence and aiming state differ.
+- Vision publication remains a latest-only mailbox. DXGI may coalesce display
+  presents (`AccumulatedFrames > 1` was 18.631% here), and lightweight summaries
+  count accepted results but do not expose worker-published sequence gaps.
+  Therefore the current evidence proves fast same-tick consumption of accepted
+  results, but does not prove lossless delivery of every produced inference.
+
+## 2026-08-17 - BodyLock Axis-Local Position/Motion Conflict Accepted For Repair
+
+- **User-confirmed priority:** fix Controller first and record the defect;
+  Vision remains a separate concern because its misses and geometry depend on
+  actual imagery. The user authorized implementation after the record.
+- Six detailed sessions and four runtime identities passed audit preflight.
+  There were 53 durable manual/AI conflict pulses, including 15 strong
+  near-center motion-dominated pulses across all six sessions and three cases
+  where manual moved toward the published source point while AI opposed it.
+- Vision is not globally perfect: 4,097/15,072 authoritative BodyLock samples
+  used cue continuation. That does not explain the clean controller incidents:
+  13/15 strong pulses have complete committed-observation joins with fresh,
+  strong, stable geometry and no frozen box-jump anomaly.
+- Verified source defect: `ResponseModelAimSolver` applies a 2-D radial
+  position/motion constraint while final arbitration is per-axis. Orthogonal
+  same-direction work can mask an axis that reverses current position. Track
+  508 exhibits this exact vector relation; the fully joined track 140 case
+  independently shows final reversal against current geometry and manual.
+- **Inferred implementation direction, not yet verified:** preserve motion
+  feed-forward but enforce the existing current-position sign contract on each
+  axis. Do not create another owner or fixed manual/AI blend.
+- Required RED contract: reproduce X and Y axis leakage through production
+  BodyLock solver plus final state machine; require no reversal and at least
+  25% same-direction manual acknowledgement. Counterfactuals must preserve
+  target-first handling of genuinely wrong-direction coupled manual, explicit
+  exit passthrough and aligned motion.
+- Audit evidence:
+  `artifacts/telemetry-audits/20260817-bodylock-sticky-manual-ai/`.
+- SyncSet: `sync-20260817-001`; reviewer disposition: `accept_draft`, with
+  deferred archive-backed compaction because the primary session log is above
+  its soft size threshold. Raw telemetry, media, binaries, personal paths,
+  secrets and unrelated working-tree changes are excluded.
+
+## 2026-08-17 - BodyLock Axis-Local Position/Motion Repair Completed
+
+- Replaced the response solver's whole-vector radial constraint with a single
+  axis-local primitive. X/Y motion feed-forward remains active when compatible;
+  when it opposes current source-owned position, it is smoothly bounded so the
+  combined request cannot cross that axis's current sign.
+- No Vision, ADS snap, recoil, explicit exit, authority, response-curve or final
+  arbitration weights were changed. The existing public constraint reason was
+  retained for telemetry/schema compatibility.
+- The frozen production-path incident changed from RED to GREEN: X/Y reversal
+  count `2 -> 0`; minimum manual acknowledgement `-0.956947 -> 1.021007`; aligned
+  motion, wrong coupled manual and explicit exit counterfactuals remained `2/2`.
+- The fixture trigger predicate was corrected after the first candidate run:
+  trigger now describes the input conflict and no longer requires the bad output
+  to survive. Scenario vectors and all five oracle thresholds were unchanged;
+  this correction is recorded in both regression manifests.
+- Added solver and BodyLock unit coverage for the cross-axis masking relation and
+  registered the incident executable as a permanent CTest gate.
+- Release build passed; focused controller/incident tests `13/13`; full Release
+  CTest `63/63`; scoped diff review and `git diff --check` passed.
+- Candidate runtime SHA-256:
+  `7bdd917e0e676e48847e3c969c1e0de9f4d87be5d9c0db564e1fa0629e4d6546`.
+- Regression package:
+  `artifacts/regressions/bodylock-position-motion-axis-conflict-20260817/`;
+  complete contract artifact SHA-256
+  `3c0e995f916b07a64e11f98ac9301e5b2966fe95d8874c1862898fb4dc96e848`,
+  status PASS, issues `0`.
+- SyncSet: `sync-20260817-002`; reviewer disposition: `accept_draft`. The primary
+  session log remains above its soft size threshold; archive-backed compaction
+  is still deferred because it was not part of the user's request.
+
+## 2026-08-17 - Direct Experiment Retired; Production Response Lessons Retained
+
+- **User-confirmed result:** the simple Direct/PID-style ADS plus BodyLock path
+  was materially faster and more accurate on immediate correction than the
+  layered production behavior, but pervasive high-frequency oscillation made it
+  unacceptable. Direct and the subsequent hybrid are abandoned for production.
+- Direct implementation, runtime selection, configuration and tests were removed
+  rather than kept as a dormant second production architecture.
+- Durable benefit: Direct remains a diagnostic counterfactual for whether fresh,
+  authoritative target error produces material output in the correct direction
+  on the current tick. Its lower latency helped expose production no-output and
+  stale-arbitration defects.
+- Durable limitation: raw frame-error response amplified measurement/geometry
+  changes and lacked mature completion, target-generation, cue, explicit-exit,
+  manual-correction and one-LT/one-snap ownership policies. Adding those back
+  incrementally began recreating the original layer stack.
+- Production absorbed only incident-proven behavior: close ADS response changes
+  continuously from nominal 135 ms toward 60 ms by target visual size; BodyLock
+  fresh-position ownership removes stale opposing manual work outside the
+  existing settle envelope. One LT still owns at most one ADS snap.
+- Repository evidence: full Release build and `68/68` CTest pass. The new
+  BodyLock latency fixture moved from six wrong-direction ticks at `+0.0975` to
+  target direction `-0.25` on tick zero with four counterfactuals preserved;
+  complete regression contract status is PASS with zero issues.
+- **New user-confirmed observation:** ADS now has no apparent problem, while
+  sustained horizontal BodyLock tracking can still fall behind. This is the
+  next telemetry audit question; target velocity, identity/freshness and final
+  arbitration remain separate hypotheses until joined evidence distinguishes
+  them.
+- Decision: [retire Direct from production](decisions/DEC-2026-08-17-001-retire-direct-controller-experiment.md).
+- SyncSet: `sync-20260817-003`; reviewer disposition: `accept_draft`. Raw logs,
+  binaries, personal paths and unrelated worktree changes are excluded. The
+  oversized primary session log was not compacted in this task.

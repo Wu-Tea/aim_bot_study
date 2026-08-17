@@ -1,98 +1,82 @@
 # Agent Handoff
 
-Last updated: 2026-08-12
-Active scope: default native C++ Vision-to-gamepad runtime.
-Staleness trigger: refresh after matched live validation, a new production-chain
-regression, or any proposal to restore predictive authority.
+Last updated: 2026-08-17
+Active scope: production native C++ controller; ADS is user-accepted and the
+remaining live issue is sustained horizontal BodyLock tracking.
+Staleness trigger: refresh after the newest gameplay telemetry audit or the
+next BodyLock candidate is tested.
 
 ## Current Objective
 
-Validate the completed Controller/auto-mark candidate in one matched Black Ops 7
-session. The bounded refactor and deterministic GREEN proof are complete;
-screen-space D/R geometry and live calibration acceptance remain.
+Audit the newest live telemetry for sustained horizontal target motion. Separate
+Vision/identity/velocity-estimation faults from final-arbitration suppression
+before changing production behavior again.
 
-Runtime: `native/vision_native/build/Release/cod_native_runtime.exe`
-SHA-256: `51F1A3ACDD204D1BA064DFA873A64CAB9DBA2C92E76BB849252BDDB5B1071861`
-L3 mark requests use configurable `l3_cooldown_ms` (currently 1000); LT is not
-subject to this cooldown. Codex did not launch the runtime.
+## Current State
 
-## Production Chain And Invariants
-
-```text
-fresh unique Vision result -> selector owns I/R -> delivery gate
--> TargetCoordinator owns D/TargetPlan -> ADS or BodyLock
--> AimDynamicsShaper -> AssistControlStateMachine owns final T
--> AutoFire safety -> recoil feed-forward -> ViGEm
-```
-
-- Repeated controller ticks are not fresh Vision observations. Fresh no-target
-  releases generic aim authority; cue continuation is bounded and aim-only.
-- Selector admits direct class-0 people, rejects green friendlies and known
-  corpse/marker patterns, retains identity through brief dropout internally but
-  never publishes stale coordinates, and performs explicit handover.
-- `AssistControlStateMachine` is the only final-output owner. Each axis uses
-  desired total `T` after native manual `M`: helpful manual fills the same work,
-  AI fills only the residual, and opposing AI may damp but never reverse manual.
-  Ordinary/down/firing-down damping ceilings are 35%/10%/0%.
-- Once a selector-owned person is admitted, ADS uses full configured authority
-  regardless of cue, visibility, reliability or distance. A confirmed new I
-  gets fresh ADS acquisition even while LT remains held. BodyLock stays
-  evidence-scaled.
-- D is the intended hittable point inside R. Firing-down moves D inside R and
-  cannot request downward handover; recoil stays a later feed-forward stage.
-- L3/LT mark is a final-plan transaction: two consecutive fresh, same-generation
-  direct-person plans with current enemy cue and crosshair inside valid R emit
-  one 50 ms D-pad Up. Request lifetime is 250 ms. L3 can wake Vision but grants
-  no aim authority; physical D-pad Up always passes through.
-
-## Verification
-
-- Full candidate Release build: PASS.
-- Official Release CTest: 49/49; direct candidate replay: 49/49.
-- Product-contract known-bad is RED; candidate is GREEN on all seven oracles.
-- ADS no-cue/cue authority: `0.228/0.950 -> 1.000/1.000`.
-- Firing-down D: `256 -> 256 px` became `256 -> 312 px`; output is not opposed.
-- Telemetry schema 17 record: 1848 bytes, below the 2576-byte ceiling.
-- Source snapshot: 194 production/config files, Git-style hash
-  `6f3addd009ca38ac0d996ffbce77742bcf7ba786`.
-- Fixed publication of completed ADS as BodyLock with ADS still active.
-- Aimlab wrong-person strong ADS is now a hard failure (`final_score=0`).
-- Evidence: `artifacts/regressions/controller-v1-product-contract-20260812/`.
-
-Aimlab was not expanded into a game simulator. GREEN proves owner/state defects,
-not gameplay geometry, cue visibility through cover, or COD calibration.
-
-## Evidence Behind The Refactor
-
-The 2026-08-12 18:12 replays were joined to telemetry by save time minus
-duration plus ADS/fire/candidate fingerprints; the join is event-level:
-
-- cue-less people were admitted at roughly 83 px and 109 px, but cue still
-  effectively gated delivered ADS force;
-- one incident had 27 selected-target ADS samples with zero delivered AI;
-- a two-person incident crossed selector generations 41-45 in about 711 ms;
-- firing-down reached final output but was excluded from D correction, while
-  whole-vector alignment could attenuate Y because X agreed with AI;
-- auto-mark actuated before an accepted controller target existed.
-
-They justify full-authority ADS, per-axis fusion, protected firing-down D,
-explicit identity ownership, and final-plan marking—not Body/Pose or a new owner.
+- Direct/PID production experiment is retired. It was materially faster and
+  more accurate on immediate error response, but amplified per-frame geometry
+  noise into severe high-frequency oscillation and lacked production lifecycle,
+  manual-intent and evidence policies. Keep it only as a diagnostic reference.
+- Production BodyLock now has two deterministic repairs: axis-local bounding of
+  opposing motion feed-forward, and fresh-position ownership that removes stale
+  opposing manual work continuously outside the existing settle envelope.
+- The latter fixture changed from six 5 ms ticks of wrong-direction `+0.0975`
+  to target-direction `-0.25` on tick zero; four safety counterfactuals pass.
+- ADS keeps one snap token per LT. Mid/far uses the nominal 135 ms response;
+  close targets transition continuously to 60 ms by visual size. The user has
+  confirmed current ADS behavior has no apparent problem.
+- Full Release build and `68/68` CTest pass. The BodyLock target-direction
+  regression contract passes with zero issues.
+- Candidate runtime:
+  `native/vision_native/build/Release/cod_native_runtime.exe`, SHA-256
+  `7ba259fd89ad8838a79c0c9d79d6eb3b824bcd2586a6b1199e438de7810e7f88`.
 
 ## Next Action
 
-Run one session with the exact candidate/hash. Test Controller with mark off,
-then enable mark and test L3/LT separately. Cover: small ADS correction,
-held-LT urgent transfer, firing-down recoil, close BodyLock, head-glitch D/R,
-green friendly, corpse, off-axis person, and physical D-pad passthrough.
+Preflight and audit the newest detailed log for sustained horizontal tracking;
+freeze a new incident only if a controller-owned signature is reproducible.
 
-On failure, join schema-17 fields to the exact video event and create one RED
-fixture. Do not weaken ADS, globally raise BodyLock, add an output owner, or add
-Body/Pose until evidence isolates a selector/geometry limitation.
+## Blockers
 
-## Do Not Reopen Without New Evidence
+None. The user reports that sustained horizontal BodyLock still falls behind.
 
-- additive manual-plus-AI output, alternate final-output owners, projection,
-  generic coasting, output carry/brake, or retired config aliases;
-- cue-derived self-training/fire authority or repeated-tick freshness;
-- unmatched benchmark/live comparisons;
-- Python fallback behavior as evidence about the default native runtime.
+## Active Questions
+
+- Whether the remaining lag is missing/incorrect target velocity, target
+  identity churn, stale/non-fresh evidence, or final-output arbitration.
+- Whether the latest log has sufficient detailed telemetry and runtime identity
+  to distinguish those mechanisms.
+
+## Relevant Decisions
+
+- `decisions/DEC-2026-08-02-002-predictive-manual-ai-control-envelope.md`
+- `decisions/DEC-2026-08-07-001-target-first-final-output.md`
+- `decisions/DEC-2026-08-11-001-incident-first-gameplay-validation.md`
+- `decisions/DEC-2026-08-12-002-ads-full-authority-after-admission.md`
+- `decisions/DEC-2026-08-17-001-retire-direct-controller-experiment.md`
+
+## Files To Read First
+
+- newest native session manifest and detailed telemetry
+- `artifacts/telemetry-audits/20260817-bodylock-sticky-manual-ai/report.md`
+- `artifacts/regressions/bodylock-position-motion-axis-conflict-20260817/regression-manifest.json`
+- `artifacts/regressions/bodylock-target-direction-latency-20260817/regression-manifest.json`
+- `native/controller_native/response_model_aim_solver.cpp`
+- `native/controller_native/bodylock_follow_controller.cpp`
+- `native/controller_native/assist_control_state_machine.h`
+
+## Do Not Reopen Unless Needed
+
+- restoring Direct as a production path, additive manual-plus-AI owners,
+  generic coast/hold/brake, or fixed blend percentages;
+- weaker ADS authority, changed recoil ownership, or Vision/model changes;
+- treating all cue continuation as a Controller failure or all internally
+  stable Vision geometry as visual ground truth.
+
+## Notes
+
+The working tree may contain unrelated user changes; preserve them. Direct's
+useful result is its response-speed counterfactual, not its deleted production
+implementation. Do not infer a new velocity observer until live joins isolate
+missing target-motion demand from downstream suppression.

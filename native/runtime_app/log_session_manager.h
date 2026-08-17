@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <cstdint>
 #include <string>
 
 namespace runtime_app {
@@ -12,6 +13,9 @@ struct LogSessionOptions {
     std::string config_hash;
     std::string engine_hash;
     std::string executable_sha256;
+    std::string control_contract_sha256;
+    std::uint32_t control_architecture_version = 0;
+    std::uint32_t control_event_schema_version = 0;
     int capture_width = 0;
     int capture_height = 0;
     int tensor_width = 0;

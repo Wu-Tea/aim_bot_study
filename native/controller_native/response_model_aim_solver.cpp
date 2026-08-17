@@ -11,10 +11,6 @@ float smoothstep(float value) noexcept {
     return x * x * (3.0f - 2.0f * x);
 }
 
-float length(pipeline_contract::Vec2f value) noexcept {
-    return std::hypot(value.x, value.y);
-}
-
 }  // namespace
 
 ResponseModelAimOutput solve_response_model_aim(
@@ -45,36 +41,43 @@ ResponseModelAimOutput solve_response_model_aim(
         control_velocity.y / response * motion_weight,
     };
     output.bounded_motion_stick = output.motion_stick;
-    const float position_length = length(output.position_stick);
-    if (position_length > 1.0e-5f) {
-        const pipeline_contract::Vec2f radial_direction{
-            output.position_stick.x / position_length,
-            output.position_stick.y / position_length};
-        const float radial_motion =
-            output.motion_stick.x * radial_direction.x +
-            output.motion_stick.y * radial_direction.y;
-        if (radial_motion < 0.0f) {
-            // A current source-owned position keeps its radial sign, while a
-            // near-center residual may retain a small opposing motion term.
-            constexpr float kNearCenterPositionStick = 0.12f;
-            const float center_envelope = smoothstep(
-                position_length / kNearCenterPositionStick);
-            const float maximum_opposing_motion = position_length *
-                (1.0f - center_envelope);
-            const float bounded_radial = std::max(
-                radial_motion, -maximum_opposing_motion);
-            if (bounded_radial > radial_motion) {
-                const pipeline_contract::Vec2f tangent{
-                    output.motion_stick.x - radial_direction.x * radial_motion,
-                    output.motion_stick.y - radial_direction.y * radial_motion};
-                output.bounded_motion_stick = {
-                    tangent.x + radial_direction.x * bounded_radial,
-                    tangent.y + radial_direction.y * bounded_radial};
-                output.radial_motion_bound_applied = true;
-                output.radial_motion_bound_reason =
-                    ResponseModelConstraintReason::PositionRadialMotionBound;
-            }
+    const auto bound_opposing_axis = [](float position, float motion,
+                                         bool& bound_applied) noexcept {
+        if (std::fabs(position) <= 1.0e-5f ||
+            position * motion >= 0.0f) {
+            return motion;
         }
+
+        // Position is the current source-owned error. Motion may reduce it,
+        // but may not predict through it and reverse the requested axis. The
+        // near-center envelope retains a small, smooth opposing feed-forward
+        // term instead of switching all motion off at the center boundary.
+        constexpr float kNearCenterPositionStick = 0.12f;
+        const float center_envelope = smoothstep(
+            std::fabs(position) / kNearCenterPositionStick);
+        const float maximum_opposing_motion = std::fabs(position) *
+            (1.0f - center_envelope);
+        const float bounded_magnitude = std::min(
+            std::fabs(motion), maximum_opposing_motion);
+        if (bounded_magnitude + 1.0e-6f < std::fabs(motion)) {
+            bound_applied = true;
+        }
+        return std::copysign(bounded_magnitude, motion);
+    };
+
+    bool position_motion_bound_applied = false;
+    output.bounded_motion_stick = {
+        bound_opposing_axis(output.position_stick.x, output.motion_stick.x,
+                            position_motion_bound_applied),
+        bound_opposing_axis(output.position_stick.y, output.motion_stick.y,
+                            position_motion_bound_applied),
+    };
+    if (position_motion_bound_applied) {
+        // Keep the existing public reason for telemetry/schema compatibility;
+        // the constraint is now evaluated independently on each axis.
+        output.radial_motion_bound_applied = true;
+        output.radial_motion_bound_reason =
+            ResponseModelConstraintReason::PositionRadialMotionBound;
     }
     output.pre_curve_stick = {
         (output.position_stick.x + output.bounded_motion_stick.x) * authority,

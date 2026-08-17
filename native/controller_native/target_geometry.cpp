@@ -155,4 +155,12 @@ TargetGeometryResult resolve_target_geometry(
         box.y + box.h * std::clamp(config.aim_height_ratio, 0.0f, 1.0f)}, true};
 }
 
+float target_scaled_radius(
+    float base_radius_px,
+    float normalized_target_size) noexcept {
+    return std::max(0.0f, base_radius_px) *
+        (1.0f + 0.75f *
+            std::clamp(normalized_target_size, 0.0f, 1.0f));
+}
+
 }  // namespace controller_native

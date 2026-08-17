@@ -2,7 +2,7 @@
 
 #include "controller_tick_context.h"
 #include "runtime_config.h"
-#include "virtual_gamepad.h"
+#include "../pipeline_contract/control_command.h"
 
 #include <cstdint>
 
@@ -54,6 +54,11 @@ struct AutoFireGateDecision {
     NativeAutoFireCounters counters;
 };
 
+struct AutoFireReduction {
+    AutoFireGateDecision decision{};
+    pipeline_contract::FireCommand command{};
+};
+
 class AutoFireGate {
 public:
     AutoFireGate(
@@ -63,9 +68,13 @@ public:
     void reset();
     void reset_readiness();
     AutoFireGateDecision evaluate(const AutoFireGateInput& input);
+    AutoFireReduction reduce(
+        const AutoFireGateInput& input,
+        pipeline_contract::ControllerTickId controller_tick,
+        pipeline_contract::EventSequence command_sequence,
+        pipeline_contract::EventSequence cause_event = {});
     NativeAutoFireCounters counters() const;
     bool active() const;
-    void apply_fire_output(GamepadOutputState& output, bool should_fire) const;
 
 private:
     bool aim_ready_for_input(const AutoFireGateInput& input);

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "controller_native/native_gamepad_controller.h"
+#include "controller_native/output_composer.h"
 #include "controller_native/io_recovery_policy.h"
 #include "controller_native/runtime_config.h"
 #include "controller_native/sdl_gamepad_reader.h"
@@ -9,7 +10,6 @@
 #include "downward_diagnostics.h"
 #include "fusion_channel_publisher.h"
 #include "log_session_manager.h"
-#include "manual_fire_aim_activation.h"
 #include "person_detection_gesture.h"
 #include "perf_logger.h"
 #include "runtime_telemetry.h"
@@ -36,7 +36,6 @@ private:
     controller_native::PhysicalGamepadState read_physical_gamepad();
     bool should_poll_vision(std::chrono::steady_clock::time_point now) const;
     bool should_stop_requested() const;
-    bool is_aiming(const controller_native::PhysicalGamepadState& physical);
 
     controller_native::RuntimeConfig config_;
     PerfLogger perf_logger_;
@@ -53,8 +52,8 @@ private:
     unsigned int sdl_reconnect_count_ = 0;
     controller_native::XInputReader input_reader_;
     controller_native::NativeGamepadController controller_;
+    controller_native::OutputComposer output_composer_;
     ViewportController viewport_controller_;
-    controller_native::AimActivationTracker aim_activation_tracker_;
     controller_native::VirtualGamepad virtual_gamepad_;
     PersonDetectionGesture person_detection_gesture_;
     std::unique_ptr<vision_native::VisionEngine> vision_engine_;
@@ -63,7 +62,6 @@ private:
     vision_native::VisionResult latest_vision_result_;
     bool has_latest_vision_result_ = false;
     bool latest_vision_aiming_ = false;
-    ManualFireAimActivationTracker manual_fire_aim_activation_;
     bool enemy_mark_vision_active_ = false;
     std::uint64_t enemy_mark_target_scope_ = 0;
     std::uint64_t latest_vision_service_sequence_ = 0;

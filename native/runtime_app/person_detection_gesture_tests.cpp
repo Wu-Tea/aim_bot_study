@@ -71,7 +71,7 @@ void test_no_request_never_marks() {
     const auto plan = markable_plan();
     REQUIRE(!gesture.observe_fresh_plan(plan, at_ms(0)));
     REQUIRE(!gesture.observe_fresh_plan(plan, at_ms(6)));
-    REQUIRE(!gesture.merge_dpad_up(false, at_ms(6)));
+    REQUIRE(!gesture.dpad_up_requested(false, at_ms(6)));
 }
 
 void test_two_fresh_final_plans_emit_one_bounded_press() {
@@ -80,11 +80,11 @@ void test_two_fresh_final_plans_emit_one_bounded_press() {
     const auto plan = markable_plan();
 
     REQUIRE(!gesture.observe_fresh_plan(plan, at_ms(1)));
-    REQUIRE(!gesture.merge_dpad_up(false, at_ms(1)));
+    REQUIRE(!gesture.dpad_up_requested(false, at_ms(1)));
     REQUIRE(gesture.observe_fresh_plan(plan, at_ms(7)));
-    REQUIRE(gesture.merge_dpad_up(false, at_ms(7)));
-    REQUIRE(gesture.merge_dpad_up(false, at_ms(56)));
-    REQUIRE(!gesture.merge_dpad_up(false, at_ms(57)));
+    REQUIRE(gesture.dpad_up_requested(false, at_ms(7)));
+    REQUIRE(gesture.dpad_up_requested(false, at_ms(56)));
+    REQUIRE(!gesture.dpad_up_requested(false, at_ms(57)));
 }
 
 void test_crosshair_must_be_inside_r() {
@@ -95,7 +95,7 @@ void test_crosshair_must_be_inside_r() {
 
     REQUIRE(!gesture.observe_fresh_plan(plan, at_ms(1)));
     REQUIRE(!gesture.observe_fresh_plan(plan, at_ms(7)));
-    REQUIRE(!gesture.merge_dpad_up(false, at_ms(7)));
+    REQUIRE(!gesture.dpad_up_requested(false, at_ms(7)));
     REQUIRE(gesture.status(at_ms(7)).block_reason ==
             runtime_app::PersonMarkBlockReason::CrosshairOutsideAimRegion);
 }
@@ -109,7 +109,7 @@ void test_historical_plan_cannot_trigger_without_fresh_observation() {
     // Controller-rate replay ticks call neither observe_fresh_plan nor any
     // evidence-hold API, so elapsed time cannot complete confirmation.
     gesture.update_activation(false, 0.0f, at_ms(100));
-    REQUIRE(!gesture.merge_dpad_up(false, at_ms(100)));
+    REQUIRE(!gesture.dpad_up_requested(false, at_ms(100)));
 }
 
 void test_direct_person_and_current_enemy_cue_are_both_required() {
@@ -141,7 +141,7 @@ void test_selector_rejected_candidate_plan_never_marks() {
     plan.reliability = 0.20f;
     REQUIRE(!gesture.observe_fresh_plan(plan, at_ms(1)));
     REQUIRE(!gesture.observe_fresh_plan(plan, at_ms(7)));
-    REQUIRE(!gesture.merge_dpad_up(false, at_ms(7)));
+    REQUIRE(!gesture.dpad_up_requested(false, at_ms(7)));
     REQUIRE(gesture.status(at_ms(7)).block_reason ==
             runtime_app::PersonMarkBlockReason::NotDirectPerson);
 }
@@ -167,7 +167,7 @@ void test_invalid_d_or_r_never_marks() {
     auto plan = markable_plan();
     plan.aim_region_px.w = 0.0f;
     REQUIRE(!invalid_region.observe_fresh_plan(plan, at_ms(1)));
-    REQUIRE(!invalid_region.merge_dpad_up(false, at_ms(1)));
+    REQUIRE(!invalid_region.dpad_up_requested(false, at_ms(1)));
 
     Gesture d_outside;
     request_l3(d_outside);
@@ -186,7 +186,7 @@ void test_generation_change_restarts_two_frame_confirmation() {
 
     REQUIRE(!gesture.observe_fresh_plan(a, at_ms(1)));
     REQUIRE(!gesture.observe_fresh_plan(b, at_ms(7)));
-    REQUIRE(!gesture.merge_dpad_up(false, at_ms(7)));
+    REQUIRE(!gesture.dpad_up_requested(false, at_ms(7)));
     REQUIRE(gesture.observe_fresh_plan(b, at_ms(13)));
 }
 
@@ -200,7 +200,7 @@ void test_l3_and_lt_share_once_per_generation_budget() {
     gesture.update_activation(false, 0.06f, at_ms(70));
     REQUIRE(!gesture.observe_fresh_plan(plan, at_ms(71)));
     REQUIRE(!gesture.observe_fresh_plan(plan, at_ms(77)));
-    REQUIRE(!gesture.merge_dpad_up(false, at_ms(77)));
+    REQUIRE(!gesture.dpad_up_requested(false, at_ms(77)));
     REQUIRE(gesture.status(at_ms(77)).block_reason ==
             runtime_app::PersonMarkBlockReason::AlreadyMarkedGeneration);
 }
@@ -277,15 +277,15 @@ void test_request_expires_but_does_not_reuse_old_evidence() {
     REQUIRE(!gesture.observe_fresh_plan(plan, at_ms(1)));
     gesture.update_activation(true, 0.0f, at_ms(251));
     REQUIRE(!gesture.observe_fresh_plan(plan, at_ms(252)));
-    REQUIRE(!gesture.merge_dpad_up(false, at_ms(252)));
+    REQUIRE(!gesture.dpad_up_requested(false, at_ms(252)));
     REQUIRE(gesture.status(at_ms(252)).block_reason ==
             runtime_app::PersonMarkBlockReason::RequestExpired);
 }
 
 void test_physical_dpad_up_always_passes_through() {
     Gesture gesture;
-    REQUIRE(gesture.merge_dpad_up(true, at_ms(0)));
-    REQUIRE(gesture.merge_dpad_up(true, at_ms(1000)));
+    REQUIRE(gesture.dpad_up_requested(true, at_ms(0)));
+    REQUIRE(gesture.dpad_up_requested(true, at_ms(1000)));
 }
 
 void test_reset_clears_pending_press_and_generation_memory() {
@@ -293,11 +293,11 @@ void test_reset_clears_pending_press_and_generation_memory() {
     request_l3(gesture);
     confirm_twice(gesture, markable_plan(40), 1);
     gesture.reset();
-    REQUIRE(!gesture.merge_dpad_up(false, at_ms(8)));
+    REQUIRE(!gesture.dpad_up_requested(false, at_ms(8)));
 
     request_l3(gesture, 9);
     confirm_twice(gesture, markable_plan(40), 10);
-    REQUIRE(gesture.merge_dpad_up(false, at_ms(16)));
+    REQUIRE(gesture.dpad_up_requested(false, at_ms(16)));
 }
 
 }  // namespace

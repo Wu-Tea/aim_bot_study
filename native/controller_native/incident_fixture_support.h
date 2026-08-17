@@ -32,7 +32,6 @@ inline GamepadRuntimeConfig base_config(
     float ads_activation_radius_px) {
     GamepadRuntimeConfig config;
     config.recoil.enabled = false;
-    config.recoil.adaptive_feedback_enabled = false;
     config.recoil.profile_playback_enabled = false;
     config.recoil.selection_log_enabled = false;
     config.tracker.max_observation_age_ms = max_observation_age_ms;

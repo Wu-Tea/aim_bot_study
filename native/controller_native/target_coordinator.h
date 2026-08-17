@@ -1,8 +1,10 @@
 #pragma once
 
+#include "ads_lifecycle_reducer.h"
 #include "pipeline_contract/intent_state.h"
 #include "pipeline_contract/target_plan.h"
 #include "pipeline_contract/vision_observation.h"
+#include "target_state_reducers.h"
 
 #include <cstdint>
 namespace controller_native {
@@ -84,23 +86,18 @@ private:
         std::uint64_t preferred_source_id = 0) noexcept;
 
     TargetCoordinatorConfig config_{};
+    TargetGeometryReducer geometry_reducer_{};
+    TargetLifecycleReducer target_lifecycle_reducer_{};
+    DesiredPointReducer desired_point_reducer_{};
+    AimModeReducer aim_mode_reducer_{};
+    AdsLifecycleReducer ads_lifecycle_reducer_{};
     pipeline_contract::Vec2f
         previous_firing_velocity_innovation_{};
     bool firing_velocity_observer_active_ = false;
     pipeline_contract::TargetPlan latest_{};
-    pipeline_contract::Vec2f source_position_{};
-    pipeline_contract::Vec2f position_{};
-    common_native::Box2f aim_region_{};
-    pipeline_contract::Vec2f desired_point_normalized_{};
-    pipeline_contract::AimRegionSource aim_region_source_ =
-        pipeline_contract::AimRegionSource::None;
-    pipeline_contract::DesiredPointSource desired_point_source_ =
-        pipeline_contract::DesiredPointSource::None;
     pipeline_contract::Vec2f velocity_{};
     pipeline_contract::Vec2f acceleration_{};
     std::uint64_t source_id_ = 0;
-    std::uint64_t target_id_ = 0;
-    std::uint64_t next_target_id_ = 1;
     std::uint64_t generation_ = 0;
     std::uint64_t source_frame_id_ = 0;
     std::uint64_t last_processed_frame_id_ = 0;
@@ -108,9 +105,6 @@ private:
     double last_observation_capture_seconds_ = 0.0;
     double last_processed_capture_seconds_ = 0.0;
     double last_update_seconds_ = 0.0;
-    double acquisition_started_seconds_ = 0.0;
-    double acquisition_completed_seconds_ = 0.0;
-    double ads_epoch_started_seconds_ = 0.0;
     float last_observed_reliability_ = 0.0f;
     bool enemy_cue_current_ = false;
     bool enemy_identity_confirmed_ = false;
@@ -119,45 +113,17 @@ private:
     pipeline_contract::Vec2f last_observed_target_size_px_{};
     std::uint32_t settled_frames_ = 0;
     std::uint32_t observed_frames_ = 0;
-    float manual_boundary_seconds_x_ = 0.0f;
-    float manual_boundary_seconds_y_ = 0.0f;
-    bool has_target_ = false;
-    bool has_aim_region_ = false;
-    bool user_desired_point_active_ = false;
-    bool manual_correction_x_ = false;
-    bool manual_correction_y_ = false;
-    bool manual_boundary_x_ = false;
-    bool manual_boundary_y_ = false;
-    bool manual_exit_requested_ = false;
     bool has_observation_capture_time_ = false;
     bool has_processed_capture_ = false;
     bool has_processed_capture_time_ = false;
     bool fire_requested_ = false;
     bool observed_fire_eligible_ = false;
     bool cue_continuation_active_ = false;
-    bool ads_epoch_active_ = false;
-    bool ads_snap_consumed_ = false;
-    bool ads_target_admitted_ = false;
-    std::uint64_t physical_ads_epoch_ = 0;
-    std::uint64_t target_acquisition_id_ = 0;
-    std::uint64_t next_target_acquisition_id_ = 1;
-    pipeline_contract::AdsAcquisitionState ads_acquisition_state_ =
-        pipeline_contract::AdsAcquisitionState::Idle;
-    pipeline_contract::AdsDecisionReason ads_decision_reason_ =
-        pipeline_contract::AdsDecisionReason::None;
-    bool source_decision_available_ = false;
-    pipeline_contract::SourceDecisionOutcome source_decision_outcome_ =
-        pipeline_contract::SourceDecisionOutcome::NoDecision;
-    pipeline_contract::AdsDecisionReason source_decision_reason_ =
-        pipeline_contract::AdsDecisionReason::None;
-    pipeline_contract::AdsDecisionReason acquisition_terminal_reason_ =
-        pipeline_contract::AdsDecisionReason::None;
-    std::uint64_t ads_acquisition_begin_ns_ = 0;
-    std::uint64_t ads_acquisition_complete_ns_ = 0;
-    bool ads_center_cross_seen_ = false;
-    bool ads_target_switch_seen_ = false;
+    // A same-generation miss during an unfinished ADS job pauses actuation
+    // without consuming the acquisition. Only fresh selector evidence may
+    // resume it; the ordinary source-age gate remains the bounded abort.
+    bool ads_reacquire_waiting_ = false;
     std::uint64_t selector_target_generation_ = 0;
-    pipeline_contract::ControlMode control_mode_ = pipeline_contract::ControlMode::Manual;
     float frame_width_px_ = 480.0f;
     float frame_height_px_ = 416.0f;
 };

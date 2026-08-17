@@ -160,12 +160,6 @@ void test_manual_takeover_preserves_physical_output_then_guards_resume() {
     require_true(
         decision.block_reason == controller_native::AutoFireBlockReason::ManualFire,
         "manual fire takeover should be observable");
-    controller_native::GamepadOutputState physical_output;
-    physical_output.rb = true;
-    gate.apply_fire_output(physical_output, decision.should_fire);
-    require_true(
-        physical_output.rb,
-        "manual takeover must preserve the physical fire output");
 
     controller_native::AutoFireGateInput guarded = ready_input(20.080);
     guarded.manual_fire_pressed = false;
@@ -174,13 +168,6 @@ void test_manual_takeover_preserves_physical_output_then_guards_resume() {
     require_true(
         decision.block_reason == controller_native::AutoFireBlockReason::ManualTakeoverGuard,
         "manual takeover guard should be observable");
-    controller_native::GamepadOutputState guarded_physical_output;
-    guarded_physical_output.right_trigger = 0.75f;
-    gate.apply_fire_output(guarded_physical_output, decision.should_fire);
-    require_true(
-        guarded_physical_output.right_trigger >= 0.749f,
-        "takeover guard must not clear physical trigger output");
-
     decision = gate.evaluate(ready_input(20.170));
     require_true(decision.should_fire, "auto-fire should resume after takeover guard expires");
 }

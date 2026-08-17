@@ -92,6 +92,12 @@ void LogSessionManager::write_session_manifest(const char* state) {
          << "  \"config_hash\": \"" << json_escape(options_.config_hash) << "\",\n"
          << "  \"engine_hash\": \"" << json_escape(options_.engine_hash) << "\",\n"
          << "  \"executable_sha256\": \"" << json_escape(options_.executable_sha256) << "\",\n"
+         << "  \"control_contract_sha256\": \""
+         << json_escape(options_.control_contract_sha256) << "\",\n"
+         << "  \"control_architecture_version\": "
+         << options_.control_architecture_version << ",\n"
+         << "  \"control_event_schema_version\": "
+         << options_.control_event_schema_version << ",\n"
          << "  \"capture_width\": " << options_.capture_width << ",\n"
          << "  \"capture_height\": " << options_.capture_height << ",\n"
          << "  \"tensor_width\": " << options_.tensor_width << ",\n"
@@ -112,7 +118,13 @@ void LogSessionManager::write_session_manifest(const char* state) {
              << "  \"config_hash\": \"" << json_escape(options_.config_hash) << "\",\n"
              << "  \"engine_hash\": \"" << json_escape(options_.engine_hash) << "\",\n"
              << "  \"executable_sha256\": \""
-             << json_escape(options_.executable_sha256) << "\"\n"
+             << json_escape(options_.executable_sha256) << "\",\n"
+             << "  \"control_contract_sha256\": \""
+             << json_escape(options_.control_contract_sha256) << "\",\n"
+             << "  \"control_architecture_version\": "
+             << options_.control_architecture_version << ",\n"
+             << "  \"control_event_schema_version\": "
+             << options_.control_event_schema_version << "\n"
              << "}\n";
     write_text_atomic(session_directory_ / "session_metadata.json", metadata.str());
 }

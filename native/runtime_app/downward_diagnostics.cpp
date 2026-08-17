@@ -10,6 +10,7 @@
 #include <iomanip>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <utility>
 
 namespace runtime_app {
@@ -57,7 +58,7 @@ double ns_to_seconds(std::uint64_t ns) {
     return static_cast<double>(ns) / 1'000'000'000.0;
 }
 
-std::string json_escape(const std::string& value) {
+std::string json_escape(std::string_view value) {
     std::ostringstream out;
     for (const char ch : value) {
         switch (ch) {
@@ -84,7 +85,7 @@ std::string json_escape(const std::string& value) {
     return out.str();
 }
 
-void write_json_string_or_null(std::ostream& out, const std::string& value, bool has_value) {
+void write_json_string_or_null(std::ostream& out, std::string_view value, bool has_value) {
     if (!has_value) {
         out << "null";
         return;
@@ -93,7 +94,7 @@ void write_json_string_or_null(std::ostream& out, const std::string& value, bool
 }
 
 bool trace_auto_fire_active(
-    const std::vector<controller_native::NativeControllerStageTrace>& traces) {
+    const controller_native::NativeControllerStageTraceBuffer& traces) {
     for (const auto& trace : traces) {
         if (trace.after_auto_fire_active) {
             return true;
@@ -103,7 +104,7 @@ bool trace_auto_fire_active(
 }
 
 const controller_native::NativeControllerStageTrace* largest_downward_trace(
-    const std::vector<controller_native::NativeControllerStageTrace>& traces) {
+    const controller_native::NativeControllerStageTraceBuffer& traces) {
     const controller_native::NativeControllerStageTrace* best = nullptr;
     for (const auto& trace : traces) {
         if (best == nullptr || trace.delta_right_y < best->delta_right_y) {
@@ -132,7 +133,7 @@ DownwardPullDiagnostics DownwardPullDiagnostics::from_environment() {
 bool DownwardPullDiagnostics::record_if_triggered(
     const controller_native::PhysicalGamepadState& physical,
     const controller_native::GamepadOutputState& output,
-    const std::vector<controller_native::NativeControllerStageTrace>& traces,
+    const controller_native::NativeControllerStageTraceBuffer& traces,
     const vision_native::VisionResult* latest_result,
     bool is_aiming) const {
     if (!config_.enabled) {
@@ -216,7 +217,7 @@ bool DownwardPullDiagnostics::record_if_triggered(
     out << "\"largest_downward_plugin\":";
     write_json_string_or_null(
         out,
-        largest_trace == nullptr ? std::string() : largest_trace->stage_name,
+        largest_trace == nullptr ? std::string_view{} : largest_trace->stage_name,
         largest_trace != nullptr);
     out << ',';
     out << "\"largest_downward_plugin_delta\":" << largest_trace_delta << ',';

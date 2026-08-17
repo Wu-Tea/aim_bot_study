@@ -105,7 +105,7 @@ CaseResult collect_case(
 CaseResult run_carry_in_case() {
     double now = 100.0;
     NativeGamepadController controller(
-        incident_config(), [&now] { return now; });
+        incident_config(), &now);
 
     // The gesture begins while no target is owned.
     (void)controller.build_output(physical(kManualX, kManualY));
@@ -125,7 +125,7 @@ CaseResult run_carry_in_case() {
 CaseResult run_neutral_acquisition_case() {
     double now = 200.0;
     NativeGamepadController controller(
-        incident_config(), [&now] { return now; });
+        incident_config(), &now);
     (void)controller.build_output(physical(0.0f, 0.0f));
     now += 0.005;
     controller.submit_vision_snapshot(observed_snapshot(1, now));
@@ -136,7 +136,7 @@ CaseResult run_neutral_acquisition_case() {
 CaseResult run_new_owned_gesture_case() {
     double now = 300.0;
     NativeGamepadController controller(
-        incident_config(), [&now] { return now; });
+        incident_config(), &now);
     (void)controller.build_output(physical(0.0f, 0.0f));
     now += 0.005;
     controller.submit_vision_snapshot(observed_snapshot(1, now));

@@ -1,4 +1,5 @@
 #include "native_benchmark_controller_adapter.h"
+#include "pid_benchmark_controller.h"
 #include "runtime_config.h"
 #include "sustained_aimlab_scenario.h"
 #include "sustained_aimlab_simulator.h"
@@ -17,6 +18,7 @@
 namespace {
 using namespace controller_native;
 using namespace controller_native::benchmark_adapter;
+using namespace controller_native::pid_benchmark;
 using namespace controller_native::sustained_aimlab;
 
 struct Options {
@@ -28,6 +30,7 @@ struct Options {
     int duration_ms = 60'000;
     int vision_hz = 0;
     int vision_result_delay_ms = 0;
+    int control_response_delay_ms = 0;
     int short_occlusion_ms = 0;
     int target_slot_ms = 0;
     double manual_input_scale = 1.0;
@@ -42,6 +45,8 @@ struct Options {
     std::string target_profile = "ordinary";
     std::string vision_disturbance = "off";
     std::string benchmark_recoil = "off";
+    std::string controller = "production";
+    PidBenchmarkConfig pid;
     std::vector<std::uint32_t> seeds;
 };
 
@@ -62,6 +67,8 @@ Options parse_options(int argc, char** argv) {
         else if (argument == "--vision-hz") options.vision_hz = std::stoi(value());
         else if (argument == "--vision-result-delay-ms") {
             options.vision_result_delay_ms = std::stoi(value());
+        } else if (argument == "--control-response-delay-ms") {
+            options.control_response_delay_ms = std::stoi(value());
         } else if (argument == "--short-occlusion-ms") {
             options.short_occlusion_ms = std::stoi(value());
         } else if (argument == "--target-slot-ms") {
@@ -83,6 +90,20 @@ Options parse_options(int argc, char** argv) {
             options.vision_disturbance = value();
         } else if (argument == "--benchmark-recoil") {
             options.benchmark_recoil = value();
+        } else if (argument == "--controller") {
+            options.controller = value();
+        } else if (argument == "--pid-kp") {
+            options.pid.kp = std::stod(value());
+        } else if (argument == "--pid-ki") {
+            options.pid.ki = std::stod(value());
+        } else if (argument == "--pid-kd") {
+            options.pid.kd = std::stod(value());
+        } else if (argument == "--pid-d-filter-ms") {
+            options.pid.derivative_filter_tau_ms = std::stod(value());
+        } else if (argument == "--pid-output-filter-ms") {
+            options.pid.output_filter_tau_ms = std::stod(value());
+        } else if (argument == "--pid-max-assist") {
+            options.pid.max_assist = std::stod(value());
         } else if (argument == "--seed") {
             options.seeds.push_back(
                 static_cast<std::uint32_t>(std::stoul(value())));
@@ -95,12 +116,17 @@ Options parse_options(int argc, char** argv) {
                 << "[--dirty] [--duration-ms N] [--seed N ...] "
                 << "[--profile pure|mixed|scripted|wrong-then-correct|"
                    "arc-recovery|micro-correction|obsolete-after-crossing] "
-                << "[--cohort ads|bodylock|both] "
-                << "[--vision-hz N] [--short-occlusion-ms N] "
+                 << "[--cohort ads|bodylock|both] "
+                 << "[--vision-hz N] [--vision-result-delay-ms N] "
+                 << "[--control-response-delay-ms N] [--short-occlusion-ms N] "
                 << "[--target-motion stationary|moving] "
                 << "[--left-strafe off|full-reversal|both] "
-                << "[--vertical-motion off|slide|jump|random|all] "
-                << "[--benchmark-recoil off|on] [--smoke]\n";
+                 << "[--vertical-motion off|slide|jump|random|all] "
+                 << "[--controller production|pid] "
+                 << "[--pid-kp N] [--pid-ki N] [--pid-kd N] "
+                 << "[--pid-d-filter-ms N] [--pid-output-filter-ms N] "
+                 << "[--pid-max-assist N] "
+                 << "[--benchmark-recoil off|on] [--smoke]\n";
             std::exit(EXIT_SUCCESS);
         } else {
             throw std::invalid_argument(
@@ -116,6 +142,7 @@ Options parse_options(int argc, char** argv) {
     }
     if (options.short_occlusion_ms < 0 ||
         options.vision_result_delay_ms < 0 ||
+        options.control_response_delay_ms < 0 ||
         options.target_slot_ms < 0) {
         throw std::invalid_argument("timing options cannot be negative");
     }
@@ -123,6 +150,19 @@ Options parse_options(int argc, char** argv) {
         options.slowdown_edge <= 0.0 ||
         options.slowdown_center <= 0.0) {
         throw std::invalid_argument("scale values must be positive");
+    }
+    if (options.controller != "production" && options.controller != "pid") {
+        throw std::invalid_argument("controller must be production or pid");
+    }
+    if (options.pid.kp < 0.0 || options.pid.ki < 0.0 ||
+        options.pid.kd < 0.0 || options.pid.derivative_filter_tau_ms < 0.0 ||
+        options.pid.output_filter_tau_ms < 0.0 ||
+        options.pid.max_assist <= 0.0 || options.pid.max_assist > 1.0) {
+        throw std::invalid_argument("PID parameters are outside supported bounds");
+    }
+    if (options.controller == "pid" && options.benchmark_recoil == "on") {
+        throw std::invalid_argument(
+            "benchmark recoil is not part of the PID-only baseline");
     }
     return options;
 }
@@ -325,7 +365,9 @@ void write_report(
     const BenchmarkConfig& config,
     const std::vector<BenchmarkResult>& results) {
     out << "{\n"
-        << "  \"schema\": \"sustained-aimlab-production-v1\",\n"
+        << "  \"schema\": \"sustained-aimlab-"
+        << (options.controller == "production" ? "production" : "ab")
+        << "-v1\",\n"
         << "  \"revision\": \"" << json_escape(options.revision) << "\",\n"
         << "  \"dirty\": " << (options.dirty ? "true" : "false") << ",\n"
         << "  \"config_path\": \"" << json_escape(options.config_path.string()) << "\",\n"
@@ -334,10 +376,20 @@ void write_report(
         << ",\"vision_interval_ms\":" << config.vision_interval_ms
         << ",\"vision_hz_requested\":" << options.vision_hz
         << ",\"vision_result_delay_ms\":" << config.vision_result_delay_ms
+        << ",\"control_response_delay_ms\":"
+        << config.control_response_delay_ms
         << ",\"short_occlusion_ms\":" << config.short_occlusion_duration_ms
         << ",\"target_motion\":\"" << options.target_motion << "\""
         << ",\"left_strafe_request\":\"" << options.left_strafe << "\"},\n"
-        << "  \"control_path\": \"production-only\",\n"
+        << "  \"control_path\": \"" << options.controller << "\",\n"
+        << "  \"pid\": {\"kp\":" << options.pid.kp
+        << ",\"ki\":" << options.pid.ki
+        << ",\"kd\":" << options.pid.kd
+        << ",\"derivative_filter_tau_ms\":"
+        << options.pid.derivative_filter_tau_ms
+        << ",\"output_filter_tau_ms\":"
+        << options.pid.output_filter_tau_ms
+        << ",\"max_assist\":" << options.pid.max_assist << "},\n"
         << "  \"runs\": [\n";
     for (std::size_t index = 0; index < results.size(); ++index) {
         out << "    ";
@@ -394,6 +446,7 @@ int main(int argc, char** argv) {
                 1000.0 / static_cast<double>(options.vision_hz))))
             : 0;
         benchmark.vision_result_delay_ms = options.vision_result_delay_ms;
+        benchmark.control_response_delay_ms = options.control_response_delay_ms;
         benchmark.short_occlusion_duration_ms = options.short_occlusion_ms;
         benchmark.fixed_target_slot_ms = options.target_slot_ms;
         benchmark.manual_input_scale = options.manual_input_scale;
@@ -411,11 +464,13 @@ int main(int argc, char** argv) {
                 for (const PlayerStrafeMode strafe : strafe_modes) {
                     for (const PlayerVerticalMotionMode vertical : vertical_modes) {
                         auto coverage = std::make_shared<AssistedModeCoverage>();
-                        const auto controller = make_native_controller(
-                            runtime.gamepad,
-                            cohort,
-                            coverage,
-                            options.benchmark_recoil == "on");
+                        const auto controller = options.controller == "pid"
+                            ? make_pid_controller(options.pid, cohort)
+                            : make_native_controller(
+                                runtime.gamepad,
+                                cohort,
+                                coverage,
+                                options.benchmark_recoil == "on");
                         BenchmarkResult result = run_simulation(
                             script,
                             profile,
@@ -424,7 +479,7 @@ int main(int argc, char** argv) {
                             {},
                             strafe,
                             vertical);
-                        if (options.smoke) {
+                        if (options.smoke && options.controller == "production") {
                             validate_smoke(result, *coverage, options.duration_ms);
                         }
                         if (profile == ManualProfile::RecoilController ||
@@ -441,6 +496,7 @@ int main(int argc, char** argv) {
                         }
                         std::cout
                             << "seed=" << seed
+                            << " controller=" << options.controller
                             << " cohort=" << name(cohort)
                             << " strafe=" << name(strafe)
                             << " score="

@@ -82,21 +82,43 @@ void test_motion_does_not_reverse_current_residual() {
             "motion metadata must not reverse the current source-owned residual");
 }
 
-void test_current_position_bounds_only_opposing_radial_motion() {
+void test_current_position_bounds_only_opposing_axis_motion() {
     auto request = base_request();
     request.error_px = {-10.0f, 0.0f};
     request.relative_velocity_px_per_sec = {260.0f, 120.0f};
     const auto output = solve_response_model_aim(request);
     require(output.radial_motion_bound_applied,
-            "current position fixture must exercise the radial motion bound");
+            "current position fixture must exercise the position-motion bound");
     require(output.bounded_motion_stick.x <= 0.0f,
             "fresh position must not keep an opposing radial motion sign");
     require_near(output.bounded_motion_stick.y, output.motion_stick.y,
                  1e-5f,
-                 "fresh radial bound must preserve tangent motion");
+                 "axis-local bound must preserve orthogonal motion");
     require(output.radial_motion_bound_reason ==
                 ResponseModelConstraintReason::PositionRadialMotionBound,
-            "radial bound must expose its single-path reason");
+            "position-motion bound must expose its single-path reason");
+}
+
+void test_orthogonal_motion_cannot_mask_an_axis_reversal() {
+    auto request = base_request();
+    request.error_px = {-7.5f, -18.5f};
+    request.relative_velocity_px_per_sec = {190.0f, -250.0f};
+    const auto output = solve_response_model_aim(request);
+    const float vector_dot =
+        output.position_stick.x * output.motion_stick.x +
+        output.position_stick.y * output.motion_stick.y;
+
+    require(output.position_stick.x * output.motion_stick.x < 0.0f,
+            "fixture must oppose the current X position");
+    require(vector_dot > 0.0f,
+            "orthogonal same-direction motion must mask the old vector test");
+    require(output.radial_motion_bound_applied,
+            "axis-local conflict must exercise the position-motion bound");
+    require_near(output.bounded_motion_stick.y, output.motion_stick.y,
+                 1e-6f,
+                 "compatible orthogonal motion must remain unchanged");
+    require(output.pre_curve_stick.x * output.position_stick.x >= 0.0f,
+            "motion must not reverse the current source-owned X position");
 }
 
 void test_elliptical_force_envelope_scales_one_vector() {
@@ -188,7 +210,8 @@ int main() {
         test_horizon_and_response_have_physical_units();
         test_motion_feedforward_is_not_multiplied_by_force_cap();
         test_motion_does_not_reverse_current_residual();
-        test_current_position_bounds_only_opposing_radial_motion();
+        test_current_position_bounds_only_opposing_axis_motion();
+        test_orthogonal_motion_cannot_mask_an_axis_reversal();
         test_elliptical_force_envelope_scales_one_vector();
         test_authority_caps_delivered_force_after_curve_inversion();
         test_clear_authority_does_not_multiply_smaller_mode_cap();

@@ -148,12 +148,25 @@ void test_fresh_no_selection_drops_generic_authority() {
         selected_frame(10, 2.0, 270.0f), intent, 2.0);
     const auto lost = coordinator.update(
         fresh_no_selection(11, 2.006), intent, 2.006);
+    const auto waiting = coordinator.update(
+        no_source_tick(), intent, 2.020);
+    const auto resumed = coordinator.update(
+        selected_frame(12, 2.030, 268.0f), intent, 2.030);
 
     require_true(observed.aim_authority > 0.0f, "fresh target must own aim authority");
     require_true(lost.target_id == 0 && lost.aim_authority == 0.0f,
                  "fresh selector no-selection must remove target authority");
     require_true(lost.mode == pipeline_contract::ControlMode::Manual,
                  "fresh no-target plan must return to manual output");
+    require_true(lost.ads_acquisition_active &&
+                     waiting.ads_acquisition_active &&
+                     waiting.mode == pipeline_contract::ControlMode::Manual,
+                 "brief same-generation miss must pause without consuming ADS");
+    require_true(resumed.mode == pipeline_contract::ControlMode::AdsAcquire &&
+                     resumed.ads_acquisition_active &&
+                     resumed.target_acquisition_id ==
+                         observed.target_acquisition_id,
+                 "fresh same-generation evidence must resume the same acquisition");
     require_true(lost.source_decision_available &&
                      lost.source_decision_outcome ==
                          pipeline_contract::SourceDecisionOutcome::Rejected &&
@@ -189,11 +202,79 @@ void test_hard_source_age_gate_releases_without_gradual_decay() {
         no_source_tick(), intent, 4.019);
     const auto expired = coordinator.update(
         no_source_tick(), intent, 4.021);
+    const auto same_identity_after_abort = coordinator.update(
+        selected_frame(31, 4.030, 274.0f), intent, 4.030);
 
     require_true(near(before_expiry.aim_authority, observed.aim_authority),
                  "authority must remain flat before the hard age gate");
     require_true(expired.target_id == 0 && expired.aim_authority == 0.0f,
                  "hard source-age gate must release stale authority");
+    require_true(expired.mode == pipeline_contract::ControlMode::Manual &&
+                     expired.acquisition_terminal_reason ==
+                         pipeline_contract::AdsDecisionReason::TargetLost,
+                 "source-age abort must remain Manual and explicit");
+    require_true(same_identity_after_abort.mode ==
+                     pipeline_contract::ControlMode::BodyLockFollow &&
+                     same_identity_after_abort.target_id != 0 &&
+                     same_identity_after_abort.aim_authority > 0.0f &&
+                     !same_identity_after_abort.ads_acquisition_active &&
+                     same_identity_after_abort.target_acquisition_id ==
+                         observed.target_acquisition_id,
+                 "fresh same-identity recovery must resume BodyLock without minting another snap");
+}
+
+void test_ceiling_stays_ads_but_center_cross_handoffs_once() {
+    const auto intent = ads_intent();
+
+    controller_native::TargetCoordinatorConfig ceiling_config;
+    ceiling_config.settle_radius_px = 1.0f;
+    ceiling_config.settle_frames = 100;
+    ceiling_config.ads_nominal_acquisition_ms = 10.0f;
+    ceiling_config.ads_max_acquisition_ms = 20.0f;
+    controller_native::TargetCoordinator ceiling(ceiling_config);
+    ceiling.begin_ads_epoch(40, 4.5);
+    (void)ceiling.update(
+        selected_frame(400, 4.5, 280.0f), intent, 4.5);
+    const auto after_ceiling = ceiling.update(
+        selected_frame(401, 4.525, 280.0f), intent, 4.525);
+    require_true(after_ceiling.mode ==
+                     pipeline_contract::ControlMode::AdsAcquire &&
+                     after_ceiling.ads_acquisition_active &&
+                     after_ceiling.acquisition_terminal_reason ==
+                         pipeline_contract::AdsDecisionReason::None &&
+                     after_ceiling.ads_decision_reason ==
+                         pipeline_contract::AdsDecisionReason::AcquisitionCeiling,
+                 "acquisition ceiling must be diagnostic, not BodyLock success");
+
+    controller_native::TargetCoordinatorConfig cross_config;
+    cross_config.settle_radius_px = 1.0f;
+    cross_config.settle_frames = 100;
+    cross_config.ads_nominal_acquisition_ms = 5.0f;
+    cross_config.ads_max_acquisition_ms = 100.0f;
+    controller_native::TargetCoordinator cross(cross_config);
+    cross.begin_ads_epoch(41, 4.6);
+    (void)cross.update(
+        selected_frame(410, 4.6, 280.0f), intent, 4.6);
+    const auto after_cross = cross.update(
+        selected_frame(411, 4.610, 200.0f), intent, 4.610);
+    require_true(after_cross.mode ==
+                     pipeline_contract::ControlMode::BodyLockFollow &&
+                     !after_cross.ads_acquisition_active &&
+                     after_cross.acquisition_terminal_reason ==
+                         pipeline_contract::AdsDecisionReason::CenterCross &&
+                     after_cross.ads_decision_reason ==
+                         pipeline_contract::AdsDecisionReason::CenterCross,
+                 "meaningful radial center cross must hand off to BodyLock");
+    const auto held_lt_follow = cross.update(
+        selected_frame(412, 4.620, 205.0f), intent, 4.620);
+    require_true(held_lt_follow.mode ==
+                     pipeline_contract::ControlMode::BodyLockFollow &&
+                     !held_lt_follow.ads_acquisition_active &&
+                     held_lt_follow.target_acquisition_id ==
+                         after_cross.target_acquisition_id &&
+                     held_lt_follow.acquisition_terminal_reason ==
+                         pipeline_contract::AdsDecisionReason::CenterCross,
+                 "held LT must keep the consumed snap in BodyLock without rearming ADS");
 }
 
 void test_velocity_updates_only_on_fresh_capture() {
@@ -261,7 +342,7 @@ void test_same_generation_cue_is_only_continuity_path() {
                  "wrong-generation cue must not become generic hold authority");
 }
 
-void test_selector_generation_replacement_resets_target_identity() {
+void test_selector_generation_replacement_preserves_single_snap_token() {
     controller_native::TargetCoordinator coordinator;
     const auto intent = ads_intent();
     coordinator.begin_ads_epoch(8, 8.0);
@@ -280,13 +361,14 @@ void test_selector_generation_replacement_resets_target_identity() {
     require_true(near(second.aim_px.x, 300.0f),
                  "replacement must consume current source geometry directly");
     require_true(second.target_acquisition_id != 0 &&
-                     second.target_acquisition_id != first.target_acquisition_id &&
-                     second.mode == pipeline_contract::ControlMode::AdsAcquire &&
-                     second.ads_acquisition_active,
-                 "replacement must receive a fresh full-authority ADS acquisition");
+                     second.target_acquisition_id == first.target_acquisition_id &&
+                     second.mode == pipeline_contract::ControlMode::BodyLockFollow &&
+                     !second.ads_acquisition_active &&
+                     second.aim_authority > 0.0f,
+                 "replacement must consume the existing snap token and continue as BodyLock");
 }
 
-void test_replacement_rearms_ads_after_previous_target_consumed() {
+void test_replacement_after_consumed_snap_stays_bodylock() {
     controller_native::TargetCoordinatorConfig config;
     config.settle_frames = 1;
     controller_native::TargetCoordinator coordinator(config);
@@ -306,12 +388,12 @@ void test_replacement_rearms_ads_after_previous_target_consumed() {
     const auto second = coordinator.update(replacement, intent, 8.106);
     require_true(second.target_id != first.target_id &&
                      second.target_acquisition_id != 0 &&
-                     second.target_acquisition_id != first.target_acquisition_id,
-                 "replacement must allocate a new identity-scoped acquisition");
-    require_true(second.mode == pipeline_contract::ControlMode::AdsAcquire &&
-                     second.ads_acquisition_active &&
-                     second.aim_authority >= 0.999f,
-                 "held-LT transfer must re-enter full ADS instead of BodyLock");
+                     second.target_acquisition_id == first.target_acquisition_id,
+                 "replacement must not allocate a second acquisition under held LT");
+    require_true(second.mode == pipeline_contract::ControlMode::BodyLockFollow &&
+                     !second.ads_acquisition_active &&
+                     second.aim_authority > 0.0f,
+                 "held-LT transfer must retain BodyLock without restarting ADS");
 }
 
 void test_manual_correction_moves_d_only_inside_r() {
@@ -441,11 +523,12 @@ int main() {
     test_fresh_no_selection_drops_generic_authority();
     test_fresh_empty_frame_drops_target();
     test_hard_source_age_gate_releases_without_gradual_decay();
+    test_ceiling_stays_ads_but_center_cross_handoffs_once();
     test_velocity_updates_only_on_fresh_capture();
     test_duplicate_and_stale_captures_cannot_replace_geometry();
     test_same_generation_cue_is_only_continuity_path();
-    test_selector_generation_replacement_resets_target_identity();
-    test_replacement_rearms_ads_after_previous_target_consumed();
+    test_selector_generation_replacement_preserves_single_snap_token();
+    test_replacement_after_consumed_snap_stays_bodylock();
     test_manual_correction_moves_d_only_inside_r();
     test_cue_carries_corrected_d_instead_of_replacing_it();
     test_target_replacement_resets_corrected_d();

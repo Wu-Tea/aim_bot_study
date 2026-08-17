@@ -15,6 +15,12 @@ float clamp_unit(float value) {
     return std::max(-1.0f, std::min(1.0f, value));
 }
 
+float fallback_amount(const GamepadRecoilConfig& config) {
+    const float minimum = std::max(0.0f, config.feedback_min_amount);
+    const float maximum = std::max(minimum, config.feedback_max_amount);
+    return std::clamp(config.feedback_amount, minimum, maximum);
+}
+
 }  // namespace
 
 NativeRecoilCompensation::NativeRecoilCompensation(GamepadRecoilConfig config)
@@ -71,13 +77,13 @@ NativeRecoilOutput NativeRecoilCompensation::compute(const NativeRecoilInput& in
 
     output.recoil_active = true;
     if (!config_.profile_playback_enabled) {
-        output.right_y_delta = -std::max(0.0f, config_.feedback_amount);
+        output.right_y_delta = -fallback_amount(config_);
         return output;
     }
 
     select_runtime_profile_for_context(input.aiming);
     if (!playback_profile_.has_value() || playback_profile_->empty()) {
-        output.right_y_delta = -std::max(0.0f, config_.feedback_amount);
+        output.right_y_delta = -fallback_amount(config_);
         return output;
     }
 

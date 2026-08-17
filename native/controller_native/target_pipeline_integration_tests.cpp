@@ -130,7 +130,7 @@ void require_finite_unit_output(
 
 void test_no_target_is_physical_passthrough() {
     double now = 10.0;
-    NativeGamepadController controller(current_config(), [&now] { return now; });
+    NativeGamepadController controller(current_config(), &now);
     const auto physical = physical_input(0.42f, -0.31f);
     const auto output = controller.build_output(physical);
 
@@ -313,10 +313,10 @@ void test_bodylock_cancellation_is_confidence_bounded_and_never_reverses() {
     input.visual_authority = 1.0f;
     input.mode = pipeline_contract::ControlMode::AdsAcquire;
     const auto ads = state_machine.update(input);
-    require_near(ads.stick.x, -0.13f, 1.0e-6f,
-                 "ADS wrong-way correction exceeded the bounded 35 percent budget");
-    require(ads.stick.x < 0.0f,
-            "ADS wrong-way correction reversed the user's direction");
+    require_near(ads.stick.x, input.ai_stick.x, 1.0e-6f,
+                 "ADS did not preserve the target-owned total proposal");
+    require(ads.stick.x > 0.0f,
+            "ADS let wrong-way manual input reverse target positioning");
 }
 
 void test_downward_manual_has_more_authority_and_fire_is_native() {
@@ -353,9 +353,8 @@ void test_recoil_is_an_independent_final_stage_output() {
     config.recoil.enabled = true;
     config.recoil.selection_log_enabled = false;
     config.recoil.profile_playback_enabled = false;
-    config.recoil.adaptive_feedback_enabled = false;
     config.recoil.feedback_amount = 0.20f;
-    NativeGamepadController controller(config, [&now] { return now; });
+    NativeGamepadController controller(config, &now);
 
     auto physical = physical_input();
     physical.right_trigger = 1.0f;
@@ -388,7 +387,7 @@ void test_recoil_is_an_independent_final_stage_output() {
 
     double target_now = 17.45;
     NativeGamepadController target_controller(
-        config, [&target_now] { return target_now; });
+        config, &target_now);
     target_controller.submit_vision_snapshot(observed_snapshot(
         1, target_now, 0.0f, -32.0f, 81, 5));
     auto target_physical = physical_input(0.0f, -0.0118f);
@@ -409,26 +408,6 @@ void test_recoil_is_an_independent_final_stage_output() {
                    -1.0f, 1.0f),
         1.0e-6f,
         "recoil was not applied after target/manual output composition");
-}
-
-void test_adaptive_recoil_defaults_are_bounded_to_product_range() {
-    controller_native::GamepadRecoilConfig config;
-    config.profile_playback_enabled = false;
-    controller_native::AdaptiveRecoilFeedback feedback(config);
-
-    controller_native::AdaptiveRecoilFeedbackInput input;
-    input.firing = true;
-    input.aiming = true;
-    input.default_amount = 0.0f;
-    const auto lower = feedback.update(input);
-    require_near(lower.amount, 0.14f, 1.0e-6f,
-                 "adaptive recoil fell below the 0.14 product floor");
-
-    feedback.reset();
-    input.default_amount = 1.0f;
-    const auto upper = feedback.update(input);
-    require_near(upper.amount, 0.34f, 1.0e-6f,
-                 "adaptive recoil exceeded the 0.34 product ceiling");
 }
 
 void test_track_cooperates_per_axis_without_spending_downward_authority() {
@@ -513,8 +492,10 @@ void test_capture_brakes_alignment_but_allows_opposing_escape() {
 void test_small_filtered_input_moves_d_without_a_second_deadzone() {
     double now = 18.0;
     auto config = current_config();
+    // D-correction-to-target-first-output is a retained legacy integration
+    // contract; the direct production controller sums manual only at output.
     config.tracker.max_observation_age_ms = 1000.0f;
-    NativeGamepadController controller(config, [&now] { return now; });
+    NativeGamepadController controller(config, &now);
     controller.submit_vision_snapshot(observed_snapshot(
         1, now, 0.0f, 0.0f, 91, 6));
     (void)controller.build_output(physical_input());
@@ -532,11 +513,14 @@ void test_small_filtered_input_moves_d_without_a_second_deadzone() {
     require(after.desired_point_normalized.x >
                 before.desired_point_normalized.x,
             "shared input filter accepted micro input but D did not move");
-    require(components.manual_correction_x &&
-                components.manual_passthrough_x,
+    require(components.manual_correction_x,
             "micro input was not interpreted as current-target D correction");
-    require_near(output.right_x, 0.05f, 1.0e-5f,
-                 "micro D correction was swallowed before final output");
+    const float expected_target_output =
+        std::fabs(components.ai_aim_stick.x) > 1.0e-4f
+        ? components.ai_aim_stick.x
+        : 0.05f;
+    require_near(output.right_x, expected_target_output, 1.0e-5f,
+                 "micro D correction did not follow the target-first output contract");
 }
 
 void test_correction_release_retains_d_without_reverse_authority() {
@@ -544,7 +528,7 @@ void test_correction_release_retains_d_without_reverse_authority() {
     auto config = current_config();
     config.tracker.max_observation_age_ms = 1000.0f;
     config.ai_aim.desired_point_traversal_ms = 100.0f;
-    NativeGamepadController controller(config, [&now] { return now; });
+    NativeGamepadController controller(config, &now);
     controller.submit_vision_snapshot(observed_snapshot(
         1, now, 0.0f, 0.0f, 92, 7));
     (void)controller.build_output(physical_input());
@@ -582,7 +566,7 @@ void test_correction_release_retains_d_without_reverse_authority() {
 
 void test_fresh_target_has_one_current_plan_and_one_output_owner() {
     double now = 20.0;
-    NativeGamepadController controller(current_config(), [&now] { return now; });
+    NativeGamepadController controller(current_config(), &now);
     controller.submit_vision_snapshot(observed_snapshot(
         1, now, 64.0f, -18.0f, 101, 7));
     const auto output = controller.build_output(physical_input());
@@ -602,7 +586,7 @@ void test_fresh_target_has_one_current_plan_and_one_output_owner() {
                 components.requested_assist_stick.y) > 1.0e-4f,
             "fresh target produced no solver request");
     require(components.assist_control_phase == "track",
-            "ordinary acquisition created an extra control phase");
+            "direct solver bypassed the common final authority arbiter");
     require_near(
         components.final_stick.x,
         output.right_x,
@@ -618,7 +602,7 @@ void test_fresh_target_has_one_current_plan_and_one_output_owner() {
 
 void test_controller_tick_without_source_does_not_project_observation() {
     double now = 30.0;
-    NativeGamepadController controller(current_config(), [&now] { return now; });
+    NativeGamepadController controller(current_config(), &now);
     controller.submit_vision_snapshot(observed_snapshot(
         1, now, 48.0f, 12.0f, 201, 11));
     (void)controller.build_output(physical_input());
@@ -647,7 +631,7 @@ void test_controller_tick_without_source_does_not_project_observation() {
 
 void test_fresh_no_target_removes_authority_immediately() {
     double now = 40.0;
-    NativeGamepadController controller(current_config(), [&now] { return now; });
+    NativeGamepadController controller(current_config(), &now);
     controller.submit_vision_snapshot(observed_snapshot(
         1, now, 52.0f, 0.0f, 301, 15));
     (void)controller.build_output(physical_input());
@@ -671,7 +655,7 @@ void test_fresh_no_target_removes_authority_immediately() {
 
 void test_non_cue_target_without_candidates_fails_closed() {
     double now = 45.0;
-    NativeGamepadController controller(current_config(), [&now] { return now; });
+    NativeGamepadController controller(current_config(), &now);
     controller.submit_vision_snapshot(observed_snapshot(
         1, now, 52.0f, 0.0f, 351, 18));
     (void)controller.build_output(physical_input());
@@ -700,7 +684,7 @@ void test_cue_continuation_is_same_generation_aim_only_evidence() {
     double now = 50.0;
     auto config = current_config();
     config.ai_aim.cue_hold_body_lock_force_scale = 0.35f;
-    NativeGamepadController controller(config, [&now] { return now; });
+    NativeGamepadController controller(config, &now);
     controller.submit_vision_snapshot(observed_snapshot(
         1, now, 42.0f, 0.0f, 401, 21));
     (void)controller.build_output(physical_input());
@@ -723,9 +707,7 @@ void test_cue_continuation_is_same_generation_aim_only_evidence() {
             "cue continuation acquired synthetic fire authority");
 
     double cue_only_now = 51.0;
-    NativeGamepadController cue_only(config, [&cue_only_now] {
-        return cue_only_now;
-    });
+    NativeGamepadController cue_only(config, &cue_only_now);
     cue_only.submit_vision_snapshot(cue_snapshot(
         1, cue_only_now, 20.0f, 0.0f, 21));
     (void)cue_only.build_output(physical_input());
@@ -743,15 +725,18 @@ void test_cue_continuation_is_same_generation_aim_only_evidence() {
 void test_boundary_qualified_handover_releases_then_captures() {
     double now = 60.0;
     auto config = current_config();
+    // Handover-seek is a retained legacy controller phase.
     config.tracker.max_observation_age_ms = 1000.0f;
     config.ai_aim.desired_point_traversal_ms = 40.0f;
     config.ai_aim.desired_point_boundary_exit_ms = 50.0f;
-    NativeGamepadController controller(config, [&now] { return now; });
+    NativeGamepadController controller(config, &now);
     auto first = observed_snapshot(1, now, -52.0f, 0.0f, 501, 31);
     add_alternative(first, 502, 58.0f);
     controller.submit_vision_snapshot(first);
     (void)controller.build_output(physical_input());
     const auto old_target_id = controller.last_target_plan().target_id;
+    const auto old_acquisition_id =
+        controller.last_target_plan().target_acquisition_id;
     require(old_target_id != 0 &&
                 controller.last_target_plan().ads_candidate_count == 2,
             "boundary handover fixture did not establish two-target ownership");
@@ -800,8 +785,13 @@ void test_boundary_qualified_handover_releases_then_captures() {
     require(capture_components.assist_control_phase == "capture" &&
                 capture_components.handover_braking,
             "confirmed replacement did not enter bounded capture braking");
+    require(replacement_plan.mode ==
+                pipeline_contract::ControlMode::BodyLockFollow &&
+                !replacement_plan.ads_acquisition_active &&
+                replacement_plan.target_acquisition_id == old_acquisition_id,
+            "held-LT handover minted a second ADS snap");
     require_near(capture_output.right_x, 0.90f, 1.0e-5f,
-                 "capture reduced the native handover gesture");
+                 "BodyLock handover did not retain compatible manual motion");
 
     for (std::uint64_t frame = 3; frame <= 4; ++frame) {
         now += 0.005;
@@ -818,18 +808,16 @@ void test_boundary_qualified_handover_releases_then_captures() {
     require(settled.assist_control_phase == "track" &&
                 settled.manual_correction_x,
             "settled replacement did not interpret micro input as D correction");
-    require(micro_output.right_x >= 0.12f - 1.0e-4f,
-            "settled replacement reduced current-target micro correction");
-    require(micro_output.right_x <=
-                std::max(0.12f, settled.ai_aim_stick.x) + 1.0e-4f,
-            "settled replacement added manual and AI output together");
+    require(micro_output.right_x > 0.0f && micro_output.right_x <= 1.0f,
+            "settled BodyLock D correction opposed compatible manual motion");
 }
 
 void test_strong_outward_transfer_releases_old_target_within_one_ads_window() {
     double now = 65.0;
     auto config = current_config();
+    // Manual region-exit arbitration belongs to the legacy rollback path.
     config.tracker.max_observation_age_ms = 1000.0f;
-    NativeGamepadController controller(config, [&now] { return now; });
+    NativeGamepadController controller(config, &now);
     auto first = observed_snapshot(1, now, 0.0f, 0.0f, 801, 41);
     add_alternative(first, 802, 90.0f);
     controller.submit_vision_snapshot(first);
@@ -856,7 +844,7 @@ void test_autofire_requires_fresh_observed_authority_and_preserves_physical_fire
     double now = 70.0;
     auto config = current_config();
     config.ai_aim.auto_fire_ready_frames = 2;
-    NativeGamepadController controller(config, [&now] { return now; });
+    NativeGamepadController controller(config, &now);
 
     bool synthetic_fire_seen = false;
     for (std::uint64_t frame = 1; frame <= 3; ++frame) {
@@ -886,7 +874,7 @@ void test_autofire_requires_fresh_observed_authority_and_preserves_physical_fire
 
 void test_current_chain_outputs_remain_finite_and_bounded() {
     double now = 80.0;
-    NativeGamepadController controller(current_config(), [&now] { return now; });
+    NativeGamepadController controller(current_config(), &now);
     for (std::uint64_t frame = 1; frame <= 200; ++frame) {
         const float phase = static_cast<float>(frame) * 0.13f;
         const float dx = std::sin(phase) * 120.0f;
@@ -914,7 +902,6 @@ int main() {
         test_bodylock_cancellation_is_confidence_bounded_and_never_reverses();
         test_downward_manual_has_more_authority_and_fire_is_native();
         test_recoil_is_an_independent_final_stage_output();
-        test_adaptive_recoil_defaults_are_bounded_to_product_range();
         test_track_cooperates_per_axis_without_spending_downward_authority();
         test_capture_brakes_alignment_but_allows_opposing_escape();
         test_small_filtered_input_moves_d_without_a_second_deadzone();

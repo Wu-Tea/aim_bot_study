@@ -76,7 +76,7 @@ struct SequenceResult {
 };
 
 struct CounterfactualResult {
-    bool compatible_manual_preserved = false;
+    bool compatible_ads_target_preserved = false;
     bool firing_down_preserved = false;
     bool no_target_manual_passthrough = false;
 };
@@ -216,8 +216,8 @@ CounterfactualResult run_counterfactuals() {
             {0.40f, 0.0f},
             {0.25f, 0.0f});
         const auto output = machine.update(input);
-        result.compatible_manual_preserved =
-            std::fabs(output.stick.x - 0.40f) <= 1.0e-6f;
+        result.compatible_ads_target_preserved =
+            std::fabs(output.stick.x - 0.25f) <= 1.0e-6f;
     }
 
     {
@@ -306,7 +306,7 @@ IncidentReport evaluate_incident() {
     report.explicit_conflict_stability_pass =
         report.explicit_late_flip_count == 0;
     report.counterfactuals_pass =
-        report.counterfactuals.compatible_manual_preserved &&
+        report.counterfactuals.compatible_ads_target_preserved &&
         report.counterfactuals.firing_down_preserved &&
         report.counterfactuals.no_target_manual_passthrough;
     report.overall_pass =
@@ -406,8 +406,8 @@ void write_report(
     write_sequence_array(output, report.explicit_axis, "  ");
     output << ",\n"
            << "  \"counterfactuals\": {\n"
-           << "    \"compatible_manual_preserved\": "
-           << report.counterfactuals.compatible_manual_preserved << ",\n"
+           << "    \"compatible_ads_target_preserved\": "
+           << report.counterfactuals.compatible_ads_target_preserved << ",\n"
            << "    \"firing_down_preserved\": "
            << report.counterfactuals.firing_down_preserved << ",\n"
            << "    \"no_target_manual_passthrough\": "

@@ -13,15 +13,13 @@ struct NativeControllerOutputComponents {
     common_native::Vec2f physical_stick;
     common_native::Vec2f manual_stick;
     // Target-first diagnostics: M is the physical proposal, while T is the
-    // single pre-recoil aim output.  `ai_correction_stick` is only T-M; it is
+    // single pre-recoil aim output. `ai_correction_stick` is only T-M; it is
     // not a second actuator contribution.
     common_native::Vec2f target_final_stick;
     common_native::Vec2f ai_correction_stick;
     const char* manual_authority_mode = "no_target_passthrough";
     common_native::Vec2f filtered_manual_stick;
     float manual_confidence = 0.0f;
-    // Operation-pattern model (§4.5): the recognized user operation this tick
-    // and its trust signal, consumed by diagnostics and telemetry.
     std::string operation_class = "no_gesture";
     float operation_confidence = 0.0f;
     float direction_trust = 0.5f;
@@ -77,14 +75,8 @@ struct NativeControllerOutputComponents {
     bool fire_button = false;
 };
 
-NativeControllerOutputComponents output_components_from_manual_output(
-    const GamepadOutputState& output);
-
-void capture_output_component_delta(
-    const GamepadOutputState& before,
-    const GamepadOutputState& after,
-    common_native::Vec2f* component);
-
+// Read-only projection after OutputComposer finalization. This function does
+// not participate in control or mutate GamepadOutputState.
 void capture_final_output_component(
     const GamepadOutputState& output,
     NativeControllerOutputComponents* components);

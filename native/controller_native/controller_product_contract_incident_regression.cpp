@@ -24,7 +24,7 @@ AdsSample ads_sample(bool has_enemy_cue) {
     config.ai_aim.ads_max_acquisition_ms = 500.0f;
 
     double now = 120.0;
-    NativeGamepadController controller(config, [&now] { return now; });
+    NativeGamepadController controller(config, &now);
     TargetSpec target;
     target.observation_id = has_enemy_cue ? 9102 : 9101;
     target.selector_generation = has_enemy_cue ? 102 : 101;
@@ -89,7 +89,7 @@ DesiredPointSample firing_down_sample() {
     config.ai_aim.ads_completion_fresh_frames = 1000;
     config.ai_aim.desired_point_traversal_ms = 100.0f;
     double now = 140.0;
-    NativeGamepadController controller(config, [&now] { return now; });
+    NativeGamepadController controller(config, &now);
     TargetSpec target;
     target.observation_id = 9201;
     target.selector_generation = 201;
@@ -131,15 +131,14 @@ int main(int argc, char** argv) {
             fusion.mixed_axis.y <= -0.12f + kEpsilon;
         const bool compatible_axis_still_gets_fill =
             fusion.mixed_axis.x > 0.18f + kEpsilon;
-        const bool ads_can_resist_wrong_manual =
-            fusion.opposing_ads.x < 0.18f - kEpsilon &&
-            fusion.opposing_ads.x >= -kEpsilon;
+        const bool ads_owns_wrong_manual =
+            std::fabs(fusion.opposing_ads.x + 0.60f) <= kEpsilon;
         const bool firing_down_updates_d =
             desired.manual_correction_y &&
             desired.after_y > desired.before_y + 0.5f;
         const bool pass = ads_full_without_cue && ads_full_with_cue &&
             cue_does_not_change_ads_gain && firing_down_is_not_opposed &&
-            compatible_axis_still_gets_fill && ads_can_resist_wrong_manual &&
+            compatible_axis_still_gets_fill && ads_owns_wrong_manual &&
             firing_down_updates_d;
 
         auto report = controller_native::incident_fixture::open_report(output_path);
@@ -176,8 +175,8 @@ int main(int argc, char** argv) {
                << (firing_down_is_not_opposed ? "true" : "false") << ",\n"
                << "    \"compatible_axis_still_gets_fill\": "
                << (compatible_axis_still_gets_fill ? "true" : "false") << ",\n"
-               << "    \"ads_can_resist_wrong_manual\": "
-               << (ads_can_resist_wrong_manual ? "true" : "false") << ",\n"
+               << "    \"ads_owns_wrong_manual\": "
+               << (ads_owns_wrong_manual ? "true" : "false") << ",\n"
                << "    \"firing_down_updates_d\": "
                << (firing_down_updates_d ? "true" : "false") << "\n"
                << "  },\n"

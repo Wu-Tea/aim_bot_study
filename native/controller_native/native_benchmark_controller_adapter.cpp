@@ -96,7 +96,7 @@ NativeReplayAdapter::NativeReplayAdapter(
     std::shared_ptr<AssistedModeCoverage> coverage)
     : cohort_(cohort),
       config_(std::move(source_config)),
-      controller_(config_, [this] { return now_seconds_; }),
+      controller_(config_, &now_seconds_),
       coverage_(std::move(coverage)) {
     physical_.connected = true;
     physical_.left_trigger =

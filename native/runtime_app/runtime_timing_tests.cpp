@@ -1,4 +1,4 @@
-#include "manual_fire_aim_activation.h"
+#include "controller_native/aim_scope_reducer.h"
 #include "runtime_timing.h"
 
 #include <chrono>
@@ -101,22 +101,47 @@ struct ManualFireTargetPresentIncidentMeasurement {
     bool disabled_scope_active = false;
 };
 
+struct ScopeHarness {
+    controller_native::InputEdgeReducer input_edges;
+    controller_native::AimScopeReducer scope;
+    std::uint64_t sequence = 1;
+
+    controller_native::AimScopeSnapshot update(
+        const controller_native::PhysicalGamepadState& physical,
+        bool rb_counts_as_aiming,
+        bool manual_fire_activates_aim) {
+        const auto edges = input_edges.sample(
+            physical,
+            rb_counts_as_aiming,
+            &sequence);
+        return scope.reduce(edges, manual_fire_activates_aim);
+    }
+};
+
 ManualFireTargetPresentIncidentMeasurement measure_manual_fire_target_present_incident() {
     ManualFireTargetPresentIncidentMeasurement measured;
 
-    runtime_app::ManualFireAimActivationTracker incident;
-    (void)incident.update(true, false, true);
-    const auto target_present_onset = incident.update(true, true, true);
-    measured.fire_edge_observed = target_present_onset.fire_pressed_now;
-    measured.target_present_scope_active = target_present_onset.scope_active;
-    measured.target_present_scope_held = incident.update(true, true, true).scope_active;
-    measured.target_present_scope_released = incident.update(true, false, true).scope_active;
+    controller_native::PhysicalGamepadState fire;
+    fire.right_trigger = 1.0f;
+    controller_native::PhysicalGamepadState released;
 
-    runtime_app::ManualFireAimActivationTracker no_target;
-    measured.no_target_scope_active = no_target.update(true, true, false).scope_active;
+    ScopeHarness incident;
+    (void)incident.update(released, false, true);
+    const auto target_present_onset = incident.update(fire, false, true);
+    measured.fire_edge_observed = target_present_onset.manual_fire_pressed;
+    measured.target_present_scope_active = target_present_onset.assist_active;
+    measured.target_present_scope_held =
+        incident.update(fire, false, true).assist_active;
+    measured.target_present_scope_released =
+        incident.update(released, false, true).assist_active;
 
-    runtime_app::ManualFireAimActivationTracker disabled;
-    measured.disabled_scope_active = disabled.update(false, true, true).scope_active;
+    ScopeHarness no_target;
+    measured.no_target_scope_active =
+        no_target.update(fire, false, true).assist_active;
+
+    ScopeHarness disabled;
+    measured.disabled_scope_active =
+        disabled.update(fire, false, false).assist_active;
     return measured;
 }
 

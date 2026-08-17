@@ -46,7 +46,7 @@ struct GamepadAiAimConfig {
     // Legacy ADS response-normalization radius retained for configuration and
     // telemetry compatibility. It does not gate selector-owned target pickup.
     float ads_activation_radius_px = 135.0f;
-    int ads_snap_window_ms = 100;
+    int ads_snap_window_ms = 135;
     float ads_snap_max_ai_force = 1.0f;
     float ads_snap_max_ai_force_y = 1.0f;
     float ads_completion_radius_px = 8.0f;
@@ -56,6 +56,10 @@ struct GamepadAiAimConfig {
     int auto_fire_ready_frames = 2;
     float auto_fire_ready_max_ai_stick = 6000.0f;
     float cue_hold_body_lock_force_scale = 0.35f;
+    // A same-generation cue continuation retains full BodyLock authority once
+    // the last direct body height reaches this capture-height ratio. Smaller
+    // targets keep the conservative cue-hold scale; the transition is smooth.
+    float cue_hold_full_force_min_target_height_ratio = 0.25f;
     float body_lock_max_ai_force = 0.30f;
     float body_lock_max_ai_force_y = 0.42f;
     float body_lock_box_tolerance_px = 18.0f;
@@ -89,12 +93,11 @@ struct GamepadRecoilConfig {
     float profile_amount = 1.0f;
     float profile_x_amount = 1.0f;
     float feedback_amount = 0.20f;
-    // Short-window controller feedback around the fixed fallback amount.
-    // It consumes only de-duplicated fresh target residuals and is disabled
-    // automatically when weapon profile playback owns recoil magnitude.
-    bool adaptive_feedback_enabled = true;
-    float adaptive_min_amount = 0.14f;
-    float adaptive_max_amount = 0.34f;
+    // Target-independent fallback boundary. Weapon profiles may provide their
+    // own timeline; the fixed fallback is clamped here without reading aim,
+    // target, manual, or pre-recoil output state.
+    float feedback_min_amount = 0.14f;
+    float feedback_max_amount = 0.34f;
     float profile_lead_ms = 0.0f;
     float profile_velocity_reference_ms = 10.0f;
     float profile_despike_threshold_px = 2.0f;
@@ -203,6 +206,9 @@ struct RuntimeConfig {
     // separate from source/config provenance so a session can prove which
     // executable produced its telemetry without recording a filesystem path.
     std::string executable_sha256;
+    std::string control_contract_sha256 = "unavailable";
+    std::uint32_t control_architecture_version = 0;
+    std::uint32_t control_event_schema_version = 0;
 
     std::string effective_source(const std::string& key) const {
         const auto found = effective_sources.find(key);

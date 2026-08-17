@@ -201,8 +201,7 @@ bool is_known_key(const std::string& section, const std::string& key) {
         "recognizer_log_enabled", "recognizer_game",
         "profile_directory", "calibration_directory", "weapon_directory",
         "recognizer_state_path", "recognizer_fps", "profile_amount", "profile_x_amount",
-        "feedback_amount", "adaptive_feedback_enabled", "adaptive_min_amount",
-        "adaptive_max_amount",
+        "feedback_amount", "feedback_min_amount", "feedback_max_amount",
         "profile_lead_ms", "profile_velocity_reference_ms",
         "profile_despike_threshold_px", "profile_despike_ratio", "piecewise_mid_pixels_y",
         "piecewise_max_pixels_y", "piecewise_mid_ratio_y"};
@@ -214,6 +213,7 @@ bool is_known_key(const std::string& section, const std::string& key) {
         "ads_max_acquisition_ms",
         "auto_fire_ready_error_px", "auto_fire_ready_frames",
         "auto_fire_ready_max_ai_stick", "cue_hold_body_lock_force_scale",
+        "cue_hold_full_force_min_target_height_ratio",
         "body_lock_max_ai_force", "body_lock_max_ai_force_y",
         "body_lock_box_tolerance_px", "body_lock_activation_box_px",
         "aim_response_effect_delay_ms",
@@ -363,6 +363,11 @@ void apply_gamepad_ai_aim_value(
     } else if (key == "cue_hold_body_lock_force_scale") {
         config.cue_hold_body_lock_force_scale =
             parse_float_value(value, config.cue_hold_body_lock_force_scale);
+    } else if (key == "cue_hold_full_force_min_target_height_ratio") {
+        config.cue_hold_full_force_min_target_height_ratio =
+            parse_float_value(
+                value,
+                config.cue_hold_full_force_min_target_height_ratio);
     } else if (key == "body_lock_max_ai_force") {
         config.body_lock_max_ai_force = parse_float_value(value, config.body_lock_max_ai_force);
     } else if (key == "body_lock_max_ai_force_y") {
@@ -424,15 +429,12 @@ void apply_gamepad_recoil_value(
         config.profile_x_amount = parse_float_value(value, config.profile_x_amount);
     } else if (key == "feedback_amount") {
         config.feedback_amount = parse_float_value(value, config.feedback_amount);
-    } else if (key == "adaptive_feedback_enabled") {
-        config.adaptive_feedback_enabled =
-            parse_bool_value(value, config.adaptive_feedback_enabled);
-    } else if (key == "adaptive_min_amount") {
-        config.adaptive_min_amount =
-            parse_float_value(value, config.adaptive_min_amount);
-    } else if (key == "adaptive_max_amount") {
-        config.adaptive_max_amount =
-            parse_float_value(value, config.adaptive_max_amount);
+    } else if (key == "feedback_min_amount") {
+        config.feedback_min_amount =
+            parse_float_value(value, config.feedback_min_amount);
+    } else if (key == "feedback_max_amount") {
+        config.feedback_max_amount =
+            parse_float_value(value, config.feedback_max_amount);
     } else if (key == "profile_lead_ms") {
         config.profile_lead_ms = parse_float_value(value, config.profile_lead_ms);
     } else if (key == "profile_velocity_reference_ms") {
