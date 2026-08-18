@@ -200,6 +200,7 @@ void NativeGamepadController::reset() {
     last_operation_intent_ = {};
     target_coordinator_.reset();
     aim_response_estimator_.reset();
+    bodylock_target_motion_observer_.reset();
     ads_reacquisition_reducer_.reset();
     dynamics_shaper_.reset();
     assist_control_state_machine_.reset();
@@ -622,7 +623,6 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
     components.desired_point_source = desired_point_source_name(
         plan.desired_point_source);
     const std::uint64_t plan_decision_ns = seconds_to_ns(now);
-    last_target_plan_ = plan;
 
     if (plan.target_acquisition_id != acquisition_trace_target_id_) {
         last_acquisition_trace_ = {};
@@ -677,6 +677,7 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
             plan.target_id == last_aim_response_target_id_;
         if (!same_response_target) {
             aim_response_estimator_.begin_target(plan.target_id);
+            bodylock_target_motion_observer_.begin_target(plan.target_id);
         } else {
             const double interval_seconds =
                 capture_seconds - last_aim_response_capture_seconds_;
@@ -720,6 +721,16 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
                         pipeline_contract::TargetLifecycle::Observed,
                     manual_ambiguous,
                 });
+                bodylock_target_motion_observer_.update({
+                    plan.target_id,
+                    capture_seconds,
+                    static_cast<float>(interval_seconds),
+                    observed_error_rate,
+                    average_stick,
+                    plan.response_scale,
+                    plan.reliability,
+                    plan.direct_person_observation,
+                });
             }
         }
         last_aim_response_frame_id_ = observations.frame_id;
@@ -730,6 +741,31 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
             std::isfinite(capture_seconds) &&
             pipeline_contract::finite(source_error_px);
     }
+    if (plan.target_id == 0 ||
+        plan.lifecycle == pipeline_contract::TargetLifecycle::None) {
+        bodylock_target_motion_observer_.reset();
+    } else {
+        const auto target_motion = bodylock_target_motion_observer_.estimate(
+            plan.target_id, now);
+        // Cue continuation may carry same-generation position for bounded
+        // aim-only continuity, but it is not a fresh observation of target
+        // motion. Do not let a held motion estimate bypass the existing
+        // close/far cue-authority policy.
+        plan.bodylock_target_motion_valid = target_motion.valid &&
+            plan.lifecycle == pipeline_contract::TargetLifecycle::Observed &&
+            !plan.cue_continuation;
+        plan.bodylock_target_motion_confidence = target_motion.confidence;
+        plan.bodylock_aligned_delivered_stick =
+            target_motion.aligned_delivered_stick;
+        if (target_motion.valid) {
+            const float response = std::max(50.0f, plan.response_scale);
+            plan.bodylock_target_motion_px_per_sec = {
+                target_motion.target_motion_stick.x * response,
+                -target_motion.target_motion_stick.y * response,
+            };
+        }
+    }
+    last_target_plan_ = plan;
     last_frame_vision_state_ = vision_state_from_plan(
         plan, now, observations.capture_fresh, plan.error_px);
     last_ai_aim_mode_ = mode_name(plan.mode);
@@ -763,8 +799,8 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
         dt,
         {});
     components.bodylock_error_rate_px_per_sec = {
-        plan.error_rate_px_per_sec.x,
-        plan.error_rate_px_per_sec.y};
+        bodylock_diagnostics.error_rate_px_per_sec.x,
+        bodylock_diagnostics.error_rate_px_per_sec.y};
     components.bodylock_position_stick = {
         bodylock_diagnostics.position_stick.x,
         bodylock_diagnostics.position_stick.y};

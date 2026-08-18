@@ -8,6 +8,7 @@
 #include "assist_control_state_machine.h"
 #include "auto_fire_gate.h"
 #include "bodylock_follow_controller.h"
+#include "bodylock_target_motion_observer.h"
 #include "control_frame.h"
 #include "controller_vision_snapshot.h"
 #include "intent_filter.h"
@@ -205,6 +206,7 @@ private:
     AdsAcquisitionController ads_controller_{};
     AdsReacquisitionReducer ads_reacquisition_reducer_{};
     BodylockFollowController bodylock_controller_{};
+    BodylockTargetMotionObserver bodylock_target_motion_observer_{};
     AimDynamicsShaper dynamics_shaper_{};
     AssistControlStateMachine assist_control_state_machine_{};
     RecoilReducer recoil_;

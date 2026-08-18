@@ -147,6 +147,7 @@ add_library(controller_native_core STATIC
     ../controller_native/target_coordinator.cpp
     ../controller_native/ads_acquisition_controller.cpp
     ../controller_native/bodylock_follow_controller.cpp
+    ../controller_native/bodylock_target_motion_observer.cpp
     ../controller_native/response_model_aim_solver.cpp
     ../controller_native/aim_response_estimator.cpp
     ../controller_native/aim_dynamics_shaper.cpp)
@@ -337,6 +338,7 @@ foreach(_unit IN ITEMS
     ads_reacquisition_reducer
     ads_acquisition_controller
     bodylock_follow_controller
+    bodylock_target_motion_observer
     aim_dynamics_shaper
     aim_response_estimator
     response_model_aim_solver
@@ -351,6 +353,25 @@ foreach(_unit IN ITEMS
     target_link_libraries(${_target} PRIVATE controller_native_core)
     add_test(NAME "Native${_unit_compact}Tests" COMMAND ${_target})
 endforeach()
+
+# Product pacing owner for the close-range ADS response inherited from the
+# retired Direct experiment. Close acquisition must remain faster than the
+# nominal mid/far path without becoming an abrupt near-instant transfer.
+add_executable(cod_native_ads_close_acquisition_pacing_incident_regression
+    ../controller_native/ads_close_acquisition_pacing_incident_regression.cpp)
+cod_native_defaults(
+    cod_native_ads_close_acquisition_pacing_incident_regression)
+target_link_libraries(
+    cod_native_ads_close_acquisition_pacing_incident_regression PRIVATE
+    controller_native_core)
+add_test(
+    NAME NativeAdsCloseAcquisitionPacingIncidentRegression
+    COMMAND cod_native_ads_close_acquisition_pacing_incident_regression
+        --output
+        "${CMAKE_CURRENT_BINARY_DIR}/ads_close_acquisition_pacing_incident_ctest.json")
+set_tests_properties(
+    NativeAdsCloseAcquisitionPacingIncidentRegression
+    PROPERTIES LABELS "controller;incident-regression")
 
 cod_native_add_test(
     cod_native_control_pipeline_primitives_tests
@@ -647,6 +668,25 @@ add_test(
         "${CMAKE_CURRENT_BINARY_DIR}/bodylock_target_direction_latency_incident_ctest.json")
 set_tests_properties(
     NativeBodylockTargetDirectionLatencyIncidentRegression
+    PROPERTIES LABELS "controller;incident-regression")
+
+# Frozen production-path owner for the 2026-08-18 sustained-horizontal
+# BodyLock incident. It entered as a known RED and is now a permanent gate for
+# response, error growth, recovery overshoot and target-generation reset.
+add_executable(cod_native_bodylock_target_motion_total_incident_regression
+    ../controller_native/bodylock_target_motion_total_incident_regression.cpp)
+cod_native_defaults(
+    cod_native_bodylock_target_motion_total_incident_regression)
+target_link_libraries(
+    cod_native_bodylock_target_motion_total_incident_regression PRIVATE
+    controller_native_core)
+add_test(
+    NAME NativeBodylockTargetMotionTotalIncidentRegression
+    COMMAND cod_native_bodylock_target_motion_total_incident_regression
+        --output
+        "${CMAKE_CURRENT_BINARY_DIR}/bodylock_target_motion_total_incident_ctest.json")
+set_tests_properties(
+    NativeBodylockTargetMotionTotalIncidentRegression
     PROPERTIES LABELS "controller;incident-regression")
 
 cod_native_add_test(cod_native_aimlab_benchmark_tests NativeAimlabBenchmarkTests

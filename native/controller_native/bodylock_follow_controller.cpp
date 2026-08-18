@@ -21,7 +21,13 @@ BodylockFollowControllerOutput BodylockFollowController::compute_detailed(
     const pipeline_contract::IntentState&,
     float) const noexcept {
     BodylockFollowControllerOutput result{};
-    result.error_rate_px_per_sec = plan.error_rate_px_per_sec;
+    const bool target_motion_total_valid =
+        plan.bodylock_target_motion_valid &&
+        pipeline_contract::finite(
+            plan.bodylock_target_motion_px_per_sec);
+    result.error_rate_px_per_sec = target_motion_total_valid
+        ? plan.bodylock_target_motion_px_per_sec
+        : plan.error_rate_px_per_sec;
     if (plan.mode != pipeline_contract::ControlMode::BodyLockFollow ||
         plan.lifecycle == pipeline_contract::TargetLifecycle::None) {
         return result;
@@ -41,13 +47,18 @@ BodylockFollowControllerOutput BodylockFollowController::compute_detailed(
     result.response_envelope_source = "bodylock_response_model";
     ResponseModelAimRequest request{};
     request.error_px = plan.error_px;
-    request.relative_velocity_px_per_sec = plan.error_rate_px_per_sec;
+    request.relative_velocity_px_per_sec = result.error_rate_px_per_sec;
     request.response_px_per_stick_second = response;
     request.arrival_horizon_seconds = config_.feedback_range_x_px /
         std::max(1.0f, config_.max_force_x * config_.fallback_response_px_per_stick_second);
     request.arrival_horizon_y_seconds = config_.feedback_range_y_px /
         std::max(1.0f, config_.max_force_y * config_.fallback_response_px_per_stick_second);
-    request.motion_weight = config_.feedforward_gain;
+    // A valid observer value is already the total sustaining motion of the
+    // target, not a residual hint. The legacy screen-relative fallback keeps
+    // its conservative gain until enough aligned evidence exists.
+    request.motion_weight = target_motion_total_valid
+        ? 1.0f
+        : config_.feedforward_gain;
     request.max_force = {config_.max_force_x, config_.max_force_y};
     request.authority = authority;
     request.response_curve = config_.response_curve;

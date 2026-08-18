@@ -122,6 +122,20 @@ void test_force_envelope_remains_bounded() {
                  "BodyLock target proposal must stay inside its force ellipse");
 }
 
+void test_aligned_target_motion_replaces_screen_relative_hint() {
+    controller_native::BodylockFollowController controller;
+    auto plan = active_plan(0.0f, 0.0f);
+    plan.error_rate_px_per_sec = {0.0f, 0.0f};
+    plan.bodylock_target_motion_px_per_sec = {200.0f, 0.0f};
+    plan.bodylock_target_motion_confidence = 0.8f;
+    plan.bodylock_target_motion_valid = true;
+    const auto output = controller.compute_detailed(plan, {}, 0.001f);
+    require_true(near(output.error_rate_px_per_sec.x, 200.0f),
+                 "BodyLock must expose the aligned target-motion demand");
+    require_true(near(output.motion_stick.x, 0.4f),
+                 "target motion must be a full sustaining total, not a 0.72 hint");
+}
+
 }  // namespace
 
 int main() {
@@ -132,6 +146,7 @@ int main() {
     test_motion_cannot_reverse_current_position_axis();
     test_orthogonal_motion_cannot_mask_bodylock_axis_reversal();
     test_force_envelope_remains_bounded();
+    test_aligned_target_motion_replaces_screen_relative_hint();
     std::cout << "[BodylockFollowControllerTests] PASS\n";
     return 0;
 }

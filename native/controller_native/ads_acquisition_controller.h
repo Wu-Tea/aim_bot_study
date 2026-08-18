@@ -10,10 +10,11 @@ struct AdsAcquisitionControllerConfig {
     float max_force_x = 1.0f;
     float max_force_y = 1.0f;
     // Production supplies its nominal horizon from ads_snap_window_ms (135 ms
-    // by default). Apparent body height then shortens it continuously for CQB;
+    // by default). Apparent body height then shortens it continuously for CQB,
+    // but keeps enough travel time to avoid a near-instant close transfer;
     // authority remains unchanged after target admission.
     float arrival_horizon_seconds = 0.160f;
-    float close_arrival_horizon_seconds = 0.060f;
+    float close_arrival_horizon_seconds = 0.090f;
     float close_target_size_begin = 0.18f;
     float close_target_size_full = 0.40f;
     // Live evidence shows materially slower convergence when the target is

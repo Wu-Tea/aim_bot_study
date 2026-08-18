@@ -109,9 +109,13 @@ void test_close_visual_target_converges_faster_than_mid_far_target() {
     close.normalized_size = 0.42f;
     const auto mid_far_output = controller.compute(mid_far, {}, 0.005f);
     const auto close_output = controller.compute(close, {}, 0.005f);
+    const float close_to_mid_far = close_output.x / mid_far_output.x;
     require_true(
-        close_output.x >= mid_far_output.x * 1.50f,
+        close_to_mid_far >= 1.45f,
         "close target must use a shorter ADS arrival horizon than mid/far target");
+    require_true(
+        close_to_mid_far <= 1.55f,
+        "close target must not restore the retired near-instant transfer speed");
 
     auto just_below_transition = mid_far;
     just_below_transition.normalized_size = 0.179f;

@@ -46,6 +46,10 @@ void test_plan_values_can_be_validated() {
     plan.aim_authority = 0.5f;
     plan.error_px.x = std::nanf("");
     require_true(!pipeline_contract::valid(plan), "non-finite plan error must be rejected");
+    plan.error_px.x = 0.0f;
+    plan.bodylock_target_motion_confidence = 1.1f;
+    require_true(!pipeline_contract::valid(plan),
+                 "BodyLock target-motion confidence above one must be rejected");
 }
 
 void test_desired_point_must_remain_inside_valid_region() {

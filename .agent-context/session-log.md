@@ -462,3 +462,102 @@ One owner per lifecycle, mode transition, shaping state and final fusion decisio
 - SyncSet: `sync-20260817-003`; reviewer disposition: `accept_draft`. Raw logs,
   binaries, personal paths and unrelated worktree changes are excluded. The
   oversized primary session log was not compacted in this task.
+
+## 2026-08-18 - Sustained Horizontal BodyLock Demand Defect Isolated
+
+- **User-confirmed symptom:** on continuously laterally moving targets,
+  BodyLock still falls behind and can feel as though it sticks to an old screen
+  position instead of sustaining the target's motion. ADS remains outside this
+  repair scope because the user currently considers ADS behavior acceptable.
+- The newest session's whole-session audit is strictly blocked by one truncated
+  final JSONL row in an otherwise stopped-but-still-active manifest. The first
+  complete telemetry shard independently passed the unchanged preflight with
+  zero issues; the malformed row was neither deleted nor repaired.
+- A strict same-direction follow cohort required direct observed BodyLock,
+  authority, stable identity, no gap above 20 ms, no manual correction/exit,
+  material X error, and manual/error/raw-AI request pointing in the same
+  direction. It produced 27 runs across 22 target IDs and 340 samples.
+- Final arbitration preserved at least 95% of `max(manual, BodyLock request)`
+  on 328/340 samples (96.47%). Nevertheless, error continued growing in the
+  same direction at at least 35 px/s on 90/340 samples (26.47%); all 90 were
+  already fully delivered. Only one sample approached the configured 0.60
+  BodyLock request cap. A separate stable-rate cohort found material Dynamics
+  Shaper attenuation on only 11/557 samples (1.97%).
+- Representative tracks 445, 460 and 626 had stable identity, strong authority
+  and 90--100% exact committed-observation joins. Track 445 ran about 190 ms:
+  error expanded from roughly 7 to 61 px while median manual/final output was
+  about 0.55/0.57 and median raw BodyLock request only 0.34. Tracks 460 and 626
+  reproduced growing error while their requested output was passed through.
+- **Evidence-supported inference:** `TargetCoordinator` publishes observed
+  screen-relative point velocity as target velocity/error-rate, and
+  `BodylockFollowController` turns it into position plus relative-motion
+  correction. That is not a true desired total `T`. The physical relation is
+  approximately `screen_error_rate = target_motion - response * delivered`, so
+  steady target following requires reconstructing the sustaining motion from
+  both terms. As relative error-rate shrinks, the current producer also shrinks
+  even though the camera still needs nonzero motion; downstream arbitration
+  cannot invent the omitted demand.
+- Restoring additive manual-plus-AI is explicitly excluded. The bounded repair
+  direction is a BodyLock-only target-motion/total-demand field derived from
+  causally capture-aligned delivered output plus a position correction, with
+  stable-identity/reset/reversal safeguards. Blindly adding the previous output
+  is unsafe because it may be temporally unaligned or belong to a prior target,
+  manual transition, firing state or recoil context.
+- The response estimator inferred roughly 1090--1160 px/(stick*s) in the
+  representative incidents versus its 500 fallback. This can halve correction
+  magnitude and is a credible secondary contributor, but current evidence does
+  not prove the higher estimate is wrong for the game.
+- Required next checkpoint: freeze the track-445/626 mechanism as a
+  production-path RED before modifying the demand producer. Counterfactuals
+  must cover a stationary world target under manual camera motion, target
+  replacement/reset, target reversal and non-additive final-output ownership.
+- Audit: `artifacts/telemetry-audits/20260817-latest-bodylock-horizontal/`.
+  SyncSet: `sync-20260818-001`; reviewer disposition: `accept_draft`. Raw logs,
+  video, binaries, personal paths, secrets and unrelated worktree changes were
+  excluded. Archive-backed compaction of the oversized primary session log
+  remains deferred to a separate task.
+
+## 2026-08-18 - Capture-Aligned BodyLock Total Demand RED to GREEN
+
+- **Goal:** repair the isolated sustained-horizontal BodyLock producer defect
+  without changing accepted ADS behavior, one-LT/one-snap ownership, final
+  manual arbitration, Vision, or independent recoil composition.
+- A frozen 1 kHz controller/180 Hz Vision production-path fixture established
+  known-bad RED: a same-direction target speed step from required stick `0.40`
+  to `0.60` never held the required output within 900 ms, grew error by
+  `21.040884 px`, and finished with `16.869894 px` residual. Trigger, no-step,
+  slowdown and target-generation replacement controls were fixed before the
+  implementation.
+- Added one focused `BodylockTargetMotionObserver`. It reconstructs target
+  motion from raw inter-capture screen rate plus the pre-recoil output averaged
+  over the same capture interval and 9 ms effect alignment. It uses no start
+  magnitude gate: two samples establish the estimate, median-of-three rejects a
+  one-frame spike, rise is bounded, reversal first discharges old work, and
+  slowdown releases faster than rise.
+- `TargetPlan` now carries the BodyLock-only target-motion total. A valid direct
+  `Observed` estimate uses full motion weight because it is already total
+  sustaining demand; until valid, BodyLock retains the old conservative
+  screen-relative fallback. Cue continuation cannot train or consume this
+  authority, preserving close-target full cue hold and far-target attenuation.
+- **Verified result:** response latency `23 ms`, step error growth `2.698075 px`,
+  recovery overshoot `0 px`, final residual `0.735421 px`; all four oracles and
+  three counterfactuals pass. Full Release CTest is `70/70`; complete regression
+  contract status PASS, issues `0`, artifact SHA-256
+  `adf7e720d24dea7f641620a00518c222494138ca279bcdcb9ea9ab0cb3addc97`.
+- Candidate runtime:
+  `native/vision_native/build/Release/cod_native_runtime.exe`, SHA-256
+  `bbdb1bc5344b094d7553623e7a735c8a37e2f53461d65c0cfff87e9563dfe8a8`.
+  Architecture contract is version 4 and records the new state owner.
+- **AI-inferred/open:** the offline incident proves the original upstream demand
+  omission is repaired under the declared plant, but live firing/FOV/geometry
+  noise remains unverified. The current response estimate and any need to bound
+  stronger same-direction manual require separate evidence; they were not
+  changed in this candidate.
+- Verification-tool gap: `native_pipeline_contract.bat -SkipBuild
+  -SkipBenchmark` rejects the pre-existing identifier `pre_recoil_stick`; the
+  same matches exist at HEAD. This was not "fixed" by changing recoil ownership.
+- SyncSet: `sync-20260818-002`; reviewer disposition: `accept_draft`. No decision
+  or subagent brief was created. Raw logs/video, binaries, personal paths,
+  secrets, stash state, `acquisition_gesture_purpose_incident.json` and unrelated
+  changes were excluded. Session-log compaction remains deferred to an explicit
+  future task.

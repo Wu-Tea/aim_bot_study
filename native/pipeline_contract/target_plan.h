@@ -121,6 +121,14 @@ struct TargetPlan {
     Vec2f error_rate_px_per_sec{};
     Vec2f velocity_px_per_sec{};
     Vec2f acceleration_px_per_sec2{};
+    // Capture-aligned estimate of the selected target's world-relative screen
+    // motion after removing camera work already delivered during the same
+    // source interval. BodyLock consumes this as total target-follow demand;
+    // ADS never reads it.
+    Vec2f bodylock_target_motion_px_per_sec{};
+    Vec2f bodylock_aligned_delivered_stick{};
+    float bodylock_target_motion_confidence = 0.0f;
+    bool bodylock_target_motion_valid = false;
     float observation_age_ms = 0.0f;
     float confidence = 0.0f;
     float reliability = 0.0f;
@@ -205,6 +213,9 @@ inline bool valid(const TargetPlan& plan) noexcept {
            finite(plan.desired_point_normalized) && region_contract_valid &&
            finite(plan.error_px) && finite(plan.error_rate_px_per_sec) &&
            finite(plan.velocity_px_per_sec) && finite(plan.acceleration_px_per_sec2) &&
+           finite(plan.bodylock_target_motion_px_per_sec) &&
+           finite(plan.bodylock_aligned_delivered_stick) &&
+           unit_interval(plan.bodylock_target_motion_confidence) &&
            unit_interval(plan.confidence) && unit_interval(plan.reliability) &&
            unit_interval(plan.visual_authority) &&
            unit_interval(plan.normalized_size) && unit_interval(plan.ads_demand) &&
