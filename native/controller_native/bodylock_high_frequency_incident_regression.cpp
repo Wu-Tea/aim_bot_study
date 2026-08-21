@@ -1,5 +1,6 @@
 #include "aim_response_curve_plugin.h"
 #include "incident_fixture_support.h"
+#include "test_support/native_test_registry.h"
 
 #include <algorithm>
 #include <cmath>
@@ -413,7 +414,7 @@ void write_scenario(std::ostream& out, const ScenarioResult& value) {
 
 }  // namespace
 
-int main(int argc, char** argv) {
+int run_bodylock_high_frequency_incident_regression(int argc, char** argv) {
     try {
         const std::filesystem::path output_path =
             controller_native::incident_fixture::output_path_from_args(
@@ -525,4 +526,8 @@ int main(int argc, char** argv) {
         std::cerr << error.what() << '\n';
         return 2;
     }
+}
+
+void register_bodylock_high_frequency_incident_regression(native_test::Registry& registry) {
+    registry.add_incident_entry("BaseBodyLock", "incident_bodylock_high_frequency", "bodylock_high_frequency_incident.json", run_bodylock_high_frequency_incident_regression);
 }

@@ -1,4 +1,5 @@
 #include "incident_fixture_support.h"
+#include "test_support/native_test_registry.h"
 
 #include <algorithm>
 #include <cmath>
@@ -372,7 +373,7 @@ void write_report(
 
 }  // namespace
 
-int main(int argc, char** argv) {
+int run_neutral_drift_arbitration_incident_regression(int argc, char** argv) {
     try {
         const auto output_path =
             controller_native::incident_fixture::output_path_from_args(
@@ -403,4 +404,8 @@ int main(int argc, char** argv) {
                   << error.what() << '\n';
         return 3;
     }
+}
+
+void register_neutral_drift_arbitration_incident_regression(native_test::Registry& registry) {
+    registry.add_incident_entry("BaseBodyLock", "incident_neutral_drift_arbitration", "neutral_drift_arbitration_incident.json", run_neutral_drift_arbitration_incident_regression);
 }

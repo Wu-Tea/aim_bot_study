@@ -1,4 +1,5 @@
 #include "auto_fire_gate.h"
+#include "test_support/native_test_registry.h"
 
 #include <algorithm>
 #include <iostream>
@@ -260,20 +261,13 @@ void test_authority_revocation_interrupts_and_resets_pulse() {
 
 }  // namespace
 
-int main() {
-    try {
-        test_ready_frames_gate_before_firing();
-        test_ready_frames_count_unique_vision_sequences();
-        test_stale_source_blocks_fire_and_resets_readiness();
-        test_manual_takeover_preserves_physical_output_then_guards_resume();
-        test_pulse_scheduler_emits_ten_thirty_ms_presses_per_second();
-        test_pulse_boundaries_and_wait_state_are_explicit();
-        test_pulse_scheduler_never_catches_up_with_a_burst();
-        test_authority_revocation_interrupts_and_resets_pulse();
-        std::cout << "[AutoFireGateTests] PASS\n";
-        return 0;
-    } catch (const std::exception& error) {
-        std::cerr << "[AutoFireGateTests][FAIL] " << error.what() << '\n';
-        return 1;
-    }
+void register_auto_fire_gate_tests(native_test::Registry& registry) {
+    registry.add_case("FeatureAutoFireAndMarker", "ready_frames_gate_before_firing", test_ready_frames_gate_before_firing);
+    registry.add_case("FeatureAutoFireAndMarker", "ready_frames_count_unique_sequences", test_ready_frames_count_unique_vision_sequences);
+    registry.add_case("FeatureAutoFireAndMarker", "stale_source_blocks_and_resets", test_stale_source_blocks_fire_and_resets_readiness);
+    registry.add_case("FeatureAutoFireAndMarker", "manual_takeover_guards_resume", test_manual_takeover_preserves_physical_output_then_guards_resume);
+    registry.add_case("FeatureAutoFireAndMarker", "scheduler_emits_ten_thirty_ms_presses", test_pulse_scheduler_emits_ten_thirty_ms_presses_per_second);
+    registry.add_case("FeatureAutoFireAndMarker", "pulse_boundaries_are_explicit", test_pulse_boundaries_and_wait_state_are_explicit);
+    registry.add_case("FeatureAutoFireAndMarker", "scheduler_never_catches_up_with_burst", test_pulse_scheduler_never_catches_up_with_a_burst);
+    registry.add_case("FeatureAutoFireAndMarker", "authority_revocation_interrupts_pulse", test_authority_revocation_interrupts_and_resets_pulse);
 }

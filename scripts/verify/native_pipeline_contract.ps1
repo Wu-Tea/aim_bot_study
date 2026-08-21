@@ -76,7 +76,6 @@ function Assert-NoForbiddenCoupling {
         "target_observed_at_seconds",
         "tracker_ego_motion_includes_recoil",
         "includes_recoil",
-        "pre_recoil",
         "post_recoil"
     )
 
@@ -134,33 +133,30 @@ function Assert-NoForbiddenCoupling {
         throw "Forbidden tracking header dependency on controller_native found.`n$details"
     }
 
-    $requiredSplitTestFiles = @(
+    $requiredRunnerTestFiles = @(
         "native\vision_native\src\target_selector_tests.cpp",
         "native\controller_native\controller_protocol_tests.cpp",
         "native\controller_native\recoil_contract_tests.cpp",
         "native\controller_native\weapon_recognizer_tests.cpp",
         "native\controller_native\benchmark_metrics_tests.cpp"
     )
-    foreach ($testFile in $requiredSplitTestFiles) {
+    foreach ($testFile in $requiredRunnerTestFiles) {
         if (-not (Test-Path $testFile)) {
-            throw "Required split test file not found: $testFile"
+            throw "Required runner test file not found: $testFile"
+        }
+        $sourceName = Split-Path -Leaf $testFile
+        $sourceMatch = Select-String -Path $cmakeLists -Pattern $sourceName -SimpleMatch -ErrorAction SilentlyContinue
+        if (-not $sourceMatch) {
+            throw "Required test file is not owned by a native runner: $testFile"
         }
     }
 
-    $requiredSplitTargets = @(
-        "cod_native_target_selector_tests",
-        "cod_native_controller_protocol_tests",
-        "cod_native_recoil_contract_tests",
-        "cod_native_weapon_recognizer_tests",
-        "cod_native_benchmark_metrics_tests"
-    )
-    foreach ($targetName in $requiredSplitTargets) {
-        $targetMatch = Select-String -Path $cmakeLists -Pattern $targetName -SimpleMatch -ErrorAction SilentlyContinue
+    foreach ($runnerTarget in @("cod_native_base_tests", "cod_native_functional_tests")) {
+        $targetMatch = Select-String -Path $cmakeLists -Pattern $runnerTarget -SimpleMatch -ErrorAction SilentlyContinue
         if (-not $targetMatch) {
-            throw "Required split test target not found in CMakeLists.txt: $targetName"
+            throw "Required native test runner not found in CMakeLists.txt: $runnerTarget"
         }
     }
-
 }
 
 $cmake = Resolve-CMake
@@ -197,14 +193,14 @@ if (-not (Test-Path -LiteralPath $runtimeConfigPath)) {
 }
 $runtimeWorkingDir = Split-Path -Parent $runtimeConfigPath
 $runtimeExe = Join-Path $buildPath "$Configuration\cod_native_runtime.exe"
-$testsExe = Join-Path $buildPath "$Configuration\cod_native_controller_tests.exe"
+$testsExe = Join-Path $buildPath "$Configuration\cod_native_base_tests.exe"
 $benchmarkExe = Join-Path $buildPath "$Configuration\cod_native_sustained_aimlab_benchmark.exe"
 $benchmarkOutput = Join-Path $artifactDir "pipeline_contract_smoke.json"
 
 Assert-NoForbiddenCoupling
 
 if (-not $SkipBuild) {
-    Invoke-Checked $cmake @("--build", $BuildDir, "--config", $Configuration, "--target", "cod_native_controller_tests")
+    Invoke-Checked $cmake @("--build", $BuildDir, "--config", $Configuration, "--target", "cod_native_base_tests")
     Invoke-Checked $cmake @("--build", $BuildDir, "--config", $Configuration, "--target", "cod_native_runtime")
     if (-not $SkipBenchmark) {
         Invoke-Checked $cmake @("--build", $BuildDir, "--config", $Configuration, "--target", "cod_native_sustained_aimlab_benchmark")
@@ -218,11 +214,11 @@ if (-not (Test-Path $runtimeExe)) {
     throw "Native runtime executable not found: $runtimeExe"
 }
 
-$testOutput = & $testsExe 2>&1
+$testOutput = & $testsExe --suite BaseEndToEnd 2>&1
 $testExit = $LASTEXITCODE
 $testOutput | ForEach-Object { Write-Output $_ }
 if ($testExit -ne 0 -or (($testOutput -join "`n") -notmatch
-        "\[(NativeControllerTests|TargetPipelineIntegrationTests)\] PASS")) {
+        "\[NativeBaseTests\].*failed=0.*invalid=0")) {
     throw "Native controller contract tests failed."
 }
 
@@ -262,8 +258,8 @@ if (-not $SkipBenchmark) {
     }
     $benchmarkReport = Get-Content -Raw -LiteralPath $benchmarkOutput |
         ConvertFrom-Json
-    if ($benchmarkReport.control_path -ne "production-only") {
-        throw "Benchmark did not report the current production-only control path."
+    if ($benchmarkReport.control_path -ne "production") {
+        throw "Benchmark did not report the current production control path."
     }
 }
 

@@ -1,5 +1,7 @@
 #include "vision_native/target_selector.h"
 
+#include "pipeline_contract/target_acquisition.h"
+
 #include <algorithm>
 #include <array>
 #include <cassert>
@@ -795,11 +797,15 @@ ColorClassification classify_color(
 
 } // namespace
 
-VisionTargetSelector::VisionTargetSelector(int frame_width, int frame_height)
+VisionTargetSelector::VisionTargetSelector(
+    int frame_width,
+    int frame_height,
+    float pickup_base_radius_px)
     : frame_width_(static_cast<float>(frame_width)),
       frame_height_(static_cast<float>(frame_height)),
       screen_center_x_(frame_width_ * 0.5f),
-      screen_center_y_(frame_height_ * 0.5f) {
+      screen_center_y_(frame_height_ * 0.5f),
+      pickup_base_radius_px_(std::max(0.0f, pickup_base_radius_px)) {
     const float avg_dim = (frame_width_ + frame_height_) * 0.5f;
     const float frame_area = frame_width_ * frame_height_;
     tracking_radius_ = avg_dim * kTrackingRadiusRatio;
@@ -1456,6 +1462,15 @@ float VisionTargetSelector::crosshair_distance(float x, float y) const {
     return std::hypot(x - screen_center_x_, y - screen_center_y_);
 }
 
+bool VisionTargetSelector::candidate_within_pickup_envelope(
+    const Candidate& candidate) const {
+    const float normalized_height = rect_height(candidate.body_box) /
+        std::max(1.0f, frame_height_);
+    const float radius = pipeline_contract::target_scaled_pickup_radius(
+        pickup_base_radius_px_, normalized_height);
+    return crosshair_distance(candidate.target_x, candidate.target_y) <= radius;
+}
+
 std::optional<float> VisionTargetSelector::tracking_distance(
     float x,
     float y,
@@ -1729,6 +1744,14 @@ void VisionTargetSelector::clear_pending() {
 std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::commit_target(
     const TargetState& target,
     bool allow_marked_single_frame_pickup) {
+    const bool begins_new_generation = !active_target_.has_value() ||
+        !targets_match(*active_target_, target);
+    if (begins_new_generation &&
+        !candidate_within_pickup_envelope(target.candidate)) {
+        clear_pending();
+        return std::nullopt;
+    }
+
     std::optional<TargetState> committed = target;
     if (!active_target_.has_value()) {
         committed = confirm_pickup(target, allow_marked_single_frame_pickup);
@@ -1741,8 +1764,9 @@ std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::commit_ta
 
     const bool is_replacement = active_target_.has_value() &&
         !targets_match(*active_target_, *committed);
-    const bool begins_new_generation = !active_target_.has_value() || is_replacement;
-    if (begins_new_generation) {
+    const bool begins_confirmed_generation =
+        !active_target_.has_value() || is_replacement;
+    if (begins_confirmed_generation) {
         // Cue geometry belongs to the confirmed target generation.  Clear it
         // before committing a replacement so a new target's first cue starts
         // from its own person+cue pair rather than the previous target's
@@ -1754,7 +1778,7 @@ std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::commit_ta
         selector_target_changed_ = false;
     }
 
-    if (begins_new_generation) {
+    if (begins_confirmed_generation) {
         active_generation_had_enemy_evidence_ =
             candidate_has_enemy_evidence(committed->candidate);
         active_marker_expired_ = false;
@@ -1780,6 +1804,10 @@ std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::commit_ta
 std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::select_single_candidate(
     const Candidate& candidate,
     const pipeline_contract::UserAimIntent* intent) const {
+    if (!active_target_matches_candidate(candidate) &&
+        !candidate_within_pickup_envelope(candidate)) {
+        return std::nullopt;
+    }
     TargetState selected = target_from_candidate(
         candidate,
         candidate.color_bonus +
@@ -1809,6 +1837,10 @@ VisionTargetSelector::select_multi_candidate(
     std::optional<std::pair<float, ScoredCandidate>> active_match;
 
     for (const auto& candidate : candidates) {
+        const bool matches_active = active_target_matches_candidate(candidate);
+        if (!matches_active && !candidate_within_pickup_envelope(candidate)) {
+            continue;
+        }
         const ScoredCandidate scored = score_candidate(candidate, last_target_center, intent);
         if (prefer_candidate(best, scored)) {
             best = scored;
@@ -1823,7 +1855,6 @@ VisionTargetSelector::select_multi_candidate(
             }
         }
 
-        const bool matches_active = active_target_matches_candidate(candidate);
         if (!matches_active && prefer_candidate(best_non_active, scored)) {
             best_non_active = scored;
         }

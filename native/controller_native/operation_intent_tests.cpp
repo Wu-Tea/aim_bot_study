@@ -1,4 +1,5 @@
 #include "operation_intent.h"
+#include "test_support/native_test_registry.h"
 
 #include <cmath>
 #include <exception>
@@ -231,26 +232,18 @@ void test_class_names_are_stable() {
 
 }  // namespace
 
-int main() {
-    try {
-        test_no_gesture_when_no_material_input();
-        test_acquire_flick_on_deliberate_onset_push();
-        test_recoil_pull_while_firing_and_pulling_down();
-        test_follow_track_when_assist_holds_and_user_is_light();
-        test_lead_track_when_crosshair_rides_ahead_of_fast_target();
-        test_slow_target_never_classifies_as_lead();
-        test_correct_track_for_bounded_desired_point_push();
-        test_handover_intent_is_explicit();
-        test_unreliable_when_material_input_matches_no_template();
-        test_free_look_without_assistance_is_not_unreliable();
-        test_degraded_firing_flail_is_unreliable_with_collapsing_trust();
-        test_reset_clears_firing_edge();
-        test_class_names_are_stable();
-    } catch (const std::exception& exc) {
-        std::cerr << "[OperationIntentTests] FAIL " << exc.what() << "\n";
-        return 1;
-    }
-
-    std::cout << "[OperationIntentTests] PASS\n";
-    return 0;
+void register_operation_intent_tests(native_test::Registry& registry) {
+    registry.add_case("BaseBodyLock", "no_gesture_when_no_material_input", test_no_gesture_when_no_material_input);
+    registry.add_case("BaseBodyLock", "acquire_flick_on_deliberate_onset_push", test_acquire_flick_on_deliberate_onset_push);
+    registry.add_case("BaseBodyLock", "recoil_pull_while_firing_and_pulling_down", test_recoil_pull_while_firing_and_pulling_down);
+    registry.add_case("BaseBodyLock", "follow_track_when_assist_holds_and_user_is_light", test_follow_track_when_assist_holds_and_user_is_light);
+    registry.add_case("BaseBodyLock", "lead_track_when_crosshair_rides_ahead_of_fast_target", test_lead_track_when_crosshair_rides_ahead_of_fast_target);
+    registry.add_case("BaseBodyLock", "slow_target_never_classifies_as_lead", test_slow_target_never_classifies_as_lead);
+    registry.add_case("BaseBodyLock", "correct_track_for_bounded_desired_point_push", test_correct_track_for_bounded_desired_point_push);
+    registry.add_case("BaseBodyLock", "handover_intent_is_explicit", test_handover_intent_is_explicit);
+    registry.add_case("BaseBodyLock", "unreliable_when_material_input_matches_no_template", test_unreliable_when_material_input_matches_no_template);
+    registry.add_case("BaseBodyLock", "free_look_without_assistance_is_not_unreliable", test_free_look_without_assistance_is_not_unreliable);
+    registry.add_case("BaseBodyLock", "degraded_firing_flail_collapses_trust", test_degraded_firing_flail_is_unreliable_with_collapsing_trust);
+    registry.add_case("BaseBodyLock", "reset_clears_firing_edge", test_reset_clears_firing_edge);
+    registry.add_case("BaseBodyLock", "operation_class_names_are_stable", test_class_names_are_stable);
 }

@@ -30,7 +30,8 @@ public:
         std::string color_readback_mode = "pageable",
         int expected_tensor_width = 0,
         int expected_tensor_height = 0,
-        bool require_isotropic_resize = true);
+        bool require_isotropic_resize = true,
+        float target_pickup_base_radius_px = 150.0f);
     ~VisionEngine();
 
     VisionEngine(const VisionEngine&) = delete;

@@ -1,4 +1,5 @@
 #include "assist_control_state_machine.h"
+#include "test_support/native_test_registry.h"
 
 #include <algorithm>
 #include <cmath>
@@ -447,7 +448,7 @@ void write_report(
 
 }  // namespace
 
-int main(int argc, char** argv) {
+int run_manual_ai_arbitration_continuity_incident_regression(int argc, char** argv) {
     try {
         const IncidentReport report = evaluate_incident();
         write_report(output_path_from_args(argc, argv), report);
@@ -472,4 +473,8 @@ int main(int argc, char** argv) {
                   << error.what() << '\n';
         return 3;
     }
+}
+
+void register_manual_ai_arbitration_continuity_incident_regression(native_test::Registry& registry) {
+    registry.add_incident_entry("BaseBodyLock", "incident_manual_ai_arbitration_continuity", "manual_ai_arbitration_continuity_incident.json", run_manual_ai_arbitration_continuity_incident_regression);
 }

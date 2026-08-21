@@ -1,5 +1,6 @@
 #include "control_frame.h"
 #include "output_composer.h"
+#include "test_support/native_test_registry.h"
 
 #include <cmath>
 #include <iostream>
@@ -158,17 +159,10 @@ void test_control_frame_contains_only_output_boundary_values() {
 
 }  // namespace
 
-int main() {
-    try {
-        test_output_write_boundaries_and_recoil_order();
-        test_physical_passthrough_and_auxiliary_dpad_merge();
-        test_duplicate_finalize_is_rejected();
-        test_control_frame_contains_only_output_boundary_values();
-        std::cout << "ControlPipelinePrimitivesTests PASS\n";
-        return 0;
-    } catch (const std::exception& error) {
-        std::cerr << "ControlPipelinePrimitivesTests FAIL: "
-                  << error.what() << '\n';
-        return 1;
-    }
+void register_control_pipeline_primitives_tests(
+    native_test::Registry& registry) {
+    registry.add_case("BaseContracts", "output_write_boundaries_and_recoil_order", test_output_write_boundaries_and_recoil_order);
+    registry.add_case("BaseContracts", "physical_passthrough_and_auxiliary_dpad_merge", test_physical_passthrough_and_auxiliary_dpad_merge);
+    registry.add_case("BaseContracts", "duplicate_finalize_is_rejected", test_duplicate_finalize_is_rejected);
+    registry.add_case("BaseContracts", "control_frame_contains_only_output_boundary_values", test_control_frame_contains_only_output_boundary_values);
 }

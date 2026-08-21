@@ -1,5 +1,6 @@
 #include "pipeline_contract/committed_capture_observation.h"
 #include "runtime_app/vision_controller_adapter.h"
+#include "test_support/native_test_registry.h"
 
 #include <cmath>
 #include <stdexcept>
@@ -189,13 +190,13 @@ void test_adapter_never_substitutes_result_time_for_capture_time() {
 
 }  // namespace
 
-int main() {
-    test_contract_is_fixed_size_and_validates_defaults_explicitly();
-    test_committed_capture_rejects_result_before_capture();
-    test_committed_capture_keeps_frame_owned_viewport();
-    test_fixed_roi_zero_offset_is_valid();
-    test_contract_rejects_invalid_units_and_fresh_identity();
-    test_adapter_joins_committed_identity_not_raw_challenger();
-    test_adapter_never_substitutes_result_time_for_capture_time();
-    return 0;
+void register_committed_capture_observation_tests(
+    native_test::Registry& registry) {
+    registry.add_case("BaseContracts", "committed_capture_contract_is_fixed_size", test_contract_is_fixed_size_and_validates_defaults_explicitly);
+    registry.add_case("BaseContracts", "committed_capture_rejects_result_before_capture", test_committed_capture_rejects_result_before_capture);
+    registry.add_case("BaseContracts", "committed_capture_keeps_frame_owned_viewport", test_committed_capture_keeps_frame_owned_viewport);
+    registry.add_case("BaseContracts", "fixed_roi_zero_offset_is_valid", test_fixed_roi_zero_offset_is_valid);
+    registry.add_case("BaseContracts", "committed_capture_rejects_invalid_units_and_identity", test_contract_rejects_invalid_units_and_fresh_identity);
+    registry.add_case("BaseContracts", "adapter_joins_committed_identity_not_raw_challenger", test_adapter_joins_committed_identity_not_raw_challenger);
+    registry.add_case("BaseContracts", "adapter_preserves_capture_time", test_adapter_never_substitutes_result_time_for_capture_time);
 }

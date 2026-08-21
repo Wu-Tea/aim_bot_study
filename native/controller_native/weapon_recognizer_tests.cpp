@@ -1,4 +1,5 @@
 #include "weapon_recognizer.h"
+#include "test_support/native_test_registry.h"
 
 #include <chrono>
 #include <cstdlib>
@@ -389,21 +390,13 @@ void test_recoil_weapon_switch_scheduler_triggers_only_on_y_rising_edge() {
 
 }  // namespace
 
-int main() {
-    try {
-        test_recoil_weapon_recognizer_writes_current_weapon_state_from_text();
-        test_recoil_weapon_recognizer_does_not_create_unknown_identity_from_live_ocr();
-        test_recoil_weapon_recognizer_clears_previous_profile_on_unknown_switch();
-        test_recoil_weapon_recognizer_clears_previous_profile_on_empty_switch_ocr();
-        test_recoil_weapon_recognizer_matches_utf8_weapon_and_profile_filename();
-        test_recoil_weapon_recognizer_prefers_profiled_weapon_for_ambiguous_ocr_suffix();
-        test_recoil_weapon_recognizer_ignores_numeric_ocr_noise();
-        test_recoil_weapon_switch_scheduler_triggers_only_on_y_rising_edge();
-    } catch (const std::exception& exc) {
-        std::cerr << "[NativeWeaponRecognizerTests] FAIL " << exc.what() << "\n";
-        return 1;
-    }
-
-    std::cout << "[NativeWeaponRecognizerTests] PASS\n";
-    return 0;
+void register_weapon_recognizer_tests(native_test::Registry& registry) {
+    registry.add_case("FeatureRecoilAndWeapon", "recognizer_writes_weapon_state_from_text", test_recoil_weapon_recognizer_writes_current_weapon_state_from_text);
+    registry.add_case("FeatureRecoilAndWeapon", "recognizer_rejects_unknown_live_ocr_identity", test_recoil_weapon_recognizer_does_not_create_unknown_identity_from_live_ocr);
+    registry.add_case("FeatureRecoilAndWeapon", "unknown_switch_clears_previous_profile", test_recoil_weapon_recognizer_clears_previous_profile_on_unknown_switch);
+    registry.add_case("FeatureRecoilAndWeapon", "empty_switch_ocr_clears_previous_profile", test_recoil_weapon_recognizer_clears_previous_profile_on_empty_switch_ocr);
+    registry.add_case("FeatureRecoilAndWeapon", "recognizer_matches_utf8_profile_filename", test_recoil_weapon_recognizer_matches_utf8_weapon_and_profile_filename);
+    registry.add_case("FeatureRecoilAndWeapon", "recognizer_prefers_profiled_ambiguous_suffix", test_recoil_weapon_recognizer_prefers_profiled_weapon_for_ambiguous_ocr_suffix);
+    registry.add_case("FeatureRecoilAndWeapon", "recognizer_ignores_numeric_noise", test_recoil_weapon_recognizer_ignores_numeric_ocr_noise);
+    registry.add_case("FeatureRecoilAndWeapon", "weapon_switch_uses_y_rising_edge", test_recoil_weapon_switch_scheduler_triggers_only_on_y_rising_edge);
 }

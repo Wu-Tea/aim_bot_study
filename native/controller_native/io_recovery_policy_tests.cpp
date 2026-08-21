@@ -1,4 +1,5 @@
 #include "io_recovery_policy.h"
+#include "test_support/native_test_registry.h"
 
 #include <chrono>
 #include <iostream>
@@ -53,15 +54,8 @@ void test_retry_throttle_is_immediate_then_bounded() {
 
 }  // namespace
 
-int main() {
-    try {
-        test_reconnect_selects_only_the_original_physical_shape();
-        test_reconnect_rejects_unopened_or_incompatible_matches();
-        test_retry_throttle_is_immediate_then_bounded();
-        std::cout << "[IoRecoveryPolicyTests] PASS\n";
-        return 0;
-    } catch (const std::exception& error) {
-        std::cerr << "[IoRecoveryPolicyTests][FAIL] " << error.what() << '\n';
-        return 1;
-    }
+void register_io_recovery_policy_tests(native_test::Registry& registry) {
+    registry.add_case("BaseRuntimeFreshness", "reconnect_selects_original_physical_shape", test_reconnect_selects_only_the_original_physical_shape);
+    registry.add_case("BaseRuntimeFreshness", "reconnect_rejects_incompatible_matches", test_reconnect_rejects_unopened_or_incompatible_matches);
+    registry.add_case("BaseRuntimeFreshness", "retry_throttle_is_immediate_then_bounded", test_retry_throttle_is_immediate_then_bounded);
 }

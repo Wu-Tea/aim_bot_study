@@ -1,4 +1,5 @@
 #include "ads_reacquisition_reducer.h"
+#include "test_support/native_test_registry.h"
 
 #include <stdexcept>
 
@@ -45,6 +46,8 @@ void test_initial_scope_with_existing_manual_target_begins_ads_immediately() {
     scope.assist_active = true;
     scope.physical_ads_active = true;
     scope.physical_ads_pressed = true;
+    scope.physical_ads_ready = true;
+    scope.physical_ads_ready_pressed = true;
     scope.scope_acquired = true;
     const auto decided = reducer.on_input(
         scope,
@@ -62,7 +65,8 @@ void test_repress_waits_for_fresh_post_event_geometry() {
     controller_native::AimScopeSnapshot scope{};
     scope.assist_active = true;
     scope.physical_ads_active = true;
-    scope.physical_ads_pressed = true;
+    scope.physical_ads_ready = true;
+    scope.physical_ads_ready_pressed = true;
     const auto request = reducer.on_input(
         scope,
         bodylock_plan(),
@@ -86,7 +90,8 @@ void test_inside_dynamic_envelope_keeps_bodylock() {
     controller_native::AdsReacquisitionReducer reducer({150.0f, 4});
     controller_native::AimScopeSnapshot scope{};
     scope.physical_ads_active = true;
-    scope.physical_ads_pressed = true;
+    scope.physical_ads_ready = true;
+    scope.physical_ads_ready_pressed = true;
     (void)reducer.on_input(
         scope, bodylock_plan(), pipeline_contract::EventSequence::from(30));
     const auto decided = reducer.on_fresh_observation(
@@ -102,7 +107,8 @@ void test_generation_change_cancels_old_request() {
     controller_native::AdsReacquisitionReducer reducer({150.0f, 4});
     controller_native::AimScopeSnapshot scope{};
     scope.physical_ads_active = true;
-    scope.physical_ads_pressed = true;
+    scope.physical_ads_ready = true;
+    scope.physical_ads_ready_pressed = true;
     (void)reducer.on_input(
         scope, bodylock_plan(), pipeline_contract::EventSequence::from(40));
     auto changed = fresh_observation(220.0f);
@@ -115,12 +121,43 @@ void test_generation_change_cancels_old_request() {
             "old LT event acted on a replacement target");
 }
 
+void test_slow_initial_press_begins_only_on_ready_edge() {
+    controller_native::AdsReacquisitionReducer reducer({150.0f, 4});
+    auto manual_target = bodylock_plan();
+    manual_target.mode = pipeline_contract::ControlMode::Manual;
+
+    controller_native::AimScopeSnapshot light{};
+    light.assist_active = true;
+    light.physical_ads_active = true;
+    light.physical_ads_pressed = true;
+    light.scope_acquired = true;
+    require(!reducer.on_input(
+                 light,
+                 manual_target,
+                 pipeline_contract::EventSequence::from(50)).emitted,
+            "light LT preview unexpectedly began an ADS epoch");
+
+    controller_native::AimScopeSnapshot ready{};
+    ready.assist_active = true;
+    ready.physical_ads_active = true;
+    ready.physical_ads_ready = true;
+    ready.physical_ads_ready_pressed = true;
+    const auto decided = reducer.on_input(
+        ready,
+        manual_target,
+        pipeline_contract::EventSequence::from(51));
+    require(decided.begin_ads_epoch &&
+                decided.code == pipeline_contract::AdsReacquireDecisionCode::
+                    InitialScopeAcquired,
+            "ready edge did not begin the deferred initial ADS epoch");
+}
+
 }  // namespace
 
-int main() {
-    test_initial_scope_with_existing_manual_target_begins_ads_immediately();
-    test_repress_waits_for_fresh_post_event_geometry();
-    test_inside_dynamic_envelope_keeps_bodylock();
-    test_generation_change_cancels_old_request();
-    return 0;
+void register_ads_reacquisition_reducer_tests(native_test::Registry& registry) {
+    registry.add_case("BaseAds", "initial_scope_with_existing_target_begins_ads", test_initial_scope_with_existing_manual_target_begins_ads_immediately);
+    registry.add_case("BaseAds", "repress_waits_for_fresh_post_event_geometry", test_repress_waits_for_fresh_post_event_geometry);
+    registry.add_case("BaseAds", "inside_dynamic_envelope_keeps_bodylock", test_inside_dynamic_envelope_keeps_bodylock);
+    registry.add_case("BaseAds", "generation_change_cancels_old_request", test_generation_change_cancels_old_request);
+    registry.add_case("BaseAds", "slow_initial_press_begins_only_on_ready_edge", test_slow_initial_press_begins_only_on_ready_edge);
 }

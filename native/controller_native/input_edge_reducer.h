@@ -11,6 +11,7 @@ namespace controller_native {
 constexpr float kPhysicalAdsPressThreshold = 0.05f;
 constexpr float kPhysicalAdsIdleThreshold = 0.03f;
 constexpr unsigned int kPhysicalAdsIdleDebounceSamples = 3;
+constexpr float kPhysicalAdsReadyHysteresis = 0.05f;
 constexpr float kManualFireTriggerThreshold = 0.04f;
 
 struct InputEdgeSnapshot {
@@ -18,6 +19,9 @@ struct InputEdgeSnapshot {
     bool manual_fire_signal_active = false;
     bool physical_ads_pressed = false;
     bool physical_ads_released = false;
+    bool physical_ads_ready = false;
+    bool physical_ads_ready_pressed = false;
+    bool physical_ads_ready_released = false;
     bool manual_fire_pressed = false;
     bool manual_fire_released = false;
     pipeline_contract::EventSequence cause_event{};
@@ -30,6 +34,7 @@ class InputEdgeReducer {
 public:
     void reset() noexcept {
         physical_ads_active_ = false;
+        physical_ads_ready_ = false;
         previous_manual_fire_signal_ = false;
         physical_ads_idle_samples_ = 0;
     }
@@ -37,9 +42,11 @@ public:
     InputEdgeSnapshot sample(
         const PhysicalGamepadState& physical,
         bool rb_counts_as_physical_ads,
-        std::uint64_t* next_event_sequence) noexcept {
+        std::uint64_t* next_event_sequence,
+        float ads_ready_threshold = 0.80f) noexcept {
         InputEdgeSnapshot result{};
         const bool previous_physical_ads = physical_ads_active_;
+        const bool previous_physical_ads_ready = physical_ads_ready_;
         const float left_trigger = std::clamp(physical.left_trigger, 0.0f, 1.0f);
         const bool rb_ads = rb_counts_as_physical_ads && physical.rb;
         if (rb_ads) {
@@ -68,6 +75,26 @@ public:
             physical_ads_active_ && !previous_physical_ads;
         result.physical_ads_released =
             !physical_ads_active_ && previous_physical_ads;
+        const float ready_threshold = std::clamp(
+            ads_ready_threshold,
+            kPhysicalAdsPressThreshold + 0.001f,
+            1.0f);
+        if (!physical_ads_active_) {
+            physical_ads_ready_ = false;
+        } else if (rb_ads) {
+            physical_ads_ready_ = true;
+        } else if (physical_ads_ready_) {
+            physical_ads_ready_ = left_trigger >= std::max(
+                kPhysicalAdsPressThreshold,
+                ready_threshold - kPhysicalAdsReadyHysteresis);
+        } else {
+            physical_ads_ready_ = left_trigger >= ready_threshold;
+        }
+        result.physical_ads_ready = physical_ads_ready_;
+        result.physical_ads_ready_pressed =
+            physical_ads_ready_ && !previous_physical_ads_ready;
+        result.physical_ads_ready_released =
+            !physical_ads_ready_ && previous_physical_ads_ready;
         result.manual_fire_pressed =
             manual_fire_signal && !previous_manual_fire_signal_;
         result.manual_fire_released =
@@ -80,7 +107,9 @@ public:
             result.cause_event = pipeline_contract::EventSequence::from(
                 (*next_event_sequence)++);
         };
-        if (result.physical_ads_pressed || result.physical_ads_released) {
+        if (result.physical_ads_pressed || result.physical_ads_released ||
+            result.physical_ads_ready_pressed ||
+            result.physical_ads_ready_released) {
             assign_cause();
         }
         if (result.manual_fire_pressed || result.manual_fire_released) {
@@ -92,6 +121,7 @@ public:
 
 private:
     bool physical_ads_active_ = false;
+    bool physical_ads_ready_ = false;
     bool previous_manual_fire_signal_ = false;
     unsigned int physical_ads_idle_samples_ = 0;
 };

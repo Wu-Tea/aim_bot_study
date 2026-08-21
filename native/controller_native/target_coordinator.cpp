@@ -224,6 +224,22 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     if (intent.ads && ads.snap_consumed) {
         ads_lifecycle_reducer_.consume();
     }
+    const bool wait_deadline_elapsed = intent.ads && ads.epoch_active &&
+        !ads.snap_consumed && !ads.target_admitted &&
+        config_.ads_max_acquisition_ms > 0.0f &&
+        (now_seconds - ads.epoch_started_seconds) * 1000.0 >=
+            static_cast<double>(config_.ads_max_acquisition_ms);
+    if (wait_deadline_elapsed) {
+        // max_acquisition_ms bounds the one-LT late-target opportunity before
+        // admission as well as the independently timed positioning job below.
+        // Expiry consumes the token before candidate selection on this tick,
+        // so a later target may use BodyLock but cannot retroactively Snap.
+        ads_lifecycle_reducer_.expire_wait(
+            pipeline_contract::AdsDecisionReason::NoTarget,
+            now_seconds);
+        aim_mode_reducer_.transition(
+            pipeline_contract::ControlMode::Manual);
+    }
     // A controller tick without a source publication must not synthesize a
     // projected detector point. Association starts from the last source-owned
     // anatomical point; D may still move inside R from user intent between
@@ -872,14 +888,14 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
             aim_mode_reducer_.transition(
                 pipeline_contract::ControlMode::BodyLockFollow);
         } else if (acquisition_ceiling_elapsed) {
-            // The ceiling is a watchdog/telemetry boundary, not proof that the
-            // reticle reached the target. Keep ADS as owner until settled or a
-            // separate target-loss/manual-exit boundary explicitly aborts it.
-            ads_lifecycle_reducer_.extend();
-            ads_lifecycle_reducer_.set_decision_reason(
-                pipeline_contract::AdsDecisionReason::AcquisitionCeiling);
+            // The admitted Snap has its own bounded execution clock. Reaching
+            // that deadline consumes this one-LT job even when it did not
+            // settle; the selected target may continue under BodyLock.
+            ads_lifecycle_reducer_.complete(
+                pipeline_contract::AdsDecisionReason::AcquisitionCeiling,
+                now_seconds);
             aim_mode_reducer_.transition(
-                pipeline_contract::ControlMode::AdsAcquire);
+                pipeline_contract::ControlMode::BodyLockFollow);
         } else if (nominal_elapsed &&
                    ads.state ==
                        pipeline_contract::AdsAcquisitionState::AcquiringNominal) {

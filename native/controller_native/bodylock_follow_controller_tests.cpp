@@ -1,16 +1,14 @@
 #include "bodylock_follow_controller.h"
+#include "test_support/native_test_registry.h"
 
 #include <cmath>
-#include <cstdlib>
 #include <iostream>
+#include <stdexcept>
 
 namespace {
 
 void require_true(bool value, const char* message) {
-    if (!value) {
-        std::cerr << "[BodylockFollowControllerTests] FAIL: " << message << '\n';
-        std::abort();
-    }
+    if (!value) throw std::runtime_error(message);
 }
 
 bool near(float left, float right, float tolerance = 0.0001f) {
@@ -138,15 +136,13 @@ void test_aligned_target_motion_replaces_screen_relative_hint() {
 
 }  // namespace
 
-int main() {
-    test_inactive_plan_is_neutral();
-    test_current_error_owns_position_proposal();
-    test_cue_lifecycle_uses_same_source_owned_solve();
-    test_manual_input_does_not_create_a_second_authority_policy();
-    test_motion_cannot_reverse_current_position_axis();
-    test_orthogonal_motion_cannot_mask_bodylock_axis_reversal();
-    test_force_envelope_remains_bounded();
-    test_aligned_target_motion_replaces_screen_relative_hint();
-    std::cout << "[BodylockFollowControllerTests] PASS\n";
-    return 0;
+void register_bodylock_follow_controller_tests(native_test::Registry& registry) {
+    registry.add_case("BaseBodyLock", "inactive_plan_is_neutral", test_inactive_plan_is_neutral);
+    registry.add_case("BaseBodyLock", "current_error_owns_position_proposal", test_current_error_owns_position_proposal);
+    registry.add_case("BaseBodyLock", "cue_uses_same_source_owned_solve", test_cue_lifecycle_uses_same_source_owned_solve);
+    registry.add_case("BaseBodyLock", "manual_input_does_not_create_second_policy", test_manual_input_does_not_create_a_second_authority_policy);
+    registry.add_case("BaseBodyLock", "motion_cannot_reverse_position_axis", test_motion_cannot_reverse_current_position_axis);
+    registry.add_case("BaseBodyLock", "orthogonal_motion_cannot_mask_reversal", test_orthogonal_motion_cannot_mask_bodylock_axis_reversal);
+    registry.add_case("BaseBodyLock", "force_envelope_remains_bounded", test_force_envelope_remains_bounded);
+    registry.add_case("BaseBodyLock", "aligned_motion_replaces_screen_hint", test_aligned_target_motion_replaces_screen_relative_hint);
 }

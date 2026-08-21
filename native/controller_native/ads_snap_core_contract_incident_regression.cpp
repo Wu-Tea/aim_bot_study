@@ -1,5 +1,6 @@
 #include "assist_control_state_machine.h"
 #include "target_coordinator.h"
+#include "test_support/native_test_registry.h"
 
 #include <algorithm>
 #include <cmath>
@@ -245,7 +246,8 @@ LifecycleReport evaluate_lifecycle() {
     // Later matched live evidence (2026-08-17) showed the strict radial
     // crossing predicate repeatedly retaining full ADS authority after the
     // reticle had already passed center. CenterCross is now a distinct valid
-    // terminal reason; the acquisition ceiling remains diagnostic-only.
+    // terminal reason. The later 2026-08-21 product clarification also makes
+    // the acquisition deadline terminal rather than diagnostic-only.
     report.center_cross_terminal_handoffs =
         cross_end.mode == pipeline_contract::ControlMode::BodyLockFollow &&
         !cross_end.ads_acquisition_active &&
@@ -339,7 +341,7 @@ IncidentReport evaluate_incident() {
     report.inactive_axis_brake_pass =
         report.arbitration.inactive_axis_output <= kTolerance;
     report.ceiling_pass =
-        report.lifecycle.ceiling_bodylock_transitions == 0;
+        report.lifecycle.ceiling_bodylock_transitions == 1;
     report.center_cross_pass =
         report.lifecycle.center_cross_terminal_handoffs == 1;
     report.reacquire_pass =
@@ -369,7 +371,7 @@ void write_report(
            << "{\n"
            << "  \"schema_version\": 1,\n"
            << "  \"incident_id\": \"" << kIncidentId << "\",\n"
-           << "  \"symptom\": \"ADS can stop short or reverse when a pre-existing gesture opposes the target, then can declare BodyLock before positioning has settled\",\n"
+           << "  \"symptom\": \"ADS can stop or reverse against an accepted target, while terminal ownership must remain bounded and explicit\",\n"
            << "  \"covariates\": {\n"
            << "    \"freshness\": \"fresh selected frames at 5-25 ms cadence; one same-generation fresh miss followed by no-source ticks and direct reacquisition\",\n"
            << "    \"target_generation\": 817,\n"
@@ -428,7 +430,7 @@ void write_report(
            << "  \"oracles\": [\n"
            << "    {\"id\":\"O1\",\"metric\":\"maximum_ads_target_error\",\"operator\":\"<=\",\"threshold\":" << kTolerance << ",\"observed\":" << report.arbitration.maximum_ads_target_error << ",\"pass\":" << report.target_first_pass << "},\n"
            << "    {\"id\":\"O2\",\"metric\":\"inactive_axis_output\",\"operator\":\"<=\",\"threshold\":" << kTolerance << ",\"observed\":" << report.arbitration.inactive_axis_output << ",\"pass\":" << report.inactive_axis_brake_pass << "},\n"
-           << "    {\"id\":\"O3\",\"metric\":\"ceiling_bodylock_transitions\",\"operator\":\"==\",\"threshold\":0,\"observed\":" << report.lifecycle.ceiling_bodylock_transitions << ",\"pass\":" << report.ceiling_pass << "},\n"
+           << "    {\"id\":\"O3\",\"metric\":\"ceiling_bodylock_transitions\",\"operator\":\"==\",\"threshold\":1,\"observed\":" << report.lifecycle.ceiling_bodylock_transitions << ",\"pass\":" << report.ceiling_pass << "},\n"
            << "    {\"id\":\"O4\",\"metric\":\"center_cross_terminal_handoffs\",\"operator\":\"==\",\"threshold\":1,\"observed\":" << report.lifecycle.center_cross_terminal_handoffs << ",\"pass\":" << report.center_cross_pass << "},\n"
            << "    {\"id\":\"O5\",\"metric\":\"same_acquisition_resume_count\",\"operator\":\"==\",\"threshold\":1,\"observed\":" << report.lifecycle.same_acquisition_resume_count << ",\"pass\":" << report.reacquire_pass << "}\n"
            << "  ],\n"
@@ -445,7 +447,7 @@ std::filesystem::path output_path_from_args(int argc, char** argv) {
 
 }  // namespace
 
-int main(int argc, char** argv) {
+int run_ads_snap_core_contract_incident_regression(int argc, char** argv) {
     try {
         const auto report = evaluate_incident();
         write_report(output_path_from_args(argc, argv), report);
@@ -471,4 +473,8 @@ int main(int argc, char** argv) {
                   << error.what() << '\n';
         return 3;
     }
+}
+
+void register_ads_snap_core_contract_incident_regression(native_test::Registry& registry) {
+    registry.add_incident_entry("BaseAds", "incident_ads_snap_core_contract", "ads_snap_core_contract_incident.json", run_ads_snap_core_contract_incident_regression);
 }

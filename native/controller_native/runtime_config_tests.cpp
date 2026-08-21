@@ -1,4 +1,5 @@
 #include "runtime_config.h"
+#include "test_support/native_test_registry.h"
 
 #include <cmath>
 #include <filesystem>
@@ -65,6 +66,8 @@ void test_current_control_keys_parse() {
         "strength_scale = 1.25\n"
         "vertical_strength_scale = 1.10\n"
         "activation_radius_px = 140\n"
+        "pickup_base_radius_px = 155\n"
+        "scope_ready_trigger = 0.82\n"
         "snap_duration_ms = 120\n"
         "completion_radius_px = 7\n"
         "completion_fresh_frames = 4\n"
@@ -108,6 +111,18 @@ void test_current_control_keys_parse() {
             "ADS vertical strength scale not applied");
     require(config.gamepad.ai_aim.ads_snap_window_ms == 120,
             "ADS acquisition duration not parsed");
+    require(std::fabs(
+                config.gamepad.ai_aim.ads_activation_radius_px - 140.0f) <
+            1e-5f,
+            "ADS response radius not parsed");
+    require(std::fabs(
+                config.gamepad.ai_aim.ads_pickup_base_radius_px - 155.0f) <
+            1e-5f,
+            "ADS pickup base radius not parsed");
+    require(std::fabs(
+                config.gamepad.ai_aim.ads_scope_ready_trigger - 0.82f) <
+            1e-5f,
+            "ADS scope-ready trigger not parsed");
     require(config.gamepad.ai_aim.ads_completion_fresh_frames == 4,
             "settle frame count not parsed");
     require(std::fabs(config.gamepad.ai_aim.body_lock_max_ai_force - 0.44f) < 1e-5f,
@@ -264,12 +279,11 @@ void test_example_config_contains_no_retired_keys() {
 
 }  // namespace
 
-int main() {
-    test_current_control_keys_parse();
-    test_recoil_defaults_use_product_dynamic_range();
-    test_retired_low_rate_keys_are_unknown_and_inert();
-    test_profile_override_has_one_capture_cadence();
-    test_invalid_safety_boundary_fails_closed();
-    test_example_config_contains_no_retired_keys();
-    return 0;
+void register_runtime_config_tests(native_test::Registry& registry) {
+    registry.add_case("BaseContracts", "current_control_keys_parse", test_current_control_keys_parse);
+    registry.add_case("BaseContracts", "recoil_defaults_use_product_dynamic_range", test_recoil_defaults_use_product_dynamic_range);
+    registry.add_case("BaseContracts", "retired_low_rate_keys_are_unknown_and_inert", test_retired_low_rate_keys_are_unknown_and_inert);
+    registry.add_case("BaseContracts", "profile_override_has_one_capture_cadence", test_profile_override_has_one_capture_cadence);
+    registry.add_case("BaseContracts", "invalid_safety_boundary_fails_closed", test_invalid_safety_boundary_fails_closed);
+    registry.add_case("BaseContracts", "example_config_contains_no_retired_keys", test_example_config_contains_no_retired_keys);
 }

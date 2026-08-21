@@ -32,7 +32,10 @@ public:
         PixelFormat format = PixelFormat::RGB8;
     };
 
-    VisionTargetSelector(int frame_width, int frame_height);
+    VisionTargetSelector(
+        int frame_width,
+        int frame_height,
+        float pickup_base_radius_px = 150.0f);
 
     void reset();
     VisionResult select(const DetectionBatch& batch);
@@ -132,6 +135,7 @@ private:
     std::optional<TargetState> select_weak_association(const DetectionBatch& batch) const;
 
     float crosshair_distance(float x, float y) const;
+    bool candidate_within_pickup_envelope(const Candidate& candidate) const;
     std::optional<float> tracking_distance(
         float x,
         float y,
@@ -207,6 +211,7 @@ private:
     float screen_center_y_ = 0.0f;
     float tracking_radius_ = 0.0f;
     float pickup_confirm_radius_ = 0.0f;
+    float pickup_base_radius_px_ = 150.0f;
     float crosshair_priority_margin_ = 0.0f;
     float max_area_limit_ = 0.0f;
 

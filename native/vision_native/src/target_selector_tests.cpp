@@ -1,6 +1,7 @@
 #include "vision_native/target_selector.h"
 
 #include "pipeline_contract/target_snapshot.h"
+#include "test_support/native_test_registry.h"
 
 #include <algorithm>
 #include <cmath>
@@ -653,7 +654,9 @@ void test_large_single_target_move_requires_fresh_acquisition_intent() {
     vision_native::DetectionBatch jump;
     jump.frame_width = 640;
     jump.frame_height = 512;
-    jump.detections.push_back(detection_for_target(610.0f, 256.0f, 0.95f));
+    // This is a genuine identity jump from the old target, but remains inside
+    // the size-scaled new-target pickup envelope around the crosshair.
+    jump.detections.push_back(detection_for_target(450.0f, 256.0f, 0.95f));
 
     const vision_native::VisionResult current = selector.select(jump);
 
@@ -669,7 +672,7 @@ void test_large_single_target_move_requires_fresh_acquisition_intent() {
         "large current movement must use its current detection instead of an old coordinate");
     require_near(
         reacquired.target_x,
-        610.0f,
+        450.0f,
         0.001f,
         "selector must not reject a current single-target coordinate as a tracking jump");
     require_true(reacquired.intent_applied,
@@ -1211,26 +1214,33 @@ void test_upright_candidate_without_prior_marker_is_not_blanket_rejected() {
         "marker-loss expiry must not turn the enemy marker into a global pickup requirement");
 }
 
-void test_selector_does_not_duplicate_coordinator_ads_activation_gate() {
-    vision_native::VisionTargetSelector selector(640, 512);
-    // A 140 px-tall body expands the coordinator-owned 135 px activation
-    // radius beyond 150 px. The selector's old rectangular first-pickup gate
-    // rejects this otherwise admissible candidate and delays ownership until
-    // the user has already moved the reticle most of the way there.
-    vision_native::DetectionBatch candidate;
-    candidate.frame_width = 640;
-    candidate.frame_height = 512;
-    candidate.detections.push_back(
-        detection_for_target(320.0f, 406.0f, 0.92f));
+void test_selector_owns_size_scaled_ads_pickup_gate() {
+    vision_native::VisionTargetSelector inside_selector(640, 512);
+    vision_native::DetectionBatch inside;
+    inside.frame_width = 640;
+    inside.frame_height = 512;
+    // A 140 px-tall body gets a 180.76 px radius from the 150 px base.
+    inside.detections.push_back(
+        detection_for_target(320.0f, 400.0f, 0.92f));
 
-    const auto pending = selector.select(candidate);
-    const auto admitted = selector.select(candidate);
+    const auto pending = inside_selector.select(inside);
+    const auto admitted = inside_selector.select(inside);
     require_true(!pending.has_target,
                  "selector pickup must retain its two-frame identity confirmation");
     require_true(admitted.has_target,
-                 "selector must leave spatial ADS activation to TargetCoordinator");
-    require_near(admitted.target_y, 406.0f, 0.001f,
+                 "candidate inside the dynamic pickup radius must be admitted");
+    require_near(admitted.target_y, 400.0f, 0.001f,
                  "selector must publish the confirmed candidate geometry unchanged");
+
+    vision_native::VisionTargetSelector outside_selector(640, 512);
+    vision_native::DetectionBatch outside = inside;
+    outside.detections.clear();
+    outside.detections.push_back(
+        detection_for_target(320.0f, 440.0f, 0.92f));
+    require_true(!outside_selector.select(outside).has_target,
+                 "outside candidate must not enter pickup confirmation");
+    require_true(!outside_selector.select(outside).has_target,
+                 "small target outside its dynamic radius must remain unselected");
 }
 
 void test_marker_loss_memory_survives_one_detection_dropout() {
@@ -1662,54 +1672,48 @@ void test_cue_geometry_identity_and_residual_regressions() {
 
 }  // namespace
 
-int main(int argc, char** argv) {
-    for (int index = 1; index + 1 < argc; ++index) {
-        if (std::string(argv[index]) == "--cue-geometry-regression-output") {
-            g_cue_geometry_regression_report_path = argv[++index];
+void register_target_selector_tests(native_test::Registry& registry) {
+    registry.add_context_case("BaseVisionSelection", "cue_geometry_identity_and_residual_regressions", [](const native_test::TestContext& context) {
+        if (g_cue_geometry_regression_report_path.empty()) {
+            g_cue_geometry_regression_report_path = context.artifact_path("cue_geometry_regression.json").string();
         }
-    }
-    try {
         test_cue_geometry_identity_and_residual_regressions();
-        test_intent_direction_ranks_plausible_multi_target_candidates();
-        test_user_intent_prefers_lower_left_close_target_over_far_upper_right();
-        test_crosshair_near_target_beats_physically_near_large_target();
-        test_selector_publishes_explicit_upper_body_aim_region();
-        test_missing_old_target_releases_before_directional_reacquisition();
-        test_unmarked_identity_survives_one_detection_dropout_without_old_actuation();
-        test_current_target_correction_cannot_vote_for_challenger();
-        test_decisive_intent_switches_on_first_fresh_frame();
-        test_unaligned_intent_does_not_confirm_right_side_challenger();
-        test_dead_active_target_releases_before_aligned_reacquisition();
-        test_intent_does_not_grant_fire_authority_to_weak_association();
-        test_large_single_target_move_requires_fresh_acquisition_intent();
-        test_partial_color_frame_origin_classifies_candidate_cue();
-        test_bgra_green_friendly_is_hard_rejected();
-        test_bgra_green_friendly_cannot_beat_yellow_enemy();
-        test_bgra_yellow_cue_assists_low_confidence_person_pickup();
-        test_single_marked_enemy_pickup_does_not_wait_for_a_second_frame();
-        test_multiple_marked_enemies_still_require_confirmation();
-        test_yellow_pixels_without_person_never_create_authority();
-        test_yellow_cue_hold_is_aim_only();
-        test_yellow_cue_continuation_tracks_visible_marker_for_bounded_ads_hold();
-        test_yellow_cue_continuation_uses_current_marker_after_fast_motion();
-        test_yellow_cue_continuation_selects_nearest_component_not_color_average();
-        test_yellow_cue_continuation_releases_when_marker_evidence_stops();
-        test_roi_miss_preserves_identity_without_old_coordinate_authority();
-        test_required_color_region_clamps_edge_candidate_to_screen();
-        test_external_cue_continuation_does_not_request_full_color_frame();
-        test_wide_low_no_cue_candidate_degrades_to_weak_without_death_transition();
-        test_wide_low_no_cue_candidate_does_not_keep_dead_active_target_locked();
-        test_enemy_marker_history_survives_one_upright_gap_and_rejects_corpse();
-        test_enemy_marker_loss_expires_while_person_box_remains_upright();
-        test_upright_candidate_without_prior_marker_is_not_blanket_rejected();
-        test_selector_does_not_duplicate_coordinator_ads_activation_gate();
-        test_marker_loss_memory_survives_one_detection_dropout();
-        test_motion_anchor_ignores_box_edge_reconstruction_and_tracks_person();
-        test_selector_generation_survives_frame_local_observation_changes();
-        test_confirmed_frame_replacement_bootstraps_a_new_motion_anchor();
-        return 0;
-    } catch (const std::exception& exc) {
-        std::cerr << "[TargetSelectorTests] FAIL " << exc.what() << "\n";
-        return 1;
-    }
+    });
+    registry.add_case("BaseVisionSelection", "intent_ranks_plausible_candidates", test_intent_direction_ranks_plausible_multi_target_candidates);
+    registry.add_case("BaseVisionSelection", "intent_prefers_lower_left_close_target", test_user_intent_prefers_lower_left_close_target_over_far_upper_right);
+    registry.add_case("BaseVisionSelection", "crosshair_near_beats_physically_near_large", test_crosshair_near_target_beats_physically_near_large_target);
+    registry.add_case("BaseVisionSelection", "selector_publishes_upper_body_region", test_selector_publishes_explicit_upper_body_aim_region);
+    registry.add_case("BaseVisionSelection", "missing_old_target_releases_before_reacquisition", test_missing_old_target_releases_before_directional_reacquisition);
+    registry.add_case("BaseVisionSelection", "unmarked_identity_survives_one_dropout", test_unmarked_identity_survives_one_detection_dropout_without_old_actuation);
+    registry.add_case("BaseVisionSelection", "current_correction_cannot_vote_challenger", test_current_target_correction_cannot_vote_for_challenger);
+    registry.add_case("BaseVisionSelection", "decisive_intent_switches_first_frame", test_decisive_intent_switches_on_first_fresh_frame);
+    registry.add_case("BaseVisionSelection", "unaligned_intent_does_not_confirm_challenger", test_unaligned_intent_does_not_confirm_right_side_challenger);
+    registry.add_case("BaseVisionSelection", "dead_target_releases_before_reacquisition", test_dead_active_target_releases_before_aligned_reacquisition);
+    registry.add_case("BaseVisionSelection", "intent_does_not_grant_weak_fire_authority", test_intent_does_not_grant_fire_authority_to_weak_association);
+    registry.add_case("BaseVisionSelection", "large_move_requires_fresh_acquisition_intent", test_large_single_target_move_requires_fresh_acquisition_intent);
+    registry.add_case("BaseVisionSelection", "partial_color_origin_classifies_cue", test_partial_color_frame_origin_classifies_candidate_cue);
+    registry.add_case("BaseVisionSelection", "green_friendly_is_hard_rejected", test_bgra_green_friendly_is_hard_rejected);
+    registry.add_case("BaseVisionSelection", "friendly_cannot_beat_yellow_enemy", test_bgra_green_friendly_cannot_beat_yellow_enemy);
+    registry.add_case("BaseVisionSelection", "yellow_cue_assists_low_confidence_pickup", test_bgra_yellow_cue_assists_low_confidence_person_pickup);
+    registry.add_case("BaseVisionSelection", "single_marked_enemy_has_no_second_frame_delay", test_single_marked_enemy_pickup_does_not_wait_for_a_second_frame);
+    registry.add_case("BaseVisionSelection", "multiple_marked_enemies_require_confirmation", test_multiple_marked_enemies_still_require_confirmation);
+    registry.add_case("BaseVisionSelection", "yellow_pixels_without_person_have_no_authority", test_yellow_pixels_without_person_never_create_authority);
+    registry.add_case("BaseVisionSelection", "yellow_cue_hold_is_aim_only", test_yellow_cue_hold_is_aim_only);
+    registry.add_case("BaseVisionSelection", "yellow_cue_tracks_visible_marker", test_yellow_cue_continuation_tracks_visible_marker_for_bounded_ads_hold);
+    registry.add_case("BaseVisionSelection", "yellow_cue_uses_current_fast_marker", test_yellow_cue_continuation_uses_current_marker_after_fast_motion);
+    registry.add_case("BaseVisionSelection", "yellow_cue_selects_nearest_component", test_yellow_cue_continuation_selects_nearest_component_not_color_average);
+    registry.add_case("BaseVisionSelection", "yellow_cue_releases_when_evidence_stops", test_yellow_cue_continuation_releases_when_marker_evidence_stops);
+    registry.add_case("BaseVisionSelection", "roi_miss_preserves_identity_without_old_coordinates", test_roi_miss_preserves_identity_without_old_coordinate_authority);
+    registry.add_case("BaseVisionSelection", "color_region_clamps_edge_candidate", test_required_color_region_clamps_edge_candidate_to_screen);
+    registry.add_case("BaseVisionSelection", "external_cue_does_not_request_full_frame", test_external_cue_continuation_does_not_request_full_color_frame);
+    registry.add_case("BaseVisionSelection", "wide_low_candidate_degrades_without_death", test_wide_low_no_cue_candidate_degrades_to_weak_without_death_transition);
+    registry.add_case("BaseVisionSelection", "wide_low_candidate_does_not_keep_dead_lock", test_wide_low_no_cue_candidate_does_not_keep_dead_active_target_locked);
+    registry.add_case("BaseVisionSelection", "marker_history_rejects_corpse_after_gap", test_enemy_marker_history_survives_one_upright_gap_and_rejects_corpse);
+    registry.add_case("BaseVisionSelection", "marker_loss_expires_with_upright_person", test_enemy_marker_loss_expires_while_person_box_remains_upright);
+    registry.add_case("BaseVisionSelection", "upright_without_marker_not_blanket_rejected", test_upright_candidate_without_prior_marker_is_not_blanket_rejected);
+    registry.add_case("BaseVisionSelection", "selector_owns_size_scaled_pickup_gate", test_selector_owns_size_scaled_ads_pickup_gate);
+    registry.add_case("BaseVisionSelection", "marker_memory_survives_one_dropout", test_marker_loss_memory_survives_one_detection_dropout);
+    registry.add_case("BaseVisionSelection", "motion_anchor_tracks_person_not_box_edge", test_motion_anchor_ignores_box_edge_reconstruction_and_tracks_person);
+    registry.add_case("BaseVisionSelection", "selector_generation_survives_observation_changes", test_selector_generation_survives_frame_local_observation_changes);
+    registry.add_case("BaseVisionSelection", "replacement_bootstraps_motion_anchor", test_confirmed_frame_replacement_bootstraps_a_new_motion_anchor);
 }

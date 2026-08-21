@@ -1,4 +1,5 @@
 #include "intent_filter.h"
+#include "test_support/native_test_registry.h"
 
 #include <cmath>
 #include <iostream>
@@ -129,17 +130,11 @@ void test_correction_purpose_does_not_cross_target_loss() {
 
 }  // namespace
 
-int main() {
-    try {
-        test_deadzone_sized_drift_is_neutral();
-        test_sustained_input_is_not_learned_away();
-        test_reversal_and_release_are_explicit();
-        test_gesture_purpose_survives_target_acquisition();
-        test_two_dimensional_reversal_starts_new_purpose();
-        test_correction_purpose_does_not_cross_target_loss();
-        return 0;
-    } catch (const std::exception& error) {
-        std::cerr << "[IntentFilterTests] FAIL " << error.what() << '\n';
-        return 1;
-    }
+void register_intent_filter_tests(native_test::Registry& registry) {
+    registry.add_case("BaseBodyLock", "deadzone_sized_drift_is_neutral", test_deadzone_sized_drift_is_neutral);
+    registry.add_case("BaseBodyLock", "sustained_input_is_not_learned_away", test_sustained_input_is_not_learned_away);
+    registry.add_case("BaseBodyLock", "reversal_and_release_are_explicit", test_reversal_and_release_are_explicit);
+    registry.add_case("BaseBodyLock", "gesture_purpose_survives_target_acquisition", test_gesture_purpose_survives_target_acquisition);
+    registry.add_case("BaseBodyLock", "two_dimensional_reversal_starts_new_purpose", test_two_dimensional_reversal_starts_new_purpose);
+    registry.add_case("BaseBodyLock", "correction_purpose_does_not_cross_target_loss", test_correction_purpose_does_not_cross_target_loss);
 }

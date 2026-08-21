@@ -1,4 +1,5 @@
 #include "controller_native/output_diagnostics.h"
+#include "test_support/native_test_registry.h"
 #include "../replay_native/replay_metrics.h"
 #include "../replay_native/replay_schema.h"
 #include "../runtime_app/perf_logger.h"
@@ -324,20 +325,12 @@ void benchmark_lightweight_perf_summary_hot_path() {
 
 }  // namespace
 
-int main() {
-    try {
-        test_replay_schema_captures_controller_components();
-        test_replay_metrics_summarizes_error_and_stale_fire_violations();
-        test_replay_metrics_exposes_bodylock_continuity_defect();
-        test_replay_metrics_exposes_stepwise_assist_as_stutter();
-        test_perf_loop_fps_uses_measured_elapsed_time();
-        test_lightweight_perf_summary_writes_one_compact_window();
-        benchmark_lightweight_perf_summary_hot_path();
-    } catch (const std::exception& exc) {
-        std::cerr << "[NativeBenchmarkMetricsTests] FAIL " << exc.what() << "\n";
-        return 1;
-    }
-
-    std::cout << "[NativeBenchmarkMetricsTests] PASS\n";
-    return 0;
+void register_benchmark_metrics_tests(native_test::Registry& registry) {
+    registry.add_case("FeatureTelemetryAndDiagnostics", "replay_schema_captures_controller_components", test_replay_schema_captures_controller_components);
+    registry.add_case("FeatureTelemetryAndDiagnostics", "replay_metrics_summarizes_errors", test_replay_metrics_summarizes_error_and_stale_fire_violations);
+    registry.add_case("FeatureTelemetryAndDiagnostics", "replay_metrics_exposes_bodylock_defect", test_replay_metrics_exposes_bodylock_continuity_defect);
+    registry.add_case("FeatureTelemetryAndDiagnostics", "replay_metrics_exposes_stepwise_stutter", test_replay_metrics_exposes_stepwise_assist_as_stutter);
+    registry.add_case("FeatureTelemetryAndDiagnostics", "perf_loop_fps_uses_elapsed_time", test_perf_loop_fps_uses_measured_elapsed_time);
+    registry.add_case("FeatureTelemetryAndDiagnostics", "lightweight_summary_writes_compact_window", test_lightweight_perf_summary_writes_one_compact_window);
+    registry.add_case("FeatureTelemetryAndDiagnostics", "lightweight_summary_hot_path_budget", benchmark_lightweight_perf_summary_hot_path);
 }

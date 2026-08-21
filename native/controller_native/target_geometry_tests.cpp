@@ -1,13 +1,20 @@
 #include "target_geometry.h"
+#include "test_support/native_test_registry.h"
 
 #include <cmath>
-#include <cstdlib>
 #include <initializer_list>
+#include <stdexcept>
 
 namespace {
 
 void require_near(float actual, float expected) {
-    if (std::fabs(actual - expected) > 0.001f) std::abort();
+    if (std::fabs(actual - expected) > 0.001f) {
+        throw std::runtime_error("target geometry value was outside tolerance");
+    }
+}
+
+void require_true(bool condition, const char* message) {
+    if (!condition) throw std::runtime_error(message);
 }
 
 void test_upright_and_crouched_boxes_use_relative_height() {
@@ -19,7 +26,7 @@ void test_upright_and_crouched_boxes_use_relative_height() {
             {{320.0f, 250.0f}, box, true}, config);
         require_near(result.aim_px.x, 320.0f);
         require_near(result.aim_px.y, box.y + box.h * 0.365f);
-        if (!result.geometry_resolved) std::abort();
+        require_true(result.geometry_resolved, "valid body box was not resolved");
     }
 }
 
@@ -43,7 +50,7 @@ void test_missing_or_invalid_box_preserves_vision_point() {
         const auto result = controller_native::resolve_target_geometry(input, {0.365f});
         require_near(result.aim_px.x, 321.0f);
         require_near(result.aim_px.y, 222.0f);
-        if (result.geometry_resolved) std::abort();
+    require_true(!result.geometry_resolved, "invalid body box was resolved");
     }
 }
 
@@ -59,7 +66,7 @@ void test_stable_body_aim_rejects_single_edge_weapon_occlusion_without_debt() {
         {128.0f, 143.8f}, occluded, true, true, {118.0f, 125.0f});
     require_near(disturbed.aim_px.x, initial.aim_px.x);
     require_near(disturbed.aim_px.y, initial.aim_px.y);
-    if (!disturbed.rejected_shape_motion) std::abort();
+    require_true(disturbed.rejected_shape_motion, "shape disturbance was not rejected");
 
     const auto restored = tracker.update(
         {120.0f, 136.5f}, base, true, true, {118.0f, 125.0f});
@@ -83,7 +90,7 @@ void test_stable_body_aim_preserves_rigid_target_translation() {
         {123.0f, 121.0f});
     require_near(translated.aim_px.x, 125.0f);
     require_near(translated.aim_px.y, 132.5f);
-    if (translated.rejected_shape_motion) std::abort();
+    require_true(!translated.rejected_shape_motion, "rigid translation was rejected");
 }
 
 void test_stable_body_aim_bridges_one_anchor_dropout_without_box_debt() {
@@ -117,12 +124,11 @@ void test_stable_body_aim_bridges_one_anchor_dropout_without_box_debt() {
 
 }  // namespace
 
-int main() {
-    test_upright_and_crouched_boxes_use_relative_height();
-    test_wide_low_box_preserves_and_clamps_vision_point();
-    test_missing_or_invalid_box_preserves_vision_point();
-    test_stable_body_aim_rejects_single_edge_weapon_occlusion_without_debt();
-    test_stable_body_aim_preserves_rigid_target_translation();
-    test_stable_body_aim_bridges_one_anchor_dropout_without_box_debt();
-    return 0;
+void register_target_geometry_tests(native_test::Registry& registry) {
+    registry.add_case("BaseBodyLock", "upright_and_crouched_boxes_use_relative_height", test_upright_and_crouched_boxes_use_relative_height);
+    registry.add_case("BaseBodyLock", "wide_low_box_preserves_vision_point", test_wide_low_box_preserves_and_clamps_vision_point);
+    registry.add_case("BaseBodyLock", "invalid_box_preserves_vision_point", test_missing_or_invalid_box_preserves_vision_point);
+    registry.add_case("BaseBodyLock", "edge_weapon_occlusion_has_no_geometry_debt", test_stable_body_aim_rejects_single_edge_weapon_occlusion_without_debt);
+    registry.add_case("BaseBodyLock", "stable_aim_preserves_rigid_translation", test_stable_body_aim_preserves_rigid_target_translation);
+    registry.add_case("BaseBodyLock", "stable_aim_bridges_one_anchor_dropout", test_stable_body_aim_bridges_one_anchor_dropout_without_box_debt);
 }

@@ -1,15 +1,15 @@
 #include "telemetry_target_identity.h"
+#include "test_support/native_test_registry.h"
 
-#include <cstdlib>
 #include <iostream>
+#include <stdexcept>
+#include <string>
 
 namespace {
 
 void require(bool value, int line) {
-    if (!value) {
-        std::cerr << "require failed at line " << line << '\n';
-        std::abort();
-    }
+    if (!value) throw std::runtime_error(
+        "target identity assertion failed at line " + std::to_string(line));
 }
 #define REQUIRE(value) require((value), __LINE__)
 
@@ -80,10 +80,9 @@ void test_ambiguous_crossing_is_not_model_eligible() {
 
 } // namespace
 
-int main() {
-    test_stable_live_target_retains_identity();
-    test_explicit_switch_issues_new_identity();
-    test_incompatible_reacquisition_does_not_reuse_identity();
-    test_ambiguous_crossing_is_not_model_eligible();
-    return 0;
+void register_telemetry_target_identity_tests(native_test::Registry& registry) {
+    registry.add_case("FeatureTelemetryAndDiagnostics", "stable_live_target_retains_identity", test_stable_live_target_retains_identity);
+    registry.add_case("FeatureTelemetryAndDiagnostics", "explicit_switch_issues_new_identity", test_explicit_switch_issues_new_identity);
+    registry.add_case("FeatureTelemetryAndDiagnostics", "incompatible_reacquisition_does_not_reuse_identity", test_incompatible_reacquisition_does_not_reuse_identity);
+    registry.add_case("FeatureTelemetryAndDiagnostics", "ambiguous_crossing_not_model_eligible", test_ambiguous_crossing_is_not_model_eligible);
 }

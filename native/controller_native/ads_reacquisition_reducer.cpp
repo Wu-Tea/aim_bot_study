@@ -9,7 +9,8 @@ AdsReacquisitionDecision AdsReacquisitionReducer::on_input(
     const AimScopeSnapshot& scope,
     const pipeline_contract::TargetPlan& current_plan,
     pipeline_contract::EventSequence cause_event) noexcept {
-    if (scope.physical_ads_released || scope.scope_released) {
+    if (scope.physical_ads_released || scope.scope_released ||
+        (scope.physical_ads_ready_released && !scope.manual_fire_active)) {
         if (!pending_.active) return {};
         const auto cause = pending_.cause_event;
         pending_ = {};
@@ -27,6 +28,24 @@ AdsReacquisitionDecision AdsReacquisitionReducer::on_input(
         // re-press. Vision may already have published a person while LT/fire
         // was idle; deferring that edge leaves the coordinator with a manual
         // target and no epoch that can ever admit it.
+        if (scope.manual_fire_active || scope.physical_ads_ready) {
+            pending_ = {};
+            return {
+                true,
+                true,
+                true,
+                pipeline_contract::AdsReacquireDecisionCode::InitialScopeAcquired,
+                cause_event};
+        }
+        // A light LT press starts Vision/selector work but not the ADS job.
+        // The distinct ready edge below owns the acquisition clock.
+        return {};
+    }
+    if (scope.physical_ads_ready_pressed &&
+        current_plan.mode == pipeline_contract::ControlMode::Manual) {
+        // Vision can publish a manual/no-epoch target while the player is
+        // still squeezing LT. The later ready edge is the initial ADS job,
+        // not a BodyLock re-press against that preview target.
         pending_ = {};
         return {
             true,
@@ -35,7 +54,8 @@ AdsReacquisitionDecision AdsReacquisitionReducer::on_input(
             pipeline_contract::AdsReacquireDecisionCode::InitialScopeAcquired,
             cause_event};
     }
-    const bool explicit_physical_ads_request = scope.physical_ads_pressed;
+    const bool explicit_physical_ads_request =
+        scope.physical_ads_ready_pressed;
     // Fire may establish its own aim scope, but it must never rearm the ADS
     // lifecycle while the same physical LT press is already active.
     const bool fire_search_request = scope.manual_fire_pressed &&

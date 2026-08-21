@@ -1,12 +1,15 @@
 #include "color_readback.h"
+#include "test_support/native_test_registry.h"
 
-#include <cstdlib>
 #include <cstring>
 #include <iostream>
+#include <stdexcept>
+#include <string>
 
 namespace {
 void require(bool value, int line) {
-    if (!value) { std::cerr << "require failed at line " << line << '\n'; std::abort(); }
+    if (!value) throw std::runtime_error(
+        "color readback assertion failed at line " + std::to_string(line));
 }
 #define REQUIRE(v) require((v), __LINE__)
 
@@ -39,9 +42,8 @@ void test_transfer_failure_can_force_pageable_fallback() {
 }
 }
 
-int main() {
-    test_pageable_buffer_reuses_high_watermark();
-    test_pinned_failure_falls_back_to_pageable();
-    test_transfer_failure_can_force_pageable_fallback();
-    return 0;
+void register_color_readback_tests(native_test::Registry& registry) {
+    registry.add_case("BaseContracts", "pageable_buffer_reuses_high_watermark", test_pageable_buffer_reuses_high_watermark);
+    registry.add_case("BaseContracts", "pinned_failure_falls_back_to_pageable", test_pinned_failure_falls_back_to_pageable);
+    registry.add_case("BaseContracts", "transfer_failure_forces_pageable_fallback", test_transfer_failure_can_force_pageable_fallback);
 }

@@ -1,9 +1,11 @@
 #include "runtime_telemetry.h"
+#include "test_support/native_test_registry.h"
 
 #include <cstddef>
 #include <iostream>
+#include <stdexcept>
 
-int main() {
+void test_runtime_telemetry_production_shape() {
     runtime_app::RuntimeTelemetryOptions options;
     options.enabled = true;
     options.start_writer = false;
@@ -13,8 +15,7 @@ int main() {
     record.type = runtime_app::TelemetryRecordType::SessionMetadata;
 
     if (!telemetry.enqueue(record)) {
-        std::cerr << "production-shape telemetry enqueue failed\n";
-        return 1;
+        throw std::runtime_error("production-shape telemetry enqueue failed");
     }
     if (sizeof(runtime_app::TelemetryRecord) >= 2576 ||
         telemetry.ordinary_queue_capacity() != options.queue_capacity ||
@@ -22,8 +23,7 @@ int main() {
         telemetry.ordinary_queue_bytes() !=
             options.queue_capacity * sizeof(runtime_app::TelemetryRecord) ||
         telemetry.counters().accepted_records != 1) {
-        std::cerr << "production-shape queue accounting failed\n";
-        return 1;
+        throw std::runtime_error("production-shape queue accounting failed");
     }
 
     std::cout << "production_shape_telemetry_record_bytes="
@@ -31,5 +31,8 @@ int main() {
               << " queue_capacity=" << telemetry.ordinary_queue_capacity()
               << " queue_bytes=" << telemetry.ordinary_queue_bytes()
               << " accepted=" << telemetry.counters().accepted_records << '\n';
-    return 0;
+}
+
+void register_runtime_telemetry_production_shape_tests(native_test::Registry& registry) {
+    registry.add_case("FeatureTelemetryAndDiagnostics", "runtime_telemetry_production_shape", test_runtime_telemetry_production_shape);
 }

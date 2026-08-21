@@ -20,6 +20,9 @@ struct AimScopeSnapshot {
     bool assist_active = false;
     bool physical_ads_pressed = false;
     bool physical_ads_released = false;
+    bool physical_ads_ready = false;
+    bool physical_ads_ready_pressed = false;
+    bool physical_ads_ready_released = false;
     bool manual_fire_pressed = false;
     bool manual_fire_released = false;
     bool scope_acquired = false;
@@ -48,6 +51,11 @@ public:
         AimScopeSnapshot snapshot{};
         snapshot.physical_ads_pressed = input.physical_ads_pressed;
         snapshot.physical_ads_released = input.physical_ads_released;
+        snapshot.physical_ads_ready = input.physical_ads_ready;
+        snapshot.physical_ads_ready_pressed =
+            input.physical_ads_ready_pressed;
+        snapshot.physical_ads_ready_released =
+            input.physical_ads_ready_released;
         if (snapshot.physical_ads_pressed) ++physical_ads_epoch_;
         if (manual_fire_activates_aim) {
             snapshot.manual_fire_pressed = input.manual_fire_pressed;

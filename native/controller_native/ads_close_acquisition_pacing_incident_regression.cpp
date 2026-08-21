@@ -1,5 +1,6 @@
 #include "ads_acquisition_controller.h"
 #include "aim_dynamics_shaper.h"
+#include "test_support/native_test_registry.h"
 
 #include <algorithm>
 #include <cmath>
@@ -287,7 +288,7 @@ std::filesystem::path output_path_from_args(int argc, char** argv) {
 
 }  // namespace
 
-int main(int argc, char** argv) {
+int run_ads_close_acquisition_pacing_incident_regression(int argc, char** argv) {
     try {
         const auto output_path = output_path_from_args(argc, argv);
         const auto report = evaluate();
@@ -306,4 +307,8 @@ int main(int argc, char** argv) {
                   << error.what() << '\n';
         return 3;
     }
+}
+
+void register_ads_close_acquisition_pacing_incident_regression(native_test::Registry& registry) {
+    registry.add_incident_entry("BaseAds", "incident_ads_close_acquisition_pacing", "ads_close_acquisition_pacing_incident.json", run_ads_close_acquisition_pacing_incident_regression);
 }

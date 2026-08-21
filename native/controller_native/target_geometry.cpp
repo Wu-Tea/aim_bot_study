@@ -1,5 +1,7 @@
 #include "target_geometry.h"
 
+#include "pipeline_contract/target_acquisition.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -158,9 +160,8 @@ TargetGeometryResult resolve_target_geometry(
 float target_scaled_radius(
     float base_radius_px,
     float normalized_target_size) noexcept {
-    return std::max(0.0f, base_radius_px) *
-        (1.0f + 0.75f *
-            std::clamp(normalized_target_size, 0.0f, 1.0f));
+    return pipeline_contract::target_scaled_pickup_radius(
+        base_radius_px, normalized_target_size);
 }
 
 }  // namespace controller_native

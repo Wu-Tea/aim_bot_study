@@ -1,5 +1,6 @@
 #include "incident_fixture_support.h"
 #include "target_coordinator.h"
+#include "test_support/native_test_registry.h"
 
 #include <cstdint>
 #include <filesystem>
@@ -242,7 +243,7 @@ void write_report(const std::filesystem::path& output, const Report& report) {
 
 }  // namespace
 
-int main(int argc, char** argv) {
+int run_ads_single_press_token_incident_regression(int argc, char** argv) {
     try {
         const auto output =
             controller_native::incident_fixture::output_path_from_args(
@@ -260,4 +261,8 @@ int main(int argc, char** argv) {
         std::cerr << "incident fixture failed: " << error.what() << '\n';
         return 3;
     }
+}
+
+void register_ads_single_press_token_incident_regression(native_test::Registry& registry) {
+    registry.add_incident_entry("BaseAds", "incident_ads_single_press_token", "ads_single_press_token_incident.json", run_ads_single_press_token_incident_regression);
 }

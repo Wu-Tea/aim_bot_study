@@ -43,14 +43,20 @@ struct VisionRuntimeConfig {
 struct GamepadAiAimConfig {
     float ai_delta_gain = 1.0f;
     float target_max_age_ms = 96.0f;
-    // Legacy ADS response-normalization radius retained for configuration and
-    // telemetry compatibility. It does not gate selector-owned target pickup.
+    // Response-demand normalization only; Vision owns target admission.
     float ads_activation_radius_px = 135.0f;
+    // Small/far-target base pickup radius. Vision scales it smoothly with
+    // apparent target height and applies it only to new selector identity.
+    float ads_pickup_base_radius_px = 150.0f;
+    // Vision may start on a light LT press, but target-first ADS authority and
+    // its acquisition clock begin only after the physical request is ready.
+    float ads_scope_ready_trigger = 0.80f;
     int ads_snap_window_ms = 135;
     float ads_snap_max_ai_force = 1.0f;
     float ads_snap_max_ai_force_y = 1.0f;
     float ads_completion_radius_px = 8.0f;
     int ads_completion_fresh_frames = 3;
+    // Independently bounds late-target wait and admitted Snap execution.
     float ads_max_acquisition_ms = 220.0f;
     float auto_fire_ready_error_px = 16.0f;
     int auto_fire_ready_frames = 2;

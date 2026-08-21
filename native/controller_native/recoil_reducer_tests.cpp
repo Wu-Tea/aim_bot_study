@@ -1,4 +1,5 @@
 #include "recoil_reducer.h"
+#include "test_support/native_test_registry.h"
 
 #include <cmath>
 #include <stdexcept>
@@ -33,7 +34,6 @@ void test_recoil_reducer_accepts_only_fire_weapon_context() {
 
 }  // namespace
 
-int main() {
-    test_recoil_reducer_accepts_only_fire_weapon_context();
-    return 0;
+void register_recoil_reducer_tests(native_test::Registry& registry) {
+    registry.add_case("FeatureRecoilAndWeapon", "recoil_reducer_accepts_only_fire_weapon_context", test_recoil_reducer_accepts_only_fire_weapon_context);
 }

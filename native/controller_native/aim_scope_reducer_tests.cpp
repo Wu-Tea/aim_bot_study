@@ -1,4 +1,5 @@
 #include "aim_scope_reducer.h"
+#include "test_support/native_test_registry.h"
 
 #include <stdexcept>
 
@@ -114,10 +115,9 @@ void test_lt_then_fire_preserves_the_manual_fire_event() {
 
 }  // namespace
 
-int main() {
-    test_physical_ads_edges_are_debounced_and_unique();
-    test_manual_fire_scope_is_target_independent_input_state();
-    test_fire_then_lt_preserves_the_physical_ads_event();
-    test_lt_then_fire_preserves_the_manual_fire_event();
-    return 0;
+void register_aim_scope_reducer_tests(native_test::Registry& registry) {
+    registry.add_case("BaseAds", "physical_ads_edges_are_debounced_and_unique", test_physical_ads_edges_are_debounced_and_unique);
+    registry.add_case("BaseAds", "manual_fire_scope_is_target_independent", test_manual_fire_scope_is_target_independent_input_state);
+    registry.add_case("BaseAds", "fire_then_lt_preserves_physical_ads_event", test_fire_then_lt_preserves_the_physical_ads_event);
+    registry.add_case("BaseAds", "lt_then_fire_preserves_manual_fire_event", test_lt_then_fire_preserves_the_manual_fire_event);
 }

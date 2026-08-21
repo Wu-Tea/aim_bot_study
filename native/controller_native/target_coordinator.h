@@ -15,6 +15,9 @@ struct TargetCoordinatorConfig {
     float settle_radius_px = 8.0f;
     std::uint32_t settle_frames = 5;
     float ads_nominal_acquisition_ms = 135.0f;
+    // Shared bound for two independent clocks: epoch-to-first-admission wait
+    // and admission-to-Snap-release execution. A late admission starts a fresh
+    // execution clock; it does not inherit elapsed wait time.
     float ads_max_acquisition_ms = 220.0f;
     // Response-demand normalization only; Vision owns target admission.
     float ads_activation_radius_px = 135.0f;

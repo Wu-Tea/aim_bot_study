@@ -1,4 +1,5 @@
 #include "response_model_aim_solver.h"
+#include "test_support/native_test_registry.h"
 
 #include <cmath>
 #include <cstdlib>
@@ -204,25 +205,17 @@ void test_cod_dynamic_curve_preserves_radial_target_direction() {
 
 }  // namespace
 
-int main() {
-    try {
-        test_radial_direction_and_y_sign();
-        test_horizon_and_response_have_physical_units();
-        test_motion_feedforward_is_not_multiplied_by_force_cap();
-        test_motion_does_not_reverse_current_residual();
-        test_current_position_bounds_only_opposing_axis_motion();
-        test_orthogonal_motion_cannot_mask_an_axis_reversal();
-        test_elliptical_force_envelope_scales_one_vector();
-        test_authority_caps_delivered_force_after_curve_inversion();
-        test_clear_authority_does_not_multiply_smaller_mode_cap();
-        test_cod_dynamic_plugin_round_trips_seed_curve();
-        test_cod_dynamic_curve_shapes_target_t_around_reference();
-        test_cod_dynamic_curve_preserves_radial_target_direction();
-        std::cout << "cod_native_response_model_aim_solver_tests PASS\n";
-        return EXIT_SUCCESS;
-    } catch (const std::exception& error) {
-        std::cerr << "cod_native_response_model_aim_solver_tests FAIL: "
-                  << error.what() << "\n";
-        return EXIT_FAILURE;
-    }
+void register_response_model_aim_solver_tests(native_test::Registry& registry) {
+    registry.add_case("BaseBodyLock", "solver_radial_direction_and_y_sign", test_radial_direction_and_y_sign);
+    registry.add_case("BaseBodyLock", "solver_horizon_and_response_have_units", test_horizon_and_response_have_physical_units);
+    registry.add_case("BaseBodyLock", "motion_feedforward_not_multiplied_by_cap", test_motion_feedforward_is_not_multiplied_by_force_cap);
+    registry.add_case("BaseBodyLock", "motion_does_not_reverse_residual", test_motion_does_not_reverse_current_residual);
+    registry.add_case("BaseBodyLock", "position_bounds_only_opposing_axis_motion", test_current_position_bounds_only_opposing_axis_motion);
+    registry.add_case("BaseBodyLock", "orthogonal_motion_cannot_mask_axis_reversal", test_orthogonal_motion_cannot_mask_an_axis_reversal);
+    registry.add_case("BaseBodyLock", "elliptical_force_scales_one_vector", test_elliptical_force_envelope_scales_one_vector);
+    registry.add_case("BaseBodyLock", "authority_caps_after_curve_inversion", test_authority_caps_delivered_force_after_curve_inversion);
+    registry.add_case("BaseBodyLock", "clear_authority_does_not_multiply_mode_cap", test_clear_authority_does_not_multiply_smaller_mode_cap);
+    registry.add_case("BaseBodyLock", "dynamic_plugin_round_trips_seed_curve", test_cod_dynamic_plugin_round_trips_seed_curve);
+    registry.add_case("BaseBodyLock", "dynamic_curve_shapes_target_around_reference", test_cod_dynamic_curve_shapes_target_t_around_reference);
+    registry.add_case("BaseBodyLock", "dynamic_curve_preserves_radial_direction", test_cod_dynamic_curve_preserves_radial_target_direction);
 }

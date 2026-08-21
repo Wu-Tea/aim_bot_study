@@ -181,7 +181,9 @@ bool is_known_key(const std::string& section, const std::string& key) {
     static const std::unordered_set<std::string> aim_response_curve_keys{
         "algorithm", "calibration_reference_stick"};
     static const std::unordered_set<std::string> ads_keys{
-        "strength_scale", "vertical_strength_scale", "activation_radius_px", "snap_duration_ms",
+        "strength_scale", "vertical_strength_scale", "activation_radius_px",
+        "pickup_base_radius_px",
+        "scope_ready_trigger", "snap_duration_ms",
         "completion_radius_px", "completion_fresh_frames", "max_acquisition_ms"};
     static const std::unordered_set<std::string> bodylock_keys{
         "strength", "vertical_strength", "activation_range_px", "tolerance_px"};
@@ -207,7 +209,7 @@ bool is_known_key(const std::string& section, const std::string& key) {
         "piecewise_max_pixels_y", "piecewise_mid_ratio_y"};
     static const std::unordered_set<std::string> ai_aim_keys{
         "ai_delta_gain", "target_max_age_ms", "ads_activation_radius_px",
-        "ads_snap_window_ms",
+        "ads_pickup_base_radius_px", "ads_scope_ready_trigger", "ads_snap_window_ms",
         "ads_snap_max_ai_force", "ads_snap_max_ai_force_y",
         "ads_completion_radius_px", "ads_completion_fresh_frames",
         "ads_max_acquisition_ms",
@@ -338,6 +340,12 @@ void apply_gamepad_ai_aim_value(
     } else if (key == "ads_activation_radius_px") {
         config.ads_activation_radius_px =
             parse_float_value(value, config.ads_activation_radius_px);
+    } else if (key == "ads_pickup_base_radius_px") {
+        config.ads_pickup_base_radius_px =
+            parse_float_value(value, config.ads_pickup_base_radius_px);
+    } else if (key == "ads_scope_ready_trigger") {
+        config.ads_scope_ready_trigger =
+            parse_float_value(value, config.ads_scope_ready_trigger);
     } else if (key == "ads_snap_window_ms") {
         config.ads_snap_window_ms = parse_int_value(value, config.ads_snap_window_ms);
     } else if (key == "ads_snap_max_ai_force") {
@@ -677,6 +685,12 @@ void apply_value(
         } else if (key == "activation_radius_px") {
             ads.ads_activation_radius_px =
                 parse_float_value(value, ads.ads_activation_radius_px);
+        } else if (key == "pickup_base_radius_px") {
+            ads.ads_pickup_base_radius_px =
+                parse_float_value(value, ads.ads_pickup_base_radius_px);
+        } else if (key == "scope_ready_trigger") {
+            ads.ads_scope_ready_trigger =
+                parse_float_value(value, ads.ads_scope_ready_trigger);
         } else if (key == "snap_duration_ms") {
             ads.ads_snap_window_ms = parse_int_value(value, ads.ads_snap_window_ms);
         } else if (key == "completion_radius_px") {
@@ -849,6 +863,12 @@ void validate_runtime_config(RuntimeConfig& config) {
     if (config.gamepad.ai_aim.ads_activation_radius_px <= 0.0f ||
         config.gamepad.ai_aim.ads_activation_radius_px > 2000.0f)
         invalid("gamepad.ads.activation_radius_px", "0..2000");
+    if (config.gamepad.ai_aim.ads_pickup_base_radius_px <= 0.0f ||
+        config.gamepad.ai_aim.ads_pickup_base_radius_px > 2000.0f)
+        invalid("gamepad.ads.pickup_base_radius_px", "0..2000");
+    if (config.gamepad.ai_aim.ads_scope_ready_trigger <= 0.05f ||
+        config.gamepad.ai_aim.ads_scope_ready_trigger > 1.0f)
+        invalid("gamepad.ads.scope_ready_trigger", "(0.05)..1");
     if (config.gamepad.ai_aim.desired_point_traversal_ms < 40.0f ||
         config.gamepad.ai_aim.desired_point_traversal_ms > 2000.0f)
         invalid("gamepad.ai_aim.desired_point_traversal_ms", "40..2000");

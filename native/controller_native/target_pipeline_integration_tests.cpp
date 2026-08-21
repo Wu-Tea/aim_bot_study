@@ -1,4 +1,5 @@
 #include "incident_fixture_support.h"
+#include "test_support/native_test_registry.h"
 
 #include <algorithm>
 #include <cmath>
@@ -893,33 +894,26 @@ void test_current_chain_outputs_remain_finite_and_bounded() {
 
 }  // namespace
 
-int main() {
-    try {
-        test_no_target_is_physical_passthrough();
-        test_centered_motion_demand_retains_ai_authority();
-        test_valid_point_correction_is_interpreted_not_passthrough();
-        test_track_uses_ai_as_total_fill_but_opposition_is_native();
-        test_bodylock_cancellation_is_confidence_bounded_and_never_reverses();
-        test_downward_manual_has_more_authority_and_fire_is_native();
-        test_recoil_is_an_independent_final_stage_output();
-        test_track_cooperates_per_axis_without_spending_downward_authority();
-        test_capture_brakes_alignment_but_allows_opposing_escape();
-        test_small_filtered_input_moves_d_without_a_second_deadzone();
-        test_correction_release_retains_d_without_reverse_authority();
-        test_fresh_target_has_one_current_plan_and_one_output_owner();
-        test_controller_tick_without_source_does_not_project_observation();
-        test_fresh_no_target_removes_authority_immediately();
-        test_non_cue_target_without_candidates_fails_closed();
-        test_cue_continuation_is_same_generation_aim_only_evidence();
-        test_boundary_qualified_handover_releases_then_captures();
-        test_strong_outward_transfer_releases_old_target_within_one_ads_window();
-        test_autofire_requires_fresh_observed_authority_and_preserves_physical_fire();
-        test_current_chain_outputs_remain_finite_and_bounded();
-        std::cout << "[TargetPipelineIntegrationTests] PASS\n";
-        return 0;
-    } catch (const std::exception& error) {
-        std::cerr << "[TargetPipelineIntegrationTests][FAIL] "
-                  << error.what() << '\n';
-        return 1;
-    }
+void register_target_pipeline_integration_tests(
+    native_test::Registry& registry) {
+    registry.add_case("BaseEndToEnd", "no_target_is_physical_passthrough", test_no_target_is_physical_passthrough);
+    registry.add_case("BaseEndToEnd", "centered_motion_retains_ai_authority", test_centered_motion_demand_retains_ai_authority);
+    registry.add_case("BaseEndToEnd", "valid_point_correction_is_interpreted", test_valid_point_correction_is_interpreted_not_passthrough);
+    registry.add_case("BaseEndToEnd", "track_uses_ai_total_and_native_opposition", test_track_uses_ai_as_total_fill_but_opposition_is_native);
+    registry.add_case("BaseEndToEnd", "bodylock_cancellation_is_bounded", test_bodylock_cancellation_is_confidence_bounded_and_never_reverses);
+    registry.add_case("BaseEndToEnd", "downward_manual_and_fire_are_native", test_downward_manual_has_more_authority_and_fire_is_native);
+    registry.add_case("BaseEndToEnd", "recoil_is_independent_final_stage", test_recoil_is_an_independent_final_stage_output);
+    registry.add_case("BaseEndToEnd", "track_cooperates_per_axis", test_track_cooperates_per_axis_without_spending_downward_authority);
+    registry.add_case("BaseEndToEnd", "capture_brakes_alignment_allows_escape", test_capture_brakes_alignment_but_allows_opposing_escape);
+    registry.add_case("BaseEndToEnd", "small_filtered_input_has_no_second_deadzone", test_small_filtered_input_moves_d_without_a_second_deadzone);
+    registry.add_case("BaseEndToEnd", "correction_release_retains_direction", test_correction_release_retains_d_without_reverse_authority);
+    registry.add_case("BaseEndToEnd", "fresh_target_has_one_plan_and_output_owner", test_fresh_target_has_one_current_plan_and_one_output_owner);
+    registry.add_case("BaseEndToEnd", "source_gap_does_not_project_observation", test_controller_tick_without_source_does_not_project_observation);
+    registry.add_case("BaseEndToEnd", "fresh_no_target_removes_authority", test_fresh_no_target_removes_authority_immediately);
+    registry.add_case("BaseEndToEnd", "non_cue_without_candidates_fails_closed", test_non_cue_target_without_candidates_fails_closed);
+    registry.add_case("BaseEndToEnd", "cue_continuation_is_same_generation_aim_only", test_cue_continuation_is_same_generation_aim_only_evidence);
+    registry.add_case("BaseEndToEnd", "boundary_handover_releases_then_captures", test_boundary_qualified_handover_releases_then_captures);
+    registry.add_case("BaseEndToEnd", "strong_outward_transfer_releases_old_target", test_strong_outward_transfer_releases_old_target_within_one_ads_window);
+    registry.add_case("BaseEndToEnd", "autofire_requires_fresh_authority", test_autofire_requires_fresh_observed_authority_and_preserves_physical_fire);
+    registry.add_case("BaseEndToEnd", "current_chain_is_finite_and_bounded", test_current_chain_outputs_remain_finite_and_bounded);
 }

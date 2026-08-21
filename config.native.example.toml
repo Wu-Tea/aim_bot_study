@@ -97,9 +97,12 @@ pulse_period_ms = 100
 [gamepad.ads]
 strength_scale = 1.54
 vertical_strength_scale = 1.26
-# Legacy ADS response-normalization radius; this does not limit target pickup.
 activation_radius_px = 135
+# Small/far-target pickup base. Target height widens this for close targets.
+pickup_base_radius_px = 150
+scope_ready_trigger = 0.80
 snap_duration_ms = 135
+# Independent limits for late-target wait and admitted Snap execution.
 max_acquisition_ms = 220
 # Once a target is admitted into ADS, configured ADS authority applies
 # immediately; cue/clarity/reliability are not additional gain stages.

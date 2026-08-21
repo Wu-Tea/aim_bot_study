@@ -97,18 +97,21 @@ class StartupScriptTests(unittest.TestCase):
                         Path(preview["config_path"]), PROJECT_ROOT / "config.toml"
                     )
                     self.assertEqual(
-                        Path(preview["model_path"]), PROJECT_ROOT / "models" / "best.engine"
+                        Path(preview["model_path"]),
+                        PROJECT_ROOT / "models" / "best_480x384.engine",
                     )
                     self.assertTrue(preview["model_exists"])
 
         self.assertEqual(state_path.exists(), state_existed_before)
 
-    def test_native_config_resolves_an_existing_480x416_engine(self):
+    def test_native_config_resolves_an_existing_480x384_engine(self):
         with (PROJECT_ROOT / "config.native.example.toml").open("rb") as stream:
             config = tomllib.load(stream)
 
         model_path = PROJECT_ROOT / config["runtime"]["vision"]["model_path"]
-        self.assertEqual(model_path, PROJECT_ROOT / "models" / "best.engine")
+        self.assertEqual(
+            model_path, PROJECT_ROOT / "models" / "best_480x384.engine"
+        )
         self.assertTrue(model_path.is_file())
 
     def test_root_batch_shims_are_removed_after_launcher_consolidation(self):
@@ -198,8 +201,9 @@ class StartupScriptTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stdout)
         self.assertIn("Launching Native C++ gamepad runtime.", completed.stdout)
         self.assertIn("cod_native_runtime.exe", completed.stdout)
-        self.assertIn("--config config.toml  --auto-fire-output RT", completed.stdout)
-        self.assertNotIn("--perf-log", completed.stdout)
+        self.assertIn("--config config.toml", completed.stdout)
+        self.assertIn("--perf-log", completed.stdout)
+        self.assertIn("--auto-fire-output RT", completed.stdout)
 
     def test_native_gamepad_runtime_has_no_keyboard_termination_shortcut(self):
         runtime_loop = (

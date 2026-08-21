@@ -1,14 +1,17 @@
 #include "viewport_controller.h"
+#include "test_support/native_test_registry.h"
 
-#include <cstdlib>
 #include <iostream>
+#include <stdexcept>
+#include <string>
 
 namespace {
 
 void require_at(bool condition, int line) {
     if (!condition) {
-        std::cerr << "viewport controller assertion failed at line " << line << '\n';
-        std::abort();
+        throw std::runtime_error(
+            "viewport controller assertion failed at line " +
+            std::to_string(line));
     }
 }
 
@@ -142,12 +145,11 @@ void test_target_growth_prediction_promotes_before_boundary() {
 
 }  // namespace
 
-int main() {
-    test_starts_precision_and_expands_after_two_distinct_frames();
-    test_severe_overflow_expands_immediately_to_rescue();
-    test_shrink_is_delayed_and_one_level_at_a_time();
-    test_no_target_returns_to_precision();
-    test_edge_loss_opens_rescue_viewport();
-    test_target_growth_prediction_promotes_before_boundary();
-    return 0;
+void register_viewport_controller_tests(native_test::Registry& registry) {
+    registry.add_case("FeatureDynamicViewport", "starts_precision_and_expands_after_two_frames", test_starts_precision_and_expands_after_two_distinct_frames);
+    registry.add_case("FeatureDynamicViewport", "severe_overflow_expands_to_rescue", test_severe_overflow_expands_immediately_to_rescue);
+    registry.add_case("FeatureDynamicViewport", "shrink_is_delayed_one_level_at_a_time", test_shrink_is_delayed_and_one_level_at_a_time);
+    registry.add_case("FeatureDynamicViewport", "no_target_returns_to_precision", test_no_target_returns_to_precision);
+    registry.add_case("FeatureDynamicViewport", "edge_loss_opens_rescue_viewport", test_edge_loss_opens_rescue_viewport);
+    registry.add_case("FeatureDynamicViewport", "growth_prediction_promotes_before_boundary", test_target_growth_prediction_promotes_before_boundary);
 }

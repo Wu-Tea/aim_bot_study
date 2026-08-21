@@ -1,18 +1,18 @@
 #include "person_detection_gesture.h"
+#include "test_support/native_test_registry.h"
 
 #include <chrono>
-#include <cstdlib>
 #include <iostream>
+#include <stdexcept>
+#include <string>
 
 namespace {
 
 #define REQUIRE(condition) require((condition), __LINE__)
 
 void require(bool condition, int line) {
-    if (!condition) {
-        std::cerr << "require failed at line " << line << std::endl;
-        std::abort();
-    }
+    if (!condition) throw std::runtime_error(
+        "person marker assertion failed at line " + std::to_string(line));
 }
 
 using Gesture = runtime_app::PersonDetectionGesture;
@@ -302,24 +302,22 @@ void test_reset_clears_pending_press_and_generation_memory() {
 
 }  // namespace
 
-int main() {
-    test_no_request_never_marks();
-    test_two_fresh_final_plans_emit_one_bounded_press();
-    test_crosshair_must_be_inside_r();
-    test_historical_plan_cannot_trigger_without_fresh_observation();
-    test_direct_person_and_current_enemy_cue_are_both_required();
-    test_selector_rejected_candidate_plan_never_marks();
-    test_cue_only_continuation_never_marks();
-    test_invalid_d_or_r_never_marks();
-    test_generation_change_restarts_two_frame_confirmation();
-    test_l3_and_lt_share_once_per_generation_budget();
-    test_l3_request_uses_configured_cooldown();
-    test_lt_bypasses_l3_cooldown_for_new_generation();
-    test_lt_request_uses_configured_cooldown();
-    test_same_generation_can_mark_in_a_new_vision_scope();
-    test_request_expires_but_does_not_reuse_old_evidence();
-    test_physical_dpad_up_always_passes_through();
-    test_reset_clears_pending_press_and_generation_memory();
-    std::cout << "person mark final-plan gate tests passed\n";
-    return 0;
+void register_person_detection_gesture_tests(native_test::Registry& registry) {
+    registry.add_case("FeatureAutoFireAndMarker", "no_request_never_marks", test_no_request_never_marks);
+    registry.add_case("FeatureAutoFireAndMarker", "two_fresh_plans_emit_one_press", test_two_fresh_final_plans_emit_one_bounded_press);
+    registry.add_case("FeatureAutoFireAndMarker", "crosshair_must_be_inside_region", test_crosshair_must_be_inside_r);
+    registry.add_case("FeatureAutoFireAndMarker", "historical_plan_cannot_trigger", test_historical_plan_cannot_trigger_without_fresh_observation);
+    registry.add_case("FeatureAutoFireAndMarker", "direct_person_and_enemy_cue_are_required", test_direct_person_and_current_enemy_cue_are_both_required);
+    registry.add_case("FeatureAutoFireAndMarker", "rejected_candidate_never_marks", test_selector_rejected_candidate_plan_never_marks);
+    registry.add_case("FeatureAutoFireAndMarker", "cue_only_continuation_never_marks", test_cue_only_continuation_never_marks);
+    registry.add_case("FeatureAutoFireAndMarker", "invalid_point_or_region_never_marks", test_invalid_d_or_r_never_marks);
+    registry.add_case("FeatureAutoFireAndMarker", "generation_change_restarts_confirmation", test_generation_change_restarts_two_frame_confirmation);
+    registry.add_case("FeatureAutoFireAndMarker", "l3_and_lt_share_generation_budget", test_l3_and_lt_share_once_per_generation_budget);
+    registry.add_case("FeatureAutoFireAndMarker", "l3_uses_configured_cooldown", test_l3_request_uses_configured_cooldown);
+    registry.add_case("FeatureAutoFireAndMarker", "lt_bypasses_l3_cooldown_for_new_generation", test_lt_bypasses_l3_cooldown_for_new_generation);
+    registry.add_case("FeatureAutoFireAndMarker", "lt_uses_configured_cooldown", test_lt_request_uses_configured_cooldown);
+    registry.add_case("FeatureAutoFireAndMarker", "same_generation_marks_in_new_scope", test_same_generation_can_mark_in_a_new_vision_scope);
+    registry.add_case("FeatureAutoFireAndMarker", "expired_request_does_not_reuse_evidence", test_request_expires_but_does_not_reuse_old_evidence);
+    registry.add_case("FeatureAutoFireAndMarker", "physical_dpad_up_passes_through", test_physical_dpad_up_always_passes_through);
+    registry.add_case("FeatureAutoFireAndMarker", "reset_clears_pending_and_generation", test_reset_clears_pending_press_and_generation_memory);
 }

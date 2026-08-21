@@ -1,16 +1,14 @@
 #include "target_coordinator.h"
+#include "test_support/native_test_registry.h"
 
 #include <cmath>
-#include <cstdlib>
 #include <iostream>
+#include <stdexcept>
 
 namespace {
 
 void require_true(bool value, const char* message) {
-    if (!value) {
-        std::cerr << "[TargetCoordinatorTests] FAIL: " << message << '\n';
-        std::abort();
-    }
+    if (!value) throw std::runtime_error(message);
 }
 
 bool near(float left, float right, float tolerance = 0.001f) {
@@ -223,7 +221,7 @@ void test_hard_source_age_gate_releases_without_gradual_decay() {
                  "fresh same-identity recovery must resume BodyLock without minting another snap");
 }
 
-void test_ceiling_stays_ads_but_center_cross_handoffs_once() {
+void test_deadlines_and_center_cross_handoff_once() {
     const auto intent = ads_intent();
 
     controller_native::TargetCoordinatorConfig ceiling_config;
@@ -238,13 +236,35 @@ void test_ceiling_stays_ads_but_center_cross_handoffs_once() {
     const auto after_ceiling = ceiling.update(
         selected_frame(401, 4.525, 280.0f), intent, 4.525);
     require_true(after_ceiling.mode ==
-                     pipeline_contract::ControlMode::AdsAcquire &&
-                     after_ceiling.ads_acquisition_active &&
+                     pipeline_contract::ControlMode::BodyLockFollow &&
+                     !after_ceiling.ads_acquisition_active &&
                      after_ceiling.acquisition_terminal_reason ==
-                         pipeline_contract::AdsDecisionReason::None &&
+                         pipeline_contract::AdsDecisionReason::AcquisitionCeiling &&
                      after_ceiling.ads_decision_reason ==
                          pipeline_contract::AdsDecisionReason::AcquisitionCeiling,
-                 "acquisition ceiling must be diagnostic, not BodyLock success");
+                 "acquisition deadline did not release Snap to BodyLock");
+
+    controller_native::TargetCoordinator waiting(ceiling_config);
+    waiting.begin_ads_epoch(42, 4.7);
+    const auto before_wait_deadline = waiting.update(
+        fresh_no_selection(420, 4.719), intent, 4.719);
+    const auto after_wait_deadline = waiting.update(
+        fresh_no_selection(421, 4.721), intent, 4.721);
+    const auto late_target = waiting.update(
+        selected_frame(422, 4.730, 280.0f), intent, 4.730);
+    require_true(before_wait_deadline.ads_acquisition_state ==
+                     pipeline_contract::AdsAcquisitionState::ArmedWaitingForTarget &&
+                     after_wait_deadline.mode ==
+                         pipeline_contract::ControlMode::Manual &&
+                     after_wait_deadline.ads_acquisition_state ==
+                         pipeline_contract::AdsAcquisitionState::Completed &&
+                     after_wait_deadline.acquisition_terminal_reason ==
+                         pipeline_contract::AdsDecisionReason::NoTarget &&
+                     late_target.mode ==
+                         pipeline_contract::ControlMode::BodyLockFollow &&
+                     !late_target.ads_plan_admitted &&
+                     !late_target.ads_acquisition_active,
+                 "expired target wait admitted a late ADS Snap");
 
     controller_native::TargetCoordinatorConfig cross_config;
     cross_config.settle_radius_px = 1.0f;
@@ -518,21 +538,19 @@ void test_firing_downward_input_moves_d_without_arming_handover() {
 
 }  // namespace
 
-int main() {
-    test_no_source_tick_reuses_immutable_source_plan();
-    test_fresh_no_selection_drops_generic_authority();
-    test_fresh_empty_frame_drops_target();
-    test_hard_source_age_gate_releases_without_gradual_decay();
-    test_ceiling_stays_ads_but_center_cross_handoffs_once();
-    test_velocity_updates_only_on_fresh_capture();
-    test_duplicate_and_stale_captures_cannot_replace_geometry();
-    test_same_generation_cue_is_only_continuity_path();
-    test_selector_generation_replacement_preserves_single_snap_token();
-    test_replacement_after_consumed_snap_stays_bodylock();
-    test_manual_correction_moves_d_only_inside_r();
-    test_cue_carries_corrected_d_instead_of_replacing_it();
-    test_target_replacement_resets_corrected_d();
-    test_firing_downward_input_moves_d_without_arming_handover();
-    std::cout << "[TargetCoordinatorTests] PASS\n";
-    return 0;
+void register_target_coordinator_tests(native_test::Registry& registry) {
+    registry.add_case("BaseBodyLock", "no_source_tick_reuses_immutable_plan", test_no_source_tick_reuses_immutable_source_plan);
+    registry.add_case("BaseBodyLock", "fresh_no_selection_drops_authority", test_fresh_no_selection_drops_generic_authority);
+    registry.add_case("BaseBodyLock", "fresh_empty_frame_drops_target", test_fresh_empty_frame_drops_target);
+    registry.add_case("BaseRuntimeFreshness", "hard_source_age_releases_without_decay", test_hard_source_age_gate_releases_without_gradual_decay);
+    registry.add_case("BaseAds", "deadlines_and_center_cross_handoff_once", test_deadlines_and_center_cross_handoff_once);
+    registry.add_case("BaseBodyLock", "velocity_updates_only_on_fresh_capture", test_velocity_updates_only_on_fresh_capture);
+    registry.add_case("BaseRuntimeFreshness", "duplicate_and_stale_captures_cannot_replace_geometry", test_duplicate_and_stale_captures_cannot_replace_geometry);
+    registry.add_case("BaseBodyLock", "same_generation_cue_is_only_continuity_path", test_same_generation_cue_is_only_continuity_path);
+    registry.add_case("BaseAds", "selector_replacement_preserves_single_snap", test_selector_generation_replacement_preserves_single_snap_token);
+    registry.add_case("BaseAds", "replacement_after_consumed_snap_stays_bodylock", test_replacement_after_consumed_snap_stays_bodylock);
+    registry.add_case("BaseBodyLock", "manual_correction_moves_d_only_inside_region", test_manual_correction_moves_d_only_inside_r);
+    registry.add_case("BaseBodyLock", "cue_carries_corrected_desired_point", test_cue_carries_corrected_d_instead_of_replacing_it);
+    registry.add_case("BaseBodyLock", "target_replacement_resets_corrected_point", test_target_replacement_resets_corrected_d);
+    registry.add_case("BaseBodyLock", "firing_downward_does_not_arm_handover", test_firing_downward_input_moves_d_without_arming_handover);
 }

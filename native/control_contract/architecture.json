@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "architecture_id": "native.direct_reducer_control",
-  "version": 4,
+  "version": 5,
   "status": "current",
   "description": "Single synchronous controller chain. Reducer snapshots are passed directly; no runtime event bus, shadow event buffer, or parallel phase cursor exists.",
   "runtime_entry": "runtime_app::RuntimeLoop::run_once",
@@ -66,7 +66,7 @@
     "BodylockTargetMotionObserver may read capture-aligned pre-recoil command history but cannot read or own recoil contribution.",
     "RecoilReducer cannot read target, desired point, manual input, AI proposal, or pre-recoil output.",
     "Input edges are emitted once per physical state transition, including LT changes while manual-fire scope remains active.",
-    "Only settled ADS acquisition may transition to BodyLock; watchdog and center crossing are diagnostic.",
+    "ADS owns one bounded Snap token per LT: target wait and admitted execution use independent deadline clocks; settled, center crossing, target loss, target switch, explicit exit, or execution deadline terminates that owner.",
     "Telemetry observes finalized state and cannot write control state."
   ],
   "forbidden_structures": [

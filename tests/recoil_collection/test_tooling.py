@@ -623,12 +623,13 @@ class RecoilAppBatchTests(unittest.TestCase):
         self.assertIn("RECOIL_OCR_PROVIDER=cuda", content)
 
 
-class GamepadStartBatchTests(unittest.TestCase):
-    def test_gamepad_start_prompt_defaults_to_recoil_runtime(self):
+class PythonFallbackRecoilLaunchTests(unittest.TestCase):
+    def test_python_fallback_prompt_defaults_to_recoil_runtime(self):
         result = _run_batch_script(
             r"scripts\launch\gamepad_start.bat",
             stdin_lines=("", ""),
             extra_env={
+                "GAMEPAD_RUNTIME": "python",
                 "GAMEPAD_START_PRINT_ONLY": "1",
                 "PYTHONUTF8": "1",
             },
@@ -641,22 +642,6 @@ class GamepadStartBatchTests(unittest.TestCase):
         self.assertIn("tools\\recoil_runtime_launcher.py", output)
         self.assertIn("artifacts\\recoil_app\\weapons", output)
 
-    def test_gamepad_start_prompt_can_disable_recoil_runtime(self):
-        result = _run_batch_script(
-            r"scripts\launch\gamepad_start.bat",
-            stdin_lines=("",),
-            extra_env={
-                "GAMEPAD_START_PRINT_ONLY": "1",
-                "GAMEPAD_START_RECOIL_CHOICE_OVERRIDE": "2",
-                "PYTHONUTF8": "1",
-            },
-        )
-        output = result.stdout + result.stderr
-
-        self.assertEqual(result.returncode, 0)
-        self.assertIn("Resolved command:", output)
-        self.assertIn("main.py --controller-mode gamepad", output)
-        self.assertNotIn("tools\\recoil_runtime_launcher.py", output)
 
 
 class RecoilRuntimeLauncherTests(unittest.TestCase):

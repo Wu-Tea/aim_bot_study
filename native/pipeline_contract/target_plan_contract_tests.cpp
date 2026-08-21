@@ -1,5 +1,6 @@
 #include "pipeline_contract/intent_state.h"
 #include "pipeline_contract/target_plan.h"
+#include "test_support/native_test_registry.h"
 #include "pipeline_contract/vision_observation.h"
 
 #include <cmath>
@@ -69,10 +70,9 @@ void test_desired_point_must_remain_inside_valid_region() {
 
 }  // namespace
 
-int main() {
-    test_defaults_are_safe();
-    test_plan_is_fixed_size_and_publishable();
-    test_plan_values_can_be_validated();
-    test_desired_point_must_remain_inside_valid_region();
-    return 0;
+void register_target_plan_contract_tests(native_test::Registry& registry) {
+    registry.add_case("BaseContracts", "target_plan_defaults_are_safe", test_defaults_are_safe);
+    registry.add_case("BaseContracts", "target_plan_is_fixed_size_and_publishable", test_plan_is_fixed_size_and_publishable);
+    registry.add_case("BaseContracts", "target_plan_values_can_be_validated", test_plan_values_can_be_validated);
+    registry.add_case("BaseContracts", "desired_point_must_remain_inside_valid_region", test_desired_point_must_remain_inside_valid_region);
 }

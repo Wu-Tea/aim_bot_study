@@ -1,12 +1,15 @@
 #include "telemetry_event_sampler.h"
+#include "test_support/native_test_registry.h"
 
-#include <cstdlib>
 #include <iostream>
+#include <stdexcept>
+#include <string>
 #include <unordered_set>
 
 namespace {
 void require(bool value, int line) {
-    if (!value) { std::cerr << "require failed at line " << line << '\n'; std::abort(); }
+    if (!value) throw std::runtime_error(
+        "event sampler assertion failed at line " + std::to_string(line));
 }
 #define REQUIRE(value) require((value), __LINE__)
 
@@ -65,9 +68,8 @@ void test_input_episode_marks_start_peak_reversal_and_end() {
 }
 }
 
-int main() {
-    test_event_flushes_unique_250hz_pre_window();
-    test_event_continues_at_250hz_for_post_window();
-    test_input_episode_marks_start_peak_reversal_and_end();
-    return 0;
+void register_telemetry_event_sampler_tests(native_test::Registry& registry) {
+    registry.add_case("FeatureTelemetryAndDiagnostics", "event_flushes_unique_pre_window", test_event_flushes_unique_250hz_pre_window);
+    registry.add_case("FeatureTelemetryAndDiagnostics", "event_continues_for_post_window", test_event_continues_at_250hz_for_post_window);
+    registry.add_case("FeatureTelemetryAndDiagnostics", "input_episode_marks_boundaries", test_input_episode_marks_start_peak_reversal_and_end);
 }

@@ -111,6 +111,17 @@ void AdsLifecycleReducer::wait_for_target() noexcept {
         pipeline_contract::AdsAcquisitionState::ArmedWaitingForTarget;
 }
 
+void AdsLifecycleReducer::expire_wait(
+    pipeline_contract::AdsDecisionReason reason,
+    double now_seconds) noexcept {
+    if (state_.target_admitted) return;
+    state_.state = pipeline_contract::AdsAcquisitionState::Completed;
+    state_.decision_reason = reason;
+    state_.terminal_reason = reason;
+    state_.acquisition_completed_seconds = now_seconds;
+    state_.snap_consumed = true;
+}
+
 void AdsLifecycleReducer::stay_nominal() noexcept {
     state_.state = pipeline_contract::AdsAcquisitionState::AcquiringNominal;
 }

@@ -1,5 +1,6 @@
 #include "recoil_compensation.h"
 #include "recoil_profile.h"
+#include "test_support/native_test_registry.h"
 
 #include "../recoil_native/recoil_visual_model.h"
 
@@ -524,25 +525,17 @@ void test_recoil_selection_logging_reports_fallback_and_profile_once() {
 
 }  // namespace
 
-int main() {
-    try {
-        test_recoil_visual_model_disabled_returns_zero_displacement();
-        test_recoil_profile_despike_repairs_playback_cache_only();
-        test_recoil_profile_selection_matches_recognizer_state_and_context();
-        test_recoil_input_contract_excludes_target_feedback_fields();
-        test_recoil_profile_playback_is_deterministic_without_controller_state();
-        test_recoil_fallback_feedback_is_constant_linear_down_pull();
-        test_recoil_fallback_is_clamped_to_product_range();
-        test_disabled_profile_playback_forces_default_down_pull();
-        test_recoil_timeline_outputs_delta_while_fire_active();
-        test_recoil_uncalibrated_y_uses_velocity_scaled_sample_delta();
-        test_recoil_profile_playback_uses_matching_calibration_when_available();
-        test_recoil_selection_logging_reports_fallback_and_profile_once();
-    } catch (const std::exception& exc) {
-        std::cerr << "[NativeRecoilContractTests] FAIL " << exc.what() << "\n";
-        return 1;
-    }
-
-    std::cout << "[NativeRecoilContractTests] PASS\n";
-    return 0;
+void register_recoil_contract_tests(native_test::Registry& registry) {
+    registry.add_case("FeatureRecoilAndWeapon", "visual_model_disabled_returns_zero", test_recoil_visual_model_disabled_returns_zero_displacement);
+    registry.add_case("FeatureRecoilAndWeapon", "profile_despike_repairs_playback_cache_only", test_recoil_profile_despike_repairs_playback_cache_only);
+    registry.add_case("FeatureRecoilAndWeapon", "profile_selection_matches_weapon_context", test_recoil_profile_selection_matches_recognizer_state_and_context);
+    registry.add_case("FeatureRecoilAndWeapon", "input_contract_excludes_target_feedback", test_recoil_input_contract_excludes_target_feedback_fields);
+    registry.add_case("FeatureRecoilAndWeapon", "profile_playback_is_deterministic", test_recoil_profile_playback_is_deterministic_without_controller_state);
+    registry.add_case("FeatureRecoilAndWeapon", "fallback_is_constant_linear_down_pull", test_recoil_fallback_feedback_is_constant_linear_down_pull);
+    registry.add_case("FeatureRecoilAndWeapon", "fallback_is_clamped_to_product_range", test_recoil_fallback_is_clamped_to_product_range);
+    registry.add_case("FeatureRecoilAndWeapon", "disabled_profile_forces_default_pull", test_disabled_profile_playback_forces_default_down_pull);
+    registry.add_case("FeatureRecoilAndWeapon", "timeline_outputs_delta_while_firing", test_recoil_timeline_outputs_delta_while_fire_active);
+    registry.add_case("FeatureRecoilAndWeapon", "uncalibrated_y_uses_velocity_scaled_delta", test_recoil_uncalibrated_y_uses_velocity_scaled_sample_delta);
+    registry.add_case("FeatureRecoilAndWeapon", "playback_uses_matching_calibration", test_recoil_profile_playback_uses_matching_calibration_when_available);
+    registry.add_case("FeatureRecoilAndWeapon", "selection_logging_reports_once", test_recoil_selection_logging_reports_fallback_and_profile_once);
 }

@@ -1,11 +1,14 @@
 #include "ads_transition_collector.h"
+#include "test_support/native_test_registry.h"
 
-#include <cstdlib>
 #include <iostream>
+#include <stdexcept>
+#include <string>
 
 namespace {
 void require(bool value, int line) {
-    if (!value) { std::cerr << "require failed at line " << line << '\n'; std::abort(); }
+    if (!value) throw std::runtime_error(
+        "ADS collector assertion failed at line " + std::to_string(line));
 }
 #define REQUIRE(value) require((value), __LINE__)
 
@@ -95,11 +98,10 @@ void test_motion_or_commands_use_conditional_model_class() {
 }
 }
 
-int main() {
-    test_one_hundred_clean_transitions_complete_once();
-    test_no_hipfire_target_is_invalid();
-    test_target_switch_is_invalid();
-    test_timeout_and_queue_overflow_are_explicit();
-    test_motion_or_commands_use_conditional_model_class();
-    return 0;
+void register_ads_transition_collector_tests(native_test::Registry& registry) {
+    registry.add_case("FeatureTelemetryAndDiagnostics", "clean_transitions_complete_once", test_one_hundred_clean_transitions_complete_once);
+    registry.add_case("FeatureTelemetryAndDiagnostics", "no_hipfire_target_is_invalid", test_no_hipfire_target_is_invalid);
+    registry.add_case("FeatureTelemetryAndDiagnostics", "target_switch_is_invalid", test_target_switch_is_invalid);
+    registry.add_case("FeatureTelemetryAndDiagnostics", "timeout_and_overflow_are_explicit", test_timeout_and_queue_overflow_are_explicit);
+    registry.add_case("FeatureTelemetryAndDiagnostics", "motion_or_commands_use_conditional_model", test_motion_or_commands_use_conditional_model_class);
 }

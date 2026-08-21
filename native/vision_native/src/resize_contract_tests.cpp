@@ -1,14 +1,14 @@
 #include "vision_native/resize_contract.h"
+#include "test_support/native_test_registry.h"
 
 #include <cmath>
-#include <cstdlib>
 #include <stdexcept>
 #include <string>
 
 namespace {
 
 void require(bool condition) {
-    if (!condition) std::abort();
+    if (!condition) throw std::runtime_error("resize contract assertion failed");
 }
 
 void test_production_contract() {
@@ -67,10 +67,9 @@ void test_anisotropic_resize_requires_explicit_opt_out() {
 
 }  // namespace
 
-int main() {
-    test_production_contract();
-    test_exploration_contracts_are_uniform();
-    test_engine_shape_mismatch_is_rejected();
-    test_anisotropic_resize_requires_explicit_opt_out();
-    return 0;
+void register_resize_contract_tests(native_test::Registry& registry) {
+    registry.add_case("BaseContracts", "production_resize_contract", test_production_contract);
+    registry.add_case("BaseContracts", "exploration_resize_is_uniform", test_exploration_contracts_are_uniform);
+    registry.add_case("BaseContracts", "engine_shape_mismatch_is_rejected", test_engine_shape_mismatch_is_rejected);
+    registry.add_case("BaseContracts", "anisotropic_resize_requires_opt_out", test_anisotropic_resize_requires_explicit_opt_out);
 }

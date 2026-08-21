@@ -1,12 +1,13 @@
 #include "runtime_telemetry.h"
+#include "test_support/native_test_registry.h"
 
 #include <algorithm>
-#include <cstdlib>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -14,8 +15,9 @@ namespace {
 
 void require(bool value, int line) {
     if (!value) {
-        std::cerr << "require failed at line " << line << '\n';
-        std::abort();
+        throw std::runtime_error(
+            "runtime telemetry assertion failed at line " +
+            std::to_string(line));
     }
 }
 #define REQUIRE(value) require((value), __LINE__)
@@ -276,13 +278,11 @@ void test_writer_failure_is_nonthrowing_and_counted_once() {
 
 } // namespace
 
-int main() {
-    test_disabled_mode_has_zero_side_effects();
-    test_bounded_queue_counts_exact_overflow_without_writer();
-    test_writer_serializes_current_controller_and_deduplicates_source_frames();
-    test_current_observation_and_delivery_include_session_provenance();
-    test_rotated_files_begin_with_session_metadata();
-    test_writer_failure_is_nonthrowing_and_counted_once();
-    std::cout << "runtime_telemetry_tests: PASS\n";
-    return 0;
+void register_runtime_telemetry_tests(native_test::Registry& registry) {
+    registry.add_case("FeatureTelemetryAndDiagnostics", "disabled_mode_has_zero_side_effects", test_disabled_mode_has_zero_side_effects);
+    registry.add_case("FeatureTelemetryAndDiagnostics", "bounded_queue_counts_exact_overflow", test_bounded_queue_counts_exact_overflow_without_writer);
+    registry.add_case("FeatureTelemetryAndDiagnostics", "writer_serializes_and_deduplicates_frames", test_writer_serializes_current_controller_and_deduplicates_source_frames);
+    registry.add_case("FeatureTelemetryAndDiagnostics", "observation_and_delivery_include_provenance", test_current_observation_and_delivery_include_session_provenance);
+    registry.add_case("FeatureTelemetryAndDiagnostics", "rotated_files_begin_with_session_metadata", test_rotated_files_begin_with_session_metadata);
+    registry.add_case("FeatureTelemetryAndDiagnostics", "writer_failure_is_nonthrowing_and_counted", test_writer_failure_is_nonthrowing_and_counted_once);
 }

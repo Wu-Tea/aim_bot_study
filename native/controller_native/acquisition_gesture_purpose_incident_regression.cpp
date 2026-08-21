@@ -1,4 +1,5 @@
 #include "incident_fixture_support.h"
+#include "test_support/native_test_registry.h"
 
 #include <cmath>
 #include <cstdint>
@@ -230,7 +231,7 @@ void write_report(const std::filesystem::path& output, const Report& report) {
 
 }  // namespace
 
-int main(int argc, char** argv) {
+int run_acquisition_gesture_purpose_incident_regression(int argc, char** argv) {
     try {
         const auto output =
             controller_native::incident_fixture::output_path_from_args(
@@ -249,4 +250,8 @@ int main(int argc, char** argv) {
         std::cerr << "incident fixture failed: " << error.what() << '\n';
         return 2;
     }
+}
+
+void register_acquisition_gesture_purpose_incident_regression(native_test::Registry& registry) {
+    registry.add_incident_entry("BaseAds", "incident_acquisition_gesture_purpose", "acquisition_gesture_purpose_incident.json", run_acquisition_gesture_purpose_incident_regression);
 }

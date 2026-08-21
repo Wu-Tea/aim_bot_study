@@ -1,9 +1,11 @@
 #include "vision_service.h"
+#include "test_support/native_test_registry.h"
 
 #include <chrono>
-#include <cstdlib>
 #include <iostream>
 #include <memory>
+#include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace {
@@ -11,10 +13,8 @@ namespace {
 #define REQUIRE(condition) require((condition), __LINE__)
 
 void require(bool condition, int line) {
-    if (!condition) {
-        std::cerr << "require failed at line " << line << std::endl;
-        std::abort();
-    }
+    if (!condition) throw std::runtime_error(
+        "vision service assertion failed at line " + std::to_string(line));
 }
 
 class FakeVisionPoller final : public runtime_app::IVisionServicePoller {
@@ -321,17 +321,16 @@ void test_one_hundred_aim_transitions_never_publish_pre_aim_authority() {
 
 } // namespace
 
-int main() {
-    test_keepwarm_polls_while_idle_and_active();
-    test_no_update_does_not_replay_last_snapshot();
-    test_aim_release_no_update_has_no_authority();
-    test_delivery_gate_accepts_each_recent_capture_once();
-    test_viewport_request_is_forwarded_before_poll();
-    test_no_keepwarm_does_not_poll_idle();
-    test_idle_keepwarm_does_not_publish_control_authority();
-    test_idle_keepwarm_frame_is_not_replayed_after_aim_transition();
-    test_next_poll_due_uses_capture_fps_interval();
-    test_aim_transition_bypasses_idle_deadline();
-    test_one_hundred_aim_transitions_never_publish_pre_aim_authority();
-    return 0;
+void register_vision_service_tests(native_test::Registry& registry) {
+    registry.add_case("BaseRuntimeFreshness", "keepwarm_polls_idle_and_active", test_keepwarm_polls_while_idle_and_active);
+    registry.add_case("BaseRuntimeFreshness", "no_update_does_not_replay_snapshot", test_no_update_does_not_replay_last_snapshot);
+    registry.add_case("BaseRuntimeFreshness", "aim_release_no_update_has_no_authority", test_aim_release_no_update_has_no_authority);
+    registry.add_case("BaseRuntimeFreshness", "delivery_gate_accepts_recent_capture_once", test_delivery_gate_accepts_each_recent_capture_once);
+    registry.add_case("BaseRuntimeFreshness", "viewport_request_forwarded_before_poll", test_viewport_request_is_forwarded_before_poll);
+    registry.add_case("BaseRuntimeFreshness", "disabled_keepwarm_does_not_poll_idle", test_no_keepwarm_does_not_poll_idle);
+    registry.add_case("BaseRuntimeFreshness", "idle_keepwarm_has_no_control_authority", test_idle_keepwarm_does_not_publish_control_authority);
+    registry.add_case("BaseRuntimeFreshness", "idle_frame_not_replayed_after_aim", test_idle_keepwarm_frame_is_not_replayed_after_aim_transition);
+    registry.add_case("BaseRuntimeFreshness", "next_poll_due_uses_capture_interval", test_next_poll_due_uses_capture_fps_interval);
+    registry.add_case("BaseRuntimeFreshness", "aim_transition_bypasses_idle_deadline", test_aim_transition_bypasses_idle_deadline);
+    registry.add_case("BaseRuntimeFreshness", "aim_transitions_never_publish_pre_aim_authority", test_one_hundred_aim_transitions_never_publish_pre_aim_authority);
 }

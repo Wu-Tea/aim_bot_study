@@ -1,4 +1,5 @@
 #include "target_state_reducers.h"
+#include "test_support/native_test_registry.h"
 
 #include <cmath>
 #include <stdexcept>
@@ -65,8 +66,7 @@ void test_geometry_refresh_preserves_user_corrected_d() {
 
 }  // namespace
 
-int main() {
-    test_geometry_and_desired_point_have_separate_state();
-    test_geometry_refresh_preserves_user_corrected_d();
-    return 0;
+void register_target_state_reducers_tests(native_test::Registry& registry) {
+    registry.add_case("BaseBodyLock", "geometry_and_desired_point_have_separate_state", test_geometry_and_desired_point_have_separate_state);
+    registry.add_case("BaseBodyLock", "geometry_refresh_preserves_user_corrected_d", test_geometry_refresh_preserves_user_corrected_d);
 }

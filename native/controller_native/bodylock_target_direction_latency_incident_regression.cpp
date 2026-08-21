@@ -1,5 +1,6 @@
 #include "assist_control_state_machine.h"
 #include "incident_fixture_support.h"
+#include "test_support/native_test_registry.h"
 
 #include <cmath>
 #include <iomanip>
@@ -106,7 +107,7 @@ Report run() {
 
 }  // namespace
 
-int main(int argc, char** argv) {
+int run_bodylock_target_direction_latency_incident_regression(int argc, char** argv) {
     try {
         const auto output_path =
             controller_native::incident_fixture::output_path_from_args(
@@ -163,4 +164,8 @@ int main(int argc, char** argv) {
                   << error.what() << '\n';
         return 3;
     }
+}
+
+void register_bodylock_target_direction_latency_incident_regression(native_test::Registry& registry) {
+    registry.add_incident_entry("BaseBodyLock", "incident_bodylock_target_direction_latency", "bodylock_target_direction_latency_incident.json", run_bodylock_target_direction_latency_incident_regression);
 }

@@ -456,12 +456,13 @@ const NativeControlTickPreparation& NativeGamepadController::begin_tick(
     const InputEdgeSnapshot input_edges = input_edge_reducer_.sample(
         physical,
         config_.rb_counts_as_aiming,
-        &next_command_sequence_);
+        &next_command_sequence_,
+        config_.ai_aim.ads_scope_ready_trigger);
     const AimScopeSnapshot scope = aim_scope_reducer_.reduce(
         input_edges,
         config_.auto_fire.manual_fire_activates_ai_aim);
-    physical_aiming_ = scope.physical_ads_active;
-    aiming_ = scope.assist_active;
+    physical_aiming_ = scope.physical_ads_ready;
+    aiming_ = scope.physical_ads_ready || scope.manual_fire_active;
     const auto reacquisition = ads_reacquisition_reducer_.on_input(
         scope,
         last_target_plan_,
@@ -551,9 +552,9 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
         ads_reacquisition_reducer_.on_fresh_observation(
             observations,
             last_target_plan_,
-            last_tick_preparation_.scope.physical_ads_active);
+            last_tick_preparation_.scope.physical_ads_ready);
     if (fresh_reacquisition.begin_ads_epoch &&
-        last_tick_preparation_.scope.physical_ads_active) {
+        last_tick_preparation_.scope.physical_ads_ready) {
         target_coordinator_.begin_ads_epoch(++ads_epoch_, now);
         assist_control_state_machine_.reset();
         auto_fire_gate_.reset_readiness();

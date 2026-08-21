@@ -1,17 +1,14 @@
 #include "bodylock_target_motion_observer.h"
+#include "test_support/native_test_registry.h"
 
 #include <cmath>
-#include <cstdlib>
 #include <iostream>
+#include <stdexcept>
 
 namespace {
 
 void require_true(bool value, const char* message) {
-    if (!value) {
-        std::cerr << "[BodylockTargetMotionObserverTests] FAIL: "
-                  << message << '\n';
-        std::abort();
-    }
+    if (!value) throw std::runtime_error(message);
 }
 
 bool near(float left, float right, float tolerance = 0.001f) {
@@ -125,12 +122,10 @@ void test_target_replacement_requires_new_aligned_evidence() {
 
 }  // namespace
 
-int main() {
-    test_camera_work_is_removed_from_stationary_target();
-    test_perfect_tracking_recovers_total_target_command_and_y_sign();
-    test_speed_step_reaches_total_demand_without_error_accumulation();
-    test_deceleration_discharges_faster_than_rise();
-    test_target_replacement_requires_new_aligned_evidence();
-    std::cout << "[BodylockTargetMotionObserverTests] PASS\n";
-    return 0;
+void register_bodylock_target_motion_observer_tests(native_test::Registry& registry) {
+    registry.add_case("BaseBodyLock", "camera_work_removed_from_stationary_target", test_camera_work_is_removed_from_stationary_target);
+    registry.add_case("BaseBodyLock", "perfect_tracking_recovers_total_command", test_perfect_tracking_recovers_total_target_command_and_y_sign);
+    registry.add_case("BaseBodyLock", "speed_step_reaches_total_without_error_debt", test_speed_step_reaches_total_demand_without_error_accumulation);
+    registry.add_case("BaseBodyLock", "deceleration_discharges_faster_than_rise", test_deceleration_discharges_faster_than_rise);
+    registry.add_case("BaseBodyLock", "replacement_requires_new_aligned_evidence", test_target_replacement_requires_new_aligned_evidence);
 }

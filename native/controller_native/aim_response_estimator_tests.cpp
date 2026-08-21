@@ -1,4 +1,5 @@
 #include "aim_response_estimator.h"
+#include "test_support/native_test_registry.h"
 
 #include <cmath>
 #include <cstdlib>
@@ -162,19 +163,11 @@ void test_reset_clears_learned_response() {
 
 }  // namespace
 
-int main() {
-    try {
-        test_fallback_and_convergence_across_response_scales();
-        test_persists_across_targets_and_adapts_to_slowdown();
-        test_keeps_free_and_slow_zone_response_separate();
-        test_slow_zone_weight_is_geometric_and_continuous();
-        test_rejects_ambiguous_and_invalid_intervals();
-        test_reset_clears_learned_response();
-        std::cout << "cod_native_aim_response_estimator_tests PASS\n";
-        return EXIT_SUCCESS;
-    } catch (const std::exception& error) {
-        std::cerr << "cod_native_aim_response_estimator_tests FAIL: "
-                  << error.what() << "\n";
-        return EXIT_FAILURE;
-    }
+void register_aim_response_estimator_tests(native_test::Registry& registry) {
+    registry.add_case("BaseBodyLock", "response_fallback_and_convergence", test_fallback_and_convergence_across_response_scales);
+    registry.add_case("BaseBodyLock", "response_persists_and_adapts_to_slowdown", test_persists_across_targets_and_adapts_to_slowdown);
+    registry.add_case("BaseBodyLock", "free_and_slow_zone_response_are_separate", test_keeps_free_and_slow_zone_response_separate);
+    registry.add_case("BaseBodyLock", "slow_zone_weight_is_continuous", test_slow_zone_weight_is_geometric_and_continuous);
+    registry.add_case("BaseBodyLock", "ambiguous_intervals_are_rejected", test_rejects_ambiguous_and_invalid_intervals);
+    registry.add_case("BaseBodyLock", "response_reset_clears_learning", test_reset_clears_learned_response);
 }

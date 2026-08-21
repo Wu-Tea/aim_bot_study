@@ -1,4 +1,5 @@
 #include "input_edge_reducer.h"
+#include "test_support/native_test_registry.h"
 
 #include <stdexcept>
 
@@ -43,7 +44,6 @@ void test_edges_are_typed_unique_facts() {
 
 }  // namespace
 
-int main() {
-    test_edges_are_typed_unique_facts();
-    return 0;
+void register_input_edge_reducer_tests(native_test::Registry& registry) {
+    registry.add_case("BaseRuntimeFreshness", "input_edges_are_typed_unique_facts", test_edges_are_typed_unique_facts);
 }

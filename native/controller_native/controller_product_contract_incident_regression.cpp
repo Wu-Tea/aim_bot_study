@@ -1,5 +1,6 @@
 #include "assist_control_state_machine.h"
 #include "incident_fixture_support.h"
+#include "test_support/native_test_registry.h"
 
 #include <cmath>
 #include <filesystem>
@@ -111,7 +112,7 @@ DesiredPointSample firing_down_sample() {
 
 }  // namespace
 
-int main(int argc, char** argv) {
+int run_controller_product_contract_incident_regression(int argc, char** argv) {
     try {
         const std::filesystem::path output_path =
             controller_native::incident_fixture::output_path_from_args(argc, argv);
@@ -191,4 +192,8 @@ int main(int argc, char** argv) {
         std::cerr << error.what() << '\n';
         return 2;
     }
+}
+
+void register_controller_product_contract_incident_regression(native_test::Registry& registry) {
+    registry.add_incident_entry("BaseEndToEnd", "incident_controller_product_contract", "controller_product_contract_incident.json", run_controller_product_contract_incident_regression);
 }

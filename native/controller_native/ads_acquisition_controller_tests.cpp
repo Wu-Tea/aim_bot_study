@@ -1,4 +1,5 @@
 #include "ads_acquisition_controller.h"
+#include "test_support/native_test_registry.h"
 
 #include <cmath>
 #include <fstream>
@@ -191,29 +192,15 @@ void test_reliability_does_not_create_a_second_ads_gain_policy() {
 
 }  // namespace
 
-int main(int argc, char** argv) {
-    try {
-        std::string vertical_report_path;
-        for (int index = 1; index + 1 < argc; ++index) {
-            if (std::string(argv[index]) == "--vertical-regression-output") {
-                vertical_report_path = argv[++index];
-            }
-        }
-        const auto vertical_metrics = measure_vertical_convergence();
-        write_vertical_convergence_report(vertical_report_path, vertical_metrics);
-        test_large_reliable_error_gets_strong_output();
-        test_drift_does_not_weaken_ads();
-        test_manual_input_does_not_create_a_second_authority_policy();
-        test_predicted_crossing_applies_terminal_brake();
-        test_screen_y_error_is_converted_to_stick_y_direction();
-        test_target_above_gets_bounded_directional_urgency();
-        test_learned_slow_camera_response_automatically_increases_ads_request();
-        test_shorter_arrival_horizon_increases_ads_positioning_speed();
-        test_close_visual_target_converges_faster_than_mid_far_target();
-        test_reliability_does_not_create_a_second_ads_gain_policy();
-        return 0;
-    } catch (const std::exception& error) {
-        std::cerr << "[AdsAcquisitionControllerTests] FAIL " << error.what() << '\n';
-        return 1;
-    }
+void register_ads_acquisition_controller_tests(native_test::Registry& registry) {
+    registry.add_case("BaseAds", "large_reliable_error_gets_strong_output", test_large_reliable_error_gets_strong_output);
+    registry.add_case("BaseAds", "drift_does_not_weaken_ads", test_drift_does_not_weaken_ads);
+    registry.add_case("BaseAds", "manual_input_does_not_create_second_ads_policy", test_manual_input_does_not_create_a_second_authority_policy);
+    registry.add_case("BaseAds", "predicted_crossing_applies_terminal_brake", test_predicted_crossing_applies_terminal_brake);
+    registry.add_case("BaseAds", "screen_y_error_converts_to_stick_direction", test_screen_y_error_is_converted_to_stick_y_direction);
+    registry.add_case("BaseAds", "target_above_gets_bounded_urgency", test_target_above_gets_bounded_directional_urgency);
+    registry.add_case("BaseAds", "learned_slow_response_increases_request", test_learned_slow_camera_response_automatically_increases_ads_request);
+    registry.add_case("BaseAds", "shorter_arrival_horizon_increases_speed", test_shorter_arrival_horizon_increases_ads_positioning_speed);
+    registry.add_case("BaseAds", "close_target_converges_faster_than_mid_far", test_close_visual_target_converges_faster_than_mid_far_target);
+    registry.add_case("BaseAds", "reliability_does_not_create_second_gain_policy", test_reliability_does_not_create_a_second_ads_gain_policy);
 }

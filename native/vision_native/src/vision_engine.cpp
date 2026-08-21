@@ -75,9 +75,10 @@ VisionEngine::VisionEngine(
     std::string color_readback_mode,
     int expected_tensor_width,
     int expected_tensor_height,
-    bool require_isotropic_resize)
+    bool require_isotropic_resize,
+    float target_pickup_base_radius_px)
     : capture_(width, height, adapter_index, output_index, timeout_ms),
-      selector_(width, height),
+      selector_(width, height, target_pickup_base_radius_px),
       host_color_frame_(std::make_unique<ColorReadbackBuffer>(color_readback_mode == "pinned")),
       width_(width),
       height_(height),

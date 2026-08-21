@@ -1,4 +1,5 @@
 #include "aim_dynamics_shaper.h"
+#include "test_support/native_test_registry.h"
 
 #include <cmath>
 #include <iostream>
@@ -217,26 +218,20 @@ void test_non_handoff_mode_change_keeps_normal_slew() {
 
 }  // namespace
 
-int main() {
-    try {
-        test_step_and_reversal_are_bounded();
-        test_reversal_discharges_before_opposite_rise();
-        test_plan_loss_decays_stale_force_without_reversal();
-        test_cue_continuation_never_ramps_without_observation();
-        test_cue_continuation_cannot_add_force_from_downstream_hint();
-        test_confirmed_wrong_axis_does_not_ramp_when_assist_is_weaker();
-        test_manual_ownership_is_not_duplicated_in_shaper();
-        test_shaper_never_amplifies_work_after_controller_reduces_request();
-        test_shaper_reversal_must_discharge_old_direction_first();
-        test_ads_to_bodylock_same_direction_does_not_carry_ads_force();
-        test_ads_to_bodylock_opposite_direction_does_not_carry_ads_force();
-        test_ads_to_bodylock_vector_handoff_respects_both_components();
-        test_target_change_does_not_smooth_old_target_force_into_new_target();
-        test_initial_target_acquisition_uses_normal_slew();
-        test_non_handoff_mode_change_keeps_normal_slew();
-        return 0;
-    } catch (const std::exception& error) {
-        std::cerr << "[AimDynamicsShaperTests] FAIL " << error.what() << '\n';
-        return 1;
-    }
+void register_aim_dynamics_shaper_tests(native_test::Registry& registry) {
+    registry.add_case("BaseBodyLock", "shaper_step_and_reversal_are_bounded", test_step_and_reversal_are_bounded);
+    registry.add_case("BaseBodyLock", "shaper_reversal_discharges_before_rise", test_reversal_discharges_before_opposite_rise);
+    registry.add_case("BaseBodyLock", "plan_loss_decays_without_reversal", test_plan_loss_decays_stale_force_without_reversal);
+    registry.add_case("BaseBodyLock", "cue_never_ramps_without_observation", test_cue_continuation_never_ramps_without_observation);
+    registry.add_case("BaseBodyLock", "cue_cannot_add_downstream_hint_force", test_cue_continuation_cannot_add_force_from_downstream_hint);
+    registry.add_case("BaseBodyLock", "wrong_axis_does_not_ramp_weaker_assist", test_confirmed_wrong_axis_does_not_ramp_when_assist_is_weaker);
+    registry.add_case("BaseBodyLock", "manual_ownership_not_duplicated_in_shaper", test_manual_ownership_is_not_duplicated_in_shaper);
+    registry.add_case("BaseBodyLock", "shaper_never_amplifies_reduced_request", test_shaper_never_amplifies_work_after_controller_reduces_request);
+    registry.add_case("BaseBodyLock", "shaper_reversal_discharges_old_direction", test_shaper_reversal_must_discharge_old_direction_first);
+    registry.add_case("BaseBodyLock", "ads_bodylock_same_direction_has_no_carry", test_ads_to_bodylock_same_direction_does_not_carry_ads_force);
+    registry.add_case("BaseBodyLock", "ads_bodylock_opposite_has_no_carry", test_ads_to_bodylock_opposite_direction_does_not_carry_ads_force);
+    registry.add_case("BaseBodyLock", "ads_bodylock_vector_handoff_respects_components", test_ads_to_bodylock_vector_handoff_respects_both_components);
+    registry.add_case("BaseBodyLock", "target_change_does_not_smooth_old_force", test_target_change_does_not_smooth_old_target_force_into_new_target);
+    registry.add_case("BaseBodyLock", "initial_acquisition_uses_normal_slew", test_initial_target_acquisition_uses_normal_slew);
+    registry.add_case("BaseBodyLock", "non_handoff_mode_change_uses_normal_slew", test_non_handoff_mode_change_keeps_normal_slew);
 }

@@ -1,21 +1,22 @@
 #include "controller_native/aim_scope_reducer.h"
 #include "runtime_timing.h"
+#include "test_support/native_test_registry.h"
 
 #include <chrono>
-#include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <stdexcept>
 #include <string>
 
 namespace {
 
+std::string g_manual_fire_report_path;
+
 #define REQUIRE(condition) require((condition), __LINE__)
 
 void require(bool condition, int line) {
-    if (!condition) {
-        std::cerr << "require failed at line " << line << std::endl;
-        std::abort();
-    }
+    if (!condition) throw std::runtime_error(
+        "runtime timing assertion failed at line " + std::to_string(line));
 }
 
 void test_short_deadline_uses_yield_margin_instead_of_one_ms_sleep() {
@@ -174,29 +175,27 @@ std::string report_path_from_args(int argc, char** argv) {
 
 } // namespace
 
-int main(int argc, char** argv) {
-    test_short_deadline_uses_yield_margin_instead_of_one_ms_sleep();
-    test_long_deadline_sleeps_only_until_precision_margin();
-    test_precise_sleep_accepts_custom_precision_margin();
-    test_vision_service_wait_margin_is_larger_than_controller_tick();
-    test_runtime_thread_priority_names_are_stable();
-    test_can_restore_current_thread_to_normal_priority();
-    test_timer_period_scope_records_requested_period();
-    test_deadline_state_realigns_without_replaying_missed_ticks();
-    test_deadline_state_has_no_accumulated_drift();
-
-    const auto measured = measure_manual_fire_target_present_incident();
-    write_manual_fire_target_present_report(report_path_from_args(argc, argv), measured);
-    const bool passed =
-        measured.fire_edge_observed &&
-        measured.target_present_scope_active &&
-        measured.target_present_scope_held &&
-        !measured.target_present_scope_released &&
-        measured.no_target_scope_active &&
-        !measured.disabled_scope_active;
-    if (!passed) {
-        std::cerr << "manual-fire target-present activation regression failed" << std::endl;
-        return 1;
-    }
-    return 0;
+void register_runtime_timing_tests(native_test::Registry& registry) {
+    registry.add_case("BaseRuntimeFreshness", "short_deadline_uses_yield_margin", test_short_deadline_uses_yield_margin_instead_of_one_ms_sleep);
+    registry.add_case("BaseRuntimeFreshness", "long_deadline_sleeps_to_precision_margin", test_long_deadline_sleeps_only_until_precision_margin);
+    registry.add_case("BaseRuntimeFreshness", "precise_sleep_accepts_custom_margin", test_precise_sleep_accepts_custom_precision_margin);
+    registry.add_case("BaseRuntimeFreshness", "vision_wait_margin_exceeds_controller_tick", test_vision_service_wait_margin_is_larger_than_controller_tick);
+    registry.add_case("BaseRuntimeFreshness", "runtime_thread_priority_names_are_stable", test_runtime_thread_priority_names_are_stable);
+    registry.add_case("BaseRuntimeFreshness", "thread_priority_restores_to_normal", test_can_restore_current_thread_to_normal_priority);
+    registry.add_case("BaseRuntimeFreshness", "timer_period_records_requested_period", test_timer_period_scope_records_requested_period);
+    registry.add_case("BaseRuntimeFreshness", "deadline_realigns_without_replay", test_deadline_state_realigns_without_replaying_missed_ticks);
+    registry.add_case("BaseRuntimeFreshness", "deadline_has_no_accumulated_drift", test_deadline_state_has_no_accumulated_drift);
+    registry.add_context_case("BaseRuntimeFreshness", "manual_fire_target_present_activation", [](const native_test::TestContext& context) {
+        const auto measured = measure_manual_fire_target_present_incident();
+        const std::string path = g_manual_fire_report_path.empty()
+            ? context.artifact_path("manual_fire_target_present_incident.json").string()
+            : g_manual_fire_report_path;
+        write_manual_fire_target_present_report(path, measured);
+        REQUIRE(measured.fire_edge_observed);
+        REQUIRE(measured.target_present_scope_active);
+        REQUIRE(measured.target_present_scope_held);
+        REQUIRE(!measured.target_present_scope_released);
+        REQUIRE(measured.no_target_scope_active);
+        REQUIRE(!measured.disabled_scope_active);
+    });
 }

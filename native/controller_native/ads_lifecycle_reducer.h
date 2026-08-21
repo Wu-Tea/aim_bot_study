@@ -46,6 +46,9 @@ public:
     void reject_source(pipeline_contract::AdsDecisionReason reason) noexcept;
     void mark_already_consumed() noexcept;
     void wait_for_target() noexcept;
+    void expire_wait(
+        pipeline_contract::AdsDecisionReason reason,
+        double now_seconds) noexcept;
     void stay_nominal() noexcept;
     void extend() noexcept;
     void complete(

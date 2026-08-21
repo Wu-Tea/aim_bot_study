@@ -1,17 +1,21 @@
 #include "ads_visual_transition.h"
+#include "test_support/native_test_registry.h"
 
 #include <cmath>
-#include <cstdlib>
 #include <iostream>
+#include <stdexcept>
+#include <string>
 
 namespace {
 void require(bool value, int line) {
-    if (!value) { std::cerr << "require failed at line " << line << '\n'; std::abort(); }
+    if (!value) throw std::runtime_error(
+        "ADS visual assertion failed at line " + std::to_string(line));
 }
 void require_near(float actual, float expected, float tolerance, int line) {
     if (std::fabs(actual - expected) > tolerance) {
-        std::cerr << "near failed at line " << line << " actual=" << actual << '\n';
-        std::abort();
+        throw std::runtime_error(
+            "ADS visual near assertion failed at line " +
+            std::to_string(line));
     }
 }
 #define REQUIRE(value) require((value), __LINE__)
@@ -73,10 +77,9 @@ void test_repeated_frame_is_ignored() {
 }
 }
 
-int main() {
-    test_clean_zoom_settles_from_visual_frames();
-    test_timer_ticks_without_new_frames_never_settle();
-    test_motion_residual_blocks_clean_settle();
-    test_repeated_frame_is_ignored();
-    return 0;
+void register_ads_visual_transition_tests(native_test::Registry& registry) {
+    registry.add_case("FeatureTelemetryAndDiagnostics", "clean_zoom_settles_from_visual_frames", test_clean_zoom_settles_from_visual_frames);
+    registry.add_case("FeatureTelemetryAndDiagnostics", "timer_ticks_without_frames_never_settle", test_timer_ticks_without_new_frames_never_settle);
+    registry.add_case("FeatureTelemetryAndDiagnostics", "motion_residual_blocks_clean_settle", test_motion_residual_blocks_clean_settle);
+    registry.add_case("FeatureTelemetryAndDiagnostics", "repeated_visual_frame_is_ignored", test_repeated_frame_is_ignored);
 }

@@ -1,7 +1,9 @@
 param(
     [switch]$BuildFirst,
     [switch]$SkipPythonTests,
-    [switch]$SkipPipelineContract
+    [switch]$SkipPipelineContract,
+    [string]$BuildDirectory = "native\vision_native\build",
+    [string]$RuntimeConfig = "config.toml"
 )
 
 $ErrorActionPreference = "Stop"
@@ -89,15 +91,17 @@ function Assert-DirectoryTextAbsent {
     param(
         [string[]]$Roots,
         [string[]]$Forbidden,
-        [string[]]$ExcludeNames,
         [string]$Context
     )
 
     foreach ($root in $Roots) {
-        Get-ChildItem -Path $root -Recurse -File -Include *.cpp,*.h | ForEach-Object {
-            if ($ExcludeNames -contains $_.Name) {
-                return
-            }
+        Get-ChildItem -Path $root -Recurse -File -Include *.cpp,*.h |
+            Where-Object {
+                $_.Name -notlike "*_tests.cpp" -and
+                $_.Name -notlike "*_incident_regression.cpp" -and
+                $_.Name -notlike "*_benchmark.cpp"
+            } |
+            ForEach-Object {
             $text = (Get-Content -Raw $_.FullName).ToLowerInvariant()
             foreach ($needle in $Forbidden) {
                 if ($text.Contains($needle.ToLowerInvariant())) {
@@ -110,12 +114,23 @@ function Assert-DirectoryTextAbsent {
 
 if ($BuildFirst) {
     Invoke-Checked "build native vision/runtime" {
-        powershell -ExecutionPolicy Bypass -File tools\build_native_vision.ps1
+        powershell -ExecutionPolicy Bypass -File tools\build_native_vision.ps1 `
+            -BuildDir $BuildDirectory
     }
 }
 
-$RuntimeExe = Join-Path $ProjectRoot "native\vision_native\build\Release\cod_native_runtime.exe"
-$ControllerTestsExe = Join-Path $ProjectRoot "native\vision_native\build\Release\cod_native_controller_tests.exe"
+$BuildPath = if ([System.IO.Path]::IsPathRooted($BuildDirectory)) {
+    [System.IO.Path]::GetFullPath($BuildDirectory)
+} else {
+    Join-Path $ProjectRoot $BuildDirectory
+}
+$RuntimeConfigPath = if ([System.IO.Path]::IsPathRooted($RuntimeConfig)) {
+    [System.IO.Path]::GetFullPath($RuntimeConfig)
+} else {
+    Join-Path $ProjectRoot $RuntimeConfig
+}
+$RuntimeExe = Join-Path $BuildPath "Release\cod_native_runtime.exe"
+$BaseTestsExe = Join-Path $BuildPath "Release\cod_native_base_tests.exe"
 $NativeLauncher = Join-Path $ProjectRoot "scripts\launch\gamepad_native_cpp_start.bat"
 $NativeRuntimeSourceRoots = @(
     (Join-Path $ProjectRoot "native\runtime_app"),
@@ -125,8 +140,8 @@ $NativeRuntimeSourceRoots = @(
 if (-not (Test-Path $RuntimeExe)) {
     throw "[NativeCppGamepadCheck] cod_native_runtime.exe not found. Run with -BuildFirst first."
 }
-if (-not (Test-Path $ControllerTestsExe)) {
-    throw "[NativeCppGamepadCheck] cod_native_controller_tests.exe not found. Run with -BuildFirst first."
+if (-not (Test-Path $BaseTestsExe)) {
+    throw "[NativeCppGamepadCheck] cod_native_base_tests.exe not found. Run with -BuildFirst first."
 }
 if (-not (Test-Path $NativeLauncher)) {
     throw "[NativeCppGamepadCheck] gamepad_native_cpp_start.bat not found."
@@ -134,20 +149,25 @@ if (-not (Test-Path $NativeLauncher)) {
 
 if (-not $SkipPipelineContract) {
     Invoke-Checked "native tracker/controller/recoil pipeline contract" {
-        powershell -ExecutionPolicy Bypass -File scripts\verify\native_pipeline_contract.ps1 -SkipBuild -SkipBenchmark
+        powershell -ExecutionPolicy Bypass `
+            -File scripts\verify\native_pipeline_contract.ps1 `
+            -BuildDir $BuildDirectory `
+            -RuntimeConfig $RuntimeConfigPath `
+            -SkipBuild `
+            -SkipBenchmark
     }
 }
 
-Invoke-Checked "native controller behavior tests" {
-    & $ControllerTestsExe
+Invoke-Checked "native BaseEndToEnd contract tests" {
+    & $BaseTestsExe --suite BaseEndToEnd
 }
 
 Invoke-Checked "native runtime one-tick smoke" {
-    & $RuntimeExe --config config.toml --perf-log --once
+    & $RuntimeExe --config $RuntimeConfigPath --perf-log --once
 }
 
 Invoke-Checked "native runtime short sustained smoke" {
-    & $RuntimeExe --config config.toml --perf-log --max-ticks 60
+    & $RuntimeExe --config $RuntimeConfigPath --perf-log --max-ticks 60
 }
 
 Invoke-Checked "runtime binary has no Python dependency" {
@@ -168,7 +188,6 @@ Invoke-Checked "native runtime source has no Python gameplay dependency" {
     Assert-DirectoryTextAbsent `
         -Roots $NativeRuntimeSourceRoots `
         -Forbidden @("python", "pybind", "main.py", "recoil_runtime_launcher.py", "--controller-mode gamepad") `
-        -ExcludeNames @("controller_behavior_tests.cpp") `
         -Context "native runtime source"
 }
 
@@ -177,10 +196,8 @@ Invoke-Checked "default gamepad launcher resolves native runtime" {
 }
 
 if (-not $SkipPythonTests) {
-    Invoke-Checked "Python scaffold/startup regression" {
+    Invoke-Checked "Python startup regression" {
         py -3 -B -m unittest `
-            tests.test_native_cpp_runtime_scaffold `
-            tests.test_native_controller_behavior `
             tests.test_startup_scripts `
             -v
     }

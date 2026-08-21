@@ -1,4 +1,5 @@
 #include "log_session_manager.h"
+#include "test_support/native_test_registry.h"
 
 #include <chrono>
 #include <filesystem>
@@ -100,13 +101,7 @@ void test_sessions_are_unique_and_share_child_paths() {
 
 }  // namespace
 
-int main() {
-    try {
-        test_fresh_manifest_and_markers_are_atomic_session_contract();
-        test_sessions_are_unique_and_share_child_paths();
-        return 0;
-    } catch (const std::exception& error) {
-        std::cerr << "[LogSessionManagerTests] FAIL " << error.what() << '\n';
-        return 1;
-    }
+void register_log_session_manager_tests(native_test::Registry& registry) {
+    registry.add_case("FeatureTelemetryAndDiagnostics", "manifest_and_markers_are_atomic", test_fresh_manifest_and_markers_are_atomic_session_contract);
+    registry.add_case("FeatureTelemetryAndDiagnostics", "sessions_are_unique_and_share_child_paths", test_sessions_are_unique_and_share_child_paths);
 }

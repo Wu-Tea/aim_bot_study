@@ -1,5 +1,6 @@
 #include "../runtime_app/vision_controller_adapter.h"
 #include "../vision_native/include/vision_native/vision_result_copy.h"
+#include "test_support/native_test_registry.h"
 
 #include <cmath>
 #include <stdexcept>
@@ -224,10 +225,9 @@ void test_selector_identity_survives_engine_result_copy_and_adapter() {
 
 }  // namespace
 
-int main() {
-    test_adapter_ignores_unupdated_frame();
-    test_adapter_maps_target_fields_and_timestamps();
-    test_adapter_forwards_valid_vision_candidates();
-    test_selector_identity_survives_engine_result_copy_and_adapter();
-    return 0;
+void register_controller_protocol_tests(native_test::Registry& registry) {
+    registry.add_case("BaseContracts", "adapter_ignores_unupdated_frame", test_adapter_ignores_unupdated_frame);
+    registry.add_case("BaseContracts", "adapter_maps_target_fields_and_timestamps", test_adapter_maps_target_fields_and_timestamps);
+    registry.add_case("BaseContracts", "adapter_forwards_valid_candidates", test_adapter_forwards_valid_vision_candidates);
+    registry.add_case("BaseContracts", "selector_identity_survives_result_copy", test_selector_identity_survives_engine_result_copy_and_adapter);
 }

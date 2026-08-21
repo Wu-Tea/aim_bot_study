@@ -1,19 +1,19 @@
 #include "telemetry_collectors.h"
+#include "test_support/native_test_registry.h"
 
-#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 
 namespace {
 
 void require(bool value, int line) {
-    if (!value) {
-        std::cerr << "require failed at line " << line << '\n';
-        std::abort();
-    }
+    if (!value) throw std::runtime_error(
+        "telemetry collector assertion failed at line " +
+        std::to_string(line));
 }
 #define REQUIRE(value) require((value), __LINE__)
 
@@ -301,10 +301,8 @@ void test_invalid_or_duplicate_committed_capture_is_not_persisted() {
 
 } // namespace
 
-int main() {
-    test_disabled_collectors_have_zero_side_effects();
-    test_collectors_emit_only_current_contract_records();
-    test_invalid_or_duplicate_committed_capture_is_not_persisted();
-    std::cout << "telemetry_collectors_tests: PASS\n";
-    return 0;
+void register_telemetry_collectors_tests(native_test::Registry& registry) {
+    registry.add_case("FeatureTelemetryAndDiagnostics", "disabled_collectors_have_zero_side_effects", test_disabled_collectors_have_zero_side_effects);
+    registry.add_case("FeatureTelemetryAndDiagnostics", "collectors_emit_only_current_contract_records", test_collectors_emit_only_current_contract_records);
+    registry.add_case("FeatureTelemetryAndDiagnostics", "invalid_or_duplicate_capture_not_persisted", test_invalid_or_duplicate_committed_capture_is_not_persisted);
 }

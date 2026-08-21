@@ -152,6 +152,7 @@ void dump_effective_config(const controller_native::RuntimeConfig& config) {
     line("runtime.vision.tensor_width", config.vision.tensor_width);
     line("runtime.vision.tensor_height", config.vision.tensor_height);
     line("runtime.vision.require_isotropic_resize", config.vision.require_isotropic_resize);
+    line("runtime.vision.dynamic_viewport_enabled", config.vision.dynamic_viewport_enabled);
     line("runtime.vision.capture_fps", config.vision.capture_fps);
     line("runtime.vision.idle_capture_fps", config.vision.idle_capture_fps);
     line("runtime.vision.keepwarm_when_idle", config.vision.keepwarm_when_idle);
@@ -189,6 +190,9 @@ void dump_effective_config(const controller_native::RuntimeConfig& config) {
         config.gamepad.tracker.max_observation_age_ms);
     line("gamepad.ads.strength_scale", config.ads.strength_scale);
     line("gamepad.ads.vertical_strength_scale", config.ads.vertical_strength_scale);
+    line("gamepad.ads.activation_radius_px", aim.ads_activation_radius_px);
+    line("gamepad.ads.pickup_base_radius_px", aim.ads_pickup_base_radius_px);
+    line("gamepad.ads.scope_ready_trigger", aim.ads_scope_ready_trigger);
     line("gamepad.ads.snap_duration_ms", aim.ads_snap_window_ms);
     line("gamepad.ads.max_acquisition_ms", aim.ads_max_acquisition_ms);
     line("gamepad.bodylock.strength", aim.body_lock_max_ai_force);
