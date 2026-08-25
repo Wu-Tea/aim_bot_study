@@ -74,11 +74,11 @@ GamepadRuntimeConfig incident_config(Mode mode) {
     config.ai_aim.body_lock_activation_box_px = 150.0f;
     if (mode == Mode::Ads) {
         config.ai_aim.ads_completion_fresh_frames = 1000;
-        config.ai_aim.ads_max_acquisition_ms = 500.0f;
+        config.ai_aim.ads_extension_budget_ms = 500.0f;
     } else {
         config.ai_aim.ads_completion_radius_px = 8.0f;
         config.ai_aim.ads_completion_fresh_frames = 1;
-        config.ai_aim.ads_max_acquisition_ms = 50.0f;
+        config.ai_aim.ads_extension_budget_ms = 50.0f;
     }
     return config;
 }

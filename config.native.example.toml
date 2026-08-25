@@ -102,8 +102,11 @@ activation_radius_px = 135
 pickup_base_radius_px = 150
 scope_ready_trigger = 0.80
 snap_duration_ms = 135
-# Independent limits for late-target wait and admitted Snap execution.
-max_acquisition_ms = 220
+# A held LT may wait this long for the first selected person.
+target_wait_ms = 220
+# Extra time after snap_duration_ms. Expiry changes ADS to manual-safe pursuit;
+# it is not a successful completion and does not hand off an unfinished target.
+extension_budget_ms = 220
 # Once a target is admitted into ADS, configured ADS authority applies
 # immediately; cue/clarity/reliability are not additional gain stages.
 

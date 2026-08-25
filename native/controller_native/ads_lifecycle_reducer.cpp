@@ -131,6 +131,15 @@ void AdsLifecycleReducer::extend() noexcept {
     state_.decision_reason = pipeline_contract::AdsDecisionReason::None;
 }
 
+void AdsLifecycleReducer::enter_manual_safe() noexcept {
+    state_.state =
+        pipeline_contract::AdsAcquisitionState::AcquiringManualSafe;
+    // This is a non-terminal phase reason. terminal_reason and completion
+    // timestamps remain untouched because a timer is not proof of arrival.
+    state_.decision_reason =
+        pipeline_contract::AdsDecisionReason::ExtensionBudgetElapsed;
+}
+
 void AdsLifecycleReducer::complete(
     pipeline_contract::AdsDecisionReason reason,
     double now_seconds) noexcept {

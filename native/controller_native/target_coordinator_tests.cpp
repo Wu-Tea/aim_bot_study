@@ -228,21 +228,24 @@ void test_deadlines_and_center_cross_handoff_once() {
     ceiling_config.settle_radius_px = 1.0f;
     ceiling_config.settle_frames = 100;
     ceiling_config.ads_nominal_acquisition_ms = 10.0f;
-    ceiling_config.ads_max_acquisition_ms = 20.0f;
+    ceiling_config.ads_target_wait_ms = 20.0f;
+    ceiling_config.ads_extension_budget_ms = 20.0f;
     controller_native::TargetCoordinator ceiling(ceiling_config);
     ceiling.begin_ads_epoch(40, 4.5);
     (void)ceiling.update(
         selected_frame(400, 4.5, 280.0f), intent, 4.5);
     const auto after_ceiling = ceiling.update(
-        selected_frame(401, 4.525, 280.0f), intent, 4.525);
+        selected_frame(401, 4.531, 280.0f), intent, 4.531);
     require_true(after_ceiling.mode ==
-                     pipeline_contract::ControlMode::BodyLockFollow &&
-                     !after_ceiling.ads_acquisition_active &&
+                     pipeline_contract::ControlMode::AdsAcquire &&
+                     after_ceiling.ads_acquisition_active &&
+                     after_ceiling.ads_acquisition_state ==
+                         pipeline_contract::AdsAcquisitionState::AcquiringManualSafe &&
                      after_ceiling.acquisition_terminal_reason ==
-                         pipeline_contract::AdsDecisionReason::AcquisitionCeiling &&
+                         pipeline_contract::AdsDecisionReason::None &&
                      after_ceiling.ads_decision_reason ==
-                         pipeline_contract::AdsDecisionReason::AcquisitionCeiling,
-                 "acquisition deadline did not release Snap to BodyLock");
+                         pipeline_contract::AdsDecisionReason::ExtensionBudgetElapsed,
+                 "extension budget must enter non-terminal manual-safe ADS");
 
     controller_native::TargetCoordinator waiting(ceiling_config);
     waiting.begin_ads_epoch(42, 4.7);
@@ -267,16 +270,16 @@ void test_deadlines_and_center_cross_handoff_once() {
                  "expired target wait admitted a late ADS Snap");
 
     controller_native::TargetCoordinatorConfig cross_config;
-    cross_config.settle_radius_px = 1.0f;
+    cross_config.settle_radius_px = 8.0f;
     cross_config.settle_frames = 100;
     cross_config.ads_nominal_acquisition_ms = 5.0f;
-    cross_config.ads_max_acquisition_ms = 100.0f;
+    cross_config.ads_extension_budget_ms = 100.0f;
     controller_native::TargetCoordinator cross(cross_config);
     cross.begin_ads_epoch(41, 4.6);
     (void)cross.update(
-        selected_frame(410, 4.6, 280.0f), intent, 4.6);
+        selected_frame(410, 4.6, 248.0f), intent, 4.6);
     const auto after_cross = cross.update(
-        selected_frame(411, 4.610, 200.0f), intent, 4.610);
+        selected_frame(411, 4.610, 234.0f), intent, 4.610);
     require_true(after_cross.mode ==
                      pipeline_contract::ControlMode::BodyLockFollow &&
                      !after_cross.ads_acquisition_active &&
@@ -286,7 +289,7 @@ void test_deadlines_and_center_cross_handoff_once() {
                          pipeline_contract::AdsDecisionReason::CenterCross,
                  "meaningful radial center cross must hand off to BodyLock");
     const auto held_lt_follow = cross.update(
-        selected_frame(412, 4.620, 205.0f), intent, 4.620);
+        selected_frame(412, 4.620, 235.0f), intent, 4.620);
     require_true(held_lt_follow.mode ==
                      pipeline_contract::ControlMode::BodyLockFollow &&
                      !held_lt_follow.ads_acquisition_active &&

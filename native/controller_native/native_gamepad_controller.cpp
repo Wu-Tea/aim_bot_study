@@ -105,7 +105,9 @@ TargetCoordinatorConfig coordinator_config(const GamepadRuntimeConfig& config) {
         std::max(1, config.ai_aim.ads_completion_fresh_frames));
     result.ads_nominal_acquisition_ms = std::max(
         1.0f, static_cast<float>(config.ai_aim.ads_snap_window_ms));
-    result.ads_max_acquisition_ms = std::max(0.0f, config.ai_aim.ads_max_acquisition_ms);
+    result.ads_target_wait_ms = std::max(
+        0.0f, config.ai_aim.ads_target_wait_ms);
+    result.ads_extension_budget_ms = std::max(0.0f, config.ai_aim.ads_extension_budget_ms);
     result.ads_activation_radius_px = std::max(
         result.settle_radius_px, config.ai_aim.ads_activation_radius_px);
     result.bodylock_activation_radius_px = std::max(
@@ -135,6 +137,7 @@ AdsAcquisitionControllerConfig ads_config(const GamepadRuntimeConfig& config) {
         static_cast<float>(config.ai_aim.ads_snap_window_ms) / 1000.0f,
         0.060f,
         0.350f);
+    result.response_curve = config.aim_response_curve;
     return result;
 }
 
@@ -870,6 +873,7 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
     control_input.now_seconds = now;
     control_input.target_error_px = plan.error_px;
     control_input.mode = plan.mode;
+    control_input.ads_acquisition_state = plan.ads_acquisition_state;
     control_input.visual_authority = plan.visual_authority;
     // Preserve the firing/downward invariant across short fire-pulse and
     // controller ordering gaps as well as on the physical fire tick.
@@ -885,6 +889,11 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
     control_input.manual_correction_x = plan.manual_correction_x;
     control_input.manual_correction_y = plan.manual_correction_y;
     control_input.manual_exit_requested = plan.manual_exit_requested;
+    control_input.carried_acquisition_gesture =
+        plan.mode == pipeline_contract::ControlMode::BodyLockFollow &&
+        plan.ads_acquisition_exists &&
+        intent.right_purpose ==
+            pipeline_contract::UserAimIntentPurpose::AcquireTarget;
     const auto decision = assist_control_state_machine_.update(control_input);
     pre_recoil_stick = {
         clamp_unit(decision.stick.x),
@@ -953,6 +962,14 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
         ? "handover_seek_manual"
         : assist_handover_braking
             ? "capture_ai_brake"
+        : plan.mode == pipeline_contract::ControlMode::AdsAcquire &&
+                plan.ads_acquisition_state ==
+                    pipeline_contract::AdsAcquisitionState::AcquiringManualSafe
+            ? "ads_manual_safe_pursuit"
+        : plan.mode == pipeline_contract::ControlMode::AdsAcquire &&
+                plan.ads_acquisition_state ==
+                    pipeline_contract::AdsAcquisitionState::AcquiringExtended
+            ? "ads_extension_cooperative"
         : target_manual_correction_x || target_manual_correction_y
             ? "target_valid_point_correction"
         : target_authoritative &&
@@ -1040,9 +1057,15 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
         (last_firing_activity_seconds_ >= 0.0 &&
          now - last_firing_activity_seconds_ <=
              kFiringDisturbanceWindowSeconds);
+    // Plant identification and both response-model solvers must share one
+    // command coordinate. The solvers operate before inverse curve mapping,
+    // so convert the delivered virtual stick back into normalized camera
+    // response before learning or subtracting aligned camera work.
+    const auto aim_response_command = forward_aim_response_curve(
+        pre_recoil_stick, config_.aim_response_curve);
     record_aim_response_command(
         now,
-        pre_recoil_stick,
+        aim_response_command,
         aim_response_manual_ambiguous);
     const auto recoil_contribution = recoil_.reduce(
         fire.should_fire || manual_fire_pressed(physical),

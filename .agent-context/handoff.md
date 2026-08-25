@@ -1,6 +1,6 @@
 # Agent Handoff
 
-Last updated: 2026-08-18
+Last updated: 2026-08-21
 Active scope: production native C++ controller; ADS remains user-accepted and
 the current candidate repairs sustained horizontal BodyLock demand.
 Staleness trigger: refresh after the next live BodyLock candidate session.
@@ -89,6 +89,7 @@ the same target generation before changing confidence or arbitration.
 - `decisions/DEC-2026-08-11-001-incident-first-gameplay-validation.md`
 - `decisions/DEC-2026-08-12-002-ads-full-authority-after-admission.md`
 - `decisions/DEC-2026-08-17-001-retire-direct-controller-experiment.md`
+- `decisions/DEC-2026-08-21-001-base-functional-test-layering.md`
 
 ## Files To Read First
 
@@ -113,7 +114,7 @@ the same target generation before changing confidence or arbitration.
 
 ## Notes
 
-The working tree may contain unrelated user changes; preserve them. Direct's
-useful result is its response-speed counterfactual, not its deleted production
-implementation. The BodyLock target-motion observer is a focused, incident-owned
-component, not permission to restore a general causal-motion stack.
+Preserve unrelated user changes, including work from the parallel session
+investigating the live BodyLock crosshair-sticking symptom; do not infer that
+session's conclusions. Direct remains diagnostic only, and the focused
+BodyLock observer does not restore a general causal-motion stack.

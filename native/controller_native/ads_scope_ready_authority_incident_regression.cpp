@@ -48,7 +48,7 @@ GamepadRuntimeConfig incident_config() {
     auto config = controller_native::incident_fixture::base_config(
         1000.0f, 120.0f);
     config.ai_aim.ads_completion_fresh_frames = 1000;
-    config.ai_aim.ads_max_acquisition_ms = 500.0f;
+    config.ai_aim.ads_extension_budget_ms = 500.0f;
     return config;
 }
 

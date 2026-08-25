@@ -66,7 +66,7 @@ GamepadRuntimeConfig incident_config() {
     // desired-point/manual authority and cue release, not ADS-to-BodyLock
     // ownership.
     config.ai_aim.ads_completion_fresh_frames = 1000;
-    config.ai_aim.ads_max_acquisition_ms = 500.0f;
+    config.ai_aim.ads_extension_budget_ms = 500.0f;
     config.ai_aim.cue_hold_body_lock_force_scale = 0.35f;
     return config;
 }

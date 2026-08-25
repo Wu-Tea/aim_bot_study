@@ -32,6 +32,7 @@ const char* ads_acquisition_state_name(std::uint8_t value) {
     case State::ArmedWaitingForTarget: return "armed_waiting_for_target";
     case State::AcquiringNominal: return "acquiring_nominal";
     case State::AcquiringExtended: return "acquiring_extended";
+    case State::AcquiringManualSafe: return "acquiring_manual_safe";
     case State::Completed: return "completed";
     case State::Consumed: return "consumed";
     case State::Idle:
@@ -54,6 +55,7 @@ const char* ads_decision_reason_name(std::uint8_t value) {
     case Reason::BodylockOutsideContinuation: return "bodylock_outside_continuation";
     case Reason::AdsAlreadyConsumed: return "ads_already_consumed";
     case Reason::AcquisitionCeiling: return "acquisition_ceiling";
+    case Reason::ExtensionBudgetElapsed: return "extension_budget_elapsed";
     case Reason::Settled: return "settled";
     case Reason::CenterCross: return "center_cross";
     case Reason::NonHelpfulOutput: return "non_helpful_output";

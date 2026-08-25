@@ -205,7 +205,7 @@ struct LifecycleReport {
     bool trigger_executed = false;
     bool settled_enters_bodylock = false;
     bool timeout_aborts_manual = false;
-    int ceiling_bodylock_transitions = 0;
+    int ceiling_manual_safe_transitions = 0;
     int center_cross_terminal_handoffs = 0;
     int same_acquisition_resume_count = 0;
     std::uint64_t before_gap_acquisition_id = 0;
@@ -220,34 +220,40 @@ LifecycleReport evaluate_lifecycle() {
     ceiling_config.settle_radius_px = 1.0f;
     ceiling_config.settle_frames = 100;
     ceiling_config.ads_nominal_acquisition_ms = 10.0f;
-    ceiling_config.ads_max_acquisition_ms = 20.0f;
+    ceiling_config.ads_extension_budget_ms = 20.0f;
     controller_native::TargetCoordinator ceiling(ceiling_config);
     ceiling.begin_ads_epoch(1, 20.0);
     const auto ceiling_start = ceiling.update(
         selected_frame(1, 20.0, 280.0f), intent, 20.0);
     const auto ceiling_end = ceiling.update(
-        selected_frame(2, 20.025, 280.0f), intent, 20.025);
-    report.ceiling_bodylock_transitions =
-        ceiling_end.mode == pipeline_contract::ControlMode::BodyLockFollow
+        selected_frame(2, 20.031, 280.0f), intent, 20.031);
+    report.ceiling_manual_safe_transitions =
+        ceiling_end.mode == pipeline_contract::ControlMode::AdsAcquire &&
+        ceiling_end.ads_acquisition_active &&
+        ceiling_end.ads_acquisition_state ==
+            pipeline_contract::AdsAcquisitionState::AcquiringManualSafe &&
+        ceiling_end.acquisition_terminal_reason ==
+            pipeline_contract::AdsDecisionReason::None
         ? 1 : 0;
 
     controller_native::TargetCoordinatorConfig cross_config;
-    cross_config.settle_radius_px = 1.0f;
+    cross_config.settle_radius_px = 8.0f;
     cross_config.settle_frames = 100;
     cross_config.ads_nominal_acquisition_ms = 5.0f;
-    cross_config.ads_max_acquisition_ms = 100.0f;
+    cross_config.ads_extension_budget_ms = 100.0f;
     controller_native::TargetCoordinator cross(cross_config);
     cross.begin_ads_epoch(2, 30.0);
     const auto cross_start = cross.update(
-        selected_frame(10, 30.0, 280.0f), intent, 30.0);
+        selected_frame(10, 30.0, 248.0f), intent, 30.0);
     const auto cross_end = cross.update(
-        selected_frame(11, 30.010, 200.0f), intent, 30.010);
+        selected_frame(11, 30.010, 234.0f), intent, 30.010);
     // The original incident treated every non-settled crossing as unsafe.
     // Later matched live evidence (2026-08-17) showed the strict radial
     // crossing predicate repeatedly retaining full ADS authority after the
     // reticle had already passed center. CenterCross is now a distinct valid
-    // terminal reason. The later 2026-08-21 product clarification also makes
-    // the acquisition deadline terminal rather than diagnostic-only.
+    // terminal reason. The later COD22 evidence separates that physical
+    // completion proof from the post-nominal extension budget: elapsed time
+    // alone now enters manual-safe pursuit and is never terminal.
     report.center_cross_terminal_handoffs =
         cross_end.mode == pipeline_contract::ControlMode::BodyLockFollow &&
         !cross_end.ads_acquisition_active &&
@@ -257,7 +263,7 @@ LifecycleReport evaluate_lifecycle() {
 
     controller_native::TargetCoordinatorConfig gap_config;
     gap_config.settle_frames = 100;
-    gap_config.ads_max_acquisition_ms = 500.0f;
+    gap_config.ads_extension_budget_ms = 500.0f;
     gap_config.max_observation_age_ms = 50.0f;
     controller_native::TargetCoordinator gap(gap_config);
     gap.begin_ads_epoch(3, 40.0);
@@ -299,7 +305,7 @@ LifecycleReport evaluate_lifecycle() {
     controller_native::TargetCoordinatorConfig settle_config;
     settle_config.settle_radius_px = 8.0f;
     settle_config.settle_frames = 2;
-    settle_config.ads_max_acquisition_ms = 500.0f;
+    settle_config.ads_extension_budget_ms = 500.0f;
     controller_native::TargetCoordinator settle(settle_config);
     settle.begin_ads_epoch(5, 60.0);
     (void)settle.update(selected_frame(40, 60.0, 240.0f), intent, 60.0);
@@ -341,7 +347,7 @@ IncidentReport evaluate_incident() {
     report.inactive_axis_brake_pass =
         report.arbitration.inactive_axis_output <= kTolerance;
     report.ceiling_pass =
-        report.lifecycle.ceiling_bodylock_transitions == 1;
+        report.lifecycle.ceiling_manual_safe_transitions == 1;
     report.center_cross_pass =
         report.lifecycle.center_cross_terminal_handoffs == 1;
     report.reacquire_pass =
@@ -412,8 +418,8 @@ void write_report(
            << report.arbitration.explicit_exit_passthrough << "\n"
            << "  },\n"
            << "  \"lifecycle\": {\n"
-           << "    \"ceiling_bodylock_transitions\": "
-           << report.lifecycle.ceiling_bodylock_transitions << ",\n"
+           << "    \"ceiling_manual_safe_transitions\": "
+           << report.lifecycle.ceiling_manual_safe_transitions << ",\n"
            << "    \"center_cross_terminal_handoffs\": "
            << report.lifecycle.center_cross_terminal_handoffs << ",\n"
            << "    \"same_acquisition_resume_count\": "
@@ -430,7 +436,7 @@ void write_report(
            << "  \"oracles\": [\n"
            << "    {\"id\":\"O1\",\"metric\":\"maximum_ads_target_error\",\"operator\":\"<=\",\"threshold\":" << kTolerance << ",\"observed\":" << report.arbitration.maximum_ads_target_error << ",\"pass\":" << report.target_first_pass << "},\n"
            << "    {\"id\":\"O2\",\"metric\":\"inactive_axis_output\",\"operator\":\"<=\",\"threshold\":" << kTolerance << ",\"observed\":" << report.arbitration.inactive_axis_output << ",\"pass\":" << report.inactive_axis_brake_pass << "},\n"
-           << "    {\"id\":\"O3\",\"metric\":\"ceiling_bodylock_transitions\",\"operator\":\"==\",\"threshold\":1,\"observed\":" << report.lifecycle.ceiling_bodylock_transitions << ",\"pass\":" << report.ceiling_pass << "},\n"
+           << "    {\"id\":\"O3\",\"metric\":\"ceiling_manual_safe_transitions\",\"operator\":\"==\",\"threshold\":1,\"observed\":" << report.lifecycle.ceiling_manual_safe_transitions << ",\"pass\":" << report.ceiling_pass << "},\n"
            << "    {\"id\":\"O4\",\"metric\":\"center_cross_terminal_handoffs\",\"operator\":\"==\",\"threshold\":1,\"observed\":" << report.lifecycle.center_cross_terminal_handoffs << ",\"pass\":" << report.center_cross_pass << "},\n"
            << "    {\"id\":\"O5\",\"metric\":\"same_acquisition_resume_count\",\"operator\":\"==\",\"threshold\":1,\"observed\":" << report.lifecycle.same_acquisition_resume_count << ",\"pass\":" << report.reacquire_pass << "}\n"
            << "  ],\n"
@@ -455,8 +461,8 @@ int run_ads_snap_core_contract_incident_regression(int argc, char** argv) {
                   << report.arbitration.maximum_ads_target_error
                   << " inactive_axis="
                   << report.arbitration.inactive_axis_output
-                  << " ceiling_to_bodylock="
-                  << report.lifecycle.ceiling_bodylock_transitions
+                  << " ceiling_to_manual_safe="
+                  << report.lifecycle.ceiling_manual_safe_transitions
                   << " cross_terminal_handoff="
                   << report.lifecycle.center_cross_terminal_handoffs
                   << " reacquired="

@@ -24,6 +24,13 @@ void test_ads_lifecycle_is_mutually_exclusive() {
     require(reducer.snapshot().state ==
                 pipeline_contract::AdsAcquisitionState::AcquiringExtended,
             "nominal acquisition did not extend");
+    reducer.enter_manual_safe();
+    require(reducer.snapshot().state ==
+                pipeline_contract::AdsAcquisitionState::AcquiringManualSafe &&
+                !reducer.snapshot().snap_consumed &&
+                reducer.snapshot().terminal_reason ==
+                    pipeline_contract::AdsDecisionReason::None,
+            "manual-safe pursuit must remain a non-terminal acquisition");
     reducer.complete(
         pipeline_contract::AdsDecisionReason::Settled,
         10.12);

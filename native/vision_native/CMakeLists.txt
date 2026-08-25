@@ -295,6 +295,8 @@ add_executable(cod_native_base_tests
     ../controller_native/ads_snap_deadline_release_incident_regression.cpp
     ../controller_native/acquisition_gesture_purpose_incident_regression.cpp
     ../controller_native/ads_center_cross_late_exit_incident_regression.cpp
+    ../controller_native/ads_completion_geometry_continuity_incident_regression.cpp
+    ../controller_native/ads_incomplete_acquisition_safety_incident_regression.cpp
     ../controller_native/ads_close_acquisition_pacing_incident_regression.cpp
     ../controller_native/ads_initial_scope_existing_target_incident_regression.cpp
     ../controller_native/ads_scope_ready_authority_incident_regression.cpp
@@ -302,6 +304,7 @@ add_executable(cod_native_base_tests
     ../controller_native/ads_snap_core_contract_incident_regression.cpp
     ../controller_native/bodylock_high_frequency_incident_regression.cpp
     ../controller_native/bodylock_position_motion_conflict_incident_regression.cpp
+    ../controller_native/bodylock_response_coordinate_incident_regression.cpp
     ../controller_native/bodylock_target_direction_latency_incident_regression.cpp
     ../controller_native/bodylock_target_motion_total_incident_regression.cpp
     ../controller_native/close_cue_hold_authority_incident_regression.cpp

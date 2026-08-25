@@ -194,7 +194,8 @@ void dump_effective_config(const controller_native::RuntimeConfig& config) {
     line("gamepad.ads.pickup_base_radius_px", aim.ads_pickup_base_radius_px);
     line("gamepad.ads.scope_ready_trigger", aim.ads_scope_ready_trigger);
     line("gamepad.ads.snap_duration_ms", aim.ads_snap_window_ms);
-    line("gamepad.ads.max_acquisition_ms", aim.ads_max_acquisition_ms);
+    line("gamepad.ads.target_wait_ms", aim.ads_target_wait_ms);
+    line("gamepad.ads.extension_budget_ms", aim.ads_extension_budget_ms);
     line("gamepad.bodylock.strength", aim.body_lock_max_ai_force);
     line("gamepad.bodylock.vertical_strength", aim.body_lock_max_ai_force_y);
     line("gamepad.bodylock.activation_range_px", aim.body_lock_activation_box_px);

@@ -81,7 +81,8 @@ controller_native::TargetCoordinatorConfig deadline_config() {
     config.settle_radius_px = 1.0f;
     config.settle_frames = 100;
     config.ads_nominal_acquisition_ms = 135.0f;
-    config.ads_max_acquisition_ms = kWaitDeadlineMs;
+    config.ads_target_wait_ms = kWaitDeadlineMs;
+    config.ads_extension_budget_ms = kWaitDeadlineMs;
     return config;
 }
 
@@ -115,9 +116,9 @@ IncidentReport evaluate_incident() {
     IncidentReport report;
     const auto intent = ads_intent();
 
-    // Primary incident: a selected target is admitted immediately, never
-    // settles, and remains on the same side of center. At 219 ms the snap is
-    // still valid; at 221 ms its execution owner must release to BodyLock.
+    // A selected target is admitted immediately, never settles, and remains
+    // on the same side of center. 220 ms is the extra post-nominal budget, not
+    // the total execution deadline, so both boundary samples stay in ADS.
     controller_native::TargetCoordinator active(deadline_config());
     active.begin_ads_epoch(1, 10.0);
     const auto admitted = active.update(
@@ -160,6 +161,7 @@ IncidentReport evaluate_incident() {
         input.now_seconds = now_seconds;
         input.target_error_px = plan.error_px;
         input.mode = plan.mode;
+        input.ads_acquisition_state = plan.ads_acquisition_state;
         input.visual_authority = 1.0f;
         input.manual_stick = report.recovery_manual_input;
         input.centered_manual_stick = report.recovery_manual_input;
@@ -184,14 +186,15 @@ IncidentReport evaluate_incident() {
         report.recovery_output_after.y) / manual_magnitude;
     report.recovery_trigger_executed =
         active_before.mode == pipeline_contract::ControlMode::AdsAcquire &&
-        active_after.mode == pipeline_contract::ControlMode::BodyLockFollow &&
+        active_after.mode == pipeline_contract::ControlMode::AdsAcquire &&
         manual_magnitude > 0.9f;
     report.manual_suppressed_before_deadline =
         report.manual_retention_before_deadline <= 0.05f;
     report.manual_restored_after_deadline =
+        report.manual_retention_before_deadline >= 0.95f &&
         report.manual_retention_after_deadline >= 0.95f &&
-        before_authority.manual_passthrough_x == false &&
-        before_authority.manual_passthrough_y == false &&
+        before_authority.manual_passthrough_x &&
+        before_authority.manual_passthrough_y &&
         after_authority.manual_passthrough_x &&
         after_authority.manual_passthrough_y &&
         report.recovery_output_after.x * report.recovery_manual_input.x > 0.0f &&
@@ -285,13 +288,13 @@ IncidentReport evaluate_incident() {
         report.epoch_elapsed_after_ms >= 220.0f;
     report.counterfactuals_valid =
         report.owner_active_before_execution_deadline &&
-        report.manual_suppressed_before_deadline &&
+        !report.manual_suppressed_before_deadline &&
         report.in_window_ads_admissions == 1 &&
         report.settled_before_deadline_handoffs == 1;
     report.overall_pass =
         report.trigger_executed && report.counterfactuals_valid &&
-        !report.owner_active_after_execution_deadline &&
-        report.execution_deadline_handoff &&
+        report.owner_active_after_execution_deadline &&
+        !report.execution_deadline_handoff &&
         report.wait_deadline_released &&
         report.late_after_expiry_ads_admissions == 0 &&
         report.manual_restored_after_deadline;
@@ -318,7 +321,7 @@ void write_report(
            << "{\n"
            << "  \"schema_version\": 2,\n"
            << "  \"incident_id\": \"" << kIncidentId << "\",\n"
-           << "  \"symptom\": \"ADS Snap remains the active owner after its 220 ms deadline, suppressing strong two-axis player input, and an expired no-target wait may still admit a late snap\",\n"
+           << "  \"symptom\": \"the same 220 ms value was incorrectly reused as total ADS execution time instead of an extra post-nominal budget\",\n"
            << "  \"covariates\": {\n"
            << "    \"freshness\": \"fresh selector frames at 219 ms and 221 ms boundaries\",\n"
            << "    \"target_generation\": " << kSelectorGeneration << ",\n"
@@ -376,13 +379,13 @@ void write_report(
            << "  },\n"
            << "  \"oracles\": [\n"
            << "    {\"id\":\"O1\",\"metric\":\"owner_active_before_execution_deadline\",\"operator\":\"==\",\"threshold\":1,\"observed\":" << (report.owner_active_before_execution_deadline ? 1 : 0) << ",\"pass\":" << report.owner_active_before_execution_deadline << "},\n"
-           << "    {\"id\":\"O2\",\"metric\":\"owner_active_after_execution_deadline\",\"operator\":\"==\",\"threshold\":0,\"observed\":" << (report.owner_active_after_execution_deadline ? 1 : 0) << ",\"pass\":" << !report.owner_active_after_execution_deadline << "},\n"
-           << "    {\"id\":\"O3\",\"metric\":\"execution_deadline_handoff\",\"operator\":\"==\",\"threshold\":1,\"observed\":" << (report.execution_deadline_handoff ? 1 : 0) << ",\"pass\":" << report.execution_deadline_handoff << "},\n"
+           << "    {\"id\":\"O2\",\"metric\":\"owner_active_at_221ms\",\"operator\":\"==\",\"threshold\":1,\"observed\":" << (report.owner_active_after_execution_deadline ? 1 : 0) << ",\"pass\":" << report.owner_active_after_execution_deadline << "},\n"
+           << "    {\"id\":\"O3\",\"metric\":\"timer_did_not_handoff\",\"operator\":\"==\",\"threshold\":1,\"observed\":" << (!report.execution_deadline_handoff ? 1 : 0) << ",\"pass\":" << !report.execution_deadline_handoff << "},\n"
            << "    {\"id\":\"O4\",\"metric\":\"wait_deadline_released\",\"operator\":\"==\",\"threshold\":1,\"observed\":" << (report.wait_deadline_released ? 1 : 0) << ",\"pass\":" << report.wait_deadline_released << "},\n"
            << "    {\"id\":\"O5\",\"metric\":\"late_after_expiry_ads_admissions\",\"operator\":\"==\",\"threshold\":0,\"observed\":" << report.late_after_expiry_ads_admissions << ",\"pass\":" << (report.late_after_expiry_ads_admissions == 0) << "},\n"
            << "    {\"id\":\"O6\",\"metric\":\"in_window_ads_admissions\",\"operator\":\"==\",\"threshold\":1,\"observed\":" << report.in_window_ads_admissions << ",\"pass\":" << (report.in_window_ads_admissions == 1) << "},\n"
            << "    {\"id\":\"O7\",\"metric\":\"settled_before_deadline_handoffs\",\"operator\":\"==\",\"threshold\":1,\"observed\":" << report.settled_before_deadline_handoffs << ",\"pass\":" << (report.settled_before_deadline_handoffs == 1) << "},\n"
-           << "    {\"id\":\"O8\",\"metric\":\"manual_retention_before_deadline\",\"operator\":\"<=\",\"threshold\":0.05,\"observed\":" << report.manual_retention_before_deadline << ",\"pass\":" << report.manual_suppressed_before_deadline << "},\n"
+           << "    {\"id\":\"O8\",\"metric\":\"manual_retention_in_extension\",\"operator\":\">=\",\"threshold\":0.95,\"observed\":" << report.manual_retention_before_deadline << ",\"pass\":" << !report.manual_suppressed_before_deadline << "},\n"
            << "    {\"id\":\"O9\",\"metric\":\"manual_retention_after_deadline\",\"operator\":\">=\",\"threshold\":0.95,\"observed\":" << report.manual_retention_after_deadline << ",\"pass\":" << report.manual_restored_after_deadline << "}\n"
            << "  ],\n"
            << "  \"overall_pass\": " << report.overall_pass << "\n"

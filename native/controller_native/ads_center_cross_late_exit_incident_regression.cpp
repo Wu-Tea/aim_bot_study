@@ -68,10 +68,10 @@ controller_native::TargetCoordinatorConfig incident_config() {
     controller_native::TargetCoordinatorConfig config{};
     // Settling and watchdog completion are deliberately unavailable. The
     // fixture isolates the already-detected meaningful radial center cross.
-    config.settle_radius_px = 1.0f;
+    config.settle_radius_px = 8.0f;
     config.settle_frames = 1000;
     config.ads_nominal_acquisition_ms = 500.0f;
-    config.ads_max_acquisition_ms = 1000.0f;
+    config.ads_extension_budget_ms = 1000.0f;
     config.visual_authority_enabled = false;
     return config;
 }
@@ -158,10 +158,10 @@ struct IncidentReport {
 
 IncidentReport evaluate() {
     IncidentReport report{
-        run_case("horizontal_cross", {40.0f, 0.0f}, {-30.0f, 0.0f}, 1),
-        run_case("vertical_cross", {0.0f, 40.0f}, {0.0f, -30.0f}, 2),
-        run_case("same_direction", {40.0f, 0.0f}, {25.0f, 0.0f}, 3),
-        run_case("orthogonal_motion", {40.0f, 40.0f}, {-5.0f, 40.0f}, 4),
+        run_case("horizontal_cross", {8.0f, 0.0f}, {-6.0f, 0.0f}, 1),
+        run_case("vertical_cross", {0.0f, 8.0f}, {0.0f, -6.0f}, 2),
+        run_case("same_direction", {12.0f, 0.0f}, {7.0f, 0.0f}, 3),
+        run_case("orthogonal_motion", {8.0f, 8.0f}, {-5.0f, 8.0f}, 4),
         run_case("deadzone_flip", {6.0f, 0.0f}, {-1.0f, 0.0f}, 5),
     };
 

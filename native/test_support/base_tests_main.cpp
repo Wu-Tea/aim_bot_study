@@ -31,6 +31,8 @@ void register_runtime_timing_tests(native_test::Registry&);
 void register_ads_snap_deadline_release_incident(native_test::Registry&);
 void register_acquisition_gesture_purpose_incident_regression(native_test::Registry&);
 void register_ads_center_cross_late_exit_incident_regression(native_test::Registry&);
+void register_ads_completion_geometry_continuity_incident_regression(native_test::Registry&);
+void register_ads_incomplete_acquisition_safety_incident_regression(native_test::Registry&);
 void register_ads_close_acquisition_pacing_incident_regression(native_test::Registry&);
 void register_ads_initial_scope_existing_target_incident_regression(native_test::Registry&);
 void register_ads_scope_ready_authority_incident_regression(native_test::Registry&);
@@ -38,6 +40,7 @@ void register_ads_single_press_token_incident_regression(native_test::Registry&)
 void register_ads_snap_core_contract_incident_regression(native_test::Registry&);
 void register_bodylock_high_frequency_incident_regression(native_test::Registry&);
 void register_bodylock_position_motion_conflict_incident_regression(native_test::Registry&);
+void register_bodylock_response_coordinate_incident_regression(native_test::Registry&);
 void register_bodylock_target_direction_latency_incident_regression(native_test::Registry&);
 void register_bodylock_target_motion_total_incident_regression(native_test::Registry&);
 void register_close_cue_hold_authority_incident_regression(native_test::Registry&);
@@ -82,6 +85,8 @@ int main(int argc, char** argv) {
     register_ads_snap_deadline_release_incident(registry);
     register_acquisition_gesture_purpose_incident_regression(registry);
     register_ads_center_cross_late_exit_incident_regression(registry);
+    register_ads_completion_geometry_continuity_incident_regression(registry);
+    register_ads_incomplete_acquisition_safety_incident_regression(registry);
     register_ads_close_acquisition_pacing_incident_regression(registry);
     register_ads_initial_scope_existing_target_incident_regression(registry);
     register_ads_scope_ready_authority_incident_regression(registry);
@@ -89,6 +94,7 @@ int main(int argc, char** argv) {
     register_ads_snap_core_contract_incident_regression(registry);
     register_bodylock_high_frequency_incident_regression(registry);
     register_bodylock_position_motion_conflict_incident_regression(registry);
+    register_bodylock_response_coordinate_incident_regression(registry);
     register_bodylock_target_direction_latency_incident_regression(registry);
     register_bodylock_target_motion_total_incident_regression(registry);
     register_close_cue_hold_authority_incident_regression(registry);

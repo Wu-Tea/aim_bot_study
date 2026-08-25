@@ -102,7 +102,7 @@ GamepadRuntimeConfig incident_config() {
         135.0f);
     config.ai_aim.ads_snap_window_ms = 135;
     config.ai_aim.ads_completion_fresh_frames = 1000;
-    config.ai_aim.ads_max_acquisition_ms = 500.0f;
+    config.ai_aim.ads_extension_budget_ms = 500.0f;
     config.aim_response_curve.algorithm =
         controller_native::AimResponseCurveAlgorithm::Linear;
     return config;

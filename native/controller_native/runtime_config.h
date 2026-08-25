@@ -56,8 +56,11 @@ struct GamepadAiAimConfig {
     float ads_snap_max_ai_force_y = 1.0f;
     float ads_completion_radius_px = 8.0f;
     int ads_completion_fresh_frames = 3;
-    // Independently bounds late-target wait and admitted Snap execution.
-    float ads_max_acquisition_ms = 220.0f;
+    // Bounds the one-LT opportunity to receive the first selected target.
+    float ads_target_wait_ms = 220.0f;
+    // Extra completion budget after ads_snap_window_ms. Exhaustion removes
+    // exclusive input ownership; it does not declare the target reached.
+    float ads_extension_budget_ms = 220.0f;
     float auto_fire_ready_error_px = 16.0f;
     int auto_fire_ready_frames = 2;
     float auto_fire_ready_max_ai_stick = 6000.0f;
@@ -191,7 +194,8 @@ struct CompactAdsConfig {
     float vertical_strength_scale = 1.0f;
     float completion_radius_px = 8.0f;
     int completion_fresh_frames = 3;
-    float max_acquisition_ms = 220.0f;
+    float target_wait_ms = 220.0f;
+    float extension_budget_ms = 220.0f;
 };
 
 struct RuntimeConfig {

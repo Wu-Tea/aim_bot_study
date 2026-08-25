@@ -36,6 +36,10 @@ enum class AdsAcquisitionState : unsigned char {
     AcquiringExtended,
     Completed,
     Consumed,
+    // The configured nominal + extension window elapsed without proof of
+    // arrival. The same ADS solver may keep pursuing a valid target, but final
+    // arbitration may no longer suppress material player input.
+    AcquiringManualSafe,
 };
 
 // Stable, machine-readable reasons used by the plan/telemetry join.  Keep
@@ -60,6 +64,8 @@ enum class AdsDecisionReason : unsigned char {
     TargetLost,
     TargetSwitch,
     NoTarget,
+    // Append new wire-visible values so existing enum ordinals remain stable.
+    ExtensionBudgetElapsed,
 };
 
 enum class SourceDecisionOutcome : unsigned char {
@@ -123,8 +129,10 @@ struct TargetPlan {
     Vec2f acceleration_px_per_sec2{};
     // Capture-aligned estimate of the selected target's world-relative screen
     // motion after removing camera work already delivered during the same
-    // source interval. BodyLock consumes this as total target-follow demand;
-    // ADS never reads it.
+    // source interval. The aligned command is in normalized camera-response
+    // coordinates (before inverse curve mapping), despite the compatibility
+    // field name. BodyLock consumes this as total target-follow demand; ADS
+    // never reads it.
     Vec2f bodylock_target_motion_px_per_sec{};
     Vec2f bodylock_aligned_delivered_stick{};
     float bodylock_target_motion_confidence = 0.0f;

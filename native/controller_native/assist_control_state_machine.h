@@ -42,6 +42,8 @@ struct AssistControlStateMachineInput {
     double now_seconds = 0.0;
     pipeline_contract::Vec2f target_error_px{};
     pipeline_contract::ControlMode mode = pipeline_contract::ControlMode::Manual;
+    pipeline_contract::AdsAcquisitionState ads_acquisition_state =
+        pipeline_contract::AdsAcquisitionState::Idle;
     float visual_authority = 0.0f;
     bool firing = false;
     // Physical stick uses XInput coordinates: positive Y is up-stick.
@@ -64,6 +66,10 @@ struct AssistControlStateMachineInput {
     bool manual_correction_x = false;
     bool manual_correction_y = false;
     bool manual_exit_requested = false;
+    // A material gesture that began before ADS target ownership must not be
+    // reinterpreted as permission for BodyLock to reverse the player's stick
+    // after a real ADS handoff.
+    bool carried_acquisition_gesture = false;
 };
 
 struct AssistControlStateMachineOutput {
@@ -338,18 +344,41 @@ private:
                 ? input.manual_correction_y
                 : input.manual_correction_x;
             if (input.mode == pipeline_contract::ControlMode::AdsAcquire) {
-                if (std::isfinite(desired_axis) &&
-                    std::fabs(desired_axis) > material) {
-                    return std::clamp(desired_axis, -1.0f, 1.0f);
+                const bool manual_safe_phase =
+                    input.ads_acquisition_state ==
+                        pipeline_contract::AdsAcquisitionState::AcquiringExtended ||
+                    input.ads_acquisition_state ==
+                        pipeline_contract::AdsAcquisitionState::AcquiringManualSafe;
+                if (manual_safe_phase) {
+                    // The nominal target-first interval is over. Keep AI work
+                    // when the user is neutral or aligned, but a material
+                    // opposing proposal now wins immediately on that axis.
+                    if (std::fabs(intent_axis) > material &&
+                        (!std::isfinite(desired_axis) ||
+                         std::fabs(desired_axis) <= material ||
+                         intent_axis * desired_axis < 0.0f)) {
+                        return native_axis;
+                    }
+                } else {
+                    if (std::isfinite(desired_axis) &&
+                        std::fabs(desired_axis) > material) {
+                        return std::clamp(desired_axis, -1.0f, 1.0f);
+                    }
+                    // An owned D correction is a semantic target edit, not
+                    // stale carry-in. If the target solver has no material
+                    // work on that axis yet, let the correction move D.
+                    return intentional_d ? native_axis : 0.0f;
                 }
-                // An owned D correction is a semantic target edit, not stale
-                // carry-in. If the target solver has no material work on that
-                // axis yet, let the correction move the camera toward the new
-                // D; unclassified/carry-in motion is still actively braked.
-                return intentional_d ? native_axis : 0.0f;
             }
             if (!std::isfinite(desired_axis) ||
                 std::fabs(desired_axis) <= material) {
+                return native_axis;
+            }
+
+            if (input.mode == pipeline_contract::ControlMode::BodyLockFollow &&
+                input.carried_acquisition_gesture &&
+                std::fabs(intent_axis) > material &&
+                intent_axis * desired_axis < 0.0f) {
                 return native_axis;
             }
 

@@ -22,7 +22,7 @@ struct AdsSample {
 AdsSample ads_sample(bool has_enemy_cue) {
     auto config = controller_native::incident_fixture::base_config(1000.0f, 180.0f);
     config.ai_aim.ads_completion_fresh_frames = 1000;
-    config.ai_aim.ads_max_acquisition_ms = 500.0f;
+    config.ai_aim.ads_extension_budget_ms = 500.0f;
 
     double now = 120.0;
     NativeGamepadController controller(config, &now);

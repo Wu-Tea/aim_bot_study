@@ -161,9 +161,9 @@ inline pipeline_contract::Vec2f inverse_aim_response_curve(
 
 // Converts the delivered virtual-stick target back into the normalized
 // camera-response space used by the controller.  This is the exact inverse of
-// inverse_aim_response_curve within the plugin's unclipped range. The current
-// production-only simulator uses it to model what the game receives instead
-// of treating every configured response curve as linear.
+// inverse_aim_response_curve within the plugin's unclipped range. Runtime
+// response learning and simulation both use it so a configured nonlinear
+// response curve is never measured as though it were linear.
 inline pipeline_contract::Vec2f forward_aim_response_curve(
     pipeline_contract::Vec2f delivered_stick,
     const AimResponseCurveConfig& config) noexcept {

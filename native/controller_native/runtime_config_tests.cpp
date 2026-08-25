@@ -71,7 +71,8 @@ void test_current_control_keys_parse() {
         "snap_duration_ms = 120\n"
         "completion_radius_px = 7\n"
         "completion_fresh_frames = 4\n"
-        "max_acquisition_ms = 240\n"
+        "target_wait_ms = 240\n"
+        "extension_budget_ms = 180\n"
         "[gamepad.bodylock]\n"
         "strength = 0.44\n"
         "vertical_strength = 0.49\n"
@@ -125,6 +126,13 @@ void test_current_control_keys_parse() {
             "ADS scope-ready trigger not parsed");
     require(config.gamepad.ai_aim.ads_completion_fresh_frames == 4,
             "settle frame count not parsed");
+    require(std::fabs(
+                config.gamepad.ai_aim.ads_target_wait_ms - 240.0f) < 1e-5f,
+            "ADS target-wait deadline not parsed");
+    require(std::fabs(
+                config.gamepad.ai_aim.ads_extension_budget_ms - 180.0f) <
+            1e-5f,
+            "ADS extension budget not parsed");
     require(std::fabs(config.gamepad.ai_aim.body_lock_max_ai_force - 0.44f) < 1e-5f,
             "BodyLock force not parsed");
     require(std::fabs(
@@ -139,6 +147,20 @@ void test_current_control_keys_parse() {
     require(!config.gamepad.ai_aim.visual_authority_enabled,
             "visual-authority A/B switch not parsed");
     require(config.diagnostics.empty(), "current config produced diagnostics");
+
+    TempConfig legacy_file(
+        "cod_native_legacy_ads_budget_config.toml",
+        "[gamepad.ads]\n"
+        "max_acquisition_ms = 240\n");
+    const auto legacy =
+        controller_native::load_runtime_config(legacy_file.path());
+    require(std::fabs(
+                legacy.gamepad.ai_aim.ads_extension_budget_ms - 240.0f) <
+            1e-5f,
+            "legacy ADS key no longer maps to the extension budget");
+    require(std::fabs(
+                legacy.gamepad.ai_aim.ads_target_wait_ms - 220.0f) < 1e-5f,
+            "legacy extension key must not overwrite target-wait deadline");
 }
 
 void test_recoil_defaults_use_product_dynamic_range() {

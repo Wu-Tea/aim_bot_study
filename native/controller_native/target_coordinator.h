@@ -15,10 +15,11 @@ struct TargetCoordinatorConfig {
     float settle_radius_px = 8.0f;
     std::uint32_t settle_frames = 5;
     float ads_nominal_acquisition_ms = 135.0f;
-    // Shared bound for two independent clocks: epoch-to-first-admission wait
-    // and admission-to-Snap-release execution. A late admission starts a fresh
-    // execution clock; it does not inherit elapsed wait time.
-    float ads_max_acquisition_ms = 220.0f;
+    // A held LT cannot wait forever for the first selector-owned person.
+    float ads_target_wait_ms = 220.0f;
+    // Extra completion budget after the nominal phase. Exhausting this budget
+    // ends exclusive input ownership, not the unfinished targeting job.
+    float ads_extension_budget_ms = 220.0f;
     // Response-demand normalization only; Vision owns target admission.
     float ads_activation_radius_px = 135.0f;
     float bodylock_activation_radius_px = 150.0f;

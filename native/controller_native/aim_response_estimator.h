@@ -7,6 +7,8 @@
 namespace controller_native {
 
 struct AimResponseInterval {
+    // Normalized camera-response command before inverse curve mapping. This
+    // keeps learned px/(command*s) units identical to ResponseModelAimSolver.
     pipeline_contract::Vec2f average_final_stick{};
     pipeline_contract::Vec2f observed_error_rate_px_per_sec{};
     std::uint64_t target_id = 0;

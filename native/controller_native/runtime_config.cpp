@@ -184,7 +184,8 @@ bool is_known_key(const std::string& section, const std::string& key) {
         "strength_scale", "vertical_strength_scale", "activation_radius_px",
         "pickup_base_radius_px",
         "scope_ready_trigger", "snap_duration_ms",
-        "completion_radius_px", "completion_fresh_frames", "max_acquisition_ms"};
+        "completion_radius_px", "completion_fresh_frames",
+        "target_wait_ms", "extension_budget_ms", "max_acquisition_ms"};
     static const std::unordered_set<std::string> bodylock_keys{
         "strength", "vertical_strength", "activation_range_px", "tolerance_px"};
     static const std::unordered_set<std::string> gamepad_keys{
@@ -212,6 +213,9 @@ bool is_known_key(const std::string& section, const std::string& key) {
         "ads_pickup_base_radius_px", "ads_scope_ready_trigger", "ads_snap_window_ms",
         "ads_snap_max_ai_force", "ads_snap_max_ai_force_y",
         "ads_completion_radius_px", "ads_completion_fresh_frames",
+        "ads_target_wait_ms", "ads_extension_budget_ms",
+        // Legacy key retained for old generated configs; it maps only to the
+        // extension budget and is never reused as the wait deadline.
         "ads_max_acquisition_ms",
         "auto_fire_ready_error_px", "auto_fire_ready_frames",
         "auto_fire_ready_max_ai_stick", "cue_hold_body_lock_force_scale",
@@ -358,9 +362,14 @@ void apply_gamepad_ai_aim_value(
     } else if (key == "ads_completion_fresh_frames") {
         config.ads_completion_fresh_frames =
             parse_int_value(value, config.ads_completion_fresh_frames);
-    } else if (key == "ads_max_acquisition_ms") {
-        config.ads_max_acquisition_ms =
-            parse_float_value(value, config.ads_max_acquisition_ms);
+    } else if (key == "ads_target_wait_ms") {
+        config.ads_target_wait_ms =
+            parse_float_value(value, config.ads_target_wait_ms);
+    } else if (
+        key == "ads_extension_budget_ms" ||
+        key == "ads_max_acquisition_ms") {
+        config.ads_extension_budget_ms =
+            parse_float_value(value, config.ads_extension_budget_ms);
     } else if (key == "auto_fire_ready_error_px") {
         config.auto_fire_ready_error_px = parse_float_value(value, config.auto_fire_ready_error_px);
     } else if (key == "auto_fire_ready_frames") {
@@ -699,9 +708,15 @@ void apply_value(
         } else if (key == "completion_fresh_frames") {
             ads.ads_completion_fresh_frames = parse_int_value(value, ads.ads_completion_fresh_frames);
             config.ads.completion_fresh_frames = ads.ads_completion_fresh_frames;
-        } else if (key == "max_acquisition_ms") {
-            ads.ads_max_acquisition_ms = parse_float_value(value, ads.ads_max_acquisition_ms);
-            config.ads.max_acquisition_ms = ads.ads_max_acquisition_ms;
+        } else if (key == "target_wait_ms") {
+            ads.ads_target_wait_ms = parse_float_value(
+                value, ads.ads_target_wait_ms);
+            config.ads.target_wait_ms = ads.ads_target_wait_ms;
+        } else if (
+            key == "extension_budget_ms" ||
+            key == "max_acquisition_ms") {
+            ads.ads_extension_budget_ms = parse_float_value(value, ads.ads_extension_budget_ms);
+            config.ads.extension_budget_ms = ads.ads_extension_budget_ms;
         }
     } else if (section == "gamepad.bodylock") {
         auto& body = config.gamepad.ai_aim;
@@ -858,8 +873,12 @@ void validate_runtime_config(RuntimeConfig& config) {
         invalid("gamepad.ads.completion_radius_px", "1..64");
     if (config.ads.completion_fresh_frames < 1 || config.ads.completion_fresh_frames > 20)
         invalid("gamepad.ads.completion_fresh_frames", "1..20");
-    if (config.ads.max_acquisition_ms < 50.0f || config.ads.max_acquisition_ms > 1000.0f)
-        invalid("gamepad.ads.max_acquisition_ms", "50..1000");
+    if (config.gamepad.ai_aim.ads_target_wait_ms < 50.0f ||
+        config.gamepad.ai_aim.ads_target_wait_ms > 1000.0f)
+        invalid("gamepad.ads.target_wait_ms", "50..1000");
+    if (config.gamepad.ai_aim.ads_extension_budget_ms < 0.0f ||
+        config.gamepad.ai_aim.ads_extension_budget_ms > 1000.0f)
+        invalid("gamepad.ads.extension_budget_ms", "0..1000");
     if (config.gamepad.ai_aim.ads_activation_radius_px <= 0.0f ||
         config.gamepad.ai_aim.ads_activation_radius_px > 2000.0f)
         invalid("gamepad.ads.activation_radius_px", "0..2000");

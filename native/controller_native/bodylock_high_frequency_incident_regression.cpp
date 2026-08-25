@@ -112,7 +112,7 @@ ScenarioResult run_scenario(
     config.ai_aim.ads_completion_radius_px = kSettleRadiusPx;
     config.ai_aim.ads_completion_fresh_frames = 2;
     config.ai_aim.ads_snap_window_ms = 60;
-    config.ai_aim.ads_max_acquisition_ms = 80.0f;
+    config.ai_aim.ads_extension_budget_ms = 80.0f;
     config.ai_aim.body_lock_max_ai_force = 0.45f;
     config.ai_aim.body_lock_max_ai_force_y = 0.50f;
     config.ai_aim.body_lock_box_tolerance_px = kSettleRadiusPx;

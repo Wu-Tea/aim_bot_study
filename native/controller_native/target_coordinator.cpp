@@ -226,14 +226,13 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     }
     const bool wait_deadline_elapsed = intent.ads && ads.epoch_active &&
         !ads.snap_consumed && !ads.target_admitted &&
-        config_.ads_max_acquisition_ms > 0.0f &&
+        config_.ads_target_wait_ms > 0.0f &&
         (now_seconds - ads.epoch_started_seconds) * 1000.0 >=
-            static_cast<double>(config_.ads_max_acquisition_ms);
+            static_cast<double>(config_.ads_target_wait_ms);
     if (wait_deadline_elapsed) {
-        // max_acquisition_ms bounds the one-LT late-target opportunity before
-        // admission as well as the independently timed positioning job below.
-        // Expiry consumes the token before candidate selection on this tick,
-        // so a later target may use BodyLock but cannot retroactively Snap.
+        // The pre-admission opportunity has its own deadline. Expiry consumes
+        // the token before candidate selection on this tick, so a later target
+        // may use BodyLock but cannot retroactively mint an ADS Snap.
         ads_lifecycle_reducer_.expire_wait(
             pipeline_contract::AdsDecisionReason::NoTarget,
             now_seconds);
@@ -826,12 +825,14 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         ? (plan.predicted_terminal_error_px.x * plan.error_px.x +
            plan.predicted_terminal_error_px.y * plan.error_px.y) / error_length
         : 0.0f;
-    const float capture_radius = config_.settle_radius_px *
+    const float completion_radius = std::max(
+        1.0f, config_.settle_radius_px);
+    const float cross_corridor_radius = completion_radius *
         (1.0f + 2.0f *
             std::clamp(length(screen_velocity) / 120.0f, 0.0f, 1.0f));
     const bool inside_capture_set =
-        error_length <= capture_radius &&
-        std::fabs(predicted_radial_error) <= capture_radius &&
+        error_length <= completion_radius &&
+        std::fabs(predicted_radial_error) <= completion_radius &&
         plan.radial_closing_velocity_px_per_sec <=
             config_.handoff_max_closing_velocity_px_per_sec;
     if (candidate != nullptr && !cue_continuation_candidate) {
@@ -847,19 +848,26 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     const float current_error_length = length(plan.error_px);
     const float radial_error_dot = latest_.error_px.x * plan.error_px.x +
         latest_.error_px.y * plan.error_px.y;
-    // A sign flip on one noisy axis is not a center crossing. Require a
-    // meaningful radial reversal with both samples away from the deadzone.
+    // A sign flip on one noisy axis is not a center crossing. Both source
+    // samples must enter the same bounded reticle corridor; otherwise a large
+    // detector/aim-geometry jump can look like a physical pass through center.
+    const bool cross_geometry_continuous =
+        previous_error_length <= cross_corridor_radius &&
+        current_error_length <= cross_corridor_radius;
     const bool center_cross = previous_target_same && candidate != nullptr &&
         !cue_continuation_candidate &&
         accepted_fresh_capture && previous_error_length >= 6.0f &&
-        current_error_length >= 2.0f && radial_error_dot < -std::max(
+        current_error_length >= 2.0f && cross_geometry_continuous &&
+        radial_error_dot < -std::max(
             4.0f, previous_error_length * current_error_length * 0.25f);
     if (center_cross) ads_lifecycle_reducer_.note_center_cross();
 
     const bool settled = settled_frames_ >= config_.settle_frames;
-    const bool acquisition_ceiling_elapsed = ads.target_admitted &&
-        config_.ads_max_acquisition_ms > 0.0f &&
-        plan.acquisition_elapsed_ms >= config_.ads_max_acquisition_ms;
+    const bool extension_budget_elapsed = ads.target_admitted &&
+        config_.ads_extension_budget_ms > 0.0f &&
+        plan.acquisition_elapsed_ms >=
+            std::max(0.0f, config_.ads_nominal_acquisition_ms) +
+                config_.ads_extension_budget_ms;
     const bool nominal_elapsed = ads.target_admitted &&
         plan.acquisition_elapsed_ms >=
             std::max(0.0f, config_.ads_nominal_acquisition_ms);
@@ -887,35 +895,32 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
                 now_seconds);
             aim_mode_reducer_.transition(
                 pipeline_contract::ControlMode::BodyLockFollow);
-        } else if (acquisition_ceiling_elapsed) {
-            // The admitted Snap has its own bounded execution clock. Reaching
-            // that deadline consumes this one-LT job even when it did not
-            // settle; the selected target may continue under BodyLock.
-            ads_lifecycle_reducer_.complete(
-                pipeline_contract::AdsDecisionReason::AcquisitionCeiling,
-                now_seconds);
+        } else if (extension_budget_elapsed) {
+            // 220 ms is extra time after the nominal phase, not the total ADS
+            // lifetime. Exhaustion cannot manufacture success. Keep the same
+            // full ADS solver alive for neutral input, while publishing a
+            // phase that final arbitration treats as manual-safe.
+            ads_lifecycle_reducer_.enter_manual_safe();
             aim_mode_reducer_.transition(
-                pipeline_contract::ControlMode::BodyLockFollow);
+                pipeline_contract::ControlMode::AdsAcquire);
         } else if (nominal_elapsed &&
                    ads.state ==
                        pipeline_contract::AdsAcquisitionState::AcquiringNominal) {
-            if (!accepted_fresh_capture) {
-                // The controller commonly crosses 135ms while replaying the
-                // latest Vision result. A replay is not evidence of any of
-                // the fresh-source early-exit conditions. Keep the nominal
-                // acquisition pending until a fresh authoritative frame
-                // decides whether to extend or complete.
-                ads_lifecycle_reducer_.stay_nominal();
-                aim_mode_reducer_.transition(
-                    pipeline_contract::ControlMode::AdsAcquire);
-            } else {
-                ads_lifecycle_reducer_.extend();
-                aim_mode_reducer_.transition(
-                    pipeline_contract::ControlMode::AdsAcquire);
-            }
+            // Ending exclusive input ownership is a clock invariant, not a
+            // detector decision. A replay tick therefore enters the extension
+            // phase on time; fresh evidence is still required for every real
+            // completion path above.
+            ads_lifecycle_reducer_.extend();
+            aim_mode_reducer_.transition(
+                pipeline_contract::ControlMode::AdsAcquire);
         } else if (ads.state ==
                    pipeline_contract::AdsAcquisitionState::AcquiringExtended) {
             ads_lifecycle_reducer_.extend();
+            aim_mode_reducer_.transition(
+                pipeline_contract::ControlMode::AdsAcquire);
+        } else if (ads.state ==
+                   pipeline_contract::AdsAcquisitionState::AcquiringManualSafe) {
+            ads_lifecycle_reducer_.enter_manual_safe();
             aim_mode_reducer_.transition(
                 pipeline_contract::ControlMode::AdsAcquire);
         } else {

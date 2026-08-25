@@ -51,6 +51,7 @@ public:
         double now_seconds) noexcept;
     void stay_nominal() noexcept;
     void extend() noexcept;
+    void enter_manual_safe() noexcept;
     void complete(
         pipeline_contract::AdsDecisionReason reason,
         double now_seconds) noexcept;

@@ -149,11 +149,11 @@ GamepadRuntimeConfig incident_config(ControlMode mode) {
     config.ai_aim.desired_point_boundary_exit_ms = 250.0f;
     if (mode == ControlMode::AdsSnap) {
         config.ai_aim.ads_completion_fresh_frames = 1000;
-        config.ai_aim.ads_max_acquisition_ms = 500.0f;
+        config.ai_aim.ads_extension_budget_ms = 500.0f;
     } else {
         config.ai_aim.ads_completion_radius_px = 8.0f;
         config.ai_aim.ads_completion_fresh_frames = 1;
-        config.ai_aim.ads_max_acquisition_ms = 50.0f;
+        config.ai_aim.ads_extension_budget_ms = 50.0f;
     }
     return config;
 }
