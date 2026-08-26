@@ -539,6 +539,77 @@ void test_firing_downward_input_moves_d_without_arming_handover() {
                  "firing pull-down armed a target handover at R's lower edge");
 }
 
+void test_size_scaled_pickup_is_revalidated_only_on_new_ads_epoch() {
+    controller_native::TargetCoordinatorConfig config;
+    config.max_observation_age_ms = 500.0f;
+    config.ads_pickup_base_radius_px = 150.0f;
+
+    // A selector identity retained from the previous physical scope must not
+    // inherit ADS admission after it has moved outside the current envelope.
+    controller_native::TargetCoordinator cross_epoch(config);
+    cross_epoch.begin_ads_epoch(13, 13.0);
+    const auto first = cross_epoch.update(
+        selected_frame(120, 13.0, 400.0f), ads_intent(), 13.0);
+    require_true(first.ads_plan_admitted,
+                 "inside first-scope target was not admitted");
+    (void)cross_epoch.update(
+        selected_frame(121, 13.006, 460.0f), {}, 13.006);
+    cross_epoch.begin_ads_epoch(14, 13.010);
+    const auto outside = cross_epoch.update(
+        selected_frame(122, 13.010, 460.0f), ads_intent(), 13.010);
+    require_true(!outside.ads_plan_admitted &&
+                     !outside.ads_acquisition_active &&
+                     outside.mode == pipeline_contract::ControlMode::Manual &&
+                     near(outside.aim_authority, 0.0f),
+                 "new ADS epoch inherited far-target authority");
+    require_true(outside.source_decision_available &&
+                     outside.source_decision_outcome ==
+                         pipeline_contract::SourceDecisionOutcome::Rejected &&
+                     outside.source_decision_reason ==
+                         pipeline_contract::AdsDecisionReason::
+                             OutsidePickupEnvelope,
+                 "far current-epoch candidate lost its pickup rejection reason");
+
+    // Rejection keeps the same epoch armed; a later fresh frame may enter the
+    // envelope and earn admission instead of forcing an early release.
+    const auto entered = cross_epoch.update(
+        selected_frame(123, 13.016, 410.0f), ads_intent(), 13.016);
+    require_true(entered.ads_plan_admitted && entered.ads_acquisition_active,
+                 "armed ADS epoch did not admit a later eligible frame");
+
+    // Once an epoch has validly admitted its target, distance is not allowed
+    // to become a second gain control for that same ADS positioning job.
+    controller_native::TargetCoordinator admitted_continuation(config);
+    admitted_continuation.begin_ads_epoch(15, 15.0);
+    const auto admitted = admitted_continuation.update(
+        selected_frame(130, 15.0, 320.0f), ads_intent(), 15.0);
+    const auto continued = admitted_continuation.update(
+        selected_frame(131, 15.006, 460.0f), ads_intent(), 15.006);
+    require_true(admitted.ads_plan_admitted &&
+                     continued.ads_acquisition_active &&
+                     continued.mode ==
+                         pipeline_contract::ControlMode::AdsAcquire &&
+                     continued.aim_authority > 0.0f,
+                 "same-epoch continuation was incorrectly weakened by distance");
+
+    // A close target may legitimately be farther from the reticle because its
+    // observed body height expands the same shared pickup envelope.
+    controller_native::TargetCoordinator close_large(config);
+    close_large.begin_ads_epoch(16, 16.0);
+    auto large_frame = selected_frame(140, 16.0, 570.0f, 256.0f);
+    large_frame.frame_width_px = 640.0f;
+    large_frame.frame_height_px = 512.0f;
+    large_frame.candidates[0].aim_region_px =
+        {460.0f, 64.0f, 220.0f, 480.0f};
+    large_frame.candidates[0].body_box_px =
+        large_frame.candidates[0].aim_region_px;
+    large_frame.candidates[0].box_size_px = {220.0f, 480.0f};
+    large_frame.candidates[0].normalized_size = 480.0f / 512.0f;
+    const auto large = close_large.update(large_frame, ads_intent(), 16.0);
+    require_true(large.ads_plan_admitted && large.ads_acquisition_active,
+                 "close large target lost its expanded pickup envelope");
+}
+
 }  // namespace
 
 void register_target_coordinator_tests(native_test::Registry& registry) {
@@ -556,4 +627,5 @@ void register_target_coordinator_tests(native_test::Registry& registry) {
     registry.add_case("BaseBodyLock", "cue_carries_corrected_desired_point", test_cue_carries_corrected_d_instead_of_replacing_it);
     registry.add_case("BaseBodyLock", "target_replacement_resets_corrected_point", test_target_replacement_resets_corrected_d);
     registry.add_case("BaseBodyLock", "firing_downward_does_not_arm_handover", test_firing_downward_input_moves_d_without_arming_handover);
+    registry.add_case("BaseAds", "size_scaled_pickup_revalidated_per_epoch", test_size_scaled_pickup_is_revalidated_only_on_new_ads_epoch);
 }

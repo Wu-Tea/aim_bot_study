@@ -56,6 +56,7 @@ const char* ads_decision_reason_name(std::uint8_t value) {
     case Reason::AdsAlreadyConsumed: return "ads_already_consumed";
     case Reason::AcquisitionCeiling: return "acquisition_ceiling";
     case Reason::ExtensionBudgetElapsed: return "extension_budget_elapsed";
+    case Reason::OutsidePickupEnvelope: return "outside_pickup_envelope";
     case Reason::Settled: return "settled";
     case Reason::CenterCross: return "center_cross";
     case Reason::NonHelpfulOutput: return "non_helpful_output";

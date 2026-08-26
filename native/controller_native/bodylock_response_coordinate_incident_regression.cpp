@@ -53,6 +53,10 @@ controller_native::incident_fixture::TargetSpec target_spec() {
 GamepadRuntimeConfig config_for(AimResponseCurveAlgorithm algorithm) {
     auto config = controller_native::incident_fixture::base_config(
         1000.0f, 260.0f);
+    // The 200 px training error is an intentional plant-identification
+    // covariate, not a pickup-policy test. Keep it explicitly eligible under
+    // the independent current-epoch pickup contract.
+    config.ai_aim.ads_pickup_base_radius_px = 260.0f;
     config.ai_aim.ads_snap_window_ms = 60;
     config.ai_aim.ads_completion_fresh_frames = 1000;
     config.ai_aim.ads_extension_budget_ms = 1000.0f;

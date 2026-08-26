@@ -110,6 +110,8 @@ TargetCoordinatorConfig coordinator_config(const GamepadRuntimeConfig& config) {
     result.ads_extension_budget_ms = std::max(0.0f, config.ai_aim.ads_extension_budget_ms);
     result.ads_activation_radius_px = std::max(
         result.settle_radius_px, config.ai_aim.ads_activation_radius_px);
+    result.ads_pickup_base_radius_px = std::max(
+        0.0f, config.ai_aim.ads_pickup_base_radius_px);
     result.bodylock_activation_radius_px = std::max(
         result.settle_radius_px, config.ai_aim.body_lock_activation_box_px);
     result.bodylock_exit_radius_px = std::max(

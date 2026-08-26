@@ -449,8 +449,25 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
             reset_target_owned_state_for_replacement();
         }
         if (new_ads_acquisition) {
-            current_plan_admitted = true;
-            ads_lifecycle_reducer_.admit_target(now_seconds);
+            const float pickup_radius_px = target_scaled_radius(
+                config_.ads_pickup_base_radius_px,
+                candidate->normalized_size);
+            const bool pickup_eligible_for_current_ads_epoch =
+                length(subtract(candidate->aim_px, center)) <=
+                    pickup_radius_px;
+            if (pickup_eligible_for_current_ads_epoch) {
+                current_plan_admitted = true;
+                ads_lifecycle_reducer_.admit_target(now_seconds);
+            } else {
+                // Selector continuity may outlive a physical LT scope. It may
+                // preserve identity while idle, but it cannot carry admission
+                // into a new scope after the person has moved outside the
+                // current size-scaled pickup envelope. Keep the epoch armed so
+                // a later fresh frame can still enter the envelope and admit.
+                ads_lifecycle_reducer_.reject_source(
+                    pipeline_contract::AdsDecisionReason::
+                        OutsidePickupEnvelope);
+            }
         } else if (accepted_fresh_capture &&
                    !(intent.ads && ads.snap_consumed)) {
             ads_lifecycle_reducer_.accept_continuation();

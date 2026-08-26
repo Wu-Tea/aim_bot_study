@@ -302,6 +302,7 @@ add_executable(cod_native_base_tests
     ../controller_native/ads_scope_ready_authority_incident_regression.cpp
     ../controller_native/ads_single_press_token_incident_regression.cpp
     ../controller_native/ads_snap_core_contract_incident_regression.cpp
+    ../controller_native/ads_cross_epoch_pickup_revalidation_incident_regression.cpp
     ../controller_native/bodylock_high_frequency_incident_regression.cpp
     ../controller_native/bodylock_position_motion_conflict_incident_regression.cpp
     ../controller_native/bodylock_response_coordinate_incident_regression.cpp

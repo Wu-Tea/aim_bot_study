@@ -38,6 +38,7 @@ void register_ads_initial_scope_existing_target_incident_regression(native_test:
 void register_ads_scope_ready_authority_incident_regression(native_test::Registry&);
 void register_ads_single_press_token_incident_regression(native_test::Registry&);
 void register_ads_snap_core_contract_incident_regression(native_test::Registry&);
+void register_ads_cross_epoch_pickup_revalidation_incident_regression(native_test::Registry&);
 void register_bodylock_high_frequency_incident_regression(native_test::Registry&);
 void register_bodylock_position_motion_conflict_incident_regression(native_test::Registry&);
 void register_bodylock_response_coordinate_incident_regression(native_test::Registry&);
@@ -92,6 +93,7 @@ int main(int argc, char** argv) {
     register_ads_scope_ready_authority_incident_regression(registry);
     register_ads_single_press_token_incident_regression(registry);
     register_ads_snap_core_contract_incident_regression(registry);
+    register_ads_cross_epoch_pickup_revalidation_incident_regression(registry);
     register_bodylock_high_frequency_incident_regression(registry);
     register_bodylock_position_motion_conflict_incident_regression(registry);
     register_bodylock_response_coordinate_incident_regression(registry);

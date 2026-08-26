@@ -66,6 +66,7 @@ enum class AdsDecisionReason : unsigned char {
     NoTarget,
     // Append new wire-visible values so existing enum ordinals remain stable.
     ExtensionBudgetElapsed,
+    OutsidePickupEnvelope,
 };
 
 enum class SourceDecisionOutcome : unsigned char {

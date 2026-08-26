@@ -20,8 +20,11 @@ struct TargetCoordinatorConfig {
     // Extra completion budget after the nominal phase. Exhausting this budget
     // ends exclusive input ownership, not the unfinished targeting job.
     float ads_extension_budget_ms = 220.0f;
-    // Response-demand normalization only; Vision owns target admission.
+    // Response-demand normalization only; this is not pickup eligibility.
     float ads_activation_radius_px = 135.0f;
+    // Every physical ADS epoch must earn admission against the same
+    // size-scaled pickup envelope used by Vision for a new target identity.
+    float ads_pickup_base_radius_px = 150.0f;
     float bodylock_activation_radius_px = 150.0f;
     float bodylock_exit_radius_px = 48.0f;
     float handoff_prediction_seconds = 0.020f;

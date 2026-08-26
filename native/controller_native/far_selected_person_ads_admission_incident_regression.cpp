@@ -53,6 +53,10 @@ struct Report {
 GamepadRuntimeConfig incident_config() {
     auto config = controller_native::incident_fixture::base_config(
         1000.0f, 135.0f);
+    // This incident proves that the 135 px response-normalization radius is
+    // not a second authority gate after valid admission. Make its independent
+    // pickup envelope explicit so the 250 px case remains a valid admission.
+    config.ai_aim.ads_pickup_base_radius_px = 250.0f;
     config.ai_aim.ads_completion_fresh_frames = 1000;
     config.ai_aim.ads_extension_budget_ms = 500.0f;
     return config;
