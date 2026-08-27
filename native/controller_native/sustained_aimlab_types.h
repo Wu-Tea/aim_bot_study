@@ -181,6 +181,11 @@ struct BenchmarkConfig {
     // Controller update period. The simulator plant and scorer always advance
     // at 1 ms so changing controller cadence does not change metric units.
     int tick_ms = 1;
+    // Rates above the 1 kHz plant clock execute multiple controller updates
+    // against one held observation/input sample. Only the final output is
+    // admitted by that plant tick; intermediate writes are still visible to
+    // controller state and dynamics.
+    int controller_substeps_per_plant_tick = 1;
     int tracking_window_ms = 1'000;
     int inter_target_gap_ms = 50;
     // Product execution horizon: target wait + nominal snap + low-mobility

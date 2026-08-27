@@ -110,7 +110,9 @@ NativeReplayAdapter::NativeReplayAdapter(
 
 ControllerStepResult NativeReplayAdapter::step(
     const ControllerObservation& input) {
-    now_seconds_ = static_cast<double>(input.now_ms) / 1000.0;
+    now_seconds_ = std::isfinite(input.now_seconds)
+        ? input.now_seconds
+        : static_cast<double>(input.now_ms) / 1000.0;
     // Each benchmark target is an independent user attempt. Give every target
     // one fresh LT epoch: the first target-present tick is released and the
     // next tick supplies the only rising edge. Reusing held LT across target

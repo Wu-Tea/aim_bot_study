@@ -654,7 +654,17 @@ def _verify_report(
     if (
         simulator.get("plant_tick_ms") != 1
         or simulator.get("controller_tick_hz") != controller_tick_hz
-        or simulator.get("controller_tick_ms") != 1000 // controller_tick_hz
+        or not math.isclose(
+            _number(
+                simulator.get("controller_tick_ms"),
+                "benchmark controller tick period",
+            ),
+            1000.0 / controller_tick_hz,
+            rel_tol=1e-10,
+            abs_tol=1e-10,
+        )
+        or simulator.get("controller_updates_per_plant_tick")
+        != (controller_tick_hz // 1000 if controller_tick_hz > 1000 else 1)
     ):
         raise ValueError("benchmark report changed controller/plant clocks")
     target_schedule = _object(
@@ -674,7 +684,11 @@ def _verify_report(
     )
     expected_controller = {
         "mode": "fixed_requested",
-        "output_hold": "zero_order_hold",
+        "output_hold": (
+            "latest_only_per_plant_tick"
+            if controller_tick_hz > 1000
+            else "zero_order_hold"
+        ),
         "source_interval_p50_ms": encoded[
             "source_controller_interval_p50_ms"
         ],
@@ -683,7 +697,8 @@ def _verify_report(
         ],
         "source_hz_estimate": encoded["source_controller_tick_hz_estimate"],
         "requested_hz": float(controller_tick_hz),
-        "tick_ms": float(1000 // controller_tick_hz),
+        "tick_ms": 1000.0 / controller_tick_hz,
+        "plant_admission": "latest_per_1ms_tick",
     }
     for key, expected_value in expected_controller.items():
         actual_value = controller.get(key)
@@ -712,14 +727,13 @@ def _verify_report(
     for key, expected_value in expected_proposal.items():
         if proposal.get(key) != expected_value:
             raise ValueError(f"benchmark report changed AI proposal field {key}")
-    for field in (
-        "manual_sample_hz",
-        "final_arbitration_hz",
-        "recoil_hz",
-        "output_hz",
-    ):
+    if simulator.get("manual_sample_hz") != min(controller_tick_hz, 1000):
+        raise ValueError("benchmark report changed manual source cadence")
+    for field in ("final_arbitration_hz", "recoil_hz", "output_hz"):
         if simulator.get(field) != controller_tick_hz:
             raise ValueError(f"benchmark report changed split-clock field {field}")
+    if simulator.get("plant_admission_hz") != 1000:
+        raise ValueError("benchmark report changed plant admission cadence")
     vision = _object(simulator.get("vision"), "benchmark simulator Vision")
     if not math.isclose(
         _number(
@@ -800,8 +814,12 @@ def _verify_report(
         simulator.get("duration_ms"), "benchmark duration", 1, sys.maxsize
     )
     expected_controller_updates = (
-        duration_ms + (1000 // controller_tick_hz) - 1
-    ) // (1000 // controller_tick_hz)
+        duration_ms * (controller_tick_hz // 1000)
+        if controller_tick_hz > 1000
+        else (
+            duration_ms + (1000 // controller_tick_hz) - 1
+        ) // (1000 // controller_tick_hz)
+    )
     expected_target_count = (
         (duration_ms - target_slot_ms) // (target_slot_ms + 50) + 1
         if duration_ms >= target_slot_ms
@@ -856,7 +874,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--controller-tick-hz",
         type=int,
         required=True,
-        help="Exact integer-ms controller cadence (for example 1000/500/250/200 Hz).",
+        help=(
+            "1 kHz-aligned controller cadence: divisors at or below 1 kHz, "
+            "or integer multiples through 8 kHz."
+        ),
     )
     parser.add_argument(
         "--vision-hz",
@@ -935,13 +956,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise ValueError(
                 "duration-ms must contain at least one complete target slot"
             )
-        if (
-            args.controller_tick_hz <= 0
-            or args.controller_tick_hz > 1000
-            or 1000 % args.controller_tick_hz != 0
-        ):
+        controller_rate_aligned = (
+            0 < args.controller_tick_hz <= 8000
+            and (
+                1000 % args.controller_tick_hz == 0
+                if args.controller_tick_hz <= 1000
+                else args.controller_tick_hz % 1000 == 0
+            )
+        )
+        if not controller_rate_aligned:
             raise ValueError(
-                "controller-tick-hz must be a positive divisor of 1000"
+                "controller-tick-hz must be a 1 kHz-aligned rate in [1, 8000]"
             )
         for label, value in (
             ("sensitivity multiplier", args.sensitivity_multiplier),

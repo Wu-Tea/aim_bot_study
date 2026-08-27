@@ -183,6 +183,8 @@ void test_script_hash_includes_controller_tick_and_sensitivity() {
     BenchmarkConfig baseline;
     BenchmarkConfig slower_controller = baseline;
     slower_controller.tick_ms = 4;
+    BenchmarkConfig faster_controller = baseline;
+    faster_controller.controller_substeps_per_plant_tick = 8;
     BenchmarkConfig higher_sensitivity = baseline;
     higher_sensitivity.sensitivity_multiplier = 1.25;
 
@@ -190,11 +192,15 @@ void test_script_hash_includes_controller_tick_and_sensitivity() {
         controller_native::sustained_aimlab::generate_script(1337, baseline);
     const auto slower = controller_native::sustained_aimlab::generate_script(
         1337, slower_controller);
+    const auto faster = controller_native::sustained_aimlab::generate_script(
+        1337, faster_controller);
     const auto sensitive =
         controller_native::sustained_aimlab::generate_script(
             1337, higher_sensitivity);
     require(original.hash != slower.hash,
             "controller cadence must be part of script identity");
+    require(original.hash != faster.hash,
+            "sub-millisecond controller cadence must be part of script identity");
     require(original.hash != sensitive.hash,
             "sensitivity multiplier must be part of script identity");
 }

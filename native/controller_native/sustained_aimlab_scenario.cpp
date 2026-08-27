@@ -96,6 +96,9 @@ void hash_config(std::uint64_t& hash, const BenchmarkConfig& config) {
     hash_integral(hash, config.duration_ms);
     hash_integral(hash, config.target_profile);
     hash_integral(hash, config.tick_ms);
+    if (config.controller_substeps_per_plant_tick != 1) {
+        hash_integral(hash, config.controller_substeps_per_plant_tick);
+    }
     hash_integral(hash, config.tracking_window_ms);
     hash_integral(hash, config.inter_target_gap_ms);
     hash_integral(hash, config.ads_execution_timeout_ms);
@@ -268,6 +271,10 @@ ScenarioScript generate_script(
     std::uint32_t seed,
     const BenchmarkConfig& config) {
     if (config.duration_ms <= 0 || config.tick_ms <= 0 ||
+        config.controller_substeps_per_plant_tick <= 0 ||
+        config.controller_substeps_per_plant_tick > 8 ||
+        (config.tick_ms != 1 &&
+         config.controller_substeps_per_plant_tick != 1) ||
         config.tracking_window_ms <= 0 || config.inter_target_gap_ms < 0 ||
         config.ads_execution_timeout_ms <= 0 ||
         config.bodylock_entry_timeout_ms <= 0 || config.initial_idle_ms < 0 ||

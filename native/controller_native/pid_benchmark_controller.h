@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <memory>
 
 namespace controller_native::pid_benchmark {
@@ -36,6 +37,14 @@ public:
         const sustained_aimlab::ControllerObservation& input) {
         using sustained_aimlab::ControllerStepResult;
         using sustained_aimlab::Vec2d;
+
+        const double now_seconds = std::isfinite(input.now_seconds)
+            ? input.now_seconds
+            : static_cast<double>(input.now_ms) / 1000.0;
+        const double control_dt_seconds = std::isfinite(last_control_seconds_)
+            ? std::clamp(now_seconds - last_control_seconds_, 1.0e-6, 0.1)
+            : 0.001;
+        last_control_seconds_ = now_seconds;
 
         if (!input.target_present && input.fresh_vision) reset();
 
@@ -75,16 +84,16 @@ public:
                 previous_measured_error_ = measured;
                 previous_capture_seconds_ = capture_seconds;
             }
-            last_observation_ms_ = input.now_ms;
+            last_observation_seconds_ = now_seconds;
         }
 
         const bool observation_live = has_observation_ && input.target_present &&
-            input.now_ms - last_observation_ms_ <= config_.observation_timeout_ms;
+            now_seconds - last_observation_seconds_ <=
+                static_cast<double>(config_.observation_timeout_ms) / 1000.0;
         Vec2d assist;
         if (observation_live) {
-            constexpr double kControlDtSeconds = 0.001;
-            integral_.x += measured_error_.x * kControlDtSeconds;
-            integral_.y += measured_error_.y * kControlDtSeconds;
+            integral_.x += measured_error_.x * control_dt_seconds;
+            integral_.y += measured_error_.y * control_dt_seconds;
             if (config_.ki > 0.0) {
                 const double state_limit =
                     std::max(0.0, config_.integral_output_limit) / config_.ki;
@@ -110,7 +119,7 @@ public:
         const double tau_seconds =
             std::max(0.0, config_.output_filter_tau_ms) / 1000.0;
         const double output_alpha = tau_seconds > 0.0
-            ? 1.0 - std::exp(-0.001 / tau_seconds)
+            ? 1.0 - std::exp(-control_dt_seconds / tau_seconds)
             : 1.0;
         filtered_assist_.x += output_alpha * (assist.x - filtered_assist_.x);
         filtered_assist_.y += output_alpha * (assist.y - filtered_assist_.y);
@@ -169,7 +178,7 @@ private:
 
     void reset() noexcept {
         target_id_ = 0;
-        last_observation_ms_ = -1'000'000;
+        last_observation_seconds_ = -1'000'000.0;
         previous_capture_seconds_ = 0.0;
         measured_error_ = {};
         previous_measured_error_ = {};
@@ -183,7 +192,8 @@ private:
     PidBenchmarkConfig config_;
     sustained_aimlab::BenchmarkCohort cohort_;
     std::uint64_t target_id_ = 0;
-    int last_observation_ms_ = -1'000'000;
+    double last_observation_seconds_ = -1'000'000.0;
+    double last_control_seconds_ = std::numeric_limits<double>::quiet_NaN();
     double previous_capture_seconds_ = 0.0;
     sustained_aimlab::Vec2d measured_error_;
     sustained_aimlab::Vec2d previous_measured_error_;

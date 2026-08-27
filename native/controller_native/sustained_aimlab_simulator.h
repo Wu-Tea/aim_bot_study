@@ -12,6 +12,7 @@ namespace controller_native::sustained_aimlab {
 
 struct ControllerObservation {
     int now_ms = 0;
+    double now_seconds = std::numeric_limits<double>::quiet_NaN();
     bool target_present = false;
     bool primary_candidate_visible = true;
     bool decoy_candidate_present = false;

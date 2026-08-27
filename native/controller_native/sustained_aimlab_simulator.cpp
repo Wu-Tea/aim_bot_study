@@ -14,6 +14,16 @@ bool finite(Vec2d value) noexcept {
     return std::isfinite(value.x) && std::isfinite(value.y);
 }
 
+void require_finite(const ControllerStepResult& output) {
+    if (!finite(output.final_stick) ||
+        !finite(output.requested_assist_stick) ||
+        !finite(output.shaped_assist_stick) ||
+        !finite(output.predicted_terminal_error_px) ||
+        !std::isfinite(output.radial_closing_velocity_px_per_sec)) {
+        throw std::runtime_error("controller produced non-finite output");
+    }
+}
+
 Vec2d normalized_control_direction(Vec2d error) noexcept {
     error.y = -error.y;
     const double magnitude = length(error);
@@ -328,7 +338,11 @@ BenchmarkResult run_simulation(
     if (!controller_step) {
         throw std::invalid_argument("controller callback is required");
     }
-    if (script.config.duration_ms <= 0 || script.config.tick_ms <= 0) {
+    if (script.config.duration_ms <= 0 || script.config.tick_ms <= 0 ||
+        script.config.controller_substeps_per_plant_tick <= 0 ||
+        script.config.controller_substeps_per_plant_tick > 8 ||
+        (script.config.tick_ms != 1 &&
+         script.config.controller_substeps_per_plant_tick != 1)) {
         throw std::invalid_argument(
             "sustained AimLab runner requires a positive controller tick");
     }
@@ -488,6 +502,7 @@ BenchmarkResult run_simulation(
         bool vision_occluded = false;
         int player_motion_elapsed_ms = -1;
         input.now_ms = now_ms;
+        input.now_seconds = static_cast<double>(now_ms) / 1000.0;
         if (target_active) {
             const TargetScript& target = script.targets[target_index];
             const Vec2d camera_recoil_offset =
@@ -740,6 +755,8 @@ BenchmarkResult run_simulation(
         }
 
         const bool controller_updated = now_ms % script.config.tick_ms == 0;
+        const bool controller_consumed_fresh_vision =
+            controller_updated && pending_controller_vision;
         ControllerObservation controller_input = input;
         controller_input.fresh_vision = false;
         ControllerStepResult output = held_output;
@@ -773,14 +790,28 @@ BenchmarkResult run_simulation(
                 controller_input.motion_anchor_px =
                     published.motion_anchor_px;
             }
-            output = controller_step(controller_input);
-            held_controller_input = controller_input;
-            held_output = output;
-            ++controller_updates;
+            const int substeps =
+                script.config.controller_substeps_per_plant_tick;
+            for (int substep = 0; substep < substeps; ++substep) {
+                controller_input.now_seconds =
+                    (static_cast<double>(now_ms) +
+                     static_cast<double>(substep) /
+                         static_cast<double>(substeps)) /
+                    1000.0;
+                controller_input.fresh_vision =
+                    pending_controller_vision && substep == 0;
+                output = controller_step(controller_input);
+                require_finite(output);
+                held_controller_input = controller_input;
+                held_output = output;
+                ++controller_updates;
+            }
             pending_controller_vision = false;
         } else {
             controller_input = held_controller_input;
             controller_input.now_ms = now_ms;
+            controller_input.now_seconds =
+                static_cast<double>(now_ms) / 1000.0;
             controller_input.fresh_vision = false;
         }
 
@@ -789,7 +820,7 @@ BenchmarkResult run_simulation(
         trace_frame.target_elapsed_ms = target_active ? target_elapsed_ms : -1;
         trace_frame.target_active = target_active;
         trace_frame.controller_updated = controller_updated;
-        trace_frame.fresh_vision = controller_input.fresh_vision;
+        trace_frame.fresh_vision = controller_consumed_fresh_vision;
         trace_frame.vision_occluded = vision_occluded;
         trace_frame.target_id = input.target_id;
         trace_frame.input = controller_input;
@@ -828,14 +859,6 @@ BenchmarkResult run_simulation(
              static_cast<float>(plant_control.y)},
             script.config.camera_response_curve);
         trace_frame.output = output;
-        if (!finite(output.final_stick) ||
-            !finite(output.requested_assist_stick) ||
-            !finite(output.shaped_assist_stick) ||
-            !finite(output.predicted_terminal_error_px) ||
-            !std::isfinite(output.radial_closing_velocity_px_per_sec)) {
-            throw std::runtime_error("controller produced non-finite output");
-        }
-
         if (target_active) {
             const TargetScript& target = script.targets[target_index];
             if (cohort == BenchmarkCohort::AdsAcquire &&
@@ -942,7 +965,7 @@ BenchmarkResult run_simulation(
                 frame.target_observed =
                     output_matches_active_target && output.target_observed;
                 frame.vision_occluded = trace_frame.vision_occluded;
-                frame.fresh_vision = controller_input.fresh_vision;
+                frame.fresh_vision = trace_frame.fresh_vision;
                 frame.tracker_reliable =
                     output_matches_active_target && output.tracker_reliable;
                 frame.manual_escape =

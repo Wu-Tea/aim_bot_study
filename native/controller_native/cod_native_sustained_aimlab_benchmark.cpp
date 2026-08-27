@@ -395,11 +395,15 @@ Options parse_options(int argc, char** argv) {
     if (options.duration_ms <= 0) {
         throw std::invalid_argument("duration-ms must be positive");
     }
-    if (options.controller_tick_hz <= 0 ||
-        options.controller_tick_hz > 1000 ||
-        1000 % options.controller_tick_hz != 0) {
+    const bool controller_rate_aligned =
+        options.controller_tick_hz > 0 &&
+        options.controller_tick_hz <= 8000 &&
+        (options.controller_tick_hz <= 1000
+            ? 1000 % options.controller_tick_hz == 0
+            : options.controller_tick_hz % 1000 == 0);
+    if (!controller_rate_aligned) {
         throw std::invalid_argument(
-            "controller-tick-hz must be a positive divisor of 1000");
+            "controller-tick-hz must be a 1 kHz-aligned rate in [1, 8000]");
     }
     if (options.vision_hz < 0 || options.vision_hz > 1000) {
         throw std::invalid_argument("vision-hz must be in [0, 1000]");
@@ -778,10 +782,16 @@ void write_report(
         << "  \"simulator\": {\"duration_ms\":" << config.duration_ms
         << ",\"tick_ms\":" << config.tick_ms
         << ",\"plant_tick_ms\":1"
-        << ",\"controller_tick_ms\":" << config.tick_ms
+        << ",\"controller_tick_ms\":"
+        << 1000.0 / static_cast<double>(options.controller_tick_hz)
         << ",\"controller_tick_hz\":" << options.controller_tick_hz
+        << ",\"controller_updates_per_plant_tick\":"
+        << config.controller_substeps_per_plant_tick
         << ",\"controller\":{\"mode\":\"fixed_requested\""
-        << ",\"output_hold\":\"zero_order_hold\""
+        << ",\"output_hold\":\""
+        << (options.controller_tick_hz > 1000
+                ? "latest_only_per_plant_tick" : "zero_order_hold")
+        << "\""
         << ",\"source_interval_p50_ms\":"
         << (runtime_profile
                 ? options.runtime_source_controller_interval_p50_ms : 0.0)
@@ -794,11 +804,15 @@ void write_report(
                     options.runtime_source_controller_interval_p50_ms
                 : 0.0)
         << ",\"requested_hz\":" << options.controller_tick_hz
-        << ",\"tick_ms\":" << config.tick_ms << "}"
-        << ",\"manual_sample_hz\":" << options.controller_tick_hz
+        << ",\"tick_ms\":"
+        << 1000.0 / static_cast<double>(options.controller_tick_hz)
+        << ",\"plant_admission\":\"latest_per_1ms_tick\"}"
+        << ",\"manual_sample_hz\":"
+        << std::min(options.controller_tick_hz, 1000)
         << ",\"final_arbitration_hz\":" << options.controller_tick_hz
         << ",\"recoil_hz\":" << options.controller_tick_hz
         << ",\"output_hz\":" << options.controller_tick_hz
+        << ",\"plant_admission_hz\":1000"
         << ",\"ai_proposal\":{\"scope\":\"controller_pipeline\""
         << ",\"mode\":\"lockstep\""
         << ",\"requested_hz\":" << options.controller_tick_hz
@@ -1009,7 +1023,11 @@ int main(int argc, char** argv) {
         const RuntimeConfig runtime = load_runtime_config(options.config_path);
         BenchmarkConfig benchmark;
         benchmark.duration_ms = options.duration_ms;
-        benchmark.tick_ms = 1000 / options.controller_tick_hz;
+        benchmark.tick_ms = options.controller_tick_hz <= 1000
+            ? 1000 / options.controller_tick_hz : 1;
+        benchmark.controller_substeps_per_plant_tick =
+            options.controller_tick_hz > 1000
+            ? options.controller_tick_hz / 1000 : 1;
         benchmark.sensitivity_multiplier = options.sensitivity_multiplier;
         benchmark.scenario_profile = options.scenario == "compound_directional"
             ? ScenarioProfile::CompoundDirectional : ScenarioProfile::Baseline;
@@ -1085,8 +1103,9 @@ int main(int argc, char** argv) {
                                 *coverage,
                                 cohort,
                                 options.duration_ms,
-                                (options.duration_ms + benchmark.tick_ms - 1) /
-                                    benchmark.tick_ms);
+                                ((options.duration_ms + benchmark.tick_ms - 1) /
+                                    benchmark.tick_ms) *
+                                    benchmark.controller_substeps_per_plant_tick);
                         }
                         if (profile == ManualProfile::RecoilController ||
                             profile == ManualProfile::RecoilFlail) {

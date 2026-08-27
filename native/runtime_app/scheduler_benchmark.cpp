@@ -30,25 +30,31 @@ double percentile(std::vector<double> values, double q) {
 int main(int argc, char** argv) {
     (void)runtime_app::set_current_thread_priority(runtime_app::RuntimeThreadPriority::AboveNormal);
     int seconds = 60;
+    int tick_hz = 1000;
     std::string mode = "precision";
     std::string output = "scheduler_benchmark.json";
     unsigned int spin_tail_us = 50;
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
         if (arg == "--seconds" && i + 1 < argc) seconds = std::stoi(argv[++i]);
+        else if (arg == "--tick-hz" && i + 1 < argc) tick_hz = std::stoi(argv[++i]);
         else if (arg == "--mode" && i + 1 < argc) mode = argv[++i];
         else if (arg == "--output" && i + 1 < argc) output = argv[++i];
         else if (arg == "--spin-tail-us" && i + 1 < argc) spin_tail_us = static_cast<unsigned int>(std::stoul(argv[++i]));
     }
+    if (seconds <= 0 || tick_hz <= 0 || tick_hz > 100'000) {
+        std::cerr << "seconds must be positive and tick-hz must be in [1, 100000]\n";
+        return 2;
+    }
     using clock = std::chrono::steady_clock;
-    const auto interval = std::chrono::milliseconds(1);
+    const auto interval = std::chrono::nanoseconds(1'000'000'000ll / tick_hz);
     const auto started = clock::now();
     const double cpu_started = process_cpu_seconds();
     runtime_app::AbsoluteDeadlineState deadlines(started, interval);
     runtime_app::PrecisionTickScheduler scheduler(spin_tail_us);
     std::vector<double> intervals_us;
     std::vector<double> lateness_us;
-    intervals_us.reserve(static_cast<std::size_t>(seconds) * 1000);
+    intervals_us.reserve(static_cast<std::size_t>(seconds) * tick_hz);
     lateness_us.reserve(intervals_us.capacity());
     auto previous = started;
     std::uint64_t missed = 0;
@@ -73,6 +79,8 @@ int main(int argc, char** argv) {
     stream << "{\n"
         << "  \"mode\": \"" << (mode == "legacy" ? "legacy" : scheduler.mode_name()) << "\",\n"
         << "  \"duration_seconds\": " << elapsed << ",\n"
+        << "  \"requested_hz\": " << tick_hz << ",\n"
+        << "  \"interval_ns\": " << interval.count() << ",\n"
         << "  \"spin_tail_us\": " << spin_tail_us << ",\n"
         << "  \"samples\": " << intervals_us.size() << ",\n"
         << "  \"achieved_hz\": " << intervals_us.size() / elapsed << ",\n"

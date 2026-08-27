@@ -454,6 +454,13 @@ if(NATIVE_TEST_ENABLE_OFFLINE_BENCHMARKS)
             --duration-ms 6000 --seed 2026082703
             --profile pure --cohort bodylock --vision-hz 100
             --smoke --left-strafe off)
+    add_test(NAME NativeSustainedAimlabEightKhzCounterfactual
+        COMMAND cod_native_sustained_aimlab_benchmark
+            --config ${CMAKE_CURRENT_SOURCE_DIR}/../../config.native.example.toml
+            --duration-ms 1575 --seed 2026082703
+            --controller-tick-hz 8000 --vision-hz 200
+            --profile pure --cohort ads --target-motion stationary
+            --smoke --left-strafe off)
     add_test(NAME NativeSustainedAimlabLeftStrafeRejectsInvalid
         COMMAND cod_native_sustained_aimlab_benchmark
             --config ${CMAKE_CURRENT_SOURCE_DIR}/../../config.native.example.toml

@@ -3,6 +3,7 @@
 #include <cmath>
 #include <limits>
 #include <stdexcept>
+#include <vector>
 
 namespace {
 using namespace controller_native::sustained_aimlab;
@@ -121,6 +122,65 @@ void test_controller_tick_holds_output_without_dropping_ready_vision() {
             "reported controller updates must match actual callbacks");
     require(fresh_count >= 20,
             "Vision publications between controller ticks must be latched");
+}
+
+void test_eight_khz_controller_substeps_keep_one_khz_plant_admission() {
+    BenchmarkConfig config;
+    config.duration_ms = 4;
+    config.fixed_target_slot_ms = 4;
+    config.inter_target_gap_ms = 0;
+    config.vision_interval_ms = 1;
+    config.target_motion_enabled = false;
+    config.controller_substeps_per_plant_tick = 8;
+    const ScenarioScript script = generate_script(8000, config);
+
+    std::vector<double> controller_times;
+    int controller_calls = 0;
+    int fresh_frames = 0;
+    double maximum_plant_delta_px = 0.0;
+    const ControllerStep controller = [&](const ControllerObservation& input) {
+        controller_times.push_back(input.now_seconds);
+        ++controller_calls;
+        if (input.fresh_vision) ++fresh_frames;
+        ControllerStepResult result = refuse_bodylock(input);
+        // If the plant accidentally integrates all eight controller writes,
+        // these first seven commands move the camera. The contract under test
+        // admits only the final command at each 1 ms plant boundary.
+        result.final_stick.x = controller_calls % 8 == 0 ? 0.0 : 1.0;
+        return result;
+    };
+
+    const auto result = run_simulation(
+        script,
+        ManualProfile::Pure,
+        controller,
+        BenchmarkCohort::AdsAcquire,
+        [&](const SimulationTraceFrame& frame) {
+            const Vec2d plant_delta{
+                frame.true_error_after_px.x - frame.true_error_before_px.x,
+                frame.true_error_after_px.y - frame.true_error_before_px.y,
+            };
+            maximum_plant_delta_px = std::max(
+                maximum_plant_delta_px,
+                length(plant_delta));
+        });
+
+    require(result.ticks == config.duration_ms,
+            "8 kHz controller must not change the 1 kHz plant/scorer clock");
+    require(result.controller_updates == config.duration_ms * 8,
+            "8 kHz controller must execute eight substeps per plant tick");
+    require(controller_calls == result.controller_updates,
+            "reported 8 kHz updates must match controller callbacks");
+    require(fresh_frames <= config.duration_ms,
+            "one Vision publication must not be replayed across substeps");
+    require(controller_times.size() >= 9 &&
+                std::fabs(controller_times[1] - controller_times[0] - 0.000125) <
+                    1.0e-12 &&
+                std::fabs(controller_times[8] - controller_times[0] - 0.001) <
+                    1.0e-12,
+            "8 kHz controller timestamps must advance by 125 microseconds");
+    require(maximum_plant_delta_px < 1.0e-12,
+            "1 kHz plant must admit only the final controller output per tick");
 }
 
 void test_sensitivity_multiplier_changes_only_camera_plant_gain() {
@@ -423,6 +483,7 @@ int main() {
     test_script_and_run_are_deterministic();
     test_source_cadence_has_unique_fresh_frames();
     test_controller_tick_holds_output_without_dropping_ready_vision();
+    test_eight_khz_controller_substeps_keep_one_khz_plant_admission();
     test_sensitivity_multiplier_changes_only_camera_plant_gain();
     test_held_output_cannot_acquire_a_different_target();
     test_player_motion_is_plant_input_not_controller_oracle();

@@ -134,8 +134,13 @@ report:
   This setting is required; the report separately retains the log-derived
   controller-sample p50/p95 interval and its p50-based rate estimate, so the
   requested fixed clock cannot be mistaken for observed runtime behavior.
-  The initial implementation accepts exact integer-ms rates: positive divisors
-  of 1000 such as 1000, 500, 250, 200, 125, or 100 Hz.
+  Accepted rates are aligned to the 1 kHz plant: positive divisors of 1000 at or
+  below 1 kHz, plus 2, 4, and 8 kHz. Above 1 kHz, manual/Vision inputs remain
+  held at 1 ms resolution, the complete production controller pipeline executes
+  multiple 125–500 us substeps, and only the final output in each millisecond is
+  admitted to the plant. Reports expose the attempted controller/output rate,
+  the 1 kHz manual source and plant-admission rates, and the number of controller
+  updates per plant tick separately.
 - `--target-slot-ms` is a fixed opportunity window (default/minimum 1575 ms).
   Runtime-profile runs reject zero/outcome-dependent replacement. Reports bind
   the slot, 1000 ms scoring window, 50 ms gap, and bounded target count; the
@@ -190,7 +195,7 @@ Runtime-profile mode is deliberately not an exact gameplay replay:
 | target and POV paths remain algorithmic presets | correlated player/target maneuvers and reaction timing are not replayed | synchronized pose/target trajectories |
 | manual, target and observation samples are sanitized independently | their exact episode-level causal correlation is lost | a privacy-safe episode bundle keyed by relative time |
 | only right-stick control-error-relative habits are replayed | multi-target intent, handover choice, left-stick coupling and fire/recoil habits are incomplete | synchronized input-purpose and target-candidate traces |
-| controller simulation advances on deterministic millisecond boundaries | OS scheduling, USB polling and ViGEm delivery jitter are absent | physical-read/output-delivery timestamp distributions or HIL capture |
+| controller simulation uses deterministic controller boundaries while the plant remains 1 kHz | OS scheduling, physical report cadence, game input admission and ViGEm delivery jitter are absent | physical-read/output-delivery timestamp distributions or HIL capture |
 | geometry corruption, identity churn and cue availability are mostly fixtures | wrong-target, corpse, occlusion and reacquisition rates are not naturally distributed | audited selector/candidate episode profiles |
 | benchmark `PASS` only checks execution and finite metrics | it is not a gameplay-quality or release gate | matched native gameplay A/B plus visible outcome review |
 
@@ -221,6 +226,24 @@ lockstep controls produce zero. The independent scheduler, held-proposal cache,
 runtime/benchmark switches and schema-v19 cadence telemetry were removed. The
 old config keys are regression-tested as unknown and inert. The hashed audit and
 incident artifacts remain historical evidence for any future redesign.
+
+### Rates above 1 kHz are counterfactual only
+
+An 8 kHz benchmark PASS means the deterministic controller callback completed;
+it does not mean the production runtime or game accepts 8,000 distinct reports.
+The current runtime config rejects values above 2 kHz, and its one outer tick
+owns physical SDL/XInput polling, target/lifecycle, AI, dynamics, composition,
+and one ViGEm submission.
+
+The 2026-08-27 1/2/4/8 kHz study also proves that the current controller is not
+rate invariant above 1 kHz. ADS stability still uses controller-tick counts
+(`settle_frames`), while target manual correction clamps each coordinator step
+to at least 1 ms. Repeating those state transitions eight times inside one plant
+millisecond can raise additive score while worsening overshoot, wrong-way work,
+stale-after-stop output, residual kicks, and BodyLock tail error. Until those
+states use wall/source time and pass paired protected constraints, rates above
+1 kHz are `EXPLORATORY / MISSING COVERAGE` and are ineligible for production or
+parameter optimization claims.
 
 The official baseline runs seeds `1337`, `20260718`, and `424242` twice: once with
 pure target motion and once with deterministic mixed human mistakes. Scores are

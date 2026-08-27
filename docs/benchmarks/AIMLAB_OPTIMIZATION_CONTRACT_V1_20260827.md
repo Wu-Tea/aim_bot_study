@@ -76,6 +76,8 @@ AimLab 最重要的目标不是制造一个更高的纯数字，而是逐步提�
 
 - 接受的生产路径在约 1000 Hz 外层 cadence 上按同一 tick 执行 physical/manual 采样、目标权威/lifecycle、AI solve、dynamics、AutoFire、recoil、最终 composition 和 ViGEm publication。
 - benchmark 可把整条 controller cadence 作为明确的反事实轴，并继续支持不同 Vision cadence、Vision age 和灵敏度 plant；不得把请求的固定频率冒充日志中的实际频率。
+- 1 kHz 以上只允许作为反事实：manual/Vision 以 1 ms 保持，完整 controller 可在同一 plant 毫秒内执行 2/4/8 次，但 plant 只接纳最后输出。它不证明 USB、ViGEm 或游戏消费同样频率，也不授权放宽生产配置。
+- controller 内所有稳定判定、超时、积分、slew、manual `D` 修正必须对 wall/source time 保持不变；按 controller tick 计数或把亚毫秒 `dt` 钳成 1 ms 的候选不得靠高频重复取得分数收益。
 - 2026-08-27 的独立 AI proposal 固定 250 Hz 实验已否决并回滚。它在权威 tick 中产生约 24.9% 的零 assist 请求，而旧 lockstep 日志为 0%，并且没有测得 whole-runtime 性能收益。
 - 将来若重开独立 AI cadence，必须先建立新 RED：任一 target ID、selector generation、mode、LT/lifecycle 或 authority 变化都要在同一个外层 tick 重算；权威 proposal gap 必须为零，跨目标陈旧输出必须为零，并证明真实整机收益。未满足前不得恢复运行时开关或缓存 owner。
 
