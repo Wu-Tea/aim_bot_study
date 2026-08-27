@@ -24,6 +24,12 @@ the normative optimization contract.
 - Freeze fixtures, thresholds, seeds, identities, and covariates before reading
   candidate output. Convert a new live failure into a RED regression before
   changing production behavior.
+- Use the fixed target schedule (default 1575 ms slot + 50 ms gap). A failure
+  must wait out its slot, target opportunity counts must match, and a BodyLock
+  isolate entry failure is an absolute hard gate with zero acquisition reward.
+- Prefer the runtime profile's horizontal log-inferred controller response P50
+  over an invented camera gain, but label it `inferred`: it is the controller's
+  internal response belief, not independent game-plant calibration.
 - Production acceptance still requires a matched native/live A/B and user feel
   confirmation after offline gates pass.
 

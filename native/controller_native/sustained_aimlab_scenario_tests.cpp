@@ -97,6 +97,12 @@ void test_defaults_and_slowdown_anchor_points() {
                  "default sensitivity multiplier");
     require(config.tracking_window_ms == 1'000, "tracking window must be 1000ms");
     require(config.inter_target_gap_ms == 50, "target gap must be 50ms");
+    require(config.ads_execution_timeout_ms == 575,
+            "ADS execution timeout must include wait, snap and extension budgets");
+    require(config.bodylock_entry_timeout_ms == 575,
+            "BodyLock setup must allow the full legal ADS horizon");
+    require(config.fixed_target_slot_ms == 1'575,
+            "default benchmark must use a fixed 1575ms target slot");
     require_near(config.target_radius_px, 24.0, 1e-12, "target radius");
 
     using controller_native::sustained_aimlab::aim_slowdown_multiplier;
@@ -130,11 +136,15 @@ void test_seeded_generation_is_reproducible_and_complete() {
                 "same seed target scripts must match");
     }
 
-    const std::size_t worst_case_targets = static_cast<std::size_t>(
-        std::ceil(static_cast<double>(config.duration_ms) /
-                  (config.min_acquire_deadline_ms + config.inter_target_gap_ms)));
-    require(first.targets.size() >= worst_case_targets,
-            "generator must cover worst-case one-minute misses");
+    const std::size_t scheduled_targets = static_cast<std::size_t>(
+        (config.duration_ms - config.initial_idle_ms -
+            config.fixed_target_slot_ms) /
+            (config.fixed_target_slot_ms + config.inter_target_gap_ms) +
+        1);
+    require(first.targets.size() == scheduled_targets,
+            "generator must emit only the bounded fixed target schedule");
+    require(first.targets.size() == 36,
+            "default 60-second schedule must contain 36 complete slots");
 
     std::set<MotionProfile> profiles;
     for (const TargetScript& target : first.targets) profiles.insert(target.motion);
@@ -653,6 +663,7 @@ void test_short_occlusion_bursts_are_tracking_relative_and_hashed() {
 void test_runtime_profile_drives_paired_delivery_capture_age_and_target_shape() {
     BenchmarkConfig config;
     config.duration_ms = 1'000;
+    config.fixed_target_slot_ms = 200;
     config.runtime_observation_pattern = {
         RuntimeObservationSample{7, 5},
         RuntimeObservationSample{8, 6},
@@ -731,7 +742,7 @@ void test_runtime_profile_drives_paired_delivery_capture_age_and_target_shape() 
 
 void test_runtime_manual_library_preserves_aim_mode_scope() {
     BenchmarkConfig config;
-    config.duration_ms = 1'000;
+    config.duration_ms = config.fixed_target_slot_ms;
     config.runtime_manual_segments = {
         RuntimeManualSegment{{RuntimeManualSample{10, 0.20, 0.0}}},
         RuntimeManualSegment{{RuntimeManualSample{10, -0.20, 0.0}}},
@@ -752,9 +763,9 @@ void test_runtime_manual_library_preserves_aim_mode_scope() {
     }
 }
 
-void test_runtime_extensions_preserve_default_script_identity() {
+void test_default_fixed_schedule_has_stable_script_identity() {
     BenchmarkConfig config;
-    config.duration_ms = 1'500;
+    config.duration_ms = config.fixed_target_slot_ms;
     require(config.runtime_observation_pattern.empty(),
             "default runtime observation pattern is not empty");
     require(config.runtime_manual_segments.empty(),
@@ -763,8 +774,8 @@ void test_runtime_extensions_preserve_default_script_identity() {
             "default runtime target samples are not empty");
     const ScenarioScript script =
         controller_native::sustained_aimlab::generate_script(2026072301, config);
-    require(script.hash == 9'377'044'951'088'281'208ull,
-            "runtime extensions changed the default script hash: " +
+    require(script.hash == 18'044'272'266'236'773'195ull,
+            "default fixed target schedule changed script identity: " +
                 std::to_string(script.hash));
 }
 
@@ -908,7 +919,7 @@ int main() {
         test_200hz_changes_only_observation_schedule();
         test_runtime_profile_drives_paired_delivery_capture_age_and_target_shape();
         test_runtime_manual_library_preserves_aim_mode_scope();
-        test_runtime_extensions_preserve_default_script_identity();
+        test_default_fixed_schedule_has_stable_script_identity();
         test_motion_profiles_and_boundary_reflection();
         test_motion_profile_names_are_stable();
         test_bodylock_stress_profiles_are_isolated_and_deterministic();

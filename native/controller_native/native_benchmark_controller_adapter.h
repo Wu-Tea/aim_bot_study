@@ -25,7 +25,8 @@ struct AssistedModeCoverage {
 
 ControllerVisionSnapshot snapshot_from(
     const sustained_aimlab::ControllerObservation& input,
-    double now_seconds);
+    double now_seconds,
+    double configured_aim_height_ratio);
 
 class NativeReplayAdapter {
 public:
@@ -40,7 +41,7 @@ public:
 private:
     sustained_aimlab::BenchmarkCohort cohort_ =
         sustained_aimlab::BenchmarkCohort::AdsAcquire;
-    std::uint64_t last_ads_target_id_ = 0;
+    std::uint64_t last_aim_target_id_ = 0;
     double now_seconds_ = 0.0;
     GamepadRuntimeConfig config_;
     NativeGamepadController controller_;

@@ -4,6 +4,14 @@
   "contract": "docs/benchmarks/AIMLAB_OPTIMIZATION_CONTRACT_V1_20260827.md",
   "principle": "constraints_decide_eligibility_scores_rank_eligible_candidates",
   "floating_tolerance": 1e-09,
+  "absolute_hard_gates": [
+    {
+      "cohort": "bodylock",
+      "field": "bodylock_entry_failures",
+      "operator": "equal",
+      "value": 0
+    }
+  ],
   "protected_metrics": [
     {"field": "targets_acquired", "direction": "higher_or_equal"},
     {"field": "targets_missed", "direction": "lower_or_equal"},

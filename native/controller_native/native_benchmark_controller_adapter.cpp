@@ -13,7 +13,8 @@ using namespace sustained_aimlab;
 
 ControllerVisionSnapshot snapshot_from(
     const ControllerObservation& input,
-    double now_seconds) {
+    double now_seconds,
+    double configured_aim_height_ratio) {
     ControllerVisionSnapshot snapshot;
     snapshot.frame_updated = true;
     snapshot.selector_identity_protocol = true;
@@ -38,6 +39,11 @@ ControllerVisionSnapshot snapshot_from(
     candidate.valid = input.target_present && input.primary_candidate_visible;
     candidate.has_aim_point = true;
     if (input.has_body_box) {
+        const double aim_height_ratio =
+            input.body_box_width > 0.0 &&
+                input.body_box_height / input.body_box_width < 0.65
+            ? 0.40
+            : std::clamp(configured_aim_height_ratio, 0.0, 1.0);
         candidate.body_box_px = {
             static_cast<float>(input.body_box_x),
             static_cast<float>(input.body_box_y),
@@ -48,7 +54,7 @@ ControllerVisionSnapshot snapshot_from(
             static_cast<float>(
                 input.body_box_x + input.body_box_width * 0.5),
             static_cast<float>(
-                input.body_box_y + input.body_box_height * 0.40),
+                input.body_box_y + input.body_box_height * aim_height_ratio),
         };
     } else {
         candidate.aim_point_px = {
@@ -99,27 +105,32 @@ NativeReplayAdapter::NativeReplayAdapter(
       controller_(config_, &now_seconds_),
       coverage_(std::move(coverage)) {
     physical_.connected = true;
-    physical_.left_trigger =
-        cohort_ == BenchmarkCohort::BodyLockFollow ? 1.0f : 0.0f;
+    physical_.left_trigger = 0.0f;
 }
 
 ControllerStepResult NativeReplayAdapter::step(
     const ControllerObservation& input) {
     now_seconds_ = static_cast<double>(input.now_ms) / 1000.0;
-    if (cohort_ == BenchmarkCohort::AdsAcquire) {
-        if (!input.target_present) {
-            physical_.left_trigger = 0.0f;
-            last_ads_target_id_ = 0;
-        } else if (input.target_id != last_ads_target_id_) {
-            physical_.left_trigger = 0.0f;
-            last_ads_target_id_ = input.target_id;
-        } else {
-            physical_.left_trigger = 1.0f;
-        }
+    // Each benchmark target is an independent user attempt. Give every target
+    // one fresh LT epoch: the first target-present tick is released and the
+    // next tick supplies the only rising edge. Reusing held LT across target
+    // IDs would violate one-LT/one-snap authority and phase-lock BodyLock entry
+    // success to the synthetic Vision cadence.
+    if (!input.target_present) {
+        physical_.left_trigger = 0.0f;
+        last_aim_target_id_ = 0;
+    } else if (input.target_id != last_aim_target_id_) {
+        physical_.left_trigger = 0.0f;
+        last_aim_target_id_ = input.target_id;
+    } else {
+        physical_.left_trigger = 1.0f;
     }
     apply_benchmark_physical_input(input, physical_);
     if (input.fresh_vision) {
-        controller_.submit_vision_snapshot(snapshot_from(input, now_seconds_));
+        controller_.submit_vision_snapshot(snapshot_from(
+            input,
+            now_seconds_,
+            config_.tracker.aim_height_ratio));
     }
     const auto output = controller_.build_output(physical_);
     const auto& components = controller_.last_output_components();

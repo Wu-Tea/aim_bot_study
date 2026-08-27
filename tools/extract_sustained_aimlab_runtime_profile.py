@@ -21,6 +21,7 @@ from typing import Iterable, Sequence
 
 PROFILE_SCHEMA = "sustained_aimlab_runtime_profile_v2"
 HEX_64 = frozenset("0123456789abcdef")
+BODYLOCK_POSITION_X_HORIZON_SECONDS = 0.08
 SUPPORTED_AIM_MODES = frozenset(
     {"ads", "ads_acquire", "acquisition", "body_lock", "bodylock"}
 )
@@ -364,12 +365,61 @@ def _manual_from(row: dict, exclusions: Counter) -> ManualPoint | None:
     )
 
 
+def _controller_response_from(row: dict, exclusions: Counter) -> float | None:
+    """Recover the response scale used by the logged BodyLock solver.
+
+    Schema-18 telemetry exposes the solver's position term but not the response
+    scale itself.  For the audited runtime the horizontal term is
+    control_error / (0.08 s * response_scale).  This recovers the controller's
+    internal belief; it is not an independent measurement of the game camera.
+    """
+    if (
+        row.get("aim_mode") not in {"body_lock", "bodylock"}
+        or row.get("bodylock_lifecycle") != "observed"
+        or row.get("current_observed_target_present") is not True
+        or row.get("has_target") is not True
+        or row.get("aim_authority") is not True
+        or row.get("output_delivered") is not True
+    ):
+        exclusions["controller_response_not_direct_bodylock"] += 1
+        return None
+    if (
+        _positive_int(row.get("selected_track_id")) is None
+        or _positive_int(row.get("sample_ns")) is None
+    ):
+        exclusions["controller_response_no_target_identity"] += 1
+        return None
+
+    error_x = _finite_number(row.get("control_error_x"))
+    position_x = _finite_number(row.get("bodylock_position_stick_x"))
+    if error_x is None or position_x is None:
+        exclusions["controller_response_required_field_missing"] += 1
+        return None
+
+    if (
+        abs(error_x) < 3.0
+        or abs(position_x) < 1.0e-4
+        or error_x * position_x <= 0.0
+    ):
+        exclusions["controller_response_no_stable_axis"] += 1
+        return None
+    estimate = abs(error_x) / (
+        BODYLOCK_POSITION_X_HORIZON_SECONDS * abs(position_x)
+    )
+    if not 50.0 <= estimate <= 10_000.0 or not math.isfinite(estimate):
+        exclusions["controller_response_no_stable_axis"] += 1
+        return None
+    return float(estimate)
+
+
 def _read_telemetry(
     selected: Sequence[SelectedFile],
     runtime: dict,
-) -> tuple[list[Observation], list[ManualPoint], dict]:
+) -> tuple[list[Observation], list[ManualPoint], list[float], dict]:
     observations: list[Observation] = []
     manual_points: list[ManualPoint] = []
+    controller_response_estimates: list[float] = []
+    controller_response_keys: set[tuple[int, int | None, int]] = set()
     counts: Counter = Counter()
     exclusions: Counter = Counter()
     metadata_records = 0
@@ -436,6 +486,20 @@ def _read_telemetry(
                     point = _manual_from(row, exclusions)
                     if point is not None:
                         manual_points.append(point)
+                    response_estimate = _controller_response_from(row, exclusions)
+                    if response_estimate is not None:
+                        response_key = (
+                            int(row["sample_ns"]),
+                            row.get("sample_seq")
+                            if isinstance(row.get("sample_seq"), int)
+                            else None,
+                            int(row["selected_track_id"]),
+                        )
+                        if response_key in controller_response_keys:
+                            exclusions["controller_response_duplicate"] += 1
+                        else:
+                            controller_response_keys.add(response_key)
+                            controller_response_estimates.append(response_estimate)
 
         if digest.hexdigest() != item.sha256 or size_bytes != item.size_bytes:
             raise ValueError(f"audited input {item.file_id!r} no longer matches its SHA-256/size")
@@ -453,7 +517,7 @@ def _read_telemetry(
     for record_type, eligible in required_counts.items():
         if counts[record_type] <= 0 or eligible <= 0:
             raise ValueError(f"selected telemetry has no eligible {record_type} records")
-    return observations, manual_points, {
+    return observations, manual_points, controller_response_estimates, {
         "record_types": dict(sorted(counts.items())),
         "exclusions": dict(sorted(exclusions.items())),
         "session_id": next(iter(session_ids)),
@@ -873,7 +937,9 @@ def build_runtime_profile(
     runtime, selected = _select_files(
         manifest_path, manifest, intake, file_ids
     )
-    observations, manual_points, telemetry = _read_telemetry(selected, runtime)
+    observations, manual_points, controller_response_estimates, telemetry = (
+        _read_telemetry(selected, runtime)
+    )
     observation_pattern, target_samples, observation_statistics = (
         _build_observation_pattern(observations, max_observation_samples, max_gap_ms)
     )
@@ -914,11 +980,27 @@ def build_runtime_profile(
             "field_exclusions": telemetry["exclusions"],
             "observation": observation_statistics,
             "manual": manual_statistics,
+            "controller_response": _summary(controller_response_estimates),
         },
         "observation_pattern": observation_pattern,
         "manual_segments": manual_segments,
         "input_habits": input_habits,
         "target_samples": target_samples,
+        "controller_response_estimate": {
+            "status": (
+                "inferred" if controller_response_estimates else "unavailable"
+            ),
+            "quantity": "controller_used_response_scale_px_per_stick_second",
+            "method": "bodylock_position_x_term_inverse_v1",
+            "bodylock_position_x_horizon_seconds": (
+                BODYLOCK_POSITION_X_HORIZON_SECONDS
+            ),
+            "distribution": _summary(controller_response_estimates),
+            "limitation": (
+                "controller-internal response belief recovered from its position "
+                "term; not an independent game-camera or target-motion measurement"
+            ),
+        },
         "plant": {
             "status": "unavailable",
             "camera_response_px_per_stick_second": None,
@@ -943,6 +1025,12 @@ def build_runtime_profile(
             ),
             "target_samples": (
                 "first eligible stable error and body size from each target/ADS epoch"
+            ),
+            "controller_response_estimate": (
+                "schema-18 direct-observed BodyLock horizontal control error "
+                "divided by the logged X position term and its 80ms "
+                "source-controller horizon; "
+                "controller belief only, not identified game-plant truth"
             ),
             "not_exact_replay": True,
         },

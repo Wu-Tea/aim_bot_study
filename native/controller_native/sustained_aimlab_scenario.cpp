@@ -98,6 +98,8 @@ void hash_config(std::uint64_t& hash, const BenchmarkConfig& config) {
     hash_integral(hash, config.tick_ms);
     hash_integral(hash, config.tracking_window_ms);
     hash_integral(hash, config.inter_target_gap_ms);
+    hash_integral(hash, config.ads_execution_timeout_ms);
+    hash_integral(hash, config.bodylock_entry_timeout_ms);
     hash_integral(hash, config.min_acquire_deadline_ms);
     hash_integral(hash, config.max_acquire_deadline_ms);
     if (config.fixed_target_slot_ms > 0) {
@@ -266,6 +268,9 @@ ScenarioScript generate_script(
     std::uint32_t seed,
     const BenchmarkConfig& config) {
     if (config.duration_ms <= 0 || config.tick_ms <= 0 ||
+        config.tracking_window_ms <= 0 || config.inter_target_gap_ms < 0 ||
+        config.ads_execution_timeout_ms <= 0 ||
+        config.bodylock_entry_timeout_ms <= 0 || config.initial_idle_ms < 0 ||
         config.min_acquire_deadline_ms <= 0 ||
         config.max_acquire_deadline_ms < config.min_acquire_deadline_ms ||
         config.fixed_target_slot_ms < 0 ||
@@ -372,11 +377,25 @@ ScenarioScript generate_script(
     std::uniform_int_distribution<int> early_occlusion_distribution(80, 180);
     std::uniform_int_distribution<int> late_occlusion_distribution(480, 620);
 
-    const int shortest_cycle_ms = config.min_acquire_deadline_ms +
-        config.inter_target_gap_ms;
-    const std::size_t target_count = static_cast<std::size_t>(
-        std::ceil(static_cast<double>(config.duration_ms) /
-                  static_cast<double>(shortest_cycle_ms))) + 1;
+    std::size_t target_count = 0;
+    if (config.fixed_target_slot_ms > 0) {
+        const int scheduled_duration_ms = std::max(
+            0, config.duration_ms - config.initial_idle_ms);
+        const int fixed_cycle_ms = config.fixed_target_slot_ms +
+            config.inter_target_gap_ms;
+        if (scheduled_duration_ms >= config.fixed_target_slot_ms) {
+            target_count = static_cast<std::size_t>(
+                (scheduled_duration_ms - config.fixed_target_slot_ms) /
+                    fixed_cycle_ms +
+                1);
+        }
+    } else {
+        const int shortest_cycle_ms = config.min_acquire_deadline_ms +
+            config.inter_target_gap_ms;
+        target_count = static_cast<std::size_t>(
+            std::ceil(static_cast<double>(config.duration_ms) /
+                      static_cast<double>(shortest_cycle_ms))) + 1;
+    }
     result.targets.reserve(target_count);
     const int profile_offset = profile_offset_distribution(random);
     std::size_t runtime_observation_index = 0;
@@ -560,8 +579,11 @@ ScenarioScript generate_script(
             target.velocity_maneuvers.clear();
         }
 
-        const int observation_horizon_ms = config.max_acquire_deadline_ms +
-            config.tracking_window_ms;
+        const int observation_horizon_ms = std::max({
+            config.max_acquire_deadline_ms,
+            config.ads_execution_timeout_ms,
+            config.bodylock_entry_timeout_ms,
+        }) + config.tracking_window_ms;
         // Keep target kinematics paired when only Vision cadence changes.
         // Extra 200 Hz noise samples must not consume the scenario RNG and
         // silently generate different later targets.

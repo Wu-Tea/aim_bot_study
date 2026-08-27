@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Run the native sustained AimLab benchmark with audited runtime covariates.
 
-The profile supplies observation timing, target geometry/error samples, and
-target-relative manual input.  The target trajectory and camera plant remain
-synthetic and therefore must be selected and attributed explicitly.
+The profile supplies observation timing, target geometry/error samples,
+target-relative manual input, and (when telemetry permits) the response scale
+used by the logged controller.  Target/POV trajectories and the game camera
+remain simulated, so the response estimate is attributed as inferred rather
+than claimed as an independently measured plant.
 """
 
 from __future__ import annotations
@@ -115,6 +117,39 @@ def validate_config_relationship(
         )
 
 
+def resolve_camera_response(
+    encoded: dict[str, object],
+    requested_response: float | None,
+    requested_source: str | None,
+) -> tuple[float, str, str]:
+    """Resolve the simulator plant gain without silently inventing evidence."""
+    if requested_response is None:
+        inferred = encoded.get("controller_response_estimate_p50")
+        if inferred is None:
+            raise ValueError(
+                "runtime profile has no controller response estimate; provide "
+                "--camera-response-px-per-stick-second and --plant-source"
+            )
+        response = _number(inferred, "runtime controller response estimate p50")
+        if requested_source not in {None, "inferred"}:
+            raise ValueError(
+                "profile-derived camera response must use plant-source=inferred"
+            )
+        source = "inferred"
+        basis = "runtime_controller_response_p50"
+    else:
+        response = _number(requested_response, "camera response")
+        if requested_source is None:
+            raise ValueError(
+                "an explicit camera response also requires --plant-source"
+            )
+        source = requested_source
+        basis = "explicit_cli"
+    if response <= 0.0:
+        raise ValueError("camera response must be finite and positive")
+    return response, source, basis
+
+
 def validate_and_encode_profile(profile_path: Path) -> dict[str, object]:
     """Validate one extracted profile and encode its native CLI patterns."""
     try:
@@ -175,6 +210,68 @@ def validate_and_encode_profile(profile_path: Path) -> dict[str, object]:
         raise ValueError(
             "runtime profile must not claim a plant that telemetry cannot identify"
         )
+    controller_response_estimate_p50: float | None = None
+    controller_response_estimate_p95: float | None = None
+    controller_response_estimate_count = 0
+    controller_response_method: str | None = None
+    controller_response_horizon_seconds: float | None = None
+    if (
+        profile_schema == PROFILE_SCHEMA
+        and profile.get("controller_response_estimate") is not None
+    ):
+        response_estimate = _object(
+            profile.get("controller_response_estimate"),
+            "runtime controller response estimate",
+        )
+        if response_estimate.get("quantity") != (
+            "controller_used_response_scale_px_per_stick_second"
+        ):
+            raise ValueError("runtime controller response quantity is invalid")
+        controller_response_method = response_estimate.get("method")
+        if controller_response_method != "bodylock_position_x_term_inverse_v1":
+            raise ValueError("runtime controller response method is invalid")
+        controller_response_horizon_seconds = _number(
+            response_estimate.get("bodylock_position_x_horizon_seconds"),
+            "runtime controller response BodyLock X horizon",
+        )
+        if not math.isclose(
+            controller_response_horizon_seconds,
+            0.08,
+            rel_tol=0.0,
+            abs_tol=1.0e-12,
+        ):
+            raise ValueError("runtime controller response uses an unknown horizon")
+        distribution = _object(
+            response_estimate.get("distribution"),
+            "runtime controller response distribution",
+        )
+        count_value = distribution.get("count")
+        if isinstance(count_value, bool) or not isinstance(count_value, int) or count_value < 0:
+            raise ValueError("runtime controller response count is invalid")
+        controller_response_estimate_count = count_value
+        if response_estimate.get("status") == "inferred":
+            if controller_response_estimate_count <= 0:
+                raise ValueError("inferred controller response has no samples")
+            controller_response_estimate_p50 = _number(
+                distribution.get("p50"), "runtime controller response p50"
+            )
+            controller_response_estimate_p95 = _number(
+                distribution.get("p95"), "runtime controller response p95"
+            )
+            if (
+                controller_response_estimate_p50 < 50.0
+                or controller_response_estimate_p95 < controller_response_estimate_p50
+                or controller_response_estimate_p95 > 10_000.0
+            ):
+                raise ValueError("runtime controller response distribution is invalid")
+        elif response_estimate.get("status") == "unavailable":
+            if controller_response_estimate_count != 0 or any(
+                distribution.get(field) is not None
+                for field in ("p50", "p95", "p99", "max")
+            ):
+                raise ValueError("unavailable controller response contains estimates")
+        else:
+            raise ValueError("runtime controller response status is invalid")
     semantics = _object(profile.get("semantics"), "runtime profile semantics")
     if semantics.get("not_exact_replay") is not True:
         raise ValueError("runtime profile must retain its not-exact-replay boundary")
@@ -384,6 +481,13 @@ def validate_and_encode_profile(profile_path: Path) -> dict[str, object]:
         "source_controller_tick_hz_estimate": (
             1000.0 / source_controller_interval_p50_ms
         ),
+        "controller_response_estimate_p50": controller_response_estimate_p50,
+        "controller_response_estimate_p95": controller_response_estimate_p95,
+        "controller_response_estimate_count": controller_response_estimate_count,
+        "controller_response_method": controller_response_method,
+        "controller_response_horizon_seconds": (
+            controller_response_horizon_seconds
+        ),
     }
 
 
@@ -518,6 +622,7 @@ def _verify_report(
     slowdown_edge: float,
     slowdown_center: float,
     controller_tick_hz: int,
+    target_slot_ms: int,
     target_motion_preset: str,
     pov_motion_preset: str,
 ) -> None:
@@ -552,6 +657,18 @@ def _verify_report(
         or simulator.get("controller_tick_ms") != 1000 // controller_tick_hz
     ):
         raise ValueError("benchmark report changed controller/plant clocks")
+    target_schedule = _object(
+        simulator.get("target_schedule"), "benchmark target schedule"
+    )
+    if (
+        target_schedule.get("mode") != "fixed_slots"
+        or target_schedule.get("slot_ms") != target_slot_ms
+        or target_schedule.get("tracking_window_ms") != 1000
+        or target_schedule.get("inter_target_gap_ms") != 50
+        or target_schedule.get("ads_execution_timeout_ms") != 575
+        or target_schedule.get("bodylock_entry_timeout_ms") != 575
+    ):
+        raise ValueError("benchmark report lost the fixed target schedule")
     controller = _object(
         simulator.get("controller"), "benchmark simulator controller clock"
     )
@@ -685,15 +802,31 @@ def _verify_report(
     expected_controller_updates = (
         duration_ms + (1000 // controller_tick_hz) - 1
     ) // (1000 // controller_tick_hz)
+    expected_target_count = (
+        (duration_ms - target_slot_ms) // (target_slot_ms + 50) + 1
+        if duration_ms >= target_slot_ms
+        else 0
+    )
+    if target_schedule.get("script_target_limit") != expected_target_count:
+        raise ValueError("benchmark report changed the bounded target count")
     if any(
         not isinstance(run, dict)
         or run.get("profile") != "runtime"
         or run.get("left_strafe") != expected_left_strafe
         or run.get("vertical_motion") != expected_vertical_motion
         or run.get("controller_updates") != expected_controller_updates
+        or run.get("targets_spawned") != expected_target_count
         for run in runs
     ):
         raise ValueError("benchmark report contains a mismatched runtime run")
+    if any(
+        run.get("cohort") == "bodylock"
+        and run.get("bodylock_entry_failures") != 0
+        for run in runs
+    ):
+        raise ValueError(
+            "BodyLock entry is a hard constraint; report contains entry failures"
+        )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -737,7 +870,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Multiply each extracted capture-to-controller age.",
     )
     parser.add_argument(
-        "--camera-response-px-per-stick-second", required=True, type=float
+        "--camera-response-px-per-stick-second",
+        type=float,
+        help=(
+            "Override the profile's controller-response P50. An override also "
+            "requires --plant-source."
+        ),
     )
     parser.add_argument(
         "--sensitivity-multiplier",
@@ -749,8 +887,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--slowdown-center", required=True, type=float)
     parser.add_argument(
         "--plant-source",
-        required=True,
         choices=("measured", "inferred", "assumption"),
+    )
+    parser.add_argument(
+        "--target-slot-ms",
+        type=int,
+        default=1575,
+        help=(
+            "Fixed opportunity window per target. Runtime benchmarks reject "
+            "outcome-dependent replacement."
+        ),
     )
     parser.add_argument(
         "--config-relationship",
@@ -780,6 +926,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise ValueError(f"refusing to overwrite benchmark report: {output_path}")
         if args.duration_ms <= 0:
             raise ValueError("duration-ms must be positive")
+        if args.target_slot_ms < 1575:
+            raise ValueError(
+                "target-slot-ms must cover the 575ms execution horizon plus "
+                "the 1000ms tracking window"
+            )
+        if args.duration_ms < args.target_slot_ms:
+            raise ValueError(
+                "duration-ms must contain at least one complete target slot"
+            )
         if (
             args.controller_tick_hz <= 0
             or args.controller_tick_hz > 1000
@@ -789,7 +944,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "controller-tick-hz must be a positive divisor of 1000"
             )
         for label, value in (
-            ("camera response", args.camera_response_px_per_stick_second),
             ("sensitivity multiplier", args.sensitivity_multiplier),
             ("Vision age scale", args.vision_age_scale),
             ("slowdown edge", args.slowdown_edge),
@@ -802,6 +956,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             validate_and_encode_profile(profile_path),
             vision_hz=args.vision_hz,
             vision_age_scale=args.vision_age_scale,
+        )
+        camera_response, plant_source, response_basis = resolve_camera_response(
+            encoded,
+            args.camera_response_px_per_stick_second,
+            args.plant_source,
         )
         target_motion_preset = args.target_motion_preset or (
             "seeded-legacy" if args.target_motion == "moving" else "stationary"
@@ -861,6 +1020,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.pov_motion_preset,
             "--controller-tick-hz",
             str(args.controller_tick_hz),
+            "--target-slot-ms",
+            str(args.target_slot_ms),
             "--runtime-profile-id",
             str(encoded["profile_id"]),
             "--runtime-profile-sha256",
@@ -904,7 +1065,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "--target-sample-pattern",
             str(encoded["target_pattern"]),
             "--camera-response-px-per-stick-second",
-            _format_number(args.camera_response_px_per_stick_second),
+            _format_number(camera_response),
             "--sensitivity-multiplier",
             _format_number(args.sensitivity_multiplier),
             "--slowdown-edge",
@@ -912,7 +1073,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "--slowdown-center",
             _format_number(args.slowdown_center),
             "--plant-source",
-            args.plant_source,
+            plant_source,
         ]
         for seed in seeds:
             if seed < 0 or seed > 0xFFFFFFFF:
@@ -928,15 +1089,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         _verify_report(
             output_path,
             encoded,
-            args.plant_source,
+            plant_source,
             args.config_relationship,
             config_file_sha256,
             executable_sha256,
-            args.camera_response_px_per_stick_second,
+            camera_response,
             args.sensitivity_multiplier,
             args.slowdown_edge,
             args.slowdown_center,
             args.controller_tick_hz,
+            args.target_slot_ms,
             target_motion_preset,
             args.pov_motion_preset,
         )
@@ -948,7 +1110,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         "runtime benchmark written to "
         f"{output_path} (profile={encoded['profile_sha256']}, "
         f"config_relationship={args.config_relationship}, "
-        f"plant_source={args.plant_source}, "
+        f"plant_source={plant_source}, "
+        f"response={camera_response:.3f}px/(stick*s), "
+        f"response_basis={response_basis}, "
         f"vision={encoded['realized_vision_hz']:.3f}Hz, "
         f"controller={args.controller_tick_hz}Hz, "
         "ai_proposal=lockstep, "

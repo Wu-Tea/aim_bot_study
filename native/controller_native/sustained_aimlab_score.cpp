@@ -104,6 +104,7 @@ void TargetScorer::mark_ads_to_bodylock_handoff(
 void TargetScorer::mark_bodylock_entry_failed() {
     if (finished_ || bodylock_seen_) return;
     result_.bodylock_entry_failed = true;
+    if (!result_.acquired) result_.acquisition_timed_out = true;
 }
 
 void TargetScorer::end_brake_episode() noexcept {

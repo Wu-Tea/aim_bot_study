@@ -8,8 +8,12 @@ All optimization and interpretation is governed by
 [`AIMLAB_OPTIMIZATION_CONTRACT_V1_20260827.md`](AIMLAB_OPTIMIZATION_CONTRACT_V1_20260827.md).
 Execution `PASS` and additive score are not acceptance gates by themselves.
 
-Each target has a 250–330 ms ADS acquisition deadline. A successful first circle
-entry opens a 1000 ms BodyLock tracking window. The target then despawns for 50 ms.
+Each target owns a fixed 1575 ms opportunity slot followed by a 50 ms gap. ADS
+has a 250–330 ms acquisition scoring deadline, a 575 ms product execution
+horizon (target wait + snap + extension), and a successful entry can score at most
+1000 ms of tracking. A timeout or BodyLock-entry failure idles until that same
+slot ends instead of spawning an extra target; only slots that fit completely
+are generated, so a 60-second run has 36 opportunities independent of outcome.
 The plant runs at 1000 Hz, observations arrive at deterministic 80–100 Hz intervals,
 and the virtual game's slowdown transitions from 1.0 outside the target to 0.5 at
 the 24 px circle edge and 0.4 at its center.
@@ -49,6 +53,10 @@ The resulting profile contains:
 - a sanitized input-habit summary: active fraction, helpful/opposing/tangential
   fractions, onset and release timing, stick deltas, radial reversals, operation
   classes, and raw-to-filtered attenuation;
+- a direct-observed BodyLock distribution of the response scale used by the
+  logged controller, recovered from its horizontal position term and source
+  80 ms X-axis horizon;
+  this is explicitly an inferred controller belief, not game-camera truth;
 - the PASS audit identity and source telemetry/runtime/config/engine hashes,
   without raw paths, wall-clock timestamps, or target IDs.
 
@@ -64,13 +72,17 @@ python tools/run_sustained_aimlab_runtime_profile.py `
   --target-motion-preset seeded-legacy `
   --pov-motion-preset off `
   --controller-tick-hz 1000 `
-  --camera-response-px-per-stick-second 500 `
   --sensitivity-multiplier 1.0 `
   --slowdown-edge 0.50 `
   --slowdown-center 0.40 `
-  --plant-source assumption `
   --config-relationship counterfactual
 ```
+
+When the response flags are omitted, the runner uses the profile's inferred
+controller-response P50 and records `plant_source=inferred`. An explicit
+`--camera-response-px-per-stick-second` override remains available, but it must
+also provide `--plant-source measured|inferred|assumption`; the runner never
+silently changes provenance.
 
 Use `--config-relationship matched` only when the controller config is the
 logged source config, and also provide the exact context used by native runtime
@@ -106,7 +118,8 @@ applied when a benchmark is encoded, and every transform is recorded in the
 report:
 
 - `--sensitivity-multiplier` scales the supplied base
-  `--camera-response-px-per-stick-second` in the virtual camera plant. It does
+  camera response (profile P50 by default, explicit override when supplied) in
+  the virtual camera plant. It does
   not scale or rewrite logged manual-stick values. The report records the base,
   multiplier, and effective px/(stick*s) response separately.
 - `--vision-hz` scales the sequence of logged delivery intervals to a requested
@@ -123,6 +136,10 @@ report:
   requested fixed clock cannot be mistaken for observed runtime behavior.
   The initial implementation accepts exact integer-ms rates: positive divisors
   of 1000 such as 1000, 500, 250, 200, 125, or 100 Hz.
+- `--target-slot-ms` is a fixed opportunity window (default/minimum 1575 ms).
+  Runtime-profile runs reject zero/outcome-dependent replacement. Reports bind
+  the slot, 1000 ms scoring window, 50 ms gap, and bounded target count; the
+  verifier rejects any BodyLock-isolate entry failure before considering score.
 
 The AI solver, target/lifecycle plan, dynamics, manual arbitration, AutoFire,
 recoil, composition, and output always update together at the requested
@@ -169,7 +186,7 @@ Runtime-profile mode is deliberately not an exact gameplay replay:
 | Missing or synthetic evidence | Resulting blind spot | Required next evidence |
 | --- | --- | --- |
 | target, camera, detector and FOV motion are not separable | apparent target velocity cannot be attributed to world motion or POV motion | capture-time camera pose or game telemetry |
-| camera response, sensitivity and slowdown curve are not identified | px-per-stick and aim-assist interaction remain assumptions | measured stick-step calibration per sensitivity/FOV |
+| the controller-used response scale is inferred, but true camera response and slowdown are not independently identified | the simulated plant matches the controller belief, not proven game motion | measured stick-step calibration per sensitivity/FOV |
 | target and POV paths remain algorithmic presets | correlated player/target maneuvers and reaction timing are not replayed | synchronized pose/target trajectories |
 | manual, target and observation samples are sanitized independently | their exact episode-level causal correlation is lost | a privacy-safe episode bundle keyed by relative time |
 | only right-stick control-error-relative habits are replayed | multi-target intent, handover choice, left-stick coupling and fire/recoil habits are incomplete | synchronized input-purpose and target-candidate traces |
@@ -231,6 +248,9 @@ The cohort selects the lifecycle being measured:
   transitions naturally into BodyLock for the remaining tracking window.
 - `--cohort bodylock` is an isolated tracking path. The target is warmed to at
   most 8 px from center and remains stationary until BodyLock is confirmed.
+  Acquisition is recorded only on a real same-target BodyLock entry; an entry
+  timeout receives zero acquisition points, counts as a miss, and fails the
+  benchmark eligibility gate.
 
 The default `--scenario baseline` retains the original seven motion profiles.
 The opt-in `--scenario compound_directional` starts in a deterministic random

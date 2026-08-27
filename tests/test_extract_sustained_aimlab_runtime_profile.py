@@ -11,6 +11,7 @@ from tools.extract_sustained_aimlab_runtime_profile import (
 )
 from tools.run_sustained_aimlab_runtime_profile import (
     _profile_payload_sha256,
+    resolve_camera_response,
     _sha256_file_with_context,
     transform_runtime_observation_pattern,
     validate_and_encode_profile,
@@ -103,6 +104,11 @@ def _evidence_files(tmp_path: Path, *, status: str = "PASS") -> tuple[Path, Path
                 "operation_class": "target_correction",
                 "control_error_x": 20.0,
                 "control_error_y": 0.0,
+                "bodylock_position_stick_x": 1.0 / 6.0,
+                "bodylock_position_stick_y": 0.0,
+                "bodylock_lifecycle": "observed",
+                "has_target": True,
+                "aim_authority": True,
             }
         )
 
@@ -238,6 +244,17 @@ def test_profile_keeps_paired_runtime_timing_shape_and_physical_relative_manual(
         "target_correction": 3
     }
     assert profile["plant"]["status"] == "unavailable"
+    assert profile["controller_response_estimate"]["status"] == "inferred"
+    assert profile["controller_response_estimate"]["quantity"] == (
+        "controller_used_response_scale_px_per_stick_second"
+    )
+    assert profile["controller_response_estimate"]["method"] == (
+        "bodylock_position_x_term_inverse_v1"
+    )
+    assert profile["controller_response_estimate"]["distribution"]["count"] == 4
+    assert profile["controller_response_estimate"]["distribution"]["p50"] == pytest.approx(
+        1500.0
+    )
     assert len(profile["profile_payload_sha256"]) == 64
 
 
@@ -276,6 +293,45 @@ def test_runtime_runner_revalidates_payload_and_encodes_native_patterns(tmp_path
     assert encoded["source_controller_interval_p50_ms"] == 4.0
     assert encoded["source_controller_interval_p95_ms"] == 4.0
     assert encoded["source_controller_tick_hz_estimate"] == 250.0
+    assert encoded["controller_response_estimate_p50"] == pytest.approx(1500.0)
+    assert encoded["controller_response_estimate_p95"] == pytest.approx(1500.0)
+    assert encoded["controller_response_estimate_count"] == 4
+
+    response, source, basis = resolve_camera_response(encoded, None, None)
+    assert response == pytest.approx(1500.0)
+    assert source == "inferred"
+    assert basis == "runtime_controller_response_p50"
+
+    with pytest.raises(ValueError, match="also requires --plant-source"):
+        resolve_camera_response(encoded, 900.0, None)
+
+
+def test_existing_v2_profile_without_response_estimate_remains_usable(tmp_path):
+    manifest, intake = _evidence_files(tmp_path)
+    profile = build_runtime_profile(
+        manifest_path=manifest,
+        intake_path=intake,
+        file_ids=["telemetry-0"],
+        max_gap_ms=12.0,
+        max_observation_samples=16,
+        max_manual_segments=8,
+        max_manual_samples_per_segment=16,
+    )
+    profile.pop("controller_response_estimate")
+    profile["profile_payload_sha256"] = _profile_payload_sha256(profile)
+    profile_path = tmp_path / "existing-v2-runtime-profile.json"
+    profile_path.write_text(json.dumps(profile), encoding="utf-8")
+
+    encoded = validate_and_encode_profile(profile_path)
+
+    assert encoded["controller_response_estimate_p50"] is None
+    with pytest.raises(ValueError, match="has no controller response estimate"):
+        resolve_camera_response(encoded, None, None)
+    assert resolve_camera_response(encoded, 900.0, "assumption") == (
+        900.0,
+        "assumption",
+        "explicit_cli",
+    )
 
 
 def test_manual_library_is_proportional_stratified_and_preserves_rare_habits():

@@ -453,9 +453,6 @@ BenchmarkResult run_simulation(
         pending_ads_to_bodylock_transition = false;
         first_assist_output_ms = -1;
         scorer = std::make_unique<TargetScorer>(target, script.config);
-        if (cohort == BenchmarkCohort::BodyLockFollow) {
-            scorer->mark_acquired(0);
-        }
     };
 
     auto finish_target = [&] {
@@ -919,6 +916,7 @@ BenchmarkResult run_simulation(
 
             if (cohort == BenchmarkCohort::BodyLockFollow && !tracking) {
                 if (active_target_bodylock) {
+                    scorer->mark_acquired(target_elapsed_ms);
                     scorer->mark_bodylock_entered(target_elapsed_ms);
                     tracking = true;
                     tracking_ticks = 0;
@@ -970,9 +968,15 @@ BenchmarkResult run_simulation(
                     pending_ads_to_bodylock_transition = false;
                 }
                 ++tracking_ticks;
-                if (script.config.fixed_target_slot_ms == 0 &&
-                    tracking_ticks >= script.config.tracking_window_ms) {
-                    finish_target();
+                if (tracking_ticks >= script.config.tracking_window_ms) {
+                    if (script.config.fixed_target_slot_ms > 0) {
+                        target_active = false;
+                        tracking = false;
+                        waiting_for_fixed_slot_end = true;
+                        pending_fresh_miss = true;
+                    } else {
+                        finish_target();
+                    }
                 }
             } else if (target_active && cohort == BenchmarkCohort::AdsAcquire &&
                        length(error) < target.visible_radius_px) {
@@ -980,7 +984,8 @@ BenchmarkResult run_simulation(
                 tracking = true;
                 tracking_ticks = 0;
             } else if (target_active && cohort == BenchmarkCohort::AdsAcquire &&
-                       target_elapsed_ms + 1 >= target.acquire_deadline_ms) {
+                       target_elapsed_ms + 1 >=
+                           script.config.ads_execution_timeout_ms) {
                 scorer->mark_timed_out();
                 if (script.config.fixed_target_slot_ms > 0) {
                     target_active = false;

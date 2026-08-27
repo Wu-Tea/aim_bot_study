@@ -33,12 +33,23 @@ function Require-Same($label, $left, $right) {
     }
 }
 
+function Require-Fixed-Target-Schedule($document, [string]$label) {
+    $scheduleProperty = $document.simulator.PSObject.Properties['target_schedule']
+    if ($null -eq $scheduleProperty -or
+        $document.simulator.target_schedule.mode -ne 'fixed_slots' -or
+        [int]$document.simulator.target_schedule.slot_ms -le 0) {
+        throw "INVALID / NON-COMPARABLE: ${label} has no fixed target schedule"
+    }
+}
+
 if ($before.schema -ne $after.schema) {
     throw "INVALID / NON-COMPARABLE: report schema differs"
 }
 if ($before.control_path -ne $after.control_path) {
     throw "INVALID / NON-COMPARABLE: control path differs"
 }
+Require-Fixed-Target-Schedule $before "baseline"
+Require-Fixed-Target-Schedule $after "candidate"
 Require-Same "simulator covariates" $before.simulator $after.simulator
 
 $beforeRuntime = $before.PSObject.Properties['runtime_profile']
@@ -113,6 +124,25 @@ function Numeric-Field($object, [string]$field, [string]$key) {
     return $value
 }
 
+foreach ($documentEntry in @(
+    [pscustomobject]@{ Name = 'baseline'; Document = $before },
+    [pscustomobject]@{ Name = 'candidate'; Document = $after })) {
+    foreach ($gate in $optimizationPolicy.absolute_hard_gates) {
+        foreach ($run in $documentEntry.Document.runs) {
+            if ($gate.cohort -and $run.cohort -ne $gate.cohort) { continue }
+            $key = Run-Key $documentEntry.Document $run
+            $actual = Numeric-Field $run ([string]$gate.field) $key
+            if ($gate.operator -ne 'equal') {
+                throw "Unknown absolute hard-gate operator: $($gate.operator)"
+            }
+            if ([math]::Abs($actual - [double]$gate.value) -gt
+                [double]$optimizationPolicy.floating_tolerance) {
+                throw "FAILED CONSTRAINTS: $($documentEntry.Name) ${key} violates absolute gate $($gate.field) == $($gate.value)"
+            }
+        }
+    }
+}
+
 $beforeByKey = @{}
 foreach ($run in $before.runs) {
     $key = Run-Key $before $run
@@ -133,6 +163,9 @@ $rows = foreach ($run in $after.runs) {
         throw "INVALID / NON-COMPARABLE: missing baseline run: $key"
     }
     $old = $beforeByKey[$key]
+    if ($old.targets_spawned -ne $run.targets_spawned) {
+        throw "INVALID / NON-COMPARABLE: target opportunity count differs in ${key}"
+    }
     if ($compareCounterfactual -and
         ($null -eq $old.PSObject.Properties['counterfactual'] -or
          $null -eq $run.PSObject.Properties['counterfactual'])) {

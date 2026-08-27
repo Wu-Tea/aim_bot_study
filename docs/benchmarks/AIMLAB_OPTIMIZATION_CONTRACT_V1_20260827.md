@@ -93,9 +93,11 @@ Sustained AimLab 当前总分由三项相加：
 - 跟踪分：进入跟踪阶段后，每个 plant 毫秒按圆内位置给分；中心附近接近 1 分/ms，边缘和圈外接近 0。
 - 平滑奖励：在圆内、误差不增加且输出变化较小时，额外获得最多约 10% 的小奖励。
 
-这个总分不是 0–100，也不能跨不同时长、target 数量、seed、cohort、plant 或 cadence 直接比较。BodyLock 隔离 cohort 的获取分按构造给满，因此不能用 ADS 与 BodyLock 的总分互相排序。
+这个总分不是 0–100，也不能跨不同时长、target 数量、seed、cohort、plant 或 cadence 直接比较。ADS 与 BodyLock 仍是不同任务，不能用两个 cohort 的总分互相排序。
 
-过冲、欠跟、circle exit、空输出、方向反转、振荡、handoff、occlusion 和延迟等大多只是诊断字段；它们未必直接扣总分。benchmark 可执行程序的普通 `PASS` 主要表示没有异常，`--smoke` 只额外检查 tick/update 数、有限指标和是否看见 assisted mode。它们都不等于产品质量通过。
+从 2026-08-27 起，每个目标使用固定 wall-clock 靶位：默认靶位 1575 ms（220 ms target wait + 135 ms snap + 220 ms extension + 1000 ms tracking 的上界）、其后 gap 50 ms；只生成能完整落入时长的靶位，因此 60 秒脚本固定为 36 个机会。成功、ADS 超时或 BodyLock 进入失败都必须消耗同一个完整靶位；提前失败只能等待，不能立即生成下一目标。250–330 ms 仍是获取速度的计分 deadline，但不再错误充当产品执行超时；合法延长期内完成可进入跟踪，只是迟到部分不会获得获取分。跟踪计分最多持续 1000 ms，靶位剩余空闲时间不计分。BodyLock 隔离 cohort 只有在生产 controller 真正以同一 target ID 进入 BodyLock 后才记为 acquired 并获得按实际进入时间计算的获取分；575 ms 进入超时记 miss、获取分为 0，且 `bodylock_entry_failures > 0` 是绝对硬失败。
+
+过冲、欠跟、circle exit、空输出、方向反转、振荡、handoff、occlusion 和延迟等大多只是诊断字段；它们未必直接扣总分。benchmark 可执行程序的普通 `PASS` 主要表示没有异常；`--smoke` 额外检查 tick/update 数、有限指标、是否看见 assisted mode，并把 BodyLock 隔离 cohort 的进入失败作为硬失败。它们仍不等于产品质量通过。
 
 ## 5. 强制优化流程
 
@@ -115,9 +117,9 @@ Sustained AimLab 当前总分由三项相加：
 
 ## 6. 当前工具的能力边界与建设顺序
 
-日志画像已经能够提供一部分实际 Vision delivery/capture age、目标初始几何和经过匿名化的右摇杆操作习惯；benchmark 也能显式改变灵敏度 plant、Vision cadence/age、整条 controller tick、target motion preset 和 POV motion preset。
+日志画像已经能够提供一部分实际 Vision delivery/capture age、目标初始几何和经过匿名化的右摇杆操作习惯；schema-18 direct-observed BodyLock 样本还能从横向 position term 和源 Controller 的 80 ms X 轴 horizon 反推出当时 Controller 采用的 response scale 分布。runner 默认把该分布 P50 用作模拟 plant 的 base response，并标为 `inferred`。这只是“Controller 当时相信的速度”，不是独立测得的游戏相机真值。benchmark 也能显式改变灵敏度 plant、Vision cadence/age、整条 controller tick、target motion preset 和 POV motion preset。
 
-它仍不能从现有日志可靠分离世界目标运动、POV/相机运动、FOV/weapon view kick 和检测几何变化；相机响应、游戏原生减速、身份交错、死亡/友方、真实 target handover、left-stick/fire/recoil 习惯以及 OS/USB/ViGEm jitter 也未完整重建。因此建设优先级是：
+它仍不能从现有日志可靠分离世界目标运动、POV/相机运动、FOV/weapon view kick 和检测几何变化；真实相机响应（区别于 Controller 内部 estimate）、游戏原生减速、身份交错、死亡/友方、真实 target handover、left-stick/fire/recoil 习惯以及 OS/USB/ViGEm jitter 也未完整重建。因此建设优先级是：
 
 1. 把每个真人确认的坏行为冻结为生产路径 RED；
 2. 给现有聚合诊断补场景级 trigger 和失败 oracle；

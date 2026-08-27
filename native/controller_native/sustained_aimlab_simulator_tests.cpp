@@ -22,6 +22,16 @@ ControllerStepResult neutral_bodylock(
     return result;
 }
 
+ControllerStepResult refuse_bodylock(
+    const ControllerObservation& input) {
+    ControllerStepResult result;
+    result.target_observed = input.target_present && input.fresh_vision;
+    result.tracker_reliable = input.target_present;
+    result.controller_target_id = input.target_present ? input.target_id : 0;
+    result.predicted_terminal_error_px = input.observed_error_px;
+    return result;
+}
+
 void test_script_and_run_are_deterministic() {
     BenchmarkConfig config;
     config.duration_ms = 2'000;
@@ -320,6 +330,93 @@ void test_runtime_body_geometry_reconstructs_logged_stable_error() {
     exercise(200.0, 100.0, 0.40);
 }
 
+void test_fixed_slots_make_target_count_outcome_independent() {
+    BenchmarkConfig config;
+    config.duration_ms = 600;
+    config.fixed_target_slot_ms = 150;
+    config.inter_target_gap_ms = 50;
+    config.bodylock_entry_timeout_ms = 20;
+    config.tracking_window_ms = 100;
+    config.vision_interval_ms = 5;
+    const ScenarioScript script = generate_script(2026082701, config);
+
+    const auto successful = run_simulation(
+        script,
+        ManualProfile::Pure,
+        neutral_bodylock,
+        BenchmarkCohort::BodyLockFollow);
+    const auto failed = run_simulation(
+        script,
+        ManualProfile::Pure,
+        refuse_bodylock,
+        BenchmarkCohort::BodyLockFollow);
+
+    require(successful.targets_spawned == 3,
+            "fixed schedule must expose exactly three target slots");
+    require(failed.targets_spawned == successful.targets_spawned,
+            "failed entry must not purchase additional target attempts");
+    require(failed.bodylock_entry_failures == failed.targets_spawned,
+            "every refused BodyLock slot must be an entry failure");
+    require(failed.targets_acquired == 0,
+            "BodyLock entry failure must not count as acquisition");
+    require(failed.targets_missed == failed.targets_spawned,
+            "BodyLock entry failure must count as a missed target");
+    require(std::fabs(failed.acquire_points) < 1e-12,
+            "BodyLock entry failure must earn no acquisition points");
+    require(successful.targets_acquired == successful.targets_spawned,
+            "successful BodyLock entry must acquire each scheduled target");
+}
+
+void test_fixed_slot_does_not_extend_tracking_score_window() {
+    BenchmarkConfig config;
+    config.duration_ms = 300;
+    config.fixed_target_slot_ms = 300;
+    config.inter_target_gap_ms = 0;
+    config.tracking_window_ms = 100;
+    config.vision_interval_ms = 5;
+    const ScenarioScript script = generate_script(2026082702, config);
+
+    const auto result = run_simulation(
+        script,
+        ManualProfile::Pure,
+        neutral_bodylock,
+        BenchmarkCohort::BodyLockFollow);
+
+    require(result.targets_spawned == 1,
+            "one fixed slot must produce one scored target");
+    require(result.bodylock_active_ms == config.tracking_window_ms,
+            "fixed slot idle must not extend the tracking score window");
+}
+
+void test_bodylock_setup_accepts_legal_ads_extension_horizon() {
+    BenchmarkConfig config;
+    config.duration_ms = config.fixed_target_slot_ms;
+    config.inter_target_gap_ms = 0;
+    config.vision_interval_ms = 5;
+    config.target_motion_enabled = false;
+    const ScenarioScript script = generate_script(2026082704, config);
+
+    const ControllerStep delayed_bodylock = [](const ControllerObservation& input) {
+        ControllerStepResult result = neutral_bodylock(input);
+        result.bodylock_mode = input.target_present && input.now_ms >= 400;
+        return result;
+    };
+    const auto result = run_simulation(
+        script,
+        ManualProfile::Pure,
+        delayed_bodylock,
+        BenchmarkCohort::BodyLockFollow);
+
+    require(result.targets_spawned == 1,
+            "legal-extension fixture must contain one fixed opportunity");
+    require(result.targets_acquired == 1,
+            "a 400ms BodyLock setup is inside the product execution horizon");
+    require(result.bodylock_entry_failures == 0,
+            "legal ADS extension must not be classified as entry failure");
+    require(result.bodylock_active_ms == config.tracking_window_ms,
+            "legal setup must retain the complete tracking score window");
+}
+
 }  // namespace
 
 int main() {
@@ -332,5 +429,8 @@ int main() {
     test_nonfinite_controller_output_is_rejected();
     test_runtime_manual_segment_is_target_relative_and_not_synthetic();
     test_runtime_body_geometry_reconstructs_logged_stable_error();
+    test_fixed_slots_make_target_count_outcome_independent();
+    test_fixed_slot_does_not_extend_tracking_score_window();
+    test_bodylock_setup_accepts_legal_ads_extension_horizon();
     return 0;
 }

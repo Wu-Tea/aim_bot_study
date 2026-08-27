@@ -176,7 +176,10 @@ struct Options {
     int vision_result_delay_ms = 0;
     int control_response_delay_ms = 0;
     int short_occlusion_ms = 0;
-    int target_slot_ms = 0;
+    // -1 derives a safe fixed slot from the loaded product execution budgets.
+    // Zero must be
+    // requested explicitly to reproduce legacy outcome-dependent replacement.
+    int target_slot_ms = -1;
     double manual_input_scale = 1.0;
     double slowdown_edge = 0.50;
     double slowdown_center = 0.40;
@@ -350,6 +353,7 @@ Options parse_options(int argc, char** argv) {
                  << "[--cohort ads|bodylock|both] "
                  << "[--vision-hz N] [--vision-result-delay-ms N] "
                  << "[--control-response-delay-ms N] [--short-occlusion-ms N] "
+                 << "[--target-slot-ms N (default 1575; 0 is legacy)] "
                  << "[--runtime-profile-id ID --runtime-profile-sha256 SHA256 "
                  << "--runtime-audit-sha256 SHA256 "
                  << "--runtime-source-runtime-sha256 SHA256 "
@@ -403,7 +407,7 @@ Options parse_options(int argc, char** argv) {
     if (options.short_occlusion_ms < 0 ||
         options.vision_result_delay_ms < 0 ||
         options.control_response_delay_ms < 0 ||
-        options.target_slot_ms < 0) {
+        options.target_slot_ms < -1) {
         throw std::invalid_argument("timing options cannot be negative");
     }
     if (!std::isfinite(options.manual_input_scale) ||
@@ -730,7 +734,27 @@ void write_result(std::ostream& out, const BenchmarkResult& value) {
         << ",\"p95_controller_residual_jerk\":" << value.p95_controller_residual_jerk
         << ",\"p99_controller_residual_delta\":" << value.p99_controller_residual_delta
         << ",\"max_controller_residual_delta\":" << value.max_controller_residual_delta
-        << '}';
+        << ",\"target_outcomes\":[";
+    for (std::size_t index = 0; index < value.targets.size(); ++index) {
+        const TargetResult& target = value.targets[index];
+        out << "{\"id\":" << target.id
+            << ",\"score_deadline_ms\":" << target.deadline_ms
+            << ",\"acquired\":" << (target.acquired ? "true" : "false")
+            << ",\"missed\":"
+            << (target.acquisition_timed_out ? "true" : "false")
+            << ",\"bodylock_entry_failed\":"
+            << (target.bodylock_entry_failed ? "true" : "false")
+            << ",\"first_assist_output_ms\":"
+            << target.first_assist_output_ms
+            << ",\"first_entry_ms\":" << target.first_entry_ms
+            << ",\"bodylock_entry_ms\":" << target.bodylock_entry_ms
+            << ",\"bodylock_active_ms\":" << target.bodylock_active_ms
+            << ",\"acquire_points\":" << target.acquire_points
+            << ",\"tracking_points\":" << target.tracking_points
+            << '}';
+        if (index + 1 != value.targets.size()) out << ',';
+    }
+    out << "]}";
 }
 
 void write_report(
@@ -810,6 +834,18 @@ void write_report(
         << ",\"control_response_delay_ms\":"
         << config.control_response_delay_ms
         << ",\"short_occlusion_ms\":" << config.short_occlusion_duration_ms
+        << ",\"target_schedule\":{\"mode\":\""
+        << (config.fixed_target_slot_ms > 0
+                ? "fixed_slots" : "legacy_outcome_dependent")
+        << "\",\"slot_ms\":" << config.fixed_target_slot_ms
+        << ",\"tracking_window_ms\":" << config.tracking_window_ms
+        << ",\"inter_target_gap_ms\":" << config.inter_target_gap_ms
+        << ",\"ads_execution_timeout_ms\":"
+        << config.ads_execution_timeout_ms
+        << ",\"bodylock_entry_timeout_ms\":"
+        << config.bodylock_entry_timeout_ms
+        << ",\"script_target_limit\":"
+        << (results.empty() ? 0 : results.front().targets.size()) << "}"
         << ",\"target_motion\":\"" << options.target_motion << "\""
         << ",\"target_motion_preset\":\""
         << (options.target_motion_preset.empty()
@@ -905,6 +941,7 @@ void write_report(
 void validate_smoke(
     const BenchmarkResult& result,
     const AssistedModeCoverage& coverage,
+    BenchmarkCohort cohort,
     int expected_ticks,
     int expected_controller_updates) {
     if (result.ticks != expected_ticks ||
@@ -912,6 +949,8 @@ void validate_smoke(
         !std::isfinite(result.acquire_points) ||
         !std::isfinite(result.tracking_points) ||
         !std::isfinite(result.mean_error_px) ||
+        (cohort == BenchmarkCohort::BodyLockFollow &&
+            result.bodylock_entry_failures != 0) ||
         !coverage.saw_assisted_mode) {
         throw std::runtime_error("production-path smoke validation failed");
     }
@@ -985,7 +1024,21 @@ int main(int argc, char** argv) {
         benchmark.vision_result_delay_ms = options.vision_result_delay_ms;
         benchmark.control_response_delay_ms = options.control_response_delay_ms;
         benchmark.short_occlusion_duration_ms = options.short_occlusion_ms;
-        benchmark.fixed_target_slot_ms = options.target_slot_ms;
+        benchmark.ads_execution_timeout_ms = static_cast<int>(std::ceil(
+            runtime.gamepad.ai_aim.ads_target_wait_ms +
+            static_cast<double>(runtime.gamepad.ai_aim.ads_snap_window_ms) +
+            runtime.gamepad.ai_aim.ads_extension_budget_ms));
+        benchmark.bodylock_entry_timeout_ms =
+            benchmark.ads_execution_timeout_ms;
+        if (options.target_slot_ms >= 0) {
+            benchmark.fixed_target_slot_ms = options.target_slot_ms;
+        } else {
+            benchmark.fixed_target_slot_ms = std::max({
+                benchmark.max_acquire_deadline_ms,
+                benchmark.ads_execution_timeout_ms,
+                benchmark.bodylock_entry_timeout_ms,
+            }) + benchmark.tracking_window_ms;
+        }
         benchmark.manual_input_scale = options.manual_input_scale;
         benchmark.slowdown_edge_multiplier = options.slowdown_edge;
         benchmark.slowdown_center_multiplier = options.slowdown_center;
@@ -1030,6 +1083,7 @@ int main(int argc, char** argv) {
                             validate_smoke(
                                 result,
                                 *coverage,
+                                cohort,
                                 options.duration_ms,
                                 (options.duration_ms + benchmark.tick_ms - 1) /
                                     benchmark.tick_ms);

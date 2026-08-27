@@ -413,6 +413,11 @@ cod_native_add_offline_test(cod_native_sustained_aimlab_trace_tests NativeSustai
     ../controller_native/sustained_aimlab_scenario.cpp)
 cod_native_add_offline_test(cod_native_benchmark_physical_input_tests NativeBenchmarkPhysicalInputTests
     ../controller_native/native_benchmark_physical_input_tests.cpp)
+cod_native_add_offline_test(cod_native_benchmark_controller_adapter_tests NativeBenchmarkControllerAdapterTests
+    ../controller_native/native_benchmark_controller_adapter_tests.cpp
+    ../controller_native/native_benchmark_controller_adapter.cpp)
+target_link_libraries(cod_native_benchmark_controller_adapter_tests PRIVATE
+    controller_native_core vision_native_core gdi32 windowsapp)
 cod_native_add_offline_test(cod_native_pid_benchmark_controller_tests NativePidBenchmarkControllerTests
     ../controller_native/pid_benchmark_controller_tests.cpp)
 add_executable(cod_native_aimlab_benchmark
@@ -436,13 +441,19 @@ if(NATIVE_TEST_ENABLE_OFFLINE_BENCHMARKS)
     add_test(NAME NativeSustainedAimlabLeftStrafeOff
         COMMAND cod_native_sustained_aimlab_benchmark
             --config ${CMAKE_CURRENT_SOURCE_DIR}/../../config.native.example.toml
-            --duration-ms 1500 --seed 2026072301
+            --duration-ms 1575 --seed 2026072301
             --profile pure --cohort ads --smoke --left-strafe off)
     add_test(NAME NativeSustainedAimlabLeftStrafeBoth
         COMMAND cod_native_sustained_aimlab_benchmark
             --config ${CMAKE_CURRENT_SOURCE_DIR}/../../config.native.example.toml
-            --duration-ms 1500 --seed 2026072301
+            --duration-ms 1575 --seed 2026072301
             --profile pure --cohort ads --smoke --left-strafe both)
+    add_test(NAME NativeSustainedAimlabBodyLockFreshLtPerTarget
+        COMMAND cod_native_sustained_aimlab_benchmark
+            --config ${CMAKE_CURRENT_SOURCE_DIR}/../../config.native.example.toml
+            --duration-ms 6000 --seed 2026082703
+            --profile pure --cohort bodylock --vision-hz 100
+            --smoke --left-strafe off)
     add_test(NAME NativeSustainedAimlabLeftStrafeRejectsInvalid
         COMMAND cod_native_sustained_aimlab_benchmark
             --config ${CMAKE_CURRENT_SOURCE_DIR}/../../config.native.example.toml

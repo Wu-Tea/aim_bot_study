@@ -183,12 +183,16 @@ struct BenchmarkConfig {
     int tick_ms = 1;
     int tracking_window_ms = 1'000;
     int inter_target_gap_ms = 50;
-    int bodylock_entry_timeout_ms = 250;
+    // Product execution horizon: target wait + nominal snap + low-mobility
+    // extension. Acquisition scoring still uses the shorter deadline below.
+    int ads_execution_timeout_ms = 575;
+    int bodylock_entry_timeout_ms = 575;
     int min_acquire_deadline_ms = 250;
     int max_acquire_deadline_ms = 330;
-    // Zero preserves outcome-dependent target replacement. A positive value
-    // gives every target the same wall-clock slot, including timeout idle.
-    int fixed_target_slot_ms = 0;
+    // Every target owns the same wall-clock slot, including timeout idle. This
+    // prevents a failing controller from buying more scoring opportunities.
+    // Zero is retained only for explicit legacy outcome-dependent replacement.
+    int fixed_target_slot_ms = 1'575;
     double target_radius_px = 24.0;
     double slowdown_transition_px = 3.0;
     double slowdown_edge_multiplier = 0.50;
