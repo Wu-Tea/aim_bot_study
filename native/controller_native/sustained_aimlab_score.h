@@ -206,6 +206,7 @@ struct BenchmarkResult {
     PlayerVerticalMotionMode player_vertical_motion_mode =
         PlayerVerticalMotionMode::Off;
     int ticks = 0;
+    int controller_updates = 0;
     int left_strafe_active_ms = 0;
     int left_strafe_reversals = 0;
     double max_abs_left_x = 0.0;

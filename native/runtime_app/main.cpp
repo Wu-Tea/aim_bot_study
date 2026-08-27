@@ -55,6 +55,9 @@ CliOptions parse_args(int argc, char** argv) {
                 throw std::runtime_error("--max-ticks must be greater than zero");
             }
             options.max_ticks = static_cast<unsigned int>(parsed);
+        } else {
+            throw std::runtime_error(
+                "unknown or retired runtime option: " + arg);
         }
     }
     return options;

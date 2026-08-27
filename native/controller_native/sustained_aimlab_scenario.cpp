@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <numeric>
 #include <random>
 #include <stdexcept>
 #include <type_traits>
@@ -31,6 +32,25 @@ Vec2d direction_from_angle(double radians) {
 
 Vec2d scaled(Vec2d value, double amount) {
     return {value.x * amount, value.y * amount};
+}
+
+std::size_t permuted_manual_index(
+    const std::vector<std::size_t>& pool,
+    std::uint32_t seed,
+    std::size_t ordinal,
+    std::uint64_t salt) {
+    const std::size_t count = pool.size();
+    const std::size_t offset =
+        (static_cast<std::uint64_t>(seed) * 2'654'435'761ull + salt) % count;
+    std::size_t stride = 1;
+    if (count > 1) {
+        stride =
+            (static_cast<std::size_t>((seed ^ (salt >> 32u)) >> 8u) % count) + 1;
+        while (std::gcd(stride, count) != 1) {
+            stride = stride == count ? 1 : stride + 1;
+        }
+    }
+    return pool[(offset + ordinal * stride) % count];
 }
 
 void hash_bytes(std::uint64_t& hash, const void* data, std::size_t size) {
@@ -88,6 +108,12 @@ void hash_config(std::uint64_t& hash, const BenchmarkConfig& config) {
     hash_double(hash, config.slowdown_edge_multiplier);
     hash_double(hash, config.slowdown_center_multiplier);
     hash_double(hash, config.camera_response_px_per_stick_second);
+    if (std::fabs(config.sensitivity_multiplier - 1.0) > 1.0e-12) {
+        hash_double(hash, config.sensitivity_multiplier);
+    }
+    if (std::fabs(config.body_aim_height_ratio - 0.365) > 1.0e-12) {
+        hash_double(hash, config.body_aim_height_ratio);
+    }
     // Preserve historical hashes for the default linear plant while making a
     // nonlinear plant/configuration part of scenario identity.
     if (config.camera_response_curve.algorithm !=
@@ -113,6 +139,43 @@ void hash_config(std::uint64_t& hash, const BenchmarkConfig& config) {
     hash_integral(hash, config.frame_height_px);
     hash_integral(hash, config.vision_interval_ms);
     hash_integral(hash, config.vision_result_delay_ms);
+    if (!config.runtime_observation_pattern.empty()) {
+        hash_integral(
+            hash,
+            static_cast<std::uint64_t>(
+                config.runtime_observation_pattern.size()));
+        for (const auto& sample : config.runtime_observation_pattern) {
+            hash_integral(hash, sample.delivery_interval_ms);
+            hash_integral(hash, sample.capture_age_ms);
+        }
+    }
+    if (!config.runtime_manual_segments.empty()) {
+        hash_integral(
+            hash,
+            static_cast<std::uint64_t>(config.runtime_manual_segments.size()));
+        for (const auto& segment : config.runtime_manual_segments) {
+            hash_integral(
+                hash, static_cast<std::uint64_t>(segment.samples.size()));
+            if (segment.aim_mode != RuntimeManualAimMode::Any) {
+                hash_integral(hash, segment.aim_mode);
+            }
+            for (const auto& sample : segment.samples) {
+                hash_integral(hash, sample.duration_ms);
+                hash_double(hash, sample.radial);
+                hash_double(hash, sample.tangential);
+            }
+        }
+    }
+    if (!config.runtime_target_samples.empty()) {
+        hash_integral(
+            hash,
+            static_cast<std::uint64_t>(config.runtime_target_samples.size()));
+        for (const auto& sample : config.runtime_target_samples) {
+            hash_vec(hash, sample.initial_error_px);
+            hash_double(hash, sample.body_width_px);
+            hash_double(hash, sample.body_height_px);
+        }
+    }
     hash_integral(hash, config.vision_disturbance);
     hash_integral(hash, config.obsolete_vertical_fixture ? 1 : 0);
     hash_integral(hash, config.short_occlusion_duration_ms);
@@ -126,6 +189,16 @@ std::uint64_t script_hash(const ScenarioScript& script) {
     hash_integral(hash, static_cast<std::uint64_t>(script.targets.size()));
     for (const TargetScript& target : script.targets) {
         hash_integral(hash, target.id);
+        if (!script.config.runtime_manual_segments.empty()) {
+            hash_integral(hash, target.has_runtime_ads_manual_segment ? 1 : 0);
+            if (target.has_runtime_ads_manual_segment) {
+                hash_integral(hash, target.runtime_ads_manual_segment_index);
+            }
+            hash_integral(hash, target.has_runtime_bodylock_manual_segment ? 1 : 0);
+            if (target.has_runtime_bodylock_manual_segment) {
+                hash_integral(hash, target.runtime_bodylock_manual_segment_index);
+            }
+        }
         hash_integral(hash, target.motion);
         hash_vec(hash, target.initial_error_px);
         hash_vec(hash, target.initial_velocity_px_per_second);
@@ -197,8 +270,62 @@ ScenarioScript generate_script(
         config.max_acquire_deadline_ms < config.min_acquire_deadline_ms ||
         config.fixed_target_slot_ms < 0 ||
         config.target_radius_px <= 0.0 ||
+        !std::isfinite(config.sensitivity_multiplier) ||
+        config.sensitivity_multiplier <= 0.0 ||
+        !std::isfinite(config.body_aim_height_ratio) ||
+        config.body_aim_height_ratio < 0.0 ||
+        config.body_aim_height_ratio > 1.0 ||
         config.vision_interval_ms < 0 || config.vision_result_delay_ms < 0) {
         throw std::invalid_argument("invalid sustained AimLab benchmark config");
+    }
+    if (!config.runtime_observation_pattern.empty()) {
+        if (config.vision_interval_ms > 0 || config.vision_result_delay_ms > 0) {
+            throw std::invalid_argument(
+                "runtime observations cannot be combined with scalar Vision timing");
+        }
+        for (const auto& sample : config.runtime_observation_pattern) {
+            if (sample.delivery_interval_ms <= 0 ||
+                sample.delivery_interval_ms > 100 ||
+                sample.capture_age_ms < 0 || sample.capture_age_ms > 100) {
+                throw std::invalid_argument(
+                    "invalid sustained AimLab runtime observation sample");
+            }
+        }
+    }
+    for (const auto& segment : config.runtime_manual_segments) {
+        if (segment.aim_mode != RuntimeManualAimMode::Any &&
+            segment.aim_mode != RuntimeManualAimMode::Ads &&
+            segment.aim_mode != RuntimeManualAimMode::BodyLock) {
+            throw std::invalid_argument(
+                "invalid sustained AimLab runtime manual aim mode");
+        }
+        if (segment.samples.empty()) {
+            throw std::invalid_argument(
+                "runtime manual segments cannot be empty");
+        }
+        for (const auto& sample : segment.samples) {
+            if (sample.duration_ms <= 0 || sample.duration_ms > 100 ||
+                !std::isfinite(sample.radial) ||
+                !std::isfinite(sample.tangential) ||
+                std::hypot(sample.radial, sample.tangential) > 1.01) {
+                throw std::invalid_argument(
+                    "invalid sustained AimLab runtime manual sample");
+            }
+        }
+    }
+    for (const auto& sample : config.runtime_target_samples) {
+        if (!std::isfinite(sample.initial_error_px.x) ||
+            !std::isfinite(sample.initial_error_px.y) ||
+            !std::isfinite(sample.body_width_px) ||
+            !std::isfinite(sample.body_height_px) ||
+            sample.body_width_px <= 0.0 || sample.body_height_px <= 0.0 ||
+            std::fabs(sample.initial_error_px.x) > config.frame_width_px * 2.0 ||
+            std::fabs(sample.initial_error_px.y) > config.frame_height_px * 2.0 ||
+            sample.body_width_px > config.frame_width_px * 2.0 ||
+            sample.body_height_px > config.frame_height_px * 2.0) {
+            throw std::invalid_argument(
+                "invalid sustained AimLab runtime target sample");
+        }
     }
 
     ScenarioScript result;
@@ -252,10 +379,52 @@ ScenarioScript generate_script(
                   static_cast<double>(shortest_cycle_ms))) + 1;
     result.targets.reserve(target_count);
     const int profile_offset = profile_offset_distribution(random);
+    std::size_t runtime_observation_index = 0;
+    const int maximum_runtime_capture_age =
+        config.runtime_observation_pattern.empty()
+        ? 0
+        : std::max_element(
+              config.runtime_observation_pattern.begin(),
+              config.runtime_observation_pattern.end(),
+              [](const RuntimeObservationSample& left,
+                 const RuntimeObservationSample& right) {
+                  return left.capture_age_ms < right.capture_age_ms;
+              })->capture_age_ms;
+    std::vector<std::size_t> runtime_ads_manual_pool;
+    std::vector<std::size_t> runtime_bodylock_manual_pool;
+    for (std::size_t index = 0;
+         index < config.runtime_manual_segments.size();
+         ++index) {
+        const RuntimeManualAimMode mode =
+            config.runtime_manual_segments[index].aim_mode;
+        if (mode == RuntimeManualAimMode::Any || mode == RuntimeManualAimMode::Ads) {
+            runtime_ads_manual_pool.push_back(index);
+        }
+        if (mode == RuntimeManualAimMode::Any ||
+            mode == RuntimeManualAimMode::BodyLock) {
+            runtime_bodylock_manual_pool.push_back(index);
+        }
+    }
 
     for (std::size_t index = 0; index < target_count; ++index) {
         TargetScript target;
         target.id = static_cast<std::uint64_t>(index + 1);
+        if (!runtime_ads_manual_pool.empty()) {
+            target.has_runtime_ads_manual_segment = true;
+            target.runtime_ads_manual_segment_index = permuted_manual_index(
+                runtime_ads_manual_pool,
+                seed,
+                index,
+                0x9E3779B97F4A7C15ull);
+        }
+        if (!runtime_bodylock_manual_pool.empty()) {
+            target.has_runtime_bodylock_manual_segment = true;
+            target.runtime_bodylock_manual_segment_index = permuted_manual_index(
+                runtime_bodylock_manual_pool,
+                seed,
+                index,
+                0xD1B54A32D192ED03ull);
+        }
         target.player_strafe.initial_direction =
             sampled_sign(strafe_random) < 0.0 ? -1 : 1;
         target.player_strafe.onset_ms =
@@ -302,6 +471,13 @@ ScenarioScript generate_script(
             ? near_distance_distribution(random)
             : distance_distribution(random);
         target.initial_error_px = scaled(direction_from_angle(angle), distance);
+        if (!config.runtime_target_samples.empty()) {
+            const auto& runtime_target = config.runtime_target_samples[
+                index % config.runtime_target_samples.size()];
+            target.initial_error_px = runtime_target.initial_error_px;
+            target.body_width_px = runtime_target.body_width_px;
+            target.body_height_px = runtime_target.body_height_px;
+        }
         if (config.obsolete_vertical_fixture) {
             target.initial_error_px = {
                 std::uniform_real_distribution<double>(-6.0, 6.0)(random),
@@ -393,8 +569,25 @@ ScenarioScript generate_script(
             seed ^ static_cast<std::uint32_t>(
                 0x91E10DA5u + target.id * 0x9E3779B9u));
         int observation_at_ms = 0;
-        while (observation_at_ms <= observation_horizon_ms) {
+        int observation_ready_at_ms = config.runtime_observation_pattern.empty()
+            ? config.vision_result_delay_ms
+            : maximum_runtime_capture_age;
+        if (!config.runtime_observation_pattern.empty()) {
+            const auto& first_runtime_sample =
+                config.runtime_observation_pattern[
+                    runtime_observation_index %
+                    config.runtime_observation_pattern.size()];
+            observation_at_ms =
+                observation_ready_at_ms - first_runtime_sample.capture_age_ms;
+        }
+        while (config.runtime_observation_pattern.empty()
+                   ? observation_at_ms <= observation_horizon_ms
+                   : observation_ready_at_ms <= observation_horizon_ms) {
             target.observation_at_ms.push_back(observation_at_ms);
+            if (!config.runtime_observation_pattern.empty()) {
+                target.observation_ready_at_ms.push_back(
+                    observation_ready_at_ms);
+            }
             Vec2d observation_noise{
                 noise_distribution(observation_random),
                 noise_distribution(observation_random)};
@@ -442,9 +635,23 @@ ScenarioScript generate_script(
                 }
             }
             target.observation_noise_px.push_back(observation_noise);
-            observation_at_ms += config.vision_interval_ms > 0
-                ? config.vision_interval_ms
-                : observation_interval_distribution(observation_random);
+            if (!config.runtime_observation_pattern.empty()) {
+                ++runtime_observation_index;
+                const auto& next_runtime_sample =
+                    config.runtime_observation_pattern[
+                        runtime_observation_index %
+                        config.runtime_observation_pattern.size()];
+                observation_ready_at_ms +=
+                    next_runtime_sample.delivery_interval_ms;
+                observation_at_ms = observation_ready_at_ms -
+                    next_runtime_sample.capture_age_ms;
+            } else {
+                observation_at_ms += config.vision_interval_ms > 0
+                    ? config.vision_interval_ms
+                    : observation_interval_distribution(observation_random);
+                observation_ready_at_ms = observation_at_ms +
+                    config.vision_result_delay_ms;
+            }
         }
         if (config.target_profile == TargetProfile::SmallVisible) {
             constexpr double small_radii[] = {8.0, 11.0, 14.0};

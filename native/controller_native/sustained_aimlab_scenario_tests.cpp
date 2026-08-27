@@ -15,6 +15,11 @@ using controller_native::sustained_aimlab::MotionProfile;
 using controller_native::sustained_aimlab::PlayerVerticalMotionMode;
 using controller_native::sustained_aimlab::ScenarioProfile;
 using controller_native::sustained_aimlab::ScenarioScript;
+using controller_native::sustained_aimlab::RuntimeManualSample;
+using controller_native::sustained_aimlab::RuntimeManualSegment;
+using controller_native::sustained_aimlab::RuntimeManualAimMode;
+using controller_native::sustained_aimlab::RuntimeObservationSample;
+using controller_native::sustained_aimlab::RuntimeTargetSample;
 using controller_native::sustained_aimlab::TargetScript;
 using controller_native::sustained_aimlab::TargetProfile;
 using controller_native::sustained_aimlab::Vec2d;
@@ -50,6 +55,9 @@ bool same_target(const TargetScript& left, const TargetScript& right) {
         left.player_strafe != right.player_strafe ||
         left.player_vertical != right.player_vertical ||
         left.observation_at_ms != right.observation_at_ms ||
+        left.observation_ready_at_ms != right.observation_ready_at_ms ||
+        left.body_width_px != right.body_width_px ||
+        left.body_height_px != right.body_height_px ||
         left.vision_occlusion_bursts.size() !=
             right.vision_occlusion_bursts.size() ||
         left.observation_noise_px.size() != right.observation_noise_px.size()) {
@@ -85,6 +93,8 @@ void test_defaults_and_slowdown_anchor_points() {
     const BenchmarkConfig config;
     require(config.duration_ms == 60'000, "default duration must be one minute");
     require(config.tick_ms == 1, "controller tick must be 1ms");
+    require_near(config.sensitivity_multiplier, 1.0, 1e-12,
+                 "default sensitivity multiplier");
     require(config.tracking_window_ms == 1'000, "tracking window must be 1000ms");
     require(config.inter_target_gap_ms == 50, "target gap must be 50ms");
     require_near(config.target_radius_px, 24.0, 1e-12, "target radius");
@@ -157,6 +167,26 @@ void test_script_hash_includes_control_response_delay() {
             1337, pre_acquisition);
     require(first.hash != with_initial_idle.hash,
             "nonzero initial idle must identify pre-acquisition fixture");
+}
+
+void test_script_hash_includes_controller_tick_and_sensitivity() {
+    BenchmarkConfig baseline;
+    BenchmarkConfig slower_controller = baseline;
+    slower_controller.tick_ms = 4;
+    BenchmarkConfig higher_sensitivity = baseline;
+    higher_sensitivity.sensitivity_multiplier = 1.25;
+
+    const auto original =
+        controller_native::sustained_aimlab::generate_script(1337, baseline);
+    const auto slower = controller_native::sustained_aimlab::generate_script(
+        1337, slower_controller);
+    const auto sensitive =
+        controller_native::sustained_aimlab::generate_script(
+            1337, higher_sensitivity);
+    require(original.hash != slower.hash,
+            "controller cadence must be part of script identity");
+    require(original.hash != sensitive.hash,
+            "sensitivity multiplier must be part of script identity");
 }
 
 void test_full_speed_strafe_schedule_is_seeded_and_bounded() {
@@ -620,6 +650,124 @@ void test_short_occlusion_bursts_are_tracking_relative_and_hashed() {
     }
 }
 
+void test_runtime_profile_drives_paired_delivery_capture_age_and_target_shape() {
+    BenchmarkConfig config;
+    config.duration_ms = 1'000;
+    config.runtime_observation_pattern = {
+        RuntimeObservationSample{7, 5},
+        RuntimeObservationSample{8, 6},
+        RuntimeObservationSample{6, 4},
+    };
+    config.runtime_manual_segments = {
+        RuntimeManualSegment{{RuntimeManualSample{10, 0.25, -0.10}}},
+        RuntimeManualSegment{{RuntimeManualSample{10, -0.20, 0.05}}},
+        RuntimeManualSegment{{RuntimeManualSample{10, 0.00, 0.00}}},
+        RuntimeManualSegment{{RuntimeManualSample{10, 0.10, 0.30}}},
+    };
+    config.runtime_target_samples = {
+        RuntimeTargetSample{{19.0, -10.0}, 42.0, 96.0},
+        RuntimeTargetSample{{-31.0, 7.0}, 28.0, 70.0},
+    };
+
+    const ScenarioScript script =
+        controller_native::sustained_aimlab::generate_script(2026082501, config);
+    require(!script.targets.empty(), "runtime profile generated no targets");
+    const TargetScript& first = script.targets.front();
+    require(same_vec(first.initial_error_px, {19.0, -10.0}),
+            "runtime target error must replace the synthetic range");
+    require_near(first.body_width_px, 42.0, 1e-12,
+                 "runtime body width");
+    require_near(first.body_height_px, 96.0, 1e-12,
+                 "runtime body height");
+    const ScenarioScript replay =
+        controller_native::sustained_aimlab::generate_script(2026082501, config);
+    require(script.hash == replay.hash,
+            "runtime manual trace assignment must be seed reproducible");
+    std::set<std::size_t> first_cycle;
+    for (std::size_t index = 0; index < 4; ++index) {
+        require(script.targets[index].has_runtime_ads_manual_segment &&
+                    script.targets[index].has_runtime_bodylock_manual_segment,
+                "legacy any-mode traces must remain available to both cohorts");
+        first_cycle.insert(
+            script.targets[index].runtime_bodylock_manual_segment_index);
+        require(
+            script.targets[index].runtime_bodylock_manual_segment_index ==
+                replay.targets[index].runtime_bodylock_manual_segment_index,
+            "runtime manual trace replay changed for the same seed");
+    }
+    require(first_cycle.size() == 4,
+            "each retained user-habit trace must run once before reuse");
+    const ScenarioScript different_seed =
+        controller_native::sustained_aimlab::generate_script(2026082502, config);
+    require(
+        first.runtime_bodylock_manual_segment_index !=
+            different_seed.targets.front().runtime_bodylock_manual_segment_index,
+        "runtime manual trace assignment must vary across benchmark seeds");
+    require(first.observation_at_ms.size() ==
+                first.observation_ready_at_ms.size(),
+            "runtime capture and delivery schedules must stay paired");
+    require(first.observation_at_ms.size() > 4,
+            "runtime observation pattern must cover the target horizon");
+    for (std::size_t index = 0; index < 4; ++index) {
+        const auto& sample = config.runtime_observation_pattern[index % 3];
+        require(first.observation_ready_at_ms[index] -
+                    first.observation_at_ms[index] == sample.capture_age_ms,
+                "runtime capture age must be preserved");
+        if (index > 0) {
+            require(first.observation_ready_at_ms[index] -
+                        first.observation_ready_at_ms[index - 1] ==
+                    sample.delivery_interval_ms,
+                    "runtime delivery interval must be preserved");
+        }
+    }
+
+    BenchmarkConfig synthetic;
+    synthetic.duration_ms = config.duration_ms;
+    const auto synthetic_script =
+        controller_native::sustained_aimlab::generate_script(2026082501, synthetic);
+    require(script.hash != synthetic_script.hash,
+            "runtime covariates must change scenario identity");
+}
+
+void test_runtime_manual_library_preserves_aim_mode_scope() {
+    BenchmarkConfig config;
+    config.duration_ms = 1'000;
+    config.runtime_manual_segments = {
+        RuntimeManualSegment{{RuntimeManualSample{10, 0.20, 0.0}}},
+        RuntimeManualSegment{{RuntimeManualSample{10, -0.20, 0.0}}},
+    };
+    config.runtime_manual_segments[0].aim_mode = RuntimeManualAimMode::Ads;
+    config.runtime_manual_segments[1].aim_mode = RuntimeManualAimMode::BodyLock;
+
+    const ScenarioScript script =
+        controller_native::sustained_aimlab::generate_script(2026082701, config);
+    require(!script.targets.empty(), "mode-scoped runtime profile has no targets");
+    for (const auto& target : script.targets) {
+        require(target.has_runtime_ads_manual_segment &&
+                    target.runtime_ads_manual_segment_index == 0,
+                "ADS cohort must receive only ADS user-habit traces");
+        require(target.has_runtime_bodylock_manual_segment &&
+                    target.runtime_bodylock_manual_segment_index == 1,
+                "BodyLock cohort must receive only BodyLock user-habit traces");
+    }
+}
+
+void test_runtime_extensions_preserve_default_script_identity() {
+    BenchmarkConfig config;
+    config.duration_ms = 1'500;
+    require(config.runtime_observation_pattern.empty(),
+            "default runtime observation pattern is not empty");
+    require(config.runtime_manual_segments.empty(),
+            "default runtime manual segments are not empty");
+    require(config.runtime_target_samples.empty(),
+            "default runtime target samples are not empty");
+    const ScenarioScript script =
+        controller_native::sustained_aimlab::generate_script(2026072301, config);
+    require(script.hash == 9'377'044'951'088'281'208ull,
+            "runtime extensions changed the default script hash: " +
+                std::to_string(script.hash));
+}
+
 void test_gun_kick_disturbance_is_deterministic_and_observation_only() {
     BenchmarkConfig plain_config;
     plain_config.vision_interval_ms = 10;
@@ -750,6 +898,7 @@ int main() {
         test_defaults_and_slowdown_anchor_points();
         test_seeded_generation_is_reproducible_and_complete();
         test_script_hash_includes_control_response_delay();
+        test_script_hash_includes_controller_tick_and_sensitivity();
         test_near_crosshair_profile_bounds_initial_error();
         test_full_speed_strafe_schedule_is_seeded_and_bounded();
         test_vertical_motion_schedule_is_seeded_and_bounded();
@@ -757,6 +906,9 @@ int main() {
         test_stationary_target_mode_preserves_paired_nonmotion_script();
         test_generated_ranges_and_observation_schedule();
         test_200hz_changes_only_observation_schedule();
+        test_runtime_profile_drives_paired_delivery_capture_age_and_target_shape();
+        test_runtime_manual_library_preserves_aim_mode_scope();
+        test_runtime_extensions_preserve_default_script_identity();
         test_motion_profiles_and_boundary_reflection();
         test_motion_profile_names_are_stable();
         test_bodylock_stress_profiles_are_isolated_and_deterministic();

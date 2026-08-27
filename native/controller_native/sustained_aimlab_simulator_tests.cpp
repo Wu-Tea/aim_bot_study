@@ -80,6 +80,99 @@ void test_source_cadence_has_unique_fresh_frames() {
             "1 kHz controller must include non-source ticks");
 }
 
+void test_controller_tick_holds_output_without_dropping_ready_vision() {
+    BenchmarkConfig config;
+    config.duration_ms = 100;
+    config.fixed_target_slot_ms = 100;
+    config.vision_interval_ms = 3;
+    config.tick_ms = 4;
+    const ScenarioScript script = generate_script(7332, config);
+
+    int controller_calls = 0;
+    int fresh_count = 0;
+    const ControllerStep controller = [&](const ControllerObservation& input) {
+        ++controller_calls;
+        if (input.fresh_vision) ++fresh_count;
+        ControllerStepResult result = neutral_bodylock(input);
+        result.final_stick.x = 0.25;
+        return result;
+    };
+    const auto result = run_simulation(
+        script,
+        ManualProfile::Pure,
+        controller,
+        BenchmarkCohort::BodyLockFollow);
+
+    require(result.ticks == 100,
+            "controller tick must not change the 1 ms plant/score clock");
+    require(result.controller_updates == 25,
+            "250 Hz controller must update exactly once per 4 ms");
+    require(controller_calls == result.controller_updates,
+            "reported controller updates must match actual callbacks");
+    require(fresh_count >= 20,
+            "Vision publications between controller ticks must be latched");
+}
+
+void test_sensitivity_multiplier_changes_only_camera_plant_gain() {
+    const auto first_step_camera_delta = [](double sensitivity_multiplier) {
+        BenchmarkConfig config;
+        config.duration_ms = 2;
+        config.fixed_target_slot_ms = 2;
+        config.target_motion_enabled = false;
+        config.camera_response_px_per_stick_second = 400.0;
+        config.sensitivity_multiplier = sensitivity_multiplier;
+        const ScenarioScript script = generate_script(7333, config);
+
+        double delta_x = 0.0;
+        const ControllerStep controller = [](const ControllerObservation& input) {
+            ControllerStepResult result = neutral_bodylock(input);
+            result.final_stick.x = 0.25;
+            return result;
+        };
+        run_simulation(
+            script,
+            ManualProfile::Pure,
+            controller,
+            BenchmarkCohort::BodyLockFollow,
+            [&](const SimulationTraceFrame& frame) {
+                if (frame.absolute_ms == 0) {
+                    delta_x = frame.true_error_before_px.x -
+                        frame.true_error_after_px.x;
+                }
+            });
+        return delta_x;
+    };
+
+    const double baseline_delta = first_step_camera_delta(1.0);
+    const double doubled_delta = first_step_camera_delta(2.0);
+    require(std::fabs(doubled_delta - baseline_delta * 2.0) < 1e-9,
+            "sensitivity multiplier must scale only the virtual camera plant");
+}
+
+void test_held_output_cannot_acquire_a_different_target() {
+    BenchmarkConfig config;
+    config.duration_ms = 170;
+    config.fixed_target_slot_ms = 60;
+    config.inter_target_gap_ms = 50;
+    config.tick_ms = 200;
+    const ScenarioScript script = generate_script(7334, config);
+
+    const auto result = run_simulation(
+        script,
+        ManualProfile::Pure,
+        neutral_bodylock,
+        BenchmarkCohort::BodyLockFollow);
+
+    require(result.targets.size() >= 2,
+            "slow-tick fixture must reach a second target");
+    require(result.targets[0].bodylock_entry_ms == 0,
+            "first target must enter BodyLock on the initial controller tick");
+    require(result.targets[1].bodylock_entry_ms == -1,
+            "held output for target one must not acquire target two");
+    require(result.targets[1].bodylock_active_ms == 0,
+            "stale target identity must not accrue BodyLock tracking time");
+}
+
 void test_player_motion_is_plant_input_not_controller_oracle() {
     BenchmarkConfig config;
     config.duration_ms = 5'000;
@@ -125,12 +218,119 @@ void test_nonfinite_controller_output_is_rejected() {
     require(rejected, "non-finite controller output must fail the run");
 }
 
+void test_runtime_manual_segment_is_target_relative_and_not_synthetic() {
+    BenchmarkConfig config;
+    config.duration_ms = 300;
+    config.fixed_target_slot_ms = 300;
+    config.runtime_manual_segments = {
+        RuntimeManualSegment{{
+            RuntimeManualSample{100, 0.30, 0.0},
+            RuntimeManualSample{100, -0.20, 0.10},
+        }},
+    };
+    config.runtime_manual_segments.front().aim_mode =
+        RuntimeManualAimMode::BodyLock;
+    config.runtime_target_samples = {
+        RuntimeTargetSample{{40.0, -30.0}, 40.0, 90.0},
+    };
+    const ScenarioScript script = generate_script(2026082502, config);
+
+    bool ads_saw_manual = false;
+    const ControllerStep ads_controller = [&](const ControllerObservation& input) {
+        ads_saw_manual = ads_saw_manual || length(input.manual_stick) > 1.0e-9;
+        return neutral_bodylock(input);
+    };
+    run_simulation(
+        script,
+        ManualProfile::RuntimeProfile,
+        ads_controller,
+        BenchmarkCohort::AdsAcquire);
+    require(!ads_saw_manual,
+            "BodyLock user habits must not leak into the ADS cohort");
+
+    bool saw_helpful = false;
+    bool saw_opposing_tangent = false;
+    const ControllerStep controller = [&](const ControllerObservation& input) {
+        if (input.target_present) {
+            const Vec2d helpful_error{
+                input.observed_error_px.x, -input.observed_error_px.y};
+            const double magnitude = length(helpful_error);
+            if (magnitude > 1e-9) {
+                const Vec2d helpful{
+                    helpful_error.x / magnitude, helpful_error.y / magnitude};
+                const Vec2d tangent{-helpful.y, helpful.x};
+                const double radial = input.manual_stick.x * helpful.x +
+                    input.manual_stick.y * helpful.y;
+                const double tangential = input.manual_stick.x * tangent.x +
+                    input.manual_stick.y * tangent.y;
+                saw_helpful = saw_helpful || radial > 0.29;
+                saw_opposing_tangent = saw_opposing_tangent ||
+                    (radial < -0.19 && tangential > 0.09);
+            }
+        }
+        return neutral_bodylock(input);
+    };
+    run_simulation(
+        script,
+        ManualProfile::RuntimeProfile,
+        controller,
+        BenchmarkCohort::BodyLockFollow);
+    require(saw_helpful,
+            "runtime manual profile must replay a helpful radial sample");
+    require(saw_opposing_tangent,
+            "runtime manual profile must replay paired opposing/tangential input");
+}
+
+void test_runtime_body_geometry_reconstructs_logged_stable_error() {
+    const auto exercise = [](double width, double height, double expected_ratio) {
+        BenchmarkConfig config;
+        config.duration_ms = 30;
+        config.fixed_target_slot_ms = 30;
+        config.vision_interval_ms = 5;
+        config.body_aim_height_ratio = 0.30;
+        config.runtime_target_samples = {
+            RuntimeTargetSample{{25.0, -18.0}, width, height},
+        };
+        const ScenarioScript script = generate_script(2026082503, config);
+        bool saw_body = false;
+        const ControllerStep controller = [&](const ControllerObservation& input) {
+            if (input.fresh_vision && input.has_body_box) {
+                const double resolved_x =
+                    input.body_box_x + input.body_box_width * 0.5 - 320.0;
+                const double resolved_y =
+                    input.body_box_y + input.body_box_height * expected_ratio -
+                    256.0;
+                require(std::fabs(resolved_x - input.observed_error_px.x) < 1e-9,
+                        "runtime body box changed the stable x error");
+                require(std::fabs(resolved_y - input.observed_error_px.y) < 1e-9,
+                        "runtime body box changed the stable y error");
+                saw_body = true;
+            }
+            return neutral_bodylock(input);
+        };
+        run_simulation(
+            script,
+            ManualProfile::Pure,
+            controller,
+            BenchmarkCohort::AdsAcquire);
+        require(saw_body, "runtime target geometry was not delivered");
+    };
+
+    exercise(40.0, 100.0, 0.30);
+    exercise(200.0, 100.0, 0.40);
+}
+
 }  // namespace
 
 int main() {
     test_script_and_run_are_deterministic();
     test_source_cadence_has_unique_fresh_frames();
+    test_controller_tick_holds_output_without_dropping_ready_vision();
+    test_sensitivity_multiplier_changes_only_camera_plant_gain();
+    test_held_output_cannot_acquire_a_different_target();
     test_player_motion_is_plant_input_not_controller_oracle();
     test_nonfinite_controller_output_is_rejected();
+    test_runtime_manual_segment_is_target_relative_and_not_synthetic();
+    test_runtime_body_geometry_reconstructs_logged_stable_error();
     return 0;
 }

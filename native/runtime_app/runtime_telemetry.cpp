@@ -338,7 +338,15 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
             << ",\"config_hash\":\"" << record.session_metadata.config_hash.data() << '\"'
             << ",\"engine_hash\":\"" << record.session_metadata.engine_hash.data() << '\"'
             << ",\"executable_sha256\":\"" << record.session_metadata.executable_sha256.data() << '\"'
-            ;
+            << ",\"capture_width\":" << record.session_metadata.capture_width
+            << ",\"capture_height\":" << record.session_metadata.capture_height
+            << ",\"active_capture_fps\":"
+            << record.session_metadata.active_capture_fps
+            << ",\"idle_capture_fps\":"
+            << record.session_metadata.idle_capture_fps
+            << ",\"controller_tick_hz\":"
+            << record.session_metadata.controller_tick_hz
+            << ",\"telemetry_hz\":" << record.session_metadata.telemetry_hz;
         break;
     case TelemetryRecordType::ControllerSample:
         output_ << ",\"physical_connected\":"

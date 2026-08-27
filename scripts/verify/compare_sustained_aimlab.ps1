@@ -1,26 +1,79 @@
 param(
     [Parameter(Mandatory = $true)][string]$Baseline,
     [Parameter(Mandatory = $true)][string]$Candidate,
-    [switch]$AllowIntentFusionDifference
+    [string]$Policy = "",
+    [switch]$AllowIntentFusionDifference,
+    [switch]$ReportOnly
 )
 
 $ErrorActionPreference = "Stop"
-$before = Get-Content (Resolve-Path $Baseline) -Raw | ConvertFrom-Json
-$after = Get-Content (Resolve-Path $Candidate) -Raw | ConvertFrom-Json
+$baselinePath = (Resolve-Path $Baseline).Path
+$candidatePath = (Resolve-Path $Candidate).Path
+if (-not $Policy) {
+    $Policy = Join-Path $PSScriptRoot `
+        "..\..\docs\benchmarks\sustained-aimlab-optimization-policy-v1.json"
+}
+$policyPath = (Resolve-Path $Policy).Path
+$before = Get-Content $baselinePath -Raw | ConvertFrom-Json
+$after = Get-Content $candidatePath -Raw | ConvertFrom-Json
+$optimizationPolicy = Get-Content $policyPath -Raw | ConvertFrom-Json
+
+if ($optimizationPolicy.schema -ne "sustained-aimlab-optimization-policy-v1" -or
+    $optimizationPolicy.status -ne "accepted") {
+    throw "AimLab optimization policy is not the accepted v1 schema: $policyPath"
+}
+
+function Canonical-Json($value) {
+    return $value | ConvertTo-Json -Depth 20 -Compress
+}
+
+function Require-Same($label, $left, $right) {
+    if ((Canonical-Json $left) -ne (Canonical-Json $right)) {
+        throw "INVALID / NON-COMPARABLE: ${label} differs"
+    }
+}
+
+if ($before.schema -ne $after.schema) {
+    throw "INVALID / NON-COMPARABLE: report schema differs"
+}
+if ($before.control_path -ne $after.control_path) {
+    throw "INVALID / NON-COMPARABLE: control path differs"
+}
+Require-Same "simulator covariates" $before.simulator $after.simulator
+
+$beforeRuntime = $before.PSObject.Properties['runtime_profile']
+$afterRuntime = $after.PSObject.Properties['runtime_profile']
+if (($null -eq $beforeRuntime) -ne ($null -eq $afterRuntime)) {
+    throw "INVALID / NON-COMPARABLE: runtime profile exists in only one artifact"
+}
+if ($null -ne $beforeRuntime) {
+    foreach ($field in @(
+        'id', 'profile_payload_sha256', 'audit_artifact_sha256',
+        'source_runtime_sha256', 'source_config_sha256',
+        'source_engine_sha256', 'config_relationship', 'observation_samples',
+        'manual_segments', 'manual_samples', 'target_samples',
+        'not_exact_replay')) {
+        if ($before.runtime_profile.$field -ne $after.runtime_profile.$field) {
+            throw "INVALID / NON-COMPARABLE: runtime profile ${field} differs"
+        }
+    }
+}
 
 $beforeFusion = $before.PSObject.Properties['intent_fusion']
 $afterFusion = $after.PSObject.Properties['intent_fusion']
-if ($null -eq $beforeFusion -or $null -eq $afterFusion) {
-    throw "Both artifacts must identify intent_fusion metadata"
+if (($null -eq $beforeFusion) -ne ($null -eq $afterFusion)) {
+    throw "INVALID / NON-COMPARABLE: intent_fusion exists in only one artifact"
 }
-foreach ($field in @('schema_version', 'candidate_set_version')) {
-    if ($before.intent_fusion.$field -ne $after.intent_fusion.$field) {
-        throw "Intent fusion metadata mismatch for ${field}"
+if ($null -ne $beforeFusion) {
+    foreach ($field in @('schema_version', 'candidate_set_version')) {
+        if ($before.intent_fusion.$field -ne $after.intent_fusion.$field) {
+            throw "INVALID / NON-COMPARABLE: intent fusion ${field} differs"
+        }
     }
-}
-if (-not $AllowIntentFusionDifference -and
-    $before.intent_fusion.mode -ne $after.intent_fusion.mode) {
-    throw "Intent fusion mode mismatch; pass -AllowIntentFusionDifference for an explicit experiment"
+    if (-not $AllowIntentFusionDifference -and
+        $before.intent_fusion.mode -ne $after.intent_fusion.mode) {
+        throw "INVALID / NON-COMPARABLE: intent fusion mode differs; pass -AllowIntentFusionDifference only for an explicit experiment"
+    }
 }
 
 $beforeCf = $before.PSObject.Properties['counterfactual_conflict']
@@ -41,21 +94,71 @@ if ($compareCounterfactual) {
 
 function Run-Key($document, $run) {
     return "$($run.seed)|$($run.profile)|$($run.cohort)|" +
-        "$($document.simulator.target_profile)|" +
-        "$($document.simulator.camera_response_px_per_stick_second)|" +
-        "$($document.simulator.slowdown_edge)|$($document.simulator.slowdown_center)"
+        "$($run.left_strafe)|$($run.vertical_motion)|$($run.script_hash)"
+}
+
+function Numeric-Field($object, [string]$field, [string]$key) {
+    $property = $object.PSObject.Properties[$field]
+    if ($null -eq $property -or $null -eq $property.Value) {
+        throw "INVALID / NON-COMPARABLE: missing protected metric ${field} in ${key}"
+    }
+    try {
+        $value = [double]$property.Value
+    } catch {
+        throw "INVALID / NON-COMPARABLE: protected metric ${field} is not numeric in ${key}"
+    }
+    if ([double]::IsNaN($value) -or [double]::IsInfinity($value)) {
+        throw "FAILED CONSTRAINTS: protected metric ${field} is not finite in ${key}"
+    }
+    return $value
 }
 
 $beforeByKey = @{}
-foreach ($run in $before.runs) { $beforeByKey[(Run-Key $before $run)] = $run }
+foreach ($run in $before.runs) {
+    $key = Run-Key $before $run
+    if ($beforeByKey.ContainsKey($key)) {
+        throw "INVALID / NON-COMPARABLE: duplicate baseline run: $key"
+    }
+    $beforeByKey[$key] = $run
+}
+if ($beforeByKey.Count -ne $after.runs.Count) {
+    throw "INVALID / NON-COMPARABLE: run count differs"
+}
+
+$constraintViolations = [System.Collections.Generic.List[object]]::new()
+$tolerance = [double]$optimizationPolicy.floating_tolerance
 $rows = foreach ($run in $after.runs) {
     $key = Run-Key $after $run
-    if (-not $beforeByKey.ContainsKey($key)) { throw "Missing baseline run: $key" }
+    if (-not $beforeByKey.ContainsKey($key)) {
+        throw "INVALID / NON-COMPARABLE: missing baseline run: $key"
+    }
     $old = $beforeByKey[$key]
     if ($compareCounterfactual -and
         ($null -eq $old.PSObject.Properties['counterfactual'] -or
          $null -eq $run.PSObject.Properties['counterfactual'])) {
         throw "Missing per-run counterfactual data: $key"
+    }
+    foreach ($metric in $optimizationPolicy.protected_metrics) {
+        $field = [string]$metric.field
+        $oldValue = Numeric-Field $old $field $key
+        $newValue = Numeric-Field $run $field $key
+        $failed = if ($metric.direction -eq 'higher_or_equal') {
+            $newValue + $tolerance -lt $oldValue
+        } elseif ($metric.direction -eq 'lower_or_equal') {
+            $newValue - $tolerance -gt $oldValue
+        } else {
+            throw "Unknown protected metric direction: $($metric.direction)"
+        }
+        if ($failed) {
+            $constraintViolations.Add([pscustomobject]@{
+                key = $key
+                metric = $field
+                direction = $metric.direction
+                baseline = $oldValue
+                candidate = $newValue
+                delta = $newValue - $oldValue
+            })
+        }
     }
     [pscustomobject]@{
         key = $key
@@ -121,4 +224,40 @@ if ($compareCounterfactual) {
             future_burden_delta_px_ms, future_settle_delay_delta_ms,
             analyzed_episode_delta, skipped_episode_delta |
         Format-Table -AutoSize
+}
+
+$ranking = foreach ($metric in $optimizationPolicy.ranking_metrics) {
+    $baselineTotal = 0.0
+    $candidateTotal = 0.0
+    foreach ($run in $after.runs) {
+        $key = Run-Key $after $run
+        $baselineTotal += Numeric-Field $beforeByKey[$key] $metric $key
+        $candidateTotal += Numeric-Field $run $metric $key
+    }
+    [pscustomobject]@{
+        metric = $metric
+        baseline = $baselineTotal
+        candidate = $candidateTotal
+        delta = $candidateTotal - $baselineTotal
+    }
+}
+
+if ($constraintViolations.Count -gt 0) {
+    $constraintViolations |
+        Sort-Object key, metric |
+        ForEach-Object {
+            Write-Output (
+                "[PROTECTED-REGRESSION] metric=$($_.metric) " +
+                "baseline=$($_.baseline) candidate=$($_.candidate) " +
+                "delta=$($_.delta) run=$($_.key)")
+        }
+    Write-Output "AIMLAB_CONSTRAINT_GATE=FAILED CONSTRAINTS"
+    Write-Output "Ranking scores are not eligible for a recommendation."
+    if (-not $ReportOnly) {
+        throw "$($constraintViolations.Count) protected AimLab metric regression(s)"
+    }
+} else {
+    Write-Output "AIMLAB_CONSTRAINT_GATE=BENCHMARK-ELIGIBLE"
+    $ranking | Format-Table -AutoSize
+    Write-Output "This gate does not replace missing scenario coverage or matched live acceptance."
 }

@@ -86,6 +86,41 @@ Vec2d scripted_manual_input(
         target.initial_velocity_px_per_second);
 }
 
+Vec2d runtime_manual_input(
+    const BenchmarkConfig& config,
+    const TargetScript& target,
+    BenchmarkCohort cohort,
+    int target_elapsed_ms,
+    Vec2d error) noexcept {
+    if (config.runtime_manual_segments.empty() || target_elapsed_ms < 0) {
+        return {};
+    }
+    const bool has_segment = cohort == BenchmarkCohort::AdsAcquire
+        ? target.has_runtime_ads_manual_segment
+        : target.has_runtime_bodylock_manual_segment;
+    if (!has_segment) {
+        return {};
+    }
+    const std::size_t segment_index = cohort == BenchmarkCohort::AdsAcquire
+        ? target.runtime_ads_manual_segment_index
+        : target.runtime_bodylock_manual_segment_index;
+    const auto& segment = config.runtime_manual_segments[
+        segment_index % config.runtime_manual_segments.size()];
+    int remaining_ms = target_elapsed_ms;
+    for (const auto& sample : segment.samples) {
+        if (remaining_ms < sample.duration_ms) {
+            const Vec2d helpful = normalized_control_direction(error);
+            const Vec2d tangent{-helpful.y, helpful.x};
+            return {
+                helpful.x * sample.radial + tangent.x * sample.tangential,
+                helpful.y * sample.radial + tangent.y * sample.tangential,
+            };
+        }
+        remaining_ms -= sample.duration_ms;
+    }
+    return {};
+}
+
 Vec2d wrong_then_correct_manual_input(
     const TargetScript& target,
     int target_elapsed_ms) noexcept {
@@ -293,8 +328,9 @@ BenchmarkResult run_simulation(
     if (!controller_step) {
         throw std::invalid_argument("controller callback is required");
     }
-    if (script.config.duration_ms <= 0 || script.config.tick_ms != 1) {
-        throw std::invalid_argument("sustained AimLab runner requires 1ms ticks");
+    if (script.config.duration_ms <= 0 || script.config.tick_ms <= 0) {
+        throw std::invalid_argument(
+            "sustained AimLab runner requires a positive controller tick");
     }
 
     std::vector<TargetResult> target_results;
@@ -352,6 +388,11 @@ BenchmarkResult run_simulation(
         static_cast<std::size_t>(
             std::max(0, script.config.control_response_delay_ms)),
         PlantCommand{});
+    bool pending_controller_vision = false;
+    ControllerObservation pending_vision_input;
+    ControllerObservation held_controller_input;
+    ControllerStepResult held_output;
+    int controller_updates = 0;
     auto spawn_target = [&] {
         if (target_index >= script.targets.size()) {
             throw std::runtime_error("scenario script exhausted before duration");
@@ -489,16 +530,18 @@ BenchmarkResult run_simulation(
                                 burst.tracking_offset_ms + burst.duration_ms;
                     });
             }
+            const auto observation_ready_at = [&](std::size_t index) {
+                return target.observation_ready_at_ms.empty()
+                    ? target.observation_at_ms[index] +
+                        script.config.vision_result_delay_ms
+                    : target.observation_ready_at_ms[index];
+            };
             while (observation_index < target.observation_at_ms.size() &&
-                   target.observation_at_ms[observation_index] +
-                           script.config.vision_result_delay_ms <
-                       target_elapsed_ms) {
+                   observation_ready_at(observation_index) < target_elapsed_ms) {
                 ++observation_index;
             }
             if (observation_index < target.observation_at_ms.size() &&
-                target.observation_at_ms[observation_index] +
-                        script.config.vision_result_delay_ms ==
-                    target_elapsed_ms) {
+                observation_ready_at(observation_index) == target_elapsed_ms) {
                 const int capture_elapsed_ms =
                     target.observation_at_ms[observation_index];
                 const Vec2d captured_error =
@@ -535,18 +578,19 @@ BenchmarkResult run_simulation(
                         captured_error.y +
                             target.observation_noise_px[observation_index].y,
                     };
-                    constexpr double kBodyWidthPx = 48.0;
-                    constexpr double kBodyHeightPx = 112.0;
-                    constexpr double kAimHeightRatio = 0.365;
+                    const double aim_height_ratio =
+                        target.body_height_px / target.body_width_px < 0.65
+                        ? 0.40
+                        : script.config.body_aim_height_ratio;
                     carried_body_box_available = true;
                     carried_body_box_x =
                         320.0 + carried_observation.x -
-                        kBodyWidthPx * 0.5;
+                        target.body_width_px * 0.5;
                     carried_body_box_y =
                         256.0 + carried_observation.y -
-                        kBodyHeightPx * kAimHeightRatio;
-                    carried_body_box_width = kBodyWidthPx;
-                    carried_body_box_height = kBodyHeightPx;
+                        target.body_height_px * aim_height_ratio;
+                    carried_body_box_width = target.body_width_px;
+                    carried_body_box_height = target.body_height_px;
                     if (has_body_box_deformation(
                             script.config.vision_disturbance) &&
                         tracking) {
@@ -559,9 +603,11 @@ BenchmarkResult run_simulation(
                 ++observation_index;
             }
             if (input.fresh_vision) {
+                const int capture_elapsed_ms =
+                    target.observation_at_ms[observation_index - 1];
                 input.capture_time_seconds =
                     static_cast<double>(
-                        now_ms - script.config.vision_result_delay_ms) /
+                        now_ms - (target_elapsed_ms - capture_elapsed_ms)) /
                     1000.0;
                 input.ready_time_seconds =
                     static_cast<double>(now_ms) / 1000.0;
@@ -641,6 +687,10 @@ BenchmarkResult run_simulation(
                        (cohort != BenchmarkCohort::BodyLockFollow || tracking)) {
                 input.manual_stick = scripted_manual_input(
                     target, target_elapsed_ms);
+            } else if (manual_profile == ManualProfile::RuntimeProfile &&
+                       (cohort != BenchmarkCohort::BodyLockFollow || tracking)) {
+                input.manual_stick = runtime_manual_input(
+                    script.config, target, cohort, target_elapsed_ms, error);
             } else if (manual_profile == ManualProfile::WrongThenCorrect &&
                        (cohort != BenchmarkCohort::BodyLockFollow || tracking)) {
                 input.manual_stick = wrong_then_correct_manual_input(
@@ -684,28 +734,87 @@ BenchmarkResult run_simulation(
             pending_fresh_miss = false;
         }
 
+        if (input.fresh_vision) {
+            // Runtime publication and controller consumption are separate
+            // clocks. Retain the newest mailbox value until a controller tick
+            // instead of dropping frames that arrive between updates.
+            pending_controller_vision = true;
+            pending_vision_input = input;
+        }
+
+        const bool controller_updated = now_ms % script.config.tick_ms == 0;
+        ControllerObservation controller_input = input;
+        controller_input.fresh_vision = false;
+        ControllerStepResult output = held_output;
+        if (controller_updated) {
+            if (pending_controller_vision) {
+                const ControllerObservation& published = pending_vision_input;
+                controller_input.fresh_vision = true;
+                controller_input.target_present = published.target_present;
+                controller_input.target_id = published.target_id;
+                controller_input.primary_candidate_visible =
+                    published.primary_candidate_visible;
+                controller_input.decoy_candidate_present =
+                    published.decoy_candidate_present;
+                controller_input.decoy_target_id = published.decoy_target_id;
+                controller_input.decoy_observed_error_px =
+                    published.decoy_observed_error_px;
+                controller_input.frame_id = published.frame_id;
+                controller_input.capture_time_seconds =
+                    published.capture_time_seconds;
+                controller_input.ready_time_seconds =
+                    published.ready_time_seconds;
+                controller_input.observed_error_px =
+                    published.observed_error_px;
+                controller_input.has_body_box = published.has_body_box;
+                controller_input.body_box_x = published.body_box_x;
+                controller_input.body_box_y = published.body_box_y;
+                controller_input.body_box_width = published.body_box_width;
+                controller_input.body_box_height = published.body_box_height;
+                controller_input.has_motion_anchor =
+                    published.has_motion_anchor;
+                controller_input.motion_anchor_px =
+                    published.motion_anchor_px;
+            }
+            output = controller_step(controller_input);
+            held_controller_input = controller_input;
+            held_output = output;
+            ++controller_updates;
+            pending_controller_vision = false;
+        } else {
+            controller_input = held_controller_input;
+            controller_input.now_ms = now_ms;
+            controller_input.fresh_vision = false;
+        }
+
         SimulationTraceFrame trace_frame;
         trace_frame.absolute_ms = now_ms;
         trace_frame.target_elapsed_ms = target_active ? target_elapsed_ms : -1;
         trace_frame.target_active = target_active;
-        trace_frame.fresh_vision = input.fresh_vision;
+        trace_frame.controller_updated = controller_updated;
+        trace_frame.fresh_vision = controller_input.fresh_vision;
         trace_frame.vision_occluded = vision_occluded;
         trace_frame.target_id = input.target_id;
-        trace_frame.input = input;
+        trace_frame.input = controller_input;
         if (target_active) {
             trace_frame.motion = script.targets[target_index].motion;
             trace_frame.true_error_before_px = error;
         }
 
-        const ControllerStepResult output = controller_step(input);
-        if (target_active && first_assist_output_ms < 0 &&
+        const bool output_matches_active_target = target_active &&
+            output.controller_target_id == script.targets[target_index].id;
+        const bool active_target_bodylock =
+            output_matches_active_target && output.bodylock_mode;
+        if (controller_updated && output_matches_active_target &&
+            first_assist_output_ms < 0 &&
             length(output.requested_assist_stick) > 0.001) {
             first_assist_output_ms = target_elapsed_ms;
         }
-        if (target_active && cohort == BenchmarkCohort::AdsAcquire) {
+        if (output_matches_active_target &&
+            cohort == BenchmarkCohort::AdsAcquire) {
             if (!output.bodylock_mode) saw_ads_mode = true;
             if (saw_ads_mode && !previous_bodylock_mode &&
-                output.bodylock_mode) {
+                active_target_bodylock) {
                 pending_ads_to_bodylock_transition = true;
             }
         }
@@ -733,7 +842,7 @@ BenchmarkResult run_simulation(
         if (target_active) {
             const TargetScript& target = script.targets[target_index];
             if (cohort == BenchmarkCohort::AdsAcquire &&
-                !previous_bodylock_mode && output.bodylock_mode) {
+                !previous_bodylock_mode && active_target_bodylock) {
                 scorer->mark_ads_to_bodylock_handoff(
                     target_elapsed_ms,
                     error,
@@ -779,6 +888,7 @@ BenchmarkResult run_simulation(
             player_vertical_offset_y_px = next_vertical_offset_y_px;
             const double response =
                 script.config.camera_response_px_per_stick_second *
+                script.config.sensitivity_multiplier *
                 (target_active
                     ? aim_slowdown_multiplier(
                         length(error), target.visible_radius_px, script.config)
@@ -808,7 +918,7 @@ BenchmarkResult run_simulation(
                 vertical_delta * 1000.0;
 
             if (cohort == BenchmarkCohort::BodyLockFollow && !tracking) {
-                if (output.bodylock_mode) {
+                if (active_target_bodylock) {
                     scorer->mark_bodylock_entered(target_elapsed_ms);
                     tracking = true;
                     tracking_ticks = 0;
@@ -831,16 +941,19 @@ BenchmarkResult run_simulation(
                 frame.absolute_ms = now_ms;
                 frame.target_elapsed_ms = target_elapsed_ms;
                 frame.in_tracking_window = true;
-                frame.target_observed = output.target_observed;
+                frame.target_observed =
+                    output_matches_active_target && output.target_observed;
                 frame.vision_occluded = trace_frame.vision_occluded;
-                frame.fresh_vision = input.fresh_vision;
-                frame.tracker_reliable = output.tracker_reliable;
-                frame.manual_escape = length(input.manual_stick) >= 0.45;
-                frame.bodylock_mode = output.bodylock_mode;
+                frame.fresh_vision = controller_input.fresh_vision;
+                frame.tracker_reliable =
+                    output_matches_active_target && output.tracker_reliable;
+                frame.manual_escape =
+                    length(controller_input.manual_stick) >= 0.45;
+                frame.bodylock_mode = active_target_bodylock;
                 frame.target_id = target.id;
                 frame.error_px = error;
                 frame.target_velocity_px_per_second = target_velocity;
-                frame.manual_stick = input.manual_stick;
+                frame.manual_stick = controller_input.manual_stick;
                 frame.requested_assist_stick = output.requested_assist_stick;
                 frame.shaped_assist_stick = output.shaped_assist_stick;
                 frame.final_stick = output.final_stick;
@@ -892,7 +1005,9 @@ BenchmarkResult run_simulation(
                 finish_target();
             }
         }
-        previous_bodylock_mode = target_active && output.bodylock_mode;
+        previous_bodylock_mode =
+            target_active && output_matches_active_target &&
+            output.bodylock_mode;
         if (trace_observer) trace_observer(trace_frame);
     }
 
@@ -917,6 +1032,7 @@ BenchmarkResult run_simulation(
     result.player_strafe_mode = player_strafe_mode;
     result.player_vertical_motion_mode = player_vertical_motion_mode;
     result.ticks = script.config.duration_ms;
+    result.controller_updates = controller_updates;
     result.left_strafe_active_ms = left_strafe_active_ms;
     result.left_strafe_reversals = left_strafe_reversals;
     result.max_abs_left_x = max_abs_left_x;

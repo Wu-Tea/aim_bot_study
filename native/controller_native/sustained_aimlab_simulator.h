@@ -53,6 +53,7 @@ struct SimulationTraceFrame {
     int absolute_ms = 0;
     int target_elapsed_ms = -1;
     bool target_active = false;
+    bool controller_updated = false;
     bool fresh_vision = false;
     bool vision_occluded = false;
     std::uint64_t target_id = 0;

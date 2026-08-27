@@ -451,6 +451,20 @@ if(NATIVE_TEST_ENABLE_OFFLINE_BENCHMARKS)
     set_tests_properties(
         NativeSustainedAimlabLeftStrafeRejectsInvalid
         PROPERTIES WILL_FAIL TRUE)
+    add_test(NAME NativeRuntimeRejectsRetiredAiCadenceCli
+        COMMAND cod_native_runtime
+            --config ${CMAKE_CURRENT_SOURCE_DIR}/../../config.native.example.toml
+            --dump-effective-config --ai-proposal-mode fixed)
+    add_test(NAME NativeSustainedAimlabRejectsRetiredAiCadence
+        COMMAND cod_native_sustained_aimlab_benchmark
+            --config ${CMAKE_CURRENT_SOURCE_DIR}/../../config.native.example.toml
+            --duration-ms 100 --seed 2026072301
+            --profile pure --cohort ads
+            --ai-proposal-mode fixed --ai-proposal-hz 250)
+    set_tests_properties(
+        NativeRuntimeRejectsRetiredAiCadenceCli
+        NativeSustainedAimlabRejectsRetiredAiCadence
+        PROPERTIES WILL_FAIL TRUE)
 else()
     set_target_properties(
         cod_native_aimlab_benchmark

@@ -2,6 +2,7 @@
 
 #include "aim_response_curve_plugin.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
@@ -38,6 +39,7 @@ enum class ManualProfile : std::uint8_t {
     MicroCorrection,
     RecoilController,
     RecoilFlail,
+    RuntimeProfile,
 };
 
 enum class BenchmarkCohort : std::uint8_t {
@@ -142,10 +144,42 @@ struct VisionOcclusionBurst {
     int duration_ms = 0;
 };
 
+// Sanitized benchmark covariates extracted from an audited native runtime.
+// They intentionally carry no source path, wall-clock timestamp, or target ID.
+struct RuntimeObservationSample {
+    int delivery_interval_ms = 1;
+    int capture_age_ms = 0;
+};
+
+struct RuntimeManualSample {
+    int duration_ms = 1;
+    double radial = 0.0;
+    double tangential = 0.0;
+};
+
+enum class RuntimeManualAimMode : std::uint8_t {
+    Any,
+    Ads,
+    BodyLock,
+};
+
+struct RuntimeManualSegment {
+    std::vector<RuntimeManualSample> samples;
+    RuntimeManualAimMode aim_mode = RuntimeManualAimMode::Any;
+};
+
+struct RuntimeTargetSample {
+    Vec2d initial_error_px;
+    double body_width_px = 48.0;
+    double body_height_px = 112.0;
+};
+
 struct BenchmarkConfig {
     ScenarioProfile scenario_profile = ScenarioProfile::Baseline;
     TargetProfile target_profile = TargetProfile::Ordinary;
     int duration_ms = 60'000;
+    // Controller update period. The simulator plant and scorer always advance
+    // at 1 ms so changing controller cadence does not change metric units.
     int tick_ms = 1;
     int tracking_window_ms = 1'000;
     int inter_target_gap_ms = 50;
@@ -159,7 +193,13 @@ struct BenchmarkConfig {
     double slowdown_transition_px = 3.0;
     double slowdown_edge_multiplier = 0.50;
     double slowdown_center_multiplier = 0.40;
+    // Calibrated/base camera plant gain. Sensitivity sweeps scale this plant
+    // value without rewriting extracted manual-stick samples.
     double camera_response_px_per_stick_second = 500.0;
+    double sensitivity_multiplier = 1.0;
+    // Ratio used by the controller to resolve an upright body box into the
+    // anatomical aim point. The default preserves the historical fixture.
+    double body_aim_height_ratio = 0.365;
     // The virtual camera must apply the same forward response curve as the
     // configured game.  Linear remains the historical/default plant.
     AimResponseCurveConfig camera_response_curve{};
@@ -179,6 +219,17 @@ struct BenchmarkConfig {
     // Capture-to-publication latency. Captured geometry is retained at the
     // old camera pose and becomes visible to the controller after this delay.
     int vision_result_delay_ms = 0;
+    // When populated, these paired samples replace the synthetic fixed/random
+    // Vision cadence. Delivery interval is controller-visible spacing; capture
+    // age selects the historical plant state used by that observation.
+    std::vector<RuntimeObservationSample> runtime_observation_pattern;
+    // Target-relative physical right-stick traces. Positive radial input helps
+    // close the current error; tangential input is rotated around that error
+    // vector. The production controller applies its input filter exactly once.
+    std::vector<RuntimeManualSegment> runtime_manual_segments;
+    // Stable error/body-size samples from the first eligible observation of
+    // audited target/ADS epochs. Target identity itself is deliberately absent.
+    std::vector<RuntimeTargetSample> runtime_target_samples;
     // Benchmark-only apparent target motion caused by firing/camera kick.
     // This changes Vision observations, not the physical target trajectory.
     VisionDisturbanceProfile vision_disturbance =
@@ -195,6 +246,10 @@ struct VelocityManeuver {
 
 struct TargetScript {
     std::uint64_t id = 0;
+    std::size_t runtime_ads_manual_segment_index = 0;
+    std::size_t runtime_bodylock_manual_segment_index = 0;
+    bool has_runtime_ads_manual_segment = false;
+    bool has_runtime_bodylock_manual_segment = false;
     MotionProfile motion = MotionProfile::ConstantHorizontal;
     Vec2d initial_error_px;
     Vec2d initial_velocity_px_per_second;
@@ -203,9 +258,12 @@ struct TargetScript {
     std::vector<VelocityManeuver> velocity_maneuvers;
     int acquire_deadline_ms = 250;
     double visible_radius_px = 24.0;
+    double body_width_px = 48.0;
+    double body_height_px = 112.0;
     PlayerStrafeScript player_strafe;
     PlayerVerticalMotionScript player_vertical;
     std::vector<int> observation_at_ms;
+    std::vector<int> observation_ready_at_ms;
     std::vector<Vec2d> observation_noise_px;
     std::vector<VisionOcclusionBurst> vision_occlusion_bursts;
 };

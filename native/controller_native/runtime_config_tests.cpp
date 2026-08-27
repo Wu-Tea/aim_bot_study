@@ -193,6 +193,10 @@ void test_retired_low_rate_keys_are_unknown_and_inert() {
         "candidate_details = \"on_event\"\n"
         "event_pre_ms = 500\n"
         "event_post_ms = 1000\n"
+        "[runtime.scheduler]\n"
+        "ai_proposal_mode = \"fixed\"\n"
+        "ai_proposal_hz = 250\n"
+        "ai_proposal_update_stage = \"solver-only\"\n"
         "[gamepad.tracker]\n"
         "backend = \"fps_reference\"\n"
         "projection_age_ms = 96\n"
@@ -233,6 +237,11 @@ void test_retired_low_rate_keys_are_unknown_and_inert() {
     require(has_diagnostic(config, "runtime.telemetry.event_pre_ms") &&
                 has_diagnostic(config, "runtime.telemetry.event_post_ms"),
             "retired telemetry event windows must be rejected");
+    require(has_diagnostic(config, "runtime.scheduler.ai_proposal_mode") &&
+                has_diagnostic(config, "runtime.scheduler.ai_proposal_hz") &&
+                has_diagnostic(
+                    config, "runtime.scheduler.ai_proposal_update_stage"),
+            "retired independent AI proposal cadence must be rejected");
     require(has_diagnostic(config, "gamepad.tracker.projection_age_ms"),
             "retired projection must be rejected");
     require(has_diagnostic(config, "gamepad.tracker.lead_seconds"),
