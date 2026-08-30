@@ -12,6 +12,11 @@ $statePath = Join-Path $stateDirectory "native_runtime_state.json"
 $stdoutPath = Join-Path $stateDirectory "native_runtime.stdout.log"
 $stderrPath = Join-Path $stateDirectory "native_runtime.stderr.log"
 $launcherLogPath = Join-Path $stateDirectory "launcher.log"
+$fusionSession = if ([string]::IsNullOrWhiteSpace($env:FUSION_SESSION)) {
+    "dev"
+} else {
+    $env:FUSION_SESSION
+}
 
 $configText = Get-Content -LiteralPath $configPath -Raw
 $visionSection = [regex]::Match(
@@ -43,6 +48,8 @@ if ($PrintOnly) {
         state_path = $statePath
         stdout_path = $stdoutPath
         stderr_path = $stderrPath
+        fusion_channel_enabled = $true
+        fusion_session = $fusionSession
     } | ConvertTo-Json -Compress
     exit 0
 }
@@ -97,6 +104,9 @@ try {
     if (-not (Test-Path -LiteralPath $modelPath -PathType Leaf)) {
         throw "TensorRT engine not found: $modelPath"
     }
+    if ($env:FUSION_FORCE_OFF -match '^(?i:1|true|on)$') {
+        throw "FUSION_FORCE_OFF disables the late-attach Fusion channel"
+    }
 
     $sameExecutable = Get-CimInstance -ClassName Win32_Process `
         -Filter "Name = 'cod_native_runtime.exe'" `
@@ -107,6 +117,12 @@ try {
         Write-LauncherLog "refused_unowned_duplicate"
         exit 3
     }
+
+    # The channel is always ready for a later canvas attach. With no canvas,
+    # this creates no user-visible overlay and publishes target-only data.
+    $env:FUSION_ENABLED = "1"
+    $env:FUSION_SESSION = $fusionSession
+    $env:FUSION_SHOW_ALL_DETECTIONS = "0"
 
     $process = Start-Process `
         -FilePath $executablePath `
@@ -121,6 +137,8 @@ try {
         process_id = $process.Id
         executable_path = $executablePath
         config_path = $configPath
+        fusion_channel_enabled = $true
+        fusion_session = $fusionSession
         started_at_utc = [DateTime]::UtcNow.ToString("o")
     }
     $temporaryStatePath = "$statePath.tmp.$PID"

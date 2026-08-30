@@ -17,6 +17,10 @@ class StartupScriptTests(unittest.TestCase):
                 "gamepad_native_background_start.ps1",
             "gamepad_native_background_stop.vbs":
                 "gamepad_native_background_stop.ps1",
+            "gamepad_fusion_background_start.vbs":
+                "gamepad_fusion_background_start.ps1",
+            "gamepad_fusion_background_stop.vbs":
+                "gamepad_fusion_background_stop.ps1",
         }
 
         for entry_name, powershell_name in entries.items():
@@ -27,7 +31,13 @@ class StartupScriptTests(unittest.TestCase):
                 self.assertIn("WScript.Shell", content)
                 self.assertIn("shell.Run", content)
                 self.assertIn(powershell_name, content)
-                self.assertIn(", 0, False", content)
+                if entry_name.startswith("gamepad_fusion_"):
+                    self.assertIn(", 0, True", content)
+                    self.assertIn("exitCode", content)
+                    self.assertIn("shell.Popup", content)
+                    self.assertIn("launcher.log", content)
+                else:
+                    self.assertIn(", 0, False", content)
 
     def test_background_lifecycle_scripts_enforce_owned_pid_and_path(self):
         start = (
@@ -53,6 +63,87 @@ class StartupScriptTests(unittest.TestCase):
         self.assertIn("Stop-Process -Id", stop)
         self.assertNotIn("Get-Process -Name", stop)
         self.assertNotIn("taskkill /IM", stop)
+
+    def test_native_background_start_keeps_late_fusion_attach_ready(self):
+        start = (
+            LAUNCH_DIR / "gamepad_native_background_start.ps1"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn('$env:FUSION_ENABLED = "1"', start)
+        self.assertIn('$env:FUSION_SHOW_ALL_DETECTIONS = "0"', start)
+        self.assertIn("fusion_channel_enabled", start)
+        self.assertIn("fusion_session", start)
+
+    def test_fusion_background_lifecycle_owns_only_recorded_canvas(self):
+        start = (
+            LAUNCH_DIR / "gamepad_fusion_background_start.ps1"
+        ).read_text(encoding="utf-8")
+        stop = (
+            LAUNCH_DIR / "gamepad_fusion_background_stop.ps1"
+        ).read_text(encoding="utf-8")
+
+        for content in (start, stop):
+            self.assertIn("[switch]$PrintOnly", content)
+            self.assertIn("fusion_canvas_state.json", content)
+            self.assertIn("Win32_Process", content)
+            self.assertIn("ExecutablePath", content)
+            self.assertIn("ConvertTo-Json", content)
+
+        self.assertIn("fusion_canvas.exe", start)
+        self.assertIn("native_runtime_state.json", start)
+        self.assertIn("gamepad_native_background_start.ps1", start)
+        self.assertIn("native_started_by_fusion", start)
+        self.assertIn("ownedCanvasRunning", start)
+        self.assertIn("Canvas/native Fusion session mismatch", start)
+        self.assertIn('$env:FUSION_SESSION = $session', start)
+        self.assertIn("-Wait", start)
+        native_launch_start = start.index(
+            "$nativeStartProcess = Start-Process"
+        )
+        native_launch_end = start.index(
+            "$nativeStartedByFusion = $true", native_launch_start
+        )
+        native_launch = start[native_launch_start:native_launch_end]
+        self.assertNotIn("-Wait", native_launch)
+        self.assertIn("$nativeStartProcess.WaitForExit(30000)", native_launch)
+        self.assertIn("--verify-capture-isolation", start)
+        self.assertIn("$preflightLogPath", start)
+        self.assertIn(
+            "Get-Content -LiteralPath $canvasLogPath -Raw -ErrorAction Stop",
+            start,
+        )
+        self.assertNotIn("ReadAllText($canvasLogPath)", start)
+        self.assertIn("[FusionCanvas] channel connected", start)
+        self.assertIn("[FusionCanvas] running", start)
+        self.assertIn("AddSeconds(15)", start)
+        self.assertIn("-WindowStyle Hidden", start)
+        self.assertIn("-RedirectStandardOutput", start)
+        self.assertIn("-RedirectStandardError", start)
+        self.assertIn("$executablePath", stop)
+        self.assertIn("Paths-Equal $recordedExecutablePath $executablePath", stop)
+        self.assertIn("Stop-Process -Id", stop)
+        self.assertNotIn("Get-Process -Name", stop)
+        self.assertNotIn("taskkill /IM", stop)
+
+    def test_fusion_canvas_log_allows_live_launcher_reads(self):
+        source = (
+            PROJECT_ROOT / "native" / "overlay_canvas" /
+            "fusion_canvas.cpp"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("#include <share.h>", source)
+        self.assertIn('_fsopen(path, "a", _SH_DENYNO)', source)
+
+    def test_fusion_target_marker_uses_requested_yellow(self):
+        source = (
+            PROJECT_ROOT / "native" / "overlay_canvas" /
+            "fusion_canvas.cpp"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "D2D1::ColorF(0xFFE607, 1.0f), &brush_target_",
+            source,
+        )
 
     def test_background_lifecycle_print_only_is_side_effect_free(self):
         state_path = (
@@ -104,6 +195,54 @@ class StartupScriptTests(unittest.TestCase):
 
         self.assertEqual(state_path.exists(), state_existed_before)
 
+    def test_fusion_background_lifecycle_print_only_is_side_effect_free(self):
+        state_path = (
+            PROJECT_ROOT / "runs" / "fusion_canvas" / "background" /
+            "fusion_canvas_state.json"
+        )
+        state_existed_before = state_path.exists()
+        scripts = {
+            "gamepad_fusion_background_start.ps1": "preview_fusion_start",
+            "gamepad_fusion_background_stop.ps1": "preview_fusion_stop",
+        }
+
+        for script_name, expected_action in scripts.items():
+            with self.subTest(script_name=script_name):
+                completed = subprocess.run(
+                    [
+                        "powershell",
+                        "-NoProfile",
+                        "-ExecutionPolicy",
+                        "Bypass",
+                        "-File",
+                        str(LAUNCH_DIR / script_name),
+                        "-PrintOnly",
+                    ],
+                    cwd=PROJECT_ROOT,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    check=False,
+                )
+                self.assertEqual(completed.returncode, 0, completed.stdout)
+                preview = json.loads(completed.stdout)
+                self.assertEqual(preview["action"], expected_action)
+                self.assertEqual(Path(preview["state_path"]), state_path)
+                if expected_action == "preview_fusion_start":
+                    self.assertEqual(
+                        Path(preview["executable_path"]),
+                        PROJECT_ROOT / "native" / "vision_native" / "build" /
+                        "Release" / "fusion_canvas.exe",
+                    )
+                    self.assertEqual(preview["session"], "dev")
+                    self.assertTrue(preview["auto_start_native"])
+                    self.assertEqual(
+                        Path(preview["native_start_script"]),
+                        LAUNCH_DIR / "gamepad_native_background_start.ps1",
+                    )
+
+        self.assertEqual(state_path.exists(), state_existed_before)
+
     def test_native_config_resolves_an_existing_480x384_engine(self):
         with (PROJECT_ROOT / "config.native.example.toml").open("rb") as stream:
             config = tomllib.load(stream)
@@ -113,6 +252,15 @@ class StartupScriptTests(unittest.TestCase):
             model_path, PROJECT_ROOT / "models" / "best_480x384.engine"
         )
         self.assertTrue(model_path.is_file())
+
+    def test_product_and_example_configs_keep_idle_vision_at_60_hz(self):
+        for config_name in ("config.toml", "config.native.example.toml"):
+            with self.subTest(config_name=config_name):
+                with (PROJECT_ROOT / config_name).open("rb") as stream:
+                    config = tomllib.load(stream)
+                self.assertEqual(
+                    config["runtime"]["vision"]["idle_capture_fps"], 60
+                )
 
     def test_root_batch_shims_are_removed_after_launcher_consolidation(self):
         expected_launchers = {

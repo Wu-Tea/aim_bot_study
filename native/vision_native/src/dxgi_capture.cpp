@@ -5,9 +5,11 @@
 #include <wrl/client.h>
 
 #include <chrono>
+#include <cstring>
 #include <cstdint>
 #include <sstream>
 #include <stdexcept>
+#include <vector>
 
 namespace vision_native {
 namespace {
@@ -59,6 +61,8 @@ struct DxgiRoiCapture::Impl {
     int selected_output_index = 0;
     int output_width = 0;
     int output_height = 0;
+    int output_left = 0;
+    int output_top = 0;
     int roi_left = 0;
     int roi_top = 0;
     uint64_t next_frame_id = 1;
@@ -72,6 +76,7 @@ struct DxgiRoiCapture::Impl {
     ComPtr<ID3D11DeviceContext> context;
     ComPtr<IDXGIOutputDuplication> duplication;
     ComPtr<ID3D11Texture2D> roi_texture;
+    ComPtr<ID3D11Texture2D> staging_texture;
 
     Impl(int width, int height, int adapter_index, int output_index, int timeout)
         : requested_width(width),
@@ -156,6 +161,8 @@ struct DxgiRoiCapture::Impl {
 
     void set_output_geometry(const DXGI_OUTPUT_DESC& desc) {
         const RECT& rect = desc.DesktopCoordinates;
+        output_left = rect.left;
+        output_top = rect.top;
         output_width = rect.right - rect.left;
         output_height = rect.bottom - rect.top;
         if (requested_width > output_width || requested_height > output_height) {
@@ -227,6 +234,8 @@ struct DxgiRoiCapture::Impl {
         metadata.frame.memory_kind = MemoryKind::D3D11Texture;
         metadata.roi_left = roi_left;
         metadata.roi_top = roi_top;
+        metadata.output_left = output_left;
+        metadata.output_top = output_top;
         metadata.output_width = output_width;
         metadata.output_height = output_height;
         metadata.adapter_index = selected_adapter_index;
@@ -354,6 +363,43 @@ struct DxgiRoiCapture::Impl {
             throw;
         }
     }
+
+    std::vector<std::uint8_t> readback_bgra() {
+        if (!roi_texture) {
+            throw std::runtime_error("DXGI ROI texture is unavailable for readback");
+        }
+        if (!staging_texture) {
+            D3D11_TEXTURE2D_DESC desc{};
+            roi_texture->GetDesc(&desc);
+            desc.Usage = D3D11_USAGE_STAGING;
+            desc.BindFlags = 0;
+            desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+            desc.MiscFlags = 0;
+            check_hresult(
+                device->CreateTexture2D(&desc, nullptr, &staging_texture),
+                "ID3D11Device::CreateTexture2D staging");
+        }
+
+        context->CopyResource(staging_texture.Get(), roi_texture.Get());
+        D3D11_MAPPED_SUBRESOURCE mapped{};
+        check_hresult(
+            context->Map(staging_texture.Get(), 0, D3D11_MAP_READ, 0, &mapped),
+            "ID3D11DeviceContext::Map staging");
+
+        const std::size_t packed_row_bytes =
+            static_cast<std::size_t>(requested_width) * 4u;
+        std::vector<std::uint8_t> pixels(
+            packed_row_bytes * static_cast<std::size_t>(requested_height));
+        const auto* source = static_cast<const std::uint8_t*>(mapped.pData);
+        for (int row = 0; row < requested_height; ++row) {
+            std::memcpy(
+                pixels.data() + static_cast<std::size_t>(row) * packed_row_bytes,
+                source + static_cast<std::size_t>(row) * mapped.RowPitch,
+                packed_row_bytes);
+        }
+        context->Unmap(staging_texture.Get(), 0);
+        return pixels;
+    }
 };
 
 DxgiRoiCapture::DxgiRoiCapture(
@@ -370,6 +416,10 @@ DxgiCaptureMetadata DxgiRoiCapture::grab() {
     return impl_->grab();
 }
 
+std::vector<std::uint8_t> DxgiRoiCapture::readback_bgra() {
+    return impl_->readback_bgra();
+}
+
 int DxgiRoiCapture::width() const {
     return impl_->requested_width;
 }
@@ -384,6 +434,14 @@ int DxgiRoiCapture::output_width() const {
 
 int DxgiRoiCapture::output_height() const {
     return impl_->output_height;
+}
+
+int DxgiRoiCapture::output_left() const {
+    return impl_->output_left;
+}
+
+int DxgiRoiCapture::output_top() const {
+    return impl_->output_top;
 }
 
 int DxgiRoiCapture::roi_left() const {

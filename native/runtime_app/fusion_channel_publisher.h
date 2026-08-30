@@ -40,6 +40,7 @@ public:
         std::uint64_t frame_id,
         std::int32_t  frame_width,
         std::int32_t  frame_height,
+        const shared_fusion::FusionFrameGeometry& geometry,
         const shared_fusion::FusionTarget& target,
         const shared_fusion::FusionDetection* detections,
         std::uint32_t detection_count);
@@ -49,6 +50,7 @@ public:
         std::uint64_t frame_id,
         std::int32_t  frame_width,
         std::int32_t  frame_height,
+        const shared_fusion::FusionFrameGeometry& geometry,
         const shared_fusion::FusionTarget& target,
         const shared_fusion::FusionDetection* detections,
         std::uint32_t detection_count,

@@ -248,13 +248,13 @@ bool is_known_key(const std::string& section, const std::string& key) {
 void apply_profile(RuntimeConfig& config, const std::string& profile) {
     if (profile == "performance") {
         config.vision.capture_fps = 240;
-        config.vision.idle_capture_fps = 20;
+        config.vision.idle_capture_fps = 60;
     } else if (profile == "balanced") {
         config.vision.capture_fps = 160;
-        config.vision.idle_capture_fps = 20;
+        config.vision.idle_capture_fps = 60;
     } else if (profile == "low_latency") {
         config.vision.capture_fps = 200;
-        config.vision.idle_capture_fps = 20;
+        config.vision.idle_capture_fps = 60;
     } else if (profile == "legacy") {
         return;
     } else {

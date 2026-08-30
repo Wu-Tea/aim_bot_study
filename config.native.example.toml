@@ -12,7 +12,7 @@ require_isotropic_resize = true # rejects X/Y distortion from mismatched aspect 
 # compatible with this 480x384 production tensor until its tiers are migrated.
 dynamic_viewport_enabled = false
 capture_fps = 160
-idle_capture_fps = 20
+idle_capture_fps = 60
 keepwarm_when_idle = true
 color_readback_mode = "pageable" # pinned remains opt-in until the A/B gate passes
 model_path = "models/best_480x384.engine"

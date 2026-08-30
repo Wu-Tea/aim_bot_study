@@ -127,6 +127,8 @@ py::dict capture_metadata_to_dict(const vision_native::DxgiCaptureMetadata& meta
     result["format"] = pixel_format_to_string(metadata.frame.format);
     result["roi_left"] = metadata.roi_left;
     result["roi_top"] = metadata.roi_top;
+    result["output_left"] = metadata.output_left;
+    result["output_top"] = metadata.output_top;
     result["output_width"] = metadata.output_width;
     result["output_height"] = metadata.output_height;
     result["adapter_index"] = metadata.adapter_index;
@@ -138,6 +140,9 @@ py::dict capture_metadata_to_dict(const vision_native::DxgiCaptureMetadata& meta
 
 py::dict vision_result_to_dict(const vision_native::VisionResult& result_in) {
     py::dict result;
+    result["selector_identity_protocol"] = result_in.selector_identity_protocol;
+    result["selector_target_generation"] = result_in.selector_target_generation;
+    result["selector_target_changed"] = result_in.selector_target_changed;
     result["frame_id"] = result_in.frame_id;
     result["captured_at_ns"] = result_in.captured_at_ns;
     result["inferred_at_ns"] = result_in.inferred_at_ns;
@@ -153,6 +158,8 @@ py::dict vision_result_to_dict(const vision_native::VisionResult& result_in) {
     result["viewport_changed"] = result_in.viewport_changed;
     result["has_target"] = result_in.has_target;
     result["auto_fire"] = result_in.auto_fire;
+    result["has_selected_detection"] = result_in.has_selected_detection;
+    result["selected_detection_index"] = result_in.selected_detection_index;
     result["dx"] = result_in.dx;
     result["dy"] = result_in.dy;
     result["target_x"] = result_in.target_x;
@@ -168,6 +175,8 @@ py::dict vision_result_to_dict(const vision_native::VisionResult& result_in) {
     result["target_tier"] = result_in.target_tier;
     result["aim_authority"] = result_in.aim_authority;
     result["fire_authority"] = result_in.fire_authority;
+    result["enemy_cue_current"] = result_in.enemy_cue_current;
+    result["enemy_identity_confirmed"] = result_in.enemy_identity_confirmed;
     result["association_stage"] = result_in.association_stage;
     result["target_confidence"] = result_in.target_confidence;
     result["has_external_cue"] = result_in.has_external_cue;
@@ -517,6 +526,29 @@ PYBIND11_MODULE(vision_native_cpp, module) {
             },
             py::arg("detections"),
             py::arg("frame"))
+        .def(
+            "select_xyxy_rgb_at",
+            [](vision_native::VisionTargetSelector& selector,
+               py::array_t<float, py::array::c_style | py::array::forcecast> detections,
+               py::array_t<uint8_t, py::array::c_style | py::array::forcecast> frame,
+               std::uint64_t captured_at_ns,
+               std::uint64_t frame_id) {
+                auto batch = batch_from_xyxy_array(detections);
+                const auto view = rgb_frame_view(frame);
+                batch.captured_at_ns = captured_at_ns;
+                batch.frame_id = frame_id;
+                batch.frame_width = view.frame_width;
+                batch.frame_height = view.frame_height;
+                auto result = selector.select_with_frame(batch, view);
+                result.frame_id = batch.frame_id;
+                result.captured_at_ns = batch.captured_at_ns;
+                result.frame_updated = true;
+                return vision_result_to_dict(result);
+            },
+            py::arg("detections"),
+            py::arg("frame"),
+            py::arg("captured_at_ns"),
+            py::arg("frame_id"))
         .def(
             "select_xyxy_rgb_with_cue",
             [](vision_native::VisionTargetSelector& selector,

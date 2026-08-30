@@ -137,6 +137,12 @@ struct VisionResult {
     uint64_t inferred_at_ns = 0;
     uint64_t result_at_ns = 0;
     bool frame_updated = false;
+    int capture_output_left = 0;
+    int capture_output_top = 0;
+    int capture_output_width = 0;
+    int capture_output_height = 0;
+    int capture_roi_left = 0;
+    int capture_roi_top = 0;
     const char* service_freshness = "none";
     const char* service_source_state = "unknown";
     uint64_t service_sequence = 0;

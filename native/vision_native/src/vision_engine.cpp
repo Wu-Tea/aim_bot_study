@@ -276,6 +276,12 @@ VisionResult VisionEngine::poll_once() {
     result.wait_ms = metadata.acquire_ms + metadata.copy_ms;
     result.capture_acquire_ms = metadata.acquire_ms;
     result.capture_copy_ms = metadata.copy_ms;
+    result.capture_output_left = metadata.output_left;
+    result.capture_output_top = metadata.output_top;
+    result.capture_output_width = metadata.output_width;
+    result.capture_output_height = metadata.output_height;
+    result.capture_roi_left = metadata.roi_left;
+    result.capture_roi_top = metadata.roi_top;
     result.target_x = result.screen_center_x;
     result.target_y = result.screen_center_y;
     if (!metadata.updated || metadata.frame.data == nullptr) {

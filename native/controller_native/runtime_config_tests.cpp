@@ -286,6 +286,17 @@ void test_profile_override_has_one_capture_cadence() {
     require(from_cli.profile == "performance", "profile override not applied");
 }
 
+void test_profiles_default_idle_vision_to_60_hz() {
+    for (const char* profile : {"performance", "balanced", "low_latency"}) {
+        TempConfig file(
+            "cod_native_idle_vision_default.toml",
+            std::string("[runtime]\nprofile = \"") + profile + "\"\n");
+        const auto config = controller_native::load_runtime_config(file.path());
+        require(config.vision.idle_capture_fps == 60,
+                "every runtime profile must default idle Vision to 60 Hz");
+    }
+}
+
 void test_invalid_safety_boundary_fails_closed() {
     TempConfig file(
         "cod_native_invalid_fire_pulse.toml",
@@ -315,6 +326,7 @@ void register_runtime_config_tests(native_test::Registry& registry) {
     registry.add_case("BaseContracts", "recoil_defaults_use_product_dynamic_range", test_recoil_defaults_use_product_dynamic_range);
     registry.add_case("BaseContracts", "retired_low_rate_keys_are_unknown_and_inert", test_retired_low_rate_keys_are_unknown_and_inert);
     registry.add_case("BaseContracts", "profile_override_has_one_capture_cadence", test_profile_override_has_one_capture_cadence);
+    registry.add_case("BaseContracts", "profiles_default_idle_vision_to_60_hz", test_profiles_default_idle_vision_to_60_hz);
     registry.add_case("BaseContracts", "invalid_safety_boundary_fails_closed", test_invalid_safety_boundary_fails_closed);
     registry.add_case("BaseContracts", "example_config_contains_no_retired_keys", test_example_config_contains_no_retired_keys);
 }

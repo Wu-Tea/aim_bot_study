@@ -24,7 +24,7 @@ struct VisionRuntimeConfig {
     int viewport_rescue_height = 520;
     float viewport_prediction_ms = 100.0f;
     int capture_fps = 140;
-    int idle_capture_fps = 20;
+    int idle_capture_fps = 60;
     bool keepwarm_when_idle = true;
     std::string color_readback_mode = "pageable";
     std::string model_path = "models/candidates/body_union_manual_core_x2_neg_e6_480x416.engine";

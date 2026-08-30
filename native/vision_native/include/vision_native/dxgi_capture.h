@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <vector>
 
 namespace vision_native {
 
@@ -24,6 +25,8 @@ struct DxgiCaptureMetadata {
     uint32_t accumulated_frames = 0;
     int roi_left = 0;
     int roi_top = 0;
+    int output_left = 0;
+    int output_top = 0;
     int output_width = 0;
     int output_height = 0;
     int adapter_index = 0;
@@ -47,10 +50,16 @@ public:
 
     DxgiCaptureMetadata grab();
 
+    // Synchronous CPU readback for startup diagnostics only. Production
+    // inference continues to consume the D3D11 texture directly.
+    std::vector<std::uint8_t> readback_bgra();
+
     int width() const;
     int height() const;
     int output_width() const;
     int output_height() const;
+    int output_left() const;
+    int output_top() const;
     int roi_left() const;
     int roi_top() const;
     void* d3d11_device() const;

@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "incident_id": "mw4-fusion-short-direct-burst-20260830",
+  "source": {
+    "path_observed": "E:/迅雷下载/Replay 2026-08-30 20-57-51.mp4",
+    "sha256": "52DAD97B51B0FC366ADE76C18479A6DA529F2BF2D2BB441E8FF11A13723CDBF6",
+    "fps": 120.0,
+    "roi": {
+      "left": 640,
+      "top": 284,
+      "width": 640,
+      "height": 512
+    }
+  },
+  "frames": [
+    {"index": 1333, "time_s": 11.108333333, "direct": true, "source": "observed", "generation": 12},
+    {"index": 1334, "time_s": 11.116666667, "direct": true, "source": "observed", "generation": 12},
+    {"index": 1335, "time_s": 11.125, "direct": true, "source": "observed", "generation": 12},
+    {"index": 1336, "time_s": 11.133333333, "direct": true, "source": "observed", "generation": 12},
+    {"index": 1337, "time_s": 11.141666667, "direct": false, "source": "cue_hold", "generation": 12, "enemy_identity_confirmed": true},
+    {"index": 1338, "time_s": 11.15, "direct": true, "source": "observed", "generation": 12},
+    {"index": 1339, "time_s": 11.158333333, "direct": true, "source": "observed", "generation": 12},
+    {"index": 1340, "time_s": 11.166666667, "direct": true, "source": "observed", "generation": 12},
+    {"index": 1341, "time_s": 11.175, "direct": false, "source": "cue_hold", "generation": 12, "enemy_identity_confirmed": true},
+    {"index": 1342, "time_s": 11.183333333, "direct": true, "source": "observed", "generation": 12}
+  ],
+  "render_contract": {
+    "source_fps": 120.0,
+    "canvas_max_fps": 30.0,
+    "phase_basis": "Synthetic worst-case render phase; live publish/render timestamps were unavailable.",
+    "render_frames": [1337, 1341],
+    "minimum_visible_render_frames": 2,
+    "hold_ms": 120
+  },
+  "trigger": "A correct direct-observation burst is shorter than one 30 FPS canvas interval and contains one-frame detector gaps.",
+  "current_bad_behavior": "The canvas reads only after its 30 FPS throttle and the marker contract rejects cue_hold, so the burst can be skipped or flash.",
+  "oracle": "Consume every IPC event before render throttling; render an unseen direct burst at least once; bridge only same-generation selector-confirmed continuation for at most 120 ms.",
+  "fidelity_limits": [
+    "Fusion pixels are absent from the source recording by capture-isolation design.",
+    "The replay uses recorded 120 FPS pixels, not live 200 FPS DXGI frames.",
+    "Controller activation and live publish/render timestamps were unavailable."
+  ]
+}

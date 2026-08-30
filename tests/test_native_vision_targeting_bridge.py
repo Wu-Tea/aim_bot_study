@@ -173,6 +173,37 @@ class NativeVisionTargetingBridgeTests(unittest.TestCase):
         self.assertAlmostEqual(result["dy"], _target_y(120.0, 320.0) - 256.0, places=3)
         self.assertEqual(result["boxes_seen"], 1.0)
 
+    def test_timestamped_replay_exposes_fusion_observation_fields(self):
+        selector = self.module.NativeTargetSelector(CROP_W, CROP_H)
+        frame = _frame()
+        detections = np.array(
+            [[280.0, 120.0, 360.0, 320.0, 0.82, 0.0]],
+            dtype=np.float32,
+        )
+
+        first = selector.select_xyxy_rgb_at(
+            detections,
+            frame,
+            1_000_000_000,
+            17,
+        )
+        result = selector.select_xyxy_rgb_at(
+            detections,
+            frame,
+            1_008_333_333,
+            18,
+        )
+
+        self.assertFalse(first["has_target"])
+        self.assertEqual(result["frame_id"], 18)
+        self.assertEqual(result["captured_at_ns"], 1_008_333_333)
+        self.assertTrue(result["selector_identity_protocol"])
+        self.assertGreater(result["selector_target_generation"], 0)
+        self.assertTrue(result["has_selected_detection"])
+        self.assertEqual(result["selected_detection_index"], 0)
+        self.assertIn("enemy_cue_current", result)
+        self.assertIn("enemy_identity_confirmed", result)
+
     def test_low_confidence_pickup_is_rejected(self):
         if not hasattr(self.module, "NativeTargetSelector"):
             self.fail("NativeTargetSelector is missing")

@@ -394,6 +394,10 @@ void populate_fusion_target(
     dst.auto_fire  = src.auto_fire;
     dst.confidence = src.target_confidence;
     dst.has_body_box = src.has_body_box;
+    dst.direct_observation =
+        src.frame_updated && src.has_selected_detection && src.has_body_box;
+    dst.enemy_identity_confirmed = src.enemy_identity_confirmed;
+    dst.selector_target_generation = src.selector_target_generation;
 
     if (frame_width > 0 && frame_height > 0) {
         const float iw = 1.0f / static_cast<float>(frame_width);
@@ -665,12 +669,21 @@ void RuntimeLoop::run_once() {
             shared_fusion::FusionTarget ftarget{};
             populate_fusion_target(result, fw, fh, ftarget);
 
+            const shared_fusion::FusionFrameGeometry fgeometry{
+                result.capture_output_left,
+                result.capture_output_top,
+                result.capture_output_width,
+                result.capture_output_height,
+                result.capture_roi_left,
+                result.capture_roi_top,
+            };
+
             shared_fusion::FusionDetection fdetections[shared_fusion::FUSION_CHANNEL_MAX_DETECTIONS];
             std::uint32_t fcount = 0;
             populate_fusion_detections(result, fw, fh, fdetections, fcount);
 
             fusion_publisher_.publish(
-                result.frame_id, fw, fh, ftarget, fdetections, fcount);
+                result.frame_id, fw, fh, fgeometry, ftarget, fdetections, fcount);
 
             if (!fusion_publisher_.enabled()) {
                 fusion_enabled_ = false;

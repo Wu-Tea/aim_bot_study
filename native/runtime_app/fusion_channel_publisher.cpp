@@ -185,13 +185,14 @@ void FusionChannelPublisher::publish(
     std::uint64_t frame_id,
     std::int32_t  frame_width,
     std::int32_t  frame_height,
+    const shared_fusion::FusionFrameGeometry& geometry,
     const shared_fusion::FusionTarget& target,
     const shared_fusion::FusionDetection* detections,
     std::uint32_t detection_count) {
 
     LARGE_INTEGER qpc{};
     QueryPerformanceCounter(&qpc);
-    publish(frame_id, frame_width, frame_height, target, detections,
+    publish(frame_id, frame_width, frame_height, geometry, target, detections,
             detection_count, static_cast<std::uint64_t>(qpc.QuadPart));
 }
 
@@ -199,6 +200,7 @@ void FusionChannelPublisher::publish(
     std::uint64_t frame_id,
     std::int32_t  frame_width,
     std::int32_t  frame_height,
+    const shared_fusion::FusionFrameGeometry& geometry,
     const shared_fusion::FusionTarget& target,
     const shared_fusion::FusionDetection* detections,
     std::uint32_t detection_count,
@@ -226,6 +228,7 @@ void FusionChannelPublisher::publish(
     slot.frame_id        = frame_id;
     slot.frame_width     = frame_width;
     slot.frame_height    = frame_height;
+    slot.geometry        = geometry;
     slot.target          = target;
 
     const std::uint32_t clamped_count = show_all_

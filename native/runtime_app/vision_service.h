@@ -27,7 +27,7 @@ enum class VisionSourceState {
 
 struct VisionServiceOptions {
     double capture_fps = 160.0;
-    double idle_fps = 20.0;
+    double idle_fps = 60.0;
     bool keepwarm_when_idle = true;
 };
 
