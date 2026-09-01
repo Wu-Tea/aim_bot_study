@@ -1,120 +1,80 @@
 # Agent Handoff
 
-Last updated: 2026-08-21
-Active scope: production native C++ controller; ADS remains user-accepted and
-the current candidate repairs sustained horizontal BodyLock demand.
-Staleness trigger: refresh after the next live BodyLock candidate session.
+Last updated: 2026-09-01
+Active scope: Fusion recovery is delivered on both branches; BodyLock live acceptance remains open.
+Staleness trigger: refresh after the first real MW4 Fusion display transition or
+the next live BodyLock candidate session.
 
 ## Current Objective
 
-Live-validate the capture-aligned BodyLock target-motion candidate on sustained
-lateral targets, direction changes and firing/FOV disturbance.
+Live-confirm that the clean-branch Fusion launcher survives normal MW4 startup,
+fullscreen/alt-tab changes and display transitions without weakening exclusion.
 
 ## Current State
 
-- Direct/PID production experiment is retired. It was materially faster and
-  more accurate on immediate error response, but amplified per-frame geometry
-  noise into severe high-frequency oscillation and lacked production lifecycle,
-  manual-intent and evidence policies. Keep it only as a diagnostic reference.
-- Production BodyLock now has two deterministic repairs: axis-local bounding of
-  opposing motion feed-forward, and fresh-position ownership that removes stale
-  opposing manual work continuously outside the existing settle envelope.
-- The latter fixture changed from six 5 ms ticks of wrong-direction `+0.0975`
-  to target-direction `-0.25` on tick zero; four safety counterfactuals pass.
-- ADS keeps one snap token per LT. Mid/far uses the nominal 135 ms response;
-  close targets transition continuously to 60 ms by visual size. The user has
-  confirmed current ADS behavior has no apparent problem.
-- BodyLock now has one focused `BodylockTargetMotionObserver`. For each direct,
-  same-target capture interval it removes the causally aligned pre-recoil
-  camera command from observed screen motion, then publishes the target's
-  sustaining total motion. Two samples establish the estimate, a three-sample
-  median rejects one-frame spikes, and deceleration discharges faster than rise.
-- The estimate only drives `Observed` BodyLock. Cue continuation neither trains
-  nor consumes target-motion authority, preserving the existing close/full and
-  far/reduced cue policy. ADS, final manual arbitration and independent recoil
-  composition are unchanged.
-- The frozen production-path incident changed from no response within 900 ms,
-  `21.040884 px` step error growth and `16.869894 px` final residual to `23 ms`,
-  `2.698075 px` and `0.735421 px`; recovery overshoot is `0 px`. No-step,
-  slowdown and target-generation replacement counterfactuals pass.
-- Full Release build and `70/70` CTest pass. The complete regression contract
-  passes with zero issues; architecture contract version is 4.
-- Candidate runtime:
-  `native/vision_native/build/Release/cod_native_runtime.exe`, SHA-256
-  `bbdb1bc5344b094d7553623e7a735c8a37e2f53461d65c0cfff87e9563dfe8a8`.
-- The newest complete-shard audit found 27 strict same-direction follow runs.
-  Final arbitration fully preserved at least 95% of the stronger of manual and
-  BodyLock request on 328/340 samples, yet error still grew materially on
-  90/340 samples. All 90 growing-error samples were already fully delivered.
-- Representative stable-identity tracks 445, 460 and 626 retained direct
-  observations and full authority. Their BodyLock requests were generally below
-  both the user's sustaining stick and the configured request cap; Dynamics
-  shaping was not the material limiter.
-- The prior evidence-supported upstream diagnosis is now implemented and GREEN
-  offline. Live feel under weapon view kick, FOV transitions and real detector
-  noise remains unverified; do not call those conditions fixed without a new
-  session.
-- The online response estimate near 1090--1160 px/(stick*s), versus the 500
-  fallback, is a credible secondary attenuation risk but is not yet proven
-  numerically wrong for the game.
+- Both failing runs resolved paths inside the clean worktree, passed DXGI
+  preflight, connected IPC and entered `running`; repository absolute paths
+  were not the failure owner.
+- `fusion_canvas.cpp` treated either `WM_DISPLAYCHANGE` or
+  `WM_DWMCOMPOSITIONCHANGED` as terminal proof loss. The old combined log
+  cannot identify which notification occurred.
+- Canvas now hides, records the exact reason, refreshes virtual-screen geometry,
+  reapplies/readbacks `WDA_EXCLUDEFROMCAPTURE`, reruns the production
+  `DxgiRoiCapture` probe and resumes only after the full proof passes.
+- Failed, ambiguous or repeatedly invalidated verification remains fail-closed.
+  The recovery probe has an independent window procedure and renderer resize
+  reports failure while releasing replaced graphics references.
+- The launcher reuses its current PowerShell host and checks Canvas liveness
+  immediately before publishing state.
+- The lifecycle fixture was observed RED then GREEN. Injected display and DWM
+  notifications both revalidated while Canvas/native remained alive.
+- Verification: clean full Release build and `11/11` contracts PASS; dev
+  Fusion build, `26/26` CTest and DXGI preflight PASS.
+- Commits: `bd462f3` on `dev`, `62e3604` on
+  `codex/runtime-clean`; repaired blobs are identical.
+- The August BodyLock total-demand candidate remains GREEN offline but lacks
+  matched live firing/FOV/noise acceptance.
 
 ## Next Action
 
-Run the candidate in the same sustained-horizontal gameplay conditions. If it
-still falls behind or overshoots, capture a new log and compare observed
-screen-rate, BodyLock target-motion demand, requested output and final output on
-the same target generation before changing confidence or arbitration.
+Run `scripts/launch/gamepad_fusion_background_start.vbs` from the clean
+worktree in the normal MW4 workflow, exercise one display transition, and read
+the newest exact-reason Fusion log only if Canvas does not remain running.
 
 ## Blockers
 
-- Live acceptance is pending.
-- `scripts/verify/native_pipeline_contract.bat -SkipBuild -SkipBenchmark`
-  currently fails on the pre-existing `pre_recoil_stick` name in
-  `native_gamepad_controller.cpp`; the same lines exist at HEAD. Runtime tests,
-  the recoil contract and the incident complete gate pass.
+- No known build or deterministic Fusion regression blocker remains.
+- Real MW4 presentation-mode and physical topology resize acceptance are pending.
+- BodyLock live acceptance is separately pending.
 
 ## Active Questions
 
-- Whether the current two-sample/median/rise-release envelope is smooth enough
-  under live recoil and detector geometry noise without becoming late.
-- Whether the response estimator's roughly 1090--1160 px/(stick*s) live values
-  are accurate; the current incident does not prove a calibration defect.
-- Whether stronger same-direction manual ever creates a separate overshoot
-  incident. Do not change the current arbitration contract without that RED.
+- Whether repeated real-game display notifications keep the recovery probe
+  acceptable in the user's exact presentation mode.
+- Whether physical monitor resize exposes a renderer/device recreation failure.
+- Whether BodyLock remains smooth under recoil, FOV and detector geometry noise.
 
 ## Relevant Decisions
 
-- `decisions/DEC-2026-08-02-002-predictive-manual-ai-control-envelope.md`
+- `decisions/DEC-2026-06-25-001-performance-first-fusion-canvas.md`
 - `decisions/DEC-2026-08-07-001-target-first-final-output.md`
 - `decisions/DEC-2026-08-11-001-incident-first-gameplay-validation.md`
-- `decisions/DEC-2026-08-12-002-ads-full-authority-after-admission.md`
 - `decisions/DEC-2026-08-17-001-retire-direct-controller-experiment.md`
-- `decisions/DEC-2026-08-21-001-base-functional-test-layering.md`
 
 ## Files To Read First
 
-- newest native session manifest and detailed telemetry
-- `artifacts/telemetry-audits/20260817-bodylock-sticky-manual-ai/report.md`
-- `artifacts/telemetry-audits/20260817-latest-bodylock-horizontal/report.md`
-- `artifacts/regressions/bodylock-position-motion-axis-conflict-20260817/regression-manifest.json`
-- `artifacts/regressions/bodylock-target-direction-latency-20260817/regression-manifest.json`
-- `artifacts/regressions/bodylock-target-motion-total-20260818/regression-manifest.json`
-- `native/controller_native/bodylock_target_motion_observer.cpp`
-- `native/controller_native/response_model_aim_solver.cpp`
-- `native/controller_native/bodylock_follow_controller.cpp`
-- `native/controller_native/assist_control_state_machine.h`
+- newest `runs/fusion_canvas/background/fusion_canvas.*.log`
+- `native/overlay_canvas/fusion_canvas.cpp`
+- `native/overlay_canvas/fusion_overlay_contract_tests.cpp`
+- `scripts/launch/gamepad_fusion_background_start.ps1`
+- `docs/project/FUSION_ENEMY_VISIBILITY_OVERLAY_V2_PLAN_20260830.md`
 
 ## Do Not Reopen Unless Needed
 
-- restoring Direct as a production path, additive manual-plus-AI owners,
-  generic coast/hold/brake, or fixed blend percentages;
-- weaker ADS authority, changed recoil ownership, or Vision/model changes;
-- treating all cue continuation as a Controller failure or all internally
-  stable Vision geometry as visual ground truth.
+- repository absolute paths without new path-resolution evidence;
+- rendering while isolation is unproven or replacing DXGI proof with affinity alone;
+- unrelated ADS, BodyLock, Vision, AutoFire or recoil tuning.
 
 ## Notes
 
-Preserve unrelated user changes, including work from the parallel session
-investigating the live BodyLock crosshair-sticking symptom; do not infer that
-session's conclusions. Direct remains diagnostic only, and the focused
-BodyLock observer does not restore a general causal-motion stack.
+Preserve unrelated work, including the untracked MW4 research document; it is outside both commits.
