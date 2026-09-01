@@ -512,16 +512,22 @@ public:
         return true;
     }
 
-    void resize(int width, int height) {
-        if (width == width_ && height == height_) return;
+    bool resize(int width, int height) {
+        if (width == width_ && height == height_) return true;
         width_ = width;
         height_ = height;
 
         d2d_context_->SetTarget(nullptr);
-        swap_chain_ = nullptr;
-        dcomp_visual_ = nullptr;
+        if (dcomp_visual_ != nullptr) {
+            dcomp_visual_->Release();
+            dcomp_visual_ = nullptr;
+        }
+        if (swap_chain_ != nullptr) {
+            swap_chain_->Release();
+            swap_chain_ = nullptr;
+        }
 
-        create_swap_chain(width, height);
+        return create_swap_chain(width, height);
     }
 
     void render(const shared_fusion::FusionTarget& target,
@@ -831,7 +837,19 @@ private:
 
 std::atomic<bool> g_running{true};
 std::atomic<bool> g_visible{true};
-std::atomic<bool> g_isolation_invalidated{false};
+constexpr std::uint32_t ISOLATION_INVALIDATED_DISPLAY = 1u << 0;
+constexpr std::uint32_t ISOLATION_INVALIDATED_DWM = 1u << 1;
+std::atomic<std::uint32_t> g_isolation_invalidation_reasons{0};
+
+const char* isolation_invalidation_reason_name(std::uint32_t reasons) noexcept {
+    if (reasons == ISOLATION_INVALIDATED_DISPLAY) return "display_change";
+    if (reasons == ISOLATION_INVALIDATED_DWM) return "dwm_composition_changed";
+    if (reasons ==
+        (ISOLATION_INVALIDATED_DISPLAY | ISOLATION_INVALIDATED_DWM)) {
+        return "display_and_dwm_change";
+    }
+    return "unknown";
+}
 
 void handle_hotkey(WPARAM hotkey_id) {
     if (hotkey_id == HOTKEY_TOGGLE) {
@@ -856,8 +874,12 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
         return 0;
 
     case WM_DISPLAYCHANGE:
+        g_isolation_invalidation_reasons.fetch_or(
+            ISOLATION_INVALIDATED_DISPLAY);
+        return 0;
+
     case WM_DWMCOMPOSITIONCHANGED:
-        g_isolation_invalidated.store(true);
+        g_isolation_invalidation_reasons.fetch_or(ISOLATION_INVALIDATED_DWM);
         return 0;
 
     case WM_NCHITTEST:
@@ -867,6 +889,20 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
         return MA_NOACTIVATE;
     }
 
+    return DefWindowProcW(hwnd, msg, wparam, lparam);
+}
+
+LRESULT CALLBACK isolation_probe_wnd_proc(
+    HWND hwnd,
+    UINT msg,
+    WPARAM wparam,
+    LPARAM lparam) {
+    switch (msg) {
+    case WM_NCHITTEST:
+        return HTTRANSPARENT;
+    case WM_MOUSEACTIVATE:
+        return MA_NOACTIVATE;
+    }
     return DefWindowProcW(hwnd, msg, wparam, lparam);
 }
 
@@ -1266,7 +1302,7 @@ int run_capture_isolation_probe() {
         const WNDCLASSEXW overlay_class = {
             sizeof(WNDCLASSEXW),
             CS_HREDRAW | CS_VREDRAW,
-            wnd_proc,
+            isolation_probe_wnd_proc,
             0, 0,
             GetModuleHandleW(nullptr),
             nullptr,
@@ -1668,7 +1704,7 @@ int main(int argc, char** argv) {
     };
     RegisterClassExW(&wc);
 
-    const RECT vr = virtual_screen_rect();
+    RECT vr = virtual_screen_rect();
     const int win_w = vr.right - vr.left;
     const int win_h = vr.bottom - vr.top;
 
@@ -1743,6 +1779,8 @@ int main(int argc, char** argv) {
     const auto loop_started = std::chrono::steady_clock::now();
     auto last_frame_time = loop_started - frame_interval;
     auto last_isolation_check = loop_started;
+    auto isolation_state =
+        fusion_overlay::CaptureIsolationLifecycleState::Verified;
     bool isolation_failed = false;
     bool wait_failed = false;
     bool render_dirty = true;
@@ -1797,13 +1835,140 @@ int main(int argc, char** argv) {
 
         if (!g_running.load()) break;
 
-        if (g_isolation_invalidated.load()) {
+        const std::uint32_t invalidation_reasons =
+            g_isolation_invalidation_reasons.exchange(0);
+        if (invalidation_reasons != 0) {
+            const auto pending = fusion_overlay::transition_capture_isolation(
+                isolation_state,
+                fusion_overlay::CaptureIsolationLifecycleEvent::IsolationInvalidated);
+            isolation_state = pending.state;
             ShowWindow(hwnd, SW_HIDE);
+            renderer.set_visible(false);
             log_line(
-                "[FusionCanvas] capture_isolation=invalidated display_or_dwm_change");
-            isolation_failed = true;
-            g_running.store(false);
-            break;
+                "[FusionCanvas] capture_isolation=revalidation_pending reason=%s",
+                isolation_invalidation_reason_name(invalidation_reasons));
+
+            bool revalidation_succeeded = pending.should_revalidate;
+            const char* failure_stage = pending.should_revalidate
+                ? "none"
+                : "lifecycle";
+            RECT next_vr = virtual_screen_rect();
+            const int next_width = next_vr.right - next_vr.left;
+            const int next_height = next_vr.bottom - next_vr.top;
+            if (revalidation_succeeded &&
+                (next_width <= 0 || next_height <= 0)) {
+                revalidation_succeeded = false;
+                failure_stage = "virtual_screen_geometry";
+            }
+            if (revalidation_succeeded &&
+                !SetWindowPos(
+                    hwnd,
+                    nullptr,
+                    next_vr.left,
+                    next_vr.top,
+                    next_width,
+                    next_height,
+                    SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOZORDER)) {
+                revalidation_succeeded = false;
+                failure_stage = "window_geometry";
+                log_line(
+                    "[FusionCanvas] capture_isolation=revalidation_window_geometry_failed error=%lu",
+                    static_cast<unsigned long>(GetLastError()));
+            }
+            if (revalidation_succeeded &&
+                !renderer.resize(next_width, next_height)) {
+                revalidation_succeeded = false;
+                failure_stage = "renderer_resize";
+            }
+            if (revalidation_succeeded) {
+                vr = next_vr;
+                const auto window_isolation =
+                    fusion_overlay::enable_and_verify_capture_isolation(hwnd);
+                if (!window_isolation.decision.may_show) {
+                    revalidation_succeeded = false;
+                    failure_stage = "window_affinity_before_probe";
+                    log_line(
+                        "[FusionCanvas] capture_isolation=revalidation_window_failed "
+                        "reason=%s dwm_hr=0x%08lx set_error=%lu "
+                        "readback_error=%lu affinity=0x%08lx",
+                        fusion_overlay::capture_isolation_failure_name(
+                            window_isolation.decision.failure),
+                        static_cast<unsigned long>(window_isolation.dwm_hresult),
+                        static_cast<unsigned long>(window_isolation.set_error),
+                        static_cast<unsigned long>(window_isolation.readback_error),
+                        static_cast<unsigned long>(
+                            window_isolation.observation.affinity));
+                }
+            }
+            if (revalidation_succeeded) {
+                const int probe_exit_code = run_capture_isolation_probe();
+                if (probe_exit_code != 0) {
+                    revalidation_succeeded = false;
+                    failure_stage = "dxgi_capture_probe";
+                    log_line(
+                        "[FusionCanvas] capture_isolation=revalidation_probe_failed code=%d",
+                        probe_exit_code);
+                }
+            }
+            if (revalidation_succeeded) {
+                const auto window_isolation =
+                    fusion_overlay::enable_and_verify_capture_isolation(hwnd);
+                if (!window_isolation.decision.may_show) {
+                    revalidation_succeeded = false;
+                    failure_stage = "window_affinity_after_probe";
+                    log_line(
+                        "[FusionCanvas] capture_isolation=revalidation_window_failed "
+                        "reason=%s dwm_hr=0x%08lx set_error=%lu "
+                        "readback_error=%lu affinity=0x%08lx",
+                        fusion_overlay::capture_isolation_failure_name(
+                            window_isolation.decision.failure),
+                        static_cast<unsigned long>(window_isolation.dwm_hresult),
+                        static_cast<unsigned long>(window_isolation.set_error),
+                        static_cast<unsigned long>(window_isolation.readback_error),
+                        static_cast<unsigned long>(
+                            window_isolation.observation.affinity));
+                }
+            }
+            const std::uint32_t changed_during_revalidation =
+                g_isolation_invalidation_reasons.exchange(0);
+            if (revalidation_succeeded && changed_during_revalidation != 0) {
+                revalidation_succeeded = false;
+                failure_stage = "changed_during_revalidation";
+                log_line(
+                    "[FusionCanvas] capture_isolation=revalidation_invalidated reason=%s",
+                    isolation_invalidation_reason_name(
+                        changed_during_revalidation));
+            }
+
+            const auto completed = fusion_overlay::transition_capture_isolation(
+                isolation_state,
+                revalidation_succeeded
+                    ? fusion_overlay::CaptureIsolationLifecycleEvent::RevalidationPassed
+                    : fusion_overlay::CaptureIsolationLifecycleEvent::RevalidationFailed);
+            isolation_state = completed.state;
+            if (!completed.may_show) {
+                log_line(
+                    "[FusionCanvas] capture_isolation=revalidation_failed_closed "
+                    "reason=%s stage=%s",
+                    isolation_invalidation_reason_name(invalidation_reasons),
+                    failure_stage);
+                isolation_failed = true;
+                g_running.store(false);
+                break;
+            }
+
+            last_isolation_check = std::chrono::steady_clock::now();
+            renderer.set_visible(g_visible.load());
+            ShowWindow(hwnd, SW_SHOWNA);
+            render_dirty = true;
+            log_line(
+                "[FusionCanvas] capture_isolation=revalidated reason=%s "
+                "virtual_screen=%d,%d,%dx%d",
+                isolation_invalidation_reason_name(invalidation_reasons),
+                vr.left,
+                vr.top,
+                next_width,
+                next_height);
         }
 
         const auto isolation_now = std::chrono::steady_clock::now();
@@ -1821,6 +1986,10 @@ int main(int argc, char** argv) {
                     static_cast<unsigned long>(isolation.dwm_hresult),
                     static_cast<unsigned long>(isolation.readback_error),
                     static_cast<unsigned long>(isolation.observation.affinity));
+                const auto failed = fusion_overlay::transition_capture_isolation(
+                    isolation_state,
+                    fusion_overlay::CaptureIsolationLifecycleEvent::VerificationFailed);
+                isolation_state = failed.state;
                 isolation_failed = true;
                 g_running.store(false);
                 break;

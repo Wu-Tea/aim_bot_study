@@ -5,6 +5,32 @@
 
 namespace fusion_overlay {
 
+CaptureIsolationLifecycleDecision transition_capture_isolation(
+    CaptureIsolationLifecycleState state,
+    CaptureIsolationLifecycleEvent event) noexcept {
+    if (state == CaptureIsolationLifecycleState::FailedClosed) {
+        return {CaptureIsolationLifecycleState::FailedClosed, false, false};
+    }
+
+    switch (event) {
+    case CaptureIsolationLifecycleEvent::IsolationInvalidated:
+        return {
+            CaptureIsolationLifecycleState::RevalidationPending,
+            false,
+            true,
+        };
+    case CaptureIsolationLifecycleEvent::RevalidationPassed:
+        if (state == CaptureIsolationLifecycleState::RevalidationPending) {
+            return {CaptureIsolationLifecycleState::Verified, true, false};
+        }
+        break;
+    case CaptureIsolationLifecycleEvent::RevalidationFailed:
+    case CaptureIsolationLifecycleEvent::VerificationFailed:
+        return {CaptureIsolationLifecycleState::FailedClosed, false, false};
+    }
+    return {CaptureIsolationLifecycleState::FailedClosed, false, false};
+}
+
 CaptureIsolationDecision decide_capture_isolation(
     const CaptureIsolationObservation& observation) noexcept {
     if (!observation.dwm_query_succeeded) {

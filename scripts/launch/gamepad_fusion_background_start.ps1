@@ -8,7 +8,8 @@ $projectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
 $executablePath = [System.IO.Path]::GetFullPath((Join-Path $projectRoot "native\vision_native\build\Release\fusion_canvas.exe"))
 $nativeExecutablePath = [System.IO.Path]::GetFullPath((Join-Path $projectRoot "native\vision_native\build\Release\cod_native_runtime.exe"))
 $nativeStartScript = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "gamepad_native_background_start.ps1"))
-$powerShellPath = [System.IO.Path]::GetFullPath((Join-Path $PSHOME "powershell.exe"))
+$powerShellPath = [System.IO.Path]::GetFullPath(
+    [System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName)
 $nativeStatePath = [System.IO.Path]::GetFullPath((Join-Path $projectRoot "runs\runtime\background\native_runtime_state.json"))
 $stateDirectory = [System.IO.Path]::GetFullPath((Join-Path $projectRoot "runs\fusion_canvas\background"))
 $statePath = Join-Path $stateDirectory "fusion_canvas_state.json"
@@ -44,6 +45,7 @@ if ($PrintOnly) {
         executable_path = $executablePath
         native_state_path = $nativeStatePath
         native_start_script = $nativeStartScript
+        powershell_host_path = $powerShellPath
         auto_start_native = $true
         state_path = $statePath
         session = $session
@@ -257,6 +259,11 @@ try {
     }
     if (-not $ready) {
         throw "Fusion canvas did not connect to the native channel within 15 seconds"
+    }
+
+    $canvasProcess.Refresh()
+    if ($canvasProcess.HasExited) {
+        throw "Fusion canvas exited after readiness with code $($canvasProcess.ExitCode)"
     }
 
     $state = [ordered]@{

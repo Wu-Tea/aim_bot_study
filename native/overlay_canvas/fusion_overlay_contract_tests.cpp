@@ -66,6 +66,54 @@ void capture_isolation_is_fail_closed() {
         "an affinity mismatch must fail closed");
 }
 
+void display_change_hides_then_revalidates_capture_isolation() {
+    using Event = fusion_overlay::CaptureIsolationLifecycleEvent;
+    using State = fusion_overlay::CaptureIsolationLifecycleState;
+
+    const auto invalidated = fusion_overlay::transition_capture_isolation(
+        State::Verified,
+        Event::IsolationInvalidated);
+    require(
+        invalidated.state == State::RevalidationPending,
+        "a display/DWM change must enter capture-isolation revalidation");
+    require(
+        !invalidated.may_show,
+        "the canvas must remain hidden while isolation is unproven");
+    require(
+        invalidated.should_revalidate,
+        "a display/DWM change must request the production capture probe");
+
+    const auto recovered = fusion_overlay::transition_capture_isolation(
+        invalidated.state,
+        Event::RevalidationPassed);
+    require(
+        recovered.state == State::Verified && recovered.may_show,
+        "a successful revalidation must restore the verified canvas");
+
+    const auto failed = fusion_overlay::transition_capture_isolation(
+        invalidated.state,
+        Event::RevalidationFailed);
+    require(
+        failed.state == State::FailedClosed && !failed.may_show,
+        "a failed revalidation must remain fail closed");
+
+    const auto periodic_failure = fusion_overlay::transition_capture_isolation(
+        State::Verified,
+        Event::VerificationFailed);
+    require(
+        periodic_failure.state == State::FailedClosed &&
+            !periodic_failure.may_show &&
+            !periodic_failure.should_revalidate,
+        "a proven periodic isolation loss must fail closed without retrying");
+
+    const auto terminal = fusion_overlay::transition_capture_isolation(
+        failed.state,
+        Event::RevalidationPassed);
+    require(
+        terminal.state == State::FailedClosed && !terminal.may_show,
+        "a failed-closed session must not recover without a new process");
+}
+
 void canvas_window_style_is_cross_process_mouse_passthrough() {
     const DWORD extended_style = fusion_overlay::fusion_canvas_extended_style();
     const DWORD window_style = fusion_overlay::fusion_canvas_window_style();
@@ -241,6 +289,7 @@ void recorded_short_direct_burst_survives_render_throttle() {
 int main() {
     try {
         capture_isolation_is_fail_closed();
+        display_change_hides_then_revalidates_capture_isolation();
         canvas_window_style_is_cross_process_mouse_passthrough();
         marker_tracks_selector_target_in_roi_desktop_coordinates();
         marker_rejects_non_direct_or_invalid_targets();

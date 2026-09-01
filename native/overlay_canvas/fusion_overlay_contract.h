@@ -28,6 +28,30 @@ struct CaptureIsolationDecision {
     CaptureIsolationFailure failure = CaptureIsolationFailure::DwmQueryFailed;
 };
 
+enum class CaptureIsolationLifecycleState {
+    Verified,
+    RevalidationPending,
+    FailedClosed,
+};
+
+enum class CaptureIsolationLifecycleEvent {
+    IsolationInvalidated,
+    RevalidationPassed,
+    RevalidationFailed,
+    VerificationFailed,
+};
+
+struct CaptureIsolationLifecycleDecision {
+    CaptureIsolationLifecycleState state =
+        CaptureIsolationLifecycleState::FailedClosed;
+    bool may_show = false;
+    bool should_revalidate = false;
+};
+
+CaptureIsolationLifecycleDecision transition_capture_isolation(
+    CaptureIsolationLifecycleState state,
+    CaptureIsolationLifecycleEvent event) noexcept;
+
 CaptureIsolationDecision decide_capture_isolation(
     const CaptureIsolationObservation& observation) noexcept;
 
