@@ -662,8 +662,15 @@ void test_short_occlusion_bursts_are_tracking_relative_and_hashed() {
             "occlusion semantics must change script identity");
     for (const auto& target : no_occlusion.targets) {
         require(target.vision_occlusion_bursts.empty(),
-                "ordinary scenarios must remain burst-free");
+            "ordinary scenarios must remain burst-free");
     }
+
+    BenchmarkConfig cue = config;
+    cue.short_occlusion_cue_continuation = true;
+    const auto cue_script =
+        controller_native::sustained_aimlab::generate_script(2026072701, cue);
+    require(cue_script.hash != first.hash,
+            "cue-continuation evidence must change script identity");
 }
 
 void test_runtime_profile_drives_paired_delivery_capture_age_and_target_shape() {
@@ -780,7 +787,7 @@ void test_default_fixed_schedule_has_stable_script_identity() {
             "default runtime target samples are not empty");
     const ScenarioScript script =
         controller_native::sustained_aimlab::generate_script(2026072301, config);
-    require(script.hash == 18'044'272'266'236'773'195ull,
+    require(script.hash == 5'012'231'713'877'248'379ull,
             "default fixed target schedule changed script identity: " +
                 std::to_string(script.hash));
 }

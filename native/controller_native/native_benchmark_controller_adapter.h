@@ -20,6 +20,7 @@ struct AssistedModeCoverage {
     std::uint64_t recoil_pull_frames = 0;
     std::uint64_t recoil_active_frames = 0;
     std::uint64_t unreliable_frames = 0;
+    std::uint64_t cue_continuation_frames = 0;
     std::uint64_t total_frames = 0;
 };
 

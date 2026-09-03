@@ -521,6 +521,7 @@ BenchmarkResult run_simulation(
             }
             input.target_present = true;
             input.target_id = target.id;
+            input.selector_target_generation = target.id;
             input.fire_action =
                 script.config.vision_disturbance !=
                     VisionDisturbanceProfile::Off &&
@@ -566,9 +567,17 @@ BenchmarkResult run_simulation(
                 const bool dropout_decoy = vision_occluded &&
                     script.config.vision_disturbance ==
                         VisionDisturbanceProfile::TargetDropoutDecoy;
-                if (!vision_occluded || dropout_decoy) {
+                const bool publish_cue_continuation = vision_occluded &&
+                    script.config.short_occlusion_cue_continuation &&
+                    !dropout_decoy;
+                if (!vision_occluded || dropout_decoy ||
+                    publish_cue_continuation) {
                     input.fresh_vision = true;
                     ++frame_id;
+                }
+                if (publish_cue_continuation) {
+                    input.primary_candidate_visible = false;
+                    input.cue_continuation = true;
                 }
                 if (dropout_decoy) {
                     input.primary_candidate_visible = false;
@@ -766,6 +775,10 @@ BenchmarkResult run_simulation(
                 controller_input.fresh_vision = true;
                 controller_input.target_present = published.target_present;
                 controller_input.target_id = published.target_id;
+                controller_input.selector_target_generation =
+                    published.selector_target_generation;
+                controller_input.cue_continuation =
+                    published.cue_continuation;
                 controller_input.primary_candidate_visible =
                     published.primary_candidate_visible;
                 controller_input.decoy_candidate_present =

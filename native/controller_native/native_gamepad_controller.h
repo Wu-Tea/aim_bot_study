@@ -2,6 +2,7 @@
 
 #include "ads_acquisition_controller.h"
 #include "ads_reacquisition_reducer.h"
+#include "ads_response_estimator.h"
 #include "aim_response_estimator.h"
 #include "aim_scope_reducer.h"
 #include "aim_dynamics_shaper.h"
@@ -203,10 +204,18 @@ private:
     OperationIntentOutput last_operation_intent_{};
     TargetCoordinator target_coordinator_{};
     AimResponseEstimator aim_response_estimator_{};
+    AdsResponseEstimator ads_response_estimator_;
     AdsAcquisitionController ads_controller_{};
     AdsReacquisitionReducer ads_reacquisition_reducer_{};
     BodylockFollowController bodylock_controller_{};
     BodylockTargetMotionObserver bodylock_target_motion_observer_{};
+    BodylockTargetMotionEstimate nonfiring_pov_motion_snapshot_{};
+    pipeline_contract::Vec2f nonfiring_pov_error_snapshot_{};
+    pipeline_contract::Vec2f nonfiring_pov_left_stick_{};
+    std::uint64_t nonfiring_pov_motion_target_id_ = 0;
+    std::uint64_t nonfiring_pov_motion_generation_ = 0;
+    std::uint64_t nonfiring_pov_motion_ads_epoch_ = 0;
+    double nonfiring_pov_motion_seconds_ = -1.0;
     AimDynamicsShaper dynamics_shaper_{};
     AssistControlStateMachine assist_control_state_machine_{};
     RecoilReducer recoil_;
@@ -227,6 +236,7 @@ private:
     std::size_t aim_response_history_count_ = 0;
     std::uint64_t last_aim_response_frame_id_ = 0;
     std::uint64_t last_aim_response_target_id_ = 0;
+    std::uint64_t last_ads_response_epoch_ = 0;
     double last_aim_response_capture_seconds_ = 0.0;
     pipeline_contract::Vec2f last_aim_response_source_error_px_{};
     bool has_last_aim_response_observation_ = false;

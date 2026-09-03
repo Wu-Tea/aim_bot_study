@@ -19,10 +19,13 @@ ControllerVisionSnapshot snapshot_from(
     snapshot.frame_updated = true;
     snapshot.selector_identity_protocol = true;
     snapshot.frame_id = input.frame_id;
-    snapshot.selected_observation_id =
-        input.target_present && input.primary_candidate_visible
+    snapshot.selected_observation_id = input.cue_continuation
+        ? 0
+        : input.target_present && input.primary_candidate_visible
         ? input.target_id
         : input.decoy_candidate_present ? input.decoy_target_id : 0;
+    snapshot.selector_target_generation =
+        input.selector_target_generation;
     snapshot.capture_time_seconds = std::isfinite(input.capture_time_seconds)
         ? input.capture_time_seconds : now_seconds;
     snapshot.ready_time_seconds = std::isfinite(input.ready_time_seconds)
@@ -30,6 +33,28 @@ ControllerVisionSnapshot snapshot_from(
     snapshot.state.screen_center_x = 320.0f;
     snapshot.state.screen_center_y = 256.0f;
     snapshot.state.fresh_observation = true;
+    if (input.cue_continuation) {
+        snapshot.enemy_cue_current = true;
+        snapshot.enemy_identity_confirmed = true;
+        snapshot.state.has_target = true;
+        snapshot.state.aim_authority = true;
+        snapshot.state.enemy_cue_current = true;
+        snapshot.state.enemy_identity_confirmed = true;
+        snapshot.state.dx = static_cast<float>(input.observed_error_px.x);
+        snapshot.state.dy = static_cast<float>(input.observed_error_px.y);
+        snapshot.state.target_x = static_cast<float>(
+            320.0 + input.observed_error_px.x);
+        snapshot.state.target_y = static_cast<float>(
+            256.0 + input.observed_error_px.y);
+        snapshot.state.has_body_box = input.has_body_box;
+        snapshot.state.body_x1 = static_cast<float>(input.body_box_x);
+        snapshot.state.body_y1 = static_cast<float>(input.body_box_y);
+        snapshot.state.body_x2 = static_cast<float>(
+            input.body_box_x + input.body_box_width);
+        snapshot.state.body_y2 = static_cast<float>(
+            input.body_box_y + input.body_box_height);
+        snapshot.state.target_tier = "cue_hold";
+    }
     if (!input.target_present && !input.decoy_candidate_present) {
         return snapshot;
     }
@@ -163,6 +188,9 @@ ControllerStepResult NativeReplayAdapter::step(
 
     const auto& vision = controller_.last_frame_vision_state();
     const auto& plan = controller_.last_target_plan();
+    if (coverage_ && plan.cue_continuation) {
+        coverage_->cue_continuation_frames += 1;
+    }
     ControllerStepResult result;
     result.final_stick = {output.right_x, output.right_y};
     result.requested_assist_stick = {
@@ -188,6 +216,25 @@ ControllerStepResult NativeReplayAdapter::step(
         components.before_recoil_stick.y,
     };
     result.has_pre_recoil_stick = true;
+    result.cue_continuation = plan.cue_continuation;
+    result.bodylock_target_motion_valid =
+        plan.bodylock_target_motion_valid;
+    result.bodylock_target_motion_px_per_second = {
+        plan.bodylock_target_motion_px_per_sec.x,
+        plan.bodylock_target_motion_px_per_sec.y,
+    };
+    result.bodylock_position_stick = {
+        components.bodylock_position_stick.x,
+        components.bodylock_position_stick.y,
+    };
+    result.bodylock_motion_stick = {
+        components.bodylock_motion_stick.x,
+        components.bodylock_motion_stick.y,
+    };
+    result.bodylock_effective_motion_stick = {
+        components.bodylock_effective_motion_stick.x,
+        components.bodylock_effective_motion_stick.y,
+    };
     return result;
 }
 

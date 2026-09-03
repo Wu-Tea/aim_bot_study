@@ -245,6 +245,9 @@ struct BenchmarkConfig {
         VisionDisturbanceProfile::Off;
     bool obsolete_vertical_fixture = false;
     int short_occlusion_duration_ms = 0;
+    // When true, scheduled short occlusions publish an explicit selector-owned
+    // same-generation cue instead of becoming a silent Vision delivery gap.
+    bool short_occlusion_cue_continuation = false;
     bool target_motion_enabled = true;
 };
 

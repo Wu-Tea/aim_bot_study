@@ -184,6 +184,7 @@ void hash_config(std::uint64_t& hash, const BenchmarkConfig& config) {
     hash_integral(hash, config.vision_disturbance);
     hash_integral(hash, config.obsolete_vertical_fixture ? 1 : 0);
     hash_integral(hash, config.short_occlusion_duration_ms);
+    hash_integral(hash, config.short_occlusion_cue_continuation ? 1 : 0);
     hash_integral(hash, config.target_motion_enabled ? 1 : 0);
 }
 

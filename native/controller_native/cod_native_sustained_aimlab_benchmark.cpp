@@ -167,6 +167,7 @@ bool is_sha256(const std::string& value) {
 struct Options {
     std::filesystem::path config_path = "config.native.example.toml";
     std::filesystem::path output_path;
+    std::filesystem::path trace_output_path;
     std::string revision = "unknown";
     bool dirty = false;
     bool smoke = false;
@@ -176,6 +177,7 @@ struct Options {
     int vision_result_delay_ms = 0;
     int control_response_delay_ms = 0;
     int short_occlusion_ms = 0;
+    std::string short_occlusion_evidence = "gap";
     // -1 derives a safe fixed slot from the loaded product execution budgets.
     // Zero must be
     // requested explicitly to reproduce legacy outcome-dependent replacement.
@@ -235,6 +237,9 @@ Options parse_options(int argc, char** argv) {
         };
         if (argument == "--config") options.config_path = value();
         else if (argument == "--output") options.output_path = value();
+        else if (argument == "--trace-output") {
+            options.trace_output_path = value();
+        }
         else if (argument == "--revision") options.revision = value();
         else if (argument == "--duration-ms") options.duration_ms = std::stoi(value());
         else if (argument == "--controller-tick-hz") {
@@ -247,6 +252,8 @@ Options parse_options(int argc, char** argv) {
             options.control_response_delay_ms = std::stoi(value());
         } else if (argument == "--short-occlusion-ms") {
             options.short_occlusion_ms = std::stoi(value());
+        } else if (argument == "--short-occlusion-evidence") {
+            options.short_occlusion_evidence = value();
         } else if (argument == "--target-slot-ms") {
             options.target_slot_ms = std::stoi(value());
         } else if (argument == "--manual-input-scale") {
@@ -345,6 +352,7 @@ Options parse_options(int argc, char** argv) {
             std::cout
                 << "cod_native_sustained_aimlab_benchmark "
                 << "[--config PATH] [--output PATH] [--revision HASH] "
+                << "[--trace-output CSV] "
                 << "[--dirty] [--duration-ms N] [--seed N ...] "
                 << "[--controller-tick-hz N] "
                 << "[--sensitivity-multiplier N] "
@@ -353,6 +361,7 @@ Options parse_options(int argc, char** argv) {
                  << "[--cohort ads|bodylock|both] "
                  << "[--vision-hz N] [--vision-result-delay-ms N] "
                  << "[--control-response-delay-ms N] [--short-occlusion-ms N] "
+                 << "[--short-occlusion-evidence gap|same-generation-cue] "
                  << "[--target-slot-ms N (default 1575; 0 is legacy)] "
                  << "[--runtime-profile-id ID --runtime-profile-sha256 SHA256 "
                  << "--runtime-audit-sha256 SHA256 "
@@ -413,6 +422,11 @@ Options parse_options(int argc, char** argv) {
         options.control_response_delay_ms < 0 ||
         options.target_slot_ms < -1) {
         throw std::invalid_argument("timing options cannot be negative");
+    }
+    if (options.short_occlusion_evidence != "gap" &&
+        options.short_occlusion_evidence != "same-generation-cue") {
+        throw std::invalid_argument(
+            "short-occlusion-evidence must be gap or same-generation-cue");
     }
     if (!std::isfinite(options.manual_input_scale) ||
         !std::isfinite(options.slowdown_edge) ||
@@ -669,6 +683,10 @@ void write_result(std::ostream& out, const BenchmarkResult& value) {
         << ",\"script_hash\":\"" << value.script_hash << "\""
         << ",\"ticks\":" << value.ticks
         << ",\"controller_updates\":" << value.controller_updates
+        << ",\"firing_frames\":" << value.firing_frames
+        << ",\"recoil_active_frames\":" << value.recoil_active_frames
+        << ",\"cue_continuation_frames\":"
+        << value.cue_continuation_frames
         << ",\"left_strafe_active_ms\":" << value.left_strafe_active_ms
         << ",\"left_strafe_reversals\":" << value.left_strafe_reversals
         << ",\"max_abs_left_x\":" << value.max_abs_left_x
@@ -727,6 +745,8 @@ void write_result(std::ostream& out, const BenchmarkResult& value) {
         << ",\"handoff_defect_rate\":" << value.handoff_defect_rate
         << ",\"p95_post_handoff_rebound_px\":" << value.p95_post_handoff_rebound_px
         << ",\"max_post_handoff_rebound_px\":" << value.max_post_handoff_rebound_px
+        << ",\"occlusion_episodes\":" << value.occlusion_episodes
+        << ",\"post_occlusion_samples\":" << value.post_occlusion_samples
         << ",\"post_occlusion_error_area_px_ms\":" << value.post_occlusion_error_area_px_ms
         << ",\"max_post_occlusion_error_px\":" << value.max_post_occlusion_error_px
         << ",\"p95_reveal_to_stable_ms\":" << value.p95_reveal_to_stable_ms
@@ -848,6 +868,8 @@ void write_report(
         << ",\"control_response_delay_ms\":"
         << config.control_response_delay_ms
         << ",\"short_occlusion_ms\":" << config.short_occlusion_duration_ms
+        << ",\"short_occlusion_evidence\":\""
+        << options.short_occlusion_evidence << "\""
         << ",\"target_schedule\":{\"mode\":\""
         << (config.fixed_target_slot_ms > 0
                 ? "fixed_slots" : "legacy_outcome_dependent")
@@ -1042,6 +1064,8 @@ int main(int argc, char** argv) {
         benchmark.vision_result_delay_ms = options.vision_result_delay_ms;
         benchmark.control_response_delay_ms = options.control_response_delay_ms;
         benchmark.short_occlusion_duration_ms = options.short_occlusion_ms;
+        benchmark.short_occlusion_cue_continuation =
+            options.short_occlusion_evidence == "same-generation-cue";
         benchmark.ads_execution_timeout_ms = static_cast<int>(std::ceil(
             runtime.gamepad.ai_aim.ads_target_wait_ms +
             static_cast<double>(runtime.gamepad.ai_aim.ads_snap_window_ms) +
@@ -1076,6 +1100,27 @@ int main(int argc, char** argv) {
         benchmark.camera_response_curve = runtime.gamepad.aim_response_curve;
 
         std::vector<BenchmarkResult> results;
+        std::ofstream trace_output;
+        if (!options.trace_output_path.empty()) {
+            if (!options.trace_output_path.parent_path().empty()) {
+                std::filesystem::create_directories(
+                    options.trace_output_path.parent_path());
+            }
+            trace_output.open(options.trace_output_path);
+            if (!trace_output) {
+                throw std::runtime_error(
+                    "failed to open trace output: " +
+                    options.trace_output_path.string());
+            }
+            trace_output
+                << "seed,absolute_ms,target_elapsed_ms,fresh_vision,"
+                   "vision_occluded,cue,target_motion_valid,error_before_x,"
+                   "error_before_y,target_motion_x,target_motion_y,"
+                   "player_velocity_x,left_x,position_stick_x,"
+                   "position_stick_y,motion_stick_x,motion_stick_y,"
+                   "effective_motion_x,effective_motion_y,shaped_x,"
+                   "shaped_y,final_x,final_y\n";
+        }
         for (const std::uint32_t seed : options.seeds) {
             const ScenarioScript script = generate_script(seed, benchmark);
             for (const BenchmarkCohort cohort : cohorts) {
@@ -1089,14 +1134,53 @@ int main(int argc, char** argv) {
                                 cohort,
                                 coverage,
                                 options.benchmark_recoil == "on");
+                        const SimulationTraceObserver trace_observer =
+                            trace_output.is_open()
+                            ? SimulationTraceObserver{
+                                [&](const SimulationTraceFrame& frame) {
+                                    if (!frame.target_active) return;
+                                    const auto& in = frame.input;
+                                    const auto& out = frame.output;
+                                    trace_output
+                                        << seed << ',' << frame.absolute_ms << ','
+                                        << frame.target_elapsed_ms << ','
+                                        << (frame.fresh_vision ? 1 : 0) << ','
+                                        << (frame.vision_occluded ? 1 : 0) << ','
+                                        << (out.cue_continuation ? 1 : 0) << ','
+                                        << (out.bodylock_target_motion_valid ? 1 : 0)
+                                        << ',' << frame.true_error_before_px.x
+                                        << ',' << frame.true_error_before_px.y
+                                        << ',' << out.bodylock_target_motion_px_per_second.x
+                                        << ',' << out.bodylock_target_motion_px_per_second.y
+                                        << ',' << frame.player_velocity_x_px_per_second
+                                        << ',' << in.left_x
+                                        << ',' << out.bodylock_position_stick.x
+                                        << ',' << out.bodylock_position_stick.y
+                                        << ',' << out.bodylock_motion_stick.x
+                                        << ',' << out.bodylock_motion_stick.y
+                                        << ',' << out.bodylock_effective_motion_stick.x
+                                        << ',' << out.bodylock_effective_motion_stick.y
+                                        << ',' << out.shaped_assist_stick.x
+                                        << ',' << out.shaped_assist_stick.y
+                                        << ',' << out.final_stick.x
+                                        << ',' << out.final_stick.y << '\n';
+                                }}
+                            : SimulationTraceObserver{};
                         BenchmarkResult result = run_simulation(
                             script,
                             profile,
                             controller,
                             cohort,
-                            {},
+                            trace_observer,
                             strafe,
                             vertical);
+                        if (options.controller == "production") {
+                            result.firing_frames = coverage->firing_frames;
+                            result.recoil_active_frames =
+                                coverage->recoil_active_frames;
+                            result.cue_continuation_frames =
+                                coverage->cue_continuation_frames;
+                        }
                         if (options.smoke && options.controller == "production") {
                             validate_smoke(
                                 result,

@@ -155,6 +155,16 @@ BodylockFollowControllerConfig bodylock_config(const GamepadRuntimeConfig& confi
     return result;
 }
 
+AimResponseEstimatorConfig ads_response_estimator_config() {
+    AimResponseEstimatorConfig result{};
+    // ADS needs accumulated evidence, but should approach a measured
+    // slowdown conservatively before it is allowed to replace the established
+    // response estimate used by the rest of the controller.
+    result.scale_alpha = 0.04f;
+    result.confidence_alpha = 0.02f;
+    return result;
+}
+
 AssistControlStateMachineConfig assist_control_config(
     const GamepadRuntimeConfig& config) {
     AssistControlStateMachineConfig result{};
@@ -175,6 +185,7 @@ NativeGamepadController::NativeGamepadController(
     const double* injected_clock_seconds)
     : config_(config),
       target_coordinator_(coordinator_config(config)),
+      ads_response_estimator_(ads_response_estimator_config()),
       ads_controller_(ads_config(config)),
       ads_reacquisition_reducer_({
           config.ai_aim.body_lock_activation_box_px,
@@ -205,7 +216,15 @@ void NativeGamepadController::reset() {
     last_operation_intent_ = {};
     target_coordinator_.reset();
     aim_response_estimator_.reset();
+    ads_response_estimator_.reset();
     bodylock_target_motion_observer_.reset();
+    nonfiring_pov_motion_snapshot_ = {};
+    nonfiring_pov_error_snapshot_ = {};
+    nonfiring_pov_left_stick_ = {};
+    nonfiring_pov_motion_target_id_ = 0;
+    nonfiring_pov_motion_generation_ = 0;
+    nonfiring_pov_motion_ads_epoch_ = 0;
+    nonfiring_pov_motion_seconds_ = -1.0;
     ads_reacquisition_reducer_.reset();
     dynamics_shaper_.reset();
     assist_control_state_machine_.reset();
@@ -225,6 +244,7 @@ void NativeGamepadController::reset() {
     aim_response_history_count_ = 0;
     last_aim_response_frame_id_ = 0;
     last_aim_response_target_id_ = 0;
+    last_ads_response_epoch_ = 0;
     last_aim_response_capture_seconds_ = 0.0;
     last_aim_response_source_error_px_ = {};
     has_last_aim_response_observation_ = false;
@@ -590,6 +610,24 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
         plan.response_scale = std::max(
             50.0f, localized_response.scale_px_per_stick_second);
         plan.response_confidence = localized_response.confidence;
+        if (plan.mode == pipeline_contract::ControlMode::AdsAcquire) {
+            const auto ads_response = ads_response_estimator_.estimate(
+                aim_response_zone_weight);
+            // Do not replace a mature legacy estimate with an ADS model that
+            // has only primed its history. Eight accepted multi-anchor fits
+            // and 0.35 confidence require repeated, mutually consistent
+            // evidence rather than one apparent slowdown transition.
+            constexpr std::uint32_t kMinimumAdsResponseSamples = 8;
+            constexpr float kMinimumAdsResponseConfidence = 0.35f;
+            if (ads_response.accepted_samples >=
+                    kMinimumAdsResponseSamples &&
+                ads_response.confidence >=
+                    kMinimumAdsResponseConfidence) {
+                plan.response_scale = std::max(
+                    50.0f, ads_response.scale_px_per_stick_second);
+                plan.response_confidence = ads_response.confidence;
+            }
+        }
     }
     if (plan.cue_continuation) {
         // A same-generation cue may continue ADS identity, but must not create
@@ -683,8 +721,17 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
             plan.target_id == last_aim_response_target_id_;
         if (!same_response_target) {
             aim_response_estimator_.begin_target(plan.target_id);
+            ads_response_estimator_.begin_target(plan.target_id);
             bodylock_target_motion_observer_.begin_target(plan.target_id);
         } else {
+            if (plan.mode == pipeline_contract::ControlMode::AdsAcquire &&
+                plan.physical_ads_epoch != 0 &&
+                plan.physical_ads_epoch != last_ads_response_epoch_) {
+                // Preserve learned weapon response, but never regress a new
+                // physical ADS event against anchors from an older token or
+                // an intervening BodyLock interval.
+                ads_response_estimator_.begin_target(plan.target_id);
+            }
             const double interval_seconds =
                 capture_seconds - last_aim_response_capture_seconds_;
             pipeline_contract::Vec2f average_stick{};
@@ -727,6 +774,20 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
                         pipeline_contract::TargetLifecycle::Observed,
                     manual_ambiguous,
                 });
+                if (plan.mode == pipeline_contract::ControlMode::AdsAcquire) {
+                    ads_response_estimator_.update({
+                        average_stick,
+                        observed_error_rate,
+                        plan.target_id,
+                        static_cast<float>(interval_seconds),
+                        plan.reliability,
+                        0.0f,
+                        aim_response_zone_weight,
+                        plan.lifecycle ==
+                            pipeline_contract::TargetLifecycle::Observed,
+                        manual_ambiguous,
+                    });
+                }
                 bodylock_target_motion_observer_.update({
                     plan.target_id,
                     capture_seconds,
@@ -741,6 +802,10 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
         }
         last_aim_response_frame_id_ = observations.frame_id;
         last_aim_response_target_id_ = plan.target_id;
+        if (plan.mode == pipeline_contract::ControlMode::AdsAcquire &&
+            plan.physical_ads_epoch != 0) {
+            last_ads_response_epoch_ = plan.physical_ads_epoch;
+        }
         last_aim_response_capture_seconds_ = capture_seconds;
         last_aim_response_source_error_px_ = source_error_px;
         has_last_aim_response_observation_ = plan.target_id != 0 &&
@@ -750,16 +815,102 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
     if (plan.target_id == 0 ||
         plan.lifecycle == pipeline_contract::TargetLifecycle::None) {
         bodylock_target_motion_observer_.reset();
+        nonfiring_pov_motion_snapshot_ = {};
+        nonfiring_pov_error_snapshot_ = {};
+        nonfiring_pov_motion_target_id_ = 0;
+        nonfiring_pov_motion_generation_ = 0;
+        nonfiring_pov_motion_ads_epoch_ = 0;
+        nonfiring_pov_motion_seconds_ = -1.0;
     } else {
-        const auto target_motion = bodylock_target_motion_observer_.estimate(
+        auto target_motion = bodylock_target_motion_observer_.estimate(
             plan.target_id, now);
-        // Cue continuation may carry same-generation position for bounded
-        // aim-only continuity, but it is not a fresh observation of target
-        // motion. Do not let a held motion estimate bypass the existing
-        // close/far cue-authority policy.
-        plan.bodylock_target_motion_valid = target_motion.valid &&
+        const pipeline_contract::Vec2f current_left{
+            physical.left_x, physical.left_y};
+        // Lateral left-stick motion is direct evidence for horizontal POV
+        // translation. It does not establish vertical target motion: that may
+        // instead be jump/slide geometry, recoil, or target animation.
+        const bool current_lateral_pov_motion =
+            std::fabs(current_left.x) >= 0.15f;
+        const float lateral_input_change = std::fabs(
+            current_left.x - nonfiring_pov_left_stick_.x);
+        if (nonfiring_pov_motion_snapshot_.valid &&
+            (!current_lateral_pov_motion || lateral_input_change > 0.12f)) {
+            nonfiring_pov_motion_snapshot_ = {};
+            nonfiring_pov_error_snapshot_ = {};
+            nonfiring_pov_motion_target_id_ = 0;
+            nonfiring_pov_motion_generation_ = 0;
+            nonfiring_pov_motion_ads_epoch_ = 0;
+            nonfiring_pov_motion_seconds_ = -1.0;
+        }
+        if (!control_feedback.firing_recently &&
+            current_lateral_pov_motion &&
+            new_observed_frame &&
+            plan.selector_target_generation != 0 &&
             plan.lifecycle == pipeline_contract::TargetLifecycle::Observed &&
-            !plan.cue_continuation;
+            target_motion.valid) {
+            // Freeze the last non-firing estimate together with the physical
+            // POV input that produced it. Firing observations continue down
+            // the ordinary visible path, but cannot become the evidence used
+            // to bridge a smoke/kick gap.
+            nonfiring_pov_motion_snapshot_ = target_motion;
+            nonfiring_pov_error_snapshot_ = plan.error_px;
+            nonfiring_pov_left_stick_ = current_left;
+            nonfiring_pov_motion_target_id_ = plan.target_id;
+            nonfiring_pov_motion_generation_ =
+                plan.selector_target_generation;
+            nonfiring_pov_motion_ads_epoch_ = plan.physical_ads_epoch;
+            nonfiring_pov_motion_seconds_ = now;
+        }
+        bool cue_motion_eligible = false;
+        if (plan.lifecycle ==
+                pipeline_contract::TargetLifecycle::CueContinuation) {
+            // Do not turn a valid pre-fire observation into a longer-lived
+            // motion model. This matches BodylockTargetMotionObserver's
+            // existing 55 ms maximum hold horizon and remains well inside the
+            // separate 180 ms identity-only cue lifetime.
+            constexpr double kMaximumFiringPovSnapshotAgeSeconds =
+                static_cast<double>(
+                    BodylockTargetMotionObserverConfig{}.
+                        maximum_hold_seconds);
+            const bool snapshot_moves_horizontal_error_outward =
+                nonfiring_pov_motion_snapshot_.target_motion_stick.x *
+                    nonfiring_pov_error_snapshot_.x > 0.0f;
+            // The coordinator exposes the selector generation on source
+            // ticks. Zero between source ticks means "not published this
+            // tick", not a new generation; any published mismatch still
+            // revokes the snapshot immediately.
+            const bool generation_matches_or_not_published =
+                plan.selector_target_generation == 0 ||
+                nonfiring_pov_motion_generation_ ==
+                    plan.selector_target_generation;
+            cue_motion_eligible = control_feedback.firing_recently &&
+                current_lateral_pov_motion &&
+                nonfiring_pov_motion_snapshot_.valid &&
+                nonfiring_pov_motion_target_id_ == plan.target_id &&
+                nonfiring_pov_motion_generation_ != 0 &&
+                generation_matches_or_not_published &&
+                nonfiring_pov_motion_ads_epoch_ != 0 &&
+                nonfiring_pov_motion_ads_epoch_ == plan.physical_ads_epoch &&
+                nonfiring_pov_motion_seconds_ >= 0.0 &&
+                now >= nonfiring_pov_motion_seconds_ &&
+                now - nonfiring_pov_motion_seconds_ <=
+                    kMaximumFiringPovSnapshotAgeSeconds &&
+                snapshot_moves_horizontal_error_outward;
+            if (cue_motion_eligible) {
+                target_motion = nonfiring_pov_motion_snapshot_;
+                // Only the lateral component is owned by the evidence above.
+                target_motion.target_motion_stick.y = 0.0f;
+                target_motion.aligned_delivered_stick.y = 0.0f;
+            } else {
+                target_motion = {};
+            }
+        }
+        // A cue never trains motion. It may consume only the bounded clean
+        // snapshot above, under matching same-target and current-POV evidence.
+        // The existing cue authority scale remains the force ceiling.
+        plan.bodylock_target_motion_valid = target_motion.valid &&
+            (plan.lifecycle == pipeline_contract::TargetLifecycle::Observed ||
+             cue_motion_eligible);
         plan.bodylock_target_motion_confidence = target_motion.confidence;
         plan.bodylock_aligned_delivered_stick =
             target_motion.aligned_delivered_stick;

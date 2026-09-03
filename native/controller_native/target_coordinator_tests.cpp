@@ -610,6 +610,42 @@ void test_size_scaled_pickup_is_revalidated_only_on_new_ads_epoch() {
                  "close large target lost its expanded pickup envelope");
 }
 
+void test_unconfirmed_bodylock_keeps_conservative_safety_budget() {
+    controller_native::TargetCoordinatorConfig config;
+    config.settle_frames = 1;
+    config.visual_authority_enabled = true;
+    controller_native::TargetCoordinator coordinator(config);
+    coordinator.begin_ads_epoch(17, 17.0);
+
+    auto direct = selected_frame(150, 17.0, 240.0f);
+    direct.selector_enemy_cue_current = false;
+    direct.selector_enemy_identity_confirmed = false;
+    direct.selector_enemy_cue_checked = true;
+    direct.candidates[0].reliability = 0.95f;
+    const auto observed = coordinator.update(direct, ads_intent(), 17.0);
+
+    require_true(observed.mode ==
+                     pipeline_contract::ControlMode::BodyLockFollow &&
+                     observed.lifecycle ==
+                         pipeline_contract::TargetLifecycle::Observed,
+                 "fixture must complete ADS into directly observed BodyLock");
+    require_true(near(observed.visual_authority, 0.076f, 0.001f),
+                 "visual enemy evidence must remain explicitly conservative");
+    require_true(near(observed.aim_authority, observed.visual_authority),
+                 "unconfirmed BodyLock must retain its visual safety ceiling");
+
+    auto cue = cue_frame(151, 17.006, 240.0f);
+    cue.selector_enemy_cue_current = false;
+    cue.selector_enemy_identity_confirmed = false;
+    cue.selector_enemy_cue_checked = true;
+    const auto continued = coordinator.update(cue, ads_intent(), 17.006);
+    require_true(continued.lifecycle ==
+                     pipeline_contract::TargetLifecycle::CueContinuation,
+                 "counterfactual must enter cue-only continuation");
+    require_true(continued.aim_authority <= observed.aim_authority,
+                 "cue-only continuation must not exceed direct-observation authority");
+}
+
 }  // namespace
 
 void register_target_coordinator_tests(native_test::Registry& registry) {
@@ -628,4 +664,5 @@ void register_target_coordinator_tests(native_test::Registry& registry) {
     registry.add_case("BaseBodyLock", "target_replacement_resets_corrected_point", test_target_replacement_resets_corrected_d);
     registry.add_case("BaseBodyLock", "firing_downward_does_not_arm_handover", test_firing_downward_input_moves_d_without_arming_handover);
     registry.add_case("BaseAds", "size_scaled_pickup_revalidated_per_epoch", test_size_scaled_pickup_is_revalidated_only_on_new_ads_epoch);
+    registry.add_case("BaseBodyLock", "unconfirmed_budget_keeps_safety_ceiling", test_unconfirmed_bodylock_keeps_conservative_safety_budget);
 }

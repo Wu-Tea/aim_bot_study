@@ -1014,8 +1014,8 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     // Admission answers whether ADS may act. Once admitted, cue, visibility,
     // distance and detector reliability are selector evidence only; none of
     // them is allowed to become a second ADS gain control. BodyLock remains
-    // deliberately evidence-scaled so an uncertain/corpse-shaped person does
-    // not receive the same continuing authority.
+    // evidence-scaled so an uncertain/corpse-shaped person cannot receive the
+    // same continuing authority as confirmed enemy evidence.
     plan.visual_authority =
         plan.mode == pipeline_contract::ControlMode::AdsAcquire
         ? configured_authority

@@ -207,6 +207,9 @@ struct BenchmarkResult {
         PlayerVerticalMotionMode::Off;
     int ticks = 0;
     int controller_updates = 0;
+    std::uint64_t firing_frames = 0;
+    std::uint64_t recoil_active_frames = 0;
+    std::uint64_t cue_continuation_frames = 0;
     int left_strafe_active_ms = 0;
     int left_strafe_reversals = 0;
     double max_abs_left_x = 0.0;

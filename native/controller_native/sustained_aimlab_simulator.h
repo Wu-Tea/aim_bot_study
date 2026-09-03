@@ -21,6 +21,8 @@ struct ControllerObservation {
     bool fresh_vision = false;
     std::uint64_t frame_id = 0;
     std::uint64_t target_id = 0;
+    std::uint64_t selector_target_generation = 0;
+    bool cue_continuation = false;
     double capture_time_seconds = std::numeric_limits<double>::quiet_NaN();
     double ready_time_seconds = std::numeric_limits<double>::quiet_NaN();
     Vec2d observed_error_px;
@@ -48,6 +50,14 @@ struct ControllerStepResult {
     std::uint64_t controller_target_id = 0;
     Vec2d pre_recoil_stick;
     bool has_pre_recoil_stick = false;
+    // Native-only diagnostics used by incident traces. These fields do not
+    // participate in the simulator plant or score.
+    bool cue_continuation = false;
+    bool bodylock_target_motion_valid = false;
+    Vec2d bodylock_target_motion_px_per_second;
+    Vec2d bodylock_position_stick;
+    Vec2d bodylock_motion_stick;
+    Vec2d bodylock_effective_motion_stick;
 };
 
 struct SimulationTraceFrame {

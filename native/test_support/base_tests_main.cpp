@@ -41,6 +41,7 @@ void register_ads_snap_core_contract_incident_regression(native_test::Registry&)
 void register_ads_cross_epoch_pickup_revalidation_incident_regression(native_test::Registry&);
 void register_bodylock_high_frequency_incident_regression(native_test::Registry&);
 void register_bodylock_position_motion_conflict_incident_regression(native_test::Registry&);
+void register_bodylock_pov_fire_cue_continuity_incident_regression(native_test::Registry&);
 void register_bodylock_response_coordinate_incident_regression(native_test::Registry&);
 void register_bodylock_target_direction_latency_incident_regression(native_test::Registry&);
 void register_bodylock_target_motion_total_incident_regression(native_test::Registry&);
@@ -96,6 +97,7 @@ int main(int argc, char** argv) {
     register_ads_cross_epoch_pickup_revalidation_incident_regression(registry);
     register_bodylock_high_frequency_incident_regression(registry);
     register_bodylock_position_motion_conflict_incident_regression(registry);
+    register_bodylock_pov_fire_cue_continuity_incident_regression(registry);
     register_bodylock_response_coordinate_incident_regression(registry);
     register_bodylock_target_direction_latency_incident_regression(registry);
     register_bodylock_target_motion_total_incident_regression(registry);

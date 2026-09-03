@@ -1,4 +1,5 @@
 #include "aim_response_estimator.h"
+#include "ads_response_estimator.h"
 #include "test_support/native_test_registry.h"
 
 #include <cmath>
@@ -41,8 +42,9 @@ AimResponseInterval interval(
     return sample;
 }
 
+template <typename Estimator>
 void train_zone(
-    AimResponseEstimator& estimator,
+    Estimator& estimator,
     float response,
     float slow_zone_weight,
     int samples = 80) {
@@ -116,6 +118,69 @@ void test_keeps_free_and_slow_zone_response_separate() {
             "zone boundary must interpolate measured response continuously");
 }
 
+void test_smooth_arrival_accumulates_enough_excitation_to_learn() {
+    AdsResponseEstimator estimator;
+    for (int index = 0; index < 160; ++index) {
+        const float stick = 0.55f - static_cast<float>(index) * 0.0025f;
+        estimator.update(interval(7, stick, 200.0f, 0.0f, 1.0f));
+    }
+
+    const auto learned = estimator.estimate(1.0f);
+    require(learned.accepted_samples >= 8,
+            "smooth arrival must accumulate response-identifying excitation");
+    require(learned.scale_px_per_stick_second < 300.0f,
+            "smooth arrival must learn the material slowdown response");
+    require(learned.confidence >= 0.70f,
+            "repeated smooth evidence must build usable confidence");
+}
+
+void test_default_estimator_preserves_adjacent_pair_policy() {
+    AimResponseEstimator estimator;
+    for (int index = 0; index < 160; ++index) {
+        const float stick = 0.55f - static_cast<float>(index) * 0.0025f;
+        estimator.update(interval(7, stick, 200.0f, 0.0f, 1.0f));
+    }
+
+    const auto estimate = estimator.estimate(1.0f);
+    require(estimate.accepted_samples == 0,
+            "BodyLock's legacy estimator must retain adjacent-pair excitation");
+    require_near(estimate.scale_px_per_stick_second, 500.0f, 1.0e-6f,
+                 "BodyLock's default response behavior must remain unchanged");
+}
+
+void test_weighted_slowdown_transition_identifies_the_endpoint() {
+    AdsResponseEstimator estimator;
+    train_zone(estimator, 500.0f, 0.0f, 40);
+    for (int index = 0; index < 100; ++index) {
+        const float weight =
+            static_cast<float>(index + 1) / 100.0f;
+        const float response = 500.0f + weight * (200.0f - 500.0f);
+        const float stick = 0.55f - static_cast<float>(index) * 0.0035f;
+        estimator.update(interval(7, stick, response, 0.0f, weight));
+    }
+
+    const auto learned = estimator.estimate(1.0f);
+    require_near(learned.scale_px_per_stick_second, 200.0f, 35.0f,
+                 "spatial response blend must learn its slow endpoint");
+    require(learned.confidence >= 0.70f,
+            "weighted transition must provide usable endpoint confidence");
+}
+
+void test_ads_epoch_boundary_clears_anchors_but_keeps_response() {
+    AdsResponseEstimator estimator;
+    train_zone(estimator, 200.0f, 1.0f, 100);
+    const auto learned = estimator.estimate(1.0f);
+    require(learned.accepted_samples > 0,
+            "ADS fixture must establish response evidence");
+
+    estimator.begin_target(7);
+    require_near(estimator.estimate(1.0f).scale_px_per_stick_second,
+                 learned.scale_px_per_stick_second, 1e-6f,
+                 "ADS epoch boundary must retain learned weapon response");
+    require(!estimator.update(interval(7, 0.42f, 200.0f, 0.0f, 1.0f)),
+            "first sample of a new ADS epoch must only prime anchors");
+}
+
 void test_slow_zone_weight_is_geometric_and_continuous() {
     const pipeline_contract::Vec2f target_size{60.0f, 140.0f};
     const float center = aim_response_slow_zone_weight({0.0f, 0.0f}, target_size);
@@ -167,6 +232,10 @@ void register_aim_response_estimator_tests(native_test::Registry& registry) {
     registry.add_case("BaseBodyLock", "response_fallback_and_convergence", test_fallback_and_convergence_across_response_scales);
     registry.add_case("BaseBodyLock", "response_persists_and_adapts_to_slowdown", test_persists_across_targets_and_adapts_to_slowdown);
     registry.add_case("BaseBodyLock", "free_and_slow_zone_response_are_separate", test_keeps_free_and_slow_zone_response_separate);
+    registry.add_case("BaseAds", "response_smooth_arrival_accumulates_excitation", test_smooth_arrival_accumulates_enough_excitation_to_learn);
+    registry.add_case("BaseBodyLock", "default_response_preserves_adjacent_pair_policy", test_default_estimator_preserves_adjacent_pair_policy);
+    registry.add_case("BaseAds", "response_weighted_slowdown_learns_endpoint", test_weighted_slowdown_transition_identifies_the_endpoint);
+    registry.add_case("BaseAds", "response_epoch_boundary_clears_anchors", test_ads_epoch_boundary_clears_anchors_but_keeps_response);
     registry.add_case("BaseBodyLock", "slow_zone_weight_is_continuous", test_slow_zone_weight_is_geometric_and_continuous);
     registry.add_case("BaseBodyLock", "ambiguous_intervals_are_rejected", test_rejects_ambiguous_and_invalid_intervals);
     registry.add_case("BaseBodyLock", "response_reset_clears_learning", test_reset_clears_learned_response);

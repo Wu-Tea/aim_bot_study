@@ -141,9 +141,10 @@ struct TargetPlan {
     float observation_age_ms = 0.0f;
     float confidence = 0.0f;
     float reliability = 0.0f;
-    // Selector-owned enemy evidence and the resulting bounded control budget.
-    // Geometry reliability answers "where can we aim?"; visual authority also
-    // answers "is this selected person sufficiently enemy-confirmed?".
+    // Selector-owned enemy evidence and its visual confidence. Geometry
+    // reliability answers "where can we aim?"; visual authority answers "is
+    // this selected person sufficiently enemy-confirmed?". ADS admission and
+    // continuing BodyLock authority intentionally apply different policies.
     bool enemy_cue_current = false;
     bool enemy_identity_confirmed = false;
     bool enemy_cue_checked = false;

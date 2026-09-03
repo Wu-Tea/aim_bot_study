@@ -157,6 +157,7 @@ add_library(controller_native_core STATIC
     ../controller_native/bodylock_target_motion_observer.cpp
     ../controller_native/response_model_aim_solver.cpp
     ../controller_native/aim_response_estimator.cpp
+    ../controller_native/ads_response_estimator.cpp
     ../controller_native/aim_dynamics_shaper.cpp)
 target_include_directories(controller_native_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -305,6 +306,7 @@ add_executable(cod_native_base_tests
     ../controller_native/ads_cross_epoch_pickup_revalidation_incident_regression.cpp
     ../controller_native/bodylock_high_frequency_incident_regression.cpp
     ../controller_native/bodylock_position_motion_conflict_incident_regression.cpp
+    ../controller_native/bodylock_pov_fire_cue_continuity_incident_regression.cpp
     ../controller_native/bodylock_response_coordinate_incident_regression.cpp
     ../controller_native/bodylock_target_direction_latency_incident_regression.cpp
     ../controller_native/bodylock_target_motion_total_incident_regression.cpp
@@ -390,6 +392,17 @@ foreach(_suite IN ITEMS
         LABELS "functional;${_suite}"
         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../..")
 endforeach()
+
+# Keep this incident standalone so its frozen RED executable and current GREEN
+# candidate can be built and run explicitly without duplicating a long closed-
+# loop matrix inside every normal BaseAds CTest invocation.
+add_executable(cod_native_ads_near_target_slowdown_incident_regression
+    EXCLUDE_FROM_ALL
+    ../controller_native/ads_near_target_slowdown_incident_regression.cpp)
+cod_native_defaults(cod_native_ads_near_target_slowdown_incident_regression)
+target_link_libraries(
+    cod_native_ads_near_target_slowdown_incident_regression PRIVATE
+    controller_native_core)
 
 
 cod_native_add_offline_test(cod_native_aimlab_benchmark_tests NativeAimlabBenchmarkTests

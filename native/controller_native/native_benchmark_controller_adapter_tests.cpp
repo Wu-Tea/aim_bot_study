@@ -52,10 +52,39 @@ void test_flat_geometry_keeps_the_shared_head_body_fallback() {
     require_near(snapshot.candidates.front().aim_point_px.y, 240.0f,
                  "flat geometry must retain the shared 0.40 fallback");
 }
+
+void test_same_generation_cue_has_no_observed_candidate() {
+    ControllerObservation input;
+    input.target_present = true;
+    input.primary_candidate_visible = false;
+    input.target_id = 19;
+    input.selector_target_generation = 73;
+    input.frame_id = 31;
+    input.cue_continuation = true;
+    input.observed_error_px = {4.0, -6.0};
+
+    const auto snapshot = snapshot_from(input, 2.0, 0.30);
+    require(snapshot.selected_observation_id == 0,
+            "cue must not impersonate a direct selected observation");
+    require(snapshot.selector_target_generation == 73,
+            "cue must preserve selector-owned generation identity");
+    require(snapshot.candidates.empty(),
+            "cue must not manufacture an observed person candidate");
+    require(snapshot.enemy_cue_current &&
+                snapshot.enemy_identity_confirmed &&
+                snapshot.state.has_target &&
+                snapshot.state.aim_authority,
+            "cue must publish bounded same-generation aim continuity");
+    require_near(snapshot.state.dx, 4.0f,
+                 "cue changed the held horizontal position");
+    require_near(snapshot.state.dy, -6.0f,
+                 "cue changed the held vertical position");
+}
 }  // namespace
 
 int main() {
     test_snapshot_uses_the_same_anatomical_ratio_as_the_simulator();
     test_flat_geometry_keeps_the_shared_head_body_fallback();
+    test_same_generation_cue_has_no_observed_candidate();
     return 0;
 }
