@@ -272,6 +272,7 @@ target_link_libraries(cod_native_scheduler_benchmark PRIVATE winmm)
 # Each source contributes named cases through the shared test registry below.
 add_executable(cod_native_base_tests
     ../test_support/base_tests_main.cpp
+    ../controller_native/ads_bodylock_september_incident_tests.cpp
     ../controller_native/runtime_config_tests.cpp
     ../pipeline_contract/target_plan_contract_tests.cpp
     ../pipeline_contract/committed_capture_observation_tests.cpp

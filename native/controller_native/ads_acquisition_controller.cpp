@@ -61,6 +61,7 @@ pipeline_contract::Vec2f AdsAcquisitionController::compute(
         : horizon;
     request.motion_weight = config_.stopping_lookahead_seconds /
         horizon;
+    request.motion_is_error_rate_lookahead = true;
     request.max_force = {
         config_.max_force_x * kVectorForceHeadroom,
         config_.max_force_y * kVectorForceHeadroom};

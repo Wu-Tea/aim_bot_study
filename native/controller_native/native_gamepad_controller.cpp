@@ -1033,6 +1033,8 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
         physical.right_y - intent.right_y.neutral_bias};
     control_input.centered_manual_available = true;
     control_input.filtered_manual_stick = intent.filtered_right;
+    control_input.manual_axis_activity = {
+        intent.right_x.activity, intent.right_y.activity};
     control_input.ai_stick = {shaped.x, shaped.y};
     control_input.manual_correction_x = plan.manual_correction_x;
     control_input.manual_correction_y = plan.manual_correction_y;

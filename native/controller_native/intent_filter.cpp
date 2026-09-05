@@ -12,9 +12,15 @@ pipeline_contract::AxisIntentState IntentFilter::update_axis(
     AxisState& state,
     float raw) noexcept {
     if (std::fabs(raw) <= config_.neutral_learning_limit) {
-        state.bias += config_.bias_alpha * (raw - state.bias);
+        // Enter calibration continuously. A hard on/off learning boundary
+        // changed bias/noise abruptly during a slow physical release, turning
+        // the otherwise continuous axis activity into an output step.
+        const float learning_position = std::clamp(std::fabs(raw) /
+            std::max(config_.neutral_learning_limit, 1.0e-6f), 0.0f, 1.0f);
+        const float learning_weight = 1.0f - learning_position;
+        state.bias += config_.bias_alpha * learning_weight * (raw - state.bias);
         const float residual = std::fabs(raw - state.bias);
-        state.noise += config_.noise_alpha * (residual - state.noise);
+        state.noise += config_.noise_alpha * learning_weight * (residual - state.noise);
     }
 
     const float centered = raw - state.bias;
@@ -26,12 +32,17 @@ pipeline_contract::AxisIntentState IntentFilter::update_axis(
     const float confidence = filtered == 0.0f
         ? 0.0f
         : std::clamp((magnitude - threshold) / 0.5f, 0.0f, 1.0f);
+    const float activity_fraction = std::clamp(
+        (magnitude - threshold) / std::max(threshold, 1.0e-6f), 0.0f, 1.0f);
+    const float activity = activity_fraction * activity_fraction *
+        (3.0f - 2.0f * activity_fraction);
     return pipeline_contract::AxisIntentState{
         raw,
         filtered,
         state.bias,
         state.noise,
         confidence,
+        activity,
     };
 }
 

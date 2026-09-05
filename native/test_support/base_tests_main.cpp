@@ -1,5 +1,6 @@
 #include "test_support/native_test_registry.h"
 
+void register_ads_bodylock_september_incidents(native_test::Registry&);
 void register_runtime_config_tests(native_test::Registry&);
 void register_target_plan_contract_tests(native_test::Registry&);
 void register_committed_capture_observation_tests(native_test::Registry&);
@@ -56,6 +57,7 @@ void register_ads_dynamic_pickup_roi_incident_regression(native_test::Registry&)
 
 int main(int argc, char** argv) {
     native_test::Registry registry;
+    register_ads_bodylock_september_incidents(registry);
     register_runtime_config_tests(registry);
     register_target_plan_contract_tests(registry);
     register_committed_capture_observation_tests(registry);

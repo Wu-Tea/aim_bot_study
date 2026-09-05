@@ -17,6 +17,10 @@ struct ResponseModelAimRequest {
     float arrival_horizon_seconds = 0.050f;
     float arrival_horizon_y_seconds = 0.0f;
     float motion_weight = 1.0f;
+    // Screen-error lookahead contains camera/FOV motion; it may shape a
+    // position correction but cannot independently own the centered axis.
+    // Sustaining target-motion demand (BodyLock) retains its centered work.
+    bool motion_is_error_rate_lookahead = false;
     pipeline_contract::Vec2f max_force{1.0f, 1.0f};
     float authority = 1.0f;
     AimResponseCurveConfig response_curve{};

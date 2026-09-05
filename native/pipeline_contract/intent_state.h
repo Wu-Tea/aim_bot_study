@@ -25,6 +25,9 @@ struct AxisIntentState {
     float neutral_bias = 0.0f;
     float noise_envelope = 0.0f;
     float confidence = 0.0f;
+    // Continuous evidence above this axis's learned neutral/noise threshold.
+    // Zero within the noise envelope, one at twice its threshold.
+    float activity = 0.0f;
 };
 
 struct IntentState {

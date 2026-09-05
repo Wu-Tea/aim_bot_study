@@ -70,6 +70,9 @@ struct AssistControlStateMachineInput {
     // reinterpreted as permission for BodyLock to reverse the player's stick
     // after a real ADS handoff.
     bool carried_acquisition_gesture = false;
+    // Produced by IntentFilter against each axis's calibrated noise envelope.
+    // Explicit activity is required: a 2-D purpose alone is not a held axis.
+    pipeline_contract::Vec2f manual_axis_activity{};
 };
 
 struct AssistControlStateMachineOutput {
@@ -379,7 +382,14 @@ private:
                 input.carried_acquisition_gesture &&
                 std::fabs(intent_axis) > material &&
                 intent_axis * desired_axis < 0.0f) {
-                return native_axis;
+                const float activity = std::clamp(vertical
+                    ? input.manual_axis_activity.y : input.manual_axis_activity.x,
+                    0.0f, 1.0f);
+                // Preserve a real held acquisition gesture. A released/noisy
+                // component cannot veto the entire target proposal, and its
+                // protection fades continuously before filtered-neutral.
+                return std::clamp(desired_axis +
+                    (native_axis - desired_axis) * activity, -1.0f, 1.0f);
             }
 
             const bool compatible = intent_axis * desired_axis > 0.0f;

@@ -190,9 +190,79 @@ void test_reliability_does_not_create_a_second_ads_gain_policy() {
                  "admitted ADS must not be weakened by reliability");
 }
 
+void test_september_ads_precenter_brake(const native_test::TestContext& context) {
+    // Frozen owner inputs: an approaching source crosses within 6 or 24 ms.
+    // Test camera-response demand, independent of the inverse stick curve.
+    // This is a solver invariant, not a calibrated replay of the game plant.
+    std::filesystem::create_directories(context.artifact_directory);
+    std::ofstream report(context.artifact_path("ads-precenter-brake.json"));
+    report << std::setprecision(9) << "{\"cases\":[";
+    float max_terminal = 0.0f, max_fraction = 0.0f;
+    int cases = 0, counter_failures = 0;
+    for (int axis : {0, 1}) for (float sign : {-1.0f, 1.0f})
+    for (float response : {500.0f, 650.0f, 1100.0f})
+    for (float error : {6.0f, 16.0f, 24.0f})
+    for (float size : {0.1f, 0.42f})
+    for (float crossing_seconds : {0.006f, 0.024f}) {
+        controller_native::AdsAcquisitionControllerConfig config;
+        config.arrival_horizon_seconds = 0.135f;
+        config.response_curve.algorithm =
+            controller_native::AimResponseCurveAlgorithm::CodDynamicLegacyLut;
+        controller_native::AdsAcquisitionController controller(config);
+        auto plan = plan_with(0.0f, 0.0f);
+        plan.response_scale = response;
+        plan.normalized_size = size;
+        const auto vector = [axis](float value) {
+            return axis == 0 ? pipeline_contract::Vec2f{value, 0.0f}
+                             : pipeline_contract::Vec2f{0.0f, value};
+        };
+        const auto component = [axis](pipeline_contract::Vec2f value) {
+            return axis == 0 ? value.x : value.y;
+        };
+        plan.error_px = vector(sign * error);
+        const auto stationary = controller.compute(plan, {}, 0.001f);
+        plan.error_rate_px_per_sec = vector(-sign * error / crossing_seconds);
+        const auto approaching = controller.compute(plan, {}, 0.001f);
+        plan.error_rate_px_per_sec = vector(sign * error / crossing_seconds);
+        const auto receding = controller.compute(plan, {}, 0.001f);
+        const float baseline = std::fabs(component(controller_native::forward_aim_response_curve(
+            stationary, config.response_curve)));
+        if (!(baseline > 1.0e-5f)) native_test::invalid_fixture("nonzero stationary demand required");
+        const float fraction = std::fabs(component(controller_native::forward_aim_response_curve(
+            approaching, config.response_curve))) / baseline;
+        const float terminal = std::fabs(component(approaching));
+        if (crossing_seconds < 0.01f) max_terminal = std::max(max_terminal, terminal);
+        else max_fraction = std::max(max_fraction, fraction);
+        const bool counters = component(approaching) * component(stationary) >= -1.0e-7f &&
+            std::fabs(component(receding)) + 1.0e-6f >= std::fabs(component(stationary)) &&
+            component(stationary) * sign * (axis == 0 ? 1.0f : -1.0f) > 0.0f &&
+            terminal <= 1.0f;
+        counter_failures += counters ? 0 : 1;
+        report << (cases++ ? "," : "") << "{\"axis\":" << axis
+               << ",\"sign\":" << sign << ",\"response\":" << response
+               << ",\"error\":" << error << ",\"size\":" << size
+               << ",\"crossing_seconds\":" << crossing_seconds
+               << ",\"stationary\":" << component(stationary)
+               << ",\"approaching\":" << component(approaching)
+               << ",\"receding\":" << component(receding)
+               << ",\"response_fraction\":" << fraction << "}";
+    }
+    report << "],\"case_count\":" << cases << ",\"max_terminal\":" << max_terminal
+           << ",\"max_fraction\":" << max_fraction
+           << ",\"counter_failures\":" << counter_failures << "}\n";
+    report.close();
+    if (cases != 144) native_test::invalid_fixture("all 144 frozen approach cases required");
+    require_true(counter_failures == 0, "stationary/receding/sign/budget controls must hold");
+    require_true(max_terminal <= 1.0e-5f,
+                 "lookahead crossing within 6 ms must discharge ADS position demand");
+    require_true(max_fraction <= 0.60f,
+                 "24 ms approach must retain the braking contribution before center");
+}
+
 }  // namespace
 
 void register_ads_acquisition_controller_tests(native_test::Registry& registry) {
+    registry.add_context_case("BaseAds", "september_ads_precenter_brake", test_september_ads_precenter_brake);
     registry.add_case("BaseAds", "large_reliable_error_gets_strong_output", test_large_reliable_error_gets_strong_output);
     registry.add_case("BaseAds", "drift_does_not_weaken_ads", test_drift_does_not_weaken_ads);
     registry.add_case("BaseAds", "manual_input_does_not_create_second_ads_policy", test_manual_input_does_not_create_a_second_authority_policy);

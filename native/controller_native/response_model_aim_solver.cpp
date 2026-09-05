@@ -41,22 +41,34 @@ ResponseModelAimOutput solve_response_model_aim(
         control_velocity.y / response * motion_weight,
     };
     output.bounded_motion_stick = output.motion_stick;
-    const auto bound_opposing_axis = [](float position, float motion,
+    const auto bound_opposing_axis = [&request](float position, float motion,
                                          bool& bound_applied) noexcept {
-        if (std::fabs(position) <= 1.0e-5f ||
+        constexpr float kNearCenterPositionStick = 0.12f;
+        if (request.motion_is_error_rate_lookahead && position * motion >= 0.0f) {
+            // Use the same position-owned neighborhood on both sides of zero.
+            // The former opposing-only envelope tended to zero on approach,
+            // then released the entire lookahead at zero/after crossing.
+            const float bounded = motion * smoothstep(
+                std::fabs(position) / kNearCenterPositionStick);
+            bound_applied = bound_applied || std::fabs(bounded - motion) > 1e-6f;
+            return bounded;
+        }
+        if ((!request.motion_is_error_rate_lookahead && std::fabs(position) <= 1.0e-5f) ||
             position * motion >= 0.0f) {
             return motion;
         }
 
-        // Position is the current source-owned error. Motion may reduce it,
-        // but may not predict through it and reverse the requested axis. The
-        // near-center envelope retains a small, smooth opposing feed-forward
-        // term instead of switching all motion off at the center boundary.
-        constexpr float kNearCenterPositionStick = 0.12f;
+        // ADS motion is a stopping lookahead of this source error, so retain
+        // its full braking contribution up to cancellation of position. The
+        // BodyLock feed-forward envelope erased this brake outside the small
+        // center neighborhood, leaving an approaching target driven as hard
+        // as a stationary one. Neither policy may predict through position
+        // and reverse the requested axis; sustained BodyLock keeps its own
+        // near-center feed-forward constraint.
         const float center_envelope = smoothstep(
             std::fabs(position) / kNearCenterPositionStick);
         const float maximum_opposing_motion = std::fabs(position) *
-            (1.0f - center_envelope);
+            (request.motion_is_error_rate_lookahead ? 1.0f : 1.0f - center_envelope);
         const float bounded_magnitude = std::min(
             std::fabs(motion), maximum_opposing_motion);
         if (bounded_magnitude + 1.0e-6f < std::fabs(motion)) {
