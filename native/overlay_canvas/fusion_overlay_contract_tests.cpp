@@ -205,6 +205,103 @@ void marker_rejects_non_direct_or_invalid_targets() {
         "an ROI extending beyond the published output must fail closed");
 }
 
+void production_marker_uses_a_small_movable_surface() {
+    fusion_overlay::CanvasPresentationInput input;
+    input.marker_visible = true;
+    input.virtual_left = -1280;
+    input.virtual_top = -120;
+    input.virtual_width = 5120;
+    input.virtual_height = 1440;
+    input.marker_center_x = 3700.25f;
+    input.marker_center_y = 612.75f;
+    input.marker_radius = 6.0f;
+
+    const auto first = fusion_overlay::decide_canvas_presentation(input);
+    require(
+        first.mode == fusion_overlay::CanvasSurfaceMode::TargetMarker,
+        "a production target cue must use the marker-sprite path");
+    require(
+        first.surface_width == fusion_overlay::kTargetMarkerSurfaceExtentPx &&
+            first.surface_height == fusion_overlay::kTargetMarkerSurfaceExtentPx,
+        "a target cue must not allocate a virtual-desktop-sized surface");
+    require(
+        first.surface_width * first.surface_height <
+            input.virtual_width * input.virtual_height / 1000,
+        "the production marker surface must remain negligible beside the desktop");
+    require(
+        std::fabs(
+            static_cast<float>(first.window_left) + first.content_center_x -
+            (static_cast<float>(input.virtual_left) + input.marker_center_x)) <= 0.5f,
+        "the marker sprite must preserve the selector-owned desktop x coordinate");
+    require(
+        std::fabs(
+            static_cast<float>(first.window_top) + first.content_center_y -
+            (static_cast<float>(input.virtual_top) + input.marker_center_y)) <= 0.5f,
+        "the marker sprite must preserve the selector-owned desktop y coordinate");
+
+    auto moved_input = input;
+    moved_input.marker_center_x += 80.0f;
+    const auto moved = fusion_overlay::decide_canvas_presentation(moved_input);
+    require(
+        moved.window_left != first.window_left,
+        "target motion must move the sprite window");
+    require(
+        !fusion_overlay::canvas_surface_redraw_required(first, moved, false),
+        "moving an unchanged marker must not Present another surface");
+}
+
+void hidden_idle_does_not_own_a_composition_surface() {
+    fusion_overlay::CanvasPresentationInput input;
+    input.virtual_width = 1920;
+    input.virtual_height = 1080;
+
+    const auto hidden = fusion_overlay::decide_canvas_presentation(input);
+    require(
+        hidden.mode == fusion_overlay::CanvasSurfaceMode::Hidden,
+        "idle_mode=hide without a target must hide the top-level window");
+    require(
+        hidden.surface_width == 0 && hidden.surface_height == 0,
+        "hidden idle must not request a transparent full-screen Present");
+    require(
+        !fusion_overlay::canvas_surface_redraw_required({}, hidden, false),
+        "hidden idle updates must not redraw or Present");
+
+    input.idle_crosshair = true;
+    const auto crosshair = fusion_overlay::decide_canvas_presentation(input);
+    require(
+        crosshair.mode == fusion_overlay::CanvasSurfaceMode::IdleCrosshair &&
+            crosshair.surface_width == fusion_overlay::kTargetMarkerSurfaceExtentPx &&
+            crosshair.surface_height == fusion_overlay::kTargetMarkerSurfaceExtentPx,
+        "the optional idle crosshair must also use a small surface");
+    require(
+        fusion_overlay::canvas_surface_redraw_required(hidden, crosshair, false),
+        "showing the idle crosshair must draw its initial surface");
+    require(
+        !fusion_overlay::canvas_surface_redraw_required(
+            crosshair,
+            crosshair,
+            false),
+        "an unchanged idle crosshair must not Present continuously");
+
+    input.idle_crosshair = false;
+    input.show_debug_detections = true;
+    const auto debug = fusion_overlay::decide_canvas_presentation(input);
+    require(
+        debug.mode == fusion_overlay::CanvasSurfaceMode::DebugFullCanvas &&
+            debug.surface_width == input.virtual_width &&
+            debug.surface_height == input.virtual_height,
+        "only explicit debug detections may request the full desktop surface");
+    require(
+        fusion_overlay::canvas_surface_redraw_required(hidden, debug, true),
+        "debug detection content must redraw its full canvas");
+
+    input.visibility_enabled = false;
+    require(
+        fusion_overlay::decide_canvas_presentation(input).mode ==
+            fusion_overlay::CanvasSurfaceMode::Hidden,
+        "the operator visibility toggle must hide even explicit debug content");
+}
+
 void publisher_qpc_owns_marker_freshness() {
     constexpr std::uint64_t frequency = 10'000'000;
     constexpr std::uint64_t published = 50'000'000;
@@ -293,6 +390,8 @@ int main() {
         canvas_window_style_is_cross_process_mouse_passthrough();
         marker_tracks_selector_target_in_roi_desktop_coordinates();
         marker_rejects_non_direct_or_invalid_targets();
+        production_marker_uses_a_small_movable_surface();
+        hidden_idle_does_not_own_a_composition_surface();
         publisher_qpc_owns_marker_freshness();
         recorded_short_direct_burst_survives_render_throttle();
         std::cout << "[PASS] FusionOverlayContracts\n";

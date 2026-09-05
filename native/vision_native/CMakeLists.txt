@@ -535,6 +535,12 @@ target_link_libraries(fusion_canvas PRIVATE
     fusion_shared fusion_overlay_core fusion_capture_support
     d3d11 d2d1 dxgi dcomp dwrite Shcore dwmapi)
 
+add_executable(fusion_channel_cycle_publisher EXCLUDE_FROM_ALL
+    ../overlay_canvas/fusion_channel_cycle_publisher.cpp
+    ../runtime_app/fusion_channel_publisher.cpp)
+cod_native_defaults(fusion_channel_cycle_publisher)
+target_link_libraries(fusion_channel_cycle_publisher PRIVATE fusion_shared)
+
 pybind11_add_module(vision_native_cpp src/vision_native_module.cpp)
 set_target_properties(vision_native_cpp PROPERTIES OUTPUT_NAME "vision_native_cpp")
 target_link_libraries(vision_native_cpp PRIVATE vision_native_core)

@@ -158,4 +158,93 @@ MarkerLayout layout_target_point_marker(const MarkerLayoutInput& input) noexcept
     return {true, center_x, center_y, radius};
 }
 
+CanvasPresentation decide_canvas_presentation(
+    const CanvasPresentationInput& input) noexcept {
+    if (!input.visibility_enabled || input.virtual_width <= 0 ||
+        input.virtual_height <= 0) {
+        return {};
+    }
+
+    if (input.show_debug_detections) {
+        CanvasPresentation output;
+        output.mode = CanvasSurfaceMode::DebugFullCanvas;
+        output.window_left = input.virtual_left;
+        output.window_top = input.virtual_top;
+        output.surface_width = input.virtual_width;
+        output.surface_height = input.virtual_height;
+        output.content_center_x = input.marker_center_x;
+        output.content_center_y = input.marker_center_y;
+        output.marker_radius = input.marker_radius;
+        return output;
+    }
+
+    const bool valid_marker =
+        input.marker_visible &&
+        std::isfinite(input.marker_center_x) &&
+        std::isfinite(input.marker_center_y) &&
+        std::isfinite(input.marker_radius) &&
+        input.marker_radius > 0.0f;
+    if (valid_marker) {
+        const int required_extent = static_cast<int>(std::ceil(
+            (input.marker_radius + 3.0f) * 2.0f));
+        const int extent = std::max(
+            kTargetMarkerSurfaceExtentPx,
+            required_extent);
+        const int canvas_left = static_cast<int>(std::lround(
+            input.marker_center_x)) - extent / 2;
+        const int canvas_top = static_cast<int>(std::lround(
+            input.marker_center_y)) - extent / 2;
+
+        CanvasPresentation output;
+        output.mode = CanvasSurfaceMode::TargetMarker;
+        output.window_left = input.virtual_left + canvas_left;
+        output.window_top = input.virtual_top + canvas_top;
+        output.surface_width = extent;
+        output.surface_height = extent;
+        output.content_center_x = static_cast<float>(extent) * 0.5f;
+        output.content_center_y = static_cast<float>(extent) * 0.5f;
+        output.marker_radius = input.marker_radius;
+        return output;
+    }
+
+    if (input.idle_crosshair) {
+        CanvasPresentation output;
+        output.mode = CanvasSurfaceMode::IdleCrosshair;
+        output.surface_width = kTargetMarkerSurfaceExtentPx;
+        output.surface_height = kTargetMarkerSurfaceExtentPx;
+        output.window_left = input.virtual_left +
+            (input.virtual_width - output.surface_width) / 2;
+        output.window_top = input.virtual_top +
+            (input.virtual_height - output.surface_height) / 2;
+        output.content_center_x =
+            static_cast<float>(output.surface_width) * 0.5f;
+        output.content_center_y =
+            static_cast<float>(output.surface_height) * 0.5f;
+        return output;
+    }
+
+    return {};
+}
+
+bool canvas_surface_redraw_required(
+    const CanvasPresentation& previous,
+    const CanvasPresentation& next,
+    bool debug_content_dirty) noexcept {
+    if (next.mode == CanvasSurfaceMode::Hidden) {
+        return false;
+    }
+    if (previous.mode != next.mode ||
+        previous.surface_width != next.surface_width ||
+        previous.surface_height != next.surface_height) {
+        return true;
+    }
+    if (next.mode == CanvasSurfaceMode::DebugFullCanvas) {
+        return debug_content_dirty;
+    }
+    if (next.mode == CanvasSurfaceMode::TargetMarker) {
+        return std::fabs(previous.marker_radius - next.marker_radius) > 0.001f;
+    }
+    return false;
+}
+
 }  // namespace fusion_overlay

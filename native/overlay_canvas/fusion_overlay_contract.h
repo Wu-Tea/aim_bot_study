@@ -119,4 +119,49 @@ struct MarkerLayout {
 
 MarkerLayout layout_target_point_marker(const MarkerLayoutInput& input) noexcept;
 
+// Production target cues occupy a tiny top-level surface. Keeping the surface
+// independent from the virtual desktop size avoids turning a 12 px marker into
+// a full-screen DWM composition layer.
+inline constexpr int kTargetMarkerSurfaceExtentPx = 32;
+
+enum class CanvasSurfaceMode {
+    Hidden,
+    TargetMarker,
+    IdleCrosshair,
+    DebugFullCanvas,
+};
+
+struct CanvasPresentationInput {
+    bool visibility_enabled = true;
+    bool marker_visible = false;
+    bool show_debug_detections = false;
+    bool idle_crosshair = false;
+    int virtual_left = 0;
+    int virtual_top = 0;
+    int virtual_width = 0;
+    int virtual_height = 0;
+    float marker_center_x = 0.0f;
+    float marker_center_y = 0.0f;
+    float marker_radius = 0.0f;
+};
+
+struct CanvasPresentation {
+    CanvasSurfaceMode mode = CanvasSurfaceMode::Hidden;
+    int window_left = 0;
+    int window_top = 0;
+    int surface_width = 0;
+    int surface_height = 0;
+    float content_center_x = 0.0f;
+    float content_center_y = 0.0f;
+    float marker_radius = 0.0f;
+};
+
+CanvasPresentation decide_canvas_presentation(
+    const CanvasPresentationInput& input) noexcept;
+
+bool canvas_surface_redraw_required(
+    const CanvasPresentation& previous,
+    const CanvasPresentation& next,
+    bool debug_content_dirty) noexcept;
+
 }  // namespace fusion_overlay

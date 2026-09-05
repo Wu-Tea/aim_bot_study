@@ -1,6 +1,6 @@
-// fusion_canvas.cpp — standalone transparent full-screen overlay that
-// renders vision detections and the selected target from a shared-memory
-// channel published by cod_native_runtime.
+// fusion_canvas.cpp — standalone transparent visual-fusion canvas that
+// renders the selected target from a small movable surface, with an explicit
+// full-screen path reserved for debug detections.
 //
 // Build: cmake --build ... --target fusion_canvas --config Release
 // Run:   fusion_canvas.exe [--session <name>] [--max-fps <n>]
@@ -204,6 +204,40 @@ IdleMode parse_idle_mode(const char* value, IdleMode fallback) {
         return IdleMode::Hide;
     }
     return fallback;
+}
+
+fusion_overlay::MarkerLayout layout_target_marker(
+    const shared_fusion::FusionTarget& target,
+    std::int32_t frame_width,
+    std::int32_t frame_height,
+    const shared_fusion::FusionFrameGeometry& geometry,
+    const RECT& virtual_screen) {
+    const float display_scale = std::clamp(
+        static_cast<float>(geometry.output_height > 0
+            ? geometry.output_height
+            : virtual_screen.bottom - virtual_screen.top) / 1080.0f,
+        0.85f,
+        1.60f);
+
+    fusion_overlay::MarkerLayoutInput input;
+    input.has_target = target.has_target;
+    input.direct_observation = target.direct_observation;
+    input.frame_width = frame_width;
+    input.frame_height = frame_height;
+    input.output_left = geometry.output_left;
+    input.output_top = geometry.output_top;
+    input.output_width = geometry.output_width;
+    input.output_height = geometry.output_height;
+    input.roi_left = geometry.roi_left;
+    input.roi_top = geometry.roi_top;
+    input.virtual_left = virtual_screen.left;
+    input.virtual_top = virtual_screen.top;
+    input.virtual_width = virtual_screen.right - virtual_screen.left;
+    input.virtual_height = virtual_screen.bottom - virtual_screen.top;
+    input.target_x = target.target_x;
+    input.target_y = target.target_y;
+    input.marker_radius_px = 6.0f * display_scale;
+    return fusion_overlay::layout_target_point_marker(input);
 }
 
 const char* environment_string_or(const char* name, const char* fallback) {
@@ -513,7 +547,11 @@ public:
     }
 
     bool resize(int width, int height) {
-        if (width == width_ && height == height_) return true;
+        ++resize_call_count_;
+        if (width == width_ && height == height_) {
+            ++resize_noop_count_;
+            return true;
+        }
         width_ = width;
         height_ = height;
 
@@ -523,6 +561,7 @@ public:
             dcomp_visual_ = nullptr;
         }
         if (swap_chain_ != nullptr) {
+            ++swap_chain_release_count_;
             swap_chain_->Release();
             swap_chain_ = nullptr;
         }
@@ -530,37 +569,55 @@ public:
         return create_swap_chain(width, height);
     }
 
-    void render(const shared_fusion::FusionTarget& target,
+    std::uint64_t swap_chain_create_count() const noexcept {
+        return swap_chain_create_count_;
+    }
+
+    std::uint64_t swap_chain_release_count() const noexcept {
+        return swap_chain_release_count_;
+    }
+
+    std::uint64_t resize_call_count() const noexcept {
+        return resize_call_count_;
+    }
+
+    std::uint64_t resize_noop_count() const noexcept {
+        return resize_noop_count_;
+    }
+
+    bool render(const fusion_overlay::CanvasPresentation& presentation,
                 const shared_fusion::FusionDetection* detections,
                 std::uint32_t detection_count,
                 std::int32_t frame_width,
                 std::int32_t frame_height,
                 const shared_fusion::FusionFrameGeometry& geometry,
                 int virtual_left,
-                int virtual_top,
-                IdleMode idle_mode) {
+                int virtual_top) {
 
-        if (swap_chain_ == nullptr) return;
+        if (swap_chain_ == nullptr ||
+            presentation.mode == fusion_overlay::CanvasSurfaceMode::Hidden ||
+            presentation.surface_width != width_ ||
+            presentation.surface_height != height_) {
+            return false;
+        }
 
         // --- get back buffer ---
         IDXGISurface2* surface = nullptr;
         HRESULT hr = swap_chain_->GetBuffer(
             0, IID_PPV_ARGS(&surface));
-        if (FAILED(hr)) return;
+        if (FAILED(hr)) return false;
 
         ID2D1Bitmap1* bitmap = nullptr;
         hr = d2d_context_->CreateBitmapFromDxgiSurface(
             surface, nullptr, &bitmap);
         surface->Release();
-        if (FAILED(hr)) return;
+        if (FAILED(hr)) return false;
 
         // --- draw ---
         d2d_context_->SetTarget(bitmap);
         d2d_context_->BeginDraw();
         d2d_context_->Clear(nullptr);  // transparent
 
-        const float sw = static_cast<float>(width_);
-        const float sh = static_cast<float>(height_);
         const float fw = static_cast<float>(frame_width > 0 ? frame_width : 640);
         const float fh = static_cast<float>(frame_height > 0 ? frame_height : 512);
         const float roi_origin_x = static_cast<float>(
@@ -569,7 +626,9 @@ public:
             geometry.output_top + geometry.roi_top - virtual_top);
 
         // --- optional debug detections ---
-        for (std::uint32_t i = 0; i < detection_count; ++i) {
+        const bool debug_full_canvas =
+            presentation.mode == fusion_overlay::CanvasSurfaceMode::DebugFullCanvas;
+        for (std::uint32_t i = 0; debug_full_canvas && i < detection_count; ++i) {
             const auto& d = detections[i];
 
             const float x1 = roi_origin_x + (d.x1 * fw);
@@ -603,50 +662,38 @@ public:
             }
         }
 
-        const float display_scale = std::clamp(
-            static_cast<float>(geometry.output_height > 0
-                ? geometry.output_height : height_) / 1080.0f,
-            0.85f,
-            1.60f);
-        fusion_overlay::MarkerLayoutInput marker_input;
-        marker_input.has_target = target.has_target;
-        marker_input.direct_observation = target.direct_observation;
-        marker_input.frame_width = frame_width;
-        marker_input.frame_height = frame_height;
-        marker_input.output_left = geometry.output_left;
-        marker_input.output_top = geometry.output_top;
-        marker_input.output_width = geometry.output_width;
-        marker_input.output_height = geometry.output_height;
-        marker_input.roi_left = geometry.roi_left;
-        marker_input.roi_top = geometry.roi_top;
-        marker_input.virtual_left = virtual_left;
-        marker_input.virtual_top = virtual_top;
-        marker_input.virtual_width = width_;
-        marker_input.virtual_height = height_;
-        marker_input.target_x = target.target_x;
-        marker_input.target_y = target.target_y;
-        marker_input.marker_radius_px = 6.0f * display_scale;
-        const fusion_overlay::MarkerLayout marker =
-            fusion_overlay::layout_target_point_marker(marker_input);
-
         // Three opaque layers stay readable in bright and dark MW4 scenes
         // while keeping the selector-owned target point unambiguous.
-        if (marker.visible) {
+        const bool draw_marker =
+            presentation.mode == fusion_overlay::CanvasSurfaceMode::TargetMarker ||
+            (debug_full_canvas && presentation.marker_radius > 0.0f);
+        if (draw_marker) {
             const D2D1_POINT_2F center =
-                D2D1::Point2F(marker.center_x, marker.center_y);
+                D2D1::Point2F(
+                    presentation.content_center_x,
+                    presentation.content_center_y);
             d2d_context_->FillEllipse(
-                D2D1::Ellipse(center, marker.radius + 2.0f, marker.radius + 2.0f),
+                D2D1::Ellipse(
+                    center,
+                    presentation.marker_radius + 2.0f,
+                    presentation.marker_radius + 2.0f),
                 brush_black_);
             d2d_context_->FillEllipse(
-                D2D1::Ellipse(center, marker.radius, marker.radius),
+                D2D1::Ellipse(
+                    center,
+                    presentation.marker_radius,
+                    presentation.marker_radius),
                 brush_white_);
-            const float inner_radius = std::max(2.0f, marker.radius - 2.0f);
+            const float inner_radius = std::max(
+                2.0f,
+                presentation.marker_radius - 2.0f);
             d2d_context_->FillEllipse(
                 D2D1::Ellipse(center, inner_radius, inner_radius),
                 brush_target_);
-        } else if (idle_mode == IdleMode::Crosshair) {
-            const float cx = sw * 0.5f;
-            const float cy = sh * 0.5f;
+        } else if (
+            presentation.mode == fusion_overlay::CanvasSurfaceMode::IdleCrosshair) {
+            const float cx = presentation.content_center_x;
+            const float cy = presentation.content_center_y;
             const float arm = 8.0f;
             const float gap = 3.0f;
             d2d_context_->DrawLine(
@@ -673,22 +720,14 @@ public:
 
         hr = d2d_context_->EndDraw();
         bitmap->Release();
+        if (FAILED(hr)) return false;
 
         // --- present ---
-        // DWM owns composition timing. Waiting for vertical sync here would
-        // block IPC ingestion long enough to miss short detection bursts.
-        if (visible_) {
-            swap_chain_->Present(0, 0);
-        } else {
-            // Present a transparent frame so the overlay truly disappears.
-            DXGI_PRESENT_PARAMETERS pp{};
-            swap_chain_->Present1(0, 0, &pp);
-        }
-        dcomp_device_->Commit();
+        // DWM owns composition timing. The production marker surface is only
+        // 32x32 and is usually moved without another Present.
+        hr = swap_chain_->Present(0, 0);
+        return SUCCEEDED(hr);
     }
-
-    void set_visible(bool v) { visible_ = v; }
-    bool visible() const noexcept { return visible_; }
 
     bool render_isolation_probe(const D2D1_RECT_F& probe_rect) {
         if (swap_chain_ == nullptr) return false;
@@ -769,6 +808,7 @@ private:
                 static_cast<unsigned long>(hr));
             return false;
         }
+        ++swap_chain_create_count_;
 
         // --- DirectComposition visual ---
         hr = dcomp_device_->CreateVisual(&dcomp_visual_);
@@ -808,8 +848,10 @@ private:
     HWND hwnd_ = nullptr;
     int width_ = 0;
     int height_ = 0;
-    bool visible_ = true;
-
+    std::uint64_t swap_chain_create_count_ = 0;
+    std::uint64_t swap_chain_release_count_ = 0;
+    std::uint64_t resize_call_count_ = 0;
+    std::uint64_t resize_noop_count_ = 0;
     ID3D11Device*        d3d_device_  = nullptr;
     ID3D11DeviceContext* d3d_context_ = nullptr;
     IDXGIFactory2*       dxgi_factory_ = nullptr;
@@ -1707,13 +1749,22 @@ int main(int argc, char** argv) {
     RECT vr = virtual_screen_rect();
     const int win_w = vr.right - vr.left;
     const int win_h = vr.bottom - vr.top;
+    if (win_w <= 0 || win_h <= 0) {
+        log_line(
+            "[FusionCanvas] invalid virtual screen width=%d height=%d",
+            win_w,
+            win_h);
+        return 1;
+    }
+    constexpr int initial_surface_extent =
+        fusion_overlay::kTargetMarkerSurfaceExtentPx;
 
     HWND hwnd = CreateWindowExW(
         fusion_overlay::fusion_canvas_extended_style(),
         L"FusionCanvasClass",
         L"Fusion Canvas",
         fusion_overlay::fusion_canvas_window_style(),
-        vr.left, vr.top, win_w, win_h,
+        vr.left, vr.top, initial_surface_extent, initial_surface_extent,
         nullptr, nullptr,
         GetModuleHandleW(nullptr),
         nullptr);
@@ -1764,13 +1815,16 @@ int main(int argc, char** argv) {
 
     // --- renderer ---
     FusionRenderer renderer;
-    if (!renderer.initialize(hwnd, win_w, win_h)) {
+    if (!renderer.initialize(
+            hwnd,
+            initial_surface_extent,
+            initial_surface_extent)) {
         log_line("[FusionCanvas] renderer init failed");
         return 1;
     }
 
-    ShowWindow(hwnd, SW_SHOW);
-    // Don't call UpdateWindow — let DirectComposition drive painting.
+    // The production window starts hidden and only enters the DWM scene while
+    // a target marker (or an explicit debug visual) exists.
 
     // --- render loop ---
     const auto frame_interval = std::chrono::microseconds(
@@ -1783,9 +1837,17 @@ int main(int argc, char** argv) {
         fusion_overlay::CaptureIsolationLifecycleState::Verified;
     bool isolation_failed = false;
     bool wait_failed = false;
+    bool renderer_failed = false;
     bool render_dirty = true;
     bool last_visibility = g_visible.load();
     bool rendered_marker_visible = false;
+    bool overlay_window_shown = false;
+    fusion_overlay::CanvasPresentation last_presentation{};
+    std::uint64_t channel_update_count = 0;
+    std::uint64_t surface_present_count = 0;
+    std::uint64_t window_move_count = 0;
+    std::uint64_t window_show_count = 0;
+    std::uint64_t window_hide_count = 0;
     auto rendered_marker_expiry = loop_started;
     HANDLE deadline_timer = CreateWaitableTimerW(nullptr, FALSE, nullptr);
     bool timer_failure_logged = false;
@@ -1843,7 +1905,7 @@ int main(int argc, char** argv) {
                 fusion_overlay::CaptureIsolationLifecycleEvent::IsolationInvalidated);
             isolation_state = pending.state;
             ShowWindow(hwnd, SW_HIDE);
-            renderer.set_visible(false);
+            overlay_window_shown = false;
             log_line(
                 "[FusionCanvas] capture_isolation=revalidation_pending reason=%s",
                 isolation_invalidation_reason_name(invalidation_reasons));
@@ -1859,26 +1921,6 @@ int main(int argc, char** argv) {
                 (next_width <= 0 || next_height <= 0)) {
                 revalidation_succeeded = false;
                 failure_stage = "virtual_screen_geometry";
-            }
-            if (revalidation_succeeded &&
-                !SetWindowPos(
-                    hwnd,
-                    nullptr,
-                    next_vr.left,
-                    next_vr.top,
-                    next_width,
-                    next_height,
-                    SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOZORDER)) {
-                revalidation_succeeded = false;
-                failure_stage = "window_geometry";
-                log_line(
-                    "[FusionCanvas] capture_isolation=revalidation_window_geometry_failed error=%lu",
-                    static_cast<unsigned long>(GetLastError()));
-            }
-            if (revalidation_succeeded &&
-                !renderer.resize(next_width, next_height)) {
-                revalidation_succeeded = false;
-                failure_stage = "renderer_resize";
             }
             if (revalidation_succeeded) {
                 vr = next_vr;
@@ -1958,8 +2000,7 @@ int main(int argc, char** argv) {
             }
 
             last_isolation_check = std::chrono::steady_clock::now();
-            renderer.set_visible(g_visible.load());
-            ShowWindow(hwnd, SW_SHOWNA);
+            last_presentation = {};
             render_dirty = true;
             log_line(
                 "[FusionCanvas] capture_isolation=revalidated reason=%s "
@@ -1978,6 +2019,7 @@ int main(int argc, char** argv) {
                 fusion_overlay::inspect_capture_isolation(hwnd);
             if (!isolation.decision.may_show) {
                 ShowWindow(hwnd, SW_HIDE);
+                overlay_window_shown = false;
                 log_line(
                     "[FusionCanvas] capture_isolation=lost_fail_closed reason=%s "
                     "dwm_hr=0x%08lx readback_error=%lu affinity=0x%08lx",
@@ -2002,7 +2044,6 @@ int main(int argc, char** argv) {
             last_visibility = visibility;
             render_dirty = true;
         }
-        renderer.set_visible(visibility);
 
         const auto wait_now = std::chrono::steady_clock::now();
         const bool rendered_marker_expired =
@@ -2103,6 +2144,7 @@ int main(int argc, char** argv) {
                 target,
                 detections,
                 det_count)) {
+            ++channel_update_count;
             current_target = target;
             current_frame_id = frame_id;
             current_timestamp = timestamp;
@@ -2231,21 +2273,108 @@ int main(int argc, char** argv) {
             render_detection_count = 0;
         }
 
-        // --- render ---
-        renderer.render(
+        const fusion_overlay::MarkerLayout marker = layout_target_marker(
             render_target,
-            current_detections,
-            render_detection_count,
             render_frame_width,
             render_frame_height,
             render_geometry,
-            vr.left,
-            vr.top,
-            visibility ? idle_mode : IdleMode::Hide);
+            vr);
+        fusion_overlay::CanvasPresentationInput presentation_input;
+        presentation_input.visibility_enabled = visibility;
+        presentation_input.marker_visible = marker.visible;
+        presentation_input.show_debug_detections =
+            visibility && render_detection_count > 0;
+        presentation_input.idle_crosshair =
+            visibility && idle_mode == IdleMode::Crosshair;
+        presentation_input.virtual_left = vr.left;
+        presentation_input.virtual_top = vr.top;
+        presentation_input.virtual_width = vr.right - vr.left;
+        presentation_input.virtual_height = vr.bottom - vr.top;
+        presentation_input.marker_center_x = marker.center_x;
+        presentation_input.marker_center_y = marker.center_y;
+        presentation_input.marker_radius = marker.radius;
+        const fusion_overlay::CanvasPresentation presentation =
+            fusion_overlay::decide_canvas_presentation(presentation_input);
+
+        if (presentation.mode == fusion_overlay::CanvasSurfaceMode::Hidden) {
+            if (overlay_window_shown) {
+                ShowWindow(hwnd, SW_HIDE);
+                overlay_window_shown = false;
+                ++window_hide_count;
+            }
+            last_presentation = presentation;
+        } else {
+            const bool surface_changed =
+                presentation.surface_width != last_presentation.surface_width ||
+                presentation.surface_height != last_presentation.surface_height;
+            const bool window_geometry_changed =
+                surface_changed ||
+                presentation.window_left != last_presentation.window_left ||
+                presentation.window_top != last_presentation.window_top;
+
+            if (surface_changed && !renderer.resize(
+                    presentation.surface_width,
+                    presentation.surface_height)) {
+                log_line(
+                    "[FusionCanvas] renderer resize failed width=%d height=%d",
+                    presentation.surface_width,
+                    presentation.surface_height);
+                renderer_failed = true;
+                g_running.store(false);
+                break;
+            }
+            if (window_geometry_changed && !SetWindowPos(
+                    hwnd,
+                    nullptr,
+                    presentation.window_left,
+                    presentation.window_top,
+                    presentation.surface_width,
+                    presentation.surface_height,
+                    SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOZORDER)) {
+                log_line(
+                    "[FusionCanvas] marker window move failed error=%lu",
+                    static_cast<unsigned long>(GetLastError()));
+                renderer_failed = true;
+                g_running.store(false);
+                break;
+            }
+            if (window_geometry_changed) {
+                ++window_move_count;
+            }
+
+            const bool redraw_surface =
+                fusion_overlay::canvas_surface_redraw_required(
+                    last_presentation,
+                    presentation,
+                    render_detection_count > 0);
+            if (redraw_surface && !renderer.render(
+                    presentation,
+                    current_detections,
+                    render_detection_count,
+                    render_frame_width,
+                    render_frame_height,
+                    render_geometry,
+                    vr.left,
+                    vr.top)) {
+                log_line("[FusionCanvas] renderer draw/present failed");
+                renderer_failed = true;
+                g_running.store(false);
+                break;
+            }
+            if (redraw_surface) {
+                ++surface_present_count;
+            }
+            if (!overlay_window_shown) {
+                ShowWindow(hwnd, SW_SHOWNA);
+                overlay_window_shown = true;
+                ++window_show_count;
+            }
+            last_presentation = presentation;
+        }
         render_dirty = false;
         rendered_marker_visible =
-            visibility &&
-            continuity_source != fusion_overlay::MarkerContinuitySource::None;
+            marker.visible &&
+            presentation.mode != fusion_overlay::CanvasSurfaceMode::Hidden;
         if (rendered_marker_visible && qpc_available) {
             const std::uint64_t rendered_timestamp =
                 continuity_source ==
@@ -2281,6 +2410,23 @@ int main(int argc, char** argv) {
         CloseHandle(deadline_timer);
         deadline_timer = nullptr;
     }
+    const auto loop_runtime_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - loop_started).count();
+    log_line(
+        "[FusionCanvas] activity runtime_ms=%lld channel_updates=%llu "
+        "surface_presents=%llu window_moves=%llu window_shows=%llu window_hides=%llu "
+        "resize_calls=%llu resize_noops=%llu swapchain_creates=%llu "
+        "swapchain_releases=%llu",
+        static_cast<long long>(loop_runtime_ms),
+        static_cast<unsigned long long>(channel_update_count),
+        static_cast<unsigned long long>(surface_present_count),
+        static_cast<unsigned long long>(window_move_count),
+        static_cast<unsigned long long>(window_show_count),
+        static_cast<unsigned long long>(window_hide_count),
+        static_cast<unsigned long long>(renderer.resize_call_count()),
+        static_cast<unsigned long long>(renderer.resize_noop_count()),
+        static_cast<unsigned long long>(renderer.swap_chain_create_count()),
+        static_cast<unsigned long long>(renderer.swap_chain_release_count()));
     renderer.cleanup();
     DestroyWindow(hwnd);
     reader.close();
@@ -2291,5 +2437,6 @@ int main(int argc, char** argv) {
         g_log_file = nullptr;
     }
     if (isolation_failed) return 3;
+    if (renderer_failed) return 4;
     return wait_failed ? 2 : 0;
 }
