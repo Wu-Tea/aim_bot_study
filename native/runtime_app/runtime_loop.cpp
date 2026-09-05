@@ -7,6 +7,7 @@
 
 #include <chrono>
 #include <cstdlib>
+#include <exception>
 #include <cctype>
 #include <cstdint>
 #include <cmath>
@@ -581,27 +582,28 @@ int RuntimeLoop::run() {
     std::cout << "[NativeRuntime] controller_scheduler="
               << (config_.scheduler.mode == "legacy" ? "legacy" : precision_scheduler.mode_name())
               << " tick_hz=" << tick_hz << '\n';
-    while (!should_stop_requested()) {
-        const auto tick_started = std::chrono::steady_clock::now();
-        run_once();
-        if (max_ticks_ > 0 && tick_count_ >= max_ticks_) {
-            break;
-        }
+    std::exception_ptr failure;
+    try {
+        while (!should_stop_requested()) {
+            const auto tick_started = std::chrono::steady_clock::now();
+            run_once();
+            if (max_ticks_ > 0 && tick_count_ >= max_ticks_) {
+                break;
+            }
 
-        if (config_.scheduler.mode == "legacy") {
-            sleep_until_precise(deadlines.next_deadline());
-        } else {
-            precision_scheduler.wait_until(deadlines.next_deadline());
+            if (config_.scheduler.mode == "legacy") {
+                sleep_until_precise(deadlines.next_deadline());
+            } else {
+                precision_scheduler.wait_until(deadlines.next_deadline());
+            }
+            deadlines.advance_after_tick(std::chrono::steady_clock::now());
         }
-        deadlines.advance_after_tick(std::chrono::steady_clock::now());
+    } catch (...) {
+        failure = std::current_exception();
     }
-    if (vision_service_ != nullptr) {
-        vision_service_->stop();
-    }
-    perf_summary_logger_.stop();
-    telemetry_collectors_.shutdown(steady_time_point_ns(std::chrono::steady_clock::now()));
-    telemetry_.stop();
-    log_session_manager_.close();
+    // Revoke controller authority and neutralize before any potentially slow
+    // worker join or telemetry drain, including a Vision worker failure.
+    controller_.reset();
     if (config_.output.enabled) {
         controller_native::PhysicalGamepadState neutral_physical{};
         auto neutral_frame = controller_native::ControlFrame::begin(
@@ -614,6 +616,14 @@ int RuntimeLoop::run() {
             virtual_gamepad_.update(*output_composer_.finalized_output());
         }
     }
+    if (vision_service_ != nullptr) {
+        vision_service_->stop();
+    }
+    perf_summary_logger_.stop();
+    telemetry_collectors_.shutdown(steady_time_point_ns(std::chrono::steady_clock::now()));
+    telemetry_.stop();
+    log_session_manager_.close();
+    if (failure) std::rethrow_exception(failure);
     return 0;
 }
 
@@ -698,12 +708,13 @@ void RuntimeLoop::run_once() {
         const std::uint64_t expected_aim_transition_sequence =
             vision_service_->set_aiming(vision_requested);
         vision_service_->set_user_aim_intent(user_aim_intent);
-        const VisionServiceSnapshot service_snapshot = vision_service_->latest_snapshot();
+        VisionServiceSnapshot service_snapshot =
+            vision_service_->latest_snapshot(latest_vision_service_sequence_);
         if (
             service_snapshot.sequence != 0 &&
             service_snapshot.sequence != latest_vision_service_sequence_) {
             latest_vision_service_sequence_ = service_snapshot.sequence;
-            vision_native::VisionResult result = service_snapshot.result;
+            vision_native::VisionResult result = std::move(service_snapshot.result);
             const auto controller_consume_started = std::chrono::steady_clock::now();
             const std::uint64_t controller_consume_ns =
                 steady_time_point_ns(controller_consume_started);

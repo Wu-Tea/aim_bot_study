@@ -1,4 +1,5 @@
 #include "vision_native/vision_engine.h"
+#include "vision_native/cuda_graphics_mapping.h"
 #include "vision_native/vision_result_copy.h"
 #include "vision_native/preprocess.h"
 #include "color_readback.h"
@@ -298,16 +299,10 @@ VisionResult VisionEngine::poll_once() {
         throw std::runtime_error("VisionEngine graphics resource is not registered");
     }
 
-    bool mapped = false;
-    try {
+    {
         const std::uint64_t map_start = now_ns();
-        check_cuda(cudaGraphicsMapResources(1, &graphics_resource, nullptr), "cudaGraphicsMapResources");
-        mapped = true;
-
-        cudaArray_t frame_array = nullptr;
-        check_cuda(
-            cudaGraphicsSubResourceGetMappedArray(&frame_array, graphics_resource, 0, 0),
-            "cudaGraphicsSubResourceGetMappedArray");
+        CudaGraphicsMapping mapping(graphics_resource, engine_->cuda_stream());
+        const cudaArray_t frame_array = mapping.array();
         result.cuda_map_ms = ns_to_ms(now_ns() - map_start);
 
         DetectionBatch batch = engine_->infer_bgra_array_roi(
@@ -404,9 +399,8 @@ VisionResult VisionEngine::poll_once() {
         }
 
         const uint64_t unmap_start = now_ns();
-        check_cuda(cudaGraphicsUnmapResources(1, &graphics_resource, nullptr), "cudaGraphicsUnmapResources");
+        mapping.unmap();
         result.cuda_unmap_ms = ns_to_ms(now_ns() - unmap_start);
-        mapped = false;
 
         const uint64_t post_start = now_ns();
         result.frame_id = batch.frame_id;
@@ -501,11 +495,6 @@ VisionResult VisionEngine::poll_once() {
             result.age_ms = ns_to_ms(result.result_at_ns - result.captured_at_ns);
         }
         return result;
-    } catch (...) {
-        if (mapped) {
-            cudaGraphicsUnmapResources(1, &graphics_resource, nullptr);
-        }
-        throw;
     }
 }
 

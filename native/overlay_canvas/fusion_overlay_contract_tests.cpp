@@ -1,5 +1,6 @@
 #include "fusion_overlay_contract.h"
 #include "overlay_window_policy.h"
+#include "shared_fusion/fusion_snapshot.h"
 
 #include <cmath>
 #include <iostream>
@@ -385,6 +386,35 @@ void recorded_short_direct_burst_survives_render_throttle() {
 
 int main() {
     try {
+        {
+            shared_fusion::FusionChannelHeader header{};
+            auto& slot = header.slots[0];
+            slot.write_sequence = 1;
+            slot.frame_id = 1;
+            slot.detection_count = 1;
+            slot.detections[0].x1 = 11.0f;
+            shared_fusion::FusionSnapshot snapshot;
+            snapshot.frame_id = 99;
+            require(!shared_fusion::try_copy_fusion_snapshot(header, snapshot),
+                    "reader accepted an odd write sequence");
+            require(snapshot.frame_id == 99, "failed read modified the consumer snapshot");
+            slot.write_sequence = 2;
+            require(shared_fusion::try_copy_fusion_snapshot(header, snapshot),
+                    "stable slot was rejected");
+            // Writer laps its two slots while the consumer keeps this snapshot.
+            slot.write_sequence = 3;
+            slot.frame_id = 3;
+            slot.detections[0].x1 = 33.0f;
+            slot.write_sequence = 4;
+            require(snapshot.frame_id == 1 && snapshot.detections[0].x1 == 11.0f,
+                    "consumer detections changed after writer reused its slot");
+            slot.detection_count = shared_fusion::FUSION_CHANNEL_MAX_DETECTIONS + 1;
+            require(!shared_fusion::try_copy_fusion_snapshot(header, snapshot),
+                    "reader accepted an out-of-bounds detection count");
+            header.active_slot = shared_fusion::FUSION_CHANNEL_SLOT_COUNT;
+            require(!shared_fusion::try_copy_fusion_snapshot(header, snapshot),
+                    "reader accepted an out-of-bounds active slot");
+        }
         capture_isolation_is_fail_closed();
         display_change_hides_then_revalidates_capture_isolation();
         canvas_window_style_is_cross_process_mouse_passthrough();

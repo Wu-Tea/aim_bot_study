@@ -243,7 +243,6 @@ private:
     PhysicalGamepadState sampled_physical_{};
     pipeline_contract::IntentState sampled_intent_{};
     NativeControlTickPreparation last_tick_preparation_{};
-    double sampled_now_seconds_ = 0.0;
     float sampled_dt_seconds_ = 0.001f;
     bool has_sampled_input_ = false;
     std::uint64_t next_controller_tick_id_ = 1;

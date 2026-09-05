@@ -1,4 +1,5 @@
 #include "vision_native/resize_contract.h"
+#include "vision_native/capture_geometry.h"
 #include "test_support/native_test_registry.h"
 
 #include <cmath>
@@ -68,6 +69,24 @@ void test_anisotropic_resize_requires_explicit_opt_out() {
 }  // namespace
 
 void register_resize_contract_tests(native_test::Registry& registry) {
+    registry.add_case("BaseContracts", "capture_geometry_refreshes_center_and_position", [] {
+        auto geometry = vision_native::centered_capture_geometry(480, 416, 0, 0, 2560, 1440);
+        require(geometry.roi_left == 1040 && geometry.roi_top == 512);
+        geometry = vision_native::centered_capture_geometry(480, 416, -1920, 180, 1920, 1080);
+        require(geometry.roi_left == 720 && geometry.roi_top == 332);
+        require(geometry.output_left == -1920 && geometry.output_top == 180);
+        bool rejected = false;
+        try { (void)vision_native::centered_capture_geometry(480, 416, 0, 0, 320, 240); }
+        catch (const std::runtime_error&) { rejected = true; }
+        require(rejected);
+    });
+    registry.add_case("BaseContracts", "pointer_only_acquire_has_no_image_observation", [] {
+        require(!vision_native::dxgi_has_new_desktop_image(0, 0));
+        require(!vision_native::dxgi_has_new_desktop_image(0, 1));
+        require(!vision_native::dxgi_has_new_desktop_image(100, 0));
+        require(vision_native::dxgi_has_new_desktop_image(100, 1));
+        require(vision_native::dxgi_has_new_desktop_image(200, 4));
+    });
     registry.add_case("BaseContracts", "production_resize_contract", test_production_contract);
     registry.add_case("BaseContracts", "exploration_resize_is_uniform", test_exploration_contracts_are_uniform);
     registry.add_case("BaseContracts", "engine_shape_mismatch_is_rejected", test_engine_shape_mismatch_is_rejected);

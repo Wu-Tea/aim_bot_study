@@ -321,7 +321,25 @@ void test_example_config_contains_no_retired_keys() {
 
 }  // namespace
 
+namespace {
+
+void test_retired_recoil_profile_cannot_be_enabled_by_config() {
+    TempConfig file("cod_native_retired_recoil_profile.toml",
+                    "[gamepad.recoil]\nprofile_playback_enabled = true\n"
+                    "native_recognizer_enabled = true\nfeedback_amount = 0.23\n");
+    const auto config = controller_native::load_runtime_config(file.path());
+    require(!config.gamepad.recoil.profile_playback_enabled,
+            "retired profile playback was enabled by TOML");
+    require(!config.gamepad.recoil.native_recognizer_enabled,
+            "retired profile recognizer was enabled by TOML");
+    require(std::fabs(config.gamepad.recoil.feedback_amount - 0.23f) < 1e-6f,
+            "retiring profiles changed the live recoil amount");
+}
+
+}  // namespace
+
 void register_runtime_config_tests(native_test::Registry& registry) {
+    registry.add_case("BaseContracts", "retired_recoil_profile_is_inert", test_retired_recoil_profile_cannot_be_enabled_by_config);
     registry.add_case("BaseContracts", "current_control_keys_parse", test_current_control_keys_parse);
     registry.add_case("BaseContracts", "recoil_defaults_use_product_dynamic_range", test_recoil_defaults_use_product_dynamic_range);
     registry.add_case("BaseContracts", "retired_low_rate_keys_are_unknown_and_inert", test_retired_low_rate_keys_are_unknown_and_inert);

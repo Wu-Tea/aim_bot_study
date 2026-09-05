@@ -20,6 +20,7 @@
 #endif
 
 #include "shared_fusion/fusion_channel.h"
+#include "shared_fusion/fusion_snapshot.h"
 #include "capture_isolation_guard.h"
 #include "overlay_window_policy.h"
 #include "vision_native/dxgi_capture.h"
@@ -321,29 +322,15 @@ public:
                   std::uint32_t& out_count) {
         if (header_ == nullptr) return false;
 
-        const std::uint32_t slot_idx = header_->active_slot;
-        if (slot_idx >= shared_fusion::FUSION_CHANNEL_SLOT_COUNT) return false;
-
-        const shared_fusion::FusionSlot& slot = header_->slots[slot_idx];
-
-        // --- seqlock read ---
-        std::uint32_t seq;
-        do {
-            seq = slot.write_sequence;
-            if (seq & 1) continue;  // writing in progress
-            _ReadBarrier();
-
-            out_frame_id = slot.frame_id;
-            out_timestamp = slot.timestamp;
-            out_fw       = slot.frame_width;
-            out_fh       = slot.frame_height;
-            out_geometry = slot.geometry;
-            out_target   = slot.target;
-            out_count    = slot.detection_count;
-            out_dets     = slot.detections;  // pointer into mapping
-
-            _ReadBarrier();
-        } while (seq != slot.write_sequence);
+        if (!shared_fusion::try_copy_fusion_snapshot(*header_, snapshot_)) return false;
+        out_frame_id = snapshot_.frame_id;
+        out_timestamp = snapshot_.timestamp;
+        out_fw = snapshot_.frame_width;
+        out_fh = snapshot_.frame_height;
+        out_geometry = snapshot_.geometry;
+        out_target = snapshot_.target;
+        out_count = snapshot_.detection_count;
+        out_dets = snapshot_.detections.data();
 
         // Deduplicate by frame_id.
         if (out_frame_id == last_frame_id_) return false;
@@ -356,6 +343,7 @@ private:
     HANDLE event_handle_ = nullptr;
     const shared_fusion::FusionChannelHeader* header_ = nullptr;
     std::uint64_t last_frame_id_ = UINT64_MAX;
+    shared_fusion::FusionSnapshot snapshot_;
 };
 
 // ---------------------------------------------------------------------------

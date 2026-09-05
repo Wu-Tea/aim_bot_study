@@ -203,11 +203,6 @@ NativeGamepadController::NativeGamepadController(
             0.0f,
             30.0f)) /
         1000.0;
-    if (config_.recoil.profile_playback_enabled) {
-        recoil_.set_recognizer_state_path(config_.recoil.recognizer_state_path);
-        recoil_.load_profile_directory(config_.recoil.profile_directory);
-        recoil_.load_calibration_directory(config_.recoil.calibration_directory);
-    }
 }
 
 void NativeGamepadController::reset() {
@@ -251,7 +246,6 @@ void NativeGamepadController::reset() {
     sampled_physical_ = {};
     sampled_intent_ = {};
     last_tick_preparation_ = {};
-    sampled_now_seconds_ = 0.0;
     sampled_dt_seconds_ = 0.001f;
     has_sampled_input_ = false;
     next_controller_tick_id_ = 1;
@@ -499,7 +493,6 @@ const NativeControlTickPreparation& NativeGamepadController::begin_tick(
         auto_fire_gate_.reset_readiness();
     }
     sampled_physical_ = physical;
-    sampled_now_seconds_ = now;
     sampled_dt_seconds_ = dt;
     sampled_intent_ = intent_filter_.update(
         {physical.left_x, physical.left_y},
@@ -540,7 +533,9 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
     if (!has_sampled_input_) return {};
     const PhysicalGamepadState physical = sampled_physical_;
     const pipeline_contract::IntentState intent = sampled_intent_;
-    const double now = sampled_now_seconds_;
+    // Input edges retain begin_tick's sample time. Observation freshness and
+    // control decisions happen after capture/mailbox delivery on this tick.
+    const double now = now_seconds();
     const float dt = sampled_dt_seconds_;
     has_sampled_input_ = false;
 

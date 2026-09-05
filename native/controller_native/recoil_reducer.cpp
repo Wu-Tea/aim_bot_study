@@ -1,23 +1,25 @@
 #include "recoil_reducer.h"
 
+#include <algorithm>
+
 namespace controller_native {
+
+RecoilReducer::RecoilReducer(const GamepadRecoilConfig& config)
+    : enabled_(config.enabled) {
+    const float minimum = std::max(0.0f, config.feedback_min_amount);
+    const float maximum = std::max(minimum, config.feedback_max_amount);
+    amount_ = std::clamp(config.feedback_amount, minimum, maximum);
+}
 
 pipeline_contract::RecoilContribution RecoilReducer::reduce(
     bool effective_fire,
-    bool aiming,
-    double now_seconds,
+    bool /*aiming*/,
+    double /*now_seconds*/,
     pipeline_contract::EventSequence cause_event) {
-    NativeRecoilInput input{};
-    input.fire_active = effective_fire;
-    input.aiming = aiming;
-    input.now_seconds = now_seconds;
-    const auto output = policy_.compute(input);
     pipeline_contract::RecoilContribution contribution{};
     contribution.cause_event = cause_event;
-    if (!output.recoil_active) return contribution;
-    contribution.stick_delta = {
-        output.recoil_stick.x,
-        output.recoil_stick.y};
+    if (!enabled_ || !effective_fire) return contribution;
+    contribution.stick_delta = {0.0f, -amount_};
     contribution.active = true;
     return contribution;
 }

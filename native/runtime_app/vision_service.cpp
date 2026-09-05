@@ -1,6 +1,7 @@
 #include "vision_service.h"
 
 #include "runtime_timing.h"
+#include "vision_native/observation_time.h"
 
 #include <algorithm>
 #include <cmath>
@@ -74,27 +75,49 @@ bool VisionDeliveryGate::accept(
         : result.result_at_ns;
     if (!result.frame_updated || result.frame_id == 0 || capture_ns == 0 ||
         controller_consume_ns < capture_ns ||
-        (result.result_at_ns != 0 && result.result_at_ns < capture_ns)) {
+        (result.result_at_ns != 0 && (result.result_at_ns < capture_ns ||
+                                    result.result_at_ns > controller_consume_ns))) {
         return false;
     }
-    const double age_ms = static_cast<double>(controller_consume_ns - capture_ns) /
-        1'000'000.0;
+    const auto source_ns = vision_native::observation_time_ns(result);
+    if (source_ns == 0 || source_ns > capture_ns) return false;
+    const double age_ms = (
+        static_cast<double>(controller_consume_ns - source_ns) +
+        (result.source_present_steady_available
+            ? static_cast<double>(result.source_present_calibration_uncertainty_ns)
+            : 0.0)) / 1'000'000.0;
     if (age_ms > static_cast<double>(max_source_age_ms_)) {
         return false;
     }
+    if (result.source_present_available &&
+        (result.source_present_qpc == 0 || result.source_present_qpc_frequency == 0 ||
+         (last_present_qpc_ != 0 &&
+          (result.source_present_qpc_frequency != last_present_frequency_ ||
+           result.source_present_qpc <= last_present_qpc_)))) {
+        return false;
+    }
     if (has_delivery_ &&
-        (result.frame_id <= last_frame_id_ || capture_ns <= last_capture_ns_)) {
+        (result.frame_id <= last_frame_id_ || capture_ns <= last_capture_ns_ ||
+         source_ns <= last_source_ns_)) {
         return false;
     }
     has_delivery_ = true;
     last_frame_id_ = result.frame_id;
     last_capture_ns_ = capture_ns;
+    last_source_ns_ = source_ns;
+    if (result.source_present_available) {
+        last_present_qpc_ = result.source_present_qpc;
+        last_present_frequency_ = result.source_present_qpc_frequency;
+    }
     return true;
 }
 
 void VisionDeliveryGate::reset() noexcept {
     last_frame_id_ = 0;
     last_capture_ns_ = 0;
+    last_source_ns_ = 0;
+    last_present_qpc_ = 0;
+    last_present_frequency_ = 0;
     has_delivery_ = false;
 }
 
@@ -110,17 +133,24 @@ VisionService::~VisionService() {
 }
 
 void VisionService::start() {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (worker_failure_) std::rethrow_exception(worker_failure_);
+    }
     bool expected = false;
     if (!running_.compare_exchange_strong(expected, true)) {
         return;
     }
-    worker_ = std::thread(&VisionService::run_loop, this);
+    try {
+        worker_ = std::thread(&VisionService::run_loop, this);
+    } catch (...) {
+        running_.store(false);
+        throw;
+    }
 }
 
 void VisionService::stop() {
-    if (!running_.exchange(false)) {
-        return;
-    }
+    running_.store(false);
     wake_condition_.notify_all();
     if (worker_.joinable()) {
         worker_.join();
@@ -156,8 +186,10 @@ void VisionService::set_viewport(const ViewportRequest& request) {
     viewport_request_ = request;
 }
 
-VisionServiceSnapshot VisionService::latest_snapshot() const {
+VisionServiceSnapshot VisionService::latest_snapshot(std::uint64_t after_sequence) const {
     std::lock_guard<std::mutex> lock(mutex_);
+    if (worker_failure_) std::rethrow_exception(worker_failure_);
+    if (latest_snapshot_.sequence == after_sequence) return {};
     return latest_snapshot_;
 }
 
@@ -222,7 +254,7 @@ bool VisionService::step(std::chrono::steady_clock::time_point now) {
         snapshot.aim_wakeup_to_result_ms = elapsed(result_at);
     }
     snapshot.requested_vision_fps = static_cast<float>(requested_fps);
-    snapshot.result = result;
+    snapshot.result = std::move(result);
 
     std::lock_guard<std::mutex> lock(mutex_);
     const bool control_epoch_current =
@@ -236,7 +268,7 @@ bool VisionService::step(std::chrono::steady_clock::time_point now) {
     if (!control_epoch_current) {
         snapshot.freshness = VisionSnapshotFreshness::NoUpdate;
         snapshot.source_state = VisionSourceState::NoUpdate;
-    } else if (result.frame_updated) {
+    } else if (snapshot.result.frame_updated) {
         snapshot.freshness = VisionSnapshotFreshness::Fresh;
         snapshot.source_state = VisionSourceState::FreshFrame;
         if (!controller_aiming) {
@@ -252,7 +284,7 @@ bool VisionService::step(std::chrono::steady_clock::time_point now) {
         std::chrono::duration_cast<std::chrono::nanoseconds>(
             std::chrono::steady_clock::now().time_since_epoch())
             .count());
-    latest_snapshot_ = snapshot;
+    latest_snapshot_ = std::move(snapshot);
     return true;
 }
 
@@ -273,16 +305,25 @@ std::chrono::steady_clock::time_point VisionService::next_poll_due(
 
 void VisionService::run_loop() {
     (void)set_current_thread_priority(RuntimeThreadPriority::Highest);
-    while (running_.load()) {
-        const auto now = std::chrono::steady_clock::now();
-        if (step(now)) {
-            continue;
+    try {
+        while (running_.load()) {
+            const auto now = std::chrono::steady_clock::now();
+            if (step(now)) {
+                continue;
+            }
+            const auto due = next_poll_due(now);
+            std::unique_lock<std::mutex> lock(mutex_);
+            wake_condition_.wait_until(lock, due, [this] {
+                return !running_.load() || immediate_poll_requested_;
+            });
         }
-        const auto due = next_poll_due(now);
-        std::unique_lock<std::mutex> lock(mutex_);
-        wake_condition_.wait_until(lock, due, [this] {
-            return !running_.load() || immediate_poll_requested_;
-        });
+    } catch (...) {
+        // This is the thread boundary: revoke the mailbox and transfer the
+        // original error to RuntimeLoop for neutral output and orderly exit.
+        std::lock_guard<std::mutex> lock(mutex_);
+        worker_failure_ = std::current_exception();
+        latest_snapshot_ = {};
+        running_.store(false);
     }
 }
 

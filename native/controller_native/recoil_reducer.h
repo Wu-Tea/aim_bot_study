@@ -2,10 +2,6 @@
 
 #include "runtime_config.h"
 #include "../pipeline_contract/control_command.h"
-#include "../recoil_native/recoil_compensation.h"
-
-#include <filesystem>
-#include <utility>
 
 namespace controller_native {
 
@@ -13,19 +9,9 @@ namespace controller_native {
 // manual stick, AI proposal and pre-recoil T.
 class RecoilReducer {
 public:
-    explicit RecoilReducer(GamepadRecoilConfig config = {})
-        : policy_(std::move(config)) {}
+    explicit RecoilReducer(const GamepadRecoilConfig& config = {});
 
-    void reset() { policy_.reset(); }
-    bool load_profile_directory(const std::filesystem::path& directory) {
-        return policy_.load_profile_directory(directory);
-    }
-    bool load_calibration_directory(const std::filesystem::path& directory) {
-        return policy_.load_calibration_directory(directory);
-    }
-    void set_recognizer_state_path(const std::filesystem::path& path) {
-        policy_.set_recognizer_state_path(path);
-    }
+    void reset() {}
 
     pipeline_contract::RecoilContribution reduce(
         bool effective_fire,
@@ -34,7 +20,10 @@ public:
         pipeline_contract::EventSequence cause_event = {});
 
 private:
-    recoil_native::RecoilCompensationPolicy policy_;
+    // Production recoil has no file-backed profile/recognizer dependency.
+    // Legacy playback remains an offline library, never a live control mode.
+    bool enabled_ = false;
+    float amount_ = 0.0f;
 };
 
 }  // namespace controller_native

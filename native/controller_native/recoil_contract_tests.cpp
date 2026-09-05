@@ -149,6 +149,7 @@ void test_recoil_profile_despike_repairs_playback_cache_only() {
     profile.samples_y = {0.0f, -12.0f, 0.0f};
 
     controller_native::GamepadRecoilConfig config;
+    config.profile_playback_enabled = true;  // Offline playback fixture only.
     config.profile_despike_enabled = true;
     config.profile_despike_threshold_px = 2.0f;
     config.profile_despike_ratio = 3.0f;
@@ -211,6 +212,7 @@ void test_recoil_profile_playback_is_deterministic_without_controller_state() {
     profile.samples_y = {0.0f, 10.0f, 20.0f};
 
     controller_native::GamepadRecoilConfig config;
+    config.profile_playback_enabled = true;  // Offline playback fixture only.
     config.profile_amount = 1.0f;
     config.profile_x_amount = 1.0f;
     config.profile_velocity_reference_ms = 10.0f;
@@ -261,6 +263,7 @@ void test_recoil_profile_playback_is_deterministic_without_controller_state() {
 
 void test_recoil_fallback_feedback_is_constant_linear_down_pull() {
     controller_native::GamepadRecoilConfig config;
+    config.profile_playback_enabled = true;  // Offline playback fixture only.
     config.profile_directory.clear();
     config.recognizer_state_path.clear();
     config.feedback_amount = 0.30f;
@@ -349,6 +352,7 @@ void test_recoil_timeline_outputs_delta_while_fire_active() {
     profile.samples_y = {0.0f, 10.0f, 20.0f};
 
     controller_native::GamepadRecoilConfig config;
+    config.profile_playback_enabled = true;  // Offline playback fixture only.
     config.profile_amount = 1.0f;
     config.profile_x_amount = 1.0f;
     config.profile_velocity_reference_ms = 10.0f;
@@ -379,6 +383,7 @@ void test_recoil_uncalibrated_y_uses_velocity_scaled_sample_delta() {
     profile.samples_y = {0.0f, 10.0f, 20.0f};
 
     controller_native::GamepadRecoilConfig config;
+    config.profile_playback_enabled = true;  // Offline playback fixture only.
     config.profile_amount = 1.0f;
     config.profile_velocity_reference_ms = 10.0f;
     config.profile_despike_enabled = false;
@@ -430,6 +435,7 @@ void test_recoil_profile_playback_uses_matching_calibration_when_available() {
     profile.samples_y = {0.0f, 10.0f};
 
     controller_native::GamepadRecoilConfig config;
+    config.profile_playback_enabled = true;  // Offline playback fixture only.
     config.profile_amount = 1.0f;
     config.profile_x_amount = 1.0f;
     config.profile_despike_enabled = false;
@@ -461,6 +467,7 @@ void test_recoil_selection_logging_reports_fallback_and_profile_once() {
     const std::filesystem::path state_path = root / "state.json";
 
     controller_native::GamepadRecoilConfig config;
+    config.profile_playback_enabled = true;  // Offline playback fixture only.
     config.selection_log_enabled = true;
     config.profile_directory = profile_dir.string();
     config.recognizer_state_path = state_path.string();

@@ -7,6 +7,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <exception>
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -64,6 +65,9 @@ private:
     float max_source_age_ms_ = 50.0f;
     std::uint64_t last_frame_id_ = 0;
     std::uint64_t last_capture_ns_ = 0;
+    std::uint64_t last_source_ns_ = 0;
+    std::uint64_t last_present_qpc_ = 0;
+    std::uint64_t last_present_frequency_ = 0;
     bool has_delivery_ = false;
 };
 
@@ -92,7 +96,9 @@ public:
     void set_user_aim_intent(const pipeline_contract::UserAimIntent& intent);
     void set_viewport(const ViewportRequest& request);
 
-    VisionServiceSnapshot latest_snapshot() const;
+    // Returns an empty snapshot when the consumer already has this sequence.
+    // Worker failures are rethrown on the consuming runtime thread.
+    VisionServiceSnapshot latest_snapshot(std::uint64_t after_sequence = 0) const;
     bool step_for_test(std::chrono::steady_clock::time_point now);
     std::chrono::steady_clock::time_point next_poll_due_for_test(
         std::chrono::steady_clock::time_point now) const;
@@ -115,6 +121,7 @@ private:
     std::chrono::steady_clock::time_point last_poll_at_{};
     bool has_last_poll_ = false;
     VisionServiceSnapshot latest_snapshot_;
+    std::exception_ptr worker_failure_;
     std::uint64_t sequence_ = 0;
     std::uint64_t aim_transition_sequence_ = 0;
     bool immediate_poll_requested_ = false;

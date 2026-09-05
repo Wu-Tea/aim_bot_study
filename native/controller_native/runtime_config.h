@@ -90,8 +90,10 @@ struct GamepadRecoilConfig {
     bool enabled = true;
     bool selection_log_enabled = true;
     bool profile_despike_enabled = true;
-    bool profile_playback_enabled = true;
-    bool native_recognizer_enabled = true;
+    // Explicit opt-in is available only to offline profile/recognizer tools.
+    // Runtime TOML/environment cannot enable either retired production path.
+    bool profile_playback_enabled = false;
+    bool native_recognizer_enabled = false;
     bool recognizer_log_enabled = false;
     std::string recognizer_game = "cod22";
     std::string profile_directory = "artifacts/recoil_profiles";
@@ -102,9 +104,8 @@ struct GamepadRecoilConfig {
     float profile_amount = 1.0f;
     float profile_x_amount = 1.0f;
     float feedback_amount = 0.20f;
-    // Target-independent fallback boundary. Weapon profiles may provide their
-    // own timeline; the fixed fallback is clamped here without reading aim,
-    // target, manual, or pre-recoil output state.
+    // Target-independent live recoil boundary. No file-backed timeline is
+    // consulted by the production reducer.
     float feedback_min_amount = 0.14f;
     float feedback_max_amount = 0.34f;
     float profile_lead_ms = 0.0f;

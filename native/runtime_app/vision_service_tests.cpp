@@ -1,12 +1,15 @@
 #include "vision_service.h"
+#include "vision_controller_adapter.h"
 #include "test_support/native_test_registry.h"
 
 #include <chrono>
+#include <cmath>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <thread>
 
 namespace {
 
@@ -321,7 +324,138 @@ void test_one_hundred_aim_transitions_never_publish_pre_aim_authority() {
 
 } // namespace
 
+namespace {
+
+class ThrowingVisionPoller final : public runtime_app::IVisionServicePoller {
+public:
+    std::atomic<bool> fail{true};
+    void set_aiming(bool) override {}
+    void set_user_aim_intent(const pipeline_contract::UserAimIntent&) override {}
+    vision_native::VisionResult poll_once() override {
+        if (fail.load()) throw std::runtime_error("injected vision worker failure");
+        vision_native::VisionResult result;
+        result.frame_id = ++frame_id_;
+        result.frame_updated = true;
+        result.aim_authority = true;
+        result.fire_authority = true;
+        result.auto_fire = true;
+        return result;
+    }
+private:
+    std::uint64_t frame_id_ = 0;
+};
+
+void test_worker_failure_is_transferred_and_stop_joins() {
+    runtime_app::VisionService service(std::make_unique<ThrowingVisionPoller>(), {});
+    service.start();
+    bool received = false;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (!received && std::chrono::steady_clock::now() < deadline) {
+        try {
+            (void)service.latest_snapshot();
+        } catch (const std::runtime_error& error) {
+            received = std::string(error.what()) == "injected vision worker failure";
+        }
+        std::this_thread::yield();
+    }
+    service.stop();
+    service.stop();
+    REQUIRE(received);
+    bool restart_rejected = false;
+    try { service.start(); }
+    catch (const std::runtime_error&) { restart_rejected = true; }
+    REQUIRE(restart_rejected);
+}
+
+void test_mailbox_does_not_copy_an_already_consumed_sequence() {
+    auto poller = std::make_unique<FakeVisionPoller>(std::vector<bool>{true, true});
+    runtime_app::VisionService service(std::move(poller), {});
+    REQUIRE(service.step_for_test(at_ms(0)));
+    const auto initial = service.latest_snapshot();
+    REQUIRE(initial.sequence != 0);
+    const auto unchanged = service.latest_snapshot(initial.sequence);
+    REQUIRE(unchanged.sequence == 0);
+    REQUIRE(unchanged.result.detections.empty());
+    REQUIRE(service.step_for_test(at_ms(50)));
+    REQUIRE(service.latest_snapshot(initial.sequence).sequence > initial.sequence);
+}
+
+void test_worker_failure_revokes_a_previously_authoritative_mailbox() {
+    auto poller = std::make_unique<ThrowingVisionPoller>();
+    auto* raw = poller.get();
+    raw->fail.store(false);
+    runtime_app::VisionService service(std::move(poller), {});
+    service.set_aiming(true);
+    service.start();
+    runtime_app::VisionServiceSnapshot published;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (published.sequence == 0 && std::chrono::steady_clock::now() < deadline) {
+        published = service.latest_snapshot();
+        std::this_thread::yield();
+    }
+    raw->fail.store(true);
+    bool revoked = false;
+    while (!revoked && std::chrono::steady_clock::now() < deadline) {
+        try { (void)service.latest_snapshot(published.sequence); }
+        catch (const std::runtime_error&) { revoked = true; }
+        std::this_thread::yield();
+    }
+    service.stop();
+    REQUIRE(published.result.aim_authority && published.result.fire_authority);
+    REQUIRE(revoked);
+}
+
+void test_delivery_gate_uses_source_image_age_and_identity() {
+    runtime_app::VisionDeliveryGate gate(50.0f);
+    vision_native::VisionResult result;
+    result.frame_updated = true;
+    result.frame_id = 1;
+    result.captured_at_ns = 995'000'000;
+    result.result_at_ns = 999'000'000;
+    result.source_present_available = true;
+    result.source_present_qpc = 800'000;
+    result.source_present_qpc_frequency = 1'000'000;
+    result.source_present_steady_available = true;
+    result.source_present_steady_ns = 800'000'000;
+    result.accumulated_frames = 1;
+    REQUIRE(!gate.accept(result, 1'000'000'000));
+    result.source_present_steady_ns = 990'000'000;
+    result.source_present_qpc = 990'000;
+    REQUIRE(gate.accept(result, 1'000'000'000));
+    ++result.frame_id;
+    result.captured_at_ns += 1'000'000;
+    REQUIRE(!gate.accept(result, 1'000'000'000));
+    result.source_present_steady_ns += 1'000'000;
+    // Calibration jitter must not turn the same QPC image into a new one.
+    REQUIRE(!gate.accept(result, 1'000'000'000));
+    ++result.source_present_qpc;
+    REQUIRE(gate.accept(result, 1'000'000'000));
+    const auto snapshot = runtime_app::adapt_vision_result(result);
+    REQUIRE(std::fabs(snapshot.capture_time_seconds - 0.991) < 1e-9);
+    REQUIRE(result.captured_at_ns == 996'000'000); // Copy telemetry is preserved.
+    ++result.frame_id;
+    ++result.captured_at_ns;
+    result.source_present_steady_ns = 1'010'000'000;
+    REQUIRE(!gate.accept(result, 1'000'000'000));
+    result.source_present_steady_available = false;
+    REQUIRE(!gate.accept(result, 1'000'000'000));
+
+    gate.reset();
+    result.source_present_steady_available = true;
+    result.source_present_steady_ns = 951'000'000;
+    result.source_present_calibration_uncertainty_ns = 2'000'000;
+    REQUIRE(!gate.accept(result, 1'000'000'000));
+    result.source_present_calibration_uncertainty_ns = 500'000;
+    REQUIRE(gate.accept(result, 1'000'000'000));
+}
+
+}  // namespace
+
 void register_vision_service_tests(native_test::Registry& registry) {
+    registry.add_case("BaseRuntimeFreshness", "worker_failure_transferred_and_joined", test_worker_failure_is_transferred_and_stop_joins);
+    registry.add_case("BaseRuntimeFreshness", "worker_failure_revokes_authority", test_worker_failure_revokes_a_previously_authoritative_mailbox);
+    registry.add_case("BaseRuntimeFreshness", "mailbox_skips_consumed_sequence", test_mailbox_does_not_copy_an_already_consumed_sequence);
+    registry.add_case("BaseRuntimeFreshness", "delivery_uses_source_image_age_and_identity", test_delivery_gate_uses_source_image_age_and_identity);
     registry.add_case("BaseRuntimeFreshness", "keepwarm_polls_idle_and_active", test_keepwarm_polls_while_idle_and_active);
     registry.add_case("BaseRuntimeFreshness", "no_update_does_not_replay_snapshot", test_no_update_does_not_replay_last_snapshot);
     registry.add_case("BaseRuntimeFreshness", "aim_release_no_update_has_no_authority", test_aim_release_no_update_has_no_authority);

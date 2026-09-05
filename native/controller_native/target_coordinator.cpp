@@ -208,7 +208,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     double now_seconds,
     const TargetControlFeedback& feedback) noexcept {
     const float dt = last_update_seconds_ > 0.0
-        ? static_cast<float>(std::clamp(now_seconds - last_update_seconds_, 0.001, 0.1))
+        ? static_cast<float>(std::clamp(now_seconds - last_update_seconds_, 0.0, 0.1))
         : 0.0f;
     ads_lifecycle_reducer_.begin_tick();
     const auto& ads = ads_lifecycle_reducer_.snapshot();

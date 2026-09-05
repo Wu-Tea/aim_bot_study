@@ -85,6 +85,13 @@ function(cod_native_defaults target)
     target_compile_options(${target} PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
 endfunction()
 
+# Explicit hardware gate: requires a CUDA-capable D3D11 adapter, never ViGEm
+# or a live game. Not part of portable/CPU-only CTest runs.
+add_executable(cod_native_cuda_d3d11_interop_tests EXCLUDE_FROM_ALL
+    src/cuda_d3d11_interop_tests.cpp)
+cod_native_defaults(cod_native_cuda_d3d11_interop_tests)
+target_link_libraries(cod_native_cuda_d3d11_interop_tests PRIVATE CUDA::cudart d3d11 dxgi)
+
 function(cod_native_add_offline_test target test_name)
     add_executable(${target} ${ARGN})
     cod_native_defaults(${target})
@@ -136,11 +143,6 @@ add_library(controller_native_core STATIC
     ../tracking_native/tracker_authority.cpp
     ../controller_native/runtime_config.cpp
     ../controller_native/auto_fire_gate.cpp
-    ../controller_native/recoil_profile.cpp
-    ../controller_native/recoil_calibration.cpp
-    ../controller_native/recoil_compensation.cpp
-    ../recoil_native/recoil_compensation.cpp
-    ../recoil_native/recoil_visual_model.cpp
     ../controller_native/output_diagnostics.cpp
     ../controller_native/output_composer.cpp
     ../controller_native/native_gamepad_controller.cpp
@@ -165,6 +167,15 @@ target_include_directories(controller_native_core PUBLIC
 target_compile_definitions(controller_native_core PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
 target_compile_options(controller_native_core PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
 target_link_libraries(controller_native_core PUBLIC windowsapp)
+
+# Retired file-backed recoil tools are isolated from the production link graph.
+add_library(recoil_profile_tools STATIC
+    ../controller_native/recoil_profile.cpp
+    ../controller_native/recoil_calibration.cpp
+    ../controller_native/recoil_compensation.cpp
+    ../recoil_native/recoil_compensation.cpp
+    ../recoil_native/recoil_visual_model.cpp)
+cod_native_defaults(recoil_profile_tools)
 
 execute_process(
     COMMAND git rev-parse HEAD
@@ -203,7 +214,6 @@ add_executable(cod_native_runtime
     ../replay_native/replay_reader.cpp
     ../replay_native/replay_metrics.cpp
     ../runtime_app/vision_controller_adapter.cpp
-    ../controller_native/weapon_recognizer.cpp
     ../controller_native/virtual_gamepad.cpp
     ../controller_native/io_recovery_policy.cpp
     ../controller_native/xinput_reader.cpp
@@ -376,7 +386,7 @@ target_sources(cod_native_functional_tests PRIVATE
     ../runtime_app/telemetry_collectors.cpp)
 cod_native_defaults(cod_native_functional_tests)
 target_link_libraries(cod_native_functional_tests PRIVATE
-    controller_native_core advapi32)
+    controller_native_core recoil_profile_tools advapi32)
 foreach(_suite IN ITEMS
     FeatureDynamicViewport
     FeatureRecoilAndWeapon

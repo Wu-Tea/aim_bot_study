@@ -422,10 +422,10 @@ void apply_gamepad_recoil_value(
     } else if (key == "profile_despike_enabled") {
         config.profile_despike_enabled = parse_bool_value(value, config.profile_despike_enabled);
     } else if (key == "profile_playback_enabled") {
-        config.profile_playback_enabled =
-            parse_bool_value(value, config.profile_playback_enabled);
+        // Accepted for old config files, but retired from the live runtime.
+        config.profile_playback_enabled = false;
     } else if (key == "native_recognizer_enabled") {
-        config.native_recognizer_enabled = parse_bool_value(value, config.native_recognizer_enabled);
+        config.native_recognizer_enabled = false;
     } else if (key == "recognizer_log_enabled") {
         config.recognizer_log_enabled = parse_bool_value(value, config.recognizer_log_enabled);
     } else if (key == "recognizer_game") {
@@ -487,12 +487,7 @@ void apply_recoil_environment_overrides(GamepadRecoilConfig& config) {
             config.recognizer_game = game;
         }
     }
-    if (const char* native_recognizer = std::getenv("RECOIL_NATIVE_RECOGNIZER")) {
-        if (native_recognizer[0] != '\0') {
-            config.native_recognizer_enabled =
-                parse_bool_value(native_recognizer, config.native_recognizer_enabled);
-        }
-    }
+    // RECOIL_NATIVE_RECOGNIZER is retired and intentionally inert.
     if (const char* recognizer_log = std::getenv("RECOIL_RECOGNIZER_LOG")) {
         if (recognizer_log[0] != '\0') {
             config.recognizer_log_enabled =
@@ -763,7 +758,6 @@ void mark_environment_sources(RuntimeConfig& config) {
     mark("ENABLE_RECOIL_RUNTIME", "gamepad.recoil.enabled");
     mark("RECOIL_ENABLED", "gamepad.recoil.enabled");
     mark("RECOIL_GAME", "gamepad.recoil.recognizer_game");
-    mark("RECOIL_NATIVE_RECOGNIZER", "gamepad.recoil.native_recognizer_enabled");
     mark("RECOIL_RECOGNIZER_LOG", "gamepad.recoil.recognizer_log_enabled");
     mark("RECOIL_RECOGNIZER_FPS", "gamepad.recoil.recognizer_fps");
     mark("RECOIL_PROFILE_DIR", "gamepad.recoil.profile_directory");

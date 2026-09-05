@@ -1,4 +1,5 @@
 #include "vision_native/dxgi_capture.h"
+#include "vision_native/capture_geometry.h"
 
 #include <d3d11.h>
 #include <dxgi1_2.h>
@@ -93,6 +94,9 @@ struct DxgiRoiCapture::Impl {
             qpc_frequency = static_cast<uint64_t>(
                 qpc_frequency_value.QuadPart);
         }
+        if (qpc_frequency == 0) {
+            throw std::runtime_error("DXGI source presentation clock is unavailable");
+        }
         initialize();
     }
 
@@ -146,7 +150,7 @@ struct DxgiRoiCapture::Impl {
                 current_output.Reset();
             }
 
-            if (first_attached) {
+            if (first_attached && requested_output_index < 0) {
                 adapter = current_adapter;
                 output = first_attached;
                 selected_adapter_index = static_cast<int>(adapter_idx);
@@ -160,16 +164,21 @@ struct DxgiRoiCapture::Impl {
     }
 
     void set_output_geometry(const DXGI_OUTPUT_DESC& desc) {
-        const RECT& rect = desc.DesktopCoordinates;
-        output_left = rect.left;
-        output_top = rect.top;
-        output_width = rect.right - rect.left;
-        output_height = rect.bottom - rect.top;
-        if (requested_width > output_width || requested_height > output_height) {
-            throw std::runtime_error("requested ROI is larger than the selected output");
+        if (!desc.AttachedToDesktop ||
+            (desc.Rotation != DXGI_MODE_ROTATION_IDENTITY &&
+             desc.Rotation != DXGI_MODE_ROTATION_UNSPECIFIED)) {
+            throw std::runtime_error("DXGI output is detached or requires unsupported image rotation");
         }
-        roi_left = (output_width - requested_width) / 2;
-        roi_top = (output_height - requested_height) / 2;
+        const RECT& rect = desc.DesktopCoordinates;
+        const auto geometry = centered_capture_geometry(
+            requested_width, requested_height, rect.left, rect.top,
+            rect.right - rect.left, rect.bottom - rect.top);
+        output_left = geometry.output_left;
+        output_top = geometry.output_top;
+        output_width = geometry.output_width;
+        output_height = geometry.output_height;
+        roi_left = geometry.roi_left;
+        roi_top = geometry.roi_top;
     }
 
     void create_device() {
@@ -219,6 +228,9 @@ struct DxgiRoiCapture::Impl {
     void rebuild_duplication() {
         duplication.Reset();
         output1.Reset();
+        // Refresh selection and desktop geometry together. The fixed-size ROI
+        // texture/device stay alive, preserving their CUDA registration.
+        select_output();
         create_duplication();
     }
 
@@ -272,8 +284,26 @@ struct DxgiRoiCapture::Impl {
 
         bool frame_acquired = true;
         try {
+            if (!dxgi_has_new_desktop_image(
+                    frame_info.LastPresentTime.QuadPart, frame_info.AccumulatedFrames)) {
+                duplication->ReleaseFrame();
+                frame_acquired = false;
+                return empty_metadata(acquire_elapsed, acquire_begin_ns, acquire_complete_ns);
+            }
+
             ComPtr<ID3D11Texture2D> desktop_texture;
             check_hresult(desktop_resource.As(&desktop_texture), "IDXGIResource texture query");
+            D3D11_TEXTURE2D_DESC desktop_desc{};
+            desktop_texture->GetDesc(&desktop_desc);
+            if (desktop_desc.Width != static_cast<UINT>(output_width) ||
+                desktop_desc.Height != static_cast<UINT>(output_height)) {
+                // A mode transition can race output selection. Rebuild once
+                // and publish no observation from mismatched geometry.
+                duplication->ReleaseFrame();
+                frame_acquired = false;
+                rebuild_duplication();
+                return empty_metadata(acquire_elapsed, acquire_begin_ns, acquire_complete_ns);
+            }
 
             D3D11_BOX source_box{};
             source_box.left = static_cast<UINT>(roi_left);

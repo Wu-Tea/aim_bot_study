@@ -648,7 +648,61 @@ void test_unconfirmed_bodylock_keeps_conservative_safety_budget() {
 
 }  // namespace
 
+namespace {
+
+void test_desired_point_uses_wall_time_at_all_supported_cadences() {
+    float reference = 0.0f;
+    for (const int hz : {500, 1000, 2000}) {
+        controller_native::TargetCoordinator coordinator;
+        const auto intent = correcting_intent(0.0f, -0.8f);
+        auto batch = selected_frame(1, 1.0, 240.0f);
+        batch.candidates[0].box_size_px.y = 80.0f;
+        coordinator.begin_ads_epoch(1, 1.0);
+        const auto initial = coordinator.update(batch, intent, 1.0);
+        auto final = initial;
+        for (int tick = 1; tick <= hz * 30 / 1000; ++tick) {
+            final = coordinator.update(no_source_tick(), intent, 1.0 + double(tick) / hz);
+        }
+        require_true(final.target_id == initial.target_id && initial.target_id != 0,
+                     "cadence fixture lost the same target");
+        const float distance = final.aim_px.y - initial.aim_px.y;
+        if (hz == 500) reference = distance;
+        require_true(reference > 10.0f && near(distance, reference, 0.002f),
+                     "desired-point integration changes with controller cadence");
+    }
+}
+
+void test_boundary_exit_uses_wall_time_at_all_supported_cadences() {
+    double reference = 0.0;
+    for (const int hz : {500, 1000, 2000}) {
+        controller_native::TargetCoordinator coordinator;
+        const auto intent = correcting_intent(0.0f, -0.8f);
+        coordinator.begin_ads_epoch(1, 1.0);
+        coordinator.update(selected_frame(1, 1.0, 240.0f), intent, 1.0);
+        double exit_ms = 0.0;
+        for (int tick = 1; tick <= hz; ++tick) {
+            const double now = 1.0 + double(tick) / hz;
+            const auto batch = (tick % (hz / 100)) == 0
+                ? selected_frame(1 + tick / (hz / 100), now, 240.0f)
+                : no_source_tick();
+            const auto plan = coordinator.update(batch, intent, now);
+            if (plan.manual_exit_requested) {
+                exit_ms = (now - 1.0) * 1000.0;
+                break;
+            }
+        }
+        if (hz == 500) reference = exit_ms;
+        require_true(exit_ms > 100.0 && exit_ms < 250.0 &&
+                         std::fabs(exit_ms - reference) <= 2.001,
+                     "manual boundary hold duration changes with controller cadence");
+    }
+}
+
+}  // namespace
+
 void register_target_coordinator_tests(native_test::Registry& registry) {
+    registry.add_case("BaseBodyLock", "desired_point_wall_time_across_cadences", test_desired_point_uses_wall_time_at_all_supported_cadences);
+    registry.add_case("BaseBodyLock", "boundary_exit_wall_time_across_cadences", test_boundary_exit_uses_wall_time_at_all_supported_cadences);
     registry.add_case("BaseBodyLock", "no_source_tick_reuses_immutable_plan", test_no_source_tick_reuses_immutable_source_plan);
     registry.add_case("BaseBodyLock", "fresh_no_selection_drops_authority", test_fresh_no_selection_drops_generic_authority);
     registry.add_case("BaseBodyLock", "fresh_empty_frame_drops_target", test_fresh_empty_frame_drops_target);

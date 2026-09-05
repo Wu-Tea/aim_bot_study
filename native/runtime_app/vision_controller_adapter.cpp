@@ -1,4 +1,5 @@
 #include "vision_controller_adapter.h"
+#include "vision_native/observation_time.h"
 
 #include <algorithm>
 #include <cmath>
@@ -115,7 +116,7 @@ controller_native::ControllerVisionSnapshot adapt_vision_result(
     snapshot.enemy_identity_confirmed = result.enemy_identity_confirmed;
     snapshot.user_intent = result.user_aim_intent;
     snapshot.capture_time_seconds = ns_to_seconds(
-        result.captured_at_ns != 0 ? result.captured_at_ns : result.result_at_ns);
+        vision_native::observation_time_ns(result));
     snapshot.ready_time_seconds = ns_to_seconds(
         result.result_at_ns != 0 ? result.result_at_ns : result.captured_at_ns);
     if (result.has_selected_detection &&

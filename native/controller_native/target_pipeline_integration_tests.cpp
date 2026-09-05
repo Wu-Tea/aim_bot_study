@@ -894,6 +894,77 @@ void test_current_chain_outputs_remain_finite_and_bounded() {
 
 }  // namespace
 
+namespace {
+
+void test_decision_clock_accepts_capture_after_input_sample() {
+    for (const double capture : {0.998, 1.002}) {
+        double now = 1.0;
+        NativeGamepadController controller(current_config(), &now);
+        const auto& sample = controller.begin_tick(physical_input(), 1);
+        auto snapshot = observed_snapshot(1, capture, 20.0f, 0.0f, 41, 7);
+        snapshot.ready_time_seconds = 1.005;
+        now = 1.006;
+        controller.submit_vision_snapshot(snapshot);
+        const auto output = controller.build_output_from_sampled_input();
+        require(controller.last_target_plan().target_id != 0,
+                "a capture completed after input sampling lost target authority");
+        require(output.right_x > 0.0f,
+                "fresh post-sample capture did not produce same-tick correction");
+        require(controller.last_acquisition_trace().plan_decision_ns >= 1'006'000'000ull,
+                "plan decision time precedes actual consumption");
+        require(sample.now_seconds == 1.0,
+                "decision clock overwrote the physical input event time");
+        now += 0.001;
+        const auto released = controller.build_output(physical_input(0, 0, false));
+        require_near(released.right_x, 0.0f, 1e-6f,
+                     "decision clock change retained authority after physical release");
+    }
+}
+
+void test_decision_clock_still_rejects_stale_and_future_capture() {
+    for (const double capture : {0.900, 1.010}) {
+        double now = 1.0;
+        NativeGamepadController controller(current_config(), &now);
+        controller.begin_tick(physical_input(), 1);
+        controller.submit_vision_snapshot(
+            observed_snapshot(1, capture, 20.0f, 0.0f, 41, 7));
+        now = 1.006;
+        controller.build_output_from_sampled_input();
+        require(controller.last_target_plan().target_id == 0,
+                "invalid source time acquired target authority");
+    }
+}
+
+void test_production_recoil_never_opens_retired_profile_paths() {
+    auto config = current_config();
+    config.recoil.enabled = true;
+    config.recoil.profile_playback_enabled = true;
+    config.recoil.native_recognizer_enabled = true;
+    config.recoil.feedback_amount = 0.23f;
+    // A regular source file is deliberately not a profile directory. The
+    // retired implementation tries to enumerate it during construction.
+    config.recoil.profile_directory = __FILE__;
+    config.recoil.calibration_directory = __FILE__;
+    config.recoil.recognizer_state_path = __FILE__;
+    double now = 1.0;
+    NativeGamepadController controller(config, &now);
+    auto physical = physical_input(0, 0, false);
+    physical.right_trigger = 1.0f;
+    for (int tick = 0; tick < 100; ++tick) {
+        now += 0.001;
+        controller.build_output(physical);
+        require_near(controller.last_output_components().recoil_stick.y,
+                     -0.23f, 1e-6f, "retired profile changed live recoil output");
+    }
+    physical.right_trigger = 0.0f;
+    now += 0.001;
+    controller.build_output(physical);
+    require_near(controller.last_output_components().recoil_stick.y, 0.0f,
+                 1e-6f, "recoil remained active after effective fire ended");
+}
+
+}  // namespace
+
 void register_target_pipeline_integration_tests(
     native_test::Registry& registry) {
     registry.add_case("BaseEndToEnd", "no_target_is_physical_passthrough", test_no_target_is_physical_passthrough);
@@ -903,6 +974,9 @@ void register_target_pipeline_integration_tests(
     registry.add_case("BaseEndToEnd", "bodylock_cancellation_is_bounded", test_bodylock_cancellation_is_confidence_bounded_and_never_reverses);
     registry.add_case("BaseEndToEnd", "downward_manual_and_fire_are_native", test_downward_manual_has_more_authority_and_fire_is_native);
     registry.add_case("BaseEndToEnd", "recoil_is_independent_final_stage", test_recoil_is_an_independent_final_stage_output);
+    registry.add_case("BaseEndToEnd", "decision_clock_accepts_post_sample_capture", test_decision_clock_accepts_capture_after_input_sample);
+    registry.add_case("BaseEndToEnd", "decision_clock_rejects_invalid_capture", test_decision_clock_still_rejects_stale_and_future_capture);
+    registry.add_case("BaseEndToEnd", "production_recoil_ignores_retired_paths", test_production_recoil_never_opens_retired_profile_paths);
     registry.add_case("BaseEndToEnd", "track_cooperates_per_axis", test_track_cooperates_per_axis_without_spending_downward_authority);
     registry.add_case("BaseEndToEnd", "capture_brakes_alignment_allows_escape", test_capture_brakes_alignment_but_allows_opposing_escape);
     registry.add_case("BaseEndToEnd", "small_filtered_input_has_no_second_deadzone", test_small_filtered_input_moves_d_without_a_second_deadzone);
