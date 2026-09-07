@@ -73,6 +73,7 @@ void TargetGeometryReducer::adopt(
 
 void DesiredPointReducer::reset() noexcept {
     state_ = {};
+    approach_selected_ = false;
     boundary_seconds_x_ = 0.0f;
     boundary_seconds_y_ = 0.0f;
 }
@@ -90,7 +91,8 @@ void DesiredPointReducer::adopt_geometry(
         state_.normalized = normalized_in_region(
             geometry.source_position, geometry.aim_region);
         state_.user_active = false;
-    } else if (!cue_continuation && !state_.user_active) {
+        approach_selected_ = false;
+    } else if (!cue_continuation && !state_.user_active && !approach_selected_) {
         state_.normalized = normalized_in_region(
             geometry.source_position, geometry.aim_region);
     }
@@ -99,7 +101,49 @@ void DesiredPointReducer::adopt_geometry(
         ? pipeline_contract::DesiredPointSource::UserCorrected
         : cue_continuation
             ? pipeline_contract::DesiredPointSource::CueCarried
-            : pipeline_contract::DesiredPointSource::VisionDefault;
+            : approach_selected_
+                ? pipeline_contract::DesiredPointSource::ApproachSelected
+                : pipeline_contract::DesiredPointSource::VisionDefault;
+}
+
+void DesiredPointReducer::select_acquisition_point(
+    const TargetGeometrySnapshot& geometry,
+    pipeline_contract::Vec2f crosshair,
+    float arrival_radius_px) noexcept {
+    if (!geometry.available ||
+        geometry.source != pipeline_contract::AimRegionSource::VisionGeometry ||
+        !pipeline_contract::finite(crosshair) || state_.user_active) {
+        return;
+    }
+
+    // A person box has no head/neck axis. Keep x source-owned and restrict
+    // automatic travel savings to a small vertical segment near its default.
+    // The selector's usual 22%-58% region makes this 40% -> 36.4% of body
+    // height, not the anatomically unsupported 25% head/neck shortcut.
+    // These are conservative geometric limits, not a silhouette guarantee.
+    constexpr float kUpperTravelRegionRatio = 0.10f;
+    constexpr float kCentralApproachHalfWidthRatio = 0.25f;
+    auto point = geometry.source_position;
+    const auto& region = geometry.aim_region;
+    const bool central_approach = std::fabs(crosshair.x - point.x) <=
+        region.w * kCentralApproachHalfWidthRatio;
+    if (central_approach && crosshair.y < point.y) {
+        // D selection must not manufacture arrival or erase a pending center
+        // crossing. Reserve twice the existing completion radius for actual
+        // approach/braking; close acquisitions keep their original point.
+        const float remaining_approach = std::max(0.0f,
+            point.y - crosshair.y - 2.0f * std::max(1.0f, arrival_radius_px));
+        const float upper_y = std::max(
+            region.y, point.y - std::min(
+                region.h * kUpperTravelRegionRatio, remaining_approach));
+        point.y = std::clamp(crosshair.y, upper_y, point.y);
+    }
+    approach_selected_ = point.y < geometry.source_position.y;
+    state_.normalized = normalized_in_region(point, region);
+    state_.position = point_in_region(state_.normalized, region);
+    state_.source = approach_selected_
+        ? pipeline_contract::DesiredPointSource::ApproachSelected
+        : pipeline_contract::DesiredPointSource::VisionDefault;
 }
 
 void DesiredPointReducer::reduce_manual(

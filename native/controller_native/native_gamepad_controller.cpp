@@ -90,6 +90,8 @@ const char* desired_point_source_name(
         return "user_corrected";
     case pipeline_contract::DesiredPointSource::CueCarried:
         return "cue_carried";
+    case pipeline_contract::DesiredPointSource::ApproachSelected:
+        return "approach_selected";
     case pipeline_contract::DesiredPointSource::None:
         return "none";
     }

@@ -93,6 +93,8 @@ enum class DesiredPointSource : unsigned char {
     VisionDefault,
     UserCorrected,
     CueCarried,
+    // Append to preserve existing wire-visible ordinals.
+    ApproachSelected,
 };
 
 struct TargetPlan {

@@ -2,6 +2,7 @@
 #include "test_support/native_test_registry.h"
 
 #include <cmath>
+#include <fstream>
 #include <iostream>
 #include <stdexcept>
 
@@ -698,9 +699,110 @@ void test_boundary_exit_uses_wall_time_at_all_supported_cadences() {
     }
 }
 
+// Geometry-policy fixture, not an anatomical or game-plant replay. The box
+// matches the selector's 40% point and 22%-58% vertical aim region.
+pipeline_contract::VisionObservationBatch approach_frame(
+    std::uint64_t frame, double now, float x, float y,
+    std::uint64_t generation = 7) {
+    auto batch = selected_frame(frame, now, x, y, 41, generation);
+    auto& c = batch.candidates[0];
+    c.body_box_px = {x - 30.0f, y - 80.0f, 60.0f, 200.0f};
+    c.box_size_px = {60.0f, 200.0f};
+    c.aim_region_px = {x - 16.8f, y - 36.0f, 33.6f, 72.0f};
+    return batch;
+}
+
+void test_bounded_acquisition_point_geometry(const native_test::TestContext& context) {
+    const auto intent = ads_intent();
+    controller_native::TargetCoordinator above;
+    above.begin_ads_epoch(1, 1.0);
+    const auto first = above.update(approach_frame(1, 1.0, 240, 260), intent, 1.0);
+    if (first.target_id == 0 || first.mode != pipeline_contract::ControlMode::AdsAcquire ||
+        !first.direct_person_observation || !first.has_aim_region) {
+        native_test::invalid_fixture("above-entry target was not admitted with fresh geometry");
+    }
+    const float saved = first.source_aim_px.y - first.aim_px.y;
+    const auto idle = above.update(no_source_tick(), intent, 1.001);
+    // Camera movement places the chosen D on the crosshair. It must not cause
+    // a second downward leg back to the source-default chest/abdomen point.
+    // Freeze the camera trajectory before candidate output: the selector's
+    // 72px region permits a 7.2px conservative offset in this fixture.
+    const float centered_source_y = 215.2f;
+    auto landed = above.update(approach_frame(2, 1.01, 240, centered_source_y), intent, 1.01);
+    for (int i = 3; i <= 9; ++i) {
+        const double now = 1.0 + (i - 1) * .01;
+        landed = above.update(approach_frame(i, now, 240, centered_source_y), intent, now);
+    }
+    auto cue = approach_frame(10, 1.09, 240, centered_source_y);
+    cue.selector_cue_continuation = true;
+    cue.preferred_source_id = 0;
+    cue.candidates[0].source_id = 0;
+    cue.candidates[0].cue_confidence = .9f;
+    cue.candidates[0].aim_region_source = pipeline_contract::AimRegionSource::CueTranslated;
+    const auto carried = above.update(cue, intent, 1.09);
+    const auto restored = above.update(approach_frame(11, 1.10, 240, centered_source_y), intent, 1.10);
+    const auto corrected = above.update(approach_frame(12, 1.11, 240, centered_source_y),
+        correcting_intent(0, -.2f), 1.11);
+    const auto replaced = above.update(approach_frame(13, 1.12, 240, 180, 8), intent, 1.12);
+
+    const auto control = [&](float x, float y, bool fallback) {
+        controller_native::TargetCoordinator coordinator;
+        coordinator.begin_ads_epoch(1, 2.0);
+        auto b = approach_frame(1, 2.0, x, y);
+        if (fallback) b.candidates[0].aim_region_source =
+            pipeline_contract::AimRegionSource::BodyBoxFallback;
+        const auto p = coordinator.update(b, intent, 2.0);
+        if (p.target_id == 0 || !p.direct_person_observation)
+            native_test::invalid_fixture("counterfactual target was not admitted");
+        return p;
+    };
+    const auto below = control(240, 156, false);
+    const auto left = control(280, 208, false);
+    const auto right = control(200, 208, false);
+    const auto diagonal = control(280, 260, false);
+    const auto fallback = control(240, 260, true);
+    if (carried.lifecycle != pipeline_contract::TargetLifecycle::CueContinuation ||
+        restored.target_id != first.target_id || replaced.target_id == first.target_id) {
+        native_test::invalid_fixture("cue/identity controls did not execute their intended branches");
+    }
+    std::ofstream report(context.artifact_path("bounded-acquisition-point.json"));
+    report << "{\"trigger_admitted\":true,\"source_y\":" << first.source_aim_px.y
+        << ",\"selected_y\":" << first.aim_px.y << ",\"saved_vertical_px\":" << saved
+        << ",\"landed_error_y\":" << landed.error_px.y
+        << ",\"landed_bodylock\":" << (landed.mode == pipeline_contract::ControlMode::BodyLockFollow)
+        << ",\"cue_error_y\":" << carried.error_px.y
+        << ",\"restored_error_y\":" << restored.error_px.y
+        << ",\"manual_y_delta\":" << corrected.aim_px.y - restored.aim_px.y
+        << ",\"replacement_y\":" << replaced.aim_px.y
+        << ",\"below_y\":" << below.aim_px.y << ",\"left_y\":" << left.aim_px.y
+        << ",\"right_y\":" << right.aim_px.y << ",\"diagonal_y\":" << diagonal.aim_px.y
+        << ",\"fallback_y\":" << fallback.aim_px.y << "}\n";
+    report.close();
+    require_true(saved >= 1.0f && saved <= 8.0f,
+        "above-entry path must shorten within the conservative 4%-of-body budget");
+    require_true(near(first.aim_px.x, 240) && near(first.source_aim_px.y, 260) &&
+        near(first.velocity_px_per_sec.y, 0), "automatic D selection must not rewrite source geometry/motion");
+    require_true(near(idle.aim_px.y, first.aim_px.y), "no-source tick changed chosen point");
+    require_true(near(landed.error_px.y, 0) && landed.target_id == first.target_id &&
+        landed.mode == pipeline_contract::ControlMode::BodyLockFollow,
+        "landing must hand off without a second downward pull");
+    require_true(carried.lifecycle == pipeline_contract::TargetLifecycle::CueContinuation &&
+        near(carried.error_px.y, 0) && near(restored.error_px.y, 0),
+        "cue/fresh transitions recentered automatic D");
+    require_true(corrected.aim_px.y > restored.aim_px.y &&
+        corrected.desired_point_source == pipeline_contract::DesiredPointSource::UserCorrected,
+        "automatic D blocked deliberate manual correction");
+    require_true(replaced.target_id != first.target_id && near(replaced.aim_px.y, 180),
+        "replacement inherited old automatic/manual D");
+    require_true(near(below.aim_px.y, 156) && near(left.aim_px.y, 208) &&
+        near(right.aim_px.y, 208) && near(diagonal.aim_px.y, 260) &&
+        near(fallback.aim_px.y, 260), "counterfactual changed without an upper central approach");
+}
+
 }  // namespace
 
 void register_target_coordinator_tests(native_test::Registry& registry) {
+    registry.add_context_case("BaseAds", "bounded_acquisition_point_geometry", test_bounded_acquisition_point_geometry);
     registry.add_case("BaseBodyLock", "desired_point_wall_time_across_cadences", test_desired_point_uses_wall_time_at_all_supported_cadences);
     registry.add_case("BaseBodyLock", "boundary_exit_wall_time_across_cadences", test_boundary_exit_uses_wall_time_at_all_supported_cadences);
     registry.add_case("BaseBodyLock", "no_source_tick_reuses_immutable_plan", test_no_source_tick_reuses_immutable_source_plan);

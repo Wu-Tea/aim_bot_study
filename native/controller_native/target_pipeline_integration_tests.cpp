@@ -148,6 +148,41 @@ void test_no_target_is_physical_passthrough() {
             "no-target tick did not stay in manual passthrough");
 }
 
+void test_approach_selected_point_reaches_native_output() {
+    double now = 12.0;
+    NativeGamepadController controller(current_config(), &now);
+    auto snapshot = observed_snapshot(1, now, 0, 52, 1201, 71);
+    auto& c = snapshot.candidates[0];
+    const auto source = c.aim_point_px;
+    c.has_aim_region = true;
+    c.aim_region_source = pipeline_contract::AimRegionSource::VisionGeometry;
+    c.aim_region_px = {source.x - 16.8f, source.y - 36, 33.6f, 72};
+    controller.submit_vision_snapshot(snapshot);
+    const auto output = controller.build_output(physical_input());
+    const auto first = controller.last_target_plan();
+    require(first.target_id != 0 && first.direct_person_observation &&
+        first.mode == pipeline_contract::ControlMode::AdsAcquire,
+        "fresh upper acquisition never reached native ADS output");
+    require_near(first.source_aim_px.y, source.y, .001f,
+        "native adapter changed source point");
+    require_near(first.aim_px.y, source.y - 7.2f, .001f,
+        "native adapter lost bounded approach selection");
+    require(controller.last_output_components().desired_point_source == "approach_selected",
+        "telemetry mislabeled the automatic desired point");
+    require_finite_unit_output(output, "approach acquisition");
+    require(output.right_y < 0,
+        "upper approach must still move downward toward the selected torso point");
+    now += .001;
+    (void)controller.build_output(physical_input());
+    require_near(controller.last_target_plan().aim_px.y, first.aim_px.y, .001f,
+        "native no-source tick recentered the chosen point");
+    now += .001;
+    const auto released = controller.build_output(physical_input(0, 0, false));
+    require_finite_unit_output(released, "approach scope release");
+    require_near(released.right_y, 0, .0001f,
+        "automatic point selection retained actuation after scope release");
+}
+
 void test_centered_motion_demand_retains_ai_authority() {
     controller_native::AssistControlStateMachine state_machine;
     controller_native::AssistControlStateMachineInput input;
@@ -967,6 +1002,7 @@ void test_production_recoil_never_opens_retired_profile_paths() {
 
 void register_target_pipeline_integration_tests(
     native_test::Registry& registry) {
+    registry.add_case("BaseEndToEnd", "approach_selected_point_reaches_native_output", test_approach_selected_point_reaches_native_output);
     registry.add_case("BaseEndToEnd", "no_target_is_physical_passthrough", test_no_target_is_physical_passthrough);
     registry.add_case("BaseEndToEnd", "centered_motion_retains_ai_authority", test_centered_motion_demand_retains_ai_authority);
     registry.add_case("BaseEndToEnd", "valid_point_correction_is_interpreted", test_valid_point_correction_is_interpreted_not_passthrough);

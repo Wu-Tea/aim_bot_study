@@ -87,3 +87,14 @@ One owner per identity, lifecycle, state and final-output decision. Fusion never
 owns gameplay control. Fresh Vision owns position. Aggregate benchmark scores do
 not replace incident/product gates. Keep secrets, personal media, raw telemetry
 and machine-local runtime assets out of project context.
+
+## 2026-09-07 — Bounded target addressing
+
+- User authorized geometry-only target addressing, followed by a scoped commit and documentation; another session is independently optimizing Vision.
+- DesiredPointReducer now chooses a bounded upper point once on fresh ADS admission and retains its normalized position across fresh/cue updates and ADS→BodyLock. Source association and motion geometry remain Vision-owned.
+- Standard-box selection is bounded to approximately 40%→36.4% height, with a central approach corridor and two arrival radii reserved for braking. Manual correction wins; replacement resets offsets.
+- Frozen RED→GREEN fixture: extra downward demand 7.2→0 px. Final 10 Base/Feature suites, 365 cases PASS; current workspace launcher runtime rebuilt. An intermediate telemetry rotation test failed intermittently and passed on the final run; its cause is unresolved.
+- Live feel and silhouette correctness remain unverified. No claim of neck recognition, FPS improvement, or live acceptance.
+- Implementation and reproduction: `docs/project/TARGET_ADDRESSING_GEOMETRY_20260907.md`; commit subject: `fix(controller): retain bounded approach-selected target points`.
+- Scope excludes Vision source/configuration, its experiment document, models, shared build changes, and other worktrees. No handoff or existing decision was rewritten.
+- SyncSet reviewer: `accept_draft`; user-authorized documentation, factual results separated from unverified live outcomes; raw media, telemetry and secrets excluded.

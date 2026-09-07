@@ -754,8 +754,16 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
             observations.preferred_source_id);
     }
 
-    // Only a gesture whose purpose was fixed as CorrectCurrentTarget may move
-    // D. A gesture that began while acquiring I keeps AcquireTarget through
+    // Choose bounded automatic D once, after fresh admission and geometry
+    // adoption. Never feed it into source association or source velocity, and
+    // never reselect it as the crosshair arrives or ADS hands off to BodyLock.
+    if (current_plan_admitted) {
+        desired_point_reducer_.select_acquisition_point(
+            geometry_reducer_.snapshot(), center, config_.settle_radius_px);
+    }
+
+    // Only a gesture whose purpose was fixed as CorrectCurrentTarget may
+    // manually move D. A gesture that began while acquiring I keeps AcquireTarget through
     // its release/reversal boundary and cannot rewrite first-frame geometry.
     update_desired_point_from_manual(intent, feedback.firing_recently, dt);
 

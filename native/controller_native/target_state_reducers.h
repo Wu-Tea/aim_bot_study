@@ -76,7 +76,7 @@ struct DesiredPointSnapshot {
     bool manual_exit_requested = false;
 };
 
-// Sole owner of D and the bounded user-correction lifecycle inside R.
+// Sole owner of D, bounded acquisition selection and user correction inside R.
 class DesiredPointReducer {
 public:
     explicit DesiredPointReducer(DesiredPointConfig config = {}) noexcept
@@ -88,6 +88,11 @@ public:
         bool cue_continuation,
         bool reset_desired_point,
         bool previous_geometry_available) noexcept;
+    // Called once on fresh ADS admission, never on each tracking update.
+    void select_acquisition_point(
+        const TargetGeometrySnapshot& geometry,
+        pipeline_contract::Vec2f crosshair,
+        float arrival_radius_px) noexcept;
     void reduce_manual(
         const pipeline_contract::IntentState& intent,
         const TargetGeometrySnapshot& geometry,
@@ -99,6 +104,7 @@ public:
 private:
     DesiredPointConfig config_{};
     DesiredPointSnapshot state_{};
+    bool approach_selected_ = false;
     float boundary_seconds_x_ = 0.0f;
     float boundary_seconds_y_ = 0.0f;
 };
