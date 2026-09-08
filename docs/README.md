@@ -18,13 +18,17 @@
 - [Gamepad Overview](project/GAMEPAD_OVERVIEW.md) — 手柄路径和控制组件。
 - [Vision Overview](project/VISION_OVERVIEW.md) — Python/native Vision 合约。
 - [Native Vision](project/NATIVE_VISION.md) — TensorRT 原生 Vision 的详细实现与验证。
-- [Mouse Overview](project/MOUSE_OVERVIEW.md) — 非主路径的鼠标输出说明。
+- [Mouse Overview](project/MOUSE_OVERVIEW.md) — 鼠标当前入口、状态与历史实现。
+- [Mouse 输入替代路线](project/MOUSE_ROUTE_INPUT_REPLACEMENT_20260908.md) — 物理接管、唯一虚拟输出与正式 controller 接入门禁。
 
 ## 运行、日志与调试
 
 - [Native Log Sessions](project/NATIVE_LOG_SESSIONS.md) — session manifest、fresh log 和清理方式。
 - [Native runtime telemetry](benchmarks/native-runtime-telemetry.md) — telemetry schema 与因果日志说明。
-- [Mouse Telemetry Debugging](project/MOUSE_TELEMETRY_DEBUGGING.md) — 鼠标路径诊断。
+- [Mouse 日志与压枪](project/MOUSE_DIAGNOSTICS_RECOIL_20260908.md) — 当前原生 JSONL、持续下压与慢拖回归。
+- [Mouse BodyLock 范围与曲线](project/MOUSE_BODYLOCK_RANGE_CURVE_20260908.md) — 辅助范围、加速与减速。
+- [Mouse 目标点控制](project/MOUSE_TARGET_POINT_CONTROL_20260908.md) — 小距离容差、速度补偿与验证结果。
+- [Mouse Telemetry Debugging](project/MOUSE_TELEMETRY_DEBUGGING.md) — 历史 Python CSV 诊断。
 - [Recoil Record/Replay Validation](project/RECOIL_RECORD_REPLAY_VALIDATION.md) — recoil 记录与回放验收。
 
 ## Benchmark

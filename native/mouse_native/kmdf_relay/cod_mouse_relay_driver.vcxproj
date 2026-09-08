@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{805B8F4B-54CE-4A37-9C9A-3EBB547F2512}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+    <RootNamespace>CodMouseRelayDriver</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>Driver</ConfigurationType>
+    <DriverTargetPlatform>Universal</DriverTargetPlatform>
+    <DriverType>KMDF</DriverType>
+    <PlatformToolset>WindowsKernelModeDriver10.0</PlatformToolset>
+    <TargetVersion>Windows10</TargetVersion>
+    <UseDebugLibraries>false</UseDebugLibraries>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <PropertyGroup>
+    <TargetName>cod_mouse_relay</TargetName>
+    <OutDir>$(MSBuildProjectDirectory)\..\..\vision_native\build\mouse_relay_driver\$(Configuration)\</OutDir>
+    <IntDir>$(OutDir)obj\</IntDir>
+    <EnableTestSign>false</EnableTestSign>
+    <SignMode>Off</SignMode>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <WarningLevel>Level4</WarningLevel>
+      <TreatWarningAsError>true</TreatWarningAsError>
+    </ClCompile>
+    <Link>
+      <AdditionalDependencies>vhfkm.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="cod_mouse_relay_driver.c" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="cod_mouse_relay_driver.h" />
+    <ClInclude Include="..\cod_mouse_relay_ioctl.h" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

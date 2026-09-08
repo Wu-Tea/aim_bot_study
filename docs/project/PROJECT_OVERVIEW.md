@@ -2,6 +2,8 @@
 
 Last reviewed: 2026-06-11
 
+Mouse sections and diagram updated 2026-09-08; other sections retain their earlier review scope. Current mouse operation and verification are collected in [Mouse Overview](MOUSE_OVERVIEW.md).
+
 ## Application Overview
 
 This project is a Windows-focused real-time vision and controller-assist research app for FPS-style gameplay. The normal live gamepad entry point now starts a single native C++ runtime. That runtime captures a small region around the crosshair, runs TensorRT person detection, selects one target, applies native controller logic, and writes the final output to a virtual Xbox 360 gamepad.
@@ -12,14 +14,14 @@ The system has six main moving parts:
 - `native/runtime_app/` owns the C++ live loop.
 - `native/vision_native/` produces target deltas, target authority, and auto-fire intent.
 - `native/controller_native/` owns physical gamepad input, AI/manual mixing, auto-fire, recoil compensation, and ViGEm output.
-- `main.py`, `vision/`, and `controllers/` remain for Python fallback modes, mouse/KBM modes, debug tooling, and tests.
+- `native/mouse_native/` adapts physical mouse packets to the shared native controller and one virtual HID output; Python mouse/KBM hosts remain legacy/debug paths.
 - `recoil_app/`, `vision/recoil_collection/`, and `runtime/recoil_sidecar/` record weapon recoil profiles and expose matching profiles back to the gamepad runtime.
 
 The mental model is: native vision decides "what should be aimed at"; the native gamepad controller decides "how much should the real output move while respecting current user input". Python is no longer the normal gamepad hot path.
 
 ## Current Situation
 
-The default gamepad path is now full native C++ through `scripts\launch\gamepad_start.bat`. Set `GAMEPAD_RUNTIME=python` only when the older Python gamepad path is needed for fallback or comparison. Mouse and `kbm_to_gamepad` still use their Python hosts. The recoil system has grown into a side toolchain: it recognizes weapon identity, records full-magazine recoil evidence, writes profile artifacts and plots, and can feed matching profiles into native gamepad recoil playback.
+The default gamepad path is full native C++ through `scripts\launch\gamepad_start.bat`. Set `GAMEPAD_RUNTIME=python` only when the older Python gamepad path is needed for fallback or comparison. Mouse now uses `cod_native_mouse_runtime.exe` through `mouse_start.bat`; `kbm_to_gamepad` retains its Python host. Mouse's current recoil is a configurable fixed downward count rate. The profile-recording toolchain described later belongs to the earlier review scope.
 
 This review is based on the current source tree, existing project docs, and `.agent-context/handoff.md`. The worktree contains existing uncommitted changes, so this overview is added as a standalone document rather than rewriting the older docs index.
 
@@ -63,10 +65,13 @@ flowchart TD
     NativeRuntime --> NativeVisionFull["Native vision\nDXGI + CUDA + TensorRT + selector"]
     NativeRuntime --> NativeController["Native controller\ninput + ai_aim + recoil + ViGEm"]
     NativeController --> VGPadNative["ViGEm\nvirtual Xbox 360 output"]
+    Startup --> MouseNative["cod_native_mouse_runtime.exe\nInterception capture + shared controller"]
+    MouseNative --> NativeVisionFull
+    MouseNative --> MouseHID["FakerInput HID\none final mouse report"]
 
     Main --> Factory["ControllerFactory"]
     Factory --> GamepadHost["GamepadController\nphysical pad -> virtual Xbox"]
-    Factory --> MouseHost["MouseController\nnative mouse injection"]
+    Factory --> MouseHost["Legacy Python MouseController\nadditive mouse injection"]
     Factory --> KBMHost["KBMController\nkeyboard/mouse -> virtual pad"]
 
     Main --> VisionChoice{"Python fallback vision backend"}
@@ -141,7 +146,7 @@ sequenceDiagram
 
 ## Vision Backend Flow
 
-The default C++ gamepad runtime no longer needs the Python controller boundary. The Python boundary still matters for fallback, mouse, `kbm_to_gamepad`, tests, and debug tools.
+The default C++ gamepad and mouse runtimes do not need the Python controller boundary. That boundary still matters for fallback, legacy mouse, `kbm_to_gamepad`, tests, and debug tools.
 
 ```mermaid
 flowchart LR
@@ -207,7 +212,7 @@ Python fallback plugin order:
 
 ### Mouse Mode
 
-`MouseController` keeps the physical mouse active and injects additive mouse movement through Win32 APIs. It tracks manual motion, suppresses echoes from injected movement, can emit telemetry CSV files, and uses its own mouse plugin models.
+The normal mouse launcher runs native C++: Interception captures the selected physical device, the shared controller resolves one final target, and FakerInput submits the final movement/buttons/wheel through a separate virtual mouse. Configuration and diagnostic JSONL are documented in [Mouse Overview](MOUSE_OVERVIEW.md). The older Python `MouseController` keeps physical input active and injects additive Win32 movement; it remains historical/debug code with a separate CSV schema.
 
 ### KBM To Gamepad Mode
 

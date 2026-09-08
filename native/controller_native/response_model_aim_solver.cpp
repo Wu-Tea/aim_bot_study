@@ -27,8 +27,13 @@ ResponseModelAimOutput solve_response_model_aim(
         0.005f, 1.0f);
     const float authority = std::clamp(request.authority, 0.0f, 1.0f);
     const float motion_weight = std::clamp(request.motion_weight, 0.0f, 2.0f);
+    const bool point_policy = request.point_tolerance_px > 0.0f;
+    const auto point_error = [&](float error) noexcept {
+        return point_policy && std::fabs(error) <= request.point_tolerance_px
+            ? 0.0f : error;
+    };
     const pipeline_contract::Vec2f control_error{
-        request.error_px.x, -request.error_px.y};
+        point_error(request.error_px.x), -point_error(request.error_px.y)};
     const pipeline_contract::Vec2f control_velocity{
         request.relative_velocity_px_per_sec.x,
         -request.relative_velocity_px_per_sec.y};
@@ -44,6 +49,21 @@ ResponseModelAimOutput solve_response_model_aim(
     const auto bound_opposing_axis = [&request](float position, float motion,
                                          bool& bound_applied) noexcept {
         constexpr float kNearCenterPositionStick = 0.12f;
+        if (request.point_tolerance_px > 0.0f) {
+            // A point tolerance is not a person-box acceptance test. Inside
+            // it, neither noisy velocity nor exact-zero feed-forward may
+            // restart the axis. Outside it, keep at least half the position
+            // correction; preserve the stronger legacy position guarantee
+            // farther from center. Motion may help, but cannot dominate D.
+            const float magnitude = std::fabs(position);
+            const float retention = std::max(0.5f,
+                smoothstep(magnitude / kNearCenterPositionStick));
+            const float limit = position * motion < 0.0f
+                ? magnitude * (1.0f - retention) : magnitude;
+            const float bounded = std::clamp(motion, -limit, limit);
+            bound_applied = bound_applied || std::fabs(bounded - motion) > 1e-6f;
+            return bounded;
+        }
         if (request.motion_is_error_rate_lookahead && position * motion >= 0.0f) {
             // Use the same position-owned neighborhood on both sides of zero.
             // The former opposing-only envelope tended to zero on approach,
@@ -102,10 +122,11 @@ ResponseModelAimOutput solve_response_model_aim(
     // the nonlinear response curve. Intersect it with the mode envelope: clear
     // evidence keeps the existing BodyLock cap, while a large no-cue error
     // cannot inflate weak evidence back into a near-full virtual stick.
+    const float authority_budget = authority * request.authority_budget_scale;
     const float max_x = std::min(
-        std::max(0.0f, request.max_force.x), authority);
+        std::max(0.0f, request.max_force.x), authority_budget);
     const float max_y = std::min(
-        std::max(0.0f, request.max_force.y), authority);
+        std::max(0.0f, request.max_force.y), authority_budget);
     if (max_x <= 0.0f) output.unclamped_stick.x = 0.0f;
     if (max_y <= 0.0f) output.unclamped_stick.y = 0.0f;
     const float normalized_x = max_x > 0.0f

@@ -18,6 +18,7 @@ enum class AutoFireBlockReason : std::uint8_t {
     StaleSource,
     ManualFire,
     ManualTakeoverGuard,
+    Disabled,
 };
 
 const char* auto_fire_block_reason_name(AutoFireBlockReason reason);

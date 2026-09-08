@@ -259,9 +259,21 @@ void test_authority_revocation_interrupts_and_resets_pulse() {
                    "reauthorization must create one new pulse");
 }
 
+void test_device_adapter_can_disable_synthetic_fire() {
+    controller_native::GamepadAutoFireConfig config;
+    config.enabled = false;
+    config.require_aim_ready = false;
+    controller_native::AutoFireGate gate(config, {});
+    const auto decision = gate.evaluate(ready_input(70.000, 1));
+    require_false(decision.should_fire, "mouse adapter must not synthesize gamepad fire");
+    require_true(decision.block_reason == controller_native::AutoFireBlockReason::Disabled,
+        "disabled device output must expose its reason");
+}
+
 }  // namespace
 
 void register_auto_fire_gate_tests(native_test::Registry& registry) {
+    registry.add_case("FeatureAutoFireAndMarker", "device_adapter_disables_fire", test_device_adapter_can_disable_synthetic_fire);
     registry.add_case("FeatureAutoFireAndMarker", "ready_frames_gate_before_firing", test_ready_frames_gate_before_firing);
     registry.add_case("FeatureAutoFireAndMarker", "ready_frames_count_unique_sequences", test_ready_frames_count_unique_vision_sequences);
     registry.add_case("FeatureAutoFireAndMarker", "stale_source_blocks_and_resets", test_stale_source_blocks_fire_and_resets_readiness);

@@ -24,7 +24,8 @@ public:
         bool fire,
         double sample_time_seconds,
         bool target_owned = false,
-        bool handover_requested = false) noexcept;
+        bool handover_requested = false,
+        float right_deadzone = 0.0f) noexcept;
 
     void reset() noexcept;
 
@@ -32,6 +33,7 @@ private:
     struct AxisState {
         float bias = 0.0f;
         float noise = 0.0f;
+        float mouse_travel = 0.0f;
     };
 
     struct StickState {
@@ -39,7 +41,8 @@ private:
         pipeline_contract::Vec2f filtered{};
     };
 
-    pipeline_contract::AxisIntentState update_axis(AxisState& state, float raw) noexcept;
+    pipeline_contract::AxisIntentState update_axis(AxisState& state, float raw,
+        float minimum_deadzone = 0.0f, float dt = 0.001f) noexcept;
     static pipeline_contract::StickPhase phase_for(
         StickState& state,
         pipeline_contract::Vec2f filtered) noexcept;
@@ -51,6 +54,7 @@ private:
     AxisState right_y_{};
     StickState left_stick_{};
     StickState right_stick_{};
+    double previous_sample_seconds_ = 0.0;
     pipeline_contract::UserAimIntentPurpose right_purpose_ =
         pipeline_contract::UserAimIntentPurpose::AcquireTarget;
 };

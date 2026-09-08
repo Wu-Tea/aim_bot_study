@@ -1,4 +1,5 @@
 #include "aim_dynamics_shaper.h"
+#include "bodylock_follow_controller.h"
 #include "test_support/native_test_registry.h"
 
 #include <cmath>
@@ -216,9 +217,87 @@ void test_non_handoff_mode_change_keeps_normal_slew() {
                  "a non-handoff mode change bypassed normal decay slew");
 }
 
+void test_mouse_bodylock_temporal_boundaries() {
+    controller_native::AimDynamicsShaperConfig config;
+    config.bodylock_accel_ms=40;config.bodylock_decel_ms=25;
+    config.bodylock_max_force={.30f,.33f};config.bodylock_authority_budget_scale=.5f;
+    for(int axis=0;axis<2;++axis) {
+        controller_native::AimDynamicsShaper shaper(config), legacy;
+        auto plan=active_plan();plan.target_id=77;plan.reliability=1;
+        const float peak=axis ? .33f:.30f;
+        const auto vector=[&](float v) { return axis ? pipeline_contract::Vec2f{0,v}:pipeline_contract::Vec2f{v,0}; };
+        const auto component=[&](pipeline_contract::Vec2f v) { return axis ? v.y:v.x; };
+        for(int i=0;i<40;++i) shaper.shape(vector(peak),{},plan,.001f);
+        float previous=peak;
+        for(int i=0;i<25;++i) {
+            const float value=component(shaper.shape(vector(-peak),{},plan,.001f));
+            require_true(value>=-1e-6f && value<=previous+1e-6f && previous-value<=peak/25+1e-5f,
+                "timed reversal must brake old direction before opposite acceleration");
+            previous=value;
+        }
+        const float opposite=component(shaper.shape(vector(-peak),{},plan,.001f));
+        require_true(opposite<0 && opposite>=-peak/40-1e-5f,"opposite motion starts with normal rise");
+        plan.aim_authority=0;
+        require_true(std::fabs(component(shaper.shape(vector(-peak),{},plan,.001f)))<1e-6f,
+            "slower braking may not prolong revoked target authority");
+        plan.aim_authority=1;
+        for(int i=0;i<40;++i) shaper.shape(vector(peak),{},plan,.001f);
+        plan.reliability=.1f;
+        require_true(std::fabs(component(shaper.shape(vector(peak),{},plan,.001f)))<=.050001f,
+            "shrinking evidence must reduce delivered force budget immediately");
+        plan.reliability=1;plan.target_id=99;
+        require_true(component(shaper.shape(vector(-peak),{},plan,.001f))>=-peak/40-1e-5f,
+            "replacement target cannot inherit the old ramp");
+        plan.lifecycle=pipeline_contract::TargetLifecycle::CueContinuation;
+        const float before=std::abs(component(shaper.current()));
+        require_true(std::abs(component(shaper.shape(vector(-peak),{},plan,.001f)))<=before+1e-6f,
+            "cue-only continuation cannot accelerate blindly");
+        shaper.reset();plan.lifecycle=pipeline_contract::TargetLifecycle::Observed;
+        plan.mode=pipeline_contract::ControlMode::AdsAcquire;
+        for(int i=0;i<15;++i) {
+            const auto a=shaper.shape(vector(1),{},plan,.001f);
+            const auto b=legacy.shape(vector(1),{},plan,.001f);
+            require_true(component(a)==component(b),"BodyLock timing must leave ADS response unchanged");
+        }
+    }
+}
+
+void test_mouse_moving_target_keeps_speed_at_zero_error() {
+    controller_native::BodylockFollowControllerConfig follow_config;
+    follow_config.max_force_x=.30f;follow_config.max_force_y=.33f;
+    follow_config.authority_budget_scale=.5f;
+    follow_config.fallback_response_px_per_stick_second=2000;
+    controller_native::BodylockFollowController follow(follow_config);
+    controller_native::AimDynamicsShaperConfig config;
+    config.bodylock_accel_ms=40;config.bodylock_decel_ms=25;
+    config.bodylock_max_force={.30f,.33f};config.bodylock_authority_budget_scale=.5f;
+    for(int axis=0;axis<2;++axis) {
+        controller_native::AimDynamicsShaper shaper(config);
+        auto plan=active_plan();plan.target_id=77;plan.reliability=1;
+        plan.response_confidence=1;plan.response_scale=2000;
+        plan.bodylock_target_motion_valid=true;
+        plan.bodylock_target_motion_px_per_sec=axis ? pipeline_contract::Vec2f{0,120}:pipeline_contract::Vec2f{120,0};
+        const auto component=[&](pipeline_contract::Vec2f v) { return axis ? -v.y:v.x; };
+        float value=0;
+        for(int i=0;i<80;++i) {
+            const auto requested=follow.compute(plan,{},.001f);
+            value=component(shaper.shape(requested,{},plan,.001f));
+            if(i>=40) require_true(std::abs(value-.06f)<1e-5f,
+                "centered moving target must retain its sustaining velocity after the ramp");
+        }
+        plan.bodylock_target_motion_px_per_sec={};
+        const float braking=component(shaper.shape(follow.compute(plan,{},.001f),{},plan,.001f));
+        require_true(braking>0 && braking<value,"target stop begins braking rather than a velocity cliff");
+        for(int i=0;i<25;++i) value=component(shaper.shape(follow.compute(plan,{},.001f),{},plan,.001f));
+        require_true(std::abs(value)<1e-6f,"stationary centered target must finish braking without drift");
+    }
+}
+
 }  // namespace
 
 void register_aim_dynamics_shaper_tests(native_test::Registry& registry) {
+    registry.add_case("BaseBodyLock", "mouse_bodylock_temporal_boundaries", test_mouse_bodylock_temporal_boundaries);
+    registry.add_case("BaseBodyLock", "mouse_moving_target_keeps_speed_at_zero_error", test_mouse_moving_target_keeps_speed_at_zero_error);
     registry.add_case("BaseBodyLock", "shaper_step_and_reversal_are_bounded", test_step_and_reversal_are_bounded);
     registry.add_case("BaseBodyLock", "shaper_reversal_discharges_before_rise", test_reversal_discharges_before_opposite_rise);
     registry.add_case("BaseBodyLock", "plan_loss_decays_without_reversal", test_plan_loss_decays_stale_force_without_reversal);

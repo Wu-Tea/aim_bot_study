@@ -43,8 +43,13 @@ not current continuation instructions.
 
 - [Gamepad Overview](GAMEPAD_OVERVIEW.md) - main hand-controller path.
 - [Vision Overview](VISION_OVERVIEW.md) - shared Python/native Vision contract.
-- [Mouse Overview](MOUSE_OVERVIEW.md) - secondary mouse-output path.
-- [Mouse Telemetry Debugging](MOUSE_TELEMETRY_DEBUGGING.md) - mouse diagnostics.
+- [Mouse Overview](MOUSE_OVERVIEW.md) - current mouse entry points and historical implementation.
+- [Mouse Input Replacement Route](MOUSE_ROUTE_INPUT_REPLACEMENT_20260908.md) - physical capture, one virtual output owner and AI runtime integration gates.
+- [Mouse Virtual Relay Desktop Acceptance](MOUSE_VIRTUAL_RELAY_DESKTOP_VERIFIED_20260908.md) - measured movement, left/right buttons, vertical wheel and normal-exit recovery.
+- [Mouse Diagnostics and Recoil](MOUSE_DIAGNOSTICS_RECOIL_20260908.md) - current JSONL logs, fixed downward recoil and slow-drag regression.
+- [Mouse BodyLock Range and Curves](MOUSE_BODYLOCK_RANGE_CURVE_20260908.md) - configurable assist range and acceleration/braking.
+- [Mouse Target Point Control](MOUSE_TARGET_POINT_CONTROL_20260908.md) - point tolerance, velocity bounds and RED/GREEN evidence.
+- [Mouse Telemetry Debugging](MOUSE_TELEMETRY_DEBUGGING.md) - historical Python CSV diagnostics.
 - [Native Log Sessions](NATIVE_LOG_SESSIONS.md) - structured session logs and
   cleanup.
 - [Recoil Record/Replay Validation](RECOIL_RECORD_REPLAY_VALIDATION.md) -

@@ -2,6 +2,29 @@
 [runtime]
 profile = "balanced" # performance | balanced | low_latency | pascal_balanced
 
+[mouse]
+dpi = 1200.0 # Actual mouse DPI; does not change the hardware setting
+sensitivity = 5.0 # In-game mouse sensitivity
+fov = 104.0 # Horizontal FOV at 16:9, in degrees; 0 < fov < 180
+ads_multiplier = 1.0 # In-game ADS sensitivity multiplier
+speed = 2.0 # AI speed, 0.5..3; does not scale free manual motion
+breakaway = 4.0 # 1..8 and >= speed
+bodylock_deadzone = 0.5 # Per-axis normalized physical rate, 0..0.9; 0 disables
+# Continue assisting the selected target inside this size-scaled base range.
+bodylock_range_px = 180.0 # 16..2048 px; 0 inherits gamepad.bodylock.activation_range_px
+# Time from zero to maximum AI speed / maximum speed to zero, elapsed-time based.
+bodylock_accel_ms = 40.0 # 1..250 ms; 0 retains shared acceleration
+bodylock_decel_ms = 25.0 # 1..250 ms; 0 retains shared braking
+bodylock_point_tolerance_px = 3.0 # per-axis target-point tolerance; >0..16, 0 restores shared motion policy
+# Positive Y is down; enabled while firing, ADS required by default.
+recoil_enabled = true
+recoil_counts_per_second = 30.0 # 0..10000; fixed rate, independent of detector FPS
+recoil_require_ads = true # false also permits hipfire while firing
+# Async per-tick JSONL, a fresh directory per run; no old logs are deleted.
+log_enabled = true
+log_directory = "runs/mouse"
+log_max_mb = 2048 # Per-session tick budget; overflow/loss is reported
+
 [runtime.vision]
 capture_width = 640
 capture_height = 512

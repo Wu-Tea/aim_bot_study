@@ -14,6 +14,8 @@ struct AdsAcquisitionControllerConfig {
     // but keeps enough travel time to avoid a near-instant close transfer;
     // authority remains unchanged after target admission.
     float arrival_horizon_seconds = 0.160f;
+    float arrival_speed = 1.0f;
+    float authority_budget_scale = 1.0f;
     float close_arrival_horizon_seconds = 0.090f;
     float close_target_size_begin = 0.18f;
     float close_target_size_full = 0.40f;

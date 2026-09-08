@@ -32,6 +32,9 @@ struct NativeControllerOutputComponents {
     bool manual_passthrough_y = true;
     bool manual_correction_x = false;
     bool manual_correction_y = false;
+    common_native::Vec2f mouse_manual_retention{1.0f, 1.0f};
+    const char* mouse_manual_conflict_x = "none";
+    const char* mouse_manual_conflict_y = "none";
     bool manual_boundary_x = false;
     bool manual_boundary_y = false;
     bool manual_exit_requested = false;

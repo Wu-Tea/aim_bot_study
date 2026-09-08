@@ -135,6 +135,9 @@ std::uint64_t seconds_to_ns(double seconds) noexcept {
 
 AdsAcquisitionControllerConfig ads_config(const GamepadRuntimeConfig& config) {
     AdsAcquisitionControllerConfig result{};
+    result.fallback_response_px_per_stick_second = config.ai_aim.adapter_response_px_per_second;
+    result.arrival_speed = config.ai_aim.adapter_ads_speed;
+    result.authority_budget_scale = config.ai_aim.adapter_force_budget_scale;
     result.max_force_x = config.ai_aim.ads_snap_max_ai_force;
     result.max_force_y = config.ai_aim.ads_snap_max_ai_force_y;
     result.arrival_horizon_seconds = std::clamp(
@@ -147,18 +150,40 @@ AdsAcquisitionControllerConfig ads_config(const GamepadRuntimeConfig& config) {
 
 BodylockFollowControllerConfig bodylock_config(const GamepadRuntimeConfig& config) {
     BodylockFollowControllerConfig result{};
+    result.fallback_response_px_per_stick_second = config.ai_aim.adapter_response_px_per_second;
+    result.authority_budget_scale = config.ai_aim.adapter_force_budget_scale;
     result.max_force_x = config.ai_aim.body_lock_max_ai_force;
     result.max_force_y = config.ai_aim.body_lock_max_ai_force_y;
     result.feedback_range_x_px = std::max(
         18.0f, config.ai_aim.body_lock_box_tolerance_px * 1.5f);
     result.feedback_range_y_px = result.feedback_range_x_px;
     result.feedforward_gain = 0.72f;
+    if (config.ai_aim.adapter_direct_mouse_manual)
+        result.bodylock_point_tolerance_px = config.ai_aim.adapter_bodylock_point_tolerance_px;
     result.response_curve = config.aim_response_curve;
     return result;
 }
 
-AimResponseEstimatorConfig ads_response_estimator_config() {
+AimResponseEstimatorConfig response_estimator_config(const GamepadRuntimeConfig& config) {
     AimResponseEstimatorConfig result{};
+    result.fallback_scale = config.ai_aim.adapter_response_px_per_second;
+    return result;
+}
+
+AimDynamicsShaperConfig dynamics_config(const GamepadRuntimeConfig& config) {
+    AimDynamicsShaperConfig result;
+    if(config.ai_aim.adapter_direct_mouse_manual) {
+        result.bodylock_accel_ms=config.ai_aim.adapter_bodylock_accel_ms;
+        result.bodylock_decel_ms=config.ai_aim.adapter_bodylock_decel_ms;
+        result.bodylock_max_force={config.ai_aim.body_lock_max_ai_force,config.ai_aim.body_lock_max_ai_force_y};
+        result.bodylock_authority_budget_scale=config.ai_aim.adapter_force_budget_scale;
+    }
+    return result;
+}
+
+AimResponseEstimatorConfig ads_response_estimator_config(const GamepadRuntimeConfig& config) {
+    AimResponseEstimatorConfig result{};
+    result.fallback_scale = config.ai_aim.adapter_response_px_per_second;
     // ADS needs accumulated evidence, but should approach a measured
     // slowdown conservatively before it is allowed to replace the established
     // response estimate used by the rest of the controller.
@@ -170,6 +195,10 @@ AimResponseEstimatorConfig ads_response_estimator_config() {
 AssistControlStateMachineConfig assist_control_config(
     const GamepadRuntimeConfig& config) {
     AssistControlStateMachineConfig result{};
+    result.bodylock_manual_weight = config.ai_aim.adapter_bodylock_manual_weight;
+    result.direct_mouse_manual = config.ai_aim.adapter_direct_mouse_manual;
+    result.mouse_bodylock_deadzone = config.ai_aim.adapter_bodylock_deadzone;
+    result.mouse_response_px_per_second = config.ai_aim.adapter_response_px_per_second;
     result.capture_settle_radius_px = std::max(
         2.0f, config.ai_aim.ads_completion_radius_px);
     result.capture_settle_fresh_frames = 2;
@@ -187,12 +216,14 @@ NativeGamepadController::NativeGamepadController(
     const double* injected_clock_seconds)
     : config_(config),
       target_coordinator_(coordinator_config(config)),
-      ads_response_estimator_(ads_response_estimator_config()),
+      aim_response_estimator_(response_estimator_config(config)),
+      ads_response_estimator_(ads_response_estimator_config(config)),
       ads_controller_(ads_config(config)),
       ads_reacquisition_reducer_({
           config.ai_aim.body_lock_activation_box_px,
           8}),
       bodylock_controller_(bodylock_config(config)),
+      dynamics_shaper_(dynamics_config(config)),
       assist_control_state_machine_(assist_control_config(config)),
       recoil_(config_.recoil),
       auto_fire_gate_(config_.auto_fire, config_.ai_aim),
@@ -496,12 +527,20 @@ const NativeControlTickPreparation& NativeGamepadController::begin_tick(
     }
     sampled_physical_ = physical;
     sampled_dt_seconds_ = dt;
+    // Noise interpretation precedes gesture onset/purpose and desired-point
+    // editing. Keep physical M intact: same-tick lifecycle loss must still
+    // return native input in the final owner. ADS/reacquisition has no deadzone.
+    const bool mouse_bodylock = config_.ai_aim.adapter_direct_mouse_manual &&
+        aiming_ && !acquisition_rearm && last_target_plan_.target_id != 0 &&
+        last_target_plan_.mode == pipeline_contract::ControlMode::BodyLockFollow &&
+        !last_output_components_.handover_requested;
     sampled_intent_ = intent_filter_.update(
         {physical.left_x, physical.left_y},
         {physical.right_x, physical.right_y},
         aiming_, manual_fire_pressed(physical), now,
         last_target_plan_.target_id != 0,
-        last_output_components_.handover_requested);
+        last_output_components_.handover_requested,
+        mouse_bodylock ? config_.ai_aim.adapter_bodylock_deadzone : 0.0f);
     has_sampled_input_ = true;
     last_tick_preparation_.tick_id = resolved_tick_id;
     last_tick_preparation_.now_seconds = now;
@@ -756,22 +795,24 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
                          last_aim_response_source_error_px_.y) /
                         interval_seconds),
                 };
-                aim_response_estimator_.update({
-                    average_stick,
-                    observed_error_rate,
-                    plan.target_id,
-                    static_cast<float>(interval_seconds),
-                    plan.reliability,
-                    // A target-only acceleration signal is not available at
-                    // this boundary. Manual/fire ambiguity is rejected by the
-                    // causally aligned command ledger instead.
-                    0.0f,
-                    aim_response_zone_weight,
-                    plan.lifecycle ==
-                        pipeline_contract::TargetLifecycle::Observed,
-                    manual_ambiguous,
-                });
-                if (plan.mode == pipeline_contract::ControlMode::AdsAcquire) {
+                if (config_.ai_aim.aim_response_learning_enabled) {
+                    aim_response_estimator_.update({
+                        average_stick,
+                        observed_error_rate,
+                        plan.target_id,
+                        static_cast<float>(interval_seconds),
+                        plan.reliability,
+                        // Manual/fire ambiguity is rejected by the causally
+                        // aligned command ledger instead of target acceleration.
+                        0.0f,
+                        aim_response_zone_weight,
+                        plan.lifecycle ==
+                            pipeline_contract::TargetLifecycle::Observed,
+                        manual_ambiguous,
+                    });
+                }
+                if (config_.ai_aim.aim_response_learning_enabled &&
+                    plan.mode == pipeline_contract::ControlMode::AdsAcquire) {
                     ads_response_estimator_.update({
                         average_stick,
                         observed_error_rate,
@@ -1047,6 +1088,9 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
         intent.right_purpose ==
             pipeline_contract::UserAimIntentPurpose::AcquireTarget;
     const auto decision = assist_control_state_machine_.update(control_input);
+    components.mouse_manual_retention = {decision.mouse_x.retention, decision.mouse_y.retention};
+    components.mouse_manual_conflict_x = mouse_manual_conflict_name(decision.mouse_x.conflict);
+    components.mouse_manual_conflict_y = mouse_manual_conflict_name(decision.mouse_y.conflict);
     pre_recoil_stick = {
         clamp_unit(decision.stick.x),
         clamp_unit(decision.stick.y)};

@@ -76,6 +76,18 @@ struct GamepadAiAimConfig {
     // End-to-end command-to-captured-motion delay used only by online plant
     // identification. It does not delay actuation or change control cadence.
     float aim_response_effect_delay_ms = 9.0f;
+    // Device adapters with a calibrated linear response disable stick learning.
+    bool aim_response_learning_enabled = true;
+    // Native device-adapter units; ordinary gamepad configuration keeps 500.
+    float adapter_response_px_per_second = 500.0f;
+    float adapter_ads_speed = 1.0f;
+    float adapter_force_budget_scale = 1.0f;
+    float adapter_bodylock_manual_weight = 1.0f;
+    bool adapter_direct_mouse_manual = false;
+    float adapter_bodylock_deadzone = 0.0f;
+    float adapter_bodylock_accel_ms = 0.0f;
+    float adapter_bodylock_decel_ms = 0.0f;
+    float adapter_bodylock_point_tolerance_px = 0.0f;
     // Provisional V1 intent calibration. These values control how quickly a
     // sustained right-stick request can move D across the currently valid R,
     // and when continued pressure at R's boundary becomes an explicit exit.
@@ -118,6 +130,7 @@ struct GamepadRecoilConfig {
 };
 
 struct GamepadAutoFireConfig {
+    bool enabled = true;
     std::string fire_output = "RB";
     bool manual_fire_activates_ai_aim = true;
     bool aim_only = true;
@@ -199,6 +212,27 @@ struct CompactAdsConfig {
     float extension_budget_ms = 220.0f;
 };
 
+struct RuntimeMouseConfig {
+    float speed = 2.0f;
+    float breakaway = 4.0f;
+    // Per-axis normalized physical rate, after counts/dt conversion. Mouse only.
+    float bodylock_deadzone = 0.5f;
+    float bodylock_range_px = 180.0f;
+    float bodylock_accel_ms = 40.0f;
+    float bodylock_decel_ms = 25.0f;
+    float bodylock_point_tolerance_px = 3.0f;
+    float dpi = 1200.0f;
+    float sensitivity = 5.0f;
+    float fov = 104.0f; // Horizontal FOV at 16:9, in degrees.
+    float ads_multiplier = 1.0f;
+    bool recoil_enabled = true;
+    float recoil_counts_per_second = 30.0f;
+    bool recoil_require_ads = true;
+    bool log_enabled = true;
+    std::string log_directory = "runs/mouse";
+    unsigned int log_max_mb = 2048;
+};
+
 struct RuntimeConfig {
     std::string profile = "legacy";
     VisionRuntimeConfig vision;
@@ -206,6 +240,7 @@ struct RuntimeConfig {
     RuntimePerformanceConfig performance;
     RuntimeSchedulerConfig scheduler;
     RuntimeOutputConfig output;
+    RuntimeMouseConfig mouse;
     CompactAdsConfig ads;
     GamepadRuntimeConfig gamepad;
     std::map<std::string, std::string> effective_sources;

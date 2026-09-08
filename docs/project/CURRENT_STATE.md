@@ -13,7 +13,7 @@ scripts/launch/gamepad_start.bat
   -> native/vision_native/build/Release/cod_native_runtime.exe
 ```
 
-Python remains available for fallback gameplay, mouse/KBM modes, training,
+Python remains available for fallback gameplay, legacy mouse/KBM modes, training,
 export and debugging. Its older prediction/enhancement policies are not part of
 the default native gamepad contract.
 
@@ -22,6 +22,19 @@ isotropic resize to `480x384`, and `models/best_480x384.engine`. The controller
 runs at 1000 Hz; the configured active Vision cadence is 160 Hz. Historical
 measurements must keep workload and telemetry conditions attached to any rate
 claim.
+
+## Mouse runtime update (2026-09-08)
+
+The normal mouse entry `scripts/launch/mouse_start.bat` now launches
+`cod_native_mouse_runtime.exe`: selected physical packets are captured through
+Interception, resolved by the shared controller, and submitted once through a
+separate FakerInput HID mouse. Mouse does not use a virtual gamepad.
+
+Configuration, JSONL logging, fixed recoil, BodyLock range/ramping and target-point
+tolerance are implemented. Release build and 34 native / 30 Python checks pass;
+matched game A/B and acceptance of the latest point-control behavior remain open.
+Use [Mouse Overview](MOUSE_OVERVIEW.md) for current defaults and evidence limits.
+The gamepad sections below retain their separately dated review scope.
 
 ## Current Vision-to-Controller Chain
 

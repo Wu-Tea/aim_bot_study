@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdlib>
 #include <fstream>
 #include <stdexcept>
@@ -176,6 +177,10 @@ bool is_known_key(const std::string& section, const std::string& key) {
     static const std::unordered_set<std::string> input_keys{
         "auto_detect", "controller_index", "rb_counts_as_aiming"};
     static const std::unordered_set<std::string> output_keys{"enabled", "validation_mode"};
+    static const std::unordered_set<std::string> mouse_keys{
+        "speed", "breakaway", "bodylock_deadzone", "dpi", "sensitivity", "fov", "ads_multiplier",
+        "bodylock_range_px", "bodylock_accel_ms", "bodylock_decel_ms", "bodylock_point_tolerance_px",
+        "recoil_enabled", "recoil_counts_per_second", "recoil_require_ads", "log_enabled", "log_directory", "log_max_mb"};
     static const std::unordered_set<std::string> tracker_keys{
         "aim_height_ratio", "max_observation_age_ms"};
     static const std::unordered_set<std::string> aim_response_curve_keys{
@@ -232,6 +237,7 @@ bool is_known_key(const std::string& section, const std::string& key) {
     if (section == "runtime.scheduler") return scheduler_keys.count(key) != 0;
     if (section == "runtime.input") return input_keys.count(key) != 0;
     if (section == "runtime.output") return output_keys.count(key) != 0;
+    if (section == "mouse") return mouse_keys.count(key) != 0;
     if (section == "gamepad.tracker") return tracker_keys.count(key) != 0;
     if (section == "gamepad.aim_response_curve")
         return aim_response_curve_keys.count(key) != 0;
@@ -601,7 +607,47 @@ void apply_value(
     const std::string& section,
     const std::string& key,
     const std::string& value) {
-    if (section == "runtime.vision") {
+    if (section == "mouse") {
+        if (key == "log_directory") {
+            config.mouse.log_directory = parse_string_value(value);
+            if (config.mouse.log_directory.empty()) throw std::runtime_error("invalid mouse.log_directory");
+            return;
+        }
+        if (key == "recoil_enabled" || key == "recoil_require_ads" || key == "log_enabled") {
+            const auto text = trim(value);
+            if (text != "true" && text != "false") throw std::runtime_error("invalid mouse." + key);
+            const bool flag = text == "true";
+            if (key == "recoil_enabled") config.mouse.recoil_enabled = flag;
+            else if (key == "recoil_require_ads") config.mouse.recoil_require_ads = flag;
+            else config.mouse.log_enabled = flag;
+            return;
+        }
+        // Input ownership settings must not silently accept malformed values.
+        std::size_t used = 0;
+        const auto text = trim(value);
+        float parsed = 0;
+        try { parsed = std::stof(text, &used); }
+        catch (const std::exception&) { throw std::runtime_error("invalid mouse." + key); }
+        if (used != text.size() || !std::isfinite(parsed))
+            throw std::runtime_error("invalid mouse." + key);
+        if (key == "speed") config.mouse.speed = parsed;
+        else if (key == "breakaway") config.mouse.breakaway = parsed;
+        else if (key == "bodylock_deadzone") config.mouse.bodylock_deadzone = parsed;
+        else if (key == "bodylock_range_px") config.mouse.bodylock_range_px = parsed;
+        else if (key == "bodylock_accel_ms") config.mouse.bodylock_accel_ms = parsed;
+        else if (key == "bodylock_decel_ms") config.mouse.bodylock_decel_ms = parsed;
+        else if (key == "bodylock_point_tolerance_px") config.mouse.bodylock_point_tolerance_px = parsed;
+        else if (key == "dpi") config.mouse.dpi = parsed;
+        else if (key == "sensitivity") config.mouse.sensitivity = parsed;
+        else if (key == "fov") config.mouse.fov = parsed;
+        else if (key == "ads_multiplier") config.mouse.ads_multiplier = parsed;
+        else if (key == "recoil_counts_per_second") config.mouse.recoil_counts_per_second = parsed;
+        else if (key == "log_max_mb") {
+            if (parsed < 1 || parsed > 65536 || std::floor(parsed) != parsed)
+                throw std::runtime_error("invalid mouse.log_max_mb: integer 1..65536");
+            config.mouse.log_max_mb = static_cast<unsigned int>(parsed);
+        }
+    } else if (section == "runtime.vision") {
         apply_runtime_vision_value(config.vision, key, value);
     } else if (section == "runtime.telemetry") {
         if (key == "enabled") {
@@ -772,6 +818,35 @@ void validate_runtime_config(RuntimeConfig& config) {
         throw std::runtime_error(
             "invalid user override for " + key + "; accepted range: " + range);
     };
+    if (!std::isfinite(config.mouse.speed) || config.mouse.speed < 0.5f || config.mouse.speed > 3.0f)
+        invalid("mouse.speed", "0.5..3");
+    if (!std::isfinite(config.mouse.breakaway) || config.mouse.breakaway < 1.0f ||
+        config.mouse.breakaway > 8.0f || config.mouse.breakaway < config.mouse.speed)
+        invalid("mouse.breakaway", "1..8 and >= mouse.speed");
+    if (!std::isfinite(config.mouse.bodylock_deadzone) || config.mouse.bodylock_deadzone < 0.0f ||
+        config.mouse.bodylock_deadzone > 0.9f)
+        invalid("mouse.bodylock_deadzone", "0..0.9");
+    if (!std::isfinite(config.mouse.dpi) || config.mouse.dpi <= 0)
+        invalid("mouse.dpi", "finite and > 0");
+    if (config.mouse.bodylock_range_px != 0 &&
+        (config.mouse.bodylock_range_px < 16 || config.mouse.bodylock_range_px > 2048))
+        invalid("mouse.bodylock_range_px", "0 inherits shared range; otherwise 16..2048 pixels");
+    if (config.mouse.bodylock_accel_ms != 0 &&
+        (config.mouse.bodylock_accel_ms < 1 || config.mouse.bodylock_accel_ms > 250))
+        invalid("mouse.bodylock_accel_ms", "0 uses shared rate; otherwise 1..250 ms");
+    if (config.mouse.bodylock_decel_ms != 0 &&
+        (config.mouse.bodylock_decel_ms < 1 || config.mouse.bodylock_decel_ms > 250))
+        invalid("mouse.bodylock_decel_ms", "0 uses shared rate; otherwise 1..250 ms");
+    if (config.mouse.bodylock_point_tolerance_px < 0 || config.mouse.bodylock_point_tolerance_px > 16)
+        invalid("mouse.bodylock_point_tolerance_px", "0 retains shared policy; otherwise >0..16 pixels per axis");
+    if (config.mouse.recoil_counts_per_second < 0 || config.mouse.recoil_counts_per_second > 10000)
+        invalid("mouse.recoil_counts_per_second", "0..10000 counts/second, positive Y is down");
+    if (!std::isfinite(config.mouse.sensitivity) || config.mouse.sensitivity <= 0)
+        invalid("mouse.sensitivity", "finite and > 0");
+    if (!std::isfinite(config.mouse.fov) || config.mouse.fov <= 0 || config.mouse.fov >= 180)
+        invalid("mouse.fov", "0 < horizontal FOV < 180 degrees");
+    if (!std::isfinite(config.mouse.ads_multiplier) || config.mouse.ads_multiplier <= 0)
+        invalid("mouse.ads_multiplier", "finite and > 0");
     if (config.vision.capture_fps < 1 || config.vision.capture_fps > 1000)
         invalid("runtime.vision.capture_fps", "1..1000");
     if (config.vision.capture_width < 32 || config.vision.capture_width > 8192)

@@ -47,6 +47,7 @@ BodylockFollowControllerOutput BodylockFollowController::compute_detailed(
     result.response_envelope_source = "bodylock_response_model";
     ResponseModelAimRequest request{};
     request.error_px = plan.error_px;
+    request.point_tolerance_px = config_.bodylock_point_tolerance_px;
     request.relative_velocity_px_per_sec = result.error_rate_px_per_sec;
     request.response_px_per_stick_second = response;
     request.arrival_horizon_seconds = config_.feedback_range_x_px /
@@ -61,6 +62,7 @@ BodylockFollowControllerOutput BodylockFollowController::compute_detailed(
         : config_.feedforward_gain;
     request.max_force = {config_.max_force_x, config_.max_force_y};
     request.authority = authority;
+    request.authority_budget_scale = config_.authority_budget_scale;
     request.response_curve = config_.response_curve;
     const auto solved = solve_response_model_aim(request);
     result.position_stick = solved.position_stick;

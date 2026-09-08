@@ -1,5 +1,7 @@
 # Mouse Telemetry Debugging
 
+> Historical Python/Win32 telemetry guide. Since 2026-09-08 the normal mouse launcher uses native C++ and JSONL; start with [current mouse diagnostics](MOUSE_DIAGNOSTICS_RECOIL_20260908.md) and [Mouse Overview](MOUSE_OVERVIEW.md). The legacy CSV instructions below do not describe the current launcher's output.
+
 This note is for live mouse testing when aim assist feels like it has no effect,
 moves in small steps, or gets stuck firing.
 

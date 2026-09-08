@@ -48,8 +48,8 @@ pipeline_contract::Vec2f AdsAcquisitionController::compute(
     const float close_weight = smoothstep(
         (std::clamp(plan.normalized_size, 0.0f, 1.0f) - close_begin) /
         (close_full - close_begin));
-    const float horizon = nominal_horizon +
-        close_weight * (close_horizon - nominal_horizon);
+    const float horizon = (nominal_horizon +
+        close_weight * (close_horizon - nominal_horizon)) / config_.arrival_speed;
     ResponseModelAimRequest request{};
     request.error_px = plan.error_px;
     request.relative_velocity_px_per_sec = plan.error_rate_px_per_sec;
@@ -66,6 +66,7 @@ pipeline_contract::Vec2f AdsAcquisitionController::compute(
         config_.max_force_x * kVectorForceHeadroom,
         config_.max_force_y * kVectorForceHeadroom};
     request.authority = authority;
+    request.authority_budget_scale = config_.authority_budget_scale;
     request.response_curve = config_.response_curve;
     return solve_response_model_aim(request).stick;
 }

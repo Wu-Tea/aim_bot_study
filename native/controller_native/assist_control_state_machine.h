@@ -1,6 +1,7 @@
 #pragma once
 
 #include "pipeline_contract/target_plan.h"
+#include "mouse_manual_judgment.h"
 
 #include <algorithm>
 #include <cmath>
@@ -30,6 +31,10 @@ struct AssistControlStateMachineConfig {
     float capture_settle_radius_px = 10.0f;
     std::uint32_t capture_settle_fresh_frames = 2;
     float capture_timeout_ms = 135.0f;
+    float bodylock_manual_weight = 1.0f;
+    bool direct_mouse_manual = false;
+    float mouse_response_px_per_second = 500.0f;
+    float mouse_bodylock_deadzone = 0.0f;
 };
 
 struct AssistControlStateMachineInput {
@@ -85,6 +90,7 @@ struct AssistControlStateMachineOutput {
     bool manual_passthrough_y = false;
     bool manual_correction_x = false;
     bool manual_correction_y = false;
+    MouseManualAxisDecision mouse_x{}, mouse_y{};
 };
 
 class AssistControlStateMachine {
@@ -180,7 +186,7 @@ public:
             output.manual_correction_x = input.manual_correction_x;
             output.manual_correction_y = input.manual_correction_y;
             output.stick = cooperative_output(
-                input, manual, intent_manual, ai);
+                input, manual, intent_manual, ai, &output);
             output.manual_passthrough_x =
                 std::fabs(output.stick.x - manual.x) <= 1.0e-6f;
             output.manual_passthrough_y =
@@ -246,7 +252,7 @@ public:
         // Axis-local arbitration is intentional: a helpful horizontal
         // correction may not spend downward/recoil authority on Y.
         output.stick = cooperative_output(
-            input, manual, intent_manual, ai);
+            input, manual, intent_manual, ai, &output);
         output.manual_passthrough_x =
             std::fabs(output.stick.x - manual.x) <= 1.0e-6f;
         output.manual_passthrough_y =
@@ -285,9 +291,57 @@ private:
         const AssistControlStateMachineInput& input,
         pipeline_contract::Vec2f manual,
         pipeline_contract::Vec2f intent_manual,
-        pipeline_contract::Vec2f ai) const noexcept {
+        pipeline_contract::Vec2f ai,
+        AssistControlStateMachineOutput* decision) const noexcept {
         const float material = std::max(
             0.0f, config_.material_ai_axis_output);
+        // Mouse ingress already owns physical-speed escape. Only an explicit
+        // per-axis conflict may reduce ordinary native input after target
+        // admission. Shared gamepad arbitration remains below, unchanged.
+        if (config_.direct_mouse_manual &&
+            (input.mode == pipeline_contract::ControlMode::BodyLockFollow ||
+             input.mode == pipeline_contract::ControlMode::AdsAcquire)) {
+            const bool ads = input.mode == pipeline_contract::ControlMode::AdsAcquire;
+            const bool manual_safe = ads &&
+                (input.ads_acquisition_state == pipeline_contract::AdsAcquisitionState::AcquiringManualSafe ||
+                 input.ads_acquisition_state == pipeline_contract::AdsAcquisitionState::AcquiringExtended);
+            const auto choose_axis = [&](float original, float target, float error, bool vertical) {
+                if (!ads && config_.mouse_bodylock_deadzone > 0.0f &&
+                    std::fabs(original) <= config_.mouse_bodylock_deadzone &&
+                    (vertical ? input.filtered_manual_stick.y : input.filtered_manual_stick.x) == 0.0f) {
+                    // The same BodyLock envelope owns intent AND actuation:
+                    // noise cannot edit D upstream or reappear as raw M here.
+                    // Lifecycle/handover passthrough returned before this path.
+                    auto quiet = judge_mouse_manual_axis(0, target, error,
+                        input.visual_authority, config_.bodylock_manual_weight,
+                        std::max(1.0f, config_.capture_settle_radius_px),
+                        config_.mouse_response_px_per_second, material);
+                    if (original != 0) {
+                        quiet.retention = 0;
+                        quiet.conflict = MouseManualConflict::Deadzone;
+                    }
+                    return quiet;
+                }
+                const bool correction = vertical ? input.manual_correction_y : input.manual_correction_x;
+                const bool protected_recoil = ads && vertical && input.firing &&
+                    original < 0 && input.filtered_manual_stick.y < -material;
+                const bool safe_manual = manual_safe && std::fabs(original) > material &&
+                    (std::fabs(target) <= material || original * target < 0);
+                if (correction || protected_recoil || safe_manual) {
+                    MouseManualAxisDecision kept;
+                    kept.retained_manual = kept.final = original;
+                    return kept;
+                }
+                return judge_mouse_manual_axis(original, target, error,
+                    input.visual_authority,
+                    manual_safe ? 1.0f : config_.bodylock_manual_weight,
+                    std::max(1.0f, config_.capture_settle_radius_px),
+                    config_.mouse_response_px_per_second, material);
+            };
+            decision->mouse_x = choose_axis(manual.x, ai.x, input.target_error_px.x, false);
+            decision->mouse_y = choose_axis(manual.y, ai.y, -input.target_error_px.y, true);
+            return finite_or_zero({decision->mouse_x.final, decision->mouse_y.final});
+        }
         const float target_settle_radius = std::max(
             1.0f, config_.capture_settle_radius_px);
 

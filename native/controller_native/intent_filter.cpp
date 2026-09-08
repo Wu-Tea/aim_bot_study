@@ -10,7 +10,8 @@ IntentFilter::IntentFilter(IntentFilterConfig config)
 
 pipeline_contract::AxisIntentState IntentFilter::update_axis(
     AxisState& state,
-    float raw) noexcept {
+    float raw,
+    float minimum_deadzone, float dt) noexcept {
     if (std::fabs(raw) <= config_.neutral_learning_limit) {
         // Enter calibration continuously. A hard on/off learning boundary
         // changed bias/noise abruptly during a slow physical release, turning
@@ -25,10 +26,24 @@ pipeline_contract::AxisIntentState IntentFilter::update_axis(
 
     const float centered = raw - state.bias;
     const float threshold = std::max(
-        config_.base_deadzone,
+        std::max(config_.base_deadzone, minimum_deadzone),
         state.noise * config_.noise_multiplier + config_.noise_margin);
     const float magnitude = std::fabs(centered);
-    const float filtered = magnitude <= threshold ? 0.0f : centered;
+    bool spatial_intent = false;
+    if (minimum_deadzone > 0.0f) {
+        // Mouse packets are displacement, not a held joystick position. A
+        // bounded spatial noise reservoir suppresses small reversals, while
+        // sustained travel can never be swallowed indefinitely. Its width is
+        // four milliseconds of the configured deadzone rate, independent of
+        // detector cadence. Never replay the withheld displacement later.
+        const float limit = minimum_deadzone * 0.004f;
+        const float travel = state.mouse_travel + centered * dt;
+        spatial_intent = std::fabs(travel) > limit && travel * centered > 0.0f;
+        state.mouse_travel = std::clamp(travel, -limit, limit);
+    } else {
+        state.mouse_travel = 0.0f;
+    }
+    const float filtered = magnitude <= threshold && !spatial_intent ? 0.0f : centered;
     const float confidence = filtered == 0.0f
         ? 0.0f
         : std::clamp((magnitude - threshold) / 0.5f, 0.0f, 1.0f);
@@ -74,14 +89,20 @@ pipeline_contract::IntentState IntentFilter::update(
     bool fire,
     double sample_time_seconds,
     bool target_owned,
-    bool handover_requested) noexcept {
+    bool handover_requested,
+    float right_deadzone) noexcept {
     pipeline_contract::IntentState result{};
+    const float dt = previous_sample_seconds_ > 0 &&
+            sample_time_seconds > previous_sample_seconds_
+        ? static_cast<float>(std::clamp(sample_time_seconds - previous_sample_seconds_, 0.0001, 0.05))
+        : 0.001f;
+    previous_sample_seconds_ = sample_time_seconds;
     result.raw_left = raw_left;
     result.raw_right = raw_right;
     result.left_x = update_axis(left_x_, raw_left.x);
     result.left_y = update_axis(left_y_, raw_left.y);
-    result.right_x = update_axis(right_x_, raw_right.x);
-    result.right_y = update_axis(right_y_, raw_right.y);
+    result.right_x = update_axis(right_x_, raw_right.x, right_deadzone, dt);
+    result.right_y = update_axis(right_y_, raw_right.y, right_deadzone, dt);
     result.filtered_left = {result.left_x.filtered, result.left_y.filtered};
     result.filtered_right = {result.right_x.filtered, result.right_y.filtered};
     result.left_phase = phase_for(left_stick_, result.filtered_left);
@@ -117,6 +138,7 @@ void IntentFilter::reset() noexcept {
     right_y_ = {};
     left_stick_ = {};
     right_stick_ = {};
+    previous_sample_seconds_ = 0.0;
     right_purpose_ = pipeline_contract::UserAimIntentPurpose::AcquireTarget;
 }
 

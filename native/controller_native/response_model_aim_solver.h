@@ -21,8 +21,12 @@ struct ResponseModelAimRequest {
     // position correction but cannot independently own the centered axis.
     // Sustaining target-motion demand (BodyLock) retains its centered work.
     bool motion_is_error_rate_lookahead = false;
+    // Mouse BodyLock point policy. Zero retains the shared controller policy.
+    // A positive per-axis tolerance owns both position and motion demand.
+    float point_tolerance_px = 0.0f;
     pipeline_contract::Vec2f max_force{1.0f, 1.0f};
     float authority = 1.0f;
+    float authority_budget_scale = 1.0f;
     AimResponseCurveConfig response_curve{};
 };
 

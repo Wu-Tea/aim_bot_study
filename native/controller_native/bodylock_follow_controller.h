@@ -9,11 +9,13 @@ namespace controller_native {
 struct BodylockFollowControllerConfig {
     float max_force_x = 0.42f;
     float max_force_y = 0.42f;
+    float authority_budget_scale = 1.0f;
     float feedback_range_x_px = 32.0f;
     float feedback_range_y_px = 32.0f;
     float strafing_feedback_range_x_px = 75.0f;
     float feedforward_gain = 0.64f;
     float stopping_lookahead_seconds = 0.020f;
+    float bodylock_point_tolerance_px = 0.0f;
     float fallback_response_px_per_stick_second = 500.0f;
     AimResponseCurveConfig response_curve{};
 };

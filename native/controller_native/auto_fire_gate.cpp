@@ -203,6 +203,7 @@ bool AutoFireGate::aim_ready_for_input(const AutoFireGateInput& input) {
 AutoFireBlockReason AutoFireGate::block_reason_for_input(
     const AutoFireGateInput& input,
     bool aim_ready) const {
+    if (!auto_fire_config_.enabled) return AutoFireBlockReason::Disabled;
     const tracking_native::TargetAuthorityDecision authority =
         tracking_native::classify_target_authority(
             input.vision_state.has_target,
@@ -287,6 +288,7 @@ void AutoFireGate::reset_pulse_schedule() {
 
 const char* auto_fire_block_reason_name(AutoFireBlockReason reason) {
     switch (reason) {
+    case AutoFireBlockReason::Disabled: return "disabled";
     case AutoFireBlockReason::NotAiming: return "not_aiming";
     case AutoFireBlockReason::AimNotReady: return "aim_not_ready";
     case AutoFireBlockReason::NotRequested: return "not_requested";

@@ -32,13 +32,38 @@ pipeline_contract::Vec2f AimDynamicsShaper::shape(
     previous_target_id_ = plan.target_id;
     previous_mode_ = plan.mode;
     context_initialized_ = true;
+    const bool timed_bodylock = plan.mode == pipeline_contract::ControlMode::BodyLockFollow &&
+        (config_.bodylock_accel_ms > 0 || config_.bodylock_decel_ms > 0);
+    const auto step_for = [&](bool decaying, float force, float legacy_limit) {
+        const float duration = decaying ? config_.bodylock_decel_ms : config_.bodylock_accel_ms;
+        if (timed_bodylock && duration > 0 && force > 0)
+            return force * dt * 1000.0f / duration;
+        return std::min((decaying ? config_.decay_slew_per_second : config_.rise_slew_per_second) * dt,
+            legacy_limit);
+    };
+    const auto authorized = [&](pipeline_contract::Vec2f value) {
+        if (!timed_bodylock) return value;
+        // A slower ramp may never prolong revoked authority. Match the
+        // solver's current force ellipse; shrinking evidence is immediate.
+        const float budget = std::clamp(std::min(plan.aim_authority, plan.reliability),0.0f,1.0f) *
+            config_.bodylock_authority_budget_scale;
+        const float x = std::min(config_.bodylock_max_force.x,budget);
+        const float y = std::min(config_.bodylock_max_force.y,budget);
+        if(x<=0) value.x=0;
+        if(y<=0) value.y=0;
+        const float length=std::hypot(x>0 ? value.x/x:0, y>0 ? value.y/y:0);
+        if(length>1) { value.x/=length;value.y/=length; }
+        return value;
+    };
+    current_=authorized(current_);
+    requested_ai=authorized(requested_ai);
     if (same_target_ads_to_bodylock) {
         // ADS and BodyLock requests have different meanings. A saturated ADS
         // value must not leak into the new mode, but an ordinary handoff still
         // needs to respect the lifecycle delta envelope. Clamp only the stale
         // high-force case into the new request envelope; otherwise discharge
         // toward BodyLock at a bounded step.
-        const auto handoff_axis = [&](float current, float requested) {
+        const auto handoff_axis = [&](float current, float requested, float force) {
             constexpr float kHandoffEnvelope = 0.08f;
             if (std::fabs(current) > std::fabs(requested) + kHandoffEnvelope) {
                 return std::clamp(
@@ -50,15 +75,13 @@ pipeline_contract::Vec2f AimDynamicsShaper::shape(
             const float effective_target = reversing ? 0.0f : requested;
             const bool decaying = reversing ||
                 std::fabs(effective_target) < std::fabs(current);
-            const float rate = decaying
-                ? config_.decay_slew_per_second
-                : config_.rise_slew_per_second;
-            const float step = std::min(rate * dt, 0.07f);
+            const float step = step_for(decaying,force,0.07f);
             return current + std::clamp(
                 effective_target - current, -step, step);
         };
-        current_.x = handoff_axis(current_.x, requested_ai.x);
-        current_.y = handoff_axis(current_.y, requested_ai.y);
+        current_.x = handoff_axis(current_.x, requested_ai.x,config_.bodylock_max_force.x);
+        current_.y = handoff_axis(current_.y, requested_ai.y,config_.bodylock_max_force.y);
+        current_=authorized(current_);
         return current_;
     }
     if (target_changed) {
@@ -78,7 +101,7 @@ pipeline_contract::Vec2f AimDynamicsShaper::shape(
         requested_ai.x = prevent_blind_rise(requested_ai.x, current_.x);
         requested_ai.y = prevent_blind_rise(requested_ai.y, current_.y);
     }
-    auto slew = [&](float current, float target) {
+    auto slew = [&](float current, float target, float force) {
         const bool reversing = current * target < 0.0f;
         const bool decaying = reversing ||
             std::fabs(target) < std::fabs(current);
@@ -86,15 +109,13 @@ pipeline_contract::Vec2f AimDynamicsShaper::shape(
         // direction. This preserves a short continuous decay without ever
         // carrying stale force across zero or amplifying it.
         const float effective_target = reversing ? 0.0f : target;
-        const float rate = decaying
-            ? config_.decay_slew_per_second
-            : config_.rise_slew_per_second;
-        const float step = std::min(rate * dt, config_.max_step_per_tick);
+        const float step = step_for(decaying,force,config_.max_step_per_tick);
         return current + std::clamp(
             effective_target - current, -step, step);
     };
-    current_.x = slew(current_.x, requested_ai.x);
-    current_.y = slew(current_.y, requested_ai.y);
+    current_.x = slew(current_.x, requested_ai.x,config_.bodylock_max_force.x);
+    current_.y = slew(current_.y, requested_ai.y,config_.bodylock_max_force.y);
+    current_=authorized(current_);
     return current_;
 }
 

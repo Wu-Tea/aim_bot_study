@@ -11,6 +11,13 @@ struct AimDynamicsShaperConfig {
     float rise_slew_per_second = 64.0f;
     float decay_slew_per_second = 48.0f;
     float max_step_per_tick = 0.08f;
+    // Optional BodyLock temporal ramp, used by calibrated mouse adapters.
+    // Durations describe zero <-> configured per-axis maximum force. Zero
+    // retains the ordinary controller envelope for that direction of change.
+    float bodylock_accel_ms = 0.0f;
+    float bodylock_decel_ms = 0.0f;
+    pipeline_contract::Vec2f bodylock_max_force{};
+    float bodylock_authority_budget_scale = 1.0f;
 };
 
 class AimDynamicsShaper {
