@@ -21,6 +21,9 @@ struct ResponseModelAimRequest {
     // position correction but cannot independently own the centered axis.
     // Sustaining target-motion demand (BodyLock) retains its centered work.
     bool motion_is_error_rate_lookahead = false;
+    // Only a capture-aligned target-motion estimate may own centered work.
+    // Raw screen-rate hints retain position ownership, including at zero.
+    bool motion_is_sustaining_target_motion = false;
     // Mouse BodyLock point policy. Zero retains the shared controller policy.
     // A positive per-axis tolerance owns both position and motion demand.
     float point_tolerance_px = 0.0f;

@@ -2,6 +2,9 @@
 #include "test_support/native_test_registry.h"
 
 #include <cmath>
+#include <algorithm>
+#include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <stdexcept>
 
@@ -84,8 +87,8 @@ void test_motion_cannot_reverse_current_position_axis() {
                  "position-motion bound must expose its single-path reason");
     require_true(output.stick.x < 0.0f,
                  "motion metadata must not reverse a material current error");
-    require_true(near(output.effective_motion_stick.y, output.motion_stick.y),
-                 "axis-local bound must preserve orthogonal motion");
+    require_true(near(output.effective_motion_stick.y, 0.0f),
+                 "unconfirmed screen rate cannot own a centered orthogonal axis");
 }
 
 void test_orthogonal_motion_cannot_mask_bodylock_axis_reversal() {
@@ -134,9 +137,135 @@ void test_aligned_target_motion_replaces_screen_relative_hint() {
                  "target motion must be a full sustaining total, not a 0.72 hint");
 }
 
+// Log-derived local invariant, not a replay of the recorded game/plant.
+// Freeze before the production repair: continuous work through e=0, nonzero
+// sustaining demand, and no centered work from untrusted screen-rate noise.
+void test_center_crossing_incident(const native_test::TestContext& context) {
+    float maximum_crossing_step = 0.0f;
+    float minimum_sustaining_ratio = 1.0f;
+    float maximum_untrusted_jitter = 0.0f;
+    float maximum_static_jitter = 0.0f;
+    int crossings = 0;
+    int far_position_controls = 0;
+    int reversal_controls = 0;
+    int lifecycle_controls = 0;
+    int zero_motion_controls = 0;
+    std::filesystem::create_directories(context.artifact_directory);
+    std::ofstream report(context.artifact_path("bodylock-center-crossing.json"));
+    report << std::setprecision(9) << "{\n\"samples\":[";
+    bool first = true;
+    for (const bool dynamic : {false, true}) {
+        controller_native::BodylockFollowControllerConfig config;
+        config.max_force_x = 0.60f;
+        config.max_force_y = 0.66f;
+        config.feedback_range_x_px = config.feedback_range_y_px = 24.0f;
+        config.feedforward_gain = 0.72f;
+        config.response_curve.algorithm = dynamic
+            ? controller_native::AimResponseCurveAlgorithm::CodDynamicLegacyLut
+            : controller_native::AimResponseCurveAlgorithm::Linear;
+        controller_native::BodylockFollowController controller(config);
+        for (const bool y_axis : {false, true}) {
+            const auto axis = [y_axis](pipeline_contract::Vec2f value) {
+                return y_axis ? -value.y : value.x; // screen coordinate
+            };
+            for (const float direction : {-1.0f, 1.0f}) {
+                for (const float authority : {0.65f, 1.0f}) {
+                    auto plan = active_plan(0.0f, 0.0f);
+                    plan.selector_target_generation = 340;
+                    plan.physical_ads_epoch = 148;
+                    plan.direct_person_observation = true;
+                    plan.aim_authority = authority;
+                    plan.bodylock_target_motion_valid = true;
+                    plan.bodylock_target_motion_confidence = 0.8f;
+                    plan.bodylock_target_motion_px_per_sec = y_axis
+                        ? pipeline_contract::Vec2f{0.0f, direction * 100.0f}
+                        : pipeline_contract::Vec2f{direction * 100.0f, 0.0f};
+                    const auto set_error = [&](float value) {
+                        plan.error_px = y_axis
+                            ? pipeline_contract::Vec2f{0.0f, value}
+                            : pipeline_contract::Vec2f{value, 0.0f};
+                    };
+                    const float centered = axis(controller.compute(plan, {}, 0.001f));
+                    require_true(centered * direction > 0.01f,
+                        "trigger requires nonzero sustaining work at center");
+                    float previous = 0.0f;
+                    bool have_previous = false;
+                    for (const float error : {-0.001f, 0.0f, 0.001f}) {
+                        set_error(error);
+                        const auto result = controller.compute_detailed(plan, {}, 0.001f);
+                        require_true(error == 0.0f || std::fabs(axis(result.position_stick)) > 1e-5f,
+                            "nonzero probes must lie outside the known-bad exact-zero exception");
+                        const float value = axis(result.stick);
+                        require_true(std::fabs(axis(result.motion_stick) - direction * 0.2f) < 1e-6f,
+                            "trigger must hold total motion fixed on both sides of zero");
+                        if (have_previous) maximum_crossing_step = std::max(
+                            maximum_crossing_step, std::fabs(value - previous));
+                        previous = value;
+                        have_previous = true;
+                        if (!first) report << ',';
+                        first = false;
+                        report << "{\"dynamic\":" << dynamic << ",\"y_axis\":" << y_axis
+                               << ",\"direction\":" << direction << ",\"authority\":" << authority
+                               << ",\"error\":" << error << ",\"request\":" << value << '}';
+                    }
+                    ++crossings;
+                    for (const float error : {-1.0f, 0.0f, 1.0f}) {
+                        set_error(error);
+                        minimum_sustaining_ratio = std::min(minimum_sustaining_ratio,
+                            axis(controller.compute(plan, {}, 0.001f)) / centered);
+                    }
+                    set_error(-direction * 20.0f);
+                    if (axis(controller.compute(plan, {}, 0.001f)) * direction < 0.0f)
+                        ++far_position_controls;
+                    set_error(0.0f);
+                    plan.bodylock_target_motion_px_per_sec = y_axis
+                        ? pipeline_contract::Vec2f{0.0f, -direction * 100.0f}
+                        : pipeline_contract::Vec2f{-direction * 100.0f, 0.0f};
+                    if (axis(controller.compute(plan, {}, 0.001f)) * direction < -0.01f)
+                        ++reversal_controls;
+                    plan.lifecycle = pipeline_contract::TargetLifecycle::None;
+                    if (axis(controller.compute(plan, {}, 0.001f)) == 0.0f)
+                        ++lifecycle_controls;
+                    plan.lifecycle = pipeline_contract::TargetLifecycle::Observed;
+                    plan.bodylock_target_motion_px_per_sec = {};
+                    if (axis(controller.compute(plan, {}, 0.001f)) == 0.0f)
+                        ++zero_motion_controls;
+                    plan.bodylock_target_motion_valid = false;
+                    for (const float error : {-0.25f, 0.0f, 0.25f}) {
+                        set_error(error);
+                        plan.error_rate_px_per_sec = {};
+                        maximum_static_jitter = std::max(maximum_static_jitter,
+                            std::fabs(axis(controller.compute(plan, {}, 0.001f))));
+                        // Screen-rate disturbance does not establish target velocity.
+                        plan.error_rate_px_per_sec = y_axis
+                            ? pipeline_contract::Vec2f{0.0f, direction * 100.0f}
+                            : pipeline_contract::Vec2f{direction * 100.0f, 0.0f};
+                        maximum_untrusted_jitter = std::max(maximum_untrusted_jitter,
+                            std::fabs(axis(controller.compute(plan, {}, 0.001f))));
+                    }
+                }
+            }
+        }
+    }
+    const bool controls_valid = crossings == 16 && far_position_controls == 16 &&
+        reversal_controls == 16 && lifecycle_controls == 16 && zero_motion_controls == 16;
+    report << "],\n\"trigger_count\":" << crossings
+           << ",\n\"counterfactuals_valid\":" << std::boolalpha << controls_valid
+           << ",\n\"maximum_crossing_step\":" << maximum_crossing_step
+           << ",\n\"minimum_sustaining_ratio\":" << minimum_sustaining_ratio
+           << ",\n\"maximum_untrusted_jitter\":" << maximum_untrusted_jitter
+           << ",\n\"maximum_static_jitter\":" << maximum_static_jitter << "\n}\n";
+    report.close();
+    require_true(controls_valid, "incident trigger and negative controls must execute");
+    require_true(maximum_crossing_step <= 0.001f && minimum_sustaining_ratio >= 0.5f &&
+                     maximum_untrusted_jitter <= 0.03f && maximum_static_jitter <= 0.03f,
+                 "BodyLock crossing/noise contract failed; see measured incident artifact");
+}
+
 }  // namespace
 
 void register_bodylock_follow_controller_tests(native_test::Registry& registry) {
+    registry.add_context_case("BaseBodyLock", "center_crossing_incident", test_center_crossing_incident);
     registry.add_case("BaseBodyLock", "inactive_plan_is_neutral", test_inactive_plan_is_neutral);
     registry.add_case("BaseBodyLock", "current_error_owns_position_proposal", test_current_error_owns_position_proposal);
     registry.add_case("BaseBodyLock", "cue_uses_same_source_owned_solve", test_cue_lifecycle_uses_same_source_owned_solve);

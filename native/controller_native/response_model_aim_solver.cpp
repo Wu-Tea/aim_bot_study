@@ -64,27 +64,38 @@ ResponseModelAimOutput solve_response_model_aim(
             bound_applied = bound_applied || std::fabs(bounded - motion) > 1e-6f;
             return bounded;
         }
-        if (request.motion_is_error_rate_lookahead && position * motion >= 0.0f) {
+        if (request.motion_is_sustaining_target_motion &&
+            !request.motion_is_error_rate_lookahead) {
+            // Sustaining motion remains necessary on BOTH sides of zero.
+            // Blend an opposing estimate out over the existing position
+            // neighborhood; a sign change alone must not release a full
+            // feed-forward command. Beyond that neighborhood position owns
+            // the axis again. This is spatial arbitration, not a time filter.
+            const float bounded = position * motion < 0.0f
+                ? motion * (1.0f - smoothstep(
+                    std::fabs(position) / kNearCenterPositionStick))
+                : motion;
+            bound_applied = bound_applied || std::fabs(bounded - motion) > 1e-6f;
+            return bounded;
+        }
+        if (position * motion >= 0.0f) {
             // Use the same position-owned neighborhood on both sides of zero.
             // The former opposing-only envelope tended to zero on approach,
             // then released the entire lookahead at zero/after crossing.
+            // The same boundary applies to unconfirmed BodyLock screen rate:
+            // camera/geometry noise cannot establish sustaining target motion.
             const float bounded = motion * smoothstep(
                 std::fabs(position) / kNearCenterPositionStick);
             bound_applied = bound_applied || std::fabs(bounded - motion) > 1e-6f;
             return bounded;
         }
-        if ((!request.motion_is_error_rate_lookahead && std::fabs(position) <= 1.0e-5f) ||
-            position * motion >= 0.0f) {
-            return motion;
-        }
-
         // ADS motion is a stopping lookahead of this source error, so retain
         // its full braking contribution up to cancellation of position. The
         // BodyLock feed-forward envelope erased this brake outside the small
         // center neighborhood, leaving an approaching target driven as hard
         // as a stationary one. Neither policy may predict through position
-        // and reverse the requested axis; sustained BodyLock keeps its own
-        // near-center feed-forward constraint.
+        // and reverse the requested axis. Capture-aligned sustaining motion
+        // has already taken its separately qualified branch above.
         const float center_envelope = smoothstep(
             std::fabs(position) / kNearCenterPositionStick);
         const float maximum_opposing_motion = std::fabs(position) *

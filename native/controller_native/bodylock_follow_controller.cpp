@@ -60,6 +60,7 @@ BodylockFollowControllerOutput BodylockFollowController::compute_detailed(
     request.motion_weight = target_motion_total_valid
         ? 1.0f
         : config_.feedforward_gain;
+    request.motion_is_sustaining_target_motion = target_motion_total_valid;
     request.max_force = {config_.max_force_x, config_.max_force_y};
     request.authority = authority;
     request.authority_budget_scale = config_.authority_budget_scale;

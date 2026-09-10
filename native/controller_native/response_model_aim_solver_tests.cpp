@@ -64,6 +64,7 @@ void test_horizon_and_response_have_physical_units() {
 
 void test_motion_feedforward_is_not_multiplied_by_force_cap() {
     auto request = base_request();
+    request.motion_is_sustaining_target_motion = true;
     request.relative_velocity_px_per_sec = {100.0f, 0.0f};
     request.max_force = {0.45f, 0.50f};
     const auto output = solve_response_model_aim(request);
@@ -85,6 +86,7 @@ void test_motion_does_not_reverse_current_residual() {
 
 void test_current_position_bounds_only_opposing_axis_motion() {
     auto request = base_request();
+    request.motion_is_sustaining_target_motion = true;
     request.error_px = {-10.0f, 0.0f};
     request.relative_velocity_px_per_sec = {260.0f, 120.0f};
     const auto output = solve_response_model_aim(request);
@@ -203,9 +205,40 @@ void test_cod_dynamic_curve_preserves_radial_target_direction() {
                  "response plugin must reshape magnitude, not target direction");
 }
 
+void test_sustaining_motion_respects_mouse_point_policy() {
+    auto request = base_request();
+    request.motion_is_sustaining_target_motion = true;
+    request.point_tolerance_px = 4.0f;
+    request.relative_velocity_px_per_sec = {100.0f, -100.0f};
+    request.error_px = {-4.0f, 4.0f};
+    const auto centered = solve_response_model_aim(request);
+    require_near(centered.stick.x, 0.0f, 1e-6f,
+        "mouse point tolerance still owns the X axis");
+    require_near(centered.stick.y, 0.0f, 1e-6f,
+        "mouse point tolerance still owns the Y axis");
+    request.error_px = {-5.0f, 5.0f};
+    const auto outside = solve_response_model_aim(request);
+    require(outside.stick.x < 0.0f && outside.stick.y < 0.0f,
+        "outside mouse tolerance, position retains both axis directions");
+}
+
+void test_error_rate_lookahead_cannot_claim_sustaining_ownership() {
+    auto request = base_request();
+    request.motion_is_sustaining_target_motion = true;
+    request.motion_is_error_rate_lookahead = true;
+    request.relative_velocity_px_per_sec = {100.0f, -100.0f};
+    const auto output = solve_response_model_aim(request);
+    require_near(output.stick.x, 0.0f, 1e-6f,
+        "screen-error lookahead cannot independently drive centered X");
+    require_near(output.stick.y, 0.0f, 1e-6f,
+        "screen-error lookahead cannot independently drive centered Y");
+}
+
 }  // namespace
 
 void register_response_model_aim_solver_tests(native_test::Registry& registry) {
+    registry.add_case("BaseBodyLock", "sustaining_motion_respects_mouse_point_policy", test_sustaining_motion_respects_mouse_point_policy);
+    registry.add_case("BaseBodyLock", "error_rate_cannot_claim_sustaining_ownership", test_error_rate_lookahead_cannot_claim_sustaining_ownership);
     registry.add_case("BaseBodyLock", "solver_radial_direction_and_y_sign", test_radial_direction_and_y_sign);
     registry.add_case("BaseBodyLock", "solver_horizon_and_response_have_units", test_horizon_and_response_have_physical_units);
     registry.add_case("BaseBodyLock", "motion_feedforward_not_multiplied_by_cap", test_motion_feedforward_is_not_multiplied_by_force_cap);

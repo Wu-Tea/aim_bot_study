@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "scope": "offline owner regression, live acceptance pending",
+  "files": [
+    {
+      "path": "native/controller_native/bodylock_follow_controller.cpp",
+      "sha256": "186dbd400bdbd1d921305aa3d55d21218161100fd2d34d2536f1fd13fc26284b"
+    },
+    {
+      "path": "native/controller_native/response_model_aim_solver.cpp",
+      "sha256": "316087ee59704ca894ddbc5c228a714feaef36a84f364a59762c72ddb56d7979"
+    },
+    {
+      "path": "native/controller_native/response_model_aim_solver.h",
+      "sha256": "fc0a26b430be1827d16e740e01bf48b1cfa88def69c7acb569381d5bb3478453"
+    },
+    {
+      "path": "native/controller_native/bodylock_follow_controller_tests.cpp",
+      "sha256": "62fab158d107eb6a175b1da9a32482e38f258ed8122657ece3f43f9752caceda"
+    },
+    {
+      "path": "native/controller_native/response_model_aim_solver_tests.cpp",
+      "sha256": "835f7bf26253f22956b1ca5266863344563debc7cd0bd1f42e610efed9f4a429"
+    },
+    {
+      "path": "red.json",
+      "sha256": "46211456bf5b73ed3453de1e10af789785afab2891f7abada6ca17be399ed1f6"
+    },
+    {
+      "path": "green.json",
+      "sha256": "9d3b30906f582ae1d0a38d2a29c2b06d82f55d5b4c32d5646b890f972ea51552"
+    },
+    {
+      "path": "verification.json",
+      "sha256": "435ae1bcef13c962a11fd11eaf4db04b9dfeebbc2449851609881626f51512ca"
+    }
+  ],
+  "known_bad_fixture_runtime_sha256": "f025b5723f67b0f778d5fa3ac4a740335f9af7ead23ca8914e43126e317008df",
+  "candidate_fixture_runtime_sha256": "baf513164c2a0100638d73e7c06c97d688669f766cef2ce69e17266b48b132ef",
+  "candidate_game_runtime_sha256": "14a80a5bf21f2acfca69f7a75370a7901dfafbe9e058898c2b7e7721a9a0d1d5"
+}

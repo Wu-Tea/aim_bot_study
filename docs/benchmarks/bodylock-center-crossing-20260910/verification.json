@@ -1,0 +1,31 @@
+{
+  "focused_tests": [
+    {
+      "command": [
+        "native/vision_native/build/Release/cod_native_base_tests.exe",
+        "--artifacts",
+        "runs/bodylock-center-crossing-20260910/base-verified"
+      ],
+      "exit_code": 0,
+      "cases": 282,
+      "report_sha256": "3ced6b843397f56d1d160932b58f8398895ef26dddf30edb3f160e18e852966a"
+    },
+    {
+      "command": [
+        "native/vision_native/build/Release/cod_native_functional_tests.exe",
+        "--artifacts",
+        "runs/bodylock-center-crossing-20260910/functional-final"
+      ],
+      "exit_code": 0,
+      "cases": 89,
+      "report_sha256": "d1246151dcdc115b206475156ccfd5fd36e8b743370f23f490f88d25d1e3fb0b"
+    }
+  ],
+  "ab_comparison": {
+    "baseline_runtime_sha256": "f025b5723f67b0f778d5fa3ac4a740335f9af7ead23ca8914e43126e317008df",
+    "candidate_runtime_sha256": "baf513164c2a0100638d73e7c06c97d688669f766cef2ce69e17266b48b132ef",
+    "invariants_checked": true,
+    "details": "48 probe input rows identical; 16 crossings and all four negative-control families valid in RED and GREEN; frozen test function unchanged. Stateless owner A/B only; no live A/B or plant calibration."
+  },
+  "diff_reviewed": true
+}

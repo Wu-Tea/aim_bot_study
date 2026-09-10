@@ -1,0 +1,278 @@
+{
+  "schema_version": 1,
+  "incident_id": "bodylock-center-crossing-20260910",
+  "title": "BodyLock sustaining request jumps at a subpixel zero crossing",
+  "symptom": "A stable motion demand collapses on approach to zero then rebounds across the sign boundary.",
+  "evidence": {
+    "facts": [
+      {
+        "id": "F1",
+        "claim": "Same target 1081/gen340/epoch148: error -1.66666 to +0.666687 px, motion .185536 to .201948, request -.000758318 to .216069 at constant authority 1.",
+        "source": {
+          "kind": "telemetry",
+          "artifact_id": "sep10-bodylock-audit",
+          "locator": "telemetry file3 lines38605/38613; exact output_sent_ns joins"
+        }
+      },
+      {
+        "id": "F2",
+        "claim": "Opposing feedforward is position-limited, but exact-zero/same-sign demand is fully released. Both axes execute this branch.",
+        "source": {
+          "kind": "code",
+          "artifact_id": "known-bad-solver",
+          "locator": "native/controller_native/response_model_aim_solver.cpp:49-100"
+        }
+      },
+      {
+        "id": "F3",
+        "claim": "User accepted continuous near-center sustaining work and disturbance handling after explanation of relaxing global instantaneous-error sign ownership.",
+        "source": {
+          "kind": "user_confirmed",
+          "artifact_id": "conversation-20260910",
+          "locator": "2026-09-10 user: 没问题"
+        }
+      }
+    ],
+    "inferences": [
+      {
+        "id": "I1",
+        "claim": "Stable-motion zero crossing is a faithful local invariant; removing the branch discontinuity may improve visible smoothness.",
+        "basis": [
+          "F1",
+          "F2"
+        ]
+      }
+    ],
+    "unknowns": [
+      {
+        "id": "U1",
+        "question": "Live camera response, synchronized video, firing disturbance magnitude, and captured full configuration are unavailable; fixture is not an exact replay."
+      }
+    ]
+  },
+  "known_bad": {
+    "runtime_sha256": "f025b5723f67b0f778d5fa3ac4a740335f9af7ead23ca8914e43126e317008df",
+    "source_commit": "96e0accdbdcfb324b468212038979f93d9d566db",
+    "audit_artifact_id": "sep10-bodylock-audit",
+    "audit_artifact_sha256": "8328c296f48c25832140e722d07e62d4358e230fd8b50aab501e16c20639e603",
+    "identity_note": "New fixture linked against unchanged production owner source; this is the RED fixture executable hash, not the captured live exe hash."
+  },
+  "live_runtime_sha256": "9f8ca72b846ca2d0dd87fd7d5507c9ae73c3827523a38869da8e2fe1fcb1d104",
+  "fixture": {
+    "kind": "unit",
+    "source_files": [
+      "../../../native/controller_native/bodylock_follow_controller_tests.cpp"
+    ],
+    "build_target": "cod_native_base_tests",
+    "run_command": [
+      "native/vision_native/build/Release/cod_native_base_tests.exe",
+      "--suite",
+      "BaseBodyLock",
+      "--case",
+      "center_crossing_incident",
+      "--artifacts",
+      "runs/bodylock-center-crossing-20260910/red-frozen"
+    ],
+    "trigger_assertions": [
+      "16 axis/direction/curve/authority crossings execute at fixed nonzero .2 normalized sustaining demand",
+      "far-position, genuine motion reversal, lifecycle loss, and zero-motion controls execute 16 times each"
+    ],
+    "covariates": {
+      "freshness": "not_applicable: stateless solve; every plan explicitly Observed/direct",
+      "target_generation": "constant 340, target 1, ADS epoch148; lifecycle None negative control",
+      "target_count": 1,
+      "right_stick_manual": "explicit zero IntentState; no final arbitration or physical input modeled",
+      "left_stick_manual": "not_applicable: solver consumes already estimated sustaining motion, not left stick",
+      "recoil_firing": "not_applicable: local solve has no firing/ledger input; untrusted rate injected synthetically, not claimed to reproduce recoil",
+      "controller_mode": "BodyLockFollow; Observed then explicit None negative control",
+      "refresh_rate_hz": "not_applicable: stateless request solve; dt argument .001s, no simulated plant",
+      "logging_mode": "fixture JSON metrics only; no runtime event sampler"
+    },
+    "frozen_source_sha256": "118c861db9e630d979d2c790ba3a395059598b9cf1d006bdf0d8b262eaa802e2",
+    "frozen_case_sha256": "16d3609fb01b3e208aab8f4563fa763d96fda38fe8d91c1bf0b53a2a01d46581",
+    "source_change_note": "Frozen case unchanged. One adjacent legacy test now requires an untrusted screen-rate orthogonal axis at zero error to remain neutral."
+  },
+  "oracles": [
+    {
+      "id": "O1",
+      "metric": "maximum_crossing_step",
+      "operator": "<=",
+      "threshold": 0.001,
+      "unit": "stick",
+      "evidence_fact_ids": [
+        "F1",
+        "F2",
+        "F3"
+      ]
+    },
+    {
+      "id": "O2",
+      "metric": "minimum_sustaining_ratio",
+      "operator": ">=",
+      "threshold": 0.5,
+      "unit": "ratio",
+      "evidence_fact_ids": [
+        "F1",
+        "F2",
+        "F3"
+      ]
+    },
+    {
+      "id": "O3",
+      "metric": "maximum_untrusted_jitter",
+      "operator": "<=",
+      "threshold": 0.03,
+      "unit": "stick",
+      "evidence_fact_ids": [
+        "F1",
+        "F2",
+        "F3"
+      ]
+    },
+    {
+      "id": "O4",
+      "metric": "maximum_static_jitter",
+      "operator": "<=",
+      "threshold": 0.03,
+      "unit": "stick",
+      "evidence_fact_ids": [
+        "F1",
+        "F2",
+        "F3"
+      ]
+    }
+  ],
+  "counterfactuals": [
+    {
+      "id": "C1",
+      "change": "Set motion zero at centered error",
+      "expected": "zero request in all 16 variants"
+    },
+    {
+      "id": "C2",
+      "change": "Move error to opposing 20px",
+      "expected": "position direction owns request in all variants"
+    },
+    {
+      "id": "C3",
+      "change": "Reverse sustained motion at zero",
+      "expected": "request follows genuine new motion direction immediately"
+    },
+    {
+      "id": "C4",
+      "change": "Set lifecycle None",
+      "expected": "zero request"
+    },
+    {
+      "id": "C5",
+      "change": "Use raw screen rate instead of valid sustaining motion",
+      "expected": "centered noise cannot independently own axis"
+    }
+  ],
+  "red_proof": {
+    "runtime_sha256": "f025b5723f67b0f778d5fa3ac4a740335f9af7ead23ca8914e43126e317008df",
+    "command": [
+      "native/vision_native/build/Release/cod_native_base_tests.exe",
+      "--suite",
+      "BaseBodyLock",
+      "--case",
+      "center_crossing_incident",
+      "--artifacts",
+      "runs/bodylock-center-crossing-20260910/red-frozen"
+    ],
+    "exit_code": 1,
+    "report": {
+      "id": "red-report",
+      "path": "red.json",
+      "sha256": "46211456bf5b73ed3453de1e10af789785afab2891f7abada6ca17be399ed1f6"
+    },
+    "failed_oracles": [
+      {
+        "oracle_id": "O1",
+        "observed": 0.299243301
+      },
+      {
+        "oracle_id": "O2",
+        "observed": -0.0412560292
+      },
+      {
+        "oracle_id": "O3",
+        "observed": 0.254590183
+      }
+    ]
+  },
+  "green_proof": {
+    "runtime_sha256": "baf513164c2a0100638d73e7c06c97d688669f766cef2ce69e17266b48b132ef",
+    "command": [
+      "native/vision_native/build/Release/cod_native_base_tests.exe",
+      "--suite",
+      "BaseBodyLock",
+      "--case",
+      "center_crossing_incident",
+      "--artifacts",
+      "runs/bodylock-center-crossing-20260910/green-frozen"
+    ],
+    "exit_code": 0,
+    "report": {
+      "id": "green-report",
+      "path": "green.json",
+      "sha256": "9d3b30906f582ae1d0a38d2a29c2b06d82f55d5b4c32d5646b890f972ea51552"
+    },
+    "passed_oracles": [
+      {
+        "oracle_id": "O1",
+        "observed": 2.75224447e-05
+      },
+      {
+        "oracle_id": "O2",
+        "observed": 0.72901839
+      },
+      {
+        "oracle_id": "O3",
+        "observed": 0.0277090874
+      },
+      {
+        "oracle_id": "O4",
+        "observed": 0.0231222678
+      }
+    ]
+  },
+  "verification": {
+    "focused_tests": [
+      {
+        "command": [
+          "native/vision_native/build/Release/cod_native_base_tests.exe",
+          "--artifacts",
+          "runs/bodylock-center-crossing-20260910/base-verified"
+        ],
+        "exit_code": 0,
+        "cases": 282,
+        "report_sha256": "3ced6b843397f56d1d160932b58f8398895ef26dddf30edb3f160e18e852966a"
+      },
+      {
+        "command": [
+          "native/vision_native/build/Release/cod_native_functional_tests.exe",
+          "--artifacts",
+          "runs/bodylock-center-crossing-20260910/functional-final"
+        ],
+        "exit_code": 0,
+        "cases": 89,
+        "report_sha256": "d1246151dcdc115b206475156ccfd5fd36e8b743370f23f490f88d25d1e3fb0b"
+      }
+    ],
+    "ab_comparison": {
+      "baseline_runtime_sha256": "f025b5723f67b0f778d5fa3ac4a740335f9af7ead23ca8914e43126e317008df",
+      "candidate_runtime_sha256": "baf513164c2a0100638d73e7c06c97d688669f766cef2ce69e17266b48b132ef",
+      "invariants_checked": true,
+      "details": "48 probe input rows identical; 16 crossings and all four negative-control families valid in RED and GREEN; frozen test function unchanged. Stateless owner A/B only; no live A/B or plant calibration."
+    },
+    "diff_reviewed": true,
+    "artifact_manifest": {
+      "id": "artifact-manifest",
+      "path": "artifacts.json",
+      "sha256": "d79f137d4c1e2de54a1730bd6ec348e1f8a70eeb49d96474597b9d5ff5fd228f"
+    }
+  },
+  "fixture_correction_before_production": "Initial +-0.0001px probes fell inside the legacy 1e-5 position-stick zero exception; changed to +-0.001px with explicit branch trigger assertion. Baseline static control measured .0231223 stick at .25px with Dynamic curve; noise budget corrected from .02 to .03 to avoid demanding unrelated position-gain tuning. Initial RED retained in runs/.../red. No candidate had been built or production source changed.",
+  "candidate_game_runtime_sha256": "14a80a5bf21f2acfca69f7a75370a7901dfafbe9e058898c2b7e7721a9a0d1d5"
+}

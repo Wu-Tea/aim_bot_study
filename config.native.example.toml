@@ -153,8 +153,14 @@ aim_response_effect_delay_ms = 9
 # Continued pressure at R's boundary becomes an explicit exit request.
 desired_point_traversal_ms = 180
 desired_point_boundary_exit_ms = 50
-# BodyLock-only evidence policy. ADS authority is never scaled by this switch
-# after a selector-owned person has been admitted.
+# BodyLock enemy-cue authority switch (default true):
+# true: reduce follow authority when enemy cue/color evidence is missing.
+# false: skip this reduction for games/scenarios whose enemy markers are not
+# recognized; accepted but enemy-unconfirmed person detections can follow more
+# strongly. Detection reliability, configured force limits, target lifecycle,
+# manual control and AutoFire's own eligibility checks still apply.
+# This does not enable/disable cue detection or cue-only target continuation.
+# Admitted ADS authority is unaffected. Restart the runtime after changing it.
 visual_authority_enabled = true
 
 # All documented recoil overrides remain available.

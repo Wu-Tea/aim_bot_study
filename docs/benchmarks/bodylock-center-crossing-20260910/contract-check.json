@@ -1,0 +1,71 @@
+{
+  "artifact_sha256": "0af6dfe6be91d0fd1f600c2a9fa8512808fc4eac4fad6de9d059156702ca970c",
+  "checks": {
+    "counterfactuals": 5,
+    "evidence": {
+      "facts": 3,
+      "inferences": 1,
+      "unknowns": 1
+    },
+    "fixture": {
+      "covariates": [
+        "controller_mode",
+        "freshness",
+        "left_stick_manual",
+        "logging_mode",
+        "recoil_firing",
+        "refresh_rate_hz",
+        "right_stick_manual",
+        "target_count",
+        "target_generation"
+      ],
+      "kind": "unit",
+      "source_files": 1,
+      "trigger_assertions": 2
+    },
+    "green": {
+      "passed_oracles": [
+        "O1",
+        "O2",
+        "O3",
+        "O4"
+      ],
+      "verified": true
+    },
+    "oracles": 4,
+    "red": {
+      "failed_oracles": [
+        "O1",
+        "O2",
+        "O3"
+      ],
+      "verified": true
+    },
+    "verification": {
+      "diff_reviewed": true,
+      "focused_tests": 2
+    }
+  },
+  "incident_id": "bodylock-center-crossing-20260910",
+  "issues": [],
+  "schema_version": 1,
+  "stage": "complete",
+  "status": "PASS",
+  "verified_artifacts": [
+    {
+      "id": "artifact-manifest",
+      "sha256": "d79f137d4c1e2de54a1730bd6ec348e1f8a70eeb49d96474597b9d5ff5fd228f",
+      "size_bytes": 1692
+    },
+    {
+      "id": "green-report",
+      "sha256": "9d3b30906f582ae1d0a38d2a29c2b06d82f55d5b4c32d5646b890f972ea51552",
+      "size_bytes": 4999
+    },
+    {
+      "id": "red-report",
+      "sha256": "46211456bf5b73ed3453de1e10af789785afab2891f7abada6ca17be399ed1f6",
+      "size_bytes": 5046
+    }
+  ]
+}
