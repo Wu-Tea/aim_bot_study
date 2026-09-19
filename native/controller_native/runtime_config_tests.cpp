@@ -297,6 +297,25 @@ void test_profiles_default_idle_vision_to_60_hz() {
     }
 }
 
+void test_response_prior_config_boundaries() {
+    for (const float value : {0.0f, 80.0f, 650.0f, 4000.0f}) {
+        TempConfig file("cod_response_prior_valid.toml",
+            "[gamepad.ai_aim]\naim_response_initial_scale = " + std::to_string(value) + "\n");
+        const auto config = controller_native::load_runtime_config(file.path());
+        require(config.diagnostics.empty(), "response prior must be a recognized key");
+        require(config.gamepad.ai_aim.aim_response_initial_scale == value,
+                "response prior must preserve its configured value");
+    }
+    for (const char* value : {"-1", "79", "4001", "nan", "inf"}) {
+        TempConfig file("cod_response_prior_invalid.toml",
+            std::string("[gamepad.ai_aim]\naim_response_initial_scale = ") + value + "\n");
+        bool rejected = false;
+        try { (void)controller_native::load_runtime_config(file.path()); }
+        catch (const std::runtime_error&) { rejected = true; }
+        require(rejected, "invalid response prior must be rejected");
+    }
+}
+
 void test_invalid_safety_boundary_fails_closed() {
     TempConfig file(
         "cod_native_invalid_fire_pulse.toml",
@@ -339,6 +358,7 @@ void test_retired_recoil_profile_cannot_be_enabled_by_config() {
 }  // namespace
 
 void register_runtime_config_tests(native_test::Registry& registry) {
+    registry.add_case("BaseContracts", "response_prior_config_boundaries", test_response_prior_config_boundaries);
     registry.add_case("BaseContracts", "retired_recoil_profile_is_inert", test_retired_recoil_profile_cannot_be_enabled_by_config);
     registry.add_case("BaseContracts", "current_control_keys_parse", test_current_control_keys_parse);
     registry.add_case("BaseContracts", "recoil_defaults_use_product_dynamic_range", test_recoil_defaults_use_product_dynamic_range);

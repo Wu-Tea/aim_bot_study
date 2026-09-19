@@ -203,6 +203,7 @@ void dump_effective_config(const controller_native::RuntimeConfig& config) {
     line("gamepad.bodylock.vertical_strength", aim.body_lock_max_ai_force_y);
     line("gamepad.bodylock.activation_range_px", aim.body_lock_activation_box_px);
     line("gamepad.bodylock.tolerance_px", aim.body_lock_box_tolerance_px);
+    line("gamepad.ai_aim.aim_response_initial_scale", aim.aim_response_initial_scale);
     line(
         "gamepad.ai_aim.cue_hold_full_force_min_target_height_ratio",
         aim.cue_hold_full_force_min_target_height_ratio);

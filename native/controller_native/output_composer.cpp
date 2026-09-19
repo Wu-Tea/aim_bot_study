@@ -35,6 +35,7 @@ GamepadOutputState seed_output(const PhysicalGamepadState& physical) noexcept {
     output.back = physical.back;
     output.guide = physical.guide;
     output.start = physical.start;
+    output.touchpad = physical.touchpad;
     output.left_thumb = physical.left_thumb;
     output.right_thumb = physical.right_thumb;
     output.dpad_up = physical.dpad_up;

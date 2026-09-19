@@ -216,6 +216,36 @@ void test_rejects_ambiguous_and_invalid_intervals() {
             "ambiguous intervals must not add accepted samples");
 }
 
+template <typename Estimator>
+void check_configured_prior_learning() {
+    AimResponseEstimatorConfig config;
+    config.fallback_scale = 650.0f;
+    Estimator estimator(config);
+    require_near(estimator.estimate().scale_px_per_stick_second, 650.0f, 1e-6f,
+                 "configured cold prior");
+    require(estimator.estimate().confidence == 0.0f,
+            "a prior is not measured confidence");
+    train_zone(estimator, 300.0f, 0.0f, 160);
+    const auto learned = estimator.estimate();
+    require(std::isfinite(learned.scale_px_per_stick_second) && learned.accepted_samples > 0,
+            "configured prior must still admit real response samples");
+    require_near(learned.scale_px_per_stick_second, 300.0f, 25.0f,
+                 "learning must override the configured prior");
+    estimator.begin_target(99);
+    require_near(estimator.estimate().scale_px_per_stick_second,
+                 learned.scale_px_per_stick_second, 1e-6f,
+                 "target switch retains learning");
+    estimator.reset();
+    require_near(estimator.estimate().scale_px_per_stick_second, 650.0f, 1e-6f,
+                 "reset restores configured prior");
+    require(estimator.estimate().confidence == 0.0f, "reset clears confidence");
+}
+
+void test_configured_prior_retains_learning() {
+    check_configured_prior_learning<AimResponseEstimator>();
+    check_configured_prior_learning<AdsResponseEstimator>();
+}
+
 void test_reset_clears_learned_response() {
     AimResponseEstimator estimator;
     train(estimator, 300.0f);
@@ -229,6 +259,7 @@ void test_reset_clears_learned_response() {
 }  // namespace
 
 void register_aim_response_estimator_tests(native_test::Registry& registry) {
+    registry.add_case("BaseBodyLock", "configured_prior_retains_learning", test_configured_prior_retains_learning);
     registry.add_case("BaseBodyLock", "response_fallback_and_convergence", test_fallback_and_convergence_across_response_scales);
     registry.add_case("BaseBodyLock", "response_persists_and_adapts_to_slowdown", test_persists_across_targets_and_adapts_to_slowdown);
     registry.add_case("BaseBodyLock", "free_and_slow_zone_response_are_separate", test_keeps_free_and_slow_zone_response_separate);

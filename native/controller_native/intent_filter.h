@@ -5,6 +5,10 @@
 namespace controller_native {
 
 struct IntentFilterConfig {
+    // Nonnegative selects a fixed, AI-only right-stick intent threshold.
+    // Raw physical input remains untouched; negative retains the adaptive
+    // policy used by the mouse adapter and focused legacy filter fixtures.
+    float right_stick_intent_deadzone = -1.0f;
     float base_deadzone = 0.02f;
     float neutral_learning_limit = 0.03f;
     float bias_alpha = 0.04f;

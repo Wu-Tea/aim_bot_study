@@ -31,7 +31,9 @@ pipeline_contract::Vec2f AdsAcquisitionController::compute(
     // consumes that one authority value directly; geometry confidence remains
     // telemetry and must not silently multiply the configured force again.
     const float authority = std::clamp(plan.aim_authority, 0.0f, 1.0f);
-    const float response = plan.response_confidence > 0.0f && plan.response_scale >= 50.0f
+    // The estimator already blends learned evidence with its startup prior.
+    // Zero confidence means prior-only, not an absent response estimate.
+    const float response = std::isfinite(plan.response_scale) && plan.response_scale >= 50.0f
         ? plan.response_scale : config_.fallback_response_px_per_stick_second;
     const float nominal_horizon = std::clamp(
         config_.arrival_horizon_seconds, 0.060f, 0.350f);

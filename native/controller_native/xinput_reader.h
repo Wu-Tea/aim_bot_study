@@ -27,6 +27,7 @@ struct PhysicalGamepadState {
     bool dpad_down = false;
     bool dpad_left = false;
     bool dpad_right = false;
+    bool touchpad = false;
 };
 
 struct XInputUserSlot {

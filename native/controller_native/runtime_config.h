@@ -76,6 +76,9 @@ struct GamepadAiAimConfig {
     // End-to-end command-to-captured-motion delay used only by online plant
     // identification. It does not delay actuation or change control cadence.
     float aim_response_effect_delay_ms = 9.0f;
+    // Gamepad-only response prior, in px/(effective stick*s). Zero inherits
+    // the adapter calibration. Does not change the BodyLock feedback horizon.
+    float aim_response_initial_scale = 0.0f;
     // Device adapters with a calibrated linear response disable stick learning.
     bool aim_response_learning_enabled = true;
     // Native device-adapter units; ordinary gamepad configuration keeps 500.

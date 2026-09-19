@@ -5,6 +5,24 @@
 
 namespace controller_native {
 
+namespace {
+pipeline_contract::AxisIntentState fixed_stick_intent(float raw, float deadzone) noexcept {
+    const float magnitude = std::fabs(raw);
+    const float filtered = magnitude <= deadzone ? 0.0f : raw;
+    const float confidence = std::clamp((magnitude - deadzone) / 0.5f, 0.0f, 1.0f);
+    const float fraction = std::clamp(
+        (magnitude - deadzone) / std::max(deadzone * 0.5f, 1.0e-6f),
+        0.0f, 1.0f);
+    // Do not learn/subtract a center or remap the remaining travel.
+    // AI interpretation and arbitration share one neutral threshold. Held
+    // gesture authority rises continuously outside it, reaching full activity
+    // at 1.5 times the threshold. This is an authority blend, not a raw-input
+    // deadzone or a second threshold for admitting correction intent.
+    return {raw, filtered, 0.0f, 0.0f, confidence,
+        fraction * fraction * (3.0f - 2.0f * fraction)};
+}
+} // namespace
+
 IntentFilter::IntentFilter(IntentFilterConfig config)
     : config_(config) {}
 
@@ -101,8 +119,13 @@ pipeline_contract::IntentState IntentFilter::update(
     result.raw_right = raw_right;
     result.left_x = update_axis(left_x_, raw_left.x);
     result.left_y = update_axis(left_y_, raw_left.y);
-    result.right_x = update_axis(right_x_, raw_right.x, right_deadzone, dt);
-    result.right_y = update_axis(right_y_, raw_right.y, right_deadzone, dt);
+    if (config_.right_stick_intent_deadzone >= 0.0f) {
+        result.right_x = fixed_stick_intent(raw_right.x, config_.right_stick_intent_deadzone);
+        result.right_y = fixed_stick_intent(raw_right.y, config_.right_stick_intent_deadzone);
+    } else {
+        result.right_x = update_axis(right_x_, raw_right.x, right_deadzone, dt);
+        result.right_y = update_axis(right_y_, raw_right.y, right_deadzone, dt);
+    }
     result.filtered_left = {result.left_x.filtered, result.left_y.filtered};
     result.filtered_right = {result.right_x.filtered, result.right_y.filtered};
     result.left_phase = phase_for(left_stick_, result.filtered_left);

@@ -88,11 +88,14 @@ Vision evidence + physical intent
   -> one vector intent fusion path
   -> ADS-only brake
   -> recoil feed-forward
-  -> ViGEm virtual gamepad
+  -> ViGEm virtual DualShock 4 (native C++ gamepad output)
 ```
 
 详细现状、已验证边界和正在进行的方向见
 [Current State](docs/project/CURRENT_STATE.md)。
+
+原生 gamepad 已直接转写为有线 DS4，沿用原启动器，无需增加配置项。
+映射、验证与兼容性边界见 [DS4 输出切换](docs/project/DS4_OUTPUT_20260919.md)。
 
 ## 文档入口
 

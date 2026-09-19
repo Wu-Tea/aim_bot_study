@@ -1,6 +1,7 @@
 #include "test_support/native_test_registry.h"
 
 void register_ads_bodylock_september_incidents(native_test::Registry&);
+void register_startup_response_prior_tests(native_test::Registry&);
 void register_runtime_config_tests(native_test::Registry&);
 void register_target_plan_contract_tests(native_test::Registry&);
 void register_committed_capture_observation_tests(native_test::Registry&);
@@ -27,6 +28,8 @@ void register_target_selector_tests(native_test::Registry&);
 void register_color_readback_tests(native_test::Registry&);
 void register_io_recovery_policy_tests(native_test::Registry&);
 void register_controller_protocol_tests(native_test::Registry&);
+void register_ds4_output_report_tests(native_test::Registry&);
+void register_sdl_gamepad_reader_tests(native_test::Registry&);
 void register_vision_service_tests(native_test::Registry&);
 void register_runtime_timing_tests(native_test::Registry&);
 void register_ads_snap_deadline_release_incident(native_test::Registry&);
@@ -58,6 +61,7 @@ void register_ads_dynamic_pickup_roi_incident_regression(native_test::Registry&)
 int main(int argc, char** argv) {
     native_test::Registry registry;
     register_ads_bodylock_september_incidents(registry);
+    register_startup_response_prior_tests(registry);
     register_runtime_config_tests(registry);
     register_target_plan_contract_tests(registry);
     register_committed_capture_observation_tests(registry);
@@ -84,6 +88,8 @@ int main(int argc, char** argv) {
     register_color_readback_tests(registry);
     register_io_recovery_policy_tests(registry);
     register_controller_protocol_tests(registry);
+    register_ds4_output_report_tests(registry);
+    register_sdl_gamepad_reader_tests(registry);
     register_vision_service_tests(registry);
     register_runtime_timing_tests(registry);
     register_ads_snap_deadline_release_incident(registry);

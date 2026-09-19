@@ -34,7 +34,9 @@ BodylockFollowControllerOutput BodylockFollowController::compute_detailed(
     }
     const float authority = std::clamp(
         std::min(plan.aim_authority, plan.reliability), 0.0f, 1.0f);
-    const float response = plan.response_confidence > 0.0f && plan.response_scale >= 50.0f
+    // Consume the estimator's prior even before it has learned any samples.
+    // Keep the calibrated fallback below unchanged: it also defines timing.
+    const float response = std::isfinite(plan.response_scale) && plan.response_scale >= 50.0f
         ? std::fabs(plan.response_scale) : config_.fallback_response_px_per_stick_second;
     result.response_max_force = {config_.max_force_x, config_.max_force_y};
     result.response_horizon_seconds = config_.feedback_range_x_px /

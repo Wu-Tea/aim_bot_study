@@ -148,6 +148,47 @@ void test_no_target_is_physical_passthrough() {
             "no-target tick did not stay in manual passthrough");
 }
 
+void test_gamepad_deadzone_is_shared_by_intent_and_final_arbitration() {
+    for (bool bodylock : {false, true}) {
+        double now = 10.0;
+        auto config = current_config();
+        config.tracker.max_observation_age_ms = 1000.0f;
+        config.ai_aim.ads_completion_fresh_frames = bodylock ? 1 : 1000;
+        NativeGamepadController controller(config, &now);
+        for (int tick = 0; tick < 6; ++tick) {
+            controller.submit_vision_snapshot(observed_snapshot(
+                tick + 1, now, tick < 3 ? 0.0f : 35.0f,
+                tick < 3 ? 0.0f : 35.0f, 911, 19));
+            (void)controller.build_output(physical_input());
+            now += 0.005;
+        }
+        require(controller.last_target_plan().mode == (bodylock
+            ? pipeline_contract::ControlMode::BodyLockFollow
+            : pipeline_contract::ControlMode::AdsAcquire),
+            "shared deadzone fixture must exercise both ADS and BodyLock");
+        for (float value : {-0.25f, -0.249f, -0.08f, -0.05f, -0.0274f,
+                            0.012f, 0.05f, 0.08f, 0.249f, 0.25f}) {
+            now += 0.001;
+            const auto output = controller.build_output(physical_input(value, -value));
+            const auto& d = controller.last_output_components();
+            require(d.filtered_manual_stick.x == 0 && d.filtered_manual_stick.y == 0 &&
+                    !d.manual_correction_x && !d.manual_correction_y,
+                    "arbitration-deadzone input must not create a new AI intent");
+            require(std::fabs(d.shaped_assist_stick.x) > 0.01f &&
+                    std::fabs(d.shaped_assist_stick.y) > 0.01f,
+                    "shared deadzone fixture needs material AI on both axes");
+            require_near(output.right_x, d.shaped_assist_stick.x, 1.0e-6f,
+                         "AI-neutral X must not regain authority in final arbitration");
+            require_near(output.right_y, d.shaped_assist_stick.y, 1.0e-6f,
+                         "AI-neutral Y must not regain authority in final arbitration");
+        }
+        now += 0.001;
+        const auto released = controller.build_output(physical_input(0.012f, -0.012f, false));
+        require(released.right_x == 0.012f && released.right_y == -0.012f,
+                "ADS release must restore raw jitter in the same tick");
+    }
+}
+
 void test_approach_selected_point_reaches_native_output() {
     double now = 12.0;
     NativeGamepadController controller(current_config(), &now);
@@ -537,10 +578,19 @@ void test_small_filtered_input_moves_d_without_a_second_deadzone() {
     (void)controller.build_output(physical_input());
     const auto before = controller.last_target_plan();
 
-    // This is above the shared IntentFilter deadzone but below the retired
-    // 0.08 D-specific deadzone that caused real micro corrections to vanish.
+    // The 2026-09-19 policy intentionally ignores 5% for AI target edits,
+    // while keeping physical passthrough unchanged. This is not a second
+    // downstream deadzone: a sample just above the revised 25% must move D immediately.
     now += 0.005;
-    const auto output = controller.build_output(physical_input(0.05f, 0.0f));
+    (void)controller.build_output(physical_input(0.05f, 0.0f));
+    require_near(controller.last_target_plan().desired_point_normalized.x,
+                 before.desired_point_normalized.x, 1.0e-6f,
+                 "AI target editing must ignore five-percent physical input");
+    require(!controller.last_output_components().manual_correction_x,
+            "ignored physical input must not create a correction gesture");
+    constexpr float accepted_input = 0.251f;
+    now += 0.005;
+    const auto output = controller.build_output(physical_input(accepted_input, 0.0f));
     const auto after = controller.last_target_plan();
     const auto& components = controller.last_output_components();
 
@@ -554,7 +604,7 @@ void test_small_filtered_input_moves_d_without_a_second_deadzone() {
     const float expected_target_output =
         std::fabs(components.ai_aim_stick.x) > 1.0e-4f
         ? components.ai_aim_stick.x
-        : 0.05f;
+        : accepted_input;
     require_near(output.right_x, expected_target_output, 1.0e-5f,
                  "micro D correction did not follow the target-first output contract");
 }
@@ -839,7 +889,7 @@ void test_boundary_qualified_handover_releases_then_captures() {
     }
     now += 0.001;
     const auto micro_output = controller.build_output(
-        physical_input(0.12f, 0.0f));
+        physical_input(0.251f, 0.0f));
     const auto& settled = controller.last_output_components();
     require(settled.assist_control_phase == "track" &&
                 settled.manual_correction_x,
@@ -1004,6 +1054,7 @@ void register_target_pipeline_integration_tests(
     native_test::Registry& registry) {
     registry.add_case("BaseEndToEnd", "approach_selected_point_reaches_native_output", test_approach_selected_point_reaches_native_output);
     registry.add_case("BaseEndToEnd", "no_target_is_physical_passthrough", test_no_target_is_physical_passthrough);
+    registry.add_case("BaseEndToEnd", "gamepad_shared_arbitration_deadzone", test_gamepad_deadzone_is_shared_by_intent_and_final_arbitration);
     registry.add_case("BaseEndToEnd", "centered_motion_retains_ai_authority", test_centered_motion_demand_retains_ai_authority);
     registry.add_case("BaseEndToEnd", "valid_point_correction_is_interpreted", test_valid_point_correction_is_interpreted_not_passthrough);
     registry.add_case("BaseEndToEnd", "track_uses_ai_total_and_native_opposition", test_track_uses_ai_as_total_fill_but_opposition_is_native);

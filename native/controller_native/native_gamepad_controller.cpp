@@ -164,9 +164,18 @@ BodylockFollowControllerConfig bodylock_config(const GamepadRuntimeConfig& confi
     return result;
 }
 
+float initial_response_scale(const GamepadRuntimeConfig& config) {
+    // A learned-response prior is separate from the calibrated baseline that
+    // defines the BodyLock horizon. Mouse adapters retain their own calibration.
+    return !config.ai_aim.adapter_direct_mouse_manual &&
+            config.ai_aim.aim_response_initial_scale > 0.0f
+        ? config.ai_aim.aim_response_initial_scale
+        : config.ai_aim.adapter_response_px_per_second;
+}
+
 AimResponseEstimatorConfig response_estimator_config(const GamepadRuntimeConfig& config) {
     AimResponseEstimatorConfig result{};
-    result.fallback_scale = config.ai_aim.adapter_response_px_per_second;
+    result.fallback_scale = initial_response_scale(config);
     return result;
 }
 
@@ -183,7 +192,7 @@ AimDynamicsShaperConfig dynamics_config(const GamepadRuntimeConfig& config) {
 
 AimResponseEstimatorConfig ads_response_estimator_config(const GamepadRuntimeConfig& config) {
     AimResponseEstimatorConfig result{};
-    result.fallback_scale = config.ai_aim.adapter_response_px_per_second;
+    result.fallback_scale = initial_response_scale(config);
     // ADS needs accumulated evidence, but should approach a measured
     // slowdown conservatively before it is allowed to replace the established
     // response estimate used by the rest of the controller.
@@ -192,11 +201,22 @@ AimResponseEstimatorConfig ads_response_estimator_config(const GamepadRuntimeCon
     return result;
 }
 
+IntentFilterConfig intent_filter_config(const GamepadRuntimeConfig& config) {
+    IntentFilterConfig result;
+    if (!config.ai_aim.adapter_direct_mouse_manual) {
+        // User policy: zero software deadzone on physical gamepad passthrough;
+        // AI ignores small per-axis motion when interpreting manual intent.
+        result.right_stick_intent_deadzone = 0.25f;
+    }
+    return result;
+}
+
 AssistControlStateMachineConfig assist_control_config(
     const GamepadRuntimeConfig& config) {
     AssistControlStateMachineConfig result{};
     result.bodylock_manual_weight = config.ai_aim.adapter_bodylock_manual_weight;
     result.direct_mouse_manual = config.ai_aim.adapter_direct_mouse_manual;
+    result.use_gamepad_intent_for_arbitration = !config.ai_aim.adapter_direct_mouse_manual;
     result.mouse_bodylock_deadzone = config.ai_aim.adapter_bodylock_deadzone;
     result.mouse_response_px_per_second = config.ai_aim.adapter_response_px_per_second;
     result.capture_settle_radius_px = std::max(
@@ -215,6 +235,7 @@ NativeGamepadController::NativeGamepadController(
     GamepadRuntimeConfig config,
     const double* injected_clock_seconds)
     : config_(config),
+      intent_filter_(intent_filter_config(config)),
       target_coordinator_(coordinator_config(config)),
       aim_response_estimator_(response_estimator_config(config)),
       ads_response_estimator_(ads_response_estimator_config(config)),
@@ -529,7 +550,8 @@ const NativeControlTickPreparation& NativeGamepadController::begin_tick(
     sampled_dt_seconds_ = dt;
     // Noise interpretation precedes gesture onset/purpose and desired-point
     // editing. Keep physical M intact: same-tick lifecycle loss must still
-    // return native input in the final owner. ADS/reacquisition has no deadzone.
+    // return native input in the final owner. Gamepad interpretation uses its
+    // fixed threshold; mouse ADS/reacquisition has no extra adapter deadzone.
     const bool mouse_bodylock = config_.ai_aim.adapter_direct_mouse_manual &&
         aiming_ && !acquisition_rearm && last_target_plan_.target_id != 0 &&
         last_target_plan_.mode == pipeline_contract::ControlMode::BodyLockFollow &&

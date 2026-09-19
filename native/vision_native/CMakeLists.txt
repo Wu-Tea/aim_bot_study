@@ -249,6 +249,20 @@ if(SDL2_DLL AND EXISTS "${SDL2_DLL}")
 endif()
 
 add_executable(vision_native_smoke src/trt_smoke_main.cpp)
+add_executable(cod_native_ds4_smoke EXCLUDE_FROM_ALL
+    ../controller_native/ds4_output_smoke.cpp
+    ../controller_native/virtual_gamepad.cpp
+    ../controller_native/sdl_gamepad_reader.cpp
+    ../controller_native/io_recovery_policy.cpp)
+cod_native_defaults(cod_native_ds4_smoke)
+foreach(_ds4_dll IN ITEMS "${ViGEmClient_DLL}" "${SDL2_DLL}")
+    if(EXISTS "${_ds4_dll}")
+        add_custom_command(TARGET cod_native_ds4_smoke POST_BUILD
+            COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                "${_ds4_dll}" "$<TARGET_FILE_DIR:cod_native_ds4_smoke>"
+            VERBATIM)
+    endif()
+endforeach()
 target_link_libraries(vision_native_smoke PRIVATE vision_native_core)
 add_executable(vision_native_debug src/vision_debug_main.cpp)
 target_link_libraries(vision_native_debug PRIVATE vision_native_core)
@@ -291,6 +305,7 @@ add_executable(cod_native_base_tests
     ../controller_native/bodylock_target_motion_observer_tests.cpp
     ../controller_native/aim_dynamics_shaper_tests.cpp
     ../controller_native/aim_response_estimator_tests.cpp
+    ../controller_native/startup_response_prior_tests.cpp
     ../controller_native/response_model_aim_solver_tests.cpp
     ../controller_native/target_geometry_tests.cpp
     src/build_family_tests.cpp
@@ -300,6 +315,9 @@ add_executable(cod_native_base_tests
     ../controller_native/io_recovery_policy_tests.cpp
     ../controller_native/io_recovery_policy.cpp
     ../controller_native/controller_protocol_tests.cpp
+    ../controller_native/ds4_output_report_tests.cpp
+    ../controller_native/sdl_gamepad_reader_tests.cpp
+    ../controller_native/sdl_gamepad_reader.cpp
     ../runtime_app/vision_service_tests.cpp
     ../runtime_app/vision_service.cpp
     ../runtime_app/runtime_timing_tests.cpp
@@ -331,6 +349,12 @@ add_executable(cod_native_base_tests
     src/ads_dynamic_pickup_roi_incident_regression.cpp
     ../runtime_app/vision_controller_adapter.cpp)
 cod_native_defaults(cod_native_base_tests)
+if(SDL2_DLL AND EXISTS "${SDL2_DLL}")
+    add_custom_command(TARGET cod_native_base_tests POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${SDL2_DLL}" "$<TARGET_FILE_DIR:cod_native_base_tests>"
+        VERBATIM)
+endif()
 target_include_directories(
     cod_native_base_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(cod_native_base_tests PRIVATE

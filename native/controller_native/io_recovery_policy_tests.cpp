@@ -18,6 +18,7 @@ void test_reconnect_selects_only_the_original_physical_shape() {
     std::vector<controller_native::SdlJoystickDevice> devices;
     devices.push_back({0, "Xbox 360 Controller", 6, 15, 1, true});
     devices.push_back({1, "DualSense Wireless Controller", 6, 15, 0, true});
+    devices.push_back({2, "PS4 Controller", 6, 15, 0, true});
 
     require_true(
         controller_native::select_sdl_reconnect_device(
@@ -27,6 +28,11 @@ void test_reconnect_selects_only_the_original_physical_shape() {
         controller_native::select_sdl_reconnect_device(
             devices, "Missing Physical Controller", 6, 15) == -1,
         "reconnect must not fall back to an arbitrary virtual controller");
+    devices.erase(devices.begin() + 1);
+    require_true(
+        controller_native::select_sdl_reconnect_device(
+            devices, "DualSense Wireless Controller", 6, 15) == -1,
+        "detached DSE must not reconnect to the runtime's DS4 output");
 }
 
 void test_reconnect_rejects_unopened_or_incompatible_matches() {

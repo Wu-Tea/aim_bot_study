@@ -25,8 +25,10 @@ struct AxisIntentState {
     float neutral_bias = 0.0f;
     float noise_envelope = 0.0f;
     float confidence = 0.0f;
-    // Continuous evidence above this axis's learned neutral/noise threshold.
-    // Zero within the noise envelope, one at twice its threshold.
+    // Continuous held-gesture/release evidence above the AI intent threshold.
+    // Fixed gamepad input shares this evidence with final arbitration, with
+    // full activity at 1.5 times its threshold; adaptive input uses twice its
+    // learned threshold. Neither modifies raw physical passthrough.
     float activity = 0.0f;
 };
 

@@ -1,5 +1,7 @@
 #include "intent_filter.h"
 #include "assist_control_state_machine.h"
+#include "native_gamepad_controller.h"
+#include "ds4_output_report.h"
 #include "test_support/native_test_registry.h"
 
 #include <cmath>
@@ -59,6 +61,59 @@ void test_reversal_and_release_are_explicit() {
     state = filter.update({0.0f, 0.0f}, {0.0f, 0.0f}, true, false, 0.04);
     require_true(state.left_phase == pipeline_contract::StickPhase::Neutral,
                  "release is a single transition state");
+}
+
+void test_gamepad_raw_passthrough_with_twenty_five_percent_ai_intent_deadzone() {
+    double now = 1.0;
+    controller_native::NativeGamepadController controller({}, &now);
+    controller_native::PhysicalGamepadState physical;
+    physical.connected = true;
+    // Include a long small offset: physical output must never be learned away.
+    for (int i = 0; i < 300; ++i) {
+        const float values[] = {0.004f, -0.012f, 0.08f, -0.249f, 0.25f, -0.25f, 0.0f};
+        physical.right_x = i < 200 ? 0.012f : values[i % 7];
+        physical.right_y = -physical.right_x;
+        const auto intent = controller.begin_tick(physical).intent;
+        require_true(intent.filtered_right.x == 0 && intent.filtered_right.y == 0,
+            "AI must ignore each right-stick axis at or below twenty-five percent");
+        const auto output = controller.build_output_from_sampled_input();
+        require_true(output.right_x == physical.right_x && output.right_y == physical.right_y,
+            "AI intent deadzone must not alter raw physical passthrough");
+        now += 0.001;
+    }
+    // No recentering or deadzone rescaling outside the AI-only threshold.
+    physical.right_x = 0.251f; physical.right_y = -0.251f;
+    auto intent = controller.begin_tick(physical).intent;
+    require_true(intent.filtered_right.x == physical.right_x &&
+        intent.filtered_right.y == physical.right_y &&
+        intent.right_x.neutral_bias == 0 && intent.right_y.neutral_bias == 0,
+        "AI intent above twenty-five percent must use the current unshifted input");
+    (void)controller.build_output_from_sampled_input();
+    // Every near-center Sony report code is still present at the DS4 output.
+    for (int byte = 119; byte <= 137; ++byte) {
+        const int sdl = byte * 257 - 32768;
+        physical.right_x = float(sdl) / (sdl < 0 ? 32768.0f : 32767.0f);
+        physical.right_y = -physical.right_x;
+        now += 0.001;
+        intent = controller.begin_tick(physical).intent;
+        const auto output = controller.build_output_from_sampled_input();
+        const auto report = controller_native::to_ds4_report(output);
+        require_true(intent.filtered_right.x == 0 && intent.filtered_right.y == 0 &&
+            report.bytes[2] == byte && report.bytes[3] == byte,
+            "AI-neutral Sony jitter must survive controller and DS4 encoding byte-for-byte");
+    }
+}
+
+void test_gamepad_ai_deadzone_does_not_change_mouse_intent() {
+    double now = 1.0;
+    controller_native::GamepadRuntimeConfig config;
+    config.ai_aim.adapter_direct_mouse_manual = true;
+    controller_native::NativeGamepadController controller(config, &now);
+    controller_native::PhysicalGamepadState physical;
+    physical.connected = true;
+    physical.right_x = 0.04f;
+    require_true(controller.begin_tick(physical).intent.filtered_right.x > 0.03f,
+        "gamepad AI intent threshold must not leak into direct mouse input");
 }
 
 void test_gesture_purpose_survives_target_acquisition() {
@@ -225,6 +280,8 @@ void test_carried_axis_release_continuity(const native_test::TestContext& contex
 }  // namespace
 
 void register_intent_filter_tests(native_test::Registry& registry) {
+    registry.add_case("BaseContracts", "gamepad_raw_passthrough_ai_deadzone_twenty_five_percent", test_gamepad_raw_passthrough_with_twenty_five_percent_ai_intent_deadzone);
+    registry.add_case("BaseContracts", "gamepad_ai_deadzone_preserves_mouse", test_gamepad_ai_deadzone_does_not_change_mouse_intent);
     registry.add_context_case("BaseBodyLock", "carried_axis_release_continuity", test_carried_axis_release_continuity);
     registry.add_case("BaseBodyLock", "deadzone_sized_drift_is_neutral", test_deadzone_sized_drift_is_neutral);
     registry.add_case("BaseBodyLock", "sustained_input_is_not_learned_away", test_sustained_input_is_not_learned_away);

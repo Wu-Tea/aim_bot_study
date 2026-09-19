@@ -30,6 +30,7 @@ struct GamepadOutputState {
     bool dpad_down = false;
     bool dpad_left = false;
     bool dpad_right = false;
+    bool touchpad = false;
 };
 
 struct VirtualGamepadUpdateResult {
@@ -60,6 +61,7 @@ private:
     IoReconnectThrottle reconnect_throttle_{std::chrono::milliseconds(500)};
     unsigned int reconnect_count_ = 0;
     std::uint32_t last_error_code_ = 0;
+    std::uint8_t report_sequence_ = 0;
 };
 
 }  // namespace controller_native

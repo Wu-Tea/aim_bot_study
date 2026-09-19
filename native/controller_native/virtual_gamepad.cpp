@@ -1,4 +1,5 @@
 #include "virtual_gamepad.h"
+#include "ds4_output_report.h"
 
 #include <Windows.h>
 
@@ -18,34 +19,6 @@ namespace {
 
 constexpr std::uint32_t kVigemErrorNone = 0x20000000;
 constexpr std::uint32_t kVigemErrorUnavailable = 0xffffffffu;
-
-constexpr std::uint16_t kButtonDpadUp = 0x0001;
-constexpr std::uint16_t kButtonDpadDown = 0x0002;
-constexpr std::uint16_t kButtonDpadLeft = 0x0004;
-constexpr std::uint16_t kButtonDpadRight = 0x0008;
-constexpr std::uint16_t kButtonStart = 0x0010;
-constexpr std::uint16_t kButtonBack = 0x0020;
-constexpr std::uint16_t kButtonLeftThumb = 0x0040;
-constexpr std::uint16_t kButtonRightThumb = 0x0080;
-constexpr std::uint16_t kButtonLeftShoulder = 0x0100;
-constexpr std::uint16_t kButtonRightShoulder = 0x0200;
-constexpr std::uint16_t kButtonGuide = 0x0400;
-constexpr std::uint16_t kButtonA = 0x1000;
-constexpr std::uint16_t kButtonB = 0x2000;
-constexpr std::uint16_t kButtonX = 0x4000;
-constexpr std::uint16_t kButtonY = 0x8000;
-
-struct XusbReport {
-    std::uint16_t wButtons = 0;
-    std::uint8_t bLeftTrigger = 0;
-    std::uint8_t bRightTrigger = 0;
-    std::int16_t sThumbLX = 0;
-    std::int16_t sThumbLY = 0;
-    std::int16_t sThumbRX = 0;
-    std::int16_t sThumbRY = 0;
-};
-
-static_assert(sizeof(XusbReport) == 12, "XUSB report layout must match ViGEmClient ABI");
 
 std::filesystem::path executable_directory() {
     std::array<char, MAX_PATH> buffer{};
@@ -76,75 +49,6 @@ bool virtual_gamepad_log_enabled() {
     return text != "0" && text != "false" && text != "False" && text != "off" && text != "OFF";
 }
 
-std::int16_t to_thumb_value(float value) {
-    const float clamped = std::max(-1.0f, std::min(1.0f, value));
-    if (clamped < 0.0f) {
-        return static_cast<std::int16_t>(std::lround(clamped * 32768.0f));
-    }
-    return static_cast<std::int16_t>(std::lround(clamped * 32767.0f));
-}
-
-std::uint8_t to_trigger_value(float value) {
-    const float clamped = std::max(0.0f, std::min(1.0f, value));
-    return static_cast<std::uint8_t>(std::lround(clamped * 255.0f));
-}
-
-XusbReport to_xusb_report(const GamepadOutputState& state) {
-    XusbReport report;
-    if (state.dpad_up) {
-        report.wButtons |= kButtonDpadUp;
-    }
-    if (state.dpad_down) {
-        report.wButtons |= kButtonDpadDown;
-    }
-    if (state.dpad_left) {
-        report.wButtons |= kButtonDpadLeft;
-    }
-    if (state.dpad_right) {
-        report.wButtons |= kButtonDpadRight;
-    }
-    if (state.start) {
-        report.wButtons |= kButtonStart;
-    }
-    if (state.back) {
-        report.wButtons |= kButtonBack;
-    }
-    if (state.left_thumb) {
-        report.wButtons |= kButtonLeftThumb;
-    }
-    if (state.right_thumb) {
-        report.wButtons |= kButtonRightThumb;
-    }
-    if (state.lb) {
-        report.wButtons |= kButtonLeftShoulder;
-    }
-    if (state.rb) {
-        report.wButtons |= kButtonRightShoulder;
-    }
-    if (state.guide) {
-        report.wButtons |= kButtonGuide;
-    }
-    if (state.a) {
-        report.wButtons |= kButtonA;
-    }
-    if (state.b) {
-        report.wButtons |= kButtonB;
-    }
-    if (state.x) {
-        report.wButtons |= kButtonX;
-    }
-    if (state.y) {
-        report.wButtons |= kButtonY;
-    }
-    report.bLeftTrigger = to_trigger_value(state.left_trigger);
-    report.bRightTrigger = to_trigger_value(state.right_trigger);
-    report.sThumbLX = to_thumb_value(state.left_x);
-    report.sThumbLY = to_thumb_value(state.left_y);
-    report.sThumbRX = to_thumb_value(state.right_x);
-    report.sThumbRY = to_thumb_value(state.right_y);
-    return report;
-}
-
 template <typename Fn>
 bool load_proc(HMODULE library, const char* name, Fn& out) {
     out = reinterpret_cast<Fn>(GetProcAddress(library, name));
@@ -162,7 +66,7 @@ struct VirtualGamepad::ViGEmBackend {
     using VigemTargetFree = void (*)(void*);
     using VigemTargetAdd = std::uint32_t (*)(void*, void*);
     using VigemTargetRemove = std::uint32_t (*)(void*, void*);
-    using VigemTargetX360Update = std::uint32_t (*)(void*, void*, XusbReport);
+    using VigemTargetDs4Update = std::uint32_t (*)(void*, void*, Ds4OutputReport);
 
     HMODULE library = nullptr;
     void* client = nullptr;
@@ -171,11 +75,11 @@ struct VirtualGamepad::ViGEmBackend {
     VigemFree vigem_free = nullptr;
     VigemConnect vigem_connect = nullptr;
     VigemDisconnect vigem_disconnect = nullptr;
-    VigemTargetAlloc vigem_target_x360_alloc = nullptr;
+    VigemTargetAlloc vigem_target_ds4_alloc = nullptr;
     VigemTargetFree vigem_target_free = nullptr;
     VigemTargetAdd vigem_target_add = nullptr;
     VigemTargetRemove vigem_target_remove = nullptr;
-    VigemTargetX360Update vigem_target_x360_update = nullptr;
+    VigemTargetDs4Update vigem_target_ds4_update_ex = nullptr;
 };
 
 namespace {
@@ -221,14 +125,14 @@ bool initialize_vigem(VirtualGamepad::ViGEmBackend& backend) {
         load_proc(backend.library, "vigem_free", backend.vigem_free) &&
         load_proc(backend.library, "vigem_connect", backend.vigem_connect) &&
         load_proc(backend.library, "vigem_disconnect", backend.vigem_disconnect) &&
-        load_proc(backend.library, "vigem_target_x360_alloc", backend.vigem_target_x360_alloc) &&
+        load_proc(backend.library, "vigem_target_ds4_alloc", backend.vigem_target_ds4_alloc) &&
         load_proc(backend.library, "vigem_target_free", backend.vigem_target_free) &&
         load_proc(backend.library, "vigem_target_add", backend.vigem_target_add) &&
         load_proc(backend.library, "vigem_target_remove", backend.vigem_target_remove) &&
         load_proc(
             backend.library,
-            "vigem_target_x360_update",
-            backend.vigem_target_x360_update);
+            "vigem_target_ds4_update_ex",
+            backend.vigem_target_ds4_update_ex);
     if (!loaded) {
         cleanup_vigem(backend);
         return false;
@@ -243,12 +147,19 @@ bool initialize_vigem(VirtualGamepad::ViGEmBackend& backend) {
         cleanup_vigem(backend);
         return false;
     }
-    backend.target = backend.vigem_target_x360_alloc();
+    backend.target = backend.vigem_target_ds4_alloc();
     if (backend.target == nullptr) {
         cleanup_vigem(backend);
         return false;
     }
     if (backend.vigem_target_add(backend.client, backend.target) != kVigemErrorNone) {
+        cleanup_vigem(backend);
+        return false;
+    }
+    // Replace the driver's canned sensor/axis report before normal operation,
+    // including when the target has just been recreated after a disconnect.
+    if (backend.vigem_target_ds4_update_ex(
+            backend.client, backend.target, to_ds4_report({})) != kVigemErrorNone) {
         cleanup_vigem(backend);
         return false;
     }
@@ -263,7 +174,7 @@ VirtualGamepad::VirtualGamepad() {
         connected_ = true;
         logging_backend_ = false;
         if (virtual_gamepad_log_enabled()) {
-            std::cout << "[NativeRuntime] ViGEm virtual Xbox 360 gamepad is online.\n";
+            std::cout << "[NativeRuntime] ViGEm virtual DualShock 4 gamepad is online.\n";
         }
         return;
     }
@@ -292,14 +203,19 @@ VirtualGamepadUpdateResult VirtualGamepad::update(const GamepadOutputState& stat
     result.error_code = last_error_code_;
     const auto now = std::chrono::steady_clock::now();
 
-    const auto deliver = [&](const XusbReport& report) {
+    const auto deliver = [&](const Ds4OutputReport& report) {
         if (vigem_ == nullptr || vigem_->client == nullptr || vigem_->target == nullptr ||
-            vigem_->vigem_target_x360_update == nullptr) {
+            vigem_->vigem_target_ds4_update_ex == nullptr) {
             return kVigemErrorUnavailable;
         }
-        return vigem_->vigem_target_x360_update(vigem_->client, vigem_->target, report);
+        return vigem_->vigem_target_ds4_update_ex(vigem_->client, vigem_->target, report);
     };
-    const XusbReport report = to_xusb_report(state);
+    // DS4 sensor timestamps use 16/3 microsecond units. They describe report
+    // production only; they do not claim that the game has consumed it.
+    const auto micros = std::chrono::duration_cast<std::chrono::microseconds>(
+        now.time_since_epoch()).count();
+    const Ds4OutputReport report = to_ds4_report(
+        state, report_sequence_++, static_cast<std::uint16_t>((micros * 3) / 16));
     if (connected_) {
         const std::uint32_t code = deliver(report);
         if (code == kVigemErrorNone) {

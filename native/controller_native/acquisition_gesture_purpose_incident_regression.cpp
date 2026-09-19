@@ -21,7 +21,8 @@ constexpr const char* kIncidentId =
     "acquisition-gesture-purpose-20260811";
 constexpr float kDefaultV = 0.365f;
 constexpr float kManualX = 0.30f;
-constexpr float kManualY = -0.20f;
+// Both axes must remain deliberate under the user-authorized 25% deadzone.
+constexpr float kManualY = -0.30f;
 constexpr float kMaximumAcquisitionDShift = 1.0e-6f;
 constexpr float kMinimumNewGestureDShift = 0.005f;
 constexpr std::uint64_t kObservationId = 8201;

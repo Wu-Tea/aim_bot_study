@@ -39,6 +39,19 @@ constexpr int kButtonDpadUp = 11;
 constexpr int kButtonDpadDown = 12;
 constexpr int kButtonDpadLeft = 13;
 constexpr int kButtonDpadRight = 14;
+constexpr int kControllerButtonTouchpad = 20;
+constexpr int kControllerBindButton = 1;
+// SDL_GameControllerButtonBind ABI. A semantic controller button can map to
+// a raw button, axis, or hat; only a digital button binding is used here.
+struct SdlControllerButtonBind {
+    int type;
+    union {
+        int button;
+        int axis;
+        struct { int hat; int mask; } hat;
+    } value;
+};
+static_assert(sizeof(SdlControllerButtonBind) == 12, "SDL button binding ABI");
 constexpr std::uint8_t kSdlHatUp = 0x01;
 constexpr std::uint8_t kSdlHatRight = 0x02;
 constexpr std::uint8_t kSdlHatDown = 0x04;
@@ -108,6 +121,9 @@ struct SdlApi {
     using SdlJoystickGetButton = std::uint8_t (*)(void*, int);
     using SdlJoystickNumHats = int (*)(void*);
     using SdlJoystickGetHat = std::uint8_t (*)(void*, int);
+    using SdlGameControllerOpen = void* (*)(int);
+    using SdlGameControllerClose = void (*)(void*);
+    using SdlGameControllerGetBindForButton = SdlControllerButtonBind (*)(void*, int);
 
     HMODULE library = nullptr;
     SdlInit init = nullptr;
@@ -127,6 +143,9 @@ struct SdlApi {
     SdlJoystickGetButton joystick_get_button = nullptr;
     SdlJoystickNumHats joystick_num_hats = nullptr;
     SdlJoystickGetHat joystick_get_hat = nullptr;
+    SdlGameControllerOpen game_controller_open = nullptr;
+    SdlGameControllerClose game_controller_close = nullptr;
+    SdlGameControllerGetBindForButton game_controller_button_bind = nullptr;
 
     ~SdlApi() {
         if (library != nullptr) {
@@ -162,6 +181,9 @@ struct SdlApi {
         ok = load_proc(library, "SDL_JoystickGetButton", joystick_get_button) && ok;
         ok = load_proc(library, "SDL_JoystickNumHats", joystick_num_hats) && ok;
         ok = load_proc(library, "SDL_JoystickGetHat", joystick_get_hat) && ok;
+        ok = load_proc(library, "SDL_GameControllerOpen", game_controller_open) && ok;
+        ok = load_proc(library, "SDL_GameControllerClose", game_controller_close) && ok;
+        ok = load_proc(library, "SDL_GameControllerGetBindForButton", game_controller_button_bind) && ok;
         load_proc(library, "SDL_SetHint", set_hint);
         if (!ok) {
             FreeLibrary(library);
@@ -195,6 +217,7 @@ struct SdlGamepadReader::Backend {
     int axes = 0;
     int buttons = 0;
     int hats = 0;
+    int touchpad_button = -1;
 
     ~Backend() {
         if (joystick != nullptr && api.joystick_close != nullptr) {
@@ -227,6 +250,17 @@ struct SdlGamepadReader::Backend {
         axes = std::max(0, api.joystick_num_axes(joystick));
         buttons = std::max(0, api.joystick_num_buttons(joystick));
         hats = std::max(0, api.joystick_num_hats(joystick));
+        // Resolve once per open/reconnect. SDL's semantic TOUCHPAD is 20,
+        // but Sony HIDAPI binds it to raw button 15 (16 is the PS5 mute key).
+        // Query the actual mapping instead of guessing from button count.
+        if (void* controller = api.game_controller_open(device_index)) {
+            const auto binding = api.game_controller_button_bind(
+                controller, kControllerButtonTouchpad);
+            if (binding.type == kControllerBindButton) {
+                touchpad_button = binding.value.button;
+            }
+            api.game_controller_close(controller);
+        }
         return true;
     }
 
@@ -238,6 +272,7 @@ struct SdlGamepadReader::Backend {
         axes = 0;
         buttons = 0;
         hats = 0;
+        touchpad_button = -1;
     }
 
     bool attached() const {
@@ -391,6 +426,7 @@ PhysicalGamepadState SdlGamepadReader::read() {
     state.back = backend_->button(kButtonBack);
     state.guide = backend_->button(kButtonGuide);
     state.start = backend_->button(kButtonStart);
+    state.touchpad = backend_->button(backend_->touchpad_button);
     state.left_thumb = backend_->button(kButtonLeftThumb);
     state.right_thumb = backend_->button(kButtonRightThumb);
     state.lb = backend_->button(kButtonLeftShoulder);

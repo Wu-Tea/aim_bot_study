@@ -22,10 +22,13 @@ using controller_native::NativeGamepadController;
 using controller_native::PhysicalGamepadState;
 
 constexpr const char* kIncidentId =
-    "manual-residual-authority-yield-20260811";
+    "manual-residual-authority-yield-20260811-ai-deadzone-25pct-20260919";
 constexpr float kTargetErrorPx = 60.0f;
-constexpr float kSubDeadzoneInput = 0.015f;
-constexpr float kMicroInput = 0.05f;
+// Rebase the deliberate-input trigger on the user-authorized 25% AI intent
+// policy. The old 5% sample is now intentionally ignored, and is covered by
+// the target-pipeline test. Keep all authority/continuity oracles unchanged.
+constexpr float kSubDeadzoneInput = 0.25f;
+constexpr float kMicroInput = 0.251f;
 constexpr float kMinimumAiHeadroom = 0.05f;
 constexpr float kMinimumAlignedAssistGain = 0.025f;
 constexpr float kMinimumAlignedRetentionRatio = 0.75f;
@@ -574,7 +577,7 @@ void write_report(
            << "    \"freshness\": \"all observations fresh at 5 ms cadence\",\n"
            << "    \"target_generation\": " << kSelectorGeneration << ",\n"
            << "    \"target_count\": 1,\n"
-           << "    \"right_stick_manual\": \"per-axis neutral 0.0, sub-deadzone +0.015, aligned +0.05, opposing -0.05, then 12 sustained opposing ticks at -0.05\",\n"
+           << "    \"right_stick_manual\": \"per-axis neutral 0.0, deadzone boundary +0.25, aligned +0.251, opposing -0.251, then 12 sustained opposing ticks at -0.251; intentional 25% AI threshold policy revision 20260919\",\n"
            << "    \"left_stick_manual\": \"zero\",\n"
            << "    \"recoil_firing\": \"recoil disabled and no fire input\",\n"
            << "    \"controller_mode\": \"production NativeGamepadController ADS Snap and BodyLock\",\n"

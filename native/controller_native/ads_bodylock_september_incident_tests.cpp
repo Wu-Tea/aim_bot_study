@@ -112,7 +112,9 @@ void bodylock_released_carry(const native_test::TestContext& context) {
         std::uint64_t target_id = 0;
         for (int tick = 0; tick <= 130; ++tick) {
             now = 10 + tick * .001;
-            const float manual = sign * ((release && tick >= 80) ? .01f : .12f);
+            // User-authorized 25% arbitration deadzone: exercise a fully held
+            // gesture beyond the 37.5% full-activity point, then raw release.
+            const float manual = sign * ((release && tick >= 80) ? .01f : .40f);
             const auto m = vector_axis(manual, a);
             auto physical = controller_native::incident_fixture::ads_input(m.x, m.y);
             if (tick >= 5 && tick % 5 == 0) {

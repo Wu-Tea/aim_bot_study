@@ -33,6 +33,9 @@ struct AssistControlStateMachineConfig {
     float capture_timeout_ms = 135.0f;
     float bodylock_manual_weight = 1.0f;
     bool direct_mouse_manual = false;
+    // Production gamepad intent and final arbitration consume the same
+    // AI-only deadzone result; raw manual_stick remains the passthrough owner.
+    bool use_gamepad_intent_for_arbitration = false;
     float mouse_response_px_per_second = 500.0f;
     float mouse_bodylock_deadzone = 0.0f;
 };
@@ -53,16 +56,15 @@ struct AssistControlStateMachineInput {
     bool firing = false;
     // Physical stick uses XInput coordinates: positive Y is up-stick.
     pipeline_contract::Vec2f manual_stick{};
-    // Bias-centered raw stick is the continuous intent proposal used by final
-    // arbitration. Unlike filtered_manual_stick it becomes visible before a
-    // deadzone crossing, but unlike the physical stick it does not grant a
-    // stable calibrated neutral offset opposing authority. Older focused
-    // fixtures may omit it and retain the physical-stick fallback.
+    // Bias-centered raw stick belongs to the adaptive mouse/legacy policy.
+    // Production gamepad arbitration consumes filtered_manual_stick instead,
+    // sharing the AI intent threshold without altering physical passthrough.
+    // Older focused fixtures may omit it and retain the physical fallback.
     pipeline_contract::Vec2f centered_manual_stick{};
     bool centered_manual_available = false;
-    // Filtered manual remains the discrete noise-owned signal used by upstream
-    // purpose, desired-point and lifecycle interpretation. It is diagnostic
-    // here; final authority must not jump when this field crosses zero.
+    // Shared gamepad signal for purpose, desired-point/lifecycle interpretation
+    // and final AI arbitration. Continuous activity below handles carried
+    // gesture release without adding another input deadzone.
     pipeline_contract::Vec2f filtered_manual_stick{};
     // AI-only output is the desired total proposal for the per-axis T-M solve.
     pipeline_contract::Vec2f ai_stick{};
@@ -75,7 +77,7 @@ struct AssistControlStateMachineInput {
     // reinterpreted as permission for BodyLock to reverse the player's stick
     // after a real ADS handoff.
     bool carried_acquisition_gesture = false;
-    // Produced by IntentFilter against each axis's calibrated noise envelope.
+    // Produced by IntentFilter against each axis's AI intent threshold.
     // Explicit activity is required: a 2-D purpose alone is not a held axis.
     pipeline_contract::Vec2f manual_axis_activity{};
 };
@@ -179,9 +181,11 @@ public:
 
         if (phase_ == AssistControlPhase::Capture) {
             const auto manual = finite_or_zero(input.manual_stick);
-            const auto intent_manual = input.centered_manual_available
-                ? finite_or_zero(input.centered_manual_stick)
-                : manual;
+            const auto intent_manual = config_.use_gamepad_intent_for_arbitration
+                ? finite_or_zero(input.filtered_manual_stick)
+                : input.centered_manual_available
+                    ? finite_or_zero(input.centered_manual_stick)
+                    : manual;
             const auto ai = finite_or_zero(input.ai_stick);
             output.manual_correction_x = input.manual_correction_x;
             output.manual_correction_y = input.manual_correction_y;
@@ -236,9 +240,11 @@ public:
         }
 
         const auto manual = finite_or_zero(input.manual_stick);
-        const auto intent_manual = input.centered_manual_available
-            ? finite_or_zero(input.centered_manual_stick)
-            : manual;
+        const auto intent_manual = config_.use_gamepad_intent_for_arbitration
+            ? finite_or_zero(input.filtered_manual_stick)
+            : input.centered_manual_available
+                ? finite_or_zero(input.centered_manual_stick)
+                : manual;
         const auto ai = finite_or_zero(input.ai_stick);
         // Position error may be near zero while target-relative motion still
         // requires feed-forward. Keep that shaped proposal authoritative until
@@ -246,9 +252,9 @@ public:
         output.manual_correction_x = input.manual_correction_x;
         output.manual_correction_y = input.manual_correction_y;
         // Physical M remains passthrough when there is no material target
-        // proposal. While a target proposal exists, bias-centered M is the
-        // continuous intent evidence used by the one target-first solve; the
-        // calibrated neutral offset is not a protected output contribution.
+        // proposal. While a target proposal exists, the shared gamepad intent
+        // (or adaptive policy's bias-centered M) supplies arbitration evidence;
+        // an AI-neutral offset is not a protected output contribution.
         // Axis-local arbitration is intentional: a helpful horizontal
         // correction may not spend downward/recoil authority on Y.
         output.stick = cooperative_output(
@@ -376,7 +382,7 @@ private:
         };
 
         const auto solve_axis = [
-            &input, material, target_settle_radius, &smoothstep](
+            this, &input, material, target_settle_radius, &smoothstep](
             float native_axis,
             float intent_axis,
             float orthogonal_intent_axis,
@@ -496,7 +502,14 @@ private:
             const float coupled = downward
                 ? 0.0f
                 : coupling(intent_axis, orthogonal_intent_axis) * evidence;
-            const float released = release(intent_axis);
+            // An admitted D correction above the shared threshold is already
+            // intentional; a release blend must not create a second admission
+            // band that swallows it. Only an unowned/held gesture uses activity.
+            const float released = config_.use_gamepad_intent_for_arbitration
+                ? (intentional_d ? 0.0f : 1.0f - std::clamp(vertical
+                    ? input.manual_axis_activity.y : input.manual_axis_activity.x,
+                    0.0f, 1.0f))
+                : release(intent_axis);
             const float target_weight = released + (1.0f - released) * coupled;
             const float cooperative = std::clamp(
                 retained_axis +

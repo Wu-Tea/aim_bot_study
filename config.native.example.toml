@@ -149,6 +149,10 @@ cue_hold_full_force_min_target_height_ratio = 0.25
 # Camera/output effect delay used only to pair delivered commands with fresh
 # captures for online response learning. It does not add input latency.
 aim_response_effect_delay_ms = 9
+# Gamepad startup response prior in px/(effective stick*s), 80..4000.
+# 0 inherits the adapter calibration (normally 500). Online learning continues;
+# direct mouse keeps its own calibration. This is not a physical stick curve.
+aim_response_initial_scale = 0
 # Provisional V1 calibration: D may move only inside selector-published R.
 # Continued pressure at R's boundary becomes an explicit exit request.
 desired_point_traversal_ms = 180
