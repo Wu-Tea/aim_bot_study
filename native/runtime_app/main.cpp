@@ -162,6 +162,7 @@ void dump_effective_config(const controller_native::RuntimeConfig& config) {
     line("runtime.vision.capture_fps", config.vision.capture_fps);
     line("runtime.vision.idle_capture_fps", config.vision.idle_capture_fps);
     line("runtime.vision.keepwarm_when_idle", config.vision.keepwarm_when_idle);
+    line("runtime.vision.aim_release_hold_ms", config.vision.aim_release_hold_ms);
     line("runtime.vision.model_path", config.vision.model_path);
     line("runtime.vision.gpu_service_enabled", config.vision.gpu_service_enabled);
     line("runtime.vision.color_readback_mode", config.vision.color_readback_mode);
@@ -268,6 +269,7 @@ void print_startup_summary(
         << " gpu_service=" << (config.vision.gpu_service_enabled ? "on" : "off")
         << " vision_capture_fps=" << config.vision.capture_fps
         << " vision_idle_fps=" << config.vision.idle_capture_fps
+        << " vision_aim_release_hold_ms=" << config.vision.aim_release_hold_ms
         << " tracker_max_observation_age_ms="
         << config.gamepad.tracker.max_observation_age_ms
         << " aim_controller=production"

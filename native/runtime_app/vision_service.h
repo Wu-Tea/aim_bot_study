@@ -30,6 +30,8 @@ struct VisionServiceOptions {
     double capture_fps = 160.0;
     double idle_fps = 60.0;
     bool keepwarm_when_idle = true;
+    // Cadence only: inactive snapshots never gain aim/fire authority.
+    int aim_release_hold_ms = 0;
 };
 
 struct VisionServiceSnapshot {
@@ -92,7 +94,9 @@ public:
     void start();
     void stop();
 
-    std::uint64_t set_aiming(bool aiming);
+    std::uint64_t set_aiming(
+        bool aiming,
+        std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now());
     void set_user_aim_intent(const pipeline_contract::UserAimIntent& intent);
     void set_viewport(const ViewportRequest& request);
 
@@ -104,6 +108,8 @@ public:
         std::chrono::steady_clock::time_point now) const;
 
 private:
+    // Caller holds mutex_. This is independent of controller authority.
+    bool full_rate_requested(std::chrono::steady_clock::time_point now) const;
     bool step(std::chrono::steady_clock::time_point now);
     std::chrono::steady_clock::time_point next_poll_due(
         std::chrono::steady_clock::time_point now) const;
@@ -116,6 +122,7 @@ private:
     std::thread worker_;
     std::atomic<bool> running_{false};
     bool controller_aiming_ = false;
+    std::chrono::steady_clock::time_point release_hold_until_{};
     pipeline_contract::UserAimIntent user_aim_intent_;
     ViewportRequest viewport_request_;
     std::chrono::steady_clock::time_point last_poll_at_{};

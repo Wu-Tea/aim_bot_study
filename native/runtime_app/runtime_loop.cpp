@@ -544,6 +544,7 @@ RuntimeLoop::RuntimeLoop(
         service_options.capture_fps = static_cast<double>(config_.vision.capture_fps);
         service_options.idle_fps = static_cast<double>(config_.vision.idle_capture_fps);
         service_options.keepwarm_when_idle = config_.vision.keepwarm_when_idle;
+        service_options.aim_release_hold_ms = config_.vision.aim_release_hold_ms;
         vision_service_ = std::make_unique<VisionService>(
             std::make_unique<VisionEngineServicePoller>(std::move(vision_engine)),
             service_options);
@@ -552,6 +553,7 @@ RuntimeLoop::RuntimeLoop(
         std::cout << "[VisionService][CPP] enabled"
                   << " capture_fps=" << config_.vision.capture_fps
                   << " idle_fps=" << config_.vision.idle_capture_fps
+                  << " aim_release_hold_ms=" << config_.vision.aim_release_hold_ms
                   << " keepwarm=" << (config_.vision.keepwarm_when_idle ? 1 : 0)
                   << '\n';
     } else {
@@ -709,7 +711,7 @@ void RuntimeLoop::run_once() {
     bool viewport_fresh_vision = false;
     if (vision_service_ != nullptr) {
         const std::uint64_t expected_aim_transition_sequence =
-            vision_service_->set_aiming(vision_requested);
+            vision_service_->set_aiming(vision_requested, tick_started);
         vision_service_->set_user_aim_intent(user_aim_intent);
         VisionServiceSnapshot service_snapshot =
             vision_service_->latest_snapshot(latest_vision_service_sequence_);

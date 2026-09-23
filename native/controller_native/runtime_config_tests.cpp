@@ -69,6 +69,27 @@ void test_withdrawn_light_search_key_is_inert() {
         "withdrawn light search must be an unknown/inert configuration key");
 }
 
+void test_vision_release_hold_config() {
+    TempConfig defaults("cod_native_release_hold_default.toml", "[runtime.vision]\n");
+    require(controller_native::load_runtime_config(defaults.path()).vision.aim_release_hold_ms == 0,
+        "missing release hold must retain previous scheduling");
+    for (const int value : {0, 1000, 5000}) {
+        TempConfig file("cod_native_release_hold.toml",
+            "[runtime.vision]\naim_release_hold_ms = " + std::to_string(value) + "\n");
+        const auto config = controller_native::load_runtime_config(file.path());
+        require(config.diagnostics.empty(), "release hold key must be recognized");
+        require(config.vision.aim_release_hold_ms == value, "release hold must parse");
+    }
+    for (const auto* value : {"-1", "5001", "nan", "99999999999999999999999"}) {
+        TempConfig file("cod_native_release_hold_invalid.toml",
+            std::string("[runtime.vision]\naim_release_hold_ms = ") + value + "\n");
+        bool threw = false;
+        try { (void)controller_native::load_runtime_config(file.path()); }
+        catch (const std::runtime_error&) { threw = true; }
+        require(threw, "invalid release hold must fail at config boundary");
+    }
+}
+
 void test_current_control_keys_parse() {
     TempConfig file(
         "cod_native_current_control_config.toml",
@@ -386,6 +407,7 @@ void test_retired_recoil_profile_cannot_be_enabled_by_config() {
 }  // namespace
 
 void register_runtime_config_tests(native_test::Registry& registry) {
+    registry.add_case("BaseContracts", "vision_release_hold_config", test_vision_release_hold_config);
     registry.add_case("BaseContracts", "withdrawn_light_search_key_is_inert", test_withdrawn_light_search_key_is_inert);
     registry.add_case("BaseContracts", "vision_selection_config", test_vision_selection_config);
     registry.add_case("BaseContracts", "response_prior_config_boundaries", test_response_prior_config_boundaries);

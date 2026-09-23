@@ -29,6 +29,7 @@ struct VisionRuntimeConfig {
     int capture_fps = 140;
     int idle_capture_fps = 60;
     bool keepwarm_when_idle = true;
+    int aim_release_hold_ms = 0;
     std::string color_readback_mode = "pageable";
     std::string model_path = "models/candidates/body_union_manual_core_x2_neg_e6_480x416.engine";
     std::string fallback_model_path = "models/best.pt";

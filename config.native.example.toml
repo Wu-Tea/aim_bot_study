@@ -41,6 +41,9 @@ dynamic_viewport_enabled = false
 capture_fps = 160
 idle_capture_fps = 60
 keepwarm_when_idle = true
+# Async Vision only: retain capture_fps after aim release, without aim/fire
+# authority. 0 restores immediate idle cadence; allowed range: 0..5000 ms.
+aim_release_hold_ms = 1000
 color_readback_mode = "pageable" # pinned remains opt-in until the A/B gate passes
 model_path = "models/best_480x384.engine"
 gpu_service_enabled = true

@@ -4,6 +4,7 @@
 
 #include <chrono>
 #include <cmath>
+#include <functional>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
@@ -51,6 +52,7 @@ public:
             result.auto_fire = true;
         }
         result.gpu_total_ms = result.frame_updated ? 6.5f : 0.0f;
+        if (on_poll) on_poll();
         return result;
     }
 
@@ -60,6 +62,7 @@ public:
     pipeline_contract::UserAimIntent last_intent;
     runtime_app::ViewportRequest last_viewport;
     int viewport_update_count = 0;
+    std::function<void()> on_poll;
 
 private:
     bool next_update() {
@@ -76,6 +79,130 @@ private:
 
 std::chrono::steady_clock::time_point at_ms(int ms) {
     return std::chrono::steady_clock::time_point{} + std::chrono::milliseconds(ms);
+}
+
+void test_release_hold_has_full_cadence_without_authority_and_expires() {
+    auto poller = std::make_unique<FakeVisionPoller>(std::vector<bool>{});
+    poller->authority_on_update = true;
+    runtime_app::VisionServiceOptions options;
+    options.capture_fps = 100.0;
+    options.idle_fps = 20.0;
+    options.aim_release_hold_ms = 1000;
+    runtime_app::VisionService service(std::move(poller), options);
+    service.set_aiming(false, at_ms(0));
+    REQUIRE(service.step_for_test(at_ms(0)));
+    REQUIRE(service.latest_snapshot().requested_vision_fps == 20.0f);
+    service.set_aiming(true, at_ms(1));
+    REQUIRE(service.step_for_test(at_ms(1)));
+    service.set_aiming(false, at_ms(2));
+    REQUIRE(service.next_poll_due_for_test(at_ms(2)) == at_ms(11));
+    REQUIRE(!service.step_for_test(at_ms(10)));
+    REQUIRE(service.step_for_test(at_ms(11)));
+    const auto held = service.latest_snapshot();
+    REQUIRE(!held.controller_aiming && held.engine_aiming);
+    REQUIRE(held.requested_vision_fps == 100.0f);
+    REQUIRE(held.result.has_target && held.result.frame_updated);
+    REQUIRE(!held.result.aim_authority && !held.result.fire_authority);
+    REQUIRE(!held.result.auto_fire);
+    // Repeated inactive requests must not renew the release deadline.
+    service.set_aiming(false, at_ms(990));
+    REQUIRE(service.step_for_test(at_ms(992)));
+    REQUIRE(service.latest_snapshot().requested_vision_fps == 100.0f);
+    REQUIRE(service.next_poll_due_for_test(at_ms(1002)) == at_ms(1042));
+    REQUIRE(!service.step_for_test(at_ms(1002)));
+    REQUIRE(service.step_for_test(at_ms(1042)));
+    REQUIRE(service.latest_snapshot().requested_vision_fps == 20.0f);
+}
+
+void test_release_hold_reaim_has_new_epoch_and_renews_on_next_release() {
+    auto poller = std::make_unique<FakeVisionPoller>(std::vector<bool>{});
+    poller->authority_on_update = true;
+    runtime_app::VisionServiceOptions options;
+    options.capture_fps = 100.0;
+    options.idle_fps = 20.0;
+    options.aim_release_hold_ms = 1000;
+    runtime_app::VisionService service(std::move(poller), options);
+    service.set_aiming(true, at_ms(0));
+    REQUIRE(service.step_for_test(at_ms(0)));
+    service.set_aiming(false, at_ms(1));
+    REQUIRE(service.step_for_test(at_ms(10)));
+    const auto held = service.latest_snapshot();
+    REQUIRE(!held.result.aim_authority);
+    const auto new_epoch = service.set_aiming(true, at_ms(11));
+    REQUIRE(held.aim_transition_sequence != new_epoch);
+    REQUIRE(service.step_for_test(at_ms(11))); // bypasses remaining 9 ms
+    REQUIRE(service.latest_snapshot().aim_transition_sequence == new_epoch);
+    REQUIRE(service.latest_snapshot().result.aim_authority);
+    service.set_aiming(false, at_ms(500));
+    REQUIRE(service.step_for_test(at_ms(1499)));
+    REQUIRE(service.latest_snapshot().requested_vision_fps == 100.0f);
+    REQUIRE(!service.latest_snapshot().result.aim_authority);
+    REQUIRE(!service.step_for_test(at_ms(1509)));
+    REQUIRE(service.step_for_test(at_ms(1549)));
+    REQUIRE(service.latest_snapshot().requested_vision_fps == 20.0f);
+}
+
+void test_release_hold_expires_when_idle_keepwarm_disabled() {
+    auto poller = std::make_unique<FakeVisionPoller>(std::vector<bool>{});
+    runtime_app::VisionServiceOptions options;
+    options.capture_fps = 100.0;
+    options.keepwarm_when_idle = false;
+    options.aim_release_hold_ms = 1000;
+    runtime_app::VisionService service(std::move(poller), options);
+    REQUIRE(!service.step_for_test(at_ms(0)));
+    service.set_aiming(true, at_ms(1));
+    REQUIRE(service.step_for_test(at_ms(1)));
+    service.set_aiming(false, at_ms(2));
+    REQUIRE(service.step_for_test(at_ms(11)));
+    REQUIRE(!service.latest_snapshot().controller_aiming);
+    REQUIRE(service.step_for_test(at_ms(1001)));
+    REQUIRE(!service.step_for_test(at_ms(1002)));
+    REQUIRE(!service.step_for_test(at_ms(2000)));
+}
+
+void test_release_hold_inflight_frame_cannot_cross_reaim_epoch() {
+    auto poller = std::make_unique<FakeVisionPoller>(std::vector<bool>{});
+    auto* raw = poller.get();
+    raw->authority_on_update = true;
+    runtime_app::VisionServiceOptions options;
+    options.capture_fps = 100.0;
+    options.aim_release_hold_ms = 1000;
+    runtime_app::VisionService service(std::move(poller), options);
+    service.set_aiming(true, at_ms(0));
+    REQUIRE(service.step_for_test(at_ms(0)));
+    service.set_aiming(false, at_ms(1));
+    raw->on_poll = [&] { service.set_aiming(true, at_ms(11)); };
+    REQUIRE(service.step_for_test(at_ms(10)));
+    const auto stale = service.latest_snapshot();
+    REQUIRE(stale.freshness == runtime_app::VisionSnapshotFreshness::NoUpdate);
+    REQUIRE(!stale.result.frame_updated);
+    REQUIRE(!stale.result.aim_authority && !stale.result.fire_authority);
+    REQUIRE(!stale.result.auto_fire);
+    raw->on_poll = {};
+    REQUIRE(service.step_for_test(at_ms(11)));
+    REQUIRE(service.latest_snapshot().result.aim_authority);
+    // Also revoke a poll started while aiming if release occurs in flight.
+    raw->on_poll = [&] { service.set_aiming(false, at_ms(22)); };
+    REQUIRE(service.step_for_test(at_ms(21)));
+    REQUIRE(!service.latest_snapshot().result.aim_authority);
+    REQUIRE(!service.latest_snapshot().result.fire_authority);
+    REQUIRE(!service.latest_snapshot().result.frame_updated);
+}
+
+void test_zero_release_hold_retains_immediate_idle_cadence() {
+    auto poller = std::make_unique<FakeVisionPoller>(std::vector<bool>{});
+    runtime_app::VisionServiceOptions options;
+    options.capture_fps = 100.0;
+    options.idle_fps = 20.0;
+    options.aim_release_hold_ms = 0;
+    runtime_app::VisionService service(std::move(poller), options);
+    service.set_aiming(true, at_ms(0));
+    REQUIRE(service.step_for_test(at_ms(0)));
+    service.set_aiming(false, at_ms(1));
+    REQUIRE(service.next_poll_due_for_test(at_ms(1)) == at_ms(50));
+    REQUIRE(!service.step_for_test(at_ms(10)));
+    REQUIRE(service.step_for_test(at_ms(50)));
+    REQUIRE(service.latest_snapshot().requested_vision_fps == 20.0f);
 }
 
 void test_keepwarm_polls_while_idle_and_active() {
@@ -452,6 +579,11 @@ void test_delivery_gate_uses_source_image_age_and_identity() {
 }  // namespace
 
 void register_vision_service_tests(native_test::Registry& registry) {
+    registry.add_case("BaseRuntimeFreshness", "release_hold_cadence_authority_and_expiry", test_release_hold_has_full_cadence_without_authority_and_expires);
+    registry.add_case("BaseRuntimeFreshness", "release_hold_reaim_epoch_and_renewal", test_release_hold_reaim_has_new_epoch_and_renews_on_next_release);
+    registry.add_case("BaseRuntimeFreshness", "release_hold_without_idle_keepwarm", test_release_hold_expires_when_idle_keepwarm_disabled);
+    registry.add_case("BaseRuntimeFreshness", "release_hold_inflight_epoch_fence", test_release_hold_inflight_frame_cannot_cross_reaim_epoch);
+    registry.add_case("BaseRuntimeFreshness", "zero_release_hold_restores_idle_cadence", test_zero_release_hold_retains_immediate_idle_cadence);
     registry.add_case("BaseRuntimeFreshness", "worker_failure_transferred_and_joined", test_worker_failure_is_transferred_and_stop_joins);
     registry.add_case("BaseRuntimeFreshness", "worker_failure_revokes_authority", test_worker_failure_revokes_a_previously_authoritative_mailbox);
     registry.add_case("BaseRuntimeFreshness", "mailbox_skips_consumed_sequence", test_mailbox_does_not_copy_an_already_consumed_sequence);

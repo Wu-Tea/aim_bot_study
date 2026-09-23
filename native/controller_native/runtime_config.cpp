@@ -128,6 +128,8 @@ void apply_runtime_vision_value(
         config.capture_fps = parse_int_value(value, config.capture_fps);
     } else if (key == "idle_capture_fps") {
         config.idle_capture_fps = parse_int_value(value, config.idle_capture_fps);
+    } else if (key == "aim_release_hold_ms") {
+        config.aim_release_hold_ms = parse_int_value(value, -1);
     } else if (key == "keepwarm_when_idle") {
         config.keepwarm_when_idle = parse_bool_value(value, config.keepwarm_when_idle);
     } else if (key == "friendly_filter_enabled") {
@@ -170,7 +172,7 @@ bool is_known_key(const std::string& section, const std::string& key) {
         "viewport_precision_height", "viewport_normal_width",
         "viewport_normal_height", "viewport_rescue_width",
         "viewport_rescue_height", "viewport_prediction_ms",
-        "idle_capture_fps", "keepwarm_when_idle", "color_readback_mode", "model_path", "fallback_model_path",
+        "idle_capture_fps", "keepwarm_when_idle", "aim_release_hold_ms", "color_readback_mode", "model_path", "fallback_model_path",
         "quit_key", "native_cue_sidecar", "perf_log", "gpu_service_enabled",
         "fusion_enabled", "fusion_session", "fusion_show_all_detections"};
     static const std::unordered_set<std::string> telemetry_keys{
@@ -930,6 +932,8 @@ void validate_runtime_config(RuntimeConfig& config) {
     }
     if (config.vision.idle_capture_fps < 1 || config.vision.idle_capture_fps > 240)
         invalid("runtime.vision.idle_capture_fps", "1..240");
+    if (config.vision.aim_release_hold_ms < 0 || config.vision.aim_release_hold_ms > 5000)
+        invalid("runtime.vision.aim_release_hold_ms", "0..5000");
     if (!std::isfinite(config.vision.target_height_ratio) ||
         config.vision.target_height_ratio <= 0.0f || config.vision.target_height_ratio >= 1.0f)
         invalid("runtime.vision.target_height_ratio", "0 < ratio < 1");

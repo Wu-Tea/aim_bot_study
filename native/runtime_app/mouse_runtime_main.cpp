@@ -563,6 +563,7 @@ int main(int argc, char** argv) {
                 << ",\"recoil_require_ads\":" << config.mouse.recoil_require_ads
                 << ",\"capture_fps\":" << config.vision.capture_fps
                 << ",\"idle_fps\":" << config.vision.idle_capture_fps
+                << ",\"aim_release_hold_ms\":" << config.vision.aim_release_hold_ms
                 << ",\"capture_wh\":[" << config.vision.capture_width << ',' << config.vision.capture_height << ']'
                 << ",\"tensor_wh\":[" << config.vision.tensor_width << ',' << config.vision.tensor_height << ']'
                 << ",\"max_observation_age_ms\":" << config.gamepad.tracker.max_observation_age_ms
@@ -623,6 +624,7 @@ int main(int argc, char** argv) {
         vision_options.idle_fps =
             static_cast<double>(config.vision.idle_capture_fps);
         vision_options.keepwarm_when_idle = config.vision.keepwarm_when_idle;
+        vision_options.aim_release_hold_ms = config.vision.aim_release_hold_ms;
         runtime_app::VisionService vision_service(
             std::make_unique<MouseVisionEnginePoller>(std::move(vision_engine)),
             vision_options);
@@ -711,7 +713,7 @@ int main(int argc, char** argv) {
                 calibrating || session.right_button_down() ||
                 session.left_button_down();
             const std::uint64_t expected_aim_transition_sequence =
-                vision_service.set_aiming(vision_requested);
+                vision_service.set_aiming(vision_requested, now);
             const auto vision_snapshot = vision_service.latest_snapshot();
             if (vision_snapshot.sequence != 0 &&
                 vision_snapshot.sequence != latest_vision_service_sequence) {

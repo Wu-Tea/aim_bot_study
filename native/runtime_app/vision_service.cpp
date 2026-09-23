@@ -157,18 +157,24 @@ void VisionService::stop() {
     }
 }
 
-std::uint64_t VisionService::set_aiming(bool aiming) {
+std::uint64_t VisionService::set_aiming(
+    bool aiming, std::chrono::steady_clock::time_point now) {
     bool state_changed = false;
     std::uint64_t transition_sequence = 0;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         state_changed = aiming != controller_aiming_;
         const bool wake = aiming && !controller_aiming_;
+        if (state_changed) {
+            release_hold_until_ = !aiming && options_.aim_release_hold_ms > 0
+                ? now + std::chrono::milliseconds(options_.aim_release_hold_ms)
+                : std::chrono::steady_clock::time_point{};
+        }
         controller_aiming_ = aiming;
         if (wake) {
             ++aim_transition_sequence_;
             immediate_poll_requested_ = true;
-            aim_transition_requested_at_ = std::chrono::steady_clock::now();
+            aim_transition_requested_at_ = now;
         }
         transition_sequence = aim_transition_sequence_;
     }
@@ -202,6 +208,10 @@ std::chrono::steady_clock::time_point VisionService::next_poll_due_for_test(
     return next_poll_due(now);
 }
 
+bool VisionService::full_rate_requested(std::chrono::steady_clock::time_point now) const {
+    return controller_aiming_ || now < release_hold_until_;
+}
+
 bool VisionService::step(std::chrono::steady_clock::time_point now) {
     bool controller_aiming = false;
     bool engine_aiming = false;
@@ -213,8 +223,9 @@ bool VisionService::step(std::chrono::steady_clock::time_point now) {
     {
         std::lock_guard<std::mutex> lock(mutex_);
         controller_aiming = controller_aiming_;
-        engine_aiming = controller_aiming_ || options_.keepwarm_when_idle;
-        const double fps = controller_aiming_ ? options_.capture_fps : options_.idle_fps;
+        const bool full_rate = full_rate_requested(now);
+        engine_aiming = full_rate || options_.keepwarm_when_idle;
+        const double fps = full_rate ? options_.capture_fps : options_.idle_fps;
         requested_fps = fps;
         if (!engine_aiming || interval_for_fps(fps) == std::chrono::steady_clock::duration::max()) {
             return false;
@@ -291,8 +302,9 @@ bool VisionService::step(std::chrono::steady_clock::time_point now) {
 std::chrono::steady_clock::time_point VisionService::next_poll_due(
     std::chrono::steady_clock::time_point now) const {
     std::lock_guard<std::mutex> lock(mutex_);
-    const bool engine_aiming = controller_aiming_ || options_.keepwarm_when_idle;
-    const double fps = controller_aiming_ ? options_.capture_fps : options_.idle_fps;
+    const bool full_rate = full_rate_requested(now);
+    const bool engine_aiming = full_rate || options_.keepwarm_when_idle;
+    const double fps = full_rate ? options_.capture_fps : options_.idle_fps;
     const auto interval = interval_for_fps(fps);
     if (!engine_aiming || interval == std::chrono::steady_clock::duration::max()) {
         return now + std::chrono::milliseconds(5);
