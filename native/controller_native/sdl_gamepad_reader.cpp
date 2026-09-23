@@ -1,5 +1,6 @@
 #include "sdl_gamepad_reader.h"
 #include "io_recovery_policy.h"
+#include "sdl_touchpad_state.h"
 
 #include <Windows.h>
 
@@ -124,6 +125,7 @@ struct SdlApi {
     using SdlGameControllerOpen = void* (*)(int);
     using SdlGameControllerClose = void (*)(void*);
     using SdlGameControllerGetBindForButton = SdlControllerButtonBind (*)(void*, int);
+    using SdlGameControllerGetNumTouchpadFingers = int (*)(void*, int);
 
     HMODULE library = nullptr;
     SdlInit init = nullptr;
@@ -146,6 +148,8 @@ struct SdlApi {
     SdlGameControllerOpen game_controller_open = nullptr;
     SdlGameControllerClose game_controller_close = nullptr;
     SdlGameControllerGetBindForButton game_controller_button_bind = nullptr;
+    SdlGameControllerGetNumTouchpadFingers game_controller_num_fingers = nullptr;
+    SdlTouchpadFingerReader game_controller_finger = nullptr;
 
     ~SdlApi() {
         if (library != nullptr) {
@@ -184,6 +188,10 @@ struct SdlApi {
         ok = load_proc(library, "SDL_GameControllerOpen", game_controller_open) && ok;
         ok = load_proc(library, "SDL_GameControllerClose", game_controller_close) && ok;
         ok = load_proc(library, "SDL_GameControllerGetBindForButton", game_controller_button_bind) && ok;
+        // Optional on older SDL DLLs: missing touch support must not disable
+        // the existing axes/buttons or synthesize a touch request.
+        load_proc(library, "SDL_GameControllerGetNumTouchpadFingers", game_controller_num_fingers);
+        load_proc(library, "SDL_GameControllerGetTouchpadFinger", game_controller_finger);
         load_proc(library, "SDL_SetHint", set_hint);
         if (!ok) {
             FreeLibrary(library);
@@ -213,16 +221,16 @@ void apply_sdl_joystick_hints(SdlApi& api) {
 struct SdlGamepadReader::Backend {
     SdlApi api;
     void* joystick = nullptr;
+    void* controller = nullptr;
     bool initialized = false;
     int axes = 0;
     int buttons = 0;
     int hats = 0;
     int touchpad_button = -1;
+    int touchpad_fingers = 0;
 
     ~Backend() {
-        if (joystick != nullptr && api.joystick_close != nullptr) {
-            api.joystick_close(joystick);
-        }
+        close();
         if (initialized && api.quit_subsystem != nullptr) {
             api.quit_subsystem(kSdlInitFlags);
         }
@@ -253,18 +261,26 @@ struct SdlGamepadReader::Backend {
         // Resolve once per open/reconnect. SDL's semantic TOUCHPAD is 20,
         // but Sony HIDAPI binds it to raw button 15 (16 is the PS5 mute key).
         // Query the actual mapping instead of guessing from button count.
-        if (void* controller = api.game_controller_open(device_index)) {
+        controller = api.game_controller_open(device_index);
+        if (controller != nullptr) {
             const auto binding = api.game_controller_button_bind(
                 controller, kControllerButtonTouchpad);
             if (binding.type == kControllerBindButton) {
                 touchpad_button = binding.value.button;
             }
-            api.game_controller_close(controller);
+            if (api.game_controller_num_fingers && api.game_controller_finger) {
+                touchpad_fingers = std::clamp(api.game_controller_num_fingers(controller, 0), 0, 2);
+            }
         }
         return true;
     }
 
     void close() {
+        if (controller != nullptr && api.game_controller_close != nullptr) {
+            api.game_controller_close(controller);
+        }
+        controller = nullptr;
+        touchpad_fingers = 0;
         if (joystick != nullptr && api.joystick_close != nullptr) {
             api.joystick_close(joystick);
         }
@@ -427,6 +443,9 @@ PhysicalGamepadState SdlGamepadReader::read() {
     state.guide = backend_->button(kButtonGuide);
     state.start = backend_->button(kButtonStart);
     state.touchpad = backend_->button(backend_->touchpad_button);
+    state.touchpad_fingers = read_sdl_touchpad_fingers(
+        backend_->controller, backend_->touchpad_fingers,
+        backend_->api.game_controller_finger);
     state.left_thumb = backend_->button(kButtonLeftThumb);
     state.right_thumb = backend_->button(kButtonRightThumb);
     state.lb = backend_->button(kButtonLeftShoulder);

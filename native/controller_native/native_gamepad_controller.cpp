@@ -281,6 +281,8 @@ void NativeGamepadController::reset() {
     input_edge_reducer_.reset();
     aim_scope_reducer_.reset();
     auto_fire_gate_.reset();
+    touchpad_fire_.reset();
+    touchpad_triangle_.reset();
     pending_snapshot_ = {};
     has_pending_snapshot_ = false;
     physical_aiming_ = false;
@@ -601,6 +603,14 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
     const double now = now_seconds();
     const float dt = sampled_dt_seconds_;
     has_sampled_input_ = false;
+    const auto touch_fire = touchpad_fire_.update(
+        config_.ai_aim.adapter_direct_mouse_manual ? PhysicalGamepadState{} : physical,
+        now, config_.auto_fire.pulse_width_ms, config_.auto_fire.pulse_period_ms);
+    // Touch fire disturbs camera-response observations even though this source
+    // deliberately has no recoil compensation. Include pulse gaps as firing.
+    if (touch_fire.requested) last_firing_activity_seconds_ = now;
+    const bool touch_triangle = touchpad_triangle_.update(
+        config_.ai_aim.adapter_direct_mouse_manual ? PhysicalGamepadState{} : physical, now);
 
     const auto controller_tick = pipeline_contract::ControllerTickId::from(
         last_tick_preparation_.tick_id);
@@ -1238,7 +1248,9 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
     // must not turn on synthetic AutoFire as though physical LT were held.
     fire_input.aiming = physical_aiming_;
     fire_input.ads_min_elapsed = true;
-    fire_input.manual_fire_pressed = manual_fire_pressed(physical);
+    // Explicit touch fire owns the fire cadence while held. Target AutoFire
+    // must not fill its release gaps; use the existing manual takeover policy.
+    fire_input.manual_fire_pressed = manual_fire_pressed(physical) || touch_fire.requested;
     fire_input.now_seconds = now;
     fire_input.manual_right_x = physical.right_x;
     fire_input.manual_right_y = physical.right_y;
@@ -1286,7 +1298,7 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
         aim_response_command,
         aim_response_manual_ambiguous);
     const auto recoil_contribution = recoil_.reduce(
-        fire.should_fire || manual_fire_pressed(physical),
+        !touch_fire.requested && (fire.should_fire || manual_fire_pressed(physical)),
         physical_aiming_,
         now,
         sample_sequence);
@@ -1297,6 +1309,22 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
             sample_sequence);
 
     frame.fire_command() = fire_reduction.command;
+    if (touch_triangle) {
+        auto& command = frame.auxiliary_buttons();
+        command.header.controller_tick = controller_tick;
+        command.header.sequence = pipeline_contract::EventSequence::from(next_command_sequence_++);
+        command.header.cause_event = sample_sequence;
+        command.triangle = true;
+    }
+    if (touch_fire.pressed) {
+        auto& command = frame.fire_command();
+        command.header.controller_tick = controller_tick;
+        command.header.sequence = pipeline_contract::EventSequence::from(next_command_sequence_++);
+        command.header.cause_event = sample_sequence;
+        command.synthetic_active = true;
+        command.synthetic_rb = config_.auto_fire.fire_output != "RT";
+        command.synthetic_right_trigger = command.synthetic_rb ? 0.0f : 1.0f;
+    }
     frame.recoil_contribution() = recoil_contribution;
 
     last_output_components_ = components;

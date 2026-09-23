@@ -75,8 +75,15 @@ public:
         return auxiliary_dpad_;
     }
 
+    pipeline_contract::AuxiliaryButtonCommand& auxiliary_buttons() noexcept {
+        return auxiliary_buttons_;
+    }
+    const pipeline_contract::AuxiliaryButtonCommand& auxiliary_buttons() const noexcept {
+        return auxiliary_buttons_;
+    }
+
     bool valid() const noexcept {
-        return sampled_.valid() && pre_recoil_command_.valid() &&
+        return sampled_.valid() && auxiliary_buttons_.valid() && pre_recoil_command_.valid() &&
             fire_command_.valid() && recoil_contribution_.valid() &&
             auxiliary_dpad_.valid();
     }
@@ -87,6 +94,7 @@ private:
     pipeline_contract::FireCommand fire_command_{};
     pipeline_contract::RecoilContribution recoil_contribution_{};
     pipeline_contract::AuxiliaryDpadCommand auxiliary_dpad_{};
+    pipeline_contract::AuxiliaryButtonCommand auxiliary_buttons_{};
 };
 
 }  // namespace controller_native

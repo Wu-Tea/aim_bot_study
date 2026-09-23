@@ -50,7 +50,7 @@ void compose_to_final(
     require_true(composer.apply_recoil(recoil) ==
                      controller_native::OutputComposeStatus::Ok,
                  "recoil write");
-    require_true(composer.merge_auxiliary_dpad(dpad) ==
+    require_true(composer.merge_auxiliary_actions(dpad) ==
                      controller_native::OutputComposeStatus::Ok,
                  "dpad merge");
     require_true(composer.finalize() ==
@@ -92,7 +92,7 @@ void test_output_write_boundaries_and_recoil_order() {
     dpad.header.sequence = EventSequence::from(21);
     dpad.header.controller_tick = ControllerTickId::from(21);
     dpad.up = true;
-    require_true(composer.merge_auxiliary_dpad(dpad) ==
+    require_true(composer.merge_auxiliary_actions(dpad) ==
                      controller_native::OutputComposeStatus::Ok,
                  "boundary dpad write");
     require_true(composer.finalize() ==

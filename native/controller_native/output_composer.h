@@ -16,7 +16,7 @@ enum class OutputComposeStage : std::uint8_t {
     PreRecoilWritten = 2,
     FireWritten = 3,
     RecoilWritten = 4,
-    AuxiliaryDpadWritten = 5,
+    AuxiliaryWritten = 5,
     Finalized = 6,
 };
 
@@ -33,7 +33,7 @@ enum class OutputComposeStatus : std::uint8_t {
 // OutputComposer is intentionally a small, one-way state machine.  It is the
 // only place in the new pipeline that combines physical passthrough, one
 // target-first pre-recoil proposal, fire-only synthetic input, recoil, and
-// auxiliary D-pad actions into GamepadOutputState.
+// auxiliary button/D-pad actions into GamepadOutputState.
 class OutputComposer {
 public:
     OutputComposer() noexcept = default;
@@ -52,8 +52,9 @@ public:
     OutputComposeStatus apply_recoil(
         const pipeline_contract::RecoilContribution& contribution) noexcept;
 
-    OutputComposeStatus merge_auxiliary_dpad(
-        const pipeline_contract::AuxiliaryDpadCommand& command) noexcept;
+    OutputComposeStatus merge_auxiliary_actions(
+        const pipeline_contract::AuxiliaryDpadCommand& command,
+        const pipeline_contract::AuxiliaryButtonCommand& buttons = {}) noexcept;
 
     OutputComposeStatus finalize() noexcept;
 

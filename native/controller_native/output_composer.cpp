@@ -149,31 +149,33 @@ OutputComposeStatus OutputComposer::apply_recoil(
     return OutputComposeStatus::Ok;
 }
 
-OutputComposeStatus OutputComposer::merge_auxiliary_dpad(
-    const pipeline_contract::AuxiliaryDpadCommand& command) noexcept {
+OutputComposeStatus OutputComposer::merge_auxiliary_actions(
+    const pipeline_contract::AuxiliaryDpadCommand& command,
+    const pipeline_contract::AuxiliaryButtonCommand& buttons) noexcept {
     const auto final_status = reject_if_finalized();
     if (final_status != OutputComposeStatus::Ok) return final_status;
     if (stage_ != OutputComposeStage::RecoilWritten) {
         if (stage_ == OutputComposeStage::Empty) {
             return OutputComposeStatus::NotSeeded;
         }
-        return stage_ >= OutputComposeStage::AuxiliaryDpadWritten
+        return stage_ >= OutputComposeStage::AuxiliaryWritten
             ? OutputComposeStatus::DuplicateStage
             : OutputComposeStatus::OutOfOrder;
     }
-    if (!command.valid()) return OutputComposeStatus::InvalidInput;
+    if (!command.valid() || !buttons.valid()) return OutputComposeStatus::InvalidInput;
 
+    if (buttons.triangle) output_.y = true;
     if (command.up) output_.dpad_up = true;
     if (command.down) output_.dpad_down = true;
     if (command.left) output_.dpad_left = true;
     if (command.right) output_.dpad_right = true;
-    stage_ = OutputComposeStage::AuxiliaryDpadWritten;
+    stage_ = OutputComposeStage::AuxiliaryWritten;
     return OutputComposeStatus::Ok;
 }
 
 OutputComposeStatus OutputComposer::finalize() noexcept {
     if (finalized()) return OutputComposeStatus::AlreadyFinalized;
-    if (stage_ != OutputComposeStage::AuxiliaryDpadWritten) {
+    if (stage_ != OutputComposeStage::AuxiliaryWritten) {
         return stage_ == OutputComposeStage::Empty
             ? OutputComposeStatus::NotSeeded
             : OutputComposeStatus::OutOfOrder;
@@ -199,7 +201,7 @@ OutputComposeStatus OutputComposer::compose(const ControlFrame& frame) noexcept 
     if (status != OutputComposeStatus::Ok) return status;
     status = apply_recoil(frame.recoil_contribution());
     if (status != OutputComposeStatus::Ok) return status;
-    status = merge_auxiliary_dpad(frame.auxiliary_dpad());
+    status = merge_auxiliary_actions(frame.auxiliary_dpad(), frame.auxiliary_buttons());
     if (status != OutputComposeStatus::Ok) return status;
     return finalize();
 }

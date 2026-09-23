@@ -75,6 +75,13 @@ struct RecoilContribution {
     }
 };
 
+struct AuxiliaryButtonCommand {
+    ControlCommandHeader header{};
+    bool triangle = false;
+
+    bool valid() const noexcept { return !triangle || header.valid(); }
+};
+
 struct AuxiliaryDpadCommand {
     ControlCommandHeader header{};
     bool up = false;

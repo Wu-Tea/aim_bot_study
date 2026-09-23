@@ -1,8 +1,16 @@
 #pragma once
 
+#include <array>
 #include <vector>
 
 namespace controller_native {
+
+struct TouchpadFingerState {
+    bool active = false;
+    // SDL normalized coordinates: left/top = 0, right/bottom = 1.
+    float x = 0.0f;
+    float y = 0.0f;
+};
 
 struct PhysicalGamepadState {
     bool connected = false;
@@ -28,6 +36,7 @@ struct PhysicalGamepadState {
     bool dpad_left = false;
     bool dpad_right = false;
     bool touchpad = false;
+    std::array<TouchpadFingerState, 2> touchpad_fingers{};
 };
 
 struct XInputUserSlot {

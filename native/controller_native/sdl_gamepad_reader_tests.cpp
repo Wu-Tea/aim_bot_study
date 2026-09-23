@@ -86,6 +86,8 @@ struct VirtualInput {
 controller_native::Ds4OutputReport read_report(controller_native::SdlGamepadReader& reader) {
     const auto physical = reader.read();
     require(physical.connected, "virtual fixture input disconnected");
+    for (const auto& finger : physical.touchpad_fingers)
+        require(!finger.active, "a controller without touch hardware must not invent contact");
     auto frame = controller_native::ControlFrame::begin(physical,
         pipeline_contract::ControllerTickId::from(1),
         pipeline_contract::EventSequence::from(1));

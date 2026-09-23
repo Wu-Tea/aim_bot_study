@@ -18,6 +18,8 @@
 #include "recoil_reducer.h"
 #include "runtime_config.h"
 #include "target_coordinator.h"
+#include "touchpad_fire.h"
+#include "touchpad_triangle.h"
 #include "virtual_gamepad.h"
 #include "xinput_reader.h"
 
@@ -222,6 +224,8 @@ private:
     InputEdgeReducer input_edge_reducer_{};
     AimScopeReducer aim_scope_reducer_{};
     AutoFireGate auto_fire_gate_;
+    TouchpadFire touchpad_fire_;
+    TouchpadTriangle touchpad_triangle_;
     ControllerVisionSnapshot pending_snapshot_{};
     bool has_pending_snapshot_ = false;
     bool physical_aiming_ = false;

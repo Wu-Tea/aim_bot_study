@@ -306,6 +306,7 @@ add_executable(cod_native_base_tests
     ../controller_native/aim_dynamics_shaper_tests.cpp
     ../controller_native/aim_response_estimator_tests.cpp
     ../controller_native/startup_response_prior_tests.cpp
+    ../controller_native/touchpad_fire_tests.cpp
     ../controller_native/response_model_aim_solver_tests.cpp
     ../controller_native/target_geometry_tests.cpp
     src/build_family_tests.cpp
