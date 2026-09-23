@@ -35,7 +35,10 @@ public:
     VisionTargetSelector(
         int frame_width,
         int frame_height,
-        float pickup_base_radius_px = 150.0f);
+        float pickup_base_radius_px = 150.0f,
+        bool friendly_filter_enabled = true,
+        float target_height_ratio = 0.40f,
+        float target_wide_low_height_ratio = 0.65f);
 
     void reset();
     VisionResult select(const DetectionBatch& batch);
@@ -96,6 +99,10 @@ public:
     };
 
 private:
+    bool friendly_filter_enabled_ = true;
+    float target_height_ratio_ = 0.40f;
+    float target_wide_low_height_ratio_ = 0.65f;
+    DetectionBatch apply_friendly_policy(const DetectionBatch& batch) const;
     VisionResult empty_result(float boxes_seen) const;
     VisionResult result_from_target(const TargetState& target, float boxes_seen) const;
     VisionResult select_impl(

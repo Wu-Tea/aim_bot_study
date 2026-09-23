@@ -15,6 +15,9 @@ struct VisionRuntimeConfig {
     int tensor_width = 480;
     int tensor_height = 416;
     bool require_isotropic_resize = true;
+    bool friendly_filter_enabled = true;
+    float target_height_ratio = 0.40f;
+    float target_wide_low_height_ratio = 0.65f;
     bool dynamic_viewport_enabled = false;
     int viewport_precision_width = 360;
     int viewport_precision_height = 312;

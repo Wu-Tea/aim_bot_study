@@ -8,14 +8,12 @@
 #include <cstring>
 #include <cmath>
 #include <limits>
+#include <stdexcept>
 #include <utility>
 
 namespace vision_native {
 namespace {
 
-constexpr float kChestTargetRatio = 0.40f;
-constexpr float kCrouchedTargetRatio = 0.40f;
-constexpr float kWideLowTargetRatio = 0.65f;
 constexpr float kAimRegionShrinkX = 0.22f;
 constexpr float kAimRegionHalfHeightRatio = 0.18f;
 constexpr float kWideLowAimRegionHalfHeightRatio = 0.22f;
@@ -729,7 +727,8 @@ YellowCueObservation scan_yellow_window(
 
 ColorClassification classify_color(
     const VisionTargetSelector::Rect& box,
-    const VisionTargetSelector::ColorFrameView& frame) {
+    const VisionTargetSelector::ColorFrameView& frame,
+    bool friendly_filter_enabled) {
     if (frame.data == nullptr || frame.width <= 0 || frame.height <= 0 || frame.row_pitch <= 0) {
         return {};
     }
@@ -776,7 +775,7 @@ ColorClassification classify_color(
     }
 
     const float friendly_ratio = static_cast<float>(friendly_count) / static_cast<float>(area);
-    if (kFriendlyMaskMinRatio <= friendly_ratio && friendly_ratio <= kFriendlyMaskMaxRatio) {
+    if (friendly_filter_enabled && kFriendlyMaskMinRatio <= friendly_ratio && friendly_ratio <= kFriendlyMaskMaxRatio) {
         classification.is_friendly = true;
         return classification;
     }
@@ -800,12 +799,22 @@ ColorClassification classify_color(
 VisionTargetSelector::VisionTargetSelector(
     int frame_width,
     int frame_height,
-    float pickup_base_radius_px)
-    : frame_width_(static_cast<float>(frame_width)),
+    float pickup_base_radius_px,
+    bool friendly_filter_enabled,
+    float target_height_ratio,
+    float target_wide_low_height_ratio)
+    : friendly_filter_enabled_(friendly_filter_enabled),
+      target_height_ratio_(target_height_ratio),
+      target_wide_low_height_ratio_(target_wide_low_height_ratio),
+      frame_width_(static_cast<float>(frame_width)),
       frame_height_(static_cast<float>(frame_height)),
       screen_center_x_(frame_width_ * 0.5f),
       screen_center_y_(frame_height_ * 0.5f),
       pickup_base_radius_px_(std::max(0.0f, pickup_base_radius_px)) {
+    if (!std::isfinite(target_height_ratio_) || target_height_ratio_ <= 0.0f || target_height_ratio_ >= 1.0f ||
+        !std::isfinite(target_wide_low_height_ratio_) || target_wide_low_height_ratio_ <= 0.0f || target_wide_low_height_ratio_ >= 1.0f) {
+        throw std::invalid_argument("target height ratios must be finite and strictly between 0 and 1");
+    }
     const float avg_dim = (frame_width_ + frame_height_) * 0.5f;
     const float frame_area = frame_width_ * frame_height_;
     tracking_radius_ = avg_dim * kTrackingRadiusRatio;
@@ -994,11 +1003,9 @@ VisionTargetSelector::Rect VisionTargetSelector::to_rect(const Detection& detect
 std::pair<float, float> VisionTargetSelector::target_point(const Rect& box) const {
     const float box_w = rect_width(box);
     const float box_h = rect_height(box);
-    float target_ratio = kChestTargetRatio;
+    float target_ratio = target_height_ratio_;
     if (is_wide_low_pose(box_w, box_h)) {
-        target_ratio = kWideLowTargetRatio;
-    } else if (is_crouched_pose(box_w, box_h, frame_height_)) {
-        target_ratio = kCrouchedTargetRatio;
+        target_ratio = target_wide_low_height_ratio_;
     }
 
     return {
@@ -1043,7 +1050,7 @@ DetectionBatch VisionTargetSelector::annotate_colors(
     const ColorFrameView& frame) const {
     DetectionBatch annotated = batch;
     for (auto& detection : annotated.detections) {
-        const ColorClassification classification = classify_color(to_rect(detection), frame);
+        const ColorClassification classification = classify_color(to_rect(detection), frame, friendly_filter_enabled_);
         detection.color_bonus = classification.color_bonus;
         detection.is_friendly = classification.is_friendly;
         detection.color_classified = true;
@@ -2248,23 +2255,33 @@ VisionResult VisionTargetSelector::finalize_selected_target(
     return result;
 }
 
+DetectionBatch VisionTargetSelector::apply_friendly_policy(const DetectionBatch& batch) const {
+    DetectionBatch effective = batch;
+    if (!friendly_filter_enabled_) {
+        for (auto& detection : effective.detections) detection.is_friendly = false;
+    }
+    return effective;
+}
+
 VisionResult VisionTargetSelector::select(const DetectionBatch& batch) {
-    VisionResult result = select_impl(batch, nullptr, nullptr);
+    DetectionBatch effective = apply_friendly_policy(batch);
+    VisionResult result = select_impl(effective, nullptr, nullptr);
     result.preprocess_mode = batch.preprocess_mode;
-    result.detections = batch.detections;
+    result.detections = std::move(effective.detections);
     return result;
 }
 
 VisionResult VisionTargetSelector::select(
     const DetectionBatch& batch,
     const pipeline_contract::UserAimIntent& intent) {
-    VisionResult result = select_impl(batch, nullptr, &intent);
+    DetectionBatch effective = apply_friendly_policy(batch);
+    VisionResult result = select_impl(effective, nullptr, &intent);
     result.user_aim_intent = intent;
     if (intent.valid) {
         result.intent_id = intent.intent_id;
     }
     result.preprocess_mode = batch.preprocess_mode;
-    result.detections = batch.detections;
+    result.detections = std::move(effective.detections);
     return result;
 }
 

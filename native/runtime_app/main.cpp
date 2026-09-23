@@ -155,6 +155,9 @@ void dump_effective_config(const controller_native::RuntimeConfig& config) {
     line("runtime.vision.tensor_width", config.vision.tensor_width);
     line("runtime.vision.tensor_height", config.vision.tensor_height);
     line("runtime.vision.require_isotropic_resize", config.vision.require_isotropic_resize);
+    line("runtime.vision.friendly_filter_enabled", config.vision.friendly_filter_enabled);
+    line("runtime.vision.target_height_ratio", config.vision.target_height_ratio);
+    line("runtime.vision.target_wide_low_height_ratio", config.vision.target_wide_low_height_ratio);
     line("runtime.vision.dynamic_viewport_enabled", config.vision.dynamic_viewport_enabled);
     line("runtime.vision.capture_fps", config.vision.capture_fps);
     line("runtime.vision.idle_capture_fps", config.vision.idle_capture_fps);

@@ -719,6 +719,60 @@ void test_bgra_green_friendly_is_hard_rejected() {
                  "green marker must set the friendly hard-filter flag");
 }
 
+void test_friendly_switch_and_configured_target_point() {
+    const auto person = detection_for_target(320.0f, 256.0f, 0.92f);
+    vision_native::DetectionBatch batch;
+    batch.frame_width = 640; batch.frame_height = 512;
+    batch.detections = {person};
+    auto frame = full_bgra_frame();
+    paint_sparse_bgra(frame, color_region_for(person), 0, 255, 0);
+    vision_native::VisionTargetSelector selector(640, 512, 150.0f, false, 0.35f);
+    selector.select_with_frame(batch, frame.view);
+    const auto selected = selector.select_with_frame(batch, frame.view);
+    require_true(selected.has_target && !selected.detections[0].is_friendly,
+                 "disabled friend filter must publish an eligible person to downstream consumers");
+    require_true(std::fabs(selected.target_y - (person.y1 + (person.y2-person.y1)*0.35f)) < 0.001f,
+                 "configured ratio must own selected person point");
+    require_true(selected.target_y >= selected.aim_region_y1 && selected.target_y <= selected.aim_region_y2,
+                 "configured point must remain inside its aim region");
+    selector.reset();
+    batch.detections[0].is_friendly = true;
+    selector.select(batch);
+    const auto no_rgb = selector.select(batch);
+    require_true(no_rgb.has_target && !no_rgb.detections[0].is_friendly,
+                 "explicit/preclassified flags must obey the same switch without RGB");
+    require_true(batch.detections[0].is_friendly, "policy must not mutate caller detections");
+    bool rejected = false;
+    try { vision_native::VisionTargetSelector invalid(640, 512, 150.0f, false, 1.2f); }
+    catch (const std::invalid_argument&) { rejected = true; }
+    require_true(rejected, "direct selector API must reject off-body target ratios");
+}
+
+void test_bright_pixels_and_nonperson_classes_do_not_acquire() {
+    vision_native::VisionTargetSelector selector(640,512,150,false,.35f);
+    vision_native::DetectionBatch batch;
+    batch.frame_width=640; batch.frame_height=512;
+    auto frame=full_bgra_frame();
+    std::fill(frame.pixels.begin(),frame.pixels.end(),255);
+    require_true(!selector.required_color_region(batch),
+                 "empty detector output must not request full-frame light readback");
+    for(int i=0;i<3;++i) {
+        auto result=selector.select_with_frame(batch,frame.view);
+        require_true(result.detections.empty() && !result.has_target && !result.auto_fire,
+                     "bright pixels must not generate standalone search targets");
+    }
+    for(int class_id : {1,2}) {
+        auto detection=detection_for_target(320,256,.99f);
+        detection.class_id=class_id; detection.has_cue_point=true; detection.cue_score=1.f;
+        batch.detections={detection}; selector.reset();
+        for(int i=0;i<3;++i) {
+            auto result=selector.select(batch);
+            require_true(!result.has_target && !result.aim_authority && !result.fire_authority && !result.auto_fire,
+                         "nonperson classes must not acquire movement or fire authority");
+        }
+    }
+}
+
 void test_bgra_green_friendly_cannot_beat_yellow_enemy() {
     vision_native::VisionTargetSelector selector(640, 512);
     const auto friendly = detection_for_target(270.0f, 256.0f, 0.95f);
@@ -1693,6 +1747,8 @@ void register_target_selector_tests(native_test::Registry& registry) {
     registry.add_case("BaseVisionSelection", "large_move_requires_fresh_acquisition_intent", test_large_single_target_move_requires_fresh_acquisition_intent);
     registry.add_case("BaseVisionSelection", "partial_color_origin_classifies_cue", test_partial_color_frame_origin_classifies_candidate_cue);
     registry.add_case("BaseVisionSelection", "green_friendly_is_hard_rejected", test_bgra_green_friendly_is_hard_rejected);
+    registry.add_case("BaseVisionSelection", "friendly_switch_and_target_ratio", test_friendly_switch_and_configured_target_point);
+    registry.add_case("BaseVisionSelection", "bright_pixels_and_nonperson_classes_do_not_acquire", test_bright_pixels_and_nonperson_classes_do_not_acquire);
     registry.add_case("BaseVisionSelection", "friendly_cannot_beat_yellow_enemy", test_bgra_green_friendly_cannot_beat_yellow_enemy);
     registry.add_case("BaseVisionSelection", "yellow_cue_assists_low_confidence_pickup", test_bgra_yellow_cue_assists_low_confidence_person_pickup);
     registry.add_case("BaseVisionSelection", "single_marked_enemy_has_no_second_frame_delay", test_single_marked_enemy_pickup_does_not_wait_for_a_second_frame);

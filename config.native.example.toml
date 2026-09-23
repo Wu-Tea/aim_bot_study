@@ -26,6 +26,10 @@ log_directory = "runs/mouse"
 log_max_mb = 2048 # Per-session tick budget; overflow/loss is reported
 
 [runtime.vision]
+# Green HUD marker filter; disable for games without friendly markers.
+friendly_filter_enabled = true
+target_height_ratio = 0.40 # 0 < ratio < 1, from visible body top
+target_wide_low_height_ratio = 0.65
 capture_width = 640
 capture_height = 512
 tensor_width = 480 # must match the selected TensorRT engine input

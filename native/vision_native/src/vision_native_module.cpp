@@ -446,7 +446,7 @@ PYBIND11_MODULE(vision_native_cpp, module) {
 
     py::class_<vision_native::VisionEngine>(module, "NativeVisionEngine")
         .def(
-            py::init<int, int, int, int, int, std::string, std::string, int, int, bool, float>(),
+            py::init<int, int, int, int, int, std::string, std::string, int, int, bool, float, bool, float, float>(),
             py::arg("width"),
             py::arg("height"),
             py::arg("adapter_index") = 0,
@@ -457,7 +457,10 @@ PYBIND11_MODULE(vision_native_cpp, module) {
             py::arg("expected_tensor_width") = 0,
             py::arg("expected_tensor_height") = 0,
             py::arg("require_isotropic_resize") = true,
-            py::arg("target_pickup_base_radius_px") = 150.0f)
+            py::arg("target_pickup_base_radius_px") = 150.0f,
+            py::arg("friendly_filter_enabled") = true,
+            py::arg("target_height_ratio") = 0.40f,
+            py::arg("target_wide_low_height_ratio") = 0.65f)
         .def_property_readonly("width", &vision_native::VisionEngine::width)
         .def_property_readonly("height", &vision_native::VisionEngine::height)
         .def_property_readonly("tensor_width", &vision_native::VisionEngine::tensor_width)
@@ -488,10 +491,13 @@ PYBIND11_MODULE(vision_native_cpp, module) {
 
     py::class_<vision_native::VisionTargetSelector>(module, "NativeTargetSelector")
         .def(
-            py::init<int, int, float>(),
+            py::init<int, int, float, bool, float, float>(),
             py::arg("width"),
             py::arg("height"),
-            py::arg("pickup_base_radius_px") = 150.0f)
+            py::arg("pickup_base_radius_px") = 150.0f,
+            py::arg("friendly_filter_enabled") = true,
+            py::arg("target_height_ratio") = 0.40f,
+            py::arg("target_wide_low_height_ratio") = 0.65f)
         .def("reset", &vision_native::VisionTargetSelector::reset)
         .def(
             "select_xyxy",

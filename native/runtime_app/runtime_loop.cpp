@@ -520,7 +520,10 @@ RuntimeLoop::RuntimeLoop(
         config_.vision.tensor_width,
         config_.vision.tensor_height,
         config_.vision.require_isotropic_resize,
-        config_.gamepad.ai_aim.ads_pickup_base_radius_px);
+        config_.gamepad.ai_aim.ads_pickup_base_radius_px,
+        config_.vision.friendly_filter_enabled,
+        config_.vision.target_height_ratio,
+        config_.vision.target_wide_low_height_ratio);
     std::cout << "[VisionGeometry][CPP]"
               << " capture=" << vision_engine->width() << 'x' << vision_engine->height()
               << " tensor=" << vision_engine->tensor_width() << 'x'

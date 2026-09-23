@@ -77,9 +77,13 @@ VisionEngine::VisionEngine(
     int expected_tensor_width,
     int expected_tensor_height,
     bool require_isotropic_resize,
-    float target_pickup_base_radius_px)
+    float target_pickup_base_radius_px,
+    bool friendly_filter_enabled,
+    float target_height_ratio,
+    float target_wide_low_height_ratio)
     : capture_(width, height, adapter_index, output_index, timeout_ms),
-      selector_(width, height, target_pickup_base_radius_px),
+      selector_(width, height, target_pickup_base_radius_px, friendly_filter_enabled,
+                target_height_ratio, target_wide_low_height_ratio),
       host_color_frame_(std::make_unique<ColorReadbackBuffer>(color_readback_mode == "pinned")),
       width_(width),
       height_(height),

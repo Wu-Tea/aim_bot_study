@@ -130,6 +130,12 @@ void apply_runtime_vision_value(
         config.idle_capture_fps = parse_int_value(value, config.idle_capture_fps);
     } else if (key == "keepwarm_when_idle") {
         config.keepwarm_when_idle = parse_bool_value(value, config.keepwarm_when_idle);
+    } else if (key == "friendly_filter_enabled") {
+        config.friendly_filter_enabled = parse_bool_value(value, config.friendly_filter_enabled);
+    } else if (key == "target_height_ratio") {
+        config.target_height_ratio = parse_float_value(value, config.target_height_ratio);
+    } else if (key == "target_wide_low_height_ratio") {
+        config.target_wide_low_height_ratio = parse_float_value(value, config.target_wide_low_height_ratio);
     } else if (key == "color_readback_mode") {
         config.color_readback_mode = parse_string_value(value);
     } else if (key == "model_path") {
@@ -157,6 +163,7 @@ void apply_runtime_vision_value(
 bool is_known_key(const std::string& section, const std::string& key) {
     static const std::unordered_set<std::string> runtime_keys{"profile"};
     static const std::unordered_set<std::string> vision_keys{
+        "friendly_filter_enabled", "target_height_ratio", "target_wide_low_height_ratio",
         "crop_width", "capture_width", "crop_height", "capture_height",
         "tensor_width", "tensor_height", "require_isotropic_resize", "capture_fps",
         "dynamic_viewport_enabled", "viewport_precision_width",
@@ -923,6 +930,12 @@ void validate_runtime_config(RuntimeConfig& config) {
     }
     if (config.vision.idle_capture_fps < 1 || config.vision.idle_capture_fps > 240)
         invalid("runtime.vision.idle_capture_fps", "1..240");
+    if (!std::isfinite(config.vision.target_height_ratio) ||
+        config.vision.target_height_ratio <= 0.0f || config.vision.target_height_ratio >= 1.0f)
+        invalid("runtime.vision.target_height_ratio", "0 < ratio < 1");
+    if (!std::isfinite(config.vision.target_wide_low_height_ratio) ||
+        config.vision.target_wide_low_height_ratio <= 0.0f || config.vision.target_wide_low_height_ratio >= 1.0f)
+        invalid("runtime.vision.target_wide_low_height_ratio", "0 < ratio < 1");
     if (config.vision.color_readback_mode != "pageable" && config.vision.color_readback_mode != "pinned")
         invalid("runtime.vision.color_readback_mode", "pageable|pinned");
     if (config.telemetry.manual_controller_hz < 1 || config.telemetry.manual_controller_hz > 1000)

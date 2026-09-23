@@ -31,7 +31,10 @@ public:
         int expected_tensor_width = 0,
         int expected_tensor_height = 0,
         bool require_isotropic_resize = true,
-        float target_pickup_base_radius_px = 150.0f);
+        float target_pickup_base_radius_px = 150.0f,
+        bool friendly_filter_enabled = true,
+        float target_height_ratio = 0.40f,
+        float target_wide_low_height_ratio = 0.65f);
     ~VisionEngine();
 
     VisionEngine(const VisionEngine&) = delete;

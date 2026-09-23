@@ -612,7 +612,11 @@ int main(int argc, char** argv) {
             config.vision.color_readback_mode,
             config.vision.tensor_width,
             config.vision.tensor_height,
-            config.vision.require_isotropic_resize);
+            config.vision.require_isotropic_resize,
+            150.0f, // Preserve the mouse runtime's previous default pickup radius.
+            config.vision.friendly_filter_enabled,
+            config.vision.target_height_ratio,
+            config.vision.target_wide_low_height_ratio);
         runtime_app::VisionServiceOptions vision_options{};
         vision_options.capture_fps =
             static_cast<double>(config.vision.capture_fps);

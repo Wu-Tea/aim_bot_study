@@ -41,6 +41,34 @@ bool has_diagnostic(
     return false;
 }
 
+void test_vision_selection_config() {
+    TempConfig file("cod_native_vision_selection.toml",
+        "[runtime.vision]\nfriendly_filter_enabled = false\ntarget_height_ratio = 0.35\ntarget_wide_low_height_ratio = 0.6\n");
+    const auto config = controller_native::load_runtime_config(file.path());
+    require(config.diagnostics.empty(), "selection keys must be recognized");
+    require(!config.vision.friendly_filter_enabled, "friend switch must parse");
+    require(std::fabs(config.vision.target_height_ratio - 0.35f) < 1e-6f, "person ratio must parse");
+    require(std::fabs(config.vision.target_wide_low_height_ratio - 0.6f) < 1e-6f, "wide ratio must parse");
+    for (const auto* key : {"target_height_ratio", "target_wide_low_height_ratio"}) {
+        for (const auto* value : {"0", "1", "-0.1", "nan"}) {
+            TempConfig invalid("cod_native_invalid_selection.toml",
+                std::string("[runtime.vision]\n") + key + " = " + value + "\n");
+            bool threw = false;
+            try { (void)controller_native::load_runtime_config(invalid.path()); }
+            catch (const std::runtime_error&) { threw = true; }
+            require(threw, "invalid person geometry ratio must fail at config boundary");
+        }
+    }
+}
+
+void test_withdrawn_light_search_key_is_inert() {
+    TempConfig file("cod_native_withdrawn_light_search.toml",
+        "[runtime.vision]\nlight_search_enabled = true\n");
+    const auto config = controller_native::load_runtime_config(file.path());
+    require(has_diagnostic(config, "light_search_enabled"),
+        "withdrawn light search must be an unknown/inert configuration key");
+}
+
 void test_current_control_keys_parse() {
     TempConfig file(
         "cod_native_current_control_config.toml",
@@ -358,6 +386,8 @@ void test_retired_recoil_profile_cannot_be_enabled_by_config() {
 }  // namespace
 
 void register_runtime_config_tests(native_test::Registry& registry) {
+    registry.add_case("BaseContracts", "withdrawn_light_search_key_is_inert", test_withdrawn_light_search_key_is_inert);
+    registry.add_case("BaseContracts", "vision_selection_config", test_vision_selection_config);
     registry.add_case("BaseContracts", "response_prior_config_boundaries", test_response_prior_config_boundaries);
     registry.add_case("BaseContracts", "retired_recoil_profile_is_inert", test_retired_recoil_profile_cannot_be_enabled_by_config);
     registry.add_case("BaseContracts", "current_control_keys_parse", test_current_control_keys_parse);
