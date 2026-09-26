@@ -206,7 +206,7 @@ IntentFilterConfig intent_filter_config(const GamepadRuntimeConfig& config) {
     if (!config.ai_aim.adapter_direct_mouse_manual) {
         // User policy: zero software deadzone on physical gamepad passthrough;
         // AI ignores small per-axis motion when interpreting manual intent.
-        result.right_stick_intent_deadzone = 0.25f;
+        result.gamepad_right_stick_curve = true;
     }
     return result;
 }
@@ -308,6 +308,7 @@ void NativeGamepadController::reset() {
     next_command_sequence_ = 1;
     composed_output_pending_ = false;
     pending_auto_fire_active_ = false;
+    pending_response_ambiguous_ = false;
     last_pipeline_traces_.clear();
     last_acquisition_trace_ = {};
     acquisition_trace_target_id_ = 0;
@@ -591,6 +592,8 @@ GamepadOutputState NativeGamepadController::build_output_from_sampled_input() {
     }
     const GamepadOutputState output = *composer.finalized_output();
     observe_composed_output(output);
+    // In-process consumers apply this exact float output to their plant.
+    observe_delivered_output(output, true, now_seconds());
     return output;
 }
 
@@ -783,6 +786,7 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
         observations.frame_id != last_aim_response_frame_id_;
     if (new_observed_frame) {
         const double capture_seconds = observations.source_time_seconds;
+        bool advance_response_anchor = true;
         const bool same_response_target =
             has_last_aim_response_observation_ &&
             plan.target_id != 0 &&
@@ -802,9 +806,20 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
             }
             const double interval_seconds =
                 capture_seconds - last_aim_response_capture_seconds_;
+            // The estimators own a minimum measurement duration. Keep the
+            // source anchor until that duration is available; replacing it on
+            // every rejected high-rate frame starves estimation indefinitely.
+            // Invalid time and a new ADS epoch must prime a new interval.
+            advance_response_anchor = !std::isfinite(interval_seconds) ||
+                interval_seconds <= 0.0 ||
+                static_cast<float>(interval_seconds) >=
+                    AimResponseEstimatorConfig{}.minimum_interval_seconds ||
+                (plan.mode == pipeline_contract::ControlMode::AdsAcquire &&
+                 plan.physical_ads_epoch != last_ads_response_epoch_);
             pipeline_contract::Vec2f average_stick{};
             bool manual_ambiguous = false;
             const bool command_window_available =
+                advance_response_anchor &&
                 std::isfinite(interval_seconds) && interval_seconds > 0.0 &&
                 average_aim_response_command(
                     last_aim_response_capture_seconds_ -
@@ -871,16 +886,18 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
             }
         }
         last_aim_response_frame_id_ = observations.frame_id;
-        last_aim_response_target_id_ = plan.target_id;
         if (plan.mode == pipeline_contract::ControlMode::AdsAcquire &&
             plan.physical_ads_epoch != 0) {
             last_ads_response_epoch_ = plan.physical_ads_epoch;
         }
-        last_aim_response_capture_seconds_ = capture_seconds;
-        last_aim_response_source_error_px_ = source_error_px;
-        has_last_aim_response_observation_ = plan.target_id != 0 &&
-            std::isfinite(capture_seconds) &&
-            pipeline_contract::finite(source_error_px);
+        if (advance_response_anchor) {
+            last_aim_response_target_id_ = plan.target_id;
+            last_aim_response_capture_seconds_ = capture_seconds;
+            last_aim_response_source_error_px_ = source_error_px;
+            has_last_aim_response_observation_ = plan.target_id != 0 &&
+                std::isfinite(capture_seconds) &&
+                pipeline_contract::finite(source_error_px);
+        }
     }
     if (plan.target_id == 0 ||
         plan.lifecycle == pipeline_contract::TargetLifecycle::None) {
@@ -1281,22 +1298,12 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
 
     components.before_recoil_stick = {
         pre_recoil_stick.x, pre_recoil_stick.y};
-    const bool aim_response_manual_ambiguous =
+    pending_response_ambiguous_ =
         std::hypot(physical.right_x, physical.right_y) >= 0.35f ||
         fire.should_fire || manual_fire_pressed(physical) ||
         (last_firing_activity_seconds_ >= 0.0 &&
          now - last_firing_activity_seconds_ <=
              kFiringDisturbanceWindowSeconds);
-    // Plant identification and both response-model solvers must share one
-    // command coordinate. The solvers operate before inverse curve mapping,
-    // so convert the delivered virtual stick back into normalized camera
-    // response before learning or subtracting aligned camera work.
-    const auto aim_response_command = forward_aim_response_curve(
-        pre_recoil_stick, config_.aim_response_curve);
-    record_aim_response_command(
-        now,
-        aim_response_command,
-        aim_response_manual_ambiguous);
     const auto recoil_contribution = recoil_.reduce(
         !touch_fire.requested && (fire.should_fire || manual_fire_pressed(physical)),
         physical_aiming_,
@@ -1331,6 +1338,22 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
     composed_output_pending_ = true;
     pending_auto_fire_active_ = fire.after_auto_fire_active;
     return frame;
+}
+
+void NativeGamepadController::observe_delivered_output(
+    const GamepadOutputState& output,
+    bool delivered, double submitted_at_seconds) {
+    if (!delivered || !std::isfinite(submitted_at_seconds) ||
+        !std::isfinite(output.right_x) || !std::isfinite(output.right_y)) {
+        // No reliable camera-work interval may cross a failed publication.
+        aim_response_history_begin_ = aim_response_history_count_ = 0;
+        bodylock_target_motion_observer_.reset();
+        nonfiring_pov_motion_snapshot_ = {};
+        return;
+    }
+    record_aim_response_command(submitted_at_seconds,
+        forward_aim_response_curve({output.right_x, output.right_y},
+            config_.aim_response_curve), pending_response_ambiguous_);
 }
 
 void NativeGamepadController::record_aim_response_command(

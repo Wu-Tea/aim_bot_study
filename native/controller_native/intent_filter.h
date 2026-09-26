@@ -5,10 +5,9 @@
 namespace controller_native {
 
 struct IntentFilterConfig {
-    // Nonnegative selects a fixed, AI-only right-stick intent threshold.
-    // Raw physical input remains untouched; negative retains the adaptive
-    // policy used by the mouse adapter and focused legacy filter fixtures.
-    float right_stick_intent_deadzone = -1.0f;
+    // Gamepad intent uses a 15%-30% smooth authority curve. False retains the
+    // adaptive mouse/legacy policy. Neither policy modifies raw passthrough.
+    bool gamepad_right_stick_curve = false;
     float base_deadzone = 0.02f;
     float neutral_learning_limit = 0.03f;
     float bias_alpha = 0.04f;

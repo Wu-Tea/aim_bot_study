@@ -208,7 +208,15 @@ VirtualGamepadUpdateResult VirtualGamepad::update(const GamepadOutputState& stat
             vigem_->vigem_target_ds4_update_ex == nullptr) {
             return kVigemErrorUnavailable;
         }
-        return vigem_->vigem_target_ds4_update_ex(vigem_->client, vigem_->target, report);
+        const auto submitted = std::chrono::steady_clock::now();
+        const auto code = vigem_->vigem_target_ds4_update_ex(vigem_->client, vigem_->target, report);
+        if (code == kVigemErrorNone) {
+            result.submitted_at_seconds = std::chrono::duration<double>(
+                submitted.time_since_epoch()).count();
+            result.delivered_right_x = ds4_axis_value(report.bytes[2]);
+            result.delivered_right_y = -ds4_axis_value(report.bytes[3]);
+        }
+        return code;
     };
     // DS4 sensor timestamps use 16/3 microsecond units. They describe report
     // production only; they do not claim that the game has consumed it.

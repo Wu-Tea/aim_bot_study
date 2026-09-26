@@ -39,6 +39,9 @@ struct VirtualGamepadUpdateResult {
     bool reconnect_attempted = false;
     std::uint32_t error_code = 0;
     unsigned int reconnect_count = 0;
+    double submitted_at_seconds = 0.0;
+    float delivered_right_x = 0.0f;
+    float delivered_right_y = 0.0f;
 };
 
 class VirtualGamepad {

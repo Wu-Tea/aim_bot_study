@@ -173,7 +173,7 @@ void test_adapter_forwards_valid_vision_candidates() {
     require_near(first_candidate.body_box_px.w, 40.0f, 0.001f, "adapter should map box width");
     require_near(first_candidate.aim_point_px.x, 31.0f, 0.001f,
                  "adapter must preserve selector-owned aim point x");
-    require_near(first_candidate.confidence, 0.50f, 0.001f, "adapter should combine confidence evidence");
+    require_near(first_candidate.confidence, 0.30f, 0.001f, "ranking bonus must not change detector confidence");
     require_true(
         first_candidate.suggested_authority_state ==
             common_native::TargetAuthorityState::StrongAssist,
@@ -223,9 +223,29 @@ void test_selector_identity_survives_engine_result_copy_and_adapter() {
         "VisionEngine result copy and adapter lost selector enemy evidence");
 }
 
+void test_color_ranking_does_not_train_confidence() {
+    for (float bonus : {0.0f, 0.2f, 10000.0f}) {
+        vision_native::VisionResult result;
+        result.frame_updated = true;
+        result.frame_id = 44;
+        result.has_target = result.has_selected_detection = true;
+        result.selected_detection_index = 0;
+        result.target_x = 30; result.target_y = 60;
+        result.detections.push_back(detection(10,20,50,120,.65f,bonus,0));
+        const auto snapshot = runtime_app::adapt_vision_result(result);
+        require_true(snapshot.candidates.size()==1 && snapshot.selected_observation_id!=0,
+            "ranking counterfactual must preserve selected identity");
+        require_near(snapshot.candidates[0].confidence,.65f,1e-6f,
+            "color ranking points must not manufacture measurement confidence");
+        require_near(snapshot.candidates[0].color_bonus,bonus,1e-6f,
+            "selector ranking evidence must remain available independently");
+    }
+}
+
 }  // namespace
 
 void register_controller_protocol_tests(native_test::Registry& registry) {
+    registry.add_case("BaseContracts", "color_ranking_not_measurement_confidence", test_color_ranking_does_not_train_confidence);
     registry.add_case("BaseContracts", "adapter_ignores_unupdated_frame", test_adapter_ignores_unupdated_frame);
     registry.add_case("BaseContracts", "adapter_maps_target_fields_and_timestamps", test_adapter_maps_target_fields_and_timestamps);
     registry.add_case("BaseContracts", "adapter_forwards_valid_candidates", test_adapter_forwards_valid_vision_candidates);

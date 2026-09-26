@@ -63,31 +63,31 @@ void test_reversal_and_release_are_explicit() {
                  "release is a single transition state");
 }
 
-void test_gamepad_raw_passthrough_with_twenty_five_percent_ai_intent_deadzone() {
+void test_gamepad_raw_passthrough_with_fifteen_percent_ai_intent_floor() {
     double now = 1.0;
     controller_native::NativeGamepadController controller({}, &now);
     controller_native::PhysicalGamepadState physical;
     physical.connected = true;
     // Include a long small offset: physical output must never be learned away.
     for (int i = 0; i < 300; ++i) {
-        const float values[] = {0.004f, -0.012f, 0.08f, -0.249f, 0.25f, -0.25f, 0.0f};
+        const float values[] = {0.004f, -0.012f, 0.08f, -0.149f, 0.15f, -0.15f, 0.0f};
         physical.right_x = i < 200 ? 0.012f : values[i % 7];
         physical.right_y = -physical.right_x;
         const auto intent = controller.begin_tick(physical).intent;
         require_true(intent.filtered_right.x == 0 && intent.filtered_right.y == 0,
-            "AI must ignore each right-stick axis at or below twenty-five percent");
+            "AI must ignore each right-stick axis at or below fifteen percent");
         const auto output = controller.build_output_from_sampled_input();
         require_true(output.right_x == physical.right_x && output.right_y == physical.right_y,
             "AI intent deadzone must not alter raw physical passthrough");
         now += 0.001;
     }
     // No recentering or deadzone rescaling outside the AI-only threshold.
-    physical.right_x = 0.251f; physical.right_y = -0.251f;
+    physical.right_x = 0.30f; physical.right_y = -0.30f;
     auto intent = controller.begin_tick(physical).intent;
     require_true(intent.filtered_right.x == physical.right_x &&
         intent.filtered_right.y == physical.right_y &&
         intent.right_x.neutral_bias == 0 && intent.right_y.neutral_bias == 0,
-        "AI intent above twenty-five percent must use the current unshifted input");
+        "AI intent at full activity must use the current unshifted input");
     (void)controller.build_output_from_sampled_input();
     // Every near-center Sony report code is still present at the DS4 output.
     for (int byte = 119; byte <= 137; ++byte) {
@@ -114,6 +114,81 @@ void test_gamepad_ai_deadzone_does_not_change_mouse_intent() {
     physical.right_x = 0.04f;
     require_true(controller.begin_tick(physical).intent.filtered_right.x > 0.03f,
         "gamepad AI intent threshold must not leak into direct mouse input");
+}
+
+void test_gamepad_intent_transition_curve() {
+    double now = 1.0;
+    controller_native::NativeGamepadController controller({}, &now);
+    controller_native::PhysicalGamepadState physical;
+    physical.connected = true;
+    const float magnitudes[] = {0.0f, .08f, .15f, .20f, .225f, .25f, .30f, .80f};
+    const float weights[] = {0, 0, 0, 7.f/27.f, .5f, 20.f/27.f, 1, 1};
+    for (float sign : {-1.f, 1.f}) for (int i = 0; i < 8; ++i) {
+        physical.right_x = sign*magnitudes[i];
+        physical.right_y = -physical.right_x;
+        now += .001;
+        const auto intent = controller.begin_tick(physical).intent;
+        require_near(intent.right_x.activity, weights[i], 2e-6f,
+            "gamepad manual authority must rise smoothly from 15 to 30 percent");
+        require_near(intent.filtered_right.x, physical.right_x*weights[i], 2e-6f,
+            "D correction must consume the same attenuated intent");
+        require_near(intent.filtered_right.y, physical.right_y*weights[i], 2e-6f,
+            "vertical D correction must share the curve");
+        const auto output = controller.build_output_from_sampled_input();
+        require_true(output.right_x == physical.right_x && output.right_y == physical.right_y,
+            "intent attenuation must not alter no-target raw passthrough");
+    }
+}
+
+void test_gamepad_authority_curve_continuity(const native_test::TestContext& context) {
+    float max_step = 0;
+    int samples = 0, passthrough_checks = 0;
+    for (int axis : {0, 1}) for (float sign : {-1.f, 1.f})
+    for (bool fresh : {false, true}) for (bool carried : {false, true})
+    for (bool firing : {false, true}) {
+        controller_native::IntentFilterConfig fc; fc.gamepad_right_stick_curve = true;
+        controller_native::IntentFilter filter(fc);
+        controller_native::AssistControlStateMachineConfig ac; ac.use_gamepad_intent_for_arbitration = true;
+        controller_native::AssistControlStateMachine arbiter(ac);
+        float previous = 0;
+        const auto vec = [axis](float x) {return axis ? pipeline_contract::Vec2f{0,x} : pipeline_contract::Vec2f{x,0};};
+        for (int tick = 0; tick <= 2000; ++tick) {
+            // Rising and falling through 15%, old 25%, and 30%. Actual D flags
+            // come from attenuated intent; they cannot force full authority.
+            const float raw = sign * (tick <= 1000 ? tick : 2000-tick) * .0005f;
+            const auto intent = filter.update({},vec(raw),true,firing,1+tick*.001,true);
+            controller_native::AssistControlStateMachineInput in;
+            in.aiming = in.target_authoritative = true;
+            in.mode = pipeline_contract::ControlMode::BodyLockFollow;
+            in.target_id = in.selector_target_generation = 1;
+            in.now_seconds = 1+tick*.001; in.fresh_observation = fresh;
+            in.visual_authority = .65f; in.firing = firing;
+            in.carried_acquisition_gesture = carried;
+            in.manual_stick = vec(raw); in.filtered_manual_stick = intent.filtered_right;
+            in.manual_axis_activity = {intent.right_x.activity,intent.right_y.activity};
+            in.manual_correction_x = !carried && intent.filtered_right.x != 0;
+            in.manual_correction_y = !carried && intent.filtered_right.y != 0;
+            in.ai_stick = vec(-sign*.61f);
+            in.target_error_px = vec((axis ? sign : -sign)*56);
+            const auto out = arbiter.update(in);
+            require_true(out.phase == controller_native::AssistControlPhase::Track,"curve sweep must enter Track");
+            const float value = axis ? out.stick.y : out.stick.x;
+            if (tick) max_step = std::max(max_step,std::fabs(value-previous));
+            previous=value; ++samples;
+            if (std::fabs(raw)<=.15f) require_near(value,-sign*.61f,2e-6f,"neutral intent must yield to AI");
+            if (std::fabs(raw)>=.30f) require_near(value,raw,2e-6f,"full manual authority lost");
+            auto cf=in; cf.manual_exit_requested=true;
+            controller_native::AssistControlStateMachine exit_machine(ac);
+            const auto exited=exit_machine.update(cf);
+            require_near(axis?exited.stick.y:exited.stick.x,raw,1e-6f,"explicit exit must bypass curve");
+            ++passthrough_checks;
+        }
+    }
+    std::filesystem::create_directories(context.artifact_directory);
+    std::ofstream report(context.artifact_path("gamepad-authority-curve.json"));
+    report << std::setprecision(9) << "{\"samples\":"<<samples<<",\"exit_controls\":"<<passthrough_checks<<",\"max_step\":"<<max_step<<"}\n";
+    require_true(samples==64032 && passthrough_checks==samples,"incomplete curve sweep");
+    require_true(max_step<.02f,"manual authority curve created an output cliff");
 }
 
 void test_gesture_purpose_survives_target_acquisition() {
@@ -280,7 +355,9 @@ void test_carried_axis_release_continuity(const native_test::TestContext& contex
 }  // namespace
 
 void register_intent_filter_tests(native_test::Registry& registry) {
-    registry.add_case("BaseContracts", "gamepad_raw_passthrough_ai_deadzone_twenty_five_percent", test_gamepad_raw_passthrough_with_twenty_five_percent_ai_intent_deadzone);
+    registry.add_case("BaseContracts", "gamepad_intent_transition_curve", test_gamepad_intent_transition_curve);
+    registry.add_context_case("BaseBodyLock", "gamepad_authority_curve_continuity", test_gamepad_authority_curve_continuity);
+    registry.add_case("BaseContracts", "gamepad_raw_passthrough_ai_intent_floor", test_gamepad_raw_passthrough_with_fifteen_percent_ai_intent_floor);
     registry.add_case("BaseContracts", "gamepad_ai_deadzone_preserves_mouse", test_gamepad_ai_deadzone_does_not_change_mouse_intent);
     registry.add_context_case("BaseBodyLock", "carried_axis_release_continuity", test_carried_axis_release_continuity);
     registry.add_case("BaseBodyLock", "deadzone_sized_drift_is_neutral", test_deadzone_sized_drift_is_neutral);

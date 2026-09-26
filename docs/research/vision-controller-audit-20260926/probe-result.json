@@ -1,0 +1,17 @@
+{
+  "body_horizon_x_ms": 45,
+  "body_horizon_y_ms": 60,
+  "body_position_gain_ratio_strength_08_vs_04": 2,
+  "ads_above_vs_below_ratio": 1.19047618,
+  "ads_close_vs_far_ratio": 1.49999988,
+  "ads_vertical_cap_09_vs_10_difference": 0,
+  "shaper_first_reverse_output": 0.752000034,
+  "shaper_ticks_until_old_sign_zero": 17,
+  "stationary_model_mismatch_motion_stick": -0.206623912,
+  "same_observer_state_at_response_650_px_s": -134.305542,
+  "same_observer_state_at_response_918_px_s": -189.807022,
+  "isolated_arbiter_fresh": 0.600000024,
+  "isolated_arbiter_held": 0.226875022,
+  "owned_d_fresh": 0.226875022,
+  "owned_d_held": 0.226875022
+}

@@ -1,0 +1,18 @@
+{
+  "status": "FROZEN_NOT_RUN",
+  "closed_loop_seeds": [
+    1012026,
+    20262027
+  ],
+  "cases_per_seed": 972,
+  "matrix_seeds": [
+    1012026,
+    20262027
+  ],
+  "unchanged_contract": "sustained-aimlab-optimization-policy-v1.json",
+  "mandatory_incidents": [
+    "gamepad-intent-handback-20260926",
+    "synthetic-stationary-response-delay-20260926"
+  ],
+  "note": "20260926 and 8675309 were inspected and promoted into development. Do not describe them as untouched validation."
+}

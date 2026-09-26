@@ -152,6 +152,7 @@ add_library(controller_native_core STATIC
     ../controller_native/ads_reacquisition_reducer.cpp
     ../controller_native/recoil_reducer.cpp
     ../controller_native/intent_filter.cpp
+    ../controller_native/assist_control_state_machine.cpp
     ../controller_native/operation_intent.cpp
     ../controller_native/target_coordinator.cpp
     ../controller_native/ads_acquisition_controller.cpp
@@ -485,6 +486,11 @@ add_executable(cod_native_sustained_aimlab_benchmark
 cod_native_defaults(cod_native_sustained_aimlab_benchmark)
 target_link_libraries(cod_native_sustained_aimlab_benchmark PRIVATE
     controller_native_core vision_native_core gdi32 windowsapp)
+
+add_executable(cod_native_oscillation_scan EXCLUDE_FROM_ALL
+    ../controller_native/oscillation_scan.cpp)
+cod_native_defaults(cod_native_oscillation_scan)
+target_link_libraries(cod_native_oscillation_scan PRIVATE controller_native_core)
 
 if(NATIVE_TEST_ENABLE_OFFLINE_BENCHMARKS)
     add_test(NAME NativeSustainedAimlabLeftStrafeOff

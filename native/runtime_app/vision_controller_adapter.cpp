@@ -81,8 +81,9 @@ pipeline_contract::VisionCandidateSnapshot candidate_snapshot_from_detection(
     // selector is the sole producer of a control aim point and R; the adapter
     // fills those fields only for its selected detection below.
     candidate.has_aim_point = false;
-    candidate.confidence =
-        std::max(0.0f, std::min(1.0f, detection.conf + detection.color_bonus));
+    // Ranking points and detector probability have different units. Enemy
+    // evidence travels in its own fields; it cannot train camera confidence.
+    candidate.confidence = std::clamp(detection.conf, 0.0f, 1.0f);
     candidate.class_id = detection.class_id;
     candidate.is_friendly = detection.is_friendly;
     candidate.color_classified = detection.color_classified;
@@ -144,7 +145,7 @@ controller_native::ControllerVisionSnapshot adapt_vision_result(
             continue;
         }
         if (width <= 1.0f || height <= 1.0f ||
-            detection.conf + detection.color_bonus <= 0.0f) {
+            !std::isfinite(detection.conf) || detection.conf <= 0.0f) {
             if (snapshot.rejected_low_reliability_count != UINT32_MAX) {
                 ++snapshot.rejected_low_reliability_count;
             }

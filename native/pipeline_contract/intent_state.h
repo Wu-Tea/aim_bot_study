@@ -25,10 +25,9 @@ struct AxisIntentState {
     float neutral_bias = 0.0f;
     float noise_envelope = 0.0f;
     float confidence = 0.0f;
-    // Continuous held-gesture/release evidence above the AI intent threshold.
-    // Fixed gamepad input shares this evidence with final arbitration, with
-    // full activity at 1.5 times its threshold; adaptive input uses twice its
-    // learned threshold. Neither modifies raw physical passthrough.
+    // Continuous manual authority. Gamepad input rises from zero at 15% to
+    // full at 30%, shared by desired-point edits and final arbitration.
+    // Adaptive input uses twice its learned threshold. Raw is never modified.
     float activity = 0.0f;
 };
 

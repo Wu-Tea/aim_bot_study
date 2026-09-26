@@ -22,13 +22,13 @@ using controller_native::NativeGamepadController;
 using controller_native::PhysicalGamepadState;
 
 constexpr const char* kIncidentId =
-    "manual-residual-authority-yield-20260811-ai-deadzone-25pct-20260919";
+    "manual-residual-authority-yield-20260811-intent-curve-20260926";
 constexpr float kTargetErrorPx = 60.0f;
-// Rebase the deliberate-input trigger on the user-authorized 25% AI intent
-// policy. The old 5% sample is now intentionally ignored, and is covered by
-// the target-pipeline test. Keep all authority/continuity oracles unchanged.
-constexpr float kSubDeadzoneInput = 0.25f;
-constexpr float kMicroInput = 0.251f;
+// Full held authority now starts at 30%, with neutral intent through 15%.
+// The dense curve sweep separately protects every intermediate weight.
+// Keep the full-authority/continuity oracles unchanged.
+constexpr float kSubDeadzoneInput = 0.15f;
+constexpr float kMicroInput = 0.30f;
 constexpr float kMinimumAiHeadroom = 0.05f;
 constexpr float kMinimumAlignedAssistGain = 0.025f;
 constexpr float kMinimumAlignedRetentionRatio = 0.75f;
@@ -147,6 +147,10 @@ GamepadRuntimeConfig incident_config(ControlMode mode) {
     // controller intentionally uses manual + independent assist instead.
     config.ai_aim.body_lock_max_ai_force = 0.60f;
     config.ai_aim.body_lock_max_ai_force_y = 0.66f;
+    // The full-authority trigger moved from .251 to .30. Keep the declared
+    // .05 AI headroom without weakening its assertion or increasing visual
+    // evidence (which would change opposing damping in this fixture).
+    config.ai_aim.adapter_force_budget_scale = 1.25f;
     config.ai_aim.body_lock_activation_box_px = 150.0f;
     config.ai_aim.desired_point_traversal_ms = 180.0f;
     config.ai_aim.desired_point_boundary_exit_ms = 250.0f;
@@ -577,7 +581,8 @@ void write_report(
            << "    \"freshness\": \"all observations fresh at 5 ms cadence\",\n"
            << "    \"target_generation\": " << kSelectorGeneration << ",\n"
            << "    \"target_count\": 1,\n"
-           << "    \"right_stick_manual\": \"per-axis neutral 0.0, deadzone boundary +0.25, aligned +0.251, opposing -0.251, then 12 sustained opposing ticks at -0.251; intentional 25% AI threshold policy revision 20260919\",\n"
+           << "    \"right_stick_manual\": \"per-axis neutral 0.0, zero-weight boundary +0.15, full-weight aligned +0.30, opposing -0.30, then 12 sustained opposing ticks at -0.30; continuous 15%-30% intent policy 20260926\",\n"
+           << "    \"fixture_force_budget_scale\": 1.25,\n"
            << "    \"left_stick_manual\": \"zero\",\n"
            << "    \"recoil_firing\": \"recoil disabled and no fire input\",\n"
            << "    \"controller_mode\": \"production NativeGamepadController ADS Snap and BodyLock\",\n"

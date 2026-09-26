@@ -115,9 +115,21 @@ void touchpad_survives_composition_and_release() {
     require((b[6] & 3) == 0 && b[5] == 0,
         "touchpad/menu/share release must reach the next report");
 }
+void decoded_delivery_round_trips_every_axis_code() {
+    for (unsigned int code=0;code<256;++code) {
+        const float decoded=controller_native::ds4_axis_value(static_cast<std::uint8_t>(code));
+        controller_native::GamepadOutputState output;
+        output.right_x=decoded;
+        output.right_y=-decoded;
+        const auto report=controller_native::to_ds4_report(output);
+        require(report.bytes[2]==code && report.bytes[3]==code,
+            "delivery feedback must represent the exact report byte on both axes");
+    }
+}
 } // namespace
 
 void register_ds4_output_report_tests(native_test::Registry& registry) {
+    registry.add_case("BaseContracts", "ds4_delivery_all_axis_codes", decoded_delivery_round_trips_every_axis_code);
     registry.add_case("BaseContracts", "ds4_neutral_and_release", neutral_and_release);
     registry.add_case("BaseContracts", "ds4_axes_and_reversal", axes_and_reversal);
     registry.add_case("BaseContracts", "ds4_buttons_triggers_hat", buttons_triggers_and_hat);

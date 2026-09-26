@@ -150,6 +150,12 @@ public:
         std::uint64_t tick_id = 0);
     ControlFrame resolve_control_frame();
     void observe_composed_output(const GamepadOutputState& output);
+    // Acknowledgement from the output owner. Timestamp is submission time in
+    // the same steady-clock coordinate as capture; false invalidates history.
+    // The caller supplies the actual output coordinate (decoded DS4 in runtime,
+    // floating-point for the explicit in-process simulation facade).
+    void observe_delivered_output(const GamepadOutputState& output,
+        bool delivered, double submitted_at_seconds);
     // Compatibility facade for replay and focused controller tests. It uses
     // the same ControlFrame -> OutputComposer path as RuntimeLoop.
     GamepadOutputState build_output_from_sampled_input();
@@ -253,6 +259,7 @@ private:
     std::uint64_t next_command_sequence_ = 1;
     bool composed_output_pending_ = false;
     bool pending_auto_fire_active_ = false;
+    bool pending_response_ambiguous_ = false;
     NativeControllerStageTraceBuffer last_pipeline_traces_{};
     NativeControllerAcquisitionTrace last_acquisition_trace_{};
     std::uint64_t acquisition_trace_target_id_ = 0;

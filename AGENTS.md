@@ -1,5 +1,24 @@
 # Workspace AimLab rules
 
+## Default controller optimization boundaries
+
+User-confirmed on 2026-09-26; apply to controller fixes and optimization:
+
+- Prefer correcting the algorithm and ownership logic; preserve or reduce
+  logical gates instead of layering symptom-specific switches and delays.
+- Do not sacrifice target search, acquisition, identity, or handover performance.
+- Minimize overshoot and repeated oscillation while preserving manual authority,
+  zero-deadzone native passthrough, and the user-defined AI intent curve.
+- The user replaced the hard 25% AI intent threshold with a smooth 15%-30%
+  authority band: no manual intent weight at/below 15%, full weight at/above
+  30%, and continuous interpolation between. Raw passthrough stays untouched.
+  Legacy 25% admission/full-direction tests are superseded; explicit exit and
+  strong manual authority remain protected.
+- Validate with many deterministic randomized short and long scenarios and
+  independent validation seeds. Passing a few selected examples is insufficient.
+- Freeze scenarios and acceptance rules before candidate results; report per-case
+  regressions and fidelity gaps. Simulation success is not live-game acceptance.
+
 When the user asks to run, use, tune, sweep, optimize, or interpret AimLab or
 Sustained AimLab, first read
 `docs/benchmarks/AIMLAB_OPTIMIZATION_CONTRACT_V1_20260827.md` and treat it as

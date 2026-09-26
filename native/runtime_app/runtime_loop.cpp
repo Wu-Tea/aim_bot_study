@@ -811,6 +811,16 @@ void RuntimeLoop::run_once() {
                       << " error=0x" << std::hex << output_result.error_code << std::dec << '\n';
         }
     }
+    auto delivered_output = output;
+    delivered_output.right_x = output_result.delivered_right_x;
+    delivered_output.right_y = output_result.delivered_right_y;
+    if (output_result.reconnect_attempted) {
+        // Recreating the device publishes a neutral report before this report.
+        // Even a successful same-tick reconnect breaks camera-work continuity.
+        controller_.observe_delivered_output({}, false, 0.0);
+    }
+    controller_.observe_delivered_output(delivered_output,
+        output_result.delivered, output_result.submitted_at_seconds);
     const auto vigem_update_finished = std::chrono::steady_clock::now();
     // Everything below is observation, diagnostics, or future-frame setup.
     // It must never delay the output calculated from a newly consumed result.

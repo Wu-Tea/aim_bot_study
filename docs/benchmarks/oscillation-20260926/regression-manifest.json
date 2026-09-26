@@ -1,0 +1,124 @@
+{
+  "counterfactuals": [
+    {
+      "id": "C1",
+      "change": "remove target authority or request explicit manual exit",
+      "expected": "output follows physical input exactly; no target-induced jump"
+    }
+  ],
+  "evidence": {
+    "facts": [
+      {
+        "id": "F1",
+        "claim": "Stable target 1988: physical delta 0.007843, shaped AI delta 0.007781, final delta 0.831875 in 4.0383 ms.",
+        "source": {
+          "kind": "telemetry",
+          "artifact_id": "overshoot-20260926",
+          "locator": "chunk-3 lines 162949/162953; sample_seq 373697/373698"
+        }
+      }
+    ],
+    "inferences": [
+      {
+        "id": "I1",
+        "claim": "A finite output discontinuity at the semantic admission boundary can excite the game plant.",
+        "basis": [
+          "F1"
+        ]
+      }
+    ],
+    "unknowns": [
+      {
+        "id": "U1",
+        "question": "Actual game AA state, camera pose and target motion are unobserved; synthetic plant is not an exact replay."
+      }
+    ]
+  },
+  "fixture": {
+    "kind": "native_benchmark",
+    "source_files": [
+      "../../../native/controller_native/oscillation_scan.cpp"
+    ],
+    "build_target": "cod_native_oscillation_scan",
+    "run_command": [
+      "runs\\oscillation_optimization_20260926\\baseline_v2_cod_native_oscillation_scan.exe",
+      "--config",
+      "runs\\oscillation_optimization_20260926\\config.toml",
+      "--output",
+      "runs\\oscillation_optimization_20260926\\baseline_scan_v2.json",
+      "--cases",
+      "324",
+      "--seed",
+      "1337",
+      "--trace",
+      "runs\\oscillation_optimization_20260926\\baseline_trace_v2.csv"
+    ],
+    "trigger_assertions": [
+      "72 Track-mode opposing-axis pairs; production IntentFilter admits above .25 and clears below",
+      "288 no-target/explicit-exit counterfactuals preserve physical input exactly"
+    ],
+    "covariates": {
+      "freshness": "both fresh and nonfresh in 72 boundary pairs; simulated 5/10/16ms captures with 3/8/14ms age",
+      "target_generation": "constant per case; lifecycle transitions covered by existing product suites",
+      "target_count": 1,
+      "right_stick_manual": "boundary \u00b1.25001 to \u00b1.24999; closed-loop zero, drift, .25 crossing, .45 sinusoid",
+      "left_stick_manual": "zero for local fixture; independent random 0/\u00b1.8 in plant",
+      "recoil_firing": "local none; closed-loop random physical firing, recoil disabled to isolate aim; feature gates protect recoil",
+      "controller_mode": "local BodyLock; closed loop real ADS to BodyLock",
+      "refresh_rate_hz": "1000Hz plant and complete controller; synthetic, no game presentation",
+      "logging_mode": "deterministic offline JSON/CSV, no live telemetry"
+    }
+  },
+  "green_proof": null,
+  "incident_id": "gamepad-intent-handback-20260926",
+  "known_bad": {
+    "runtime_sha256": "3d3d699e3d0dc93cae2e16703c13ac30b9b6c549eac7a780424e1f89e8234752",
+    "source_commit": "e68f76eb5386866ab1ef8188af8718d9aa16db43",
+    "audit_artifact_id": "overshoot-20260926",
+    "audit_artifact_sha256": "ad18ab62da5332fd35621f9f865eb7d615b356b687326255e48ce76317fa383b"
+  },
+  "oracles": [
+    {
+      "id": "O1",
+      "metric": "max_boundary_step",
+      "operator": "<=",
+      "threshold": 0.02,
+      "unit": "normalized stick",
+      "evidence_fact_ids": [
+        "F1"
+      ]
+    }
+  ],
+  "red_proof": {
+    "runtime_sha256": "3d3d699e3d0dc93cae2e16703c13ac30b9b6c549eac7a780424e1f89e8234752",
+    "command": [
+      "runs\\oscillation_optimization_20260926\\baseline_v2_cod_native_oscillation_scan.exe",
+      "--config",
+      "runs\\oscillation_optimization_20260926\\config.toml",
+      "--output",
+      "runs\\oscillation_optimization_20260926\\baseline_scan_v2.json",
+      "--cases",
+      "324",
+      "--seed",
+      "1337",
+      "--trace",
+      "runs\\oscillation_optimization_20260926\\baseline_trace_v2.csv"
+    ],
+    "exit_code": 1,
+    "report": {
+      "id": "baseline-v2",
+      "path": "../../../runs/oscillation_optimization_20260926/baseline_scan_v2.json",
+      "sha256": "564f678447c7a7a6f8eea4d94af571db4711b009bf33eed9fdf07a49f45ca634"
+    },
+    "failed_oracles": [
+      {
+        "oracle_id": "O1",
+        "observed": 1.14643836
+      }
+    ]
+  },
+  "schema_version": 1,
+  "symptom": "A tiny physical input release reverses the final command by a finite amount with fixed AI demand.",
+  "title": "25% gamepad intent handback output discontinuity",
+  "verification": null
+}

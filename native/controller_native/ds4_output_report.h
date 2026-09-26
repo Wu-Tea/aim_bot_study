@@ -32,6 +32,10 @@ inline std::uint8_t ds4_trigger(float value) noexcept {
         std::lround(std::clamp(value, 0.0f, 1.0f) * 255.0f));
 }
 
+inline float ds4_axis_value(std::uint8_t code) noexcept {
+    return (static_cast<float>(code) - 128.0f) / (code < 128 ? 128.0f : 127.0f);
+}
+
 inline Ds4OutputReport to_ds4_report(
     const GamepadOutputState& state,
     std::uint8_t sequence = 0,

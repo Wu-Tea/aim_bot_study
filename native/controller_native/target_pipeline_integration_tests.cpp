@@ -166,8 +166,8 @@ void test_gamepad_deadzone_is_shared_by_intent_and_final_arbitration() {
             ? pipeline_contract::ControlMode::BodyLockFollow
             : pipeline_contract::ControlMode::AdsAcquire),
             "shared deadzone fixture must exercise both ADS and BodyLock");
-        for (float value : {-0.25f, -0.249f, -0.08f, -0.05f, -0.0274f,
-                            0.012f, 0.05f, 0.08f, 0.249f, 0.25f}) {
+        for (float value : {-0.15f, -0.149f, -0.08f, -0.05f, -0.0274f,
+                            0.012f, 0.05f, 0.08f, 0.149f, 0.15f}) {
             now += 0.001;
             const auto output = controller.build_output(physical_input(value, -value));
             const auto& d = controller.last_output_components();
@@ -580,7 +580,7 @@ void test_small_filtered_input_moves_d_without_a_second_deadzone() {
 
     // The 2026-09-19 policy intentionally ignores 5% for AI target edits,
     // while keeping physical passthrough unchanged. This is not a second
-    // downstream deadzone: a sample just above the revised 25% must move D immediately.
+    // downstream deadzone: accepted input in the 15%-30% band must move D continuously.
     now += 0.005;
     (void)controller.build_output(physical_input(0.05f, 0.0f));
     require_near(controller.last_target_plan().desired_point_normalized.x,

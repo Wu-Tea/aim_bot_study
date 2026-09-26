@@ -1,0 +1,217 @@
+{
+  "date_local": "2026-09-26",
+  "timezone": "Asia/Hong_Kong",
+  "scope": "Source audit; isolated native behavior probes; not live acceptance",
+  "head": "e68f76eb5386866ab1ef8188af8718d9aa16db43",
+  "production_binary_modified": false,
+  "production_algorithms_modified_this_audit": false,
+  "working_tree_intent_candidate_deployed": false,
+  "runtime_executable_sha256": "2d6c268a26b33ac3cd587ab4f0ecbfa84925676f926ac37715160dbf445396a0",
+  "inventory_mechanisms": 82,
+  "source_files": [
+    {
+      "path": "config.toml",
+      "sha256": "5b370064cad63e40e83197abf8d25dc2b99be9337f5867f707dfb5b75cbec603"
+    },
+    {
+      "path": "native/controller_native/ads_acquisition_controller.cpp",
+      "sha256": "5f44d70e3be04fcf790209742666d7ba30b9db573dd70fa10611b00a754bf9bc"
+    },
+    {
+      "path": "native/controller_native/ads_acquisition_controller.h",
+      "sha256": "a397ebdb351f880706ed2559999d307518719b2439937101443981a845d087b4"
+    },
+    {
+      "path": "native/controller_native/ads_reacquisition_reducer.cpp",
+      "sha256": "7eb30dd22404866715ab4ea6607821bf55ae083a75f170839a03f6b2d9fc9a81"
+    },
+    {
+      "path": "native/controller_native/ads_response_estimator.cpp",
+      "sha256": "f0bc49732710f4ac284bc005fd00a433a2364aedcfac358a7c8fd3c4c8658843"
+    },
+    {
+      "path": "native/controller_native/aim_dynamics_shaper.cpp",
+      "sha256": "3b7a38879cae7dc053d06662af01ba1a8df4a69e25bfe61aaa6731b460ea726f"
+    },
+    {
+      "path": "native/controller_native/aim_dynamics_shaper.h",
+      "sha256": "2ef54a9dedbeac6cdb3b9cec892a36323459a4ce9001a3e54f6b9ef422bc691e"
+    },
+    {
+      "path": "native/controller_native/aim_response_curve_plugin.h",
+      "sha256": "7aeb7c58770ab85f0d7ee9bae028c0216eb57a66cee68cdd59c74db28d197ba9"
+    },
+    {
+      "path": "native/controller_native/aim_response_estimator.cpp",
+      "sha256": "106060c6bcb3e3ccbbc7af662aa421b0f6a1157de356063c3c0b4f24ae6188d3"
+    },
+    {
+      "path": "native/controller_native/aim_response_estimator.h",
+      "sha256": "eeed14de96553b602e19fcf66bd1b1b1caa96c96acf3be8bc538efd57060ff40"
+    },
+    {
+      "path": "native/controller_native/aim_scope_reducer.h",
+      "sha256": "351e8de7e1f911e8d6d82328abb1e2a882e2a2a4761c56774e080b01b08426f5"
+    },
+    {
+      "path": "native/controller_native/assist_control_state_machine.cpp",
+      "sha256": "0fc54f7d8f36c6178198a924daf14d2c16b1475b5ab7a08f52a9fc6eba9f042c"
+    },
+    {
+      "path": "native/controller_native/assist_control_state_machine.h",
+      "sha256": "4172700abac12ab5d2ef7664cf4caf81d45ce419adf48f36e194775d6aa51820"
+    },
+    {
+      "path": "native/controller_native/auto_fire_gate.cpp",
+      "sha256": "b961215509ac8c38c8fb4a22fe5f3d8d65824515e7ad79ae795b4d3be6600cce"
+    },
+    {
+      "path": "native/controller_native/bodylock_follow_controller.cpp",
+      "sha256": "0f5d4f653ae810ee9accce2cf75635d9ba33bc1e4efc1c8cb0883a2d9c56677b"
+    },
+    {
+      "path": "native/controller_native/bodylock_target_motion_observer.cpp",
+      "sha256": "eaf218d13a9d7539b54a223101e05676d9a71f3100106deb4caca089d86febd0"
+    },
+    {
+      "path": "native/controller_native/bodylock_target_motion_observer.h",
+      "sha256": "bdbd42294d173da968a5530db9520acdcbd0ab47db73d9434242272cc96ef60c"
+    },
+    {
+      "path": "native/controller_native/ds4_output_report.h",
+      "sha256": "4f4097cabf244abf6b4ad496d368d0687136f40c99ed04f52cf53cff3f223b18"
+    },
+    {
+      "path": "native/controller_native/input_edge_reducer.h",
+      "sha256": "16b5f72e90c5fa27907966de34eaf5283398364b5cb7ab465c622c753f60888b"
+    },
+    {
+      "path": "native/controller_native/intent_filter.cpp",
+      "sha256": "3826a96494c6e62c7149d6623147583b82e8615203cb9201f88cff408fae7269"
+    },
+    {
+      "path": "native/controller_native/native_gamepad_controller.cpp",
+      "sha256": "bd138451188694481a3647242ac7805a33cbf154f214976753d9690bd3256014"
+    },
+    {
+      "path": "native/controller_native/native_gamepad_controller.h",
+      "sha256": "5a88e20da3b5cde8b14c16d1f28b7c0d2c0c91c4d76145e7e60614ea04a49336"
+    },
+    {
+      "path": "native/controller_native/output_composer.cpp",
+      "sha256": "52782270583c8810031c59741bfb6ea068c2067d68467aeeb05cd274a109288c"
+    },
+    {
+      "path": "native/controller_native/recoil_reducer.cpp",
+      "sha256": "00f23b08a4250779a83871f7dc4658356f6b8b1417bbeb1f0e12c38a45d3a7b7"
+    },
+    {
+      "path": "native/controller_native/response_model_aim_solver.cpp",
+      "sha256": "1ea13c87412f8d16ae71db62fbaa157ae260cef239415603690854f3d467977e"
+    },
+    {
+      "path": "native/controller_native/runtime_config.cpp",
+      "sha256": "2866f3b7988ed67d3bdbb297437de3072c2faff92682dcd4e9e11c840c4ecfcf"
+    },
+    {
+      "path": "native/controller_native/runtime_config.h",
+      "sha256": "7a3c81a0dce1ab7957db587ca4c6742acc832e4f1cd04d7c6a7f4f4c30141a6b"
+    },
+    {
+      "path": "native/controller_native/sdl_gamepad_reader.cpp",
+      "sha256": "0ea1557b363eee47ef84081423e77cfd73047372b4f18100065d778961113ba2"
+    },
+    {
+      "path": "native/controller_native/target_coordinator.cpp",
+      "sha256": "a5b00e119bc1216b69280af043da1023f7a375db348fc0626d073d5406dca970"
+    },
+    {
+      "path": "native/controller_native/target_coordinator.h",
+      "sha256": "ae31fa2500a2d42bc73bb645d3a4b046c0aa8946b3c3a027cafa552f54453c69"
+    },
+    {
+      "path": "native/controller_native/target_state_reducers.cpp",
+      "sha256": "72ad9cb1e20c1ffdf9874b027c533e5e570f620b05869203f3e139d0bc7bda28"
+    },
+    {
+      "path": "native/controller_native/target_state_reducers.h",
+      "sha256": "ce93937731eb54c008847b9994e29e1695c0c198e40d56334525692adc3e2f66"
+    },
+    {
+      "path": "native/controller_native/touchpad_fire.h",
+      "sha256": "831b32c7093fd2784eb415bd8b1a008b62b33beadaa414de4d48820973ef7e2b"
+    },
+    {
+      "path": "native/controller_native/touchpad_triangle.h",
+      "sha256": "babd9821ca2d1b56c6f13e250b52534a3695ab2c5236fcda088bdc8e74c90245"
+    },
+    {
+      "path": "native/controller_native/virtual_gamepad.cpp",
+      "sha256": "12b86f519a55cacc17419fd5731b5082dca44c33f42b57dc2b09d8c527420e62"
+    },
+    {
+      "path": "native/controller_native/xinput_reader.cpp",
+      "sha256": "c866e9a2f6a8625019fdca6b7e4657a9d07f59f8a5ac7b79ce69932a19b9edc7"
+    },
+    {
+      "path": "native/pipeline_contract/target_acquisition.h",
+      "sha256": "00be02b69050f69c41e0b16f43909f9e168c57f4556c4bba97a77684b568fec3"
+    },
+    {
+      "path": "native/runtime_app/main.cpp",
+      "sha256": "589655122fb146dc5439245b16d12856018e6951e2bc91cf4560f6efa36a717d"
+    },
+    {
+      "path": "native/runtime_app/runtime_loop.cpp",
+      "sha256": "ebd56c7c6f902167e9ed171ec967477f39228d1a47bd4b0d6a2ad988ab439a27"
+    },
+    {
+      "path": "native/runtime_app/vision_controller_adapter.cpp",
+      "sha256": "833e40fe39083b6b06676c7a45c91ff3bb2d69bbe0475c01e8be1ea11a833d40"
+    },
+    {
+      "path": "native/runtime_app/vision_service.cpp",
+      "sha256": "9f391c4641998f72c955fda64d278a7f7390a8f4d7c737fe0bb7d39cdb51b590"
+    },
+    {
+      "path": "native/vision_native/src/target_selector.cpp",
+      "sha256": "d8898ee5ac7cc253207fa0b8c3283378fd529bc2e574765b228327d242d398c2"
+    },
+    {
+      "path": "native/vision_native/src/tensorrt_engine.cpp",
+      "sha256": "bb11728d201775d412e6722d34407a814b829bde8ca086ef7ad3b553186fe0ca"
+    },
+    {
+      "path": "native/vision_native/src/vision_engine.cpp",
+      "sha256": "da39cedd881dde9ba14a0a9224a0f45281a045d5cce468490065bc19edb2bfdc"
+    }
+  ],
+  "probe_exit_code": 0,
+  "probe_limit": "Direct component calls, not full controller/vision/game replay. Arbiter fresh-only state runtime reachability unproven. ADS ratios isolate linear pre-LUT behavior.",
+  "artifacts": [
+    {
+      "path": "docs/research/VISION_CONTROLLER_GAMEPAD_SYSTEM_AUDIT_20260926.md",
+      "sha256": "7dd0ffaff4f1e3082c366ae35ec5c26f47371b69cb2a802ef857fd08f67dff52"
+    },
+    {
+      "path": "docs/research/vision-controller-audit-20260926/effective-config.txt",
+      "sha256": "2db177addb08c4a0abbfe9b074537027cb427877a7b8c7c2e414b18d4cccc906"
+    },
+    {
+      "path": "docs/research/vision-controller-audit-20260926/INVENTORY.md",
+      "sha256": "f362b6549886b0077c98cfdf01d255fcdd063bb57d290d2627f18f3ac715697c"
+    },
+    {
+      "path": "docs/research/vision-controller-audit-20260926/probe-result.json",
+      "sha256": "e15ab6605707263571034c03f5e0b07d80ee9531362a6fc103ebb1a491e21b16"
+    },
+    {
+      "path": "docs/research/vision-controller-audit-20260926/probe.cpp",
+      "sha256": "c4f53d1bbdfc2324b719193836bfdc59648e1435eb09c2fe7184dfde233e3efb"
+    },
+    {
+      "path": "docs/research/vision-controller-audit-20260926/README.md",
+      "sha256": "a3cdbaef400ccee2165c820c019c77bc6b68fdb5fe61d026ff309ca118366979"
+    }
+  ]
+}
