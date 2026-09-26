@@ -20,7 +20,7 @@ $fusionSession = if ([string]::IsNullOrWhiteSpace($env:FUSION_SESSION)) {
     $env:FUSION_SESSION
 }
 
-$configText = Get-Content -LiteralPath $configPath -Raw
+$configText = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8
 if ($Game -eq 'apex') {
     . (Join-Path $PSScriptRoot 'apex_config.ps1')
     $configText = ConvertTo-ApexConfigText $configText
