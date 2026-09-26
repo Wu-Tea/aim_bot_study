@@ -1,4 +1,5 @@
 param(
+    [ValidateSet('default', 'apex')][string]$Game = 'default',
     [switch]$PrintOnly
 )
 
@@ -6,6 +7,7 @@ $ErrorActionPreference = "Stop"
 
 $projectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
 $stateDirectory = [System.IO.Path]::GetFullPath((Join-Path $projectRoot "runs\runtime\background"))
+if ($Game -eq 'apex') { $stateDirectory = Join-Path $stateDirectory 'apex' }
 $statePath = Join-Path $stateDirectory "native_runtime_state.json"
 $launcherLogPath = Join-Path $stateDirectory "launcher.log"
 

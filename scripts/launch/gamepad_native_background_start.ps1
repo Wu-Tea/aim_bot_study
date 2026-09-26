@@ -1,4 +1,5 @@
 param(
+    [ValidateSet('default', 'apex')][string]$Game = 'default',
     [switch]$PrintOnly
 )
 
@@ -8,6 +9,7 @@ $projectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
 $executablePath = [System.IO.Path]::GetFullPath((Join-Path $projectRoot "native\vision_native\build\Release\cod_native_runtime.exe"))
 $configPath = [System.IO.Path]::GetFullPath((Join-Path $projectRoot "config.toml"))
 $stateDirectory = [System.IO.Path]::GetFullPath((Join-Path $projectRoot "runs\runtime\background"))
+if ($Game -eq 'apex') { $stateDirectory = Join-Path $stateDirectory 'apex' }
 $statePath = Join-Path $stateDirectory "native_runtime_state.json"
 $stdoutPath = Join-Path $stateDirectory "native_runtime.stdout.log"
 $stderrPath = Join-Path $stateDirectory "native_runtime.stderr.log"
@@ -19,6 +21,11 @@ $fusionSession = if ([string]::IsNullOrWhiteSpace($env:FUSION_SESSION)) {
 }
 
 $configText = Get-Content -LiteralPath $configPath -Raw
+if ($Game -eq 'apex') {
+    . (Join-Path $PSScriptRoot 'apex_config.ps1')
+    $configText = ConvertTo-ApexConfigText $configText
+    $configPath = Join-Path $stateDirectory 'config.apex.toml'
+}
 $visionSection = [regex]::Match(
     $configText,
     '(?ms)^\s*\[runtime\.vision\]\s*(?<body>.*?)(?=^\s*\[|\z)')
@@ -98,7 +105,7 @@ try {
     if (-not (Test-Path -LiteralPath $executablePath -PathType Leaf)) {
         throw "Native runtime executable not found: $executablePath"
     }
-    if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
+    if ($Game -ne 'apex' -and -not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
         throw "Runtime config not found: $configPath"
     }
     if (-not (Test-Path -LiteralPath $modelPath -PathType Leaf)) {
@@ -116,6 +123,10 @@ try {
     if ($null -ne $sameExecutable) {
         Write-LauncherLog "refused_unowned_duplicate"
         exit 3
+    }
+
+    if ($Game -eq 'apex') {
+        [System.IO.File]::WriteAllText($configPath, $configText, (New-Object System.Text.UTF8Encoding($false)))
     }
 
     # The channel is always ready for a later canvas attach. With no canvas,
