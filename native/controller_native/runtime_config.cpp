@@ -213,15 +213,8 @@ bool is_known_key(const std::string& section, const std::string& key) {
     static const std::unordered_set<std::string> enemy_mark_keys{
         "enabled", "l3_cooldown_ms", "lt_cooldown_ms"};
     static const std::unordered_set<std::string> recoil_keys{
-        "enabled", "selection_log_enabled", "profile_despike_enabled",
-        "profile_playback_enabled", "native_recognizer_enabled",
-        "recognizer_log_enabled", "recognizer_game",
-        "profile_directory", "calibration_directory", "weapon_directory",
-        "recognizer_state_path", "recognizer_fps", "profile_amount", "profile_x_amount",
-        "feedback_amount", "feedback_min_amount", "feedback_max_amount",
-        "profile_lead_ms", "profile_velocity_reference_ms",
-        "profile_despike_threshold_px", "profile_despike_ratio", "piecewise_mid_pixels_y",
-        "piecewise_max_pixels_y", "piecewise_mid_ratio_y"};
+        "enabled", "feedback_amount", "feedback_min_amount", "feedback_max_amount",
+        "hipfire_multiplier"};
     static const std::unordered_set<std::string> ai_aim_keys{
         "ai_delta_gain", "target_max_age_ms", "ads_activation_radius_px",
         "ads_pickup_base_radius_px", "ads_scope_ready_trigger", "ads_snap_window_ms",
@@ -435,57 +428,14 @@ void apply_gamepad_recoil_value(
     const std::string& value) {
     if (key == "enabled") {
         config.enabled = parse_bool_value(value, config.enabled);
-    } else if (key == "selection_log_enabled") {
-        config.selection_log_enabled = parse_bool_value(value, config.selection_log_enabled);
-    } else if (key == "profile_despike_enabled") {
-        config.profile_despike_enabled = parse_bool_value(value, config.profile_despike_enabled);
-    } else if (key == "profile_playback_enabled") {
-        // Accepted for old config files, but retired from the live runtime.
-        config.profile_playback_enabled = false;
-    } else if (key == "native_recognizer_enabled") {
-        config.native_recognizer_enabled = false;
-    } else if (key == "recognizer_log_enabled") {
-        config.recognizer_log_enabled = parse_bool_value(value, config.recognizer_log_enabled);
-    } else if (key == "recognizer_game") {
-        config.recognizer_game = parse_string_value(value);
-    } else if (key == "profile_directory") {
-        config.profile_directory = parse_string_value(value);
-    } else if (key == "calibration_directory") {
-        config.calibration_directory = parse_string_value(value);
-    } else if (key == "weapon_directory") {
-        config.weapon_directory = parse_string_value(value);
-    } else if (key == "recognizer_state_path") {
-        config.recognizer_state_path = parse_string_value(value);
-    } else if (key == "recognizer_fps") {
-        config.recognizer_fps = parse_int_value(value, config.recognizer_fps);
-    } else if (key == "profile_amount") {
-        config.profile_amount = parse_float_value(value, config.profile_amount);
-    } else if (key == "profile_x_amount") {
-        config.profile_x_amount = parse_float_value(value, config.profile_x_amount);
     } else if (key == "feedback_amount") {
         config.feedback_amount = parse_float_value(value, config.feedback_amount);
     } else if (key == "feedback_min_amount") {
-        config.feedback_min_amount =
-            parse_float_value(value, config.feedback_min_amount);
+        config.feedback_min_amount = parse_float_value(value, config.feedback_min_amount);
     } else if (key == "feedback_max_amount") {
-        config.feedback_max_amount =
-            parse_float_value(value, config.feedback_max_amount);
-    } else if (key == "profile_lead_ms") {
-        config.profile_lead_ms = parse_float_value(value, config.profile_lead_ms);
-    } else if (key == "profile_velocity_reference_ms") {
-        config.profile_velocity_reference_ms =
-            parse_float_value(value, config.profile_velocity_reference_ms);
-    } else if (key == "profile_despike_threshold_px") {
-        config.profile_despike_threshold_px =
-            parse_float_value(value, config.profile_despike_threshold_px);
-    } else if (key == "profile_despike_ratio") {
-        config.profile_despike_ratio = parse_float_value(value, config.profile_despike_ratio);
-    } else if (key == "piecewise_mid_pixels_y") {
-        config.piecewise_mid_pixels_y = parse_float_value(value, config.piecewise_mid_pixels_y);
-    } else if (key == "piecewise_max_pixels_y") {
-        config.piecewise_max_pixels_y = parse_float_value(value, config.piecewise_max_pixels_y);
-    } else if (key == "piecewise_mid_ratio_y") {
-        config.piecewise_mid_ratio_y = parse_float_value(value, config.piecewise_mid_ratio_y);
+        config.feedback_max_amount = parse_float_value(value, config.feedback_max_amount);
+    } else if (key == "hipfire_multiplier") {
+        config.hipfire_multiplier = parse_float_value(value, config.hipfire_multiplier);
     }
 }
 
@@ -499,54 +449,6 @@ void apply_recoil_environment_overrides(GamepadRecoilConfig& config) {
         if (enabled[0] != '\0') {
             config.enabled = parse_bool_value(enabled, config.enabled);
         }
-    }
-    if (const char* game = std::getenv("RECOIL_GAME")) {
-        if (game[0] != '\0') {
-            config.recognizer_game = game;
-        }
-    }
-    // RECOIL_NATIVE_RECOGNIZER is retired and intentionally inert.
-    if (const char* recognizer_log = std::getenv("RECOIL_RECOGNIZER_LOG")) {
-        if (recognizer_log[0] != '\0') {
-            config.recognizer_log_enabled =
-                parse_bool_value(recognizer_log, config.recognizer_log_enabled);
-        }
-    }
-    if (const char* recognizer_fps = std::getenv("RECOIL_RECOGNIZER_FPS")) {
-        if (recognizer_fps[0] != '\0') {
-            config.recognizer_fps = parse_int_value(recognizer_fps, config.recognizer_fps);
-        }
-    }
-    if (const char* profile_dir = std::getenv("RECOIL_PROFILE_DIR")) {
-        if (profile_dir[0] != '\0') {
-            config.profile_directory = profile_dir;
-        }
-    }
-    if (const char* calibration_dir = std::getenv("RECOIL_CALIBRATION_DIR")) {
-        if (calibration_dir[0] != '\0') {
-            config.calibration_directory = calibration_dir;
-        }
-    }
-    if (const char* weapon_dir = std::getenv("RECOIL_WEAPON_DIR")) {
-        if (weapon_dir[0] != '\0') {
-            config.weapon_directory = weapon_dir;
-        }
-    } else if (const char* signature_dir = std::getenv("RECOIL_SIGNATURE_DIR")) {
-        if (signature_dir[0] != '\0') {
-            config.weapon_directory = signature_dir;
-        }
-    }
-    if (const char* recognizer_state_path = std::getenv("RECOIL_RECOGNIZER_STATE_PATH")) {
-        if (recognizer_state_path[0] != '\0') {
-            config.recognizer_state_path = recognizer_state_path;
-        }
-    }
-}
-
-void apply_recoil_runtime_defaults(GamepadRecoilConfig& config) {
-    if ((config.profile_playback_enabled || config.native_recognizer_enabled) &&
-        config.recognizer_state_path.empty()) {
-        config.recognizer_state_path = "artifacts/recoil_app/current_weapon.json";
     }
 }
 
@@ -815,14 +717,6 @@ void mark_environment_sources(RuntimeConfig& config) {
     mark("GAMEPAD_XINPUT_USER_INDEX", "runtime.gamepad.xinput_user_index");
     mark("ENABLE_RECOIL_RUNTIME", "gamepad.recoil.enabled");
     mark("RECOIL_ENABLED", "gamepad.recoil.enabled");
-    mark("RECOIL_GAME", "gamepad.recoil.recognizer_game");
-    mark("RECOIL_RECOGNIZER_LOG", "gamepad.recoil.recognizer_log_enabled");
-    mark("RECOIL_RECOGNIZER_FPS", "gamepad.recoil.recognizer_fps");
-    mark("RECOIL_PROFILE_DIR", "gamepad.recoil.profile_directory");
-    mark("RECOIL_CALIBRATION_DIR", "gamepad.recoil.calibration_directory");
-    mark("RECOIL_WEAPON_DIR", "gamepad.recoil.weapon_directory");
-    mark("RECOIL_SIGNATURE_DIR", "gamepad.recoil.weapon_directory");
-    mark("RECOIL_RECOGNIZER_STATE_PATH", "gamepad.recoil.recognizer_state_path");
 }
 
 void validate_runtime_config(RuntimeConfig& config) {
@@ -830,6 +724,10 @@ void validate_runtime_config(RuntimeConfig& config) {
         throw std::runtime_error(
             "invalid user override for " + key + "; accepted range: " + range);
     };
+    if (!std::isfinite(config.gamepad.recoil.hipfire_multiplier) ||
+        config.gamepad.recoil.hipfire_multiplier < 0.0f ||
+        config.gamepad.recoil.hipfire_multiplier > 1.0f)
+        invalid("gamepad.recoil.hipfire_multiplier", "finite 0..1");
     const float initial_response = config.gamepad.ai_aim.aim_response_initial_scale;
     if (!std::isfinite(initial_response) ||
         (initial_response != 0.0f && (initial_response < 80.0f || initial_response > 4000.0f)))
@@ -1019,7 +917,7 @@ RuntimeConfig load_runtime_config(
             apply_profile(config, profile_override);
             config.effective_sources["runtime.profile"] = "cli";
         }
-        apply_recoil_runtime_defaults(config.gamepad.recoil);
+
         apply_vision_environment_overrides(config.vision);
         apply_recoil_environment_overrides(config.gamepad.recoil);
         apply_gamepad_environment_overrides(config.gamepad);
@@ -1072,7 +970,7 @@ RuntimeConfig load_runtime_config(
         apply_value(config, entry.section, entry.key, entry.value);
         config.effective_sources[full_key] = "user";
     }
-    apply_recoil_runtime_defaults(config.gamepad.recoil);
+
     apply_vision_environment_overrides(config.vision);
     apply_telemetry_environment_overrides(config.telemetry);
     apply_recoil_environment_overrides(config.gamepad.recoil);

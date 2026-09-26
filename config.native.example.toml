@@ -174,29 +174,12 @@ desired_point_boundary_exit_ms = 50
 # Admitted ADS authority is unaffected. Restart the runtime after changing it.
 visual_authority_enabled = true
 
-# All documented recoil overrides remain available.
+# Fixed live recoil; retired file-backed profiles and recognizer settings removed.
 [gamepad.recoil]
 enabled = true
-selection_log_enabled = false
-profile_despike_enabled = true
-profile_playback_enabled = false # retired/inert in native runtime; live recoil uses feedback_amount
-native_recognizer_enabled = false # retired/inert in native runtime # OCR is intentionally absent from runtime hot path
-recognizer_log_enabled = false
-recognizer_game = "cod22"
-profile_directory = "artifacts/recoil_profiles"
-calibration_directory = "artifacts/recoil_calibration"
-weapon_directory = "artifacts/recoil_app/weapons"
-recognizer_state_path = "artifacts/recoil_app/current_weapon.json"
-recognizer_fps = 5
-profile_amount = 1.0
-profile_x_amount = 1.0
 feedback_amount = 0.20
+# Physical ADS uses the bounded feedback_amount; hipfire multiplies it by this.
+# Default 1 preserves ordinary profiles. The Apex entry overrides this to 0.5.
+hipfire_multiplier = 1.0 # 0..1; scales recoil only, never manual/AI sensitivity
 feedback_min_amount = 0.14
 feedback_max_amount = 0.34
-profile_lead_ms = 0.0
-profile_velocity_reference_ms = 10.0
-profile_despike_threshold_px = 2.0
-profile_despike_ratio = 3.0
-piecewise_mid_pixels_y = 45.0
-piecewise_max_pixels_y = 180.0
-piecewise_mid_ratio_y = 0.65

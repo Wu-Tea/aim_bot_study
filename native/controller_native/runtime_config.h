@@ -123,6 +123,8 @@ struct GamepadRecoilConfig {
     float profile_amount = 1.0f;
     float profile_x_amount = 1.0f;
     float feedback_amount = 0.20f;
+    // Multiplies the bounded live recoil only while physical ADS is not ready.
+    float hipfire_multiplier = 1.0f;
     // Target-independent live recoil boundary. No file-backed timeline is
     // consulted by the production reducer.
     float feedback_min_amount = 0.14f;

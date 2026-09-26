@@ -57,12 +57,13 @@ class ApexLauncherTests(unittest.TestCase):
             expected['runtime']['vision']['model_path'] = (
                 'artifacts/game-specialists-20260914/exports/apex/apex_480x384.engine')
             expected['gamepad']['aim_response_curve']['algorithm'] = 'linear'
+            expected['gamepad'].setdefault('recoil', {})['hipfire_multiplier'] = .5
             generated = (output / 'config.apex.toml').read_text(encoding='utf-8-sig')
             self.assertEqual(tomllib.loads(generated), expected)
             self.assertIn('# ★ 综合性价比\ncapture_width = 640', generated)
             self.assertEqual((root / 'config.toml').read_bytes(), config.encode('utf-8'))
 
-    def test_only_model_and_curve_change(self):
+    def test_only_model_curve_and_hipfire_recoil_change(self):
         # Use the tracked example so the test does not depend on local settings.
         source = ROOT / 'config.native.example.toml'
         before = source.read_bytes()
@@ -75,6 +76,7 @@ class ApexLauncherTests(unittest.TestCase):
         expected['runtime']['vision']['model_path'] = (
             'artifacts/game-specialists-20260914/exports/apex/apex_480x384.engine')
         expected['gamepad']['aim_response_curve']['algorithm'] = 'linear'
+        expected['gamepad'].setdefault('recoil', {})['hipfire_multiplier'] = .5
         self.assertEqual(actual, expected)
         self.assertEqual(source.read_bytes(), before)
 

@@ -62,29 +62,13 @@ if not defined ENABLE_RECOIL_RUNTIME (
 echo Native vision settings: config.toml defaults.
 echo Launching native C++ gamepad runtime with AutoFire=!AUTO_FIRE_LABEL!
 
-if /I "%ENABLE_RECOIL_RUNTIME%"=="1" (
-  if not defined RECOIL_GAME set "RECOIL_GAME=cod22"
-  if not defined RECOIL_PROFILE_DIR set "RECOIL_PROFILE_DIR=%cd%\artifacts\recoil_profiles"
-  if not defined RECOIL_CALIBRATION_DIR set "RECOIL_CALIBRATION_DIR=%cd%\artifacts\recoil_calibration"
-  if not defined RECOIL_WEAPON_DIR set "RECOIL_WEAPON_DIR=%cd%\artifacts\recoil_app\weapons"
-  if not defined RECOIL_STATE_FILE set "RECOIL_STATE_FILE=%cd%\artifacts\recoil_app\current_weapon.json"
-  if not defined RECOIL_RECOGNIZER_STATE_PATH set "RECOIL_RECOGNIZER_STATE_PATH=!RECOIL_STATE_FILE!"
-  if not defined RECOIL_NATIVE_RECOGNIZER set "RECOIL_NATIVE_RECOGNIZER=1"
-  if not defined RECOIL_CLEAR_STATE_ON_START set "RECOIL_CLEAR_STATE_ON_START=1"
-  echo Recoil profile selection enabled for !RECOIL_GAME!
-  echo Recoil current weapon state: !RECOIL_RECOGNIZER_STATE_PATH!
-  echo Recoil weapon OCR: press Y after launch to recognize the switched weapon.
-) else (
-  set "RECOIL_RECOGNIZER_STATE_PATH="
-  echo Recoil profile selection disabled.
-)
+echo Fixed recoil settings: [gamepad.recoil] in config.toml.
 
 if "%GAMEPAD_START_PRINT_ONLY%"=="1" (
   echo Resolved command: "%EXE%" --config config.toml !PERF_LOG_ARG! !AUTO_FIRE_ARG!
   goto end
 )
 
-if /I "%ENABLE_RECOIL_RUNTIME%"=="1" if /I "!RECOIL_CLEAR_STATE_ON_START!"=="1" if exist "!RECOIL_RECOGNIZER_STATE_PATH!" del /f /q "!RECOIL_RECOGNIZER_STATE_PATH!" >nul 2>nul
 "%EXE%" --config config.toml !PERF_LOG_ARG! !AUTO_FIRE_ARG!
 
 :end

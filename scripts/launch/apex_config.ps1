@@ -18,5 +18,21 @@ function ConvertTo-ApexConfigText([string]$Text) {
         if ($setting.Value.EndsWith("`r")) { $replacement += "`r" }
         $Text = $Text.Remove($offset, $setting.Length).Insert($offset, $replacement)
     }
-    return $Text
+    # Older user configs may have no recoil section/key. Insert only this
+    # override while preserving every other current recoil setting.
+    $recoilSections = [regex]::Matches($Text, '(?ms)^[ \t]*\[gamepad\.recoil\][ \t]*(?:#[^\r\n]*)?\r?\n(?<body>.*?)(?=^[ \t]*\[|\z)')
+    if ($recoilSections.Count -gt 1) { throw 'Duplicate [gamepad.recoil] section' }
+    if ($recoilSections.Count -eq 0) {
+        return $Text + "`n[gamepad.recoil]`nhipfire_multiplier = 0.5`n"
+    }
+    $body = $recoilSections[0].Groups['body']
+    $settings = [regex]::Matches($body.Value, '(?m)^[ \t]*hipfire_multiplier[ \t]*=[^\r\n]*\r?$')
+    if ($settings.Count -gt 1) { throw 'Duplicate recoil hipfire_multiplier' }
+    if ($settings.Count -eq 0) {
+        return $Text.Insert($body.Index, "hipfire_multiplier = 0.5`n")
+    }
+    $setting = $settings[0]
+    $replacement = 'hipfire_multiplier = 0.5'
+    if ($setting.Value.EndsWith("`r")) { $replacement += "`r" }
+    return $Text.Remove($body.Index + $setting.Index, $setting.Length).Insert($body.Index + $setting.Index, $replacement)
 }

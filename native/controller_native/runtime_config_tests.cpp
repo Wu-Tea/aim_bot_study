@@ -402,11 +402,45 @@ void test_retired_recoil_profile_cannot_be_enabled_by_config() {
             "retired profile recognizer was enabled by TOML");
     require(std::fabs(config.gamepad.recoil.feedback_amount - 0.23f) < 1e-6f,
             "retiring profiles changed the live recoil amount");
+    require(has_diagnostic(config, "profile_playback_enabled") &&
+            has_diagnostic(config, "native_recognizer_enabled"),
+            "retired recoil keys must be unknown rather than advertised settings");
+    TempConfig stale("cod_native_retired_recoil_paths.toml",
+        "[gamepad.recoil]\nprofile_directory = \"unused-profile\"\n"
+        "recognizer_state_path = \"unused-state.json\"\nprofile_amount = 9\n");
+    const auto retired = controller_native::load_runtime_config(stale.path());
+    require(has_diagnostic(retired, "profile_directory") &&
+            has_diagnostic(retired, "recognizer_state_path") &&
+            has_diagnostic(retired, "profile_amount"),
+            "retired file-backed recoil settings must be inert and diagnosed");
+    require(retired.gamepad.recoil.recognizer_state_path.empty() &&
+            retired.gamepad.recoil.profile_amount == 1.0f,
+            "retired recoil configuration still changes runtime state");
+}
+
+void test_hipfire_recoil_config() {
+    TempConfig defaults("cod_native_hipfire_recoil_default.toml", "[gamepad.recoil]\n");
+    require(controller_native::load_runtime_config(defaults.path()).gamepad.recoil.hipfire_multiplier == 1.0f,
+        "default hipfire recoil must preserve existing game profiles");
+    TempConfig half("cod_native_hipfire_recoil_half.toml",
+        "[gamepad.recoil]\nfeedback_amount = 0.2\nhipfire_multiplier = 0.5\n");
+    const auto config = controller_native::load_runtime_config(half.path());
+    require(config.diagnostics.empty() && config.gamepad.recoil.hipfire_multiplier == .5f,
+        "hipfire multiplier must parse independently of ADS amount");
+    for (const auto* value : {"-0.1", "1.01", "nan", "inf"}) {
+        TempConfig invalid("cod_native_hipfire_recoil_invalid.toml",
+            std::string("[gamepad.recoil]\nhipfire_multiplier = ") + value + "\n");
+        bool threw = false;
+        try { (void)controller_native::load_runtime_config(invalid.path()); }
+        catch (const std::runtime_error&) { threw = true; }
+        require(threw, "hipfire multiplier must be finite and within 0..1");
+    }
 }
 
 }  // namespace
 
 void register_runtime_config_tests(native_test::Registry& registry) {
+    registry.add_case("BaseContracts", "hipfire_recoil_config", test_hipfire_recoil_config);
     registry.add_case("BaseContracts", "vision_release_hold_config", test_vision_release_hold_config);
     registry.add_case("BaseContracts", "withdrawn_light_search_key_is_inert", test_withdrawn_light_search_key_is_inert);
     registry.add_case("BaseContracts", "vision_selection_config", test_vision_selection_config);

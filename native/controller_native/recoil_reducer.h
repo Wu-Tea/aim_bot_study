@@ -24,6 +24,7 @@ private:
     // Legacy playback remains an offline library, never a live control mode.
     bool enabled_ = false;
     float amount_ = 0.0f;
+    float hipfire_multiplier_ = 1.0f;
 };
 
 }  // namespace controller_native

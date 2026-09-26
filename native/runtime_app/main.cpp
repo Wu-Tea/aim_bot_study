@@ -224,29 +224,10 @@ void dump_effective_config(const controller_native::RuntimeConfig& config) {
     line("gamepad.auto_fire.manual_takeover_resume_delay_seconds", fire.manual_takeover_resume_delay_seconds);
     const auto& recoil = config.gamepad.recoil;
     line("gamepad.recoil.enabled", recoil.enabled);
-    line("gamepad.recoil.selection_log_enabled", recoil.selection_log_enabled);
-    line("gamepad.recoil.profile_despike_enabled", recoil.profile_despike_enabled);
-    line("gamepad.recoil.profile_playback_enabled", recoil.profile_playback_enabled);
-    line("gamepad.recoil.native_recognizer_enabled", recoil.native_recognizer_enabled);
-    line("gamepad.recoil.recognizer_log_enabled", recoil.recognizer_log_enabled);
-    line("gamepad.recoil.recognizer_game", recoil.recognizer_game);
-    line("gamepad.recoil.profile_directory", recoil.profile_directory);
-    line("gamepad.recoil.calibration_directory", recoil.calibration_directory);
-    line("gamepad.recoil.weapon_directory", recoil.weapon_directory);
-    line("gamepad.recoil.recognizer_state_path", recoil.recognizer_state_path);
-    line("gamepad.recoil.recognizer_fps", recoil.recognizer_fps);
-    line("gamepad.recoil.profile_amount", recoil.profile_amount);
-    line("gamepad.recoil.profile_x_amount", recoil.profile_x_amount);
     line("gamepad.recoil.feedback_amount", recoil.feedback_amount);
+    line("gamepad.recoil.hipfire_multiplier", recoil.hipfire_multiplier);
     line("gamepad.recoil.feedback_min_amount", recoil.feedback_min_amount);
     line("gamepad.recoil.feedback_max_amount", recoil.feedback_max_amount);
-    line("gamepad.recoil.profile_lead_ms", recoil.profile_lead_ms);
-    line("gamepad.recoil.profile_velocity_reference_ms", recoil.profile_velocity_reference_ms);
-    line("gamepad.recoil.profile_despike_threshold_px", recoil.profile_despike_threshold_px);
-    line("gamepad.recoil.profile_despike_ratio", recoil.profile_despike_ratio);
-    line("gamepad.recoil.piecewise_mid_pixels_y", recoil.piecewise_mid_pixels_y);
-    line("gamepad.recoil.piecewise_max_pixels_y", recoil.piecewise_max_pixels_y);
-    line("gamepad.recoil.piecewise_mid_ratio_y", recoil.piecewise_mid_ratio_y);
     for (const std::string& diagnostic : config.diagnostics) {
         std::cerr << "[NativeRuntime][Config] " << diagnostic << '\n';
     }
@@ -274,15 +255,7 @@ void print_startup_summary(
         << config.gamepad.tracker.max_observation_age_ms
         << " aim_controller=production"
         << " recoil=" << (config.gamepad.recoil.enabled ? "on" : "off")
-        << " recoil_profile="
-        << (config.gamepad.recoil.profile_playback_enabled ? "on" : "off")
-        << " recoil_state=" << (
-            !config.gamepad.recoil.profile_playback_enabled &&
-                !config.gamepad.recoil.native_recognizer_enabled
-                ? "disabled"
-                : config.gamepad.recoil.recognizer_state_path.empty()
-                ? "none"
-                : config.gamepad.recoil.recognizer_state_path)
+        << " recoil_hipfire_multiplier=" << config.gamepad.recoil.hipfire_multiplier
         << " auto_fire=" << config.gamepad.auto_fire.fire_output
         << " enemy_mark=" << (config.gamepad.enemy_mark.enabled ? "on" : "off")
         << " fusion=" << (config.vision.fusion_enabled ? "on" : "off")

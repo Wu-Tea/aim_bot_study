@@ -4,7 +4,7 @@
 - 双击 `apex_native_background_stop.vbs`：停止该入口记录的 Apex 进程。
 
 每次启动从仓库根目录的 `config.toml` 生成
-`runs/runtime/background/apex/config.apex.toml`，仅覆盖两项：
+`runs/runtime/background/apex/config.apex.toml`，仅覆盖三项：
 
 ```toml
 [runtime.vision]
@@ -12,8 +12,14 @@ model_path = "artifacts/game-specialists-20260914/exports/apex/apex_480x384.engi
 
 [gamepad.aim_response_curve]
 algorithm = "linear"
+
+[gamepad.recoil]
+hipfire_multiplier = 0.5
 ```
 
+ADS 压枪使用当前 `feedback_amount`（按原上下限约束），腰射下压力为它的 50%。
+例如当前 0.20 对应 ADS 0.20、腰射 0.10；不改变手动摇杆或 AI 拉枪灵敏度。
+开火激活 AI 不会被当成物理开镜，关镜仍开火时也使用腰射倍率。
 其他参数继承当前配置。修改参数后需要停止再启动；不要直接编辑生成文件。
 这里的线性是工具的响应曲线模型，不会修改 Apex 游戏内设置；游戏内响应曲线也应由玩家设为线性。
 
