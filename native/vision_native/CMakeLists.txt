@@ -587,10 +587,21 @@ pybind11_add_module(vision_native_cpp src/vision_native_module.cpp)
 set_target_properties(vision_native_cpp PROPERTIES OUTPUT_NAME "vision_native_cpp")
 target_link_libraries(vision_native_cpp PRIVATE vision_native_core)
 
+# Opt-in, game-independent GPU contention benchmarks. No controller or output device.
+add_executable(vision_graphics_load EXCLUDE_FROM_ALL
+    src/vision_graphics_load.cpp ../runtime_app/runtime_timing.cpp)
+cod_native_defaults(vision_graphics_load)
+target_link_libraries(vision_graphics_load PRIVATE CUDA::cudart d3d11 dxgi d3dcompiler winmm)
+
+add_executable(vision_contention_benchmark EXCLUDE_FROM_ALL
+    src/vision_contention_benchmark.cpp ../runtime_app/runtime_timing.cpp)
+cod_native_defaults(vision_contention_benchmark)
+target_link_libraries(vision_contention_benchmark PRIVATE vision_native_core winmm)
+
 include(../mouse_native/mouse_targets.cmake)
 
 set(_runtime_dlls nvinfer_10.dll nvinfer_plugin_10.dll)
-foreach(_target vision_native_smoke vision_native_debug vision_native_bgra_benchmark cod_native_runtime cod_native_mouse_runtime vision_native_cpp)
+foreach(_target vision_native_smoke vision_native_debug vision_native_bgra_benchmark cod_native_runtime cod_native_mouse_runtime vision_native_cpp vision_contention_benchmark)
     foreach(_dll IN LISTS _runtime_dlls)
         add_custom_command(TARGET ${_target} POST_BUILD
             COMMAND "${CMAKE_COMMAND}" -E copy_if_different
