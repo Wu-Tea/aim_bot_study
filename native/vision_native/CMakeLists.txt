@@ -313,6 +313,9 @@ add_executable(cod_native_base_tests
     src/build_family_tests.cpp
     src/resize_contract_tests.cpp
     src/target_selector_tests.cpp
+    src/marker_loss_acquisition_incident_tests.cpp
+    src/visible_selection_contract_tests.cpp
+    src/visible_selection_pipeline_tests.cpp
     src/color_readback_tests.cpp
     ../controller_native/io_recovery_policy_tests.cpp
     ../controller_native/io_recovery_policy.cpp

@@ -2,6 +2,7 @@
 
 #include "pipeline_contract/target_snapshot.h"
 #include "vision_native/types.h"
+#include "vision_native/selection_state_machine.h"
 
 #include <cstdint>
 #include <array>
@@ -102,7 +103,7 @@ private:
     bool friendly_filter_enabled_ = true;
     float target_height_ratio_ = 0.40f;
     float target_wide_low_height_ratio_ = 0.65f;
-    DetectionBatch apply_friendly_policy(const DetectionBatch& batch) const;
+    DetectionBatch apply_detection_policy(const DetectionBatch& batch) const;
     VisionResult empty_result(float boxes_seen) const;
     VisionResult result_from_target(const TargetState& target, float boxes_seen) const;
     VisionResult select_impl(
@@ -142,6 +143,7 @@ private:
     std::optional<TargetState> select_weak_association(const DetectionBatch& batch) const;
 
     float crosshair_distance(float x, float y) const;
+    float crosshair_region_distance(const Candidate& candidate) const;
     bool candidate_within_pickup_envelope(const Candidate& candidate) const;
     std::optional<float> tracking_distance(
         float x,
@@ -161,12 +163,7 @@ private:
     bool boxes_match(const Rect& lhs, const Rect& rhs) const;
     bool targets_match(const TargetState& lhs, const TargetState& rhs) const;
     bool active_target_matches_candidate(const Candidate& candidate) const;
-    bool candidate_matches_expired_marker_region(const Candidate& candidate) const;
-    bool candidate_is_wide_low(const Candidate& candidate) const;
     bool candidate_has_enemy_evidence(const Candidate& candidate) const;
-    bool should_escape_stale_active_match(
-        const TargetState& locked,
-        const TargetState& challenger) const;
     std::optional<TargetState> confirm_pickup(
         const TargetState& target,
         bool allow_marked_single_frame_pickup);
@@ -196,7 +193,6 @@ private:
         const ColorFrameView& frame,
         std::uint64_t observation_ns);
     bool cue_hold_is_active(std::uint64_t observation_ns) const;
-    bool enemy_marker_loss_grace_expired(std::uint64_t observation_ns) const;
     std::optional<FrameRegion> cue_hold_search_region(
         std::uint64_t observation_ns) const;
     bool cue_reconstructed_target_is_reasonable(
@@ -225,24 +221,18 @@ private:
     // Identity is owned by this selector's existing association and switch
     // confirmation rules. It is deliberately independent of frame-local
     // detection/observation ids.
-    std::uint64_t selector_target_generation_ = 0;
-    bool selector_target_changed_ = false;
+    SelectionStateMachine<TargetState> selection_;
 
     std::optional<std::pair<float, float>> last_target_center_;
-    std::optional<TargetState> active_target_;
-    std::optional<TargetState> pending_target_;
     bool active_generation_had_enemy_evidence_ = false;
-    bool active_marker_expired_ = false;
     // A short detector miss may hide I, but it must not destroy I and promote
     // a neighbour on the following frame. This is identity-only memory: while
     // missing, Vision still publishes no target and no actuation authority.
-    int active_identity_miss_frames_ = 0;
     std::optional<std::pair<float, float>> last_cue_point_;
     std::optional<std::pair<float, float>> last_target_offset_from_cue_;
     std::uint64_t cue_tracking_generation_ = 0;
     std::uint64_t last_direct_cue_observation_ns_ = 0;
     std::uint64_t last_cue_observation_ns_ = 0;
-    int pending_frames_ = 0;
     int cue_hold_frames_ = 0;
     bool auto_fire_holding_ = false;
     int auto_fire_miss_frames_ = 0;

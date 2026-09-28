@@ -567,7 +567,7 @@ void test_unaligned_intent_does_not_confirm_right_side_challenger() {
         "unaligned control must expose the blocked handover reason");
 }
 
-void test_dead_active_target_releases_before_aligned_reacquisition() {
+void test_flat_active_target_remains_aimable_until_explicit_handover() {
     vision_native::VisionTargetSelector selector(640, 512);
     vision_native::DetectionBatch live;
     live.frame_width = 640;
@@ -600,8 +600,9 @@ void test_dead_active_target_releases_before_aligned_reacquisition() {
     const auto intent = lower_left_intent(19);
     const auto pending = selector.select(death_transition, intent);
     require_true(
-        !pending.has_target && !pending.aim_authority && !pending.fire_authority,
-        "death-transition confirmation must retain identity without actuating the corpse point");
+        pending.has_target && pending.aim_authority &&
+            pending.selector_target_generation == locked.selector_target_generation,
+        "flat posture must retain its observed identity until explicit handover");
 
     const auto switched = selector.select(
         death_transition, rightward_handover_intent(20));
@@ -1134,7 +1135,7 @@ void test_wide_low_no_cue_candidate_degrades_to_weak_without_death_transition() 
     require_true(!result.fire_authority, "weak observed target must not grant fire authority");
 }
 
-void test_wide_low_no_cue_candidate_does_not_keep_dead_active_target_locked() {
+void test_wide_low_no_cue_candidate_retains_aim_without_fire() {
     vision_native::VisionTargetSelector selector(640, 512);
     const auto live = single_target_batch(320.0f, 256.0f, 0.45f);
     const auto live_region = selector.required_color_region(live);
@@ -1155,11 +1156,12 @@ void test_wide_low_no_cue_candidate_does_not_keep_dead_active_target_locked() {
     const vision_native::VisionResult result = selector.select_with_frame(corpse, dark_full_frame.view);
 
     require_true(
-        !result.has_target,
-        "wide-low candidate without head cue evidence should not keep a just-dead target locked");
+        result.has_target && result.aim_authority && !result.fire_authority &&
+            result.selector_target_generation == locked.selector_target_generation,
+        "wide-low current observation must remain aimable without granting fire authority");
 }
 
-void test_enemy_marker_history_survives_one_upright_gap_and_rejects_corpse() {
+void test_enemy_marker_history_does_not_veto_current_flat_person() {
     constexpr std::uint64_t kMillisecondNs = 1'000'000ull;
     constexpr std::uint64_t kLockTimeNs = 2'000'000'000ull;
     vision_native::VisionTargetSelector selector(640, 512);
@@ -1194,11 +1196,12 @@ void test_enemy_marker_history_survives_one_upright_gap_and_rejects_corpse() {
     const auto result = selector.select_with_frame(corpse, dark_full_frame.view);
 
     require_true(
-        !result.has_target,
-        "a marker-backed active generation must remember the marker loss across an intermediate frame and reject the corpse");
+        result.has_target && result.aim_authority && !result.fire_authority &&
+            result.selector_target_generation == locked.selector_target_generation,
+        "marker history must not turn a current flat-body observation into a target veto");
 }
 
-void test_enemy_marker_loss_expires_while_person_box_remains_upright() {
+void test_enemy_marker_loss_with_flat_body_remains_aimable() {
     constexpr std::uint64_t kMillisecondNs = 1'000'000ull;
     constexpr std::uint64_t kLockTimeNs = 3'000'000'000ull;
     vision_native::VisionTargetSelector selector(640, 512);
@@ -1222,27 +1225,34 @@ void test_enemy_marker_loss_expires_while_person_box_remains_upright() {
         "a brief marker gap should retain the same upright target during grace");
 
     marker_gap.captured_at_ns = kLockTimeNs + (81ull * kMillisecondNs);
+    // User contract 2026-09-28: a flat body is still a legal aim target.
+    // Posture and marker history may limit fire, not erase the observation.
+    marker_gap.detections = {wide_low_detection_for_target(320.0f, 280.0f, 0.92f)};
     const auto expired = selector.select_with_frame(marker_gap, dark_full_frame.view);
     require_true(
-        !expired.has_target,
-        "an enemy-marker-backed target must stop being selectable after the bounded marker-loss grace");
+        expired.has_target && expired.aim_authority && !expired.fire_authority,
+        "marker loss plus a flat body must remain aimable");
 
     marker_gap.captured_at_ns = kLockTimeNs + (140ull * kMillisecondNs);
     const auto still_rejected = selector.select_with_frame(marker_gap, dark_full_frame.view);
     marker_gap.captured_at_ns = kLockTimeNs + (200ull * kMillisecondNs);
     const auto not_reacquired = selector.select_with_frame(marker_gap, dark_full_frame.view);
     require_true(
-        !still_rejected.has_target && !not_reacquired.has_target,
-        "an expired corpse must not be reacquired as a fresh unmarked person on following frames");
+        still_rejected.has_target && not_reacquired.has_target &&
+            still_rejected.selector_target_generation == locked.selector_target_generation &&
+            not_reacquired.selector_target_generation == locked.selector_target_generation,
+        "flat observations must continue without inventing a replacement identity");
 
-    auto drifting_corpse = single_target_batch(370.0f, 270.0f, 0.92f);
+    auto drifting_corpse = marker_gap;
+    drifting_corpse.detections = {wide_low_detection_for_target(370.0f, 270.0f, 0.92f)};
     drifting_corpse.captured_at_ns = kLockTimeNs + (210ull * kMillisecondNs);
     const auto drift_pending = selector.select_with_frame(drifting_corpse, dark_full_frame.view);
     drifting_corpse.captured_at_ns = kLockTimeNs + (220ull * kMillisecondNs);
     const auto drift_rejected = selector.select_with_frame(drifting_corpse, dark_full_frame.view);
     require_true(
-        !drift_pending.has_target && !drift_rejected.has_target,
-        "a falling corpse must not escape suppression by drifting beyond pickup-confirm distance");
+        drift_pending.has_target && drift_rejected.has_target &&
+            !drift_pending.fire_authority && !drift_rejected.fire_authority,
+        "a moving flat body must remain aimable without fire authority");
 
     marked.captured_at_ns = kLockTimeNs + (230ull * kMillisecondNs);
     const auto marker_returned = selector.select_with_frame(marked, marked_frame.view);
@@ -1297,7 +1307,7 @@ void test_selector_owns_size_scaled_ads_pickup_gate() {
                  "small target outside its dynamic radius must remain unselected");
 }
 
-void test_marker_loss_memory_survives_one_detection_dropout() {
+void test_flat_person_after_dropout_is_not_vetoed_by_marker_history() {
     constexpr std::uint64_t kMillisecondNs = 1'000'000ull;
     constexpr std::uint64_t kLockTimeNs = 5'000'000'000ull;
     vision_native::VisionTargetSelector selector(640, 512);
@@ -1324,13 +1334,15 @@ void test_marker_loss_memory_survives_one_detection_dropout() {
         "a frame with neither person nor marker should publish no target");
 
     auto corpse = single_target_batch(320.0f, 256.0f, 0.92f);
+    corpse.detections = {wide_low_detection_for_target(320.0f, 280.0f, 0.92f)};
     corpse.captured_at_ns = kLockTimeNs + (90ull * kMillisecondNs);
     const auto expired = selector.select_with_frame(corpse, dark_full_frame.view);
     corpse.captured_at_ns = kLockTimeNs + (120ull * kMillisecondNs);
     const auto not_reacquired = selector.select_with_frame(corpse, dark_full_frame.view);
     require_true(
-        !expired.has_target && !not_reacquired.has_target,
-        "one detector dropout must not erase the marked target's corpse suppression memory");
+        expired.has_target && not_reacquired.has_target &&
+            expired.aim_authority && !expired.fire_authority,
+        "current flat-body observations after dropout must not be vetoed by marker history");
 }
 
 void test_motion_anchor_ignores_box_edge_reconstruction_and_tracks_person() {
@@ -1742,7 +1754,7 @@ void register_target_selector_tests(native_test::Registry& registry) {
     registry.add_case("BaseVisionSelection", "current_correction_cannot_vote_challenger", test_current_target_correction_cannot_vote_for_challenger);
     registry.add_case("BaseVisionSelection", "decisive_intent_switches_first_frame", test_decisive_intent_switches_on_first_fresh_frame);
     registry.add_case("BaseVisionSelection", "unaligned_intent_does_not_confirm_challenger", test_unaligned_intent_does_not_confirm_right_side_challenger);
-    registry.add_case("BaseVisionSelection", "dead_target_releases_before_reacquisition", test_dead_active_target_releases_before_aligned_reacquisition);
+    registry.add_case("BaseVisionSelection", "flat_target_retains_until_handover", test_flat_active_target_remains_aimable_until_explicit_handover);
     registry.add_case("BaseVisionSelection", "intent_does_not_grant_weak_fire_authority", test_intent_does_not_grant_fire_authority_to_weak_association);
     registry.add_case("BaseVisionSelection", "large_move_requires_fresh_acquisition_intent", test_large_single_target_move_requires_fresh_acquisition_intent);
     registry.add_case("BaseVisionSelection", "partial_color_origin_classifies_cue", test_partial_color_frame_origin_classifies_candidate_cue);
@@ -1763,12 +1775,12 @@ void register_target_selector_tests(native_test::Registry& registry) {
     registry.add_case("BaseVisionSelection", "color_region_clamps_edge_candidate", test_required_color_region_clamps_edge_candidate_to_screen);
     registry.add_case("BaseVisionSelection", "external_cue_does_not_request_full_frame", test_external_cue_continuation_does_not_request_full_color_frame);
     registry.add_case("BaseVisionSelection", "wide_low_candidate_degrades_without_death", test_wide_low_no_cue_candidate_degrades_to_weak_without_death_transition);
-    registry.add_case("BaseVisionSelection", "wide_low_candidate_does_not_keep_dead_lock", test_wide_low_no_cue_candidate_does_not_keep_dead_active_target_locked);
-    registry.add_case("BaseVisionSelection", "marker_history_rejects_corpse_after_gap", test_enemy_marker_history_survives_one_upright_gap_and_rejects_corpse);
-    registry.add_case("BaseVisionSelection", "marker_loss_expires_with_upright_person", test_enemy_marker_loss_expires_while_person_box_remains_upright);
+    registry.add_case("BaseVisionSelection", "wide_low_candidate_aim_without_fire", test_wide_low_no_cue_candidate_retains_aim_without_fire);
+    registry.add_case("BaseVisionSelection", "marker_history_does_not_veto_flat_person", test_enemy_marker_history_does_not_veto_current_flat_person);
+    registry.add_case("BaseVisionSelection", "marker_loss_with_flat_body_remains_aimable", test_enemy_marker_loss_with_flat_body_remains_aimable);
     registry.add_case("BaseVisionSelection", "upright_without_marker_not_blanket_rejected", test_upright_candidate_without_prior_marker_is_not_blanket_rejected);
     registry.add_case("BaseVisionSelection", "selector_owns_size_scaled_pickup_gate", test_selector_owns_size_scaled_ads_pickup_gate);
-    registry.add_case("BaseVisionSelection", "marker_memory_survives_one_dropout", test_marker_loss_memory_survives_one_detection_dropout);
+    registry.add_case("BaseVisionSelection", "flat_person_after_dropout_aimable", test_flat_person_after_dropout_is_not_vetoed_by_marker_history);
     registry.add_case("BaseVisionSelection", "motion_anchor_tracks_person_not_box_edge", test_motion_anchor_ignores_box_edge_reconstruction_and_tracks_person);
     registry.add_case("BaseVisionSelection", "selector_generation_survives_observation_changes", test_selector_generation_survives_frame_local_observation_changes);
     registry.add_case("BaseVisionSelection", "replacement_bootstraps_motion_anchor", test_confirmed_frame_replacement_bootstraps_a_new_motion_anchor);
