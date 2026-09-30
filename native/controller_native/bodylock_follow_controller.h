@@ -39,6 +39,7 @@ struct BodylockFollowControllerOutput {
 class BodylockFollowController {
 public:
     explicit BodylockFollowController(BodylockFollowControllerConfig config = {});
+    void set_force_limits(float x, float y) noexcept { config_.max_force_x = x; config_.max_force_y = y; }
 
     pipeline_contract::Vec2f compute(
         const pipeline_contract::TargetPlan& plan,

@@ -146,6 +146,10 @@ public:
         const double* injected_clock_seconds = nullptr);
 
     void reset();
+    // Called only at a tick boundary; preserves target identity and ADS lease.
+    void apply_hot_config(const GamepadRuntimeConfig& config);
+    void clear_learning() noexcept;
+    std::array<AimResponseEstimate, 4> learning_snapshot() const noexcept;
     void submit_vision_snapshot(const ControllerVisionSnapshot& snapshot);
     // Application activation is independent of physical ADS/fire and owns no ADS token.
     // Call on the controller thread; deadline uses the same monotonic clock as begin_tick.

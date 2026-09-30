@@ -736,6 +736,17 @@ void test_friendly_switch_and_configured_target_point() {
                  "configured ratio must own selected person point");
     require_true(selected.target_y >= selected.aim_region_y1 && selected.target_y <= selected.aim_region_y2,
                  "configured point must remain inside its aim region");
+    selector.set_detection_policy(false, .30f, .65f);
+    const auto updated = selector.select_with_frame(batch, frame.view);
+    require_true(updated.has_target && updated.selector_target_generation == selected.selector_target_generation,
+                 "policy update must preserve selector identity without rebuilding selector");
+    require_true(std::fabs(updated.target_y - (person.y1 + (person.y2-person.y1)*.30f)) < .001f,
+                 "live policy must recompute aim point on next frame");
+    selector.set_detection_policy(true, .35f, .65f);
+    const auto friend_now = selector.select_with_frame(batch, frame.view);
+    require_true(!friend_now.has_target && friend_now.detections[0].is_friendly,
+                 "enabling filter live must revoke a previously admitted friendly person");
+    selector.set_detection_policy(false, .35f, .65f);
     selector.reset();
     batch.detections[0].is_friendly = true;
     selector.select(batch);

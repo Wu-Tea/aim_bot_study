@@ -184,6 +184,9 @@ OutputComposeStatus OutputComposer::finalize() noexcept {
     output_.left_y = clamp_axis(output_.left_y);
     output_.right_x = clamp_axis(output_.right_x);
     output_.right_y = clamp_axis(output_.right_y);
+    const auto wire = transfer_game_stick({output_.right_x, output_.right_y}, transfer_);
+    output_.right_x = wire.x;
+    output_.right_y = wire.y;
     output_.left_trigger = clamp_trigger(output_.left_trigger);
     output_.right_trigger = clamp_trigger(output_.right_trigger);
     stage_ = OutputComposeStage::Finalized;

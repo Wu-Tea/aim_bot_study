@@ -27,6 +27,7 @@ struct AimResponseEstimate {
     float scale_px_per_stick_second = 500.0f;
     float confidence = 0.0f;
     std::uint32_t accepted_samples = 0;
+    float learned_scale = 500.0f;
 };
 
 float aim_response_slow_zone_weight(
@@ -58,6 +59,7 @@ public:
     void begin_target(std::uint64_t target_id) noexcept;
     AimResponseEstimate estimate(float slow_zone_weight = 0.0f) const noexcept;
     void reset() noexcept;
+    AimResponseEstimate learning_region(bool slow) const noexcept;
 
 private:
     struct RegionState {

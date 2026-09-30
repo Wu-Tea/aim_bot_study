@@ -23,6 +23,10 @@
 #include <memory>
 
 namespace runtime_app {
+class RuntimeControlBridge;
+
+// Read-only deployment check. Never creates a virtual device or vision engine.
+int probe_physical_input(const controller_native::GamepadRuntimeConfig& config);
 
 class RuntimeLoop {
 public:
@@ -30,14 +34,21 @@ public:
 
     int run();
     void request_stop();
+    void attach_control_bridge(RuntimeControlBridge* bridge) noexcept { control_bridge_ = bridge; }
 
 private:
     void run_once();
+    void apply_pending_config();
     controller_native::PhysicalGamepadState read_physical_gamepad();
     bool should_poll_vision(std::chrono::steady_clock::time_point now) const;
     bool should_stop_requested() const;
 
     controller_native::RuntimeConfig config_;
+    RuntimeControlBridge* control_bridge_ = nullptr;
+    std::shared_ptr<const controller_native::RuntimeConfig> pending_hot_config_;
+    bool policy_requested_ = false;
+    std::uint64_t vision_policy_revision_ = 0;
+    std::uint64_t last_learning_publish_ms_ = 0;
     PerfLogger perf_logger_;
     PerfSummaryLogger perf_summary_logger_;
     LogSessionManager log_session_manager_;

@@ -2,6 +2,7 @@
 
 #include "../pipeline_contract/control_command.h"
 #include "virtual_gamepad.h"
+#include "game_stick_transfer.h"
 #include "xinput_reader.h"
 
 #include <cstdint>
@@ -37,6 +38,7 @@ enum class OutputComposeStatus : std::uint8_t {
 class OutputComposer {
 public:
     OutputComposer() noexcept = default;
+    explicit OutputComposer(GameStickTransferConfig transfer) noexcept : transfer_(transfer) {}
 
     void reset() noexcept;
 
@@ -82,6 +84,7 @@ private:
     OutputComposeStatus reject_if_finalized() const noexcept;
 
     GamepadOutputState output_{};
+    GameStickTransferConfig transfer_{};
     OutputComposeStage stage_ = OutputComposeStage::Empty;
 };
 

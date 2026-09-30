@@ -1,6 +1,7 @@
 #pragma once
 
 #include "aim_response_curve_plugin.h"
+#include "game_stick_transfer.h"
 
 #include <filesystem>
 #include <map>
@@ -141,6 +142,7 @@ struct GamepadRecoilConfig {
 struct GamepadAutoFireConfig {
     bool enabled = true;
     std::string fire_output = "RB";
+    std::string manual_fire_input = "both";
     bool manual_fire_activates_ai_aim = true;
     bool aim_only = true;
     float max_source_age_ms = 50.0f;
@@ -173,6 +175,7 @@ struct GamepadRuntimeConfig {
     GamepadAutoFireConfig auto_fire;
     GamepadAiAimConfig ai_aim;
     AimResponseCurveConfig aim_response_curve;
+    GameStickTransferConfig output_transfer;
     GamepadRecoilConfig recoil;
 };
 
@@ -243,6 +246,7 @@ struct RuntimeMouseConfig {
 };
 
 struct RuntimeConfig {
+    std::string game = "default";
     std::string profile = "legacy";
     VisionRuntimeConfig vision;
     RuntimeTelemetryConfig telemetry;
@@ -253,6 +257,7 @@ struct RuntimeConfig {
     CompactAdsConfig ads;
     GamepadRuntimeConfig gamepad;
     std::map<std::string, std::string> effective_sources;
+    std::map<std::string, std::string> effective_values;
     std::vector<std::string> diagnostics;
     std::string build_commit = "unknown";
     std::string source_config_sha256;
@@ -275,5 +280,9 @@ RuntimeConfig load_runtime_config(const std::filesystem::path& path);
 RuntimeConfig load_runtime_config(
     const std::filesystem::path& path,
     const std::string& profile_override);
+RuntimeConfig load_runtime_config(
+    const std::filesystem::path& path,
+    const std::string& profile_override,
+    const std::string& game_override);
 
 }  // namespace controller_native

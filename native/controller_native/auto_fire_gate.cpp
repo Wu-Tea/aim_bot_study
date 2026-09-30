@@ -36,6 +36,14 @@ void AutoFireGate::reset_readiness() {
     ready_vision_sequence_ = 0;
 }
 
+void AutoFireGate::reconfigure(const GamepadAutoFireConfig& config, const GamepadAiAimConfig& aim) {
+    auto_fire_config_ = config;
+    ai_config_ = aim;
+    const auto counters = counters_;
+    reset();
+    counters_ = counters;
+}
+
 AutoFireGateDecision AutoFireGate::evaluate(const AutoFireGateInput& input) {
     AutoFireGateDecision decision;
     decision.before_auto_fire_active = active();

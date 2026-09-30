@@ -322,6 +322,40 @@ void NativeGamepadController::submit_vision_snapshot(const ControllerVisionSnaps
     has_pending_snapshot_ = true;
 }
 
+std::array<AimResponseEstimate, 4> NativeGamepadController::learning_snapshot() const noexcept {
+    return {aim_response_estimator_.learning_region(false), aim_response_estimator_.learning_region(true),
+        ads_response_estimator_.learning_region(false), ads_response_estimator_.learning_region(true)};
+}
+
+void NativeGamepadController::clear_learning() noexcept {
+    aim_response_estimator_.reset();
+    ads_response_estimator_.reset();
+    aim_response_command_history_ = {};
+    aim_response_history_begin_ = aim_response_history_count_ = 0;
+    last_aim_response_frame_id_ = last_aim_response_target_id_ = last_ads_response_epoch_ = 0;
+    last_aim_response_capture_seconds_ = 0.0;
+    last_aim_response_source_error_px_ = {};
+    has_last_aim_response_observation_ = false;
+    // ACKs, frame pairs and excitation anchors from the old configuration may
+    // not become samples for the new one. Target and ADS state stay owned.
+}
+
+void NativeGamepadController::apply_hot_config(const GamepadRuntimeConfig& config) {
+    config_.ai_aim.ads_snap_max_ai_force = config.ai_aim.ads_snap_max_ai_force;
+    config_.ai_aim.ads_snap_max_ai_force_y = config.ai_aim.ads_snap_max_ai_force_y;
+    config_.ai_aim.body_lock_max_ai_force = config.ai_aim.body_lock_max_ai_force;
+    config_.ai_aim.body_lock_max_ai_force_y = config.ai_aim.body_lock_max_ai_force_y;
+    config_.recoil.enabled = config.recoil.enabled;
+    config_.recoil.feedback_amount = config.recoil.feedback_amount;
+    config_.recoil.hipfire_multiplier = config.recoil.hipfire_multiplier;
+    config_.auto_fire = config.auto_fire;
+    ads_controller_.set_force_limits(config_.ai_aim.ads_snap_max_ai_force, config_.ai_aim.ads_snap_max_ai_force_y);
+    bodylock_controller_.set_force_limits(config_.ai_aim.body_lock_max_ai_force, config_.ai_aim.body_lock_max_ai_force_y);
+    recoil_ = RecoilReducer(config_.recoil);
+    auto_fire_gate_.reconfigure(config_.auto_fire, config_.ai_aim);
+    clear_learning();
+}
+
 pipeline_contract::VisionObservationBatch NativeGamepadController::observation_batch_from(
     const ControllerVisionSnapshot& snapshot) const noexcept {
     pipeline_contract::VisionObservationBatch batch{};
@@ -532,7 +566,7 @@ const NativeControlTickPreparation& NativeGamepadController::begin_tick(
         physical,
         config_.rb_counts_as_aiming,
         &next_command_sequence_,
-        config_.ai_aim.ads_scope_ready_trigger);
+        config_.ai_aim.ads_scope_ready_trigger, config_.auto_fire.manual_fire_input);
     const AimScopeSnapshot scope = aim_scope_reducer_.reduce(
         input_edges,
         config_.auto_fire.manual_fire_activates_ai_aim);
@@ -586,7 +620,7 @@ GamepadOutputState NativeGamepadController::build_output(
 
 GamepadOutputState NativeGamepadController::build_output_from_sampled_input() {
     ControlFrame frame = resolve_control_frame();
-    OutputComposer composer;
+    OutputComposer composer(config_.output_transfer);
     if (composer.compose(frame) != OutputComposeStatus::Ok ||
         composer.finalized_output() == nullptr) {
         return {};
@@ -1363,7 +1397,8 @@ void NativeGamepadController::observe_delivered_output(
         return;
     }
     record_aim_response_command(submitted_at_seconds,
-        forward_aim_response_curve({output.right_x, output.right_y},
+        forward_aim_response_curve(transfer_game_stick(
+            {output.right_x, output.right_y}, config_.output_transfer, true),
             config_.aim_response_curve), pending_response_ambiguous_);
 }
 
@@ -1470,23 +1505,25 @@ bool NativeGamepadController::average_aim_response_command(
 
 bool NativeGamepadController::manual_fire_pressed(
     const PhysicalGamepadState& physical) const noexcept {
-    return physical.rb || physical.right_trigger > 0.04f;
+    return physical_fire_active(physical, config_.auto_fire.manual_fire_input);
 }
 
 void NativeGamepadController::observe_composed_output(
     const GamepadOutputState& output) {
     if (!composed_output_pending_) return;
     const auto before_recoil = last_output_components_.before_recoil_stick;
+    const auto internal = transfer_game_stick(
+        {output.right_x, output.right_y}, config_.output_transfer, true);
     last_output_components_.recoil_stick = {
-        output.right_x - before_recoil.x,
-        output.right_y - before_recoil.y};
+        internal.x - before_recoil.x,
+        internal.y - before_recoil.y};
     capture_final_output_component(output, &last_output_components_);
     last_acquisition_trace_.post_output = {output.right_x, output.right_y};
     last_acquisition_trace_.final_output_ready_ns = seconds_to_ns(now_seconds());
     record_stage_trace(
         "recoil",
         before_recoil.y,
-        output.right_y,
+        internal.y,
         pending_auto_fire_active_,
         pending_auto_fire_active_);
     composed_output_pending_ = false;

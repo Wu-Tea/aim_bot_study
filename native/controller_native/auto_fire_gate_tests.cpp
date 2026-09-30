@@ -272,7 +272,25 @@ void test_device_adapter_can_disable_synthetic_fire() {
 
 }  // namespace
 
+void test_hot_binding_cancels_old_pulse_and_readiness() {
+    controller_native::GamepadAutoFireConfig config;
+    controller_native::GamepadAiAimConfig aim;
+    aim.auto_fire_ready_frames = 2;
+    controller_native::AutoFireGate gate(config, aim);
+    gate.evaluate(ready_input(80, 1));
+    require_true(gate.evaluate(ready_input(80.01, 2)).should_fire && gate.active(), "fixture must start an actual old pulse");
+    const auto counts = gate.counters();
+    config.fire_output = "RT";
+    gate.reconfigure(config, aim);
+    require_false(gate.active(), "old RB pulse retained across binding reload");
+    require_eq_u64(gate.counters().allowed, counts.allowed, "diagnostic counters must remain monotonic");
+    require_false(gate.evaluate(ready_input(80.011, 3)).should_fire, "reload must not reuse old readiness for the new button");
+    auto next = gate.reduce(ready_input(80.021, 4), pipeline_contract::ControllerTickId::from(4), pipeline_contract::EventSequence::from(4));
+    require_true(next.decision.should_fire, "new independent ready frames must reauthorize output");
+}
+
 void register_auto_fire_gate_tests(native_test::Registry& registry) {
+    registry.add_case("FeatureAutoFireAndMarker", "hot_binding_cancels_old_pulse", test_hot_binding_cancels_old_pulse_and_readiness);
     registry.add_case("FeatureAutoFireAndMarker", "device_adapter_disables_fire", test_device_adapter_can_disable_synthetic_fire);
     registry.add_case("FeatureAutoFireAndMarker", "ready_frames_gate_before_firing", test_ready_frames_gate_before_firing);
     registry.add_case("FeatureAutoFireAndMarker", "ready_frames_count_unique_sequences", test_ready_frames_count_unique_vision_sequences);

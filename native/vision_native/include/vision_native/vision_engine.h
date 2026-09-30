@@ -42,6 +42,9 @@ public:
     VisionEngine& operator=(const VisionEngine&) = delete;
 
     void set_request(pipeline_contract::VisionRequest request);
+    void set_detection_policy(bool friendly, float height, float wide_height) {
+        selector_.set_detection_policy(friendly, height, wide_height);
+    }
     void set_user_aim_intent(const pipeline_contract::UserAimIntent& intent);
     void set_viewport(
         int level,

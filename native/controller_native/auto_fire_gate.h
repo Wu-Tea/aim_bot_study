@@ -69,6 +69,7 @@ public:
 
     void reset();
     void reset_readiness();
+    void reconfigure(const GamepadAutoFireConfig& config, const GamepadAiAimConfig& aim);
     AutoFireGateDecision evaluate(const AutoFireGateInput& input);
     AutoFireReduction reduce(
         const AutoFireGateInput& input,

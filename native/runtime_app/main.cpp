@@ -1,6 +1,8 @@
 #include "runtime_loop.h"
 #include "runtime_timing.h"
 #include "runtime_provenance.h"
+#include "runtime_stop_signal.h"
+#include "runtime_control_bridge.h"
 
 #include "controller_native/runtime_config.h"
 
@@ -27,7 +29,9 @@ struct CliOptions {
     bool perf_log = false;
     bool run_once = false;
     bool dump_effective_config = false;
+    bool probe_input = false;
     std::optional<std::string> profile;
+    std::string game;
     std::optional<int> capture_fps;
 };
 
@@ -45,8 +49,12 @@ CliOptions parse_args(int argc, char** argv) {
             options.run_once = true;
         } else if (arg == "--dump-effective-config") {
             options.dump_effective_config = true;
+        } else if (arg == "--probe-input") {
+            options.probe_input = true;
         } else if (arg == "--profile" && index + 1 < argc) {
             options.profile = argv[++index];
+        } else if (arg == "--game" && index + 1 < argc) {
+            options.game = argv[++index];
         } else if (arg == "--capture-fps" && index + 1 < argc) {
             options.capture_fps = std::stoi(argv[++index]);
         } else if (arg == "--max-ticks" && index + 1 < argc) {
@@ -143,6 +151,8 @@ void dump_effective_config(const controller_native::RuntimeConfig& config) {
         std::cout << key << '=' << value << " source=" << config.effective_source(key) << '\n';
     };
     line("runtime.profile", config.profile);
+    line("runtime.game", config.game);
+    line("gamepad.auto_fire.manual_fire_input", config.gamepad.auto_fire.manual_fire_input);
     line("runtime.provenance.build_commit", config.build_commit);
     line("runtime.provenance.config_sha256", config.source_config_sha256);
     line("runtime.provenance.engine_sha256", config.engine_sha256);
@@ -222,6 +232,11 @@ void dump_effective_config(const controller_native::RuntimeConfig& config) {
     line("gamepad.auto_fire.require_aim_ready", fire.require_aim_ready);
     line("gamepad.auto_fire.manual_takeover_release_seconds", fire.manual_takeover_release_seconds);
     line("gamepad.auto_fire.manual_takeover_resume_delay_seconds", fire.manual_takeover_resume_delay_seconds);
+    const auto& transfer = config.gamepad.output_transfer;
+    line("gamepad.output_transfer.enabled", transfer.enabled);
+    line("gamepad.output_transfer.axial", transfer.axial);
+    line("gamepad.output_transfer.deadzone", transfer.deadzone);
+    line("gamepad.output_transfer.game_exponent", transfer.game_exponent);
     const auto& recoil = config.gamepad.recoil;
     line("gamepad.recoil.enabled", recoil.enabled);
     line("gamepad.recoil.feedback_amount", recoil.feedback_amount);
@@ -238,6 +253,7 @@ void print_startup_summary(
     const controller_native::RuntimeConfig& config) {
     std::cout
         << "[NativeRuntime] config=" << options.config_path.string()
+        << " game=" << config.game
         << " vision=" << config.vision.capture_width << "x" << config.vision.capture_height
         << "->" << config.vision.tensor_width << "x" << config.vision.tensor_height
         << "@" << config.vision.capture_fps
@@ -286,8 +302,10 @@ int main(int argc, char** argv) {
         controller_native::RuntimeConfig config =
             controller_native::load_runtime_config(
                 options.config_path,
-                options.profile.value_or(std::string{}));
+                options.profile.value_or(std::string{}), options.game);
         apply_cli_overrides(options, config);
+        // Read the physical backend without creating virtual output or vision.
+        if (options.probe_input) return runtime_app::probe_physical_input(config.gamepad);
         populate_runtime_provenance(options, config);
         if (options.dump_effective_config) {
             dump_effective_config(config);
@@ -311,7 +329,19 @@ int main(int argc, char** argv) {
                       << '\n';
         }
 
+        // Create the signal before initialization so Stop also works while
+        // loading an engine. Join its listener before destroying the loop.
+        runtime_app::RuntimeStopSignal stop_signal;
         runtime_app::RuntimeLoop loop(config, perf_log, max_ticks_from_options(options));
+        runtime_app::RuntimeControlBridge control_bridge(config, [options] {
+            auto next = controller_native::load_runtime_config(options.config_path,
+                options.profile.value_or(std::string{}), options.game);
+            apply_cli_overrides(options, next);
+            return next;
+        });
+        loop.attach_control_bridge(&control_bridge);
+        auto stop_listener = stop_signal.listen([&loop] { loop.request_stop(); });
+        std::cout << "[NativeRuntime] initialized; entering controller loop\n" << std::flush;
         active_runtime_loop.store(&loop);
         const int exit_code = loop.run();
         active_runtime_loop.store(nullptr);

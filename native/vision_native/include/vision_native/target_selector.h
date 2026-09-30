@@ -42,6 +42,8 @@ public:
         float target_wide_low_height_ratio = 0.65f);
 
     void reset();
+    // Vision worker only, between frames. Does not create a new identity.
+    void set_detection_policy(bool friendly, float height, float wide_height);
     VisionResult select(const DetectionBatch& batch);
     VisionResult select(
         const DetectionBatch& batch,

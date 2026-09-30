@@ -1,4 +1,5 @@
 #include "runtime_loop.h"
+#include "runtime_control_bridge.h"
 
 #include "runtime_timing.h"
 #include "vision_controller_adapter.h"
@@ -200,6 +201,10 @@ public:
 
     vision_native::VisionResult poll_once() override {
         return engine_->poll_once();
+    }
+
+    void set_detection_policy(const VisionDetectionPolicy& policy) override {
+        engine_->set_detection_policy(policy.friendly, policy.height, policy.wide_height);
     }
 
 private:
@@ -453,6 +458,37 @@ void populate_fusion_detections(
 
 }  // namespace
 
+int probe_physical_input(const controller_native::GamepadRuntimeConfig& config) {
+    auto sdl = open_sdl_input_reader();
+    controller_native::XInputReader xinput(select_xinput_user_index(config, sdl == nullptr));
+    std::cout << "[InputProbe] backend=" << (sdl ? "SDL" : "XInput")
+              << " name=" << (sdl ? sdl->device_name() : "XInput") << '\n';
+    int connected_samples = 0;
+    float min_x = 1, max_x = -1, min_y = 1, max_y = -1;
+    constexpr int kSamples = 200;
+    for (int sample = 0; sample < kSamples; ++sample) {
+        const auto state = sdl ? sdl->read() : xinput.read();
+        if (state.connected) {
+            ++connected_samples;
+            min_x = std::min(min_x, state.right_x);
+            max_x = std::max(max_x, state.right_x);
+            min_y = std::min(min_y, state.right_y);
+            max_y = std::max(max_y, state.right_y);
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    std::cout << "[InputProbe] connected_samples=" << connected_samples
+              << " total_samples=" << kSamples << " right_x_min=" << min_x
+              << " right_x_max=" << max_x << " right_y_min=" << min_y
+              << " right_y_max=" << max_y << '\n';
+    if (connected_samples != kSamples) {
+        std::cerr << "[InputProbe] Physical controller unavailable or disconnected. "
+                     "Check device connection and HidHide application access.\n";
+        return 4;
+    }
+    return 0;
+}
+
 RuntimeLoop::RuntimeLoop(
     controller_native::RuntimeConfig config,
     bool perf_log,
@@ -489,6 +525,7 @@ RuntimeLoop::RuntimeLoop(
       sdl_input_reader_(open_sdl_input_reader()),
       input_reader_(select_xinput_user_index(config_.gamepad, sdl_input_reader_ == nullptr)),
       controller_(config_.gamepad),
+      output_composer_(config_.gamepad.output_transfer),
       viewport_controller_(viewport_controller_config_from(config_)),
       virtual_gamepad_(),
       person_detection_gesture_(
@@ -636,7 +673,41 @@ void RuntimeLoop::request_stop() {
     stop_requested_.store(true);
 }
 
+void RuntimeLoop::apply_pending_config() {
+    if (!control_bridge_) return;
+    if (!pending_hot_config_) pending_hot_config_ = control_bridge_->take_prepared();
+    if (!pending_hot_config_) return;
+    const auto& next = *pending_hot_config_;
+    const bool vision_changed = config_.vision.friendly_filter_enabled != next.vision.friendly_filter_enabled ||
+        config_.vision.target_height_ratio != next.vision.target_height_ratio ||
+        config_.vision.target_wide_low_height_ratio != next.vision.target_wide_low_height_ratio;
+    if (vision_changed) {
+        if (!policy_requested_) {
+            vision_service_->set_detection_policy({next.vision.friendly_filter_enabled, next.vision.target_height_ratio,
+                next.vision.target_wide_low_height_ratio, vision_policy_revision_ + 1});
+            policy_requested_ = true;
+        }
+        const auto snapshot = vision_service_->latest_snapshot();
+        if (snapshot.policy_revision != vision_policy_revision_ + 1 || snapshot.freshness != VisionSnapshotFreshness::Fresh) return;
+        ++vision_policy_revision_;
+    }
+    controller_.apply_hot_config(next.gamepad);
+    config_.gamepad = next.gamepad;
+    config_.ads = next.ads;
+    config_.vision.friendly_filter_enabled = next.vision.friendly_filter_enabled;
+    config_.vision.target_height_ratio = next.vision.target_height_ratio;
+    config_.vision.target_wide_low_height_ratio = next.vision.target_wide_low_height_ratio;
+    control_bridge_->complete(controller_.learning_snapshot());
+    pending_hot_config_.reset();
+    policy_requested_ = false;
+}
+
 void RuntimeLoop::run_once() {
+    apply_pending_config();
+    if (control_bridge_ && tick_count_ % 128 == 0 && GetTickCount64() - last_learning_publish_ms_ >= 500) {
+        control_bridge_->offer_learning(controller_.learning_snapshot());
+        last_learning_publish_ms_ = GetTickCount64();
+    }
     const auto tick_started = std::chrono::steady_clock::now();
     const controller_native::PhysicalGamepadState physical = read_physical_gamepad();
     const std::uint64_t physical_read_at_ns = steady_time_point_ns(std::chrono::steady_clock::now());
@@ -716,7 +787,7 @@ void RuntimeLoop::run_once() {
         VisionServiceSnapshot service_snapshot =
             vision_service_->latest_snapshot(latest_vision_service_sequence_);
         if (
-            service_snapshot.sequence != 0 &&
+            service_snapshot.sequence != 0 && service_snapshot.policy_revision == vision_policy_revision_ &&
             service_snapshot.sequence != latest_vision_service_sequence_) {
             latest_vision_service_sequence_ = service_snapshot.sequence;
             vision_native::VisionResult result = std::move(service_snapshot.result);

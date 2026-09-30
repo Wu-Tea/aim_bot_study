@@ -789,6 +789,14 @@ ColorClassification classify_color(
 
 } // namespace
 
+void VisionTargetSelector::set_detection_policy(bool friendly, float height, float wide_height) {
+    if (!std::isfinite(height) || height <= 0 || height >= 1 || !std::isfinite(wide_height) || wide_height <= 0 || wide_height >= 1)
+        throw std::invalid_argument("target height ratios must be finite and inside (0, 1)");
+    friendly_filter_enabled_ = friendly;
+    target_height_ratio_ = height;
+    target_wide_low_height_ratio_ = wide_height;
+}
+
 VisionTargetSelector::VisionTargetSelector(
     int frame_width,
     int frame_height,

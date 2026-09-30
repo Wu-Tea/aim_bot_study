@@ -50,6 +50,14 @@ struct VisionServiceSnapshot {
     // Monotonic timestamp taken when this snapshot is committed to the
     // latest-only mailbox. It is distinct from result/capture timestamps.
     std::uint64_t published_at_ns = 0;
+    std::uint64_t policy_revision = 0;
+};
+
+struct VisionDetectionPolicy {
+    bool friendly = true;
+    float height = .4f;
+    float wide_height = .65f;
+    std::uint64_t revision = 0;
 };
 
 // Final delivery fence between Vision and the controller. The service is a
@@ -81,6 +89,7 @@ public:
     virtual void set_request(pipeline_contract::VisionRequest request) = 0;
     virtual void set_user_aim_intent(const pipeline_contract::UserAimIntent& intent) = 0;
     virtual void set_viewport(const ViewportRequest&) {}
+    virtual void set_detection_policy(const VisionDetectionPolicy&) {}
     virtual vision_native::VisionResult poll_once() = 0;
 };
 
@@ -100,6 +109,7 @@ public:
         std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now());
     void set_user_aim_intent(const pipeline_contract::UserAimIntent& intent);
     void set_viewport(const ViewportRequest& request);
+    void set_detection_policy(VisionDetectionPolicy policy);
 
     // Returns an empty snapshot when the consumer already has this sequence.
     // Worker failures are rethrown on the consuming runtime thread.
@@ -126,6 +136,8 @@ private:
     std::chrono::steady_clock::time_point release_hold_until_{};
     pipeline_contract::UserAimIntent user_aim_intent_;
     ViewportRequest viewport_request_;
+    VisionDetectionPolicy policy_{};
+    std::uint64_t applied_policy_revision_ = 0;
     std::chrono::steady_clock::time_point last_poll_at_{};
     bool has_last_poll_ = false;
     VisionServiceSnapshot latest_snapshot_;

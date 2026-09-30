@@ -192,6 +192,11 @@ void VisionService::set_viewport(const ViewportRequest& request) {
     viewport_request_ = request;
 }
 
+void VisionService::set_detection_policy(VisionDetectionPolicy policy) {
+    { std::lock_guard<std::mutex> lock(mutex_); policy_ = policy; immediate_poll_requested_ = true; }
+    wake_condition_.notify_one();
+}
+
 VisionServiceSnapshot VisionService::latest_snapshot(std::uint64_t after_sequence) const {
     std::lock_guard<std::mutex> lock(mutex_);
     if (worker_failure_) std::rethrow_exception(worker_failure_);
@@ -217,6 +222,7 @@ bool VisionService::step(std::chrono::steady_clock::time_point now) {
     bool engine_aiming = false;
     pipeline_contract::UserAimIntent intent;
     ViewportRequest viewport;
+    VisionDetectionPolicy policy;
     std::uint64_t aim_transition_sequence = 0;
     std::chrono::steady_clock::time_point aim_transition_requested_at{};
     double requested_fps = 0.0;
@@ -239,11 +245,16 @@ bool VisionService::step(std::chrono::steady_clock::time_point now) {
         has_last_poll_ = true;
         intent = user_aim_intent_;
         viewport = viewport_request_;
+        policy = policy_;
         aim_transition_sequence = aim_transition_sequence_;
         aim_transition_requested_at = aim_transition_requested_at_;
     }
 
     const auto dispatch_at = std::chrono::steady_clock::now();
+    if (policy.revision != applied_policy_revision_) {
+        poller_->set_detection_policy(policy);
+        applied_policy_revision_ = policy.revision;
+    }
     poller_->set_request(pipeline_contract::requests_detection(request) ? request :
         engine_aiming ? pipeline_contract::VisionRequest::DetectionOnly : pipeline_contract::VisionRequest::Idle);
     poller_->set_user_aim_intent(intent);
@@ -266,6 +277,7 @@ bool VisionService::step(std::chrono::steady_clock::time_point now) {
         snapshot.aim_wakeup_to_result_ms = elapsed(result_at);
     }
     snapshot.requested_vision_fps = static_cast<float>(requested_fps);
+    snapshot.policy_revision = applied_policy_revision_;
     snapshot.result = std::move(result);
 
     std::lock_guard<std::mutex> lock(mutex_);

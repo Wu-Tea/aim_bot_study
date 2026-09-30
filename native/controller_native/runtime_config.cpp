@@ -194,6 +194,8 @@ bool is_known_key(const std::string& section, const std::string& key) {
         "aim_height_ratio", "max_observation_age_ms"};
     static const std::unordered_set<std::string> aim_response_curve_keys{
         "algorithm", "calibration_reference_stick"};
+    static const std::unordered_set<std::string> output_transfer_keys{
+        "enabled", "axial", "deadzone", "game_exponent"};
     static const std::unordered_set<std::string> ads_keys{
         "strength_scale", "vertical_strength_scale", "activation_radius_px",
         "pickup_base_radius_px",
@@ -206,7 +208,7 @@ bool is_known_key(const std::string& section, const std::string& key) {
         "auto_fire_output", "rb_counts_as_aiming", "xinput_auto_detect",
         "xinput_user_index"};
     static const std::unordered_set<std::string> auto_fire_keys{
-        "fire_output", "manual_fire_activates_ai_aim", "aim_only",
+        "fire_output", "manual_fire_input", "manual_fire_activates_ai_aim", "aim_only",
         "max_source_age_ms", "require_aim_ready",
         "manual_takeover_release_seconds", "manual_takeover_resume_delay_seconds",
         "pulse_width_ms", "pulse_period_ms"};
@@ -243,6 +245,8 @@ bool is_known_key(const std::string& section, const std::string& key) {
     if (section == "gamepad.tracker") return tracker_keys.count(key) != 0;
     if (section == "gamepad.aim_response_curve")
         return aim_response_curve_keys.count(key) != 0;
+    if (section == "gamepad.output_transfer")
+        return output_transfer_keys.count(key) != 0;
     if (section == "gamepad.ads") return ads_keys.count(key) != 0;
     if (section == "gamepad.bodylock") return bodylock_keys.count(key) != 0;
     if (section == "runtime.gamepad") return gamepad_keys.count(key) != 0;
@@ -300,6 +304,8 @@ void apply_gamepad_auto_fire_value(
     const std::string& value) {
     if (key == "fire_output") {
         config.fire_output = parse_string_value(value);
+    } else if (key == "manual_fire_input") {
+        config.manual_fire_input = parse_string_value(value);
     } else if (key == "manual_fire_activates_ai_aim") {
         config.manual_fire_activates_ai_aim = parse_bool_value(
             value, config.manual_fire_activates_ai_aim);
@@ -631,6 +637,12 @@ void apply_value(
                 1.0f,
                 250.0f);
         }
+    } else if (section == "gamepad.output_transfer") {
+        auto& transfer = config.gamepad.output_transfer;
+        if (key == "enabled") transfer.enabled = parse_bool_value(value, transfer.enabled);
+        else if (key == "axial") transfer.axial = parse_bool_value(value, transfer.axial);
+        else if (key == "deadzone") transfer.deadzone = parse_float_value(value, transfer.deadzone);
+        else if (key == "game_exponent") transfer.game_exponent = parse_float_value(value, transfer.game_exponent);
     } else if (section == "gamepad.aim_response_curve") {
         apply_gamepad_aim_response_curve_value(
             config.gamepad.aim_response_curve, key, value);
@@ -724,6 +736,15 @@ void validate_runtime_config(RuntimeConfig& config) {
         throw std::runtime_error(
             "invalid user override for " + key + "; accepted range: " + range);
     };
+    const auto& transfer = config.gamepad.output_transfer;
+    if (config.gamepad.auto_fire.fire_output != "RT" && config.gamepad.auto_fire.fire_output != "RB")
+        invalid("gamepad.auto_fire.fire_output", "RT or RB");
+    if (config.gamepad.auto_fire.manual_fire_input != "both" && config.gamepad.auto_fire.manual_fire_input != "RT" && config.gamepad.auto_fire.manual_fire_input != "RB")
+        invalid("gamepad.auto_fire.manual_fire_input", "both, RT or RB");
+    if (!std::isfinite(transfer.deadzone) || transfer.deadzone < 0.0f || transfer.deadzone > 0.5f)
+        invalid("gamepad.output_transfer.deadzone", "finite 0..0.5");
+    if (!std::isfinite(transfer.game_exponent) || transfer.game_exponent < 1.0f || transfer.game_exponent > 3.0f)
+        invalid("gamepad.output_transfer.game_exponent", "finite 1..3");
     if (!std::isfinite(config.gamepad.recoil.hipfire_multiplier) ||
         config.gamepad.recoil.hipfire_multiplier < 0.0f ||
         config.gamepad.recoil.hipfire_multiplier > 1.0f)
@@ -906,13 +927,16 @@ void validate_runtime_config(RuntimeConfig& config) {
 
 RuntimeConfig load_runtime_config(
     const std::filesystem::path& path,
-    const std::string& profile_override) {
+    const std::string& profile_override,
+    const std::string& game_override) {
     RuntimeConfig config;
     const std::filesystem::path config_path = path.empty()
         ? std::filesystem::path("config.toml")
         : path;
     std::ifstream input(config_path);
     if (!input) {
+        if (!game_override.empty() && game_override != "default")
+            throw std::runtime_error("game configuration file not found: " + config_path.string());
         if (!profile_override.empty()) {
             apply_profile(config, profile_override);
             config.effective_sources["runtime.profile"] = "cli";
@@ -926,8 +950,9 @@ RuntimeConfig load_runtime_config(
         return config;
     }
 
-    struct Entry { std::string section; std::string key; std::string value; };
+    struct Entry { std::string section; std::string key; std::string value; std::string source = "user"; };
     std::vector<Entry> entries;
+    std::unordered_set<std::string> games;
     std::string section;
     std::string line;
     while (std::getline(input, line)) {
@@ -937,6 +962,10 @@ RuntimeConfig load_runtime_config(
         }
         if (line.front() == '[' && line.back() == ']') {
             section = trim(line.substr(1, line.size() - 2));
+            if (section.rfind("games.", 0) == 0) {
+                const auto end = section.find('.', 6);
+                games.insert(section.substr(6, end == std::string::npos ? end : end - 6));
+            }
             continue;
         }
 
@@ -948,6 +977,39 @@ RuntimeConfig load_runtime_config(
         const std::string value = trim(line.substr(equals + 1));
         entries.push_back(Entry{section, key, value});
     }
+
+    // Resolve keys before applying values: some setters derive gains by
+    // multiplying them, so applying base and override separately is incorrect.
+    for (const auto& entry : entries)
+        if (entry.section == "runtime" && entry.key == "game")
+            config.game = parse_string_value(entry.value);
+    if (!game_override.empty()) config.game = game_override;
+    if (config.game.empty() || config.game.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789_") != std::string::npos)
+        throw std::runtime_error("invalid game name: " + config.game);
+    if (config.game != "default" && games.count(config.game) == 0)
+        throw std::runtime_error("game block not found: " + config.game);
+    config.effective_sources["runtime.game"] = game_override.empty() ? "user" : "cli";
+    std::vector<Entry> resolved;
+    for (const auto& entry : entries)
+        if (entry.section.rfind("games.", 0) != 0 && !(entry.section == "runtime" && entry.key == "game"))
+            resolved.push_back(entry);
+    const auto prefix = "games." + config.game + ".";
+    std::unordered_set<std::string> overridden;
+    for (auto entry : entries) {
+        if (entry.section.rfind(prefix, 0) != 0) continue;
+        entry.section.erase(0, prefix.size());
+        const auto key = entry.section + "." + entry.key;
+        if (!overridden.insert(key).second)
+            throw std::runtime_error("duplicate game setting: " + prefix + key);
+        resolved.erase(std::remove_if(resolved.begin(), resolved.end(), [&](const Entry& base) {
+            return base.section == entry.section && base.key == entry.key;
+        }), resolved.end());
+        entry.source = "game:" + config.game;
+        resolved.push_back(std::move(entry));
+    }
+    entries = std::move(resolved);
+    for (const auto& entry : entries)
+        config.effective_values[entry.section + "." + entry.key] = entry.value;
 
     if (!profile_override.empty()) {
         apply_profile(config, profile_override);
@@ -968,7 +1030,7 @@ RuntimeConfig load_runtime_config(
         }
         const std::string full_key = entry.section + "." + entry.key;
         apply_value(config, entry.section, entry.key, entry.value);
-        config.effective_sources[full_key] = "user";
+        config.effective_sources[full_key] = entry.source;
     }
 
     apply_vision_environment_overrides(config.vision);
@@ -982,6 +1044,11 @@ RuntimeConfig load_runtime_config(
 
 RuntimeConfig load_runtime_config(const std::filesystem::path& path) {
     return load_runtime_config(path, std::string{});
+}
+
+RuntimeConfig load_runtime_config(const std::filesystem::path& path,
+    const std::string& profile_override) {
+    return load_runtime_config(path, profile_override, std::string{});
 }
 
 }  // namespace controller_native

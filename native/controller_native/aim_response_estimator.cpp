@@ -164,6 +164,12 @@ AimResponseEstimate AimResponseEstimator::estimate(float slow_zone_weight) const
     };
 }
 
+AimResponseEstimate AimResponseEstimator::learning_region(bool slow) const noexcept {
+    const auto& region = slow ? slow_region_ : free_region_;
+    return {estimate(slow ? 1.0f : 0.0f).scale_px_per_stick_second,
+        region.confidence, region.accepted_samples, region.learned_scale};
+}
+
 void AimResponseEstimator::reset() noexcept {
     free_region_ = {};
     slow_region_ = {};

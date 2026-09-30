@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <string_view>
 
 namespace controller_native {
 
@@ -13,6 +14,10 @@ constexpr float kPhysicalAdsIdleThreshold = 0.03f;
 constexpr unsigned int kPhysicalAdsIdleDebounceSamples = 3;
 constexpr float kPhysicalAdsReadyHysteresis = 0.05f;
 constexpr float kManualFireTriggerThreshold = 0.04f;
+inline bool physical_fire_active(const PhysicalGamepadState& physical, std::string_view binding) noexcept {
+    return (binding != "RT" && physical.rb) ||
+        (binding != "RB" && physical.right_trigger > kManualFireTriggerThreshold);
+}
 
 struct InputEdgeSnapshot {
     bool physical_ads_active = false;
@@ -43,7 +48,8 @@ public:
         const PhysicalGamepadState& physical,
         bool rb_counts_as_physical_ads,
         std::uint64_t* next_event_sequence,
-        float ads_ready_threshold = 0.80f) noexcept {
+        float ads_ready_threshold = 0.80f,
+        std::string_view fire_input = "both") noexcept {
         InputEdgeSnapshot result{};
         const bool previous_physical_ads = physical_ads_active_;
         const bool previous_physical_ads_ready = physical_ads_ready_;
@@ -68,7 +74,7 @@ public:
         }
 
         const bool manual_fire_signal =
-            physical.rb || physical.right_trigger > kManualFireTriggerThreshold;
+            physical_fire_active(physical, fire_input);
         result.physical_ads_active = physical_ads_active_;
         result.manual_fire_signal_active = manual_fire_signal;
         result.physical_ads_pressed =

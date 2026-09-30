@@ -20,6 +20,7 @@ public:
     void begin_target(std::uint64_t target_id) noexcept;
     AimResponseEstimate estimate(float slow_zone_weight = 0.0f) const noexcept;
     void reset() noexcept;
+    AimResponseEstimate learning_region(bool slow) const noexcept;
 
 private:
     static constexpr std::size_t kExcitationHistoryCapacity = 24;

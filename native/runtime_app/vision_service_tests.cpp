@@ -39,6 +39,9 @@ public:
         last_viewport = request;
         ++viewport_update_count;
     }
+    void set_detection_policy(const runtime_app::VisionDetectionPolicy& policy) override {
+        last_policy = policy;
+    }
 
     vision_native::VisionResult poll_once() override {
         ++poll_count;
@@ -62,6 +65,7 @@ public:
     std::vector<bool> aiming_history;
     pipeline_contract::UserAimIntent last_intent;
     runtime_app::ViewportRequest last_viewport;
+    runtime_app::VisionDetectionPolicy last_policy;
     int viewport_update_count = 0;
     std::function<void()> on_poll;
 
@@ -602,7 +606,22 @@ void test_delivery_gate_uses_source_image_age_and_identity() {
 
 }  // namespace
 
+void test_hot_policy_cannot_relabel_inflight_frame() {
+    auto poller = std::make_unique<FakeVisionPoller>(std::vector<bool>{true, true});
+    auto* raw = poller.get();
+    runtime_app::VisionService service(std::move(poller), {});
+    raw->on_poll = [&] { service.set_detection_policy({false, .35f, .65f, 7}); };
+    const auto now = std::chrono::steady_clock::now();
+    REQUIRE(service.step_for_test(now));
+    REQUIRE(service.latest_snapshot().policy_revision == 0);
+    raw->on_poll = {};
+    REQUIRE(service.step_for_test(now + std::chrono::milliseconds(20)));
+    REQUIRE(service.latest_snapshot().policy_revision == 7);
+    REQUIRE(raw->last_policy.revision == 7 && !raw->last_policy.friendly && raw->last_policy.height == .35f);
+}
+
 void register_vision_service_tests(native_test::Registry& registry) {
+    registry.add_case("BaseRuntimeFreshness", "hot_policy_inflight_frame_revision", test_hot_policy_cannot_relabel_inflight_frame);
     registry.add_case("BaseRuntimeFreshness", "detection_to_assist_epoch_fence", test_detection_only_to_assist_fences_inflight_result);
     registry.add_case("BaseRuntimeFreshness", "release_hold_cadence_authority_and_expiry", test_release_hold_has_full_cadence_without_authority_and_expires);
     registry.add_case("BaseRuntimeFreshness", "release_hold_reaim_epoch_and_renewal", test_release_hold_reaim_has_new_epoch_and_renews_on_next_release);

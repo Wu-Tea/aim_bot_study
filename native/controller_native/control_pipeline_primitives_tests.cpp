@@ -1,10 +1,14 @@
 #include "control_frame.h"
 #include "output_composer.h"
+#include "ds4_output_report.h"
+#include "incident_fixture_support.h"
 #include "test_support/native_test_registry.h"
 
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
+#include <random>
+#include <chrono>
 
 namespace {
 
@@ -157,10 +161,235 @@ void test_control_frame_contains_only_output_boundary_values() {
                  "ControlFrame must preserve its immutable input identity");
 }
 
+void test_game_transfer_contract_and_randomized_roundtrip() {
+    using namespace controller_native;
+    GameStickTransferConfig config{true, false, .16f, 1.0f};
+    const auto start = transfer_game_stick({.01f, 0}, config);
+    require_true(std::fabs(start.x - .1684f) < 1e-6f && start.y == 0,
+                 "one percent input must bypass configured game deadzone");
+    for (bool axial : {false, true}) {
+        for (float deadzone : {0.0f, .16f, .3f, .5f}) {
+            for (float exponent : {1.0f, 1.5f, 2.0f, 3.0f}) {
+                config = {true, axial, deadzone, exponent};
+                auto zero = transfer_game_stick({}, config);
+                require_true(zero.x == 0 && zero.y == 0, "neutral must never receive anti-deadzone");
+                float previous = 0;
+                for (int step = 1; step <= 1000; ++step) {
+                    const auto wire = transfer_game_stick({step / 1000.0f, 0}, config);
+                    require_true(wire.x > previous && wire.y == 0, "axis mapping must be monotone");
+                    previous = wire.x;
+                }
+                // Independent validation seeds; include square-rim input and
+                // DS4's asymmetric positive/negative quantization.
+                for (unsigned seed : {29092026u, 784129u}) {
+                    std::mt19937 random(seed);
+                    std::uniform_real_distribution<float> axis(-1, 1);
+                    for (int i = 0; i < 4096; ++i) {
+                        const pipeline_contract::Vec2f input{axis(random), axis(random)};
+                        const auto wire = transfer_game_stick(input, config);
+                        const auto decoded = transfer_game_stick(wire, config, true);
+                        require_true(std::isfinite(wire.x) && std::isfinite(wire.y) &&
+                            std::fabs(wire.x) <= 1 && std::fabs(wire.y) <= 1,
+                            "mapped output outside report domain");
+                        require_true(std::hypot(decoded.x - input.x, decoded.y - input.y) < 2e-6f,
+                            "floating feedback coordinate must roundtrip");
+                        const auto quantized = transfer_game_stick(
+                            {ds4_axis_value(ds4_axis(wire.x)), -ds4_axis_value(ds4_axis(-wire.y))}, config, true);
+                        require_true(std::hypot(quantized.x - input.x, quantized.y - input.y) < .04f,
+                            "DS4 feedback exceeds fixed quantization bound");
+                        auto disabled = config;
+                        disabled.enabled = false;
+                        const auto original = transfer_game_stick(input, disabled);
+                        require_true(original.x == input.x && original.y == input.y,
+                            "disabled transfer must preserve exact passthrough");
+                        if (!axial) require_true(std::fabs(wire.x * input.y - wire.y * input.x) < 2e-6f,
+                            "radial mapping changed direction");
+                    }
+                }
+            }
+        }
+    }
+}
+
+void test_game_transfer_final_stage_and_lifecycle() {
+    using namespace controller_native;
+    GamepadRuntimeConfig config;
+    config.output_transfer = {true, false, .16f, 1.0f};
+    config.recoil.enabled = true;
+    config.recoil.feedback_amount = .2f;
+    config.recoil.hipfire_multiplier = .5f;
+    double now = 100;
+    NativeGamepadController controller(config, &now);
+    for (unsigned seed : {71327u, 942817u}) {
+        std::mt19937 random(seed);
+        std::uniform_real_distribution<float> axis(-1, 1);
+        for (int ticks : {600, 10000}) {
+            for (int i = 0; i < ticks; ++i) {
+                PhysicalGamepadState physical{};
+                physical.connected = i % 199 != 0;
+                physical.right_x = i % 13 ? axis(random) : 0;
+                physical.right_y = i % 13 ? axis(random) : 0;
+                physical.left_x = .7f;
+                physical.left_trigger = i % 2 ? 1.0f : 0.0f;
+                physical.right_trigger = i % 3 ? 1.0f : 0.0f;
+                physical.a = i % 7 == 0;
+                controller.begin_tick(physical);
+                const auto frame = controller.resolve_control_frame();
+                OutputComposer baseline;
+                OutputComposer mapped(config.output_transfer);
+                require_true(baseline.compose(frame) == OutputComposeStatus::Ok &&
+                    mapped.compose(frame) == OutputComposeStatus::Ok, "compose failed");
+                const auto plain = *baseline.finalized_output();
+                const auto output = *mapped.finalized_output();
+                const auto expected = transfer_game_stick({plain.right_x, plain.right_y}, config.output_transfer);
+                require_true(output.right_x == expected.x && output.right_y == expected.y,
+                    "transfer must apply exactly once after recoil and arbitration");
+                require_true(output.left_x == plain.left_x && output.left_trigger == plain.left_trigger &&
+                    output.right_trigger == plain.right_trigger && output.a == plain.a && output.rb == plain.rb,
+                    "right-stick adapter changed another control");
+                controller.observe_composed_output(output);
+                const auto& parts = controller.last_output_components();
+                require_true(std::fabs(parts.recoil_stick.y - (plain.right_y - parts.before_recoil_stick.y)) < 2e-6f,
+                    "anti-deadzone must not be misreported as recoil");
+                const auto report = to_ds4_report(output);
+                auto acknowledged = output;
+                acknowledged.right_x = ds4_axis_value(report.bytes[2]);
+                acknowledged.right_y = -ds4_axis_value(report.bytes[3]);
+                controller.observe_delivered_output(acknowledged, physical.connected, now);
+                require_true(mapped.finalize() == OutputComposeStatus::AlreadyFinalized,
+                    "duplicate finalization must not apply the curve twice");
+                now += .001;
+            }
+        }
+    }
+    // Explicit facade/neutral/recoil checks, independent of the mapping helper.
+    controller.reset();
+    PhysicalGamepadState physical{};
+    physical.connected = true;
+    physical.right_x = .1f;
+    auto output = controller.build_output(physical);
+    require_true(std::fabs(output.right_x - .244f) < 1e-6f && output.right_y == 0,
+        "compatibility facade omitted or doubled mapping");
+    physical.right_x = 0;
+    output = controller.build_output(physical);
+    require_true(output.right_x == 0 && output.right_y == 0, "release must become neutral on same tick");
+    physical.right_trigger = 1;
+    output = controller.build_output(physical);
+    require_true(std::fabs(output.right_y + .244f) < 1e-6f, "hipfire recoil must be mapped after half-strength reduction");
+    physical.left_trigger = 1;
+    output = controller.build_output(physical);
+    require_true(std::fabs(output.right_y + .328f) < 1e-6f, "ADS recoil must share the output coordinate");
+}
+
+void test_game_transfer_response_feedback() {
+    using namespace controller_native;
+    float scales[2]{};
+    for (int enabled = 0; enabled != 2; ++enabled) {
+        auto config = incident_fixture::base_config(1000, 260);
+        config.ai_aim.ads_pickup_base_radius_px = 260;
+        config.ai_aim.ads_snap_window_ms = 60;
+        config.ai_aim.ads_completion_fresh_frames = 1000;
+        config.ai_aim.ads_extension_budget_ms = 1000;
+        config.ai_aim.aim_response_effect_delay_ms = 0;
+        config.ai_aim.visual_authority_enabled = false;
+        config.output_transfer = {enabled != 0, false, .16f, 1.0f};
+        double now = 100;
+        NativeGamepadController controller(config, &now);
+        incident_fixture::TargetSpec target;
+        target.observation_id = 512;
+        target.selector_generation = 51;
+        target.has_enemy_cue = target.enemy_identity_confirmed = true;
+        float error = 200;
+        int active_ticks = 0;
+        for (int tick = 0; tick != 450; ++tick) {
+            if (tick % 5 == 0) controller.submit_vision_snapshot(
+                incident_fixture::observed_snapshot(target, tick / 5 + 1, now, error, 0, tick == 0));
+            const auto output = controller.build_output(incident_fixture::ads_input());
+            // Independently specified synthetic plant. This checks coordinate
+            // bookkeeping, not an empirical BO3 transfer/response measurement.
+            const float camera = enabled ? std::copysign(
+                std::max(0.0f, (std::fabs(output.right_x) - .16f) / .84f), output.right_x) : output.right_x;
+            if (camera > .01f) ++active_ticks;
+            error = std::max(10.0f, error - camera * 500 * .001f);
+            now += .001;
+        }
+        const auto& plan = controller.last_target_plan();
+        require_true(active_ticks > 50 && plan.target_id != 0 && plan.response_confidence > 0,
+            "response test must actually exercise learning and target ownership");
+        scales[enabled] = plan.response_scale;
+        const auto identity = plan.target_id;
+        const auto epoch = controller.ads_epoch();
+        const auto learned = controller.learning_snapshot();
+        require_true(learned[2].accepted_samples + learned[3].accepted_samples > 0,
+            "reload fixture must have actual ADS learning before clearing");
+        auto revised = config;
+        revised.ai_aim.ads_snap_max_ai_force = .4f;
+        revised.ai_aim.body_lock_max_ai_force = .3f;
+        revised.auto_fire.fire_output = "RT";
+        revised.auto_fire.manual_fire_input = "RT";
+        controller.apply_hot_config(revised);
+        for (const auto& value : controller.learning_snapshot()) require_true(value.accepted_samples == 0 && value.confidence == 0,
+            "hot reload retained estimator excitation, confidence or sample counts");
+        require_true(controller.last_target_plan().target_id == identity && controller.ads_epoch() == epoch,
+            "clearing learning must not rearm ADS or discard target identity");
+        now += .001;
+        const auto next = controller.build_output(incident_fixture::ads_input());
+        require_true(std::isfinite(next.right_x) && controller.ads_epoch() == epoch && controller.last_target_plan().target_id == identity,
+            "next tick after reload must keep active target/ADS invariant");
+    }
+    require_true(scales[0] >= 400 && scales[0] <= 600 && std::fabs(scales[0] - scales[1]) < 1,
+        "wire amplification contaminated learned camera response");
+}
+
 }  // namespace
+
+void test_hot_reload_randomized_manual_fire_and_recoil() {
+    using namespace controller_native;
+    for (unsigned seed : {7311u, 9401u}) {
+        std::mt19937 random(seed);
+        std::uniform_real_distribution<float> axis(-.6f, .6f);
+        GamepadRuntimeConfig config;
+        double now = 100;
+        NativeGamepadController controller(config, &now);
+        for (int tick = 0; tick < 4000; ++tick) {
+            if (tick % 31 == 0) {
+                const char* bindings[] = {"both", "RB", "RT"};
+                config.auto_fire.manual_fire_input = bindings[random() % 3];
+                config.auto_fire.fire_output = random() % 2 ? "RB" : "RT";
+                config.recoil.enabled = random() % 2;
+                config.recoil.feedback_amount = .14f + (random() % 21) * .01f;
+                config.recoil.hipfire_multiplier = (random() % 11) * .1f;
+                controller.apply_hot_config(config);
+            }
+            PhysicalGamepadState physical{};
+            physical.connected = true;
+            physical.right_x = axis(random);
+            physical.right_y = axis(random);
+            physical.left_trigger = random() % 2 ? 1.0f : 0.0f;
+            physical.rb = random() % 2;
+            physical.right_trigger = random() % 2 ? 1.0f : 0.0f;
+            const auto& preparation = controller.begin_tick(physical);
+            const bool fire = (config.auto_fire.manual_fire_input != "RT" && physical.rb) ||
+                (config.auto_fire.manual_fire_input != "RB" && physical.right_trigger > .04f);
+            require_true(preparation.scope.manual_fire_active == fire, "scope and chosen manual binding disagree after reload");
+            const auto output = controller.build_output_from_sampled_input();
+            const float recoil = config.recoil.enabled && fire ? config.recoil.feedback_amount *
+                (preparation.scope.physical_ads_ready ? 1.0f : config.recoil.hipfire_multiplier) : 0;
+            require_true(std::fabs(output.right_y - (physical.right_y - recoil)) < 2e-6f && output.right_x == physical.right_x,
+                "new recoil must apply once while preserving target-free manual axes");
+            require_true(output.rb == physical.rb && output.right_trigger == physical.right_trigger,
+                "reload must never clear or synthesize raw physical fire passthrough");
+            now += .001;
+        }
+    }
+}
 
 void register_control_pipeline_primitives_tests(
     native_test::Registry& registry) {
+    registry.add_case("BaseEndToEnd", "hot_reload_randomized_manual_fire_recoil", test_hot_reload_randomized_manual_fire_and_recoil);
+    registry.add_case("BaseContracts", "game_transfer_contract_randomized", test_game_transfer_contract_and_randomized_roundtrip);
+    registry.add_case("BaseEndToEnd", "game_transfer_final_stage_lifecycle", test_game_transfer_final_stage_and_lifecycle);
+    registry.add_case("BaseEndToEnd", "game_transfer_response_feedback", test_game_transfer_response_feedback);
     registry.add_case("BaseContracts", "output_write_boundaries_and_recoil_order", test_output_write_boundaries_and_recoil_order);
     registry.add_case("BaseContracts", "physical_passthrough_and_auxiliary_dpad_merge", test_physical_passthrough_and_auxiliary_dpad_merge);
     registry.add_case("BaseContracts", "duplicate_finalize_is_rejected", test_duplicate_finalize_is_rejected);

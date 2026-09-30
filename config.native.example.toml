@@ -112,6 +112,9 @@ lt_cooldown_ms = 1000
 
 [gamepad.auto_fire]
 fire_output = "RB"
+# Physical fire binding used by AI activation, manual takeover and recoil.
+# "both" preserves RT-or-RB behavior; this does not remap physical passthrough.
+manual_fire_input = "both"
 # When enabled, pressing the physical fire control wakes Vision and grants the
 # normal AI-aim acquisition scope until fire is released, including when idle
 # Vision has already selected a target.
@@ -183,3 +186,21 @@ feedback_amount = 0.20
 hipfire_multiplier = 1.0 # 0..1; scales recoil only, never manual/AI sensitivity
 feedback_min_amount = 0.14
 feedback_max_amount = 0.34
+
+[games.apex.runtime.vision]
+model_path = "artifacts/game-specialists-20260914/exports/apex/apex_480x384.engine"
+
+[games.apex.gamepad.aim_response_curve]
+algorithm = "linear"
+
+[games.apex.gamepad.recoil]
+hipfire_multiplier = 0.5
+
+[games.bo3.gamepad.aim_response_curve]
+algorithm = "linear"
+
+[games.bo3.gamepad.output_transfer]
+game_exponent = 1.0
+deadzone = 0.16
+axial = false
+enabled = true

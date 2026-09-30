@@ -1,5 +1,9 @@
 #include "runtime_config.h"
 #include "test_support/native_test_registry.h"
+#include "../runtime_app/runtime_stop_signal.h"
+#include "../runtime_app/runtime_control_bridge.h"
+#include <atomic>
+#include <future>
 
 #include <cmath>
 #include <filesystem>
@@ -418,6 +422,84 @@ void test_retired_recoil_profile_cannot_be_enabled_by_config() {
             "retired recoil configuration still changes runtime state");
 }
 
+void test_external_stop_signal_obeys_listener_lifetime() {
+    for (bool early : {false, true}) {
+        runtime_app::RuntimeStopSignal signal;
+        const auto name = L"Local\\cod_native_runtime_stop_" + std::to_wstring(GetCurrentProcessId());
+        const auto event = OpenEventW(EVENT_MODIFY_STATE, FALSE, name.c_str());
+        require(event != nullptr, "stop signal must be available during initialization");
+        std::promise<void> called;
+        auto future = called.get_future();
+        if (early) SetEvent(event);
+        {
+            auto listener = signal.listen([&called] { called.set_value(); });
+            if (!early) SetEvent(event);
+            require(future.wait_for(std::chrono::seconds(2)) == std::future_status::ready,
+                "normal or early stop request must reach the runtime owner");
+        }
+        CloseHandle(event);
+    }
+    std::atomic<bool> called{false};
+    {
+        runtime_app::RuntimeStopSignal signal;
+        auto listener = signal.listen([&called] { called.store(true); });
+    }
+    require(!called.load(), "listener cancellation must not request a spurious stop");
+}
+
+void test_game_blocks_resolve_before_deriving_gains() {
+    TempConfig file("cod_game_blocks.toml",
+        "[runtime]\ngame = \"bo3\"\n"
+        "[gamepad.ads]\nstrength_scale = 0.8\n"
+        "[gamepad.output_transfer]\nenabled = false\n"
+        "[games.apex.gamepad.ads]\nstrength_scale = 0.5\n"
+        "[games.apex.runtime.vision]\nmodel_path = \"apex.engine\"\n"
+        "[games.bo3.gamepad.output_transfer]\nenabled = true\ndeadzone = 0.20\n");
+    const auto base = controller_native::load_runtime_config(file.path(), "", "default");
+    const auto apex = controller_native::load_runtime_config(file.path(), "", "apex");
+    const auto bo3 = controller_native::load_runtime_config(file.path());
+    require(base.game == "default" && !base.gamepad.output_transfer.enabled,
+        "explicit default must override configured game without inheriting game settings");
+    require(apex.game == "apex" && apex.vision.model_path == "apex.engine" &&
+        !apex.gamepad.output_transfer.enabled && apex.ads.strength_scale == .5f,
+        "selected game must replace base values and ignore other games");
+    require(std::fabs(apex.gamepad.ai_aim.ads_snap_max_ai_force /
+        base.gamepad.ai_aim.ads_snap_max_ai_force - .5f / .8f) < 1e-5f,
+        "game override must not multiply a gain twice");
+    require(bo3.game == "bo3" && bo3.gamepad.output_transfer.enabled &&
+        bo3.gamepad.output_transfer.deadzone == .20f,
+        "configured game must select its native block");
+    require(apex.diagnostics.empty() && bo3.diagnostics.empty() &&
+        apex.effective_source("runtime.vision.model_path") == "game:apex",
+        "inactive blocks must not produce unknown-key diagnostics");
+    bool rejected = false;
+    try { (void)controller_native::load_runtime_config(file.path(), "", "missing"); }
+    catch (const std::runtime_error&) { rejected = true; }
+    require(rejected, "unknown game must fail instead of silently using default");
+}
+
+void test_game_output_transfer_config() {
+    TempConfig defaults("cod_output_transfer_default.toml", "");
+    require(!controller_native::load_runtime_config(defaults.path()).gamepad.output_transfer.enabled,
+        "existing profiles must not enable output transfer");
+    TempConfig file("cod_output_transfer.toml",
+        "[gamepad.output_transfer]\nenabled = true\naxial = true\ndeadzone = 0.18\ngame_exponent = 2.0\n");
+    auto config = controller_native::load_runtime_config(file.path());
+    require(config.diagnostics.empty() && config.gamepad.output_transfer.enabled &&
+        config.gamepad.output_transfer.axial && config.gamepad.output_transfer.deadzone == .18f &&
+        config.gamepad.output_transfer.game_exponent == 2.0f, "output adapter keys must parse");
+    for (const auto* key : {"deadzone", "game_exponent"}) {
+        for (const auto* value : {"-0.01", "3.01", "nan", "inf"}) {
+            TempConfig invalid("cod_output_transfer_invalid.toml",
+                std::string("[gamepad.output_transfer]\n") + key + " = " + value + "\n");
+            bool threw = false;
+            try { (void)controller_native::load_runtime_config(invalid.path()); }
+            catch (const std::runtime_error&) { threw = true; }
+            require(threw, "invalid output transfer parameter must fail at config boundary");
+        }
+    }
+}
+
 void test_hipfire_recoil_config() {
     TempConfig defaults("cod_native_hipfire_recoil_default.toml", "[gamepad.recoil]\n");
     require(controller_native::load_runtime_config(defaults.path()).gamepad.recoil.hipfire_multiplier == 1.0f,
@@ -439,7 +521,43 @@ void test_hipfire_recoil_config() {
 
 }  // namespace
 
+void test_hot_reload_diff_and_control_channel() {
+    TempConfig first("cod_hot_reload_first.toml", "[gamepad.ads]\nstrength_scale=0.8\n");
+    TempConfig second("cod_hot_reload_second.toml", "[gamepad.ads]\nstrength_scale=0.5\n[gamepad.auto_fire]\nfire_output=\"RT\"\nmanual_fire_input=\"RT\"\n");
+    auto a = controller_native::load_runtime_config(first.path());
+    auto b = controller_native::load_runtime_config(second.path());
+    require(runtime_app::hot_reload_restrictions(a, b).empty(), "numeric and fire bindings must be hot eligible");
+    auto structural = b;
+    structural.effective_values["runtime.vision.model_path"] = "\"other.engine\"";
+    require(!runtime_app::hot_reload_restrictions(a, structural).empty(), "model change must reject entire hot transaction");
+    auto invalid = b;
+    invalid.effective_values["gamepad.ads.strength_scale"] = "\"wrong\"";
+    bool rejected = false;
+    try { (void)runtime_app::hot_reload_restrictions(a, invalid); } catch (...) { rejected = true; }
+    require(rejected, "legacy numeric parser fallback cannot silently validate hot reload");
+    runtime_app::RuntimeControlBridge bridge(a, [b] { return b; });
+    const auto suffix = std::to_wstring(GetCurrentProcessId());
+    HANDLE mapping = OpenFileMappingW(FILE_MAP_ALL_ACCESS, FALSE, (L"Local\\cod_native_control_" + suffix).c_str());
+    require(mapping != nullptr, "control mapping missing");
+    auto* memory = static_cast<runtime_app::RuntimeControlMemory*>(MapViewOfFile(mapping, FILE_MAP_ALL_ACCESS, 0, 0, 0));
+    HANDLE request = OpenEventW(EVENT_MODIFY_STATE, FALSE, (L"Local\\cod_native_reload_" + suffix).c_str());
+    InterlockedExchange64(&memory->requested_id, 719);
+    SetEvent(request);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    std::shared_ptr<const controller_native::RuntimeConfig> prepared;
+    while (!prepared && std::chrono::steady_clock::now() < deadline) { prepared = bridge.take_prepared(); std::this_thread::yield(); }
+    require(prepared && prepared->gamepad.auto_fire.fire_output == "RT", "worker must load immutable candidate off tick");
+    bridge.complete();
+    while (memory->snapshot.completed_id != 719 && std::chrono::steady_clock::now() < deadline) std::this_thread::yield();
+    require(memory->snapshot.status == 2 && memory->snapshot.revision == 1, "GUI acknowledgement must follow actual commit");
+    CloseHandle(request); UnmapViewOfFile(memory); CloseHandle(mapping);
+}
+
 void register_runtime_config_tests(native_test::Registry& registry) {
+    registry.add_case("BaseContracts", "hot_reload_diff_control_channel", test_hot_reload_diff_and_control_channel);
+    registry.add_case("BaseContracts", "external_stop_signal_listener_lifetime", test_external_stop_signal_obeys_listener_lifetime);
+    registry.add_case("BaseContracts", "game_blocks_resolve_before_deriving_gains", test_game_blocks_resolve_before_deriving_gains);
+    registry.add_case("BaseContracts", "game_output_transfer_config", test_game_output_transfer_config);
     registry.add_case("BaseContracts", "hipfire_recoil_config", test_hipfire_recoil_config);
     registry.add_case("BaseContracts", "vision_release_hold_config", test_vision_release_hold_config);
     registry.add_case("BaseContracts", "withdrawn_light_search_key_is_inert", test_withdrawn_light_search_key_is_inert);
