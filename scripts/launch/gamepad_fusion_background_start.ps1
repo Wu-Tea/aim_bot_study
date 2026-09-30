@@ -1,5 +1,6 @@
 param(
-    [switch]$PrintOnly
+    [switch]$PrintOnly,
+    [switch]$AttachOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -46,7 +47,7 @@ if ($PrintOnly) {
         native_state_path = $nativeStatePath
         native_start_script = $nativeStartScript
         powershell_host_path = $powerShellPath
-        auto_start_native = $true
+        auto_start_native = (-not $AttachOnly)
         state_path = $statePath
         session = $session
         max_fps = $maxFps
@@ -166,6 +167,9 @@ try {
 
     $nativeState = Get-OwnedNativeState
     if ($null -eq $nativeState) {
+        if ($AttachOnly) {
+            throw "Native runtime is not running; attach-only Fusion launch does not start it"
+        }
         if (-not (Test-Path -LiteralPath $nativeStartScript -PathType Leaf)) {
             throw "Native background start script not found: $nativeStartScript"
         }

@@ -5,6 +5,15 @@ Windows 上的 YOLO + TensorRT 手柄辅助瞄准研究项目。当前默认实�
 
 ## 快速启动
 
+双击根目录的 **`启动助手.vbs`** 打开 GUI：选择通用 / COD、Apex 或 BO3，调整设置后启动。
+同一个窗口可以保存配置、切换游戏、热重载、查看学习参数和正常停止；Fusion 使用单独的启停按钮。GUI、主程序和 Fusion 各自运行，关闭窗口后后台继续工作，再打开会接管已有实例。
+详细说明见 [手柄助手 GUI](docs/project/DESKTOP_ASSISTANT.md)。
+
+所有游戏共用 `config.toml` 和原来的原生程序；游戏差异放在 `[games.apex.*]`、`[games.bo3.*]` 分块中。
+GUI 保存前校验配置并备份原文件；力度、压枪、fire 按键、友方过滤与目标点支持热重载，成功后清理响应学习。模型、帧率等参数会提示重启。旧后台脚本作为兼容入口保留，也使用同一套启停管理。
+
+以下前台入口用于开发与排障：
+
 前台启动：
 
 ```powershell
@@ -32,14 +41,14 @@ scripts\launch\gamepad_native_background_stop.vbs
 ## 当前运行契约
 
 - 默认 runtime：`native/vision_native/build/Release/cod_native_runtime.exe`
-- 捕获尺寸：`480x416`
-- TensorRT engine：`models/best.engine`
+- 本机共用捕获尺寸：`640x512`，模型输入：`480x384`（以 `config.toml` 为准）
+- 共用 TensorRT engine：`models/best_480x384.engine`；Apex 使用游戏分块指定的专属 engine
 - 原生入口：`native/runtime_app/main.cpp`
 - Vision：`native/vision_native/`
 - tracker/controller/output：`native/controller_native/`
 - Python fallback：`main.py`
 
-`480x416` 是当前捕获与 engine 的配套契约。修改裁剪尺寸前必须准备对应 engine，
+捕获尺寸与模型输入须遵守配置中的缩放约束。修改模型输入尺寸前必须准备对应 engine，
 并重新跑启动和 Vision smoke test。
 
 ## 本地结构化日志

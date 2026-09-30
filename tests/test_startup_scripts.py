@@ -52,28 +52,25 @@ class StartupScriptTests(unittest.TestCase):
 
         for content in (start, stop):
             self.assertIn("[switch]$PrintOnly", content)
-            self.assertIn("native_runtime_state.json", content)
-            self.assertIn("Win32_Process", content)
-            self.assertIn("ExecutablePath", content)
-            self.assertIn("ConvertTo-Json", content)
-
-        self.assertIn("cod_native_runtime.exe", start)
-        self.assertIn("config.toml", start)
-        self.assertIn("Start-Process", start)
-        self.assertIn("-WindowStyle Hidden", start)
-        self.assertIn("-RedirectStandardOutput", start)
-        self.assertIn("-RedirectStandardError", start)
-        self.assertIn("Stop-Process -Id", stop)
+            self.assertIn("-m desktop_app.gui", content)
+        runtime = (PROJECT_ROOT / "desktop_app/runtime.py").read_text(encoding="utf-8")
+        self.assertIn("native_runtime_state.json", runtime)
+        self.assertIn("QueryFullProcessImageNameW", runtime)
+        self.assertIn("GetProcessTimes", runtime)
+        self.assertIn("process_created", runtime)
+        self.assertIn("cod_native_runtime.exe", runtime)
+        self.assertIn("config.toml", runtime)
+        self.assertIn("CREATE_NO_WINDOW", runtime)
+        self.assertIn("stdout=out, stderr=err", runtime)
+        self.assertIn("OpenEventW", runtime)
+        self.assertNotIn("Stop-Process", stop)
         self.assertNotIn("Get-Process -Name", stop)
         self.assertNotIn("taskkill /IM", stop)
 
     def test_native_background_start_keeps_late_fusion_attach_ready(self):
-        start = (
-            LAUNCH_DIR / "gamepad_native_background_start.ps1"
-        ).read_text(encoding="utf-8")
-
-        self.assertIn('$env:FUSION_ENABLED = "1"', start)
-        self.assertIn('$env:FUSION_SHOW_ALL_DETECTIONS = "0"', start)
+        start = (PROJECT_ROOT / "desktop_app/runtime.py").read_text(encoding="utf-8")
+        self.assertIn("env['FUSION_ENABLED'] = '1'", start)
+        self.assertIn("env['FUSION_SHOW_ALL_DETECTIONS'] = '0'", start)
         self.assertIn("fusion_channel_enabled", start)
         self.assertIn("fusion_session", start)
 
@@ -245,6 +242,23 @@ class StartupScriptTests(unittest.TestCase):
                     )
 
         self.assertEqual(state_path.exists(), state_existed_before)
+
+    def test_gui_fusion_attach_only_cannot_start_native(self):
+        from desktop_app.runtime import RuntimeManager
+        manager = RuntimeManager(PROJECT_ROOT)
+        if manager.active() or manager.fusion_state():
+            self.skipTest('requires no existing native/canvas process')
+        script = LAUNCH_DIR / 'gamepad_fusion_background_start.ps1'
+        arguments = ['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', str(script), '-AttachOnly']
+        preview = subprocess.run(arguments + ['-PrintOnly'], cwd=PROJECT_ROOT, capture_output=True, text=True, timeout=10)
+        self.assertEqual(preview.returncode, 0, preview.stderr)
+        self.assertFalse(json.loads(preview.stdout)['auto_start_native'])
+        actual = subprocess.run(arguments, cwd=PROJECT_ROOT, capture_output=True, text=True, timeout=20)
+        self.assertNotEqual(actual.returncode, 0)
+        self.assertIsNone(manager.active())
+        self.assertIsNone(manager.fusion_state())
+        log = (PROJECT_ROOT/'runs/fusion_canvas/background/launcher.log').read_text(encoding='utf-8-sig')
+        self.assertIn('attach-only Fusion launch does not start it',log.splitlines()[-1])
 
     def test_native_config_resolves_an_existing_480x384_engine(self):
         with (PROJECT_ROOT / "config.native.example.toml").open("rb") as stream:
