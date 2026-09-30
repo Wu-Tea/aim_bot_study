@@ -4,9 +4,9 @@ $ErrorActionPreference = 'Stop'
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 $cmake = 'C:/Program Files/Microsoft Visual Studio/2022/Professional/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe'
 $ctest = Join-Path (Split-Path $cmake) 'ctest.exe'
-$build = Join-Path $projectRoot 'native/vision_native/build'
+$build = Join-Path $projectRoot 'native/build'
 if (-not (Test-Path -LiteralPath (Join-Path $build 'CMakeCache.txt'))) {
-    throw 'Configure the native build with tools/build_native_vision.ps1 first.'
+    throw 'Configure the native build with tools/build_native_runtime.ps1 first.'
 }
 $targets = @('cod_native_mouse_runtime', 'cod_native_base_tests', 'cod_native_functional_tests')
 if ($DesktopProbe) { $targets += 'cod_native_mouse_win32_debug_transport_tests' }

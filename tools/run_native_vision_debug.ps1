@@ -6,7 +6,7 @@ param(
     [switch]$Aim = $true,
     [string]$TensorRTRoot = "D:\env\TensorRT-10.15.1.29",
     [string]$CudaPath = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.1",
-    [string]$BuildDir = "native\vision_native\build",
+    [string]$BuildDir = "native\build",
     [string]$Configuration = "Release",
     [string]$PythonExe = "D:\env\python\python.exe",
     [switch]$BuildFirst
@@ -20,7 +20,7 @@ $ExeDir = Join-Path $BuildDir $Configuration
 $DebugExe = Join-Path $ExeDir "vision_native_debug.exe"
 
 if ($BuildFirst -or -not (Test-Path $DebugExe)) {
-    & (Join-Path $PSScriptRoot "build_native_vision.ps1") `
+    & (Join-Path $PSScriptRoot "build_native_runtime.ps1") `
         -TensorRTRoot $TensorRTRoot `
         -CudaPath $CudaPath `
         -BuildDir ($BuildDir.Substring($ProjectRoot.Length + 1)) `

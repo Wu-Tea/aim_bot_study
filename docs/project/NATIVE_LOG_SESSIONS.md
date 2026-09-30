@@ -15,13 +15,13 @@ An active writer owns `.active`. Clean shutdown replaces it with `.closed`. Tele
 ## Inspect
 
 ```powershell
-python tools/manage_native_logs.py list --root runs/native_perf
+python python/tools/manage_native_logs.py list --root runs/native_perf
 ```
 
 ## Preview cleanup
 
 ```powershell
-python tools/manage_native_logs.py prune --root runs/native_perf --dry-run --max-age-days 7 --keep-latest 2 --max-total-gb 20
+python python/tools/manage_native_logs.py prune --root runs/native_perf --dry-run --max-age-days 7 --keep-latest 2 --max-total-gb 20
 ```
 
 ## Apply cleanup

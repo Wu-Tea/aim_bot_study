@@ -12,7 +12,7 @@ Apex 专属设置位于 `config.toml` 的 `[games.apex.*]`：
 其他参数继承共用配置。GUI 的当前游戏页只修改 Apex 分块；共用设置页修改所有游戏继承的值。
 工具曲线不会改变游戏内设置，游戏内曲线仍由玩家设置。
 
-所有游戏使用原程序 `native/vision_native/build/Release/cod_native_runtime.exe`。
+所有游戏使用原程序 `native/build/Release/cod_native_runtime.exe`。
 原生 `--game apex` 直接选择配置分块，不再生成 `config.apex.toml`。
 旧的 Apex 启停脚本作为兼容入口保留，也使用统一进程记录；停止会停止当前共用运行实例。
 

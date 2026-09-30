@@ -22,7 +22,7 @@ $root = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 if (-not $Config) { $Config = Join-Path $root "config.toml" }
 $Config = (Resolve-Path -LiteralPath $Config).Path
 if (-not $BuildDir) {
-    $BuildDir = Join-Path $root "native\vision_native\build"
+    $BuildDir = Join-Path $root "native\build"
 }
 $exe = Join-Path $BuildDir "Release\cod_native_sustained_aimlab_benchmark.exe"
 $cmake = "C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"

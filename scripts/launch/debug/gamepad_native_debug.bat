@@ -1,6 +1,7 @@
 @echo off
 setlocal
 cd /d "%~dp0..\..\.."
+set "PYTHONPATH=%CD%\python;%PYTHONPATH%"
 
 set "VISION_BACKEND=native"
 set "VISION_PERF_LOG=1"
@@ -28,5 +29,5 @@ if %errorlevel%==0 (
 
 echo Vision settings: backend=%VISION_BACKEND% capture_fps=%VISION_CAPTURE_FPS% quit_key=%VISION_QUIT_KEY% debug=on
 echo Launching native gamepad debug mode with AutoFire=%AUTO_FIRE_OUTPUT%
-%PYTHON_CMD% main.py --controller-mode gamepad --auto-fire-output %AUTO_FIRE_OUTPUT% --vision-backend native --vision-debug
+%PYTHON_CMD% python\main.py --controller-mode gamepad --auto-fire-output %AUTO_FIRE_OUTPUT% --vision-backend native --vision-debug
 pause

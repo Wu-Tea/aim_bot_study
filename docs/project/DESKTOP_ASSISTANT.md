@@ -2,7 +2,7 @@
 
 双击仓库根目录的 `启动助手.vbs`，在同一个窗口选择游戏、保存设置、启动和停止应用。
 GUI 使用本机已有的 `D:/env/python/pythonw.exe`，界面使用 Python 标准库 Tk，不需要安装浏览器前端或新的推理环境。
-游戏运行时仍是 `native/vision_native/build/Release/cod_native_runtime.exe`，保持原有 HidHide 放行路径。
+游戏运行时仍是 `native/build/Release/cod_native_runtime.exe`，保持原有 HidHide 放行路径。
 
 ## 使用
 

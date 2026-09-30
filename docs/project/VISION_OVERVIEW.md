@@ -16,19 +16,19 @@ The main targeting path is detector-first. It does not depend on pose keypoints.
 
 ## Entry Points
 
-- `main.py`
-- `vision/__init__.py`
-- `vision/runner.py`
-- `vision/native_runner.py`
+- `python/main.py`
+- `python/vision/__init__.py`
+- `python/vision/runner.py`
+- `python/vision/native_runner.py`
 - `native/vision_native/`
-- `tools/export_trt.py`
+- `python/tools/export_trt.py`
 
-`main.py` creates the controller, then dispatches to:
+`python/main.py` creates the controller, then dispatches to:
 
 - `process_vision(controller=...)` for `--vision-backend python`
 - `process_native_vision(controller=...)` for `--vision-backend native`
 
-That `main.py` path is now the Python fallback/debug path for gamepad. The
+That `python/main.py` path is now the Python fallback/debug path for gamepad. The
 normal gamepad runtime starts `cod_native_runtime.exe`, which calls
 `VisionEngine` directly in process.
 
@@ -41,10 +41,10 @@ runtime path.
 
 Implemented in:
 
-- `vision/runner.py`
-- `vision/capture.py`
-- `vision/inference.py`
-- `vision/fastpath.py`
+- `python/vision/runner.py`
+- `python/vision/capture.py`
+- `python/vision/inference.py`
+- `python/vision/fastpath.py`
 
 Behavior:
 
@@ -56,7 +56,7 @@ Behavior:
 
 Implemented in:
 
-- `vision/native_runner.py`
+- `python/vision/native_runner.py`
 - `native/vision_native/include/vision_native/*`
 - `native/vision_native/src/*`
 
@@ -86,10 +86,10 @@ The default C++ runtime and Python fallback backends follow the same practical v
 
 ### Python backend pipeline
 
-1. `ScreenCaptureThread` captures a centered RGB crop through `vision/dxgi_capture.py`.
+1. `ScreenCaptureThread` captures a centered RGB crop through `python/vision/dxgi_capture.py`.
 2. `DXGIRegionCaptureBackend` copies only the requested ROI into a small staging surface.
 3. `InferenceThread` runs latest-only inference.
-4. `vision/fastpath.py` uses:
+4. `python/vision/fastpath.py` uses:
    - TensorRT `best.engine` when available
    - `best.pt` fallback if engine load fails
 5. Fast-path output is decoded into `ParsedDetections`.
@@ -111,7 +111,7 @@ The default C++ runtime and Python fallback backends follow the same practical v
 
 ### Python-hosted native backend pipeline
 
-1. `vision/native_runner.py` loads `vision_native_cpp` from `native/vision_native/build/Release`.
+1. `python/vision/native_runner.py` loads `vision_native_cpp` from `native/build/Release`.
 2. `NativeVisionEngine` performs centered ROI capture natively.
 3. Native preprocessing maps the ROI into TensorRT input tensors.
 4. TensorRT inference runs in the native module against `models/best.engine`.
@@ -132,7 +132,7 @@ The important rule is unchanged: vision sends compact intent, not raw frames, in
 ## Current Defaults
 
 Launcher-level defaults can live in the local project-root `config.toml` under
-`[runtime.vision]`. `main.py` applies them before starting either vision
+`[runtime.vision]`. `python/main.py` applies them before starting either vision
 backend. Existing `VISION_*` environment variables and explicit CLI arguments
 still take precedence. If `config.toml` is absent, the runtime uses code
 defaults.
@@ -140,7 +140,7 @@ defaults.
 Default gamepad runtime baseline:
 
 - `GAMEPAD_RUNTIME = "native"`
-- executable: `native\vision_native\build\Release\cod_native_runtime.exe`
+- executable: `native\build\Release\cod_native_runtime.exe`
 - `capture_fps = 140`
 - `crop_width = 640`
 - `crop_height = 512`
@@ -148,7 +148,7 @@ Default gamepad runtime baseline:
 - `perf_log = true`
 - `quit_key = "0"`
 
-Current `VisionConfig` defaults in `vision/runner.py`:
+Current `VisionConfig` defaults in `python/vision/runner.py`:
 
 - `capture_width = 640`
 - `capture_height = 512`
@@ -228,13 +228,13 @@ Current limitation:
 Native vision is no longer just a scaffold:
 
 - it is integrated into the default full native C++ gamepad runtime
-- it is also integrated into `main.py` through `--vision-backend native` for fallback/debug paths
+- it is also integrated into `python/main.py` through `--vision-backend native` for fallback/debug paths
 - current mouse startup scripts also default to native
 - Python remains available as a fallback
 
 Build and smoke helpers:
 
-- `tools/build_native_vision.ps1`
+- `tools/build_native_runtime.ps1`
 - `tools/run_native_vision_smoke.ps1`
 - `tools/run_native_vision_infer_smoke.ps1`
 - `tools/run_native_vision_capture_smoke.ps1`
@@ -304,7 +304,7 @@ Current behavior:
 
 ## Perf Logs
 
-`vision/perf.py` emits two windowed log lines:
+`python/vision/perf.py` emits two windowed log lines:
 
 - `[Perf][ADS]`
 - `[Perf][TRACK]`
@@ -335,24 +335,24 @@ These are useful for tuning and investigation, but they are not required for nor
 
 Main Python runtime:
 
-- `vision/runner.py`
-- `vision/capture.py`
-- `vision/dxgi_capture.py`
-- `vision/fastpath.py`
-- `vision/inference.py`
-- `vision/targeting.py`
-- `vision/occlusion_compensation.py`
-- `vision/enhancement.py`
-- `vision/perf.py`
+- `python/vision/runner.py`
+- `python/vision/capture.py`
+- `python/vision/dxgi_capture.py`
+- `python/vision/fastpath.py`
+- `python/vision/inference.py`
+- `python/vision/targeting.py`
+- `python/vision/occlusion_compensation.py`
+- `python/vision/enhancement.py`
+- `python/vision/perf.py`
 
 Native bridge:
 
-- `vision/native_runner.py`
+- `python/vision/native_runner.py`
 
 Optional debug utilities:
 
-- `vision/debug_overlay.py`
-- `vision/debug_capture.py`
+- `python/vision/debug_overlay.py`
+- `python/vision/debug_capture.py`
 
 Native implementation:
 

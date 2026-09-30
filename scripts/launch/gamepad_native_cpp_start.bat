@@ -2,9 +2,9 @@
 setlocal EnableDelayedExpansion
 cd /d "%~dp0..\.."
 
-set "EXE=native\vision_native\build\Release\cod_native_runtime.exe"
+set "EXE=native\build\Release\cod_native_runtime.exe"
 if not exist "%EXE%" (
-  echo Native C++ runtime not found. Run tools\build_native_vision.ps1 first.
+  echo Native C++ runtime not found. Run tools\build_native_runtime.ps1 first.
   exit /b 1
 )
 

@@ -1,6 +1,7 @@
 @echo off
 setlocal EnableDelayedExpansion
 cd /d "%~dp0..\.."
+set "PYTHONPATH=%CD%\python;%PYTHONPATH%"
 
 set "RESULT=0"
 set "REQUESTED_GAMEPAD_RUNTIME=%GAMEPAD_RUNTIME%"
@@ -98,17 +99,17 @@ if /I "!ENABLE_RECOIL_RUNTIME!"=="1" (
     if not defined RECOIL_APP_MODE set "RECOIL_APP_MODE=recoil"
     echo Recoil runtime enabled for !RECOIL_GAME!
     if "%GAMEPAD_START_PRINT_ONLY%"=="1" (
-        echo Resolved command: !PYTHON_CMD! tools\recoil_runtime_launcher.py --game !RECOIL_GAME! --profile-dir "!RECOIL_PROFILE_DIR!" --signature-dir "!RECOIL_SIGNATURE_DIR!" --state-file "!RECOIL_STATE_FILE!" --recognizer-fps !RECOIL_RECOGNIZER_FPS! --controller-mode gamepad !AUTO_FIRE_ARG!
+        echo Resolved command: !PYTHON_CMD! python\tools\recoil_runtime_launcher.py --game !RECOIL_GAME! --profile-dir "!RECOIL_PROFILE_DIR!" --signature-dir "!RECOIL_SIGNATURE_DIR!" --state-file "!RECOIL_STATE_FILE!" --recognizer-fps !RECOIL_RECOGNIZER_FPS! --controller-mode gamepad !AUTO_FIRE_ARG!
         goto end_success
     )
-    !PYTHON_CMD! tools\recoil_runtime_launcher.py --game !RECOIL_GAME! --profile-dir "!RECOIL_PROFILE_DIR!" --signature-dir "!RECOIL_SIGNATURE_DIR!" --state-file "!RECOIL_STATE_FILE!" --recognizer-fps !RECOIL_RECOGNIZER_FPS! --controller-mode gamepad !AUTO_FIRE_ARG!
+    !PYTHON_CMD! python\tools\recoil_runtime_launcher.py --game !RECOIL_GAME! --profile-dir "!RECOIL_PROFILE_DIR!" --signature-dir "!RECOIL_SIGNATURE_DIR!" --state-file "!RECOIL_STATE_FILE!" --recognizer-fps !RECOIL_RECOGNIZER_FPS! --controller-mode gamepad !AUTO_FIRE_ARG!
     set "RESULT=!ERRORLEVEL!"
 ) else (
     if "%GAMEPAD_START_PRINT_ONLY%"=="1" (
-        echo Resolved command: !PYTHON_CMD! main.py --controller-mode gamepad !AUTO_FIRE_ARG!
+        echo Resolved command: !PYTHON_CMD! python\main.py --controller-mode gamepad !AUTO_FIRE_ARG!
         goto end_success
     )
-    !PYTHON_CMD! main.py --controller-mode gamepad !AUTO_FIRE_ARG!
+    !PYTHON_CMD! python\main.py --controller-mode gamepad !AUTO_FIRE_ARG!
     set "RESULT=!ERRORLEVEL!"
 )
 goto finish

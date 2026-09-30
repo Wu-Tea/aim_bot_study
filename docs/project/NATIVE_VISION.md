@@ -102,7 +102,7 @@ cod_native_runtime.exe
 ```
 
 The optional Python-hosted native debug/fallback path loads
-`vision_native_cpp` through `vision/native_runner.py` and maps the same compact
+`vision_native_cpp` through `python/vision/native_runner.py` and maps the same compact
 result into `ControllerTarget`. Its fallback authority logic uses an explicit
 allowlist and does not revive projected source labels.
 
@@ -134,18 +134,18 @@ compatible tensor/model contract.
 ## Build
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File tools\build_native_vision.ps1
+powershell -ExecutionPolicy Bypass -File tools\build_native_runtime.ps1
 ```
 
 Direct CMake:
 
 ```powershell
-cmake -S native\vision_native -B native\vision_native\build
-cmake --build native\vision_native\build --config Release --parallel 8
+cmake -S native -B native\build
+cmake --build native\build --config Release --parallel 8
 ```
 
 Useful binaries are emitted under
-`native\vision_native\build\Release`, including:
+`native\build\Release`, including:
 
 - `cod_native_runtime.exe`;
 - `vision_native_cpp.cp311-win_amd64.pyd`;

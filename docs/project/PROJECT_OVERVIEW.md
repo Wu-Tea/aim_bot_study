@@ -2,7 +2,7 @@
 
 Last reviewed: 2026-06-11
 
-Mouse sections and diagram updated 2026-09-08; other sections retain their earlier review scope. Current mouse operation and verification are collected in [Mouse Overview](MOUSE_OVERVIEW.md).
+Repository paths updated 2026-09-30. Mouse sections and diagram updated 2026-09-08; other sections retain their earlier review scope. Current mouse operation and verification are collected in [Mouse Overview](MOUSE_OVERVIEW.md).
 
 ## Application Overview
 
@@ -15,7 +15,7 @@ The system has six main moving parts:
 - `native/vision_native/` produces target deltas, target authority, and auto-fire intent.
 - `native/controller_native/` owns physical gamepad input, AI/manual mixing, auto-fire, recoil compensation, and ViGEm output.
 - `native/mouse_native/` adapts physical mouse packets to the shared native controller and one virtual HID output; Python mouse/KBM hosts remain legacy/debug paths.
-- `recoil_app/`, `vision/recoil_collection/`, and `runtime/recoil_sidecar/` record weapon recoil profiles and expose matching profiles back to the gamepad runtime.
+- `python/recoil_app/`, `python/vision/recoil_collection/`, and `python/runtime/recoil_sidecar/` record weapon recoil profiles and expose matching profiles back to the gamepad runtime.
 
 The mental model is: native vision decides "what should be aimed at"; the native gamepad controller decides "how much should the real output move while respecting current user input". Python is no longer the normal gamepad hot path.
 
@@ -33,24 +33,25 @@ This review is based on the current source tree, existing project docs, and `.ag
 | `scripts/launch/gamepad_native_cpp_start.bat` | Direct native C++ gamepad launcher. |
 | `native/runtime_app/` | C++ runtime executable and 1ms controller/vision polling loop. |
 | `native/controller_native/` | Native gamepad controller, input readers, `ai_aim`, auto-fire, aim-assist dynamics, recoil, ViGEm output. |
-| `main.py` | Python fallback and non-gamepad launcher. Creates Python controllers and starts native or Python vision when explicitly used. |
-| `controllers/factory.py` | Factory for `gamepad`, `mouse`, and `kbm_to_gamepad` controller hosts. |
-| `controller.py` | Compatibility shim that re-exports `ControllerFactory` for older imports. |
-| `config/loader.py` | TOML-backed runtime and tuning config loader. |
-| `controllers/base_controller.py` | Shared controller contract and `ControllerVisionState` handoff model. |
-| `controllers/gamepad_controller.py` | Python fallback physical-gamepad to virtual-Xbox host. |
-| `controllers/gamepad/` | Python fallback gamepad plugins and historical tuning reference. |
-| `controllers/mouse_controller.py` | Native mouse-output host with injected movement, click handling, and telemetry. |
-| `controllers/mouse/` | Mouse plugins: AI aim, auto-fire, recoil, frame/output models. |
-| `vision/runner.py` | Python vision fallback: capture, inference, target selection, enhancement, auto-fire gate. |
-| `vision/native_runner.py` | Python bridge for the native C++ vision module; not the default gamepad runtime. |
-| `native/vision_native/` | C++ / CUDA / TensorRT vision path, pybind module, and runtime build output. |
-| `vision/recoil_collection/` | Recoil recording, segmentation, extraction, readiness/audit, calibration, and profile storage models. |
-| `recoil_app/` | Console/runtime layer for weapon identity, profile recording, state publishing, and plots. |
-| `runtime/recoil_sidecar/` | File/state based bridge that selects active recoil profiles for the controller runtime. |
-| `scripts/launch/` | Full startup script implementations; root `.bat` files call into these scripts as compatibility shims. |
-| `tools/` | Build, smoke, benchmark, training, recoil audit, dry-run playback, and diagnostic helpers. |
-| `tests/` | Unit and integration-style coverage for vision bridge, controllers, recoil, config, startup scripts, and tools. |
+| `python/main.py` | Python fallback and non-gamepad launcher. Creates Python controllers and starts native or Python vision when explicitly used. |
+| `python/controllers/factory.py` | Factory for `gamepad`, `mouse`, and `kbm_to_gamepad` controller hosts. |
+| `python/controller.py` | Compatibility shim that re-exports `ControllerFactory` for older imports. |
+| `python/config/loader.py` | TOML-backed runtime and tuning config loader. |
+| `python/controllers/base_controller.py` | Shared controller contract and `ControllerVisionState` handoff model. |
+| `python/controllers/gamepad_controller.py` | Python fallback physical-gamepad to virtual-Xbox host. |
+| `python/controllers/gamepad/` | Python fallback gamepad plugins and historical tuning reference. |
+| `python/controllers/mouse_controller.py` | Native mouse-output host with injected movement, click handling, and telemetry. |
+| `python/controllers/mouse/` | Mouse plugins: AI aim, auto-fire, recoil, frame/output models. |
+| `python/vision/runner.py` | Python vision fallback: capture, inference, target selection, enhancement, auto-fire gate. |
+| `python/vision/native_runner.py` | Python bridge for the native C++ vision module; not the default gamepad runtime. |
+| `native/vision_native/` | C++ / CUDA / TensorRT vision module. Complete runtime build output lives under `native/build/`. |
+| `python/vision/recoil_collection/` | Recoil recording, segmentation, extraction, readiness/audit, calibration, and profile storage models. |
+| `python/recoil_app/` | Console/runtime layer for weapon identity, profile recording, state publishing, and plots. |
+| `python/runtime/recoil_sidecar/` | File/state based bridge that selects active recoil profiles for the controller runtime. |
+| `scripts/launch/` | Windows startup script implementations; the root GUI entry is `启动助手.vbs`. |
+| `tools/` | Windows native build/smoke helpers and independent static tools. |
+| `python/tools/` | Python benchmark, training, recoil audit, dry-run playback and diagnostic helpers. |
+| `python/tests/` | Unit and integration-style coverage for vision bridge, controllers, recoil, config, startup scripts, and tools. |
 | `docs/project/` | Current overview, architecture, benchmark, validation, and debugging docs. |
 | `docs/superpowers/` | Historical specs and implementation plans. |
 
@@ -61,7 +62,7 @@ flowchart TD
     User["User input\nmouse / keyboard / gamepad"] --> Startup["Startup scripts\n*.bat"]
     Startup --> RuntimeChoice{"gamepad runtime"}
     RuntimeChoice --> NativeRuntime["cod_native_runtime.exe\nfull C++ gamepad runtime"]
-    RuntimeChoice --> Main["main.py\nPython fallback / non-gamepad modes"]
+    RuntimeChoice --> Main["python/main.py\nPython fallback / non-gamepad modes"]
     NativeRuntime --> NativeVisionFull["Native vision\nDXGI + CUDA + TensorRT + selector"]
     NativeRuntime --> NativeController["Native controller\ninput + ai_aim + recoil + ViGEm"]
     NativeController --> VGPadNative["ViGEm\nvirtual Xbox 360 output"]
@@ -123,7 +124,7 @@ Python fallback and non-gamepad flow:
 ```mermaid
 sequenceDiagram
     participant Script as Startup script
-    participant Main as main.py
+    participant Main as python/main.py
     participant Config as config.loader
     participant Factory as ControllerFactory
     participant Controller as Controller host
@@ -252,7 +253,7 @@ Current recoil behavior from the latest handoff:
 | Contract | Producer | Consumer | Purpose |
 | --- | --- | --- | --- |
 | `VisionResult` | `native/vision_native` | `native/runtime_app`, `native/controller_native` | Default gamepad target delta, target metadata, authority fields, auto-fire request, and timing fields. |
-| `ControllerVisionState` | `vision/runner.py`, `vision/native_runner.py` | Python fallback controller hosts | Atomic target delta, target metadata, auto-fire request, and timing fields. |
+| `ControllerVisionState` | `python/vision/runner.py`, `python/vision/native_runner.py` | Python fallback controller hosts | Atomic target delta, target metadata, auto-fire request, and timing fields. |
 | `ControllerTarget` | vision backends | controller plugins | Aim point, screen center, body box, source, and observed timestamp. |
 | `GamepadFrame` / `GamepadOutput` | `GamepadController` | gamepad plugins and virtual output | Snapshot of physical input plus latest vision state, then mutable output. |
 | `MouseFrame` / `MouseOutput` | `MouseController` | mouse plugins and injector | Snapshot of manual mouse state plus latest vision state, then movement/click output. |

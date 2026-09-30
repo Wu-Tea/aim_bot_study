@@ -33,14 +33,14 @@ reference, but it is not the normal live runtime.
 
 Python fallback and reference files:
 
-- `controllers/gamepad_controller.py`
-- `controllers/gamepad/state.py`
-- `controllers/gamepad/plugin.py`
-- `controllers/gamepad/ai_aim.py`
-- `controllers/gamepad/auto_fire.py`
-- `controllers/gamepad/aim_assist_dynamics.py`
-- `controllers/gamepad/recoil_compensation.py`
-- `controllers/gamepad/diagnostics.py`
+- `python/controllers/gamepad_controller.py`
+- `python/controllers/gamepad/state.py`
+- `python/controllers/gamepad/plugin.py`
+- `python/controllers/gamepad/ai_aim.py`
+- `python/controllers/gamepad/auto_fire.py`
+- `python/controllers/gamepad/aim_assist_dynamics.py`
+- `python/controllers/gamepad/recoil_compensation.py`
+- `python/controllers/gamepad/diagnostics.py`
 
 Support and legacy modules still present in the folder:
 
@@ -67,7 +67,7 @@ Default C++ path:
 Python fallback path:
 
 1. Set `GAMEPAD_RUNTIME=python`.
-2. `main.py` asks `ControllerFactory` for `gamepad`.
+2. `python/main.py` asks `ControllerFactory` for `gamepad`.
 3. `GamepadController` opens the physical pad through `pygame` and the virtual pad through `vgamepad`.
 4. Vision sends `ControllerVisionState` into the Python plugin chain.
 
@@ -98,7 +98,7 @@ Default C++ state is defined under `native/controller_native/`:
 - `NativeControllerVisionState`
 - `NativeControllerStageTrace`
 
-Python fallback state is defined in `controllers/gamepad/state.py`:
+Python fallback state is defined in `python/controllers/gamepad/state.py`:
 
 - `GamepadFrame`
   - immutable snapshot of one controller frame
@@ -174,7 +174,7 @@ Important details:
 Current tuning comes from:
 
 - code defaults in `native/controller_native/runtime_config.h`
-- matching Python fallback defaults in `controllers/gamepad/ai_aim.py`
+- matching Python fallback defaults in `python/controllers/gamepad/ai_aim.py`
 - optional overrides from `config.toml` under `[gamepad.ai_aim]`
 
 Useful near-lock lateral knobs:
@@ -299,7 +299,7 @@ Runtime behavior in this direct-use path:
 - the fitted profile exposed to runtime is a single `*-current.json` file per weapon, stance, and aim mode
 - recoil plots are written after each successful recording as final-profile trajectory images: `*.recoil.png` for measured recoil, `*.anti_recoil.png` for the inverse compensation path, and `*.timeline.png` for recoil and anti-recoil on one time axis
 - successful recordings log a `[Recoil] plot_written ...` line with the generated plot paths
-- profile replay can be inspected without live gamepad output through `tools\dry_run_recoil_playback.py`, which prints the same plugin-derived `right_x`/`right_y` stick curve that runtime would apply
+- profile replay can be inspected without live gamepad output through `python\tools\dry_run_recoil_playback.py`, which prints the same plugin-derived `right_x`/`right_y` stick curve that runtime would apply
 - the recoil app writes the latest `current_weapon` JSON itself after successful `Y` recognition for observability
 - loaded weapon identities and profile records may stay indexed in memory, but `Y` switching always re-recognizes the current HUD weapon before selecting a profile
 - recoil may stay on fallback or no profile immediately after a switch until the new OCR capture confirms the current weapon
@@ -320,7 +320,7 @@ Current gamepad entry points:
   - direct full native C++ gamepad runtime
   - prompts for auto-fire output: `RB` or `RT`
   - prompts for recoil profile selection
-  - runs `native\vision_native\build\Release\cod_native_runtime.exe --config config.toml --perf-log`
+  - runs `native\build\Release\cod_native_runtime.exe --config config.toml --perf-log`
 - `scripts\launch\debug\gamepad_debug.bat`
   - Python-hosted gamepad debug runtime
   - prompts for auto-fire output and backend choice

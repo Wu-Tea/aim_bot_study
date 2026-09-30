@@ -81,7 +81,7 @@ Never use one global mean when the workload or logging mode changes inside a ses
 6. Use rates from elapsed time and eligible event counts; never divide by a span that crosses excluded gaps without saying so.
 7. Use existing purpose-built tools after preflight when they match the question:
 
-   - `tools/compare_runtime_perf_summary.py` for matched performance-summary A/B;
+   - `python/tools/compare_runtime_perf_summary.py` for matched performance-summary A/B;
    - native replay and benchmark targets for replay metrics;
    - a bounded, checked-in analysis script for a repeated detailed-telemetry question.
 

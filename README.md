@@ -3,6 +3,40 @@
 Windows 上的 YOLO + TensorRT 手柄辅助瞄准研究项目。当前默认实战路径是
 完整的原生 C++ runtime；Python 主要保留为 fallback、训练导出和调试工具。
 
+## 目录分工
+
+```text
+native/                 C++ runtime 及其模块
+  CMakeLists.txt        完整原生项目的构建入口
+  build/Release/        当前构建的可执行文件、DLL 和 Python 原生扩展
+  vision_native/        捕获、推理与目标选择模块
+  controller_native/    控制器和输出逻辑
+  runtime_app/          程序入口与运行调度
+  cmake/                产品测试和离线 benchmark 的构建清单
+python/                 全部项目 Python 代码、工具与测试
+  desktop_app/          日常使用的设置和启停 GUI
+  main.py               Python fallback 入口
+  config/               Python 配置读取代码
+  controllers/          Python 控制器
+  vision/               Python Vision 与原生扩展桥接
+  runtime/              Python recoil sidecar
+  recoil_app/           Python 压枪工具
+  training/             数据集准备与训练支持代码
+  tools/                分析、训练、benchmark 和验证工具
+  tests/                Python 测试与 fixtures
+scripts/                Windows 启动、验证、训练和发布入口
+tools/                  Windows 原生构建、smoke 工具及独立静态工具
+models/                 本机模型和导出文件
+training_data/          本机数据集
+runs/                   运行会话和实验结果
+artifacts/              本机实验资料及配置引用的运行资产
+docs/                   当前参考文档与历史证据
+```
+
+`config.toml` 继续位于根目录。Python 的导入根是 `python/`，配置、模型与
+日志的资源根仍是项目根目录，具体用法见 [Python 入口](python/README.md) 和
+[原生构建入口](native/README.md)。历史文档中的旧路径用于追溯当时状态。
+
 ## 快速启动
 
 双击根目录的 **`启动助手.vbs`** 打开 GUI：选择通用 / COD、Apex 或 BO3，调整设置后启动。
@@ -40,13 +74,13 @@ scripts\launch\gamepad_native_background_stop.vbs
 
 ## 当前运行契约
 
-- 默认 runtime：`native/vision_native/build/Release/cod_native_runtime.exe`
+- 默认 runtime：`native/build/Release/cod_native_runtime.exe`
 - 本机共用捕获尺寸：`640x512`，模型输入：`480x384`（以 `config.toml` 为准）
 - 共用 TensorRT engine：`models/best_480x384.engine`；Apex 使用游戏分块指定的专属 engine
 - 原生入口：`native/runtime_app/main.cpp`
 - Vision：`native/vision_native/`
 - tracker/controller/output：`native/controller_native/`
-- Python fallback：`main.py`
+- Python fallback：`python/main.py`
 
 捕获尺寸与模型输入须遵守配置中的缩放约束。修改模型输入尺寸前必须准备对应 engine，
 并重新跑启动和 Vision smoke test。
@@ -77,9 +111,9 @@ max_files = 10
 原生构建依赖 Windows、Visual Studio 2022 C++、CUDA、TensorRT 和 pybind11。
 
 ```powershell
-.\tools\build_native_vision.ps1
-.\scripts\verify\native_pipeline_contract.bat
-python -m unittest tests.test_main_cli tests.test_startup_scripts -v
+.\tools\build_native_runtime.ps1
+python -B -m pytest -q
+ctest --test-dir native/build -C Release --output-on-failure
 ```
 
 更完整的构建、fallback 和 smoke test 说明见

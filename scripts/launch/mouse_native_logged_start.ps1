@@ -3,7 +3,7 @@ param([Parameter(ValueFromRemainingArguments = $true)][string[]]$RuntimeArgument
 $ErrorActionPreference = 'Stop'
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 Set-Location -LiteralPath $projectRoot
-$runtimePath = Join-Path $projectRoot 'native/vision_native/build/Release/cod_native_mouse_runtime.exe'
+$runtimePath = Join-Path $projectRoot 'native/build/Release/cod_native_mouse_runtime.exe'
 $configPath = $env:MOUSE_RUNTIME_CONFIG
 if (-not $configPath) { $configPath = Join-Path $projectRoot 'config.toml' }
 $transport = $env:MOUSE_RUNTIME_TRANSPORT

@@ -176,11 +176,11 @@ $fixedFiles = @(
     'config.toml',
     'scripts/launch/gamepad_start.bat',
     'scripts/launch/gamepad_native_cpp_start.bat',
-    'native/vision_native/build/Release/cod_native_runtime.exe',
-    'native/vision_native/build/Release/nvinfer_10.dll',
-    'native/vision_native/build/Release/nvinfer_plugin_10.dll',
-    'native/vision_native/build/Release/SDL2.dll',
-    'native/vision_native/build/Release/ViGEmClient.dll'
+    'native/build/Release/cod_native_runtime.exe',
+    'native/build/Release/nvinfer_10.dll',
+    'native/build/Release/nvinfer_plugin_10.dll',
+    'native/build/Release/SDL2.dll',
+    'native/build/Release/ViGEmClient.dll'
 )
 foreach ($relativePath in $fixedFiles) {
     Copy-RelativeFile -RelativePath $relativePath
@@ -227,7 +227,7 @@ Start:
   scripts\launch\gamepad_start.bat
 
 Direct smoke command:
-  native\vision_native\build\Release\cod_native_runtime.exe --config config.toml --once
+  native\build\Release\cod_native_runtime.exe --config config.toml --once
 
 This package includes the selected TensorRT engine, native runtime DLLs, launchers,
 and referenced recoil profiles/state. It does not require an <engine>.runtime.json

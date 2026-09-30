@@ -3,6 +3,14 @@
 **Last reviewed:** 2026-08-10
 **Scope:** default native C++ gamepad runtime after the low-rate control-stack cleanup
 
+## Repository layout update (2026-09-30)
+
+Python application code, tools and tests are grouped under `python/`. The complete
+native build is owned by `native/CMakeLists.txt`, with current output under
+`native/build/Release/`. Root `config.toml`, models and local evidence retain their
+resource paths. This layout update does not change the separately dated gameplay
+acceptance below. See [layout and verification](REPOSITORY_LAYOUT_20260930.md).
+
 ## Default Runtime
 
 The default gamepad launch path is fully native:
@@ -10,7 +18,7 @@ The default gamepad launch path is fully native:
 ```text
 scripts/launch/gamepad_start.bat
   -> scripts/launch/gamepad_native_cpp_start.bat
-  -> native/vision_native/build/Release/cod_native_runtime.exe
+  -> native/build/Release/cod_native_runtime.exe
 ```
 
 Python remains available for fallback gameplay, legacy mouse/KBM modes, training,

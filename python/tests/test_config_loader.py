@@ -1,0 +1,531 @@
+import tempfile
+import textwrap
+import unittest
+from pathlib import Path
+
+from config import load_tuning_config
+from config.loader import RuntimeConfig, RuntimeGamepadConfig, RuntimeVisionConfig
+from controllers.gamepad import AdaptiveDeltaGainConfig
+from controllers.gamepad import AimAssistDynamicsConfig
+from controllers.gamepad import AIAimConfig as GamepadAIAimConfig
+from controllers.gamepad import AutoFireConfig as GamepadAutoFireConfig
+from controllers.gamepad import RecoilCompensationConfig as GamepadRecoilConfig
+from controllers.mouse import AIAimConfig as MouseAIAimConfig
+from controllers.mouse import AutoFireConfig as MouseAutoFireConfig
+from controllers.mouse import RecoilCompensationConfig as MouseRecoilConfig
+
+
+class TuningConfigLoaderTests(unittest.TestCase):
+    def test_local_config_loads_when_present(self):
+        path = Path(__file__).resolve().parents[2] / "config.toml"
+        if not path.is_file():
+            self.skipTest("local config.toml is optional and gitignored")
+        content = path.read_text(encoding="utf-8")
+
+        if "[runtime.vision]" in content and "[gamepad.ai_aim]" in content:
+            self.assertLess(
+                content.index("[runtime.vision]"),
+                content.index("[gamepad.ai_aim]"),
+            )
+        if "target_max_age_ms" in content and "smoothing" in content:
+            self.assertLess(content.index("target_max_age_ms"), content.index("smoothing"))
+        config = load_tuning_config(path)
+
+        self.assertIn(config.runtime.vision.backend, {"native", "python"})
+        self.assertGreater(config.runtime.vision.capture_fps, 0)
+        self.assertGreaterEqual(config.gamepad_auto_fire.max_source_age_ms, 0.0)
+
+    def test_missing_file_returns_all_dataclass_defaults(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = load_tuning_config(Path(tmp) / "does_not_exist.toml")
+
+        self.assertEqual(config.gamepad_ai_aim, GamepadAIAimConfig())
+        self.assertEqual(config.gamepad_ai_aim.body_lock_activation_box_px, 150.0)
+        self.assertEqual(config.gamepad_ai_aim.ads_snap_max_target_dy_px, 90.0)
+        self.assertFalse(config.runtime.gamepad.rb_counts_as_aiming)
+        self.assertEqual(
+            config.runtime,
+            RuntimeConfig(
+                vision=RuntimeVisionConfig(),
+                gamepad=RuntimeGamepadConfig(),
+            ),
+        )
+        self.assertEqual(config.adaptive_delta_gain, AdaptiveDeltaGainConfig())
+        self.assertEqual(config.gamepad_aim_assist_dynamics, AimAssistDynamicsConfig())
+        self.assertEqual(config.mouse_ai_aim, MouseAIAimConfig())
+        self.assertEqual(config.gamepad_auto_fire, GamepadAutoFireConfig())
+        self.assertEqual(
+            config.gamepad_recoil,
+            GamepadRecoilConfig(feedback_amount=0.20),
+        )
+        self.assertEqual(config.mouse_auto_fire, MouseAutoFireConfig())
+        self.assertEqual(config.mouse_recoil, MouseRecoilConfig())
+
+    def test_overrides_applied_per_section(self):
+        toml = textwrap.dedent(
+            """
+            [runtime.vision]
+            backend = "python"
+            capture_fps = 120
+            crop_width = 600
+            crop_height = 480
+            perf_log = false
+            quit_key = "Q"
+            native_cue_sidecar = true
+            model_path = "D:/models/custom.engine"
+            fallback_model_path = "D:/models/custom.pt"
+
+            [runtime.gamepad]
+            auto_fire_output = "RT"
+            rb_counts_as_aiming = true
+
+            [gamepad.auto_fire]
+            aim_only = false
+            max_source_age_ms = 35.0
+            manual_takeover_release_seconds = 0.040
+            manual_takeover_resume_delay_seconds = 0.095
+            require_aim_ready = false
+
+            [gamepad.recoil]
+            profile_amount = 0.80
+            profile_x_amount = 1.40
+            feedback_amount = 0.16
+            profile_lead_ms = 20
+            profile_velocity_reference_ms = 100
+            profile_despike_enabled = false
+            profile_despike_threshold_px = 1.5
+            profile_despike_ratio = 3.0
+            target_direction_yield_enabled = false
+            selection_log_enabled = false
+            piecewise_mid_pixels_y = 40.0
+            piecewise_max_pixels_y = 160.0
+            piecewise_mid_ratio_y = 0.60
+
+            [gamepad.aim_assist_dynamics]
+            enabled = true
+            recoil_jitter_guard_enabled = true
+            recoil_jitter_assist_threshold = 1450.0
+            recoil_jitter_flip_scale = 0.15
+            recoil_jitter_memory_seconds = 0.045
+            manual_curve_straighten_enabled = true
+            manual_curve_straighten_strength = 0.37
+            manual_curve_straighten_min_manual = 1700.0
+            manual_curve_straighten_min_assist = 950.0
+
+            [gamepad.ai_aim]
+            smoothing = 0.42
+            max_pixels = 180
+            max_ai_force_y = 0.88
+            body_lock_opposing_boost_max_ai_force = 0.67
+            target_max_age_ms = 42.0
+            target_projection_max_age_ms = 18.0
+            target_projection_reticle_speed_px_per_sec = 1300.0
+            target_projection_velocity_lowpass_alpha = 0.25
+            target_projection_max_velocity_px_per_sec = 900.0
+            target_projection_weak_velocity_decay = 0.45
+            piecewise_mid_pixels_y = 52
+            piecewise_max_pixels_y = 172
+            piecewise_mid_ratio_y = 0.7
+            ads_snap_window_ms = 120
+            ads_snap_max_target_dy_px = 84
+            ads_snap_reticle_speed_px_per_sec = 1200.0
+            ads_snap_time_to_go_gain = 1.15
+            ads_snap_time_to_go_min_remaining_ms = 28.0
+            ads_snap_opposing_manual_suppression_max = 0.40
+            body_lock_activation_box_px = 220
+            body_lock_confidence_frames = 6
+            body_lock_confidence_min_strong = 0.72
+            body_lock_opposing_suppression_max = 0.94
+            body_lock_orthogonal_suppression_max = 0.81
+            body_lock_helpful_preservation_floor = 0.77
+            body_lock_manual_overlap_scale = 0.66
+            body_lock_near_lock_error_px = 20.0
+            body_lock_vertical_orthogonal_bias = 1.25
+            body_lock_vertical_deadzone_px = 4.5
+            body_lock_vertical_tail_inner_px = 1.5
+            body_lock_vertical_tail_speed_threshold_px_per_sec = 80.0
+            body_lock_release_tail_scale = 0.35
+            body_lock_lateral_motion_min_speed_px_per_sec = 140.0
+            body_lock_lateral_motion_lead_seconds = 0.03
+            body_lock_lateral_motion_lead_window_px = 7.0
+            body_lock_lateral_motion_lead_max_px = 5.5
+            body_lock_lateral_motion_tail_scale = 0.55
+            body_lock_vertical_lead_scale = 0.8
+            body_lock_lead_frames = 6
+            weak_target_body_lock_force_scale = 0.44
+            cue_hold_body_lock_force_scale = 0.22
+            auto_fire_ready_error_px = 14.0
+            auto_fire_ready_frames = 3
+            auto_fire_ready_min_ads_ms = 65.0
+            auto_fire_ready_max_ai_stick = 5000.0
+
+            [gamepad.adaptive_delta_gain]
+            max_bonus = 0.9
+            trigger_frames = 5
+
+            [mouse.ai_aim]
+            acquire_radius_px = 240.0
+            mid_acquire_enter_px = 52.0
+            mid_acquire_exit_px = 70.0
+            stabilize_enter_px = 14.0
+            stabilize_exit_px = 22.0
+            inner_release_band_px = 2.5
+            stabilize_reacquire_growth_px = 2.0
+            stabilize_reacquire_motion_px = 1.4
+            acquire_gain = 0.98
+            mid_acquire_gain = 0.66
+            reacquire_gain = 0.88
+            stabilize_gain = 0.11
+            predicted_stabilize_gain = 0.09
+            acquire_max_move_px = 9.4
+            mid_acquire_max_move_px = 4.2
+            reacquire_max_move_px = 6.8
+            stabilize_max_move_px = 0.95
+            predicted_stabilize_max_move_px = 0.7
+            acquire_lead_seconds = 0.04
+            mid_acquire_lead_seconds = 0.025
+            reacquire_lead_seconds = 0.03
+            acquire_lead_max_px = 12.0
+            acquire_response_horizon_s = 0.014
+            stabilize_response_horizon_s = 0.024
+            response_accel_multiplier = 2.1
+            follow_control_radius_px = 9.0
+            follow_chase_radius_px = 26.0
+            follow_balanced_gain_scale = 1.12
+            follow_balanced_horizon_scale = 0.85
+            follow_chase_gain_scale = 1.25
+            follow_chase_accel_scale = 1.4
+            acquire_error_rate_gain = 0.2
+            stabilize_integral_gain = 1.8
+            stabilize_integral_limit_px = 4.0
+            same_target_grace_ms = 110
+            reacquire_radius_px = 88.0
+            reacquire_window_ms = 75
+            chase_hold_projection_px_per_sec = 140.0
+            chase_hold_min_radius_px = 28.0
+            acquire_stall_min_shrink_px = 1.4
+            acquire_stall_trigger_frames = 3
+            acquire_stall_gain_per_frame = 0.22
+            acquire_stall_decay_per_frame = 0.18
+            acquire_stall_max_bonus = 0.8
+            breakaway_speed_px = 17.0
+            snap_window_seconds = 0.125
+            snap_gain = 1.2
+            snap_max_move_px = 24.0
+            snap_response_horizon_s = 0.009
+            snap_finish_radius_px = 13.0
+            body_lock_enter_px = 11.0
+            body_lock_exit_px = 23.0
+            body_lock_box_tolerance_px = 10.0
+            body_lock_gain = 0.10
+            body_lock_max_move_px = 0.75
+            body_lock_response_horizon_s = 0.021
+            body_lock_deadband_px = 1.8
+            body_lock_manual_dampen_speed_px = 2.5
+            body_lock_manual_scale = 0.30
+            body_lock_jitter_cancel_enabled = false
+            body_lock_jitter_cancel_x_inner_radius_px = 7.0
+            body_lock_jitter_cancel_x_deadband = 0.6
+            body_lock_jitter_cancel_x_soft_px = 2.8
+            body_lock_jitter_cancel_x_max_speed = 7.5
+            body_lock_jitter_cancel_x_scale = 0.5
+            body_lock_jitter_cancel_x_max_move = 2.2
+            body_lock_jitter_cancel_x_smoothing = 0.4
+            response_adaptive_enabled = false
+            response_px_per_input_initial = 0.42
+            response_min_px_per_input = 0.09
+            response_max_px_per_input = 2.8
+            response_sample_alpha = 0.45
+            response_min_motion_input = 6.0
+            response_stall_factor = 0.80
+
+            [mouse.auto_fire]
+            max_source_age_ms = 40.0
+            hold_seconds = 0.100
+            release_seconds = 0.025
+
+            [mouse.recoil]
+            amount_px = 0.55
+            """
+        ).strip()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.toml"
+            path.write_text(toml, encoding="utf-8")
+            config = load_tuning_config(path)
+
+        self.assertEqual(config.runtime.vision.backend, "python")
+        self.assertEqual(config.runtime.vision.capture_fps, 120)
+        self.assertEqual(config.runtime.vision.crop_width, 600)
+        self.assertEqual(config.runtime.vision.crop_height, 480)
+        self.assertFalse(config.runtime.vision.perf_log)
+        self.assertEqual(config.runtime.vision.quit_key, "Q")
+        self.assertTrue(config.runtime.vision.native_cue_sidecar)
+        self.assertEqual(config.runtime.vision.model_path, "D:/models/custom.engine")
+        self.assertEqual(config.runtime.vision.fallback_model_path, "D:/models/custom.pt")
+        self.assertEqual(config.runtime.gamepad.auto_fire_output, "RT")
+        self.assertTrue(config.runtime.gamepad.rb_counts_as_aiming)
+
+        self.assertFalse(config.gamepad_auto_fire.aim_only)
+        self.assertEqual(config.gamepad_auto_fire.max_source_age_ms, 35.0)
+        self.assertEqual(config.gamepad_auto_fire.manual_takeover_release_seconds, 0.040)
+        self.assertEqual(config.gamepad_auto_fire.manual_takeover_resume_delay_seconds, 0.095)
+        self.assertFalse(config.gamepad_auto_fire.require_aim_ready)
+        self.assertEqual(config.gamepad_auto_fire.fire_output, GamepadAutoFireConfig().fire_output)
+
+        self.assertEqual(config.gamepad_recoil.profile_amount, 0.80)
+        self.assertEqual(config.gamepad_recoil.profile_x_amount, 1.40)
+        self.assertEqual(config.gamepad_recoil.feedback_amount, 0.16)
+        self.assertEqual(config.gamepad_recoil.profile_lead_ms, 20)
+        self.assertEqual(config.gamepad_recoil.profile_velocity_reference_ms, 100)
+        self.assertFalse(config.gamepad_recoil.profile_despike_enabled)
+        self.assertEqual(config.gamepad_recoil.profile_despike_threshold_px, 1.5)
+        self.assertEqual(config.gamepad_recoil.profile_despike_ratio, 3.0)
+        self.assertFalse(config.gamepad_recoil.target_direction_yield_enabled)
+        self.assertFalse(config.gamepad_recoil.selection_log_enabled)
+        self.assertEqual(config.gamepad_recoil.piecewise_mid_pixels_y, 40.0)
+        self.assertEqual(config.gamepad_recoil.piecewise_max_pixels_y, 160.0)
+        self.assertEqual(config.gamepad_recoil.piecewise_mid_ratio_y, 0.60)
+
+        self.assertTrue(config.gamepad_aim_assist_dynamics.enabled)
+        self.assertTrue(config.gamepad_aim_assist_dynamics.recoil_jitter_guard_enabled)
+        self.assertEqual(config.gamepad_aim_assist_dynamics.recoil_jitter_assist_threshold, 1450.0)
+        self.assertEqual(config.gamepad_aim_assist_dynamics.recoil_jitter_flip_scale, 0.15)
+        self.assertEqual(config.gamepad_aim_assist_dynamics.recoil_jitter_memory_seconds, 0.045)
+        self.assertTrue(config.gamepad_aim_assist_dynamics.manual_curve_straighten_enabled)
+        self.assertEqual(config.gamepad_aim_assist_dynamics.manual_curve_straighten_strength, 0.37)
+        self.assertEqual(config.gamepad_aim_assist_dynamics.manual_curve_straighten_min_manual, 1700.0)
+        self.assertEqual(config.gamepad_aim_assist_dynamics.manual_curve_straighten_min_assist, 950.0)
+
+        self.assertEqual(config.gamepad_ai_aim.smoothing, 0.42)
+        self.assertEqual(config.gamepad_ai_aim.max_pixels, 180)
+        self.assertEqual(config.gamepad_ai_aim.max_ai_force_y, 0.88)
+        self.assertEqual(config.gamepad_ai_aim.body_lock_opposing_boost_max_ai_force, 0.67)
+        self.assertEqual(config.gamepad_ai_aim.target_max_age_ms, 42.0)
+        self.assertEqual(config.gamepad_ai_aim.target_projection_max_age_ms, 18.0)
+        self.assertEqual(config.gamepad_ai_aim.target_projection_reticle_speed_px_per_sec, 1300.0)
+        self.assertEqual(config.gamepad_ai_aim.target_projection_velocity_lowpass_alpha, 0.25)
+        self.assertEqual(config.gamepad_ai_aim.target_projection_max_velocity_px_per_sec, 900.0)
+        self.assertEqual(config.gamepad_ai_aim.target_projection_weak_velocity_decay, 0.45)
+        self.assertEqual(config.gamepad_ai_aim.piecewise_mid_pixels_y, 52)
+        self.assertEqual(config.gamepad_ai_aim.piecewise_max_pixels_y, 172)
+        self.assertEqual(config.gamepad_ai_aim.piecewise_mid_ratio_y, 0.7)
+        self.assertEqual(config.gamepad_ai_aim.ads_snap_window_ms, 120)
+        self.assertEqual(config.gamepad_ai_aim.ads_snap_max_target_dy_px, 84)
+        self.assertEqual(config.gamepad_ai_aim.ads_snap_reticle_speed_px_per_sec, 1200.0)
+        self.assertEqual(config.gamepad_ai_aim.ads_snap_time_to_go_gain, 1.15)
+        self.assertEqual(config.gamepad_ai_aim.ads_snap_time_to_go_min_remaining_ms, 28.0)
+        self.assertEqual(config.gamepad_ai_aim.ads_snap_opposing_manual_suppression_max, 0.40)
+        self.assertEqual(config.gamepad_ai_aim.body_lock_activation_box_px, 220)
+        self.assertEqual(config.gamepad_ai_aim.body_lock_confidence_frames, 6)
+        self.assertEqual(config.gamepad_ai_aim.body_lock_confidence_min_strong, 0.72)
+        self.assertEqual(config.gamepad_ai_aim.body_lock_opposing_suppression_max, 0.94)
+        self.assertEqual(
+            config.gamepad_ai_aim.body_lock_orthogonal_suppression_max,
+            0.81,
+        )
+        self.assertEqual(
+            config.gamepad_ai_aim.body_lock_helpful_preservation_floor,
+            0.77,
+        )
+        self.assertEqual(config.gamepad_ai_aim.body_lock_manual_overlap_scale, 0.66)
+        self.assertEqual(config.gamepad_ai_aim.body_lock_near_lock_error_px, 20.0)
+        self.assertEqual(
+            config.gamepad_ai_aim.body_lock_vertical_orthogonal_bias,
+            1.25,
+        )
+        self.assertEqual(config.gamepad_ai_aim.body_lock_vertical_deadzone_px, 4.5)
+        self.assertEqual(config.gamepad_ai_aim.body_lock_vertical_tail_inner_px, 1.5)
+        self.assertEqual(
+            config.gamepad_ai_aim.body_lock_vertical_tail_speed_threshold_px_per_sec,
+            80.0,
+        )
+        self.assertEqual(config.gamepad_ai_aim.body_lock_release_tail_scale, 0.35)
+        self.assertEqual(
+            config.gamepad_ai_aim.body_lock_lateral_motion_min_speed_px_per_sec,
+            140.0,
+        )
+        self.assertEqual(config.gamepad_ai_aim.body_lock_lateral_motion_lead_seconds, 0.03)
+        self.assertEqual(config.gamepad_ai_aim.body_lock_lateral_motion_lead_window_px, 7.0)
+        self.assertEqual(config.gamepad_ai_aim.body_lock_lateral_motion_lead_max_px, 5.5)
+        self.assertEqual(config.gamepad_ai_aim.body_lock_lateral_motion_tail_scale, 0.55)
+        self.assertEqual(config.gamepad_ai_aim.weak_target_body_lock_force_scale, 0.44)
+        self.assertEqual(config.gamepad_ai_aim.cue_hold_body_lock_force_scale, 0.22)
+        self.assertEqual(config.gamepad_ai_aim.auto_fire_ready_error_px, 14.0)
+        self.assertEqual(config.gamepad_ai_aim.auto_fire_ready_frames, 3)
+        self.assertEqual(config.gamepad_ai_aim.auto_fire_ready_min_ads_ms, 65.0)
+        self.assertEqual(config.gamepad_ai_aim.auto_fire_ready_max_ai_stick, 5000.0)
+        self.assertEqual(config.gamepad_ai_aim.body_lock_vertical_lead_scale, 0.8)
+        self.assertEqual(config.gamepad_ai_aim.body_lock_lead_frames, 6)
+        self.assertEqual(
+            config.gamepad_ai_aim.ai_delta_gain,
+            GamepadAIAimConfig().ai_delta_gain,
+        )
+
+        self.assertEqual(config.adaptive_delta_gain.max_bonus, 0.9)
+        self.assertEqual(config.adaptive_delta_gain.trigger_frames, 5)
+        self.assertEqual(
+            config.adaptive_delta_gain.gain_per_update,
+            AdaptiveDeltaGainConfig().gain_per_update,
+        )
+
+        self.assertEqual(config.mouse_ai_aim.acquire_radius_px, 240.0)
+        self.assertEqual(config.mouse_ai_aim.mid_acquire_enter_px, 52.0)
+        self.assertEqual(config.mouse_ai_aim.mid_acquire_exit_px, 70.0)
+        self.assertEqual(config.mouse_ai_aim.stabilize_enter_px, 14.0)
+        self.assertEqual(config.mouse_ai_aim.stabilize_exit_px, 22.0)
+        self.assertEqual(config.mouse_ai_aim.inner_release_band_px, 2.5)
+        self.assertEqual(config.mouse_ai_aim.stabilize_reacquire_growth_px, 2.0)
+        self.assertEqual(config.mouse_ai_aim.stabilize_reacquire_motion_px, 1.4)
+        self.assertEqual(config.mouse_ai_aim.acquire_gain, 0.98)
+        self.assertEqual(config.mouse_ai_aim.mid_acquire_gain, 0.66)
+        self.assertEqual(config.mouse_ai_aim.reacquire_gain, 0.88)
+        self.assertEqual(config.mouse_ai_aim.stabilize_gain, 0.11)
+        self.assertEqual(config.mouse_ai_aim.predicted_stabilize_gain, 0.09)
+        self.assertEqual(config.mouse_ai_aim.acquire_max_move_px, 9.4)
+        self.assertEqual(config.mouse_ai_aim.mid_acquire_max_move_px, 4.2)
+        self.assertEqual(config.mouse_ai_aim.reacquire_max_move_px, 6.8)
+        self.assertEqual(config.mouse_ai_aim.stabilize_max_move_px, 0.95)
+        self.assertEqual(config.mouse_ai_aim.predicted_stabilize_max_move_px, 0.7)
+        self.assertEqual(config.mouse_ai_aim.acquire_lead_seconds, 0.04)
+        self.assertEqual(config.mouse_ai_aim.mid_acquire_lead_seconds, 0.025)
+        self.assertEqual(config.mouse_ai_aim.reacquire_lead_seconds, 0.03)
+        self.assertEqual(config.mouse_ai_aim.acquire_lead_max_px, 12.0)
+        self.assertEqual(config.mouse_ai_aim.acquire_response_horizon_s, 0.014)
+        self.assertEqual(config.mouse_ai_aim.stabilize_response_horizon_s, 0.024)
+        self.assertEqual(config.mouse_ai_aim.response_accel_multiplier, 2.1)
+        self.assertEqual(config.mouse_ai_aim.follow_control_radius_px, 9.0)
+        self.assertEqual(config.mouse_ai_aim.follow_chase_radius_px, 26.0)
+        self.assertEqual(config.mouse_ai_aim.follow_balanced_gain_scale, 1.12)
+        self.assertEqual(config.mouse_ai_aim.follow_balanced_horizon_scale, 0.85)
+        self.assertEqual(config.mouse_ai_aim.follow_chase_gain_scale, 1.25)
+        self.assertEqual(config.mouse_ai_aim.follow_chase_accel_scale, 1.4)
+        self.assertEqual(config.mouse_ai_aim.acquire_error_rate_gain, 0.2)
+        self.assertEqual(config.mouse_ai_aim.stabilize_integral_gain, 1.8)
+        self.assertEqual(config.mouse_ai_aim.stabilize_integral_limit_px, 4.0)
+        self.assertEqual(config.mouse_ai_aim.same_target_grace_ms, 110)
+        self.assertEqual(config.mouse_ai_aim.reacquire_radius_px, 88.0)
+        self.assertEqual(config.mouse_ai_aim.reacquire_window_ms, 75)
+        self.assertEqual(
+            config.mouse_ai_aim.chase_hold_projection_px_per_sec,
+            140.0,
+        )
+        self.assertEqual(config.mouse_ai_aim.chase_hold_min_radius_px, 28.0)
+        self.assertEqual(config.mouse_ai_aim.acquire_stall_min_shrink_px, 1.4)
+        self.assertEqual(config.mouse_ai_aim.acquire_stall_trigger_frames, 3)
+        self.assertEqual(config.mouse_ai_aim.acquire_stall_gain_per_frame, 0.22)
+        self.assertEqual(config.mouse_ai_aim.acquire_stall_decay_per_frame, 0.18)
+        self.assertEqual(config.mouse_ai_aim.acquire_stall_max_bonus, 0.8)
+        self.assertEqual(config.mouse_ai_aim.breakaway_speed_px, 17.0)
+        self.assertEqual(config.mouse_ai_aim.snap_window_seconds, 0.125)
+        self.assertEqual(config.mouse_ai_aim.snap_gain, 1.2)
+        self.assertEqual(config.mouse_ai_aim.snap_max_move_px, 24.0)
+        self.assertEqual(config.mouse_ai_aim.snap_response_horizon_s, 0.009)
+        self.assertEqual(config.mouse_ai_aim.snap_finish_radius_px, 13.0)
+        self.assertEqual(config.mouse_ai_aim.body_lock_enter_px, 11.0)
+        self.assertEqual(config.mouse_ai_aim.body_lock_exit_px, 23.0)
+        self.assertEqual(config.mouse_ai_aim.body_lock_box_tolerance_px, 10.0)
+        self.assertEqual(config.mouse_ai_aim.body_lock_gain, 0.10)
+        self.assertEqual(config.mouse_ai_aim.body_lock_max_move_px, 0.75)
+        self.assertEqual(config.mouse_ai_aim.body_lock_response_horizon_s, 0.021)
+        self.assertEqual(config.mouse_ai_aim.body_lock_deadband_px, 1.8)
+        self.assertEqual(config.mouse_ai_aim.body_lock_manual_dampen_speed_px, 2.5)
+        self.assertEqual(config.mouse_ai_aim.body_lock_manual_scale, 0.30)
+        self.assertFalse(config.mouse_ai_aim.body_lock_jitter_cancel_enabled)
+        self.assertEqual(
+            config.mouse_ai_aim.body_lock_jitter_cancel_x_inner_radius_px,
+            7.0,
+        )
+        self.assertEqual(config.mouse_ai_aim.body_lock_jitter_cancel_x_deadband, 0.6)
+        self.assertEqual(config.mouse_ai_aim.body_lock_jitter_cancel_x_soft_px, 2.8)
+        self.assertEqual(
+            config.mouse_ai_aim.body_lock_jitter_cancel_x_max_speed,
+            7.5,
+        )
+        self.assertEqual(config.mouse_ai_aim.body_lock_jitter_cancel_x_scale, 0.5)
+        self.assertEqual(config.mouse_ai_aim.body_lock_jitter_cancel_x_max_move, 2.2)
+        self.assertEqual(config.mouse_ai_aim.body_lock_jitter_cancel_x_smoothing, 0.4)
+        self.assertFalse(config.mouse_ai_aim.response_adaptive_enabled)
+        self.assertEqual(config.mouse_ai_aim.response_px_per_input_initial, 0.42)
+        self.assertEqual(config.mouse_ai_aim.response_min_px_per_input, 0.09)
+        self.assertEqual(config.mouse_ai_aim.response_max_px_per_input, 2.8)
+        self.assertEqual(config.mouse_ai_aim.response_sample_alpha, 0.45)
+        self.assertEqual(config.mouse_ai_aim.response_min_motion_input, 6.0)
+        self.assertEqual(config.mouse_ai_aim.response_stall_factor, 0.80)
+        self.assertEqual(config.mouse_auto_fire.max_source_age_ms, 40.0)
+        self.assertEqual(config.mouse_auto_fire.hold_seconds, 0.100)
+        self.assertEqual(config.mouse_auto_fire.release_seconds, 0.025)
+        self.assertEqual(config.mouse_recoil.amount_px, 0.55)
+
+    def test_unknown_keys_are_ignored(self):
+        toml = textwrap.dedent(
+            """
+            [runtime.vision]
+            backend = "native"
+            fake_runtime_key = 123
+
+            [gamepad.ai_aim]
+            smoothing = 0.5
+            not_a_real_knob = 9.9
+
+            [mouse.ai_aim]
+            also_fake = true
+            stabilize_gain = 0.07
+            """
+        ).strip()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.toml"
+            path.write_text(toml, encoding="utf-8")
+            config = load_tuning_config(path)
+
+        self.assertEqual(config.gamepad_ai_aim.smoothing, 0.5)
+        self.assertEqual(config.runtime.vision.backend, "native")
+        self.assertFalse(hasattr(config.runtime.vision, "fake_runtime_key"))
+        self.assertEqual(config.mouse_ai_aim.stabilize_gain, 0.07)
+        self.assertFalse(hasattr(config, "not_a_real_section"))
+
+    def test_invalid_runtime_choice_falls_back_to_safe_default(self):
+        toml = textwrap.dedent(
+            """
+            [runtime.vision]
+            backend = "invalid"
+
+            [runtime.gamepad]
+            auto_fire_output = "invalid"
+            """
+        ).strip()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.toml"
+            path.write_text(toml, encoding="utf-8")
+            config = load_tuning_config(path)
+
+        self.assertEqual(config.runtime.vision.backend, RuntimeVisionConfig().backend)
+        self.assertEqual(
+            config.runtime.gamepad.auto_fire_output,
+            RuntimeGamepadConfig().auto_fire_output,
+        )
+
+    def test_empty_file_returns_defaults(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.toml"
+            path.write_text("", encoding="utf-8")
+            config = load_tuning_config(path)
+
+        self.assertEqual(config.gamepad_ai_aim, GamepadAIAimConfig())
+        self.assertEqual(config.runtime.vision, RuntimeVisionConfig())
+        self.assertEqual(config.runtime.gamepad, RuntimeGamepadConfig())
+        self.assertEqual(config.adaptive_delta_gain, AdaptiveDeltaGainConfig())
+        self.assertEqual(config.mouse_ai_aim, MouseAIAimConfig())
+        self.assertEqual(config.gamepad_auto_fire, GamepadAutoFireConfig())
+        self.assertEqual(
+            config.gamepad_recoil,
+            GamepadRecoilConfig(feedback_amount=0.20),
+        )
+        self.assertEqual(config.mouse_auto_fire, MouseAutoFireConfig())
+        self.assertEqual(config.mouse_recoil, MouseRecoilConfig())
+
+
+if __name__ == "__main__":
+    unittest.main()

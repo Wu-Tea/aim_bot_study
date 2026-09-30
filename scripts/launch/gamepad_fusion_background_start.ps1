@@ -6,8 +6,8 @@ param(
 $ErrorActionPreference = "Stop"
 
 $projectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
-$executablePath = [System.IO.Path]::GetFullPath((Join-Path $projectRoot "native\vision_native\build\Release\fusion_canvas.exe"))
-$nativeExecutablePath = [System.IO.Path]::GetFullPath((Join-Path $projectRoot "native\vision_native\build\Release\cod_native_runtime.exe"))
+$executablePath = [System.IO.Path]::GetFullPath((Join-Path $projectRoot "native\build\Release\fusion_canvas.exe"))
+$nativeExecutablePath = [System.IO.Path]::GetFullPath((Join-Path $projectRoot "native\build\Release\cod_native_runtime.exe"))
 $nativeStartScript = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "gamepad_native_background_start.ps1"))
 $powerShellPath = [System.IO.Path]::GetFullPath(
     [System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName)

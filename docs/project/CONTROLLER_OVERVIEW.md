@@ -20,18 +20,18 @@ Python controller layer remains available for fallback gamepad mode, mouse,
 
 ## Entry Points
 
-- `controller.py`
-- `controllers/factory.py`
-- `controllers/base_controller.py`
-- `controllers/gamepad_controller.py`
-- `controllers/mouse_controller.py`
-- `controllers/kbm_controller.py`
+- `python/controller.py`
+- `python/controllers/factory.py`
+- `python/controllers/base_controller.py`
+- `python/controllers/gamepad_controller.py`
+- `python/controllers/mouse_controller.py`
+- `python/controllers/kbm_controller.py`
 - `native/runtime_app/main.cpp`
 - `native/runtime_app/runtime_loop.cpp`
 - `native/controller_native/native_gamepad_controller.cpp`
 
-`ControllerFactory.get_controller(...)` now lives in `controllers/factory.py`. Root
-`controller.py` remains as a compatibility shim for older imports.
+`ControllerFactory.get_controller(...)` now lives in `python/controllers/factory.py`. Root
+`python/controller.py` remains as a compatibility shim for older imports.
 
 The factory supports:
 
@@ -138,7 +138,7 @@ Default files:
 
 Python fallback file:
 
-- `controllers/gamepad_controller.py`
+- `python/controllers/gamepad_controller.py`
 
 Purpose:
 
@@ -156,7 +156,7 @@ Current shape:
 
 File:
 
-- `controllers/mouse_controller.py`
+- `python/controllers/mouse_controller.py`
 
 Purpose:
 
@@ -174,7 +174,7 @@ Current shape:
 
 File:
 
-- `controllers/kbm_controller.py`
+- `python/controllers/kbm_controller.py`
 
 Purpose:
 
@@ -193,9 +193,9 @@ Current scripts:
 
 - `scripts\launch\gamepad_start.bat`
   - launches the full native C++ gamepad runtime by default
-  - set `GAMEPAD_RUNTIME=python` to launch `main.py --controller-mode gamepad`
+  - set `GAMEPAD_RUNTIME=python` to launch `python/main.py --controller-mode gamepad`
 - `scripts\launch\gamepad_native_cpp_start.bat`
-  - runs `native\vision_native\build\Release\cod_native_runtime.exe --config config.toml --perf-log`
+  - runs `native\build\Release\cod_native_runtime.exe --config config.toml --perf-log`
   - prompts for auto-fire output: `RB` or `RT`
   - prompts for native recoil profile selection
 - `scripts\launch\debug\gamepad_debug.bat`
@@ -204,7 +204,7 @@ Current scripts:
 - `scripts\launch\debug\gamepad_native_debug.bat`
   - forces the Python-hosted native-vision debug bridge
 - `scripts\launch\mouse_start.bat`
-  - launches `main.py --controller-mode mouse`
+  - launches `python/main.py --controller-mode mouse`
   - defaults to native vision
 - `scripts\launch\debug\mouse_native_debug.bat`
   - launches the native mouse path with debug window and debug-frame saving
@@ -218,7 +218,7 @@ Current gap:
 Controller-related configuration comes from two places:
 
 1. `config.toml`
-   - loaded through `config/loader.py`
+   - loaded through `python/config/loader.py`
    - currently exposes:
      - `runtime.vision`
      - `runtime.gamepad`
@@ -234,7 +234,7 @@ Controller-related configuration comes from two places:
 
 Important notes:
 
-- live gamepad runtime defaults should be checked in `native/controller_native/runtime_config.h` and `config/loader.py`
+- live gamepad runtime defaults should be checked in `native/controller_native/runtime_config.h` and `python/config/loader.py`
 - some fallback defaults are still instantiated directly in Python controller code
 - debug-specific startup behavior still lives in the `.bat` wrappers
 

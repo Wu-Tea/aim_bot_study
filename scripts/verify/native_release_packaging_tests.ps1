@@ -71,11 +71,11 @@ $required = @(
     'config.toml',
     'scripts/launch/gamepad_start.bat',
     'scripts/launch/gamepad_native_cpp_start.bat',
-    'native/vision_native/build/Release/cod_native_runtime.exe',
-    'native/vision_native/build/Release/nvinfer_10.dll',
-    'native/vision_native/build/Release/nvinfer_plugin_10.dll',
-    'native/vision_native/build/Release/SDL2.dll',
-    'native/vision_native/build/Release/ViGEmClient.dll',
+    'native/build/Release/cod_native_runtime.exe',
+    'native/build/Release/nvinfer_10.dll',
+    'native/build/Release/nvinfer_plugin_10.dll',
+    'native/build/Release/SDL2.dll',
+    'native/build/Release/ViGEmClient.dll',
     'models/candidates/body_union_manual_core_x2_neg_e6_640x512.engine',
     'README.txt'
 )

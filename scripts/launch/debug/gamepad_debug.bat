@@ -1,6 +1,7 @@
 @echo off
 setlocal
 cd /d "%~dp0..\..\.."
+set "PYTHONPATH=%CD%\python;%PYTHONPATH%"
 
 set "VISION_PERF_LOG=1"
 set "AUTO_FIRE_OUTPUT=RB"
@@ -38,5 +39,5 @@ if %errorlevel%==0 (
 )
 
 echo Launching gamepad debug mode with AutoFire=%AUTO_FIRE_OUTPUT% Vision=%VISION_BACKEND% capture_fps=%VISION_CAPTURE_FPS% quit_key=%VISION_QUIT_KEY%
-%PYTHON_CMD% main.py --controller-mode gamepad --auto-fire-output %AUTO_FIRE_OUTPUT% --vision-backend %VISION_BACKEND% --vision-debug --vision-debug-save
+%PYTHON_CMD% python\main.py --controller-mode gamepad --auto-fire-output %AUTO_FIRE_OUTPUT% --vision-backend %VISION_BACKEND% --vision-debug --vision-debug-save
 pause

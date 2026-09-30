@@ -9,7 +9,7 @@ The important part of this workflow is not one aggressive training command. The 
 ## Stability Rules
 
 - Do not launch Ultralytics valid/train from `python -c`, stdin, or notebook cells.
-- Use real script entrypoints: `tools/validate_person_detector.py`, `tools/train_person_detector.py`, and `tools/run_person_detector_loop.py`.
+- Use real script entrypoints: `python/tools/validate_person_detector.py`, `python/tools/train_person_detector.py`, and `python/tools/run_person_detector_loop.py`.
 - Keep `workers=0` on Windows by default. Try higher workers only after the flow is stable.
 - Keep `cache=false` by default. Do not use `--cache ram` on large datasets unless memory pressure is understood.
 - Use separate run names for baseline validation, every training loop, and every trained-model validation.
@@ -19,7 +19,7 @@ The important part of this workflow is not one aggressive training command. The 
 ## Baseline Validation
 
 ```powershell
-py -3 tools\validate_person_detector.py `
+py -3 python\tools\validate_person_detector.py `
   --model models\train\best.pt `
   --data models\train\cod_combined_single_cls.yaml `
   --imgsz 640 `
@@ -38,7 +38,7 @@ runs/person_val/baseline_train_best_cod_combined_640
 ## Conservative Training
 
 ```powershell
-py -3 tools\train_person_detector.py `
+py -3 python\tools\train_person_detector.py `
   --model models\train\best.pt `
   --data models\train\cod_combined_single_cls.yaml `
   --epochs 5 `
@@ -60,7 +60,7 @@ runs/person_train/cod_combined_safe_640_e5
 Run a short loop first:
 
 ```powershell
-py -3 tools\run_person_detector_loop.py `
+py -3 python\tools\run_person_detector_loop.py `
   --model models\train\best.pt `
   --data models\train\cod_combined_single_cls.yaml `
   --loops 2 `
@@ -99,7 +99,7 @@ artifacts/person_detector_loops/cod_safe_loop_YYYYMMDD-HHMMSS/
 After the short loop is stable, raise training strength carefully:
 
 ```powershell
-py -3 tools\run_person_detector_loop.py `
+py -3 python\tools\run_person_detector_loop.py `
   --model models\train\best.pt `
   --data models\train\cod_combined_single_cls.yaml `
   --loops 1 `

@@ -2,7 +2,7 @@ param(
     [string]$EnginePath = "models\best.engine",
     [string]$TensorRTRoot = "D:\env\TensorRT-10.15.1.29",
     [string]$CudaPath = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.1",
-    [string]$BuildDir = "native\vision_native\build",
+    [string]$BuildDir = "native\build",
     [string]$Configuration = "Release",
     [switch]$BuildFirst
 )
@@ -15,7 +15,7 @@ $BuildDir = Join-Path $ProjectRoot $BuildDir
 $SmokeExe = Join-Path $BuildDir "$Configuration\vision_native_smoke.exe"
 
 if ($BuildFirst -or -not (Test-Path $SmokeExe)) {
-    & (Join-Path $PSScriptRoot "build_native_vision.ps1") `
+    & (Join-Path $PSScriptRoot "build_native_runtime.ps1") `
         -TensorRTRoot $TensorRTRoot `
         -CudaPath $CudaPath `
         -BuildDir ($BuildDir.Substring($ProjectRoot.Length + 1)) `

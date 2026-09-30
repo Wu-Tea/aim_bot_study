@@ -1,7 +1,7 @@
 @echo off
 setlocal
 cd /d "%~dp0..\.."
-set "EXE=%CD%\native\vision_native\build\Release\cod_native_mouse_runtime.exe"
+set "EXE=%CD%\native\build\Release\cod_native_mouse_runtime.exe"
 if not exist "%EXE%" (
   echo Build the mouse runtime with scripts\verify\mouse_native.ps1 first.
   exit /b 1

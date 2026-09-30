@@ -72,7 +72,7 @@ try {
         ("cod_native_release_smoke_" + [System.Guid]::NewGuid().ToString('N'))
     try {
         $env:RUNTIME_TELEMETRY_DIRECTORY = $smokeTelemetryDirectory
-        & '.\native\vision_native\build\Release\cod_native_runtime.exe' --config config.toml --once
+        & '.\native\build\Release\cod_native_runtime.exe' --config config.toml --once
         if ($LASTEXITCODE -ne 0) {
             throw "Runtime smoke failed with exit code $LASTEXITCODE"
         }

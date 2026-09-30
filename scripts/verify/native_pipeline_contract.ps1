@@ -1,5 +1,5 @@
 param(
-    [string]$BuildDir = "native\vision_native\build",
+    [string]$BuildDir = "native\build",
     [string]$Configuration = "Release",
     [string]$RuntimeConfig = "config.toml",
     [switch]$SkipBuild,
@@ -70,7 +70,7 @@ function Assert-NoForbiddenCoupling {
             $_.Name -notlike "*_benchmark.h"
         }
     $trackingHeaders = Get-ChildItem -Path "native\tracking_native" -Include "*.h" -Recurse
-    $cmakeLists = "native\vision_native\CMakeLists.txt"
+    $cmakeLists = @("native\CMakeLists.txt", "native\cmake\ProductTests.cmake")
     $forbiddenBoundaryPatterns = @(
         "target_direction_yield",
         "target_observed_at_seconds",

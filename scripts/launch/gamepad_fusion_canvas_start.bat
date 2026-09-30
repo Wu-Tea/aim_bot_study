@@ -3,11 +3,11 @@ setlocal EnableDelayedExpansion
 cd /d "%~dp0..\.."
 
 set "RESULT=0"
-set "RUNTIME_EXE=native\vision_native\build\Release\cod_native_runtime.exe"
-set "CANVAS_EXE=native\vision_native\build\Release\fusion_canvas.exe"
+set "RUNTIME_EXE=native\build\Release\cod_native_runtime.exe"
+set "CANVAS_EXE=native\build\Release\fusion_canvas.exe"
 
 if not exist "%RUNTIME_EXE%" (
-  echo Native C++ runtime not found. Run tools\build_native_vision.ps1 first.
+  echo Native C++ runtime not found. Run tools\build_native_runtime.ps1 first.
   exit /b 1
 )
 

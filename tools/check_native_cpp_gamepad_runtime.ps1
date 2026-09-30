@@ -2,7 +2,7 @@ param(
     [switch]$BuildFirst,
     [switch]$SkipPythonTests,
     [switch]$SkipPipelineContract,
-    [string]$BuildDirectory = "native\vision_native\build",
+    [string]$BuildDirectory = "native\build",
     [string]$RuntimeConfig = "config.toml"
 )
 
@@ -10,6 +10,7 @@ $ErrorActionPreference = "Stop"
 
 $ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 Set-Location $ProjectRoot
+$env:PYTHONPATH = (Join-Path $ProjectRoot "python") + [IO.Path]::PathSeparator + $env:PYTHONPATH
 
 function Invoke-Checked {
     param(
@@ -114,7 +115,7 @@ function Assert-DirectoryTextAbsent {
 
 if ($BuildFirst) {
     Invoke-Checked "build native vision/runtime" {
-        powershell -ExecutionPolicy Bypass -File tools\build_native_vision.ps1 `
+        powershell -ExecutionPolicy Bypass -File tools\build_native_runtime.ps1 `
             -BuildDir $BuildDirectory
     }
 }

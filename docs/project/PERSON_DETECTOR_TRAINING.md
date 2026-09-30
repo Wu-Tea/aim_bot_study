@@ -82,13 +82,13 @@ training_data/
 命令：
 
 ```powershell
-python tools\prepare_person_dataset.py --force
+python python\tools\prepare_person_dataset.py --force
 ```
 
 如果你的目录不在默认位置：
 
 ```powershell
-python tools\prepare_person_dataset.py `
+python python\tools\prepare_person_dataset.py `
   --crowdhuman-root D:\datasets\CrowdHuman `
   --game-yolo-root D:\datasets\game_yolo `
   --output-root D:\datasets\person_detect_visible `
@@ -128,7 +128,7 @@ training_data/
 默认训练命令：
 
 ```powershell
-python tools\train_person_detector.py `
+python python\tools\train_person_detector.py `
   --data training_data\assembled\person_detect_visible\dataset.yaml `
   --model models\yolo26n.pt `
   --epochs 80 `
@@ -159,7 +159,7 @@ runs/person_train/crowdhuman_visible_v1/weights/best.pt
 命令：
 
 ```powershell
-python tools\export_person_detector.py `
+python python\tools\export_person_detector.py `
   --weights runs\person_train\crowdhuman_visible_v1\weights\best.pt `
   --width 896 `
   --height 512
@@ -176,7 +176,7 @@ python tools\export_person_detector.py `
 ```powershell
 $env:VISION_MODEL_PATH="D:\work\AI\yolo-study-001\runs\person_train\crowdhuman_visible_v1\weights\best.engine"
 $env:VISION_FALLBACK_MODEL_PATH="D:\work\AI\yolo-study-001\runs\person_train\crowdhuman_visible_v1\weights\best.pt"
-python main.py --controller-mode gamepad --vision-debug --vision-debug-save
+python python/main.py --controller-mode gamepad --vision-debug --vision-debug-save
 ```
 
 如果导出的 engine 不在 `weights/` 目录，按实际路径改即可。

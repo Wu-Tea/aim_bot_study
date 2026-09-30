@@ -5,7 +5,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $projectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
-$executablePath = [System.IO.Path]::GetFullPath((Join-Path $projectRoot "native\vision_native\build\Release\fusion_canvas.exe"))
+$executablePath = [System.IO.Path]::GetFullPath((Join-Path $projectRoot "native\build\Release\fusion_canvas.exe"))
 $stateDirectory = [System.IO.Path]::GetFullPath((Join-Path $projectRoot "runs\fusion_canvas\background"))
 $statePath = Join-Path $stateDirectory "fusion_canvas_state.json"
 $launcherLogPath = Join-Path $stateDirectory "launcher.log"

@@ -73,7 +73,12 @@ not current continuation instructions.
 - [Benchmarks](../benchmarks/README.md)
 - [Historical archive](../archive/README.md)
 - `../superpowers/specs/` and `../superpowers/plans/` - historical design and
-  implementation records
+implementation records
+
+## Repository Layout
+
+- [Python and native repository layout, 2026-09-30](REPOSITORY_LAYOUT_20260930.md) -
+  source ownership, current build paths, preserved local assets and verification.
 
 When the question is what runs today, prefer current code and effective
 configuration, then `CURRENT_STATE.md`. When the question is intended product

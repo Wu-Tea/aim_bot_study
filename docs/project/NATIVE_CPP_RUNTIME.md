@@ -21,8 +21,8 @@ scripts\launch\gamepad_native_cpp_start.bat
 Direct executable and one-tick smoke:
 
 ```powershell
-native\vision_native\build\Release\cod_native_runtime.exe --config config.toml --perf-log
-native\vision_native\build\Release\cod_native_runtime.exe --config config.toml --perf-log --once
+native\build\Release\cod_native_runtime.exe --config config.toml --perf-log
+native\build\Release\cod_native_runtime.exe --config config.toml --perf-log --once
 ```
 
 Set `GAMEPAD_RUNTIME=python` only when an explicit fallback comparison is
@@ -149,15 +149,15 @@ retired AimPerf environment variables.
 Repository helper:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File tools\build_native_vision.ps1
+powershell -ExecutionPolicy Bypass -File tools\build_native_runtime.ps1
 ```
 
 Direct CMake workflow:
 
 ```powershell
-cmake -S native\vision_native -B native\vision_native\build
-cmake --build native\vision_native\build --config Release --parallel 8
-ctest --test-dir native\vision_native\build -C Release --output-on-failure
+cmake -S native -B native\build
+cmake --build native\build --config Release --parallel 8
+ctest --test-dir native\build -C Release --output-on-failure
 ```
 
 Pipeline check:

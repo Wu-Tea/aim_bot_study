@@ -1,5 +1,5 @@
 param(
-    [string]$BuildDirectory = "native/vision_native/build",
+    [string]$BuildDirectory = "native/build",
     [string]$OutputDirectory = "runs/native_perf/runtime_acceptance/latest",
     [string]$RuntimeConfig = "config.toml"
 )

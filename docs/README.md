@@ -10,6 +10,9 @@
 4. [Benchmarks](benchmarks/README.md) — 测试合约、比较条件和有效入口。
 5. [Archive](archive/README.md) — 旧基线、阶段验收、研究记录和项目历史。
 
+源码与构建目录见 [2026-09-30 目录整理](project/REPOSITORY_LAYOUT_20260930.md)：
+Python 代码集中在 `python/`，完整 C++ 构建入口为 `native/CMakeLists.txt`。
+
 ## 当前系统
 
 - [Project Overview](project/PROJECT_OVERVIEW.md) — 项目组件和主要数据流。

@@ -3,7 +3,7 @@ setlocal
 cd /d "%~dp0\..\.."
 set "VIRTUAL_RELAY_EXE=%CD%\artifacts\mouse_link\virtual-build\Release\mouse_virtual_relay.exe"
 if not exist "%VIRTUAL_RELAY_EXE%" (
-    echo Build first: D:\env\python\python.exe scripts\verify\build_mouse_virtual_relay.py
+    echo Build first: D:\env\python\python.exe python\tools\verify\build_mouse_virtual_relay.py
     pause
     exit /b 2
 )

@@ -32,7 +32,7 @@ Mouse 的当前目标是：**接管指定物理鼠标，由现有 controller 决
 3. [BodyLock 范围和加减速](MOUSE_BODYLOCK_RANGE_CURVE_20260908.md)、[目标点容差](MOUSE_TARGET_POINT_CONTROL_20260908.md)：当前控制行为及回归证据。
 4. [输入替代路线](MOUSE_ROUTE_INPUT_REPLACEMENT_20260908.md)、[桌面验收](MOUSE_VIRTUAL_RELAY_DESKTOP_VERIFIED_20260908.md)：设备所有权与已验证范围。
 
-已有 native 构建目录时，`scripts/verify/mouse_native.ps1` 构建正式 runtime 并运行共享/鼠标门禁；首次构建的 SDK 参数见 `tools/build_native_vision.ps1`。Python 配套检查为 `python -m unittest tests.test_startup_scripts tests.mouse.test_mouse_diagnostics`。这些命令默认不接管实体输入，`-DesktopProbe` 则会执行桌面注入检查。
+已有 native 构建目录时，`scripts/verify/mouse_native.ps1` 构建正式 runtime 并运行共享/鼠标门禁；首次构建的 SDK 参数见 `tools/build_native_runtime.ps1`。Python 配套检查为 `python -m unittest tests.test_startup_scripts tests.mouse.test_mouse_diagnostics`。这些命令默认不接管实体输入，`-DesktopProbe` 则会执行桌面注入检查。
 
 最新验证：Release 构建成功，原生 34/34、启动/日志 Python 30/30 通过。原始日志、二进制、构建输出和带哈希的 RED/GREEN 包保留在本机忽略的 `runs/` 中；仓库提交源夹具、配置模板和可复现命令，文档中的本地证据链接不保证新 clone 存在。正式运行已有 215371 tick 完整日志用于控制内部诊断，尚无目标点修正版本的匹配游戏 A/B 和手感验收。
 
@@ -82,16 +82,16 @@ It is narrower than the gamepad path, but it is a real current implementation, n
 
 ## Main Files
 
-- `controllers/mouse_controller.py`
-- `controllers/mouse/state.py`
-- `controllers/mouse/plugin.py`
-- `controllers/mouse/ai_aim.py`
-- `controllers/mouse/auto_fire.py`
-- `controllers/mouse/recoil_compensation.py`
+- `python/controllers/mouse_controller.py`
+- `python/controllers/mouse/state.py`
+- `python/controllers/mouse/plugin.py`
+- `python/controllers/mouse/ai_aim.py`
+- `python/controllers/mouse/auto_fire.py`
+- `python/controllers/mouse/recoil_compensation.py`
 
 ## Runtime Flow
 
-1. `main.py --controller-mode mouse` creates `MouseController`.
+1. `python/main.py --controller-mode mouse` creates `MouseController`.
 2. Vision sends:
    - `update(dx, dy, target=ControllerTarget | None)`
    - `set_auto_fire(bool)`
@@ -126,7 +126,7 @@ So the boundary is:
 
 ## Data Structures
 
-`controllers/mouse/state.py` defines:
+`python/controllers/mouse/state.py` defines:
 
 - `MouseFrame`
   - immutable snapshot of manual mouse delta, aiming state, vision delta, and auto-fire request
@@ -275,7 +275,7 @@ This path is intentionally additive. It does not try to replace or intercept the
 - defaults `VISION_CAPTURE_FPS=140`
 - defaults `VISION_QUIT_KEY=Q`
 - defaults `MOUSE_INJECTION_BACKEND=sendinput`
-- launches `main.py --controller-mode mouse --vision-backend native --perf-log`
+- launches `python/main.py --controller-mode mouse --vision-backend native --perf-log`
 
 `scripts\launch\debug\mouse_native_debug.bat` currently:
 
@@ -283,8 +283,8 @@ This path is intentionally additive. It does not try to replace or intercept the
 - enables `MOUSE_TELEMETRY=1`
 - probes mouse injection before launching unless `MOUSE_PROBE_INPUT=0`
 - writes a run-specific CSV under `artifacts\mouse_telemetry\`
-- analyzes that exact CSV with `tools\analyze_mouse_telemetry.py --assert-healthy`
-- launches `main.py --controller-mode mouse --vision-backend native --vision-debug --vision-debug-save --perf-log`
+- analyzes that exact CSV with `python\tools\analyze_mouse_telemetry.py --assert-healthy`
+- launches `python/main.py --controller-mode mouse --vision-backend native --vision-debug --vision-debug-save --perf-log`
 
 Neither script provides the gamepad startup prompts.
 
