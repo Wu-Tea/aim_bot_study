@@ -11,6 +11,9 @@ __pycache__/
 .claude/settings.local.json
 .agent-context/claude-runs/
 config.toml
+# Local calibration/legacy migration inputs; not shipped defaults.
+/config.bo3.toml
+/config _higher-.toml
 training_data/
 models/train/
 models/*.engine
