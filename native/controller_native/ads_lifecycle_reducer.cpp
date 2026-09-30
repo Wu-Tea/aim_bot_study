@@ -4,6 +4,53 @@
 #include <cmath>
 
 namespace controller_native {
+bool AdsLifecycleReducer::select(const AdsSelectionEvidence& evidence, double now_seconds) noexcept {
+    if (evidence.replacement && evidence.scope_active && state_.epoch_active &&
+        !evidence.cue && state_.target_admitted && !state_.snap_consumed) {
+        complete(pipeline_contract::AdsDecisionReason::TargetSwitch, now_seconds);
+    }
+    state_.evidence_wait = AdsEvidenceWait::None;
+    if (evidence.scope_active && state_.snap_consumed) {
+        mark_already_consumed();
+        return false;
+    }
+    if (evidence.scope_active && state_.epoch_active && !state_.snap_consumed &&
+        !state_.target_admitted && !evidence.cue) {
+        if (evidence.within_pickup) {
+            admit_target(now_seconds);
+            return true;
+        }
+        reject_source(pipeline_contract::AdsDecisionReason::OutsidePickupEnvelope);
+    } else {
+        accept_continuation();
+    }
+    return false;
+}
+
+AdsTargetDisposition AdsLifecycleReducer::missing(const AdsMissingEvidence& evidence, double now_seconds) noexcept {
+    if (!evidence.target_present) {
+        if (evidence.scope_active && !state_.snap_consumed) wait_for_target();
+        return AdsTargetDisposition::Absent;
+    }
+    const bool unfinished = evidence.scope_active && state_.target_admitted && !state_.snap_consumed;
+    const bool waiting = state_.evidence_wait == AdsEvidenceWait::SameTarget;
+    if (unfinished && !evidence.expired && (evidence.same_generation ||
+        (waiting && (!evidence.fresh_miss || evidence.same_generation)))) {
+        wait_for_target();
+        state_.task_mode = pipeline_contract::ControlMode::Manual;
+        return AdsTargetDisposition::Wait;
+    }
+    if (evidence.fresh_miss || evidence.expired || waiting) {
+        state_.evidence_wait = AdsEvidenceWait::None;
+        if (unfinished) {
+            complete(pipeline_contract::AdsDecisionReason::TargetLost, now_seconds);
+            state_.task_mode = pipeline_contract::ControlMode::Manual;
+        } else if (evidence.scope_active && !state_.snap_consumed) wait_for_target();
+        return AdsTargetDisposition::Release;
+    }
+    return AdsTargetDisposition::Retain;
+}
+
 namespace {
 
 std::uint64_t seconds_to_ns(double seconds) noexcept {
@@ -18,12 +65,34 @@ void AdsLifecycleReducer::reset() noexcept {
     next_target_acquisition_id_ = 1;
 }
 
-void AdsLifecycleReducer::begin_tick() noexcept {
+void AdsLifecycleReducer::begin_tick(bool scope_active, double now_seconds) noexcept {
     state_.source_decision_available = false;
     state_.source_decision_outcome =
         pipeline_contract::SourceDecisionOutcome::NoDecision;
     state_.source_decision_reason =
         pipeline_contract::AdsDecisionReason::None;
+    if (!scope_active) {
+        release_scope();
+        state_.task_mode = pipeline_contract::ControlMode::Manual;
+    }
+    if (scope_active && state_.snap_consumed) {
+        consume();
+    }
+    const bool wait_deadline_elapsed = scope_active && state_.epoch_active &&
+        !state_.snap_consumed && !state_.target_admitted &&
+        config_.target_wait_ms > 0.0f &&
+        (now_seconds - state_.epoch_started_seconds) * 1000.0 >=
+            static_cast<double>(config_.target_wait_ms);
+    if (wait_deadline_elapsed) {
+        // The pre-admission opportunity has its own deadline. Expiry consumes
+        // the token before candidate selection on this tick, so a later target
+        // may use BodyLock but cannot retroactively mint an ADS Snap.
+        expire_wait(
+            pipeline_contract::AdsDecisionReason::NoTarget,
+            now_seconds);
+        state_.task_mode = pipeline_contract::ControlMode::Manual;
+    }
+
 }
 
 void AdsLifecycleReducer::begin_epoch(
@@ -32,6 +101,8 @@ void AdsLifecycleReducer::begin_epoch(
     state_.physical_ads_epoch = epoch;
     state_.epoch_started_seconds = now_seconds;
     state_.epoch_active = true;
+    state_.task_mode = pipeline_contract::ControlMode::AdsAcquire;
+    state_.evidence_wait = AdsEvidenceWait::InitialTarget;
     state_.snap_consumed = false;
     state_.target_admitted = false;
     state_.target_acquisition_id = 0;
@@ -53,6 +124,8 @@ void AdsLifecycleReducer::begin_epoch(
 }
 
 void AdsLifecycleReducer::release_scope() noexcept {
+    state_.task_mode = pipeline_contract::ControlMode::Manual;
+    state_.evidence_wait = AdsEvidenceWait::None;
     state_.epoch_active = false;
     state_.snap_consumed = false;
     state_.target_admitted = false;
@@ -107,6 +180,7 @@ void AdsLifecycleReducer::mark_already_consumed() noexcept {
 }
 
 void AdsLifecycleReducer::wait_for_target() noexcept {
+    state_.evidence_wait = state_.target_admitted ? AdsEvidenceWait::SameTarget : AdsEvidenceWait::InitialTarget;
     state_.state =
         pipeline_contract::AdsAcquisitionState::ArmedWaitingForTarget;
 }
@@ -120,6 +194,7 @@ void AdsLifecycleReducer::expire_wait(
     state_.terminal_reason = reason;
     state_.acquisition_completed_seconds = now_seconds;
     state_.snap_consumed = true;
+    state_.evidence_wait = AdsEvidenceWait::None;
 }
 
 void AdsLifecycleReducer::stay_nominal() noexcept {
@@ -149,6 +224,7 @@ void AdsLifecycleReducer::complete(
     state_.acquisition_completed_seconds = now_seconds;
     state_.acquisition_complete_ns = seconds_to_ns(now_seconds);
     state_.snap_consumed = true;
+    state_.evidence_wait = AdsEvidenceWait::None;
 }
 
 void AdsLifecycleReducer::consume() noexcept {
@@ -188,4 +264,76 @@ void AdsLifecycleReducer::project(
         : 0.0f;
 }
 
+}  // namespace controller_native
+
+namespace controller_native {
+void AdsLifecycleReducer::advance(bool scope_active, bool settled, bool center_cross, double now_seconds) noexcept {
+    const float elapsed_ms = state_.target_admitted ? static_cast<float>(std::max(
+        0.0, (now_seconds - state_.acquisition_started_seconds) * 1000.0)) : 0.0f;
+    if (center_cross) note_center_cross();
+
+    const bool extension_budget_elapsed = state_.target_admitted &&
+        config_.extension_ms > 0.0f &&
+        elapsed_ms >=
+            std::max(0.0f, config_.nominal_ms) +
+                config_.extension_ms;
+    const bool nominal_elapsed = state_.target_admitted &&
+        elapsed_ms >=
+            std::max(0.0f, config_.nominal_ms);
+    if (!scope_active) {
+        state_.task_mode = pipeline_contract::ControlMode::Manual;
+    } else if (state_.snap_consumed) {
+        consume();
+        state_.task_mode = pipeline_contract::ControlMode::BodyLockFollow;
+    } else if (state_.target_admitted) {
+        if (settled) {
+            complete(
+                pipeline_contract::AdsDecisionReason::Settled,
+                now_seconds);
+            state_.task_mode = pipeline_contract::ControlMode::BodyLockFollow;
+        } else if (center_cross) {
+            // The strict radial predicate above proves that this one-per-LT
+            // positioning job reached and passed the reticle center. Keeping
+            // full ADS authority after that event makes the next correction
+            // reverse through center again. Consume this snap and let the
+            // continuous BodyLock owner track the remaining target motion.
+            complete(
+                pipeline_contract::AdsDecisionReason::CenterCross,
+                now_seconds);
+            state_.task_mode = pipeline_contract::ControlMode::BodyLockFollow;
+        } else if (extension_budget_elapsed) {
+            // 220 ms is extra time after the nominal phase, not the total ADS
+            // lifetime. Exhaustion cannot manufacture success. Keep the same
+            // full ADS solver alive for neutral input, while publishing a
+            // phase that final arbitration treats as manual-safe.
+            enter_manual_safe();
+            state_.task_mode = pipeline_contract::ControlMode::AdsAcquire;
+        } else if (nominal_elapsed &&
+                   state_.state ==
+                       pipeline_contract::AdsAcquisitionState::AcquiringNominal) {
+            // Ending exclusive input ownership is a clock invariant, not a
+            // detector decision. A replay tick therefore enters the extension
+            // phase on time; fresh evidence is still required for every real
+            // completion path above.
+            extend();
+            state_.task_mode = pipeline_contract::ControlMode::AdsAcquire;
+        } else if (state_.state ==
+                   pipeline_contract::AdsAcquisitionState::AcquiringExtended) {
+            extend();
+            state_.task_mode = pipeline_contract::ControlMode::AdsAcquire;
+        } else if (state_.state ==
+                   pipeline_contract::AdsAcquisitionState::AcquiringManualSafe) {
+            enter_manual_safe();
+            state_.task_mode = pipeline_contract::ControlMode::AdsAcquire;
+        } else {
+            stay_nominal();
+            state_.task_mode = pipeline_contract::ControlMode::AdsAcquire;
+        }
+    } else if (scope_active) {
+        wait_for_target();
+        state_.task_mode = pipeline_contract::ControlMode::Manual;
+    } else {
+        state_.task_mode = pipeline_contract::ControlMode::Manual;
+    }
+}
 }  // namespace controller_native

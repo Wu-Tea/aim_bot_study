@@ -1,3 +1,4 @@
+from controllers.activation import AimActivation
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
@@ -188,10 +189,10 @@ class BaseController(ABC):
         self.reset()
 
     @abstractmethod
-    def is_aiming(self) -> bool:
+    def aim_activation(self) -> AimActivation:
         """
-        Returns True if the user is currently aiming (e.g., holding right mouse
-        button or left trigger), False otherwise.
+        Returns the current activation source. Vision derives search demand from
+        this snapshot; fire/recoil consumers use physical ADS separately.
         """
         pass
 

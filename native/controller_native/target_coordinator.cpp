@@ -37,7 +37,9 @@ TargetCoordinator::TargetCoordinator(TargetCoordinatorConfig config)
     : config_(config),
       desired_point_reducer_({
           config.desired_point_traversal_ms,
-          config.desired_point_boundary_exit_ms}) {}
+          config.desired_point_boundary_exit_ms}),
+      ads_lifecycle_reducer_({config.ads_target_wait_ms,
+          config.ads_nominal_acquisition_ms, config.ads_extension_budget_ms}) {}
 
 void TargetCoordinator::reset_target_owned_state_for_replacement() noexcept {
     // A selector-confirmed replacement is a new person, not a new physical
@@ -210,35 +212,9 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     const float dt = last_update_seconds_ > 0.0
         ? static_cast<float>(std::clamp(now_seconds - last_update_seconds_, 0.0, 0.1))
         : 0.0f;
-    ads_lifecycle_reducer_.begin_tick();
+    ads_lifecycle_reducer_.begin_tick(pipeline_contract::owns_ads_task(intent.activation), now_seconds);
     const auto& ads = ads_lifecycle_reducer_.snapshot();
-    // AimScopeReducer/AimMode owns activation edges. TargetCoordinator accepts
-    // an epoch only through begin_ads_epoch(); a held intent sample is not an
-    // event and cannot synthesize a new epoch here.
-    if (!intent.ads) {
-        cue_continuation_active_ = false;
-        ads_reacquire_waiting_ = false;
-        ads_lifecycle_reducer_.release_scope();
-        aim_mode_reducer_.transition(pipeline_contract::ControlMode::Manual);
-    }
-    if (intent.ads && ads.snap_consumed) {
-        ads_lifecycle_reducer_.consume();
-    }
-    const bool wait_deadline_elapsed = intent.ads && ads.epoch_active &&
-        !ads.snap_consumed && !ads.target_admitted &&
-        config_.ads_target_wait_ms > 0.0f &&
-        (now_seconds - ads.epoch_started_seconds) * 1000.0 >=
-            static_cast<double>(config_.ads_target_wait_ms);
-    if (wait_deadline_elapsed) {
-        // The pre-admission opportunity has its own deadline. Expiry consumes
-        // the token before candidate selection on this tick, so a later target
-        // may use BodyLock but cannot retroactively mint an ADS Snap.
-        ads_lifecycle_reducer_.expire_wait(
-            pipeline_contract::AdsDecisionReason::NoTarget,
-            now_seconds);
-        aim_mode_reducer_.transition(
-            pipeline_contract::ControlMode::Manual);
-    }
+    if (!pipeline_contract::owns_ads_task(intent.activation)) cue_continuation_active_ = false;
     // A controller tick without a source publication must not synthesize a
     // projected detector point. Association starts from the last source-owned
     // anatomical point; D may still move inside R from user intent between
@@ -346,23 +322,8 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         (is_effective_selector_replacement(observations, *candidate) ||
          replacement_after_target_loss);
 
-    if (selector_replacement && intent.ads && ads.epoch_active &&
-        !cue_continuation_candidate) {
-        // One physical LT edge owns exactly one ADS Snap token. A selector
-        // replacement still resets target-owned geometry, but it cannot mint
-        // another snap while LT remains held. If the token had already admitted
-        // a target, consume it at the identity boundary and let the replacement
-        // continue under BodyLock authority.
-        if (ads.target_admitted && !ads.snap_consumed) {
-            ads_lifecycle_reducer_.complete(
-                pipeline_contract::AdsDecisionReason::TargetSwitch,
-                now_seconds);
-        }
-        ads_reacquire_waiting_ = false;
-    }
-
     if (candidate == nullptr) {
-        if (!intent.ads) {
+        if (!pipeline_contract::owns_ads_task(intent.activation)) {
             ads_lifecycle_reducer_.set_decision_reason(
                 pipeline_contract::AdsDecisionReason::None);
         } else if (observations.capture_fresh) {
@@ -425,9 +386,6 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         candidate->reliability > 0.0f) {
         selector_target_generation_ = observations.selector_target_generation;
     }
-    if (candidate != nullptr && intent.ads && ads.snap_consumed) {
-        ads_lifecycle_reducer_.mark_already_consumed();
-    }
     pipeline_contract::TargetLifecycle lifecycle =
         target_lifecycle_reducer_.snapshot().lifecycle;
     float reliability = latest_.reliability;
@@ -435,47 +393,22 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     if (candidate != nullptr) {
         // A candidate exists only for an accepted fresh selector result. The
         // old acquisition can therefore resume without replaying stale output.
-        ads_reacquire_waiting_ = false;
         pipeline_contract::Vec2f observed_aim_px = candidate->aim_px;
         const bool new_observation_sample =
             accepted_fresh_capture && !cue_continuation_candidate;
         const bool new_target =
             !target_lifecycle_reducer_.snapshot().target_present ||
             selector_replacement;
-        const bool new_ads_acquisition = intent.ads && ads.epoch_active &&
-            !ads.snap_consumed && !ads.target_admitted &&
-            !cue_continuation_candidate;
-        if (selector_replacement) {
-            reset_target_owned_state_for_replacement();
-        }
-        if (new_ads_acquisition) {
-            const float pickup_radius_px = target_scaled_radius(
-                config_.ads_pickup_base_radius_px,
-                candidate->normalized_size);
-            const bool pickup_eligible_for_current_ads_epoch =
-                length(subtract(candidate->aim_px, center)) <=
-                    pickup_radius_px;
-            if (pickup_eligible_for_current_ads_epoch) {
-                current_plan_admitted = true;
-                ads_lifecycle_reducer_.admit_target(now_seconds);
-            } else {
-                // Selector continuity may outlive a physical LT scope. It may
-                // preserve identity while idle, but it cannot carry admission
-                // into a new scope after the person has moved outside the
-                // current size-scaled pickup envelope. Keep the epoch armed so
-                // a later fresh frame can still enter the envelope and admit.
-                ads_lifecycle_reducer_.reject_source(
-                    pipeline_contract::AdsDecisionReason::
-                        OutsidePickupEnvelope);
-            }
-        } else if (accepted_fresh_capture &&
-                   !(intent.ads && ads.snap_consumed)) {
-            ads_lifecycle_reducer_.accept_continuation();
-        }
+        if (selector_replacement) reset_target_owned_state_for_replacement();
+        const float pickup_radius = target_scaled_radius(
+            config_.ads_pickup_base_radius_px, candidate->normalized_size);
+        current_plan_admitted = ads_lifecycle_reducer_.select({
+            pipeline_contract::owns_ads_task(intent.activation), cue_continuation_candidate, selector_replacement,
+            length(subtract(candidate->aim_px, center)) <= pickup_radius}, now_seconds);
         const bool assisted_motion_model =
-            aim_mode_reducer_.mode() ==
+            ads.task_mode ==
                 pipeline_contract::ControlMode::BodyLockFollow ||
-            aim_mode_reducer_.mode() ==
+            ads.task_mode ==
                 pipeline_contract::ControlMode::AdsAcquire;
         const bool firing_context =
             intent.fire || feedback.firing_recently;
@@ -516,7 +449,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
                 geometry_reducer_.snapshot().source_position);
             auto velocity_innovation = position_innovation;
             const bool bodylock_motion_model =
-                aim_mode_reducer_.mode() ==
+                ads.task_mode ==
                     pipeline_contract::ControlMode::BodyLockFollow;
             const bool low_anchor_bodylock_frame =
                 bodylock_motion_model && firing_context &&
@@ -525,7 +458,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
             const bool observe_firing_velocity =
                 config_.firing_disturbance_observer_enabled &&
                 firing_context &&
-                (aim_mode_reducer_.mode() ==
+                (ads.task_mode ==
                      pipeline_contract::ControlMode::AdsAcquire ||
                   (bodylock_motion_model &&
                   low_anchor_bodylock_frame &&
@@ -598,7 +531,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
             };
             if (bodylock_motion_model ||
                 (firing_context &&
-                 aim_mode_reducer_.mode() ==
+                 ads.task_mode ==
                      pipeline_contract::ControlMode::AdsAcquire)) {
                 const float maximum_velocity_delta =
                     std::max(
@@ -673,8 +606,6 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         const bool fresh_no_target = accepted_fresh_capture;
         const bool source_expired = source_age_ms >
             std::max(0.0f, config_.max_observation_age_ms);
-        const bool unfinished_ads = intent.ads && ads.target_admitted &&
-            !ads.snap_consumed;
         const bool same_generation_miss = fresh_no_target &&
             observations.selector_identity_protocol &&
             observations.preferred_source_id == 0 &&
@@ -683,19 +614,10 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
             observations.selector_target_generation ==
                 selector_target_generation_;
 
-        const bool waiting_evidence_compatible =
-            !fresh_no_target || same_generation_miss;
-        if (unfinished_ads && !source_expired &&
-            (same_generation_miss ||
-             (ads_reacquire_waiting_ && waiting_evidence_compatible))) {
-            // Do not actuate stale geometry while Vision has explicitly
-            // missed the selected person. Keep identity/acquisition state only
-            // long enough for same-generation fresh evidence to return.
-            ads_reacquire_waiting_ = true;
+        const auto disposition = ads_lifecycle_reducer_.missing({
+            pipeline_contract::owns_ads_task(intent.activation), true, fresh_no_target, source_expired, same_generation_miss}, now_seconds);
+        if (disposition == AdsTargetDisposition::Wait) {
             settled_frames_ = 0;
-            ads_lifecycle_reducer_.wait_for_target();
-            aim_mode_reducer_.transition(
-                pipeline_contract::ControlMode::Manual);
             last_update_seconds_ = now_seconds;
             return no_target_plan(
                 now_seconds,
@@ -705,8 +627,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
                 observations.preferred_source_id);
         }
 
-        if (fresh_no_target || source_expired || ads_reacquire_waiting_) {
-            ads_reacquire_waiting_ = false;
+        if (disposition == AdsTargetDisposition::Release) {
             target_lifecycle_reducer_.clear();
             enemy_cue_current_ = false;
             enemy_identity_confirmed_ = false;
@@ -717,15 +638,6 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
             desired_point_reducer_.reset();
             settled_frames_ = 0;
             observed_frames_ = 0;
-            if (intent.ads && ads.target_admitted && !ads.snap_consumed) {
-                ads_lifecycle_reducer_.complete(
-                    pipeline_contract::AdsDecisionReason::TargetLost,
-                    now_seconds);
-                aim_mode_reducer_.transition(
-                    pipeline_contract::ControlMode::Manual);
-            } else if (intent.ads && !ads.snap_consumed) {
-                ads_lifecycle_reducer_.wait_for_target();
-            }
             last_update_seconds_ = now_seconds;
             return no_target_plan(
                 now_seconds,
@@ -742,9 +654,8 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         reliability = last_observed_reliability_;
         normalized_size = last_observed_normalized_size_;
     } else {
-        if (intent.ads && !ads.snap_consumed) {
-            ads_lifecycle_reducer_.wait_for_target();
-        }
+        (void)ads_lifecycle_reducer_.missing(
+            {pipeline_contract::owns_ads_task(intent.activation), false, accepted_fresh_capture, false, false}, now_seconds);
         last_update_seconds_ = now_seconds;
         return no_target_plan(
             now_seconds,
@@ -885,81 +796,10 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         current_error_length >= 2.0f && cross_geometry_continuous &&
         radial_error_dot < -std::max(
             4.0f, previous_error_length * current_error_length * 0.25f);
-    if (center_cross) ads_lifecycle_reducer_.note_center_cross();
-
-    const bool settled = settled_frames_ >= config_.settle_frames;
-    const bool extension_budget_elapsed = ads.target_admitted &&
-        config_.ads_extension_budget_ms > 0.0f &&
-        plan.acquisition_elapsed_ms >=
-            std::max(0.0f, config_.ads_nominal_acquisition_ms) +
-                config_.ads_extension_budget_ms;
-    const bool nominal_elapsed = ads.target_admitted &&
-        plan.acquisition_elapsed_ms >=
-            std::max(0.0f, config_.ads_nominal_acquisition_ms);
-    if (!intent.ads) {
-        aim_mode_reducer_.transition(pipeline_contract::ControlMode::Manual);
-    } else if (ads.snap_consumed) {
-        ads_lifecycle_reducer_.consume();
-        aim_mode_reducer_.transition(
-            pipeline_contract::ControlMode::BodyLockFollow);
-    } else if (ads.target_admitted) {
-        if (settled) {
-            ads_lifecycle_reducer_.complete(
-                pipeline_contract::AdsDecisionReason::Settled,
-                now_seconds);
-            aim_mode_reducer_.transition(
-                pipeline_contract::ControlMode::BodyLockFollow);
-        } else if (center_cross) {
-            // The strict radial predicate above proves that this one-per-LT
-            // positioning job reached and passed the reticle center. Keeping
-            // full ADS authority after that event makes the next correction
-            // reverse through center again. Consume this snap and let the
-            // continuous BodyLock owner track the remaining target motion.
-            ads_lifecycle_reducer_.complete(
-                pipeline_contract::AdsDecisionReason::CenterCross,
-                now_seconds);
-            aim_mode_reducer_.transition(
-                pipeline_contract::ControlMode::BodyLockFollow);
-        } else if (extension_budget_elapsed) {
-            // 220 ms is extra time after the nominal phase, not the total ADS
-            // lifetime. Exhaustion cannot manufacture success. Keep the same
-            // full ADS solver alive for neutral input, while publishing a
-            // phase that final arbitration treats as manual-safe.
-            ads_lifecycle_reducer_.enter_manual_safe();
-            aim_mode_reducer_.transition(
-                pipeline_contract::ControlMode::AdsAcquire);
-        } else if (nominal_elapsed &&
-                   ads.state ==
-                       pipeline_contract::AdsAcquisitionState::AcquiringNominal) {
-            // Ending exclusive input ownership is a clock invariant, not a
-            // detector decision. A replay tick therefore enters the extension
-            // phase on time; fresh evidence is still required for every real
-            // completion path above.
-            ads_lifecycle_reducer_.extend();
-            aim_mode_reducer_.transition(
-                pipeline_contract::ControlMode::AdsAcquire);
-        } else if (ads.state ==
-                   pipeline_contract::AdsAcquisitionState::AcquiringExtended) {
-            ads_lifecycle_reducer_.extend();
-            aim_mode_reducer_.transition(
-                pipeline_contract::ControlMode::AdsAcquire);
-        } else if (ads.state ==
-                   pipeline_contract::AdsAcquisitionState::AcquiringManualSafe) {
-            ads_lifecycle_reducer_.enter_manual_safe();
-            aim_mode_reducer_.transition(
-                pipeline_contract::ControlMode::AdsAcquire);
-        } else {
-            ads_lifecycle_reducer_.stay_nominal();
-            aim_mode_reducer_.transition(
-                pipeline_contract::ControlMode::AdsAcquire);
-        }
-    } else if (intent.ads) {
-        ads_lifecycle_reducer_.wait_for_target();
-        aim_mode_reducer_.transition(pipeline_contract::ControlMode::Manual);
-    } else {
-        aim_mode_reducer_.transition(pipeline_contract::ControlMode::Manual);
-    }
-    plan.mode = aim_mode_reducer_.mode();
+    ads_lifecycle_reducer_.advance(pipeline_contract::owns_ads_task(intent.activation),
+        settled_frames_ >= config_.settle_frames, center_cross, now_seconds);
+    plan.mode = intent.activation == pipeline_contract::AssistActivation::Application
+        ? pipeline_contract::ControlMode::BodyLockFollow : ads.task_mode;
     // The acquisition may have completed in the state transition above.
     // Publish the post-transition truth; the earlier provisional value is
     // needed while constructing the plan but must not escape to telemetry or
@@ -1070,9 +910,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
 void TargetCoordinator::begin_ads_epoch(
     std::uint64_t epoch, double now_seconds) noexcept {
     cue_continuation_active_ = false;
-    ads_reacquire_waiting_ = false;
     ads_lifecycle_reducer_.begin_epoch(epoch, now_seconds);
-    aim_mode_reducer_.transition(pipeline_contract::ControlMode::AdsAcquire);
 }
 
 void TargetCoordinator::reset() noexcept {
@@ -1107,9 +945,7 @@ void TargetCoordinator::reset() noexcept {
     fire_requested_ = false;
     observed_fire_eligible_ = false;
     cue_continuation_active_ = false;
-    ads_reacquire_waiting_ = false;
     selector_target_generation_ = 0;
-    aim_mode_reducer_.reset();
     frame_width_px_ = 480.0f;
     frame_height_px_ = 416.0f;
 }

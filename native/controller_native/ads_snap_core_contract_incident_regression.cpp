@@ -83,7 +83,7 @@ pipeline_contract::VisionObservationBatch no_source_tick() {
 
 pipeline_contract::IntentState ads_intent() {
     pipeline_contract::IntentState intent;
-    intent.ads = true;
+    intent.activation = pipeline_contract::AssistActivation::Engaged;
     return intent;
 }
 
@@ -93,7 +93,7 @@ controller_native::AssistControlStateMachineInput arbitration_input(
     pipeline_contract::Vec2f desired,
     bool target_authoritative) {
     controller_native::AssistControlStateMachineInput input;
-    input.aiming = true;
+    input.activation = pipeline_contract::AssistActivation::Engaged;
     input.target_authoritative = target_authoritative;
     input.fresh_observation = target_authoritative;
     input.target_id = target_authoritative ? 1 : 0;

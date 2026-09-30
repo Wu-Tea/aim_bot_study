@@ -1,3 +1,5 @@
+from controllers.activation import AimActivation
+
 from dataclasses import dataclass
 
 from ..base_controller import ControllerTarget
@@ -8,7 +10,7 @@ class MouseFrame:
     timestamp: float
     manual_dx: float
     manual_dy: float
-    is_aiming: bool
+    activation: AimActivation
     target_dx: float
     target_dy: float
     auto_fire_requested: bool
@@ -22,6 +24,9 @@ class MouseFrame:
     vision_received_at: float | None = None
     vision_submitted_at: float | None = None
     response_input_scale: float = 1.0
+
+    def __post_init__(self):
+        object.__setattr__(self, "activation", AimActivation(self.activation))
 
 
 @dataclass(slots=True)

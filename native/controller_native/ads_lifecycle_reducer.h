@@ -6,7 +6,30 @@
 
 namespace controller_native {
 
+struct AdsLifecycleConfig {
+    float target_wait_ms = 220.0f;
+    float nominal_ms = 135.0f;
+    float extension_ms = 220.0f;
+};
+enum class AdsEvidenceWait : unsigned char { None, InitialTarget, SameTarget };
+struct AdsSelectionEvidence {
+    bool scope_active = false;
+    bool cue = false;
+    bool replacement = false;
+    bool within_pickup = false;
+};
+enum class AdsTargetDisposition : unsigned char { Absent, Retain, Wait, Release };
+struct AdsMissingEvidence {
+    bool scope_active = false;
+    bool target_present = false;
+    bool fresh_miss = false;
+    bool expired = false;
+    bool same_generation = false;
+};
+
 struct AdsLifecycleSnapshot {
+    AdsEvidenceWait evidence_wait = AdsEvidenceWait::None;
+    pipeline_contract::ControlMode task_mode = pipeline_contract::ControlMode::Manual;
     bool epoch_active = false;
     bool snap_consumed = false;
     bool target_admitted = false;
@@ -32,32 +55,18 @@ struct AdsLifecycleSnapshot {
     double acquisition_completed_seconds = 0.0;
 };
 
-// Sole owner of ADS epoch and acquisition lifecycle state. Decisions remain
-// pure conditions in the coordinator façade; every state mutation enters here
-// through a named transition.
+// Owns transition priorities and timers. The coordinator supplies geometry
+// evidence; it cannot manufacture a second acquisition from a held input.
 class AdsLifecycleReducer {
 public:
+    explicit AdsLifecycleReducer(AdsLifecycleConfig config = {}) : config_(config) {}
     void reset() noexcept;
-    void begin_tick() noexcept;
+    void begin_tick(bool scope_active, double now_seconds) noexcept;
+    bool select(const AdsSelectionEvidence&, double now_seconds) noexcept;
+    AdsTargetDisposition missing(const AdsMissingEvidence&, double now_seconds) noexcept;
+    void advance(bool scope_active, bool settled, bool center_cross, double now_seconds) noexcept;
     void begin_epoch(std::uint64_t epoch, double now_seconds) noexcept;
-    void release_scope() noexcept;
-    void admit_target(double now_seconds) noexcept;
-    void accept_continuation() noexcept;
     void reject_source(pipeline_contract::AdsDecisionReason reason) noexcept;
-    void mark_already_consumed() noexcept;
-    void wait_for_target() noexcept;
-    void expire_wait(
-        pipeline_contract::AdsDecisionReason reason,
-        double now_seconds) noexcept;
-    void stay_nominal() noexcept;
-    void extend() noexcept;
-    void enter_manual_safe() noexcept;
-    void complete(
-        pipeline_contract::AdsDecisionReason reason,
-        double now_seconds) noexcept;
-    void consume() noexcept;
-    void note_center_cross() noexcept { state_.center_cross_seen = true; }
-    void note_target_switch() noexcept { state_.target_switch_seen = true; }
     void clear_unadmitted_target_identity() noexcept;
     void set_decision_reason(
         pipeline_contract::AdsDecisionReason reason) noexcept {
@@ -73,6 +82,23 @@ public:
     const AdsLifecycleSnapshot& snapshot() const noexcept { return state_; }
 
 private:
+    void release_scope() noexcept;
+    void admit_target(double now_seconds) noexcept;
+    void accept_continuation() noexcept;
+    void mark_already_consumed() noexcept;
+    void wait_for_target() noexcept;
+    void expire_wait(
+        pipeline_contract::AdsDecisionReason reason,
+        double now_seconds) noexcept;
+    void stay_nominal() noexcept;
+    void extend() noexcept;
+    void enter_manual_safe() noexcept;
+    void complete(
+        pipeline_contract::AdsDecisionReason reason,
+        double now_seconds) noexcept;
+    void consume() noexcept;
+    void note_center_cross() noexcept { state_.center_cross_seen = true; }
+    AdsLifecycleConfig config_{};
     AdsLifecycleSnapshot state_{};
     std::uint64_t next_target_acquisition_id_ = 1;
 };

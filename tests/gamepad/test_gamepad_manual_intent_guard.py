@@ -11,7 +11,7 @@ def _observe_sequence(guard, errors, *, start_t=0.0, step=0.02):
     for i, err in enumerate(errors):
         guard.observe_target(
             target_dx=err,
-            is_aiming=True,
+            activation=True,
             timestamp=start_t + (float(i) * step),
         )
 

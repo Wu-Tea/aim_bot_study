@@ -157,7 +157,7 @@ void DesiredPointReducer::reduce_manual(
     state_.manual_boundary_x = false;
     state_.manual_boundary_y = false;
     state_.manual_exit_requested = false;
-    if (!intent.ads || !target_present || !geometry.available ||
+    if (!pipeline_contract::permits_assist(intent.activation) || !target_present || !geometry.available ||
         intent.right_purpose !=
             pipeline_contract::UserAimIntentPurpose::CorrectCurrentTarget) {
         boundary_seconds_x_ = 0.0f;

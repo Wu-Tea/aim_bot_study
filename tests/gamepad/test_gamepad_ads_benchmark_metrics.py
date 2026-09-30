@@ -41,7 +41,7 @@ class _LocalizedResponsePlugin:
     def apply(self, frame, output):
         self._last_sanitized_manual_x = float(frame.manual_right_x)
         self._last_sanitized_manual_y = float(frame.manual_right_y)
-        if not frame.is_aiming or frame.target is None:
+        if not frame.activation or frame.target is None:
             self._mode = "manual"
             self.ai_stick_x = 0.0
             self.ai_stick_y = 0.0

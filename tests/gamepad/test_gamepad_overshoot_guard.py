@@ -25,9 +25,9 @@ class OvershootGuardTests(unittest.TestCase):
     def test_zero_cross_near_center_triggers_brake_without_manual_input(self):
         guard = self.make_guard()
 
-        guard.observe_target(target_dx=4.0, target_dy=0.0, is_aiming=True, timestamp=0.00)
-        guard.observe_target(target_dx=1.0, target_dy=0.0, is_aiming=True, timestamp=0.02)
-        guard.observe_target(target_dx=-1.0, target_dy=0.0, is_aiming=True, timestamp=0.04)
+        guard.observe_target(target_dx=4.0, target_dy=0.0, activation=True, timestamp=0.00)
+        guard.observe_target(target_dx=1.0, target_dy=0.0, activation=True, timestamp=0.02)
+        guard.observe_target(target_dx=-1.0, target_dy=0.0, activation=True, timestamp=0.04)
 
         adjustment = guard.compute_adjustment(manual_rx=0, manual_ry=0, timestamp=0.04)
 
@@ -38,9 +38,9 @@ class OvershootGuardTests(unittest.TestCase):
     def test_same_direction_manual_pull_while_converging_reduces_x_ai(self):
         guard = self.make_guard()
 
-        guard.observe_target(target_dx=12.0, target_dy=0.0, is_aiming=True, timestamp=0.00)
-        guard.observe_target(target_dx=7.0, target_dy=0.0, is_aiming=True, timestamp=0.02)
-        guard.observe_target(target_dx=4.0, target_dy=0.0, is_aiming=True, timestamp=0.04)
+        guard.observe_target(target_dx=12.0, target_dy=0.0, activation=True, timestamp=0.00)
+        guard.observe_target(target_dx=7.0, target_dy=0.0, activation=True, timestamp=0.02)
+        guard.observe_target(target_dx=4.0, target_dy=0.0, activation=True, timestamp=0.04)
 
         adjustment = guard.compute_adjustment(manual_rx=5000, manual_ry=0, timestamp=0.04)
 
@@ -50,9 +50,9 @@ class OvershootGuardTests(unittest.TestCase):
     def test_converging_without_same_direction_manual_input_does_not_suppress(self):
         guard = self.make_guard()
 
-        guard.observe_target(target_dx=12.0, target_dy=0.0, is_aiming=True, timestamp=0.00)
-        guard.observe_target(target_dx=7.0, target_dy=0.0, is_aiming=True, timestamp=0.02)
-        guard.observe_target(target_dx=4.0, target_dy=0.0, is_aiming=True, timestamp=0.04)
+        guard.observe_target(target_dx=12.0, target_dy=0.0, activation=True, timestamp=0.00)
+        guard.observe_target(target_dx=7.0, target_dy=0.0, activation=True, timestamp=0.02)
+        guard.observe_target(target_dx=4.0, target_dy=0.0, activation=True, timestamp=0.04)
 
         adjustment = guard.compute_adjustment(manual_rx=-5000, manual_ry=0, timestamp=0.04)
 
@@ -62,8 +62,8 @@ class OvershootGuardTests(unittest.TestCase):
     def test_reset_clears_short_term_memory(self):
         guard = self.make_guard()
 
-        guard.observe_target(target_dx=5.0, target_dy=0.0, is_aiming=True, timestamp=0.00)
-        guard.observe_target(target_dx=-1.0, target_dy=0.0, is_aiming=True, timestamp=0.02)
+        guard.observe_target(target_dx=5.0, target_dy=0.0, activation=True, timestamp=0.00)
+        guard.observe_target(target_dx=-1.0, target_dy=0.0, activation=True, timestamp=0.02)
         guard.reset()
 
         adjustment = guard.compute_adjustment(manual_rx=0, manual_ry=0, timestamp=0.02)

@@ -26,7 +26,8 @@ public:
     explicit FakeVisionPoller(std::vector<bool> updates)
         : updates_(std::move(updates)) {}
 
-    void set_aiming(bool aiming) override {
+    void set_request(pipeline_contract::VisionRequest request) override {
+        const bool aiming = pipeline_contract::requests_detection(request);
         aiming_history.push_back(aiming);
     }
 
@@ -81,6 +82,29 @@ std::chrono::steady_clock::time_point at_ms(int ms) {
     return std::chrono::steady_clock::time_point{} + std::chrono::milliseconds(ms);
 }
 
+void test_detection_only_to_assist_fences_inflight_result() {
+    using pipeline_contract::VisionRequest;
+    auto poller = std::make_unique<FakeVisionPoller>(std::vector<bool>{});
+    auto* fake = poller.get();
+    fake->authority_on_update = true;
+    runtime_app::VisionService service(std::move(poller), {});
+    service.set_request(VisionRequest::DetectionOnly, at_ms(1));
+    REQUIRE(service.step_for_test(at_ms(1)));
+    const auto detection = service.latest_snapshot();
+    REQUIRE(detection.result.has_target);
+    REQUIRE(!detection.result.aim_authority && !detection.result.fire_authority);
+    REQUIRE(!detection.result.auto_fire);
+    fake->on_poll = [&] { service.set_request(VisionRequest::AssistSearch, at_ms(21)); };
+    REQUIRE(service.step_for_test(at_ms(20)));
+    const auto stale = service.latest_snapshot();
+    REQUIRE(!stale.result.frame_updated && !stale.result.aim_authority);
+    fake->on_poll = {};
+    REQUIRE(service.step_for_test(at_ms(21)));
+    const auto assist = service.latest_snapshot();
+    REQUIRE(assist.request == VisionRequest::AssistSearch && assist.result.aim_authority);
+    REQUIRE(assist.aim_transition_sequence > detection.aim_transition_sequence);
+}
+
 void test_release_hold_has_full_cadence_without_authority_and_expires() {
     auto poller = std::make_unique<FakeVisionPoller>(std::vector<bool>{});
     poller->authority_on_update = true;
@@ -89,23 +113,23 @@ void test_release_hold_has_full_cadence_without_authority_and_expires() {
     options.idle_fps = 20.0;
     options.aim_release_hold_ms = 1000;
     runtime_app::VisionService service(std::move(poller), options);
-    service.set_aiming(false, at_ms(0));
+    service.set_request(pipeline_contract::VisionRequest::Idle, at_ms(0));
     REQUIRE(service.step_for_test(at_ms(0)));
     REQUIRE(service.latest_snapshot().requested_vision_fps == 20.0f);
-    service.set_aiming(true, at_ms(1));
+    service.set_request(pipeline_contract::VisionRequest::AssistSearch, at_ms(1));
     REQUIRE(service.step_for_test(at_ms(1)));
-    service.set_aiming(false, at_ms(2));
+    service.set_request(pipeline_contract::VisionRequest::Idle, at_ms(2));
     REQUIRE(service.next_poll_due_for_test(at_ms(2)) == at_ms(11));
     REQUIRE(!service.step_for_test(at_ms(10)));
     REQUIRE(service.step_for_test(at_ms(11)));
     const auto held = service.latest_snapshot();
-    REQUIRE(!held.controller_aiming && held.engine_aiming);
+    REQUIRE(!pipeline_contract::requests_detection(held.request) && held.engine_aiming);
     REQUIRE(held.requested_vision_fps == 100.0f);
     REQUIRE(held.result.has_target && held.result.frame_updated);
     REQUIRE(!held.result.aim_authority && !held.result.fire_authority);
     REQUIRE(!held.result.auto_fire);
     // Repeated inactive requests must not renew the release deadline.
-    service.set_aiming(false, at_ms(990));
+    service.set_request(pipeline_contract::VisionRequest::Idle, at_ms(990));
     REQUIRE(service.step_for_test(at_ms(992)));
     REQUIRE(service.latest_snapshot().requested_vision_fps == 100.0f);
     REQUIRE(service.next_poll_due_for_test(at_ms(1002)) == at_ms(1042));
@@ -122,18 +146,18 @@ void test_release_hold_reaim_has_new_epoch_and_renews_on_next_release() {
     options.idle_fps = 20.0;
     options.aim_release_hold_ms = 1000;
     runtime_app::VisionService service(std::move(poller), options);
-    service.set_aiming(true, at_ms(0));
+    service.set_request(pipeline_contract::VisionRequest::AssistSearch, at_ms(0));
     REQUIRE(service.step_for_test(at_ms(0)));
-    service.set_aiming(false, at_ms(1));
+    service.set_request(pipeline_contract::VisionRequest::Idle, at_ms(1));
     REQUIRE(service.step_for_test(at_ms(10)));
     const auto held = service.latest_snapshot();
     REQUIRE(!held.result.aim_authority);
-    const auto new_epoch = service.set_aiming(true, at_ms(11));
+    const auto new_epoch = service.set_request(pipeline_contract::VisionRequest::AssistSearch, at_ms(11));
     REQUIRE(held.aim_transition_sequence != new_epoch);
     REQUIRE(service.step_for_test(at_ms(11))); // bypasses remaining 9 ms
     REQUIRE(service.latest_snapshot().aim_transition_sequence == new_epoch);
     REQUIRE(service.latest_snapshot().result.aim_authority);
-    service.set_aiming(false, at_ms(500));
+    service.set_request(pipeline_contract::VisionRequest::Idle, at_ms(500));
     REQUIRE(service.step_for_test(at_ms(1499)));
     REQUIRE(service.latest_snapshot().requested_vision_fps == 100.0f);
     REQUIRE(!service.latest_snapshot().result.aim_authority);
@@ -150,11 +174,11 @@ void test_release_hold_expires_when_idle_keepwarm_disabled() {
     options.aim_release_hold_ms = 1000;
     runtime_app::VisionService service(std::move(poller), options);
     REQUIRE(!service.step_for_test(at_ms(0)));
-    service.set_aiming(true, at_ms(1));
+    service.set_request(pipeline_contract::VisionRequest::AssistSearch, at_ms(1));
     REQUIRE(service.step_for_test(at_ms(1)));
-    service.set_aiming(false, at_ms(2));
+    service.set_request(pipeline_contract::VisionRequest::Idle, at_ms(2));
     REQUIRE(service.step_for_test(at_ms(11)));
-    REQUIRE(!service.latest_snapshot().controller_aiming);
+    REQUIRE(service.latest_snapshot().request == pipeline_contract::VisionRequest::Idle);
     REQUIRE(service.step_for_test(at_ms(1001)));
     REQUIRE(!service.step_for_test(at_ms(1002)));
     REQUIRE(!service.step_for_test(at_ms(2000)));
@@ -168,10 +192,10 @@ void test_release_hold_inflight_frame_cannot_cross_reaim_epoch() {
     options.capture_fps = 100.0;
     options.aim_release_hold_ms = 1000;
     runtime_app::VisionService service(std::move(poller), options);
-    service.set_aiming(true, at_ms(0));
+    service.set_request(pipeline_contract::VisionRequest::AssistSearch, at_ms(0));
     REQUIRE(service.step_for_test(at_ms(0)));
-    service.set_aiming(false, at_ms(1));
-    raw->on_poll = [&] { service.set_aiming(true, at_ms(11)); };
+    service.set_request(pipeline_contract::VisionRequest::Idle, at_ms(1));
+    raw->on_poll = [&] { service.set_request(pipeline_contract::VisionRequest::AssistSearch, at_ms(11)); };
     REQUIRE(service.step_for_test(at_ms(10)));
     const auto stale = service.latest_snapshot();
     REQUIRE(stale.freshness == runtime_app::VisionSnapshotFreshness::NoUpdate);
@@ -182,7 +206,7 @@ void test_release_hold_inflight_frame_cannot_cross_reaim_epoch() {
     REQUIRE(service.step_for_test(at_ms(11)));
     REQUIRE(service.latest_snapshot().result.aim_authority);
     // Also revoke a poll started while aiming if release occurs in flight.
-    raw->on_poll = [&] { service.set_aiming(false, at_ms(22)); };
+    raw->on_poll = [&] { service.set_request(pipeline_contract::VisionRequest::Idle, at_ms(22)); };
     REQUIRE(service.step_for_test(at_ms(21)));
     REQUIRE(!service.latest_snapshot().result.aim_authority);
     REQUIRE(!service.latest_snapshot().result.fire_authority);
@@ -196,9 +220,9 @@ void test_zero_release_hold_retains_immediate_idle_cadence() {
     options.idle_fps = 20.0;
     options.aim_release_hold_ms = 0;
     runtime_app::VisionService service(std::move(poller), options);
-    service.set_aiming(true, at_ms(0));
+    service.set_request(pipeline_contract::VisionRequest::AssistSearch, at_ms(0));
     REQUIRE(service.step_for_test(at_ms(0)));
-    service.set_aiming(false, at_ms(1));
+    service.set_request(pipeline_contract::VisionRequest::Idle, at_ms(1));
     REQUIRE(service.next_poll_due_for_test(at_ms(1)) == at_ms(50));
     REQUIRE(!service.step_for_test(at_ms(10)));
     REQUIRE(service.step_for_test(at_ms(50)));
@@ -214,12 +238,12 @@ void test_keepwarm_polls_while_idle_and_active() {
     options.keepwarm_when_idle = true;
 
     runtime_app::VisionService service(std::move(poller), options);
-    service.set_aiming(false);
+    service.set_request(pipeline_contract::VisionRequest::Idle);
     REQUIRE(service.step_for_test(at_ms(0)));
     REQUIRE(!service.step_for_test(at_ms(10)));
     REQUIRE(service.step_for_test(at_ms(50)));
 
-    service.set_aiming(true);
+    service.set_request(pipeline_contract::VisionRequest::AssistSearch);
     REQUIRE(service.step_for_test(at_ms(60)));
     REQUIRE(raw->poll_count == 3);
     REQUIRE(raw->aiming_history[0]);
@@ -239,7 +263,7 @@ void test_no_update_does_not_replay_last_snapshot() {
     options.capture_fps = 100.0;
 
     runtime_app::VisionService service(std::move(poller), options);
-    service.set_aiming(true);
+    service.set_request(pipeline_contract::VisionRequest::AssistSearch);
     REQUIRE(service.step_for_test(at_ms(0)));
     const runtime_app::VisionServiceSnapshot first = service.latest_snapshot();
     REQUIRE(first.freshness == runtime_app::VisionSnapshotFreshness::Fresh);
@@ -266,9 +290,9 @@ void test_aim_release_no_update_has_no_authority() {
     options.keepwarm_when_idle = true;
 
     runtime_app::VisionService service(std::move(poller), options);
-    service.set_aiming(true);
+    service.set_request(pipeline_contract::VisionRequest::AssistSearch);
     REQUIRE(service.step_for_test(at_ms(0)));
-    service.set_aiming(false);
+    service.set_request(pipeline_contract::VisionRequest::Idle);
     REQUIRE(service.step_for_test(at_ms(50)));
 
     const auto snapshot = service.latest_snapshot();
@@ -327,7 +351,7 @@ void test_viewport_request_is_forwarded_before_poll() {
     request.sequence = 3;
     request.source_frame_id = 42;
     service.set_viewport(request);
-    service.set_aiming(true);
+    service.set_request(pipeline_contract::VisionRequest::AssistSearch);
     REQUIRE(service.step_for_test(at_ms(0)));
     REQUIRE(raw->viewport_update_count == 1);
     REQUIRE(raw->last_viewport.level == runtime_app::ViewportLevel::Rescue);
@@ -344,7 +368,7 @@ void test_no_keepwarm_does_not_poll_idle() {
     options.keepwarm_when_idle = false;
 
     runtime_app::VisionService service(std::move(poller), options);
-    service.set_aiming(false);
+    service.set_request(pipeline_contract::VisionRequest::Idle);
     REQUIRE(!service.step_for_test(at_ms(0)));
     REQUIRE(raw->poll_count == 0);
 }
@@ -357,12 +381,12 @@ void test_idle_keepwarm_does_not_publish_control_authority() {
     options.keepwarm_when_idle = true;
 
     runtime_app::VisionService service(std::move(poller), options);
-    service.set_aiming(false);
+    service.set_request(pipeline_contract::VisionRequest::Idle);
     REQUIRE(service.step_for_test(at_ms(0)));
     const runtime_app::VisionServiceSnapshot snapshot = service.latest_snapshot();
 
     REQUIRE(snapshot.freshness == runtime_app::VisionSnapshotFreshness::Fresh);
-    REQUIRE(!snapshot.controller_aiming);
+    REQUIRE(!pipeline_contract::requests_detection(snapshot.request));
     REQUIRE(snapshot.result.has_target);
     REQUIRE(!snapshot.result.aim_authority);
     REQUIRE(!snapshot.result.fire_authority);
@@ -377,10 +401,10 @@ void test_idle_keepwarm_frame_is_not_replayed_after_aim_transition() {
     options.keepwarm_when_idle = true;
 
     runtime_app::VisionService service(std::move(poller), options);
-    service.set_aiming(false);
+    service.set_request(pipeline_contract::VisionRequest::Idle);
     REQUIRE(service.step_for_test(at_ms(0)));
 
-    service.set_aiming(true);
+    service.set_request(pipeline_contract::VisionRequest::AssistSearch);
     REQUIRE(service.step_for_test(at_ms(10)));
     const runtime_app::VisionServiceSnapshot snapshot = service.latest_snapshot();
 
@@ -396,7 +420,7 @@ void test_next_poll_due_uses_capture_fps_interval() {
     options.keepwarm_when_idle = true;
 
     runtime_app::VisionService service(std::move(poller), options);
-    service.set_aiming(true);
+    service.set_request(pipeline_contract::VisionRequest::AssistSearch);
     REQUIRE(service.step_for_test(at_ms(0)));
 
     const auto due = service.next_poll_due_for_test(at_ms(1));
@@ -412,12 +436,12 @@ void test_aim_transition_bypasses_idle_deadline() {
     options.idle_fps = 20.0;
     options.keepwarm_when_idle = true;
     runtime_app::VisionService service(std::move(poller), options);
-    service.set_aiming(false);
+    service.set_request(pipeline_contract::VisionRequest::Idle);
     REQUIRE(service.step_for_test(at_ms(0)));
-    service.set_aiming(true);
+    service.set_request(pipeline_contract::VisionRequest::AssistSearch);
     REQUIRE(service.step_for_test(at_ms(1)));
     const auto snapshot = service.latest_snapshot();
-    REQUIRE(snapshot.controller_aiming);
+    REQUIRE(pipeline_contract::requests_detection(snapshot.request));
     REQUIRE(snapshot.aim_transition_sequence == 1);
     REQUIRE(snapshot.result.service_sequence == 2);
     REQUIRE(snapshot.result.requested_vision_fps == 160.0f);
@@ -435,12 +459,12 @@ void test_one_hundred_aim_transitions_never_publish_pre_aim_authority() {
     runtime_app::VisionService service(std::move(poller), options);
     for (int transition = 0; transition < 100; ++transition) {
         const int base = transition * 100;
-        service.set_aiming(false);
+        service.set_request(pipeline_contract::VisionRequest::Idle);
         REQUIRE(service.step_for_test(at_ms(base)));
         const auto idle = service.latest_snapshot();
         REQUIRE(!idle.result.aim_authority);
         REQUIRE(!idle.result.fire_authority);
-        service.set_aiming(true);
+        service.set_request(pipeline_contract::VisionRequest::AssistSearch);
         REQUIRE(service.step_for_test(at_ms(base + 1)));
         const auto active = service.latest_snapshot();
         REQUIRE(active.aim_transition_sequence == static_cast<std::uint64_t>(transition + 1));
@@ -456,7 +480,7 @@ namespace {
 class ThrowingVisionPoller final : public runtime_app::IVisionServicePoller {
 public:
     std::atomic<bool> fail{true};
-    void set_aiming(bool) override {}
+    void set_request(pipeline_contract::VisionRequest) override {}
     void set_user_aim_intent(const pipeline_contract::UserAimIntent&) override {}
     vision_native::VisionResult poll_once() override {
         if (fail.load()) throw std::runtime_error("injected vision worker failure");
@@ -512,7 +536,7 @@ void test_worker_failure_revokes_a_previously_authoritative_mailbox() {
     auto* raw = poller.get();
     raw->fail.store(false);
     runtime_app::VisionService service(std::move(poller), {});
-    service.set_aiming(true);
+    service.set_request(pipeline_contract::VisionRequest::AssistSearch);
     service.start();
     runtime_app::VisionServiceSnapshot published;
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
@@ -579,6 +603,7 @@ void test_delivery_gate_uses_source_image_age_and_identity() {
 }  // namespace
 
 void register_vision_service_tests(native_test::Registry& registry) {
+    registry.add_case("BaseRuntimeFreshness", "detection_to_assist_epoch_fence", test_detection_only_to_assist_fences_inflight_result);
     registry.add_case("BaseRuntimeFreshness", "release_hold_cadence_authority_and_expiry", test_release_hold_has_full_cadence_without_authority_and_expires);
     registry.add_case("BaseRuntimeFreshness", "release_hold_reaim_epoch_and_renewal", test_release_hold_reaim_has_new_epoch_and_renews_on_next_release);
     registry.add_case("BaseRuntimeFreshness", "release_hold_without_idle_keepwarm", test_release_hold_expires_when_idle_keepwarm_disabled);

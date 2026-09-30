@@ -1,3 +1,4 @@
+from controllers.activation import AimActivation
 import unittest
 
 from controllers.gamepad.aim_assist_dynamics import (
@@ -13,7 +14,7 @@ def _frame(
     timestamp: float = 1.0,
     manual_right_x: int = 0,
     manual_right_y: int = 0,
-    is_aiming: bool = True,
+    activation: AimActivation = True,
     right_trigger: int = 0,
     rb: bool = False,
 ) -> GamepadFrame:
@@ -26,7 +27,7 @@ def _frame(
         left_trigger=255,
         right_trigger=right_trigger,
         buttons={"rb": rb},
-        is_aiming=is_aiming,
+        activation=activation,
         target_dx=0.0,
         target_dy=0.0,
         auto_fire_requested=False,
@@ -82,7 +83,7 @@ class AimAssistDynamicsPluginTests(unittest.TestCase):
         self.assertEqual(output.right_y, -7000)
 
     def test_non_firing_ai_assist_output_passes_through_exactly(self):
-        plugin = AimAssistDynamicsPlugin(AimAssistDynamicsConfig())
+        plugin = AimAssistDynamicsPlugin(AimAssistDynamicsConfig(manual_curve_straighten_enabled=False))
         frame = _frame(manual_right_x=2000, manual_right_y=-1000)
         output = GamepadOutput(right_x=14000, right_y=-9000, auto_fire_active=False)
 

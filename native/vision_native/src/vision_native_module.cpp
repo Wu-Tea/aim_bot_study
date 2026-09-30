@@ -468,7 +468,12 @@ PYBIND11_MODULE(vision_native_cpp, module) {
         .def_property_readonly("resize_scale_x", &vision_native::VisionEngine::resize_scale_x)
         .def_property_readonly("resize_scale_y", &vision_native::VisionEngine::resize_scale_y)
         .def_property_readonly("resize_isotropic", &vision_native::VisionEngine::resize_isotropic)
-        .def("set_aiming", &vision_native::VisionEngine::set_aiming, py::arg("aiming"))
+        .def("set_search_request", [](vision_native::VisionEngine& engine, const std::string& request) {
+            if (request == "idle") engine.set_request(pipeline_contract::VisionRequest::Idle);
+            else if (request == "detection_only") engine.set_request(pipeline_contract::VisionRequest::DetectionOnly);
+            else if (request == "assist_search") engine.set_request(pipeline_contract::VisionRequest::AssistSearch);
+            else throw std::invalid_argument("unknown vision search request");
+        }, py::arg("request"))
         .def(
             "set_viewport",
             &vision_native::VisionEngine::set_viewport,

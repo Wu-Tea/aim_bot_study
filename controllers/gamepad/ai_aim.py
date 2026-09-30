@@ -107,7 +107,7 @@ class AIAimPlugin:
         output.right_x = frame.manual_right_x
         output.right_y = frame.manual_right_y
 
-        if not frame.is_aiming:
+        if not frame.activation:
             self._reset_runtime_state()
             self._publish_auto_fire_aim_ready(output, False, "not_aiming")
             return

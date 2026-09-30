@@ -86,7 +86,7 @@ class MouseControllerHostTests(unittest.TestCase):
         ctrl._local_motion_dx_since_target = 0.0
         ctrl._local_motion_dy_since_target = 0.0
         ctrl._local_motion_updated_at = None
-        ctrl._is_aiming = False
+        ctrl._aim_activation = False
         ctrl._auto_fire_requested = False
         ctrl._auto_fire_timestamp = None
         ctrl._vision_received_at = None
@@ -376,7 +376,7 @@ class MouseControllerHostTests(unittest.TestCase):
     def test_build_frame_captures_state(self):
         p = _FakePlugin()
         ctrl = self._make_controller([p])
-        ctrl._is_aiming = True
+        ctrl._aim_activation = True
         ctrl.target_dx = 7.0
         ctrl.target_dy = -3.0
         ctrl._auto_fire_requested = True
@@ -394,7 +394,7 @@ class MouseControllerHostTests(unittest.TestCase):
         )
 
         frame = ctrl._build_frame(timestamp=100.0)
-        self.assertTrue(frame.is_aiming)
+        self.assertTrue(frame.activation)
         self.assertAlmostEqual(frame.target_dx, 7.0)
         self.assertAlmostEqual(frame.target_dy, -3.0)
         self.assertTrue(frame.auto_fire_requested)
@@ -491,7 +491,7 @@ class MouseControllerHostTests(unittest.TestCase):
 
     def test_build_frame_arms_manual_override_window_for_strong_manual_drag(self):
         ctrl = self._make_controller([])
-        ctrl._is_aiming = True
+        ctrl._aim_activation = True
         ctrl._acc_dx = 24.0
         ctrl._acc_dy = 0.0
 
@@ -555,7 +555,7 @@ class MouseControllerHostTests(unittest.TestCase):
     @patch("controllers.mouse_controller.win32api.mouse_event")
     def test_injected_motion_discounts_stale_target_error_with_response_floor(self, mouse_event):
         ctrl = self._make_controller([])
-        ctrl._is_aiming = True
+        ctrl._aim_activation = True
         ctrl._mouse_response_px_per_input = 0.08
         ctrl._mouse_response_local_min_px_per_input = 0.35
         ctrl.target_dx = 10.0
@@ -581,7 +581,7 @@ class MouseControllerHostTests(unittest.TestCase):
 
     def test_large_repeated_local_motion_zeroes_stale_target_error(self):
         ctrl = self._make_controller([])
-        ctrl._is_aiming = True
+        ctrl._aim_activation = True
         ctrl._mouse_response_px_per_input = 0.08
         ctrl._mouse_response_local_min_px_per_input = 0.35
         ctrl.target_dx = 80.0
@@ -602,7 +602,7 @@ class MouseControllerHostTests(unittest.TestCase):
     @patch("controllers.mouse_controller.win32api.mouse_event")
     def test_injected_motion_without_callback_does_not_trigger_manual_override(self, mouse_event):
         ctrl = self._make_controller([])
-        ctrl._is_aiming = True
+        ctrl._aim_activation = True
 
         ctrl._apply_output(MouseOutput(move_dx=16.0, move_dy=-4.0))
         frame = ctrl._build_frame(timestamp=100.0)
@@ -620,7 +620,7 @@ class MouseControllerHostTests(unittest.TestCase):
         mouse_event,
     ):
         ctrl = self._make_controller([])
-        ctrl._is_aiming = True
+        ctrl._aim_activation = True
 
         ctrl._apply_output(MouseOutput(move_dx=16.0, move_dy=-4.0))
         ctrl._on_mouse_move(116, 96)
@@ -634,7 +634,7 @@ class MouseControllerHostTests(unittest.TestCase):
     @patch("controllers.mouse_controller.win32api.mouse_event")
     def test_user_motion_excess_survives_injected_motion_suppression(self, mouse_event):
         ctrl = self._make_controller([])
-        ctrl._is_aiming = True
+        ctrl._aim_activation = True
 
         ctrl._apply_output(MouseOutput(move_dx=6.0, move_dy=0.0))
         ctrl._on_mouse_move(140, 100)
@@ -648,7 +648,7 @@ class MouseControllerHostTests(unittest.TestCase):
     @patch("controllers.mouse_controller.win32api.mouse_event")
     def test_scaled_injected_echo_is_suppressed_before_manual_accumulator(self, mouse_event):
         ctrl = self._make_controller([])
-        ctrl._is_aiming = True
+        ctrl._aim_activation = True
 
         ctrl._apply_output(MouseOutput(move_dx=6.0, move_dy=0.0))
         ctrl._on_mouse_move(120, 100)
@@ -662,7 +662,7 @@ class MouseControllerHostTests(unittest.TestCase):
     @patch("controllers.mouse_controller.win32api.mouse_event")
     def test_reverse_echo_from_injected_motion_is_suppressed(self, mouse_event):
         ctrl = self._make_controller([])
-        ctrl._is_aiming = True
+        ctrl._aim_activation = True
 
         ctrl._apply_output(MouseOutput(move_dx=-24.0, move_dy=-10.0))
         ctrl._on_mouse_move(111, 107)
@@ -679,7 +679,7 @@ class MouseControllerHostTests(unittest.TestCase):
         mouse_event,
     ):
         ctrl = self._make_controller([])
-        ctrl._is_aiming = True
+        ctrl._aim_activation = True
 
         ctrl._apply_output(MouseOutput(move_dx=-6.0, move_dy=0.0))
         ctrl._on_mouse_move(140, 100)
@@ -692,7 +692,7 @@ class MouseControllerHostTests(unittest.TestCase):
 
     def test_injected_echo_during_send_is_suppressed_before_manual_accumulator(self):
         ctrl = self._make_controller([])
-        ctrl._is_aiming = True
+        ctrl._aim_activation = True
 
         def echo_during_send(_flags, _dx, _dy):
             ctrl._on_mouse_move(111, 107)
@@ -728,7 +728,7 @@ class MouseControllerHostTests(unittest.TestCase):
         get_key,
     ):
         ctrl = self._make_controller([])
-        ctrl._is_aiming = True
+        ctrl._aim_activation = True
         ctrl._auto_fire_requested = True
         ctrl._auto_fire_timestamp = 9.95
         perf_counter.return_value = 10.00
@@ -753,7 +753,7 @@ class MouseControllerHostTests(unittest.TestCase):
         ctrl._sync_physical_aim_state()
 
         self.assertTrue(ctrl._manual_left_pressed)
-        self.assertTrue(ctrl._is_aiming)
+        self.assertTrue(ctrl._aim_activation)
         get_key.assert_called_with(0x02)
 
     @patch("controllers.mouse_controller.win32api.mouse_event")
@@ -765,7 +765,7 @@ class MouseControllerHostTests(unittest.TestCase):
     ):
         ctrl = self._make_controller([])
         ctrl._manual_left_pressed = True
-        ctrl._is_aiming = True
+        ctrl._aim_activation = True
         ctrl._auto_fire_requested = True
         ctrl._left_click_held = True
         ctrl.target_dx = 18.0
@@ -784,7 +784,7 @@ class MouseControllerHostTests(unittest.TestCase):
         mouse_event.assert_called_once()
         self.assertEqual(mouse_event.call_args.args[0], 0x0004)
         self.assertFalse(ctrl._manual_left_pressed)
-        self.assertFalse(ctrl._is_aiming)
+        self.assertFalse(ctrl._aim_activation)
         self.assertFalse(ctrl._auto_fire_requested)
         self.assertFalse(ctrl._left_click_held)
         self.assertIsNone(ctrl.target_info)
@@ -793,7 +793,7 @@ class MouseControllerHostTests(unittest.TestCase):
     def test_right_mouse_release_immediately_releases_synthetic_input_state(self, mouse_event):
         p = _FakePlugin()
         ctrl = self._make_controller([p])
-        ctrl._is_aiming = True
+        ctrl._aim_activation = True
         ctrl._auto_fire_requested = True
         ctrl._left_click_held = True
         ctrl.target_dx = 14.0
@@ -804,7 +804,7 @@ class MouseControllerHostTests(unittest.TestCase):
         mouse_event.assert_called_once()
         args = mouse_event.call_args.args
         self.assertEqual(args[0], 0x0004)
-        self.assertFalse(ctrl._is_aiming)
+        self.assertFalse(ctrl._aim_activation)
         self.assertFalse(ctrl._left_click_held)
         self.assertFalse(ctrl._auto_fire_requested)
         self.assertAlmostEqual(ctrl.target_dx, 0.0)
@@ -814,7 +814,7 @@ class MouseControllerHostTests(unittest.TestCase):
     @patch("controllers.mouse_controller.win32api.mouse_event")
     def test_stale_output_is_dropped_after_right_mouse_release(self, mouse_event):
         ctrl = self._make_controller([])
-        ctrl._is_aiming = True
+        ctrl._aim_activation = True
         frame = ctrl._build_frame(timestamp=10.0)
 
         ctrl._on_mouse_click(0, 0, pynput_mouse.Button.right, False)
@@ -843,7 +843,7 @@ class MouseControllerHostTests(unittest.TestCase):
     @patch("controllers.mouse_controller.win32api.GetAsyncKeyState", return_value=0)
     def test_physical_right_release_poll_fail_closes_aim_and_fire(self, get_key, mouse_event):
         ctrl = self._make_controller([])
-        ctrl._is_aiming = True
+        ctrl._aim_activation = True
         ctrl._auto_fire_requested = True
         ctrl._left_click_held = True
         ctrl.target_dx = 30.0
@@ -861,7 +861,7 @@ class MouseControllerHostTests(unittest.TestCase):
         get_key.assert_called_once_with(0x02)
         mouse_event.assert_called_once()
         self.assertEqual(mouse_event.call_args.args[0], 0x0004)
-        self.assertFalse(ctrl._is_aiming)
+        self.assertFalse(ctrl._aim_activation)
         self.assertFalse(ctrl._auto_fire_requested)
         self.assertFalse(ctrl._left_click_held)
         self.assertIsNone(ctrl.target_info)
@@ -872,12 +872,12 @@ class MouseControllerHostTests(unittest.TestCase):
     @patch("controllers.mouse_controller.win32api.GetAsyncKeyState", return_value=0x8000)
     def test_physical_right_press_poll_recovers_missed_listener_press(self, get_key):
         ctrl = self._make_controller([])
-        ctrl._is_aiming = False
+        ctrl._aim_activation = False
 
         ctrl._sync_physical_aim_state()
 
         get_key.assert_called_once_with(0x02)
-        self.assertTrue(ctrl._is_aiming)
+        self.assertTrue(ctrl._aim_activation)
         self.assertEqual(ctrl._physical_aim_sync_presses, 1)
         self.assertEqual(ctrl._physical_aim_sync_resets, 0)
         self.assertTrue(ctrl._physical_right_pressed)

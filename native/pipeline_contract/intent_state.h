@@ -1,6 +1,7 @@
 #pragma once
 
 #include "pipeline_contract/user_aim_intent.h"
+#include "pipeline_contract/assist_activation.h"
 #include "pipeline_contract/vision_observation.h"
 
 namespace pipeline_contract {
@@ -48,7 +49,7 @@ struct IntentState {
     float left_confidence = 0.0f;
     float right_confidence = 0.0f;
     double sample_time_seconds = 0.0;
-    bool ads = false;
+    AssistActivation activation = AssistActivation::Off;
     bool fire = false;
 };
 

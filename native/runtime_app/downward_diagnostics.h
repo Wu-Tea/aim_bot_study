@@ -27,7 +27,7 @@ public:
         const controller_native::GamepadOutputState& output,
         const controller_native::NativeControllerStageTraceBuffer& traces,
         const vision_native::VisionResult* latest_result,
-        bool is_aiming) const;
+        bool physical_ads_active) const;
 
 private:
     DownwardPullDiagnosticsConfig config_;

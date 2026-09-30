@@ -45,7 +45,7 @@ int main(int argc, char** argv) {
 
     try {
         vision_native::VisionEngine engine(width, height, 0, -1, timeout_ms);
-        engine.set_aiming(aim);
+        engine.set_request(aim ? pipeline_contract::VisionRequest::AssistSearch : pipeline_contract::VisionRequest::Idle);
 
         std::cout << "vision_native_debug start"
                   << " width=" << width

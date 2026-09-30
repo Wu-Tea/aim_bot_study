@@ -10,7 +10,7 @@ from tools.analyze_mouse_telemetry import health_failures, main, summarize
 
 HEADER = (
     "timestamp",
-    "is_aiming",
+    "activation",
     "manual_dx",
     "manual_dy",
     "manual_override_active",
@@ -55,7 +55,7 @@ def _row(
     target_dy=0.0,
     manual_override=0,
     manual_left=0,
-    is_aiming=1,
+    activation=1,
     physical_right=1,
     sync_resets=0,
     sync_presses=0,
@@ -70,7 +70,7 @@ def _row(
 ):
     values = {
         "timestamp": f"{timestamp:.3f}",
-        "is_aiming": str(is_aiming),
+        "activation": str(activation),
         "manual_dx": f"{manual_dx:.3f}",
         "manual_dy": f"{manual_dy:.3f}",
         "manual_override_active": str(manual_override),
@@ -234,8 +234,8 @@ class MouseTelemetryAnalysisTests(unittest.TestCase):
     def test_summary_flags_button_state_not_reaching_controller(self):
         path = self._write_csv(
             [
-                _row(timestamp=1.000, is_aiming=0, target_source="", phase="manual"),
-                _row(timestamp=1.008, is_aiming=0, target_source="", phase="manual"),
+                _row(timestamp=1.000, activation=0, target_source="", phase="manual"),
+                _row(timestamp=1.008, activation=0, target_source="", phase="manual"),
             ]
         )
 
@@ -278,7 +278,7 @@ class MouseTelemetryAnalysisTests(unittest.TestCase):
             [
                 _row(
                     timestamp=1.000,
-                    is_aiming=0,
+                    activation=0,
                     target_source="observed",
                     phase="manual",
                     target_age_ms=5000.0,
@@ -310,7 +310,7 @@ class MouseTelemetryAnalysisTests(unittest.TestCase):
             [
                 _row(
                     timestamp=1.000,
-                    is_aiming=0,
+                    activation=0,
                     target_source="observed",
                     phase="manual",
                     controller_consume_age_ms=5000.0,
@@ -489,7 +489,7 @@ class MouseTelemetryAnalysisTests(unittest.TestCase):
 
         self.assertEqual(result, 0)
 
-    def test_mouse_native_debug_analyzes_only_current_run_telemetry(self):
+    def test_mouse_native_debug_delegates_to_current_native_launcher(self):
         script = (
             Path(__file__).resolve().parents[2]
             / "scripts"
@@ -499,8 +499,9 @@ class MouseTelemetryAnalysisTests(unittest.TestCase):
         )
         content = script.read_text(encoding="utf-8")
 
-        self.assertIn("MOUSE_TELEMETRY_PATH", content)
-        self.assertIn('"%MOUSE_TELEMETRY_PATH%" --assert-healthy', content)
+        self.assertIn('mouse_native_cpp_start.bat" %*', content)
+        self.assertIn('exit /b %ERRORLEVEL%', content)
+        self.assertNotIn('analyze_mouse_telemetry.py', content)
 
 
 if __name__ == "__main__":

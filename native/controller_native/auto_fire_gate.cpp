@@ -25,10 +25,8 @@ AutoFireGate::AutoFireGate(
 
 void AutoFireGate::reset() {
     counters_ = NativeAutoFireCounters{};
-    manual_fire_was_pressed_ = false;
-    auto_fire_was_active_ = false;
-    manual_takeover_started_at_seconds_ = -1.0;
-    reset_pulse_schedule();
+    manual_state_.reset();
+    pulse_state_.reset();
     reset_readiness();
 }
 
@@ -40,60 +38,28 @@ void AutoFireGate::reset_readiness() {
 
 AutoFireGateDecision AutoFireGate::evaluate(const AutoFireGateInput& input) {
     AutoFireGateDecision decision;
-    decision.before_auto_fire_active = auto_fire_was_active_;
+    decision.before_auto_fire_active = active();
     decision.aim_ready = aim_ready_for_input(input);
     decision.block_reason = block_reason_for_input(input, decision.aim_ready);
     bool should_fire = decision.block_reason == AutoFireBlockReason::None;
     decision.pre_takeover_should_fire = should_fire;
 
-    const bool manual_fire_started =
-        input.manual_fire_pressed && !manual_fire_was_pressed_;
-    if (manual_fire_started && (should_fire || auto_fire_was_active_)) {
-        manual_takeover_started_at_seconds_ = input.now_seconds;
-    }
-
-    double takeover_elapsed = manual_takeover_elapsed(input.now_seconds);
-    bool in_takeover_guard = takeover_elapsed >= 0.0 &&
-        takeover_elapsed < manual_takeover_total_seconds();
-    if (takeover_elapsed >= manual_takeover_total_seconds()) {
-        manual_takeover_started_at_seconds_ = -1.0;
-        in_takeover_guard = false;
-    }
-
-    manual_fire_was_pressed_ = input.manual_fire_pressed;
+    const auto manual_phase = manual_state_.update(input.manual_fire_pressed,
+        should_fire || active(), input.now_seconds, manual_takeover_total_seconds());
     if (input.manual_fire_pressed) {
         should_fire = false;
         decision.block_reason = AutoFireBlockReason::ManualFire;
-    } else if (in_takeover_guard) {
+    } else if (manual_phase == ManualFirePhase::ResumeGuard) {
         should_fire = false;
         decision.block_reason = AutoFireBlockReason::ManualTakeoverGuard;
     }
 
     const bool authorized = should_fire;
-    if (!authorized) {
-        reset_pulse_schedule();
-        should_fire = false;
-    } else {
-        constexpr double kClockEpsilonSeconds = 1e-9;
-        const double width_seconds =
-            static_cast<double>(auto_fire_config_.pulse_width_ms) / 1000.0;
-        const double period_seconds =
-            static_cast<double>(auto_fire_config_.pulse_period_ms) / 1000.0;
-        if (pulse_cycle_active_ && input.now_seconds < pulse_started_at_seconds_) {
-            reset_pulse_schedule();
-        }
-        if (!pulse_cycle_active_ ||
-            input.now_seconds + kClockEpsilonSeconds >= next_pulse_at_seconds_) {
-            pulse_cycle_active_ = true;
-            pulse_started_at_seconds_ = input.now_seconds;
-            next_pulse_at_seconds_ = input.now_seconds + period_seconds;
-            ++counters_.pulse_starts;
-            should_fire = true;
-        } else {
-            should_fire =
-                input.now_seconds - pulse_started_at_seconds_ < width_seconds;
-        }
-    }
+    const auto pulse = pulse_state_.update(authorized, input.now_seconds,
+        static_cast<double>(auto_fire_config_.pulse_width_ms) / 1000.0,
+        static_cast<double>(auto_fire_config_.pulse_period_ms) / 1000.0);
+    should_fire = pulse.pressed;
+    counters_.pulse_starts += pulse.started;
     decision.pulse_waiting = authorized && !should_fire;
 
     if (input.vision_state.auto_fire_requested) {
@@ -108,7 +74,6 @@ AutoFireGateDecision AutoFireGate::evaluate(const AutoFireGateInput& input) {
     decision.should_fire = should_fire;
     decision.after_auto_fire_active = should_fire;
     decision.counters = counters_;
-    auto_fire_was_active_ = should_fire;
     return decision;
 }
 
@@ -135,7 +100,7 @@ NativeAutoFireCounters AutoFireGate::counters() const {
 }
 
 bool AutoFireGate::active() const {
-    return auto_fire_was_active_;
+    return pulse_state_.phase() == FirePulsePhase::Pressed;
 }
 
 bool AutoFireGate::aim_ready_for_input(const AutoFireGateInput& input) {
@@ -268,22 +233,9 @@ bool AutoFireGate::is_strong_fire_target(
     return authority.fire_authority == common_native::FireAuthority::ObservedOnly;
 }
 
-double AutoFireGate::manual_takeover_elapsed(double now_seconds) const {
-    if (manual_takeover_started_at_seconds_ < 0.0) {
-        return -1.0;
-    }
-    return std::max(0.0, now_seconds - manual_takeover_started_at_seconds_);
-}
-
 double AutoFireGate::manual_takeover_total_seconds() const {
     return std::max(0.0f, auto_fire_config_.manual_takeover_release_seconds) +
         std::max(0.0f, auto_fire_config_.manual_takeover_resume_delay_seconds);
-}
-
-void AutoFireGate::reset_pulse_schedule() {
-    pulse_cycle_active_ = false;
-    pulse_started_at_seconds_ = -1.0;
-    next_pulse_at_seconds_ = -1.0;
 }
 
 const char* auto_fire_block_reason_name(AutoFireBlockReason reason) {

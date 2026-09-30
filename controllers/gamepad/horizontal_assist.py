@@ -1,3 +1,4 @@
+from controllers.activation import AimActivation
 from dataclasses import dataclass
 
 
@@ -52,8 +53,8 @@ class HorizontalAimAssist:
         self._prev_timestamp = None
         self._nonconverging_updates = 0
 
-    def observe_target(self, target_dx: float, is_aiming: bool, timestamp: float):
-        if not is_aiming:
+    def observe_target(self, target_dx: float, activation: AimActivation, timestamp: float):
+        if not activation:
             self.reset()
             return
 

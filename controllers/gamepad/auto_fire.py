@@ -32,7 +32,7 @@ class AutoFirePlugin:
     def apply(self, frame: GamepadFrame, output: GamepadOutput) -> None:
         should_fire = frame.auto_fire_requested and self._has_fresh_source(frame)
         if self.config.aim_only:
-            should_fire = should_fire and frame.is_aiming
+            should_fire = should_fire and frame.activation.physical_ads
         if self.config.require_aim_ready:
             should_fire = should_fire and bool(getattr(output, "auto_fire_aim_ready", True))
 

@@ -1,3 +1,5 @@
+from controllers.activation import AimActivation
+
 from dataclasses import dataclass, field
 from typing import Mapping
 
@@ -14,7 +16,7 @@ class GamepadFrame:
     left_trigger: int
     right_trigger: int
     buttons: Mapping[str, bool]
-    is_aiming: bool
+    activation: AimActivation
     target_dx: float
     target_dy: float
     auto_fire_requested: bool
@@ -25,6 +27,9 @@ class GamepadFrame:
     auto_fire_timestamp: float | None = None
     vision_received_at: float | None = None
     vision_submitted_at: float | None = None
+
+    def __post_init__(self):
+        object.__setattr__(self, "activation", AimActivation(self.activation))
 
 
 @dataclass(slots=True)

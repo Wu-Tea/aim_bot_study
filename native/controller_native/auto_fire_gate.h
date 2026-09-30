@@ -2,6 +2,7 @@
 
 #include "controller_tick_context.h"
 #include "runtime_config.h"
+#include "auto_fire_state_machine.h"
 #include "../pipeline_contract/control_command.h"
 
 #include <cstdint>
@@ -89,22 +90,16 @@ private:
         const NativeControllerVisionState& vision_state,
         double now_seconds) const;
     bool is_strong_fire_target(const NativeControllerVisionState& vision_state) const;
-    double manual_takeover_elapsed(double now_seconds) const;
     double manual_takeover_total_seconds() const;
-    void reset_pulse_schedule();
 
     GamepadAutoFireConfig auto_fire_config_;
     GamepadAiAimConfig ai_config_;
     NativeAutoFireCounters counters_;
-    bool manual_fire_was_pressed_ = false;
-    bool auto_fire_was_active_ = false;
-    double manual_takeover_started_at_seconds_ = -1.0;
+    ManualFireStateMachine manual_state_;
+    FirePulseStateMachine pulse_state_;
     int ready_frames_ = 0;
     bool has_ready_vision_sequence_ = false;
     std::uint64_t ready_vision_sequence_ = 0;
-    bool pulse_cycle_active_ = false;
-    double pulse_started_at_seconds_ = -1.0;
-    double next_pulse_at_seconds_ = -1.0;
 };
 
 }  // namespace controller_native

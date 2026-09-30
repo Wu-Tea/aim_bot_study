@@ -6,12 +6,12 @@ from controllers.gamepad.adaptive_delta_gain import (
 )
 
 
-def _observe_sequence(gain, errors, is_aiming=True, start_t=0.0, step=0.01):
+def _observe_sequence(gain, errors, activation=True, start_t=0.0, step=0.01):
     for i, err in enumerate(errors):
         gain.observe_target(
             target_dx=err,
             target_dy=0.0,
-            is_aiming=is_aiming,
+            activation=activation,
             timestamp=start_t + float(i) * step,
         )
 
@@ -19,7 +19,7 @@ def _observe_sequence(gain, errors, is_aiming=True, start_t=0.0, step=0.01):
 class AdaptiveDeltaGainTests(unittest.TestCase):
     def test_first_observation_yields_no_bonus(self):
         gain = AdaptiveDeltaGain()
-        gain.observe_target(target_dx=40.0, target_dy=0.0, is_aiming=True, timestamp=0.0)
+        gain.observe_target(target_dx=40.0, target_dy=0.0, activation=True, timestamp=0.0)
         adj = gain.compute_adjustment(manual_rx=0, manual_ry=0)
         self.assertEqual(adj.target_dx_multiplier, 1.0)
         self.assertEqual(adj.target_dy_multiplier, 1.0)
@@ -75,7 +75,7 @@ class AdaptiveDeltaGainTests(unittest.TestCase):
         gain = AdaptiveDeltaGain(cfg)
         _observe_sequence(gain, [40.0] * 10)
         before = gain.compute_adjustment(manual_rx=0, manual_ry=0).target_dx_multiplier
-        gain.observe_target(target_dx=3.0, target_dy=0.0, is_aiming=True, timestamp=0.2)
+        gain.observe_target(target_dx=3.0, target_dy=0.0, activation=True, timestamp=0.2)
         after = gain.compute_adjustment(manual_rx=0, manual_ry=0).target_dx_multiplier
         self.assertLess(after, before)
 
@@ -103,7 +103,7 @@ class AdaptiveDeltaGainTests(unittest.TestCase):
         )
         gain = AdaptiveDeltaGain(cfg)
         _observe_sequence(gain, [40.0] * 5)
-        gain.observe_target(target_dx=40.0, target_dy=0.0, is_aiming=False, timestamp=0.1)
+        gain.observe_target(target_dx=40.0, target_dy=0.0, activation=False, timestamp=0.1)
         adj = gain.compute_adjustment(manual_rx=0, manual_ry=0)
         self.assertEqual(adj.target_dx_multiplier, 1.0)
 
@@ -116,10 +116,10 @@ class AdaptiveDeltaGainTests(unittest.TestCase):
             stale_seconds=0.1,
         )
         gain = AdaptiveDeltaGain(cfg)
-        gain.observe_target(target_dx=40.0, target_dy=0.0, is_aiming=True, timestamp=0.0)
-        gain.observe_target(target_dx=40.0, target_dy=0.0, is_aiming=True, timestamp=0.01)
-        gain.observe_target(target_dx=40.0, target_dy=0.0, is_aiming=True, timestamp=0.5)
-        gain.observe_target(target_dx=40.0, target_dy=0.0, is_aiming=True, timestamp=0.51)
+        gain.observe_target(target_dx=40.0, target_dy=0.0, activation=True, timestamp=0.0)
+        gain.observe_target(target_dx=40.0, target_dy=0.0, activation=True, timestamp=0.01)
+        gain.observe_target(target_dx=40.0, target_dy=0.0, activation=True, timestamp=0.5)
+        gain.observe_target(target_dx=40.0, target_dy=0.0, activation=True, timestamp=0.51)
         adj = gain.compute_adjustment(manual_rx=0, manual_ry=0)
         self.assertEqual(adj.target_dx_multiplier, 1.0)
 
@@ -135,7 +135,7 @@ class AdaptiveDeltaGainTests(unittest.TestCase):
             gain.observe_target(
                 target_dx=40.0,
                 target_dy=2.0,
-                is_aiming=True,
+                activation=True,
                 timestamp=float(i) * 0.01,
             )
         adj = gain.compute_adjustment(manual_rx=0, manual_ry=0)

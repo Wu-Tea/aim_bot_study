@@ -21,7 +21,7 @@ class MouseFrameTests(unittest.TestCase):
             timestamp=1.0,
             manual_dx=5.0,
             manual_dy=-3.0,
-            is_aiming=True,
+            activation=True,
             target_dx=10.0,
             target_dy=-4.0,
             auto_fire_requested=False,
@@ -36,7 +36,7 @@ class MouseFrameTests(unittest.TestCase):
             timestamp=2.0,
             manual_dx=1.0,
             manual_dy=2.0,
-            is_aiming=False,
+            activation=False,
             target_dx=3.0,
             target_dy=4.0,
             auto_fire_requested=True,
@@ -48,7 +48,7 @@ class MouseFrameTests(unittest.TestCase):
         self.assertEqual(frame.timestamp, 2.0)
         self.assertEqual(frame.manual_dx, 1.0)
         self.assertEqual(frame.manual_dy, 2.0)
-        self.assertFalse(frame.is_aiming)
+        self.assertFalse(frame.activation)
         self.assertEqual(frame.target_dx, 3.0)
         self.assertEqual(frame.target_dy, 4.0)
         self.assertTrue(frame.auto_fire_requested)

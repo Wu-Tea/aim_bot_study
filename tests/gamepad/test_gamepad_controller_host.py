@@ -616,7 +616,7 @@ class GamepadControllerHostTests(unittest.TestCase):
     def test_build_frame_keeps_controller_target_metadata(self):
         controller = GamepadController.__new__(GamepadController)
         controller.lock = threading.Lock()
-        controller._is_aiming = True
+        controller._aim_activation = True
         controller.target_dx = 6.0
         controller.target_dy = -4.0
         controller.target_revision = 3
@@ -667,7 +667,7 @@ class GamepadControllerHostTests(unittest.TestCase):
         )
         controller = GamepadController.__new__(GamepadController)
         controller.lock = threading.Lock()
-        controller._is_aiming = True
+        controller._aim_activation = True
         controller.target_dx = 20.0
         controller.target_dy = -8.0
         controller.target_revision = 3
@@ -714,7 +714,7 @@ class GamepadControllerHostTests(unittest.TestCase):
     def test_build_frame_treats_rb_as_aiming_when_configured(self):
         controller = GamepadController.__new__(GamepadController)
         controller.lock = threading.Lock()
-        controller._is_aiming = False
+        controller._aim_activation = False
         controller._rb_counts_as_aiming = True
         controller.target_dx = 10.0
         controller.target_dy = 0.0
@@ -740,12 +740,12 @@ class GamepadControllerHostTests(unittest.TestCase):
             dpad=0,
         )
 
-        self.assertTrue(frame.is_aiming)
+        self.assertTrue(frame.activation)
 
     def test_build_frame_does_not_treat_rb_as_aiming_by_default(self):
         controller = GamepadController.__new__(GamepadController)
         controller.lock = threading.Lock()
-        controller._is_aiming = False
+        controller._aim_activation = False
         controller._rb_counts_as_aiming = False
         controller.target_dx = 10.0
         controller.target_dy = 0.0
@@ -771,11 +771,11 @@ class GamepadControllerHostTests(unittest.TestCase):
             dpad=0,
         )
 
-        self.assertFalse(frame.is_aiming)
+        self.assertFalse(frame.activation)
 
     def test_update_aiming_state_counts_rb_as_aiming_when_configured(self):
         controller = GamepadController.__new__(GamepadController)
-        controller._is_aiming = False
+        controller._aim_activation = False
         controller._rb_counts_as_aiming = True
 
         GamepadController._update_aiming_state(
@@ -784,11 +784,11 @@ class GamepadControllerHostTests(unittest.TestCase):
             buttons={"rb": True},
         )
 
-        self.assertTrue(GamepadController.is_aiming(controller))
+        self.assertTrue(GamepadController.aim_activation(controller))
 
     def test_update_aiming_state_ignores_rb_when_config_is_disabled(self):
         controller = GamepadController.__new__(GamepadController)
-        controller._is_aiming = False
+        controller._aim_activation = False
         controller._rb_counts_as_aiming = False
 
         GamepadController._update_aiming_state(
@@ -797,7 +797,7 @@ class GamepadControllerHostTests(unittest.TestCase):
             buttons={"rb": True},
         )
 
-        self.assertFalse(GamepadController.is_aiming(controller))
+        self.assertFalse(GamepadController.aim_activation(controller))
 
     def test_record_timing_sample_exposes_controller_consume_and_output_age(self):
         controller = GamepadController.__new__(GamepadController)
@@ -812,7 +812,7 @@ class GamepadControllerHostTests(unittest.TestCase):
             left_trigger=255,
             right_trigger=0,
             buttons={"rb": False},
-            is_aiming=True,
+            activation=True,
             target_dx=0.0,
             target_dy=0.0,
             auto_fire_requested=False,
@@ -864,7 +864,7 @@ class GamepadControllerHostTests(unittest.TestCase):
             left_trigger=255,
             right_trigger=0,
             buttons={"rb": False},
-            is_aiming=True,
+            activation=True,
             target_dx=0.0,
             target_dy=0.0,
             auto_fire_requested=False,
@@ -916,7 +916,7 @@ class GamepadControllerHostTests(unittest.TestCase):
             matching_profiles=[ready_profile],
         )
 
-        profile = GamepadController._get_active_recoil_profile(controller, is_aiming=True)
+        profile = GamepadController._get_active_recoil_profile(controller, activation=True)
 
         self.assertIsNotNone(profile)
         self.assertEqual(profile.profile_id, "profile-cod22-m4-ads-standing-v1")
@@ -961,7 +961,7 @@ class GamepadControllerHostTests(unittest.TestCase):
             matching_profiles=[degraded_profile],
         )
 
-        profile = GamepadController._get_active_recoil_profile(controller, is_aiming=True)
+        profile = GamepadController._get_active_recoil_profile(controller, activation=True)
 
         self.assertIsNotNone(profile)
         self.assertEqual(profile.profile_id, "profile-cod22-m4-ads-standing-v1")
@@ -985,7 +985,7 @@ class GamepadControllerHostTests(unittest.TestCase):
             matching_profiles=[],
         )
 
-        profile = GamepadController._get_active_recoil_profile(controller, is_aiming=True)
+        profile = GamepadController._get_active_recoil_profile(controller, activation=True)
 
         self.assertIsNone(profile)
 
@@ -1001,11 +1001,11 @@ class GamepadControllerHostTests(unittest.TestCase):
         controller._recoil_app_bridge = type(
             "_FakeBridge",
             (),
-            {"get_active_profile": lambda _self, *, is_aiming: calls.append(is_aiming) or expected_profile},
+            {"get_active_profile": lambda _self, *, physical_ads: calls.append(physical_ads) or expected_profile},
         )()
         controller._recoil_sidecar_service = None
 
-        profile = GamepadController._get_active_recoil_profile(controller, is_aiming=True)
+        profile = GamepadController._get_active_recoil_profile(controller, activation=True)
 
         self.assertIs(profile, expected_profile)
         self.assertEqual(calls, [True])

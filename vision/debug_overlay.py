@@ -1,3 +1,4 @@
+from controllers.activation import AimActivation
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -11,7 +12,7 @@ from .targeting import ParsedDetections, SelectedTarget, TargetSelector
 @dataclass(slots=True, frozen=True)
 class OverlayStatus:
     auto_fire_active: bool
-    is_aiming: bool
+    activation: AimActivation
     detections_count: int
     best_target_delta: tuple[float, float] | None = None
     status_text: str | None = None
@@ -39,14 +40,14 @@ class VisionDebugOverlay:
         selected_target: SelectedTarget | None,
         target_selector: TargetSelector,
         auto_fire_active: bool,
-        is_aiming: bool,
+        activation: AimActivation,
         best_target_delta: tuple[float, float] | None = None,
         status_text: str | None = None,
     ) -> np.ndarray:
         rendered = cv2.cvtColor(frame.copy(), cv2.COLOR_RGB2BGR)
         status = OverlayStatus(
             auto_fire_active=auto_fire_active,
-            is_aiming=is_aiming,
+            activation=activation,
             detections_count=sum(len(detection.boxes) for detection in detections),
             best_target_delta=best_target_delta,
             status_text=status_text,
@@ -66,7 +67,7 @@ class VisionDebugOverlay:
         selected_target: SelectedTarget | None,
         target_selector: TargetSelector,
         auto_fire_active: bool,
-        is_aiming: bool,
+        activation: AimActivation,
         best_target_delta: tuple[float, float] | None = None,
         status_text: str | None = None,
     ) -> None:
@@ -79,7 +80,7 @@ class VisionDebugOverlay:
             selected_target=selected_target,
             target_selector=target_selector,
             auto_fire_active=auto_fire_active,
-            is_aiming=is_aiming,
+            activation=activation,
             best_target_delta=best_target_delta,
             status_text=status_text,
         )
@@ -215,7 +216,7 @@ class VisionDebugOverlay:
             else f"{status.best_target_delta[0]:.1f},{status.best_target_delta[1]:.1f}"
         )
         lines = [
-            f"AIM {'ON' if status.is_aiming else 'OFF'}",
+            f"AIM {'ON' if status.activation else 'OFF'}",
             f"FIRE {'ON' if status.auto_fire_active else 'OFF'}",
             f"BOXES {status.detections_count}",
             f"DELTA {delta}",

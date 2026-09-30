@@ -285,8 +285,7 @@ void NativeGamepadController::reset() {
     touchpad_triangle_.reset();
     pending_snapshot_ = {};
     has_pending_snapshot_ = false;
-    physical_aiming_ = false;
-    aiming_ = false;
+    activation_reducer_.reset();
     last_firing_activity_seconds_ = -1.0;
     ads_epoch_ = 0;
     last_tick_seconds_ = 0.0;
@@ -537,14 +536,14 @@ const NativeControlTickPreparation& NativeGamepadController::begin_tick(
     const AimScopeSnapshot scope = aim_scope_reducer_.reduce(
         input_edges,
         config_.auto_fire.manual_fire_activates_ai_aim);
-    physical_aiming_ = scope.physical_ads_ready;
-    aiming_ = scope.physical_ads_ready || scope.manual_fire_active;
+    if (!physical.connected) activation_reducer_.revoke();
+    const auto activation = activation_reducer_.reduce(scope, now);
     const auto reacquisition = ads_reacquisition_reducer_.on_input(
         scope,
         last_target_plan_,
         input_edges.cause_event);
     const bool acquisition_rearm = reacquisition.begin_ads_epoch;
-    if (aiming_ && acquisition_rearm) {
+    if (pipeline_contract::owns_ads_task(activation) && acquisition_rearm) {
         target_coordinator_.begin_ads_epoch(++ads_epoch_, now);
         assist_control_state_machine_.reset();
         auto_fire_gate_.reset_readiness();
@@ -556,21 +555,23 @@ const NativeControlTickPreparation& NativeGamepadController::begin_tick(
     // return native input in the final owner. Gamepad interpretation uses its
     // fixed threshold; mouse ADS/reacquisition has no extra adapter deadzone.
     const bool mouse_bodylock = config_.ai_aim.adapter_direct_mouse_manual &&
-        aiming_ && !acquisition_rearm && last_target_plan_.target_id != 0 &&
+        pipeline_contract::permits_assist(activation) && !acquisition_rearm && last_target_plan_.target_id != 0 &&
         last_target_plan_.mode == pipeline_contract::ControlMode::BodyLockFollow &&
         !last_output_components_.handover_requested;
     sampled_intent_ = intent_filter_.update(
         {physical.left_x, physical.left_y},
         {physical.right_x, physical.right_y},
-        aiming_, manual_fire_pressed(physical), now,
+        pipeline_contract::permits_assist(activation), manual_fire_pressed(physical), now,
         last_target_plan_.target_id != 0,
         last_output_components_.handover_requested,
         mouse_bodylock ? config_.ai_aim.adapter_bodylock_deadzone : 0.0f);
+    sampled_intent_.activation = activation;
     has_sampled_input_ = true;
     last_tick_preparation_.tick_id = resolved_tick_id;
     last_tick_preparation_.now_seconds = now;
     last_tick_preparation_.dt_seconds = dt;
     last_tick_preparation_.scope = scope;
+    last_tick_preparation_.activation = activation;
     last_tick_preparation_.intent = sampled_intent_;
     last_tick_preparation_.input_cause = input_edges.cause_event;
     last_tick_preparation_.acquisition_rearmed = acquisition_rearm;
@@ -1042,6 +1043,16 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
         plan,
         dt,
         {});
+    if (intent.activation == pipeline_contract::AssistActivation::Application) {
+        // Budget the AI proposal before the sole manual/AI arbiter. Physical
+        // passthrough and recoil do not belong to this application budget.
+        const float magnitude = std::hypot(shaped.x, shaped.y);
+        const float budget = activation_reducer_.application_budget();
+        if (magnitude > budget) {
+            shaped.x *= budget / magnitude;
+            shaped.y *= budget / magnitude;
+        }
+    }
     components.bodylock_error_rate_px_per_sec = {
         bodylock_diagnostics.error_rate_px_per_sec.x,
         bodylock_diagnostics.error_rate_px_per_sec.y};
@@ -1102,7 +1113,7 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
     // target-first rather than manual+AI addition; BodyLock remains the
     // cooperative mode. Recoil is composed independently after this command.
     AssistControlStateMachineInput control_input;
-    control_input.aiming = aiming_;
+    control_input.activation = last_tick_preparation_.activation;
     control_input.target_authoritative = target_authoritative;
     control_input.fresh_observation = observations.capture_fresh &&
         plan.lifecycle == pipeline_contract::TargetLifecycle::Observed;
@@ -1159,7 +1170,7 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
         const float target_speed = std::hypot(
             plan.velocity_px_per_sec.x, plan.velocity_px_per_sec.y);
         OperationIntentInput operation_input;
-        operation_input.aiming = physical_aiming_;
+        operation_input.aiming = last_tick_preparation_.scope.physical_ads_ready;
         operation_input.firing = control_feedback.firing_recently;
         operation_input.target_owned = plan.target_id != 0;
         operation_input.manual_correction =
@@ -1263,7 +1274,7 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
     fire_input.vision_state = last_frame_vision_state_;
     // A fire-triggered hip-fire search grants aim-assist ownership only. It
     // must not turn on synthetic AutoFire as though physical LT were held.
-    fire_input.aiming = physical_aiming_;
+    fire_input.aiming = last_tick_preparation_.scope.physical_ads_ready;
     fire_input.ads_min_elapsed = true;
     // Explicit touch fire owns the fire cadence while held. Target AutoFire
     // must not fill its release gaps; use the existing manual takeover policy.
@@ -1306,7 +1317,7 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
              kFiringDisturbanceWindowSeconds);
     const auto recoil_contribution = recoil_.reduce(
         !touch_fire.requested && (fire.should_fire || manual_fire_pressed(physical)),
-        physical_aiming_,
+        last_tick_preparation_.scope.physical_ads_ready,
         now,
         sample_sequence);
 

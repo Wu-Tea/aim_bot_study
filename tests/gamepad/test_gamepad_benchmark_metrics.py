@@ -47,10 +47,10 @@ class _HorizontalAssistConfigurableSubPlugin:
     def reset(self):
         self.assist.reset()
 
-    def observe_target(self, *, target_dx, target_dy, is_aiming, timestamp):
+    def observe_target(self, *, target_dx, target_dy, activation, timestamp):
         self.assist.observe_target(
             target_dx=target_dx,
-            is_aiming=is_aiming,
+            activation=activation,
             timestamp=timestamp,
         )
 
@@ -67,11 +67,11 @@ class _OvershootGuardConfigurableSubPlugin:
     def reset(self):
         self.guard.reset()
 
-    def observe_target(self, *, target_dx, target_dy, is_aiming, timestamp):
+    def observe_target(self, *, target_dx, target_dy, activation, timestamp):
         self.guard.observe_target(
             target_dx=target_dx,
             target_dy=target_dy,
-            is_aiming=is_aiming,
+            activation=activation,
             timestamp=timestamp,
         )
 

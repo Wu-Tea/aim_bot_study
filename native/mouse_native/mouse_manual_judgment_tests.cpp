@@ -32,7 +32,8 @@ void run(Report& report) {
                                    float expected, bool correction = false) {
                 AssistControlStateMachine owner(config);
                 AssistControlStateMachineInput in;
-                in.aiming = in.target_authoritative = in.fresh_observation = true;
+                in.activation = pipeline_contract::AssistActivation::Engaged;
+            in.target_authoritative = in.fresh_observation = true;
                 in.target_id = in.selector_target_generation = 9;
                 in.now_seconds = 1;
                 in.mode = mode;

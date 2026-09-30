@@ -53,7 +53,7 @@ struct FusionSample {
 FusionSample fusion_sample() {
     AssistControlStateMachine mixed_state;
     AssistControlStateMachineInput mixed;
-    mixed.aiming = true;
+    mixed.activation = pipeline_contract::AssistActivation::Engaged;
     mixed.target_authoritative = true;
     mixed.target_id = 1;
     mixed.selector_target_generation = 1;

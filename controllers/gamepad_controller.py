@@ -1,3 +1,4 @@
+from controllers.activation import AimActivation
 import os
 import json
 import threading
@@ -79,7 +80,7 @@ class GamepadController(BaseController, threading.Thread):
         self.running = True
         self.ready = False
         self.lock = threading.Lock()
-        self._is_aiming = False
+        self._aim_activation = AimActivation.OFF
         self._auto_fire_requested = False
         self._auto_fire_timestamp = None
         self._vision_received_at = None
@@ -262,8 +263,8 @@ class GamepadController(BaseController, threading.Thread):
         if tracker is not None:
             tracker.reset()
 
-    def is_aiming(self):
-        return self._is_aiming
+    def aim_activation(self):
+        return AimActivation(self._aim_activation)
 
     def _update_aiming_state(self, *, left_trigger: int, buttons: dict[str, bool]) -> None:
         trigger_aiming = left_trigger > 10
@@ -271,7 +272,7 @@ class GamepadController(BaseController, threading.Thread):
             getattr(self, "_rb_counts_as_aiming", False)
             and buttons.get("rb", False)
         )
-        self._is_aiming = bool(trigger_aiming or rb_aiming)
+        self._aim_activation = AimActivation.from_inputs(physical_ads=trigger_aiming or rb_aiming)
 
     def set_auto_fire(self, pressed: bool, observed_at: float | None = None):
         if pressed and observed_at is None:
@@ -351,13 +352,12 @@ class GamepadController(BaseController, threading.Thread):
             auto_fire_timestamp = getattr(self, "_auto_fire_timestamp", None)
             vision_received_at = getattr(self, "_vision_received_at", None)
             vision_submitted_at = getattr(self, "_vision_submitted_at", None)
-            is_aiming = bool(
-                self._is_aiming
-                or (
-                    getattr(self, "_rb_counts_as_aiming", False)
-                    and buttons.get("rb", False)
+            activation = AimActivation(self._aim_activation)
+            if getattr(self, "_rb_counts_as_aiming", False) and buttons.get("rb", False):
+                activation = AimActivation.from_inputs(
+                    physical_ads=True,
+                    manual_fire=activation in (AimActivation.MANUAL_FIRE, AimActivation.ADS_AND_FIRE),
                 )
-            )
 
         return GamepadFrame(
             timestamp=timestamp,
@@ -368,7 +368,7 @@ class GamepadController(BaseController, threading.Thread):
             left_trigger=left_trigger,
             right_trigger=right_trigger,
             buttons=buttons,
-            is_aiming=is_aiming,
+            activation=activation,
             target_dx=target_dx,
             target_dy=target_dy,
             auto_fire_requested=auto_fire_requested,
@@ -393,17 +393,17 @@ class GamepadController(BaseController, threading.Thread):
             dpad=frame.dpad,
         )
 
-    def _get_active_recoil_profile(self, frame: GamepadFrame | None = None, *, is_aiming: bool | None = None):
+    def _get_active_recoil_profile(self, frame: GamepadFrame | None = None, *, activation: AimActivation | None = None):
         bridge = getattr(self, "_recoil_app_bridge", None)
         if bridge is not None:
-            aiming = bool(is_aiming) if is_aiming is not None else bool(getattr(frame, "is_aiming", False))
-            return bridge.get_active_profile(is_aiming=aiming)
+            aiming = AimActivation(activation if activation is not None else getattr(frame, "activation", AimActivation.OFF)).physical_ads
+            return bridge.get_active_profile(physical_ads=aiming)
 
         service = getattr(self, "_recoil_sidecar_service", None)
         if service is None:
             return None
 
-        aiming = bool(is_aiming) if is_aiming is not None else bool(getattr(frame, "is_aiming", False))
+        aiming = AimActivation(activation if activation is not None else getattr(frame, "activation", AimActivation.OFF)).physical_ads
         context = {"stance": "standing", "aim_mode": "ads" if aiming else "hipfire"}
         try:
             recognizer_state = _coerce_recognizer_state(service.read_recognizer_state())
@@ -506,11 +506,11 @@ class GamepadController(BaseController, threading.Thread):
                 recognizer.handle_switch_pressed()
         self._last_buttons = dict(buttons)
 
-    def _handle_recoil_runtime_fire_state(self, *, is_firing: bool, is_aiming: bool) -> None:
+    def _handle_recoil_runtime_fire_state(self, *, is_firing: bool, activation: AimActivation) -> None:
         bridge = getattr(self, "_recoil_app_bridge", None)
         if bridge is None:
             return
-        bridge.handle_fire_state(is_firing=is_firing, is_aiming=is_aiming)
+        bridge.handle_fire_state(is_firing=is_firing, physical_ads=AimActivation(activation).physical_ads)
 
     def _apply_dpad(self, dpad_button):
         for button in self.DPAD_BUTTONS:
@@ -555,7 +555,7 @@ class GamepadController(BaseController, threading.Thread):
             self._handle_weapon_switch_button(buttons)
             self._handle_recoil_runtime_fire_state(
                 is_firing=self._physical_input.read_right_fire_pressed(),
-                is_aiming=self._is_aiming,
+                activation=self._aim_activation,
             )
 
             frame = self._build_frame(

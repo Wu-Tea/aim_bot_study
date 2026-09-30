@@ -109,20 +109,4 @@ private:
     float boundary_seconds_y_ = 0.0f;
 };
 
-// Sole owner of the mutually exclusive Manual/ADS/BodyLock mode.
-class AimModeReducer {
-public:
-    void reset() noexcept {
-        mode_ = pipeline_contract::ControlMode::Manual;
-    }
-    void transition(pipeline_contract::ControlMode next) noexcept {
-        mode_ = next;
-    }
-    pipeline_contract::ControlMode mode() const noexcept { return mode_; }
-
-private:
-    pipeline_contract::ControlMode mode_ =
-        pipeline_contract::ControlMode::Manual;
-};
-
 }  // namespace controller_native

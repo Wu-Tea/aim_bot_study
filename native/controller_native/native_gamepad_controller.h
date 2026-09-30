@@ -5,6 +5,7 @@
 #include "ads_response_estimator.h"
 #include "aim_response_estimator.h"
 #include "aim_scope_reducer.h"
+#include "assist_activation_reducer.h"
 #include "aim_dynamics_shaper.h"
 #include "assist_control_state_machine.h"
 #include "auto_fire_gate.h"
@@ -132,6 +133,7 @@ struct NativeControlTickPreparation {
     double now_seconds = 0.0;
     float dt_seconds = 0.001f;
     AimScopeSnapshot scope{};
+    pipeline_contract::AssistActivation activation = pipeline_contract::AssistActivation::Off;
     pipeline_contract::IntentState intent{};
     pipeline_contract::EventSequence input_cause{};
     bool acquisition_rearmed = false;
@@ -145,6 +147,12 @@ public:
 
     void reset();
     void submit_vision_snapshot(const ControllerVisionSnapshot& snapshot);
+    // Application activation is independent of physical ADS/fire and owns no ADS token.
+    // Call on the controller thread; deadline uses the same monotonic clock as begin_tick.
+    void request_assist_until(double deadline, float max_ai_magnitude = 0.10f) noexcept {
+        activation_reducer_.request_until(deadline, max_ai_magnitude);
+    }
+    void revoke_application_assist() noexcept { activation_reducer_.revoke(); }
     const NativeControlTickPreparation& begin_tick(
         const PhysicalGamepadState& physical,
         std::uint64_t tick_id = 0);
@@ -234,8 +242,7 @@ private:
     TouchpadTriangle touchpad_triangle_;
     ControllerVisionSnapshot pending_snapshot_{};
     bool has_pending_snapshot_ = false;
-    bool physical_aiming_ = false;
-    bool aiming_ = false;
+    AssistActivationReducer activation_reducer_;
     double last_firing_activity_seconds_ = -1.0;
     std::uint64_t ads_epoch_ = 0;
     double last_tick_seconds_ = 0.0;

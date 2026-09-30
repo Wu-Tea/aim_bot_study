@@ -361,7 +361,7 @@ def _simulate_manual_mix_closed_loop(
             left_trigger=255,
             right_trigger=0,
             buttons={},
-            is_aiming=True,
+            activation=True,
             target_dx=error_x,
             target_dy=error_y,
             auto_fire_requested=False,

@@ -158,7 +158,8 @@ void test_gamepad_authority_curve_continuity(const native_test::TestContext& con
             const float raw = sign * (tick <= 1000 ? tick : 2000-tick) * .0005f;
             const auto intent = filter.update({},vec(raw),true,firing,1+tick*.001,true);
             controller_native::AssistControlStateMachineInput in;
-            in.aiming = in.target_authoritative = true;
+            in.activation = pipeline_contract::AssistActivation::Engaged;
+            in.target_authoritative = true;
             in.mode = pipeline_contract::ControlMode::BodyLockFollow;
             in.target_id = in.selector_target_generation = 1;
             in.now_seconds = 1+tick*.001; in.fresh_observation = fresh;
@@ -291,7 +292,8 @@ void test_carried_axis_release_continuity(const native_test::TestContext& contex
                                                1 + i * .001, i > 0);
             const auto& state = axis == 0 ? intent.right_x : intent.right_y;
             controller_native::AssistControlStateMachineInput input;
-            input.aiming = input.target_authoritative = input.fresh_observation = true;
+            input.activation = pipeline_contract::AssistActivation::Engaged;
+            input.target_authoritative = input.fresh_observation = true;
             input.target_id = 172;
             input.selector_target_generation = 8;
             input.now_seconds = 1 + i * .001;

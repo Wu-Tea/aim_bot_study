@@ -66,7 +66,7 @@ class DownwardPullDiagnostics:
             "final_right_y": int(output.right_y),
             "system_right_y_delta": system_right_y_delta,
             "auto_fire_active": bool(output.auto_fire_active),
-            "is_aiming": bool(frame.is_aiming),
+            "activation": frame.activation.name.lower(),
             "auto_fire_requested": bool(frame.auto_fire_requested),
             "target_dx": float(frame.target_dx),
             "target_dy": float(frame.target_dy),

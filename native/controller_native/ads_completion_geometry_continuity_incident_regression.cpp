@@ -20,7 +20,7 @@ constexpr std::uint64_t kSelectorGeneration = 2601;
 
 pipeline_contract::IntentState ads_intent() {
     pipeline_contract::IntentState intent;
-    intent.ads = true;
+    intent.activation = pipeline_contract::AssistActivation::Engaged;
     return intent;
 }
 

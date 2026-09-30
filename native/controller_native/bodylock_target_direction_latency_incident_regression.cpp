@@ -17,7 +17,7 @@ constexpr int kMaximumTargetDirectionTick = 1;
 controller_native::AssistControlStateMachineInput bodylock_input(
     double now_seconds) {
     controller_native::AssistControlStateMachineInput input;
-    input.aiming = true;
+    input.activation = pipeline_contract::AssistActivation::Engaged;
     input.target_authoritative = true;
     input.fresh_observation = true;
     input.target_id = 748;

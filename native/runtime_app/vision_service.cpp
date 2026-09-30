@@ -54,7 +54,7 @@ void stamp_service_metadata(VisionServiceSnapshot& snapshot) {
     snapshot.result.service_freshness = freshness_name(snapshot.freshness);
     snapshot.result.service_source_state = source_state_name(snapshot.source_state);
     snapshot.result.service_sequence = snapshot.sequence;
-    snapshot.result.service_controller_aiming = snapshot.controller_aiming;
+    snapshot.result.service_controller_aiming = pipeline_contract::requests_detection(snapshot.request);
     snapshot.result.service_engine_aiming = snapshot.engine_aiming;
     snapshot.result.aim_wakeup_to_dispatch_ms = snapshot.aim_wakeup_to_dispatch_ms;
     snapshot.result.aim_wakeup_to_capture_ms = snapshot.aim_wakeup_to_capture_ms;
@@ -157,20 +157,20 @@ void VisionService::stop() {
     }
 }
 
-std::uint64_t VisionService::set_aiming(
-    bool aiming, std::chrono::steady_clock::time_point now) {
+std::uint64_t VisionService::set_request(
+    pipeline_contract::VisionRequest request, std::chrono::steady_clock::time_point now) {
     bool state_changed = false;
     std::uint64_t transition_sequence = 0;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        state_changed = aiming != controller_aiming_;
-        const bool wake = aiming && !controller_aiming_;
+        state_changed = request != request_;
+        const bool wake = pipeline_contract::requests_detection(request) && state_changed;
         if (state_changed) {
-            release_hold_until_ = !aiming && options_.aim_release_hold_ms > 0
+            release_hold_until_ = !pipeline_contract::requests_detection(request) && options_.aim_release_hold_ms > 0
                 ? now + std::chrono::milliseconds(options_.aim_release_hold_ms)
                 : std::chrono::steady_clock::time_point{};
         }
-        controller_aiming_ = aiming;
+        request_ = request;
         if (wake) {
             ++aim_transition_sequence_;
             immediate_poll_requested_ = true;
@@ -209,11 +209,11 @@ std::chrono::steady_clock::time_point VisionService::next_poll_due_for_test(
 }
 
 bool VisionService::full_rate_requested(std::chrono::steady_clock::time_point now) const {
-    return controller_aiming_ || now < release_hold_until_;
+    return pipeline_contract::requests_detection(request_) || now < release_hold_until_;
 }
 
 bool VisionService::step(std::chrono::steady_clock::time_point now) {
-    bool controller_aiming = false;
+    auto request = pipeline_contract::VisionRequest::Idle;
     bool engine_aiming = false;
     pipeline_contract::UserAimIntent intent;
     ViewportRequest viewport;
@@ -222,7 +222,7 @@ bool VisionService::step(std::chrono::steady_clock::time_point now) {
     double requested_fps = 0.0;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        controller_aiming = controller_aiming_;
+        request = request_;
         const bool full_rate = full_rate_requested(now);
         engine_aiming = full_rate || options_.keepwarm_when_idle;
         const double fps = full_rate ? options_.capture_fps : options_.idle_fps;
@@ -244,7 +244,8 @@ bool VisionService::step(std::chrono::steady_clock::time_point now) {
     }
 
     const auto dispatch_at = std::chrono::steady_clock::now();
-    poller_->set_aiming(engine_aiming);
+    poller_->set_request(pipeline_contract::requests_detection(request) ? request :
+        engine_aiming ? pipeline_contract::VisionRequest::DetectionOnly : pipeline_contract::VisionRequest::Idle);
     poller_->set_user_aim_intent(intent);
     poller_->set_viewport(viewport);
     const auto capture_at = std::chrono::steady_clock::now();
@@ -252,10 +253,10 @@ bool VisionService::step(std::chrono::steady_clock::time_point now) {
     const auto result_at = std::chrono::steady_clock::now();
 
     VisionServiceSnapshot snapshot;
-    snapshot.controller_aiming = controller_aiming;
+    snapshot.request = request;
     snapshot.engine_aiming = engine_aiming;
     snapshot.aim_transition_sequence = aim_transition_sequence;
-    if (controller_aiming && aim_transition_requested_at != std::chrono::steady_clock::time_point{}) {
+    if (pipeline_contract::requests_detection(request) && aim_transition_requested_at != std::chrono::steady_clock::time_point{}) {
         auto elapsed = [aim_transition_requested_at](auto end) {
             return static_cast<float>(std::max(0.0, std::chrono::duration<double, std::milli>(
                 end - aim_transition_requested_at).count()));
@@ -269,7 +270,7 @@ bool VisionService::step(std::chrono::steady_clock::time_point now) {
 
     std::lock_guard<std::mutex> lock(mutex_);
     const bool control_epoch_current =
-        controller_aiming == controller_aiming_ &&
+        request == request_ &&
         aim_transition_sequence == aim_transition_sequence_;
     if (!control_epoch_current) {
         snapshot.result.frame_updated = false;
@@ -282,7 +283,7 @@ bool VisionService::step(std::chrono::steady_clock::time_point now) {
     } else if (snapshot.result.frame_updated) {
         snapshot.freshness = VisionSnapshotFreshness::Fresh;
         snapshot.source_state = VisionSourceState::FreshFrame;
-        if (!controller_aiming) {
+        if (request != pipeline_contract::VisionRequest::AssistSearch) {
             clear_reused_authority(snapshot.result);
         }
     } else {

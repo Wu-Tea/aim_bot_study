@@ -25,7 +25,7 @@ def _frame(
         left_trigger=255,
         right_trigger=right_trigger,
         buttons={"rb": False},
-        is_aiming=True,
+        activation=True,
         target_dx=target_dx,
         target_dy=target_dy,
         auto_fire_requested=False,

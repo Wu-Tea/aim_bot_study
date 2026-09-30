@@ -44,7 +44,7 @@ def _frame(
         timestamp=timestamp,
         manual_dx=manual_dx,
         manual_dy=manual_dy,
-        is_aiming=aiming,
+        activation=aiming,
         target_dx=target_dx,
         target_dy=target_dy,
         auto_fire_requested=False,

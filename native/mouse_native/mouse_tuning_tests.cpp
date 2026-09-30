@@ -226,7 +226,8 @@ void test_mouse_judges_manual_without_counterforce() {
     for (float manual : {-0.4f, 0.0f, 0.4f}) {
         controller_native::AssistControlStateMachine owner(config);
         controller_native::AssistControlStateMachineInput in;
-        in.aiming = in.target_authoritative = in.fresh_observation = true;
+        in.activation = pipeline_contract::AssistActivation::Engaged;
+            in.target_authoritative = in.fresh_observation = true;
         in.target_id = in.selector_target_generation = 9;
         in.visual_authority = 1;
         in.mode = pipeline_contract::ControlMode::BodyLockFollow;
@@ -248,7 +249,7 @@ void test_mouse_judges_manual_without_counterforce() {
         require(out.stick.x == manual && out.stick.y == -manual &&
                 out.mouse_x.retention == 1 && out.mouse_y.retention == 1,
             "idle axes within the motion envelope preserve original manual input");
-        in.aiming = false;
+        in.activation = pipeline_contract::AssistActivation::Off;
         out = owner.update(in);
         require(out.stick.x == manual && out.stick.y == -manual,
             "release bypasses mouse suppression in the same tick");

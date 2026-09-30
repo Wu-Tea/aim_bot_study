@@ -1,3 +1,4 @@
+from controllers.activation import AimActivation
 import threading
 import vgamepad as vg
 import time
@@ -27,7 +28,7 @@ class KBMController(BaseController, threading.Thread):
         self.current_ry = 0.0
         self.ai_target_dx = 0.0
         self.ai_target_dy = 0.0
-        self._is_aiming = False
+        self._aim_activation = AimActivation.OFF
         self._manual_rb_pressed = False
         self._auto_rb_pressed = False
 
@@ -56,7 +57,7 @@ class KBMController(BaseController, threading.Thread):
 
     def _on_mouse_click(self, x, y, button, pressed):
         if button == mouse.Button.right:
-            self._is_aiming = pressed
+            self._aim_activation = AimActivation.from_inputs(physical_ads=pressed)
             self.virtual_gamepad.left_trigger(value=255 if pressed else 0)
             if not pressed: self.reset()
         elif button == mouse.Button.left:
@@ -65,7 +66,7 @@ class KBMController(BaseController, threading.Thread):
                 self._sync_rb_state()
 
     def _sync_rb_state(self):
-        rb_pressed = self._manual_rb_pressed or (self._auto_rb_pressed and self._is_aiming)
+        rb_pressed = self._manual_rb_pressed or (self._auto_rb_pressed and self._aim_activation)
         if rb_pressed:
             self.virtual_gamepad.press_button(vg.XUSB_BUTTON.XUSB_GAMEPAD_RIGHT_SHOULDER)
         else:
@@ -86,8 +87,8 @@ class KBMController(BaseController, threading.Thread):
             self.ai_target_dy = 0.0
             self._sync_rb_state()
 
-    def is_aiming(self):
-        return self._is_aiming
+    def aim_activation(self):
+        return AimActivation(self._aim_activation)
 
     def set_auto_fire(self, pressed: bool):
         with self.lock:
@@ -118,7 +119,7 @@ class KBMController(BaseController, threading.Thread):
                 target_ry = self._apply_curve(raw_dy)
 
                 # 2. Add AI input if aiming and outside deadzone
-                if self._is_aiming and (abs(self.ai_target_dx) > self.DEADZONE or abs(self.ai_target_dy) > self.DEADZONE):
+                if self._aim_activation and (abs(self.ai_target_dx) > self.DEADZONE or abs(self.ai_target_dy) > self.DEADZONE):
                     target_rx += (self.ai_target_dx * 200.0)
                     target_ry += (self.ai_target_dy * 200.0)
 

@@ -12,7 +12,7 @@ def _frame():
         timestamp=1.0,
         manual_dx=0.0,
         manual_dy=0.0,
-        is_aiming=True,
+        activation=True,
         target_dx=0.0,
         target_dy=0.0,
         auto_fire_requested=True,

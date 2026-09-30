@@ -15,30 +15,28 @@ void test_ads_lifecycle_is_mutually_exclusive() {
     require(reducer.snapshot().state ==
                 pipeline_contract::AdsAcquisitionState::ArmedWaitingForTarget,
             "epoch did not arm acquisition");
-    reducer.admit_target(10.01);
+    reducer.select({true, false, false, true}, 10.01);
     require(reducer.snapshot().target_admitted &&
                 reducer.snapshot().state ==
                     pipeline_contract::AdsAcquisitionState::AcquiringNominal,
             "target admission did not enter nominal acquisition");
-    reducer.extend();
+    reducer.advance(true, false, false, 10.15);
     require(reducer.snapshot().state ==
                 pipeline_contract::AdsAcquisitionState::AcquiringExtended,
             "nominal acquisition did not extend");
-    reducer.enter_manual_safe();
+    reducer.advance(true, false, false, 10.37);
     require(reducer.snapshot().state ==
                 pipeline_contract::AdsAcquisitionState::AcquiringManualSafe &&
                 !reducer.snapshot().snap_consumed &&
                 reducer.snapshot().terminal_reason ==
                     pipeline_contract::AdsDecisionReason::None,
             "manual-safe pursuit must remain a non-terminal acquisition");
-    reducer.complete(
-        pipeline_contract::AdsDecisionReason::Settled,
-        10.12);
+    reducer.advance(true, true, false, 10.38);
     require(reducer.snapshot().snap_consumed &&
                 reducer.snapshot().terminal_reason ==
                     pipeline_contract::AdsDecisionReason::Settled,
             "completion did not atomically consume the ADS job");
-    reducer.consume();
+    reducer.begin_tick(true, 10.39);
     require(reducer.snapshot().state ==
                 pipeline_contract::AdsAcquisitionState::Consumed,
             "completed ADS job did not enter consumed state");
@@ -47,7 +45,7 @@ void test_ads_lifecycle_is_mutually_exclusive() {
 void test_projection_reports_one_state_snapshot() {
     controller_native::AdsLifecycleReducer reducer;
     reducer.begin_epoch(2, 1.0);
-    reducer.admit_target(1.02);
+    reducer.select({true, false, false, true}, 1.02);
     pipeline_contract::TargetPlan plan{};
     reducer.project(&plan, 1.05);
     require(plan.physical_ads_epoch == 2 &&
@@ -60,11 +58,9 @@ void test_projection_reports_one_state_snapshot() {
 void test_wait_expiry_consumes_token_without_minting_acquisition() {
     controller_native::AdsLifecycleReducer reducer;
     reducer.begin_epoch(3, 2.0);
-    reducer.expire_wait(
-        pipeline_contract::AdsDecisionReason::NoTarget,
-        2.22);
+    reducer.begin_tick(true, 2.23);
     pipeline_contract::TargetPlan plan{};
-    reducer.project(&plan, 2.22);
+    reducer.project(&plan, 2.23);
     require(reducer.snapshot().snap_consumed &&
                 !reducer.snapshot().target_admitted &&
                 plan.ads_acquisition_state ==

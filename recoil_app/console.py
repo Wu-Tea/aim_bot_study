@@ -102,7 +102,7 @@ def main(argv: Iterable[str] | None = None) -> int:
             bridge.handle_buttons(buttons)
             bridge.handle_fire_state(
                 is_firing=reader.read_right_fire_pressed(),
-                is_aiming=left_trigger > 10,
+                physical_ads=left_trigger > 10,
             )
             time.sleep(1.0 / 60.0)
     except KeyboardInterrupt:

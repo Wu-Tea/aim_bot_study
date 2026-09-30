@@ -7,12 +7,12 @@ import numpy as np
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-NATIVE_BUILD_DIR = PROJECT_ROOT / "native" / "vision_native" / "build" / "Release"
+NATIVE_BUILD_DIR = Path(os.environ.get("VISION_NATIVE_TEST_BUILD_DIR", PROJECT_ROOT / "native" / "vision_native" / "build" / "Release"))
 CROP_W = 640
 CROP_H = 512
 CHEST_TARGET_RATIO = 0.40
 CROUCHED_CHEST_TARGET_RATIO = 0.40
-WIDE_LOW_TARGET_RATIO = 0.50
+WIDE_LOW_TARGET_RATIO = 0.65
 NEUTRAL_RGB = (24, 24, 24)
 FRIENDLY_RGB = (0, 255, 0)
 ENEMY_RGB = (255, 255, 0)
@@ -123,7 +123,7 @@ def _subframe(frame, left, top, right, bottom):
     return frame[top:bottom, left:right].copy()
 
 
-def _cue_hold_bounds(cue_x, cue_y, frame_shape, radius=24):
+def _cue_hold_bounds(cue_x, cue_y, frame_shape, radius=42):
     frame_h, frame_w = frame_shape[:2]
     left = max(0, int(round(cue_x)) - radius)
     top = max(0, int(round(cue_y)) - radius)
@@ -239,7 +239,7 @@ class NativeVisionTargetingBridgeTests(unittest.TestCase):
         self.assertFalse(first["has_target"])
         self.assertFalse(second["has_target"])
 
-    def test_switch_requires_two_frames_before_replacing_active_target(self):
+    def test_missing_identity_does_not_publish_challenger_without_new_pickup(self):
         if not hasattr(self.module, "NativeTargetSelector"):
             self.fail("NativeTargetSelector is missing")
 
@@ -264,16 +264,17 @@ class NativeVisionTargetingBridgeTests(unittest.TestCase):
         self.assertTrue(locked["has_target"])
 
         second = selector.select_xyxy(second_target)
-        self.assertTrue(second["has_target"])
-        self.assertAlmostEqual(second["target_x"], locked["target_x"], places=3)
-        self.assertAlmostEqual(second["target_y"], locked["target_y"], places=3)
-
+        self.assertFalse(second["has_target"])
         third = selector.select_xyxy(second_target)
-        self.assertTrue(third["has_target"])
-        self.assertAlmostEqual(third["target_x"], 460.0, places=3)
-        self.assertAlmostEqual(third["target_y"], _target_y(120.0, 320.0), places=3)
+        self.assertFalse(third["has_target"])
+        # A new selection session admits this same candidate after confirmation.
+        selector.reset()
+        self.assertFalse(selector.select_xyxy(second_target)["has_target"])
+        fresh = selector.select_xyxy(second_target)
+        self.assertTrue(fresh["has_target"])
+        self.assertAlmostEqual(fresh["target_x"], 460.0, places=3)
 
-    def test_stale_wide_low_active_switches_to_upright_challenger_after_kill(self):
+    def test_corpse_shape_does_not_authorize_challenger_replacement(self):
         if not hasattr(self.module, "NativeTargetSelector"):
             self.fail("NativeTargetSelector is missing")
 
@@ -293,11 +294,13 @@ class NativeVisionTargetingBridgeTests(unittest.TestCase):
         second_after_kill = selector.select_xyxy(corpse_and_challenger)
 
         self.assertTrue(locked["has_target"])
-        self.assertTrue(first_after_kill["has_target"])
-        self.assertTrue(second_after_kill["has_target"])
-        self.assertLess(second_after_kill["target_x"], 450.0)
-        self.assertGreater(second_after_kill["target_x"], 410.0)
-        self.assertAlmostEqual(second_after_kill["target_y"], _target_y(120.0, 320.0), places=3)
+        self.assertFalse(first_after_kill["has_target"])
+        self.assertFalse(second_after_kill["has_target"])
+        selector.reset()
+        selector.select_xyxy(corpse_and_challenger)
+        fresh = selector.select_xyxy(corpse_and_challenger)
+        self.assertTrue(fresh["has_target"])
+        self.assertAlmostEqual(fresh["target_x"], 430.0, places=3)
 
     def test_stale_wide_low_active_with_yellow_marker_does_not_switch_to_challenger(self):
         if not hasattr(self.module, "NativeTargetSelector"):
@@ -422,7 +425,8 @@ class NativeVisionTargetingBridgeTests(unittest.TestCase):
         warmup = selector.select_xyxy_rgb(detections, frame)
         result = selector.select_xyxy_rgb(detections, frame)
 
-        self.assertFalse(warmup["has_target"])
+        self.assertTrue(warmup["has_target"])
+        self.assertAlmostEqual(warmup["target_x"], 420.0, places=3)
         self.assertTrue(result["has_target"])
         self.assertAlmostEqual(result["target_x"], 420.0, places=3)
 
@@ -579,7 +583,7 @@ class NativeVisionTargetingBridgeTests(unittest.TestCase):
         self.assertTrue(locked["has_target"])
         self.assertFalse(weak["has_target"])
 
-    def test_reacquired_target_requires_fresh_confirmation_after_empty_gap(self):
+    def test_same_identity_resumes_on_first_fresh_frame_after_short_gap(self):
         if not hasattr(self.module, "NativeTargetSelector"):
             self.fail("NativeTargetSelector is missing")
 
@@ -596,7 +600,8 @@ class NativeVisionTargetingBridgeTests(unittest.TestCase):
         reacquired = selector.select_xyxy(reacquired_box)
 
         self.assertFalse(lost["has_target"])
-        self.assertFalse(reacquire_first["has_target"])
+        self.assertTrue(reacquire_first["has_target"])
+        self.assertEqual(reacquire_first["selector_target_generation"], reacquired["selector_target_generation"])
         self.assertTrue(reacquired["has_target"])
         self.assertEqual(reacquired["target_source"], "observed")
 

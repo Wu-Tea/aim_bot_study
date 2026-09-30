@@ -337,7 +337,7 @@ def _simulate_ads_closed_loop(
             left_trigger=255,
             right_trigger=0,
             buttons={},
-            is_aiming=True,
+            activation=True,
             target_dx=frame_target_dx,
             target_dy=frame_target_dy,
             auto_fire_requested=False,

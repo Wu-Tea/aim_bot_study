@@ -109,7 +109,7 @@ AssistControlStateMachineInput input_for(
     bool firing = false,
     bool target_authoritative = true) {
     AssistControlStateMachineInput input;
-    input.aiming = true;
+    input.activation = pipeline_contract::AssistActivation::Engaged;
     input.target_authoritative = target_authoritative;
     input.fresh_observation = true;
     input.target_id = target_authoritative ? 1401 : 0;

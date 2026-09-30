@@ -125,7 +125,7 @@ class _AliasController(BaseController):
     def reset(self):
         self.reset_calls += 1
 
-    def is_aiming(self):
+    def aim_activation(self):
         return False
 
     def set_auto_fire(self, pressed: bool):
@@ -465,7 +465,7 @@ class VisionRunnerPipelineTests(unittest.TestCase):
             boxes_seen=0,
         )
         controller = Mock()
-        controller.is_aiming.side_effect = [True, False, True]
+        controller.aim_activation.side_effect = [True, False, True]
 
         with patch("vision.runner.ScreenCaptureThread", _FakeCaptureThread), patch(
             "vision.runner.InferenceThread", _FakeInferenceThread, create=True
@@ -527,7 +527,7 @@ class VisionRunnerPipelineTests(unittest.TestCase):
             boxes_seen=0,
         )
         controller = Mock()
-        controller.is_aiming.side_effect = [False, True, False, True]
+        controller.aim_activation.side_effect = [False, True, False, True]
 
         with patch("vision.runner.ScreenCaptureThread", _FakeCaptureThread), patch(
             "vision.runner.InferenceThread", _FakeInferenceThread, create=True
@@ -569,7 +569,7 @@ class VisionRunnerPipelineTests(unittest.TestCase):
     ):
         perf_tracker_cls.return_value = Mock()
         controller = Mock()
-        controller.is_aiming.side_effect = [True, True, True]
+        controller.aim_activation.side_effect = [True, True, True]
         gap_target = SelectedTarget(
             target_x=82.0,
             target_y=41.0,
@@ -682,7 +682,7 @@ class VisionRunnerPipelineTests(unittest.TestCase):
     ):
         perf_tracker_cls.return_value = Mock()
         controller = Mock()
-        controller.is_aiming.return_value = True
+        controller.aim_activation.return_value = True
         resolve_tracking_frame.return_value = TrackingFrameResolution(
             selected_target=None,
             auto_fire_active=False,

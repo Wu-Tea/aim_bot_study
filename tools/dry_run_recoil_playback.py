@@ -155,7 +155,7 @@ def _frame(*, timestamp: float) -> GamepadFrame:
         left_trigger=255,
         right_trigger=255,
         buttons={"rb": False},
-        is_aiming=True,
+        activation=True,
         target_dx=0.0,
         target_dy=0.0,
         auto_fire_requested=False,

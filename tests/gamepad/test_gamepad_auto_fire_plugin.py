@@ -22,7 +22,7 @@ def _frame(
         left_trigger=255 if aiming else 0,
         right_trigger=manual_rt,
         buttons={"rb": manual_rb},
-        is_aiming=aiming,
+        activation=aiming,
         target_dx=0.0,
         target_dy=0.0,
         auto_fire_requested=auto_fire,

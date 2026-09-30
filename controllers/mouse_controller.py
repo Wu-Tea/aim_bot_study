@@ -1,3 +1,4 @@
+from controllers.activation import AimActivation
 import threading
 import time
 import os
@@ -119,7 +120,7 @@ def _mouse_injector_from_env():
 class _MouseTelemetry:
     HEADER = (
         "timestamp",
-        "is_aiming",
+        "activation",
         "manual_dx",
         "manual_dy",
         "manual_override_active",
@@ -214,7 +215,7 @@ class MouseController(BaseController, threading.Thread):
         self._local_motion_dx_since_target = 0.0
         self._local_motion_dy_since_target = 0.0
         self._local_motion_updated_at = None
-        self._is_aiming = False
+        self._aim_activation = AimActivation.OFF
         self._auto_fire_requested = False
         self._auto_fire_timestamp = None
         self._vision_received_at = None
@@ -297,7 +298,7 @@ class MouseController(BaseController, threading.Thread):
     def _on_mouse_click(self, x, y, button, pressed):
         if button == pynput_mouse.Button.right:
             with self.lock:
-                self._is_aiming = pressed
+                self._aim_activation = AimActivation.from_inputs(physical_ads=pressed, manual_fire=self._manual_left_pressed)
                 self._physical_right_pressed = pressed
             if not pressed:
                 self.reset()
@@ -314,11 +315,9 @@ class MouseController(BaseController, threading.Thread):
                 synthetic_left_held = self._left_click_held
                 if pressed and synthetic_left_held:
                     self._left_click_held = False
-                if pressed:
-                    self._is_aiming = True
-                elif not right_pressed:
-                    self._is_aiming = False
-                    reset_after_release = True
+                self._aim_activation = AimActivation.from_inputs(
+                    physical_ads=right_pressed, manual_fire=pressed)
+                reset_after_release = not self._aim_activation
             if pressed and synthetic_left_held:
                 self._send_mouse(MOUSEEVENTF_LEFTUP)
             if reset_after_release:
@@ -421,8 +420,8 @@ class MouseController(BaseController, threading.Thread):
         if synthetic_left_held:
             self._send_mouse(MOUSEEVENTF_LEFTUP)
 
-    def is_aiming(self):
-        return self._is_aiming
+    def aim_activation(self):
+        return AimActivation(self._aim_activation)
 
     def _sync_physical_aim_state(self):
         right_pressed = self._read_physical_right_pressed()
@@ -431,13 +430,15 @@ class MouseController(BaseController, threading.Thread):
         with self.lock:
             self._physical_right_pressed = right_pressed
             if right_pressed or self._manual_left_pressed:
-                if not self._is_aiming:
-                    self._is_aiming = True
+                if not self._aim_activation:
+                    self._aim_activation = AimActivation.from_inputs(physical_ads=right_pressed, manual_fire=self._manual_left_pressed)
                     if right_pressed:
                         self._physical_aim_sync_presses += 1
+                self._aim_activation = AimActivation.from_inputs(
+                    physical_ads=right_pressed, manual_fire=self._manual_left_pressed)
                 return
-            if self._is_aiming:
-                self._is_aiming = False
+            if self._aim_activation:
+                self._aim_activation = AimActivation.OFF
                 self._physical_aim_sync_resets += 1
                 should_reset = True
 
@@ -498,7 +499,7 @@ class MouseController(BaseController, threading.Thread):
             vision_submitted_at = getattr(self, "_vision_submitted_at", None)
             manual_left_pressed = self._manual_left_pressed
             input_session_id = self._input_session_id
-            is_aiming = self._is_aiming
+            activation = self._aim_activation
             response_input_scale = self._mouse_response_input_scale_locked()
             manual_override_active = self._refresh_manual_override_locked(
                 timestamp=timestamp,
@@ -512,7 +513,7 @@ class MouseController(BaseController, threading.Thread):
             manual_dy=manual_dy,
             manual_left_pressed=manual_left_pressed,
             manual_override_active=manual_override_active,
-            is_aiming=is_aiming,
+            activation=activation,
             target_dx=target_dx,
             target_dy=target_dy,
             auto_fire_requested=auto_fire_requested,
@@ -527,7 +528,7 @@ class MouseController(BaseController, threading.Thread):
         )
 
     def _refresh_manual_override_locked(self, *, timestamp, manual_dx, manual_dy):
-        if not self._is_aiming:
+        if not self._aim_activation:
             self._manual_override_until = None
             return False
 
@@ -749,7 +750,7 @@ class MouseController(BaseController, threading.Thread):
         telemetry.write_row(
             (
                 f"{frame.timestamp:.6f}",
-                int(frame.is_aiming),
+                int(frame.activation),
                 f"{frame.manual_dx:.3f}",
                 f"{frame.manual_dy:.3f}",
                 int(frame.manual_override_active),

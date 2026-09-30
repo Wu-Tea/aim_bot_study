@@ -149,7 +149,7 @@ class NativeVisionDebugOverlayTests(unittest.TestCase):
                 "age_ms": 5.4,
                 "boxes_seen": 1,
             },
-            is_aiming=True,
+            activation=True,
             auto_fire_active=True,
         )
 
@@ -178,7 +178,7 @@ class NativeVisionDebugOverlayTests(unittest.TestCase):
                     "target_confidence": 0.31,
                     "boxes_seen": 1,
                 },
-                is_aiming=True,
+                activation=True,
                 auto_fire_active=False,
             )
 
@@ -191,6 +191,11 @@ class NativeVisionDebugOverlayTests(unittest.TestCase):
 
 
 class NativeVisionProcessTests(unittest.TestCase):
+    def setUp(self):
+        environment = patch.dict("os.environ", {"VISION_QUIT_KEY": "Q", "VISION_NATIVE_CUE_SIDECAR": "0"})
+        environment.start()
+        self.addCleanup(environment.stop)
+
     @patch("vision.native_runner.win32api.GetAsyncKeyState", side_effect=[0x8000])
     @patch("vision.native_runner._load_native_module")
     @patch("vision.native_runner.PerformanceTracker")
@@ -229,12 +234,12 @@ class NativeVisionProcessTests(unittest.TestCase):
         perf_tracker = Mock()
         perf_tracker_cls.return_value = perf_tracker
         controller = Mock()
-        controller.is_aiming.return_value = True
+        controller.aim_activation.return_value = True
 
         process_native_vision(controller=controller)
 
         native_module.NativeVisionEngine.assert_called_once()
-        engine.set_aiming.assert_any_call(True)
+        engine.set_search_request.assert_any_call("assist_search")
         controller.update.assert_called_once()
         dx, dy = controller.update.call_args.args
         self.assertEqual((dx, dy), (3.0, -2.0))
@@ -307,7 +312,7 @@ class NativeVisionProcessTests(unittest.TestCase):
                 self.states = []
                 self.legacy_calls = []
 
-            def is_aiming(self):
+            def aim_activation(self):
                 return True
 
             def update_vision_state(self, state):
@@ -370,8 +375,7 @@ class NativeVisionProcessTests(unittest.TestCase):
         self.assertEqual(perf_kwargs["target_edge_margin_px"], 120.0)
         self.assertEqual(perf_kwargs["capture_width_px"], 640.0)
         self.assertEqual(perf_kwargs["capture_height_px"], 512.0)
-        self.assertIsNotNone(perf_kwargs["external_cue_ms"])
-        self.assertGreaterEqual(perf_kwargs["external_cue_ms"], 0.0)
+        self.assertIsNone(perf_kwargs["external_cue_ms"])  # no cue provider was supplied
 
     @patch("vision.native_runner.win32api.GetAsyncKeyState", side_effect=[0x8000])
     @patch("vision.native_runner._load_native_module")
@@ -419,7 +423,7 @@ class NativeVisionProcessTests(unittest.TestCase):
             def __init__(self):
                 self.states = []
 
-            def is_aiming(self):
+            def aim_activation(self):
                 return True
 
             def update_vision_state(self, state):
@@ -480,7 +484,7 @@ class NativeVisionProcessTests(unittest.TestCase):
         load_native_module.return_value = native_module
         perf_tracker_cls.return_value = Mock()
         controller = Mock()
-        controller.is_aiming.side_effect = [True, False]
+        controller.aim_activation.side_effect = [True, False]
 
         process_native_vision(controller=controller)
 
@@ -537,7 +541,7 @@ class NativeVisionProcessTests(unittest.TestCase):
             def __init__(self):
                 self.reset_calls = 0
 
-            def is_aiming(self):
+            def aim_activation(self):
                 return True
 
             def set_auto_fire(self, _pressed):
@@ -588,7 +592,7 @@ class NativeVisionProcessTests(unittest.TestCase):
         load_native_module.return_value = native_module
         perf_tracker_cls.return_value = Mock()
         controller = Mock()
-        controller.is_aiming.return_value = True
+        controller.aim_activation.return_value = True
 
         process_native_vision(
             controller=controller,
@@ -651,7 +655,7 @@ class NativeVisionProcessTests(unittest.TestCase):
         create_default_cue_provider.return_value = sidecar_provider
 
         controller = Mock()
-        controller.is_aiming.return_value = True
+        controller.aim_activation.return_value = True
 
         process_native_vision(controller=controller)
 
@@ -700,7 +704,7 @@ class NativeVisionProcessTests(unittest.TestCase):
             def __init__(self):
                 self.calls = 0
 
-            def is_aiming(self):
+            def aim_activation(self):
                 return True
 
             def set_auto_fire(self, _pressed):

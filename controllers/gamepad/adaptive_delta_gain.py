@@ -1,3 +1,4 @@
+from controllers.activation import AimActivation
 from dataclasses import dataclass
 
 
@@ -40,10 +41,10 @@ class AdaptiveDeltaGain:
         *,
         target_dx: float,
         target_dy: float,
-        is_aiming: bool,
+        activation: AimActivation,
         timestamp: float,
     ) -> None:
-        if not is_aiming:
+        if not activation:
             self.reset()
             return
 

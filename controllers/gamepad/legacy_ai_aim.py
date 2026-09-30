@@ -1,3 +1,4 @@
+from controllers.activation import AimActivation
 import math
 from dataclasses import dataclass
 from typing import Iterable, Protocol
@@ -41,7 +42,7 @@ class AIAimSubPlugin(Protocol):
         *,
         target_dx: float,
         target_dy: float,
-        is_aiming: bool,
+        activation: AimActivation,
         timestamp: float,
     ) -> None:
         ...
@@ -62,13 +63,13 @@ class AdaptiveDeltaGainSubPlugin:
         *,
         target_dx: float,
         target_dy: float,
-        is_aiming: bool,
+        activation: AimActivation,
         timestamp: float,
     ) -> None:
         self.gain.observe_target(
             target_dx=target_dx,
             target_dy=target_dy,
-            is_aiming=is_aiming,
+            activation=activation,
             timestamp=timestamp,
         )
 
@@ -92,12 +93,12 @@ class ManualIntentGuardSubPlugin:
         *,
         target_dx: float,
         target_dy: float,
-        is_aiming: bool,
+        activation: AimActivation,
         timestamp: float,
     ) -> None:
         self.guard.observe_target(
             target_dx=target_dx,
-            is_aiming=is_aiming,
+            activation=activation,
             timestamp=timestamp,
         )
 
@@ -134,12 +135,12 @@ class HorizontalAssistSubPlugin:
         *,
         target_dx: float,
         target_dy: float,
-        is_aiming: bool,
+        activation: AimActivation,
         timestamp: float,
     ) -> None:
         self.assist.observe_target(
             target_dx=target_dx,
-            is_aiming=is_aiming,
+            activation=activation,
             timestamp=timestamp,
         )
 
@@ -176,13 +177,13 @@ class OvershootGuardSubPlugin:
         *,
         target_dx: float,
         target_dy: float,
-        is_aiming: bool,
+        activation: AimActivation,
         timestamp: float,
     ) -> None:
         self.guard.observe_target(
             target_dx=target_dx,
             target_dy=target_dy,
-            is_aiming=is_aiming,
+            activation=activation,
             timestamp=timestamp,
         )
 
@@ -234,7 +235,7 @@ class LegacyAIAimPlugin:
 
         desired_ai_x = 0.0
         desired_ai_y = 0.0
-        if frame.is_aiming:
+        if frame.activation:
             x_strength, y_strength = compute_axis_soft_strengths(
                 dx=context.assist_dx,
                 dy=context.assist_dy,
@@ -285,7 +286,7 @@ class LegacyAIAimPlugin:
             plugin.observe_target(
                 target_dx=target_dx,
                 target_dy=target_dy,
-                is_aiming=frame.is_aiming,
+                activation=frame.activation,
                 timestamp=observation_time,
             )
         self._last_target_revision = frame.target_revision

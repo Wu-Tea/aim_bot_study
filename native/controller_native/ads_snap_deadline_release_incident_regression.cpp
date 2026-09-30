@@ -20,7 +20,7 @@ constexpr std::uint64_t kSelectorGeneration = 901;
 
 pipeline_contract::IntentState ads_intent() {
     pipeline_contract::IntentState intent;
-    intent.ads = true;
+    intent.activation = pipeline_contract::AssistActivation::Engaged;
     return intent;
 }
 
@@ -153,7 +153,7 @@ IncidentReport evaluate_incident() {
         const pipeline_contract::TargetPlan& plan,
         double now_seconds) {
         controller_native::AssistControlStateMachineInput input;
-        input.aiming = true;
+        input.activation = pipeline_contract::AssistActivation::Engaged;
         input.target_authoritative = plan.target_id != 0;
         input.fresh_observation = true;
         input.target_id = plan.target_id;

@@ -93,7 +93,7 @@ AssistControlStateMachineInput arbitration_input(
     pipeline_contract::Vec2f manual,
     pipeline_contract::Vec2f ai) noexcept {
     AssistControlStateMachineInput input;
-    input.aiming = true;
+    input.activation = pipeline_contract::AssistActivation::Engaged;
     input.target_authoritative = true;
     input.fresh_observation = true;
     input.cue_continuation = false;

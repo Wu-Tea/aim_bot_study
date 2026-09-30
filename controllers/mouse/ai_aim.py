@@ -178,7 +178,7 @@ class AIAimPlugin:
         self._last_body_lock_jitter_cancel_x = 0.0
 
     def apply(self, frame: MouseFrame, output: MouseOutput) -> None:
-        if not frame.is_aiming:
+        if not frame.activation:
             self.reset()
             return
         self._update_activation_windows(frame)

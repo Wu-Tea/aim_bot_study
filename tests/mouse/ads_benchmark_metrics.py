@@ -363,7 +363,7 @@ def _simulate_mouse_ads_closed_loop(
             timestamp=timestamp,
             manual_dx=0.0,
             manual_dy=0.0,
-            is_aiming=True,
+            activation=True,
             target_dx=localized_error_x_before or 0.0,
             target_dy=localized_error_y_before or 0.0,
             auto_fire_requested=False,

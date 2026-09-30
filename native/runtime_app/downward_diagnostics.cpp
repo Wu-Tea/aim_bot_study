@@ -135,7 +135,7 @@ bool DownwardPullDiagnostics::record_if_triggered(
     const controller_native::GamepadOutputState& output,
     const controller_native::NativeControllerStageTraceBuffer& traces,
     const vision_native::VisionResult* latest_result,
-    bool is_aiming) const {
+    bool physical_ads_active) const {
     if (!config_.enabled) {
         return false;
     }
@@ -181,7 +181,7 @@ bool DownwardPullDiagnostics::record_if_triggered(
     out << "\"system_right_y_delta\":" << system_right_y_delta << ',';
     out << "\"auto_fire_active\":"
         << (trace_auto_fire_active(traces) ? "true" : "false") << ',';
-    out << "\"is_aiming\":" << (is_aiming ? "true" : "false") << ',';
+    out << "\"physical_ads_active\":" << (physical_ads_active ? "true" : "false") << ',';
     out << "\"auto_fire_requested\":"
         << (has_result && latest_result->auto_fire ? "true" : "false") << ',';
     out << "\"target_dx\":" << (has_result ? latest_result->dx : 0.0f) << ',';

@@ -143,7 +143,7 @@ pipeline_contract::IntentState IntentFilter::update(
     result.left_confidence = std::max(result.left_x.confidence, result.left_y.confidence);
     result.right_confidence = std::max(result.right_x.confidence, result.right_y.confidence);
     result.sample_time_seconds = sample_time_seconds;
-    result.ads = ads;
+    result.activation = ads ? pipeline_contract::AssistActivation::Engaged : pipeline_contract::AssistActivation::Off;
     result.fire = fire;
     return result;
 }

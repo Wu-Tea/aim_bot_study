@@ -53,6 +53,10 @@ class MouseTelemetrySummary:
     diagnosis: list[str]
 
 
+def _assist_active(value: str) -> bool:
+    return str(value).strip().lower() in {"1", "2", "3", "4", "true", "physical_ads", "manual_fire", "ads_and_fire", "application"}
+
+
 def _truthy(value: str) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
@@ -82,7 +86,7 @@ def _is_reverse_axis_echo(row: dict[str, str], observed_key: str, pending_key: s
 
 
 def _is_active_target_row(row: dict[str, str]) -> bool:
-    return _truthy(row.get("is_aiming", "")) and bool(row.get("target_source"))
+    return _assist_active(row.get("activation", "")) and bool(row.get("target_source"))
 
 
 def _has_axis_overlap(
@@ -202,7 +206,7 @@ def summarize(path: Path) -> MouseTelemetrySummary:
     injection_backend_counts = Counter(
         row.get("injection_backend", "") or "unknown" for row in rows
     )
-    aiming_rows = sum(1 for row in rows if _truthy(row.get("is_aiming", "")))
+    aiming_rows = sum(1 for row in rows if _assist_active(row.get("activation", "")))
     target_rows = sum(1 for row in rows if row.get("target_source"))
     target_radii = [
         _magnitude(row, "target_dx", "target_dy")
@@ -219,7 +223,7 @@ def summarize(path: Path) -> MouseTelemetrySummary:
     reverse_injected_echo_rows = sum(
         1
         for row in rows
-        if _truthy(row.get("is_aiming", ""))
+        if _assist_active(row.get("activation", ""))
         and row.get("target_source")
         and _truthy(row.get("manual_override_active", ""))
         and _magnitude(row, "manual_dx", "manual_dy") >= 9.0
@@ -259,7 +263,7 @@ def summarize(path: Path) -> MouseTelemetrySummary:
     active_target_rows = [
         row
         for row in rows
-        if _truthy(row.get("is_aiming", "")) and row.get("target_source")
+        if _assist_active(row.get("activation", "")) and row.get("target_source")
     ]
     target_age_values = [
         _float(row, "target_age_ms")

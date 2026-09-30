@@ -1,3 +1,4 @@
+from controllers.activation import AimActivation
 from collections import deque
 from dataclasses import dataclass
 
@@ -28,8 +29,8 @@ class ManualIntentGuard:
         self._recent_target_dx: deque[float] = deque(maxlen=history)
         self._last_obs_time: float | None = None
 
-    def observe_target(self, *, target_dx: float, is_aiming: bool, timestamp: float) -> None:
-        if not is_aiming:
+    def observe_target(self, *, target_dx: float, activation: AimActivation, timestamp: float) -> None:
+        if not activation:
             self.reset()
             return
 

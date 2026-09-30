@@ -181,8 +181,8 @@ public:
     explicit VisionEngineServicePoller(std::unique_ptr<vision_native::VisionEngine> engine)
         : engine_(std::move(engine)) {}
 
-    void set_aiming(bool aiming) override {
-        engine_->set_aiming(aiming);
+    void set_request(pipeline_contract::VisionRequest request) override {
+        engine_->set_request(request);
     }
 
     void set_user_aim_intent(const pipeline_contract::UserAimIntent& intent) override {
@@ -646,7 +646,7 @@ void RuntimeLoop::run_once() {
     const bool aiming = tick_preparation.scope.physical_ads_active;
     // Physical ADS and manual-fire activation are independent input events,
     // reduced into one scope snapshot without synthesizing LT.
-    const bool assist_aiming = tick_preparation.scope.assist_active;
+    const bool assist_aiming = pipeline_contract::requests_target_search(tick_preparation.activation);
     latest_vision_aiming_ = assist_aiming;
     const auto& controller_intent = tick_preparation.intent;
     const pipeline_contract::UserAimIntent user_aim_intent = build_user_aim_intent(
@@ -711,7 +711,7 @@ void RuntimeLoop::run_once() {
     bool viewport_fresh_vision = false;
     if (vision_service_ != nullptr) {
         const std::uint64_t expected_aim_transition_sequence =
-            vision_service_->set_aiming(vision_requested, tick_started);
+            vision_service_->set_request(pipeline_contract::vision_request(tick_preparation.activation, vision_requested), tick_started);
         vision_service_->set_user_aim_intent(user_aim_intent);
         VisionServiceSnapshot service_snapshot =
             vision_service_->latest_snapshot(latest_vision_service_sequence_);
@@ -724,7 +724,7 @@ void RuntimeLoop::run_once() {
             const std::uint64_t controller_consume_ns =
                 steady_time_point_ns(controller_consume_started);
             const bool current_control_epoch =
-                service_snapshot.controller_aiming == vision_requested &&
+                service_snapshot.request == pipeline_contract::vision_request(tick_preparation.activation, vision_requested) &&
                 service_snapshot.aim_transition_sequence ==
                     expected_aim_transition_sequence;
             if (service_snapshot.freshness == VisionSnapshotFreshness::Fresh &&
@@ -746,7 +746,7 @@ void RuntimeLoop::run_once() {
             }
         }
     } else {
-        vision_engine_->set_aiming(vision_requested);
+        vision_engine_->set_request(pipeline_contract::vision_request(tick_preparation.activation, vision_requested));
         vision_engine_->set_user_aim_intent(user_aim_intent);
         if (should_poll_vision(tick_started)) {
             last_vision_poll_at_ = tick_started;

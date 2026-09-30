@@ -177,7 +177,7 @@ class RecoilCompensationPlugin:
         if logger is None:
             return
 
-        aim_mode = "ads" if frame.is_aiming else "hipfire"
+        aim_mode = "ads" if frame.activation else "hipfire"
         profile_id = None if profile is None else profile.profile_id
         key = (aim_mode, profile_id)
         if self._last_logged_selection_key == key:

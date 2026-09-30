@@ -22,7 +22,7 @@ class AutoFirePlugin:
     def apply(self, frame: MouseFrame, output: MouseOutput) -> None:
         want_fire = frame.auto_fire_requested and self._has_fresh_source(frame)
         if self.config.aim_only:
-            want_fire = want_fire and frame.is_aiming
+            want_fire = want_fire and frame.activation.physical_ads
         if frame.manual_left_pressed or frame.manual_override_active:
             want_fire = False
 

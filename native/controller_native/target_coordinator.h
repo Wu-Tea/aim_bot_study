@@ -96,7 +96,6 @@ private:
     TargetGeometryReducer geometry_reducer_{};
     TargetLifecycleReducer target_lifecycle_reducer_{};
     DesiredPointReducer desired_point_reducer_{};
-    AimModeReducer aim_mode_reducer_{};
     AdsLifecycleReducer ads_lifecycle_reducer_{};
     pipeline_contract::Vec2f
         previous_firing_velocity_innovation_{};
@@ -126,10 +125,6 @@ private:
     bool fire_requested_ = false;
     bool observed_fire_eligible_ = false;
     bool cue_continuation_active_ = false;
-    // A same-generation miss during an unfinished ADS job pauses actuation
-    // without consuming the acquisition. Only fresh selector evidence may
-    // resume it; the ordinary source-age gate remains the bounded abort.
-    bool ads_reacquire_waiting_ = false;
     std::uint64_t selector_target_generation_ = 0;
     float frame_width_px_ = 480.0f;
     float frame_height_px_ = 416.0f;

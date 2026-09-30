@@ -31,7 +31,7 @@ void test_geometry_and_desired_point_have_separate_state() {
             "D did not initialize from the source point");
 
     pipeline_contract::IntentState intent{};
-    intent.ads = true;
+    intent.activation = pipeline_contract::AssistActivation::Engaged;
     intent.right_purpose =
         pipeline_contract::UserAimIntentPurpose::CorrectCurrentTarget;
     intent.filtered_right = {1.0f, 0.0f};
@@ -49,7 +49,7 @@ void test_geometry_refresh_preserves_user_corrected_d() {
     geometry.adopt(observed, false);
     desired.adopt_geometry(geometry.snapshot(), false, true, false);
     pipeline_contract::IntentState intent{};
-    intent.ads = true;
+    intent.activation = pipeline_contract::AssistActivation::Engaged;
     intent.right_purpose =
         pipeline_contract::UserAimIntentPurpose::CorrectCurrentTarget;
     intent.filtered_right = {1.0f, 0.0f};
@@ -109,7 +109,7 @@ void test_acquisition_point_carries_geometry_and_yields_to_manual() {
     require(std::fabs(desired.snapshot().position.y - 240) < .001f,
         "translated/scaled geometry lost relative D");
     pipeline_contract::IntentState intent{};
-    intent.ads = true;
+    intent.activation = pipeline_contract::AssistActivation::Engaged;
     intent.right_purpose = pipeline_contract::UserAimIntentPurpose::CorrectCurrentTarget;
     intent.filtered_right = {0, -.5f};
     desired.reduce_manual(intent, geometry.snapshot(), true, false, .01f);

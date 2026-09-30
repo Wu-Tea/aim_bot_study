@@ -1,3 +1,4 @@
+from controllers.activation import AimActivation
 import unittest
 
 from controllers.base_controller import ControllerTarget
@@ -31,7 +32,7 @@ def _frame(
         left_trigger=255 if aiming else 0,
         right_trigger=0,
         buttons={"rb": False},
-        is_aiming=aiming,
+        activation=aiming,
         target_dx=target_dx,
         target_dy=target_dy,
         auto_fire_requested=auto_fire_requested,
@@ -115,7 +116,7 @@ class _AddDxPlugin:
     def reset(self):
         return None
 
-    def observe_target(self, *, target_dx: float, target_dy: float, is_aiming: bool, timestamp: float):
+    def observe_target(self, *, target_dx: float, target_dy: float, activation: AimActivation, timestamp: float):
         return None
 
     def apply(self, context):
@@ -126,7 +127,7 @@ class _ScalePlugin:
     def reset(self):
         return None
 
-    def observe_target(self, *, target_dx: float, target_dy: float, is_aiming: bool, timestamp: float):
+    def observe_target(self, *, target_dx: float, target_dy: float, activation: AimActivation, timestamp: float):
         return None
 
     def apply(self, context):

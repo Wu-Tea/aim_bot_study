@@ -227,7 +227,7 @@ void test_approach_selected_point_reaches_native_output() {
 void test_centered_motion_demand_retains_ai_authority() {
     controller_native::AssistControlStateMachine state_machine;
     controller_native::AssistControlStateMachineInput input;
-    input.aiming = true;
+    input.activation = pipeline_contract::AssistActivation::Engaged;
     input.target_authoritative = true;
     input.fresh_observation = true;
     input.target_id = 1001;
@@ -299,7 +299,7 @@ void test_centered_motion_demand_retains_ai_authority() {
 void test_valid_point_correction_is_interpreted_not_passthrough() {
     controller_native::AssistControlStateMachine state_machine;
     controller_native::AssistControlStateMachineInput input;
-    input.aiming = true;
+    input.activation = pipeline_contract::AssistActivation::Engaged;
     input.target_authoritative = true;
     input.fresh_observation = true;
     input.target_id = 1002;
@@ -326,7 +326,7 @@ void test_valid_point_correction_is_interpreted_not_passthrough() {
 void test_track_uses_ai_as_total_fill_but_opposition_is_native() {
     controller_native::AssistControlStateMachine state_machine;
     controller_native::AssistControlStateMachineInput input;
-    input.aiming = true;
+    input.activation = pipeline_contract::AssistActivation::Engaged;
     input.target_authoritative = true;
     input.fresh_observation = true;
     input.target_id = 1003;
@@ -362,7 +362,7 @@ void test_track_uses_ai_as_total_fill_but_opposition_is_native() {
 void test_bodylock_cancellation_is_confidence_bounded_and_never_reverses() {
     controller_native::AssistControlStateMachine state_machine;
     controller_native::AssistControlStateMachineInput input;
-    input.aiming = true;
+    input.activation = pipeline_contract::AssistActivation::Engaged;
     input.target_authoritative = true;
     input.fresh_observation = true;
     input.target_id = 1051;
@@ -399,7 +399,7 @@ void test_bodylock_cancellation_is_confidence_bounded_and_never_reverses() {
 void test_downward_manual_has_more_authority_and_fire_is_native() {
     controller_native::AssistControlStateMachine state_machine;
     controller_native::AssistControlStateMachineInput input;
-    input.aiming = true;
+    input.activation = pipeline_contract::AssistActivation::Engaged;
     input.target_authoritative = true;
     input.fresh_observation = true;
     input.target_id = 1052;
@@ -490,7 +490,7 @@ void test_recoil_is_an_independent_final_stage_output() {
 void test_track_cooperates_per_axis_without_spending_downward_authority() {
     controller_native::AssistControlStateMachine state_machine;
     controller_native::AssistControlStateMachineInput input;
-    input.aiming = true;
+    input.activation = pipeline_contract::AssistActivation::Engaged;
     input.target_authoritative = true;
     input.fresh_observation = true;
     input.target_id = 1004;
@@ -532,7 +532,7 @@ void test_track_cooperates_per_axis_without_spending_downward_authority() {
 void test_capture_brakes_alignment_but_allows_opposing_escape() {
     controller_native::AssistControlStateMachine state_machine;
     controller_native::AssistControlStateMachineInput input;
-    input.aiming = true;
+    input.activation = pipeline_contract::AssistActivation::Engaged;
     input.target_authoritative = true;
     input.fresh_observation = true;
     input.target_id = 1101;

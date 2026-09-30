@@ -1,3 +1,4 @@
+from controllers.activation import AimActivation
 import math
 from dataclasses import dataclass
 
@@ -43,8 +44,8 @@ class OvershootGuard:
         self._x_cross_hold_until = 0.0
         self._y_cross_hold_until = 0.0
 
-    def observe_target(self, target_dx: float, target_dy: float, is_aiming: bool, timestamp: float):
-        if not is_aiming:
+    def observe_target(self, target_dx: float, target_dy: float, activation: AimActivation, timestamp: float):
+        if not activation:
             self.reset()
             return
 

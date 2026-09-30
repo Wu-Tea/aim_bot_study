@@ -286,6 +286,8 @@ target_link_libraries(cod_native_scheduler_benchmark PRIVATE winmm)
 # Native product tests are grouped by ownership into two physical runners.
 # Each source contributes named cases through the shared test registry below.
 add_executable(cod_native_base_tests
+    ../controller_native/state_machine_replay_tests.cpp
+    ../controller_native/state_machine_contract_tests.cpp
     ../test_support/base_tests_main.cpp
     ../controller_native/ads_bodylock_september_incident_tests.cpp
     ../controller_native/runtime_config_tests.cpp

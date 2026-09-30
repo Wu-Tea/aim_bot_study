@@ -1,6 +1,7 @@
 #include "mouse_native/mouse_controller_facade.h"
 #include "mouse_native/mouse_cod_default_profile.h"
 #include "controller_native/incident_fixture_support.h"
+#include "controller_native/output_composer.h"
 
 #include "common_native/authority_types.h"
 
@@ -161,7 +162,15 @@ void test_ads_and_bodylock_are_metamorphically_identical(bool use_cod_default = 
         const auto physical = physical_from(mouse_output, true, false);
         direct.begin_tick(physical, index + 1);
         direct.submit_vision_snapshot(snapshot);
-        const auto direct_output = direct.build_output_from_sampled_input();
+        // Compare the common computation boundary. The convenience gamepad
+        // method additionally acknowledges delivery, which this facade test
+        // does not perform on either side.
+        const auto direct_frame = direct.resolve_control_frame();
+        controller_native::OutputComposer composer;
+        require_true(composer.compose(direct_frame) == controller_native::OutputComposeStatus::Ok,
+            "direct frame composition failed");
+        const auto direct_output = *composer.finalized_output();
+        direct.observe_composed_output(direct_output);
         compare_controller_state(mouse, direct, direct_output, mouse_output);
         saw_ads = saw_ads || direct.last_ai_aim_mode() == "ads_snap";
         saw_bodylock = saw_bodylock || direct.last_ai_aim_mode() == "body_lock";

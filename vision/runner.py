@@ -1,3 +1,4 @@
+from controllers.activation import AimActivation
 import os
 import time
 from dataclasses import dataclass
@@ -36,8 +37,8 @@ class AdsAutoFireGate:
     def reset(self):
         self._aim_started_at = None
 
-    def on_aiming(self, is_aiming: bool, timestamp: float):
-        if not is_aiming:
+    def on_physical_ads(self, physical_ads: bool, timestamp: float):
+        if not physical_ads:
             self.reset()
             return
         if self._aim_started_at is None:
@@ -273,10 +274,10 @@ def process_vision(controller=None):
 
     try:
         while True:
-            is_aiming = True if controller is None else controller.is_aiming()
+            activation = AimActivation.PHYSICAL_ADS if controller is None else AimActivation(controller.aim_activation())
             loop_timestamp = time.perf_counter()
-            auto_fire_gate.on_aiming(is_aiming, loop_timestamp)
-            if not is_aiming:
+            auto_fire_gate.on_physical_ads(activation.physical_ads, loop_timestamp)
+            if not activation:
                 if was_aiming:
                     if controller:
                         controller.reset()
@@ -366,7 +367,7 @@ def process_vision(controller=None):
                             selected_target=selected_target,
                             target_selector=target_selector,
                             auto_fire_active=False,
-                            is_aiming=is_aiming,
+                            activation=activation,
                             best_target_delta=best_target_delta,
                             status_text="Inference gap",
                         )
@@ -438,7 +439,7 @@ def process_vision(controller=None):
                     selected_target=selected_target,
                     target_selector=target_selector,
                     auto_fire_active=auto_fire_active,
-                    is_aiming=is_aiming,
+                    activation=activation,
                     best_target_delta=best_target_delta,
                 )
 

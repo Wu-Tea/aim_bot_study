@@ -1,6 +1,7 @@
 #pragma once
 
 #include "pipeline_contract/target_plan.h"
+#include "pipeline_contract/assist_activation.h"
 #include "mouse_manual_judgment.h"
 
 #include <algorithm>
@@ -41,7 +42,7 @@ struct AssistControlStateMachineConfig {
 };
 
 struct AssistControlStateMachineInput {
-    bool aiming = false;
+    pipeline_contract::AssistActivation activation = pipeline_contract::AssistActivation::Off;
     bool target_authoritative = false;
     bool fresh_observation = false;
     bool cue_continuation = false;
@@ -114,7 +115,7 @@ public:
         AssistControlStateMachineOutput output;
         output.phase = phase_;
 
-        if (!input.aiming) {
+        if (!pipeline_contract::permits_assist(input.activation)) {
             reset();
             output.stick = finite_or_zero(input.manual_stick);
             output.phase = phase_;

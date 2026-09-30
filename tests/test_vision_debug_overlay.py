@@ -34,7 +34,7 @@ class VisionDebugOverlayTests(unittest.TestCase):
             selected_target=selected_target,
             target_selector=selector,
             auto_fire_active=True,
-            is_aiming=True,
+            activation=True,
             best_target_delta=(-5.0, -6.0),
         )
 
@@ -83,7 +83,7 @@ class VisionDebugOverlayTests(unittest.TestCase):
                 selected_target=selected_target,
                 target_selector=selector,
                 auto_fire_active=True,
-                is_aiming=True,
+                activation=True,
                 best_target_delta=(-5.0, -6.0),
             )
 
@@ -130,7 +130,7 @@ class VisionDebugOverlayTests(unittest.TestCase):
                 selected_target=selected_target,
                 target_selector=selector,
                 auto_fire_active=False,
-                is_aiming=True,
+                activation=True,
             )
 
         self.assertIn("raw neutral 0.61", labels)
@@ -169,7 +169,7 @@ class VisionDebugOverlayTests(unittest.TestCase):
             selected_target=None,
             target_selector=selector,
             auto_fire_active=False,
-            is_aiming=True,
+            activation=True,
         )
 
         self.assertEqual(classify_calls, 0)

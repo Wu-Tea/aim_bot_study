@@ -1,4 +1,5 @@
 #pragma once
+#include "pipeline_contract/assist_activation.h"
 
 #include "vision_native/dxgi_capture.h"
 #include "vision_native/resize_contract.h"
@@ -40,7 +41,7 @@ public:
     VisionEngine(const VisionEngine&) = delete;
     VisionEngine& operator=(const VisionEngine&) = delete;
 
-    void set_aiming(bool aiming);
+    void set_request(pipeline_contract::VisionRequest request);
     void set_user_aim_intent(const pipeline_contract::UserAimIntent& intent);
     void set_viewport(
         int level,
@@ -64,7 +65,7 @@ private:
     DxgiRoiCapture capture_;
     VisionTargetSelector selector_;
     std::unique_ptr<TensorRTEngine> engine_;
-    std::atomic<bool> aiming_{false};
+    std::atomic<pipeline_contract::VisionRequest> request_{pipeline_contract::VisionRequest::Idle};
     std::atomic<int> requested_viewport_level_{1};
     std::atomic<int> requested_viewport_width_{0};
     std::atomic<int> requested_viewport_height_{0};

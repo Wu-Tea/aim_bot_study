@@ -149,9 +149,9 @@ VisionEngine::~VisionEngine() {
     }
 }
 
-void VisionEngine::set_aiming(bool aiming) {
-    aiming_.store(aiming, std::memory_order_relaxed);
-    if (!aiming) {
+void VisionEngine::set_request(pipeline_contract::VisionRequest request) {
+    request_.store(request, std::memory_order_relaxed);
+    if (!pipeline_contract::requests_detection(request)) {
         selector_.reset();
         user_aim_intent_ = pipeline_contract::UserAimIntent{};
         external_cue_found_ = false;
@@ -202,7 +202,7 @@ void VisionEngine::set_external_cue(bool found, float cue_x, float cue_y, float 
 }
 
 void VisionEngine::reset() {
-    aiming_.store(false, std::memory_order_relaxed);
+    request_.store(pipeline_contract::VisionRequest::Idle, std::memory_order_relaxed);
     selector_.reset();
     user_aim_intent_ = pipeline_contract::UserAimIntent{};
     external_cue_found_ = false;
@@ -256,7 +256,7 @@ VisionResult VisionEngine::poll_once() {
     result.external_cue_y = external_cue_y_;
     result.external_cue_score = external_cue_score_;
 
-    if (!aiming_.load(std::memory_order_relaxed)) {
+    if (!pipeline_contract::requests_detection(request_.load(std::memory_order_relaxed))) {
         result.result_at_ns = now_ns();
         result.age_ms = 0.0f;
         return result;

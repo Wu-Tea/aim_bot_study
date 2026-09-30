@@ -1,6 +1,7 @@
 #pragma once
 
 #include "pipeline_contract/target_snapshot.h"
+#include "pipeline_contract/assist_activation.h"
 #include "viewport_controller.h"
 #include "vision_native/types.h"
 
@@ -40,7 +41,7 @@ struct VisionServiceSnapshot {
     VisionSourceState source_state = VisionSourceState::Unknown;
     std::uint64_t sequence = 0;
     std::uint64_t aim_transition_sequence = 0;
-    bool controller_aiming = false;
+    pipeline_contract::VisionRequest request = pipeline_contract::VisionRequest::Idle;
     bool engine_aiming = false;
     float aim_wakeup_to_dispatch_ms = 0.0f;
     float aim_wakeup_to_capture_ms = 0.0f;
@@ -77,7 +78,7 @@ class IVisionServicePoller {
 public:
     virtual ~IVisionServicePoller() = default;
 
-    virtual void set_aiming(bool aiming) = 0;
+    virtual void set_request(pipeline_contract::VisionRequest request) = 0;
     virtual void set_user_aim_intent(const pipeline_contract::UserAimIntent& intent) = 0;
     virtual void set_viewport(const ViewportRequest&) {}
     virtual vision_native::VisionResult poll_once() = 0;
@@ -94,8 +95,8 @@ public:
     void start();
     void stop();
 
-    std::uint64_t set_aiming(
-        bool aiming,
+    std::uint64_t set_request(
+        pipeline_contract::VisionRequest request,
         std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now());
     void set_user_aim_intent(const pipeline_contract::UserAimIntent& intent);
     void set_viewport(const ViewportRequest& request);
@@ -121,7 +122,7 @@ private:
     std::condition_variable wake_condition_;
     std::thread worker_;
     std::atomic<bool> running_{false};
-    bool controller_aiming_ = false;
+    pipeline_contract::VisionRequest request_ = pipeline_contract::VisionRequest::Idle;
     std::chrono::steady_clock::time_point release_hold_until_{};
     pipeline_contract::UserAimIntent user_aim_intent_;
     ViewportRequest viewport_request_;

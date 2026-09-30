@@ -226,8 +226,8 @@ public:
         std::unique_ptr<vision_native::VisionEngine> engine)
         : engine_(std::move(engine)) {}
 
-    void set_aiming(bool aiming) override {
-        engine_->set_aiming(aiming);
+    void set_request(pipeline_contract::VisionRequest request) override {
+        engine_->set_request(request);
     }
 
     void set_user_aim_intent(
@@ -713,13 +713,13 @@ int main(int argc, char** argv) {
                 calibrating || session.right_button_down() ||
                 session.left_button_down();
             const std::uint64_t expected_aim_transition_sequence =
-                vision_service.set_aiming(vision_requested, now);
+                vision_service.set_request(vision_requested ? pipeline_contract::VisionRequest::AssistSearch : pipeline_contract::VisionRequest::Idle, now);
             const auto vision_snapshot = vision_service.latest_snapshot();
             if (vision_snapshot.sequence != 0 &&
                 vision_snapshot.sequence != latest_vision_service_sequence) {
                 latest_vision_service_sequence = vision_snapshot.sequence;
                 const bool current_aiming_epoch =
-                    vision_snapshot.controller_aiming == vision_requested &&
+                    pipeline_contract::requests_detection(vision_snapshot.request) == vision_requested &&
                     vision_snapshot.aim_transition_sequence ==
                         expected_aim_transition_sequence;
                 const auto consume_now = std::chrono::steady_clock::now();

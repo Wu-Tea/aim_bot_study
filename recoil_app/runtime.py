@@ -943,14 +943,14 @@ class GamepadRecoilBridge:
             self.runtime.handle_switch_pressed()
         self._last_y_pressed = current_y
 
-    def handle_fire_state(self, *, is_firing: bool, is_aiming: bool) -> None:
+    def handle_fire_state(self, *, is_firing: bool, physical_ads: bool) -> None:
         self.runtime.handle_fire_state(
             is_firing=bool(is_firing),
-            aim_mode="ads" if is_aiming else "hipfire",
+            aim_mode="ads" if physical_ads else "hipfire",
         )
 
-    def get_active_profile(self, *, is_aiming: bool):
-        return self.runtime.get_active_profile(aim_mode="ads" if is_aiming else "hipfire")
+    def get_active_profile(self, *, physical_ads: bool):
+        return self.runtime.get_active_profile(aim_mode="ads" if physical_ads else "hipfire")
 
 
 class _RuntimeFireInputSource:

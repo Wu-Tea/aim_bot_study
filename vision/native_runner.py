@@ -1,3 +1,4 @@
+from controllers.activation import AimActivation, SearchRequest
 import os
 import sys
 import time
@@ -73,7 +74,7 @@ class NativeVisionDebugOverlay:
         self,
         result: dict,
         *,
-        is_aiming: bool,
+        activation: AimActivation,
         auto_fire_active: bool,
         status_text: str | None = None,
     ) -> np.ndarray:
@@ -90,7 +91,7 @@ class NativeVisionDebugOverlay:
         self._draw_status(
             canvas,
             result,
-            is_aiming=is_aiming,
+            activation=activation,
             auto_fire_active=auto_fire_active,
             status_text=status_text,
         )
@@ -100,7 +101,7 @@ class NativeVisionDebugOverlay:
         self,
         result: dict,
         *,
-        is_aiming: bool,
+        activation: AimActivation,
         auto_fire_active: bool,
         status_text: str | None = None,
     ) -> None:
@@ -109,7 +110,7 @@ class NativeVisionDebugOverlay:
 
         canvas = self.render_result(
             result,
-            is_aiming=is_aiming,
+            activation=activation,
             auto_fire_active=auto_fire_active,
             status_text=status_text,
         )
@@ -142,7 +143,7 @@ class NativeVisionDebugOverlay:
         }
         self.show_result(
             result,
-            is_aiming=False,
+            activation=False,
             auto_fire_active=False,
             status_text=message,
         )
@@ -261,13 +262,13 @@ class NativeVisionDebugOverlay:
         canvas: np.ndarray,
         result: dict,
         *,
-        is_aiming: bool,
+        activation: AimActivation,
         auto_fire_active: bool,
         status_text: str | None,
     ) -> None:
         lines = [
             "NATIVE VISION (synthetic canvas)",
-            f"AIM {'ON' if is_aiming else 'OFF'} | FIRE {'ON' if auto_fire_active else 'OFF'}",
+            f"AIM {'ON' if activation else 'OFF'} | FIRE {'ON' if auto_fire_active else 'OFF'}",
             f"TARGET {'ON' if result.get('has_target') else 'OFF'} | BOXES {float(result.get('boxes_seen', 0.0)):.1f}",
             (
                 f"CUE {'Y' if result.get('has_external_cue') else 'N'} "
@@ -645,15 +646,15 @@ def process_native_vision(controller=None, cue_provider=None):
     try:
         while True:
             loop_start = time.perf_counter()
-            is_aiming = True if controller is None else controller.is_aiming()
-            auto_fire_gate.on_aiming(is_aiming, loop_start)
+            activation = AimActivation.PHYSICAL_ADS if controller is None else AimActivation(controller.aim_activation())
+            auto_fire_gate.on_physical_ads(activation.physical_ads, loop_start)
 
-            if not is_aiming:
+            if not activation:
                 if was_aiming:
                     if controller:
                         controller.set_auto_fire(False)
                         controller.reset()
-                    engine.set_aiming(False)
+                    engine.set_search_request(SearchRequest.IDLE.value)
                     engine.set_external_cue(False, 0.0, 0.0, 0.0)
                     engine.reset()
                     auto_fire_gate.reset()
@@ -669,7 +670,7 @@ def process_native_vision(controller=None, cue_provider=None):
 
             if not was_aiming:
                 perf_tracker.reset_window()
-                engine.set_aiming(True)
+                engine.set_search_request(SearchRequest.ASSIST_SEARCH.value)
             was_aiming = True
 
             external_cue_ms = None
@@ -741,7 +742,7 @@ def process_native_vision(controller=None, cue_provider=None):
             if debug_overlay is not None:
                 debug_overlay.show_result(
                     result,
-                    is_aiming=is_aiming,
+                    activation=activation,
                     auto_fire_active=auto_fire_active,
                 )
 
@@ -791,7 +792,7 @@ def process_native_vision(controller=None, cue_provider=None):
     finally:
         print("Stopping native vision processing.")
         try:
-            engine.set_aiming(False)
+            engine.set_search_request(SearchRequest.IDLE.value)
             engine.reset()
         except Exception:
             pass

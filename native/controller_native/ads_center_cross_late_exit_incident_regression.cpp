@@ -15,7 +15,7 @@ constexpr const char* kIncidentId =
 
 pipeline_contract::IntentState ads_intent() {
     pipeline_contract::IntentState intent{};
-    intent.ads = true;
+    intent.activation = pipeline_contract::AssistActivation::Engaged;
     return intent;
 }
 
